@@ -84,6 +84,30 @@ export function isAskToolName(name: string): boolean {
 	return name === ASK_USER_TOOL_NAME;
 }
 
+/**
+ * Whether a recorded tool call is an ask that paused its reply: an `ask_user`
+ * call that finished (`status` "done") and that the tool marked
+ * `metadata.paused`, which it does only when its question was recorded. A card
+ * the tool refused (not available in this run, a second card, bad questions, a
+ * store that failed) is a finished `ask_user` call too, marked `ok: false`, and
+ * asked nobody; nor did one that never finished.
+ *
+ * It stays true once the question is answered or the reply was stopped: settling
+ * a call rewrites its summary and digest and leaves its marks. It records that
+ * the reply asked, not that a question still waits.
+ */
+export function askCallPausedTheReply(call: {
+	name: string;
+	status?: string | null;
+	metadata?: Record<string, unknown> | null;
+}): boolean {
+	return (
+		isAskToolName(call.name) &&
+		call.status === "done" &&
+		call.metadata?.paused === true
+	);
+}
+
 /** Whether a tool's result is the pause marker; any other result is not one. */
 export function isAskPauseOutput(output: unknown): boolean {
 	return isRecord(output) && output.status === ASK_PAUSE_STATUS;

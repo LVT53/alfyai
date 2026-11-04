@@ -33,7 +33,7 @@ import {
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
-import { isAskToolName } from "$lib/shared/ask-user";
+import { askCallPausedTheReply } from "$lib/shared/ask-user";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import {
 	isConnectionWriteToolName,
@@ -1053,17 +1053,15 @@ const STOPPED_BEFORE_ANSWER = "The user stopped the reply before answering.";
 const ENDED_BEFORE_ANSWER = "The reply ended before the user answered.";
 
 // Settles the ask calls of a reply saved without a pause. Only a call that
-// really asked (the tool recorded `paused`) is rewritten: a card the tool
-// refused asked nobody and keeps what the model was told.
+// paused the reply (`askCallPausedTheReply`, the one test history uses too) is
+// rewritten: a card the tool refused asked nobody and keeps what the model was
+// told.
 function settleUnansweredAskCalls(
 	segments: ThinkingSegment[],
 	summary: string,
 ): ThinkingSegment[] {
 	return segments.map((segment) =>
-		segment.type === "tool_call" &&
-		isAskToolName(segment.name) &&
-		segment.status === "done" &&
-		segment.metadata?.paused === true
+		segment.type === "tool_call" && askCallPausedTheReply(segment)
 			? { ...segment, outputSummary: summary }
 			: segment,
 	);

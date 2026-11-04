@@ -4,6 +4,7 @@ import {
 	ASK_PAUSE_STATUS,
 	ASK_USER_TOOL_NAME,
 	type AskQuestion,
+	askCallPausedTheReply,
 	checkAskAnswer,
 	checkAskQuestions,
 	isAskPauseOutput,
@@ -406,6 +407,78 @@ describe("isAskPauseOutput and isAskToolName", () => {
 			{ status: "Waiting_For_User" },
 		])
 			expect(isAskPauseOutput(other)).toBe(false);
+	});
+});
+
+// A stored call as the tool records it. The one that asked is marked `paused`;
+// every call that asked nobody (not available in this run, a second card, bad
+// questions, a store that failed) is a finished call marked `ok: false`.
+describe("askCallPausedTheReply", () => {
+	const paused = {
+		name: "ask_user",
+		status: "done",
+		metadata: { paused: true, questionId: "question-1" },
+	};
+
+	it("is true for the ask call that paused the reply", () => {
+		expect(askCallPausedTheReply(paused)).toBe(true);
+	});
+
+	it("stays true once the question is answered or the reply was stopped", () => {
+		// Settling a call rewrites its summary and digest and leaves its marks: it
+		// records that the reply asked, not that a question still waits.
+		const answered = {
+			...paused,
+			outputSummary: "The user picked: A party at home",
+			resultDigest: '{"status":"answered"}',
+		};
+		const stopped = {
+			...paused,
+			outputSummary: "The user stopped the reply before answering.",
+		};
+		expect(askCallPausedTheReply(answered)).toBe(true);
+		expect(askCallPausedTheReply(stopped)).toBe(true);
+	});
+
+	it.each([
+		"not_available",
+		"invalid_questions",
+		"already_asked",
+		"ask_user_failed",
+	])("is false for a card the tool refused (%s): it asked nobody", (reason) => {
+		expect(
+			askCallPausedTheReply({
+				name: "ask_user",
+				status: "done",
+				metadata: { ok: false, evidenceReady: false, reason },
+			}),
+		).toBe(false);
+	});
+
+	it.each([
+		"running",
+		"failed",
+		undefined,
+		null,
+	])("is false for an ask call that did not finish (status %s)", (status) => {
+		expect(askCallPausedTheReply({ ...paused, status })).toBe(false);
+	});
+
+	it("is false for another tool, whatever its metadata says", () => {
+		expect(askCallPausedTheReply({ ...paused, name: "research_web" })).toBe(
+			false,
+		);
+	});
+
+	it.each([
+		["no metadata", undefined],
+		["null metadata", null],
+		["empty metadata", {}],
+		["paused false", { paused: false }],
+		["paused as text", { paused: "true" }],
+		["paused as a number", { paused: 1 }],
+	])("is false for an ask call with %s", (_name, metadata) => {
+		expect(askCallPausedTheReply({ ...paused, metadata })).toBe(false);
 	});
 });
 

@@ -18,7 +18,7 @@ import type {
 	ToolCallEntry,
 } from "$lib/server/services/messages-types";
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
-import { isAskToolName, parseAskQuestions } from "$lib/shared/ask-user";
+import { askCallPausedTheReply, parseAskQuestions } from "$lib/shared/ask-user";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
 
 export type HistoryMessage = {
@@ -307,12 +307,14 @@ function askedLines(segment: ToolCallSegment): string[] {
 	);
 }
 
-// A reply that stopped to ask the person. Its other calls come first with their
-// results, as they do for any reply. Its words were said before the question, so
-// they go with the ask call and not after its result (an ordinary reply's words
-// follow its results because they were written after them); the answer is the
-// ask call's result. The segment that carries on from the answer is another
-// assistant row of the same turn and renders as any reply.
+// A reply that paused to ask the person (a call `askCallPausedTheReply` says
+// so). Its other calls come first with their results, as they do for any reply:
+// a card the tool refused, or an ask that never finished, asked nobody and is one
+// of them. Its words were said before the question, so they go with the ask call
+// and not after its result (an ordinary reply's words follow its results because
+// they were written after them); the answer is the ask call's result. The
+// segment that carries on from the answer is another assistant row of the same
+// turn and renders as any reply.
 function renderAskedMessage(
 	message: HistoryMessage,
 	text: string,
@@ -320,8 +322,8 @@ function renderAskedMessage(
 	mode: HistoryToolMessagesMode,
 ): ModelMessage[] {
 	const all = historyCalls(message, calls);
-	const asks = all.filter(({ segment }) => isAskToolName(segment.name));
-	const others = all.filter(({ segment }) => !isAskToolName(segment.name));
+	const asks = all.filter(({ segment }) => askCallPausedTheReply(segment));
+	const others = all.filter(({ segment }) => !askCallPausedTheReply(segment));
 
 	if (mode === "flatten") {
 		const lines = [
@@ -365,7 +367,7 @@ export function renderHistoryTurn(
 		const calls = toolCallSegments(message);
 		if (!text && calls.length === 0) continue;
 
-		if (calls.some((segment) => isAskToolName(segment.name))) {
+		if (calls.some((segment) => askCallPausedTheReply(segment))) {
 			out.push(...renderAskedMessage(message, text, calls, mode));
 			continue;
 		}

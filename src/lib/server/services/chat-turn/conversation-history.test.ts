@@ -75,6 +75,27 @@ const researchCall: ToolCallSegment = {
 	resultDigest: "Two venues were found.",
 };
 
+// A card the tool refused: recorded as a finished call marked `ok: false`. It
+// asked nobody, so a later turn reads it as any other call.
+const NOT_AVAILABLE_SUMMARY =
+	"Asking is not available in this reply. Go on with your best judgment.";
+
+function refusedAskCall(
+	overrides: Partial<ToolCallSegment> = {},
+): ToolCallSegment {
+	return {
+		type: "tool_call",
+		callId: "call_ask_refused",
+		name: "ask_user",
+		input: { questions: WHICH_WAY_QUESTIONS },
+		status: "done",
+		outputSummary: NOT_AVAILABLE_SUMMARY,
+		sourceType: "tool",
+		metadata: { ok: false, evidenceReady: false, reason: "not_available" },
+		...overrides,
+	};
+}
+
 describe("renderHistoryTurn", () => {
 	it("renders a plain text exchange as user and assistant messages", () => {
 		const out = renderHistoryTurn(turn("Hi", { content: "Hello!" }), "native");
@@ -527,6 +548,198 @@ describe("renderHistoryTurn", () => {
 			role: "assistant",
 			content:
 				"[asked the user]\n[the user's answer: The user picked: A party at home]",
+		});
+	});
+
+	// Only an ask that paused the reply gets the asked shape. A refused card asked
+	// nobody, and an ask that did not finish asked nobody either: the words go
+	// after their results as in any reply, and nothing says a question was put.
+	describe("an ask call that did not pause the reply", () => {
+		it("renders a refused card like any other call: the call, its result, then the words", () => {
+			const out = renderHistoryTurn(
+				turn("Plan the party", {
+					content: "A party at home it is.",
+					thinkingSegments: [refusedAskCall()],
+				}),
+				"native",
+			);
+			expect(out).toEqual([
+				{ role: "user", content: "Plan the party" },
+				{
+					role: "assistant",
+					content: [
+						{
+							type: "tool-call",
+							toolCallId: "call_ask_refused",
+							toolName: "ask_user",
+							input: { questions: WHICH_WAY_QUESTIONS },
+						},
+					],
+				},
+				{
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: "call_ask_refused",
+							toolName: "ask_user",
+							output: {
+								type: "json",
+								value: { ok: true, summary: NOT_AVAILABLE_SUMMARY },
+							},
+						},
+					],
+				},
+				{ role: "assistant", content: "A party at home it is." },
+			]);
+		});
+
+		it("says a refused card as a used-tool line in flatten mode, and asks nobody", () => {
+			const out = renderHistoryTurn(
+				turn("Plan the party", {
+					content: "A party at home it is.",
+					thinkingSegments: [refusedAskCall()],
+				}),
+				"flatten",
+			);
+			expect(out).toEqual([
+				{ role: "user", content: "Plan the party" },
+				{
+					role: "assistant",
+					content: `[used ask_user: ${NOT_AVAILABLE_SUMMARY}]\nA party at home it is.`,
+				},
+			]);
+		});
+
+		it("renders a refused card among the other calls when a corrected card paused the reply", () => {
+			const refused = refusedAskCall({
+				callId: "call_ask_bad",
+				outputSummary:
+					"Question 1 takes one pick: mark exactly one of its options recommended.",
+				metadata: {
+					ok: false,
+					evidenceReady: false,
+					reason: "invalid_questions",
+				},
+			});
+			const out = renderHistoryTurn(
+				turn("Plan the party", {
+					content: "I found two ways to go.",
+					thinkingSegments: [researchCall, refused, askCall()],
+				}),
+				"native",
+			);
+			expect(out.map((message) => message.role)).toEqual([
+				"user",
+				"assistant", // the research call and the refused card
+				"tool", // their results
+				"assistant", // the words with the card that paused the reply
+				"tool", // its answer
+			]);
+			const calls = out[1];
+			if (calls.role !== "assistant" || typeof calls.content === "string")
+				throw new Error("expected assistant parts");
+			expect(
+				calls.content.map((part) =>
+					part.type === "tool-call" ? part.toolCallId : null,
+				),
+			).toEqual(["call_research", "call_ask_bad"]);
+			const results = out[2];
+			if (results.role !== "tool") throw new Error("expected tool message");
+			expect(
+				results.content.map((part) =>
+					part.type === "tool-result" ? part.toolCallId : null,
+				),
+			).toEqual(["call_research", "call_ask_bad"]);
+			expect(out[3]).toEqual({
+				role: "assistant",
+				content: [
+					{ type: "text", text: "I found two ways to go." },
+					expect.objectContaining({
+						type: "tool-call",
+						toolCallId: "call_ask",
+						toolName: "ask_user",
+					}),
+				],
+			});
+			expect(out[4]).toEqual({
+				role: "tool",
+				content: [
+					expect.objectContaining({
+						type: "tool-result",
+						toolCallId: "call_ask",
+					}),
+				],
+			});
+		});
+
+		it("says a refused card as a used-tool line among the other calls' lines in flatten mode", () => {
+			const refused = refusedAskCall({
+				callId: "call_ask_bad",
+				outputSummary: "Question 1 has no text.",
+				metadata: {
+					ok: false,
+					evidenceReady: false,
+					reason: "invalid_questions",
+				},
+			});
+			const out = renderHistoryTurn(
+				turn("Plan the party", {
+					content: "I found two ways to go.",
+					thinkingSegments: [researchCall, refused, askCall()],
+				}),
+				"flatten",
+			);
+			expect(out[1]).toEqual({
+				role: "assistant",
+				content: [
+					"[used research_web: Web research returned 2 sources. Two venues were found.]",
+					"[used ask_user: Question 1 has no text.]",
+					"I found two ways to go.",
+					"[asked the user: Which way should we take it?]",
+					"[the user's answer: The user picked: A party at home]",
+				].join("\n"),
+			});
+		});
+
+		it.each([
+			"running",
+			"failed",
+		] as const)("renders an ask call that did not finish (%s) like any other call", (status) => {
+			const unfinished = askCall({
+				status,
+				outputSummary: null,
+				resultDigest: null,
+			});
+			const native = renderHistoryTurn(
+				turn("Plan the party", {
+					content: "A party at home it is.",
+					thinkingSegments: [unfinished],
+				}),
+				"native",
+			);
+			// The call, its result, then the words: no card, no answer.
+			expect(native.map((message) => message.role)).toEqual([
+				"user",
+				"assistant",
+				"tool",
+				"assistant",
+			]);
+			expect(native[3]).toEqual({
+				role: "assistant",
+				content: "A party at home it is.",
+			});
+			const flat = renderHistoryTurn(
+				turn("Plan the party", {
+					content: "A party at home it is.",
+					thinkingSegments: [unfinished],
+				}),
+				"flatten",
+			);
+			const text = JSON.stringify(flat);
+			expect(text).toContain("[used ask_user:");
+			expect(text).not.toContain("[asked the user");
+			expect(text).not.toContain("the user's answer");
 		});
 	});
 
