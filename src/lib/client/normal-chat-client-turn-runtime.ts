@@ -176,10 +176,15 @@ export type NormalChatMessageListEvent =
  *   longer holds it, and then nothing can be stamped locally.
  * - `answerAccepted`: the resume runs on the server, so the answer was taken up. The
  *   first event of its stream says so, or the stream joined after the connection
- *   died, or a stream that ended before it said anything. Reported once per answer.
- * - `answerNotSent`: the answer did not become a running resume, and the card comes
- *   back with it. `quiet` is for a Stop (and a tab the browser cut off), which are
- *   not a failure: no error line.
+ *   died (or after the browser cut a hidden tab off), or a stream that ended before
+ *   it said anything. Reported once per answer.
+ * - `answerNotSent`: the answer is not on its way, and the card comes back with it:
+ *   it was refused, its request died, the waits ran out, or the resume's stream
+ *   could not be found after a drop. It can follow `answerAccepted` (a resume that
+ *   began and was then lost): the page then reads the questions and the chat to
+ *   learn whether the resume finished. `quiet` is for a Stop, and for a tab the
+ *   browser cut off whose resume the recovery did not find: neither is a failure,
+ *   so no error line.
  * - `alreadyAnswered`: another answer won the claim (a second device, a double tap).
  * - `refusedWhileWaiting`: a message, a Retry or a regenerate was turned away
  *   because a question waits; the page was stale and reads the questions and the
@@ -401,13 +406,12 @@ type SendRuntimeOptions = {
 /**
  * The person's answer to a question Alfy asked, while it is on its way
  * (`answerQuestion`). It rides on the params of every stream attempt of that
- * answer (a backoff or a wait sends the same params again), so what is learned on
- * one attempt is known to the next.
+ * answer (a backoff or a wait sends the same params again, and a join of the
+ * resume's stream takes it over), so what is learned on one attempt is known to the
+ * next.
  */
 type AnswerInFlight = {
 	questionId: string;
-	/** The asking row the resume's reply continues; a join of the resume's stream continues the same row. */
-	continuesMessageId: string;
 	/** `answerAccepted` has been reported: it is said once per answer, whichever stream carried the resume. */
 	accepted: boolean;
 };
@@ -418,7 +422,14 @@ type StartStreamParams = {
 	clientUserMessageId: string | null;
 	payload?: NormalChatSendPayload;
 	streamOptions: StreamChatOptions;
-	/** Set when this stream carries the person's answer to a question (`answerQuestion`): not a message, so it fails differently. */
+	/**
+	 * The asking row this stream's reply continues. Set on a stream that carries the
+	 * resume of a question's answer, whether this runtime sent that answer (`answer`)
+	 * or only joined the resume (a reload during it): such a stream is no message, and
+	 * a failure of it must not be taken for one.
+	 */
+	continuesMessageId?: string;
+	/** Set when this runtime sent the person's answer and this stream carries it or its resume: the answer fails differently from a message, and tells the page how it ended. */
 	answer?: AnswerInFlight;
 	// R1 (ADR-0060, defect 2) — the conversation this turn was started
 	// against, captured once from `adapters.getConversationId()` at the
@@ -450,6 +461,13 @@ type StartStreamParams = {
 	networkRetryCount?: number;
 	onForkedSourceHistoryConfirmationRequired?: () => void;
 };
+
+/**
+ * What a stream that carries a resume hands on to the stream that takes over from
+ * it (a rejoin after a drop, the recovery of a tab the browser cut off): the answer
+ * and the row, so the new stream is still the resume, not a reply of its own.
+ */
+type ResumeContext = Pick<StartStreamParams, "answer" | "continuesMessageId">;
 
 /**
  * The last send, as Retry needs it again. The server keeps nothing of a turn that
@@ -644,6 +662,11 @@ export function createNormalChatClientTurnRuntime(
 	let detached = false;
 	// The cut reply being asked about, if any (`CutReplyQuestion`).
 	let cutReplyQuestion: CutReplyQuestion | null = null;
+	// A resume the browser cut off while the tab was in the background. Its answer is
+	// pending, not failed: the server may still run it. It is kept until the tab is
+	// visible and the recovery has looked (`recoverBackgroundInterruptedStream`), which
+	// joins the resume with its answer and its row, or tells the page it is gone.
+	let interruptedResume: ResumeContext | null = null;
 
 	function snapshot(): NormalChatRuntimeSnapshot {
 		return {
@@ -834,11 +857,11 @@ export function createNormalChatClientTurnRuntime(
 	function holdRefusedRequestForUpdate(params: StartStreamParams) {
 		// The refused request has no stream, and nothing to stop.
 		setActiveStream(null);
-		const serverNeverGotIt = serverNeverGotTheMessage(params);
+		const unsentWords = payloadTheServerNeverGot(params);
 		const waiting = beginUpdateWait({
 			placeholderId: params.placeholderId,
 			turnConversationId: params.turnConversationId,
-			unsentPayload: serverNeverGotIt ? (params.payload ?? null) : null,
+			unsentPayload: unsentWords,
 			onEnd: (end) => {
 				if (end === "back") {
 					if (detached) return;
@@ -868,28 +891,18 @@ export function createNormalChatClientTurnRuntime(
 				// Stop. The placeholder goes. A message the server never got goes too,
 				// with its bubble, and its words return to the composer (joined to what
 				// it holds, as for any restore).
+				if (unsentWords) {
+					giveBackUnsentRequest({
+						placeholderId: params.placeholderId,
+						clientUserMessageId: params.clientUserMessageId,
+						words: unsentWords,
+					});
+					return;
+				}
 				adapters.applyMessageListEvent({
 					type: "remove",
 					messageId: params.placeholderId,
 				});
-				if (serverNeverGotIt && params.payload) {
-					completeTurn();
-					if (takeQueuedContextCompression()) {
-						void adapters.runManualContextCompression();
-					}
-					if (params.clientUserMessageId) {
-						adapters.applyMessageListEvent({
-							type: "remove",
-							messageId: params.clientUserMessageId,
-						});
-					}
-					adapters.restorePayloadToDraft(params.payload);
-					lastSend = null;
-					canRetry = false;
-					restoreQueuedTurnToDraft();
-					emitState();
-					return;
-				}
 				// A request the server knows (a regenerate, a Retry of a message it holds
 				// without a reply): it never ran, but the page took the reply it replaces
 				// off the screen when the request began, so the chat is read back.
@@ -962,6 +975,46 @@ export function createNormalChatClientTurnRuntime(
 		}
 		adapters.setSendError(message);
 		canRetry = true;
+		emitState();
+	}
+
+	/**
+	 * A request that ends with no reply and nothing to retry: the placeholder goes. A
+	 * message the server never got goes too, with its bubble, and its `words` return to
+	 * the composer (joined to what it holds, as for any restore), then what was queued
+	 * behind it (nothing drains the queue after this). Retry has nothing to send. The
+	 * sentence, if there is one, says why. A request the server knows (`words` null: a
+	 * regenerate, a Retry of a message it holds) has no words to give back and keeps
+	 * its bubble; the page reads the chat again for what it took off the screen.
+	 *
+	 * Where it ends: Stop on a wait for an update, an Atlas kickoff that did not start,
+	 * and a message a stale page sent while a question waits.
+	 */
+	function giveBackUnsentRequest(unsent: {
+		placeholderId: string;
+		clientUserMessageId: string | null;
+		words: NormalChatSendPayload | null;
+		sentence?: string | null;
+	}) {
+		adapters.applyMessageListEvent({
+			type: "remove",
+			messageId: unsent.placeholderId,
+		});
+		if (unsent.words && unsent.clientUserMessageId) {
+			adapters.applyMessageListEvent({
+				type: "remove",
+				messageId: unsent.clientUserMessageId,
+			});
+		}
+		lastSend = null;
+		canRetry = false;
+		completeTurn();
+		if (takeQueuedContextCompression()) {
+			void adapters.runManualContextCompression();
+		}
+		if (unsent.words) adapters.restorePayloadToDraft(unsent.words);
+		restoreQueuedTurnToDraft();
+		if (unsent.sentence) adapters.setSendError(unsent.sentence);
 		emitState();
 	}
 
@@ -1046,35 +1099,18 @@ export function createNormalChatClientTurnRuntime(
 	/**
 	 * A new message, a Retry or a regenerate that the server turned away because a
 	 * question of Alfy's waits for its answer (409 `QUESTION_WAITING`): this page was
-	 * stale (another device asked, or this tab missed the pause), and nothing ran. No
-	 * sentence and no Retry: the page reads the questions and the chat again and shows
-	 * the card. A message the server never got goes back to the composer with its
-	 * bubble gone, as when Stop ends a wait; a request the server knows (a regenerate,
-	 * a Retry of a message it holds) has no words to give back, and the reply the page
-	 * took off the screen returns with the chat.
+	 * stale (another device asked, or this tab missed the pause), and nothing ran. It
+	 * is given back with no sentence and no Retry (`giveBackUnsentRequest`: a message
+	 * the server never got returns to the composer with its bubble gone, a request it
+	 * knows only loses its placeholder), and the page is told to read the questions
+	 * and the chat again and show the card.
 	 */
 	function settleRefusedWhileQuestionWaits(params: StartStreamParams) {
-		adapters.applyMessageListEvent({
-			type: "remove",
-			messageId: params.placeholderId,
+		giveBackUnsentRequest({
+			placeholderId: params.placeholderId,
+			clientUserMessageId: params.clientUserMessageId,
+			words: payloadTheServerNeverGot(params),
 		});
-		completeTurn();
-		if (takeQueuedContextCompression()) {
-			void adapters.runManualContextCompression();
-		}
-		if (serverNeverGotTheMessage(params) && params.payload) {
-			if (params.clientUserMessageId) {
-				adapters.applyMessageListEvent({
-					type: "remove",
-					messageId: params.clientUserMessageId,
-				});
-			}
-			adapters.restorePayloadToDraft(params.payload);
-		}
-		restoreQueuedTurnToDraft();
-		lastSend = null;
-		canRetry = false;
-		emitState();
 		adapters.onAskEvent?.({ type: "refusedWhileWaiting" });
 	}
 
@@ -1234,7 +1270,9 @@ export function createNormalChatClientTurnRuntime(
 				? Date.now() - running.bufferInfo.createdAt
 				: undefined,
 			params.turnConversationId,
-			params.answer?.continuesMessageId,
+			// A resume that is joined stays one: its answer and its row go on, so a
+			// failure of the joined stream is the answer's, not a message's.
+			params,
 		);
 		return "joined";
 	}
@@ -1683,6 +1721,28 @@ export function createNormalChatClientTurnRuntime(
 		error: Error,
 		options: { cutByUpdate?: boolean } = {},
 	) {
+		// A resume the page joined with no answer in hand (a reload during it) is no
+		// message that failed. Its reply follows the asking row, never the person's
+		// message, so the send's judge below could not read it as landed even when the
+		// server finished it, and the message already on screen would be drawn a second
+		// time, with a Retry that the server refuses while a question waits. The chat is
+		// read back, and the page reads the question again: the server has it back as
+		// waiting (the card returns with its error line) or as answered. What was queued
+		// returns to the composer, since no new turn may start under a question that may
+		// be open. (A resume whose answer this runtime holds never gets here: it is
+		// settled as the answer's, `settleAnswerThatDidNotLand`.)
+		if (params.continuesMessageId) {
+			await loadChatHoldingTheTurn();
+			if (detached || !isTurnConversationActive(params.turnConversationId)) {
+				return;
+			}
+			adapters.refreshQuestions?.();
+			if (takeQueuedContextCompression()) {
+				void adapters.runManualContextCompression();
+			}
+			restoreQueuedTurnToDraft();
+			return;
+		}
 		// What the page holds now is what the chat it is about to load is compared with.
 		const heldIds = new Set(
 			adapters.getMessages().map((message) => message.id),
@@ -2028,7 +2088,13 @@ export function createNormalChatClientTurnRuntime(
 				// "Ask me first": a question waits. A new message, a Retry or a regenerate
 				// is turned away (a stale page), and an answer that lost the claim to
 				// another answer is told so. Neither is a failure to put a sentence on.
-				if (!params.isReconnect && isQuestionWaitingRefusal(err)) {
+				// (An answer is not a message: if its route ever said a question waits, it
+				// would be settled below, with an outcome for its card.)
+				if (
+					!params.isReconnect &&
+					!params.answer &&
+					isQuestionWaitingRefusal(err)
+				) {
 					settleRefusedWhileQuestionWaits(params);
 					return;
 				}
@@ -2058,6 +2124,7 @@ export function createNormalChatClientTurnRuntime(
 								params.streamOptions.reasoningDepth,
 								undefined,
 								params.turnConversationId,
+								params,
 							);
 						}, delay);
 						return;
@@ -2222,17 +2289,19 @@ export function createNormalChatClientTurnRuntime(
 					}
 					streamInterruptedByBackground = true;
 					adapters.onBackgroundInterrupted();
+					// A resume cut like this may be running on the server, and nothing is
+					// known of its answer yet (a look from a hidden tab says little): the
+					// answer stays pending, with its row, and the visibility recovery tells
+					// the page how it went (`recoverBackgroundInterruptedStream`). It is the
+					// latest cut-off stream's: one that is no resume leaves nothing behind.
+					interruptedResume =
+						params.answer || params.continuesMessageId
+							? {
+									answer: params.answer,
+									continuesMessageId: params.continuesMessageId,
+								}
+							: null;
 					emitState();
-					// An answer cut like this may be running on the server: the visibility
-					// recovery joins it or reads the chat. The card is told quietly, so it
-					// does not wait for an answer that nobody will report.
-					if (params.answer) {
-						adapters.onAskEvent?.({
-							type: "answerNotSent",
-							questionId: params.answer.questionId,
-							quiet: true,
-						});
-					}
 					return;
 				}
 
@@ -2419,7 +2488,7 @@ export function createNormalChatClientTurnRuntime(
 			bufferInfo?.reasoningDepth ?? params.streamOptions.reasoningDepth,
 			bufferInfo?.createdAt ? Date.now() - bufferInfo.createdAt : undefined,
 			params.turnConversationId,
-			params.answer?.continuesMessageId,
+			params,
 		);
 	}
 
@@ -2521,28 +2590,14 @@ export function createNormalChatClientTurnRuntime(
 	 * would send the words as a plain turn.
 	 */
 	function failAtlasTurn(params: AtlasTurnParams, sentence: string | null) {
-		adapters.applyMessageListEvent({
-			type: "remove",
-			messageId: params.placeholderId,
-		});
-		if (params.clientUserMessageId) {
-			adapters.applyMessageListEvent({
-				type: "remove",
-				messageId: params.clientUserMessageId,
-			});
-		}
-		completeTurn();
 		// A message queued behind the kickoff (the composer queues while it is out, and
-		// while it waits for an update) goes back to the composer behind its words, as
-		// for any turn that ends without a reply: nothing drains the queue after this.
-		if (takeQueuedContextCompression()) {
-			void adapters.runManualContextCompression();
-		}
-		adapters.restorePayloadToDraft(params.payload);
-		restoreQueuedTurnToDraft();
-		if (sentence) adapters.setSendError(sentence);
-		canRetry = false;
-		emitState();
+		// while it waits for an update) goes back to the composer behind its words.
+		giveBackUnsentRequest({
+			placeholderId: params.placeholderId,
+			clientUserMessageId: params.clientUserMessageId,
+			words: params.payload,
+			sentence,
+		});
 	}
 
 	/**
@@ -2955,11 +3010,8 @@ export function createNormalChatClientTurnRuntime(
 			placeholderId,
 			clientUserMessageId: null,
 			turnConversationId,
-			answer: {
-				questionId: p.questionId,
-				continuesMessageId: p.continuesMessageId,
-				accepted: false,
-			},
+			continuesMessageId: p.continuesMessageId,
+			answer: { questionId: p.questionId, accepted: false },
 			streamOptions: {
 				modelId: adapters.getSelectedModel(),
 				reasoningDepth: adapters.getReasoningDepth(),
@@ -3095,6 +3147,7 @@ export function createNormalChatClientTurnRuntime(
 		lastAssistantResponse = "";
 		lastReasoningDepth = "thorough";
 		lastSend = null;
+		interruptedResume = null;
 		emitState();
 	}
 
@@ -3113,10 +3166,11 @@ export function createNormalChatClientTurnRuntime(
 		reasoningDepth?: ReasoningDepth,
 		replayElapsedMs?: number,
 		turnConversationId: string = adapters.getConversationId(),
-		// The row the joined reply continues: given when the stream is the resume of an
-		// answer this runtime sent, else whatever the page says it is answering (a
-		// reload during a resume joins it with no answer in hand).
-		continuesMessageId?: string,
+		// The stream this one takes over from, when that one carried a resume: its
+		// answer and its row go on. With none, the reply still continues the row the
+		// page says it is answering (a reload during a resume joins its stream with no
+		// answer in hand).
+		takenOverFrom?: ResumeContext,
 	) {
 		// Not an entry point: the page's reconnect is `checkForOrphanedStreamOnMount`,
 		// and everything else that gets here (the recoveries, a Retry that joins, the
@@ -3140,8 +3194,8 @@ export function createNormalChatClientTurnRuntime(
 				}),
 			});
 		}
-		const continuedRow =
-			continuesMessageId ??
+		const continuesMessageId =
+			takenOverFrom?.continuesMessageId ??
 			adapters.getAnsweringQuestionMessageId?.() ??
 			undefined;
 		adapters.applyMessageListEvent({
@@ -3150,7 +3204,7 @@ export function createNormalChatClientTurnRuntime(
 				placeholderId,
 				replayElapsedMs,
 				undefined,
-				continuedRow,
+				continuesMessageId,
 			),
 		});
 
@@ -3159,6 +3213,8 @@ export function createNormalChatClientTurnRuntime(
 			placeholderId,
 			clientUserMessageId,
 			turnConversationId,
+			continuesMessageId,
+			answer: takenOverFrom?.answer,
 			isReconnect: true,
 			reconnectStreamId: streamId,
 			reconnectRetryCount: retryCount,
@@ -3223,12 +3279,14 @@ export function createNormalChatClientTurnRuntime(
 
 	/**
 	 * Joins a running stream: its replay goes into a placeholder, under the bubble that
-	 * is on screen, which is the one whose text is `userMessage`.
+	 * is on screen, which is the one whose text is `userMessage`. `takenOverFrom` is
+	 * the resume it takes over from, if the one that was cut off carried one.
 	 */
 	function joinRunningStream(
 		running: { streamId: string; bufferInfo: StreamBufferInfo | null },
 		userMessage: string,
 		turnConversationId: string = adapters.getConversationId(),
+		takenOverFrom?: ResumeContext,
 	) {
 		const { streamId, bufferInfo } = running;
 		return reconnectToOrphanedStream(
@@ -3238,6 +3296,7 @@ export function createNormalChatClientTurnRuntime(
 			bufferInfo?.reasoningDepth,
 			bufferInfo?.createdAt ? Date.now() - bufferInfo.createdAt : undefined,
 			turnConversationId,
+			takenOverFrom,
 		);
 	}
 
@@ -3254,21 +3313,41 @@ export function createNormalChatClientTurnRuntime(
 		return joinRunningStreamOfChat();
 	}
 
-	async function joinRunningStreamOfChat() {
+	async function joinRunningStreamOfChat(takenOverFrom?: ResumeContext) {
 		if (isSending || activeStream) {
 			return false;
 		}
 		const running = await findRunningStream(adapters.getConversationId());
 		if (!running) return false;
-		return joinRunningStream(running, running.bufferInfo?.userMessage ?? "");
+		return joinRunningStream(
+			running,
+			running.bufferInfo?.userMessage ?? "",
+			undefined,
+			takenOverFrom,
+		);
 	}
 
 	async function recoverBackgroundInterruptedStream() {
-		const reconnected = await joinRunningStreamOfChat();
-		if (!reconnected) {
-			await adapters.loadPersistedData();
-			await drainPostTurnQueue();
+		// A resume the browser cut off is still its question's: if the server runs it
+		// the stream is joined as that resume (its row goes on, and the answer was
+		// taken up); if it does not, the page is told so, quietly, and reads the
+		// questions and the chat to learn whether it finished.
+		const cutOff = interruptedResume;
+		interruptedResume = null;
+		const reconnected = await joinRunningStreamOfChat(cutOff ?? undefined);
+		if (reconnected) {
+			if (cutOff?.answer) reportAnswerAccepted(cutOff.answer);
+			return;
 		}
+		if (cutOff?.answer) {
+			adapters.onAskEvent?.({
+				type: "answerNotSent",
+				questionId: cutOff.answer.questionId,
+				quiet: true,
+			});
+		}
+		await adapters.loadPersistedData();
+		await drainPostTurnQueue();
 	}
 
 	return {
@@ -3457,15 +3536,17 @@ function isCapacityError(error: Error & { code?: unknown }) {
 }
 
 /**
- * Whether the request is a new message the server never got, as opposed to a
- * request it knows (a regenerate, a Retry of a message it holds without a reply)
- * or an answer, which carries no message. The words of the first are the page's to
- * give back when the request is turned away.
+ * The words of a new message the server never got, or null for a request it knows
+ * (a regenerate, a Retry of a message it holds without a reply) and for an answer,
+ * which carries no message. They are the page's to give back when the request is
+ * turned away or stopped.
  */
-function serverNeverGotTheMessage(params: StartStreamParams): boolean {
-	return Boolean(
-		params.payload && !params.streamOptions.retryAssistantMessageId,
-	);
+function payloadTheServerNeverGot(
+	params: StartStreamParams,
+): NormalChatSendPayload | null {
+	return !params.streamOptions.retryAssistantMessageId
+		? (params.payload ?? null)
+		: null;
 }
 
 /** Whether the server turned the request away with this status and code (a refusal reaches `onError` with both: `streamChat`'s error, and an `ApiError`). */
