@@ -5248,7 +5248,7 @@ function handleDrop(event: DragEvent) {
 
 			<ChatComposerPanel
 				{sendError}
-				canRetry={normalChatRuntimeCanRetry && !editingMessage}
+				canRetry={normalChatRuntimeCanRetry && !editingMessage && !questionOpen}
 				onRetry={handleRetry}
 				onErrorClose={handleErrorClose}
 				onSend={handleComposerSend}

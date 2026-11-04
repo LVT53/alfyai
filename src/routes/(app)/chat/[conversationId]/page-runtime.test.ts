@@ -8572,6 +8572,8 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 		runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
 		await screen.findByRole("button", { name: "Retry" });
 		await hearOfAQuestionOn("assistant-0");
+		// The button is gone with the question: a press could only be turned away.
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 
 		const gateReadsBeforeRetry = checkCloudWarningMock.mock.calls.length;
 		await fromComposer("onRetry");
@@ -8579,6 +8581,41 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 		expect(runtimeHarness.streamInvocations).toHaveLength(1);
 		expect(checkCloudWarningMock.mock.calls.length).toBe(gateReadsBeforeRetry);
 		expect(screen.queryByTestId("cloud-connector-warning")).toBeNull();
+	});
+
+	it("hides Retry while a question waits, and brings it back once none does", async () => {
+		renderPage(
+			pageData({
+				messages: [
+					{ id: "user-0", role: "user", content: "Earlier", timestamp: 1 },
+					{
+						id: "assistant-0",
+						role: "assistant",
+						content: "Earlier answer",
+						timestamp: 2,
+					},
+				],
+			}),
+		);
+		await typeAndSend("And tomorrow?");
+		await waitFor(() =>
+			expect(runtimeHarness.streamInvocations).toHaveLength(1),
+		);
+		runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
+		expect(
+			await screen.findByRole("button", { name: "Retry" }),
+		).toBeInTheDocument();
+
+		// A question is read for the reply before: a Retry would be turned away.
+		await hearOfAQuestionOn("assistant-0");
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+
+		// Another device answered it and the reply went on: nothing waits, Retry is back.
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([]);
+		runtimeHarness.adapters?.refreshQuestions?.();
+		expect(
+			await screen.findByRole("button", { name: "Retry" }),
+		).toBeInTheDocument();
 	});
 
 	it("queues no chip behind a running turn while a question waits", async () => {
