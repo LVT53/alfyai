@@ -1053,8 +1053,7 @@ describe("AskQuestionCard", () => {
 			const { onAnswer } = await renderPage(dto([WAY]));
 
 			// Native clicks one after the other with no flush between: a double tap. The
-			// card reads the page's busy as soon as onAnswer returns, so the second finds
-			// it off.
+			// card reads the page's busy live, so the second press finds it off.
 			button("A party at home, recommended").click();
 			button("A party at home, recommended").click();
 			button("Dinner out, just close family").click();
@@ -1125,7 +1124,8 @@ describe("AskQuestionCard", () => {
 		});
 
 		it("keeps the error line and stays answerable when the page refuses an answer to a card that had failed", async () => {
-			// `failed` is already up, so a refusal gives it no edge to rise on.
+			// `failed` is already up and a refusal changes nothing: the card must neither stay
+			// off nor lose its error line.
 			const { onAnswer } = await renderCard(
 				dto([WAY], { answer: answered(pick(1)) }),
 				{ failed: true },

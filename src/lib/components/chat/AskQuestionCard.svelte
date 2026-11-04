@@ -11,10 +11,11 @@
 //
 // What the card knows is a question row and two flags. The page owns `busy` (an
 // answer is going out) and `failed` (it did not go through), as WriteConfirmCard's
-// {busy, error} are owned. The page takes an answer by setting `busy` inside `onAnswer`,
-// and the card is off from then until the page lowers it, so a double tap, or Enter after
-// a click, never answers twice. A page that refuses the answer (a sealed chat, an open
-// edit) sets nothing, and the card stays answerable.
+// {busy, error} are owned. One answer per `busy`: the page takes an answer by setting the
+// question's `busy` inside `onAnswer`, before any await, and the card is off until the
+// page lowers it, so a double tap, or Enter after a click, never answers twice. A page
+// that refuses the answer (a sealed chat, an open edit) sets nothing, and the card stays
+// answerable.
 //
 // The states, in order: waking (answers off for 400 ms after the card appears, and
 // until the reply's segment is saved, so a tap meant for something else cannot answer
@@ -105,8 +106,6 @@ let form = $state<Form>(untrack(() => formFromAnswer(question)));
 let inputs = $state<Array<HTMLInputElement | null>>([]);
 // The 400 ms have passed since the card appeared.
 let readUp = $state(false);
-// The page took the answer (it raised `busy` inside `onAnswer`) and has not said how it went.
-let handedOver = $state(false);
 let foldedOpen = $state(false);
 
 // Primitives, so that the page reading the same question again (a new object each
@@ -120,13 +119,13 @@ const needsSend = $derived(
 	many || question.questions.some((asked) => asked.multiple === true),
 );
 const awake = $derived(readUp && Boolean(question.assistantMessageId));
-const interactive = $derived(waiting && awake && !busy && !handedOver);
+const interactive = $derived(waiting && awake && !busy);
 const canSend = $derived(
 	checkAskAnswer(question.questions, answeredByForm()).ok,
 );
 // An answer that was already given and is waiting again is one that did not go through.
 const showFailed = $derived(
-	waiting && !busy && !handedOver && (failed || Boolean(question.answer)),
+	waiting && !busy && (failed || Boolean(question.answer)),
 );
 const cardLabel = $derived(
 	many
@@ -143,7 +142,6 @@ $effect(() => {
 		untrack(() => {
 			form = emptyForm(question.questions);
 			readUp = false;
-			handedOver = false;
 		});
 		storeAskLineDrafts(id, null);
 		return;
@@ -159,25 +157,11 @@ $effect(() => {
 			form.open[index] = true;
 		}
 		readUp = false;
-		handedOver = false;
 	});
 	const timer = setTimeout(() => {
 		readUp = true;
 	}, READ_BEFORE_ANSWER_MS);
 	return () => clearTimeout(timer);
-});
-
-// The page ended the attempt: `busy` fell (a failed answer) or `failed` rose.
-let wasBusy = false;
-let wasFailed = false;
-$effect(() => {
-	const isBusy = busy;
-	const hasFailed = failed;
-	untrack(() => {
-		if ((wasBusy && !isBusy) || (!wasFailed && hasFailed)) handedOver = false;
-		wasBusy = isBusy;
-		wasFailed = hasFailed;
-	});
 });
 
 // Typing goes into the card, not the message box. Capture phase on the window, so it
@@ -213,13 +197,9 @@ function submit(candidate: unknown) {
 	if (!interactive) return;
 	const checked = checkAskAnswer(question.questions, candidate);
 	if (!checked.ok) return;
-	handedOver = true;
+	// The page takes the answer by raising `busy` inside this call. Props are read live, so
+	// the very next press finds the card off; a page that refuses sets nothing.
 	onAnswer?.(question.id, checked.answer);
-	// A page takes an answer by raising `busy` inside `onAnswer`; props are read live, so it
-	// has by now. One that did not (a refusal: a sealed chat, an open edit) has nothing going
-	// out and sets no flag, and `failed` may be up already, so no edge would ever come: the
-	// card stays answerable.
-	if (!busy) handedOver = false;
 }
 
 const sendCard = () => submit(answeredByForm());

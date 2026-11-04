@@ -1,9 +1,9 @@
 <script lang="ts">
 // Test-only: the chat page's side of the card. It holds `busy` and `failed` the way the
 // page's `askActionState` will, and takes an answer by raising `busy` INSIDE `onAnswer`,
-// with no flush in between: that is how the card tells a page that took its answer from
-// one that refused it. The testing library's `rerender` flushes inside its own call, so
-// it cannot show that the card reads `busy` as soon as `onAnswer` returns.
+// with no flush in between: the card reads `busy` live, so the very next press finds it
+// off. The testing library's `rerender` flushes inside its own call, so it could not
+// show that.
 import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
 import AskQuestionCard from "./AskQuestionCard.svelte";
 
