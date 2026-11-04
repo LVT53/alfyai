@@ -4462,15 +4462,9 @@ describe("MessageBubble", () => {
 			it("stays answerable while the chat is read-only, as a card should while a question waits", async () => {
 				const { onAnswerQuestion } = await renderWaitingCard({
 					readOnly: true,
-					isLast: true,
-					onRegenerate: vi.fn(),
 				});
 
-				// The message is read-only: nothing that would change what was said.
-				expect(
-					screen.queryByRole("button", { name: "Copy message" }),
-				).toBeNull();
-				// The card is not.
+				// The message is read-only, the card is not.
 				await fireEvent.click(
 					screen.getByRole("button", { name: "Up to you" }),
 				);

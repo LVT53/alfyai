@@ -2453,23 +2453,26 @@ describe("MessageArea", () => {
 
 		it("keeps the card live while the messages are read-only, as they are while a question waits", async () => {
 			const onAnswerQuestion = vi.fn();
-			const { container, getByRole } = render(MessageArea, {
-				messages: twoSegments(),
+			// An earlier, finished reply of the same chat: it is where a button that
+			// read-only takes away would show (the waiting reply has no buttons at all).
+			const { container, getByRole, rerender } = render(MessageArea, {
+				messages: [
+					row("u-0", "user", "Hello"),
+					row("a-0", "assistant", "Hello! How can I help?"),
+					...twoSegments(),
+				],
 				conversationId: "conv-1",
 				questions: [asked(), askedAgain()],
 				readOnly: true,
 				onAnswerQuestion,
 				onRegenerate: vi.fn(),
-				onSendFollowUp: vi.fn(),
 			});
 			await wake();
+			const earlierReply = () => within(bubbleOf(container, "a-0"));
 
 			// Nothing on the messages changes what was said...
 			expect(
-				container.querySelector('button[aria-label="Regenerate response"]'),
-			).toBeNull();
-			expect(
-				container.querySelector('[data-testid="follow-up-chips"]'),
+				earlierReply().queryByRole("button", { name: "Regenerate response" }),
 			).toBeNull();
 			// ...and the card still takes the answer.
 			await fireEvent.click(getByRole("button", { name: "Up to you" }));
@@ -2477,6 +2480,12 @@ describe("MessageArea", () => {
 			expect(onAnswerQuestion).toHaveBeenCalledWith("q-2", {
 				kind: "left_to_alfy",
 			});
+
+			// The control: were the messages not read-only, that button would be there.
+			await rerender({ readOnly: false });
+			expect(
+				earlierReply().getByRole("button", { name: "Regenerate response" }),
+			).toBeInTheDocument();
 		});
 
 		it("takes one answer when the page raises busy inside onAnswerQuestion", async () => {
