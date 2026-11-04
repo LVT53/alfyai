@@ -9756,6 +9756,107 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 		});
 	});
 
+	// The gate can wait for seconds with the page live (the warning is read, a step is
+	// saved), so the page looks again once it lets the answer through: what changed
+	// meanwhile leaves the card as it was, answerable, and starts nothing.
+	describe("an answer the gate lets through after the page changed", () => {
+		beforeEach(() => {
+			checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+			ackCloudConnectorMock.mockResolvedValue(undefined);
+			vi.mocked(fetchConversationQuestions).mockResolvedValue([
+				askedQuestion(),
+			]);
+		});
+
+		/** The card is pressed on a cloud model, and the answer waits for the warning to be settled. */
+		async function pressAndHoldTheWarning() {
+			const view = renderPage(
+				cloudPage({ messages: askedChat(), questions: [askedQuestion()] }),
+			);
+			await waitFor(() => {
+				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+			});
+			await chooseOnCard("Dinner out");
+			await screen.findByTestId("cloud-connector-warning");
+			return view;
+		}
+
+		it("is not sent when the question was answered elsewhere meanwhile", async () => {
+			await pressAndHoldTheWarning();
+			// Another device's answer was taken up while the warning was up.
+			vi.mocked(fetchConversationQuestions).mockResolvedValue([
+				askedQuestion({ status: "answering", answer: DINNER }),
+			]);
+			runtimeHarness.adapters?.refreshQuestions?.();
+			expect(await screen.findByTestId("ask-folded")).toHaveAttribute(
+				"data-status",
+				"answering",
+			);
+
+			await fireEvent.click(screen.getByTestId("cloud-warning-send"));
+			await new Promise((resolve) => setTimeout(resolve, 20));
+
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+		});
+
+		it("gives the card back when a turn began meanwhile, and starts no second one", async () => {
+			await pressAndHoldTheWarning();
+			// A reply that still runs is found and joined (a recovered stream): a turn runs now,
+			// started by the runtime and not by a handler the question holds back.
+			runtimeHarness.orphanedStream = {
+				streamId: "stream-9",
+				userMessage: PLAN,
+			};
+			runtimeHarness.adapters?.onAskEvent?.({
+				type: "alreadyAnswered",
+				questionId: "q-other",
+			});
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+
+			await fireEvent.click(screen.getByTestId("cloud-warning-send"));
+
+			// The card is as it was before the press: answerable, not stuck off.
+			await waitFor(() =>
+				expect(
+					screen.getByRole("button", { name: "Dinner out" }),
+				).toBeEnabled(),
+			);
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+
+		it("gives the card back when the chat was sealed meanwhile, and starts nothing", async () => {
+			const view = await pressAndHoldTheWarning();
+			await view.rerender({
+				data: cloudPage({
+					conversation: conversationFixture("conv-1", { status: "sealed" }),
+					messages: askedChat(),
+					questions: [askedQuestion()],
+				}),
+				params: { conversationId: "conv-1" },
+			});
+
+			await fireEvent.click(screen.getByTestId("cloud-warning-send"));
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+			// Open again, the card is as it was before the press, not stuck off.
+			await view.rerender({
+				data: cloudPage({
+					messages: askedChat(),
+					questions: [askedQuestion()],
+				}),
+				params: { conversationId: "conv-1" },
+			});
+			await waitFor(() =>
+				expect(
+					screen.getByRole("button", { name: "Dinner out" }),
+				).toBeEnabled(),
+			);
+		});
+	});
+
 	// The page's own refusals of an answer: it sets nothing and does not get as far as the
 	// gate, so the card stays answerable. The warning is made to come up for any answer
 	// that reaches the gate, which is how a refusal that was left out shows.
