@@ -81,6 +81,7 @@ export type AskRuntimeEvent =
 NormalChatClientTurnRuntimeAdapters.onAskEvent?: (event: AskRuntimeEvent) => void;
 NormalChatClientTurnRuntimeAdapters.refreshQuestions?: () => void;
 NormalChatClientTurnRuntimeAdapters.getAnsweringQuestionMessageId?: () => string | null;
+NormalChatClientTurnRuntimeAdapters.getEnabledConnectionCapabilities?: () => string[] | undefined; // the composer's connections, for the turn an answer starts
 runtime.answerQuestion(p: { questionId: string; answer: AskAnswer; continuesMessageId: string; userMessage: string }): Promise<void>;
 ```
 
@@ -89,7 +90,8 @@ Rules (Plan's calls 30 and 31; design 5.5 and 5.8):
 - The first event of a resume's stream (`onToken`, `onThinking`, `onToolCall`, `onResponseActivity`) reports `answerAccepted` once.
 - `onEnd` with `metadata.waitingQuestionId` (any turn) reports `paused`, runs a queued compression, gives a queued message back with `restoreQueuedTurnToDraft()` and drains nothing.
 - A resume's `onError`: an update refusal waits (`holdRefusedRequestForUpdate`; its give-up reports `answerNotSent` with `quiet: false`, a Stop during the wait `quiet: true`, and neither shows `chat.updateStillRunning` nor Retry); `user_limit` and `global_limit` back off three times as a send does; 409 `QUESTION_ALREADY_ANSWERED` removes the placeholder and reports `alreadyAnswered`; a drop after content recovers as a send does; everything else, and every give-up, goes through `settleAnswerThatDidNotLand` (a running stream of the chat is joined under the same placeholder, else the placeholder goes and `answerNotSent` is reported).
-- A send refused 409 `QUESTION_WAITING` removes its bubbles, gives its words back with `restorePayloadToDraft`, sets no send error and reports `refusedWhileWaiting`.
+- A send refused 409 `QUESTION_WAITING` removes its bubbles, gives its words back with `restorePayloadToDraft`, sets no send error and reports `refusedWhileWaiting`. A Retry or regenerate refused so takes its placeholder away with no send error and no Retry and reports `refusedWhileWaiting`; a Retry of a message the server never got gives its words back too (Rulings 16 and 19).
+- Every join of a resume carries its answer and its asking row; a resume joined with no answer in hand (the mount join) reads the chat and the questions, with no second bubble and no Retry; a hidden tab's cut keeps the answer pending until the tab is seen again. `answerNotSent` can follow `answerAccepted` (Ruling 18).
 - `onToolCall` for `ask_user` with status `done` or `failed` calls `refreshQuestions`.
 - A reconnect's placeholder carries `continuesMessageId = getAnsweringQuestionMessageId()` when it returns an id (the stream being joined is that question's resume).
 
@@ -140,12 +142,12 @@ export type ToolActivityStatus = "running" | "done" | "failed" | "skipped" | "cl
 ToolActivityItem.objectSuffix?: string;                                         // muted, right after the object
 ToolActivityBody |= { kind: "ask"; pairs: Array<{ question: string; answer: string }> };
 ToolCallIconType |= "ask";
-export function isAskToolCall(segment: ThinkingSegment): segment is ThinkingSegment & { type: "tool_call" };
+export function isAskToolCall(segment: ThinkingSegment): segment is ThinkingSegment & { type: "tool_call" }; // every ask_user call by name, refused ones included (Ruling 15)
 export function askAnswerText(question: AskQuestion, answer: AskAnswer, index: number, t: Translate): string;
 export function buildAskFoldedItem(question: AskQuestionDto, t: Translate): ToolActivityItem;
 ```
 
-The line (Plan's call 26; mockup section 3): key `ask-<id>`; status `closed` for a closed card, else `done`; verb the question's words (one question) or `chat.ask.questionCount` (several); object the answers, several joined by " · ", picks by ", ", own words through `chat.ask.ownAnswerQuote`, "Up to you" as the Recommended labels (empty when there are none); `objectSuffix` "· " + `chat.ask.leftToAlfy` or "· " + `chat.ask.closed`; body `ask` with one pair per question, `null` for a closed card; `pinned: true`, `alwaysOpen: false`.
+The line (Plan's call 26; mockup section 3): key `ask-<id>`; status `closed` for a closed card, else `done`; verb the question's words (one question) or `chat.ask.questionCount` (several); object the answers, several joined by " · ", picks by ", ", own words through `chat.ask.ownAnswerQuote`, "Up to you" as the Recommended labels (empty when there are none); `objectSuffix` "· " + `chat.ask.leftToAlfy` or "· " + `chat.ask.closed`; body `ask` with one pair per question, `null` for a closed card; `pinned: true`, `alwaysOpen: false`. A closed card is one whose answer is `{ kind: "closed" }`, while it is `answering` too. `meta` is empty, `summaryLabel` the verb, `title` the line's text. A question left to Alfy with no Recommended option reads `chat.ask.leftToAlfy` as its pair's answer (Ruling 17).
 
 The strings (design section 4 table; Plan's call 26 adds the quote):
 
@@ -377,7 +379,7 @@ export function landedAssistantRow(row: ChatMessage, questions: readonly AskQues
 
 The page (design 5.7 to 5.9; Plan's calls 30, 32, 35):
 - State: `questions` from `data.questions` (replaced when `data.questions` changes, like `pendingWrites`), `askActionState`, `refreshQuestions()` with a latest-read-wins counter, called wherever `refreshPendingWrites()` is called and by the runtime's `refreshQuestions` adapter; `questionOpen = $derived(isQuestionOpen(questions, askActionState))`; all of it reset on a chat switch.
-- Adapters: `onAskEvent` (`paused`: read the questions, stamp locally, sidebar flag on; `answerAccepted`: `withQuestionAnswering`, busy off, sidebar flag off; `answerNotSent`: busy off, `failed` unless quiet, read the questions, and load the chat (`loadPersistedData`) when the read says the question no longer waits; `alreadyAnswered`: busy off, read the questions, then `normalChatRuntime.checkForOrphanedStreamOnMount()` to join the winner's reply, else `loadPersistedData()`; `refusedWhileWaiting`: read the questions and `loadPersistedData()`), `refreshQuestions`, `getAnsweringQuestionMessageId` (the `assistantMessageId` of the question that is `answering`).
+- Adapters: `onAskEvent` (`paused`: read the questions, stamp locally, sidebar flag on; `answerAccepted`: `withQuestionAnswering`, busy off, sidebar flag off; `answerNotSent`: busy off, `failed` unless quiet, read the questions, and load the chat (`loadPersistedData`) when the read says the question no longer waits; `alreadyAnswered`: busy off, read the questions, then `normalChatRuntime.checkForOrphanedStreamOnMount()` to join the winner's reply, else `loadPersistedData()`; `refusedWhileWaiting`: read the questions and `loadPersistedData()`), `refreshQuestions`, `getAnsweringQuestionMessageId` (the `assistantMessageId` of the question that is `answering`), `getEnabledConnectionCapabilities` (the composer's active capabilities). A `paused` with a null `assistantMessageId` stamps nothing locally. The questions are read again when a turn that answered a question ends, so a local `answering` never outlives its resume (a later turn's reconnect would continue the old asking row). `answerQuestion`'s `userMessage` is the stored text of the person's message (the runtime's join compares it with the running stream's).
 - `handleAnswerQuestion(questionId, answer)`: refuses on a sealed chat, an open edit, an edit's resend or a running turn; sets busy; calls `normalChatRuntime.answerQuestion` with the question's `assistantMessageId` and `personMessageOfReply(...)`'s text.
 - Guards: `questionOpen` joins `handleSend`, `handleRegenerate`, `handleRetry`, `handleAtlasLifecycleAction`, `handleSendFollowUp`, `handleStartEdit` and the drop (`fileDragRejected`, `handleDrop`); the composer's `disabled` becomes `isConversationReadOnlyForChat || isEditResendPending || questionOpen` (its words and saved draft untouched); `ChatComposerPanel waitingForAnswer={questionOpen}` dims it (opacity 0.5); `MessageArea readOnly={isConversationReadOnlyForChat || questionOpen}` plus `questions`, `askActionState`, `onAnswerQuestion`.
 - `handleRegenerate` aims at `replyFirstMessageId($messages, payload.messageId)`, and the later-turn warning counts from the reply's last segment.
