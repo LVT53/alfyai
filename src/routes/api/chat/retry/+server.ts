@@ -1,11 +1,9 @@
 import type { RequestHandler } from "@sveltejs/kit";
-import {
-	createJsonErrorResponse,
-	createJsonResponse,
-} from "$lib/server/api/responses";
+import { createJsonErrorResponse } from "$lib/server/api/responses";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import {
+	createPreparationErrorResponse,
 	createStreamJsonErrorResponse,
 	findWaitingQuestionRefusal,
 	prepareRetryChatTurn,
@@ -37,11 +35,12 @@ export const POST: RequestHandler = async (event) => {
 	// "Ask me first": a retry deletes the reply it replaces while it prepares, before
 	// the stream's arbiter has seen the turn. While the chat holds a saved question
 	// that waits, or whose answer is being carried on, that reply may be the row the
-	// resume continues, so the retry is turned away like a new message.
-	if (typeof body.conversationId === "string" && body.conversationId.trim()) {
+	// resume continues, so the retry is turned away like a new message. The chat is
+	// named as the preparation below reads it, which refuses a body without one.
+	if (typeof body.conversationId === "string") {
 		const questionWaiting = await findWaitingQuestionRefusal({
 			userId: user.id,
-			conversationId: body.conversationId.trim(),
+			conversationId: body.conversationId,
 		});
 		if (questionWaiting) return createStreamJsonErrorResponse(questionWaiting);
 	}
@@ -52,20 +51,7 @@ export const POST: RequestHandler = async (event) => {
 		body,
 	});
 	if (!preparedRetry.ok) {
-		const { responseShape, errorKey, details, ...requestError } =
-			preparedRetry.error;
-		if (responseShape === "stream-json") {
-			return createStreamJsonErrorResponse(requestError);
-		}
-		return createJsonResponse(
-			{
-				error: requestError.error,
-				...(requestError.code ? { code: requestError.code } : {}),
-				...(errorKey ? { errorKey } : {}),
-				...(details ? { details } : {}),
-			},
-			requestError.status,
-		);
+		return createPreparationErrorResponse(preparedRetry.error);
 	}
 	const startedResetGeneration = await getCurrentMemoryResetGeneration(user.id);
 	return runChatStreamOrchestrator({

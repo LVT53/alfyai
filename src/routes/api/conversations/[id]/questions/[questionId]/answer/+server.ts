@@ -3,7 +3,7 @@ import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import {
 	claimAskQuestion,
-	createStreamJsonErrorResponse,
+	createPreparationErrorResponse,
 	getAskQuestion,
 	prepareAskResumeTurn,
 	refuseTurnWhenOverCapacity,
@@ -17,11 +17,6 @@ import {
 	parseAskQuestions,
 } from "$lib/shared/ask-user";
 import type { RequestHandler } from "./$types";
-
-type PreparationError = Extract<
-	Awaited<ReturnType<typeof prepareAskResumeTurn>>,
-	{ ok: false }
->["error"];
 
 function refusal(status: number, error: string, code: string): Response {
 	return createJsonResponse({ error, code }, status);
@@ -57,23 +52,6 @@ function readQuestions(questionsJson: string): AskQuestion[] | null {
 	} catch {
 		return null;
 	}
-}
-
-/** A refusal of the preparation, answered as the retry route answers its own. */
-function preparationRefusal(error: PreparationError): Response {
-	const { responseShape, errorKey, details, ...requestError } = error;
-	if (responseShape === "stream-json") {
-		return createStreamJsonErrorResponse(requestError);
-	}
-	return createJsonResponse(
-		{
-			error: requestError.error,
-			...(requestError.code ? { code: requestError.code } : {}),
-			...(errorKey ? { errorKey } : {}),
-			...(details ? { details } : {}),
-		},
-		requestError.status,
-	);
 }
 
 // POST /api/conversations/[id]/questions/[questionId]/answer: the person's answer
@@ -176,7 +154,8 @@ export const POST: RequestHandler = async (event) => {
 		});
 		if (!prepared.ok) {
 			await giveTheClaimBack();
-			return preparationRefusal(prepared.error);
+			// answered as the retry route answers its own refusals
+			return createPreparationErrorResponse(prepared.error);
 		}
 		return runChatStreamOrchestrator({
 			user: {

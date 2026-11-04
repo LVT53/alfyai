@@ -41,6 +41,7 @@ import {
 	checkStreamCapacity,
 	type StreamCapacityCheck,
 } from "./active-streams";
+import type { RetryPreparationError } from "./retry";
 import type { ChatTurnRequestError } from "./types";
 
 export type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
@@ -209,6 +210,30 @@ export function createStreamJsonErrorResponse(
 		status: error.status,
 		headers: JSON_HEADERS,
 	});
+}
+
+/**
+ * The answer to a turn that could not be prepared, for the two routes that
+ * prepare a stored turn: a retry and the resume of a reply from the person's
+ * answer. A refusal that is the stream's is answered in the stream route's shape;
+ * the others as `{ error, code?, errorKey?, details? }`.
+ */
+export function createPreparationErrorResponse(
+	error: RetryPreparationError,
+): Response {
+	const { responseShape, errorKey, details, ...requestError } = error;
+	if (responseShape === "stream-json") {
+		return createStreamJsonErrorResponse(requestError);
+	}
+	return new Response(
+		JSON.stringify({
+			error: requestError.error,
+			...(requestError.code ? { code: requestError.code } : {}),
+			...(errorKey ? { errorKey } : {}),
+			...(details ? { details } : {}),
+		}),
+		{ status: requestError.status, headers: JSON_HEADERS },
+	);
 }
 
 export function createEventStreamResponse(

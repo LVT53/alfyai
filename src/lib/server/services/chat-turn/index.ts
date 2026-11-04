@@ -38,6 +38,7 @@ export { parseChatTurnRequest } from "./request";
 export { prepareRetryChatTurn } from "./retry";
 export {
 	classifyStreamErrorCause,
+	createPreparationErrorResponse,
 	createStreamJsonErrorResponse,
 	refuseTurnWhenDraining,
 	refuseTurnWhenOverCapacity,

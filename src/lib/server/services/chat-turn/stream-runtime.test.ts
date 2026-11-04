@@ -21,6 +21,7 @@ import {
 	oldBrowserSseNamedTokenEvent,
 } from "../../../../../tests/fixtures/ai-sdk-ui-stream-contract";
 import {
+	createPreparationErrorResponse,
 	createServerChunkRuntime,
 	createUiMessageStreamDoneFrame,
 	decodeUiMessageStreamParts,
@@ -1215,5 +1216,62 @@ describe("createServerChunkRuntime", () => {
 		expect(visibleText.indexOf(longThinking)).toBe(
 			visibleText.lastIndexOf(longThinking),
 		);
+	});
+});
+
+// The answer to a turn that could not be prepared, for the two routes that prepare
+// a stored turn (a retry, and the resume of a reply from an answer): one mapping,
+// not one in each route.
+describe("createPreparationErrorResponse", () => {
+	it("answers a stream-shaped refusal in the shape the stream route's refusals have", async () => {
+		const response = createPreparationErrorResponse({
+			status: 422,
+			error: "Attachment is not ready",
+			code: "attachment_not_ready",
+			attachmentIds: ["attachment-1"],
+			responseShape: "stream-json",
+		});
+
+		expect(response.status).toBe(422);
+		expect(response.headers.get("Content-Type")).toBe("application/json");
+		expect(await response.json()).toEqual({
+			status: 422,
+			error: "Attachment is not ready",
+			code: "attachment_not_ready",
+			attachmentIds: ["attachment-1"],
+		});
+	});
+
+	it("answers a json-shaped refusal with its code, errorKey and details when it has them", async () => {
+		const response = createPreparationErrorResponse({
+			status: 409,
+			error: "Forked source history requires confirmation",
+			code: "forked_source_history_confirmation_required",
+			errorKey: "fork.regenerateWarning",
+			details: "two forks read this reply",
+			responseShape: "json",
+		});
+
+		expect(response.status).toBe(409);
+		expect(response.headers.get("Content-Type")).toBe("application/json");
+		expect(await response.json()).toEqual({
+			error: "Forked source history requires confirmation",
+			code: "forked_source_history_confirmation_required",
+			errorKey: "fork.regenerateWarning",
+			details: "two forks read this reply",
+		});
+	});
+
+	it("leaves out of a json-shaped refusal what it does not have", async () => {
+		const response = createPreparationErrorResponse({
+			status: 400,
+			error: "conversationId is required",
+			responseShape: "json",
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({
+			error: "conversationId is required",
+		});
 	});
 });

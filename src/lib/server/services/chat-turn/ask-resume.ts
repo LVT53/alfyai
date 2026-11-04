@@ -67,7 +67,10 @@ type ResumePreparationResult =
  * A question that cannot be carried on although the claim was won: the reply it
  * belongs to no longer has the shape a resume starts from (the person's message is
  * gone, the capture is unreadable or holds no result of the ask). A conflict: the
- * caller releases the claim.
+ * caller releases the claim. Its code is `QUESTION_NOT_WAITING`, in the style of
+ * the answer route's own codes and not to be mistaken for the route's
+ * `QUESTION_ALREADY_ANSWERED` (the claim was lost): this claim was won and given
+ * back, so the question waits again with the answer kept.
  */
 function notWaiting(): { ok: false; error: RetryPreparationError } {
 	return {
@@ -75,7 +78,7 @@ function notWaiting(): { ok: false; error: RetryPreparationError } {
 		error: {
 			status: 409,
 			error: "The question can no longer be answered",
-			code: "not_waiting",
+			code: "QUESTION_NOT_WAITING",
 			responseShape: "json",
 		},
 	};
@@ -229,7 +232,8 @@ function readClaimedAnswer(claimed: AskQuestionRow) {
  * `preflightStoredTurn`, retry.ts): the skill and web search the reply's first
  * segment recorded, the message's uploads and pictures, and, from the answer's body,
  * the model, depth and personality the composer has selected now. It refuses (409
- * `not_waiting`) when the reply no longer has the shape a resume starts from.
+ * `QUESTION_NOT_WAITING`) when the reply no longer has the shape a resume starts
+ * from.
  *
  * `userTexts` are the words the person typed into the answers of the whole reply,
  * this one's included, so the new turn's address check counts them as theirs (an

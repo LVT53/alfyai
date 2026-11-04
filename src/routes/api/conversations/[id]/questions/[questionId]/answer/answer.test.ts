@@ -142,12 +142,14 @@ function preparedFor(p: { claimed: { id: string }; claim: string }) {
 	};
 }
 
+// The refusal `prepareAskResumeTurn` gives a reply that no longer has the shape a
+// resume starts from.
 const preparationRefusal = {
 	ok: false,
 	error: {
 		status: 409,
 		error: "The question can no longer be answered",
-		code: "not_waiting",
+		code: "QUESTION_NOT_WAITING",
 		responseShape: "json",
 	},
 };
@@ -376,11 +378,13 @@ describe("POST /api/conversations/[id]/questions/[questionId]/answer", () => {
 
 		const response = await POST(makeEvent(seeded, validBody));
 
-		// answered as the retry route answers its refusals: a code, no errorKey
+		// answered as the retry route answers its refusals: a code, no errorKey. The
+		// claim was given back, which is not the code of a claim that was lost
+		// (QUESTION_ALREADY_ANSWERED): the page tells the two apart by it.
 		expect(response.status).toBe(409);
 		expect(await response.json()).toEqual({
 			error: "The question can no longer be answered",
-			code: "not_waiting",
+			code: "QUESTION_NOT_WAITING",
 		});
 		const { claim } = mocks.prepareAskResumeTurn.mock.calls[0][0];
 		expect(releaseAskQuestion).toHaveBeenCalledTimes(1);

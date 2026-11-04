@@ -824,7 +824,7 @@ describe("prepareAskResumeTurn", () => {
 			error: {
 				status: 409,
 				error: expect.any(String),
-				code: "not_waiting",
+				code: "QUESTION_NOT_WAITING",
 				responseShape: "json",
 			},
 		};
