@@ -2065,6 +2065,254 @@ describe("MessageArea", () => {
 			).toBeInTheDocument();
 		});
 
+		// The segments of one reply are drawn close together: the continuation pulls up
+		// over the thread's `gap-lg` (`-mt-lg`, the same token) and the segment above gives
+		// up its bottom padding (`pb-0`), about 18 px from a folded line to the words that
+		// carry on, as the mockup draws it. A negative margin would pull any row drawn
+		// between the two up with it, so when the area draws one (an instruction offer, a
+		// compression marker or the fork boundary under the upper row, the import boundary
+		// above the lower) both rows keep their normal spacing.
+		describe("the rows of one reply drawn close together", () => {
+			const joinedAbove = (bubble: HTMLElement) =>
+				bubble.classList.contains("-mt-lg");
+			const joinedBelow = (bubble: HTMLElement) =>
+				bubble.classList.contains("pb-0");
+
+			it("pulls the continuation up over the thread's gap and takes the bottom padding off the segment above", () => {
+				const { container } = render(MessageArea, {
+					messages: [
+						...twoSegments(),
+						row("u-2", "user", "Thanks!"),
+						row("a-3", "assistant", "You're welcome."),
+					],
+					conversationId: "conv-1",
+					questions: [asked()],
+				});
+
+				const first = bubbleOf(container, "a-1");
+				const second = bubbleOf(container, "a-2");
+				// The continuation: no top padding of its own, and pulled up over the gap.
+				expect(second).toHaveClass("pt-0");
+				expect(joinedAbove(second)).toBe(true);
+				expect(joinedBelow(second)).toBe(false);
+				// The segment above gives up its bottom padding.
+				expect(joinedBelow(first)).toBe(true);
+				expect(joinedAbove(first)).toBe(false);
+				expect(first).not.toHaveClass("pt-0");
+				// The person's message and the reply after it are rows of their own.
+				for (const id of ["u-1", "u-2", "a-3"]) {
+					const bubble = bubbleOf(container, id);
+					expect(joinedAbove(bubble)).toBe(false);
+					expect(joinedBelow(bubble)).toBe(false);
+					expect(bubble).not.toHaveClass("pt-0");
+				}
+			});
+
+			it("joins the middle segment of a reply in three on both sides", () => {
+				const { container } = render(MessageArea, {
+					messages: [
+						...twoSegments(),
+						row("a-3", "assistant", "Last.", { continuesMessageId: "a-2" }),
+					],
+					conversationId: "conv-1",
+					questions: [
+						asked(),
+						askedAgain({
+							status: "answered",
+							answer: { kind: "left_to_alfy" },
+						}),
+					],
+				});
+
+				const [first, middle, last] = ["a-1", "a-2", "a-3"].map((id) =>
+					bubbleOf(container, id),
+				);
+				expect([joinedAbove(first), joinedBelow(first)]).toEqual([false, true]);
+				expect([joinedAbove(middle), joinedBelow(middle)]).toEqual([
+					true,
+					true,
+				]);
+				expect([joinedAbove(last), joinedBelow(last)]).toEqual([true, false]);
+			});
+
+			it("joins nothing while the first segment's question waits and no segment carries on yet", () => {
+				const { container } = render(MessageArea, {
+					messages: [
+						row("u-1", "user", "Plan dad's 60th"),
+						row("a-1", "assistant", FIRST_WORDS),
+					],
+					conversationId: "conv-1",
+					questions: [asked({ status: "waiting", answer: null })],
+				});
+
+				// The row is continued below, but there is no row below to be close to.
+				expect(joinedBelow(bubbleOf(container, "a-1"))).toBe(false);
+				expect(joinedAbove(bubbleOf(container, "a-1"))).toBe(false);
+			});
+
+			const sitsBetween = (
+				container: HTMLElement,
+				testId: string,
+				upper: string,
+				lower: string,
+			) => {
+				const mark = container.querySelector(`[data-testid="${testId}"]`);
+				const above = bubbleOf(container, upper);
+				const below = bubbleOf(container, lower);
+				return (
+					mark !== null &&
+					Boolean(
+						above.compareDocumentPosition(mark) &
+							Node.DOCUMENT_POSITION_FOLLOWING,
+					) &&
+					Boolean(
+						mark.compareDocumentPosition(below) &
+							Node.DOCUMENT_POSITION_FOLLOWING,
+					)
+				);
+			};
+
+			const offer = {
+				id: "offer-1",
+				status: "pending" as const,
+				text: "Only suggest trains, no flights.",
+				scope: { kind: "personal" as const },
+				createdAt: 1_770_000_000_000,
+			};
+
+			const COMPRESSION_MARKER = {
+				id: "snap-1",
+				trigger: "automatic" as const,
+				status: "valid" as const,
+				sourceEndMessageId: "a-1",
+				createdAt: 1,
+				updatedAt: 1,
+			};
+
+			const FORK_ORIGIN = {
+				forkConversationId: "conv-1",
+				sourceConversationId: "source-conv",
+				sourceAssistantMessageId: "source-assistant-1",
+				sourceConversationIdAvailable: true,
+				sourceAssistantMessageIdAvailable: true,
+				copiedForkPointMessageId: "a-1",
+				sourceTitle: "Source title",
+				forkSequence: 1,
+				createdAt: 1,
+			};
+
+			it.each([
+				{
+					what: "an instruction offer under the segment above",
+					testId: "instruction-suggestion",
+					messages: () => {
+						const [user, first, second] = twoSegments();
+						return [
+							user,
+							{ ...first, instructionSuggestions: [offer] },
+							second,
+						];
+					},
+					props: {},
+				},
+				{
+					what: "a compression marker under the segment above",
+					testId: `context-compression-marker-${COMPRESSION_MARKER.id}`,
+					messages: twoSegments,
+					props: { contextCompressionMarkers: [COMPRESSION_MARKER] },
+				},
+				{
+					what: "the fork boundary under the segment above",
+					testId: "fork-boundary-marker",
+					messages: twoSegments,
+					props: { forkOrigin: FORK_ORIGIN },
+				},
+				{
+					what: "the import boundary above the continuation",
+					testId: "import-boundary-marker",
+					messages: () => {
+						const [user, first, second] = twoSegments();
+						return [
+							{ ...user, importSource: "chatgpt" },
+							{ ...first, importSource: "chatgpt" },
+							second,
+						];
+					},
+					props: {},
+				},
+			])("keeps the normal spacing of both rows when $what sits between them", ({
+				testId,
+				messages,
+				props,
+			}) => {
+				const { container } = render(MessageArea, {
+					messages: messages() as ChatMessage[],
+					conversationId: "conv-1",
+					questions: [asked()],
+					...props,
+				});
+
+				// The mark is really between the two bubbles...
+				expect(sitsBetween(container, testId, "a-1", "a-2")).toBe(true);
+				// ...so neither row is drawn up against the other. The continuation still
+				// has no top padding of its own, which is the reply's rule, not the pair's.
+				const first = bubbleOf(container, "a-1");
+				const second = bubbleOf(container, "a-2");
+				expect(joinedBelow(first)).toBe(false);
+				expect(joinedAbove(second)).toBe(false);
+				expect(second).toHaveClass("pt-0");
+			});
+
+			it("still joins the rows when what the area draws is under the last segment, or is not drawn", () => {
+				const [user, first, second] = twoSegments();
+				const { container } = render(MessageArea, {
+					messages: [
+						user,
+						// An offer already answered draws nothing; a pending one under the last
+						// segment is below the pair, not between its rows.
+						{
+							...first,
+							instructionSuggestions: [
+								{ ...offer, id: "o-1", status: "dismissed" },
+							],
+						},
+						{ ...second, instructionSuggestions: [offer] },
+					],
+					conversationId: "conv-1",
+					questions: [asked()],
+					contextCompressionMarkers: [
+						{ ...COMPRESSION_MARKER, sourceEndMessageId: "a-2" },
+					],
+				});
+
+				expect(
+					container.querySelectorAll('[data-testid="instruction-suggestion"]'),
+				).toHaveLength(1);
+				expect(joinedBelow(bubbleOf(container, "a-1"))).toBe(true);
+				expect(joinedAbove(bubbleOf(container, "a-2"))).toBe(true);
+			});
+
+			it("draws no instruction offer in an incognito chat, so it keeps the rows joined", () => {
+				const [user, first, second] = twoSegments();
+				const { container } = render(MessageArea, {
+					messages: [
+						user,
+						{ ...first, instructionSuggestions: [offer] },
+						second,
+					],
+					conversationId: "conv-1",
+					questions: [asked()],
+					isIncognito: true,
+				});
+
+				expect(
+					container.querySelector('[data-testid="instruction-suggestion"]'),
+				).toBeNull();
+				expect(joinedBelow(bubbleOf(container, "a-1"))).toBe(true);
+				expect(joinedAbove(bubbleOf(container, "a-2"))).toBe(true);
+			});
+		});
+
 		it("puts a question that is not stamped yet on the streaming segment, and only one of this chat", () => {
 			const messages = [
 				row("u-1", "user", "Plan dad's 60th"),

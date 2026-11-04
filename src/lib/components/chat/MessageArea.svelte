@@ -921,6 +921,37 @@ let contextCompressionMarkersBySourceEndMessageId = $derived(
 	}, new Map<string, ContextCompressionMarker[]>()),
 );
 
+// The rows of one reply are drawn close together: the continuation pulls up over the
+// thread's gap (`-mt-lg`, the token the thread spaces its rows with) and the row above
+// it gives up its bottom padding (`pb-0`). That works only while this area draws nothing
+// of its own between the two rows, because a negative margin would pull that up with
+// it; when it does, both rows keep their normal spacing. These are the ids of the rows
+// drawn up against the row below them.
+let joinedToNext = $derived.by(() => {
+	const ids = new Set<string>();
+	for (const [index, message] of dedupedMessages.entries()) {
+		const next = dedupedMessages[index + 1];
+		if (!next || !replyPlaces.get(next.id)?.continuesAbove) continue;
+		if (!drawsBetween(message, index + 1)) ids.add(message.id);
+	}
+	return ids;
+});
+
+/**
+ * Whether this area draws a row of its own between `upper` and the row at `lowerIndex`:
+ * the import boundary above the lower row, or what hangs under the upper one (an
+ * instruction offer, the fork boundary, a compression marker). Keep it in step with the
+ * rows drawn around a bubble in the template.
+ */
+function drawsBetween(upper: ChatMessage, lowerIndex: number): boolean {
+	return (
+		shouldShowImportBoundary(dedupedMessages, lowerIndex) ||
+		(!isIncognito && pendingInstructionSuggestions(upper).length > 0) ||
+		forkOrigin?.copiedForkPointMessageId === upper.id ||
+		contextCompressionMarkersBySourceEndMessageId.has(upper.id)
+	);
+}
+
 function getFileProductionJobsForMessage(
 	message: ChatMessage,
 ): FileProductionJob[] {
@@ -1278,6 +1309,8 @@ async function scrollToMessage(messageId: string) {
 					{imageCards}
 					{onImageAction}
 					replyPlace={place}
+					joinedAbove={i > 0 && joinedToNext.has(dedupedMessages[i - 1].id)}
+					joinedBelow={joinedToNext.has(message.id)}
 					askQuestion={place?.question ?? null}
 					askState={place?.question ? askActionState[place.question.id] : undefined}
 					{onAnswerQuestion}

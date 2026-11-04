@@ -4264,6 +4264,80 @@ describe("MessageBubble", () => {
 			expect(writeText).toHaveBeenLastCalledWith(SECOND_WORDS);
 		});
 
+		describe("spacing between the segments of a reply", () => {
+			const continuation = () =>
+				segment({
+					id: "assistant-seg-2",
+					renderKey: "assistant-seg-2",
+					continuesMessageId: "assistant-seg-1",
+				});
+
+			it("pulls a joined continuation up over the thread's gap, and takes the bottom padding off a segment joined to the next", async () => {
+				const { rerender } = render(MessageBubble, {
+					message: continuation(),
+					replyPlace: place({ continuesAbove: true }),
+					joinedAbove: true,
+				});
+
+				// `-mt-lg` cancels the area's `gap-lg` above it, `pt-0` is its own top padding.
+				expect(rootOf()).toHaveClass("pt-0");
+				expect(rootOf()).toHaveClass("-mt-lg");
+				expect(rootOf()).not.toHaveClass("pb-0");
+
+				// The segment above it is the one that gives up its bottom padding.
+				await rerender({
+					message: segment(),
+					replyPlace: place({ continuedBelow: true }),
+					joinedAbove: false,
+					joinedBelow: true,
+				});
+				expect(rootOf()).toHaveClass("pb-0");
+				expect(rootOf()).not.toHaveClass("-mt-lg");
+				expect(rootOf()).not.toHaveClass("pt-0");
+
+				// A segment in the middle of a reply is joined on both sides.
+				await rerender({
+					replyPlace: place({ continuesAbove: true, continuedBelow: true }),
+					joinedAbove: true,
+					joinedBelow: true,
+				});
+				expect(rootOf()).toHaveClass("pt-0");
+				expect(rootOf()).toHaveClass("-mt-lg");
+				expect(rootOf()).toHaveClass("pb-0");
+			});
+
+			it("keeps the normal spacing of a segment the area did not join, bar the top padding of a continuation", async () => {
+				// Something else is drawn between this continuation and the segment above:
+				// a negative margin would pull that up with it, so there is none.
+				const { rerender } = render(MessageBubble, {
+					message: continuation(),
+					replyPlace: place({ continuesAbove: true }),
+					joinedAbove: false,
+				});
+
+				expect(rootOf()).toHaveClass("pt-0");
+				expect(rootOf()).not.toHaveClass("-mt-lg");
+				expect(rootOf()).toHaveClass("py-md");
+
+				await rerender({
+					message: segment(),
+					replyPlace: place({ continuedBelow: true }),
+					joinedBelow: false,
+				});
+				expect(rootOf()).not.toHaveClass("pb-0");
+				expect(rootOf()).toHaveClass("py-md");
+			});
+
+			it("leaves a message that is no part of a reply in segments with its plain spacing", () => {
+				render(MessageBubble, { message: segment(), replyPlace: place() });
+
+				for (const spacing of ["pt-0", "-mt-lg", "pb-0"]) {
+					expect(rootOf()).not.toHaveClass(spacing);
+				}
+				expect(rootOf()).toHaveClass("py-md");
+			});
+		});
+
 		describe("the card in the segment", () => {
 			async function renderWaitingCard(
 				props: Partial<ComponentProps<typeof MessageBubble>> = {},

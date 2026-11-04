@@ -134,6 +134,8 @@ let {
 	imageCards = [],
 	onImageAction = undefined,
 	replyPlace = undefined,
+	joinedAbove = false,
+	joinedBelow = false,
 	askQuestion = null,
 	askState = undefined,
 	onAnswerQuestion = undefined,
@@ -235,6 +237,16 @@ let {
 	 * Absent: a row of its own, as every message was before questions.
 	 */
 	replyPlace?: ReplyPlace | undefined;
+	/**
+	 * The area draws this row right up against the row above it (`joinedAbove`) or the
+	 * row below it (`joinedBelow`) as the segments of one reply, with nothing of its own
+	 * between them: the row pulls up over the thread's gap (`-mt-lg`, the `gap-lg` token
+	 * the thread spaces its rows with), or gives up its bottom padding (`pb-0`). Said by
+	 * the area, which knows what else it draws between rows (an instruction offer, a
+	 * marker): a negative margin would pull that up with it.
+	 */
+	joinedAbove?: boolean;
+	joinedBelow?: boolean;
 	/**
 	 * The question this segment asked, drawn below everything the segment said or
 	 * made: a card while it waits for the person, then its folded line. `null` when
@@ -1145,8 +1157,12 @@ function sendFollowUp(question: string) {
 </script>
 
 <!-- A segment that carries on a reply has no gap of its own above it (`pt-0`): it follows the
-     one above as the next part of the same reply. -->
-<div class="group flex w-full flex-col {isUser ? 'items-end' : 'items-start'} gap-md py-md {continuesAbove ? 'pt-0' : ''} fade-in">
+     one above as the next part of the same reply. When the area says nothing else is drawn
+     between the two, it also pulls up over the thread's gap (`-mt-lg` cancels the area's
+     `gap-lg`, the same token) and the segment above gives up its bottom padding (`pb-0`),
+     so a folded line and the words that carry on from it are about 18 px apart, near the
+     mockup's 12, and not the 58 px that the paddings and the gap would leave. -->
+<div class="group flex w-full flex-col {isUser ? 'items-end' : 'items-start'} gap-md py-md {continuesAbove ? 'pt-0' : ''} {joinedAbove ? '-mt-lg' : ''} {joinedBelow ? 'pb-0' : ''} fade-in">
 	<div
 		id={`message-${message.id}`}
 		data-message-id={message.id}
