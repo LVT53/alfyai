@@ -2859,6 +2859,62 @@ export const connectionPendingWrites = sqliteTable(
 	}),
 );
 
+// "Ask me first" (docs/plans/ask-me-first, design 5.4): the questions a reply
+// stopped to ask. One row per `ask_user` call that paused a reply. Status
+// lifecycle: `waiting` -> (claimed atomically by an answer) -> `answering` ->
+// `answered` | `closed`; `answering` -> `waiting` again when the resume did not
+// land (the answer is kept); `waiting` -> `discarded` for a question that was
+// never saved with its reply. `assistantMessageId` is null until the asking
+// segment is saved, and only a row with one can be claimed. `resumeJson` is
+// what the resume needs to carry the same reply on (`AskResumeCapture` in
+// chat-turn/ask-questions.ts), written in the same UPDATE that stamps the
+// message id and cleared when the question settles or is discarded. The rows
+// go with the chat, with the asking message and with the person.
+export const askQuestions = sqliteTable(
+	"ask_questions",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		assistantMessageId: text("assistant_message_id").references(
+			() => messages.id,
+			{ onDelete: "cascade" },
+		),
+		toolCallId: text("tool_call_id").notNull(),
+		questionsJson: text("questions_json").notNull(),
+		// The enum narrows the TypeScript type only; the column holds any text.
+		status: text("status", {
+			enum: ["waiting", "answering", "answered", "closed", "discarded"],
+		})
+			.notNull()
+			.default("waiting"),
+		answerJson: text("answer_json"),
+		resumeJson: text("resume_json"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		answeredAt: integer("answered_at", { mode: "timestamp" }),
+		settledAt: integer("settled_at", { mode: "timestamp" }),
+	},
+	(table) => ({
+		conversationCreatedIdx: index("ask_questions_conversation_created_idx").on(
+			table.conversationId,
+			table.createdAt,
+		),
+		assistantMessageIdx: index("ask_questions_assistant_message_idx").on(
+			table.assistantMessageId,
+		),
+		userStatusIdx: index("ask_questions_user_status_idx").on(
+			table.userId,
+			table.status,
+		),
+	}),
+);
+
 // On-demand routing coverage (map_route). One row per Geofabrik extract the
 // region manager knows about: the legacy fixed ORS instance (managed = false,
 // never started/stopped by the app) and every region downloaded and built on

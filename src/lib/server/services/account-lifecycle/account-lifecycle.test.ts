@@ -773,6 +773,17 @@ function seedEveryUserScopedTable(userId: string) {
 			createdAt: now,
 		})
 		.run();
+	db.insert(schema.askQuestions)
+		.values({
+			id: p("ask-question"),
+			userId,
+			conversationId: p("conv"),
+			assistantMessageId: p("msg"),
+			toolCallId: p("ask-call"),
+			questionsJson: "[]",
+			createdAt: now,
+		})
+		.run();
 	db.insert(schema.campaignAssets)
 		.values({
 			id: p("asset"),
@@ -842,6 +853,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"artifact_tour_states",
 				"artifact_versions",
 				"artifacts",
+				"ask_questions",
 				"atlas_jobs",
 				"browser_push_subscriptions",
 				"campaign_assets",

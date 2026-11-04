@@ -102,6 +102,7 @@ const requiredExistingTables = [
 	"personality_profiles",
 	"user_connections",
 	"connection_pending_writes",
+	"ask_questions",
 	"user_second_factors",
 	"user_backup_codes",
 	"sign_in_challenges",

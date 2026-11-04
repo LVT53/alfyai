@@ -1,0 +1,533 @@
+import { randomUUID } from "node:crypto";
+import type { ModelMessage } from "ai";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { db } from "$lib/server/db";
+import { askQuestions } from "$lib/server/db/schema";
+import {
+	type AskAnswer,
+	type AskQuestion,
+	type AskQuestionDto,
+	type AskQuestionStatus,
+	parseAskAnswer,
+	parseAskQuestions,
+} from "$lib/shared/ask-user";
+import { getOrphanedStream } from "./active-streams";
+import type { HistoryToolDigest } from "./conversation-history";
+
+// The questions Alfy stops a reply to ask ("Ask me first", docs/plans/ask-me-first,
+// design 5.4 and 5.5): the question, the person's answer, and what the resume
+// needs to carry the same reply on. The table is `ask_questions`.
+//
+// A question's status moves like this:
+//   waiting   -> answering            an answer claimed it (claimAskQuestion)
+//   answering -> waiting              the resume did not land; the answer stays
+//                                     on the row (releaseAskQuestion)
+//   answering -> answered | closed    the resume's segment was saved
+//                                     (settleAskQuestion; closed is the X)
+//   waiting   -> discarded            the reply never saved it (the discard calls)
+// A question has no asking row (`assistant_message_id`) until the asking
+// segment is saved; stampAskQuestion then writes the row and the capture in one
+// UPDATE, and only a stamped question can be claimed.
+//
+// Every statement below is synchronous (better-sqlite3), so no function yields
+// to another in the middle of its work. The functions are `async` only so that
+// callers `await` them as they would any store.
+
+export type AskQuestionRow = typeof askQuestions.$inferSelect;
+
+/** One tool result of the paused segment, kept so a resume can gate it for each model attempt. */
+export type AskCapturedResult = {
+	toolCallId: string;
+	toolName: string;
+	/** A local model already summarised the result held in `messages`. */
+	localDistilled: boolean;
+	digest: HistoryToolDigest;
+};
+
+/**
+ * What a resume needs: what follows the person's message in the model input
+ * (the reply so far, tool results in full), and one row for each tool result.
+ */
+export type AskResumeCapture = {
+	v: 1;
+	messages: ModelMessage[];
+	results: AskCapturedResult[];
+};
+
+export type AskClaimResult =
+	| { ok: true; row: AskQuestionRow }
+	| { ok: false; reason: "not_found" | "not_waiting" };
+
+// The ids of the questions whose resume is running in this process. A row that
+// says `answering` cannot tell whether a resume stands behind it: a restart or a
+// crash leaves such rows with nothing behind them. This set tells.
+//
+// A won claim adds its id in the same synchronous step as its UPDATE; release
+// and settle always take it out; a restart empties it. A claim releases an
+// `answering` row only when its id is not in the set, so a second device's
+// answer can never undo a first one whose stream has not registered yet: the
+// route prepares the turn between the claim and the stream, and the chat's
+// stream registry (`getOrphanedStream`) says nothing in that window.
+//
+// Every path after a won claim must end in a release or a settle (the route's
+// errors and throws, the orchestrator's `finally`), or the chat would refuse new
+// messages, with no card to answer, until a restart.
+const liveResumes = new Set<string>();
+
+// --- writing ----------------------------------------------------------------
+
+/** Records a question the model just asked: waiting, with no asking row yet. */
+export async function recordAskQuestion(p: {
+	userId: string;
+	conversationId: string;
+	toolCallId: string;
+	questions: AskQuestion[];
+}): Promise<{ id: string }> {
+	const id = randomUUID();
+	db.insert(askQuestions)
+		.values({
+			id,
+			userId: p.userId,
+			conversationId: p.conversationId,
+			toolCallId: p.toolCallId,
+			questionsJson: JSON.stringify(p.questions),
+		})
+		.run();
+	return { id };
+}
+
+/**
+ * Ties a question to the row that asked it, in the same UPDATE that keeps the
+ * capture for the resume. Only an unstamped waiting question is stamped, so a
+ * second stamp, or a stamp that comes after a discard, changes nothing and
+ * answers false.
+ */
+export async function stampAskQuestion(p: {
+	userId: string;
+	questionId: string;
+	assistantMessageId: string;
+	capture: AskResumeCapture;
+}): Promise<boolean> {
+	const stamped = db
+		.update(askQuestions)
+		.set({
+			assistantMessageId: p.assistantMessageId,
+			resumeJson: JSON.stringify(p.capture),
+		})
+		.where(
+			and(
+				eq(askQuestions.id, p.questionId),
+				eq(askQuestions.userId, p.userId),
+				eq(askQuestions.status, "waiting"),
+				isNull(askQuestions.assistantMessageId),
+			),
+		)
+		.run();
+	return stamped.changes === 1;
+}
+
+/** Discards a question the reply never saved (a turn that ended without saving, or was stopped). */
+export async function discardAskQuestion(p: {
+	userId: string;
+	questionId: string;
+}): Promise<void> {
+	db.update(askQuestions)
+		.set({ status: "discarded", settledAt: new Date(), resumeJson: null })
+		.where(
+			and(
+				eq(askQuestions.id, p.questionId),
+				eq(askQuestions.userId, p.userId),
+				eq(askQuestions.status, "waiting"),
+				isNull(askQuestions.assistantMessageId),
+			),
+		)
+		.run();
+}
+
+/**
+ * The sweep at a turn's start: discards the chat's questions that were never
+ * saved with a reply (a crash left them). Answers how many it discarded.
+ */
+export async function discardStaleAskQuestions(p: {
+	userId: string;
+	conversationId: string;
+}): Promise<number> {
+	const discarded = db
+		.update(askQuestions)
+		.set({ status: "discarded", settledAt: new Date(), resumeJson: null })
+		.where(
+			and(
+				eq(askQuestions.userId, p.userId),
+				eq(askQuestions.conversationId, p.conversationId),
+				eq(askQuestions.status, "waiting"),
+				isNull(askQuestions.assistantMessageId),
+			),
+		)
+		.run();
+	return discarded.changes;
+}
+
+// --- the answer -------------------------------------------------------------
+
+/** One question of a person's chat, in whatever state it is; null when there is none. */
+export async function getAskQuestion(p: {
+	userId: string;
+	conversationId: string;
+	questionId: string;
+}): Promise<AskQuestionRow | null> {
+	const row = db
+		.select()
+		.from(askQuestions)
+		.where(
+			and(
+				eq(askQuestions.id, p.questionId),
+				eq(askQuestions.userId, p.userId),
+				eq(askQuestions.conversationId, p.conversationId),
+			),
+		)
+		.get();
+	return row ?? null;
+}
+
+/**
+ * Claims a waiting question for an answer, so that one answer wins across
+ * devices and double taps. The caller has checked the answer against the
+ * questions (`checkAskAnswer`). A won claim writes the answer and leaves the
+ * question `answering`, with its id in the live-resume set: the caller owes it a
+ * release or a settle. A claim that loses answers `not_waiting`; `not_found`
+ * means this person has no such question in this chat.
+ */
+export async function claimAskQuestion(p: {
+	userId: string;
+	conversationId: string;
+	questionId: string;
+	answer: AskAnswer;
+}): Promise<AskClaimResult> {
+	const question = and(
+		eq(askQuestions.id, p.questionId),
+		eq(askQuestions.userId, p.userId),
+		eq(askQuestions.conversationId, p.conversationId),
+	);
+
+	// This block has no `await` in it, and must stay so. The check of the
+	// live-resume set, the release of a stale row, the claim UPDATE and the set
+	// add run as one step for every caller in this process, because nothing else
+	// can run between two synchronous statements. An `await` between one claim's
+	// UPDATE and its set add would let a second claim see the row `answering`
+	// with no resume live for it and release it; both devices would then win and
+	// each start a resume.
+	if (!liveResumes.has(p.questionId)) {
+		// `answering` with no resume behind it: a restart or a crash left it
+		db.update(askQuestions)
+			.set({ status: "waiting" })
+			.where(and(question, eq(askQuestions.status, "answering")))
+			.run();
+	}
+	const won: AskQuestionRow | undefined = db
+		.update(askQuestions)
+		.set({
+			status: "answering",
+			answerJson: JSON.stringify(p.answer),
+			answeredAt: new Date(),
+		})
+		.where(
+			and(
+				question,
+				eq(askQuestions.status, "waiting"),
+				isNotNull(askQuestions.assistantMessageId),
+			),
+		)
+		.returning()
+		.get();
+	if (won) {
+		liveResumes.add(p.questionId);
+		return { ok: true, row: won };
+	}
+	const exists = db
+		.select({ id: askQuestions.id })
+		.from(askQuestions)
+		.where(question)
+		.get();
+	return { ok: false, reason: exists ? "not_waiting" : "not_found" };
+}
+
+/**
+ * The resume did not land: puts the question back to waiting, the answer kept,
+ * so the card comes back with it. Takes the id out of the live-resume set
+ * whether or not a row changed. True when a row changed.
+ */
+export async function releaseAskQuestion(p: {
+	userId: string;
+	questionId: string;
+}): Promise<boolean> {
+	liveResumes.delete(p.questionId);
+	const released = db
+		.update(askQuestions)
+		.set({ status: "waiting" })
+		.where(
+			and(
+				eq(askQuestions.id, p.questionId),
+				eq(askQuestions.userId, p.userId),
+				eq(askQuestions.status, "answering"),
+			),
+		)
+		.run();
+	return released.changes > 0;
+}
+
+/**
+ * The resume's segment was saved: the question is `answered`, or `closed` when
+ * the answer was the X, and the capture is dropped. Takes the id out of the
+ * live-resume set whether or not a row changed. Answers the settled row (which
+ * still holds the answer), or null when no question was answering.
+ */
+export async function settleAskQuestion(p: {
+	userId: string;
+	questionId: string;
+}): Promise<AskQuestionRow | null> {
+	liveResumes.delete(p.questionId);
+	const answering = and(
+		eq(askQuestions.id, p.questionId),
+		eq(askQuestions.userId, p.userId),
+		eq(askQuestions.status, "answering"),
+	);
+	const row = db.select().from(askQuestions).where(answering).get();
+	if (!row) return null;
+	const settled: AskQuestionRow | undefined = db
+		.update(askQuestions)
+		.set({
+			status:
+				readAnswer(row.answerJson)?.kind === "closed" ? "closed" : "answered",
+			resumeJson: null,
+			settledAt: new Date(),
+		})
+		.where(answering)
+		.returning()
+		.get();
+	return settled ?? null;
+}
+
+// --- the capture ------------------------------------------------------------
+
+const MESSAGE_ROLES = new Set(["system", "user", "assistant", "tool"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isModelMessage(value: unknown): value is ModelMessage {
+	return (
+		isRecord(value) &&
+		typeof value.role === "string" &&
+		MESSAGE_ROLES.has(value.role) &&
+		(typeof value.content === "string" || Array.isArray(value.content))
+	);
+}
+
+function isDigest(value: unknown): value is HistoryToolDigest {
+	if (!isRecord(value)) return false;
+	if (typeof value.ok !== "boolean" || typeof value.summary !== "string") {
+		return false;
+	}
+	if (value.detail !== undefined && typeof value.detail !== "string") {
+		return false;
+	}
+	return (
+		value.sources === undefined ||
+		(Array.isArray(value.sources) &&
+			value.sources.every(
+				(source) =>
+					isRecord(source) &&
+					typeof source.title === "string" &&
+					(source.url === undefined || typeof source.url === "string"),
+			))
+	);
+}
+
+function isCapturedResult(value: unknown): value is AskCapturedResult {
+	return (
+		isRecord(value) &&
+		typeof value.toolCallId === "string" &&
+		typeof value.toolName === "string" &&
+		typeof value.localDistilled === "boolean" &&
+		isDigest(value.digest)
+	);
+}
+
+function isCapture(value: unknown): value is AskResumeCapture {
+	return (
+		isRecord(value) &&
+		value.v === 1 &&
+		Array.isArray(value.messages) &&
+		value.messages.every(isModelMessage) &&
+		Array.isArray(value.results) &&
+		value.results.every(isCapturedResult)
+	);
+}
+
+/** JSON.parse that answers undefined, which no reader accepts, for text that is not JSON. */
+function parseJson(text: string): unknown {
+	try {
+		return JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+}
+
+/** What a stamped question kept for its resume; null when nothing is kept or it is not whole. */
+export function readAskCapture(row: AskQuestionRow): AskResumeCapture | null {
+	if (row.resumeJson === null) return null;
+	const value = parseJson(row.resumeJson);
+	return isCapture(value) ? value : null;
+}
+
+// --- reading ----------------------------------------------------------------
+
+function readAnswer(json: string | null): AskAnswer | null {
+	return json === null ? null : parseAskAnswer(parseJson(json));
+}
+
+/** How a row's status reads to the browser; null for a row it is not shown. */
+function shownStatus(
+	row: AskQuestionRow,
+	streamRuns: boolean,
+): AskQuestionStatus | null {
+	switch (row.status) {
+		case "waiting":
+			// Unsaved, the question belongs to a reply still being written: it shows
+			// while that stream runs and is gone with the stream.
+			return row.assistantMessageId === null && !streamRuns ? null : "waiting";
+		case "answering":
+			// With no resume live for it (a restart, a crash) it reads as waiting,
+			// carrying the answer that did not go through.
+			return liveResumes.has(row.id) ? "answering" : "waiting";
+		case "answered":
+		case "closed":
+			return row.status;
+		default:
+			return null; // discarded
+	}
+}
+
+function toDto(
+	row: AskQuestionRow,
+	streamRuns: boolean,
+): AskQuestionDto | null {
+	const status = shownStatus(row, streamRuns);
+	if (status === null) return null;
+	const questions = parseAskQuestions(parseJson(row.questionsJson));
+	const answer = readAnswer(row.answerJson);
+	if (questions === null || (row.answerJson !== null && answer === null)) {
+		// One row nobody can read must not fail the person's whole list. It is
+		// named by its id: the questions and the answer are the person's words.
+		console.warn("[ASK_QUESTIONS] Skipped a question that cannot be read", {
+			id: row.id,
+		});
+		return null;
+	}
+	return {
+		id: row.id,
+		conversationId: row.conversationId,
+		assistantMessageId: row.assistantMessageId,
+		toolCallId: row.toolCallId,
+		questions,
+		status,
+		answer,
+		createdAt: row.createdAt.getTime(),
+	};
+}
+
+/**
+ * A chat's questions for the browser, in the order they were asked. Never a
+ * discarded one, and never a question the reply has not saved once its stream
+ * is gone; an `answering` question with no resume live reads as `waiting`,
+ * with the answer that did not go through. Never the capture.
+ */
+export async function listConversationAskQuestions(p: {
+	userId: string;
+	conversationId: string;
+}): Promise<AskQuestionDto[]> {
+	const rows = db
+		.select()
+		.from(askQuestions)
+		.where(
+			and(
+				eq(askQuestions.userId, p.userId),
+				eq(askQuestions.conversationId, p.conversationId),
+			),
+		)
+		// A reply can ask twice in one second: the insert order settles it
+		.orderBy(asc(askQuestions.createdAt), sql`rowid`)
+		.all();
+	const streamRuns =
+		getOrphanedStream({
+			userId: p.userId,
+			conversationId: p.conversationId,
+		}) !== null;
+	return rows.flatMap((row) => {
+		const dto = toDto(row, streamRuns);
+		return dto ? [dto] : [];
+	});
+}
+
+/**
+ * Which of these chats the sidebar marks as waiting for an answer: those with a
+ * saved question that waits, or that is `answering` with no resume live for it
+ * (its card is back). It reads the person's open questions, which are few, and
+ * keeps those in the chats asked about, so a long list of chat ids never
+ * reaches the query.
+ */
+export async function listWaitingAskConversationIds(p: {
+	userId: string;
+	conversationIds: readonly string[];
+}): Promise<Set<string>> {
+	const marked = new Set<string>();
+	if (p.conversationIds.length === 0) return marked;
+	const asked = new Set(p.conversationIds);
+	const open = db
+		.select({
+			id: askQuestions.id,
+			conversationId: askQuestions.conversationId,
+			status: askQuestions.status,
+		})
+		.from(askQuestions)
+		.where(
+			and(
+				eq(askQuestions.userId, p.userId),
+				isNotNull(askQuestions.assistantMessageId),
+				inArray(askQuestions.status, ["waiting", "answering"]),
+			),
+		)
+		.all();
+	for (const row of open) {
+		if (!asked.has(row.conversationId)) continue;
+		if (row.status === "answering" && liveResumes.has(row.id)) continue;
+		marked.add(row.conversationId);
+	}
+	return marked;
+}
+
+/**
+ * Whether the chat holds a saved question that waits or answers: the reason a
+ * new message is refused. An answering question counts whether or not its
+ * resume is live: the reply is on its way, or its card is back.
+ */
+export async function hasWaitingAskQuestion(p: {
+	userId: string;
+	conversationId: string;
+}): Promise<boolean> {
+	const row = db
+		.select({ id: askQuestions.id })
+		.from(askQuestions)
+		.where(
+			and(
+				eq(askQuestions.userId, p.userId),
+				eq(askQuestions.conversationId, p.conversationId),
+				isNotNull(askQuestions.assistantMessageId),
+				inArray(askQuestions.status, ["waiting", "answering"]),
+			),
+		)
+		.limit(1)
+		.get();
+	return row !== undefined;
+}

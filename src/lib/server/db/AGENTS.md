@@ -18,6 +18,7 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
 - `sessions` - Cookie session storage
 - `conversations` - Chat threads with optional project linking and durable sidebar pin/order state
 - `messages` - Chat turns with thinking/tool call metadata
+- `ask_questions` - The questions a reply asked, its captured continuation, cascades with the chat and the asking row
 
 **Knowledge Tables:**
 - `artifacts` - Files, generated outputs, work capsules with retrieval class

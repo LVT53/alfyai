@@ -10,6 +10,7 @@ import {
 	artifacts,
 	artifactTourStates,
 	artifactVersions,
+	askQuestions,
 	atlasJobs,
 	browserPushSubscriptions,
 	campaignAssets,
@@ -501,6 +502,17 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "connection_pending_writes",
 		table: connectionPendingWrites,
 		userColumn: connectionPendingWrites.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	// "Ask me first": the questions a reply stopped to ask, with the answer and
+	// what the resume needs. They belong to a chat, so they cascade with it, with
+	// the asking message and with the person; no reset scope of their own, as for
+	// the pending writes above (Clear Workspace deletes the chats they hang on).
+	{
+		name: "ask_questions",
+		table: askQuestions,
+		userColumn: askQuestions.userId,
 		erasure: "cascade",
 		resets: [],
 	},
