@@ -382,7 +382,8 @@ function takeKey(event: KeyboardEvent) {
 									oninput={(event) => typeInLine(index, event.currentTarget.value)}
 									onkeydown={pressInLine}
 								/>
-								{#if !many}
+								<!-- The line's own Send is for a card with none in its footer; Enter sends a one-question card either way. -->
+								{#if !needsSend}
 									<button
 										type="button"
 										class="mini-send"

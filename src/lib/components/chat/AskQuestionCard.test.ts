@@ -409,6 +409,42 @@ describe("AskQuestionCard", () => {
 			expect(onAnswer).toHaveBeenCalledWith("q-1", answered(pick(2)));
 		});
 
+		it("draws one Send on a one-question card that takes several picks", async () => {
+			const { onAnswer } = await renderCard(dto([WHO]));
+			await fireEvent.click(screen.getByTestId("ask-own-row"));
+			const line = screen.getByRole("textbox");
+			await fireEvent.input(line, { target: { value: "Just the two of us" } });
+
+			// The footer has the Send, so the open line has none of its own: two buttons
+			// named Send side by side would be one action twice.
+			expect(screen.getAllByRole("button", { name: "Send" })).toHaveLength(1);
+			expect(screen.queryByTestId("ask-line-send")).toBeNull();
+			expect(button("Send")).toBeEnabled();
+
+			// Enter in the line still sends a one-question card, and so does that Send.
+			await fireEvent.keyDown(line, { key: "Enter" });
+			expect(onAnswer).toHaveBeenCalledTimes(1);
+			expect(onAnswer).toHaveBeenCalledWith(
+				"q-1",
+				answered(own("Just the two of us")),
+			);
+		});
+
+		it("sends from the footer's Send a one-question card that takes several picks, own words and all", async () => {
+			const { onAnswer } = await renderCard(dto([WHO]));
+			await fireEvent.click(screen.getByTestId("ask-own-row"));
+			await fireEvent.input(screen.getByRole("textbox"), {
+				target: { value: "Just the two of us" },
+			});
+
+			await fireEvent.click(button("Send"));
+
+			expect(onAnswer).toHaveBeenCalledWith(
+				"q-1",
+				answered(own("Just the two of us")),
+			);
+		});
+
 		it("answers left_to_alfy for Up to you and closed for the X", async () => {
 			const one = await renderCard(dto([WAY]));
 			await fireEvent.click(button("Up to you"));
