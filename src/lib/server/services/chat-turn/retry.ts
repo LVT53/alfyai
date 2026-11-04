@@ -23,7 +23,7 @@ import { preflightChatTurn, resolveAppliedSkill } from "./preflight";
 import { parseChatTurnRequest, parsePendingSkill } from "./request";
 import { cleanupFailedTurn } from "./retry-cleanup";
 import type { StreamOrchestratorOptions } from "./stream-orchestrator";
-import type { ChatTurnRequestError } from "./types";
+import type { ChatTurnPreflight, ChatTurnRequestError } from "./types";
 
 const FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE =
 	"forked_source_history_confirmation_required";
@@ -160,37 +160,26 @@ export async function prepareRetryChatTurn(params: {
 		);
 	}
 
-	// The user's own choices for the turn being regenerated, read off the
-	// assistant message this retry replaces BEFORE `deleteMessages` below drops
-	// it. `conversationMessages` came from a conversation this user owns
+	// What the person chose for the turn being regenerated, read BEFORE the
+	// cleanup and `deleteMessages` below drop the reply it comes from (the
+	// helper's own comments say what is read and why it must come first).
+	// `conversationMessages` came from a conversation this user owns
 	// (`getConversation` above) filtered to `conversationId`, so a record
-	// belonging to another user or another conversation is never in reach.
-	// Absent (a message persisted before the record existed) and malformed both
-	// read as "the user chose nothing" — a plain retry. A reply that is already
-	// gone took its record with it: then the browser's own memory of the turn is
-	// read instead, by the same reader, so a skill deleted since is still dropped
-	// below. A reply that is there never lets the browser say what the user chose.
-	const recordedUserIntent = assistantMsg
-		? readRecordedUserIntent(assistantMsg.metadataJson)
-		: parseMessageUserIntent(userIntent);
-
-	// Probe the recorded skill BEFORE preflight, and drop it when it no longer
-	// resolves: a fresh send with an unavailable `pendingSkill` is rightly
-	// refused with 409 `pending_skill_unavailable`, but a regenerate of an older
-	// turn must not start failing because the user has since deleted or disabled
-	// that skill. Only the drop decision is made here; a skill that survives is
-	// handed to preflight as an ordinary `pendingSkill` and resolved there
-	// again, so the turn is assembled by exactly one code path (the send path's)
-	// and against the request's own normalized message.
-	//
-	// Done before the cleanup/delete below rather than after: this reads the
-	// skill tables, and a failure there must not land after the retried turn's
-	// messages are already gone, leaving the conversation short an answer it
-	// cannot regenerate.
-	const retryPendingSkill = await resolveRetryPendingSkill({
+	// belonging to another user or another conversation is never in reach. A
+	// reply that is there never lets the browser say what the user chose, so its
+	// `userIntent` is passed on only for a reply that is already gone.
+	const choices = await resolveStoredTurnChoices({
 		userId,
-		skill: recordedUserIntent?.skill,
-		requestText: precedingUserMsg.content,
+		conversationId,
+		userMessage: precedingUserMsg,
+		replyMetadataJson: assistantMsg?.metadataJson ?? null,
+		body: {
+			attachmentIds,
+			pictureRefs,
+			imageMarks,
+			activeDocumentArtifactId,
+			userIntent: assistantMsg ? undefined : userIntent,
+		},
 	});
 
 	// Nothing trails a reply that is gone, so there is no fork of it to ask about.
@@ -220,44 +209,6 @@ export async function prepareRetryChatTurn(params: {
 			}
 		}
 	}
-
-	const retryAttachmentIds = await resolveRetryAttachmentIds({
-		conversationId,
-		userMessageId: precedingUserMsg.id,
-		requestedAttachmentIds: attachmentIds,
-	});
-
-	// A regenerated turn keeps the pictures the person sent: when the browser
-	// does not resend them, they come back from the user message's record, under
-	// the numbers the person saw. Decided before anything is deleted, and only
-	// with what the person can still read: a picture deleted since, or marks on
-	// a picture that is no longer open, are left out and the reply is still
-	// regenerated.
-	const recordedPictures = recordedPictureRequest(
-		readRecordedPictures(precedingUserMsg.metadataJson),
-	);
-	const rebuilt =
-		pictureRefs === undefined || imageMarks === undefined
-			? await keepReadableRecordedPictures({
-					userId,
-					conversationId,
-					// Recorded marks must be judged against the refs this regenerate will
-					// really carry: the browser's when it resent them (maybe only some of
-					// the recorded ones), else the recorded ones.
-					refs:
-						explicitPictureRefs(pictureRefs) ?? recordedPictures.pictureRefs,
-					marks: recordedPictures.imageMarks,
-					attachmentIds: retryAttachmentIds,
-					openImageArtifactId:
-						typeof activeDocumentArtifactId === "string"
-							? activeDocumentArtifactId.trim()
-							: null,
-				})
-			: null;
-	const retryPictureRefs =
-		pictureRefs ??
-		(rebuilt?.pictureRefs.length ? rebuilt.pictureRefs : undefined);
-	const retryImageMarks = imageMarks ?? rebuilt?.imageMarks ?? undefined;
 
 	// A reply that is gone has nothing to clean up and nothing to delete: the
 	// attempt that took it cleaned up before it failed, and the user message is the
@@ -295,48 +246,27 @@ export async function prepareRetryChatTurn(params: {
 		return jsonError("No user message found to retry", 400);
 	}
 
-	const syntheticBody = buildSyntheticRetryBody({
+	const preflight = await preflightStoredTurn({
+		userId,
+		runtimeConfig,
 		conversationId,
 		message: precedingUserMsg.content,
-		activeDocumentArtifactId,
-		attachmentIds: retryAttachmentIds,
-		pictureRefs: retryPictureRefs,
-		imageMarks: retryImageMarks,
-		streamId,
-		model,
-		reasoningDepth,
-		personalityProfileId,
-		pendingSkill: retryPendingSkill,
-		forceWebSearch: recordedUserIntent?.webSearch === true,
+		choices,
+		body: {
+			activeDocumentArtifactId,
+			streamId,
+			model,
+			reasoningDepth,
+			personalityProfileId,
+		},
 	});
-	const syntheticRequest = new Request("https://internal", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(syntheticBody),
-	});
-
-	const parsedRequest = await parseChatTurnRequest(
-		syntheticRequest,
-		runtimeConfig,
-		"stream",
-	);
-	if (!parsedRequest.ok) {
-		return streamError(parsedRequest.error);
-	}
-
-	const preflight = await preflightChatTurn({
-		userId,
-		request: parsedRequest.value,
-	});
-	if (!preflight.ok) {
-		return streamError(preflight.error);
-	}
+	if (!preflight.ok) return preflight;
 
 	// Stamped here, after parsing, rather than carried in the synthetic body:
 	// this route is what makes a turn a regenerate, so no client body on
 	// /api/chat/stream can claim one.
 	const turn = {
-		...preflight.value,
+		...preflight.turn,
 		turnOrigin: parseRetryOrigin(retryOrigin),
 	};
 	const upstreamMessage = turn.normalizedMessage;
@@ -354,6 +284,185 @@ export async function prepareRetryChatTurn(params: {
 			},
 		},
 	};
+}
+
+/**
+ * What the person chose for a turn that runs again on a message that is already
+ * stored: the skill and the forced web search they chose, and the uploads and
+ * pictures the message carried. Read from the records the first run left, and
+ * handed to `preflightStoredTurn`, so a regenerate and the resume of a reply that
+ * asked ("Ask me first") rebuild the person's message the same way.
+ */
+export type StoredTurnChoices = {
+	pendingSkill: PendingSkillSelection | null;
+	forceWebSearch: boolean;
+	attachmentIds: string[];
+	pictureRefs: unknown;
+	imageMarks: unknown;
+};
+
+/**
+ * Reads the person's choices for a stored turn: `replyMetadataJson` is the raw
+ * metadata of the reply the turn produced, and `userMessage` is the message it
+ * answers. It only reads, and a caller that is about to delete the reply (a
+ * retry) reads first: a failure here, in the skill tables, must not land after the
+ * turn's messages are already gone, leaving the conversation short an answer it
+ * cannot regenerate.
+ *
+ * The user's own turn choices (composer-applied skill, forced `/web`) survive only
+ * as the reply's `userIntent` record. Absent (a message persisted before the record
+ * existed) and malformed both read as "the user chose nothing": a plain turn. A
+ * reply that is already gone took its record with it: then the browser's own
+ * memory of the turn (`body.userIntent`) is read instead, by the same reader, so a
+ * skill deleted since is still dropped below. A caller whose reply is there passes
+ * no `userIntent`: a reply that is there never lets the browser say what the user
+ * chose.
+ *
+ * Probes the recorded skill BEFORE preflight, and drops it when it no longer
+ * resolves: a fresh send with an unavailable `pendingSkill` is rightly refused with
+ * 409 `pending_skill_unavailable`, but a regenerate of an older turn must not start
+ * failing because the user has since deleted or disabled that skill. Only the drop
+ * decision is made here; a skill that survives is handed to preflight as an
+ * ordinary `pendingSkill` and resolved there again, so the turn is assembled by
+ * exactly one code path (the send path's) and against the request's own normalized
+ * message.
+ *
+ * A regenerated turn keeps the pictures the person sent: when the browser does not
+ * resend them, they come back from the user message's record, under the numbers the
+ * person saw, and only with what the person can still read: a picture deleted
+ * since, or marks on a picture that is no longer open, are left out and the reply
+ * is still regenerated.
+ */
+export async function resolveStoredTurnChoices(p: {
+	userId: string;
+	conversationId: string;
+	userMessage: { id: string; content: string; metadataJson: string | null };
+	replyMetadataJson: string | null;
+	body: {
+		attachmentIds?: unknown;
+		pictureRefs?: unknown;
+		imageMarks?: unknown;
+		activeDocumentArtifactId?: unknown;
+		userIntent?: unknown;
+	};
+}): Promise<StoredTurnChoices> {
+	const { userId, conversationId, userMessage, body } = p;
+
+	const recordedUserIntent =
+		readRecordedUserIntent(p.replyMetadataJson) ??
+		parseMessageUserIntent(body.userIntent);
+
+	const pendingSkill = await resolveRetryPendingSkill({
+		userId,
+		skill: recordedUserIntent?.skill,
+		requestText: userMessage.content,
+	});
+
+	const attachmentIds = await resolveRetryAttachmentIds({
+		conversationId,
+		userMessageId: userMessage.id,
+		requestedAttachmentIds: body.attachmentIds,
+	});
+
+	const recordedPictures = recordedPictureRequest(
+		readRecordedPictures(userMessage.metadataJson),
+	);
+	const rebuilt =
+		body.pictureRefs === undefined || body.imageMarks === undefined
+			? await keepReadableRecordedPictures({
+					userId,
+					conversationId,
+					// Recorded marks must be judged against the refs this regenerate will
+					// really carry: the browser's when it resent them (maybe only some of
+					// the recorded ones), else the recorded ones.
+					refs:
+						explicitPictureRefs(body.pictureRefs) ??
+						recordedPictures.pictureRefs,
+					marks: recordedPictures.imageMarks,
+					attachmentIds,
+					openImageArtifactId:
+						typeof body.activeDocumentArtifactId === "string"
+							? body.activeDocumentArtifactId.trim()
+							: null,
+				})
+			: null;
+
+	return {
+		pendingSkill,
+		forceWebSearch: recordedUserIntent?.webSearch === true,
+		attachmentIds,
+		pictureRefs:
+			body.pictureRefs ??
+			(rebuilt?.pictureRefs.length ? rebuilt.pictureRefs : undefined),
+		imageMarks: body.imageMarks ?? rebuilt?.imageMarks ?? undefined,
+	};
+}
+
+/**
+ * Parses and preflights a turn that runs again on the stored message `message`,
+ * with `choices` read by `resolveStoredTurnChoices`. The message is already saved,
+ * so the turn runs without saving it again (`skipPersistUserMessage`), and the
+ * caller stamps the turn's origin on the result: this is what makes a turn a
+ * regenerate or a resume, so no client body on /api/chat/stream can claim one.
+ * A refusal comes back in the stream-json shape, as the stream route's would.
+ */
+export async function preflightStoredTurn(p: {
+	userId: string;
+	runtimeConfig: RuntimeConfig;
+	conversationId: string;
+	message: string;
+	choices: StoredTurnChoices;
+	body: {
+		activeDocumentArtifactId?: unknown;
+		streamId?: unknown;
+		model?: unknown;
+		reasoningDepth?: unknown;
+		personalityProfileId?: unknown;
+		enabledConnectionCapabilities?: unknown;
+	};
+}): Promise<
+	| { ok: true; turn: ChatTurnPreflight }
+	| { ok: false; error: RetryPreparationError }
+> {
+	const { choices, body } = p;
+	const syntheticBody = buildSyntheticRetryBody({
+		conversationId: p.conversationId,
+		message: p.message,
+		activeDocumentArtifactId: body.activeDocumentArtifactId,
+		attachmentIds: choices.attachmentIds,
+		pictureRefs: choices.pictureRefs,
+		imageMarks: choices.imageMarks,
+		streamId: body.streamId,
+		model: body.model,
+		reasoningDepth: body.reasoningDepth,
+		personalityProfileId: body.personalityProfileId,
+		enabledConnectionCapabilities: body.enabledConnectionCapabilities,
+		pendingSkill: choices.pendingSkill,
+		forceWebSearch: choices.forceWebSearch,
+	});
+	const syntheticRequest = new Request("https://internal", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(syntheticBody),
+	});
+
+	const parsedRequest = await parseChatTurnRequest(
+		syntheticRequest,
+		p.runtimeConfig,
+		"stream",
+	);
+	if (!parsedRequest.ok) {
+		return streamError(parsedRequest.error);
+	}
+
+	const preflight = await preflightChatTurn({
+		userId: p.userId,
+		request: parsedRequest.value,
+	});
+	if (!preflight.ok) {
+		return streamError(preflight.error);
+	}
+	return { ok: true, turn: preflight.value };
 }
 
 type RetryTarget =
@@ -544,6 +653,9 @@ function buildSyntheticRetryBody(params: {
 	model: unknown;
 	reasoningDepth: unknown;
 	personalityProfileId: unknown;
+	// Only a resume sends it (the answer's body); a regenerate never has, and
+	// leaves it out of the body as it always has.
+	enabledConnectionCapabilities: unknown;
 	pendingSkill: PendingSkillSelection | null;
 	forceWebSearch: boolean;
 }): Record<string, unknown> {
@@ -584,6 +696,8 @@ function buildSyntheticRetryBody(params: {
 			params.personalityProfileId.trim()
 				? params.personalityProfileId.trim()
 				: undefined,
+		enabledConnectionCapabilities:
+			params.enabledConnectionCapabilities ?? undefined,
 		skipPersistUserMessage: true,
 	};
 }
