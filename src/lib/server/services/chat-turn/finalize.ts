@@ -24,6 +24,7 @@ import { createMessage } from "$lib/server/services/messages";
 import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
+import { type AskResumeCapture, stampAskQuestion } from "./ask-questions";
 import {
 	buildBaselineDepthMetadata,
 	withDepthMetadataModelInfo,
@@ -105,6 +106,12 @@ export type GeneratedOutputReconciliationParams = {
 export type FinalizeChatTurnDurableReceipt = {
 	userMessage: { id: string } | undefined;
 	assistantMessage: { id: string };
+	/**
+	 * The question this reply paused on, set only when the stamp changed a row:
+	 * the terminal frame names it for the page, so it never names one that is not
+	 * tied to this message.
+	 */
+	waitingQuestionId?: string;
 };
 
 export type FinalizeChatTurnParams = {
@@ -162,6 +169,10 @@ export type FinalizeChatTurnParams = {
 	turnOrigin?: ChatTurnOrigin;
 	persistTurnState?: boolean;
 	generatedOutputReconciliation?: GeneratedOutputReconciliationParams;
+	// A reply that stopped to ask the person ("Ask me first", `ask_user`): the
+	// question the tool wrote mid-turn has no message id yet, so it is tied to the
+	// assistant row here, with what the resume needs, before the receipt.
+	ask?: { pause?: { questionId: string; capture: AskResumeCapture } };
 	skipAssistantProseMemoryIntake?: boolean;
 	// The language of the conversation for the person, named after the reply
 	// (chat-turn/reply-language.ts), handed to the post-turn tail so the rail
@@ -372,6 +383,44 @@ async function reconcilePendingWritesForAssistantMessage(params: {
 	}
 }
 
+// The stamp of a reply that paused to ask: its question (written by the tool
+// mid-turn, with no message id) is tied to the assistant row, in the same UPDATE
+// that keeps the capture the resume starts from. A step of its own before the
+// receipt, beside the pending-write one and for the same reason: the page reads
+// its questions the moment the terminal frame lands, and a question without a
+// message is drawn on no message. It cannot fail a turn: a stamp that throws is
+// logged and names no question, and the turn is saved all the same (the
+// orchestrator discards the question it never stamped). Answers the question's id
+// only when the stamp changed a row.
+async function stampPausedAskQuestion(params: {
+	turnKind: ChatTurnRoute;
+	userId: string;
+	conversationId: string;
+	assistantMessageId: string;
+	pause: { questionId: string; capture: AskResumeCapture };
+}): Promise<string | undefined> {
+	try {
+		const stamped = await stampAskQuestion({
+			userId: params.userId,
+			questionId: params.pause.questionId,
+			assistantMessageId: params.assistantMessageId,
+			capture: params.pause.capture,
+		});
+		return stamped ? params.pause.questionId : undefined;
+	} catch (error) {
+		console.error(
+			`${turnLogPrefix(params.turnKind)} Failed to stamp the paused question`,
+			{
+				conversationId: params.conversationId,
+				assistantMessageId: params.assistantMessageId,
+				questionId: params.pause.questionId,
+				error,
+			},
+		);
+		return undefined;
+	}
+}
+
 function getUniqueGeneratedFileIds(jobs: FileProductionJobSummary[]): string[] {
 	return Array.from(
 		new Set(jobs.flatMap((job) => (job.files ?? []).map((file) => file.id))),
@@ -546,6 +595,17 @@ export async function finalizeChatTurn(
 			reconciliation: params.generatedOutputReconciliation,
 		});
 	}
+
+	const waitingQuestionId =
+		assistantMessage && params.ask?.pause
+			? await stampPausedAskQuestion({
+					turnKind: params.turnKind,
+					userId: params.userId,
+					conversationId: params.conversationId,
+					assistantMessageId: assistantMessage.id,
+					pause: params.ask.pause,
+				})
+			: undefined;
 
 	if (
 		!persistUserAttachmentsBeforeAssistantMessage &&
@@ -772,6 +832,7 @@ export async function finalizeChatTurn(
 		const receipt: FinalizeChatTurnDurableReceipt = {
 			userMessage,
 			assistantMessage,
+			...(waitingQuestionId ? { waitingQuestionId } : {}),
 		};
 		await params.onDurableReceiptReady?.(receipt);
 

@@ -21,6 +21,7 @@ import {
 	requestActiveChatStreamStop,
 	unregisterActiveChatStream,
 } from "./active-streams";
+import type { AskResumeCapture } from "./ask-questions";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 import { decodeUiMessageStreamParts } from "./stream";
 import { completeStreamTurn } from "./stream-completion";
@@ -41,7 +42,9 @@ const {
 	mockResolveTurnReplyLanguage,
 	mockListMessageWindow,
 	mockGetConversation,
+	mockStampAskQuestion,
 } = vi.hoisted(() => ({
+	mockStampAskQuestion: vi.fn(),
 	mockGetConversation: vi.fn(),
 	mockCreateMessage: vi.fn(),
 	mockPersistUserTurnAttachments: vi.fn(),
@@ -68,6 +71,13 @@ vi.mock("./follow-up-suggestions", async (importOriginal) => ({
 	goneMarkLettersOf: (
 		await importOriginal<typeof import("./follow-up-suggestions")>()
 	).goneMarkLettersOf,
+}));
+
+// A reply that paused to ask is tied to its question by finalize (the store is
+// tested on a real database in ask-questions.test.ts): the glue tests below
+// assert what completeStreamTurn hands it and what the terminal frame says of it.
+vi.mock("./ask-questions", () => ({
+	stampAskQuestion: mockStampAskQuestion,
 }));
 
 // The language of the conversation for the person, named after the reply
@@ -100,6 +110,15 @@ vi.mock("$lib/server/services/messages", () => ({
 	// The bounded prior-turn window completion reads for the follow-up
 	// suggester (see the recentHistory block in stream-completion.ts).
 	listMessageWindow: mockListMessageWindow,
+}));
+
+// The activity rows a turn's tool calls leave are not what these tests are
+// about, and the messages they would point at are mocked: left real, each write
+// fails its foreign key and logs. Plain functions, so vi.resetAllMocks() leaves them.
+vi.mock("$lib/server/services/activity-events", () => ({
+	recordToolCallActivityEvents: async () => undefined,
+	recordSkillUseActivityEvent: async () => undefined,
+	recordTurnOriginActivityEvent: async () => undefined,
 }));
 
 vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
@@ -306,6 +325,8 @@ describe("completeStreamTurn", () => {
 		mockRecordCompletedTurnContextUsage.mockImplementation(
 			async (params: { contextStatus: unknown }) => params.contextStatus,
 		);
+		// Default: the question of a paused reply is stamped (only those turns ask).
+		mockStampAskQuestion.mockResolvedValue(true);
 		// Default: no follow-ups (mirrors the control model degrading silently
 		// on any skip/failure) — individual tests below override this to assert
 		// the emit/persist path.
@@ -2815,6 +2836,210 @@ describe("completeStreamTurn", () => {
 			} finally {
 				errorSpy.mockRestore();
 			}
+		});
+	});
+
+	// A reply that asks the person stops where it asks and is saved as a segment;
+	// the answer carries the same reply on. Nothing about it is regenerated.
+	describe("a reply that paused to ask", () => {
+		const STOPPED_BEFORE_ANSWER =
+			"The user stopped the reply before answering.";
+		const capture: AskResumeCapture = {
+			v: 1,
+			messages: [
+				{ role: "assistant", content: [{ type: "text", text: "Which one?" }] },
+			],
+			results: [],
+		};
+		const askPause = { questionId: "q-1", capture };
+		const askCall = {
+			callId: "call-ask",
+			name: "ask_user",
+			input: { questions: [] },
+			status: "done" as const,
+			outputSummary: "Asked the user; the reply paused for the answer.",
+			resultDigest: null,
+			metadata: { paused: true, questionId: "q-1" },
+		};
+		const askSegment = { type: "tool_call" as const, ...askCall };
+
+		function getSavedAssistantSegments(): unknown {
+			// createMessage(conversationId, role, content, thinking, serverSegments,
+			// metadata): the assistant row is the second message this turn saves.
+			return mockCreateMessage.mock.calls[1]?.[4];
+		}
+
+		it("gives a paused segment no follow-up chips and names its question in the terminal metadata", async () => {
+			mockGenerateFollowUpSuggestions.mockResolvedValue([
+				"What about the sequel?",
+			]);
+
+			await completeStreamTurn({ ...defaultParams, askPause });
+
+			expect(mockGenerateFollowUpSuggestions).not.toHaveBeenCalled();
+			// finalize got the pause: the question is tied to the row that asked it
+			expect(mockStampAskQuestion).toHaveBeenCalledWith({
+				userId: "user-1",
+				questionId: "q-1",
+				assistantMessageId: "asst-msg-1",
+				capture,
+			});
+			const payload = getLatestEndPayload();
+			expect(payload).toMatchObject({
+				waitingQuestionId: "q-1",
+				assistantMessageId: "asst-msg-1",
+				wasStopped: false,
+			});
+			expect(payload).not.toHaveProperty("followUps");
+			expect(mockCreateMessage.mock.calls[1]?.[5]).not.toHaveProperty(
+				"followUps",
+			);
+		});
+
+		it("sends the paused ending before it clears the stream buffer", async () => {
+			// The buffer holds the listeners of a browser that reloaded while the
+			// reply streamed: it learns the question from this frame or never.
+			const order: string[] = [];
+			mockEnqueueChunk.mockImplementation((chunk: string) => {
+				for (const part of decodeUiMessageStreamParts(chunk)) {
+					if (part === "[DONE]") order.push("done");
+					else if (part.type === "data-stream-metadata") order.push("metadata");
+				}
+				return true;
+			});
+			mockClearStreamBuffer.mockImplementation(() => {
+				order.push("clear");
+			});
+			mockCloseDownstream.mockImplementation(() => {
+				order.push("close");
+			});
+
+			await completeStreamTurn({ ...defaultParams, askPause });
+
+			expect(order).toEqual(["metadata", "done", "clear", "close"]);
+			expect(getLatestEndPayload()).toMatchObject({ waitingQuestionId: "q-1" });
+		});
+
+		it.each([
+			["changed no row", async () => false],
+			[
+				"threw",
+				async () => {
+					throw new Error("FOREIGN KEY constraint failed");
+				},
+			],
+		])("leaves waitingQuestionId out when the stamp %s", async (_label, stamp) => {
+			mockStampAskQuestion.mockImplementation(stamp);
+			const errorSpy = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => undefined);
+
+			try {
+				await completeStreamTurn({ ...defaultParams, askPause });
+
+				const payload = getLatestEndPayload();
+				expect(payload).toMatchObject({ assistantMessageId: "asst-msg-1" });
+				expect(payload).not.toHaveProperty("waitingQuestionId");
+				expect(getLatestFinishPayload()).toMatchObject({
+					finishReason: "stop",
+				});
+			} finally {
+				errorSpy.mockRestore();
+			}
+		});
+
+		it("saves a paused segment that has no words of its own, with its ask call as it was recorded", async () => {
+			await completeStreamTurn({
+				...defaultParams,
+				fullResponse: "",
+				thinkingContent: "",
+				serverSegments: [askSegment],
+				toolCallRecords: [askCall],
+				askPause,
+			});
+
+			expect(mockCreateMessage).toHaveBeenCalledWith(
+				"conv-1",
+				"assistant",
+				"",
+				undefined,
+				[askSegment],
+				expect.objectContaining({ evidenceStatus: "pending" }),
+			);
+			expect(getLatestEndPayload()).toMatchObject({ waitingQuestionId: "q-1" });
+		});
+
+		it("saves a stopped turn's ask call as stopped before an answer, and pauses nothing", async () => {
+			await completeStreamTurn({
+				...defaultParams,
+				wasStopped: true,
+				serverSegments: [{ type: "text", content: "Which one?" }, askSegment],
+				toolCallRecords: [askCall],
+			});
+
+			// a later turn's history must not read a question still open
+			expect(getSavedAssistantSegments()).toEqual([
+				{ type: "text", content: "Which one?" },
+				{
+					...askSegment,
+					outputSummary: STOPPED_BEFORE_ANSWER,
+					resultDigest: STOPPED_BEFORE_ANSWER,
+				},
+			]);
+			expect(mockStampAskQuestion).not.toHaveBeenCalled();
+			const payload = getLatestEndPayload();
+			expect(payload).toMatchObject({ wasStopped: true });
+			expect(payload).not.toHaveProperty("waitingQuestionId");
+		});
+
+		it("leaves the other calls of a stopped turn, and an ask that did not pause, as they were", async () => {
+			const searchSegment = {
+				type: "tool_call" as const,
+				callId: "call-search",
+				name: "research_web",
+				input: { query: "wall colours" },
+				status: "done" as const,
+				outputSummary: "Found 2 sources.",
+				resultDigest: "Source B prefers grey.",
+			};
+			// the model sent a card the tool refused: nobody was asked
+			const refusedAsk = {
+				...askSegment,
+				callId: "call-ask-refused",
+				outputSummary: "Question 1 takes one pick.",
+				metadata: { ok: false, evidenceReady: false },
+			};
+
+			await completeStreamTurn({
+				...defaultParams,
+				wasStopped: true,
+				serverSegments: [searchSegment, refusedAsk],
+				toolCallRecords: [],
+			});
+
+			expect(getSavedAssistantSegments()).toEqual([searchSegment, refusedAsk]);
+		});
+
+		it("pauses nothing for a stopped turn, even when handed a pause", async () => {
+			await completeStreamTurn({
+				...defaultParams,
+				wasStopped: true,
+				askPause,
+			});
+
+			expect(mockStampAskQuestion).not.toHaveBeenCalled();
+			expect(getLatestEndPayload()).not.toHaveProperty("waitingQuestionId");
+		});
+
+		it("keeps a paused segment's ask call as recorded: it waits for its answer", async () => {
+			await completeStreamTurn({
+				...defaultParams,
+				serverSegments: [askSegment],
+				toolCallRecords: [askCall],
+				askPause,
+			});
+
+			expect(getSavedAssistantSegments()).toEqual([askSegment]);
 		});
 	});
 });

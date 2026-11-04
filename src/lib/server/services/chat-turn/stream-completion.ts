@@ -33,12 +33,14 @@ import {
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
+import { isAskToolName } from "$lib/shared/ask-user";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import {
 	isConnectionWriteToolName,
 	isFileProductionToolName,
 } from "$lib/utils/tool-calls";
 import { wasActiveChatStreamStopRequested } from "./active-streams";
+import type { AskResumeCapture } from "./ask-questions";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 import {
 	buildBaselineDepthMetadata,
@@ -158,6 +160,11 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	upstreamFinishReason?: FinishReason | null;
 	upstreamRawFinishReason?: string | null;
 	streamClosedWithoutFinish?: boolean;
+	// The reply asked the person (`ask_user`, "Ask me first") and stops there: the
+	// question the tool recorded and what the resume starts from. Saved as a paused
+	// segment: no follow-up chips, the question tied to the saved message by
+	// finalize, and the terminal frame names it. Never set for a stopped turn.
+	askPause?: { questionId: string; capture: AskResumeCapture } | null;
 	serverTimeline?: StreamTimelineTerminalPayload;
 	touchConversation: (
 		userId: string,
@@ -235,6 +242,7 @@ export async function completeStreamTurn(
 		upstreamFinishReason = "stop",
 		upstreamRawFinishReason = null,
 		streamClosedWithoutFinish = false,
+		askPause: askPauseHandedOver = null,
 		serverTimeline,
 		touchConversation,
 		enqueueChunk,
@@ -247,6 +255,16 @@ export async function completeStreamTurn(
 		assignFileProductionJobsToAssistantMessage,
 		estimateTokenCount,
 	} = params;
+
+	// A stopped turn pauses nothing: a stop asked before the pause wins, so the
+	// segment is saved stopped and its question is discarded (the orchestrator).
+	const askPause = wasStopped ? null : askPauseHandedOver;
+	// The segments saved with the message are what a later turn's history replays
+	// of this one. A stopped turn that had asked saves its ask call as stopped,
+	// so that history does not read a question still open.
+	const savedSegments = wasStopped
+		? settleStoppedAskCalls(serverSegments)
+		: serverSegments;
 
 	// E1 — truncation/content-filter/file-production-failure notices used to
 	// be English sentences appended into `fullResponse` (and therefore into
@@ -381,6 +399,7 @@ export async function completeStreamTurn(
 	const sendEndAndClose = (
 		userMsgId: string | undefined,
 		assistantMsgId: string,
+		waitingQuestionId?: string,
 	) => {
 		// Read at terminal time, not at setup time: `toolCallRecords` is the
 		// runtime's live array and only holds this turn's records once the turn
@@ -475,6 +494,10 @@ export async function completeStreamTurn(
 					: {}),
 				userMessageId: userMsgId,
 				assistantMessageId: assistantMsgId,
+				// The question a paused segment asked, named only when finalize tied
+				// it to the saved message (the receipt says so): the page draws the
+				// card from the question rows and reads them when it sees this.
+				...(waitingQuestionId ? { waitingQuestionId } : {}),
 				modelId,
 				modelDisplayName,
 				providerDisplayName,
@@ -630,7 +653,14 @@ export async function completeStreamTurn(
 		const toolCallsStillRunning = toolCallRecords.some(
 			(record) => record.status === "running",
 		);
-		if (!wasStopped && !toolCallsStillRunning && finalResponse.trim()) {
+		// A paused segment is not a finished reply: the chips come with the segment
+		// that finishes it, after the person's answer.
+		if (
+			!askPause &&
+			!wasStopped &&
+			!toolCallsStillRunning &&
+			finalResponse.trim()
+		) {
 			// The prepared-context snapshot this boundary receives carries no
 			// message rows (context-selection loads the history for the prompt
 			// deep inside prepareTurn and never surfaces it here), so the few
@@ -689,7 +719,7 @@ export async function completeStreamTurn(
 			upstreamMessage,
 			assistantResponse: persistedAssistantResponse,
 			assistantThinking: thinkingContent || undefined,
-			serverSegments: serverSegments.length > 0 ? serverSegments : undefined,
+			serverSegments: savedSegments.length > 0 ? savedSegments : undefined,
 			assistantMetadata: {
 				evidenceStatus: "pending",
 				modelDisplayName,
@@ -783,6 +813,7 @@ export async function completeStreamTurn(
 			contextTraceSections: preparedContext.contextTraceSections,
 			webCitationAudit: citationGate?.audit,
 			persistTurnState: !wasStopped,
+			ask: askPause ? { pause: askPause } : undefined,
 			generatedOutputReconciliation:
 				hadFileProductionToolCall || hadConnectionWriteToolCall
 					? {
@@ -801,7 +832,11 @@ export async function completeStreamTurn(
 			// promise or task-starting function comes back from finalizeChatTurn
 			// for this transport to separately schedule.
 			onDurableReceiptReady: async (receipt) => {
-				sendEndAndClose(receipt.userMessage?.id, receipt.assistantMessage.id);
+				sendEndAndClose(
+					receipt.userMessage?.id,
+					receipt.assistantMessage.id,
+					receipt.waitingQuestionId,
+				);
 
 				if (!hadFileProductionToolCall) return;
 
@@ -1002,6 +1037,30 @@ function getSameTurnFileProductionJobIds(
 		}
 	}
 	return jobIds;
+}
+
+// What a later turn's history reads of an ask call whose reply was stopped
+// before the person answered: the question was discarded with the stop, so
+// nothing is open. Both fields say it, the summary and the digest the history
+// replays as the call's result.
+const STOPPED_BEFORE_ANSWER = "The user stopped the reply before answering.";
+
+// Settles the ask calls of a stopped turn. Only a call that really asked (the
+// tool recorded `paused`) is rewritten: a card the tool refused asked nobody
+// and keeps what the model was told.
+function settleStoppedAskCalls(segments: ThinkingSegment[]): ThinkingSegment[] {
+	return segments.map((segment) =>
+		segment.type === "tool_call" &&
+		isAskToolName(segment.name) &&
+		segment.status === "done" &&
+		segment.metadata?.paused === true
+			? {
+					...segment,
+					outputSummary: STOPPED_BEFORE_ANSWER,
+					resultDigest: STOPPED_BEFORE_ANSWER,
+				}
+			: segment,
+	);
 }
 
 // ADR-0042 amendment — reads a server stream-timeline mark (ms elapsed since

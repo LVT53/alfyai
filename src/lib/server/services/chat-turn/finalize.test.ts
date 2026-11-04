@@ -8,6 +8,8 @@ import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evid
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
+import type { AskResumeCapture } from "./ask-questions";
+import type { FinalizeChatTurnDurableReceipt } from "./finalize";
 
 const {
 	mockJudgeFinishedTurn,
@@ -30,6 +32,7 @@ const {
 	mockRecordSkillUseActivityEvent,
 	mockRecordTurnOriginActivityEvent,
 	mockNameConversationAfterTurn,
+	mockStampAskQuestion,
 } = vi.hoisted(() => ({
 	mockJudgeFinishedTurn: vi.fn(
 		async (): Promise<{
@@ -83,6 +86,13 @@ const {
 	mockRecordSkillUseActivityEvent: vi.fn(async () => undefined),
 	mockRecordTurnOriginActivityEvent: vi.fn(async () => undefined),
 	mockNameConversationAfterTurn: vi.fn(),
+	mockStampAskQuestion: vi.fn(),
+}));
+
+// A reply that paused to ask is tied to its question here, at its own seam: the
+// store is tested on a real database in ask-questions.test.ts.
+vi.mock("./ask-questions", () => ({
+	stampAskQuestion: mockStampAskQuestion,
 }));
 
 // finalizeChatTurn fans post-turn work out to ./finalize-steps in one ordered
@@ -1082,6 +1092,173 @@ describe("finalizeChatTurn", () => {
 		});
 
 		expect(getPendingWrites).not.toHaveBeenCalled();
+	});
+
+	// A reply that asked the person is saved as a paused segment: its question
+	// (written mid-turn, with no message id) is tied to the row that asked it, with
+	// what the resume needs, before the terminal frame names it.
+	describe("a reply that paused to ask", () => {
+		const capture: AskResumeCapture = {
+			v: 1,
+			messages: [
+				{ role: "assistant", content: [{ type: "text", text: "Which one?" }] },
+			],
+			results: [],
+		};
+		const pausedTurn = {
+			turnKind: "stream" as const,
+			responseLanguage: "en" as const,
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "user message",
+			persistUserMessage: true,
+			normalizedMessage: "user message",
+			upstreamMessage: "upstream message",
+			assistantResponse: "Which one?",
+			assistantMetadata: { evidenceStatus: "pending" as const },
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: null,
+			assistantMirrorContent: "Which one?",
+			maintenanceReason: "chat_stream" as const,
+			ask: { pause: { questionId: "q-1", capture } },
+		};
+
+		beforeEach(() => {
+			mockStampAskQuestion.mockReset();
+			mockStampAskQuestion.mockResolvedValue(true);
+		});
+
+		it("stamps the paused question with its message id and capture before the receipt, without waiting for the turn state", async () => {
+			const calls: string[] = [];
+			mockCreateMessage.mockImplementation(
+				async (
+					_conversationId: string,
+					role: "user" | "assistant",
+				): Promise<ChatMessage> => {
+					calls.push(`create ${role}`);
+					return makeChatMessage(`${role}-message`, role, "text");
+				},
+			);
+			mockStampAskQuestion.mockImplementation(async () => {
+				calls.push("stamp");
+				return true;
+			});
+			mockPersistAssistantTurnState.mockReturnValue(new Promise(() => {}));
+			const { finalizeChatTurn } = await import("./finalize");
+			let receipt: FinalizeChatTurnDurableReceipt | undefined;
+
+			await finalizeChatTurn({
+				...pausedTurn,
+				onDurableReceiptReady: (r) => {
+					calls.push("receipt");
+					receipt = r;
+				},
+			});
+
+			expect(calls).toEqual([
+				"create user",
+				"create assistant",
+				"stamp",
+				"receipt",
+			]);
+			expect(mockStampAskQuestion).toHaveBeenCalledTimes(1);
+			expect(mockStampAskQuestion).toHaveBeenCalledWith({
+				userId: "user-1",
+				questionId: "q-1",
+				assistantMessageId: "assistant-message",
+				capture,
+			});
+			expect(receipt?.waitingQuestionId).toBe("q-1");
+		});
+
+		it("finishes the turn when the stamp fails, and names no question", async () => {
+			const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+			try {
+				mockStampAskQuestion.mockRejectedValue(
+					new Error("FOREIGN KEY constraint failed"),
+				);
+				const { finalizeChatTurn } = await import("./finalize");
+				let receipt: FinalizeChatTurnDurableReceipt | undefined;
+
+				const result = await finalizeChatTurn({
+					...pausedTurn,
+					onDurableReceiptReady: (r) => {
+						receipt = r;
+					},
+				});
+
+				expect(result.assistantMessage?.id).toBe("assistant-message");
+				expect(receipt?.assistantMessage.id).toBe("assistant-message");
+				expect(receipt).not.toHaveProperty("waitingQuestionId");
+				expect(logged).toHaveBeenCalledWith(
+					expect.stringContaining("paused question"),
+					expect.objectContaining({
+						conversationId: "conv-1",
+						questionId: "q-1",
+						assistantMessageId: "assistant-message",
+					}),
+				);
+			} finally {
+				logged.mockRestore();
+			}
+		});
+
+		it("names no question when the stamp changed no row", async () => {
+			// the question was already discarded, or already stamped
+			mockStampAskQuestion.mockResolvedValue(false);
+			const { finalizeChatTurn } = await import("./finalize");
+			let receipt: FinalizeChatTurnDurableReceipt | undefined;
+
+			await finalizeChatTurn({
+				...pausedTurn,
+				onDurableReceiptReady: (r) => {
+					receipt = r;
+				},
+			});
+
+			expect(mockStampAskQuestion).toHaveBeenCalledTimes(1);
+			expect(receipt?.assistantMessage.id).toBe("assistant-message");
+			expect(receipt).not.toHaveProperty("waitingQuestionId");
+		});
+
+		it("stamps nothing for a turn that did not pause", async () => {
+			const { ask: _ask, ...unpaused } = pausedTurn;
+			const { finalizeChatTurn } = await import("./finalize");
+			let receipt: FinalizeChatTurnDurableReceipt | undefined;
+
+			await finalizeChatTurn({
+				...unpaused,
+				onDurableReceiptReady: (r) => {
+					receipt = r;
+				},
+			});
+
+			expect(mockStampAskQuestion).not.toHaveBeenCalled();
+			expect(receipt).not.toHaveProperty("waitingQuestionId");
+		});
+
+		it("stamps nothing when the message that asked was not saved", async () => {
+			mockCreateMessage.mockImplementation(
+				async (
+					_conversationId: string,
+					role: "user" | "assistant",
+				): Promise<ChatMessage> => {
+					if (role === "assistant") throw new Error("disk full");
+					return makeChatMessage("user-message", role, "text");
+				},
+			);
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await expect(finalizeChatTurn(pausedTurn)).rejects.toThrow(
+				"required message identities",
+			);
+
+			expect(mockStampAskQuestion).not.toHaveBeenCalled();
+		});
 	});
 
 	it("keeps the pictures a user message carried beside its uploads in the message's metadata, and nothing extra for one that carried none", async () => {
