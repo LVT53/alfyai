@@ -275,7 +275,8 @@ it("names itself for a screen reader", ...)                      // "Alfy's ques
 
 ```ts
 export type ReplyPlace = { firstMessageId: string; continuesAbove: boolean; continuedBelow: boolean;
-  question: AskQuestionDto | null; copyText: string | null };
+  question: AskQuestionDto | null; copyText: string | null;
+  userIntent: MessageUserIntent | null }; // the first row's choices, on a multi-row reply's last row (Ruling 26)
 export function placeReplySegments(messages: readonly ChatMessage[], questions: readonly AskQuestionDto[],
   streamingMessageId: string | null): Map<string, ReplyPlace>;
 export function replyFirstMessageId(messages: readonly ChatMessage[], messageId: string): string;
@@ -290,6 +291,7 @@ Rules (Plan's calls 24, 25, 32):
 - `copyText` is set on a reply's last row when the reply has more than one row: each row's words, the empty ones left out, joined by a blank line; Copy uses it.
 - The ask call leaves the rail (`isAskToolCall` beside `isArtifactToolCall`). The card, or its folded line, is drawn right after `write-confirm-list`, keyed by `question.id`; it draws its own folded line and owns its margins, so the bubble only places it. `askState` reaches it as plain props or deriveds, never a copy made in an `$effect` (Ruling 21's same-task read of `busy`).
 - The jump rail counts and lists a reply once (rows with `continuesMessageId` are skipped).
+- The rows of one reply sit about 18 px apart (`pb-0` above, `-mt-lg` below), unless MessageArea draws something between them (Ruling 24). Sources, Atlas rows and the fork-origin marker draw below the card (Ruling 25). The provenance line under the last row takes the person's choices from the first (Ruling 26).
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -362,6 +364,7 @@ it("shows a local waiting flag at once, and the next snapshot's value wins", ...
 - Modify: `src/routes/(app)/chat/[conversationId]/_helpers.ts`; Test: `_helpers.test.ts`
 - Modify: `src/routes/(app)/chat/[conversationId]/lifecycle-guards.ts` (`laterTurnCount`); Test: `lifecycle-guards.test.ts`
 - Modify: `src/routes/(app)/chat/[conversationId]/_components/ChatComposerPanel.svelte` (`waitingForAnswer`); Test: `ChatComposerPanel.test.ts`
+- Modify: `src/routes/(app)/chat/[conversationId]/_components/ChatMessagePane.svelte` (it forwards MessageArea's props one by one: `questions`, `askActionState`, `onAnswerQuestion`; MessageArea draws only the questions of its own `conversationId`)
 - Test: `src/routes/(app)/chat/[conversationId]/page-runtime.test.ts`
 
 **Interfaces:**
@@ -379,7 +382,7 @@ export function landedAssistantRow(row: ChatMessage, questions: readonly AskQues
 
 The page (design 5.7 to 5.9; Plan's calls 30, 32, 35):
 - State: `questions` from `data.questions` (replaced when `data.questions` changes, like `pendingWrites`), `askActionState`, `refreshQuestions()` with a latest-read-wins counter, called wherever `refreshPendingWrites()` is called and by the runtime's `refreshQuestions` adapter; `questionOpen = $derived(isQuestionOpen(questions, askActionState))`; all of it reset on a chat switch.
-- Adapters: `onAskEvent` (`paused`: read the questions, stamp locally, sidebar flag on; `answerAccepted`: `withQuestionAnswering`, busy off, sidebar flag off; `answerNotSent`: busy off, `failed` unless quiet, read the questions, and load the chat (`loadPersistedData`) when the read says the question no longer waits; `alreadyAnswered`: busy off, read the questions, then `normalChatRuntime.checkForOrphanedStreamOnMount()` to join the winner's reply, else `loadPersistedData()`; `refusedWhileWaiting`: read the questions and `loadPersistedData()`), `refreshQuestions`, `getAnsweringQuestionMessageId` (the `assistantMessageId` of the question that is `answering`), `getEnabledConnectionCapabilities` (the composer's active capabilities). A `paused` with a null `assistantMessageId` stamps nothing locally. The questions are read again when a turn that answered a question ends, so a local `answering` never outlives its resume (a later turn's reconnect would continue the old asking row). `answerQuestion`'s `userMessage` is the stored text of the person's message (the runtime's join compares it with the running stream's).
+- Adapters: `onAskEvent` (`paused`: read the questions, stamp locally, sidebar flag on; `answerAccepted`: `withQuestionAnswering`, busy off, sidebar flag off; `answerNotSent`: busy off, `failed` unless quiet, read the questions, and load the chat (`loadPersistedData`) when the read says the question no longer waits; `alreadyAnswered`: busy off, read the questions, then `normalChatRuntime.checkForOrphanedStreamOnMount()` to join the winner's reply, else `loadPersistedData()`; `refusedWhileWaiting`: read the questions and `loadPersistedData()`), `refreshQuestions`, `getAnsweringQuestionMessageId` (the `assistantMessageId` of the question that is `answering`), `getEnabledConnectionCapabilities` (the composer's active capabilities). A `paused` with a null `assistantMessageId` stamps nothing locally; otherwise it stamps in the same update that ends the stream, because an unstamped question belongs to a row only while that row streams (the card and the Copy row would flicker). The questions are read again when a turn that answered a question ends, so a local `answering` never outlives its resume (a later turn's reconnect would continue the old asking row). `answerQuestion`'s `userMessage` is the stored text of the person's message (the runtime's join compares it with the running stream's).
 - `handleAnswerQuestion(questionId, answer)`: refuses, setting nothing, on a sealed chat, an open edit, an edit's resend or a running turn; otherwise sets the question's busy synchronously, before any await (Ruling 21); calls `normalChatRuntime.answerQuestion` with the question's `assistantMessageId` and `personMessageOfReply(...)`'s text.
 - Guards: `questionOpen` joins `handleSend`, `handleRegenerate`, `handleRetry`, `handleAtlasLifecycleAction`, `handleSendFollowUp`, `handleStartEdit` and the drop (`fileDragRejected`, `handleDrop`); the composer's `disabled` becomes `isConversationReadOnlyForChat || isEditResendPending || questionOpen` (its words and saved draft untouched); `ChatComposerPanel waitingForAnswer={questionOpen}` dims it (opacity 0.5); `MessageArea readOnly={isConversationReadOnlyForChat || questionOpen}` plus `questions`, `askActionState`, `onAnswerQuestion`. In a read-only chat a waiting card is drawn off (its busy is true), since nothing it sends could run (Ruling 23).
 - `handleRegenerate` aims at `replyFirstMessageId($messages, payload.messageId)`, and the later-turn warning counts from the reply's last segment.
