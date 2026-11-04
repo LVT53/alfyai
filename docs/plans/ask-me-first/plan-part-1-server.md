@@ -136,10 +136,10 @@ export function stampAskQuestion(p: { userId: string; questionId: string; assist
 export function discardAskQuestion(p: { userId: string; questionId: string }): Promise<void>;
 export function discardStaleAskQuestions(p: { userId: string; conversationId: string }): Promise<number>;
 export function getAskQuestion(p: { userId: string; conversationId: string; questionId: string }): Promise<AskQuestionRow | null>;
-export type AskClaimResult = { ok: true; row: AskQuestionRow } | { ok: false; reason: "not_found" | "not_waiting" };
+export type AskClaimResult = { ok: true; row: AskQuestionRow; claim: string } | { ok: false; reason: "not_found" | "not_waiting" };
 export function claimAskQuestion(p: { userId: string; conversationId: string; questionId: string; answer: AskAnswer }): Promise<AskClaimResult>;
-export function releaseAskQuestion(p: { userId: string; questionId: string }): Promise<boolean>;
-export function settleAskQuestion(p: { userId: string; questionId: string }): Promise<AskQuestionRow | null>;
+export function releaseAskQuestion(p: { userId: string; questionId: string; claim: string }): Promise<boolean>;
+export function settleAskQuestion(p: { userId: string; questionId: string; claim: string }): Promise<AskQuestionRow | null>;
 export function readAskCapture(row: AskQuestionRow): AskResumeCapture | null;
 export function listConversationAskQuestions(p: { userId: string; conversationId: string }): Promise<AskQuestionDto[]>;
 export function listWaitingAskConversationIds(p: { userId: string; conversationIds: readonly string[] }): Promise<Set<string>>;
@@ -151,7 +151,7 @@ Rules the store holds (Plan's calls 8, 10 to 12):
 - `discardAskQuestion` and `discardStaleAskQuestions` touch only `status='waiting' AND assistant_message_id IS NULL`, set `discarded`, `settled_at`, `resume_json = NULL`.
 - The store keeps a module-level set of live resumes, by question id (Plan's call 12).
 - `claimAskQuestion`: a row that is `answering` and not in the live-resume set is first released; then one conditional UPDATE `waiting -> answering` (stamped rows only) writes `answer_json` and `answered_at`, and a won claim adds the id to the set in the same synchronous step. No row: `not_found`; no change: `not_waiting`.
-- `releaseAskQuestion`: `answering -> waiting`, the answer kept. `settleAskQuestion`: `answering -> answered`, or `closed` for a `closed` answer, `resume_json = NULL`, `settled_at`. Both always take the id out of the set, whether or not a row changed.
+- `releaseAskQuestion`: `answering -> waiting`, the answer kept. `settleAskQuestion`: `answering -> answered`, or `closed` for a `closed` answer, `resume_json = NULL`, `settled_at`. Ruling 6 (built in `76ccee3fb`): the live set is a Map of question id to a claim token; a won claim returns its token as `claim`; release and settle act only for the live claim's token (a second or stale call changes neither the row nor the map), and the holder always clears it, whether or not its UPDATE changed a row.
 - Lists: `discarded` never shown; unstamped `waiting` shown only while the chat's stream runs (`getOrphanedStream`); `answering` with no live resume reads `waiting` with its answer; `listWaitingAskConversationIds` and `hasWaitingAskQuestion` count stamped rows only (`waiting`, or `answering` with no live resume, for the sidebar; `waiting` or `answering` for the refusal).
 
 - [ ] **Step 1: Write the failing tests** in `ask-questions.test.ts`, on a temporary database migrated from `./drizzle` (the pattern of `connections/pending-writes.test.ts`), with `./active-streams` mocked (`getOrphanedStream` returns null unless a test says otherwise):
@@ -553,31 +553,31 @@ export function buildAskAnswerRecord(questions: readonly AskQuestion[], answer: 
 // ask-capture.ts (the type lives here, not in ask-resume.ts, so the orchestrator, completion and finalize
 // import it without importing the resume entry, which imports the orchestrator's types)
 export function buildAskResumeContinuation(capture: AskResumeCapture, askToolCallId: string, result: AskAnswerResult): ModelMessage[];
-export type AskResumeInput = { questionId: string; askedMessageId: string; askToolCallId: string; userMessageId: string;
+export type AskResumeInput = { questionId: string; claim: string; askedMessageId: string; askToolCallId: string; userMessageId: string;
   continuation: ModelMessage[]; capturedResults: AskCapturedResult[]; userTexts: string[];
   priorSegmentToolCalls: ToolCallEntry[]; keepConnectorDataLocal: boolean;
   answerDigest: { outputSummary: string; resultDigest: string } };
 // ask-resume.ts
 export function prepareAskResumeTurn(p: { userId: string; runtimeConfig: RuntimeConfig; conversationId: string;
-  claimed: AskQuestionRow; body: Record<string, unknown> }):
+  claimed: AskQuestionRow; claim: string; body: Record<string, unknown> }):
   Promise<{ ok: true; value: { orchestratorInput: Pick<StreamOrchestratorOptions, "turn" | "upstreamMessage" | "isReconnect" | "pendingSkillInstructions" | "resume"> } }
         | { ok: false; error: RetryPreparationError }>;
 export function findWaitingQuestionRefusal(p: { userId: string; conversationId: string }): Promise<ChatTurnRequestError | null>;
 // stream-orchestrator.ts
 StreamOrchestratorOptions.resume?: AskResumeInput;
 // stream-completion.ts / finalize.ts
-CompleteStreamTurnParams.askResume?: Pick<AskResumeInput, "questionId" | "askedMessageId" | "askToolCallId"
+CompleteStreamTurnParams.askResume?: Pick<AskResumeInput, "questionId" | "claim" | "askedMessageId" | "askToolCallId"
   | "priorSegmentToolCalls" | "userTexts" | "answerDigest"> | null;
-FinalizeChatTurnParams.ask?: { pause?: …; resume?: Pick<AskResumeInput, "questionId" | "askedMessageId" | "askToolCallId" | "answerDigest"> };
+FinalizeChatTurnParams.ask?: { pause?: …; resume?: Pick<AskResumeInput, "questionId" | "claim" | "askedMessageId" | "askToolCallId" | "answerDigest"> };
 ```
 
 The answer result's fixed English (Plan's call 19): `answered` note `The user answered. Go on with the same reply from where it paused; do not repeat what is already written.`; `left_to_you` note `The user left these choices to you: take your recommended option where you marked one, else your best judgment, and go on with the same reply.`; `closed` note `The user closed the question without answering. It may have been off. Go on with your best judgment or ask differently, and never ask the same thing again.` `outputSummary`: `The user picked: <labels joined by ", ">` (one question), `The user answered in their own words`, `The user left it to Alfy`, `The user closed the question`, and for several questions `The user answered <n> questions`. `resultDigest` is `deriveToolResultDigest(result)` (`tool-result-digest.ts`).
 
-`prepareAskResumeTurn` (Plan's calls 15, 20, 23, 31): reads the asking row and walks `continuesMessageId` back to the reply's first segment; the user row right before it is the person's message (none: 409 shape `not_waiting`); `resolveStoredTurnChoices` with the first segment's metadata for the intent and the person's message for attachments and pictures; `preflightStoredTurn` with the body's choices; `turn.turnOrigin = "ask_resume"`; `askToolCallId = claimed.toolCallId`; with `record = buildAskAnswerRecord(questions, answer)`, `continuation = buildAskResumeContinuation(readAskCapture(claimed), claimed.toolCallId, record.result)` and `answerDigest = { outputSummary: record.outputSummary, resultDigest: record.resultDigest }`; `userTexts` = every own-words answer of the reply's questions so far, this one included; `priorSegmentToolCalls` = the tool calls stored on the reply's segments; `keepConnectorDataLocal = await hasLocalDistillEnabled(userId)`. No regeneration appendix.
+`prepareAskResumeTurn` (Plan's calls 15, 20, 23, 31): reads the asking row and walks `continuesMessageId` back to the reply's first segment; the user row right before it is the person's message (none: 409 shape `not_waiting`); `resolveStoredTurnChoices` with the first segment's metadata for the intent and the person's message for attachments and pictures; `preflightStoredTurn` with the body's choices; `turn.turnOrigin = "ask_resume"`; `askToolCallId = claimed.toolCallId`; with `record = buildAskAnswerRecord(questions, answer)`, `continuation = buildAskResumeContinuation(readAskCapture(claimed), claimed.toolCallId, record.result)` and `answerDigest = { outputSummary: record.outputSummary, resultDigest: record.resultDigest }`; `userTexts` = every own-words answer of the reply's questions so far, this one included; `priorSegmentToolCalls` = the tool calls stored on the reply's segments; `keepConnectorDataLocal = await hasLocalDistillEnabled(userId)`; `claim` (the won claim's token) goes into `AskResumeInput.claim` unchanged. No regeneration appendix.
 
-Orchestrator with `resume`: the model run gets `continuationMessages: resume.continuation`, `historyBeforeMessageId: resume.userMessageId`, `skipWebPrefetch: true`, `gateMessagesForAttempt: gateCapturedConnectorResults({ results: resume.capturedResults, keepConnectorDataLocal: resume.keepConnectorDataLocal })`, `resumeProvenance: { userTexts: resume.userTexts, priorResults: capturedProvenanceResults({ v: 1, messages: resume.continuation, results: resume.capturedResults }) }`; no instant acknowledgment; completion gets `askResume`; `finally` calls `releaseAskQuestion` (a no-op on the row once settled; it always takes the id out of the live-resume set). A pause inside a resume captures with `continuationGiven = resume.continuation` and `priorResults = resume.capturedResults`.
+Orchestrator with `resume`: the model run gets `continuationMessages: resume.continuation`, `historyBeforeMessageId: resume.userMessageId`, `skipWebPrefetch: true`, `gateMessagesForAttempt: gateCapturedConnectorResults({ results: resume.capturedResults, keepConnectorDataLocal: resume.keepConnectorDataLocal })`, `resumeProvenance: { userTexts: resume.userTexts, priorResults: capturedProvenanceResults({ v: 1, messages: resume.continuation, results: resume.capturedResults }) }`; no instant acknowledgment; completion gets `askResume`; `finally` calls `releaseAskQuestion({ userId, questionId: resume.questionId, claim: resume.claim })` (a no-op once the question settled, Ruling 6). A pause inside a resume captures with `continuationGiven = resume.continuation` and `priorResults = resume.capturedResults`.
 
-Completion and finalize with `askResume`: `assistantMetadata.continuesMessageId = askedMessageId`; the citation gate's `toolCalls = [...priorSegmentToolCalls, ...toolCallRecords]` and `userMessage = [normalizedMessage, ...userTexts].join("\n")`; finalize, before the receipt, `settleAskQuestion` and `updateAssistantToolCallResult({ conversationId, messageId: askedMessageId, callId: askToolCallId, ...answerDigest })`; both best-effort and logged. A resume that asks again settles the answered question first and stamps the new one after it.
+Completion and finalize with `askResume`: `assistantMetadata.continuesMessageId = askedMessageId`; the citation gate's `toolCalls = [...priorSegmentToolCalls, ...toolCallRecords]` and `userMessage = [normalizedMessage, ...userTexts].join("\n")`; finalize, before the receipt, `settleAskQuestion({ userId, questionId, claim })` and `updateAssistantToolCallResult({ conversationId, messageId: askedMessageId, callId: askToolCallId, ...answerDigest })`; both best-effort and logged. A resume that asks again settles the answered question first and stamps the new one after it.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -635,7 +635,7 @@ it("writes no reply-language instruction into a resume request", ...)
 - Consumes: Tasks 2 and 8; `refuseTurnWhenOverCapacity`, `createStreamJsonErrorResponse`, `runChatStreamOrchestrator`, `getCurrentMemoryResetGeneration` (as the retry route uses them).
 - Produces: the routes of Plan's call 16; `ConversationListItem.waitingForAnswer`.
 
-The answer route, in order: auth; `refuseTurnWhenOverCapacity(user.id, "CHAT_ASK_ANSWER")`; JSON body; `getAskQuestion` (none: 404); `checkAskAnswer(questions, body.answer)` (fails: 400 `{ error, code: "INVALID_ANSWER" }`); `claimAskQuestion` (`not_found` 404, `not_waiting` 409 `QUESTION_ALREADY_ANSWERED`); `prepareAskResumeTurn` (an error releases the claim and answers like the retry route does); `runChatStreamOrchestrator({ user, ...orchestratorInput, downstreamAbortSignal, requestStartTime, startedResetGeneration })`, where a throw before it returns its stream releases the claim too (Plan's call 12: every path after a won claim ends in a release or a settle). The stream route calls `findWaitingQuestionRefusal` for a send that is neither a reconnect nor an edit's resend, after its capacity check; the send route calls it in both branches and answers `json({ error, code }, { status: 409 })`.
+The answer route, in order: auth; `refuseTurnWhenOverCapacity(user.id, "CHAT_ASK_ANSWER")`; JSON body; `getAskQuestion` (none: 404; never a refusal on its raw `status`: an `answering` row a restart left must reach the claim); `checkAskAnswer(questions, body.answer)` (fails: 400 `{ error, code: "INVALID_ANSWER" }`); `claimAskQuestion` with the answer `checkAskAnswer` returned (`not_found` 404, `not_waiting` 409 `QUESTION_ALREADY_ANSWERED`); `prepareAskResumeTurn` with the claim's token (an error releases the claim with its token and answers like the retry route does); `runChatStreamOrchestrator({ user, ...orchestratorInput, downstreamAbortSignal, requestStartTime, startedResetGeneration })`, where a throw before it returns its stream releases the claim too (Plan's call 12: every path after a won claim ends in a release or a settle). The stream route calls `findWaitingQuestionRefusal` for a send that is neither a reconnect nor an edit's resend, after its capacity check; the send route calls it in both branches and answers `json({ error, code }, { status: 409 })`.
 
 - [ ] **Step 1: Write the failing tests.**
 
