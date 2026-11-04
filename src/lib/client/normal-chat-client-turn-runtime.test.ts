@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ServerHealth } from "$lib/client/api/health";
 import {
+	type AskRuntimeEvent,
 	createNormalChatClientTurnRuntime,
 	type NormalChatClientTurnRuntimeAdapters,
 	type NormalChatMessageListEvent,
@@ -19,6 +20,7 @@ import type {
 	StreamMetadata,
 	StreamTimingSnapshot,
 } from "$lib/services/streaming";
+import type { AskAnswer } from "$lib/shared/ask-user";
 
 type StreamInvocation = {
 	message: string;
@@ -6926,6 +6928,1153 @@ describe("Normal Chat Client Turn Runtime", () => {
 				await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
 
 				expect(made.adapters.askServerUpdate).toHaveBeenCalledWith(false);
+			});
+		});
+	});
+
+	// "Ask me first". Alfy can stop a reply to ask the person one to three
+	// questions, and the person's answer carries the same reply on as a new segment:
+	// an assistant row that continues the asking row. An answer is a turn of its own
+	// (`answerQuestion`) and meets what a send meets (an update, a busy server, a
+	// connection that drops), but it fails differently: there is no message to put
+	// back, no Retry and no sentence on the page. The card shows the answer again
+	// and says why, which is what `answerNotSent` is for.
+	describe("an answer to a question Alfy asked", () => {
+		type AnswerParams = Parameters<
+			ReturnType<typeof createNormalChatClientTurnRuntime>["answerQuestion"]
+		>[0];
+		type Reported = { mock: { calls: Array<[AskRuntimeEvent]> } };
+
+		const POLL_MS = 3000;
+		const EIGHT_MINUTES_MS = 8 * 60 * 1000;
+		const WELL: ServerHealth = { state: "up" };
+		const DRAINING: ServerHealth = { state: "draining" };
+		const ANSWER: AskAnswer = {
+			kind: "answered",
+			answers: [{ picked: [1], ownWords: null }],
+		};
+
+		/** The chat when Alfy has asked: the person's message, and the row the question sits in. */
+		const askingChat = (): ChatMessage[] => [
+			{ id: "user-1", role: "user", content: "Plan my trip", timestamp: 1 },
+			{
+				id: "seg-1",
+				role: "assistant",
+				content: "Before I plan it,",
+				timestamp: 2,
+			},
+		];
+
+		const answerOf = (overrides: Partial<AnswerParams> = {}): AnswerParams => ({
+			questionId: "q-1",
+			answer: ANSWER,
+			continuesMessageId: "seg-1",
+			userMessage: "Plan my trip",
+			...overrides,
+		});
+
+		const words = (message: string) => ({
+			message,
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+
+		function refused(status: number, code: string, message: string): Error {
+			return Object.assign(new Error(message), { status, code });
+		}
+		const questionWaiting = () =>
+			refused(
+				409,
+				"QUESTION_WAITING",
+				"Answer the question Alfy asked before sending a new message",
+			);
+		const alreadyAnswered = () =>
+			refused(
+				409,
+				"QUESTION_ALREADY_ANSWERED",
+				"The question has already been answered",
+			);
+		const refusedAsDraining = () =>
+			Object.assign(new Error("Server at capacity. Please try again later."), {
+				status: 503,
+				code: "CAPACITY_EXCEEDED",
+				reason: "draining",
+			});
+		const refusedAsFull = (reason: "global_limit" | "user_limit") =>
+			Object.assign(new Error("Server at capacity. Please try again later."), {
+				status: 503,
+				code: "CAPACITY_EXCEEDED",
+				reason,
+			});
+		// The restart: the proxy answers its own page instead of the app.
+		const refusedByTheProxy = () =>
+			Object.assign(new Error("HTTP 503"), {
+				status: 503,
+				serverUnavailable: true,
+			});
+
+		/**
+		 * Adapters whose clock is the test's, whose server is whatever `server.health`
+		 * says, and whose page listens for the ask events. The chat holds the asking
+		 * row.
+		 */
+		function onTheClock(
+			overrides: Partial<NormalChatClientTurnRuntimeAdapters> = {},
+		) {
+			vi.useFakeTimers();
+			const server = { health: DRAINING };
+			const onAskEvent = vi.fn<(event: AskRuntimeEvent) => void>();
+			const made = makeAdapters({
+				schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+				fetchServerHealth: vi.fn(async () => server.health),
+				setTurnWaitingForUpdate: vi.fn(),
+				onServerUpdateSign: vi.fn(),
+				onAskEvent,
+				...overrides,
+			});
+			made.messages.push(...askingChat());
+			return { ...made, server, onAskEvent };
+		}
+
+		/** What the page was told, optionally of one kind. */
+		const reported = (
+			onAskEvent: Reported,
+			type?: AskRuntimeEvent["type"],
+		): AskRuntimeEvent[] =>
+			onAskEvent.mock.calls
+				.map(([event]) => event)
+				.filter((event) => type === undefined || event.type === type);
+
+		/** What the page was told through `setSendError`, ignoring the clearing a send does. */
+		function sentenceShown(adapters: NormalChatClientTurnRuntimeAdapters) {
+			return vi
+				.mocked(adapters.setSendError)
+				.mock.calls.map(([message]) => message)
+				.filter((message) => message !== null);
+		}
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("streams an answer under a placeholder that continues the asking row, with the composer's choices", async () => {
+			const made = onTheClock({
+				getSelectedModel: vi.fn(() => "model2" as ModelId),
+				getReasoningDepth: vi.fn((): ReasoningDepth => "quick"),
+				getPersonalityProfileId: vi.fn(() => "persona-1"),
+				getActiveDocumentArtifactId: vi.fn(() => "open-doc"),
+				getEnabledConnectionCapabilities: vi.fn(() => ["mail.read"]),
+			});
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+
+			await runtime.answerQuestion(answerOf());
+
+			// One placeholder under the asking row, and no bubble of the person's: their
+			// message is on screen already.
+			expect(made.messageListEvents.appendUserMessage).not.toHaveBeenCalled();
+			expect(
+				made.messageListEvents.appendAssistantPlaceholder,
+			).toHaveBeenCalledTimes(1);
+			expect(
+				made.messageListEvents.appendAssistantPlaceholder.mock.calls[0][0],
+			).toMatchObject({
+				role: "assistant",
+				content: "",
+				isStreaming: true,
+				runtimePhase: "preparing",
+				continuesMessageId: "seg-1",
+			});
+			// The answer goes to its question's route, as a turn of the composer's choices.
+			expect(made.streamInvocations).toHaveLength(1);
+			expect(made.streamInvocations[0]).toMatchObject({
+				message: "Plan my trip",
+				conversationId: "conv-1",
+			});
+			expect(made.streamInvocations[0].options).toEqual({
+				modelId: "model2",
+				reasoningDepth: "quick",
+				personalityProfileId: "persona-1",
+				enabledConnectionCapabilities: ["mail.read"],
+				activeDocumentArtifactId: "open-doc",
+				questionAnswer: { questionId: "q-1", answer: ANSWER },
+			});
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: true,
+				active: true,
+				phase: "preparing",
+				canRetry: false,
+				lastUserMessage: "",
+			});
+			// It leaves what a send leaves behind alone: the composer's draft and files,
+			// the page's sentence and Retry's memory.
+			expect(made.adapters.clearDraft).not.toHaveBeenCalled();
+			expect(made.adapters.clearAttachedArtifacts).not.toHaveBeenCalled();
+			expect(made.adapters.setSendError).not.toHaveBeenCalled();
+		});
+
+		it("says the answer was accepted on the resume's first event, once", async () => {
+			const made = onTheClock();
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.answerQuestion(answerOf());
+			// Nothing is known until the resume runs.
+			expect(reported(made.onAskEvent)).toEqual([]);
+
+			const { callbacks } = made.streamInvocations[0];
+			callbacks.onToken("Plan ");
+			callbacks.onToken("it");
+			callbacks.onThinking("Hmm");
+			callbacks.onToolCall?.("web_search", {}, "running");
+			callbacks.onEnd("Plan it", { assistantMessageId: "seg-2" });
+
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "answerAccepted", questionId: "q-1" },
+			]);
+		});
+
+		it.each([
+			[
+				"a thought",
+				(callbacks: StreamCallbacks) => callbacks.onThinking("Hmm"),
+			],
+			[
+				"a tool call",
+				(callbacks: StreamCallbacks) =>
+					callbacks.onToolCall?.("web_search", {}, "running"),
+			],
+			[
+				"a progress line",
+				(callbacks: StreamCallbacks) =>
+					callbacks.onResponseActivity?.({
+						id: "context-ready",
+						kind: "context",
+						status: "done",
+						contextPreparationClass: "context-retrieval",
+						count: 2,
+					}),
+			],
+		])("takes %s for the resume's first event as well", async (_name, firstEvent) => {
+			const made = onTheClock();
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.answerQuestion(answerOf());
+
+			// Said on that event alone, before any text, and not again for the text.
+			firstEvent(made.streamInvocations[0].callbacks);
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "answerAccepted", questionId: "q-1" },
+			]);
+			made.streamInvocations[0].callbacks.onToken("Now the text");
+			expect(reported(made.onAskEvent)).toHaveLength(1);
+		});
+
+		it("takes the end of a resume that streamed nothing for the answer being accepted", async () => {
+			const made = onTheClock();
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.answerQuestion(answerOf());
+
+			made.streamInvocations[0].callbacks.onEnd("", {
+				assistantMessageId: "seg-2",
+			});
+
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "answerAccepted", questionId: "q-1" },
+			]);
+			expect(runtime.snapshot()).toMatchObject({ isSending: false });
+		});
+
+		it("gives a queued message back to the draft when a reply ends paused, and sends nothing", async () => {
+			const made = onTheClock({ restorePayloadToDraft: vi.fn() });
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.send(words("Plan my trip"));
+			made.streamInvocations[0].callbacks.onToken("Before I plan it,");
+			// The person typed on while the reply ran, and asked for a compression too.
+			runtime.queue(words("Also: no flights"));
+			runtime.compact();
+
+			made.streamInvocations[0].callbacks.onEnd("Before I plan it,", {
+				assistantMessageId: "seg-1",
+				waitingQuestionId: "q-1",
+			});
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "paused", questionId: "q-1", assistantMessageId: "seg-1" },
+			]);
+			// No new turn starts under an open question: the words go back where they
+			// were typed, and the compression that waited runs.
+			expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledTimes(1);
+			expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "Also: no flights" }),
+			);
+			expect(made.adapters.runManualContextCompression).toHaveBeenCalledTimes(
+				1,
+			);
+			expect(made.streamInvocations).toHaveLength(1);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				active: false,
+				phase: "idle",
+				canRetry: false,
+				queuedTurn: null,
+				queuedContextCompression: false,
+			});
+			// The segment is finalized like any turn's end, and the title is asked for.
+			expect(
+				made.messageListEvents.finalizeStreamingMessage,
+			).toHaveBeenCalled();
+			expect(made.adapters.maybeTriggerTitleGeneration).toHaveBeenCalledTimes(
+				1,
+			);
+		});
+
+		it("reports a pause when the end was a Stop too, and when a resume asks again", async () => {
+			const stopped = onTheClock();
+			const first = createNormalChatClientTurnRuntime(stopped.adapters);
+			await first.send(words("Plan my trip"));
+			first.queue(words("Later"));
+			stopped.streamInvocations[0].callbacks.onEnd("Partial", {
+				wasStopped: true,
+				assistantMessageId: "seg-1",
+				waitingQuestionId: "q-1",
+			});
+			expect(reported(stopped.onAskEvent)).toEqual([
+				{ type: "paused", questionId: "q-1", assistantMessageId: "seg-1" },
+			]);
+			expect(stopped.adapters.restorePayloadToDraft).toHaveBeenCalledTimes(1);
+
+			// A resume is a turn like any: it can end paused on its own new question.
+			const again = onTheClock();
+			const second = createNormalChatClientTurnRuntime(again.adapters);
+			await second.answerQuestion(answerOf());
+			again.streamInvocations[0].callbacks.onToken("Thanks. One more thing:");
+			again.streamInvocations[0].callbacks.onEnd("Thanks. One more thing:", {
+				assistantMessageId: "seg-2",
+				waitingQuestionId: "q-2",
+			});
+			expect(reported(again.onAskEvent)).toEqual([
+				{ type: "answerAccepted", questionId: "q-1" },
+				{ type: "paused", questionId: "q-2", assistantMessageId: "seg-2" },
+			]);
+			expect(second.snapshot()).toMatchObject({ isSending: false });
+		});
+
+		it("names the placeholder's row when the end carries no id, and nothing when the list lost it", async () => {
+			const made = onTheClock();
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.send(words("Plan my trip"));
+			made.streamInvocations[0].callbacks.onEnd("Before I plan it,", {
+				waitingQuestionId: "q-1",
+			});
+			// The row keeps the id it was drawn under when the end does not name another.
+			expect(reported(made.onAskEvent, "paused")).toEqual([
+				{ type: "paused", questionId: "q-1", assistantMessageId: "id-2" },
+			]);
+
+			const lost = onTheClock({ getMessages: vi.fn(() => []) });
+			const second = createNormalChatClientTurnRuntime(lost.adapters);
+			await second.send(words("Plan my trip"));
+			lost.streamInvocations[0].callbacks.onEnd("Before I plan it,", {
+				waitingQuestionId: "q-1",
+			});
+			expect(reported(lost.onAskEvent, "paused")).toEqual([
+				{ type: "paused", questionId: "q-1", assistantMessageId: null },
+			]);
+		});
+
+		it("waits for an update, then sends the answer again when health says up", async () => {
+			const made = onTheClock();
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+
+			await runtime.answerQuestion(answerOf());
+			made.streamInvocations[0].callbacks.onError(refusedAsDraining());
+
+			// Not the capacity backoff and not an error: the placeholder waits, saying so,
+			// and the card has been told nothing.
+			expect(made.adapters.schedule).not.toHaveBeenCalledWith(
+				expect.any(Function),
+				500,
+			);
+			expect(made.messages.at(-1)).toMatchObject({
+				continuesMessageId: "seg-1",
+				runtimePhase: "awaiting_update",
+			});
+			expect(runtime.snapshot()).toMatchObject({
+				phase: "awaiting_update",
+				isSending: true,
+				canRetry: false,
+			});
+			expect(made.adapters.onServerUpdateSign).toHaveBeenCalledTimes(1);
+			expect(made.adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+				true,
+			);
+			expect(reported(made.onAskEvent)).toEqual([]);
+			expect(sentenceShown(made.adapters)).toEqual([]);
+
+			// The server is still draining at the first look, and well at the second.
+			await vi.advanceTimersByTimeAsync(POLL_MS);
+			expect(made.streamInvocations).toHaveLength(1);
+			made.server.health = WELL;
+			await vi.advanceTimersByTimeAsync(POLL_MS);
+
+			// The same answer goes again, under the same placeholder.
+			expect(made.streamInvocations).toHaveLength(2);
+			expect(made.streamInvocations[1].options).toBe(
+				made.streamInvocations[0].options,
+			);
+			expect(made.streamInvocations[1].message).toBe("Plan my trip");
+			expect(made.messages.filter((row) => row.isStreaming)).toHaveLength(1);
+			expect(made.adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+				false,
+			);
+
+			made.streamInvocations[1].callbacks.onToken("Plan");
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "answerAccepted", questionId: "q-1" },
+			]);
+			expect(sentenceShown(made.adapters)).toEqual([]);
+		});
+
+		it("gives an answer up after the update wait with answerNotSent, and quietly on Stop", async () => {
+			// Eight minutes of an update, and the server is still not back.
+			const gaveUp = onTheClock({
+				readChatMessages: vi.fn(async () => []),
+			});
+			const runtime = createNormalChatClientTurnRuntime(gaveUp.adapters);
+			await runtime.answerQuestion(answerOf());
+			gaveUp.streamInvocations[0].callbacks.onError(refusedAsDraining());
+			// A message typed meanwhile waits in the queue.
+			runtime.queue(words("Meanwhile"));
+
+			await vi.advanceTimersByTimeAsync(EIGHT_MINUTES_MS);
+
+			expect(reported(gaveUp.onAskEvent)).toEqual([
+				{ type: "answerNotSent", questionId: "q-1", quiet: false },
+			]);
+			// The placeholder goes and the asking row stays. Neither the update sentence
+			// nor Retry is shown: the chat's last message did not fail.
+			expect(gaveUp.messages.map((row) => row.id)).toEqual(["user-1", "seg-1"]);
+			expect(sentenceShown(gaveUp.adapters)).toEqual([]);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				active: false,
+				canRetry: false,
+			});
+			expect(gaveUp.adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+				false,
+			);
+			expect(gaveUp.adapters.restorePayloadToDraft).toHaveBeenCalledTimes(1);
+			expect(gaveUp.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "Meanwhile" }),
+			);
+			expect(gaveUp.streamInvocations).toHaveLength(1);
+			// Nothing was read back: the reply the answer would have replaced was never taken off.
+			expect(gaveUp.adapters.readChatMessages).not.toHaveBeenCalled();
+
+			// Stop ends the wait, and the card comes back without an error line.
+			const stopped = onTheClock({
+				readChatMessages: vi.fn(async () => []),
+			});
+			const second = createNormalChatClientTurnRuntime(stopped.adapters);
+			await second.answerQuestion(answerOf());
+			stopped.streamInvocations[0].callbacks.onError(refusedAsDraining());
+			expect(second.stop()).toBe(true);
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(reported(stopped.onAskEvent)).toEqual([
+				{ type: "answerNotSent", questionId: "q-1", quiet: true },
+			]);
+			expect(stopped.messages.map((row) => row.id)).toEqual([
+				"user-1",
+				"seg-1",
+			]);
+			expect(sentenceShown(stopped.adapters)).toEqual([]);
+			expect(second.snapshot()).toMatchObject({
+				isSending: false,
+				canRetry: false,
+			});
+			expect(stopped.adapters.readChatMessages).not.toHaveBeenCalled();
+			expect(stopped.streamInvocations).toHaveLength(1);
+		});
+
+		it("sends an answer again only a few times when the server calls itself well and keeps refusing it as an update, then settles it", async () => {
+			const made = onTheClock();
+			made.server.health = WELL;
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.answerQuestion(answerOf());
+
+			// Refused, waited, sent again: three times over.
+			for (let sent = 0; sent < 3; sent += 1) {
+				made.streamInvocations[sent].callbacks.onError(refusedByTheProxy());
+				await vi.advanceTimersByTimeAsync(POLL_MS);
+				expect(made.streamInvocations).toHaveLength(sent + 2);
+			}
+			// The fourth is not waited for: it is a give-up like any other.
+			made.streamInvocations[3].callbacks.onError(refusedByTheProxy());
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(made.adapters.onServerUpdateSign).toHaveBeenCalledTimes(3);
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "answerNotSent", questionId: "q-1", quiet: false },
+			]);
+			expect(sentenceShown(made.adapters)).toEqual([]);
+		});
+
+		it("backs an answer off three times when another reply is running, then says answerNotSent", async () => {
+			const made = onTheClock();
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.answerQuestion(answerOf());
+
+			// The old three-step backoff, as for a send: no wait, no sign for the shell.
+			made.streamInvocations[0].callbacks.onError(refusedAsFull("user_limit"));
+			expect(made.adapters.schedule).toHaveBeenCalledWith(
+				expect.any(Function),
+				500,
+			);
+			expect(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
+			expect(made.messages.at(-1)?.runtimePhase).not.toBe("awaiting_update");
+			await vi.advanceTimersByTimeAsync(500);
+			made.streamInvocations[1].callbacks.onError(refusedAsFull("user_limit"));
+			await vi.advanceTimersByTimeAsync(1000);
+			made.streamInvocations[2].callbacks.onError(
+				refusedAsFull("global_limit"),
+			);
+			await vi.advanceTimersByTimeAsync(2000);
+			expect(made.streamInvocations).toHaveLength(4);
+			expect(reported(made.onAskEvent)).toEqual([]);
+
+			made.streamInvocations[3].callbacks.onError(refusedAsFull("user_limit"));
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(made.streamInvocations).toHaveLength(4);
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "answerNotSent", questionId: "q-1", quiet: false },
+			]);
+			// The capacity sentence is a send's: the card says the answer was not sent.
+			expect(sentenceShown(made.adapters)).toEqual([]);
+			expect(made.messages.map((row) => row.id)).toEqual(["user-1", "seg-1"]);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				canRetry: false,
+			});
+		});
+
+		it("says alreadyAnswered to a 409 and takes the placeholder away", async () => {
+			const made = onTheClock({
+				checkForOrphanedStream: vi.fn(async () => "stream-1"),
+			});
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.answerQuestion(answerOf());
+			runtime.queue(words("Meanwhile"));
+
+			made.streamInvocations[0].callbacks.onError(alreadyAnswered());
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "alreadyAnswered", questionId: "q-1" },
+			]);
+			expect(made.messages.map((row) => row.id)).toEqual(["user-1", "seg-1"]);
+			// The winner's reply is not looked for here, and nothing is joined: the page
+			// reads the questions and joins it, from a turn that has ended.
+			expect(made.adapters.checkForOrphanedStream).not.toHaveBeenCalled();
+			expect(made.streamInvocations).toHaveLength(1);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				active: false,
+				canRetry: false,
+				queuedTurn: null,
+			});
+			expect(sentenceShown(made.adapters)).toEqual([]);
+			// What waited in the queue goes back to the composer: nothing drains it.
+			expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "Meanwhile" }),
+			);
+		});
+
+		describe("when the answer did not land", () => {
+			/** The server still runs the resume: its stream is found, and it says whose message it runs. */
+			const resumeRunning =
+				(): Partial<NormalChatClientTurnRuntimeAdapters> => ({
+					checkForOrphanedStream: vi.fn(async () => "stream-1"),
+					getStreamBufferInfo: vi.fn(async () => ({
+						exists: true,
+						userMessage: "Plan my trip",
+						reasoningDepth: "thorough" as ReasoningDepth,
+						createdAt: Date.now() - 2000,
+					})),
+				});
+
+			it("joins the chat's running stream when a resume's connection died, else says answerNotSent", async () => {
+				// The server runs the resume: the connection died, not the reply.
+				const running = onTheClock(resumeRunning());
+				const runtime = createNormalChatClientTurnRuntime(running.adapters);
+				await runtime.answerQuestion(answerOf());
+				const placeholderId = running.messages.at(-1)?.id;
+
+				running.streamInvocations[0].callbacks.onError(
+					new TypeError("network error"),
+				);
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(running.streamInvocations).toHaveLength(2);
+				expect(running.streamInvocations[1].options).toMatchObject({
+					reconnectToStreamId: "stream-1",
+				});
+				// The old placeholder is replaced by the join's, which continues the same
+				// row. The person's message is not drawn a second time.
+				const streaming = running.messages.filter((row) => row.isStreaming);
+				expect(streaming).toHaveLength(1);
+				expect(streaming[0]).toMatchObject({ continuesMessageId: "seg-1" });
+				expect(streaming[0].id).not.toBe(placeholderId);
+				expect(
+					running.messages.filter((row) => row.content === "Plan my trip"),
+				).toHaveLength(1);
+				// The resume runs, so the answer was taken up; nothing says it failed.
+				expect(reported(running.onAskEvent)).toEqual([
+					{ type: "answerAccepted", questionId: "q-1" },
+				]);
+				expect(sentenceShown(running.adapters)).toEqual([]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: true,
+					active: true,
+					canRetry: false,
+				});
+				// The joined stream carries the rest of the reply like any other.
+				running.streamInvocations[1].callbacks.onToken("Day one");
+				running.streamInvocations[1].callbacks.onEnd("Day one", {
+					assistantMessageId: "seg-2",
+				});
+				expect(reported(running.onAskEvent)).toHaveLength(1);
+
+				// No stream of the chat: the answer did not land.
+				const none = onTheClock();
+				const second = createNormalChatClientTurnRuntime(none.adapters);
+				await second.answerQuestion(answerOf());
+				none.streamInvocations[0].callbacks.onError(
+					new TypeError("network error"),
+				);
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(none.adapters.checkForOrphanedStream).toHaveBeenCalledWith(
+					"conv-1",
+				);
+				expect(none.streamInvocations).toHaveLength(1);
+				expect(reported(none.onAskEvent)).toEqual([
+					{ type: "answerNotSent", questionId: "q-1", quiet: false },
+				]);
+				expect(none.messages.map((row) => row.id)).toEqual(["user-1", "seg-1"]);
+				expect(sentenceShown(none.adapters)).toEqual([]);
+				expect(second.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: false,
+				});
+			});
+
+			it.each([
+				[
+					"a 500 the server could not carry the answer on",
+					500,
+					"ANSWER_FAILED",
+				],
+				["a 409 that gave the claim back", 409, "QUESTION_NOT_WAITING"],
+				["a 404 for a question that is gone", 404, "QUESTION_NOT_FOUND"],
+				["a 400 for a body it cannot read", 400, "INVALID_ANSWER"],
+				["a preflight refusal", 422, "attachment_not_ready"],
+			])("settles %s the same way: nothing to join, so the card is told", async (_name, status, code) => {
+				const made = onTheClock({ readChatMessages: vi.fn(async () => []) });
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.answerQuestion(answerOf());
+				runtime.queue(words("Meanwhile"));
+
+				made.streamInvocations[0].callbacks.onError(
+					refused(status, code, "The server's English"),
+				);
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(reported(made.onAskEvent)).toEqual([
+					{ type: "answerNotSent", questionId: "q-1", quiet: false },
+				]);
+				// No sentence, no Retry, nothing asked of the chat about a message, and the
+				// words that waited behind the answer are in the composer.
+				expect(sentenceShown(made.adapters)).toEqual([]);
+				expect(made.adapters.readChatMessages).not.toHaveBeenCalled();
+				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+					expect.objectContaining({ message: "Meanwhile" }),
+				);
+				expect(made.messages.map((row) => row.id)).toEqual(["user-1", "seg-1"]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: false,
+				});
+				// A refusal the server named is not a connection to ask after twice.
+				expect(made.streamInvocations).toHaveLength(1);
+			});
+
+			it("recovers a resume that dropped after some text as a send does: the joined stream continues the asking row", async () => {
+				const made = onTheClock(resumeRunning());
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.answerQuestion(answerOf());
+				made.streamInvocations[0].callbacks.onToken("Day one, ");
+
+				made.streamInvocations[0].callbacks.onError(
+					new TypeError("network error"),
+				);
+				expect(made.adapters.schedule).toHaveBeenCalledWith(
+					expect.any(Function),
+					500,
+				);
+				await vi.advanceTimersByTimeAsync(500);
+
+				expect(made.streamInvocations).toHaveLength(2);
+				expect(made.streamInvocations[1].options).toMatchObject({
+					reconnectToStreamId: "stream-1",
+				});
+				const streaming = made.messages.filter((row) => row.isStreaming);
+				expect(streaming).toHaveLength(1);
+				expect(streaming[0]).toMatchObject({ continuesMessageId: "seg-1" });
+				// Accepted when the first text came, and not again for the join.
+				expect(reported(made.onAskEvent)).toEqual([
+					{ type: "answerAccepted", questionId: "q-1" },
+				]);
+				expect(sentenceShown(made.adapters)).toEqual([]);
+			});
+
+			it("gives a resume up when its stream cannot be found after a drop, without asking the server about a message", async () => {
+				const made = onTheClock({ readChatMessages: vi.fn(async () => []) });
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.answerQuestion(answerOf());
+				made.streamInvocations[0].callbacks.onToken("Day one, ");
+				made.streamInvocations[0].callbacks.onError(
+					new TypeError("network error"),
+				);
+
+				// The three looks of the recovery, then its give-up.
+				await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
+
+				expect(reported(made.onAskEvent)).toEqual([
+					{ type: "answerAccepted", questionId: "q-1" },
+					{ type: "answerNotSent", questionId: "q-1", quiet: false },
+				]);
+				// A resume's reply is not "a reply after the person's message": the chat is
+				// not read for it, and no sentence or Retry is offered.
+				expect(made.adapters.readChatMessages).not.toHaveBeenCalled();
+				expect(sentenceShown(made.adapters)).toEqual([]);
+				expect(made.messages.map((row) => row.id)).toEqual(["user-1", "seg-1"]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: false,
+				});
+			});
+
+			it("leaves a turn that started meanwhile alone when a dropped resume is given up", async () => {
+				const made = onTheClock();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.answerQuestion(answerOf());
+				made.streamInvocations[0].callbacks.onToken("Day one, ");
+				made.streamInvocations[0].callbacks.onError(
+					new TypeError("network error"),
+				);
+				// The composer is free after a drop: a message sent meanwhile is a turn.
+				await runtime.send(words("Hello again"));
+				expect(made.streamInvocations).toHaveLength(2);
+
+				await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
+
+				expect(reported(made.onAskEvent, "answerNotSent")).toEqual([
+					{ type: "answerNotSent", questionId: "q-1", quiet: false },
+				]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: true,
+					active: true,
+				});
+			});
+
+			it("leaves an answer cut by the browser's background to the page's recovery, and tells the card quietly", async () => {
+				const made = onTheClock({ isBrowserHidden: vi.fn(() => true) });
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.answerQuestion(answerOf());
+
+				made.streamInvocations[0].callbacks.onError(
+					Object.assign(new Error("The operation was aborted."), {
+						name: "AbortError",
+					}),
+				);
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(made.adapters.onBackgroundInterrupted).toHaveBeenCalledTimes(1);
+				expect(runtime.snapshot()).toMatchObject({
+					streamInterruptedByBackground: true,
+					isSending: false,
+					canRetry: false,
+				});
+				expect(reported(made.onAskEvent)).toEqual([
+					{ type: "answerNotSent", questionId: "q-1", quiet: true },
+				]);
+				expect(made.adapters.checkForOrphanedStream).not.toHaveBeenCalled();
+				expect(made.messages.map((row) => row.id)).toEqual(["user-1", "seg-1"]);
+				expect(sentenceShown(made.adapters)).toEqual([]);
+			});
+		});
+
+		it("gives the card back quietly when Stop is pressed before the resume has streamed anything", async () => {
+			const made = onTheClock();
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.answerQuestion(answerOf());
+			runtime.queue(words("Meanwhile"));
+
+			expect(runtime.stop()).toBe(true);
+			// The transport ends a stopped stream like this, and does not wait for the
+			// server's own end: no message id.
+			made.streamInvocations[0].callbacks.onEnd("", { wasStopped: true });
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "answerNotSent", questionId: "q-1", quiet: true },
+			]);
+			// The empty placeholder goes instead of turning into a "Stopped" row under a
+			// card that has not folded.
+			expect(made.messages.map((row) => row.id)).toEqual(["user-1", "seg-1"]);
+			expect(
+				made.messageListEvents.finalizeStreamingMessage,
+			).not.toHaveBeenCalled();
+			expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "Meanwhile" }),
+			);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				canRetry: false,
+			});
+		});
+
+		it("ends a resume that was stopped after it began like any stopped turn", async () => {
+			const made = onTheClock();
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.answerQuestion(answerOf());
+			made.streamInvocations[0].callbacks.onToken("Day one");
+
+			made.streamInvocations[0].callbacks.onEnd("Day one", {
+				wasStopped: true,
+			});
+
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "answerAccepted", questionId: "q-1" },
+			]);
+			expect(
+				made.messageListEvents.finalizeStreamingMessage,
+			).toHaveBeenCalledTimes(1);
+			expect(runtime.snapshot()).toMatchObject({ isSending: false });
+		});
+
+		it("gives a refused send's words back when a question waits", async () => {
+			const made = onTheClock();
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.send({ ...words("Hello"), attachmentIds: ["file-1"] });
+			runtime.queue(words("And this"));
+			expect(made.messages.map((row) => row.role)).toEqual([
+				"user",
+				"assistant",
+				"user",
+				"assistant",
+			]);
+
+			made.streamInvocations[0].callbacks.onError(questionWaiting());
+			await vi.advanceTimersByTimeAsync(0);
+
+			// Both bubbles go; the words return to the composer, then the queued ones.
+			expect(made.messages.map((row) => row.id)).toEqual(["user-1", "seg-1"]);
+			const restored = vi.mocked(made.adapters.restorePayloadToDraft).mock
+				.calls;
+			expect(restored.map(([payload]) => payload.message)).toEqual([
+				"Hello",
+				"And this",
+			]);
+			expect(restored[0][0].attachmentIds).toEqual(["file-1"]);
+			// No sentence and no Retry, and the page is told to read the questions and the chat.
+			expect(sentenceShown(made.adapters)).toEqual([]);
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "refusedWhileWaiting" },
+			]);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				active: false,
+				canRetry: false,
+			});
+			// Not a capacity refusal, and not an update: nothing waits or backs off.
+			expect(made.adapters.schedule).not.toHaveBeenCalled();
+			expect(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
+			expect(made.streamInvocations).toHaveLength(1);
+			// Retry has nothing to send.
+			await runtime.retry();
+			expect(made.streamInvocations).toHaveLength(1);
+		});
+
+		it("takes a refused Retry away quietly when a question waits", async () => {
+			const made = onTheClock();
+			made.messages.length = 0;
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.send(words("Plan my trip"));
+			made.streamInvocations[0].callbacks.onError(new Error("Network failed"));
+			// The server did keep the turn, and the page read it back.
+			made.messages.length = 0;
+			made.messages.push(
+				{
+					id: "user-saved",
+					role: "user",
+					content: "Plan my trip",
+					timestamp: 1,
+				},
+				{
+					id: "assistant-saved",
+					role: "assistant",
+					content: "A",
+					timestamp: 2,
+				},
+			);
+			vi.mocked(made.adapters.setSendError).mockClear();
+			await runtime.retry();
+			expect(made.streamInvocations[1].options).toMatchObject({
+				retryAssistantMessageId: "assistant-saved",
+			});
+
+			// A stale page: a question waits, and the retry route turns the request away.
+			made.streamInvocations[1].callbacks.onError(questionWaiting());
+			await vi.advanceTimersByTimeAsync(0);
+
+			// The placeholder goes; the person's message is the server's, and its words
+			// are not the composer's to get back.
+			expect(made.messages.map((row) => row.id)).toEqual(["user-saved"]);
+			expect(made.adapters.restorePayloadToDraft).not.toHaveBeenCalled();
+			expect(sentenceShown(made.adapters)).toEqual([]);
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "refusedWhileWaiting" },
+			]);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				active: false,
+				canRetry: false,
+			});
+			expect(made.streamInvocations).toHaveLength(2);
+			// Retry is not on offer after it.
+			await runtime.retry();
+			expect(made.streamInvocations).toHaveLength(2);
+		});
+
+		it("takes a refused regenerate away the same way, leaving the person's message", async () => {
+			const made = onTheClock();
+			made.messages.length = 0;
+			made.messages.push({
+				id: "user-saved",
+				role: "user",
+				content: "Plan my trip",
+				timestamp: 1,
+			});
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.send(words("Plan my trip"), {
+				skipUserMessage: true,
+				skipPersistUserMessage: true,
+				retryAssistantMessageId: "assistant-old",
+				retryUserMessageId: "user-saved",
+			});
+
+			made.streamInvocations[0].callbacks.onError(questionWaiting());
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(made.messages.map((row) => row.id)).toEqual(["user-saved"]);
+			expect(made.adapters.restorePayloadToDraft).not.toHaveBeenCalled();
+			expect(sentenceShown(made.adapters)).toEqual([]);
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "refusedWhileWaiting" },
+			]);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				canRetry: false,
+			});
+		});
+
+		it("takes an Atlas kickoff that is refused because a question waits back to the composer without a sentence", async () => {
+			const made = onTheClock({
+				submitAtlasTurn: vi.fn(async () => {
+					throw questionWaiting();
+				}),
+			});
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+
+			await runtime.send({
+				...words("Research the market"),
+				atlasMode: true,
+				atlasProfile: "in-depth",
+				atlasAction: "create",
+			});
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(made.messages.map((row) => row.id)).toEqual(["user-1", "seg-1"]);
+			expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+				expect.objectContaining({
+					message: "Research the market",
+					atlasMode: true,
+				}),
+			);
+			expect(sentenceShown(made.adapters)).toEqual([]);
+			expect(reported(made.onAskEvent)).toEqual([
+				{ type: "refusedWhileWaiting" },
+			]);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				canRetry: false,
+			});
+		});
+
+		it("asks the page to read the questions when an ask_user call is done", async () => {
+			const refreshQuestions = vi.fn();
+			const made = onTheClock({ refreshQuestions });
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.send(words("Plan my trip"));
+			const { callbacks } = made.streamInvocations[0];
+
+			// Running is not yet a question on the server; other tools are not asks.
+			callbacks.onToolCall?.("ask_user", { questions: [] }, "running");
+			callbacks.onToolCall?.("web_search", { query: "x" }, "done");
+			expect(refreshQuestions).not.toHaveBeenCalled();
+
+			callbacks.onToolCall?.("ask_user", { questions: [] }, "done");
+			expect(refreshQuestions).toHaveBeenCalledTimes(1);
+			callbacks.onToolCall?.("ask_user", { questions: [] }, "failed");
+			expect(refreshQuestions).toHaveBeenCalledTimes(2);
+
+			// A page that does not listen is not asked to.
+			const quiet = onTheClock();
+			const second = createNormalChatClientTurnRuntime(quiet.adapters);
+			await second.send(words("Plan my trip"));
+			expect(() =>
+				quiet.streamInvocations[0].callbacks.onToolCall?.(
+					"ask_user",
+					{},
+					"done",
+				),
+			).not.toThrow();
+		});
+
+		it("continues the answering question's row with a reconnect's placeholder", async () => {
+			let answering: string | null = "seg-1";
+			const made = onTheClock({
+				getAnsweringQuestionMessageId: vi.fn(() => answering),
+			});
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+
+			// A reload during the resume joins its stream: the replay continues the
+			// asking row, under the person's message that is on screen.
+			await runtime.reconnectToOrphanedStream("stream-1", "Plan my trip");
+			expect(
+				made.messageListEvents.appendAssistantPlaceholder.mock.calls.at(
+					-1,
+				)?.[0],
+			).toMatchObject({ role: "assistant", continuesMessageId: "seg-1" });
+			expect(made.messageListEvents.appendUserMessage).not.toHaveBeenCalled();
+			expect(made.streamInvocations[0].options).toMatchObject({
+				reconnectToStreamId: "stream-1",
+			});
+
+			// With no answer on its way, the same reconnect starts an ordinary reply.
+			const ordinary = onTheClock({
+				getAnsweringQuestionMessageId: vi.fn(() => answering),
+			});
+			answering = null;
+			const second = createNormalChatClientTurnRuntime(ordinary.adapters);
+			await second.reconnectToOrphanedStream("stream-2", "Plan my trip");
+			const placeholder =
+				ordinary.messageListEvents.appendAssistantPlaceholder.mock.calls.at(
+					-1,
+				)?.[0];
+			expect(placeholder).toMatchObject({ role: "assistant" });
+			expect(placeholder).not.toHaveProperty("continuesMessageId");
+		});
+
+		it("does nothing for an answer while a turn runs or an edit's resend is pending, and clears detached when it starts", async () => {
+			// A turn runs.
+			const running = onTheClock();
+			const busy = createNormalChatClientTurnRuntime(running.adapters);
+			await busy.send(words("Hello"));
+			await busy.answerQuestion(answerOf());
+			expect(running.streamInvocations).toHaveLength(1);
+			expect(
+				running.messageListEvents.appendAssistantPlaceholder,
+			).toHaveBeenCalledTimes(1);
+
+			// The chat is sealed, an edit is open, or an edit's resend is on its way.
+			for (const guard of [
+				{ isReadOnly: vi.fn(() => true) },
+				{ isEditOpen: vi.fn(() => true) },
+				{ isEditResendPending: vi.fn(() => true) },
+			] satisfies Partial<NormalChatClientTurnRuntimeAdapters>[]) {
+				const held = onTheClock(guard);
+				const idle = createNormalChatClientTurnRuntime(held.adapters);
+				await idle.answerQuestion(answerOf());
+				expect(held.streamInvocations).toHaveLength(0);
+				expect(
+					held.messageListEvents.appendAssistantPlaceholder,
+				).not.toHaveBeenCalled();
+				expect(idle.snapshot()).toMatchObject({ isSending: false });
+			}
+
+			// A page that was left is back when it answers: what a backoff scheduled by
+			// this answer does is not dropped as the work of a page nobody sees.
+			const left = onTheClock();
+			const runtime = createNormalChatClientTurnRuntime(left.adapters);
+			runtime.detach();
+			await runtime.answerQuestion(answerOf());
+			expect(left.streamInvocations).toHaveLength(1);
+			left.streamInvocations[0].callbacks.onError(refusedAsFull("user_limit"));
+			await vi.advanceTimersByTimeAsync(500);
+			expect(left.streamInvocations).toHaveLength(2);
+		});
+
+		describe("when the page is left", () => {
+			it("sends nothing from an update wait once the page is left, and keeps no words", async () => {
+				const made = onTheClock();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.answerQuestion(answerOf());
+				made.streamInvocations[0].callbacks.onError(refusedAsDraining());
+
+				// The page is destroyed: it detaches, then takes the wait. An answer has no
+				// words to keep: the card holds them, and the question still waits.
+				runtime.detach();
+				expect(runtime.takeWaitingRequest()).toBeNull();
+				made.server.health = WELL;
+				await vi.advanceTimersByTimeAsync(EIGHT_MINUTES_MS);
+
+				expect(made.streamInvocations).toHaveLength(1);
+				expect(reported(made.onAskEvent)).toEqual([]);
+				expect(made.adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					false,
+				);
+			});
+
+			it("tells the page nothing once the chat on screen is another", async () => {
+				let conversationId = "conv-1";
+				const made = onTheClock({
+					getConversationId: vi.fn(() => conversationId),
+				});
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.answerQuestion(answerOf());
+
+				conversationId = "conv-2";
+				made.streamInvocations[0].callbacks.onToken("Plan");
+				made.streamInvocations[0].callbacks.onEnd("Plan", {
+					assistantMessageId: "seg-2",
+					waitingQuestionId: "q-2",
+				});
+				expect(reported(made.onAskEvent)).toEqual([]);
+
+				// And a refusal that comes back for the chat that was left reaches no one.
+				const refusedLater = onTheClock({
+					getConversationId: vi.fn(() => conversationId),
+				});
+				conversationId = "conv-1";
+				const second = createNormalChatClientTurnRuntime(refusedLater.adapters);
+				await second.answerQuestion(answerOf());
+				conversationId = "conv-2";
+				refusedLater.streamInvocations[0].callbacks.onError(alreadyAnswered());
+				await vi.advanceTimersByTimeAsync(0);
+				expect(reported(refusedLater.onAskEvent)).toEqual([]);
 			});
 		});
 	});

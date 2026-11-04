@@ -46,6 +46,7 @@ import type {
 	PictureRef,
 	UserPicturesMetadata,
 } from "$lib/shared/artifacts/image-body";
+import { type AskAnswer, isAskToolName } from "$lib/shared/ask-user";
 import {
 	isFileProductionToolName,
 	toolCallInputKey,
@@ -161,6 +162,36 @@ export type NormalChatMessageListEvent =
 			metadata?: StreamMetadata;
 	  };
 
+/**
+ * What the runtime tells the page about "Ask me first": Alfy can stop a reply to
+ * ask the person questions, and the person's answer carries the same reply on as a
+ * new segment (`answerQuestion`). An answer is told as `answerAccepted` (then
+ * `paused` too, if the resume asks again), or as `answerNotSent`, or as
+ * `alreadyAnswered`; `paused` and `refusedWhileWaiting` are about any turn.
+ *
+ * - `paused`: a turn ended with a question waiting (`waitingQuestionId`), whichever
+ *   turn it was: a send, a reconnect, or a resume that asks again.
+ *   `assistantMessageId` is the saved asking row as this end knows it: the terminal
+ *   metadata names it, else the row the placeholder became. Null when the list no
+ *   longer holds it, and then nothing can be stamped locally.
+ * - `answerAccepted`: the resume runs on the server, so the answer was taken up. The
+ *   first event of its stream says so, or the stream joined after the connection
+ *   died, or a stream that ended before it said anything. Reported once per answer.
+ * - `answerNotSent`: the answer did not become a running resume, and the card comes
+ *   back with it. `quiet` is for a Stop (and a tab the browser cut off), which are
+ *   not a failure: no error line.
+ * - `alreadyAnswered`: another answer won the claim (a second device, a double tap).
+ * - `refusedWhileWaiting`: a message, a Retry or a regenerate was turned away
+ *   because a question waits; the page was stale and reads the questions and the
+ *   chat again.
+ */
+export type AskRuntimeEvent =
+	| { type: "paused"; questionId: string; assistantMessageId: string | null }
+	| { type: "answerAccepted"; questionId: string }
+	| { type: "answerNotSent"; questionId: string; quiet: boolean }
+	| { type: "alreadyAnswered"; questionId: string }
+	| { type: "refusedWhileWaiting" };
+
 export type NormalChatClientTurnRuntimeAdapters = {
 	streamChat: typeof streamChat;
 	checkForOrphanedStream: typeof checkForOrphanedStream;
@@ -171,6 +202,14 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	getReasoningDepth: () => ReasoningDepth;
 	getPersonalityProfileId: () => string | null;
 	getActiveDocumentArtifactId: () => string | undefined;
+	/**
+	 * The connection capabilities the composer has switched on, as a send of it would
+	 * carry them (`enabledConnectionCapabilities`), for the turn an answer starts.
+	 * Undefined when there is no selection to send, and the server then falls back to
+	 * the person's defaults, as for any client that sends none. The selection lives in
+	 * the composer, not in the runtime, so only the page can say.
+	 */
+	getEnabledConnectionCapabilities?: () => string[] | undefined;
 	getMessages: () => ChatMessage[];
 	isReadOnly: () => boolean;
 	isEditResendPending: () => boolean;
@@ -224,6 +263,21 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	// getPendingWritesForMessage — without this, the write-confirm card
 	// would briefly disappear the instant the turn finishes streaming.
 	refreshPendingWrites?: () => void;
+	/**
+	 * "Ask me first": the page reads the chat's questions again. Called when an
+	 * `ask_user` call is done or failed, the way `refreshPendingWrites` follows a
+	 * connector call: the question rows are what the card is drawn from.
+	 */
+	refreshQuestions?: () => void;
+	/** The runtime's word to the page about an answer, a pause or a refusal because a question waits (`AskRuntimeEvent`). */
+	onAskEvent?: (event: AskRuntimeEvent) => void;
+	/**
+	 * The asking row of the question whose answer is on its way, if the page knows of
+	 * one. A reconnect that joins a stream then is that question's resume, and its
+	 * placeholder continues that row (`continuesMessageId`) instead of drawing as a
+	 * reply of its own.
+	 */
+	getAnsweringQuestionMessageId?: () => string | null;
 	pollMessageEvidence: (assistantMessageId: string) => void;
 	refreshMessageCost: (assistantMessageId: string) => void;
 	hydrateConversationDetail: () => void;
@@ -344,12 +398,28 @@ type SendRuntimeOptions = {
 	onForkedSourceHistoryConfirmationRequired?: () => void;
 };
 
+/**
+ * The person's answer to a question Alfy asked, while it is on its way
+ * (`answerQuestion`). It rides on the params of every stream attempt of that
+ * answer (a backoff or a wait sends the same params again), so what is learned on
+ * one attempt is known to the next.
+ */
+type AnswerInFlight = {
+	questionId: string;
+	/** The asking row the resume's reply continues; a join of the resume's stream continues the same row. */
+	continuesMessageId: string;
+	/** `answerAccepted` has been reported: it is said once per answer, whichever stream carried the resume. */
+	accepted: boolean;
+};
+
 type StartStreamParams = {
 	message: string;
 	placeholderId: string;
 	clientUserMessageId: string | null;
 	payload?: NormalChatSendPayload;
 	streamOptions: StreamChatOptions;
+	/** Set when this stream carries the person's answer to a question (`answerQuestion`): not a message, so it fails differently. */
+	answer?: AnswerInFlight;
 	// R1 (ADR-0060, defect 2) — the conversation this turn was started
 	// against, captured once from `adapters.getConversationId()` at the
 	// moment the turn began (send/retry/reconnect). Every subsequent write
@@ -764,11 +834,7 @@ export function createNormalChatClientTurnRuntime(
 	function holdRefusedRequestForUpdate(params: StartStreamParams) {
 		// The refused request has no stream, and nothing to stop.
 		setActiveStream(null);
-		// A new message is a request the server never got; a regenerate, and a Retry of
-		// a message the server holds without a reply, are requests it knows.
-		const serverNeverGotIt = Boolean(
-			params.payload && !params.streamOptions.retryAssistantMessageId,
-		);
+		const serverNeverGotIt = serverNeverGotTheMessage(params);
 		const waiting = beginUpdateWait({
 			placeholderId: params.placeholderId,
 			turnConversationId: params.turnConversationId,
@@ -781,6 +847,17 @@ export function createNormalChatClientTurnRuntime(
 						...params,
 						capacityRetryCount: 0,
 						updateResendCount: (params.updateResendCount ?? 0) + 1,
+					});
+					return;
+				}
+				// An answer the server never got: nothing but the placeholder is on screen
+				// and nothing of it failed, so no sentence and no Retry. The card comes
+				// back with the answer in it; a give-up says why, and Stop does not.
+				if (params.answer) {
+					endAnswer(params, {
+						type: "answerNotSent",
+						questionId: params.answer.questionId,
+						quiet: end === "stopped",
 					});
 					return;
 				}
@@ -886,6 +963,119 @@ export function createNormalChatClientTurnRuntime(
 		adapters.setSendError(message);
 		canRetry = true;
 		emitState();
+	}
+
+	// ---- "Ask me first": the person's answer is a turn that is not a message -----
+	//
+	// An answer meets what a send meets (an update, a busy server, a connection that
+	// drops), but nothing of it is on screen except a placeholder under the asking
+	// row, and nothing of it is the person's words to put back: the card holds the
+	// answer. So where a send ends with a sentence and a Retry, an answer ends with
+	// an event, and `lastSend`, `canRetry` and the send error are never touched.
+
+	/** `answerAccepted`, once per answer: the resume runs on the server. */
+	function reportAnswerAccepted(answer: AnswerInFlight) {
+		if (answer.accepted) return;
+		answer.accepted = true;
+		adapters.onAskEvent?.({
+			type: "answerAccepted",
+			questionId: answer.questionId,
+		});
+	}
+
+	/**
+	 * An answer that ends without carrying the reply on in this tab: the placeholder
+	 * goes, the turn ends, what was queued behind it returns to the composer (nothing
+	 * drains the queue after this), and the page is told how it ended. With `ownsTurn`
+	 * false the turn state may belong to a turn that started since (the composer is
+	 * free after a drop), and is left alone.
+	 */
+	function endAnswer(
+		params: StartStreamParams,
+		event: AskRuntimeEvent,
+		ownsTurn = true,
+	) {
+		adapters.applyMessageListEvent({
+			type: "remove",
+			messageId: params.placeholderId,
+		});
+		if (ownsTurn || !isSending) {
+			completeTurn();
+			if (takeQueuedContextCompression()) {
+				void adapters.runManualContextCompression();
+			}
+			restoreQueuedTurnToDraft();
+		}
+		adapters.onAskEvent?.(event);
+	}
+
+	/**
+	 * An answer the server did not take up as a running resume: it was refused, its
+	 * request died before the resume streamed, or the update wait and the capacity
+	 * backoff ran out. The server may still run it (the connection died, not the
+	 * reply), so the chat's running stream is looked for and joined, under a new
+	 * placeholder that continues the same row. Otherwise the card comes back with the
+	 * answer in it, and the server has the question as waiting again.
+	 *
+	 * This is not `settleCutReply`, which asks the server whether a message got a
+	 * reply: a resume's reply is not a reply right after a user message but a new
+	 * assistant row that continues the asking one.
+	 */
+	async function settleAnswerThatDidNotLand(
+		params: StartStreamParams,
+		answer: AnswerInFlight,
+		options: { ownsTurn: boolean },
+	) {
+		const joined = await joinRunningStreamOfCutReply(params, options.ownsTurn);
+		if (joined === "abandoned") {
+			completeStaleTurn(params.placeholderId);
+			return;
+		}
+		if (joined === "joined") {
+			// A stream of the chat is running its resume, so the server has the answer.
+			reportAnswerAccepted(answer);
+			return;
+		}
+		endAnswer(
+			params,
+			{ type: "answerNotSent", questionId: answer.questionId, quiet: false },
+			options.ownsTurn,
+		);
+	}
+
+	/**
+	 * A new message, a Retry or a regenerate that the server turned away because a
+	 * question of Alfy's waits for its answer (409 `QUESTION_WAITING`): this page was
+	 * stale (another device asked, or this tab missed the pause), and nothing ran. No
+	 * sentence and no Retry: the page reads the questions and the chat again and shows
+	 * the card. A message the server never got goes back to the composer with its
+	 * bubble gone, as when Stop ends a wait; a request the server knows (a regenerate,
+	 * a Retry of a message it holds) has no words to give back, and the reply the page
+	 * took off the screen returns with the chat.
+	 */
+	function settleRefusedWhileQuestionWaits(params: StartStreamParams) {
+		adapters.applyMessageListEvent({
+			type: "remove",
+			messageId: params.placeholderId,
+		});
+		completeTurn();
+		if (takeQueuedContextCompression()) {
+			void adapters.runManualContextCompression();
+		}
+		if (serverNeverGotTheMessage(params) && params.payload) {
+			if (params.clientUserMessageId) {
+				adapters.applyMessageListEvent({
+					type: "remove",
+					messageId: params.clientUserMessageId,
+				});
+			}
+			adapters.restorePayloadToDraft(params.payload);
+		}
+		restoreQueuedTurnToDraft();
+		lastSend = null;
+		canRetry = false;
+		emitState();
+		adapters.onAskEvent?.({ type: "refusedWhileWaiting" });
 	}
 
 	/** What the page says the server is doing; no answer in time is none. */
@@ -1044,6 +1234,7 @@ export function createNormalChatClientTurnRuntime(
 				? Date.now() - running.bufferInfo.createdAt
 				: undefined,
 			params.turnConversationId,
+			params.answer?.continuesMessageId,
 		);
 		return "joined";
 	}
@@ -1061,6 +1252,14 @@ export function createNormalChatClientTurnRuntime(
 		originalError: Error,
 		options: { ownsTurn: boolean; cutByUpdate: boolean },
 	) {
+		// An answer has no message to ask the server about: the resume's stream is
+		// looked for, or the card comes back with the answer.
+		if (params.answer) {
+			await settleAnswerThatDidNotLand(params, params.answer, {
+				ownsTurn: options.ownsTurn,
+			});
+			return;
+		}
 		const outcome = await askWhatTheServerHolds(
 			params.message,
 			params.streamOptions.retryAssistantMessageId,
@@ -1198,6 +1397,7 @@ export function createNormalChatClientTurnRuntime(
 		id: string,
 		generationDurationMs?: number,
 		userIntent?: MessageUserIntent,
+		continuesMessageId?: string,
 	): ChatMessage {
 		return {
 			id,
@@ -1209,6 +1409,8 @@ export function createNormalChatClientTurnRuntime(
 			runtimePhase: "preparing",
 			...(generationDurationMs !== undefined ? { generationDurationMs } : {}),
 			...(userIntent ? { userIntent } : {}),
+			// A resume's reply is a segment that continues the row that asked.
+			...(continuesMessageId ? { continuesMessageId } : {}),
 		};
 	}
 
@@ -1582,21 +1784,30 @@ export function createNormalChatClientTurnRuntime(
 		// with no in-flight produce_file calls to track.
 		const fileProductionPlaceholderIds = new Map<string, string>();
 
+		// The first event of an answer's stream is the resume running: the server took
+		// the answer up (`answerAccepted`, once).
+		const noteResumeRunning = () => {
+			if (params.answer) reportAnswerAccepted(params.answer);
+		};
+
 		return {
 			onToken(chunk) {
 				hasStreamedContent = true;
 				if (!isTurnConversationActive(params.turnConversationId)) return;
+				noteResumeRunning();
 				setPhase("generating", params.placeholderId);
 				tokenBuffer.append(chunk);
 			},
 			onThinking(chunk) {
 				hasStreamedContent = true;
 				if (!isTurnConversationActive(params.turnConversationId)) return;
+				noteResumeRunning();
 				setPhase("generating", params.placeholderId);
 				thinkingBuffer.append(chunk);
 			},
 			onToolCall(name, input, status, details) {
 				if (!isTurnConversationActive(params.turnConversationId)) return;
+				noteResumeRunning();
 				setPhase("generating", params.placeholderId);
 				adapters.applyMessageListEvent({
 					type: "applyToolCall",
@@ -1606,6 +1817,11 @@ export function createNormalChatClientTurnRuntime(
 					status,
 					details,
 				});
+				// An ask is recorded as a question on the server when its call is done:
+				// the card is drawn from those rows, so the page reads them again.
+				if (isAskToolName(name) && status !== "running") {
+					adapters.refreshQuestions?.();
+				}
 				if (isFileProductionToolName(name)) {
 					const callKey = details?.callId ?? toolCallInputKey(input);
 					if (status === "running") {
@@ -1640,6 +1856,7 @@ export function createNormalChatClientTurnRuntime(
 			},
 			onResponseActivity(entry) {
 				if (!isTurnConversationActive(params.turnConversationId)) return;
+				noteResumeRunning();
 				setPhase("generating", params.placeholderId);
 				adapters.applyMessageListEvent({
 					type: "applyResponseActivity",
@@ -1686,6 +1903,30 @@ export function createNormalChatClientTurnRuntime(
 					return;
 				}
 
+				// An answer stopped before its resume said anything (the transport ends
+				// a Stop with no message id, and does not wait for the server's own end):
+				// there is no segment to show, and the card has not folded, so the
+				// placeholder goes instead of turning into a "Stopped" row. The server is
+				// asked to stop the run; the page reads the questions to see where the
+				// question stands.
+				if (
+					params.answer &&
+					!params.answer.accepted &&
+					metadata?.wasStopped &&
+					!metadata.assistantMessageId
+				) {
+					if (isTurnConversationActive(params.turnConversationId)) {
+						endAnswer(params, {
+							type: "answerNotSent",
+							questionId: params.answer.questionId,
+							quiet: true,
+						});
+					} else {
+						completeStaleTurn(params.placeholderId);
+					}
+					return;
+				}
+
 				// Finding 4 (web-citation auto-repair) — prefer the server's final
 				// persisted text over the raw streamed text whenever the two
 				// differ, so retry/title-generation see what the conversation
@@ -1699,6 +1940,10 @@ export function createNormalChatClientTurnRuntime(
 				if (!isTurnConversationActive(params.turnConversationId)) {
 					return;
 				}
+
+				// A stream that reached its end ran the resume, even if it said nothing
+				// before the end.
+				noteResumeRunning();
 
 				const shouldHydrateEventualMetadata =
 					isReceiptOnlyCompletionMetadata(metadata);
@@ -1719,7 +1964,29 @@ export function createNormalChatClientTurnRuntime(
 
 				adapters.maybeTriggerTitleGeneration();
 
-				if (metadata?.wasStopped) {
+				// "Ask me first": the reply paused to ask the person something, whichever
+				// turn this was (a send, a reconnect, a resume that asks again). The
+				// segment is finalized above like any turn's end; the reply is not over.
+				// What was queued behind it is given back, as when a Stop ends the turn:
+				// no new turn starts under an open question.
+				const pausedFor = metadata?.waitingQuestionId;
+				if (pausedFor) {
+					adapters.onAskEvent?.({
+						type: "paused",
+						questionId: pausedFor,
+						// The saved row's id, as the terminal metadata names it, else the id the
+						// placeholder's row has now.
+						assistantMessageId:
+							serverAssistantId ??
+							(adapters
+								.getMessages()
+								.some((message) => message.id === params.placeholderId)
+								? params.placeholderId
+								: null),
+					});
+				}
+
+				if (metadata?.wasStopped || pausedFor) {
 					if (takeQueuedContextCompression()) {
 						void adapters.runManualContextCompression();
 					}
@@ -1755,6 +2022,21 @@ export function createNormalChatClientTurnRuntime(
 				// runtime state by the time this fires.
 				if (detached || !isTurnConversationActive(params.turnConversationId)) {
 					completeStaleTurn(params.placeholderId);
+					return;
+				}
+
+				// "Ask me first": a question waits. A new message, a Retry or a regenerate
+				// is turned away (a stale page), and an answer that lost the claim to
+				// another answer is told so. Neither is a failure to put a sentence on.
+				if (!params.isReconnect && isQuestionWaitingRefusal(err)) {
+					settleRefusedWhileQuestionWaits(params);
+					return;
+				}
+				if (params.answer && isQuestionAlreadyAnswered(err)) {
+					endAnswer(params, {
+						type: "alreadyAnswered",
+						questionId: params.answer.questionId,
+					});
 					return;
 				}
 
@@ -1867,6 +2149,19 @@ export function createNormalChatClientTurnRuntime(
 					}
 				}
 
+				// "Ask me first": an answer the server did not take up as a running
+				// resume: refused, or its request died before the resume streamed, or the
+				// update wait and the capacity backoff above ran out. Never the send's
+				// judge of what the server holds (a reply after a user message): the
+				// resume's stream is joined if one runs, else the card gets the answer
+				// back. (A drop after text was recovered above, as a send's is.)
+				if (params.answer && !isBackgroundAbort) {
+					void settleAnswerThatDidNotLand(params, params.answer, {
+						ownsTurn: true,
+					});
+					return;
+				}
+
 				// ADR-0054 — a reply that died before any text, with a failed
 				// connection (no status, no code of the server's own): a restart
 				// looks like that too, and so does a phone that lost its signal.
@@ -1928,6 +2223,16 @@ export function createNormalChatClientTurnRuntime(
 					streamInterruptedByBackground = true;
 					adapters.onBackgroundInterrupted();
 					emitState();
+					// An answer cut like this may be running on the server: the visibility
+					// recovery joins it or reads the chat. The card is told quietly, so it
+					// does not wait for an answer that nobody will report.
+					if (params.answer) {
+						adapters.onAskEvent?.({
+							type: "answerNotSent",
+							questionId: params.answer.questionId,
+							quiet: true,
+						});
+					}
 					return;
 				}
 
@@ -2114,6 +2419,7 @@ export function createNormalChatClientTurnRuntime(
 			bufferInfo?.reasoningDepth ?? params.streamOptions.reasoningDepth,
 			bufferInfo?.createdAt ? Date.now() - bufferInfo.createdAt : undefined,
 			params.turnConversationId,
+			params.answer?.continuesMessageId,
 		);
 	}
 
@@ -2175,6 +2481,15 @@ export function createNormalChatClientTurnRuntime(
 		} catch (error) {
 			if (!isTurnConversationActive(params.turnConversationId)) {
 				completeStaleTurn(params.placeholderId);
+				return;
+			}
+			// "Ask me first": `/api/chat/send` turns a kickoff away while a question
+			// waits, as the stream route turns a message away. A stale page: the words
+			// return to the composer with no sentence, and the page reads the questions
+			// and the chat again.
+			if (isQuestionWaitingRefusal(error)) {
+				failAtlasTurn(params, null);
+				adapters.onAskEvent?.({ type: "refusedWhileWaiting" });
 				return;
 			}
 			// ADR-0054 — a deploy drains the server, and `/api/chat/send` takes an Atlas
@@ -2591,6 +2906,72 @@ export function createNormalChatClientTurnRuntime(
 		});
 	}
 
+	/**
+	 * The person's answer to a question Alfy asked in the middle of a reply (the card's
+	 * pick, its own words, "Up to you", or the X). The server carries the same reply
+	 * on from it as a new segment, so the answer streams under a placeholder that
+	 * continues the asking row (`continuesMessageId`) and goes to the question's own
+	 * route. It runs on what the composer has selected now (model, depth, personality,
+	 * connections, the open item), not on what the reply began with.
+	 *
+	 * A turn like any other while it runs (the composer queues behind it), but not a
+	 * send: it adds no bubble, clears no draft, and never touches Retry's memory
+	 * (`lastSend`, `canRetry`) or the page's sentence. How it ends is told to the page
+	 * as an `AskRuntimeEvent`. An entry point the page calls: it clears `detached`
+	 * here, before anything is awaited.
+	 */
+	async function answerQuestion(p: {
+		questionId: string;
+		answer: AskAnswer;
+		continuesMessageId: string;
+		userMessage: string;
+	}): Promise<void> {
+		if (
+			adapters.isReadOnly() ||
+			adapters.isEditOpen() ||
+			isSending ||
+			adapters.isEditResendPending()
+		) {
+			return;
+		}
+		detached = false;
+
+		const turnConversationId = adapters.getConversationId();
+		beginTurn();
+		const placeholderId = adapters.randomId();
+		adapters.applyMessageListEvent({
+			type: "appendAssistantPlaceholder",
+			placeholder: createAssistantPlaceholder(
+				placeholderId,
+				undefined,
+				undefined,
+				p.continuesMessageId,
+			),
+		});
+		startStream({
+			// The server finds the person's message by the rows' own links; this is the
+			// text the stream is known by, to join it after a drop.
+			message: p.userMessage,
+			placeholderId,
+			clientUserMessageId: null,
+			turnConversationId,
+			answer: {
+				questionId: p.questionId,
+				continuesMessageId: p.continuesMessageId,
+				accepted: false,
+			},
+			streamOptions: {
+				modelId: adapters.getSelectedModel(),
+				reasoningDepth: adapters.getReasoningDepth(),
+				personalityProfileId: adapters.getPersonalityProfileId(),
+				enabledConnectionCapabilities:
+					adapters.getEnabledConnectionCapabilities?.(),
+				activeDocumentArtifactId: adapters.getActiveDocumentArtifactId(),
+				questionAnswer: { questionId: p.questionId, answer: p.answer },
+			},
+		});
+	}
+
 	function queue(payload: NormalChatSendPayload) {
 		if (
 			adapters.isReadOnly() ||
@@ -2732,6 +3113,10 @@ export function createNormalChatClientTurnRuntime(
 		reasoningDepth?: ReasoningDepth,
 		replayElapsedMs?: number,
 		turnConversationId: string = adapters.getConversationId(),
+		// The row the joined reply continues: given when the stream is the resume of an
+		// answer this runtime sent, else whatever the page says it is answering (a
+		// reload during a resume joins it with no answer in hand).
+		continuesMessageId?: string,
 	) {
 		// Not an entry point: the page's reconnect is `checkForOrphanedStreamOnMount`,
 		// and everything else that gets here (the recoveries, a Retry that joins, the
@@ -2755,9 +3140,18 @@ export function createNormalChatClientTurnRuntime(
 				}),
 			});
 		}
+		const continuedRow =
+			continuesMessageId ??
+			adapters.getAnsweringQuestionMessageId?.() ??
+			undefined;
 		adapters.applyMessageListEvent({
 			type: "appendAssistantPlaceholder",
-			placeholder: createAssistantPlaceholder(placeholderId, replayElapsedMs),
+			placeholder: createAssistantPlaceholder(
+				placeholderId,
+				replayElapsedMs,
+				undefined,
+				continuedRow,
+			),
 		});
 
 		startStream({
@@ -2881,6 +3275,7 @@ export function createNormalChatClientTurnRuntime(
 		snapshot,
 		send,
 		retry,
+		answerQuestion,
 		queue,
 		clearQueuedTurn,
 		takeQueuedTurn,
@@ -3059,4 +3454,33 @@ function isCapacityError(error: Error & { code?: unknown }) {
 		error.code === "CAPACITY_EXCEEDED" ||
 		error.code === "capacity_exceeded"
 	);
+}
+
+/**
+ * Whether the request is a new message the server never got, as opposed to a
+ * request it knows (a regenerate, a Retry of a message it holds without a reply)
+ * or an answer, which carries no message. The words of the first are the page's to
+ * give back when the request is turned away.
+ */
+function serverNeverGotTheMessage(params: StartStreamParams): boolean {
+	return Boolean(
+		params.payload && !params.streamOptions.retryAssistantMessageId,
+	);
+}
+
+/** Whether the server turned the request away with this status and code (a refusal reaches `onError` with both: `streamChat`'s error, and an `ApiError`). */
+function isRefusedWith(error: unknown, status: number, code: string): boolean {
+	if (!error || typeof error !== "object") return false;
+	const refusal = error as { status?: unknown; code?: unknown };
+	return refusal.status === status && refusal.code === code;
+}
+
+/** A new message, a Retry or a regenerate, turned away because a question waits for its answer. */
+function isQuestionWaitingRefusal(error: unknown): boolean {
+	return isRefusedWith(error, 409, "QUESTION_WAITING");
+}
+
+/** An answer that lost the claim on its question to another answer. */
+function isQuestionAlreadyAnswered(error: unknown): boolean {
+	return isRefusedWith(error, 409, "QUESTION_ALREADY_ANSWERED");
 }
