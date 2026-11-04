@@ -39,7 +39,7 @@ The design (`design.md`, section 8 and the gaps it leaves) lets the builder deci
 31. The resume runs on the model, depth and personality the composer has selected when the answer is sent.
 32. While a question waits, MessageArea draws the messages read-only (no pencil, regenerate, fork, chips or Atlas actions), as during an open edit; the card stays live.
 33. Sidebar: `ConversationListItem.waitingForAnswer?: true`, `updateConversationWaitingForAnswerLocal(id, waiting)` in the store; the mark is `MessageCircleQuestionMark` (the installed Lucide's name for `MessageCircleQuestion`, now a deprecated alias) with `role="img"`, an `aria-label` and no `title`.
-34. A stop asked before the paused branch runs wins: the segment is saved stopped, the question discarded, and the ask call saved as "The user stopped the reply before answering." so later turns do not read a question still open.
+34. A stop asked before the paused branch runs wins: the segment is saved stopped, the question discarded, and the ask call saved as "The user stopped the reply before answering." so later turns do not read a question still open. Any other ending that does not pause (an error, the fallback, a capture without the ask's result) saves it as "The reply ended before the user answered." (Ruling 8).
 35. The composer dims to opacity 0.5 through ChatComposerPanel's `waitingForAnswer`, as the mockup draws it.
 36. The e2e spec is `tests/e2e/ask-me-first.spec.ts` on the fake provider (marker `AI_SMOKE_ASK_MARKER`), with one test tagged `@smoke`.
 37. The migration is `drizzle/1777140000123_ask_questions.sql`, journal idx 136 (read the newest number and idx first; `dev` may have moved).

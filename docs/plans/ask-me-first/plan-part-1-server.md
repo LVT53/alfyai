@@ -358,11 +358,11 @@ FinalizeChatTurnDurableReceipt.waitingQuestionId?: string; // set only when the 
 
 Rules:
 - `buildAskResumeCapture`: `messages = [...continuationGiven, ...responseMessages]`; `results = [...priorResults, ...]` one row per tool-result part in `messages` not already in `priorResults` and not the ask call, from the matching `ToolCallEntry` (`digest: buildHistoryToolDigest(entry)`, `localDistilled: entry.metadata?.localDistilled === true`); `toolCalls` is the prefetched calls plus `getNormalChatToolCalls()`.
-- Terminal: after the stop check and before the visible-answer check, `isPaused()` (the model run's `getTurnAsk()` is set) completes with `paused: true`. The whole-generation fallback never runs for a paused turn. A stop asked first wins (Plan's call 34). The fallback runner's own success is never a pause.
+- Terminal: after the stop check and before the visible-answer check, `isPaused()` (the model run's `getTurnAsk()` is set and the captured response messages hold the ask's tool result, `holdsAskResult`, Ruling 8) completes with `paused: true`. The whole-generation fallback never runs for a paused turn. A stop asked first wins (Plan's call 34). The fallback runner's own success is never a pause.
 - Completion with `askPause`: no follow-up chips; finalize gets `ask.pause`; `sendEndAndClose` takes `receipt.waitingQuestionId` into `data-stream-metadata` and sends it before the buffer is cleared, as every ending does.
 - Finalize: `stampAskQuestion` right after the assistant row exists, next to the pending-write stamp, before `onDurableReceiptReady`; a stamp that throws is logged and leaves `waitingQuestionId` unset, never failing the turn.
 - Orchestrator: on the main stream path, before the model run, `discardStaleAskQuestions({ userId, conversationId })` (best-effort); in `finally`, when the model run recorded an ask, `discardAskQuestion` (a no-op once stamped).
-- A stopped turn that had asked saves its ask call with `outputSummary` `The user stopped the reply before answering.` and the same `resultDigest`, so a later turn's history does not read a question still open.
+- A turn that had asked but does not pause saves its ask call settled, as `outputSummary` only (no `resultDigest`): `The user stopped the reply before answering.` when stopped, `The reply ended before the user answered.` for every other ending, so a later turn's history does not read a question still open; both whole-generation fallback inputs leave out ask_user calls; the turn-start sweep runs only for the main stream (Ruling 8, built in `ed0d12044`).
 
 - [ ] **Step 1: Write the failing tests.**
 
