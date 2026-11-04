@@ -208,7 +208,7 @@ describe("AskQuestionCard", () => {
 			expect(button("Házibuli otthon, javasolt")).toBeInTheDocument();
 		});
 
-		it("draws the number of each question and the hint on a several-pick one only on a card of several", async () => {
+		it("draws each question's number only on a card of several, and Pick any beside any question that takes several picks", async () => {
 			const many = await renderCard(dto([WHO, SPLIT]));
 
 			const questions = screen.getAllByTestId("ask-question");
@@ -219,8 +219,17 @@ describe("AskQuestionCard", () => {
 			expect(within(questions[1]).queryByText("Pick any")).toBeNull();
 			many.unmount();
 
-			await renderCard(dto([WAY]));
+			// A one-question card has no number, and no hint when its question takes one pick.
+			const one = await renderCard(dto([WAY]));
 			expect(screen.queryByText("1")).toBeNull();
+			expect(screen.queryByText("Pick any")).toBeNull();
+			one.unmount();
+
+			// The hint belongs to the question, not to the card: it shows on a one-question
+			// card whose question takes several picks.
+			await renderCard(dto([WHO]));
+			expect(screen.queryByText("1")).toBeNull();
+			expect(screen.getByText("Pick any")).toBeInTheDocument();
 		});
 
 		it("names itself for a screen reader", async () => {
