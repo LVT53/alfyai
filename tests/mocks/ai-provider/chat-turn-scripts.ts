@@ -3,7 +3,19 @@
 // back what this returns, or carries on with its own scenarios when it returns
 // null. The scenarios themselves (markers, titles, texts) are in
 // tests/fixtures/ai/chat-turn-scenarios.ts.
+import type { AskQuestion } from "../../../src/lib/shared/ask-user";
 import {
+	AI_SMOKE_ASK_AFTER_PREFIX,
+	AI_SMOKE_ASK_CALL_ID,
+	AI_SMOKE_ASK_INTRO,
+	AI_SMOKE_ASK_MANY,
+	AI_SMOKE_ASK_ONE,
+	AI_SMOKE_ASK_READ_BODY,
+	AI_SMOKE_ASK_READ_CALL_ID,
+	AI_SMOKE_ASK_READ_TITLE,
+	AI_SMOKE_ASK_SECOND,
+	AI_SMOKE_ASK_SECOND_CALL_ID,
+	AI_SMOKE_ASK_SECOND_INTRO,
 	AI_SMOKE_ITEM_TURN_BODY,
 	AI_SMOKE_ITEM_TURN_EDITED_TEXT,
 	AI_SMOKE_ITEM_TURN_FINAL_TEXT,
@@ -19,6 +31,8 @@ import {
 	AI_SMOKE_SKILL_DRAFT_MARKER,
 	AI_SMOKE_SKILL_DRAFT_NAME,
 	AI_SMOKE_SKILL_DRAFT_TEXT,
+	type AskTurnMode,
+	decodeAskTurnMode,
 	decodeItemTurnMode,
 	type ItemTurnMode,
 } from "../../fixtures/ai/chat-turn-scenarios";
@@ -31,6 +45,11 @@ const CREATE_CALL_ID = "call_fx1_create";
 const READ_CALL_ID = "call_fx1_read";
 const BAD_EDIT_CALL_ID = "call_fx1_bad_edit";
 const GOOD_EDIT_CALL_ID = "call_fx1_good_edit";
+const ASK_CREATE_CALL_ID = "call_ask_create";
+
+/** How long the `slow` mode keeps its ask back, and the `slowresume` mode its words after the answer. */
+const ASK_SLOW_MS = 2500;
+const ASK_SLOW_RESUME_MS = 4000;
 
 function isObject(value: unknown): value is JsonObject {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -229,9 +248,12 @@ function producePdfReply(body: unknown): ScriptedChatTurnReply {
 	};
 }
 
-/** The id of the Document the turn's create call made, read out of that call's tool result. */
-function madeArtifactId(body: unknown): string | null {
-	const [made] = collectWith(toolResult(body, CREATE_CALL_ID), "artifactId");
+/** The id of the Document a create call made, read out of that call's tool result. */
+function madeArtifactId(
+	body: unknown,
+	createCallId: string = CREATE_CALL_ID,
+): string | null {
+	const [made] = collectWith(toolResult(body, createCallId), "artifactId");
 	return typeof made?.artifactId === "string" ? made.artifactId : null;
 }
 
@@ -317,6 +339,110 @@ function itemTurnReply(
 	return { frames: textFrames("item_final", AI_SMOKE_ITEM_TURN_FINAL_TEXT) };
 }
 
+/**
+ * What the person answered, as the model read it in the result of the ask call
+ * `callId`: the labels picked, the person's own words, `left to me` for a choice left to
+ * the model, `closed` for the X; one question's answer after another, joined by "; ". Any
+ * other status is repeated as it is, so a result the resume got wrong shows in the
+ * sentence the model says next.
+ */
+function askAnswerText(body: unknown, callId: string): string {
+	const result = toolResult(body, callId);
+	if (!isObject(result)) return "unreadable";
+	if (result.status === "closed") return "closed";
+	if (result.status === "left_to_you") return "left to me";
+	if (result.status !== "answered") return String(result.status);
+	const answers = Array.isArray(result.answers)
+		? result.answers.filter(isObject)
+		: [];
+	return answers
+		.map((answer) =>
+			typeof answer.ownWords === "string"
+				? answer.ownWords
+				: Array.isArray(answer.picked)
+					? answer.picked.join(", ")
+					: "",
+		)
+		.join("; ");
+}
+
+/**
+ * The reply of an "Ask me first" turn. The model says a sentence and asks (`ask_user`),
+ * and the request that carries the answer as the ask's result is the resume: the model
+ * carries the reply on by saying what it was told. `twice` asks once more before it does,
+ * `read` makes a Document and reads it back first (the create-then-read chain of the item
+ * turn), `slow` keeps the ask back and `slowresume` keeps the words after the answer back.
+ */
+function askTurnReply(body: unknown, mode: AskTurnMode): ScriptedChatTurnReply {
+	const answered = answeredCallId(body);
+	const ask = (callId: string, intro: string, questions: AskQuestion[]) =>
+		toolCallFrames("ask", intro, {
+			callId,
+			name: "ask_user",
+			args: { questions },
+		});
+
+	if (answered === AI_SMOKE_ASK_CALL_ID && mode === "twice") {
+		return {
+			frames: ask(
+				AI_SMOKE_ASK_SECOND_CALL_ID,
+				AI_SMOKE_ASK_SECOND_INTRO,
+				AI_SMOKE_ASK_SECOND,
+			),
+		};
+	}
+	if (
+		answered === AI_SMOKE_ASK_CALL_ID ||
+		answered === AI_SMOKE_ASK_SECOND_CALL_ID
+	) {
+		// The sentence ends with a full stop, as a reply does. The server's stream runtime
+		// holds back a tail that could begin a leaked tool narration (its lists have
+		// "megnézem", "keresek", "let me ..."), and drops what it still holds when the
+		// reply ends: a text ending in "home" or "lake" came out as "ho" and "la", whatever
+		// the turn. That is not this feature's, so the script keeps clear of it.
+		return {
+			frames: textFrames(
+				"ask_after",
+				`${AI_SMOKE_ASK_AFTER_PREFIX}${askAnswerText(body, answered)}.`,
+			),
+			...(mode === "slowresume" ? { delayMs: ASK_SLOW_RESUME_MS } : {}),
+		};
+	}
+	if (mode === "read" && answered === null) {
+		return {
+			frames: toolCallFrames("ask_create", "", {
+				callId: ASK_CREATE_CALL_ID,
+				name: "create_artifact",
+				args: {
+					artifactType: "document",
+					title: AI_SMOKE_ASK_READ_TITLE,
+					body: AI_SMOKE_ASK_READ_BODY,
+				},
+			}),
+		};
+	}
+	if (mode === "read" && answered === ASK_CREATE_CALL_ID) {
+		return {
+			frames: toolCallFrames("ask_read", "", {
+				callId: AI_SMOKE_ASK_READ_CALL_ID,
+				name: "read_artifact",
+				args: {
+					artifactId: madeArtifactId(body, ASK_CREATE_CALL_ID) ?? "unknown",
+					detail: "blocks",
+				},
+			}),
+		};
+	}
+	return {
+		frames: ask(
+			AI_SMOKE_ASK_CALL_ID,
+			AI_SMOKE_ASK_INTRO,
+			mode === "many" ? AI_SMOKE_ASK_MANY : AI_SMOKE_ASK_ONE,
+		),
+		...(mode === "slow" ? { delayMs: ASK_SLOW_MS } : {}),
+	};
+}
+
 /** The skill-drafting reply, in the frames a real stream split it into. */
 function skillDraftReply(): ScriptedChatTurnReply {
 	const envelope = JSON.stringify({
@@ -375,6 +501,8 @@ export function scriptedChatTurnReply(
 	const asked = currentTurnText(body);
 	if (asked.includes(AI_SMOKE_PRODUCE_PDF_MARKER)) return producePdfReply(body);
 	if (asked.includes(AI_SMOKE_SKILL_DRAFT_MARKER)) return skillDraftReply();
+	const askMode = decodeAskTurnMode(asked);
+	if (askMode) return askTurnReply(body, askMode);
 	const mode = decodeItemTurnMode(asked);
 	if (mode) return itemTurnReply(body, mode);
 	return null;
