@@ -57,7 +57,9 @@ import {
 	PERSONAL_INSTRUCTIONS,
 	PROJECT_INSTRUCTIONS,
 	REPLY,
+	RESUME_AUTHORED,
 	removeFakeProvider,
+	resumeContinuation,
 	seedWorld,
 	setConversationLanguageAnswer,
 	type World,
@@ -241,6 +243,61 @@ describe("I1: nothing guesses the reply language", () => {
 			}
 		}
 		expect(catalogues.size).toBe(1);
+	});
+
+	it("writes no reply-language instruction into a resume request", async () => {
+		// A resume of a reply that asked the person is a turn like any other: the
+		// rule rides its guidance as it rides theirs, and the reply so far and the
+		// person's answer after their message (the app's fixed English around the
+		// questions, the labels and their own words, which are Hungarian here) tell
+		// the model nothing about the language to reply in.
+		const allowed = new Set([
+			...REPLY_LANGUAGE_RULE.split("\n"),
+			"They never set the reply language.",
+		]);
+		const authored = [...AUTHORED, ...RESUME_AUTHORED];
+		const message = MESSAGES[2];
+		const offenders = new Map<string, string>();
+		for (const world of [en, hu]) {
+			const [plain] = await capture(`chat ${world.uiLanguage}`, () =>
+				driveChat(world, message, world.withHistory),
+			);
+			const [resumed] = await capture(`chat resume ${world.uiLanguage}`, () =>
+				driveChat(world, message, world.withHistory, {
+					continuationMessages: resumeContinuation(),
+				}),
+			);
+
+			// the rule is there byte for byte, and the guidance is the plain turn's
+			const guidance = turnGuidanceOf(resumed.body);
+			expect(guidance.split("\n\n").includes(REPLY_LANGUAGE_RULE)).toBe(true);
+			expect(guidance).toBe(turnGuidanceOf(plain.body));
+			// the answer is in the request, after the person's message
+			expect(
+				leaves(resumed.body, "").some(({ text }) =>
+					text.includes("The user answered."),
+				),
+			).toBe(true);
+
+			for (const { path, text: raw } of leaves(resumed.body, "")) {
+				let text = raw;
+				for (const written of authored) text = text.split(written).join(" ");
+				for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) {
+					const line = sentence.trim();
+					if (!line || allowed.has(line)) continue;
+					if (
+						REPLY_LANGUAGE_INSTRUCTION.test(line) ||
+						LANGUAGE_NAME.test(line)
+					) {
+						offenders.set(
+							`${path.replace(/\[\d+\]/g, "[]")} :: ${line.slice(0, 160)}`,
+							line,
+						);
+					}
+				}
+			}
+		}
+		expect([...offenders.keys()]).toEqual([]);
 	});
 });
 

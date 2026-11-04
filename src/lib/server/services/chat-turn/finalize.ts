@@ -20,11 +20,19 @@ import {
 } from "$lib/server/services/file-production";
 import type { ChatGeneratedFile } from "$lib/server/services/file-production/types";
 import type { SupportedLanguage } from "$lib/server/services/language";
-import { createMessage } from "$lib/server/services/messages";
+import {
+	createMessage,
+	updateAssistantToolCallResult,
+} from "$lib/server/services/messages";
 import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
-import { type AskResumeCapture, stampAskQuestion } from "./ask-questions";
+import type { AskResumeInput } from "./ask-capture";
+import {
+	type AskResumeCapture,
+	settleAskQuestion,
+	stampAskQuestion,
+} from "./ask-questions";
 import {
 	buildBaselineDepthMetadata,
 	withDepthMetadataModelInfo,
@@ -172,7 +180,22 @@ export type FinalizeChatTurnParams = {
 	// A reply that stopped to ask the person ("Ask me first", `ask_user`): the
 	// question the tool wrote mid-turn has no message id yet, so it is tied to the
 	// assistant row here, with what the resume needs, before the receipt.
-	ask?: { pause?: { questionId: string; capture: AskResumeCapture } };
+	// `resume` is the other direction: this segment carries a reply on from the
+	// person's answer, so the question it answers is settled here (with the claim
+	// that won the answer) and the answer is written into the ask call of the row
+	// that asked, before the receipt and before a question this segment asks again
+	// is tied to its row.
+	ask?: {
+		pause?: { questionId: string; capture: AskResumeCapture };
+		resume?: Pick<
+			AskResumeInput,
+			| "questionId"
+			| "claim"
+			| "askedMessageId"
+			| "askToolCallId"
+			| "answerDigest"
+		>;
+	};
 	skipAssistantProseMemoryIntake?: boolean;
 	// The language of the conversation for the person, named after the reply
 	// (chat-turn/reply-language.ts), handed to the post-turn tail so the rail
@@ -421,6 +444,76 @@ async function stampPausedAskQuestion(params: {
 	}
 }
 
+// The ending of the question a saved segment answers: the question is settled
+// with the claim that won its answer, and the answer goes into the ask call of the
+// row that asked (until now it read that the reply paused). A step of its own
+// before the receipt, beside the stamp and for the same reason: the page reads its
+// questions when the terminal frame lands, and a card must not come back for a
+// question the reply has answered. Neither can fail a turn, and neither blocks
+// the other: a failure is logged and the turn is saved all the same. A question
+// left answering with no live resume reads as waiting (ask-questions.ts), so a
+// settle that never happened costs a card the person can answer again, not a chat
+// that refuses messages.
+async function settleAnsweredAskQuestion(params: {
+	turnKind: ChatTurnRoute;
+	userId: string;
+	conversationId: string;
+	resume: NonNullable<NonNullable<FinalizeChatTurnParams["ask"]>["resume"]>;
+}): Promise<void> {
+	const { resume } = params;
+	const logPrefix = turnLogPrefix(params.turnKind);
+	try {
+		const settled = await settleAskQuestion({
+			userId: params.userId,
+			questionId: resume.questionId,
+			claim: resume.claim,
+		});
+		if (settled === null) {
+			console.warn(
+				`${logPrefix} The answered question was not settled: its claim is no longer live`,
+				{
+					conversationId: params.conversationId,
+					questionId: resume.questionId,
+				},
+			);
+		}
+	} catch (error) {
+		console.error(`${logPrefix} Failed to settle the answered question`, {
+			conversationId: params.conversationId,
+			questionId: resume.questionId,
+			error,
+		});
+	}
+	try {
+		const written = await updateAssistantToolCallResult({
+			conversationId: params.conversationId,
+			messageId: resume.askedMessageId,
+			callId: resume.askToolCallId,
+			...resume.answerDigest,
+		});
+		if (!written) {
+			console.warn(
+				`${logPrefix} The answer was not written into the ask call: the row or the call is gone`,
+				{
+					conversationId: params.conversationId,
+					messageId: resume.askedMessageId,
+					callId: resume.askToolCallId,
+				},
+			);
+		}
+	} catch (error) {
+		console.error(
+			`${logPrefix} Failed to write the answer into the ask call of the row that asked`,
+			{
+				conversationId: params.conversationId,
+				messageId: resume.askedMessageId,
+				callId: resume.askToolCallId,
+				error,
+			},
+		);
+	}
+}
+
 function getUniqueGeneratedFileIds(jobs: FileProductionJobSummary[]): string[] {
 	return Array.from(
 		new Set(jobs.flatMap((job) => (job.files ?? []).map((file) => file.id))),
@@ -593,6 +686,15 @@ export async function finalizeChatTurn(
 			conversationId: params.conversationId,
 			assistantMessageId: assistantMessage.id,
 			reconciliation: params.generatedOutputReconciliation,
+		});
+	}
+
+	if (assistantMessage && params.ask?.resume) {
+		await settleAnsweredAskQuestion({
+			turnKind: params.turnKind,
+			userId: params.userId,
+			conversationId: params.conversationId,
+			resume: params.ask.resume,
 		});
 	}
 

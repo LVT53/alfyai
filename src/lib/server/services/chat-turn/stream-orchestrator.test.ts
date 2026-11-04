@@ -12,12 +12,14 @@ import {
 	unregisterActiveChatStream,
 } from "$lib/server/services/chat-turn/active-streams";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
+import type { NormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
 import {
 	createContextPreparationStageTimelineMark,
 	SERVER_STREAM_TIMELINE_MARKS,
 	STREAM_TIMELINE_PAYLOAD_VERSION,
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
+import { type AskResumeInput, capturedProvenanceResults } from "./ask-capture";
 import {
 	runChatStreamOrchestrator,
 	type StreamOrchestratorOptions,
@@ -75,6 +77,10 @@ vi.mock("$lib/server/services/chat-turn/ask-questions", () => ({
 	stampAskQuestion: vi.fn(),
 	discardAskQuestion: vi.fn(),
 	discardStaleAskQuestions: vi.fn(),
+	// a resume gives its question back when it ends unsaved and settles it when its
+	// segment is saved
+	releaseAskQuestion: vi.fn(),
+	settleAskQuestion: vi.fn(),
 }));
 
 // P2 — the instant-acknowledgment control call is mocked at this seam so the
@@ -105,6 +111,8 @@ vi.mock("$lib/server/services/messages", () => ({
 	listMessageWindow: vi.fn(() =>
 		Promise.resolve({ messages: [], hasMoreBefore: false }),
 	),
+	// The answer a resume's segment writes into the call of the row that asked.
+	updateAssistantToolCallResult: vi.fn(),
 	// What the turn's language lookup reads (chat-turn/reply-language.ts):
 	// nothing on record here.
 	getLastConversationLanguage: vi.fn(async () => null),
@@ -487,8 +495,16 @@ async function resetCompletionMocks() {
 		listPendingWritesForConversation,
 	} = await import("$lib/server/services/connections/pending-writes");
 	const { estimateTokenCount } = await import("$lib/utils/tokens");
-	const { stampAskQuestion, discardAskQuestion, discardStaleAskQuestions } =
-		await import("$lib/server/services/chat-turn/ask-questions");
+	const {
+		stampAskQuestion,
+		discardAskQuestion,
+		discardStaleAskQuestions,
+		releaseAskQuestion,
+		settleAskQuestion,
+	} = await import("$lib/server/services/chat-turn/ask-questions");
+	const { updateAssistantToolCallResult } = await import(
+		"$lib/server/services/messages"
+	);
 	const { resolveTurnAcknowledgment } = await import(
 		"$lib/server/services/chat-turn/turn-acknowledgment"
 	);
@@ -551,6 +567,11 @@ async function resetCompletionMocks() {
 	(stampAskQuestion as ReturnType<typeof vi.fn>).mockResolvedValue(true);
 	(discardAskQuestion as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 	(discardStaleAskQuestions as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+	(releaseAskQuestion as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+	(settleAskQuestion as ReturnType<typeof vi.fn>).mockResolvedValue({});
+	(updateAssistantToolCallResult as ReturnType<typeof vi.fn>).mockResolvedValue(
+		true,
+	);
 	// P3b — default no-op session: samples nothing, returns no steps. Tests
 	// that exercise the classifier wiring itself override this per-test.
 	(
@@ -4080,5 +4101,557 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 			clearStreamBuffer("sweep-reconnect-stream");
 			unregisterActiveChatStream("sweep-reconnect-stream", ownerController);
 		}
+	});
+
+	// The turn that carries the reply on from the person's answer. Its input is the
+	// captured reply with the answer where the pause was; the question it answers is
+	// settled when its segment is saved and given back when it ends unsaved.
+	describe("a resume that carries the reply on from the answer", () => {
+		const CLOUD = {
+			baseUrl: "https://api.fireworks.ai/inference/v1",
+		} as NormalChatModelRunProvider;
+		const HOME = {
+			baseUrl: "http://192.168.1.20:8000/v1",
+		} as NormalChatModelRunProvider;
+		const answerResult = {
+			status: "answered",
+			answers: [{ question: "Which one?", picked: ["B"] }],
+			note: "The user answered.",
+		};
+		const CALENDAR_PAYLOAD = {
+			events: [{ title: "Dentist with Dr. Kovacs" }],
+		};
+		// what the paused segment read, with the answer where its pause was
+		const resumeContinuation: ModelMessage[] = [
+			...continuationGiven,
+			...responseMessages.slice(0, 2),
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "tool-call",
+						toolCallId: "call-cal",
+						toolName: "calendar",
+						input: { action: "list_events" },
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "call-cal",
+						toolName: "calendar",
+						output: { type: "json", value: CALENDAR_PAYLOAD },
+					},
+				],
+			},
+			responseMessages[2],
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "call-ask",
+						toolName: "ask_user",
+						output: { type: "json", value: answerResult },
+					},
+				],
+			},
+		];
+		const CALENDAR_DIGEST = { ok: true, summary: "Found 1 event." };
+		const resume: AskResumeInput = {
+			questionId: "q-1",
+			claim: "claim-1",
+			askedMessageId: "asst-1",
+			askToolCallId: "call-ask",
+			userMessageId: "user-m",
+			continuation: resumeContinuation,
+			capturedResults: [
+				{
+					toolCallId: "pre-1",
+					toolName: "fetch_url",
+					localDistilled: false,
+					digest: { ok: true, summary: "Fetched 1 page." },
+				},
+				{
+					toolCallId: "call-search",
+					toolName: "research_web",
+					localDistilled: false,
+					digest: { ok: true, summary: "Found 2 sources." },
+				},
+				{
+					toolCallId: "call-cal",
+					toolName: "calendar",
+					localDistilled: false,
+					digest: CALENDAR_DIGEST,
+				},
+			],
+			userTexts: ["Satin, please"],
+			priorSegmentToolCalls: [fetchEntry, searchEntry, askEntry] as never,
+			keepConnectorDataLocal: true,
+			answerDigest: {
+				outputSummary: "The user picked: B",
+				resultDigest: "answers:\n- Which one?: B",
+			},
+		};
+
+		function runResume(
+			overrides: Partial<ChatTurnPreflight> = {},
+			options: Partial<StreamOrchestratorOptions> = {},
+		) {
+			return runChatStreamOrchestrator({
+				user: { id: "u1", displayName: "User", email: "u@test.com" },
+				turn: createTurn({
+					turnOrigin: "ask_resume",
+					skipPersistUserMessage: true,
+					...overrides,
+				}),
+				upstreamMessage: "Hello",
+				downstreamAbortSignal: new AbortController().signal,
+				requestStartTime: Date.now(),
+				resume,
+				...options,
+			});
+		}
+
+		function modelParams(
+			runStreaming: Awaited<ReturnType<typeof mockRun>>,
+		): Record<string, unknown> {
+			const params = vi.mocked(runStreaming).mock.calls[0]?.[0];
+			if (!params) throw new Error("The model was not run");
+			return params as unknown as Record<string, unknown>;
+		}
+
+		function outputOf(messages: ModelMessage[], toolCallId: string): unknown {
+			for (const message of messages) {
+				if (message.role !== "tool") continue;
+				for (const part of message.content) {
+					if (part.type === "tool-result" && part.toolCallId === toolCallId) {
+						return part.output;
+					}
+				}
+			}
+			return undefined;
+		}
+
+		it("runs a resume with its continuation and no instant acknowledgment, and gives its question back when it ends unsaved", async () => {
+			const logs = captureStreamLogs();
+			try {
+				const runStreaming = await mockRun(
+					[{ type: "error", error: "Provider rejected the model response." }],
+					{},
+				);
+				const { resolveTurnAcknowledgment } = await import(
+					"$lib/server/services/chat-turn/turn-acknowledgment"
+				);
+				const { releaseAskQuestion, settleAskQuestion } = await import(
+					"$lib/server/services/chat-turn/ask-questions"
+				);
+
+				const chunks = await readSseResponse(runResume());
+
+				// the model run starts from the reply so far, on the person's own message
+				// with the history cut before it, and reads no page again
+				const params = modelParams(runStreaming);
+				expect(params).toMatchObject({
+					message: "Hello",
+					conversationId: "test-conv",
+					continuationMessages: resumeContinuation,
+					historyBeforeMessageId: "user-m",
+					skipWebPrefetch: true,
+				});
+				// no regeneration appendix: this is the same reply going on
+				expect(params.systemPromptAppendix).toBeUndefined();
+				expect(params.resumeProvenance).toEqual({
+					userTexts: ["Satin, please"],
+					priorResults: capturedProvenanceResults({
+						v: 1,
+						messages: resumeContinuation,
+						results: resume.capturedResults,
+					}),
+				});
+				// a resume is not a new question: no acknowledgment is asked for
+				expect(resolveTurnAcknowledgment).not.toHaveBeenCalled();
+				// it ended with an error and nothing saved: the question goes back
+				expect(parseUiStreamParts(chunks)).toContainEqual({
+					type: "finish",
+					finishReason: "error",
+				});
+				await vi.waitFor(() =>
+					expect(releaseAskQuestion).toHaveBeenCalledWith({
+						userId: "u1",
+						questionId: "q-1",
+						claim: "claim-1",
+					}),
+				);
+				expect(settleAskQuestion).not.toHaveBeenCalled();
+			} finally {
+				logs.restore();
+			}
+		});
+
+		it("gates the continuation for each attempt with the captured results and the person's connector setting", async () => {
+			const runStreaming = await mockRun(
+				[{ type: "text_delta", text: "Here is the plan." }, finishEvent],
+				{},
+			);
+
+			await readSseResponse(runResume());
+
+			const gate = modelParams(runStreaming).gateMessagesForAttempt as (
+				messages: ModelMessage[],
+				provider: NormalChatModelRunProvider,
+			) => ModelMessage[];
+			// an attempt off the person's box is sent the connector result's digest
+			const cloud = gate(resumeContinuation, CLOUD);
+			expect(outputOf(cloud, "call-cal")).toEqual({
+				type: "json",
+				value: CALENDAR_DIGEST,
+			});
+			expect(JSON.stringify(cloud)).not.toContain("Dr. Kovacs");
+			// the person's own box is sent all of it
+			expect(gate(resumeContinuation, HOME)).toBe(resumeContinuation);
+		});
+
+		it("sends a person who keeps nothing local the whole continuation", async () => {
+			const runStreaming = await mockRun(
+				[{ type: "text_delta", text: "Here is the plan." }, finishEvent],
+				{},
+			);
+
+			await readSseResponse(
+				runResume({}, { resume: { ...resume, keepConnectorDataLocal: false } }),
+			);
+
+			const gate = modelParams(runStreaming).gateMessagesForAttempt as (
+				messages: ModelMessage[],
+				provider: NormalChatModelRunProvider,
+			) => ModelMessage[];
+			expect(gate(resumeContinuation, CLOUD)).toBe(resumeContinuation);
+		});
+
+		it("saves its segment as the continuation of the row that asked, then settles the question and writes the answer into that row's ask call", async () => {
+			await mockRun(
+				[{ type: "text_delta", text: "Here is the plan." }, finishEvent],
+				{},
+			);
+			const { settleAskQuestion, releaseAskQuestion } = await import(
+				"$lib/server/services/chat-turn/ask-questions"
+			);
+			const { createMessage, updateAssistantToolCallResult } = await import(
+				"$lib/server/services/messages"
+			);
+
+			const chunks = await readSseResponse(runResume());
+
+			// the person's message is not saved again; the segment names the row it continues
+			expect(createMessage).toHaveBeenCalledTimes(1);
+			expect(createMessage).toHaveBeenCalledWith(
+				"test-conv",
+				"assistant",
+				"Here is the plan.",
+				undefined,
+				undefined,
+				expect.objectContaining({ continuesMessageId: "asst-1" }),
+			);
+			expect(terminalMetadata(chunks)).toMatchObject({
+				assistantMessageId: "msg-1",
+				wasStopped: false,
+			});
+			expect(terminalMetadata(chunks)).not.toHaveProperty("waitingQuestionId");
+			// the answer settles with the claim that won it, and goes into the ask call
+			expect(settleAskQuestion).toHaveBeenCalledWith({
+				userId: "u1",
+				questionId: "q-1",
+				claim: "claim-1",
+			});
+			expect(updateAssistantToolCallResult).toHaveBeenCalledWith({
+				conversationId: "test-conv",
+				messageId: "asst-1",
+				callId: "call-ask",
+				outputSummary: "The user picked: B",
+				resultDigest: "answers:\n- Which one?: B",
+			});
+			// ... and the turn's ending hands the claim back, which the store ignores
+			await vi.waitFor(() =>
+				expect(releaseAskQuestion).toHaveBeenCalledWith({
+					userId: "u1",
+					questionId: "q-1",
+					claim: "claim-1",
+				}),
+			);
+		});
+
+		it("captures a second question asked inside a resume on top of the first answer", async () => {
+			const newSearchEntry = {
+				...searchEntry,
+				callId: "call-search-2",
+				input: { query: "finishes" },
+			};
+			const ask2 = {
+				questionId: "q-2",
+				toolCallId: "call-ask-2",
+				questions,
+			};
+			const ask2Entry = {
+				...askEntry,
+				callId: "call-ask-2",
+				metadata: { paused: true, questionId: "q-2" },
+			};
+			const secondResponse: ModelMessage[] = [
+				{
+					role: "assistant",
+					content: [
+						{
+							type: "tool-call",
+							toolCallId: "call-search-2",
+							toolName: "research_web",
+							input: { query: "finishes" },
+						},
+					],
+				},
+				{
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: "call-search-2",
+							toolName: "research_web",
+							output: { type: "json", value: { sources: ["finishes"] } },
+						},
+					],
+				},
+				{
+					role: "assistant",
+					content: [
+						{ type: "text", text: "And the finish?" },
+						{
+							type: "tool-call",
+							toolCallId: "call-ask-2",
+							toolName: "ask_user",
+							input: { questions },
+						},
+					],
+				},
+				{
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: "call-ask-2",
+							toolName: "ask_user",
+							output: { type: "json", value: { status: "waiting_for_user" } },
+						},
+					],
+				},
+			];
+			await mockRun(
+				[
+					{ type: "text_delta", text: "And the finish?" },
+					{
+						type: "tool_call",
+						callId: "call-search-2",
+						toolName: "research_web",
+						input: { query: "finishes" },
+					},
+					{
+						type: "tool_result",
+						callId: "call-search-2",
+						toolName: "research_web",
+						output: { success: true },
+					},
+					{
+						type: "tool_call",
+						callId: "call-ask-2",
+						toolName: "ask_user",
+						input: { questions },
+					},
+					{
+						type: "tool_result",
+						callId: "call-ask-2",
+						toolName: "ask_user",
+						output: { status: "waiting_for_user" },
+					},
+					finishEvent,
+				],
+				{
+					normalChatToolCalls: [newSearchEntry, ask2Entry],
+					prefetchedToolCalls: [],
+					// what this run was given is the continuation it was started with
+					continuationGiven: resumeContinuation,
+					getResponseMessages: () => secondResponse,
+					getTurnAsk: () => ask2,
+				},
+			);
+			const { stampAskQuestion, settleAskQuestion } = await import(
+				"$lib/server/services/chat-turn/ask-questions"
+			);
+
+			const chunks = await readSseResponse(runResume());
+
+			// the second question's capture is the first answer's continuation and what
+			// this run said and read, with the rows of the first segments kept as they
+			// were and one more for this run's own search
+			expect(stampAskQuestion).toHaveBeenCalledTimes(1);
+			expect(stampAskQuestion).toHaveBeenCalledWith({
+				userId: "u1",
+				questionId: "q-2",
+				assistantMessageId: "msg-1",
+				capture: {
+					v: 1,
+					messages: [...resumeContinuation, ...secondResponse],
+					results: [
+						...resume.capturedResults,
+						expect.objectContaining({
+							toolCallId: "call-search-2",
+							toolName: "research_web",
+							localDistilled: false,
+							digest: expect.objectContaining({ summary: "Found 2 sources." }),
+						}),
+					],
+				},
+			});
+			// the first question is settled before the second is stamped
+			expect(settleAskQuestion).toHaveBeenCalledWith({
+				userId: "u1",
+				questionId: "q-1",
+				claim: "claim-1",
+			});
+			expect(
+				vi.mocked(settleAskQuestion).mock.invocationCallOrder[0],
+			).toBeLessThan(vi.mocked(stampAskQuestion).mock.invocationCallOrder[0]);
+			expect(terminalMetadata(chunks)).toMatchObject({
+				waitingQuestionId: "q-2",
+			});
+		});
+
+		it("gives its question back when the stream does not start because another one is running", async () => {
+			const { releaseAskQuestion } = await import(
+				"$lib/server/services/chat-turn/ask-questions"
+			);
+			const runStreaming = await mockRun(
+				[{ type: "text_delta", text: "Not reached." }, finishEvent],
+				{},
+			);
+			const ownerController = new AbortController();
+			registerActiveChatStream({
+				streamId: "resume-owner-stream",
+				userId: "u1",
+				conversationId: "resume-reconnect-conv",
+				controller: ownerController,
+			});
+			getOrCreateStreamBuffer({
+				streamId: "resume-owner-stream",
+				userId: "u1",
+				conversationId: "resume-reconnect-conv",
+				userMessage: "Hello",
+				reasoningDepth: "thorough",
+			});
+
+			try {
+				const response = runResume({
+					conversationId: "resume-reconnect-conv",
+					streamId: "resume-answer-stream",
+				});
+				const reader = response.body?.getReader();
+				if (!reader) throw new Error("Missing response body");
+				await readNextSseChunk(reader);
+
+				// it joined the stream that runs, so it runs no model of its own, and the
+				// question it holds goes back for the person to answer again
+				expect(runStreaming).not.toHaveBeenCalled();
+				await vi.waitFor(() =>
+					expect(releaseAskQuestion).toHaveBeenCalledWith({
+						userId: "u1",
+						questionId: "q-1",
+						claim: "claim-1",
+					}),
+				);
+
+				await reader.cancel().catch(() => undefined);
+			} finally {
+				clearStreamBuffer("resume-owner-stream");
+				unregisterActiveChatStream("resume-owner-stream", ownerController);
+			}
+		});
+
+		it("gives back and settles nothing for a turn that is not a resume", async () => {
+			await mockRun([{ type: "text_delta", text: "Done." }, finishEvent], {});
+			const { releaseAskQuestion, settleAskQuestion } = await import(
+				"$lib/server/services/chat-turn/ask-questions"
+			);
+			const { resolveTurnAcknowledgment } = await import(
+				"$lib/server/services/chat-turn/turn-acknowledgment"
+			);
+			const { updateAssistantToolCallResult } = await import(
+				"$lib/server/services/messages"
+			);
+
+			await readSseResponse(runStream({ conversationId: "plain-conv" }));
+			await vi.waitFor(() =>
+				expect(
+					isStreamActive({
+						streamId: "test-stream",
+						userId: "u1",
+						conversationId: "plain-conv",
+					}),
+				).toBe(false),
+			);
+
+			expect(releaseAskQuestion).not.toHaveBeenCalled();
+			expect(settleAskQuestion).not.toHaveBeenCalled();
+			expect(updateAssistantToolCallResult).not.toHaveBeenCalled();
+			expect(resolveTurnAcknowledgment).toHaveBeenCalledTimes(1);
+		});
+
+		it("starts the model run with the same continuation in the non-stream fallback", async () => {
+			const logs = captureStreamLogs();
+			try {
+				// the run searched again, then its stream died before it said a word
+				await mockRun(
+					[...searchEvents, { type: "error", error: "socket terminated" }],
+					{ normalChatToolCalls: [searchEntry] },
+				);
+				const { runPlainNormalChatSendModel } = await import(
+					"$lib/server/services/chat-turn/plain-normal-chat-model-run"
+				);
+				(
+					runPlainNormalChatSendModel as ReturnType<typeof vi.fn>
+				).mockResolvedValue({
+					text: "Recovered answer.",
+					contextStatus: null,
+					taskState: null,
+					contextDebug: null,
+					providerUsage: null,
+					normalChatToolCalls: [],
+					modelId: "model1",
+					modelDisplayName: "Model One",
+				});
+
+				await readSseResponse(runResume());
+
+				// the fallback is a resume too: the same history cut, no page read
+				// again, and the same reply so far, with the replay of what the
+				// interrupted run did since after it
+				expect(runPlainNormalChatSendModel).toHaveBeenCalledTimes(1);
+				const given = vi.mocked(runPlainNormalChatSendModel).mock.calls[0]?.[0];
+				expect(given).toMatchObject({
+					historyBeforeMessageId: "user-m",
+					skipWebPrefetch: true,
+					gateMessagesForAttempt: expect.any(Function),
+					resumeProvenance: { userTexts: ["Satin, please"] },
+				});
+				expect(
+					given?.continuationMessages?.slice(0, resumeContinuation.length),
+				).toEqual(resumeContinuation);
+				expect(given?.continuationMessages?.length).toBeGreaterThan(
+					resumeContinuation.length,
+				);
+			} finally {
+				logs.restore();
+			}
+		});
 	});
 });

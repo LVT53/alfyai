@@ -40,6 +40,7 @@ import {
 	isFileProductionToolName,
 } from "$lib/utils/tool-calls";
 import { wasActiveChatStreamStopRequested } from "./active-streams";
+import type { AskResumeInput } from "./ask-capture";
 import type { AskResumeCapture } from "./ask-questions";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 import {
@@ -165,6 +166,20 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	// segment: no follow-up chips, the question tied to the saved message by
 	// finalize, and the terminal frame names it. Never set for a stopped turn.
 	askPause?: { questionId: string; capture: AskResumeCapture } | null;
+	// The turn carries a reply on from the person's answer to a question it asked
+	// (a resume, ask-resume.ts). Its segment names the row that asked, can cite what
+	// the reply found in the segments before, and settles the question once it is
+	// saved, writing the answer into the ask call of the row that asked.
+	askResume?: Pick<
+		AskResumeInput,
+		| "questionId"
+		| "claim"
+		| "askedMessageId"
+		| "askToolCallId"
+		| "priorSegmentToolCalls"
+		| "userTexts"
+		| "answerDigest"
+	> | null;
 	serverTimeline?: StreamTimelineTerminalPayload;
 	touchConversation: (
 		userId: string,
@@ -243,6 +258,7 @@ export async function completeStreamTurn(
 		upstreamRawFinishReason = null,
 		streamClosedWithoutFinish = false,
 		askPause: askPauseHandedOver = null,
+		askResume = null,
 		serverTimeline,
 		touchConversation,
 		enqueueChunk,
@@ -287,12 +303,21 @@ export async function completeStreamTurn(
 				upstreamRawFinishReason,
 				streamClosedWithoutFinish,
 			});
+	// A segment that carries a reply on may cite what the segments before it found
+	// (their stored tool calls), and an address the person typed into an answer is
+	// theirs as one in their message is: the citation gate reads both with this
+	// segment's own.
 	const citationGate = wasStopped
 		? null
 		: applyWebCitationQualityGate({
 				assistantResponse: fullResponse,
-				toolCalls: toolCallRecords,
-				userMessage: normalizedMessage,
+				toolCalls: [
+					...(askResume?.priorSegmentToolCalls ?? []),
+					...toolCallRecords,
+				],
+				userMessage: [normalizedMessage, ...(askResume?.userTexts ?? [])].join(
+					"\n",
+				),
 			});
 	const finalResponse = citationGate?.response ?? fullResponse;
 	// Finding 4 — the RAW model text was already streamed to this client as
@@ -731,6 +756,9 @@ export async function completeStreamTurn(
 				providerDisplayName,
 				providerIconUrl,
 				...(wasStopped ? { wasStopped: true } : {}),
+				// The row this segment carries on: a reply that paused is consecutive
+				// rows, each naming the one before it (messages.ts projects it).
+				...(askResume ? { continuesMessageId: askResume.askedMessageId } : {}),
 				// The language the conversation was in for the person at this reply
 				// (a later turn whose call fails falls back to it: messages.ts
 				// getLastConversationLanguage) and what the words of the reply say.
@@ -818,7 +846,23 @@ export async function completeStreamTurn(
 			contextTraceSections: preparedContext.contextTraceSections,
 			webCitationAudit: citationGate?.audit,
 			persistTurnState: !wasStopped,
-			ask: askPause ? { pause: askPause } : undefined,
+			ask:
+				askPause || askResume
+					? {
+							...(askPause ? { pause: askPause } : {}),
+							...(askResume
+								? {
+										resume: {
+											questionId: askResume.questionId,
+											claim: askResume.claim,
+											askedMessageId: askResume.askedMessageId,
+											askToolCallId: askResume.askToolCallId,
+											answerDigest: askResume.answerDigest,
+										},
+									}
+								: {}),
+						}
+					: undefined,
 			generatedOutputReconciliation:
 				hadFileProductionToolCall || hadConnectionWriteToolCall
 					? {

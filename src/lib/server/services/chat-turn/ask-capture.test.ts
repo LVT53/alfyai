@@ -2,8 +2,10 @@ import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { NormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
+import type { AskAnswerResult } from "$lib/server/services/normal-chat-tools/ask-user";
 import {
 	buildAskResumeCapture,
+	buildAskResumeContinuation,
 	capturedProvenanceResults,
 	gateCapturedConnectorResults,
 	holdsAskResult,
@@ -140,7 +142,6 @@ function capture(
 		responseMessages: RESPONSE,
 		toolCalls: [FETCH_ENTRY, SEARCH_ENTRY, ASK_ENTRY],
 		priorResults: [],
-		askToolCallId: "call-ask",
 		...overrides,
 	});
 }
@@ -289,6 +290,44 @@ describe("buildAskResumeCapture", () => {
 		expect(result.results.map((row) => row.toolCallId)).toEqual([
 			"pre-1",
 			"call-search",
+		]);
+	});
+
+	it("gives a connector result that reuses the ask call's id a row of its own, from the call of its own tool", () => {
+		// a provider may reuse an id from one response to the next: here the id of
+		// the ask, on a calendar read earlier in the run. It is a connector's result,
+		// not the ask's, and the ask's recorded call is not its call.
+		const calendarCall: ToolCallEntry = {
+			callId: "call-ask",
+			name: "calendar",
+			input: { action: "list_events" },
+			status: "done",
+			outputSummary: "Found 1 event.",
+			resultDigest: "One appointment at 10:00.",
+			metadata: { localDistilled: true },
+		};
+
+		const result = buildAskResumeCapture({
+			continuationGiven: [],
+			responseMessages: [
+				...calendarResult("call-ask", CALENDAR_PAYLOAD),
+				...RESPONSE.slice(2),
+			],
+			toolCalls: [calendarCall, ASK_ENTRY],
+			priorResults: [],
+		});
+
+		expect(result.results).toEqual([
+			{
+				toolCallId: "call-ask",
+				toolName: "calendar",
+				localDistilled: true,
+				digest: {
+					ok: true,
+					summary: "Found 1 event.",
+					detail: "One appointment at 10:00.",
+				},
+			},
 		]);
 	});
 
@@ -516,6 +555,13 @@ describe("holdsAskResult", () => {
 		expect(holdsAskResult(RESPONSE, "call-ask-other")).toBe(false);
 	});
 
+	it("reads the tool's name too, not the call's id alone", () => {
+		// a connector's result that reuses the ask call's id is not the ask's
+		expect(
+			holdsAskResult(calendarResult("call-ask", CALENDAR_PAYLOAD), "call-ask"),
+		).toBe(false);
+	});
+
 	it("holds it whatever the result said: a resume replaces that result with the answer", () => {
 		const refused: ModelMessage[] = [
 			{
@@ -693,6 +739,141 @@ function resultOutput(messages: ModelMessage[], toolCallId: string): unknown {
 	}
 	return undefined;
 }
+
+/** One calendar call and its result, the step of a run that read the person's calendar. */
+function calendarResult(toolCallId: string, value: unknown): ModelMessage[] {
+	return [
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId,
+					toolName: "calendar",
+					input: { action: "list_events" },
+				},
+			],
+		},
+		{
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId,
+					toolName: "calendar",
+					output: { type: "json", value: value as never },
+				},
+			],
+		},
+	];
+}
+
+// What the resume sends after the person's message: the captured messages with
+// the ask's result, which said the reply paused, replaced by the person's answer.
+describe("buildAskResumeContinuation", () => {
+	const PAUSED = {
+		status: "waiting_for_user",
+		note: "Asked. The reply pauses here until the user chooses.",
+	};
+	const ANSWER: AskAnswerResult = {
+		status: "answered",
+		answers: [
+			{ question: "Which colour?", picked: ["White"] },
+			{ question: "Which finish?", ownWords: "Satin, please" },
+		],
+		note: "The user answered. Go on with the same reply from where it paused; do not repeat what is already written.",
+	};
+	const pausedCapture = (): AskResumeCapture => ({
+		v: 1,
+		messages: resumeMessages(PAUSED),
+		results: RESULT_ROWS,
+	});
+
+	it("replaces the paused result with the answer and keeps every other result in full", () => {
+		const continuation = buildAskResumeContinuation(
+			pausedCapture(),
+			"call-ask",
+			ANSWER,
+		);
+
+		expect(continuation).toEqual(resumeMessages(ANSWER));
+		expect(resultOutput(continuation, "call-ask")).toEqual({
+			type: "json",
+			value: ANSWER,
+		});
+		// the connector results are the whole results, not their digests
+		expect(resultOutput(continuation, "call-cal")).toEqual({
+			type: "json",
+			value: CALENDAR_PAYLOAD,
+		});
+		expect(resultOutput(continuation, "call-mail")).toEqual({
+			type: "json",
+			value: EMAIL_SUMMARY,
+		});
+		expect(resultOutput(continuation, "call-search")).toEqual({
+			type: "json",
+			value: { sources: ["the whole result"] },
+		});
+	});
+
+	it("does not change the capture it is given", () => {
+		const capture = pausedCapture();
+		const before = structuredClone(capture);
+
+		buildAskResumeContinuation(capture, "call-ask", ANSWER);
+
+		expect(capture).toEqual(before);
+	});
+
+	it("replaces the ask's own result and not a connector's that shares its id", () => {
+		// a provider reused the ask call's id for a calendar read earlier in the run
+		const messages = [
+			...calendarResult("call-ask", CALENDAR_PAYLOAD),
+			...askStep(PAUSED),
+		];
+
+		const continuation = buildAskResumeContinuation(
+			{ v: 1, messages, results: [] },
+			"call-ask",
+			ANSWER,
+		);
+
+		expect(continuation).toEqual([
+			...calendarResult("call-ask", CALENDAR_PAYLOAD),
+			...askStep(ANSWER),
+		]);
+	});
+
+	it("replaces only the newest result under the ask's id and tool: an earlier ask's answer stays", () => {
+		const earlier = {
+			status: "answered",
+			answers: [],
+			note: "Earlier answer.",
+		};
+		const messages = [...askStep(earlier), ...askStep(PAUSED)];
+
+		const continuation = buildAskResumeContinuation(
+			{ v: 1, messages, results: [] },
+			"call-ask",
+			ANSWER,
+		);
+
+		expect(continuation).toEqual([...askStep(earlier), ...askStep(ANSWER)]);
+	});
+
+	it("answers the messages as they were when the capture holds no result of the ask", () => {
+		// the caller checks holdsAskResult first; a capture without it cannot be answered
+		const messages = [...PREFETCHED, ...RESPONSE.slice(0, 2)];
+
+		expect(
+			buildAskResumeContinuation(
+				{ v: 1, messages, results: [] },
+				"call-ask",
+				ANSWER,
+			),
+		).toEqual(messages);
+	});
+});
 
 // A model that is not on the person's box must never be sent what the setting
 // keeps local. A resume's original messages are the captured ones, so each
@@ -956,6 +1137,63 @@ describe("gateCapturedConnectorResults", () => {
 			);
 		});
 
+		it("does not leave a result alone because a summary row has its id and tool when a second result is under them too: the one row cannot cover both", () => {
+			// one summary row; two calendar results under the id, the first segment's
+			// summary and a later segment's raw read (it has no row in this list)
+			const gate = gateCapturedConnectorResults({
+				results: [
+					{
+						toolCallId: "call-cal",
+						toolName: "calendar",
+						localDistilled: true,
+						digest: { ok: true, summary: "A summary." },
+					},
+				],
+				keepConnectorDataLocal: true,
+			});
+			const messages = [
+				...calendarResult("call-cal", { summary: "A summary." }),
+				...calendarResult("call-cal", CALENDAR_PAYLOAD),
+			];
+
+			const sent = gate(messages, CLOUD);
+
+			expect(JSON.stringify(sent)).not.toContain("Dr. Kovacs");
+			expect(JSON.stringify(sent)).not.toContain("Main St 5");
+			// neither result is passed on as it was: with no row of a raw read to
+			// speak for them, both are withheld
+			const outputs = sent.flatMap((message) =>
+				message.role === "tool"
+					? message.content.map((part) =>
+							part.type === "tool-result" ? part.output : null,
+						)
+					: [],
+			);
+			expect(outputs).toEqual([
+				{ type: "json", value: NOTE },
+				{ type: "json", value: NOTE },
+			]);
+		});
+
+		it("leaves each result alone when the summary rows cover every result under the id and tool", () => {
+			const summary = {
+				toolCallId: "call-cal",
+				toolName: "calendar",
+				localDistilled: true,
+				digest: { ok: true, summary: "A summary." },
+			};
+			const gate = gateCapturedConnectorResults({
+				results: [summary, { ...summary }],
+				keepConnectorDataLocal: true,
+			});
+			const messages = [
+				...calendarResult("call-cal", { summary: "First summary." }),
+				...calendarResult("call-cal", { summary: "Second summary." }),
+			];
+
+			expect(gate(messages, CLOUD)).toBe(messages);
+		});
+
 		it("digests a result when any row of its id and tool is not a summary: a summary does not cover a raw result under the same id", () => {
 			const gate = gateCapturedConnectorResults({
 				results: [
@@ -1003,6 +1241,35 @@ describe("gateCapturedConnectorResults", () => {
 			expect(gate(history, CLOUD)).toBe(history);
 			const once = gate(resumeMessages(), CLOUD);
 			expect(gate(once, CLOUD)).toBe(once);
+		});
+
+		it("takes a digest with every key a digest has for a digest, and leaves it alone", () => {
+			// ok, summary, detail and sources: the whole of HistoryToolDigest
+			const full: ModelMessage[] = [
+				{
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: "hist-1",
+							toolName: "calendar",
+							output: { type: "json", value: CALENDAR_DIGEST },
+						},
+					],
+				},
+			];
+			const gate = gateCapturedConnectorResults({
+				results: [],
+				keepConnectorDataLocal: true,
+			});
+
+			expect(Object.keys(CALENDAR_DIGEST).sort()).toEqual([
+				"detail",
+				"ok",
+				"sources",
+				"summary",
+			]);
+			expect(gate(full, CLOUD)).toBe(full);
 		});
 
 		it("does not take a connector's payload for a digest because it has an ok and a summary among its fields", () => {
@@ -1066,36 +1333,6 @@ describe("gateCapturedConnectorResults", () => {
 	// A provider may reuse a call id from one response to the next. The rows of the
 	// results that share an id and a tool come in the order of the results.
 	describe("a call id that comes back", () => {
-		function calendarResult(
-			toolCallId: string,
-			value: unknown,
-		): ModelMessage[] {
-			return [
-				{
-					role: "assistant",
-					content: [
-						{
-							type: "tool-call",
-							toolCallId,
-							toolName: "calendar",
-							input: { action: "list_events" },
-						},
-					],
-				},
-				{
-					role: "tool",
-					content: [
-						{
-							type: "tool-result",
-							toolCallId,
-							toolName: "calendar",
-							output: { type: "json", value: value as never },
-						},
-					],
-				},
-			];
-		}
-
 		it("gives a later segment's raw connector result its own row, and digests it on a cloud attempt", () => {
 			// the first segment's search used the id; the second segment's raw calendar
 			// result reuses it (a row for it used to be skipped because the id was taken)
@@ -1123,7 +1360,6 @@ describe("gateCapturedConnectorResults", () => {
 					},
 				],
 				priorResults: first.results,
-				askToolCallId: "call-ask",
 			});
 			const gate = gateCapturedConnectorResults({
 				results: second.results,

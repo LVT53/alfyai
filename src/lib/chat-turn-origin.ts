@@ -14,7 +14,17 @@
 const RETRY_ORIGINS = ["regenerate", "answer_now", "error_retry"] as const;
 export type RetryOrigin = (typeof RETRY_ORIGINS)[number];
 
-export type ChatTurnOrigin = "send" | "edit_resend" | RetryOrigin;
+// "ask_resume" is the turn that carries a reply on from the person's answer to a
+// question it asked ("Ask me first", chat-turn/ask-resume.ts). It runs on the
+// person's own message without saving it again, as a retry does, but it is not
+// one: the answer was not wrong, so it is not in RETRY_ORIGINS, and finalize does
+// not count it as a regenerate. Like the retry family it is never read from a
+// client body.
+export type ChatTurnOrigin =
+	| "send"
+	| "edit_resend"
+	| "ask_resume"
+	| RetryOrigin;
 
 /** A retry route body's `retryOrigin`, defaulting to a plain "regenerate". */
 export function parseRetryOrigin(value: unknown): RetryOrigin {

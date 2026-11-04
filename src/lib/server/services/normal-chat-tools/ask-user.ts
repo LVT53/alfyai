@@ -20,6 +20,7 @@ import {
 	ASK_LIMITS,
 	ASK_PAUSE_STATUS,
 	ASK_USER_TOOL_NAME,
+	type AskAnswer,
 	type AskQuestion,
 	checkAskQuestions,
 } from "$lib/shared/ask-user";
@@ -31,6 +32,7 @@ import {
 	TOOL_TIMEOUTS_MS,
 	type ToolCallRecorder,
 } from "./shared";
+import { deriveToolResultDigest } from "./tool-result-digest";
 
 // The compact schema the model sees keeps the item counts and the length caps
 // (compactToolInputSchema), and `execute` runs `checkAskQuestions` on top for
@@ -240,4 +242,136 @@ export function createAskUserTool(ctx: {
 		),
 		getTurnAsk: () => turnAsk,
 	};
+}
+
+// --- the answer ---------------------------------------------------------------
+
+/**
+ * What the model is handed as the ask call's result once the person has answered:
+ * the resume (chat-turn/ask-resume.ts) swaps it in for the pause marker. The
+ * statuses, keys and notes are the app's own words, fixed English whatever the
+ * person writes (ruling 79); the questions, the labels and the person's own words
+ * in them are data.
+ */
+export type AskAnswerResult =
+	| {
+			status: "answered";
+			answers: Array<{
+				question: string;
+				picked?: string[];
+				ownWords?: string;
+			}>;
+			note: string;
+	  }
+	| {
+			status: "left_to_you";
+			answers: Array<{ question: string; recommended?: string[] }>;
+			note: string;
+	  }
+	| { status: "closed"; note: string };
+
+const ANSWERED_NOTE =
+	"The user answered. Go on with the same reply from where it paused; do not repeat what is already written.";
+const LEFT_TO_YOU_NOTE =
+	"The user left these choices to you: take your recommended option where you marked one, else your best judgment, and go on with the same reply.";
+const CLOSED_NOTE =
+	"The user closed the question without answering. It may have been off. Go on with your best judgment or ask differently, and never ask the same thing again.";
+
+type GivenAnswer = Extract<
+	AskAnswerResult,
+	{ status: "answered" }
+>["answers"][number];
+
+/**
+ * The result the model reads for the person's answer, and what the asking row's
+ * call keeps of it for later turns: the one-line summary and the digest history
+ * replays as the call's result (`updateAssistantToolCallResult`).
+ *
+ * Total on purpose: the answer was checked against the questions before the claim
+ * that brought it here, so an entry with no question and a pick with no option are
+ * left out rather than thrown on.
+ *
+ * The digest says each question with its answer where the summary cannot carry it
+ * (the person's own words, several questions), through the shared digest builder,
+ * which keeps it short. `deriveToolResultDigest` describes an array of items by a
+ * label, and an answer has none, so each question and its answer go in as one
+ * label. A choice left to Alfy and the X have nothing more to say: the summary
+ * does, and the digest is empty.
+ */
+export function buildAskAnswerRecord(
+	questions: readonly AskQuestion[],
+	answer: AskAnswer,
+): { result: AskAnswerResult; outputSummary: string; resultDigest: string } {
+	switch (answer.kind) {
+		case "closed":
+			return {
+				result: { status: "closed", note: CLOSED_NOTE },
+				outputSummary: "The user closed the question",
+				resultDigest: "",
+			};
+		case "left_to_alfy":
+			return {
+				result: {
+					status: "left_to_you",
+					answers: questions.map(({ question, options }) => {
+						const recommended = options
+							.filter((option) => option.recommended === true)
+							.map((option) => option.label);
+						return recommended.length > 0
+							? { question, recommended }
+							: { question };
+					}),
+					note: LEFT_TO_YOU_NOTE,
+				},
+				outputSummary: "The user left it to Alfy",
+				resultDigest: "",
+			};
+		case "answered": {
+			const answers = answer.answers.flatMap((given, index): GivenAnswer[] => {
+				const asked = questions[index];
+				if (!asked) return [];
+				if (given.ownWords !== null) {
+					return [{ question: asked.question, ownWords: given.ownWords }];
+				}
+				return [
+					{
+						question: asked.question,
+						picked: given.picked.flatMap((pick) => {
+							const option = asked.options[pick];
+							return option ? [option.label] : [];
+						}),
+					},
+				];
+			});
+			return {
+				result: { status: "answered", answers, note: ANSWERED_NOTE },
+				outputSummary: answeredSummary(answers),
+				resultDigest:
+					deriveToolResultDigest({
+						answers: answers.map((one) => ({
+							label: `${one.question}: ${answerText(one)}`,
+						})),
+					}) ?? "",
+			};
+		}
+	}
+}
+
+function answeredSummary(answers: readonly GivenAnswer[]): string {
+	const [only, ...more] = answers;
+	if (!only) return "The user answered";
+	if (more.length > 0) return `The user answered ${answers.length} questions`;
+	if (only.ownWords !== undefined)
+		return "The user answered in their own words";
+	// no option left to name means an answer that did not fit the question
+	return only.picked?.length
+		? `The user picked: ${only.picked.join(", ")}`
+		: "The user answered";
+}
+
+/** An answer as the end of a digest line: the labels picked, or the person's words in quotes. */
+function answerText(one: GivenAnswer): string {
+	return one.ownWords !== undefined
+		? `"${one.ownWords.replace(/\s+/g, " ")}"`
+		: (one.picked ?? []).join(", ");
 }

@@ -6,7 +6,10 @@ import {
 } from "$lib/server/services/connections/pending-writes";
 import type { ContextDebugState } from "$lib/server/services/knowledge/context-types";
 import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
-import type { ChatMessage } from "$lib/server/services/messages-types";
+import type {
+	ChatMessage,
+	ToolCallEntry,
+} from "$lib/server/services/messages-types";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
@@ -43,8 +46,12 @@ const {
 	mockListMessageWindow,
 	mockGetConversation,
 	mockStampAskQuestion,
+	mockSettleAskQuestion,
+	mockUpdateAssistantToolCallResult,
 } = vi.hoisted(() => ({
 	mockStampAskQuestion: vi.fn(),
+	mockSettleAskQuestion: vi.fn(),
+	mockUpdateAssistantToolCallResult: vi.fn(),
 	mockGetConversation: vi.fn(),
 	mockCreateMessage: vi.fn(),
 	mockPersistUserTurnAttachments: vi.fn(),
@@ -78,6 +85,8 @@ vi.mock("./follow-up-suggestions", async (importOriginal) => ({
 // assert what completeStreamTurn hands it and what the terminal frame says of it.
 vi.mock("./ask-questions", () => ({
 	stampAskQuestion: mockStampAskQuestion,
+	// a segment that carries a reply on from an answer settles the question it answers
+	settleAskQuestion: mockSettleAskQuestion,
 }));
 
 // The language of the conversation for the person, named after the reply
@@ -104,6 +113,7 @@ vi.mock("$lib/server/services/conversations", () => ({
 
 vi.mock("$lib/server/services/messages", () => ({
 	createMessage: mockCreateMessage,
+	updateAssistantToolCallResult: mockUpdateAssistantToolCallResult,
 	updateMessageEvidence: vi.fn(async () => undefined),
 	updateMessageWebCitationAudit: vi.fn(async () => undefined),
 	listConversationMessagesForExport: vi.fn(async () => []),
@@ -327,6 +337,9 @@ describe("completeStreamTurn", () => {
 		);
 		// Default: the question of a paused reply is stamped (only those turns ask).
 		mockStampAskQuestion.mockResolvedValue(true);
+		// Default: the question a resume answers is settled and its answer written.
+		mockSettleAskQuestion.mockResolvedValue({ id: "q-1" });
+		mockUpdateAssistantToolCallResult.mockResolvedValue(true);
 		// Default: no follow-ups (mirrors the control model degrading silently
 		// on any skip/failure) — individual tests below override this to assert
 		// the emit/persist path.
@@ -3059,6 +3072,163 @@ describe("completeStreamTurn", () => {
 			});
 
 			expect(getSavedAssistantSegments()).toEqual([askSegment]);
+		});
+	});
+
+	// A segment that carries a reply on from the person's answer is an ordinary
+	// turn that names the row it continues, can cite what the reply found before it
+	// asked, and settles the question it answers.
+	describe("a segment that carries a reply on from an answer", () => {
+		const earlierSearch: ToolCallEntry = {
+			callId: "call-search",
+			name: "research_web",
+			input: { query: "wall colours" },
+			status: "done",
+			candidates: [
+				{
+					id: "src-b",
+					title: "Page B",
+					url: "https://example.com/b",
+					sourceType: "web",
+				},
+			],
+		};
+		const ownSearch: ToolCallEntry = {
+			callId: "call-search-2",
+			name: "research_web",
+			input: { query: "finishes" },
+			status: "done",
+			candidates: [
+				{
+					id: "src-c",
+					title: "Page C",
+					url: "https://example.com/c",
+					sourceType: "web",
+				},
+			],
+		};
+		const askResume = {
+			questionId: "q-1",
+			claim: "claim-1",
+			askedMessageId: "asst-0",
+			askToolCallId: "call-ask",
+			priorSegmentToolCalls: [earlierSearch],
+			userTexts: ["see https://example.com/palette"],
+			answerDigest: {
+				outputSummary: "The user picked: Grey",
+				resultDigest: "answers:\n- Which colour?: Grey",
+			},
+		};
+		// Page B was found before the question, Page C by this segment, and the
+		// palette is an address the person typed into their answer
+		const response =
+			"Grey suits it ([Page B](https://example.com/b)), with a light finish ([Page C](https://example.com/c)); the [palette](https://example.com/palette) shows both. [Made up](https://example.com/invented)";
+		const resumed = {
+			...defaultParams,
+			skipPersistUserMessage: true,
+			fullResponse: response,
+			toolCallRecords: [ownSearch],
+			turnOrigin: "ask_resume" as const,
+		};
+
+		function savedSegment() {
+			const call = mockCreateMessage.mock.calls[0];
+			return { content: String(call?.[2]), metadata: call?.[5] };
+		}
+
+		beforeEach(() => {
+			mockCreateMessage.mockReset();
+			mockCreateMessage.mockResolvedValue(defaultAssistantMsg);
+		});
+
+		it("names the row a resume segment continues and lets it cite what the reply found earlier", async () => {
+			await completeStreamTurn({ ...resumed, askResume });
+
+			const { content, metadata } = savedSegment();
+			// the person's message is not saved again; the segment names the row it continues
+			expect(mockCreateMessage).toHaveBeenCalledTimes(1);
+			expect(metadata).toMatchObject({ continuesMessageId: "asst-0" });
+			// a link to a source an earlier segment found survives the citation repair,
+			// so does this segment's own, and so does an address the person typed
+			expect(content).toContain("(https://example.com/b)");
+			expect(content).toContain("(https://example.com/c)");
+			expect(content).toContain("(https://example.com/palette)");
+			// ... and one nothing found or the person typed does not
+			expect(content).not.toContain("https://example.com/invented");
+		});
+
+		it("would strip what an earlier segment found, and what the person typed, were they not carried across", async () => {
+			await completeStreamTurn({
+				...resumed,
+				askResume: { ...askResume, priorSegmentToolCalls: [], userTexts: [] },
+			});
+
+			const { content } = savedSegment();
+			expect(content).toContain("(https://example.com/c)");
+			expect(content).not.toContain("https://example.com/b");
+			expect(content).not.toContain("https://example.com/palette");
+		});
+
+		it("names no row for a turn that is not a resume", async () => {
+			mockCreateMessage.mockReset();
+			mockCreateMessage
+				.mockResolvedValueOnce(defaultUserMsg)
+				.mockResolvedValueOnce(defaultAssistantMsg);
+
+			await completeStreamTurn({ ...defaultParams, toolCallRecords: [] });
+
+			expect(mockCreateMessage.mock.calls[1]?.[5]).not.toHaveProperty(
+				"continuesMessageId",
+			);
+			expect(mockSettleAskQuestion).not.toHaveBeenCalled();
+		});
+
+		it("hands finalize the question to settle, with the claim and the answer for the ask call", async () => {
+			await completeStreamTurn({ ...resumed, askResume });
+
+			expect(mockSettleAskQuestion).toHaveBeenCalledWith({
+				userId: "user-1",
+				questionId: "q-1",
+				claim: "claim-1",
+			});
+			expect(mockUpdateAssistantToolCallResult).toHaveBeenCalledWith({
+				conversationId: "conv-1",
+				messageId: "asst-0",
+				callId: "call-ask",
+				outputSummary: "The user picked: Grey",
+				resultDigest: "answers:\n- Which colour?: Grey",
+			});
+		});
+
+		it("settles the question of a segment that was stopped: the segment is saved all the same", async () => {
+			await completeStreamTurn({ ...resumed, wasStopped: true, askResume });
+
+			expect(savedSegment().metadata).toMatchObject({
+				wasStopped: true,
+				continuesMessageId: "asst-0",
+			});
+			expect(mockSettleAskQuestion).toHaveBeenCalledTimes(1);
+		});
+
+		it("settles the answered question and stamps the new one when the segment asks again", async () => {
+			const capture: AskResumeCapture = { v: 1, messages: [], results: [] };
+
+			await completeStreamTurn({
+				...resumed,
+				askResume,
+				askPause: { questionId: "q-2", capture },
+			});
+
+			expect(mockSettleAskQuestion).toHaveBeenCalledWith(
+				expect.objectContaining({ questionId: "q-1" }),
+			);
+			expect(mockStampAskQuestion).toHaveBeenCalledWith(
+				expect.objectContaining({ questionId: "q-2" }),
+			);
+			expect(mockSettleAskQuestion.mock.invocationCallOrder[0]).toBeLessThan(
+				mockStampAskQuestion.mock.invocationCallOrder[0],
+			);
+			expect(getLatestEndPayload()).toMatchObject({ waitingQuestionId: "q-2" });
 		});
 	});
 });

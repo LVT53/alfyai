@@ -10,11 +10,13 @@
 // A test file sets the model environment itself in a `vi.hoisted` block (the
 // config reads it on first import), then installs the provider in `beforeAll`.
 import { randomUUID } from "node:crypto";
+import type { ModelMessage } from "ai";
 import bcrypt from "bcryptjs";
 import { vi } from "vitest";
 import { getConfig } from "../../src/lib/server/config-store";
 import { db } from "../../src/lib/server/db";
 import { users } from "../../src/lib/server/db/schema";
+import { buildAskResumeContinuation } from "../../src/lib/server/services/chat-turn/ask-capture";
 import { buildBaselineDepthMetadata } from "../../src/lib/server/services/chat-turn/depth-metadata";
 import { runPlainNormalChatSendModel } from "../../src/lib/server/services/chat-turn/plain-normal-chat-model-run";
 import { createConversation } from "../../src/lib/server/services/conversations";
@@ -24,10 +26,12 @@ import {
 	storePersonaSummaryProjection,
 } from "../../src/lib/server/services/memory-profile/projection-store";
 import { createMessage } from "../../src/lib/server/services/messages";
+import { buildAskAnswerRecord } from "../../src/lib/server/services/normal-chat-tools/ask-user";
 import {
 	createProject,
 	updateProject,
 } from "../../src/lib/server/services/projects";
+import type { AskAnswer, AskQuestion } from "../../src/lib/shared/ask-user";
 
 // --- the fixtures: English, ASCII ---------------------------------------------
 
@@ -49,6 +53,94 @@ export const HISTORY: Array<[string, string]> = [
 export const REPLY =
 	"Heat pumps move heat instead of making it, so they usually need about a third of the energy a gas boiler needs for the same warmth; the catch is the upfront cost and the need for decent insulation. For a small apartment, check whether your building allows an outdoor unit first, then compare the running costs over ten years, and finally ask two installers for a written quote.";
 const APP_ANSWER = `\`\`\`html\n<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Expense tracker</title></head><body><h1>Expense tracker</h1><button type="button">Add</button></body></html>\n\`\`\`\n`;
+
+// --- a resume: the answer to a question Alfy asked, in Hungarian ---------------
+//
+// Authored by the model (the question, the labels, the notes, the words it said
+// before it asked) and by the person (the own words): data in whatever language
+// they write, the only text of a resume request that is not the app's. The
+// fixtures are Hungarian with accents on purpose: the purity test must find no
+// other letter above U+007F in the request.
+
+export const ASKED_BEFORE = "Mielőtt folytatom, kérdeznem kell valamit.";
+export const ASK_QUESTIONS: AskQuestion[] = [
+	{
+		question: "Melyik színt válasszuk a nappalihoz?",
+		options: [
+			{ label: "Meleg fehér", note: "Tágasabbnak hat", recommended: true },
+			{ label: "Szürke" },
+		],
+	},
+	{
+		question: "Milyen legyen a felület?",
+		options: [{ label: "Matt", recommended: true }, { label: "Fényes" }],
+	},
+];
+export const OWN_WORDS = "Szatén lenne jó, ha van ilyen";
+export const ASK_ANSWER: AskAnswer = {
+	kind: "answered",
+	answers: [
+		{ picked: [0], ownWords: null },
+		{ picked: [], ownWords: OWN_WORDS },
+	],
+};
+
+/** Everything of a resume request that the model or the person wrote. */
+export const RESUME_AUTHORED = [
+	ASKED_BEFORE,
+	...ASK_QUESTIONS.flatMap(({ question, options }) => [
+		question,
+		...options.flatMap(({ label, note }) => (note ? [label, note] : [label])),
+	]),
+	OWN_WORDS,
+];
+
+/**
+ * What the resume sends after the person's message: the reply so far, with the
+ * answer as the ask's result, built by the app's own functions.
+ */
+export function resumeContinuation(): ModelMessage[] {
+	const record = buildAskAnswerRecord(ASK_QUESTIONS, ASK_ANSWER);
+	return buildAskResumeContinuation(
+		{
+			v: 1,
+			messages: [
+				{
+					role: "assistant",
+					content: [
+						{ type: "text", text: ASKED_BEFORE },
+						{
+							type: "tool-call",
+							toolCallId: "call-ask",
+							toolName: "ask_user",
+							input: { questions: ASK_QUESTIONS },
+						},
+					],
+				},
+				{
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: "call-ask",
+							toolName: "ask_user",
+							output: {
+								type: "json",
+								value: {
+									status: "waiting_for_user",
+									note: "Asked. The reply pauses here until the user chooses.",
+								},
+							},
+						},
+					],
+				},
+			],
+			results: [],
+		},
+		"call-ask",
+		record.result,
+	);
+}
 
 // --- the capturing provider ---------------------------------------------------
 
@@ -251,11 +343,16 @@ export async function seedWorld(uiLanguage: "en" | "hu"): Promise<World> {
 
 // --- the chat call ------------------------------------------------------------
 
-/** One Normal Chat model call, through the app's own plain model run. */
+/**
+ * One Normal Chat model call, through the app's own plain model run. A resume of a
+ * reply that asked is the same call with the reply so far (`continuationMessages`)
+ * after the person's message.
+ */
 export function driveChat(
 	world: World,
 	message: string,
 	conversationId: string,
+	options: { continuationMessages?: ModelMessage[] } = {},
 ): Promise<unknown> {
 	return runPlainNormalChatSendModel({
 		userId: world.userId,
@@ -263,6 +360,9 @@ export function driveChat(
 		message,
 		conversationId,
 		modelId: "model1",
+		...(options.continuationMessages
+			? { continuationMessages: options.continuationMessages }
+			: {}),
 		// The account, as the routes hand it over. Its UI language is carried
 		// here the way the stream route carries it (a variable, so this stays
 		// an input the model run does not take).

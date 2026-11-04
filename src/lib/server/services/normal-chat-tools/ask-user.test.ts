@@ -1,8 +1,16 @@
 import type { ToolExecutionOptions } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { recordAskQuestion } from "$lib/server/services/chat-turn/ask-questions";
-import { ASK_LIMITS, type AskQuestion } from "$lib/shared/ask-user";
-import { askUserInputSchema, createAskUserTool } from "./ask-user";
+import {
+	ASK_LIMITS,
+	type AskAnswer,
+	type AskQuestion,
+} from "$lib/shared/ask-user";
+import {
+	askUserInputSchema,
+	buildAskAnswerRecord,
+	createAskUserTool,
+} from "./ask-user";
 import { createToolCallRecorder } from "./shared";
 
 // The store is the database; what the tool decides before and after it is what
@@ -416,5 +424,238 @@ describe("askUserInputSchema", () => {
 		expect(accepts(withNote("n".repeat(ASK_LIMITS.noteChars)))).toBe(true);
 		expect(accepts(withNote("n".repeat(ASK_LIMITS.noteChars + 1)))).toBe(false);
 		expect(accepts(withNote(""))).toBe(false);
+	});
+});
+
+// What the model reads once the person has answered: fixed English around the
+// person's own labels and words (ruling 79). The resume's slot for the ask's
+// result, and the line and detail that later turns' history replays for it.
+describe("buildAskAnswerRecord", () => {
+	const ANSWERED_NOTE =
+		"The user answered. Go on with the same reply from where it paused; do not repeat what is already written.";
+	const LEFT_TO_YOU_NOTE =
+		"The user left these choices to you: take your recommended option where you marked one, else your best judgment, and go on with the same reply.";
+	const CLOSED_NOTE =
+		"The user closed the question without answering. It may have been off. Go on with your best judgment or ask differently, and never ask the same thing again.";
+
+	const party: AskQuestion[] = [
+		{
+			question: "Which way should we take it?",
+			options: [
+				{ label: "A party at home", recommended: true },
+				{ label: "A table at a restaurant" },
+			],
+		},
+	];
+	const toppings: AskQuestion = {
+		question: "Which toppings?",
+		multiple: true,
+		options: [
+			{ label: "Olives" },
+			{ label: "Mushrooms", recommended: true },
+			{ label: "Peppers" },
+		],
+	};
+
+	it("tells the model the picked labels, own words, a choice left to it, or the X, in fixed English", () => {
+		const picked = buildAskAnswerRecord(party, {
+			kind: "answered",
+			answers: [{ picked: [0], ownWords: null }],
+		});
+		expect(picked.result).toEqual({
+			status: "answered",
+			answers: [
+				{
+					question: "Which way should we take it?",
+					picked: ["A party at home"],
+				},
+			],
+			note: ANSWERED_NOTE,
+		});
+		expect(picked.outputSummary).toBe("The user picked: A party at home");
+
+		const ownWords = buildAskAnswerRecord(party, {
+			kind: "answered",
+			answers: [{ picked: [], ownWords: "Something outdoors, near the lake" }],
+		});
+		expect(ownWords.result).toEqual({
+			status: "answered",
+			answers: [
+				{
+					question: "Which way should we take it?",
+					ownWords: "Something outdoors, near the lake",
+				},
+			],
+			note: ANSWERED_NOTE,
+		});
+		expect(ownWords.outputSummary).toBe("The user answered in their own words");
+
+		const leftToAlfy = buildAskAnswerRecord(party, { kind: "left_to_alfy" });
+		expect(leftToAlfy.result).toEqual({
+			status: "left_to_you",
+			answers: [
+				{
+					question: "Which way should we take it?",
+					recommended: ["A party at home"],
+				},
+			],
+			note: LEFT_TO_YOU_NOTE,
+		});
+		expect(leftToAlfy.outputSummary).toBe("The user left it to Alfy");
+
+		const closed = buildAskAnswerRecord(party, { kind: "closed" });
+		expect(closed.result).toEqual({ status: "closed", note: CLOSED_NOTE });
+		expect(closed.outputSummary).toBe("The user closed the question");
+	});
+
+	it("joins several picked labels, and says how many questions were answered when there are several", () => {
+		const several = buildAskAnswerRecord([toppings], {
+			kind: "answered",
+			answers: [{ picked: [0, 2], ownWords: null }],
+		});
+		expect(several.result).toMatchObject({
+			status: "answered",
+			answers: [{ question: "Which toppings?", picked: ["Olives", "Peppers"] }],
+		});
+		expect(several.outputSummary).toBe("The user picked: Olives, Peppers");
+
+		const two = buildAskAnswerRecord([...party, toppings], {
+			kind: "answered",
+			answers: [
+				{ picked: [1], ownWords: null },
+				{ picked: [], ownWords: "None, thanks" },
+			],
+		});
+		expect(two.result).toEqual({
+			status: "answered",
+			answers: [
+				{
+					question: "Which way should we take it?",
+					picked: ["A table at a restaurant"],
+				},
+				{ question: "Which toppings?", ownWords: "None, thanks" },
+			],
+			note: ANSWERED_NOTE,
+		});
+		expect(two.outputSummary).toBe("The user answered 2 questions");
+	});
+
+	it("names every recommended option of a question that takes several, and none where nothing was marked", () => {
+		const record = buildAskAnswerRecord(
+			[
+				{
+					...toppings,
+					options: [
+						{ label: "Olives", recommended: true },
+						{ label: "Mushrooms", recommended: true },
+						{ label: "Peppers" },
+					],
+				},
+				{
+					question: "Which sizes?",
+					multiple: true,
+					options: [{ label: "Small" }, { label: "Large" }],
+				},
+			],
+			{ kind: "left_to_alfy" },
+		);
+
+		expect(record.result).toEqual({
+			status: "left_to_you",
+			answers: [
+				{ question: "Which toppings?", recommended: ["Olives", "Mushrooms"] },
+				{ question: "Which sizes?" },
+			],
+			note: LEFT_TO_YOU_NOTE,
+		});
+	});
+
+	it("keeps the person's words and the labels as they are, in whatever language, and writes only ASCII itself", () => {
+		const hungarian: AskQuestion[] = [
+			{
+				question: "Melyik színt válasszuk?",
+				options: [{ label: "Zöld", recommended: true }, { label: "Kék" }],
+			},
+		];
+		const picked = buildAskAnswerRecord(hungarian, {
+			kind: "answered",
+			answers: [{ picked: [1], ownWords: null }],
+		});
+		const own = buildAskAnswerRecord(hungarian, {
+			kind: "answered",
+			answers: [{ picked: [], ownWords: "őszülő árnyalat" }],
+		});
+
+		expect(picked.outputSummary).toBe("The user picked: Kék");
+		expect(own.result).toMatchObject({
+			answers: [{ ownWords: "őszülő árnyalat" }],
+		});
+		// the notes and the summaries of the other kinds are the app's own words
+		for (const answer of [
+			{ kind: "left_to_alfy" },
+			{ kind: "closed" },
+		] satisfies AskAnswer[]) {
+			const record = buildAskAnswerRecord(hungarian, answer);
+			expect(record.result.note).toMatch(/^[\x20-\x7e]+$/);
+			expect(record.outputSummary).toMatch(/^[\x20-\x7e]+$/);
+		}
+		expect(picked.result.note).toMatch(/^[\x20-\x7e]+$/);
+	});
+
+	it("gives the digest a later turn's history replays: the answers where the summary cannot carry them, and nothing for a choice left to Alfy or the X", () => {
+		const own = buildAskAnswerRecord([...party, toppings], {
+			kind: "answered",
+			answers: [
+				{ picked: [0], ownWords: null },
+				{ picked: [], ownWords: "None,\nthanks" },
+			],
+		});
+		expect(own.resultDigest).toBe(
+			[
+				"answers:",
+				"- Which way should we take it?: A party at home",
+				'- Which toppings?: "None, thanks"',
+			].join("\n"),
+		);
+
+		expect(
+			buildAskAnswerRecord(party, { kind: "left_to_alfy" }).resultDigest,
+		).toBe("");
+		expect(buildAskAnswerRecord(party, { kind: "closed" }).resultDigest).toBe(
+			"",
+		);
+	});
+
+	it("says only that the user answered when no pick names an option", () => {
+		const record = buildAskAnswerRecord(party, {
+			kind: "answered",
+			answers: [{ picked: [7], ownWords: null }],
+		});
+
+		expect(record.outputSummary).toBe("The user answered");
+		expect(record.result).toMatchObject({
+			answers: [{ question: "Which way should we take it?", picked: [] }],
+		});
+	});
+
+	it("never throws on an answer that does not fit the questions: it leaves out what has no question or no option", () => {
+		const record = buildAskAnswerRecord(party, {
+			kind: "answered",
+			answers: [
+				{ picked: [5, 1], ownWords: null },
+				{ picked: [0], ownWords: null },
+			],
+		});
+
+		expect(record.result).toEqual({
+			status: "answered",
+			answers: [
+				{
+					question: "Which way should we take it?",
+					picked: ["A table at a restaurant"],
+				},
+			],
+			note: ANSWERED_NOTE,
+		});
 	});
 });

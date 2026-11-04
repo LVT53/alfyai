@@ -89,7 +89,9 @@ import {
 	PERSONAL_INSTRUCTIONS,
 	PROJECT_INSTRUCTIONS,
 	REPLY,
+	RESUME_AUTHORED,
 	removeFakeProvider,
+	resumeContinuation,
 	seedWorld,
 	type World,
 } from "./language-capture";
@@ -136,11 +138,14 @@ type Offender = { call: string; where: string; found: string; around: string };
  */
 const NAMES_THE_LANGUAGES_BY_DESIGN = /^conversation language/;
 
-function offendersIn(item: Pick<Capture, "call" | "body">): Offender[] {
+function offendersIn(
+	item: Pick<Capture, "call" | "body">,
+	authoredText: readonly string[] = AUTHORED,
+): Offender[] {
 	const found: Offender[] = [];
 	for (const leaf of leaves(item.body, "")) {
 		let text = leaf.text;
-		for (const authored of AUTHORED) text = text.split(authored).join(" ");
+		for (const authored of authoredText) text = text.split(authored).join(" ");
 		for (const match of text.matchAll(NON_ASCII_LETTER)) {
 			found.push({
 				call: item.call,
@@ -408,7 +413,9 @@ describe("the app's requests hold no server-authored Hungarian, whatever the acc
 				// cap, a skipped consolidation): the call must have happened.
 				if (driver.name !== "memory consolidation")
 					expect(seen.length).toBeGreaterThan(0);
-				expect(seen.filter(heldToTheRule).flatMap(offendersIn)).toEqual([]);
+				expect(
+					seen.filter(heldToTheRule).flatMap((item) => offendersIn(item)),
+				).toEqual([]);
 			}, 60_000);
 		}
 	}
@@ -496,6 +503,58 @@ describe("the UI language reaches no request but the status line's (I2)", () => 
 			expect(JSON.stringify(english?.body), name).toContain("English");
 			expect(JSON.stringify(hungarian?.body), name).toContain("Hungarian");
 		}
+	}, 60_000);
+});
+
+// The resume of a reply that asked the person ("Ask me first", Review Focus 5):
+// the answer reaches the model as data inside one English scaffold. The labels,
+// the notes and the person's own words are authored here in Hungarian, with
+// accents; every other letter of the request, the notes and the keys the app
+// writes around them included, is ASCII English, whatever the account is shown in.
+describe("a resume sends the answer only as data (I3)", () => {
+	const message = PROMPTS[1];
+
+	async function resumeRequest(world: World): Promise<Capture> {
+		const [request] = await capture(
+			`chat resume (${world.uiLanguage}-ui)`,
+			() =>
+				driveChat(world, message, conversationOf(world, 0), {
+					continuationMessages: resumeContinuation(),
+				}),
+		);
+		return request;
+	}
+
+	it("sends an answered question to the resume only as data, in the same English scaffold for both UI languages", async () => {
+		const english = await resumeRequest(en);
+		const hungarian = await resumeRequest(hu);
+
+		// the model reads the labels and the person's words, as they were written
+		for (const request of [english, hungarian]) {
+			const texts = leaves(request.body, "").map(({ text }) => text);
+			for (const authored of RESUME_AUTHORED) {
+				expect(
+					texts.some((text) => text.includes(authored)),
+					authored,
+				).toBe(true);
+			}
+			// ... and the app's own words around them are the fixed English
+			const joined = texts.join("\n");
+			expect(joined).toContain(
+				"The user answered. Go on with the same reply from where it paused",
+			);
+		}
+		// nothing else in the request is Hungarian: no letter above U+007F that the
+		// model and the person did not write, and no word naming the language
+		const authored = [...AUTHORED, ...RESUME_AUTHORED];
+		expect(offendersIn(english, authored)).toEqual([]);
+		expect(offendersIn(hungarian, authored)).toEqual([]);
+		// ... and the two worlds' requests are byte for byte the same
+		const expected = blanked(english.body, en);
+		const received = blanked(hungarian.body, hu);
+		expect(
+			received === expected ? null : firstDifference(expected, received),
+		).toBeNull();
 	}, 60_000);
 });
 

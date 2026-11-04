@@ -33,6 +33,8 @@ const {
 	mockRecordTurnOriginActivityEvent,
 	mockNameConversationAfterTurn,
 	mockStampAskQuestion,
+	mockSettleAskQuestion,
+	mockUpdateAssistantToolCallResult,
 } = vi.hoisted(() => ({
 	mockJudgeFinishedTurn: vi.fn(
 		async (): Promise<{
@@ -87,12 +89,16 @@ const {
 	mockRecordTurnOriginActivityEvent: vi.fn(async () => undefined),
 	mockNameConversationAfterTurn: vi.fn(),
 	mockStampAskQuestion: vi.fn(),
+	mockSettleAskQuestion: vi.fn(),
+	mockUpdateAssistantToolCallResult: vi.fn(),
 }));
 
-// A reply that paused to ask is tied to its question here, at its own seam: the
-// store is tested on a real database in ask-questions.test.ts.
+// A reply that paused to ask is tied to its question here, and the question a
+// reply carries on from is settled, at their own seam: the store is tested on a
+// real database in ask-questions.test.ts.
 vi.mock("./ask-questions", () => ({
 	stampAskQuestion: mockStampAskQuestion,
+	settleAskQuestion: mockSettleAskQuestion,
 }));
 
 // finalizeChatTurn fans post-turn work out to ./finalize-steps in one ordered
@@ -134,6 +140,8 @@ vi.mock("$lib/server/services/messages", () => ({
 	listMessages: mockListMessages,
 	updateMessageEvidence: vi.fn(async () => undefined),
 	updateMessageWebCitationAudit: vi.fn(async () => undefined),
+	// The answer a resume's segment writes into the call of the row that asked.
+	updateAssistantToolCallResult: mockUpdateAssistantToolCallResult,
 	// A1 — runPostTurnTasks (importActual) now transitively reaches the
 	// rail-summary step, which writes back through this seam. The short-reply
 	// tests skip it (below the 200-char threshold); the ≥200-char wiring test
@@ -1258,6 +1266,239 @@ describe("finalizeChatTurn", () => {
 			);
 
 			expect(mockStampAskQuestion).not.toHaveBeenCalled();
+		});
+	});
+
+	// The segment that carries a reply on from the person's answer settles the
+	// question it answers, and writes the answer into the ask call of the row that
+	// asked, before the terminal frame: the page reads its questions when the frame
+	// lands, and a card must not come back for a question the reply has answered.
+	describe("a reply that carries on from an answer", () => {
+		const capture: AskResumeCapture = {
+			v: 1,
+			messages: [
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "And the finish?" }],
+				},
+			],
+			results: [],
+		};
+		const resume = {
+			questionId: "q-1",
+			claim: "claim-1",
+			askedMessageId: "asst-0",
+			askToolCallId: "call-ask",
+			answerDigest: {
+				outputSummary: "The user picked: Grey",
+				resultDigest: "answers:\n- Which colour?: Grey",
+			},
+		};
+		const segment = {
+			turnKind: "stream" as const,
+			responseLanguage: "en" as const,
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "user message",
+			// the person's message is stored already and is not saved again
+			persistUserMessage: false,
+			normalizedMessage: "user message",
+			upstreamMessage: "upstream message",
+			assistantResponse: "Here is the plan.",
+			assistantMetadata: { evidenceStatus: "pending" as const },
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: null,
+			assistantMirrorContent: "Here is the plan.",
+			maintenanceReason: "chat_stream" as const,
+			ask: { resume },
+		};
+
+		beforeEach(() => {
+			mockSettleAskQuestion.mockReset();
+			mockSettleAskQuestion.mockResolvedValue({ id: "q-1" });
+			mockUpdateAssistantToolCallResult.mockReset();
+			mockUpdateAssistantToolCallResult.mockResolvedValue(true);
+			mockStampAskQuestion.mockReset();
+			mockStampAskQuestion.mockResolvedValue(true);
+		});
+
+		it("settles the question and writes the answer into the asking row's tool call before the receipt", async () => {
+			const calls: string[] = [];
+			mockCreateMessage.mockImplementation(
+				async (
+					_conversationId: string,
+					role: "user" | "assistant",
+				): Promise<ChatMessage> => {
+					calls.push(`create ${role}`);
+					return makeChatMessage(`${role}-message`, role, "text");
+				},
+			);
+			mockSettleAskQuestion.mockImplementation(async () => {
+				calls.push("settle");
+				return { id: "q-1" };
+			});
+			mockUpdateAssistantToolCallResult.mockImplementation(async () => {
+				calls.push("write answer");
+				return true;
+			});
+			// the turn state is held open: the receipt does not wait for it
+			mockPersistAssistantTurnState.mockReturnValue(new Promise(() => {}));
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				...segment,
+				onDurableReceiptReady: () => {
+					calls.push("receipt");
+				},
+			});
+
+			expect(calls).toEqual([
+				"create assistant",
+				"settle",
+				"write answer",
+				"receipt",
+			]);
+			// the claim that won the answer is the one that settles it
+			expect(mockSettleAskQuestion).toHaveBeenCalledWith({
+				userId: "user-1",
+				questionId: "q-1",
+				claim: "claim-1",
+			});
+			expect(mockUpdateAssistantToolCallResult).toHaveBeenCalledWith({
+				conversationId: "conv-1",
+				messageId: "asst-0",
+				callId: "call-ask",
+				outputSummary: "The user picked: Grey",
+				resultDigest: "answers:\n- Which colour?: Grey",
+			});
+		});
+
+		it("settles the answered question first and stamps the new one after it, when the reply asks again", async () => {
+			const calls: string[] = [];
+			mockSettleAskQuestion.mockImplementation(async () => {
+				calls.push("settle");
+				return { id: "q-1" };
+			});
+			mockUpdateAssistantToolCallResult.mockImplementation(async () => {
+				calls.push("write answer");
+				return true;
+			});
+			mockStampAskQuestion.mockImplementation(async () => {
+				calls.push("stamp");
+				return true;
+			});
+			const { finalizeChatTurn } = await import("./finalize");
+			let receipt: FinalizeChatTurnDurableReceipt | undefined;
+
+			await finalizeChatTurn({
+				...segment,
+				ask: { resume, pause: { questionId: "q-2", capture } },
+				onDurableReceiptReady: (r) => {
+					calls.push("receipt");
+					receipt = r;
+				},
+			});
+
+			expect(calls).toEqual(["settle", "write answer", "stamp", "receipt"]);
+			expect(mockStampAskQuestion).toHaveBeenCalledWith({
+				userId: "user-1",
+				questionId: "q-2",
+				assistantMessageId: "assistant-message",
+				capture,
+			});
+			expect(receipt?.waitingQuestionId).toBe("q-2");
+		});
+
+		it("finishes the turn when the settle or the write throws, logging it, and still tries the other", async () => {
+			const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+			try {
+				mockSettleAskQuestion.mockRejectedValue(
+					new Error("database is locked"),
+				);
+				mockUpdateAssistantToolCallResult.mockRejectedValue(
+					new Error("disk full"),
+				);
+				const { finalizeChatTurn } = await import("./finalize");
+				let receipt: FinalizeChatTurnDurableReceipt | undefined;
+
+				const result = await finalizeChatTurn({
+					...segment,
+					onDurableReceiptReady: (r) => {
+						receipt = r;
+					},
+				});
+
+				expect(result.assistantMessage?.id).toBe("assistant-message");
+				expect(receipt?.assistantMessage.id).toBe("assistant-message");
+				// each was tried, and each failure is in the log with what it was about
+				expect(mockSettleAskQuestion).toHaveBeenCalledTimes(1);
+				expect(mockUpdateAssistantToolCallResult).toHaveBeenCalledTimes(1);
+				expect(logged).toHaveBeenCalledWith(
+					expect.stringContaining("settle"),
+					expect.objectContaining({
+						conversationId: "conv-1",
+						questionId: "q-1",
+					}),
+				);
+				expect(logged).toHaveBeenCalledWith(
+					expect.stringContaining("answer"),
+					expect.objectContaining({
+						conversationId: "conv-1",
+						messageId: "asst-0",
+						callId: "call-ask",
+					}),
+				);
+			} finally {
+				logged.mockRestore();
+			}
+		});
+
+		it("still writes the answer, and still stamps, when the question was no longer the claim's to settle", async () => {
+			// a settle that changed nothing: the claim was superseded
+			mockSettleAskQuestion.mockResolvedValue(null);
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				...segment,
+				ask: { resume, pause: { questionId: "q-2", capture } },
+			});
+
+			expect(mockUpdateAssistantToolCallResult).toHaveBeenCalledTimes(1);
+			expect(mockStampAskQuestion).toHaveBeenCalledTimes(1);
+		});
+
+		it("settles nothing when the segment was not saved", async () => {
+			mockCreateMessage.mockImplementation(
+				async (
+					_conversationId: string,
+					role: "user" | "assistant",
+				): Promise<ChatMessage> => {
+					if (role === "assistant") throw new Error("disk full");
+					return makeChatMessage("user-message", role, "text");
+				},
+			);
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await expect(finalizeChatTurn(segment)).rejects.toThrow(
+				"required message identities",
+			);
+
+			expect(mockSettleAskQuestion).not.toHaveBeenCalled();
+			expect(mockUpdateAssistantToolCallResult).not.toHaveBeenCalled();
+		});
+
+		it("settles nothing for a turn that does not carry a reply on", async () => {
+			const { ask: _ask, ...plain } = segment;
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn(plain);
+
+			expect(mockSettleAskQuestion).not.toHaveBeenCalled();
+			expect(mockUpdateAssistantToolCallResult).not.toHaveBeenCalled();
 		});
 	});
 

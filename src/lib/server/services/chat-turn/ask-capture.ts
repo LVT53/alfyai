@@ -1,6 +1,7 @@
 import type { ModelMessage, ToolResultPart } from "ai";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { NormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
+import type { AskAnswerResult } from "$lib/server/services/normal-chat-tools/ask-user";
 import type { ToolResultObservation } from "$lib/server/services/url-provenance";
 import { providerRunsLocally } from "$lib/server/services/vision/provider-vision";
 import { isAskToolName } from "$lib/shared/ask-user";
@@ -38,23 +39,28 @@ import {
  * row would be classed by another tool's. A result whose call left no record
  * still gets a plain row, so no result in `messages` is left without one to gate.
  * An ask call has no row: its result is the pause and then the person's answer,
- * not data of a tool.
+ * not data of a tool. Every result of the `ask_user` tool is told by its tool and
+ * never by its call id: the run's own pause, an answered ask in what the run was
+ * given (its answer holds the model's labels, which ADR-0068 does not count as a
+ * tool's results) and a card the tool refused all go without a row, while a
+ * provider may reuse any call id, the ask's included, for a connector's result,
+ * which is data and has one. A result finds the call that made it by id and tool
+ * together for the same reason.
  */
 export function buildAskResumeCapture(p: {
 	continuationGiven: ModelMessage[];
 	responseMessages: ModelMessage[];
 	toolCalls: ToolCallEntry[];
 	priorResults: AskCapturedResult[];
-	askToolCallId: string;
 }): AskResumeCapture {
 	const messages = [...p.continuationGiven, ...p.responseMessages];
 
 	const recorded = new Map<string, ToolCallEntry>();
 	for (const entry of p.toolCalls) {
-		if (entry.callId) recorded.set(entry.callId, entry);
+		if (entry.callId) recorded.set(resultKey(entry.callId, entry.name), entry);
 	}
 	const rowFor = (part: ToolResultPart): AskCapturedResult => {
-		const entry = recorded.get(part.toolCallId);
+		const entry = recorded.get(resultKey(part.toolCallId, part.toolName));
 		return {
 			toolCallId: part.toolCallId,
 			toolName: part.toolName,
@@ -62,8 +68,7 @@ export function buildAskResumeCapture(p: {
 			digest: buildHistoryToolDigest(entry ?? { status: "done" }),
 		};
 	};
-	const isAsk = (part: ToolResultPart) =>
-		part.toolCallId === p.askToolCallId || isAskToolName(part.toolName);
+	const isAsk = (part: ToolResultPart) => isAskToolName(part.toolName);
 
 	const results = [...p.priorResults];
 	// What the run was given has its rows already: the capture of the segment before
@@ -113,6 +118,22 @@ function resultKey(toolCallId: string, toolName: string): string {
 }
 
 /**
+ * Whether a part of a tool message is the result of the ask call `askToolCallId`:
+ * its call id and its tool together, since a provider may reuse an id for the
+ * result of another tool (a connector's), which is not the ask's.
+ */
+function isResultOfAsk(
+	part: Extract<ModelMessage, { role: "tool" }>["content"][number],
+	askToolCallId: string,
+): part is ToolResultPart {
+	return (
+		part.type === "tool-result" &&
+		part.toolCallId === askToolCallId &&
+		isAskToolName(part.toolName)
+	);
+}
+
+/**
  * Whether `messages` (what the run said and read, as of its last finished step)
  * hold a tool result for the ask call. A resume answers that result: it swaps
  * the person's answer in for whatever the result said, so a capture without it
@@ -127,12 +148,80 @@ export function holdsAskResult(
 	return messages.some(
 		(message) =>
 			message.role === "tool" &&
-			message.content.some(
-				(part) =>
-					part.type === "tool-result" && part.toolCallId === askToolCallId,
-			),
+			message.content.some((part) => isResultOfAsk(part, askToolCallId)),
 	);
 }
+
+/**
+ * What a resume sends after the person's message: the captured messages with the
+ * result of the ask call `askToolCallId`, which said the reply paused, replaced by
+ * the person's answer (`buildAskAnswerRecord`'s result). Every other part stays as
+ * it was, the tool results whole: a result of another tool that happens to share
+ * the ask's call id is not the ask's. The run stopped on its ask, so the pause is
+ * the newest result under that id and tool; an earlier segment's answered ask may
+ * have the same id and keeps its answer.
+ *
+ * Never changes the capture: a message that changes is a new one. A capture that
+ * holds no result of the ask comes back as it is (it cannot be answered: the
+ * caller asks `holdsAskResult` first).
+ */
+export function buildAskResumeContinuation(
+	capture: AskResumeCapture,
+	askToolCallId: string,
+	result: AskAnswerResult,
+): ModelMessage[] {
+	let at: { message: number; part: number } | null = null;
+	for (const [m, message] of capture.messages.entries()) {
+		if (message.role !== "tool") continue;
+		for (const [i, part] of message.content.entries()) {
+			if (isResultOfAsk(part, askToolCallId)) at = { message: m, part: i };
+		}
+	}
+	const target = at;
+	if (target === null) return [...capture.messages];
+	return capture.messages.map((message, m) => {
+		if (m !== target.message || message.role !== "tool") return message;
+		return {
+			...message,
+			content: message.content.map((part, i) =>
+				i === target.part && part.type === "tool-result"
+					? { ...part, output: { type: "json" as const, value: result } }
+					: part,
+			),
+		};
+	});
+}
+
+/**
+ * What a resume is run from ("Ask me first"): the claimed question and the claim
+ * that holds it, the row that asked and the call that asked, the person's message
+ * the reply answers, and what the run is carried on from. The entry
+ * (`ask-resume.ts`) makes it; the orchestrator, completion and finalize read it.
+ * It lives here so none of them has to import the entry, which imports the
+ * orchestrator's types.
+ */
+export type AskResumeInput = {
+	questionId: string;
+	/** The token of the won claim: release and settle act only for it (ask-questions.ts). */
+	claim: string;
+	/** The row that asked, which the segment this resume saves continues. */
+	askedMessageId: string;
+	askToolCallId: string;
+	/** The person's message: the history ends before it, and the reply is sent after it. */
+	userMessageId: string;
+	/** What follows the person's message: the reply so far, the answer as the ask's result. */
+	continuation: ModelMessage[];
+	/** One row per tool result in `continuation`, to gate it for each model attempt. */
+	capturedResults: AskCapturedResult[];
+	/** The words the person typed into the answers of this reply (never a label). */
+	userTexts: string[];
+	/** The tool calls stored on the reply's segments so far, for the citation gate. */
+	priorSegmentToolCalls: ToolCallEntry[];
+	/** Whether the person keeps connector data on their own device (asked once). */
+	keepConnectorDataLocal: boolean;
+	/** What the asking row's ask call keeps of the answer once this segment is saved. */
+	answerDigest: { outputSummary: string; resultDigest: string };
+};
 
 // --- what a resume does with the capture ------------------------------------
 //
@@ -158,12 +247,16 @@ const WITHHELD_CONNECTOR_DIGEST: HistoryToolDigest = {
 		"The details of this result stay on the person's own device and were not sent to this model.",
 };
 
-const DIGEST_KEYS: ReadonlySet<string> = new Set([
-	"ok",
-	"summary",
-	"detail",
-	"sources",
-]);
+// Every key a `HistoryToolDigest` has. Typed as a record of the type's keys, so a
+// key added to the type does not compile until it is listed here, and the exact
+// check below can never silently turn a digest with the new key into "not one".
+const DIGEST_KEY_LIST: Record<keyof HistoryToolDigest, true> = {
+	ok: true,
+	summary: true,
+	detail: true,
+	sources: true,
+};
+const DIGEST_KEYS: ReadonlySet<string> = new Set(Object.keys(DIGEST_KEY_LIST));
 
 /**
  * A digest and nothing but one: `isHistoryToolDigest` does not look at other keys,
@@ -189,8 +282,11 @@ function isExactDigest(value: unknown): value is HistoryToolDigest {
  * local and the attempt's provider does not run locally, a connector result goes
  * as follows.
  * - Already a digest (the history's own tool results are): it stays.
- * - Every row for its call id and tool says a local model summarised it: it stays,
- *   a cloud run having been handed that summary too.
+ * - The rows for its call id and tool cover every such result in the list (as many
+ *   rows as results, not counting digests) and every row says a local model
+ *   summarised it: it stays, a cloud run having been handed that summary too. A
+ *   row cannot vouch for a result it was not made for, so with fewer rows than
+ *   results, a summary row and a raw result under the same id are not both left.
  * - Otherwise it is sent as the digest of the row that is its own, the nth row of
  *   that id and tool for the nth such result (the rows come in the order of the
  *   results), else of any such row that is not a summary.
@@ -220,21 +316,56 @@ export function gateCapturedConnectorResults(p: {
 		if (!p.keepConnectorDataLocal || providerRunsLocally(provider)) {
 			return messages;
 		}
-		const nth = new Map<string, number>();
-		const gated = messages.map((message) =>
-			gateMessage(message, rowsByKey, nth),
-		);
+		const state: GateState = {
+			rowsByKey,
+			counts: countResultsToPlace(messages),
+			nth: new Map<string, number>(),
+		};
+		const gated = messages.map((message) => gateMessage(message, state));
 		return gated.some((message, index) => message !== messages[index])
 			? gated
 			: messages;
 	};
 }
 
-function gateMessage(
-	message: ModelMessage,
-	rowsByKey: ReadonlyMap<string, readonly AskCapturedResult[]>,
-	nth: Map<string, number>,
-): ModelMessage {
+/** What the gate reads, shared by the parts of one list: the rows, how many results each id and tool has to place, and how many it has placed. */
+type GateState = {
+	rowsByKey: ReadonlyMap<string, readonly AskCapturedResult[]>;
+	counts: ReadonlyMap<string, number>;
+	nth: Map<string, number>;
+};
+
+function isDigestOutput(output: ToolOutput): boolean {
+	return output.type === "json" && isExactDigest(output.value);
+}
+
+/**
+ * How many results the gate has to place under each call id and tool: the
+ * connector results of the list that are not already digests (a digest needs no
+ * row, and cannot leak).
+ */
+function countResultsToPlace(
+	messages: readonly ModelMessage[],
+): Map<string, number> {
+	const counts = new Map<string, number>();
+	for (const message of messages) {
+		if (message.role !== "tool") continue;
+		for (const part of message.content) {
+			if (
+				part.type !== "tool-result" ||
+				!isConnectionToolName(part.toolName) ||
+				isDigestOutput(part.output)
+			) {
+				continue;
+			}
+			const key = resultKey(part.toolCallId, part.toolName);
+			counts.set(key, (counts.get(key) ?? 0) + 1);
+		}
+	}
+	return counts;
+}
+
+function gateMessage(message: ModelMessage, state: GateState): ModelMessage {
 	if (message.role !== "tool") return message;
 	let changed = false;
 	const content = message.content.map(
@@ -242,7 +373,7 @@ function gateMessage(
 			if (part.type !== "tool-result" || !isConnectionToolName(part.toolName)) {
 				return part;
 			}
-			const output = gatedOutput(part, rowsByKey, nth);
+			const output = gatedOutput(part, state);
 			if (output === null) return part;
 			changed = true;
 			return { ...part, output };
@@ -254,17 +385,17 @@ function gateMessage(
 /** What a connector result is sent as instead of its output; null when it stays. */
 function gatedOutput(
 	part: ToolResultPart,
-	rowsByKey: ReadonlyMap<string, readonly AskCapturedResult[]>,
-	nth: Map<string, number>,
+	{ rowsByKey, counts, nth }: GateState,
 ): ToolOutput | null {
-	if (part.output.type === "json" && isExactDigest(part.output.value)) {
-		return null;
-	}
+	if (isDigestOutput(part.output)) return null;
 	const key = resultKey(part.toolCallId, part.toolName);
 	const index = nth.get(key) ?? 0;
 	nth.set(key, index + 1);
 	const rows = rowsByKey.get(key) ?? [];
-	if (rows.length > 0 && rows.every((row) => row.localDistilled)) return null;
+	// Summaries stand for results only as far as there are rows for them: a result
+	// the rows run out for (a raw read under a summary's id) is not one of them.
+	const covered = rows.length > 0 && rows.length >= (counts.get(key) ?? 0);
+	if (covered && rows.every((row) => row.localDistilled)) return null;
 	const own = rows[index];
 	const row =
 		own && !own.localDistilled

@@ -11,6 +11,7 @@
 // reach past this file into them.
 
 export { checkStreamCapacity } from "./active-streams";
+export { findWaitingQuestionRefusal, prepareAskResumeTurn } from "./ask-resume";
 export type {
 	FinalizeChatTurnDurableReceipt,
 	FinalizeChatTurnParams,

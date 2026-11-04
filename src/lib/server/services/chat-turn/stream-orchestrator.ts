@@ -24,13 +24,17 @@ import {
 	wasActiveChatStreamStopRequested,
 } from "$lib/server/services/chat-turn/active-streams";
 import {
+	type AskResumeInput,
 	buildAskResumeCapture,
+	capturedProvenanceResults,
+	gateCapturedConnectorResults,
 	holdsAskResult,
 } from "$lib/server/services/chat-turn/ask-capture";
 import {
 	type AskResumeCapture,
 	discardAskQuestion,
 	discardStaleAskQuestions,
+	releaseAskQuestion,
 } from "$lib/server/services/chat-turn/ask-questions";
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
@@ -288,6 +292,11 @@ export interface StreamOrchestratorOptions {
 	// which instead resolves this from `preparedTurn.appliedSkill` once
 	// `prepareTurn` finishes (see `currentPendingSkillInstructions` below).
 	pendingSkillInstructions?: string;
+	// A turn that carries a reply on from the person's answer to a question it asked
+	// ("Ask me first", ask-resume.ts): the run starts from the reply so far, and the
+	// question it answers is settled when the turn's segment is saved or given back
+	// when it ends unsaved.
+	resume?: AskResumeInput;
 	routePhaseTimings?: StreamPhaseTimings;
 }
 
@@ -324,9 +333,35 @@ export function runChatStreamOrchestrator(
 		isReconnect,
 		systemPromptAppendix: retryAppendix,
 		pendingSkillInstructions: retryPendingSkillInstructions,
+		resume,
 		routePhaseTimings,
 		prepareTurn,
 	} = options;
+	// What a resume adds to every model run of the turn, the stream's and its
+	// non-stream rerun's: the reply so far, with the answer as the ask's result,
+	// after the person's message; the history ending before that message; no page
+	// read again; the captured connector results gated for each attempt (a resume's
+	// original messages are the captured ones); and what the paused segment read and
+	// the person typed, for the address check (ADR-0068).
+	const resumeRunParams = resume
+		? {
+				continuationMessages: resume.continuation,
+				historyBeforeMessageId: resume.userMessageId,
+				skipWebPrefetch: true,
+				gateMessagesForAttempt: gateCapturedConnectorResults({
+					results: resume.capturedResults,
+					keepConnectorDataLocal: resume.keepConnectorDataLocal,
+				}),
+				resumeProvenance: {
+					userTexts: resume.userTexts,
+					priorResults: capturedProvenanceResults({
+						v: 1,
+						messages: resume.continuation,
+						results: resume.capturedResults,
+					}),
+				},
+			}
+		: {};
 	const conversationId = turn.conversationId;
 	const normalizedMessage = turn.normalizedMessage;
 	const streamId = turn.streamId;
@@ -467,6 +502,30 @@ export function runChatStreamOrchestrator(
 			const upstreamAbortController = new AbortController();
 			let isMainStream = false;
 
+			// A resume holds the claim that won its question. However the turn ends,
+			// even before it starts, the claim is handed back: a question the reply
+			// saved was settled with it (finalize), and the store ignores a claim that
+			// has been, so this only gives back a question whose segment was not
+			// saved. Best-effort: a store that is down must not hide how the turn
+			// ended.
+			const releaseResumeClaim = async (): Promise<void> => {
+				if (!resume) return;
+				try {
+					await releaseAskQuestion({
+						userId: user.id,
+						questionId: resume.questionId,
+						claim: resume.claim,
+					});
+				} catch (error) {
+					console.warn("[CHAT_STREAM] Could not give a question back", {
+						conversationId,
+						streamId,
+						questionId: resume.questionId,
+						error,
+					});
+				}
+			};
+
 			if (streamId) {
 				const decision = arbitrateStreamStart({
 					streamId,
@@ -482,10 +541,13 @@ export function runChatStreamOrchestrator(
 					getOrCreateStreamBuffer,
 				});
 				if (decision.action === "reconnect") {
+					// Joining the stream that runs: no turn of its own starts here.
+					await releaseResumeClaim();
 					setTimeout(() => doReconnect(decision.targetStreamId), 0);
 					return;
 				}
 				if (decision.action === "close") {
+					await releaseResumeClaim();
 					closeDownstream();
 					return;
 				}
@@ -498,15 +560,18 @@ export function runChatStreamOrchestrator(
 			// whichever finishes first, the turn's own work is never delayed by
 			// it. `Promise.resolve(...)` guards against a mocked/misbehaving
 			// resolver returning a non-promise. Wired to `emitResponseActivity`
-			// once that closure exists, below.
-			const turnAcknowledgmentPromise = Promise.resolve(
-				resolveTurnAcknowledgment({
-					userId: user.id,
-					conversationId,
-					message: normalizedMessage,
-					signal: downstreamSignal,
-				}),
-			);
+			// once that closure exists, below. A resume asks for none: it is the
+			// same reply going on, not a message to acknowledge.
+			const turnAcknowledgmentPromise = resume
+				? Promise.resolve(null)
+				: Promise.resolve(
+						resolveTurnAcknowledgment({
+							userId: user.id,
+							conversationId,
+							message: normalizedMessage,
+							signal: downstreamSignal,
+						}),
+					);
 			const wasStopRequested = () =>
 				wasActiveChatStreamStopRequested({
 					streamId,
@@ -847,8 +912,10 @@ export function runChatStreamOrchestrator(
 			// The pause of a reply that asked: its question and what the resume
 			// starts from. The tool calls are the prefetched ones and every call the
 			// run recorded, evidence-ready or not, since a failed call's result is in
-			// the messages too. No earlier segment's rows yet (`priorResults`): the
-			// resume turn passes its own.
+			// the messages too. A first segment has no earlier rows (`priorResults`);
+			// a segment that asked inside a resume carries on from the rows of the
+			// segments before it, and what the run was given is that resume's
+			// continuation (the run reports it as `continuationGiven`).
 			const buildAskPause = (): {
 				questionId: string;
 				capture: AskResumeCapture;
@@ -865,8 +932,7 @@ export function runChatStreamOrchestrator(
 							...run.prefetchedToolCalls,
 							...run.getNormalChatToolCalls(),
 						],
-						priorResults: [],
-						askToolCallId: ask.toolCallId,
+						priorResults: resume?.capturedResults ?? [],
 					}),
 				};
 			};
@@ -959,6 +1025,7 @@ export function runChatStreamOrchestrator(
 					upstreamRawFinishReason: latestUpstreamRawFinishReason,
 					streamClosedWithoutFinish: args.streamClosedWithoutFinish,
 					askPause: args.paused ? buildAskPause() : null,
+					askResume: resume ?? null,
 					serverTimeline: createTerminalStreamTimelinePayload(phaseTimingMs),
 					touchConversation,
 					enqueueChunk,
@@ -1129,6 +1196,7 @@ export function runChatStreamOrchestrator(
 						depthMetadata: latestDepthMetadata,
 						forceWebSearch: turn.forceWebSearch,
 						enabledConnectionCapabilities: turn.enabledConnectionCapabilities,
+						...resumeRunParams,
 					},
 					user,
 					attachContinuityToTaskState,
@@ -1295,6 +1363,7 @@ export function runChatStreamOrchestrator(
 					depthMetadata: latestDepthMetadata,
 					forceWebSearch: turn.forceWebSearch,
 					enabledConnectionCapabilities: turn.enabledConnectionCapabilities,
+					...resumeRunParams,
 					signal: upstreamAbortController.signal,
 					onResponseActivity: emitResponseActivity,
 					// A tool waiting on a job (a picture) is activity, so a long wait
@@ -1698,6 +1767,10 @@ export function runChatStreamOrchestrator(
 						);
 					}
 				}
+				// A resume whose segment was saved settled its question already (finalize);
+				// one that ended without a saved segment gives it back, with the answer
+				// kept, for the person to send again. Never run again by itself.
+				await releaseResumeClaim();
 			}
 		},
 		cancel() {
