@@ -10,6 +10,7 @@ import { showToast } from "$lib/stores/toast";
 import { t, type I18nKey } from "$lib/i18n";
 import {
 	isArtifactToolCall,
+	isAskToolCall,
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
 } from "$lib/utils/tool-calls";
@@ -61,6 +62,8 @@ import type {
 	ChatTurnCompletionWarningCode,
 	ThinkingSegment,
 } from "$lib/server/services/messages-types";
+import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
+import AskQuestionCard from "./AskQuestionCard.svelte";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 import ThinkingBlock from "./ThinkingBlock.svelte";
 import ToolActivityList from "./ToolActivityList.svelte";
@@ -73,6 +76,7 @@ import AttachmentOutline from "./AttachmentOutline.svelte";
 import ComposerChip from "./ComposerChip.svelte";
 import { splitUserMessageQuotes } from "./composer-chip-presentation";
 import { deriveMessageProvenance } from "./message-provenance";
+import { getClipboardText, type ReplyPlace } from "./reply-segments";
 import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
 import AtlasActivityRow from "./AtlasActivityRow.svelte";
 import SkillDraftCard from "./SkillDraftCard.svelte";
@@ -129,6 +133,10 @@ let {
 	deletedArtifacts = undefined,
 	imageCards = [],
 	onImageAction = undefined,
+	replyPlace = undefined,
+	askQuestion = null,
+	askState = undefined,
+	onAnswerQuestion = undefined,
 }: {
 	message: ChatMessage;
 	isLast?: boolean;
@@ -219,6 +227,29 @@ let {
 	imageCards?: ImageCardView[];
 	/** What a picture card's buttons ask the chat page for. */
 	onImageAction?: ImageCardActionHandler | undefined;
+	/**
+	 * Where this row sits in its reply (`placeReplySegments`): a reply that paused to
+	 * ask is several rows drawn as one. A segment the reply goes on from has no
+	 * buttons, chips or provenance line; one that carries on has no depth chip, no
+	 * "Answer now" and no gap above it; the reply's last row copies every segment.
+	 * Absent: a row of its own, as every message was before questions.
+	 */
+	replyPlace?: ReplyPlace | undefined;
+	/**
+	 * The question this segment asked, drawn below everything the segment said or
+	 * made: a card while it waits for the person, then its folded line. `null` when
+	 * it asked none, or when its row is not there (a fork copies the answered call
+	 * and not the row).
+	 */
+	askQuestion?: AskQuestionDto | null;
+	/**
+	 * The page's state for that question, handed to the card as it is, never copied:
+	 * the card reads `busy` live, in the very task the page raises it, to take one answer.
+	 */
+	askState?: { busy?: boolean; failed?: boolean } | undefined;
+	onAnswerQuestion?:
+		| ((questionId: string, answer: AskAnswer) => void)
+		| undefined;
 } = $props();
 
 let copied = $state(false);
@@ -283,6 +314,9 @@ let atlasJobCostUsdMicros = $derived(
 		: null,
 );
 let isUser = $derived(message.role === "user");
+// A reply that paused to ask is several rows drawn as one reply (reply-segments.ts).
+let continuesAbove = $derived(replyPlace?.continuesAbove ?? false);
+let continuedBelow = $derived(replyPlace?.continuedBelow ?? false);
 let hasAttachments = $derived((message.attachments?.length ?? 0) > 0);
 // The card pictures a user message carried, in their numbers, and the number
 // each uploaded photo went by (plan 2b T5). Both come with the message from its
@@ -402,9 +436,14 @@ function withResolvedImageCard(
 	return card ? { ...item, body: { ...body, cardId: card.id } } : item;
 }
 let retriedAttempts = $derived(new Set(foldedDeliverables.retried));
+// The ask call is never a step of the rail: the question is drawn from its question
+// row, as a card and then as a folded line below the words that asked it, and a call
+// the tool refused, or that never finished, has no question to be drawn from.
 let thinkingSegmentsForDisplay = $derived(
 	rawThinkingSegments.filter(
-		(segment) => !isArtifactToolCall(segment) || retriedAttempts.has(segment),
+		(segment) =>
+			!isAskToolCall(segment) &&
+			(!isArtifactToolCall(segment) || retriedAttempts.has(segment)),
 	),
 );
 // The same item a rail row would be, plus the preview the conversation's own
@@ -504,9 +543,10 @@ let provenanceEntries = $derived(
 	}),
 );
 // It disappears entirely on a turn where the user chose none of them, and
-// stays out of the way while the turn is still running.
+// stays out of the way while the turn is still running. A segment the reply goes
+// on from has none: the reply says it once, under its last segment.
 let showProvenanceLine = $derived(
-	!isUser && !isStreaming && provenanceEntries.length > 0,
+	!isUser && !isStreaming && !continuedBelow && provenanceEntries.length > 0,
 );
 // Thinking is definitively done once visible response text has started streaming
 // OR the whole message is complete. This keeps the label as "Thinking" between
@@ -673,13 +713,6 @@ let reasoningDepthIndicatorLabel = $derived(
 			: "",
 );
 
-function getClipboardText(content: string) {
-	return content
-		.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
-		.replace(/<\/?thinking>/gi, "")
-		.trim();
-}
-
 function getKnownEarlyResponseActivityLabel(
 	entry: ResponseActivityEntry,
 ): string | null {
@@ -825,7 +858,10 @@ function isKnownCompletionWarningCode(
 
 async function copyToClipboard() {
 	try {
-		await navigator.clipboard.writeText(getClipboardText(message.content));
+		// The last row of a reply in segments copies every segment's words.
+		await navigator.clipboard.writeText(
+			replyPlace?.copyText ?? getClipboardText(message.content),
+		);
 		copied = true;
 		clearTimeout(copyTimeout);
 		copyTimeout = setTimeout(() => {
@@ -1108,7 +1144,9 @@ function sendFollowUp(question: string) {
 }
 </script>
 
-<div class="group flex w-full flex-col {isUser ? 'items-end' : 'items-start'} gap-md py-md fade-in">
+<!-- A segment that carries on a reply has no gap of its own above it (`pt-0`): it follows the
+     one above as the next part of the same reply. -->
+<div class="group flex w-full flex-col {isUser ? 'items-end' : 'items-start'} gap-md py-md {continuesAbove ? 'pt-0' : ''} fade-in">
 	<div
 		id={`message-${message.id}`}
 		data-message-id={message.id}
@@ -1119,7 +1157,7 @@ function sendFollowUp(question: string) {
 			: 'w-full min-w-0 max-w-full rounded-none bg-surface-page p-sm text-text-primary'}"
 		class:being-edited={beingEdited}
 	>
-		{#if !isUser && reasoningDepthIndicatorLabel && (hasThinking || hasVisibleThinkingSegments || hasToolCalls || hasDeliverables)}
+		{#if !isUser && !continuesAbove && reasoningDepthIndicatorLabel && (hasThinking || hasVisibleThinkingSegments || hasToolCalls || hasDeliverables)}
 			<div class="reasoning-depth-indicator" class:fade-out={thinkingIsDone} data-testid="reasoning-depth-indicator">
 				<Brain class="reasoning-depth-icon" size={14} strokeWidth={2} aria-hidden="true" />
 				<span>{reasoningDepthIndicatorLabel}</span>
@@ -1149,7 +1187,7 @@ function sendFollowUp(question: string) {
 			liveThoughtStepEntity={liveThoughtStepActivity?.label}
 			liveThoughtStepSummary={liveThoughtStepActivity?.summary}
 			thoughtSteps={message.thoughtSteps}
-			onAnswerNow={onRegenerate && !readOnly ? handleAnswerNow : undefined}
+			onAnswerNow={onRegenerate && !readOnly && !continuesAbove ? handleAnswerNow : undefined}
 			fileProductionJobs={hasFileProductionCards ? dedupedFileProductionJobs : []}
 			{onOpenDocument}
 			{onRetryFileProductionJob}
@@ -1315,6 +1353,22 @@ function sendFollowUp(question: string) {
 					{/each}
 				</div>
 			{/if}
+			{#if askQuestion}
+				<!-- The question this segment asked, right after the write cards: below the
+				     words, the deliverables, the warnings and the drafts, so nothing is put
+				     above prose that is streaming (F16), and what Alfy does after the
+				     answer is drawn below it, as the next segment. The card draws its own
+				     folded line once the question no longer waits and owns its margins, so
+				     it is only placed here, not wrapped. -->
+				{#key askQuestion.id}
+					<AskQuestionCard
+						question={askQuestion}
+						busy={askState?.busy}
+						failed={askState?.failed}
+						onAnswer={onAnswerQuestion}
+					/>
+				{/key}
+			{/if}
 			{#if atlasJobs.length > 0}
 				<div class="file-production-inline" data-testid="message-atlas-jobs">
 					{#each dedupedAtlasJobs as job (job.id)}
@@ -1445,8 +1499,11 @@ function sendFollowUp(question: string) {
 
 	<!-- Atlas no longer suppresses the action row: an Atlas turn is a normal
 	     assistant message with a report attached, so copy / feedback /
-	     regenerate and the follow-up chips work exactly as anywhere else. -->
-	{#if !message.isStreaming && !beingEdited}
+	     regenerate and the follow-up chips work exactly as anywhere else.
+	     A segment the reply goes on from has neither row: they appear once, under
+	     the reply's last segment, and only when no question waits
+	     (reply-segments.ts). -->
+	{#if !message.isStreaming && !beingEdited && !continuedBelow}
 		<!-- Two rows, one reveal. The action row (copy, regenerate, ...) and the
 		     follow-up chips under it wait for the pointer on a device that can
 		     hover, revealed together by ONE rule on the block that holds both

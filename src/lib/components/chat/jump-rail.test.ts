@@ -98,6 +98,83 @@ describe("buildJumpRailTurns", () => {
 
 		expect(turns[0].label).toBe("Plans a weekend at Balaton");
 	});
+
+	// A reply that paused to ask is stored as segments (consecutive assistant rows,
+	// each naming the one it continues). It is one turn in the scroller, under its
+	// first row: it counts once towards the six the scroller needs and is listed once.
+	describe("a reply in segments", () => {
+		/** Five replies, the third in two segments: six assistant rows. */
+		function fiveRepliesOneInTwoSegments(): ChatMessage[] {
+			const messages = conversation(5);
+			const afterThird = messages.findIndex((m) => m.id === "a3") + 1;
+			messages.splice(afterThird, 0, {
+				...msg("a3-more", "assistant", "Carrying on with: A party at home"),
+				continuesMessageId: "a3",
+			});
+			return messages;
+		}
+
+		it("counts a reply in segments once", () => {
+			const messages = fiveRepliesOneInTwoSegments();
+			expect(messages.filter((m) => m.role === "assistant")).toHaveLength(6);
+
+			// Six rows, five replies: not enough for the scroller yet.
+			expect(buildJumpRailTurns(messages)).toEqual([]);
+
+			// A sixth reply makes six turns, the one in segments among them once,
+			// under its first row and named by the question before it.
+			const turns = buildJumpRailTurns([
+				...messages,
+				msg("u6", "user", "Question 6"),
+				msg("a6", "assistant", "Answer 6"),
+			]);
+
+			expect(turns.map((turn) => turn.id)).toEqual([
+				"a1",
+				"a2",
+				"a3",
+				"a4",
+				"a5",
+				"a6",
+			]);
+			expect(turns[2]).toEqual({ id: "a3", label: "Question 3" });
+		});
+
+		it("lists a segment whose first row is not loaded as a turn of its own", () => {
+			const messages = conversation(6);
+			messages[3] = {
+				...msg("a2", "assistant", "Carrying on"),
+				continuesMessageId: "a-not-loaded",
+			};
+
+			const turns = buildJumpRailTurns(messages);
+
+			expect(turns).toHaveLength(6);
+			expect(turns[1]).toEqual({ id: "a2", label: "Question 2" });
+		});
+
+		it("names the reply by the question before its first row, and by that row's summary", () => {
+			const messages = fiveRepliesOneInTwoSegments();
+			const first = messages.findIndex((m) => m.id === "a3");
+			messages[first] = msg(
+				"a3",
+				"assistant",
+				"Answer 3",
+				"Settles the shape of the day",
+			);
+			const turns = buildJumpRailTurns([
+				...messages,
+				msg("u6", "user", "Question 6"),
+				msg("a6", "assistant", "Answer 6"),
+			]);
+
+			expect(turns[2]).toEqual({
+				id: "a3",
+				label: "Settles the shape of the day",
+			});
+			expect(turns.map((turn) => turn.id)).not.toContain("a3-more");
+		});
+	});
 });
 
 describe("railTurnLabel", () => {

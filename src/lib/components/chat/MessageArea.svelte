@@ -37,12 +37,14 @@ import type { ConversationForkOrigin } from "$lib/server/services/conversation-f
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
+import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
 import InstructionSuggestionRow from "./InstructionSuggestionRow.svelte";
 import MessageBubble from "./MessageBubble.svelte";
 import LogoMark from "./LogoMark.svelte";
 import ConversationJumpRail from "./ConversationJumpRail.svelte";
 import { buildJumpRailTurns } from "./jump-rail";
+import { placeReplySegments } from "./reply-segments";
 
 let {
 	messages = [],
@@ -88,6 +90,9 @@ let {
 	deletedArtifacts = undefined,
 	imageCards = [],
 	onImageAction = undefined,
+	questions = [],
+	askActionState = {},
+	onAnswerQuestion = undefined,
 }: {
 	messages?: ChatMessage[];
 	conversationId?: string | null;
@@ -205,6 +210,19 @@ let {
 	/** The chat's picture cards, for each reply's make_image cards (plan 2b T2). */
 	imageCards?: ImageCardView[];
 	onImageAction?: ImageCardActionHandler | undefined;
+	/**
+	 * The chat's questions ("Ask me first"): Alfy stopped a reply to ask the person.
+	 * Each is drawn in the segment that asked it, as a card while it waits and then as
+	 * a folded line. The messages are read-only meanwhile (the page passes `readOnly`);
+	 * the card is not.
+	 */
+	questions?: AskQuestionDto[];
+	/** The page's state for each question, by question id: an answer is going out (`busy`), or did not go through (`failed`). */
+	askActionState?: Record<string, { busy?: boolean; failed?: boolean }>;
+	/** The person answered a card. The page takes the answer by raising the question's `busy` before it awaits anything, or refuses it and sets nothing. */
+	onAnswerQuestion?:
+		| ((questionId: string, answer: AskAnswer) => void)
+		| undefined;
 } = $props();
 
 const flyOut = reducedMotionAware(fly);
@@ -866,6 +884,23 @@ let currentStreamingAssistantMessageId = $derived(
 		)?.id ?? null,
 );
 
+// Where each assistant row sits in its reply, and the question it asked. A reply that
+// paused to ask is several rows drawn as one reply (reply-segments.ts), and a question
+// not stamped yet belongs to the streaming row, as an unstamped pending write does. A
+// question read for another chat is not this chat's to draw: the guard the pending
+// writes have too.
+let replyPlaces = $derived(
+	placeReplySegments(
+		dedupedMessages,
+		conversationId
+			? questions.filter(
+					(question) => question.conversationId === conversationId,
+				)
+			: questions,
+		currentStreamingAssistantMessageId,
+	),
+);
+
 let atlasFileProductionJobIds = $derived.by(() => {
 	const ids = new Set<string>();
 	for (const job of atlasJobs) {
@@ -1193,6 +1228,7 @@ async function scrollToMessage(messageId: string) {
 			</div>
 		{:else}
 			{#each dedupedMessages as message, i (message.renderKey ?? message.id)}
+				{@const place = replyPlaces.get(message.id)}
 				{#if shouldShowImportBoundary(dedupedMessages, i)}
 					<div
 						class="import-boundary-marker import-lineage-marker"
@@ -1241,6 +1277,10 @@ async function scrollToMessage(messageId: string) {
 					{deletedArtifacts}
 					{imageCards}
 					{onImageAction}
+					replyPlace={place}
+					askQuestion={place?.question ?? null}
+					askState={place?.question ? askActionState[place.question.id] : undefined}
+					{onAnswerQuestion}
 				/>
 				{#if message.role === "assistant" && !isIncognito}
 					<!-- The rows sit under the reply that prompted them, outside the

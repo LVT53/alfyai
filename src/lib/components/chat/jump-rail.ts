@@ -7,6 +7,7 @@
  */
 
 import type { ChatMessage } from "$lib/server/services/messages-types";
+import { continuesRowAbove } from "./reply-segments";
 
 /** How many characters of a question or reply a row's label keeps. */
 const MAX_LABEL_LENGTH = 60;
@@ -25,31 +26,29 @@ export interface JumpRailTurn {
 /**
  * Build the turn list from a flat message list.
  *
- * A "turn" is an assistant message. Each turn is paired with the user message
+ * A "turn" is an assistant reply. Each turn is paired with the user message
  * immediately before it (if any), which names the turn when no summary exists.
- * The scroller only helps in long conversations, so this returns an empty array
- * until there are at least {@link MIN_TURNS_FOR_RAIL} assistant messages,
- * matching the component's mount gate so the model and the gate never disagree.
+ * A reply that paused to ask the person is stored as segments, several assistant
+ * rows each carrying on from the one above (`continuesRowAbove`); it is one turn
+ * in the list, under its first row, and counts once. The scroller only helps in
+ * long conversations, so this returns an empty array until there are at least
+ * {@link MIN_TURNS_FOR_RAIL} turns, matching the component's mount gate so the
+ * model and the gate never disagree.
  *
  * Pure: no DOM, no side effects, safe to call during SSR.
  */
 export function buildJumpRailTurns(messages: ChatMessage[]): JumpRailTurn[] {
-	const assistantCount = messages.reduce(
-		(count, message) => (message.role === "assistant" ? count + 1 : count),
-		0,
-	);
-	if (assistantCount < MIN_TURNS_FOR_RAIL) return [];
-
 	const turns: JumpRailTurn[] = [];
 	for (let i = 0; i < messages.length; i += 1) {
 		const message = messages[i];
-		if (message.role !== "assistant") continue;
+		if (message.role !== "assistant" || continuesRowAbove(messages, i))
+			continue;
 		turns.push({
 			id: message.id,
 			label: railTurnLabel(message, messages[i - 1]),
 		});
 	}
-	return turns;
+	return turns.length < MIN_TURNS_FOR_RAIL ? [] : turns;
 }
 
 /**

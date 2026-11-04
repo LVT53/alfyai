@@ -7,6 +7,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
+import type { ComponentProps } from "svelte";
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import chatDict from "$lib/i18n/chat";
@@ -16,6 +17,7 @@ import type { FileProductionJob } from "$lib/server/services/file-production/typ
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
+import type { AskQuestion, AskQuestionDto } from "$lib/shared/ask-user";
 import { uiLanguage } from "$lib/stores/settings";
 import { clearToasts, toasts } from "$lib/stores/toast";
 import { renderMarkdown } from "$lib/utils/markdown-loader";
@@ -24,6 +26,7 @@ import {
 	take as imageTake,
 } from "../artifacts/image/image-card-fixtures.test-helpers";
 import MessageBubble from "./MessageBubble.svelte";
+import type { ReplyPlace } from "./reply-segments";
 
 const markdownLoaderMock = vi.hoisted(() => ({
 	renderMarkdown: vi.fn(async (content: string) =>
@@ -3908,6 +3911,449 @@ describe("MessageBubble", () => {
 				"conv-1",
 				"assistant-follow-ups",
 			);
+		});
+	});
+
+	// "Ask me first": a reply that paused to ask the person is stored as segments, the
+	// consecutive assistant rows of one reply, and the page draws them as one reply.
+	// MessageArea works out each row's place (reply-segments.ts); the bubble draws what
+	// the place says. A segment the reply goes on from has no buttons of its own, a
+	// segment that carries on has no top gap and starts no new line of reasoning, and the
+	// question a segment asked is the last thing in it (the card, then its folded line).
+	describe("a reply drawn in segments (Ask me first)", () => {
+		const FIRST_WORDS =
+			"The biggest fork is the shape of the day itself, so let's settle that first.";
+		const SECOND_WORDS = "A party at home it is. Here is the plan.";
+
+		const WAY: AskQuestion = {
+			question: "Which way should we take it?",
+			options: [
+				{
+					label: "A party at home",
+					note: "Easiest to organise, and the whole family can come",
+					recommended: true,
+				},
+				{ label: "Dinner out, just close family" },
+			],
+		};
+
+		function place(overrides: Partial<ReplyPlace> = {}): ReplyPlace {
+			return {
+				firstMessageId: "assistant-seg-1",
+				continuesAbove: false,
+				continuedBelow: false,
+				question: null,
+				copyText: null,
+				...overrides,
+			};
+		}
+
+		function asked(overrides: Partial<AskQuestionDto> = {}): AskQuestionDto {
+			return {
+				id: "q-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-seg-1",
+				toolCallId: "call-ask",
+				questions: [WAY],
+				status: "waiting",
+				answer: null,
+				createdAt: 1_700_000_000_000,
+				...overrides,
+			};
+		}
+
+		const answeredWithTheParty: Partial<AskQuestionDto> = {
+			status: "answered",
+			answer: {
+				kind: "answered",
+				answers: [{ picked: [0], ownWords: null }],
+			},
+		};
+
+		function segment(overrides: Partial<ChatMessage> = {}): ChatMessage {
+			return {
+				id: "assistant-seg-1",
+				renderKey: "assistant-seg-1",
+				role: "assistant",
+				content: FIRST_WORDS,
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+				...overrides,
+			};
+		}
+
+		// The ask call as the first segment stores it: it paused the reply.
+		const askCall = {
+			type: "tool_call",
+			callId: "call-ask",
+			name: "ask_user",
+			input: { questions: [WAY] },
+			status: "done",
+			outputSummary: "Waiting for the user's answer.",
+			metadata: { paused: true, questionId: "q-1" },
+		} as const;
+
+		const searchCall = {
+			type: "tool_call",
+			callId: "call-search",
+			name: "research_web",
+			input: { query: "venues for 30 guests" },
+			status: "done",
+			outputSummary: "Reviewed 2 sources",
+		} as const;
+
+		const aWrite = {
+			id: "pw-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-seg-1",
+			status: "pending" as const,
+			provider: "nextcloud" as const,
+			createdAt: 1,
+			preview: {
+				title: "Save note.txt to /AlfyAI",
+				detail: "files.put — /AlfyAI/note.txt",
+				reversible: true,
+				destructive: false,
+				withinAllowlist: true,
+				warnings: [],
+			},
+		};
+
+		const answerBy = (label: string) =>
+			screen
+				.getAllByTestId("ask-option")
+				.find((option) => option.textContent?.includes(label)) as HTMLElement;
+
+		/** The bubble's outer element, the one that holds its body, its buttons and its chips. */
+		const rootOf = () =>
+			screen.getByTestId("assistant-message").parentElement as HTMLElement;
+
+		beforeEach(() => {
+			uiLanguage.set("en");
+			sessionStorage.clear();
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+			vi.restoreAllMocks();
+		});
+
+		it("draws no action row and no follow-up chips on a continued segment", async () => {
+			const message = segment({
+				followUps: ["What about the guests?", "Any gift ideas?"],
+				// The provenance line would say this on a segment that ended its reply.
+				userIntent: { webSearch: true },
+			});
+			const { container, rerender } = render(MessageBubble, {
+				message,
+				isLast: true,
+				onRegenerate: vi.fn(),
+				onSendFollowUp: vi.fn(),
+				replyPlace: place({ continuedBelow: true }),
+			});
+
+			expect(container.querySelector(".message-actions")).toBeNull();
+			expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+			expect(
+				screen.queryByRole("button", { name: "Regenerate response" }),
+			).toBeNull();
+			expect(screen.queryByTestId("follow-up-chips")).toBeNull();
+			expect(screen.queryByText("What about the guests?")).toBeNull();
+			expect(screen.queryByTestId("message-provenance")).toBeNull();
+			// Its words are drawn all the same.
+			expect(await screen.findByText(FIRST_WORDS)).toBeInTheDocument();
+
+			// The segment that ends its reply draws all four: nothing above is a
+			// bubble that never had them.
+			await rerender({ replyPlace: place() });
+			expect(
+				screen.getByRole("button", { name: "Copy message" }),
+			).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", { name: "Regenerate response" }),
+			).toBeInTheDocument();
+			expect(screen.getByTestId("follow-up-chips")).toBeInTheDocument();
+			expect(screen.getByTestId("message-provenance")).toBeInTheDocument();
+		});
+
+		it("draws no depth chip and no Answer now on a continuation", async () => {
+			const message = segment({
+				id: "assistant-seg-2",
+				renderKey: "assistant-seg-2",
+				continuesMessageId: "assistant-seg-1",
+				content: "",
+				isStreaming: true,
+				isThinkingStreaming: true,
+				thinking: "Reasoning about the request.",
+				depthMetadata: {
+					requested: "thorough",
+					appliedProfile: "maximum",
+					fallback: false,
+				},
+			});
+			const { container, rerender } = render(MessageBubble, {
+				message,
+				onRegenerate: vi.fn(),
+				replyPlace: place({ continuesAbove: true }),
+			});
+
+			expect(screen.queryByTestId("reasoning-depth-indicator")).toBeNull();
+			expect(
+				screen.queryByRole("button", { name: chatDict.en["chat.answerNow"] }),
+			).toBeNull();
+			// It follows the segment above it: no gap of its own at the top.
+			expect(rootOf().classList.contains("pt-0")).toBe(true);
+			// Its thinking is still shown: only the chip and the button are the reply's.
+			expect(container.querySelector(".thinking-block")).not.toBeNull();
+
+			// The reply's first segment has all three.
+			await rerender({ replyPlace: place() });
+			expect(screen.getByTestId("reasoning-depth-indicator")).toHaveTextContent(
+				"Max reasoning depth",
+			);
+			expect(
+				screen.getByRole("button", { name: chatDict.en["chat.answerNow"] }),
+			).toBeInTheDocument();
+			expect(rootOf().classList.contains("pt-0")).toBe(false);
+
+			// And a message that is in no reply's place at all is a plain message.
+			await rerender({ replyPlace: undefined });
+			expect(
+				screen.getByTestId("reasoning-depth-indicator"),
+			).toBeInTheDocument();
+			expect(rootOf().classList.contains("pt-0")).toBe(false);
+		});
+
+		it("leaves the ask call out of the rail and draws the card last in the segment", () => {
+			const message = segment({ thinkingSegments: [searchCall, askCall] });
+			const question = asked();
+			const { container } = render(MessageBubble, {
+				message,
+				conversationId: "conv-1",
+				pendingWrites: [aWrite],
+				replyPlace: place({ continuedBelow: true, question }),
+				askQuestion: question,
+			});
+
+			// The rail has the step and not the ask: one step, so one entry in its summary.
+			const summary = screen.getByTestId("tool-activity-summary");
+			expect(summary.querySelectorAll(".summary-item")).toHaveLength(1);
+
+			// The card follows the words and the write card, and nothing follows it.
+			const card = screen.getByTestId("ask-card");
+			const writes = screen.getByTestId("message-pending-writes");
+			const prose = container.querySelector(".prose-container") as Element;
+			expect(
+				prose.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+			expect(
+				writes.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+			expect(card.parentElement?.lastElementChild).toBe(card);
+			expect(screen.getByRole("article", { name: "Alfy's question" })).toBe(
+				card,
+			);
+			// It is the only copy of the question: no second line for it.
+			expect(screen.queryByTestId("ask-folded")).toBeNull();
+		});
+
+		it("draws no rail at all for a segment whose only step is the ask", () => {
+			const question = asked();
+			const { container } = render(MessageBubble, {
+				message: segment({ thinkingSegments: [askCall] }),
+				replyPlace: place({ continuedBelow: true, question }),
+				askQuestion: question,
+			});
+
+			expect(container.querySelector(".thinking-block")).toBeNull();
+			expect(screen.queryByTestId("tool-activity-summary")).toBeNull();
+			expect(screen.getByTestId("ask-card")).toBeInTheDocument();
+		});
+
+		it("draws the question as its folded line, after the write card, once it no longer waits", () => {
+			const question = asked(answeredWithTheParty);
+			render(MessageBubble, {
+				message: segment({ thinkingSegments: [searchCall, askCall] }),
+				conversationId: "conv-1",
+				pendingWrites: [aWrite],
+				replyPlace: place({ continuedBelow: true, question }),
+				askQuestion: question,
+			});
+
+			const line = screen.getByTestId("ask-folded");
+			expect(line).toHaveTextContent("Which way should we take it?");
+			expect(line).toHaveTextContent("A party at home");
+			expect(
+				screen
+					.getByTestId("message-pending-writes")
+					.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+			expect(line.parentElement?.lastElementChild).toBe(line);
+			// The card has folded into the line: it does not draw both.
+			expect(screen.queryByTestId("ask-card")).toBeNull();
+			expect(
+				screen.queryByRole("article", { name: "Alfy's question" }),
+			).toBeNull();
+		});
+
+		it("draws neither card nor line when the question's row is missing, as in a fork, and still leaves the call out of the rail", () => {
+			const { container } = render(MessageBubble, {
+				message: segment({ thinkingSegments: [askCall] }),
+				replyPlace: place(),
+				askQuestion: null,
+			});
+
+			expect(screen.queryByTestId("ask-card")).toBeNull();
+			expect(screen.queryByTestId("ask-folded")).toBeNull();
+			expect(container.querySelector(".thinking-block")).toBeNull();
+			// Nothing waits, so the reply ends here with its buttons.
+			expect(
+				screen.getByRole("button", { name: "Copy message" }),
+			).toBeInTheDocument();
+		});
+
+		it("draws the question under a segment that is still streaming, below its words", () => {
+			const question = asked({ assistantMessageId: null });
+			const { container } = render(MessageBubble, {
+				message: segment({
+					content: FIRST_WORDS,
+					isStreaming: true,
+					thinkingSegments: [askCall],
+				}),
+				replyPlace: place({ continuedBelow: true, question }),
+				askQuestion: question,
+			});
+
+			const card = screen.getByTestId("ask-card");
+			const prose = container.querySelector(".prose-container") as Element;
+			expect(
+				prose.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+		});
+
+		it("copies every segment's words from the reply's last segment", async () => {
+			const writeText = vi.fn().mockResolvedValue(undefined);
+			Object.defineProperty(navigator, "clipboard", {
+				configurable: true,
+				value: { writeText },
+			});
+			const copyText = `${FIRST_WORDS}\n\n${SECOND_WORDS}`;
+			const message = segment({
+				id: "assistant-seg-2",
+				renderKey: "assistant-seg-2",
+				content: SECOND_WORDS,
+				continuesMessageId: "assistant-seg-1",
+			});
+			const { rerender } = render(MessageBubble, {
+				message,
+				isLast: true,
+				replyPlace: place({ continuesAbove: true, copyText }),
+			});
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Copy message" }),
+			);
+			expect(writeText).toHaveBeenLastCalledWith(copyText);
+
+			// A reply of one row has no text of the kind: Copy takes the row's own words.
+			await rerender({ replyPlace: place() });
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Copy message" }),
+			);
+			expect(writeText).toHaveBeenLastCalledWith(SECOND_WORDS);
+		});
+
+		describe("the card in the segment", () => {
+			async function renderWaitingCard(
+				props: Partial<ComponentProps<typeof MessageBubble>> = {},
+				question = asked(),
+			) {
+				vi.useFakeTimers();
+				const onAnswerQuestion = vi.fn();
+				const view = render(MessageBubble, {
+					message: segment({ thinkingSegments: [askCall] }),
+					replyPlace: place({ continuedBelow: true, question }),
+					askQuestion: question,
+					onAnswerQuestion,
+					...props,
+				});
+				// The card keeps its answers off for a moment after it appears.
+				await vi.advanceTimersByTimeAsync(400);
+				return { onAnswerQuestion, ...view };
+			}
+
+			it("hands the answer to the page with the question's id", async () => {
+				const { onAnswerQuestion } = await renderWaitingCard();
+
+				await fireEvent.click(answerBy("A party at home"));
+
+				expect(onAnswerQuestion).toHaveBeenCalledTimes(1);
+				expect(onAnswerQuestion).toHaveBeenCalledWith("q-1", {
+					kind: "answered",
+					answers: [{ picked: [0], ownWords: null }],
+				});
+			});
+
+			it("stays answerable while the chat is read-only, as a card should while a question waits", async () => {
+				const { onAnswerQuestion } = await renderWaitingCard({
+					readOnly: true,
+					isLast: true,
+					onRegenerate: vi.fn(),
+				});
+
+				// The message is read-only: nothing that would change what was said.
+				expect(
+					screen.queryByRole("button", { name: "Copy message" }),
+				).toBeNull();
+				// The card is not.
+				await fireEvent.click(
+					screen.getByRole("button", { name: "Up to you" }),
+				);
+
+				expect(onAnswerQuestion).toHaveBeenCalledWith("q-1", {
+					kind: "left_to_alfy",
+				});
+			});
+
+			it("hands the card the page's busy and failed flags", async () => {
+				const { rerender } = await renderWaitingCard();
+				expect(
+					screen
+						.getAllByTestId("ask-option")
+						.every((option) => !(option as HTMLButtonElement).disabled),
+				).toBe(true);
+
+				await rerender({ askState: { busy: true } });
+				expect(
+					screen
+						.getAllByTestId("ask-option")
+						.every((option) => (option as HTMLButtonElement).disabled),
+				).toBe(true);
+				expect(
+					screen.getByRole("button", { name: "Up to you" }),
+				).toBeDisabled();
+
+				await rerender({ askState: { busy: false, failed: true } });
+				expect(screen.getByTestId("ask-error")).toHaveTextContent(
+					"Couldn't send your answer. Try again.",
+				);
+				expect(screen.getByRole("button", { name: "Up to you" })).toBeEnabled();
+
+				await rerender({ askState: undefined });
+				expect(screen.queryByTestId("ask-error")).toBeNull();
+			});
+
+			it("starts a new card for another question", async () => {
+				const { rerender } = await renderWaitingCard();
+				const before = screen.getByTestId("ask-card");
+
+				await rerender({
+					askQuestion: asked({ id: "q-2", toolCallId: "call-ask-2" }),
+				});
+
+				expect(screen.getByTestId("ask-card")).not.toBe(before);
+			});
 		});
 	});
 });

@@ -5,11 +5,14 @@ import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
+import type { AskQuestion, AskQuestionDto } from "$lib/shared/ask-user";
+import { uiLanguage } from "$lib/stores/settings";
 import {
 	card as pictureCard,
 	take as pictureTake,
 } from "../artifacts/image/image-card-fixtures.test-helpers";
 import MessageArea from "./MessageArea.svelte";
+import MessageAreaAskHarness from "./MessageAreaAskHarness.test.svelte";
 
 vi.mock("$lib/utils/markdown-loader", () => ({
 	collectSourceReferenceCandidates: async () => [],
@@ -1806,6 +1809,415 @@ describe("MessageArea", () => {
 
 			expect(onConfirmWrite).toHaveBeenCalledWith(write.id);
 			expect(onCancelWrite).toHaveBeenCalledWith(write.id);
+		});
+	});
+
+	// "Ask me first": a reply that paused to ask the person is stored as segments, the
+	// consecutive assistant rows of one reply. MessageArea works out where each row sits
+	// in its reply (reply-segments.ts) and hands the bubble its place, its question and
+	// the page's state for that question.
+	describe("a reply in segments (Ask me first)", () => {
+		const FIRST_WORDS =
+			"The biggest fork is the shape of the day itself, so let's settle that first.";
+		const SECOND_WORDS = "A party at home it is. Here is the plan.";
+
+		const WAY: AskQuestion = {
+			question: "Which way should we take it?",
+			options: [
+				{
+					label: "A party at home",
+					note: "Easiest to organise, and the whole family can come",
+					recommended: true,
+				},
+				{ label: "Dinner out, just close family" },
+			],
+		};
+		const EVENING: AskQuestion = {
+			question: "Which evening?",
+			options: [{ label: "Friday" }, { label: "Saturday", recommended: true }],
+		};
+
+		function row(
+			id: string,
+			role: "user" | "assistant",
+			content: string,
+			overrides: Partial<ChatMessage> = {},
+		): ChatMessage {
+			return {
+				id,
+				renderKey: id,
+				role,
+				content,
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+				...overrides,
+			};
+		}
+
+		function asked(overrides: Partial<AskQuestionDto> = {}): AskQuestionDto {
+			return {
+				id: "q-1",
+				conversationId: "conv-1",
+				assistantMessageId: "a-1",
+				toolCallId: "call-ask-1",
+				questions: [WAY],
+				status: "answered",
+				answer: {
+					kind: "answered",
+					answers: [{ picked: [0], ownWords: null }],
+				},
+				createdAt: Date.now(),
+				...overrides,
+			};
+		}
+
+		/** The second question: the reply's second segment asked again, and it waits. */
+		function askedAgain(
+			overrides: Partial<AskQuestionDto> = {},
+		): AskQuestionDto {
+			return asked({
+				id: "q-2",
+				assistantMessageId: "a-2",
+				toolCallId: "call-ask-2",
+				questions: [EVENING],
+				status: "waiting",
+				answer: null,
+				...overrides,
+			});
+		}
+
+		/** One reply in two segments, after the person's message. */
+		function twoSegments(): ChatMessage[] {
+			return [
+				row("u-1", "user", "Plan dad's 60th"),
+				row("a-1", "assistant", FIRST_WORDS, {
+					followUps: ["Anything to do first?"],
+				}),
+				row("a-2", "assistant", SECOND_WORDS, {
+					continuesMessageId: "a-1",
+					followUps: ["What about the guests?"],
+				}),
+			];
+		}
+
+		const askCall = (callId: string) =>
+			({
+				type: "tool_call",
+				callId,
+				name: "ask_user",
+				input: {},
+				status: "done",
+				outputSummary: "Waiting for the user's answer.",
+				metadata: { paused: true },
+			}) as const;
+
+		/** The bubble of a row: the element that holds its body, its buttons and its chips. */
+		function bubbleOf(container: HTMLElement, id: string): HTMLElement {
+			const body = container.querySelector(`[data-message-id="${id}"]`);
+			return body?.parentElement as HTMLElement;
+		}
+
+		/** The card's answers are off for a moment after it appears. */
+		async function wake() {
+			await vi.advanceTimersByTimeAsync(400);
+		}
+
+		beforeEach(() => {
+			uiLanguage.set("en");
+			sessionStorage.clear();
+			// Only the card's wake-up timer: the area's own frames stay as the suite set them.
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("draws a reply's segments as one reply and hands each its question", () => {
+			const { container, queryAllByRole } = render(MessageArea, {
+				messages: twoSegments(),
+				conversationId: "conv-1",
+				questions: [asked(), askedAgain()],
+			});
+
+			const first = bubbleOf(container, "a-1");
+			const second = bubbleOf(container, "a-2");
+			expect(
+				container.querySelectorAll('[data-testid="assistant-message"]'),
+			).toHaveLength(2);
+
+			// The first segment's question is answered: its folded line, no card.
+			const line = within(first).getByTestId("ask-folded");
+			expect(line).toHaveTextContent("Which way should we take it?");
+			expect(line).toHaveTextContent("A party at home");
+			expect(within(first).queryByTestId("ask-card")).toBeNull();
+			// The second asked again and waits: the card, last in that segment.
+			const card = within(second).getByTestId("ask-card");
+			expect(card).toHaveTextContent("Which evening?");
+			expect(card.parentElement?.lastElementChild).toBe(card);
+			expect(within(second).queryByTestId("ask-folded")).toBeNull();
+			expect(
+				queryAllByRole("article", { name: "Alfy's question" }),
+			).toHaveLength(1);
+
+			// The second segment carries on from the first: no gap of its own above it.
+			expect(first.classList.contains("pt-0")).toBe(false);
+			expect(second.classList.contains("pt-0")).toBe(true);
+
+			// The reply is not over while a question waits: no buttons, no chips.
+			for (const bubble of [first, second]) {
+				expect(
+					within(bubble).queryByRole("button", { name: "Copy message" }),
+				).toBeNull();
+			}
+			expect(
+				container.querySelector('[data-testid="follow-up-chips"]'),
+			).toBeNull();
+		});
+
+		it("gives the reply its buttons and its follow-up chips once, after the last segment, when no question waits", () => {
+			const { container } = render(MessageArea, {
+				messages: twoSegments(),
+				conversationId: "conv-1",
+				questions: [asked()],
+			});
+
+			const first = bubbleOf(container, "a-1");
+			const second = bubbleOf(container, "a-2");
+			expect(
+				within(second).getByRole("button", { name: "Copy message" }),
+			).toBeInTheDocument();
+			expect(within(second).getByTestId("follow-up-chips")).toHaveTextContent(
+				"What about the guests?",
+			);
+			expect(
+				container.querySelectorAll('[data-testid="follow-up-chips"]'),
+			).toHaveLength(1);
+			expect(
+				within(first).queryByRole("button", { name: "Copy message" }),
+			).toBeNull();
+			expect(within(first).queryByTestId("follow-up-chips")).toBeNull();
+			// The first segment's question is the folded line in the first.
+			expect(within(first).getByTestId("ask-folded")).toBeInTheDocument();
+		});
+
+		it("copies the words of every segment from the reply's one Copy button", async () => {
+			const writeText = vi.fn().mockResolvedValue(undefined);
+			Object.defineProperty(navigator, "clipboard", {
+				configurable: true,
+				value: { writeText },
+			});
+			const { container } = render(MessageArea, {
+				messages: twoSegments(),
+				conversationId: "conv-1",
+				questions: [asked()],
+			});
+
+			await fireEvent.click(
+				within(bubbleOf(container, "a-2")).getByRole("button", {
+					name: "Copy message",
+				}),
+			);
+
+			expect(writeText).toHaveBeenCalledWith(
+				`${FIRST_WORDS}\n\n${SECOND_WORDS}`,
+			);
+		});
+
+		it("draws a chat with no questions as it always was", () => {
+			const { container } = render(MessageArea, {
+				messages: twoSegments().map((message) => ({
+					...message,
+					continuesMessageId: undefined,
+				})),
+				conversationId: "conv-1",
+			});
+
+			for (const id of ["a-1", "a-2"]) {
+				expect(
+					within(bubbleOf(container, id)).getByRole("button", {
+						name: "Copy message",
+					}),
+				).toBeInTheDocument();
+				expect(bubbleOf(container, id).classList.contains("pt-0")).toBe(false);
+			}
+			expect(container.querySelector('[data-testid="ask-card"]')).toBeNull();
+			expect(container.querySelector('[data-testid="ask-folded"]')).toBeNull();
+		});
+
+		it("starts a reply of its own at a segment whose first row is not loaded", () => {
+			const { container } = render(MessageArea, {
+				messages: [
+					row("u-2", "user", "And then?"),
+					row("a-2", "assistant", SECOND_WORDS, {
+						continuesMessageId: "a-1-not-loaded",
+					}),
+				],
+				conversationId: "conv-1",
+			});
+
+			expect(bubbleOf(container, "a-2").classList.contains("pt-0")).toBe(false);
+			expect(
+				within(bubbleOf(container, "a-2")).getByRole("button", {
+					name: "Copy message",
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("puts a question that is not stamped yet on the streaming segment, and only one of this chat", () => {
+			const messages = [
+				row("u-1", "user", "Plan dad's 60th"),
+				row("a-1", "assistant", FIRST_WORDS, {
+					isStreaming: true,
+					thinkingSegments: [askCall("call-ask-1")],
+				}),
+			];
+			const unstamped = asked({
+				assistantMessageId: null,
+				status: "waiting",
+				answer: null,
+			});
+
+			const mine = render(MessageArea, {
+				messages,
+				conversationId: "conv-1",
+				questions: [unstamped],
+			});
+			expect(
+				within(bubbleOf(mine.container, "a-1")).getByTestId("ask-card"),
+			).toBeInTheDocument();
+			mine.unmount();
+
+			// The same question read for another chat is not this chat's to draw.
+			const other = render(MessageArea, {
+				messages,
+				conversationId: "conv-1",
+				questions: [{ ...unstamped, conversationId: "conv-other" }],
+			});
+			expect(
+				other.container.querySelector('[data-testid="ask-card"]'),
+			).toBeNull();
+		});
+
+		it("draws neither card nor line for an ask call whose question row is missing, as in a fork, and leaves the call out of the rail", () => {
+			const { container } = render(MessageArea, {
+				messages: [
+					row("u-1", "user", "Plan dad's 60th"),
+					row("a-1", "assistant", FIRST_WORDS, {
+						thinkingSegments: [askCall("call-ask-1")],
+					}),
+				],
+				conversationId: "conv-1",
+				questions: [],
+			});
+
+			expect(container.querySelector('[data-testid="ask-card"]')).toBeNull();
+			expect(container.querySelector('[data-testid="ask-folded"]')).toBeNull();
+			expect(container.querySelector(".thinking-block")).toBeNull();
+			// Nothing waits and nothing carries on: the reply ends there with its buttons.
+			expect(
+				within(bubbleOf(container, "a-1")).getByRole("button", {
+					name: "Copy message",
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("hands the card its page state by question id, and an answer back to the page", async () => {
+			const onAnswerQuestion = vi.fn();
+			const { container, rerender } = render(MessageArea, {
+				messages: twoSegments(),
+				conversationId: "conv-1",
+				questions: [asked(), askedAgain()],
+				askActionState: {},
+				onAnswerQuestion,
+			});
+			await wake();
+			const options = () =>
+				within(bubbleOf(container, "a-2")).getAllByTestId("ask-option");
+
+			expect(
+				options().every((option) => !(option as HTMLButtonElement).disabled),
+			).toBe(true);
+
+			// Another question's state does not reach this card.
+			await rerender({ askActionState: { "q-1": { busy: true } } });
+			expect(
+				options().every((option) => !(option as HTMLButtonElement).disabled),
+			).toBe(true);
+
+			await rerender({ askActionState: { "q-2": { busy: true } } });
+			expect(
+				options().every((option) => (option as HTMLButtonElement).disabled),
+			).toBe(true);
+
+			await rerender({ askActionState: { "q-2": { failed: true } } });
+			expect(
+				within(bubbleOf(container, "a-2")).getByTestId("ask-error"),
+			).toBeInTheDocument();
+
+			await fireEvent.click(options()[1]);
+			expect(onAnswerQuestion).toHaveBeenCalledWith("q-2", {
+				kind: "answered",
+				answers: [{ picked: [1], ownWords: null }],
+			});
+		});
+
+		it("keeps the card live while the messages are read-only, as they are while a question waits", async () => {
+			const onAnswerQuestion = vi.fn();
+			const { container, getByRole } = render(MessageArea, {
+				messages: twoSegments(),
+				conversationId: "conv-1",
+				questions: [asked(), askedAgain()],
+				readOnly: true,
+				onAnswerQuestion,
+				onRegenerate: vi.fn(),
+				onSendFollowUp: vi.fn(),
+			});
+			await wake();
+
+			// Nothing on the messages changes what was said...
+			expect(
+				container.querySelector('button[aria-label="Regenerate response"]'),
+			).toBeNull();
+			expect(
+				container.querySelector('[data-testid="follow-up-chips"]'),
+			).toBeNull();
+			// ...and the card still takes the answer.
+			await fireEvent.click(getByRole("button", { name: "Up to you" }));
+
+			expect(onAnswerQuestion).toHaveBeenCalledWith("q-2", {
+				kind: "left_to_alfy",
+			});
+		});
+
+		it("takes one answer when the page raises busy inside onAnswerQuestion", async () => {
+			const onAnswer = vi.fn();
+			const { container } = render(MessageAreaAskHarness, {
+				messages: twoSegments(),
+				questions: [asked(), askedAgain()],
+				onAnswer,
+			});
+			await wake();
+			const [friday, saturday] = within(
+				bubbleOf(container, "a-2"),
+			).getAllByTestId("ask-option");
+
+			// Two presses in the same task: the second finds the card already off.
+			friday.click();
+			saturday.click();
+			await tick();
+
+			expect(onAnswer).toHaveBeenCalledTimes(1);
+			expect(onAnswer).toHaveBeenCalledWith("q-2", {
+				kind: "answered",
+				answers: [{ picked: [0], ownWords: null }],
+			});
+			expect(
+				within(bubbleOf(container, "a-2"))
+					.getAllByTestId("ask-option")
+					.every((option) => (option as HTMLButtonElement).disabled),
+			).toBe(true);
 		});
 	});
 
