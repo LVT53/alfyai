@@ -386,6 +386,7 @@ function prepareGeneratedFileCopyPlan(params: {
 function copyMetadata(
 	sourceMessage: typeof messages.$inferSelect,
 	snapshotCreatedAt: Date,
+	copiedMessageIdBySourceId: ReadonlyMap<string, string>,
 ): PersistedMessageMetadata {
 	const sourceMetadata = parseMetadata(sourceMessage.metadataJson);
 	const next: PersistedMessageMetadata = {
@@ -400,6 +401,19 @@ function copyMetadata(
 	delete next.skillDrafts;
 	delete next.skillControl;
 	delete next.evidenceStatus;
+	// A segment of a reply that paused to ask names the row it continues. Row ids
+	// belong to one conversation, so the copy names the copy of that row; a link
+	// to a row this fork did not copy (it was deleted) has nothing to point at
+	// here and is dropped.
+	const continuedMessageId =
+		typeof sourceMetadata.continuesMessageId === "string"
+			? copiedMessageIdBySourceId.get(sourceMetadata.continuesMessageId)
+			: undefined;
+	if (continuedMessageId) {
+		next.continuesMessageId = continuedMessageId;
+	} else {
+		delete next.continuesMessageId;
+	}
 	const evidenceSummary =
 		sourceMetadata.evidenceSummary &&
 		Array.isArray(sourceMetadata.evidenceSummary.groups)
@@ -1104,18 +1118,33 @@ export async function createConversationFork(
 					.returning()
 					.get();
 
+				// The copies' ids come first: a segment of a reply names the row it
+				// continues, so a row's metadata needs the id of a copy that is written
+				// in the same insert.
+				const copies = sourceMessagesToCopy.map((sourceMessage) => ({
+					sourceMessage,
+					copiedId: randomUUID(),
+				}));
+				const copiedMessageIdBySourceId = new Map(
+					copies.map(({ sourceMessage, copiedId }) => [
+						sourceMessage.id,
+						copiedId,
+					]),
+				);
 				const copiedMessages = tx
 					.insert(messages)
 					.values(
-						sourceMessagesToCopy.map((sourceMessage, index) => ({
-							id: randomUUID(),
+						copies.map(({ sourceMessage, copiedId }, index) => ({
+							id: copiedId,
 							conversationId: forkConversation.id,
 							messageSequence: index + 1,
 							role: sourceMessage.role,
 							content: sourceMessage.content,
 							thinking: sourceMessage.thinking,
 							toolCalls: sourceMessage.toolCalls,
-							metadataJson: JSON.stringify(copyMetadata(sourceMessage, now)),
+							metadataJson: JSON.stringify(
+								copyMetadata(sourceMessage, now, copiedMessageIdBySourceId),
+							),
 							createdAt: sourceMessage.createdAt,
 						})),
 					)
@@ -1129,12 +1158,6 @@ export async function createConversationFork(
 						"Fork source did not include copyable messages",
 					);
 				}
-				const copiedMessageIdBySourceId = new Map(
-					sourceMessagesToCopy.map((sourceMessage, index) => [
-						sourceMessage.id,
-						copiedMessages[index]?.id ?? "",
-					]),
-				);
 				const generatedSnapshot = copyGeneratedWorkSnapshot({
 					tx,
 					userId: params.userId,

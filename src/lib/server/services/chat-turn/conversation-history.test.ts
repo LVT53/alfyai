@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import { produceFileModelInputSchema } from "$lib/server/services/normal-chat-tools/produce-file";
 import {
 	buildHistoryModelMessages,
@@ -32,6 +33,47 @@ function turn(
 		],
 	};
 }
+
+type ToolCallSegment = Extract<ThinkingSegment, { type: "tool_call" }>;
+
+// A reply that stopped to ask: the ask call as its first segment stores it once
+// the person has answered (the answer replaces the paused summary and adds the
+// digest), and a research call it made before asking.
+const WHICH_WAY_QUESTIONS = [
+	{
+		question: "Which way should we take it?",
+		options: [
+			{ label: "A party at home", recommended: true },
+			{ label: "A restaurant table" },
+		],
+	},
+];
+const ASK_ANSWER_DIGEST =
+	'{"status":"answered","answers":[{"question":"Which way should we take it?","picked":["A party at home"]}]}';
+
+function askCall(overrides: Partial<ToolCallSegment> = {}): ToolCallSegment {
+	return {
+		type: "tool_call",
+		callId: "call_ask",
+		name: "ask_user",
+		input: { questions: WHICH_WAY_QUESTIONS },
+		status: "done",
+		outputSummary: "The user picked: A party at home",
+		resultDigest: ASK_ANSWER_DIGEST,
+		metadata: { paused: true, questionId: "question-1" },
+		...overrides,
+	};
+}
+
+const researchCall: ToolCallSegment = {
+	type: "tool_call",
+	callId: "call_research",
+	name: "research_web",
+	input: { query: "party ideas" },
+	status: "done",
+	outputSummary: "Web research returned 2 sources.",
+	resultDigest: "Two venues were found.",
+};
 
 describe("renderHistoryTurn", () => {
 	it("renders a plain text exchange as user and assistant messages", () => {
@@ -231,6 +273,261 @@ describe("renderHistoryTurn", () => {
 				content: "[used research_web: Web research returned 1 source.]\nDone.",
 			},
 		]);
+	});
+
+	it("renders a segment that asked: its other calls first, then its words with the ask call, then the answer as the call's result", () => {
+		const out = renderHistoryTurn(
+			turn("Plan the party", {
+				content: "I found two ways to go.",
+				thinkingSegments: [
+					{ type: "text", content: "private reasoning" },
+					researchCall,
+					askCall(),
+				],
+			}),
+			"native",
+		);
+		expect(out.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			"tool",
+			"assistant",
+			"tool",
+		]);
+		expect(out[1]).toEqual({
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId: "call_research",
+					toolName: "research_web",
+					input: { query: "party ideas" },
+				},
+			],
+		});
+		expect(out[2]).toEqual({
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "call_research",
+					toolName: "research_web",
+					output: {
+						type: "json",
+						value: {
+							ok: true,
+							summary: "Web research returned 2 sources.",
+							detail: "Two venues were found.",
+						},
+					},
+				},
+			],
+		});
+		// The words were said before the question, so they go with the call and not
+		// after its result.
+		expect(out[3]).toEqual({
+			role: "assistant",
+			content: [
+				{ type: "text", text: "I found two ways to go." },
+				{
+					type: "tool-call",
+					toolCallId: "call_ask",
+					toolName: "ask_user",
+					input: { questions: WHICH_WAY_QUESTIONS },
+				},
+			],
+		});
+		expect(out[4]).toEqual({
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "call_ask",
+					toolName: "ask_user",
+					output: {
+						type: "json",
+						value: {
+							ok: true,
+							summary: "The user picked: A party at home",
+							detail: ASK_ANSWER_DIGEST,
+						},
+					},
+				},
+			],
+		});
+		expect(JSON.stringify(out)).not.toContain("private reasoning");
+	});
+
+	it("renders a segment that asked with no other calls and no words as the ask call and its result alone", () => {
+		const out = renderHistoryTurn(
+			turn("Plan the party", {
+				id: "seg-1",
+				content: "",
+				thinkingSegments: [askCall({ callId: undefined })],
+			}),
+			"native",
+		);
+		expect(out.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			"tool",
+		]);
+		// No stored callId: the same derived id pairs the call with its result.
+		expect(out[1]).toEqual({
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId: "hist_seg-1_0",
+					toolName: "ask_user",
+					input: { questions: WHICH_WAY_QUESTIONS },
+				},
+			],
+		});
+		const result = out[2];
+		if (result.role !== "tool") throw new Error("expected tool message");
+		expect(result.content).toEqual([
+			expect.objectContaining({
+				type: "tool-result",
+				toolCallId: "hist_seg-1_0",
+				toolName: "ask_user",
+			}),
+		]);
+	});
+
+	it("numbers the calls of a segment that asked as it numbers any message's calls", () => {
+		const out = renderHistoryTurn(
+			turn("Plan the party", {
+				id: "seg-1",
+				content: "Two ways to go.",
+				thinkingSegments: [
+					{ ...researchCall, callId: undefined },
+					askCall({ callId: undefined }),
+				],
+			}),
+			"native",
+		);
+		const ids = out.flatMap((message) =>
+			typeof message.content === "string"
+				? []
+				: message.content.flatMap((part) =>
+						part.type === "tool-call" || part.type === "tool-result"
+							? [part.toolCallId]
+							: [],
+					),
+		);
+		expect(ids).toEqual([
+			"hist_seg-1_0",
+			"hist_seg-1_0",
+			"hist_seg-1_1",
+			"hist_seg-1_1",
+		]);
+	});
+
+	it("renders the next segment as any reply, after one user message", () => {
+		const out = renderHistoryTurn(
+			{
+				messages: [
+					{ id: "u-1", role: "user", content: "Plan the party" },
+					{
+						id: "seg-1",
+						role: "assistant",
+						content: "I found two ways to go.",
+						thinkingSegments: [askCall()],
+					},
+					{
+						id: "seg-2",
+						role: "assistant",
+						content: "A party at home it is. Start with the guest list.",
+						thinkingSegments: [researchCall],
+					},
+				],
+			},
+			"native",
+		);
+		expect(out.map((message) => message.role)).toEqual([
+			"user",
+			"assistant", // seg-1: its words with the ask call
+			"tool", // the answer
+			"assistant", // seg-2: its call
+			"tool", // its result
+			"assistant", // its words
+		]);
+		expect(out.filter((message) => message.role === "user")).toHaveLength(1);
+		expect(out[5]).toEqual({
+			role: "assistant",
+			content: "A party at home it is. Start with the guest list.",
+		});
+	});
+
+	it("says the question and the answer as lines in flatten mode", () => {
+		const out = renderHistoryTurn(
+			turn("Plan the party", {
+				content: "I found two ways to go.",
+				thinkingSegments: [researchCall, askCall()],
+			}),
+			"flatten",
+		);
+		expect(out).toEqual([
+			{ role: "user", content: "Plan the party" },
+			{
+				role: "assistant",
+				content: [
+					"[used research_web: Web research returned 2 sources. Two venues were found.]",
+					"I found two ways to go.",
+					"[asked the user: Which way should we take it?]",
+					"[the user's answer: The user picked: A party at home]",
+				].join("\n"),
+			},
+		]);
+	});
+
+	it("joins the questions of one ask with a slash, and keeps each flattened line within the limit", () => {
+		const questions = ["A", "B", "C"].map((letter) => ({
+			question: letter.repeat(160),
+			options: [{ label: "Yes", recommended: true }, { label: "No" }],
+		}));
+		const out = renderHistoryTurn(
+			turn("Plan the party", {
+				content: "",
+				thinkingSegments: [
+					askCall({
+						input: { questions },
+						outputSummary: `The user wrote: ${"z".repeat(600)}`,
+					}),
+				],
+			}),
+			"flatten",
+		);
+		const assistant = out[1];
+		if (assistant.role !== "assistant" || typeof assistant.content !== "string")
+			throw new Error("expected assistant text");
+		const [asked, answer] = assistant.content.split("\n");
+		expect(asked).toHaveLength(400);
+		expect(
+			asked.startsWith(
+				`[asked the user: ${"A".repeat(160)} / ${"B".repeat(160)} / `,
+			),
+		).toBe(true);
+		expect(answer).toHaveLength(400);
+		expect(answer.startsWith("[the user's answer: The user wrote: zzz")).toBe(
+			true,
+		);
+	});
+
+	it("names an ask whose questions cannot be read without them, in flatten mode", () => {
+		const out = renderHistoryTurn(
+			turn("Plan the party", {
+				content: "",
+				thinkingSegments: [askCall({ input: {} })],
+			}),
+			"flatten",
+		);
+		expect(out[1]).toEqual({
+			role: "assistant",
+			content:
+				"[asked the user]\n[the user's answer: The user picked: A party at home]",
+		});
 	});
 
 	it("appends attachment names and provenance prefixes to user turns and skips empty assistant rows", () => {

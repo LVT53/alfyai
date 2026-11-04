@@ -138,6 +138,12 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	// per-message fact, rather than a new table (AGENTS.md: messages.ts owns
 	// persisted assistant-message metadata; no route-local shadow storage).
 	documentArtifactId?: string;
+	// On the segments of a reply that paused to ask the person (every one after
+	// the first): the id of the assistant row it continues. Written when the
+	// continuation is created, projected as `ChatMessage.continuesMessageId`,
+	// and remapped by a fork (`conversation-forks.ts`), because a row id belongs
+	// to one conversation.
+	continuesMessageId?: string;
 	wasStopped?: boolean;
 	// E2 — persisted mirror of E1's completionWarningCodes (written alongside
 	// wasStopped by finalize's assistantMetadata; see stream-completion.ts).
@@ -385,6 +391,7 @@ function projectMessageMetadata(
 	| "instructionSuggestions"
 	| "projectFilesRead"
 	| "documentArtifactId"
+	| "continuesMessageId"
 > {
 	const evidenceSummary =
 		readEvidenceSummaryFromMetadata(metadata) ?? undefined;
@@ -457,6 +464,13 @@ function projectMessageMetadata(
 		documentArtifactId:
 			typeof metadata?.documentArtifactId === "string"
 				? metadata.documentArtifactId
+				: undefined,
+		// The row a continuation segment carries on from: a non-empty string or
+		// nothing, so a malformed link reads as a reply of its own.
+		continuesMessageId:
+			typeof metadata?.continuesMessageId === "string" &&
+			metadata.continuesMessageId.length > 0
+				? metadata.continuesMessageId
 				: undefined,
 	};
 }
@@ -1255,6 +1269,56 @@ export async function getStoredCreateArtifactCall(params: {
 		if (created) return { messageId: row.id, input: created.input };
 	}
 	return null;
+}
+
+/**
+ * Rewrites the result one tool call holds in an assistant row's stored
+ * timeline: its summary and its digest, the two fields a later turn's history
+ * replays as the call's result. The person's answer to an ask goes in this way,
+ * on the row that asked, once the segment that carries on from it is saved;
+ * until then the call reads "the reply paused". Nothing else changes: the
+ * call's input, status and metadata, the other calls and the reasoning text
+ * stay as they were, and so does the row's metadata.
+ *
+ * `true` when the call was found and rewritten. `false` when there was nothing
+ * to rewrite: no such assistant row in that conversation, no readable timeline
+ * on it, or no call in it with that id. Nothing is written then.
+ */
+export async function updateAssistantToolCallResult(params: {
+	conversationId: string;
+	messageId: string;
+	callId: string;
+	outputSummary: string;
+	resultDigest: string;
+}): Promise<boolean> {
+	const target = and(
+		eq(messages.id, params.messageId),
+		eq(messages.conversationId, params.conversationId),
+		eq(messages.role, "assistant"),
+	);
+	const [row] = await db
+		.select({ toolCalls: messages.toolCalls })
+		.from(messages)
+		.where(target)
+		.limit(1);
+	if (!row) return false;
+
+	// The timeline was just parsed and is this function's own, so the call is
+	// changed in place and the rest is written back as it came.
+	const timeline = readThinkingSegmentsFromRow(row) ?? [];
+	const call = timeline.find(
+		(segment): segment is Extract<ThinkingSegment, { type: "tool_call" }> =>
+			segment?.type === "tool_call" && segment.callId === params.callId,
+	);
+	if (!call) return false;
+	call.outputSummary = params.outputSummary;
+	call.resultDigest = params.resultDigest;
+
+	await db
+		.update(messages)
+		.set({ toolCalls: JSON.stringify(timeline) })
+		.where(target);
+	return true;
 }
 
 export async function isAssistantMessageForkCopy(params: {

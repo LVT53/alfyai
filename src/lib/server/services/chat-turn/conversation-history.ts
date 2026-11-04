@@ -18,6 +18,7 @@ import type {
 	ToolCallEntry,
 } from "$lib/server/services/messages-types";
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
+import { isAskToolName, parseAskQuestions } from "$lib/shared/ask-user";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
 
 export type HistoryMessage = {
@@ -256,6 +257,97 @@ function flattenToolLine(segment: ToolCallSegment): string {
 	);
 }
 
+// A call with the id its tool-call part and its tool-result part share.
+type HistoryCall = { segment: ToolCallSegment; id: string };
+
+function historyCalls(
+	message: HistoryMessage,
+	calls: ToolCallSegment[],
+): HistoryCall[] {
+	return calls.map((segment, index) => ({
+		segment,
+		id: historyToolCallId(message, segment, index),
+	}));
+}
+
+function toolCallPart({ segment, id }: HistoryCall) {
+	return {
+		type: "tool-call" as const,
+		toolCallId: id,
+		toolName: segment.name,
+		input: historyToolCallInput(segment),
+	};
+}
+
+function toolResultPart({ segment, id }: HistoryCall) {
+	return {
+		type: "tool-result" as const,
+		toolCallId: id,
+		toolName: segment.name,
+		output: {
+			type: "json" as const,
+			value: buildHistoryToolDigest(segment),
+		},
+	};
+}
+
+// What flatten mode says of an ask: the questions, and the answer as the call's
+// result reads it (the picks, the person's words, or why nothing was answered).
+// The scaffold is ASCII English (ruling 79); the questions and the answer's
+// summary hold the model's labels and the person's own words, data in whatever
+// language they were written.
+function askedLines(segment: ToolCallSegment): string[] {
+	const questions = parseAskQuestions(segment.input?.questions);
+	const asked = questions
+		? `[asked the user: ${questions.map(({ question }) => question).join(" / ")}]`
+		: "[asked the user]";
+	const answer = `[the user's answer: ${buildHistoryToolDigest(segment).summary}]`;
+	return [asked, answer].map((line) =>
+		line.slice(0, MAX_FLATTENED_TOOL_LINE_CHARS),
+	);
+}
+
+// A reply that stopped to ask the person. Its other calls come first with their
+// results, as they do for any reply. Its words were said before the question, so
+// they go with the ask call and not after its result (an ordinary reply's words
+// follow its results because they were written after them); the answer is the
+// ask call's result. The segment that carries on from the answer is another
+// assistant row of the same turn and renders as any reply.
+function renderAskedMessage(
+	message: HistoryMessage,
+	text: string,
+	calls: ToolCallSegment[],
+	mode: HistoryToolMessagesMode,
+): ModelMessage[] {
+	const all = historyCalls(message, calls);
+	const asks = all.filter(({ segment }) => isAskToolName(segment.name));
+	const others = all.filter(({ segment }) => !isAskToolName(segment.name));
+
+	if (mode === "flatten") {
+		const lines = [
+			...others.map(({ segment }) => flattenToolLine(segment)),
+			text,
+			...asks.flatMap(({ segment }) => askedLines(segment)),
+		].filter(Boolean);
+		return [{ role: "assistant", content: lines.join("\n") }];
+	}
+
+	const out: ModelMessage[] = [];
+	if (others.length > 0) {
+		out.push({ role: "assistant", content: others.map(toolCallPart) });
+		out.push({ role: "tool", content: others.map(toolResultPart) });
+	}
+	out.push({
+		role: "assistant",
+		content: [
+			...(text ? [{ type: "text" as const, text }] : []),
+			...asks.map(toolCallPart),
+		],
+	});
+	out.push({ role: "tool", content: asks.map(toolResultPart) });
+	return out;
+}
+
 // Render one stored turn as model messages. Returns [] when the turn has no
 // usable content (e.g. an assistant row with neither text nor tool calls).
 export function renderHistoryTurn(
@@ -273,6 +365,11 @@ export function renderHistoryTurn(
 		const calls = toolCallSegments(message);
 		if (!text && calls.length === 0) continue;
 
+		if (calls.some((segment) => isAskToolName(segment.name))) {
+			out.push(...renderAskedMessage(message, text, calls, mode));
+			continue;
+		}
+
 		if (mode === "flatten" || calls.length === 0) {
 			const lines = [
 				...(mode === "flatten" ? calls.map(flattenToolLine) : []),
@@ -282,36 +379,13 @@ export function renderHistoryTurn(
 			continue;
 		}
 
-		const ids = calls.map((segment, index) =>
-			historyToolCallId(message, segment, index),
-		);
+		const all = historyCalls(message, calls);
 		// The calls, their results, and then the answer: a stored reply is written
 		// after its tools return, and replaying it before the call taught the model
 		// to say "Added: a brass lamp..." before calling make_image, and again after
 		// the result (images part 2, Task 11).
-		out.push({
-			role: "assistant",
-			content: [
-				...calls.map((segment, index) => ({
-					type: "tool-call" as const,
-					toolCallId: ids[index],
-					toolName: segment.name,
-					input: historyToolCallInput(segment),
-				})),
-			],
-		});
-		out.push({
-			role: "tool",
-			content: calls.map((segment, index) => ({
-				type: "tool-result" as const,
-				toolCallId: ids[index],
-				toolName: segment.name,
-				output: {
-					type: "json" as const,
-					value: buildHistoryToolDigest(segment),
-				},
-			})),
-		});
+		out.push({ role: "assistant", content: all.map(toolCallPart) });
+		out.push({ role: "tool", content: all.map(toolResultPart) });
 		if (text) out.push({ role: "assistant", content: text });
 	}
 	return out;

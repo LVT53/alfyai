@@ -388,6 +388,15 @@ export interface ChatMessage {
 	 * that Document still exists is the artifact service's to say.
 	 */
 	documentArtifactId?: string;
+	/**
+	 * The assistant row this one continues. A reply that paused to ask the person
+	 * is stored as segments: consecutive assistant rows, each an ordinary turn,
+	 * and every segment after the first names the one it carries on from here
+	 * (projected from `messages.metadataJson.continuesMessageId`; no column).
+	 * `undefined` on the first segment of a reply and on every ordinary message.
+	 * The page draws a row and the one it continues as one reply.
+	 */
+	continuesMessageId?: string;
 }
 
 export interface ChatAttachment {

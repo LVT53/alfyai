@@ -103,18 +103,30 @@ const {
 		})),
 	}));
 
+	// Writes only the columns a set() names: one writer rewrites metadataJson,
+	// another toolCalls, and neither may blank the other's.
 	const mockUpdate = vi.fn(() => {
 		const builder = {
-			set: vi.fn((values: { metadataJson: string | null }) => {
-				const chain = {
-					where: vi.fn(async () => {
-						if (mockRows[0]) {
-							mockRows[0].metadataJson = values.metadataJson;
-						}
-					}),
-				};
-				return chain;
-			}),
+			set: vi.fn(
+				(values: {
+					metadataJson?: string | null;
+					toolCalls?: string | null;
+				}) => {
+					const chain = {
+						where: vi.fn(async () => {
+							if (mockRows[0]) {
+								if ("metadataJson" in values) {
+									mockRows[0].metadataJson = values.metadataJson ?? null;
+								}
+								if ("toolCalls" in values) {
+									mockRows[0].toolCalls = values.toolCalls ?? null;
+								}
+							}
+						}),
+					};
+					return chain;
+				},
+			),
 		};
 
 		return builder;
@@ -682,6 +694,57 @@ describe("messages metadata", () => {
 		expect(message.followUps).toBeUndefined();
 	});
 
+	// A reply that paused to ask the person is stored as segments, each a row of
+	// its own; every segment after the first names the assistant row it continues
+	// in `metadataJson.continuesMessageId` (no column), and the page reads it as
+	// `ChatMessage.continuesMessageId`.
+	it("projects continuesMessageId from the message's metadata", async () => {
+		mockRows.push({
+			id: "assistant-continuation-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "A party at home it is.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				continuesMessageId: "assistant-asking-1",
+			}),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		await expect(listMessages("conv-1")).resolves.toEqual([
+			expect.objectContaining({
+				id: "assistant-continuation-1",
+				continuesMessageId: "assistant-asking-1",
+			}),
+		]);
+	});
+
+	it.each([
+		["a message with no metadata", null],
+		["metadata without a link", JSON.stringify({ evidenceStatus: "none" })],
+		["a link that is not a string", JSON.stringify({ continuesMessageId: 7 })],
+		["a blank link", JSON.stringify({ continuesMessageId: "" })],
+	])("leaves continuesMessageId off %s", async (_name, metadataJson) => {
+		mockRows.push({
+			id: "assistant-plain-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson,
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.continuesMessageId).toBeUndefined();
+	});
+
 	// Which instruction scopes shaped a turn rides
 	// `metadataJson.instructionsApplied` additively (see
 	// $lib/shared/instructions.ts), written by the send route and
@@ -929,6 +992,130 @@ describe("messages metadata", () => {
 		const metadata = JSON.parse(String(mockRows[0]?.metadataJson));
 		expect(metadata.evidenceStatus).toBe("ready");
 		expect(metadata.railSummary).toBeUndefined();
+	});
+
+	// Once the person answers, the answer replaces what the asking row's ask call
+	// says it got (a stored row otherwise reads "the reply paused" for ever).
+	// The where-clause scoping (the row, its conversation, the assistant role) is
+	// not provable here: this mock's where ignores its predicates.
+	describe("updateAssistantToolCallResult", () => {
+		const reasoning = { type: "text", content: "Weighing the options." };
+		const research = {
+			type: "tool_call",
+			callId: "call-research",
+			name: "research_web",
+			input: { query: "party ideas" },
+			status: "done",
+			outputSummary: "Web research returned 2 sources.",
+			resultDigest: "Two venues were found.",
+		};
+		const asked = {
+			type: "tool_call",
+			callId: "call-ask",
+			name: "ask_user",
+			input: { questions: [{ question: "Which way?" }] },
+			status: "done",
+			outputSummary: "Asked the user; the reply paused for the answer.",
+			metadata: { paused: true, questionId: "question-1" },
+		};
+
+		function pushAskingRow(toolCalls: string | null) {
+			mockRows.push({
+				id: "assistant-asking-1",
+				conversationId: "conv-1",
+				role: "assistant",
+				content: "I found two ways to go.",
+				thinking: null,
+				toolCalls,
+				createdAt: new Date("2026-03-29T12:00:00.000Z"),
+				metadataJson: JSON.stringify({ evidenceStatus: "ready" }),
+			});
+		}
+
+		const answer = {
+			conversationId: "conv-1",
+			messageId: "assistant-asking-1",
+			callId: "call-ask",
+			outputSummary: "The user picked: A party at home",
+			resultDigest: '{"status":"answered"}',
+		};
+
+		it("rewrites one tool call's result in the stored timeline and leaves the others alone", async () => {
+			pushAskingRow(JSON.stringify([reasoning, research, asked]));
+
+			const { updateAssistantToolCallResult } = await import("./messages");
+
+			await expect(updateAssistantToolCallResult(answer)).resolves.toBe(true);
+
+			expect(JSON.parse(String(mockRows[0]?.toolCalls))).toEqual([
+				reasoning,
+				research,
+				{
+					...asked,
+					outputSummary: "The user picked: A party at home",
+					resultDigest: '{"status":"answered"}',
+				},
+			]);
+			// Only the timeline is written; the row's metadata is as it was.
+			expect(JSON.parse(String(mockRows[0]?.metadataJson))).toEqual({
+				evidenceStatus: "ready",
+			});
+		});
+
+		it("replaces a result the call already had", async () => {
+			pushAskingRow(
+				JSON.stringify([
+					{
+						...asked,
+						outputSummary: "The user picked: A restaurant table",
+						resultDigest: '{"status":"answered","old":true}',
+					},
+				]),
+			);
+
+			const { updateAssistantToolCallResult } = await import("./messages");
+
+			await expect(updateAssistantToolCallResult(answer)).resolves.toBe(true);
+
+			expect(JSON.parse(String(mockRows[0]?.toolCalls))).toEqual([
+				{
+					...asked,
+					outputSummary: "The user picked: A party at home",
+					resultDigest: '{"status":"answered"}',
+				},
+			]);
+		});
+
+		it.each([
+			[
+				"no call in the timeline has that id",
+				JSON.stringify([reasoning, research]),
+			],
+			["the row has no stored timeline", null],
+			["the stored timeline is not JSON", "not json"],
+			["the stored timeline is not a list", JSON.stringify({ calls: [] })],
+			[
+				"the id belongs to a segment that is not a call",
+				JSON.stringify([{ type: "text", callId: "call-ask", content: "x" }]),
+			],
+		])("changes nothing and answers false when %s", async (_name, toolCalls) => {
+			pushAskingRow(toolCalls);
+
+			const { updateAssistantToolCallResult } = await import("./messages");
+
+			await expect(updateAssistantToolCallResult(answer)).resolves.toBe(false);
+
+			expect(mockUpdate).not.toHaveBeenCalled();
+			expect(mockRows[0]?.toolCalls).toBe(toolCalls);
+		});
+
+		it("answers false for a message that does not exist", async () => {
+			const { updateAssistantToolCallResult } = await import("./messages");
+
+			await expect(updateAssistantToolCallResult(answer)).resolves.toBe(false);
+
+			expect(mockUpdate).not.toHaveBeenCalled();
+		});
 	});
 
 	// "Open as document" (Feature 2 · Artifacts, Slice 1) — the link that makes

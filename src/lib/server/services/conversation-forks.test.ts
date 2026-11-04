@@ -703,6 +703,88 @@ describe("conversation forks", () => {
 		});
 	});
 
+	// A reply that paused to ask is stored as segments: each one after the first
+	// names the assistant row it continues in its metadata (messages.ts). Row ids
+	// belong to one conversation, so a copy has to name the copy of that row.
+	describe("a reply stored in segments", () => {
+		function addContinuation(continuesMessageId: string) {
+			const { sqlite, db } = openDatabase();
+			db.insert(schema.messages)
+				.values({
+					id: "source-assistant-2",
+					conversationId: "source-conv",
+					role: "assistant",
+					content: "A party at home it is.",
+					metadataJson: JSON.stringify({
+						continuesMessageId,
+						modelDisplayName: "Source Model",
+					}),
+					createdAt: new Date("2026-05-15T10:00:02.500Z"),
+				})
+				.run();
+			sqlite.close();
+		}
+
+		it("points a copied continuation at the copied row it continues", async () => {
+			seedTextConversation();
+			addContinuation("source-assistant-1");
+			const { createConversationFork } = await import("./conversation-forks");
+
+			const result = await createConversationFork({
+				userId: "user-1",
+				sourceConversationId: "source-conv",
+				sourceMessageId: "source-assistant-2",
+			});
+
+			const { forkMessages } = readForkRows(result.conversation.id);
+			expect(forkMessages.map((message) => message.content)).toEqual([
+				"Question before fork",
+				"Assistant answer to fork from",
+				"A party at home it is.",
+			]);
+			const copiedContinued = forkMessages[1];
+			const copiedContinuation = forkMessages[2];
+			const metadata = JSON.parse(String(copiedContinuation?.metadataJson));
+			// The copy names the copy, never the source conversation's row.
+			expect(copiedContinued?.id).not.toBe("source-assistant-1");
+			expect(metadata.continuesMessageId).toBe(copiedContinued?.id);
+			// Everything else the continuation carried is copied as before.
+			expect(metadata).toMatchObject({
+				modelDisplayName: "Source Model",
+				forkCopy: {
+					sourceMessageId: "source-assistant-2",
+					sourceConversationId: "source-conv",
+				},
+			});
+			const { listMessages } = await import("./messages");
+			const listed = await listMessages(result.conversation.id);
+			expect(listed[2]?.continuesMessageId).toBe(copiedContinued?.id);
+			// The row that was continued carries no link of its own.
+			expect(listed[1]?.continuesMessageId).toBeUndefined();
+		});
+
+		it("drops the link when the continued row was not copied", async () => {
+			seedTextConversation();
+			addContinuation("source-assistant-deleted");
+			const { createConversationFork } = await import("./conversation-forks");
+
+			const result = await createConversationFork({
+				userId: "user-1",
+				sourceConversationId: "source-conv",
+				sourceMessageId: "source-assistant-2",
+			});
+
+			const { forkMessages } = readForkRows(result.conversation.id);
+			const copiedContinuation = forkMessages[2];
+			const metadata = JSON.parse(String(copiedContinuation?.metadataJson));
+			expect(metadata).not.toHaveProperty("continuesMessageId");
+			expect(metadata.modelDisplayName).toBe("Source Model");
+			const { listMessages } = await import("./messages");
+			const listed = await listMessages(result.conversation.id);
+			expect(listed[2]?.continuesMessageId).toBeUndefined();
+		});
+	});
+
 	it("uses lineage-based fork sequencing for repeated forks from the same assistant response", async () => {
 		seedTextConversation();
 		const { createConversationFork } = await import("./conversation-forks");
