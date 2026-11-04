@@ -16,6 +16,7 @@
  * Side-effect free, so it can be unit-tested in isolation.
  */
 
+import type { MessageUserIntent } from "$lib/message-user-intent";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { AskQuestionDto } from "$lib/shared/ask-user";
 
@@ -38,6 +39,16 @@ export type ReplyPlace = {
 	 * Copy takes the row's own words.
 	 */
 	copyText: string | null;
+	/**
+	 * What the person chose for the reply (a skill, a forced web search), taken from its
+	 * FIRST row, on the last row of a reply of more than one row; `null` elsewhere, and
+	 * when the first row records none. The resume turn runs without a prepared turn, so
+	 * a continuation records no choices of its own, and a continued row draws no
+	 * provenance line: without this, a reply that began with a chosen skill or `/web`
+	 * would say so nowhere. The line under the last row takes these in place of its own
+	 * row's record; its evidence and Atlas parts stay the row's own.
+	 */
+	userIntent: MessageUserIntent | null;
 };
 
 /**
@@ -188,6 +199,7 @@ export function placeReplySegments(
 						.filter((words) => words !== "")
 						.join("\n\n")
 				: null;
+		const userIntent = reply.length > 1 ? (reply[0].userIntent ?? null) : null;
 		for (const [position, row] of reply.entries()) {
 			const question = questionOf.get(row.id) ?? null;
 			places.set(row.id, {
@@ -196,6 +208,7 @@ export function placeReplySegments(
 				continuedBelow: position < last || holdsTheReplyOpen(question),
 				question,
 				copyText: position === last ? copyText : null,
+				userIntent: position === last ? userIntent : null,
 			});
 		}
 		reply = [];

@@ -2002,6 +2002,46 @@ describe("MessageArea", () => {
 			expect(within(first).getByTestId("ask-folded")).toBeInTheDocument();
 		});
 
+		it("says what the person chose under the reply's last segment, from its first", async () => {
+			const messages = twoSegments();
+			// The choices are recorded on the first row; the resume's row has none of its own.
+			messages[1] = {
+				...messages[1],
+				userIntent: {
+					skill: { id: "skill-1", displayName: "Contract review" },
+					webSearch: true,
+				},
+			};
+			const { container, rerender } = render(MessageArea, {
+				messages,
+				conversationId: "conv-1",
+				questions: [asked()],
+			});
+
+			// One line for the reply, under its last segment: the first, continued, draws none.
+			expect(
+				container.querySelectorAll('[data-testid="message-provenance"]'),
+			).toHaveLength(1);
+			const line = within(bubbleOf(container, "a-2")).getByTestId(
+				"message-provenance",
+			);
+			expect(
+				within(line).getByTestId("message-provenance-skill"),
+			).toHaveTextContent("Contract review");
+			expect(
+				within(line).getByTestId("message-provenance-web"),
+			).toBeInTheDocument();
+			expect(
+				within(bubbleOf(container, "a-1")).queryByTestId("message-provenance"),
+			).toBeNull();
+
+			// Not while the reply is still going on: the last segment asked again.
+			await rerender({ questions: [asked(), askedAgain()] });
+			expect(
+				container.querySelector('[data-testid="message-provenance"]'),
+			).toBeNull();
+		});
+
 		it("copies the words of every segment from the reply's one Copy button", async () => {
 			const writeText = vi.fn().mockResolvedValue(undefined);
 			Object.defineProperty(navigator, "clipboard", {

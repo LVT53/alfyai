@@ -75,6 +75,7 @@ describe("placeReplySegments", () => {
 			continuedBelow: true,
 			question,
 			copyText: null,
+			userIntent: null,
 		});
 		expect(places.get("a-2")).toEqual({
 			firstMessageId: "a-1",
@@ -82,6 +83,7 @@ describe("placeReplySegments", () => {
 			continuedBelow: false,
 			question: null,
 			copyText: `${FIRST_WORDS}\n\n${SECOND_WORDS}`,
+			userIntent: null,
 		});
 	});
 
@@ -152,6 +154,7 @@ describe("placeReplySegments", () => {
 			continuedBelow: false,
 			question: null,
 			copyText: null,
+			userIntent: null,
 		});
 	});
 
@@ -343,6 +346,7 @@ describe("placeReplySegments", () => {
 			continuedBelow: false,
 			question: null,
 			copyText: null,
+			userIntent: null,
 		});
 		expect(places.get("a-2")).toEqual({
 			firstMessageId: "a-2",
@@ -350,6 +354,7 @@ describe("placeReplySegments", () => {
 			continuedBelow: false,
 			question: null,
 			copyText: null,
+			userIntent: null,
 		});
 	});
 
@@ -393,6 +398,44 @@ describe("placeReplySegments", () => {
 			continuesAbove: false,
 			copyText: null,
 		});
+	});
+
+	it("carries what the person chose from the reply's first row to its last row only", () => {
+		const chosen = {
+			skill: { id: "skill-1", displayName: "Contract review" },
+			webSearch: true as const,
+		};
+		const places = placeReplySegments(
+			[
+				row("u-1", "user", "Plan dad's 60th"),
+				row("a-1", "assistant", "One.", { userIntent: chosen }),
+				row("a-2", "assistant", "Two.", { continuesMessageId: "a-1" }),
+				// The last row's own record is not the reply's: the choice was made once.
+				row("a-3", "assistant", "Three.", {
+					continuesMessageId: "a-2",
+					userIntent: { webSearch: true },
+				}),
+				// A reply of one row has its own line to say its own choices.
+				row("u-2", "user", "Thanks"),
+				row("a-4", "assistant", "Four.", { userIntent: chosen }),
+				// A first row that records no choice has none to carry.
+				row("u-3", "user", "More"),
+				row("a-5", "assistant", "Five."),
+				row("a-6", "assistant", "Six.", { continuesMessageId: "a-5" }),
+			],
+			[],
+			null,
+		);
+
+		const intentOf = (id: string) => places.get(id)?.userIntent;
+		// Set on the last row of a reply of more than one row, from its first...
+		expect(intentOf("a-3")).toBe(chosen);
+		// ...and nowhere else: not on the rows the reply goes on from.
+		expect(intentOf("a-1")).toBeNull();
+		expect(intentOf("a-2")).toBeNull();
+		expect(intentOf("a-4")).toBeNull();
+		expect(intentOf("a-5")).toBeNull();
+		expect(intentOf("a-6")).toBeNull();
 	});
 
 	it("copies what Copy copies of each row: no thinking text, trimmed, and the rows with no words left out", () => {

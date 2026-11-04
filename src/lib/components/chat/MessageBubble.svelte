@@ -544,7 +544,9 @@ let userMessageSegments = $derived(
 let provenanceEntries = $derived(
 	deriveMessageProvenance({
 		role: message.role,
-		userIntent: message.userIntent,
+		// The last row of a reply in segments says what the person chose for the whole
+		// reply, from its first row: its own record has none (reply-segments.ts).
+		userIntent: replyPlace?.userIntent ?? message.userIntent,
 		evidenceSummary: message.evidenceSummary,
 		// A job that failed or was cancelled did not make this answer, so it
 		// does not get to say it did; a queued or running one is the turn

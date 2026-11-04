@@ -3944,6 +3944,7 @@ describe("MessageBubble", () => {
 				continuedBelow: false,
 				question: null,
 				copyText: null,
+				userIntent: null,
 				...overrides,
 			};
 		}
@@ -4262,6 +4263,95 @@ describe("MessageBubble", () => {
 				screen.getByRole("button", { name: "Copy message" }),
 			);
 			expect(writeText).toHaveBeenLastCalledWith(SECOND_WORDS);
+		});
+
+		describe("the provenance line of a reply in segments", () => {
+			const chosen = {
+				skill: { id: "skill-1", displayName: "Contract review" },
+				webSearch: true as const,
+			};
+			const webEvidence = {
+				structuredWebSearch: true,
+				groups: [
+					{
+						sourceType: "web",
+						label: "Web",
+						reranked: false,
+						items: [{ id: "s1" }, { id: "s2" }, { id: "s3" }],
+					},
+				],
+			} as ChatMessage["evidenceSummary"];
+			// The resume turn runs without a prepared turn, so the last segment records
+			// no choices of its own.
+			const lastSegment = (overrides: Partial<ChatMessage> = {}) =>
+				segment({
+					id: "assistant-seg-2",
+					renderKey: "assistant-seg-2",
+					content: SECOND_WORDS,
+					continuesMessageId: "assistant-seg-1",
+					...overrides,
+				});
+
+			it("draws the choices the place carries, and the evidence and the Atlas profile of its own row", () => {
+				render(MessageBubble, {
+					message: lastSegment({ evidenceSummary: webEvidence }),
+					atlasJobs: [buildAtlasJob({ profile: "in-depth" })],
+					replyPlace: place({ continuesAbove: true, userIntent: chosen }),
+				});
+
+				const line = screen.getByTestId("message-provenance");
+				expect(
+					within(line).getByTestId("message-provenance-skill"),
+				).toHaveTextContent("Contract review");
+				// The count is the last row's own evidence.
+				expect(
+					within(line).getByTestId("message-provenance-web").textContent,
+				).toContain(
+					chatDict.en["messageProvenance.webSources"].replace("{count}", "3"),
+				);
+				expect(
+					within(line).getByTestId("message-provenance-atlas").textContent,
+				).toContain(chatDict.en["composerTools.atlasInDepth"]);
+			});
+
+			it("takes the choices of the place in place of the row's own, and the row's own when the place has none", async () => {
+				const { rerender } = render(MessageBubble, {
+					message: lastSegment({ userIntent: { webSearch: true } }),
+					replyPlace: place({
+						continuesAbove: true,
+						userIntent: { skill: chosen.skill },
+					}),
+				});
+
+				// The reply's choice, not the row's: a skill and no web search.
+				const line = screen.getByTestId("message-provenance");
+				expect(
+					within(line).getByTestId("message-provenance-skill"),
+				).toBeInTheDocument();
+				expect(within(line).queryByTestId("message-provenance-web")).toBeNull();
+
+				// A place that carries none leaves the row to say its own.
+				await rerender({ replyPlace: place({ continuesAbove: true }) });
+				const own = screen.getByTestId("message-provenance");
+				expect(
+					within(own).getByTestId("message-provenance-web"),
+				).toBeInTheDocument();
+				expect(
+					within(own).queryByTestId("message-provenance-skill"),
+				).toBeNull();
+			});
+
+			it("draws nothing when the segment is continued, whatever the place carries", () => {
+				render(MessageBubble, {
+					message: segment(),
+					replyPlace: place({
+						continuedBelow: true,
+						userIntent: chosen,
+					}),
+				});
+
+				expect(screen.queryByTestId("message-provenance")).toBeNull();
+			});
 		});
 
 		describe("spacing between the segments of a reply", () => {
