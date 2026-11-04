@@ -60,6 +60,7 @@ import {
 	recordedPictureRequest,
 	type UserPicturesMetadata,
 } from "$lib/shared/artifacts/image-body";
+import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
 import {
 	attachmentReadinessReasonKey,
 	isAttachmentReadinessReason,
@@ -693,6 +694,73 @@ export function attachUnassignedPendingWritesToAssistant(
 		write.assistantMessageId === null
 			? { ...write, assistantMessageId: params.assistantMessageId }
 			: write,
+	);
+}
+
+// "Ask me first": Alfy can stop a reply to ask the person 1 to 3 questions, and the
+// page keeps what it knows of them (the question rows, and its own `busy` flag for an
+// answer that is going out). These are the pure rules the page reads that state with.
+
+/**
+ * Whether a question holds the chat for the person: it waits, its segment is saved,
+ * and no answer of theirs is out. While one is open nothing else may start a turn and
+ * the message box is off (its words and saved draft untouched); once the answer is on
+ * its way (`busy`) the box is theirs again, and what the page does next is the running
+ * turn's: a message queues behind the resume. A question that no longer waits
+ * (answering, answered, closed) holds nothing.
+ *
+ * A question not stamped yet (`assistantMessageId` null) is one the stream that asked
+ * it is still running: the reply has not paused, the running turn's own guards hold,
+ * and Stop still works. Counting it would also leave a question behind for good if
+ * that stream failed before it paused (the server never saves it), with the box off
+ * and no card to answer. The pause stamps it (`withQuestionStamped`), and then it opens.
+ */
+export function isQuestionOpen(
+	questions: readonly AskQuestionDto[],
+	actionState: Record<string, { busy?: boolean }>,
+): boolean {
+	return questions.some(
+		(question) =>
+			question.status === "waiting" &&
+			question.assistantMessageId !== null &&
+			actionState[question.id]?.busy !== true,
+	);
+}
+
+/**
+ * The question once its answer was taken up by the server (the resume runs): it is
+ * answering, with the answer given, and its card folds into the line that shows
+ * it, until the page reads the question again. Only a waiting question changes: an
+ * answered one is not taken back.
+ */
+export function withQuestionAnswering(
+	questions: readonly AskQuestionDto[],
+	questionId: string,
+	answer: AskAnswer,
+): AskQuestionDto[] {
+	return questions.map((question) =>
+		question.id === questionId && question.status === "waiting"
+			? { ...question, status: "answering", answer }
+			: question,
+	);
+}
+
+/**
+ * The question once its segment is saved and the reply has paused: it belongs to
+ * that row, so its card wakes. An unstamped question belongs to a row only while
+ * that row streams, so the page stamps it in the same update that ends the stream,
+ * or the card and the reply's buttons would flicker until the next read of the
+ * questions. A stamp the server already gave stays.
+ */
+export function withQuestionStamped(
+	questions: readonly AskQuestionDto[],
+	questionId: string,
+	assistantMessageId: string,
+): AskQuestionDto[] {
+	return questions.map((question) =>
+		question.id === questionId && question.assistantMessageId === null
+			? { ...question, assistantMessageId }
+			: question,
 	);
 }
 

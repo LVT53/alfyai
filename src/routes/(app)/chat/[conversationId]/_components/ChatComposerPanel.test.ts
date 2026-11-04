@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { fireEvent, render, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ChatComposerPanel from "./ChatComposerPanel.svelte";
@@ -194,6 +196,44 @@ describe("ChatComposerPanel", () => {
 		});
 
 		expect(getByRole("button", { name: /retry/i })).toBeInTheDocument();
+	});
+
+	// "Ask me first": while Alfy waits for an answer the message box is off, and drawn
+	// at half strength (the mockup's `.composer:has(.waiting)`). Off is the page's
+	// `disabled`; this prop is the look, and nothing else about the box.
+	it("dims the composer while a question waits", async () => {
+		const { getByTestId, getByText, rerender } = renderComposerPanel({
+			draftText: "Words typed meanwhile",
+			draftVersion: 1,
+			sendError: "Something went wrong",
+		});
+		const box = getByTestId("composer-box");
+		const textarea = getByTestId("message-input") as HTMLTextAreaElement;
+		expect(box).toContainElement(textarea);
+		expect(box).not.toHaveAttribute("data-waiting-for-answer");
+
+		await rerender({ waitingForAnswer: true, disabled: true });
+
+		expect(box).toHaveAttribute("data-waiting-for-answer", "true");
+		// Off, with the person's words still in it.
+		expect(textarea).toBeDisabled();
+		expect(textarea).toHaveValue("Words typed meanwhile");
+		// The error above the box is not part of what is dimmed.
+		expect(box).not.toContainElement(getByText("Something went wrong"));
+		// Half strength, in the stylesheet that the attribute selects.
+		const source = readFileSync(
+			resolve(__dirname, "ChatComposerPanel.svelte"),
+			"utf8",
+		);
+		expect(source).toMatch(
+			/\.composer-box\[data-waiting-for-answer\]\s*\{[^}]*opacity:\s*0\.5\s*;/,
+		);
+
+		await rerender({ waitingForAnswer: false, disabled: false });
+
+		expect(box).not.toHaveAttribute("data-waiting-for-answer");
+		expect(textarea).not.toBeDisabled();
+		expect(textarea).toHaveValue("Words typed meanwhile");
 	});
 
 	it("does not send from a disabled composer", async () => {

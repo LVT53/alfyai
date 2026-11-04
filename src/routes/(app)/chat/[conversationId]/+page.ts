@@ -3,6 +3,7 @@ import { browser } from "$app/environment";
 import { hasPendingConversationMessage } from "$lib/client/conversation-session";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
+import type { AskQuestionDto } from "$lib/shared/ask-user";
 import type { PageLoad } from "./$types";
 
 // Issue 7.5 — pending writes are NOT part of ConversationDetail (a separate,
@@ -23,6 +24,30 @@ async function loadPendingWrites(
 		if (!res.ok) return [];
 		const payload = (await res.json()) as { pendingWrites?: PendingWrite[] };
 		return Array.isArray(payload.pendingWrites) ? payload.pendingWrites : [];
+	} catch {
+		return [];
+	}
+}
+
+// "Ask me first" — the questions Alfy asked in this chat are rows of their own
+// (the card is drawn from them, never from the stream), so they ride beside the
+// pending writes: fetched in parallel with the detail, and a failure degrades to
+// an empty list for the same reason. A card that is missing here is recoverable
+// (the page reads the questions again after every turn and every read of the
+// chat); a conversation detail that fails to load is not. A plain fetch, as
+// above: this load runs on the server too, where the client API wrapper's
+// session bookkeeping has no tab to belong to.
+async function loadQuestions(
+	conversationId: string,
+	fetchImpl: typeof fetch,
+): Promise<AskQuestionDto[]> {
+	try {
+		const res = await fetchImpl(
+			`/api/conversations/${conversationId}/questions`,
+		);
+		if (!res.ok) return [];
+		const payload = (await res.json()) as { questions?: AskQuestionDto[] };
+		return Array.isArray(payload.questions) ? payload.questions : [];
 	} catch {
 		return [];
 	}
@@ -57,11 +82,13 @@ export const load: PageLoad = async ({
 		`/api/conversations/${conversationId}?view=${detailView}`,
 	);
 	const pendingWritesPromise = loadPendingWrites(conversationId, fetch);
+	const questionsPromise = loadQuestions(conversationId, fetch);
 	const parentDataPromise = parent();
-	const [parentData, res, pendingWrites] = await Promise.all([
+	const [parentData, res, pendingWrites, questions] = await Promise.all([
 		parentDataPromise,
 		detailPromise,
 		pendingWritesPromise,
+		questionsPromise,
 	]);
 
 	if (res.status === 404 || res.status === 500) {
@@ -100,5 +127,6 @@ export const load: PageLoad = async ({
 		totalTokens: detail.totalTokens ?? 0,
 		sidecarPending: detail.sidecarPending ?? false,
 		pendingWrites,
+		questions,
 	};
 };

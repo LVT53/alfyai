@@ -143,7 +143,7 @@ describe("chat conversation page load", () => {
 		await Promise.resolve();
 
 		expect(fetch).toHaveBeenCalledWith("/api/conversations/conv-1?view=full");
-		expect(fetch).toHaveBeenCalledTimes(2); // detail + pending-writes only
+		expect(fetch).toHaveBeenCalledTimes(3); // detail + pending-writes + questions only
 		expect(parent).toHaveBeenCalledOnce();
 
 		resolveParent(appShellDataFixture());
@@ -244,6 +244,8 @@ describe("chat conversation page load", () => {
 			// (e.g. the mocked conversation-detail response reused here has no
 			// `pendingWrites` field at all).
 			pendingWrites: [],
+			// "Ask me first": likewise for the questions Alfy asked in the chat.
+			questions: [],
 		});
 	});
 
@@ -351,6 +353,68 @@ describe("chat conversation page load", () => {
 
 		expect(data.pendingWrites).toEqual([]);
 		expect(data.conversation.title).toBe("Chat");
+	});
+
+	it("loads the chat's questions beside its pending writes, and an empty list when the read fails", async () => {
+		const asked = {
+			id: "q-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			toolCallId: "call-ask-1",
+			questions: [
+				{
+					question: "Which way should we take it?",
+					options: [{ label: "A party at home" }, { label: "Dinner out" }],
+				},
+			],
+			status: "waiting",
+			answer: null,
+			createdAt: 1700000000000,
+		};
+		const detail = () =>
+			new Response(
+				JSON.stringify({
+					conversation: conversationFixture("conv-1", { title: "Chat" }),
+					messages: [],
+				}),
+				{ status: 200 },
+			);
+		const loadWith = (questionsAnswer: () => Response | Promise<Response>) => {
+			const fetch = vi.fn(async (input: RequestInfo | URL) =>
+				String(input).includes("/questions") ? questionsAnswer() : detail(),
+			);
+			const event = makeLoadEvent(
+				fetch as unknown as typeof globalThis.fetch,
+				vi.fn(async () => appShellDataFixture()),
+				"http://localhost/chat/conv-1",
+			);
+			return { fetch, loaded: load(event) as Promise<LoadedPageData> };
+		};
+
+		// The read goes out with the other two, not after them.
+		const ok = loadWith(
+			() =>
+				new Response(JSON.stringify({ questions: [asked] }), { status: 200 }),
+		);
+		const data = await ok.loaded;
+		expect(ok.fetch).toHaveBeenCalledWith(
+			"/api/conversations/conv-1/questions",
+		);
+		expect(data.questions).toEqual([asked]);
+
+		// A card that cannot be loaded is recoverable (the page reads the questions
+		// again after a turn); a chat that cannot be loaded is not. So the chat opens.
+		for (const failing of [
+			() => new Response(null, { status: 500 }),
+			() => new Response("not json", { status: 200 }),
+			() => new Response(JSON.stringify({ questions: "no" }), { status: 200 }),
+			() => Promise.reject(new TypeError("Failed to fetch")),
+		]) {
+			const failed = loadWith(failing);
+			const degraded = await failed.loaded;
+			expect(degraded.questions).toEqual([]);
+			expect(degraded.conversation.title).toBe("Chat");
+		}
 	});
 
 	it("preserves parent layout runtime flags for the chat page", async () => {

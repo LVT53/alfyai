@@ -24,6 +24,7 @@ import type {
 	StreamCallbacks,
 	StreamChatOptions,
 } from "$lib/services/streaming";
+import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
 import { FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE } from "./lifecycle-guards";
 
 const runtimeHarness = vi.hoisted(() => ({
@@ -63,6 +64,13 @@ const runtimeHarness = vi.hoisted(() => ({
 		}) => void;
 		hydrateConversationDetail: () => void;
 		loadPersistedData: () => Promise<void> | void;
+		/** "Ask me first": what the runtime tells the page about a pause, an answer or a refusal. */
+		onAskEvent?: (
+			event: import("$lib/client/normal-chat-client-turn-runtime").AskRuntimeEvent,
+		) => void;
+		refreshQuestions?: () => void;
+		getAnsweringQuestionMessageId?: () => string | null;
+		getEnabledConnectionCapabilities?: () => string[] | undefined;
 	} | null,
 }));
 
@@ -349,6 +357,12 @@ vi.mock("$lib/client/api/connection-writes", () => ({
 	fetchConversationPendingWrites: vi.fn(async () => []),
 }));
 
+// "Ask me first": the chat's questions, read beside its pending writes. None unless a
+// test says so (put back after every test, below).
+vi.mock("$lib/client/api/ask-questions", () => ({
+	fetchConversationQuestions: vi.fn(async () => []),
+}));
+
 vi.mock("$lib/client/api/chat-turn", () => ({
 	checkChatTurn: checkChatTurnMock,
 }));
@@ -457,6 +471,7 @@ vi.mock("$lib/stores/conversations", async (importOriginal) => ({
 }));
 
 import { goto } from "$app/navigation";
+import { fetchConversationQuestions } from "$lib/client/api/ask-questions";
 import { fetchConversationPendingWrites } from "$lib/client/api/connection-writes";
 import {
 	deleteConversationDraft,
@@ -486,6 +501,8 @@ afterEach(() => {
 	checkChatTurnMock.mockReset();
 	fetchServerHealthMock.mockReset();
 	fetchServerHealthMock.mockResolvedValue({ state: "up" });
+	vi.mocked(fetchConversationQuestions).mockReset();
+	vi.mocked(fetchConversationQuestions).mockResolvedValue([]);
 	runtimeHarness.orphanedStreamId = null;
 });
 
@@ -515,6 +532,7 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		deletedArtifactIds: [] as string[],
 		unreachableArtifactIds: [] as string[],
 		pendingWrites: [],
+		questions: [] as AskQuestionDto[],
 		contextCompressionSnapshots: [],
 		atlasJobs: [],
 		atlasAvailability: { enabled: true, configured: true, reason: null },
@@ -8133,6 +8151,1164 @@ describe("chat page regenerate — later-turns confirm integration (B1)", () => 
 			expect(
 				get(conversationsStore).find((item) => item.id === "conv-1")?.title,
 			).toBe("Tidal Energy Basics");
+		});
+	});
+});
+
+// "Ask me first": Alfy can stop a reply to ask the person 1 to 3 questions on a card, and
+// the person's answer carries the same reply on as a new segment. The page holds the
+// questions, takes the answer, and keeps every other way of starting a turn away from the
+// message box while one waits. The runtime is the real one here; the harness replaces only
+// its transport, so a test speaks to the page the way the server's stream does.
+describe("chat page: a question Alfy asked (Ask me first)", () => {
+	afterEach(() => {
+		clearAnimationFrameMockTimers();
+		runtimeHarness.atlasFailure = null;
+		runtimeHarness.orphanedStream = null;
+		// A chat's Connections switch is remembered in the browser: one test turns it off.
+		window.localStorage.clear();
+		vi.restoreAllMocks();
+	});
+
+	beforeEach(() => {
+		runtimeHarness.streamInvocations.length = 0;
+		runtimeHarness.atlasSubmissions.length = 0;
+		runtimeHarness.adapters = null;
+		window.localStorage.clear();
+		vi.mocked(fetchConversationDetail).mockReset();
+		vi.mocked(fetchConversationDetail).mockResolvedValue(
+			conversationDetailFixture(),
+		);
+		vi.mocked(fetchMessageEvidence).mockReset();
+		vi.mocked(deleteConversationDraft).mockClear();
+		vi.mocked(persistConversationDraft).mockClear();
+		conversationsStore.set([]);
+		fetchActiveCapabilitiesMock.mockReset().mockResolvedValue({
+			served: ["calendar"],
+			defaultOn: ["calendar"],
+			accounts: [],
+		});
+		checkCloudWarningMock.mockReset();
+		ackCloudConnectorMock.mockReset();
+		setLocalDistillMock.mockReset();
+		window.sessionStorage.clear();
+		Object.defineProperty(window, "matchMedia", {
+			writable: true,
+			value: vi.fn().mockImplementation((query: string) => ({
+				matches: false,
+				media: query,
+				onchange: null,
+				addListener: vi.fn(),
+				removeListener: vi.fn(),
+				addEventListener: vi.fn(),
+				removeEventListener: vi.fn(),
+				dispatchEvent: vi.fn(),
+			})),
+		});
+		installAnimationFrameMock();
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		});
+	});
+
+	// What a turn's last frame carries besides the ids: more than a receipt, so that the
+	// page does not read the chat again on its own account and hide what these tests pin.
+	const END_TOTALS = { totalTokens: 120, totalCostUsdMicros: 3000 };
+	const PLAN = "Plan dad's 60th";
+	const FIRST_WORDS = "Let's settle the shape of the day first.";
+	const SECOND_WORDS = "A party at home it is. Here is the plan.";
+	const DINNER: AskAnswer = {
+		kind: "answered",
+		answers: [{ picked: [1], ownWords: null }],
+	};
+
+	function askedQuestion(
+		overrides: Partial<AskQuestionDto> = {},
+	): AskQuestionDto {
+		return {
+			id: "q-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			toolCallId: "call-ask-1",
+			questions: [
+				{
+					question: "Which way should we take it?",
+					options: [
+						{ label: "A party at home", recommended: true },
+						{ label: "Dinner out" },
+					],
+				},
+			],
+			status: "waiting",
+			answer: null,
+			createdAt: Date.now(),
+			...overrides,
+		};
+	}
+
+	/** The person's message, and the reply that stopped to ask. */
+	function askedChat(): ChatMessage[] {
+		return [
+			{ id: "user-1", role: "user", content: PLAN, timestamp: 1 },
+			{
+				id: "assistant-1",
+				role: "assistant",
+				content: FIRST_WORDS,
+				timestamp: 2,
+			},
+		];
+	}
+
+	/** The same chat once the question was answered and the reply went on in a segment of its own. */
+	function answeredChat(): ChatMessage[] {
+		return [
+			...askedChat(),
+			{
+				id: "assistant-2",
+				role: "assistant",
+				content: SECOND_WORDS,
+				timestamp: 3,
+				continuesMessageId: "assistant-1",
+			},
+		];
+	}
+
+	const answeredQuestion = () =>
+		askedQuestion({ status: "answered", answer: DINNER });
+
+	/** The page opens on a chat that stopped to ask; the server says the same when it is asked again. */
+	function renderAskedChat(question = askedQuestion()) {
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([question]);
+		return renderPage(
+			pageData({ messages: askedChat(), questions: [question] }),
+		);
+	}
+
+	async function typeAndSend(text: string) {
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: text },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	}
+
+	/** The first segment of a reply asks: the ask call is done, and the segment ends paused. */
+	async function letAlfyAsk(invocation = runtimeHarness.streamInvocations[0]) {
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([
+			askedQuestion({ assistantMessageId: null }),
+		]);
+		invocation.callbacks.onToken(FIRST_WORDS);
+		invocation.callbacks.onToolCall?.("ask_user", {}, "done", {
+			callId: "call-ask-1",
+		});
+		await screen.findByTestId("ask-card");
+		// From here a read finds the question stamped, as the server has it once the segment is saved.
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([askedQuestion()]);
+		invocation.callbacks.onEnd(FIRST_WORDS, {
+			assistantMessageId: "assistant-1",
+			waitingQuestionId: "q-1",
+			...END_TOTALS,
+		});
+	}
+
+	/** The person picks an answer on the card, once it has woken. */
+	async function chooseOnCard(label: string) {
+		const option = await screen.findByRole("button", { name: label });
+		await waitFor(() => expect(option).toBeEnabled());
+		await fireEvent.click(option);
+	}
+
+	const sidebarMark = () =>
+		get(conversationsStore).find((item) => item.id === "conv-1")
+			?.waitingForAnswer === true;
+
+	const questionReads = () =>
+		vi.mocked(fetchConversationQuestions).mock.calls.length;
+
+	it("starts nothing while a question waits: send, regenerate, Retry, chips, Atlas actions, an edit, a drop", async () => {
+		const { uploadKnowledgeAttachment } = await import(
+			"$lib/client/api/knowledge"
+		);
+		vi.mocked(uploadKnowledgeAttachment).mockClear();
+		const earlier: ChatMessage[] = [
+			{ id: "user-0", role: "user", content: "Earlier", timestamp: 1 },
+			{
+				id: "assistant-atlas-1",
+				role: "assistant",
+				content: "Atlas is complete.",
+				timestamp: 2,
+			},
+			{ id: "user-1", role: "user", content: PLAN, timestamp: 3 },
+			{
+				id: "assistant-1",
+				role: "assistant",
+				content: FIRST_WORDS,
+				timestamp: 4,
+				followUps: ["Anything to do first?"],
+			},
+		];
+		const atlasJobs = [
+			atlasJobFixture({
+				status: "succeeded",
+				completedAt: 121,
+				progress: { percent: 100, stage: "audit", details: { queries: [] } },
+			}),
+		];
+		const view = renderPage(pageData({ messages: earlier, atlasJobs }));
+		const page = screen.getByRole("region", { name: "Chat page" });
+		const dropFile = async (name: string) =>
+			fireEvent.drop(page, {
+				dataTransfer: {
+					types: ["Files"],
+					files: [new File(["x"], name, { type: "text/plain" })],
+				},
+			});
+
+		// Nothing waits yet: every way of starting a turn is there, and a drop uploads.
+		expect(
+			screen.getAllByRole("button", { name: "Regenerate response" }),
+		).toHaveLength(2);
+		expect(
+			screen.getAllByRole("button", { name: "Edit message" }),
+		).toHaveLength(2);
+		expect(
+			screen.getByRole("button", { name: "Continue Atlas" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Send: Anything to do first?" }),
+		).toBeInTheDocument();
+		await dropFile("notes.txt");
+		await waitFor(() =>
+			expect(uploadKnowledgeAttachment).toHaveBeenCalledTimes(1),
+		);
+
+		// A question is read for the last reply.
+		await view.rerender({
+			data: pageData({
+				messages: earlier,
+				atlasJobs,
+				questions: [askedQuestion()],
+			}),
+			params: { conversationId: "conv-1" },
+		});
+		const composer = screen.getByTestId("message-input");
+		await waitFor(() => expect(composer).toBeDisabled());
+		expect(screen.getByTestId("composer-box")).toHaveAttribute(
+			"data-waiting-for-answer",
+			"true",
+		);
+		expect(
+			screen.queryByRole("button", { name: "Regenerate response" }),
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Edit message" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Continue Atlas" })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Send: Anything to do first?" }),
+		).toBeNull();
+
+		// The box takes nothing, and a drop on the page uploads nothing.
+		await fireEvent.input(composer, { target: { value: "Typing anyway" } });
+		await fireEvent.keyDown(composer, { key: "Enter" });
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		await dropFile("more.txt");
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(uploadKnowledgeAttachment).toHaveBeenCalledTimes(1);
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+		expect(runtimeHarness.atlasSubmissions).toHaveLength(0);
+		view.unmount();
+
+		// Retry too, of a message that failed before the page heard of the question.
+		renderPage(
+			pageData({
+				messages: [
+					{ id: "user-0", role: "user", content: "Earlier", timestamp: 1 },
+					{
+						id: "assistant-0",
+						role: "assistant",
+						content: "Earlier answer",
+						timestamp: 2,
+					},
+				],
+			}),
+		);
+		await typeAndSend("And tomorrow?");
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
+		const retry = await screen.findByRole("button", { name: "Retry" });
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([
+			askedQuestion({ assistantMessageId: "assistant-0" }),
+		]);
+		runtimeHarness.adapters?.refreshQuestions?.();
+		await waitFor(() =>
+			expect(screen.getByTestId("message-input")).toBeDisabled(),
+		);
+
+		await fireEvent.click(retry);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+	});
+
+	it("keeps the composer's draft through the pause and the answer", async () => {
+		renderPage();
+		const composer = screen.getByTestId("message-input") as HTMLTextAreaElement;
+		await typeAndSend(PLAN);
+		// Words typed while the reply is coming are the person's own, for their next message.
+		await fireEvent.input(composer, {
+			target: { value: "a thought for later" },
+		});
+		vi.mocked(deleteConversationDraft).mockClear();
+		vi.mocked(persistConversationDraft).mockClear();
+
+		await letAlfyAsk();
+		await waitFor(() => expect(composer).toBeDisabled());
+		expect(composer).toHaveValue("a thought for later");
+		expect(screen.getByTestId("composer-box")).toHaveAttribute(
+			"data-waiting-for-answer",
+			"true",
+		);
+
+		await chooseOnCard("Dinner out");
+		await waitFor(() =>
+			expect(runtimeHarness.streamInvocations).toHaveLength(2),
+		);
+		// The answer is out: the box is theirs again, with the same words in it.
+		await waitFor(() => expect(composer).toBeEnabled());
+		expect(composer).toHaveValue("a thought for later");
+
+		const resume = runtimeHarness.streamInvocations[1];
+		resume.callbacks.onToken(SECOND_WORDS);
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([
+			answeredQuestion(),
+		]);
+		resume.callbacks.onEnd(SECOND_WORDS, {
+			assistantMessageId: "assistant-2",
+			...END_TOTALS,
+		});
+		expect(await screen.findByText(SECOND_WORDS)).toBeInTheDocument();
+		await waitFor(() => expect(composer).toBeEnabled());
+		expect(composer).toHaveValue("a thought for later");
+
+		// Nothing emptied the saved draft on the way: the answer is not a send of it.
+		await waitFor(() => {
+			expect(
+				vi.mocked(persistConversationDraft).mock.calls.at(-1)?.[1].draftText,
+			).toBe("a thought for later");
+		});
+		expect(deleteConversationDraft).not.toHaveBeenCalled();
+	});
+
+	it("reads the questions and the chat again when a send is refused because a question waits", async () => {
+		renderPage(
+			pageData({
+				messages: [
+					{ id: "user-0", role: "user", content: "Earlier", timestamp: 1 },
+					{
+						id: "assistant-0",
+						role: "assistant",
+						content: "Earlier answer",
+						timestamp: 2,
+					},
+				],
+			}),
+		);
+		// Another device asked in this chat; this page has not heard.
+		await typeAndSend("Another thought");
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([askedQuestion()]);
+		vi.mocked(fetchConversationDetail).mockResolvedValue(
+			conversationDetailFixture({ messages: askedChat() }),
+		);
+		const questionReadsBefore = questionReads();
+		const chatReadsBefore = vi.mocked(fetchConversationDetail).mock.calls
+			.length;
+
+		runtimeHarness.streamInvocations[0].callbacks.onError(
+			Object.assign(new Error("A question is waiting for an answer."), {
+				status: 409,
+				code: "QUESTION_WAITING",
+			}),
+		);
+
+		// The card is there, drawn from the chat as it is now...
+		expect(await screen.findByTestId("ask-card")).toBeInTheDocument();
+		expect(await screen.findByText(FIRST_WORDS)).toBeInTheDocument();
+		expect(questionReads()).toBeGreaterThan(questionReadsBefore);
+		expect(
+			vi.mocked(fetchConversationDetail).mock.calls.length,
+		).toBeGreaterThan(chatReadsBefore);
+		// ...no sentence blames the model, and the words are back where they were typed.
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+		expect(screen.getByTestId("message-input")).toHaveValue("Another thought");
+		expect(screen.getByTestId("message-input")).toBeDisabled();
+		expect(sidebarMark()).toBe(true);
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+	});
+
+	it("wakes the card in the same update that ends the stream, and lights the sidebar's mark", async () => {
+		renderPage();
+		await typeAndSend(PLAN);
+		const first = runtimeHarness.streamInvocations[0];
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([
+			askedQuestion({ assistantMessageId: null }),
+		]);
+		first.callbacks.onToken(FIRST_WORDS);
+		first.callbacks.onToolCall?.("ask_user", {}, "done", {
+			callId: "call-ask-1",
+		});
+		await screen.findByTestId("ask-card");
+		expect(sidebarMark()).toBe(false);
+
+		// The questions are read slowly from here on: only the page's own stamp can keep
+		// the card on the saved row (an unstamped question belongs to a row only while
+		// that row streams), and the reply's buttons off until the answer.
+		vi.mocked(fetchConversationQuestions).mockReturnValue(
+			new Promise(() => {}),
+		);
+		first.callbacks.onEnd(FIRST_WORDS, {
+			assistantMessageId: "assistant-1",
+			waitingQuestionId: "q-1",
+			...END_TOTALS,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(screen.getByTestId("ask-card")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Regenerate response" }),
+		).toBeNull();
+		expect(sidebarMark()).toBe(true);
+		// A card is off until its segment is saved, and on once the lock has passed.
+		const dinner = screen.getByRole("button", { name: "Dinner out" });
+		await waitFor(() => expect(dinner).toBeEnabled());
+	});
+
+	it("holds nothing back for a question whose reply never paused: the stream that asked it failed", async () => {
+		renderPage();
+		const composer = screen.getByTestId("message-input");
+		await typeAndSend(PLAN);
+		const first = runtimeHarness.streamInvocations[0];
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([
+			askedQuestion({ assistantMessageId: null }),
+		]);
+		first.callbacks.onToolCall?.("ask_user", {}, "done", {
+			callId: "call-ask-1",
+		});
+		await screen.findByTestId("ask-card");
+		// The reply still runs, so the box is not off yet, and Stop stays within reach.
+		expect(composer).toBeEnabled();
+		expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+
+		// It fails before it paused: the server never saved the question, and the page's
+		// copy of it must not keep the box off with no card to answer.
+		first.callbacks.onError(new Error("boom"));
+		const retry = await screen.findByRole("button", { name: "Retry" });
+		expect(composer).toBeEnabled();
+		expect(sidebarMark()).toBe(false);
+
+		await fireEvent.click(retry);
+		await waitFor(() =>
+			expect(runtimeHarness.streamInvocations).toHaveLength(2),
+		);
+	});
+
+	it("folds the card when the resume runs, reads the questions again when it ends, and takes the mark off", async () => {
+		renderPage();
+		await typeAndSend(PLAN);
+		await letAlfyAsk();
+		await waitFor(() => expect(sidebarMark()).toBe(true));
+
+		await chooseOnCard("Dinner out");
+		await waitFor(() =>
+			expect(runtimeHarness.streamInvocations).toHaveLength(2),
+		);
+		// Out, not yet taken up: the card is off and still shows what was chosen.
+		expect(screen.getByRole("button", { name: "Dinner out" })).toBeDisabled();
+		expect(sidebarMark()).toBe(true);
+		const resume = runtimeHarness.streamInvocations[1];
+
+		// The server runs it: the card folds into the line that tells the answer.
+		resume.callbacks.onToken(SECOND_WORDS);
+		expect(await screen.findByTestId("ask-folded")).toHaveAttribute(
+			"data-status",
+			"answering",
+		);
+		expect(screen.queryByTestId("ask-card")).toBeNull();
+		expect(sidebarMark()).toBe(false);
+
+		// The resume ends: the question is read again, so a local `answering` never
+		// outlives its resume, and the reply's buttons come back, once, at its end.
+		const readsBefore = questionReads();
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([
+			answeredQuestion(),
+		]);
+		resume.callbacks.onEnd(SECOND_WORDS, {
+			assistantMessageId: "assistant-2",
+			...END_TOTALS,
+		});
+		await waitFor(() => expect(questionReads()).toBeGreaterThan(readsBefore));
+		await waitFor(() =>
+			expect(screen.getByTestId("ask-folded")).toHaveAttribute(
+				"data-status",
+				"answered",
+			),
+		);
+		expect(
+			await screen.findAllByRole("button", { name: "Regenerate response" }),
+		).toHaveLength(1);
+		expect(screen.getByTestId("message-input")).toBeEnabled();
+		expect(sidebarMark()).toBe(false);
+	});
+
+	it("draws a second question under the segment that asked it, with the first folded above, and answers it", async () => {
+		const EVENING = {
+			question: "Which evening?",
+			options: [{ label: "Friday" }, { label: "Saturday", recommended: true }],
+		};
+		renderPage();
+		await typeAndSend(PLAN);
+		await letAlfyAsk();
+		await chooseOnCard("Dinner out");
+		await waitFor(() =>
+			expect(runtimeHarness.streamInvocations).toHaveLength(2),
+		);
+		const resume = runtimeHarness.streamInvocations[1];
+		resume.callbacks.onToken(SECOND_WORDS);
+		await screen.findByTestId("ask-folded");
+
+		// The resume asks again, and is the one that pauses.
+		const askedAgain = (overrides: Partial<AskQuestionDto> = {}) =>
+			askedQuestion({
+				id: "q-2",
+				assistantMessageId: "assistant-2",
+				toolCallId: "call-ask-2",
+				questions: [EVENING],
+				createdAt: Date.now(),
+				...overrides,
+			});
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([
+			askedQuestion({ status: "answering", answer: DINNER }),
+			askedAgain({ assistantMessageId: null }),
+		]);
+		resume.callbacks.onToolCall?.("ask_user", {}, "done", {
+			callId: "call-ask-2",
+		});
+		await waitFor(() =>
+			expect(screen.getAllByTestId("ask-card")).toHaveLength(1),
+		);
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([
+			answeredQuestion(),
+			askedAgain(),
+		]);
+		resume.callbacks.onEnd(SECOND_WORDS, {
+			assistantMessageId: "assistant-2",
+			waitingQuestionId: "q-2",
+			...END_TOTALS,
+		});
+
+		// The first question stays as the line that tells its answer, the second is a card,
+		// and the message box is off again until it is answered.
+		await waitFor(() =>
+			expect(screen.getByTestId("ask-folded")).toHaveAttribute(
+				"data-status",
+				"answered",
+			),
+		);
+		expect(screen.getByTestId("ask-card")).toBeInTheDocument();
+		await waitFor(() =>
+			expect(screen.getByTestId("message-input")).toBeDisabled(),
+		);
+		expect(
+			screen.queryByRole("button", { name: "Regenerate response" }),
+		).toBeNull();
+		expect(sidebarMark()).toBe(true);
+
+		await chooseOnCard("Friday");
+		await waitFor(() =>
+			expect(runtimeHarness.streamInvocations).toHaveLength(3),
+		);
+		expect(runtimeHarness.streamInvocations[2].options?.questionAnswer).toEqual(
+			{
+				questionId: "q-2",
+				answer: {
+					kind: "answered",
+					answers: [{ picked: [0], ownWords: null }],
+				},
+			},
+		);
+	});
+
+	describe("the answer", () => {
+		const CLOUD_MODEL_ID = "provider:abc:def" as ModelId;
+		const cloudModelPageData = (overrides: Record<string, unknown> = {}) =>
+			pageData({
+				userModel: CLOUD_MODEL_ID,
+				availableModels: [
+					{
+						id: CLOUD_MODEL_ID,
+						displayName: "Cloud Model",
+						isThirdParty: true,
+						iconAssetId: null,
+						iconUrl: null,
+					},
+				],
+				messages: askedChat(),
+				questions: [askedQuestion()],
+				...overrides,
+			});
+
+		it("is taken once: the card is off before anything is awaited, and the same reply goes on from the person's message", async () => {
+			renderAskedChat();
+			const dinner = await screen.findByRole("button", { name: "Dinner out" });
+			await waitFor(() => expect(dinner).toBeEnabled());
+
+			// A double tap: both presses land before the page has awaited anything.
+			dinner.click();
+			dinner.click();
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			const resume = runtimeHarness.streamInvocations[0];
+			expect(resume.options?.questionAnswer).toEqual({
+				questionId: "q-1",
+				answer: DINNER,
+			});
+			// The stream is known by the person's message, as stored.
+			expect(resume.message).toBe(PLAN);
+			expect(screen.getByRole("button", { name: "Dinner out" })).toBeDisabled();
+			// Not a send: no bubble of the person's, no draft touched, nothing to retry.
+			expect(screen.getAllByTestId("user-message")).toHaveLength(1);
+			expect(deleteConversationDraft).not.toHaveBeenCalled();
+			expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+		});
+
+		it("passes the page's gate first, like every fresh turn, and a cancelled warning leaves the card answerable", async () => {
+			checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+			ackCloudConnectorMock.mockResolvedValue(undefined);
+			renderPage(cloudModelPageData());
+			await waitFor(() => {
+				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+			});
+
+			await chooseOnCard("Dinner out");
+			// The warning is up and the card is off meanwhile: nothing goes before it is settled.
+			expect(
+				await screen.findByTestId("cloud-connector-warning"),
+			).toBeInTheDocument();
+			expect(screen.getByRole("button", { name: "Dinner out" })).toBeDisabled();
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+			// Cancelled: quietly back to waiting, no error line, nothing sent.
+			await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+			await waitFor(() =>
+				expect(
+					screen.getByRole("button", { name: "Dinner out" }),
+				).toBeEnabled(),
+			);
+			expect(screen.queryByTestId("ask-error")).toBeNull();
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+			// Answered again, and this time the person goes on.
+			await fireEvent.click(screen.getByRole("button", { name: "Dinner out" }));
+			await screen.findByTestId("cloud-connector-warning");
+			await fireEvent.click(screen.getByTestId("cloud-warning-send"));
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			expect(
+				runtimeHarness.streamInvocations[0].options?.questionAnswer,
+			).toEqual({
+				questionId: "q-1",
+				answer: DINNER,
+			});
+		});
+
+		it("carries the connections the composer has switched on, and none when they are all off", async () => {
+			renderAskedChat();
+			await waitFor(() => {
+				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+			});
+			await chooseOnCard("Dinner out");
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			expect(
+				runtimeHarness.streamInvocations[0].options
+					?.enabledConnectionCapabilities,
+			).toEqual(["calendar"]);
+			expect(
+				runtimeHarness.adapters?.getEnabledConnectionCapabilities?.(),
+			).toEqual(["calendar"]);
+
+			// The master switch off: the composer would send [], and so does the answer
+			// (nothing is left to the person's defaults, which the server falls back to).
+			await fireEvent.click(screen.getByTestId("connections-toggle"));
+			await fireEvent.click(
+				within(screen.getByTestId("connections-popover")).getByRole("switch"),
+			);
+			expect(
+				runtimeHarness.adapters?.getEnabledConnectionCapabilities?.(),
+			).toEqual([]);
+		});
+
+		it("keeps the card folded when a read that began before the answer was taken up answers after it", async () => {
+			renderAskedChat();
+			await chooseOnCard("Dinner out");
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			// A read of the questions goes out while the answer is on its way...
+			let finishOlderRead: (questions: AskQuestionDto[]) => void = () => {};
+			vi.mocked(fetchConversationQuestions).mockReturnValueOnce(
+				new Promise((resolve) => {
+					finishOlderRead = resolve;
+				}),
+			);
+			runtimeHarness.adapters?.refreshQuestions?.();
+
+			// ...the server takes the answer up, and the card folds...
+			runtimeHarness.streamInvocations[0].callbacks.onToken(SECOND_WORDS);
+			expect(await screen.findByTestId("ask-folded")).toHaveAttribute(
+				"data-status",
+				"answering",
+			);
+
+			// ...and the older read answers with the question as it was: waiting. It is let go.
+			finishOlderRead([askedQuestion()]);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(screen.getByTestId("ask-folded")).toHaveAttribute(
+				"data-status",
+				"answering",
+			);
+			expect(screen.queryByTestId("ask-card")).toBeNull();
+			expect(screen.getByTestId("message-input")).toBeEnabled();
+		});
+
+		it("is refused, with nothing set, in a sealed chat: the waiting card is drawn off", async () => {
+			const view = renderPage(
+				pageData({ messages: askedChat(), questions: [askedQuestion()] }),
+			);
+			// An open chat's card is on once its lock has passed...
+			await waitFor(() =>
+				expect(
+					screen.getByRole("button", { name: "Dinner out" }),
+				).toBeEnabled(),
+			);
+
+			// ...and when the chat is sealed (archived) nothing it sends could run, so it is
+			// drawn off, not left looking answerable.
+			await view.rerender({
+				data: pageData({
+					conversation: conversationFixture("conv-1", { status: "sealed" }),
+					messages: askedChat(),
+					questions: [askedQuestion()],
+				}),
+				params: { conversationId: "conv-1" },
+			});
+			await waitFor(() =>
+				expect(
+					screen.getByRole("button", { name: "Dinner out" }),
+				).toBeDisabled(),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Dinner out" }));
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+			expect(screen.queryByTestId("ask-error")).toBeNull();
+		});
+
+		it("brings the card back with its error line when it did not go through, and reads the questions again", async () => {
+			renderAskedChat();
+			await chooseOnCard("Dinner out");
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			const questionReadsBefore = questionReads();
+			const chatReadsBefore = vi.mocked(fetchConversationDetail).mock.calls
+				.length;
+
+			// The server refused it for a reason of its own: nothing was taken up.
+			runtimeHarness.streamInvocations[0].callbacks.onError(
+				Object.assign(new Error("Answer failed"), {
+					status: 500,
+					code: "ANSWER_FAILED",
+				}),
+			);
+
+			expect(await screen.findByTestId("ask-error")).toHaveTextContent(
+				"Couldn't send your answer. Try again.",
+			);
+			await waitFor(() =>
+				expect(
+					screen.getByRole("button", { name: "Dinner out" }),
+				).toBeEnabled(),
+			);
+			await waitFor(() =>
+				expect(questionReads()).toBeGreaterThan(questionReadsBefore),
+			);
+			// The question still waits, so the chat is not read again, and the box stays off.
+			expect(vi.mocked(fetchConversationDetail).mock.calls.length).toBe(
+				chatReadsBefore,
+			);
+			expect(screen.getByTestId("message-input")).toBeDisabled();
+			expect(sidebarMark()).toBe(true);
+
+			// Answered again, with nothing else changed.
+			await fireEvent.click(screen.getByRole("button", { name: "Dinner out" }));
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(2),
+			);
+			expect(screen.queryByTestId("ask-error")).toBeNull();
+		});
+
+		it("says nothing about a Stop or a tab the browser cut off: no error line, the card answerable", async () => {
+			renderAskedChat();
+			await chooseOnCard("Dinner out");
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			expect(screen.getByRole("button", { name: "Dinner out" })).toBeDisabled();
+
+			runtimeHarness.adapters?.onAskEvent?.({
+				type: "answerNotSent",
+				questionId: "q-1",
+				quiet: true,
+			});
+
+			await waitFor(() =>
+				expect(
+					screen.getByRole("button", { name: "Dinner out" }),
+				).toBeEnabled(),
+			);
+			expect(screen.queryByTestId("ask-error")).toBeNull();
+			expect(sidebarMark()).toBe(true);
+		});
+
+		it("loads the chat when the question no longer waits after the answer was lost: the resume finished", async () => {
+			renderAskedChat();
+			await chooseOnCard("Dinner out");
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+
+			// The request failed on this side, but the server had gone on and finished the
+			// reply: the card does not come back, the segment does.
+			vi.mocked(fetchConversationQuestions).mockResolvedValue([
+				answeredQuestion(),
+			]);
+			vi.mocked(fetchConversationDetail).mockResolvedValue(
+				conversationDetailFixture({ messages: answeredChat() }),
+			);
+			runtimeHarness.streamInvocations[0].callbacks.onError(
+				Object.assign(new Error("Answer failed"), {
+					status: 500,
+					code: "ANSWER_FAILED",
+				}),
+			);
+
+			expect(await screen.findByText(SECOND_WORDS)).toBeInTheDocument();
+			expect(screen.getByTestId("ask-folded")).toHaveAttribute(
+				"data-status",
+				"answered",
+			);
+			expect(sidebarMark()).toBe(false);
+		});
+
+		describe("when another answer won the question", () => {
+			async function loseTheClaim(options: { replyRunning: boolean }) {
+				renderAskedChat();
+				await chooseOnCard("Dinner out");
+				await waitFor(() =>
+					expect(runtimeHarness.streamInvocations).toHaveLength(1),
+				);
+				// The other device's answer is under way, and runs the reply (or has
+				// ended it already). The page found no reply running when it was opened.
+				vi.mocked(fetchConversationQuestions).mockResolvedValue([
+					askedQuestion({ status: "answering", answer: DINNER }),
+				]);
+				if (options.replyRunning) {
+					runtimeHarness.orphanedStream = {
+						streamId: "stream-9",
+						userMessage: PLAN,
+					};
+				}
+				runtimeHarness.streamInvocations[0].callbacks.onError(
+					Object.assign(new Error("That question was answered already."), {
+						status: 409,
+						code: "QUESTION_ALREADY_ANSWERED",
+					}),
+				);
+			}
+
+			it("joins the reply that is running, and shows the question folded", async () => {
+				const chatReadsBefore = vi.mocked(fetchConversationDetail).mock.calls
+					.length;
+				await loseTheClaim({ replyRunning: true });
+
+				await waitFor(() =>
+					expect(runtimeHarness.streamInvocations).toHaveLength(2),
+				);
+				expect(
+					runtimeHarness.streamInvocations[1].options?.reconnectToStreamId,
+				).toBe("stream-9");
+				expect(await screen.findByTestId("ask-folded")).toHaveAttribute(
+					"data-status",
+					"answering",
+				);
+				expect(screen.queryByTestId("ask-error")).toBeNull();
+				// Nothing was read of the chat: the reply is being streamed.
+				expect(vi.mocked(fetchConversationDetail).mock.calls.length).toBe(
+					chatReadsBefore,
+				);
+			});
+
+			it("loads the chat when no reply is running any more", async () => {
+				vi.mocked(fetchConversationDetail).mockResolvedValue(
+					conversationDetailFixture({ messages: answeredChat() }),
+				);
+				await loseTheClaim({ replyRunning: false });
+
+				expect(await screen.findByText(SECOND_WORDS)).toBeInTheDocument();
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+				expect(screen.queryByTestId("ask-card")).toBeNull();
+			});
+		});
+	});
+
+	// A Retry or a regenerate waits at the page's gate (the cloud-connector warning) with
+	// nothing wrong yet; while the person reads the warning the page hears that the
+	// reply stopped to ask. Going on would start a turn under an open question.
+	describe("a turn waiting at the page's gate when a question appears", () => {
+		const CLOUD_MODEL_ID = "provider:abc:def" as ModelId;
+		const cloudPage = (messages: ChatMessage[]) =>
+			pageData({
+				userModel: CLOUD_MODEL_ID,
+				availableModels: [
+					{
+						id: CLOUD_MODEL_ID,
+						displayName: "Cloud Model",
+						isThirdParty: true,
+						iconAssetId: null,
+						iconUrl: null,
+					},
+				],
+				messages,
+			});
+
+		async function hearOfAQuestionOn(messageId: string) {
+			vi.mocked(fetchConversationQuestions).mockResolvedValue([
+				askedQuestion({ assistantMessageId: messageId }),
+			]);
+			runtimeHarness.adapters?.refreshQuestions?.();
+			await waitFor(() =>
+				expect(screen.getByTestId("message-input")).toBeDisabled(),
+			);
+		}
+
+		it("is not started: a Retry", async () => {
+			ackCloudConnectorMock.mockResolvedValue(undefined);
+			renderPage(
+				cloudPage([
+					{ id: "user-0", role: "user", content: "Earlier", timestamp: 1 },
+					{
+						id: "assistant-0",
+						role: "assistant",
+						content: "Earlier answer",
+						timestamp: 2,
+					},
+				]),
+			);
+			await waitFor(() => {
+				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+			});
+			checkCloudWarningMock.mockResolvedValueOnce({ shouldWarn: false });
+			await typeAndSend("And tomorrow?");
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
+
+			checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Retry" }),
+			);
+			await screen.findByTestId("cloud-connector-warning");
+			await hearOfAQuestionOn("assistant-0");
+			await fireEvent.click(screen.getByTestId("cloud-warning-send"));
+
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+
+		it("is not started: a regenerate, and the reply stays", async () => {
+			checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+			ackCloudConnectorMock.mockResolvedValue(undefined);
+			renderPage(cloudPage(askedChat()));
+			await waitFor(() => {
+				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+			});
+			await screen.findByText(FIRST_WORDS);
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Regenerate response" }),
+			);
+			await screen.findByTestId("cloud-connector-warning");
+			await hearOfAQuestionOn("assistant-1");
+			await fireEvent.click(screen.getByTestId("cloud-warning-send"));
+
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+			expect(screen.getByText(FIRST_WORDS)).toBeInTheDocument();
+		});
+	});
+
+	describe("a page that meets the question", () => {
+		it("tells the runtime which row an answer in flight continues, and joins that reply as its segment", async () => {
+			runtimeHarness.orphanedStream = {
+				streamId: "stream-9",
+				userMessage: PLAN,
+			};
+			const view = renderPage(
+				pageData({
+					messages: askedChat(),
+					questions: [askedQuestion({ status: "answering", answer: DINNER })],
+				}),
+			);
+
+			// A reload during a resume: the page finds the running reply and joins it as the
+			// segment that goes on from the row that asked.
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			expect(runtimeHarness.adapters?.getAnsweringQuestionMessageId?.()).toBe(
+				"assistant-1",
+			);
+			runtimeHarness.streamInvocations[0].callbacks.onToken("A party");
+			await screen.findByText("A party");
+			// It is drawn as the next part of the reply above it: no gap of its own over it.
+			const rows = document.querySelectorAll("[data-message-id]");
+			expect(rows[rows.length - 1].parentElement?.className).toContain("pt-0");
+
+			// Once it is answered, or waiting again, no answer is in flight.
+			await view.rerender({
+				data: pageData({
+					messages: askedChat(),
+					questions: [answeredQuestion()],
+				}),
+				params: { conversationId: "conv-1" },
+			});
+			expect(
+				runtimeHarness.adapters?.getAnsweringQuestionMessageId?.(),
+			).toBeNull();
+		});
+
+		it("sends an edit's resend when the page hears of a question on the rows the edit is deleting", async () => {
+			const { deleteConversationMessages } = await import(
+				"$lib/client/api/conversations"
+			);
+			let finishDelete: (count: number) => void = () => {};
+			vi.mocked(deleteConversationMessages)
+				.mockReset()
+				.mockReturnValue(
+					new Promise((resolve) => {
+						finishDelete = resolve;
+					}),
+				);
+			renderPage(pageData({ messages: askedChat() }));
+			await fireEvent.click(
+				screen.getAllByRole("button", { name: "Edit message" })[0],
+			);
+			const composer = screen.getByTestId("message-input");
+			await waitFor(() => expect(composer).toHaveValue(PLAN));
+			await fireEvent.input(composer, { target: { value: "Plan dad's 61st" } });
+			await fireEvent.click(screen.getByTestId("send-button"));
+			await waitFor(() =>
+				expect(deleteConversationMessages).toHaveBeenCalledTimes(1),
+			);
+
+			// While the delete is out the page hears that the reply being deleted had stopped
+			// to ask (another device's turn): the message box goes off for it.
+			vi.mocked(fetchConversationQuestions).mockResolvedValue([
+				askedQuestion(),
+			]);
+			runtimeHarness.adapters?.refreshQuestions?.();
+			await waitFor(() =>
+				expect(screen.getByTestId("composer-box")).toHaveAttribute(
+					"data-waiting-for-answer",
+					"true",
+				),
+			);
+			finishDelete(2);
+
+			// The rows went, and their question with them: the resend is not turned away by
+			// a question that has no card, and the words are not lost with the message.
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			expect(runtimeHarness.streamInvocations[0].message).toBe(
+				"Plan dad's 61st",
+			);
+			await waitFor(() =>
+				expect(screen.getByTestId("composer-box")).not.toHaveAttribute(
+					"data-waiting-for-answer",
+				),
+			);
+		});
+
+		it("reads the questions wherever it reads the pending writes, and when the runtime asks", async () => {
+			renderPage();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			const before = questionReads();
+
+			runtimeHarness.adapters?.refreshQuestions?.();
+			await waitFor(() => expect(questionReads()).toBe(before + 1));
+
+			// A read of the chat that went with a tool call or a poll of the jobs.
+			runtimeHarness.adapters?.hydrateConversationDetail();
+			await waitFor(() => expect(questionReads()).toBe(before + 2));
+
+			// The chat loaded again.
+			await runtimeHarness.adapters?.loadPersistedData();
+			await waitFor(() =>
+				expect(questionReads()).toBeGreaterThanOrEqual(before + 3),
+			);
+		});
+
+		it("forgets the questions, and an answer in flight, when the person moves to another chat", async () => {
+			const view = renderPage(
+				pageData({ messages: askedChat(), questions: [askedQuestion()] }),
+			);
+			await chooseOnCard("Dinner out");
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			expect(screen.getByRole("button", { name: "Dinner out" })).toBeDisabled();
+
+			await view.rerender({
+				data: pageData({
+					conversation: conversationFixture("conv-2", {
+						title: "Second chat",
+						createdAt: 2,
+						updatedAt: 2,
+					}),
+					messages: [],
+					questions: [],
+				}),
+				params: { conversationId: "conv-2" },
+			});
+			await waitFor(() => expect(screen.queryByTestId("ask-card")).toBeNull());
+			expect(screen.getByTestId("message-input")).toBeEnabled();
+			expect(screen.getByTestId("composer-box")).not.toHaveAttribute(
+				"data-waiting-for-answer",
+			);
+
+			// Back in the first chat, the question waits again and nothing is out.
+			await view.rerender({
+				data: pageData({ messages: askedChat(), questions: [askedQuestion()] }),
+				params: { conversationId: "conv-1" },
+			});
+			const dinner = await screen.findByRole("button", { name: "Dinner out" });
+			await waitFor(() => expect(dinner).toBeEnabled());
+			expect(screen.getByTestId("message-input")).toBeDisabled();
 		});
 	});
 });

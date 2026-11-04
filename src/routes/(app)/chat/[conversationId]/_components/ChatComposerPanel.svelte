@@ -48,6 +48,7 @@ let {
 	onDeleteQueuedMessage,
 	onCompact,
 	disabled,
+	waitingForAnswer = false,
 	isGenerating,
 	canStopStreaming,
 	hasQueuedMessage,
@@ -128,6 +129,13 @@ let {
 	onDeleteQueuedMessage: () => void;
 	onCompact: () => void;
 	disabled: boolean;
+	/**
+	 * Alfy stopped its reply to ask a question and waits for the answer ("Ask me
+	 * first"). The box is drawn at half strength. It is `disabled` too (the page's
+	 * word), but off is not what this is: the look is this prop's, so the box stays as
+	 * it is with its words in it, and goes back to full strength with them.
+	 */
+	waitingForAnswer?: boolean;
 	isGenerating: boolean;
 	canStopStreaming?: boolean | undefined;
 	hasQueuedMessage: boolean;
@@ -248,68 +256,76 @@ $effect(() => {
 
 		{@render children?.()}
 
-		<MessageInput
-			{onSend}
-			{onQueue}
-			{pictureRefs}
-			{onRemovePictureRef}
-			{draftPictureOrder}
-			{imageMarks}
-			{onClearMarks}
-			{focusRequest}
-			{typingRequest}
-			{onOpenAttachment}
-			{onStop}
-			{onDraftChange}
-			{editing}
-			{onEditSubmit}
-			{onEditCancel}
-			{onEditQueuedMessage}
-			{onDeleteQueuedMessage}
-			{onCompact}
-			{disabled}
-			{isGenerating}
-			{canStopStreaming}
-			{hasQueuedMessage}
-			{queuedMessagePreview}
-			{maxLength}
-			{conversationId}
-			{contextStatus}
-			{attachedArtifacts}
-			{contextDebug}
-			{draftText}
-			{draftAttachments}
-			{draftLinkedSources}
-			{draftPendingSkill}
-			{draftAtlasMode}
-			{draftAtlasProfile}
-			{draftClientAtlasTurnId}
-			{draftVersion}
-			{draftTakeoverVersion}
-			{resetRequest}
-			attachmentsEnabled={true}
-			{onUploadReady}
-			{onUploadFiles}
-			{totalCostUsd}
-			{lastTurnCostUsd}
-			{totalTokens}
-			{composerCommandRegistryEnabled}
-			{onInstructionCommand}
-			{atlasAvailability}
-			{personalityProfiles}
-			{selectedPersonalityId}
-			{onPersonalityChange}
-			{onModelChange}
-			{reasoningDepth}
-			{onReasoningDepthChange}
-			{memoryIncognito}
-			{onMemoryIncognitoChange}
-			bind:activeCapabilities
-			{beforeSend}
-			{checkingCloudWarning}
-			{onCapabilitiesReady}
-			{placeholder}
-		/>
+		<!-- Only the box is dimmed while a question waits: the error line and the
+		     snippet above it are not part of it. -->
+		<div
+			class='composer-box'
+			data-testid='composer-box'
+			data-waiting-for-answer={waitingForAnswer ? 'true' : undefined}
+		>
+			<MessageInput
+				{onSend}
+				{onQueue}
+				{pictureRefs}
+				{onRemovePictureRef}
+				{draftPictureOrder}
+				{imageMarks}
+				{onClearMarks}
+				{focusRequest}
+				{typingRequest}
+				{onOpenAttachment}
+				{onStop}
+				{onDraftChange}
+				{editing}
+				{onEditSubmit}
+				{onEditCancel}
+				{onEditQueuedMessage}
+				{onDeleteQueuedMessage}
+				{onCompact}
+				{disabled}
+				{isGenerating}
+				{canStopStreaming}
+				{hasQueuedMessage}
+				{queuedMessagePreview}
+				{maxLength}
+				{conversationId}
+				{contextStatus}
+				{attachedArtifacts}
+				{contextDebug}
+				{draftText}
+				{draftAttachments}
+				{draftLinkedSources}
+				{draftPendingSkill}
+				{draftAtlasMode}
+				{draftAtlasProfile}
+				{draftClientAtlasTurnId}
+				{draftVersion}
+				{draftTakeoverVersion}
+				{resetRequest}
+				attachmentsEnabled={true}
+				{onUploadReady}
+				{onUploadFiles}
+				{totalCostUsd}
+				{lastTurnCostUsd}
+				{totalTokens}
+				{composerCommandRegistryEnabled}
+				{onInstructionCommand}
+				{atlasAvailability}
+				{personalityProfiles}
+				{selectedPersonalityId}
+				{onPersonalityChange}
+				{onModelChange}
+				{reasoningDepth}
+				{onReasoningDepthChange}
+				{memoryIncognito}
+				{onMemoryIncognitoChange}
+				bind:activeCapabilities
+				{beforeSend}
+				{checkingCloudWarning}
+				{onCapabilitiesReady}
+				{placeholder}
+			/>
+		</div>
 	</div>
 </div>
 
@@ -338,6 +354,13 @@ $effect(() => {
 		border: 0;
 		box-shadow: none;
 		pointer-events: auto;
+	}
+
+	/* A question waits for the person's answer: the message box is off, and drawn at half
+	   strength so the card above it is the one thing to answer (the mockup's
+	   `.composer:has(.waiting)`). */
+	.composer-box[data-waiting-for-answer] {
+		opacity: 0.5;
 	}
 
 	@media (max-width: 767px) {

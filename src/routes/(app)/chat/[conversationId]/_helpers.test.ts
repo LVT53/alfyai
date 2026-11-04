@@ -12,6 +12,7 @@ import type { PendingAttachment } from "$lib/server/services/knowledge/types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { SkillDraftProposal } from "$lib/server/services/skills/types";
+import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
 import {
 	addComposerPicture,
@@ -41,6 +42,7 @@ import {
 	hasActiveFileProductionJobs,
 	isConversationReadOnly,
 	isPendingSkillUnavailableError,
+	isQuestionOpen,
 	joinDraftText,
 	joinRestoredPayload,
 	liveDocumentAlfyActivityExcluding,
@@ -56,6 +58,8 @@ import {
 	shouldPollImageCards,
 	toFriendlySendError,
 	withinOrNull,
+	withQuestionAnswering,
+	withQuestionStamped,
 } from "./_helpers";
 
 function makeJob(
@@ -543,6 +547,106 @@ describe("countLaterReplies", () => {
 
 	it("is 0 for a message the list does not hold", () => {
 		expect(countLaterReplies([...turn(1), ...turn(2)], "missing")).toBe(0);
+	});
+});
+
+describe("Ask me first: the page's question helpers", () => {
+	const OWN_WORDS: AskAnswer = {
+		kind: "answered",
+		answers: [{ picked: [], ownWords: "Somewhere by the lake" }],
+	};
+
+	function askedQuestion(
+		overrides: Partial<AskQuestionDto> = {},
+	): AskQuestionDto {
+		return {
+			id: "q-1",
+			conversationId: "conv-1",
+			assistantMessageId: "a-1",
+			toolCallId: "call-ask-1",
+			questions: [
+				{
+					question: "Which way should we take it?",
+					options: [
+						{ label: "A party at home", recommended: true },
+						{ label: "Dinner out" },
+					],
+				},
+			],
+			status: "waiting",
+			answer: null,
+			createdAt: 1_000,
+			...overrides,
+		};
+	}
+
+	it("opens a waiting question and gives the composer back while its answer is out", () => {
+		const waiting = askedQuestion();
+
+		expect(isQuestionOpen([], {})).toBe(false);
+		expect(isQuestionOpen([waiting], {})).toBe(true);
+		// The answer is out: the person may queue a message behind the resume, and
+		// the page's guards are the running turn's from there.
+		expect(isQuestionOpen([waiting], { "q-1": { busy: true } })).toBe(false);
+		// It did not go through: busy came off, the question waits again, and is open.
+		expect(isQuestionOpen([waiting], { "q-1": { busy: false } })).toBe(true);
+		// Only that question's own state counts.
+		expect(isQuestionOpen([waiting], { "q-2": { busy: true } })).toBe(true);
+		// Not before its segment is saved: the stream that asked it still runs, and if it
+		// fails before it pauses the question is never saved, which must not leave the
+		// box off with no card to answer.
+		expect(
+			isQuestionOpen([askedQuestion({ assistantMessageId: null })], {}),
+		).toBe(false);
+		// A question that no longer waits holds nothing back.
+		for (const status of ["answering", "answered", "closed"] as const) {
+			expect(isQuestionOpen([askedQuestion({ status })], {})).toBe(false);
+		}
+		// One open question is enough.
+		expect(
+			isQuestionOpen(
+				[askedQuestion({ id: "q-0", status: "answered" }), waiting],
+				{},
+			),
+		).toBe(true);
+	});
+
+	it("folds a question locally once its answer is accepted, and wakes it once stamped", () => {
+		const unstamped = askedQuestion({ assistantMessageId: null });
+		const other = askedQuestion({ id: "q-2", assistantMessageId: "a-2" });
+
+		// The pause says which saved row asked: the card wakes (a card is off until its
+		// segment is saved). Nothing else changes, and the list it came from is not touched.
+		const stamped = withQuestionStamped([unstamped, other], "q-1", "a-1");
+		expect(stamped).toEqual([
+			{ ...unstamped, assistantMessageId: "a-1" },
+			other,
+		]);
+		expect(stamped[1]).toBe(other);
+		expect(unstamped.assistantMessageId).toBeNull();
+		// A stamp the server already gave stays, and a question the list lacks is no one's.
+		const alreadyStamped = askedQuestion({ assistantMessageId: "a-1" });
+		expect(withQuestionStamped([alreadyStamped], "q-1", "a-9")[0]).toBe(
+			alreadyStamped,
+		);
+		expect(withQuestionStamped([other], "q-1", "a-1")).toEqual([other]);
+
+		// The answer is taken up: the question is answering, with the answer given, which
+		// is what its folded line shows until the page reads it again.
+		const folded = withQuestionAnswering(stamped, "q-1", OWN_WORDS);
+		expect(folded[0]).toEqual({
+			...stamped[0],
+			status: "answering",
+			answer: OWN_WORDS,
+		});
+		expect(folded[1]).toBe(other);
+		expect(stamped[0].status).toBe("waiting");
+		// A question that is answered already is not taken back to answering.
+		const answered = askedQuestion({ status: "answered", answer: OWN_WORDS });
+		expect(withQuestionAnswering([answered], "q-1", OWN_WORDS)[0]).toBe(
+			answered,
+		);
+		expect(withQuestionAnswering([other], "q-9", OWN_WORDS)).toEqual([other]);
 	});
 });
 

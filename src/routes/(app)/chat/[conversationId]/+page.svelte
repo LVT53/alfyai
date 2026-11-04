@@ -118,6 +118,7 @@ import {
 	checkCloudWarning,
 	setLocalDistill,
 } from "$lib/client/api/connections";
+import { fetchConversationQuestions } from "$lib/client/api/ask-questions";
 import {
 	cancelWrite as cancelWriteRequest,
 	confirmWrite as confirmWriteRequest,
@@ -161,6 +162,7 @@ import type {
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { ChatGeneratedFile } from "$lib/server/services/file-production/types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
+import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
 import type { ConversationForkOrigin } from "$lib/server/services/conversation-forks";
 import type { ConversationDraft } from "$lib/server/services/conversations";
@@ -181,9 +183,11 @@ import type { TaskState } from "$lib/server/services/task-state/types";
 import type { I18nKey } from "$lib/i18n";
 import type { PageProps } from "./$types";
 import {
+	type AskRuntimeEvent,
 	createBrowserNormalChatClientTurnRuntime,
 	type NormalChatRuntimeSnapshot,
 } from "$lib/client/normal-chat-client-turn-runtime";
+import { personMessageOfReply } from "$lib/components/chat/reply-segments";
 import type { StreamTimingSnapshot } from "$lib/services/streaming";
 import {
 	buildChatSourceMessageHref,
@@ -206,6 +210,7 @@ import {
 	removeConversationLocal,
 	updateConversationMemoryIncognitoLocal,
 	updateConversationTitleLocal,
+	updateConversationWaitingForAnswerLocal,
 	watchConversationTitle,
 	upsertConversationLocal,
 } from "$lib/stores/conversations";
@@ -253,12 +258,15 @@ import {
 	liveDocumentAlfyActivityExcluding,
 	countLaterReplies,
 	hasActiveFileProductionJobs,
+	isQuestionOpen,
 	mergeFileProductionJob,
 	removeMessageById,
 	patchInstructionSuggestionInMessageList,
 	patchSkillDraftInMessageList,
 	toFriendlySendError,
 	updateMessageById,
+	withQuestionAnswering,
+	withQuestionStamped,
 	isPendingSkillUnavailableError,
 	isConversationReadOnly,
 	isOsFileDropEvent,
@@ -339,6 +347,7 @@ const initialUnreachableArtifactIds = getData().unreachableArtifactIds ?? [];
 const initialAtlasJobs = getData().atlasJobs ?? [];
 const initialImageCards = getData().imageCards ?? [];
 const initialPendingWrites = getData().pendingWrites ?? [];
+const initialQuestions = getData().questions ?? [];
 const initialContextCompressionSnapshots =
 	getData().contextCompressionSnapshots ?? [];
 const initialSidecarPending = getData().sidecarPending ?? false;
@@ -839,6 +848,19 @@ let artifactCountButtonEl = $state<HTMLButtonElement | null>(null);
 let artifactCountButtonCompactEl = $state<HTMLButtonElement | null>(null);
 let atlasJobs = $state<AtlasJobCard[]>(initialAtlasJobs);
 let pendingWrites = $state<PendingWrite[]>(initialPendingWrites);
+// "Ask me first": the questions Alfy asked in this chat. The card, and the line it folds
+// into, are drawn from these rows and never from the stream, so they survive a reload
+// and show on another device. `askActionState` is the page's own word on each: an answer
+// is going out (`busy`) or did not go through (`failed`), as `writeActionState` is for a
+// write. Both belong to this chat alone (`resetState`).
+let questions = $state<AskQuestionDto[]>(initialQuestions);
+let askActionState = $state<
+	Record<string, { busy?: boolean; failed?: boolean }>
+>({});
+// The answer of each question whose answer is on its way: the folded line shows it the
+// moment the server takes the answer up, and the runtime's event names only the question.
+// Not drawn from, so not state.
+const answersOnTheirWay = new Map<string, AskAnswer>();
 let contextCompressionMarkers = $state<ContextCompressionMarker[]>(
 	initialContextCompressionSnapshots,
 );
@@ -858,6 +880,21 @@ let forkOpeningTimeout: ReturnType<typeof setTimeout> | null = null;
 let conversationStatus = $state(initialConversationStatus);
 let isConversationReadOnlyForChat = $derived(
 	isConversationReadOnly({ status: conversationStatus }),
+);
+// A question of Alfy's waits for the person's answer. Nothing else starts a turn
+// meanwhile (the guards below, as for an open edit), the messages are drawn read-only
+// and the message box is off and dimmed, with its words and saved draft untouched. It
+// ends when the answer is on its way: from then on it is the running turn's guards.
+let questionOpen = $derived(isQuestionOpen(questions, askActionState));
+// What the cards are given: the page's state, except that in a chat that is sealed
+// (archived) a waiting card is drawn off, since nothing it sends could run. Without
+// this a card that looks answerable would do nothing on a press (Ruling 23).
+let askStateForCards = $derived(
+	isConversationReadOnlyForChat
+		? Object.fromEntries(
+				questions.map((question) => [question.id, { busy: true }]),
+			)
+		: askActionState,
 );
 const initialWorkspaceState = getPersistedWorkspaceState();
 let workspaceDocuments = $state<DocumentWorkspaceItem[]>(
@@ -1043,6 +1080,13 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 						metadata: event.metadata,
 					}),
 				);
+				// "Ask me first": a turn that answered a question has ended, and the server
+				// holds that question as answered now. Reading it again is what keeps a
+				// local `answering` from outliving its resume (a later reconnect would take
+				// the old asking row for the row it continues).
+				if (questions.some((question) => question.status === "answering")) {
+					void refreshQuestions();
+				}
 				return;
 		}
 	},
@@ -1093,6 +1137,21 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	refreshPendingWrites: () => {
 		void refreshPendingWrites();
 	},
+	// "Ask me first": the runtime reads the questions when an ask call is done, tells
+	// the page when a reply paused or an answer was taken up, lost or turned away
+	// (`handleAskEvent`), and asks which row an answer in flight continues and what
+	// the composer has switched on for the turn an answer starts.
+	refreshQuestions: () => {
+		void refreshQuestions();
+	},
+	onAskEvent: handleAskEvent,
+	getAnsweringQuestionMessageId: () =>
+		questions.find((question) => question.status === "answering")
+			?.assistantMessageId ?? null,
+	// The array a send would carry, empty included: the server falls back to the
+	// person's defaults only for a request that names nothing, so a master switch that
+	// is off must go as [] and not as no word at all. It narrows access, never widens it.
+	getEnabledConnectionCapabilities: () => [...composerActiveCapabilities],
 	pollMessageEvidence: (assistantMessageId) => {
 		void pollMessageEvidence(assistantMessageId);
 	},
@@ -2495,6 +2554,12 @@ function resetState() {
 	unreachableArtifactIds = data.unreachableArtifactIds ?? [];
 	atlasJobs = data.atlasJobs ?? [];
 	pendingWrites = data.pendingWrites ?? [];
+	// The next chat's questions, and nothing of the last one's: a question read for the
+	// chat that was left, or an answer that was going out, must not reach this one.
+	questions = [...(data.questions ?? [])];
+	askActionState = {};
+	answersOnTheirWay.clear();
+	questionsReads += 1;
 	contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
 	conversationStatus = data.conversation.status ?? "open";
 	totalCostUsdMicros = data.totalCostUsdMicros ?? 0;
@@ -2658,8 +2723,10 @@ function applyConversationDetailMetadata(
 	// Issue 7.5 — pending writes aren't part of ConversationDetail (dedicated
 	// endpoint, see +page.ts), so both callers of this function (the
 	// non-streaming polling fallback and the post-timeout persisted-data
-	// reload) get their pending-write cards refreshed here too.
+	// reload) get their pending-write cards refreshed here too. So do the
+	// questions Alfy asked, which are rows of their own as well.
 	void refreshPendingWrites();
+	void refreshQuestions();
 }
 
 /**
@@ -2683,6 +2750,40 @@ async function refreshConversationFiles() {
 		return;
 	}
 	applyConversationDetailMetadata(detail);
+}
+
+let questionsReads = 0;
+
+/** A read of the questions that has not answered by now is given up: what waits on one (polling for a reply, an answer that was refused) does not hang on a stalled connection. */
+const QUESTIONS_READ_MAX_MS = 5000;
+
+/**
+ * Reads the chat's questions again ("Ask me first"). Like the pending writes, the
+ * latest read wins: a read that was out when a newer one began, when an answer was
+ * taken up (`answerAccepted`) or when the person moved to another chat is dropped, so
+ * an older answer of the server can never lay a question that has moved on back over
+ * it. Returns the list it applied, or null when the read failed, ran out of time or
+ * was dropped: best-effort, as for the pending writes, since the page still works with
+ * the list it has and the next read (the end of a turn, a read of the chat, a full
+ * load) brings it back in step.
+ */
+async function refreshQuestions(): Promise<AskQuestionDto[] | null> {
+	questionsReads += 1;
+	const read = questionsReads;
+	const conversationId = data.conversation.id;
+	const fresh = await withinOrNull(
+		fetchConversationQuestions(conversationId),
+		QUESTIONS_READ_MAX_MS,
+	);
+	if (
+		!fresh ||
+		read !== questionsReads ||
+		conversationId !== data.conversation.id
+	) {
+		return null;
+	}
+	questions = fresh;
+	return fresh;
 }
 
 let pendingWritesReads = 0;
@@ -3044,8 +3145,9 @@ async function hydrateConversationDetail(conversationId: string) {
 	// (files/calendar/email/photos) uses to hydrate mid-turn (see
 	// shouldHydrateFileProductionJobsOnToolCall in ./_helpers), so a
 	// "save"/"send"/etc. write proposal's pending-write card can appear
-	// without a dedicated, parallel hydration path.
+	// without a dedicated, parallel hydration path. The questions ride with it.
 	void refreshPendingWrites();
+	void refreshQuestions();
 }
 
 /** The placeholder's time is the browser's and a job's is the server's: the room the two clocks may differ by. */
@@ -3168,12 +3270,12 @@ async function handleAtlasLifecycleAction(payload: {
 	message: string;
 	profile: AtlasProfile;
 }) {
-	if (isConversationReadOnlyForChat || editingMessage) return;
+	if (isConversationReadOnlyForChat || editingMessage || questionOpen) return;
 	// Issue 7.4 fix pass — this was a direct normalChatRuntime.send() caller
 	// that bypassed MessageInput's send() entirely (found while centralizing
 	// the cloud-warning gate; not one of the three previously-known leaks).
 	const proceed = await prepareTurn();
-	if (!proceed || editingMessage) return;
+	if (!proceed || editingMessage || questionOpen) return;
 	void normalChatRuntime.send(
 		{
 			message: payload.message,
@@ -3312,6 +3414,23 @@ $effect(() => {
 	if (data.pendingWrites !== prevPendingWritesData) {
 		prevPendingWritesData = data.pendingWrites;
 		pendingWrites = [...(data.pendingWrites ?? [])];
+	}
+});
+
+// The questions a reload of the chat brings replace the page's, as the pending writes do.
+let initializedQuestionsData = false;
+let prevQuestionsData: typeof data.questions;
+$effect(() => {
+	if (!initializedQuestionsData) {
+		prevQuestionsData = data.questions;
+		initializedQuestionsData = true;
+		return;
+	}
+	if (data.questions !== prevQuestionsData) {
+		prevQuestionsData = data.questions;
+		questions = [...(data.questions ?? [])];
+		// A fresh load is the newest word: a read that was out before it is older.
+		questionsReads += 1;
 	}
 });
 
@@ -3820,6 +3939,7 @@ async function handleConfirmWrite(writeId: string) {
 		});
 	} finally {
 		await refreshPendingWrites();
+		void refreshQuestions();
 	}
 }
 
@@ -3835,7 +3955,187 @@ async function handleCancelWrite(writeId: string) {
 		});
 	} finally {
 		await refreshPendingWrites();
+		void refreshQuestions();
 	}
+}
+
+// "Ask me first" — Alfy can stop a reply to ask the person 1 to 3 questions, on a card
+// in the reply. The rows are `questions`; what the runtime says of a pause, an answer
+// or a refusal arrives in `handleAskEvent`; the answer is a turn that is not a message
+// (`normalChatRuntime.answerQuestion`), and `handleAnswerQuestion` takes it.
+
+function setAskActionState(
+	questionId: string,
+	state: { busy?: boolean; failed?: boolean },
+) {
+	askActionState = { ...askActionState, [questionId]: state };
+}
+
+/** The sidebar's mark for this chat: on while a question of Alfy's waits for the person. */
+function markWaitingForAnswer(waiting: boolean) {
+	updateConversationWaitingForAnswerLocal(data.conversation.id, waiting);
+}
+
+/** After a read of the questions the mark is what the read found: on while one of them waits. */
+function settleWaitingMark(read: AskQuestionDto[] | null) {
+	if (read) {
+		markWaitingForAnswer(
+			read.some((question) => question.status === "waiting"),
+		);
+	}
+}
+
+function questionStillWaits(questionId: string): boolean {
+	return questions.some(
+		(question) => question.id === questionId && question.status === "waiting",
+	);
+}
+
+/**
+ * Reads the chat after the questions were read. The runtime lets its turn go before it
+ * reports `answerNotSent`, `alreadyAnswered` or `refusedWhileWaiting`, so a turn that
+ * runs now is another one, and a load would end its state (`loadPersistedData` ends the
+ * recovery state): then nothing is read here, and that turn's own end brings the rest.
+ */
+async function readChatAfterQuestions() {
+	if (isSending) return;
+	await loadPersistedData();
+}
+
+function handleAskEvent(event: AskRuntimeEvent) {
+	switch (event.type) {
+		case "paused":
+			// The reply stopped to ask. The questions are read (the row says what was
+			// asked), and the question is stamped here at once, in the same update that
+			// ended the stream: an unstamped question belongs to a row only while that
+			// row streams, so the card and the reply's buttons would flicker until the
+			// read lands. A pause whose row the list no longer holds stamps nothing.
+			void refreshQuestions();
+			if (event.assistantMessageId) {
+				questions = withQuestionStamped(
+					questions,
+					event.questionId,
+					event.assistantMessageId,
+				);
+			}
+			markWaitingForAnswer(true);
+			return;
+		case "answerAccepted": {
+			// The resume runs on the server: the card folds into the line that tells the
+			// answer, and nothing is waiting any more. A read that began before this
+			// would bring the question back as waiting, so it is let go.
+			questionsReads += 1;
+			const answer = answersOnTheirWay.get(event.questionId);
+			answersOnTheirWay.delete(event.questionId);
+			if (answer) {
+				questions = withQuestionAnswering(questions, event.questionId, answer);
+			}
+			setAskActionState(event.questionId, {});
+			markWaitingForAnswer(false);
+			return;
+		}
+		case "answerNotSent":
+			void settleAnswerNotSent(event.questionId, event.quiet);
+			return;
+		case "alreadyAnswered":
+			void settleAlreadyAnswered(event.questionId);
+			return;
+		case "refusedWhileWaiting":
+			void settleRefusedWhileWaiting();
+			return;
+	}
+}
+
+/**
+ * The answer is not on its way: it was refused, its request died, the waits ran out, or
+ * the resume was lost after it began. The card is answerable again, with an error line
+ * unless the person stopped it themselves. The runtime cannot know whether the server
+ * finished the reply before the connection was lost, so the question says: if it waits
+ * the card is back (with the answer that did not go through); if not, the segment is in
+ * the chat, which is read.
+ */
+async function settleAnswerNotSent(questionId: string, quiet: boolean) {
+	answersOnTheirWay.delete(questionId);
+	setAskActionState(questionId, quiet ? {} : { failed: true });
+	markWaitingForAnswer(true);
+	settleWaitingMark(await refreshQuestions());
+	if (!questionStillWaits(questionId)) await readChatAfterQuestions();
+}
+
+/**
+ * Another answer won the question (a second device, a double tap). Its reply is what
+ * comes next: it is joined if it still runs, and read from the chat if it has ended.
+ */
+async function settleAlreadyAnswered(questionId: string) {
+	answersOnTheirWay.delete(questionId);
+	setAskActionState(questionId, {});
+	settleWaitingMark(await refreshQuestions());
+	if (await normalChatRuntime.checkForOrphanedStreamOnMount()) return;
+	await readChatAfterQuestions();
+}
+
+/**
+ * A message, a Retry or a regenerate was turned away because a question waits: this
+ * page was stale, so it reads the questions and the chat and shows the card. The words
+ * of a message are back in the draft already (the runtime put them there).
+ */
+async function settleRefusedWhileWaiting() {
+	markWaitingForAnswer(true);
+	settleWaitingMark(await refreshQuestions());
+	await readChatAfterQuestions();
+}
+
+/**
+ * The person answered a card (a pick, their own words, "Up to you", or the X). The answer
+ * is a fresh turn, so it passes what every fresh turn passes (`prepareTurn`: the open
+ * item's pending step is saved, the cloud-connector warning settled), and it is taken
+ * once. The card holds itself off on `busy`, so the page raises it here before it
+ * awaits anything (Ruling 21); a refusal sets nothing and leaves the card answerable.
+ */
+async function handleAnswerQuestion(questionId: string, answer: AskAnswer) {
+	if (
+		isConversationReadOnlyForChat ||
+		editingMessage ||
+		isEditResendPending ||
+		isSending ||
+		// An answer is out already: one answer per `busy`, whatever the card did.
+		askActionState[questionId]?.busy
+	) {
+		return;
+	}
+	const question = questions.find((candidate) => candidate.id === questionId);
+	const askingRowId =
+		question?.status === "waiting" ? question.assistantMessageId : null;
+	if (!askingRowId) return;
+	const conversationId = data.conversation.id;
+	const before = askActionState[questionId];
+	setAskActionState(questionId, { ...before, busy: true });
+
+	const proceed = await prepareTurn();
+	// A chat the person left takes nothing of this: its state was reset with it.
+	if (conversationId !== data.conversation.id) return;
+	// The gate can wait for seconds with the page live (a warning to settle, a step to
+	// save): look again. A warning that was cancelled, or a page that changed meanwhile,
+	// leaves the card as it was, answerable, with no error line.
+	if (
+		!proceed ||
+		isConversationReadOnlyForChat ||
+		editingMessage ||
+		isEditResendPending ||
+		isSending ||
+		!questionStillWaits(questionId)
+	) {
+		setAskActionState(questionId, { ...before, busy: false });
+		return;
+	}
+	answersOnTheirWay.set(questionId, answer);
+	void normalChatRuntime.answerQuestion({
+		questionId,
+		answer,
+		continuesMessageId: askingRowId,
+		// The person's message as it is stored: the runtime joins a stream by it.
+		userMessage: personMessageOfReply($messages, askingRowId)?.content ?? "",
+	});
 }
 
 async function handleFork(payload: { messageId: string }) {
@@ -3900,7 +4200,8 @@ async function handleSend(
 		isConversationReadOnlyForChat ||
 		isSending ||
 		isEditResendPending ||
-		editingMessage
+		editingMessage ||
+		questionOpen
 	)
 		return;
 
@@ -3918,14 +4219,14 @@ async function handleSend(
 }
 
 async function handleRetry() {
-	if (editingMessage) return;
+	if (editingMessage || questionOpen) return;
 	// Issue 7.4 fix pass — retry() is a runtime path entirely separate from
 	// handleSend/normalChatRuntime.send() (it replays the last user message
 	// via its own startStream call), so it never went through MessageInput's
 	// send() and, before this pass, never went through any cloud-warning
 	// check at all.
 	const proceed = await prepareTurn();
-	if (!proceed || editingMessage) return;
+	if (!proceed || editingMessage || questionOpen) return;
 	// The runtime asks the server whether the turn was finished before it sends.
 	void normalChatRuntime.retry();
 }
@@ -3957,7 +4258,12 @@ async function handleRegenerate(
 	payload: MessageRegeneratePayload,
 	confirmForkedSourceHistoryMutation = false,
 ) {
-	if (isConversationReadOnlyForChat || isEditResendPending || editingMessage) {
+	if (
+		isConversationReadOnlyForChat ||
+		isEditResendPending ||
+		editingMessage ||
+		questionOpen
+	) {
 		return;
 	}
 	if (isSending) {
@@ -3983,7 +4289,7 @@ async function handleRegenerate(
 	// (e.g. after "Turn on local mode", which doesn't ack — see
 	// shouldWarnCloudConnector) for a single regenerate action.
 	const proceed = await prepareTurn();
-	if (!proceed || editingMessage) return;
+	if (!proceed || editingMessage || questionOpen) return;
 	const { messageId, reasoningDepthOverride } = payload;
 	const msgs = $messages;
 	// A still-streaming assistant message is keyed by the CLIENT placeholder
@@ -4087,9 +4393,17 @@ async function handleRegenerate(
 }
 
 // The pencil on a message: edit it in the composer. Not on a sealed chat, and
-// not while a turn is running or an earlier edit is still going out.
+// not while a turn is running, an earlier edit is still going out, or a question
+// of Alfy's waits for its answer.
 function handleStartEdit(payload: { messageId: string }) {
-	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
+	if (
+		isConversationReadOnlyForChat ||
+		isSending ||
+		isEditResendPending ||
+		questionOpen
+	) {
+		return;
+	}
 	const target = $messages.find((m) => m.id === payload.messageId);
 	if (!target || target.role !== "user") return;
 	editingMessage = { id: target.id, text: target.content };
@@ -4322,6 +4636,13 @@ async function handleEdit(
 	// own draft back.
 	const deletedIds = new Set(idsToDelete);
 	messages.update((m) => m.filter((message) => !deletedIds.has(message.id)));
+	// The questions of the rows that went went with them, on the server and here: one
+	// that stayed would still hold the message box off, with no card to answer.
+	questions = questions.filter(
+		(question) =>
+			!question.assistantMessageId ||
+			!deletedIds.has(question.assistantMessageId),
+	);
 	editingMessage = null;
 	// The rows leaving and the new turn arriving must reach the message list as
 	// two updates: seen as one the list has not grown, and it would not take the
@@ -4348,7 +4669,7 @@ async function handleEdit(
 	// them (a recovered stream reconnecting), or the chat been sealed. handleSend
 	// returns silently then, and the words would be gone with the message they were
 	// typed over. They go back to the composer instead, behind whatever it holds.
-	if (isSending || isConversationReadOnlyForChat) {
+	if (isSending || isConversationReadOnlyForChat || questionOpen) {
 		restorePayloadToDraft(resend);
 		return;
 	}
@@ -4469,7 +4790,7 @@ function handleQueue(payload: SendPayload) {
 // `isLast` gate), so there is no later turn to warn about, unlike
 // handleRegenerate.
 function handleSendFollowUp(payload: { text: string }) {
-	if (isConversationReadOnlyForChat) return;
+	if (isConversationReadOnlyForChat || questionOpen) return;
 	const text = payload.text.trim();
 	if (!text) return;
 	const minimalPayload: SendPayload = {
@@ -4610,7 +4931,7 @@ function handleDragEnter(event: DragEvent) {
 	if (!isOsFileDropEvent(event)) return;
 	event.preventDefault();
 	dragEnterCount += 1;
-	fileDragRejected = isConversationReadOnlyForChat || isSending;
+	fileDragRejected = isConversationReadOnlyForChat || isSending || questionOpen;
 	fileDragActive = true;
 }
 
@@ -4638,7 +4959,14 @@ function handleDrop(event: DragEvent) {
 	fileDragRejected = false;
 	if (!isOsFileDropEvent(event)) return;
 	event.preventDefault();
-	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
+	if (
+		isConversationReadOnlyForChat ||
+		isSending ||
+		isEditResendPending ||
+		questionOpen
+	) {
+		return;
+	}
 	const files = event.dataTransfer?.files;
 	if (!files || files.length === 0) return;
 	void uploadFilesFn?.(files);
@@ -4785,7 +5113,10 @@ function handleDrop(event: DragEvent) {
 						{forkOpening}
 						{forkingMessageId}
 						showingLinkedMessage={linkedMessageConversationId === data.conversation.id}
-						readOnly={isConversationReadOnlyForChat}
+						readOnly={isConversationReadOnlyForChat || questionOpen}
+						{questions}
+						askActionState={askStateForCards}
+						onAnswerQuestion={handleAnswerQuestion}
 						onOpenDocument={openArtifactFromChat}
 						artifacts={liveArtifacts}
 						onToggleDocumentTask={handleToggleDocumentTask}
@@ -4838,7 +5169,8 @@ function handleDrop(event: DragEvent) {
 				onDraftChange={handleDraftChange}
 				onEditQueuedMessage={editQueuedTurn}
 				onDeleteQueuedMessage={clearQueuedTurn}
-				disabled={isConversationReadOnlyForChat || isEditResendPending}
+				disabled={isConversationReadOnlyForChat || isEditResendPending || questionOpen}
+				waitingForAnswer={questionOpen}
 				isGenerating={!isConversationReadOnlyForChat && (isSending || isEditResendPending)}
 				canStopStreaming={!isConversationReadOnlyForChat && normalChatRuntimeCanStop}
 				hasQueuedMessage={Boolean(queuedTurn)}

@@ -17,6 +17,7 @@ import type { ConversationForkOrigin } from "$lib/server/services/conversation-f
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
+import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
 import type { MessageRegeneratePayload } from "../_helpers";
 
@@ -65,6 +66,9 @@ let {
 	deletedArtifacts = undefined,
 	imageCards = [],
 	onImageAction = undefined,
+	questions = [],
+	askActionState = {},
+	onAnswerQuestion = undefined,
 }: {
 	messages: ChatMessage[];
 	conversationId: string;
@@ -146,6 +150,14 @@ let {
 	/** The chat's picture cards, for each reply's make_image cards (plan 2b T2). */
 	imageCards?: ImageCardView[];
 	onImageAction?: ImageCardActionHandler | undefined;
+	/** The chat's questions ("Ask me first"); MessageArea draws those of its own `conversationId`. */
+	questions?: AskQuestionDto[];
+	/** The page's state for each question, by id: an answer is going out (`busy`), or did not go through (`failed`). */
+	askActionState?: Record<string, { busy?: boolean; failed?: boolean }>;
+	/** The person answered a card; the page takes it by raising the question's `busy`, or refuses it and sets nothing. */
+	onAnswerQuestion?:
+		| ((questionId: string, answer: AskAnswer) => void)
+		| undefined;
 } = $props();
 </script>
 
@@ -198,6 +210,9 @@ let {
 		{deletedArtifacts}
 		{imageCards}
 		{onImageAction}
+		{questions}
+		{askActionState}
+		{onAnswerQuestion}
 	/>
 </div>
 
