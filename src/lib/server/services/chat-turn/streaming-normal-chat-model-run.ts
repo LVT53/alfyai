@@ -187,7 +187,9 @@ export async function runStreamingNormalChatSendModel(
 	// answer, after the page the server fetched (a resume reads no page, so the two
 	// never meet). A provider that takes no tool messages is sent them as text. The
 	// model run's gate cannot find a connector's result in text, so for that
-	// provider the gate runs here first, on the provider the run starts with.
+	// provider the gate runs here first, on the provider the run starts with. The
+	// fold is decided here, once: a failover attempt gets the same text, gated no
+	// more (no provider uses flatten mode today).
 	const continuation = params.continuationMessages ?? [];
 	const continuationSent =
 		continuation.length > 0 &&

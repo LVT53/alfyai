@@ -8,6 +8,7 @@ import {
 	estimateHistoryMessagesTokens,
 	type HistoryTurn,
 	historyToolCallId,
+	isHistoryToolDigest,
 	renderHistoryAsText,
 	renderHistoryTurn,
 } from "./conversation-history";
@@ -1197,5 +1198,59 @@ describe("digest and text rendering", () => {
 		expect(text).toContain("USER: q");
 		expect(text).toContain("ASSISTANT: a");
 		expect(text).toContain("TOOL RESULT:");
+	});
+});
+
+// The one test of "this is a digest": a stored capture is read with it and so is
+// a continuation's tool result (ask-capture.ts).
+describe("isHistoryToolDigest", () => {
+	it("knows what buildHistoryToolDigest builds, with or without detail and sources", () => {
+		const call = {
+			status: "done" as const,
+			outputSummary: "Found 2 sources.",
+			resultDigest: "A detail.",
+			candidates: [
+				{
+					id: "a",
+					title: "A",
+					url: "https://a.example",
+					sourceType: "web" as const,
+				},
+				{ id: "b", title: "B", sourceType: "web" as const },
+			],
+		};
+
+		expect(isHistoryToolDigest(buildHistoryToolDigest(call))).toBe(true);
+		expect(
+			isHistoryToolDigest(buildHistoryToolDigest({ status: "done" })),
+		).toBe(true);
+		expect(
+			isHistoryToolDigest(buildHistoryToolDigest({ status: "failed" })),
+		).toBe(true);
+	});
+
+	it("refuses what lacks an ok or a summary of the right kind, a detail or a source that is not one, and what is not a record", () => {
+		for (const value of [
+			null,
+			undefined,
+			"text",
+			["ok"],
+			{ ok: true },
+			{ summary: "s" },
+			{ ok: "yes", summary: "s" },
+			{ ok: true, summary: 3 },
+			{ ok: true, summary: "s", detail: 3 },
+			{ ok: true, summary: "s", sources: "none" },
+			{ ok: true, summary: "s", sources: [{}] },
+			{ ok: true, summary: "s", sources: [{ title: "t", url: 3 }] },
+		]) {
+			expect(isHistoryToolDigest(value), JSON.stringify(value)).toBe(false);
+		}
+	});
+
+	it("does not look at keys it does not know", () => {
+		expect(isHistoryToolDigest({ ok: true, summary: "s", events: [] })).toBe(
+			true,
+		);
 	});
 });

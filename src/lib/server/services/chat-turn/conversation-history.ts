@@ -110,6 +110,36 @@ export function buildHistoryToolDigest(
 }
 
 /**
+ * Whether a value has the shape of a `HistoryToolDigest`: `ok` and `summary`, and
+ * `detail` and `sources` only when they are of the right kind. The one test of it
+ * (a stored capture is read with it, and so is a continuation's tool result), so
+ * it lives beside the type and the builder. Keys it does not know are not looked at.
+ */
+export function isHistoryToolDigest(
+	value: unknown,
+): value is HistoryToolDigest {
+	const isRecord = (v: unknown): v is Record<string, unknown> =>
+		typeof v === "object" && v !== null && !Array.isArray(v);
+	if (!isRecord(value)) return false;
+	if (typeof value.ok !== "boolean" || typeof value.summary !== "string") {
+		return false;
+	}
+	if (value.detail !== undefined && typeof value.detail !== "string") {
+		return false;
+	}
+	return (
+		value.sources === undefined ||
+		(Array.isArray(value.sources) &&
+			value.sources.every(
+				(source) =>
+					isRecord(source) &&
+					typeof source.title === "string" &&
+					(source.url === undefined || typeof source.url === "string"),
+			))
+	);
+}
+
+/**
  * Telemetry-only keys of a recorded `produce_file` input.
  *
  * `sanitizeProduceFileInput` already replaces the document JSON, the program

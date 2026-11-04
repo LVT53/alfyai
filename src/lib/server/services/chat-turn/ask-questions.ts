@@ -12,7 +12,10 @@ import {
 	parseAskQuestions,
 } from "$lib/shared/ask-user";
 import { getOrphanedStream } from "./active-streams";
-import type { HistoryToolDigest } from "./conversation-history";
+import {
+	type HistoryToolDigest,
+	isHistoryToolDigest,
+} from "./conversation-history";
 
 // The questions Alfy stops a reply to ask ("Ask me first", docs/plans/ask-me-first,
 // design 5.4 and 5.5): the question, the person's answer, and what the resume
@@ -360,33 +363,13 @@ function isModelMessage(value: unknown): value is ModelMessage {
 	);
 }
 
-function isDigest(value: unknown): value is HistoryToolDigest {
-	if (!isRecord(value)) return false;
-	if (typeof value.ok !== "boolean" || typeof value.summary !== "string") {
-		return false;
-	}
-	if (value.detail !== undefined && typeof value.detail !== "string") {
-		return false;
-	}
-	return (
-		value.sources === undefined ||
-		(Array.isArray(value.sources) &&
-			value.sources.every(
-				(source) =>
-					isRecord(source) &&
-					typeof source.title === "string" &&
-					(source.url === undefined || typeof source.url === "string"),
-			))
-	);
-}
-
 function isCapturedResult(value: unknown): value is AskCapturedResult {
 	return (
 		isRecord(value) &&
 		typeof value.toolCallId === "string" &&
 		typeof value.toolName === "string" &&
 		typeof value.localDistilled === "boolean" &&
-		isDigest(value.digest)
+		isHistoryToolDigest(value.digest)
 	);
 }
 

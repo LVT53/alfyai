@@ -86,7 +86,11 @@ type AdapterBehavior = {
 	// "native" sends assistant tool-call parts plus tool-result messages (every
 	// OpenAI-compatible provider in use accepts them without a `tools` param);
 	// "flatten" folds them into assistant text for a provider that rejects
-	// tool messages. Defaults to native.
+	// tool messages. Defaults to native. The continuation of a reply that asked
+	// ("Ask me first", chat-turn/streaming-normal-chat-model-run.ts) is folded
+	// once, with the provider the run starts on, after the turn's gate has run on
+	// that provider: a flatten primary's failover to a cloud attempt is not gated
+	// again. No provider uses flatten mode today.
 	historyToolMessages?: "native" | "flatten";
 	// Recommended sampling defaults for this family, applied to the outbound
 	// request only when the app doesn't set them explicitly. Needed because some
