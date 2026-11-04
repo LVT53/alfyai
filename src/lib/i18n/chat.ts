@@ -19,13 +19,25 @@ const chatDict = {
 		"chat.artifacts.keepAsDocumentBusy": "Opening…",
 		"chat.artifacts.keepAsDocumentError": "Could not open this as a document.",
 		"chat.artifacts.openExistingDocument": "Open document",
-		// "Ask me first": the line a question folds into once it no longer waits
-		// (ask-card-view.ts). The quote marks are the reader's own: the person's words
-		// are set in them, in the folded line and in its open body.
+		// "Ask me first": the words the app adds to Alfy's question card
+		// (AskQuestionCard.svelte; the questions, labels and notes are Alfy's own), and
+		// the line a question folds into once it no longer waits (ask-card-view.ts).
+		// The quote marks are the reader's own: the person's words are set in them, in
+		// the folded line and in its open body.
+		"chat.ask.cardLabel": "Alfy's question",
+		"chat.ask.cardLabelMany": "Alfy's questions ({count})",
+		"chat.ask.close": "Close the question",
 		"chat.ask.closed": "closed",
 		"chat.ask.leftToAlfy": "left to Alfy",
 		"chat.ask.ownAnswerQuote": "“{text}”",
+		"chat.ask.pickAny": "Pick any",
 		"chat.ask.questionCount": "{count} questions",
+		"chat.ask.recommended": "Recommended",
+		"chat.ask.recommendedOption": "{answer}, recommended",
+		"chat.ask.send": "Send",
+		"chat.ask.sendFailed": "Couldn't send your answer. Try again.",
+		"chat.ask.typeOwn": "Type my own...",
+		"chat.ask.upToYou": "Up to you",
 		"chat.attachmentLabel": "Attach file",
 		// The server is being updated (a deploy). A message waits for it, and the
 		// bubble says so (`awaiting_update`, MessageBubble); a reply the update cut
@@ -1295,10 +1307,20 @@ const chatDict = {
 		"chat.artifacts.keepAsDocumentError":
 			"Ezt nem sikerült dokumentumként megnyitni.",
 		"chat.artifacts.openExistingDocument": "Dokumentum megnyitása",
+		"chat.ask.cardLabel": "Alfy kérdése",
+		"chat.ask.cardLabelMany": "Alfy kérdései ({count})",
+		"chat.ask.close": "Kérdés bezárása",
 		"chat.ask.closed": "bezárva",
 		"chat.ask.leftToAlfy": "Alfyra bízva",
 		"chat.ask.ownAnswerQuote": "„{text}”",
+		"chat.ask.pickAny": "Több is lehet",
 		"chat.ask.questionCount": "{count} kérdés",
+		"chat.ask.recommended": "Javasolt",
+		"chat.ask.recommendedOption": "{answer}, javasolt",
+		"chat.ask.send": "Küldés",
+		"chat.ask.sendFailed": "Nem sikerült elküldeni a válaszodat. Próbáld újra.",
+		"chat.ask.typeOwn": "Saját válasz...",
+		"chat.ask.upToYou": "Rád bízom",
 		"chat.attachmentLabel": "Fájl csatolása",
 		"chat.awaitingUpdate": "Az AlfyAI frissül. Várunk, amíg újra elérhető…",
 		"chat.checkingPrivacy": "Adatvédelem ellenőrzése…",
