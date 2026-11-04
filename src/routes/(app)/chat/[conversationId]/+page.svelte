@@ -868,10 +868,11 @@ let pendingWrites = $state<PendingWrite[]>(initialPendingWrites);
 // into, are drawn from these rows and never from the stream, so they survive a reload
 // and show on another device. `askActionState` is the page's own word on each: an answer
 // is going out (`busy`) or did not go through (`failed`), as `writeActionState` is for a
-// write. Both belong to this chat alone (`resetState`).
+// write, and while it is still at the page's gate (`atGate`: pressed, not yet handed to
+// the runtime) nothing else may start a turn. Both belong to this chat alone (`resetState`).
 let questions = $state<AskQuestionDto[]>(initialQuestions);
 let askActionState = $state<
-	Record<string, { busy?: boolean; failed?: boolean }>
+	Record<string, { busy?: boolean; failed?: boolean; atGate?: boolean }>
 >({});
 // The answer of each question whose answer is on its way: the folded line shows it the
 // moment the server takes the answer up, and the runtime's event names only the question.
@@ -904,9 +905,9 @@ let isConversationReadOnlyForChat = $derived(
 // A question of Alfy's waits for the person's answer. Nothing else starts a turn
 // meanwhile (the guards below, as for an open edit), the messages are drawn read-only
 // and the message box is off and dimmed, with its words and saved draft untouched. It
-// ends when the answer is on its way: from then on it is the running turn's guards. A
-// question counts only while the page holds the row that asked it: the card is drawn on
-// that row.
+// holds through the answer's own gate (`atGate`), and ends when the answer is handed to
+// the runtime: from then on it is the running turn's guards. A question counts only
+// while the page holds the row that asked it: the card is drawn on that row.
 let questionOpen = $derived(
 	isQuestionOpen(questions, askActionState, $messages),
 );
@@ -4037,7 +4038,7 @@ async function handleCancelWrite(writeId: string) {
 
 function setAskActionState(
 	questionId: string,
-	state: { busy?: boolean; failed?: boolean },
+	state: { busy?: boolean; failed?: boolean; atGate?: boolean },
 ) {
 	askActionState = { ...askActionState, [questionId]: state };
 }
@@ -4162,6 +4163,11 @@ async function settleRefusedWhileWaiting() {
  * item's pending step is saved, the cloud-connector warning settled), and it is taken
  * once. The card holds itself off on `busy`, so the page raises it here before it
  * awaits anything (Ruling 21); a refusal sets nothing and leaves the card answerable.
+ *
+ * Until the answer is handed to the runtime it is at the page's gate (`atGate`), and the
+ * question stays open through it: the message box stays off and nothing else may start
+ * a turn, which would take the turn the answer is waiting for (Ruling 30). A gate that
+ * turns the answer away puts the card back with the question still open.
  */
 async function handleAnswerQuestion(questionId: string, answer: AskAnswer) {
 	if (
@@ -4180,7 +4186,7 @@ async function handleAnswerQuestion(questionId: string, answer: AskAnswer) {
 	if (!askingRowId) return;
 	const conversationId = data.conversation.id;
 	const before = askActionState[questionId];
-	setAskActionState(questionId, { ...before, busy: true });
+	setAskActionState(questionId, { ...before, busy: true, atGate: true });
 
 	const proceed = await prepareTurn();
 	// A chat the person left takes nothing of this: its state was reset with it.
@@ -4211,6 +4217,9 @@ async function handleAnswerQuestion(questionId: string, answer: AskAnswer) {
 		setAskActionState(questionId, { ...before, busy: false });
 		return;
 	}
+	// Handed to the runtime, which begins the turn at once: the gate lets the question go
+	// and the running turn's guards (`isSending`) hold from here.
+	setAskActionState(questionId, { ...before, busy: true });
 	answersOnTheirWay.set(questionId, answer);
 	void normalChatRuntime.answerQuestion({
 		questionId,

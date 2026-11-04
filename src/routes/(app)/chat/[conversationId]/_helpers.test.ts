@@ -661,6 +661,39 @@ describe("Ask me first: the page's question helpers", () => {
 		).toBe(true);
 	});
 
+	it("keeps a question open while its answer is at the page's gate, and lets it go once the runtime has it", () => {
+		const waiting = askedQuestion();
+
+		// Pressed but not a turn yet: the page is saving a step or settling a warning, and
+		// nothing else may start a turn meanwhile (a regenerate would take the turn the
+		// answer is waiting for).
+		expect(
+			isQuestionOpen([waiting], { "q-1": { busy: true, atGate: true } }, ROWS),
+		).toBe(true);
+		// Handed to the runtime: from here the running turn's guards hold.
+		expect(
+			isQuestionOpen([waiting], { "q-1": { busy: true, atGate: false } }, ROWS),
+		).toBe(false);
+		expect(isQuestionOpen([waiting], { "q-1": { busy: true } }, ROWS)).toBe(
+			false,
+		);
+		// Only that question's own gate counts, and a question that no longer waits has none.
+		expect(
+			isQuestionOpen([waiting], { "q-2": { busy: true, atGate: true } }, ROWS),
+		).toBe(true);
+		expect(
+			isQuestionOpen(
+				[askedQuestion({ status: "answering" })],
+				{ "q-1": { busy: true, atGate: true } },
+				ROWS,
+			),
+		).toBe(false);
+		// A gate over a row the page lacks holds nothing: there is no card that was pressed.
+		expect(
+			isQuestionOpen([waiting], { "q-1": { busy: true, atGate: true } }, []),
+		).toBe(false);
+	});
+
 	it("counts a waiting question only while the page holds the row that asked it", () => {
 		const waiting = askedQuestion();
 

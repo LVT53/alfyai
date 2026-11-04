@@ -721,6 +721,11 @@ export function attachUnassignedPendingWritesToAssistant(
  * what the page does next is the running turn's: a message queues behind the resume. A
  * question that no longer waits (answering, answered, closed) holds nothing.
  *
+ * An answer is on its way only when the page has handed it to the runtime. From the
+ * press until then it is at the page's gate (`atGate`: the open item's step is saved,
+ * the cloud-connector warning settled, the connections loaded), where it is no turn
+ * yet and nothing else may become one: the question stays open through the gate.
+ *
  * A question not stamped yet (`assistantMessageId` null) is one the stream that asked
  * it is still running: the reply has not paused, the running turn's own guards hold,
  * and Stop still works. Counting it would also leave a question behind for good if
@@ -734,16 +739,17 @@ export function attachUnassignedPendingWritesToAssistant(
  */
 export function isQuestionOpen(
 	questions: readonly AskQuestionDto[],
-	actionState: Record<string, { busy?: boolean }>,
+	actionState: Record<string, { busy?: boolean; atGate?: boolean }>,
 	messages: readonly Pick<ChatMessage, "id">[],
 ): boolean {
-	return questions.some(
-		(question) =>
-			question.status === "waiting" &&
-			question.assistantMessageId !== null &&
-			actionState[question.id]?.busy !== true &&
-			messages.some((row) => row.id === question.assistantMessageId),
-	);
+	return questions.some((question) => {
+		if (question.status !== "waiting" || question.assistantMessageId === null) {
+			return false;
+		}
+		const state = actionState[question.id];
+		if (state?.busy === true && state.atGate !== true) return false;
+		return messages.some((row) => row.id === question.assistantMessageId);
+	});
 }
 
 /**

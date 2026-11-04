@@ -9596,6 +9596,129 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 		});
 	});
 
+	// From the press of a card until the answer is handed to the runtime it waits at the
+	// page's gate: the open item's step is saved, the cloud-connector warning settled, the
+	// composer's connections loaded. It is no turn yet, so nothing else may become one
+	// meanwhile (a regenerate would take the turn the answer is waiting for) and the
+	// message box stays off: the question is open until the runtime has the answer.
+	describe("while an answer waits at the page's gate", () => {
+		const SERVED = {
+			served: ["calendar"],
+			defaultOn: ["calendar"],
+			accounts: [],
+		};
+
+		/** The card is pressed and the answer waits for the composer's connections, which load when the test lets them. */
+		async function pressAndWaitForTheConnections() {
+			let finishLoad: (value: unknown) => void = () => {};
+			fetchActiveCapabilitiesMock.mockReset().mockReturnValue(
+				new Promise((resolve) => {
+					finishLoad = resolve;
+				}),
+			);
+			renderAskedChat();
+			await chooseOnCard("Dinner out");
+			await new Promise((resolve) => setTimeout(resolve, 30));
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+			expect(screen.getByRole("button", { name: "Dinner out" })).toBeDisabled();
+			return () => finishLoad(SERVED);
+		}
+
+		it("keeps the message box off, a regenerate starts nothing, and the answer goes as the only turn", async () => {
+			const connectionsLoad = await pressAndWaitForTheConnections();
+
+			const composer = screen.getByTestId("message-input");
+			expect(composer).toBeDisabled();
+			expect(screen.getByTestId("composer-box")).toHaveAttribute(
+				"data-waiting-for-answer",
+				"true",
+			);
+			await fromPane("onRegenerate", { messageId: "assistant-1" });
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+			expect(screen.getByText(FIRST_WORDS)).toBeInTheDocument();
+
+			connectionsLoad();
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			expect(
+				runtimeHarness.streamInvocations[0].options?.questionAnswer,
+			).toEqual({ questionId: "q-1", answer: DINNER });
+			// Handed to the runtime: the box is the person's again, to queue behind the resume.
+			await waitFor(() => expect(composer).toBeEnabled());
+			expect(screen.getByTestId("composer-box")).not.toHaveAttribute(
+				"data-waiting-for-answer",
+			);
+		});
+
+		it("starts nothing else either: a send, a chip, an Atlas action, an edit", async () => {
+			const connectionsLoad = await pressAndWaitForTheConnections();
+
+			await fromComposer("onSend", sendPayload("Typing anyway"));
+			await fromPane("onSendFollowUp", { text: "Anything to do first?" });
+			await fromPane("onAtlasLifecycleAction", {
+				jobId: "atlas-job-1",
+				action: "continue",
+				message: "Add the risks",
+				profile: "in-depth",
+			});
+			await fromPane("onStartEdit", { messageId: "user-1" });
+			await new Promise((resolve) => setTimeout(resolve, 20));
+
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+			expect(runtimeHarness.atlasSubmissions).toHaveLength(0);
+			expect(screen.queryByTestId("composer-edit-strip")).toBeNull();
+			expect(screen.queryByTestId("queued-message-banner")).toBeNull();
+
+			connectionsLoad();
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			expect(
+				runtimeHarness.streamInvocations[0].options?.questionAnswer,
+			).toEqual({ questionId: "q-1", answer: DINNER });
+		});
+
+		it("gives the card back, with the box still off, when the gate turns the answer away", async () => {
+			checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+			ackCloudConnectorMock.mockResolvedValue(undefined);
+			renderPage(
+				cloudPage({ messages: askedChat(), questions: [askedQuestion()] }),
+			);
+			await waitFor(() => {
+				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+			});
+
+			await chooseOnCard("Dinner out");
+			// The warning is up: the card is off, and so is the box.
+			expect(
+				await screen.findByTestId("cloud-connector-warning"),
+			).toBeInTheDocument();
+			expect(screen.getByRole("button", { name: "Dinner out" })).toBeDisabled();
+			expect(screen.getByTestId("message-input")).toBeDisabled();
+
+			// Cancelled: the card is answerable again, and the question still waits.
+			await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+			await waitFor(() =>
+				expect(
+					screen.getByRole("button", { name: "Dinner out" }),
+				).toBeEnabled(),
+			);
+			expect(screen.getByTestId("message-input")).toBeDisabled();
+			expect(screen.getByTestId("composer-box")).toHaveAttribute(
+				"data-waiting-for-answer",
+				"true",
+			);
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+			// Pressed again, the answer is held at the gate the same way.
+			await fireEvent.click(screen.getByRole("button", { name: "Dinner out" }));
+			await screen.findByTestId("cloud-connector-warning");
+			expect(screen.getByTestId("message-input")).toBeDisabled();
+		});
+	});
+
 	// The page's own refusals of an answer: it sets nothing and does not get as far as the
 	// gate, so the card stays answerable. The warning is made to come up for any answer
 	// that reaches the gate, which is how a refusal that was left out shows.
