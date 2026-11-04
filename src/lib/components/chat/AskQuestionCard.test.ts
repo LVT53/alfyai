@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	readAskLineDrafts,
@@ -12,6 +13,7 @@ import type {
 } from "$lib/shared/ask-user";
 import { uiLanguage } from "$lib/stores/settings";
 import AskQuestionCard from "./AskQuestionCard.svelte";
+import AskQuestionCardHarness from "./AskQuestionCardHarness.test.svelte";
 
 // The mockup's questions (docs/plans/ask-me-first/mockups.html, sections 1, 2 and 7).
 const WAY: AskQuestion = {
@@ -120,6 +122,21 @@ async function renderCard(
 	const view = render(AskQuestionCard, { question, onAnswer, ...props });
 	await vi.advanceTimersByTimeAsync(400);
 	return { onAnswer, ...view };
+}
+
+// The card with the chat page's side of it (AskQuestionCardHarness.test.svelte): the page
+// takes an answer by raising `busy` inside `onAnswer`, and `settle` says what it says once
+// the server has answered. `renderCard`'s plain `onAnswer` raises nothing, as a page that
+// refused the answer would.
+async function renderPage(question: AskQuestionDto) {
+	const onAnswer = vi.fn<(questionId: string, answer: AskAnswer) => void>();
+	const view = render(AskQuestionCardHarness, { question, onAnswer });
+	await vi.advanceTimersByTimeAsync(400);
+	const settle = async (next: { busy?: boolean; failed?: boolean }) => {
+		view.component.settle(next);
+		await tick();
+	};
+	return { onAnswer, settle, ...view };
 }
 
 const button = (name: string) => screen.getByRole("button", { name });
@@ -968,33 +985,41 @@ describe("AskQuestionCard", () => {
 
 	describe("a busy card", () => {
 		it("a busy card takes no second answer", async () => {
-			const { onAnswer, rerender } = await renderCard(dto([WAY]));
+			const { onAnswer } = await renderPage(dto([WAY]));
 			const first = button("A party at home, recommended");
 			const second = button("Dinner out, just close family");
 
-			// Two clicks, another option, Up to you and the X: the card is off from the
-			// first click, before the page has had time to say it is busy.
+			// The page takes the answer by raising busy inside onAnswer. Two clicks, another
+			// option, Up to you and the X: the card is off from the first click.
 			await fireEvent.click(first);
 			await fireEvent.click(first);
 			await fireEvent.click(second);
 			await fireEvent.click(button("Up to you"));
 			await fireEvent.click(button("Close the question"));
-			expect(onAnswer).toHaveBeenCalledTimes(1);
 
-			// The page says it is busy: still off, and the chosen answer is still shown.
-			await rerender({ busy: true });
-			await fireEvent.click(second);
 			expect(onAnswer).toHaveBeenCalledTimes(1);
 			expect(first).toBeDisabled();
-			expect(button("A party at home, recommended")).toHaveAttribute(
-				"aria-pressed",
-				"true",
-			);
+			// The chosen answer is still shown.
+			expect(first).toHaveAttribute("aria-pressed", "true");
 			expect(second).toHaveAttribute("aria-pressed", "false");
 		});
 
+		it("takes one answer from two clicks made in the same task, before anything is drawn", async () => {
+			const { onAnswer } = await renderPage(dto([WAY]));
+
+			// Native clicks one after the other with no flush between: a double tap. The
+			// card reads the page's busy as soon as onAnswer returns, so the second finds
+			// it off.
+			button("A party at home, recommended").click();
+			button("A party at home, recommended").click();
+			button("Dinner out, just close family").click();
+			button("Up to you").click();
+
+			expect(onAnswer).toHaveBeenCalledTimes(1);
+		});
+
 		it("takes Enter in a line once, and not after a click on the line's send button", async () => {
-			const { onAnswer } = await renderCard(dto([WAY]));
+			const { onAnswer } = await renderPage(dto([WAY]));
 			await fireEvent.click(screen.getByTestId("ask-own-row"));
 			const line = screen.getByRole("textbox");
 			await fireEvent.input(line, { target: { value: "A picnic" } });
@@ -1035,45 +1060,67 @@ describe("AskQuestionCard", () => {
 			expect(screen.queryByRole("alert")).toBeNull();
 		});
 
-		it("is answerable again once the page says the answer did not go through", async () => {
-			const { onAnswer, rerender } = await renderCard(dto([WAY]));
+		it("stays answerable when the page does not take the answer", async () => {
+			// A plain onAnswer raises nothing, as a page that refused the answer (a sealed
+			// chat, an open edit) would.
+			const { onAnswer } = await renderCard(dto([WAY]));
+
 			await fireEvent.click(button("A party at home, recommended"));
-			await rerender({ busy: true });
 
-			// It did not go through: the page stops being busy and says so.
-			await rerender({
-				question: dto([WAY], { answer: answered(pick(0)) }),
-				busy: false,
-				failed: true,
-			});
-			expect(button("A party at home, recommended")).toBeEnabled();
+			expect(onAnswer).toHaveBeenCalledTimes(1);
+			// Nothing is going out, so the card is not off.
+			expect(button("Dinner out, just close family")).toBeEnabled();
+			expect(button("Up to you")).toBeEnabled();
 			await fireEvent.click(button("Dinner out, just close family"));
+			expect(onAnswer).toHaveBeenCalledTimes(2);
+			expect(onAnswer).toHaveBeenLastCalledWith("q-1", answered(pick(1)));
+			// And typing still goes into the card.
+			await fireEvent.keyDown(document.body, { key: "s" });
+			expect(screen.getByTestId("ask-own-input")).toHaveFocus();
+		});
 
+		it("keeps the error line and stays answerable when the page refuses an answer to a card that had failed", async () => {
+			// `failed` is already up, so a refusal gives it no edge to rise on.
+			const { onAnswer } = await renderCard(
+				dto([WAY], { answer: answered(pick(1)) }),
+				{ failed: true },
+			);
+
+			await fireEvent.click(button("A weekend away together"));
+
+			expect(onAnswer).toHaveBeenCalledTimes(1);
+			expect(screen.getByRole("alert")).toHaveTextContent(
+				"Couldn't send your answer. Try again.",
+			);
+			await fireEvent.click(button("A party at home, recommended"));
+			expect(onAnswer).toHaveBeenCalledTimes(2);
+		});
+
+		it("is answerable again once the page says the answer did not go through", async () => {
+			const { onAnswer, settle, rerender } = await renderPage(dto([WAY]));
+			await fireEvent.click(button("A party at home, recommended"));
+			expect(button("Up to you")).toBeDisabled();
+
+			// It did not go through: the question reads waiting again with its answer, and
+			// the page stops being busy and says so.
+			await rerender({ question: dto([WAY], { answer: answered(pick(0)) }) });
+			await settle({ busy: false, failed: true });
+
+			expect(button("A party at home, recommended")).toBeEnabled();
+			expect(screen.getByRole("alert")).toBeInTheDocument();
+			await fireEvent.click(button("Dinner out, just close family"));
 			expect(onAnswer).toHaveBeenCalledTimes(2);
 			expect(onAnswer).toHaveBeenLastCalledWith("q-1", answered(pick(1)));
 		});
 
-		it("is answerable again when the page only says the answer failed", async () => {
-			const { onAnswer, rerender } = await renderCard(dto([WAY]));
-			await fireEvent.click(button("A party at home, recommended"));
-			await fireEvent.click(button("Dinner out, just close family"));
-			expect(onAnswer).toHaveBeenCalledTimes(1);
-
-			await rerender({ failed: true });
-			await fireEvent.click(button("Dinner out, just close family"));
-
-			expect(onAnswer).toHaveBeenCalledTimes(2);
-		});
-
 		it("is answerable again after a second failure that left failed as it was", async () => {
-			const { onAnswer, rerender } = await renderCard(dto([WAY]), {
-				failed: true,
-			});
+			const { onAnswer, settle } = await renderPage(dto([WAY]));
+			await settle({ failed: true });
 
 			await fireEvent.click(button("A party at home, recommended"));
-			await rerender({ busy: true });
-			// Busy falls while failed stays true.
-			await rerender({ busy: false });
+			expect(button("Up to you")).toBeDisabled();
+			// Busy falls while failed stays up.
+			await settle({ busy: false });
 			await fireEvent.click(button("A party at home, recommended"));
 
 			expect(onAnswer).toHaveBeenCalledTimes(2);

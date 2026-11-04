@@ -11,9 +11,10 @@
 //
 // What the card knows is a question row and two flags. The page owns `busy` (an
 // answer is going out) and `failed` (it did not go through), as WriteConfirmCard's
-// {busy, error} are owned, and the card calls `onAnswer` once per attempt: it stays
-// off from that call until the page says the attempt is over (`busy` falls or
-// `failed` rises), so a double tap, or Enter after a click, never answers twice.
+// {busy, error} are owned. The page takes an answer by setting `busy` inside `onAnswer`,
+// and the card is off from then until the page lowers it, so a double tap, or Enter after
+// a click, never answers twice. A page that refuses the answer (a sealed chat, an open
+// edit) sets nothing, and the card stays answerable.
 //
 // The states, in order: waking (answers off for 400 ms after the card appears, and
 // until the reply's segment is saved, so a tap meant for something else cannot answer
@@ -104,7 +105,7 @@ let form = $state<Form>(untrack(() => formFromAnswer(question)));
 let inputs = $state<Array<HTMLInputElement | null>>([]);
 // The 400 ms have passed since the card appeared.
 let readUp = $state(false);
-// The answer has been handed to the page, which has not yet said whether it went.
+// The page took the answer (it raised `busy` inside `onAnswer`) and has not said how it went.
 let handedOver = $state(false);
 let foldedOpen = $state(false);
 
@@ -214,6 +215,11 @@ function submit(candidate: unknown) {
 	if (!checked.ok) return;
 	handedOver = true;
 	onAnswer?.(question.id, checked.answer);
+	// A page takes an answer by raising `busy` inside `onAnswer`; props are read live, so it
+	// has by now. One that did not (a refusal: a sealed chat, an open edit) has nothing going
+	// out and sets no flag, and `failed` may be up already, so no edge would ever come: the
+	// card stays answerable.
+	if (!busy) handedOver = false;
 }
 
 const sendCard = () => submit(answeredByForm());
