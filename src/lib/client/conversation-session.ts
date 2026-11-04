@@ -33,6 +33,7 @@ const PENDING_MESSAGE_PREFIX = "pending-chat-message:";
 const CONVERSATION_PERSONALITY_PREFIX = "conversation-personality:";
 const CONVERSATION_MODEL_PREFIX = "conversation-model:";
 const COMPOSER_MARKS_PREFIX = "composer-marks:";
+const ASK_LINE_DRAFT_PREFIX = "ask-line-draft:";
 
 export type PendingConversationMessage = {
 	message: string;
@@ -131,6 +132,57 @@ export function readComposerMarks(
 		};
 	} catch {
 		return null;
+	}
+}
+
+/**
+ * The words a person has typed on a question card's own lines, kept through a
+ * reload of the tab ("Ask me first"). `questionId` is the card's (the question
+ * row's id); the record is keyed by the index of a question on the card, whose
+ * own line the words are on. A line with no words is not kept, and a card with no
+ * lines left is forgotten: `null` and an all-empty record both drop the entry. A
+ * card that folds stores `null`; sign-out drops every card's lines
+ * (`clearConversationSessionState`).
+ */
+export function storeAskLineDrafts(
+	questionId: string,
+	drafts: Record<number, string> | null,
+): void {
+	const storage = getSessionStorage();
+	if (!storage) return;
+	const key = `${ASK_LINE_DRAFT_PREFIX}${questionId}`;
+	const kept = Object.entries(drafts ?? {}).filter(([, text]) => text !== "");
+	if (kept.length > 0) {
+		storage.setItem(key, JSON.stringify(Object.fromEntries(kept)));
+	} else {
+		storage.removeItem(key);
+	}
+}
+
+/** The lines `storeAskLineDrafts` kept for a question; none for a value it did not write. */
+export function readAskLineDrafts(questionId: string): Record<number, string> {
+	const raw =
+		getSessionStorage()?.getItem(`${ASK_LINE_DRAFT_PREFIX}${questionId}`) ??
+		null;
+	if (!raw) return {};
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		if (
+			typeof parsed !== "object" ||
+			parsed === null ||
+			Array.isArray(parsed)
+		) {
+			return {};
+		}
+		const drafts: Record<number, string> = {};
+		for (const [index, text] of Object.entries(parsed)) {
+			if (/^\d+$/.test(index) && typeof text === "string" && text !== "") {
+				drafts[Number(index)] = text;
+			}
+		}
+		return drafts;
+	} catch {
+		return {};
 	}
 }
 
@@ -978,7 +1030,8 @@ export function clearConversationSessionState(): void {
 		if (!key) continue;
 		if (
 			key.startsWith(PENDING_MESSAGE_PREFIX) ||
-			key.startsWith(COMPOSER_MARKS_PREFIX)
+			key.startsWith(COMPOSER_MARKS_PREFIX) ||
+			key.startsWith(ASK_LINE_DRAFT_PREFIX)
 		) {
 			keysToRemove.push(key);
 		}

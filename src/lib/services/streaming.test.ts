@@ -238,6 +238,52 @@ describe("streamChat", () => {
 		);
 	});
 
+	it("keeps waitingQuestionId from the terminal metadata", async () => {
+		// A reply that stopped to ask the person ends like any reply; the terminal
+		// metadata names the question that now waits, and the runtime reads it in
+		// onEnd to know the turn paused instead of finished.
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({ type: "text-delta", id: "text-1", delta: "Before I go on," }),
+				uiFrame({
+					type: "data-stream-metadata",
+					data: { assistantMessageId: "assistant-1", waitingQuestionId: "q-1" },
+					transient: true,
+				}),
+				uiFrame({ type: "finish", finishReason: "tool-calls" }),
+				uiFrame("[DONE]"),
+			],
+		});
+		await done;
+
+		expect(cb.onEnd).toHaveBeenCalledWith(
+			"Before I go on,",
+			expect.objectContaining({
+				assistantMessageId: "assistant-1",
+				waitingQuestionId: "q-1",
+			}),
+		);
+	});
+
+	it("drops a waitingQuestionId that is not an id", async () => {
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({ type: "text-delta", id: "text-1", delta: "Answer" }),
+				uiFrame({
+					type: "data-stream-metadata",
+					data: { assistantMessageId: "assistant-1", waitingQuestionId: 7 },
+					transient: true,
+				}),
+				uiFrame({ type: "finish" }),
+			],
+		});
+		await done;
+
+		expect(cb.onEnd).toHaveBeenCalledWith("Answer", {
+			assistantMessageId: "assistant-1",
+		});
+	});
+
 	it("drops a malformed userIntent from the terminal metadata frame", async () => {
 		const { callbacks: cb, done } = runStreamWithMockedResponse({
 			responseChunks: [
@@ -1247,6 +1293,66 @@ describe("streamChat", () => {
 		expect(parsedBody.confirmForkedSourceHistoryMutation).toBe(true);
 	});
 
+	it("posts an answer to its question's route with the turn's choices", async () => {
+		const answer = {
+			kind: "answered" as const,
+			answers: [
+				{ picked: [1], ownWords: null },
+				{ picked: [], ownWords: "Both, but not on Fridays" },
+			],
+		};
+		const {
+			mockFetch,
+			callbacks: cb,
+			done,
+		} = runStreamWithMockedResponse({
+			message: "ignored",
+			responseChunks: [tokenEvent("Carrying on."), endEvent()],
+			options: {
+				questionAnswer: { questionId: "q-1", answer },
+				modelId: "model2",
+				reasoningDepth: "thorough",
+				personalityProfileId: "personality-1",
+				enabledConnectionCapabilities: ["files.read"],
+				activeDocumentArtifactId: "artifact-9",
+			},
+		});
+		await done;
+
+		// The resume's stream is the stream protocol, read as any stream is.
+		expect(cb.onToken).toHaveBeenCalledWith("Carrying on.");
+		expect(cb.onEnd).toHaveBeenCalledWith("Carrying on.", undefined);
+		expect(cb.onError).not.toHaveBeenCalled();
+		expect(mockFetch).toHaveBeenCalledWith(
+			"/api/conversations/conv-1/questions/q-1/answer",
+			expect.objectContaining({
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: expect.any(String),
+			}),
+		);
+		const body = parseLastStreamRequestBody(mockFetch);
+		expect(body.answer).toEqual(answer);
+		expect(body.streamId).toEqual(expect.any(String));
+		expect(body.streamId).not.toBe("");
+		expect(body.model).toBe("model2");
+		expect(body.reasoningDepth).toBe("thorough");
+		expect(body.personalityProfileId).toBe("personality-1");
+		expect(body.enabledConnectionCapabilities).toEqual(["files.read"]);
+		expect(body.activeDocumentArtifactId).toBe("artifact-9");
+		// The person's message is the server's to find on the reply's own rows: the
+		// body carries the answer and the turn's choices, nothing of a send's.
+		expect(Object.keys(body).sort()).toEqual([
+			"activeDocumentArtifactId",
+			"answer",
+			"enabledConnectionCapabilities",
+			"model",
+			"personalityProfileId",
+			"reasoningDepth",
+			"streamId",
+		]);
+	});
+
 	it("parses tool-call details and assistant evidence metadata", async () => {
 		const onToolCall = vi.fn();
 		const { callbacks: cb, done } = runStreamWithMockedResponse({
@@ -1647,6 +1753,101 @@ describe("streamChat", () => {
 			expect(
 				isServerUpdateRefusal(vi.mocked(cb.onError).mock.calls[0][0]),
 			).toBe(true);
+		});
+
+		// An answer goes to a route of its own (the question's) and meets the same
+		// turning away: the runtime tells a claim lost to another answer from one
+		// given back by the code, and an update from a limit by the reason.
+		it("reports a refused answer with its status, code and reason, like any refused request", async () => {
+			async function refusedAnswer(
+				status: number,
+				body: Record<string, unknown>,
+			) {
+				const {
+					mockFetch,
+					callbacks: cb,
+					done,
+				} = runStreamWithMockedResponse({
+					response: new Response(JSON.stringify(body), {
+						status,
+						headers: { "Content-Type": "application/json" },
+					}),
+					options: {
+						questionAnswer: {
+							questionId: "q-1",
+							answer: { kind: "left_to_alfy" },
+						},
+					},
+				});
+				await done;
+
+				expect(mockFetch.mock.lastCall?.[0]).toBe(
+					"/api/conversations/conv-1/questions/q-1/answer",
+				);
+				expect(cb.onError).toHaveBeenCalledOnce();
+				expect(cb.onEnd).not.toHaveBeenCalled();
+				return vi.mocked(cb.onError).mock.calls[0][0] as Error & {
+					status?: number;
+					reason?: string;
+					code?: string;
+					serverUnavailable?: boolean;
+				};
+			}
+
+			// The claim was lost to another answer: the card folds.
+			const lost = await refusedAnswer(409, {
+				error: "The question has already been answered",
+				code: "QUESTION_ALREADY_ANSWERED",
+			});
+			expect(lost.status).toBe(409);
+			expect(lost.code).toBe("QUESTION_ALREADY_ANSWERED");
+			expect(lost.message).toBe("The question has already been answered");
+			expect(lost.reason).toBeUndefined();
+			expect(isServerUpdateRefusal(lost)).toBe(false);
+
+			// The preparation refused and gave the claim back: the card shows its error line.
+			const notWaiting = await refusedAnswer(409, {
+				error: "The question is not waiting for an answer",
+				code: "QUESTION_NOT_WAITING",
+			});
+			expect(notWaiting.status).toBe(409);
+			expect(notWaiting.code).toBe("QUESTION_NOT_WAITING");
+			expect(isServerUpdateRefusal(notWaiting)).toBe(false);
+
+			// The server is getting ready for a restart: wait, and send the answer again.
+			const draining = await refusedAnswer(503, {
+				error: "Server at capacity. Please try again later.",
+				code: "CAPACITY_EXCEEDED",
+				reason: "draining",
+				retryAfter: 10,
+			});
+			expect(draining.status).toBe(503);
+			expect(draining.code).toBe("CAPACITY_EXCEEDED");
+			expect(draining.reason).toBe("draining");
+			expect(draining.serverUnavailable).toBeUndefined();
+			expect(isServerUpdateRefusal(draining)).toBe(true);
+
+			// A limit is not an update.
+			const limited = await refusedAnswer(503, {
+				error: "Server at capacity. Please try again later.",
+				code: "CAPACITY_EXCEEDED",
+				reason: "user_limit",
+			});
+			expect(limited.status).toBe(503);
+			expect(limited.reason).toBe("user_limit");
+			expect(isServerUpdateRefusal(limited)).toBe(false);
+
+			// A refusal the preparation forwards, in the stream route's shape with its
+			// `status` inside, keeps the lower-case code it was made with.
+			const forwarded = await refusedAnswer(422, {
+				status: 422,
+				error: "Attachments are not ready.",
+				code: "attachment_not_ready",
+				attachmentIds: ["att-1"],
+			});
+			expect(forwarded.status).toBe(422);
+			expect(forwarded.code).toBe("attachment_not_ready");
+			expect(forwarded.message).toBe("Attachments are not ready.");
 		});
 
 		it("is the only kind of error that carries a status: a stream that failed after it was accepted has none", async () => {

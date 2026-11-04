@@ -8,6 +8,7 @@ import {
 	isNormalChatContextPreparationActivityClass,
 	type ResponseActivityEntry,
 } from "$lib/response-activity-types";
+import type { AskAnswer } from "$lib/shared/ask-user";
 import type { AttachmentReadinessItem } from "$lib/shared/attachment-readiness";
 import { isAttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import type { AttachmentExtractionStatusItem } from "$lib/shared/extraction-status";
@@ -95,6 +96,11 @@ export interface StreamMetadata {
 	streamClosedWithoutFinish?: boolean;
 	userMessageId?: string;
 	assistantMessageId?: string;
+	// The question this turn stopped to ask the person ("Ask me first"). The
+	// server sets it only when the question was saved on the reply's row, so a
+	// turn whose terminal metadata carries it paused instead of finishing: the
+	// answer, sent to that question's route, carries the same reply on.
+	waitingQuestionId?: string;
 	modelId?: import("$lib/model-types").ModelId;
 	modelDisplayName?: string;
 	providerDisplayName?: string;
@@ -383,6 +389,10 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 		assistantMessageId: parsed.assistantMessageId as
 			| StreamMetadata["assistantMessageId"]
 			| undefined,
+		waitingQuestionId:
+			typeof parsed.waitingQuestionId === "string"
+				? parsed.waitingQuestionId
+				: undefined,
 		modelId: parsed.modelId as StreamMetadata["modelId"] | undefined,
 		modelDisplayName: parsed.modelDisplayName as
 			| StreamMetadata["modelDisplayName"]
@@ -623,6 +633,12 @@ export type StreamChatOptions = {
 	// requests only). The server reads them off the reply it replaces; when that
 	// reply is already gone it has no record, and this is what it has.
 	retryUserIntent?: import("$lib/message-user-intent").MessageUserIntent;
+	// The person's answer to a question Alfy asked in the middle of a reply
+	// ("Ask me first"). It goes to the question's own route and the server carries
+	// the same reply on from it, so the message is the server's to find: of the
+	// turn's choices, only the model, depth, personality, connection capabilities
+	// and open item ride along (the composer's, as of the answer).
+	questionAnswer?: { questionId: string; answer: AskAnswer };
 };
 
 export function streamChat(
@@ -653,6 +669,7 @@ export function streamChat(
 		isEditResend,
 		retryOrigin,
 		retryUserIntent,
+		questionAnswer,
 	} = options ?? {};
 	const controller = new AbortController();
 	const streamId = reconnectToStreamId ?? crypto.randomUUID();
@@ -836,49 +853,61 @@ export function streamChat(
 
 	(async () => {
 		try {
-			const url = retryAssistantMessageId
-				? "/api/chat/retry"
-				: "/api/chat/stream";
+			const url = questionAnswer
+				? `/api/conversations/${encodeURIComponent(conversationId)}/questions/${encodeURIComponent(questionAnswer.questionId)}/answer`
+				: retryAssistantMessageId
+					? "/api/chat/retry"
+					: "/api/chat/stream";
 			streamUrl = url;
-			const body = retryAssistantMessageId
+			const body = questionAnswer
 				? JSON.stringify({
-						conversationId,
-						assistantMessageId: retryAssistantMessageId,
-						userMessageId: retryUserMessageId,
-						userMessage: retryUserMessage ?? message,
+						answer: questionAnswer.answer,
 						streamId,
 						model: modelId,
 						reasoningDepth,
-						attachmentIds,
-						activeDocumentArtifactId,
-						pictureRefs: pictureRefs?.length ? pictureRefs : undefined,
-						imageMarks: imageMarks ?? undefined,
 						personalityProfileId,
-						confirmForkedSourceHistoryMutation:
-							confirmForkedSourceHistoryMutation === true ? true : undefined,
-						retryOrigin,
-						userIntent: retryUserIntent,
-					})
-				: JSON.stringify({
-						message,
-						conversationId,
-						streamId,
-						model: modelId,
-						skipPersistUserMessage,
-						attachmentIds,
-						linkedSources,
-						pendingSkill,
-						reasoningDepth,
-						forceWebSearch: forceWebSearch === true ? true : undefined,
 						enabledConnectionCapabilities,
 						activeDocumentArtifactId,
-						pictureRefs: pictureRefs?.length ? pictureRefs : undefined,
-						imageMarks: imageMarks ?? undefined,
-						personalityProfileId,
-						reconnectToStreamId,
-						userMessage: reconnectUserMessage,
-						isEditResend: isEditResend === true ? true : undefined,
-					});
+					})
+				: retryAssistantMessageId
+					? JSON.stringify({
+							conversationId,
+							assistantMessageId: retryAssistantMessageId,
+							userMessageId: retryUserMessageId,
+							userMessage: retryUserMessage ?? message,
+							streamId,
+							model: modelId,
+							reasoningDepth,
+							attachmentIds,
+							activeDocumentArtifactId,
+							pictureRefs: pictureRefs?.length ? pictureRefs : undefined,
+							imageMarks: imageMarks ?? undefined,
+							personalityProfileId,
+							confirmForkedSourceHistoryMutation:
+								confirmForkedSourceHistoryMutation === true ? true : undefined,
+							retryOrigin,
+							userIntent: retryUserIntent,
+						})
+					: JSON.stringify({
+							message,
+							conversationId,
+							streamId,
+							model: modelId,
+							skipPersistUserMessage,
+							attachmentIds,
+							linkedSources,
+							pendingSkill,
+							reasoningDepth,
+							forceWebSearch: forceWebSearch === true ? true : undefined,
+							enabledConnectionCapabilities,
+							activeDocumentArtifactId,
+							pictureRefs: pictureRefs?.length ? pictureRefs : undefined,
+							imageMarks: imageMarks ?? undefined,
+							personalityProfileId,
+							reconnectToStreamId,
+							userMessage: reconnectUserMessage,
+							isEditResend: isEditResend === true ? true : undefined,
+						});
 			const res = await fetch(url, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },

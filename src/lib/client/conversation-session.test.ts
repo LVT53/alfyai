@@ -15,10 +15,12 @@ import {
 	hasPendingConversationMessage,
 	markPreviousConversationId,
 	pendingDraftSave,
+	readAskLineDrafts,
 	readComposerMarks,
 	setConversationModelSelection,
 	setConversationPersonalitySelection,
 	setLandingDraftConversationId,
+	storeAskLineDrafts,
 	storeComposerMarks,
 	storePendingConversationMessage,
 } from "./conversation-session";
@@ -1388,5 +1390,68 @@ describe("marks across the hand-off and a reload", () => {
 
 		storeComposerMarks("conv-r", null);
 		expect(readComposerMarks("conv-r")).toBeNull();
+	});
+});
+
+describe("a question card's own lines across a reload", () => {
+	beforeEach(() => sessionStorage.clear());
+
+	it("keeps a card's own lines per question through a reload of the tab, and forgets them on sign-out", () => {
+		storeAskLineDrafts("q-1", { 0: "Both, but later", 2: "Not on Fridays" });
+		storeAskLineDrafts("q-2", { 1: "Another card's words" });
+
+		// sessionStorage is what a reload of the tab keeps; the key is the question's.
+		expect(sessionStorage.getItem("ask-line-draft:q-1")).not.toBeNull();
+		expect(readAskLineDrafts("q-1")).toEqual({
+			0: "Both, but later",
+			2: "Not on Fridays",
+		});
+		expect(readAskLineDrafts("q-2")).toEqual({ 1: "Another card's words" });
+		expect(readAskLineDrafts("q-3")).toEqual({});
+
+		clearConversationSessionState();
+
+		expect(readAskLineDrafts("q-1")).toEqual({});
+		expect(readAskLineDrafts("q-2")).toEqual({});
+		expect(sessionStorage.getItem("ask-line-draft:q-1")).toBeNull();
+	});
+
+	it("drops a question's lines when they are stored as null", () => {
+		storeAskLineDrafts("q-1", { 0: "Both, but later" });
+		storeAskLineDrafts("q-2", { 0: "Kept" });
+
+		storeAskLineDrafts("q-1", null);
+
+		expect(readAskLineDrafts("q-1")).toEqual({});
+		expect(sessionStorage.getItem("ask-line-draft:q-1")).toBeNull();
+		expect(readAskLineDrafts("q-2")).toEqual({ 0: "Kept" });
+	});
+
+	it("keeps no line a person has emptied, and no entry when none is left", () => {
+		storeAskLineDrafts("q-1", { 0: "Both", 1: "" });
+		expect(readAskLineDrafts("q-1")).toEqual({ 0: "Both" });
+
+		storeAskLineDrafts("q-1", { 0: "" });
+		expect(readAskLineDrafts("q-1")).toEqual({});
+		expect(sessionStorage.getItem("ask-line-draft:q-1")).toBeNull();
+	});
+
+	it("reads nothing from a value it did not write", () => {
+		for (const raw of [
+			"not json",
+			"null",
+			"[]",
+			'"words"',
+			'{"first":"x","0":7,"1":null}',
+		]) {
+			sessionStorage.setItem("ask-line-draft:q-bad", raw);
+			expect(readAskLineDrafts("q-bad")).toEqual({});
+		}
+
+		sessionStorage.setItem(
+			"ask-line-draft:q-mixed",
+			'{"0":"kept","x":"dropped","1":3}',
+		);
+		expect(readAskLineDrafts("q-mixed")).toEqual({ 0: "kept" });
 	});
 });
