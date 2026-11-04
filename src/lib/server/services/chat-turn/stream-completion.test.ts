@@ -3195,6 +3195,8 @@ describe("completeStreamTurn", () => {
 				conversationId: "conv-1",
 				messageId: "asst-0",
 				callId: "call-ask",
+				toolName: "ask_user",
+				questionId: "q-1",
 				outputSummary: "The user picked: Grey",
 				resultDigest: "answers:\n- Which colour?: Grey",
 			});

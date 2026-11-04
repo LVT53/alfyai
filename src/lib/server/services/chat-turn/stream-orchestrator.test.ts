@@ -4371,6 +4371,8 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 				conversationId: "test-conv",
 				messageId: "asst-1",
 				callId: "call-ask",
+				toolName: "ask_user",
+				questionId: "q-1",
 				outputSummary: "The user picked: B",
 				resultDigest: "answers:\n- Which one?: B",
 			});
@@ -4574,6 +4576,120 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 			} finally {
 				clearStreamBuffer("resume-owner-stream");
 				unregisterActiveChatStream("resume-owner-stream", ownerController);
+			}
+		});
+
+		// The claim is handed back whatever ends the start: the arbiter's other early
+		// return, a throw in the setup before the turn's own try, and a throw in the
+		// turn's own ending. Each would leave the chat refusing messages with no card
+		// to answer until a restart.
+		it("gives its question back when the stream cannot be registered and the turn closes", async () => {
+			const { releaseAskQuestion } = await import(
+				"$lib/server/services/chat-turn/ask-questions"
+			);
+			const runStreaming = await mockRun(
+				[{ type: "text_delta", text: "Not reached." }, finishEvent],
+				{},
+			);
+			// the stream id is another person's: the registry rejects it and no stream
+			// of this person's chat runs to join
+			const otherUserController = new AbortController();
+			registerActiveChatStream({
+				streamId: "colliding-resume-stream",
+				userId: "other-user",
+				controller: otherUserController,
+				conversationId: "other-conversation",
+			});
+
+			try {
+				const response = runResume({
+					conversationId: "u1-conversation",
+					streamId: "colliding-resume-stream",
+				});
+
+				expect(await response.text()).toBe("");
+				expect(runStreaming).not.toHaveBeenCalled();
+				expect(releaseAskQuestion).toHaveBeenCalledWith({
+					userId: "u1",
+					questionId: "q-1",
+					claim: "claim-1",
+				});
+			} finally {
+				unregisterActiveChatStream(
+					"colliding-resume-stream",
+					otherUserController,
+				);
+			}
+		});
+
+		it("gives its question back when a step of the setup throws before the turn's own try", async () => {
+			const { createThoughtStepClassifierSession } = await import(
+				"$lib/server/services/chat-turn/thought-step-classifier"
+			);
+			const { releaseAskQuestion, settleAskQuestion } = await import(
+				"$lib/server/services/chat-turn/ask-questions"
+			);
+			vi.mocked(createThoughtStepClassifierSession).mockImplementation(() => {
+				throw new Error("classifier setup failed");
+			});
+			const runStreaming = await mockRun(
+				[{ type: "text_delta", text: "Not reached." }, finishEvent],
+				{},
+			);
+
+			try {
+				await expect(
+					readSseResponse(
+						runResume({
+							conversationId: "setup-throw-conv",
+							streamId: "setup-throw-stream",
+						}),
+					),
+				).rejects.toThrow("classifier setup failed");
+
+				expect(runStreaming).not.toHaveBeenCalled();
+				expect(settleAskQuestion).not.toHaveBeenCalled();
+				expect(releaseAskQuestion).toHaveBeenCalledWith({
+					userId: "u1",
+					questionId: "q-1",
+					claim: "claim-1",
+				});
+			} finally {
+				// the turn never reached its own ending, which is what unregisters its
+				// stream (as for any turn whose setup throws); the registry is the
+				// test's to clean
+				unregisterActiveChatStream("setup-throw-stream");
+				clearStreamBuffer("setup-throw-stream");
+			}
+		});
+
+		it("gives its question back when a step of the turn's own ending throws", async () => {
+			const logs = captureStreamLogs();
+			try {
+				const { releaseAskQuestion } = await import(
+					"$lib/server/services/chat-turn/ask-questions"
+				);
+				// reading what the run asked is the first thing the ending does
+				await mockRun(
+					[{ type: "text_delta", text: "Here is the plan." }, finishEvent],
+					{
+						getTurnAsk: () => {
+							throw new Error("run state unreadable");
+						},
+					},
+				);
+
+				await readSseResponse(runResume()).catch(() => undefined);
+
+				await vi.waitFor(() =>
+					expect(releaseAskQuestion).toHaveBeenCalledWith({
+						userId: "u1",
+						questionId: "q-1",
+						claim: "claim-1",
+					}),
+				);
+			} finally {
+				logs.restore();
 			}
 		});
 

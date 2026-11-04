@@ -1368,10 +1368,14 @@ describe("finalizeChatTurn", () => {
 				questionId: "q-1",
 				claim: "claim-1",
 			});
+			// the ask's call is named by its id, its tool and its question: another
+			// tool's call or a refused card may share the id
 			expect(mockUpdateAssistantToolCallResult).toHaveBeenCalledWith({
 				conversationId: "conv-1",
 				messageId: "asst-0",
 				callId: "call-ask",
+				toolName: "ask_user",
+				questionId: "q-1",
 				outputSummary: "The user picked: Grey",
 				resultDigest: "answers:\n- Which colour?: Grey",
 			});

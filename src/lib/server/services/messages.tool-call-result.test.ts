@@ -57,6 +57,8 @@ const answer = {
 	conversationId: CONVERSATION,
 	messageId: "asking-1",
 	callId: "call-ask",
+	toolName: "ask_user",
+	questionId: "question-1",
 	outputSummary: "The user picked: A party at home",
 	resultDigest: '{"status":"answered"}',
 };
@@ -139,5 +141,82 @@ describe("updateAssistantToolCallResult on a real database", () => {
 		).resolves.toBe(false);
 
 		expect(readToolCalls("not-assistant-1")).toBe(TIMELINE);
+	});
+
+	// A provider may reuse a call id for another tool's call within one response,
+	// so one stored row can hold a calendar call and the ask under the same id, or a
+	// card the tool refused (an ask_user call with no question) and the ask that
+	// paused the reply. The answer goes into the ask alone.
+	describe("a row that holds more than one call under the ask's id", () => {
+		const calendar = {
+			type: "tool_call",
+			callId: "call-ask",
+			name: "calendar",
+			input: { action: "list_events" },
+			status: "done",
+			outputSummary: "Found 1 event.",
+			resultDigest: "One appointment at 10:00.",
+		};
+		const refused = {
+			type: "tool_call",
+			callId: "call-ask",
+			name: "ask_user",
+			input: { questions: [] },
+			status: "done",
+			outputSummary: "Question 1 takes one pick.",
+			metadata: {
+				ok: false,
+				evidenceReady: false,
+				reason: "invalid_questions",
+			},
+		};
+		const answered = {
+			...asked,
+			outputSummary: "The user picked: A party at home",
+			resultDigest: '{"status":"answered"}',
+		};
+
+		function storeTimeline(...calls: unknown[]) {
+			memory.db
+				.update(schema.messages)
+				.set({ toolCalls: JSON.stringify(calls) })
+				.where(eq(schema.messages.id, "asking-1"))
+				.run();
+		}
+
+		async function storedCalls() {
+			const [message] = (await listMessages(CONVERSATION)).filter(
+				(candidate) => candidate.id === "asking-1",
+			);
+			return message?.thinkingSegments;
+		}
+
+		it("writes the answer into the ask, not the calendar call that comes first under its id", async () => {
+			storeTimeline(research, calendar, asked);
+
+			await expect(updateAssistantToolCallResult(answer)).resolves.toBe(true);
+
+			expect(await storedCalls()).toEqual([research, calendar, answered]);
+		});
+
+		it("writes the answer into the ask that paused the reply, not a refused ask_user call under its id", async () => {
+			storeTimeline(refused, asked);
+
+			await expect(updateAssistantToolCallResult(answer)).resolves.toBe(true);
+
+			expect(await storedCalls()).toEqual([refused, answered]);
+		});
+
+		it("writes nothing when only another tool's call, or a refused card, has the id", async () => {
+			for (const calls of [[calendar], [refused], [calendar, refused]]) {
+				storeTimeline(...calls);
+
+				await expect(updateAssistantToolCallResult(answer)).resolves.toBe(
+					false,
+				);
+
+				expect(readToolCalls("asking-1")).toBe(JSON.stringify(calls));
+			}
+		});
 	});
 });

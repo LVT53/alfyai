@@ -1280,14 +1280,23 @@ export async function getStoredCreateArtifactCall(params: {
  * call's input, status and metadata, the other calls and the reasoning text
  * stay as they were, and so does the row's metadata.
  *
+ * The call is named by its id AND its tool, and by the question it asked when
+ * `questionId` is given (the ask's call carries it in its metadata): a provider
+ * may reuse a call id for another tool's call in the same row, and a card the
+ * tool refused earlier in the row is an `ask_user` call under that id too, with
+ * no question. Only the call whose id, tool and question all match is rewritten
+ * (the first, if the caller names no question and several still match).
+ *
  * `true` when the call was found and rewritten. `false` when there was nothing
  * to rewrite: no such assistant row in that conversation, no readable timeline
- * on it, or no call in it with that id. Nothing is written then.
+ * on it, or no call in it that matches. Nothing is written then.
  */
 export async function updateAssistantToolCallResult(params: {
 	conversationId: string;
 	messageId: string;
 	callId: string;
+	toolName: string;
+	questionId?: string;
 	outputSummary: string;
 	resultDigest: string;
 }): Promise<boolean> {
@@ -1308,7 +1317,11 @@ export async function updateAssistantToolCallResult(params: {
 	const timeline = readThinkingSegmentsFromRow(row) ?? [];
 	const call = timeline.find(
 		(segment): segment is Extract<ThinkingSegment, { type: "tool_call" }> =>
-			segment?.type === "tool_call" && segment.callId === params.callId,
+			segment?.type === "tool_call" &&
+			segment.callId === params.callId &&
+			segment.name === params.toolName &&
+			(params.questionId === undefined ||
+				segment.metadata?.questionId === params.questionId),
 	);
 	if (!call) return false;
 	call.outputSummary = params.outputSummary;

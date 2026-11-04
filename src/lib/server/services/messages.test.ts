@@ -1036,6 +1036,13 @@ describe("messages metadata", () => {
 			conversationId: "conv-1",
 			messageId: "assistant-asking-1",
 			callId: "call-ask",
+			toolName: "ask_user",
+			questionId: "question-1",
+			outputSummary: "The user picked: A party at home",
+			resultDigest: '{"status":"answered"}',
+		};
+		const answered = {
+			...asked,
 			outputSummary: "The user picked: A party at home",
 			resultDigest: '{"status":"answered"}',
 		};
@@ -1115,6 +1122,115 @@ describe("messages metadata", () => {
 			await expect(updateAssistantToolCallResult(answer)).resolves.toBe(false);
 
 			expect(mockUpdate).not.toHaveBeenCalled();
+		});
+
+		// A provider may reuse a call id for another tool's call in the same row, and
+		// a card the tool refused earlier in the row is an ask_user call under that
+		// id too (with no question). Only the call that paused the reply takes the
+		// answer: it is named by its id, its tool and its question.
+		describe("a call id that is not the ask's alone", () => {
+			const calendar = {
+				type: "tool_call",
+				callId: "call-ask",
+				name: "calendar",
+				input: { action: "list_events" },
+				status: "done",
+				outputSummary: "Found 1 event.",
+				resultDigest: "One appointment at 10:00.",
+			};
+			const refused = {
+				type: "tool_call",
+				callId: "call-ask",
+				name: "ask_user",
+				input: { questions: [] },
+				status: "done",
+				outputSummary: "Question 1 takes one pick.",
+				metadata: {
+					ok: false,
+					evidenceReady: false,
+					reason: "invalid_questions",
+				},
+			};
+
+			it("rewrites the ask's call and not another tool's call that shares its id, whichever comes first", async () => {
+				pushAskingRow(JSON.stringify([calendar, asked]));
+				const { updateAssistantToolCallResult } = await import("./messages");
+
+				await expect(updateAssistantToolCallResult(answer)).resolves.toBe(true);
+
+				expect(JSON.parse(String(mockRows[0]?.toolCalls))).toEqual([
+					calendar,
+					answered,
+				]);
+			});
+
+			it("leaves a refused ask_user call under the same id alone", async () => {
+				pushAskingRow(JSON.stringify([refused, asked]));
+				const { updateAssistantToolCallResult } = await import("./messages");
+
+				await expect(updateAssistantToolCallResult(answer)).resolves.toBe(true);
+
+				expect(JSON.parse(String(mockRows[0]?.toolCalls))).toEqual([
+					refused,
+					answered,
+				]);
+			});
+
+			it("rewrites the call of the question it names, not another ask_user call under the id", async () => {
+				const earlier = {
+					...asked,
+					metadata: { paused: true, questionId: "question-0" },
+				};
+				pushAskingRow(JSON.stringify([earlier, asked]));
+				const { updateAssistantToolCallResult } = await import("./messages");
+
+				await expect(updateAssistantToolCallResult(answer)).resolves.toBe(true);
+
+				expect(JSON.parse(String(mockRows[0]?.toolCalls))).toEqual([
+					earlier,
+					answered,
+				]);
+			});
+
+			it("takes the first call of the id and the tool when it names no question", async () => {
+				const { questionId: _questionId, ...unnamed } = answer;
+				pushAskingRow(JSON.stringify([calendar, refused, asked]));
+				const { updateAssistantToolCallResult } = await import("./messages");
+
+				await expect(updateAssistantToolCallResult(unnamed)).resolves.toBe(
+					true,
+				);
+
+				expect(JSON.parse(String(mockRows[0]?.toolCalls))).toEqual([
+					calendar,
+					{
+						...refused,
+						outputSummary: "The user picked: A party at home",
+						resultDigest: '{"status":"answered"}',
+					},
+					asked,
+				]);
+			});
+
+			it.each([
+				["the only call under the id is another tool's", [calendar]],
+				["the only ask_user call under the id is a refused card", [refused]],
+				[
+					"the ask_user call under the id asked another question",
+					[{ ...asked, metadata: { paused: true, questionId: "question-0" } }],
+				],
+			])("changes nothing and answers false when %s", async (_name, timeline) => {
+				const toolCalls = JSON.stringify(timeline);
+				pushAskingRow(toolCalls);
+				const { updateAssistantToolCallResult } = await import("./messages");
+
+				await expect(updateAssistantToolCallResult(answer)).resolves.toBe(
+					false,
+				);
+
+				expect(mockUpdate).not.toHaveBeenCalled();
+				expect(mockRows[0]?.toolCalls).toBe(toolCalls);
+			});
 		});
 	});
 

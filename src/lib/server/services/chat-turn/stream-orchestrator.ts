@@ -427,8 +427,52 @@ export function runChatStreamOrchestrator(
 		}
 	};
 
+	// A resume holds the claim that won its question (ask-questions.ts). Every way
+	// the turn's start can end hands it back, as its outermost step: a segment that
+	// was saved settled its question with the claim already (finalize) and the
+	// store ignores a claim that has been, so this only gives back a question whose
+	// segment was not saved, for the person to send again. Wrapping the whole start,
+	// not a finally inside it, is what keeps a step from skipping it: the arbiter's
+	// early returns, a throw in the setup before the turn's own try, and a throw in
+	// the turn's own ending (every one would leave the chat refusing messages, with
+	// no card to answer, until a restart). Best-effort: a store that is down must
+	// not hide how the turn ended. A turn that is not a resume is not wrapped.
+	const releaseResumeClaim = async (): Promise<void> => {
+		if (!resume) return;
+		try {
+			await releaseAskQuestion({
+				userId: user.id,
+				questionId: resume.questionId,
+				claim: resume.claim,
+			});
+		} catch (error) {
+			console.warn("[CHAT_STREAM] Could not give a question back", {
+				conversationId,
+				streamId,
+				questionId: resume.questionId,
+				error,
+			});
+		}
+	};
+	const startHoldingTheClaim = (
+		run: (
+			controller: ReadableStreamDefaultController<Uint8Array>,
+		) => Promise<void>,
+	) =>
+		resume
+			? async (
+					controller: ReadableStreamDefaultController<Uint8Array>,
+				): Promise<void> => {
+					try {
+						await run(controller);
+					} finally {
+						await releaseResumeClaim();
+					}
+				}
+			: run;
+
 	const stream = new ReadableStream({
-		async start(controller) {
+		start: startHoldingTheClaim(async (controller) => {
 			const downstreamAbortController = new AbortController();
 			const downstreamSignal = downstreamAbortController.signal;
 			let downstreamClosed = false;
@@ -502,30 +546,6 @@ export function runChatStreamOrchestrator(
 			const upstreamAbortController = new AbortController();
 			let isMainStream = false;
 
-			// A resume holds the claim that won its question. However the turn ends,
-			// even before it starts, the claim is handed back: a question the reply
-			// saved was settled with it (finalize), and the store ignores a claim that
-			// has been, so this only gives back a question whose segment was not
-			// saved. Best-effort: a store that is down must not hide how the turn
-			// ended.
-			const releaseResumeClaim = async (): Promise<void> => {
-				if (!resume) return;
-				try {
-					await releaseAskQuestion({
-						userId: user.id,
-						questionId: resume.questionId,
-						claim: resume.claim,
-					});
-				} catch (error) {
-					console.warn("[CHAT_STREAM] Could not give a question back", {
-						conversationId,
-						streamId,
-						questionId: resume.questionId,
-						error,
-					});
-				}
-			};
-
 			if (streamId) {
 				const decision = arbitrateStreamStart({
 					streamId,
@@ -541,13 +561,10 @@ export function runChatStreamOrchestrator(
 					getOrCreateStreamBuffer,
 				});
 				if (decision.action === "reconnect") {
-					// Joining the stream that runs: no turn of its own starts here.
-					await releaseResumeClaim();
 					setTimeout(() => doReconnect(decision.targetStreamId), 0);
 					return;
 				}
 				if (decision.action === "close") {
-					await releaseResumeClaim();
 					closeDownstream();
 					return;
 				}
@@ -1767,12 +1784,8 @@ export function runChatStreamOrchestrator(
 						);
 					}
 				}
-				// A resume whose segment was saved settled its question already (finalize);
-				// one that ended without a saved segment gives it back, with the answer
-				// kept, for the person to send again. Never run again by itself.
-				await releaseResumeClaim();
 			}
-		},
+		}),
 		cancel() {
 			cancelStream();
 		},

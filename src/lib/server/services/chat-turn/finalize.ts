@@ -26,6 +26,7 @@ import {
 } from "$lib/server/services/messages";
 import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
+import { ASK_USER_TOOL_NAME } from "$lib/shared/ask-user";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
 import type { AskResumeInput } from "./ask-capture";
 import {
@@ -485,10 +486,15 @@ async function settleAnsweredAskQuestion(params: {
 		});
 	}
 	try {
+		// The ask's call is named by its id, its tool and its question: a provider
+		// may reuse the id for another tool's call in the same row, or for a card
+		// the tool refused, and neither is the call that paused the reply.
 		const written = await updateAssistantToolCallResult({
 			conversationId: params.conversationId,
 			messageId: resume.askedMessageId,
 			callId: resume.askToolCallId,
+			toolName: ASK_USER_TOOL_NAME,
+			questionId: resume.questionId,
 			...resume.answerDigest,
 		});
 		if (!written) {

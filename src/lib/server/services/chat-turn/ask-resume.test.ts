@@ -299,14 +299,35 @@ type Rows = {
 	}>;
 };
 
-function seedMessages({ segments }: Rows, userMetadata: unknown = null) {
+/**
+ * The reply's rows after `earlierExchanges` exchanges of the chat that came
+ * before it (a user message and its reply each), so the person's message is not
+ * the first row.
+ */
+function seedMessages(
+	{ segments }: Rows,
+	userMetadata: unknown = null,
+	earlierExchanges = 0,
+) {
+	const before = Array.from({ length: earlierExchanges }, (_, index) =>
+		(["user", "assistant"] as const).map((role, half) => ({
+			id: `${role}-before-${index}`,
+			conversationId: CHAT,
+			messageSequence: index * 2 + half + 1,
+			role,
+			content: `An earlier ${role} message ${index}`,
+			createdAt: NOW,
+		})),
+	).flat();
+	const offset = earlierExchanges * 2;
 	memory.db
 		.insert(schema.messages)
 		.values([
+			...before,
 			{
 				id: "user-m",
 				conversationId: CHAT,
-				messageSequence: 1,
+				messageSequence: offset + 1,
 				role: "user",
 				content: "Plan my living room",
 				metadataJson: userMetadata ? JSON.stringify(userMetadata) : null,
@@ -315,7 +336,7 @@ function seedMessages({ segments }: Rows, userMetadata: unknown = null) {
 			...segments.map((segment, index) => ({
 				id: segment.id,
 				conversationId: CHAT,
-				messageSequence: index + 2,
+				messageSequence: offset + index + 2,
 				role: "assistant" as const,
 				content: segment.content,
 				metadataJson: segment.metadata
@@ -401,23 +422,27 @@ async function oneSegmentReply(
 }
 
 /** A reply of two segments: the first asked, was answered in the person's own words, and the second asked again. */
-async function twoSegmentReply(answer: AskAnswer) {
-	seedMessages({
-		segments: [
-			{
-				id: "asst-1",
-				content: "Let me look first.",
-				metadata: { userIntent: { webSearch: true } },
-				toolCalls: [FETCH_CALL, SEARCH_CALL, ASK_CALL_1],
-			},
-			{
-				id: "asst-2",
-				content: "Thanks. One more thing.",
-				metadata: { continuesMessageId: "asst-1" },
-				toolCalls: [CALENDAR_CALL, ASK_CALL_2],
-			},
-		],
-	});
+async function twoSegmentReply(answer: AskAnswer, earlierExchanges = 0) {
+	seedMessages(
+		{
+			segments: [
+				{
+					id: "asst-1",
+					content: "Let me look first.",
+					metadata: { userIntent: { webSearch: true } },
+					toolCalls: [FETCH_CALL, SEARCH_CALL, ASK_CALL_1],
+				},
+				{
+					id: "asst-2",
+					content: "Thanks. One more thing.",
+					metadata: { continuesMessageId: "asst-1" },
+					toolCalls: [CALENDAR_CALL, ASK_CALL_2],
+				},
+			],
+		},
+		null,
+		earlierExchanges,
+	);
 	const first = await stamped({
 		messageId: "asst-1",
 		toolCallId: "call-ask-1",
@@ -583,10 +608,14 @@ describe("prepareAskResumeTurn", () => {
 		]);
 	});
 
-	it("ends the history before the person's message and skips the web prefetch", async () => {
-		// a reply of two segments: the history ends before the person's message, not
-		// before the row that asked, so nothing of the reply is read from the chat
-		const claimed = await twoSegmentReply(SECOND_ANSWER);
+	it("names the message that began the reply as the end of the history: not the row that asked, and not an earlier message", async () => {
+		// The run's history ends before the id this names (`historyBeforeMessageId`,
+		// with no web prefetch: the orchestrator test "runs a resume with its
+		// continuation..." holds both on the model run), and the history cut keeps
+		// the whole history when the id is missing. So the id has to be the person's
+		// message of this reply: the user row right before its first segment, in a
+		// chat that has earlier messages, and for a reply of several segments.
+		const claimed = await twoSegmentReply(SECOND_ANSWER, 2);
 
 		const result = await prepare(claimed);
 
@@ -595,6 +624,10 @@ describe("prepareAskResumeTurn", () => {
 		const { resume } = result.value.orchestratorInput;
 		expect(resume?.userMessageId).toBe("user-m");
 		expect(resume?.askedMessageId).toBe("asst-2");
+		// what is sent after the history is the person's own message as stored
+		expect(result.value.orchestratorInput.turn.normalizedMessage).toBe(
+			"Plan my living room",
+		);
 	});
 
 	it("carries the reply's earlier tool calls, the captured results and the person's own words", async () => {
