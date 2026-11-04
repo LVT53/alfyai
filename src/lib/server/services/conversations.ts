@@ -17,6 +17,9 @@ import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import type { ConversationBatchResult } from "$lib/shared/conversation-batch";
 import { DEFAULT_CONVERSATION_TITLE } from "$lib/shared/conversation-title";
 import { recordConversationAnalytics } from "./analytics";
+// The store, not the chat-turn facade: the facade reaches this file through the
+// turn's preflight, so importing it here would close a cycle.
+import { listWaitingAskConversationIds } from "./chat-turn/ask-questions";
 import type { ConversationForkListSummary } from "./conversation-forks";
 import { getConversationForkSummaries } from "./conversation-forks";
 
@@ -171,6 +174,15 @@ export async function listConversations(
 		}
 	}
 
+	// "Ask me first": the chats whose saved reply asked a question that waits, in one
+	// query over the visible chats.
+	const waitingForAnswer = await listWaitingAskConversationIds({
+		userId,
+		conversationIds: visibleConversations.map(
+			(conversation) => conversation.id,
+		),
+	});
+
 	return visibleConversations.map((conversation) => {
 		const forkSummary = forkSummaries.get(conversation.id);
 		const atlasBadge = atlasBadgeByConversation.get(conversation.id) ?? null;
@@ -178,6 +190,9 @@ export async function listConversations(
 			...conversation,
 			...(forkSummary ? { forkSummary } : {}),
 			...(atlasBadge ? { atlasBadge } : {}),
+			...(waitingForAnswer.has(conversation.id)
+				? { waitingForAnswer: true as const }
+				: {}),
 		};
 	});
 }
@@ -614,6 +629,12 @@ export interface ConversationListItem {
 		completedAt?: number | null;
 		updatedAt?: number;
 	} | null;
+	/**
+	 * Alfy asked a question in this chat ("Ask me first") that waits for an answer
+	 * (or whose answer did not go through): the sidebar marks the chat. Present only
+	 * when true.
+	 */
+	waitingForAnswer?: true;
 }
 
 export interface ConversationDraft {

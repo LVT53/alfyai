@@ -712,6 +712,68 @@ describe("conversation sidebar pinning", () => {
 		});
 		expect(older?.atlasBadge).toBeUndefined();
 	});
+
+	// "Ask me first": a chat whose saved reply asked a question that waits is marked
+	// in the sidebar, by one query over the visible chats, and is not once it is
+	// answered.
+	it("marks a chat whose question waits, and not once it is answered", async () => {
+		seedSidebarConversationScenario();
+		const { sqlite, db } = openSeedDatabase();
+		db.insert(schema.messages)
+			.values({
+				id: "recent-asking-message",
+				conversationId: "recent-conv",
+				role: "assistant",
+				content: "Which colour should it be?",
+				createdAt: new Date("2026-05-14T10:00:01.000Z"),
+			})
+			.run();
+		db.insert(schema.askQuestions)
+			.values({
+				id: "ask-1",
+				userId: "sidebar-user",
+				conversationId: "recent-conv",
+				assistantMessageId: "recent-asking-message",
+				toolCallId: "call-ask",
+				questionsJson: JSON.stringify([
+					{
+						question: "Which colour?",
+						options: [{ label: "Red", recommended: true }, { label: "Blue" }],
+					},
+				]),
+				status: "waiting",
+			})
+			.run();
+		sqlite.close();
+		const { listConversations } = await import("./conversations");
+
+		const waiting = await listConversations("sidebar-user");
+
+		expect(
+			waiting.find((conversation) => conversation.id === "recent-conv")
+				?.waitingForAnswer,
+		).toBe(true);
+		expect(
+			waiting.find((conversation) => conversation.id === "older-conv"),
+		).not.toHaveProperty("waitingForAnswer");
+
+		const answered = openSeedDatabase();
+		answered.db
+			.update(schema.askQuestions)
+			.set({ status: "answered" })
+			.where(eq(schema.askQuestions.id, "ask-1"))
+			.run();
+		answered.sqlite.close();
+
+		const afterwards = await listConversations("sidebar-user");
+
+		expect(afterwards.map((conversation) => conversation.id)).toEqual(
+			waiting.map((conversation) => conversation.id),
+		);
+		for (const conversation of afterwards) {
+			expect(conversation).not.toHaveProperty("waitingForAnswer");
+		}
+	});
 });
 
 // Owner-reported bug: `listConversations` (the sidebar's own recency sort)
