@@ -1,9 +1,9 @@
 // Layout measurements a screenshot cannot make on its own: whether a control,
 // or the icon inside it, is drawn wholly inside the boxes that clip it.
 //
-// Used by the Vivaldi smoke spec at fractional device pixel ratios, where a
-// box sized in device pixels can round a fraction of a pixel short of what
-// sits in it. Everything is measured in CSS pixels from bounding boxes.
+// Used by `knowledge-sidebar-clipping.spec.ts` at fractional device pixel
+// ratios, where a box sized in device pixels can round a fraction of a pixel
+// short of what sits in it. Everything is measured in CSS pixels from bounding boxes.
 import type { Page } from "@playwright/test";
 
 export type Clipping = {

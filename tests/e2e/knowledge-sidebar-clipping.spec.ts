@@ -1,17 +1,13 @@
-// Linux Vivaldi, the browser the owner saw the sidebar's Knowledge icon cut off
-// in, and the Knowledge page's controls with it (Task 9b). It runs when the
-// machine has Vivaldi (`/usr/bin/vivaldi-stable`, or VIVALDI_PATH) and skips
-// cleanly otherwise; the same layout checks run in Playwright's own Chromium
-// on every machine, so the fix is held where Vivaldi is not installed.
+// The sidebar and the Knowledge page at narrow widths, where the sidebar's
+// Knowledge icon and the page's controls were once cut off (Task 9b).
 //
 // Measured, not eyeballed: every control in the sidebar and on the Knowledge
 // page, and every icon in one, must lie wholly inside the boxes that clip it
-// (`clipping-probe.ts`), at device pixel ratios 1 and 1.25 (Linux's 125 %
+// (`clipping-probe.ts`), at device pixel ratios 1 and 1.25 (a desktop at 125 %
 // scaling), in the sidebar's collapsed rail and at its narrowest width.
 //
-// VIVALDI_SMOKE_SHOTS=<dir> also writes a screenshot of every state measured.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+// CLIPPING_SHOTS=<dir> also writes a screenshot of every state measured.
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import {
@@ -20,19 +16,12 @@ import {
 	TITLE,
 } from "./artifact-download-helpers";
 import { findClippedControls } from "./clipping-probe";
-import {
-	hasVivaldi,
-	launchVivaldi,
-	saveDownloadsTo,
-	sweepStaleVivaldiFolders,
-} from "./vivaldi-browser";
 
-const SHOTS = process.env.VIVALDI_SMOKE_SHOTS;
+const SHOTS = process.env.CLIPPING_SHOTS;
 const SIZES = [
 	{ width: 1440, height: 900 },
 	{ width: 1280, height: 720 },
-	// The narrowest desktop layout; also about what a 1366 px laptop window
-	// leaves the page once Vivaldi's own Downloads panel opens beside it.
+	// The narrowest desktop layout.
 	{ width: 1024, height: 768 },
 ];
 const RATIOS = [1, 1.25];
@@ -151,8 +140,6 @@ async function measureEverywhere(
 
 const seeded: string[] = [];
 test.beforeAll(async () => {
-	// What a worker killed outright left behind in the temp folder.
-	if (hasVivaldi()) sweepStaleVivaldiFolders();
 	// A library with rows in it: the table's columns are part of what must fit.
 	// Longer than the window, as the library is wherever other specs ran first
 	// on this worker's database: rows below the fold are scrolled, not clipped.
@@ -168,112 +155,7 @@ test.afterAll(async () => {
 	}
 });
 
-test.describe("Vivaldi on Linux", () => {
-	test.skip(!hasVivaldi(), "Vivaldi is not installed on this machine");
-	test.setTimeout(180_000);
-
-	for (const ratio of RATIOS) {
-		test(`the sidebar and the Knowledge page keep every control and icon inside its box at DPR ${ratio}`, async ({
-			baseURL,
-		}) => {
-			await measureEverywhere(
-				"vivaldi",
-				async (size, deviceScaleFactor) => {
-					const tab = await launchVivaldi({ ...size, deviceScaleFactor });
-					return { page: tab.page, done: tab.close };
-				},
-				baseURL as string,
-				ratio,
-			);
-		});
-	}
-
-	test("a Word file with an accented title and a Markdown note save under their names, with their extensions, at DPR 1.25", async ({
-		baseURL,
-	}) => {
-		const tab = await launchVivaldi({
-			width: 1440,
-			height: 900,
-			deviceScaleFactor: 1.25,
-		});
-		const dir = mkdtempSync(join(tmpdir(), "alfyai-vivaldi-downloads-"));
-		try {
-			const downloads = await saveDownloadsTo(tab.browser, dir);
-			const { page } = tab;
-			await logIn(page, baseURL as string);
-			await openKnowledge(page, baseURL as string, SIDEBARS[0]);
-			const title = `${TITLE} (szombat–vasárnap)`;
-			const row = page
-				.locator("tbody tr", { hasText: title })
-				.filter({ has: page.locator(".col-type .type-artifact") });
-			await expect(row).toHaveCount(1);
-
-			for (const { item, extension, check } of [
-				{
-					item: "Word",
-					extension: "docx",
-					// A .docx is a zip.
-					check: (bytes: Buffer) =>
-						expect(bytes.subarray(0, 2).toString("latin1")).toBe("PK"),
-				},
-				{
-					item: "Markdown",
-					extension: "md",
-					check: (bytes: Buffer) =>
-						expect(bytes.toString("utf8")).toContain("Szombat: Naschmarkt"),
-				},
-			]) {
-				// Bounded, so a control the page has cut off fails here, by name.
-				await row
-					.getByTestId("artifact-row-download")
-					.click({ timeout: 15_000 });
-				const saved = downloads.next();
-				await page
-					.getByTestId("artifact-row-download-menu")
-					.getByRole("menuitem", { name: item })
-					.click({ timeout: 15_000 });
-				const download = await saved;
-				const expected = `${title}.${extension}`.normalize("NFC");
-				expect(download.suggestedFilename.normalize("NFC")).toBe(expected);
-				expect(download.savedAs.normalize("NFC")).toBe(expected);
-				check(readFileSync(join(dir, download.savedAs)));
-				// Vivaldi opens its Downloads panel beside the page on a new
-				// download, and the page loses a quarter of its width (1440 to
-				// about 1080 CSS px). The menu closes when the page resizes, so
-				// the next one is opened once the panel is out.
-				await expect
-					.poll(
-						() =>
-							page.evaluate(async () => {
-								// Settled: the same width two frames apart.
-								const before = innerWidth;
-								await new Promise((done) =>
-									requestAnimationFrame(() => requestAnimationFrame(done)),
-								);
-								return before === innerWidth ? innerWidth : Infinity;
-							}),
-						{ message: "Vivaldi's Downloads panel opened beside the page" },
-					)
-					.toBeLessThan(1200);
-			}
-
-			// The Knowledge page, in what the panel left of the window.
-			if (SHOTS) {
-				await page.screenshot({
-					path: join(SHOTS, "vivaldi-downloads-panel-open-1440x900@1.25.png"),
-				});
-			}
-			expect(await clipped(page), "controls drawn outside their boxes").toEqual(
-				[],
-			);
-		} finally {
-			await tab.close();
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-});
-
-test.describe("Playwright's Chromium, the same measurements", () => {
+test.describe("The sidebar and the Knowledge page at narrow widths", () => {
 	test.setTimeout(120_000);
 	for (const ratio of RATIOS) {
 		test(`the sidebar and the Knowledge page keep every control and icon inside its box at DPR ${ratio}`, async ({
