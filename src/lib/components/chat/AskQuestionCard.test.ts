@@ -1552,6 +1552,31 @@ describe("AskQuestionCard", () => {
 			}
 		});
 
+		it("rises into place when it appears: one global transition, through the reduced-motion wrapper, on transform and opacity only", () => {
+			// A local transition never plays here (measured in a real browser: no animation at
+			// all): the card is created whole by its message, and a local one plays only when
+			// its own block is toggled. `|global` plays it whenever the card is drawn: when
+			// Alfy asks during a reply, and again when a reload or a visit to the chat draws
+			// it. `fly` moves transform and opacity and nothing else.
+			// Its numbers (8 to 12 px, the emphasis duration and curve) are
+			// ask-card-motion.test.ts's.
+			const markup = source.slice(0, source.indexOf("<style>"));
+			expect(markup).toMatch(/import \{ fly \} from "svelte\/transition"/);
+			expect(markup).toMatch(/const cardRise = reducedMotionAware\(fly\);/);
+			expect(markup).toMatch(/in:cardRise\|global=\{CARD_RISE\}/);
+			// On the way in only: the folded line replaces the card at once, as it did.
+			expect(markup).not.toMatch(/\b(out|transition):[a-zA-Z]+/);
+		});
+
+		it("adds no motion of its own in CSS: the card's size and margins never ease", () => {
+			const style = source.slice(source.indexOf("<style>"));
+			expect(style).not.toMatch(/@keyframes/);
+			expect(style).not.toMatch(/\banimation\s*:/);
+			// The shell eases nothing: only its entrance moves it, and that is transform and
+			// opacity (the card-top scroll rule reads where it rests, `MessageArea`).
+			expect(rule(source, ".ask")).not.toMatch(/transition|animation/);
+		});
+
 		it("uses no colour that is not a token", () => {
 			const style = source.slice(source.indexOf("<style>"));
 			expect(style.match(/#[0-9a-fA-F]{3,8}\b/g)).toBeNull();

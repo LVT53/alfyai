@@ -213,6 +213,7 @@ Chat strings go in `src/lib/i18n/chat.ts`, held in both locales by `chat.test.ts
 | 2026-11-03 | The Recommended mark is not mandatory on a question with several picks. The design (mockups v2) is approved. |
 | 2026-11-05 | After trying the card: "Up to you" is now "Decide for me" and "Type my own..." is now "Other" (Hungarian: "Egyéb"; "Rád bízom" stays). |
 | 2026-11-05 | After trying the card: opening the line for your own words must not change the size of anything; the row and the line are one height. |
+| 2026-11-05 | After trying the card: when it appears it moves in from the bottom, quickly and smoothly (a 10 px rise and a fade over 250 ms, none for a reader who asked for no motion). |
 
 ## 7. My calls, for the owner to check
 

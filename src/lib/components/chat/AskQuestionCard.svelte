@@ -25,6 +25,7 @@
 // server reads as waiting again, with its answer, comes back with its picks.
 import { Check, CircleAlert, PenLine, Send, X } from "@lucide/svelte";
 import { flushSync, untrack } from "svelte";
+import { fly } from "svelte/transition";
 import {
 	readAskLineDrafts,
 	storeAskLineDrafts,
@@ -37,6 +38,8 @@ import {
 	type AskQuestionDto,
 	checkAskAnswer,
 } from "$lib/shared/ask-user";
+import { reducedMotionAware } from "$lib/utils/motion";
+import { CARD_RISE } from "./ask-card-motion";
 import { buildAskFoldedItem } from "./ask-card-view";
 import ToolActivityRow from "./ToolActivityRow.svelte";
 
@@ -56,6 +59,12 @@ let {
 
 // The permission sheet's read-before-answer lock (WriteConfirmSheet.svelte).
 const READ_BEFORE_ANSWER_MS = 400;
+
+// The card rises into place when it appears (`CARD_RISE`, ask-card-motion.ts), and does not
+// move at all under reduced motion. `|global` below: the card is created whole by its message,
+// and a local transition plays only when its own block is toggled, so it would never play.
+// A reload, or opening the chat, draws the card and plays it again (the rows fade in then too).
+const cardRise = reducedMotionAware(fly);
 
 // A key goes into the card's line only when nothing else is in use: no field with the
 // focus (the search modal, a Document in the side panel, another question's line), no
@@ -313,7 +322,12 @@ function takeKey(event: KeyboardEvent) {
 		<ToolActivityRow {item} open={foldedOpen} onToggle={() => (foldedOpen = !foldedOpen)} />
 	</div>
 {:else}
-	<article class="ask" aria-label={cardLabel} data-testid="ask-card">
+	<article
+		class="ask"
+		aria-label={cardLabel}
+		data-testid="ask-card"
+		in:cardRise|global={CARD_RISE}
+	>
 		<div class="ask-body">
 			{#each question.questions as asked, index}
 				{@const textId = `${uid}-q${index}`}

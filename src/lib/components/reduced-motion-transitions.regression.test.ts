@@ -153,6 +153,14 @@ const CASES: Case[] = [
 		bannedDirectives: [/transition:slide=/],
 	},
 	{
+		// "Ask me first": the question card rises into place when Alfy's question
+		// appears during a reply, the way a toast does. `|global`: the card is
+		// created whole by its message, and a local transition would never play.
+		file: "src/lib/components/chat/AskQuestionCard.svelte",
+		wrappedNames: ["cardRise"],
+		bannedDirectives: [/in:fly=/, /in:fly\|global=/, /transition:fly=/],
+	},
+	{
 		// ...and the memory surface's two dialogs (review overflow, remove
 		// confirmation), which open and close rather than appearing.
 		file: "src/routes/(app)/knowledge/_components/KnowledgeMemoryView.svelte",

@@ -45,7 +45,7 @@ import LogoMark from "./LogoMark.svelte";
 import ConversationJumpRail from "./ConversationJumpRail.svelte";
 import { buildJumpRailTurns } from "./jump-rail";
 import { placeReplySegments } from "./reply-segments";
-import { threadEndScrollTop } from "./thread-end-target";
+import { threadEndScrollTop, transformShiftYPx } from "./thread-end-target";
 
 let {
 	messages = [],
@@ -755,7 +755,9 @@ $effect(() => {
  * The top of the card the thread's last row draws for a question that waits, as an offset
  * from the top of the thread's content; null when the last row draws none. Read from the
  * page as it is now: the card is laid out by the browser, and the rows above it may still
- * be growing.
+ * be growing. Where it rests, not where it is drawn: while its entrance runs the card is
+ * moved down by a transform, which `getBoundingClientRect` includes, and the thread aims
+ * again only when something is resized, which the transform never does.
  */
 function lastRowWaitingCardTop(container: HTMLElement): number | null {
 	const last = dedupedMessages[dedupedMessages.length - 1];
@@ -767,6 +769,7 @@ function lastRowWaitingCardTop(container: HTMLElement): number | null {
 	if (!card) return null;
 	return (
 		card.getBoundingClientRect().top -
+		transformShiftYPx(getComputedStyle(card).transform) -
 		container.getBoundingClientRect().top +
 		container.scrollTop
 	);

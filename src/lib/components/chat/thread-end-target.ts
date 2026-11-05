@@ -34,3 +34,24 @@ export function threadEndScrollTop(p: {
 	// fits while that is not above the inset line.
 	return cardTop < p.maxScrollTop ? cardTop : p.bottom;
 }
+
+/**
+ * How far down a transform draws an element from where it is laid out, in px: the vertical
+ * translation of the matrix that `getComputedStyle(element).transform` gives (`matrix(a, b,
+ * c, d, tx, ty)`, or `matrix3d(...)`), and 0 for `none` or anything it cannot read.
+ *
+ * A card that is moving in (its entrance is a transform) is drawn lower than it rests, and
+ * `getBoundingClientRect` reports where it is drawn. Nothing aims the thread again when the
+ * card has landed (its size never changes, and a resize is what aims it), so the aim has to
+ * be taken at where the card rests: its drawn top less this.
+ */
+export function transformShiftYPx(
+	transform: string | null | undefined,
+): number {
+	const parts = /^matrix(3d)?\(([^)]*)\)$/.exec(transform?.trim() ?? "");
+	if (!parts) return 0;
+	const values = parts[2].split(",").map((value) => Number.parseFloat(value));
+	// ty is the 6th value of a 2D matrix and the 14th (m42) of a 3D one.
+	const shift = values[parts[1] ? 13 : 5];
+	return Number.isFinite(shift) ? shift : 0;
+}

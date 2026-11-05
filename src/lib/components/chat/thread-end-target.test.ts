@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	THREAD_END_CARD_INSET_PX,
 	threadEndScrollTop,
+	transformShiftYPx,
 } from "./thread-end-target";
 
 // The view's scroll position when it goes to the end of the thread: a jump to the latest
@@ -102,5 +103,39 @@ describe("threadEndScrollTop", () => {
 				waitingCardTop: 120,
 			}),
 		).toBe(400);
+	});
+});
+
+// A card that is still moving in is drawn lower than it rests (its entrance is a
+// transform), and `getBoundingClientRect` reports where it is drawn. The thread's end aims
+// at where the card rests, so it reads how far the transform has moved the card from
+// `getComputedStyle`.
+describe("transformShiftYPx", () => {
+	it("is how far down a 2D matrix draws the element", () => {
+		expect(transformShiftYPx("matrix(1, 0, 0, 1, 0, 10)")).toBe(10);
+		expect(transformShiftYPx("matrix(1, 0, 0, 1, 0, 3.25)")).toBe(3.25);
+	});
+
+	it("ignores a sideways move and keeps the sign of an upward one", () => {
+		expect(transformShiftYPx("matrix(1, 0, 0, 1, 12, 0)")).toBe(0);
+		expect(transformShiftYPx("matrix(1, 0, 0, 1, 5, -4.5)")).toBe(-4.5);
+	});
+
+	it("reads the vertical translation of a 3D matrix", () => {
+		expect(
+			transformShiftYPx(
+				"matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 10, 0, 1)",
+			),
+		).toBe(10);
+	});
+
+	it("is 0 for no transform, and for anything it cannot read", () => {
+		expect(transformShiftYPx("none")).toBe(0);
+		expect(transformShiftYPx("")).toBe(0);
+		expect(transformShiftYPx(null)).toBe(0);
+		expect(transformShiftYPx(undefined)).toBe(0);
+		expect(transformShiftYPx("translateY(10px)")).toBe(0);
+		expect(transformShiftYPx("matrix(1, 0, 0, 1, 0)")).toBe(0);
+		expect(transformShiftYPx("matrix(1, 0, 0, 1, 0, nope)")).toBe(0);
 	});
 });

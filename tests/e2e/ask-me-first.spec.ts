@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
+import { THREAD_END_CARD_INSET_PX } from "../../src/lib/components/chat/thread-end-target";
 import { db } from "../../src/lib/server/db";
 import { askQuestions } from "../../src/lib/server/db/schema";
 import {
@@ -37,6 +38,7 @@ import {
 	setDraining,
 	UPDATING_STATUS,
 	waitForHydration,
+	waitForMotionToSettle,
 	waitForStableBoundingBox,
 } from "./helpers";
 
@@ -267,6 +269,56 @@ function askCard(page: Page, name = "Alfy's question"): Locator {
 async function pressWhenAwake(control: Locator) {
 	await expect(control).toBeEnabled();
 	await control.click();
+}
+
+/** One animation started on the question card: what it animates, for how long, its first and last frame. */
+type CardPlay = {
+	properties: string[];
+	duration: number;
+	first: Record<string, unknown>;
+	last: Record<string, unknown>;
+};
+
+/**
+ * From the next load of `page` on, notes every animation the page starts on the question
+ * card (the browser's own `Element.animate`, which Svelte's transitions play through).
+ * Read back with `cardPlays`. It runs before the page's own scripts, so the first play is
+ * seen, and again in every document the page loads, so a reload starts a new list.
+ */
+async function watchCardAnimations(page: Page) {
+	await page.addInitScript(() => {
+		const plays: CardPlay[] = [];
+		(window as unknown as { __cardPlays: CardPlay[] }).__cardPlays = plays;
+		const animate = Element.prototype.animate;
+		Element.prototype.animate = function (
+			this: Element,
+			keyframes: Keyframe[],
+			options?: number | KeyframeAnimationOptions,
+		) {
+			if (this.getAttribute("data-testid") === "ask-card") {
+				const frames = keyframes as Array<Record<string, unknown>>;
+				plays.push({
+					properties: [
+						...new Set(frames.flatMap((frame) => Object.keys(frame))),
+					].sort(),
+					duration:
+						typeof options === "number"
+							? options
+							: Number(options?.duration ?? 0),
+					first: frames[0] ?? {},
+					last: frames[frames.length - 1] ?? {},
+				});
+			}
+			return animate.call(this, keyframes, options);
+		};
+	});
+}
+
+/** The animations `watchCardAnimations` has seen in this document. */
+function cardPlays(page: Page): Promise<CardPlay[]> {
+	return page.evaluate(
+		() => (window as unknown as { __cardPlays: CardPlay[] }).__cardPlays,
+	);
 }
 
 /** Where an element sits and how big it is. */
@@ -1038,6 +1090,84 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			"the open line, against the row it opened from",
 		);
 		expectSameBox(await settledBox(card), cardBefore, "the card");
+	});
+
+	test("the card rises into place when Alfy asks: once, on transform and opacity only, and the thread still rests its top under the view's edge", async ({
+		page,
+	}) => {
+		await watchCardAnimations(page);
+		await startTurn(page, "one", { viewport: PHONE });
+		const card = askCard(page);
+		await expect(card).toBeVisible({ timeout: 30_000 });
+		await expect(card.getByTestId("ask-up-to-you")).toBeEnabled();
+		await waitForMotionToSettle(page);
+
+		// Svelte holds the first frame with a zero-length animation, then plays the move.
+		const moves = (await cardPlays(page)).filter((play) => play.duration > 0);
+		expect(moves, "the moves the card made").toHaveLength(1);
+		const [move] = moves;
+		expect(move.properties, "what the entrance animates").toEqual([
+			"opacity",
+			"transform",
+		]);
+		expect(move.duration, "ms, the app's emphasis duration").toBe(250);
+		// From 10 px below and transparent, to where it rests and solid.
+		expect(move.first).toMatchObject({
+			transform: "translate(0px, 10px)",
+			opacity: "0",
+		});
+		expect(move.last).toMatchObject({
+			transform: "translate(0px, 0px)",
+			opacity: "1",
+		});
+		// Nothing is left on the card once it has landed.
+		await expect(card).toHaveCSS("transform", "none");
+		await expect(card).toHaveCSS("opacity", "1");
+
+		// The thread aimed at the card's top while the card was still moving, and put that
+		// top where it puts it for a card that does not move (8 px under the view's edge).
+		// It rested 1 to 2 px above it before the aim read where the card rests: the aim was
+		// taken at the first frame, with the card drawn 10 px low, and nothing aimed again.
+		const underTheEdge = await card.evaluate((element) => {
+			const view = element.closest(".scroll-container") as HTMLElement;
+			return (
+				element.getBoundingClientRect().top - view.getBoundingClientRect().top
+			);
+		});
+		expect(
+			Math.abs(underTheEdge - THREAD_END_CARD_INSET_PX),
+			"px between the card's top and where the thread rests it",
+		).toBeLessThanOrEqual(0.5);
+	});
+
+	test("a reader who asked for no motion sees the card appear without any", async ({
+		page,
+	}) => {
+		await page.emulateMedia({ reducedMotion: "reduce" });
+		await watchCardAnimations(page);
+		await startTurn(page, "one", { viewport: PHONE });
+		const card = askCard(page);
+		await expect(card).toBeVisible({ timeout: 30_000 });
+		await expect(card.getByTestId("ask-up-to-you")).toBeEnabled();
+		await waitForMotionToSettle(page);
+
+		expect(
+			await cardPlays(page),
+			"the card's animations under reduced motion",
+		).toEqual([]);
+		await expect(card).toHaveCSS("transform", "none");
+		await expect(card).toHaveCSS("opacity", "1");
+		// And the thread rests its top where it always did.
+		const underTheEdge = await card.evaluate((element) => {
+			const view = element.closest(".scroll-container") as HTMLElement;
+			return (
+				element.getBoundingClientRect().top - view.getBoundingClientRect().top
+			);
+		});
+		expect(
+			Math.abs(underTheEdge - THREAD_END_CARD_INSET_PX),
+			"px between the card's top and where the thread rests it",
+		).toBeLessThanOrEqual(0.5);
 	});
 
 	test("a Hungarian reader gets the app's words in Hungarian", async ({

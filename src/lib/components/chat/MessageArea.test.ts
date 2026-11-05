@@ -2549,6 +2549,9 @@ describe("MessageArea", () => {
 			async function threadWithCardAt(
 				cardTop: number,
 				question: Partial<AskQuestionDto>,
+				// How far below where it rests the card is drawn: its entrance moves it
+				// with a transform, and the page reports the drawn rect.
+				drawnLift = 0,
 			) {
 				const view = render(MessageArea, {
 					messages: [
@@ -2578,7 +2581,12 @@ describe("MessageArea", () => {
 				expect(card !== null).toBe(question.status === "waiting");
 				if (card) {
 					card.getBoundingClientRect = () =>
-						rectAt(THREAD.viewTop + cardTop - scrollContainer.scrollTop);
+						rectAt(
+							THREAD.viewTop + cardTop - scrollContainer.scrollTop + drawnLift,
+						);
+					if (drawnLift !== 0) {
+						card.style.transform = `matrix(1, 0, 0, 1, 0, ${drawnLift})`;
+					}
 				}
 				scrollContainer.scrollTop = 900;
 				await fireEvent.scroll(scrollContainer);
@@ -2597,6 +2605,21 @@ describe("MessageArea", () => {
 				const { scrollContainer, button } = await threadWithCardAt(
 					800,
 					waiting,
+				);
+
+				await fireEvent.click(button);
+
+				expect(scrollContainer.scrollTop).toBe(800 - THREAD_END_CARD_INSET_PX);
+			});
+
+			it("is where the card rests while it is still moving in, not where its entrance has drawn it", async () => {
+				// The entrance (a transform) draws the card 10 px low for a moment. Nothing
+				// aims again once it has landed, since its size never changes, so an aim
+				// taken at its first frame would leave it 10 px too high for good.
+				const { scrollContainer, button } = await threadWithCardAt(
+					800,
+					waiting,
+					10,
 				);
 
 				await fireEvent.click(button);
