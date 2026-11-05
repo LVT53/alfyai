@@ -1,4 +1,7 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { eq } from "drizzle-orm";
+import { db } from "../../src/lib/server/db";
+import { askQuestions } from "../../src/lib/server/db/schema";
 import {
 	AI_SMOKE_ASK_AFTER_PREFIX,
 	AI_SMOKE_ASK_CALL_ID,
@@ -25,9 +28,12 @@ import {
 import { setLanguage } from "./chat-item-turn-helpers";
 import {
 	createEmptyConversation,
+	ensureSidebarExpanded,
 	expectTopmost,
 	login,
 	sendMessage,
+	setDraining,
+	UPDATING_STATUS,
 	waitForHydration,
 	waitForStableBoundingBox,
 } from "./helpers";
@@ -37,6 +43,11 @@ import {
 // The model is scripted (tests/mocks/ai-provider/chat-turn-scripts.ts, `askTurnReply`);
 // the page, the routes and the resume are the production build's own. Driven the way a
 // reader does it: look at the card, press an answer, watch the reply go on.
+//
+// Two describes. The first is the answer itself (the card, each way to answer it, the
+// reply that carries on, the phone and Hungarian). The second is the reply that asked
+// across what happens to a page: a reload, a second tab, Retry, a message queued behind
+// the reply, the sidebar, a server update and a restart.
 
 const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844 };
@@ -262,19 +273,85 @@ async function expectReplyEnded(page: Page) {
 	await expect(page.getByTestId("message-input")).toBeEnabled();
 }
 
-test.describe("Alfy asks first, and the answer carries the reply on", () => {
+/** Reloads the open chat and waits until the page is up again. */
+async function reloadChat(page: Page) {
+	await page.reload({ waitUntil: "domcontentloaded" });
+	await waitForHydration(page);
+}
+
+/**
+ * The card of the one-question script as a question that waits is drawn: the question,
+ * its three answers, the words Alfy wrote before it asked, and the message box off.
+ * Returns the card.
+ */
+async function expectWaitingCard(page: Page): Promise<Locator> {
+	const card = askCard(page);
+	await expect(card).toBeVisible({ timeout: 30_000 });
+	await expect(card.getByText("Which way should we take it?")).toBeVisible();
+	await expect(card.getByTestId("ask-option")).toHaveCount(3);
+	for (const name of [
+		"A party at home, recommended",
+		"Dinner out, just close family",
+		"A weekend away together",
+	]) {
+		await expect(card.getByRole("button", { name })).toBeVisible();
+	}
+	await expect(page.getByText(AI_SMOKE_ASK_INTRO)).toBeVisible();
+	await expect(page.getByTestId("message-input")).toBeDisabled();
+	return card;
+}
+
+/**
+ * From the next load of `page` on, notes which of these test ids were ever in its
+ * document, even for a moment: a look once the flow is over cannot tell "never" from
+ * "was there and left". Read back with `wasSighted`. The page's own scripts have not run
+ * yet when this does, and the elements the server drew are seen too. Name one id that
+ * the flow is sure to draw beside the one that must never be drawn: that one's sighting
+ * shows the watch works.
+ */
+async function watchForTestIds(page: Page, testIds: string[]) {
+	await page.addInitScript((ids: string[]) => {
+		const mine = window as unknown as { __sighted?: Record<string, boolean> };
+		const sighted = mine.__sighted ?? {};
+		mine.__sighted = sighted;
+		const look = (node: Node) => {
+			if (!(node instanceof Element)) return;
+			for (const id of ids) {
+				const selector = `[data-testid="${id}"]`;
+				if (node.matches(selector) || node.querySelector(selector)) {
+					sighted[id] = true;
+				}
+			}
+		};
+		// The added nodes of each record, not the document at the end of it: an element
+		// that came and went inside one batch of changes is still seen.
+		new MutationObserver((records) => {
+			for (const record of records) {
+				for (const node of record.addedNodes) look(node);
+			}
+		}).observe(document, { childList: true, subtree: true });
+	}, testIds);
+}
+
+/** Whether `watchForTestIds` has seen the element in the page's current document. */
+function wasSighted(page: Page, testId: string): Promise<boolean> {
+	return page.evaluate(
+		(id) =>
+			(window as unknown as { __sighted?: Record<string, boolean> })
+				.__sighted?.[id] === true,
+		testId,
+	);
+}
+
+/**
+ * What every describe of this file runs on: the fake model, started once and reset
+ * before each test, and the turn's own put-backs after each (the user's model and the
+ * temporary provider, then the language). `putBackFirst` is a describe's own put-back:
+ * it runs before those, and whatever it throws does not stop them.
+ */
+function useAskTurnHarness(putBackFirst?: (page: Page) => Promise<void>) {
 	const fakeProvider = createOpenAICompatibleProviderHarness();
 	let restoreTurn: (() => Promise<void>) | null = null;
-
-	async function startTurn(
-		page: Page,
-		mode: AskTurnMode,
-		options: { viewport?: { width: number; height: number } } = {},
-	) {
-		const turn = await startAskTurn(page, fakeProvider.baseURL, mode, options);
-		restoreTurn = turn.restore;
-		return turn;
-	}
 
 	test.beforeAll(async () => {
 		await fakeProvider.start();
@@ -285,14 +362,40 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 	test.beforeEach(async () => {
 		await fakeProvider.reset();
 	});
-	test.afterEach(async () => {
+	test.afterEach(async ({ page }) => {
 		try {
-			await restoreTurn?.();
+			await putBackFirst?.(page);
 		} finally {
-			restoreTurn = null;
-			await setLanguage("en");
+			try {
+				await restoreTurn?.();
+			} finally {
+				restoreTurn = null;
+				await setLanguage("en");
+			}
 		}
 	});
+
+	return {
+		fakeProvider,
+		async startTurn(
+			page: Page,
+			mode: AskTurnMode,
+			options: { viewport?: { width: number; height: number } } = {},
+		) {
+			const turn = await startAskTurn(
+				page,
+				fakeProvider.baseURL,
+				mode,
+				options,
+			);
+			restoreTurn = turn.restore;
+			return turn;
+		},
+	};
+}
+
+test.describe("Alfy asks first, and the answer carries the reply on", () => {
+	const { fakeProvider, startTurn } = useAskTurnHarness();
 
 	test("a click on an answer carries the same reply on", {
 		tag: "@smoke",
@@ -850,5 +953,553 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		expect(measured.overflowing, "the elements wider than their box").toEqual(
 			[],
 		);
+	});
+});
+
+/** The words a reader queues behind a reply that is still being written. */
+const QUEUED_WORDS = "And please keep it under twenty euros a head";
+
+/** A chat's row in the sidebar. */
+function sidebarRow(page: Page, conversationId: string): Locator {
+	return page.locator(
+		`[data-testid="conversation-item"][data-conversation-id="${conversationId}"]`,
+	);
+}
+
+/** The mark on a chat's sidebar row that says the chat waits for an answer. */
+function waitingMark(page: Page, conversationId: string): Locator {
+	return sidebarRow(page, conversationId).getByTestId(
+		"conversation-waiting-mark",
+	);
+}
+
+/** The draft the server holds for a chat, as its text (none: an empty string). */
+async function savedDraftOf(
+	page: Page,
+	conversationId: string,
+): Promise<string> {
+	const response = await page.request.get(
+		`/api/conversations/${conversationId}`,
+	);
+	expect(response.ok(), `chat detail -> ${response.status()}`).toBe(true);
+	const detail = (await response.json()) as {
+		draft?: { draftText?: string } | null;
+	};
+	return detail.draft?.draftText ?? "";
+}
+
+test.describe("The reply that asked holds across reloads, a second tab, Retry, a queue, the sidebar and an update", () => {
+	// The drain belongs to the worker's server, which outlives this file: it is put back
+	// first, before the model and the language, so that a test that failed with the server
+	// draining cannot leave it so for the next file.
+	const { fakeProvider, startTurn } = useAskTurnHarness((page) =>
+		setDraining(page, false),
+	);
+
+	test("a reload while a question waits shows the same card, and a second tab that answers late gets the folded line", async ({
+		page,
+	}) => {
+		const { conversationId } = await startTurn(page, "one");
+		await expectWaitingCard(page);
+
+		// A reload: the question is the server's, so the same card comes back. Nothing was
+		// answered, so no error line comes with it.
+		await reloadChat(page);
+		const card = await expectWaitingCard(page);
+		await expect(card.getByTestId("ask-error")).toHaveCount(0);
+
+		// A second tab on the chat shows it too.
+		const second = await page.context().newPage();
+		try {
+			await watchForTestIds(second, ["ask-error", "ask-folded"]);
+			await second.setViewportSize(DESKTOP);
+			await second.goto(`/chat/${conversationId}`, {
+				waitUntil: "domcontentloaded",
+			});
+			await waitForHydration(second);
+			const secondCard = await expectWaitingCard(second);
+
+			// The first tab answers, and the reply carries on there.
+			await pressWhenAwake(
+				card.getByRole("button", { name: "A party at home, recommended" }),
+			);
+			await expectCarriedOn(page, "A party at home");
+			await expectReplyEnded(page);
+
+			// The second tab was told nothing: its card is still up. It answers, late, and
+			// differently.
+			await expect(secondCard).toBeVisible();
+			await pressWhenAwake(
+				secondCard.getByRole("button", {
+					name: "Dinner out, just close family",
+				}),
+			);
+
+			// What the answer that lost gets is the answer that won, as the folded line,
+			// and the reply that carried on: no card left, and no error line, not even
+			// for a moment.
+			const folded = second.getByTestId("ask-folded");
+			await expect(folded).toContainText("A party at home");
+			await expect(folded).not.toContainText("Dinner out");
+			await expect(secondCard).toHaveCount(0);
+			await expectCarriedOn(second, "A party at home");
+			await expectReplyEnded(second);
+			await expect(second.getByTestId("assistant-message")).toHaveCount(2);
+			await expect(
+				second.getByRole("button", { name: "Regenerate response" }),
+			).toHaveCount(1);
+			expect(
+				await wasSighted(second, "ask-folded"),
+				"the watch sees what the page draws",
+			).toBe(true);
+			expect(
+				await wasSighted(second, "ask-error"),
+				"the late answer showed an error line",
+			).toBe(false);
+		} finally {
+			await second.close();
+		}
+
+		// One answer was taken and one resume ran, with the first tab's answer.
+		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
+		expectContinuation(chatRequests(fakeProvider)[1], {
+			callId: AI_SMOKE_ASK_CALL_ID,
+			intro: AI_SMOKE_ASK_INTRO,
+			personsMessage: askTurnMessage("one"),
+		});
+		expect(
+			answerTo(chatRequests(fakeProvider)[1], AI_SMOKE_ASK_CALL_ID),
+		).toMatchObject({
+			status: "answered",
+			answers: [{ picked: ["A party at home"] }],
+		});
+	});
+
+	test("a reload while the answer's reply streams shows the folded line and the reply joining under it", async ({
+		page,
+	}) => {
+		await startTurn(page, "slowresume");
+		const card = await expectWaitingCard(page);
+		// From the reload on, the card must never be drawn again, not even for a frame.
+		await watchForTestIds(page, ["ask-card", "ask-folded"]);
+
+		await pressWhenAwake(
+			card.getByRole("button", { name: "A party at home, recommended" }),
+		);
+		// The server has the answer, and the model is working on it for a few seconds:
+		// the resume's request is at the provider, and the reload comes in the wait (the
+		// look is every 50 ms, so that little of the wait is gone when it comes).
+		await expect
+			.poll(() => chatRequests(fakeProvider).length, { intervals: [50] })
+			.toBe(2);
+		await reloadChat(page);
+
+		// The line is folded and says what was answered, and the page is in the reply that
+		// runs (Stop is on) and shows it under the line when it comes.
+		const folded = page.getByTestId("ask-folded");
+		await expect(folded).toContainText("Which way should we take it?");
+		await expect(folded).toContainText("A party at home");
+		await expect(page.getByTestId("stop-button")).toBeVisible();
+		await expectCarriedOn(page, "A party at home");
+		await expectReplyEnded(page);
+
+		// One reply: the segment that asked, with its folded line, and the one under it.
+		await expect(page.getByTestId("assistant-message")).toHaveCount(2);
+		await expect(folded).toHaveCount(1);
+		await expect(page.getByTestId("user-message")).toHaveCount(1);
+		await expect(
+			page.getByRole("button", { name: "Regenerate response" }),
+		).toHaveCount(1);
+		await expect(askCard(page)).toHaveCount(0);
+		expect(
+			await wasSighted(page, "ask-folded"),
+			"the watch sees what the page draws",
+		).toBe(true);
+		expect(
+			await wasSighted(page, "ask-card"),
+			"the card was drawn again after the reload",
+		).toBe(false);
+		// The reload did not ask the model for anything: the question and the resume.
+		expect(chatRequests(fakeProvider)).toHaveLength(2);
+	});
+
+	test("a second tab that answers while the first tab's reply streams ends up with that reply", async ({
+		page,
+	}) => {
+		const { conversationId } = await startTurn(page, "slowresume");
+		const card = await expectWaitingCard(page);
+
+		const second = await page.context().newPage();
+		try {
+			await watchForTestIds(second, ["ask-error", "ask-folded"]);
+			await second.setViewportSize(DESKTOP);
+			await second.goto(`/chat/${conversationId}`, {
+				waitUntil: "domcontentloaded",
+			});
+			await waitForHydration(second);
+			const secondCard = await expectWaitingCard(second);
+
+			// The first tab answers. The server begins the resume, and the model is slow
+			// over it: the second tab answers in that wait, with another answer. How long
+			// the second tab takes to find the reply is its page's business (the first
+			// tab's reply holds the user's stream, so the second answer is turned away at
+			// first); where it ends up is what counts.
+			await pressWhenAwake(
+				card.getByRole("button", { name: "A party at home, recommended" }),
+			);
+			await expect
+				.poll(() => chatRequests(fakeProvider).length, { intervals: [50] })
+				.toBe(2);
+			await pressWhenAwake(
+				secondCard.getByRole("button", {
+					name: "Dinner out, just close family",
+				}),
+			);
+
+			// The reply is the first answer's, and the second tab shows it under that
+			// answer's line, with no card left and no error line on the way.
+			await expectCarriedOn(second, "A party at home");
+			await expectReplyEnded(second);
+			const folded = second.getByTestId("ask-folded");
+			await expect(folded).toHaveCount(1);
+			await expect(folded).toContainText("A party at home");
+			await expect(folded).not.toContainText("Dinner out");
+			await expect(secondCard).toHaveCount(0);
+			await expect(second.getByTestId("assistant-message")).toHaveCount(2);
+			expect(
+				await wasSighted(second, "ask-folded"),
+				"the watch sees what the page draws",
+			).toBe(true);
+			expect(
+				await wasSighted(second, "ask-error"),
+				"the late answer showed an error line",
+			).toBe(false);
+		} finally {
+			await second.close();
+		}
+
+		// The first tab's reply is the one that ran, and only one resume did.
+		await expectCarriedOn(page, "A party at home");
+		await expectReplyEnded(page);
+		await expect(page.getByTestId("assistant-message")).toHaveCount(2);
+		expect(chatRequests(fakeProvider)).toHaveLength(2);
+	});
+
+	test("Retry on a reply that asked runs the whole reply again", async ({
+		page,
+	}) => {
+		await startTurn(page, "one");
+		const card = await expectWaitingCard(page);
+		await pressWhenAwake(
+			card.getByRole("button", { name: "A party at home, recommended" }),
+		);
+		await expectCarriedOn(page, "A party at home");
+		await expectReplyEnded(page);
+		await expect(page.getByTestId("ask-folded")).toHaveCount(1);
+
+		// Retry is on the reply's last segment. It runs the reply from the person's
+		// message, and Alfy asks again.
+		await page.getByRole("button", { name: "Regenerate response" }).click();
+		await expect(card).toBeVisible({ timeout: 30_000 });
+
+		// The old line and the words that carried on are gone; the person's message is
+		// still the one, and the reply is one segment, waiting.
+		await expect(page.getByTestId("ask-folded")).toHaveCount(0);
+		await expect(page.getByText(AI_SMOKE_ASK_AFTER_PREFIX)).toHaveCount(0);
+		await expect(page.getByTestId("user-message")).toHaveCount(1);
+		await expect(page.getByTestId("assistant-message")).toHaveCount(1);
+		await expect(page.getByTestId("message-input")).toBeDisabled();
+
+		// The model began again from the person's message: no ask call of the first run
+		// and no answer to it in what it was sent.
+		await expect.poll(() => chatRequests(fakeProvider).length).toBe(3);
+		const messages = wireMessages(chatRequests(fakeProvider)[2]);
+		expect(
+			messages.filter((message) => message.role === "tool"),
+			"tool messages in the Retry's request",
+		).toEqual([]);
+		expect(
+			messages.filter((message) => (message.tool_calls?.length ?? 0) > 0),
+			"assistant messages that made a call in the Retry's request",
+		).toEqual([]);
+		expect(messages.at(-1)?.role).toBe("user");
+		expect(wireText(messages.at(-1)?.content)).toContain(askTurnMessage("one"));
+
+		// And the new card is a question of its own: an answer to it carries this reply on.
+		await pressWhenAwake(
+			card.getByRole("button", { name: "Dinner out, just close family" }),
+		);
+		await expectCarriedOn(page, "Dinner out, just close family");
+		await expectReplyEnded(page);
+		await expect(page.getByTestId("ask-folded")).toHaveCount(1);
+		await expect(page.getByTestId("ask-folded")).toContainText(
+			"Dinner out, just close family",
+		);
+		await expect(page.getByTestId("assistant-message")).toHaveCount(2);
+		await expect.poll(() => chatRequests(fakeProvider).length).toBe(4);
+		expectContinuation(chatRequests(fakeProvider)[3], {
+			callId: AI_SMOKE_ASK_CALL_ID,
+			intro: AI_SMOKE_ASK_INTRO,
+			personsMessage: askTurnMessage("one"),
+		});
+	});
+
+	test("a message queued before the pause waits in the composer's draft and is not sent", async ({
+		page,
+	}) => {
+		// Everything this tab posts to the chat's routes (the message and the answer), to
+		// see that the queued words are never in it: a send the server turned away would
+		// not reach the model, and only this shows it.
+		const postedToChat: string[] = [];
+		page.on("request", (request) => {
+			const { pathname } = new URL(request.url());
+			if (
+				request.method() === "POST" &&
+				(pathname.startsWith("/api/chat/") || pathname.includes("/questions/"))
+			) {
+				postedToChat.push(request.postData() ?? "");
+			}
+		});
+		const { conversationId } = await startTurn(page, "slow");
+		const composer = page.getByTestId("message-input");
+
+		// The first segment is still being written (the model is slow to reach its
+		// question): the reader queues a message behind it.
+		await expect(page.getByTestId("stop-button")).toBeVisible();
+		await composer.fill(QUEUED_WORDS);
+		await page.getByTestId("queue-button").click();
+		await expect(page.getByTestId("queued-message-banner")).toContainText(
+			QUEUED_WORDS,
+		);
+
+		// Alfy asks. The reply is not over, so what was queued does not go: its words are
+		// back in the draft, the card is up, and the message box is off with them in it.
+		const card = await expectWaitingCard(page);
+		await expect(page.getByTestId("queued-message-banner")).toHaveCount(0);
+		await expect(composer).toBeDisabled();
+		await expect(composer).toHaveValue(QUEUED_WORDS);
+		expect(chatRequests(fakeProvider)).toHaveLength(1);
+
+		// The draft is the server's too: once it has landed there, a reload brings it back.
+		await expect
+			.poll(() => savedDraftOf(page, conversationId))
+			.toBe(QUEUED_WORDS);
+		await reloadChat(page);
+		await expectWaitingCard(page);
+		await expect(composer).toBeDisabled();
+		await expect(composer).toHaveValue(QUEUED_WORDS);
+
+		// The answer: the reply carries on, and the box takes words again, with the same
+		// words in it, unsent.
+		await pressWhenAwake(
+			card.getByRole("button", { name: "A party at home, recommended" }),
+		);
+		await expectCarriedOn(page, "A party at home");
+		await expectReplyEnded(page);
+		await expect(composer).toBeEnabled();
+		await expect(composer).toHaveValue(QUEUED_WORDS);
+		await expect(page.getByTestId("user-message")).toHaveCount(1);
+		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
+		for (const request of chatRequests(fakeProvider)) {
+			const personsWords = wireMessages(request)
+				.filter((message) => message.role === "user")
+				.map((message) => wireText(message.content))
+				.join("\n");
+			expect(personsWords).not.toContain(QUEUED_WORDS);
+		}
+		// Nor did the tab post them: the message and the answer are all it posted.
+		expect(
+			postedToChat.length,
+			"posts to the chat's routes",
+		).toBeGreaterThanOrEqual(2);
+		expect(postedToChat.filter((body) => body.includes(QUEUED_WORDS))).toEqual(
+			[],
+		);
+	});
+
+	test("the sidebar marks the chat while its question waits, and drops the mark once it is answered", async ({
+		page,
+	}) => {
+		const { conversationId } = await startTurn(page, "one");
+		const card = await expectWaitingCard(page);
+		await ensureSidebarExpanded(page);
+
+		// The chat's row carries a question mark, named for a screen reader and with no
+		// words on screen.
+		const row = sidebarRow(page, conversationId);
+		await expect(row).toBeVisible();
+		const mark = waitingMark(page, conversationId);
+		await expect(mark).toBeVisible();
+		await expect(mark).toHaveAttribute("aria-label", "Waiting for your answer");
+		await expect(row).not.toContainText("Waiting for your answer");
+
+		// A page that has just loaded gets it from the server's list, not from anything
+		// this tab did.
+		const fresh = await page.context().newPage();
+		try {
+			await fresh.setViewportSize(DESKTOP);
+			await fresh.goto("/", { waitUntil: "domcontentloaded" });
+			await waitForHydration(fresh);
+			await ensureSidebarExpanded(fresh);
+			await expect(sidebarRow(fresh, conversationId)).toBeVisible();
+			await expect(waitingMark(fresh, conversationId)).toBeVisible();
+			await expect(waitingMark(fresh, conversationId)).toHaveAttribute(
+				"aria-label",
+				"Waiting for your answer",
+			);
+
+			// The answer is taken: the mark goes with the card.
+			await pressWhenAwake(
+				card.getByRole("button", { name: "A party at home, recommended" }),
+			);
+			await expectCarriedOn(page, "A party at home");
+			await expectReplyEnded(page);
+			await expect(row).toBeVisible();
+			await expect(mark).toHaveCount(0);
+
+			// And a page that loads now gets the chat's row without it.
+			await fresh.reload({ waitUntil: "domcontentloaded" });
+			await waitForHydration(fresh);
+			await ensureSidebarExpanded(fresh);
+			await expect(sidebarRow(fresh, conversationId)).toBeVisible();
+			await expect(waitingMark(fresh, conversationId)).toHaveCount(0);
+		} finally {
+			await fresh.close();
+		}
+		// The mark is still gone on the page that answered.
+		await expect(mark).toHaveCount(0);
+	});
+
+	test("an answer given while the server updates waits and goes once it is back", async ({
+		page,
+	}) => {
+		await startTurn(page, "one");
+		const card = await expectWaitingCard(page);
+		await expect(card.getByTestId("ask-up-to-you")).toBeEnabled();
+
+		// The update begins with the card up, and the reader answers.
+		await setDraining(page, true);
+		await pressWhenAwake(
+			card.getByRole("button", { name: "A party at home, recommended" }),
+		);
+
+		// The server turns the answer away as it turns any new turn away. The page waits
+		// and says so under the card; the card keeps the answer and takes no other.
+		const updating = page.getByTestId("awaiting-update-status");
+		await expect(updating).toHaveText(UPDATING_STATUS);
+		await expect(card).toBeVisible();
+		await expect(
+			card.getByRole("button", {
+				name: "A party at home, recommended",
+				pressed: true,
+			}),
+		).toBeVisible();
+		await expect(card.getByTestId("ask-option")).toHaveCount(3);
+		for (const control of [
+			...(await card.getByTestId("ask-option").all()),
+			card.getByTestId("ask-own-row"),
+			card.getByTestId("ask-up-to-you"),
+			card.getByTestId("ask-close"),
+		]) {
+			await expect(control).toBeDisabled();
+		}
+		// An answer that waits has not failed.
+		await expect(card.getByTestId("ask-error")).toHaveCount(0);
+		await waitForStableBoundingBox(card);
+		await waitForStableBoundingBox(updating);
+		const cardBox = await card.boundingBox();
+		const updatingBox = await updating.boundingBox();
+		expect(cardBox && updatingBox, "both are laid out").toBeTruthy();
+		expect(updatingBox?.y).toBeGreaterThanOrEqual(
+			(cardBox?.y ?? 0) + (cardBox?.height ?? 0) - 1,
+		);
+		// The model has not been asked for the rest.
+		expect(chatRequests(fakeProvider)).toHaveLength(1);
+
+		// The update is over: the page sends the answer by itself, and the card folds into
+		// the line and the reply carries on.
+		await setDraining(page, false);
+		await expect(page.getByTestId("ask-folded")).toContainText(
+			"A party at home",
+			{ timeout: 30_000 },
+		);
+		await expect(card).toHaveCount(0);
+		await expectCarriedOn(page, "A party at home");
+		await expectReplyEnded(page);
+		await expect(updating).toHaveCount(0);
+		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
+		expectContinuation(chatRequests(fakeProvider)[1], {
+			callId: AI_SMOKE_ASK_CALL_ID,
+			intro: AI_SMOKE_ASK_INTRO,
+			personsMessage: askTurnMessage("one"),
+		});
+	});
+
+	test("a reply cut off by a restart brings the card back with the answer in it", async ({
+		page,
+	}) => {
+		const { conversationId } = await startTurn(page, "one");
+		await expectWaitingCard(page);
+
+		// What a restart leaves: the question was claimed by an answer whose resume the
+		// restart ended. The row says "answering" with the answer on it, and the server's
+		// memory of the resumes it runs is empty, so no stream stands behind it.
+		const claimed = db
+			.update(askQuestions)
+			.set({
+				status: "answering",
+				answerJson: JSON.stringify({
+					kind: "answered",
+					answers: [{ picked: [0], ownWords: null }],
+				}),
+				answeredAt: new Date(),
+			})
+			.where(eq(askQuestions.conversationId, conversationId))
+			.run();
+		expect(claimed.changes, "the chat's one question row").toBe(1);
+		await reloadChat(page);
+
+		// The card waits again with the answer that did not go through: the pick is back
+		// in it, and one line says so.
+		const card = await expectWaitingCard(page);
+		await expect(
+			card.getByRole("button", {
+				name: "A party at home, recommended",
+				pressed: true,
+			}),
+		).toBeVisible();
+		await expect(
+			card.getByRole("button", {
+				name: "Dinner out, just close family",
+				pressed: false,
+			}),
+		).toBeVisible();
+		await expect(card.getByRole("alert")).toHaveText(
+			"Couldn't send your answer. Try again.",
+		);
+		expect(chatRequests(fakeProvider)).toHaveLength(1);
+
+		// A press carries the reply on, as for a card that never had an answer.
+		await pressWhenAwake(
+			card.getByRole("button", { name: "A party at home, recommended" }),
+		);
+		await expect(page.getByTestId("ask-folded")).toContainText(
+			"A party at home",
+		);
+		await expect(card).toHaveCount(0);
+		await expectCarriedOn(page, "A party at home");
+		await expectReplyEnded(page);
+		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
+		expectContinuation(chatRequests(fakeProvider)[1], {
+			callId: AI_SMOKE_ASK_CALL_ID,
+			intro: AI_SMOKE_ASK_INTRO,
+			personsMessage: askTurnMessage("one"),
+		});
+		expect(
+			answerTo(chatRequests(fakeProvider)[1], AI_SMOKE_ASK_CALL_ID),
+		).toMatchObject({
+			status: "answered",
+			answers: [{ picked: ["A party at home"] }],
+		});
 	});
 });
