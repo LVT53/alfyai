@@ -3945,6 +3945,8 @@ describe("MessageBubble", () => {
 				question: null,
 				copyText: null,
 				userIntent: null,
+				drawsSources: true,
+				sources: null,
 				...overrides,
 			};
 		}
@@ -4124,6 +4126,104 @@ describe("MessageBubble", () => {
 				screen.getByTestId("reasoning-depth-indicator"),
 			).toBeInTheDocument();
 			expect(rootOf().classList.contains("pt-0")).toBe(false);
+		});
+
+		// Owner, 2026-11-05, after his first live test: the asking segment's Sources between its
+		// folded line and the words that carry on "read as the reply ending" (it was Ruling 25).
+		// A reply has one Sources panel, at its end, from every segment's evidence.
+		describe("the reply's Sources", () => {
+			const evidenceOf = (
+				...titles: string[]
+			): ChatMessage["evidenceSummary"] =>
+				({
+					structuredWebSearch: true,
+					groups: [
+						{
+							sourceType: "web",
+							label: "Web",
+							reranked: false,
+							items: titles.map((title) => ({
+								id: `id-${title}`,
+								title,
+								url: `https://example.com/${title}`,
+								sourceType: "web",
+								status: "selected",
+							})),
+						},
+					],
+				}) as ChatMessage["evidenceSummary"];
+			const sourcesButtons = () =>
+				screen.queryAllByRole("button", { name: /Sources/i });
+
+			it("draws none under a segment the reply goes on from, nor an evidence-loading line", () => {
+				render(MessageBubble, {
+					message: segment({
+						evidenceSummary: evidenceOf("Pub"),
+						evidencePending: true,
+					}),
+					replyPlace: place({ continuedBelow: true, drawsSources: false }),
+				});
+
+				expect(sourcesButtons()).toHaveLength(0);
+				expect(screen.queryByText("Pub")).toBeNull();
+				expect(
+					screen.queryByText(chatDict.en["messageBubble.evidenceLoading"]),
+				).toBeNull();
+			});
+
+			it("draws the whole reply's, merged, under the last segment", async () => {
+				render(MessageBubble, {
+					message: segment({
+						id: "assistant-seg-2",
+						renderKey: "assistant-seg-2",
+						content: SECOND_WORDS,
+						continuesMessageId: "assistant-seg-1",
+						evidenceSummary: evidenceOf("Hotel"),
+					}),
+					isLast: true,
+					replyPlace: place({
+						continuesAbove: true,
+						sources: evidenceOf("Pub", "Hotel"),
+					}),
+				});
+
+				const buttons = sourcesButtons();
+				expect(buttons).toHaveLength(1);
+				await fireEvent.click(buttons[0]);
+				expect(await screen.findByText("Pub")).toBeInTheDocument();
+				expect(screen.getByText("Hotel")).toBeInTheDocument();
+			});
+
+			it("draws its own under a message that is in no reply's place", async () => {
+				render(MessageBubble, {
+					message: segment({ evidenceSummary: evidenceOf("Pub") }),
+				});
+
+				const buttons = sourcesButtons();
+				expect(buttons).toHaveLength(1);
+				await fireEvent.click(buttons[0]);
+				expect(await screen.findByText("Pub")).toBeInTheDocument();
+			});
+
+			it("draws the asking segment's own while its question waits: it is the end of the reply so far", async () => {
+				render(MessageBubble, {
+					message: segment({ evidenceSummary: evidenceOf("Pub") }),
+					askQuestion: asked(),
+					replyPlace: place({
+						continuedBelow: true,
+						question: asked(),
+						drawsSources: true,
+					}),
+				});
+
+				expect(sourcesButtons()).toHaveLength(1);
+				// ... below the card, as the card is placed after the write cards
+				const card = screen.getByTestId("ask-card");
+				expect(
+					card.compareDocumentPosition(sourcesButtons()[0]) &
+						Node.DOCUMENT_POSITION_FOLLOWING,
+				).toBeTruthy();
+			});
 		});
 
 		it("leaves the ask call out of the rail and draws the card last in the segment", () => {
@@ -4915,6 +5015,8 @@ describe("the rail while a tool call runs after the reply has begun", () => {
 		question: null,
 		copyText: null,
 		userIntent: null,
+		drawsSources: true,
+		sources: null,
 	};
 
 	beforeEach(() => {

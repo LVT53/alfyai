@@ -656,6 +656,16 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await expect(segments.first().getByTestId("ask-folded")).toBeVisible();
 		await expectReplyEnded(page);
 
+		// One Sources row for the whole reply, at its end (owner, 2026-11-05: the asking
+		// segment's, between its folded line and the words that carry on, "read as the reply
+		// ending"): none under the asking segment, one under the last.
+		await expect(
+			segments.last().getByRole("button", { name: /Sources/i }),
+		).toHaveCount(1);
+		await expect(
+			segments.first().getByRole("button", { name: /Sources/i }),
+		).toHaveCount(0);
+
 		// One action row for the whole reply, at its end.
 		const regenerate = page.getByRole("button", {
 			name: "Regenerate response",
@@ -674,10 +684,10 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 
 		// The words that carry on sit right under what the asking segment drew last, as
 		// one reply: about 16 to 18 px, the two paddings of the rows (the paddings and the
-		// gap between rows would have left 58). The last thing is its folded line, or the
-		// Sources row under it: a turn with evidence draws that row below the line
-		// (Ruling 25), and the e2e user's turns all have some. Both edges are read in one
-		// go, after the waits above, so that no layout change can fall between the reads.
+		// gap between rows would have left 58). The last thing it draws is its folded line:
+		// the reply's Sources row is under the last segment, not under this one (owner,
+		// 2026-11-05). Both edges are read in one go, after the waits above, so that no
+		// layout change can fall between the reads.
 		const { carriedTop, askingEnd } = await carriedText.evaluate((words) => {
 			const [asking] = document.querySelectorAll(
 				'[data-testid="assistant-message"]',

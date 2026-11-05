@@ -339,6 +339,12 @@ let atlasJobCostUsdMicros = $derived(
 let isUser = $derived(message.role === "user");
 // A reply that paused to ask is several rows drawn as one reply (reply-segments.ts).
 let continuesAbove = $derived(replyPlace?.continuesAbove ?? false);
+// A reply has one Sources panel, at its end (owner, 2026-11-05): the asking segment's
+// Sources between its folded line and the words that carry on "read as the reply
+// ending". The last segment draws it, from every segment's evidence merged; the
+// segments above it draw none. A message in no reply's place is a reply of one.
+let drawsSources = $derived(replyPlace?.drawsSources ?? true);
+let shownEvidence = $derived(replyPlace?.sources ?? message.evidenceSummary);
 let continuedBelow = $derived(replyPlace?.continuedBelow ?? false);
 // The words of the reply this row ends: every segment's, joined, on the last row of a
 // reply in segments (`copyText`), else the row's own. What Copy takes and what "Open
@@ -564,7 +570,7 @@ let provenanceEntries = $derived(
 		// The last row of a reply in segments says what the person chose for the whole
 		// reply, from its first row: its own record has none (reply-segments.ts).
 		userIntent: replyPlace?.userIntent ?? message.userIntent,
-		evidenceSummary: message.evidenceSummary,
+		evidenceSummary: shownEvidence,
 		// A job that failed or was cancelled did not make this answer, so it
 		// does not get to say it did; a queued or running one is the turn
 		// still happening and keeps its chip.
@@ -1475,16 +1481,18 @@ function sendFollowUp(question: string) {
 					{/if}
 				</div>
 			{/if}
-			{#if message.evidenceSummary && message.evidenceSummary.groups.length > 0}
-				<MessageEvidenceDetails
-					evidenceSummary={message.evidenceSummary}
-					onOpenDocument={onOpenDocument}
-					expandRequest={sourcesExpandRequest}
-					{deletedArtifacts}
-					madeInOriginalChat={Boolean(message.forkEvidenceSnapshot)}
-				/>
-			{:else if showEvidencePending}
-				<div class="evidence-pending">{$t('messageBubble.evidenceLoading')}</div>
+			{#if drawsSources}
+				{#if shownEvidence && shownEvidence.groups.length > 0}
+					<MessageEvidenceDetails
+						evidenceSummary={shownEvidence}
+						onOpenDocument={onOpenDocument}
+						expandRequest={sourcesExpandRequest}
+						{deletedArtifacts}
+						madeInOriginalChat={Boolean(message.forkEvidenceSnapshot)}
+					/>
+				{:else if showEvidencePending}
+					<div class="evidence-pending">{$t('messageBubble.evidenceLoading')}</div>
+				{/if}
 			{/if}
 			{/if}
 
@@ -1588,7 +1596,7 @@ function sendFollowUp(question: string) {
 							{message}
 							modelIconUrl={messageModelIconUrl}
 							atlasCostUsdMicros={atlasJobCostUsdMicros}
-							onOpenSources={openSourcesFromInfo}
+							onOpenSources={drawsSources ? openSourcesFromInfo : undefined}
 						/>
 						</div>
 					</div>

@@ -6,8 +6,8 @@
  * (`ChatMessage.continuesMessageId`). The page draws them as ONE reply: each segment
  * keeps its own thinking rail, words and cards; the question's card, or its folded
  * line, is drawn below the words and cards of the segment that asked; the reply's
- * buttons and follow-up chips appear once, after the last segment, and only when no
- * question waits. `MessageArea` works out each row's place with
+ * Sources, buttons and follow-up chips appear once, after the last segment (the
+ * buttons and chips only when no question waits). `MessageArea` works out each row's place with
  * {@link placeReplySegments} and `MessageBubble` draws what the place says; the page
  * reads a reply through the other helpers (Retry from any row aims at the reply's
  * first, the later-turn counts count a reply once, an answer resumes the person's
@@ -20,6 +20,9 @@ import type { MessageUserIntent } from "$lib/message-user-intent";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { AskQuestionDto } from "$lib/shared/ask-user";
 import { joinReplyText } from "$lib/shared/reply-text";
+
+/** What a row's Sources panel is drawn from. */
+type RowEvidence = NonNullable<ChatMessage["evidenceSummary"]>;
 
 /** Where an assistant row sits in the reply it belongs to. */
 export type ReplyPlace = {
@@ -51,7 +54,65 @@ export type ReplyPlace = {
 	 * row's record; its evidence and Atlas parts stay the row's own.
 	 */
 	userIntent: MessageUserIntent | null;
+	/**
+	 * Whether this row draws the reply's Sources panel: a reply has one, at its end
+	 * (owner, 2026-11-05: the asking segment's Sources between its folded line and the
+	 * words that carry on "read as the reply ending"). It is the plain row of a reply of
+	 * one row, and the last row of a longer one; the rows above it draw none.
+	 */
+	drawsSources: boolean;
+	/**
+	 * The Sources the last row of a reply of more than one row draws: every row's
+	 * evidence, merged (`mergeReplyEvidence`). `null` elsewhere, where the row draws
+	 * its own.
+	 */
+	sources: RowEvidence | null;
 };
+
+/** What makes two pieces of evidence the same source: the same page, document or id. */
+function evidenceKey(item: RowEvidence["groups"][number]["items"][number]) {
+	return item.canonicalId ?? item.url ?? item.artifactId ?? item.id;
+}
+
+/**
+ * The evidence of a reply's rows as one: the groups by kind of source, in the order
+ * each first appeared, each with its items in order, a source that two rows read once.
+ * `null` when no row has any.
+ */
+export function mergeReplyEvidence(
+	rows: readonly Pick<ChatMessage, "evidenceSummary">[],
+): RowEvidence | null {
+	const groups: RowEvidence["groups"] = [];
+	const seen = new Map<string, Set<string>>();
+	let structuredWebSearch = false;
+	for (const { evidenceSummary } of rows) {
+		if (!evidenceSummary) continue;
+		structuredWebSearch ||= evidenceSummary.structuredWebSearch;
+		for (const group of evidenceSummary.groups) {
+			let merged = groups.find(
+				(entry) => entry.sourceType === group.sourceType,
+			);
+			if (!merged) {
+				merged = { ...group, items: [] };
+				groups.push(merged);
+				seen.set(group.sourceType, new Set());
+			} else {
+				merged.reranked ||= group.reranked;
+				merged.confidence ??= group.confidence;
+			}
+			const keys = seen.get(group.sourceType) as Set<string>;
+			for (const item of group.items) {
+				const key = evidenceKey(item);
+				if (keys.has(key)) continue;
+				keys.add(key);
+				merged.items.push(item);
+			}
+		}
+	}
+	return groups.some((group) => group.items.length > 0)
+		? { structuredWebSearch, groups }
+		: null;
+}
 
 /**
  * Whether the row at `index` carries on from the row right above it: both are
@@ -186,6 +247,7 @@ export function placeReplySegments(
 		const copyText =
 			reply.length > 1 ? joinReplyText(reply.map((row) => row.content)) : null;
 		const userIntent = reply.length > 1 ? (reply[0].userIntent ?? null) : null;
+		const sources = reply.length > 1 ? mergeReplyEvidence(reply) : null;
 		for (const [position, row] of reply.entries()) {
 			const question = questionOf.get(row.id) ?? null;
 			places.set(row.id, {
@@ -195,6 +257,8 @@ export function placeReplySegments(
 				question,
 				copyText: position === last ? copyText : null,
 				userIntent: position === last ? userIntent : null,
+				drawsSources: position === last,
+				sources: position === last ? sources : null,
 			});
 		}
 		reply = [];
