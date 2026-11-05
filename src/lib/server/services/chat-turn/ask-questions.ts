@@ -208,6 +208,41 @@ export async function getAskQuestion(p: {
 }
 
 /**
+ * Whether an answer to this question has nothing left to win, as far as that can be
+ * told without making the claim: the question is answered or closed, or it is
+ * answering and a resume of this process runs it (`liveResumes`, the only thing that
+ * can tell an answer on its way from a restart's leftover row). It only reads: the
+ * claim stays the one arbiter, and this answers early what the claim would answer
+ * anyway (`not_waiting`), so that the answer route can tell a tab that lost the race
+ * so at once, before the stream gate: the winner's resume holds the one stream a
+ * person may run, and a loser that met the gate first would be told to wait for room
+ * to lose a claim it could never win. An `answering` row with no resume behind it is
+ * not taken (a restart left it: the claim releases it and may win it), and neither is
+ * a question that waits, is not saved yet, was discarded or is not there: the gate and
+ * the claim meet those as they always did.
+ */
+export async function isAskQuestionTaken(p: {
+	userId: string;
+	conversationId: string;
+	questionId: string;
+}): Promise<boolean> {
+	const row = db
+		.select({ id: askQuestions.id, status: askQuestions.status })
+		.from(askQuestions)
+		.where(
+			and(
+				eq(askQuestions.id, p.questionId),
+				eq(askQuestions.userId, p.userId),
+				eq(askQuestions.conversationId, p.conversationId),
+			),
+		)
+		.get();
+	if (!row) return false;
+	if (row.status === "answered" || row.status === "closed") return true;
+	return row.status === "answering" && liveResumes.has(row.id);
+}
+
+/**
  * Claims a waiting question for an answer, so that one answer wins across
  * devices and double taps. The caller passes the answer that `checkAskAnswer`
  * returned: one that `parseAskAnswer` rejects is a caller's bug and throws. A

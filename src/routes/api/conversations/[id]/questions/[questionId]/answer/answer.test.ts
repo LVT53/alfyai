@@ -80,6 +80,20 @@ const validBody = {
 	reasoningDepth: "auto",
 };
 
+const ROOM_FOR_STREAMS = {
+	concurrentStreamLimit: 100,
+	perUserStreamLimit: 10,
+	maxMessageLength: 10000,
+};
+
+/** A person at their stream limit, as the winner's running resume leaves them (the default limit is one). */
+function atTheStreamLimit() {
+	mocks.getConfig.mockReturnValue({
+		...ROOM_FOR_STREAMS,
+		perUserStreamLimit: 0,
+	});
+}
+
 function makeEvent(
 	seeded: Pick<SeededAskQuestion, "userId" | "conversationId" | "questionId">,
 	body: unknown,
@@ -163,11 +177,7 @@ describe("POST /api/conversations/[id]/questions/[questionId]/answer", () => {
 		vi.resetAllMocks();
 		vi.spyOn(console, "warn").mockImplementation(() => undefined);
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
-		mocks.getConfig.mockReturnValue({
-			concurrentStreamLimit: 100,
-			perUserStreamLimit: 10,
-			maxMessageLength: 10000,
-		});
+		mocks.getConfig.mockReturnValue(ROOM_FOR_STREAMS);
 		mocks.getCurrentMemoryResetGeneration.mockResolvedValue(0);
 		mocks.prepareAskResumeTurn.mockImplementation(async (p) => preparedFor(p));
 		mocks.runChatStreamOrchestrator.mockImplementation(
@@ -326,13 +336,88 @@ describe("POST /api/conversations/[id]/questions/[questionId]/answer", () => {
 			error: "The question has already been answered",
 			code: "QUESTION_ALREADY_ANSWERED",
 		});
-		// The row says `answering` by then and the second answer is not refused on
-		// that: it reaches the claim and loses it there.
-		expect(claimAskQuestion).toHaveBeenCalledTimes(2);
+		// The row says `answering` under the first answer's live resume, so the second
+		// answer is told so before the gate and never reaches the claim.
+		expect(claimAskQuestion).toHaveBeenCalledTimes(1);
 		expect(mocks.prepareAskResumeTurn).toHaveBeenCalledTimes(1);
 		expect(mocks.runChatStreamOrchestrator).toHaveBeenCalledTimes(1);
 		expect(answerOf(seeded.questionId)).toEqual(PICK_RED);
 		expect(releaseAskQuestion).not.toHaveBeenCalled();
+	});
+
+	// The winner's resume holds the one stream a person may run, and the gate counts
+	// it. An answer from another tab used to meet the gate first and be told to wait
+	// for room, to be told in the end what the claim would have told it at once.
+	it("answers 409 to a question that is already taken before it asks whether the person has room for a turn", async () => {
+		const first = await POST(makeEvent(seeded, validBody));
+		expect(first.status).toBe(200);
+		const lateAnswer = () =>
+			POST(
+				makeEvent(seeded, {
+					...validBody,
+					answer: PICK_BLUE,
+					streamId: "stream-2",
+				}),
+			);
+
+		// at the person's stream limit (the first answer's resume is the stream)
+		atTheStreamLimit();
+		const atTheLimit = await lateAnswer();
+		// and while the server drains for an update
+		mocks.getConfig.mockReturnValue(ROOM_FOR_STREAMS);
+		setDraining(true);
+		const whileDraining = await lateAnswer();
+
+		for (const response of [atTheLimit, whileDraining]) {
+			expect(response.status).toBe(409);
+			expect(await response.json()).toEqual({
+				error: "The question has already been answered",
+				code: "QUESTION_ALREADY_ANSWERED",
+			});
+		}
+		// one claim, one resume, the first answer's
+		expect(claimAskQuestion).toHaveBeenCalledTimes(1);
+		expect(mocks.prepareAskResumeTurn).toHaveBeenCalledTimes(1);
+		expect(mocks.runChatStreamOrchestrator).toHaveBeenCalledTimes(1);
+		expect(answerOf(seeded.questionId)).toEqual(PICK_RED);
+		expect(releaseAskQuestion).not.toHaveBeenCalled();
+	});
+
+	it("answers 409 to a question that was answered or closed, whatever room the person has for a turn", async () => {
+		atTheStreamLimit();
+		for (const status of ["answered", "closed"] as const) {
+			db.update(askQuestions)
+				.set({ status, answerJson: JSON.stringify(PICK_RED) })
+				.where(eq(askQuestions.id, seeded.questionId))
+				.run();
+
+			const response = await POST(makeEvent(seeded, validBody));
+
+			expect(response.status).toBe(409);
+			expect(await response.json()).toEqual({
+				error: "The question has already been answered",
+				code: "QUESTION_ALREADY_ANSWERED",
+			});
+		}
+		expect(claimAskQuestion).not.toHaveBeenCalled();
+		expect(mocks.runChatStreamOrchestrator).not.toHaveBeenCalled();
+	});
+
+	it("still turns a question that is not taken away at the gate when the person has no room for a turn", async () => {
+		atTheStreamLimit();
+
+		const response = await POST(makeEvent(seeded, validBody));
+
+		expect(response.status).toBe(503);
+		expect(await response.json()).toMatchObject({
+			code: "CAPACITY_EXCEEDED",
+			reason: "user_limit",
+		});
+		expect(claimAskQuestion).not.toHaveBeenCalled();
+		expect(rowOf(seeded.questionId)).toMatchObject({
+			status: "waiting",
+			answerJson: null,
+		});
 	});
 
 	it("takes one answer and runs one resume when two devices answer at the same moment", async () => {
@@ -357,8 +442,8 @@ describe("POST /api/conversations/[id]/questions/[questionId]/answer", () => {
 	});
 
 	// A restart leaves `answering` rows with no resume behind them. The route must
-	// not refuse on the row's status: the claim is what tells a row that is
-	// answered from one that is only stuck.
+	// not refuse on the row's status alone: a row that says answering while no
+	// resume of this process runs it is not taken, and the claim is what releases it.
 	it("lets a question a restart left answering reach the claim", async () => {
 		db.update(askQuestions)
 			.set({ status: "answering", answerJson: JSON.stringify(PICK_BLUE) })
@@ -371,6 +456,23 @@ describe("POST /api/conversations/[id]/questions/[questionId]/answer", () => {
 		expect(claimAskQuestion).toHaveBeenCalledTimes(1);
 		expect(answerOf(seeded.questionId)).toEqual(PICK_RED);
 		expect(mocks.runChatStreamOrchestrator).toHaveBeenCalledTimes(1);
+	});
+
+	it("sends a question a restart left answering on to the gate, as it always went", async () => {
+		db.update(askQuestions)
+			.set({ status: "answering", answerJson: JSON.stringify(PICK_BLUE) })
+			.where(eq(askQuestions.id, seeded.questionId))
+			.run();
+		atTheStreamLimit();
+
+		const response = await POST(makeEvent(seeded, validBody));
+
+		// not taken, so not answered 409: it meets the gate, and the row is left as it was
+		expect(response.status).toBe(503);
+		expect(await response.json()).toMatchObject({ reason: "user_limit" });
+		expect(claimAskQuestion).not.toHaveBeenCalled();
+		expect(rowOf(seeded.questionId).status).toBe("answering");
+		expect(answerOf(seeded.questionId)).toEqual(PICK_BLUE);
 	});
 
 	it("gives the claim back when the resume cannot be prepared", async () => {

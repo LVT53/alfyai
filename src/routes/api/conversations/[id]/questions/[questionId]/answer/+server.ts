@@ -5,6 +5,7 @@ import {
 	claimAskQuestion,
 	createPreparationErrorResponse,
 	getAskQuestion,
+	isAskQuestionTaken,
 	prepareAskResumeTurn,
 	refuseTurnWhenOverCapacity,
 	releaseAskQuestion,
@@ -60,8 +61,18 @@ function readQuestions(questionsJson: string): AskQuestion[] | null {
 // carried on from the answer. Refusals are JSON with a `code` that the page
 // localizes by.
 //
-// Every check that can be made without the claim is made first, so the claim is the
-// last step before the preparation. A won claim must end in one release or one
+// The first thing it does is tell an answer that has nothing left to win so: a
+// question that is already taken (answered, closed, or answering under a resume this
+// process runs) answers 409 before anything else, the stream gate included. The
+// winner's resume holds the one stream a person may run, so an answer from another
+// tab that met the gate first would be told to wait for room to lose a claim it can
+// never win. The check only answers early what the claim would answer anyway, and it
+// never goes by the row's status alone: a restart leaves `answering` rows that no
+// resume stands behind, and those go on to the gate and the claim (`isAskQuestionTaken`
+// reads the store's own record of the resumes that run).
+//
+// Every other check that can be made without the claim is made next, so the claim is
+// the last step before the preparation. A won claim must end in one release or one
 // settle: from the claim until the orchestrator has returned its stream, every way
 // out here gives it back with its token (the preparation's refusal and its throw, the
 // orchestrator's throw); from then on the orchestrator holds it.
@@ -70,6 +81,16 @@ export const POST: RequestHandler = async (event) => {
 	const user = event.locals.user;
 	const { id: conversationId, questionId } = event.params;
 	const requestStartTime = Date.now();
+
+	if (
+		await isAskQuestionTaken({
+			userId: user.id,
+			conversationId,
+			questionId,
+		})
+	) {
+		return questionAlreadyAnswered();
+	}
 
 	// An answer starts a turn, so it meets the gate a new message meets.
 	const refused = refuseTurnWhenOverCapacity(user.id, "CHAT_ASK_ANSWER");
@@ -91,9 +112,10 @@ export const POST: RequestHandler = async (event) => {
 		return refusal(400, "streamId is required", "STREAM_ID_REQUIRED");
 	}
 
-	// Never a refusal on the row's own status: a restart leaves `answering` rows
-	// that nothing stands behind, and only the claim can tell those from an answer
-	// that is on its way.
+	// Never a refusal on the row's own status alone: a restart leaves `answering` rows
+	// that nothing stands behind, and only the claim, and the store's record of the
+	// resumes that run (which `isAskQuestionTaken` read at the top), can tell those
+	// from an answer that is on its way.
 	const question = await getAskQuestion({
 		userId: user.id,
 		conversationId,

@@ -18,6 +18,7 @@ import {
 	discardStaleAskQuestions,
 	getAskQuestion,
 	hasWaitingAskQuestion,
+	isAskQuestionTaken,
 	listConversationAskQuestions,
 	listWaitingAskConversationIds,
 	readAskCapture,
@@ -594,6 +595,91 @@ describe("claiming a question", () => {
 		expect(await list()).toMatchObject([
 			{ id, status: "answering", answer: trimmed },
 		]);
+	});
+});
+
+// --- whether an answer has anything left to win ----------------------------
+
+describe("whether a question is taken", () => {
+	const taken = (questionId: string, conversationId = CHAT, userId = USER) =>
+		isAskQuestionTaken({ userId, conversationId, questionId });
+
+	it("is taken while a resume of this process runs it, and once it is answered or closed, and the claim would say the same", async () => {
+		const answered = await askStamped("m1");
+		const closed = await askStamped("m2");
+		expect(await taken(answered)).toBe(false);
+
+		// answering, with the claim that started the resume live
+		const answeredToken = await win(answered, PICKED_FIRST);
+		expect(await taken(answered)).toBe(true);
+		expect(await claim(answered, CLOSED)).toEqual({
+			ok: false,
+			reason: "not_waiting",
+		});
+
+		// answered
+		await settle(answered, answeredToken);
+		expect(rowOf(answered).status).toBe("answered");
+		expect(await taken(answered)).toBe(true);
+		expect(await claim(answered, CLOSED)).toEqual({
+			ok: false,
+			reason: "not_waiting",
+		});
+
+		// closed (the X)
+		await settle(closed, await win(closed, CLOSED));
+		expect(rowOf(closed).status).toBe("closed");
+		expect(await taken(closed)).toBe(true);
+		expect(await claim(closed, PICKED_FIRST)).toEqual({
+			ok: false,
+			reason: "not_waiting",
+		});
+	});
+
+	it("is not taken when a restart left the row answering with no resume behind it, and asking leaves the row as it was", async () => {
+		const id = await askStamped("m1");
+		// Set so directly, not through a claim: this process holds no resume for it.
+		setColumn(id, "status", "answering");
+		setColumn(id, "answer_json", JSON.stringify(PICKED_FIRST));
+
+		expect(await taken(id)).toBe(false);
+
+		// Unlike the claim, which releases such a row before it wins it, the check
+		// reads: the row says what it said, and the claim still wins afterwards.
+		expect(rowOf(id).status).toBe("answering");
+		expect(answerOf(id)).toEqual(PICKED_FIRST);
+		expect((await claim(id, CLOSED)).ok).toBe(true);
+		expect(await taken(id)).toBe(true);
+	});
+
+	it("is not taken once the claim was given back", async () => {
+		const id = await askStamped("m1");
+		const token = await win(id, PICKED_FIRST);
+		expect(await taken(id)).toBe(true);
+
+		await release(id, token);
+
+		expect(rowOf(id).status).toBe("waiting");
+		expect(await taken(id)).toBe(false);
+	});
+
+	it("is not taken while the question waits, unsaved or discarded, and not for what is not the person's own", async () => {
+		const waiting = await askStamped("m1");
+		const unstamped = await ask();
+		const discarded = await ask();
+		await discardAskQuestion({ userId: USER, questionId: discarded });
+		seedChat("chat-2", USER, ["c2-m1"]);
+		const claimed = await askStamped("m2");
+		await win(claimed, PICKED_FIRST);
+
+		expect(await taken(waiting)).toBe(false);
+		expect(await taken(unstamped)).toBe(false);
+		expect(await taken(discarded)).toBe(false);
+		expect(await taken("no-such-question")).toBe(false);
+		// a taken question, asked as another chat's or another person's: not there
+		expect(await taken(claimed)).toBe(true);
+		expect(await taken(claimed, "chat-2")).toBe(false);
+		expect(await taken(claimed, CHAT, OTHER_USER)).toBe(false);
 	});
 });
 

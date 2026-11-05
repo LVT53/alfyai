@@ -14,6 +14,7 @@ export { checkStreamCapacity } from "./active-streams";
 export {
 	claimAskQuestion,
 	getAskQuestion,
+	isAskQuestionTaken,
 	listConversationAskQuestions,
 	releaseAskQuestion,
 } from "./ask-questions";
