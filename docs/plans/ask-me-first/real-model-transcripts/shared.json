@@ -1,5 +1,5 @@
 {
- "about": "What every request of the 2026-11-05 real-model measurement of ask_user has in common: the system prompt (as sent to the English account; the Hungarian account's differs in its Email line only) and the 14-tool catalogue, byte for byte the same in all eleven requests. Each prompt-NN.json holds its own messages, parameters and answer, and its system message points here (sameAs) instead of repeating the prompt.",
+ "about": "What every request of run 1 of the 2026-11-05 real-model measurement of ask_user has in common: the system prompt (as sent to the English account; the Hungarian account's differs in its Email line only) and the 14-tool catalogue, byte for byte the same in all fifteen requests: the eleven in prompt-NN.json (ten first steps and the X, prompt-11-x.json) and the four second steps of the follow-up in prompt-NN-step2.json. Each file holds its own messages, parameters and answer, and its system message points here (sameAs) instead of repeating the prompt. Run 2, measured after the rule changes, is in run2/ with a shared.json of its own (its ask_user entry differs: 2-4 options).",
  "measuredOn": "2026-11-05",
  "model": "qwen3-6-27b",
  "endpoint": "https://inference.alfycomms.com/v1/chat/completions",

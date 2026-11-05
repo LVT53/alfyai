@@ -1,0 +1,215 @@
+{
+ "prompt": 4,
+ "step": 3,
+ "kind": "fork",
+ "language": "en",
+ "text": "Let's plan the garden for next spring together.",
+ "builtFrom": "the first step's request as replayed, then the messages the app's own run appended after the real earlier replies (the fake provider served them as the stream frames the model sent; the tools ran for real against the seeded world)",
+ "shared": "shared.json",
+ "request": {
+  "parameters": {
+   "model": "qwen3-6-27b",
+   "temperature": 0.6,
+   "top_p": 0.95,
+   "top_k": 20,
+   "tool_choice": "auto"
+  },
+  "sentWith": {
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   }
+  },
+  "messages": [
+   {
+    "role": "system",
+    "sameAs": "shared.json#systemPrompt"
+   },
+   {
+    "role": "user",
+    "content": "Context from your conversation history:\n\n## Task State\nObjective: Let's plan the garden for next spring together.\n\n## Baseline Memory Profile\nThese are remembered facts about the person. They never set the reply language.\n- about_you (global): I live in Dublin.\n- about_you (global): I prefer concise answers.\n\n## Current User Message\nLet's plan the garden for next spring together.\n\n## Turn Guidance\n[SYSTEM TIME CONTEXT: Today is Thursday, November 5, 2026. Use this exact date as your current temporal anchor for relative timeframes. Call a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially depends on it.]\n\nReply in the language of the person's latest message, judged by its own words.\nIf that message has no language of its own (a short \"ok\", a number, a link, code), keep the language they have been writing in.\nIf they ask for the reply in a particular language, in this message or in their standing instructions (Your Instructions, Project Instructions), use that.\nIf they ask for a piece of writing in another language (an email, a translation), write that piece in it and keep your own words in their language.\nNothing else sets the reply language: not who they are (their name, nationality or where they live), not remembered facts (even one about the language they use), documents, files, tool or search results, or your own earlier replies.\n\nReasoning depth effort profile:\n- Applied Normal Chat profile: standard. This does not force web search every turn, and does not make the visible answer longer by itself.\nStandard-depth reasoning contract:\n- Use normal private reasoning. Keep the answer efficient, but still check obvious constraints and avoid unsupported claims.\n- Grounding pressure: standard. Use retrieval when the ordinary web/source guidance says it is needed.\n- Tool loop budget: the runtime can support up to 14 tool steps for this profile. Stop early once the answer is grounded enough.\n\n## Skills available\n- Plan Critic — Finds the blockers, weak assumptions, and gaps in a plan before you execute it, ranked by severity.\n- Document Explainer — Explains an attached or linked document in plain language, preserving exact numbers, dates, and caveats — fetches a URL first if you paste one.\n- Study Coach — Coaches active learning with chunked explanations, recall questions, and a study plan instead of a plain summary.\n- Purchase Helper — Compares purchase options against your real constraints and current prices — researches the web for specs and reviews before recommending.\n- Translate & Rewrite — Translates or rewrites text while preserving meaning, tone, and exact terminology, names, and numbers.\n- Appointment Prep — Builds an agenda, questions, and a verify/flag checklist for an upcoming appointment or call — pulls in prior context automatically.\n- Spreadsheet Builder — Builds polished XLSX workbooks with real formulas, formatted tables, and dashboards, delivered as a downloadable file.\n\n## Drafting a skill\nWhen the person asks you to keep how you just worked as a reusable skill (\"make this a skill\", \"save this as a skill\"), draft it in this block at the end of the reply, with no text inside it:\n\n<skill_control_v1>\n{\"version\":1,\"operations\":[{\"operationId\":\"skill-draft-1\",\"kind\":\"skill_draft\",\"draft\":{\"id\":\"weekly-status\",\"displayName\":\"Weekly status\",\"description\":\"Writes a short weekly status update from what the conversation already says.\",\"instructions\":\"Ask for the period, then write one short paragraph: what is done, what is next, what blocks it.\",\"activationExamples\":[\"Write my weekly status.\"],\"sourceScope\":\"current_conversation\"}}]}\n</skill_control_v1>\n\nThe app removes the block before the person sees the reply and shows a card with Save private skill and Dismiss: the skill exists only after they save it, so never claim it is saved. The example's `id`, `displayName` and `instructions` are only the shape: write them for the skill the person asked for, with `activationExamples` as messages that should load it."
+   },
+   {
+    "role": "assistant",
+    "content": "",
+    "reasoning_content": "The user wants to plan their garden for next spring in Dublin, and they prefer concise answers. Since it's November 2026 and they're thinking ahead to spring 2027, I should ask some clarifying questions to get started — things like what they want to grow, available space, and their experience level would help shape a useful plan.\n\nI'll also pull up any previous conversations about their garden to see if there's existing context I should build on.\n",
+    "tool_calls": [
+     {
+      "id": "chatcmpl-tool-b2d25387e15f117a",
+      "type": "function",
+      "function": {
+       "name": "memory_context",
+       "arguments": "{\"mode\":\"history\",\"query\":\"garden plan spring planting\"}"
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "chatcmpl-tool-b2d25387e15f117a",
+    "content": "{\"success\":true,\"name\":\"memory_context\",\"sourceType\":\"memory\",\"mode\":\"history\",\"status\":\"empty\",\"omittedConversationCount\":0}"
+   },
+   {
+    "role": "assistant",
+    "content": "\n\nHappy to. Dublin climate (USDA ~8b, mild/wet, last frost ~mid-April) means a lot can be started from February. A few choices first:\n\n",
+    "reasoning_content": "I don't have any prior context to work with, so I'll need to ask some clarifying questions before diving into the garden planning. Let me use the ask_user tool to get the key details I need.\n",
+    "tool_calls": [
+     {
+      "id": "chatcmpl-tool-84a0af9117281b95",
+      "type": "function",
+      "function": {
+       "name": "ask_user",
+       "arguments": "{\"questions\":[{\"question\":\"What are you growing this spring?\",\"options\":[{\"label\":\"Veg & herbs\",\"note\":\"Potatoes, tomatoes, courgettes, salad, herbs\",\"recommended\":true},{\"label\":\"Flowers & pollinators\",\"note\":\"Beds, borders, cut flowers, bees\"},{\"label\":\"Both, mixed\",\"note\":\"Veg patch plus a flower border\"},{\"label\":\"Lawn & low-maintenance tidy-up\",\"note\":\"Less planting, more clearing and mulching\"}]},{\"question\":\"Roughly how much space are we working with?\",\"options\":[{\"label\":\"Balcony / containers\",\"note\":\"Under ~2 m²\"},{\"label\":\"Small plot, ~10–20 m²\",\"note\":\"A few raised beds or a corner\"},{\"label\":\"Medium, ~30–50 m²\",\"note\":\"Proper veg patch plus border\"},{\"label\":\"Large, 50 m²+\",\"note\":\"Full garden\"}]},{\"question\":\"How hands-on do you want the plan to be?\",\"options\":[{\"label\":\"Simple, low effort\",\"note\":\"Month-by-month, minimum jobs\"},{\"label\":\"Structured plan with dates\",\"note\":\"Sowing calendar, spacing, succession planting\",\"recommended\":true},{\"label\":\"Full project\",\"note\":\"Soil, crop rotation, bed layout, budget, shopping list\"}]}]}"
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "chatcmpl-tool-84a0af9117281b95",
+    "content": "{\"ok\":false,\"errorCode\":\"invalid_questions\",\"message\":\"Question 2 takes one pick: mark exactly one of its options recommended.\"}"
+   }
+  ]
+ },
+ "response": {
+  "httpStatus": 200,
+  "ms": 3520,
+  "finishReason": "tool_calls",
+  "usage": {
+   "prompt_tokens": 12209,
+   "total_tokens": 12597,
+   "completion_tokens": 388,
+   "completion_tokens_details": {
+    "reasoning_tokens": 29
+   }
+  },
+  "deltas": 20,
+  "thinking": "I need to add a recommendation flag to one of the options in question 2, which currently has four options without any marked as recommended.\n",
+  "words": "",
+  "wordsAsTheAppKeepsThem": "",
+  "toolCalls": [
+   {
+    "id": "chatcmpl-tool-b14b20ed8df99b86",
+    "name": "ask_user",
+    "arguments": "{\"questions\": [{\"option\": {}, \"question\": \"What are you growing this spring?\", \"options\": [{\"label\": \"Veg & herbs\", \"note\": \"Potatoes, tomatoes, courgettes, salad, herbs\", \"recommended\": true}, {\"label\": \"Flowers & pollinators\", \"note\": \"Beds, borders, cut flowers, bees\"}, {\"label\": \"Both, mixed\", \"note\": \"Veg patch plus a flower border\"}, {\"label\": \"Lawn & low-maintenance tidy-up\", \"note\": \"Less planting, more clearing and mulching\"}]}, {\"question\": \"Roughly how much space are we working with?\", \"options\": [{\"label\": \"Balcony / containers\", \"note\": \"Under ~2 m²\"}, {\"label\": \"Small plot, ~10-20 m²\", \"note\": \"A few raised beds or a corner\", \"recommended\": true}, {\"label\": \"Medium, ~30-50 m²\", \"note\": \"Proper veg patch plus border\"}, {\"label\": \"Large, 50 m²+\", \"note\": \"Full garden\"}]}, {\"question\": \"How hands-on do you want the plan to be?\", \"options\": [{\"label\": \"Simple, low effort\", \"note\": \"Month-by-month, minimum jobs\"}, {\"label\": \"Structured plan with dates\", \"note\": \"Sowing calendar, spacing, succession planting\", \"recommended\": true}, {\"label\": \"Full project\", \"note\": \"Soil, crop rotation, bed layout, budget, shopping list\"}]}]}"
+   }
+  ]
+ },
+ "parsed": {
+  "asked": true,
+  "verdict": "card accepted",
+  "askCalls": [
+   {
+    "id": "chatcmpl-tool-b14b20ed8df99b86",
+    "input": {
+     "questions": [
+      {
+       "option": {},
+       "question": "What are you growing this spring?",
+       "options": [
+        {
+         "label": "Veg & herbs",
+         "note": "Potatoes, tomatoes, courgettes, salad, herbs",
+         "recommended": true
+        },
+        {
+         "label": "Flowers & pollinators",
+         "note": "Beds, borders, cut flowers, bees"
+        },
+        {
+         "label": "Both, mixed",
+         "note": "Veg patch plus a flower border"
+        },
+        {
+         "label": "Lawn & low-maintenance tidy-up",
+         "note": "Less planting, more clearing and mulching"
+        }
+       ]
+      },
+      {
+       "question": "Roughly how much space are we working with?",
+       "options": [
+        {
+         "label": "Balcony / containers",
+         "note": "Under ~2 m²"
+        },
+        {
+         "label": "Small plot, ~10-20 m²",
+         "note": "A few raised beds or a corner",
+         "recommended": true
+        },
+        {
+         "label": "Medium, ~30-50 m²",
+         "note": "Proper veg patch plus border"
+        },
+        {
+         "label": "Large, 50 m²+",
+         "note": "Full garden"
+        }
+       ]
+      },
+      {
+       "question": "How hands-on do you want the plan to be?",
+       "options": [
+        {
+         "label": "Simple, low effort",
+         "note": "Month-by-month, minimum jobs"
+        },
+        {
+         "label": "Structured plan with dates",
+         "note": "Sowing calendar, spacing, succession planting",
+         "recommended": true
+        },
+        {
+         "label": "Full project",
+         "note": "Soil, crop rotation, bed layout, budget, shopping list"
+        }
+       ]
+      }
+     ]
+    },
+    "jsonOk": true,
+    "shapeOk": true,
+    "shapeIssues": [],
+    "checkAskQuestions": {
+     "ok": true
+    },
+    "perQuestion": [
+     {
+      "question": 1,
+      "text": "What are you growing this spring?",
+      "multiple": false,
+      "options": 4,
+      "recommended": 1,
+      "recommendedRuleHolds": true,
+      "optionsWithinCap": true
+     },
+     {
+      "question": 2,
+      "text": "Roughly how much space are we working with?",
+      "multiple": false,
+      "options": 4,
+      "recommended": 1,
+      "recommendedRuleHolds": true,
+      "optionsWithinCap": true
+     },
+     {
+      "question": 3,
+      "text": "How hands-on do you want the plan to be?",
+      "multiple": false,
+      "options": 3,
+      "recommended": 1,
+      "recommendedRuleHolds": true,
+      "optionsWithinCap": true
+     }
+    ],
+    "appAccepted": true,
+    "toolResult": {
+     "status": "waiting_for_user",
+     "note": "Asked. The reply pauses here until the user chooses."
+    }
+   }
+  ],
+  "otherToolCalls": []
+ }
+}

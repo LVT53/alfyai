@@ -1,0 +1,181 @@
+{
+ "prompt": 2,
+ "step": 2,
+ "kind": "fork",
+ "language": "en",
+ "text": "Make me a packing list PDF for our family weekend in Vienna.",
+ "builtFrom": "the first step's request as replayed, then the messages the app's own run appended after the real earlier reply (the fake provider served it as the stream frames the model sent; the tools ran for real against the seeded world)",
+ "shared": "shared.json",
+ "request": {
+  "parameters": {
+   "model": "qwen3-6-27b",
+   "temperature": 0.6,
+   "top_p": 0.95,
+   "top_k": 20,
+   "tool_choice": "auto"
+  },
+  "sentWith": {
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   }
+  },
+  "messages": [
+   {
+    "role": "system",
+    "sameAs": "shared.json#systemPrompt"
+   },
+   {
+    "role": "user",
+    "content": "You are receiving a compacted conversation context bundle. Use it as the working context for this turn.\n\n## Task State\nObjective: Make me a packing list PDF for our family weekend in Vienna.\n\n## Baseline Memory Profile\nThese are remembered facts about the person. They never set the reply language.\n- about_you (global): I live in Dublin.\n- about_you (global): I prefer concise answers.\n\n## Current User Message\nMake me a packing list PDF for our family weekend in Vienna.\n\n## Turn Guidance\n[SYSTEM TIME CONTEXT: Today is Thursday, November 5, 2026. Use this exact date as your current temporal anchor for relative timeframes. Call a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially depends on it.]\n\nReply in the language of the person's latest message, judged by its own words.\nIf that message has no language of its own (a short \"ok\", a number, a link, code), keep the language they have been writing in.\nIf they ask for the reply in a particular language, in this message or in their standing instructions (Your Instructions, Project Instructions), use that.\nIf they ask for a piece of writing in another language (an email, a translation), write that piece in it and keep your own words in their language.\nNothing else sets the reply language: not who they are (their name, nationality or where they live), not remembered facts (even one about the language they use), documents, files, tool or search results, or your own earlier replies.\n\nReasoning depth effort profile:\n- Applied Normal Chat profile: standard. This does not force web search every turn, and does not make the visible answer longer by itself.\nStandard-depth reasoning contract:\n- Use normal private reasoning. Keep the answer efficient, but still check obvious constraints and avoid unsupported claims.\n- Grounding pressure: standard. Use retrieval when the ordinary web/source guidance says it is needed.\n- Tool loop budget: the runtime can support up to 14 tool steps for this profile. Stop early once the answer is grounded enough.\n\n## Skills available\n- Plan Critic — Finds the blockers, weak assumptions, and gaps in a plan before you execute it, ranked by severity.\n- Document Explainer — Explains an attached or linked document in plain language, preserving exact numbers, dates, and caveats — fetches a URL first if you paste one.\n- Study Coach — Coaches active learning with chunked explanations, recall questions, and a study plan instead of a plain summary.\n- Purchase Helper — Compares purchase options against your real constraints and current prices — researches the web for specs and reviews before recommending.\n- Translate & Rewrite — Translates or rewrites text while preserving meaning, tone, and exact terminology, names, and numbers.\n- Appointment Prep — Builds an agenda, questions, and a verify/flag checklist for an upcoming appointment or call — pulls in prior context automatically.\n- Spreadsheet Builder — Builds polished XLSX workbooks with real formulas, formatted tables, and dashboards, delivered as a downloadable file.\n\n## Drafting a skill\nWhen the person asks you to keep how you just worked as a reusable skill (\"make this a skill\", \"save this as a skill\"), draft it in this block at the end of the reply, with no text inside it:\n\n<skill_control_v1>\n{\"version\":1,\"operations\":[{\"operationId\":\"skill-draft-1\",\"kind\":\"skill_draft\",\"draft\":{\"id\":\"weekly-status\",\"displayName\":\"Weekly status\",\"description\":\"Writes a short weekly status update from what the conversation already says.\",\"instructions\":\"Ask for the period, then write one short paragraph: what is done, what is next, what blocks it.\",\"activationExamples\":[\"Write my weekly status.\"],\"sourceScope\":\"current_conversation\"}}]}\n</skill_control_v1>\n\nThe app removes the block before the person sees the reply and shows a card with Save private skill and Dismiss: the skill exists only after they save it, so never claim it is saved. The example's `id`, `displayName` and `instructions` are only the shape: write them for the skill the person asked for, with `activationExamples` as messages that should load it."
+   },
+   {
+    "role": "assistant",
+    "content": "",
+    "reasoning_content": "The user wants a packing list PDF for a family weekend in Vienna. I should check memory for project context? There's a task state. Let me check memory context for details about the trip (family, kids, dates, weather). Vienna in November — today is Nov 5, 2026. A \"weekend in Vienna\" — when? Unknown dates. Could ask, but the guidance says proceed if clear enough. Missing detail: when is the trip? That materially changes the packing list (weather). But I could assume upcoming weekend / winter. Hmm.\n\nLet me check memory context for project/history about the Vienna trip first.\n\nThen produce a PDF. Let me do memory_context (persona/history) to find trip details.\n",
+    "tool_calls": [
+     {
+      "id": "chatcmpl-tool-89214c9c64a8a5b6",
+      "type": "function",
+      "function": {
+       "name": "memory_context",
+       "arguments": "{\"mode\":\"history\",\"query\":\"Vienna family weekend trip dates kids\",\"maxHistoryConversations\":4}"
+      }
+     },
+     {
+      "id": "chatcmpl-tool-91468664f293ef1c",
+      "type": "function",
+      "function": {
+       "name": "memory_context",
+       "arguments": "{\"mode\":\"project\",\"query\":\"Vienna family weekend trip\"}"
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "chatcmpl-tool-89214c9c64a8a5b6",
+    "content": "{\"success\":true,\"name\":\"memory_context\",\"sourceType\":\"memory\",\"mode\":\"history\",\"status\":\"empty\",\"omittedConversationCount\":0}"
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "chatcmpl-tool-91468664f293ef1c",
+    "content": "{\"success\":true,\"name\":\"memory_context\",\"sourceType\":\"memory\",\"mode\":\"project\",\"omittedSiblingCount\":0,\"hasProjectContext\":false}"
+   }
+  ]
+ },
+ "response": {
+  "httpStatus": 200,
+  "ms": 6823,
+  "finishReason": "tool_calls",
+  "usage": {
+   "prompt_tokens": 11902,
+   "total_tokens": 12564,
+   "completion_tokens": 662,
+   "completion_tokens_details": {
+    "reasoning_tokens": 416
+   }
+  },
+  "deltas": 200,
+  "thinking": "No memory about the trip. Trip dates unknown. Today is Nov 5, 2026 (Thursday). A \"family weekend in Vienna\" — likely soon. Should I ask? The missing detail (dates/season) materially changes the packing list. But per guidance, ask only when it materially changes the answer. Weather does matter. However, I could ask one quick question about timing and kids' ages. But the task is to produce a PDF; asking one question is cheap and improves it. Let me ask: when is the trip, and who's going (kids' ages)? Actually, I could just assume a November/December trip and make it adaptable. Given \"prefer action over process\", and the compacted context suggests this is a continuing task where they want the file made.\n\nI think one ask_user with 2 questions (timing, group) is justified — cold-weather layering vs summer packing is a big difference. But it delays the deliverable. Hmm. The guidance: \"Ask a follow-up question only when the missing detail would materially change the answer\". Dates → weather → packing list content. I'd say yes, worth one quick question. But also risk of annoying. Alternative: build the PDF for the most likely near-term scenario (Nov/Dec, cold, possibly Christmas markets) and note it's easy to adjust.\n\nLet me be pragmatic: ask a single quick question with options for the timing, and one about kids. Actually two questions max. Then produce the PDF. That's a reasonable, low-friction path.\n\nHmm, but the user said \"Make me a packing list PDF\" — action expected. A compacted context bundle suggests prior conversation existed but no details retained. I'll ask quickly.\n\nActually, let me reconsider — turn guidance says stop early once grounded enough. Asking a question is fine and cheap. I'll ask 2 questions: when (which weekend/season) and family composition (2 adults + kids ages?). Then produce PDF.\n\nLet me do it.\n",
+  "words": "",
+  "wordsAsTheAppKeepsThem": "",
+  "toolCalls": [
+   {
+    "id": "chatcmpl-tool-8826e7c89a9b69f1",
+    "name": "ask_user",
+    "arguments": "{\"questions\": [{\"question\": \"When is the Vienna weekend? (It sets the weather and the layers.)\", \"options\": [{\"label\": \"This/next weekend (Nov)\", \"note\": \"Cold, ~1–8 °C, rain likely\", \"recommended\": true}, {\"label\": \"December, Christmas markets\", \"note\": \"Freezing evenings, ~-3 to 4 °C\"}, {\"label\": \"Spring/summer trip\", \"note\": \"Mild to warm, 15–30 °C\"}, {\"label\": \"Not booked yet\", \"note\": \"Generic list I can adapt later\"}]}, {\"question\": \"Who's packing?\", \"options\": [{\"label\": \"2 adults + 2 kids\", \"note\": \"Default assumption if you don't pick\"}, {\"label\": \"2 adults only\", \"note\": \"\"}, {\"label\": \"2 adults + teens\", \"note\": \"\"}, {\"label\": \"2 adults + 1 toddler\", \"note\": \"Adds pram, nappies, bottle gear\"}]}]}"
+   }
+  ]
+ },
+ "parsed": {
+  "asked": true,
+  "verdict": "card refused",
+  "askCalls": [
+   {
+    "id": "chatcmpl-tool-8826e7c89a9b69f1",
+    "input": {
+     "questions": [
+      {
+       "question": "When is the Vienna weekend? (It sets the weather and the layers.)",
+       "options": [
+        {
+         "label": "This/next weekend (Nov)",
+         "note": "Cold, ~1–8 °C, rain likely",
+         "recommended": true
+        },
+        {
+         "label": "December, Christmas markets",
+         "note": "Freezing evenings, ~-3 to 4 °C"
+        },
+        {
+         "label": "Spring/summer trip",
+         "note": "Mild to warm, 15–30 °C"
+        },
+        {
+         "label": "Not booked yet",
+         "note": "Generic list I can adapt later"
+        }
+       ]
+      },
+      {
+       "question": "Who's packing?",
+       "options": [
+        {
+         "label": "2 adults + 2 kids",
+         "note": "Default assumption if you don't pick"
+        },
+        {
+         "label": "2 adults only",
+         "note": ""
+        },
+        {
+         "label": "2 adults + teens",
+         "note": ""
+        },
+        {
+         "label": "2 adults + 1 toddler",
+         "note": "Adds pram, nappies, bottle gear"
+        }
+       ]
+      }
+     ]
+    },
+    "jsonOk": true,
+    "shapeOk": true,
+    "shapeIssues": [],
+    "checkAskQuestions": {
+     "ok": false,
+     "message": "Question 2 takes one pick: mark exactly one of its options recommended.\nOption 2 of question 2 has an empty note.\nOption 3 of question 2 has an empty note."
+    },
+    "perQuestion": [
+     {
+      "question": 1,
+      "text": "When is the Vienna weekend? (It sets the weather and the layers.)",
+      "multiple": false,
+      "options": 4,
+      "recommended": 1,
+      "recommendedRuleHolds": true,
+      "optionsWithinCap": true
+     },
+     {
+      "question": 2,
+      "text": "Who's packing?",
+      "multiple": false,
+      "options": 4,
+      "recommended": 0,
+      "recommendedRuleHolds": false,
+      "optionsWithinCap": true
+     }
+    ],
+    "appAccepted": false,
+    "toolResult": {
+     "ok": false,
+     "errorCode": "invalid_questions",
+     "message": "Question 2 takes one pick: mark exactly one of its options recommended.\nOption 2 of question 2 has an empty note.\nOption 3 of question 2 has an empty note."
+    }
+   }
+  ],
+  "otherToolCalls": []
+ }
+}

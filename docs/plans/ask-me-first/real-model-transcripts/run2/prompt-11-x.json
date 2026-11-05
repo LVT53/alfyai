@@ -1,0 +1,98 @@
+{
+ "prompt": "X",
+ "step": "resume after the card is closed",
+ "kind": "x",
+ "language": "en",
+ "text": "I'd like to do something special for my dad's 60th in March. Can you help me think it through?",
+ "builtFrom": "prompt 1's request as replayed, then the reply so far and the closed answer, put together by the app's own resume builders (buildAskResumeCapture, buildAskResumeContinuation, buildAskAnswerRecord)",
+ "shared": "shared.json",
+ "request": {
+  "parameters": {
+   "model": "qwen3-6-27b",
+   "temperature": 0.6,
+   "top_p": 0.95,
+   "top_k": 20,
+   "tool_choice": "auto"
+  },
+  "sentWith": {
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   }
+  },
+  "messages": [
+   {
+    "role": "system",
+    "sameAs": "shared.json#systemPrompt"
+   },
+   {
+    "role": "user",
+    "content": "Context from your recent conversation:\n\n## Baseline Memory Profile\nThese are remembered facts about the person. They never set the reply language.\n- about_you (global): I live in Dublin.\n- about_you (global): I prefer concise answers.\n\n## Current User Message\nI'd like to do something special for my dad's 60th in March. Can you help me think it through?\n\n## Turn Guidance\n[SYSTEM TIME CONTEXT: Today is Thursday, November 5, 2026. Use this exact date as your current temporal anchor for relative timeframes. Call a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially depends on it.]\n\nReply in the language of the person's latest message, judged by its own words.\nIf that message has no language of its own (a short \"ok\", a number, a link, code), keep the language they have been writing in.\nIf they ask for the reply in a particular language, in this message or in their standing instructions (Your Instructions, Project Instructions), use that.\nIf they ask for a piece of writing in another language (an email, a translation), write that piece in it and keep your own words in their language.\nNothing else sets the reply language: not who they are (their name, nationality or where they live), not remembered facts (even one about the language they use), documents, files, tool or search results, or your own earlier replies.\n\nReasoning depth effort profile:\n- Applied Normal Chat profile: standard. This does not force web search every turn, and does not make the visible answer longer by itself.\nStandard-depth reasoning contract:\n- Use normal private reasoning. Keep the answer efficient, but still check obvious constraints and avoid unsupported claims.\n- Grounding pressure: standard. Use retrieval when the ordinary web/source guidance says it is needed.\n- Tool loop budget: the runtime can support up to 14 tool steps for this profile. Stop early once the answer is grounded enough.\n\n## Skills available\n- Plan Critic — Finds the blockers, weak assumptions, and gaps in a plan before you execute it, ranked by severity.\n- Document Explainer — Explains an attached or linked document in plain language, preserving exact numbers, dates, and caveats — fetches a URL first if you paste one.\n- Study Coach — Coaches active learning with chunked explanations, recall questions, and a study plan instead of a plain summary.\n- Purchase Helper — Compares purchase options against your real constraints and current prices — researches the web for specs and reviews before recommending.\n- Translate & Rewrite — Translates or rewrites text while preserving meaning, tone, and exact terminology, names, and numbers.\n- Appointment Prep — Builds an agenda, questions, and a verify/flag checklist for an upcoming appointment or call — pulls in prior context automatically.\n- Spreadsheet Builder — Builds polished XLSX workbooks with real formulas, formatted tables, and dashboards, delivered as a downloadable file.\n\n## Drafting a skill\nWhen the person asks you to keep how you just worked as a reusable skill (\"make this a skill\", \"save this as a skill\"), draft it in this block at the end of the reply, with no text inside it:\n\n<skill_control_v1>\n{\"version\":1,\"operations\":[{\"operationId\":\"skill-draft-1\",\"kind\":\"skill_draft\",\"draft\":{\"id\":\"weekly-status\",\"displayName\":\"Weekly status\",\"description\":\"Writes a short weekly status update from what the conversation already says.\",\"instructions\":\"Ask for the period, then write one short paragraph: what is done, what is next, what blocks it.\",\"activationExamples\":[\"Write my weekly status.\"],\"sourceScope\":\"current_conversation\"}}]}\n</skill_control_v1>\n\nThe app removes the block before the person sees the reply and shows a card with Save private skill and Dismiss: the skill exists only after they save it, so never claim it is saved. The example's `id`, `displayName` and `instructions` are only the shape: write them for the skill the person asked for, with `activationExamples` as messages that should load it."
+   },
+   {
+    "role": "assistant",
+    "content": "\n\nHappy to help, Alex. A few things would sharply change what I'd suggest, so let me ask before I start throwing ideas at you.\n\n",
+    "reasoning_content": "The user is asking for help planning something special for their dad's 60th birthday in March. They're from Dublin and prefer concise responses, so I should ask some clarifying questions rather than making assumptions — things like budget, whether their dad enjoys travel or low-key activities, and how many people will be involved would really shape the direction.\n\nI'll frame a few key questions in a friendly way, keeping it brief and respecting their preference for brevity.\n",
+    "tool_calls": [
+     {
+      "id": "chatcmpl-tool-8f89244ceb93e5f8",
+      "type": "function",
+      "function": {
+       "name": "ask_user",
+       "arguments": "{\"questions\":[{\"question\":\"Roughly what budget are you working with?\",\"options\":[{\"label\":\"Up to €500\",\"note\":\"Something thoughtful, mostly local\"},{\"label\":\"€500–€2,000\",\"note\":\"A weekend away or a proper experience\"},{\"label\":\"€2,000–€5,000\",\"note\":\"Big trip or a once-in-a-lifetime event\"},{\"label\":\"Flexible\",\"note\":\"Money's not the constraint\"}]},{\"question\":\"Who's it for — just the two of you, or a big gathering?\",\"options\":[{\"label\":\"Just Dad and me\",\"note\":\"One-to-one, personal\"},{\"label\":\"Immediate family\",\"note\":\"Small group, 4–10 people\"},{\"label\":\"Big party\",\"note\":\"Friends, family, 20+ people\"},{\"label\":\"Surprise him with people\",\"note\":\"He doesn't know who's coming\"}]},{\"question\":\"What's he actually like?\",\"options\":[{\"label\":\"Food & drink\",\"note\":\"Restaurants, whiskey, wine, long lunches\"},{\"label\":\"Outdoors & activity\",\"note\":\"Golf, hiking, sea swimming, bikes\"},{\"label\":\"Travel & new places\",\"note\":\"A trip beats a present\"},{\"label\":\"Quiet & sentimental\",\"note\":\"Time with people, memories, no fuss\"}]}]}"
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "chatcmpl-tool-8f89244ceb93e5f8",
+    "content": "{\"ok\":false,\"errorCode\":\"invalid_questions\",\"message\":\"Question 1 takes one pick: mark exactly one of its options recommended.\\nQuestion 2 takes one pick: mark exactly one of its options recommended.\\nQuestion 3 takes one pick: mark exactly one of its options recommended.\"}"
+   },
+   {
+    "role": "assistant",
+    "content": "",
+    "reasoning_content": "I need to make sure each single-pick question has exactly one option marked as recommended.\n",
+    "tool_calls": [
+     {
+      "id": "chatcmpl-tool-98a369497a17328e",
+      "type": "function",
+      "function": {
+       "name": "ask_user",
+       "arguments": "{\"questions\":[{\"question\":\"Roughly what budget are you working with?\",\"options\":[{\"label\":\"Up to €500\",\"note\":\"Something thoughtful, mostly local\"},{\"label\":\"€500–€2,000\",\"note\":\"A weekend away or a proper experience\",\"recommended\":true},{\"label\":\"€2,000–€5,000\",\"note\":\"Big trip or a once-in-a-lifetime event\"},{\"label\":\"Flexible\",\"note\":\"Money's not the constraint\"}]},{\"question\":\"Who's it for — just the two of you, or a big gathering?\",\"options\":[{\"label\":\"Just Dad and me\",\"note\":\"One-to-one, personal\"},{\"label\":\"Immediate family\",\"note\":\"Small group, 4–10 people\",\"recommended\":true},{\"label\":\"Big party\",\"note\":\"Friends, family, 20+ people\"},{\"label\":\"Surprise him with people\",\"note\":\"He doesn't know who's coming\"}]},{\"question\":\"What's he actually like?\",\"options\":[{\"label\":\"Food & drink\",\"note\":\"Restaurants, whiskey, wine, long lunches\"},{\"label\":\"Outdoors & activity\",\"note\":\"Golf, hiking, sea swimming, bikes\"},{\"label\":\"Travel & new places\",\"note\":\"A trip beats a present\"},{\"label\":\"Quiet & sentimental\",\"note\":\"Time with people, memories, no fuss\",\"recommended\":true}]}]}"
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "chatcmpl-tool-98a369497a17328e",
+    "content": "{\"status\":\"closed\",\"note\":\"The user closed the question without answering. It may have been off. Go on with your best judgment or ask differently, and never ask the same thing again.\"}"
+   }
+  ]
+ },
+ "response": {
+  "httpStatus": 200,
+  "ms": 5763,
+  "finishReason": "stop",
+  "usage": {
+   "prompt_tokens": 12538,
+   "total_tokens": 13069,
+   "completion_tokens": 531,
+   "completion_tokens_details": {
+    "reasoning_tokens": 132
+   }
+  },
+  "deltas": 250,
+  "thinking": "The user closed the question, so I'll work with reasonable assumptions instead. March 2027 is about four months away, and since the exact date isn't specified, I'll structure this around a decision framework with concrete Dublin-based options at different budget levels, keeping everything concise and metric-focused.\n\nRather than inventing specific prices that might be outdated, I'll sketch a planning timeline: lock down the date and venue by mid-December, book flights or restaurants by January, send invitations mid-February, then confirm details in early March. I'll mention that I can price out specific options once they tell me which direction appeals to them.\n",
+  "words": "\n\nNo problem — I'll take a swing at it and you can steer me.\n\n**The short version:** for a 60th in March, the thing that actually lands is either *time with people he doesn't see enough* or *one experience he'd never book himself*. A gift rarely competes with either.\n\n**Three shapes that work, roughly by cost**\n\n| Shape | Ballpark | Why it works |\n|---|---|---|\n| Long weekend away, just family | €800–€2,000 | March is cheap for flights from Dublin. A 3-night trip beats a 6-hour party. |\n| One big day, done properly | €400–€1,200 | Private chef at home, a whiskey or wine tasting for 8–10, or a golf society day with a good dinner after. |\n| Sentimental, low spend | under €300 | A book of letters from 30 people, plus a dinner where everyone says something. Often the one he remembers. |\n\n**Timing, if it's a March weekend**\n\n- [ ] Now → mid-Dec: pick the date and the shape\n- [ ] Dec–Jan: book travel/venue (Christmas prices bite if you leave it)\n- [ ] Mid-Feb: invites, if anyone's coming\n- [ ] Early March: confirm, print anything, write the speech\n\n**Two things worth deciding early**\n\n1. Does he want to be the centre of attention? Plenty of 60-year-olds hate a surprise party and love a quiet trip.\n2. Is anyone travelling in? That decides date and location before anything else.\n\nTell me a rough budget and whether he's a \"big crowd\" or \"quiet weekend\" person, and I'll get concrete — real places, real prices, a shortlist.",
+  "wordsAsTheAppKeepsThem": "No problem — I'll take a swing at it and you can steer me.\n\n**The short version:** for a 60th in March, the thing that actually lands is either *time with people he doesn't see enough* or *one experience he'd never book himself*. A gift rarely competes with either.\n\n**Three shapes that work, roughly by cost**\n\n| Shape | Ballpark | Why it works |\n|---|---|---|\n| Long weekend away, just family | €800–€2,000 | March is cheap for flights from Dublin. A 3-night trip beats a 6-hour party. |\n| One big day, done properly | €400–€1,200 | Private chef at home, a whiskey or wine tasting for 8–10, or a golf society day with a good dinner after. |\n| Sentimental, low spend | under €300 | A book of letters from 30 people, plus a dinner where everyone says something. Often the one he remembers. |\n\n**Timing, if it's a March weekend**\n\n- [ ] Now → mid-Dec: pick the date and the shape\n- [ ] Dec–Jan: book travel/venue (Christmas prices bite if you leave it)\n- [ ] Mid-Feb: invites, if anyone's coming\n- [ ] Early March: confirm, print anything, write the speech\n\n**Two things worth deciding early**\n\n1. Does he want to be the centre of attention? Plenty of 60-year-olds hate a surprise party and love a quiet trip.\n2. Is anyone travelling in? That decides date and location before anything else.\n\nTell me a rough budget and whether he's a \"big crowd\" or \"quiet weekend\" person, and I'll get concrete — real places, real prices, a shortlist.",
+  "toolCalls": []
+ },
+ "parsed": {
+  "asked": false,
+  "verdict": "answered without asking",
+  "askCalls": [],
+  "otherToolCalls": []
+ }
+}

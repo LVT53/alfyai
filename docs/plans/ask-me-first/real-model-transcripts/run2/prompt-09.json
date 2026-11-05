@@ -1,0 +1,57 @@
+{
+ "prompt": 9,
+ "step": 1,
+ "kind": "clear",
+ "language": "en",
+ "text": "Summarize the plot of Hamlet in three sentences.",
+ "shared": "shared.json",
+ "request": {
+  "parameters": {
+   "model": "qwen3-6-27b",
+   "temperature": 0.6,
+   "top_p": 0.95,
+   "top_k": 20,
+   "tool_choice": "auto"
+  },
+  "sentWith": {
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   }
+  },
+  "messages": [
+   {
+    "role": "system",
+    "sameAs": "shared.json#systemPrompt"
+   },
+   {
+    "role": "user",
+    "content": "Context from your conversation history:\n\n## Task State\nObjective: Summarize the plot of Hamlet in three sentences.\n\n## Baseline Memory Profile\nThese are remembered facts about the person. They never set the reply language.\n- about_you (global): I live in Dublin.\n- about_you (global): I prefer concise answers.\n\n## Current User Message\nSummarize the plot of Hamlet in three sentences.\n\n## Turn Guidance\n[SYSTEM TIME CONTEXT: Today is Thursday, November 5, 2026. Use this exact date as your current temporal anchor for relative timeframes. Call a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially depends on it.]\n\nReply in the language of the person's latest message, judged by its own words.\nIf that message has no language of its own (a short \"ok\", a number, a link, code), keep the language they have been writing in.\nIf they ask for the reply in a particular language, in this message or in their standing instructions (Your Instructions, Project Instructions), use that.\nIf they ask for a piece of writing in another language (an email, a translation), write that piece in it and keep your own words in their language.\nNothing else sets the reply language: not who they are (their name, nationality or where they live), not remembered facts (even one about the language they use), documents, files, tool or search results, or your own earlier replies.\n\nReasoning depth effort profile:\n- Applied Normal Chat profile: standard. This does not force web search every turn, and does not make the visible answer longer by itself.\nStandard-depth reasoning contract:\n- Use normal private reasoning. Keep the answer efficient, but still check obvious constraints and avoid unsupported claims.\n- Grounding pressure: standard. Use retrieval when the ordinary web/source guidance says it is needed.\n- Tool loop budget: the runtime can support up to 14 tool steps for this profile. Stop early once the answer is grounded enough.\n\n## Skills available\n- Plan Critic — Finds the blockers, weak assumptions, and gaps in a plan before you execute it, ranked by severity.\n- Document Explainer — Explains an attached or linked document in plain language, preserving exact numbers, dates, and caveats — fetches a URL first if you paste one.\n- Study Coach — Coaches active learning with chunked explanations, recall questions, and a study plan instead of a plain summary.\n- Purchase Helper — Compares purchase options against your real constraints and current prices — researches the web for specs and reviews before recommending.\n- Translate & Rewrite — Translates or rewrites text while preserving meaning, tone, and exact terminology, names, and numbers.\n- Appointment Prep — Builds an agenda, questions, and a verify/flag checklist for an upcoming appointment or call — pulls in prior context automatically.\n- Spreadsheet Builder — Builds polished XLSX workbooks with real formulas, formatted tables, and dashboards, delivered as a downloadable file.\n\n## Drafting a skill\nWhen the person asks you to keep how you just worked as a reusable skill (\"make this a skill\", \"save this as a skill\"), draft it in this block at the end of the reply, with no text inside it:\n\n<skill_control_v1>\n{\"version\":1,\"operations\":[{\"operationId\":\"skill-draft-1\",\"kind\":\"skill_draft\",\"draft\":{\"id\":\"weekly-status\",\"displayName\":\"Weekly status\",\"description\":\"Writes a short weekly status update from what the conversation already says.\",\"instructions\":\"Ask for the period, then write one short paragraph: what is done, what is next, what blocks it.\",\"activationExamples\":[\"Write my weekly status.\"],\"sourceScope\":\"current_conversation\"}}]}\n</skill_control_v1>\n\nThe app removes the block before the person sees the reply and shows a card with Save private skill and Dismiss: the skill exists only after they save it, so never claim it is saved. The example's `id`, `displayName` and `instructions` are only the shape: write them for the skill the person asked for, with `activationExamples` as messages that should load it."
+   }
+  ]
+ },
+ "response": {
+  "httpStatus": 200,
+  "ms": 2475,
+  "finishReason": "stop",
+  "usage": {
+   "prompt_tokens": 11550,
+   "total_tokens": 11728,
+   "completion_tokens": 178,
+   "completion_tokens_details": {
+    "reasoning_tokens": 32
+   }
+  },
+  "deltas": 83,
+  "thinking": "The user is asking for a concise three-sentence summary of Hamlet's plot, so I'll provide that directly without needing any additional tools or research.\n",
+  "words": "\n\nHamlet, Prince of Denmark, learns from his father's ghost that Claudius — now king and Hamlet's uncle — murdered him by pouring poison in his ear, and he swears revenge while feigning madness. His hesitation and a play staging the murder confirm Claudius's guilt, but Hamlet kills the wrong man (Polonius), driving Polonius's daughter Ophelia to madness and her brother Laertes to seek vengeance. In the final duel, poison does the rest: Gertrude drinks the poisoned cup, Laertes and Hamlet are cut by the envenomed blade, Hamlet kills Claudius at last, and Fortinbras of Norway arrives to take the throne.",
+  "wordsAsTheAppKeepsThem": "Hamlet, Prince of Denmark, learns from his father's ghost that Claudius — now king and Hamlet's uncle — murdered him by pouring poison in his ear, and he swears revenge while feigning madness. His hesitation and a play staging the murder confirm Claudius's guilt, but Hamlet kills the wrong man (Polonius), driving Polonius's daughter Ophelia to madness and her brother Laertes to seek vengeance. In the final duel, poison does the rest: Gertrude drinks the poisoned cup, Laertes and Hamlet are cut by the envenomed blade, Hamlet kills Claudius at last, and Fortinbras of Norway arrives to take the throne.",
+  "toolCalls": []
+ },
+ "parsed": {
+  "asked": false,
+  "verdict": "answered without asking",
+  "askCalls": [],
+  "otherToolCalls": []
+ }
+}
