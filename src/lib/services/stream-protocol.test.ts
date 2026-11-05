@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
 	createInlineThinkingState,
+	createLeakedToolDiagnosticsState,
 	FRIENDLY_STREAM_ERRORS,
 	flushInlineThinkingState,
 	getLeakedToolDiagnosticPrefixLength,
 	getTextContent,
 	mayStartLeadingThinkingPreamble,
 	processInlineThinkingChunk,
+	resetLeakedToolDiagnosticsForNewTextRun,
 	splitLeadingThinkingPreamble,
 	stripLeadingResponseMarker,
 	stripLeakedToolDiagnostics,
@@ -845,5 +847,168 @@ describe("stream-protocol", () => {
 		expect(
 			getLeakedToolDiagnosticPrefixLength('Here is code:\n```json\n{"a": 1}'),
 		).toBe(0);
+	});
+});
+
+// The cleanup of leaked tool output guesses at the START of a run of reply text.
+// Asked of the rest of an answer, a sentence that reads like a narration began a
+// hold-back that swallowed the table, the prices and the links after it (the
+// owner's live test of "Ask me first", 2026-11-05).
+describe("leaked tool output: the start of a run of reply text", () => {
+	const middle = [
+		"I found three options on the site.",
+		"",
+		"| Plan | Price |",
+		"|------|-------|",
+		"| Escape room | EUR 22 |",
+	].join("\n");
+
+	it("holds back what follows a narration on the very next line", () => {
+		const state = createLeakedToolDiagnosticsState();
+		expect(
+			stripLeakedToolDiagnostics(
+				"Let me search for that.\nSome page title\nHome\nLogin",
+				state,
+			),
+		).toBe("");
+		expect(state.suppressWebToolOutput).toBe(true);
+	});
+
+	it("keeps the answer that follows a narration after a paragraph break", () => {
+		expect(
+			stripLeakedToolDiagnostics(
+				"Let me search for that.\n\nThe capital of Italy is Rome.",
+			),
+		).toBe("The capital of Italy is Rome.");
+		const state = createLeakedToolDiagnosticsState();
+		expect(stripLeakedToolDiagnostics(middle, state)).toBe(
+			middle.replace("I found three options on the site.\n\n", ""),
+		);
+		expect(state.suppressWebToolOutput).toBe(false);
+	});
+
+	it("leaves the same sentence alone once an answer has begun", () => {
+		const state = createLeakedToolDiagnosticsState();
+		expect(stripLeakedToolDiagnostics(middle, state, { leading: false })).toBe(
+			middle,
+		);
+		expect(state.suppressWebToolOutput).toBe(false);
+	});
+
+	it("reads a marker that says what it is wherever it stands", () => {
+		const state = createLeakedToolDiagnosticsState();
+		expect(
+			stripLeakedToolDiagnostics(
+				"The answer starts here. Found 8 sources and 16 evidence snippets\n\nThen the rest.",
+				state,
+				{ leading: false },
+			),
+		).toBe("The answer starts here.\n\nThen the rest.");
+	});
+
+	it("does not take 'search results:' in a sentence for a leaked header once an answer has begun", () => {
+		const answer = [
+			"Based on the search results:",
+			"",
+			"| Plan | Price |",
+			"|------|-------|",
+			"| Escape room | EUR 22 |",
+			"",
+			"Then the rest.",
+		].join("\n");
+		const state = createLeakedToolDiagnosticsState();
+		expect(stripLeakedToolDiagnostics(answer, state, { leading: false })).toBe(
+			answer,
+		);
+		expect(state.suppressWebToolOutput).toBe(false);
+		// At the start of a run it is still where a leak puts its header.
+		expect(
+			stripLeakedToolDiagnostics(
+				"Search results:\n1. title: Foo\nurl: https://x.test/a\nThe answer is Foo.",
+			),
+		).toBe("The answer is Foo.");
+	});
+
+	it("counts a narration without its full stop as complete only when the text is final", () => {
+		expect(stripLeakedToolDiagnostics("Let me search")).toBe("Let me search");
+		expect(
+			stripLeakedToolDiagnostics("Let me search", undefined, { final: true }),
+		).toBe("");
+		expect(stripLeakedToolDiagnostics("Ki", undefined, { final: true })).toBe(
+			"Ki",
+		);
+	});
+
+	it("hands back a narration nothing follows yet, to be judged with what comes next", () => {
+		const state = createLeakedToolDiagnosticsState();
+		expect(
+			stripLeakedToolDiagnostics(
+				"Now I have the data. Let me pull it together.",
+				state,
+			),
+		).toBe("Let me pull it together.");
+		expect(state.suppressWebToolOutput).toBe(false);
+	});
+
+	it("holds the first letters of a narration only at the start of a run", () => {
+		expect(getLeakedToolDiagnosticPrefixLength("Rome")).toBe("me".length);
+		expect(
+			getLeakedToolDiagnosticPrefixLength("Rome", { leading: false }),
+		).toBe(0);
+		expect(getLeakedToolDiagnosticPrefixLength("No", { leading: false })).toBe(
+			0,
+		);
+		expect(
+			getLeakedToolDiagnosticPrefixLength("Search resu", { leading: false }),
+		).toBe(0);
+		expect(getLeakedToolDiagnosticPrefixLength("Search resu")).toBe(
+			"Search resu".length,
+		);
+		expect(
+			getLeakedToolDiagnosticPrefixLength("fetch_content out", {
+				leading: false,
+			}),
+		).toBe("fetch_content out".length);
+	});
+
+	it("ends the hold-back a narration began when a tool call ends the run", () => {
+		const state = createLeakedToolDiagnosticsState();
+		state.suppressPythonToolOutput = true;
+		stripLeakedToolDiagnostics("Let me search for it.", state, { final: true });
+		expect(state.suppressWebToolOutput).toBe(true);
+		resetLeakedToolDiagnosticsForNewTextRun(state);
+		expect(state.suppressWebToolOutput).toBe(false);
+		expect(state.suppressPythonToolOutput).toBe(false);
+		expect(
+			stripLeakedToolDiagnostics(
+				"Sunday evening in Limerick, with a group.",
+				state,
+			),
+		).toBe("Sunday evening in Limerick, with a group.");
+	});
+
+	it("does not take an answer that opens with a sentence for a block of raw results, however many links it lists", () => {
+		const answer = [
+			"Sunday evening in Limerick with a group and an activity as the anchor.",
+			"",
+			"1. Escape room - EUR 22 pp - https://www.example.ie/escape-limerick",
+			"2. Dinner at the Milk Market - EUR 30 pp - https://www.example.ie/menu",
+			"3. Castletroy Park Hotel - EUR 140 a night - https://www.example.ie/castletroy",
+			"4. Savoy Hotel Limerick - EUR 120 a night - https://www.example.ie/savoy",
+			"5. Bus back to Dublin - EUR 15 - https://www.example.ie/bus",
+		].join("\n");
+		expect(stripLeakedToolDiagnostics(answer)).toBe(answer);
+	});
+
+	it("does not take a list of links for a block of raw results", () => {
+		const answer = [
+			"**Friday**",
+			"- 18:00 Check in at the Castletroy Park Hotel - https://www.example.ie/castletroy",
+			"- 20:00 Dinner at the Milk Market - https://www.example.ie/menu",
+			"**Saturday**",
+			"- 10:00 Cliffs of Moher tour - EUR 35 - https://www.example.ie/cliffs",
+			"- 19:00 Escape room - EUR 22 - https://www.example.ie/escape",
+		].join("\n");
+		expect(stripLeakedToolDiagnostics(answer)).toBe(answer);
 	});
 });

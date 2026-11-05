@@ -47,6 +47,22 @@ export interface SkillControlEnvelopeBlock {
 
 interface StripLeakedToolDiagnosticsOptions {
 	onToolProgressNarration?: (text: string) => void;
+	/**
+	 * Whether the text is still the START of a run of reply text: nothing but
+	 * narration has been written since the reply, or the last tool call, began.
+	 * The guesses about leaked tool output (a narration sentence, a raw block of
+	 * results) are only fit for that start. Asked of a later buffer, a sentence in
+	 * the middle of an answer that reads like a narration ("I found three options
+	 * on the site.") began a hold-back that swallowed the table, the prices and the
+	 * links after it. Defaults to true: a whole text is a start.
+	 */
+	leading?: boolean;
+	/**
+	 * Whether the text will not grow: the end of the reply, or a tool call. A
+	 * narration that stops without its full stop is then complete, and is taken out
+	 * with the others; any other end is kept.
+	 */
+	final?: boolean;
 }
 
 export function createInlineThinkingState(): InlineThinkingState {
@@ -304,9 +320,15 @@ const TENTATIVE_LEADING_RESPONSE_MARKER_RE =
 	/^response(?:(?=[A-Z])|(?=\s*<)|:\s*|[\t ]+|\n+)/i;
 const WEB_SEARCH_DIAGNOSTIC_RE =
 	/Found\s+\d+\s+source(?:\(s\)|s)?\s+and\s+\d+\s+evidence(?:\s+snippet(?:s|\(s\))?)?(?:\.|(?=$|\s|[A-Z]|[,;:!?]))/i;
+// Plain English that a leaked header and an ordinary sentence share ("Based on
+// the search results: ..."). It is read where a leak puts it, as the first thing
+// of a run of reply text, and nowhere else: not once an answer has begun, and
+// not in the middle of a piece of text that arrived whole.
+const GENERIC_SEARCH_RESULTS_MARKER_RE =
+	/(?:search|research)\s+results(?:\s+for)?\s*:/i;
 const WEB_TOOL_MARKER_PATTERNS = [
 	WEB_SEARCH_DIAGNOSTIC_RE,
-	/(?:search|research)\s+results(?:\s+for)?\s*:/i,
+	GENERIC_SEARCH_RESULTS_MARKER_RE,
 	/(?:fetch_content|get_contents|fetch)\s+(?:results?|output|content)\s*:/i,
 ] as const;
 const WEB_SEARCH_DIAGNOSTIC_PREFIX_SCAN_CHARS = 180;
@@ -321,6 +343,11 @@ const WEB_SEARCH_DIAGNOSTIC_PREFIX_WORDS = [
 	"snippet",
 	"snippets",
 ] as const;
+// The prefixes of the generic marker above (held back only at the start of a run).
+const GENERIC_SEARCH_RESULTS_PREFIX_MARKERS: ReadonlySet<string> = new Set([
+	"search results",
+	"research results",
+]);
 const WEB_TOOL_DIAGNOSTIC_PREFIXES = [
 	{ marker: "search results", minPrefixLength: "search".length },
 	{ marker: "research results", minPrefixLength: "research".length },
@@ -328,6 +355,12 @@ const WEB_TOOL_DIAGNOSTIC_PREFIXES = [
 	{ marker: "get_contents output", minPrefixLength: "get_".length },
 	{ marker: "fetch output", minPrefixLength: "fetch".length },
 ] as const;
+// A bullet or a numbered line with a link in it lists the sources of an answer as
+// readily as it lists the results of a leaked search, so it proves nothing
+// alone: it counts as a raw line where a leak is already suspected, and not
+// toward calling a whole block one.
+const WEAK_WEB_TOOL_RAW_LINE_PATTERN =
+	/^(?:\d+\.|-\s*)\s*\S.{0,180}https?:\/\/\S+/i;
 const WEB_TOOL_RAW_LINE_PATTERNS = [
 	/^(?:\{|\}|\[|\]|,)/,
 	/^```(?:json)?\s*$/i,
@@ -336,7 +369,7 @@ const WEB_TOOL_RAW_LINE_PATTERNS = [
 	/^(?:success|name|sourceType|answerBrief|answerBriefMarkdown|query|queries|sources|evidence|conversationId)\s*:/i,
 	/^(?:\d+\.|-\s*)\s*(?:source|title|url|snippet|evidence|content)\b\s*[:=-]/i,
 	/^(?:title|url|source|snippet|evidence|content)\s*:/i,
-	/^(?:\d+\.|-\s*)\s*\S.{0,180}https?:\/\/\S+/i,
+	WEAK_WEB_TOOL_RAW_LINE_PATTERN,
 	/^https?:\/\/\S+/i,
 ] as const;
 const PYTHON_TOOL_DIAGNOSTIC_PREFIX_SCAN_CHARS = 120;
@@ -562,6 +595,19 @@ function stripTentativeLeadingResponseMarker(value: string): string {
 	return value.replace(TENTATIVE_LEADING_RESPONSE_MARKER_RE, "");
 }
 
+/**
+ * A tool call ends a run of reply text, and what the guesses about leaked
+ * output were waiting for (a narration's raw results) has either come as the
+ * tool's own result or never will. The next run starts clean.
+ */
+export function resetLeakedToolDiagnosticsForNewTextRun(
+	state: LeakedToolDiagnosticsState,
+): void {
+	state.suppressWebToolOutput = false;
+	state.pendingWebToolWhitespace = "";
+	state.suppressPythonToolOutput = false;
+}
+
 export function createLeakedToolDiagnosticsState(): LeakedToolDiagnosticsState {
 	return {
 		suppressWebToolOutput: false,
@@ -646,6 +692,7 @@ function findFirstPythonToolMarkerIndex(value: string): number {
 
 function findFirstWebToolMarker(
 	value: string,
+	startOfRun: boolean,
 ): { index: number; length: number; suppressFollowing: boolean } | null {
 	let bestMatch: {
 		index: number;
@@ -654,6 +701,13 @@ function findFirstWebToolMarker(
 	} | null = null;
 	for (const pattern of WEB_TOOL_MARKER_PATTERNS) {
 		const match = pattern.exec(value);
+		if (
+			pattern === GENERIC_SEARCH_RESULTS_MARKER_RE &&
+			match &&
+			(!startOfRun || value.slice(0, match.index).trim())
+		) {
+			continue;
+		}
 		if (match?.index !== undefined) {
 			const candidate = {
 				index: match.index,
@@ -672,6 +726,15 @@ function isWebToolRawOutputLine(value: string): boolean {
 	const candidate = value.trim();
 	if (!candidate) return false;
 	return WEB_TOOL_RAW_LINE_PATTERNS.some((pattern) => pattern.test(candidate));
+}
+
+function isStrongWebToolRawOutputLine(value: string): boolean {
+	const candidate = value.trim();
+	if (!candidate) return false;
+	return WEB_TOOL_RAW_LINE_PATTERNS.some(
+		(pattern) =>
+			pattern !== WEAK_WEB_TOOL_RAW_LINE_PATTERN && pattern.test(candidate),
+	);
 }
 
 function findFirstBoundaryPatternIndex(
@@ -709,6 +772,7 @@ function findWebAssistantProseBoundaryIndex(value: string): number {
 function stripLeakedWebToolDiagnostics(
 	value: string,
 	state: LeakedToolDiagnosticsState,
+	leading: boolean,
 ): string {
 	let output = "";
 
@@ -744,7 +808,7 @@ function stripLeakedWebToolDiagnostics(
 			}
 			state.suppressWebToolOutput = false;
 			const prose = line.slice(Math.max(0, boundaryIndex));
-			const markerIndex = findFirstWebToolMarker(prose)?.index ?? -1;
+			const markerIndex = findFirstWebToolMarker(prose, false)?.index ?? -1;
 			if (markerIndex >= 0) {
 				const prefix = prose.slice(0, markerIndex);
 				if (prefix.trim()) {
@@ -760,7 +824,7 @@ function stripLeakedWebToolDiagnostics(
 			continue;
 		}
 
-		const marker = findFirstWebToolMarker(line);
+		const marker = findFirstWebToolMarker(line, leading && !output.trim());
 		if (marker) {
 			const prefix = line.slice(0, marker.index);
 			const remainder = line.slice(marker.index + marker.length);
@@ -782,9 +846,28 @@ function stripLeakedWebToolDiagnostics(
 	return output;
 }
 
+// A leaked block of results starts with a title, a navigation line or a field
+// (`url:`, `evidence:`), never with a sentence an assistant wrote: a text that
+// opens with one is an answer, however many links its list holds.
+function startsWithProseSentence(value: string): boolean {
+	const firstLine = value.trimStart().split(/\r?\n/, 1)[0]?.trim() ?? "";
+	return (
+		firstLine.length >= 24 &&
+		/^\p{Lu}/u.test(firstLine) &&
+		/[.!?]$/.test(firstLine) &&
+		firstLine.split(/\s+/).length >= 5 &&
+		!isWebToolRawOutputLine(firstLine) &&
+		!isLikelyWebPageChromeLine(firstLine)
+	);
+}
+
 function stripStandaloneRawWebToolOutput(value: string): string {
 	const trimmed = value.trimStart();
 	if (/^(?:\{|\[)/.test(trimmed)) {
+		return value;
+	}
+
+	if (startsWithProseSentence(trimmed)) {
 		return value;
 	}
 
@@ -1022,17 +1105,27 @@ function shouldSuppressWebOutputAfterToolPlanning(value: string): boolean {
 	return !startsWithAssistantAnswerBoundary(candidate);
 }
 
+/**
+ * Takes the narrations that open a text out of it. A narration is taken out once
+ * something follows it: the words after it say whether it ended, and the
+ * whitespace between them whether a new paragraph began. The last one in a buffer
+ * has nothing after it yet, so it is handed back as `waiting`, untouched, for the
+ * caller to keep in front of the next piece of text (at the end of the text
+ * nothing will follow, and `final` counts it complete).
+ */
 function stripLeadingToolPlanningNarration(
 	value: string,
 	state?: LeakedToolDiagnosticsState,
 	options: StripLeakedToolDiagnosticsOptions = {},
-): string {
+): { text: string; waiting: string } {
 	if (!value.trim()) {
-		return value;
+		return { text: value, waiting: "" };
 	}
 
 	let remainder = value;
 	let strippedNarration = false;
+	let paragraphBreakFollowed = false;
+	let waiting = "";
 
 	while (remainder.trim()) {
 		const match = LEADING_TOOL_PLANNING_NARRATION_RE.exec(remainder);
@@ -1041,24 +1134,40 @@ function stripLeadingToolPlanningNarration(
 		}
 
 		const nextRemainder = remainder.slice(match[0].length);
-		if (!nextRemainder.trim() && !/[.!?]\s*$/.test(match[0])) {
+		if (!options.final && !nextRemainder.trim()) {
+			waiting = remainder;
+			remainder = "";
 			break;
 		}
 
 		strippedNarration = true;
 		options.onToolProgressNarration?.(match[0].trim());
+		const trailingWhitespace = /\s*$/.exec(match[0])?.[0] ?? "";
+		paragraphBreakFollowed = /\n[ \t]*\r?\n/.test(trailingWhitespace);
 		remainder = nextRemainder.trimStart() ? nextRemainder.trimStart() : "";
 	}
 
 	if (!strippedNarration) {
-		return value;
+		return { text: value, waiting: "" };
 	}
 
-	if (state && shouldSuppressWebOutputAfterToolPlanning(remainder)) {
+	// Raw tool output that a narration announces comes right after it, on the next
+	// line. A blank line after the narration is where the answer begins: a model
+	// that wrote "Now I have the details." and a table after an empty line wrote
+	// an answer, and holding that back until a line says "here is" or opens a
+	// heading swallowed the whole of it (a table or a bold line is neither). While
+	// another narration waits, what follows is not known yet, and the hold-back is
+	// left to the call that strips it.
+	if (
+		state &&
+		!waiting &&
+		!paragraphBreakFollowed &&
+		shouldSuppressWebOutputAfterToolPlanning(remainder)
+	) {
 		state.suppressWebToolOutput = true;
 	}
 
-	return remainder;
+	return { text: remainder, waiting };
 }
 
 function stripLeadingFileProductionRepairNarration(
@@ -1397,16 +1506,25 @@ export function stripLeakedToolDiagnostics(
 	state: LeakedToolDiagnosticsState = createLeakedToolDiagnosticsState(),
 	options: StripLeakedToolDiagnosticsOptions = {},
 ): string {
+	const leading = options.leading ?? true;
 	const withoutMarkdownToolBlocks = stripMarkdownToolCallBlocks(value);
-	const withoutLeadingToolNarration = stripLeadingToolPlanningNarration(
-		withoutMarkdownToolBlocks,
-		state,
-		options,
-	);
-	const withoutFileProductionRepair = stripLeadingFileProductionRepairNarration(
-		withoutLeadingToolNarration,
-		state,
-	);
+	// The guesses below are for the start of a run of reply text; a marker or a
+	// payload that says what it is (the web diagnostics, the Python transcripts,
+	// the document source) is read wherever it stands.
+	const narration = leading
+		? stripLeadingToolPlanningNarration(
+				withoutMarkdownToolBlocks,
+				state,
+				options,
+			)
+		: { text: withoutMarkdownToolBlocks, waiting: "" };
+	const withoutLeadingToolNarration = narration.text;
+	const withoutFileProductionRepair = leading
+		? stripLeadingFileProductionRepairNarration(
+				withoutLeadingToolNarration,
+				state,
+			)
+		: withoutLeadingToolNarration;
 	const withoutDocumentSourceDiagnostics = stripLeakedDocumentSourceDiagnostics(
 		withoutFileProductionRepair,
 		state,
@@ -1414,29 +1532,38 @@ export function stripLeakedToolDiagnostics(
 	const withoutWebDiagnostics = stripLeakedWebToolDiagnostics(
 		withoutDocumentSourceDiagnostics,
 		state,
+		leading,
 	);
-	const withoutStandaloneRawWeb = stripStandaloneRawWebToolOutput(
-		withoutWebDiagnostics,
-	);
+	const withoutStandaloneRawWeb = leading
+		? stripStandaloneRawWebToolOutput(withoutWebDiagnostics)
+		: withoutWebDiagnostics;
 	const withoutPythonDiagnostics = stripLeakedPythonToolDiagnostics(
 		withoutStandaloneRawWeb,
 		state,
 	);
-	return stripPlainSourceReferenceMarkers(
-		withoutPythonDiagnostics,
-		state,
-	).replace(/[ \t]+\n/g, "\n");
+	return (
+		stripPlainSourceReferenceMarkers(withoutPythonDiagnostics, state).replace(
+			/[ \t]+\n/g,
+			"\n",
+		) + narration.waiting
+	);
 }
 
-function isLeakedToolDiagnosticPrefix(value: string): boolean {
+function isLeakedToolDiagnosticPrefix(
+	value: string,
+	leading: boolean,
+): boolean {
 	const candidate = value.trimStart();
 	if (!candidate) return false;
 	const lowerCandidate = candidate.toLowerCase();
 
-	if (isToolPlanningNarrationPrefix(candidate)) return true;
+	if (leading && isToolPlanningNarrationPrefix(candidate)) return true;
 
 	const hasKnownWebToolPrefix = WEB_TOOL_DIAGNOSTIC_PREFIXES.some(
 		({ marker, minPrefixLength }) => {
+			if (!leading && GENERIC_SEARCH_RESULTS_PREFIX_MARKERS.has(marker)) {
+				return false;
+			}
 			if (lowerCandidate.startsWith(marker)) {
 				return true;
 			}
@@ -1538,7 +1665,11 @@ function isDocumentSourceRawOutputPrefix(value: string): boolean {
 	return hasDocumentSourceBlockType(candidate);
 }
 
-export function getLeakedToolDiagnosticPrefixLength(value: string): number {
+export function getLeakedToolDiagnosticPrefixLength(
+	value: string,
+	options: { leading?: boolean } = {},
+): number {
+	const leading = options.leading ?? true;
 	const scanStart = Math.max(
 		0,
 		value.length -
@@ -1555,6 +1686,7 @@ export function getLeakedToolDiagnosticPrefixLength(value: string): number {
 		const suffix = value.slice(index);
 		const trimmedSuffix = suffix.trimEnd().toLowerCase();
 		if (
+			leading &&
 			index === 0 &&
 			trimmedSuffix.length === 1 &&
 			TOOL_PLANNING_NARRATION_PREFIXES.some((prefix) =>
@@ -1564,14 +1696,15 @@ export function getLeakedToolDiagnosticPrefixLength(value: string): number {
 			return value.length - index;
 		}
 		if (
+			leading &&
 			index === 0 &&
 			looksLikePotentialStandaloneRawWebPageDumpPrefix(suffix)
 		) {
 			return value.length - index;
 		}
 		if (
-			isLeakedToolDiagnosticPrefix(suffix) ||
-			isFileProductionRepairNarrationPrefix(suffix) ||
+			isLeakedToolDiagnosticPrefix(suffix, leading) ||
+			(leading && isFileProductionRepairNarrationPrefix(suffix)) ||
 			isLeakedPythonToolDiagnosticPrefix(suffix) ||
 			isPlainSourceReferenceMarkerPrefix(suffix) ||
 			isFileProductionPayloadRawOutputPrefix(suffix) ||
@@ -1843,7 +1976,7 @@ function looksLikeRawToolContentBlock(value: string): boolean {
 		return false;
 	}
 
-	const rawLineHits = lines.filter(isWebToolRawOutputLine).length;
+	const rawLineHits = lines.filter(isStrongWebToolRawOutputLine).length;
 	if (rawLineHits >= 3) {
 		return true;
 	}

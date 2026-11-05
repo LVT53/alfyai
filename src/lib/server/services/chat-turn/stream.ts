@@ -24,6 +24,7 @@ import {
 	looksLikeLeadingThinkingPreamble,
 	mayStartLeadingThinkingPreamble,
 	processInlineThinkingChunk,
+	resetLeakedToolDiagnosticsForNewTextRun,
 	SKILL_CONTROL_ENVELOPE_CLOSE_TAG,
 	SKILL_CONTROL_ENVELOPE_OPEN_TAG,
 	type StreamErrorCode,
@@ -572,6 +573,11 @@ export function createServerChunkRuntime({
 	let textPartStarted = false;
 	let reasoningPartStarted = false;
 	let toolProgressNarrationSequence = 0;
+	// Whether the current run of reply text has put an answer on screen. The
+	// cleanup of leaked tool output guesses at the START of a run (a narration,
+	// a block of raw results) and is not asked about the rest of the answer: see
+	// `StripLeakedToolDiagnosticsOptions.leading`. A tool call starts a new run.
+	let answerStarted = false;
 
 	const emitUiTextDelta = (chunk: string): boolean => {
 		const frames: string[] = [];
@@ -633,27 +639,27 @@ export function createServerChunkRuntime({
 			return true;
 		}
 
+		const leading = !answerStarted;
+		// A forced flush is the end of the reply or a tool call: the text will not
+		// grow. What is left then is judged as it stands. A tail is dropped only
+		// when it IS a leaked narration or diagnostic (`final` makes the cleanup
+		// count a narration that has no full stop), never because it could have
+		// become one: a reply that ends "...is Rome" kept "Ro", a reply "No" kept
+		// nothing, and an answer that ended on "found" lost its last word.
 		const sanitizedBuffer = stripLeakedToolDiagnostics(
 			visibleTokenBuffer,
 			leakedToolDiagnosticsState,
 			{
+				leading,
+				final: force,
 				onToolProgressNarration(text) {
 					emitToolProgressNarrationActivity(text);
 				},
 			},
 		);
-		if (
-			force &&
-			sanitizedBuffer.trim() &&
-			getLeakedToolDiagnosticPrefixLength(sanitizedBuffer.trim()) ===
-				sanitizedBuffer.trim().length
-		) {
-			visibleTokenBuffer = "";
-			return true;
-		}
 		const holdLength = force
 			? 0
-			: getLeakedToolDiagnosticPrefixLength(sanitizedBuffer);
+			: getLeakedToolDiagnosticPrefixLength(sanitizedBuffer, { leading });
 		const visibleChunk = holdLength
 			? sanitizedBuffer.slice(0, -holdLength)
 			: sanitizedBuffer;
@@ -663,6 +669,9 @@ export function createServerChunkRuntime({
 			return true;
 		}
 
+		if (visibleChunk.trim()) {
+			answerStarted = true;
+		}
 		fullResponse += visibleChunk;
 		if (onToken) onToken(visibleChunk);
 		return emitUiTextDelta(visibleChunk);
@@ -839,6 +848,11 @@ export function createServerChunkRuntime({
 
 		flushHeldOutput(false);
 		flushPendingThinking();
+		// The call ends a run of reply text, and the next one starts clean: a
+		// narration before the call ("Let me search for it.") has done its work,
+		// and must not hold back the answer after the tool's result.
+		answerStarted = false;
+		resetLeakedToolDiagnosticsForNewTextRun(leakedToolDiagnosticsState);
 		if (onToolCall)
 			onToolCall(name, input, status, details?.outputSummary, details);
 		enqueueChunk(

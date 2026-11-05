@@ -46,7 +46,9 @@ export function normalizeAssistantOutputWithSkillControl(
 
 	if (options.skillControlEnabled === false) {
 		return {
-			visibleText: stripLeakedToolDiagnostics(visibleText).trim(),
+			visibleText: stripLeakedToolDiagnostics(visibleText, undefined, {
+				final: true,
+			}).trim(),
 			operations: [],
 		};
 	}
@@ -57,6 +59,8 @@ export function normalizeAssistantOutputWithSkillControl(
 	const parsed = parseSkillControlEnvelopeFromAssistantText(visibleText);
 	return {
 		...parsed,
-		visibleText: stripLeakedToolDiagnostics(parsed.visibleText).trim(),
+		visibleText: stripLeakedToolDiagnostics(parsed.visibleText, undefined, {
+			final: true,
+		}).trim(),
 	};
 }

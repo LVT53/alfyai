@@ -500,7 +500,11 @@ describe("createServerChunkRuntime", () => {
 		expect(runtime.fullResponse).not.toContain("Kikeresem");
 	});
 
-	it("drops unresolved short web-planning prefixes at stream flush", () => {
+	// A reply that only STARTS like a web-planning narration is not one: it used to
+	// be dropped at the end of the reply, which also cost a real reply its last
+	// letters ("...is Rome" was saved as "...is Ro"). Only a narration that is
+	// complete is taken out (the "a reply is kept whole" tests below).
+	it("keeps an unresolved short web-planning prefix at stream flush", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({
 			enqueueChunk(chunk) {
@@ -512,11 +516,11 @@ describe("createServerChunkRuntime", () => {
 		runtime.emitChunkWithOutputHandling("Ki");
 		runtime.flushInlineThinkingBuffer();
 
-		expect(tokenTexts(chunks).join("")).toBe("");
-		expect(runtime.fullResponse).toBe("");
+		expect(tokenTexts(chunks).join("")).toBe("Ki");
+		expect(runtime.fullResponse).toBe("Ki");
 	});
 
-	it("holds unresolved short web-planning prefixes with trailing whitespace", () => {
+	it("holds unresolved short web-planning prefixes with trailing whitespace until the reply ends", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({
 			enqueueChunk(chunk) {
@@ -526,13 +530,14 @@ describe("createServerChunkRuntime", () => {
 		});
 
 		runtime.emitChunkWithOutputHandling("Ki\n\n");
+		expect(tokenTexts(chunks).join("")).toBe("");
 		runtime.flushInlineThinkingBuffer();
 
-		expect(tokenTexts(chunks).join("")).toBe("");
-		expect(runtime.fullResponse).toBe("");
+		expect(tokenTexts(chunks).join("")).toBe("Ki\n\n");
+		expect(runtime.fullResponse).toBe("Ki\n\n");
 	});
 
-	it("holds one-character starts of web-planning prefixes", () => {
+	it("holds one-character starts of web-planning prefixes until the reply ends", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({
 			enqueueChunk(chunk) {
@@ -543,10 +548,11 @@ describe("createServerChunkRuntime", () => {
 
 		runtime.emitChunkWithOutputHandling("K");
 		runtime.emitChunkWithOutputHandling("i\n\n");
+		expect(tokenTexts(chunks).join("")).toBe("");
 		runtime.flushInlineThinkingBuffer();
 
-		expect(tokenTexts(chunks).join("")).toBe("");
-		expect(runtime.fullResponse).toBe("");
+		expect(tokenTexts(chunks).join("")).toBe("Ki\n\n");
+		expect(runtime.fullResponse).toBe("Ki\n\n");
 	});
 
 	it("strips streamed file-production repair narration and pretty-printed document-source JSON", () => {
@@ -1216,6 +1222,329 @@ describe("createServerChunkRuntime", () => {
 		expect(visibleText.indexOf(longThinking)).toBe(
 			visibleText.lastIndexOf(longThinking),
 		);
+	});
+});
+
+// The owner's live test of "Ask me first" (2026-11-05) lost the answer of two
+// replies that had called tools: the saved message held the answer's first
+// sentence and nothing else, while the model had written the rest (1,796 output
+// tokens in the step that stopped). The cleanup of leaked tool output is written
+// for the START of a reply: a narration sentence there ("Let me search...") is
+// removed and the raw tool output that follows it is held back until the answer
+// begins. The runtime asked it of every buffer, not only the start, so a sentence
+// anywhere in the answer that read like a narration ("I found three options on the
+// site.") began a hold-back that swallowed the table, the prices and the links
+// after it, with no heading or "here is" to end it. The same rule threw away the
+// last letters of a reply that ended like the first letters of a narration
+// ("...is Rome" saved as "...is Ro").
+describe("a reply is kept whole", () => {
+	const FIRST =
+		"Sunday evening in Limerick with a group and an activity as the anchor.";
+	const TABLE = [
+		"| Time | Plan | Approx. cost | Link |",
+		"|------|------|--------------|------|",
+		"| 5:00 pm | Escape room | EUR 22 per person | [Book](https://www.example.ie/escape-limerick) |",
+		"| 7:30 pm | Dinner near the Milk Market | EUR 30-45 per person | [Menu](https://www.example.ie/menu) |",
+	].join("\n");
+
+	const pieces = (text: string, size: number): string[] =>
+		text.match(new RegExp(`[\\s\\S]{1,${size}}`, "g")) ?? [];
+
+	// A reply that called a tool first, as the owner's two did: thinking, the
+	// call, the result, thinking again, then the answer.
+	function streamAfterToolCall(text: string, size: number) {
+		const chunks: string[] = [];
+		const runtime = createServerChunkRuntime({
+			enqueueChunk(chunk) {
+				chunks.push(chunk);
+				return true;
+			},
+		});
+		runtime.emitThinking("Thinking about the plan for the weekend. ".repeat(3));
+		runtime.emitToolCallEvent(
+			"research_web",
+			{ query: "limerick sunday evening" },
+			"running",
+			{ callId: "call-1" },
+		);
+		runtime.emitToolCallEvent(
+			"research_web",
+			{ query: "limerick sunday evening" },
+			"done",
+			{ callId: "call-1", outputSummary: "10 sources" },
+		);
+		runtime.emitThinking("Now the plan: a table, prices and links. ".repeat(3));
+		for (const piece of pieces(text, size)) {
+			runtime.emitChunkWithOutputHandling(piece);
+		}
+		runtime.flushInlineThinkingBuffer();
+		return { saved: runtime.fullResponse, shown: tokenTexts(chunks).join("") };
+	}
+
+	// One token at a time, a few at a time, and whole bursts: where the cleanup
+	// saw a sentence used to depend on where a chunk ended.
+	const chunkSizes = [1, 3, 7, 400, 5000];
+
+	describe.each([
+		[
+			"a sentence that says it found something",
+			"I found three options on the site.",
+		],
+		[
+			"a sentence that says what it will get",
+			"I'll get you the full plan below.",
+		],
+		[
+			"a sentence that says it has the details",
+			"Now I have the details I need.",
+		],
+		[
+			"a sentence that says it will map out the plan",
+			"Let me map out the plan.",
+		],
+	])("when %s follows the first sentence", (_name, sentence) => {
+		it.each(
+			chunkSizes,
+		)("keeps the table, the prices and the links (chunks of %i characters)", (size) => {
+			const answer = [
+				FIRST,
+				"",
+				sentence,
+				"",
+				TABLE,
+				"",
+				"Enjoy the weekend!",
+			].join("\n");
+			const { saved, shown } = streamAfterToolCall(answer, size);
+			expect(saved).toBe(answer);
+			expect(shown).toBe(answer);
+		});
+	});
+
+	it.each(
+		chunkSizes,
+	)("keeps the answer when the narration-like sentence sits in the first paragraph (chunks of %i characters)", (size) => {
+		const answer = [`${FIRST} Let me map this out:`, "", TABLE].join("\n");
+		const { saved } = streamAfterToolCall(answer, size);
+		expect(saved).toBe(answer);
+	});
+
+	it.each(
+		chunkSizes,
+	)("keeps a list of links that arrives with its first sentence (chunks of %i characters)", (size) => {
+		const answer = [
+			FIRST,
+			"",
+			"1. Escape room - EUR 22 pp - https://www.example.ie/escape-limerick",
+			"2. Dinner at the Milk Market - EUR 30-45 pp - https://www.example.ie/menu",
+			"3. Castletroy Park Hotel - EUR 140 a night - https://www.example.ie/castletroy",
+			"4. Savoy Hotel Limerick - EUR 120 a night - https://www.example.ie/savoy",
+			"5. Bus back to Dublin - EUR 15 - https://www.example.ie/bus",
+			"6. Taxi to the station - EUR 12 - https://www.example.ie/taxi",
+			"",
+			"That is the plan.",
+		].join("\n");
+		const { saved } = streamAfterToolCall(answer, size);
+		expect(saved).toBe(answer);
+	});
+
+	it.each([
+		["The capital of Italy is Rome"],
+		["Thanks for the cake"],
+		["Have a nice evening, and see you at the table"],
+		["Pay attention to the"],
+		["Is it open? No"],
+		["That is what I found"],
+		["Thanks, tell me"],
+	])("keeps the last letters of a reply that ends like a narration begins: %s", (answer) => {
+		for (const size of [1, 3, 400]) {
+			expect(streamAfterToolCall(answer, size).saved).toBe(answer);
+		}
+	});
+
+	// The structure of the owner's two lost replies: a sentence, then a tool call,
+	// then the answer. The sentence before the call was saved; the whole answer
+	// after the call was not (it opened with a sentence that reads like a narration,
+	// "Now I have ...", and the cleanup held back everything after it until a line
+	// that says "here is" or starts a heading, which a table or a bold line never is).
+	const BULLETS = [
+		"**Friday**",
+		"- 18:00 Check in at the Castletroy Park Hotel - https://www.example.ie/castletroy",
+		"- 20:00 Dinner at the Milk Market - https://www.example.ie/menu",
+		"**Saturday**",
+		"- 10:00 Cliffs of Moher tour - EUR 35 - https://www.example.ie/cliffs",
+		"- 19:00 Escape room - EUR 22 - https://www.example.ie/escape",
+	].join("\n");
+
+	function streamAcrossToolCall(before: string, after: string, size: number) {
+		const chunks: string[] = [];
+		const runtime = createServerChunkRuntime({
+			enqueueChunk(chunk) {
+				chunks.push(chunk);
+				return true;
+			},
+		});
+		runtime.emitThinking("Thinking about the plan for the weekend. ".repeat(3));
+		for (const piece of pieces(before, size)) {
+			runtime.emitChunkWithOutputHandling(piece);
+		}
+		runtime.emitToolCallEvent(
+			"research_web",
+			{ query: "limerick sunday evening" },
+			"running",
+			{ callId: "call-1" },
+		);
+		runtime.emitToolCallEvent(
+			"research_web",
+			{ query: "limerick sunday evening" },
+			"done",
+			{ callId: "call-1", outputSummary: "10 sources" },
+		);
+		runtime.emitThinking("Now the plan: a table, prices and links. ".repeat(3));
+		for (const piece of pieces(after, size)) {
+			runtime.emitChunkWithOutputHandling(piece);
+		}
+		runtime.flushInlineThinkingBuffer();
+		return { saved: runtime.fullResponse, shown: tokenTexts(chunks).join("") };
+	}
+
+	describe.each([
+		["Now I have the details I need.", TABLE, "a table"],
+		[
+			"Now I have all the data I need to put together a plan.",
+			BULLETS,
+			"bold lines and bullets with links",
+		],
+		["Let me check the prices.", TABLE, "a table"],
+		[
+			"I've got the details for all three days.",
+			BULLETS,
+			"bold lines and bullets with links",
+		],
+	])("when the answer after a tool call opens with %j", (narration, body, shape) => {
+		it.each(
+			chunkSizes,
+		)(`takes the narration out and keeps ${shape} (chunks of %i characters)`, (size) => {
+			const { saved, shown } = streamAcrossToolCall(
+				FIRST,
+				`${narration}\n\n${body}`,
+				size,
+			);
+			// What matters is the answer. A narration whose first words the stream
+			// has already let go of (its verb is not among those held back as it
+			// arrives, token by token) stays in front of it; whole, it is taken out.
+			expect(saved.startsWith(FIRST)).toBe(true);
+			expect(saved.endsWith(body)).toBe(true);
+			expect(shown).toBe(saved);
+			if (size >= 400) expect(saved).toBe(`${FIRST}${body}`);
+		});
+	});
+
+	it.each(
+		chunkSizes,
+	)('keeps the table after "Based on the search results:" in the middle of an answer (chunks of %i characters)', (size) => {
+		const answer = [
+			"Based on the search results:",
+			"",
+			TABLE,
+			"",
+			"Here are the search results: the Savoy is the best value.",
+			"",
+			"Enjoy the weekend!",
+		].join("\n");
+		const { saved } = streamAcrossToolCall(
+			FIRST,
+			`${FIRST}\n\n${answer}`,
+			size,
+		);
+		expect(saved).toBe(`${FIRST}${FIRST}\n\n${answer}`);
+	});
+
+	it.each(
+		chunkSizes,
+	)("lets a tool call end the hold-back a leaked transcript began (chunks of %i characters)", (size) => {
+		const after = `${FIRST}\n\n${TABLE}`;
+		const { saved } = streamAcrossToolCall(
+			"Code execution completed\n",
+			after,
+			size,
+		);
+		expect(saved.endsWith(after)).toBe(true);
+	});
+
+	it.each(
+		chunkSizes,
+	)("keeps bold lines and bullets with links after a tool call (chunks of %i characters)", (size) => {
+		const answer = `${BULLETS}\n\nEnjoy the weekend!`;
+		const { saved } = streamAcrossToolCall(FIRST, answer, size);
+		expect(saved).toBe(`${FIRST}${answer}`);
+	});
+
+	it("keeps a reply of one word that a narration could start with", () => {
+		expect(streamAfterToolCall("No", 1).saved).toBe("No");
+		expect(streamAfterToolCall("No", 400).saved).toBe("No");
+	});
+
+	it.each([
+		["Let me search"],
+		["I'll look up the details"],
+		["Kikeresem"],
+	])("still drops a narration the reply ended in the middle of: %s", (narration) => {
+		for (const size of [1, 400]) {
+			const { saved, shown } = streamAfterToolCall(narration, size);
+			expect(saved).toBe("");
+			expect(shown).toBe("");
+		}
+	});
+
+	it("still takes the narration that opens the text after a tool call out of the answer, though words came before the call", () => {
+		const chunks: string[] = [];
+		const runtime = createServerChunkRuntime({
+			enqueueChunk(chunk) {
+				chunks.push(chunk);
+				return true;
+			},
+		});
+		runtime.emitChunkWithOutputHandling("Here is a first look.");
+		runtime.emitToolCallEvent("research_web", { query: "docs" }, "running", {
+			callId: "call-1",
+		});
+		runtime.emitToolCallEvent("research_web", { query: "docs" }, "done", {
+			callId: "call-1",
+		});
+		runtime.emitChunkWithOutputHandling(
+			"Now I have solid data. Let me pull it all together.\n\n## The plan\n\nThe answer.",
+		);
+		runtime.flushInlineThinkingBuffer();
+
+		expect(runtime.fullResponse).toContain("Here is a first look.");
+		expect(runtime.fullResponse).toContain("## The plan\n\nThe answer.");
+		expect(runtime.fullResponse).not.toContain("Let me pull");
+		expect(runtime.fullResponse).not.toContain("solid data");
+	});
+
+	it("does not let a narration before a tool call hold back the answer after it", () => {
+		const chunks: string[] = [];
+		const runtime = createServerChunkRuntime({
+			enqueueChunk(chunk) {
+				chunks.push(chunk);
+				return true;
+			},
+		});
+		runtime.emitChunkWithOutputHandling("Let me search for it.");
+		runtime.emitToolCallEvent("research_web", { query: "docs" }, "running", {
+			callId: "call-1",
+		});
+		runtime.emitToolCallEvent("research_web", { query: "docs" }, "done", {
+			callId: "call-1",
+		});
+		const answer = [FIRST, "", TABLE].join("\n");
+		for (const piece of pieces(answer, 5)) {
+			runtime.emitChunkWithOutputHandling(piece);
+		}
+		runtime.flushInlineThinkingBuffer();
+
+		expect(runtime.fullResponse).toBe(answer);
 	});
 });
 
