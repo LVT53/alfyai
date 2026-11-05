@@ -67,14 +67,25 @@ export const UPLOAD_REJECT_I18N_KEYS: Readonly<
 	convertImage: "knowledge.uploadRejectedConvertImage",
 };
 
-/** Fills `{name}` / `{ext}` the way `$t` does on the client. */
+/**
+ * Fills `{name}` / `{ext}` the way `$t` does on the client (src/lib/i18n/index.ts,
+ * Ruling 20): with a function, so the text goes in as it is, and in ONE pass, so a
+ * filename that holds `{ext}` or `{name}` is not scanned for it. A filename is the
+ * person's: a string replacement would read `$&` and `$$` in it as patterns, and two
+ * passes would fill the placeholders a name carries.
+ */
 export function formatUploadRejectMessageEn(
 	reason: RejectReasonKey,
 	params: { fileName: string | null; extension: string | null },
 ): string {
-	return UPLOAD_REJECT_MESSAGES_EN[reason]
-		.replaceAll("{name}", params.fileName ?? "that file")
-		.replaceAll("{ext}", params.extension?.toUpperCase() ?? "These");
+	const values = {
+		name: params.fileName ?? "that file",
+		ext: params.extension?.toUpperCase() ?? "These",
+	};
+	return UPLOAD_REJECT_MESSAGES_EN[reason].replace(
+		/\{(name|ext)\}/g,
+		(_placeholder, key: "name" | "ext") => values[key],
+	);
 }
 
 /**

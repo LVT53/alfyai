@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	assertUploadSignatureForFile,
 	assertUploadSignatureForStoredFile,
+	formatUploadRejectMessageEn,
 	isKnowledgeUploadContentMismatchError,
 	verifyUploadSignature,
 } from "./upload-signature";
@@ -291,6 +292,74 @@ describe("assertUploadSignatureForFile", () => {
 		});
 		await expect(assertUploadSignatureForFile(file)).rejects.toSatisfy(
 			isKnowledgeUploadContentMismatchError,
+		);
+	});
+});
+
+// A refusal names the person's file, and a filename is theirs: whatever it holds goes
+// into the sentence as it is, filled in one pass the way `t()` fills a parameter
+// (src/lib/i18n/index.ts), never read as a replacement pattern and never scanned for
+// a placeholder of the other kind.
+describe("formatUploadRejectMessageEn", () => {
+	const unknownType = (fileName: string | null) =>
+		formatUploadRejectMessageEn("unknownType", { fileName, extension: "xyz" });
+
+	it("names the file and the extension where the template says", () => {
+		expect(unknownType("holiday.xyz")).toBe(
+			"We can't read holiday.xyz — that file type isn't supported. Save it as PDF, DOCX or plain text and upload that.",
+		);
+		expect(
+			formatUploadRejectMessageEn("formatNotEnabled", {
+				fileName: "holiday.xyz",
+				extension: "xyz",
+			}),
+		).toBe(
+			"XYZ files aren't supported yet. Save it as PDF or DOCX and upload that.",
+		);
+	});
+
+	it("falls back to words when the name or the extension is not known", () => {
+		expect(unknownType(null)).toContain("We can't read that file —");
+		expect(
+			formatUploadRejectMessageEn("convertImage", {
+				fileName: "a.xyz",
+				extension: null,
+			}),
+		).toBe(
+			"These images can't be read yet. Save it as PNG or JPG and upload that.",
+		);
+	});
+
+	it.each([
+		["$&", "a$&b.pdf"],
+		["$$", "price$$list.pdf"],
+		["$`", "x$`y.pdf"],
+		["$'", "x$'y.pdf"],
+		["$1", "report$1.pdf"],
+	])("puts a filename with %s in it into the sentence as it is", (_pattern, fileName) => {
+		const message = unknownType(fileName);
+
+		expect(message).toBe(
+			`We can't read ${fileName} — that file type isn't supported. Save it as PDF, DOCX or plain text and upload that.`,
+		);
+	});
+
+	it("puts an extension with a replacement pattern in it in as it is", () => {
+		expect(
+			formatUploadRejectMessageEn("formatNotEnabled", {
+				fileName: "a.pdf",
+				extension: "$&",
+			}),
+		).toBe(
+			"$& files aren't supported yet. Save it as PDF or DOCX and upload that.",
+		);
+	});
+
+	it("does not fill a placeholder that a filename itself holds", () => {
+		const message = unknownType("my{ext}file{name}.pdf");
+
+		expect(message).toBe(
+			"We can't read my{ext}file{name}.pdf — that file type isn't supported. Save it as PDF, DOCX or plain text and upload that.",
 		);
 	});
 });
