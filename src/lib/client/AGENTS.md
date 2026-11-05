@@ -12,6 +12,7 @@ api/
   admin.ts         - Admin user management CRUD (list/create/update/delete/revoke-sessions)
   auth.ts          - Login/logout calls
   http.ts          - Base fetch wrapper, error handling
+  ask-questions.ts - Read a chat's "Ask me first" questions (the list the card and its folded line are drawn from); the answer is not here, it goes through `streamChat`'s `questionAnswer`
   chat-turn.ts     - Ask the turn's gate whether it would take a request (an edit asks before it deletes)
   health.ts        - Read /api/health: up, draining, the proxy answering for the app, or unreachable (an update in progress, or not)
   conversations.ts - Conversation detail, evidence, titles, drafts
@@ -31,6 +32,7 @@ conversation-session.ts - Landing draft IDs, pending message replay
 | HTTP errors, base fetch | `api/http.ts` |
 | Admin user management | `api/admin.ts` |
 | The turn's gate, asked without a turn | `api/chat-turn.ts` |
+| A chat's "Ask me first" questions (read only) | `api/ask-questions.ts` |
 | Whether the server is up, draining, away behind the proxy or unreachable (an update in progress, or not) | `api/health.ts` |
 | Conversation detail, drafts | `api/conversations.ts` |
 | Knowledge uploads, library, memory | `api/knowledge.ts` |
@@ -70,6 +72,7 @@ conversation-session.ts - Landing draft IDs, pending message replay
   - [`src/lib/client/api/auth.ts`](api/auth.ts)
   - [`src/lib/client/api/http.ts`](api/http.ts)
   - [`src/lib/client/api/chat-turn.ts`](api/chat-turn.ts)
+  - [`src/lib/client/api/ask-questions.ts`](api/ask-questions.ts)
   - [`src/lib/client/api/health.ts`](api/health.ts)
   - [`src/lib/client/api/conversations.ts`](api/conversations.ts)
   - [`src/lib/client/api/knowledge.ts`](api/knowledge.ts)

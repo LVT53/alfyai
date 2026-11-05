@@ -192,6 +192,11 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   account count wrong passwords against the same limit as changing your email
   or password. Until now a password could be guessed at on those four without
   one.
+- If you run AlfyAI behind Apache with your own site file, proxy
+  `/api/chat/retry` and the answer route
+  (`/api/conversations/<id>/questions/<id>/answer`) unbuffered, as
+  `/api/chat/stream` is (see `deploy/apache-site.conf`); otherwise a Retry and a
+  carried-on reply arrive in one piece.
 
 ### Upgrade notes
 
