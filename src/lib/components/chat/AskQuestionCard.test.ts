@@ -1466,9 +1466,14 @@ describe("AskQuestionCard", () => {
 		const phone =
 			source.match(/@media \(max-width: 767px\) \{([\s\S]*?)\n\t\}/)?.[1] ?? "";
 
+		// The rule that starts at `selector`, not one whose list of selectors ends in it.
 		function rule(css: string, selector: string): string {
 			const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-			return css.match(new RegExp(`${escaped} \\{([^}]*)\\}`))?.[1] ?? "";
+			return (
+				css.match(
+					new RegExp(`(?<=(?:^|[{};/])\\s*)${escaped} \\{([^}]*)\\}`),
+				)?.[1] ?? ""
+			);
 		}
 
 		// jsdom applies no component CSS, so the stylesheet itself is the subject.
@@ -1575,6 +1580,81 @@ describe("AskQuestionCard", () => {
 			// The shell eases nothing: only its entrance moves it, and that is transform and
 			// opacity (the card-top scroll rule reads where it rests, `MessageArea`).
 			expect(rule(source, ".ask")).not.toMatch(/transition|animation/);
+		});
+
+		it("gives every control on the card the answers' animated hover: one transition and one hover rule, on the standard duration", () => {
+			// The answers eased their hover and the other controls snapped (owner, 2026-11-05:
+			// "so it's consistent"). Now one rule eases the colours of all of them, and the
+			// answers' own hover rule is the one the outline controls take: same properties,
+			// tokens and timing, never a copy that can drift.
+			const style = source
+				.slice(source.indexOf("<style>"))
+				.replace(/\/\*[\s\S]*?\*\//g, "");
+			const rules = [...style.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(
+				([, selector, body]) => ({
+					selectors: selector.split(",").map((part) => part.trim()),
+					body,
+				}),
+			);
+			const easing = rules.filter(({ body }) => /transition\s*:/.test(body));
+			expect(easing).toHaveLength(1);
+			expect([...easing[0].selectors].sort()).toEqual([
+				".ask-x",
+				".btn-send",
+				".mini-send",
+				".opt",
+				".quiet",
+			]);
+			for (const property of [
+				"background-color",
+				"border-color",
+				"color",
+				"opacity",
+			]) {
+				expect(easing[0].body).toContain(
+					`${property} var(--duration-standard) var(--ease-out)`,
+				);
+			}
+			// No duration of its own anywhere: the token is what reduced motion zeroes.
+			expect(style).not.toMatch(/\b\d+(\.\d+)?m?s\b/);
+
+			// The answers' hover, taken by the quiet button and the X.
+			const answersHover = rules.find(({ selectors }) =>
+				selectors.includes(".opt:not(.sel):hover:not(:disabled)"),
+			);
+			expect(answersHover?.selectors).toEqual([
+				".opt:not(.sel):hover:not(:disabled)",
+				".quiet:hover:not(:disabled)",
+				".ask-x:hover:not(:disabled)",
+			]);
+			expect(answersHover?.body).toMatch(
+				/background:\s*var\(--surface-elevated\)/,
+			);
+			expect(answersHover?.body).toMatch(/border-color:\s*color-mix\(/);
+			// The filled Send buttons cannot go grey (their text is white): they shift their
+			// fill toward the text colour, lighter or darker as the theme needs.
+			const sendHover = rules.find(({ selectors }) =>
+				selectors.includes(".btn-send:hover:not(:disabled)"),
+			);
+			expect(sendHover?.selectors).toEqual([
+				".btn-send:hover:not(:disabled)",
+				".mini-send:hover:not(:disabled)",
+			]);
+			expect(sendHover?.body).toMatch(
+				/background:\s*color-mix\(in srgb, var\(--accent-fill\)[^;]*var\(--text-primary\)/,
+			);
+		});
+
+		it("lets the global reduced-motion reset switch the hover off", () => {
+			// The hover is a CSS transition on --duration-standard, so the reset in app.css
+			// reaches it: it zeroes that token and every transition's duration.
+			const css = readFileSync(`${process.cwd()}/src/app.css`, "utf-8");
+			const reset = css.slice(
+				css.indexOf("Prefers reduced motion - disables all animations"),
+			);
+			const block = reset.slice(0, reset.indexOf("\n\t.prose pre"));
+			expect(block).toMatch(/transition-duration:\s*0\.01ms !important/);
+			expect(block).toMatch(/--duration-standard:\s*0\.01ms/);
 		});
 
 		it("uses no colour that is not a token", () => {

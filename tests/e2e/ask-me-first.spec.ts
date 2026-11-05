@@ -321,6 +321,61 @@ function cardPlays(page: Page): Promise<CardPlay[]> {
 	);
 }
 
+/** What the browser has for a control now: its transition, and the colours a hover changes. */
+function lookOf(control: Locator) {
+	return control.evaluate((element) => {
+		const style = getComputedStyle(element);
+		return {
+			transition: style.transition,
+			durations: style.transitionDuration.split(",").map(Number.parseFloat),
+			background: style.backgroundColor,
+			color: style.color,
+		};
+	});
+}
+
+/** Starts to note, on `control`, each property whose transition starts from now on. */
+function noteTransitionsOf(control: Locator) {
+	return control.evaluate((element) => {
+		const started: string[] = [];
+		(element as unknown as { __started: string[] }).__started = started;
+		element.addEventListener("transitionstart", (event) =>
+			started.push((event as TransitionEvent).propertyName),
+		);
+	});
+}
+
+/** The properties `noteTransitionsOf` has seen start. */
+function transitionsStartedOn(control: Locator): Promise<string[]> {
+	return control.evaluate(
+		(element) => (element as unknown as { __started: string[] }).__started,
+	);
+}
+
+/**
+ * The controls of the card of several questions, with both questions answered so that Send
+ * is on: an answer that is not picked (a picked one keeps its tint), the row for own words,
+ * Decide for me, the X and Send.
+ */
+async function answerCardControls(page: Page) {
+	const card = askCard(page, "Alfy's questions (2)");
+	await expect(card).toBeVisible({ timeout: 30_000 });
+	await expect(card.getByTestId("ask-up-to-you")).toBeEnabled();
+	await card.getByRole("checkbox", { name: "Adults" }).click();
+	await card
+		.getByRole("radio", { name: "One shared list, recommended" })
+		.click();
+	const send = card.getByTestId("ask-send");
+	await expect(send).toBeEnabled();
+	return {
+		"an answer": card.getByRole("checkbox", { name: "Kids" }),
+		"the row for own words": card.getByTestId("ask-own-row").first(),
+		"Decide for me": card.getByTestId("ask-up-to-you"),
+		"the X": card.getByTestId("ask-close"),
+		Send: send,
+	};
+}
+
 /** Where an element sits and how big it is. */
 type Box = { x: number; y: number; width: number; height: number };
 
@@ -1168,6 +1223,95 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			Math.abs(underTheEdge - THREAD_END_CARD_INSET_PX),
 			"px between the card's top and where the thread rests it",
 		).toBeLessThanOrEqual(0.5);
+	});
+
+	// The answers eased their hover and the other controls snapped. Every control now takes
+	// the answers' own transition (compared as the browser computes it) and the answers'
+	// own hover (the outline ones), and Send, which is filled, shifts its fill.
+	for (const colorScheme of ["light", "dark"] as const) {
+		test(`every control on the card hovers the way the answers do, in the ${colorScheme} theme`, async ({
+			page,
+		}) => {
+			await page.emulateMedia({ colorScheme });
+			await startTurn(page, "many");
+			// The theme is the one asked for, and not whatever the page started with.
+			if (colorScheme === "dark") {
+				await expect(page.locator("html")).toHaveClass(/dark/);
+			} else {
+				await expect(page.locator("html")).not.toHaveClass(/dark/);
+			}
+			const controls = await answerCardControls(page);
+
+			// At rest first, with the pointer nowhere near any of them.
+			await page.mouse.move(0, 0);
+			await waitForMotionToSettle(page);
+			const resting: Record<string, Awaited<ReturnType<typeof lookOf>>> = {};
+			for (const [name, control] of Object.entries(controls)) {
+				resting[name] = await lookOf(control);
+			}
+			for (const [name, look] of Object.entries(resting)) {
+				expect(
+					look.transition,
+					`${name}: its transition, against the answers'`,
+				).toBe(resting["an answer"].transition);
+			}
+			// The same properties and the same timing: 150 ms, over four colours.
+			expect(resting["an answer"].durations).toEqual([0.15, 0.15, 0.15, 0.15]);
+
+			const hovered: Record<string, Awaited<ReturnType<typeof lookOf>>> = {};
+			for (const [name, control] of Object.entries(controls)) {
+				await noteTransitionsOf(control);
+				await control.hover();
+				await waitForMotionToSettle(page);
+				hovered[name] = await lookOf(control);
+				expect(
+					hovered[name].background,
+					`${name}: its fill on hover, against at rest`,
+				).not.toBe(resting[name].background);
+				// It eased: a transition began, and the hover did not snap.
+				expect(
+					await transitionsStartedOn(control),
+					`${name}: the transitions that began on hover`,
+				).toContain("background-color");
+				await page.mouse.move(0, 0);
+				await waitForMotionToSettle(page);
+			}
+			// The outline controls take the answers' own hover, not a copy of it.
+			for (const name of ["the row for own words", "Decide for me", "the X"]) {
+				expect(
+					hovered[name].background,
+					`${name}: its fill on hover, against the answers'`,
+				).toBe(hovered["an answer"].background);
+			}
+		});
+	}
+
+	test("under reduced motion the controls still show their hover, but do not ease it", async ({
+		page,
+	}) => {
+		await page.emulateMedia({ reducedMotion: "reduce" });
+		await startTurn(page, "many");
+		const controls = await answerCardControls(page);
+		await page.mouse.move(0, 0);
+		await waitForMotionToSettle(page);
+
+		for (const [name, control] of Object.entries(controls)) {
+			const before = await lookOf(control);
+			// 0.01 ms, which the browser writes as 1e-05 s: no time to be seen in.
+			for (const duration of before.durations) {
+				expect(
+					duration,
+					`${name}: each transition's duration, in s`,
+				).toBeLessThanOrEqual(0.001);
+			}
+			await control.hover();
+			await waitForMotionToSettle(page);
+			expect(
+				(await lookOf(control)).background,
+				`${name}: its fill on hover, against at rest`,
+			).not.toBe(before.background);
+			await page.mouse.move(0, 0);
+		}
 	});
 
 	test("a Hungarian reader gets the app's words in Hungarian", async ({

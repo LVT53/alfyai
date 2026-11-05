@@ -555,15 +555,38 @@ function takeKey(event: KeyboardEvent) {
 		font: inherit;
 		text-align: left;
 		cursor: pointer;
+	}
+
+	/* One easing for every control on the card, the answers' own (owner, 2026-11-05: the
+	   answers eased their hover and the rest snapped). A colour that changes on hover fades
+	   over --duration-standard. That token is what reduced motion zeroes (app.css), so
+	   there the hover shows and does not ease. */
+	.opt,
+	.quiet,
+	.ask-x,
+	.btn-send,
+	.mini-send {
 		transition:
 			background-color var(--duration-standard) var(--ease-out),
 			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out),
 			opacity var(--duration-standard) var(--ease-out);
 	}
 
-	.opt:not(.sel):hover:not(:disabled) {
+	/* The answers' hover, and so the quiet button's and the X's: one rule, not a copy
+	   (the border colour is nothing on those two, which have no border). */
+	.opt:not(.sel):hover:not(:disabled),
+	.quiet:hover:not(:disabled),
+	.ask-x:hover:not(:disabled) {
 		background: var(--surface-elevated);
 		border-color: color-mix(in srgb, var(--text-primary) 16%, transparent);
+	}
+
+	/* The filled Send buttons cannot go grey (their text is white): they shift their fill
+	   toward the text colour, a little darker in light and a little lighter in dark. */
+	.btn-send:hover:not(:disabled),
+	.mini-send:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--accent-fill) 88%, var(--text-primary));
 	}
 
 	.opt.sel {
@@ -717,8 +740,9 @@ function takeKey(event: KeyboardEvent) {
 		cursor: pointer;
 	}
 
-	.quiet:hover:not(:disabled) {
-		background: var(--surface-elevated);
+	/* The text of the quiet button and the X darkens with the fill the shared hover gives them. */
+	.quiet:hover:not(:disabled),
+	.ask-x:hover:not(:disabled) {
 		color: var(--text-primary);
 	}
 
@@ -766,11 +790,6 @@ function takeKey(event: KeyboardEvent) {
 		background: none;
 		color: var(--icon-muted);
 		cursor: pointer;
-	}
-
-	.ask-x:hover:not(:disabled) {
-		background: var(--surface-elevated);
-		color: var(--text-primary);
 	}
 
 	/* Off: waking, sending, and Send until every question has an answer. */
