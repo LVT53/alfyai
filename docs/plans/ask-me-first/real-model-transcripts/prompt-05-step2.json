@@ -1,0 +1,191 @@
+{
+ "prompt": 5,
+ "step": 2,
+ "kind": "fork",
+ "language": "hu",
+ "text": "Segíts kitalálni, hova menjünk idén nyáron nyaralni.",
+ "builtFrom": "the replayed step-1 request, then the messages the app's own run appended after the real step-1 reply (the fake provider replayed the recorded reply; the tools ran for real against the seeded world)",
+ "shared": "shared.json",
+ "request": {
+  "parameters": {
+   "model": "qwen3-6-27b",
+   "temperature": 0.6,
+   "top_p": 0.95,
+   "top_k": 20,
+   "tool_choice": "auto"
+  },
+  "sentWith": {
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   }
+  },
+  "messages": [
+   {
+    "role": "system",
+    "sameAs": "shared.json#systemPrompt",
+    "exceptLines": [
+     {
+      "line": 102,
+      "text": "Email: lang-hu-225187@example.com"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "content": "Context from your recent conversation:\n\n## Baseline Memory Profile\nThese are remembered facts about the person. They never set the reply language.\n- about_you (global): I prefer concise answers.\n- about_you (global): I live in Dublin.\n\n## Current User Message\nSegíts kitalálni, hova menjünk idén nyáron nyaralni.\n\n## Turn Guidance\n[SYSTEM TIME CONTEXT: Today is Thursday, November 5, 2026. Use this exact date as your current temporal anchor for relative timeframes. Call a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially depends on it.]\n\nReply in the language of the person's latest message, judged by its own words.\nIf that message has no language of its own (a short \"ok\", a number, a link, code), keep the language they have been writing in.\nIf they ask for the reply in a particular language, in this message or in their standing instructions (Your Instructions, Project Instructions), use that.\nIf they ask for a piece of writing in another language (an email, a translation), write that piece in it and keep your own words in their language.\nNothing else sets the reply language: not who they are (their name, nationality or where they live), not remembered facts (even one about the language they use), documents, files, tool or search results, or your own earlier replies.\n\nReasoning depth effort profile:\n- Applied Normal Chat profile: standard. This does not force web search every turn, and does not make the visible answer longer by itself.\nStandard-depth reasoning contract:\n- Use normal private reasoning. Keep the answer efficient, but still check obvious constraints and avoid unsupported claims.\n- Grounding pressure: standard. Use retrieval when the ordinary web/source guidance says it is needed.\n- Tool loop budget: the runtime can support up to 14 tool steps for this profile. Stop early once the answer is grounded enough.\n\n## Skills available\n- Plan Critic — Finds the blockers, weak assumptions, and gaps in a plan before you execute it, ranked by severity.\n- Document Explainer — Explains an attached or linked document in plain language, preserving exact numbers, dates, and caveats — fetches a URL first if you paste one.\n- Study Coach — Coaches active learning with chunked explanations, recall questions, and a study plan instead of a plain summary.\n- Purchase Helper — Compares purchase options against your real constraints and current prices — researches the web for specs and reviews before recommending.\n- Translate & Rewrite — Translates or rewrites text while preserving meaning, tone, and exact terminology, names, and numbers.\n- Appointment Prep — Builds an agenda, questions, and a verify/flag checklist for an upcoming appointment or call — pulls in prior context automatically.\n- Spreadsheet Builder — Builds polished XLSX workbooks with real formulas, formatted tables, and dashboards, delivered as a downloadable file.\n\n## Drafting a skill\nWhen the person asks you to keep how you just worked as a reusable skill (\"make this a skill\", \"save this as a skill\"), draft it in this block at the end of the reply, with no text inside it:\n\n<skill_control_v1>\n{\"version\":1,\"operations\":[{\"operationId\":\"skill-draft-1\",\"kind\":\"skill_draft\",\"draft\":{\"id\":\"weekly-status\",\"displayName\":\"Weekly status\",\"description\":\"Writes a short weekly status update from what the conversation already says.\",\"instructions\":\"Ask for the period, then write one short paragraph: what is done, what is next, what blocks it.\",\"activationExamples\":[\"Write my weekly status.\"],\"sourceScope\":\"current_conversation\"}}]}\n</skill_control_v1>\n\nThe app removes the block before the person sees the reply and shows a card with Save private skill and Dismiss: the skill exists only after they save it, so never claim it is saved. The example's `id`, `displayName` and `instructions` are only the shape: write them for the skill the person asked for, with `activationExamples` as messages that should load it."
+   },
+   {
+    "role": "assistant",
+    "content": "\n\nSzívesen segítek! Néhány gyors kérdés, hogy reális javaslatokat tudjak adni (indulási pont: Dublin, nyár 2027).\n\n",
+    "reasoning_content": "A user is asking for help deciding where to go on holiday this summer. They're based in Dublin, so they'd be flying from Dublin Airport. Since they prefer concise answers, I should ask a few clarifying questions about their preferences rather than just listing destinations — things like what kind of experience they're looking for, their budget, who they're traveling with, and how long they want to go for.\n",
+    "tool_calls": [
+     {
+      "id": "chatcmpl-tool-9b573d520cf92a08",
+      "type": "function",
+      "function": {
+       "name": "ask_user",
+       "arguments": "{\"questions\":[{\"question\":\"Milyen típusú nyaralást szeretnétek?\",\"options\":[{\"label\":\"Strand + pihenés\",\"note\":\"Meleg, tenger, kevesebb program\",\"recommended\":true},{\"label\":\"Városi kultúra\",\"note\":\"Muzeumok, éttermek, gyaloglás\"},{\"label\":\"Aktív / természet\",\"note\":\"Séták, kirándulások, túrázás\"},{\"label\":\"Még nyitott\",\"note\":\"Mutass pár opciót típustól függetlenül\"}]},{\"question\":\"Mekkora a fejenkénti keret (repülő + szállás, 7 éjszakára)?\",\"options\":[{\"label\":\"max 500 €\",\"note\":\"Költségtudatos, rövid táv\"},{\"label\":\"500–1000 €\",\"note\":\"Középkategória\"},{\"label\":\"1000 € felett\",\"note\":\"Távolabb is mehetünk\"}]},{\"question\":\"Kikkel utaztok és meddig?\",\"options\":[{\"label\":\"Két felnőtt, 1 hét\",\"recommended\":true},{\"label\":\"Család gyerekekkel\",\"note\":\"1 hét\"},{\"label\":\"Barátok / csoport\",\"note\":\"1–2 hét\"},{\"label\":\"Hosszabb, 2 hét\",\"note\":\"Egy-két fő\"}]}]}"
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "chatcmpl-tool-9b573d520cf92a08",
+    "content": "Invalid input for tool ask_user: Type validation failed: Value: {\"questions\":[{\"question\":\"Milyen típusú nyaralást szeretnétek?\",\"options\":[{\"label\":\"Strand + pihenés\",\"note\":\"Meleg, tenger, kevesebb program\",\"recommended\":true},{\"label\":\"Városi kultúra\",\"note\":\"Muzeumok, éttermek, gyaloglás\"},{\"label\":\"Aktív / természet\",\"note\":\"Séták, kirándulások, túrázás\"},{\"label\":\"Még nyitott\",\"note\":\"Mutass pár opciót típustól függetlenül\"}]},{\"question\":\"Mekkora a fejenkénti keret (repülő + szállás, 7 éjszakára)?\",\"options\":[{\"label\":\"max 500 €\",\"note\":\"Költségtudatos, rövid táv\"},{\"label\":\"500–1000 €\",\"note\":\"Középkategória\"},{\"label\":\"1000 € felett\",\"note\":\"Távolabb is mehetünk\"}]},{\"question\":\"Kikkel utaztok és meddig?\",\"options\":[{\"label\":\"Két felnőtt, 1 hét\",\"recommended\":true},{\"label\":\"Család gyerekekkel\",\"note\":\"1 hét\"},{\"label\":\"Barátok / csoport\",\"note\":\"1–2 hét\"},{\"label\":\"Hosszabb, 2 hét\",\"note\":\"Egy-két fő\"}]}]}.\nError message: [\n  {\n    \"origin\": \"array\",\n    \"code\": \"too_big\",\n    \"maximum\": 3,\n    \"inclusive\": true,\n    \"path\": [\n      \"questions\",\n      0,\n      \"options\"\n    ],\n    \"message\": \"Too big: expected array to have <=3 items\"\n  },\n  {\n    \"origin\": \"array\",\n    \"code\": \"too_big\",\n    \"maximum\": 3,\n    \"inclusive\": true,\n    \"path\": [\n      \"questions\",\n      2,\n      \"options\"\n    ],\n    \"message\": \"Too big: expected array to have <=3 items\"\n  }\n]"
+   }
+  ]
+ },
+ "response": {
+  "httpStatus": 200,
+  "ms": 3713,
+  "finishReason": "tool_calls",
+  "usage": {
+   "prompt_tokens": 12514,
+   "total_tokens": 12848,
+   "completion_tokens": 334,
+   "completion_tokens_details": {
+    "reasoning_tokens": 13
+   }
+  },
+  "deltas": 12,
+  "thinking": "I need to cap the number of options at 3.\n",
+  "words": "",
+  "wordsAsTheAppKeepsThem": "",
+  "toolCalls": [
+   {
+    "id": "chatcmpl-tool-a90aaadb4f39e517",
+    "name": "ask_user",
+    "arguments": "{\"questions\": [{\"options\": [{\"label\": \"Strand + pihenés\", \"note\": \"Meleg, tenger, kevesebb program\", \"recommended\": true}, {\"label\": \"Városi kultúra\", \"note\": \"Muzeumok, éttermek, gyaloglás\"}, {\"label\": \"Aktív / természet\", \"note\": \"Túrázás, kirándulások\"}], \"question\": \"Milyen típusú nyaralást szeretnétek?\"}, {\"options\": [{\"label\": \"max 500 €\", \"note\": \"Költségtudatos, rövid táv\"}, {\"label\": \"500–1000 €\", \"note\": \"Középkategória\"}, {\"label\": \"1000 € felett\", \"note\": \"Távolabb is mehetünk\"}], \"question\": \"Mekkora a fejenkénti keret (repülő + szállás, 7 éjszakára)?\"}, {\"options\": [{\"label\": \"Két felnőtt, 1 hét\", \"recommended\": true}, {\"label\": \"Család gyerekekkel\", \"note\": \"1 hét\"}, {\"label\": \"Csoport / 2 hét\", \"note\": \"Barátok vagy hosszabb utazás\"}], \"question\": \"Kikkel utaztok és meddig?\"}]}"
+   }
+  ]
+ },
+ "parsed": {
+  "asked": true,
+  "askCalls": [
+   {
+    "id": "chatcmpl-tool-a90aaadb4f39e517",
+    "input": {
+     "questions": [
+      {
+       "options": [
+        {
+         "label": "Strand + pihenés",
+         "note": "Meleg, tenger, kevesebb program",
+         "recommended": true
+        },
+        {
+         "label": "Városi kultúra",
+         "note": "Muzeumok, éttermek, gyaloglás"
+        },
+        {
+         "label": "Aktív / természet",
+         "note": "Túrázás, kirándulások"
+        }
+       ],
+       "question": "Milyen típusú nyaralást szeretnétek?"
+      },
+      {
+       "options": [
+        {
+         "label": "max 500 €",
+         "note": "Költségtudatos, rövid táv"
+        },
+        {
+         "label": "500–1000 €",
+         "note": "Középkategória"
+        },
+        {
+         "label": "1000 € felett",
+         "note": "Távolabb is mehetünk"
+        }
+       ],
+       "question": "Mekkora a fejenkénti keret (repülő + szállás, 7 éjszakára)?"
+      },
+      {
+       "options": [
+        {
+         "label": "Két felnőtt, 1 hét",
+         "recommended": true
+        },
+        {
+         "label": "Család gyerekekkel",
+         "note": "1 hét"
+        },
+        {
+         "label": "Csoport / 2 hét",
+         "note": "Barátok vagy hosszabb utazás"
+        }
+       ],
+       "question": "Kikkel utaztok és meddig?"
+      }
+     ]
+    },
+    "jsonOk": true,
+    "schemaOk": true,
+    "schemaIssues": [],
+    "checkAskQuestions": {
+     "ok": false,
+     "message": "Question 2 takes one pick: mark exactly one of its options recommended."
+    },
+    "perQuestion": [
+     {
+      "question": 1,
+      "text": "Milyen típusú nyaralást szeretnétek?",
+      "multiple": false,
+      "options": 3,
+      "recommended": 1,
+      "recommendedRuleHolds": true,
+      "optionsWithinCap": true
+     },
+     {
+      "question": 2,
+      "text": "Mekkora a fejenkénti keret (repülő + szállás, 7 éjszakára)?",
+      "multiple": false,
+      "options": 3,
+      "recommended": 0,
+      "recommendedRuleHolds": false,
+      "optionsWithinCap": true
+     },
+     {
+      "question": 3,
+      "text": "Kikkel utaztok és meddig?",
+      "multiple": false,
+      "options": 3,
+      "recommended": 1,
+      "recommendedRuleHolds": true,
+      "optionsWithinCap": true
+     }
+    ],
+    "appAccepted": false,
+    "toolResult": {
+     "ok": false,
+     "errorCode": "invalid_questions",
+     "message": "Question 2 takes one pick: mark exactly one of its options recommended."
+    }
+   }
+  ],
+  "otherToolCalls": []
+ }
+}

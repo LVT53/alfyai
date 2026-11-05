@@ -1,0 +1,168 @@
+{
+ "prompt": 2,
+ "step": 2,
+ "kind": "fork",
+ "language": "en",
+ "text": "Make me a packing list PDF for our family weekend in Vienna.",
+ "builtFrom": "the replayed step-1 request, then the messages the app's own run appended after the real step-1 reply (the fake provider replayed the recorded reply; the tools ran for real against the seeded world)",
+ "shared": "shared.json",
+ "request": {
+  "parameters": {
+   "model": "qwen3-6-27b",
+   "temperature": 0.6,
+   "top_p": 0.95,
+   "top_k": 20,
+   "tool_choice": "auto"
+  },
+  "sentWith": {
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   }
+  },
+  "messages": [
+   {
+    "role": "system",
+    "sameAs": "shared.json#systemPrompt"
+   },
+   {
+    "role": "user",
+    "content": "You are receiving a compacted conversation context bundle. Use it as the working context for this turn.\n\n## Task State\nObjective: Make me a packing list PDF for our family weekend in Vienna.\n\n## Baseline Memory Profile\nThese are remembered facts about the person. They never set the reply language.\n- about_you (global): I prefer concise answers.\n- about_you (global): I live in Dublin.\n\n## Current User Message\nMake me a packing list PDF for our family weekend in Vienna.\n\n## Turn Guidance\n[SYSTEM TIME CONTEXT: Today is Thursday, November 5, 2026. Use this exact date as your current temporal anchor for relative timeframes. Call a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially depends on it.]\n\nReply in the language of the person's latest message, judged by its own words.\nIf that message has no language of its own (a short \"ok\", a number, a link, code), keep the language they have been writing in.\nIf they ask for the reply in a particular language, in this message or in their standing instructions (Your Instructions, Project Instructions), use that.\nIf they ask for a piece of writing in another language (an email, a translation), write that piece in it and keep your own words in their language.\nNothing else sets the reply language: not who they are (their name, nationality or where they live), not remembered facts (even one about the language they use), documents, files, tool or search results, or your own earlier replies.\n\nReasoning depth effort profile:\n- Applied Normal Chat profile: standard. This does not force web search every turn, and does not make the visible answer longer by itself.\nStandard-depth reasoning contract:\n- Use normal private reasoning. Keep the answer efficient, but still check obvious constraints and avoid unsupported claims.\n- Grounding pressure: standard. Use retrieval when the ordinary web/source guidance says it is needed.\n- Tool loop budget: the runtime can support up to 14 tool steps for this profile. Stop early once the answer is grounded enough.\n\n## Skills available\n- Plan Critic — Finds the blockers, weak assumptions, and gaps in a plan before you execute it, ranked by severity.\n- Document Explainer — Explains an attached or linked document in plain language, preserving exact numbers, dates, and caveats — fetches a URL first if you paste one.\n- Study Coach — Coaches active learning with chunked explanations, recall questions, and a study plan instead of a plain summary.\n- Purchase Helper — Compares purchase options against your real constraints and current prices — researches the web for specs and reviews before recommending.\n- Translate & Rewrite — Translates or rewrites text while preserving meaning, tone, and exact terminology, names, and numbers.\n- Appointment Prep — Builds an agenda, questions, and a verify/flag checklist for an upcoming appointment or call — pulls in prior context automatically.\n- Spreadsheet Builder — Builds polished XLSX workbooks with real formulas, formatted tables, and dashboards, delivered as a downloadable file.\n\n## Drafting a skill\nWhen the person asks you to keep how you just worked as a reusable skill (\"make this a skill\", \"save this as a skill\"), draft it in this block at the end of the reply, with no text inside it:\n\n<skill_control_v1>\n{\"version\":1,\"operations\":[{\"operationId\":\"skill-draft-1\",\"kind\":\"skill_draft\",\"draft\":{\"id\":\"weekly-status\",\"displayName\":\"Weekly status\",\"description\":\"Writes a short weekly status update from what the conversation already says.\",\"instructions\":\"Ask for the period, then write one short paragraph: what is done, what is next, what blocks it.\",\"activationExamples\":[\"Write my weekly status.\"],\"sourceScope\":\"current_conversation\"}}]}\n</skill_control_v1>\n\nThe app removes the block before the person sees the reply and shows a card with Save private skill and Dismiss: the skill exists only after they save it, so never claim it is saved. The example's `id`, `displayName` and `instructions` are only the shape: write them for the skill the person asked for, with `activationExamples` as messages that should load it."
+   },
+   {
+    "role": "assistant",
+    "content": "",
+    "reasoning_content": "The user wants a packing list PDF for a family weekend in Vienna. There's a \"Task State\" objective. I need to produce a PDF. I should consider what's known: family weekend in Vienna, lives in Dublin. Need dates? \"weekend\" — unspecified. Today is Nov 5, 2026. Vienna in November — cold weather.\n\nShould I ask a clarifying question? The mission says ask only when missing detail materially changes the answer. A packing list for a weekend in Vienna — season matters a lot. Today is Nov 5, 2026, so a weekend trip soon would be November weather (cold, ~0-8°C). But if the trip is in summer, entirely different. That materially changes the list.\n\nHowever, \"prefer action over process\". Hmm. I could ask one quick question about when the trip is and who's traveling (kids' ages). That would materially change the list. But guidance also says be decisive.\n\nLet me use ask_user with 1-2 questions: when is the trip (this month / December / next spring-summer) and party composition (2 adults + kids ages?). Actually I can combine: one question about timing, one about who's going. That's reasonable and fast.\n\nAlternatively, produce a PDF assuming a November weekend (nearest), noting assumptions, and offer to adjust. The turn guidance mentions tool budget 14 steps.\n\nI think asking is justified — season drastically changes a packing list, and \"family\" size matters (adults vs kids). But the risk: user wants action. A compromise: ask 2 quick questions with recommended defaults, then produce. Actually ask_user pauses the turn; the reply continues in the same reply with the choice as result. So I can ask and then produce in the same turn.\n\nLet me ask: 1) When's the trip? options: This month (Nov, cold), December (Christmas markets, cold), Later/spring-summer. 2) Who's going? options: 2 adults + 2 kids, 2 adults + 1 kid, 2 adults only. Hmm, guessing options for family composition is presumptuous but fine with multiple choice + they can type.\n\nActually maybe also duration: weekend = 2 nights presumably. Fine.\n\nLet me ask both questions in one call, then build the PDF.\n\nAlso should I check weather in Vienna? For November, typical temps. I could do a quick research for Vienna November climate normals — but that's stable knowledge: Vienna November average high ~7°C, low ~1°C. December: high ~3°C, low ~-2°C. That's fine without search. But grounding pressure standard — weather normals are common stable facts. I'll answer directly, maybe note typical temps.\n\nLet me ask the questions first.\n\nActually — should I skip asking and just do it? The user said \"our family weekend in Vienna\" — implies a known family trip. Maybe memory has more. Let me check memory_context persona for trip details (Vienna trip, kids). The baseline memory profile only lists two facts, but project/history mode might have the trip. Let me do memory_context (history mode, query \"Vienna trip\") plus persona. Hmm, baseline says persona facts never set language; retrieved context is given. Let me do one memory check for Vienna trip details before asking — that could avoid asking.\n\nI'll call memory_context with mode history query \"Vienna family trip dates kids\" and mode persona... two calls in one block (independent).\n",
+    "tool_calls": [
+     {
+      "id": "chatcmpl-tool-a25bcc4b6a16c840",
+      "type": "function",
+      "function": {
+       "name": "memory_context",
+       "arguments": "{\"mode\":\"history\",\"query\":\"Vienna family trip dates kids packing\",\"maxHistoryConversations\":5}"
+      }
+     },
+     {
+      "id": "chatcmpl-tool-ba6a7ab7c9f80018",
+      "type": "function",
+      "function": {
+       "name": "memory_context",
+       "arguments": "{\"mode\":\"persona\",\"query\":\"family, children, travel, Vienna trip\"}"
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "chatcmpl-tool-a25bcc4b6a16c840",
+    "content": "{\"success\":true,\"name\":\"memory_context\",\"sourceType\":\"memory\",\"mode\":\"history\",\"status\":\"empty\",\"omittedConversationCount\":0}"
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "chatcmpl-tool-ba6a7ab7c9f80018",
+    "content": "{\"success\":true,\"name\":\"memory_context\",\"sourceType\":\"memory\",\"mode\":\"persona\",\"status\":\"available\",\"content\":\"Persona summary (auto-maintained):\\nThey live in Dublin and are renovating their kitchen.\\n\\nFacts:\\n- about_you (global): I prefer concise answers.\\n- about_you (global): I live in Dublin.\",\"audit\":{\"conversationId\":\"624b99e9-5ca7-44d3-8817-4c0128f49e43\",\"query\":\"family, children, travel, Vienna trip\"},\"evidenceCandidates\":[{\"id\":\"memory-fact:e5cf5fe8-5d4c-4261-8775-694b1c4cd6b7\",\"title\":\"I prefer concise answers.\",\"sourceType\":\"memory\",\"metadata\":{\"memoryItemId\":\"e5cf5fe8-5d4c-4261-8775-694b1c4cd6b7\"}},{\"id\":\"memory-fact:46023596-e02c-4f1e-8715-ff83e252b6c5\",\"title\":\"I live in Dublin.\",\"sourceType\":\"memory\",\"metadata\":{\"memoryItemId\":\"46023596-e02c-4f1e-8715-ff83e252b6c5\"}},{\"id\":\"memory-context:summary:a171d7ba-8946-41e9-ac93-09e6776621b4\",\"title\":\"Persona summary\",\"sourceType\":\"memory\"}]}"
+   }
+  ]
+ },
+ "response": {
+  "httpStatus": 200,
+  "ms": 3165,
+  "finishReason": "tool_calls",
+  "usage": {
+   "prompt_tokens": 12828,
+   "total_tokens": 13044,
+   "completion_tokens": 216,
+   "completion_tokens_details": {
+    "reasoning_tokens": 29
+   }
+  },
+  "deltas": 27,
+  "thinking": "No trip details. I'll ask two quick questions: timing (season drives the list) and who's going. Then build the PDF.\n",
+  "words": "\n\nNo trip details in memory, so two quick questions before I build it — the season changes the list completely.\n\n",
+  "wordsAsTheAppKeepsThem": "No trip details in memory, so two quick questions before I build it — the season changes the list completely.",
+  "toolCalls": [
+   {
+    "id": "chatcmpl-tool-829f55f5c04d0ee5",
+    "name": "ask_user",
+    "arguments": "{\"questions\": [{\"question\": \"When is the Vienna weekend?\", \"options\": [{\"label\": \"This month (Nov)\", \"note\": \"Typical 1–8 °C, damp, short days\", \"recommended\": true}, {\"label\": \"December\", \"note\": \"Christmas markets, typical -2 to 3 °C\"}, {\"label\": \"Spring/summer\", \"note\": \"Warm days, possible heatwaves\"}]}, {\"question\": \"Who's packing?\", \"options\": [{\"label\": \"2 adults + 2 kids\", \"recommended\": true}, {\"label\": \"2 adults + 1 kid\"}, {\"label\": \"2 adults only\"}]}]}"
+   }
+  ]
+ },
+ "parsed": {
+  "asked": true,
+  "askCalls": [
+   {
+    "id": "chatcmpl-tool-829f55f5c04d0ee5",
+    "input": {
+     "questions": [
+      {
+       "question": "When is the Vienna weekend?",
+       "options": [
+        {
+         "label": "This month (Nov)",
+         "note": "Typical 1–8 °C, damp, short days",
+         "recommended": true
+        },
+        {
+         "label": "December",
+         "note": "Christmas markets, typical -2 to 3 °C"
+        },
+        {
+         "label": "Spring/summer",
+         "note": "Warm days, possible heatwaves"
+        }
+       ]
+      },
+      {
+       "question": "Who's packing?",
+       "options": [
+        {
+         "label": "2 adults + 2 kids",
+         "recommended": true
+        },
+        {
+         "label": "2 adults + 1 kid"
+        },
+        {
+         "label": "2 adults only"
+        }
+       ]
+      }
+     ]
+    },
+    "jsonOk": true,
+    "schemaOk": true,
+    "schemaIssues": [],
+    "checkAskQuestions": {
+     "ok": true
+    },
+    "perQuestion": [
+     {
+      "question": 1,
+      "text": "When is the Vienna weekend?",
+      "multiple": false,
+      "options": 3,
+      "recommended": 1,
+      "recommendedRuleHolds": true,
+      "optionsWithinCap": true
+     },
+     {
+      "question": 2,
+      "text": "Who's packing?",
+      "multiple": false,
+      "options": 3,
+      "recommended": 1,
+      "recommendedRuleHolds": true,
+      "optionsWithinCap": true
+     }
+    ],
+    "appAccepted": true,
+    "toolResult": {
+     "status": "waiting_for_user",
+     "note": "Asked. The reply pauses here until the user chooses."
+    }
+   }
+  ],
+  "otherToolCalls": []
+ }
+}
