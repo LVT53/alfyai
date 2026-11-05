@@ -94,7 +94,6 @@ import {
 	ArrowLeftRight,
 	Link,
 	LayoutGrid,
-	History,
 	MoreHorizontal,
 	Trash2,
 } from "@lucide/svelte";
@@ -2613,16 +2612,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			>
 				<LayoutGrid size={18} strokeWidth={2} aria-hidden="true" />
 			</button>
-			<button
-				type="button"
-				class="btn-icon-bare workspace-history-toggle-button"
-				disabled
-				aria-disabled="true"
-				title={$t('artifacts.history.comingWithDocument')}
-				aria-label={$t('artifacts.panel.history')}
-			>
-				<History size={18} strokeWidth={2} aria-hidden="true" />
-			</button>
 		{/if}
 	{/snippet}
 
@@ -2658,9 +2647,10 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		Wave 2.5 Step 3/8: `ArtifactPanelHeader`'s actions for an artifact-kind
 		item (Document/App/File) — Comments (Document only, matching the mockup's
 		own `.ph-actions` order), Download, a divider, Expand, Close. Never the
-		old grid/History buttons `artifactPanelActions()` above draws for a
-		legacy, non-artifact item: the breadcrumb replaces "back to the list",
-		and the version button above replaces History outright.
+		old list button `artifactPanelActions()` above draws for a legacy,
+		non-artifact item: the breadcrumb replaces "back to the list", and the
+		version button above is the item's History. A legacy item has no History,
+		so its header draws none.
 	-->
 	<!--
 		History, a mode of the panel (ruling 76): a slot laid over the open body in
@@ -4375,11 +4365,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	.workspace-download-option:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 36%, transparent);
-	}
-
-	.workspace-history-toggle-button:disabled {
-		cursor: not-allowed;
-		opacity: 0.5;
 	}
 
 	/* ArtifactPanelHeader's actions (Wave 2.5 Step 3): the divider between
