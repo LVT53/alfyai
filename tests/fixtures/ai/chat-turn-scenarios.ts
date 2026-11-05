@@ -78,10 +78,18 @@ export const AI_SMOKE_SKILL_DRAFT_EXAMPLE =
  *   `one`        one question that takes one pick (the mockup's section 1),
  *   `many`       a card of two questions, the first taking several picks (section 2),
  *   `twice`      after the first answer it asks again, once (section 7),
- *   `slow`       the ask comes after 2.5 s, so the reply is still being written,
- *   `slowresume` the words after the answer come after 4 s, so the resume runs a while,
+ *   `slow`       the ask is held until the test releases it (`AI_SMOKE_ASK_HOLD_ASK`), so
+ *                the reply is still being written for as long as the test wants,
+ *   `slowresume` the words after the answer are held until the test releases them
+ *                (`AI_SMOKE_ASK_HOLD_RESUME`), so the resume runs for as long as the
+ *                test wants,
  *   `read`       it makes a Document and reads it back before it asks, so the resume
  *                has a tool result that a history digest would cut.
+ * The names `slow` and `slowresume` are kept from when they waited a fixed time: a
+ * fixed wait races the machine the test runs on, a hold does not. The request is
+ * recorded when it arrives, before the hold, so a test that polls the provider's
+ * requests knows the reply is there; the harness lets go with `release(name)`, and
+ * `reset()` and `stop()` let go of every hold.
  */
 export const AI_SMOKE_ASK_MARKER =
 	"Fake model step: ask me first before you answer.";
@@ -97,6 +105,9 @@ export const AI_SMOKE_ASK_INTRO =
 export const AI_SMOKE_ASK_SECOND_INTRO =
 	"With 25 to 30 people, the next fork is where they all fit.";
 export const AI_SMOKE_ASK_AFTER_PREFIX = "Carrying on with: ";
+/** The holds of the `slow` mode (the first ask) and the `slowresume` mode (the words after the answer). */
+export const AI_SMOKE_ASK_HOLD_ASK = "ask-first";
+export const AI_SMOKE_ASK_HOLD_RESUME = "ask-resume";
 export const AI_SMOKE_ASK_CALL_ID = "call_ask_1";
 export const AI_SMOKE_ASK_SECOND_CALL_ID = "call_ask_2";
 export const AI_SMOKE_ASK_READ_CALL_ID = "call_ask_read";

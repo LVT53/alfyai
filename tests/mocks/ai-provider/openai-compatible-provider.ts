@@ -106,6 +106,15 @@ export interface OpenAICompatibleProviderHarness {
 	stop(): Promise<void>;
 	reset(): Promise<void>;
 	requests(): CapturedOpenAICompatibleRequest[];
+	/**
+	 * Lets go of a hold: a reply whose script names it (`ScriptedChatTurnReply.hold`)
+	 * waits, after the request is recorded, until the test calls this, and every reply
+	 * that waits on the name goes on. A released hold stays open until `reset()`, so a
+	 * request that names it later goes straight through. `reset()` and `stop()` let go
+	 * of every hold, so a failed test cannot leave a reply open (or hold `stop()` up:
+	 * the server waits for its open replies).
+	 */
+	release(name: string): void;
 }
 
 export interface OpenAICompatibleProviderHarnessOptions {
@@ -1626,6 +1635,47 @@ export function createOpenAICompatibleProviderHarness(
 	const requests: CapturedOpenAICompatibleRequest[] = [];
 	let server: ReturnType<typeof createServer> | null = null;
 
+	// Replies that wait for the test (`ScriptedChatTurnReply.hold`), by name.
+	const holds = new Map<
+		string,
+		{ open: boolean; waiting: Array<() => void> }
+	>();
+
+	function holdNamed(name: string) {
+		let hold = holds.get(name);
+		if (!hold) {
+			hold = { open: false, waiting: [] };
+			holds.set(name, hold);
+		}
+		return hold;
+	}
+
+	/** Settles when the hold is released, or when the app gives the request up. */
+	function waitForRelease(name: string, signal?: AbortSignal): Promise<void> {
+		const hold = holdNamed(name);
+		if (hold.open || signal?.aborted) return Promise.resolve();
+		return new Promise((resolve) => {
+			const goOn = () => {
+				signal?.removeEventListener("abort", goOn);
+				resolve();
+			};
+			hold.waiting.push(goOn);
+			signal?.addEventListener("abort", goOn, { once: true });
+		});
+	}
+
+	function release(name: string): void {
+		const hold = holdNamed(name);
+		hold.open = true;
+		for (const goOn of hold.waiting.splice(0)) goOn();
+	}
+
+	/** Lets every reply that waits go, and closes the holds again. */
+	function letGoOfEveryHold(): void {
+		for (const name of [...holds.keys()]) release(name);
+		holds.clear();
+	}
+
 	async function handleRequest(request: Request): Promise<Response> {
 		if (!origin) {
 			return jsonResponse({ error: "Fake provider is not running" }, 503);
@@ -1742,6 +1792,9 @@ export function createOpenAICompatibleProviderHarness(
 				const scripted = scriptedChatTurnReply(body);
 				if (scripted) {
 					if (scripted.delayMs) await delay(scripted.delayMs);
+					if (scripted.hold) {
+						await waitForRelease(scripted.hold, request.signal);
+					}
 					return streamResponse(scripted.frames);
 				}
 				// The picture scripts read this turn's own message (the bundle's evidence
@@ -2042,6 +2095,7 @@ export function createOpenAICompatibleProviderHarness(
 
 	async function stop(): Promise<void> {
 		if (!active) return;
+		letGoOfEveryHold();
 		if (server) {
 			await new Promise<void>((resolve, reject) => {
 				server?.close((error) => {
@@ -2061,6 +2115,7 @@ export function createOpenAICompatibleProviderHarness(
 	function reset(): Promise<void> {
 		requests.length = 0;
 		nextRequestId = 1;
+		letGoOfEveryHold();
 		return Promise.resolve();
 	}
 
@@ -2080,5 +2135,6 @@ export function createOpenAICompatibleProviderHarness(
 		stop,
 		reset,
 		requests: () => requests.map((request) => ({ ...request })),
+		release,
 	};
 }

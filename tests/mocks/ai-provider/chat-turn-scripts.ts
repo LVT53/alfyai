@@ -7,6 +7,8 @@ import type { AskQuestion } from "../../../src/lib/shared/ask-user";
 import {
 	AI_SMOKE_ASK_AFTER_PREFIX,
 	AI_SMOKE_ASK_CALL_ID,
+	AI_SMOKE_ASK_HOLD_ASK,
+	AI_SMOKE_ASK_HOLD_RESUME,
 	AI_SMOKE_ASK_INTRO,
 	AI_SMOKE_ASK_MANY,
 	AI_SMOKE_ASK_ONE,
@@ -46,10 +48,6 @@ const READ_CALL_ID = "call_fx1_read";
 const BAD_EDIT_CALL_ID = "call_fx1_bad_edit";
 const GOOD_EDIT_CALL_ID = "call_fx1_good_edit";
 const ASK_CREATE_CALL_ID = "call_ask_create";
-
-/** How long the `slow` mode keeps its ask back, and the `slowresume` mode its words after the answer. */
-const ASK_SLOW_MS = 2500;
-const ASK_SLOW_RESUME_MS = 4000;
 
 function isObject(value: unknown): value is JsonObject {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -224,8 +222,16 @@ function textFrames(id: string, text: string): unknown[] {
  */
 const CLOSING_SENTENCE_DELAY_MS = 1500;
 
-/** What the provider sends back, after waiting `delayMs` (the model thinking). */
-export type ScriptedChatTurnReply = { frames: unknown[]; delayMs?: number };
+/**
+ * What the provider sends back, after waiting `delayMs` (the model thinking) and, when
+ * it names a `hold`, until the test releases that hold (the harness's `release`): the
+ * request is recorded when it arrives, before either wait.
+ */
+export type ScriptedChatTurnReply = {
+	frames: unknown[];
+	delayMs?: number;
+	hold?: string;
+};
 
 function producePdfReply(body: unknown): ScriptedChatTurnReply {
 	if (answeredCallId(body) === PRODUCE_PDF_CALL_ID) {
@@ -371,7 +377,8 @@ function askAnswerText(body: unknown, callId: string): string {
  * and the request that carries the answer as the ask's result is the resume: the model
  * carries the reply on by saying what it was told. `twice` asks once more before it does,
  * `read` makes a Document and reads it back first (the create-then-read chain of the item
- * turn), `slow` keeps the ask back and `slowresume` keeps the words after the answer back.
+ * turn), `slow` holds the ask and `slowresume` holds the words after the answer, each
+ * until the test releases it (`ScriptedChatTurnReply.hold`).
  */
 function askTurnReply(body: unknown, mode: AskTurnMode): ScriptedChatTurnReply {
 	const answered = answeredCallId(body);
@@ -407,7 +414,7 @@ function askTurnReply(body: unknown, mode: AskTurnMode): ScriptedChatTurnReply {
 				"ask_after",
 				`${AI_SMOKE_ASK_AFTER_PREFIX}${askAnswerText(body, answered)}.`,
 			),
-			...(mode === "slowresume" ? { delayMs: ASK_SLOW_RESUME_MS } : {}),
+			...(mode === "slowresume" ? { hold: AI_SMOKE_ASK_HOLD_RESUME } : {}),
 		};
 	}
 	if (mode === "read" && answered === null) {
@@ -441,7 +448,7 @@ function askTurnReply(body: unknown, mode: AskTurnMode): ScriptedChatTurnReply {
 			AI_SMOKE_ASK_INTRO,
 			mode === "many" ? AI_SMOKE_ASK_MANY : AI_SMOKE_ASK_ONE,
 		),
-		...(mode === "slow" ? { delayMs: ASK_SLOW_MS } : {}),
+		...(mode === "slow" ? { hold: AI_SMOKE_ASK_HOLD_ASK } : {}),
 	};
 }
 

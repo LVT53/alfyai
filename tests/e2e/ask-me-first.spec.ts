@@ -5,6 +5,8 @@ import { askQuestions } from "../../src/lib/server/db/schema";
 import {
 	AI_SMOKE_ASK_AFTER_PREFIX,
 	AI_SMOKE_ASK_CALL_ID,
+	AI_SMOKE_ASK_HOLD_ASK,
+	AI_SMOKE_ASK_HOLD_RESUME,
 	AI_SMOKE_ASK_INTRO,
 	AI_SMOKE_ASK_READ_BODY,
 	AI_SMOKE_ASK_READ_CALL_ID,
@@ -140,6 +142,18 @@ function expectContinuation(
 	expect(persons, "the continuation follows the person's message").toBeLessThan(
 		messages.length - 2,
 	);
+}
+
+/** The request is the resume of the first question the scripted turn of `mode` asks: the reply so far, and then the answer. */
+function expectResumeOfFirstAsk(
+	request: CapturedOpenAICompatibleRequest,
+	mode: AskTurnMode = "one",
+) {
+	expectContinuation(request, {
+		callId: AI_SMOKE_ASK_CALL_ID,
+		intro: AI_SMOKE_ASK_INTRO,
+		personsMessage: askTurnMessage(mode),
+	});
 }
 
 /** Runs the scripted turn up to the point where the model sent its ask. */
@@ -303,44 +317,86 @@ async function expectWaitingCard(page: Page): Promise<Locator> {
 
 /**
  * From the next load of `page` on, notes which of these test ids were ever in its
- * document, even for a moment: a look once the flow is over cannot tell "never" from
- * "was there and left". Read back with `wasSighted`. The page's own scripts have not run
- * yet when this does, and the elements the server drew are seen too. Name one id that
- * the flow is sure to draw beside the one that must never be drawn: that one's sighting
- * shows the watch works.
+ * document, even for a moment, and every text each held: a look once the flow is over
+ * cannot tell "never" from "was there and left", nor a wrong line that lived only while
+ * a reply ran from the right one that replaced it. Read back with `wasSighted` and
+ * `textsSeenOf`. The page's own scripts have not run yet when this does, and the
+ * elements the server drew are seen too. Name one id that the flow is sure to draw
+ * beside the one that must never be drawn: that one's sighting shows the watch works.
  */
 async function watchForTestIds(page: Page, testIds: string[]) {
 	await page.addInitScript((ids: string[]) => {
-		const mine = window as unknown as { __sighted?: Record<string, boolean> };
+		const mine = window as unknown as { __sighted?: Record<string, string[]> };
 		const sighted = mine.__sighted ?? {};
 		mine.__sighted = sighted;
+		const note = (id: string, element: Element) => {
+			const text = (element.textContent ?? "").replace(/\s+/g, " ").trim();
+			const seen = sighted[id] ?? [];
+			sighted[id] = seen;
+			if (!seen.includes(text)) seen.push(text);
+		};
 		const look = (node: Node) => {
 			if (!(node instanceof Element)) return;
 			for (const id of ids) {
 				const selector = `[data-testid="${id}"]`;
-				if (node.matches(selector) || node.querySelector(selector)) {
-					sighted[id] = true;
-				}
+				if (node.matches(selector)) note(id, node);
+				for (const found of node.querySelectorAll(selector)) note(id, found);
 			}
 		};
-		// The added nodes of each record, not the document at the end of it: an element
-		// that came and went inside one batch of changes is still seen.
+		// The elements added in each batch of changes (one that came and went inside the
+		// batch is still seen), then every element there is, so that a text that changed
+		// inside an element that was already drawn is seen as well.
 		new MutationObserver((records) => {
 			for (const record of records) {
 				for (const node of record.addedNodes) look(node);
 			}
-		}).observe(document, { childList: true, subtree: true });
+			if (document.documentElement) look(document.documentElement);
+		}).observe(document, {
+			childList: true,
+			characterData: true,
+			subtree: true,
+		});
 	}, testIds);
 }
 
-/** Whether `watchForTestIds` has seen the element in the page's current document. */
-function wasSighted(page: Page, testId: string): Promise<boolean> {
+/** Every distinct text the elements `watchForTestIds` watched had in the page's current document. */
+function textsSeenOf(page: Page, testId: string): Promise<string[]> {
 	return page.evaluate(
 		(id) =>
-			(window as unknown as { __sighted?: Record<string, boolean> })
-				.__sighted?.[id] === true,
+			(window as unknown as { __sighted?: Record<string, string[]> })
+				.__sighted?.[id] ?? [],
 		testId,
 	);
+}
+
+/** Whether `watchForTestIds` has seen the element in the page's current document. */
+async function wasSighted(page: Page, testId: string): Promise<boolean> {
+	return (await textsSeenOf(page, testId)).length > 0;
+}
+
+/**
+ * A tab beside `page`, in the same browser, opened on the chat and hydrated. `watch`
+ * names the test ids it records from its first load (`watchForTestIds`). The caller
+ * closes it.
+ */
+async function openChatInAnotherTab(
+	page: Page,
+	conversationId: string,
+	watch: string[] = [],
+): Promise<Page> {
+	const tab = await page.context().newPage();
+	try {
+		if (watch.length > 0) await watchForTestIds(tab, watch);
+		await tab.setViewportSize(DESKTOP);
+		await tab.goto(`/chat/${conversationId}`, {
+			waitUntil: "domcontentloaded",
+		});
+		await waitForHydration(tab);
+		return tab;
+	} catch (error) {
+		await tab.close();
+		throw error;
+	}
 }
 
 /**
@@ -519,11 +575,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 				},
 			],
 		});
-		expectContinuation(resume, {
-			callId: AI_SMOKE_ASK_CALL_ID,
-			intro: AI_SMOKE_ASK_INTRO,
-			personsMessage: askTurnMessage("one"),
-		});
+		expectResumeOfFirstAsk(resume);
 	});
 
 	test("the reply carries on with everything Alfy read before it asked", async ({
@@ -764,11 +816,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		// Each answer travelled with the reply so far.
 		await expect.poll(() => chatRequests(fakeProvider).length).toBe(3);
 		const [, afterFirst, afterSecond] = chatRequests(fakeProvider);
-		expectContinuation(afterFirst, {
-			callId: AI_SMOKE_ASK_CALL_ID,
-			intro: AI_SMOKE_ASK_INTRO,
-			personsMessage: askTurnMessage("twice"),
-		});
+		expectResumeOfFirstAsk(afterFirst, "twice");
 		expectContinuation(afterSecond, {
 			callId: AI_SMOKE_ASK_SECOND_CALL_ID,
 			intro: AI_SMOKE_ASK_SECOND_INTRO,
@@ -1009,14 +1057,11 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 		await expect(card.getByTestId("ask-error")).toHaveCount(0);
 
 		// A second tab on the chat shows it too.
-		const second = await page.context().newPage();
+		const second = await openChatInAnotherTab(page, conversationId, [
+			"ask-error",
+			"ask-folded",
+		]);
 		try {
-			await watchForTestIds(second, ["ask-error", "ask-folded"]);
-			await second.setViewportSize(DESKTOP);
-			await second.goto(`/chat/${conversationId}`, {
-				waitUntil: "domcontentloaded",
-			});
-			await waitForHydration(second);
 			const secondCard = await expectWaitingCard(second);
 
 			// The first tab answers, and the reply carries on there.
@@ -1025,6 +1070,30 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 			);
 			await expectCarriedOn(page, "A party at home");
 			await expectReplyEnded(page);
+
+			// A tab that opens now meets the answer at its first load: an answer on one
+			// device folds the question on the others at their next load. Never a card.
+			const third = await openChatInAnotherTab(page, conversationId, [
+				"ask-card",
+				"ask-folded",
+			]);
+			try {
+				await expect(third.getByTestId("ask-folded")).toContainText(
+					"A party at home",
+				);
+				await expectCarriedOn(third, "A party at home");
+				await expect(askCard(third)).toHaveCount(0);
+				expect(
+					await wasSighted(third, "ask-folded"),
+					"the watch sees what the page draws",
+				).toBe(true);
+				expect(
+					await wasSighted(third, "ask-card"),
+					"a tab that loaded after the answer drew the card",
+				).toBe(false);
+			} finally {
+				await third.close();
+			}
 
 			// The second tab was told nothing: its card is still up. It answers, late, and
 			// differently.
@@ -1062,11 +1131,7 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 
 		// One answer was taken and one resume ran, with the first tab's answer.
 		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
-		expectContinuation(chatRequests(fakeProvider)[1], {
-			callId: AI_SMOKE_ASK_CALL_ID,
-			intro: AI_SMOKE_ASK_INTRO,
-			personsMessage: askTurnMessage("one"),
-		});
+		expectResumeOfFirstAsk(chatRequests(fakeProvider)[1]);
 		expect(
 			answerTo(chatRequests(fakeProvider)[1], AI_SMOKE_ASK_CALL_ID),
 		).toMatchObject({
@@ -1086,20 +1151,21 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 		await pressWhenAwake(
 			card.getByRole("button", { name: "A party at home, recommended" }),
 		);
-		// The server has the answer, and the model is working on it for a few seconds:
-		// the resume's request is at the provider, and the reload comes in the wait (the
-		// look is every 50 ms, so that little of the wait is gone when it comes).
-		await expect
-			.poll(() => chatRequests(fakeProvider).length, { intervals: [50] })
-			.toBe(2);
+		// The server has the answer, and the model has the resume's request and holds its
+		// words until the test lets them go: the reload comes while the reply runs.
+		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
 		await reloadChat(page);
 
-		// The line is folded and says what was answered, and the page is in the reply that
-		// runs (Stop is on) and shows it under the line when it comes.
+		// With the reply still held, the line is folded and says what was answered, the
+		// page is in the reply that runs (Stop is on), and none of the words is there.
 		const folded = page.getByTestId("ask-folded");
 		await expect(folded).toContainText("Which way should we take it?");
 		await expect(folded).toContainText("A party at home");
 		await expect(page.getByTestId("stop-button")).toBeVisible();
+		await expect(page.getByText(AI_SMOKE_ASK_AFTER_PREFIX)).toHaveCount(0);
+
+		// The words come, under the line.
+		fakeProvider.release(AI_SMOKE_ASK_HOLD_RESUME);
 		await expectCarriedOn(page, "A party at home");
 		await expectReplyEnded(page);
 
@@ -1123,53 +1189,58 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 		expect(chatRequests(fakeProvider)).toHaveLength(2);
 	});
 
-	test("a second tab that answers while the first tab's reply streams ends up with that reply", async ({
+	test("a second tab that answers while the first tab's reply is carried on is told it lost, and shows the winner's answer", async ({
 		page,
 	}) => {
 		const { conversationId } = await startTurn(page, "slowresume");
 		const card = await expectWaitingCard(page);
 
-		const second = await page.context().newPage();
+		const second = await openChatInAnotherTab(page, conversationId, [
+			"ask-error",
+			"ask-folded",
+		]);
 		try {
-			await watchForTestIds(second, ["ask-error", "ask-folded"]);
-			await second.setViewportSize(DESKTOP);
-			await second.goto(`/chat/${conversationId}`, {
-				waitUntil: "domcontentloaded",
-			});
-			await waitForHydration(second);
 			const secondCard = await expectWaitingCard(second);
 
-			// The first tab answers. The server begins the resume, and the model is slow
-			// over it: the second tab answers in that wait, with another answer. How long
-			// the second tab takes to find the reply is its page's business (the first
-			// tab's reply holds the user's stream, so the second answer is turned away at
-			// first); where it ends up is what counts.
+			// The first tab answers. The server begins the resume, and the model holds its
+			// words until the test lets them go.
 			await pressWhenAwake(
 				card.getByRole("button", { name: "A party at home, recommended" }),
 			);
-			await expect
-				.poll(() => chatRequests(fakeProvider).length, { intervals: [50] })
-				.toBe(2);
+			await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
+
+			// The second tab answers differently, while that reply runs.
 			await pressWhenAwake(
 				secondCard.getByRole("button", {
 					name: "Dinner out, just close family",
 				}),
 			);
 
-			// The reply is the first answer's, and the second tab shows it under that
-			// answer's line, with no card left and no error line on the way.
+			// It is told at once that it lost: with the reply still held, its card has
+			// folded into the winner's answer, and it is in the reply that runs.
+			const folded = second.getByTestId("ask-folded");
+			await expect(folded).toContainText("A party at home");
+			await expect(secondCard).toHaveCount(0);
+			await expect(second.getByTestId("stop-button")).toBeVisible();
+			await expect(second.getByText(AI_SMOKE_ASK_AFTER_PREFIX)).toHaveCount(0);
+
+			// The words come, under the winner's line, in both tabs.
+			fakeProvider.release(AI_SMOKE_ASK_HOLD_RESUME);
 			await expectCarriedOn(second, "A party at home");
 			await expectReplyEnded(second);
-			const folded = second.getByTestId("ask-folded");
+			await expect(second.getByTestId("assistant-message")).toHaveCount(2);
 			await expect(folded).toHaveCount(1);
 			await expect(folded).toContainText("A party at home");
 			await expect(folded).not.toContainText("Dinner out");
-			await expect(secondCard).toHaveCount(0);
-			await expect(second.getByTestId("assistant-message")).toHaveCount(2);
-			expect(
-				await wasSighted(second, "ask-folded"),
-				"the watch sees what the page draws",
-			).toBe(true);
+
+			// At no moment did the second tab's line say its own, losing pick (a line that
+			// lives only while the reply runs is a line seen), nor was there an error line.
+			const lines = await textsSeenOf(second, "ask-folded");
+			expect(lines.length, "the watch sees the folded line").toBeGreaterThan(0);
+			for (const line of lines) {
+				expect(line).toContain("A party at home");
+				expect(line).not.toContain("Dinner out");
+			}
 			expect(
 				await wasSighted(second, "ask-error"),
 				"the late answer showed an error line",
@@ -1178,11 +1249,18 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 			await second.close();
 		}
 
-		// The first tab's reply is the one that ran, and only one resume did.
+		// The first tab's reply is the one that ran: one resume, with the first answer.
 		await expectCarriedOn(page, "A party at home");
 		await expectReplyEnded(page);
 		await expect(page.getByTestId("assistant-message")).toHaveCount(2);
 		expect(chatRequests(fakeProvider)).toHaveLength(2);
+		expectResumeOfFirstAsk(chatRequests(fakeProvider)[1]);
+		expect(
+			answerTo(chatRequests(fakeProvider)[1], AI_SMOKE_ASK_CALL_ID),
+		).toMatchObject({
+			status: "answered",
+			answers: [{ picked: ["A party at home"] }],
+		});
 	});
 
 	test("Retry on a reply that asked runs the whole reply again", async ({
@@ -1237,11 +1315,7 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 		);
 		await expect(page.getByTestId("assistant-message")).toHaveCount(2);
 		await expect.poll(() => chatRequests(fakeProvider).length).toBe(4);
-		expectContinuation(chatRequests(fakeProvider)[3], {
-			callId: AI_SMOKE_ASK_CALL_ID,
-			intro: AI_SMOKE_ASK_INTRO,
-			personsMessage: askTurnMessage("one"),
-		});
+		expectResumeOfFirstAsk(chatRequests(fakeProvider)[3]);
 	});
 
 	test("a message queued before the pause waits in the composer's draft and is not sent", async ({
@@ -1263,8 +1337,9 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 		const { conversationId } = await startTurn(page, "slow");
 		const composer = page.getByTestId("message-input");
 
-		// The first segment is still being written (the model is slow to reach its
-		// question): the reader queues a message behind it.
+		// The model has the request and holds the first segment until the test lets it
+		// go: the reply is being written, and the reader queues a message behind it.
+		await expect.poll(() => chatRequests(fakeProvider).length).toBe(1);
 		await expect(page.getByTestId("stop-button")).toBeVisible();
 		await composer.fill(QUEUED_WORDS);
 		await page.getByTestId("queue-button").click();
@@ -1274,6 +1349,7 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 
 		// Alfy asks. The reply is not over, so what was queued does not go: its words are
 		// back in the draft, the card is up, and the message box is off with them in it.
+		fakeProvider.release(AI_SMOKE_ASK_HOLD_ASK);
 		const card = await expectWaitingCard(page);
 		await expect(page.getByTestId("queued-message-banner")).toHaveCount(0);
 		await expect(composer).toBeDisabled();
@@ -1299,6 +1375,11 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 		await expect(composer).toBeEnabled();
 		await expect(composer).toHaveValue(QUEUED_WORDS);
 		await expect(page.getByTestId("user-message")).toHaveCount(1);
+		// The resume's finalize left the draft alone too: the server still holds the words
+		// as the chat's draft.
+		await expect
+			.poll(() => savedDraftOf(page, conversationId))
+			.toBe(QUEUED_WORDS);
 		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
 		for (const request of chatRequests(fakeProvider)) {
 			const personsWords = wireMessages(request)
@@ -1331,6 +1412,7 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 		const mark = waitingMark(page, conversationId);
 		await expect(mark).toBeVisible();
 		await expect(mark).toHaveAttribute("aria-label", "Waiting for your answer");
+		await expect(mark).not.toHaveAttribute("title");
 		await expect(row).not.toContainText("Waiting for your answer");
 
 		// A page that has just loaded gets it from the server's list, not from anything
@@ -1428,11 +1510,7 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 		await expectReplyEnded(page);
 		await expect(updating).toHaveCount(0);
 		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
-		expectContinuation(chatRequests(fakeProvider)[1], {
-			callId: AI_SMOKE_ASK_CALL_ID,
-			intro: AI_SMOKE_ASK_INTRO,
-			personsMessage: askTurnMessage("one"),
-		});
+		expectResumeOfFirstAsk(chatRequests(fakeProvider)[1]);
 	});
 
 	test("a reply cut off by a restart brings the card back with the answer in it", async ({
@@ -1490,11 +1568,7 @@ test.describe("The reply that asked holds across reloads, a second tab, Retry, a
 		await expectCarriedOn(page, "A party at home");
 		await expectReplyEnded(page);
 		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
-		expectContinuation(chatRequests(fakeProvider)[1], {
-			callId: AI_SMOKE_ASK_CALL_ID,
-			intro: AI_SMOKE_ASK_INTRO,
-			personsMessage: askTurnMessage("one"),
-		});
+		expectResumeOfFirstAsk(chatRequests(fakeProvider)[1]);
 		expect(
 			answerTo(chatRequests(fakeProvider)[1], AI_SMOKE_ASK_CALL_ID),
 		).toMatchObject({

@@ -2,6 +2,11 @@ import { tool } from "ai";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { runStreamingNormalChatModelRun } from "$lib/server/services/normal-chat-model";
+import {
+	AI_SMOKE_ASK_HOLD_ASK,
+	AI_SMOKE_ASK_INTRO,
+	askTurnMessage,
+} from "../fixtures/ai/chat-turn-scenarios";
 import { AI_SMOKE_LATE_CARD_MARKER } from "../fixtures/ai/late-card-scenario";
 import {
 	AI_SMOKE_ABORT_DELAY_MS,
@@ -779,6 +784,117 @@ describe("fake OpenAI-compatible provider: a board's scripted edit", () => {
 		expect(asked.toolName).toBe("create_artifact");
 		expect(asked.args).toMatchObject({ title: AI_SMOKE_CREATE_ARTIFACT_TITLE });
 		expect(asked.text).toBe("");
+	});
+});
+
+describe("fake OpenAI-compatible provider: a held reply", () => {
+	afterAll(async () => {
+		await provider.stop();
+	});
+
+	beforeEach(async () => {
+		await provider.start();
+		await provider.reset();
+	});
+
+	/**
+	 * The chat's own model call of the scripted turn whose first reply is held (the
+	 * `slow` mode): a streaming request that carries a tool catalogue. Settles with the
+	 * body of the reply, once it is sent.
+	 */
+	function heldRequest(signal?: AbortSignal): Promise<string> {
+		return fetch(`${provider.baseURL}/chat/completions`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${AI_SMOKE_API_KEY}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				model: AI_SMOKE_MODEL_ID,
+				stream: true,
+				messages: [{ role: "user", content: askTurnMessage("slow") }],
+				tools: [
+					{
+						type: "function",
+						function: { name: "ask_user", parameters: { type: "object" } },
+					},
+				],
+			}),
+			signal,
+		}).then((response) => response.text());
+	}
+
+	/** Whether `reply` has settled within a moment: a reply that is held does not. */
+	async function settlesSoon(reply: Promise<unknown>): Promise<boolean> {
+		return Promise.race([
+			reply.then(
+				() => true,
+				() => true,
+			),
+			delay(200).then(() => false),
+		]);
+	}
+
+	it("records the request at once and answers it only when the test releases the hold", async () => {
+		const reply = heldRequest();
+
+		await vi.waitFor(() => expect(provider.requests()).toHaveLength(1));
+		expect(await settlesSoon(reply)).toBe(false);
+
+		provider.release(AI_SMOKE_ASK_HOLD_ASK);
+
+		expect(await reply).toContain(AI_SMOKE_ASK_INTRO);
+	});
+
+	it("keeps a released hold open for the requests that come after it, until reset closes it", async () => {
+		provider.release(AI_SMOKE_ASK_HOLD_ASK);
+		expect(await heldRequest()).toContain(AI_SMOKE_ASK_INTRO);
+
+		await provider.reset();
+		const reply = heldRequest();
+		await vi.waitFor(() => expect(provider.requests()).toHaveLength(1));
+
+		expect(await settlesSoon(reply)).toBe(false);
+		provider.release(AI_SMOKE_ASK_HOLD_ASK);
+		expect(await reply).toContain(AI_SMOKE_ASK_INTRO);
+	});
+
+	it("lets every reply that waits go when the harness is reset", async () => {
+		const first = heldRequest();
+		const second = heldRequest();
+		await vi.waitFor(() => expect(provider.requests()).toHaveLength(2));
+
+		await provider.reset();
+
+		expect(await first).toContain(AI_SMOKE_ASK_INTRO);
+		expect(await second).toContain(AI_SMOKE_ASK_INTRO);
+	});
+
+	it("lets a reply that waits go when the harness stops, and stops", async () => {
+		const reply = heldRequest();
+		await vi.waitFor(() => expect(provider.requests()).toHaveLength(1));
+
+		// the server waits for its open replies: a stop that left this one held would never end
+		await provider.stop();
+
+		expect(await reply).toContain(AI_SMOKE_ASK_INTRO);
+	});
+
+	it("does not keep a reply the client gave up", async () => {
+		const giveUp = new AbortController();
+		const reply = heldRequest(giveUp.signal);
+		await vi.waitFor(() => expect(provider.requests()).toHaveLength(1));
+
+		giveUp.abort();
+		await expect(reply).rejects.toMatchObject({ name: "AbortError" });
+		await vi.waitFor(() =>
+			expect(provider.requests()).toMatchObject([{ aborted: true }]),
+		);
+
+		// nothing waits any more: the hold opens and the harness resets without a hitch
+		provider.release(AI_SMOKE_ASK_HOLD_ASK);
+		await provider.reset();
+		expect(provider.requests()).toEqual([]);
 	});
 });
 
