@@ -30,7 +30,7 @@ import {
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import { getConnectionSecret } from "$lib/server/services/connections/store";
 
-import { runFilesTool, sanitizeFilesToolInput } from "./files";
+import { type FileEntry, runFilesTool, sanitizeFilesToolInput } from "./files";
 
 // These tests drive the tool's core directly, outside the envelope a real call
 // runs in, to look at what a summary does to the payload. The mark the envelope
@@ -633,6 +633,192 @@ describe("runFilesTool", () => {
 		);
 		expect(readOutcome.modelPayload.success).toBe(false);
 		expect(readOutcome.modelPayload.message).toContain("path is required");
+	});
+});
+
+// Context-budget guard (Slice 1): `list` used to map every child of a folder
+// into modelPayload.results, so a 4,312-file folder produced a tool result
+// large enough to exhaust the provider's whole context window. A list is now a
+// bounded page (newest first) plus a summary of the folder.
+describe("runFilesTool — bounded list page (context budget guard)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		nextcloudListFolderMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(false);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+	});
+
+	function makeListEntry(
+		name: string,
+		overrides: Partial<Omit<FileEntry, "name" | "path">> = {},
+	): FileEntry {
+		return {
+			name,
+			path: `Photos/${name}`,
+			isDir: false,
+			size: 1,
+			mtime: null,
+			contentType: null,
+			etag: null,
+			...overrides,
+		};
+	}
+
+	async function listFolder(files: FileEntry[]) {
+		nextcloudListFolderMock.mockResolvedValue(files);
+		return runFilesTool(
+			"user-1",
+			{ action: "list", path: "Photos" },
+			LOCAL_MODEL_ID,
+		);
+	}
+
+	it("returns every entry when the folder fits the page, with an unchanged message", async () => {
+		const files = Array.from({ length: 12 }, (_, index) =>
+			makeListEntry(`note-${index + 1}.md`, {
+				mtime: new Date(Date.UTC(2024, 0, index + 1)).toISOString(),
+			}),
+		);
+
+		const outcome = await listFolder(files);
+
+		expect(outcome.modelPayload.results).toHaveLength(12);
+		expect(outcome.modelPayload.total).toBe(12);
+		expect(outcome.modelPayload.nextOffset).toBeNull();
+		expect(outcome.modelPayload.message).toBe(
+			"Photos contains 12 items (12 files, 0 folders).",
+		);
+		expect(outcome.modelPayload.message).not.toContain("newest first");
+	});
+
+	it("bounds a huge folder to 50 results and names the total and page", async () => {
+		const base = Date.UTC(2024, 0, 1);
+		const files: FileEntry[] = [];
+		// 4,180 files with a known extension mix; the most common is pdf.
+		const extensionCounts = [
+			{ ext: "pdf", count: 4000 },
+			{ ext: "docx", count: 80 },
+			{ ext: "JPG", count: 50 },
+			{ ext: "txt", count: 30 },
+			{ ext: "csv", count: 19 },
+			{ ext: "", count: 1 },
+		];
+		let index = 0;
+		for (const { ext, count } of extensionCounts) {
+			for (let i = 0; i < count; i += 1) {
+				const name = ext ? `file-${index}.${ext}` : `file-${index}`;
+				files.push(
+					makeListEntry(name, {
+						mtime: new Date(base + index * 60_000).toISOString(),
+					}),
+				);
+				index += 1;
+			}
+		}
+		// 132 folders, all older than every file.
+		for (let i = 0; i < 132; i += 1) {
+			files.push(
+				makeListEntry(`folder-${String(i).padStart(3, "0")}`, {
+					isDir: true,
+					size: 0,
+					mtime: new Date(base - (i + 1) * 60_000).toISOString(),
+				}),
+			);
+		}
+		expect(files).toHaveLength(4312);
+
+		const outcome = await listFolder(files);
+
+		expect(outcome.modelPayload.results).toHaveLength(50);
+		expect(outcome.modelPayload.total).toBe(4312);
+		expect(outcome.modelPayload.nextOffset).toBe(50);
+		expect(outcome.modelPayload.message).toBe(
+			"Photos contains 4312 items (4180 files, 132 folders), newest first — showing 1–50. Narrow the path or use `search` for a specific name.",
+		);
+		expect(outcome.modelPayload.citations).toHaveLength(50);
+		expect(outcome.candidates).toHaveLength(50);
+		// Newest first: the last entry in the fixture leads the page.
+		expect(outcome.modelPayload.results[0]?.name).toBe("file-4179");
+		expect(outcome.modelPayload.byType).toEqual([
+			{ ext: "pdf", count: 4000 },
+			{ ext: "docx", count: 80 },
+			{ ext: "jpg", count: 50 },
+			{ ext: "txt", count: 30 },
+			{ ext: "csv", count: 19 },
+		]);
+	});
+
+	it("orders newest first, breaks mtime ties by name, and puts missing or invalid mtimes last", async () => {
+		const files = [
+			makeListEntry("bravo.txt", { mtime: "2024-01-02T00:00:00Z" }),
+			makeListEntry("newest.txt", { mtime: "2024-01-03T00:00:00Z" }),
+			makeListEntry("no-mtime.txt"),
+			makeListEntry("aardvark", { isDir: true, size: 0 }),
+			makeListEntry("bad-mtime.txt", { mtime: "not a timestamp" }),
+			makeListEntry("alpha.txt", { mtime: "2024-01-02T00:00:00Z" }),
+		];
+
+		const outcome = await listFolder(files);
+
+		expect(outcome.modelPayload.results.map((result) => result.name)).toEqual([
+			"newest.txt",
+			"alpha.txt",
+			"bravo.txt",
+			"aardvark",
+			"bad-mtime.txt",
+			"no-mtime.txt",
+		]);
+	});
+
+	it("keeps citations and candidates to the entries actually returned", async () => {
+		const base = Date.UTC(2024, 0, 1);
+		const files = Array.from({ length: 60 }, (_, index) =>
+			makeListEntry(`file-${String(index).padStart(2, "0")}.txt`, {
+				mtime: new Date(base + index * 60_000).toISOString(),
+			}),
+		);
+
+		const outcome = await listFolder(files);
+
+		expect(outcome.modelPayload.total).toBe(60);
+		expect(outcome.modelPayload.nextOffset).toBe(50);
+		expect(outcome.modelPayload.results).toHaveLength(50);
+		const citationPaths = outcome.modelPayload.citations.map(
+			(citation) => citation.path,
+		);
+		const resultPaths = outcome.modelPayload.results.map(
+			(result) => result.path,
+		);
+		expect(citationPaths).toEqual(resultPaths);
+		expect(outcome.candidates.map((candidate) => candidate.id)).toEqual(
+			citationPaths.map((path) => `files:${path}`),
+		);
+		// The ten oldest entries are not on this page.
+		expect(resultPaths).not.toContain("Photos/file-00.txt");
+	});
+
+	it("summarizes file extensions lowercased without the dot, ignoring folders", async () => {
+		const files = [
+			makeListEntry("a.PDF"),
+			makeListEntry("b"),
+			makeListEntry("c.tar.gz"),
+			makeListEntry("Sub", { isDir: true, size: 0 }),
+		];
+
+		const outcome = await listFolder(files);
+
+		expect(outcome.modelPayload.byType).toEqual([
+			{ ext: "", count: 1 },
+			{ ext: "gz", count: 1 },
+			{ ext: "pdf", count: 1 },
+		]);
 	});
 });
 

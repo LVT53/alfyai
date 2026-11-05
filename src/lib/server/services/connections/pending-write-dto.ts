@@ -55,13 +55,18 @@ export type WriteCardKind =
 export type WriteCardFactKey =
 	| "to"
 	| "cc"
+	| "from"
+	| "sent"
 	| "when"
 	| "where"
 	| "folder"
 	| "new_name"
+	| "new_when"
+	| "new_where"
+	| "new_notes"
 	| "photos";
 
-/** A small line under the name. A `when` holds machine dates, for the reader's own language and clock to format. */
+/** A small line under the name. A `when`, `new_when` or `sent` holds machine dates, for the reader's own language and clock to format. */
 export interface WriteCardFact {
 	key: WriteCardFactKey;
 	value: string;
@@ -80,7 +85,7 @@ export type WriteCardRisk =
 
 export interface WriteCard {
 	kind: WriteCardKind;
-	/** The name of the thing this is about, which the card draws large. Empty when it has none: marking an email as read knows only its number. */
+	/** The name of the thing this is about, which the card draws large. Empty when it has none: a flag change stored before it named its email knows only the email's number. */
 	subject: string;
 	facts: WriteCardFact[];
 	/** The text of an email: it leaves the account, so it is what the person is agreeing to. */
@@ -88,6 +93,8 @@ export interface WriteCard {
 	risks: WriteCardRisk[];
 	/** The reader loses something: the red confirm button. */
 	danger: boolean;
+	/** The photos a write adds, as the app's own thumbnail addresses: a count does not say which. */
+	thumbnails?: string[];
 }
 
 export interface PendingWrite {

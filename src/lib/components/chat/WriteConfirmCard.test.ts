@@ -113,6 +113,59 @@ describe("WriteConfirmCard while it asks", () => {
 		expect(getByTestId("write-confirm-approve")).toHaveTextContent(approve);
 	});
 
+	it("names the email a mark-as-read changes, who sent it and when", () => {
+		render(WriteConfirmCard, {
+			write: makeWrite({
+				provider: "imap",
+				card: card({
+					kind: "email.mark_read",
+					subject: "Q3 numbers",
+					facts: [
+						{ key: "from", value: "Anna Kovács" },
+						{ key: "sent", value: "2026-11-02T13:05:00.000Z" },
+					],
+				}),
+			}),
+		});
+
+		expect(
+			screen.getByRole("heading", { name: "Mark this email as read?" }),
+		).toBeInTheDocument();
+		expect(screen.getByText("Q3 numbers")).toHaveClass("write-content__name");
+		expect(screen.getByText("From")).toBeInTheDocument();
+		expect(screen.getByText("Anna Kovács")).toBeInTheDocument();
+		expect(screen.getByText(/2 November/)).toBeInTheDocument();
+	});
+
+	it("shows the photos an album write adds, and drops one that does not load", async () => {
+		const { container } = render(WriteConfirmCard, {
+			write: makeWrite({
+				provider: "immich",
+				card: card({
+					kind: "photos.add_to_album",
+					subject: "AlfyAI",
+					facts: [{ key: "photos", value: "2" }],
+					thumbnails: [
+						"/api/connections/immich/thumbnail/a-1?connectionId=conn-9",
+						"/api/connections/immich/thumbnail/b-2?connectionId=conn-9",
+					],
+				}),
+			}),
+		});
+
+		const photos = container.querySelectorAll<HTMLImageElement>(
+			"[data-testid='write-confirm-photos'] img",
+		);
+		expect([...photos].map((photo) => photo.getAttribute("src"))).toEqual([
+			"/api/connections/immich/thumbnail/a-1?connectionId=conn-9",
+			"/api/connections/immich/thumbnail/b-2?connectionId=conn-9",
+		]);
+
+		await fireEvent.error(photos[0] as HTMLImageElement);
+		expect(photos[0]).not.toBeVisible();
+		expect(photos[1]).toBeVisible();
+	});
+
 	it("turns the positive red only when the reader loses something by it", () => {
 		const benign = render(WriteConfirmCard, { write: makeWrite() });
 		expect(benign.getByTestId("write-confirm-approve")).toHaveClass(

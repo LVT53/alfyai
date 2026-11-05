@@ -727,6 +727,31 @@ function isRecurringMaster(event: CalendarEvent): boolean {
 	return Boolean(event.recurrence?.length);
 }
 
+// The event an update or a delete acts on, as it stood when the write was
+// proposed, kept in the payload for the person's card (connections/
+// write-card.ts): a delete carries no event of its own and a Google update only
+// the fields it sends, so without this the card could say neither which event
+// it is nor what changes. Connector-read data, so it stays in the stored row:
+// the model's preview and message never carry it, and the executors read only
+// their own fields.
+function eventAsItStands(event: CalendarEvent): {
+	summary: string;
+	start: string;
+	end: string;
+	location?: string;
+	description?: string;
+} {
+	return {
+		summary: event.summary,
+		start: event.start,
+		end: event.end,
+		...(event.location !== undefined ? { location: event.location } : {}),
+		...(event.description !== undefined
+			? { description: event.description }
+			: {}),
+	};
+}
+
 type CalendarWriteAction = "create_event" | "update_event" | "delete_event";
 
 function isCalendarWriteAction(
@@ -926,6 +951,7 @@ async function proposeUpdateOrDeleteEvent(
 				}
 			: {}),
 		...(input.recurringScope ? { recurringScope: input.recurringScope } : {}),
+		current: eventAsItStands(existing),
 	};
 
 	const { id: pendingWriteId } = await createPendingWrite(userId, {
@@ -1239,6 +1265,7 @@ async function proposeAppleUpdateOrDeleteEvent(
 					recurring: false, // update never reaches this point when recurring
 				}
 			: { recurring }),
+		current: eventAsItStands(existing),
 	};
 
 	const { id: pendingWriteId } = await createPendingWrite(userId, {

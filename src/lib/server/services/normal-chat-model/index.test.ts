@@ -3241,6 +3241,136 @@ describe("Plain Normal Chat Model Run", () => {
 		);
 	});
 
+	it("shrinks a real tool result to its digest before the next step", async () => {
+		// The guard is composed into the run's prepareStep, so it must see the
+		// tool result the SDK really appends (a `{type: "json"}` ToolResultPart)
+		// and hand the provider a smaller message list on the next request.
+		const hugeResults = Array.from({ length: 2_000 }, (_, index) => ({
+			name: `file-${index}.txt`,
+			path: `/Documents/file-${index}.txt`,
+			size: index,
+		}));
+		const toolExecute = vi.fn(async () => ({
+			success: true,
+			name: "files",
+			action: "list",
+			message: "Listed 2,000 files.",
+			results: hugeResults,
+		}));
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "provider-returned-model",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: null,
+									tool_calls: [
+										{
+											id: "call-1",
+											type: "function",
+											function: {
+												name: "produce_file",
+												arguments: JSON.stringify({
+													title: "Quarterly report",
+												}),
+											},
+										},
+									],
+								},
+								finish_reason: "tool_calls",
+							},
+						],
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-2",
+						model: "provider-returned-model",
+						created: 1_717_171_718,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: "Queued the report.",
+								},
+								finish_reason: "stop",
+							},
+						],
+						usage: {
+							prompt_tokens: 13,
+							completion_tokens: 5,
+							total_tokens: 18,
+						},
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			);
+
+		const result = await runPlainNormalChatModelRun({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+				maxOutputTokens: 2048,
+				maxModelContext: 16_384,
+				capabilities: createModelCapabilitySet({
+					tools: {
+						state: "detected",
+						source: "probe",
+					},
+				}),
+			},
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "Create a report file" }],
+				},
+			],
+			tools: {
+				produce_file: createProduceFileTool(toolExecute),
+			},
+			maxOutputTokens: 512,
+			fetch,
+		});
+
+		expect(result.text).toBe("Queued the report.");
+		expect(fetch).toHaveBeenCalledTimes(2);
+
+		const secondMessages = JSON.stringify(parseRequestBody(fetch, 1).messages);
+		// The digest is what the model sees, with the truncation notice.
+		expect(secondMessages).toContain("Listed 2,000 files.");
+		expect(secondMessages).toContain("[truncated to fit the context window]");
+		// The whole result is not carried, and the person's request survives.
+		expect(secondMessages).not.toContain("file-1999.txt");
+		expect(secondMessages).toContain("Create a report file");
+		expect(secondMessages.length).toBeLessThan(50_000);
+	});
+
 	it("uses a done tool summary as the plain assistant text", async () => {
 		const fetch = vi.fn<typeof globalThis.fetch>(
 			async () =>
@@ -4440,6 +4570,100 @@ describe("Streaming Normal Chat Model Run", () => {
 				}),
 			]),
 		);
+	});
+
+	it("shrinks a real streamed tool result to its digest before the next step", async () => {
+		const hugeResults = Array.from({ length: 2_000 }, (_, index) => ({
+			name: `file-${index}.txt`,
+			path: `/Documents/file-${index}.txt`,
+			size: index,
+		}));
+		const toolExecute = vi.fn(async () => ({
+			success: true,
+			name: "files",
+			action: "list",
+			message: "Listed 2,000 files.",
+			results: hugeResults,
+		}));
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				createStreamResponse([
+					{
+						model: "stream-model",
+						toolCalls: [
+							{
+								id: "call-1",
+								name: "produce_file",
+								arguments: JSON.stringify({ title: "Quarterly report" }),
+							},
+						],
+					},
+					{
+						model: "stream-model",
+						finishReason: "tool_calls",
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					},
+				]),
+			)
+			.mockResolvedValueOnce(
+				createStreamResponse([
+					{
+						model: "stream-model",
+						content: "Queued the report.",
+					},
+					{
+						model: "stream-model",
+						finishReason: "stop",
+						usage: {
+							prompt_tokens: 13,
+							completion_tokens: 5,
+							total_tokens: 18,
+						},
+					},
+				]),
+			);
+
+		const events = await collectStreamingEvents({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+				maxOutputTokens: 2048,
+				maxModelContext: 16_384,
+			},
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "Create a report file" }],
+				},
+			],
+			tools: {
+				produce_file: createProduceFileTool(toolExecute),
+			},
+			maxOutputTokens: 512,
+			fetch,
+		});
+
+		expect(events).toContainEqual({
+			type: "tool_result",
+			callId: "call-1",
+			toolName: "produce_file",
+			output: expect.objectContaining({ message: "Listed 2,000 files." }),
+		});
+
+		const secondMessages = JSON.stringify(parseRequestBody(fetch, 1).messages);
+		expect(secondMessages).toContain("[truncated to fit the context window]");
+		expect(secondMessages).not.toContain("file-1999.txt");
+		expect(secondMessages).toContain("Create a report file");
+		expect(secondMessages.length).toBeLessThan(50_000);
 	});
 
 	it("keeps generating after a premature done call until answer text exists", async () => {

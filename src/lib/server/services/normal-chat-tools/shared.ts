@@ -8,6 +8,8 @@ import { z } from "zod";
 
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import { capModelPayload } from "./model-payload-budget";
+import { stableStringify } from "./stable-stringify";
 import { deriveToolResultDigest } from "./tool-result-digest";
 
 // ── Record helper ──────────────────────────────────────────────
@@ -28,19 +30,13 @@ export function truncateText(
 }
 
 // ── Stable serialization ───────────────────────────────────────
-
-export function stableStringify(value: unknown): string {
-	if (Array.isArray(value)) {
-		return `[${value.map((item) => stableStringify(item)).join(",")}]`;
-	}
-	if (value && typeof value === "object") {
-		return `{${Object.entries(value as Record<string, unknown>)
-			.sort(([left], [right]) => left.localeCompare(right))
-			.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
-			.join(",")}}`;
-	}
-	return JSON.stringify(value) ?? "undefined";
-}
+//
+// The serializer lives in its own module so `model-payload-budget.ts` (which
+// this file imports for the envelope ceiling) can measure a payload with the
+// same deterministic bytes without importing this file back, which would be a
+// cycle. Re-exported here because every tool already takes its helpers from
+// this module.
+export { stableStringify };
 
 export function shortHash(value: unknown): string {
 	return createHash("sha256")
@@ -447,8 +443,11 @@ export async function executeToolWithEnvelope<
 			removeAbortListener?.();
 		});
 		// Strip empty/placeholder keys from the payload before it reaches the
-		// model — see compactModelPayload above.
-		const modelPayload = compactModelPayload(result.modelPayload);
+		// model — see compactModelPayload above — then hold the result under the
+		// envelope's hard ceiling (`capModelPayload`, the slice-2 safety net).
+		const modelPayload = capModelPayload(
+			compactModelPayload(result.modelPayload),
+		);
 		// Persist a compact digest of what the model received so later turns
 		// can replay this call as a native tool result (conversation-history.ts).
 		if (result.entry.resultDigest == null) {

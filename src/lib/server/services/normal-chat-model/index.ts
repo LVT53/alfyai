@@ -31,6 +31,7 @@ import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
 import { repairMalformedToolCallJson } from "$lib/server/utils/tool-json-repair";
 import { ASK_USER_TOOL_NAME, isAskPauseOutput } from "$lib/shared/ask-user";
+import { estimateTokenCount } from "$lib/utils/tokens";
 import type { ProviderUsageSnapshot } from "../analytics";
 import { DEFAULT_MODEL_MAX_RETRIES } from "../normal-chat-model-config";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
@@ -50,6 +51,7 @@ import {
 	type StepImageQueue,
 } from "../vision/step-images";
 import { stripImageParts } from "../vision/turn-images";
+import { buildContextGuardPrepareStep } from "./context-guard";
 import {
 	isRetryableNormalChatFallbackError,
 	resolveNormalChatFallbackTargetModelId,
@@ -224,18 +226,26 @@ function composePrepareSteps(
 }
 
 // Every step function one attempt needs, built for the provider that attempt
-// runs on: the forced first-step tool choice, and the one that hands the model
-// the pictures a tool queued (the photos tool's Immich thumbnails). The latter
-// asks THIS attempt's provider whether it can see and whether it runs on the
-// person's own box, whatever the model before it could do: a fallback that
-// cannot see gets the label and a note in place of the pixels, and pictures
-// cleared for the box only (the person keeps connector data local) are sent to a
-// fallback on another host neither as pixels nor with the photos' names
-// (vision/AGENTS.md, Failover).
+// runs on: the forced first-step tool choice, the one that hands the model
+// the pictures a tool queued (the photos tool's Immich thumbnails), and the
+// context guard, which shrinks what those produced if the step would not fit
+// the provider's window. The picture step asks THIS attempt's provider whether
+// it can see and whether it runs on the person's own box, whatever the model
+// before it could do: a fallback that cannot see gets the label and a note in
+// place of the pixels, and pictures cleared for the box only (the person keeps
+// connector data local) are sent to a fallback on another host neither as
+// pixels nor with the photos' names (vision/AGENTS.md, Failover).
+//
+// The guard is composed THIRD, so it only ever shrinks the messages the two
+// steps before it produced; the attempt's own numbers (`maxModelContext` from
+// the provider, the effective output limit and the system prompt cost) are
+// handed in rather than read from the run params inside it.
 function buildAttemptPrepareStep(params: {
 	provider: NormalChatModelRunProvider;
 	firstStepToolChoice?: ToolChoice<ToolSet>;
 	stepImages?: StepImageQueue;
+	maxOutputTokens?: number;
+	systemPromptTokens?: number;
 }): PrepareStepFunction<ToolSet> | undefined {
 	return composePrepareSteps(
 		buildFirstStepOnlyPrepareStep(params.firstStepToolChoice),
@@ -246,6 +256,11 @@ function buildAttemptPrepareStep(params: {
 					providerIsLocal: providerRunsLocally(params.provider),
 				})
 			: undefined,
+		buildContextGuardPrepareStep({
+			maxModelContext: params.provider.maxModelContext,
+			maxOutputTokens: params.maxOutputTokens,
+			systemPromptTokens: params.systemPromptTokens,
+		}),
 	);
 }
 
@@ -1442,8 +1457,18 @@ async function runPlainNormalChatModelRunAttempt(
 		(params.tools
 			? buildToolStopWhen(params.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
 			: undefined);
+	const effectiveMaxOutputTokens =
+		params.maxOutputTokens ?? params.provider.maxOutputTokens;
 	const prepareStep = params.tools
-		? buildAttemptPrepareStep(params)
+		? buildAttemptPrepareStep({
+				provider: params.provider,
+				firstStepToolChoice: params.firstStepToolChoice,
+				stepImages: params.stepImages,
+				maxOutputTokens: effectiveMaxOutputTokens,
+				systemPromptTokens: params.system
+					? estimateTokenCount(params.system)
+					: undefined,
+			})
 		: undefined;
 	const sampling = resolveModelCallSampling(params.provider);
 
@@ -1455,7 +1480,7 @@ async function runPlainNormalChatModelRunAttempt(
 		toolChoice: params.toolChoice,
 		stopWhen,
 		prepareStep,
-		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
+		maxOutputTokens: effectiveMaxOutputTokens,
 		temperature: sampling.temperature,
 		topP: sampling.topP,
 		// topK is intentionally not passed here: the openai-compatible provider
@@ -1764,6 +1789,11 @@ async function* streamStreamingNormalChatModelRunAttempt(
 			? buildToolStopWhen(params.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
 			: undefined);
 	const sampling = resolveModelCallSampling(params.provider);
+	const effectiveMaxOutputTokens =
+		params.maxOutputTokens ?? params.provider.maxOutputTokens;
+	const systemPromptTokens = params.system
+		? estimateTokenCount(params.system)
+		: undefined;
 	const buildStreamConfig = (
 		tools?: ToolSet,
 		toolStopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>,
@@ -1774,8 +1804,16 @@ async function* streamStreamingNormalChatModelRunAttempt(
 		tools,
 		toolChoice: params.toolChoice,
 		stopWhen: toolStopWhen,
-		prepareStep: tools ? buildAttemptPrepareStep(params) : undefined,
-		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
+		prepareStep: tools
+			? buildAttemptPrepareStep({
+					provider: params.provider,
+					firstStepToolChoice: params.firstStepToolChoice,
+					stepImages: params.stepImages,
+					maxOutputTokens: effectiveMaxOutputTokens,
+					systemPromptTokens,
+				})
+			: undefined,
+		maxOutputTokens: effectiveMaxOutputTokens,
 		temperature: sampling.temperature,
 		topP: sampling.topP,
 		// topK is intentionally not passed here: the openai-compatible provider

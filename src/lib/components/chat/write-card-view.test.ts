@@ -141,6 +141,96 @@ describe("buildWriteCardView", () => {
 		]);
 	});
 
+	it("says who an email is from, and when it came as a quiet line in the reader's clock", () => {
+		const facts: WriteCardFact[] = [
+			{ key: "from", value: "Anna Kovács" },
+			{ key: "sent", value: "2026-11-02T13:05:00.000Z" },
+		];
+		const card: WriteCard = {
+			...CARD,
+			kind: "email.mark_read",
+			subject: "Q3 numbers",
+			facts,
+		};
+		const english = buildWriteCardView(write({ card }), en, "en");
+		const hungarian = buildWriteCardView(write({ card }), hu, "hu");
+
+		expect(english.name).toBe("Q3 numbers");
+		expect(english.facts[0]).toEqual({
+			key: "from",
+			label: "From",
+			value: "Anna Kovács",
+			quiet: false,
+		});
+		expect(english.facts[1]).toMatchObject({
+			key: "sent",
+			label: null,
+			quiet: true,
+		});
+		expect(english.facts[1]?.value).toContain("2 November");
+		expect(hungarian.facts[0]?.label).toBe("Feladó");
+		expect(hungarian.facts[1]?.value).toContain("november 2.");
+	});
+
+	it("gives each change to an event its word, after the time the event has now", () => {
+		const facts: WriteCardFact[] = [
+			{
+				key: "when",
+				value: "2026-11-03T09:00:00",
+				end: "2026-11-03T09:30:00",
+			},
+			{ key: "new_name", value: "Dentist check-up" },
+			{
+				key: "new_when",
+				value: "2026-11-04T09:00:00",
+				end: "2026-11-04T09:30:00",
+			},
+			{ key: "new_where", value: "Váci út 1" },
+			{ key: "new_notes", value: "Bring the referral" },
+		];
+		const card: WriteCard = {
+			...CARD,
+			kind: "calendar.update_event",
+			facts,
+		};
+		const english = buildWriteCardView(write({ card }), en, "en");
+		const hungarian = buildWriteCardView(write({ card }), hu, "hu");
+
+		expect(english.facts.map((fact) => fact.label)).toEqual([
+			null,
+			"New name",
+			"New time",
+			"New place",
+			"New notes",
+		]);
+		expect(english.facts[0]?.value).toContain("3 November");
+		expect(english.facts[2]?.value).toContain("4 November");
+		expect(english.facts.every((fact) => !fact.quiet)).toBe(true);
+		expect(hungarian.facts.map((fact) => fact.label)).toEqual([
+			null,
+			"Új név",
+			"Új időpont",
+			"Új helyszín",
+			"Új jegyzet",
+		]);
+	});
+
+	it("draws only the app's own photo thumbnails", () => {
+		const card: WriteCard = {
+			...CARD,
+			kind: "photos.add_to_album",
+			thumbnails: [
+				"/api/connections/immich/thumbnail/a-1?connectionId=conn-9",
+				"https://evil.example/pixel.png",
+			],
+		};
+
+		expect(buildWriteCardView(write({ card }), en, "en").thumbnails).toEqual([
+			"/api/connections/immich/thumbnail/a-1?connectionId=conn-9",
+		]);
+		expect(buildWriteCardView(write(), en, "en").thumbnails).toEqual([]);
+	});
+
 	it("has every kind and risk in both languages", () => {
 		const kinds: WriteCardKind[] = [
 			"email.send",

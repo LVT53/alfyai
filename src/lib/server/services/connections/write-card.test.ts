@@ -30,7 +30,12 @@ function operation(overrides: Partial<WriteOperation>): WriteOperation {
 function cardFor(op: WriteOperation, content = "", warnings: string[] = []) {
 	const preview = buildWritePreview(op);
 	preview.warnings.push(...warnings);
-	return buildWriteCard({ op, content, preview });
+	return buildWriteCard({
+		op,
+		content,
+		preview,
+		connectionId: op.connectionId,
+	});
 }
 
 const AT_REPORT = {
@@ -76,7 +81,28 @@ describe("buildWriteCard: email", () => {
 
 		expect(card?.kind).toBe("email.trash");
 		expect(card?.subject).toBe("Old newsletter");
+		expect(card?.facts).toEqual([]);
 		expect(card?.danger).toBe(true);
+	});
+
+	it("says who sent the email going to the trash, and when it came", () => {
+		const card = cardFor(
+			operation({
+				action: "email.trash",
+				destructive: true,
+				target: { id: "12", label: "Old newsletter" },
+			}),
+			JSON.stringify({
+				uid: 12,
+				from: "Anna Kovács <anna@example.com>",
+				date: "2026-11-02T13:05:00.000Z",
+			}),
+		);
+
+		expect(card?.facts).toEqual([
+			{ key: "from", value: "Anna Kovács" },
+			{ key: "sent", value: "2026-11-02T13:05:00.000Z" },
+		]);
 	});
 
 	it.each([
@@ -84,14 +110,60 @@ describe("buildWriteCard: email", () => {
 		["seen", false, "email.mark_unread"],
 		["flagged", true, "email.flag"],
 		["flagged", false, "email.unflag"],
-	])("reads flag %s=%s as %s", (flag, value, kind) => {
+	])("reads flag %s=%s as %s, and names the email it changes", (flag, value, kind) => {
 		const card = cardFor(
-			operation({ action: "email.flag", target: { id: "12" } }),
-			JSON.stringify({ uid: 12, flag, value }),
+			operation({
+				action: "email.flag",
+				target: { id: "12", label: "Q3 numbers" },
+			}),
+			JSON.stringify({
+				uid: 12,
+				flag,
+				value,
+				from: "anna@example.com",
+				date: "2026-11-02T13:05:00.000Z",
+			}),
 		);
 
-		expect(card?.kind).toBe(kind);
+		expect(card).toEqual({
+			kind,
+			subject: "Q3 numbers",
+			facts: [
+				{ key: "from", value: "anna@example.com" },
+				{ key: "sent", value: "2026-11-02T13:05:00.000Z" },
+			],
+			message: null,
+			risks: [],
+			danger: false,
+		});
+	});
+
+	it("still reads a flag change stored before it named its email", () => {
+		const card = cardFor(
+			operation({ action: "email.flag", target: { id: "12" } }),
+			JSON.stringify({ uid: 12, flag: "seen", value: true }),
+		);
+
+		expect(card?.kind).toBe("email.mark_read");
 		expect(card?.subject).toBe("");
+		expect(card?.facts).toEqual([]);
+	});
+
+	it.each([
+		["Anna Kovács <anna@example.com>", "Anna Kovács"],
+		['"Kovács, Anna" <anna@example.com>', "Kovács, Anna"],
+		["<anna@example.com>", "anna@example.com"],
+		["anna@example.com", "anna@example.com"],
+	])("calls the sender %s by the name a mail app shows: %s", (from, shown) => {
+		const card = cardFor(
+			operation({
+				action: "email.flag",
+				target: { id: "12", label: "Q3 numbers" },
+			}),
+			JSON.stringify({ uid: 12, flag: "seen", value: true, from }),
+		);
+
+		expect(card?.facts).toEqual([{ key: "from", value: shown }]);
 	});
 });
 
@@ -145,6 +217,112 @@ describe("buildWriteCard: calendar", () => {
 		);
 
 		expect(card?.facts).toEqual([{ key: "where", value: "Váci út 1" }]);
+	});
+
+	// The event as it stood when the change was proposed, kept beside the
+	// payload: a delete carries no event, and an update only what it changes.
+	const current = event;
+
+	it("names the event a delete removes and says when it is, whatever title the request gave", () => {
+		const card = cardFor(
+			operation({
+				action: "calendar.delete_event",
+				destructive: true,
+				target: { id: "ev-1", label: "Some other title" },
+			}),
+			JSON.stringify({ calendarId: "primary", eventId: "ev-1", current }),
+		);
+
+		expect(card).toMatchObject({
+			kind: "calendar.delete_event",
+			subject: "Dentist",
+			facts: [
+				{ key: "when", value: event.start, end: event.end },
+				{ key: "where", value: "Kossuth tér 1" },
+			],
+		});
+	});
+
+	it("names the event an update changes, says when it is, and lists only what changes", () => {
+		const card = cardFor(
+			operation({
+				action: "calendar.update_event",
+				destructive: true,
+				target: { id: "ev-1", label: "Dentist check-up" },
+			}),
+			JSON.stringify({
+				calendarId: "primary",
+				eventId: "ev-1",
+				event: {
+					summary: "Dentist check-up",
+					start: "2026-11-04T09:00:00+01:00",
+					end: "2026-11-04T09:30:00+01:00",
+					location: "Kossuth tér 1",
+					description: "Bring the new referral",
+				},
+				current,
+			}),
+		);
+
+		expect(card).toMatchObject({
+			kind: "calendar.update_event",
+			subject: "Dentist",
+			facts: [
+				{ key: "when", value: event.start, end: event.end },
+				{ key: "new_name", value: "Dentist check-up" },
+				{
+					key: "new_when",
+					value: "2026-11-04T09:00:00+01:00",
+					end: "2026-11-04T09:30:00+01:00",
+				},
+				{ key: "new_notes", value: "Bring the new referral" },
+			],
+		});
+	});
+
+	it("reads an Apple update, which carries the whole event, for what differs", () => {
+		const card = cardFor(
+			operation({
+				action: "calendar.update_event",
+				reversible: false,
+				destructive: true,
+				target: { id: "ev-1", label: "Dentist" },
+			}),
+			JSON.stringify({
+				uid: "ev-1",
+				// The same moment written another way is no change.
+				event: {
+					...event,
+					start: "2026-11-03T08:00:00Z",
+					location: "Váci út 1",
+				},
+				current,
+			}),
+		);
+
+		expect(card?.facts).toEqual([
+			{ key: "when", value: event.start, end: event.end },
+			{ key: "new_where", value: "Váci út 1" },
+		]);
+	});
+
+	it("cuts long new notes for the card", () => {
+		const card = cardFor(
+			operation({
+				action: "calendar.update_event",
+				destructive: true,
+				target: { id: "ev-1", label: "Dentist" },
+			}),
+			JSON.stringify({
+				eventId: "ev-1",
+				event: { description: "word ".repeat(100) },
+				current,
+			}),
+		);
+
+		const notes = card?.facts.find((fact) => fact.key === "new_notes");
+		expect(notes?.value.length).toBeLessThanOrEqual(121);
+		expect(notes?.value.endsWith("…")).toBe(true);
 	});
 
 	it("keeps an edit a platform can undo out of the red", () => {
@@ -413,6 +591,57 @@ describe("buildWriteCard: photos", () => {
 			facts: [{ key: "photos", value: "3" }],
 		});
 	});
+
+	it("shows the photos it adds, through the app's own thumbnail route for that account", () => {
+		const card = cardFor(
+			operation({
+				provider: "immich",
+				connectionId: "conn-9",
+				action: "immich.add_to_album",
+			}),
+			JSON.stringify({ assetIds: ["a-1", "b-2"], albumName: "AlfyAI" }),
+		);
+
+		expect(card?.thumbnails).toEqual([
+			"/api/connections/immich/thumbnail/a-1?connectionId=conn-9",
+			"/api/connections/immich/thumbnail/b-2?connectionId=conn-9",
+		]);
+	});
+
+	it("takes the account from the row, the connection a confirm runs against", () => {
+		const op = operation({
+			connectionId: "conn-in-op",
+			action: "immich.add_to_album",
+		});
+		const card = buildWriteCard({
+			op,
+			content: JSON.stringify({ assetIds: ["a-1"], albumName: "AlfyAI" }),
+			preview: buildWritePreview(op),
+			connectionId: "conn-of-row",
+		});
+
+		expect(card?.thumbnails).toEqual([
+			"/api/connections/immich/thumbnail/a-1?connectionId=conn-of-row",
+		]);
+	});
+
+	it("shows eight photos at most, and none the thumbnail route would refuse", () => {
+		const ids = [
+			"../admin",
+			"a b",
+			...Array.from({ length: 10 }, (_, i) => `p${i}`),
+		];
+		const card = cardFor(
+			operation({ connectionId: "conn-9", action: "immich.add_to_album" }),
+			JSON.stringify({ assetIds: ids, albumName: "AlfyAI" }),
+		);
+
+		expect(card?.facts).toEqual([{ key: "photos", value: "12" }]);
+		expect(card?.thumbnails).toHaveLength(8);
+		expect(card?.thumbnails?.[0]).toBe(
+			"/api/connections/immich/thumbnail/p0?connectionId=conn-9",
+		);
+	});
 });
 
 describe("buildWriteCard: what it cannot read", () => {
@@ -456,6 +685,7 @@ describe("buildWriteCard: what it cannot read", () => {
 					withinAllowlist: null,
 					warnings: [],
 				},
+				connectionId: "conn-1",
 			}),
 		).toBeNull();
 	});

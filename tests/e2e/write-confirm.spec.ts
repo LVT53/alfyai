@@ -79,6 +79,63 @@ const REPLACE: SeededWrite = {
 	],
 };
 
+const MARK_READ: SeededWrite = {
+	provider: "imap",
+	op: {
+		action: "email.flag",
+		destructive: false,
+		reversible: true,
+		target: { id: "42", label: "Q3 numbers" },
+	},
+	content: JSON.stringify({
+		uid: 42,
+		flag: "seen",
+		value: true,
+		from: "Anna Kovács <anna@example.com>",
+		date: "2026-11-02T13:05:00.000Z",
+	}),
+};
+
+const EVENT_DELETE: SeededWrite = {
+	provider: "google",
+	op: {
+		action: "calendar.delete_event",
+		destructive: true,
+		reversible: true,
+		target: { id: "ev-1", label: "Dentist" },
+	},
+	content: JSON.stringify({
+		calendarId: "primary",
+		eventId: "ev-1",
+		current: {
+			summary: "Dentist",
+			start: "2026-11-03T09:00:00",
+			end: "2026-11-03T09:30:00",
+			location: "Kossuth tér 1",
+		},
+	}),
+};
+
+const ALBUM: SeededWrite = {
+	provider: "immich",
+	op: {
+		action: "immich.add_to_album",
+		destructive: false,
+		reversible: true,
+		target: { label: "AlfyAI album" },
+	},
+	content: JSON.stringify({
+		assetIds: ["asset-1", "asset-2", "asset-3"],
+		albumName: "AlfyAI",
+	}),
+};
+
+/** A one-pixel PNG: the seeded account has no Immich server to answer. */
+const PIXEL = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+	"base64",
+);
+
 async function adminId(): Promise<string> {
 	const [admin] = await db
 		.select({ id: users.id })
@@ -179,6 +236,67 @@ test.describe("the permission card in a reply", () => {
 			(node) => getComputedStyle(node).backgroundColor,
 		);
 		expect(ground).toBe("rgba(0, 0, 0, 0)");
+	});
+
+	test("names the email a mark-as-read changes, who sent it and when it came", async ({
+		page,
+	}) => {
+		const id = await seedReply(page, [MARK_READ]);
+		await page.goto(`/chat/${id}`);
+
+		const card = page.getByRole("article", {
+			name: "Needs your OK: Q3 numbers",
+		});
+		await expect(card).toBeVisible();
+		await expect(
+			card.getByRole("heading", { name: "Mark this email as read?" }),
+		).toBeVisible();
+		await expect(card.getByText("Q3 numbers", { exact: true })).toBeVisible();
+		await expect(card).toContainText("From");
+		await expect(card).toContainText("Anna Kovács");
+		await expect(card).toContainText("2 November");
+		await expect(card).not.toContainText("anna@example.com");
+		await expect(card).not.toContainText("email.flag");
+	});
+
+	test("says which event a delete removes: its own name, its time and its place", async ({
+		page,
+	}) => {
+		const id = await seedReply(page, [EVENT_DELETE]);
+		await page.goto(`/chat/${id}`);
+
+		const card = page.getByRole("article", { name: "Needs your OK: Dentist" });
+		await expect(card).toBeVisible();
+		await expect(
+			card.getByRole("heading", { name: "Delete this event?" }),
+		).toBeVisible();
+		await expect(card).toContainText("3 November");
+		await expect(card).toContainText("Kossuth tér 1");
+	});
+
+	test("shows the photos an album write adds", async ({ page }) => {
+		await page.route("**/api/connections/immich/thumbnail/**", (route) =>
+			route.fulfill({ status: 200, contentType: "image/png", body: PIXEL }),
+		);
+		const id = await seedReply(page, [ALBUM]);
+		await page.goto(`/chat/${id}`);
+
+		const card = page.getByRole("article", { name: "Needs your OK: AlfyAI" });
+		await expect(card).toBeVisible();
+		const photos = card.getByTestId("write-confirm-photos").locator("img");
+		await expect(photos).toHaveCount(3);
+		await expect(photos.first()).toHaveAttribute(
+			"src",
+			"/api/connections/immich/thumbnail/asset-1?connectionId=conn-immich",
+		);
+		await expect
+			.poll(() =>
+				photos
+					.first()
+					.evaluate((img) => (img as HTMLImageElement).naturalWidth),
+			)
+			.toBeGreaterThan(0);
+		await expect(photos.first()).toBeVisible();
 	});
 
 	test("lists a reply's writes in the order they were proposed", async ({

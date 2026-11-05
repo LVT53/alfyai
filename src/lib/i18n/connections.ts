@@ -306,7 +306,11 @@ const connectionsDict = {
 
 		"connections.writeConfirm.fact.to": "To",
 		"connections.writeConfirm.fact.cc": "Cc",
+		"connections.writeConfirm.fact.from": "From",
 		"connections.writeConfirm.fact.newName": "New name",
+		"connections.writeConfirm.fact.newTime": "New time",
+		"connections.writeConfirm.fact.newPlace": "New place",
+		"connections.writeConfirm.fact.newNotes": "New notes",
 		"connections.writeConfirm.fact.photos": "Photos",
 
 		"connections.writeConfirm.risk.replacesFileForGood":
@@ -919,7 +923,11 @@ const connectionsDict = {
 
 		"connections.writeConfirm.fact.to": "Címzett",
 		"connections.writeConfirm.fact.cc": "Másolat",
+		"connections.writeConfirm.fact.from": "Feladó",
 		"connections.writeConfirm.fact.newName": "Új név",
+		"connections.writeConfirm.fact.newTime": "Új időpont",
+		"connections.writeConfirm.fact.newPlace": "Új helyszín",
+		"connections.writeConfirm.fact.newNotes": "Új jegyzet",
 		"connections.writeConfirm.fact.photos": "Fotók",
 
 		"connections.writeConfirm.risk.replacesFileForGood":

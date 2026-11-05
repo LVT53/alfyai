@@ -621,11 +621,89 @@ async function proposeSend(
 	});
 }
 
-// The subject of the uid being trashed is connector-read data (fetched from
-// the mailbox), so it is redacted from the MODEL-facing preview/message under
+// The message a trash or flag write acts on, read off INBOX (the mailbox the
+// executor acts in) when the write is proposed. The person's card names it by
+// its subject, and by who sent it and when, since many emails share a subject:
+// a card that only says "Mark this email as read?" leaves them guessing which.
+//
+// Fix 3 (write-safety hardening) — UIDVALIDITY binding: INBOX's current
+// UIDVALIDITY is captured alongside the header fetch, so imap-write.ts can
+// refuse to act on `uid` at execute time if the epoch has since changed (see
+// imapGetInboxUidValidity's doc comment). The message the card names is then
+// the one the executor acts on.
+type TargetMessage = {
+	subject: string;
+	from: string;
+	date: string;
+	uidValidity: string | null;
+};
+
+async function readTargetMessage(
+	userId: string,
+	conn: ConnectionPublic,
+	uid: number,
+): Promise<TargetMessage> {
+	const [{ header }, uidValidity] = await Promise.all([
+		imapReadMessage(userId, conn.id, { uid }),
+		imapGetInboxUidValidity(userId, conn.id),
+	]);
+	return {
+		subject: header.subject || "(no subject)",
+		from: header.from,
+		date: header.date,
+		uidValidity,
+	};
+}
+
+/** What rides along in the payload beside the uid: the executor reads the epoch, the card who sent the message and when. */
+function targetMessageContent(message: TargetMessage): Record<string, string> {
+	return {
+		...(message.uidValidity !== null
+			? { uidValidity: message.uidValidity }
+			: {}),
+		...(message.from ? { from: message.from } : {}),
+		...(message.date ? { date: message.date } : {}),
+	};
+}
+
+// The subject of the target message is connector-read data (fetched from the
+// mailbox), so it is redacted from the MODEL-facing preview/message under
 // Option A + cloud — same posture as calendar.ts's update/delete preview. The
 // pending write's stored (DB) preview keeps the real subject; only the copy
-// returned in this outcome is ever redacted.
+// returned in the outcome is ever redacted. Who sent it and when stay in the
+// stored payload alone: no preview carries them.
+async function modelFacingPreview(params: {
+	userId: string;
+	modelId: string;
+	op: WriteOperation;
+	rawPreview: WritePreview;
+	subject: string;
+	withheldTitle: string;
+}): Promise<{ preview: WritePreview; note: string; withheld: boolean }> {
+	const decision = await decideLocalDistill({
+		userId: params.userId,
+		modelId: params.modelId,
+		capability: "email",
+		userQuestion: "",
+		rawText: params.subject,
+	});
+	if (!decision.shouldDistill) {
+		return { preview: params.rawPreview, note: "", withheld: false };
+	}
+	return {
+		preview: {
+			...params.rawPreview,
+			title: params.withheldTitle,
+			detail: `${params.op.action} — email message`,
+		},
+		note:
+			"distilled" in decision
+				? ` Privately summarized for a cloud model. Summary: ${decision.distilled}`
+				: " Its details couldn't be privately summarized for a cloud model, so they were withheld.",
+		withheld: true,
+	};
+}
+
 async function proposeTrash(
 	userId: string,
 	conversationId: string | undefined,
@@ -643,19 +721,9 @@ async function proposeTrash(
 		});
 	}
 
-	let subject: string;
-	let uidValidity: string | null;
+	let target: TargetMessage;
 	try {
-		// Fix 3 (write-safety hardening) — UIDVALIDITY binding: capture
-		// INBOX's current UIDVALIDITY alongside the header fetch, so
-		// imap-write.ts can refuse to act on `uid` at execute time if the
-		// epoch has since changed (see imapGetInboxUidValidity's doc comment).
-		const [{ header }, capturedUidValidity] = await Promise.all([
-			imapReadMessage(userId, conn.id, { uid: input.uid }),
-			imapGetInboxUidValidity(userId, conn.id),
-		]);
-		subject = header.subject || "(no subject)";
-		uidValidity = capturedUidValidity;
+		target = await readTargetMessage(userId, conn, input.uid);
 	} catch (err) {
 		return buildPayload({
 			success: false,
@@ -668,8 +736,8 @@ async function proposeTrash(
 		provider: conn.provider,
 		connectionId: conn.id,
 		action: "email.trash",
-		summary: `Move "${subject}" to Trash`,
-		target: { id: String(input.uid), label: subject },
+		summary: `Move "${target.subject}" to Trash`,
+		target: { id: String(input.uid), label: target.subject },
 		reversible: true, // Goes to Trash, recoverable — not a permanent delete.
 		destructive: true,
 	};
@@ -681,7 +749,7 @@ async function proposeTrash(
 		op,
 		content: JSON.stringify({
 			uid: input.uid,
-			...(uidValidity !== null ? { uidValidity } : {}),
+			...targetMessageContent(target),
 		}),
 		idempotencyKey: idempotencyKey(op),
 		// The DB row keeps the RAW preview (real subject) — never sent back
@@ -690,30 +758,18 @@ async function proposeTrash(
 		conversationId,
 	});
 
-	const decision = await decideLocalDistill({
+	const modelCopy = await modelFacingPreview({
 		userId,
 		modelId,
-		capability: "email",
-		userQuestion: "",
-		rawText: subject,
+		op,
+		rawPreview,
+		subject: target.subject,
+		withheldTitle: "Move a message to Trash",
 	});
-
-	let modelPreview = rawPreview;
-	let redactedNote = "";
-	if (decision.shouldDistill) {
-		modelPreview = {
-			...rawPreview,
-			title: "Move a message to Trash",
-			detail: `${op.action} — email message`,
-		};
-		redactedNote =
-			"distilled" in decision
-				? ` Privately summarized for a cloud model. Summary: ${decision.distilled}`
-				: " Its details couldn't be privately summarized for a cloud model, so they were withheld.";
-	}
+	const modelPreview = modelCopy.preview;
 
 	const message = withAmbiguityPrefix(
-		`I've prepared to move a message to Trash, but it has NOT been moved yet — it is PENDING and awaiting your explicit confirmation. ${modelPreview.detail}${redactedNote}${modelPreview.warnings.length > 0 && !decision.shouldDistill ? ` Warnings: ${modelPreview.warnings.join("; ")}.` : ""}`,
+		`I've prepared to move a message to Trash, but it has NOT been moved yet — it is PENDING and awaiting your explicit confirmation. ${modelPreview.detail}${modelCopy.note}${modelPreview.warnings.length > 0 && !modelCopy.withheld ? ` Warnings: ${modelPreview.warnings.join("; ")}.` : ""}`,
 		ambiguous,
 		conn,
 		connections,
@@ -728,9 +784,6 @@ async function proposeTrash(
 	});
 }
 
-// No connector read is needed to propose a flag change — the target is
-// identified purely by uid, with no raw message content surfaced in the
-// preview/message, so no Option-A gate applies here.
 async function proposeFlag(
 	userId: string,
 	conversationId: string | undefined,
@@ -738,6 +791,7 @@ async function proposeFlag(
 	input: EmailToolInput,
 	ambiguous: boolean,
 	connections: ConnectionPublic[],
+	modelId: string,
 ): Promise<EmailToolOutcome> {
 	if (input.uid === undefined || !input.flag || input.value === undefined) {
 		return buildPayload({
@@ -748,13 +802,9 @@ async function proposeFlag(
 		});
 	}
 
-	// Fix 3 (write-safety hardening) — UIDVALIDITY binding, same rationale as
-	// proposeTrash above. A flag change has no other reason to open a
-	// connection at propose time, but the safety property needs this capture
-	// regardless.
-	let uidValidity: string | null;
+	let target: TargetMessage;
 	try {
-		uidValidity = await imapGetInboxUidValidity(userId, conn.id);
+		target = await readTargetMessage(userId, conn, input.uid);
 	} catch (err) {
 		return buildPayload({
 			success: false,
@@ -763,16 +813,17 @@ async function proposeFlag(
 		});
 	}
 
+	const change = input.value ? "Set" : "Clear";
 	const op: WriteOperation = {
 		provider: conn.provider,
 		connectionId: conn.id,
 		action: "email.flag",
-		summary: `${input.value ? "Set" : "Clear"} ${input.flag} on a message`,
-		target: { id: String(input.uid) },
+		summary: `${change} ${input.flag} on "${target.subject}"`,
+		target: { id: String(input.uid), label: target.subject },
 		reversible: true,
 		destructive: false,
 	};
-	const preview = buildWritePreview(op);
+	const rawPreview = buildWritePreview(op);
 
 	const { id: pendingWriteId } = await createPendingWrite(userId, {
 		connectionId: conn.id,
@@ -782,15 +833,24 @@ async function proposeFlag(
 			uid: input.uid,
 			flag: input.flag,
 			value: input.value,
-			...(uidValidity !== null ? { uidValidity } : {}),
+			...targetMessageContent(target),
 		}),
 		idempotencyKey: idempotencyKey(op),
-		preview,
+		preview: rawPreview,
 		conversationId,
 	});
 
+	const modelCopy = await modelFacingPreview({
+		userId,
+		modelId,
+		op,
+		rawPreview,
+		subject: target.subject,
+		withheldTitle: `${change} ${input.flag} on a message`,
+	});
+
 	const message = withAmbiguityPrefix(
-		`I've prepared to ${input.value ? "set" : "clear"} the ${input.flag} flag on a message, but it has NOT been applied yet — it is PENDING and awaiting your explicit confirmation. ${preview.detail}`,
+		`I've prepared to ${change.toLowerCase()} the ${input.flag} flag on a message, but it has NOT been applied yet — it is PENDING and awaiting your explicit confirmation. ${modelCopy.preview.detail}${modelCopy.note}`,
 		ambiguous,
 		conn,
 		connections,
@@ -801,7 +861,7 @@ async function proposeFlag(
 		action: "flag",
 		message,
 		pendingWriteId,
-		preview,
+		preview: modelCopy.preview,
 	});
 }
 
@@ -855,6 +915,7 @@ async function emailWriteOutcome(
 		input,
 		ambiguous,
 		connections,
+		modelId,
 	);
 }
 
