@@ -763,6 +763,207 @@ describe("conversation forks", () => {
 			expect(listed[1]?.continuesMessageId).toBeUndefined();
 		});
 
+		// The questions that reply asked are rows of their own, and the page draws a
+		// folded line between two segments for each answered or closed one. A fork
+		// that copied the segments and not their questions drew them joined with no
+		// line (Ruling 48).
+		describe("the questions it asked", () => {
+			const QUESTIONS_JSON = JSON.stringify([
+				{
+					question: "Which way should we take it?",
+					options: [{ label: "A party at home" }, { label: "Dinner out" }],
+				},
+			]);
+			const ANSWER_JSON = JSON.stringify({
+				kind: "answered",
+				answers: [{ picked: [0], ownWords: null }],
+			});
+
+			function addQuestion(p: {
+				id: string;
+				messageId: string | null;
+				toolCallId: string;
+				status: "waiting" | "answering" | "answered" | "closed" | "discarded";
+				conversationId?: string;
+			}) {
+				const { sqlite, db } = openDatabase();
+				const closed = p.status === "closed";
+				const settled = p.status === "answered" || closed;
+				db.insert(schema.askQuestions)
+					.values({
+						id: p.id,
+						userId: "user-1",
+						conversationId: p.conversationId ?? "source-conv",
+						assistantMessageId: p.messageId,
+						toolCallId: p.toolCallId,
+						questionsJson: QUESTIONS_JSON,
+						status: p.status,
+						answerJson: closed
+							? JSON.stringify({ kind: "closed" })
+							: p.status === "waiting"
+								? null
+								: ANSWER_JSON,
+						resumeJson: JSON.stringify({ v: 1, messages: [], results: [] }),
+						createdAt: new Date("2026-05-15T10:00:02.000Z"),
+						answeredAt:
+							p.status === "waiting"
+								? null
+								: new Date("2026-05-15T10:00:03.000Z"),
+						settledAt: settled ? new Date("2026-05-15T10:00:04.000Z") : null,
+					})
+					.run();
+				sqlite.close();
+			}
+
+			function readQuestionRows(conversationId: string) {
+				const { sqlite, db } = openDatabase();
+				const rows = db
+					.select()
+					.from(schema.askQuestions)
+					.where(eq(schema.askQuestions.conversationId, conversationId))
+					.all();
+				sqlite.close();
+				return rows;
+			}
+
+			it("copies the answered and closed questions of the rows it copies, for the copied rows", async () => {
+				seedTextConversation();
+				addContinuation("source-assistant-1");
+				addQuestion({
+					id: "q-answered",
+					messageId: "source-assistant-1",
+					toolCallId: "call-ask-1",
+					status: "answered",
+				});
+				addQuestion({
+					id: "q-closed",
+					messageId: "source-assistant-2",
+					toolCallId: "call-ask-2",
+					status: "closed",
+				});
+				const { createConversationFork } = await import("./conversation-forks");
+
+				const result = await createConversationFork({
+					userId: "user-1",
+					sourceConversationId: "source-conv",
+					sourceMessageId: "source-assistant-2",
+				});
+
+				const { forkMessages } = readForkRows(result.conversation.id);
+				const copiedFirst = forkMessages[1];
+				const copiedSecond = forkMessages[2];
+				const copies = readQuestionRows(result.conversation.id);
+				expect(copies).toHaveLength(2);
+				const answered = copies.find((row) => row.status === "answered");
+				const closed = copies.find((row) => row.status === "closed");
+				// new ids, the copied rows, the person's own and the new chat
+				expect(answered?.id).not.toBe("q-answered");
+				expect(closed?.id).not.toBe("q-closed");
+				expect(answered).toMatchObject({
+					userId: "user-1",
+					conversationId: result.conversation.id,
+					assistantMessageId: copiedFirst?.id,
+					toolCallId: "call-ask-1",
+					questionsJson: QUESTIONS_JSON,
+					answerJson: ANSWER_JSON,
+				});
+				expect(closed).toMatchObject({
+					conversationId: result.conversation.id,
+					assistantMessageId: copiedSecond?.id,
+					toolCallId: "call-ask-2",
+					answerJson: JSON.stringify({ kind: "closed" }),
+				});
+				// no capture to resume from, and the times the source had
+				for (const copy of copies) {
+					expect(copy.resumeJson).toBeNull();
+					expect(copy.createdAt).toEqual(new Date("2026-05-15T10:00:02.000Z"));
+					expect(copy.settledAt).toEqual(new Date("2026-05-15T10:00:04.000Z"));
+				}
+				// the source's own rows are as they were
+				expect(
+					readQuestionRows("source-conv")
+						.map((row) => row.id)
+						.sort(),
+				).toEqual(["q-answered", "q-closed"]);
+
+				// and the fork lists them for its copied rows, as the page reads them
+				const { listConversationAskQuestions } = await import(
+					"./chat-turn/ask-questions"
+				);
+				const listed = await listConversationAskQuestions({
+					userId: "user-1",
+					conversationId: result.conversation.id,
+				});
+				expect(
+					listed.map((question) => [
+						question.status,
+						question.assistantMessageId,
+					]),
+				).toEqual([
+					["answered", copiedFirst?.id],
+					["closed", copiedSecond?.id],
+				]);
+			});
+
+			it("never copies a question that waits, answers or was discarded, one the fork does not reach, or another chat's", async () => {
+				seedTextConversation();
+				addContinuation("source-assistant-1");
+				addQuestion({
+					id: "q-waiting",
+					messageId: "source-assistant-1",
+					toolCallId: "call-waiting",
+					status: "waiting",
+				});
+				addQuestion({
+					id: "q-answering",
+					messageId: "source-assistant-1",
+					toolCallId: "call-answering",
+					status: "answering",
+				});
+				addQuestion({
+					id: "q-discarded",
+					messageId: "source-assistant-2",
+					toolCallId: "call-discarded",
+					status: "discarded",
+				});
+				// an unsaved question has no row to follow
+				addQuestion({
+					id: "q-unsaved",
+					messageId: null,
+					toolCallId: "call-unsaved",
+					status: "waiting",
+				});
+				// answered, but on a row after the fork point: not part of the fork
+				const { sqlite, db } = openDatabase();
+				db.insert(schema.messages)
+					.values({
+						id: "source-assistant-late",
+						conversationId: "source-conv",
+						role: "assistant",
+						content: "After the fork point.",
+						createdAt: new Date("2026-05-15T10:00:09.000Z"),
+					})
+					.run();
+				sqlite.close();
+				addQuestion({
+					id: "q-late",
+					messageId: "source-assistant-late",
+					toolCallId: "call-late",
+					status: "answered",
+				});
+				const { createConversationFork } = await import("./conversation-forks");
+
+				const result = await createConversationFork({
+					userId: "user-1",
+					sourceConversationId: "source-conv",
+					sourceMessageId: "source-assistant-2",
+				});
+
+				expect(readQuestionRows(result.conversation.id)).toEqual([]);
+				expect(readQuestionRows("source-conv")).toHaveLength(5);
+			});
+		});
+
 		it("drops the link when the continued row was not copied", async () => {
 			seedTextConversation();
 			addContinuation("source-assistant-deleted");

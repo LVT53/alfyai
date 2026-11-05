@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifactChunks,
 	artifactLinks,
 	artifacts,
+	askQuestions,
 	chatGeneratedFiles,
 	conversationForks,
 	conversations,
@@ -438,6 +439,68 @@ function copyMetadata(
 		delete next.projectFilesRead;
 	}
 	return next;
+}
+
+/**
+ * The questions a copied reply asked, for the rows the fork copied. A reply that
+ * paused to ask is segments joined by its questions: the page draws a folded line
+ * (the question and the answer) between two segments for each answered or closed
+ * question, so a fork that copied the segments and not those rows drew them joined
+ * with no line (Ruling 48). Only `answered` and `closed` rows are copied: a
+ * question that waits or answers needs a capture to resume from and a claim the
+ * fork does not have, and a discarded one is never shown. A copy gets a new id,
+ * the copied row, the person's id and the fork's conversation id, no capture
+ * (`resumeJson` empty, as a settled question's is), and the times of its source,
+ * so the list keeps the order they were asked in. The asking row's ask call
+ * already carries the answer in its stored timeline, which the copy keeps.
+ */
+function copyAnsweredAskQuestions(params: {
+	tx: Parameters<Parameters<typeof db.transaction>[0]>[0];
+	userId: string;
+	sourceConversationId: string;
+	forkConversationId: string;
+	copiedMessageIdBySourceId: ReadonlyMap<string, string>;
+}): void {
+	const sourceMessageIds = [...params.copiedMessageIdBySourceId.keys()];
+	if (sourceMessageIds.length === 0) return;
+	const rows = params.tx
+		.select()
+		.from(askQuestions)
+		.where(
+			and(
+				eq(askQuestions.userId, params.userId),
+				eq(askQuestions.conversationId, params.sourceConversationId),
+				inArray(askQuestions.status, ["answered", "closed"]),
+				inArray(askQuestions.assistantMessageId, sourceMessageIds),
+			),
+		)
+		.orderBy(asc(askQuestions.createdAt), sql`rowid`)
+		.all();
+	const copies = rows.flatMap((row) => {
+		const copiedMessageId = row.assistantMessageId
+			? params.copiedMessageIdBySourceId.get(row.assistantMessageId)
+			: undefined;
+		if (!copiedMessageId) return [];
+		return [
+			{
+				id: randomUUID(),
+				userId: params.userId,
+				conversationId: params.forkConversationId,
+				assistantMessageId: copiedMessageId,
+				toolCallId: row.toolCallId,
+				questionsJson: row.questionsJson,
+				status: row.status,
+				answerJson: row.answerJson,
+				resumeJson: null,
+				createdAt: row.createdAt,
+				answeredAt: row.answeredAt,
+				settledAt: row.settledAt,
+			},
+		];
+	});
+	if (copies.length > 0) {
+		params.tx.insert(askQuestions).values(copies).run();
+	}
 }
 
 function getNextForkSequence(
@@ -1181,6 +1244,13 @@ export async function createConversationFork(
 					),
 					forkPointCreatedAt: forkPointMessage.createdAt,
 					now,
+				});
+				copyAnsweredAskQuestions({
+					tx,
+					userId: params.userId,
+					sourceConversationId: sourceConversation.id,
+					forkConversationId: forkConversation.id,
+					copiedMessageIdBySourceId,
 				});
 
 				const lineage = tx
