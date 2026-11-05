@@ -495,9 +495,27 @@ function readRow(
 	return { questions, answer };
 }
 
+/**
+ * The columns of a row that a card is made of: what `toDto`, `shownStatus` and
+ * `readRow` read, and nothing else. The list selects exactly these, because a
+ * stamped row's capture (`resumeJson`) can run to about a megabyte and the list
+ * is read after every turn, hydrate, poll and write confirm.
+ */
+type AskQuestionListRow = Pick<
+	AskQuestionRow,
+	| "id"
+	| "conversationId"
+	| "assistantMessageId"
+	| "toolCallId"
+	| "questionsJson"
+	| "status"
+	| "answerJson"
+	| "createdAt"
+>;
+
 /** How a row's status reads to the browser; null for a row it is not shown. */
 function shownStatus(
-	row: AskQuestionRow,
+	row: AskQuestionListRow,
 	streamRuns: boolean,
 ): AskQuestionStatus | null {
 	switch (row.status) {
@@ -518,7 +536,7 @@ function shownStatus(
 }
 
 function toDto(
-	row: AskQuestionRow,
+	row: AskQuestionListRow,
 	streamRuns: boolean,
 ): AskQuestionDto | null {
 	const status = shownStatus(row, streamRuns);
@@ -554,8 +572,17 @@ export async function listConversationAskQuestions(p: {
 	userId: string;
 	conversationId: string;
 }): Promise<AskQuestionDto[]> {
-	const rows = db
-		.select()
+	const rows: AskQuestionListRow[] = db
+		.select({
+			id: askQuestions.id,
+			conversationId: askQuestions.conversationId,
+			assistantMessageId: askQuestions.assistantMessageId,
+			toolCallId: askQuestions.toolCallId,
+			questionsJson: askQuestions.questionsJson,
+			status: askQuestions.status,
+			answerJson: askQuestions.answerJson,
+			createdAt: askQuestions.createdAt,
+		})
 		.from(askQuestions)
 		.where(
 			and(

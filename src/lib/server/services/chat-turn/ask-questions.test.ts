@@ -1133,6 +1133,42 @@ describe("the lists", () => {
 		]);
 	});
 
+	// The list is read after every turn, hydrate, poll and write confirm. A stamped
+	// question's capture (the reply so far, tool results whole) can run to about a
+	// megabyte, and a card needs none of it.
+	it("reads only the columns a card needs, never the capture", async () => {
+		const id = await askStamped("m1");
+		expect(rowOf(id).resumeJson).not.toBeNull();
+		const prepared: string[] = [];
+		const prepare = sqlite.prepare.bind(sqlite);
+		vi.spyOn(sqlite, "prepare").mockImplementation(((source: string) => {
+			prepared.push(source);
+			return prepare(source);
+		}) as typeof sqlite.prepare);
+
+		const listed = await list();
+
+		const reads = prepared.filter(
+			(source) =>
+				/^select/i.test(source) && source.includes('from "ask_questions"'),
+		);
+		expect(reads).toHaveLength(1);
+		expect(reads[0]).not.toContain("resume_json");
+		// and the card is whole all the same
+		expect(listed).toEqual([
+			{
+				id,
+				conversationId: CHAT,
+				assistantMessageId: "m1",
+				toolCallId: rowOf(id).toolCallId,
+				questions: QUESTIONS,
+				status: "waiting",
+				answer: null,
+				createdAt: rowOf(id).createdAt.getTime(),
+			},
+		]);
+	});
+
 	it("skips a question it cannot read, logging its row id and none of its text", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 		const readable = await askStamped("m1");
