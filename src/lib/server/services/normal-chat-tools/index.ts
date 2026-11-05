@@ -441,7 +441,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	ask_user: {
 		description:
-			"Ask the user 1-3 questions, each with 2-4 options, when the choice is truly theirs: before you make something, at a fork in the conversation, or while talking an idea through. Your reply pauses here until they choose, then goes on in the same reply with their choice as this call's result. Mark exactly one option recommended on a one-pick question (any number with multiple: true). Phrase questions and options in the conversation's language. Do not use it for what you can find out or decide yourself, or to ask again what the user closed.",
+			"Ask the user one question with 2-4 options, when the choice is truly theirs: before you make something, at a fork in the conversation, or while talking an idea through. A card holds one question: ask the one that matters most, and the next after the answer if you still need it. Your reply pauses here until they choose, then goes on in the same reply with their choice as this call's result. Mark exactly one option recommended on a one-pick question (any number with multiple: true). Phrase questions and options in the conversation's language. Do not use it for what you can find out or decide yourself, or to ask again what the user closed.",
 		errorPrefix: "Asking the user failed",
 	},
 };

@@ -4031,8 +4031,8 @@ async function handleCancelWrite(writeId: string) {
 	}
 }
 
-// "Ask me first" — Alfy can stop a reply to ask the person 1 to 3 questions, on a card
-// in the reply. The rows are `questions`; what the runtime says of a pause, an answer
+// "Ask me first" — Alfy can stop a reply to ask the person a question, on a card
+// in the reply (one question a card since 2026-11-05; a stored card holds up to 3). The rows are `questions`; what the runtime says of a pause, an answer
 // or a refusal arrives in `handleAskEvent`; the answer is a turn that is not a message
 // (`normalChatRuntime.answerQuestion`), and `handleAnswerQuestion` takes it.
 

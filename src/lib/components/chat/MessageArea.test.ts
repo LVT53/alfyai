@@ -1935,6 +1935,62 @@ describe("MessageArea", () => {
 			vi.useRealTimers();
 		});
 
+		// Owner, 2026-11-05, after his first live test: the asking segment's Sources between its
+		// folded line and the words that carry on "read as the reply ending".
+		it("draws one Sources row for the whole reply, after its last segment, from every segment's evidence", async () => {
+			const evidenceOf = (title: string) =>
+				({
+					structuredWebSearch: true,
+					groups: [
+						{
+							sourceType: "web",
+							label: "Web",
+							reranked: false,
+							items: [
+								{
+									id: `id-${title}`,
+									title,
+									url: `https://example.com/${title}`,
+									sourceType: "web",
+									status: "selected",
+								},
+							],
+						},
+					],
+				}) as ChatMessage["evidenceSummary"];
+			const messages = [
+				row("u-1", "user", "Plan dad's 60th"),
+				row("a-1", "assistant", FIRST_WORDS, {
+					evidenceSummary: evidenceOf("Pub"),
+				}),
+				row("a-2", "assistant", SECOND_WORDS, {
+					continuesMessageId: "a-1",
+					evidenceSummary: evidenceOf("Hotel"),
+				}),
+			];
+			const { container, getAllByRole } = render(MessageArea, {
+				messages,
+				conversationId: "conv-1",
+				questions: [asked()],
+			});
+
+			const first = bubbleOf(container, "a-1");
+			const second = bubbleOf(container, "a-2");
+			// The asking segment's folded line is the last thing it draws.
+			expect(within(first).getByTestId("ask-folded")).toBeInTheDocument();
+			expect(
+				within(first).queryAllByRole("button", { name: /Sources/i }),
+			).toHaveLength(0);
+			// The reply's one panel is under the last segment.
+			const buttons = getAllByRole("button", { name: /Sources/i });
+			expect(buttons).toHaveLength(1);
+			expect(second.contains(buttons[0])).toBe(true);
+			// ... and holds what both segments found.
+			await fireEvent.click(buttons[0]);
+			expect(await within(second).findByText("Pub")).toBeInTheDocument();
+			expect(within(second).getByText("Hotel")).toBeInTheDocument();
+		});
+
 		it("draws a reply's segments as one reply and hands each its question", () => {
 			const { container, queryAllByRole } = render(MessageArea, {
 				messages: twoSegments(),

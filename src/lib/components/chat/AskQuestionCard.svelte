@@ -1,5 +1,6 @@
 <script lang="ts">
-// "Ask me first": Alfy stopped its reply to ask the person 1 to 3 questions, and this
+// "Ask me first": Alfy stopped its reply to ask the person a question (one a card since
+// 2026-11-05; a card asked before holds up to 3, and is drawn all the same), and this
 // is where they answer. It wears ArtifactCard's shell, like the permission card, and
 // sits in the reply after the words Alfy wrote before asking.
 //

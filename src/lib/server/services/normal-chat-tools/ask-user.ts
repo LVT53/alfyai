@@ -1,6 +1,7 @@
 /**
- * `ask_user` — Alfy stops a reply to ask the person 1 to 3 questions, each with
- * answers to click ("Ask me first", docs/plans/ask-me-first, design 5.2).
+ * `ask_user` — Alfy stops a reply to ask the person a question with answers to
+ * click ("Ask me first", docs/plans/ask-me-first, design 5.2). A card holds one
+ * question (owner, 2026-11-05); a card asked before that day held up to three.
  *
  * The call checks the questions, records them and returns the pause marker. It
  * never waits for the person: the envelope's timeout and the turn's caps would
@@ -88,7 +89,7 @@ function askUserSchema(caps: boolean) {
 			ASK_LIMITS.minQuestions,
 			ASK_LIMITS.maxQuestions,
 		).describe(
-			`${ASK_LIMITS.minQuestions}-${ASK_LIMITS.maxQuestions} questions, in the order to ask them.`,
+			`Exactly ${ASK_LIMITS.maxQuestions} question, the one that matters most.`,
 		),
 	});
 }
@@ -129,7 +130,7 @@ const PAUSE_NOTE = "Asked. The reply pauses here until the user chooses.";
 const NOT_AVAILABLE_NOTE =
 	"Asking is not available in this reply. Go on with your best judgment.";
 const ALREADY_ASKED_MESSAGE =
-	"One card per pause: put every question into a single ask_user call.";
+	"One question per pause: you asked one already. Ask the next after the answer, if you still need it.";
 const PAUSED_SUMMARY = "Asked the user; the reply paused for the answer.";
 
 /** The ways a call ends without a question being asked, for the recorded entry. */

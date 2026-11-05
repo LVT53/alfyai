@@ -709,7 +709,8 @@ export function attachUnassignedPendingWritesToAssistant(
 	);
 }
 
-// "Ask me first": Alfy can stop a reply to ask the person 1 to 3 questions, and the
+// "Ask me first": Alfy can stop a reply to ask the person a question (a stored card
+// holds up to 3), and the
 // page keeps what it knows of them (the question rows, and its own `busy` flag for an
 // answer that is going out). These are the pure rules the page reads that state with.
 

@@ -6597,23 +6597,17 @@ describe("Normal Chat Model Run asking the user", () => {
 			{ label: "Walk" },
 			{ label: "Ride" },
 		];
-		const company = [{ label: "Alone" }, { label: "With friends" }];
 		const brokenCard = {
 			questions: [
-				// five answers
-				{ question: "Which way?", options: [...way, { label: "Swim" }] },
-				// no Recommended answer
-				{ question: "With whom?", options: company },
+				// five answers, and no Recommended one (a card holds one question since 2026-11-05)
+				{
+					question: "Which way?",
+					options: [...way.map(({ label }) => ({ label })), { label: "Swim" }],
+				},
 			],
 		};
 		const fixedCard = {
-			questions: [
-				{ question: "Which way?", options: way },
-				{
-					question: "With whom?",
-					options: [{ ...company[0], recommended: true }, company[1]],
-				},
-			],
+			questions: [{ question: "Which way?", options: way }],
 		};
 		const askingStepOf = (id: string, card: unknown) =>
 			createStreamResponse([
@@ -6661,7 +6655,7 @@ describe("Normal Chat Model Run asking the user", () => {
 			errorCode: "invalid_questions",
 			message: [
 				"Question 1 needs 2 to 4 options.",
-				"Question 2 takes one pick: mark exactly one of its options recommended.",
+				"Question 1 takes one pick: mark exactly one of its options recommended.",
 			].join("\n"),
 		};
 		expect(events).toContainEqual({

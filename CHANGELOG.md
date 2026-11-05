@@ -25,7 +25,7 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   the skill exists only after you save it.
 - A reply that drafts a skill shows that card instead of the "add to
   instructions" offer, so one turn asks you to keep the same thing only once.
-- Alfy can stop in the middle of a reply to ask you one to three questions with
+- Alfy can stop in the middle of a reply to ask you a question with
   answers to click, and the same reply carries on from your answer; you can also
   type your own answer, leave the choice to Alfy ("Decide for me") or close the
   question.

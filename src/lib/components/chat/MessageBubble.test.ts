@@ -3945,6 +3945,8 @@ describe("MessageBubble", () => {
 				question: null,
 				copyText: null,
 				userIntent: null,
+				drawsSources: true,
+				sources: null,
 				...overrides,
 			};
 		}
@@ -4124,6 +4126,104 @@ describe("MessageBubble", () => {
 				screen.getByTestId("reasoning-depth-indicator"),
 			).toBeInTheDocument();
 			expect(rootOf().classList.contains("pt-0")).toBe(false);
+		});
+
+		// Owner, 2026-11-05, after his first live test: the asking segment's Sources between its
+		// folded line and the words that carry on "read as the reply ending" (it was Ruling 25).
+		// A reply has one Sources panel, at its end, from every segment's evidence.
+		describe("the reply's Sources", () => {
+			const evidenceOf = (
+				...titles: string[]
+			): ChatMessage["evidenceSummary"] =>
+				({
+					structuredWebSearch: true,
+					groups: [
+						{
+							sourceType: "web",
+							label: "Web",
+							reranked: false,
+							items: titles.map((title) => ({
+								id: `id-${title}`,
+								title,
+								url: `https://example.com/${title}`,
+								sourceType: "web",
+								status: "selected",
+							})),
+						},
+					],
+				}) as ChatMessage["evidenceSummary"];
+			const sourcesButtons = () =>
+				screen.queryAllByRole("button", { name: /Sources/i });
+
+			it("draws none under a segment the reply goes on from, nor an evidence-loading line", () => {
+				render(MessageBubble, {
+					message: segment({
+						evidenceSummary: evidenceOf("Pub"),
+						evidencePending: true,
+					}),
+					replyPlace: place({ continuedBelow: true, drawsSources: false }),
+				});
+
+				expect(sourcesButtons()).toHaveLength(0);
+				expect(screen.queryByText("Pub")).toBeNull();
+				expect(
+					screen.queryByText(chatDict.en["messageBubble.evidenceLoading"]),
+				).toBeNull();
+			});
+
+			it("draws the whole reply's, merged, under the last segment", async () => {
+				render(MessageBubble, {
+					message: segment({
+						id: "assistant-seg-2",
+						renderKey: "assistant-seg-2",
+						content: SECOND_WORDS,
+						continuesMessageId: "assistant-seg-1",
+						evidenceSummary: evidenceOf("Hotel"),
+					}),
+					isLast: true,
+					replyPlace: place({
+						continuesAbove: true,
+						sources: evidenceOf("Pub", "Hotel"),
+					}),
+				});
+
+				const buttons = sourcesButtons();
+				expect(buttons).toHaveLength(1);
+				await fireEvent.click(buttons[0]);
+				expect(await screen.findByText("Pub")).toBeInTheDocument();
+				expect(screen.getByText("Hotel")).toBeInTheDocument();
+			});
+
+			it("draws its own under a message that is in no reply's place", async () => {
+				render(MessageBubble, {
+					message: segment({ evidenceSummary: evidenceOf("Pub") }),
+				});
+
+				const buttons = sourcesButtons();
+				expect(buttons).toHaveLength(1);
+				await fireEvent.click(buttons[0]);
+				expect(await screen.findByText("Pub")).toBeInTheDocument();
+			});
+
+			it("draws the asking segment's own while its question waits: it is the end of the reply so far", async () => {
+				render(MessageBubble, {
+					message: segment({ evidenceSummary: evidenceOf("Pub") }),
+					askQuestion: asked(),
+					replyPlace: place({
+						continuedBelow: true,
+						question: asked(),
+						drawsSources: true,
+					}),
+				});
+
+				expect(sourcesButtons()).toHaveLength(1);
+				// ... below the card, as the card is placed after the write cards
+				const card = screen.getByTestId("ask-card");
+				expect(
+					card.compareDocumentPosition(sourcesButtons()[0]) &
+						Node.DOCUMENT_POSITION_FOLLOWING,
+				).toBeTruthy();
+			});
 		});
 
 		it("leaves the ask call out of the rail and draws the card last in the segment", () => {
@@ -4871,5 +4971,120 @@ describe("MessageBubble pictures the message carried", () => {
 			.getAllByTestId("composer-chip-number")
 			.map((node) => node.textContent);
 		expect(numbers).toEqual(["1", "2"]);
+	});
+});
+
+// The owner's live test of "Ask me first" (2026-11-05): the continued reply said a
+// sentence, then searched the web, and the search never showed as a live row. The
+// rail folded into its muted summary the moment the sentence had text, because
+// "text has started" was taken for "the thinking is over", with the search still
+// running. A call that is running is the turn at work.
+describe("the rail while a tool call runs after the reply has begun", () => {
+	const SENTENCE = "A party at home it is.";
+	const running = {
+		type: "tool_call",
+		callId: "call-search",
+		name: "research_web",
+		input: { query: "venues for 30 guests" },
+		status: "running",
+	} as const;
+	const done = {
+		...running,
+		status: "done",
+		outputSummary: "Reviewed 10 sources",
+	} as const;
+
+	function continued(overrides: Partial<ChatMessage>): ChatMessage {
+		return {
+			id: "assistant-seg-2",
+			renderKey: "assistant-seg-2",
+			role: "assistant",
+			content: SENTENCE,
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+			continuesMessageId: "assistant-seg-1",
+			...overrides,
+		};
+	}
+
+	const place: ReplyPlace = {
+		firstMessageId: "assistant-seg-1",
+		continuesAbove: true,
+		continuedBelow: false,
+		question: null,
+		copyText: null,
+		userIntent: null,
+		drawsSources: true,
+		sources: null,
+	};
+
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("keeps the search a live row, and the label on Thinking, while it runs", () => {
+		const { container } = render(MessageBubble, {
+			message: continued({
+				thinkingSegments: [
+					{ type: "text", content: "Reasoning about the request." },
+					running,
+				],
+			}),
+			isLast: true,
+			replyPlace: place,
+		});
+
+		expect(
+			container.querySelector('[data-testid="tool-activity-stack"]'),
+		).not.toBeNull();
+		expect(
+			container.querySelector('[data-testid="tool-activity-summary"]'),
+		).toBeNull();
+		expect(container.querySelector(".thinking-label")?.textContent).not.toMatch(
+			/Thought/,
+		);
+	});
+
+	it("folds the rail once the call is over and the reply goes on", () => {
+		const { container } = render(MessageBubble, {
+			message: continued({
+				thinkingSegments: [
+					{ type: "text", content: "Reasoning about the request." },
+					done,
+				],
+			}),
+			isLast: true,
+			replyPlace: place,
+		});
+
+		expect(
+			container.querySelector('[data-testid="tool-activity-stack"]'),
+		).toBeNull();
+		expect(
+			container.querySelector('[data-testid="tool-activity-summary"]'),
+		).not.toBeNull();
+	});
+
+	it("folds a saved reply whose last call was left running, since nothing runs any more", () => {
+		const { container } = render(MessageBubble, {
+			message: continued({
+				isStreaming: false,
+				thinkingSegments: [running],
+			}),
+			isLast: true,
+			replyPlace: place,
+		});
+
+		expect(
+			container.querySelector('[data-testid="tool-activity-stack"]'),
+		).toBeNull();
+		expect(container.querySelector(".thinking-label")?.textContent).toMatch(
+			/Thought/,
+		);
 	});
 });

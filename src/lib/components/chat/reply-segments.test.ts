@@ -3,6 +3,7 @@ import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { AskQuestionDto } from "$lib/shared/ask-user";
 import {
 	continuesRowAbove,
+	mergeReplyEvidence,
 	personMessageOfReply,
 	placeReplySegments,
 	replyEndIndex,
@@ -75,6 +76,8 @@ describe("placeReplySegments", () => {
 			question,
 			copyText: null,
 			userIntent: null,
+			drawsSources: false,
+			sources: null,
 		});
 		expect(places.get("a-2")).toEqual({
 			firstMessageId: "a-1",
@@ -83,6 +86,8 @@ describe("placeReplySegments", () => {
 			question: null,
 			copyText: `${FIRST_WORDS}\n\n${SECOND_WORDS}`,
 			userIntent: null,
+			drawsSources: true,
+			sources: null,
 		});
 	});
 
@@ -154,6 +159,8 @@ describe("placeReplySegments", () => {
 			question: null,
 			copyText: null,
 			userIntent: null,
+			drawsSources: true,
+			sources: null,
 		});
 	});
 
@@ -346,6 +353,8 @@ describe("placeReplySegments", () => {
 			question: null,
 			copyText: null,
 			userIntent: null,
+			drawsSources: true,
+			sources: null,
 		});
 		expect(places.get("a-2")).toEqual({
 			firstMessageId: "a-2",
@@ -354,6 +363,8 @@ describe("placeReplySegments", () => {
 			question: null,
 			copyText: null,
 			userIntent: null,
+			drawsSources: true,
+			sources: null,
 		});
 	});
 
@@ -457,6 +468,152 @@ describe("placeReplySegments", () => {
 		);
 
 		expect(places.get("a-4")?.copyText).toBe("First words.\n\nLast words.");
+	});
+});
+
+// Owner, 2026-11-05, after his first live test: the asking segment's Sources between its
+// folded line and the words that carry on "read as the reply ending". A reply has one
+// Sources panel, at its end, from every segment's evidence.
+describe("a reply's Sources", () => {
+	const web = (...ids: string[]) =>
+		({
+			structuredWebSearch: true,
+			groups: [
+				{
+					sourceType: "web",
+					label: "Web",
+					reranked: false,
+					items: ids.map((id) => ({
+						id,
+						title: id,
+						url: `https://example.com/${id}`,
+					})),
+				},
+			],
+		}) as unknown as ChatMessage["evidenceSummary"];
+
+	const document = {
+		structuredWebSearch: false,
+		groups: [
+			{
+				sourceType: "document",
+				label: "Documents",
+				reranked: true,
+				items: [{ id: "d1", title: "Notes", artifactId: "artifact-1" }],
+			},
+		],
+	} as unknown as ChatMessage["evidenceSummary"];
+
+	it("is drawn once, by the last row of a reply, from every row's evidence", () => {
+		const places = placeReplySegments(
+			[
+				row("u-1", "user", "Plan dad's 60th"),
+				row("a-1", "assistant", FIRST_WORDS, { evidenceSummary: web("w1") }),
+				row("a-2", "assistant", "More.", {
+					continuesMessageId: "a-1",
+					evidenceSummary: web("w2", "w3"),
+				}),
+				row("a-3", "assistant", SECOND_WORDS, {
+					continuesMessageId: "a-2",
+					evidenceSummary: document,
+				}),
+			],
+			[],
+			null,
+		);
+
+		expect(places.get("a-1")).toMatchObject({
+			drawsSources: false,
+			sources: null,
+		});
+		expect(places.get("a-2")).toMatchObject({
+			drawsSources: false,
+			sources: null,
+		});
+		const last = places.get("a-3");
+		expect(last?.drawsSources).toBe(true);
+		expect(
+			last?.sources?.groups.map((group) => [
+				group.sourceType,
+				group.items.map((item) => item.id),
+			]),
+		).toEqual([
+			["web", ["w1", "w2", "w3"]],
+			["document", ["d1"]],
+		]);
+	});
+
+	it("leaves a reply of one row to draw its own", () => {
+		const places = placeReplySegments(
+			[
+				row("u-1", "user", "Hi"),
+				row("a-1", "assistant", "Hello.", { evidenceSummary: web("w1") }),
+			],
+			[],
+			null,
+		);
+		expect(places.get("a-1")).toMatchObject({
+			drawsSources: true,
+			sources: null,
+		});
+	});
+
+	it("leaves the row that asks to draw its own while its question waits: it is the end of the reply so far", () => {
+		const places = placeReplySegments(
+			[
+				row("u-1", "user", "Plan dad's 60th"),
+				row("a-1", "assistant", FIRST_WORDS, { evidenceSummary: web("w1") }),
+			],
+			[asked()],
+			null,
+		);
+		expect(places.get("a-1")).toMatchObject({
+			continuedBelow: true,
+			drawsSources: true,
+			sources: null,
+		});
+	});
+
+	describe("merged", () => {
+		it("keeps each source once, whichever row read it, and the kinds in the order they first appeared", () => {
+			const merged = mergeReplyEvidence([
+				{ evidenceSummary: web("w1", "w2") },
+				{ evidenceSummary: document },
+				{ evidenceSummary: web("w2", "w3") },
+			]);
+			expect(merged?.structuredWebSearch).toBe(true);
+			expect(merged?.groups.map((group) => group.sourceType)).toEqual([
+				"web",
+				"document",
+			]);
+			expect(merged?.groups[0].items.map((item) => item.id)).toEqual([
+				"w1",
+				"w2",
+				"w3",
+			]);
+			// a group is reranked when any row's was
+			expect(merged?.groups[1].reranked).toBe(true);
+		});
+
+		it("does not change the rows' own evidence", () => {
+			const first = web("w1");
+			const second = web("w2");
+			mergeReplyEvidence([
+				{ evidenceSummary: first },
+				{ evidenceSummary: second },
+			]);
+			expect(first?.groups[0].items).toHaveLength(1);
+			expect(second?.groups[0].items).toHaveLength(1);
+		});
+
+		it("is nothing when no row has any", () => {
+			expect(
+				mergeReplyEvidence([
+					{ evidenceSummary: undefined },
+					{ evidenceSummary: { structuredWebSearch: false, groups: [] } },
+				]),
+			).toBeNull();
+		});
 	});
 });
 

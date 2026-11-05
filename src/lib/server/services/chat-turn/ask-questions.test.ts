@@ -7,7 +7,11 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
-import type { AskAnswer, AskQuestion } from "$lib/shared/ask-user";
+import {
+	type AskAnswer,
+	type AskQuestion,
+	checkAskAnswer,
+} from "$lib/shared/ask-user";
 import {
 	type AskCapturedResult,
 	type AskClaimResult,
@@ -1426,5 +1430,63 @@ describe("what the rows go with", () => {
 		sqlite.prepare("DELETE FROM users WHERE id = ?").run(USER);
 
 		expect(rowCount()).toBe(0);
+	});
+});
+
+// Owner, 2026-11-05: a card holds one question from now on ("I only want 1 ask card at a
+// time"), but a card asked before that day holds up to three, and its row is read back, drawn
+// and answered all the same (`ASK_LIMITS.maxStoredQuestions`).
+describe("a card asked when a card could hold three questions", () => {
+	const THREE: AskQuestion[] = [
+		{
+			question: "Which colour?",
+			options: [{ label: "Red", recommended: true }, { label: "Blue" }],
+		},
+		{
+			question: "Who is coming?",
+			multiple: true,
+			options: [{ label: "Adults" }, { label: "Kids" }],
+		},
+		{
+			question: "Which day?",
+			options: [{ label: "Friday", recommended: true }, { label: "Saturday" }],
+		},
+	];
+	const ALL_THREE: AskAnswer = {
+		kind: "answered",
+		answers: [
+			{ picked: [0], ownWords: null },
+			{ picked: [0, 1], ownWords: null },
+			{ picked: [], ownWords: "Sunday, if it does not rain" },
+		],
+	};
+
+	it("is still listed with its three questions, takes its three answers, and is settled", async () => {
+		const { id } = await recordAskQuestion({
+			userId: USER,
+			conversationId: CHAT,
+			toolCallId: "call-three",
+			questions: THREE,
+		});
+		expect(
+			await stampAskQuestion({
+				userId: USER,
+				questionId: id,
+				assistantMessageId: "m1",
+				capture: CAPTURE,
+			}),
+		).toBe(true);
+
+		expect(await list()).toMatchObject([
+			{ id, status: "waiting", questions: THREE },
+		]);
+		// the answer route checks the answer against the stored questions
+		expect(checkAskAnswer(THREE, ALL_THREE).ok).toBe(true);
+
+		const token = await win(id, ALL_THREE);
+		await settle(id, token);
+		expect(await list()).toMatchObject([
+			{ id, status: "answered", questions: THREE, answer: ALL_THREE },
+		]);
 	});
 });

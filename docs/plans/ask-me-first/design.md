@@ -20,7 +20,7 @@ AlfyAI is a private, self-hosted assistant for the owner's family. The owner's s
 
 Goals:
 
-- G1. In the middle of a Normal Chat reply, Alfy can stop and ask the person 1 to 3 questions with answers to click.
+- G1. In the middle of a Normal Chat reply, Alfy can stop and ask the person a question with answers to click. One question a card (owner, 2026-11-05, after his first live test: "I only want 1 ask card at a time"); it was 1 to 3, and a card of three looked like three cards. Alfy can still ask again later in the same reply, after the answer.
 - G2. The same reply carries on from the answer, still holding everything Alfy found before it asked.
 - G3. The person can pick an answer, write their own, leave it to Alfy, or close the question.
 - G4. A waiting question survives a reload, another device, a sign-out and a server restart. There is no timer.
@@ -60,7 +60,7 @@ Anti-goals. The work fails, even if it runs, when:
 
 The mockups show each state; this is the behaviour behind them.
 
-**The card.** It sits inside the reply, right after the words Alfy wrote before asking, in the shell of the artifact and permission cards (border, 8 px radius, small shadow). It holds 1 to 3 questions. Each question has 2 to 4 answers (owner, 2026-11-05, after the real-model measurement; it was 2 to 3), each a label with an optional one-line note, and the question's own words. Every card has:
+**The card.** It sits inside the reply, right after the words Alfy wrote before asking, in the shell of the artifact and permission cards (border, 8 px radius, small shadow). It holds one question (owner, 2026-11-05; it held 1 to 3, and a card asked before that day is still drawn and answered as it was). The question has 2 to 4 answers (owner, 2026-11-05, after the real-model measurement; it was 2 to 3), each a label with an optional one-line note, and the question's own words. Every card has:
 
 - an X at the top right, which closes it without an answer;
 - an "Other" row under each question, which opens a line inside the card;
@@ -127,7 +127,7 @@ Why not one row written across several runs: that needs a durable half-finished 
 
 ### 5.2 The tool
 
-One model-facing tool; `ask_user` is the obvious name. Its input is `questions`: 1 to 3 of `{ question, multiple?, options }`, where `options` holds 2 to 4 of `{ label, note?, recommended? }` (4 since the owner's change of 2026-11-05, after the real-model measurement; it was 3). The tool's zod schema checks the shape only. `checkAskQuestions` (`shared/ask-user.ts`) runs at execution and holds the rest, and the model is shown the caps as hints in the JSON schema it reads (`compactToolInputSchema`'s `shown` schema in `normal-chat-tools/shared.ts`, a second copy of the shape that carries `maxItems`, `maxLength` and the counts in its descriptions, as `edit_artifact` does for its patches):
+One model-facing tool; `ask_user` is the obvious name. Its input is `questions`: exactly 1 of `{ question, multiple?, options }` (1 since the owner's change of 2026-11-05; it was 1 to 3, and the stored rows of those cards are read back up to `ASK_LIMITS.maxStoredQuestions`, 3), where `options` holds 2 to 4 of `{ label, note?, recommended? }` (4 since the owner's change of 2026-11-05, after the real-model measurement; it was 3). The tool's zod schema checks the shape only. `checkAskQuestions` (`shared/ask-user.ts`) runs at execution and holds the rest, and the model is shown the caps as hints in the JSON schema it reads (`compactToolInputSchema`'s `shown` schema in `normal-chat-tools/shared.ts`, a second copy of the shape that carries `maxItems`, `maxLength` and the counts in its descriptions, as `edit_artifact` does for its patches):
 
 - a single-pick question has exactly one recommended option (owner); a multi-pick question has any number, none included (owner);
 - short length caps on the question, labels and notes, set by the builder so a card fits a phone;
@@ -216,6 +216,8 @@ Chat strings go in `src/lib/i18n/chat.ts`, held in both locales by `chat.test.ts
 | 2026-11-05 | After trying the card: when it appears it moves in from the bottom, quickly and smoothly (a 10 px rise and a fade over 250 ms, none for a reader who asked for no motion). |
 | 2026-11-05 | After trying the card: "Decide for me" and the X ease their hover the way the answers do, so every control on the card hovers the same way (Send too, by a shift of its fill). |
 | 2026-11-05 | After the real-model measurement (`results-real-model.md`; "Those suggestions are good, I like them"): a question may have up to 4 answers (it was 2 to 3). The production model wrote a fourth answer on three of the four cards the app turned back. The rest of the card is unchanged: 1 to 3 questions, the same length caps. |
+| 2026-11-05 | After his first live test on production ("I only want 1 ask card at a time"): a card holds exactly one question. A card of three questions looked like three cards. The tool says so (its description and the `questions` field, one added sentence), a second question is refused with a line that says to ask the next after the answer, and Alfy may still ask again later in the same reply (the `twice` flow). A card asked before that day, with up to three questions, is still read, drawn and answered (`ASK_LIMITS.maxStoredQuestions`). |
+| 2026-11-05 | After his first live test on production: a reply has one Sources row, at its end. The asking segment's Sources used to draw right under its card or folded line (Ruling 25), between that line and the words that carry on, which read as the reply ending. Now the last segment draws one Sources row from every segment's evidence, merged (a source two segments read once), and the segments above it draw none; while a question waits, the asking segment is the last one and draws its own below the card. |
 | 2026-11-05 | After the same measurement: when a card breaks the rules, one refusal names every problem (a count, a missing Recommended mark, a text over its cap), so the model fixes the whole card in one retry. Before, the schema refused the counts first and the tool the mark on the next try, and each refusal cost a model step of 4 to 7 seconds before any card showed. |
 
 ## 7. My calls, for the owner to check

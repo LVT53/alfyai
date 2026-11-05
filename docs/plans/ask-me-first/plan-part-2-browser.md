@@ -291,7 +291,7 @@ Rules (Plan's calls 24, 25, 32):
 - `copyText` is set on a reply's last row when the reply has more than one row: each row's words, the empty ones left out, joined by a blank line; Copy uses it.
 - The ask call leaves the rail (`isAskToolCall` beside `isArtifactToolCall`). The card, or its folded line, is drawn right after `write-confirm-list`, keyed by `question.id`; it draws its own folded line and owns its margins, so the bubble only places it. `askState` reaches it as plain props or deriveds, never a copy made in an `$effect` (Ruling 21's same-task read of `busy`).
 - The jump rail counts and lists a reply once (rows with `continuesMessageId` are skipped).
-- The rows of one reply sit about 18 px apart (`pb-0` above, `-mt-lg` below), unless MessageArea draws something between them (Ruling 24). Sources, Atlas rows and the fork-origin marker draw below the card (Ruling 25). The provenance line under the last row takes the person's choices from the first (Ruling 26).
+- The rows of one reply sit about 18 px apart (`pb-0` above, `-mt-lg` below), unless MessageArea draws something between them (Ruling 24). Atlas rows and the fork-origin marker draw below the card (Ruling 25). The Sources are the reply's, drawn once after its last segment (owner, 2026-11-05; Ruling 25 had put each segment's below its card). The provenance line under the last row takes the person's choices from the first (Ruling 26).
 
 - [ ] **Step 1: Write the failing tests.**
 

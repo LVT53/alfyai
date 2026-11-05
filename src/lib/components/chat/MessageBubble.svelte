@@ -98,6 +98,16 @@ import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 
 // One shared empty list, so "no segments" is the same value on every render.
 const NO_SEGMENTS: ThinkingSegment[] = [];
+// A step the reader can see that has not finished. A function of its own, with the
+// segment typed as the whole union: the list it is asked of is the rail's, which the
+// filter above it has already narrowed to the segments that are not tool calls.
+function isRunningVisibleToolCall(segment: ThinkingSegment): boolean {
+	return (
+		segment.type === "tool_call" &&
+		segment.status === "running" &&
+		isVisibleThinkingToolCall(segment)
+	);
+}
 
 let {
 	message,
@@ -329,6 +339,12 @@ let atlasJobCostUsdMicros = $derived(
 let isUser = $derived(message.role === "user");
 // A reply that paused to ask is several rows drawn as one reply (reply-segments.ts).
 let continuesAbove = $derived(replyPlace?.continuesAbove ?? false);
+// A reply has one Sources panel, at its end (owner, 2026-11-05): the asking segment's
+// Sources between its folded line and the words that carry on "read as the reply
+// ending". The last segment draws it, from every segment's evidence merged; the
+// segments above it draw none. A message in no reply's place is a reply of one.
+let drawsSources = $derived(replyPlace?.drawsSources ?? true);
+let shownEvidence = $derived(replyPlace?.sources ?? message.evidenceSummary);
 let continuedBelow = $derived(replyPlace?.continuedBelow ?? false);
 // The words of the reply this row ends: every segment's, joined, on the last row of a
 // reply in segments (`copyText`), else the row's own. What Copy takes and what "Open
@@ -554,7 +570,7 @@ let provenanceEntries = $derived(
 		// The last row of a reply in segments says what the person chose for the whole
 		// reply, from its first row: its own record has none (reply-segments.ts).
 		userIntent: replyPlace?.userIntent ?? message.userIntent,
-		evidenceSummary: message.evidenceSummary,
+		evidenceSummary: shownEvidence,
 		// A job that failed or was cancelled did not make this answer, so it
 		// does not get to say it did; a queued or running one is the turn
 		// still happening and keeps its chip.
@@ -719,8 +735,19 @@ let canKeepAsDocument = $derived(
 let showLogoBelow = $derived(
 	!isUser && isLast && (hasThinking || isGenerating || isFinalizing),
 );
+// A tool call that is still running is the turn at work, whatever was written
+// before it: a reply that says a sentence and then searches the web (the owner's
+// live test of "Ask me first", 2026-11-05) folded its rail into the muted summary
+// the moment the sentence arrived, so the search was never a live row. The rail
+// keeps its rows, and does not say "Thought", until the call is over. Only a
+// message that is still streaming can have a running call: a stopped or cut reply
+// is saved with its last call still marked running, and is done.
+let toolIsRunning = $derived(
+	isStreaming && thinkingSegmentsForDisplay.some(isRunningVisibleToolCall),
+);
 let thinkingIsDone = $derived(
 	!message.isThinkingStreaming &&
+		!toolIsRunning &&
 		(message.content.trim().length > 0 || isDone || isFinalizing),
 );
 let reasoningDepthIndicatorProfile = $derived(
@@ -1207,7 +1234,7 @@ function sendFollowUp(question: string) {
 			thinkingIsDone={thinkingIsDone}
 			segments={thinkingSegmentsForDisplay}
 			thinkingDurationSeconds={message.generationDurationMs ? Math.round(message.generationDurationMs / 1000) : 0}
-			answerStarted={hasVisibleContent}
+			answerStarted={hasVisibleContent && !toolIsRunning}
 			liveThoughtStepClass={liveThoughtStepActivity?.detail}
 			liveThoughtStepEntity={liveThoughtStepActivity?.label}
 			liveThoughtStepSummary={liveThoughtStepActivity?.summary}
@@ -1454,16 +1481,18 @@ function sendFollowUp(question: string) {
 					{/if}
 				</div>
 			{/if}
-			{#if message.evidenceSummary && message.evidenceSummary.groups.length > 0}
-				<MessageEvidenceDetails
-					evidenceSummary={message.evidenceSummary}
-					onOpenDocument={onOpenDocument}
-					expandRequest={sourcesExpandRequest}
-					{deletedArtifacts}
-					madeInOriginalChat={Boolean(message.forkEvidenceSnapshot)}
-				/>
-			{:else if showEvidencePending}
-				<div class="evidence-pending">{$t('messageBubble.evidenceLoading')}</div>
+			{#if drawsSources}
+				{#if shownEvidence && shownEvidence.groups.length > 0}
+					<MessageEvidenceDetails
+						evidenceSummary={shownEvidence}
+						onOpenDocument={onOpenDocument}
+						expandRequest={sourcesExpandRequest}
+						{deletedArtifacts}
+						madeInOriginalChat={Boolean(message.forkEvidenceSnapshot)}
+					/>
+				{:else if showEvidencePending}
+					<div class="evidence-pending">{$t('messageBubble.evidenceLoading')}</div>
+				{/if}
 			{/if}
 			{/if}
 
@@ -1567,7 +1596,7 @@ function sendFollowUp(question: string) {
 							{message}
 							modelIconUrl={messageModelIconUrl}
 							atlasCostUsdMicros={atlasJobCostUsdMicros}
-							onOpenSources={openSourcesFromInfo}
+							onOpenSources={drawsSources ? openSourcesFromInfo : undefined}
 						/>
 						</div>
 					</div>
