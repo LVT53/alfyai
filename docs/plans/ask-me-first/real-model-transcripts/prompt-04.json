@@ -1,0 +1,166 @@
+{
+ "prompt": 4,
+ "kind": "fork",
+ "language": "en",
+ "text": "Let's plan the garden for next spring together.",
+ "shared": "shared.json",
+ "request": {
+  "parameters": {
+   "model": "qwen3-6-27b",
+   "temperature": 0.6,
+   "top_p": 0.95,
+   "top_k": 20,
+   "tool_choice": "auto"
+  },
+  "sentWith": {
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   }
+  },
+  "messages": [
+   {
+    "role": "system",
+    "sameAs": "shared.json#systemPrompt"
+   },
+   {
+    "role": "user",
+    "content": "Context from your conversation history:\n\n## Task State\nObjective: Let's plan the garden for next spring together.\n\n## Baseline Memory Profile\nThese are remembered facts about the person. They never set the reply language.\n- about_you (global): I prefer concise answers.\n- about_you (global): I live in Dublin.\n\n## Current User Message\nLet's plan the garden for next spring together.\n\n## Turn Guidance\n[SYSTEM TIME CONTEXT: Today is Thursday, November 5, 2026. Use this exact date as your current temporal anchor for relative timeframes. Call a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially depends on it.]\n\nReply in the language of the person's latest message, judged by its own words.\nIf that message has no language of its own (a short \"ok\", a number, a link, code), keep the language they have been writing in.\nIf they ask for the reply in a particular language, in this message or in their standing instructions (Your Instructions, Project Instructions), use that.\nIf they ask for a piece of writing in another language (an email, a translation), write that piece in it and keep your own words in their language.\nNothing else sets the reply language: not who they are (their name, nationality or where they live), not remembered facts (even one about the language they use), documents, files, tool or search results, or your own earlier replies.\n\nReasoning depth effort profile:\n- Applied Normal Chat profile: standard. This does not force web search every turn, and does not make the visible answer longer by itself.\nStandard-depth reasoning contract:\n- Use normal private reasoning. Keep the answer efficient, but still check obvious constraints and avoid unsupported claims.\n- Grounding pressure: standard. Use retrieval when the ordinary web/source guidance says it is needed.\n- Tool loop budget: the runtime can support up to 14 tool steps for this profile. Stop early once the answer is grounded enough.\n\n## Skills available\n- Plan Critic — Finds the blockers, weak assumptions, and gaps in a plan before you execute it, ranked by severity.\n- Document Explainer — Explains an attached or linked document in plain language, preserving exact numbers, dates, and caveats — fetches a URL first if you paste one.\n- Study Coach — Coaches active learning with chunked explanations, recall questions, and a study plan instead of a plain summary.\n- Purchase Helper — Compares purchase options against your real constraints and current prices — researches the web for specs and reviews before recommending.\n- Translate & Rewrite — Translates or rewrites text while preserving meaning, tone, and exact terminology, names, and numbers.\n- Appointment Prep — Builds an agenda, questions, and a verify/flag checklist for an upcoming appointment or call — pulls in prior context automatically.\n- Spreadsheet Builder — Builds polished XLSX workbooks with real formulas, formatted tables, and dashboards, delivered as a downloadable file.\n\n## Drafting a skill\nWhen the person asks you to keep how you just worked as a reusable skill (\"make this a skill\", \"save this as a skill\"), draft it in this block at the end of the reply, with no text inside it:\n\n<skill_control_v1>\n{\"version\":1,\"operations\":[{\"operationId\":\"skill-draft-1\",\"kind\":\"skill_draft\",\"draft\":{\"id\":\"weekly-status\",\"displayName\":\"Weekly status\",\"description\":\"Writes a short weekly status update from what the conversation already says.\",\"instructions\":\"Ask for the period, then write one short paragraph: what is done, what is next, what blocks it.\",\"activationExamples\":[\"Write my weekly status.\"],\"sourceScope\":\"current_conversation\"}}]}\n</skill_control_v1>\n\nThe app removes the block before the person sees the reply and shows a card with Save private skill and Dismiss: the skill exists only after they save it, so never claim it is saved. The example's `id`, `displayName` and `instructions` are only the shape: write them for the skill the person asked for, with `activationExamples` as messages that should load it."
+   }
+  ]
+ },
+ "response": {
+  "httpStatus": 200,
+  "ms": 9116,
+  "finishReason": "tool_calls",
+  "usage": {
+   "prompt_tokens": 11549,
+   "total_tokens": 12200,
+   "completion_tokens": 651,
+   "completion_tokens_details": {
+    "reasoning_tokens": 330
+   }
+  },
+  "deltas": 182,
+  "thinking": "We need to respond to user: \"Let's plan the garden for next spring together.\" Context: user prefers concise answers, lives in Dublin. Need likely ask clarifying questions? Could use ask_user because garden planning depends on space, sunlight, preferences, budget, containers vs beds, vegetables/flowers/etc. Need maybe check memory context for project? Could call memory_context to see project/garden history. Since request is collaborative and broad, ask 1-3 questions with options. Need maybe no web search. Need concise. Could ask about garden type, focus, effort/space. We can use ask_user directly. Need maybe mention Dublin climate? Could ask sunlight. Since \"together\" implies interactive. Use ask_user with 3 questions max: 1) What are you planting for? options veg, flowers, mixed, low-maintenance pollinator? 2) Space? options small containers/balcony, raised beds, garden beds. 3) Time/effort? options low, medium, high. But maybe also budget. Need ask_user options 2-3 each. Must mark recommended one on one-pick question. Could ask \"What should next spring's garden focus on?\" with mixed recommended. \"How much space?\" options. \"How much time?\" options. That's enough.\n\nNeed ensure language English. Could include short intro then ask_user. Tool call will pause. We can say \"Great — I’ll tailor this for Dublin springs.\" But maybe ask_user only? The final answer after user chooses will be in same reply? We can send text then call. Need not overdo.\n",
+  "words": "\n\nGreat — let’s build a Dublin-spring garden plan around your space, time, and goals.\n\n",
+  "wordsAsTheAppKeepsThem": "Great — let’s build a Dublin-spring garden plan around your space, time, and goals.",
+  "toolCalls": [
+   {
+    "id": "chatcmpl-tool-ac374b2e045b090e",
+    "name": "ask_user",
+    "arguments": "{\"questions\": [{\"question\": \"What should next spring’s garden focus on?\", \"options\": [{\"label\": \"Mixed veg + flowers\", \"recommended\": true, \"note\": \"Productive, colourful, and beginner-friendly\"}, {\"label\": \"Vegetables/herbs\", \"note\": \"Maximum edible yield\"}, {\"label\": \"Flowers/pollinators\", \"note\": \"Low fuss, bees and butterflies\"}], \"multiple\": false}, {\"question\": \"How much space are you working with?\", \"options\": [{\"label\": \"Containers/patio\", \"note\": \"Pots, balcony, small outdoor area\"}, {\"label\": \"Raised beds\", \"recommended\": true, \"note\": \"Neat, controlled, good for vegetables\"}, {\"label\": \"Full garden beds\", \"note\": \"More planting area and flexibility\"}], \"multiple\": false}, {\"question\": \"How much time can you realistically spend each week?\", \"options\": [{\"label\": \"Low: 15–30 min\", \"note\": \"Very low-maintenance choices\"}, {\"label\": \"Medium: 1 hour\", \"recommended\": true, \"note\": \"A good balance for spring planting\"}, {\"label\": \"High: 2+ hours\", \"note\": \"More crops, succession sowing, care\"}], \"multiple\": false}]}"
+   }
+  ]
+ },
+ "parsed": {
+  "asked": true,
+  "askCalls": [
+   {
+    "id": "chatcmpl-tool-ac374b2e045b090e",
+    "input": {
+     "questions": [
+      {
+       "question": "What should next spring’s garden focus on?",
+       "options": [
+        {
+         "label": "Mixed veg + flowers",
+         "recommended": true,
+         "note": "Productive, colourful, and beginner-friendly"
+        },
+        {
+         "label": "Vegetables/herbs",
+         "note": "Maximum edible yield"
+        },
+        {
+         "label": "Flowers/pollinators",
+         "note": "Low fuss, bees and butterflies"
+        }
+       ],
+       "multiple": false
+      },
+      {
+       "question": "How much space are you working with?",
+       "options": [
+        {
+         "label": "Containers/patio",
+         "note": "Pots, balcony, small outdoor area"
+        },
+        {
+         "label": "Raised beds",
+         "recommended": true,
+         "note": "Neat, controlled, good for vegetables"
+        },
+        {
+         "label": "Full garden beds",
+         "note": "More planting area and flexibility"
+        }
+       ],
+       "multiple": false
+      },
+      {
+       "question": "How much time can you realistically spend each week?",
+       "options": [
+        {
+         "label": "Low: 15–30 min",
+         "note": "Very low-maintenance choices"
+        },
+        {
+         "label": "Medium: 1 hour",
+         "recommended": true,
+         "note": "A good balance for spring planting"
+        },
+        {
+         "label": "High: 2+ hours",
+         "note": "More crops, succession sowing, care"
+        }
+       ],
+       "multiple": false
+      }
+     ]
+    },
+    "jsonOk": true,
+    "schemaOk": true,
+    "schemaIssues": [],
+    "checkAskQuestions": {
+     "ok": true
+    },
+    "perQuestion": [
+     {
+      "question": 1,
+      "text": "What should next spring’s garden focus on?",
+      "multiple": false,
+      "options": 3,
+      "recommended": 1,
+      "recommendedRuleHolds": true,
+      "optionsWithinCap": true
+     },
+     {
+      "question": 2,
+      "text": "How much space are you working with?",
+      "multiple": false,
+      "options": 3,
+      "recommended": 1,
+      "recommendedRuleHolds": true,
+      "optionsWithinCap": true
+     },
+     {
+      "question": 3,
+      "text": "How much time can you realistically spend each week?",
+      "multiple": false,
+      "options": 3,
+      "recommended": 1,
+      "recommendedRuleHolds": true,
+      "optionsWithinCap": true
+     }
+    ],
+    "appAccepted": true,
+    "toolResult": {
+     "status": "waiting_for_user",
+     "note": "Asked. The reply pauses here until the user chooses."
+    }
+   }
+  ],
+  "otherToolCalls": []
+ }
+}

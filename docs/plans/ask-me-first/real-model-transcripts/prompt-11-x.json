@@ -1,0 +1,76 @@
+{
+ "prompt": "X",
+ "kind": "x",
+ "language": "en",
+ "text": "Let's plan the garden for next spring together.",
+ "builtFrom": "prompt 4's request, then the model's own reply to it (its thinking, its words and its ask_user call) and the closed answer as the ask's result, as the resume sends them",
+ "shared": "shared.json",
+ "request": {
+  "parameters": {
+   "model": "qwen3-6-27b",
+   "temperature": 0.6,
+   "top_p": 0.95,
+   "top_k": 20,
+   "tool_choice": "auto"
+  },
+  "sentWith": {
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   }
+  },
+  "messages": [
+   {
+    "role": "system",
+    "sameAs": "shared.json#systemPrompt"
+   },
+   {
+    "role": "user",
+    "content": "Context from your conversation history:\n\n## Task State\nObjective: Let's plan the garden for next spring together.\n\n## Baseline Memory Profile\nThese are remembered facts about the person. They never set the reply language.\n- about_you (global): I prefer concise answers.\n- about_you (global): I live in Dublin.\n\n## Current User Message\nLet's plan the garden for next spring together.\n\n## Turn Guidance\n[SYSTEM TIME CONTEXT: Today is Thursday, November 5, 2026. Use this exact date as your current temporal anchor for relative timeframes. Call a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially depends on it.]\n\nReply in the language of the person's latest message, judged by its own words.\nIf that message has no language of its own (a short \"ok\", a number, a link, code), keep the language they have been writing in.\nIf they ask for the reply in a particular language, in this message or in their standing instructions (Your Instructions, Project Instructions), use that.\nIf they ask for a piece of writing in another language (an email, a translation), write that piece in it and keep your own words in their language.\nNothing else sets the reply language: not who they are (their name, nationality or where they live), not remembered facts (even one about the language they use), documents, files, tool or search results, or your own earlier replies.\n\nReasoning depth effort profile:\n- Applied Normal Chat profile: standard. This does not force web search every turn, and does not make the visible answer longer by itself.\nStandard-depth reasoning contract:\n- Use normal private reasoning. Keep the answer efficient, but still check obvious constraints and avoid unsupported claims.\n- Grounding pressure: standard. Use retrieval when the ordinary web/source guidance says it is needed.\n- Tool loop budget: the runtime can support up to 14 tool steps for this profile. Stop early once the answer is grounded enough.\n\n## Skills available\n- Plan Critic — Finds the blockers, weak assumptions, and gaps in a plan before you execute it, ranked by severity.\n- Document Explainer — Explains an attached or linked document in plain language, preserving exact numbers, dates, and caveats — fetches a URL first if you paste one.\n- Study Coach — Coaches active learning with chunked explanations, recall questions, and a study plan instead of a plain summary.\n- Purchase Helper — Compares purchase options against your real constraints and current prices — researches the web for specs and reviews before recommending.\n- Translate & Rewrite — Translates or rewrites text while preserving meaning, tone, and exact terminology, names, and numbers.\n- Appointment Prep — Builds an agenda, questions, and a verify/flag checklist for an upcoming appointment or call — pulls in prior context automatically.\n- Spreadsheet Builder — Builds polished XLSX workbooks with real formulas, formatted tables, and dashboards, delivered as a downloadable file.\n\n## Drafting a skill\nWhen the person asks you to keep how you just worked as a reusable skill (\"make this a skill\", \"save this as a skill\"), draft it in this block at the end of the reply, with no text inside it:\n\n<skill_control_v1>\n{\"version\":1,\"operations\":[{\"operationId\":\"skill-draft-1\",\"kind\":\"skill_draft\",\"draft\":{\"id\":\"weekly-status\",\"displayName\":\"Weekly status\",\"description\":\"Writes a short weekly status update from what the conversation already says.\",\"instructions\":\"Ask for the period, then write one short paragraph: what is done, what is next, what blocks it.\",\"activationExamples\":[\"Write my weekly status.\"],\"sourceScope\":\"current_conversation\"}}]}\n</skill_control_v1>\n\nThe app removes the block before the person sees the reply and shows a card with Save private skill and Dismiss: the skill exists only after they save it, so never claim it is saved. The example's `id`, `displayName` and `instructions` are only the shape: write them for the skill the person asked for, with `activationExamples` as messages that should load it."
+   },
+   {
+    "role": "assistant",
+    "content": "\n\nGreat — let’s build a Dublin-spring garden plan around your space, time, and goals.\n\n",
+    "reasoning_content": "We need to respond to user: \"Let's plan the garden for next spring together.\" Context: user prefers concise answers, lives in Dublin. Need likely ask clarifying questions? Could use ask_user because garden planning depends on space, sunlight, preferences, budget, containers vs beds, vegetables/flowers/etc. Need maybe check memory context for project? Could call memory_context to see project/garden history. Since request is collaborative and broad, ask 1-3 questions with options. Need maybe no web search. Need concise. Could ask about garden type, focus, effort/space. We can use ask_user directly. Need maybe mention Dublin climate? Could ask sunlight. Since \"together\" implies interactive. Use ask_user with 3 questions max: 1) What are you planting for? options veg, flowers, mixed, low-maintenance pollinator? 2) Space? options small containers/balcony, raised beds, garden beds. 3) Time/effort? options low, medium, high. But maybe also budget. Need ask_user options 2-3 each. Must mark recommended one on one-pick question. Could ask \"What should next spring's garden focus on?\" with mixed recommended. \"How much space?\" options. \"How much time?\" options. That's enough.\n\nNeed ensure language English. Could include short intro then ask_user. Tool call will pause. We can say \"Great — I’ll tailor this for Dublin springs.\" But maybe ask_user only? The final answer after user chooses will be in same reply? We can send text then call. Need not overdo.\n",
+    "tool_calls": [
+     {
+      "id": "chatcmpl-tool-ac374b2e045b090e",
+      "type": "function",
+      "function": {
+       "name": "ask_user",
+       "arguments": "{\"questions\":[{\"question\":\"What should next spring’s garden focus on?\",\"options\":[{\"label\":\"Mixed veg + flowers\",\"recommended\":true,\"note\":\"Productive, colourful, and beginner-friendly\"},{\"label\":\"Vegetables/herbs\",\"note\":\"Maximum edible yield\"},{\"label\":\"Flowers/pollinators\",\"note\":\"Low fuss, bees and butterflies\"}],\"multiple\":false},{\"question\":\"How much space are you working with?\",\"options\":[{\"label\":\"Containers/patio\",\"note\":\"Pots, balcony, small outdoor area\"},{\"label\":\"Raised beds\",\"recommended\":true,\"note\":\"Neat, controlled, good for vegetables\"},{\"label\":\"Full garden beds\",\"note\":\"More planting area and flexibility\"}],\"multiple\":false},{\"question\":\"How much time can you realistically spend each week?\",\"options\":[{\"label\":\"Low: 15–30 min\",\"note\":\"Very low-maintenance choices\"},{\"label\":\"Medium: 1 hour\",\"recommended\":true,\"note\":\"A good balance for spring planting\"},{\"label\":\"High: 2+ hours\",\"note\":\"More crops, succession sowing, care\"}],\"multiple\":false}]}"
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "chatcmpl-tool-ac374b2e045b090e",
+    "content": "{\"status\":\"closed\",\"note\":\"The user closed the question without answering. It may have been off. Go on with your best judgment or ask differently, and never ask the same thing again.\"}"
+   }
+  ]
+ },
+ "response": {
+  "httpStatus": 200,
+  "ms": 8189,
+  "finishReason": "stop",
+  "usage": {
+   "prompt_tokens": 12255,
+   "total_tokens": 13254,
+   "completion_tokens": 999,
+   "completion_tokens_details": {
+    "reasoning_tokens": 680
+   }
+  },
+  "deltas": 471,
+  "thinking": "We need answer with best judgment, concise. Need likely produce plan? User asked plan together. They closed questions. We should proceed with assumptions: Dublin, spring, likely mixed veg+flowers, small/medium space, low-medium time. Could offer a starter plan and ask if they want adjustments. Need maybe mention spring timing for Dublin: March/April planting. Could create checklist in reply. Maybe use create_artifact? They said plan together; maybe a document would be useful? But no explicit file. We can give concise plan. Need maybe not overdo. Could include \"Assuming a small Dublin garden with containers/raised bed and ~1 hour/week.\" Need tasks: February order seeds, March sow hardy veg indoors/outdoors, April transplant after frost, May tender crops. Include plant list: potatoes, broad beans, peas, spinach, radish, salad, onions, strawberries, rhubarb; flowers: calendula, nasturtium, sweet peas, lavender? Dublin climate mild maritime, last frost approx mid-April? Need be cautious. Could mention frost dates approximate. Need concise.\n\nNeed maybe ask differently? They closed, don't ask same. Could ask one open? But better proceed.\n\nNeed perhaps include \"If you tell me your space, I’ll tighten it.\" But not ask same. Could say \"I’ll assume a modest raised-bed/container setup and ~1 hour/week.\" Good.\n\nNeed maybe mention Irish Advice: no need web. Could include month-by-month checklist. Need use metric units. Maybe bed size: 1.2 m × 2.4 m raised bed or 5 pots 30 L. Keep concise.\n\nNeed final with checklist. No tool needed. Ensure not claim saved. Use markdown checklist. Could include \"Plan draft\".\n\nLet's formulate:\n\n\"I’ll assume: Dublin, small raised bed/containers, mixed veg + pollinator flowers, ~1 hr/week.\"\n\nPlan:\n- Now–Jan: clear bed, order seeds: broad beans, peas, potatoes, onions, salad, radish, spinach, beetroot, carrots, courgette, beans, squash, herbs; flowers: calendula, nasturtium, borage, sweet peas.\n- Feb: chit potatoes; sow broad beans modules; sow onion/leek indoors if available.\n- Mar: sow peas, spinach, radish, salad outdoors in raised bed under cloches; plant seed potatoes (first early) St Patrick's Day tradition? In Ireland first earlies around St Patrick's Day (March). Good.\n- Apr: transplant brassicas? sow carrots, beetroot; harden off; plant strawberries/rhubarb; after risk of frost late April/May plant courgette/squash/sweet peas.\n- May: plant tender crops after last frost; succession sow salad/radish; mulch.\n- Jun: water, stake, harvest.\n\nMaybe include shopping list. Need \"next spring\" from Nov 2026 to spring 2027. Good.\n\nNeed maybe ask for a photo or dimensions? But don't ask same. Could end: \"Send bed size or photo and I’ll make it exact.\" But that is not same. Fine.\n\nNeed ensure concise.\n",
+  "words": "\n\nI’ll assume a **small Dublin setup**: raised bed or containers, mixed veg + pollinator flowers, about **1 hour/week**.\n\n## Spring garden plan — Dublin 2027\n\n- [ ] **Now–Jan:** Clear weeds, add compost, order seeds.  \n- [ ] **Feb:** Chit seed potatoes; sow broad beans in modules.  \n- [ ] **Mar:** Plant first-early potatoes; sow peas, spinach, radish, salad, onions.  \n- [ ] **Apr:** Sow carrots, beetroot, chard; plant strawberries/rhubarb; harden off seedlings.  \n- [ ] **May:** Plant courgettes, squash, French beans, sweet peas after frost risk drops.  \n- [ ] **Jun:** Mulch, water, stake, succession-sow salad and radish.\n\n## Best beginner crops\nPotatoes, broad beans, peas, radish, salad leaves, beetroot, chard, courgette, mint, chives, parsley, calendula, nasturtium, borage, sweet peas.\n\n## Basic layout for a 1.2 m × 2.4 m bed\n- **North end:** beans/sweet peas on a short trellis  \n- **Middle:** potatoes, courgettes, squash  \n- **South edge:** salad, radish, herbs, flowers  \n- **Edges:** strawberries or creeping thyme  \n\nIf you send the bed size, pot count, or a photo, I’ll make it exact.",
+  "wordsAsTheAppKeepsThem": "I’ll assume a **small Dublin setup**: raised bed or containers, mixed veg + pollinator flowers, about **1 hour/week**.\n\n## Spring garden plan — Dublin 2027\n\n- [ ] **Now–Jan:** Clear weeds, add compost, order seeds.\n- [ ] **Feb:** Chit seed potatoes; sow broad beans in modules.\n- [ ] **Mar:** Plant first-early potatoes; sow peas, spinach, radish, salad, onions.\n- [ ] **Apr:** Sow carrots, beetroot, chard; plant strawberries/rhubarb; harden off seedlings.\n- [ ] **May:** Plant courgettes, squash, French beans, sweet peas after frost risk drops.\n- [ ] **Jun:** Mulch, water, stake, succession-sow salad and radish.\n\n## Best beginner crops\nPotatoes, broad beans, peas, radish, salad leaves, beetroot, chard, courgette, mint, chives, parsley, calendula, nasturtium, borage, sweet peas.\n\n## Basic layout for a 1.2 m × 2.4 m bed\n- **North end:** beans/sweet peas on a short trellis\n- **Middle:** potatoes, courgettes, squash\n- **South edge:** salad, radish, herbs, flowers\n- **Edges:** strawberries or creeping thyme\n\nIf you send the bed size, pot count, or a photo, I’ll make it exact.",
+  "toolCalls": []
+ },
+ "parsed": {
+  "asked": false,
+  "askCalls": [],
+  "otherToolCalls": []
+ }
+}
