@@ -9255,16 +9255,29 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 					.mockReset()
 					.mockReturnValue(new Promise(() => {}));
 				renderAskedChat();
-				await chooseOnCard("Dinner out");
+				// The card wakes after its own 400 ms, which is waited out for real; the
+				// answer's wait for the connections (2 s) is the clock the test holds.
+				const option = await screen.findByRole("button", {
+					name: "Dinner out",
+				});
+				await waitFor(() => expect(option).toBeEnabled());
+				vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+				try {
+					await fireEvent.click(option);
 
-				await waitFor(
-					() => expect(runtimeHarness.streamInvocations).toHaveLength(1),
-					{ timeout: 4000 },
-				);
-				expect(
-					runtimeHarness.streamInvocations[0].options
-						?.enabledConnectionCapabilities,
-				).toBeUndefined();
+					// Waiting for the load, for as long as the page gives it ...
+					await vi.advanceTimersByTimeAsync(1999);
+					expect(runtimeHarness.streamInvocations).toHaveLength(0);
+					// ... and then it goes.
+					await vi.advanceTimersByTimeAsync(1);
+					expect(runtimeHarness.streamInvocations).toHaveLength(1);
+					expect(
+						runtimeHarness.streamInvocations[0].options
+							?.enabledConnectionCapabilities,
+					).toBeUndefined();
+				} finally {
+					vi.useRealTimers();
+				}
 			});
 
 			it("goes with none said after a load that failed", async () => {
