@@ -7,7 +7,8 @@
  * search or fetch, and every control call: the thought-step classifier, the
  * rail summary, the turn acknowledgment, memory recuration/consolidation/
  * summary/judge). An owner who had sent a few dozen messages was shown "249
- * this week". The count is now the user's OWN messages.
+ * this week". The count is now the user's OWN messages — and not the ones in
+ * an incognito chat, which says "Nothing in this chat is remembered or counted".
  */
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
@@ -44,7 +45,11 @@ function seedUser(userId: string) {
 		.run();
 }
 
-function seedConversation(userId: string, title = "A conversation"): string {
+function seedConversation(
+	userId: string,
+	title = "A conversation",
+	options: { incognito?: boolean } = {},
+): string {
 	const id = randomUUID();
 	orm()
 		.insert(schema.conversations)
@@ -52,6 +57,7 @@ function seedConversation(userId: string, title = "A conversation"): string {
 			id,
 			userId,
 			title,
+			memoryIncognito: options.incognito ?? false,
 			createdAt: new Date(),
 			updatedAt: new Date(),
 		})
@@ -210,13 +216,44 @@ describe("the weekly count counts the user's own messages", () => {
 		expect((await summaryFor(userId, NOW)).weeklyTotal).toBe(3);
 	});
 
+	// The incognito copy promises "Nothing in this chat is remembered or
+	// counted", and Your Activity already leaves these chats out (analytics.ts):
+	// the bars on Home must not be the one place that counts them.
+	it("leaves messages in an incognito chat out of the bars and the count", async () => {
+		const userId = randomUUID();
+		seedUser(userId);
+		const ordinary = seedConversation(userId, "ordinary");
+		const incognito = seedConversation(userId, "incognito", {
+			incognito: true,
+		});
+		for (let i = 0; i < 2; i += 1) seedMessage(ordinary, "user", NOW);
+		for (let i = 0; i < 3; i += 1) seedMessage(incognito, "user", NOW);
+
+		const summary = await summaryFor(userId, NOW);
+		expect(summary.weeklyTotal).toBe(2);
+		expect(summary.weekly.at(-1)?.count).toBe(2);
+	});
+
+	it("shows no record at all when every message is in an incognito chat", async () => {
+		const userId = randomUUID();
+		seedUser(userId);
+		const incognito = seedConversation(userId, "incognito", {
+			incognito: true,
+		});
+		for (let i = 0; i < 5; i += 1) seedMessage(incognito, "user", NOW);
+
+		const summary = await summaryFor(userId, NOW);
+		expect(summary.weekly).toEqual([]);
+		expect(summary.weeklyTotal).toBe(0);
+	});
+
 	it("has an index the query can use rather than scanning messages", () => {
 		const plan = sqlite
 			.prepare(
 				`EXPLAIN QUERY PLAN
 				 SELECT m.created_at FROM messages m
 				 JOIN conversations c ON c.id = m.conversation_id
-				 WHERE c.user_id = ? AND m.role = 'user' AND m.created_at >= ?`,
+				 WHERE c.user_id = ? AND m.role = 'user' AND m.created_at >= ? AND c.memory_incognito = 0`,
 			)
 			.all("u", 0) as Array<{ detail: string }>;
 		const detail = plan.map((row) => row.detail).join(" | ");

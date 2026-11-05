@@ -440,6 +440,11 @@ export function resolveFileJobPhase(params: {
  *
  * The honest limit, and it is the opposite of the old one: an IMPORTED
  * conversation's user rows count, because the user did write them somewhere.
+ *
+ * An incognito conversation's rows do not count. Its banner promises "Nothing
+ * in this chat is remembered or counted", and Your Activity already leaves these
+ * chats out (analytics.ts); the bars are the one other place a message gets
+ * counted, so they leave them out the same way.
  */
 async function readWeekly(
 	userId: string,
@@ -457,6 +462,7 @@ async function readWeekly(
 		.where(
 			and(
 				eq(conversations.userId, userId),
+				eq(conversations.memoryIncognito, false),
 				eq(messages.role, "user"),
 				gte(messages.createdAt, windowStart),
 			),
