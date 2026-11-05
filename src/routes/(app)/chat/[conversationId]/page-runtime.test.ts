@@ -9061,6 +9061,68 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 		expect(sidebarMark()).toBe(false);
 	});
 
+	it("draws the continued reply's web search while the resume runs, and after it ends", async () => {
+		renderPage();
+		await typeAndSend(PLAN);
+		await letAlfyAsk();
+		await chooseOnCard("Dinner out");
+		await waitFor(() =>
+			expect(runtimeHarness.streamInvocations).toHaveLength(2),
+		);
+		const resume = runtimeHarness.streamInvocations[1];
+		const continued = () => {
+			const bubbles = screen.getAllByTestId("assistant-message");
+			return bubbles[bubbles.length - 1];
+		};
+		const stepsOf = () => (continued().textContent ?? "").replace(/\s+/g, " ");
+
+		// The resume says one sentence, searches the web (the owner's live test,
+		// 2026-11-05), thinks, and answers.
+		resume.callbacks.onToken("A party at home it is.");
+		await waitFor(() => expect(stepsOf()).toContain("A party at home it is."));
+		resume.callbacks.onToolCall?.(
+			"research_web",
+			{ query: "venues for 30 guests" },
+			"running",
+			{ callId: "call-search" },
+		);
+		await waitFor(() => expect(stepsOf()).toMatch(/Searching/i));
+		// While the search runs it is a live row, as in any reply: the sentence the
+		// resume wrote before it does not fold the rail into its muted summary.
+		expect(
+			within(continued()).getByTestId("tool-activity-stack"),
+		).toHaveTextContent(/Searching/i);
+		expect(
+			within(continued()).queryByTestId("tool-activity-summary"),
+		).toBeNull();
+
+		resume.callbacks.onToolCall?.(
+			"research_web",
+			{ query: "venues for 30 guests" },
+			"done",
+			{ callId: "call-search", outputSummary: "Reviewed 10 sources" },
+		);
+		resume.callbacks.onThinking?.("The plan: a table, prices and links. ");
+		resume.callbacks.onToken(" Here is the plan.");
+		await waitFor(() => expect(stepsOf()).toMatch(/Searched/i));
+
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([
+			answeredQuestion(),
+		]);
+		resume.callbacks.onEnd("A party at home it is. Here is the plan.", {
+			assistantMessageId: "assistant-2",
+			...END_TOTALS,
+		});
+		await waitFor(() =>
+			expect(screen.getByTestId("ask-folded")).toHaveAttribute(
+				"data-status",
+				"answered",
+			),
+		);
+		expect(stepsOf()).toMatch(/Searched/i);
+		await waitFor(() => expect(stepsOf()).toContain("Here is the plan."));
+	});
+
 	it("draws a second question under the segment that asked it, with the first folded above, and answers it", async () => {
 		const EVENING = {
 			question: "Which evening?",

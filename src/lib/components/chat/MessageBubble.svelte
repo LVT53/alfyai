@@ -98,6 +98,16 @@ import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 
 // One shared empty list, so "no segments" is the same value on every render.
 const NO_SEGMENTS: ThinkingSegment[] = [];
+// A step the reader can see that has not finished. A function of its own, with the
+// segment typed as the whole union: the list it is asked of is the rail's, which the
+// filter above it has already narrowed to the segments that are not tool calls.
+function isRunningVisibleToolCall(segment: ThinkingSegment): boolean {
+	return (
+		segment.type === "tool_call" &&
+		segment.status === "running" &&
+		isVisibleThinkingToolCall(segment)
+	);
+}
 
 let {
 	message,
@@ -719,8 +729,19 @@ let canKeepAsDocument = $derived(
 let showLogoBelow = $derived(
 	!isUser && isLast && (hasThinking || isGenerating || isFinalizing),
 );
+// A tool call that is still running is the turn at work, whatever was written
+// before it: a reply that says a sentence and then searches the web (the owner's
+// live test of "Ask me first", 2026-11-05) folded its rail into the muted summary
+// the moment the sentence arrived, so the search was never a live row. The rail
+// keeps its rows, and does not say "Thought", until the call is over. Only a
+// message that is still streaming can have a running call: a stopped or cut reply
+// is saved with its last call still marked running, and is done.
+let toolIsRunning = $derived(
+	isStreaming && thinkingSegmentsForDisplay.some(isRunningVisibleToolCall),
+);
 let thinkingIsDone = $derived(
 	!message.isThinkingStreaming &&
+		!toolIsRunning &&
 		(message.content.trim().length > 0 || isDone || isFinalizing),
 );
 let reasoningDepthIndicatorProfile = $derived(
@@ -1207,7 +1228,7 @@ function sendFollowUp(question: string) {
 			thinkingIsDone={thinkingIsDone}
 			segments={thinkingSegmentsForDisplay}
 			thinkingDurationSeconds={message.generationDurationMs ? Math.round(message.generationDurationMs / 1000) : 0}
-			answerStarted={hasVisibleContent}
+			answerStarted={hasVisibleContent && !toolIsRunning}
 			liveThoughtStepClass={liveThoughtStepActivity?.detail}
 			liveThoughtStepEntity={liveThoughtStepActivity?.label}
 			liveThoughtStepSummary={liveThoughtStepActivity?.summary}

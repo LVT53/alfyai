@@ -4873,3 +4873,116 @@ describe("MessageBubble pictures the message carried", () => {
 		expect(numbers).toEqual(["1", "2"]);
 	});
 });
+
+// The owner's live test of "Ask me first" (2026-11-05): the continued reply said a
+// sentence, then searched the web, and the search never showed as a live row. The
+// rail folded into its muted summary the moment the sentence had text, because
+// "text has started" was taken for "the thinking is over", with the search still
+// running. A call that is running is the turn at work.
+describe("the rail while a tool call runs after the reply has begun", () => {
+	const SENTENCE = "A party at home it is.";
+	const running = {
+		type: "tool_call",
+		callId: "call-search",
+		name: "research_web",
+		input: { query: "venues for 30 guests" },
+		status: "running",
+	} as const;
+	const done = {
+		...running,
+		status: "done",
+		outputSummary: "Reviewed 10 sources",
+	} as const;
+
+	function continued(overrides: Partial<ChatMessage>): ChatMessage {
+		return {
+			id: "assistant-seg-2",
+			renderKey: "assistant-seg-2",
+			role: "assistant",
+			content: SENTENCE,
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+			continuesMessageId: "assistant-seg-1",
+			...overrides,
+		};
+	}
+
+	const place: ReplyPlace = {
+		firstMessageId: "assistant-seg-1",
+		continuesAbove: true,
+		continuedBelow: false,
+		question: null,
+		copyText: null,
+		userIntent: null,
+	};
+
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("keeps the search a live row, and the label on Thinking, while it runs", () => {
+		const { container } = render(MessageBubble, {
+			message: continued({
+				thinkingSegments: [
+					{ type: "text", content: "Reasoning about the request." },
+					running,
+				],
+			}),
+			isLast: true,
+			replyPlace: place,
+		});
+
+		expect(
+			container.querySelector('[data-testid="tool-activity-stack"]'),
+		).not.toBeNull();
+		expect(
+			container.querySelector('[data-testid="tool-activity-summary"]'),
+		).toBeNull();
+		expect(container.querySelector(".thinking-label")?.textContent).not.toMatch(
+			/Thought/,
+		);
+	});
+
+	it("folds the rail once the call is over and the reply goes on", () => {
+		const { container } = render(MessageBubble, {
+			message: continued({
+				thinkingSegments: [
+					{ type: "text", content: "Reasoning about the request." },
+					done,
+				],
+			}),
+			isLast: true,
+			replyPlace: place,
+		});
+
+		expect(
+			container.querySelector('[data-testid="tool-activity-stack"]'),
+		).toBeNull();
+		expect(
+			container.querySelector('[data-testid="tool-activity-summary"]'),
+		).not.toBeNull();
+	});
+
+	it("folds a saved reply whose last call was left running, since nothing runs any more", () => {
+		const { container } = render(MessageBubble, {
+			message: continued({
+				isStreaming: false,
+				thinkingSegments: [running],
+			}),
+			isLast: true,
+			replyPlace: place,
+		});
+
+		expect(
+			container.querySelector('[data-testid="tool-activity-stack"]'),
+		).toBeNull();
+		expect(container.querySelector(".thinking-label")?.textContent).toMatch(
+			/Thought/,
+		);
+	});
+});
