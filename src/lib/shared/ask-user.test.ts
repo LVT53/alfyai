@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
 	ASK_LIMITS,
@@ -622,5 +625,18 @@ describe("reading stored questions and answers back", () => {
 			kind: "answered",
 			answers: [oneAnswer([0], null)],
 		});
+	});
+});
+
+describe("module hygiene", () => {
+	// The same zero-value-import guard the other shared leaves carry
+	// (extraction-status.ts, reply-text.ts). This module is reached from the model run,
+	// the tool, the store, the routes and the chat page's components, so anything it
+	// imported would travel to all of them (the browser bundle too) or close an import
+	// cycle: the leaf property is what keeps Fallow's cycles at four and the bundle small.
+	it("has no value imports", () => {
+		const here = path.dirname(fileURLToPath(import.meta.url));
+		const source = readFileSync(path.join(here, "ask-user.ts"), "utf8");
+		expect(source.match(/^import\s(?!type)/gm)).toBeNull();
 	});
 });
