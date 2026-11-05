@@ -1056,7 +1056,7 @@ $effect(() => {
 		<!-- A border box at every width: its content is at most 65rem (1040px) beside its padding,
 		     which is named once (`--column-pad`) and used for both. A content box with `w-full` is
 		     its scroller's width PLUS its padding, so wherever the column is narrower than its
-		     maximum (a phone, FX-2; a desktop window with the sidebar open or Vivaldi's panel
+		     maximum (a phone, FX-2; a desktop window with the sidebar open or a browser side panel
 		     showing, Task 9b) the page ran 40-64px past its scroller and cut off Upload, the page
 		     switcher and each row's actions. -->
 		<div class="mx-auto box-border flex w-full max-w-[calc(65rem+2*var(--column-pad))] flex-col gap-6 px-(--column-pad) py-6 [--column-pad:--spacing(5)] md:[--column-pad:--spacing(8)]">
