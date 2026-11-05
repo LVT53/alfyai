@@ -17,7 +17,7 @@ import {
 	type RuntimeConfig,
 } from "../config-store";
 import { getSystemPrompt, stripDeprecatedPromptSections } from "../prompts";
-import { truncateToTokenBudget } from "../utils/prompt-context";
+import { rowsBefore, truncateToTokenBudget } from "../utils/prompt-context";
 import {
 	logAttachmentTrace,
 	summarizeAttachmentSectionInInput,
@@ -1648,8 +1648,15 @@ async function maybeRunAutomaticContextCompression(params: {
 		listContextCompressionSourceMessages,
 		runContextCompression,
 	} = await import("./context-compression");
-	const sourceMessages = await listContextCompressionSourceMessages(
-		params.sessionId,
+	// A resume of a reply that stopped to ask sends the person's message and the
+	// segments saved so far again, as the run's continuation, and the history ends
+	// before that message (`historyBeforeMessageId`). The source ends there too: those
+	// rows are not history, and compressing them would summarize what the run is about
+	// to send a second time, and draw a compression marker between two segments of one
+	// reply. Every other turn names no such message, and the source is the whole chat.
+	const sourceMessages = rowsBefore(
+		await listContextCompressionSourceMessages(params.sessionId),
+		params.constructedContextParams.historyBeforeMessageId,
 	);
 	const priorSnapshot = await getLatestValidContextCompressionSnapshot({
 		userId: params.user.id,

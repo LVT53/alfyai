@@ -24,6 +24,7 @@ import {
 	type PromptContextSection,
 	type PromptContextSectionSelection,
 	rerankHistoricalSections,
+	rowsBefore,
 	selectRecentRoleTurns,
 	serializeBudgetedAttachments,
 	serializeBudgetedRoleTurns,
@@ -1293,21 +1294,6 @@ type SessionPromptContext = {
 	storedMessages: PromptContextMessage[];
 	summary: string | null;
 };
-
-/**
- * The rows before the one named, in the order they came: the named row and every
- * later row are dropped. The whole list when no row is named, or when none of
- * them has that id (nothing says where to end the history, and a history with a
- * gap is worse than a longer one).
- */
-function rowsBefore<T extends { id: string }>(
-	rows: T[],
-	messageId: string | undefined,
-): T[] {
-	if (!messageId) return rows;
-	const index = rows.findIndex((row) => row.id === messageId);
-	return index === -1 ? rows : rows.slice(0, index);
-}
 
 /**
  * Load the local continuity context for a turn: the conversation's own stored

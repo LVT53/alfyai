@@ -2214,6 +2214,142 @@ describe("prepareOutboundChatContext", () => {
 		expect(rebuildArgs).toEqual({ ...firstArgs, reuseFrom: reuseData });
 	});
 
+	// A resume of a reply that stopped to ask ("Ask me first") sends the person's
+	// message and the segments saved so far again, as the run's continuation, and
+	// ends the history before that message (`historyBeforeMessageId`). Automatic
+	// compression reads the chat's rows itself: when the newest turn is larger than the
+	// raw-tail budget, it used to compress the person's message and the paused
+	// segments, which the resume then sent a second time, and a compression marker was
+	// drawn between the segments of one reply.
+	it("ends the compression source before the person's message when a resume carries a reply on", async () => {
+		const turnRow = (
+			sequence: number,
+			role: "user" | "assistant",
+			content: string,
+		) => ({
+			id: `m${sequence}`,
+			messageSequence: sequence,
+			role,
+			content,
+			thinking: null,
+			toolCalls: null,
+		});
+		const reuseData = {
+			relevantArtifacts: [],
+			preparedContext: null,
+			artifactSnippets: new Map(),
+		};
+		mocks.buildConstructedContext
+			.mockResolvedValueOnce(
+				createConstructedContextResult(
+					"## Current User Message\nPlan Saturday.",
+					{
+						_reuseData: reuseData,
+						historyWindow: { includedTurnCount: 2, omittedTurnCount: 3 },
+					},
+				),
+			)
+			.mockResolvedValueOnce(
+				createConstructedContextResult(
+					"## Context Compression Snapshot\nCompressed.\n\n## Current User Message\nPlan Saturday.",
+				),
+			);
+		mocks.listContextCompressionSourceMessages.mockResolvedValueOnce([
+			// three short turns before the reply, then the reply that asked: the person's
+			// message and two segments, the first one far larger than the raw-tail budget
+			turnRow(1, "user", "Earlier question."),
+			turnRow(2, "assistant", "Earlier answer."),
+			turnRow(3, "user", "Second question."),
+			turnRow(4, "assistant", "Second answer."),
+			turnRow(5, "user", "Third question."),
+			turnRow(6, "assistant", "Third answer."),
+			turnRow(7, "user", "Plan Saturday."),
+			turnRow(8, "assistant", "A long read of the files. ".repeat(2_000)),
+			turnRow(9, "assistant", "Which way should we take it?"),
+		]);
+
+		await prepareOutboundChatContext({
+			message: "Plan Saturday.",
+			sessionId: "conv-1",
+			modelConfig,
+			user: { id: "user-1" },
+			modelId: "model1",
+			historyBeforeMessageId: "m7",
+			contextLimits: {
+				maxModelContext: 50_000,
+				compactionUiThreshold: 40_000,
+				targetConstructedContext: 20_000,
+			},
+			compressionControlMessageSender: vi.fn() as never,
+			logLabel: "provider request",
+		});
+
+		expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
+		const { sourceMessages } = mocks.runContextCompression.mock.calls[0][0] as {
+			sourceMessages: Array<{ id: string }>;
+		};
+		// the oldest turn is what is compressed; the reply being carried on is not
+		expect(sourceMessages.map((message) => message.id)).toEqual(["m1", "m2"]);
+		// and the rebuild ends the history at the same message
+		const [[firstArgs], [rebuildArgs]] =
+			mocks.buildConstructedContext.mock.calls;
+		expect(firstArgs).toMatchObject({ historyBeforeMessageId: "m7" });
+		expect(rebuildArgs).toMatchObject({ historyBeforeMessageId: "m7" });
+	});
+
+	it("still compresses a turn that is the newest when no reply is being carried on", async () => {
+		const turnRow = (
+			sequence: number,
+			role: "user" | "assistant",
+			content: string,
+		) => ({
+			id: `m${sequence}`,
+			messageSequence: sequence,
+			role,
+			content,
+			thinking: null,
+			toolCalls: null,
+		});
+		mocks.buildConstructedContext
+			.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nWhat next?", {
+					historyWindow: { includedTurnCount: 2, omittedTurnCount: 3 },
+				}),
+			)
+			.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nWhat next?"),
+			);
+		mocks.listContextCompressionSourceMessages.mockResolvedValueOnce([
+			turnRow(1, "user", "Earlier question."),
+			turnRow(2, "assistant", "Earlier answer."),
+			turnRow(3, "user", "Second question."),
+			turnRow(4, "assistant", "Second answer."),
+			turnRow(5, "user", "Third question."),
+			turnRow(6, "assistant", "A long read of the files. ".repeat(2_000)),
+		]);
+
+		await prepareOutboundChatContext({
+			message: "What next?",
+			sessionId: "conv-1",
+			modelConfig,
+			user: { id: "user-1" },
+			modelId: "model1",
+			contextLimits: {
+				maxModelContext: 50_000,
+				compactionUiThreshold: 40_000,
+				targetConstructedContext: 20_000,
+			},
+			compressionControlMessageSender: vi.fn() as never,
+			logLabel: "provider request",
+		});
+
+		// no resume names a message to end before: the whole chat is the source, as it was
+		const { sourceMessages } = mocks.runContextCompression.mock.calls[0][0] as {
+			sourceMessages: Array<{ id: string }>;
+		};
+		expect(sourceMessages.map((message) => message.id)).toContain("m6");
+	});
+
 	describe("automatic compression measures the payload the model is sent", () => {
 		const limits = {
 			maxModelContext: 50_000,

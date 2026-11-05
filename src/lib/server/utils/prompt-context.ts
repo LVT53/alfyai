@@ -88,6 +88,23 @@ export function dedupeById<T extends { id: string }>(items: T[]): T[] {
 	return Array.from(new Map(items.map((item) => [item.id, item])).values());
 }
 
+/**
+ * The rows before the one named, in the order they came: the named row and every
+ * later row are dropped. The whole list when no row is named, or when none of
+ * them has that id (nothing says where to end the history, and a history with a
+ * gap is worse than a longer one). A resume of a reply that stopped to ask ends
+ * the history, and the rows automatic compression may summarize, before the
+ * person's message (`historyBeforeMessageId`).
+ */
+export function rowsBefore<T extends { id: string }>(
+	rows: T[],
+	messageId: string | undefined,
+): T[] {
+	if (!messageId) return rows;
+	const index = rows.findIndex((row) => row.id === messageId);
+	return index === -1 ? rows : rows.slice(0, index);
+}
+
 export function serializeRoleMessages<T>(
 	messages: T[],
 	resolveRole: (message: T) => "user" | "assistant",
