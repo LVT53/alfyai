@@ -1,4 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -13,7 +19,14 @@ vi.mock("$app/navigation", () => ({
 	invalidateAll: vi.fn(),
 }));
 
-vi.mock("$lib/utils/viewport.svelte", () => ({
+const { logoutMock } = vi.hoisted(() => ({ logoutMock: vi.fn() }));
+
+vi.mock("$lib/client/api/auth", () => ({ logout: logoutMock }));
+
+// The confirm dialog the log-out button opens reads other helpers of this
+// module too, so only the store is replaced.
+vi.mock("$lib/utils/viewport.svelte", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/utils/viewport.svelte")>()),
 	viewportStore: { touch: false, tier: "phone" },
 }));
 
@@ -98,5 +111,65 @@ describe("Header — incognito", () => {
 		expect(
 			screen.queryByLabelText("Incognito — not remembered"),
 		).not.toBeInTheDocument();
+	});
+});
+
+// ADR-0043: "Logout requires confirmation". The sidebar asks first; the phone
+// header's menu used to end the session on the first press.
+describe("Header — log out", () => {
+	beforeEach(() => {
+		logoutMock.mockReset();
+		logoutMock.mockResolvedValue(undefined);
+		// jsdom has no Web Animations API, so report reduced motion and let the
+		// dialog's outro finish.
+		vi.stubGlobal("matchMedia", (query: string) => ({
+			matches: true,
+			media: query,
+			addEventListener: () => {},
+			removeEventListener: () => {},
+		}));
+	});
+
+	async function pressLogout() {
+		render(Header, {});
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Open user menu" }),
+		);
+		await fireEvent.click(screen.getByRole("button", { name: "Logout" }));
+	}
+
+	it("asks before it ends the session, as the sidebar does", async () => {
+		await pressLogout();
+
+		const dialog = await screen.findByRole("dialog");
+		expect(within(dialog).getByText("Log out?")).toBeInTheDocument();
+		expect(logoutMock).not.toHaveBeenCalled();
+	});
+
+	it("ends the session once it is confirmed", async () => {
+		await pressLogout();
+
+		await fireEvent.click(
+			within(await screen.findByRole("dialog")).getByRole("button", {
+				name: "Log out",
+			}),
+		);
+
+		await waitFor(() => expect(logoutMock).toHaveBeenCalledTimes(1));
+	});
+
+	it("keeps the session when it is cancelled", async () => {
+		await pressLogout();
+
+		await fireEvent.click(
+			within(await screen.findByRole("dialog")).getByRole("button", {
+				name: "Cancel",
+			}),
+		);
+
+		await waitFor(() =>
+			expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+		);
+		expect(logoutMock).not.toHaveBeenCalled();
 	});
 });

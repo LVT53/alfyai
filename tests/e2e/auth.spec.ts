@@ -113,4 +113,27 @@ test.describe("Authentication", () => {
 		}
 		await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
 	});
+
+	// ADR-0043: logging out asks first. The phone's header menu used to end the
+	// session on the first press; the sidebar already asked.
+	test("asks before logging out from the phone header's menu", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await login(page);
+
+		await page.getByRole("button", { name: "Open user menu" }).click();
+		await page.getByTestId("header-logout").click();
+		await expect(page.getByRole("dialog")).toContainText("Log out?");
+
+		// Cancelling keeps the session.
+		await page.getByRole("button", { name: "Cancel" }).click();
+		await expect(page.getByRole("dialog")).toHaveCount(0);
+		await expect(page).toHaveURL("/");
+
+		await page.getByRole("button", { name: "Open user menu" }).click();
+		await page.getByTestId("header-logout").click();
+		await page.getByTestId("confirm-delete").click();
+		await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+	});
 });

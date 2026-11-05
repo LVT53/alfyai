@@ -32,6 +32,7 @@ import { viewportStore } from "$lib/utils/viewport.svelte";
 import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
 import { conversationDisplayTitle } from "$lib/shared/conversation-title";
 import LogoMark from "$lib/components/chat/LogoMark.svelte";
+import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 
 let {
 	conversationTitle = null,
@@ -47,6 +48,23 @@ let menuRef = $state<HTMLDivElement | undefined>(undefined);
 let triggerRef = $state<HTMLButtonElement | undefined>(undefined);
 let menuPositionStyle = $state("");
 let menuBaseBackground = $state("var(--surface-elevated)");
+let showLogoutConfirm = $state(false);
+
+// ADR-0043: logging out asks first, here as in the sidebar (same words), and
+// the menu closes so the question is not drawn over an open menu.
+function requestLogout() {
+	mobileMenuOpen = false;
+	showLogoutConfirm = true;
+}
+
+function confirmLogout() {
+	showLogoutConfirm = false;
+	void handleLogout();
+}
+
+function cancelLogout() {
+	showLogoutConfirm = false;
+}
 
 async function handleLogout() {
 	try {
@@ -271,7 +289,8 @@ onMount(() => {
 					</button>
 					<button
 						class="header-option header-option-danger flex min-h-[38px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
-						onclick={handleLogout}
+						data-testid="header-logout"
+						onclick={requestLogout}
 					>
 						<span class="header-option-icon header-option-icon-danger">
 						<LogOut size={18} strokeWidth={2.1} aria-hidden="true" />
@@ -283,6 +302,18 @@ onMount(() => {
 		</div>
 	</div>
 </header>
+
+{#if showLogoutConfirm}
+	<ConfirmDialog
+		title={$t('sidebar.logoutConfirmTitle')}
+		message={$t('sidebar.logoutConfirmBody')}
+		confirmText={$t('sidebar.logoutConfirmAction')}
+		cancelText={$t('common.cancel')}
+		confirmVariant="danger"
+		onConfirm={confirmLogout}
+		onCancel={cancelLogout}
+	/>
+{/if}
 
 <style>
 	/* Incognito, one-way (spec §2) — the phone header's own tint. Everything
