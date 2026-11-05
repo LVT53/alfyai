@@ -7,6 +7,7 @@ import type { AskQuestion } from "../../../src/lib/shared/ask-user";
 import {
 	AI_SMOKE_ASK_AFTER_PREFIX,
 	AI_SMOKE_ASK_CALL_ID,
+	AI_SMOKE_ASK_FOUR,
 	AI_SMOKE_ASK_HOLD_ASK,
 	AI_SMOKE_ASK_HOLD_RESUME,
 	AI_SMOKE_ASK_INTRO,
@@ -446,7 +447,11 @@ function askTurnReply(body: unknown, mode: AskTurnMode): ScriptedChatTurnReply {
 		frames: ask(
 			AI_SMOKE_ASK_CALL_ID,
 			AI_SMOKE_ASK_INTRO,
-			mode === "many" ? AI_SMOKE_ASK_MANY : AI_SMOKE_ASK_ONE,
+			mode === "many"
+				? AI_SMOKE_ASK_MANY
+				: mode === "four"
+					? AI_SMOKE_ASK_FOUR
+					: AI_SMOKE_ASK_ONE,
 		),
 		...(mode === "slow" ? { hold: AI_SMOKE_ASK_HOLD_ASK } : {}),
 	};

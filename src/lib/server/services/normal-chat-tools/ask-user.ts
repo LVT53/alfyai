@@ -66,7 +66,9 @@ const askQuestionSchema = z.object({
 		.array(askOptionSchema)
 		.min(ASK_LIMITS.minOptions)
 		.max(ASK_LIMITS.maxOptions)
-		.describe("2-3 options, in the order to show them."),
+		.describe(
+			`${ASK_LIMITS.minOptions}-${ASK_LIMITS.maxOptions} options, in the order to show them.`,
+		),
 });
 
 export const askUserInputSchema = z.object({
@@ -74,7 +76,9 @@ export const askUserInputSchema = z.object({
 		.array(askQuestionSchema)
 		.min(ASK_LIMITS.minQuestions)
 		.max(ASK_LIMITS.maxQuestions)
-		.describe("1-3 questions, in the order to ask them."),
+		.describe(
+			`${ASK_LIMITS.minQuestions}-${ASK_LIMITS.maxQuestions} questions, in the order to ask them.`,
+		),
 });
 
 type AskUserInput = z.infer<typeof askUserInputSchema>;

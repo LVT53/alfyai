@@ -33,12 +33,17 @@ export const ASK_ENDED_BEFORE_ANSWER =
  * How much Alfy may ask and the person may write, in counts and in characters
  * (UTF-16 units, as a string's `length` and an input's `maxlength` count them).
  * The checks, the tool's input schema and the card all read these.
+ *
+ * `maxOptions` is 4 (owner, 2026-11-05, after the real-model measurement; it was 3):
+ * the production model wrote a fourth answer on three of the four cards the app
+ * turned back. It is also the most picks an answer may hold, since a question that
+ * takes several picks may be answered with every one of its answers.
  */
 export const ASK_LIMITS = {
 	minQuestions: 1,
 	maxQuestions: 3,
 	minOptions: 2,
-	maxOptions: 3,
+	maxOptions: 4,
 	questionChars: 160,
 	labelChars: 50,
 	noteChars: 100,

@@ -76,6 +76,8 @@ export const AI_SMOKE_SKILL_DRAFT_EXAMPLE =
  * was told, so a test sees the answer the way the model read it. The mode, written after
  * the marker in the message, says how the turn goes:
  *   `one`        one question that takes one pick (the mockup's section 1),
+ *   `four`       one question that takes one pick and has four answers, the most a
+ *                question may have (owner, 2026-11-05),
  *   `many`       a card of two questions, the first taking several picks (section 2),
  *   `twice`      after the first answer it asks again, once (section 7),
  *   `slow`       the ask is held until the test releases it (`AI_SMOKE_ASK_HOLD_ASK`), so
@@ -95,6 +97,7 @@ export const AI_SMOKE_ASK_MARKER =
 	"Fake model step: ask me first before you answer.";
 export type AskTurnMode =
 	| "one"
+	| "four"
 	| "many"
 	| "twice"
 	| "slow"
@@ -157,6 +160,30 @@ export const AI_SMOKE_ASK_ONE: AskQuestion[] = [
 	},
 ];
 
+/**
+ * One question with four answers, the most a question may have (owner, 2026-11-05, after the
+ * real-model measurement): the third is Alfy's pick, so the mark is neither first nor last,
+ * and the first and the last carry a note of different length.
+ */
+export const AI_SMOKE_ASK_FOUR: AskQuestion[] = [
+	{
+		question: "Where should we hold it?",
+		options: [
+			{ label: "At home", note: "Free, and no one has to travel far" },
+			{ label: "In the garden" },
+			{
+				label: "At a restaurant",
+				note: "Book three weeks ahead",
+				recommended: true,
+			},
+			{
+				label: "Somewhere by the lake",
+				note: "The most to arrange, and the best photographs",
+			},
+		],
+	},
+];
+
 /** The mockup's section 2: a question that takes several picks (none is Alfy's) and one that takes one. */
 export const AI_SMOKE_ASK_MANY: AskQuestion[] = [
 	{
@@ -201,6 +228,6 @@ export function askTurnMessage(mode: AskTurnMode): string {
 
 export function decodeAskTurnMode(text: string): AskTurnMode | null {
 	if (!text.includes(AI_SMOKE_ASK_MARKER)) return null;
-	const match = /ask:(one|many|twice|slowresume|slow|read)\b/.exec(text);
+	const match = /ask:(one|four|many|twice|slowresume|slow|read)\b/.exec(text);
 	return (match?.[1] as AskTurnMode | undefined) ?? null;
 }

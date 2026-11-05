@@ -1,3 +1,4 @@
+import { asSchema } from "@ai-sdk/provider-utils";
 import type { ToolExecutionOptions } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { recordAskQuestion } from "$lib/server/services/chat-turn/ask-questions";
@@ -392,6 +393,18 @@ describe("askUserInputSchema", () => {
 		).toBe(false);
 	});
 
+	// Owner, 2026-11-05, after the real-model measurement: four answers a question.
+	it("takes a question with four answers, and refuses five", () => {
+		const accepts = (options: unknown[]) =>
+			askUserInputSchema.safeParse({
+				questions: [oneQuestion({ options })],
+			}).success;
+		const four = [option("A", true), option("B"), option("C"), option("D")];
+
+		expect(accepts(four)).toBe(true);
+		expect(accepts([...four, option("E")])).toBe(false);
+	});
+
 	it("holds the lengths the vocabulary sets, and refuses an empty text", () => {
 		const accepts = (input: unknown) =>
 			askUserInputSchema.safeParse(input).success;
@@ -424,6 +437,68 @@ describe("askUserInputSchema", () => {
 		expect(accepts(withNote("n".repeat(ASK_LIMITS.noteChars)))).toBe(true);
 		expect(accepts(withNote("n".repeat(ASK_LIMITS.noteChars + 1)))).toBe(false);
 		expect(accepts(withNote(""))).toBe(false);
+	});
+});
+
+// What the model is shown of the tool's input: the JSON schema the request carries. It
+// is how the model learns the caps before it writes a card, so it says them, in the
+// keywords (`maxItems`, `maxLength`) and in the words of the field descriptions.
+describe("the JSON schema the model reads", () => {
+	type Field = {
+		description?: string;
+		minItems?: number;
+		maxItems?: number;
+		maxLength?: number;
+	};
+	type Shown = {
+		properties: {
+			questions: Field & {
+				items: {
+					properties: {
+						question: Field;
+						options: Field & {
+							items: { properties: { label: Field; note: Field } };
+						};
+					};
+				};
+			};
+		};
+	};
+
+	function shownToTheModel(): Shown["properties"]["questions"] {
+		const { tool } = createAskUserTool(ctx());
+		const schema = asSchema(tool.inputSchema).jsonSchema as unknown as Shown;
+		return schema.properties.questions;
+	}
+
+	it("carries every count and length the vocabulary sets", () => {
+		const questions = shownToTheModel();
+		const { question, options } = questions.items.properties;
+		const { label, note } = options.items.properties;
+
+		expect([questions.minItems, questions.maxItems]).toEqual([
+			ASK_LIMITS.minQuestions,
+			ASK_LIMITS.maxQuestions,
+		]);
+		expect([options.minItems, options.maxItems]).toEqual([
+			ASK_LIMITS.minOptions,
+			ASK_LIMITS.maxOptions,
+		]);
+		expect(question.maxLength).toBe(ASK_LIMITS.questionChars);
+		expect(label.maxLength).toBe(ASK_LIMITS.labelChars);
+		expect(note.maxLength).toBe(ASK_LIMITS.noteChars);
+	});
+
+	it("says the counts in words, as the vocabulary sets them", () => {
+		const questions = shownToTheModel();
+		const { options } = questions.items.properties;
+
+		expect(questions.description).toMatch(/^1-3 questions\b/);
+		// 2026-11-05: up to four answers a question (it said 2-3)
+		expect(options.description).toMatch(/^2-4 options\b/);
+		expect(options.description).toContain(
+			`${ASK_LIMITS.minOptions}-${ASK_LIMITS.maxOptions} options`,
+		);
 	});
 });
 

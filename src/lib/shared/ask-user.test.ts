@@ -63,7 +63,9 @@ describe("the vocabulary", () => {
 			minQuestions: 1,
 			maxQuestions: 3,
 			minOptions: 2,
-			maxOptions: 3,
+			// 4 since 2026-11-05 (owner, after the real-model measurement): the production
+			// model wrote four answers on three of the four cards the app turned back.
+			maxOptions: 4,
 			questionChars: 160,
 			labelChars: 50,
 			noteChars: 100,
@@ -129,12 +131,21 @@ describe("checkAskQuestions", () => {
 		[
 			"a question with one option",
 			[{ ...card[0], options: card[0].options.slice(0, 1) }],
-			"Question 1 needs 2 to 3 options.",
+			"Question 1 needs 2 to 4 options.",
 		],
 		[
-			"a question with four options",
-			[{ ...card[0], options: [...card[0].options, { label: "Stay in" }] }],
-			"Question 1 needs 2 to 3 options.",
+			"a question with five options",
+			[
+				{
+					...card[0],
+					options: [
+						...card[0].options,
+						{ label: "Stay in" },
+						{ label: "Go camping" },
+					],
+				},
+			],
+			"Question 1 needs 2 to 4 options.",
 		],
 		[
 			"a question without text",
@@ -190,6 +201,21 @@ describe("checkAskQuestions", () => {
 			).toBeNull();
 		});
 	}
+
+	// Owner, 2026-11-05: a question may have up to four answers (it was two or three).
+	it("takes a question with four answers, as asked and as read back", () => {
+		const four: AskQuestion = {
+			...card[0],
+			options: [...card[0].options, { label: "Stay in" }],
+		};
+		expect(four.options).toHaveLength(4);
+		expect(checkAskQuestions([four])).toEqual({ ok: true });
+		expect(parseAskQuestions(JSON.parse(JSON.stringify([four])))).toEqual([
+			four,
+		]);
+		// the same on every question of a full card
+		expect(checkAskQuestions([four, four, four])).toEqual({ ok: true });
+	});
 
 	it("takes every cap exactly at its limit", () => {
 		const atTheLimit: AskQuestion = {
@@ -346,6 +372,27 @@ describe("checkAskAnswer", () => {
 		const stated = { ...card[0], multiple: false };
 		expect(checkAskAnswer([stated], answer([0, 1])).ok).toBe(false);
 		expect(checkAskAnswer([stated], answer([1])).ok).toBe(true);
+	});
+
+	// Owner, 2026-11-05: four answers a question. A several-pick question may then be
+	// answered with all four, which an answer read back used to refuse (more picks than
+	// the cap on answers).
+	it("takes all four picks on a several-pick question of four answers, and no more", () => {
+		const fourToppings: AskQuestion = {
+			...toppings,
+			options: [...toppings.options, { label: "Candles" }],
+		};
+		const answer = (picked: number[]) => ({
+			kind: "answered",
+			answers: [oneAnswer(picked, null)],
+		});
+		expect(checkAskAnswer([fourToppings], answer([0, 1, 2, 3])).ok).toBe(true);
+		expect(checkAskAnswer([fourToppings], answer([3, 1])).ok).toBe(true);
+		expect(checkAskAnswer([fourToppings], answer([0, 1, 2, 3, 0])).ok).toBe(
+			false,
+		); // a fifth pick can only be a repeat
+		expect(parseAskAnswer(answer([0, 1, 2, 3]))).toEqual(answer([0, 1, 2, 3]));
+		expect(parseAskAnswer(answer([0, 1, 2, 3, 4]))).toBeNull();
 	});
 
 	it("refuses a body of the wrong shape", () => {

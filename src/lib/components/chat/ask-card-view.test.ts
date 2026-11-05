@@ -249,6 +249,40 @@ describe("buildAskFoldedItem", () => {
 		expect(buildAskFoldedItem(items, hu).verb).toBe("2 kérdés");
 	});
 
+	// Owner, 2026-11-05: a question may have four answers, so a several-pick question may be
+	// answered with all four. The line names every pick, in the order they were made, and the
+	// open line says them again beside the question; a choice left to Alfy names every
+	// Recommended answer of such a question.
+	it("names all four picks of a several-pick question, in the order they were picked", () => {
+		const extras: AskQuestion = {
+			question: "Which extras do you want?",
+			multiple: true,
+			options: [
+				{ label: "Music", recommended: true },
+				{ label: "Photos" },
+				{ label: "A cake", recommended: true },
+				{ label: "Candles" },
+			],
+		};
+
+		const picked = buildAskFoldedItem(answered([extras], pick(3, 0, 2, 1)), en);
+		expect(picked.object).toBe("Candles, Music, A cake, Photos");
+		expect(picked.body).toEqual({
+			kind: "ask",
+			pairs: [
+				{
+					question: "Which extras do you want?",
+					answer: "Candles, Music, A cake, Photos",
+				},
+			],
+		});
+		expect(picked.objectSuffix).toBeUndefined();
+
+		const left = buildAskFoldedItem(card([extras], LEFT), en);
+		expect(left.object).toBe("Music, A cake");
+		expect(left.objectSuffix).toBe("· left to Alfy");
+	});
+
 	it("keys the line on the answer, not on the status: the resume is running while the question is answering", () => {
 		// `answering` already holds the answer; only later does it read answered or closed.
 		expect(

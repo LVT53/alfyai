@@ -1147,6 +1147,93 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		expectSameBox(await settledBox(card), cardBefore, "the card");
 	});
 
+	// Owner, 2026-11-05, after the real-model measurement: a question may have four answers
+	// (it was two or three). Four rows are what a phone sees of it, so they are measured
+	// there: each is a row of its own, as wide as the card's body, at least 44 px tall and
+	// below the one before, in Alfy's order; the row for own words comes after the fourth.
+	// The fourth answer then carries the reply on, which also shows the server takes a card
+	// of four (the tool) and an answer that picks the fourth (the answer route).
+	test("a question with four answers is four 44 px rows on a phone, and the fourth carries the reply on", async ({
+		page,
+	}) => {
+		await startTurn(page, "four", { viewport: PHONE });
+		const card = askCard(page);
+		await expect(card).toBeVisible({ timeout: 30_000 });
+		await expect(card.getByTestId("ask-up-to-you")).toBeEnabled();
+
+		// The question and the X are in view, and not under the app header.
+		const question = card.getByText("Where should we hold it?");
+		const closeX = card.getByRole("button", { name: "Close the question" });
+		await waitForStableBoundingBox(question);
+		await waitForStableBoundingBox(closeX);
+		await expectTopmost(question, {
+			message: "the question is in view, not under the app header",
+		});
+		await expectTopmost(closeX, {
+			message: "the X is in view, not under the app header",
+		});
+
+		// Alfy's order, and the mark on the third, where Alfy put it.
+		const options = card.getByTestId("ask-option");
+		await expect(options).toHaveCount(4);
+		await expect(options).toContainText([
+			"At home",
+			"In the garden",
+			"At a restaurant",
+			"Somewhere by the lake",
+		]);
+		await expect(card.getByText("Recommended", { exact: true })).toHaveCount(1);
+		await expect(options.nth(2).getByText("Recommended")).toBeVisible();
+
+		// Each answer is a row of its own: as wide as the body of the card, at least 44 px
+		// high, and under the one before it.
+		const block = card.getByTestId("ask-question");
+		await waitForStableBoundingBox(block);
+		const bodyWidth = (await block.boundingBox())?.width ?? 0;
+		expect(bodyWidth, "the card's body is laid out").toBeGreaterThan(0);
+		let rowsEndAt = Number.NEGATIVE_INFINITY;
+		for (const row of await options.all()) {
+			const box = await settledBox(row);
+			expect(box.height).toBeGreaterThanOrEqual(44);
+			expect(
+				Math.abs(box.width - bodyWidth),
+				"px between an answer's width and the card body's inner width",
+			).toBeLessThanOrEqual(1);
+			expect(
+				box.y,
+				"px where an answer starts, against where the one before it ends",
+			).toBeGreaterThanOrEqual(rowsEndAt - 0.5);
+			rowsEndAt = box.y + box.height;
+		}
+		// The row for own words follows the fourth answer, and is a touch target too.
+		const own = await settledBox(card.getByTestId("ask-own-row"));
+		expect(own.height).toBeGreaterThanOrEqual(44);
+		expect(own.y).toBeGreaterThanOrEqual(rowsEndAt - 0.5);
+
+		// The fourth answer carries the same reply on, and the model is told which it was.
+		await pressWhenAwake(
+			card.getByRole("button", { name: "Somewhere by the lake" }),
+		);
+		const folded = page.getByTestId("ask-folded");
+		await expect(folded).toContainText("Where should we hold it?");
+		await expect(folded).toContainText("Somewhere by the lake");
+		await expect(card).toHaveCount(0);
+		await expectCarriedOn(page, "Somewhere by the lake");
+		await expectReplyEnded(page);
+		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
+		const [, resume] = chatRequests(fakeProvider);
+		expect(answerTo(resume, AI_SMOKE_ASK_CALL_ID)).toMatchObject({
+			status: "answered",
+			answers: [
+				{
+					question: "Where should we hold it?",
+					picked: ["Somewhere by the lake"],
+				},
+			],
+		});
+		expectResumeOfFirstAsk(resume, "four");
+	});
+
 	test("the card rises into place when Alfy asks: once, on transform and opacity only, and the thread still rests its top under the view's edge", async ({
 		page,
 	}) => {

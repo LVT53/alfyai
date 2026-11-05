@@ -67,6 +67,34 @@ const SPLIT: AskQuestion = {
 	],
 };
 
+// Four answers a question (owner, 2026-11-05, after the real-model measurement): the most a
+// question may have. The Recommended answer is the third, so it is neither first nor last.
+const WHERE: AskQuestion = {
+	question: "Where should we hold it?",
+	options: [
+		{ label: "At home", note: "Free, and no one has to travel far" },
+		{ label: "In the garden" },
+		{
+			label: "At a restaurant",
+			note: "Book three weeks ahead",
+			recommended: true,
+		},
+		{ label: "Somewhere by the lake" },
+	],
+};
+
+// A question that takes several picks and has four answers, so all four can be picked.
+const EXTRAS: AskQuestion = {
+	question: "Which extras do you want?",
+	multiple: true,
+	options: [
+		{ label: "Music" },
+		{ label: "Photos" },
+		{ label: "A cake" },
+		{ label: "Candles" },
+	],
+};
+
 const WAY_HU: AskQuestion = {
 	question: "Merre induljunk el?",
 	options: [
@@ -176,6 +204,40 @@ describe("AskQuestionCard", () => {
 			expect(button("Decide for me")).toBeInTheDocument();
 			expect(button("Close the question")).toBeInTheDocument();
 			// One question with one pick: a click answers, so there is no Send.
+			expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+		});
+
+		// Owner, 2026-11-05: a question may have four answers. Each is a row of its own, in
+		// Alfy's order, and the row for the person's own words stays last.
+		it("draws a question with four answers as four rows in Alfy's order, Recommended where Alfy put it, and Other after them", async () => {
+			await renderCard(dto([WHERE]));
+
+			const options = screen.getAllByTestId("ask-option");
+			expect(options.map((row) => row.tagName.toLowerCase())).toEqual([
+				"button",
+				"button",
+				"button",
+				"button",
+			]);
+			expect(options[0]).toHaveTextContent("At home");
+			expect(options[0]).toHaveTextContent(
+				"Free, and no one has to travel far",
+			);
+			expect(options[1]).toHaveTextContent("In the garden");
+			expect(options[2]).toHaveTextContent("At a restaurant");
+			expect(options[2]).toHaveTextContent("Book three weeks ahead");
+			expect(options[3]).toHaveTextContent("Somewhere by the lake");
+			// Only the third carries the mark, and it stays the third.
+			expect(screen.getAllByText("Recommended")).toHaveLength(1);
+			expect(within(options[2]).getByText("Recommended")).toBeInTheDocument();
+
+			// The row for the person's own words comes after the fourth answer.
+			const own = screen.getByTestId("ask-own-row");
+			expect(
+				options[3].compareDocumentPosition(own) &
+					Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+			// Still one question with one pick: a click answers, so there is no Send.
 			expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
 		});
 
@@ -341,6 +403,37 @@ describe("AskQuestionCard", () => {
 			await fireEvent.click(button("In the garden, with a tent, recommended"));
 
 			expect(onAnswer).toHaveBeenCalledWith("q-1", answered(pick(1)));
+		});
+
+		it("answers with the fourth answer's place when a question has four", async () => {
+			const { onAnswer } = await renderCard(dto([WHERE]));
+
+			await fireEvent.click(button("Somewhere by the lake"));
+
+			expect(onAnswer).toHaveBeenCalledTimes(1);
+			expect(onAnswer).toHaveBeenCalledWith("q-1", answered(pick(3)));
+		});
+
+		// Send was off for a fourth pick: the answer is checked against the same caps as the
+		// questions, and a pick for every one of four answers was more picks than the cap.
+		it("sends all four picks on a several-pick question of four answers", async () => {
+			const { onAnswer } = await renderCard(dto([EXTRAS]));
+			expect(button("Send")).toBeDisabled();
+
+			for (const label of ["Candles", "Music", "A cake", "Photos"]) {
+				await fireEvent.click(screen.getByRole("checkbox", { name: label }));
+			}
+			for (const label of ["Candles", "Music", "A cake", "Photos"]) {
+				expect(screen.getByRole("checkbox", { name: label })).toBeChecked();
+			}
+			expect(onAnswer).not.toHaveBeenCalled();
+			expect(button("Send")).toBeEnabled();
+
+			await fireEvent.click(button("Send"));
+
+			// The picks go in the order they were made.
+			expect(onAnswer).toHaveBeenCalledTimes(1);
+			expect(onAnswer).toHaveBeenCalledWith("q-1", answered(pick(3, 0, 2, 1)));
 		});
 
 		it("needs Send on a card of several questions, on only once every question has an answer", async () => {
@@ -1386,6 +1479,30 @@ describe("AskQuestionCard", () => {
 			expect(screen.getByTestId("tool-activity-row")).toHaveAttribute(
 				"aria-expanded",
 				"false",
+			);
+		});
+
+		// Four picks on a several-pick question: the line names all four, in the order they were
+		// picked, and the open line says them again beside their question.
+		it("draws the folded line of a several-pick question with all four picks", async () => {
+			await renderCard(
+				dto([EXTRAS], {
+					status: "answered",
+					answer: answered(pick(3, 0, 2, 1)),
+				}),
+			);
+
+			const row = screen.getByTestId("tool-activity-row");
+			expect(row).toHaveTextContent("Which extras do you want?");
+			expect(row).toHaveTextContent("Candles, Music, A cake, Photos");
+
+			await fireEvent.click(row);
+			const body = screen.getByTestId("tool-activity-body");
+			expect(body.querySelector("dt")).toHaveTextContent(
+				"Which extras do you want?",
+			);
+			expect(body.querySelector("dd")).toHaveTextContent(
+				"Candles, Music, A cake, Photos",
 			);
 		});
 

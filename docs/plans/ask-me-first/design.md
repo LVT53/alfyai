@@ -60,7 +60,7 @@ Anti-goals. The work fails, even if it runs, when:
 
 The mockups show each state; this is the behaviour behind them.
 
-**The card.** It sits inside the reply, right after the words Alfy wrote before asking, in the shell of the artifact and permission cards (border, 8 px radius, small shadow). It holds 1 to 3 questions. Each question has 2 to 3 answers, each a label with an optional one-line note, and the question's own words. Every card has:
+**The card.** It sits inside the reply, right after the words Alfy wrote before asking, in the shell of the artifact and permission cards (border, 8 px radius, small shadow). It holds 1 to 3 questions. Each question has 2 to 4 answers (owner, 2026-11-05, after the real-model measurement; it was 2 to 3), each a label with an optional one-line note, and the question's own words. Every card has:
 
 - an X at the top right, which closes it without an answer;
 - an "Other" row under each question, which opens a line inside the card;
@@ -127,7 +127,7 @@ Why not one row written across several runs: that needs a durable half-finished 
 
 ### 5.2 The tool
 
-One model-facing tool; `ask_user` is the obvious name. Its input is `questions`: 1 to 3 of `{ question, multiple?, options }`, where `options` holds 2 to 3 of `{ label, note?, recommended? }`. Validation runs the full zod schema at execution (the compact schema the model sees keeps the item counts but not refinements; `compactToolInputSchema` in `normal-chat-tools/shared.ts`):
+One model-facing tool; `ask_user` is the obvious name. Its input is `questions`: 1 to 3 of `{ question, multiple?, options }`, where `options` holds 2 to 4 of `{ label, note?, recommended? }` (4 since the owner's change of 2026-11-05, after the real-model measurement; it was 3). Validation runs the full zod schema at execution (the compact schema the model sees keeps the item counts but not refinements; `compactToolInputSchema` in `normal-chat-tools/shared.ts`):
 
 - a single-pick question has exactly one recommended option (owner); a multi-pick question has any number, none included (owner);
 - short length caps on the question, labels and notes, set by the builder so a card fits a phone;
@@ -215,6 +215,7 @@ Chat strings go in `src/lib/i18n/chat.ts`, held in both locales by `chat.test.ts
 | 2026-11-05 | After trying the card: opening the line for your own words must not change the size of anything; the row and the line are one height. |
 | 2026-11-05 | After trying the card: when it appears it moves in from the bottom, quickly and smoothly (a 10 px rise and a fade over 250 ms, none for a reader who asked for no motion). |
 | 2026-11-05 | After trying the card: "Decide for me" and the X ease their hover the way the answers do, so every control on the card hovers the same way (Send too, by a shift of its fill). |
+| 2026-11-05 | After the real-model measurement (`results-real-model.md`; "Those suggestions are good, I like them"): a question may have up to 4 answers (it was 2 to 3). The production model wrote a fourth answer on three of the four cards the app turned back. The rest of the card is unchanged: 1 to 3 questions, the same length caps. |
 
 ## 7. My calls, for the owner to check
 

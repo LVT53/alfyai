@@ -52,6 +52,7 @@ import {
 } from "$lib/server/services/skills/prompt-context";
 import { resetToolHealthCacheForTests } from "$lib/server/services/tool-health";
 import { PATCH_OP_KINDS } from "$lib/shared/artifact-document/patch";
+import { ASK_LIMITS } from "$lib/shared/ask-user";
 import { INSTRUCTIONS_MAX_CHARS } from "$lib/shared/instructions";
 import {
 	CREATE_ARTIFACT_HANDLERS,
@@ -5757,6 +5758,12 @@ describe("tool description hygiene", () => {
 	// 2026-11-04: ask_user (docs/plans/ask-me-first, design 5.2) adds 136 measured
 	// tokens, paid by a measured raise (design my call 10, put to the owner on
 	// 2026-11-03). No margin.
+	// 2026-11-05: ask_user takes 2-4 options a question (owner, after the real-model
+	// measurement; Ruling 53). One digit changes in its description and one in the
+	// `options` field's own description, which this ceiling does not count. Re-measured
+	// the way the plan's Part 1 Task 3 did: 5,493 before and 5,493 after (ask_user is
+	// 136 tokens, 541 characters, either way; the largest tool, edit_artifact, is 564 of
+	// the per-tool 566), so the ceiling does not move. No margin.
 	const CATALOGUE_TOKEN_CEILING = 5493;
 
 	function estimateTokens(text: string): number {
@@ -5936,6 +5943,19 @@ describe("tool description hygiene", () => {
 		expect(estimateTokens(entry?.description ?? "")).toBeLessThanOrEqual(
 			PER_TOOL_TOKEN_CEILING,
 		); // 136 today
+	});
+
+	// The description states the counts in words, so they must be the vocabulary's: a cap
+	// that moves in `ASK_LIMITS` and not here would still tell the model the old one.
+	it("ask_user states the counts the vocabulary sets (1-3 questions, 2-4 options a question)", () => {
+		const entry = buildFullToolCatalogue().find(
+			(candidate) => candidate.name === "ask_user",
+		);
+		expect(entry?.description).toContain(
+			`${ASK_LIMITS.minQuestions}-${ASK_LIMITS.maxQuestions} questions, each with ${ASK_LIMITS.minOptions}-${ASK_LIMITS.maxOptions} options`,
+		);
+		// owner, 2026-11-05, after the real-model measurement: up to four answers (it said 2-3)
+		expect(entry?.description).toContain("each with 2-4 options");
 	});
 
 	// The catalogue is the cached prompt prefix, so the new tool goes at its end:

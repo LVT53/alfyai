@@ -6477,7 +6477,7 @@ describe("Normal Chat Model Run asking the user", () => {
 		const refused = {
 			ok: false,
 			errorCode: "invalid_questions",
-			message: "Each question needs 2 or 3 options.",
+			message: "Question 1 needs 2 to 4 options.",
 		};
 		const execute = vi.fn(async () => refused);
 		const fetch = vi
@@ -6498,7 +6498,7 @@ describe("Normal Chat Model Run asking the user", () => {
 		expect(execute).toHaveBeenCalledTimes(1);
 		expect(fetch).toHaveBeenCalledTimes(2);
 		expect(JSON.stringify(parseRequestBody(fetch, 1))).toContain(
-			"Each question needs 2 or 3 options.",
+			"Question 1 needs 2 to 4 options.",
 		);
 		expect(events).toContainEqual({
 			type: "text_delta",
@@ -6520,7 +6520,7 @@ describe("Normal Chat Model Run asking the user", () => {
 							{
 								id: "call-bad-ask",
 								name: "ask_user",
-								// one option, where a question needs two or three
+								// one option, where a question needs two to four
 								arguments: JSON.stringify({
 									questions: [
 										{ question: "Which way?", options: [{ label: "Slow" }] },
