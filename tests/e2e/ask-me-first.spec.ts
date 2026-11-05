@@ -269,6 +269,30 @@ async function pressWhenAwake(control: Locator) {
 	await control.click();
 }
 
+/** Where an element sits and how big it is. */
+type Box = { x: number; y: number; width: number; height: number };
+
+/** The element's box once it has stopped moving. */
+async function settledBox(locator: Locator): Promise<Box> {
+	await waitForStableBoundingBox(locator);
+	const box = await locator.boundingBox();
+	expect(box, "the element is laid out").not.toBeNull();
+	return box as Box;
+}
+
+/**
+ * `after` is where `before` was and as big, to half a pixel. It is what the page lays out,
+ * not what is painted around it: a ring drawn as a shadow takes no part.
+ */
+function expectSameBox(after: Box, before: Box, what: string) {
+	for (const edge of ["x", "y", "width", "height"] as const) {
+		expect(
+			Math.abs(after[edge] - before[edge]),
+			`${what}: how far its ${edge} moved, in px`,
+		).toBeLessThanOrEqual(0.5);
+	}
+}
+
 /** The model has carried the reply on with `words` (what the script says after an answer), in the last segment. */
 async function expectCarriedOn(page: Page, words: string) {
 	await expect(
@@ -684,12 +708,22 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			(document.activeElement as HTMLElement | null)?.blur(),
 		);
 		await expect(page.locator("body")).toBeFocused();
+		// Opening the line moves nothing: it takes the row's box, and the card does not grow.
+		// Its accent edge and ring are paint (a border of the same width, a shadow).
+		const rowBefore = await settledBox(card.getByTestId("ask-own-row"));
+		const cardBefore = await settledBox(card);
 
 		await page.keyboard.type(words);
 
 		const line = card.getByTestId("ask-own-input");
 		await expect(line).toHaveValue(words);
 		await expect(line).toBeFocused();
+		expectSameBox(
+			await settledBox(card.getByTestId("ask-own-field")),
+			rowBefore,
+			"the open line, against the row it opened from",
+		);
+		expectSameBox(await settledBox(card), cardBefore, "the card");
 		await expect(page.getByTestId("message-input")).toHaveValue("");
 
 		await page.keyboard.press("Enter");
@@ -786,7 +820,17 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 
 		// The second is answered in the person's own words.
 		const second = card.getByTestId("ask-question").nth(1);
+		// This card has no send in its line (the footer's Send is the card's), and the line
+		// still takes the row's box.
+		const rowBefore = await settledBox(second.getByTestId("ask-own-row"));
+		const cardBefore = await settledBox(card);
 		await second.getByTestId("ask-own-row").click();
+		expectSameBox(
+			await settledBox(second.getByTestId("ask-own-field")),
+			rowBefore,
+			"the open line, against the row it opened from",
+		);
+		expectSameBox(await settledBox(card), cardBefore, "the card");
 		await second.getByTestId("ask-own-input").fill(ownWords);
 		await expect(send).toBeEnabled();
 		await send.click();
@@ -979,12 +1023,21 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		expect(closeBox?.width).toBeGreaterThanOrEqual(44);
 		expect(closeBox?.height).toBeGreaterThanOrEqual(44);
 
-		// 16 px, or iOS zooms the page when the line takes the focus.
+		// 16 px, or iOS zooms the page when the line takes the focus. And the line takes the
+		// row's box: on a phone it holds a bigger send button, which used to make it taller.
+		const ownBefore = await settledBox(own);
+		const cardBefore = await settledBox(card);
 		await own.click();
 		await expect(card.getByTestId("ask-own-input")).toHaveCSS(
 			"font-size",
 			"16px",
 		);
+		expectSameBox(
+			await settledBox(card.getByTestId("ask-own-field")),
+			ownBefore,
+			"the open line, against the row it opened from",
+		);
+		expectSameBox(await settledBox(card), cardBefore, "the card");
 	});
 
 	test("a Hungarian reader gets the app's words in Hungarian", async ({

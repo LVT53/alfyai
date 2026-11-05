@@ -1502,6 +1502,56 @@ describe("AskQuestionCard", () => {
 			expect(rule(source, ".ask")).toMatch(/margin:\s*16px 0 0/);
 		});
 
+		it("gives the row for own words and the open line one height, so opening the line moves nothing", () => {
+			// The open line holds a send button (26 px, 32 px on a phone) and used to be taller
+			// than the row it opens from, which pushed the card down. Both now take one height
+			// as their minimum and carry no vertical padding of their own: what they hold is
+			// centred in it, so the box is the same before and after. A real browser measures
+			// the boxes (ask-me-first.spec.ts); jsdom lays nothing out, so the stylesheet is
+			// the subject here.
+			const heightIn = (css: string) =>
+				Number(rule(css, ".ask").match(/--ask-own-height:\s*(\d+)px/)?.[1]);
+			const sendIn = (css: string) =>
+				Number(rule(css, ".mini-send").match(/height:\s*(\d+)px/)?.[1]);
+			const BORDERS = 2;
+			expect(heightIn(source)).toBeGreaterThanOrEqual(sendIn(source) + BORDERS);
+			expect(heightIn(phone)).toBeGreaterThanOrEqual(sendIn(phone) + BORDERS);
+			// And a phone's row stays the touch target it was.
+			expect(heightIn(phone)).toBeGreaterThanOrEqual(44);
+			for (const selector of [".opt.own", ".own-field"]) {
+				expect(rule(source, selector), selector).toMatch(
+					/min-height:\s*var\(--ask-own-height\)/,
+				);
+			}
+			// The same border at rest and open (the row takes the answers', and does not
+			// set one of its own): only its colour differs.
+			expect(rule(source, ".opt")).toMatch(/border:\s*1px solid/);
+			expect(rule(source, ".opt.own")).not.toMatch(/border/);
+			expect(rule(source, ".own-field")).toMatch(/border:\s*1px solid/);
+			expect(rule(source, ".opt.own")).toMatch(/padding-block:\s*0\s*;/);
+			expect(rule(source, ".own-field")).toMatch(/padding:\s*0 10px 0 12px/);
+			// Nothing in the phone block sets the line's height a second time.
+			expect(rule(phone, ".own-field")).not.toMatch(/height/);
+		});
+
+		it("changes only colours and shadows on hover, focus and selection, never the box", () => {
+			const style = source
+				.slice(source.indexOf("<style>"))
+				.replace(/\/\*[\s\S]*?\*\//g, "");
+			const stateRules = [...style.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+				.map(([, selector, body]) => ({ selector: selector.trim(), body }))
+				.filter(({ selector }) =>
+					/:hover|:focus|:active|\.sel\b/.test(selector),
+				);
+			// The states this guards are there to be read.
+			expect(stateRules.length).toBeGreaterThanOrEqual(4);
+			for (const { selector, body } of stateRules) {
+				expect(body, selector).not.toMatch(
+					/(^|[;\s])(border|border-width|padding|margin|width|height|min-height|font-size|line-height)\s*:/,
+				);
+			}
+		});
+
 		it("uses no colour that is not a token", () => {
 			const style = source.slice(source.indexOf("<style>"));
 			expect(style.match(/#[0-9a-fA-F]{3,8}\b/g)).toBeNull();

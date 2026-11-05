@@ -361,7 +361,7 @@ function takeKey(event: KeyboardEvent) {
 							</button>
 						{/each}
 						{#if form.open[index]}
-							<div class="own-field">
+							<div class="own-field" data-testid="ask-own-field">
 								<span class="own-icon"><PenLine size={14} strokeWidth={2} aria-hidden="true" /></span>
 								<input
 									bind:this={inputs[index]}
@@ -467,6 +467,11 @@ function takeKey(event: KeyboardEvent) {
 		color: var(--text-primary);
 		/* The edge of the round and square marks: --control in the mockup. */
 		--ask-control: color-mix(in srgb, var(--text-primary) 32%, transparent);
+		/* How tall the row for your own words is, shut and open. The open line holds a 26px
+		   send button between its borders and used to be taller than the row it opens from,
+		   so the card moved when it opened. Both take this as their minimum height and centre
+		   what they hold in it, so the box is the same before and after. */
+		--ask-own-height: 40px;
 	}
 
 	/* The folded line takes the mockup's .rec margin (its sides are the row's own). */
@@ -618,6 +623,9 @@ function takeKey(event: KeyboardEvent) {
 	.opt.own {
 		align-items: center;
 		color: var(--text-muted);
+		/* The height is the token's (see --ask-own-height), not the label's plus padding. */
+		padding-block: 0;
+		min-height: var(--ask-own-height);
 	}
 
 	.own-icon {
@@ -626,12 +634,15 @@ function takeKey(event: KeyboardEvent) {
 		margin: 0 1px;
 	}
 
-	/* The open line: an accent edge and ring. */
+	/* The open line: an accent edge and ring. The edge is the 1px border the row has, in
+	   another colour, and the ring is a shadow: neither takes room, and the height is the
+	   row's (see --ask-own-height). */
 	.own-field {
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		padding: 8px 10px 8px 12px;
+		min-height: var(--ask-own-height);
+		padding: 0 10px 0 12px;
 		border: 1px solid var(--accent);
 		border-radius: var(--radius-md);
 		background: var(--surface-page);
@@ -767,6 +778,8 @@ function takeKey(event: KeyboardEvent) {
 	@media (max-width: 767px) {
 		.ask {
 			font-size: var(--text-base);
+			/* A touch target, with room for the 32px send between the borders. */
+			--ask-own-height: 44px;
 		}
 
 		.q:first-child .q-text {
@@ -783,10 +796,6 @@ function takeKey(event: KeyboardEvent) {
 		.opt {
 			min-height: 44px;
 			padding: 10px 12px;
-		}
-
-		.own-field {
-			min-height: 44px;
 		}
 
 		/* 16px, or iOS zooms the page when the line gets the focus. */

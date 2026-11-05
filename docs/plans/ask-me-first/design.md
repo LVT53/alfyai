@@ -212,6 +212,7 @@ Chat strings go in `src/lib/i18n/chat.ts`, held in both locales by `chat.test.ts
 | 2026-11-03 | The sidebar shows only the icon, with no label. Own words are typed in the card's own line, not the message box. An X at the card's top right closes it and tells the model the question was off, or to guess. Every question has a Recommended answer that the model marks. |
 | 2026-11-03 | The Recommended mark is not mandatory on a question with several picks. The design (mockups v2) is approved. |
 | 2026-11-05 | After trying the card: "Up to you" is now "Decide for me" and "Type my own..." is now "Other" (Hungarian: "Egyéb"; "Rád bízom" stays). |
+| 2026-11-05 | After trying the card: opening the line for your own words must not change the size of anything; the row and the line are one height. |
 
 ## 7. My calls, for the owner to check
 
