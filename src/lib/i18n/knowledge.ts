@@ -27,7 +27,13 @@ const knowledgeDict = {
 		"knowledge.date": "Date",
 		"knowledge.deleteConfirm": "Delete document?",
 		"knowledge.deleteDocument": "Delete Document",
+		"knowledge.deleteDocumentQuestion":
+			"Remove “{name}” from the Knowledge Base?",
+		"knowledge.deleteDocumentQuestionUnnamed":
+			"Remove this document from the Knowledge Base?",
 		"knowledge.deleteDocuments": "Delete Documents",
+		"knowledge.deleteDocumentsQuestion":
+			"Delete {count} selected {count, plural, one {document} other {documents}}? This cannot be undone.",
 		"knowledge.deleteSelected": "Delete Selected",
 		"knowledge.description":
 			"Persistent documents and a live memory view of what the system currently knows about you.",
@@ -571,7 +577,13 @@ const knowledgeDict = {
 		"knowledge.date": "Dátum",
 		"knowledge.deleteConfirm": "Biztosan törlöd a dokumentumot?",
 		"knowledge.deleteDocument": "Dokumentum törlése",
+		"knowledge.deleteDocumentQuestion":
+			"Eltávolítod a(z) „{name}” dokumentumot a Tudásbázisból?",
+		"knowledge.deleteDocumentQuestionUnnamed":
+			"Eltávolítod ezt a dokumentumot a Tudásbázisból?",
 		"knowledge.deleteDocuments": "Dokumentumok törlése",
+		"knowledge.deleteDocumentsQuestion":
+			"Törlöd a kijelölt {count} dokumentumot? Ez nem vonható vissza.",
 		"knowledge.deleteSelected": "Kijelöltek törlése",
 		"knowledge.description":
 			"Tartós dokumentumok és egy élő memórianézet arról, amit a rendszer jelenleg tud rólad.",

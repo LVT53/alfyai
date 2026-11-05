@@ -1163,9 +1163,14 @@ $effect(() => {
 </div>
 
 {#if documentDeleteCandidateId}
+	{@const candidateName = documents.find(
+		(document) => document.id === documentDeleteCandidateId,
+	)?.name}
 	<ConfirmDialog
 		title={$t('knowledge.deleteDocument')}
-		message={`Remove "${documents.find((document) => document.id === documentDeleteCandidateId)?.name ?? "this document"}" from the Knowledge Base?`}
+		message={candidateName
+			? $t('knowledge.deleteDocumentQuestion', { name: candidateName })
+			: $t('knowledge.deleteDocumentQuestionUnnamed')}
 		confirmText={$t('common.delete')}
 		confirmVariant="danger"
 		onCancel={() => (documentDeleteCandidateId = null)}
@@ -1182,7 +1187,9 @@ $effect(() => {
 {#if bulkDeleteCandidateIds}
 	<ConfirmDialog
 		title={$t('knowledge.deleteDocuments')}
-		message={`Delete ${bulkDeleteCandidateIds.length} selected document${bulkDeleteCandidateIds.length === 1 ? "" : "s"}? This cannot be undone.`}
+		message={$t('knowledge.deleteDocumentsQuestion', {
+			count: bulkDeleteCandidateIds.length,
+		})}
 		confirmText={$t('common.delete')}
 		confirmVariant="danger"
 		onCancel={() => (bulkDeleteCandidateIds = null)}
