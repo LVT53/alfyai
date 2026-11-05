@@ -126,6 +126,11 @@ let memoryTimelineReports = $state<MemoryTimelineReport[]>([]);
 let memoryProcessing = $state<
 	KnowledgeMemoryOverviewPayload["processing"] | null
 >(null);
+// Whether the person has memory switched on in Settings. The page is loaded
+// knowing (`data.memoryEnabled`, so the Memory tab can say "off" in its first
+// paint); the overview, read live each time the profile loads, has the last word.
+let memoryEnabledLive = $state<boolean | null>(null);
+const memoryEnabled = $derived(memoryEnabledLive ?? data.memoryEnabled ?? null);
 let lastMemoryProfileTabState = $state<KnowledgeTab | null>(null);
 let openMemoryReviewCount = $derived(memoryProfile?.review.openCount ?? 0);
 // Guards the one-time scroll-to-review-section handoff from the home
@@ -816,7 +821,9 @@ async function loadMemoryProfile(force = false) {
 
 async function refreshMemoryOverview() {
 	try {
-		memoryProcessing = (await fetchKnowledgeMemoryOverview()).processing;
+		const overview = await fetchKnowledgeMemoryOverview();
+		memoryProcessing = overview.processing;
+		memoryEnabledLive = overview.memoryEnabled;
 	} catch (error) {
 		console.warn("[KNOWLEDGE_MEMORY] Failed to load memory overview", error);
 	}
@@ -1084,6 +1091,7 @@ $effect(() => {
 				<div id="memory-profile-panel" role="tabpanel" aria-labelledby="memory-profile-tab">
 					<KnowledgeMemoryView
 						profile={memoryProfile}
+						{memoryEnabled}
 						{memoryLoading}
 						{memoryLoaded}
 						{memoryLoadError}

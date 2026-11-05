@@ -111,7 +111,8 @@ const memoryProfilePayload = {
 	},
 } satisfies MemoryProfilePublicPayload;
 
-function pageData(): {
+function pageData(memoryEnabled?: boolean): {
+	memoryEnabled?: boolean;
 	library: {
 		documents: [];
 		results: [];
@@ -127,6 +128,7 @@ function pageData(): {
 	};
 } {
 	return {
+		...(memoryEnabled === undefined ? {} : { memoryEnabled }),
 		library: {
 			documents: [],
 			results: [],
@@ -430,5 +432,53 @@ describe("Knowledge page memory loading", () => {
 		expect(within(dialog).getByRole("alert")).toHaveTextContent(
 			"Memory profile was updated. Review the latest profile and try again.",
 		);
+	});
+
+	// Memory off in Settings: the notice is there with the first paint (the
+	// page's own load says so), and the overview's answer, which is read live,
+	// has the last word.
+	describe("when the person has switched memory off", () => {
+		it("says so as soon as the profile shows, from what the page was loaded with", async () => {
+			vi.mocked(fetchKnowledgeMemoryOverview).mockReturnValue(
+				new Promise(() => {}),
+			);
+
+			render(KnowledgePage, { data: pageData(false) });
+
+			expect(await screen.findByTestId("memory-off-notice")).toHaveTextContent(
+				"Memory is off",
+			);
+		});
+
+		it("says so when the live overview says it, though the page was loaded with memory on", async () => {
+			vi.mocked(fetchKnowledgeMemoryOverview).mockResolvedValue({
+				memoryEnabled: false,
+				processing: { active: false, pendingCount: 0 },
+			} as Awaited<ReturnType<typeof fetchKnowledgeMemoryOverview>>);
+
+			render(KnowledgePage, { data: pageData(true) });
+
+			expect(
+				await screen.findByTestId("memory-off-notice"),
+			).toBeInTheDocument();
+		});
+
+		it("takes the notice away when the live overview says memory is on", async () => {
+			render(KnowledgePage, { data: pageData(false) });
+			await screen.findByText("Levi prefers concise memory behavior.");
+
+			await waitFor(() =>
+				expect(
+					screen.queryByTestId("memory-off-notice"),
+				).not.toBeInTheDocument(),
+			);
+		});
+
+		it("says nothing while memory is on", async () => {
+			render(KnowledgePage, { data: pageData(true) });
+			await screen.findByText("Levi prefers concise memory behavior.");
+
+			expect(screen.queryByTestId("memory-off-notice")).not.toBeInTheDocument();
+		});
 	});
 });

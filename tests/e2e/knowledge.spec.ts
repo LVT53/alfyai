@@ -181,6 +181,51 @@ test.describe("Knowledge page", () => {
 		).toHaveCount(0);
 	});
 
+	// Settings' Memory switch pauses all learning and all use of the profile; the
+	// memories are kept and stay listed here, so the tab has to say they are idle.
+	test.describe("when the person has switched memory off", () => {
+		async function setMemoryEnabled(enabled: boolean) {
+			await db
+				.update(users)
+				.set({ memoryEnabled: enabled })
+				.where(eq(users.email, TEST_EMAIL));
+		}
+
+		// A worker keeps its database from one spec file to the next.
+		test.afterEach(async () => {
+			await setMemoryEnabled(true);
+		});
+
+		test("the Memory tab says so in its first paint, and links to the switch", async ({
+			page,
+		}) => {
+			await setMemoryEnabled(false);
+
+			await page.goto("/knowledge?tab=memory", {
+				waitUntil: "domcontentloaded",
+			});
+			const notice = page.getByTestId("memory-off-notice");
+			await expect(notice).toBeVisible();
+			await expect(notice).toContainText("Memory is off");
+			await expect(
+				page.getByRole("heading", { name: "About You", exact: true }),
+			).toBeVisible();
+
+			await notice
+				.getByRole("link", { name: "Turn it on in Settings" })
+				.click();
+			await expect(page).toHaveURL(/\/settings\?section=memory/);
+		});
+
+		test("says nothing while memory is on", async ({ page }) => {
+			await setMemoryEnabled(true);
+
+			await openMemoryProfile(page);
+
+			await expect(page.getByTestId("memory-off-notice")).toHaveCount(0);
+		});
+	});
+
 	test("document list does not render filter pills", async ({ page }) => {
 		await page.getByRole("tab", { name: "Documents" }).click();
 		await expect(

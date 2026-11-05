@@ -7,6 +7,7 @@ import {
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemoryProfilePublicPayload } from "$lib/memory-profile-types";
+import { uiLanguage } from "$lib/stores/settings";
 import KnowledgeMemoryView from "./KnowledgeMemoryView.svelte";
 
 const { fetchMemoryProfileItemDetailMock } = vi.hoisted(() => ({
@@ -1408,5 +1409,60 @@ describe("KnowledgeMemoryView", () => {
 		await fireEvent.click(screen.getByTestId("memory-category-disclosure"));
 		expect(container.querySelectorAll(".memory-row")).toHaveLength(8);
 		expect(container.querySelectorAll(".memory-row.is-first")).toHaveLength(1);
+	});
+
+	// Settings' "Memory" switch pauses all learning and all use of the profile;
+	// the memories themselves are kept. This tab is where a person looks at them,
+	// so it has to say that they are not being used, and where to turn that back on.
+	describe("when memory is off", () => {
+		beforeEach(() => {
+			uiLanguage.set("en");
+		});
+
+		it("says memory is off, what that means, and where to turn it on", () => {
+			renderMemoryView({ memoryEnabled: false });
+
+			const notice = screen.getByTestId("memory-off-notice");
+			expect(within(notice).getByText("Memory is off")).toBeInTheDocument();
+			expect(
+				within(notice).getByText(/isn't learning from your chats/),
+			).toBeInTheDocument();
+			expect(
+				within(notice).getByRole("link", { name: "Turn it on in Settings" }),
+			).toHaveAttribute("href", "/settings?section=memory");
+		});
+
+		it("still lists what is kept", () => {
+			renderMemoryView({ memoryEnabled: false });
+
+			expect(
+				screen.getByText("Levi prefers concise memory behavior."),
+			).toBeInTheDocument();
+		});
+
+		it("says nothing while memory is on, or while that is not known yet", () => {
+			for (const memoryEnabled of [true, null, undefined]) {
+				const { unmount } = renderMemoryView({ memoryEnabled });
+				expect(
+					screen.queryByTestId("memory-off-notice"),
+				).not.toBeInTheDocument();
+				unmount();
+			}
+		});
+
+		it("says it in Hungarian for a Hungarian reader", () => {
+			uiLanguage.set("hu");
+			renderMemoryView({ memoryEnabled: false });
+
+			const notice = screen.getByTestId("memory-off-notice");
+			expect(
+				within(notice).getByText("A memória ki van kapcsolva"),
+			).toBeInTheDocument();
+			expect(
+				within(notice).getByRole("link", {
+					name: "Bekapcsolás a beállításokban",
+				}),
+			).toBeInTheDocument();
+		});
 	});
 });

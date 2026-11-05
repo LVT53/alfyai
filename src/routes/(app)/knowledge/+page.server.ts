@@ -4,6 +4,7 @@ import {
 	type KnowledgeLibrarySortDirection,
 	type KnowledgeLibrarySortKey,
 } from "$lib/server/services/knowledge";
+import { isUserMemoryEnabled } from "$lib/server/services/memory-controls";
 import {
 	parseFileFamilyFilter,
 	parseKnowledgeKindFilter,
@@ -41,17 +42,22 @@ export const load: PageServerLoad = async (event) => {
 	if (!user) {
 		throw redirect(302, "/login");
 	}
-	const library = await getKnowledgeLibraryPage(user.id, {
-		query: event.url.searchParams.get("q"),
-		sortKey: parseSortKey(event.url.searchParams.get("sort")),
-		sortDirection: parseSortDirection(event.url.searchParams.get("dir")),
-		page: parsePositiveInteger(event.url.searchParams.get("page")),
-		pageSize: parsePositiveInteger(event.url.searchParams.get("pageSize")),
-		kindFilter: parseKnowledgeKindFilter(event.url.searchParams.get("type")),
-		fileFamilyFilter: parseFileFamilyFilter(
-			event.url.searchParams.get("family"),
-		),
-	});
+	const [library, memoryEnabled] = await Promise.all([
+		getKnowledgeLibraryPage(user.id, {
+			query: event.url.searchParams.get("q"),
+			sortKey: parseSortKey(event.url.searchParams.get("sort")),
+			sortDirection: parseSortDirection(event.url.searchParams.get("dir")),
+			page: parsePositiveInteger(event.url.searchParams.get("page")),
+			pageSize: parsePositiveInteger(event.url.searchParams.get("pageSize")),
+			kindFilter: parseKnowledgeKindFilter(event.url.searchParams.get("type")),
+			fileFamilyFilter: parseFileFamilyFilter(
+				event.url.searchParams.get("family"),
+			),
+		}),
+		// The Memory tab says "Memory is off" in its first paint, so the page is
+		// loaded knowing whether the person switched memory off in Settings.
+		isUserMemoryEnabled(user.id),
+	]);
 
-	return { library };
+	return { library, memoryEnabled };
 };
