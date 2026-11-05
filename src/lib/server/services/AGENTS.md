@@ -286,6 +286,7 @@ Other services in active use:
 ## Rules In Other Files
 
 - Prompt text, the reply language and any new model call: `chat-turn/AGENTS.md` (ruling 79), which also governs `normal-chat-context.ts`, `language.ts` and `title-generator.ts`.
+- `ask_user`, the pause and the resume (`normal-chat-tools/ask-user.ts`, the `ask-*.ts` files in `chat-turn/`, the answer route): `chat-turn/AGENTS.md`, "Asking The Person".
 - Memory, in every `memory-*/` folder and in `memory.ts`, `memory-maintenance.ts`, `memory-behavior-log.ts` and `memory-recuration.ts`: `memory-profile/AGENTS.md`.
 - `chat-files.ts` and produced files: `file-production/AGENTS.md`.
 - `images/` (the ComfyUI client and its fake, graphs, pixel guards, picture files, cards and takes, the image job): `images/AGENTS.md`.

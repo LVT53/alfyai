@@ -24,6 +24,7 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 | Sidebar selection (picking several chats, the bar, bulk delete, move and pin) | `tests/e2e/sidebar-multi-select.spec.ts` |
 | Seeing images (image attachments, the "Can see images" tick) | `tests/e2e/vision.spec.ts` |
 | Making pictures (the `make_image` tool against the fake ComfyUI: card, take, Image item, PNG file; and the card, panel, History, Attach and marks end to end) | `tests/e2e/images-pipeline.spec.ts`, `tests/e2e/images.spec.ts`, `tests/e2e/images-composer.spec.ts`, plus the motion and History checks in `images-motion.spec.ts` and `images-history.spec.ts` (helpers: `images-helpers.ts`; markers: `AI_SMOKE_MAKE_IMAGE_MARKER` in `tests/fixtures/ai/openai-compatible-scenarios.ts`, the late-picture markers in `tests/fixtures/ai/late-picture-scenario.ts`; the fake renders RGBA for a transparent request) |
+| Asking the person (the `ask_user` card and its folded line, the resume that carries the reply on, a reload, a second tab, Retry, a queued message, the sidebar mark, an update) | `tests/e2e/ask-me-first.spec.ts` (the fake model's ask: `askTurnMessage` and `AI_SMOKE_ASK_MARKER` in `tests/fixtures/ai/chat-turn-scenarios.ts`, `askTurnReply` in `tests/mocks/ai-provider/chat-turn-scripts.ts`) |
 | Mobile/responsive | `tests/e2e/mobile-*.spec.ts`, `tests/e2e/responsive*.spec.ts` |
 | Server routes | `src/routes/api/**/*.test.ts` |
 | Services/stores | `src/lib/**/*.test.ts` |
@@ -36,6 +37,8 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 **E2E helpers**: Reuse `tests/e2e/helpers.ts` for login, logout, sendMessage, createConversation.
 
 **Mocking**: Use `page.route()` to intercept API calls in E2E. Mock servers live in `tests/mocks/`.
+
+**Acting while a reply runs**: hold the reply, never wait a fixed time. A scripted reply (`ScriptedChatTurnReply`, `tests/mocks/ai-provider/chat-turn-scripts.ts`) can name a `hold`: the fake provider records the request at once, then waits until the test calls the harness's `release(name)` (`tests/mocks/ai-provider/openai-compatible-provider.ts`). A test that must reload, queue a message, race a second tab or look at the page while a reply is still being written holds it and releases when its step is done; polling the provider's `requests()` tells it the reply is there. A fixed delay ties a test to the speed of the machine, and the release gate runs 6 to 8 workers beside vitest. A released hold stays open until `reset()`, and `reset()` and `stop()` let go of every hold, so a failed test cannot leave a reply open (the server waits for its open replies); a hold has no timeout of its own. The ask spec's two holds are `AI_SMOKE_ASK_HOLD_ASK` and `AI_SMOKE_ASK_HOLD_RESUME` (`tests/fixtures/ai/chat-turn-scenarios.ts`: the `slow` and `slowresume` modes of `askTurnMessage`).
 
 **Test mode**: Playwright sets `PLAYWRIGHT_TEST=1`. No conversation is named in this mode (`ensureConversationTitle` returns `null`), to avoid external service deps.
 
@@ -57,7 +60,7 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 
 - **Iterating on UI code** (a rebuild per change would be slower): `E2E_SERVER=dev E2E_PORT=<port> npx playwright test <spec>`: `vite dev`, one worker by default, one optimizer cache per server.
 - **One or two specs on the build:** `E2E_PORT=<port> E2E_WORKERS=2 npx playwright test <spec> [<spec>]`. Beside one or two other agents use `E2E_WORKERS=4` at most; a run takes `E2E_WORKERS` ports from `E2E_PORT`.
-- **The smoke tier** (27 tests tagged `@smoke` across sign in, chat and streaming, seeing images, each artifact kind in the panel, a Document edit and its version, a Canvas block, a tour, knowledge, settings and projects; about 30 s): `E2E_PORT=<port> npm run test:e2e:smoke`.
+- **The smoke tier** (31 tests tagged `@smoke` in 23 files, counted with `npx playwright test --list --grep @smoke`: sign in, chat and streaming, a failed stream and its Retry, seeing images, making pictures, each artifact kind in the panel, a Document edit and its version, a Canvas block and its review, a tour, knowledge, search, settings, projects, an update during a turn and asking the person; about 30 s): `E2E_PORT=<port> npm run test:e2e:smoke`.
 - A spec that makes a conversation only to put things in it uses `createEmptyConversation` (no first message, so no first turn to a model the server cannot reach racing everything after it), not `createConversation`. A block that gets a poster (map, App, photos, live web) has a hidden copy of itself in `<body>` meanwhile: address it as `liveBlock(page, testId)`, not `page.getByTestId(testId)`. Both are held by `tests/integration/e2e-conventions.test.ts`, which names the file and the fix.
 
 Playwright note:
