@@ -1193,6 +1193,17 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			Math.abs(underTheEdge - THREAD_END_CARD_INSET_PX),
 			"px between the card's top and where the thread rests it",
 		).toBeLessThanOrEqual(0.5);
+
+		// A reload draws the card where it was and does not play it in: the server drew it,
+		// so it is on screen from the first paint, and an entrance would hide it and bring
+		// it back (it dropped to transparent 150 ms in and rose again: a blink).
+		await reloadChat(page);
+		await expect(card).toBeVisible({ timeout: 30_000 });
+		await waitForMotionToSettle(page);
+		expect(
+			await cardPlays(page),
+			"the card's animations after a reload",
+		).toEqual([]);
 	});
 
 	test("a reader who asked for no motion sees the card appear without any", async ({

@@ -1560,14 +1560,15 @@ describe("AskQuestionCard", () => {
 		it("rises into place when it appears: one global transition, through the reduced-motion wrapper, on transform and opacity only", () => {
 			// A local transition never plays here (measured in a real browser: no animation at
 			// all): the card is created whole by its message, and a local one plays only when
-			// its own block is toggled. `|global` plays it whenever the card is drawn: when
-			// Alfy asks during a reply, and again when a reload or a visit to the chat draws
-			// it. `fly` moves transform and opacity and nothing else.
-			// Its numbers (8 to 12 px, the emphasis duration and curve) are
-			// ask-card-motion.test.ts's.
+			// its own block is toggled. `|global` plays it whenever a card is drawn after the
+			// app is up: when Alfy asks during a reply, or the chat is opened from the sidebar.
+			// A card the server drew (a reload) is left alone, or it would blink: that guard,
+			// and the numbers (8 to 12 px, the emphasis duration and curve), are
+			// ask-card-motion.test.ts's. `fly` moves transform and opacity and nothing else.
 			const markup = source.slice(0, source.indexOf("<style>"));
-			expect(markup).toMatch(/import \{ fly \} from "svelte\/transition"/);
-			expect(markup).toMatch(/const cardRise = reducedMotionAware\(fly\);/);
+			expect(markup).toMatch(
+				/const cardRise = reducedMotionAware\(riseUnlessDrawnByTheServer\);/,
+			);
 			expect(markup).toMatch(/in:cardRise\|global=\{CARD_RISE\}/);
 			// On the way in only: the folded line replaces the card at once, as it did.
 			expect(markup).not.toMatch(/\b(out|transition):[a-zA-Z]+/);

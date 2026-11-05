@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fly } from "svelte/transition";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MOTION_DURATION, MOTION_EASE } from "$lib/utils/motion";
 import { CARD_RISE } from "./ask-card-motion";
 
@@ -47,5 +47,46 @@ describe("CARD_RISE", () => {
 		expect(start).toContain("opacity: 0");
 		expect(end).toContain("translate(0px, 0px)");
 		expect(end).toContain("opacity: 1");
+	});
+});
+
+// A card the server drew is on screen from the first paint. Played in, it would be hidden
+// and brought back (measured in a real browser on a reload: opaque at the first paint,
+// transparent 150 ms later, then rising in), so the entrance skips the cards that were in
+// the page before the app ran: those present when the module loads.
+describe("riseUnlessDrawnByTheServer", () => {
+	afterEach(() => {
+		document.body.innerHTML = "";
+		vi.resetModules();
+	});
+
+	it("plays nothing on a card that was in the page when the app started, and rises on one the client makes", async () => {
+		vi.resetModules();
+		document.body.innerHTML = '<article data-testid="ask-card"></article>';
+		const drawn = document.querySelector('[data-testid="ask-card"]') as Element;
+		const motion = await import("./ask-card-motion");
+
+		expect(motion.riseUnlessDrawnByTheServer(drawn, motion.CARD_RISE)).toEqual({
+			duration: 0,
+		});
+
+		// One made later, in a page that is already up (Alfy asks during a reply), rises.
+		const made = document.createElement("article");
+		made.setAttribute("data-testid", "ask-card");
+		made.style.opacity = "1";
+		document.body.append(made);
+		expect(
+			motion.riseUnlessDrawnByTheServer(made, motion.CARD_RISE).duration,
+		).toBe(MOTION_DURATION.emphasis);
+	});
+
+	it("rises on every card when the page had none to start with", async () => {
+		vi.resetModules();
+		const motion = await import("./ask-card-motion");
+		const made = document.createElement("article");
+		made.style.opacity = "1";
+		expect(
+			motion.riseUnlessDrawnByTheServer(made, motion.CARD_RISE).duration,
+		).toBe(MOTION_DURATION.emphasis);
 	});
 });
