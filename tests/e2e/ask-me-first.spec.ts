@@ -578,6 +578,51 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		expectResumeOfFirstAsk(resume);
 	});
 
+	// Ruling 42: while the question waits the message box is drawn at half strength, and
+	// only what it holds. A tall card opens at its top, so its last rows sit under the
+	// floating composer, and a surface at half strength showed them through it (text over
+	// text). jsdom applies no component CSS, so only a real browser can say what is drawn.
+	test("the composer waits at half strength while its surface stays opaque", async ({
+		page,
+	}) => {
+		await startTurn(page, "one");
+		await expectWaitingCard(page);
+
+		const looks = await page.evaluate(() => {
+			const box = document.querySelector('[data-testid="composer-box"]');
+			const surface = box?.querySelector(".message-composer");
+			const field = surface?.querySelector(".composer-field");
+			const actions = surface?.querySelector(".composer-actions");
+			const opacityOf = (element: Element | null | undefined) =>
+				element ? getComputedStyle(element).opacity : null;
+			return {
+				box: opacityOf(box),
+				surface: opacityOf(surface),
+				field: opacityOf(field),
+				actions: opacityOf(actions),
+				// every face that is off, as it is drawn
+				faces: [
+					...(surface?.querySelectorAll(".composer-face:disabled") ?? []),
+				].map((face) => getComputedStyle(face).opacity),
+				background: surface ? getComputedStyle(surface).backgroundColor : "",
+			};
+		});
+
+		// The box and the surface are drawn whole ...
+		expect(looks.box).toBe("1");
+		expect(looks.surface).toBe("1");
+		// ... with a colour that has no alpha in it (an `rgb(...)` or `color(...)` without
+		// a slash), so the card's rows beneath do not show through ...
+		expect(looks.background).not.toBe("");
+		expect(looks.background).not.toContain("/");
+		expect(looks.background).not.toMatch(/^rgba\(/);
+		// ... and what it holds is at half strength, once: a face that is off is not
+		// halved twice.
+		expect(looks.field).toBe("0.5");
+		expect(looks.actions).toBe("0.5");
+		for (const face of looks.faces) expect(face).toBe("1");
+	});
+
 	test("the reply carries on with everything Alfy read before it asked", async ({
 		page,
 	}) => {

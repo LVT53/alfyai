@@ -361,11 +361,21 @@ $effect(() => {
 		pointer-events: auto;
 	}
 
-	/* A question waits for the person's answer: the message box is off, and drawn at half
-	   strength so the card above it is the one thing to answer (the mockup's
-	   `.composer:has(.waiting)`). */
-	.composer-box[data-waiting-for-answer] {
+	/* A question waits for the person's answer: the message box is off, and what it holds
+	   is drawn at half strength so the card above it is the one thing to answer (the
+	   mockup's `.composer:has(.waiting)`). The surface itself stays opaque, in both
+	   themes: a tall card opens at its top, so its last rows sit under the floating
+	   composer, and a surface at half strength showed them through it, text over text.
+	   So the dim is on the surface's children, not on the box or the surface. Not the
+	   queued-message strip, which says something the person still needs to know. A face
+	   that is off carries a dim of its own (MessageInput), which would be halved twice
+	   here: it is let go, and the group's half is its only one. */
+	.composer-box[data-waiting-for-answer] :global(.message-composer > :not(.composer-queued-strip)) {
 		opacity: 0.5;
+	}
+
+	.composer-box[data-waiting-for-answer] :global(.composer-face:disabled) {
+		opacity: 1;
 	}
 
 	@media (max-width: 767px) {

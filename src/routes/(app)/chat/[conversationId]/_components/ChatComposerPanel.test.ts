@@ -20,6 +20,11 @@ beforeEach(() => {
 	});
 });
 
+const stylesheet = readFileSync(
+	resolve(__dirname, "ChatComposerPanel.svelte"),
+	"utf8",
+);
+
 function renderComposerPanel(props: Record<string, unknown> = {}) {
 	return render(ChatComposerPanel, {
 		props: {
@@ -198,10 +203,13 @@ describe("ChatComposerPanel", () => {
 		expect(getByRole("button", { name: /retry/i })).toBeInTheDocument();
 	});
 
-	// "Ask me first": while Alfy waits for an answer the message box is off, and drawn
-	// at half strength (the mockup's `.composer:has(.waiting)`). Off is the page's
-	// `disabled`; this prop is the look, and nothing else about the box.
-	it("dims the composer while a question waits", async () => {
+	// "Ask me first": while Alfy waits for an answer the message box is off, and what it
+	// holds is drawn at half strength (the mockup's `.composer:has(.waiting)`). Off is the
+	// page's `disabled`; this prop is the look, and nothing else about the box. The
+	// surface stays opaque (Ruling 42): a tall card opens at its top, so its last rows sit
+	// under the floating composer, and a surface at half strength showed them through it,
+	// text over text.
+	it("dims what the composer holds while a question waits, and keeps its surface opaque", async () => {
 		const { getByTestId, getByText, rerender } = renderComposerPanel({
 			draftText: "Words typed meanwhile",
 			draftVersion: 1,
@@ -220,14 +228,25 @@ describe("ChatComposerPanel", () => {
 		expect(textarea).toHaveValue("Words typed meanwhile");
 		// The error above the box is not part of what is dimmed.
 		expect(box).not.toContainElement(getByText("Something went wrong"));
-		// Half strength, in the stylesheet that the attribute selects.
-		const source = readFileSync(
-			resolve(__dirname, "ChatComposerPanel.svelte"),
-			"utf8",
+		// jsdom applies no component CSS, so the stylesheet that the attribute selects
+		// is the subject for the look.
+		const WAITING = String.raw`\.composer-box\[data-waiting-for-answer\]`;
+		const ruleOf = (selector: string) =>
+			stylesheet.match(new RegExp(`${selector}\\s*\\{([\\s\\S]*?)\\}`))?.[1];
+		// The box and its surface keep their opacity: no rule halves either.
+		expect(ruleOf(WAITING) ?? "").not.toMatch(/opacity/);
+		expect(stylesheet).not.toMatch(
+			/:global\(\.message-composer\)\s*\{[^}]*opacity/,
 		);
-		expect(source).toMatch(
-			/\.composer-box\[data-waiting-for-answer\]\s*\{[^}]*opacity:\s*0\.5\s*;/,
+		// What the surface holds is at half strength, the queued-message strip aside.
+		const held = ruleOf(
+			String.raw`${WAITING} :global\(\.message-composer > :not\(\.composer-queued-strip\)\)`,
 		);
+		expect(held).toMatch(/opacity:\s*0\.5\s*;/);
+		// The faces that are off carry their own dim; it is not taken twice.
+		expect(
+			ruleOf(String.raw`${WAITING} :global\(\.composer-face:disabled\)`),
+		).toMatch(/opacity:\s*1\s*;/);
 
 		await rerender({ waitingForAnswer: false, disabled: false });
 
