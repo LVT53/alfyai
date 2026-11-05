@@ -48,7 +48,7 @@ Every test logs in, puts a temporary fake-provider model on the e2e admin and re
 
 ```ts
 test("a click on an answer carries the same reply on", { tag: "@smoke" }, async ({ page }) => {
-  // the card: article "Alfy's question"; three option rows; "Recommended" on "A party at home"; "Type my own..."; "Up to you"; button "Close the question"
+  // the card: article "Alfy's question"; three option rows; "Recommended" on "A party at home"; "Other"; "Decide for me"; button "Close the question"
   // the composer is disabled while it waits
   // click "A party at home" (expect.poll until the option is enabled: the 400 ms wake)
   // the folded line: "Which way should we take it?" and "A party at home"; no article left
@@ -62,7 +62,7 @@ test("the reply carries on with everything Alfy read before it asked", ...)
 test("letters typed with nothing focused go into the card's own line, and Enter sends them", ...)
   // keyboard.type("Smaller, maybe a picnic by the lake") with the body focused -> the line holds it; the composer holds nothing
   // Enter -> folded line shows “Smaller, maybe a picnic by the lake”; the request's ownWords is that text
-test("Up to you leaves the choice to Alfy", ...)       // folded "A party at home" "· left to Alfy"; status "left_to_you"
+test("Decide for me leaves the choice to Alfy", ...)       // folded "A party at home" "· left to Alfy"; status "left_to_you"
 test("the X closes the question and the reply carries on", ...)
   // folded line with "· closed" and no chevron; request status "closed" and its note; text "Carrying on with: closed"
 test("a card of several questions needs Send", ...)
@@ -74,7 +74,7 @@ test("the words above the card do not move when it folds or when the reply carri
 test("on a phone the answers are 44 px rows and the X a 44 px target", ...)
   // viewport 390x844; each option's box height >= 44; the X's box >= 44x44; the own line's computed font-size is 16px
 test("a Hungarian reader gets the app's words in Hungarian", ...)
-  // setLanguage("hu"): Javasolt, Saját válasz..., Rád bízom, aria-label "Kérdés bezárása"
+  // setLanguage("hu"): Javasolt, Egyéb, Rád bízom, aria-label "Kérdés bezárása"
 ```
 
 - [ ] **Step 2: Build and run the spec.** `npm run build`, then `E2E_PORT=5470 E2E_WORKERS=2 npx playwright test tests/e2e/ask-me-first.spec.ts`. Expected: PASS. A failure is a bug in the app or the test, never a retry or a longer timeout (root AGENTS.md).

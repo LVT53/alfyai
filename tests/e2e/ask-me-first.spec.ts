@@ -486,10 +486,10 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await expect(
 			card.getByTestId("ask-option").first().getByText("Recommended"),
 		).toBeVisible();
+		await expect(card.getByRole("button", { name: "Other" })).toBeVisible();
 		await expect(
-			card.getByRole("button", { name: "Type my own..." }),
+			card.getByRole("button", { name: "Decide for me" }),
 		).toBeVisible();
-		await expect(card.getByRole("button", { name: "Up to you" })).toBeVisible();
 		await expect(
 			card.getByRole("button", { name: "Close the question" }),
 		).toBeVisible();
@@ -709,11 +709,11 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		});
 	});
 
-	test("Up to you leaves the choice to Alfy", async ({ page }) => {
+	test("Decide for me leaves the choice to Alfy", async ({ page }) => {
 		await startTurn(page, "one");
 		const card = askCard(page);
 		await expect(card).toBeVisible({ timeout: 30_000 });
-		await pressWhenAwake(card.getByRole("button", { name: "Up to you" }));
+		await pressWhenAwake(card.getByRole("button", { name: "Decide for me" }));
 
 		const folded = page.getByTestId("ask-folded");
 		await expect(folded).toContainText("Which way should we take it?");
@@ -970,9 +970,11 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		const own = card.getByTestId("ask-own-row");
 		await waitForStableBoundingBox(own);
 		expect((await own.boundingBox())?.height).toBeGreaterThanOrEqual(44);
-		const upToYou = card.getByTestId("ask-up-to-you");
-		await waitForStableBoundingBox(upToYou);
-		expect((await upToYou.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+		const decideForMe = card.getByTestId("ask-up-to-you");
+		await waitForStableBoundingBox(decideForMe);
+		expect((await decideForMe.boundingBox())?.height).toBeGreaterThanOrEqual(
+			44,
+		);
 		const closeBox = await closeX.boundingBox();
 		expect(closeBox?.width).toBeGreaterThanOrEqual(44);
 		expect(closeBox?.height).toBeGreaterThanOrEqual(44);
@@ -999,13 +1001,14 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await expect(
 			card.getByRole("button", { name: "A party at home, javasolt" }),
 		).toBeVisible();
-		await expect(card.getByTestId("ask-own-row")).toHaveText("Saját válasz...");
+		await expect(card.getByTestId("ask-own-row")).toHaveText("Egyéb");
 		await expect(card.getByTestId("ask-up-to-you")).toHaveText("Rád bízom");
 		await expect(
 			card.getByRole("button", { name: "Kérdés bezárása" }),
 		).toBeVisible();
 		await expect(card.getByText("Recommended")).toHaveCount(0);
-		await expect(card.getByText("Up to you")).toHaveCount(0);
+		await expect(card.getByText("Decide for me")).toHaveCount(0);
+		await expect(card.getByText("Other", { exact: true })).toHaveCount(0);
 
 		// The thread opens the card at its question: the question (the model's own words,
 		// in English) and the X are in view, and not under the app header.
@@ -1045,7 +1048,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 					.map(named),
 			};
 		});
-		// Three answers, the own-line row, Up to you and the X: a test id that no longer
+		// Three answers, the own-line row, Decide for me and the X: a test id that no longer
 		// matches must not leave an empty list to pass.
 		expect(measured.count, "the elements measured").toBe(6);
 		expect(measured.unmeasured, "the elements with no width").toEqual([]);

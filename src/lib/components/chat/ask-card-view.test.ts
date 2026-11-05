@@ -300,7 +300,7 @@ describe("buildAskFoldedItem", () => {
 	});
 
 	it("says left to Alfy in the open line for a question with no Recommended answer", () => {
-		// A question that takes several picks may carry no Recommended mark. "Up to you"
+		// A question that takes several picks may carry no Recommended mark. "Decide for me"
 		// leaves it to Alfy: the line's object has no answer to name, and the open line
 		// does not show an empty one (Ruling 17).
 		const alone = buildAskFoldedItem(card([WHO], LEFT), en);

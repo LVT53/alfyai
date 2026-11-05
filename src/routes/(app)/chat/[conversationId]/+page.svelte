@@ -4171,7 +4171,7 @@ async function settleRefusedWhileWaiting() {
 }
 
 /**
- * The person answered a card (a pick, their own words, "Up to you", or the X). The answer
+ * The person answered a card (a pick, their own words, "Decide for me", or the X). The answer
  * is a fresh turn, so it passes what every fresh turn passes (`prepareTurn`: the open
  * item's pending step is saved, the cloud-connector warning settled), and it is taken
  * once. The card holds itself off on `busy`, so the page raises it here before it

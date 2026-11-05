@@ -4502,7 +4502,7 @@ describe("MessageBubble", () => {
 
 				// The message is read-only, the card is not.
 				await fireEvent.click(
-					screen.getByRole("button", { name: "Up to you" }),
+					screen.getByRole("button", { name: "Decide for me" }),
 				);
 
 				expect(onAnswerQuestion).toHaveBeenCalledWith("q-1", {
@@ -4525,14 +4525,16 @@ describe("MessageBubble", () => {
 						.every((option) => (option as HTMLButtonElement).disabled),
 				).toBe(true);
 				expect(
-					screen.getByRole("button", { name: "Up to you" }),
+					screen.getByRole("button", { name: "Decide for me" }),
 				).toBeDisabled();
 
 				await rerender({ askState: { busy: false, failed: true } });
 				expect(screen.getByTestId("ask-error")).toHaveTextContent(
 					"Couldn't send your answer. Try again.",
 				);
-				expect(screen.getByRole("button", { name: "Up to you" })).toBeEnabled();
+				expect(
+					screen.getByRole("button", { name: "Decide for me" }),
+				).toBeEnabled();
 
 				await rerender({ askState: undefined });
 				expect(screen.queryByTestId("ask-error")).toBeNull();

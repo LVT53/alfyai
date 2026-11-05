@@ -4,7 +4,7 @@
 // sits in the reply after the words Alfy wrote before asking.
 //
 // The person picks an answer, types their own words on the question's own line
-// (never in the message box), leaves the choice to Alfy ("Up to you") or closes the
+// (never in the message box), leaves the choice to Alfy ("Decide for me") or closes the
 // card with the X. One question with one pick sends on a click; a larger card, or a
 // question that takes several picks, sends on Send, which is on once every question
 // has an answer. Own words replace that question's picks, and a pick clears the words.
@@ -370,8 +370,8 @@ function takeKey(event: KeyboardEvent) {
 									data-testid="ask-own-input"
 									value={form.words[index]}
 									maxlength={ASK_LIMITS.ownWordsChars}
-									placeholder={$t('chat.ask.typeOwn')}
-									aria-label={$t('chat.ask.typeOwn')}
+									placeholder={$t('chat.ask.other')}
+									aria-label={$t('chat.ask.other')}
 									autocomplete="off"
 									enterkeyhint={many ? 'done' : 'send'}
 									disabled={!interactive}
@@ -401,7 +401,7 @@ function takeKey(event: KeyboardEvent) {
 								onclick={() => focusLine(index)}
 							>
 								<span class="own-icon"><PenLine size={14} strokeWidth={2} aria-hidden="true" /></span>
-								<span class="opt-label">{$t('chat.ask.typeOwn')}</span>
+								<span class="opt-label">{$t('chat.ask.other')}</span>
 							</button>
 						{/if}
 					</div>
@@ -422,7 +422,7 @@ function takeKey(event: KeyboardEvent) {
 				data-testid="ask-up-to-you"
 				onclick={() => submit({ kind: 'left_to_alfy' })}
 			>
-				{$t('chat.ask.upToYou')}
+				{$t('chat.ask.decideForMe')}
 			</button>
 			{#if needsSend}
 				<button
@@ -803,7 +803,7 @@ function takeKey(event: KeyboardEvent) {
 			padding: 6px 14px;
 		}
 
-		/* Up to you is an answer, and Send is the card's main action: both are a thumb's size. */
+		/* Decide for me is an answer, and Send is the card's main action: both are a thumb's size. */
 		.quiet {
 			min-height: 44px;
 			padding: 8px;

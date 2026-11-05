@@ -40,7 +40,7 @@ function recommendedLabels(question: AskQuestion): string {
 /**
  * What the answer says to one question, as the folded line has it: the options
  * picked, joined by commas; or the person's own words in quotes, which replace the
- * picks; or, for "Up to you", the options Alfy marked Recommended. Empty when there
+ * picks; or, for "Decide for me", the options Alfy marked Recommended. Empty when there
  * is nothing to name: the X, a question the answer has no entry for, and a choice
  * left to Alfy on a question with no Recommended option (the open line says that
  * one in words: `buildAskFoldedItem`).

@@ -2476,7 +2476,7 @@ describe("MessageArea", () => {
 				earlierReply().queryByRole("button", { name: "Regenerate response" }),
 			).toBeNull();
 			// ...and the card still takes the answer.
-			await fireEvent.click(getByRole("button", { name: "Up to you" }));
+			await fireEvent.click(getByRole("button", { name: "Decide for me" }));
 
 			expect(onAnswerQuestion).toHaveBeenCalledWith("q-2", {
 				kind: "left_to_alfy",

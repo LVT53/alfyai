@@ -63,8 +63,8 @@ The mockups show each state; this is the behaviour behind them.
 **The card.** It sits inside the reply, right after the words Alfy wrote before asking, in the shell of the artifact and permission cards (border, 8 px radius, small shadow). It holds 1 to 3 questions. Each question has 2 to 3 answers, each a label with an optional one-line note, and the question's own words. Every card has:
 
 - an X at the top right, which closes it without an answer;
-- a "Type my own..." row under each question, which opens a line inside the card;
-- "Up to you", which leaves every question on the card to Alfy.
+- an "Other" row under each question, which opens a line inside the card;
+- "Decide for me", which leaves every question on the card to Alfy.
 
 **Recommended.** A question with one pick always has exactly one answer marked Recommended, and Alfy chooses which (owner). On a question with several picks the mark is optional and may sit on several answers or none (owner). The mark stays where Alfy put it in the list (my call), so an order like small, medium, large keeps its sense.
 
@@ -73,12 +73,12 @@ The mockups show each state; this is the behaviour behind them.
 - One question with one pick: a click on an answer sends it at once.
 - Several questions, or a question with several picks: the person picks, then Send. Send works once every question has an answer.
 - Own words: typed in the card's own line, never in the message box (owner). Enter sends it on a one-question card; on a larger card it is that question's answer and Send sends the card.
-- "Up to you": every question goes to Alfy's judgment, which is its Recommended answer where there is one.
+- "Decide for me": every question goes to Alfy's judgment, which is its Recommended answer where there is one.
 - X: the question is closed without an answer. Alfy is told the person closed it, that the question may have been off, and that it should carry on with its best guess or ask differently, never the same thing again (owner: the X "would signal to the model that it's wrong or to guess").
 
 **While it waits.** The reply's own buttons (copy, Retry and the rest) wait until the reply is finished. The message box is off: it is dimmed, takes no typing, and keeps any draft it holds; what the person types goes into the card's own line (owner). An answer or the X turns the box back on. There is no timer: the question waits for as long as it takes (owner).
 
-**After the answer.** The card folds into one line, drawn like a finished tool step: a tick, the question in muted text, the answer in normal text. The line quotes an own answer, adds "· left to Alfy" after "Up to you", and after the X shows a muted cross and "· closed". A press opens it to show each question with its answer. The answer is shown only there, never as a message bubble of its own (my call). It cannot be changed (owner). Alfy carries on below that line, with its own "Thought for" row if it thinks again, and the reply's buttons come back at the very end. Retry runs the whole reply again, question included (owner).
+**After the answer.** The card folds into one line, drawn like a finished tool step: a tick, the question in muted text, the answer in normal text. The line quotes an own answer, adds "· left to Alfy" after "Decide for me", and after the X shows a muted cross and "· closed". A press opens it to show each question with its answer. The answer is shown only there, never as a message bubble of its own (my call). It cannot be changed (owner). Alfy carries on below that line, with its own "Thought for" row if it thinks again, and the reply's buttons come back at the very end. Retry runs the whole reply again, question included (owner).
 
 **More than once.** Alfy may ask as often as the conversation needs (owner: "I wouldn't limit 6 like that"), so one reply can hold several folded lines and, at its end, at most one waiting card.
 
@@ -96,13 +96,13 @@ The mockups show each state; this is the behaviour behind them.
 | Where | English | Magyar |
 |---|---|---|
 | Mark on the recommended answer | Recommended | Javasolt |
-| The row for own words | Type my own... | Saját válasz... |
+| The row for own words (owner, 2026-11-05, after trying the card; was "Type my own..." / "Saját válasz...") | Other | Egyéb |
 | Beside a question with several picks | Pick any | Több is lehet |
-| Leave it to Alfy | Up to you | Rád bízom |
+| Leave it to Alfy (owner, 2026-11-05, after trying the card; was "Up to you"; "Rád bízom" stays, shorter than "Döntsd el helyettem" in a 360 px row) | Decide for me | Rád bízom |
 | Send (several questions or picks) | Send | Küldés |
 | The X (screen readers) | Close the question | Kérdés bezárása |
 | Folded line, several questions | {n} questions | {n} kérdés |
-| Folded line, after "Up to you" | left to Alfy | Alfyra bízva |
+| Folded line, after "Decide for me" | left to Alfy | Alfyra bízva |
 | Folded line, after the X | closed | bezárva |
 | Sidebar icon (screen readers) | Waiting for your answer | A válaszodra vár |
 | An answer that did not go through | Couldn't send your answer. Try again. | Nem sikerült elküldeni a válaszodat. Próbáld újra. |
@@ -211,6 +211,7 @@ Chat strings go in `src/lib/i18n/chat.ts`, held in both locales by `chat.test.ts
 | 2026-11-03 | No limit on when or how often Alfy asks. |
 | 2026-11-03 | The sidebar shows only the icon, with no label. Own words are typed in the card's own line, not the message box. An X at the card's top right closes it and tells the model the question was off, or to guess. Every question has a Recommended answer that the model marks. |
 | 2026-11-03 | The Recommended mark is not mandatory on a question with several picks. The design (mockups v2) is approved. |
+| 2026-11-05 | After trying the card: "Up to you" is now "Decide for me" and "Type my own..." is now "Other" (Hungarian: "Egyéb"; "Rád bízom" stays). |
 
 ## 7. My calls, for the owner to check
 
@@ -222,7 +223,7 @@ Chat strings go in `src/lib/i18n/chat.ts`, held in both locales by `chat.test.ts
 6. The sidebar mark is `MessageCircleQuestion` in the fork and incognito marks' slot, not the Atlas dot; nothing new on the collapsed rail.
 7. A question has no short heading of its own, which saves words for Alfy to write and for the tool list to carry.
 8. On a phone the card stays in the reply; no sheet.
-9. "Up to you" and "Rád bízom" stay as drawn in the approved mockups; they matter most on a question with several picks and no Recommended answer.
+9. "Decide for me" (drawn as "Up to you" in the approved mockups until the owner renamed it on 2026-11-05) and "Rád bízom" stay; they matter most on a question with several picks and no Recommended answer.
 10. The tool is paid for by a measured raise of `CATALOGUE_TOKEN_CEILING`.
 11. A message queued before the pause goes back into the composer's draft.
 12. Per-turn caps count per segment; the citation gate's sources and URL provenance carry across a reply.
@@ -249,7 +250,7 @@ From the builder check (2026-11-03), settled without a question to the owner:
 - How the captured messages are stored, and their text form for providers in flatten mode.
 - How history renders a reply's segments for later turns (`renderHistoryTurn` in `chat-turn/conversation-history.ts` pairs a person's message with one reply today), with the ask call and its answer as a native tool call and result.
 - How the page groups segments, and how printable keys reach the card's own line.
-- The vitest and Playwright coverage. The fake OpenAI-compatible provider already scripts tool calls (`tests/mocks/ai-provider/chat-turn-scripts.ts`: `toolCallFrames`, a next request recognised by its tool result, `provider.requests()` to check what the resume sent), so an ask flow is deterministic. At least: a click answer, an own answer, "Up to you", the X, a reload while waiting, two answers racing, Retry on a reply that asked, and a message queued before the pause.
+- The vitest and Playwright coverage. The fake OpenAI-compatible provider already scripts tool calls (`tests/mocks/ai-provider/chat-turn-scripts.ts`: `toolCallFrames`, a next request recognised by its tool result, `provider.requests()` to check what the resume sent), so an ask flow is deterministic. At least: a click answer, an own answer, "Decide for me", the X, a reload while waiting, two answers racing, Retry on a reply that asked, and a message queued before the pause.
 
 ## 9. Where it lands
 
@@ -275,7 +276,7 @@ Tests: a new e2e spec on the fake provider, plus the chat, streaming and convers
 
 ## 10. Done when
 
-- In the owner's own kind of conversation, talking an idea through, Alfy asks at a real fork. Answering by a click, by own words, by "Up to you" and by the X each carry the same reply on, and the reply uses what Alfy found before it asked (for example, it cites a source it read before the question).
+- In the owner's own kind of conversation, talking an idea through, Alfy asks at a real fork. Answering by a click, by own words, by "Decide for me" and by the X each carry the same reply on, and the reply uses what Alfy found before it asked (for example, it cites a source it read before the question).
 - A reload while a question waits, or the same chat on a phone, shows the same card; an answer there folds it on the other device at its next load.
 - Two answers racing: one wins, and the other device shows the folded line.
 - Retry on a reply that asked runs the whole reply again.

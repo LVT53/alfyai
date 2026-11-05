@@ -2966,7 +2966,7 @@ export function createNormalChatClientTurnRuntime(
 
 	/**
 	 * The person's answer to a question Alfy asked in the middle of a reply (the card's
-	 * pick, its own words, "Up to you", or the X). The server carries the same reply
+	 * pick, its own words, "Decide for me", or the X). The server carries the same reply
 	 * on from it as a new segment, so the answer streams under a placeholder that
 	 * continues the asking row (`continuesMessageId`) and goes to the question's own
 	 * route. It runs on what the composer has selected now (model, depth, personality,

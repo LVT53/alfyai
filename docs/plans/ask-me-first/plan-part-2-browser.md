@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** The person sees the card in the reply, answers by a click, own words, "Up to you" or the X, watches the same reply carry on below the folded line, finds the waiting chat in the sidebar, and keeps every draft, on a phone too, in English and Hungarian.
+**Goal:** The person sees the card in the reply, answers by a click, own words, "Decide for me" or the X, watches the same reply carry on below the folded line, finds the waiting chat in the sidebar, and keeps every draft, on a phone too, in English and Hungarian.
 
 **Architecture:** See `plan.md`. The card comes from the question rows (Part 1 Task 9's GET), read with the chat and again on the ask's `data-tool-call`; the answer goes through the stream transport and the client runtime like any turn; the page groups a reply's rows with the pure `reply-segments.ts`.
 
@@ -147,7 +147,7 @@ export function askAnswerText(question: AskQuestion, answer: AskAnswer, index: n
 export function buildAskFoldedItem(question: AskQuestionDto, t: Translate): ToolActivityItem;
 ```
 
-The line (Plan's call 26; mockup section 3): key `ask-<id>`; status `closed` for a closed card, else `done`; verb the question's words (one question) or `chat.ask.questionCount` (several); object the answers, several joined by " · ", picks by ", ", own words through `chat.ask.ownAnswerQuote`, "Up to you" as the Recommended labels (empty when there are none); `objectSuffix` "· " + `chat.ask.leftToAlfy` or "· " + `chat.ask.closed`; body `ask` with one pair per question, `null` for a closed card; `pinned: true`, `alwaysOpen: false`. A closed card is one whose answer is `{ kind: "closed" }`, while it is `answering` too. `meta` is empty, `summaryLabel` the verb, `title` the line's text. A question left to Alfy with no Recommended option reads `chat.ask.leftToAlfy` as its pair's answer (Ruling 17).
+The line (Plan's call 26; mockup section 3): key `ask-<id>`; status `closed` for a closed card, else `done`; verb the question's words (one question) or `chat.ask.questionCount` (several); object the answers, several joined by " · ", picks by ", ", own words through `chat.ask.ownAnswerQuote`, "Decide for me" as the Recommended labels (empty when there are none); `objectSuffix` "· " + `chat.ask.leftToAlfy` or "· " + `chat.ask.closed`; body `ask` with one pair per question, `null` for a closed card; `pinned: true`, `alwaysOpen: false`. A closed card is one whose answer is `{ kind: "closed" }`, while it is `answering` too. `meta` is empty, `summaryLabel` the verb, `title` the line's text. A question left to Alfy with no Recommended option reads `chat.ask.leftToAlfy` as its pair's answer (Ruling 17).
 
 The strings (design section 4 table; Plan's call 26 adds the quote):
 
@@ -207,20 +207,20 @@ it("draws no tool icon for an ask row", ...)
 
 What it draws (mockup sections 1, 2, 4, 6, 7; Plan's calls 18, 27, 28, 29):
 - `status !== "waiting"`: the folded `ToolActivityRow` (closed by default; a press opens it) and the question's own lines are dropped from the session.
-- Waiting: an `<article>` in ArtifactCard's shell (1px `--border-default`, `--radius-lg`, `--surface-page`, `--shadow-sm`) labelled `chat.ask.cardLabel` or `chat.ask.cardLabelMany`; the X (Lucide `X`, 28 px, 44 px below 768 px) at the top right with `aria-label` `chat.ask.close`; each question's words (600 weight; its number in `--text-muted` on a card of several; `chat.ask.pickAny` beside a several-pick question); each option, in the order Alfy gave (a Recommended option is never moved up), a full-width row (a radio dot or a check box, the label, the note in `--text-muted`, the Recommended pill on the label, `aria-hidden`, the option's accessible name `chat.ask.recommendedOption` when marked, the note as its description); a "Type my own..." row (Lucide `PenLine`) that opens the question's line (the `.own-field` look: an accent border and ring; on a one-question card a small accent send button, Lucide `Send`, `aria-label` `chat.ask.send`, except when its question takes several picks and the footer's Send is there, Ruling 22); a footer with `chat.ask.upToYou` (quiet) and, on a card of several questions or a several-pick question, `chat.ask.send` (accent), on only when `checkAskAnswer` takes the answer.
+- Waiting: an `<article>` in ArtifactCard's shell (1px `--border-default`, `--radius-lg`, `--surface-page`, `--shadow-sm`) labelled `chat.ask.cardLabel` or `chat.ask.cardLabelMany`; the X (Lucide `X`, 28 px, 44 px below 768 px) at the top right with `aria-label` `chat.ask.close`; each question's words (600 weight; its number in `--text-muted` on a card of several; `chat.ask.pickAny` beside a several-pick question); each option, in the order Alfy gave (a Recommended option is never moved up), a full-width row (a radio dot or a check box, the label, the note in `--text-muted`, the Recommended pill on the label, `aria-hidden`, the option's accessible name `chat.ask.recommendedOption` when marked, the note as its description); an "Other" row (Lucide `PenLine`) that opens the question's line (the `.own-field` look: an accent border and ring; on a one-question card a small accent send button, Lucide `Send`, `aria-label` `chat.ask.send`, except when its question takes several picks and the footer's Send is there, Ruling 22); a footer with `chat.ask.decideForMe` (quiet) and, on a card of several questions or a several-pick question, `chat.ask.send` (accent), on only when `checkAskAnswer` takes the answer.
 - One question with one pick: a click sends at once. Own words replace that question's picks; a pick clears them; Enter in a line sends a one-question card and only sets the answer on a larger one.
-- Waking: options, Up to you and the X are off (opacity 0.5) until 400 ms after the card appears and until `question.assistantMessageId` is set. Busy: everything off, the chosen answer still shown. Failed (or a waiting question with an `answer`): the picks and own words come back from the answer, and a plain line `chat.ask.sendFailed` (Lucide `CircleAlert`, `--warning-text`, `role="alert"`) sits under the questions; the card stays answerable. One answer per `busy`: the page takes an answer by setting the question's `busy` inside `onAnswer`, before any await; a refusal sets nothing and the card stays answerable (Ruling 21).
+- Waking: options, Decide for me and the X are off (opacity 0.5) until 400 ms after the card appears and until `question.assistantMessageId` is set. Busy: everything off, the chosen answer still shown. Failed (or a waiting question with an `answer`): the picks and own words come back from the answer, and a plain line `chat.ask.sendFailed` (Lucide `CircleAlert`, `--warning-text`, `role="alert"`) sits under the questions; the card stays answerable. One answer per `busy`: the page takes an answer by setting the question's `busy` inside `onAnswer`, before any await; a refusal sets nothing and the card stays answerable (Ruling 21).
 - Keyboard (Plan's call 28): a capture-phase `window` `keydown` listener, added in an `$effect` only while the card waits, is awake and is not busy. It opens the line inside `flushSync` (from `svelte`), so the input exists when `focus()` runs, still within the keydown.
 - The own lines' text is saved per question through `storeAskLineDrafts` on input and read back on mount; the line's font is 16 px below 768 px.
 
-The strings:
+The strings (the owner renamed two after trying the card, 2026-11-05: `chat.ask.typeOwn` is now `chat.ask.other`, "Type my own..." is now "Other"; `chat.ask.upToYou` is now `chat.ask.decideForMe`, "Up to you" is now "Decide for me"; the Hungarian own-line label is now "Egyéb"):
 
 | key | en | hu |
 |---|---|---|
 | `chat.ask.recommended` | `Recommended` | `Javasolt` |
-| `chat.ask.typeOwn` | `Type my own...` | `Saját válasz...` |
+| `chat.ask.other` | `Other` | `Egyéb` |
 | `chat.ask.pickAny` | `Pick any` | `Több is lehet` |
-| `chat.ask.upToYou` | `Up to you` | `Rád bízom` |
+| `chat.ask.decideForMe` | `Decide for me` | `Rád bízom` |
 | `chat.ask.send` | `Send` | `Küldés` |
 | `chat.ask.close` | `Close the question` | `Kérdés bezárása` |
 | `chat.ask.sendFailed` | `Couldn't send your answer. Try again.` | `Nem sikerült elküldeni a válaszodat. Próbáld újra.` |
@@ -231,15 +231,15 @@ The strings:
 - [ ] **Step 1: Write the failing tests** (jsdom, `@testing-library/svelte`, fake timers; `WriteConfirmCard.test.ts` is the pattern):
 
 ```ts
-it("draws the question, its options in Alfy's order, Recommended where Alfy put it, Type my own..., Up to you and the X", ...)
+it("draws the question, its options in Alfy's order, Recommended where Alfy put it, Other, Decide for me and the X", ...)
   // mockup section 7: the second option Recommended stays second
-it("draws the Hungarian labels in a Hungarian UI", ...)        // Javasolt, Saját válasz..., Rád bízom, aria-label "Kérdés bezárása"
+it("draws the Hungarian labels in a Hungarian UI", ...)        // Javasolt, Egyéb, Rád bízom, aria-label "Kérdés bezárása"
 it("takes no press for 400 ms after it appears, and none before its segment is saved", ...)
 it("answers a one-question, one-pick card on a click", ...)
   // onAnswer("q-1", { kind: "answered", answers: [{ picked: [0], ownWords: null }] })
 it("needs Send on a card of several questions, on only once every question has an answer", ...)
 it("lets own words replace a question's picks, and sends a one-question card on Enter", ...)
-it("answers left_to_alfy for Up to you and closed for the X", ...)
+it("answers left_to_alfy for Decide for me and closed for the X", ...)
 it("takes a printable key pressed with nothing focused into the own line, and only then", async () => {
   // keydown "s" on document.body -> the line is open and focused; the composer's window listener saw nothing
   // not taken: Space, Ctrl+s, a key while an <input> elsewhere has focus, a key while composing, a key while busy   (Review Focus 3)

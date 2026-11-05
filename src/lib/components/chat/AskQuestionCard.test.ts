@@ -154,7 +154,7 @@ describe("AskQuestionCard", () => {
 	});
 
 	describe("what it draws", () => {
-		it("draws the question, its options in Alfy's order, Recommended where Alfy put it, Type my own..., Up to you and the X", async () => {
+		it("draws the question, its options in Alfy's order, Recommended where Alfy put it, Other, Decide for me and the X", async () => {
 			await renderCard(dto([GARDEN]));
 
 			expect(screen.getByText("Inside or in the garden?")).toBeInTheDocument();
@@ -172,10 +172,8 @@ describe("AskQuestionCard", () => {
 			);
 			expect(within(options[1]).getByText("Recommended")).toBeInTheDocument();
 
-			expect(screen.getByTestId("ask-own-row")).toHaveTextContent(
-				"Type my own...",
-			);
-			expect(button("Up to you")).toBeInTheDocument();
+			expect(screen.getByTestId("ask-own-row")).toHaveTextContent("Other");
+			expect(button("Decide for me")).toBeInTheDocument();
 			expect(button("Close the question")).toBeInTheDocument();
 			// One question with one pick: a click answers, so there is no Send.
 			expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
@@ -200,9 +198,7 @@ describe("AskQuestionCard", () => {
 				screen.getByRole("article", { name: "Alfy kérdése" }),
 			).toBeInTheDocument();
 			expect(screen.getByText("Javasolt")).toBeInTheDocument();
-			expect(screen.getByTestId("ask-own-row")).toHaveTextContent(
-				"Saját válasz...",
-			);
+			expect(screen.getByTestId("ask-own-row")).toHaveTextContent("Egyéb");
 			expect(button("Rád bízom")).toBeInTheDocument();
 			expect(button("Kérdés bezárása")).toBeInTheDocument();
 			expect(button("Házibuli otthon, javasolt")).toBeInTheDocument();
@@ -284,14 +280,14 @@ describe("AskQuestionCard", () => {
 			const everything = () => [
 				button("A party at home, recommended"),
 				screen.getByTestId("ask-own-row"),
-				button("Up to you"),
+				button("Decide for me"),
 				button("Close the question"),
 			];
 
 			// Just appeared: off, and a press does nothing.
 			for (const control of everything()) expect(control).toBeDisabled();
 			await fireEvent.click(button("A party at home, recommended"));
-			await fireEvent.click(button("Up to you"));
+			await fireEvent.click(button("Decide for me"));
 			await fireEvent.click(button("Close the question"));
 			expect(onAnswer).not.toHaveBeenCalled();
 
@@ -315,7 +311,7 @@ describe("AskQuestionCard", () => {
 		it("keeps a card that comes back to waiting off for another 400 ms", async () => {
 			const answer = answered(pick(0));
 			const view = await renderCard(dto([WAY]));
-			expect(button("Up to you")).toBeEnabled();
+			expect(button("Decide for me")).toBeEnabled();
 
 			await view.rerender({
 				question: dto([WAY], { status: "answering", answer }),
@@ -323,9 +319,9 @@ describe("AskQuestionCard", () => {
 			expect(screen.queryByTestId("ask-card")).toBeNull();
 
 			await view.rerender({ question: dto([WAY], { answer }), failed: true });
-			expect(button("Up to you")).toBeDisabled();
+			expect(button("Decide for me")).toBeDisabled();
 			await vi.advanceTimersByTimeAsync(400);
-			expect(button("Up to you")).toBeEnabled();
+			expect(button("Decide for me")).toBeEnabled();
 		});
 	});
 
@@ -454,9 +450,9 @@ describe("AskQuestionCard", () => {
 			);
 		});
 
-		it("answers left_to_alfy for Up to you and closed for the X", async () => {
+		it("answers left_to_alfy for Decide for me and closed for the X", async () => {
 			const one = await renderCard(dto([WAY]));
-			await fireEvent.click(button("Up to you"));
+			await fireEvent.click(button("Decide for me"));
 			expect(one.onAnswer).toHaveBeenCalledWith("q-1", {
 				kind: "left_to_alfy",
 			});
@@ -469,7 +465,7 @@ describe("AskQuestionCard", () => {
 
 			// On a larger card they need no Send and no answers.
 			const three = await renderCard(dto([WHO, SPLIT]));
-			await fireEvent.click(button("Up to you"));
+			await fireEvent.click(button("Decide for me"));
 			expect(three.onAnswer).toHaveBeenCalledWith("q-1", {
 				kind: "left_to_alfy",
 			});
@@ -482,17 +478,17 @@ describe("AskQuestionCard", () => {
 	});
 
 	describe("own words", () => {
-		it("opens a question's line from Type my own..., with the words kept short enough to send", async () => {
+		it("opens a question's line from the Other row, with the words kept short enough to send", async () => {
 			await renderCard(dto([WAY]));
 
 			await fireEvent.click(screen.getByTestId("ask-own-row"));
 
 			// The row is the line now.
 			expect(screen.queryByTestId("ask-own-row")).toBeNull();
-			const line = screen.getByRole("textbox", { name: "Type my own..." });
+			const line = screen.getByRole("textbox", { name: "Other" });
 			expect(line).toHaveFocus();
 			expect(line).toHaveAttribute("maxlength", "500");
-			expect(line).toHaveAttribute("placeholder", "Type my own...");
+			expect(line).toHaveAttribute("placeholder", "Other");
 		});
 
 		it("lets own words replace a question's picks, and a pick take them back", async () => {
@@ -507,7 +503,7 @@ describe("AskQuestionCard", () => {
 			// The own row of the second question is the second row of the buttons.
 			const rows = screen.getAllByTestId("ask-own-row");
 			await fireEvent.click(rows[1]);
-			const line = screen.getByRole("textbox", { name: "Type my own..." });
+			const line = screen.getByRole("textbox", { name: "Other" });
 			await fireEvent.input(line, {
 				target: { value: "One list, with a section for the kids' things" },
 			});
@@ -708,7 +704,7 @@ describe("AskQuestionCard", () => {
 			await fireEvent.keyDown(document.body, { key: "s" });
 
 			// The line is open and focused, so the browser puts the character in it.
-			const line = screen.getByRole("textbox", { name: "Type my own..." });
+			const line = screen.getByRole("textbox", { name: "Other" });
 			expect(line).toHaveFocus();
 			expect(screen.queryByTestId("ask-own-row")).toBeNull();
 			// The composer's listeners never saw the key.
@@ -1070,11 +1066,11 @@ describe("AskQuestionCard", () => {
 			const second = button("Dinner out, just close family");
 
 			// The page takes the answer by raising busy inside onAnswer. Two clicks, another
-			// option, Up to you and the X: the card is off from the first click.
+			// option, Decide for me and the X: the card is off from the first click.
 			await fireEvent.click(first);
 			await fireEvent.click(first);
 			await fireEvent.click(second);
-			await fireEvent.click(button("Up to you"));
+			await fireEvent.click(button("Decide for me"));
 			await fireEvent.click(button("Close the question"));
 
 			expect(onAnswer).toHaveBeenCalledTimes(1);
@@ -1092,7 +1088,7 @@ describe("AskQuestionCard", () => {
 			button("A party at home, recommended").click();
 			button("A party at home, recommended").click();
 			button("Dinner out, just close family").click();
-			button("Up to you").click();
+			button("Decide for me").click();
 
 			expect(onAnswer).toHaveBeenCalledTimes(1);
 		});
@@ -1122,7 +1118,7 @@ describe("AskQuestionCard", () => {
 
 			for (const control of [
 				button("A party at home, recommended"),
-				button("Up to you"),
+				button("Decide for me"),
 				button("Close the question"),
 				screen.getByTestId("ask-own-row"),
 			]) {
@@ -1149,7 +1145,7 @@ describe("AskQuestionCard", () => {
 			expect(onAnswer).toHaveBeenCalledTimes(1);
 			// Nothing is going out, so the card is not off.
 			expect(button("Dinner out, just close family")).toBeEnabled();
-			expect(button("Up to you")).toBeEnabled();
+			expect(button("Decide for me")).toBeEnabled();
 			await fireEvent.click(button("Dinner out, just close family"));
 			expect(onAnswer).toHaveBeenCalledTimes(2);
 			expect(onAnswer).toHaveBeenLastCalledWith("q-1", answered(pick(1)));
@@ -1179,7 +1175,7 @@ describe("AskQuestionCard", () => {
 		it("is answerable again once the page says the answer did not go through", async () => {
 			const { onAnswer, settle, rerender } = await renderPage(dto([WAY]));
 			await fireEvent.click(button("A party at home, recommended"));
-			expect(button("Up to you")).toBeDisabled();
+			expect(button("Decide for me")).toBeDisabled();
 
 			// It did not go through: the question reads waiting again with its answer, and
 			// the page stops being busy and says so.
@@ -1198,7 +1194,7 @@ describe("AskQuestionCard", () => {
 			await settle({ failed: true });
 
 			await fireEvent.click(button("A party at home, recommended"));
-			expect(button("Up to you")).toBeDisabled();
+			expect(button("Decide for me")).toBeDisabled();
 			// Busy falls while failed stays up.
 			await settle({ busy: false });
 			await fireEvent.click(button("A party at home, recommended"));
@@ -1273,7 +1269,7 @@ describe("AskQuestionCard", () => {
 			expect(screen.getByRole("alert").closest("footer")).toBeNull();
 		});
 
-		it("draws no picks for an answer that was Up to you or the X, and still says it failed", async () => {
+		it("draws no picks for an answer that was Decide for me or the X, and still says it failed", async () => {
 			await renderCard(dto([WAY], { answer: { kind: "left_to_alfy" } }));
 
 			expect(screen.getByRole("alert")).toBeInTheDocument();
@@ -1435,13 +1431,13 @@ describe("AskQuestionCard", () => {
 
 			await view.rerender({ question: dto([WHO, SPLIT], { id: "q-2" }) });
 
-			expect(button("Up to you")).toBeDisabled();
+			expect(button("Decide for me")).toBeDisabled();
 			expect(
 				screen.getByRole("checkbox", { name: "Adults" }),
 			).not.toBeChecked();
 			expect(screen.queryByRole("textbox")).toBeNull();
 			await vi.advanceTimersByTimeAsync(400);
-			expect(button("Up to you")).toBeEnabled();
+			expect(button("Decide for me")).toBeEnabled();
 		});
 
 		it("does not start over when the page reads the same waiting question again", async () => {
@@ -1491,7 +1487,7 @@ describe("AskQuestionCard", () => {
 			expect(close).toMatch(/width:\s*44px/);
 			expect(close).toMatch(/height:\s*44px/);
 			expect(rule(phone, ".own-input")).toMatch(/font-size:\s*16px/);
-			// Up to you and Send are a thumb's size too.
+			// Decide for me and Send are a thumb's size too.
 			expect(rule(phone, ".quiet")).toMatch(/min-height:\s*44px/);
 			expect(rule(phone, ".btn-send")).toMatch(/min-height:\s*44px/);
 			expect(rule(source, ".opt")).toMatch(/width:\s*100%/);
