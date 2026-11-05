@@ -7815,6 +7815,41 @@ describe("Normal Chat Client Turn Runtime", () => {
 					expect(streaming[0]).not.toHaveProperty("continuesMessageId");
 					expect(reported(made.onAskEvent)).toEqual([]);
 				});
+
+				// The page is told the stream was interrupted (`onBackgroundInterrupted`)
+				// before the resume that was cut off is stashed. A callback that runs the
+				// visibility recovery at once reads the stash in that very call, so it has
+				// to be there already: read empty, the recovery joined the stream as an
+				// ordinary reply, never said the answer was taken up, and drew the
+				// continuation as a reply of its own.
+				it("has the cut-off resume stashed before the page is told the stream was interrupted", async () => {
+					let runtime: ReturnType<typeof createNormalChatClientTurnRuntime>;
+					const made = onTheClock({
+						isBrowserHidden: vi.fn(() => true),
+						...resumeRunning(),
+						onBackgroundInterrupted: vi.fn(() => {
+							void runtime.handleVisibilityVisible();
+						}),
+					});
+					runtime = createNormalChatClientTurnRuntime(made.adapters);
+					await runtime.answerQuestion(answerOf());
+
+					made.streamInvocations[0].callbacks.onError(cutOffByTheBrowser());
+					await vi.advanceTimersByTimeAsync(0);
+
+					// The recovery the callback started found the resume: its stream is joined
+					// as the answer's, under the row that asked, and the answer was taken up.
+					expect(made.adapters.onBackgroundInterrupted).toHaveBeenCalledTimes(
+						1,
+					);
+					expect(made.streamInvocations).toHaveLength(2);
+					const streaming = made.messages.filter((row) => row.isStreaming);
+					expect(streaming).toHaveLength(1);
+					expect(streaming[0]).toMatchObject({ continuesMessageId: "seg-1" });
+					expect(reported(made.onAskEvent)).toEqual([
+						{ type: "answerAccepted", questionId: "q-1" },
+					]);
+				});
 			});
 
 			it("treats a joined resume that is cut again as the answer's: its row goes on, and no message is drawn or offered for Retry", async () => {

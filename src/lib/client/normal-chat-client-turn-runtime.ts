@@ -2288,12 +2288,13 @@ export function createNormalChatClientTurnRuntime(
 						restoreQueuedTurnToDraft();
 					}
 					streamInterruptedByBackground = true;
-					adapters.onBackgroundInterrupted();
 					// A resume cut like this may be running on the server, and nothing is
 					// known of its answer yet (a look from a hidden tab says little): the
 					// answer stays pending, with its row, and the visibility recovery tells
 					// the page how it went (`recoverBackgroundInterruptedStream`). It is the
 					// latest cut-off stream's: one that is no resume leaves nothing behind.
+					// Stashed BEFORE the page is told: a callback that runs the recovery at
+					// once reads it in that very call.
 					interruptedResume =
 						params.answer || params.continuesMessageId
 							? {
@@ -2301,6 +2302,7 @@ export function createNormalChatClientTurnRuntime(
 									continuesMessageId: params.continuesMessageId,
 								}
 							: null;
+					adapters.onBackgroundInterrupted();
 					emitState();
 					return;
 				}
