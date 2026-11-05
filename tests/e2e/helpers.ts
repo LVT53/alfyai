@@ -245,6 +245,27 @@ export async function deleteProvidersWithPrefix(page: Page, prefix: string) {
 	}
 }
 
+/** What a message, or an answer, says while it waits for a server update to end (the bubble's own words). */
+export const UPDATING_STATUS =
+	"AlfyAI is being updated. Waiting for it to come back…";
+
+/**
+ * Turns the worker's server draining on or off, as a deploy does (`POST
+ * /api/admin/drain`, with the test's admin session): a draining server turns a new turn
+ * away, and the page waits for the update. The worker's server outlives a spec file, so
+ * a spec that drains puts the drain back in its own cleanup, and a put-back that fails
+ * fails that test (this asserts the answer).
+ */
+export async function setDraining(page: Page, draining: boolean) {
+	const response = await page.request.post("/api/admin/drain", {
+		data: { draining },
+	});
+	expect(response.ok(), `drain -> ${response.status()}`).toBe(true);
+	expect(((await response.json()) as { draining: boolean }).draining).toBe(
+		draining,
+	);
+}
+
 export async function waitForAssistantResponse(page: Page, timeout = 30000) {
 	await expect(
 		page.getByTestId("assistant-message").filter({ hasText: /\S/ }).first(),

@@ -3,6 +3,8 @@ import {
 	buildAiSdkUiStreamBody,
 	createEmptyConversation,
 	login,
+	setDraining,
+	UPDATING_STATUS,
 	waitForHydration,
 } from "./helpers";
 
@@ -18,19 +20,8 @@ import {
 // themselves are mocked at the browser, as in the other chat specs. A worker keeps
 // its server from one spec file to the next, so every test puts the drain back.
 
-const UPDATING = "AlfyAI is being updated. Waiting for it to come back…";
 const CUT =
 	"AlfyAI was updated while this reply was being written, so it was cut off. Press Retry to send your message again.";
-
-async function setDraining(page: Page, draining: boolean) {
-	const response = await page.request.post("/api/admin/drain", {
-		data: { draining },
-	});
-	expect(response.ok(), `drain -> ${response.status()}`).toBe(true);
-	expect(((await response.json()) as { draining: boolean }).draining).toBe(
-		draining,
-	);
-}
 
 /** An empty chat, open and hydrated, with the composer ready. */
 async function openEmptyChat(page: Page) {
@@ -99,7 +90,7 @@ test.describe("An update during a turn", () => {
 		// The real server refused it as a draining server does; the page does not
 		// count down three tries and blame the provider, it waits and says so.
 		await expect(page.getByTestId("awaiting-update-status")).toHaveText(
-			UPDATING,
+			UPDATING_STATUS,
 		);
 		await expect(page.getByTestId("server-draining-notice")).toBeVisible();
 		await expect(page.getByRole("button", { name: /retry/i })).toHaveCount(0);
@@ -133,7 +124,7 @@ test.describe("An update during a turn", () => {
 		await send(page, "And the day after?");
 
 		await expect(page.getByTestId("awaiting-update-status")).toHaveText(
-			UPDATING,
+			UPDATING_STATUS,
 		);
 		// The shell was told, and shows the banner without a reload or a focus.
 		await expect(page.getByTestId("server-draining-notice")).toBeVisible();
@@ -295,7 +286,7 @@ test.describe("An update during a turn", () => {
 		await send(page, "Anybody there?");
 
 		await expect(page.getByTestId("awaiting-update-status")).toHaveText(
-			UPDATING,
+			UPDATING_STATUS,
 		);
 		await expect(page.getByRole("button", { name: /retry/i })).toHaveCount(0);
 		// The server answers its health route (it is the real one), so the message
@@ -353,7 +344,7 @@ test.describe("An update during a turn", () => {
 		// is doing: the proxy answers for it, so the restart cut the reply. It waits,
 		// and keeps what it has of the reply.
 		await expect(page.getByTestId("awaiting-update-status")).toHaveText(
-			UPDATING,
+			UPDATING_STATUS,
 			{ timeout: 20_000 },
 		);
 		await expect(page.getByTestId("assistant-message")).toContainText(
