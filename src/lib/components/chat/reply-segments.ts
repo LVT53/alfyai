@@ -19,6 +19,7 @@
 import type { MessageUserIntent } from "$lib/message-user-intent";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { AskQuestionDto } from "$lib/shared/ask-user";
+import { joinReplyText } from "$lib/shared/reply-text";
 
 /** Where an assistant row sits in the reply it belongs to. */
 export type ReplyPlace = {
@@ -35,8 +36,9 @@ export type ReplyPlace = {
 	question: AskQuestionDto | null;
 	/**
 	 * What Copy takes, on the last row of a reply of more than one row: every row's
-	 * words, the empty ones left out, joined by a blank line. `null` elsewhere, where
-	 * Copy takes the row's own words.
+	 * words, the empty ones left out, joined by a blank line (`joinReplyText`, which
+	 * "Open as document" keeps the reply with too). `null` elsewhere, where Copy takes
+	 * the row's own words.
 	 */
 	copyText: string | null;
 	/**
@@ -50,17 +52,6 @@ export type ReplyPlace = {
 	 */
 	userIntent: MessageUserIntent | null;
 };
-
-/**
- * The words Copy takes of a row: its content without the model's thinking text.
- * The one definition, for a row alone and for every row of a reply.
- */
-export function getClipboardText(content: string): string {
-	return content
-		.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
-		.replace(/<\/?thinking>/gi, "")
-		.trim();
-}
 
 /**
  * Whether the row at `index` carries on from the row right above it: both are
@@ -193,12 +184,7 @@ export function placeReplySegments(
 	const closeReply = () => {
 		const last = reply.length - 1;
 		const copyText =
-			reply.length > 1
-				? reply
-						.map((row) => getClipboardText(row.content))
-						.filter((words) => words !== "")
-						.join("\n\n")
-				: null;
+			reply.length > 1 ? joinReplyText(reply.map((row) => row.content)) : null;
 		const userIntent = reply.length > 1 ? (reply[0].userIntent ?? null) : null;
 		for (const [position, row] of reply.entries()) {
 			const question = questionOf.get(row.id) ?? null;

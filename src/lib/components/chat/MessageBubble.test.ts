@@ -4265,6 +4265,42 @@ describe("MessageBubble", () => {
 			expect(writeText).toHaveBeenLastCalledWith(SECOND_WORDS);
 		});
 
+		// "Open as document" is on the last segment and keeps the whole reply, the words
+		// Copy takes (owner's decision), so it is offered whenever the reply has words,
+		// even when the last segment has none of its own, and not when no segment has.
+		it("offers Open as document on a last segment with no words of its own, when the reply has words", async () => {
+			const openAsDocumentLabel = chatDict.en["chat.artifacts.keepAsDocument"];
+			const onKeepAsDocument = vi.fn().mockResolvedValue(undefined);
+			// (a render key of its own: one equal to the id is a row not saved yet)
+			const message = segment({
+				id: "assistant-seg-2",
+				renderKey: "render-seg-2",
+				content: "   ",
+				continuesMessageId: "assistant-seg-1",
+			});
+			const { rerender } = render(MessageBubble, {
+				message,
+				isLast: true,
+				onKeepAsDocument,
+				replyPlace: place({ continuesAbove: true, copyText: FIRST_WORDS }),
+			});
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: openAsDocumentLabel }),
+			);
+			expect(onKeepAsDocument).toHaveBeenCalledWith({
+				messageId: "assistant-seg-2",
+			});
+
+			// No segment has any words: nothing to keep.
+			await rerender({
+				replyPlace: place({ continuesAbove: true, copyText: "" }),
+			});
+			expect(
+				screen.queryByRole("button", { name: openAsDocumentLabel }),
+			).not.toBeInTheDocument();
+		});
+
 		describe("the provenance line of a reply in segments", () => {
 			const chosen = {
 				skill: { id: "skill-1", displayName: "Contract review" },

@@ -63,6 +63,7 @@ import type {
 	ThinkingSegment,
 } from "$lib/server/services/messages-types";
 import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
+import { getClipboardText } from "$lib/shared/reply-text";
 import AskQuestionCard from "./AskQuestionCard.svelte";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 import ThinkingBlock from "./ThinkingBlock.svelte";
@@ -76,7 +77,7 @@ import AttachmentOutline from "./AttachmentOutline.svelte";
 import ComposerChip from "./ComposerChip.svelte";
 import { splitUserMessageQuotes } from "./composer-chip-presentation";
 import { deriveMessageProvenance } from "./message-provenance";
-import { getClipboardText, type ReplyPlace } from "./reply-segments";
+import type { ReplyPlace } from "./reply-segments";
 import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
 import AtlasActivityRow from "./AtlasActivityRow.svelte";
 import SkillDraftCard from "./SkillDraftCard.svelte";
@@ -329,6 +330,12 @@ let isUser = $derived(message.role === "user");
 // A reply that paused to ask is several rows drawn as one reply (reply-segments.ts).
 let continuesAbove = $derived(replyPlace?.continuesAbove ?? false);
 let continuedBelow = $derived(replyPlace?.continuedBelow ?? false);
+// The words of the reply this row ends: every segment's, joined, on the last row of a
+// reply in segments (`copyText`), else the row's own. What Copy takes and what "Open
+// as document" keeps, so the button is offered exactly when there is something to keep.
+let replyText = $derived(
+	replyPlace?.copyText ?? getClipboardText(message.content),
+);
 let hasAttachments = $derived((message.attachments?.length ?? 0) > 0);
 // The card pictures a user message carried, in their numbers, and the number
 // each uploaded photo went by (plan 2b T5). Both come with the message from its
@@ -696,7 +703,9 @@ let canFork = $derived(
 // "Open as document" (spec 2.1: every assistant reply may be kept as a
 // Document): a finished, non-empty, real text answer only — the same shape
 // canFork checks, minus readOnly (opening a document is not an edit to the
-// conversation the way forking or regenerating is).
+// conversation the way forking or regenerating is). On the last segment of a reply
+// that paused to ask it keeps the whole reply, so it is the reply's words that
+// must exist, not the last segment's own.
 let canKeepAsDocument = $derived(
 	!isUser &&
 		Boolean(onKeepAsDocument) &&
@@ -705,7 +714,7 @@ let canKeepAsDocument = $derived(
 		!message.wasStopped &&
 		!message.isStreaming &&
 		!message.isThinkingStreaming &&
-		message.content.trim().length > 0,
+		replyText.length > 0,
 );
 let showLogoBelow = $derived(
 	!isUser && isLast && (hasThinking || isGenerating || isFinalizing),
@@ -873,9 +882,7 @@ function isKnownCompletionWarningCode(
 async function copyToClipboard() {
 	try {
 		// The last row of a reply in segments copies every segment's words.
-		await navigator.clipboard.writeText(
-			replyPlace?.copyText ?? getClipboardText(message.content),
-		);
+		await navigator.clipboard.writeText(replyText);
 		copied = true;
 		clearTimeout(copyTimeout);
 		copyTimeout = setTimeout(() => {

@@ -45,6 +45,7 @@ import type {
 	InstructionSuggestion,
 	InstructionSuggestionStatus,
 } from "$lib/shared/instructions";
+import { joinReplyText } from "$lib/shared/reply-text";
 import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
 import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
@@ -467,12 +468,59 @@ function projectMessageMetadata(
 				: undefined,
 		// The row a continuation segment carries on from: a non-empty string or
 		// nothing, so a malformed link reads as a reply of its own.
-		continuesMessageId:
-			typeof metadata?.continuesMessageId === "string" &&
-			metadata.continuesMessageId.length > 0
-				? metadata.continuesMessageId
-				: undefined,
+		continuesMessageId: continuesLinkOf(metadata) ?? undefined,
 	};
+}
+
+/** The link a reply segment keeps to the row it continues: a non-empty string, else none. */
+function continuesLinkOf(
+	metadata: PersistedMessageMetadata | null,
+): string | null {
+	const link = metadata?.continuesMessageId;
+	return typeof link === "string" && link.length > 0 ? link : null;
+}
+
+/**
+ * The row a reply segment continues, read from the row's stored metadata; null for
+ * a reply's first row and for a metadata that cannot be read.
+ */
+export function continuesMessageIdOf(
+	metadataJson: string | null,
+): string | null {
+	return continuesLinkOf(parseMetadata(metadataJson));
+}
+
+/**
+ * The segments of the reply that ends at the row `lastId`, first to last: the rows
+ * a reply that paused to ask is made of ("Ask me first"), found by walking the
+ * rows' own `continuesMessageId` links back from the last one, which is how the
+ * resume finds the person's message (`findReply`, ask-resume.ts) and "Open as
+ * document" finds the words it keeps (`getReplyForDocumentKeep`). Reading by link
+ * and not by position is what tells a reply of several segments from rows that
+ * merely follow one another. `readRow` finds a row by id (it may be a map over the
+ * chat's rows or a read of one row), `undefined` for a row that is not there.
+ *
+ * Null when the chain does not lead to a first segment: the row asked for is
+ * missing or is not an assistant's, a row it continues is gone or is not an
+ * assistant's, or the links loop.
+ */
+export async function walkReplySegments<
+	Row extends { id: string; role: string; metadataJson: string | null },
+>(
+	readRow: (id: string) => Row | undefined | Promise<Row | undefined>,
+	lastId: string,
+): Promise<Row[] | null> {
+	const segments: Row[] = [];
+	const seen = new Set<string>();
+	let row = await readRow(lastId);
+	for (;;) {
+		if (!row || row.role !== "assistant" || seen.has(row.id)) return null;
+		seen.add(row.id);
+		segments.unshift(row);
+		const link = continuesMessageIdOf(row.metadataJson);
+		if (link === null) return segments;
+		row = await readRow(link);
+	}
 }
 
 function mapRowToChatMessage(
@@ -1166,37 +1214,51 @@ export async function getAssistantMessageSkillDraft(params: {
 }
 
 /**
- * "Open as document" (Feature 2 · Artifacts, Slice 1): the message's visible
- * text — `content` is already the normalized visible text by the time it is
- * persisted (send/stream apply `normalizeAssistantOutput` before the write),
- * so this reads it straight off the row rather than re-deriving it — and any
- * document this message was already kept as, for idempotency. `null` for a
- * missing message, a message in a different conversation, or a non-assistant
- * one: "Open as document" only ever applies to an assistant reply.
+ * "Open as document" (Feature 2 · Artifacts, Slice 1): the words to keep and any
+ * document this message was already kept as, for idempotency. The message is the
+ * LAST segment of its reply, where the button is, and the words are the whole
+ * reply's (the owner's decision): every segment's text, found by walking the
+ * `continuesMessageId` links back from the message (`walkReplySegments`), the
+ * thinking stripped and the empty segments left out, joined by a blank line, the
+ * way Copy takes them (`joinReplyText`, shared with the chat components, so the two
+ * cannot drift). A segment's `content` is already the normalized visible text by the
+ * time it is persisted (send/stream apply `normalizeAssistantOutput` before the
+ * write), so this reads it straight off the rows rather than re-deriving it. A
+ * chain that does not lead to a first segment keeps the message itself. The link to
+ * the Document stays on the message pressed, never on the segments before it. `null`
+ * for a missing message, a message in a different conversation, or a non-assistant
+ * one: "Open as document" only ever applies to an assistant reply. `content` is
+ * empty when no segment has words.
  */
-export async function getMessageForDocumentKeep(params: {
+export async function getReplyForDocumentKeep(params: {
 	conversationId: string;
 	messageId: string;
 }): Promise<{ content: string; documentArtifactId: string | null } | null> {
-	const [row] = await db
-		.select({
-			content: messages.content,
-			role: messages.role,
-			metadataJson: messages.metadataJson,
-		})
-		.from(messages)
-		.where(
-			and(
-				eq(messages.id, params.messageId),
-				eq(messages.conversationId, params.conversationId),
-				eq(messages.role, "assistant"),
-			),
-		)
-		.limit(1);
-	if (!row) return null;
-	const metadata = parseMetadata(row.metadataJson);
+	const readRow = async (id: string) => {
+		const [row] = await db
+			.select({
+				id: messages.id,
+				content: messages.content,
+				role: messages.role,
+				metadataJson: messages.metadataJson,
+			})
+			.from(messages)
+			.where(
+				and(
+					eq(messages.id, id),
+					eq(messages.conversationId, params.conversationId),
+					eq(messages.role, "assistant"),
+				),
+			)
+			.limit(1);
+		return row;
+	};
+	const pressed = await readRow(params.messageId);
+	if (!pressed) return null;
+	const segments = (await walkReplySegments(readRow, pressed.id)) ?? [pressed];
+	const metadata = parseMetadata(pressed.metadataJson);
 	return {
-		content: row.content,
+		content: joinReplyText(segments.map((segment) => segment.content)),
 		documentArtifactId:
 			typeof metadata?.documentArtifactId === "string"
 				? metadata.documentArtifactId
@@ -1207,7 +1269,7 @@ export async function getMessageForDocumentKeep(params: {
 /**
  * Records which Document a message was kept as. Additive, same paved road as
  * `updateMessageRailSummary`: read, merge, write back. Never overwritten once
- * set — the route checks `getMessageForDocumentKeep` first and only calls
+ * set — the route checks `getReplyForDocumentKeep` first and only calls
  * this on a fresh creation, so a message never points at two documents in
  * sequence just because "Open as document" was clicked twice.
  */

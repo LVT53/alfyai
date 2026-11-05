@@ -6,8 +6,15 @@
 // link, and make a second one (the message kept only the last, the other was
 // left in the panel). One press per message runs at a time here; a press that
 // arrives meanwhile is handed that Document instead.
+//
+// A reply that paused to ask ("Ask me first") is several assistant rows, and the
+// button is on the last one. The Document takes the WHOLE reply (owner's decision):
+// every segment's words, joined the way Copy joins them, with the title from that
+// text and the link on the pressed row. The Info popover stays per segment, as
+// built, by the owner's decision: it describes the run that wrote the last segment,
+// not the whole reply, and is not to be "fixed" to match this.
 import {
-	getMessageForDocumentKeep,
+	getReplyForDocumentKeep,
 	updateMessageDocumentLink,
 } from "$lib/server/services/messages";
 import { inlinePlainText } from "$lib/shared/artifact-document/blocks";
@@ -82,11 +89,13 @@ async function keepOnce(params: {
 	conversationTitle: string;
 	messageId: string;
 }): Promise<KeepMessageAsDocumentResult> {
-	const message = await getMessageForDocumentKeep({
+	// The pressed message is the last segment of its reply; what is kept is the
+	// whole reply's words (`getReplyForDocumentKeep`), the link stays on this row.
+	const message = await getReplyForDocumentKeep({
 		conversationId: params.conversationId,
 		messageId: params.messageId,
 	});
-	if (!message || message.content.trim().length === 0) {
+	if (!message || message.content.length === 0) {
 		return { ok: false, reason: "not_found" };
 	}
 

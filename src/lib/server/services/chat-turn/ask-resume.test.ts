@@ -46,15 +46,16 @@ vi.mock("$lib/server/services/conversations", () => ({
 	getConversation: vi.fn(async () => ({ id: "conv-1" })),
 }));
 // The resume closes a question it can never carry on by rewriting the ask call of
-// the row that asked (`updateAssistantToolCallResult`), so that write is the real
-// one, over the same rows; everything else of the messages service is not this
-// module's.
+// the row that asked (`updateAssistantToolCallResult`), and reads a reply's
+// segments by their links (`walkReplySegments`), so both are the real ones, over
+// the same rows; everything else of the messages service is not this module's.
 vi.mock("$lib/server/services/messages", async (importOriginal) => {
 	const actual =
 		await importOriginal<typeof import("$lib/server/services/messages")>();
 	return {
 		deleteMessages: vi.fn(async () => undefined),
 		updateAssistantToolCallResult: actual.updateAssistantToolCallResult,
+		walkReplySegments: actual.walkReplySegments,
 	};
 });
 vi.mock("$lib/server/services/knowledge", () => ({

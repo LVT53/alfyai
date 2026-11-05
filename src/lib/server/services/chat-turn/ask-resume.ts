@@ -4,7 +4,10 @@ import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
 import { hasLocalDistillEnabled } from "$lib/server/services/connections/locality";
 import { messageOrderAsc } from "$lib/server/services/message-ordering";
-import { updateAssistantToolCallResult } from "$lib/server/services/messages";
+import {
+	updateAssistantToolCallResult,
+	walkReplySegments,
+} from "$lib/server/services/messages";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { buildAskAnswerRecord } from "$lib/server/services/normal-chat-tools/ask-user";
 import {
@@ -165,28 +168,14 @@ type ReplyRow = {
 	metadataJson: string | null;
 };
 
-/** The row a continuation segment names as the one it carries on, or null for a reply's first row. */
-function continuesMessageIdOf(metadataJson: string | null): string | null {
-	if (!metadataJson) return null;
-	try {
-		const parsed: unknown = JSON.parse(metadataJson);
-		const link =
-			typeof parsed === "object" && parsed !== null
-				? (parsed as { continuesMessageId?: unknown }).continuesMessageId
-				: undefined;
-		return typeof link === "string" && link.length > 0 ? link : null;
-	} catch {
-		return null;
-	}
-}
-
 /**
  * The reply the asking row belongs to, from its first segment to the row that
  * asked, and the person's message right before it. Null when the chain does not
  * lead to one: a row it continues that is gone or is not an assistant's, a loop,
- * or no user row right before the first segment. Reading the chain by the rows'
- * own links, not by their order, is what lets a reply of several segments be told
- * from rows that merely follow one another.
+ * or no user row right before the first segment. The chain is read by the rows'
+ * own links, not by their order (`walkReplySegments`, messages.ts: the one reader
+ * the Document "Open as document" keeps a reply with uses too), which is what lets
+ * a reply of several segments be told from rows that merely follow one another.
  */
 async function findReply(
 	conversationId: string,
@@ -207,17 +196,11 @@ async function findReply(
 		.orderBy(...messageOrderAsc());
 	const byId = new Map(rows.map((row) => [row.id, row]));
 
-	const segments: ReplyRow[] = [];
-	const seen = new Set<string>();
-	let row = byId.get(askedMessageId);
-	for (;;) {
-		if (!row || row.role !== "assistant" || seen.has(row.id)) return null;
-		seen.add(row.id);
-		segments.unshift(row);
-		const link = continuesMessageIdOf(row.metadataJson);
-		if (link === null) break;
-		row = byId.get(link);
-	}
+	const segments = await walkReplySegments(
+		(id) => byId.get(id),
+		askedMessageId,
+	);
+	if (segments === null) return null;
 
 	const firstId = segments[0].id;
 	const at = rows.findIndex((candidate) => candidate.id === firstId);

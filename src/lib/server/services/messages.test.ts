@@ -1236,7 +1236,7 @@ describe("messages metadata", () => {
 
 	// "Open as document" (Feature 2 · Artifacts, Slice 1) — the link that makes
 	// asking twice open the same Document instead of creating a second one.
-	describe("getMessageForDocumentKeep / updateMessageDocumentLink", () => {
+	describe("getReplyForDocumentKeep / updateMessageDocumentLink", () => {
 		it("reads the message's content and no link when none was ever kept", async () => {
 			mockRows.push({
 				id: "assistant-1",
@@ -1249,8 +1249,8 @@ describe("messages metadata", () => {
 				metadataJson: null,
 			});
 
-			const { getMessageForDocumentKeep } = await import("./messages");
-			const result = await getMessageForDocumentKeep({
+			const { getReplyForDocumentKeep } = await import("./messages");
+			const result = await getReplyForDocumentKeep({
 				conversationId: "conv-1",
 				messageId: "assistant-1",
 			});
@@ -1273,8 +1273,8 @@ describe("messages metadata", () => {
 				metadataJson: JSON.stringify({ documentArtifactId: "artifact-1" }),
 			});
 
-			const { getMessageForDocumentKeep } = await import("./messages");
-			const result = await getMessageForDocumentKeep({
+			const { getReplyForDocumentKeep } = await import("./messages");
+			const result = await getReplyForDocumentKeep({
 				conversationId: "conv-1",
 				messageId: "assistant-1",
 			});
@@ -1813,5 +1813,104 @@ describe("messages metadata", () => {
 				status: "reviewed",
 			}),
 		).resolves.toBeNull();
+	});
+});
+
+// A reply that paused to ask ("Ask me first") is consecutive assistant rows, each
+// naming the row it continues. The resume (`findReply`, ask-resume.ts) and "Open
+// as document" (keep-message.ts) read that chain with this one function.
+describe("walkReplySegments", () => {
+	type Row = { id: string; role: string; metadataJson: string | null };
+	const row = (
+		id: string,
+		continuesMessageId: string | null = null,
+		role = "assistant",
+	): Row => ({
+		id,
+		role,
+		metadataJson: continuesMessageId
+			? JSON.stringify({ continuesMessageId })
+			: null,
+	});
+	const readerOf = (rows: Row[]) => (id: string) =>
+		rows.find((candidate) => candidate.id === id);
+
+	it("walks the links back from the last row and answers the rows first to last", async () => {
+		const { walkReplySegments } = await import("./messages");
+		// not in order, with rows of other replies among them
+		const rows = [
+			row("c", "b"),
+			row("other"),
+			row("a"),
+			row("b", "a"),
+			row("later", "c"),
+		];
+
+		const segments = await walkReplySegments(readerOf(rows), "c");
+
+		expect(segments?.map((segment) => segment.id)).toEqual(["a", "b", "c"]);
+	});
+
+	it("is the row alone for a row that continues nothing", async () => {
+		const { walkReplySegments } = await import("./messages");
+		const rows = [row("a"), row("b", "a")];
+
+		const segments = await walkReplySegments(readerOf(rows), "a");
+
+		expect(segments?.map((segment) => segment.id)).toEqual(["a"]);
+	});
+
+	it("reads rows from a reader that is asynchronous too", async () => {
+		const { walkReplySegments } = await import("./messages");
+		const rows = [row("a"), row("b", "a")];
+
+		const segments = await walkReplySegments(
+			async (id) => rows.find((candidate) => candidate.id === id),
+			"b",
+		);
+
+		expect(segments?.map((segment) => segment.id)).toEqual(["a", "b"]);
+	});
+
+	it("answers null when the chain does not lead to a first row", async () => {
+		const { walkReplySegments } = await import("./messages");
+
+		// the row it continues is gone
+		expect(
+			await walkReplySegments(readerOf([row("b", "gone")]), "b"),
+		).toBeNull();
+		// the row it continues is not an assistant's
+		expect(
+			await walkReplySegments(
+				readerOf([row("u", null, "user"), row("b", "u")]),
+				"b",
+			),
+		).toBeNull();
+		// a loop
+		expect(
+			await walkReplySegments(readerOf([row("a", "b"), row("b", "a")]), "b"),
+		).toBeNull();
+		// the row asked for is not there, or is not an assistant's
+		expect(await walkReplySegments(readerOf([]), "a")).toBeNull();
+		expect(
+			await walkReplySegments(readerOf([row("u", null, "user")]), "u"),
+		).toBeNull();
+	});
+
+	it("reads a link only from a metadata that can be read", async () => {
+		const { continuesMessageIdOf } = await import("./messages");
+
+		expect(
+			continuesMessageIdOf(JSON.stringify({ continuesMessageId: "a" })),
+		).toBe("a");
+		expect(
+			continuesMessageIdOf(JSON.stringify({ continuesMessageId: "" })),
+		).toBeNull();
+		expect(
+			continuesMessageIdOf(JSON.stringify({ continuesMessageId: 7 })),
+		).toBeNull();
+		expect(continuesMessageIdOf(JSON.stringify({ other: true }))).toBeNull();
+		expect(continuesMessageIdOf("{not json")).toBeNull();
+		expect(continuesMessageIdOf(null)).toBeNull();
 	});
 });

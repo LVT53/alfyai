@@ -3,7 +3,6 @@ import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { AskQuestionDto } from "$lib/shared/ask-user";
 import {
 	continuesRowAbove,
-	getClipboardText,
 	personMessageOfReply,
 	placeReplySegments,
 	replyEndIndex,
@@ -458,16 +457,6 @@ describe("placeReplySegments", () => {
 		);
 
 		expect(places.get("a-4")?.copyText).toBe("First words.\n\nLast words.");
-	});
-});
-
-describe("getClipboardText", () => {
-	it("takes the words of a row without its thinking text", () => {
-		expect(
-			getClipboardText("<thinking>Inline hidden thought.</thinking>Visible."),
-		).toBe("Visible.");
-		expect(getClipboardText("  <thinking>Open")).toBe("Open");
-		expect(getClipboardText("Plain words.")).toBe("Plain words.");
 	});
 });
 
