@@ -2,10 +2,35 @@ import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	ChatGptImportAlreadyRunningError,
+	ChatGptImportNoSelectionError,
 	ChatGptImportProjectAccessError,
 	importConversations,
 } from "$lib/server/services/chatgpt-import";
 import type { RequestHandler } from "./$types";
+
+// The conversations the person ticked, as the browser posts them: a JSON list of
+// the ids the export gives its conversations, each once, in the order named. A
+// missing field is an empty list; anything else that is not a list of ids is
+// null.
+function readConversationIds(
+	field: FormDataEntryValue | null,
+): string[] | null {
+	if (field === null) return [];
+	if (typeof field !== "string") return null;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(field);
+	} catch {
+		return null;
+	}
+	if (!Array.isArray(parsed)) return null;
+	const ids = new Set<string>();
+	for (const item of parsed) {
+		if (typeof item !== "string" || item.trim().length === 0) return null;
+		ids.add(item);
+	}
+	return [...ids];
+}
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
@@ -31,6 +56,17 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: "File must be a .zip file" }, { status: 400 });
 	}
 
+	const conversationIds = readConversationIds(formData.get("conversationIds"));
+	if (conversationIds === null) {
+		return json({ error: "Invalid conversation selection" }, { status: 400 });
+	}
+	if (conversationIds.length === 0) {
+		return json(
+			{ error: "Select at least one conversation to import" },
+			{ status: 400 },
+		);
+	}
+
 	const projectIdField = formData.get("projectId");
 	const projectId =
 		typeof projectIdField === "string" && projectIdField.trim()
@@ -48,9 +84,13 @@ export const POST: RequestHandler = async (event) => {
 	try {
 		const result = await importConversations(user.id, zipBuffer, {
 			projectId,
+			conversationIds,
 		});
 		return json(result);
 	} catch (err) {
+		if (err instanceof ChatGptImportNoSelectionError) {
+			return json({ error: err.message }, { status: 400 });
+		}
 		if (err instanceof ChatGptImportAlreadyRunningError) {
 			return json(
 				{ error: err.message, errorKey: err.errorKey },

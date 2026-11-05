@@ -7,8 +7,11 @@ import type { Project } from "$lib/server/services/projects";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { importChatGPTData } from "$lib/client/api/chatgpt-import";
 import { ApiError } from "$lib/client/api/http";
+import { exportedConversationId } from "$lib/shared/chatgpt-export";
 
 interface ChatGPTConversation {
+	id?: string;
+	conversation_id?: string;
 	title: string;
 	create_time: number;
 	update_time: number;
@@ -19,6 +22,8 @@ interface ChatGPTConversation {
 }
 
 interface ParsedChat {
+	/** What the export calls the conversation: the name the server imports it by. */
+	id: string;
 	title: string;
 	createTime: number;
 	messageCount: number;
@@ -91,9 +96,11 @@ const allSelected = $derived(
 
 const someSelected = $derived(filteredChats.some((chat) => chat.selected));
 
-const selectedCount = $derived(
-	parsedChats.filter((chat) => chat.selected).length,
+const selectedIds = $derived(
+	parsedChats.filter((chat) => chat.selected).map((chat) => chat.id),
 );
+
+const selectedCount = $derived(selectedIds.length);
 
 function countMessages(mapping: ChatGPTConversation["mapping"]): number {
 	let count = 0;
@@ -115,16 +122,28 @@ async function parseZip(uploadedFile: File): Promise<void> {
 		const text = await jsonFile.async("text");
 		const data = JSON.parse(text) as ChatGPTConversation[];
 
-		if (!Array.isArray(data) || data.length === 0) {
+		if (!Array.isArray(data)) {
 			throw new Error($t("chatgptImport.noConversations"));
 		}
 
-		parsedChats = data.map((conv) => ({
-			title: conv.title || "Untitled",
-			createTime: conv.create_time,
-			messageCount: countMessages(conv.mapping),
-			selected: true,
-		}));
+		// An entry the export gives no id cannot be named in what is sent to the
+		// server, so it is not offered.
+		parsedChats = data.flatMap((conv) => {
+			const id = exportedConversationId(conv);
+			if (id === null) return [];
+			return [
+				{
+					id,
+					title: conv.title || "Untitled",
+					createTime: conv.create_time,
+					messageCount: countMessages(conv.mapping),
+					selected: true,
+				},
+			];
+		});
+		if (parsedChats.length === 0) {
+			throw new Error($t("chatgptImport.noConversations"));
+		}
 		filteredChats = parsedChats;
 		importState = "preview";
 	} catch (err) {
@@ -205,7 +224,11 @@ async function startImport(): Promise<void> {
 	importProgress = { current: 0, total: selectedCount };
 
 	try {
-		const result = await importChatGPTData(file, selectedProjectId);
+		const result = await importChatGPTData(
+			file,
+			selectedIds,
+			selectedProjectId,
+		);
 		importResult = {
 			conversationIds: result.conversationIds,
 			errors: result.errors,
@@ -319,7 +342,7 @@ function handleRetry(): void {
 					<p class="text-xs text-text-muted">
 						{$t("chatgptImport.chatsFound", { count: filteredChats.length })}
 						{#if selectedCount > 0}
-							<span class="ml-1">· {selectedCount} {$t("chatgptImport.messages", { count: selectedCount }).replace(/\d+\s*/, "")}</span>
+							<span class="ml-1">· {$t("chatgptImport.selectedCount", { count: selectedCount })}</span>
 						{/if}
 					</p>
 
@@ -333,7 +356,7 @@ function handleRetry(): void {
 								{$t("chatgptImport.noConversations")}
 							</p>
 						{:else}
-							{#each filteredChats as chat, i (chat.title + chat.createTime)}
+							{#each filteredChats as chat, i (chat.id)}
 								<label
 									class="flex cursor-pointer items-center gap-3 rounded-md border border-border-subtle p-3 transition-colors hover:bg-surface-elevated"
 									class:bg-surface-elevated={chat.selected}
@@ -377,7 +400,7 @@ function handleRetry(): void {
 
 					<div class="rounded-lg border border-border-subtle bg-surface-elevated p-3">
 						<p class="text-sm text-text-primary">
-							{selectedCount} {$t("chatgptImport.messages", { count: selectedCount }).replace(/\d+\s*/, "")} {$t("chatgptImport.chatsFound", { count: selectedCount }).replace(/\d+\s*/, "")}
+							{$t("chatgptImport.willImport", { count: selectedCount })}
 						</p>
 					</div>
 				</div>
@@ -402,11 +425,15 @@ function handleRetry(): void {
 						<Check class="h-6 w-6 text-success" size={24} strokeWidth={2} aria-hidden="true" />
 					</div>
 					<p class="text-center text-sm text-text-primary">
-						{importResult?.conversationIds.length ?? 0} conversations imported successfully.
+						{$t("chatgptImport.importedCount", {
+							count: importResult?.conversationIds.length ?? 0,
+						})}
 					</p>
 					{#if importResult && importResult.errors.length > 0}
 						<p class="text-center text-xs text-danger">
-							{importResult.errors.length} errors occurred.
+							{$t("chatgptImport.importedErrorCount", {
+								count: importResult.errors.length,
+							})}
 						</p>
 					{/if}
 				</div>

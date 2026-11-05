@@ -477,7 +477,8 @@ const chatDict = {
 			"An import is already running. Wait for it to finish, then try again.",
 		"chatgptImport.back": "Back",
 		"chatgptImport.cancel": "Cancel",
-		"chatgptImport.chatsFound": "{count} conversations found",
+		"chatgptImport.chatsFound":
+			"{count} {count, plural, one {conversation} other {conversations}} found",
 		"chatgptImport.close": "Close",
 		"chatgptImport.configTitle": "Import Settings",
 		"chatgptImport.conversationListLabel": "Conversations to import",
@@ -488,9 +489,14 @@ const chatDict = {
 		"chatgptImport.importComplete": "Import complete",
 		"chatgptImport.importError": "Import failed",
 		"chatgptImport.importSelected": "Import {count} selected",
+		"chatgptImport.importedCount":
+			"{count} {count, plural, one {conversation} other {conversations}} imported successfully.",
+		"chatgptImport.importedErrorCount":
+			"{count} {count, plural, one {error} other {errors}} occurred.",
 		"chatgptImport.importingTitle": "Importing Conversations",
 		"chatgptImport.invalidFile": "Please select a valid ZIP file.",
-		"chatgptImport.messages": "{count} messages",
+		"chatgptImport.messages":
+			"{count} {count, plural, one {message} other {messages}}",
 		"chatgptImport.next": "Next",
 		"chatgptImport.noConversations": "No conversations found in this ZIP file.",
 		"chatgptImport.noProject": "No folder",
@@ -502,6 +508,7 @@ const chatDict = {
 		"chatgptImport.searchPlaceholder": "Search conversations...",
 		"chatgptImport.selectAll": "Select all",
 		"chatgptImport.selectFile": "Select ZIP file",
+		"chatgptImport.selectedCount": "{count} selected",
 		"chatgptImport.settingsButton": "Import from ChatGPT",
 		"chatgptImport.settingsDescription":
 			"Import your conversations from ChatGPT to continue where you left off.",
@@ -509,6 +516,8 @@ const chatDict = {
 		"chatgptImport.title": "Import ChatGPT Conversations",
 		"chatgptImport.uploadPrompt":
 			"Drag and drop your ChatGPT export ZIP here, or click to browse",
+		"chatgptImport.willImport":
+			"{count} {count, plural, one {conversation} other {conversations}} will be imported",
 		"codeBlock.collapse": "Collapse code block",
 		"codeBlock.copied": "Copied!",
 		"codeBlock.copyCode": "Copy code",
@@ -1698,6 +1707,8 @@ const chatDict = {
 		"chatgptImport.importComplete": "Importálás kész",
 		"chatgptImport.importError": "Importálás sikertelen",
 		"chatgptImport.importSelected": "{count} kijelölt importálása",
+		"chatgptImport.importedCount": "{count} beszélgetés sikeresen importálva.",
+		"chatgptImport.importedErrorCount": "{count} hiba történt.",
 		"chatgptImport.importingTitle": "Beszélgetések importálása",
 		"chatgptImport.invalidFile": "Kérjük, válasszon érvényes ZIP fájlt.",
 		"chatgptImport.messages": "{count} üzenet",
@@ -1713,6 +1724,7 @@ const chatDict = {
 		"chatgptImport.searchPlaceholder": "Keresés a beszélgetések között...",
 		"chatgptImport.selectAll": "Összes kijelölése",
 		"chatgptImport.selectFile": "ZIP fájl kiválasztása",
+		"chatgptImport.selectedCount": "{count} kijelölve",
 		"chatgptImport.settingsButton": "Importálás ChatGPT-ből",
 		"chatgptImport.settingsDescription":
 			"Importáld a ChatGPT beszélgetéseidet, hogy folytathasd ott, ahol abbahagytad.",
@@ -1720,6 +1732,7 @@ const chatDict = {
 		"chatgptImport.title": "ChatGPT beszélgetések importálása",
 		"chatgptImport.uploadPrompt":
 			"Húzd ide a ChatGPT export ZIP-et, vagy kattints a tallózáshoz",
+		"chatgptImport.willImport": "{count} beszélgetés lesz importálva",
 		"codeBlock.collapse": "Kódblokk összecsukása",
 		"codeBlock.copied": "Másolva!",
 		"codeBlock.copyCode": "Kód másolása",
