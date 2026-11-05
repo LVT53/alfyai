@@ -13,6 +13,7 @@ import {
 } from "../artifacts/image/image-card-fixtures.test-helpers";
 import MessageArea from "./MessageArea.svelte";
 import MessageAreaAskHarness from "./MessageAreaAskHarness.test.svelte";
+import { THREAD_END_CARD_INSET_PX } from "./thread-end-target";
 
 vi.mock("$lib/utils/markdown-loader", () => ({
 	collectSourceReferenceCandidates: async () => [],
@@ -2515,6 +2516,113 @@ describe("MessageArea", () => {
 					.getAllByTestId("ask-option")
 					.every((option) => (option as HTMLButtonElement).disabled),
 			).toBe(true);
+		});
+
+		// The end of the thread is its bottom, unless the last row draws a question that
+		// waits and the card does not fit: then it is the card's top, so the reader meets
+		// the question and the X and not the rows under the card. Every way the view goes
+		// to the end asks the one resolver (`endScrollTop`); the button that jumps to the
+		// latest message is the way a test can ask for it here. The hold, which is what
+		// opens a chat on a card, needs a ResizeObserver that jsdom does not have: the
+		// browser run holds it (tests/e2e/ask-me-first.spec.ts, at 360 and 390 px). jsdom
+		// lays nothing out, so the geometry is stood in: a thread 1400 px tall seen
+		// through a 500 px view (900 px of scroll at most), whose view starts 100 px down
+		// the page.
+		describe("the end of the thread while a question waits", () => {
+			const THREAD = { clientHeight: 500, scrollHeight: 1400, viewTop: 100 };
+
+			function rectAt(top: number): DOMRect {
+				return {
+					top,
+					bottom: top,
+					left: 0,
+					right: 0,
+					width: 0,
+					height: 0,
+					x: 0,
+					y: top,
+					toJSON: () => ({}),
+				};
+			}
+
+			/** The reader has scrolled up from the end, and the jump button is there. */
+			async function threadWithCardAt(
+				cardTop: number,
+				question: Partial<AskQuestionDto>,
+			) {
+				const view = render(MessageArea, {
+					messages: [
+						row("u-1", "user", "Plan dad's 60th"),
+						row("a-1", "assistant", FIRST_WORDS),
+					],
+					conversationId: "conv-1",
+					questions: [asked(question)],
+				});
+				const scrollContainer = view.container.querySelector(
+					".scroll-container",
+				) as HTMLDivElement;
+				Object.defineProperty(scrollContainer, "clientHeight", {
+					configurable: true,
+					value: THREAD.clientHeight,
+				});
+				Object.defineProperty(scrollContainer, "scrollHeight", {
+					configurable: true,
+					value: THREAD.scrollHeight,
+				});
+				scrollContainer.getBoundingClientRect = () => rectAt(THREAD.viewTop);
+				// The card sits `cardTop` px down the thread, wherever the view is.
+				const card = within(bubbleOf(view.container, "a-1")).queryByTestId(
+					"ask-card",
+				);
+				// A question that waits is a card; one that does not is its folded line.
+				expect(card !== null).toBe(question.status === "waiting");
+				if (card) {
+					card.getBoundingClientRect = () =>
+						rectAt(THREAD.viewTop + cardTop - scrollContainer.scrollTop);
+				}
+				scrollContainer.scrollTop = 900;
+				await fireEvent.scroll(scrollContainer);
+				scrollContainer.scrollTop = 0;
+				await fireEvent.scroll(scrollContainer);
+				const button = await waitFor(() =>
+					view.getByTestId("jump-to-latest-button"),
+				);
+				return { scrollContainer, button };
+			}
+
+			const waiting = { status: "waiting", answer: null } as const;
+
+			it("is the top of the card, just under the top edge, when the card does not fit", async () => {
+				// At the bottom the card's top would be 100 px above the view.
+				const { scrollContainer, button } = await threadWithCardAt(
+					800,
+					waiting,
+				);
+
+				await fireEvent.click(button);
+
+				expect(scrollContainer.scrollTop).toBe(800 - THREAD_END_CARD_INSET_PX);
+			});
+
+			it("is the bottom, as it was, when the card fits", async () => {
+				// At the bottom the card's top is 50 px into the view.
+				const { scrollContainer, button } = await threadWithCardAt(
+					950,
+					waiting,
+				);
+
+				await fireEvent.click(button);
+
+				expect(scrollContainer.scrollTop).toBe(THREAD.scrollHeight);
+			});
+
+			it("is the bottom once the question is answered and the card has folded into its line", async () => {
+				const { scrollContainer, button } = await threadWithCardAt(800, {});
+
+				await fireEvent.click(button);
+
+				expect(scrollContainer.scrollTop).toBe(THREAD.scrollHeight);
+			});
 		});
 	});
 

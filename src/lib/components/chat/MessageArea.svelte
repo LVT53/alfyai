@@ -45,6 +45,7 @@ import LogoMark from "./LogoMark.svelte";
 import ConversationJumpRail from "./ConversationJumpRail.svelte";
 import { buildJumpRailTurns } from "./jump-rail";
 import { placeReplySegments } from "./reply-segments";
+import { threadEndScrollTop } from "./thread-end-target";
 
 let {
 	messages = [],
@@ -272,9 +273,10 @@ let followingStreamingReply = false;
  * half-rendered thread and the rest grows in beneath the composer, leaving
  * the reader at the top of the last reply. So a jump also sets this target,
  * and a ResizeObserver re-applies it whenever the thread or its viewport
- * changes size: "bottom" keeps the latest message in view; a number is the
- * position a reload restores, held until the thread is tall enough to show
- * it.
+ * changes size: "bottom" keeps the end of the thread in view (its bottom, or the
+ * top of a waiting question's card that does not fit: `endScrollTop`); a number
+ * is the position a reload restores, held until the thread is tall enough to
+ * show it.
  *
  * The hold ends when the reader takes over — a scroll up the thread, or a
  * press inside it — and when a reply streams: the streaming follow rules
@@ -341,7 +343,9 @@ function applyHeldPosition() {
 	);
 	if (heldPosition === null) return;
 	container.scrollTop =
-		heldPosition === "bottom" ? container.scrollHeight : heldPosition;
+		heldPosition === "bottom"
+			? endScrollTop(container.scrollHeight)
+			: heldPosition;
 	lastKnownScrollTop = container.scrollTop;
 	if (
 		typeof heldPosition === "number" &&
@@ -725,9 +729,48 @@ $effect(() => {
 	void import("$lib/components/artifacts/image/ImageCardBody.svelte");
 });
 
+/**
+ * The top of the card the thread's last row draws for a question that waits, as an offset
+ * from the top of the thread's content; null when the last row draws none. Read from the
+ * page as it is now: the card is laid out by the browser, and the rows above it may still
+ * be growing.
+ */
+function lastRowWaitingCardTop(container: HTMLElement): number | null {
+	const last = dedupedMessages[dedupedMessages.length - 1];
+	if (!last || last.role !== "assistant") return null;
+	if (replyPlaces.get(last.id)?.question?.status !== "waiting") return null;
+	const card = container.querySelector(
+		`[data-message-id="${CSS.escape(last.id)}"] [data-testid="ask-card"]`,
+	);
+	if (!card) return null;
+	return (
+		card.getBoundingClientRect().top -
+		container.getBoundingClientRect().top +
+		container.scrollTop
+	);
+}
+
+/**
+ * Where the view goes when it goes to the end of the thread, the one place that says so:
+ * the jump to the latest message, the hold while the thread settles, the follow and its
+ * glide all aim here. `bottom` is the caller's own count of the bottom (a jump writes the
+ * full height, a glide aims at the furthest position) and is what comes back, unless the
+ * last row draws a question that waits and its card does not fit: then the top of the
+ * card, with the question and the X just under the top edge (`threadEndScrollTop`).
+ */
+function endScrollTop(bottom: number): number {
+	const container = scrollContainer;
+	if (!container) return bottom;
+	return threadEndScrollTop({
+		bottom,
+		maxScrollTop: container.scrollHeight - container.clientHeight,
+		waitingCardTop: lastRowWaitingCardTop(container),
+	});
+}
+
 function instantScrollToBottom() {
 	if (!scrollContainer) return;
-	scrollContainer.scrollTop = scrollContainer.scrollHeight;
+	scrollContainer.scrollTop = endScrollTop(scrollContainer.scrollHeight);
 	lastKnownScrollTop = scrollContainer.scrollTop;
 }
 
@@ -764,7 +807,9 @@ function glideToBottom() {
 		const progress = requesting
 			? 1
 			: Math.min(1, (performance.now() - started) / MOTION_DURATION.emphasis);
-		const target = container.scrollHeight - container.clientHeight;
+		const target = endScrollTop(
+			container.scrollHeight - container.clientHeight,
+		);
 		container.scrollTop = from + (target - from) * MOTION_EASE.out(progress);
 		lastKnownScrollTop = container.scrollTop;
 		landed = progress >= 1;
@@ -789,7 +834,8 @@ function followToBottom() {
 	const container = scrollContainer;
 	if (!container || glideFrame !== null) return;
 	const distance =
-		container.scrollHeight - container.clientHeight - container.scrollTop;
+		endScrollTop(container.scrollHeight - container.clientHeight) -
+		container.scrollTop;
 	if (distance > GLIDE_FROM_PX && !prefersReducedMotion()) glideToBottom();
 	else instantScrollToBottom();
 }
