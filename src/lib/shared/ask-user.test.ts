@@ -189,6 +189,21 @@ describe("checkAskQuestions", () => {
 			],
 			"Option 1 of question 1 has a note longer than 100 characters.",
 		],
+		// the tool's schema used to refuse an empty note (`min(1)`) before the check ran; the
+		// check now holds that rule, so the one refusal can name it with the others
+		[
+			"an empty note",
+			[
+				{
+					...card[0],
+					options: [
+						{ label: "A party at home", note: "", recommended: true },
+						card[0].options[1],
+					],
+				},
+			],
+			"Option 1 of question 1 has an empty note.",
+		],
 	];
 
 	for (const [name, questions, message] of cases) {
@@ -215,6 +230,139 @@ describe("checkAskQuestions", () => {
 		]);
 		// the same on every question of a full card
 		expect(checkAskQuestions([four, four, four])).toEqual({ ok: true });
+	});
+
+	// Owner, 2026-11-05, after the real-model measurement: one refusal names every problem of
+	// a card, so the model fixes the whole card in one retry. Before, a card that broke a count
+	// and a mark was refused twice: the schema named the count, and only the next try met the
+	// mark; the Hungarian holiday card was still refused after its retry.
+	describe("every problem of a card, in one refusal", () => {
+		const MARK = "takes one pick: mark exactly one of its options recommended.";
+		const fiveOptions: AskQuestion = {
+			...card[0],
+			options: [
+				...card[0].options,
+				{ label: "Stay in" },
+				{ label: "Go camping" },
+			],
+		};
+		const noMark: AskQuestion = {
+			...card[0],
+			options: card[0].options.map(({ label }) => ({ label })),
+		};
+		const lines = (questions: AskQuestion[]) => {
+			const checked = checkAskQuestions(questions);
+			if (checked.ok) throw new Error("expected a refusal");
+			return checked.message.split("\n");
+		};
+
+		it("names a count and a mark at once, one line each", () => {
+			expect(checkAskQuestions([fiveOptions, noMark])).toEqual({
+				ok: false,
+				message: [
+					"Question 1 needs 2 to 4 options.",
+					`Question 2 ${MARK}`,
+				].join("\n"),
+			});
+		});
+
+		it("names both problems of one question, the count and then the mark", () => {
+			// five options and no Recommended one
+			const fiveNoMark: AskQuestion = {
+				...fiveOptions,
+				options: fiveOptions.options.map(({ label }) => ({ label })),
+			};
+
+			expect(lines([fiveNoMark])).toEqual([
+				"Question 1 needs 2 to 4 options.",
+				`Question 1 ${MARK}`,
+			]);
+		});
+
+		it("names every problem of a card that has several, in the order of the card", () => {
+			const blankQuestion: AskQuestion = {
+				question: "  ",
+				options: [{ label: "A" }],
+			};
+			const crowded: AskQuestion = {
+				question: "x".repeat(161),
+				multiple: true,
+				options: [
+					{ label: "A" },
+					{ label: " " },
+					{ label: "l".repeat(51) },
+					{ label: "B", note: "n".repeat(101) },
+					{ label: "E" },
+				],
+			};
+
+			// four questions, so the card's count is the first line; then each question in turn:
+			// its text, its number of options, its mark, its options
+			expect(lines([blankQuestion, crowded, card[0], card[0]])).toEqual([
+				"Ask 1 to 3 questions.",
+				"Question 1 has no text.",
+				"Question 1 needs 2 to 4 options.",
+				`Question 1 ${MARK}`,
+				"Question 2 is longer than 160 characters.",
+				"Question 2 needs 2 to 4 options.",
+				"Option 2 of question 2 has no label.",
+				"Option 3 of question 2 has a label longer than 50 characters.",
+				"Option 4 of question 2 has a note longer than 100 characters.",
+			]);
+		});
+
+		it("is one printable ASCII line a problem, and never repeats the model's own words", () => {
+			const wordy: AskQuestion = {
+				question: "Hová menjünk nyaralni?",
+				options: [
+					{ label: "Tenger" },
+					{ label: "Hegyek" },
+					{ label: "Város" },
+					{ label: "Falu" },
+					{ label: "Sivatag" },
+				],
+			};
+			const all = lines([wordy, noMark]);
+
+			expect(all).toHaveLength(3);
+			for (const line of all) {
+				expect(line).toMatch(/^[\x20-\x7e]+$/);
+				expect(line).not.toMatch(/Hová|Tenger|Sivatag|Short bullets/);
+			}
+		});
+
+		it("keeps a long list short: it lists 30 problems and says how many more there are", () => {
+			// three questions of ten options each, every label blank: 11 problems a question
+			const blankLabels = (n: number): AskQuestion => ({
+				question: "Which?",
+				multiple: true,
+				options: Array.from({ length: n }, () => ({ label: " " })),
+			});
+			const all = lines([blankLabels(10), blankLabels(10), blankLabels(10)]);
+
+			expect(all).toHaveLength(31);
+			expect(all.slice(0, 30).every((line) => !line.startsWith("And "))).toBe(
+				true,
+			);
+			expect(all[30]).toBe("And 3 more.");
+			// a card with exactly 30 problems (11 + 11 + 8) is listed whole
+			expect(
+				lines([blankLabels(10), blankLabels(10), blankLabels(7)]),
+			).toHaveLength(30);
+		});
+
+		it("holds what is read back only to the counts and lengths, never to the mark", () => {
+			// the same rule as before: a row already written is only read
+			const stored = [noMark];
+			expect(checkAskQuestions(stored).ok).toBe(false);
+			expect(parseAskQuestions(JSON.parse(JSON.stringify(stored)))).toEqual(
+				stored,
+			);
+			// ... and a count it breaks is still refused when read back
+			expect(
+				parseAskQuestions(JSON.parse(JSON.stringify([fiveOptions]))),
+			).toBeNull();
+		});
 	});
 
 	it("takes every cap exactly at its limit", () => {

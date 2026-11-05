@@ -127,11 +127,11 @@ Why not one row written across several runs: that needs a durable half-finished 
 
 ### 5.2 The tool
 
-One model-facing tool; `ask_user` is the obvious name. Its input is `questions`: 1 to 3 of `{ question, multiple?, options }`, where `options` holds 2 to 4 of `{ label, note?, recommended? }` (4 since the owner's change of 2026-11-05, after the real-model measurement; it was 3). Validation runs the full zod schema at execution (the compact schema the model sees keeps the item counts but not refinements; `compactToolInputSchema` in `normal-chat-tools/shared.ts`):
+One model-facing tool; `ask_user` is the obvious name. Its input is `questions`: 1 to 3 of `{ question, multiple?, options }`, where `options` holds 2 to 4 of `{ label, note?, recommended? }` (4 since the owner's change of 2026-11-05, after the real-model measurement; it was 3). The tool's zod schema checks the shape only. `checkAskQuestions` (`shared/ask-user.ts`) runs at execution and holds the rest, and the model is shown the caps as hints in the JSON schema it reads (`compactToolInputSchema`'s `shown` schema in `normal-chat-tools/shared.ts`, a second copy of the shape that carries `maxItems`, `maxLength` and the counts in its descriptions, as `edit_artifact` does for its patches):
 
 - a single-pick question has exactly one recommended option (owner); a multi-pick question has any number, none included (owner);
 - short length caps on the question, labels and notes, set by the builder so a card fits a phone;
-- an invalid call returns a short English error and does not pause, so the model fixes it in the same run.
+- an invalid call returns a short English refusal that names every problem of the card, one line each, naming each question and option by its number, and does not pause, so the model fixes the whole card in one retry in the same run (owner, 2026-11-05, after the real-model measurement; before, the schema refused the counts first and the tool named the mark only on the next try, so a card that broke both was refused twice and the Hungarian holiday card was still refused after its retry). A call that is not a card at all, with the wrong types, is still refused by the SDK.
 
 Its description (English, ruling 79) says when to ask: whenever a choice is truly the person's to make, before making something, at a fork in a conversation, or while talking an idea through; never for what Alfy can find out or decide itself; never the same question again after the person closed it. It says to write the questions and answers in the conversation's language, to mark the recommended answer, and that the reply pauses after the call until the person answers. It carries the "Do not use" case the hygiene test requires.
 
@@ -216,6 +216,7 @@ Chat strings go in `src/lib/i18n/chat.ts`, held in both locales by `chat.test.ts
 | 2026-11-05 | After trying the card: when it appears it moves in from the bottom, quickly and smoothly (a 10 px rise and a fade over 250 ms, none for a reader who asked for no motion). |
 | 2026-11-05 | After trying the card: "Decide for me" and the X ease their hover the way the answers do, so every control on the card hovers the same way (Send too, by a shift of its fill). |
 | 2026-11-05 | After the real-model measurement (`results-real-model.md`; "Those suggestions are good, I like them"): a question may have up to 4 answers (it was 2 to 3). The production model wrote a fourth answer on three of the four cards the app turned back. The rest of the card is unchanged: 1 to 3 questions, the same length caps. |
+| 2026-11-05 | After the same measurement: when a card breaks the rules, one refusal names every problem (a count, a missing Recommended mark, a text over its cap), so the model fixes the whole card in one retry. Before, the schema refused the counts first and the tool the mark on the next try, and each refusal cost a model step of 4 to 7 seconds before any card showed. |
 
 ## 7. My calls, for the owner to check
 

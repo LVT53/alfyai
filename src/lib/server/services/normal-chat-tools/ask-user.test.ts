@@ -181,6 +181,128 @@ describe("ask_user tool", () => {
 		expect(getTurnAsk()).toBeNull();
 	});
 
+	// Owner, 2026-11-05, after the real-model measurement: one refusal names every problem of a
+	// card. A card that broke a count and a mark used to be refused twice (the schema named the
+	// count before `execute` ran, and the tool named the mark on the next try), at 4 to 7 seconds
+	// a model step.
+	describe("a card that breaks several rules", () => {
+		const fiveAnswers: AskQuestion = {
+			question: "Which format should the summary take?",
+			options: [
+				{ label: "Short bullets", recommended: true },
+				{ label: "A paragraph" },
+				{ label: "A table" },
+				{ label: "A mind map" },
+				{ label: "A poem" },
+			],
+		};
+		const noMark: AskQuestion = {
+			question: "How long should it be?",
+			options: [{ label: "Short" }, { label: "Long" }],
+		};
+		const REFUSAL = [
+			"Question 1 needs 2 to 4 options.",
+			"Question 2 takes one pick: mark exactly one of its options recommended.",
+		].join("\n");
+
+		it("is refused once, with a line for each problem, records nothing and does not pause", async () => {
+			const base = { ...ctx(), canPause: true };
+			const { tool, getTurnAsk } = createAskUserTool(base);
+
+			expect(
+				await tool.execute(
+					{ questions: [fiveAnswers, noMark] },
+					opts("call-1"),
+				),
+			).toEqual({
+				ok: false,
+				errorCode: "invalid_questions",
+				message: REFUSAL,
+			});
+
+			expect(recordAskQuestionMock).not.toHaveBeenCalled();
+			expect(getTurnAsk()).toBeNull();
+			// The recorded call says what the model was told, so a later turn replays it.
+			expect(base.recorder.getEntries()).toMatchObject([
+				{
+					callId: "call-1",
+					name: "ask_user",
+					status: "done",
+					outputSummary: REFUSAL,
+					metadata: { ok: false, reason: "invalid_questions" },
+				},
+			]);
+		});
+
+		it("does not use up the ask: the card the model fixes from the refusal is asked", async () => {
+			const { tool, getTurnAsk } = createAskUserTool({
+				...ctx(),
+				canPause: true,
+			});
+			const fixed: AskQuestion[] = [
+				{ ...fiveAnswers, options: fiveAnswers.options.slice(0, 4) },
+				{
+					...noMark,
+					options: [{ label: "Short", recommended: true }, { label: "Long" }],
+				},
+			];
+
+			const refused = await tool.execute(
+				{ questions: [fiveAnswers, noMark] },
+				opts("call-1"),
+			);
+			expect(refused).toMatchObject({ errorCode: "invalid_questions" });
+
+			expect(await tool.execute({ questions: fixed }, opts("call-2"))).toEqual({
+				status: "waiting_for_user",
+				note: PAUSE_NOTE,
+			});
+			expect(recordAskQuestionMock).toHaveBeenCalledTimes(1);
+			expect(getTurnAsk()).toMatchObject({
+				toolCallId: "call-2",
+				questions: fixed,
+			});
+		});
+	});
+
+	// Owner, 2026-11-05: up to four answers a question.
+	it("asks a question with four answers, and refuses one with five", async () => {
+		const { tool, getTurnAsk } = createAskUserTool({
+			...ctx(),
+			canPause: true,
+		});
+		const options = [
+			{ label: "A", recommended: true },
+			{ label: "B" },
+			{ label: "C" },
+			{ label: "D" },
+		];
+
+		expect(
+			await tool.execute(
+				{
+					questions: [
+						{ question: "Which one?", options: [...options, { label: "E" }] },
+					],
+				},
+				opts("call-1"),
+			),
+		).toEqual({
+			ok: false,
+			errorCode: "invalid_questions",
+			message: "Question 1 needs 2 to 4 options.",
+		});
+		expect(recordAskQuestionMock).not.toHaveBeenCalled();
+
+		expect(
+			await tool.execute(
+				{ questions: [{ question: "Which one?", options }] },
+				opts("call-2"),
+			),
+		).toEqual({ status: "waiting_for_user", note: PAUSE_NOTE });
+		expect(getTurnAsk()).toMatchObject({ toolCallId: "call-2" });
+	});
+
 	it("lets a corrected call ask after an invalid one, since nothing was asked", async () => {
 		const { tool, getTurnAsk } = createAskUserTool({
 			...ctx(),
@@ -366,46 +488,14 @@ describe("askUserInputSchema", () => {
 		).toBe(true);
 	});
 
-	it("holds the counts the vocabulary sets", () => {
+	// The schema is what `execute` needs and nothing more: the shape. The counts, the lengths and
+	// the Recommended rule are `checkAskQuestions`'s, which names every problem of the card at
+	// once. A schema that checked them refused a card for what it found first, in the SDK's own
+	// wording with the whole input echoed back, and the rest only on the next try. The model is
+	// still shown the caps (the JSON schema below), which is how it learns them.
+	it("lets a card that breaks a cap or a rule through, for the check to name", () => {
 		const many = (n: number, make: () => unknown) =>
 			Array.from({ length: n }, make);
-		const accepts = (input: unknown) =>
-			askUserInputSchema.safeParse(input).success;
-
-		expect(accepts({ questions: [] })).toBe(false);
-		expect(
-			accepts({ questions: many(ASK_LIMITS.maxQuestions, oneQuestion) }),
-		).toBe(true);
-		expect(
-			accepts({ questions: many(ASK_LIMITS.maxQuestions + 1, oneQuestion) }),
-		).toBe(false);
-		expect(
-			accepts({ questions: [oneQuestion({ options: [option("A")] })] }),
-		).toBe(false);
-		expect(
-			accepts({
-				questions: [
-					oneQuestion({
-						options: many(ASK_LIMITS.maxOptions + 1, () => option("A")),
-					}),
-				],
-			}),
-		).toBe(false);
-	});
-
-	// Owner, 2026-11-05, after the real-model measurement: four answers a question.
-	it("takes a question with four answers, and refuses five", () => {
-		const accepts = (options: unknown[]) =>
-			askUserInputSchema.safeParse({
-				questions: [oneQuestion({ options })],
-			}).success;
-		const four = [option("A", true), option("B"), option("C"), option("D")];
-
-		expect(accepts(four)).toBe(true);
-		expect(accepts([...four, option("E")])).toBe(false);
-	});
-
-	it("holds the lengths the vocabulary sets, and refuses an empty text", () => {
 		const accepts = (input: unknown) =>
 			askUserInputSchema.safeParse(input).success;
 		const withQuestion = (question: string) => ({
@@ -422,21 +512,98 @@ describe("askUserInputSchema", () => {
 			],
 		});
 
-		expect(accepts(withQuestion("q".repeat(ASK_LIMITS.questionChars)))).toBe(
-			true,
-		);
+		// counts
+		expect(accepts({ questions: [] })).toBe(true);
+		expect(
+			accepts({ questions: many(ASK_LIMITS.maxQuestions + 1, oneQuestion) }),
+		).toBe(true);
+		expect(
+			accepts({ questions: [oneQuestion({ options: [option("A")] })] }),
+		).toBe(true);
+		expect(
+			accepts({
+				questions: [
+					oneQuestion({
+						options: many(ASK_LIMITS.maxOptions + 1, () => option("A")),
+					}),
+				],
+			}),
+		).toBe(true);
+		// lengths, and empty texts
 		expect(
 			accepts(withQuestion("q".repeat(ASK_LIMITS.questionChars + 1))),
-		).toBe(false);
-		expect(accepts(withQuestion(""))).toBe(false);
-		expect(accepts(withLabel("l".repeat(ASK_LIMITS.labelChars)))).toBe(true);
+		).toBe(true);
+		expect(accepts(withQuestion(""))).toBe(true);
 		expect(accepts(withLabel("l".repeat(ASK_LIMITS.labelChars + 1)))).toBe(
-			false,
+			true,
 		);
-		expect(accepts(withLabel(""))).toBe(false);
-		expect(accepts(withNote("n".repeat(ASK_LIMITS.noteChars)))).toBe(true);
-		expect(accepts(withNote("n".repeat(ASK_LIMITS.noteChars + 1)))).toBe(false);
-		expect(accepts(withNote(""))).toBe(false);
+		expect(accepts(withLabel(""))).toBe(true);
+		expect(accepts(withNote("n".repeat(ASK_LIMITS.noteChars + 1)))).toBe(true);
+		expect(accepts(withNote(""))).toBe(true);
+		// the Recommended rule
+		expect(
+			accepts({
+				questions: [oneQuestion({ options: [option("A"), option("B")] })],
+			}),
+		).toBe(true);
+	});
+
+	it("still refuses what is not a card at all: the wrong types and the missing fields", () => {
+		const refuses = (input: unknown) =>
+			askUserInputSchema.safeParse(input).success === false;
+
+		for (const bad of [
+			undefined,
+			null,
+			{},
+			{ questions: "A or B" },
+			{ questions: [null] },
+			{ questions: [{ options: [option("A", true), option("B")] }] },
+			{ questions: [{ question: "Which one?" }] },
+			{ questions: [oneQuestion({ options: "A, B" })] },
+			{ questions: [oneQuestion({ options: [{ label: 5 }, option("B")] })] },
+			{
+				questions: [
+					oneQuestion({ options: [{ note: "no label" }, option("B")] }),
+				],
+			},
+			{ questions: [oneQuestion({ multiple: "yes" })] },
+			{
+				questions: [
+					oneQuestion({
+						options: [{ label: "A", recommended: "yes" }, option("B")],
+					}),
+				],
+			},
+			{
+				questions: [
+					oneQuestion({ options: [{ label: "A", note: 3 }, option("B")] }),
+				],
+			},
+		]) {
+			expect(refuses(bad), JSON.stringify(bad)).toBe(true);
+		}
+	});
+
+	it("is the validation the tool runs: a card that breaks a cap reaches execute, a malformed one does not", async () => {
+		const { tool } = createAskUserTool(ctx());
+		const { validate } = asSchema(tool.inputSchema);
+		const fiveAnswers = {
+			questions: [
+				oneQuestion({
+					options: Array.from({ length: ASK_LIMITS.maxOptions + 1 }, (_, i) =>
+						option(`Option ${i}`),
+					),
+				}),
+			],
+		};
+
+		expect(await validate?.(fiveAnswers)).toMatchObject({ success: true });
+		expect(
+			await validate?.({
+				questions: [{ question: "Which one?", options: "A, B" }],
+			}),
+		).toMatchObject({ success: false });
 	});
 });
 

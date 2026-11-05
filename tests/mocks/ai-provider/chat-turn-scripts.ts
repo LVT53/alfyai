@@ -6,7 +6,10 @@
 import type { AskQuestion } from "../../../src/lib/shared/ask-user";
 import {
 	AI_SMOKE_ASK_AFTER_PREFIX,
+	AI_SMOKE_ASK_BROKEN,
+	AI_SMOKE_ASK_BROKEN_CALL_ID,
 	AI_SMOKE_ASK_CALL_ID,
+	AI_SMOKE_ASK_FIXED,
 	AI_SMOKE_ASK_FOUR,
 	AI_SMOKE_ASK_HOLD_ASK,
 	AI_SMOKE_ASK_HOLD_RESUME,
@@ -417,6 +420,21 @@ function askTurnReply(body: unknown, mode: AskTurnMode): ScriptedChatTurnReply {
 			),
 			...(mode === "slowresume" ? { hold: AI_SMOKE_ASK_HOLD_RESUME } : {}),
 		};
+	}
+	if (mode === "refused" && answered === null) {
+		// A card that breaks a count and a mark at once: the app refuses it, naming both.
+		return {
+			frames: ask(
+				AI_SMOKE_ASK_BROKEN_CALL_ID,
+				AI_SMOKE_ASK_INTRO,
+				AI_SMOKE_ASK_BROKEN,
+			),
+		};
+	}
+	if (mode === "refused" && answered === AI_SMOKE_ASK_BROKEN_CALL_ID) {
+		// The model has read the refusal: the same card with both fixed, and no second
+		// introduction.
+		return { frames: ask(AI_SMOKE_ASK_CALL_ID, "", AI_SMOKE_ASK_FIXED) };
 	}
 	if (mode === "read" && answered === null) {
 		return {

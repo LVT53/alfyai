@@ -78,6 +78,9 @@ export const AI_SMOKE_SKILL_DRAFT_EXAMPLE =
  *   `one`        one question that takes one pick (the mockup's section 1),
  *   `four`       one question that takes one pick and has four answers, the most a
  *                question may have (owner, 2026-11-05),
+ *   `refused`    its first card breaks a count and a mark at once; the app refuses it
+ *                once, naming both, and the model asks again with both fixed (owner,
+ *                2026-11-05),
  *   `many`       a card of two questions, the first taking several picks (section 2),
  *   `twice`      after the first answer it asks again, once (section 7),
  *   `slow`       the ask is held until the test releases it (`AI_SMOKE_ASK_HOLD_ASK`), so
@@ -98,6 +101,7 @@ export const AI_SMOKE_ASK_MARKER =
 export type AskTurnMode =
 	| "one"
 	| "four"
+	| "refused"
 	| "many"
 	| "twice"
 	| "slow"
@@ -112,6 +116,8 @@ export const AI_SMOKE_ASK_AFTER_PREFIX = "Carrying on with: ";
 export const AI_SMOKE_ASK_HOLD_ASK = "ask-first";
 export const AI_SMOKE_ASK_HOLD_RESUME = "ask-resume";
 export const AI_SMOKE_ASK_CALL_ID = "call_ask_1";
+/** The call of the card the `refused` mode asks first, the one the app refuses. */
+export const AI_SMOKE_ASK_BROKEN_CALL_ID = "call_ask_broken";
 export const AI_SMOKE_ASK_SECOND_CALL_ID = "call_ask_2";
 export const AI_SMOKE_ASK_READ_CALL_ID = "call_ask_read";
 
@@ -184,6 +190,48 @@ export const AI_SMOKE_ASK_FOUR: AskQuestion[] = [
 	},
 ];
 
+/**
+ * A card that breaks a count and a mark at once (owner, 2026-11-05): five answers on its
+ * first question, and none marked Recommended on its second. The `refused` mode asks it
+ * first, as `AI_SMOKE_ASK_BROKEN_CALL_ID`.
+ */
+export const AI_SMOKE_ASK_BROKEN: AskQuestion[] = [
+	{
+		question: "Which way should we take it?",
+		options: [
+			{ label: "A party at home", recommended: true },
+			{ label: "Dinner out, just close family" },
+			{ label: "A weekend away together" },
+			{ label: "A picnic by the lake" },
+			{ label: "A day at the zoo" },
+		],
+	},
+	{
+		question: "How should the list be split?",
+		options: [{ label: "One shared list" }, { label: "A list per person" }],
+	},
+];
+
+/** The same card with both fixed: four answers on the first question, the second one marked. The `refused` mode asks it once the refusal has said what was wrong. */
+export const AI_SMOKE_ASK_FIXED: AskQuestion[] = [
+	{
+		question: "Which way should we take it?",
+		options: [
+			{ label: "A party at home", recommended: true },
+			{ label: "Dinner out, just close family" },
+			{ label: "A weekend away together" },
+			{ label: "A picnic by the lake" },
+		],
+	},
+	{
+		question: "How should the list be split?",
+		options: [
+			{ label: "One shared list", recommended: true },
+			{ label: "A list per person" },
+		],
+	},
+];
+
 /** The mockup's section 2: a question that takes several picks (none is Alfy's) and one that takes one. */
 export const AI_SMOKE_ASK_MANY: AskQuestion[] = [
 	{
@@ -228,6 +276,8 @@ export function askTurnMessage(mode: AskTurnMode): string {
 
 export function decodeAskTurnMode(text: string): AskTurnMode | null {
 	if (!text.includes(AI_SMOKE_ASK_MARKER)) return null;
-	const match = /ask:(one|four|many|twice|slowresume|slow|read)\b/.exec(text);
+	const match = /ask:(one|four|refused|many|twice|slowresume|slow|read)\b/.exec(
+		text,
+	);
 	return (match?.[1] as AskTurnMode | undefined) ?? null;
 }

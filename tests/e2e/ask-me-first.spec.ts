@@ -5,7 +5,9 @@ import { db } from "../../src/lib/server/db";
 import { askQuestions } from "../../src/lib/server/db/schema";
 import {
 	AI_SMOKE_ASK_AFTER_PREFIX,
+	AI_SMOKE_ASK_BROKEN_CALL_ID,
 	AI_SMOKE_ASK_CALL_ID,
+	AI_SMOKE_ASK_FIXED,
 	AI_SMOKE_ASK_HOLD_ASK,
 	AI_SMOKE_ASK_HOLD_RESUME,
 	AI_SMOKE_ASK_INTRO,
@@ -1232,6 +1234,65 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			],
 		});
 		expectResumeOfFirstAsk(resume, "four");
+	});
+
+	// Owner, 2026-11-05, after the real-model measurement: one refusal names every problem of a
+	// card, so the model fixes the whole card in one retry. The scripted model's first card breaks
+	// a count (five answers on its first question) and a mark (none Recommended on its second).
+	// The tool refuses it once, naming both, and the model asks again with both fixed: the person
+	// sees one card and no refusal, after one extra model step; nothing was written for the card
+	// that was refused. Before, the schema refused the count and the tool the mark on the next
+	// try, so the second card would have been refused too.
+	test("a card that breaks a count and a mark is refused once, naming both, and the fixed card is the one the person sees", async ({
+		page,
+	}) => {
+		const { conversationId } = await startTurn(page, "refused");
+
+		// The card the person gets is the fixed one: two questions, so Send and the count.
+		const card = askCard(page, "Alfy's questions (2)");
+		await expect(card).toBeVisible({ timeout: 30_000 });
+		await expect(card.getByTestId("ask-question")).toHaveCount(2);
+		await expect(card.getByText("Which way should we take it?")).toBeVisible();
+		await expect(page.getByText(AI_SMOKE_ASK_INTRO)).toBeVisible();
+		// ... and it is the only card there ever was, with nothing said of a refusal.
+		await expect(page.getByTestId("ask-card")).toHaveCount(1);
+		await expect(page.getByTestId("ask-error")).toHaveCount(0);
+
+		// The model's second request carries the one refusal: both problems, a line each.
+		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
+		const [, retry] = chatRequests(fakeProvider);
+		expect(answerTo(retry, AI_SMOKE_ASK_BROKEN_CALL_ID)).toEqual({
+			ok: false,
+			errorCode: "invalid_questions",
+			message: [
+				"Question 1 needs 2 to 4 options.",
+				"Question 2 takes one pick: mark exactly one of its options recommended.",
+			].join("\n"),
+		});
+
+		// Only the card that was asked is a question: nothing was written for the refused one.
+		const rows = await db
+			.select()
+			.from(askQuestions)
+			.where(eq(askQuestions.conversationId, conversationId));
+		expect(rows).toHaveLength(1);
+		expect(JSON.parse(rows[0].questionsJson)).toEqual(AI_SMOKE_ASK_FIXED);
+		expect(rows[0].toolCallId).toBe(AI_SMOKE_ASK_CALL_ID);
+
+		// The fixed card carries the same reply on, as any card does.
+		await pressWhenAwake(card.getByTestId("ask-up-to-you"));
+		await expectCarriedOn(page, "left to me");
+		await expectReplyEnded(page);
+		await expect.poll(() => chatRequests(fakeProvider).length).toBe(3);
+		// ... and the reply it carries on still holds what happened: the refusal, and the answer.
+		const [, , resume] = chatRequests(fakeProvider);
+		expect(answerTo(resume, AI_SMOKE_ASK_BROKEN_CALL_ID)).toMatchObject({
+			ok: false,
+			errorCode: "invalid_questions",
+		});
+		expect(answerTo(resume, AI_SMOKE_ASK_CALL_ID)).toMatchObject({
+			status: "left_to_you",
+		});
 	});
 
 	test("the card rises into place when Alfy asks: once, on transform and opacity only, and the thread still rests its top under the view's edge", async ({

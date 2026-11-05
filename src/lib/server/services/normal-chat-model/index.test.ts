@@ -6510,7 +6510,10 @@ describe("Normal Chat Model Run asking the user", () => {
 	// not `hasToolCall`: a call the SDK marks invalid (its input fails the tool's schema)
 	// is followed by a tool-error, never by the pause marker. The run must not stop on
 	// it: the model sees why and gets its turn to fix the card or go on without asking.
-	it("goes on after an ask_user call whose input fails the schema, the tool never run", async () => {
+	// Since 2026-11-05 the schema is the shape only (the counts, the lengths and the
+	// Recommended rule are the tool's check, which names every problem at once), so what
+	// the SDK refuses is a call that is not a card: here, answers sent as one string.
+	it("goes on after an ask_user call that is not a card, the schema refusing it and the tool never run", async () => {
 		const fetch = vi
 			.fn<typeof globalThis.fetch>()
 			.mockResolvedValueOnce(
@@ -6520,10 +6523,10 @@ describe("Normal Chat Model Run asking the user", () => {
 							{
 								id: "call-bad-ask",
 								name: "ask_user",
-								// one option, where a question needs two to four
+								// the answers as one string, where a question needs a list of them
 								arguments: JSON.stringify({
 									questions: [
-										{ question: "Which way?", options: [{ label: "Slow" }] },
+										{ question: "Which way?", options: "Slow, Fast" },
 									],
 								}),
 							},
@@ -6579,6 +6582,121 @@ describe("Normal Chat Model Run asking the user", () => {
 		// What was captured holds no pause marker, so nothing would be paused.
 		const captured = onStepMessages.mock.calls.at(-1)?.[0] as ChatRunMessage[];
 		expect(JSON.stringify(captured)).not.toContain("waiting_for_user");
+	});
+
+	// Owner, 2026-11-05, after the real-model measurement: one refusal names every problem of a
+	// card, so the model fixes the whole card in one retry. The Hungarian holiday card broke a
+	// count and a mark at once: the schema refused the count before the tool ran, the tool
+	// named the mark on the next try, and the card was still refused after its retry. Here the
+	// real tool refuses once, naming both, and the card the model fixes from that pauses.
+	it("tells the model every problem of a card in one refusal, and pauses on the card it fixes", async () => {
+		vi.mocked(recordAskQuestion).mockClear();
+		const way = [
+			{ label: "Slow", recommended: true },
+			{ label: "Fast" },
+			{ label: "Walk" },
+			{ label: "Ride" },
+		];
+		const company = [{ label: "Alone" }, { label: "With friends" }];
+		const brokenCard = {
+			questions: [
+				// five answers
+				{ question: "Which way?", options: [...way, { label: "Swim" }] },
+				// no Recommended answer
+				{ question: "With whom?", options: company },
+			],
+		};
+		const fixedCard = {
+			questions: [
+				{ question: "Which way?", options: way },
+				{
+					question: "With whom?",
+					options: [{ ...company[0], recommended: true }, company[1]],
+				},
+			],
+		};
+		const askingStepOf = (id: string, card: unknown) =>
+			createStreamResponse([
+				{
+					toolCalls: [
+						{ id, name: "ask_user", arguments: JSON.stringify(card) },
+					],
+				},
+				{ finishReason: "tool_calls", usage },
+			]);
+		const fetch = vi
+			.fn<typeof globalThis.fetch>()
+			.mockResolvedValueOnce(askingStepOf("call-broken-ask", brokenCard))
+			.mockResolvedValueOnce(askingStepOf("call-fixed-ask", fixedCard))
+			// A third step would be this one; the pause must stop the run before it.
+			.mockResolvedValueOnce(
+				answeringStep("Then I will plan a slow Saturday."),
+			);
+
+		const events = await collectStreamingEvents({
+			provider,
+			messages: [userTextMessage("Plan my Saturday")],
+			tools: {
+				ask_user: createRealAskUserTool({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					canPause: true,
+					recorder: createToolCallRecorder(),
+					text: {
+						description: "Ask the user.",
+						errorPrefix: "Asking the user failed",
+					},
+				}).tool,
+			},
+			fetch,
+			maxRetries: 0,
+		});
+
+		// One refusal and one retry: two model steps, and the run stopped at the pause.
+		expect(fetch).toHaveBeenCalledTimes(2);
+		// The tool ran for the broken card (no schema refusal before it), and what it
+		// said is what the second request carries: both problems, a line each.
+		const refusal = {
+			ok: false,
+			errorCode: "invalid_questions",
+			message: [
+				"Question 1 needs 2 to 4 options.",
+				"Question 2 takes one pick: mark exactly one of its options recommended.",
+			].join("\n"),
+		};
+		expect(events).toContainEqual({
+			type: "tool_result",
+			callId: "call-broken-ask",
+			toolName: "ask_user",
+			output: refusal,
+		});
+		const toolMessage = (
+			parseRequestBody(fetch, 1).messages as Array<{
+				role: string;
+				tool_call_id?: string;
+				content?: unknown;
+			}>
+		).find((message) => message.role === "tool");
+		expect(toolMessage?.tool_call_id).toBe("call-broken-ask");
+		expect(JSON.parse(String(toolMessage?.content))).toEqual(refusal);
+		// Only the corrected card was asked, and it paused the reply.
+		expect(vi.mocked(recordAskQuestion)).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(recordAskQuestion)).toHaveBeenCalledWith(
+			expect.objectContaining({
+				toolCallId: "call-fixed-ask",
+				questions: fixedCard.questions,
+			}),
+		);
+		expect(events).toContainEqual({
+			type: "tool_result",
+			callId: "call-fixed-ask",
+			toolName: "ask_user",
+			output: expect.objectContaining({ status: "waiting_for_user" }),
+		});
+		expect(events).not.toContainEqual({
+			type: "text_delta",
+			text: "Then I will plan a slow Saturday.",
+		});
 	});
 
 	it("hands onStepMessages the attempt's cumulative response messages, the ask's result in full", async () => {

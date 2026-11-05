@@ -26,6 +26,7 @@ import {
 } from "$lib/shared/ask-user";
 import {
 	asExecutableTool,
+	compactToolInputSchema,
 	executeToolWithEnvelope,
 	modelSafeToolError,
 	type RequiredExecuteTool,
@@ -34,52 +35,72 @@ import {
 } from "./shared";
 import { deriveToolResultDigest } from "./tool-result-digest";
 
-// The compact schema the model sees keeps the item counts and the length caps
-// (compactToolInputSchema), and `execute` runs `checkAskQuestions` on top for
-// what a schema cannot say: the Recommended rule, and a text that is only space.
-const askOptionSchema = z.object({
-	label: z
-		.string()
-		.min(1)
-		.max(ASK_LIMITS.labelChars)
-		.describe("The option, a few words."),
-	note: z
-		.string()
-		.min(1)
-		.max(ASK_LIMITS.noteChars)
-		.optional()
-		.describe("Optional one-line note on what this option means."),
-	recommended: z.boolean().optional().describe("Your recommendation."),
-});
+// The input's shape, written once and drawn twice.
+//
+// What `execute` accepts has no caps: a card that breaks a count, a length or the
+// Recommended rule must still reach `checkAskQuestions`, which names every problem of
+// the card in one refusal, in short English that names each question and option by its
+// number (owner, 2026-11-05). A schema that checked them refused a card on the first
+// thing it found, in the SDK's own wording (a JSON list of zod issues, with the whole
+// input echoed back), and the rest only on the next try: measured on the production
+// model, a card that broke a count and a mark was refused twice, and the Hungarian
+// holiday card was still refused after its retry. Zod does run a refinement after a
+// failed count check, so one validation error could name both, but it is the SDK that
+// words that error: the refusal the model reads could not be ours, and a later turn
+// would replay the call as a bare failure, not as what the model was told.
+//
+// What the model is shown has every cap (`maxItems`, `maxLength`) and the counts in the
+// field descriptions: that is how it learns them before it writes. It is rendered to
+// JSON schema and never used to validate (`compactToolInputSchema`, which shows one
+// schema and validates with another, as `edit_artifact` does for its patches). Both
+// copies and the check read `ASK_LIMITS`, so each cap is one number.
+function askUserSchema(caps: boolean) {
+	const text = (max: number) => (caps ? z.string().max(max) : z.string());
+	const list = <T extends z.ZodType>(item: T, min: number, max: number) =>
+		caps ? z.array(item).min(min).max(max) : z.array(item);
 
-const askQuestionSchema = z.object({
-	question: z
-		.string()
-		.min(1)
-		.max(ASK_LIMITS.questionChars)
-		.describe("The question itself, one short sentence."),
-	multiple: z
-		.boolean()
-		.optional()
-		.describe("true when the user may pick several options."),
-	options: z
-		.array(askOptionSchema)
-		.min(ASK_LIMITS.minOptions)
-		.max(ASK_LIMITS.maxOptions)
-		.describe(
+	const option = z.object({
+		label: text(ASK_LIMITS.labelChars).describe("The option, a few words."),
+		note: text(ASK_LIMITS.noteChars)
+			.optional()
+			.describe("Optional one-line note on what this option means."),
+		recommended: z.boolean().optional().describe("Your recommendation."),
+	});
+	const question = z.object({
+		question: text(ASK_LIMITS.questionChars).describe(
+			"The question itself, one short sentence.",
+		),
+		multiple: z
+			.boolean()
+			.optional()
+			.describe("true when the user may pick several options."),
+		options: list(
+			option,
+			ASK_LIMITS.minOptions,
+			ASK_LIMITS.maxOptions,
+		).describe(
 			`${ASK_LIMITS.minOptions}-${ASK_LIMITS.maxOptions} options, in the order to show them.`,
 		),
-});
-
-export const askUserInputSchema = z.object({
-	questions: z
-		.array(askQuestionSchema)
-		.min(ASK_LIMITS.minQuestions)
-		.max(ASK_LIMITS.maxQuestions)
-		.describe(
+	});
+	return z.object({
+		questions: list(
+			question,
+			ASK_LIMITS.minQuestions,
+			ASK_LIMITS.maxQuestions,
+		).describe(
 			`${ASK_LIMITS.minQuestions}-${ASK_LIMITS.maxQuestions} questions, in the order to ask them.`,
 		),
-});
+	});
+}
+
+/** What `execute` accepts: the shape of a card, whatever its counts and lengths. */
+export const askUserInputSchema = askUserSchema(false);
+
+/** What the model is shown of it, and what the tool validates with: see `askUserSchema`. */
+const askUserToolSchema = compactToolInputSchema(
+	askUserInputSchema,
+	askUserSchema(true),
+);
 
 type AskUserInput = z.infer<typeof askUserInputSchema>;
 
@@ -240,7 +261,7 @@ export function createAskUserTool(ctx: {
 		tool: asExecutableTool(
 			tool({
 				description: ctx.text.description,
-				inputSchema: askUserInputSchema,
+				inputSchema: askUserToolSchema,
 				execute,
 			}),
 		),

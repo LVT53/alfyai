@@ -32,7 +32,9 @@ export const ASK_ENDED_BEFORE_ANSWER =
 /**
  * How much Alfy may ask and the person may write, in counts and in characters
  * (UTF-16 units, as a string's `length` and an input's `maxlength` count them).
- * The checks, the tool's input schema and the card all read these.
+ * The check (`checkAskQuestions`) and the card read these, and the tool's input
+ * schema shows them to the model as hints (`maxItems`, `maxLength`, the counts in its
+ * descriptions); the check is the one place they are enforced.
  *
  * `maxOptions` is 4 (owner, 2026-11-05, after the real-model measurement; it was 3):
  * the production model wrote a fourth answer on three of the four cards the app
@@ -132,64 +134,105 @@ export function isAskPauseOutput(output: unknown): boolean {
 
 // --- the questions ------------------------------------------------------------
 
-/** The first count or length the questions break (an empty text is too short), as a message, else null. */
-function limitsProblem(questions: readonly AskQuestion[]): string | null {
+/**
+ * How many problems one refusal lists before it says how many more there are: far
+ * above any card the model writes by mistake, and only a bound on one that is nothing
+ * but problems, so that a refusal stays short.
+ */
+const PROBLEMS_LISTED = 30;
+
+/**
+ * Every rule the questions break, one message each, in the order of the card: the
+ * count of questions, then each question in turn (its text, its number of options,
+ * its mark, then its options' texts). Empty when nothing is broken.
+ *
+ * The counts and lengths in `ASK_LIMITS` are always held (an empty text is too
+ * short). The Recommended mark is held only `asking`: it is a rule for what Alfy may
+ * ask, which a row already written is not held to again when it is read back.
+ */
+function problemsOf(
+	questions: readonly AskQuestion[],
+	{ asking }: { asking: boolean },
+): string[] {
 	const limits = ASK_LIMITS;
+	const problems: string[] = [];
 	if (
 		questions.length < limits.minQuestions ||
 		questions.length > limits.maxQuestions
 	) {
-		return `Ask ${limits.minQuestions} to ${limits.maxQuestions} questions.`;
+		problems.push(
+			`Ask ${limits.minQuestions} to ${limits.maxQuestions} questions.`,
+		);
 	}
-	for (const [q, { question, options }] of questions.entries()) {
+	for (const [q, { question, multiple, options }] of questions.entries()) {
 		const name = `Question ${q + 1}`;
-		if (isBlank(question)) return `${name} has no text.`;
-		if (question.length > limits.questionChars) {
-			return `${name} is longer than ${limits.questionChars} characters.`;
+		if (isBlank(question)) {
+			problems.push(`${name} has no text.`);
+		} else if (question.length > limits.questionChars) {
+			problems.push(
+				`${name} is longer than ${limits.questionChars} characters.`,
+			);
 		}
 		if (
 			options.length < limits.minOptions ||
 			options.length > limits.maxOptions
 		) {
-			return `${name} needs ${limits.minOptions} to ${limits.maxOptions} options.`;
+			problems.push(
+				`${name} needs ${limits.minOptions} to ${limits.maxOptions} options.`,
+			);
+		}
+		if (asking && multiple !== true) {
+			const recommended = options.filter((o) => o.recommended === true).length;
+			if (recommended !== 1) {
+				problems.push(
+					`${name} takes one pick: mark exactly one of its options recommended.`,
+				);
+			}
 		}
 		for (const [o, { label, note }] of options.entries()) {
 			const option = `Option ${o + 1} of question ${q + 1}`;
-			if (isBlank(label)) return `${option} has no label.`;
-			if (label.length > limits.labelChars) {
-				return `${option} has a label longer than ${limits.labelChars} characters.`;
+			if (isBlank(label)) {
+				problems.push(`${option} has no label.`);
+			} else if (label.length > limits.labelChars) {
+				problems.push(
+					`${option} has a label longer than ${limits.labelChars} characters.`,
+				);
 			}
-			if (note !== undefined && note.length > limits.noteChars) {
-				return `${option} has a note longer than ${limits.noteChars} characters.`;
+			if (note === "") {
+				problems.push(`${option} has an empty note.`);
+			} else if (note !== undefined && note.length > limits.noteChars) {
+				problems.push(
+					`${option} has a note longer than ${limits.noteChars} characters.`,
+				);
 			}
 		}
 	}
-	return null;
-}
-
-/** The first one-pick question without exactly one Recommended option, as a message, else null. */
-function recommendedProblem(questions: readonly AskQuestion[]): string | null {
-	for (const [q, { multiple, options }] of questions.entries()) {
-		if (multiple === true) continue;
-		const recommended = options.filter((o) => o.recommended === true).length;
-		if (recommended !== 1) {
-			return `Question ${q + 1} takes one pick: mark exactly one of its options recommended.`;
-		}
-	}
-	return null;
+	return problems;
 }
 
 /**
  * Whether Alfy may ask these questions: the counts and lengths in `ASK_LIMITS`,
  * and, on a question that takes one pick, exactly one Recommended option (a
- * question that takes several may mark any number, none included). The message
- * names the question by its number from 1 and is meant for the model to read.
+ * question that takes several may mark any number, none included).
+ *
+ * A card that breaks several rules is told all of them at once, one line each, so
+ * that the model fixes the whole card in a single retry (owner, 2026-11-05: a card
+ * that broke a count and a mark was refused twice, and the second refusal cost a
+ * model step of 4 to 7 seconds). The lines name each question and option by its
+ * number from 1, are printable ASCII English, and never repeat the model's own
+ * words: they are for the model to read. A list longer than `PROBLEMS_LISTED` stops
+ * there and says how many more there are.
  */
 export function checkAskQuestions(
 	questions: readonly AskQuestion[],
 ): { ok: true } | { ok: false; message: string } {
-	const message = limitsProblem(questions) ?? recommendedProblem(questions);
-	return message === null ? { ok: true } : { ok: false, message };
+	const problems = problemsOf(questions, { asking: true });
+	if (problems.length === 0) return { ok: true };
+	const listed = problems.slice(0, PROBLEMS_LISTED);
+	if (problems.length > listed.length) {
+		listed.push(`And ${problems.length - listed.length} more.`);
+	}
+	return { ok: false, message: listed.join("\n") };
 }
 
 function parseOption(value: unknown): AskOption | null {
@@ -237,7 +280,9 @@ export function parseAskQuestions(value: unknown): AskQuestion[] | null {
 		if (question === null) return null;
 		questions.push(question);
 	}
-	return limitsProblem(questions) === null ? questions : null;
+	return problemsOf(questions, { asking: false }).length === 0
+		? questions
+		: null;
 }
 
 // --- the answer ---------------------------------------------------------------
