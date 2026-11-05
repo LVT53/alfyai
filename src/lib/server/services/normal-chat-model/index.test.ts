@@ -58,6 +58,8 @@ vi.mock("../chat-turn/ask-questions", () => ({
 	recordAskQuestion: vi.fn(async () => ({ id: "question-1" })),
 }));
 
+import { recordAskQuestion } from "../chat-turn/ask-questions";
+
 import {
 	buildNormalChatModelRunProviderOptions,
 	createOpenAICompatibleProviderForNormalChatModelRun,
@@ -6502,6 +6504,81 @@ describe("Normal Chat Model Run asking the user", () => {
 			type: "text_delta",
 			text: "Then I will plan a slow Saturday.",
 		});
+	});
+
+	// Plan's call 5, the whole reason the stop is a condition on the pause result and
+	// not `hasToolCall`: a call the SDK marks invalid (its input fails the tool's schema)
+	// is followed by a tool-error, never by the pause marker. The run must not stop on
+	// it: the model sees why and gets its turn to fix the card or go on without asking.
+	it("goes on after an ask_user call whose input fails the schema, the tool never run", async () => {
+		const fetch = vi
+			.fn<typeof globalThis.fetch>()
+			.mockResolvedValueOnce(
+				createStreamResponse([
+					{
+						toolCalls: [
+							{
+								id: "call-bad-ask",
+								name: "ask_user",
+								// one option, where a question needs two or three
+								arguments: JSON.stringify({
+									questions: [
+										{ question: "Which way?", options: [{ label: "Slow" }] },
+									],
+								}),
+							},
+						],
+					},
+					{ finishReason: "tool_calls", usage },
+				]),
+			)
+			// A second step is the model's turn after the error.
+			.mockResolvedValueOnce(
+				answeringStep("Then I will plan a slow Saturday."),
+			);
+		const onStepMessages = vi.fn();
+
+		const events = await collectStreamingEvents({
+			provider,
+			messages: [userTextMessage("Plan my Saturday")],
+			tools: {
+				ask_user: createRealAskUserTool({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					canPause: true,
+					recorder: createToolCallRecorder(),
+					text: {
+						description: "Ask the user.",
+						errorPrefix: "Asking the user failed",
+					},
+				}).tool,
+			},
+			onStepMessages,
+			fetch,
+			maxRetries: 0,
+		});
+
+		// The tool never ran: the store was not asked to record a question.
+		expect(vi.mocked(recordAskQuestion)).not.toHaveBeenCalled();
+		// The run did not stop: the model had its second step ...
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(events).toContainEqual({
+			type: "text_delta",
+			text: "Then I will plan a slow Saturday.",
+		});
+		// ... and was told why in the call's result.
+		const toolMessage = (
+			parseRequestBody(fetch, 1).messages as Array<{
+				role: string;
+				tool_call_id?: string;
+				content?: unknown;
+			}>
+		).find((message) => message.role === "tool");
+		expect(toolMessage?.tool_call_id).toBe("call-bad-ask");
+		expect(String(toolMessage?.content)).toMatch(/invalid/i);
+		// What was captured holds no pause marker, so nothing would be paused.
+		const captured = onStepMessages.mock.calls.at(-1)?.[0] as ChatRunMessage[];
+		expect(JSON.stringify(captured)).not.toContain("waiting_for_user");
 	});
 
 	it("hands onStepMessages the attempt's cumulative response messages, the ask's result in full", async () => {
