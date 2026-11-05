@@ -420,6 +420,12 @@ function useAskTurnHarness(putBackFirst?: (page: Page) => Promise<void>) {
 	});
 	test.afterEach(async ({ page }) => {
 		try {
+			// First: a test that failed with one of the scripted model's replies held
+			// (`AI_SMOKE_ASK_HOLD_*`) leaves a request waiting on the provider for a
+			// release that will not come, and a put-back below that waits on that request
+			// (`putBackFirst`, `restoreTurn`) would wait on it for ever. `reset()` lets
+			// every hold go.
+			await fakeProvider.reset();
 			await putBackFirst?.(page);
 		} finally {
 			try {
