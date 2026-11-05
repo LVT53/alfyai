@@ -1,4 +1,4 @@
-import { generateText, streamText, tool } from "ai";
+import { generateText, streamText, type ToolResultPart, tool } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -8,11 +8,19 @@ import {
 import { setModelImageInput } from "$lib/model-image-input";
 import type { ModelId } from "$lib/model-types";
 import { resultLookLabel } from "$lib/server/services/images/result-look";
+import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	createFixtureEventStreamResponse,
 	type ProviderStreamFixture,
 	providerStreamFixtures,
 } from "../../../../../tests/fixtures/ai/openai-compatible-stream-fixtures";
+import { createAskUserTool as createRealAskUserTool } from "../normal-chat-tools/ask-user";
+import { TOOL_RESULT_MAX_TOKENS } from "../normal-chat-tools/model-payload-budget";
+import {
+	createToolCallRecorder,
+	executeToolWithEnvelope,
+} from "../normal-chat-tools/shared";
+import { stableStringify } from "../normal-chat-tools/stable-stringify";
 import {
 	createStepImageQueue,
 	type StepImageQueue,
@@ -41,6 +49,13 @@ vi.mock("../providers", () => ({
 vi.mock("../provider-models", () => ({
 	getProviderModel: mocks.getProviderModel,
 	listEnabledProviderModels: mocks.listEnabledProviderModels,
+}));
+
+// The store is the database. What the real ask tool returns through the tool
+// envelope, which the run stops on and the capture keeps, is what the resume
+// tests below read.
+vi.mock("../chat-turn/ask-questions", () => ({
+	recordAskQuestion: vi.fn(async () => ({ id: "question-1" })),
 }));
 
 import {
@@ -6574,6 +6589,291 @@ describe("Normal Chat Model Run asking the user", () => {
 				],
 			},
 		]);
+	});
+
+	describe("a resume under the context guard and the tool-result ceiling", () => {
+		// The window the guard keeps a step inside; small, so a long captured
+		// result overflows it.
+		const guardedProvider = { ...provider, maxModelContext: 16_384 };
+
+		function fileListing(count: number) {
+			return {
+				success: true,
+				name: "files",
+				action: "list",
+				message: `Listed ${count} files.`,
+				results: Array.from({ length: count }, (_, index) => ({
+					name: `file-${index}.txt`,
+					path: `/Documents/file-${index}.txt`,
+					size: index,
+				})),
+			};
+		}
+
+		/** The reply so far as a capture holds it: an answered first ask after a long read. */
+		function capturedSegment(listing: ReturnType<typeof fileListing>) {
+			return [
+				{
+					role: "assistant",
+					content: [
+						{ type: "text", text: "Let me look at your files first." },
+						{
+							type: "tool-call",
+							toolCallId: "call-read",
+							toolName: "files",
+							input: { folder: "/Documents" },
+						},
+					],
+				},
+				{
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: "call-read",
+							toolName: "files",
+							output: { type: "json", value: listing },
+						},
+					],
+				},
+				{
+					role: "assistant",
+					content: [
+						{
+							type: "tool-call",
+							toolCallId: "call-first-ask",
+							toolName: "ask_user",
+							input: askInput,
+						},
+					],
+				},
+				{
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: "call-first-ask",
+							toolName: "ask_user",
+							output: {
+								type: "json",
+								value: {
+									status: "answered",
+									answers: [
+										{
+											question: "How do you want to shape the day?",
+											picked: ["Slow"],
+										},
+									],
+									note: "The user answered. Go on with the same reply.",
+								},
+							},
+						},
+					],
+				},
+			] as ChatRunMessage[];
+		}
+
+		/** A tool that reads `count` files through the real envelope, which caps what the model is handed. */
+		function createEnvelopedReadTool(count: number) {
+			const recorder = createToolCallRecorder();
+			return tool({
+				description: "List a folder.",
+				inputSchema: z.object({ folder: z.string() }),
+				execute: (input, options) =>
+					executeToolWithEnvelope({
+						toolName: "files",
+						timeoutMs: 5_000,
+						options,
+						recorder,
+						run: async () => ({
+							modelPayload: fileListing(count),
+							entry: {
+								callId: options.toolCallId,
+								name: "files",
+								input,
+								status: "done",
+								outputSummary: `Listed ${count} files.`,
+								sourceType: "tool",
+								metadata: {},
+							},
+						}),
+						onError: (error) => {
+							throw error;
+						},
+					}),
+			});
+		}
+
+		it("shrinks a continuation that would overflow the window before the first request", async () => {
+			// A resume sends the reply so far after the person's message, the captured
+			// results whole. The guard rides on every step's prepareStep, the first
+			// one included, so the continuation is shrunk before the model sees it,
+			// as any other step is.
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockResolvedValueOnce(answeringStep("A slow Saturday, then."));
+
+			const events = await collectStreamingEvents({
+				provider: guardedProvider,
+				messages: [
+					userTextMessage("Plan my Saturday"),
+					...capturedSegment(fileListing(2_000)),
+				],
+				tools: { ask_user: createAskUserTool() },
+				maxOutputTokens: 512,
+				fetch,
+				maxRetries: 0,
+			});
+
+			expect(events).toContainEqual({
+				type: "text_delta",
+				text: "A slow Saturday, then.",
+			});
+			expect(fetch).toHaveBeenCalledTimes(1);
+			const wire = JSON.stringify(parseRequestBody(fetch, 0).messages);
+			// The digest and the notice stand in for the listing ...
+			expect(wire).toContain("Listed 2000 files.");
+			expect(wire).toContain("[truncated to fit the context window]");
+			expect(wire).not.toContain("file-1999.txt");
+			// ... and what the reply said, the answer and the person's message stay.
+			expect(wire).toContain("Plan my Saturday");
+			expect(wire).toContain("Let me look at your files first.");
+			expect(wire).toContain("Slow");
+			expect(wire.length).toBeLessThan(50_000);
+		});
+
+		it("pauses again on a resume with the ask's result captured whole, under the ceiling and the guard", async () => {
+			// 6,000 files are well over the envelope's 32k-token ceiling. The ceiling
+			// cuts what the model is handed, the guard shrinks the next request to
+			// fit the window, and neither may touch what the run is captured as: the
+			// cut result stays as the ceiling left it and the ask's result is the
+			// pause marker, whole, so the next resume can answer it.
+			const onStepMessages = vi.fn();
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockResolvedValueOnce(
+					createStreamResponse([
+						{
+							toolCalls: [
+								{
+									id: "call-read-again",
+									name: "files",
+									arguments: JSON.stringify({ folder: "/Photos" }),
+								},
+							],
+						},
+						{ finishReason: "tool_calls", usage },
+					]),
+				)
+				.mockResolvedValueOnce(
+					createStreamResponse([
+						{ content: "One more thing to settle." },
+						{
+							toolCalls: [
+								{
+									id: "call-ask",
+									name: "ask_user",
+									// A card the real tool accepts: a one-pick question
+									// marks one option as recommended.
+									arguments: JSON.stringify({
+										questions: [
+											{
+												question: "Which photos go in the album?",
+												options: [
+													{ label: "All of them" },
+													{ label: "Only the best", recommended: true },
+												],
+											},
+										],
+									}),
+								},
+							],
+						},
+						{ finishReason: "tool_calls", usage },
+					]),
+				)
+				// A third request would be this one: the pause must end the run.
+				.mockResolvedValueOnce(answeringStep("Never asked for."));
+
+			const events = await collectStreamingEvents({
+				provider: guardedProvider,
+				messages: [
+					userTextMessage("Plan my Saturday"),
+					...capturedSegment(fileListing(10)),
+				],
+				tools: {
+					files: createEnvelopedReadTool(6_000),
+					ask_user: createRealAskUserTool({
+						userId: "user-1",
+						conversationId: "conversation-1",
+						canPause: true,
+						recorder: createToolCallRecorder(),
+						text: {
+							description: "Ask the user.",
+							errorPrefix: "Asking the user failed",
+						},
+					}).tool,
+				},
+				maxOutputTokens: 512,
+				onStepMessages,
+				fetch,
+				maxRetries: 0,
+			});
+
+			expect(fetch).toHaveBeenCalledTimes(2);
+			expect(events).not.toContainEqual({
+				type: "text_delta",
+				text: "Never asked for.",
+			});
+			// The guard shrank the second request: the cut listing it carried is
+			// now its digest and the notice.
+			expect(JSON.stringify(parseRequestBody(fetch, 1).messages)).toContain(
+				"[truncated to fit the context window]",
+			);
+
+			const captured = onStepMessages.mock.calls.at(
+				-1,
+			)?.[0] as ChatRunMessage[];
+			const toolResults = captured.flatMap((message) =>
+				message.role === "tool"
+					? message.content.filter(
+							(part): part is ToolResultPart => part.type === "tool-result",
+						)
+					: [],
+			);
+			// The listing is as the envelope's ceiling left it: a result with its
+			// list cut short and the notice, never the guard's digest text.
+			const listing = toolResults.find(
+				(part) => part.toolCallId === "call-read-again",
+			);
+			expect(listing?.output.type).toBe("json");
+			const listed = (listing?.output as { value: unknown })
+				.value as ReturnType<typeof fileListing> & {
+				truncated?: boolean;
+				omitted?: Record<string, number>;
+			};
+			expect(listed.truncated).toBe(true);
+			expect(listed.omitted?.results).toBeGreaterThan(0);
+			expect(listed.results.length).toBeGreaterThan(0);
+			expect(estimateTokenCount(stableStringify(listed))).toBeLessThanOrEqual(
+				TOOL_RESULT_MAX_TOKENS,
+			);
+			// The ask's result is the pause marker, whole.
+			expect(
+				toolResults.find((part) => part.toolCallId === "call-ask"),
+			).toEqual({
+				type: "tool-result",
+				toolCallId: "call-ask",
+				toolName: "ask_user",
+				output: {
+					type: "json",
+					value: {
+						status: "waiting_for_user",
+						note: "Asked. The reply pauses here until the user chooses.",
+					},
+				},
+			});
+		});
 	});
 
 	describe("the gate on each attempt's messages", () => {
