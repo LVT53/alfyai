@@ -4125,12 +4125,20 @@ function handleAskEvent(event: AskRuntimeEvent) {
  * finished the reply before the connection was lost, so the question says: if it waits
  * the card is back (with the answer that did not go through); if not, the segment is in
  * the chat, which is read.
+ *
+ * The three settles below belong to the chat they began in. Each looks at the chat
+ * again after every await and goes no further when the person has moved on: what they
+ * read next (the chat, a running stream) is the chat the person is in now, whose first
+ * send may have started meanwhile, and a load of it on this settle's account would
+ * write over its list.
  */
 async function settleAnswerNotSent(questionId: string, quiet: boolean) {
+	const conversationId = data.conversation.id;
 	answersOnTheirWay.delete(questionId);
 	setAskActionState(questionId, quiet ? {} : { failed: true });
 	markWaitingForAnswer(true);
 	settleWaitingMark(await refreshQuestions());
+	if (conversationId !== data.conversation.id) return;
 	if (!questionStillWaits(questionId)) await readChatAfterQuestions();
 }
 
@@ -4139,10 +4147,13 @@ async function settleAnswerNotSent(questionId: string, quiet: boolean) {
  * comes next: it is joined if it still runs, and read from the chat if it has ended.
  */
 async function settleAlreadyAnswered(questionId: string) {
+	const conversationId = data.conversation.id;
 	answersOnTheirWay.delete(questionId);
 	setAskActionState(questionId, {});
 	settleWaitingMark(await refreshQuestions());
+	if (conversationId !== data.conversation.id) return;
 	if (await normalChatRuntime.checkForOrphanedStreamOnMount()) return;
+	if (conversationId !== data.conversation.id) return;
 	await readChatAfterQuestions();
 }
 
@@ -4152,8 +4163,10 @@ async function settleAlreadyAnswered(questionId: string) {
  * of a message are back in the draft already (the runtime put them there).
  */
 async function settleRefusedWhileWaiting() {
+	const conversationId = data.conversation.id;
 	markWaitingForAnswer(true);
 	settleWaitingMark(await refreshQuestions());
+	if (conversationId !== data.conversation.id) return;
 	await readChatAfterQuestions();
 }
 

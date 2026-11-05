@@ -9488,6 +9488,66 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 			expect(sidebarMark()).toBe(false);
 		});
 
+		// What the page does once an answer did not land, was lost to another device, or a
+		// message was refused is read of the questions and then of the chat. Both reads are
+		// awaits, and the person can move to another chat in between: the settle belongs
+		// to the chat it began in, and reading the chat the person is in now on its behalf
+		// could write over that chat's list once its first send had started meanwhile.
+		it.each([
+			[
+				"an answer that did not land",
+				{ type: "answerNotSent", questionId: "q-1", quiet: true },
+			],
+			[
+				"an answer that another device won",
+				{ type: "alreadyAnswered", questionId: "q-1" },
+			],
+			[
+				"a message turned away while a question waits",
+				{ type: "refusedWhileWaiting" },
+			],
+		] as const)("leaves the chat the person moved to alone when it settles %s", async (_what, event) => {
+			const view = renderAskedChat();
+			// The read of the questions the settle begins with is out ...
+			let questionsAnswer: (questions: AskQuestionDto[]) => void = () => {};
+			vi.mocked(fetchConversationQuestions).mockReturnValueOnce(
+				new Promise<AskQuestionDto[]>((resolve) => {
+					questionsAnswer = resolve;
+				}),
+			);
+			runtimeHarness.adapters?.onAskEvent?.(event);
+			// ... when the person moves to another chat, which has no question.
+			vi.mocked(fetchConversationQuestions).mockResolvedValue([]);
+			await view.rerender({
+				data: pageData({
+					conversation: conversationFixture("conv-2"),
+					messages: [
+						{
+							id: "b-user",
+							role: "user",
+							content: "Question for chat B",
+							timestamp: 1,
+						},
+					],
+				}),
+				params: { conversationId: "conv-2" },
+			});
+			expect(
+				await screen.findByText("Question for chat B"),
+			).toBeInTheDocument();
+			const chatReadsBefore = vi.mocked(fetchConversationDetail).mock.calls
+				.length;
+
+			questionsAnswer([]);
+			await new Promise((resolve) => setTimeout(resolve, 30));
+
+			// Nothing was read of the chat on its account, and the new chat is as it was.
+			expect(vi.mocked(fetchConversationDetail).mock.calls.length).toBe(
+				chatReadsBefore,
+			);
+			expect(screen.getByText("Question for chat B")).toBeInTheDocument();
+		});
+
 		// The reply can never be carried on (its capture or its segments are gone), so
 		// the server closes the question for good before it refuses the answer
 		// (QUESTION_NOT_WAITING, Ruling 46): the page reads the questions after any
