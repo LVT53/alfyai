@@ -74,7 +74,7 @@ A deploy drains the server (a new message is refused with `reason: "draining"`, 
 
 ## Questions In A Reply
 
-Alfy can stop a reply to ask 1 to 3 questions, and the same reply carries on below the card ("Ask me first": `docs/plans/ask-me-first/design.md`; the server's half is `src/lib/server/services/chat-turn/AGENTS.md`, "Asking The Person"). `tests/e2e/ask-me-first.spec.ts` drives it in a browser; the tests named below hold each rule. The sidebar's mark for a chat that waits: `src/lib/components/AGENTS.md`.
+Alfy can stop a reply to ask a question, one a card (owner, 2026-11-05, after his first live test: "I only want 1 ask card at a time"; a card of three looked like three cards), and the same reply carries on below the card ("Ask me first": `docs/plans/ask-me-first/design.md`; the server's half is `src/lib/server/services/chat-turn/AGENTS.md`, "Asking The Person"). `tests/e2e/ask-me-first.spec.ts` drives it in a browser; the tests named below hold each rule. The sidebar's mark for a chat that waits: `src/lib/components/AGENTS.md`.
 
 ### The Card
 

@@ -50,6 +50,10 @@ const toppings: AskQuestion = {
 	options: [{ label: "Music" }, { label: "Photos" }, { label: "A cake" }],
 };
 
+/** What the card is told when it holds more (or fewer) questions than the one it may hold. */
+const COUNT_LINE =
+	"A card holds exactly 1 question: ask the one that matters most, and the next after the answer.";
+
 const oneAnswer = (picked: number[], ownWords: string | null) => ({
 	picked,
 	ownWords,
@@ -61,7 +65,11 @@ describe("the vocabulary", () => {
 		expect(ASK_PAUSE_STATUS).toBe("waiting_for_user");
 		expect(ASK_LIMITS).toEqual({
 			minQuestions: 1,
-			maxQuestions: 3,
+			// 1 since 2026-11-05 (owner, after his first live test: "I only want 1 ask
+			// card at a time"); a stored card from before that day holds up to 3, and is
+			// still read and drawn.
+			maxQuestions: 1,
+			maxStoredQuestions: 3,
 			minOptions: 2,
 			// 4 since 2026-11-05 (owner, after the real-model measurement): the production
 			// model wrote four answers on three of the four cards the app turned back.
@@ -105,10 +113,13 @@ describe("checkAskQuestions", () => {
 	});
 
 	it("names the question that breaks the rule by its 1-based number", () => {
+		// a second question is itself too many, and still has its problems named
 		expect(checkAskQuestions([card[0], withRecommended(0)])).toEqual({
 			ok: false,
-			message:
+			message: [
+				COUNT_LINE,
 				"Question 2 takes one pick: mark exactly one of its options recommended.",
+			].join("\n"),
 		});
 	});
 
@@ -118,16 +129,11 @@ describe("checkAskQuestions", () => {
 				ok: true,
 			});
 		}
-		expect(checkAskQuestions([card[0], toppings])).toEqual({ ok: true });
+		expect(checkAskQuestions([toppings])).toEqual({ ok: true });
 	});
 
 	const cases: Array<[string, AskQuestion[], string]> = [
-		["no question", [], "Ask 1 to 3 questions."],
-		[
-			"four questions",
-			[card[0], card[0], card[0], card[0]],
-			"Ask 1 to 3 questions.",
-		],
+		["no question", [], COUNT_LINE],
 		[
 			"a question with one option",
 			[{ ...card[0], options: card[0].options.slice(0, 1) }],
@@ -149,8 +155,8 @@ describe("checkAskQuestions", () => {
 		],
 		[
 			"a question without text",
-			[card[0], { ...card[0], question: "  " }],
-			"Question 2 has no text.",
+			[{ ...card[0], question: "  " }],
+			"Question 1 has no text.",
 		],
 		[
 			"a question over 160 characters",
@@ -228,8 +234,45 @@ describe("checkAskQuestions", () => {
 		expect(parseAskQuestions(JSON.parse(JSON.stringify([four])))).toEqual([
 			four,
 		]);
-		// the same on every question of a full card
-		expect(checkAskQuestions([four, four, four])).toEqual({ ok: true });
+		// ... and on every question of a stored card of three
+		expect(
+			parseAskQuestions(JSON.parse(JSON.stringify([four, four, four]))),
+		).toEqual([four, four, four]);
+	});
+
+	// Owner, 2026-11-05, after his first live test: "I only want 1 ask card at a time". A card
+	// asked before that day held up to three questions, and the page still draws it and takes
+	// its answer, so what is read back is held to the larger count and what is asked to one.
+	it("takes one question to ask, and up to three to read back", () => {
+		const q = card[0];
+		expect(checkAskQuestions([q])).toEqual({ ok: true });
+		for (const count of [2, 3, 4]) {
+			const questions = Array.from({ length: count }, () => q);
+			const checked = checkAskQuestions(questions);
+			expect(checked).toEqual({ ok: false, message: COUNT_LINE });
+			expect(COUNT_LINE).toMatch(/^[\x20-\x7e]+$/);
+		}
+		for (const count of [1, 2, 3]) {
+			const questions = Array.from({ length: count }, () => q);
+			expect(parseAskQuestions(JSON.parse(JSON.stringify(questions)))).toEqual(
+				questions,
+			);
+		}
+		expect(
+			parseAskQuestions(JSON.parse(JSON.stringify([q, q, q, q]))),
+		).toBeNull();
+		// ... and so is its answer: one entry a question, up to three of them
+		const threeAnswers = {
+			kind: "answered",
+			answers: [oneAnswer([0], null), oneAnswer([1], null), oneAnswer([], "x")],
+		};
+		expect(parseAskAnswer(threeAnswers)).toEqual(threeAnswers);
+		expect(
+			parseAskAnswer({
+				kind: "answered",
+				answers: [...threeAnswers.answers, oneAnswer([0], null)],
+			}),
+		).toBeNull();
 	});
 
 	// Owner, 2026-11-05, after the real-model measurement: one refusal names every problem of
@@ -260,6 +303,7 @@ describe("checkAskQuestions", () => {
 			expect(checkAskQuestions([fiveOptions, noMark])).toEqual({
 				ok: false,
 				message: [
+					COUNT_LINE,
 					"Question 1 needs 2 to 4 options.",
 					`Question 2 ${MARK}`,
 				].join("\n"),
@@ -299,7 +343,7 @@ describe("checkAskQuestions", () => {
 			// four questions, so the card's count is the first line; then each question in turn:
 			// its text, its number of options, its mark, its options
 			expect(lines([blankQuestion, crowded, card[0], card[0]])).toEqual([
-				"Ask 1 to 3 questions.",
+				COUNT_LINE,
 				"Question 1 has no text.",
 				"Question 1 needs 2 to 4 options.",
 				`Question 1 ${MARK}`,
@@ -324,7 +368,7 @@ describe("checkAskQuestions", () => {
 			};
 			const all = lines([wordy, noMark]);
 
-			expect(all).toHaveLength(3);
+			expect(all).toHaveLength(4);
 			for (const line of all) {
 				expect(line).toMatch(/^[\x20-\x7e]+$/);
 				expect(line).not.toMatch(/Hová|Tenger|Sivatag|Short bullets/);
@@ -332,7 +376,8 @@ describe("checkAskQuestions", () => {
 		});
 
 		it("keeps a long list short: it lists 30 problems and says how many more there are", () => {
-			// three questions of ten options each, every label blank: 11 problems a question
+			// three questions of ten options each, every label blank: 11 problems a question,
+			// and the card's own count, which is one question too many twice over
 			const blankLabels = (n: number): AskQuestion => ({
 				question: "Which?",
 				multiple: true,
@@ -344,10 +389,10 @@ describe("checkAskQuestions", () => {
 			expect(all.slice(0, 30).every((line) => !line.startsWith("And "))).toBe(
 				true,
 			);
-			expect(all[30]).toBe("And 3 more.");
-			// a card with exactly 30 problems (11 + 11 + 8) is listed whole
+			expect(all[30]).toBe("And 4 more.");
+			// a card with exactly 30 problems (the count, then 11 + 11 + 7) is listed whole
 			expect(
-				lines([blankLabels(10), blankLabels(10), blankLabels(7)]),
+				lines([blankLabels(10), blankLabels(10), blankLabels(6)]),
 			).toHaveLength(30);
 		});
 
@@ -377,9 +422,9 @@ describe("checkAskQuestions", () => {
 				{ label: "B" },
 			],
 		};
-		const three = [atTheLimit, atTheLimit, atTheLimit];
-		expect(checkAskQuestions(three)).toEqual({ ok: true });
-		expect(parseAskQuestions(JSON.parse(JSON.stringify(three)))).toEqual(three);
+		const one = [atTheLimit];
+		expect(checkAskQuestions(one)).toEqual({ ok: true });
+		expect(parseAskQuestions(JSON.parse(JSON.stringify(one)))).toEqual(one);
 	});
 });
 

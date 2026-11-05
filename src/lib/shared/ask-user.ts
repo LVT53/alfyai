@@ -40,10 +40,17 @@ export const ASK_ENDED_BEFORE_ANSWER =
  * the production model wrote a fourth answer on three of the four cards the app
  * turned back. It is also the most picks an answer may hold, since a question that
  * takes several picks may be answered with every one of its answers.
+ *
+ * `maxQuestions` is 1 (owner, 2026-11-05, after his first live test: "I only want 1
+ * ask card at a time"; a card of three questions looked like three cards). It is
+ * what Alfy may ASK. `maxStoredQuestions` is what a stored row may HOLD, and is
+ * read back: a card asked before that day holds up to 3 questions, and the page
+ * still draws it and takes its answer.
  */
 export const ASK_LIMITS = {
 	minQuestions: 1,
-	maxQuestions: 3,
+	maxQuestions: 1,
+	maxStoredQuestions: 3,
 	minOptions: 2,
 	maxOptions: 4,
 	questionChars: 160,
@@ -158,10 +165,13 @@ function problemsOf(
 	const problems: string[] = [];
 	if (
 		questions.length < limits.minQuestions ||
-		questions.length > limits.maxQuestions
+		questions.length >
+			(asking ? limits.maxQuestions : limits.maxStoredQuestions)
 	) {
 		problems.push(
-			`Ask ${limits.minQuestions} to ${limits.maxQuestions} questions.`,
+			limits.minQuestions === limits.maxQuestions
+				? `A card holds exactly ${limits.maxQuestions} question: ask the one that matters most, and the next after the answer.`
+				: `Ask ${limits.minQuestions} to ${limits.maxQuestions} questions.`,
 		);
 	}
 	for (const [q, { question, multiple, options }] of questions.entries()) {
@@ -316,9 +326,12 @@ export function parseAskAnswer(value: unknown): AskAnswer | null {
 	if (value.kind === "left_to_alfy") return { kind: "left_to_alfy" };
 	if (value.kind === "closed") return { kind: "closed" };
 	if (value.kind !== "answered" || !Array.isArray(value.answers)) return null;
-	// one entry per question, and no more questions than may be asked
+	// one entry per question, and no more than a stored card may hold
 	const count = value.answers.length;
-	if (count < ASK_LIMITS.minQuestions || count > ASK_LIMITS.maxQuestions) {
+	if (
+		count < ASK_LIMITS.minQuestions ||
+		count > ASK_LIMITS.maxStoredQuestions
+	) {
 		return null;
 	}
 	const answers: OneAnswer[] = [];

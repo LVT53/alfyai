@@ -192,27 +192,23 @@ export const AI_SMOKE_ASK_FOUR: AskQuestion[] = [
 
 /**
  * A card that breaks a count and a mark at once (owner, 2026-11-05): five answers on its
- * first question, and none marked Recommended on its second. The `refused` mode asks it
- * first, as `AI_SMOKE_ASK_BROKEN_CALL_ID`.
+ * question, and none marked Recommended. The `refused` mode asks it first, as
+ * `AI_SMOKE_ASK_BROKEN_CALL_ID`.
  */
 export const AI_SMOKE_ASK_BROKEN: AskQuestion[] = [
 	{
 		question: "Which way should we take it?",
 		options: [
-			{ label: "A party at home", recommended: true },
+			{ label: "A party at home" },
 			{ label: "Dinner out, just close family" },
 			{ label: "A weekend away together" },
 			{ label: "A picnic by the lake" },
 			{ label: "A day at the zoo" },
 		],
 	},
-	{
-		question: "How should the list be split?",
-		options: [{ label: "One shared list" }, { label: "A list per person" }],
-	},
 ];
 
-/** The same card with both fixed: four answers on the first question, the second one marked. The `refused` mode asks it once the refusal has said what was wrong. */
+/** The same card with both fixed: four answers, one of them marked. The `refused` mode asks it once the refusal has said what was wrong. */
 export const AI_SMOKE_ASK_FIXED: AskQuestion[] = [
 	{
 		question: "Which way should we take it?",
@@ -223,35 +219,18 @@ export const AI_SMOKE_ASK_FIXED: AskQuestion[] = [
 			{ label: "A picnic by the lake" },
 		],
 	},
-	{
-		question: "How should the list be split?",
-		options: [
-			{ label: "One shared list", recommended: true },
-			{ label: "A list per person" },
-		],
-	},
 ];
 
-/** The mockup's section 2: a question that takes several picks (none is Alfy's) and one that takes one. */
+/**
+ * The mockup's section 2, as a card may be asked since 2026-11-05 (owner, after his first
+ * live test: "I only want 1 ask card at a time"): one question that takes several picks
+ * (none is Alfy's). A card of two or three questions can only be a stored one now.
+ */
 export const AI_SMOKE_ASK_MANY: AskQuestion[] = [
 	{
 		question: "Who's coming?",
 		multiple: true,
 		options: [{ label: "Adults" }, { label: "Kids" }, { label: "Grandma" }],
-	},
-	{
-		question: "How should the list be split?",
-		options: [
-			{
-				label: "One shared list",
-				note: "Shortest; you tick things off together",
-				recommended: true,
-			},
-			{
-				label: "A list per person",
-				note: "Everyone packs their own",
-			},
-		],
 	},
 ];
 

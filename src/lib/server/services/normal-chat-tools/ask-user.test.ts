@@ -24,7 +24,7 @@ const recordAskQuestionMock = vi.mocked(recordAskQuestion);
 
 const PAUSE_NOTE = "Asked. The reply pauses here until the user chooses.";
 const ONE_CARD_MESSAGE =
-	"One card per pause: put every question into a single ask_user call.";
+	"One question per pause: you asked one already. Ask the next after the answer, if you still need it.";
 const ONE_PICK_MESSAGE =
 	"Question 1 takes one pick: mark exactly one of its options recommended.";
 
@@ -201,6 +201,7 @@ describe("ask_user tool", () => {
 			options: [{ label: "Short" }, { label: "Long" }],
 		};
 		const REFUSAL = [
+			"A card holds exactly 1 question: ask the one that matters most, and the next after the answer.",
 			"Question 1 needs 2 to 4 options.",
 			"Question 2 takes one pick: mark exactly one of its options recommended.",
 		].join("\n");
@@ -241,10 +242,6 @@ describe("ask_user tool", () => {
 			});
 			const fixed: AskQuestion[] = [
 				{ ...fiveAnswers, options: fiveAnswers.options.slice(0, 4) },
-				{
-					...noMark,
-					options: [{ label: "Short", recommended: true }, { label: "Long" }],
-				},
 			];
 
 			const refused = await tool.execute(
@@ -660,7 +657,7 @@ describe("the JSON schema the model reads", () => {
 		const questions = shownToTheModel();
 		const { options } = questions.items.properties;
 
-		expect(questions.description).toMatch(/^1-3 questions\b/);
+		expect(questions.description).toMatch(/^Exactly 1 question\b/);
 		// 2026-11-05: up to four answers a question (it said 2-3)
 		expect(options.description).toMatch(/^2-4 options\b/);
 		expect(options.description).toContain(

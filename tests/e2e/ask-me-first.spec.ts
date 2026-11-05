@@ -360,13 +360,10 @@ function transitionsStartedOn(control: Locator): Promise<string[]> {
  * Decide for me, the X and Send.
  */
 async function answerCardControls(page: Page) {
-	const card = askCard(page, "Alfy's questions (2)");
+	const card = askCard(page);
 	await expect(card).toBeVisible({ timeout: 30_000 });
 	await expect(card.getByTestId("ask-up-to-you")).toBeEnabled();
 	await card.getByRole("checkbox", { name: "Adults" }).click();
-	await card
-		.getByRole("radio", { name: "One shared list, recommended" })
-		.click();
 	const send = card.getByTestId("ask-send");
 	await expect(send).toBeEnabled();
 	return {
@@ -909,69 +906,52 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		expect((closed as { note: string }).note).toContain("closed the question");
 	});
 
-	test("a card of several questions needs Send", async ({ page }) => {
-		const ownWords = "One list, with a section for the kids' things";
+	// Owner, 2026-11-05, after his first live test ("I only want 1 ask card at a time"): a card
+	// holds one question. A question may still take several picks, and then the card needs Send.
+	test("a question that takes several picks needs Send", async ({ page }) => {
 		await startTurn(page, "many");
-		const card = askCard(page, "Alfy's questions (2)");
+		const card = askCard(page);
 		await expect(card).toBeVisible({ timeout: 30_000 });
-		await expect(card.getByTestId("ask-question")).toHaveCount(2);
+		await expect(card.getByTestId("ask-question")).toHaveCount(1);
 		await expect(card.getByText("Pick any")).toBeVisible();
 		const send = card.getByTestId("ask-send");
 		await expect(card.getByTestId("ask-up-to-you")).toBeEnabled();
 		await expect(send).toBeDisabled();
 
-		// The first question takes any number of picks, and one question answered is not a card answered.
-		await card.getByRole("checkbox", { name: "Adults" }).click();
-		await card.getByRole("checkbox", { name: "Kids" }).click();
-		await expect(card.getByRole("checkbox", { name: "Adults" })).toBeChecked();
-		await expect(card.getByRole("checkbox", { name: "Kids" })).toBeChecked();
-		await expect(send).toBeDisabled();
-
-		// The second is answered in the person's own words.
-		const second = card.getByTestId("ask-question").nth(1);
 		// This card has no send in its line (the footer's Send is the card's), and the line
 		// still takes the row's box.
-		const rowBefore = await settledBox(second.getByTestId("ask-own-row"));
+		const own = card.getByTestId("ask-own-row");
+		const rowBefore = await settledBox(own);
 		const cardBefore = await settledBox(card);
-		await second.getByTestId("ask-own-row").click();
+		await own.click();
 		expectSameBox(
-			await settledBox(second.getByTestId("ask-own-field")),
+			await settledBox(card.getByTestId("ask-own-field")),
 			rowBefore,
 			"the open line, against the row it opened from",
 		);
 		expectSameBox(await settledBox(card), cardBefore, "the card");
-		await second.getByTestId("ask-own-input").fill(ownWords);
+
+		// The question takes any number of picks, and a pick replaces the line's words.
+		await card.getByRole("checkbox", { name: "Adults" }).click();
+		await card.getByRole("checkbox", { name: "Kids" }).click();
+		await expect(card.getByRole("checkbox", { name: "Adults" })).toBeChecked();
+		await expect(card.getByRole("checkbox", { name: "Kids" })).toBeChecked();
 		await expect(send).toBeEnabled();
 		await send.click();
 
 		const folded = page.getByTestId("ask-folded");
-		await expect(folded).toContainText("2 questions");
-		await expect(folded).toContainText(`Adults, Kids · “${ownWords}”`);
+		await expect(folded).toContainText("Who's coming?");
+		await expect(folded).toContainText("Adults, Kids");
 		await expect(card).toHaveCount(0);
 
-		// A press opens both questions with their answers.
-		await folded.getByTestId("tool-activity-row").click();
-		const body = folded.getByTestId("tool-activity-body");
-		await expect(body.locator("dt")).toHaveText([
-			"Who's coming?",
-			"How should the list be split?",
-		]);
-		await expect(body.locator("dd")).toHaveText([
-			"Adults, Kids",
-			`“${ownWords}”`,
-		]);
-
-		await expectCarriedOn(page, `Adults, Kids; ${ownWords}`);
+		await expectCarriedOn(page, "Adults, Kids");
 		await expectReplyEnded(page);
 		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
 		expect(
 			answerTo(chatRequests(fakeProvider)[1], AI_SMOKE_ASK_CALL_ID),
 		).toMatchObject({
 			status: "answered",
-			answers: [
-				{ question: "Who's coming?", picked: ["Adults", "Kids"] },
-				{ question: "How should the list be split?", ownWords },
-			],
+			answers: [{ question: "Who's coming?", picked: ["Adults", "Kids"] }],
 		});
 	});
 
@@ -1238,7 +1218,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 
 	// Owner, 2026-11-05, after the real-model measurement: one refusal names every problem of a
 	// card, so the model fixes the whole card in one retry. The scripted model's first card breaks
-	// a count (five answers on its first question) and a mark (none Recommended on its second).
+	// a count (five answers) and a mark (none Recommended), both on its one question.
 	// The tool refuses it once, naming both, and the model asks again with both fixed: the person
 	// sees one card and no refusal, after one extra model step; nothing was written for the card
 	// that was refused. Before, the schema refused the count and the tool the mark on the next
@@ -1248,10 +1228,10 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 	}) => {
 		const { conversationId } = await startTurn(page, "refused");
 
-		// The card the person gets is the fixed one: two questions, so Send and the count.
-		const card = askCard(page, "Alfy's questions (2)");
+		// The card the person gets is the fixed one: one question, four answers.
+		const card = askCard(page);
 		await expect(card).toBeVisible({ timeout: 30_000 });
-		await expect(card.getByTestId("ask-question")).toHaveCount(2);
+		await expect(card.getByTestId("ask-question")).toHaveCount(1);
 		await expect(card.getByText("Which way should we take it?")).toBeVisible();
 		await expect(page.getByText(AI_SMOKE_ASK_INTRO)).toBeVisible();
 		// ... and it is the only card there ever was, with nothing said of a refusal.
@@ -1266,7 +1246,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			errorCode: "invalid_questions",
 			message: [
 				"Question 1 needs 2 to 4 options.",
-				"Question 2 takes one pick: mark exactly one of its options recommended.",
+				"Question 1 takes one pick: mark exactly one of its options recommended.",
 			].join("\n"),
 		});
 
