@@ -278,9 +278,10 @@ let followingStreamingReply = false;
  * is the position a reload restores, held until the thread is tall enough to
  * show it.
  *
- * The hold ends when the reader takes over — a scroll up the thread, or a
- * press inside it — and when a reply streams: the streaming follow rules
- * below stay exactly as they were.
+ * The hold ends when the reader takes over — a scroll up the thread, a press
+ * or a key inside it, or a wheel turned while the hold is on a waiting card's
+ * top (`releaseCardTopHold`) — and when a reply streams: the streaming follow
+ * rules below stay exactly as they were.
  */
 let heldPosition: "bottom" | number | null = null;
 // Where the view was when last looked at — a scroll event or our own write —
@@ -307,6 +308,25 @@ function holdPosition(target: "bottom" | number) {
 
 function releaseHeldPosition() {
 	heldPosition = null;
+}
+
+/**
+ * The reader's wheel hands the view to them, but only from a hold on a waiting card's
+ * top (`endScrollTop` puts the end of the thread short of its bottom): a scroll down
+ * inside a tall card would otherwise leave the hold set, and the next resize of the
+ * thread would pull the view back to the card's top. A hold on the real bottom is not
+ * released by it, so a thread that is still settling, or a trackpad's momentum after a
+ * jump, keeps its hold. Passive: it only watches.
+ */
+function releaseCardTopHold() {
+	const container = scrollContainer;
+	if (!container || heldPosition !== "bottom") return;
+	if (
+		endScrollTop(container.scrollHeight) <
+		container.scrollHeight - container.clientHeight
+	) {
+		releaseHeldPosition();
+	}
 }
 
 $effect(() => {
@@ -369,6 +389,7 @@ $effect(() => {
 	// nothing interactive.
 	container.addEventListener("pointerdown", releaseHeldPosition);
 	container.addEventListener("keydown", releaseHeldPosition);
+	container.addEventListener("wheel", releaseCardTopHold, { passive: true });
 	// The reader's own move ends a glide where it is.
 	const readerTakesOver = () => stopGlide();
 	container.addEventListener("pointerdown", readerTakesOver);
@@ -380,6 +401,7 @@ $effect(() => {
 		observer.disconnect();
 		container.removeEventListener("pointerdown", releaseHeldPosition);
 		container.removeEventListener("keydown", releaseHeldPosition);
+		container.removeEventListener("wheel", releaseCardTopHold);
 		container.removeEventListener("pointerdown", readerTakesOver);
 		container.removeEventListener("keydown", readerTakesOver);
 		container.removeEventListener("wheel", readerTakesOver);
@@ -789,9 +811,10 @@ function stopGlide() {
 }
 
 /**
- * Moves the view to the latest content over `--duration-emphasis` on
- * `--ease-out`, aiming every frame at the live bottom (the card may still be
- * growing). The reader's own scroll, press or key ends it where it is.
+ * Moves the view to the end of the thread over `--duration-emphasis` on
+ * `--ease-out`, aiming every frame at where it is now (`endScrollTop`: the bottom, or
+ * the top of a waiting card that does not fit; the card may still be growing). The
+ * reader's own scroll, press or key ends it where it is.
  */
 function glideToBottom() {
 	const container = scrollContainer;
@@ -825,10 +848,11 @@ function glideToBottom() {
 }
 
 /**
- * Keeps the latest content in view while the reader follows a reply: a short
+ * Keeps the end of the thread in view while the reader follows a reply: a short
  * way is an instant follow, a long one (a card landing) glides, and under
  * reduced motion every follow is instant. A glide in flight already aims at
- * the live bottom, so a follow asked for meanwhile leaves it to finish.
+ * the end of the thread as it is (`endScrollTop`), so a follow asked for
+ * meanwhile leaves it to finish.
  */
 function followToBottom() {
 	const container = scrollContainer;

@@ -2623,6 +2623,92 @@ describe("MessageArea", () => {
 
 				expect(scrollContainer.scrollTop).toBe(THREAD.scrollHeight);
 			});
+
+			// A hold keeps the end of the thread in view while the thread settles; it ends
+			// when the reader takes over. On a card's top the reader's wheel is such a move
+			// (a scroll down inside a tall card used to leave the hold set, and the next
+			// resize pulled the view back to the card's top), but on the real bottom it is
+			// not: a thread still settling, or a trackpad's momentum after a jump, would lose
+			// its hold. Holding needs a ResizeObserver, which jsdom does not have: this one
+			// is stood in, and the test makes the thread resize by calling it.
+			describe("the reader's wheel on a held end", () => {
+				const resizeCallbacks: Array<() => void> = [];
+
+				beforeEach(() => {
+					resizeCallbacks.length = 0;
+					vi.stubGlobal(
+						"ResizeObserver",
+						class {
+							constructor(callback: ResizeObserverCallback) {
+								resizeCallbacks.push(() =>
+									callback([], this as unknown as ResizeObserver),
+								);
+							}
+							observe() {}
+							unobserve() {}
+							disconnect() {}
+						},
+					);
+				});
+
+				afterEach(() => {
+					vi.unstubAllGlobals();
+				});
+
+				const threadResizes = () => {
+					for (const callback of resizeCallbacks) callback();
+				};
+
+				it("holds the top of a card while the reader does not take over", async () => {
+					const { scrollContainer, button } = await threadWithCardAt(
+						800,
+						waiting,
+					);
+					await fireEvent.click(button);
+					expect(scrollContainer.scrollTop).toBe(
+						800 - THREAD_END_CARD_INSET_PX,
+					);
+
+					// The thread settles and the view has moved: the hold puts it back.
+					scrollContainer.scrollTop = 850;
+					threadResizes();
+
+					expect(scrollContainer.scrollTop).toBe(
+						800 - THREAD_END_CARD_INSET_PX,
+					);
+				});
+
+				it("hands the view to the reader when the wheel turns on a held card top", async () => {
+					const { scrollContainer, button } = await threadWithCardAt(
+						800,
+						waiting,
+					);
+					await fireEvent.click(button);
+
+					// The reader scrolls down inside the tall card.
+					scrollContainer.scrollTop = 850;
+					await fireEvent.wheel(scrollContainer, { deltaY: 120 });
+					threadResizes();
+
+					expect(scrollContainer.scrollTop).toBe(850);
+				});
+
+				it("keeps a hold on the real bottom through the wheel", async () => {
+					// The card fits: the end of the thread is its bottom.
+					const { scrollContainer, button } = await threadWithCardAt(
+						950,
+						waiting,
+					);
+					await fireEvent.click(button);
+					expect(scrollContainer.scrollTop).toBe(THREAD.scrollHeight);
+
+					scrollContainer.scrollTop = 1390;
+					await fireEvent.wheel(scrollContainer, { deltaY: 120 });
+					threadResizes();
+
+					expect(scrollContainer.scrollTop).toBe(THREAD.scrollHeight);
+				});
+			});
 		});
 	});
 

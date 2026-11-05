@@ -117,7 +117,7 @@ Alfy can stop a reply to ask 1 to 3 questions, and the same reply carries on bel
 ### The Thread's End
 
 - **The thread's end is a waiting card's top when the card does not fit.** `threadEndScrollTop` (`thread-end-target.ts`, pure) says where the view goes at the end of the thread, and `endScrollTop` (`MessageArea.svelte`) is the one place that asks (the jump to the latest message, the hold while the thread settles, the follow and its glide). When the last row draws a waiting card and the card with what follows it does not fit in the view, the end is the card's top, the question and the X just under the top edge; otherwise it is the bottom. (`thread-end-target.test.ts`; `MessageArea.test.ts`, "the end of the thread while a question waits"; `ask-me-first.spec.ts`, `expectTopmost` at 360 and 390 px.)
-- Known limit: the hold on the card's top releases only on a move up, a press or a key, so a desktop wheel scroll down inside a tall card leaves it set, and the next resize of the thread pulls the view back to the card's top.
+- The hold on the card's top releases on a move up, a press, a key, or a wheel (`releaseCardTopHold`, a passive listener), so a desktop scroll down inside a tall card is the reader's and a resize of the thread does not pull the view back. A hold on the real bottom ignores the wheel, so a thread still settling, or a trackpad's momentum after a jump, stays held. (`MessageArea.test.ts`, "the reader's wheel on a held end".)
 
 ### The Sidebar Mark
 
