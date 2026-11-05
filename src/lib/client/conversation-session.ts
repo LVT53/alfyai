@@ -143,6 +143,10 @@ export function readComposerMarks(
  * lines left is forgotten: `null` and an all-empty record both drop the entry. A
  * card that folds stores `null`; sign-out drops every card's lines
  * (`clearConversationSessionState`).
+ *
+ * Best effort: the card stores at every keystroke, and a storage that is full or
+ * that refuses writes (a private window, blocked site data) costs a reload's worth
+ * of kept words, never the typing, so a refusal is swallowed.
  */
 export function storeAskLineDrafts(
 	questionId: string,
@@ -152,10 +156,14 @@ export function storeAskLineDrafts(
 	if (!storage) return;
 	const key = `${ASK_LINE_DRAFT_PREFIX}${questionId}`;
 	const kept = Object.entries(drafts ?? {}).filter(([, text]) => text !== "");
-	if (kept.length > 0) {
-		storage.setItem(key, JSON.stringify(Object.fromEntries(kept)));
-	} else {
-		storage.removeItem(key);
+	try {
+		if (kept.length > 0) {
+			storage.setItem(key, JSON.stringify(Object.fromEntries(kept)));
+		} else {
+			storage.removeItem(key);
+		}
+	} catch {
+		// Nothing to do: the words are still in the card.
 	}
 }
 

@@ -1454,4 +1454,55 @@ describe("a question card's own lines across a reload", () => {
 		);
 		expect(readAskLineDrafts("q-mixed")).toEqual({ 0: "kept" });
 	});
+
+	// The card stores its lines at every keystroke. A storage that is full, or one the
+	// browser refuses writes to (a private window, blocked site data), must cost the
+	// person a reload's worth of kept words, and never the typing: the throw would
+	// reach the card's input handler.
+	describe("when the browser's storage refuses a write", () => {
+		afterEach(() => {
+			vi.restoreAllMocks();
+		});
+
+		it("keeps nothing and says nothing when it is full", () => {
+			vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+				throw new DOMException(
+					"The quota has been exceeded.",
+					"QuotaExceededError",
+				);
+			});
+
+			expect(() =>
+				storeAskLineDrafts("q-1", { 0: "A picnic by the lake" }),
+			).not.toThrow();
+			expect(readAskLineDrafts("q-1")).toEqual({});
+		});
+
+		it("keeps nothing and says nothing when it cannot remove either", () => {
+			storeAskLineDrafts("q-1", { 0: "Kept before" });
+			vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+				throw new DOMException("Access is denied.", "SecurityError");
+			});
+
+			expect(() => storeAskLineDrafts("q-1", null)).not.toThrow();
+			expect(() => storeAskLineDrafts("q-1", { 0: "" })).not.toThrow();
+		});
+
+		it("goes on keeping lines once the storage takes writes again", () => {
+			const failing = vi
+				.spyOn(Storage.prototype, "setItem")
+				.mockImplementation(() => {
+					throw new DOMException(
+						"The quota has been exceeded.",
+						"QuotaExceededError",
+					);
+				});
+			storeAskLineDrafts("q-1", { 0: "Lost" });
+			failing.mockRestore();
+
+			storeAskLineDrafts("q-1", { 0: "Kept" });
+
+			expect(readAskLineDrafts("q-1")).toEqual({ 0: "Kept" });
+		});
+	});
 });
