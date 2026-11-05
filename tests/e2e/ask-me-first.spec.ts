@@ -25,6 +25,7 @@ import {
 import { setLanguage } from "./chat-item-turn-helpers";
 import {
 	createEmptyConversation,
+	expectTopmost,
 	login,
 	sendMessage,
 	waitForHydration,
@@ -38,7 +39,6 @@ import {
 // reader does it: look at the card, press an answer, watch the reply go on.
 
 const DESKTOP = { width: 1440, height: 900 };
-const TALL = { width: 1440, height: 1300 };
 const PHONE = { width: 390, height: 844 };
 const SMALL_PHONE = { width: 360, height: 740 };
 
@@ -162,8 +162,32 @@ async function startAskTurn(
 	}
 }
 
-/** From now on, every animation frame, the top edge of the paragraph that starts with `text` (null while it is not there). */
-async function recordTopsOf(page: Page, text: string) {
+/**
+ * The top edge of `element` in the thread's content: where it is on the screen, less where
+ * the thread's view starts, plus how far the thread is scrolled. It runs in the page (it is
+ * handed to `evaluate`), so it names nothing outside itself.
+ */
+function topInThread(element: Element): number {
+	const view = element.closest(".scroll-container") as HTMLElement;
+	return (
+		element.getBoundingClientRect().top -
+		view.getBoundingClientRect().top +
+		view.scrollTop
+	);
+}
+
+/** `topInThread` of the element `locator` finds. */
+async function topInThreadOf(locator: Locator): Promise<number> {
+	return locator.evaluate(topInThread);
+}
+
+/**
+ * From now on, every animation frame, the top edge in the thread's content of the
+ * paragraph that starts with `text`; null in a frame where it is not there. The same
+ * measure as `topInThread`, written out because a function cannot be handed to a callback
+ * that runs in the page.
+ */
+async function recordTopsInThreadOf(page: Page, text: string) {
 	await page.evaluate((start) => {
 		const tops: Array<number | null> = [];
 		(window as unknown as { __tops: Array<number | null> }).__tops = tops;
@@ -171,7 +195,16 @@ async function recordTopsOf(page: Page, text: string) {
 			const paragraph = [
 				...document.querySelectorAll('[data-testid="assistant-message"] p'),
 			].find((candidate) => candidate.textContent?.startsWith(start));
-			tops.push(paragraph ? paragraph.getBoundingClientRect().top : null);
+			if (!paragraph) {
+				tops.push(null);
+			} else {
+				const view = paragraph.closest(".scroll-container") as HTMLElement;
+				tops.push(
+					paragraph.getBoundingClientRect().top -
+						view.getBoundingClientRect().top +
+						view.scrollTop,
+				);
+			}
 			requestAnimationFrame(tick);
 		};
 		requestAnimationFrame(tick);
@@ -184,6 +217,22 @@ async function readTops(page: Page): Promise<Array<number | null>> {
 	);
 }
 
+/**
+ * The chevron of a folded line, the sign that the line opens. Nothing but its class names
+ * it: the icon is decorative (`aria-hidden`, no test id). A count of 0 on a line that cannot
+ * be opened means something only next to a count of 1 on one that can: check both.
+ */
+function chevronOf(folded: Locator): Locator {
+	return folded.locator(".act-chevron");
+}
+
+/** How far the thread's view is from the bottom of the thread, in px. */
+function distanceFromBottom(page: Page): Promise<number> {
+	return page
+		.locator(".scroll-container")
+		.evaluate((view) => view.scrollHeight - view.scrollTop - view.clientHeight);
+}
+
 /** The card Alfy asked on: an article named for its question (or for the count of its questions). */
 function askCard(page: Page, name = "Alfy's question"): Locator {
 	return page.getByRole("article", { name });
@@ -193,6 +242,24 @@ function askCard(page: Page, name = "Alfy's question"): Locator {
 async function pressWhenAwake(control: Locator) {
 	await expect(control).toBeEnabled();
 	await control.click();
+}
+
+/** The model has carried the reply on with `words` (what the script says after an answer), in the last segment. */
+async function expectCarriedOn(page: Page, words: string) {
+	await expect(
+		page
+			.getByTestId("assistant-message")
+			.last()
+			.getByText(`${AI_SMOKE_ASK_AFTER_PREFIX}${words}`),
+	).toBeVisible({ timeout: 30_000 });
+}
+
+/** Waits for the reply to end: the stop button is gone and the composer takes words again. */
+async function expectReplyEnded(page: Page) {
+	await expect(page.getByTestId("stop-button")).toHaveCount(0, {
+		timeout: 30_000,
+	});
+	await expect(page.getByTestId("message-input")).toBeEnabled();
 }
 
 test.describe("Alfy asks first, and the answer carries the reply on", () => {
@@ -207,14 +274,6 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		const turn = await startAskTurn(page, fakeProvider.baseURL, mode, options);
 		restoreTurn = turn.restore;
 		return turn;
-	}
-
-	/** Waits for the reply to end: the stop button is gone and the composer takes words again. */
-	async function expectReplyEnded(page: Page) {
-		await expect(page.getByTestId("stop-button")).toHaveCount(0, {
-			timeout: 30_000,
-		});
-		await expect(page.getByTestId("message-input")).toBeEnabled();
 	}
 
 	test.beforeAll(async () => {
@@ -272,6 +331,10 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		// The words Alfy wrote before it asked are above the card, and the composer waits.
 		await expect(page.getByText(AI_SMOKE_ASK_INTRO)).toBeVisible();
 		await expect(page.getByTestId("message-input")).toBeDisabled();
+		// This card fits the window, so the thread rests at its bottom, as it always did:
+		// the end of the thread is the top of the card only when the card does not fit
+		// (the phone and Hungarian tests).
+		await expect.poll(() => distanceFromBottom(page)).toBeLessThan(2);
 
 		// The press (answers wake after 400 ms).
 		await pressWhenAwake(
@@ -283,13 +346,16 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await expect(folded).toContainText("Which way should we take it?");
 		await expect(folded).toContainText("A party at home");
 		await expect(card).toHaveCount(0);
+		// An answered line opens, and shows its chevron: the control for the closed line,
+		// which does neither (the X test).
+		await expect(folded.getByRole("button", { expanded: false })).toHaveCount(
+			1,
+		);
+		await expect(chevronOf(folded)).toHaveCount(1);
 
 		// The reply carries on below the line, as the same reply.
-		const carried = `${AI_SMOKE_ASK_AFTER_PREFIX}A party at home`;
 		const segments = page.getByTestId("assistant-message");
-		await expect(segments.last().getByText(carried)).toBeVisible({
-			timeout: 30_000,
-		});
+		await expectCarriedOn(page, "A party at home");
 		await expect(segments).toHaveCount(2);
 		await expect(segments.first()).toContainText(AI_SMOKE_ASK_INTRO);
 		await expect(segments.first().getByTestId("ask-folded")).toBeVisible();
@@ -300,9 +366,12 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			name: "Regenerate response",
 		});
 		await expect(regenerate).toHaveCount(1);
-		const carriedText = segments.last().getByText(carried);
+		const carriedText = segments
+			.last()
+			.getByText(`${AI_SMOKE_ASK_AFTER_PREFIX}A party at home`);
 		await waitForStableBoundingBox(carriedText);
 		await waitForStableBoundingBox(regenerate);
+		await waitForStableBoundingBox(folded.getByTestId("tool-activity-row"));
 		const carriedBox = await carriedText.boundingBox();
 		const regenerateBox = await regenerate.boundingBox();
 		expect(carriedBox && regenerateBox, "both are laid out").toBeTruthy();
@@ -312,15 +381,19 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		// one reply: about 16 to 18 px, the two paddings of the rows (the paddings and the
 		// gap between rows would have left 58). The last thing is its folded line, or the
 		// Sources row under it: a turn with evidence draws that row below the line
-		// (Ruling 25), and the e2e user's turns all have some.
-		await waitForStableBoundingBox(folded.getByTestId("tool-activity-row"));
-		const askingEnd = await segments
-			.first()
-			.evaluate(
-				(body) => body.lastElementChild?.getBoundingClientRect().bottom,
+		// (Ruling 25), and the e2e user's turns all have some. Both edges are read in one
+		// go, after the waits above, so that no layout change can fall between the reads.
+		const { carriedTop, askingEnd } = await carriedText.evaluate((words) => {
+			const [asking] = document.querySelectorAll(
+				'[data-testid="assistant-message"]',
 			);
+			return {
+				carriedTop: words.getBoundingClientRect().top,
+				askingEnd: asking?.lastElementChild?.getBoundingClientRect().bottom,
+			};
+		});
 		expect(askingEnd, "the asking segment draws something last").toBeTruthy();
-		const gap = (carriedBox?.y ?? 0) - (askingEnd ?? 0);
+		const gap = carriedTop - (askingEnd ?? 0);
 		expect(
 			gap,
 			"px between the asking segment and the words that carry on",
@@ -364,12 +437,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await pressWhenAwake(
 			card.getByRole("button", { name: "A party at home, recommended" }),
 		);
-		await expect(
-			page
-				.getByTestId("assistant-message")
-				.last()
-				.getByText(`${AI_SMOKE_ASK_AFTER_PREFIX}A party at home`),
-		).toBeVisible({ timeout: 30_000 });
+		await expectCarriedOn(page, "A party at home");
 		await expectReplyEnded(page);
 
 		// Create, read, ask, and the resume: four chat requests. The resume holds the read
@@ -422,12 +490,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 
 		await expect(page.getByTestId("ask-folded")).toContainText(`“${words}”`);
 		await expect(card).toHaveCount(0);
-		await expect(
-			page
-				.getByTestId("assistant-message")
-				.last()
-				.getByText(`${AI_SMOKE_ASK_AFTER_PREFIX}${words}`),
-		).toBeVisible({ timeout: 30_000 });
+		await expectCarriedOn(page, words);
 		await expectReplyEnded(page);
 		// What was typed went to the card and nowhere else.
 		await expect(page.getByTestId("message-input")).toHaveValue("");
@@ -451,12 +514,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await expect(folded).toContainText("A party at home");
 		await expect(folded).toContainText("· left to Alfy");
 		await expect(card).toHaveCount(0);
-		await expect(
-			page
-				.getByTestId("assistant-message")
-				.last()
-				.getByText(`${AI_SMOKE_ASK_AFTER_PREFIX}left to me`),
-		).toBeVisible({ timeout: 30_000 });
+		await expectCarriedOn(page, "left to me");
 		await expectReplyEnded(page);
 		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
 		expect(
@@ -482,20 +540,16 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			card.getByRole("button", { name: "Close the question" }),
 		);
 
-		// A closed question has nothing to open: a muted X, "closed", and no chevron.
+		// A closed question has nothing to open: a muted X, "closed", and no chevron (an
+		// answered line has one, as the first test checks).
 		const folded = page.getByTestId("ask-folded");
 		await expect(folded).toContainText("Which way should we take it?");
 		await expect(folded).toContainText("· closed");
 		await expect(card).toHaveCount(0);
 		await expect(folded.getByRole("button")).toHaveCount(0);
-		await expect(folded.locator(".act-chevron")).toHaveCount(0);
+		await expect(chevronOf(folded)).toHaveCount(0);
 
-		await expect(
-			page
-				.getByTestId("assistant-message")
-				.last()
-				.getByText(`${AI_SMOKE_ASK_AFTER_PREFIX}closed`),
-		).toBeVisible({ timeout: 30_000 });
+		await expectCarriedOn(page, "closed");
 		await expectReplyEnded(page);
 		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
 		const closed = answerTo(
@@ -548,12 +602,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			`“${ownWords}”`,
 		]);
 
-		await expect(
-			page
-				.getByTestId("assistant-message")
-				.last()
-				.getByText(`${AI_SMOKE_ASK_AFTER_PREFIX}Adults, Kids; ${ownWords}`),
-		).toBeVisible({ timeout: 30_000 });
+		await expectCarriedOn(page, `Adults, Kids; ${ownWords}`);
 		await expectReplyEnded(page);
 		await expect.poll(() => chatRequests(fakeProvider).length).toBe(2);
 		expect(
@@ -598,12 +647,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 				name: "In the garden, with a tent, recommended",
 			}),
 		);
-		await expect(
-			page
-				.getByTestId("assistant-message")
-				.last()
-				.getByText(`${AI_SMOKE_ASK_AFTER_PREFIX}In the garden, with a tent`),
-		).toBeVisible({ timeout: 30_000 });
+		await expectCarriedOn(page, "In the garden, with a tent");
 		await expectReplyEnded(page);
 
 		// Two folded lines, no card left, and one reply: one message of the person, one action row.
@@ -645,41 +689,40 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 	test("the words above the card do not move when it folds or when the reply carries on", async ({
 		page,
 	}) => {
-		// A window where the whole turn fits. The thread follows its end: in a window where
-		// the card does not fit it scrolls to show the card (the words go up) and scrolls
-		// back when the card folds (they come down). That is the scroll, not something
-		// inserted above the words, which is what F16 holds.
-		await startTurn(page, "one", { viewport: TALL });
+		// The words are measured in the thread's content, not on the screen. The view moves:
+		// at 1440 x 900 the thread follows its end to show the waiting card (the words go up
+		// on the screen), and when the card folds into its line the thread is shorter below
+		// the view and the browser pulls the view back (they come down, 139 px in this
+		// window). That is the scroll, a known item for the owner and not something this
+		// spec builds away. What F16 holds is that nothing is inserted above the words, and
+		// that is their place in the thread's content.
+		await startTurn(page, "one");
 		const card = askCard(page);
 		await expect(card).toBeVisible({ timeout: 30_000 });
 		const intro = page.getByText(AI_SMOKE_ASK_INTRO);
 		await waitForStableBoundingBox(intro);
-		const before = await intro.boundingBox();
-		expect(before, "the words above the card are laid out").toBeTruthy();
+		const before = await topInThreadOf(intro);
 
 		// From here to the end of the reply, every frame.
-		await recordTopsOf(page, AI_SMOKE_ASK_INTRO);
+		await recordTopsInThreadOf(page, AI_SMOKE_ASK_INTRO);
 		await pressWhenAwake(
 			card.getByRole("button", { name: "A party at home, recommended" }),
 		);
-		await expect(
-			page
-				.getByTestId("assistant-message")
-				.last()
-				.getByText(`${AI_SMOKE_ASK_AFTER_PREFIX}A party at home`),
-		).toBeVisible({ timeout: 30_000 });
+		await expectCarriedOn(page, "A party at home");
 		await expectReplyEnded(page);
 		await waitForStableBoundingBox(intro);
-		const after = await intro.boundingBox();
+		const after = await topInThreadOf(intro);
 
 		expect(
-			Math.abs((after?.y ?? 0) - (before?.y ?? 0)),
-			"px the top edge of the words above the card moved",
+			Math.abs(after - before),
+			"px the words above the card moved in the thread's content",
 		).toBeLessThanOrEqual(1);
-		const tops = (await readTops(page)).filter((top) => top !== null);
+		const tops = (await readTops(page)).filter(
+			(top): top is number => top !== null,
+		);
 		expect(tops.length, "frames recorded").toBeGreaterThan(0);
 		expect(
-			Math.max(...tops.map((top) => Math.abs(top - (before?.y ?? 0)))),
+			Math.max(...tops.map((top) => Math.abs(top - before))),
 			"px the words moved in the worst frame",
 		).toBeLessThanOrEqual(1);
 	});
@@ -692,11 +735,35 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await expect(card).toBeVisible({ timeout: 30_000 });
 		await expect(card.getByTestId("ask-up-to-you")).toBeEnabled();
 
+		// The thread opens the card at its question: the question and the X are in view,
+		// and not under the app header.
+		const question = card.getByText("Which way should we take it?");
+		const closeX = card.getByRole("button", { name: "Close the question" });
+		await waitForStableBoundingBox(question);
+		await waitForStableBoundingBox(closeX);
+		await expectTopmost(question, {
+			message: "the question is in view, not under the app header",
+		});
+		await expectTopmost(closeX, {
+			message: "the X is in view, not under the app header",
+		});
+
+		// Each answer is a row of its own, as wide as the card's body inside its padding
+		// (the question's block fills it) and at least 44 px high.
 		const options = card.getByTestId("ask-option");
 		await expect(options).toHaveCount(3);
+		const block = card.getByTestId("ask-question");
+		await waitForStableBoundingBox(block);
+		const bodyWidth = (await block.boundingBox())?.width ?? 0;
+		expect(bodyWidth, "the card's body is laid out").toBeGreaterThan(0);
 		for (const row of await options.all()) {
 			await waitForStableBoundingBox(row);
-			expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+			const box = await row.boundingBox();
+			expect(box?.height).toBeGreaterThanOrEqual(44);
+			expect(
+				Math.abs((box?.width ?? 0) - bodyWidth),
+				"px between an answer's width and the card body's inner width",
+			).toBeLessThanOrEqual(1);
 		}
 		const own = card.getByTestId("ask-own-row");
 		await waitForStableBoundingBox(own);
@@ -704,9 +771,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		const upToYou = card.getByTestId("ask-up-to-you");
 		await waitForStableBoundingBox(upToYou);
 		expect((await upToYou.boundingBox())?.height).toBeGreaterThanOrEqual(44);
-		const close = card.getByRole("button", { name: "Close the question" });
-		await waitForStableBoundingBox(close);
-		const closeBox = await close.boundingBox();
+		const closeBox = await closeX.boundingBox();
 		expect(closeBox?.width).toBeGreaterThanOrEqual(44);
 		expect(closeBox?.height).toBeGreaterThanOrEqual(44);
 
@@ -740,6 +805,19 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await expect(card.getByText("Recommended")).toHaveCount(0);
 		await expect(card.getByText("Up to you")).toHaveCount(0);
 
+		// The thread opens the card at its question: the question (the model's own words,
+		// in English) and the X are in view, and not under the app header.
+		const question = card.getByText("Which way should we take it?");
+		const closeX = card.getByRole("button", { name: "Kérdés bezárása" });
+		await waitForStableBoundingBox(question);
+		await waitForStableBoundingBox(closeX);
+		await expectTopmost(question, {
+			message: "the question is in view, not under the app header",
+		});
+		await expectTopmost(closeX, {
+			message: "the X is in view, not under the app header",
+		});
+
 		// And nothing runs out of its row at 360 px: no answer, no way out, no card.
 		await waitForStableBoundingBox(card);
 		const cardBox = await card.boundingBox();
@@ -753,16 +831,22 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 					'[data-testid="ask-option"], [data-testid="ask-own-row"], [data-testid="ask-up-to-you"], [data-testid="ask-close"]',
 				),
 			];
+			const named = (element: Element) => element.getAttribute("data-testid");
 			return {
 				count: elements.length,
 				overflowing: elements
 					.filter((element) => element.scrollWidth > element.clientWidth)
-					.map((element) => element.getAttribute("data-testid")),
+					.map(named),
+				// A zero-width element has nothing to overflow, and would pass.
+				unmeasured: elements
+					.filter((element) => element.clientWidth === 0)
+					.map(named),
 			};
 		});
 		// Three answers, the own-line row, Up to you and the X: a test id that no longer
 		// matches must not leave an empty list to pass.
 		expect(measured.count, "the elements measured").toBe(6);
+		expect(measured.unmeasured, "the elements with no width").toEqual([]);
 		expect(measured.overflowing, "the elements wider than their box").toEqual(
 			[],
 		);

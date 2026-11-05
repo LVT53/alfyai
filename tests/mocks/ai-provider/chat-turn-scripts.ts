@@ -395,11 +395,13 @@ function askTurnReply(body: unknown, mode: AskTurnMode): ScriptedChatTurnReply {
 		answered === AI_SMOKE_ASK_CALL_ID ||
 		answered === AI_SMOKE_ASK_SECOND_CALL_ID
 	) {
-		// The sentence ends with a full stop, as a reply does. The server's stream runtime
-		// holds back a tail that could begin a leaked tool narration (its lists have
-		// "megnézem", "keresek", "let me ..."), and drops what it still holds when the
-		// reply ends: a text ending in "home" or "lake" came out as "ho" and "la", whatever
-		// the turn. That is not this feature's, so the script keeps clear of it.
+		// The sentence ends with a full stop, as a reply does, because of a bug that is not
+		// this feature's and waits for a session of its own, "Fix replies that lose their
+		// last letters": the end-of-reply flush in `chat-turn/stream.ts`
+		// (`flushVisibleTokenBuffer`, from 6f2f101bd, long before this branch) drops the tail
+		// it holds back when that tail could begin a leaked tool narration (its lists have
+		// "megnézem", "keresek", "let me ..."), so a reply ending in "home" or "lake" comes
+		// out as "ho" and "la", in any turn. Nothing here reads the full stop; it stays.
 		return {
 			frames: textFrames(
 				"ask_after",
