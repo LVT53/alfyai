@@ -5,8 +5,9 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { ConnectionPublic } from "$lib/client/api/connections";
+import { ApiError } from "$lib/client/api/http";
 import ConnectionDetailModal from "./ConnectionDetailModal.svelte";
 
 // Redesign R9 — the modal fetches Nextcloud folder suggestions itself (same
@@ -441,6 +442,224 @@ describe("ConnectionDetailModal", () => {
 
 	// Disconnect used to be an unlabelled plug glyph in the header, and its
 	// confirmation said nothing about what would be lost.
+	// Immich writes with a key of their own: the read key from connecting can
+	// never write, so "Let Alfy write" has to make a second one, and Immich only
+	// makes it for a signed-in person. The switch therefore asks for the Immich
+	// password once instead of flipping.
+	describe("Immich: Let Alfy write needs a key of its own", () => {
+		type EnableKey = (id: string, password: string) => Promise<void>;
+
+		function immichProps(
+			overrides: Partial<ConnectionPublic> = {},
+			extra: Record<string, unknown> = {},
+		) {
+			return baseProps({
+				connection: makeConnection({
+					id: "conn-immich",
+					provider: "immich",
+					label: "Immich",
+					accountIdentifier: "me@example.com",
+					capabilities: ["photos"],
+					grantedCapabilities: ["photos"],
+					hasWriteSecret: false,
+					...overrides,
+				}),
+				onEnableImmichWrites: vi.fn<EnableKey>().mockResolvedValue(undefined),
+				...extra,
+			}) as ReturnType<typeof baseProps> & {
+				onEnableImmichWrites: Mock<EnableKey>;
+			};
+		}
+
+		const writesSwitch = () =>
+			screen.getByRole("switch", { name: "Let Alfy write" });
+
+		async function typePasswordAndTurnOn(password = "hunter2") {
+			await fireEvent.input(screen.getByLabelText("Password"), {
+				target: { value: password },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
+		}
+
+		it("asks for the Immich password instead of switching writes on", async () => {
+			const props = immichProps();
+			render(ConnectionDetailModal, props);
+
+			await fireEvent.click(writesSwitch());
+
+			expect(props.onToggleAllowWrites).not.toHaveBeenCalled();
+			const form = screen.getByTestId("immich-write-key");
+			expect(within(form).getByLabelText("Password")).toBeInTheDocument();
+			expect(
+				within(form).getByText(/second key that is allowed to write/),
+			).toBeInTheDocument();
+			// Nothing to send until a password is typed.
+			expect(
+				within(form).getByRole("button", { name: "Turn on" }),
+			).toBeDisabled();
+		});
+
+		it("makes the key from the password, then turns writes on", async () => {
+			const props = immichProps();
+			render(ConnectionDetailModal, props);
+
+			await fireEvent.click(writesSwitch());
+			await typePasswordAndTurnOn("hunter2");
+
+			await waitFor(() =>
+				expect(props.onToggleAllowWrites).toHaveBeenCalledWith(
+					"conn-immich",
+					true,
+				),
+			);
+			expect(props.onEnableImmichWrites).toHaveBeenCalledWith(
+				"conn-immich",
+				"hunter2",
+			);
+			expect(
+				props.onEnableImmichWrites.mock.invocationCallOrder[0],
+			).toBeLessThan(props.onToggleAllowWrites.mock.invocationCallOrder[0]);
+			// The password does not stay on screen.
+			expect(screen.queryByTestId("immich-write-key")).not.toBeInTheDocument();
+		});
+
+		it("says the password did not work, and keeps writes off", async () => {
+			const props = immichProps(
+				{},
+				{
+					onEnableImmichWrites: vi
+						.fn()
+						.mockRejectedValue(
+							new ApiError("Invalid Immich credentials", { status: 401 }),
+						),
+				},
+			);
+			render(ConnectionDetailModal, props);
+
+			await fireEvent.click(writesSwitch());
+			await typePasswordAndTurnOn("wrong");
+
+			const form = screen.getByTestId("immich-write-key");
+			expect(await within(form).findByRole("alert")).toHaveTextContent(
+				"That password didn't work",
+			);
+			expect(props.onToggleAllowWrites).not.toHaveBeenCalled();
+			// Still there to try again.
+			expect(
+				within(form).getByRole("button", { name: "Turn on" }),
+			).toBeEnabled();
+		});
+
+		it("says plainly when the key could not be made for another reason", async () => {
+			const props = immichProps(
+				{},
+				{
+					onEnableImmichWrites: vi.fn().mockRejectedValue(
+						new ApiError("Could not reach the Immich server", {
+							status: 502,
+						}),
+					),
+				},
+			);
+			render(ConnectionDetailModal, props);
+
+			await fireEvent.click(writesSwitch());
+			await typePasswordAndTurnOn();
+
+			expect(
+				await within(screen.getByTestId("immich-write-key")).findByRole(
+					"alert",
+				),
+			).toHaveTextContent("Couldn't create the key");
+			expect(props.onToggleAllowWrites).not.toHaveBeenCalled();
+		});
+
+		it("closes the form and leaves writes off when it is cancelled", async () => {
+			const props = immichProps();
+			render(ConnectionDetailModal, props);
+
+			await fireEvent.click(writesSwitch());
+			await fireEvent.click(
+				within(screen.getByTestId("immich-write-key")).getByRole("button", {
+					name: "Cancel",
+				}),
+			);
+
+			expect(screen.queryByTestId("immich-write-key")).not.toBeInTheDocument();
+			expect(props.onEnableImmichWrites).not.toHaveBeenCalled();
+			expect(props.onToggleAllowWrites).not.toHaveBeenCalled();
+			expect(writesSwitch()).toHaveAttribute("aria-checked", "false");
+		});
+
+		it("shows the switch as on while the password is being asked for", async () => {
+			render(ConnectionDetailModal, immichProps());
+
+			await fireEvent.click(writesSwitch());
+
+			expect(writesSwitch()).toHaveAttribute("aria-checked", "true");
+		});
+
+		it("switches like any other once the connection has its write key", async () => {
+			const props = immichProps({ hasWriteSecret: true });
+			render(ConnectionDetailModal, props);
+
+			await fireEvent.click(writesSwitch());
+
+			expect(props.onToggleAllowWrites).toHaveBeenCalledWith(
+				"conn-immich",
+				true,
+			);
+			expect(screen.queryByTestId("immich-write-key")).not.toBeInTheDocument();
+		});
+
+		it("switches writes off without asking for anything", async () => {
+			const props = immichProps({ hasWriteSecret: true, allowWrites: true });
+			render(ConnectionDetailModal, props);
+
+			await fireEvent.click(writesSwitch());
+
+			expect(props.onToggleAllowWrites).toHaveBeenCalledWith(
+				"conn-immich",
+				false,
+			);
+		});
+
+		it("asks for the key at once when writes were switched on before there was one", async () => {
+			const props = immichProps({ allowWrites: true, hasWriteSecret: false });
+			render(ConnectionDetailModal, props);
+
+			expect(screen.getByTestId("immich-write-key")).toBeInTheDocument();
+
+			await typePasswordAndTurnOn();
+
+			await waitFor(() =>
+				expect(props.onEnableImmichWrites).toHaveBeenCalledWith(
+					"conn-immich",
+					"hunter2",
+				),
+			);
+			// Writes were already on; only the key was missing.
+			expect(props.onToggleAllowWrites).not.toHaveBeenCalled();
+		});
+
+		it("asks nothing of a provider that needs no key", async () => {
+			const props = immichProps({
+				provider: "nextcloud",
+				capabilities: ["files"],
+				grantedCapabilities: ["files"],
+			});
+			render(ConnectionDetailModal, props);
+
+			await fireEvent.click(writesSwitch());
+
+			expect(props.onToggleAllowWrites).toHaveBeenCalledWith(
+				"conn-immich",
+				true,
+			);
+			expect(screen.queryByTestId("immich-write-key")).not.toBeInTheDocument();
+		});
+	});
+
 	describe("disconnect", () => {
 		it("is a labelled danger button naming the provider", () => {
 			render(ConnectionDetailModal, baseProps());

@@ -256,6 +256,86 @@ test.describe("settings connections tab", () => {
 		).toBeVisible();
 	});
 
+	// "Let Alfy write" on an Immich account needs a write key of its own, which
+	// Immich only makes for a signed-in person. The switch therefore asks for the
+	// password once, makes the key, and only then turns writes on.
+	test("Immich: Let Alfy write asks for the password once, makes the key, then turns writes on", async ({
+		page,
+	}) => {
+		await login(page);
+		const immich = connection({
+			id: "conn-immich",
+			provider: "immich",
+			label: "Immich",
+			accountIdentifier: "me@example.com",
+			capabilities: ["photos"],
+			grantedCapabilities: ["photos"],
+			config: { origin: "https://photos.example.com" },
+		});
+		await stubConnections(page, [immich]);
+
+		const calls: { call: string; body: unknown }[] = [];
+		await page.route(
+			"**/api/connections/immich/enable-writes",
+			async (route) => {
+				calls.push({
+					call: "make the write key",
+					body: route.request().postDataJSON(),
+				});
+				await route.fulfill({
+					status: 200,
+					contentType: "application/json",
+					body: JSON.stringify({
+						connection: { ...immich, hasWriteSecret: true },
+					}),
+				});
+			},
+		);
+		await page.route("**/api/connections/conn-immich", async (route) => {
+			if (route.request().method() !== "PATCH") {
+				await route.fallback();
+				return;
+			}
+			calls.push({
+				call: "turn writes on",
+				body: route.request().postDataJSON(),
+			});
+			await route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					...immich,
+					hasWriteSecret: true,
+					allowWrites: true,
+				}),
+			});
+		});
+
+		await openConnectionsTab(page);
+		await page.getByTestId("connection-details-conn-immich").click();
+		const dialog = page.getByTestId("connection-detail-conn-immich");
+		const writesSwitch = dialog.getByRole("switch", { name: "Let Alfy write" });
+
+		await writesSwitch.click();
+		const form = dialog.getByTestId("immich-write-key");
+		await expect(form).toBeVisible();
+		// Nothing has been sent: the switch only asked.
+		expect(calls).toEqual([]);
+
+		await form.getByLabel("Password", { exact: true }).fill("hunter2");
+		await form.getByRole("button", { name: "Turn on" }).click();
+
+		await expect(form).toHaveCount(0);
+		await expect(writesSwitch).toHaveAttribute("aria-checked", "true");
+		expect(calls).toEqual([
+			{
+				call: "make the write key",
+				body: { connectionId: "conn-immich", password: "hunter2" },
+			},
+			{ call: "turn writes on", body: { allowWrites: true } },
+		]);
+	});
+
 	test.describe("the connect wizard", () => {
 		test.beforeEach(async ({ page }) => {
 			await login(page);

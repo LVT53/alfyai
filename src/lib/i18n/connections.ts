@@ -459,6 +459,13 @@ const connectionsDict = {
 			"Off by default. Every change still needs your OK first.",
 		"connections.detail.letAlfyWriteHelp":
 			"Writing is off by default. When on, Alfy can change this account only after you confirm each change.",
+		"connections.detail.immichWriteKey.intro":
+			"To add photos to an “AlfyAI” album, Immich needs a second key that is allowed to write. Enter your Immich password once and Alfy makes it. The password is not stored.",
+		"connections.detail.immichWriteKey.turnOn": "Turn on",
+		"connections.detail.immichWriteKey.wrongPassword":
+			"That password didn't work. Check it and try again.",
+		"connections.detail.immichWriteKey.failed":
+			"Couldn't create the key. Check that Immich is reachable, then try again.",
 		"connections.detail.writeConfirmNote":
 			"Every change is confirmed individually before it happens.",
 		"connections.detail.writeConfirmNoteCalendar":
@@ -1052,6 +1059,13 @@ const connectionsDict = {
 			"Alapból kikapcsolva. Minden változtatáshoz akkor is kell a jóváhagyásod.",
 		"connections.detail.letAlfyWriteHelp":
 			"Az írás alapból ki van kapcsolva. Ha bekapcsolod, az Alfy csak azután módosíthatja ezt a fiókot, hogy minden egyes változtatást jóváhagytál.",
+		"connections.detail.immichWriteKey.intro":
+			"Hogy az Alfy fotókat tehessen az „AlfyAI” albumba, az Immichnek külön, írásra jogosult kulcs kell. Add meg egyszer az Immich-jelszavadat, és az Alfy létrehozza. A jelszót nem tároljuk.",
+		"connections.detail.immichWriteKey.turnOn": "Bekapcsolás",
+		"connections.detail.immichWriteKey.wrongPassword":
+			"Nem jó a jelszó. Ellenőrizd, és próbáld újra.",
+		"connections.detail.immichWriteKey.failed":
+			"Nem sikerült létrehozni a kulcsot. Nézd meg, elérhető-e az Immich, és próbáld újra.",
 		"connections.detail.writeConfirmNote":
 			"Minden változtatást egyenként hagysz jóvá, mielőtt megtörténik.",
 		"connections.detail.writeConfirmNoteCalendar":
