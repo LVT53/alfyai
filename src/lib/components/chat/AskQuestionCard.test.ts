@@ -829,7 +829,42 @@ describe("AskQuestionCard", () => {
 						return inner;
 					},
 				],
-			])("takes nothing while %s has focus", async (_name, make) => {
+				// An ARIA widget that takes typing: a menu's type-ahead, a combobox's
+				// filter, a custom text box. None is a native field, so the list above
+				// does not cover them.
+				...(
+					[
+						"combobox",
+						"listbox",
+						"menu",
+						"menubar",
+						"textbox",
+						"searchbox",
+					] as const
+				).map((role): [string, () => HTMLElement] => [
+					`a ${role} (an ARIA widget that takes typing)`,
+					() => placeElsewhere("div", { role, tabindex: "0" }),
+				]),
+				...(
+					[
+						["an option inside a listbox", "listbox", "option"],
+						["a menu item inside a menu", "menu", "menuitem"],
+						["a menu item inside a menubar", "menubar", "menuitem"],
+					] as const
+				).map(([name, container, role]): [string, () => HTMLElement] => [
+					name,
+					() => {
+						const widget = placeElsewhere("div", { role: container });
+						const inner = document.createElement("div");
+						inner.setAttribute("role", role);
+						inner.tabIndex = 0;
+						widget.appendChild(inner);
+						return inner;
+					},
+				]),
+			] satisfies Array<
+				[string, () => HTMLElement]
+			>)("takes nothing while %s has focus", async (_name, make) => {
 				const { onAnswer } = await renderCard(dto([WAY]));
 				const elsewhere = make();
 				elsewhere.focus();

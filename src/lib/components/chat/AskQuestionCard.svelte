@@ -58,10 +58,26 @@ let {
 const READ_BEFORE_ANSWER_MS = 400;
 
 // A key goes into the card's line only when nothing else is in use: no field with the
-// focus (the search modal, a Document in the side panel, another question's line) and no
-// dialog.
-const BUSY_ELSEWHERE =
-	'input, textarea, select, [contenteditable]:not([contenteditable="false"]), dialog, [role="dialog"], [role="alertdialog"], [aria-modal="true"]';
+// focus (the search modal, a Document in the side panel, another question's line), no
+// dialog, and no ARIA widget that takes typing (a menu's or a listbox's type-ahead, a
+// combobox's filter, a custom text box: none is a native field, and the card would take
+// the letter out of their hands).
+const BUSY_ELSEWHERE = [
+	"input",
+	"textarea",
+	"select",
+	'[contenteditable]:not([contenteditable="false"])',
+	"dialog",
+	'[role="dialog"]',
+	'[role="alertdialog"]',
+	'[aria-modal="true"]',
+	'[role="combobox"]',
+	'[role="listbox"]',
+	'[role="menu"]',
+	'[role="menubar"]',
+	'[role="textbox"]',
+	'[role="searchbox"]',
+].join(", ");
 
 const uid = $props.id();
 
