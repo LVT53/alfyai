@@ -8390,7 +8390,16 @@ describe("Normal Chat Client Turn Runtime", () => {
 			expect(placeholder).not.toHaveProperty("continuesMessageId");
 		});
 
-		it("does nothing for an answer while a turn runs or an edit's resend is pending, and clears detached when it starts", async () => {
+		it("sends nothing for an answer while a turn runs or an edit's resend is pending, tells the page it was not sent, and clears detached when it starts", async () => {
+			// The page raised its card to busy before it handed the answer over, and its own
+			// checks passed; a runtime that turns the answer away must say so, quietly
+			// (nothing failed), or the card stays busy until a reload.
+			const notSent: AskRuntimeEvent = {
+				type: "answerNotSent",
+				questionId: "q-1",
+				quiet: true,
+			};
+
 			// A turn runs.
 			const running = onTheClock();
 			const busy = createNormalChatClientTurnRuntime(running.adapters);
@@ -8400,6 +8409,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			expect(
 				running.messageListEvents.appendAssistantPlaceholder,
 			).toHaveBeenCalledTimes(1);
+			expect(reported(running.onAskEvent)).toEqual([notSent]);
 
 			// The chat is sealed, an edit is open, or an edit's resend is on its way.
 			for (const guard of [
@@ -8415,6 +8425,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 					held.messageListEvents.appendAssistantPlaceholder,
 				).not.toHaveBeenCalled();
 				expect(idle.snapshot()).toMatchObject({ isSending: false });
+				expect(reported(held.onAskEvent)).toEqual([notSent]);
 			}
 
 			// A page that was left is back when it answers: what a backoff scheduled by

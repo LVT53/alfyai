@@ -182,9 +182,10 @@ export type NormalChatMessageListEvent =
  *   it was refused, its request died, the waits ran out, or the resume's stream
  *   could not be found after a drop. It can follow `answerAccepted` (a resume that
  *   began and was then lost): the page then reads the questions and the chat to
- *   learn whether the resume finished. `quiet` is for a Stop, and for a tab the
- *   browser cut off whose resume the recovery did not find: neither is a failure,
- *   so no error line.
+ *   learn whether the resume finished. `quiet` is for a Stop, for a tab the
+ *   browser cut off whose resume the recovery did not find, and for an answer the
+ *   runtime turned away at once (a turn it still runs, an edit, a sealed chat, where
+ *   its checks and the page's disagreed): none is a failure, so no error line.
  * - `alreadyAnswered`: another answer won the claim (a second device, a double tap).
  * - `refusedWhileWaiting`: a message, a Retry or a regenerate was turned away
  *   because a question waits; the page was stale and reads the questions and the
@@ -2989,6 +2990,16 @@ export function createNormalChatClientTurnRuntime(
 			isSending ||
 			adapters.isEditResendPending()
 		) {
+			// The page raised its card to busy before it handed the answer over, and its
+			// own checks passed. A runtime that turns the answer away (a turn it has not
+			// let go of, an edit, a sealed chat: the two can disagree for a moment) says
+			// so, or the card stays busy until a reload. Quiet: nothing failed, and
+			// nothing was sent, so there is no error line.
+			adapters.onAskEvent?.({
+				type: "answerNotSent",
+				questionId: p.questionId,
+				quiet: true,
+			});
 			return;
 		}
 		detached = false;
