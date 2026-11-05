@@ -14,6 +14,7 @@ import {
 	type HistoryToolDigest,
 	isHistoryToolDigest,
 } from "./conversation-history";
+import { normalizeVisibleAssistantText } from "./thinking-normalizer";
 
 /**
  * What a resume needs of a reply that paused on `ask_user` ("Ask me first",
@@ -292,6 +293,12 @@ function isExactDigest(value: unknown): value is HistoryToolDigest {
  *   results), else of any such row that is not a summary.
  * - No row has its id and tool: it is sent as a note that its details stay on the
  *   person's device. The gate fails closed.
+ * The same attempts are not sent what the segment thought either. A local model's
+ * thinking can quote the mail, the file or the photo it read, and the capture keeps
+ * it (the SDK's reasoning parts, and thinking a provider left in the text), where a
+ * stored reply's history never replays any: so the assistant messages lose their
+ * reasoning parts and the thinking in their text (`withoutThinking`), and a part or
+ * a message left empty goes.
  * Everything else stays as captured: a local attempt, a person who does not keep
  * connector data local, and any result that is not a connector's. Decided for each
  * attempt with that attempt's provider, never once for the run.
@@ -321,10 +328,14 @@ export function gateCapturedConnectorResults(p: {
 			counts: countResultsToPlace(messages),
 			nth: new Map<string, number>(),
 		};
-		const gated = messages.map((message) => gateMessage(message, state));
-		return gated.some((message, index) => message !== messages[index])
-			? gated
-			: messages;
+		let changed = false;
+		const gated: ModelMessage[] = [];
+		for (const message of messages) {
+			const sent = gateMessage(message, state);
+			if (sent !== message) changed = true;
+			if (sent !== null) gated.push(sent);
+		}
+		return changed ? gated : messages;
 	};
 }
 
@@ -365,7 +376,15 @@ function countResultsToPlace(
 	return counts;
 }
 
-function gateMessage(message: ModelMessage, state: GateState): ModelMessage {
+/**
+ * What an attempt is sent of one message: the message itself when the gate leaves
+ * it, a new one when it changes it, and null when nothing of it is left to send.
+ */
+function gateMessage(
+	message: ModelMessage,
+	state: GateState,
+): ModelMessage | null {
+	if (message.role === "assistant") return withoutThinking(message);
 	if (message.role !== "tool") return message;
 	let changed = false;
 	const content = message.content.map(
@@ -380,6 +399,44 @@ function gateMessage(message: ModelMessage, state: GateState): ModelMessage {
 		},
 	);
 	return changed ? { ...message, content } : message;
+}
+
+type AssistantMessage = Extract<ModelMessage, { role: "assistant" }>;
+type AssistantPart = Exclude<AssistantMessage["content"], string>[number];
+
+/**
+ * An assistant message without its thinking: the reasoning parts gone, and the
+ * thinking a provider left in a text part cut out of it (`normalizeVisibleAssistantText`,
+ * the one stripper the stored reply's text goes through). The message itself when
+ * it holds none, a new one when it does, and null when nothing is left of it. A
+ * text only changes when thinking was in it, so a trailing space is no change.
+ */
+function withoutThinking(message: AssistantMessage): ModelMessage | null {
+	if (typeof message.content === "string") {
+		const text = visibleText(message.content);
+		if (text === message.content) return message;
+		return text === "" ? null : { ...message, content: text };
+	}
+	let changed = false;
+	const content = message.content.flatMap((part): AssistantPart[] => {
+		if (part.type === "reasoning") {
+			changed = true;
+			return [];
+		}
+		if (part.type !== "text") return [part];
+		const text = visibleText(part.text);
+		if (text === part.text) return [part];
+		changed = true;
+		return text === "" ? [] : [{ ...part, text }];
+	});
+	if (!changed) return message;
+	return content.length === 0 ? null : { ...message, content };
+}
+
+/** A text without the thinking in it; the text itself when it holds none. */
+function visibleText(text: string): string {
+	const visible = normalizeVisibleAssistantText(text);
+	return visible === text.trim() ? text : visible;
 }
 
 /** What a connector result is sent as instead of its output; null when it stays. */

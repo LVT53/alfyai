@@ -1458,6 +1458,177 @@ describe("gateCapturedConnectorResults", () => {
 		});
 		expect(gate(messages, HOME)).toEqual(messages);
 	});
+
+	// What a paused segment thought is part of what it carries. A local model may
+	// reason word for word about a mail or a calendar it read; the SDK keeps that in
+	// `response.messages` as reasoning parts (or, for a provider that does not split
+	// it out, as <think> text), and the openai-compatible provider sends reasoning
+	// parts back as `reasoning_content` on every request. A stored reply's history
+	// never replays reasoning, so this is the one way a cloud attempt could read it.
+	describe("the thinking of a paused segment", () => {
+		const SEEN_IN_THOUGHT = "Dr. Kovacs wrote to move the visit at Main St 5";
+		const SEEN_IN_TAGS = "the mail from Dr. Kovacs names a new date";
+
+		/** The reply as a local model made it: it thought about what it read, twice. */
+		function thoughtfulMessages(): ModelMessage[] {
+			const ask = askStep({ status: "answered" });
+			return [
+				...PREFETCHED,
+				{
+					role: "assistant",
+					content: [
+						{ type: "reasoning", text: SEEN_IN_THOUGHT },
+						{
+							type: "text",
+							text: `<think>${SEEN_IN_TAGS}</think>Let me look at your calendar.`,
+						},
+						{
+							type: "tool-call",
+							toolCallId: "call-cal",
+							toolName: "calendar",
+							input: { action: "list_events" },
+						},
+					],
+				},
+				PRIVATE_STEP[1],
+				{
+					...ask[0],
+					content: [
+						{ type: "reasoning", text: SEEN_IN_THOUGHT },
+						...(ask[0].content as Array<{ type: string }>),
+					],
+				} as ModelMessage,
+				ask[1],
+			];
+		}
+
+		function reasoningParts(messages: ModelMessage[]): number {
+			return messages.filter(
+				(message) =>
+					message.role === "assistant" &&
+					typeof message.content !== "string" &&
+					message.content.some((part) => part.type === "reasoning"),
+			).length;
+		}
+
+		it("drops the reasoning parts and the thinking in the text on an attempt off the person's box when they keep connector data local", () => {
+			const gate = gateCapturedConnectorResults({
+				results: RESULT_ROWS,
+				keepConnectorDataLocal: true,
+			});
+			const messages = thoughtfulMessages();
+			const before = JSON.stringify(messages);
+
+			const sent = gate(messages, CLOUD);
+
+			expect(reasoningParts(sent)).toBe(0);
+			const text = JSON.stringify(sent);
+			expect(text).not.toContain(SEEN_IN_THOUGHT);
+			expect(text).not.toContain(SEEN_IN_TAGS);
+			expect(text).not.toContain("<think>");
+			// what the segment said, what it called and what it asked stay
+			expect(text).toContain("Let me look at your calendar.");
+			expect(text).toContain("Which one?");
+			expect(text).toContain('"toolName":"calendar"');
+			expect(text).toContain('"toolName":"ask_user"');
+			// the same messages, minus the thinking: the roles and the results are in place
+			expect(sent.map((message) => message.role)).toEqual(
+				messages.map((message) => message.role),
+			);
+			// and the list it was handed is as it was
+			expect(JSON.stringify(messages)).toBe(before);
+		});
+
+		it("keeps them on an attempt on the person's box", () => {
+			const gate = gateCapturedConnectorResults({
+				results: RESULT_ROWS,
+				keepConnectorDataLocal: true,
+			});
+			const messages = thoughtfulMessages();
+
+			const sent = gate(messages, HOME);
+
+			expect(sent).toBe(messages);
+			expect(reasoningParts(sent)).toBe(2);
+			expect(JSON.stringify(sent)).toContain(SEEN_IN_TAGS);
+		});
+
+		it("keeps them for a person who keeps nothing local, on any attempt", () => {
+			const gate = gateCapturedConnectorResults({
+				results: RESULT_ROWS,
+				keepConnectorDataLocal: false,
+			});
+			const messages = thoughtfulMessages();
+
+			expect(gate(messages, CLOUD)).toBe(messages);
+			expect(gate(messages, HOME)).toBe(messages);
+		});
+
+		it("drops them on the cloud attempt of a failover that began on the person's box", () => {
+			// one gate for the run, asked for each attempt from the original messages
+			const gate = gateCapturedConnectorResults({
+				results: RESULT_ROWS,
+				keepConnectorDataLocal: true,
+			});
+			const messages = thoughtfulMessages();
+
+			const first = gate(messages, HOME);
+			const failover = gate(messages, CLOUD);
+
+			expect(reasoningParts(first)).toBe(2);
+			expect(JSON.stringify(first)).toContain(SEEN_IN_THOUGHT);
+			expect(reasoningParts(failover)).toBe(0);
+			expect(JSON.stringify(failover)).not.toContain(SEEN_IN_THOUGHT);
+			expect(JSON.stringify(failover)).not.toContain(SEEN_IN_TAGS);
+			// and nothing the first attempt got was changed for the second to inherit
+			expect(reasoningParts(messages)).toBe(2);
+			expect(gate(messages, HOME)).toBe(messages);
+		});
+
+		it("leaves out a part, and a message, that held nothing but thinking", () => {
+			const gate = gateCapturedConnectorResults({
+				results: [],
+				keepConnectorDataLocal: true,
+			});
+			const messages: ModelMessage[] = [
+				{
+					role: "assistant",
+					content: [{ type: "reasoning", text: SEEN_IN_THOUGHT }],
+				},
+				{
+					role: "assistant",
+					content: [{ type: "text", text: `<think>${SEEN_IN_TAGS}</think>` }],
+				},
+				{ role: "assistant", content: `<think>${SEEN_IN_TAGS}</think>` },
+				{
+					role: "assistant",
+					content: [
+						{ type: "reasoning", text: SEEN_IN_THOUGHT },
+						{ type: "text", text: "Here it is." },
+					],
+				},
+			];
+
+			const sent = gate(messages, CLOUD);
+
+			expect(sent).toEqual([
+				{ role: "assistant", content: [{ type: "text", text: "Here it is." }] },
+			]);
+		});
+
+		it("returns the list it was given when there is no thinking to drop, whitespace and all", () => {
+			const gate = gateCapturedConnectorResults({
+				results: [],
+				keepConnectorDataLocal: true,
+			});
+			const messages: ModelMessage[] = [
+				{ role: "assistant", content: [{ type: "text", text: "Done.  \n" }] },
+				{ role: "assistant", content: "Done.  \n" },
+			];
+
+			expect(gate(messages, CLOUD)).toBe(messages);
+		});
+	});
 });
 
 // The resume's run is a new turn for the address check, but what the paused
