@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	card as imageCard,
 	take as imageTake,
@@ -3212,14 +3212,40 @@ describe("the draft a chat is opened with", () => {
 		});
 	});
 
-	it("is newer than the copy it replaces, so the composer takes it", () => {
-		const arrival = arrivalDraftOf(
-			chat,
-			saved({ updatedAt: Date.now() + 60_000 }),
-			pendingWords(),
-		);
+	// The version the composer takes a draft by is a clock reading, so these tests stand
+	// the clock still: a test that read `Date.now()` once to make the saved copy and once
+	// more to check the arrival failed whenever the clock ticked between the two reads.
+	describe("with the clock held still", () => {
+		const NOW = new Date("2026-11-04T10:00:00.000Z").getTime();
 
-		expect(arrival?.updatedAt).toBe(Date.now() + 60_000 + 1);
+		beforeEach(() => {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(NOW);
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("is newer than the copy it replaces, so the composer takes it", () => {
+			const arrival = arrivalDraftOf(
+				chat,
+				saved({ updatedAt: NOW + 60_000 }),
+				pendingWords(),
+			);
+
+			expect(arrival?.updatedAt).toBe(NOW + 60_000 + 1);
+		});
+
+		it("is the time it was made when the copy it replaces is older than that", () => {
+			const arrival = arrivalDraftOf(
+				chat,
+				saved({ updatedAt: NOW - 60_000 }),
+				pendingWords(),
+			);
+
+			expect(arrival?.updatedAt).toBe(NOW);
+		});
 	});
 
 	it("keeps the files the held words were saved with, else the saved draft's by id", () => {
