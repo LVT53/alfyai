@@ -9488,6 +9488,40 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 			expect(sidebarMark()).toBe(false);
 		});
 
+		// The reply can never be carried on (its capture or its segments are gone), so
+		// the server closes the question for good before it refuses the answer
+		// (QUESTION_NOT_WAITING, Ruling 46): the page reads the questions after any
+		// refusal, finds nothing waiting, and opens the box, instead of leaving a
+		// card that fails the same way every time over a chat that takes no message.
+		it("drops the card and opens the box when the server closed the question for good", async () => {
+			renderAskedChat();
+			await chooseOnCard("Dinner out");
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+
+			vi.mocked(fetchConversationQuestions).mockResolvedValue([]);
+			vi.mocked(fetchConversationDetail).mockResolvedValue(
+				conversationDetailFixture({ messages: askedChat() }),
+			);
+			runtimeHarness.streamInvocations[0].callbacks.onError(
+				Object.assign(new Error("The question can no longer be answered"), {
+					status: 409,
+					code: "QUESTION_NOT_WAITING",
+				}),
+			);
+
+			await waitFor(() => expect(screen.queryByTestId("ask-card")).toBeNull());
+			await waitFor(() =>
+				expect(screen.getByTestId("message-input")).toBeEnabled(),
+			);
+			expect(screen.queryByTestId("ask-error")).toBeNull();
+			expect(sidebarMark()).toBe(false);
+			// the reply that asked is still in the chat, and nothing was sent again
+			expect(screen.getByText(FIRST_WORDS)).toBeInTheDocument();
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+
 		describe("when another answer won the question", () => {
 			async function loseTheClaim(options: { replyRunning: boolean }) {
 				renderAskedChat();

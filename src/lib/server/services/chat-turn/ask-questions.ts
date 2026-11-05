@@ -27,6 +27,9 @@ import {
 //                                     on the row (releaseAskQuestion)
 //   answering -> answered | closed    the resume's segment was saved
 //                                     (settleAskQuestion; closed is the X)
+//   answering -> discarded            the resume can never be prepared: the reply
+//                                     has lost the shape a resume starts from
+//                                     (discardClaimedAskQuestion)
 //   waiting   -> discarded            the reply never saved it (the discard calls)
 // A question has no asking row (`assistant_message_id`) until the asking
 // segment is saved; stampAskQuestion then writes the row and the capture in one
@@ -81,9 +84,10 @@ export type AskClaimResult =
 // turn between the claim and the stream, and the chat's stream registry
 // (`getOrphanedStream`) says nothing in that window.
 //
-// Every path after a won claim must end in one release or one settle with its
-// token (the route's errors and throws, the orchestrator's `finally`), or the
-// chat would refuse new messages, with no card to answer, until a restart.
+// Every path after a won claim must end in one release, one settle or one discard
+// with its token (the route's errors and throws, the orchestrator's `finally`, the
+// preparation that finds the reply can never be resumed), or the chat would
+// refuse new messages, with no card to answer, until a restart.
 const liveResumes = new Map<string, string>();
 
 /** Whether `claim` is the claim the live resume of this question was started under. */
@@ -342,6 +346,39 @@ export async function releaseAskQuestion(p: {
 		)
 		.run();
 	return released.changes > 0;
+}
+
+/**
+ * The resume can never be prepared, so the question is closed for good: its reply
+ * no longer has the shape a resume starts from (the capture is unreadable or
+ * holds no result of the ask, the segments no longer lead back to the person's
+ * message), and every try would fail the same way. Giving the claim back would
+ * leave a card nobody can answer or close, in a chat that refuses new messages
+ * while it waits. The question is `discarded` and its capture dropped, the answer
+ * left on the row. Like release and settle it acts only for the holder of the
+ * live claim and then always clears the claim; any other call changes neither the
+ * row nor the map and answers false. True when a row changed.
+ */
+export async function discardClaimedAskQuestion(p: {
+	userId: string;
+	questionId: string;
+	claim: string;
+}): Promise<boolean> {
+	// No `await` from here to the return, and none may be added; see release.
+	if (!holdsLiveClaim(p.questionId, p.claim)) return false;
+	liveResumes.delete(p.questionId);
+	const discarded = db
+		.update(askQuestions)
+		.set({ status: "discarded", settledAt: new Date(), resumeJson: null })
+		.where(
+			and(
+				eq(askQuestions.id, p.questionId),
+				eq(askQuestions.userId, p.userId),
+				eq(askQuestions.status, "answering"),
+			),
+		)
+		.run();
+	return discarded.changes > 0;
 }
 
 /**

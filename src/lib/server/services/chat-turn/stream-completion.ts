@@ -33,7 +33,11 @@ import {
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
-import { askCallPausedTheReply } from "$lib/shared/ask-user";
+import {
+	ASK_ENDED_BEFORE_ANSWER,
+	ASK_STOPPED_BEFORE_ANSWER,
+	askCallPausedTheReply,
+} from "$lib/shared/ask-user";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import {
 	isConnectionWriteToolName,
@@ -284,7 +288,7 @@ export async function completeStreamTurn(
 		? serverSegments
 		: settleUnansweredAskCalls(
 				serverSegments,
-				wasStopped ? STOPPED_BEFORE_ANSWER : ENDED_BEFORE_ANSWER,
+				wasStopped ? ASK_STOPPED_BEFORE_ANSWER : ASK_ENDED_BEFORE_ANSWER,
 			);
 
 	// E1 — truncation/content-filter/file-production-failure notices used to
@@ -1088,15 +1092,13 @@ function getSameTurnFileProductionJobIds(
 	return jobIds;
 }
 
-// What a later turn's history reads of an ask call whose question was discarded
-// with its reply: nothing is open. Model-facing, so ASCII English (ruling 79).
-// The summary says it and the digest stays as it was, which for a call that
-// paused is none: history replays the summary and the digest as two fields of
-// the call's result, so setting both would say the sentence twice.
-const STOPPED_BEFORE_ANSWER = "The user stopped the reply before answering.";
-const ENDED_BEFORE_ANSWER = "The reply ended before the user answered.";
-
-// Settles the ask calls of a reply saved without a pause. Only a call that
+// Settles the ask calls of a reply saved without a pause, with what a later
+// turn's history reads of an ask call whose question was discarded with its
+// reply (`ASK_STOPPED_BEFORE_ANSWER` and `ASK_ENDED_BEFORE_ANSWER`, shared with the
+// resume that closes a question it can never carry on). The summary says it and
+// the digest stays as it was, which for a call that paused is none: history
+// replays the summary and the digest as two fields of the call's result, so
+// setting both would say the sentence twice. Only a call that
 // paused the reply (`askCallPausedTheReply`, the one test history uses too) is
 // rewritten: a card the tool refused asked nobody and keeps what the model was
 // told.

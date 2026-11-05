@@ -52,6 +52,7 @@ import { askQuestions } from "$lib/server/db/schema";
 import { setDraining } from "$lib/server/services/chat-turn/active-streams";
 import {
 	claimAskQuestion,
+	hasWaitingAskQuestion,
 	releaseAskQuestion,
 } from "$lib/server/services/chat-turn/ask-questions";
 import {
@@ -157,7 +158,10 @@ function preparedFor(p: { claimed: { id: string }; claim: string }) {
 }
 
 // The refusal `prepareAskResumeTurn` gives a reply that no longer has the shape a
-// resume starts from.
+// resume starts from, as the route meets it from a preparation that closed
+// nothing (the mock here): the route gives the claim back. The real preparation
+// closes the question for good before it refuses, which the last describe below
+// runs it for.
 const preparationRefusal = {
 	ok: false,
 	error: {
@@ -523,7 +527,10 @@ describe("POST /api/conversations/[id]/questions/[questionId]/answer", () => {
 			attachmentIds: ["attachment-1"],
 		});
 		expect(releaseAskQuestion).toHaveBeenCalledTimes(1);
+		// a refusal that can pass on a later try: the card comes back with the answer
 		expect(rowOf(seeded.questionId).status).toBe("waiting");
+		expect(answerOf(seeded.questionId)).toEqual(PICK_RED);
+		expect(await hasWaitingAskQuestion(seeded)).toBe(true);
 		expect(mocks.runChatStreamOrchestrator).not.toHaveBeenCalled();
 	});
 
@@ -677,5 +684,60 @@ describe("POST /api/conversations/[id]/questions/[questionId]/answer", () => {
 		});
 		expect(holderGivesItBack).toBe(true);
 		expect(rowOf(seeded.questionId).status).toBe("waiting");
+	});
+
+	// The seeded reply is the shape no resume can start from: it has no message of the
+	// person's before it, and its capture holds no result of the ask. Every cause of
+	// that kind is permanent for the question's row, so the real preparation closes
+	// the question for good before it refuses, and the chat is not left closed to new
+	// messages by a card whose answer (or X) fails the same way every time.
+	describe("a question whose reply can never be carried on", () => {
+		beforeEach(async () => {
+			const actual = await vi.importActual<
+				typeof import("$lib/server/services/chat-turn/ask-resume")
+			>("$lib/server/services/chat-turn/ask-resume");
+			mocks.prepareAskResumeTurn.mockImplementation(
+				actual.prepareAskResumeTurn,
+			);
+		});
+
+		it("answers the conflict, closes the question for good, and lets the chat take messages again", async () => {
+			expect(await hasWaitingAskQuestion(seeded)).toBe(true);
+
+			const response = await POST(makeEvent(seeded, validBody));
+
+			expect(response.status).toBe(409);
+			expect(await response.json()).toEqual({
+				error: "The question can no longer be answered",
+				code: "QUESTION_NOT_WAITING",
+			});
+			// closed for good, its capture cleared, and the route's own give-back after
+			// the refusal could not bring it back: the claim was spent by the close
+			expect(rowOf(seeded.questionId)).toMatchObject({
+				status: "discarded",
+				resumeJson: null,
+			});
+			expect(releaseAskQuestion).toHaveBeenCalledTimes(1);
+			expect(await vi.mocked(releaseAskQuestion).mock.results[0].value).toBe(
+				false,
+			);
+			expect(await hasWaitingAskQuestion(seeded)).toBe(false);
+			expect(mocks.runChatStreamOrchestrator).not.toHaveBeenCalled();
+		});
+
+		it("answers a second device that still shows the card as already answered, as it does for any question with nothing left to win", async () => {
+			await POST(makeEvent(seeded, validBody));
+
+			const second = await POST(
+				makeEvent(seeded, { ...validBody, answer: PICK_BLUE, streamId: "s-2" }),
+			);
+
+			expect(second.status).toBe(409);
+			expect(await second.json()).toEqual({
+				error: "The question has already been answered",
+				code: "QUESTION_ALREADY_ANSWERED",
+			});
+			expect(rowOf(seeded.questionId).status).toBe("discarded");
+		});
 	});
 });

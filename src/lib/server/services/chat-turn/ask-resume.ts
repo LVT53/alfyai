@@ -4,9 +4,12 @@ import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
 import { hasLocalDistillEnabled } from "$lib/server/services/connections/locality";
 import { messageOrderAsc } from "$lib/server/services/message-ordering";
+import { updateAssistantToolCallResult } from "$lib/server/services/messages";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { buildAskAnswerRecord } from "$lib/server/services/normal-chat-tools/ask-user";
 import {
+	ASK_ENDED_BEFORE_ANSWER,
+	ASK_USER_TOOL_NAME,
 	type AskAnswer,
 	parseAskAnswer,
 	parseAskQuestions,
@@ -18,6 +21,7 @@ import {
 } from "./ask-capture";
 import {
 	type AskQuestionRow,
+	discardClaimedAskQuestion,
 	hasWaitingAskQuestion,
 	listConversationAskQuestions,
 	readAskCapture,
@@ -45,7 +49,10 @@ import type { ChatTurnRequestError } from "./types";
 //
 // Nothing here releases the claim. The caller (the answer route) ends every path
 // after a won claim in one release or one settle: a refusal from here is its release,
-// and from the moment the orchestrator starts, the orchestrator's.
+// and from the moment the orchestrator starts, the orchestrator's. One refusal is the
+// exception: a reply that can never be resumed (`closeForGood`) has its question
+// closed here, with the claim, because giving that claim back would leave a card
+// whose answer fails the same way every time in a chat that refuses new messages.
 
 type ResumePreparationResult =
 	| {
@@ -66,11 +73,12 @@ type ResumePreparationResult =
 /**
  * A question that cannot be carried on although the claim was won: the reply it
  * belongs to no longer has the shape a resume starts from (the person's message is
- * gone, the capture is unreadable or holds no result of the ask). A conflict: the
- * caller releases the claim. Its code is `QUESTION_NOT_WAITING`, in the style of
- * the answer route's own codes and not to be mistaken for the route's
- * `QUESTION_ALREADY_ANSWERED` (the claim was lost): this claim was won and given
- * back, so the question waits again with the answer kept.
+ * gone, the capture is unreadable or holds no result of the ask). A conflict, with
+ * the code `QUESTION_NOT_WAITING`, in the style of the answer route's own codes and
+ * not to be mistaken for the route's `QUESTION_ALREADY_ANSWERED` (the claim was
+ * lost): this claim was won, and the question is closed for good (`closeForGood`),
+ * so the page, which reads the questions after a refusal, finds nothing waiting.
+ * The caller's give-back after it is a no-op, the claim being spent.
  */
 function notWaiting(): { ok: false; error: RetryPreparationError } {
 	return {
@@ -82,6 +90,72 @@ function notWaiting(): { ok: false; error: RetryPreparationError } {
 			responseShape: "json",
 		},
 	};
+}
+
+/**
+ * Closes for good a question whose reply can never be resumed (Ruling 46), then
+ * refuses the answer (`notWaiting`). Every cause that gets here is permanent for
+ * the question's row: an unreadable capture, a capture without the ask's result, a
+ * chain of segments that no longer leads to the person's message. A try that cannot
+ * pass is not given back: the card would fail the same way for the answer and for
+ * the X, while the chat refuses new messages, Retry and edits for as long as a
+ * question waits.
+ *
+ * The question is discarded with the won claim's token and its capture dropped
+ * (`discardClaimedAskQuestion`), and the call that asked, in the row that asked, is
+ * rewritten to say the reply ended before an answer: the sentence a reply saved
+ * without its pause gets (`stream-completion.ts`), so a later turn never reads a
+ * question that is not open. The call is rewritten only after the discard took,
+ * and neither step can change the refusal: a failure is logged, and the caller's
+ * give-back then puts the question back where it was.
+ */
+async function closeForGood(p: {
+	userId: string;
+	conversationId: string;
+	claimed: AskQuestionRow;
+	claim: string;
+}): Promise<{ ok: false; error: RetryPreparationError }> {
+	const { userId, conversationId, claimed, claim } = p;
+	try {
+		const discarded = await discardClaimedAskQuestion({
+			userId,
+			questionId: claimed.id,
+			claim,
+		});
+		if (!discarded) {
+			console.warn(
+				"[CHAT_ASK_RESUME] The unresumable question was not closed: its claim is no longer live",
+				{ conversationId, questionId: claimed.id },
+			);
+		} else if (claimed.assistantMessageId !== null) {
+			const written = await updateAssistantToolCallResult({
+				conversationId,
+				messageId: claimed.assistantMessageId,
+				callId: claimed.toolCallId,
+				toolName: ASK_USER_TOOL_NAME,
+				questionId: claimed.id,
+				outputSummary: ASK_ENDED_BEFORE_ANSWER,
+				resultDigest: "",
+			});
+			if (!written) {
+				console.warn(
+					"[CHAT_ASK_RESUME] The ask call of an unresumable question was not rewritten: the row or the call is gone",
+					{
+						conversationId,
+						messageId: claimed.assistantMessageId,
+						callId: claimed.toolCallId,
+					},
+				);
+			}
+		}
+	} catch (error) {
+		console.error("[CHAT_ASK_RESUME] Could not close an unresumable question", {
+			conversationId,
+			questionId: claimed.id,
+			error,
+		});
+	}
+	return notWaiting();
 }
 
 type ReplyRow = {
@@ -233,7 +307,9 @@ function readClaimedAnswer(claimed: AskQuestionRow) {
  * segment recorded, the message's uploads and pictures, and, from the answer's body,
  * the model, depth and personality the composer has selected now. It refuses (409
  * `QUESTION_NOT_WAITING`) when the reply no longer has the shape a resume starts
- * from.
+ * from, and closes the question for good first (`closeForGood`): nothing a later
+ * try could change. Any other refusal (the retry preflight's) can pass, and leaves
+ * the claim with the caller to give back.
  *
  * `userTexts` are the words the person typed into the answers of the whole reply,
  * this one's included, so the new turn's address check counts them as theirs (an
@@ -249,21 +325,25 @@ export async function prepareAskResumeTurn(p: {
 }): Promise<ResumePreparationResult> {
 	const { userId, runtimeConfig, conversationId, claimed, claim, body } = p;
 
+	// A question that is not this person's, in this chat, is not this resume's to end.
+	if (claimed.userId !== userId || claimed.conversationId !== conversationId) {
+		return notWaiting();
+	}
+	const close = () => closeForGood({ userId, conversationId, claimed, claim });
+
 	const askedMessageId = claimed.assistantMessageId;
 	const capture = readAskCapture(claimed);
 	const answered = readClaimedAnswer(claimed);
 	if (
-		claimed.userId !== userId ||
-		claimed.conversationId !== conversationId ||
 		askedMessageId === null ||
 		capture === null ||
 		answered === null ||
 		!holdsAskResult(capture.messages, claimed.toolCallId)
 	) {
-		return notWaiting();
+		return close();
 	}
 	const reply = await findReply(conversationId, askedMessageId);
-	if (reply === null) return notWaiting();
+	if (reply === null) return close();
 	const { segments, userMessage } = reply;
 
 	// What the person chose for the turn that began the reply, read off its first

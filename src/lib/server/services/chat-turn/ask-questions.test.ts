@@ -15,6 +15,7 @@ import {
 	type AskResumeCapture,
 	claimAskQuestion,
 	discardAskQuestion,
+	discardClaimedAskQuestion,
 	discardStaleAskQuestions,
 	getAskQuestion,
 	hasWaitingAskQuestion,
@@ -958,6 +959,99 @@ describe("releasing and settling a claimed question", () => {
 			reason: "not_waiting",
 		});
 		expect(await settle(id, token)).toMatchObject({ id, status: "answered" });
+	});
+});
+
+// A reply that can never be resumed has its question closed for good by the
+// holder of the claim that won it (Ruling 46), not given back.
+describe("closing a claimed question for good", () => {
+	const discardClaimed = (questionId: string, claimToken: string) =>
+		discardClaimedAskQuestion({
+			userId: USER,
+			questionId,
+			claim: claimToken,
+		});
+
+	it("discards an answering question for the holder of the live claim, drops the capture and keeps the answer", async () => {
+		const id = await askStamped("m1");
+		const token = await win(id, PICKED_FIRST);
+
+		expect(await discardClaimed(id, token)).toBe(true);
+
+		expect(rowOf(id)).toMatchObject({ status: "discarded", resumeJson: null });
+		expect(rowOf(id).settledAt).toBeInstanceOf(Date);
+		expect(answerOf(id)).toEqual(PICKED_FIRST);
+		// the card is gone, the chat takes messages, and nothing is left to claim
+		expect(await list()).toEqual([]);
+		expect(await hasWaiting()).toBe(false);
+		expect(await claim(id, CLOSED)).toEqual({
+			ok: false,
+			reason: "not_waiting",
+		});
+		// the claim is spent: a release after it brings nothing back
+		expect(await release(id, token)).toBe(false);
+		expect(rowOf(id).status).toBe("discarded");
+	});
+
+	it("acts only for the claim that holds the question, and only the person's own", async () => {
+		const id = await askStamped("m1");
+		const token = await win(id, PICKED_FIRST);
+		const other = await askStamped("m2");
+		const otherToken = await win(other, CLOSED);
+
+		// an unknown claim, and another question's claim
+		expect(await discardClaimed(id, "no-such-claim")).toBe(false);
+		expect(await discardClaimed(id, otherToken)).toBe(false);
+		expect(rowOf(id).status).toBe("answering");
+		expect(rowOf(other).status).toBe("answering");
+
+		// the holder's claim is the one that changes it, and only it
+		expect(await discardClaimed(id, token)).toBe(true);
+		expect(rowOf(id).status).toBe("discarded");
+		expect(rowOf(other).status).toBe("answering");
+
+		// another person's call changes no row, even with the holder's claim in hand
+		const third = await askStamped("m3");
+		const thirdToken = await win(third, CLOSED);
+		expect(
+			await discardClaimedAskQuestion({
+				userId: OTHER_USER,
+				questionId: third,
+				claim: thirdToken,
+			}),
+		).toBe(false);
+		expect(rowOf(third).status).toBe("answering");
+	});
+
+	it("does not close what was given back or settled meanwhile, and a question that waits", async () => {
+		const given = await askStamped("m1");
+		const givenToken = await win(given, PICKED_FIRST);
+		expect(await release(given, givenToken)).toBe(true);
+		const settled = await askStamped("m2");
+		const settledToken = await win(settled, PICKED_FIRST);
+		await settle(settled, settledToken);
+		const waiting = await askStamped("m3");
+
+		expect(await discardClaimed(given, givenToken)).toBe(false);
+		expect(await discardClaimed(settled, settledToken)).toBe(false);
+		expect(await discardClaimed(waiting, "no-such-claim")).toBe(false);
+
+		expect(rowOf(given).status).toBe("waiting");
+		expect(rowOf(settled).status).toBe("answered");
+		expect(rowOf(waiting).status).toBe("waiting");
+	});
+
+	it("clears the claim whether or not its UPDATE changed a row", async () => {
+		const id = await askStamped("m1");
+		const token = await win(id, PICKED_FIRST);
+		// changed behind the store's back, so the UPDATE finds nothing answering
+		setColumn(id, "status", "waiting");
+
+		expect(await discardClaimed(id, token)).toBe(false);
+
+		// the claim is gone anyway: a stale answering row would be released and won again
+		setColumn(id, "status", "answering");
+		expect((await claim(id, CLOSED)).ok).toBe(true);
 	});
 });
 

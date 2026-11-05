@@ -18,6 +18,18 @@ export const ASK_USER_TOOL_NAME = "ask_user";
 export const ASK_PAUSE_STATUS = "waiting_for_user";
 
 /**
+ * What a later turn's history reads of an ask call whose question was closed with
+ * its reply, so it never reads a question that is not open: the reply was stopped
+ * before the answer, or it ended without its pause (`stream-completion.ts`), or it
+ * could never be carried on from the answer (`ask-resume.ts`). Model-facing, so
+ * ASCII English (ruling 79).
+ */
+export const ASK_STOPPED_BEFORE_ANSWER =
+	"The user stopped the reply before answering.";
+export const ASK_ENDED_BEFORE_ANSWER =
+	"The reply ended before the user answered.";
+
+/**
  * How much Alfy may ask and the person may write, in counts and in characters
  * (UTF-16 units, as a string's `length` and an input's `maxlength` count them).
  * The checks, the tool's input schema and the card all read these.

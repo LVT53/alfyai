@@ -1,4 +1,5 @@
 import type { ModelMessage } from "ai";
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import {
@@ -44,9 +45,18 @@ vi.mock("$lib/server/services/connections/locality", () => ({
 vi.mock("$lib/server/services/conversations", () => ({
 	getConversation: vi.fn(async () => ({ id: "conv-1" })),
 }));
-vi.mock("$lib/server/services/messages", () => ({
-	deleteMessages: vi.fn(async () => undefined),
-}));
+// The resume closes a question it can never carry on by rewriting the ask call of
+// the row that asked (`updateAssistantToolCallResult`), so that write is the real
+// one, over the same rows; everything else of the messages service is not this
+// module's.
+vi.mock("$lib/server/services/messages", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/server/services/messages")>();
+	return {
+		deleteMessages: vi.fn(async () => undefined),
+		updateAssistantToolCallResult: actual.updateAssistantToolCallResult,
+	};
+});
 vi.mock("$lib/server/services/knowledge", () => ({
 	listMessageAttachments: vi.fn(async () => new Map()),
 }));
@@ -119,7 +129,9 @@ vi.mock("./preflight", () => ({
 import { listMessageAttachments } from "$lib/server/services/knowledge";
 import {
 	claimAskQuestion,
+	listConversationAskQuestions,
 	recordAskQuestion,
+	releaseAskQuestion,
 	settleAskQuestion,
 	stampAskQuestion,
 } from "./ask-questions";
@@ -369,7 +381,60 @@ async function stamped(p: {
 		assistantMessageId: p.messageId,
 		capture: { v: 1, messages: p.messages, results: p.results as never },
 	});
+	pointAskCallAt(p.messageId, p.toolCallId, id);
 	return id;
+}
+
+/**
+ * The ask call of the asking row names its question in its metadata, as the tool
+ * records it; the rows are seeded before the question exists, so the call is
+ * pointed at it here (a row with no timeline, or no such call, is left alone).
+ */
+function pointAskCallAt(messageId: string, callId: string, questionId: string) {
+	const row = memory.db
+		.select({ toolCalls: schema.messages.toolCalls })
+		.from(schema.messages)
+		.where(eq(schema.messages.id, messageId))
+		.get();
+	if (!row?.toolCalls) return;
+	const timeline = JSON.parse(row.toolCalls) as Array<{
+		callId?: string;
+		metadata?: Record<string, unknown>;
+	}>;
+	for (const call of timeline) {
+		if (call.callId === callId) {
+			call.metadata = { ...call.metadata, questionId };
+		}
+	}
+	memory.db
+		.update(schema.messages)
+		.set({ toolCalls: JSON.stringify(timeline) })
+		.where(eq(schema.messages.id, messageId))
+		.run();
+}
+
+function questionRow(questionId: string) {
+	const row = memory.db
+		.select()
+		.from(schema.askQuestions)
+		.where(eq(schema.askQuestions.id, questionId))
+		.get();
+	if (!row) throw new Error(`no ask_questions row ${questionId}`);
+	return row;
+}
+
+/** What the asking row's stored timeline says its call returned. */
+function askCallSummary(messageId: string, callId: string): string | undefined {
+	const row = memory.db
+		.select({ toolCalls: schema.messages.toolCalls })
+		.from(schema.messages)
+		.where(eq(schema.messages.id, messageId))
+		.get();
+	const timeline = JSON.parse(row?.toolCalls ?? "[]") as Array<{
+		callId?: string;
+		outputSummary?: string;
+	}>;
+	return timeline.find((call) => call.callId === callId)?.outputSummary;
 }
 
 async function claim(questionId: string, answer: AskAnswer) {
@@ -818,7 +883,54 @@ describe("prepareAskResumeTurn", () => {
 		});
 	});
 
-	describe("refuses with a conflict when the question cannot be carried on", () => {
+	// A refusal that can pass on a later try (an attachment not ready, a picture
+	// the person can no longer read, a message that is too long once the limit is
+	// raised) closes nothing: the route gives the claim back and the card comes
+	// back with the answer on it.
+	it("leaves a question whose refusal can pass claimed and open, for the caller to give back with the answer kept", async () => {
+		const claimed = await oneSegmentReply(pick(1));
+		vi.mocked(preflightChatTurn).mockResolvedValueOnce({
+			ok: false,
+			error: { status: 422, error: "Attachment is not ready" },
+		} as never);
+
+		const result = await prepare(claimed);
+
+		expect(result.ok).toBe(false);
+		// nothing was closed: the question is still the claim's, the capture is
+		// there, and the call that asked still says the reply paused
+		expect(questionRow(claimed.row.id)).toMatchObject({
+			status: "answering",
+			resumeJson: expect.any(String),
+		});
+		expect(askCallSummary("asst-1", "call-ask-1")).toBe(
+			"Asked the user; the reply paused for the answer.",
+		);
+		// the caller's give-back brings the card back with the answer on it, and the
+		// chat stays closed to new messages until it is answered
+		expect(
+			await releaseAskQuestion({
+				userId: USER,
+				questionId: claimed.row.id,
+				claim: claimed.claim,
+			}),
+		).toBe(true);
+		expect(questionRow(claimed.row.id)).toMatchObject({
+			status: "waiting",
+			answerJson: JSON.stringify(pick(1)),
+		});
+		expect(
+			await findWaitingQuestionRefusal({ userId: USER, conversationId: CHAT }),
+		).toMatchObject({ code: "QUESTION_WAITING" });
+	});
+
+	// Every cause below is permanent for the question's row: the reply it belongs to
+	// can never have the shape a resume starts from, and an answer would fail the
+	// same way each time. Giving the claim back would leave a card that cannot be
+	// answered or closed (the X goes through the same resume), in a chat that
+	// refuses new messages, Retry and edits while a question waits: so the question
+	// is closed for good instead (Ruling 46).
+	describe("closes the question for good when it can never be carried on", () => {
 		const NOT_WAITING = {
 			ok: false,
 			error: {
@@ -828,6 +940,55 @@ describe("prepareAskResumeTurn", () => {
 				responseShape: "json",
 			},
 		};
+
+		/** What a question that can never be resumed leaves behind, and what the chat does afterwards. */
+		async function expectClosedForGood(
+			claimed: Awaited<ReturnType<typeof claim>>,
+			asking: { messageId: string; callId: string },
+		) {
+			// nothing to answer and nothing kept to resume from
+			const row = questionRow(claimed.row.id);
+			expect(row).toMatchObject({ status: "discarded", resumeJson: null });
+			expect(row.settledAt).toBeInstanceOf(Date);
+			// the card is gone, and the chat takes messages again
+			const listed = await listConversationAskQuestions({
+				userId: USER,
+				conversationId: CHAT,
+			});
+			expect(listed.map((question) => question.id)).not.toContain(
+				claimed.row.id,
+			);
+			expect(
+				await findWaitingQuestionRefusal({
+					userId: USER,
+					conversationId: CHAT,
+				}),
+			).toBeNull();
+			// the won claim was spent by the close, so the caller's give-back after the
+			// refusal brings nothing back
+			expect(
+				await releaseAskQuestion({
+					userId: USER,
+					questionId: claimed.row.id,
+					claim: claimed.claim,
+				}),
+			).toBe(false);
+			expect(questionRow(claimed.row.id).status).toBe("discarded");
+			// and a later turn reads that the reply ended, as for a reply saved without
+			// its pause
+			expect(askCallSummary(asking.messageId, asking.callId)).toBe(
+				"The reply ended before the user answered.",
+			);
+			// a second answer finds nothing to claim
+			expect(
+				await claimAskQuestion({
+					userId: USER,
+					conversationId: CHAT,
+					questionId: claimed.row.id,
+					answer: pick(1),
+				}),
+			).toEqual({ ok: false, reason: "not_waiting" });
+		}
 
 		it("cannot find the person's message: no user row right before the reply", async () => {
 			// the reply is the conversation's first row
@@ -839,6 +1000,7 @@ describe("prepareAskResumeTurn", () => {
 					messageSequence: 1,
 					role: "assistant",
 					content: "Which colour?",
+					toolCalls: JSON.stringify([ASK_CALL_1]),
 					createdAt: NOW,
 				})
 				.run();
@@ -855,11 +1017,16 @@ describe("prepareAskResumeTurn", () => {
 				),
 				results: [],
 			});
+			const claimed = await claim(id, pick(0));
 
-			const result = await prepare(await claim(id, pick(0)));
+			const result = await prepare(claimed);
 
 			expect(result).toEqual(NOT_WAITING);
 			expect(capturedSyntheticBodies).toHaveLength(0);
+			await expectClosedForGood(claimed, {
+				messageId: "asst-1",
+				callId: "call-ask-1",
+			});
 		});
 
 		it("finds an assistant row, not the person's message, before the first segment", async () => {
@@ -888,6 +1055,7 @@ describe("prepareAskResumeTurn", () => {
 						messageSequence: 3,
 						role: "assistant",
 						content: "Which colour?",
+						toolCalls: JSON.stringify([ASK_CALL_1]),
 						createdAt: NOW,
 					},
 				])
@@ -905,8 +1073,13 @@ describe("prepareAskResumeTurn", () => {
 				),
 				results: [],
 			});
+			const claimed = await claim(id, pick(0));
 
-			expect(await prepare(await claim(id, pick(0)))).toEqual(NOT_WAITING);
+			expect(await prepare(claimed)).toEqual(NOT_WAITING);
+			await expectClosedForGood(claimed, {
+				messageId: "asst-1",
+				callId: "call-ask-1",
+			});
 		});
 
 		it("finds that the row a segment continues is gone", async () => {
@@ -916,6 +1089,7 @@ describe("prepareAskResumeTurn", () => {
 						id: "asst-2",
 						content: "Thanks. One more thing.",
 						metadata: { continuesMessageId: "asst-gone" },
+						toolCalls: [ASK_CALL_2],
 					},
 				],
 			});
@@ -932,8 +1106,13 @@ describe("prepareAskResumeTurn", () => {
 				),
 				results: [],
 			});
+			const claimed = await claim(id, pick(0));
 
-			expect(await prepare(await claim(id, pick(0)))).toEqual(NOT_WAITING);
+			expect(await prepare(claimed)).toEqual(NOT_WAITING);
+			await expectClosedForGood(claimed, {
+				messageId: "asst-2",
+				callId: "call-ask-2",
+			});
 		});
 
 		it("does not walk a loop of continuations for ever", async () => {
@@ -948,6 +1127,7 @@ describe("prepareAskResumeTurn", () => {
 						id: "asst-2",
 						content: "b",
 						metadata: { continuesMessageId: "asst-1" },
+						toolCalls: [ASK_CALL_2],
 					},
 				],
 			});
@@ -964,13 +1144,24 @@ describe("prepareAskResumeTurn", () => {
 				),
 				results: [],
 			});
+			const claimed = await claim(id, pick(0));
 
-			expect(await prepare(await claim(id, pick(0)))).toEqual(NOT_WAITING);
+			expect(await prepare(claimed)).toEqual(NOT_WAITING);
+			await expectClosedForGood(claimed, {
+				messageId: "asst-2",
+				callId: "call-ask-2",
+			});
 		});
 
 		it("finds that the capture holds no result of the ask to answer", async () => {
 			seedMessages({
-				segments: [{ id: "asst-1", content: "Let me look first." }],
+				segments: [
+					{
+						id: "asst-1",
+						content: "Let me look first.",
+						toolCalls: [ASK_CALL_1],
+					},
+				],
 			});
 			// the capture stops before the step that asked was captured
 			const id = await stamped({
@@ -980,8 +1171,93 @@ describe("prepareAskResumeTurn", () => {
 				messages: SEARCHED,
 				results: [ROW_SEARCH],
 			});
+			const claimed = await claim(id, pick(0));
 
-			expect(await prepare(await claim(id, pick(0)))).toEqual(NOT_WAITING);
+			expect(await prepare(claimed)).toEqual(NOT_WAITING);
+			await expectClosedForGood(claimed, {
+				messageId: "asst-1",
+				callId: "call-ask-1",
+			});
+		});
+
+		it("finds that the capture cannot be read", async () => {
+			seedMessages({
+				segments: [
+					{
+						id: "asst-1",
+						content: "Let me look first.",
+						toolCalls: [ASK_CALL_1],
+					},
+				],
+			});
+			const id = await stamped({
+				messageId: "asst-1",
+				toolCallId: "call-ask-1",
+				questions: COLOUR,
+				messages: SEARCHED,
+				results: [ROW_SEARCH],
+			});
+			memory.db
+				.update(schema.askQuestions)
+				.set({ resumeJson: "{not json" })
+				.where(eq(schema.askQuestions.id, id))
+				.run();
+			const claimed = await claim(id, pick(0));
+
+			expect(await prepare(claimed)).toEqual(NOT_WAITING);
+			await expectClosedForGood(claimed, {
+				messageId: "asst-1",
+				callId: "call-ask-1",
+			});
+		});
+
+		it("closes a later segment's question, and leaves the earlier answered one and its call as they were", async () => {
+			// the second segment's capture lost the ask's result (as the claim read it)
+			const whole = await twoSegmentReply(SECOND_ANSWER);
+			const claimed = {
+				...whole,
+				row: {
+					...whole.row,
+					resumeJson: JSON.stringify({ v: 1, messages: SEARCHED, results: [] }),
+				},
+			};
+			const earlier = (
+				await listConversationAskQuestions({
+					userId: USER,
+					conversationId: CHAT,
+				})
+			).find((question) => question.status === "answered");
+
+			expect(await prepare(claimed)).toEqual(NOT_WAITING);
+			await expectClosedForGood(claimed, {
+				messageId: "asst-2",
+				callId: "call-ask-2",
+			});
+			// the first segment's question stays answered, and its call is as it was
+			expect(earlier).toBeDefined();
+			expect(questionRow(earlier?.id ?? "").status).toBe("answered");
+			expect(askCallSummary("asst-1", "call-ask-1")).toBe(
+				"Asked the user; the reply paused for the answer.",
+			);
+		});
+
+		it("does not close a question that is not this person's chat's: it is not the resume's to end", async () => {
+			const claimed = await oneSegmentReply(pick(0));
+
+			const result = await prepareAskResumeTurn({
+				userId: "someone-else",
+				runtimeConfig: config,
+				conversationId: CHAT,
+				claimed: claimed.row,
+				claim: claimed.claim,
+				body: { streamId: "stream-answer" },
+			});
+
+			expect(result).toEqual(NOT_WAITING);
+			expect(questionRow(claimed.row.id).status).toBe("answering");
+			expect(askCallSummary("asst-1", "call-ask-1")).toBe(
+				"Asked the user; the reply paused for the answer.",
+			);
 		});
 	});
 });

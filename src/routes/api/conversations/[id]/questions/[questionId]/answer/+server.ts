@@ -75,7 +75,10 @@ function readQuestions(questionsJson: string): AskQuestion[] | null {
 // the last step before the preparation. A won claim must end in one release or one
 // settle: from the claim until the orchestrator has returned its stream, every way
 // out here gives it back with its token (the preparation's refusal and its throw, the
-// orchestrator's throw); from then on the orchestrator holds it.
+// orchestrator's throw); from then on the orchestrator holds it. A reply that can
+// never be resumed is the preparation's to close (`closeForGood`, ask-resume.ts), not
+// this route's: it spends the claim before it refuses, so the give-back below is a
+// no-op for it and the question stays closed.
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
 	const user = event.locals.user;
