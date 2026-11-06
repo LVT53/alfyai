@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feature guide mockups</title>
+<!-- The approved look from the 2026-11-06 brainstorm: layout C with realistic drawings for the Ask and Make sections. Hover a row to light its part of the drawing. -->
+<style>body{margin:0;padding:32px 24px;background:#e9e8e4;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;color:#1a1a1a}h2{font-size:22px;margin:0 0 6px}.subtitle{color:#666;margin:0 0 20px;font-size:14px;line-height:1.5;max-width:900px}.mockup{border:1px solid rgba(0,0,0,.1);border-radius:12px;overflow:hidden;background:#dfded9;max-width:1100px}.mockup-header{font-size:12px;color:#666;padding:8px 14px;border-bottom:1px solid rgba(0,0,0,.08)}</style>
+</head><body>
+<style>
+.rv{--page:#fafaf8;--el:#f4f3ee;--card:#fff;--t:#1a1a1a;--m:#6b6b6b;--faint:#a3a29c;--line:rgba(0,0,0,.09);--a:#c15f3c;--at:#9f5135;--tint:rgba(193,95,60,.12);--tint2:rgba(193,95,60,.24);--bar:rgba(0,0,0,.13);--bar2:rgba(0,0,0,.07);font-family:"Nimbus Sans L","Helvetica Neue",Helvetica,Arial,sans-serif;color:var(--t);text-align:left}
+.rv.dark{--page:#1a1a1a;--el:#242424;--card:#2a2a2a;--t:#ececec;--m:#a0a0a0;--faint:#77756f;--line:rgba(255,255,255,.1);--a:#d27a57;--at:#e09474;--tint:rgba(210,122,87,.16);--tint2:rgba(210,122,87,.3);--bar:rgba(255,255,255,.2);--bar2:rgba(255,255,255,.09)}
+.rv *{box-sizing:border-box}.rv p{margin:0}
+.rv-page{background:var(--page);border:1px solid var(--line);border-radius:10px;padding:24px 28px 10px}
+.rv-top{display:flex;justify-content:space-between;align-items:center;margin:0 0 18px}
+.rv-title{font-family:"Libre Baskerville",Georgia,serif;font-size:21px}
+.rv-tog{display:flex;gap:4px;font-size:11px;color:var(--m);align-items:center}
+.rv-tog button{font:inherit;font-size:11px;border:1px solid var(--line);background:var(--card);color:var(--m);border-radius:999px;padding:3px 9px;cursor:pointer}
+.rv-tog button.on{background:var(--t);color:var(--page);border-color:var(--t)}
+.rv-band{display:flex;gap:26px;padding:0 0 20px;margin:0 0 20px;border-bottom:1px solid var(--line)}
+.rv-band:last-child{border-bottom:0;margin-bottom:0}
+.rv-left{width:330px;flex:none}
+.rv-h{font-size:15px;font-weight:600;margin:0 0 3px!important}
+.rv-intro{font-size:12px;color:var(--m);line-height:1.45;margin:0 0 10px!important}
+.rv-rows{flex:1;min-width:0}
+.rv-r{display:flex;align-items:center;gap:14px;padding:8px 6px;border-bottom:1px solid var(--line);border-radius:6px;cursor:default}
+.rv-r:last-child{border-bottom:0}
+.rv-r:hover{background:var(--el)}
+.rv-rt{flex:1;min-width:0}
+.rv-n{font-size:13px;font-weight:600;margin:0 0 1px!important;display:flex;gap:6px;align-items:center}
+.rv-l{font-size:11.5px;color:var(--m)}
+.rv-try{font-size:11px;color:var(--at);background:var(--tint);border-radius:999px;padding:4px 9px;white-space:nowrap}
+.rv-show{font-size:11px;color:var(--m);text-decoration:underline;text-underline-offset:2px;white-space:nowrap}
+.rv-new{font-size:9px;font-weight:700;color:#fff;background:var(--a);border-radius:4px;padding:2px 5px}
+.rv-hint{font-size:11px;color:var(--faint);margin:6px 0 0!important}
+/* the miniature: real pieces of the app, drawn small */
+.mini{position:relative;height:222px;border-radius:10px;background:var(--el);border:1px solid var(--line);overflow:hidden;font-size:9px;color:var(--t)}
+.mini svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.bar{display:block;height:5px;border-radius:3px;background:var(--bar)}
+.bar.s{background:var(--bar2)}
+.spot{transition:box-shadow .15s,background .15s;border-radius:6px}
+.spot.lit{box-shadow:0 0 0 2px var(--a),0 0 0 6px var(--tint);background:var(--card)}
+/* chat miniature */
+.mc-wrap{position:absolute;inset:0;background:var(--page)}
+.mc-u{position:absolute;right:12px;top:8px;width:118px;padding:6px 8px;background:var(--el);border-radius:9px}
+.mc-reply{position:absolute;left:12px;right:30px;top:30px}
+.mc-dot{position:absolute;left:0;top:0;width:9px;height:9px;border-radius:50%;background:var(--a)}
+.mc-lines{margin-left:16px;display:flex;flex-direction:column;gap:5px}
+.mc-src{margin:7px 0 0 14px;display:inline-flex;align-items:center;gap:4px;padding:2px 4px;color:var(--m)}
+.mc-fav{width:9px;height:9px;border-radius:50%;background:var(--bar);display:inline-block}
+.mc-acts{position:absolute;right:30px;top:62px;display:flex;gap:6px;color:var(--m);padding:2px}
+.mc-menu{position:absolute;left:12px;bottom:46px;width:150px;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.10);padding:4px}
+.mc-mi{display:flex;align-items:center;gap:6px;padding:4px 6px;color:var(--t)}
+.mc-mi svg{color:var(--m)}
+.mc-comp{position:absolute;left:10px;right:10px;bottom:9px;height:32px;background:var(--card);border:1px solid var(--line);border-radius:10px;display:flex;align-items:center;gap:7px;padding:0 7px;color:var(--m)}
+.mc-comp .ph{flex:1}
+.mc-plus{width:19px;height:19px;border-radius:50%;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;background:var(--tint);color:var(--at)}
+.mc-send{width:20px;height:20px;border-radius:7px;background:var(--a);color:#fff;display:flex;align-items:center;justify-content:center}
+.mc-ic{display:flex;align-items:center;justify-content:center;width:17px;height:17px}
+/* panel miniature */
+.mp-chat{position:absolute;left:0;top:0;bottom:0;width:36%;background:var(--page);border-right:1px solid var(--line);padding:10px 9px}
+.mp-chat .bar{margin-bottom:5px}
+.mp-card{margin:8px 0;background:var(--card);border:1px solid var(--line);border-radius:7px;padding:6px;display:flex;gap:6px;align-items:center}
+.mp-card .k{width:18px;height:18px;border-radius:5px;background:var(--el);display:flex;align-items:center;justify-content:center;color:var(--m)}
+.mp-card .pic{width:32px;height:22px;border-radius:4px;background:linear-gradient(160deg,var(--tint2),var(--el));flex:none}
+.mp-panel{position:absolute;left:36%;right:0;top:0;bottom:0;background:var(--card)}
+.mp-head{display:flex;align-items:center;gap:6px;height:28px;border-bottom:1px solid var(--line);padding:0 8px;color:var(--m)}
+.mp-head .crumb{display:flex;align-items:center;gap:2px}
+.mp-head .ttl{flex:1;color:var(--t);font-weight:600;padding-left:4px;border-left:1px solid var(--line)}
+.mp-head .ic{display:flex;padding:2px}
+.mp-body{position:absolute;left:14px;right:14px;top:40px;bottom:10px;padding:4px}
+.mp-body .bar{margin-bottom:6px}
+.mp-chg{border-left:2px solid var(--a);padding-left:6px;margin:8px 0 4px}
+.mp-pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin-top:4px;box-shadow:0 2px 6px rgba(0,0,0,.06)}
+.mp-pill span{padding:2px 7px;font-size:8.5px}
+.mp-pill span:first-child{background:var(--a);color:#fff}
+.rv-note{font-size:12.5px;color:#888;line-height:1.5;margin:12px 2px 26px!important}
+</style>
+
+<h2>Drawings that look like the real screens</h2>
+<p class="subtitle">Each section's picture is a small copy of the place where its features live: the real icons and the real button words, with the message text left as grey bars. Hover a row and its part of the picture lights up.</p>
+
+<div class="mockup">
+<div class="mockup-header">Layout C · realistic drawings</div>
+<div class="mockup-body" style="padding:14px">
+<div class="rv" id="rv">
+<div class="rv-page">
+  <div class="rv-top"><p class="rv-title">What AlfyAI can do</p>
+    <div class="rv-tog"><span>Drawing labels</span><button data-lang="en" class="on">EN</button><button data-lang="hu">HU</button><span style="margin-left:8px">Theme</span><button data-theme="light" class="on">Light</button><button data-theme="dark">Dark</button></div></div>
+
+  <div class="rv-band">
+    <div class="rv-left"><p class="rv-h">Ask</p><p class="rv-intro">Ask anything, in English or Hungarian. Alfy decides when to search, calculate or look something up.</p>
+      <div class="mini"><div class="mc-wrap">
+        <div class="mc-u"><span class="bar" style="width:86%"></span></div>
+        <div class="mc-reply"><span class="mc-dot"></span>
+          <div class="mc-lines"><span class="bar" style="width:92%"></span><span class="bar s" style="width:96%"></span><span class="bar s" style="width:70%"></span></div>
+          <span class="mc-src spot" data-spot="web"><b data-l="sources">Sources</b><span class="mc-fav"></span><span class="mc-fav"></span><span class="mc-fav"></span></span>
+        </div>
+        <div class="mc-acts spot" data-spot="steer"><svg viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg></div>
+        <div class="mc-menu">
+          <div class="mc-mi spot" data-spot="attach"><svg viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg><span data-l="attach">Attach file</span></div>
+          <div class="mc-mi spot" data-spot="library"><svg viewBox="0 0 24 24"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg><span data-l="library">From your Library</span></div>
+          <div class="mc-mi spot" data-spot="atlas"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><path d="M10.4 21.9a10 10 0 0 0 9.94-15.4"/><path d="M13.5 2.1a10 10 0 0 0-9.84 15.4"/></svg><span>Atlas</span></div>
+          <div class="mc-mi spot" data-spot="skills"><svg viewBox="0 0 24 24"><path d="M9.9 15.5A2 2 0 0 0 8.5 14l-6.1-1.6a.5.5 0 0 1 0-1L8.5 9.9A2 2 0 0 0 9.9 8.5l1.6-6.1a.5.5 0 0 1 1 0L14 8.5a2 2 0 0 0 1.5 1.4l6.1 1.6a.5.5 0 0 1 0 1L15.5 14a2 2 0 0 0-1.4 1.5l-1.6 6.1a.5.5 0 0 1-1 0z"/></svg><span data-l="skills">Skills</span></div>
+        </div>
+        <div class="mc-comp"><span class="mc-plus spot" data-spot="attach atlas library skills"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="ph"><span class="bar s" style="width:55%"></span></span>
+          <span class="mc-ic spot" data-spot="accounts"><svg viewBox="0 0 24 24"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg></span>
+          <span class="mc-ic spot" data-spot="ask"><svg viewBox="0 0 24 24"><path d="M12 5a3 3 0 1 0-6 .13 4 4 0 0 0-2.52 5.77 4 4 0 0 0 .55 6.59A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 6 .13 4 4 0 0 1 2.52 5.77 4 4 0 0 1-.55 6.59A4 4 0 1 1 12 18Z"/></svg></span>
+          <span class="mc-send"><svg viewBox="0 0 24 24"><path d="M14.5 21.7a.5.5 0 0 0 .94 0l6.5-19a.5.5 0 0 0-.64-.64l-19 6.5a.5.5 0 0 0 0 .94l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/></svg></span></div>
+      </div></div>
+      <p class="rv-hint">Hover "Atlas research", "Web and links" or "Steer a reply".</p>
+    </div>
+    <div class="rv-rows">
+      <div class="rv-r" data-spot="ask"><div class="rv-rt"><p class="rv-n">Ask anything</p><p class="rv-l">Pick a model and a style; switch Thinking on for harder questions.</p></div><span class="rv-show">Show me</span></div>
+      <div class="rv-r" data-spot="web"><div class="rv-rt"><p class="rv-n">Web and links</p><p class="rv-l">Fresh facts from the web, with the sources it used.</p></div><span class="rv-try">Try it</span></div>
+      <div class="rv-r" data-spot="attach"><div class="rv-rt"><p class="rv-n">Show it a picture or a file</p><p class="rv-l">Drop in a photo, a PDF or a screenshot and ask about it.</p></div><span class="rv-show">Show me</span></div>
+      <div class="rv-r" data-spot=""><div class="rv-rt"><p class="rv-n">Maps and travel</p><p class="rv-l">Routes, travel times and public transport, on a map.</p></div><span class="rv-try">Try it</span></div>
+      <div class="rv-r" data-spot="atlas"><div class="rv-rt"><p class="rv-n">Atlas research</p><p class="rv-l">A deep report with sources; a bell tells you when it is ready.</p></div><span class="rv-show">Show me</span></div>
+      <div class="rv-r" data-spot="steer"><div class="rv-rt"><p class="rv-n">Steer a reply</p><p class="rv-l">Edit, regenerate, fork, or add a follow-up while it is still answering.</p></div><span class="rv-show">Show me</span></div>
+      <div class="rv-r" data-spot=""><div class="rv-rt"><p class="rv-n">Alfy asks first <span class="rv-new">NEW</span></p><p class="rv-l">When a request could go two ways, Alfy asks with answers to click.</p></div><span class="rv-try">Try it</span></div>
+    </div>
+  </div>
+
+  <div class="rv-band">
+    <div class="rv-left"><p class="rv-h">Make</p><p class="rv-intro">Ask for something you will keep. It opens beside the chat and you change it together.</p>
+      <div class="mini">
+        <div class="mp-chat"><span class="bar s" style="width:90%"></span><span class="bar s" style="width:70%"></span>
+          <div class="mp-card spot" data-spot="docs"><span class="k"><svg viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></span><span class="bar" style="width:60%"></span></div>
+          <span class="bar s" style="width:84%"></span><span class="bar s" style="width:60%"></span>
+          <div class="mp-card spot" data-spot="pics"><span class="pic"></span><span class="bar" style="width:46%"></span></div>
+        </div>
+        <div class="mp-panel">
+          <div class="mp-head"><span class="crumb"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg><span data-l="crumb">This chat</span></span><span class="ttl"><span class="bar" style="width:70%;display:inline-block;vertical-align:middle"></span></span><span class="ic spot" data-spot="history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="ic spot" data-spot="files"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg></span><span class="ic"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span></div>
+          <div class="mp-body spot" data-spot="docs">
+            <span class="bar" style="width:55%;height:7px;margin-bottom:9px"></span>
+            <span class="bar s" style="width:96%"></span><span class="bar s" style="width:88%"></span>
+            <div class="mp-chg"><span class="bar" style="width:92%;background:var(--tint2)"></span><span class="bar" style="width:64%;background:var(--tint2)"></span>
+              <span class="mp-pill"><span data-l="keep">Keep</span><span data-l="undo">Undo</span></span></div>
+            <span class="bar s" style="width:80%"></span>
+          </div>
+        </div>
+      </div>
+      <p class="rv-hint">Hover "Documents", "Pictures", "Files" or "History".</p>
+    </div>
+    <div class="rv-rows">
+      <div class="rv-r" data-spot="docs"><div class="rv-rt"><p class="rv-n">Documents</p><p class="rv-l">Write and edit together; Alfy's changes wait for your Keep or Undo.</p></div><span class="rv-try">Try it</span></div>
+      <div class="rv-r" data-spot=""><div class="rv-rt"><p class="rv-n">Apps</p><p class="rv-l">Small working tools: a quiz, a calculator, a tracker.</p></div><span class="rv-try">Try it</span></div>
+      <div class="rv-r" data-spot=""><div class="rv-rt"><p class="rv-n">Canvases</p><p class="rv-l">A board of notes, charts, maps and photos.</p></div><span class="rv-try">Try it</span></div>
+      <div class="rv-r" data-spot="pics"><div class="rv-rt"><p class="rv-n">Pictures</p><p class="rv-l">Make a picture from words, or change one.</p></div><span class="rv-try">Try it</span></div>
+      <div class="rv-r" data-spot="files"><div class="rv-rt"><p class="rv-n">Files</p><p class="rv-l">PDF, Word, Excel, PowerPoint, ready to download.</p></div><span class="rv-try">Try it</span></div>
+      <div class="rv-r" data-spot="history"><div class="rv-rt"><p class="rv-n">History</p><p class="rv-l">Every version is kept. Compare and restore.</p></div><span class="rv-show">Show me</span></div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+</div>
+<p class="rv-note">The drawings would be built from the app's own pieces: the same icons and colours, and every word taken from the app's own dictionary. Switch the labels to HU or the theme to dark: nothing is redrawn and nothing is translated by hand. If a button's wording changes, the drawing changes with it. If a screen's layout changes a lot, its drawing has to be updated in the same change, which is cheap because it is code, not an image.</p>
+
+<script>
+(function(){
+  var root=document.getElementById('rv'); if(!root) return;
+  var HU={sources:'Források',attach:'Fájl csatolása',library:'A Könyvtáradból',skills:'Készségek',crumb:'Vissza',keep:'Megtartom',undo:'Visszavonom'};
+  var EN={sources:'Sources',attach:'Attach file',library:'From your Library',skills:'Skills',crumb:'This chat',keep:'Keep',undo:'Undo'};
+  root.querySelectorAll('.rv-tog button[data-lang]').forEach(function(b){b.addEventListener('click',function(){
+    var d=b.getAttribute('data-lang')==='hu'?HU:EN;
+    root.querySelectorAll('[data-l]').forEach(function(el){el.textContent=d[el.getAttribute('data-l')];});
+    root.querySelectorAll('.rv-tog button[data-lang]').forEach(function(x){x.classList.toggle('on',x===b);});
+  });});
+  root.querySelectorAll('.rv-tog button[data-theme]').forEach(function(b){b.addEventListener('click',function(){
+    root.classList.toggle('dark',b.getAttribute('data-theme')==='dark');
+    root.querySelectorAll('.rv-tog button[data-theme]').forEach(function(x){x.classList.toggle('on',x===b);});
+  });});
+  root.querySelectorAll('.rv-band').forEach(function(band){
+    band.querySelectorAll('.rv-r').forEach(function(row){
+      var key=row.getAttribute('data-spot');
+      row.addEventListener('mouseenter',function(){ if(!key) return;
+        band.querySelectorAll('.spot').forEach(function(s){ var ks=(s.getAttribute('data-spot')||'').split(' '); if(ks.indexOf(key)>-1) s.classList.add('lit'); });});
+      row.addEventListener('mouseleave',function(){ band.querySelectorAll('.spot.lit').forEach(function(s){s.classList.remove('lit');});});
+    });
+  });
+})();
+</script>
+
+</body></html>
