@@ -20,6 +20,12 @@ import {
 
 interface ImportOptions {
 	projectId?: string | null;
+	/**
+	 * The conversations to import, named as the export names them
+	 * (`exportedConversationId`). Without it every conversation of the export is
+	 * imported; an empty list is refused, never read as "all".
+	 */
+	conversationIds?: readonly string[];
 	onProgress?: (processed: number, total: number) => void;
 }
 
@@ -35,6 +41,13 @@ export class ChatGptImportProjectAccessError extends Error {
 	constructor(projectId: string) {
 		super(`Project "${projectId}" is not available for this user`);
 		this.name = "ChatGptImportProjectAccessError";
+	}
+}
+
+export class ChatGptImportNoSelectionError extends Error {
+	constructor() {
+		super("Select at least one conversation to import");
+		this.name = "ChatGptImportNoSelectionError";
 	}
 }
 
@@ -154,6 +167,9 @@ export async function importConversations(
 	zipBuffer: Buffer,
 	options: ImportOptions = {},
 ): Promise<ImportResult> {
+	if (options.conversationIds?.length === 0) {
+		throw new ChatGptImportNoSelectionError();
+	}
 	const projectId = await validateImportProjectId(userId, options.projectId);
 	// Throws ChatGptImportAlreadyRunningError while the person's last import runs.
 	const jobId = startImportRow(userId);
@@ -189,7 +205,9 @@ async function importIntoRow(
 
 	let parseResult: ParseResult;
 	try {
-		parseResult = await parseConversationsJson(zipBuffer);
+		parseResult = await parseConversationsJson(zipBuffer, {
+			conversationIds: options.conversationIds,
+		});
 	} catch (err) {
 		console.error("[CHATGPT_IMPORT] Failed to parse ZIP:", err);
 		failImportRow(

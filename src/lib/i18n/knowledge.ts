@@ -27,7 +27,13 @@ const knowledgeDict = {
 		"knowledge.date": "Date",
 		"knowledge.deleteConfirm": "Delete document?",
 		"knowledge.deleteDocument": "Delete Document",
+		"knowledge.deleteDocumentQuestion":
+			"Remove “{name}” from the Knowledge Base?",
+		"knowledge.deleteDocumentQuestionUnnamed":
+			"Remove this document from the Knowledge Base?",
 		"knowledge.deleteDocuments": "Delete Documents",
+		"knowledge.deleteDocumentsQuestion":
+			"Delete {count} selected {count, plural, one {document} other {documents}}? This cannot be undone.",
 		"knowledge.deleteSelected": "Delete Selected",
 		"knowledge.description":
 			"Persistent documents and a live memory view of what the system currently knows about you.",
@@ -530,6 +536,10 @@ const knowledgeDict = {
 		"memoryProfile.legendTitle": "Reading a row",
 		"memoryProfile.memorySettings": "Memory settings",
 		"memoryProfile.moreNewestFirst": "{count} more, newest first",
+		"memoryProfile.offAction": "Turn it on in Settings",
+		"memoryProfile.offBody":
+			"Alfy isn't learning from your chats and isn't using what's below. Your memories are kept.",
+		"memoryProfile.offTitle": "Memory is off",
 		"memoryProfile.remove": "Remove",
 		"memoryProfile.showAll": "Show all {total}",
 		"memoryProfile.showFewer": "Show fewer",
@@ -571,7 +581,13 @@ const knowledgeDict = {
 		"knowledge.date": "Dátum",
 		"knowledge.deleteConfirm": "Biztosan törlöd a dokumentumot?",
 		"knowledge.deleteDocument": "Dokumentum törlése",
+		"knowledge.deleteDocumentQuestion":
+			"Eltávolítod a(z) „{name}” dokumentumot a Tudásbázisból?",
+		"knowledge.deleteDocumentQuestionUnnamed":
+			"Eltávolítod ezt a dokumentumot a Tudásbázisból?",
 		"knowledge.deleteDocuments": "Dokumentumok törlése",
+		"knowledge.deleteDocumentsQuestion":
+			"Törlöd a kijelölt {count} dokumentumot? Ez nem vonható vissza.",
 		"knowledge.deleteSelected": "Kijelöltek törlése",
 		"knowledge.description":
 			"Tartós dokumentumok és egy élő memórianézet arról, amit a rendszer jelenleg tud rólad.",
@@ -1019,6 +1035,10 @@ const knowledgeDict = {
 		"memoryProfile.legendTitle": "Egy sor olvasása",
 		"memoryProfile.memorySettings": "Memóriabeállítások",
 		"memoryProfile.moreNewestFirst": "még {count}, a legújabbak elöl",
+		"memoryProfile.offAction": "Bekapcsolás a beállításokban",
+		"memoryProfile.offBody":
+			"Az Alfy nem tanul a beszélgetéseidből, és nem használja az alább láthatókat. Az emlékeid megmaradnak.",
+		"memoryProfile.offTitle": "A memória ki van kapcsolva",
 		"memoryProfile.remove": "Törlés",
 		"memoryProfile.showAll": "Mind a(z) {total} megjelenítése",
 		"memoryProfile.showFewer": "Kevesebb megjelenítése",

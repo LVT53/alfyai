@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { exportedConversationId } from "$lib/shared/chatgpt-export";
 
 export interface ChatGPTConversation {
 	id: string;
@@ -360,6 +361,16 @@ export interface ParseEntryError {
 	reason: string;
 }
 
+export interface ParseOptions {
+	/**
+	 * Read only these conversations, named as the export names them
+	 * (`exportedConversationId`); every other entry is skipped without a word,
+	 * unreadable or not, and one named here that the export does not hold is an
+	 * error of its own. Without it every conversation is read.
+	 */
+	conversationIds?: readonly string[];
+}
+
 /**
  * Parse conversations from a ChatGPT export ZIP buffer.
  *
@@ -368,6 +379,7 @@ export interface ParseEntryError {
  */
 export async function parseConversationsJson(
 	zipBuffer: Buffer,
+	options: ParseOptions = {},
 ): Promise<ParseResult> {
 	const conversations: ParsedConversation[] = [];
 	const errors: ParseEntryError[] = [];
@@ -410,7 +422,18 @@ export async function parseConversationsJson(
 		return { conversations, errors };
 	}
 
+	const wanted = options.conversationIds
+		? new Set(options.conversationIds)
+		: null;
+	const found = new Set<string>();
+
 	for (const entry of raw) {
+		if (wanted) {
+			const id = exportedConversationId(entry);
+			if (id === null || !wanted.has(id)) continue;
+			found.add(id);
+		}
+
 		try {
 			const parsed = parseSingleConversation(entry);
 			if (parsed) {
@@ -429,6 +452,16 @@ export async function parseConversationsJson(
 				rawTitle: entry.title,
 				reason: `Unexpected error: ${err instanceof Error ? err.message : "Unknown error"}`,
 			});
+		}
+	}
+
+	if (wanted) {
+		for (const id of wanted) {
+			if (!found.has(id)) {
+				errors.push({
+					reason: `Conversation "${id}" was not found in this export.`,
+				});
+			}
 		}
 	}
 
@@ -542,7 +575,7 @@ function parseSingleConversation(
 	const branches = detectBranches(mapping, entry.current_node);
 
 	return {
-		id: entry.conversation_id || entry.id,
+		id: exportedConversationId(entry) ?? "",
 		title: entry.title || "Untitled",
 		createdAt: new Date((entry.create_time || 0) * 1000),
 		updatedAt: new Date((entry.update_time || 0) * 1000),

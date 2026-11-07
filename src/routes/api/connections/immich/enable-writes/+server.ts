@@ -10,10 +10,11 @@ import { resolveConnectionsForCapability } from "$lib/server/services/connection
 import type { RequestHandler } from "./$types";
 
 // POST /api/connections/immich/enable-writes — Issue 6.4's write-key
-// provisioning route. Body is just `{ password }`: this route locates the
-// caller's Immich connection itself (same "photos" capability resolution the
-// photos chat tool uses) rather than requiring the client to already know a
-// connection id. Re-authenticates against the user's own Immich server (the
+// provisioning route. Body is `{ password, connectionId? }`. With a
+// `connectionId` (the Settings dialog is for one connection, so it names it) the
+// key is made for that connection; without one the route locates the caller's
+// Immich connection itself (same "photos" capability resolution the photos chat
+// tool uses). Re-authenticates against the user's own Immich server (the
 // password is used only in memory, inside immichEnableWrites, and is never
 // persisted or logged) to mint a SEPARATE write-scoped API key — the
 // existing read-only key from 5.5's connect flow is left completely
@@ -22,7 +23,7 @@ import type { RequestHandler } from "./$types";
 export const POST: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
 
-	let body: { password?: unknown };
+	let body: { password?: unknown; connectionId?: unknown };
 	try {
 		body = await event.request.json();
 	} catch {
@@ -34,19 +35,33 @@ export const POST: RequestHandler = async (event) => {
 		return createJsonErrorResponse("password is required", 400);
 	}
 
-	const connections = await resolveConnectionsForCapability(user.id, "photos");
-	const connection = connections.find((c) => c.provider === "immich");
-	if (!connection) {
-		return createJsonErrorResponse(
-			"No Immich connection found. Connect your Immich account in Settings first.",
-			404,
+	if (
+		body.connectionId !== undefined &&
+		typeof body.connectionId !== "string"
+	) {
+		return createJsonErrorResponse("connectionId must be a string", 400);
+	}
+
+	let connectionId = body.connectionId || "";
+	if (!connectionId) {
+		const connections = await resolveConnectionsForCapability(
+			user.id,
+			"photos",
 		);
+		const connection = connections.find((c) => c.provider === "immich");
+		if (!connection) {
+			return createJsonErrorResponse(
+				"No Immich connection found. Connect your Immich account in Settings first.",
+				404,
+			);
+		}
+		connectionId = connection.id;
 	}
 
 	try {
 		const result = await immichEnableWrites({
 			userId: user.id,
-			connectionId: connection.id,
+			connectionId,
 			password,
 		});
 		return json(result);

@@ -1073,3 +1073,120 @@ describe("parseConversationsJson", () => {
 		expect(result.conversations[0].messages[1].content).toBe("Assistant reply");
 	});
 });
+
+// ─── parseConversationsJson with a selection ─────────────────────────
+
+describe("parseConversationsJson with a selection", () => {
+	// The default fixture gives every conversation the same conversation_id, and
+	// the export names a conversation by it, so a test that picks conversations
+	// has to give each its own.
+	function chat(
+		id: string,
+		title: string,
+		overrides: Partial<Parameters<typeof makeConversation>[0]> = {},
+	) {
+		return makeConversation({ id, conversation_id: id, title, ...overrides });
+	}
+
+	const unreadable = {
+		mapping: {} as Record<string, ChatGPTMappingNode>,
+	};
+
+	it("reads only the conversations the selection names", async () => {
+		const buffer = await makeZipWithConversations([
+			chat("a", "One"),
+			chat("b", "Two"),
+			chat("c", "Three"),
+		]);
+
+		const result = await parseConversationsJson(buffer, {
+			conversationIds: ["a", "c"],
+		});
+
+		expect(result.conversations.map((c) => c.title)).toEqual(["One", "Three"]);
+		expect(result.errors).toEqual([]);
+	});
+
+	it("names a conversation by id when its conversation_id is empty", async () => {
+		const buffer = await makeZipWithConversations([
+			chat("a", "One"),
+			makeConversation({ id: "b", conversation_id: "", title: "Two" }),
+		]);
+
+		const result = await parseConversationsJson(buffer, {
+			conversationIds: ["b"],
+		});
+
+		expect(result.conversations.map((c) => c.title)).toEqual(["Two"]);
+	});
+
+	it("says nothing of a conversation it was not asked for, even one it could not read", async () => {
+		const buffer = await makeZipWithConversations([
+			chat("a", "Fine"),
+			chat("b", "Unreadable", unreadable),
+		]);
+
+		const result = await parseConversationsJson(buffer, {
+			conversationIds: ["a"],
+		});
+
+		expect(result.conversations.map((c) => c.title)).toEqual(["Fine"]);
+		expect(result.errors).toEqual([]);
+	});
+
+	it("still reports one it was asked for and could not read", async () => {
+		const buffer = await makeZipWithConversations([
+			chat("a", "Fine"),
+			chat("b", "Unreadable", unreadable),
+		]);
+
+		const result = await parseConversationsJson(buffer, {
+			conversationIds: ["a", "b"],
+		});
+
+		expect(result.conversations.map((c) => c.title)).toEqual(["Fine"]);
+		expect(result.errors).toHaveLength(1);
+		expect(result.errors[0]).toMatchObject({
+			rawId: "b",
+			rawTitle: "Unreadable",
+		});
+	});
+
+	it("reports a conversation it was asked for that the export does not hold", async () => {
+		const buffer = await makeZipWithConversations([chat("a", "One")]);
+
+		const result = await parseConversationsJson(buffer, {
+			conversationIds: ["a", "not-in-the-export"],
+		});
+
+		expect(result.conversations.map((c) => c.title)).toEqual(["One"]);
+		expect(result.errors).toEqual([
+			{ reason: expect.stringContaining("not-in-the-export") },
+		]);
+	});
+
+	it("still reports a problem of the file itself", async () => {
+		const result = await parseConversationsJson(Buffer.from("not a zip file"), {
+			conversationIds: ["a"],
+		});
+
+		expect(result.conversations).toHaveLength(0);
+		expect(result.errors).toHaveLength(1);
+		expect(result.errors[0].reason).toContain("Failed to read ZIP");
+	});
+
+	it("leaves out an entry that carries no id, since a selection cannot name it", async () => {
+		const nameless = chat("x", "Nameless");
+		(nameless as unknown as { id?: string }).id = undefined;
+		(nameless as unknown as { conversation_id?: string }).conversation_id =
+			undefined;
+		const buffer = await makeZipWithConversations([chat("a", "One"), nameless]);
+
+		const result = await parseConversationsJson(buffer, {
+			conversationIds: ["a"],
+		});
+
+		expect(result.conversations.map((c) => c.title)).toEqual(["One"]);
+		expect(result.errors).toEqual([]);
+	});
+});

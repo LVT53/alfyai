@@ -31,6 +31,7 @@ import {
 } from "$lib/client/api/admin";
 import {
 	disconnectConnection,
+	enableImmichWrites,
 	fetchConnections,
 	fetchLocality,
 	recheckConnection,
@@ -875,6 +876,15 @@ async function toggleConnectionAllowWrites(id: string, next: boolean) {
 	}
 }
 
+// Immich: the key it connected with can never write, so "Let Alfy write" first
+// makes a second one from the account's password. The password goes to the
+// server for that one call and is not kept here. Rejects on failure so the
+// dialog can say why; switching writes on is the caller's next step.
+async function enableConnectionWriteKey(id: string, password: string) {
+	const connection = await enableImmichWrites(id, password);
+	patchConnectionLocal(id, { hasWriteSecret: connection.hasWriteSecret });
+}
+
 async function toggleConnectionDefaultOn(id: string, next: boolean) {
 	const previous = connections.find((conn) => conn.id === id)?.defaultOn;
 	if (previous === undefined) return;
@@ -1299,6 +1309,7 @@ $effect(() => {
 				onRetryLoad={loadConnections}
 				onToggleCapability={toggleConnectionCapability}
 				onToggleAllowWrites={toggleConnectionAllowWrites}
+				onEnableImmichWrites={enableConnectionWriteKey}
 				onToggleDefaultOn={toggleConnectionDefaultOn}
 				onUpdateWriteAllowlist={updateConnectionWriteAllowlist}
 				onUpdateOwnTracksHome={updateConnectionOwnTracksHome}

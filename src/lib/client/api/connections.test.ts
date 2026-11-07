@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	enableImmichWrites,
 	fetchActiveCapabilities,
 	fetchNextcloudFolders,
 	fetchOwnTracksDevices,
@@ -220,6 +221,43 @@ describe("startImmichConnect", () => {
 			}),
 		);
 		expect(result).toEqual({ connection });
+	});
+});
+
+describe("enableImmichWrites", () => {
+	it("posts the connection and the password, and returns the connection with its write key", async () => {
+		const connection = {
+			id: "conn-1",
+			provider: "immich",
+			hasWriteSecret: true,
+		};
+		const fetchMock = vi.fn(async () => jsonResponse({ connection }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await enableImmichWrites("conn-1", "hunter2");
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/connections/immich/enable-writes",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({ connectionId: "conn-1", password: "hunter2" }),
+			}),
+		);
+		expect(result).toEqual(connection);
+	});
+
+	it("rejects with the server's refusal, for a password Immich turns away", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				jsonResponse({ error: "Invalid Immich credentials" }, 401),
+			),
+		);
+
+		await expect(enableImmichWrites("conn-1", "wrong")).rejects.toMatchObject({
+			status: 401,
+			message: "Invalid Immich credentials",
+		});
 	});
 });
 

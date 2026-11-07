@@ -2,11 +2,16 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { importChatGPTData } from "$lib/client/api/chatgpt-import";
 import { ApiError } from "$lib/client/api/http";
+import { uiLanguage } from "$lib/stores/settings";
 import ImportChatGPTModal from "./ImportChatGPTModal.svelte";
 
-const mockConversations = [
+// A real export names each conversation twice, `conversation_id` and `id`. The
+// first has both; the second only `id`, which the server falls back to.
+const mockConversations: Record<string, unknown>[] = [
 	{
 		title: "Chat One",
+		conversation_id: "conv-1",
+		id: "internal-1",
 		create_time: 1700000000,
 		update_time: 1700000100,
 		mapping: {
@@ -16,6 +21,7 @@ const mockConversations = [
 	},
 	{
 		title: "Chat Two",
+		id: "conv-2",
 		create_time: 1700001000,
 		update_time: 1700001100,
 		mapping: {
@@ -24,6 +30,9 @@ const mockConversations = [
 	},
 ];
 
+// What the mocked ZIP holds; a test that needs another export assigns it.
+let exportedConversations: Record<string, unknown>[] = mockConversations;
+
 vi.mock("jszip", () => {
 	return {
 		default: {
@@ -31,7 +40,8 @@ vi.mock("jszip", () => {
 				file: (name: string) =>
 					name === "conversations.json"
 						? {
-								async: () => Promise.resolve(JSON.stringify(mockConversations)),
+								async: () =>
+									Promise.resolve(JSON.stringify(exportedConversations)),
 							}
 						: null,
 			}),
@@ -54,6 +64,8 @@ function createZipFile(name = "export.zip"): File {
 describe("ImportChatGPTModal", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		exportedConversations = mockConversations;
+		uiLanguage.set("en");
 	});
 
 	it("renders upload state when show is true", () => {
@@ -273,6 +285,262 @@ describe("ImportChatGPTModal", () => {
 			expect(
 				screen.getByText("Import ChatGPT Conversations"),
 			).toBeInTheDocument();
+		});
+	});
+	describe("which conversations it imports", () => {
+		async function openPreview(
+			props: { projects?: unknown[]; dropLabel?: string } = {},
+		) {
+			render(ImportChatGPTModal, {
+				props: {
+					show: true,
+					onClose: vi.fn(),
+					projects: (props.projects ?? []) as never[],
+				},
+			});
+			await fireEvent.drop(
+				screen.getByRole("button", {
+					name: props.dropLabel ?? "Drop ZIP file here",
+				}),
+				{ dataTransfer: { files: [createZipFile()] } },
+			);
+			await screen.findByText("Chat One");
+		}
+
+		const aProject = {
+			id: "proj-1",
+			name: "My Project",
+			sortOrder: 0,
+			hasInstructions: false,
+			createdAt: 1,
+			updatedAt: 2,
+		};
+
+		it("sends the conversations that are ticked, named as the export names them", async () => {
+			await openPreview();
+
+			await fireEvent.click(screen.getByRole("button", { name: "Next" }));
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Import 2 selected" }),
+			);
+
+			await waitFor(() => expect(importChatGPTData).toHaveBeenCalledTimes(1));
+			// conversation_id where the export has one, else its id.
+			expect(importChatGPTData).toHaveBeenCalledWith(
+				expect.any(File),
+				["conv-1", "conv-2"],
+				null,
+			);
+		});
+
+		it("leaves out the conversation that was unticked", async () => {
+			await openPreview();
+
+			await fireEvent.click(screen.getByLabelText(/Chat Two/));
+			await fireEvent.click(screen.getByRole("button", { name: "Next" }));
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Import 1 selected" }),
+			);
+
+			await waitFor(() => expect(importChatGPTData).toHaveBeenCalledTimes(1));
+			expect(importChatGPTData).toHaveBeenCalledWith(
+				expect.any(File),
+				["conv-1"],
+				null,
+			);
+		});
+
+		it("keeps an unticked conversation out even when a search hides it", async () => {
+			await openPreview();
+
+			await fireEvent.click(screen.getByLabelText(/Chat One/));
+			await fireEvent.input(
+				screen.getByPlaceholderText("Search conversations..."),
+				{
+					target: { value: "Two" },
+				},
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Next" }));
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Import 1 selected" }),
+			);
+
+			await waitFor(() => expect(importChatGPTData).toHaveBeenCalledTimes(1));
+			expect(importChatGPTData).toHaveBeenCalledWith(
+				expect.any(File),
+				["conv-2"],
+				null,
+			);
+		});
+
+		it("sends the project it was given along with the selection", async () => {
+			await openPreview({ projects: [aProject] });
+
+			await fireEvent.click(screen.getByRole("button", { name: "Next" }));
+			await fireEvent.change(await screen.findByLabelText("Project folder"), {
+				target: { value: "proj-1" },
+			});
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Import 2 selected" }),
+			);
+
+			await waitFor(() => expect(importChatGPTData).toHaveBeenCalledTimes(1));
+			expect(importChatGPTData).toHaveBeenCalledWith(
+				expect.any(File),
+				["conv-1", "conv-2"],
+				"proj-1",
+			);
+		});
+
+		it("cannot go on, or import, while nothing is ticked", async () => {
+			await openPreview();
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Deselect all" }),
+			);
+
+			expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+			expect(importChatGPTData).not.toHaveBeenCalled();
+		});
+
+		it("leaves a conversation out of the list when the export gives it no id", async () => {
+			exportedConversations = [
+				...mockConversations,
+				{
+					title: "Nameless",
+					create_time: 1700002000,
+					update_time: 1700002100,
+					mapping: {
+						"msg-9": { message: { id: "msg-9" }, parent: null, children: [] },
+					},
+				},
+			];
+
+			await openPreview();
+
+			expect(screen.queryByText("Nameless")).not.toBeInTheDocument();
+			expect(screen.getByText(/conversations found/)).toHaveTextContent(
+				"2 conversations found",
+			);
+		});
+	});
+
+	describe("what it says", () => {
+		async function reachTheConfigStep(labels: { drop: string; next: string }) {
+			render(ImportChatGPTModal, {
+				props: { show: true, onClose: vi.fn(), projects: [] },
+			});
+			await fireEvent.drop(screen.getByRole("button", { name: labels.drop }), {
+				dataTransfer: { files: [createZipFile()] },
+			});
+			await screen.findByText("Chat One");
+			await fireEvent.click(screen.getByRole("button", { name: labels.next }));
+		}
+
+		const english = { drop: "Drop ZIP file here", next: "Next" };
+		const hungarian = { drop: "Ejtse ide a ZIP fájlt", next: "Tovább" };
+
+		it("counts what was found and what is ticked in the preview", async () => {
+			render(ImportChatGPTModal, {
+				props: { show: true, onClose: vi.fn(), projects: [] },
+			});
+			await fireEvent.drop(screen.getByRole("button", { name: english.drop }), {
+				dataTransfer: { files: [createZipFile()] },
+			});
+			await screen.findByText("Chat One");
+
+			const line = screen.getByText(/conversations found/);
+			expect(line).toHaveTextContent("2 conversations found · 2 selected");
+
+			await fireEvent.click(screen.getByLabelText(/Chat Two/));
+			expect(line).toHaveTextContent("2 conversations found · 1 selected");
+		});
+
+		it("says how many conversations will be imported on the configuration step", async () => {
+			await reachTheConfigStep(english);
+
+			expect(
+				await screen.findByText("2 conversations will be imported"),
+			).toBeInTheDocument();
+			expect(
+				screen.queryByText(/messages conversations/),
+			).not.toBeInTheDocument();
+		});
+
+		it("says 'conversation' for one", async () => {
+			exportedConversations = [mockConversations[0]];
+			vi.mocked(importChatGPTData).mockResolvedValueOnce({
+				jobId: "job-1",
+				conversationIds: ["conv-1"],
+				errors: [],
+			});
+			await reachTheConfigStep(english);
+
+			expect(
+				await screen.findByText("1 conversation will be imported"),
+			).toBeInTheDocument();
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Import 1 selected" }),
+			);
+
+			expect(
+				await screen.findByText("1 conversation imported successfully."),
+			).toBeInTheDocument();
+		});
+
+		it("says how many conversations were imported, and how many errors there were", async () => {
+			vi.mocked(importChatGPTData).mockResolvedValueOnce({
+				jobId: "job-1",
+				conversationIds: ["conv-1", "conv-2"],
+				errors: [{ reason: "a" }, { reason: "b" }],
+			});
+			await reachTheConfigStep(english);
+
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Import 2 selected" }),
+			);
+
+			expect(
+				await screen.findByText("2 conversations imported successfully."),
+			).toBeInTheDocument();
+			expect(screen.getByText("2 errors occurred.")).toBeInTheDocument();
+		});
+
+		it("says all of it in Hungarian for a Hungarian reader", async () => {
+			uiLanguage.set("hu");
+			vi.mocked(importChatGPTData).mockResolvedValueOnce({
+				jobId: "job-1",
+				conversationIds: ["conv-1", "conv-2"],
+				errors: [{ reason: "a" }],
+			});
+			render(ImportChatGPTModal, {
+				props: { show: true, onClose: vi.fn(), projects: [] },
+			});
+			await fireEvent.drop(
+				screen.getByRole("button", { name: hungarian.drop }),
+				{ dataTransfer: { files: [createZipFile()] } },
+			);
+			await screen.findByText("Chat One");
+
+			expect(screen.getByText(/beszélgetés található/)).toHaveTextContent(
+				"2 beszélgetés található · 2 kijelölve",
+			);
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: hungarian.next }),
+			);
+			expect(
+				await screen.findByText("2 beszélgetés lesz importálva"),
+			).toBeInTheDocument();
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "2 kijelölt importálása" }),
+			);
+			expect(
+				await screen.findByText("2 beszélgetés sikeresen importálva."),
+			).toBeInTheDocument();
+			expect(screen.getByText("1 hiba történt.")).toBeInTheDocument();
 		});
 	});
 });

@@ -18,6 +18,7 @@ import { fetchMemoryProfileItemDetail } from "$lib/client/api/knowledge";
 import {
 	Archive,
 	Check,
+	CirclePause,
 	EyeOff,
 	HelpCircle,
 	Pencil,
@@ -72,6 +73,7 @@ const categoryDefinitions: CategoryDefinition[] = [
 
 let {
 	profile,
+	memoryEnabled = null,
 	memoryLoading,
 	memoryLoaded,
 	memoryLoadError,
@@ -88,6 +90,8 @@ let {
 	onRetire = undefined,
 }: {
 	profile: MemoryProfilePublicPayload | null;
+	/** The person's Memory switch in Settings; `null` until it is known. */
+	memoryEnabled?: boolean | null;
 	memoryLoading: boolean;
 	memoryLoaded: boolean;
 	memoryLoadError: string;
@@ -408,6 +412,25 @@ const reviewOverflowFocusTrap = focusTrap({
 	</section>
 {:else}
 	<section class="memory-profile-section" aria-labelledby="memory-profile-title">
+		<!-- Memory off pauses all learning and all use of the profile; what is kept
+		     stays listed below, since this is where a person looks at it. -->
+		{#if memoryEnabled === false}
+			<div class="memory-off-notice" data-testid="memory-off-notice">
+				<CirclePause
+					class="memory-off-icon"
+					size={16}
+					strokeWidth={2}
+					aria-hidden="true"
+				/>
+				<div class="memory-off-text">
+					<p class="memory-off-title">{$t("memoryProfile.offTitle")}</p>
+					<p class="memory-off-body">{$t("memoryProfile.offBody")}</p>
+				</div>
+				<a class="memory-off-link" href="/settings?section=memory">
+					{$t("memoryProfile.offAction")}
+				</a>
+			</div>
+		{/if}
 		<div class="memory-profile-head">
 			<h2 id="memory-profile-title" class="memory-profile-eyebrow">
 				{$t("memoryProfile.eyebrow")}
@@ -791,6 +814,73 @@ const reviewOverflowFocusTrap = focusTrap({
 	   on it (the 1.4rem active chip, which the processing pill matches). The
 	   pill can therefore appear and disappear without the head growing a
 	   second row and shunting every card below it down. */
+	.memory-off-notice {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		gap: 0.5rem 0.75rem;
+		margin-bottom: 0.9rem;
+		padding: 0.7rem 0.85rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-elevated);
+	}
+
+	.memory-off-notice :global(.memory-off-icon) {
+		flex: 0 0 auto;
+		margin-top: 0.1rem;
+		color: var(--text-muted);
+	}
+
+	.memory-off-text {
+		flex: 1 1 14rem;
+		min-width: 0;
+	}
+
+	.memory-off-title {
+		margin: 0;
+		font-family: var(--font-sans);
+		font-size: 0.8125rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.memory-off-body {
+		margin: 0.15rem 0 0;
+		font-family: var(--font-sans);
+		font-size: 0.75rem;
+		line-height: 1.5;
+		color: var(--text-secondary);
+	}
+
+	.memory-off-link {
+		flex: 0 0 auto;
+		align-self: center;
+		font-family: var(--font-sans);
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: var(--accent);
+		text-decoration: none;
+	}
+
+	.memory-off-link:hover {
+		text-decoration: underline;
+	}
+
+	.memory-off-link:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+		border-radius: var(--radius-sm);
+	}
+
+	@media (max-width: 767px) {
+		.memory-off-link {
+			display: inline-flex;
+			align-items: center;
+			min-height: 2.75rem;
+		}
+	}
+
 	.memory-profile-head {
 		display: flex;
 		flex-wrap: nowrap;

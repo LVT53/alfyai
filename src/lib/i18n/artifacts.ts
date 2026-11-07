@@ -45,7 +45,6 @@ const artifactsDict = {
 		"artifacts.panel.list": "Show list",
 		"artifacts.panel.back": "Back to the item",
 		"artifacts.panel.empty": "Nothing made here yet.",
-		"artifacts.panel.history": "History",
 		// The panel landmark's own name while an item is open: what it shows, not
 		// one generic name for every item (rd/review-2-5.md:276-279).
 		"artifacts.panel.landmark": "{title}, {kind}",
@@ -183,8 +182,6 @@ const artifactsDict = {
 		"artifacts.error.tooLarge": "This item is too large to save.",
 		"artifacts.action.retry": "Try again",
 		"artifacts.action.dismiss": "Dismiss",
-		// The history button's title until the first kind with history lands.
-		"artifacts.history.comingWithDocument": "History arrives with documents.",
 
 		// The App kind (Slice 2). "Alkalmazás"/"App" name the kind through
 		// artifacts.type.app above; everything below is the App body's own
@@ -1184,7 +1181,6 @@ const artifactsDict = {
 		"artifacts.panel.list": "Lista megjelenítése",
 		"artifacts.panel.back": "Vissza az elemhez",
 		"artifacts.panel.empty": "Itt még nem készült semmi.",
-		"artifacts.panel.history": "Előzmények",
 		"artifacts.panel.landmark": "{title}, {kind}",
 		"artifacts.panel.pendingReview": "{count} módosítás vár rád",
 		"artifacts.panel.reviewed": "Átnézve",
@@ -1276,8 +1272,6 @@ const artifactsDict = {
 		"artifacts.error.tooLarge": "Ez az elem túl nagy ahhoz, hogy elmentsük.",
 		"artifacts.action.retry": "Újrapróbálom",
 		"artifacts.action.dismiss": "Elvetés",
-		"artifacts.history.comingWithDocument":
-			"Az előzmények a dokumentumokkal érkeznek.",
 
 		"artifacts.app.cardSubtitle": "Alkalmazás",
 		"artifacts.app.tab.preview": "Előnézet",

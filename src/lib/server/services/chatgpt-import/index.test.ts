@@ -538,6 +538,80 @@ describe("importConversations", () => {
 		expect(startImportedSummaryDrain).not.toHaveBeenCalled();
 	});
 
+	describe("the conversations the person ticked", () => {
+		// The selection is the parser's to apply, so these read a real export: a
+		// mocked parser would only show that the option was handed on.
+		async function useTheRealParser() {
+			const actual =
+				await vi.importActual<typeof import("./parser")>("./parser");
+			const { parseConversationsJson } = await import("./parser");
+			vi.mocked(parseConversationsJson).mockImplementation(
+				actual.parseConversationsJson,
+			);
+		}
+
+		async function exportOf(...titles: string[]) {
+			const { makeConversation, makeZipWithConversations } = await import(
+				"./parser.test-helpers"
+			);
+			return makeZipWithConversations(
+				titles.map((title) =>
+					makeConversation({ id: title, conversation_id: title, title }),
+				),
+			);
+		}
+
+		it("imports only the conversations the selection names", async () => {
+			harness.seedUser();
+			await useTheRealParser();
+			const zip = await exportOf("Keep one", "Leave out", "Keep two");
+			const { importConversations } = await import("./index");
+
+			const result = await importConversations("test-user", zip, {
+				conversationIds: ["Keep one", "Keep two"],
+			});
+
+			expect(result.errors).toEqual([]);
+			expect(
+				result.conversationIds.map((id) => harness.readConversation(id)?.title),
+			).toEqual(["Keep one", "Keep two"]);
+			expect(harness.countConversations()).toBe(2);
+			expect(harness.readImportJob(result.jobId)).toMatchObject({
+				status: "completed",
+				totalConversations: 2,
+				processedConversations: 2,
+			});
+		});
+
+		it("imports every conversation of the export when no selection is given", async () => {
+			harness.seedUser();
+			await useTheRealParser();
+			const zip = await exportOf("One", "Two", "Three");
+			const { importConversations } = await import("./index");
+
+			const result = await importConversations("test-user", zip);
+
+			expect(result.conversationIds).toHaveLength(3);
+		});
+
+		it("refuses an empty selection, before it reads the export or takes the person's import row", async () => {
+			harness.seedUser();
+			const { parseConversationsJson } = await import("./parser");
+			const { ChatGptImportNoSelectionError, importConversations } =
+				await import("./index");
+
+			await expect(
+				importConversations("test-user", Buffer.from("fake-zip"), {
+					conversationIds: [],
+				}),
+			).rejects.toBeInstanceOf(ChatGptImportNoSelectionError);
+
+			expect(parseConversationsJson).not.toHaveBeenCalled();
+			expect(harness.readImportJobsForUser()).toHaveLength(0);
+			expect(harness.countConversations()).toBe(0);
+		});
+	});
+
 	describe("one import per person at a time", () => {
 		it("refuses a second import while the first is still reading its export", async () => {
 			harness.seedUser();

@@ -246,6 +246,24 @@ export async function startImmichConnect(
 	);
 }
 
+// POST /api/connections/immich/enable-writes —
+// src/routes/api/connections/immich/enable-writes/+server.ts. Makes the
+// write-scoped key one Immich connection writes with (the key it connected with
+// can never write) from the account's password, which the server uses once and
+// does not keep. It does not switch writes on: that stays the person's own
+// switch, so a caller does that next with updateConnection.
+export async function enableImmichWrites(
+	connectionId: string,
+	password: string,
+): Promise<ConnectionPublic> {
+	const { connection } = await postJson<{ connection: ConnectionPublic }>(
+		"/api/connections/immich/enable-writes",
+		{ connectionId, password },
+		"Failed to create the Immich write key",
+	);
+	return connection;
+}
+
 // POST /api/connections/plex/start — src/routes/api/connections/plex/start/+server.ts
 export async function startPlexConnect(
 	params: {

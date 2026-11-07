@@ -103,6 +103,31 @@ describe("POST /api/connections/immich/enable-writes", () => {
 		});
 	});
 
+	it("provisions the key for the connection the body names, without looking one up by capability", async () => {
+		// The browser's dialog is for one connection, so the route must not pick
+		// another Immich account of the same person.
+		const response = await POST(
+			makeEvent({ body: { password: "s3cret", connectionId: "conn-second" } }),
+		);
+
+		expect(response.status).toBe(200);
+		expect(mockImmichEnableWrites).toHaveBeenCalledWith({
+			userId: "owner-user",
+			connectionId: "conn-second",
+			password: "s3cret",
+		});
+		expect(mockResolveConnectionsForCapability).not.toHaveBeenCalled();
+	});
+
+	it("returns 400 when connectionId is not a string", async () => {
+		const response = await POST(
+			makeEvent({ body: { password: "s3cret", connectionId: 7 } }),
+		);
+
+		expect(response.status).toBe(400);
+		expect(mockImmichEnableWrites).not.toHaveBeenCalled();
+	});
+
 	it("returns 401 for anonymous callers", async () => {
 		await expect(POST(makeEvent({ userId: null }))).rejects.toMatchObject({
 			status: 401,

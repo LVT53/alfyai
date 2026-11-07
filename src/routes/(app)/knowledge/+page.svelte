@@ -126,6 +126,11 @@ let memoryTimelineReports = $state<MemoryTimelineReport[]>([]);
 let memoryProcessing = $state<
 	KnowledgeMemoryOverviewPayload["processing"] | null
 >(null);
+// Whether the person has memory switched on in Settings. The page is loaded
+// knowing (`data.memoryEnabled`, so the Memory tab can say "off" in its first
+// paint); the overview, read live each time the profile loads, has the last word.
+let memoryEnabledLive = $state<boolean | null>(null);
+const memoryEnabled = $derived(memoryEnabledLive ?? data.memoryEnabled ?? null);
 let lastMemoryProfileTabState = $state<KnowledgeTab | null>(null);
 let openMemoryReviewCount = $derived(memoryProfile?.review.openCount ?? 0);
 // Guards the one-time scroll-to-review-section handoff from the home
@@ -816,7 +821,9 @@ async function loadMemoryProfile(force = false) {
 
 async function refreshMemoryOverview() {
 	try {
-		memoryProcessing = (await fetchKnowledgeMemoryOverview()).processing;
+		const overview = await fetchKnowledgeMemoryOverview();
+		memoryProcessing = overview.processing;
+		memoryEnabledLive = overview.memoryEnabled;
 	} catch (error) {
 		console.warn("[KNOWLEDGE_MEMORY] Failed to load memory overview", error);
 	}
@@ -1084,6 +1091,7 @@ $effect(() => {
 				<div id="memory-profile-panel" role="tabpanel" aria-labelledby="memory-profile-tab">
 					<KnowledgeMemoryView
 						profile={memoryProfile}
+						{memoryEnabled}
 						{memoryLoading}
 						{memoryLoaded}
 						{memoryLoadError}
@@ -1163,9 +1171,14 @@ $effect(() => {
 </div>
 
 {#if documentDeleteCandidateId}
+	{@const candidateName = documents.find(
+		(document) => document.id === documentDeleteCandidateId,
+	)?.name}
 	<ConfirmDialog
 		title={$t('knowledge.deleteDocument')}
-		message={`Remove "${documents.find((document) => document.id === documentDeleteCandidateId)?.name ?? "this document"}" from the Knowledge Base?`}
+		message={candidateName
+			? $t('knowledge.deleteDocumentQuestion', { name: candidateName })
+			: $t('knowledge.deleteDocumentQuestionUnnamed')}
 		confirmText={$t('common.delete')}
 		confirmVariant="danger"
 		onCancel={() => (documentDeleteCandidateId = null)}
@@ -1182,7 +1195,9 @@ $effect(() => {
 {#if bulkDeleteCandidateIds}
 	<ConfirmDialog
 		title={$t('knowledge.deleteDocuments')}
-		message={`Delete ${bulkDeleteCandidateIds.length} selected document${bulkDeleteCandidateIds.length === 1 ? "" : "s"}? This cannot be undone.`}
+		message={$t('knowledge.deleteDocumentsQuestion', {
+			count: bulkDeleteCandidateIds.length,
+		})}
 		confirmText={$t('common.delete')}
 		confirmVariant="danger"
 		onCancel={() => (bulkDeleteCandidateIds = null)}

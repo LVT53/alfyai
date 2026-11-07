@@ -18,12 +18,13 @@
 // 5. A switch is disabled while its own write is in flight, and a failed one
 //    says so instead of silently snapping back.
 import { AlertTriangle, Plus, RefreshCw, Unplug, X } from "@lucide/svelte";
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
 import {
 	type ConnectionPublic,
 	fetchNextcloudFolders,
 	type NextcloudFolderSuggestion,
 } from "$lib/client/api/connections";
+import { ApiError } from "$lib/client/api/http";
 import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
 import {
 	connectionStatusGrammar,
@@ -42,6 +43,7 @@ import CapabilityRow from "./connections/CapabilityRow.svelte";
 import ConnectionStatusCell from "./connections/ConnectionStatusCell.svelte";
 import Disclosure from "./connections/Disclosure.svelte";
 import RecoveryCard from "./connections/RecoveryCard.svelte";
+import PasswordField from "./PasswordField.svelte";
 
 // Default so a caller that only cares about the switches (a test, a future
 // embedding) doesn't have to build a formatter set to open the dialog.
@@ -55,6 +57,7 @@ let {
 	onClose,
 	onToggleCapability,
 	onToggleAllowWrites,
+	onEnableImmichWrites,
 	onToggleDefaultOn,
 	onUpdateWriteAllowlist,
 	onUpdateOwnTracksHome,
@@ -80,6 +83,9 @@ let {
 		next: boolean,
 	) => void | Promise<void>;
 	onToggleAllowWrites: (id: string, next: boolean) => void | Promise<void>;
+	// Makes the key an Immich account writes with, from its password. Rejects
+	// when Immich turns the password away or cannot be reached.
+	onEnableImmichWrites?: (id: string, password: string) => void | Promise<void>;
 	onToggleDefaultOn: (id: string, next: boolean) => void | Promise<void>;
 	onUpdateWriteAllowlist: (id: string, next: string[]) => void | Promise<void>;
 	onUpdateOwnTracksHome: (
@@ -113,6 +119,68 @@ async function withPending(key: string, run: () => void | Promise<void>) {
 		const next = new Set(pending);
 		next.delete(key);
 		pending = next;
+	}
+}
+
+// Immich writes with a key of its own: the one it connected with can never
+// write, and Immich makes a second only for a signed-in person. So the "Let
+// Alfy write" switch, on an Immich connection that has no such key yet, asks
+// for the account's password once instead of flipping. The password lives here
+// only until it is sent; the server uses it for that one call and keeps nothing.
+let writeKeyOpen = $state(false);
+let writeKeyPassword = $state("");
+let writeKeyShown = $state(false);
+let writeKeyBusy = $state(false);
+let writeKeyError = $state<string | null>(null);
+
+const needsWriteKey = $derived(
+	connection?.provider === "immich" &&
+		!connection.hasWriteSecret &&
+		!!onEnableImmichWrites,
+);
+
+function closeWriteKeyForm() {
+	writeKeyOpen = false;
+	writeKeyPassword = "";
+	writeKeyShown = false;
+	writeKeyError = null;
+}
+
+async function onWritesSwitch(conn: ConnectionPublic, next: boolean) {
+	if (needsWriteKey) {
+		if (next) {
+			writeKeyOpen = true;
+			await tick();
+			document.getElementById("immich-write-password")?.focus();
+			return;
+		}
+		closeWriteKeyForm();
+		// Only the question was open: there is nothing saved to switch off.
+		if (!conn.allowWrites) return;
+	}
+	await withPending("allowWrites", () => onToggleAllowWrites(conn.id, next));
+}
+
+async function submitWriteKey(conn: ConnectionPublic) {
+	if (writeKeyBusy || !writeKeyPassword || !onEnableImmichWrites) return;
+	writeKeyBusy = true;
+	writeKeyError = null;
+	try {
+		await onEnableImmichWrites(conn.id, writeKeyPassword);
+	} catch (err) {
+		writeKeyError =
+			err instanceof ApiError && err.status === 401
+				? $t("connections.detail.immichWriteKey.wrongPassword")
+				: $t("connections.detail.immichWriteKey.failed");
+		return;
+	} finally {
+		writeKeyBusy = false;
+	}
+	closeWriteKeyForm();
+	// Writes switched on before the key existed stay on; otherwise this is the
+	// moment the person's "on" takes effect.
+	if (!conn.allowWrites) {
+		await withPending("allowWrites", () => onToggleAllowWrites(conn.id, true));
 	}
 }
 
@@ -155,6 +223,8 @@ $effect(() => {
 		ncSuggestionsOpen = false;
 		ncActiveIndex = -1;
 		pending = new Set();
+		closeWriteKeyForm();
+		writeKeyBusy = false;
 		const lat = connection?.config?.homeLat;
 		const lon = connection?.config?.homeLon;
 		homeLatInput = typeof lat === "number" ? String(lat) : "";
@@ -513,12 +583,51 @@ function capabilityAbout(capability: string): string {
 							? $t('connections.detail.writeConfirmNoteCalendar')
 							: $t('connections.detail.letAlfyWriteSub')}
 						help={$t('connections.detail.letAlfyWriteHelp')}
-						checked={conn.allowWrites}
-						busy={isPending('allowWrites')}
+						checked={conn.allowWrites || (needsWriteKey && writeKeyOpen)}
+						busy={isPending('allowWrites') || writeKeyBusy}
 						testId="behaviour-allow-writes"
-						onChange={(next) =>
-							withPending('allowWrites', () => onToggleAllowWrites(conn.id, next))}
+						onChange={(next) => onWritesSwitch(conn, next)}
 					/>
+
+					{#if needsWriteKey && (writeKeyOpen || conn.allowWrites)}
+						<form
+							class="key-box"
+							data-testid="immich-write-key"
+							onsubmit={(event) => {
+								event.preventDefault();
+								void submitWriteKey(conn);
+							}}
+						>
+							<p class="key-intro">{$t('connections.detail.immichWriteKey.intro')}</p>
+							<PasswordField
+								id="immich-write-password"
+								label={$t('connections.wizard.immich.passwordLabel')}
+								bind:value={writeKeyPassword}
+								bind:shown={writeKeyShown}
+								autocomplete="current-password"
+							/>
+							{#if writeKeyError}
+								<p class="key-error" role="alert">
+									<AlertTriangle size={12} strokeWidth={2} aria-hidden="true" />
+									{writeKeyError}
+								</p>
+							{/if}
+							<div class="key-actions">
+								{#if !conn.allowWrites}
+									<button type="button" class="quiet-btn" onclick={closeWriteKeyForm}>
+										{$t('common.cancel')}
+									</button>
+								{/if}
+								<button
+									type="submit"
+									class="quiet-btn accent"
+									disabled={!writeKeyPassword || writeKeyBusy}
+								>
+									{$t('connections.detail.immichWriteKey.turnOn')}
+								</button>
+							</div>
+						</form>
+					{/if}
 
 					{#if conn.allowWrites}
 						{#if entry.pathBasedWrites}
@@ -894,6 +1003,37 @@ function capabilityAbout(capability: string): string {
 		font-size: 0.75rem;
 		line-height: 1.45;
 		color: var(--text-muted);
+	}
+
+	.key-box {
+		margin-top: 0.625rem;
+		padding: 0.75rem 0.8125rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-page);
+	}
+
+	.key-intro {
+		margin: 0 0 0.625rem 0;
+		font-size: 0.75rem;
+		line-height: 1.45;
+		color: var(--text-muted);
+	}
+
+	.key-error {
+		display: flex;
+		align-items: center;
+		gap: 0.3125rem;
+		margin: 0.5rem 0 0 0;
+		font-size: 0.75rem;
+		color: var(--danger);
+	}
+
+	.key-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
 	}
 
 	.folder-box {

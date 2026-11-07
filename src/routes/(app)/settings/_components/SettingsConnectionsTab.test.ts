@@ -436,6 +436,80 @@ describe("SettingsConnectionsTab", () => {
 
 	// A partial OAuth grant produced fewer capabilities than the boxes that
 	// were ticked, and said nothing at all.
+	describe("Immich: Let Alfy write", () => {
+		const immich = () =>
+			makeConnection({
+				provider: "immich",
+				label: "Immich",
+				accountIdentifier: "me@example.com",
+				capabilities: ["photos"],
+				grantedCapabilities: ["photos"],
+				hasWriteSecret: false,
+			});
+
+		async function openAndAskForWrites() {
+			await fireEvent.click(screen.getByTestId("connection-details-conn-1"));
+			const detail = await screen.findByTestId("connection-detail-conn-1");
+			await fireEvent.click(
+				within(detail).getByRole("switch", { name: "Let Alfy write" }),
+			);
+			await fireEvent.input(within(detail).getByLabelText("Password"), {
+				target: { value: "hunter2" },
+			});
+			await fireEvent.click(
+				within(detail).getByRole("button", { name: "Turn on" }),
+			);
+			return detail;
+		}
+
+		it("makes the write key from the password, then turns writes on", async () => {
+			const onEnableImmichWrites = vi.fn().mockResolvedValue(undefined);
+			const onToggleAllowWrites = vi.fn().mockResolvedValue(undefined);
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [immich()],
+					onEnableImmichWrites,
+					onToggleAllowWrites,
+				}),
+			);
+
+			await openAndAskForWrites();
+
+			await waitFor(() =>
+				expect(onToggleAllowWrites).toHaveBeenCalledWith("conn-1", true),
+			);
+			expect(onEnableImmichWrites).toHaveBeenCalledWith("conn-1", "hunter2");
+		});
+
+		it("does not make a second key when only switching writes on failed", async () => {
+			const onEnableImmichWrites = vi.fn().mockResolvedValue(undefined);
+			const onToggleAllowWrites = vi
+				.fn()
+				.mockRejectedValueOnce(new Error("nope"))
+				.mockResolvedValueOnce(undefined);
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [immich()],
+					onEnableImmichWrites,
+					onToggleAllowWrites,
+				}),
+			);
+
+			await openAndAskForWrites();
+
+			const card = await screen.findByTestId("connections-change-failed");
+			expect(
+				within(card).getByText(/Turning on “Let Alfy write” for Immich/),
+			).toBeInTheDocument();
+
+			await fireEvent.click(within(card).getByText("Try again"));
+			await waitFor(() => expect(onToggleAllowWrites).toHaveBeenCalledTimes(2));
+			expect(onEnableImmichWrites).toHaveBeenCalledTimes(1);
+		});
+	});
+
 	describe("a partial OAuth grant", () => {
 		it("says which capability was refused and offers to ask again", async () => {
 			sessionStorage.setItem(

@@ -51,6 +51,10 @@ let {
 	onRetryLoad,
 	onToggleCapability,
 	onToggleAllowWrites,
+	// Immich only: makes the write key from the account's password. Not wrapped
+	// in runChange, because the dialog says on the spot what went wrong (a wrong
+	// password is not a change that "didn't save"); the switch that follows it is.
+	onEnableImmichWrites,
 	onToggleDefaultOn,
 	onUpdateWriteAllowlist,
 	onUpdateOwnTracksHome,
@@ -86,6 +90,7 @@ let {
 		next: boolean,
 	) => void | Promise<void>;
 	onToggleAllowWrites: (id: string, next: boolean) => void | Promise<void>;
+	onEnableImmichWrites?: (id: string, password: string) => void | Promise<void>;
 	onToggleDefaultOn: (id: string, next: boolean) => void | Promise<void>;
 	onUpdateWriteAllowlist: (id: string, next: string[]) => void | Promise<void>;
 	onUpdateOwnTracksHome: (
@@ -389,6 +394,7 @@ function nameList(capabilities: string[]): string {
 	onClose={() => (selectedConnectionId = null)}
 	onToggleCapability={guardedToggleCapability}
 	onToggleAllowWrites={guardedToggleAllowWrites}
+	{onEnableImmichWrites}
 	onToggleDefaultOn={guardedToggleDefaultOn}
 	onUpdateWriteAllowlist={guardedUpdateAllowlist}
 	onUpdateOwnTracksHome={guardedUpdateOwnTracksHome}

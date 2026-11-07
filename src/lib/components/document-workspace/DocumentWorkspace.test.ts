@@ -3495,3 +3495,44 @@ describe("DocumentWorkspace Delete (polish G2-A)", () => {
 		});
 	});
 });
+
+// The older header (an uploaded file, a library document, an Atlas report) draws
+// the list button beside the item. It also drew a History button that stayed
+// disabled for good, with the title "History arrives with documents": History
+// has arrived, for the kinds that keep versions, and these items keep none, so
+// the button promised something that would never come.
+describe("DocumentWorkspace: the header of an item that is not an artifact", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		global.fetch = vi.fn();
+	});
+
+	const uploadedFile = () => ({
+		id: "generated-file-1",
+		source: "chat_generated_file" as const,
+		filename: "generated.txt",
+		title: "Generated notes",
+		mimeType: "text/plain",
+		artifactId: null,
+		previewUrl: "/api/chat/files/generated-file-1/preview",
+	});
+
+	it("offers the list of what the chat made, and no History button", async () => {
+		renderWorkspace({
+			documents: [uploadedFile()],
+			activeDocumentId: "generated-file-1",
+			list: { open: false, items: [] },
+		});
+
+		expect(
+			(await screen.findAllByRole("button", { name: "Show list" })).length,
+		).toBeGreaterThan(0);
+		expect(
+			screen.queryByRole("button", { name: "History" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByTitle("History arrives with documents."),
+		).not.toBeInTheDocument();
+	});
+});
