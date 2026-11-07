@@ -1664,6 +1664,111 @@ describe("chat page runtime integration", () => {
 		});
 	});
 
+	// The landing page deletes its saved draft as it sends and loads the chat in the
+	// same breath, and the browser can drop that delete with the page (production,
+	// 2026-11-07). Until the first message has gone, the draft the server holds for the
+	// chat is the landing's copy of that message, and it must not reach the composer.
+	describe("the chat the landing page's first message is sent into", () => {
+		const FIRST_MESSAGE = "What is the plan for the weekend?";
+
+		/** The landing composer's last save, which its lost delete left on the server. */
+		function landingCopyOf(draftText: string): ConversationDetail["draft"] {
+			return {
+				conversationId: "conv-1",
+				draftText,
+				selectedAttachmentIds: [],
+				selectedAttachments: [],
+				selectedLinkedSources: [],
+				pendingSkill: null,
+				updatedAt: Date.now(),
+			};
+		}
+
+		async function leaveTheLandingMessage() {
+			const { storePendingConversationMessage } = await import(
+				"$lib/client/conversation-session"
+			);
+			storePendingConversationMessage("conv-1", {
+				message: FIRST_MESSAGE,
+				attachmentIds: [],
+				attachments: [],
+			});
+		}
+
+		beforeEach(() => {
+			vi.mocked(deleteConversationDraft).mockClear();
+			vi.mocked(fetchConversationDetail).mockClear();
+		});
+
+		it("does not show the landing's copy the chat is opened with", async () => {
+			await leaveTheLandingMessage();
+
+			renderPage(
+				pageData({ bootstrap: true, draft: landingCopyOf(FIRST_MESSAGE) }),
+			);
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			expect(runtimeHarness.streamInvocations[0].message).toBe(FIRST_MESSAGE);
+			expect(screen.getByTestId("message-input")).toHaveValue("");
+			await waitFor(() => {
+				expect(deleteConversationDraft).toHaveBeenCalledWith(
+					"conv-1",
+					expect.any(Function),
+				);
+			});
+		});
+
+		it("does not take the landing's copy from a read that comes back before the message goes", async () => {
+			await leaveTheLandingMessage();
+			// An older save of the message, as a delete lost mid-typing leaves it.
+			vi.mocked(fetchConversationDetail).mockResolvedValue(
+				conversationDetailFixture({
+					draft: landingCopyOf("What is the plan for the"),
+				}),
+			);
+
+			renderPage(pageData({ bootstrap: true }));
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			// The read was asked on arrival and answered before the send's frame.
+			expect(fetchConversationDetail).toHaveBeenCalled();
+			expect(screen.getByTestId("message-input")).toHaveValue("");
+		});
+
+		it("takes a saved draft from a read again once the message has gone", async () => {
+			await leaveTheLandingMessage();
+			renderPage(pageData({ bootstrap: true }));
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			const composer = screen.getByTestId("message-input");
+			expect(composer).toHaveValue("");
+
+			// Words saved for the chat during the reply, from another device say: the
+			// read the turn's end asks for brings them in, as in any chat.
+			vi.mocked(fetchConversationDetail).mockClear();
+			vi.mocked(fetchConversationDetail).mockResolvedValue(
+				conversationDetailFixture({
+					draft: landingCopyOf("A thought for after the reply"),
+				}),
+			);
+			const turn = runtimeHarness.streamInvocations[0];
+			turn.callbacks.onToken("A reply");
+			turn.callbacks.onEnd("A reply", { assistantMessageId: "assistant-1" });
+
+			await waitFor(() => {
+				expect(fetchConversationDetail).toHaveBeenCalled();
+			});
+			await waitFor(() => {
+				expect(composer).toHaveValue("A thought for after the reply");
+			});
+		});
+	});
+
 	// While a job runs the page reads the chat every 2.5 s, and the answer to a
 	// read holds the draft as the server had it when it was asked. A read that
 	// was out when the draft changed says nothing about it.

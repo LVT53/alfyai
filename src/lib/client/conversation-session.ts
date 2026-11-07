@@ -876,8 +876,10 @@ export function createDraftPersistence(
 	 * have been answered: one that landed behind the first delete would bring back
 	 * words the person sent, and the turn's own clear catches only the exact text it
 	 * sent, not an earlier version of it. The first delete never waits: the landing
-	 * page navigates straight after it, and the chat page's read must find the draft
-	 * gone. A save this chat sends meanwhile holds words typed since, so it stands.
+	 * page navigates straight after it. The browser can still drop it with that page,
+	 * so the chat the landing opens takes no saved draft until its first message has
+	 * gone (`opensWithLandingMessage` in the chat page). A save this chat sends
+	 * meanwhile holds words typed since, so it stands.
 	 * Words held for the chat (`DraftKeeper`) are let go first: a delete wins.
 	 */
 	async function deleteDraft(conversationId: string): Promise<void> {
