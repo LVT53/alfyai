@@ -1292,6 +1292,92 @@ test.describe("Editing a message in the composer", () => {
 				await restoreTheUsersModel(page, providerId);
 			}
 		});
+
+		test("a first message sent from the landing page stays out of the new chat's composer when the landing page's delete of its draft never reaches the server", async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width: 1280, height: 900 });
+			const providerId = await pointTheUserAtFakeModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			const sent = "What is the plan for the weekend?";
+			// The landing page deletes its saved draft as it sends and loads the chat in
+			// the same breath, and the browser can drop that request with the page
+			// before it leaves (production, 2026-11-07: no delete reached the server and
+			// the new chat opened with the message in its composer). Lost here on
+			// purpose: the first delete after Send is the landing's, since the chat's own
+			// waits for its send, held below until the chat has read itself.
+			let sendPressed = false;
+			let landingDeleteLost = false;
+			await page.route("**/api/conversations/*/draft", async (route) => {
+				if (
+					sendPressed &&
+					!landingDeleteLost &&
+					route.request().method() === "DELETE"
+				) {
+					landingDeleteLost = true;
+					await route.abort();
+					return;
+				}
+				await route.fallback();
+			});
+			let releaseCapabilities: () => void = () => undefined;
+			const capabilitiesHeld = new Promise<void>((resolve) => {
+				releaseCapabilities = resolve;
+			});
+			try {
+				await page.goto("/", { waitUntil: "domcontentloaded" });
+				await waitForHydration(page);
+				const composer = page.getByTestId("message-input");
+				const save = page.waitForResponse(
+					(response) =>
+						response.url().endsWith("/draft") &&
+						response.request().method() === "PUT",
+				);
+				await composer.fill(sent);
+				const conversationId = new URL((await save).url()).pathname.split(
+					"/",
+				)[3];
+				expect(await savedDraft(page, conversationId)).toBe(sent);
+
+				// The chat reads itself once on arrival, and that read must come back
+				// before the message goes: the send waits for the composer's connections,
+				// held until then.
+				const firstRead = page.waitForResponse(
+					(response) =>
+						response.request().method() === "GET" &&
+						new URL(response.url()).pathname ===
+							`/api/conversations/${conversationId}`,
+				);
+				await page.route(
+					"**/api/connections/active-capabilities",
+					async (route) => {
+						await capabilitiesHeld;
+						await route.fallback();
+					},
+				);
+				sendPressed = true;
+				await page.getByTestId("send-button").click();
+				await firstRead;
+				releaseCapabilities();
+
+				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+					timeout: 30_000,
+				});
+				expect(landingDeleteLost).toBe(true);
+				await expect(composer).toHaveValue("");
+				// The chat's own send deleted the landing's copy.
+				await expect.poll(() => savedDraft(page, conversationId)).toBeNull();
+				await page.reload();
+				await expect(composer).toHaveValue("");
+			} finally {
+				releaseCapabilities();
+				await page.unroute("**/api/connections/active-capabilities");
+				await page.unroute("**/api/conversations/*/draft");
+				await restoreTheUsersModel(page, providerId);
+			}
+		});
 	});
 
 	test.describe("a 360 px phone", () => {

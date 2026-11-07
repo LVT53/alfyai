@@ -36,6 +36,7 @@ import {
 	getConversationModelSelection,
 	getConversationPersonalitySelection,
 	hasMeaningfulDraft,
+	hasPendingConversationMessage,
 	pendingDraftSave,
 	setConversationModelSelection,
 	setConversationPersonalitySelection,
@@ -336,10 +337,13 @@ const initialTaskState = getData().taskState ?? null;
 const initialContextDebug = getData().contextDebug ?? null;
 // What a chat is opened with: the saved draft, or newer words this tab still holds
 // for it (`arrivalDraftOf`). The composer takes its first draft from here, and only an
-// empty composer takes another later.
+// empty composer takes another later. A chat opened to send the landing page's first
+// message takes no saved draft (`opensWithLandingMessage`).
 const initialConversationDraft = arrivalDraftOf(
 	getData().conversation.id,
-	getData().draft ?? null,
+	opensWithLandingMessage(getData().conversation.id)
+		? null
+		: (getData().draft ?? null),
 	pendingDraftSave(getData().conversation.id),
 );
 const initialForkOrigin = getData().forkOrigin ?? null;
@@ -2470,16 +2474,42 @@ function setSelectedConversationModelId(modelId: ModelId) {
 	setConversationModelSelection(data.conversation.id, modelId);
 }
 
+/**
+ * Whether this chat is opened to send the landing page's first message, which the
+ * landing left in this tab for it (`maybeSendPendingInitialMessage` sends it a frame
+ * after the chat is on screen). Until it has gone, the draft the server holds for the
+ * chat is the landing composer's own copy of that message: the landing deletes it as
+ * it sends, but loads this page in the same breath, and the browser can drop that
+ * request with the page before it leaves (production, 2026-11-07: no delete reached
+ * the server). None of it may reach this composer, which would show the words already
+ * sent; the send deletes it (`clearDraft`).
+ */
+function opensWithLandingMessage(conversationId: string): boolean {
+	return browser && hasPendingConversationMessage(conversationId);
+}
+
+// The chat the landing page's first message is on its way into, from the chat's
+// arrival until `maybeSendPendingInitialMessage` has sent it or found nothing to send.
+// A read of the chat asked meanwhile says nothing about the draft
+// (`hydrateConversationDetail`): what it could carry is the landing's copy.
+let landingMessageOnItsWay: string | null = null;
+
 function maybeSendPendingInitialMessage() {
+	const conversationId = data.conversation.id;
+	const handOffEnded = () => {
+		if (landingMessageOnItsWay === conversationId)
+			landingMessageOnItsWay = null;
+	};
 	if (
 		typeof window === "undefined" ||
 		isSending ||
 		(data.messages?.length ?? 0) > 0
 	) {
+		handOffEnded();
 		return;
 	}
 
-	const pendingDraft = consumePendingConversationMessage(data.conversation.id);
+	const pendingDraft = consumePendingConversationMessage(conversationId);
 	// Clean up bootstrap URL param so refreshes don't replay the loading state.
 	// Defer the history mutation to avoid triggering page-store updates during the
 	// initial $effect flush, which can race with keyed-each reconciler state.
@@ -2491,6 +2521,7 @@ function maybeSendPendingInitialMessage() {
 		});
 	}
 	if (!pendingDraft?.message.trim()) {
+		handOffEnded();
 		initialStreamPending = false;
 		return;
 	}
@@ -2513,18 +2544,24 @@ function maybeSendPendingInitialMessage() {
 	// awaiting the capability fetch itself before deciding (see its own
 	// comment above), so this call site no longer needs special handling.
 	void (async () => {
-		const proceed = await prepareTurn();
-		if (!proceed) return;
-		handleSend(
-			{
-				...pendingDraft,
-				markedPicture: pendingDraft.markedPicture ?? undefined,
-				pendingAttachments: [],
-			},
-			false,
-			false,
-			true,
-		);
+		try {
+			const proceed = await prepareTurn();
+			if (!proceed) return;
+			// Sends at once: the draft is cleared and its delete is out (`clearDraft`)
+			// before this returns.
+			handleSend(
+				{
+					...pendingDraft,
+					markedPicture: pendingDraft.markedPicture ?? undefined,
+					pendingAttachments: [],
+				},
+				false,
+				false,
+				true,
+			);
+		} finally {
+			handOffEnded();
+		}
 	})();
 }
 
@@ -2563,10 +2600,15 @@ function resetState() {
 	taskState = data.taskState ?? null;
 	contextDebug = data.contextDebug ?? null;
 	// The composer is given this chat's draft, whatever it held before: the saved
-	// one, or newer words this tab still holds for the chat (`arrivalDraftOf`).
+	// one, or newer words this tab still holds for the chat (`arrivalDraftOf`). Not
+	// the saved one when the chat is opened to send the landing page's first message:
+	// that is the landing's copy of the message (`opensWithLandingMessage`).
+	landingMessageOnItsWay = opensWithLandingMessage(data.conversation.id)
+		? data.conversation.id
+		: null;
 	const arrivalDraft = arrivalDraftOf(
 		data.conversation.id,
-		data.draft ?? null,
+		landingMessageOnItsWay ? null : (data.draft ?? null),
 		pendingDraftSave(data.conversation.id),
 	);
 	setConversationDraft(arrivalDraft);
@@ -3137,6 +3179,9 @@ async function hydrateConversationDetail(conversationId: string) {
 	hydratingConversation = true;
 	const requestMetadataEpoch = detailMetadataEpoch;
 	const requestDraftEpoch = draftEpoch;
+	// Asked while the landing page's first message is on its way here, a read can
+	// carry only the landing's copy of that message as the draft.
+	const readMaySetDraft = landingMessageOnItsWay !== conversationId;
 
 	try {
 		const payload = await fetchConversationDetail(conversationId);
@@ -3187,7 +3232,7 @@ async function hydrateConversationDetail(conversationId: string) {
 		}
 		// The draft the read carries is the one from when it was asked: if this
 		// page changed the draft since, it says nothing about it (`draftEpoch`).
-		if (requestDraftEpoch === draftEpoch && payload.draft) {
+		if (readMaySetDraft && requestDraftEpoch === draftEpoch && payload.draft) {
 			conversationDraft = payload.draft;
 			// The composer takes a draft only while it holds no words of its own, and then
 			// this is what it holds: a restore joins it instead of replacing a draft that
