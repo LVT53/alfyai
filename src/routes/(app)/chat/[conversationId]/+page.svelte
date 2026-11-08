@@ -2549,14 +2549,20 @@ function maybeSendPendingInitialMessage() {
 			if (!proceed) {
 				// Cancel on the cloud-connector warning, or any other gate that says
 				// no: nothing was sent, and the words came out of the landing page's
-				// composer and live in no other place. They go back into this chat's
-				// composer, joined behind anything typed since, and the chat stops
-				// saying it is starting a conversation it never started
-				// (`showInitialLoading`).
+				// composer and live in no other place. They go back into the composer
+				// of the chat they were consumed for, joined behind anything typed
+				// since — and `restorePayloadToDraft` drops them when the page has
+				// moved to another chat meanwhile, so they never join that chat's
+				// draft. This chat stops saying it is starting a conversation it never
+				// started (`showInitialLoading`).
 				restorePayloadToDraft({
 					...pendingDraft,
 					pendingAttachments: [],
-					conversationId: data.conversation.id,
+					// The captured id, not `data.conversation.id`: the gate awaits
+					// the capability load and the person's answer with the page live,
+					// and a switch meanwhile must not stamp these words with the chat
+					// now on screen.
+					conversationId,
 					linkedSources: pendingDraft.linkedSources ?? [],
 					pendingSkill: pendingDraft.pendingSkill ?? null,
 					markedPicture: pendingDraft.markedPicture ?? undefined,

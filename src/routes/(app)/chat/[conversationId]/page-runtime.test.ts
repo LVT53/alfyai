@@ -7848,6 +7848,50 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 		expect(runtimeHarness.streamInvocations).toHaveLength(0);
 	});
 
+	it("Cancel after a switch to another chat does not put the landing message in that chat", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+
+		const { storePendingConversationMessage } = await import(
+			"$lib/client/conversation-session"
+		);
+		storePendingConversationMessage("conv-1", {
+			message: "First message ever",
+			attachmentIds: [],
+			attachments: [],
+		});
+
+		const first = cloudModelPageData();
+		const view = renderPage(first);
+		expect(
+			await screen.findByTestId("cloud-connector-warning"),
+		).toBeInTheDocument();
+
+		// The route data changes to another chat while the warning for conv-1
+		// waits. The page is one component instance, so the gate that resolves
+		// from here on runs with conv-2 on screen.
+		const next = cloudModelPageData({
+			conversation: { ...first.conversation, id: "conv-2" },
+		});
+		await view.rerender({
+			data: next,
+			params: { conversationId: "conv-2" },
+		});
+		// Let conv-2's own arrival hand-off run: it finds nothing pending for it.
+		await new Promise((resolve) => setTimeout(resolve, 40));
+
+		await fireEvent.click(
+			within(screen.getByRole("dialog")).getByRole("button", {
+				name: "Cancel",
+			}),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 40));
+
+		// The words were consumed for conv-1 and are not conv-2's: its composer
+		// stays empty, and nothing is sent from it.
+		expect(screen.getByTestId("message-input")).toHaveValue("");
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+	});
+
 	// ADR 0044 Decision 1 — the composer's single Connections master toggle
 	// maps to the same `enabledConnectionCapabilities` payload the old
 	// per-capability toggles fed: off sends [], which the gate reads as "no
