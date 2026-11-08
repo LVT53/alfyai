@@ -7808,6 +7808,46 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 		);
 	});
 
+	it("Cancel on the cloud warning gives the landing message back to the composer and clears the starting mark", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+
+		const { storePendingConversationMessage } = await import(
+			"$lib/client/conversation-session"
+		);
+		storePendingConversationMessage("conv-1", {
+			message: "First message ever",
+			attachmentIds: [],
+			attachments: [],
+		});
+
+		renderPage(cloudModelPageData());
+
+		// The landing page's first message is on its way into a brand-new chat:
+		// the bootstrap send is held at the warning and the page says it is
+		// starting the conversation.
+		expect(
+			await screen.findByTestId("cloud-connector-warning"),
+		).toBeInTheDocument();
+		expect(screen.getByTestId("starting-conversation")).toBeInTheDocument();
+
+		await fireEvent.click(
+			within(screen.getByRole("dialog")).getByRole("button", {
+				name: "Cancel",
+			}),
+		);
+
+		// Cancel sends nothing, so the words the hand-off consumed exist nowhere
+		// else: they must be back in the composer, and the chat must stop saying
+		// it is starting a conversation it never started.
+		await waitFor(() => {
+			expect(screen.getByTestId("message-input")).toHaveValue(
+				"First message ever",
+			);
+		});
+		expect(screen.queryByTestId("starting-conversation")).toBeNull();
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+	});
+
 	// ADR 0044 Decision 1 — the composer's single Connections master toggle
 	// maps to the same `enabledConnectionCapabilities` payload the old
 	// per-capability toggles fed: off sends [], which the gate reads as "no

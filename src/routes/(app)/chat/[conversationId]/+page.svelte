@@ -2546,7 +2546,24 @@ function maybeSendPendingInitialMessage() {
 	void (async () => {
 		try {
 			const proceed = await prepareTurn();
-			if (!proceed) return;
+			if (!proceed) {
+				// Cancel on the cloud-connector warning, or any other gate that says
+				// no: nothing was sent, and the words came out of the landing page's
+				// composer and live in no other place. They go back into this chat's
+				// composer, joined behind anything typed since, and the chat stops
+				// saying it is starting a conversation it never started
+				// (`showInitialLoading`).
+				restorePayloadToDraft({
+					...pendingDraft,
+					pendingAttachments: [],
+					conversationId: data.conversation.id,
+					linkedSources: pendingDraft.linkedSources ?? [],
+					pendingSkill: pendingDraft.pendingSkill ?? null,
+					markedPicture: pendingDraft.markedPicture ?? undefined,
+				});
+				initialStreamPending = false;
+				return;
+			}
 			// Sends at once: the draft is cleared and its delete is out (`clearDraft`)
 			// before this returns.
 			handleSend(
