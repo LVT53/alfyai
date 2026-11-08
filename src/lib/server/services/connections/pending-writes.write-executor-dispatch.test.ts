@@ -198,6 +198,48 @@ describe("confirmPendingWrite — provider dispatch (Issue 6.0)", () => {
 		expect(row?.status).toBe("failed");
 	});
 
+	it("a fake executor that throws marks the row failed and answers may_not_have_gone_through", async () => {
+		const { registerWriteExecutor } = await import("./write-executors");
+		const { createPendingWrite, confirmPendingWrite, getPendingWrite } =
+			await import("./pending-writes");
+
+		const provider = `fake-provider-throw-${randomUUID()}`;
+		registerWriteExecutor({
+			provider,
+			execute: vi.fn(async () => {
+				throw new Error("fake network failure");
+			}),
+		});
+
+		const connectionId = await seedConnection();
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider,
+			op: makeOp(provider, connectionId),
+			content: "hello",
+			idempotencyKey: "key-6",
+			preview: PREVIEW,
+		});
+
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const result = await confirmPendingWrite("user-1", created.id);
+			expect(result.ok).toBe(false);
+			if (!result.ok) {
+				expect(result.status).toBe(409);
+				expect(result.reason).toBe("may_not_have_gone_through");
+			}
+			expect(errorSpy).toHaveBeenCalled();
+		} finally {
+			errorSpy.mockRestore();
+		}
+
+		// The row must never be left "executing" for ever: the claim succeeded,
+		// so the only honest settled state after a throw is "failed".
+		const row = await getPendingWrite("user-1", created.id);
+		expect(row?.status).toBe("failed");
+	});
+
 	it("the atomic claim still holds for a dispatched provider: a confirm racing an already-claimed row never invokes the fake executor", async () => {
 		// Deterministic version of the same TOCTOU proof pending-writes.test.ts
 		// uses for Nextcloud ("claimPendingWrite (atomic claim-before-execute)"):

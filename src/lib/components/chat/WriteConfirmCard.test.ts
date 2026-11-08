@@ -395,7 +395,7 @@ describe("WriteConfirmCard once it is settled", () => {
 		expect(row.querySelector(".act-status")).toHaveClass("skipped");
 	});
 
-	it("opens a failed write by itself and says nothing changed", () => {
+	it("opens a failed write by itself and says it may not have gone through", () => {
 		const { getByTestId } = render(WriteConfirmCard, {
 			write: makeWrite({ status: "failed" }),
 		});
@@ -405,7 +405,9 @@ describe("WriteConfirmCard once it is settled", () => {
 			"failed",
 		);
 		expect(
-			screen.getByText("This didn't go through, and nothing was changed."),
+			screen.getByText(
+				"This may not have gone through. Check the connected account before trying again.",
+			),
 		).toBeInTheDocument();
 	});
 

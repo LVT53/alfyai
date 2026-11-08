@@ -46,7 +46,7 @@ import "./providers/apple-caldav";
 import "./providers/imap-write";
 import "./providers/immich";
 import { getConnection } from "./store";
-import { getWriteExecutor } from "./write-executors";
+import { getWriteExecutor, type WriteExecutionResult } from "./write-executors";
 import type { WriteOperation, WritePreview } from "./write-guard";
 
 type PendingWriteRow = typeof connectionPendingWrites.$inferSelect;
@@ -488,13 +488,31 @@ export async function confirmPendingWrite(
 		return { ok: false, status: 409, reason: "unsupported_operation" };
 	}
 
-	const result = await executor.execute(
-		userId,
-		record.connectionId,
-		record.op,
-		record.content,
-		opts,
-	);
+	// A thrown executor (provider timeout, network failure, a bug in an
+	// executor) must not escape this chokepoint: the claim has already
+	// succeeded above, so a rejection used to leave the row "executing" for
+	// ever (every later confirm answered 409 "in_progress") and the confirm
+	// route answered 500. The request may have reached the provider before the
+	// throw, so the settled row must not claim that nothing was changed; the
+	// "may_not_have_gone_through" reason and the shared note.failed sentence
+	// say exactly that.
+	let result: WriteExecutionResult;
+	try {
+		result = await executor.execute(
+			userId,
+			record.connectionId,
+			record.op,
+			record.content,
+			opts,
+		);
+	} catch (err) {
+		console.error(
+			`[CONNECTIONS] Pending write executor threw (${record.provider}, ${id})`,
+			err,
+		);
+		await markPendingWriteFailed(userId, id);
+		return { ok: false, status: 409, reason: "may_not_have_gone_through" };
+	}
 	if (!result.ok) {
 		// The claim succeeded but the real write failed. Move to "failed"
 		// (not back to "pending" — see markPendingWriteFailed) so the row

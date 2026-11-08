@@ -301,8 +301,11 @@ const connectionsDict = {
 		// left, which is to ask again.
 		"connections.writeConfirm.note.expired":
 			"This request expired. Ask again to redo it.",
+		// A failed row means the write was ATTEMPTED; it may have reached the
+		// provider before the error, so this line must not promise that
+		// nothing changed. Check the account before trying again.
 		"connections.writeConfirm.note.failed":
-			"This didn't go through, and nothing was changed.",
+			"This may not have gone through. Check the connected account before trying again.",
 
 		"connections.writeConfirm.fact.to": "To",
 		"connections.writeConfirm.fact.cc": "Cc",
@@ -926,7 +929,7 @@ const connectionsDict = {
 		"connections.writeConfirm.note.expired":
 			"Ez a kérés lejárt. Kérd újra, ha még kell.",
 		"connections.writeConfirm.note.failed":
-			"Ez nem sikerült, és nem változott semmi.",
+			"Lehet, hogy nem ment át. Nézd meg a csatlakoztatott fiókot, mielőtt újra próbálod.",
 
 		"connections.writeConfirm.fact.to": "Címzett",
 		"connections.writeConfirm.fact.cc": "Másolat",
