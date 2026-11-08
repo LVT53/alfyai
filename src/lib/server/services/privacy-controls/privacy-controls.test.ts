@@ -435,17 +435,18 @@ function seedSharedContentOwnedByUser() {
 	sqlite.close();
 }
 
-function seedOtherRealUser() {
+function seedOtherRealUser(role: "user" | "admin" = "user") {
 	const { sqlite, db } = openMigratedDb();
 	const now = new Date("2026-06-15T11:30:00.000Z");
 
 	db.insert(schema.users)
 		.values({
 			id: "user-2",
-			email: "other@example.com",
-			name: "Other Real User",
+			email:
+				role === "admin" ? "second-admin@example.com" : "other@example.com",
+			name: role === "admin" ? "Second Admin" : "Other Real User",
 			passwordHash: "hash",
-			role: "user",
+			role,
 			createdAt: now,
 			updatedAt: now,
 		})
@@ -906,8 +907,20 @@ describe("privacy controls service", () => {
 		);
 	});
 
-	it("erases a last-admin self-service account and removes person-linked analytics", async () => {
+	it("refuses to delete the only admin account and leaves every row in place", async () => {
 		seedPrivacyUser();
+		const before = await getPrivacySnapshot();
+		const { eraseUserAccount } = await import("./index");
+
+		const result = await eraseUserAccount("user-1", "correct-password");
+
+		expect(result).toEqual({ status: "last_admin" });
+		await expect(getPrivacySnapshot()).resolves.toEqual(before);
+	});
+
+	it("erases a self-service admin account when another admin remains and removes person-linked analytics", async () => {
+		seedPrivacyUser();
+		seedOtherRealUser("admin");
 		seedRunningFileProductionWork();
 		seedAtlasLifecycleData("running");
 		const { eraseUserAccount } = await import("./index");
@@ -916,7 +929,7 @@ describe("privacy controls service", () => {
 
 		expect(result).toEqual({ status: "deleted" });
 		await expect(getPrivacySnapshot()).resolves.toMatchObject({
-			userIds: [],
+			userIds: ["user-2"],
 			artifactIds: [],
 			embeddingIds: [],
 			conversationIds: [],

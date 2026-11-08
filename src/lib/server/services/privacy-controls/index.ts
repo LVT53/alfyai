@@ -5,6 +5,8 @@ import {
 	clearMemoryAndKnowledgeForUser,
 	DETACHED_SHARED_CONTENT_OWNER_ID,
 	eraseUserAccountData,
+	isLastAdminAccount,
+	LastAdminAccountError,
 	purgeUserData,
 	quiesceUserWorkspace,
 } from "../account-lifecycle";
@@ -31,6 +33,8 @@ export type ClearWorkspaceDataResult =
 
 export type AccountErasureResult =
 	| { status: "deleted" }
+	/** The account is the only admin, so it cannot delete itself. */
+	| { status: "last_admin" }
 	| PrivacyControlPasswordResult;
 
 /**
@@ -91,7 +95,22 @@ export async function eraseUserAccount(
 	const refused = await confirmPassword(userId, password);
 	if (refused) return refused;
 
-	await eraseUserAccountData(userId);
+	// After the password, never before: a wrong password must not reveal whether
+	// the account is the last admin. Nothing is purged on this refusal.
+	if (await isLastAdminAccount(userId)) {
+		return { status: "last_admin" };
+	}
+
+	try {
+		await eraseUserAccountData(userId, { refuseLastAdmin: true });
+	} catch (error) {
+		// The delete transaction re-checks the invariant, so a role change that
+		// raced the check above still cannot remove the last admin.
+		if (error instanceof LastAdminAccountError) {
+			return { status: "last_admin" };
+		}
+		throw error;
+	}
 	return { status: "deleted" };
 }
 

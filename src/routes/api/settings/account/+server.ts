@@ -66,6 +66,16 @@ export const DELETE: RequestHandler = async (event) => {
 		return passwordThrottledResponse(result.retryAfterSeconds);
 	}
 
+	if (result.status === "last_admin") {
+		return json(
+			{
+				error: "The last admin account cannot be deleted.",
+				errorKey: "settings_lastAdminCannotDelete",
+			},
+			{ status: 409 },
+		);
+	}
+
 	clearSessionCookie(event.cookies);
 
 	return json({ success: true });

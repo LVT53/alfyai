@@ -876,6 +876,8 @@ const settingsDict = {
 		settings_enterPasswordConfirm: "Enter your password to confirm:",
 		settings_hidePassword: "Hide password",
 		settings_hungarian: "Hungarian",
+		settings_lastAdminCannotDelete:
+			"The last admin account can't be deleted. Add or promote another admin first.",
 		settings_light: "Light",
 		settings_memory: "Memory",
 		settings_memoryHelp:
@@ -2974,6 +2976,8 @@ const settingsDict = {
 		settings_enterPasswordConfirm: "Add meg a jelszavad a megerősítéshez:",
 		settings_hidePassword: "Jelszó elrejtése",
 		settings_hungarian: "Magyar",
+		settings_lastAdminCannotDelete:
+			"Az utolsó adminisztrátori fiók nem törölhető. Előbb adj hozzá vagy nevezz ki egy másik adminisztrátort.",
 		settings_light: "Világos",
 		settings_memory: "Memória",
 		settings_memoryHelp:

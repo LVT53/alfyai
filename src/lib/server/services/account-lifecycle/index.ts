@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { and, eq, ne } from "drizzle-orm";
+import { and, count, eq, ne } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	adminConfig,
@@ -127,16 +127,71 @@ export async function purgeUserData(userId: string): Promise<void> {
 }
 
 /**
+ * The self-service erasure refused because the account is the only admin: an
+ * admin can no longer manage the app if they delete themselves. It is thrown by
+ * the row-deleting transaction, so an identity delete that raced past the check
+ * made before the purge still cannot remove the last admin.
+ */
+export class LastAdminAccountError extends Error {
+	constructor() {
+		super("The last admin account cannot be deleted.");
+		this.name = "LastAdminAccountError";
+	}
+}
+
+export interface EraseUserAccountDataOptions {
+	/**
+	 * Refuse to delete the last admin inside the delete transaction. Off by
+	 * default: the admin panel's erasure path keeps its old behaviour.
+	 */
+	refuseLastAdmin?: boolean;
+}
+
+type AccountLifecycleTransaction = Parameters<
+	Parameters<typeof db.transaction>[0]
+>[0];
+
+/**
+ * True when `userId` is an admin and the only one. Role and admin count are read
+ * in one transaction so a concurrent role change cannot split them.
+ */
+export async function isLastAdminAccount(userId: string): Promise<boolean> {
+	return db.transaction((tx) => isLastAdminAccountIn(tx, userId));
+}
+
+function isLastAdminAccountIn(
+	tx: AccountLifecycleTransaction,
+	userId: string,
+): boolean {
+	const user = tx
+		.select({ role: users.role })
+		.from(users)
+		.where(eq(users.id, userId))
+		.get();
+	if (user?.role !== "admin") return false;
+
+	const admins = tx
+		.select({ count: count(users.id) })
+		.from(users)
+		.where(eq(users.role, "admin"))
+		.get();
+	return Number(admins?.count ?? 0) <= 1;
+}
+
+/**
  * Full Account Erasure DB + filesystem sequence: quiesce running work, purge the
  * workspace, detach shared authorship, then delete the analytics rollups (no FK
  * cascade reaches them) AND the user row (whose cascade wipes everything else) in
  * one transaction, and finally remove the avatar file.
  */
-export async function eraseUserAccountData(userId: string): Promise<void> {
+export async function eraseUserAccountData(
+	userId: string,
+	options: EraseUserAccountDataOptions = {},
+): Promise<void> {
 	await quiesceUserWorkspace(userId);
 	await purgeUserData(userId);
 	await detachSharedContentAuthorship(userId);
-	deleteUserRowAndExplicitAnalytics(userId);
+	deleteUserRowAndExplicitAnalytics(userId, options);
 
 	await rm(join(process.cwd(), "data", "avatars", `${userId}.webp`), {
 		force: true,
@@ -147,10 +202,17 @@ export async function eraseUserAccountData(userId: string): Promise<void> {
  * The one transaction that removes the user identity: delete the analytics
  * rollups that carry no FK to `users` (so the cascade never reaches them), then
  * delete the `users` row — whose `ON DELETE CASCADE` removes every remaining
- * user-scoped row.
+ * user-scoped row. When the erasure asks for the last-admin guard, the same
+ * invariant is re-checked here, before anything is deleted.
  */
-function deleteUserRowAndExplicitAnalytics(userId: string) {
+function deleteUserRowAndExplicitAnalytics(
+	userId: string,
+	options: EraseUserAccountDataOptions = {},
+) {
 	db.transaction((tx) => {
+		if (options.refuseLastAdmin && isLastAdminAccountIn(tx, userId)) {
+			throw new LastAdminAccountError();
+		}
 		for (const entry of explicitErasureTables()) {
 			tx.delete(entry.table).where(eq(entry.userColumn, userId)).run();
 		}
