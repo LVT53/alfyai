@@ -115,6 +115,9 @@ vi.mock("$lib/server/services/chat-turn/request", async () => {
 });
 
 vi.mock("$lib/server/services/chat-turn/preflight", () => ({
+	// The read-only gate the retry asks before it deletes: accepts unless a
+	// test says otherwise.
+	checkChatTurn: vi.fn(async () => ({ ok: true })),
 	// Mirrors the real preflight: a `pendingSkill` that survived parsing is
 	// resolved into `appliedSkill`, and a resolution failure fails the turn.
 	preflightChatTurn: vi.fn(async ({ userId, request }) => {
@@ -152,6 +155,7 @@ vi.mock("$lib/server/services/chat-turn/preflight", () => ({
 }));
 
 import {
+	checkChatTurn,
 	preflightChatTurn,
 	resolveAppliedSkill,
 } from "$lib/server/services/chat-turn/preflight";
@@ -1081,6 +1085,56 @@ describe("prepareRetryChatTurn", () => {
 			"user-3",
 			"assistant-3",
 		]);
+	});
+
+	// The retry deletes the reply it replaces before the model runs, so a
+	// refusal that only came after that delete lost the reply and everything
+	// after it. The read-only gate is asked first now: a refusal leaves the
+	// conversation exactly as it was.
+	it("asks the turn's read-only gate before deleting the reply, so a refusal leaves the conversation untouched", async () => {
+		const refusal = {
+			ok: false as const,
+			error: {
+				status: 422,
+				error: "The attached file cannot be read.",
+				code: "not_text_readable",
+			},
+		};
+		(checkChatTurn as ReturnType<typeof vi.fn>).mockResolvedValueOnce(refusal);
+
+		const result = await prepareRetryChatTurn({
+			userId: "user-1",
+			runtimeConfig: makeRuntimeConfig(),
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-3",
+				userMessageId: "user-3",
+				userMessage: "latest prompt",
+			},
+		});
+
+		// Nothing may go before the gate answers: the old order wiped the reply
+		// and everything after it, then refused.
+		expect(deleteMessages).not.toHaveBeenCalled();
+		expect(cleanupFailedTurn).not.toHaveBeenCalled();
+		// The refusal comes back in the stream-json shape `preflightStoredTurn`'s
+		// refusals use.
+		expect(result).toEqual({
+			ok: false,
+			error: {
+				...refusal.error,
+				responseShape: "stream-json",
+			},
+		});
+		// The gate sees the same synthetic request the stored turn would run with.
+		expect(checkChatTurn).toHaveBeenCalledWith({
+			userId: "user-1",
+			request: expect.objectContaining({
+				conversationId: "conv-1",
+				normalizedMessage: "latest prompt",
+				skipPersistUserMessage: true,
+			}),
+		});
 	});
 
 	// The user's own turn choices (composer-applied skill, forced `/web`)

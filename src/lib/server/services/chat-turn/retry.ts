@@ -19,11 +19,19 @@ import {
 	parseUserPictures,
 	recordedPictureRequest,
 } from "$lib/shared/artifacts/image-body";
-import { preflightChatTurn, resolveAppliedSkill } from "./preflight";
+import {
+	checkChatTurn,
+	preflightChatTurn,
+	resolveAppliedSkill,
+} from "./preflight";
 import { parseChatTurnRequest, parsePendingSkill } from "./request";
 import { cleanupFailedTurn } from "./retry-cleanup";
 import type { StreamOrchestratorOptions } from "./stream-orchestrator";
-import type { ChatTurnPreflight, ChatTurnRequestError } from "./types";
+import type {
+	ChatTurnPreflight,
+	ChatTurnRequestError,
+	ParsedChatTurnRequest,
+} from "./types";
 
 const FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE =
 	"forked_source_history_confirmation_required";
@@ -209,6 +217,34 @@ export async function prepareRetryChatTurn(params: {
 			}
 		}
 	}
+
+	// Ask the turn's read-only gate before the cleanup and the delete below: a
+	// refusal here (an attachment not ready, a picture that cannot be read) must
+	// leave the conversation untouched, or the reply the person is regenerating
+	// is already gone when they are told why it could not run. The gate runs the
+	// turn's own input checks and writes nothing. `preflightStoredTurn` still
+	// runs after the delete: it covers what the gate does not (linked sources,
+	// the skill, the depth) and re-checks the inputs for the turn that runs.
+	const storedTurnRequest = await parseStoredTurnRequest({
+		runtimeConfig,
+		conversationId,
+		message: precedingUserMsg.content,
+		choices,
+		body: {
+			activeDocumentArtifactId,
+			streamId,
+			model,
+			reasoningDepth,
+			personalityProfileId,
+		},
+	});
+	if (!storedTurnRequest.ok) return storedTurnRequest;
+
+	const gate = await checkChatTurn({
+		userId,
+		request: storedTurnRequest.request,
+	});
+	if (!gate.ok) return streamError(gate.error);
 
 	// A reply that is gone has nothing to clean up and nothing to delete: the
 	// attempt that took it cleaned up before it failed, and the user message is the
@@ -412,16 +448,58 @@ export async function preflightStoredTurn(p: {
 	conversationId: string;
 	message: string;
 	choices: StoredTurnChoices;
-	body: {
-		activeDocumentArtifactId?: unknown;
-		streamId?: unknown;
-		model?: unknown;
-		reasoningDepth?: unknown;
-		personalityProfileId?: unknown;
-		enabledConnectionCapabilities?: unknown;
-	};
+	body: StoredTurnRunBody;
 }): Promise<
 	| { ok: true; turn: ChatTurnPreflight }
+	| { ok: false; error: RetryPreparationError }
+> {
+	const storedTurnRequest = await parseStoredTurnRequest({
+		runtimeConfig: p.runtimeConfig,
+		conversationId: p.conversationId,
+		message: p.message,
+		choices: p.choices,
+		body: p.body,
+	});
+	if (!storedTurnRequest.ok) return storedTurnRequest;
+
+	const preflight = await preflightChatTurn({
+		userId: p.userId,
+		request: storedTurnRequest.request,
+	});
+	if (!preflight.ok) {
+		return streamError(preflight.error);
+	}
+	return { ok: true, turn: preflight.value };
+}
+
+/**
+ * The optional parts of a stored turn's synthetic body. Shared by the two
+ * callers above so the parsed request is the same one.
+ */
+type StoredTurnRunBody = {
+	activeDocumentArtifactId?: unknown;
+	streamId?: unknown;
+	model?: unknown;
+	reasoningDepth?: unknown;
+	personalityProfileId?: unknown;
+	enabledConnectionCapabilities?: unknown;
+};
+
+/**
+ * The request a stored turn runs with: the synthetic body rebuilt from the
+ * person's recorded choices, parsed by the same request parser a send uses. One
+ * helper so the read-only gate a retry asks before it deletes (above) and
+ * `preflightStoredTurn`, which still runs after the delete, cannot drift apart.
+ * A parse refusal comes back in the stream-json shape.
+ */
+async function parseStoredTurnRequest(p: {
+	runtimeConfig: RuntimeConfig;
+	conversationId: string;
+	message: string;
+	choices: StoredTurnChoices;
+	body: StoredTurnRunBody;
+}): Promise<
+	| { ok: true; request: ParsedChatTurnRequest }
 	| { ok: false; error: RetryPreparationError }
 > {
 	const { choices, body } = p;
@@ -451,18 +529,8 @@ export async function preflightStoredTurn(p: {
 		p.runtimeConfig,
 		"stream",
 	);
-	if (!parsedRequest.ok) {
-		return streamError(parsedRequest.error);
-	}
-
-	const preflight = await preflightChatTurn({
-		userId: p.userId,
-		request: parsedRequest.value,
-	});
-	if (!preflight.ok) {
-		return streamError(preflight.error);
-	}
-	return { ok: true, turn: preflight.value };
+	if (!parsedRequest.ok) return streamError(parsedRequest.error);
+	return { ok: true, request: parsedRequest.value };
 }
 
 type RetryTarget =
