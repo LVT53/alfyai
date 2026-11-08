@@ -443,7 +443,7 @@ describe("settledWriteNote", () => {
 		expect(settledWriteNote(write({ status: "executed" }), en)).toBeNull();
 		expect(settledWriteNote(write({ status: "cancelled" }), en)).toBeNull();
 		expect(settledWriteNote(write({ status: "failed" }), en)).toContain(
-			"nothing was changed",
+			"may not have gone through",
 		);
 		expect(settledWriteNote(write({ status: "expired" }), en)).toContain(
 			"Ask again",
