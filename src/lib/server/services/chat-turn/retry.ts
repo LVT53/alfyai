@@ -223,20 +223,23 @@ export async function prepareRetryChatTurn(params: {
 	// leave the conversation untouched, or the reply the person is regenerating
 	// is already gone when they are told why it could not run. The gate runs the
 	// turn's own input checks and writes nothing. `preflightStoredTurn` still
-	// runs after the delete: it covers what the gate does not (linked sources,
-	// the skill, the depth) and re-checks the inputs for the turn that runs.
+	// runs after the delete: it covers what the gate does not (the skill and the
+	// depth; the synthetic stored-turn body carries no linked sources) and
+	// re-checks the inputs for the turn that runs.
+	const storedTurnBody: StoredTurnRunBody = {
+		activeDocumentArtifactId,
+		streamId,
+		model,
+		reasoningDepth,
+		personalityProfileId,
+	};
+
 	const storedTurnRequest = await parseStoredTurnRequest({
 		runtimeConfig,
 		conversationId,
 		message: precedingUserMsg.content,
 		choices,
-		body: {
-			activeDocumentArtifactId,
-			streamId,
-			model,
-			reasoningDepth,
-			personalityProfileId,
-		},
+		body: storedTurnBody,
 	});
 	if (!storedTurnRequest.ok) return storedTurnRequest;
 
@@ -288,13 +291,7 @@ export async function prepareRetryChatTurn(params: {
 		conversationId,
 		message: precedingUserMsg.content,
 		choices,
-		body: {
-			activeDocumentArtifactId,
-			streamId,
-			model,
-			reasoningDepth,
-			personalityProfileId,
-		},
+		body: storedTurnBody,
 	});
 	if (!preflight.ok) return preflight;
 

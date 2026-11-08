@@ -7848,6 +7848,68 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 		expect(runtimeHarness.streamInvocations).toHaveLength(0);
 	});
 
+	it("Cancel on the cloud warning gives the landing message's uploaded files back too", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+
+		const { storePendingConversationMessage } = await import(
+			"$lib/client/conversation-session"
+		);
+		storePendingConversationMessage("conv-1", {
+			message: "First message ever",
+			attachmentIds: ["artifact-first-file"],
+			attachments: [
+				{
+					id: "artifact-first-file",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "brief.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 24,
+					conversationId: "conv-1",
+					summary: null,
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			],
+		});
+
+		renderPage(cloudModelPageData());
+
+		expect(
+			await screen.findByTestId("cloud-connector-warning"),
+		).toBeInTheDocument();
+
+		await fireEvent.click(
+			within(screen.getByRole("dialog")).getByRole("button", {
+				name: "Cancel",
+			}),
+		);
+
+		// The file went up before the hand-off, so its chip belongs back in the
+		// composer with the words: without it the next Send carries no file, and
+		// the first message has lost what it was made of.
+		await waitFor(() => {
+			expect(screen.getByTestId("message-input")).toHaveValue(
+				"First message ever",
+			);
+			expect(
+				screen.getByTestId("composer-chip-attachment"),
+			).toBeInTheDocument();
+		});
+
+		// Nothing new to acknowledge: this Send is only about what the composer
+		// holds after the Cancel.
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: false });
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+		const sent = runtimeHarness.streamInvocations[0];
+		expect(sent.message).toBe("First message ever");
+		expect(sent.options?.attachmentIds).toContain("artifact-first-file");
+	});
+
 	it("Cancel after a switch to another chat does not put the landing message in that chat", async () => {
 		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
 

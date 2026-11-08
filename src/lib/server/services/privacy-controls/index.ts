@@ -96,7 +96,11 @@ export async function eraseUserAccount(
 	if (refused) return refused;
 
 	// After the password, never before: a wrong password must not reveal whether
-	// the account is the last admin. Nothing is purged on this refusal.
+	// the account is the last admin. This pre-check purges nothing. The catch
+	// below can also return `last_admin`, after `eraseUserAccountData` ran its
+	// purge steps (quiesce, workspace purge, authorship detach) and only the
+	// delete transaction's own re-check refused the identity delete: that is the
+	// accepted residual race, and it does not undo what already ran.
 	if (await isLastAdminAccount(userId)) {
 		return { status: "last_admin" };
 	}

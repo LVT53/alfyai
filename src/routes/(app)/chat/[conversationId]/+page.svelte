@@ -2557,7 +2557,16 @@ function maybeSendPendingInitialMessage() {
 				// started (`showInitialLoading`).
 				restorePayloadToDraft({
 					...pendingDraft,
-					pendingAttachments: [],
+					// The files were uploaded before the hand-off, so these are the
+					// same already-uploaded artifacts the message carried. They come
+					// back ready because the composer must not paint a readiness
+					// error over them; the server's send gate (`checkTurnInputs` →
+					// `validateAttachmentReadiness`) stays the authority that waits
+					// for extraction before a turn runs.
+					pendingAttachments: pendingDraft.attachments.map((artifact) => ({
+						artifact,
+						promptReady: true,
+					})),
 					// The captured id, not `data.conversation.id`: the gate awaits
 					// the capability load and the person's answer with the page live,
 					// and a switch meanwhile must not stamp these words with the chat

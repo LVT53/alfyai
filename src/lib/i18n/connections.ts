@@ -301,9 +301,12 @@ const connectionsDict = {
 		// left, which is to ask again.
 		"connections.writeConfirm.note.expired":
 			"This request expired. Ask again to redo it.",
-		// A failed row means the write was ATTEMPTED; it may have reached the
-		// provider before the error, so this line must not promise that
-		// nothing changed. Check the account before trying again.
+		// A failed row usually means the write was ATTEMPTED, and it may have
+		// reached the provider before the error, so this line must not promise
+		// that nothing changed. It can also come from a definite refusal (an
+		// unregistered provider, `unsupported_operation`) where nothing was
+		// sent; "may not have gone through" still tells the truth there.
+		// Check the account before trying again.
 		"connections.writeConfirm.note.failed":
 			"This may not have gone through. Check the connected account before trying again.",
 
