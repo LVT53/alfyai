@@ -1,22 +1,28 @@
 /**
- * Which tier to ask for, and whether to ask at all.
+ * Which tier to ask for, and whether to ask at all (S4).
  *
- * Three facts from the spike make this a policy rather than a config read:
+ * Four facts from the 4.1 spike make this a policy rather than a config read:
  *
- *  1. `tier: null` is a 400. Omission and `null` are NOT the same thing, so the
- *     decision has to be "send this value" or "leave the key out entirely" —
- *     never a nullable field. `TierDecision.tier` is optional, never nullable.
- *  2. Asking for a tier the server does not offer is a 400 `invalid_request`
- *     ("Tier 'standard' not available in this server"), not a 503. It is a
- *     misconfiguration, and it must be caught BEFORE any bytes move rather than
- *     surfacing as an outage after a 40 MB upload.
- *  3. On a flash-only server, OMITTING the tier for a PDF or an image is a 503
- *     `quality_tier_unavailable`. Sending `flash` explicitly turns that same
- *     job into a successful parse.
- *
- * Office/HTML/CSV/EPUB inputs execute at `flash` anyway — `extensions.mineru.tier`
- * says `flash` for all six inside a `basic` job — so asking for it explicitly
- * costs nothing and removes any dependence on the server's start-up tier.
+ *  1. **An omitted tier is not "the best one".** It silently falls back to the
+ *     server's own start-up tier, which on a box started below Standard means a
+ *     PDF is parsed at Basic or Flash and the task still succeeds (D14). So a PDF
+ *     or an image always names its tier, and "auto" is resolved HERE, from the
+ *     tiers `/v1/tiers` lists: standard, then basic, then flash. `advanced` is
+ *     never picked for you; only a person or an admin who named it gets it.
+ *  2. **A native document never names one.** Office, HTML, CSV and EPUB inputs
+ *     execute at `flash` whatever is asked (`.docx` + `tier: standard` ran as
+ *     flash), and `.docx` + `tier: advanced` was accepted at create and then never
+ *     ran, a task that waits for nothing. There is nothing to gain and a stuck
+ *     task to lose, so the key is left out, even for a re-extract hint.
+ *  3. **`tier: null` is the same trap as an omission, and `ocr_mode: null` is a
+ *     400.** The decision is therefore "send this value" or "leave the key out
+ *     entirely", never a nullable field: `TierDecision.tier` is optional, never
+ *     null.
+ *  4. **A tier the server does not offer is a 400 `invalid_request` with
+ *     `param: "tier"`** ("Tier 'standard' is not available"), a misconfiguration
+ *     and never an outage. It is caught here, before the request, whenever the
+ *     tier list says so; and when the list was stale, the 400 maps to the same
+ *     non-retryable `tier_unavailable` (`mineru/errors.ts`), so it cannot loop.
  */
 
 import {
@@ -32,12 +38,12 @@ import { MINERU_CLIENT_ERROR_CODES, MineruApiError } from "./errors";
 export { MINERU_TIER_IDS, type MineruTierId } from "./config";
 
 export type TierDecisionReason =
+	| "native-document"
 	| "hint-override"
 	| "hint-preferred"
-	| "hint-flash"
 	| "config-explicit"
-	| "auto-quality"
-	| "auto-flash-only";
+	| "auto-best"
+	| "auto-no-tier-list";
 
 export interface TierDecision {
 	/** undefined ⇒ omit the `tier` key entirely. NEVER null. */
@@ -48,7 +54,11 @@ export interface TierDecision {
 }
 
 export interface DecideTierInput {
-	/** `getIntakeTierHint(filename, mime)` — "flash" for Office/HTML/CSV/EPUB. */
+	/**
+	 * `getIntakeTierHint(filename, mime)`: "flash" for Office, HTML, CSV and EPUB,
+	 * which is to say "this is a native document" (the registry's word for the
+	 * tier such a file always executes at).
+	 */
 	intakeTierHint?: "flash" | null;
 	configuredTier: MineruDefaultTier;
 	/** `/v1/tiers` `data[].id`, already narrowed to the ids we know. */
@@ -69,12 +79,11 @@ export interface DecideTierInput {
 	preferredTier?: MineruTierId | null;
 }
 
-/** The tiers that mean "better than flash". */
-const QUALITY_TIERS: readonly MineruTierId[] = [
-	"basic",
-	"standard",
-	"advanced",
-];
+/**
+ * What "auto" means for a PDF or an image: the best of these the server lists,
+ * in this order (S4). `advanced` is deliberately not on it.
+ */
+const AUTO_TIER_ORDER: readonly MineruTierId[] = ["standard", "basic", "flash"];
 
 function tierUnavailable(tier: string, source: string): MineruApiError {
 	return new MineruApiError({
@@ -90,14 +99,24 @@ export function isMineruTierId(value: string): value is MineruTierId {
 
 /**
  * Resolution order, first match wins. Throws `tier_unavailable` (via
- * `mapMineruError`) when an explicitly requested tier is not offered — before
- * any bytes move. A `preferredTier` is the one exception: an unavailable
+ * `mapMineruError`) when an explicitly requested tier is not offered, before
+ * any request is made. A `preferredTier` is the one exception: an unavailable
  * preference falls through instead of throwing.
  */
 export function decideTier(input: DecideTierInput): TierDecision {
 	const available = new Set<string>(input.availableTiers);
 
-	// 1 — the user pressed "Re-extract at …". Explicit intent beats everything.
+	// 0: a native document. No tier is sent, whatever else was asked: the server
+	// ignores a valid one and never runs `advanced` (see the header).
+	if (input.intakeTierHint === "flash") {
+		return {
+			reason: "native-document",
+			explanation:
+				"a native document executes at flash whatever is asked: no tier is sent",
+		};
+	}
+
+	// 1: the user pressed "Re-extract at …". Explicit intent beats everything.
 	if (input.hintedTier) {
 		if (!available.has(input.hintedTier)) {
 			throw tierUnavailable(input.hintedTier, "requested");
@@ -109,7 +128,7 @@ export function decideTier(input: DecideTierInput): TierDecision {
 		};
 	}
 
-	// 1½ — the caller would like a tier. Taken only when the server offers it;
+	// 1½: the caller would like a tier. Taken only when the server offers it;
 	// otherwise this rule is silent and the ladder continues, which is the one
 	// behavioural difference from rule 1 (see `preferredTier`).
 	if (input.preferredTier && available.has(input.preferredTier)) {
@@ -120,19 +139,7 @@ export function decideTier(input: DecideTierInput): TierDecision {
 		};
 	}
 
-	// 2 — the intake registry says this format runs at flash regardless. Only
-	// taken when the server actually lists flash: asking for a tier a server
-	// does not have is a 400, and a server without flash still parses these
-	// formats at its own start-up tier.
-	if (input.intakeTierHint === "flash" && available.has("flash")) {
-		return {
-			tier: "flash",
-			reason: "hint-flash",
-			explanation: "this format executes at flash even inside a basic job",
-		};
-	}
-
-	// 3 — admin intent.
+	// 2: admin intent.
 	if (input.configuredTier !== "auto") {
 		if (!available.has(input.configuredTier)) {
 			throw tierUnavailable(input.configuredTier, "configured");
@@ -144,25 +151,23 @@ export function decideTier(input: DecideTierInput): TierDecision {
 		};
 	}
 
-	// 5 — a flash-only server: omitting is a 503 for PDF and images, so say it.
-	const hasQuality = QUALITY_TIERS.some((tier) => available.has(tier));
-	if (!hasQuality && available.has("flash")) {
+	// 3: auto means the best tier this server lists.
+	const best = AUTO_TIER_ORDER.find((tier) => available.has(tier));
+	if (best) {
 		return {
-			tier: "flash",
-			reason: "auto-flash-only",
-			explanation: "flash is the only tier this server offers",
+			tier: best,
+			reason: "auto-best",
+			explanation: `MINERU_DEFAULT_TIER=auto: the best tier this server lists is "${best}"`,
 		};
 	}
 
-	// 4 — defer to the server's start-up tier by leaving the key out. This is
-	// what every recorded fixture did (`tier_requested: null`). An unreadable
-	// tier list lands here too: omission is the one choice that cannot turn a
-	// working server into a 400.
+	// 4: nothing to choose from. An unreadable tier list is the only way here (a
+	// healthy 4.1 server always lists flash at least), and omission is then the one
+	// choice that cannot turn a working server into a 400.
 	return {
-		reason: "auto-quality",
-		explanation: hasQuality
-			? "MINERU_DEFAULT_TIER=auto: defer to the server's start-up tier"
-			: "MINERU_DEFAULT_TIER=auto with no tier list: omit and defer",
+		reason: "auto-no-tier-list",
+		explanation:
+			"MINERU_DEFAULT_TIER=auto with no tier list to choose from: no tier is sent",
 	};
 }
 
@@ -170,35 +175,11 @@ export function decideTier(input: DecideTierInput): TierDecision {
  * `auto` means OMIT the key.
  *
  * `ocr_mode: null` is a 400 `invalid_request` with `param: "ocr_mode"` despite
- * the upstream docs promising a default, and omitting keeps the request body
- * byte-identical to the recorded fixtures.
+ * the upstream docs promising a default (D19), and omitting leaves the choice to
+ * the server's per-file detection.
  */
 export function decideOcrMode(
 	configured: MineruOcrMode,
 ): "txt" | "ocr" | undefined {
 	return configured === "auto" ? undefined : configured;
-}
-
-/**
- * Fails fast when we are about to ask for an output format the server cannot
- * produce. Anonymous, that is a 403 `feature_requires_api_key`; with a key it
- * is a 400 `unsupported_output_format` for the same input — neither is worth a
- * round trip, and neither is fixable by retrying.
- */
-export function assertMineruOutputFormatsSupported(
-	requested: readonly string[],
-	available: readonly string[],
-): void {
-	// An empty advertisement means "health did not tell us", not "nothing is
-	// supported". Refusing to extract because a probe was terse would be worse
-	// than letting the server answer for itself.
-	if (available.length === 0) return;
-	const supported = new Set(available);
-	const missing = requested.filter((format) => !supported.has(format));
-	if (missing.length === 0) return;
-	throw new MineruApiError({
-		code: "unsupported_output_format",
-		message: `MinerU does not offer the output format(s): ${missing.join(", ")}.`,
-		details: { missing, available: [...available] },
-	});
 }
