@@ -1,21 +1,25 @@
 /**
- * The MinerU V1 wire shapes, mirrored from RECORDED responses.
+ * The MinerU 4.1 wire shapes, mirrored from RECORDED responses.
  *
- * Authority order: `fixtures/mineru-v1/` beats `docs/plans/mineru4/phase0-local-spike.md`
- * beats every upstream MinerU document. Where the upstream Draft schema and a
- * fixture disagree, the fixture is what is encoded here — see the spelling trap
- * on `status` below, the seven-key `output_files` map whose unrequested members
- * are `null`, and `parse.model_used`, which was `null` on every completed file
- * the spike observed.
+ * Authority order: `fixtures/mineru-v41/protocol/` (captured from a real 4.1.7
+ * server) beats the 4.1 docs. The 4.1 spike found 27 places where the two
+ * disagree: the create receipt has no `bytes`, a hash-cache hit is `pending`
+ * with no `upload` object at all, a failed task has no top-level `error`, and
+ * every parse failure is the single code `parse_failed`.
  *
- * Two rules hold everywhere in this file:
+ * Three rules hold everywhere in this file:
  *
  *  1. **A 200 is not automatically valid.** Every response body the client reads
  *     goes through one of these schemas before a single field is trusted.
- *  2. **Objects we do not own are `.passthrough()`.** A minor server upgrade
- *     that adds a field must not turn a working parse into a `protocol`
- *     failure; the cost of tolerating an extra key is nothing, and the cost of
- *     rejecting it is a document that will not extract.
+ *  2. **Objects we do not own are loose.** A minor server upgrade that adds a
+ *     field must not turn a working parse into a `protocol` failure; rejecting
+ *     an extra key costs a document that will not extract, tolerating it costs
+ *     nothing.
+ *  3. **Validate what we read, nothing more.** Timestamps, progress and the
+ *     other bookkeeping fields are optional: the client never branches on them,
+ *     so a server that drops one must not fail a task. Statuses are the
+ *     exception and are strict enums, because the poll loop ends on them and an
+ *     unknown one should fail in one poll instead of hanging until the deadline.
  *
  * No I/O lives here.
  */
@@ -23,82 +27,70 @@
 import { z } from "zod";
 import { MINERU_TIER_IDS } from "./config";
 
-/** The server's own pattern for a content hash: lowercase hex, 64 wide. */
-export const MINERU_SHA256_PATTERN = /^[a-f0-9]{64}$/;
-export const mineruSha256 = z.string().regex(MINERU_SHA256_PATTERN);
-
 // ---------------------------------------------------------------------------
-// Error envelopes — there are two, and they are nothing alike
+// Error envelopes: there are two, and they are nothing alike
 // ---------------------------------------------------------------------------
 
 /**
- * MinerU's hand-written envelope. `type` is one of `invalid_request_error`,
- * `permission_error`, `authentication_error`, `engine_error`, but it is typed
- * as a plain string: the client branches on `code`, never on `type` alone, and
- * a fifth type must not make an error unreadable.
+ * MinerU's own envelope. 4.1 dropped `type`: the client branches on `code` and
+ * `param`, never on `message` (pydantic's multi-line dump, with a URL in it).
  */
-export const mineruErrorDetailSchema = z
-	.object({
-		type: z.string(),
-		code: z.string().nullish(),
-		message: z.string(),
-		param: z.string().nullish(),
-	})
-	.passthrough();
+const mineruErrorDetailSchema = z.looseObject({
+	code: z.string().nullish(),
+	message: z.string(),
+	param: z.string().nullish(),
+});
 
-export const mineruErrorResponseSchema = z
-	.object({ error: mineruErrorDetailSchema })
-	.passthrough();
+export const mineruErrorResponseSchema = z.looseObject({
+	error: mineruErrorDetailSchema,
+});
 
-/** FastAPI's own 422 envelope — a different shape entirely. */
-export const fastapiValidationErrorSchema = z
-	.object({
-		detail: z.array(
-			z
-				.object({
-					loc: z.array(z.union([z.string(), z.number()])).optional(),
-					msg: z.string().optional(),
-					type: z.string().optional(),
-				})
-				.passthrough(),
+/**
+ * FastAPI's own envelope, which still answers for routes MinerU did not write:
+ * `{"detail":"Not Found"}` (404) and `{"detail":"Method Not Allowed"}` (405) are
+ * a plain string, a request FastAPI itself rejects is a list.
+ */
+export const fastapiErrorSchema = z.looseObject({
+	detail: z.union([
+		z.string(),
+		z.array(
+			z.looseObject({
+				loc: z.array(z.union([z.string(), z.number()])).optional(),
+				msg: z.string().optional(),
+				type: z.string().optional(),
+			}),
 		),
-	})
-	.passthrough();
+	]),
+});
 
 // ---------------------------------------------------------------------------
 // Capability reads
 // ---------------------------------------------------------------------------
 
-export const mineruHealthSchema = z
-	.object({
-		status: z.string().default("ok"),
-		version: z.string(),
-		features: z
-			.object({
-				webhook: z.boolean().default(false),
-				output_formats: z.array(z.string()).default([]),
-				sources: z.array(z.string()).default([]),
-			})
-			.passthrough()
-			.optional(),
-	})
-	.passthrough();
+export const mineruHealthSchema = z.looseObject({
+	status: z.string().default("ok"),
+	version: z.string(),
+	features: z
+		.looseObject({
+			webhook: z.boolean().default(false),
+			/** `default`, `docx`, `html`, `latex`. 4.0's `output_formats` is gone. */
+			task_output_formats: z.array(z.string()).default([]),
+			sources: z.array(z.string()).default([]),
+		})
+		.optional(),
+});
 
-export const mineruTierSchema = z
-	.object({
-		id: z.enum(MINERU_TIER_IDS),
-		description: z.string(),
-		/** DO NOT join this to /v1/models[].id — "hybrid-basic" vs "Hybrid-Basic". */
-		current_model: z.string().nullish(),
-	})
-	.passthrough();
+export const mineruTierSchema = z.looseObject({
+	id: z.enum(MINERU_TIER_IDS),
+	description: z.string(),
+	/** `mineru-4.1.7` for every tier: it names the build, not a model. */
+	current_model: z.string().nullish(),
+});
 
-export const mineruTierListSchema = z
-	.object({
-		object: z.string().optional(),
-		data: z.array(mineruTierSchema),
-	})
-	.passthrough();
+export const mineruTierListSchema = z.looseObject({
+	object: z.string().optional(),
+	data: z.array(mineruTierSchema),
+});
 
 /**
  * The shape `MineruClient.getTiers` actually parses.
@@ -109,212 +101,198 @@ export const mineruTierListSchema = z
  * must not take the admin status card down, and it must not make every
  * extraction fail a capability read before a byte moves.
  */
-export const mineruTierListLenientSchema = z
-	.object({
-		object: z.string().optional(),
-		data: z.array(
-			z
-				.object({
-					id: z.string(),
-					description: z.string().default(""),
-					current_model: z.string().nullish(),
-				})
-				.passthrough(),
-		),
-	})
-	.passthrough();
+export const mineruTierListLenientSchema = z.looseObject({
+	object: z.string().optional(),
+	data: z.array(
+		z.looseObject({
+			id: z.string(),
+			description: z.string().default(""),
+			current_model: z.string().nullish(),
+		}),
+	),
+});
 
-export const mineruUsageSchema = z
-	.object({
-		object: z.string().optional(),
-		access_level: z.enum(["anonymous", "registered"]).optional(),
-		limits: z
-			.object({
-				max_pages_per_file: z.number().nullish(),
-				max_file_size_bytes: z.number().nullish(),
-				max_files_per_job: z.number().nullish(),
-				max_concurrent_jobs: z.number().nullish(),
-				max_file_retention_days: z.number().nullish(),
-			})
-			.passthrough()
-			.optional(),
-	})
-	.passthrough();
+export const mineruUsageSchema = z.looseObject({
+	object: z.string().optional(),
+	access_level: z.enum(["anonymous", "registered"]).optional(),
+	limits: z
+		.looseObject({
+			max_pages_per_file: z.number().nullish(),
+			max_file_size_bytes: z.number().nullish(),
+			max_files_per_job: z.number().nullish(),
+			max_concurrent_jobs: z.number().nullish(),
+			max_file_retention_days: z.number().nullish(),
+		})
+		.optional(),
+});
 
 // ---------------------------------------------------------------------------
-// Files and uploads
+// Tasks and their files
 // ---------------------------------------------------------------------------
 
-export const mineruFileObjectSchema = z
-	.object({
-		id: z.string(),
-		object: z.literal("file").optional(),
-		bytes: z.number(),
-		created_at: z.number(),
-		expires_at: z.number().nullish(),
-		filename: z.string(),
-		purpose: z.enum(["parse", "parse_output", "input_image"]),
-		sha256sum: z.string().nullish(),
-	})
-	.passthrough();
-
-/** `GET /v1/files`. The client never calls it; the fixtures record it. */
-export const mineruFileListSchema = z
-	.object({
-		object: z.string().optional(),
-		data: z.array(mineruFileObjectSchema),
-		first_id: z.string().nullish(),
-		last_id: z.string().nullish(),
-		has_more: z.boolean().optional(),
-	})
-	.passthrough();
-
-export const mineruUploadSchema = z
-	.object({
-		id: z.string(),
-		object: z.literal("upload").optional(),
-		bytes: z.number(),
-		created_at: z.number(),
-		expires_at: z.number(),
-		filename: z.string(),
-		purpose: z.string().optional(),
-		mime_type: z.string(),
-		sha256sum: z.string().nullish(),
-		/** NOTE the double-l spelling: the server says "cancelled" here. */
-		status: z.enum(["pending", "completed", "cancelled", "expired"]),
-		upload_url: z.string().nullish(),
-		upload_method: z.literal("PUT").nullish(),
-		upload_headers: z.record(z.string(), z.string()).nullish(),
-		file: mineruFileObjectSchema.nullish(),
-	})
-	.passthrough();
-
-// ---------------------------------------------------------------------------
-// Parse jobs
-// ---------------------------------------------------------------------------
-
-export const mineruOutputFileRefSchema = z
-	.object({
-		file_id: z.string(),
-		bytes: z.number(),
-	})
-	.passthrough();
-
-/**
- * Every key is present on a terminal job; the unrequested formats are `null`.
- * Iterating `Object.entries` without a null check crashed the spike's own
- * harness, which is why each member is `.nullish()` rather than optional.
- */
-export const mineruOutputFilesSchema = z
-	.object({
-		markdown: mineruOutputFileRefSchema.nullish(),
-		middle_json: mineruOutputFileRefSchema.nullish(),
-		structured_content: mineruOutputFileRefSchema.nullish(),
-		html: mineruOutputFileRefSchema.nullish(),
-		latex: mineruOutputFileRefSchema.nullish(),
-		docx: mineruOutputFileRefSchema.nullish(),
-		zip: mineruOutputFileRefSchema.nullish(),
-	})
-	.passthrough();
-
-export const mineruJobFileResultSchema = z
-	.object({
-		file_id: z.string().nullish(),
-		name: z.string(),
-		/** "" on a queued job — NOT null. Normalises to "1-3" when terminal. */
-		page_range: z.string(),
-		status: z.enum(["queued", "running", "completed", "failed"]),
-		parse: z
-			.object({
-				/** null on every observed completed file. Do not trust it. */
-				model_used: z.string().nullish(),
-				duration_ms: z.number().nullish(),
-				parser_version: z.string().nullish(),
-			})
-			.passthrough()
-			.nullish(),
-		output_files: mineruOutputFilesSchema.nullish(),
-		error: mineruErrorDetailSchema.nullish(),
-	})
-	.passthrough();
-
-export const mineruJobSchema = z
-	.object({
-		job_id: z.string(),
-		status: z.enum([
-			"queued",
-			"running",
-			"completed",
-			"partial",
-			"failed",
-			"canceled",
-		]),
-		created_at: z.string(),
-		started_at: z.string().nullish(),
-		finished_at: z.string().nullish(),
-		/** The JOB tier. Lies about what parsed the file — read extensions.mineru.tier. */
-		tier: z.enum(MINERU_TIER_IDS),
-		output_formats: z.array(z.string()),
-		access_level: z.enum(["anonymous", "registered"]),
-		progress: z
-			.object({
-				completed: z.number().default(0),
-				failed: z.number().default(0),
-				total: z.number().default(0),
-			})
-			.passthrough()
-			.nullish(),
-		files: z.array(mineruJobFileResultSchema),
-		links: z
-			.object({ self: z.string().optional(), cancel: z.string().optional() })
-			.passthrough()
-			.optional(),
-	})
-	.passthrough();
-
-export const mineruJobCancelSchema = z
-	.object({
-		job_id: z.string(),
-		/** ONE l here — `mineruUploadSchema.status` spells it with two. */
-		status: z.literal("canceled").default("canceled"),
-		canceled_at: z.string(),
-	})
-	.passthrough();
-
-// ---------------------------------------------------------------------------
-// Inferred types — the vocabulary every other slice imports
-// ---------------------------------------------------------------------------
-
-export type MineruErrorDetail = z.infer<typeof mineruErrorDetailSchema>;
-export type MineruErrorResponse = z.infer<typeof mineruErrorResponseSchema>;
-export type FastapiValidationError = z.infer<
-	typeof fastapiValidationErrorSchema
->;
-export type MineruHealth = z.infer<typeof mineruHealthSchema>;
-export type MineruTier = z.infer<typeof mineruTierSchema>;
-export type MineruTierList = z.infer<typeof mineruTierListSchema>;
-export type MineruUsage = z.infer<typeof mineruUsageSchema>;
-export type MineruFileObject = z.infer<typeof mineruFileObjectSchema>;
-export type MineruFileList = z.infer<typeof mineruFileListSchema>;
-export type MineruUpload = z.infer<typeof mineruUploadSchema>;
-export type MineruOutputFileRef = z.infer<typeof mineruOutputFileRefSchema>;
-export type MineruOutputFiles = z.infer<typeof mineruOutputFilesSchema>;
-export type MineruJobFileResult = z.infer<typeof mineruJobFileResultSchema>;
-export type MineruJob = z.infer<typeof mineruJobSchema>;
-export type MineruJobCancel = z.infer<typeof mineruJobCancelSchema>;
-
-/** Terminal job statuses. A poll loop stops here and then reads `files[0]`. */
-export const MINERU_TERMINAL_JOB_STATUSES = [
+/** In the order a task moves through them; the last four are terminal. */
+export const MINERU_TASK_STATUSES = [
+	"waiting-file",
+	"pending",
+	"running",
 	"completed",
 	"partial",
 	"failed",
 	"canceled",
 ] as const;
-export type MineruTerminalJobStatus =
-	(typeof MINERU_TERMINAL_JOB_STATUSES)[number];
+export type MineruTaskStatus = (typeof MINERU_TASK_STATUSES)[number];
 
-export function isTerminalMineruJobStatus(
-	status: MineruJob["status"],
-): status is MineruTerminalJobStatus {
-	return (MINERU_TERMINAL_JOB_STATUSES as readonly string[]).includes(status);
+/** A file has no `partial`: that is a task that holds a mix. */
+export const MINERU_FILE_STATUSES = [
+	"waiting-file",
+	"pending",
+	"running",
+	"completed",
+	"failed",
+	"canceled",
+] as const;
+
+/** A poll loop stops here and then reads the file it submitted. */
+const MINERU_TERMINAL_TASK_STATUSES = [
+	"completed",
+	"partial",
+	"failed",
+	"canceled",
+] as const;
+
+export function isTerminalMineruTaskStatus(status: MineruTaskStatus): boolean {
+	return (MINERU_TERMINAL_TASK_STATUSES as readonly string[]).includes(status);
 }
+
+/**
+ * Where to PUT a file's bytes: absolute URL, headers to send verbatim, and the
+ * Unix second the link stops working (creation plus an hour). Present only
+ * while the file waits for bytes; a hash-cache hit never gets one.
+ */
+export const mineruUploadLinkSchema = z.looseObject({
+	url: z.string(),
+	headers: z.record(z.string(), z.string()).default({}),
+	expires_at: z.number().nullish(),
+});
+
+/**
+ * What parsed a file. `tier` is the EFFECTIVE tier per file, so a native
+ * document says `flash` whatever was asked (and equals `extensions.mineru.tier`
+ * inside the result).
+ */
+const mineruFileParseInfoSchema = z.looseObject({
+	tier: z.string(),
+	duration_ms: z.number().nullish(),
+	parser_version: z.string().nullish(),
+});
+
+const mineruCreatedTaskFileSchema = z.looseObject({
+	file_id: z.string().min(1),
+	file_name: z.string(),
+	status: z.enum(MINERU_FILE_STATUSES),
+	upload: mineruUploadLinkSchema.nullish(),
+});
+
+/** `POST /v1/tasks`, 202. No timestamps and no `bytes`: the first GET has them. */
+export const mineruCreateTaskResponseSchema = z.looseObject({
+	task_id: z.string().min(1),
+	status: z.enum(MINERU_TASK_STATUSES),
+	files: z.array(mineruCreatedTaskFileSchema),
+});
+
+const mineruTaskFileSchema = z.looseObject({
+	file_id: z.string().min(1),
+	file_name: z.string(),
+	status: z.enum(MINERU_FILE_STATUSES),
+	/** The size of the SOURCE. The result's size is its download's Content-Length. */
+	bytes: z.number().nullish(),
+	upload: mineruUploadLinkSchema.nullish(),
+	parse: mineruFileParseInfoSchema.nullish(),
+	/** Where the result ZIP is; present once the file is `completed`. */
+	result_url: z.string().nullish(),
+	/** Every cause arrives as `parse_failed`; only the message differs. */
+	error: mineruErrorDetailSchema.nullish(),
+});
+
+/** `GET /v1/tasks/{id}`. */
+export const mineruTaskDetailSchema = z.looseObject({
+	task_id: z.string().min(1),
+	status: z.enum(MINERU_TASK_STATUSES),
+	created_at: z.string().nullish(),
+	started_at: z.string().nullish(),
+	finished_at: z.string().nullish(),
+	output_formats: z.array(z.string()).default([]),
+	progress: z
+		.looseObject({
+			completed: z.number().default(0),
+			failed: z.number().default(0),
+			total: z.number().default(0),
+		})
+		.nullish(),
+	files: z.array(mineruTaskFileSchema),
+	/** Never seen on a real task (a failed one reports on its files); tolerated. */
+	error: mineruErrorDetailSchema.nullish(),
+});
+
+/** `PUT {upload.url}`, 200. A repeat PUT answers the same, with the current status. */
+export const mineruUploadFileResponseSchema = z.looseObject({
+	task_id: z.string().min(1),
+	file_id: z.string().min(1),
+	status: z.enum(MINERU_FILE_STATUSES),
+});
+
+/** `POST /v1/tasks/{id}/cancel`, 200: the settled state of every file. */
+export const mineruCancelTaskResponseSchema = z.looseObject({
+	task_id: z.string().min(1),
+	status: z.literal("canceled"),
+	finished_at: z.string().nullish(),
+	files: z
+		.array(
+			z.looseObject({
+				file_id: z.string().min(1),
+				file_name: z.string(),
+				status: z.enum(["completed", "failed", "canceled"]),
+				parse: mineruFileParseInfoSchema.nullish(),
+				result_url: z.string().nullish(),
+				error: mineruErrorDetailSchema.nullish(),
+			}),
+		)
+		.default([]),
+});
+
+/**
+ * `GET /v1/files/{id}`. Note `id` and `file_name`, not `file_id` and
+ * `filename`. The client never calls it; it is here so the fixtures that record
+ * it are held to a schema too.
+ */
+export const mineruFileObjectSchema = z.looseObject({
+	id: z.string(),
+	object: z.literal("file").optional(),
+	bytes: z.number(),
+	created_at: z.number(),
+	expires_at: z.number().nullish(),
+	file_name: z.string(),
+	purpose: z.enum(["parse", "parse_output"]),
+	sha256sum: z.string().nullish(),
+});
+
+// ---------------------------------------------------------------------------
+// Inferred types: the vocabulary every other slice imports
+// ---------------------------------------------------------------------------
+
+export type MineruErrorDetail = z.infer<typeof mineruErrorDetailSchema>;
+export type MineruHealth = z.infer<typeof mineruHealthSchema>;
+export type MineruTier = z.infer<typeof mineruTierSchema>;
+export type MineruUsage = z.infer<typeof mineruUsageSchema>;
+export type MineruUploadLink = z.infer<typeof mineruUploadLinkSchema>;
+export type MineruCreateTaskResponse = z.infer<
+	typeof mineruCreateTaskResponseSchema
+>;
+export type MineruTaskFile = z.infer<typeof mineruTaskFileSchema>;
+export type MineruTaskDetail = z.infer<typeof mineruTaskDetailSchema>;
+export type MineruUploadFileResponse = z.infer<
+	typeof mineruUploadFileResponseSchema
+>;
+export type MineruCancelTaskResponse = z.infer<
+	typeof mineruCancelTaskResponseSchema
+>;

@@ -1,45 +1,70 @@
 /**
- * Every schema, against every recorded response.
+ * Every schema, against every recorded MinerU 4.1 answer.
  *
- * The last case in this file is the one that matters most: it walks
- * `fixtures/mineru-v1/` and fails when a file was never read. A fixture nobody
- * reads is a fixture nobody is checked against, and the whole point of Phase 0
- * was that the upstream documentation could not be trusted.
+ * The recorded answers are the authority (`fixtures/mineru-v41/protocol/`,
+ * copied byte for byte from the 4.1 spike); the 4.1 docs are not. Two guards keep
+ * that honest:
+ *
+ *  1. Every JSON fixture is dispatched to the schema for its family by what was
+ *     asked (method, path) and answered (status), and must parse. A new fixture
+ *     that fits no family fails here by name instead of being silently ignored.
+ *  2. The last case walks the fixture folder and fails when a file was never
+ *     read, so the curated subset cannot grow dead weight.
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	fastapiValidationErrorSchema,
-	isTerminalMineruJobStatus,
+	fastapiErrorSchema,
+	isTerminalMineruTaskStatus,
+	MINERU_FILE_STATUSES,
+	MINERU_TASK_STATUSES,
+	mineruCancelTaskResponseSchema,
+	mineruCreateTaskResponseSchema,
 	mineruErrorResponseSchema,
-	mineruFileListSchema,
+	mineruFileObjectSchema,
 	mineruHealthSchema,
-	mineruJobCancelSchema,
-	mineruJobSchema,
+	mineruTaskDetailSchema,
 	mineruTierListLenientSchema,
 	mineruTierListSchema,
-	mineruUploadSchema,
+	mineruUploadFileResponseSchema,
 	mineruUsageSchema,
 } from "./schemas";
-import { MINERU_FIXTURE_ROOT } from "./testing/fake-server";
+import { MINERU_PROTOCOL_FIXTURE_ROOT } from "./testing/fake-server";
 
 /** Every fixture path this file has touched, for the coverage case below. */
 const touched = new Set<string>();
 
-function fixturePath(...parts: string[]): string {
-	const path = join(MINERU_FIXTURE_ROOT, ...parts);
+function fixturePath(relativePath: string): string {
+	const path = join(MINERU_PROTOCOL_FIXTURE_ROOT, relativePath);
 	touched.add(path);
 	return path;
 }
 
-function readJson<T = Record<string, unknown>>(...parts: string[]): T {
-	return JSON.parse(readFileSync(fixturePath(...parts), "utf8")) as T;
+interface Recorded {
+	request?: { method: string; path: string };
+	response?: {
+		status: number;
+		headers?: Record<string, string>;
+		json?: unknown;
+	};
+	/** Poll captures: the body sits under `snapshot`. */
+	snapshot?: unknown;
+	zip_listing?: Array<{ name: string; size: number }>;
 }
 
-function readBytes(...parts: string[]): Buffer {
-	return readFileSync(fixturePath(...parts));
+function readRecorded(relativePath: string): Recorded {
+	return JSON.parse(readFileSync(fixturePath(relativePath), "utf8"));
+}
+
+/** The body of a recorded answer. */
+function bodyOf(relativePath: string): Record<string, unknown> {
+	const recorded = readRecorded(relativePath);
+	return (recorded.snapshot ?? recorded.response?.json) as Record<
+		string,
+		unknown
+	>;
 }
 
 function walk(dir: string): string[] {
@@ -52,419 +77,507 @@ function walk(dir: string): string[] {
 	return out;
 }
 
-const INPUT_DIRS = [
-	"pdf",
-	"docx",
-	"xlsx",
-	"pptx",
-	"html",
-	"csv",
-	"epub",
-	"png",
-	"jpg",
-] as const;
+const ALL_FILES = walk(MINERU_PROTOCOL_FIXTURE_ROOT)
+	.map((path) => relative(MINERU_PROTOCOL_FIXTURE_ROOT, path))
+	.sort();
+const JSON_FILES = ALL_FILES.filter((name) => name.endsWith(".json"));
+const ZIP_FILES = ALL_FILES.filter((name) => name.endsWith(".zip"));
 
-describe("mineru schemas — recorded uploads", () => {
-	it.each(INPUT_DIRS)("parses %s upload.create.json", (input) => {
-		const parsed = mineruUploadSchema.parse(
-			readJson(input, "upload.create.json"),
+type Family =
+	| "health"
+	| "tiers"
+	| "usage"
+	| "create-receipt"
+	| "put-receipt"
+	| "task-snapshot"
+	| "cancel-receipt"
+	| "file-object"
+	| "download"
+	| "error";
+
+/** What a recorded answer is, from what was asked and what came back. */
+function familyOf(relativePath: string): Family {
+	const recorded = readRecorded(relativePath);
+	if (recorded.snapshot !== undefined) return "task-snapshot";
+	const { request, response } = recorded;
+	if (!request || !response) {
+		throw new Error(
+			`${relativePath} is neither a snapshot nor request+response`,
 		);
-		expect(parsed.id).toMatch(/^upload_/);
-		expect(["pending", "completed"]).toContain(parsed.status);
-	});
+	}
+	if (response.status >= 400) return "error";
+	const { method, path } = request;
+	if (method === "GET" && path === "/v1/health") return "health";
+	if (method === "GET" && path === "/v1/tiers") return "tiers";
+	if (method === "GET" && path === "/v1/usage") return "usage";
+	if (method === "POST" && path === "/v1/tasks") return "create-receipt";
+	if (method === "PUT" && /^\/v1\/tasks\/[^/]+\/uploads\/[^/]+$/.test(path)) {
+		return "put-receipt";
+	}
+	if (method === "GET" && /^\/v1\/tasks\/[^/]+$/.test(path)) {
+		return "task-snapshot";
+	}
+	if (method === "POST" && /^\/v1\/tasks\/[^/]+\/cancel$/.test(path)) {
+		return "cancel-receipt";
+	}
+	if (method === "GET" && /^\/v1\/files\/[^/]+\/content$/.test(path)) {
+		return "download";
+	}
+	if (method === "GET" && /^\/v1\/files\/[^/]+$/.test(path)) {
+		return "file-object";
+	}
+	throw new Error(`${relativePath}: no family for ${method} ${path}`);
+}
 
-	it("parses the PDF dedupe hit: completed at create, with an embedded file", () => {
-		const upload = mineruUploadSchema.parse(
-			readJson("pdf", "upload.create.json"),
-		);
-		expect(upload.status).toBe("completed");
-		expect(upload.upload_url).toBeNull();
-		expect(upload.upload_method).toBeNull();
-		expect(upload.file?.id).toBe("file-10c3b409b0ab0e3b7da5fc00");
-		// The dedupe hit is why `pdf/upload.complete.json` does not exist.
-		expect(upload.sha256sum).toMatch(/^[a-f0-9]{64}$/);
-	});
-
-	it("parses the fresh DOCX upload: pending, with an absolute upload_url", () => {
-		const upload = mineruUploadSchema.parse(
-			readJson("docx", "upload.create.json"),
-		);
-		expect(upload.status).toBe("pending");
-		expect(upload.upload_method).toBe("PUT");
-		expect(upload.upload_url).toBe(
-			"http://127.0.0.1:8765/v1/uploads/upload_7e33e5d48a2a3789f878f873/content",
-		);
-		expect(upload.upload_headers?.["Content-Type"]).toContain(
-			"wordprocessingml",
-		);
-		expect(upload.file).toBeNull();
-	});
-
-	it.each(
-		INPUT_DIRS.filter((input) => input !== "pdf"),
-	)("parses %s upload.complete.json", (input) => {
-		const upload = mineruUploadSchema.parse(
-			readJson(input, "upload.complete.json"),
-		);
-		expect(upload.status).toBe("completed");
-		expect(upload.file?.purpose).toBe("parse");
-	});
-});
-
-describe("mineru schemas — recorded jobs", () => {
-	it.each(INPUT_DIRS)("parses %s job.create.json as a queued job", (input) => {
-		const job = mineruJobSchema.parse(readJson(input, "job.create.json"));
-		expect(job.status).toBe("queued");
-		expect(isTerminalMineruJobStatus(job.status)).toBe(false);
-		// "" on a queued job — NOT null.
-		expect(job.files[0]?.page_range).toBe("");
-		expect(job.files[0]?.parse).toBeNull();
-		expect(job.files[0]?.output_files).toBeNull();
-	});
-
-	it.each([
-		...INPUT_DIRS,
-		"flash-pdf",
-	] as const)("parses %s job.final.json as a terminal job", (input) => {
-		const job = mineruJobSchema.parse(readJson(input, "job.final.json"));
-		expect(job.status).toBe("completed");
-		expect(isTerminalMineruJobStatus(job.status)).toBe(true);
-		expect(job.files[0]?.status).toBe("completed");
-		expect(job.files[0]?.page_range).toMatch(/^\d+(-\d+)?$/);
-	});
-
-	it("keeps every output_files key, with null for the unrequested formats", () => {
-		const job = mineruJobSchema.parse(readJson("pdf", "job.final.json"));
-		const outputs = job.files[0]?.output_files;
-		expect(outputs).toBeTruthy();
-		expect(Object.keys(outputs ?? {})).toEqual([
-			"markdown",
-			"middle_json",
-			"structured_content",
-			"html",
-			"latex",
-			"docx",
-			"zip",
+describe("mineru schemas: every recorded body parses with the schema for its family", () => {
+	it("finds the curated tree", () => {
+		expect(JSON_FILES.length).toBeGreaterThan(60);
+		expect(ZIP_FILES).toEqual([
+			"zips/csv.zip",
+			"zips/docx.zip",
+			"zips/pdf.zip",
 		]);
-		expect(outputs?.html).toBeNull();
-		expect(outputs?.latex).toBeNull();
-		expect(outputs?.docx).toBeNull();
-		expect(outputs?.zip).toEqual({
-			file_id: "file-d3aae163fbf484a7ae8ae604",
-			bytes: 71547,
-		});
 	});
 
-	it("tolerates parse.model_used being null on a completed file", () => {
-		const job = mineruJobSchema.parse(readJson("pdf", "job.final.json"));
-		expect(job.files[0]?.parse?.model_used).toBeNull();
-		expect(job.files[0]?.parse?.parser_version).toBe("4.0.4");
-	});
-
-	it("keeps the JOB tier even though it lies about the file's real tier", () => {
-		// docx executes at flash INSIDE a basic job; only
-		// extensions.mineru.tier (Phase 4) knows that.
-		const job = mineruJobSchema.parse(readJson("docx", "job.final.json"));
-		expect(job.tier).toBe("basic");
-	});
-});
-
-describe("mineru schemas — capability reads", () => {
-	it("parses /v1/health on both server shapes", () => {
-		for (const name of ["health.json", "flash.health.json"]) {
-			const health = mineruHealthSchema.parse(readJson("server", name));
-			expect(health.version).toBe("4.0.4");
-			expect(health.features?.webhook).toBe(false);
-			expect(health.features?.output_formats).toEqual([
-				"markdown",
-				"middle_json",
-				"structured_content",
-				"zip",
-			]);
+	it.each(JSON_FILES)("%s", (name) => {
+		const body = bodyOf(name);
+		switch (familyOf(name)) {
+			case "health":
+				return void mineruHealthSchema.parse(body);
+			case "tiers":
+				return void mineruTierListSchema.parse(body);
+			case "usage":
+				return void mineruUsageSchema.parse(body);
+			case "create-receipt":
+				return void mineruCreateTaskResponseSchema.parse(body);
+			case "put-receipt":
+				return void mineruUploadFileResponseSchema.parse(body);
+			case "task-snapshot":
+				return void mineruTaskDetailSchema.parse(body);
+			case "cancel-receipt":
+				return void mineruCancelTaskResponseSchema.parse(body);
+			case "file-object":
+				return void mineruFileObjectSchema.parse(body);
+			case "download": {
+				// A result is a ZIP with the images/ directory entry in it (D2, D3).
+				const recorded = readRecorded(name);
+				expect(recorded.response?.headers?.["content-type"]).toBe(
+					"application/zip",
+				);
+				expect(recorded.response?.headers?.["content-disposition"]).toMatch(
+					/^attachment; filename(\*=utf-8'')?/,
+				);
+				const entries = (recorded.zip_listing ?? []).map((entry) => entry.name);
+				expect(entries).toEqual(
+					expect.arrayContaining([
+						"markdown.md",
+						"structured_content.json",
+						"images/",
+					]),
+				);
+				return;
+			}
+			case "error": {
+				const parsed = mineruErrorResponseSchema.safeParse(body);
+				if (parsed.success) {
+					// 4.1 never sends `type`: the envelope is code, message and param only.
+					expect(Object.keys(parsed.data.error)).not.toContain("type");
+					expect(parsed.data.error.code).toBeTruthy();
+					return;
+				}
+				expect(fastapiErrorSchema.parse(body)).toBeTruthy();
+			}
 		}
 	});
 
-	it("parses /v1/tiers on both server shapes", () => {
-		const basic = mineruTierListSchema.parse(readJson("server", "tiers.json"));
-		expect(basic.data.map((tier) => tier.id)).toEqual(["flash", "basic"]);
-		// current_model does NOT join to /v1/models[].id.
-		expect(basic.data[1]?.current_model).toBe("hybrid-basic");
+	it.each(ZIP_FILES)("%s is a ZIP", (name) => {
+		const bytes = readFileSync(fixturePath(name));
+		expect(bytes.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+	});
+});
 
+describe("mineru schemas: capability reads", () => {
+	it("reads task_output_formats and sources from /v1/health", () => {
+		const health = mineruHealthSchema.parse(
+			bodyOf("server/health_no_key.json"),
+		);
+		expect(health.version).toBe("4.1.7");
+		expect(health.features?.webhook).toBe(false);
+		expect(health.features?.task_output_formats).toEqual([
+			"default",
+			"docx",
+			"html",
+			"latex",
+		]);
+		expect(health.features?.sources).toEqual(["upload", "url"]);
+	});
+
+	it("defaults the feature lists to empty rather than failing", () => {
+		const health = mineruHealthSchema.parse({
+			version: "4.1.9",
+			features: { webhook: true },
+		});
+		expect(health.features?.task_output_formats).toEqual([]);
+		expect(health.features?.sources).toEqual([]);
+		// The 4.0 key is gone: nothing reads `output_formats` any more.
+		expect(Object.keys(health.features ?? {})).not.toContain("output_formats");
+	});
+
+	it("reads the ceiling-limited tier lists, current_model being one name for all", () => {
+		const standard = mineruTierListSchema.parse(bodyOf("server/tiers.json"));
+		expect(standard.data.map((tier) => tier.id)).toEqual([
+			"flash",
+			"basic",
+			"standard",
+		]);
+		expect(new Set(standard.data.map((tier) => tier.current_model))).toEqual(
+			new Set(["mineru-4.1.7"]),
+		);
 		const flash = mineruTierListSchema.parse(
-			readJson("server", "flash.tiers.json"),
+			bodyOf("flows/tier-ceilings/flash/02_tiers.json"),
 		);
 		expect(flash.data.map((tier) => tier.id)).toEqual(["flash"]);
 	});
 
-	it("drops an unknown tier id in the lenient shape instead of failing", () => {
-		const parsed = mineruTierListLenientSchema.parse({
+	it("keeps an unknown tier id in the lenient shape and rejects it in the strict one", () => {
+		const body = {
 			object: "list",
 			data: [
 				{ id: "flash", description: "Fast." },
 				{ id: "quantum", description: "From a future server." },
 			],
-		});
-		expect(parsed.data.map((tier) => tier.id)).toEqual(["flash", "quantum"]);
-		// …and the strict shape, which pins what was recorded, does fail.
+		};
 		expect(
-			mineruTierListSchema.safeParse({
-				data: [{ id: "quantum", description: "" }],
-			}).success,
-		).toBe(false);
+			mineruTierListLenientSchema.parse(body).data.map((tier) => tier.id),
+		).toEqual(["flash", "quantum"]);
+		expect(mineruTierListSchema.safeParse(body).success).toBe(false);
 	});
 
-	it("parses /v1/usage, which is where the real limits live", () => {
-		const usage = mineruUsageSchema.parse(readJson("server", "usage.json"));
-		expect(usage.access_level).toBe("anonymous");
-		expect(usage.limits?.max_file_size_bytes).toBe(209715200);
-		expect(usage.limits?.max_file_retention_days).toBeNull();
-	});
-
-	it("reads /v1/models and the OpenAPI document without modelling them", () => {
-		// Neither is used by the client: models[].id does not join to a tier,
-		// and the OpenAPI document is a fixture for humans.
-		const models = readJson<{ data: Array<{ id: string }> }>(
-			"server",
-			"models.json",
-		);
-		expect(models.data.map((model) => model.id)).toEqual([
-			"MinerU-Flash",
-			"Hybrid-Basic",
-			"MinerU-HTML",
-		]);
-		const flashModels = readJson<{ data: Array<{ id: string }> }>(
-			"server",
-			"flash.models.json",
-		);
-		expect(flashModels.data.map((model) => model.id)).toContain("MinerU-Flash");
-
-		const openapi = readJson<{ openapi: string }>("server", "openapi.json");
-		expect(openapi.openapi).toBe("3.1.0");
+	it("reads /v1/usage, where the real limits live", () => {
+		const usage = mineruUsageSchema.parse(bodyOf("server/usage.json"));
+		expect(usage.access_level).toBe("registered");
+		expect(usage.limits?.max_files_per_job).toBe(100);
+		expect(usage.limits?.max_concurrent_jobs).toBe(2);
+		expect(usage.limits?.max_pages_per_file).toBeNull();
+		expect(usage.limits?.max_file_size_bytes).toBeNull();
 	});
 });
 
-describe("mineru schemas — spelling and tolerance", () => {
-	it("pins the cancelled/canceled split that exists inside one API", () => {
-		const upload = mineruUploadSchema.parse(
-			readJson("errors", "upload_cancel_pending.json").body,
+describe("mineru schemas: create receipts", () => {
+	it("a new hash waits for its bytes: waiting-file, with an upload link to PUT to", () => {
+		const receipt = mineruCreateTaskResponseSchema.parse(
+			bodyOf("samples/docx-default/01_create.json"),
 		);
-		// TWO l's on an upload…
-		expect(upload.status).toBe("cancelled");
-
-		const cancel = mineruJobCancelSchema.parse(
-			readJson("errors", "cancel_running_job.json").body,
+		expect(receipt.status).toBe("waiting-file");
+		const file = receipt.files[0];
+		expect(file?.status).toBe("waiting-file");
+		expect(file?.file_name).toBe("report.docx");
+		expect(file?.upload?.url).toBe(
+			`http://127.0.0.1:8012/v1/tasks/${receipt.task_id}/uploads/${file?.file_id}`,
 		);
-		// …and ONE on a job cancel.
-		expect(cancel.status).toBe("canceled");
+		expect(file?.upload?.headers).toEqual({
+			"Content-Type": "application/octet-stream",
+		});
+		expect(file?.upload?.expires_at).toBe(1793883192);
+	});
 
-		const after = mineruJobSchema.parse(
-			readJson("errors", "cancel_running_job_after.json").body,
+	it("a cache hit is pending with no upload object at all, and carries new ids", () => {
+		const first = mineruCreateTaskResponseSchema.parse(
+			bodyOf("flows/hash-cache/A_first_upload_create.json"),
+		);
+		const hit = mineruCreateTaskResponseSchema.parse(
+			bodyOf("flows/hash-cache/B_same_hash_same_name_create.json"),
+		);
+		expect(hit.status).toBe("pending");
+		expect(hit.files[0]?.status).toBe("pending");
+		expect(hit.files[0]?.upload).toBeUndefined();
+		expect(hit.task_id).not.toBe(first.task_id);
+		expect(hit.files[0]?.file_id).not.toBe(first.files[0]?.file_id);
+	});
+
+	it("a two-file task has one upload link per file", () => {
+		const receipt = mineruCreateTaskResponseSchema.parse(
+			bodyOf("flows/partial-and-file-terminal/01_create.json"),
+		);
+		expect(receipt.files.map((file) => file.file_name)).toEqual([
+			"good.pdf",
+			"bad.pdf",
+		]);
+		expect(receipt.files.every((file) => file.upload?.url)).toBe(true);
+	});
+
+	it("a Hungarian name round-trips untouched", () => {
+		const receipt = mineruCreateTaskResponseSchema.parse(
+			bodyOf("samples/pdf-hu-accented-name/01_create.json"),
+		);
+		expect(receipt.files[0]?.file_name).toBe(
+			"Árvíztűrő tükörfúrógép jelentés.pdf",
+		);
+	});
+});
+
+describe("mineru schemas: task snapshots", () => {
+	it("tells terminal statuses from the ones that keep polling", () => {
+		expect([...MINERU_TASK_STATUSES]).toEqual([
+			"waiting-file",
+			"pending",
+			"running",
+			"completed",
+			"partial",
+			"failed",
+			"canceled",
+		]);
+		expect([...MINERU_FILE_STATUSES]).toEqual([
+			"waiting-file",
+			"pending",
+			"running",
+			"completed",
+			"failed",
+			"canceled",
+		]);
+		const terminal = MINERU_TASK_STATUSES.filter(isTerminalMineruTaskStatus);
+		expect(terminal).toEqual(["completed", "partial", "failed", "canceled"]);
+	});
+
+	it("a completed file names its effective tier and where to download the result", () => {
+		const task = mineruTaskDetailSchema.parse(
+			bodyOf("samples/docx-default/03_poll_02_completed.json"),
+		);
+		expect(task.status).toBe("completed");
+		expect(task.finished_at).toBe("2026-11-05T11:53:12Z");
+		expect(task.progress).toEqual({ completed: 1, failed: 0, total: 1 });
+		const file = task.files[0];
+		expect(file?.status).toBe("completed");
+		// The size of the SOURCE; the result's size is the download's Content-Length.
+		expect(file?.bytes).toBe(50722);
+		// A native document reports flash whatever was asked (D27).
+		expect(file?.parse).toEqual({
+			tier: "flash",
+			duration_ms: 309,
+			parser_version: "4.1.7",
+		});
+		expect(file?.result_url).toBe(
+			`http://127.0.0.1:8012/v1/files/${file?.file_id}/content`,
+		);
+	});
+
+	it("a failed task has no top-level error: the reason is on the file, as parse_failed", () => {
+		const task = mineruTaskDetailSchema.parse(
+			bodyOf("samples/pdf-corrupt-truncated/03_poll_02_failed.json"),
+		);
+		expect(task.status).toBe("failed");
+		expect(task.error).toBeUndefined();
+		expect(task.files[0]?.error).toEqual({
+			code: "parse_failed",
+			message: "Failed to load document (PDFium: Data format error).",
+		});
+		expect(task.files[0]?.result_url).toBeUndefined();
+	});
+
+	it("a waiting file inside a running task still carries its upload link", () => {
+		const task = mineruTaskDetailSchema.parse(
+			bodyOf("flows/partial-and-file-terminal/03_poll_after_bad.json"),
+		);
+		expect(task.status).toBe("running");
+		expect(task.files.map((file) => file.status)).toEqual([
+			"waiting-file",
+			"running",
+		]);
+		expect(task.files[0]?.upload?.url).toContain("/uploads/");
+	});
+
+	it("a partial task is terminal: one file completed, one failed", () => {
+		const task = mineruTaskDetailSchema.parse(
+			bodyOf("flows/partial-and-file-terminal/snapshot_02_partial.json"),
+		);
+		expect(task.status).toBe("partial");
+		expect(isTerminalMineruTaskStatus(task.status)).toBe(true);
+		expect(task.progress).toEqual({ completed: 1, failed: 1, total: 2 });
+		expect(task.files.map((file) => file.status)).toEqual([
+			"completed",
+			"failed",
+		]);
+		expect(task.files[0]?.result_url).toBeTruthy();
+		expect(task.files[1]?.error?.code).toBe("parse_failed");
+	});
+
+	it("keeps per-file results while the task itself is still running", () => {
+		const task = mineruTaskDetailSchema.parse(
+			bodyOf("samples/mixed-batch-pdf-docx-csv/03_poll_02_running.json"),
+		);
+		expect(task.status).toBe("running");
+		expect(
+			task.files.map((file) => [file.file_name, file.status, file.parse?.tier]),
+		).toEqual([
+			["paper-en.pdf", "running", undefined],
+			["report.docx", "completed", "flash"],
+			["table.csv", "completed", "flash"],
+		]);
+	});
+});
+
+describe("mineru schemas: PUT, cancel and file receipts", () => {
+	it("a PUT answers with the file's identity and its current status", () => {
+		const receipt = mineruUploadFileResponseSchema.parse(
+			bodyOf("samples/docx-default/02_put_0.json"),
+		);
+		expect(receipt).toEqual({
+			task_id: "job_e25a30af18058622cc7715c7",
+			file_id: "file-57ecb6bbc422eb333d3d3fc5",
+			status: "pending",
+		});
+	});
+
+	it("a cancel mid-way leaves the finished file completed and downloadable", () => {
+		const receipt = mineruCancelTaskResponseSchema.parse(
+			bodyOf("flows/cancel-midway/cancel_receipt.json"),
+		);
+		expect(receipt.status).toBe("canceled");
+		expect(receipt.files).toHaveLength(10);
+		expect(receipt.files[0]?.status).toBe("completed");
+		expect(receipt.files[0]?.result_url).toBeTruthy();
+		expect(receipt.files[0]?.parse?.tier).toBe("standard");
+		expect(
+			receipt.files.slice(1).every((file) => file.status === "canceled"),
+		).toBe(true);
+		// …and the snapshot after the cancel says the same (nothing changes later).
+		const later = mineruTaskDetailSchema.parse(
+			bodyOf("flows/cancel-midway/snapshot_3s_after_cancel.json"),
+		);
+		expect(later.status).toBe("canceled");
+		expect(later.progress?.completed).toBe(1);
+	});
+
+	it("a cancel while everything was waiting or running cancels every file", () => {
+		const receipt = mineruCancelTaskResponseSchema.parse(
+			bodyOf("flows/cancel-running/10_cancel_running.json"),
+		);
+		expect(receipt.files.every((file) => file.status === "canceled")).toBe(
+			true,
+		);
+		const after = mineruTaskDetailSchema.parse(
+			bodyOf("flows/cancel-running/11_get_after_cancel.json"),
 		);
 		expect(after.status).toBe("canceled");
 	});
 
-	it("survives a server that adds a field we have never seen", () => {
-		const recorded = readJson<{ files: Array<Record<string, unknown>> }>(
-			"pdf",
-			"job.final.json",
+	it("the file object says id and file_name, not file_id and filename", () => {
+		const file = mineruFileObjectSchema.parse(
+			bodyOf("flows/files-endpoints/13_file_meta.json"),
 		);
-		const job = mineruJobSchema.parse({
-			...recorded,
-			carbon_grams: 7,
-			files: [{ ...recorded.files[0], vibes: "excellent" }],
+		expect(file.id).toBe("file-5f19f9ed9efd0ec303433dfd");
+		expect(file.file_name).toBe("files-probe.zip");
+		expect(file.purpose).toBe("parse_output");
+		expect(file.bytes).toBe(78586);
+	});
+});
+
+describe("mineru schemas: error bodies", () => {
+	it("reads {error:{code,message,param}} without a type", () => {
+		const parsed = mineruErrorResponseSchema.parse(
+			bodyOf("errors/08_tier_advanced_above_ceiling.json"),
+		);
+		expect(parsed.error).toEqual({
+			code: "invalid_request",
+			message: "Tier 'advanced' is not available",
+			param: "tier",
 		});
-		expect((job as unknown as { carbon_grams: number }).carbon_grams).toBe(7);
 	});
 
-	it("rejects a 200 whose shape is wrong — a 200 is not automatically valid", () => {
-		expect(mineruJobSchema.safeParse({ job_id: "job_1" }).success).toBe(false);
-		expect(mineruUploadSchema.safeParse({ id: "upload_1" }).success).toBe(
-			false,
+	it("reads FastAPI's {detail} as a string (404/405) and as a list (422)", () => {
+		const route = fastapiErrorSchema.parse(
+			bodyOf("errors/49_removed_post_uploads.json"),
 		);
-		expect(mineruHealthSchema.safeParse({ status: "ok" }).success).toBe(false);
-	});
-
-	it("parses both error envelopes", () => {
-		const mineru = mineruErrorResponseSchema.parse(
-			readJson("errors", "tier_standard.json").body,
+		expect(route.detail).toBe("Not Found");
+		const method = fastapiErrorSchema.parse(
+			bodyOf("errors/59_delete_task_not_allowed.json"),
 		);
-		expect(mineru.error.code).toBe("invalid_request");
-		expect(mineru.error.param).toBeNull();
-
-		const fastapi = fastapiValidationErrorSchema.parse({
+		expect(method.detail).toBe("Method Not Allowed");
+		const validation = fastapiErrorSchema.parse({
 			detail: [
-				{ loc: ["body", "tier"], msg: "field required", type: "value_error" },
+				{ loc: ["body", "tier"], msg: "field required", type: "missing" },
 			],
 		});
-		expect(fastapi.detail[0]?.msg).toBe("field required");
+		expect(Array.isArray(validation.detail)).toBe(true);
 	});
 
-	it("parses the anonymous file listings the local server allows", () => {
-		// The docs promise 403 list_requires_api_key here; the local server
-		// serves both listings anonymously, with real rows.
-		const anonymous = mineruFileListSchema.parse(
-			readJson("errors", "list_files.json").body,
-		);
-		expect(anonymous.data.length).toBeGreaterThan(0);
-		expect(anonymous.data.map((file) => file.purpose)).toContain(
-			"parse_output",
-		);
-
-		const keyed = mineruFileListSchema.parse(
-			readJson("errors", "auth_valid_key_files.json").body,
-		);
-		expect(keyed.data).toEqual([]);
-		const jobs = readJson<{ body: { data: unknown[] } }>(
-			"errors",
-			"list_jobs.json",
-		);
-		expect(Array.isArray(jobs.body.data)).toBe(true);
+	it("does not mistake one envelope for the other", () => {
+		expect(
+			mineruErrorResponseSchema.safeParse({ detail: "Not Found" }).success,
+		).toBe(false);
+		expect(
+			fastapiErrorSchema.safeParse({ error: { code: "x", message: "y" } })
+				.success,
+		).toBe(false);
 	});
 });
 
-describe("mineru schemas — every recorded error body", () => {
-	const errorDir = join(MINERU_FIXTURE_ROOT, "errors");
-	const names = readdirSync(errorDir).filter(
-		(name) => name.endsWith(".json") && !name.startsWith("_"),
-	);
-
-	it.each(names)("parses %s", (name) => {
-		const probe = readJson<{ http_status?: number; body?: unknown }>(
-			"errors",
-			name,
+describe("mineru schemas: tolerance", () => {
+	it("survives a server that adds a field we have never seen, at every level", () => {
+		const recorded = bodyOf(
+			"samples/docx-default/03_poll_02_completed.json",
+		) as {
+			files: Array<Record<string, unknown>>;
+		};
+		const task = mineruTaskDetailSchema.parse({
+			...recorded,
+			carbon_grams: 7,
+			files: [
+				{
+					...recorded.files[0],
+					vibes: "excellent",
+					parse: { ...(recorded.files[0]?.parse as object), gpu: "none" },
+				},
+			],
+		});
+		expect((task as unknown as { carbon_grams: number }).carbon_grams).toBe(7);
+		expect((task.files[0] as unknown as { vibes: string }).vibes).toBe(
+			"excellent",
 		);
-		const body = probe.body as Record<string, unknown> | undefined;
-		if (body && "error" in body) {
-			expect(mineruErrorResponseSchema.safeParse(body).success).toBe(true);
-			return;
-		}
-		if (body && "job_id" in body && "status" in body && "files" in body) {
-			expect(mineruJobSchema.safeParse(body).success).toBe(true);
-			return;
-		}
-		// Whatever it is — a health read, a listing, an upload, a cancel — it
-		// parsed as JSON, which is all this case claims for the leftovers.
-		expect(probe).toBeTruthy();
+		expect((task.files[0]?.parse as unknown as { gpu: string }).gpu).toBe(
+			"none",
+		);
 	});
 
-	it("parses every deferred 202-then-fail follow-up as a terminal job", () => {
-		const followups = readJson<
-			Array<{ probe: string; final: unknown; file_error: unknown }>
-		>("errors", "_202-followups.json");
-		expect(followups).toHaveLength(8);
-		for (const followup of followups) {
-			const job = mineruJobSchema.parse(followup.final);
-			expect(isTerminalMineruJobStatus(job.status)).toBe(true);
-		}
+	it("refuses a status it does not know rather than polling it forever", () => {
+		const recorded = bodyOf("samples/docx-default/03_poll_01_running.json");
+		expect(
+			mineruTaskDetailSchema.safeParse({ ...recorded, status: "queued" })
+				.success,
+		).toBe(false);
 	});
 
-	it("reads the probe index", () => {
-		const index = readJson<Array<{ probe: string }>>("errors", "_index.json");
-		expect(index.map((row) => row.probe)).toContain("auth_missing_key");
-	});
-});
-
-describe("mineru schemas — restart probes", () => {
-	it("records that bytes survive a restart and identifiers do not", () => {
-		const before = readJson<{
-			upload_create_status_for_known_sha: string;
-			reupload_same_sha_status: string;
-			reupload_same_sha_same_file_id: boolean;
-		}>("probe.restart-before.json");
-		expect(before.upload_create_status_for_known_sha).toBe("completed");
-		expect(before.reupload_same_sha_status).toBe("completed");
-		// The dedupe hit mints a NEW file id. This is why no id is ever persisted.
-		expect(before.reupload_same_sha_same_file_id).toBe(false);
-
-		const after = readJson<{
-			upload: { http_status: number; body: string };
-			input_file: { http_status: number; body: string };
-			job: { http_status: number; body: string };
-			output_zip_content: { http_status: number; body: string };
-			dedupe_after_restart_status: string;
-		}>("probe.restart-after.json");
-
-		for (const probe of [
-			after.upload,
-			after.input_file,
-			after.job,
-			after.output_zip_content,
-		]) {
-			expect(probe.http_status).toBe(404);
-			expect(
-				mineruErrorResponseSchema.safeParse(JSON.parse(probe.body)).success,
-			).toBe(true);
-		}
-		expect(JSON.parse(after.upload.body).error.code).toBe("upload_not_found");
-		expect(JSON.parse(after.input_file.body).error.code).toBe("file_not_found");
-		expect(JSON.parse(after.job.body).error.code).toBe("job_not_found");
-		// …and the sha still dedupes afterwards. That is the recovery path.
-		expect(after.dedupe_after_restart_status).toBe("completed");
+	it("rejects a 200 whose shape is wrong: a 200 is not automatically valid", () => {
+		expect(mineruTaskDetailSchema.safeParse({ task_id: "job_1" }).success).toBe(
+			false,
+		);
+		expect(
+			mineruCreateTaskResponseSchema.safeParse({
+				task_id: "job_1",
+				status: "pending",
+			}).success,
+		).toBe(false);
+		expect(
+			mineruUploadFileResponseSchema.safeParse({ task_id: "job_1" }).success,
+		).toBe(false);
+		expect(mineruHealthSchema.safeParse({ status: "ok" }).success).toBe(false);
+		// The 4.0 shapes are not 4.1: `job_id` is `task_id` now.
+		expect(
+			mineruTaskDetailSchema.safeParse({
+				job_id: "job_1",
+				status: "completed",
+				created_at: "2026-11-05T11:53:12Z",
+				files: [],
+			}).success,
+		).toBe(false);
 	});
 });
 
-describe("mineru fixtures — coverage", () => {
-	it("reads the per-input artifacts the later phases parse", () => {
-		for (const input of [...INPUT_DIRS, "flash-pdf"] as const) {
-			const structured = readJson<{ pages: unknown[] }>(
-				input,
-				"structured_content.json",
-			);
-			expect(Array.isArray(structured.pages)).toBe(true);
-			const middle = readJson<{ schema: string }>(input, "middle_json.json");
-			expect(middle.schema).toBe("docvortex.middle");
-			expect(readBytes(input, "markdown.md").byteLength).toBeGreaterThan(0);
-			expect(readBytes(input, "result.zip").byteLength).toBeGreaterThan(0);
-		}
-		for (const input of INPUT_DIRS) {
-			expect(readBytes(input, "zip-listing.txt").toString()).toContain(
-				"structured_content.json",
-			);
-			const sample = readdirSync(join(MINERU_FIXTURE_ROOT, input)).find(
-				(name) => name.startsWith("sample."),
-			);
-			expect(sample).toBeTruthy();
-			expect(readBytes(input, sample as string).byteLength).toBeGreaterThan(0);
-		}
-		const summary =
-			readJson<Array<{ name: string; zip_bytes?: number }>>(
-				"_run-summary.json",
-			);
-		expect(summary.length).toBeGreaterThanOrEqual(9);
-	});
-
-	/**
-	 * Phase 5 P5-B (spec §5.1). rtf/odt/ods/odp/tsv/ofd have no recorded
-	 * response bundle — none of them were in the Phase 0 spike, so there is no
-	 * upstream `job.*.json` to validate a schema against yet. Live coverage for
-	 * them is `scripts/verify-live-extraction-types.ts`, run against a real
-	 * MinerU 4 server. Reading the sample inputs here only keeps them out of
-	 * "leaves no fixture unread" below; it is not a substitute for that live
-	 * run.
-	 */
-	it("has a non-empty sample input for every new Phase 5 format", () => {
-		const newFormatSamples: Array<[string, string]> = [
-			["rtf", "sample.rtf"],
-			["odt", "sample.odt"],
-			["ods", "sample.ods"],
-			["odp", "sample.odp"],
-			["tsv", "sample.tsv"],
-			["ofd", "sample.ofd"],
-		];
-		for (const [dir, name] of newFormatSamples) {
-			expect(readBytes(dir, name).byteLength).toBeGreaterThan(0);
-		}
-	});
-
+describe("mineru fixtures: coverage", () => {
 	it("leaves no fixture unread", () => {
-		const all = walk(MINERU_FIXTURE_ROOT);
-		const unread = all
-			.filter((path) => !touched.has(path))
-			.map((path) => relative(MINERU_FIXTURE_ROOT, path))
-			.sort();
+		const unread = ALL_FILES.filter(
+			(name) => !touched.has(join(MINERU_PROTOCOL_FIXTURE_ROOT, name)),
+		);
 		expect(unread).toEqual([]);
-		// Sanity: the walk really did find the tree.
-		expect(all.length).toBeGreaterThan(100);
-		expect(statSync(MINERU_FIXTURE_ROOT).isDirectory()).toBe(true);
 	});
 });

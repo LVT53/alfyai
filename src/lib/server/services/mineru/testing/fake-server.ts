@@ -53,6 +53,26 @@ export const MINERU_FIXTURE_ROOT = join(
 );
 
 /**
+ * `<repo>/fixtures/mineru-v41/protocol`: the captured MinerU 4.1 answers (create
+ * and PUT receipts, task snapshots, cancel receipts, error bodies, three result
+ * ZIPs), copied byte for byte from the 4.1 spike. Anchored on this file rather
+ * than on `process.cwd()`, because some suites chdir into a scratch directory.
+ */
+export const MINERU_PROTOCOL_FIXTURE_ROOT = join(
+	HERE,
+	"../../../../../../fixtures/mineru-v41/protocol",
+);
+
+/** Reads a captured 4.1 body: `readMineruProtocolFixture("server/tiers.json")`. */
+export function readMineruProtocolFixture<T = unknown>(
+	relativePath: string,
+): T {
+	return JSON.parse(
+		readFileSync(join(MINERU_PROTOCOL_FIXTURE_ROOT, relativePath), "utf8"),
+	) as T;
+}
+
+/**
  * A directory name under `fixtures/mineru-v1/`: one of the nine recorded
  * inputs (pdf, docx, xlsx, pptx, html, csv, epub, png, jpg) or flash-pdf, the
  * same PDF parsed by a flash-tier server.
