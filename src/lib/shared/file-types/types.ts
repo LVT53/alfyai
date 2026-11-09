@@ -83,6 +83,15 @@ export interface FileTypePreview {
 export interface FileTypeIntake {
 	readonly route: IntakeRoute;
 	readonly tierHint?: IntakeTierHint;
+	/**
+	 * The extension the MinerU backend is told the file has, when its canonical
+	 * extension (`extensions[0]`) is not the spelling the backend reads. MinerU
+	 * routes a file by extension and refuses one it does not know for good, and it
+	 * reads `tiff` but has never read `tif`. Must be one of this entry's own
+	 * `extensions` (a spelling of the same type), and only an entry routed to
+	 * `mineru` has one. Absent = send the canonical extension.
+	 */
+	readonly remoteExtension?: string;
 	/** Required iff route === "reject". */
 	readonly rejectReason?: RejectReasonKey;
 	/**

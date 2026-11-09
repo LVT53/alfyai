@@ -219,14 +219,17 @@ export function toNormalizedName(originalName: string): string {
 
 /**
  * The name MinerU is told the file has (S3): `document.<ext>`, with the
- * registry's canonical extension for the type, never the user's own.
+ * registry's extension for the type, never the user's own.
  *
  * 4.1 refuses `/`, `\`, `:` and control characters in a name, routes by the
  * extension, and keeps the rest byte for byte (D17, D18), so a Mac name with a
  * colon would be a 400 and a user's name is none of MinerU's business. The
- * extension is the registry's (`photo.JPEG` and `scan.jfif` are both `jpg`);
- * a file the registry does not know keeps its own, if it is a plain word, and
- * otherwise goes without one.
+ * extension is the registry's (`photo.JPEG` and `scan.jfif` are both `jpg`),
+ * and where the registry says MinerU reads another spelling of the type than
+ * its canonical one (`intake.remoteExtension`: a TIFF is told .tiff, which
+ * MinerU accepts, and not the canonical .tif, which it has never accepted),
+ * that one. A file the registry does not know keeps its own extension, if it is
+ * a plain word, and otherwise goes without one.
  */
 export function canonicalTaskFileName(
 	fileName: string,
@@ -235,7 +238,9 @@ export function canonicalTaskFileName(
 	const entry = resolveEntry(fileName, mimeType);
 	const own = fileExtension(fileName);
 	const extension =
-		entry?.extensions[0] ?? (/^[a-z0-9]{1,16}$/.test(own) ? own : "");
+		entry?.intake.remoteExtension ??
+		entry?.extensions[0] ??
+		(/^[a-z0-9]{1,16}$/.test(own) ? own : "");
 	return extension ? `document.${extension}` : "document";
 }
 

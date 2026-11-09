@@ -947,7 +947,10 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		mimeTypes: ["image/tiff"],
 		category: "image",
 		preview: { kind: "image", extensionAuthoritative: true },
-		intake: { route: "mineru" },
+		// `tif` stays canonical here (stored names, the picker, three pinned
+		// tests), but MinerU 4.1.7 reads `tiff` and has never read `tif`, and it
+		// routes by extension: so that is the name the backend is told.
+		intake: { route: "mineru", remoteExtension: "tiff" },
 		production: { requestable: false, types: {}, validation: "none" },
 		textLike: false,
 		surfaces: ["knowledge", "chat"],

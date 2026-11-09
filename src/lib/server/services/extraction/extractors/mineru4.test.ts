@@ -26,6 +26,7 @@ import {
 	MINERU_4_0_12_ERRORS,
 	MINERU_FIXTURE_ROOT,
 } from "$lib/server/services/mineru/testing/fake-server";
+import { FILE_TYPE_ENTRIES } from "$lib/shared/file-types";
 import type {
 	ExtractDocumentRequest,
 	ExtractionHandle,
@@ -146,8 +147,12 @@ async function tempDirCount(): Promise<number> {
 	return entries.filter((entry) => entry.startsWith(TMP_PREFIX)).length;
 }
 
+/** The server the running test started, until `afterEach` has closed it. */
+let running: FakeMineruServer | null = null;
+
 async function start(options: FakeMineruServerOptions = {}): Promise<void> {
 	server = await createFakeMineruServer(options);
+	running = server;
 	resetMineruCapabilitiesCacheForTests();
 }
 
@@ -270,7 +275,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-	await server?.close();
+	// Only the server THIS test started: a test that needs none (a table of names,
+	// a guard over the registry) must not close the last test's, a second time.
+	const started = running;
+	running = null;
+	await started?.close();
 	// A test may stand something else in front of the capability probe.
 	setMineruProbeClientFactory(
 		(resolved) => new MineruClient({ config: resolved }),
@@ -321,6 +330,13 @@ describe("the name MinerU is told (S3)", () => {
 		["scan.jfif", null, "document.jpg"],
 		["page.htm", "text/html", "document.html"],
 		["table.csv", "text/csv", "document.csv"],
+		// MinerU 4.1.7 reads `tiff` and has never read `tif` (and routes by the
+		// extension, D17), so a TIFF goes under the one spelling it accepts,
+		// whichever the user used, and when only the declared type says what it is.
+		["scan.tif", "image/tiff", "document.tiff"],
+		["scan.TIFF", "image/tiff", "document.tiff"],
+		["scan.tiff", null, "document.tiff"],
+		["scan", "image/tiff", "document.tiff"],
 		// A name the user would have trouble getting past 4.1 (it rejects / \ : and
 		// control characters, D18) never travels.
 		["Árvíztűrő: jelentés/2026\\final.pdf", "application/pdf", "document.pdf"],
@@ -376,6 +392,108 @@ describe("the name MinerU is told (S3)", () => {
 		);
 		// …and the user's own name is still what the normalized artifact is called.
 		expect(JSON.stringify(server.requests)).not.toContain("rvíztűrő");
+	});
+});
+
+describe("the registry against what MinerU 4.1.7 accepts", () => {
+	// The extensions MinerU 4.1.7 routes a file by, copied from its installed
+	// source, `mineru/filetypes.py` lines 29-58 (4.0.12 has the same list). It
+	// routes by extension (D17), so a file sent under any other name is refused
+	// for good: `Unsupported file type`.
+	const ACCEPTED_BY_MINERU_4_1_7 = new Set([
+		"pdf",
+		// tiered
+		"png",
+		"jpg",
+		"jpeg",
+		"webp",
+		"gif",
+		"bmp",
+		"tiff",
+		"jp2",
+		// flash only
+		"doc",
+		"docx",
+		"ppt",
+		"pptx",
+		"xls",
+		"xlsx",
+		"rtf",
+		"odt",
+		"ods",
+		"odp",
+		"html",
+		"htm",
+		"shtml",
+		"mhtml",
+		"mht",
+		"csv",
+		"tsv",
+		"epub",
+		"ofd",
+	]);
+
+	/**
+	 * Registry entries routed to MinerU that it has never accepted. Pre-existing
+	 * (the 4.0 flow sent the user's own name, and 4.0.12 refuses them too); their
+	 * routing is not changed here.
+	 */
+	const KNOWN_EXCEPTIONS = new Map([
+		[
+			"heic",
+			"not accepted by MinerU 4.0.12 or 4.1.7; pre-existing; owner decision pending",
+		],
+		[
+			"heif",
+			"not accepted by MinerU 4.0.12 or 4.1.7; pre-existing; owner decision pending",
+		],
+	]);
+
+	const sentExtension = (entry: (typeof FILE_TYPE_ENTRIES)[number]): string =>
+		canonicalTaskFileName(`file.${entry.extensions[0]}`, null).replace(
+			/^document\./,
+			"",
+		);
+	const routedToMineru = FILE_TYPE_ENTRIES.filter(
+		(entry) => entry.intake.route === "mineru",
+	);
+
+	it("sends every type routed to MinerU under an extension it accepts", () => {
+		const refused = routedToMineru
+			.filter((entry) => !KNOWN_EXCEPTIONS.has(entry.id))
+			.filter((entry) => !ACCEPTED_BY_MINERU_4_1_7.has(sentExtension(entry)))
+			.map(
+				(entry) => `${entry.id} is sent as document.${sentExtension(entry)}`,
+			);
+		expect(refused).toEqual([]);
+	});
+
+	it("sends every spelling of a type under that one extension", () => {
+		// `.tif` and `.tiff`, `.jpg` / `.jpeg` / `.jfif`, `.html` / `.htm`: the
+		// user's spelling never decides.
+		for (const entry of routedToMineru) {
+			for (const extension of entry.extensions) {
+				expect(
+					canonicalTaskFileName(`file.${extension}`, null),
+					`${entry.id}: .${extension}`,
+				).toBe(`document.${sentExtension(entry)}`);
+			}
+		}
+	});
+
+	it("lists as exceptions only types that really are routed to MinerU and really are refused", () => {
+		// An exception that has stopped being one (its routing changed, or MinerU
+		// learned the type) must leave the list, not rot in it.
+		for (const id of KNOWN_EXCEPTIONS.keys()) {
+			const entry = routedToMineru.find((candidate) => candidate.id === id);
+			expect(entry, `${id} is routed to MinerU`).toBeDefined();
+			if (entry) {
+				expect(
+					ACCEPTED_BY_MINERU_4_1_7.has(sentExtension(entry)),
+					`${id} is refused`,
+				).toBe(false);
+			}
+		}
 	});
 });
 
@@ -656,6 +774,27 @@ describe("tier resolution happens before the request is made", () => {
 		const { request } = await buildRequest();
 		await extractorFor().extract(request);
 		expect(createBody().tier).toBe("standard");
+	});
+
+	it("tells MinerU a TIFF is a .tiff, whichever spelling the user's file had", async () => {
+		// 4.1.7 reads .tiff and routes by extension; the canonical .tif is refused
+		// for good (`Unsupported file type`), so every TIFF extraction failed.
+		for (const [fileName, mimeType] of [
+			["scan.tif", "image/tiff"],
+			["scan.TIFF", "image/tiff"],
+		] as const) {
+			await start({ fixtureInput: "png" });
+			const { request } = await buildRequest({
+				fixture: "png",
+				fileName,
+				mimeType,
+			});
+			await extractorFor().extract(request);
+			expect(createBody().files[0].file_name).toBe("document.tiff");
+			expect(createBody().tier).toBe("standard");
+			await running?.close();
+			running = null;
+		}
 	});
 
 	it("names a tier for an image too", async () => {

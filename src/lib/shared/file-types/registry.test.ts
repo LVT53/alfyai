@@ -590,6 +590,24 @@ describe("file-type registry invariants", () => {
 		}
 	});
 
+	it("gives a MinerU spelling only to a MinerU entry, and only one of its own", () => {
+		// `remoteExtension` is the name the backend is told, where it reads another
+		// spelling of the type than the canonical one. On a route that never reaches
+		// MinerU it is meaningless, and a spelling the entry does not have would
+		// tell MinerU the file is another kind of thing.
+		for (const entry of FILE_TYPE_ENTRIES) {
+			if (entry.intake.remoteExtension === undefined) continue;
+			expect(entry.intake.route, entry.id).toBe("mineru");
+			expect(entry.extensions, entry.id).toContain(
+				entry.intake.remoteExtension,
+			);
+		}
+		// The one type that has one today: MinerU 4.1.7 reads tiff and never tif.
+		const tif = FILE_TYPE_ENTRIES.find((candidate) => candidate.id === "tif");
+		expect(tif?.extensions[0]).toBe("tif");
+		expect(tif?.intake.remoteExtension).toBe("tiff");
+	});
+
 	it("`buildAcceptAttribute` drops exactly the disabled entries", () => {
 		const disabled = new Set(getMineru4GatedFileTypeIds());
 		for (const surface of ["knowledge", "chat"] as const) {
