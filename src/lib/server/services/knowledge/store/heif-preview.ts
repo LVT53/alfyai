@@ -9,9 +9,13 @@ type Convert = (
 ) => Promise<Buffer | null>;
 
 /**
- * Conversions run one at a time, since a HEIC decode holds the calling thread,
- * and a request for a photo already on its way shares that answer: one photo is
- * asked for by its tile, its marks chip and the marking screen at once.
+ * A request for a photo already on its way shares that answer: one photo is
+ * asked for by its tile, its marks chip and the marking screen at once. And
+ * conversions run one at a time, so that a page of HEIC tiles queues behind
+ * itself and leaves the decode pool (two places for the whole process,
+ * vision/heif-decode.ts) to the chat and the extraction, instead of taking both
+ * places and holding a photo's bytes for each tile at once. The decode itself
+ * runs in a worker thread, so the thread is not what this protects.
  */
 export function createHeifPreviewQueue(convert: Convert): Convert {
 	const running = new Map<string, Promise<Buffer | null>>();
