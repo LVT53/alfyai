@@ -539,6 +539,76 @@ describe("mineru schemas: tolerance", () => {
 		);
 	});
 
+	it("reads a parse object that names no tier instead of failing every poll", () => {
+		// Only `tier` was required of `parse`, and nothing needs it to be there:
+		// the extractor reads it with a fallback to the tier it asked for.
+		const recorded = bodyOf(
+			"samples/docx-default/03_poll_02_completed.json",
+		) as {
+			files: Array<Record<string, unknown>>;
+		};
+		const task = mineruTaskDetailSchema.parse({
+			...recorded,
+			files: [{ ...recorded.files[0], parse: { duration_ms: 5 } }],
+		});
+		expect(task.files[0]?.parse?.tier).toBeUndefined();
+		expect(task.files[0]?.parse?.duration_ms).toBe(5);
+		const canceled = mineruCancelTaskResponseSchema.parse({
+			task_id: "job_x",
+			status: "canceled",
+			files: [
+				{
+					file_id: "file-x",
+					file_name: "x.pdf",
+					status: "completed",
+					parse: {},
+					result_url: "http://127.0.0.1:8012/v1/files/file-x/content",
+				},
+			],
+		});
+		expect(canceled.files[0]?.parse?.tier).toBeUndefined();
+	});
+
+	it("refuses an upload link with an empty url: it would resolve to the base URL itself", () => {
+		const recorded = bodyOf("samples/docx-default/01_create.json") as {
+			files: Array<{ upload: Record<string, unknown> }>;
+		};
+		const receipt = (url: unknown) => ({
+			...recorded,
+			files: [
+				{
+					...recorded.files[0],
+					upload: { ...recorded.files[0]?.upload, url },
+				},
+			],
+		});
+		expect(mineruCreateTaskResponseSchema.safeParse(receipt("")).success).toBe(
+			false,
+		);
+		expect(
+			mineruCreateTaskResponseSchema.safeParse(receipt("http://x/y")).success,
+		).toBe(true);
+	});
+
+	it("reads upload headers that are null or absent as no headers, instead of failing the receipt", () => {
+		// A receipt that fails to parse after a 202 leaves a task nobody can find
+		// again, and the retried create makes a second one.
+		const recorded = bodyOf("samples/docx-default/01_create.json") as {
+			files: Array<{ upload: Record<string, unknown> }>;
+		};
+		const upload = recorded.files[0]?.upload ?? {};
+		const withHeaders = (headers: unknown) =>
+			mineruCreateTaskResponseSchema.parse({
+				...recorded,
+				files: [{ ...recorded.files[0], upload: { ...upload, headers } }],
+			});
+		expect(withHeaders(null).files[0]?.upload?.headers).toEqual({});
+		expect(withHeaders(undefined).files[0]?.upload?.headers).toEqual({});
+		expect(withHeaders({ "X-A": "b" }).files[0]?.upload?.headers).toEqual({
+			"X-A": "b",
+		});
+	});
+
 	it("refuses a status it does not know rather than polling it forever", () => {
 		const recorded = bodyOf("samples/docx-default/03_poll_01_running.json");
 		expect(

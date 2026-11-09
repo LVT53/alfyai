@@ -168,20 +168,30 @@ export function isTerminalMineruTaskStatus(status: MineruTaskStatus): boolean {
  * Where to PUT a file's bytes: absolute URL, headers to send verbatim, and the
  * Unix second the link stops working (creation plus an hour). Present only
  * while the file waits for bytes; a hash-cache hit never gets one.
+ *
+ * `url` is never empty (an empty string would resolve to the base URL itself).
+ * `headers` may be `null` or absent and then means none: a receipt that failed
+ * to parse after a 202 leaves a task nobody can find again, and the retried
+ * create makes a second one.
  */
 const mineruUploadLinkSchema = z.looseObject({
-	url: z.string(),
-	headers: z.record(z.string(), z.string()).default({}),
+	url: z.string().min(1),
+	headers: z
+		.record(z.string(), z.string())
+		.nullish()
+		.transform((headers) => headers ?? {}),
 	expires_at: z.number().nullish(),
 });
 
 /**
  * What parsed a file. `tier` is the EFFECTIVE tier per file, so a native
  * document says `flash` whatever was asked (and equals `extensions.mineru.tier`
- * inside the result).
+ * inside the result). Optional, because nothing here needs it: a `parse` that
+ * names no tier must not fail every poll, and the extractor reads it with a
+ * fallback to the tier it asked for.
  */
 const mineruFileParseInfoSchema = z.looseObject({
-	tier: z.string(),
+	tier: z.string().nullish(),
 	duration_ms: z.number().nullish(),
 	parser_version: z.string().nullish(),
 });
