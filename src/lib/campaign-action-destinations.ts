@@ -10,15 +10,14 @@
  * could not be published. One list, one predicate, no drift.
  */
 
-/** Destinations the action button navigates to, as same-origin paths. */
-const ALLOWED_ACTION_PATHS = [
-	"/",
-	"/chat",
-	"/knowledge",
-	"/settings",
-	"/settings/profile",
-	"/settings/admin",
-] as const;
+import { CAMPAIGN_ACTION_PATHS } from "./app-places";
+
+/**
+ * Destinations the action button navigates to, as same-origin paths: the
+ * in-app places marked for campaigns in `./app-places`, in that file's order.
+ * A place that is not marked there (the guide's own) is never offered here.
+ */
+const ALLOWED_ACTION_PATHS = CAMPAIGN_ACTION_PATHS;
 
 /**
  * Destinations handled inside the app instead of by navigation. The campaign
