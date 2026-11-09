@@ -52,19 +52,30 @@ export type PreparedImage = {
  * for white, since a reader shown a transparent page of black text sees black on
  * black. Without it transparency is kept, as it is for a preview or a picture
  * the picture model is given.
+ *
+ * `signal` calls the preparation off: a HEIC decode that is waiting for a place
+ * never starts and one that is running has its worker terminated, and the
+ * promise rejects with `signal.reason` as it is, never with a picture. Nothing
+ * else is a reason to look at it, and a caller that passes none sees no change.
  */
 export async function decodeImageToPng(
 	input: Uint8Array,
 	mimeType: string | null,
-	options: { maxLongEdge?: number; background?: string } = {},
+	options: {
+		maxLongEdge?: number;
+		background?: string;
+		signal?: AbortSignal;
+	} = {},
 ): Promise<{
 	png: Buffer;
 	width: number;
 	height: number;
 	hasAlpha: boolean;
 }> {
+	const { signal } = options;
 	try {
-		const upright = (await openForSharp(input, mimeType)).rotate();
+		signal?.throwIfAborted();
+		const upright = (await openForSharp(input, mimeType, signal)).rotate();
 		const flat = options.background
 			? upright.flatten({ background: options.background })
 			: upright;
@@ -79,6 +90,8 @@ export async function decodeImageToPng(
 		const { data, info } = await fitted
 			.png()
 			.toBuffer({ resolveWithObject: true });
+		// sharp has no signal: a call called off while it worked ends here.
+		signal?.throwIfAborted();
 		return {
 			png: data,
 			width: info.width,
@@ -86,7 +99,7 @@ export async function decodeImageToPng(
 			hasAlpha: info.channels === 4,
 		};
 	} catch (error) {
-		throw preparationFailure(error);
+		throw preparationFailure(error, signal);
 	}
 }
 
@@ -113,19 +126,26 @@ function isHeif(input: Uint8Array, mimeType: string | null): boolean {
 async function openForSharp(
 	input: Uint8Array,
 	mimeType: string | null,
+	signal: AbortSignal | undefined,
 ): Promise<ReturnType<typeof sharp>> {
 	if (!isHeif(input, mimeType)) return sharp(input, { animated: false });
-	const { width, height, data } = await decodeHeifToRgba(input);
+	const { width, height, data } = await decodeHeifToRgba(input, { signal });
 	return sharp(data, { raw: { width, height, channels: 4 } });
 }
 
 /**
- * The error a failed preparation throws. The two a caller tells apart by class,
- * a photo over the pixel limit and a decode that ran out of time, go on as they
- * are. Anything else is wrapped as `image preparation failed: <reason>` with
- * itself as the cause: the image library's errors, and libheif's refusals.
+ * What a failed preparation throws. A preparation its caller called off throws
+ * the signal's reason, whatever else was going on when it was. Otherwise the two
+ * errors a caller tells apart by class, a photo over the pixel limit and a
+ * decode that ran out of time, go on as they are, and anything else is wrapped
+ * as `image preparation failed: <reason>` with itself as the cause: the image
+ * library's errors, and libheif's refusals.
  */
-function preparationFailure(error: unknown): ImagePreparationError {
+function preparationFailure(
+	error: unknown,
+	signal: AbortSignal | undefined,
+): unknown {
+	if (signal?.aborted) return signal.reason;
 	if (
 		error instanceof ImageTooLargeError ||
 		error instanceof ImageDecodeTimeoutError
@@ -158,14 +178,20 @@ function preparationFailure(error: unknown): ImagePreparationError {
  * transparent HEIC, like any transparent picture, ends up on white. sharp keeps
  * its strict defaults on purpose, because these bytes are an upload: it fails
  * on a damaged file and on one over 268 megapixels.
+ *
+ * `signal` calls the preparation off, as it does for `decodeImageToPng`: it
+ * rejects with `signal.reason` as it is, and a HEIC decode in flight has its
+ * worker terminated.
  */
 export async function prepareImageForModel(
 	input: Uint8Array,
 	mimeType: string | null,
-	options: { maxLongEdge: number },
+	options: { maxLongEdge: number; signal?: AbortSignal },
 ): Promise<PreparedImage> {
+	const { signal } = options;
 	try {
-		const { data, info } = await (await openForSharp(input, mimeType))
+		signal?.throwIfAborted();
+		const { data, info } = await (await openForSharp(input, mimeType, signal))
 			.rotate()
 			.flatten({ background: FLATTEN_BACKGROUND })
 			.resize({
@@ -176,6 +202,8 @@ export async function prepareImageForModel(
 			})
 			.jpeg({ quality: JPEG_QUALITY })
 			.toBuffer({ resolveWithObject: true });
+		// sharp has no signal: a call called off while it worked ends here.
+		signal?.throwIfAborted();
 		return {
 			base64: data.toString("base64"),
 			mediaType: "image/jpeg",
@@ -184,6 +212,6 @@ export async function prepareImageForModel(
 			estimatedTokens: estimateImageTokens(info.width, info.height),
 		};
 	} catch (error) {
-		throw preparationFailure(error);
+		throw preparationFailure(error, signal);
 	}
 }

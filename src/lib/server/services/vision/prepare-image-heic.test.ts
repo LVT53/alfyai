@@ -19,6 +19,20 @@ const photoGrid = fixture("photo-grid.heic");
 const transparentPage = fixture("transparent-page.heic");
 const tinyHeic = fixture("tiny.heic");
 
+/**
+ * What a promise rejected with. One that resolves fails the test without
+ * printing what it resolved to: a decoded photo is megabytes of pixels, and
+ * an assertion that prints them takes the test process's memory with it.
+ */
+async function rejection(promise: Promise<unknown>): Promise<unknown> {
+	try {
+		await promise;
+	} catch (error) {
+		return error;
+	}
+	throw new Error("expected the promise to reject, but it resolved");
+}
+
 async function pixelAt(
 	bytes: Uint8Array,
 	x: number,
@@ -134,5 +148,27 @@ describe("the main thread while a HEIC photo decodes", () => {
 		// alike. A decode that is too quick proves nothing about the thread.
 		expect(decodeMs).toBeGreaterThan(100);
 		expect(longestStallMs).toBeLessThan(decodeMs / 2);
+	});
+});
+
+describe("a HEIC photo whose decode is called off", () => {
+	it("rejects with the reason of the signal, whichever function was asked", async () => {
+		const reason = new Error("cancelled");
+		for (const prepare of [
+			(signal: AbortSignal) =>
+				decodeImageToPng(photoGrid, "image/heic", { signal }),
+			(signal: AbortSignal) =>
+				prepareImageForModel(photoGrid, "image/heic", {
+					maxLongEdge: 1600,
+					signal,
+				}),
+		]) {
+			const controller = new AbortController();
+			const preparing = prepare(controller.signal);
+			// A moment later: the decode is running in its worker, or waiting for one.
+			setTimeout(() => controller.abort(reason), 20);
+
+			expect(await rejection(preparing)).toBe(reason);
+		}
 	});
 });

@@ -99,6 +99,103 @@ describe.each(preparations)("%s with a HEIC photo", (_name, prepare) => {
 	});
 });
 
+describe.each(preparations)("%s with an AbortSignal", (_name, _prepare) => {
+	const withSignal = (signal: AbortSignal) =>
+		_name === "decodeImageToPng"
+			? decodeImageToPng(heicBytes, "image/heic", { signal })
+			: prepareImageForModel(heicBytes, "image/heic", {
+					maxLongEdge: 1600,
+					signal,
+				});
+
+	it("gives the signal to the decoder", async () => {
+		const controller = new AbortController();
+		decoder.mockResolvedValue(redThenTransparentBlue);
+
+		await withSignal(controller.signal);
+
+		expect(decoder.mock.calls[0][1]).toEqual({ signal: controller.signal });
+	});
+
+	it.each([
+		["an error", new Error("cancelled")],
+		["a string", "not wanted"],
+	])("rejects with the reason as it is when the decoder was stopped, %s", async (_kind, reason) => {
+		const controller = new AbortController();
+		decoder.mockImplementation(async () => {
+			controller.abort(reason);
+			throw controller.signal.reason;
+		});
+
+		const caught = await withSignal(controller.signal).catch(
+			(error: unknown) => error,
+		);
+
+		expect(caught).toBe(reason);
+	});
+
+	it("rejects with the reason when the abort comes after the decode, while sharp works", async () => {
+		const controller = new AbortController();
+		const reason = new Error("cancelled");
+		decoder.mockImplementation(async () => {
+			controller.abort(reason);
+			return redThenTransparentBlue;
+		});
+
+		const caught = await withSignal(controller.signal).catch(
+			(error: unknown) => error,
+		);
+
+		// No picture comes out of a preparation that was called off.
+		expect(caught).toBe(reason);
+	});
+
+	it("rejects with the reason before it starts when the signal is already aborted", async () => {
+		const reason = new Error("cancelled");
+
+		const caught = await withSignal(AbortSignal.abort(reason)).catch(
+			(error: unknown) => error,
+		);
+
+		expect(caught).toBe(reason);
+		expect(decoder).not.toHaveBeenCalled();
+	});
+
+	it("still throws the decoder's own errors as before when the signal never fires", async () => {
+		const controller = new AbortController();
+		const failure = new ImageTooLargeError(100_010_000, 100_000_000);
+		decoder.mockRejectedValue(failure);
+
+		const caught = await withSignal(controller.signal).catch(
+			(error: unknown) => error,
+		);
+
+		expect(caught).toBe(failure);
+	});
+});
+
+describe("a picture that is not a HEIC and an aborted signal", () => {
+	it("rejects with the reason before reading it", async () => {
+		const png = await sharp({
+			create: { width: 4, height: 4, channels: 3, background: "#336699" },
+		})
+			.png()
+			.toBuffer();
+		const reason = new Error("cancelled");
+
+		const forPng = await decodeImageToPng(png, "image/png", {
+			signal: AbortSignal.abort(reason),
+		}).catch((error: unknown) => error);
+		const forModel = await prepareImageForModel(png, "image/png", {
+			maxLongEdge: 1600,
+			signal: AbortSignal.abort(reason),
+		}).catch((error: unknown) => error);
+
+		expect(forPng).toBe(reason);
+		expect(forModel).toBe(reason);
+	});
+});
+
 describe("a photo that is not a HEIC", () => {
 	it("never reaches the decoder", async () => {
 		const png = await sharp({
