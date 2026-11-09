@@ -860,17 +860,24 @@ describe("a document that outlasts the whole-job deadline", () => {
 	const TIMEOUT_SENTENCE = "The document service did not answer in time.";
 	const FLOOR = { MINERU_JOB_TIMEOUT_MS: "10000" };
 
-	/** Runs one attempt, and lets the clock pass the deadline once MinerU has had it a while. */
+	/**
+	 * Runs one attempt, and lets the clock pass the deadline once it has looked at
+	 * the file `looks` times. The first look finds a file MinerU has queued, the
+	 * second finds it running, so a test about a RUNNING file needs two; the poll
+	 * interval has a 250 ms floor that the environment cannot lower, which is real
+	 * time these tests really spend, and why each carries an explicit bound.
+	 */
 	async function attemptPastTheDeadline(
 		options: Parameters<typeof run>[0] = {},
+		looks = 2,
 	) {
 		const polledBefore = taskPolls().length;
 		const attempt = run(options);
 		await vi.waitFor(
 			() => {
-				expect(taskPolls().length).toBeGreaterThanOrEqual(polledBefore + 2);
+				expect(taskPolls().length).toBeGreaterThanOrEqual(polledBefore + looks);
 			},
-			{ timeout: 15_000 },
+			{ timeout: 30_000 },
 		);
 		vi.setSystemTime(Date.now() + 11_000);
 		return attempt;
@@ -926,7 +933,7 @@ describe("a document that outlasts the whole-job deadline", () => {
 		} finally {
 			vi.useRealTimers();
 		}
-	});
+	}, 60_000);
 
 	it("is MinerU's queue when it had not started it: the document keeps waiting and spends none of its attempts", async () => {
 		vi.useFakeTimers({ toFake: ["Date"] });
@@ -964,11 +971,13 @@ describe("a document that outlasts the whole-job deadline", () => {
 				"$lib/server/services/extraction/read-model"
 			);
 
-			// Many times over: it is an outage wait, and an outage wait has no bound
-			// of attempts, only the window of the outage budget.
-			for (let wait = 1; wait <= 5; wait += 1) {
+			// More times than the attempt budget allows (three): it is an outage wait,
+			// and an outage wait has no bound of attempts, only the window of the
+			// outage budget. One look is all it takes: the file is queued at the
+			// first.
+			for (let wait = 1; wait <= 4; wait += 1) {
 				expect(
-					await attemptPastTheDeadline({ resolveExtractor: () => queued }),
+					await attemptPastTheDeadline({ resolveExtractor: () => queued }, 1),
 				).toEqual({ jobId, status: "queued" });
 				const row = await ledger.getExtractionJobRow(jobId);
 				expect(row?.errorCode).toBe("timeout");
@@ -980,11 +989,11 @@ describe("a document that outlasts the whole-job deadline", () => {
 				expect(dto?.attemptCount).toBe(0);
 				clearBackoffGates();
 			}
-			expect(cancelRequests()).toHaveLength(5);
+			expect(cancelRequests()).toHaveLength(4);
 		} finally {
 			vi.useRealTimers();
 		}
-	});
+	}, 60_000);
 });
 
 // ---------------------------------------------------------------------------
