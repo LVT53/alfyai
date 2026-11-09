@@ -4,21 +4,30 @@
  * Two things live here and nothing else:
  *
  *  - `MineruApiError`, the single throw shape of `client.ts`. It carries the
- *    HTTP status, the server's `code`/`type`/`param`, and a TRUNCATED excerpt
- *    of the body. It never carries the API key, a request header, or document
- *    text.
+ *    HTTP status, the server's `code`/`param`, and a TRUNCATED excerpt of the
+ *    body. It never carries the API key, a request header, or document text.
  *  - `mapMineruError`, a table-driven translation from what was observed to the
  *    Phase 3 taxonomy (`ExtractionErrorCode`) plus a retryability verdict and a
- *    disposition — "fail", "swallow", or "the server forgot this id, recover by
- *    re-uploading the bytes".
+ *    disposition: "fail", "swallow", or "the server forgot this id, recover by
+ *    creating the task again and uploading the bytes again".
  *
- * The table is keyed on the server's `code`, not on the HTTP status, because
- * the status lies in both directions: `feature_requires_api_key` is a 403 that
- * becomes a 400 `unsupported_output_format` once a key is present for the very
- * same request, and an unknown `file_id` is a 202 that only fails later, inside
- * the job. `errors.test.ts` drives every probe under `fixtures/mineru-v1/errors/`
- * through this table and fails when a recorded `code` matches no rule, so a
- * future fixture run cannot quietly add an unmapped failure mode.
+ * The table is keyed on the server's `code` (and `param`), never on the HTTP
+ * status and never on `message`, because 4.1's messages are pydantic dumps with
+ * a URL in them (spike D12). Three exceptions, each deliberate:
+ *
+ *  - A FastAPI `{"detail":"Not Found"}` has no code at all. 4.1's own routes
+ *    answer with `{error:{code}}`, so a plain FastAPI 404/405 means the server
+ *    does not speak `/v1/tasks`: 4.0.12 during the cutover (S6), or a proxy. It
+ *    is retryable, so a job caught in that window succeeds once the URL points
+ *    at 4.1.
+ *  - A file's failure is always `parse_failed` (D6); only its message tells a
+ *    corrupt, a locked, an unsupported and an unreadable document apart (S8).
+ *  - `invalid_request` with `param: "tier"` is how 4.1 says a tier is missing.
+ *
+ * `errors.test.ts` drives every recorded error under
+ * `fixtures/mineru-v41/protocol/` through this table and fails when a recorded
+ * answer matches no named rule, so a future fixture run cannot quietly add an
+ * unmapped failure mode.
  */
 
 import type { ExtractionErrorCode } from "$lib/shared/extraction-status";
@@ -27,14 +36,15 @@ import {
 	extractionErrorMessage,
 } from "../extraction/contracts";
 import {
-	fastapiValidationErrorSchema,
+	fastapiErrorSchema,
 	type MineruErrorDetail,
-	type MineruJob,
+	type MineruTaskDetail,
+	type MineruTaskFile,
 	mineruErrorResponseSchema,
 } from "./schemas";
 
 /** Never put more of an upstream body than this into an error message. */
-export const MINERU_ERROR_BODY_MAX_CHARS = 300;
+const MINERU_ERROR_BODY_MAX_CHARS = 300;
 
 /**
  * Codes this client mints itself, for failures that never reached an HTTP
@@ -44,7 +54,7 @@ export const MINERU_ERROR_BODY_MAX_CHARS = 300;
 export const MINERU_CLIENT_ERROR_CODES = {
 	/** `fetch` itself failed: connection refused, DNS, socket reset. */
 	transportUnreachable: "client_transport_unreachable",
-	/** The CALLER's signal fired — user cancel, shutdown, lost claim. */
+	/** The CALLER's signal fired: user cancel, shutdown, lost claim. */
 	canceled: "client_canceled",
 	/** OUR timeout fired: requestTimeoutMs or transferTimeoutMs. */
 	timeout: "client_timeout",
@@ -54,33 +64,32 @@ export const MINERU_CLIENT_ERROR_CODES = {
 	invalidJson: "client_invalid_json",
 	/** A 2xx whose body did not match the recorded schema. */
 	schemaMismatch: "client_schema_mismatch",
-	/** `upload_url` pointed at an origin that is not MINERU_API_URL's. */
+	/** `upload.url` pointed at an origin that is not MINERU_API_URL's (S7). */
 	untrustedUploadUrl: "protocol_untrusted_upload_url",
+	/** `result_url` pointed at an origin that is not MINERU_API_URL's (S7). */
+	untrustedResultUrl: "protocol_untrusted_result_url",
 	/** A redirect pointed somewhere we refuse to follow. */
 	untrustedRedirect: "protocol_untrusted_redirect",
-	/** Downloaded byte count ≠ the `output_files.*.bytes` the job promised. */
+	/** Downloaded byte count differs from the Content-Length the server sent. */
 	byteCountMismatch: "client_byte_count_mismatch",
-	/** The download blew through the configured cap mid-stream. */
+	/** The download is, or declared itself to be, over the ceiling. */
 	downloadTooLarge: "client_download_too_large",
-	/** Terminal `completed`, but `output_files.zip` was null. */
-	missingZipOutput: "client_missing_zip_output",
-	/** A tier or output format the server does not offer — caught before upload. */
+	/** A tier the server does not offer, caught before any bytes move. */
 	tierNotAvailable: "client_tier_not_available",
 } as const;
 
-export type MineruClientErrorCode =
-	(typeof MINERU_CLIENT_ERROR_CODES)[keyof typeof MINERU_CLIENT_ERROR_CODES];
-
 /**
- * The three 404s that mean "this id is gone" after a MinerU restart. Bytes
- * survive `--upload-dir` as content-addressed blobs; identifiers do not. The
- * recovery is always the same: `POST /v1/uploads` with the known sha256 and
- * take the NEW `file_id`.
+ * The server codes that mean "this id is gone". A MinerU restart forgets every
+ * task, every file and the whole hash cache (spike §8), and an upload link
+ * stops working after an hour; either way the answer is one of these, and the
+ * recovery is always the same: create the task again, upload the bytes again
+ * (S6). Bounded by the caller, as it always was.
  */
 export const MINERU_FORGOTTEN_ID_CODES = [
-	"job_not_found",
+	"task_not_found",
 	"file_not_found",
 	"upload_not_found",
+	"upload_expired",
 ] as const;
 
 export interface MineruApiErrorInit {
@@ -88,15 +97,14 @@ export interface MineruApiErrorInit {
 	/** null for a failure that never produced an HTTP response. */
 	status?: number | null;
 	code: string;
-	type?: string | null;
 	param?: string | null;
 	detail?: MineruErrorDetail | null;
-	/** True when the body was FastAPI's `{detail:[…]}` rather than MinerU's. */
-	fastapiValidation?: boolean;
+	/** True when the body was FastAPI's `{detail}` rather than MinerU's. */
+	fastapi?: boolean;
 	/** Already truncated and already scrubbed. */
 	bodyExcerpt?: string | null;
 	retryAfterMs?: number | null;
-	/** Path only ("/v1/parse/jobs/job_x"), never a full URL with a query. */
+	/** Path only ("/v1/tasks/job_x"), never a full URL with a query. */
 	requestPath?: string | null;
 	details?: Record<string, unknown>;
 	cause?: unknown;
@@ -113,11 +121,11 @@ export interface MineruApiErrorInit {
 export class MineruApiError extends Error {
 	readonly name = "MineruApiError";
 	readonly status: number | null;
+	/** "" when the body carried none (FastAPI's, or not JSON at all). */
 	readonly code: string;
-	readonly type: string | null;
 	readonly param: string | null;
 	readonly detail: MineruErrorDetail | null;
-	readonly fastapiValidation: boolean;
+	readonly fastapi: boolean;
 	readonly bodyExcerpt: string | null;
 	readonly retryAfterMs: number | null;
 	readonly requestPath: string | null;
@@ -130,10 +138,9 @@ export class MineruApiError extends Error {
 		);
 		this.status = init.status ?? null;
 		this.code = init.code;
-		this.type = init.type ?? null;
 		this.param = init.param ?? null;
 		this.detail = init.detail ?? null;
-		this.fastapiValidation = init.fastapiValidation ?? false;
+		this.fastapi = init.fastapi ?? false;
 		this.bodyExcerpt = init.bodyExcerpt ?? null;
 		this.retryAfterMs = init.retryAfterMs ?? null;
 		this.requestPath = init.requestPath ?? null;
@@ -156,8 +163,9 @@ export function isMineruApiError(error: unknown): error is MineruApiError {
 /**
  * Collapses whitespace and cuts the body down to something safe to log.
  *
- * MinerU echoes the request back in some validation messages, so an untruncated
- * body could carry a filename, a page of document text, or a header value.
+ * MinerU echoes the request back in its validation messages (pydantic prints
+ * `input_value=…`), so an untruncated body could carry a filename or a header
+ * value.
  */
 export function truncateMineruBody(
 	text: string,
@@ -177,16 +185,16 @@ export function redactMineruSecrets(text: string, apiKey: string): string {
 	return text.split(apiKey).join("[redacted]");
 }
 
-export interface ParsedMineruErrorBody {
+interface ParsedMineruErrorBody {
 	detail: MineruErrorDetail | null;
-	/** True when FastAPI's `{detail:[…]}` 422 envelope was recognised. */
-	fastapiValidation: boolean;
+	/** True when FastAPI's `{detail}` envelope was recognised. */
+	fastapi: boolean;
 	excerpt: string;
 }
 
 /**
  * Reads a non-2xx body. Tries MinerU's envelope, then FastAPI's, then gives up
- * and keeps a truncated excerpt — an opaque body is still worth a message.
+ * and keeps a truncated excerpt: an opaque body is still worth a message.
  */
 export function parseMineruErrorBody(
 	bodyText: string,
@@ -197,42 +205,62 @@ export function parseMineruErrorBody(
 	try {
 		parsed = JSON.parse(bodyText);
 	} catch {
-		return { detail: null, fastapiValidation: false, excerpt };
+		return { detail: null, fastapi: false, excerpt };
 	}
 
 	const envelope = mineruErrorResponseSchema.safeParse(parsed);
 	if (envelope.success) {
-		return {
-			detail: envelope.data.error,
-			fastapiValidation: false,
-			excerpt,
-		};
+		return { detail: envelope.data.error, fastapi: false, excerpt };
 	}
 
-	const validation = fastapiValidationErrorSchema.safeParse(parsed);
-	if (validation.success) {
-		const first = validation.data.detail[0];
+	const fastapi = fastapiErrorSchema.safeParse(parsed);
+	if (fastapi.success) {
+		const { detail } = fastapi.data;
+		if (typeof detail === "string") {
+			return {
+				detail: { code: null, message: detail, param: null },
+				fastapi: true,
+				excerpt,
+			};
+		}
+		const first = detail[0];
 		return {
 			detail: {
-				type: "invalid_request_error",
 				code: null,
 				message: first?.msg ?? "Request validation failed",
 				param: first?.loc?.join(".") ?? null,
 			},
-			fastapiValidation: true,
+			fastapi: true,
 			excerpt,
 		};
 	}
 
-	return { detail: null, fastapiValidation: false, excerpt };
+	return { detail: null, fastapi: false, excerpt };
+}
+
+/**
+ * The one line an error carries. For `invalid_request` it is the code and the
+ * param, NOT the server's text: that is pydantic's dump (spike D12), with a
+ * URL in it and the value we sent echoed back, and it ends up in
+ * `error_message`, which people read. Every other code keeps its short,
+ * stable sentence ("Task job_x not found").
+ */
+function summarizeBody(parsed: ParsedMineruErrorBody, status: number): string {
+	const detail = parsed.detail;
+	if (detail?.code === "invalid_request") {
+		return detail.param
+			? `invalid_request (${detail.param})`
+			: "invalid_request";
+	}
+	return detail?.message || parsed.excerpt || `HTTP ${status}`;
 }
 
 /**
  * Builds the error for a non-2xx response.
  *
  * `client.ts` calls this with an ALREADY SCRUBBED body, and `errors.test.ts`
- * calls it with the recorded probe bodies, so the test drives exactly the
- * production path rather than a paraphrase of it.
+ * calls it with the recorded bodies, so the test drives exactly the production
+ * path rather than a paraphrase of it.
  */
 export function mineruApiErrorFromBody(input: {
 	status: number;
@@ -242,16 +270,13 @@ export function mineruApiErrorFromBody(input: {
 	maxChars?: number;
 }): MineruApiError {
 	const parsed = parseMineruErrorBody(input.bodyText, input.maxChars);
-	const summary =
-		parsed.detail?.message || parsed.excerpt || `HTTP ${input.status}`;
 	return new MineruApiError({
-		message: `MinerU ${input.path ?? "request"} failed with ${input.status}: ${summary}`,
+		message: `MinerU ${input.path ?? "request"} failed with ${input.status}: ${summarizeBody(parsed, input.status)}`,
 		status: input.status,
 		code: parsed.detail?.code ?? "",
-		type: parsed.detail?.type ?? null,
 		param: parsed.detail?.param ?? null,
 		detail: parsed.detail,
-		fastapiValidation: parsed.fastapiValidation,
+		fastapi: parsed.fastapi,
 		bodyExcerpt: parsed.excerpt,
 		retryAfterMs: input.retryAfterMs ?? null,
 		requestPath: input.path ?? null,
@@ -268,15 +293,15 @@ export function mineruApiErrorFromBody(input: {
  *  - `fail`: throw. `taxonomy`/`retryable` are the ledger's verdict.
  *  - `swallow`: nothing is wrong. Cancelling something already terminal is the
  *    only case, and it means the goal is already met.
- *  - `recover-by-reupload`: the server forgot this id. Do NOT fail: re-`POST
- *    /v1/uploads` with the known sha256, take the new `file_id` and resubmit.
+ *  - `recover-by-reupload`: the server forgot this id. Do NOT fail: create the
+ *    task again, upload the bytes again and take the new ids (S6).
  */
 export type MineruErrorDisposition = "fail" | "swallow" | "recover-by-reupload";
 
 export interface MineruErrorMapping {
 	/** The table row that matched. `"fallback:*"` means nothing did. */
 	readonly rule: string;
-	/** False when only a status-shaped fallback matched — the test asserts this. */
+	/** False when only a status-shaped fallback matched: the test asserts this. */
 	readonly known: boolean;
 	readonly taxonomy: ExtractionErrorCode;
 	/** Overrides `RETRYABLE_EXTRACTION_ERROR_CODES` where they differ. */
@@ -285,7 +310,7 @@ export interface MineruErrorMapping {
 	readonly handleUnknown: boolean;
 	readonly disposition: MineruErrorDisposition;
 	readonly retryAfterMs: number | null;
-	/** One line, for a log or a review. Never user-facing prose. */
+	/** One static line, for a log or a review. Never user-facing, never upstream text. */
 	readonly reason: string;
 }
 
@@ -293,6 +318,8 @@ interface MineruErrorRule {
 	rule: string;
 	/** Matched against `MineruApiError.code`. */
 	code?: string;
+	/** Matches an error whose body was FastAPI's `{detail}`, which has no code. */
+	fastapi?: boolean;
 	status?: number | readonly number[];
 	param?: string | readonly string[];
 	message?: RegExp;
@@ -304,10 +331,9 @@ interface MineruErrorRule {
 }
 
 /**
- * Ordered: the first matching row wins. Order matters in exactly one place —
- * `Tier 'standard' not available in this server` is a 400 `invalid_request`
- * like a dozen others, and it must be read as `tier_unavailable` (a
- * misconfiguration an admin can fix) rather than as a protocol bug.
+ * Ordered: the first matching row wins. Order matters in two places: the tier
+ * row sits before the generic `invalid_request` it is a case of, and the
+ * `parse_failed` rows run from the specific wordings to the catch-all.
  */
 const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 	// -- transport and client-side, no HTTP response ------------------------
@@ -337,7 +363,7 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		code: MINERU_CLIENT_ERROR_CODES.jobDeadline,
 		taxonomy: "timeout",
 		retryable: true,
-		reason: "the whole-job deadline elapsed; cancel the remote job first",
+		reason: "the whole-job deadline elapsed; cancel the remote task first",
 	},
 	{
 		rule: "client:invalid-json",
@@ -361,6 +387,13 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		reason: "a misconfigured or hostile server; retrying only repeats it",
 	},
 	{
+		rule: "client:untrusted-result-url",
+		code: MINERU_CLIENT_ERROR_CODES.untrustedResultUrl,
+		taxonomy: "protocol",
+		retryable: false,
+		reason: "a misconfigured or hostile server; retrying only repeats it",
+	},
+	{
 		rule: "client:untrusted-redirect",
 		code: MINERU_CLIENT_ERROR_CODES.untrustedRedirect,
 		taxonomy: "protocol",
@@ -372,21 +405,14 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		code: MINERU_CLIENT_ERROR_CODES.byteCountMismatch,
 		taxonomy: "protocol",
 		retryable: true,
-		reason: "the download did not match the promised byte count",
+		reason: "the download did not match the length the server announced",
 	},
 	{
 		rule: "client:download-too-large",
 		code: MINERU_CLIENT_ERROR_CODES.downloadTooLarge,
 		taxonomy: "protocol",
 		retryable: true,
-		reason: "the stream exceeded the size the job itself declared",
-	},
-	{
-		rule: "client:missing-zip",
-		code: MINERU_CLIENT_ERROR_CODES.missingZipOutput,
-		taxonomy: "protocol",
-		retryable: true,
-		reason: "a terminal completed job without the zip we requested",
+		reason: "the result is, or announced itself as, over the download ceiling",
 	},
 	{
 		rule: "client:tier-not-available",
@@ -394,6 +420,24 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		taxonomy: "tier_unavailable",
 		retryable: false,
 		reason: "the desired tier is not offered; fail before any bytes move",
+	},
+
+	// -- the server does not speak /v1/tasks --------------------------------
+	/**
+	 * FastAPI's own `{"detail":"Not Found"}` / `{"detail":"Method Not Allowed"}`.
+	 * 4.1 answers its own routes with `{error:{code}}`, so this is a server whose
+	 * routes are not ours: 4.0.12 (it has no /v1/tasks) while a deploy and the
+	 * `MINERU_API_URL` flip are a few seconds apart, or a proxy in front of the
+	 * wrong thing. Retryable and NOT a verdict on the document (S6): `unavailable`
+	 * gets the patient outage budget, and the job succeeds once the URL is right.
+	 */
+	{
+		rule: "fastapi:wrong-protocol",
+		fastapi: true,
+		status: [404, 405],
+		taxonomy: "unavailable",
+		retryable: true,
+		reason: "the server does not speak /v1/tasks (4.0.12 or a proxy)",
 	},
 
 	// -- authentication -----------------------------------------------------
@@ -406,114 +450,70 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 	},
 
 	// -- tier ---------------------------------------------------------------
+	/**
+	 * 4.0 said 503 `quality_tier_unavailable`; 4.1 says 400 `invalid_request`
+	 * with `param: "tier"` (D14). Our client only sends ids it got from
+	 * /v1/tiers, so this is a tier the server stopped offering: a
+	 * misconfiguration an admin fixes, never an outage and never a loop.
+	 */
 	{
 		rule: "400:tier-not-available",
 		code: "invalid_request",
-		message: /not available in this server/i,
+		param: "tier",
 		taxonomy: "tier_unavailable",
 		retryable: false,
-		reason: "a misconfiguration, not an outage — never show it as one",
-	},
-	{
-		rule: "503:quality_tier_unavailable",
-		code: "quality_tier_unavailable",
-		taxonomy: "tier_unavailable",
-		retryable: false,
-		reason: "PDF/image on a flash-only server; send tier:flash explicitly",
+		reason: "a misconfiguration, not an outage; never show it as one",
 	},
 
 	// -- request shape ------------------------------------------------------
-	{
-		rule: "403:feature_requires_api_key",
-		code: "feature_requires_api_key",
-		taxonomy: "protocol",
-		retryable: false,
-		reason:
-			"never means 'add a key and retry' — with a key the code silently becomes unsupported_output_format",
-	},
-	{
-		rule: "400:unsupported_output_format",
-		code: "unsupported_output_format",
-		taxonomy: "protocol",
-		retryable: false,
-		reason: "we asked for a format this server cannot produce",
-	},
-	{
-		rule: "400:unsupported_source",
-		code: "unsupported_source",
-		taxonomy: "protocol",
-		retryable: false,
-		reason: "we only ever send file_id sources",
-	},
 	{
 		rule: "400:page_range_invalid",
 		code: "page_range_invalid",
 		taxonomy: "protocol",
 		retryable: false,
-		reason: "unreachable — this client never sends page_range",
-	},
-	{
-		rule: "404:model_not_found",
-		code: "model_not_found",
-		taxonomy: "protocol",
-		retryable: false,
-		reason: "we never name a model",
+		reason: "unreachable: this client never sends a page range",
 	},
 
 	// -- uploads ------------------------------------------------------------
+	{
+		rule: "400:upload_size_mismatch",
+		code: "upload_size_mismatch",
+		taxonomy: "protocol",
+		retryable: true,
+		reason:
+			"the file changed size since we measured it, or the declared size contradicts the cached bytes; a new attempt measures again",
+	},
 	{
 		rule: "400:file_hash_mismatch",
 		code: "file_hash_mismatch",
 		taxonomy: "protocol",
 		retryable: true,
-		reason: "the PUT lost or corrupted bytes; re-PUT once",
-	},
-	{
-		rule: "409:upload_not_ready",
-		code: "upload_not_ready",
-		taxonomy: "protocol",
-		retryable: true,
-		reason: "the bytes never landed; re-PUT them",
-	},
-	{
-		rule: "413:upload_size_mismatch",
-		code: "upload_size_mismatch",
-		taxonomy: "protocol",
-		retryable: true,
-		reason: "undocumented upstream; the declared byte count did not match",
-	},
-	{
-		rule: "409:upload_already_terminal",
-		code: "upload_already_terminal",
-		taxonomy: "protocol",
-		retryable: false,
-		disposition: "swallow",
-		reason: "the upload is already gone, which is what we wanted",
+		reason: "the bytes are not the bytes we hashed; a new attempt hashes again",
 	},
 	{
 		rule: "413:file_too_large",
 		code: "file_too_large",
 		taxonomy: "too_large",
 		retryable: false,
-		reason: "UNVERIFIED — never triggered by the spike",
+		reason: "UNVERIFIED: the spike's server set no size limit",
 	},
 
-	// -- jobs ---------------------------------------------------------------
+	// -- tasks and forgotten ids (S6) ----------------------------------------
 	{
-		rule: "409:job_already_terminal",
-		code: "job_already_terminal",
+		rule: "409:task_already_terminal",
+		code: "task_already_terminal",
 		taxonomy: "protocol",
 		retryable: false,
 		disposition: "swallow",
-		reason: "cancelling a finished job: nothing to do",
+		reason: "cancelling, or uploading to, a finished task: nothing to do",
 	},
 	{
-		rule: "404:job_not_found",
-		code: "job_not_found",
+		rule: "404:task_not_found",
+		code: "task_not_found",
 		taxonomy: "protocol",
 		retryable: true,
 		disposition: "recover-by-reupload",
-		reason: "restart recovery R1: the id is gone, the bytes are not",
+		reason: "the server restarted and forgot the task: create it again",
 	},
 	{
 		rule: "404:file_not_found",
@@ -521,7 +521,7 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		taxonomy: "protocol",
 		retryable: true,
 		disposition: "recover-by-reupload",
-		reason: "restart recovery R4: re-upload by sha and resubmit",
+		reason: "the server forgot the file (or its result): create the task again",
 	},
 	{
 		rule: "404:upload_not_found",
@@ -529,31 +529,44 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		taxonomy: "protocol",
 		retryable: true,
 		disposition: "recover-by-reupload",
-		reason: "restart recovery R2: the upload id is gone",
+		reason:
+			"the server knows the task but not this file: create the task again",
+	},
+	{
+		rule: "410:upload_expired",
+		code: "upload_expired",
+		taxonomy: "protocol",
+		retryable: true,
+		disposition: "recover-by-reupload",
+		reason: "UNVERIFIED: the upload link is good for an hour; create it again",
 	},
 	{
 		rule: "429:rate_limit_exceeded",
 		code: "rate_limit_exceeded",
 		taxonomy: "rate_limited",
 		retryable: true,
-		reason: "UNVERIFIED — honour Retry-After when present",
+		reason: "UNVERIFIED: honour Retry-After when present",
+	},
+	{
+		rule: "503:server_shutting_down",
+		code: "server_shutting_down",
+		taxonomy: "unavailable",
+		retryable: true,
+		reason: "UNVERIFIED: the server is stopping; it comes back",
 	},
 
-	// -- file-level (deferred) failures ------------------------------------
+	// -- file-level failures (S8) ---------------------------------------------
 	/**
-	 * MinerU's permanent refusal, which looks exactly like a transient one.
+	 * Every cause of a failed file is the single code `parse_failed` (D6); only
+	 * the message differs, so these rows read it. They run from the specific
+	 * wordings to the catch-all, and they are anchored on phrases rather than on
+	 * the file name, so a renamed file cannot change a verdict. The message is
+	 * only ever MATCHED here, never shown (D12): the user's sentence comes from
+	 * the taxonomy code.
 	 *
-	 * 4.0.4 answers AVIF, SVG and anything else its readers do not implement
-	 * with a file-level `parse_failed` whose message is "Unsupported file type:
-	 * <name>". Read as an ordinary `job_failed` it burned three attempts plus
-	 * backoff and then offered a Retry that could never succeed — the most
-	 * expensive possible way to tell a user their file cannot be read. It is
-	 * matched on the message because the CODE is the generic one; the regex is
-	 * anchored on the phrase rather than the filename so a renamed file or a
-	 * different suffix still matches.
-	 *
-	 * Ordered before `file:parse_failed`, which is the catch-all for the same
-	 * code.
+	 * "Unsupported file type: <ext or detected type>". A permanent refusal that
+	 * looks exactly like a transient one: read as an ordinary failure it burned
+	 * three attempts plus backoff and then offered a Retry that could never work.
 	 */
 	{
 		rule: "file:parse_failed:unsupported-type",
@@ -564,40 +577,11 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		reason:
 			"MinerU cannot read this format at all; a retry repeats the refusal",
 	},
-	{
-		rule: "file:unsupported_file_type",
-		code: "unsupported_file_type",
-		taxonomy: "unsupported_type",
-		retryable: false,
-		reason: "the same refusal, should a build ever give it a code of its own",
-	},
 	/**
-	 * The document itself cannot be opened — a deterministic fact about these
-	 * bytes, which 4.0.4 reports under the same generic `parse_failed`.
-	 *
-	 * MinerU loads PDFs through pypdfium2, whose one raise site is
-	 * `_helpers/document.py`:
-	 *
-	 *     raise PdfiumError(f"Failed to load document (PDFium: {ErrorToStr.get(err_code)}).")
-	 *
-	 * reached both when PDFium refuses the file and when the loaded document has
-	 * FEWER THAN ONE PAGE — which is why a corrupt PDF and a zero-page PDF, the
-	 * two files the live test admitted, arrive wearing the same sentence. The
-	 * `ErrorToStr` table (`internal/consts.py`) is the whole sibling family:
-	 * "Data format error", "Incorrect password error", "Unsupported security
-	 * scheme error", "File access error", "Page not found or content error",
-	 * "Unknown error", "Success" (the zero-page case).
-	 *
-	 * Matched on the wording rather than the code, exactly as the
-	 * `unsupported-type` rule above is, and anchored on the PHRASE so a renamed
-	 * file cannot change the verdict. Read as an ordinary `job_failed` this
-	 * burned the whole attempt budget re-parsing bytes that cannot parse.
-	 *
-	 * ORDER IS LOAD-BEARING TWICE. These sit before
-	 * `file:parse_failed:missing-file`, because "Page not found or content
-	 * error" contains "not found" and would otherwise be read as the server
-	 * dropping an id; and the protection rule sits before the general one,
-	 * because every PDFium reason arrives under "Failed to load document".
+	 * "Failed to load document (PDFium: Incorrect password error)." The document
+	 * is locked, and stays locked however often we ask. These sit before the
+	 * general PDFium row because every PDFium reason arrives under "Failed to
+	 * load document".
 	 */
 	{
 		rule: "file:parse_failed:protected",
@@ -609,13 +593,12 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		reason:
 			"the document is locked; the same bytes stay locked however often we ask",
 	},
-	{
-		rule: "file:file_encrypted",
-		code: "file_encrypted",
-		taxonomy: "document_unreadable",
-		retryable: false,
-		reason: "4.0.4 registers this code; treat it as the locked document it is",
-	},
+	/**
+	 * "Failed to load document (PDFium: Data format error)." pypdfium2 raises one
+	 * sentence for every way a PDF cannot be opened, and also for a document with
+	 * no pages (D17: a zero-page PDF arrives as "Incorrect password error"). The
+	 * wording is `PDFium: <reason>`, wrapped, so it is matched as a phrase.
+	 */
 	{
 		rule: "file:parse_failed:unreadable-document",
 		code: "parse_failed",
@@ -625,33 +608,23 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		reason:
 			"the reader cannot open these bytes at all; a retry repeats the refusal",
 	},
+	/**
+	 * "Invalid XLSX package: file is not a ZIP archive." An Office file whose
+	 * container is not one (D17: a CSV named .xlsx). Final for these bytes.
+	 */
 	{
-		rule: "file:file_corrupted",
-		code: "file_corrupted",
+		rule: "file:parse_failed:invalid-package",
+		code: "parse_failed",
+		message: /\binvalid \w+ package\b/i,
 		taxonomy: "document_unreadable",
 		retryable: false,
-		reason: "4.0.4 registers this code; the bytes are damaged, not the server",
+		reason: "the Office container is not one; a retry repeats the refusal",
 	},
 	/**
-	 * The parse SUCCEEDED and found nothing — which is a fact about the
-	 * document, not about the server.
-	 *
-	 * 4.0.4 answers a scan with nothing legible on it, and a file whose pages
-	 * are all empty, with `parse_empty` / "Parse completed but returned no
-	 * pages". Unmapped, that fell through to the `job_failed` catch-all below
-	 * and was RETRYABLE: three attempts plus backoff re-parsing bytes that
-	 * cannot become text, and then a Retry button offered to the user that
-	 * could never succeed.
-	 *
-	 * `empty_result` is the code the result parser already raises for exactly
-	 * this outcome when it reads the zip itself (`result.ts`, "every block was
-	 * a running head or empty"). The two paths reach the same verdict on
-	 * purpose: `empty_result` is `{ autoRetry: "none", userRetryable: false }`
-	 * in the shared status table, so neither the worker nor the user is
-	 * invited to try again.
-	 *
-	 * Ordered before `file:parse_failed:missing-file`, whose /not found/ would
-	 * otherwise swallow a message like "no pages found".
+	 * Carried over from 4.0.4, where a scan with nothing legible answered
+	 * `parse_empty` / "Parse completed but returned no pages". 4.1.7 was not seen
+	 * to say it (the result parser raises `empty_result` itself), but if it ever
+	 * does, retrying cannot make text appear.
 	 */
 	{
 		rule: "file:parse_empty",
@@ -669,16 +642,6 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		retryable: false,
 		reason:
 			"the same outcome under the generic code; the document has no text to find",
-	},
-	{
-		rule: "file:parse_failed:missing-file",
-		code: "parse_failed",
-		message: /not found/i,
-		taxonomy: "protocol",
-		retryable: true,
-		handleUnknown: true,
-		reason:
-			"the server is dropping ids under us; the stored handle is poisonous",
 	},
 	{
 		rule: "file:parse_failed",
@@ -729,10 +692,14 @@ function findRule(input: {
 	status: number | null;
 	param: string | null;
 	message: string;
+	fastapi: boolean;
 }): MineruErrorRule | null {
-	if (!input.code) return null;
 	for (const rule of MINERU_ERROR_RULES) {
-		if (rule.code !== input.code) continue;
+		if (rule.fastapi) {
+			if (!input.fastapi) continue;
+		} else if (!input.code || rule.code !== input.code) {
+			continue;
+		}
 		if (!matchesStatus(rule, input.status)) continue;
 		if (!matchesParam(rule, input.param)) continue;
 		if (rule.message && !rule.message.test(input.message)) continue;
@@ -757,11 +724,8 @@ function toMapping(
 	};
 }
 
-function fallbackForStatus(
-	status: number | null,
-	fastapiValidation: boolean,
-): MineruErrorMapping {
-	if (fastapiValidation || status === 422) {
+function fallbackForStatus(status: number | null): MineruErrorMapping {
+	if (status === 422) {
 		return {
 			rule: "fallback:422",
 			known: false,
@@ -810,7 +774,7 @@ function fallbackForStatus(
 }
 
 /**
- * Maps any throw from `client.ts` — or from `fetch` underneath it — onto the
+ * Maps any throw from `client.ts`, or from `fetch` underneath it, onto the
  * taxonomy. Never throws.
  */
 export function mapMineruError(error: unknown): MineruErrorMapping {
@@ -820,10 +784,11 @@ export function mapMineruError(error: unknown): MineruErrorMapping {
 			status: error.status,
 			param: error.param,
 			message: error.detail?.message ?? error.message,
+			fastapi: error.fastapi,
 		});
 		if (rule) return toMapping(rule, error.retryAfterMs);
 		return {
-			...fallbackForStatus(error.status, error.fastapiValidation),
+			...fallbackForStatus(error.status),
 			retryAfterMs: error.retryAfterMs,
 		};
 	}
@@ -848,11 +813,11 @@ export function mapMineruError(error: unknown): MineruErrorMapping {
 		return toMapping(ruleById("client:transport"), null);
 	}
 
-	return fallbackForStatus(null, false);
+	return fallbackForStatus(null);
 }
 
 /** `TypeError: fetch failed`, ECONNREFUSED, ENOTFOUND and friends. */
-export function isTransportFailure(error: unknown): boolean {
+function isTransportFailure(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
 	if (error instanceof TypeError && /fetch failed/i.test(error.message)) {
 		return true;
@@ -876,8 +841,8 @@ export function isTransportFailure(error: unknown): boolean {
 
 /**
  * True when this failure means "the server no longer knows this identifier".
- * The recovery is D7: re-upload by sha256 and take the new `file_id`; never
- * persist an id across a MinerU restart.
+ * The recovery (S6) is to create the task again and upload again; never
+ * persist an id across a MinerU restart as if it were still good.
  */
 export function isMineruForgottenIdError(error: unknown): boolean {
 	return (
@@ -887,137 +852,147 @@ export function isMineruForgottenIdError(error: unknown): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Deferred, file-level failures
+// Settled tasks
 // ---------------------------------------------------------------------------
 
-export interface MineruJobFailureOptions {
-	/** True when WE issued the DELETE; a cancel we asked for is not a failure. */
+export interface MineruTaskFailureOptions {
+	/** True when WE issued the cancel; a cancel we asked for is not a failure. */
 	canceledByUs?: boolean;
-	/** The output format the caller needs present on a completed file. */
-	requiredOutput?: keyof NonNullable<
-		NonNullable<MineruJob["files"][number]["output_files"]>
-	>;
+	/**
+	 * The file this caller submitted. Defaults to the first one, which is the
+	 * only one a one-file task (S2) has; it matters for a multi-file task that
+	 * ended `partial`, where one file completed and another failed.
+	 */
+	fileId?: string | null;
+}
+
+/** The file a caller submitted: the one `fileId` names, else the first. */
+export function pickMineruTaskFile(
+	task: MineruTaskDetail,
+	fileId?: string | null,
+): MineruTaskFile | null {
+	if (fileId) return task.files.find((file) => file.file_id === fileId) ?? null;
+	return task.files[0] ?? null;
 }
 
 /**
- * A terminal remote job is SPENT, whatever it failed on.
+ * A terminal remote task is SPENT, whatever it failed on.
  *
- * `mapMineruJobFailure` is only ever reached with a job MinerU has already
- * settled, so every failure it returns is a final answer about that job id. Any
- * later attempt that resumed the id would issue one `GET` against a job that
- * cannot change its mind and fail again for the same reason — which is exactly
- * what a corrupt PDF did: three attempts, two of them `resumed: true` against
- * the same dead job, and then a Retry that resumed it a fourth time.
+ * `mapMineruTaskFailure` is only ever reached with a task MinerU has already
+ * settled, so every failure it returns is a final answer about that task id.
+ * Any later attempt that resumed the id would issue one `GET` against a task
+ * that cannot change its mind and fail again for the same reason.
  *
- * So the handle is poisoned here, at the one place that knows the remote job is
- * finished. The ledger's `clearHandle` then makes the NEXT attempt — automatic,
- * user Retry, re-upload or re-extract alike — submit a fresh job. Re-uploading
- * costs nothing extra: `createUpload` deduplicates by sha256, so the bytes are
- * already there and the PUT is skipped.
+ * So the handle is poisoned here, at the one place that knows the remote task
+ * is finished. The ledger's `clearHandle` then makes the NEXT attempt, whether
+ * automatic, user Retry, re-upload or re-extract, submit a fresh task.
+ * Re-uploading costs nothing extra: the hash cache skips the PUT.
  *
  * The cases that legitimately KEEP a handle never come through here: a lost
  * claim, a stale-worker reclaim, a shutdown and a transport error all leave the
- * remote job RUNNING, and resuming it is the whole reason the handle is emitted
- * before the first poll.
+ * remote task running, and resuming it is the whole reason the handle is
+ * emitted before the first poll.
  */
 function spent(mapping: MineruErrorMapping): MineruErrorMapping {
 	return mapping.handleUnknown ? mapping : { ...mapping, handleUnknown: true };
 }
 
+function taskVerdict(
+	rule: string,
+	taxonomy: ExtractionErrorCode,
+	reason: string,
+): MineruErrorMapping {
+	return spent({
+		rule,
+		known: true,
+		taxonomy,
+		retryable: true,
+		handleUnknown: false,
+		disposition: "fail",
+		retryAfterMs: null,
+		reason,
+	});
+}
+
 /**
- * Reads a TERMINAL job and decides whether it actually succeeded.
+ * Reads a TERMINAL task and decides whether the file we submitted is usable.
  *
- * A `202` at create proves nothing and neither does `status: "completed"`: an
- * unknown `file_id` surfaces as a file-level `engine_error`/`parse_failed`, a
- * bad `page_range` as a file-level `page_range_invalid`, and a job can report
- * `completed` with `output_files.zip === null`. Returns `null` when the job is
- * genuinely usable.
+ * A 202 at create proves nothing and neither does a task `status`: the file is
+ * what counts. A `partial` task holds a completed file beside a failed one, a
+ * task cancelled mid-way keeps the results that were already done (spike D24),
+ * and a `failed` task has no top-level error, only `files[].error` (D6). Returns
+ * `null` when the file is genuinely usable, that is `completed` and carrying a
+ * `result_url`.
  *
  * Every non-null return carries `handleUnknown: true`; see `spent` above.
  */
-export function mapMineruJobFailure(
-	job: MineruJob,
-	options: MineruJobFailureOptions = {},
+export function mapMineruTaskFailure(
+	task: MineruTaskDetail,
+	options: MineruTaskFailureOptions = {},
 ): MineruErrorMapping | null {
-	const requiredOutput = options.requiredOutput ?? "zip";
-
-	if (job.status === "canceled") {
-		if (options.canceledByUs) return null;
-		return spent({
-			rule: "job:canceled-by-someone-else",
-			known: true,
-			taxonomy: "job_failed",
-			retryable: true,
-			handleUnknown: false,
-			disposition: "fail",
-			retryAfterMs: null,
-			reason: "the job was canceled while we were not cancelling",
-		});
+	const file = pickMineruTaskFile(task, options.fileId);
+	if (!file) {
+		return taskVerdict(
+			"task:no-file",
+			"protocol",
+			"a settled task without the file we submitted",
+		);
 	}
 
-	const file = job.files[0] ?? null;
-	const detail = file?.error ?? null;
+	if (file.status === "completed") {
+		if (!file.result_url) {
+			return taskVerdict(
+				"task:missing-result-url",
+				"protocol",
+				"a completed file without a result_url",
+			);
+		}
+		return null;
+	}
 
-	if (detail) {
+	if (file.error) {
 		const rule = findRule({
-			code: detail.code ?? null,
+			code: file.error.code ?? null,
 			status: null,
-			param: detail.param ?? null,
-			message: detail.message,
+			param: file.error.param ?? null,
+			message: file.error.message,
+			fastapi: false,
 		});
 		if (rule) return spent(toMapping(rule, null));
 		return spent({
-			rule: "job:file-error-unmapped",
+			rule: "task:file-error-unmapped",
 			known: false,
 			taxonomy: "job_failed",
 			retryable: true,
 			handleUnknown: false,
 			disposition: "fail",
 			retryAfterMs: null,
-			reason: `unmapped file-level code ${detail.code ?? "(none)"}`,
+			reason: "an unmapped file-level error code",
 		});
 	}
 
-	if (job.status === "failed" || job.status === "partial" || !file) {
-		return spent({
-			rule: "job:failed-without-detail",
-			known: true,
-			taxonomy: "job_failed",
-			retryable: true,
-			handleUnknown: false,
-			disposition: "fail",
-			retryAfterMs: null,
-			reason: `job status ${job.status} with no file-level error`,
-		});
+	if (file.status === "canceled" || task.status === "canceled") {
+		if (options.canceledByUs) return null;
+		return taskVerdict(
+			"task:canceled-by-someone-else",
+			"job_failed",
+			"the task was canceled while we were not cancelling",
+		);
 	}
 
-	if (file.status !== "completed") {
-		return spent({
-			rule: "job:file-not-completed",
-			known: true,
-			taxonomy: "job_failed",
-			retryable: true,
-			handleUnknown: false,
-			disposition: "fail",
-			retryAfterMs: null,
-			reason: `file status ${file.status} on a terminal job`,
-		});
+	if (file.status === "failed") {
+		return taskVerdict(
+			"task:failed-without-detail",
+			"job_failed",
+			"a failed file that says nothing about why",
+		);
 	}
 
-	if (!file.output_files?.[requiredOutput]) {
-		return spent({
-			rule: "job:missing-output",
-			known: true,
-			taxonomy: "protocol",
-			retryable: true,
-			handleUnknown: false,
-			disposition: "fail",
-			retryAfterMs: null,
-			reason: `terminal completed job without output_files.${String(requiredOutput)}`,
-		});
-	}
-
-	return null;
+	return taskVerdict(
+		"task:file-not-completed",
+		"job_failed",
+		`file status ${file.status} on a settled task`,
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -1036,8 +1011,8 @@ export interface MineruExtractionErrorOptions {
  *
  * `retryable` comes from the table, not from
  * `RETRYABLE_EXTRACTION_ERROR_CODES`, because the table knows things the code
- * alone cannot: a `protocol` from a wrong sha is worth one more PUT, and a
- * `protocol` from an untrusted `upload_url` is not worth anything.
+ * alone cannot: a `protocol` from a changed file size is worth one more
+ * attempt, and a `protocol` from an untrusted `upload.url` is not.
  */
 export function mineruErrorToExtractionError(
 	error: unknown,
@@ -1060,6 +1035,7 @@ export function mineruErrorToExtractionError(
 	if (isMineruApiError(error)) {
 		if (error.status !== null) details.httpStatus = error.status;
 		details.mineruCode = error.code;
+		if (error.param) details.mineruParam = error.param;
 		if (error.requestPath) details.path = error.requestPath;
 	}
 
@@ -1072,20 +1048,4 @@ export function mineruErrorToExtractionError(
 		details,
 		cause: error,
 	});
-}
-
-/** The rule ids, for a test that wants to prove the table is exhaustive. */
-export function mineruErrorRuleIds(): readonly string[] {
-	return MINERU_ERROR_RULES.map((rule) => rule.rule);
-}
-
-/** Every server-side `code` the table knows by name. */
-export function mineruMappedErrorCodes(): readonly string[] {
-	return [
-		...new Set(
-			MINERU_ERROR_RULES.map((rule) => rule.code).filter(
-				(code): code is string => typeof code === "string",
-			),
-		),
-	];
 }
