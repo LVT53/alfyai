@@ -34,6 +34,7 @@ import type {
 	ExtractionProgress,
 } from "../contracts";
 import { ExtractionAbortError, isDocumentExtractionError } from "../contracts";
+import { readerFileFor } from "../reader-input";
 import {
 	canonicalTaskFileName,
 	createMineru4Extractor,
@@ -435,34 +436,53 @@ describe("the registry against what MinerU 4.1.7 accepts", () => {
 	]);
 
 	/**
-	 * Registry entries routed to MinerU that it has never accepted. Pre-existing
-	 * (the 4.0 flow sent the user's own name, and 4.0.12 refuses them too); their
-	 * routing is not changed here.
+	 * Registry entries routed to MinerU that no conversion makes acceptable to it,
+	 * each with its reason. None today: HEIC and HEIF were here (neither 4.0.12 nor
+	 * 4.1.7 accepts them) until the extraction runner began handing MinerU a PNG of
+	 * such a photo (`intake.readAs`), so what MinerU receives is `document.png`.
+	 * The list stays for the next type it will not take, and the staleness test
+	 * below keeps whatever is on it honest.
 	 */
-	const KNOWN_EXCEPTIONS = new Map([
-		[
-			"heic",
-			"not accepted by MinerU 4.0.12 or 4.1.7; pre-existing; owner decision pending",
-		],
-		[
-			"heif",
-			"not accepted by MinerU 4.0.12 or 4.1.7; pre-existing; owner decision pending",
-		],
-	]);
+	const KNOWN_EXCEPTIONS = new Map<string, string>();
 
-	const sentExtension = (entry: (typeof FILE_TYPE_ENTRIES)[number]): string =>
-		canonicalTaskFileName(`file.${entry.extensions[0]}`, null).replace(
-			/^document\./,
-			"",
-		);
+	type Entry = (typeof FILE_TYPE_ENTRIES)[number];
+
+	/**
+	 * The name MinerU is told for a file saved as `file.<extension>` of this type:
+	 * what the extraction runner hands the extractor, through the extractor's own
+	 * `canonicalTaskFileName`. That is the stored name, or, for a type the registry
+	 * says is read as another (`intake.readAs`), the name of the converted file.
+	 */
+	const nameMinerUReceives = (entry: Entry, extension: string): string => {
+		const stored = `file.${extension}`;
+		if (entry.intake.readAs === undefined) {
+			return canonicalTaskFileName(stored, null);
+		}
+		const converted = readerFileFor(stored, entry.intake.readAs);
+		return canonicalTaskFileName(converted.fileName, converted.mimeType);
+	};
+	const sentExtension = (entry: Entry): string =>
+		nameMinerUReceives(entry, entry.extensions[0]).replace(/^document\./, "");
 	const routedToMineru = FILE_TYPE_ENTRIES.filter(
 		(entry) => entry.intake.route === "mineru",
 	);
+	/** MinerU is told a name whose extension it does not list. */
+	const isRefused = (entry: Entry): boolean =>
+		!ACCEPTED_BY_MINERU_4_1_7.has(sentExtension(entry));
+	/** The listed exceptions that are not true any more: not routed to MinerU, or not refused. */
+	const staleExceptions = (
+		exceptions: ReadonlyMap<string, string>,
+		entries: readonly Entry[] = routedToMineru,
+	): string[] =>
+		[...exceptions.keys()].filter((id) => {
+			const entry = entries.find((candidate) => candidate.id === id);
+			return entry === undefined || !isRefused(entry);
+		});
 
 	it("sends every type routed to MinerU under an extension it accepts", () => {
 		const refused = routedToMineru
 			.filter((entry) => !KNOWN_EXCEPTIONS.has(entry.id))
-			.filter((entry) => !ACCEPTED_BY_MINERU_4_1_7.has(sentExtension(entry)))
+			.filter(isRefused)
 			.map(
 				(entry) => `${entry.id} is sent as document.${sentExtension(entry)}`,
 			);
@@ -475,7 +495,7 @@ describe("the registry against what MinerU 4.1.7 accepts", () => {
 		for (const entry of routedToMineru) {
 			for (const extension of entry.extensions) {
 				expect(
-					canonicalTaskFileName(`file.${extension}`, null),
+					nameMinerUReceives(entry, extension),
 					`${entry.id}: .${extension}`,
 				).toBe(`document.${sentExtension(entry)}`);
 			}
@@ -483,18 +503,42 @@ describe("the registry against what MinerU 4.1.7 accepts", () => {
 	});
 
 	it("lists as exceptions only types that really are routed to MinerU and really are refused", () => {
-		// An exception that has stopped being one (its routing changed, or MinerU
-		// learned the type) must leave the list, not rot in it.
-		for (const id of KNOWN_EXCEPTIONS.keys()) {
-			const entry = routedToMineru.find((candidate) => candidate.id === id);
-			expect(entry, `${id} is routed to MinerU`).toBeDefined();
-			if (entry) {
-				expect(
-					ACCEPTED_BY_MINERU_4_1_7.has(sentExtension(entry)),
-					`${id} is refused`,
-				).toBe(false);
-			}
+		// An exception that has stopped being one (its routing changed, MinerU
+		// learned the type, or the app began to convert it) must leave the list, not
+		// rot in it.
+		expect(staleExceptions(KNOWN_EXCEPTIONS)).toEqual([]);
+	});
+
+	it("tells a refused type from an accepted one, and a stale exception from a true one", () => {
+		// What keeps this guard from going quiet now that the list is empty. A HEIC
+		// photo is read as a PNG, so MinerU receives document.png and takes it...
+		const heic = routedToMineru.find((entry) => entry.id === "heic");
+		if (!heic) {
+			throw new Error("the registry has no heic entry routed to MinerU");
 		}
+		expect(nameMinerUReceives(heic, "heic")).toBe("document.png");
+		expect(isRefused(heic)).toBe(false);
+		// ...and that conversion is all there is between it and a refusal: without
+		// it the photo is sent as document.heic, which MinerU has never accepted.
+		const unconverted: Entry = {
+			...heic,
+			intake: { ...heic.intake, readAs: undefined },
+		};
+		expect(nameMinerUReceives(unconverted, "heic")).toBe("document.heic");
+		expect(isRefused(unconverted)).toBe(true);
+
+		// So an exception for HEIC is stale while it is converted and true when it
+		// is not; one for a type MinerU accepts, or that is never routed to it
+		// (AVIF is refused at upload), is stale whatever happens to the others.
+		const listed = new Map([
+			["heic", "listed"],
+			["png", "listed"],
+			["avif", "listed"],
+		]);
+		expect(staleExceptions(listed)).toEqual(["heic", "png", "avif"]);
+		expect(
+			staleExceptions(new Map([["heic", "listed"]]), [unconverted]),
+		).toEqual([]);
 	});
 });
 
