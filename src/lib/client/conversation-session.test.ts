@@ -5,6 +5,7 @@ import { pendingDraftSaves } from "$lib/stores/server-update";
 import {
 	cleanupPreparedConversation,
 	clearConversationSessionState,
+	consumeHomeComposerSeed,
 	consumePendingConversationMessage,
 	consumePreviousConversationId,
 	createConversationDraftRecord,
@@ -22,6 +23,7 @@ import {
 	setLandingDraftConversationId,
 	storeAskLineDrafts,
 	storeComposerMarks,
+	storeHomeComposerSeed,
 	storePendingConversationMessage,
 } from "./conversation-session";
 
@@ -1390,6 +1392,45 @@ describe("marks across the hand-off and a reload", () => {
 
 		storeComposerMarks("conv-r", null);
 		expect(readComposerMarks("conv-r")).toBeNull();
+	});
+});
+
+describe("the example Try it hands to Home", () => {
+	const example =
+		"How do I get from Keleti station to the airport by public transport?";
+
+	beforeEach(() => sessionStorage.clear());
+
+	it("hands a Try it example to Home once", () => {
+		storeHomeComposerSeed(example);
+		// Kept in the tab's session under one key of this module's own, so it
+		// follows the person across the navigation to Home and no further.
+		expect(sessionStorage.getItem("home-composer-seed")).toBe(example);
+
+		expect(consumeHomeComposerSeed()).toBe(example);
+		expect(consumeHomeComposerSeed()).toBeNull();
+		expect(sessionStorage.getItem("home-composer-seed")).toBeNull();
+	});
+
+	it("forgets a waiting example on sign-out", () => {
+		storeHomeComposerSeed("x");
+		clearConversationSessionState();
+		expect(consumeHomeComposerSeed()).toBeNull();
+	});
+
+	it("keeps only the newest example when Try it is pressed twice", () => {
+		storeHomeComposerSeed("An older example");
+		storeHomeComposerSeed(example);
+
+		expect(consumeHomeComposerSeed()).toBe(example);
+		expect(consumeHomeComposerSeed()).toBeNull();
+	});
+
+	it("takes an empty example for none and drops it", () => {
+		storeHomeComposerSeed("");
+
+		expect(consumeHomeComposerSeed()).toBeNull();
+		expect(sessionStorage.getItem("home-composer-seed")).toBeNull();
 	});
 });
 

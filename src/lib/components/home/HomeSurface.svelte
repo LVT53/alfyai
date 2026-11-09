@@ -35,10 +35,12 @@ import { shouldShowIncognitoArm } from "$lib/client/home/landing-incognito";
 import { makeGrammarFormatters } from "$lib/client/connections/status-grammar";
 import {
 	cleanupPreparedConversation,
+	consumeHomeComposerSeed,
 	consumePreviousConversationId,
 	createConversationDraftRecord,
 	createDraftPersistence,
 	getLandingDraftConversationId,
+	hasMeaningfulDraft,
 	readComposerMarks,
 	setConversationPersonalitySelection,
 	setLandingDraftConversationId,
@@ -879,6 +881,20 @@ onMount(() => {
 		});
 	}
 
+	// The Feature Guide's "Try it" left an example for Home's box; a project
+	// page leaves it waiting. It goes in only after the restore above has had its
+	// say, so that read's promise is handed over now, while the field still holds
+	// it (the field clears itself when the read ends).
+	if (mode.kind === "home") {
+		const example = consumeHomeComposerSeed();
+		if (example !== null) {
+			void putWaitingExampleInBox(
+				example,
+				preparedConversationValidationPromise,
+			);
+		}
+	}
+
 	// Incognito greeting pick — client-only (see the field's own comment) and
 	// independent of the picked-once-per-day memory below, on purpose: this
 	// line is not trying to avoid repeating itself across visits the way the
@@ -1150,6 +1166,53 @@ async function restorePreparedConversation(conversationId: string) {
 		conversationDraft = null;
 		setLandingDraftConversationId(null);
 	}
+}
+
+/**
+ * "Try it" on the Feature Guide left `example` for this box. It goes in as the
+ * first words of a box with nothing in it, and it is not sent: the person
+ * changes it first. The landing page's saved draft is read back first
+ * (`restoring`), because a draft the person already had is theirs and the
+ * example never replaces it. The example is dropped then, and a toast says so.
+ * A draft counts when it holds anything at all (`hasMeaningfulDraft`: words,
+ * files, linked sources, a skill, Atlas mode); one with nothing in it is no
+ * draft, and the example goes in as if there were none.
+ */
+async function putWaitingExampleInBox(
+	example: string,
+	restoring: Promise<void> | null,
+) {
+	await restoring;
+	// The page was left while the saved draft was read: a toast now would land
+	// on whatever page the person went to.
+	if (!homeComposerLayer) return;
+
+	if (
+		conversationDraft &&
+		hasMeaningfulDraft(
+			conversationDraft.draftText,
+			conversationDraft.selectedAttachmentIds,
+			conversationDraft.selectedLinkedSources,
+			conversationDraft.pendingSkill,
+			conversationDraft.atlasMode === true,
+		)
+	) {
+		showToast({ type: "success", message: $t("guide.tryItDraftKept") });
+		return;
+	}
+
+	const draft = createConversationDraftRecord({
+		conversationId: preparedConversationId,
+		draftText: example,
+		selectedAttachmentIds: [],
+		selectedAttachments: [],
+	});
+	if (!draft) return;
+	conversationDraft = draft;
+	// The composer takes the draft when its effect has run, and the caret goes
+	// in after it.
+	await tick();
+	homeComposerLayer?.querySelector("textarea")?.focus();
 }
 
 function handleDraftChange(payload: MessageInputDraftPayload) {

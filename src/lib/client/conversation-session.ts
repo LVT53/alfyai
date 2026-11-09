@@ -29,6 +29,7 @@ import {
 const PREVIOUS_CONVERSATION_KEY = "previous-conversation-id";
 const LANDING_DRAFT_CONVERSATION_KEY = "landing-draft-conversation-id";
 const PROJECT_COMPOSER_FOCUS_PREFIX = "project-composer-focus:";
+const HOME_COMPOSER_SEED_KEY = "home-composer-seed";
 const PENDING_MESSAGE_PREFIX = "pending-chat-message:";
 const CONVERSATION_PERSONALITY_PREFIX = "conversation-personality:";
 const CONVERSATION_MODEL_PREFIX = "conversation-model:";
@@ -335,6 +336,28 @@ export function consumeProjectComposerFocus(projectId: string): boolean {
 	if (!storage?.getItem(key)) return false;
 	storage.removeItem(key);
 	return true;
+}
+
+/**
+ * A Feature Guide example, carried across one navigation. "Try it" stores the
+ * words and opens Home; Home consumes them and puts them in its empty message
+ * box, unsent (`HomeSurface`). Like the focus mark above it lives in the
+ * session rather than in the address, so the example is never in the URL or the
+ * history, and it is *consumed*, not read: a reload of Home must not add it a
+ * second time. A second example before Home has taken the first replaces it,
+ * and sign-out drops one that is still waiting (`clearConversationSessionState`).
+ */
+export function storeHomeComposerSeed(text: string): void {
+	getSessionStorage()?.setItem(HOME_COMPOSER_SEED_KEY, text);
+}
+
+/** The example `storeHomeComposerSeed` left, taken once; null when none waits. */
+export function consumeHomeComposerSeed(): string | null {
+	const storage = getSessionStorage();
+	// An empty example is no example, but it is not left lying about either.
+	const text = storage?.getItem(HOME_COMPOSER_SEED_KEY) || null;
+	storage?.removeItem(HOME_COMPOSER_SEED_KEY);
+	return text;
 }
 
 export function getConversationPersonalitySelection(
@@ -1047,7 +1070,11 @@ export function clearConversationSessionState(): void {
 		}
 	}
 
-	keysToRemove.push(PREVIOUS_CONVERSATION_KEY, LANDING_DRAFT_CONVERSATION_KEY);
+	keysToRemove.push(
+		PREVIOUS_CONVERSATION_KEY,
+		LANDING_DRAFT_CONVERSATION_KEY,
+		HOME_COMPOSER_SEED_KEY,
+	);
 	for (const key of keysToRemove) {
 		storage.removeItem(key);
 	}
