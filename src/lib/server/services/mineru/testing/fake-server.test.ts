@@ -1166,6 +1166,89 @@ describe("what is not a /v1/tasks route", () => {
 	});
 });
 
+describe("options are checked where they are set", () => {
+	// A bad option used to throw inside a request handler: the server answered
+	// 500 internal_error, which the client reads as an outage and retries, and
+	// the test read as "the client retried" instead of "I mistyped a name".
+
+	it("refuses, at construction, a scripted failure whose capture does not exist", async () => {
+		await expect(
+			createFakeMineruServer({
+				failures: [{ path: "/v1/tasks", fixture: "errors/no-such-probe.json" }],
+			}),
+		).rejects.toThrow(/failures\[0\].*errors\/no-such-probe\.json/);
+	});
+
+	it("refuses a capture that has no JSON body to replay, and a file that is not JSON at all", async () => {
+		// A download capture records headers and a ZIP listing, not a body.
+		await expect(
+			createFakeMineruServer({
+				failures: [
+					{
+						path: "/v1/tasks",
+						fixture: "samples/docx-default/04_result_download_0.json",
+					},
+				],
+			}),
+		).rejects.toThrow(/failures\[0\].*no JSON body/);
+		await expect(
+			createFakeMineruServer({
+				failures: [{ path: "/v1/tasks", fixture: "zips/v41-csv.zip" }],
+			}),
+		).rejects.toThrow(/failures\[0\]/);
+	});
+
+	it("refuses, at construction, a fixtureInput that names no result ZIP, and says where it looked", async () => {
+		await expect(
+			createFakeMineruServer({ fixtureInput: "no-such-input" }),
+		).rejects.toThrow(/fixtureInput "no-such-input".*zips.*no-such-input/s);
+	});
+
+	it("refuses the same things from setOptions, and keeps the options it had", async () => {
+		await start({ fixtureInput: "v41-csv" });
+		expect(() => server?.setOptions({ fixtureInput: "no-such-input" })).toThrow(
+			/fixtureInput "no-such-input"/,
+		);
+		expect(() =>
+			server?.setOptions({
+				failures: [{ path: "/v1/tasks", fixture: "errors/no-such-probe.json" }],
+			}),
+		).toThrow(/failures\[0\]/);
+		// Refused means refused: the earlier options still stand and the server works.
+		const { taskId } = await submit("document.csv", CSV);
+		const done = await getTask(taskId);
+		expect(done.json.status).toBe("completed");
+		const download = await call(
+			(done.json.files?.[0] as { result_url: string }).result_url,
+		);
+		expect(
+			download.bytes.equals(
+				readFileSync(join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "v41-csv.zip")),
+			),
+		).toBe(true);
+	});
+
+	it("refuses numbers and names that cannot mean anything", async () => {
+		await start();
+		for (const patch of [
+			{ tiers: [] },
+			{ tiers: ["gold"] as never },
+			{ parseDelayMs: -1 },
+			{ inProgressPolls: 1.5 },
+			{ inProgressPolls: -1 },
+			{ restartAfterMs: Number.NaN },
+			{ outcome: "exploded" as never },
+			{ redirectDownloads: "sideways" as never },
+			{ urlOrigin: "elsewhere" as never },
+			{ failures: [{ path: "/v1/tasks", status: 99, body: {} }] },
+		]) {
+			expect(() => server?.setOptions(patch), JSON.stringify(patch)).toThrow(
+				/fake MinerU server/,
+			);
+		}
+	});
+});
+
 describe("test controls", () => {
 	it("replays a recorded error, or a made-up one, on the request that matches", async () => {
 		await start({

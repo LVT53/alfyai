@@ -390,9 +390,131 @@ function pageRangeProblem(value: unknown): boolean {
 	return true;
 }
 
+/** The result ZIP an input name stands for: a 4.1 capture, else the 4.0.4 corpus. */
+function resultZipPathFor(input: string): string {
+	const own = join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", `${input}.zip`);
+	return existsSync(own) ? own : join(MINERU_FIXTURE_ROOT, input, "result.zip");
+}
+
+const FILE_OUTCOMES: readonly FakeMineruFileOutcome[] = [
+	"completed",
+	"completed-without-result-url",
+	"file-failed",
+	"failed-without-detail",
+	"stuck",
+];
+
+function refuse(what: string): never {
+	throw new Error(`fake MinerU server: ${what}`);
+}
+
+/**
+ * Throws, naming the option, for anything that would otherwise blow up INSIDE a
+ * request: a handler that throws answers 500 `internal_error`, which a client
+ * reads as an outage and retries, so the test sees "the client retried" instead
+ * of "I mistyped a name". Called before the server listens and before
+ * `setOptions` merges, so a refused option leaves nothing half-applied.
+ */
+function checkOptions(candidate: FakeMineruServerOptions): void {
+	const count = (name: string, value: number | undefined, integer = false) => {
+		if (value === undefined) return;
+		if (
+			!Number.isFinite(value) ||
+			value < 0 ||
+			(integer && !Number.isInteger(value))
+		) {
+			refuse(
+				`${name} must be a ${integer ? "whole " : ""}number of zero or more, got ${value}`,
+			);
+		}
+	};
+
+	if (candidate.tiers !== undefined) {
+		const known = MINERU_TIER_IDS as readonly string[];
+		if (
+			candidate.tiers.length === 0 ||
+			candidate.tiers.some((tier) => !known.includes(tier))
+		) {
+			refuse(
+				`tiers must be a non-empty list of ${known.join(", ")}, got [${candidate.tiers.join(", ")}]`,
+			);
+		}
+	}
+	count("parseDelayMs", candidate.parseDelayMs);
+	count("inProgressPolls", candidate.inProgressPolls, true);
+	count("restartAfterMs", candidate.restartAfterMs);
+	if (
+		candidate.outcome !== undefined &&
+		!FILE_OUTCOMES.includes(candidate.outcome)
+	) {
+		refuse(
+			`outcome "${candidate.outcome}" is none of ${FILE_OUTCOMES.join(", ")}`,
+		);
+	}
+	if (
+		candidate.outcomeFor !== undefined &&
+		typeof candidate.outcomeFor !== "function"
+	) {
+		refuse("outcomeFor must be a function");
+	}
+	if (
+		candidate.redirectDownloads !== undefined &&
+		!["same-origin", "cross-origin"].includes(candidate.redirectDownloads)
+	) {
+		refuse(
+			`redirectDownloads "${candidate.redirectDownloads}" is neither same-origin nor cross-origin`,
+		);
+	}
+	if (
+		candidate.urlOrigin !== undefined &&
+		!["request", "cross-origin"].includes(candidate.urlOrigin)
+	) {
+		refuse(
+			`urlOrigin "${candidate.urlOrigin}" is neither request nor cross-origin`,
+		);
+	}
+
+	const input = candidate.fixtureInput ?? DEFAULT_FIXTURE_INPUT;
+	const zip = resultZipPathFor(input);
+	if (!existsSync(zip)) {
+		refuse(
+			`fixtureInput "${input}" names no result ZIP; looked for ${join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", `${input}.zip`)} and ${zip}`,
+		);
+	}
+
+	for (const [index, scripted] of (candidate.failures ?? []).entries()) {
+		const at = `failures[${index}]`;
+		if ("fixture" in scripted) {
+			let recorded: { response?: { status?: unknown; json?: unknown } };
+			try {
+				recorded = readMineruProtocolFixture(scripted.fixture);
+			} catch (error) {
+				refuse(
+					`${at}: cannot read the capture ${scripted.fixture} (${error instanceof Error ? error.message : error})`,
+				);
+			}
+			if (typeof recorded.response?.status !== "number") {
+				refuse(
+					`${at}: ${scripted.fixture} records no response status to replay`,
+				);
+			}
+			if (recorded.response?.json === undefined) {
+				refuse(`${at}: ${scripted.fixture} has no JSON body to replay`);
+			}
+		} else if (
+			!Number.isInteger(scripted.status) ||
+			scripted.status < 100 ||
+			scripted.status > 599
+		) {
+			refuse(`${at}: status must be an HTTP status, got ${scripted.status}`);
+		}
+	}
+}
+
 export async function createFakeMineruServer(
 	initialOptions: FakeMineruServerOptions = {},
 ): Promise<FakeMineruServer> {
+	checkOptions(initialOptions);
 	let options: FakeMineruServerOptions = { ...initialOptions };
 	const requests: FakeMineruRequest[] = [];
 	/** The hash cache: content-addressed, and forgotten by a restart. */
@@ -444,11 +566,7 @@ export async function createFakeMineruServer(
 	}
 
 	function resultZipPath(): string {
-		const name = options.fixtureInput ?? DEFAULT_FIXTURE_INPUT;
-		const own = join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", `${name}.zip`);
-		return existsSync(own)
-			? own
-			: join(MINERU_FIXTURE_ROOT, name, "result.zip");
+		return resultZipPathFor(options.fixtureInput ?? DEFAULT_FIXTURE_INPUT);
 	}
 
 	// -- state --------------------------------------------------------------
@@ -1294,7 +1412,9 @@ export async function createFakeMineruServer(
 		},
 		restart,
 		setOptions(patch) {
-			options = { ...options, ...patch };
+			const next = { ...options, ...patch };
+			checkOptions(next);
+			options = next;
 		},
 		resetLog() {
 			requests.length = 0;
