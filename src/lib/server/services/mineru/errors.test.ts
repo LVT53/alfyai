@@ -496,6 +496,53 @@ describe("R14: the old server answered, in its own voice", () => {
 	});
 });
 
+describe("an error that is not an instance of this module's class", () => {
+	// `isMineruApiError` is structural on purpose (a module loaded twice makes two
+	// classes), and other code builds the same shape by hand (the capability
+	// probe's tests do). It will not have the fields added later, such as
+	// wrongProtocol: absent must mean "not another protocol", exactly as null does.
+	function bareError(init: { status: number; code: string }) {
+		return Object.assign(
+			new Error(`MinerU /v1/health failed with ${init.status}`),
+			{
+				name: "MineruApiError",
+				status: init.status,
+				code: init.code,
+				type: null,
+				param: null,
+				detail: null,
+				fastapiValidation: false,
+				bodyExcerpt: null,
+				retryAfterMs: null,
+				requestPath: "/v1/health",
+			},
+		);
+	}
+
+	it("is classified by its code, not taken for another protocol because a field is missing", () => {
+		const forgotten = bareError({ status: 404, code: "task_not_found" });
+		expect(isMineruForgottenIdError(forgotten)).toBe(true);
+		expect(mapMineruError(forgotten).rule).toBe("404:task_not_found");
+
+		const key = mapMineruError(
+			bareError({ status: 401, code: "invalid_api_key" }),
+		);
+		expect(key.rule).toBe("401:invalid_api_key");
+		expect(key.taxonomy).toBe("auth_failed");
+
+		const rate = mapMineruError(
+			bareError({ status: 429, code: "rate_limit_exceeded" }),
+		);
+		expect(rate.taxonomy).toBe("rate_limited");
+	});
+
+	it("falls back by status like any unknown error when it has no code", () => {
+		const mapping = mapMineruError(bareError({ status: 404, code: "" }));
+		expect(mapping.rule).toBe("fallback:4xx");
+		expect(mapping.known).toBe(false);
+	});
+});
+
 describe("tiers and 5xx", () => {
 	it("reads param 'tier' as a missing tier, not as a protocol bug, whatever the message", () => {
 		for (const message of [

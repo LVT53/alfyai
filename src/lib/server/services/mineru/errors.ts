@@ -880,7 +880,7 @@ export function mapMineruError(error: unknown): MineruErrorMapping {
 			param: error.param,
 			message: error.detail?.message ?? error.message,
 			fastapi: error.fastapi,
-			wrongProtocol: error.wrongProtocol !== null,
+			wrongProtocol: (error.wrongProtocol ?? null) !== null,
 		});
 		if (rule) return toMapping(rule, error.retryAfterMs);
 		return {
@@ -945,7 +945,7 @@ export function isMineruForgottenIdError(error: unknown): boolean {
 		isMineruApiError(error) &&
 		// 4.0.12 answers 404 task_not_found too, with an error.type: that is the
 		// old server, and creating the task again would only meet the same wall.
-		error.wrongProtocol === null &&
+		(error.wrongProtocol ?? null) === null &&
 		(MINERU_FORGOTTEN_ID_CODES as readonly string[]).includes(error.code)
 	);
 }
