@@ -1410,6 +1410,18 @@ describe("against the fake 4.1 server", () => {
 		expect(isMineruForgottenIdError(poll)).toBe(true);
 	});
 
+	it("meets a restart armed through setOptions after the flow is set up, which is how a recovery test arms it", async () => {
+		const { server: fake, client } = await start();
+		fake.setOptions({ restartAfterFirstUpload: true });
+		const sent = await submit(client);
+		const poll = await client
+			.pollTask({ taskId: sent.taskId, signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((poll as MineruApiError).code).toBe("task_not_found");
+		expect(isMineruForgottenIdError(poll)).toBe(true);
+		expect(fake.tasks.size).toBe(0);
+	});
+
 	it("cancels a task that is running, files and all, and swallows a second cancel", async () => {
 		const { client } = await start({ neverFinish: true });
 		const { taskId } = await submit(client);

@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import JSZip from "jszip";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	createFakeMineruServer,
 	type FakeMineruServer,
@@ -1137,8 +1137,98 @@ describe("restart", () => {
 	it("restarts on a timer", async () => {
 		await start({ restartAfterMs: 20 });
 		const { taskId } = await submit("document.pdf", PDF);
-		await new Promise((resolve) => setTimeout(resolve, 80));
+		// Whenever it fires, the end state is the same: wait for the server to say so.
+		await vi.waitFor(() => expect(server?.tasks.size).toBe(0));
 		expect((await getTask(taskId)).status).toBe(404);
+	});
+});
+
+describe("restarts can be armed in the middle of a test", () => {
+	// The three restart options used to be read once, when the server was built;
+	// setOptions merged them and nothing happened, so a restart-recovery test
+	// that armed one after setting up passed without ever restarting.
+
+	it("restartAfterFirstTask, armed by setOptions: the next created task is the last the server remembers", async () => {
+		await start();
+		const earlier = await submit("a.pdf", PDF);
+		expect((await getTask(earlier.taskId)).status).toBe(200);
+
+		server?.setOptions({ restartAfterFirstTask: true });
+		const receipt = await create([
+			fileFor("b.pdf", Buffer.from("other bytes")),
+		]);
+		// The 202 went out, and then everything was forgotten, the earlier task too.
+		expect(receipt.status).toBe(202);
+		expect(server?.tasks.size).toBe(0);
+		expect((await getTask(receipt.json.task_id as string)).status).toBe(404);
+		expect((await getTask(earlier.taskId)).status).toBe(404);
+
+		// It fired once; the retry is remembered.
+		const retry = await submit("b.pdf", PDF);
+		expect((await getTask(retry.taskId)).json.status).toBe("completed");
+	});
+
+	it("restartAfterFirstUpload, armed by setOptions: the first PUT after it is the last the server remembers", async () => {
+		await start();
+		const earlier = await submit("a.pdf", PDF);
+		expect((await getTask(earlier.taskId)).status).toBe(200);
+
+		server?.setOptions({ restartAfterFirstUpload: true });
+		const sent = await submit("b.pdf", Buffer.from("other bytes"));
+		expect(server?.tasks.size).toBe(0);
+		expect(server?.blobs.size).toBe(0);
+		expect((await getTask(sent.taskId)).status).toBe(404);
+
+		const retry = await submit("b.pdf", Buffer.from("other bytes"));
+		expect((await getTask(retry.taskId)).json.status).toBe("completed");
+	});
+
+	it("restartAfterMs, armed by setOptions, starts a timer; a later patch re-arms it, and undefined clears it", async () => {
+		await start();
+		const { taskId } = await submit("a.pdf", PDF);
+		server?.setOptions({ restartAfterMs: 20 });
+		await vi.waitFor(() => expect(server?.tasks.size).toBe(0));
+		expect((await getTask(taskId)).status).toBe(404);
+
+		// Armed again, then cleared before it could fire: nothing is forgotten.
+		const kept = await submit("a.pdf", PDF);
+		server?.setOptions({ restartAfterMs: 40 });
+		server?.setOptions({ restartAfterMs: undefined });
+		await new Promise((resolve) => setTimeout(resolve, 120));
+		expect((await getTask(kept.taskId)).status).toBe(200);
+
+		// Re-armed with a new delay replaces the old timer rather than adding one.
+		server?.setOptions({ restartAfterMs: 20 });
+		server?.setOptions({ restartAfterMs: 5_000 });
+		await new Promise((resolve) => setTimeout(resolve, 120));
+		expect((await getTask(kept.taskId)).status).toBe(200);
+	});
+
+	it("an event restart can be disarmed with false before it fires, and armed again after it has", async () => {
+		await start({ restartAfterFirstTask: true });
+		server?.setOptions({ restartAfterFirstTask: false });
+		const kept = await submit("a.pdf", PDF);
+		expect((await getTask(kept.taskId)).status).toBe(200);
+
+		server?.setOptions({ restartAfterFirstUpload: true });
+		server?.setOptions({ restartAfterFirstUpload: false });
+		const alsoKept = await submit("b.pdf", Buffer.from("other bytes"));
+		expect((await getTask(alsoKept.taskId)).status).toBe(200);
+
+		// Fire one, then arm it again: it fires again.
+		server?.setOptions({ restartAfterFirstTask: true });
+		await create([fileFor("c.pdf", Buffer.from("third"))]);
+		expect(server?.tasks.size).toBe(0);
+		server?.setOptions({ restartAfterFirstTask: true });
+		await create([fileFor("d.pdf", Buffer.from("fourth"))]);
+		expect(server?.tasks.size).toBe(0);
+	});
+
+	it("a patch that does not mention a restart option leaves an armed one armed", async () => {
+		await start({ restartAfterFirstTask: true });
+		server?.setOptions({ inProgressPolls: 1 });
+		await create([fileFor("a.pdf", PDF)]);
+		expect(server?.tasks.size).toBe(0);
 	});
 });
 

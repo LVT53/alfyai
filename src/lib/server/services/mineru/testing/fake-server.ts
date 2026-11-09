@@ -183,18 +183,25 @@ export interface FakeMineruServerOptions {
 	/** No file ever finishes: for cancel and deadline tests. Same as outcome "stuck". */
 	neverFinish?: boolean;
 	failures?: ReadonlyArray<FakeMineruFailure>;
-	/** Forget everything this many ms after the server starts. */
+	/**
+	 * Forget everything this many ms from now: from construction when passed to
+	 * `createFakeMineruServer`, from the call when passed to `setOptions` (which
+	 * replaces an earlier timer; `undefined` clears it).
+	 */
 	restartAfterMs?: number;
 	/**
 	 * Forget everything the instant the FIRST task is created (after its 202 has
 	 * gone out). A wall clock cannot say "after the create, before the PUT" on a
-	 * loaded machine; an event can. Fires once.
+	 * loaded machine; an event can. Fires once per arming: `setOptions({
+	 * restartAfterFirstTask: true })` arms it again at any point, `false`
+	 * disarms it.
 	 */
 	restartAfterFirstTask?: boolean;
 	/**
 	 * Forget everything the instant the FIRST upload has been accepted (after its
 	 * 200): the task exists, its bytes are on the server, and then the ids go.
-	 * Fires once.
+	 * Fires once per arming, armed and disarmed through `setOptions` like
+	 * `restartAfterFirstTask`.
 	 */
 	restartAfterFirstUpload?: boolean;
 	/** Which result ZIP answers downloads. Defaults to the PDF. */
@@ -528,8 +535,41 @@ export async function createFakeMineruServer(
 		tasks = new Map();
 		filesById = new Map();
 	};
-	let restartAfterFirstTaskArmed = options.restartAfterFirstTask === true;
-	let restartAfterFirstUploadArmed = options.restartAfterFirstUpload === true;
+	let restartAfterFirstTaskArmed = false;
+	let restartAfterFirstUploadArmed = false;
+	let restartTimer: NodeJS.Timeout | null = null;
+
+	/**
+	 * Arms, re-arms or disarms the restart options a set of options NAMES. Run at
+	 * construction (for what the caller passed) and by every `setOptions` (for
+	 * what the patch names), so a restart can be switched on in the middle of a
+	 * test: an event flag is armed by `true` and disarmed by `false` or
+	 * `undefined`, and `restartAfterMs` replaces its timer (a number starts one,
+	 * `undefined` clears it). An option the patch does not mention is left as it
+	 * is.
+	 */
+	function armRestarts(
+		next: FakeMineruServerOptions,
+		named: ReadonlyArray<string>,
+	): void {
+		if (named.includes("restartAfterFirstTask")) {
+			restartAfterFirstTaskArmed = next.restartAfterFirstTask === true;
+		}
+		if (named.includes("restartAfterFirstUpload")) {
+			restartAfterFirstUploadArmed = next.restartAfterFirstUpload === true;
+		}
+		if (named.includes("restartAfterMs")) {
+			if (restartTimer) clearTimeout(restartTimer);
+			restartTimer = null;
+			if (next.restartAfterMs !== undefined) {
+				restartTimer = setTimeout(() => {
+					restartTimer = null;
+					restart();
+				}, next.restartAfterMs);
+				restartTimer.unref?.();
+			}
+		}
+	}
 	const failureCounts = new Map<number, number>();
 	let sequence = 0;
 
@@ -1378,11 +1418,7 @@ export async function createFakeMineruServer(
 	const port =
 		address && typeof address === "object" ? address.port : Number(address);
 
-	let restartTimer: NodeJS.Timeout | null = null;
-	if (options.restartAfterMs !== undefined) {
-		restartTimer = setTimeout(restart, options.restartAfterMs);
-		restartTimer.unref?.();
-	}
+	armRestarts(options, Object.keys(options));
 
 	return {
 		baseUrl: `http://127.0.0.1:${port}`,
@@ -1415,6 +1451,7 @@ export async function createFakeMineruServer(
 			const next = { ...options, ...patch };
 			checkOptions(next);
 			options = next;
+			armRestarts(next, Object.keys(patch));
 		},
 		resetLog() {
 			requests.length = 0;
