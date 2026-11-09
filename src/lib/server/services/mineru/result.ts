@@ -987,7 +987,8 @@ export function renderMineruMarkdown(
  *
  *   - an `image` or `chart` block becomes `[Figure N]` / `[Figure N: <first
  *     caption>]` instead of an `![](images/…)` link, which costs fewer tokens
- *     and gives the model a handle it can actually ask about;
+ *     and gives the model a handle it can actually ask about (its other
+ *     captions and its footnotes follow the handle, each once);
  *   - a heading loses the `**…**` Word wraps around it;
  *   - a picture-only equation (no LaTeX to read) is left out;
  *   - a `page_footnote` is its words alone, without MinerU's HTML span, and on a
@@ -1141,16 +1142,22 @@ function renderInternal(
 						...footnotes,
 					].join("\n\n");
 				} else {
-					// The caption is already inside the label, so it is never
-					// emitted twice. A figure with no resolvable path (a data: URI
-					// from a standalone download) keeps its captions and loses only
-					// the handle.
+					// The first caption is already inside the label, so it is never
+					// emitted twice; every other caption follows the label (a figure
+					// can have several: one per panel, or one a layout box cut in
+					// two). A figure with no resolvable path (a data: URI from a
+					// standalone download) keeps all its captions and loses only the
+					// handle.
 					const label = figure
 						? figure.caption
 							? `[Figure ${figure.index}: ${figure.caption}]`
 							: `[Figure ${figure.index}]`
 						: null;
-					text = [...(label ? [label] : captions), ...beside, ...footnotes]
+					text = [
+						...(label ? [label, ...captions.slice(1)] : captions),
+						...beside,
+						...footnotes,
+					]
 						.filter((part) => part.trim())
 						.join("\n\n");
 				}

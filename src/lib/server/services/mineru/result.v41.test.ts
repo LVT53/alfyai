@@ -319,6 +319,60 @@ describe("MinerU 4.1 blocks — chart", () => {
 		expect(rendered.markdown).toBe("Inlined chart");
 	});
 
+	it.each([
+		"image",
+		"chart",
+	])("keeps every caption of a %s once: the first in its handle, the rest after it", (type) => {
+		// A figure's captions are separate boxes on the page (a sub-caption per
+		// panel, a second line that the layout model cut apart), and each is a
+		// caption of its own in `captions[]`. The handle names the figure by the
+		// first; the others are not dropped.
+		const block = {
+			type,
+			content: "",
+			image_source: "images/f.jpg",
+			captions: [
+				{ content: "Figure 3. Throughput by tier" },
+				{ content: "(b) Cold start, 12 pages" },
+			],
+			footnotes: [{ content: "Source: the spike corpus" }],
+		};
+		const rendered = renderPromptMarkdown(contentOf([block]));
+
+		expect(rendered.markdown).toBe(
+			"[Figure 1: Figure 3. Throughput by tier]\n\n(b) Cold start, 12 pages\n\nSource: the spike corpus",
+		);
+		expect(rendered.figures).toMatchObject([
+			{ index: 1, caption: "Figure 3. Throughput by tier" },
+		]);
+		for (const text of [
+			"Figure 3. Throughput by tier",
+			"(b) Cold start, 12 pages",
+			"Source: the spike corpus",
+		]) {
+			expect(rendered.markdown.split(text).length - 1, text).toBe(1);
+		}
+		// MinerU's own rendering has always kept them all, in this order.
+		expect(renderMineruMarkdown(contentOf([block]))).toBe(
+			"![](images/f.jpg)\n\nFigure 3. Throughput by tier\n\n(b) Cold start, 12 pages\n\nSource: the spike corpus",
+		);
+	});
+
+	it("keeps every caption of a figure that has no handle", () => {
+		const rendered = renderPromptMarkdown(
+			contentOf([
+				{
+					type: "chart",
+					content: "",
+					image_source: "data:image/jpeg;base64,AAAA",
+					captions: [{ content: "First" }, { content: "Second" }],
+				},
+			]),
+		);
+
+		expect(rendered.markdown).toBe("First\n\nSecond");
+	});
+
 	it("keeps text a chart carries beside its picture", () => {
 		const table = "| x | y |\n| --- | --- |\n| 1 | 2 |";
 		const block = {
