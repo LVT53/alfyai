@@ -51,6 +51,7 @@
 // staging box already pointed at a 3.x-shaped stub) before trusting D6's gate
 // in production.
 
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -1393,14 +1394,25 @@ async function runReextract(
  * decisions above (`compare`, `preflightProblems`, `failureMismatches`) and must
  * not launch a browser.
  */
-function isDirectExecution(): boolean {
-	return Boolean(
-		process.argv[1] &&
-			path.resolve(process.argv[1]) === fileURLToPath(import.meta.url),
-	);
+export function isDirectRun(
+	argv1: string | undefined,
+	moduleUrl: string,
+): boolean {
+	if (!argv1) return false;
+	// Real paths on both sides: started through a symlinked directory the two
+	// spellings differ, the guard would be false, and a live check would print
+	// nothing and exit 0.
+	try {
+		return (
+			realpathSync(path.resolve(argv1)) ===
+			realpathSync(fileURLToPath(moduleUrl))
+		);
+	} catch {
+		return false;
+	}
 }
 
-if (isDirectExecution()) {
+if (isDirectRun(process.argv[1], import.meta.url)) {
 	main().catch((error) => {
 		console.error(error);
 		process.exit(1);

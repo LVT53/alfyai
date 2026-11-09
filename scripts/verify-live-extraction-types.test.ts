@@ -1,5 +1,14 @@
-import { readFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseMineruResultZip } from "../src/lib/server/services/mineru/result";
 import {
@@ -7,6 +16,7 @@ import {
 	compare,
 	FAILURE_CASES,
 	failureMismatches,
+	isDirectRun,
 	preflightProblems,
 	readActual,
 } from "./verify-live-extraction-types";
@@ -395,6 +405,58 @@ describe("readActual: the metadata keys the sweep reads are the ones the app wri
 		expect(
 			readActual({ id: "n", name: "n.md", metadata: {} }).unknownBlockTypes,
 		).toEqual({});
+	});
+});
+
+describe("isDirectRun: the sweep starts only when this file is the one run", () => {
+	// A guard that is wrongly false turns a live check into a silent no-op that
+	// exits 0, so it has to hold when the script is started through a symlinked
+	// directory (a checkout reached through a link, or a temp dir that is one).
+	function withTree(
+		run: (tree: { file: string; viaLink: string; other: string }) => void,
+	) {
+		const root = mkdtempSync(join(tmpdir(), "sweep-guard-"));
+		try {
+			const real = join(root, "real");
+			mkdirSync(real);
+			const file = join(real, "sweep.ts");
+			const other = join(real, "other.ts");
+			writeFileSync(file, "");
+			writeFileSync(other, "");
+			const link = join(root, "link");
+			symlinkSync(real, link);
+			run({ file, viaLink: join(link, "sweep.ts"), other });
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	}
+
+	it("is true for the file itself", () => {
+		withTree(({ file }) => {
+			expect(isDirectRun(file, pathToFileURL(file).href)).toBe(true);
+		});
+	});
+
+	it("is true when the path it was started by goes through a symlinked directory", () => {
+		withTree(({ file, viaLink }) => {
+			expect(isDirectRun(viaLink, pathToFileURL(file).href)).toBe(true);
+		});
+	});
+
+	it("is true when the module URL is the one that goes through the link", () => {
+		withTree(({ file, viaLink }) => {
+			expect(isDirectRun(file, pathToFileURL(viaLink).href)).toBe(true);
+		});
+	});
+
+	it("is false for another file, for no argument, and for a path that does not exist", () => {
+		withTree(({ file, other }) => {
+			expect(isDirectRun(other, pathToFileURL(file).href)).toBe(false);
+			expect(isDirectRun(undefined, pathToFileURL(file).href)).toBe(false);
+			expect(isDirectRun(`${file}.missing`, pathToFileURL(file).href)).toBe(
+				false,
+			);
+		});
 	});
 });
 
