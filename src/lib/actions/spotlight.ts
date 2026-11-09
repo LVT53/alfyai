@@ -36,14 +36,19 @@ const RING_CLASS = "spotlight-ring";
  * - The scroll and the ring wait for the next frame, so the scroll measures the
  *   layout as it settles after the page that brought the person here.
  * - Asked again while it rings, the ring starts over: one timer, never two.
+ * - A control with no id (`null` or `undefined`) answers to no request. A tab
+ *   bar puts the action on every tab though only some have a Show me pointing
+ *   at them, and an action cannot be put on some elements only; `update` can
+ *   give a control an id, or take it away, later. It does not cut short a ring
+ *   that is already under way.
  *
  * Under reduced motion the scroll is `"auto"`; the ring's own ease is a
  * `--duration-standard` transition, which that setting zeroes (`app.css`).
  */
 export function spotlightTarget(
 	node: HTMLElement,
-	spotlight: SpotlightId,
-): { update(next: SpotlightId): void; destroy(): void } {
+	spotlight: SpotlightId | null | undefined,
+): { update(next: SpotlightId | null | undefined): void; destroy(): void } {
 	let id = spotlight;
 	let destroyed = false;
 	let frame: number | null = null;
@@ -74,9 +79,13 @@ export function spotlightTarget(
 		// A store tells its subscribers through a queue, so one that has just
 		// unsubscribed can still be called once.
 		if (destroyed) return;
-		if (pendingSpotlight(request) !== id) return;
+		const mine = id;
+		// Without this, an id of `null` would match the store's own `null`
+		// (nothing is waiting) in `pendingSpotlight` and take it.
+		if (mine === null || mine === undefined) return;
+		if (pendingSpotlight(request) !== mine) return;
 		if (node.getClientRects().length === 0) return;
-		if (!takeSpotlight(id)) return;
+		if (!takeSpotlight(mine)) return;
 		cancelPending();
 		frame = requestAnimationFrame(ring);
 	}

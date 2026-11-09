@@ -980,10 +980,12 @@ body {
 	}
 }
 
-/* The ring on the control the guide's Show me points at (src/lib/actions/spotlight.ts). */
+/* The ring on the control the guide's Show me points at (src/lib/actions/spotlight.ts).
+   The shadow is !important: a two-second state has to show over the control's own
+   shadow, an active tab's or its focus ring, however specific their rules are. */
 .spotlight-ring {
 	box-shadow:
 		0 0 0 2px var(--accent),
-		0 0 0 6px var(--accent-tint);
+		0 0 0 6px var(--accent-tint) !important;
 	transition: box-shadow var(--duration-standard);
 }

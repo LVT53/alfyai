@@ -26,6 +26,9 @@ const FAKED_BY_THESE_TESTS = [
 	"Date",
 ] as const;
 
+/** The two ways a control says it has no spotlight. */
+const NO_ID = [undefined, null] as const;
+
 type Mounted = {
 	node: HTMLButtonElement;
 	action: ReturnType<typeof spotlightTarget>;
@@ -37,9 +40,13 @@ let restoreLayout: () => void = () => undefined;
 /**
  * A control on the page, with the action on it. By default it has the layout
  * `stubLayoutForSpotlight` gives every element; `rendered: false` is a control
- * that is not on screen (`display: none`, the other form factor's copy).
+ * that is not on screen (`display: none`, the other form factor's copy). A
+ * control that no entry points at has no id.
  */
-function mount(spotlight: SpotlightId, { rendered = true } = {}): Mounted {
+function mount(
+	spotlight: SpotlightId | null | undefined,
+	{ rendered = true } = {},
+): Mounted {
 	const node = document.createElement("button");
 	if (!rendered) node.getClientRects = () => [] as unknown as DOMRectList;
 	document.body.append(node);
@@ -292,7 +299,97 @@ describe("spotlightTarget", () => {
 		});
 	});
 
+	// A tab bar puts the action on every tab and only some tabs have a Show me
+	// pointing at them, and an action cannot be put on some of them only.
+	describe("when it has no control to answer to", () => {
+		it.each(NO_ID)("never takes a request while its id is %s", (none) => {
+			const { node } = mount(none);
+
+			requestSpotlight("knowledge.library");
+			vi.advanceTimersToNextFrame();
+
+			expect(node).not.toHaveClass("spotlight-ring");
+			expect(scrolled(node)).not.toHaveBeenCalled();
+			expect(pendingSpotlight(get(spotlightRequest))).toBe("knowledge.library");
+			expect(vi.getTimerCount()).toBe(0);
+		});
+
+		it.each(NO_ID)("leaves a waiting request while its id is %s", (none) => {
+			requestSpotlight("knowledge.memory");
+
+			const { node } = mount(none);
+			vi.advanceTimersToNextFrame();
+
+			expect(node).not.toHaveClass("spotlight-ring");
+			expect(pendingSpotlight(get(spotlightRequest))).toBe("knowledge.memory");
+		});
+
+		it("leaves the request to the tab that has the id", () => {
+			const plain = mount(undefined);
+			const memory = mount("knowledge.memory");
+			const library = mount("knowledge.library");
+
+			requestSpotlight("knowledge.memory");
+			vi.advanceTimersToNextFrame();
+
+			expect(plain.node).not.toHaveClass("spotlight-ring");
+			expect(library.node).not.toHaveClass("spotlight-ring");
+			expect(memory.node).toHaveClass("spotlight-ring");
+			expect(scrolled(memory.node).mock.contexts).toEqual([memory.node]);
+		});
+	});
+
 	describe("when the control it answers to changes", () => {
+		it.each(NO_ID)("stops answering when it becomes %s", (none) => {
+			const { node, action } = mount("composer.library");
+			action.update(none);
+
+			requestSpotlight("composer.library");
+			vi.advanceTimersToNextFrame();
+
+			expect(node).not.toHaveClass("spotlight-ring");
+			expect(scrolled(node)).not.toHaveBeenCalled();
+			expect(pendingSpotlight(get(spotlightRequest))).toBe("composer.library");
+		});
+
+		it("lets a ring that is under way finish when it stops answering", () => {
+			const { node, action } = mount("composer.library");
+			requestSpotlight("composer.library");
+			vi.advanceTimersToNextFrame();
+			expect(node).toHaveClass("spotlight-ring");
+
+			action.update(undefined);
+
+			vi.advanceTimersByTime(SPOTLIGHT_RING_MS - 1);
+			expect(node).toHaveClass("spotlight-ring");
+			vi.advanceTimersByTime(1);
+			expect(node).not.toHaveClass("spotlight-ring");
+			expect(vi.getTimerCount()).toBe(0);
+		});
+
+		it.each(NO_ID)("takes a waiting request once given an id (%s)", (none) => {
+			const { node, action } = mount(none);
+			requestSpotlight("knowledge.library");
+			expect(get(spotlightRequest)).not.toBeNull();
+
+			action.update("knowledge.library");
+
+			expect(get(spotlightRequest)).toBeNull();
+			vi.advanceTimersToNextFrame();
+			expect(node).toHaveClass("spotlight-ring");
+		});
+
+		it("leaves that request alone, as a new subscription would, if it has no layout", () => {
+			const { node, action } = mount(undefined, { rendered: false });
+			requestSpotlight("knowledge.library");
+
+			action.update("knowledge.library");
+			vi.advanceTimersToNextFrame();
+
+			expect(node).not.toHaveClass("spotlight-ring");
+			expect(pendingSpotlight(get(spotlightRequest))).toBe("knowledge.library");
+		});
+
 		it("answers to the new one and no longer to the old", () => {
 			const { node, action } = mount("composer.attach");
 			action.update("composer.library");
@@ -362,15 +459,24 @@ describe("the ring's look", () => {
 		"utf-8",
 	);
 
-	it("is the accent outline with a soft halo, eased over the standard duration", () => {
-		const block = appCss.match(/\.spotlight-ring\b[^{}]*\{([^}]*)\}/)?.[1];
+	const block = appCss.match(/\.spotlight-ring\b[^{}]*\{([^}]*)\}/)?.[1];
 
+	it("is the accent outline with a soft halo, eased over the standard duration", () => {
 		expect(block).toBeDefined();
 		expect(block).toMatch(
-			/box-shadow:\s*0 0 0 2px var\(--accent\),\s*0 0 0 6px var\(--accent-tint\);/,
+			/box-shadow:\s*0 0 0 2px var\(--accent\),\s*0 0 0 6px var\(--accent-tint\)\s*(?:!important)?;/,
 		);
+		// Straight to the semicolon: the transition is not !important.
 		expect(block).toMatch(
 			/transition:\s*box-shadow var\(--duration-standard\);/,
 		);
+	});
+
+	it("shows over a control's own shadow, an active tab's and a focus ring", () => {
+		// A component's rule is scoped to two classes (three with :focus-visible)
+		// and the ring's selector is one, so only !important beats them all. The
+		// real controls that lost to it: Home's incognito button and the
+		// Knowledge page's active tab.
+		expect(block).toMatch(/box-shadow:[^;]*\s!important;/);
 	});
 });
