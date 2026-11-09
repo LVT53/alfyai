@@ -23,36 +23,25 @@ cutover section) and the admin card says why. An install that follows `latest` c
 release whose protocol changed again, so pin the version and run the checklist in
 [deploy/README.md](../deploy/README.md#upgrading-mineru) after any upgrade.
 
-Production runs MinerU as a systemd unit around `mineru-kit api-server`, in a Python venv of its
-own (3.11 to 3.14), one unit per version. This repository ships and tests no container image. What
-the app needs from a server, as the 4.1.7 spike recorded it
-([spike report](plans/mineru-4-1/spike-report.md) §1, §5, §10):
+Production runs MinerU as systemd services around `mineru-kit api-server`, each in a Python venv of
+its own. This repository ships and tests no container image. The install, the services and their
+ports, the key on the command line, what a server costs in RAM and VRAM and how long it takes to
+start, the cutover and the rollback all have one home:
+[deploy/README.md](../deploy/README.md#document-extraction-service-mineru). What matters here is that
+an app calls exactly the address in `MINERU_API_URL`: the 4.0.12 server on `127.0.0.1:8002` until its
+flip, and from then on MinerU 4.1.7 on `127.0.0.1:8004` (`http://127.0.0.1:8001` is only the code
+default and the port in the examples). `MINERU_API_KEY` must match whatever the server was started
+with; leave it empty (anonymous access) only for a server that nothing else can reach.
 
-- `mineru[torch]==4.1.7` and its Standard-tier models (about 2 GB). The Standard tier calls a
-  vision-language model server (`--vlm-server-url`; production points it at the shared one on
-  `http://127.0.0.1:30001/v1`).
-- About 6 GiB of RAM and 1.1 to 2.6 GiB of VRAM per server process once warm. Nothing is loaded at
-  start (health answers after about 4 s); the first Standard document after every start pays about
-  8 s of one-off model load, and the first Basic one about 10 s more.
-- An upload directory of its own: it holds a lock, so two servers must not share one.
-- `--api-key` only on the command line: 4.1.7 has no environment fallback for it, so anyone who can
-  list processes can read it. `MINERU_API_KEY` must match whatever the server was started with; drop
-  `--api-key` only on a host where nothing else can reach the port.
+#### The dev MinerU (development only)
 
-The units, ports and the cutover runbook are in
-[deploy/README.md](../deploy/README.md#document-extraction-service-mineru); in short, `mineru41.service`
-(4.1.7) listens on `127.0.0.1:8004` and is the server this app calls, `mineru4.service` (4.0.12) on
-`127.0.0.1:8002` is kept for a week after the cutover as the rollback and then retired, and
-`http://127.0.0.1:8001` is only the code default and the port in the examples.
-
-#### The dev box's MinerU (development only)
-
-A MinerU 4.0.6 server runs on the dev box at `http://127.0.0.1:8003` — basic tier, CPU only, API key
-required. It was set up so that a local checkout could point `MINERU_API_URL`/`MINERU_API_KEY` at a
-real MinerU 4 without standing up a service of its own. **It speaks the 4.0 protocol, which this
-release no longer does**: a checkout pointed at it gets the admin card's "runs MinerU 4.0.6, which
-speaks the old protocol" and its uploads wait. It is useful again only after an upgrade to 4.1. It is
-not a production endpoint either way: it is CPU-only, it serves one tier, and its port deliberately
+`mineru4-dev.service` is a MinerU 4.0.6 DEV API server on the box at `http://127.0.0.1:8003`: basic
+tier, CPU only, API key required. It exists so that a checkout can point
+`MINERU_API_URL`/`MINERU_API_KEY` at a real MinerU 4 without standing up a service of its own.
+**It speaks the 4.0 protocol, which this release no longer does**: a checkout pointed at it gets the
+admin card's "runs MinerU 4.0.6, which speaks the old protocol" and its uploads wait. Neither app
+calls it, and it retires with 4.0.12 (the clean-up step of the runbook in deploy/README.md). It is not a
+production endpoint either way: it is CPU-only, it serves one tier, and its port deliberately
 differs from the `8001` default so a deployment cannot drift onto it by accident.
 
 ### The task API the app uses
@@ -294,8 +283,9 @@ for them, the existing "this file type isn't supported" copy already fits.
 [docs/configuration.md](configuration.md)) caps a `direct-text` upload before any byte is read: past
 8 MiB of raw text is roughly 2M tokens and thousands of chunk/embedding calls from a single upload.
 It does **not** apply to `html`/`htm` any more — they route to MinerU and are bounded instead by
-`MAX_FILE_UPLOAD_SIZE` and MinerU's own size limit — unless the MinerU-4 gate above has fallen them
-back to `direct-text` on an old backend, in which case the cap applies to them again.
+`MAX_FILE_UPLOAD_SIZE` (MinerU 4.1.7 reports no size limit of its own) — unless the MinerU-4 gate
+above has fallen them back to `direct-text` on an old backend, in which case the cap applies to them
+again.
 
 ## The async extraction flow
 
@@ -352,22 +342,24 @@ link). A server that forgets again, or a file that no longer matches what its ta
 creates the task again), ends the attempt with a retryable failure that clears the handle, and the
 ledger's own retry budget takes over.
 
-While the service is down (it answers health about 4 s after a start, and the first Standard
-document then pays about 8 s of model load) requests fail as transport errors. Those are outage
-waits and are not charged to the document: the job goes back to `queued` and tries again with a
-growing wait (5 s, doubling to 5 min) for up to `DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS` (30 minutes
-by default), then resumes from the stored handle, meets `task_not_found`, and the recovery above
-makes a new task. A document therefore survives `systemctl restart mineru41` in the middle of its
-parse; the live checks below include exactly that.
+While the service is down (a few seconds until health answers, then a one-off model load for the
+first Standard document; the numbers are in deploy/README.md) requests fail as transport errors.
+Those are outage waits and are not charged to the document: the job goes back to `queued` and tries
+again with a growing wait (5 s, doubling to 5 min) for up to `DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS`
+(30 minutes by default), then resumes from the stored handle, meets `task_not_found`, and the
+recovery above makes a new task. The tests prove this against a fake server held to the captures;
+the one run against a real 4.1.7 is the ai.dev live check below, which restarts `mineru41` in the
+middle of a job and expects the job to succeed, not fail.
 
 `MINERU_JOB_TIMEOUT_MS` is the clock of one attempt: it starts with the attempt and is enforced
 while the task is polled (the transfers have their own, `MINERU_TRANSFER_TIMEOUT_MS`). At the
-deadline the task is cancelled on the server and spent, and the last snapshot says what that
+deadline the task is canceled on the server and spent, and the last snapshot says what that
 means. A file MinerU had not started (still queued, or never sent its bytes) waits like an outage
 and spends no attempt, since the document was never the slow part. A file it was running spends
 an attempt like any other retryable failure, so a document that is simply too slow for the
-deadline ends, once its attempt budget is gone, with the timeout sentence and not with "could not
-be reached".
+deadline ends, once its attempt budget is gone, with the code `max_attempts` (the label the UI
+shows for it; Retry is still offered) and the timeout's sentence as the stored message, not as
+`unavailable` ("could not be reached").
 
 ### The cutover window and the old server
 
@@ -561,10 +553,11 @@ math is fenced with `$$`, PPTX speaker notes are labelled, see `result.ts`), so
 4.1, the renderer dropped every chart and its caption from the text and left display math
 unfenced; MinerU 4.0.12 emits the same blocks, so documents read before the 4.1 release
 (`mineru4/1`) lack them. They keep their text until they are read again. **The backfill below does
-not do that**: it skips a document that is already at the requested tier, whatever renderer read it,
-so it only reaches documents with no recorded tier. To read one again at its own tier with the new
+not do that for a document that already carries the requested tier**: it skips a document whose
+recorded tier is at or above the one requested, whatever renderer read it, so it re-reads only
+documents recorded below that tier or with none. To read a same-tier document again with the new
 renderer, Re-extract it with the `force` override described above (`{"tier": "standard", "force":
-true}`, the same tier it already carries).
+true}`, the tier it already carries), one document at a time.
 
 `scripts/backfill-extractions.ts` is the operator-run equivalent for a whole library. It walks
 every `source_document` artifact (knowledge-page uploads AND chat-attachment documents — both live
@@ -788,7 +781,7 @@ passing through a `parsing` status: they must make no MinerU request at all. `he
 listed under `knownGaps` in the summary and not asserted: the registry routes them to MinerU, which
 has never accepted them.
 
-**Not covered by this script, to do by hand on ai.dev:** a cancel (the job ends `cancelled`, one
+**Not covered by this script, to do by hand on ai.dev:** a cancel (the job ends `canceled`, one
 `POST /v1/tasks/{id}/cancel` in MinerU's access log), and `systemctl restart mineru41` in the
 middle of a job (the job has to succeed by creating the task again; the app's journal shows
 `MinerU forgot an id, recovering`). And the gate itself: it needs a MinerU backend that genuinely
