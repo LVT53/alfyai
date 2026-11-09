@@ -12,12 +12,18 @@
  *      string `content`; `bbox` is a flat array of four 0..1 floats whose key
  *      is ABSENT (never null) for Office/HTML/EPUB/CSV. There are no ids, no
  *      locators and no page numbers — the page number is the array index + 1.
- *   2. `fixtures/mineru-v1` holds `flash` and `basic` output, and
- *      `fixtures/mineru-v41/results` holds MinerU 4.1.7's answers, `standard`
- *      among them (it added `equation`, `chart` and `page_footnote`).
- *      `advanced` has never been captured and may emit block types nobody here
- *      has seen, so an unknown type is rendered as its `content` and treated as
- *      an atomic block. It is never an error, and it is counted into
+ *   2. `fixtures/mineru-v1` holds `flash` and `basic` output of MinerU 4.0.4,
+ *      and `fixtures/mineru-v41/results` holds MinerU 4.1.7's answers, `standard`
+ *      among them. A PDF at the standard or basic tier yields `equation`,
+ *      `chart` and `page_footnote` blocks (at flash, a picture-only `equation`
+ *      and an `image`), and a PPTX yields its speaker notes as a
+ *      `page_footnote`. The 4.0.4 captures held none of them, but 4.0.12 emits
+ *      them too (checked live against production on 2026-11-09), so this is
+ *      not a 4.1 change: until the renderer knew them, production lost every
+ *      chart and its caption and printed display math bare. `advanced` has
+ *      never been captured and may emit block types nobody here has seen, so an
+ *      unknown type is rendered as its `content` and treated as an atomic
+ *      block. It is never an error, and it is counted into
  *      `stats.unknownTypes` so the GPU-box checklist has data to read.
  *   3. The prompt text is built FROM BLOCKS, not from the zip's `markdown.md`:
  *      `markdown.md` is a flat string with no page boundaries and no block
@@ -62,12 +68,13 @@ export const MINERU_PARSER_VERSION = "mineru4/2";
  * It renders as its own text (the `else` branch: a TOC is prose) and is NOT
  * atomic: a long contents list may be split across chunks like any other text.
  *
- * MinerU 4.1 added three, each with its own rendering (`renderInternal`):
- * `equation` (display math), `chart` (a picture with a caption, kept as a
- * figure like an `image`) and `page_footnote` (a PDF page's footnote, a slide's
- * speaker notes). `equation_interline` is the Draft name of the same block as
- * `equation`: no capture holds one, but it renders identically, so it is no
- * more a surprise than its twin.
+ * Three more come with the standard and basic tiers (4.0.12 and 4.1.7 alike),
+ * each with its own rendering (`renderInternal`): `equation` (display math),
+ * `chart` (a picture with a caption, kept as a figure like an `image`) and
+ * `page_footnote` (a PDF page's footnote, a slide's speaker notes).
+ * `equation_interline` is the Draft name of the same block as `equation`: no
+ * capture holds one, but it renders identically, so it is no more a surprise
+ * than its twin and is not counted into `stats.unknownTypes`.
  */
 export const KNOWN_BLOCK_TYPES = [
 	"text",
@@ -906,6 +913,9 @@ function isEquationBlockType(type: string): boolean {
 /**
  * The LaTeX of a display equation with any `$$ … $$` its producer already put
  * around it taken off, so the fence is written once and never twice.
+ *
+ * Unobserved: every capture holds bare LaTeX. This guards the Draft alias and a
+ * later MinerU that fences its own output, which would be fenced a second time.
  */
 function unfencedLatex(content: string): string {
 	const trimmed = content.trim();
@@ -939,6 +949,10 @@ function renderEquation(
  * MinerU's own markup around a `page_footnote` in `markdown.md`: a grey
  * `<small>` span. Only the faithful renderer writes it; the prompt text gets the
  * words alone, since markup costs tokens and means nothing to the model.
+ *
+ * Unobserved: whether MinerU escapes `<` or `&` in the text it wraps (no capture
+ * holds either), so the text goes in as it came. This only matters to the test
+ * oracle, never to the prompt.
  */
 function mineruFootnoteMarkup(content: string): string {
 	return `<small><span class="docvortex-page-footnote" data-block-type="page_footnote" style="color:#6b7280">${content}</span></small>`;
@@ -955,6 +969,9 @@ const LEADING_SPEAKER_NOTES_LABEL = /^\s*speaker\s+notes\s*:\s*/i;
  * A slide's notes under one canonical label. MinerU already starts the notes it
  * reads from a PPTX with `Speaker notes: `, so the label is taken off before it
  * is put on: it is never said twice, and never says anything but this.
+ *
+ * Unobserved: a slide with several `page_footnote` blocks (the capture has one
+ * per slide). Each would carry the label, which repeats it but misleads no one.
  */
 function speakerNotes(content: string): string {
 	const notes = content.replace(LEADING_SPEAKER_NOTES_LABEL, "").trim();
@@ -1117,8 +1134,10 @@ function renderInternal(
 			} else if (type === "image" || type === "chart") {
 				// A `chart` is a picture with a caption, exactly as an `image` is,
 				// and the two share one figure numbering. MinerU 4.1.7 leaves a
-				// chart's `content` empty; text it carried beside the picture
-				// would be kept (an `image` never has any).
+				// chart's `content` empty (every capture). Unobserved: a tier that
+				// reads a chart into a table or a list. Its text is kept after the
+				// handle, as the old unknown-type path kept it, rather than dropped
+				// (an `image` never has any).
 				const path = resolveFigurePath(block.image_source);
 				const captions = captionTexts(block.captions);
 				const footnotes = captionTexts(block.footnotes);
