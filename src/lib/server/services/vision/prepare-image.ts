@@ -1,6 +1,10 @@
 import convertHeic from "heic-convert";
 import sharp from "sharp";
 import { getEntryByMimeType } from "$lib/shared/file-types";
+import { ImagePreparationError } from "./image-errors";
+
+// Callers have always imported the error from here.
+export { ImagePreparationError };
 
 /** Long side of an attachment sent as pixels: about 1,600 tokens. */
 export const ATTACHMENT_MAX_LONG_EDGE = 1600;
@@ -30,14 +34,6 @@ export type PreparedImage = {
 	height: number;
 	estimatedTokens: number;
 };
-
-/** The bytes could not be turned into a picture the model can be sent. */
-export class ImagePreparationError extends Error {
-	constructor(message: string, options?: ErrorOptions) {
-		super(message, options);
-		this.name = "ImagePreparationError";
-	}
-}
 
 /**
  * An uploaded picture as a PNG for the picture server: upright (EXIF
