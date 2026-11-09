@@ -1,9 +1,36 @@
 // @vitest-environment node
+import { once } from "node:events";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
-import { readHeifPixelCount } from "./heif-decode";
+import type { Worker } from "node:worker_threads";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	decodeHeifToRgba,
+	HEIF_MAX_PIXELS,
+	readDecoderAnswer,
+	readHeifPixelCount,
+} from "./heif-decode";
+import { ImagePreparationError, ImageTooLargeError } from "./image-errors";
+
+// Every worker the process's decode pool starts, so a test can say that none
+// started, or how many, or wait for one to exit.
+type Recorded = Worker & { readonly exited: Promise<number> };
+const spawned = vi.hoisted(() => ({ workers: [] as unknown[] }));
+const startedWorkers = () => spawned.workers as Recorded[];
+
+vi.mock("node:worker_threads", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:worker_threads")>();
+	class RecordingWorker extends actual.Worker {
+		readonly exited: Promise<number>;
+		constructor(...args: ConstructorParameters<typeof actual.Worker>) {
+			super(...args);
+			this.exited = new Promise((resolve) => this.once("exit", resolve));
+			spawned.workers.push(this);
+		}
+	}
+	return { ...actual, Worker: RecordingWorker };
+});
 
 // The HEIC files are real ones, made on this Mac with `sips` (macOS 27,
 // sips-316).
@@ -36,6 +63,13 @@ const fixture = (name: string) =>
 const tinyHeic = fixture("tiny.heic");
 const photoGrid = fixture("photo-grid.heic");
 const transparentPage = fixture("transparent-page.heic");
+
+beforeEach(async () => {
+	// The pool is the process's, so a place a test left is still taken until its
+	// thread has exited.
+	await Promise.all(startedWorkers().map((worker) => worker.exited));
+	spawned.workers.length = 0;
+});
 
 // --- Files built from boxes, for the shapes no real photo has ---------------
 
@@ -87,6 +121,20 @@ function heifOf(
 	const ipco = box("ipco", concat(...properties), forms.ipco);
 	const iprp = box("iprp", ipco, forms.iprp);
 	return concat(ftyp(), fullBox("meta", iprp, forms.meta), mdat());
+}
+
+/** A copy of a real file with the size its first `ispe` gives changed. */
+function withIspe(
+	bytes: Uint8Array,
+	width: number,
+	height: number,
+): Uint8Array {
+	const patched = Uint8Array.from(bytes);
+	const at = Buffer.from(patched).indexOf("ispe");
+	const view = new DataView(patched.buffer);
+	view.setUint32(at + 8, width); // after "ispe" and its version and flags
+	view.setUint32(at + 12, height);
+	return patched;
 }
 
 /** A copy of `bytes` placed inside a larger buffer, as a view that starts mid-buffer. */
@@ -310,5 +358,242 @@ describe("readHeifPixelCount", () => {
 		}
 
 		expect(failures).toEqual([]);
+	});
+});
+
+describe("readDecoderAnswer", () => {
+	const pixels = (width: number, height: number) =>
+		new ArrayBuffer(width * height * 4);
+
+	it("takes a good answer as pixels, without copying them", () => {
+		const data = pixels(3, 2);
+
+		const out = readDecoderAnswer({ ok: true, width: 3, height: 2, data });
+
+		expect([out.width, out.height]).toEqual([3, 2]);
+		expect(out.data).toBeInstanceOf(Uint8Array);
+		expect(out.data.buffer).toBe(data);
+		expect(out.data.byteLength).toBe(24);
+	});
+
+	it("turns a failed decode into an ImagePreparationError that says why", () => {
+		const error = (() => {
+			try {
+				return readDecoderAnswer({ ok: false, message: "libheif said no" });
+			} catch (caught) {
+				return caught;
+			}
+		})();
+
+		expect(error).toBeInstanceOf(ImagePreparationError);
+		expect(error).not.toBeInstanceOf(ImageTooLargeError);
+		expect((error as Error).message).toContain("libheif said no");
+	});
+
+	it.each([
+		["nothing", undefined],
+		["a string", "pixels"],
+		["an object with no verdict", { width: 3, height: 2 }],
+	])("refuses %s as an answer", (_name, answer) => {
+		expect(() => readDecoderAnswer(answer)).toThrow(ImagePreparationError);
+	});
+
+	it.each([
+		["no width", { height: 2 }],
+		["a width of 0", { width: 0, height: 2 }],
+		["a fractional width", { width: 2.5, height: 2 }],
+		["a width that is not a number", { width: "3", height: 2 }],
+		["an infinite height", { width: 3, height: Number.POSITIVE_INFINITY }],
+	])("refuses an answer with %s", (_name, size) => {
+		expect(() =>
+			readDecoderAnswer({ ok: true, ...size, data: pixels(3, 2) }),
+		).toThrow(ImagePreparationError);
+	});
+
+	it("refuses a picture over the pixel limit, as too large", () => {
+		const error = (() => {
+			try {
+				return readDecoderAnswer({
+					ok: true,
+					width: 10_001,
+					height: 10_000,
+					data: pixels(2, 2),
+				});
+			} catch (caught) {
+				return caught;
+			}
+		})();
+
+		expect(error).toBeInstanceOf(ImageTooLargeError);
+		expect(error).toMatchObject({
+			pixels: 100_010_000,
+			limit: HEIF_MAX_PIXELS,
+		});
+	});
+
+	it.each([
+		["pixels that are not an ArrayBuffer", new Uint8Array(24)],
+		["pixels of the wrong length", new ArrayBuffer(23)],
+		["no pixels", undefined],
+	])("refuses an answer with %s", (_name, data) => {
+		expect(() =>
+			readDecoderAnswer({ ok: true, width: 3, height: 2, data }),
+		).toThrow(ImagePreparationError);
+	});
+});
+
+describe("decodeHeifToRgba", () => {
+	const pixelAt = (
+		out: { width: number; data: Uint8Array },
+		x: number,
+		y: number,
+	) => Array.from(out.data.subarray((y * out.width + x) * 4).subarray(0, 4));
+
+	it("decodes a photo to RGBA, upright, in a worker", async () => {
+		const out = await decodeHeifToRgba(tinyHeic);
+
+		expect([out.width, out.height]).toEqual([64, 42]);
+		expect(out.data.byteLength).toBe(64 * 42 * 4);
+		// Four flat quadrants: red, green, blue and yellow, and no transparency.
+		const [red, green, blue, yellow] = [
+			pixelAt(out, 8, 5),
+			pixelAt(out, 56, 5),
+			pixelAt(out, 8, 36),
+			pixelAt(out, 56, 36),
+		];
+		expect(red[0]).toBeGreaterThan(200);
+		expect(red[1]).toBeLessThan(60);
+		expect(green[1]).toBeGreaterThan(200);
+		expect(green[0]).toBeLessThan(60);
+		expect(blue[2]).toBeGreaterThan(200);
+		expect(blue[0]).toBeLessThan(60);
+		expect(Math.min(yellow[0], yellow[1])).toBeGreaterThan(200);
+		expect(yellow[2]).toBeLessThan(60);
+		expect([red[3], green[3], blue[3], yellow[3]]).toEqual([
+			255, 255, 255, 255,
+		]);
+		expect(startedWorkers()).toHaveLength(1);
+	});
+
+	it("gives its pixels in memory of their own, exactly as long as they are", async () => {
+		const out = await decodeHeifToRgba(tinyHeic);
+
+		expect(out.data.byteOffset).toBe(0);
+		expect(out.data.buffer.byteLength).toBe(out.data.byteLength);
+	});
+
+	it("keeps a transparent photo's transparency", async () => {
+		const out = await decodeHeifToRgba(transparentPage);
+
+		expect([out.width, out.height]).toEqual([800, 600]);
+		expect(pixelAt(out, 0, 0)).toEqual([0, 0, 0, 0]);
+		expect(pixelAt(out, 80, 200)).toEqual([0, 0, 0, 255]);
+	});
+
+	it("decodes a big grid photo whole", async () => {
+		const out = await decodeHeifToRgba(photoGrid);
+
+		expect([out.width, out.height]).toEqual([4032, 3024]);
+		expect(out.data.byteLength).toBe(4032 * 3024 * 4);
+	});
+
+	it("leaves the caller's bytes as they were, whatever they are held in", async () => {
+		const asBuffer = readFileSync(path.join(here, "__fixtures__", "tiny.heic"));
+		const before = Buffer.from(asBuffer);
+		const view = viewInsideLargerBuffer(tinyHeic);
+
+		const [fromBuffer, fromView] = await Promise.all([
+			decodeHeifToRgba(asBuffer),
+			decodeHeifToRgba(view),
+		]);
+
+		expect([fromBuffer.width, fromBuffer.height]).toEqual([64, 42]);
+		expect([fromView.width, fromView.height]).toEqual([64, 42]);
+		// A moved buffer would read as empty.
+		expect(asBuffer.byteLength).toBe(before.byteLength);
+		expect(Buffer.compare(asBuffer, before)).toBe(0);
+		expect(view.byteLength).toBe(tinyHeic.byteLength);
+		expect(Buffer.compare(view, tinyHeic)).toBe(0);
+	});
+
+	it("refuses a photo over the pixel limit before any worker starts", async () => {
+		const tooBig = withIspe(tinyHeic, 10_001, 10_000);
+
+		const error = await decodeHeifToRgba(tooBig).catch(
+			(caught: unknown) => caught,
+		);
+
+		expect(error).toBeInstanceOf(ImageTooLargeError);
+		expect(error).toBeInstanceOf(ImagePreparationError);
+		expect(error).toMatchObject({
+			pixels: 100_010_000,
+			limit: HEIF_MAX_PIXELS,
+		});
+		expect(startedWorkers()).toHaveLength(0);
+	});
+
+	it("takes a photo of exactly the limit through the size check", () => {
+		expect(readHeifPixelCount(withIspe(tinyHeic, 10_000, 10_000))).toBe(
+			HEIF_MAX_PIXELS,
+		);
+	});
+
+	it("refuses a file that says nothing of its size, with no worker", async () => {
+		const error = await decodeHeifToRgba(new Uint8Array([1, 2, 3])).catch(
+			(caught: unknown) => caught,
+		);
+
+		expect(error).toBeInstanceOf(ImagePreparationError);
+		expect(error).not.toBeInstanceOf(ImageTooLargeError);
+		expect(startedWorkers()).toHaveLength(0);
+	});
+
+	it("refuses an aborted signal with its reason, before anything starts", async () => {
+		await expect(
+			decodeHeifToRgba(tinyHeic, { signal: AbortSignal.abort("not wanted") }),
+		).rejects.toBe("not wanted");
+		expect(startedWorkers()).toHaveLength(0);
+	});
+
+	it("stops a decode that is running when its signal is aborted", async () => {
+		const controller = new AbortController();
+		const decoding = decodeHeifToRgba(photoGrid, { signal: controller.signal });
+		const worker = startedWorkers()[0];
+		await once(worker, "online");
+		const reason = new Error("cancelled");
+
+		controller.abort(reason);
+
+		await expect(decoding).rejects.toBe(reason);
+		// Its thread is stopped, not left to finish a photo nobody wants.
+		await worker.exited;
+	});
+
+	it("fails a photo libheif cannot read as an ImagePreparationError, and decodes the next", async () => {
+		// The size is intact (it is read before the decode), the picture data is not.
+		const damaged = Uint8Array.from(tinyHeic);
+		damaged.fill(0xa5, damaged.length - 200);
+
+		const error = await decodeHeifToRgba(damaged).catch(
+			(caught: unknown) => caught,
+		);
+
+		expect(error).toBeInstanceOf(ImagePreparationError);
+		expect(error).not.toBeInstanceOf(ImageTooLargeError);
+		const next = await decodeHeifToRgba(tinyHeic);
+		expect([next.width, next.height]).toEqual([64, 42]);
+	});
+
+	it("decodes at most two photos at once for the whole process", async () => {
+		const decodes = [photoGrid, photoGrid, photoGrid].map((photo) =>
+			decodeHeifToRgba(photo),
+		);
+
+		// The third waits for a place, with no worker of its own yet.
+		expect(startedWorkers()).toHaveLength(2);
+		const done = await Promise.all(decodes);
+
+		expect(done.map((out) => out.width)).toEqual([4032, 4032, 4032]);
+		expect(startedWorkers()).toHaveLength(3);
 	});
 });
