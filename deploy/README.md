@@ -552,19 +552,39 @@ on the next extraction, no restart). The app needs **MinerU 4.1 or newer**. How 
 service (the protocol, tiers, restarts, the old-server rule) is in
 [docs/uploads.md](../docs/uploads.md); this section is the box.
 
-### The units
+### The services
 
-| Unit | MinerU | Listens on | Role |
+| Service | Runs | Listens on | Role |
 |---|---|---|---|
-| `mineru41.service` | 4.1.7 | `127.0.0.1:8004` | the server the apps call (`MINERU_API_URL=http://127.0.0.1:8004`) |
-| `mineru4.service` | 4.0.12 | `127.0.0.1:8002` | the rollback: it keeps running until a week after the production cutover, then it is disabled |
-| `mineru-openai-server` | the vision-language model | `127.0.0.1:30001` | called by both MinerUs for the Standard tier (`--vlm-server-url`) |
+| `mineru41.service` | MinerU 4.1.7 | `127.0.0.1:8004` | the server each app calls from the moment its `MINERU_API_URL` is set to `http://127.0.0.1:8004` (steps 2 and 3 below) |
+| `mineru4.service` | MinerU 4.0.12 | `127.0.0.1:8002` | the server both apps call until that flip; then the rollback for a week, after which it is disabled |
+| `mineru4-dev.service` | MinerU 4.0.6, basic tier, CPU only | `127.0.0.1:8003` | "MinerU 4.x DEV API server"; neither app calls it. It retires with 4.0.12 (step 5) |
+| `mineru-openai-server` | the vision-language model | `127.0.0.1:30001` | a **Docker container, not a systemd unit** (`systemctl` does not know it); the MinerUs call it for the Standard tier (`--vlm-server-url`) |
+
+Until its flip an app calls `http://127.0.0.1:8002`, the 4.0.12 server, which this release cannot
+use (its documents wait for it, see [docs/uploads.md](../docs/uploads.md#the-cutover-window-and-the-old-server)),
+so the flip is part of deploying this release.
+
+The first three are systemd units in `/etc/systemd/system/`. The VLM server is the container
+`mineru-openai-server`: image `mineru:latest`, built locally from `mineru-docker/Dockerfile`; compose
+project `alfyai` in `/home/alfyws/opt/alfyai` (`docker-compose.yml`); restart policy `always`; published as
+`127.0.0.1:30001` for the container's 30000/tcp. Its health check is
+`curl -s http://127.0.0.1:30001/v1/models` (200), and it restarts with
+`docker restart mineru-openai-server`. **Never remove the `mineru:latest` image or its Dockerfile:**
+the VLM server is built from them.
+
+**Every MinerU service here (`mineru41`, `mineru4`, `mineru4-dev`) passes `--api-key` on its command
+line** (4.1.7 has no environment fallback for it), so what `systemctl status` and `ps` print for them
+holds the key: **never run either unfiltered on them.** The safe checks, for each:
+`systemctl is-active <unit>`, `curl -s http://127.0.0.1:<port>/v1/health` (8004, 8002, 8003; health is
+public) and `journalctl -u <unit> -n 50`. The journal of `mineru41` was checked and holds no key; read
+another unit's before pasting it anywhere.
 
 `mineru41.service` is `/etc/systemd/system/mineru41.service`, enabled, copied from
 `mineru4.service`; its header comment holds the steps to remove it. What it sets:
 
-- The venv `/home/alfydesign/apps/mineru4/.venv-4.1.7` (`mineru[torch]==4.1.7`, Python 3.12.15),
-  `MINERU_HOME=/home/alfydesign/m41p` and the upload directory
+- The venv `/home/alfydesign/apps/mineru4/.venv-4.1.7` (`mineru[torch]==4.1.7`, Python 3.12.15; 4.1
+  needs Python 3.11 to 3.14), `MINERU_HOME=/home/alfydesign/m41p` and the upload directory
   `/home/alfydesign/apps/mineru4/uploads-41`. Two servers must not share an upload directory (it
   holds a lock), which is why the old unit's directory is not reused.
 - `ExecStart` is `mineru-kit api-server --host 127.0.0.1 --port 8004 --tier standard --concurrency 4
@@ -572,11 +592,8 @@ service (the protocol, tiers, restarts, the old-server rule) is in
   unit runs on GPU 1 (`CUDA_VISIBLE_DEVICES=1`) with `MemoryMax=32G`. `--tier standard` makes
   `/v1/tiers` report flash, basic and standard, and no `advanced`.
 - `EnvironmentFile=/home/alfydesign/apps/mineru4/mineru4.env` holds `MINERU4_API_KEY`, the key
-  both apps already send as `MINERU_API_KEY`. 4.1.7's `--api-key` has no environment fallback, so
-  systemd's expansion puts the key into the process arguments: **never run an unfiltered
-  `systemctl status mineru41` or `ps` for it.** Use `systemctl is-active mineru41`,
-  `journalctl -u mineru41 -n 50` (the journal holds no key) and
-  `curl http://127.0.0.1:8004/v1/health`.
+  both apps already send as `MINERU_API_KEY`; the unit expands it into `--api-key` (see the
+  warning above). `mineru4.service` reads the same file.
 - Telemetry is off three ways. A fresh 4.1 install defaults to enabled, in `doclib.db` under
   `MINERU_HOME`; that file was seeded with `telemetry_state=disabled`, `state_source=user` before the
   first start, and the unit sets `MINERU_TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1` and
@@ -609,16 +626,36 @@ previous release and the old server stay one flip away
    header. Read the app's error journal afterwards.
 3. Production: the release gate green on the exact commit; push that SHA to `main`, deploy with
    `scripts/deploy.sh`, then set production's `MINERU_API_URL` to `http://127.0.0.1:8004` straight
-   away. Jobs that start in the seconds between the two steps meet the old server and wait; they
-   finish once the URL points at 4.1. Check the release link, the service, health and one real
-   upload.
+   away. Jobs that start in the seconds between the two steps meet the old server and wait, and
+   finish once the URL points at 4.1. That wait is bounded by the outage window (30 minutes by
+   default, `DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS`): a document still waiting when it ends fails as
+   `unavailable` and needs a Retry. Check the release link, the service, health and one real upload.
 4. **Rollback:** set `MINERU_API_URL` back to `http://127.0.0.1:8002` (4.0.12 is still running) and
-   deploy the previous release. Jobs in between wait in the same way.
-5. A week of stable production later: disable `mineru4.service`, then remove the spike leftovers
-   `/root/mineru41-spike`, `/home/alfydesign/apps/mineru4/uploads-4.1.7`, `/home/alfydesign/m41s`
-   and `/home/alfydesign/apps/mineru4/mineru41-spike.env`. Keep the 4.0.12 venv until the owner says
-   otherwise. `scripts/images/measure.ts` watches whichever of the two MinerU units is active, so it
-   needs no change when 4.0.12 goes.
+   deploy the previous release. Jobs in between wait in the same way, under the same 30-minute
+   bound.
+5. A week of stable production later, and only with the owner's OK, retire the 4.0 side:
+   - Stop and disable the services: `systemctl disable --now mineru4.service` (4.0.12) and
+     `systemctl disable --now mineru4-dev.service` (4.0.6, the dev server). The dev server's own
+     removal commands are in `/home/alfydesign/apps/mineru4-dev/SWITCH.md`; its `MINERU_HOME` is
+     `/home/alfydesign/m4` and its environment file `/home/alfydesign/apps/mineru4-dev/mineru4-dev.env`.
+   - Remove the spike leftovers: `/root/mineru41-spike`, `/home/alfydesign/apps/mineru4/uploads-4.1.7`,
+     `/home/alfydesign/m41s` and `/home/alfydesign/apps/mineru4/mineru41-spike.env`.
+   - The 4.0.x installs are removable with 4.0.12, again on the owner's word, not before: 4.0.12's
+     venv `/home/alfydesign/apps/mineru4/.venv-4.0.12` and home `/home/alfydesign/m4p12` (the rollback
+     for the week: keep the venv until the owner says otherwise), and 4.0.6's venv
+     `/home/alfydesign/apps/mineru4/.venv` and home `/home/alfydesign/m4prod`, which
+     `mineru4.service`'s own header keeps "untouched" as 4.0.6's rollback.
+   - **Never remove** what belongs to the live `mineru41` unit: `/home/alfydesign/apps/mineru4/.venv-4.1.7`,
+     `/home/alfydesign/m41p`, `/home/alfydesign/apps/mineru4/uploads-41`, and
+     `/home/alfydesign/apps/mineru4/mineru4.env` (the one key file both `mineru41` and `mineru4`
+     read: it stays when `mineru4.service` goes). Nor the `mineru:latest` image (above).
+   - The spike report's "Removal later (not done): `rm -rf` of those four paths"
+     ([spike report](../docs/plans/mineru-4-1/spike-report.md) §1: the venv, the spike's
+     `MINERU_HOME`, its env file and its working folder) predates the production unit. The venv in
+     that list, `/home/alfydesign/apps/mineru4/.venv-4.1.7`, is now `mineru41.service`'s: do not
+     follow that line, use the list above.
+   - `scripts/images/measure.ts` watches whichever of `mineru41` and `mineru4` is active, so it
+     needs no change when 4.0.12 goes.
 
 ### Upgrading MinerU
 
