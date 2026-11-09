@@ -1,5 +1,64 @@
 import { describe, expect, it } from "vitest";
-import { MEASURE_CASES, parseNvidiaSmiSamples } from "./measure";
+import {
+	MEASURE_CASES,
+	mineruHealthUrls,
+	neighbourHealthUrls,
+	parseActiveUnits,
+	parseNvidiaSmiSamples,
+} from "./measure";
+
+describe("parseActiveUnits", () => {
+	it("keeps the units `systemctl is-active` calls active, matched by order", () => {
+		expect(
+			parseActiveUnits("active\ninactive\n", ["mineru41", "mineru4"]),
+		).toEqual(["mineru41"]);
+		expect(
+			parseActiveUnits("inactive\nactive\n", ["mineru41", "mineru4"]),
+		).toEqual(["mineru4"]);
+	});
+	it("counts a failed, activating or unknown unit, and silence, as not active", () => {
+		expect(
+			parseActiveUnits("failed\nactivating\n", ["mineru41", "mineru4"]),
+		).toEqual([]);
+		expect(parseActiveUnits("", ["mineru41", "mineru4"])).toEqual([]);
+	});
+});
+
+describe("mineruHealthUrls", () => {
+	const IN_USE = "http://127.0.0.1:8004/v1/health";
+	const ROLLBACK = "http://127.0.0.1:8002/v1/health";
+	it("probes MinerU 4.1 on :8004 whatever the units say, so a dead one shows", () => {
+		expect(mineruHealthUrls([])).toEqual([IN_USE]);
+		expect(mineruHealthUrls(["mineru41"])).toEqual([IN_USE]);
+	});
+	it("also probes 4.0.12 on :8002 while the rollback unit runs (both run side by side)", () => {
+		expect(mineruHealthUrls(["mineru41", "mineru4"])).toEqual([
+			IN_USE,
+			ROLLBACK,
+		]);
+	});
+	it("does not probe 4.0.12 once its unit is retired, so it never reads as a dead neighbour", () => {
+		expect(mineruHealthUrls(["mineru41"])).not.toContain(ROLLBACK);
+	});
+});
+
+describe("neighbourHealthUrls", () => {
+	it("watches TEI, the MinerUs that run, and the MinerU VLM server", () => {
+		expect(neighbourHealthUrls(["mineru41", "mineru4"])).toEqual([
+			"http://127.0.0.1:7997/health",
+			"http://127.0.0.1:7998/health",
+			"http://127.0.0.1:8004/v1/health",
+			"http://127.0.0.1:8002/v1/health",
+			"http://127.0.0.1:30001/health",
+		]);
+		expect(neighbourHealthUrls(["mineru41"])).toEqual([
+			"http://127.0.0.1:7997/health",
+			"http://127.0.0.1:7998/health",
+			"http://127.0.0.1:8004/v1/health",
+			"http://127.0.0.1:30001/health",
+		]);
+	});
+});
 
 describe("parseNvidiaSmiSamples", () => {
 	it("keeps only the rows of the asked GPU", () => {
