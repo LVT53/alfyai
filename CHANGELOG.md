@@ -160,9 +160,9 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   file, picture or report is being made, a message waiting behind a running
   reply is kept in its chat when you go to another chat or leave the page, and
   a draft that holds only a file keeps it through a reload.
-- Charts in a PDF or an image now reach Alfy as a figure with its caption, and
-  display equations keep their math and tag, where both used to be dropped or left
-  unmarked, for documents read from now on.
+- Charts in a PDF or an image now reach Alfy as a figure with all its captions,
+  and display equations keep their math and tag, where both used to be dropped or
+  left unmarked, for documents read from now on.
 
 ### Removed
 

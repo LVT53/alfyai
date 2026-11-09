@@ -97,6 +97,12 @@ proxy that rewrites `Host` breaks every upload; anything that leaves the header 
 `mineruCode: protocol_untrusted_upload_url` (or `protocol_untrusted_result_url`) in the attempt's
 diagnostics, with no PUT in MinerU's log.
 
+**An address that redirects is refused too.** The JSON calls and the upload are made without
+following a redirect, and a 301, 302, 303, 307 or 308 answer is refused as a non-retryable `protocol`
+failure (`protocol_untrusted_redirect`), so a `MINERU_API_URL` that redirects (to `https`, to a
+trailing slash, to another host) fails every document. Only the result download follows a redirect:
+once, and only to `MINERU_API_URL`'s origin.
+
 The result ZIP holds `markdown.md`, `middle_json.json`, `structured_content.json` and an `images/`
 folder. The app builds the prompt text from the blocks of `structured_content.json` and keeps the
 images as figures; `markdown.md` (a flat string with no page boundaries) and `middle_json.json`
@@ -118,7 +124,12 @@ treats an omitted one:
   the server lists first (a flash-only server gets `flash`). `advanced` is never chosen for you.
   A configured tier is sent as such when the server offers it; a tier it does not offer fails the
   extraction with a clear "tier unavailable" and is not retried. The same holds for a Re-extract at a
-  tier the server lacks. Only when `/v1/tiers` cannot be read at all is no tier sent.
+  tier the server lacks. When `/v1/tiers` cannot be read at all, `auto` sends no tier, and a
+  configured tier, which then cannot be checked, makes the attempt wait like an outage
+  (`unavailable`, no attempt spent, up to `DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS`, 30 minutes by
+  default) until the list can be read. A server that refuses a tier its cached list still offered
+  (restarted at a lower ceiling) fails that one document as "tier unavailable" and drops the cached
+  list, so the next document reads it again.
 - **Native documents never carry one.** Every Office, OpenDocument, HTML, RTF and EPUB entry in the
   registry has `tierHint: "flash"`: the server runs such a file at `flash` whatever it is asked, and
   `advanced` with a `.docx` was accepted at create and then never ran, a task that waits for
@@ -557,7 +568,7 @@ backfills these on its own: the only user-facing path back is "Re-extract" on th
 one document at a time.
 
 The MinerU 4.1 release added a second, milder population. The renderer that turns MinerU's blocks
-into prompt text changed with it (a chart picture is kept as a figure with its caption, display
+into prompt text changed with it (a chart picture is kept as a figure with all its captions, display
 math is fenced with `$$`, PPTX speaker notes are labelled, see `result.ts`), so
 `MINERU_PARSER_VERSION` moved from `mineru4/1` to `mineru4/2`, and
 `metadata.extractionParserVersion` on a normalized document says which renderer made it. Until

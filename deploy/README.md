@@ -686,6 +686,9 @@ Before an app is pointed at a new release:
    the error bodies still carry no `error.type`.** The app tells a 4.0.x server from a 4.1 one by
    that field (a body with `type` means "the old server": unavailable, retried), so a release that
    brings it back would make every error read as the old server until the outage window ends.
+   **Confirm that no API call answers with a redirect.** The app refuses every 3xx on its JSON calls
+   (`protocol_untrusted_redirect`, not retried), so a release that moved a route to a trailing slash
+   would fail every document.
 4. Re-check the accepted extensions (`mineru/filetypes.py` in the installed package) against the
    file-type registry's MinerU routes. The guard test "the registry against what MinerU 4.1.7
    accepts" (`src/lib/server/services/extraction/extractors/mineru4.test.ts`) holds a copy of that
