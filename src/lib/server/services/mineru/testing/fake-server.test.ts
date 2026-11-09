@@ -1134,12 +1134,32 @@ describe("restart", () => {
 		expect((await getTask(retry.taskId)).json.status).toBe("completed");
 	});
 
-	it("restarts on a timer", async () => {
-		await start({ restartAfterMs: 20 });
-		const { taskId } = await submit("document.pdf", PDF);
-		// Whenever it fires, the end state is the same: wait for the server to say so.
-		await vi.waitFor(() => expect(server?.tasks.size).toBe(0));
-		expect((await getTask(taskId)).status).toBe(404);
+	it("restarts on a timer armed at construction", async () => {
+		// The timer starts when the server is built, so on a wall clock it can fire
+		// before the test has made the task it is meant to forget (a loaded machine
+		// is enough), and a task made after the restart is never forgotten. Only the
+		// timer functions are faked: the sockets, and so every request, are real.
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			await start({ restartAfterMs: 20 });
+			const { taskId } = await submit("document.pdf", PDF);
+			expect(server?.tasks.size).toBe(1);
+			expect(server?.blobs.size).toBe(1);
+
+			vi.advanceTimersByTime(19);
+			expect(server?.tasks.size).toBe(1);
+			vi.advanceTimersByTime(1);
+			expect(server?.tasks.size).toBe(0);
+			expect(server?.blobs.size).toBe(0);
+			vi.useRealTimers();
+			expect((await getTask(taskId)).status).toBe(404);
+
+			// One shot: it does not forget what is made after it.
+			const retry = await submit("document.pdf", PDF);
+			expect((await getTask(retry.taskId)).json.status).toBe("completed");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 
