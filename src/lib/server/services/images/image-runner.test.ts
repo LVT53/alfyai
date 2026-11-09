@@ -485,10 +485,14 @@ describe("an edit", () => {
 
 describe("an edit the model moved by a pixel", () => {
 	// The live check on ai.dev: "make the sky stormy" repainted most of the
-	// frame and moved it up a pixel. Alignment undid the move and the top row it
-	// exposed was stored transparent, so the edit was called see-through.
+	// frame and moved it up a pixel. Aligning the repaint undid the move and the
+	// top row it exposed was stored transparent, so the edit was called
+	// see-through; filling that row from the base then left a strip of the base
+	// along the edge (up to 6% of the frame in production). A whole repaint is
+	// stored as the model drew it.
 	for (const shift of [1, 4]) {
-		it(`stores a whole repaint moved up ${shift} px as opaque RGB, the exposed rows the base's`, async () => {
+		it(`stores a whole repaint moved up ${shift} px as the model drew it, as opaque RGB`, async () => {
+			const drawn: Uint8Array[] = [];
 			await startFake({
 				render: async ({ images }) => {
 					const { data, info } = await sharp(images[0])
@@ -516,9 +520,11 @@ describe("an edit the model moved by a pixel", () => {
 							out[at + 2] = 80 + ((x * 3 + y * 5) % 40);
 						}
 					}
-					return sharp(out, { raw: { width, height, channels: 3 } })
+					const png = await sharp(out, { raw: { width, height, channels: 3 } })
 						.png()
 						.toBuffer();
+					drawn.push(png);
+					return png;
 				},
 			});
 			const base = await photo(640, 480);
@@ -543,12 +549,12 @@ describe("an edit the model moved by a pixel", () => {
 			const stored = await resultBytes(takeId);
 			expect((await sharp(stored).metadata()).channels).toBe(3);
 			expect(await storedHasAlpha(take.resultFileId)).toBe(0);
+			const [first] = drawn;
+			if (!first) throw new Error("The fake painted nothing");
 			const kept = await decodeRaw(stored);
-			const original = await decodeRaw(base);
-			const rows = shift * kept.width * 4;
-			expect(Array.from(kept.data.subarray(0, rows))).toEqual(
-				Array.from(original.data.subarray(0, rows)),
-			);
+			const model = await decodeRaw(first);
+			// Not moved to line up with the base, and no row of it: the model's own picture.
+			expect(kept.data.findIndex((byte, i) => byte !== model.data[i])).toBe(-1);
 		});
 	}
 });

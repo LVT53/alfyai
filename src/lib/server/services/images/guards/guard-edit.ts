@@ -2,12 +2,17 @@ import { applyAlignment, estimateAlignment, isNegligible } from "./align";
 import { boxChangedShare, changeMask } from "./change-mask";
 import { compositeOnto, overBase } from "./composite";
 import { marksClamp } from "./marks-clamp";
-import { isEmptyImage, type RawImage } from "./raw-image";
+import { isEmptyImage, type RawImage, resizeRaw } from "./raw-image";
 import { GUARD, MARK_GROW_SHARE } from "./thresholds";
 
 export type MarkBox = { x: number; y: number; w: number; h: number };
 
 export type GuardMeasures = {
+	/**
+	 * Where the result sat against the base: its content is the base scaled by
+	 * `scale` about the centre, then moved by (dx, dy) base pixels. A pasted
+	 * result has this undone; a whole repaint is only measured and kept as drawn.
+	 */
 	dx: number;
 	dy: number;
 	scale: number;
@@ -105,10 +110,12 @@ function missOf(
 
 /**
  * Keeps the room in place: aligns the result to the base, then pastes back only
- * what changed. An unmarked whole repaint is kept whole; a marked one is not
- * (it is measured and pasted back inside the marks, `global` reported). Every
- * `reanchorEvery`th change
- * pastes onto the anchor instead of the base so drift cannot pile up.
+ * what changed. An unmarked whole repaint is kept whole, as the model drew it:
+ * it is measured aligned but not stored aligned, because nothing is pasted and
+ * undoing its reframe leaves a strip of the base along an edge. A marked one is
+ * not kept whole (it is measured and pasted back inside the marks, `global`
+ * reported). Every `reanchorEvery`th change pastes onto the anchor instead of
+ * the base so drift cannot pile up.
  */
 export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 	const { base, anchor, result, marks } = params;
@@ -121,9 +128,9 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 		: alignment;
 	const aligned = await applyAlignment(result, base, applied);
 	// What is measured is `aligned`, exposed edges and all (they are not edits);
-	// what is pasted or kept is `painted`, the same result with the base showing
-	// wherever it is see-through. Without it a whole repaint kept the exposed
-	// strip transparent: an opaque base stored with a see-through row.
+	// what is pasted is `painted`, the same result with the base showing wherever
+	// it is see-through, so an exposed strip takes the base's own pixels. (A whole
+	// repaint is not pasted: it is kept as drawn, below.)
 	const painted = overBase(base, aligned);
 
 	let against = keepTransparent(changeMask(base, aligned), base, aligned);
@@ -182,8 +189,16 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 
 	if (against.changedShare > GUARD.globalChangeShare) {
 		if (!clamp) {
+			// The model's own picture, at the base's size, over the base only where it
+			// is itself see-through (an opaque base stays opaque). Not aligned: it is
+			// not pasted onto the base, and undoing a reframe of up to 6% (what
+			// production stored) filled an edge strip with the base's pixels.
+			const drawn = overBase(
+				base,
+				await resizeRaw(result, base.width, base.height),
+			);
 			return {
-				picture: painted,
+				picture: drawn,
 				mask: new Float32Array(aligned.width * aligned.height).fill(1),
 				measures: { ...measures, global: true },
 				chainSinceAnchor: 0,

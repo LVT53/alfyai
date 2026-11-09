@@ -537,8 +537,9 @@ describe("guardEdit", () => {
 	describe("a result shifted against the base", () => {
 		// What the live check found: the model moved the picture a pixel (or a
 		// few), alignment undid it, and the strip it exposed was stored see-through.
-		// Every path must store an opaque picture over an opaque base, the strip
-		// taking the base's own pixels.
+		// Every path must store an opaque picture over an opaque base. Where a
+		// result is pasted back the strip takes the base's own pixels; a whole
+		// repaint is not aligned at all, so it has no strip.
 		const SEE_THROUGH = 250;
 		const seeThrough = (picture: { data: Uint8Array }) => {
 			let count = 0;
@@ -628,22 +629,69 @@ describe("guardEdit", () => {
 			}
 		}
 
-		it("fills the exposed strip of a whole repaint with the base's own pixels", async () => {
+		// A whole repaint is the model's own picture, so it is stored as drawn, not
+		// moved to line up with a base that is not pasted. Aligning it left a strip
+		// of the base along an edge: production stored shifts of up to 42 x 57 px and
+		// scales from 0.94 to 1.055 on 1184 x 896 renders, a strip of up to 6% of the
+		// frame.
+		for (const { dx, dy, scale } of [
+			{ dx: 0, dy: -1, scale: 1 },
+			{ dx: 6, dy: -5, scale: 1 },
+			{ dx: 3, dy: -2, scale: 1.04 },
+		]) {
+			it(`stores a whole repaint as the model drew it for a ${dx},${dy} px shift at scale ${scale}, with no strip of the base`, async () => {
+				const result = warp(repainted(), scale, dx, dy);
+				const out = await guardEdit({
+					base,
+					anchor: null,
+					chainSinceAnchor: 0,
+					result,
+					marks: null,
+				});
+				expect(out.measures.global).toBe(true);
+				// The shift was found; undoing it would have exposed a strip.
+				expect(Math.round(out.measures.dx)).toBe(dx);
+				expect(Math.round(out.measures.dy)).toBe(dy);
+				expect(out.measures.scale).toBeCloseTo(scale, 2);
+				expect(equalOutside(out.picture.data, result.data, [])).toBeNull();
+			});
+		}
+
+		it("stores a whole repaint over an opaque base opaque, even where the model's picture is translucent", async () => {
+			const result = repainted();
+			// What a fractional rescale leaves: a half-transparent rim.
+			for (let x = 0; x < SCENE_W; x++)
+				for (const y of [0, SCENE_H - 1])
+					result.data[(y * SCENE_W + x) * 4 + 3] = 120;
 			const out = await guardEdit({
 				base,
 				anchor: null,
 				chainSinceAnchor: 0,
-				result: warp(repainted(), 1, 0, -1),
+				result,
 				marks: null,
 			});
 			expect(out.measures.global).toBe(true);
-			const row = SCENE_W * 4;
-			expect(Array.from(out.picture.data.subarray(0, row))).toEqual(
-				Array.from(base.data.subarray(0, row)),
+			expect(seeThrough(out.picture)).toBe(0);
+		});
+
+		it("stores a whole repaint at the base's size when the model's picture has another", async () => {
+			const bigger = sceneAt(SCENE_W * 2);
+			fillBox(
+				bigger.base,
+				{ x: 0, y: 0, w: bigger.width, h: Math.round(bigger.height * 0.7) },
+				[30, 220, 90],
 			);
-			// Below the strip the repaint is kept as the model made it.
-			expect(Array.from(out.picture.data.subarray(row, row + 4))).toEqual([
-				30, 220, 90, 255,
+			const out = await guardEdit({
+				base,
+				anchor: null,
+				chainSinceAnchor: 0,
+				result: bigger.base,
+				marks: null,
+			});
+			expect(out.measures.global).toBe(true);
+			expect([out.picture.width, out.picture.height]).toEqual([
+				SCENE_W,
+				SCENE_H,
 			]);
 		});
 
