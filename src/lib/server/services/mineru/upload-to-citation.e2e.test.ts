@@ -1,12 +1,12 @@
 // The whole phase, end to end, with nothing faked below the HTTP handler
 // except MinerU itself — and MinerU is a real server on a real socket
-// replaying the recorded 4.0.4 fixtures.
+// speaking the 4.1 protocol and serving recorded results.
 //
 //   POST /api/knowledge/upload
 //     -> upload-intake        (magic bytes, storage, artifact row)
 //     -> the extraction job    (a queued job, one per source artifact)
 //     -> the job engine        (claim, heartbeat, progress, verdict)
-//     -> extractors/mineru4    (capabilities, upload, job, poll, download)
+//     -> extractors/mineru4    (capabilities, task, PUT, poll, download)
 //     -> mineru/result         (zip -> blocks -> prompt markdown -> pages)
 //     -> mineru/bundle         (normalized.md, pages.json, images/)
 //     -> extraction/persist    (normalized artifact + structured metadata)
@@ -140,14 +140,32 @@ describe("upload → MinerU 4 → chunks with pages → a cited prompt snippet",
 			status: "succeeded",
 		});
 
-		// The protocol really happened, in order.
+		// The protocol really happened, in order: health, create the task, PUT the
+		// bytes to the link it handed out, poll, download the one result.
 		const paths = server.requests.map(
 			(entry) => `${entry.method} ${entry.path}`,
 		);
-		expect(paths).toContain("GET /v1/health");
-		expect(paths).toContain("POST /v1/uploads");
-		expect(paths).toContain("POST /v1/parse/jobs");
-		expect(paths.some((path) => path.startsWith("GET /v1/files/"))).toBe(true);
+		const order = [
+			"GET /v1/health",
+			"POST /v1/tasks",
+			/^PUT \/v1\/tasks\/[^/]+\/uploads\/[^/]+$/,
+			/^GET \/v1\/tasks\/[^/]+$/,
+			/^GET \/v1\/files\/[^/]+\/content$/,
+		];
+		let at = -1;
+		for (const step of order) {
+			const next = paths.findIndex(
+				(path, index) =>
+					index > at &&
+					(typeof step === "string" ? path === step : step.test(path)),
+			);
+			expect(next, `${step} after request ${at}`).toBeGreaterThan(at);
+			at = next;
+		}
+		// …and none of the 4.0 protocol is left on the wire.
+		expect(paths.filter((path) => /\/v1\/(uploads|parse)/.test(path))).toEqual(
+			[],
+		);
 
 		// 3. A real normalized artifact, carrying the structured metadata.
 		const [link] = fixture.db

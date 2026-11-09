@@ -1,5 +1,5 @@
-// MinerU 4, end to end: the real job engine, the real extraction handler, the
-// real extractor registry and an in-process V1 server on a real socket.
+// MinerU 4.1, end to end: the real job engine, the real extraction handler, the
+// real extractor registry and an in-process 4.1 server on a real socket.
 //
 // Nothing is stubbed between the engine's `drain` and the wire except the persist
 // sink, which belongs to a different slice. The extractor is NOT passed in: the
@@ -34,6 +34,7 @@ import {
 	createFakeMineruServer,
 	type FakeMineruServer,
 	type FakeMineruServerOptions,
+	MINERU_4_0_12_ERRORS,
 	MINERU_FIXTURE_ROOT,
 } from "./testing/fake-server";
 
@@ -191,6 +192,26 @@ function countRequests(method: string, path: string): number {
 	).length;
 }
 
+function cancelRequests() {
+	return server.requests.filter(
+		(entry) => entry.method === "POST" && entry.path.endsWith("/cancel"),
+	);
+}
+
+function taskPolls(taskId?: string) {
+	return server.requests.filter(
+		(entry) =>
+			entry.method === "GET" &&
+			(taskId
+				? entry.path === `/v1/tasks/${taskId}`
+				: /^\/v1\/tasks\/[^/]+$/.test(entry.path)),
+	);
+}
+
+function puts() {
+	return server.requests.filter((entry) => entry.method === "PUT");
+}
+
 beforeEach(async () => {
 	persisted.length = 0;
 	userId = `u${randomUUID().replace(/-/g, "")}`;
@@ -231,9 +252,19 @@ describe("every recorded input reaches a normalized artifact", () => {
 		expect(call.normalizedName).toBe(`${file.split(".")[0]}.md`);
 		expect(call.sourceArtifactId).toBe(artifactId);
 
+		// What MinerU was told: the canonical name, and a tier only where one
+		// can be used (S3, S4). A native document runs at flash whatever is asked.
+		const create = server.requests.find(
+			(entry) => entry.method === "POST" && entry.path === "/v1/tasks",
+		)?.json as { files: Array<{ file_name: string }>; tier?: string };
+		expect(create.files[0].file_name).toBe(`document.${input}`);
+		const native = ["docx", "xlsx", "pptx", "html", "epub"].includes(input);
+		expect("tier" in create).toBe(!native);
+		if (!native) expect(create.tier).toBe("standard");
+
 		// The structured payload P4-B reads, flat plus the bundle manifest.
 		const structured = call.structured as Record<string, unknown>;
-		expect(structured.parserVersion).toBe("mineru4/1");
+		expect(structured.parserVersion).toBe("mineru4/2");
 		expect(structured.markdown).toBe(call.text);
 		expect(Array.isArray(structured.pages)).toBe(true);
 		expect(structured.bundle).not.toBeNull();
@@ -311,13 +342,8 @@ describe("a slow job walks the status ladder", () => {
 		expect(seen.indexOf("uploading")).toBeLessThan(seen.indexOf("parsing"));
 		expect((await ledger.getExtractionJobRow(jobId))?.status).toBe("succeeded");
 
-		// A slow job really was polled more than once.
-		expect(
-			server.requests.filter(
-				(entry) =>
-					entry.method === "GET" && entry.path.startsWith("/v1/parse/jobs/"),
-			).length,
-		).toBeGreaterThan(1);
+		// A slow task really was polled more than once.
+		expect(taskPolls().length).toBeGreaterThan(1);
 	});
 });
 
@@ -337,10 +363,10 @@ describe("mapped failures reach the ledger row", () => {
 		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(1);
 
 		// `/v1/health` stays PUBLIC under `--api-key`, so a wrong key cannot be
-		// detected by the capability read: the probe answers "reachable, 4.0.4,
-		// tiers unknown" and the 401 surfaces at the first authenticated call.
-		// That is one create, and no bytes: the PUT never happens.
-		expect(countRequests("POST", "/v1/uploads")).toBe(1);
+		// detected by the capability read: the probe answers "reachable, 4.1.7"
+		// and the 401 surfaces at the first authenticated call. That is one
+		// create, and no bytes: the PUT never happens.
+		expect(countRequests("POST", "/v1/tasks")).toBe(1);
 		expect(server.requests.filter((entry) => entry.method === "PUT")).toEqual(
 			[],
 		);
@@ -377,11 +403,19 @@ describe("mapped failures reach the ledger row", () => {
 		const row = await ledger.getExtractionJobRow(job.id);
 		expect(row?.errorCode).toBe("tier_unavailable");
 		expect(row?.retryable).toBe(true);
-		expect(countRequests("POST", "/v1/uploads")).toBe(0);
+		// Refused before the request, so before the task: nothing was created.
+		expect(countRequests("POST", "/v1/tasks")).toBe(0);
+		// The person reads our sentence, not the setting's name or the server's.
+		expect(row?.errorMessage).toBe(
+			"The document service does not offer the requested quality tier. Ask an administrator to check the tier setting.",
+		);
 	});
 
-	it("job_failed and a retry for a per-file failure inside a completed job", async () => {
-		await boot({ jobOutcome: "file-failed" });
+	it("job_failed and a retry for a file MinerU could not parse, without MinerU's words", async () => {
+		await boot({
+			outcome: "file-failed",
+			fileError: { message: "All connection attempts failed (see /srv/x)" },
+		});
 		const { jobId } = await seedJob();
 
 		expect(await run()).toEqual({ jobId, status: "queued" });
@@ -389,20 +423,19 @@ describe("mapped failures reach the ledger row", () => {
 		const row = await ledger.getExtractionJobRow(jobId);
 		expect(row?.errorCode).toBe("job_failed");
 		expect(row?.status).toBe("queued");
-	});
-
-	it("job_failed for a partial job", async () => {
-		await boot({ jobOutcome: "partial" });
-		const { jobId } = await seedJob();
-
-		expect(await run()).toEqual({ jobId, status: "queued" });
-		expect((await ledger.getExtractionJobRow(jobId))?.errorCode).toBe(
-			"job_failed",
+		// `error_message` is read by the send gate and by the Knowledge row.
+		expect(row?.errorMessage).toBe(
+			"The document service could not finish reading this file.",
 		);
+		// An operator finds MinerU's own words on the attempt.
+		const attempts = fixture.sqlite
+			.prepare("SELECT diagnostics_json FROM document_extraction_job_attempts")
+			.all() as Array<{ diagnostics_json: string | null }>;
+		expect(attempts[0].diagnostics_json).toContain("All connection attempts");
 	});
 
-	it("protocol for a completed job with no zip", async () => {
-		await boot({ jobOutcome: "completed-without-zip" });
+	it("protocol for a completed task with no result to download", async () => {
+		await boot({ outcome: "completed-without-result-url" });
 		const { jobId } = await seedJob();
 
 		expect(await run()).toEqual({ jobId, status: "queued" });
@@ -422,7 +455,7 @@ const PDFIUM_DAMAGED = "Failed to load document (PDFium: Data format error).";
 describe("a document the reader cannot open", () => {
 	it("fails once, permanently, and is not offered a Retry", async () => {
 		await boot({
-			jobOutcome: "file-failed",
+			outcome: "file-failed",
 			fileError: { message: PDFIUM_DAMAGED },
 		});
 		const { jobId } = await seedJob();
@@ -439,16 +472,16 @@ describe("a document the reader cannot open", () => {
 		expect(row?.errorMessage).not.toContain("PDFium");
 		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(1);
 
-		// One submission, and the dead job id is not left behind for anyone to
-		// resume. Live this cost three attempts, two of them `resumed: true`
-		// against the same terminal job, and then a Retry that resumed it again.
-		expect(countRequests("POST", "/v1/parse/jobs")).toBe(1);
+		// One task, and the dead task id is not left behind for anyone to resume.
+		// Live this cost three attempts, two of them `resumed: true` against the
+		// same terminal job, and then a Retry that resumed it again.
+		expect(countRequests("POST", "/v1/tasks")).toBe(1);
 		expect(row?.checkpoint).toBeNull();
 	});
 
 	it("survives the whole round trip to the DTO the chip reads", async () => {
 		await boot({
-			jobOutcome: "file-failed",
+			outcome: "file-failed",
 			fileError: { message: PDFIUM_DAMAGED },
 		});
 		const { artifactId } = await seedJob();
@@ -472,11 +505,11 @@ describe("a document the reader cannot open", () => {
 });
 
 describe("an ordinary parse failure keeps its budget", () => {
-	it("spends every attempt on a NEW remote job, never on the dead one", async () => {
-		// The default `file-failed` message — "Parse failed" — explains nothing,
-		// so it stays a retryable `job_failed`. What changes is that each retry
-		// is now a real re-parse instead of one GET on an already-failed job.
-		await boot({ jobOutcome: "file-failed" });
+	it("spends every attempt on a NEW remote task, never on the dead one", async () => {
+		// The default `file-failed` message, "Parse failed", explains nothing, so
+		// it stays a retryable `job_failed`. What changes is that each retry is now
+		// a real re-parse instead of one GET on an already-failed task.
+		await boot({ outcome: "file-failed" });
 		const { jobId } = await seedJob();
 
 		const remoteJobIds: string[] = [];
@@ -492,21 +525,18 @@ describe("an ordinary parse failure keeps its budget", () => {
 		expect(row?.errorCode).toBe("max_attempts");
 		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(3);
 
-		// Three attempts, three DISTINCT remote jobs. Every one of them was
+		// Three attempts, three DISTINCT remote tasks. Every one of them was
 		// cleared on failure, so nothing was ever resumed.
-		expect(countRequests("POST", "/v1/parse/jobs")).toBe(3);
+		expect(countRequests("POST", "/v1/tasks")).toBe(3);
 		expect(remoteJobIds).toEqual([]);
 
-		// And it cost no extra bytes: the upload dedupes on sha256, so the
-		// three submissions share the one PUT the first attempt made.
-		expect(countRequests("POST", "/v1/uploads")).toBe(3);
-		expect(
-			server.requests.filter((entry) => entry.method === "PUT"),
-		).toHaveLength(1);
+		// And it cost no extra bytes: the hash cache already holds them, so the
+		// three tasks share the one PUT the first attempt made.
+		expect(puts()).toHaveLength(1);
 	});
 
-	it("gives a user Retry after max_attempts a fresh remote job", async () => {
-		await boot({ jobOutcome: "file-failed" });
+	it("gives a user Retry after max_attempts a fresh remote task", async () => {
+		await boot({ outcome: "file-failed" });
 		const { jobId } = await seedJob();
 
 		for (let i = 0; i < 3; i += 1) {
@@ -518,13 +548,13 @@ describe("an ordinary parse failure keeps its budget", () => {
 		);
 
 		// The server is healthy again and the file was always fine.
-		server.setOptions({ jobOutcome: "completed" });
+		server.setOptions({ outcome: "completed" });
 		server.resetLog();
 		await ledger.retryExtractionJob({ userId, jobId });
 		expect(await run()).toEqual({ jobId, status: "succeeded" });
 
-		// A brand new job, because no handle survived the last failure.
-		expect(countRequests("POST", "/v1/parse/jobs")).toBe(1);
+		// A brand new task, because no handle survived the last failure.
+		expect(countRequests("POST", "/v1/tasks")).toBe(1);
 		expect(
 			server.requests.filter((entry) => entry.method === "GET"),
 		).not.toEqual([]);
@@ -532,7 +562,7 @@ describe("an ordinary parse failure keeps its budget", () => {
 });
 
 describe("cancel while parsing", () => {
-	it("DELETEs the remote job, settles cancelled and leaves no temp directory", async () => {
+	it("cancels the remote task, settles cancelled and leaves no temp directory", async () => {
 		await boot({ neverFinish: true });
 		const { jobId } = await seedJob();
 
@@ -553,9 +583,7 @@ describe("cancel while parsing", () => {
 		expect(await running).toEqual({ jobId, status: "canceled" });
 
 		await vi.waitFor(() => {
-			expect(server.requests.some((entry) => entry.method === "DELETE")).toBe(
-				true,
-			);
+			expect(cancelRequests()).toHaveLength(1);
 		});
 		const row = await ledger.getExtractionJobRow(jobId);
 		expect(row?.status).toBe("cancelled");
@@ -567,12 +595,12 @@ describe("cancel while parsing", () => {
 });
 
 describe("a worker that died mid-parse", () => {
-	it("resumes the stored handle instead of uploading a second time", async () => {
+	it("resumes the stored handle instead of creating a second task", async () => {
 		await boot({ neverFinish: true });
 		const { jobId } = await seedJob();
 
-		// The first process: the real extractor up to the moment the remote job
-		// exists and its handle is on the row, and then nothing. No verdict, no
+		// The first process: the real extractor up to the moment the remote task
+		// has its bytes and its handle is on the row, and then nothing. No verdict, no
 		// unwinding, no further write: that is what a killed worker looks like from
 		// the ledger's side. (An abort without a reason counts as a lost claim, so the
 		// real extractor lets go of the remote job without deleting it.)
@@ -588,7 +616,7 @@ describe("a worker that died mid-parse", () => {
 					signal: stop.signal,
 					onProgress: (progress) => {
 						request.onProgress(progress);
-						if (progress.handle) stop.abort();
+						if (progress.handle && progress.phase === "parsing") stop.abort();
 					},
 				});
 				await real.catch(() => undefined);
@@ -617,40 +645,44 @@ describe("a worker that died mid-parse", () => {
 		).toEqual({ recovered: 1 });
 		clearBackoffGates();
 
-		const uploadsBefore = countRequests("POST", "/v1/uploads");
-		const jobsBefore = countRequests("POST", "/v1/parse/jobs");
-		expect(uploadsBefore).toBe(1);
+		const createsBefore = countRequests("POST", "/v1/tasks");
+		const putsBefore = puts().length;
+		expect(createsBefore).toBe(1);
+		expect(putsBefore).toBe(1);
 
-		// The remote job can finish now; the restarted worker must pick up the
+		// The remote task can finish now; the restarted worker must pick up the
 		// SAME one.
 		server.setOptions({ neverFinish: false });
 		expect(await run()).toEqual({ jobId, status: "succeeded" });
 
-		expect(countRequests("POST", "/v1/uploads")).toBe(uploadsBefore);
-		expect(countRequests("POST", "/v1/parse/jobs")).toBe(jobsBefore);
-		expect(
-			countRequests("PUT", `/v1/uploads/upload_000000000001/content`),
-		).toBe(1);
+		// No second task and no second upload: the bytes are where the first
+		// attempt put them.
+		expect(countRequests("POST", "/v1/tasks")).toBe(createsBefore);
+		expect(puts()).toHaveLength(putsBefore);
 
-		const resumedJobId = JSON.parse(handleJson as string).remoteJobId;
-		expect(
-			server.requests.filter(
-				(entry) =>
-					entry.method === "GET" &&
-					entry.path === `/v1/parse/jobs/${resumedJobId}`,
-			).length,
-		).toBeGreaterThan(1);
+		const handle = JSON.parse(handleJson as string) as {
+			remoteJobId: string;
+			remoteFileId: string;
+		};
+		expect(handle.remoteJobId).toMatch(/^job_/);
+		expect(handle.remoteFileId).toMatch(/^file-/);
+		expect(puts()[0].path).toBe(
+			`/v1/tasks/${handle.remoteJobId}/uploads/${handle.remoteFileId}`,
+		);
+		// Every poll the restarted worker made was for the first worker's task.
+		expect(taskPolls(handle.remoteJobId).length).toBeGreaterThan(0);
+		expect(taskPolls()).toEqual(taskPolls(handle.remoteJobId));
 
 		// One attempt per process, and only the live one indexed anything.
 		expect(persisted).toHaveLength(1);
 		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(2);
 	});
 
-	it("does not DELETE the remote job when a stale sweep takes the claim", async () => {
+	it("does not cancel the remote task when a stale sweep takes the claim", async () => {
 		// The dangerous variant of the test above: here the running attempt DOES
 		// notice it lost the claim (the sweep ran in its own process, so the engine
 		// tells it at once). It used to read that abort as a cancel and DELETE the
-		// very job the new claimant had just been handed — so a stale sweep during a
+		// very job the new claimant had just been handed, so a stale sweep during a
 		// slow parse destroyed the remote work the stored handle exists to resume,
 		// and the next attempt paid for a second upload and a second parse.
 		await boot({ neverFinish: true });
@@ -677,10 +709,8 @@ describe("a worker that died mid-parse", () => {
 		// The losing attempt unwinds and leaves the job queued behind its backoff,
 		// for the next attempt to resume.
 		expect(await orphaned).toEqual({ jobId, status: "queued" });
-		expect(server.requests.some((entry) => entry.method === "DELETE")).toBe(
-			false,
-		);
-		expect(server.jobs.get(remoteJobId)?.status).not.toBe("canceled");
+		expect(cancelRequests()).toEqual([]);
+		expect(server.tasks.get(remoteJobId)?.status).not.toBe("canceled");
 
 		// And the handle the next attempt needs is still on the row.
 		const row = await ledger.getExtractionJobRow(jobId);
@@ -690,21 +720,48 @@ describe("a worker that died mid-parse", () => {
 });
 
 describe("a MinerU that forgot every id", () => {
-	it("re-uploads by sha256 and finishes, without a second PUT", async () => {
-		await boot({ parseDelayMs: 900, restartAfterMs: 350 });
+	it("creates the task again and uploads again, within the one attempt", async () => {
+		// The restart lands right after the upload was accepted. 4.1 keeps its hash
+		// cache in memory too (spike section 8), so nothing is skipped the second
+		// time: a new task, and the bytes again.
+		await boot({ restartAfterFirstUpload: true });
 		const { jobId } = await seedJob();
 
 		expect(await run()).toEqual({ jobId, status: "succeeded" });
 
-		// Two upload creates: the first real one, the second the dedupe probe
-		// that recovered it. One PUT: the bytes outlived the identifiers (D7).
-		expect(countRequests("POST", "/v1/uploads")).toBe(2);
-		expect(
-			server.requests.filter((entry) => entry.method === "PUT"),
-		).toHaveLength(1);
-		expect(countRequests("POST", "/v1/parse/jobs")).toBe(2);
+		expect(countRequests("POST", "/v1/tasks")).toBe(2);
+		expect(puts()).toHaveLength(2);
 		expect(persisted).toHaveLength(1);
+		// One attempt, and the handle the row ended up with is the second task's.
 		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(1);
+		expect(server.tasks.size).toBe(1);
+	});
+
+	it("does not loop on a server that forgets every time: the ledger retries it, with its budget", async () => {
+		await boot({
+			failures: [
+				{
+					path: "/v1/tasks/",
+					method: "GET",
+					status: 404,
+					body: { error: { code: "task_not_found", message: "gone" } },
+				},
+			],
+		});
+		const { jobId } = await seedJob();
+
+		expect(await run()).toEqual({ jobId, status: "queued" });
+
+		// One create, one recovery, and the attempt ends: a retryable `protocol`
+		// failure for the ledger to schedule, with no handle left to resume.
+		expect(countRequests("POST", "/v1/tasks")).toBe(2);
+		const row = await ledger.getExtractionJobRow(jobId);
+		expect(row?.status).toBe("queued");
+		expect(row?.errorCode).toBe("protocol");
+		expect(row?.checkpoint).toBeNull();
+		expect(row?.errorMessage).toBe(
+			"The document service sent a response this app could not use.",
+		);
 	});
 });
 
@@ -776,8 +833,8 @@ describe("a backend that is not answering", () => {
 			await reimportAt(server.baseUrl);
 			expect(await run()).toEqual({ jobId, status: "succeeded" });
 			expect(persisted).toHaveLength(1);
-			expect(countRequests("POST", "/v1/uploads")).toBe(1);
-			expect(countRequests("POST", "/v1/parse/jobs")).toBe(1);
+			expect(countRequests("POST", "/v1/tasks")).toBe(1);
+			expect(puts()).toHaveLength(1);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -789,7 +846,7 @@ describe("a backend that is not answering", () => {
 // ---------------------------------------------------------------------------
 
 describe("a user cancel", () => {
-	it("sends exactly one DELETE, and a later Retry starts a NEW remote job", async () => {
+	it("sends exactly one cancel, and a later Retry starts a NEW remote task", async () => {
 		await boot({ neverFinish: true });
 		const { jobId } = await seedJob();
 
@@ -808,17 +865,14 @@ describe("a user cancel", () => {
 
 		// ONE. The extractor's own abort path issues it; the worker used to
 		// issue a second one on top, which the server answers 409.
-		const deletes = server.requests.filter(
-			(entry) => entry.method === "DELETE",
-		);
-		expect(deletes.map((entry) => entry.path)).toEqual([
-			`/v1/parse/jobs/${firstRemoteJobId}`,
+		expect(cancelRequests().map((entry) => entry.path)).toEqual([
+			`/v1/tasks/${firstRemoteJobId}/cancel`,
 		]);
-		expect(server.jobs.get(firstRemoteJobId)?.status).toBe("canceled");
+		expect(server.tasks.get(firstRemoteJobId)?.status).toBe("canceled");
 
 		// The handle is gone with it. Keeping it meant a later Retry resumed a
-		// job the backend had thrown away: `getJob` answers `canceled`, which
-		// the error table reads as "canceled by someone else" — a `job_failed`
+		// task the backend had thrown away: the poll answers `canceled`, which
+		// the error table reads as "canceled by someone else", a `job_failed`
 		// the user never caused, on a document that parses perfectly fresh.
 		const canceled = await ledger.getExtractionJobRow(jobId);
 		expect(canceled?.status).toBe("cancelled");
@@ -829,11 +883,134 @@ describe("a user cancel", () => {
 		await ledger.retryExtractionJob({ userId, jobId });
 		expect(await run()).toEqual({ jobId, status: "succeeded" });
 
-		// A second remote job, and not one request to the deleted one.
-		expect(countRequests("POST", "/v1/parse/jobs")).toBe(1);
+		// A second remote task, and not one request to the cancelled one.
+		expect(countRequests("POST", "/v1/tasks")).toBe(1);
 		expect(
 			server.requests.filter((entry) => entry.path.includes(firstRemoteJobId)),
 		).toEqual([]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The cutover window: the URL still points at MinerU 4.0.12 (S6, R14)
+// ---------------------------------------------------------------------------
+
+describe("a document caught in the cutover window", () => {
+	it("waits out the old server and finishes once the URL speaks 4.1, spending none of its attempts", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		// 4.0.12 refuses a 4.1 manifest in its own error voice.
+		await boot({
+			failures: [
+				{
+					path: "/v1/tasks",
+					method: "POST",
+					status: 400,
+					body: MINERU_4_0_12_ERRORS.invalidManifest,
+				},
+			],
+		});
+		const { jobId, artifactId } = await seedJob();
+
+		expect(await run()).toEqual({ jobId, status: "queued" });
+
+		const waiting = await ledger.getExtractionJobRow(jobId);
+		expect(waiting?.status).toBe("queued");
+		expect(waiting?.errorCode).toBe("unavailable");
+		// A sentence of ours, with no pydantic dump and no field name.
+		expect(waiting?.errorMessage).toBe(
+			"The document service could not be reached.",
+		);
+		expect(String(waiting?.errorMessage)).not.toMatch(/pydantic|file_name/);
+		// An outage wait: the document has not used one of its attempts.
+		const dto = await (
+			await import("$lib/server/services/extraction/read-model")
+		).getExtractionJobForArtifact({ userId, artifactId });
+		expect(dto?.attemptCount).toBe(0);
+		expect(dto?.error?.code).toBe("unavailable");
+		expect(countRequests("POST", "/v1/tasks")).toBe(1);
+		expect(puts()).toHaveLength(0);
+		// An operator can see why it is waiting.
+		expect(
+			warn.mock.calls.some((call) =>
+				String(call[0]).includes("another protocol"),
+			),
+		).toBe(true);
+
+		// The URL is flipped. The same job row, no user action.
+		server.setOptions({ failures: [] });
+		clearBackoffGates();
+		expect(await run()).toEqual({ jobId, status: "succeeded" });
+		expect(persisted).toHaveLength(1);
+		expect(countRequests("POST", "/v1/tasks")).toBe(2);
+	});
+
+	it("keeps a resumed task's handle while the old server cannot answer for it", async () => {
+		await boot({ neverFinish: true });
+		const { jobId } = await seedJob();
+
+		// A worker that took the task and died: a stored handle, nothing else.
+		const { mineru4Extractor } = await import(
+			"$lib/server/services/extraction/extractors/mineru4"
+		);
+		const dying: DocumentExtractor = {
+			...mineru4Extractor,
+			extract: async (request) => {
+				const stop = new AbortController();
+				await mineru4Extractor
+					.extract({
+						...request,
+						signal: stop.signal,
+						onProgress: (progress) => {
+							request.onProgress(progress);
+							if (progress.handle && progress.phase === "parsing") stop.abort();
+						},
+					})
+					.catch(() => undefined);
+				return new Promise<never>(() => undefined);
+			},
+		};
+		void run({ resolveExtractor: () => dying });
+		await vi.waitFor(async () => {
+			expect(
+				(await ledger.getExtractionJobRow(jobId))?.checkpoint,
+			).not.toBeNull();
+		});
+		const handleJson = (await ledger.getExtractionJobRow(jobId))
+			?.checkpoint as string;
+		await reimportAt(server.baseUrl);
+		const engine = await import("$lib/server/services/jobs");
+		engine.resetJobsForTests();
+		await engine.recover(ledger.extractionJob, {
+			staleBefore: new Date(Date.now() + 60_000),
+		});
+		clearBackoffGates();
+
+		// The URL was flipped BACK to the old server for a moment: its 404
+		// `task_not_found` carries a `type`, so it is the old server, not a
+		// forgotten id.
+		server.setOptions({
+			neverFinish: false,
+			failures: [
+				{
+					path: "/v1/tasks/",
+					method: "GET",
+					status: 404,
+					body: MINERU_4_0_12_ERRORS.taskNotFound,
+				},
+			],
+		});
+		expect(await run()).toEqual({ jobId, status: "queued" });
+		const row = await ledger.getExtractionJobRow(jobId);
+		expect(row?.errorCode).toBe("unavailable");
+		// Not re-created, and the handle is still there.
+		expect(countRequests("POST", "/v1/tasks")).toBe(1);
+		expect(row?.checkpoint).toBe(handleJson);
+
+		// And flipped forward again: the very same task is picked up.
+		server.setOptions({ failures: [] });
+		clearBackoffGates();
+		expect(await run()).toEqual({ jobId, status: "succeeded" });
+		expect(countRequests("POST", "/v1/tasks")).toBe(1);
 	});
 });
 

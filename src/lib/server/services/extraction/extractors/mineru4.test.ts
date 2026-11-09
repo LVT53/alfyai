@@ -535,6 +535,25 @@ describe("the happy path", () => {
 		expect((result.structured as Mineru4StructuredPayload).bundle).toBeNull();
 	});
 
+	it("reads the tier a native document ran at from the file's own parse, not from the request", async () => {
+		// Spike gotcha 12: a native document always reports `flash`, and asked for
+		// no tier at all, so nothing in the request can say it.
+		await start({ fixtureInput: "docx" });
+		const { request } = await buildRequest({
+			fixture: "docx",
+			fileName: "sample.docx",
+			mimeType:
+				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		});
+
+		const result = await extractorFor().extract(request);
+
+		expect("tier" in createBody()).toBe(false);
+		expect((result.structured as Mineru4StructuredPayload).jobTier).toBe(
+			"flash",
+		);
+	});
+
 	it("passes a configured OCR mode and leaves the key out for auto", async () => {
 		await start();
 		const { request } = await buildRequest();
