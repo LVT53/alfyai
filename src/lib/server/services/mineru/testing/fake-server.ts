@@ -167,7 +167,18 @@ export type FakeMineruFailure = {
 export interface FakeMineruServerOptions {
 	/** The tiers the server offers, which is its ceiling. Default: what production runs. */
 	tiers?: readonly MineruTierId[];
-	/** Simulated parse time per file, from the moment its bytes arrive. Default 0. */
+	/**
+	 * How many polls see a file in progress before it reaches its outcome: the
+	 * first says `pending`, the rest `running`. Counted per file, from the moment
+	 * its bytes are in, and by the server, so a test that walks the ladder does not
+	 * depend on scheduling. Default 0: the first poll sees the outcome.
+	 */
+	inProgressPolls?: number;
+	/**
+	 * Simulated parse time per file, from the moment its bytes arrive. Default 0.
+	 * A wall clock: a test that needs to SEE a status in between should use
+	 * `inProgressPolls`, which does not race the machine.
+	 */
 	parseDelayMs?: number;
 	/** No file ever finishes: for cancel and deadline tests. Same as outcome "stuck". */
 	neverFinish?: boolean;
@@ -450,9 +461,14 @@ export async function createFakeMineruServer(
 		const inProgress: FileState = file.observed <= 1 ? "pending" : "running";
 		const outcome = outcomeOf(file);
 		if (outcome === "stuck") return inProgress;
-		if (Date.now() - file.readyAt < (options.parseDelayMs ?? 0)) {
-			return inProgress;
-		}
+		// Done only once BOTH hold: enough polls have seen it in progress, and (if
+		// asked) enough time has passed. Polls are counted by the server, so
+		// `inProgressPolls` does not depend on how loaded the machine is; the clock
+		// does.
+		const polledEnough = file.observed > (options.inProgressPolls ?? 0);
+		const waitedEnough =
+			Date.now() - file.readyAt >= (options.parseDelayMs ?? 0);
+		if (!polledEnough || !waitedEnough) return inProgress;
 		return outcome === "file-failed" || outcome === "failed-without-detail"
 			? "failed"
 			: "completed";

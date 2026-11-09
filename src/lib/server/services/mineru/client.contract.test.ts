@@ -1240,7 +1240,7 @@ describe("against the fake 4.1 server", () => {
 	}
 
 	it("runs the whole create, PUT, poll, download sequence over real HTTP", async () => {
-		const { server: fake, client } = await start({ parseDelayMs: 25 });
+		const { server: fake, client } = await start({ inProgressPolls: 2 });
 		const { taskId, receipt } = await submit(client);
 		expect(receipt.status).toBe("waiting-file");
 
@@ -1251,8 +1251,9 @@ describe("against the fake 4.1 server", () => {
 			onPoll: (snapshot) => polls.push(snapshot.status),
 		});
 		expect(task.status).toBe("completed");
-		expect(polls.length).toBeGreaterThan(1);
-		expect(polls.at(-1)).toBe("completed");
+		// Two polls see the file in progress and the third sees it done: counted by
+		// the server, so nothing here depends on how fast the machine is.
+		expect(polls).toEqual(["pending", "running", "completed"]);
 		expect(mapMineruTaskFailure(task)).toBeNull();
 		expect(fake.tasks.get(taskId)?.status).toBe("completed");
 

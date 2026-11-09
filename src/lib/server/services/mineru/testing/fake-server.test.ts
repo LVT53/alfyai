@@ -492,7 +492,9 @@ describe("creating a task", () => {
 
 describe("uploading, polling and the result", () => {
 	it("moves a file through waiting-file, pending, running and completed", async () => {
-		await start({ parseDelayMs: 60, fixtureInput: "csv" });
+		// Driven by the number of polls, not by a clock: two polls see the file in
+		// progress, the third sees it done, however loaded the machine is.
+		await start({ inProgressPolls: 2, fixtureInput: "v41-csv" });
 		const receipt = await create([fileFor("document.csv", CSV)]);
 		const taskId = receipt.json.task_id as string;
 		const file = receipt.json.files?.[0] as {
@@ -516,18 +518,44 @@ describe("uploading, polling and the result", () => {
 		);
 
 		const seen: string[] = [];
-		const deadline = Date.now() + 3000;
-		for (;;) {
-			const snapshot = await getTask(taskId);
-			seen.push(snapshot.json.status as string);
-			if (snapshot.json.status === "completed") break;
-			if (Date.now() > deadline) throw new Error(`stuck: ${seen.join(",")}`);
-			await new Promise((resolve) => setTimeout(resolve, 5));
+		for (let poll = 0; poll < 3; poll += 1) {
+			seen.push((await getTask(taskId)).json.status as string);
 		}
-		expect(seen[0]).toBe("pending");
-		expect(seen).toContain("running");
-		expect(seen.at(-1)).toBe("completed");
-		expect(new Set(seen)).toEqual(new Set(["pending", "running", "completed"]));
+		expect(seen).toEqual(["pending", "running", "completed"]);
+		// And it stays done.
+		expect((await getTask(taskId)).json.status).toBe("completed");
+	});
+
+	it("keeps a file in progress for exactly inProgressPolls polls: pending first, then running", async () => {
+		for (const [polls, expected] of [
+			[0, ["completed"]],
+			[1, ["pending", "completed"]],
+			[3, ["pending", "running", "running", "completed"]],
+		] as const) {
+			await start({ inProgressPolls: polls });
+			const { taskId } = await submit("document.pdf", PDF);
+			const seen: string[] = [];
+			for (let poll = 0; poll <= polls; poll += 1) {
+				seen.push((await getTask(taskId)).json.status as string);
+			}
+			expect(seen, `inProgressPolls ${polls}`).toEqual([...expected]);
+			await server?.close();
+			server = null;
+		}
+	});
+
+	it("counts polls per file: a file that has no bytes yet does not use them up", async () => {
+		await start({ inProgressPolls: 1 });
+		const receipt = await create([fileFor("document.pdf", PDF)]);
+		const taskId = receipt.json.task_id as string;
+		for (let poll = 0; poll < 3; poll += 1) {
+			expect((await getTask(taskId)).json.status).toBe("waiting-file");
+		}
+		const upload = (receipt.json.files?.[0] as { upload: { url: string } })
+			.upload.url;
+		await putTo(upload, PDF);
+		expect((await getTask(taskId)).json.status).toBe("pending");
+		expect((await getTask(taskId)).json.status).toBe("completed");
 	});
 
 	it("reports a running file with the recorded snapshot shape", async () => {
