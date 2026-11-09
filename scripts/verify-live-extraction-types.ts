@@ -54,6 +54,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "playwright";
 
 // ── configuration ──────────────────────────────────────────────────────────
@@ -258,7 +259,7 @@ type FailureCase = {
 	};
 };
 
-const FAILURE_CASES: FailureCase[] = [
+export const FAILURE_CASES: FailureCase[] = [
 	{
 		// The spike's `garbage.pdf`: `%PDF-1.7` followed by noise. MinerU answers
 		// `parse_failed` "Failed to load document (PDFium: Data format error).",
@@ -318,7 +319,7 @@ const TIFF_EXPECT: ExtractionCase["expect"] = {
  * thing this sweep checks. `compare()` holds both `extractionTier` (the
  * result's own) and `extractionJobTier` (the server's `parse.tier`) to it.
  */
-const CASES: ExtractionCase[] = [
+export const CASES: ExtractionCase[] = [
 	{
 		id: "pdf",
 		file: "pdf/sample.pdf",
@@ -894,7 +895,9 @@ type ActualExtraction = {
 	bundleBytes: unknown;
 };
 
-function readActual(artifact: ArtifactResponse["artifact"]): ActualExtraction {
+export function readActual(
+	artifact: ArtifactResponse["artifact"],
+): ActualExtraction {
 	const metadata = artifact.metadata ?? {};
 	const outline = Array.isArray(metadata.outline) ? metadata.outline : [];
 	return {
@@ -917,13 +920,29 @@ function readActual(artifact: ArtifactResponse["artifact"]): ActualExtraction {
 	};
 }
 
-function compare(
+/** What a run is held to; `main()` fills it from the environment. */
+type Expectations = {
+	/** The tier PDFs and images are expected to have been parsed at. */
+	pdfTier: string;
+	/** The MinerU version, for `parse.parser_version` of every document. */
+	serverVersion: string;
+	/** The app's own renderer version. */
+	parserVersion: string;
+};
+
+/**
+ * Whether a document that reached `succeeded` is the one its case describes:
+ * the mismatches, empty when it is. Pure, so the decisions can be tested without
+ * a deployment.
+ */
+export function compare(
 	testCase: ExtractionCase,
 	actual: ActualExtraction,
 	text: string,
 	statusesSeen: string[],
 	job: ExtractionJob,
 	normalizedName: string,
+	expected: Expectations,
 ): string[] {
 	const mismatches: string[] = [];
 	const isDirectText = testCase.route === "direct-text";
@@ -941,7 +960,7 @@ function compare(
 	if (!isDirectText) {
 		const expectedTier =
 			testCase.expect.effectiveTier === "expected-pdf-tier"
-				? expectedPdfTier
+				? expected.pdfTier
 				: testCase.expect.effectiveTier;
 
 		if (actual.effectiveTier !== expectedTier) {
@@ -976,14 +995,14 @@ function compare(
 				`outline: expected at least ${testCase.expect.outlineMin} entries, got ${actual.outlineLength}`,
 			);
 		}
-		if (actual.parserVersion !== expectedParserVersion) {
+		if (actual.parserVersion !== expected.parserVersion) {
 			mismatches.push(
-				`extractionParserVersion: expected ${expectedParserVersion}, got ${String(actual.parserVersion)}`,
+				`extractionParserVersion: expected ${expected.parserVersion}, got ${String(actual.parserVersion)}`,
 			);
 		}
-		if (actual.serverParserVersion !== expectedServerVersion) {
+		if (actual.serverParserVersion !== expected.serverVersion) {
 			mismatches.push(
-				`extractionServerParserVersion (parse.parser_version): expected ${expectedServerVersion}, got ${String(actual.serverParserVersion)}`,
+				`extractionServerParserVersion (parse.parser_version): expected ${expected.serverVersion}, got ${String(actual.serverParserVersion)}`,
 			);
 		}
 		// Every block type in the 4.1.7 captures is one the renderer knows; a name
@@ -1045,8 +1064,40 @@ async function readNormalized(
 /**
  * A document MinerU cannot read: the job has to end `failed` with the app's
  * own code and sentence, and (for a file whose bytes can never become
- * readable) without offering a Retry.
+ * readable) without offering a Retry. The mismatches, empty when it did.
  */
+export function failureMismatches(
+	job: ExtractionJob | null,
+	expect: FailureCase["expect"],
+): string[] {
+	const mismatches: string[] = [];
+	if (!job || job.status !== "failed") {
+		mismatches.push(
+			`expected the extraction to fail, it ended ${job?.status ?? "missing"}`,
+		);
+		return mismatches;
+	}
+	if (job.error?.code !== expect.code) {
+		mismatches.push(
+			`error code: expected ${expect.code}, got ${String(job.error?.code)}`,
+		);
+	}
+	// Absent on a deployment older than the field, which is no evidence.
+	if (job.retryable !== undefined && job.retryable !== expect.retryable) {
+		mismatches.push(
+			`retryable: expected ${expect.retryable}, got ${String(job.retryable)}`,
+		);
+	}
+	const sentence = job.error?.message ?? "";
+	if (!sentence) mismatches.push("the job carries no error sentence");
+	for (const needle of expect.mustNotContain) {
+		if (sentence.includes(needle)) {
+			mismatches.push(`MinerU's wording reached the sentence: ${needle}`);
+		}
+	}
+	return mismatches;
+}
+
 async function checkFailure(
 	page: Page,
 	conversationId: string,
@@ -1058,35 +1109,35 @@ async function checkFailure(
 }> {
 	const upload = await uploadFixture(page, conversationId, testCase);
 	const { job, statusesSeen } = await pollExtraction(page, upload.artifact.id);
+	return {
+		mismatches: failureMismatches(job, testCase.expect),
+		statusesSeen,
+		error: job?.error ?? null,
+	};
+}
 
-	const mismatches: string[] = [];
-	if (!job || job.status !== "failed") {
-		mismatches.push(
-			`expected the extraction to fail, it ended ${job?.status ?? "missing"}`,
-		);
-		return { mismatches, statusesSeen, error: job?.error ?? null };
-	}
-	if (job.error?.code !== testCase.expect.code) {
-		mismatches.push(
-			`error code: expected ${testCase.expect.code}, got ${String(job.error?.code)}`,
-		);
-	}
-	if (
-		job.retryable !== undefined &&
-		job.retryable !== testCase.expect.retryable
-	) {
-		mismatches.push(
-			`retryable: expected ${testCase.expect.retryable}, got ${String(job.retryable)}`,
+/**
+ * What is wrong with the deployment itself, before any document is read: the
+ * rows mean something only for the MinerU this run was written for, at the tier
+ * it expects. Not fatal, but never silent. Empty when all is as expected.
+ */
+export function preflightProblems(
+	server: MineruStatusResponse["report"] | null,
+	expected: Expectations,
+): string[] {
+	if (!server) return ["the MinerU status card could not be read"];
+	const problems: string[] = [];
+	if (server.version !== expected.serverVersion) {
+		problems.push(
+			`MinerU version: expected ${expected.serverVersion}, the server says ${String(server.version)}`,
 		);
 	}
-	const sentence = job.error?.message ?? "";
-	if (!sentence) mismatches.push("the job carries no error sentence");
-	for (const needle of testCase.expect.mustNotContain) {
-		if (sentence.includes(needle)) {
-			mismatches.push(`MinerU's wording reached the sentence: ${needle}`);
-		}
+	if (!server.tiers?.some((tier) => tier.id === expected.pdfTier)) {
+		problems.push(
+			`the server does not list the tier PDFs and images are expected at (${expected.pdfTier})`,
+		);
 	}
-	return { mismatches, statusesSeen, error: job.error ?? null };
+	return problems;
 }
 
 async function main() {
@@ -1095,8 +1146,12 @@ async function main() {
 	const page = await browser.newPage();
 
 	const results: Array<Record<string, unknown>> = [];
-	/** Things wrong with the deployment itself, before any document is read. */
-	const preflight: string[] = [];
+	const expected: Expectations = {
+		pdfTier: expectedPdfTier,
+		serverVersion: expectedServerVersion,
+		parserVersion: expectedParserVersion,
+	};
+	let preflight: string[] = [];
 	let conversationId = "";
 	let server: MineruStatusResponse["report"] | null = null;
 
@@ -1117,22 +1172,7 @@ async function main() {
 				`MinerU is unreachable from the app: ${server.error?.code ?? "unknown"} ${server.error?.message ?? ""}`.trim(),
 			);
 		}
-		// Not fatal, but never silent: the rows below mean something only for the
-		// MinerU this run was written for, at the tier it expects.
-		if (!server) {
-			preflight.push("the MinerU status card could not be read");
-		} else {
-			if (server.version !== expectedServerVersion) {
-				preflight.push(
-					`MinerU version: expected ${expectedServerVersion}, the server says ${String(server.version)}`,
-				);
-			}
-			if (!server.tiers?.some((tier) => tier.id === expectedPdfTier)) {
-				preflight.push(
-					`the server does not list the tier PDFs and images are expected at (${expectedPdfTier})`,
-				);
-			}
-		}
+		preflight = preflightProblems(server, expected);
 
 		conversationId = await createConversation(page);
 
@@ -1185,6 +1225,7 @@ async function main() {
 					statusesSeen,
 					job,
 					name,
+					expected,
 				);
 				(result.mismatches as string[]).push(...mismatches);
 
@@ -1274,11 +1315,7 @@ async function main() {
 					reachable: server.reachable,
 				}
 			: null,
-		expected: {
-			serverVersion: expectedServerVersion,
-			parserVersion: expectedParserVersion,
-			pdfTier: expectedPdfTier,
-		},
+		expected,
 		preflight,
 		tierUnderTest: reextractTier,
 		// Formats the app admits and MinerU has never read: not asserted, listed
@@ -1351,7 +1388,21 @@ async function runReextract(
 	};
 }
 
-main().catch((error) => {
-	console.error(error);
-	process.exit(1);
-});
+/**
+ * The sweep runs only when this file is the one started. The tests import the
+ * decisions above (`compare`, `preflightProblems`, `failureMismatches`) and must
+ * not launch a browser.
+ */
+function isDirectExecution(): boolean {
+	return Boolean(
+		process.argv[1] &&
+			path.resolve(process.argv[1]) === fileURLToPath(import.meta.url),
+	);
+}
+
+if (isDirectExecution()) {
+	main().catch((error) => {
+		console.error(error);
+		process.exit(1);
+	});
+}
