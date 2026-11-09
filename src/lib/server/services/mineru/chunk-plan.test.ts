@@ -23,8 +23,9 @@ import {
 	type RenderedBlock,
 	renderPromptMarkdown,
 	type StructuredContent,
+	type StructuredExtractionResult,
 } from "./result";
-import { loadV41 } from "./result-corpus.test-helpers";
+import { loadV41, V41_SAMPLES } from "./result-corpus.test-helpers";
 
 /** The values `chunk-sync.ts` uses today. */
 const CHAR_TARGET = 1400;
@@ -85,6 +86,41 @@ function paragraph(marker: string, length = 400): string {
 		.trim();
 }
 
+/**
+ * What a plan over a whole parsed document must hold, whichever MinerU wrote it:
+ * numbered from 0 without a gap, every chunk trimmed and on pages that exist,
+ * and every block's text in it, in reading order. Overlap repeats text, so a
+ * block may appear twice, but never before the block that precedes it.
+ */
+function expectPlanReassembles(
+	result: StructuredExtractionResult,
+	plan: readonly ChunkPlanEntry[],
+): void {
+	expect(plan.length).toBeGreaterThan(0);
+	expect(plan.map((chunk) => chunk.chunkIndex)).toEqual(
+		plan.map((_, index) => index),
+	);
+	for (const chunk of plan) {
+		expect(chunk.text.trim()).toBe(chunk.text);
+		expect(chunk.pageStart).toBeGreaterThanOrEqual(1);
+		expect(chunk.pageEnd).toBeGreaterThanOrEqual(chunk.pageStart);
+		expect(chunk.pageEnd).toBeLessThanOrEqual(
+			Math.max(result.pageCount, result.pages.length),
+		);
+	}
+	const separator = "\u0000";
+	const planText = plan.map((chunk) => chunk.text).join(separator);
+	let cursor = 0;
+	for (const block of result.blocks) {
+		const at = planText.indexOf(block.text, cursor);
+		expect(
+			at,
+			`${block.type} on page ${block.page} is missing from the plan, or sits before the block above it`,
+		).toBeGreaterThanOrEqual(0);
+		cursor = at + block.text.length;
+	}
+}
+
 describe("planStructuredChunks — fixture coverage", () => {
 	it.each(
 		FIXTURE_IDS,
@@ -97,22 +133,7 @@ describe("planStructuredChunks — fixture coverage", () => {
 			charOverlap: CHAR_OVERLAP,
 		});
 
-		expect(plan.length).toBeGreaterThan(0);
-		expect(plan.map((chunk) => chunk.chunkIndex)).toEqual(
-			plan.map((_, index) => index),
-		);
-		for (const chunk of plan) {
-			expect(chunk.text.trim()).toBe(chunk.text);
-			expect(chunk.pageStart).toBeGreaterThanOrEqual(1);
-			expect(chunk.pageEnd).toBeGreaterThanOrEqual(chunk.pageStart);
-			expect(chunk.pageEnd).toBeLessThanOrEqual(
-				Math.max(result.pageCount, result.pages.length),
-			);
-		}
-		// Every block's text survives somewhere in the plan.
-		for (const block of result.blocks) {
-			expect(plan.some((chunk) => chunk.text.includes(block.text))).toBe(true);
-		}
+		expectPlanReassembles(result, plan);
 	});
 
 	it.each(FIXTURE_IDS)("%s: never splits a table block", async (id) => {
@@ -644,21 +665,13 @@ describe("planStructuredChunks — the hard per-chunk ceiling", () => {
 // must never be cut (half a formula, or a figure handle torn from its caption,
 // is worse than none); a footnote is prose and chunks like any other text.
 
-const V41_IDS = [
-	"pdf-paper-default-tier",
-	"pdf-paper-basic",
-	"pdf-paper-flash",
-	"pdf-paper-ocr-forced",
-	"pdf-paper-page-range-2",
-	"pptx-default",
-] as const;
-
 describe("planStructuredChunks — MinerU 4.1 blocks", () => {
 	it.each(
-		V41_IDS,
-	)("%s: plans chunks that reassemble into the rendered text", async (slug) => {
+		V41_SAMPLES,
+	)("$slug: plans chunks that reassemble into the rendered text", async (sample) => {
 		const result = buildStructuredExtractionResult({
-			content: await loadV41(slug),
+			content: await loadV41(sample.slug),
+			sourceFilename: sample.filename,
 		});
 		const plan = planStructuredChunks({
 			blocks: result.blocks,
@@ -666,17 +679,15 @@ describe("planStructuredChunks — MinerU 4.1 blocks", () => {
 			charOverlap: CHAR_OVERLAP,
 		});
 
-		expect(plan.length).toBeGreaterThan(0);
-		for (const block of result.blocks) {
-			expect(plan.some((chunk) => chunk.text.includes(block.text))).toBe(true);
-		}
+		expectPlanReassembles(result, plan);
 	});
 
 	it.each(
-		V41_IDS,
-	)("%s: never splits an equation, a chart or a table", async (slug) => {
+		V41_SAMPLES,
+	)("$slug: never splits an equation, a chart or a table", async (sample) => {
 		const result = buildStructuredExtractionResult({
-			content: await loadV41(slug),
+			content: await loadV41(sample.slug),
+			sourceFilename: sample.filename,
 		});
 		const whole = result.blocks.filter(
 			(block) => block.atomic && block.text.trim().length > 0,
@@ -691,7 +702,7 @@ describe("planStructuredChunks — MinerU 4.1 blocks", () => {
 			for (const block of whole) {
 				expect(
 					plan.some((chunk) => chunk.text.includes(block.text)),
-					`${slug}: ${block.type} cut at charTarget=${target}`,
+					`${sample.slug}: ${block.type} cut at charTarget=${target}`,
 				).toBe(true);
 			}
 		}
