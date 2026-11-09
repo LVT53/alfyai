@@ -30,6 +30,7 @@ import {
 } from "$lib/server/services/extraction/testing/run-once";
 import { resetSeams } from "$lib/server/services/extraction/testing/runner-seams";
 import type { Artifact } from "$lib/server/services/knowledge/types";
+import { getIntakeTierHint } from "$lib/shared/file-types";
 import {
 	createFakeMineruServer,
 	type FakeMineruServer,
@@ -41,7 +42,13 @@ import {
 type Ledger = typeof import("$lib/server/services/extraction/extraction-job");
 type Capabilities = typeof import("./capabilities");
 
-/** The nine recorded inputs, with the file each fixture directory carries. */
+/**
+ * The recorded inputs that MinerU is asked to read, with the file each fixture
+ * directory carries. CSV is a recorded input too, but the registry reads it
+ * directly (`direct-text`) and it never reaches MinerU from the app, so it is
+ * not one of these: sending it here would assert a tier for a "native document"
+ * that S4 says gets none.
+ */
 const FIXTURE_INPUTS: ReadonlyArray<[string, string, string]> = [
 	["pdf", "sample.pdf", "application/pdf"],
 	[
@@ -60,7 +67,6 @@ const FIXTURE_INPUTS: ReadonlyArray<[string, string, string]> = [
 		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
 	],
 	["html", "sample.html", "text/html"],
-	["csv", "sample.csv", "text/csv"],
 	["epub", "sample.epub", "application/epub+zip"],
 	["png", "sample.png", "image/png"],
 	["jpg", "sample.jpg", "image/jpeg"],
@@ -258,7 +264,9 @@ describe("every recorded input reaches a normalized artifact", () => {
 			(entry) => entry.method === "POST" && entry.path === "/v1/tasks",
 		)?.json as { files: Array<{ file_name: string }>; tier?: string };
 		expect(create.files[0].file_name).toBe(`document.${input}`);
-		const native = ["docx", "xlsx", "pptx", "html", "epub"].includes(input);
+		// A native document is the registry's word (`tierHint: "flash"`), not a
+		// list kept here: it gets no tier, everything else gets the best one.
+		const native = getIntakeTierHint(file, mimeType) === "flash";
 		expect("tier" in create).toBe(!native);
 		if (!native) expect(create.tier).toBe("standard");
 
