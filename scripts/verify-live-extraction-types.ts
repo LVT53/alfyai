@@ -182,8 +182,10 @@ type ExtractionCase = {
 	 * Phase 5 P5-B, `tsv`. Defaults to "mineru". A `direct-text` case never
 	 * reaches MinerU at all (`csv` and `tsv` send it no request), so `compare()`
 	 * skips every MinerU-specific field (tier, versions, page count/kind,
-	 * figures, outline), checks the job's `intakeRoute` instead, and checks the
-	 * text and `statusesSeen`.
+	 * figures, outline), checks the text, and holds the job to the two things
+	 * that are true of it: its own `intakeRoute` is `direct-text` and it ended
+	 * `succeeded`. What the poll happened to see on the way proves nothing: the
+	 * extractor reports a `parsing` phase itself (see `compare()`).
 	 */
 	route?: "mineru" | "direct-text";
 	expect: {
@@ -199,12 +201,6 @@ type ExtractionCase = {
 		mustNotContain: string[];
 		figureCount: number;
 		outlineMin: number;
-		/**
-		 * Phase 5 P5-B, `tsv`. `direct-text` never reaches MinerU at all — a
-		 * `parsing` phase in `statusesSeen` would mean the registry route
-		 * regressed back to `mineru`.
-		 */
-		mustNotSeeStatus?: string;
 		/**
 		 * The name the normalized document must carry (`<stem>.md` of the name the
 		 * person uploaded). The upload's name never reaches MinerU, which is told
@@ -438,13 +434,15 @@ export const CASES: ExtractionCase[] = [
 		// Phase 0 spike, which measured csv THROUGH MinerU; without this field
 		// `compare()` asserts all of them and the sweep reports five mismatches
 		// for a case that is working correctly. `tsv` got the field when Phase 5
-		// added it; `csv` was missed. The job's `intakeRoute` and the missing
-		// `parsing` status below are what prove the route.
+		// added it; `csv` was missed. The job's own `intakeRoute` (and that it
+		// ended `succeeded`) is what proves the route: not the statuses the poll
+		// saw, since the extractor reports a `parsing` phase itself.
 		route: "direct-text",
 		expect: {
 			// Unused by `compare()` for a direct-text case (kept only so every
 			// case satisfies the same type); the real assertions are
-			// minTextLength, mustContain and mustNotSeeStatus below.
+			// minTextLength and mustContain below, plus the route and the end
+			// status that `route` selects.
 			effectiveTier: "flash",
 			pageCount: 1,
 			pageCountKind: "logical",
@@ -453,7 +451,6 @@ export const CASES: ExtractionCase[] = [
 			mustNotContain: [],
 			figureCount: 0,
 			outlineMin: 0,
-			mustNotSeeStatus: "parsing",
 		},
 	},
 	{
@@ -552,7 +549,8 @@ export const CASES: ExtractionCase[] = [
 		expect: {
 			// Unused by `compare()` for a direct-text case (kept only so every
 			// case satisfies the same type); the real assertions are
-			// minTextLength, mustContain and mustNotSeeStatus below.
+			// minTextLength and mustContain below, plus the route and the end
+			// status that `route` selects.
 			effectiveTier: "flash",
 			pageCount: 1,
 			pageCountKind: "unknown",
@@ -561,7 +559,6 @@ export const CASES: ExtractionCase[] = [
 			mustNotContain: [],
 			figureCount: 0,
 			outlineMin: 0,
-			mustNotSeeStatus: "parsing",
 		},
 	},
 	{
@@ -958,11 +955,28 @@ export function compare(
 
 	// The route is what says whether MinerU was asked at all: `csv` and `tsv` are
 	// `direct-text` and make no `/v1/tasks` request, everything else is `mineru`.
-	// Absent on a deployment older than the field, which is no evidence.
+	//
+	// Absent on a deployment older than the field, which is no evidence against a
+	// MinerU row. It is no evidence for a direct-text one either, and for that row
+	// the route is the only proof there is: what the poll saw on the way proves
+	// nothing, since the direct-text extractor reports a `parsing` phase of its
+	// own (`extractors/direct-text.ts`) and a poll every 1.5 s catches it in some
+	// runs of a 13 to 48 ms job and misses it in the rest.
 	const expectedRoute = isDirectText ? "direct-text" : "mineru";
-	if (job.intakeRoute !== undefined && job.intakeRoute !== expectedRoute) {
+	if (job.intakeRoute === undefined) {
+		if (isDirectText) {
+			mismatches.push(
+				`intakeRoute: expected ${expectedRoute}, the job does not say`,
+			);
+		}
+	} else if (job.intakeRoute !== expectedRoute) {
 		mismatches.push(
 			`intakeRoute: expected ${expectedRoute}, got ${job.intakeRoute}`,
+		);
+	}
+	if (isDirectText && job.status !== "succeeded") {
+		mismatches.push(
+			`status: expected the job to end succeeded, it ended ${job.status} (statuses seen: [${statusesSeen.join(", ")}])`,
 		);
 	}
 
@@ -1043,14 +1057,6 @@ export function compare(
 	}
 	for (const needle of testCase.expect.mustNotContain) {
 		if (text.includes(needle)) mismatches.push(`unexpected text: ${needle}`);
-	}
-	if (
-		testCase.expect.mustNotSeeStatus &&
-		statusesSeen.includes(testCase.expect.mustNotSeeStatus)
-	) {
-		mismatches.push(
-			`unexpected status: saw "${testCase.expect.mustNotSeeStatus}" (route regressed to mineru?) in [${statusesSeen.join(", ")}]`,
-		);
 	}
 	return mismatches;
 }

@@ -199,34 +199,94 @@ describe("compare: a MinerU row", () => {
 });
 
 describe("compare: a direct-text row (csv and tsv make no MinerU request)", () => {
-	it("skips every MinerU-specific field and checks the route, the text and the statuses", () => {
+	/** A csv or tsv as the deployment answers it: on the direct-text route, ended `succeeded`. */
+	function directTextRun(id: string) {
+		const run = faithfulRun(id);
+		run.job.intakeRoute = "direct-text";
+		// Nothing MinerU wrote: no tier, no versions, no pages.
+		run.actual = {
+			...run.actual,
+			effectiveTier: undefined as never,
+			jobTier: undefined as never,
+			pageCount: undefined as never,
+			pageCountKind: undefined as never,
+			figureCount: undefined as never,
+			outlineLength: 0,
+			parserVersion: undefined,
+			serverParserVersion: undefined,
+		};
+		run.statusesSeen = ["queued", "succeeded"];
+		return run;
+	}
+
+	it("skips every MinerU-specific field and checks the route, the text and that the job succeeded", () => {
 		for (const id of ["csv", "tsv"]) {
-			const run = faithfulRun(id);
-			run.job.intakeRoute = "direct-text";
-			// Nothing MinerU wrote: no tier, no versions, no pages.
-			run.actual = {
-				...run.actual,
-				effectiveTier: undefined as never,
-				jobTier: undefined as never,
-				pageCount: undefined as never,
-				pageCountKind: undefined as never,
-				figureCount: undefined as never,
-				outlineLength: 0,
-				parserVersion: undefined,
-				serverParserVersion: undefined,
-			};
-			run.statusesSeen = ["queued", "succeeded"];
+			expect(compareRun(directTextRun(id)), id).toEqual([]);
+		}
+	});
+
+	it("keeps csv and tsv on the direct-text route", () => {
+		for (const id of ["csv", "tsv"]) {
+			expect(caseById(id).route, id).toBe("direct-text");
+		}
+	});
+
+	it("accepts a job the poll saw in `parsing`: the direct-text extractor reports that phase itself", () => {
+		// `extractors/direct-text.ts` calls `onProgress({ phase: "parsing" })` before it
+		// reads the file, and the whole job takes 13 to 48 ms, so a poll every 1.5 s
+		// catches the phase in about two runs of nine. Whether it did says nothing about
+		// MinerU (the live run on ai.dev saw `parsing` on a job that made no request);
+		// the job's own route does.
+		for (const id of ["csv", "tsv"]) {
+			const run = directTextRun(id);
+			run.statusesSeen = ["queued", "parsing", "succeeded"];
+			expect(compareRun(run), id).toEqual([]);
+			run.statusesSeen = ["parsing", "succeeded"];
 			expect(compareRun(run), id).toEqual([]);
 		}
 	});
 
-	it("fails a csv that went through MinerU, by route and by the parsing status", () => {
-		const run = faithfulRun("csv");
+	it("fails a csv that went through MinerU, by its route alone", () => {
+		const run = directTextRun("csv");
 		run.job.intakeRoute = "mineru";
 		run.statusesSeen = ["queued", "parsing", "succeeded"];
 		expect(compareRun(run)).toEqual([
 			"intakeRoute: expected direct-text, got mineru",
-			'unexpected status: saw "parsing" (route regressed to mineru?) in [queued, parsing, succeeded]',
+		]);
+	});
+
+	it("takes a job that does not say its route as no proof that MinerU was not asked", () => {
+		// Unlike a MinerU row, where an absent route is no evidence against the row: for
+		// a direct-text one the route is the only proof there is.
+		const run = directTextRun("tsv");
+		run.job.intakeRoute = undefined;
+		expect(compareRun(run)).toEqual([
+			"intakeRoute: expected direct-text, the job does not say",
+		]);
+	});
+
+	it("fails a job that did not end `succeeded`, with the statuses the poll saw", () => {
+		const failed = directTextRun("csv");
+		failed.job.status = "failed";
+		failed.statusesSeen = ["queued", "parsing", "failed"];
+		expect(compareRun(failed)).toEqual([
+			"status: expected the job to end succeeded, it ended failed (statuses seen: [queued, parsing, failed])",
+		]);
+		const unfinished = directTextRun("tsv");
+		unfinished.job.status = "parsing";
+		unfinished.statusesSeen = ["queued", "parsing"];
+		expect(compareRun(unfinished)).toEqual([
+			"status: expected the job to end succeeded, it ended parsing (statuses seen: [queued, parsing])",
+		]);
+	});
+
+	it("still holds the text of the file", () => {
+		const run = directTextRun("csv");
+		run.actual.textLength = 3;
+		run.text = "nothing of the table";
+		expect(compareRun(run)).toEqual([
+			"textLength: expected at least 80, got 3",
+			"missing text: Northland",
 		]);
 	});
 });

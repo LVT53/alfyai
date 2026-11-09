@@ -803,11 +803,14 @@ also holds `extractionJobTier` (the server's own `parse.tier`) to the same tier 
 `extractionUnknownBlockTypes` to empty. Office, HTML, EPUB and the RTF/ODT/ODS/ODP inputs always
 expect `flash` — the app names no tier for a native document and the engine parses it there no
 matter what the job asked for, and catching that discrepancy is the most valuable thing this sweep
-does. `csv` and `tsv` are asserted to be `direct-text` jobs that reach `succeeded` **without** ever
-passing through a `parsing` status: they must make no MinerU request at all. `heic` and `heif` are
-listed under `knownGaps` in the summary and not asserted: the app sends MinerU a PNG of the photo,
-which `mineru/heic.integration.test.ts` runs against the 4.1 server's stand-in, but the repo holds
-no HEIC photo with text in it to expect a reading of. Upload one by hand on ai.dev to see it read.
+does. `csv` and `tsv` are asserted to be `direct-text` jobs (the job's own `intakeRoute`, which is
+what says MinerU was never asked) that reach `succeeded`. They are not held to the statuses the poll
+happens to see: the direct-text extractor reports a `parsing` phase of its own, and a poll every
+1.5 s catches that phase of a job that takes a few milliseconds in some runs and misses it in others.
+`heic` and `heif` are listed under `knownGaps` in the summary and not asserted: the app sends MinerU
+a PNG of the photo, which `mineru/heic.integration.test.ts` runs against the 4.1 server's stand-in,
+but the repo holds no HEIC photo with text in it to expect a reading of. Upload one by hand on ai.dev
+to see it read.
 
 **Not covered by this script, to do by hand on ai.dev:** a cancel (the job ends `canceled`, one
 `POST /v1/tasks/{id}/cancel` in MinerU's access log), a HEIC photo of a page (the job succeeds and
