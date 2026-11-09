@@ -328,7 +328,7 @@ const settingsDict = {
 			"How long MinerU's version, tiers and output formats are reused before being re-read. 0 re-reads on every extraction.",
 		"admin.mineruDefaultTier": "Default quality tier",
 		"admin.mineruDefaultTierDescription":
-			"Automatic lets MinerU pick, which is what a self-hosted server is usually configured for. Naming a tier the server does not offer fails the extraction instead of quietly downgrading it.",
+			"Automatic uses the best tier the server offers (Standard, then Basic, then Flash) for PDFs and images; Office files and web pages are always read at Flash. Naming a tier the server does not offer fails the extraction instead of quietly downgrading it.",
 		"admin.mineruJobTimeoutMs": "Job timeout",
 		"admin.mineruJobTimeoutMsDescription":
 			"How long one document may take from upload to result before it is given up on and the remote job is cancelled. Raise it for very large documents.",
@@ -1792,7 +1792,7 @@ const settingsDict = {
 			"Empty means anonymous access, which a local MinerU allows.",
 		"admin.system.keys.MINERU_DEFAULT_TIER.label": "Default quality tier",
 		"admin.system.keys.MINERU_DEFAULT_TIER.meaning":
-			"Automatic lets the server choose. A tier it does not offer fails the extraction.",
+			"Automatic picks the best tier the server offers. A tier it does not offer fails the extraction.",
 		"admin.system.keys.MINERU_OCR_MODE.label": "Text extraction mode",
 		"admin.system.keys.MINERU_OCR_MODE.meaning":
 			"Automatic decides per file; the other two force text-only or OCR.",
@@ -2412,7 +2412,7 @@ const settingsDict = {
 			"Meddig használjuk újra a MinerU verzióját, szintjeit és kimeneti formátumait, mielőtt újra lekérnénk. A 0 minden kinyerésnél újraolvassa.",
 		"admin.mineruDefaultTier": "Alapértelmezett minőségi szint",
 		"admin.mineruDefaultTierDescription":
-			"Az automatikus a MinerU-ra bízza a választást, saját üzemeltetésű szervernél általában így van beállítva. Olyan szint megadása, amit a szerver nem kínál, hibára futtatja a kinyerést ahelyett, hogy csendben visszavenne a minőségből.",
+			"Az automatikus a szerver legjobb szintjét használja PDF-ekhez és képekhez (Standard, majd Basic, majd Flash); az Office-fájlokat és a weboldalakat mindig Flash szinten olvassa. Olyan szint megadása, amit a szerver nem kínál, hibára futtatja a kinyerést ahelyett, hogy csendben visszavenne a minőségből.",
 		"admin.mineruJobTimeoutMs": "Feladat időkorlátja",
 		"admin.mineruJobTimeoutMsDescription":
 			"Meddig tarthat egy dokumentum a feltöltéstől az eredményig, mielőtt feladjuk és megszakítjuk a távoli feladatot. Nagyon nagy dokumentumokhoz növeld meg.",
@@ -3922,7 +3922,7 @@ const settingsDict = {
 		"admin.system.keys.MINERU_DEFAULT_TIER.label":
 			"Alapértelmezett minőségi szint",
 		"admin.system.keys.MINERU_DEFAULT_TIER.meaning":
-			"Az automatikus a szerverre bízza a választást. A nem kínált szint hibára futtatja a kinyerést.",
+			"Az automatikus a szerver legjobb szintjét választja. A nem kínált szint hibára futtatja a kinyerést.",
 		"admin.system.keys.MINERU_OCR_MODE.label": "Szövegkinyerési mód",
 		"admin.system.keys.MINERU_OCR_MODE.meaning":
 			"Az automatikus fájlonként dönt; a másik kettő csak szöveget vagy OCR-t kényszerít.",

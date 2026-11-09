@@ -116,7 +116,13 @@ describe("admin MinerU status route", () => {
 		});
 		const response = await GET(makeEvent());
 		expect(response.status).toBe(200);
-		const body = (await response.json()) as { report: typeof report };
+		const body = (await response.json()) as {
+			report: {
+				reachable: boolean;
+				version: string | null;
+				error: { code: string } | null;
+			};
+		};
 		expect(body.report.reachable).toBe(false);
 		expect(body.report.version).toBe("4.0.12");
 		expect(body.report.error?.code).toBe("unavailable");
