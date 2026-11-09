@@ -23,26 +23,28 @@ cutover section) and the admin card says why. An install that follows `latest` c
 release whose protocol changed again, so pin the version and run the checklist in
 [deploy/README.md](../deploy/README.md#upgrading-mineru) after any upgrade.
 
-Production runs MinerU as systemd services around `mineru-kit api-server`, each in a Python venv of
-its own. This repository ships and tests no container image. The install, the services and their
+Production runs MinerU as one systemd service (`mineru41`) around `mineru-kit api-server`, in a
+Python venv of its own, and that service calls a vision-language server that runs as a Docker
+container. This repository ships and tests no container image. The install, the services and their
 ports, the key on the command line, what a server costs in RAM and VRAM and how long it takes to
 start, the cutover and the rollback all have one home:
 [deploy/README.md](../deploy/README.md#document-extraction-service-mineru). What matters here is that
-an app calls exactly the address in `MINERU_API_URL`: the 4.0.12 server on `127.0.0.1:8002` until its
-flip, and from then on MinerU 4.1.7 on `127.0.0.1:8004` (`http://127.0.0.1:8001` is only the code
-default and the port in the examples). `MINERU_API_KEY` must match whatever the server was started
-with; leave it empty (anonymous access) only for a server that nothing else can reach.
+an app calls exactly the address in `MINERU_API_URL`: production and ai.dev both call MinerU 4.1.7 on
+`http://127.0.0.1:8004`. The 4.0.12 server that answered on `127.0.0.1:8002` before the cutover was
+retired and deleted on 2026-11-09. (`http://127.0.0.1:8001` is only the code default and the port in
+the examples.) `MINERU_API_KEY` must match whatever the server was started with; leave it empty
+(anonymous access) only for a server that nothing else can reach.
 
-#### The dev MinerU (development only)
+#### The dev MinerU (retired)
 
-`mineru4-dev.service` is a MinerU 4.0.6 DEV API server on the box at `http://127.0.0.1:8003`: basic
-tier, CPU only, API key required. It exists so that a checkout can point
-`MINERU_API_URL`/`MINERU_API_KEY` at a real MinerU 4 without standing up a service of its own.
-**It speaks the 4.0 protocol, which this release no longer does**: a checkout pointed at it gets the
-admin card's "runs MinerU 4.0.6, which speaks the old protocol" and its uploads wait. Neither app
-calls it, and it retires with 4.0.12 (the clean-up step of the runbook in deploy/README.md). It is not a
-production endpoint either way: it is CPU-only, it serves one tier, and its port deliberately
-differs from the `8001` default so a deployment cannot drift onto it by accident.
+`mineru4-dev.service` was a MinerU 4.0.6 DEV API server on the box at `http://127.0.0.1:8003`: basic
+tier, CPU only, API key required. It existed so that a checkout could point
+`MINERU_API_URL`/`MINERU_API_KEY` at a real MinerU 4 without standing up a service of its own. It
+spoke the 4.0 protocol, which this release no longer does, so a checkout pointed at it got the admin
+card's "runs MinerU 4.0.6, which speaks the old protocol" and its uploads waited, and neither app
+called it. It was stopped on 2026-11-09 with MinerU 4.0.12 and deleted that evening (the clean-up,
+[step 5 of the runbook](../deploy/README.md#cutting-over-to-41-and-rolling-back)). There is no shared
+dev MinerU now: a checkout that needs a real one runs a MinerU 4.1 or newer of its own.
 
 ### The task API the app uses
 
@@ -372,7 +374,7 @@ again with a growing wait (5 s, doubling to 5 min) for up to `DOCUMENT_EXTRACTIO
 (30 minutes by default), then resumes from the stored handle, meets `task_not_found`, and the
 recovery above makes a new task. The tests prove this against a fake server held to the captures;
 the one run against a real 4.1.7 is the ai.dev live check below, which restarts `mineru41` in the
-middle of a job and expects the job to succeed, not fail.
+middle of a job and expects the job to succeed, not fail. On 2026-11-09 it did succeed.
 
 `MINERU_JOB_TIMEOUT_MS` is the clock of one attempt: it starts with the attempt and is enforced
 while the task is polled (the transfers have their own, `MINERU_TRANSFER_TIMEOUT_MS`). At the
@@ -386,14 +388,19 @@ shows for it; Retry is still offered) and the timeout's sentence as the stored m
 
 ### The cutover window and the old server
 
-Moving from 4.0.12 to 4.1 is a flip of one live setting, not a restart. The two servers run side by
-side (4.1.7 on a new unit and port, 4.0.12 where it was), and each app switches by setting
-`MINERU_API_URL` in its `admin_config` (Settings → System → Integrations & keys, or `PUT
-/api/admin/config`), which applies on the next extraction. The runbook and the rollback are in
-[deploy/README.md](../deploy/README.md#cutting-over-to-41-and-rolling-back).
+The move from 4.0.12 to 4.1 was a change of one setting, `MINERU_API_URL`, made while the two
+servers ran side by side (4.1.7 on a new unit and port, 4.0.12 where it was). Changed on the admin
+screen (Settings → System → Integrations & keys) or through `PUT /api/admin/config`, the setting
+applies on the next extraction, with no restart. A row written straight into `admin_config` is read
+only at startup, so a switch made that way needs a restart: that is how both apps were switched on
+2026-11-09, because the PUT route needs an admin session. The 4.0 servers were retired and deleted
+that evening, so one MinerU, 4.1.7, remains. The record of the cutover, and the rollback that is
+possible now, are in
+[deploy/README.md](../deploy/README.md#cutting-over-to-41-and-rolling-back). What follows is how the
+app behaves when the server on the end of the URL speaks the other protocol, which still holds.
 
-The app has to survive the seconds between "this release is deployed" and "the URL is flipped".
-**MinerU 4.0.12 also serves a `/v1/tasks` of its own**, an
+The app has to survive the seconds between "this release is deployed" and "the URL is changed", and
+it does. **MinerU 4.0.12 also serves a `/v1/tasks` of its own**, an
 older API with the same path, so an old server is not a 404: it answers a 4.1 manifest with an HTTP
 400 whose error object carries a `type` (read from the installed 4.0.12 source; the test doubles
 for these bodies are derived from it, not captured). 4.1 never sends one (none of the 128 error
@@ -406,24 +413,26 @@ service could not be reached.", no attempt spent) and finish by themselves once 
 4.1, provided that happens within the outage window (30 minutes by default,
 `DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS`): after it they fail as `unavailable` and need a Retry.
 
-**A rollback has the mirror order, and the order is mandatory:** set `MINERU_API_URL` back to the
-4.0.12 server first (the 4.1 release then waits out 4.0.12 like any outage), and only then deploy the
-previous release. The previous release has no guard against 4.1: pointed at `:8004` it reads 4.1's
-FastAPI 404 (`{"detail":"Not Found"}` for `POST /v1/uploads`) as a permanent error (`protocol`, not
-retryable, rule `fallback:4xx`) and fails every document it sends there, each needing a manual Retry.
-So never re-point `current` to a release older than the 4.1 one while `MINERU_API_URL` still names
-`:8004`. `scripts/deploy.sh`'s own automatic rollback, after a failed health check at a cutover,
-runs before the URL is flipped, so it is safe. The runbook is in
-[deploy/README.md](../deploy/README.md#cutting-over-to-41-and-rolling-back).
+**A rollback has the mirror order, and the order is mandatory.** There is no 4.0.12 server any more,
+so a rollback starts with running one again (the rebuild is in
+[deploy/README.md](../deploy/README.md#cutting-over-to-41-and-rolling-back), step 4). Then set
+`MINERU_API_URL` back to the 4.0.12 server (the 4.1 release then waits out 4.0.12 like any outage),
+and only then deploy the previous release. The previous release has no guard against 4.1: pointed at
+`:8004` it reads 4.1's FastAPI 404 (`{"detail":"Not Found"}` for `POST /v1/uploads`) as a permanent
+error (`protocol`, not retryable, rule `fallback:4xx`) and fails every document it sends there, each
+needing a manual Retry. So never re-point `current` to a release older than the 4.1 one while
+`MINERU_API_URL` still names `:8004`. `scripts/deploy.sh`'s own automatic rollback, after a failed
+health check, goes back to the release that was running, a 4.1 release from now on, so it is safe.
+In practice: fix forward on 4.1.
 
 The capability read catches it earlier: a health answer with a 4.0.x version is `reachable: false`
 with the version kept. The admin card says "runs MinerU 4.0.12, which speaks the old protocol. This
 app needs MinerU 4.1 or newer: point MINERU_API_URL at a 4.1 server.", Diagnostics shows
 `document_extraction` degraded and says the server speaks the old protocol, and the cached answer
-belongs to the origin it was read from, so the flip is seen on the next probe, without a restart. Rule R14 of
-[the build log](plans/mineru-4-1/build-log.md) rests on 4.1 error bodies never carrying `type`; the
-upgrade checklist in [deploy/README.md](../deploy/README.md#upgrading-mineru) re-checks that on
-every MinerU upgrade.
+belongs to the origin it was read from, so a changed URL is seen on the next probe, with no restart of
+its own. Rule R14 of [the build log](plans/mineru-4-1/build-log.md) rests on 4.1 error bodies never
+carrying `type`; the upgrade checklist in [deploy/README.md](../deploy/README.md#upgrading-mineru)
+re-checks that on every MinerU upgrade.
 
 Parse bundles are derived data — they can always be regenerated by re-extracting the source document
 — and are excluded from the account data archive

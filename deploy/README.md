@@ -248,12 +248,14 @@ normal deploy, just aimed backward. `scripts/deploy.sh` does this automatically 
 post-cutover health check fails. The last 3 releases are always retained so a manual rollback target
 is always available.
 
-**A rollback that crosses the MinerU 4.1 release has a mandatory order.** Set `MINERU_API_URL` back
-to the 4.0.12 server first, and only then re-point `current` at a release older than the 4.1 one:
-that release has no guard against a 4.1 server and fails every document it sends there, each needing
-a manual Retry (the reason, and the whole runbook, are in
-[Cutting over to 4.1 and rolling back](#cutting-over-to-41-and-rolling-back)). `deploy.sh`'s own
-automatic rollback runs before the URL is flipped, so it is safe.
+**A rollback that crosses the MinerU 4.1 release needs a 4.0.12 server again, and has a mandatory
+order.** The release before it (`ed57ce793`), and any older one, has no guard against a 4.1 server
+and fails every document it sends there, each needing a manual Retry. There is no 4.0.12 server on
+the box any more, so one has to be rebuilt first, then `MINERU_API_URL` set back to it, and only then
+`current` re-pointed at that release (the steps, and the reason, are in
+[Cutting over to 4.1 and rolling back](#cutting-over-to-41-and-rolling-back), step 4). In practice:
+fix forward on 4.1. `deploy.sh`'s own automatic rollback, after a failed health check, goes back to
+the release that was running, which from the 4.1 release on is a 4.1 release, so it is safe.
 
 **Migration ordering — expand/contract.** `db:prepare` runs against the shared database *before*
 the symlink flip, so for the interval between migrating and restarting, the still-running old code
@@ -555,24 +557,29 @@ Post-deploy checks:
 
 Uploaded documents are parsed by a MinerU service that the app reaches through `MINERU_API_URL`, a
 live admin setting (Settings → System → Integrations & keys, or `PUT /api/admin/config`; it applies
-on the next extraction, no restart). The app needs **MinerU 4.1 or newer**. How it talks to the
-service (the protocol, tiers, restarts, the old-server rule) is in
+on the next extraction, no restart). A row written straight into `admin_config` is not live: the app
+reads its config at startup and after an admin save, so a row written by SQL needs a drain and a
+restart before it counts (step 3 below did exactly that). The app needs **MinerU 4.1 or newer**. How
+it talks to the service (the protocol, tiers, restarts, the old-server rule) is in
 [docs/uploads.md](../docs/uploads.md); this section is the box.
 
 ### The services
 
 | Service | Runs | Listens on | Role |
 |---|---|---|---|
-| `mineru41.service` | MinerU 4.1.7 | `127.0.0.1:8004` | the server each app calls from the moment its `MINERU_API_URL` is set to `http://127.0.0.1:8004` (steps 2 and 3 below) |
-| `mineru4.service` | MinerU 4.0.12 | `127.0.0.1:8002` | the server both apps call until that flip; then the rollback for a week, after which it is disabled |
-| `mineru4-dev.service` | MinerU 4.0.6, basic tier, CPU only | `127.0.0.1:8003` | "MinerU 4.x DEV API server"; neither app calls it. It retires with 4.0.12 (step 5) |
-| `mineru-openai-server` | the vision-language model | `127.0.0.1:30001` | a **Docker container, not a systemd unit** (`systemctl` does not know it); the MinerUs call it for the Standard tier (`--vlm-server-url`) |
+| `mineru41.service` | MinerU 4.1.7 | `127.0.0.1:8004` | the MinerU server: both apps (production and ai.dev) call it, through `MINERU_API_URL` in their `admin_config` |
+| `mineru-openai-server` | the vision-language model | `127.0.0.1:30001` | a **Docker container, not a systemd unit** (`systemctl` does not know it); `mineru41` calls it for the Standard tier (`--vlm-server-url`) |
 
-Until its flip an app calls `http://127.0.0.1:8002`, the 4.0.12 server, which this release cannot
-use (its documents wait for it, see [docs/uploads.md](../docs/uploads.md#the-cutover-window-and-the-old-server)),
-so the flip is part of deploying this release.
+Two more units ran here until 2026-11-09 and are gone: `mineru4.service` (MinerU 4.0.12,
+`127.0.0.1:8002`), the server both apps called before the cutover, and `mineru4-dev.service`
+(MinerU 4.0.6, basic tier, CPU only, `127.0.0.1:8003`, "MinerU 4.x DEV API server"), which neither
+app called. They were stopped and disabled at about 22:40 UTC that day, a week earlier than planned
+and on the owner's word, after checking that nothing had called them since the flip, and deleted
+with their installs at about 22:55 UTC, again on the owner's word (step 5 below). No MinerU server
+listens on `:8002` or `:8003` now and `systemctl` knows neither unit, so a health check or a note
+that still names `:8002` is out of date: the address is `:8004`.
 
-The first three are systemd units in `/etc/systemd/system/`. The VLM server is the container
+`mineru41.service` is a systemd unit in `/etc/systemd/system/`. The VLM server is the container
 `mineru-openai-server`: image `mineru:latest`, built locally from `mineru-docker/Dockerfile`; compose
 project `alfyai` in `/home/alfyws/opt/alfyai` (`docker-compose.yml`); restart policy `always`; published as
 `127.0.0.1:30001` for the container's 30000/tcp. Its health check is
@@ -580,27 +587,28 @@ project `alfyai` in `/home/alfyws/opt/alfyai` (`docker-compose.yml`); restart po
 `docker restart mineru-openai-server`. **Never remove the `mineru:latest` image or its Dockerfile:**
 the VLM server is built from them.
 
-**Every MinerU service here (`mineru41`, `mineru4`, `mineru4-dev`) passes `--api-key` on its command
-line** (4.1.7 has no environment fallback for it), so what `systemctl status` and `ps` print for them
-holds the key: **never run either unfiltered on them.** The safe checks, for each:
-`systemctl is-active <unit>`, `curl -s http://127.0.0.1:<port>/v1/health` (8004, 8002, 8003; health is
-public) and `journalctl -u <unit> -n 50`. The journal of `mineru41` was checked and holds no key; read
-another unit's before pasting it anywhere.
+**`mineru41` passes `--api-key` on its command line** (4.1.7 has no environment fallback for it), so
+what `systemctl status` and `ps` print for it holds the key: **never run either unfiltered on it.**
+The safe checks: `systemctl is-active mineru41`, `curl -s http://127.0.0.1:8004/v1/health` (health is
+public) and `journalctl -u mineru41 -n 50`. The journal of `mineru41` was checked and holds no key.
 
-`mineru41.service` is `/etc/systemd/system/mineru41.service`, enabled, copied from
-`mineru4.service`; its header comment holds the steps to remove it. What it sets:
+`mineru41.service` is `/etc/systemd/system/mineru41.service`, enabled. It was copied from
+`mineru4.service`, which is gone. Its header comment holds the steps to remove it and still
+mentions "beside 4.0.12": it was written before the retirement and has not been edited since. What
+it sets:
 
 - The venv `/home/alfydesign/apps/mineru4/.venv-4.1.7` (`mineru[torch]==4.1.7`, Python 3.12.15; 4.1
   needs Python 3.11 to 3.14), `MINERU_HOME=/home/alfydesign/m41p` and the upload directory
   `/home/alfydesign/apps/mineru4/uploads-41`. Two servers must not share an upload directory (it
-  holds a lock), which is why the old unit's directory is not reused.
+  holds a lock): a second unit, such as one installed beside this one for an upgrade, needs its own.
 - `ExecStart` is `mineru-kit api-server --host 127.0.0.1 --port 8004 --tier standard --concurrency 4
   --vlm-server-url http://127.0.0.1:30001/v1 --api-key ${MINERU4_API_KEY}` plus `--upload-dir`; the
   unit runs on GPU 1 (`CUDA_VISIBLE_DEVICES=1`) with `MemoryMax=32G`. `--tier standard` makes
   `/v1/tiers` report flash, basic and standard, and no `advanced`.
 - `EnvironmentFile=/home/alfydesign/apps/mineru4/mineru4.env` holds `MINERU4_API_KEY`, the key
   both apps already send as `MINERU_API_KEY`; the unit expands it into `--api-key` (see the
-  warning above). `mineru4.service` reads the same file.
+  warning above). The file kept the old unit's name: `mineru4.service` read it too until it was
+  retired.
 - Telemetry is off three ways. A fresh 4.1 install defaults to enabled, in `doclib.db` under
   `MINERU_HOME`; that file was seeded with `telemetry_state=disabled`, `state_source=user` before the
   first start, and the unit sets `MINERU_TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1` and
@@ -619,59 +627,86 @@ from cold), the first Basic one about 10 s on top of that.
 
 ### Cutting over to 4.1 and rolling back
 
-The two servers run side by side and each app moves by changing its own `MINERU_API_URL`; the
-previous release and the old server stay available for a rollback, which has a mandatory order
-(step 4) ([plan](../docs/plans/mineru-4-1/client-spec.md) §6).
+The cutover was done on 2026-11-09, ai.dev first and production right after, and the 4.0 side was
+retired and deleted the same evening, a week earlier than planned. Steps 1 to 3 are the dated record
+of what was done, step 4 is the rollback that is possible now, and step 5 is the record of the
+clean-up ([plan](../docs/plans/mineru-4-1/client-spec.md) §6; the numbers of the checks are in the
+[build log](../docs/plans/mineru-4-1/build-log.md#shipped-and-retired-2026-11-09)). For the next MinerU
+upgrade, use "Upgrading MinerU", below.
 
-1. `mineru41.service` up on :8004, health 200, one synthetic parse through it with curl. On
-   2026-11-09 it reported 4.1.7 with tiers flash, basic and standard, and parsed the spike's
-   synthetic paper PDF in 10.9 s from cold (create, PUT, poll, download of the one ZIP).
-2. ai.dev: deploy the release, then set its `MINERU_API_URL` to `http://127.0.0.1:8004` and run the
-   live checks of [Verifying a deployment](../docs/uploads.md#verifying-a-deployment): the sweep
-   script, then by hand a cancel, a HEIC photo of a page (the sweep has no row for one; its text has
-   to be read) and `systemctl restart mineru41` in the middle of a job (the job has to recover by
-   creating the task again, not fail). Uploads from a script need the `Origin` header. Read the
-   app's error journal afterwards.
-3. Production: the release gate green on the exact commit; push that SHA to `main`, deploy with
-   `scripts/deploy.sh`, then set production's `MINERU_API_URL` to `http://127.0.0.1:8004` straight
-   away. Jobs that start in the seconds between the two steps meet the old server and wait, and
-   finish once the URL points at 4.1. That wait is bounded by the outage window (30 minutes by
-   default, `DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS`): a document still waiting when it ends fails as
-   `unavailable` and needs a Retry. Check the release link, the service, health and one real upload.
-4. **Rollback, in this order only:** first set `MINERU_API_URL` back to `http://127.0.0.1:8002`
-   (4.0.12 is still running), then deploy the previous release. **The order is mandatory.** With the
-   URL back on :8002 first, the 4.1 release waits out 4.0.12 like any outage (jobs in between wait
-   in the same way, under the same 30-minute bound). The previous release has no guard against 4.1:
-   pointed at :8004 it reads 4.1's FastAPI 404 (`{"detail":"Not Found"}` for `POST /v1/uploads`) as
-   a permanent error (`protocol`, not retryable) and fails every document it sends there, each
-   needing a manual Retry. So never re-point `current` to a release older than the 4.1 one while
-   `MINERU_API_URL` still names :8004. `scripts/deploy.sh`'s own automatic rollback, which runs
-   when the health check after a cutover fails, happens before the URL is flipped, so it is safe.
-5. A week of stable production later, and only with the owner's OK, retire the 4.0 side. **Type
-   each full path; never a glob such as `.venv*` or `m4*`:** `.venv`, `.venv-4.0.12` and
-   `.venv-4.1.7` share one directory, and `m4`, `m4p12`, `m4prod`, `m41s` and `m41p` look alike.
-   - Stop and disable the services: `systemctl disable --now mineru4.service` (4.0.12) and
-     `systemctl disable --now mineru4-dev.service` (4.0.6, the dev server). The dev server's own
-     removal commands are in `/home/alfydesign/apps/mineru4-dev/SWITCH.md`; its `MINERU_HOME` is
-     `/home/alfydesign/m4` and its environment file `/home/alfydesign/apps/mineru4-dev/mineru4-dev.env`.
-   - Remove the spike leftovers: `/root/mineru41-spike`, `/home/alfydesign/apps/mineru4/uploads-4.1.7`,
-     `/home/alfydesign/m41s` and `/home/alfydesign/apps/mineru4/mineru41-spike.env`.
-   - The 4.0.x installs are removable with 4.0.12, again on the owner's word, not before: 4.0.12's
-     venv `/home/alfydesign/apps/mineru4/.venv-4.0.12` and home `/home/alfydesign/m4p12` (the rollback
-     for the week: keep the venv until the owner says otherwise), and 4.0.6's venv
-     `/home/alfydesign/apps/mineru4/.venv` and home `/home/alfydesign/m4prod`, which
-     `mineru4.service`'s own header keeps "untouched" as 4.0.6's rollback.
-   - **Never remove** what belongs to the live `mineru41` unit: `/home/alfydesign/apps/mineru4/.venv-4.1.7`,
-     `/home/alfydesign/m41p`, `/home/alfydesign/apps/mineru4/uploads-41`, and
-     `/home/alfydesign/apps/mineru4/mineru4.env` (the one key file both `mineru41` and `mineru4`
-     read: it stays when `mineru4.service` goes). Nor the `mineru:latest` image (above).
+1. `mineru41.service` was brought up on :8004, health 200, and one synthetic parse was run through it
+   with curl. On 2026-11-09 it reported 4.1.7 with tiers flash, basic and standard, and parsed the
+   spike's synthetic paper PDF in 10.9 s from cold (create, PUT, poll, download of the one ZIP).
+2. ai.dev, 2026-11-09: the release candidate `02a2ebbaf` was deployed and its `MINERU_API_URL` set
+   to `http://127.0.0.1:8004`, then the live checks of
+   [Verifying a deployment](../docs/uploads.md#verifying-a-deployment) ran: the sweep's cases and,
+   outside the sweep, a cancel, a re-extract and `systemctl restart mineru41` in the middle of a job
+   (the job recovered by creating the task again, as designed). 28 of 30 passed; the two misses were the
+   sweep's own wrong expectation for csv and tsv, since fixed. The final release `e5a4db61a` was
+   deployed next (the URL stayed) and a second round passed 9 of 9, a HEIC photo of a page among
+   them (its text was read). Uploads from a script need the `Origin` header. The app's journal held
+   nothing unexpected.
+3. Production, 2026-11-09: the release gate was green on the exact commit (`e5a4db61a`); that SHA was
+   pushed to `main`, `scripts/deploy.sh` deployed it (about 22:32 UTC), and production's
+   `MINERU_API_URL` was set to `http://127.0.0.1:8004` straight away (about 22:36 UTC). Jobs that
+   started in the seconds between the two steps would have met the old server and waited, bounded by
+   the outage window (30 minutes by default, `DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS`); none did. The
+   release link, the service and health were checked, and the owner uploaded a PDF and a HEIC photo:
+   both came back right.
+   - How the URL was flipped, on both sites: a SQL `UPDATE` of the `admin_config` row (run as
+     `alfydesign`, `updated_by` `mineru41-cutover`) and a restart of the app, not a change on the
+     admin screen. `PUT /api/admin/config` needs an admin session, and the app reads its config at
+     startup. Production was drained first (`POST /api/admin/drain` with the signing key, 0 replies
+     running, then `systemctl restart langflow-chat`; health was OK 3 s later); ai.dev's
+     `langflow-chat-dev` was restarted directly.
+4. **Rollback today, in this order only.** There is no 4.0 server any more. Rolling the app back to
+   `ed57ce793`, the release before the 4.1 one, starts with building one again: a new venv with
+   `mineru[torch]==4.0.12`, its models, the 4.0 telemetry pre-seed and a unit on `127.0.0.1:8002`
+   that reads the key in `mineru4.env`. Then set `MINERU_API_URL` back to `http://127.0.0.1:8002`,
+   and only then deploy the previous release. **The order is mandatory.** With the URL back on :8002
+   first, the 4.1 release waits out 4.0.12 like any outage (jobs in between wait in the same way,
+   under the same 30-minute bound). The previous release has no guard against 4.1: pointed at :8004
+   it reads 4.1's FastAPI 404 (`{"detail":"Not Found"}` for `POST /v1/uploads`) as a permanent error
+   (`protocol`, not retryable) and fails every document it sends there, each needing a manual Retry.
+   So never re-point `current` to a release older than the 4.1 one while `MINERU_API_URL` still names
+   :8004. `scripts/deploy.sh`'s own automatic rollback, which runs when the health check after a
+   deploy fails, goes back to the release that was running, a 4.1 release from now on, so it is safe.
+   In practice: fix forward on 4.1. The app keeps its handling of an old server (an error body that
+   carries `error.type` reads as one: unavailable, retried), which is harmless without one.
+5. **The 4.0 side was retired and deleted the same evening**, a week earlier than the plan, each
+   step on the owner's word. **Every path was typed in full, never a glob such as `.venv*` or
+   `m4*`:** `.venv`, `.venv-4.0.12` and `.venv-4.1.7` share one directory, and `m4`, `m4p12`,
+   `m4prod`, `m41s` and `m41p` look alike. The deletion ran with both units inactive and after
+   checking that no path to delete is, or contains, a path that stays. Keep that rule for any later
+   clean-up.
+   - About 22:40 UTC, once the owner's PDF and HEIC photo had come back right on production, the 4.0
+     units were stopped and disabled. Checks first: both apps' `admin_config` named :8004, neither
+     app's `shared/.env` set `MINERU_API_URL`, no connection to :8002 or :8003 was open, nothing had called
+     `mineru4` since the production flip and nothing had called `mineru4-dev` in two hours. Then
+     `systemctl disable --now mineru4.service mineru4-dev.service`: both inactive and disabled, no
+     listener on :8002 or :8003, `mineru41` health 200, both apps healthy.
+   - About 22:55 UTC, deleted (about 17.4 GB), then `systemctl daemon-reload` and `reset-failed`:
+     - the spike leftovers: `/root/mineru41-spike`, `/home/alfydesign/apps/mineru4/uploads-4.1.7`,
+       `/home/alfydesign/m41s` and `/home/alfydesign/apps/mineru4/mineru41-spike.env`;
+     - 4.0.6: the dev server (`/home/alfydesign/apps/mineru4-dev`, its home `/home/alfydesign/m4`
+       and its unit file `/etc/systemd/system/mineru4-dev.service`) and production's earlier install
+       (`/home/alfydesign/apps/mineru4/.venv` and `/home/alfydesign/m4prod`);
+     - 4.0.12: `/home/alfydesign/apps/mineru4/.venv-4.0.12`, `/home/alfydesign/m4p12`,
+       `/home/alfydesign/apps/mineru4/uploads`, `/etc/systemd/system/mineru4.service` and
+       `/root/mineru-upgrade`.
+   - **Never remove** what belongs to the live `mineru41` unit, all of which was present after the
+     clean-up: `/home/alfydesign/apps/mineru4/.venv-4.1.7`, `/home/alfydesign/m41p`,
+     `/home/alfydesign/apps/mineru4/uploads-41` and `/home/alfydesign/apps/mineru4/mineru4.env` (the
+     key file, which kept the old unit's name), and the directory `/home/alfydesign/apps/mineru4`
+     that holds them. Nor the `mineru:latest` image and the `mineru-openai-server` container
+     (above): the clean-up did not touch them.
    - The spike report's "Removal later (not done): `rm -rf` of those four paths"
      ([spike report](../docs/plans/mineru-4-1/spike-report.md) §1: the venv, the spike's
-     `MINERU_HOME`, its env file and its working folder) predates the production unit. The venv in
-     that list, `/home/alfydesign/apps/mineru4/.venv-4.1.7`, is now `mineru41.service`'s: do not
-     follow that line, use the list above.
-   - `scripts/images/measure.ts` watches whichever of `mineru41` and `mineru4` is active, so it
-     needs no change when 4.0.12 goes.
+     `MINERU_HOME`, its env file and its working folder) is out of date. Three of the four went
+     with the leftovers above, and the fourth, the venv `/home/alfydesign/apps/mineru4/.venv-4.1.7`,
+     is `mineru41.service`'s: do not follow that line.
+   - `scripts/images/measure.ts` always probes `mineru41` and probes `mineru4` only while that unit
+     is active, so it needed no change when 4.0.12 went.
 
 ### Upgrading MinerU
 
