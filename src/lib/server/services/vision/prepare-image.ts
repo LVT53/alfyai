@@ -46,11 +46,17 @@ export type PreparedImage = {
  * `HEIF_MAX_PIXELS` throws its subclass `ImageTooLargeError` and a decode that
  * ran out of time `ImageDecodeTimeoutError`, as they are. `maxLongEdge` shrinks
  * it to fit, and never enlarges.
+ *
+ * `background` (a colour sharp can read, such as `#ffffff`) flattens the
+ * picture onto it, so the PNG has no alpha channel: the document reader asks
+ * for white, since a reader shown a transparent page of black text sees black on
+ * black. Without it transparency is kept, as it is for a preview or a picture
+ * the picture model is given.
  */
 export async function decodeImageToPng(
 	input: Uint8Array,
 	mimeType: string | null,
-	options: { maxLongEdge?: number } = {},
+	options: { maxLongEdge?: number; background?: string } = {},
 ): Promise<{
 	png: Buffer;
 	width: number;
@@ -59,14 +65,17 @@ export async function decodeImageToPng(
 }> {
 	try {
 		const upright = (await openForSharp(input, mimeType)).rotate();
+		const flat = options.background
+			? upright.flatten({ background: options.background })
+			: upright;
 		const fitted = options.maxLongEdge
-			? upright.resize({
+			? flat.resize({
 					width: options.maxLongEdge,
 					height: options.maxLongEdge,
 					fit: "inside",
 					withoutEnlargement: true,
 				})
-			: upright;
+			: flat;
 		const { data, info } = await fitted
 			.png()
 			.toBuffer({ resolveWithObject: true });

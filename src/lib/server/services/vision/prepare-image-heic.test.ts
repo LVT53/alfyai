@@ -31,6 +31,35 @@ async function pixelAt(
 	return Array.from(data.subarray(offset, offset + info.channels));
 }
 
+/** The picture's colour channels alone, whatever channels it has. */
+async function rgbOf(png: Uint8Array): Promise<Buffer> {
+	return sharp(png).removeAlpha().raw().toBuffer();
+}
+
+describe("a HEIC photo through decodeImageToPng", () => {
+	it("gives the same PNG every time, whichever worker decoded it, and the same colours with or without a background", async () => {
+		const options = { maxLongEdge: 1024 } as const;
+		const [first, second, plain] = await Promise.all([
+			decodeImageToPng(photoGrid, "image/heic", {
+				...options,
+				background: "#ffffff",
+			}),
+			decodeImageToPng(photoGrid, "image/heic", {
+				...options,
+				background: "#ffffff",
+			}),
+			decodeImageToPng(photoGrid, "image/heic", options),
+		]);
+
+		expect(Buffer.compare(first.png, second.png)).toBe(0);
+		expect(first.hasAlpha).toBe(false);
+		expect([first.width, first.height]).toEqual([1024, 768]);
+		expect(Buffer.compare(await rgbOf(first.png), await rgbOf(plain.png))).toBe(
+			0,
+		);
+	});
+});
+
 describe("a transparent HEIC page", () => {
 	const corners = (width: number, height: number) => [
 		[0, 0],
@@ -38,6 +67,22 @@ describe("a transparent HEIC page", () => {
 		[0, height - 1],
 		[width - 1, height - 1],
 	];
+
+	it("comes out on white for the document reader, its text still dark", async () => {
+		const out = await decodeImageToPng(transparentPage, "image/heic", {
+			background: "#ffffff",
+		});
+
+		expect([out.width, out.height]).toEqual([800, 600]);
+		expect(out.hasAlpha).toBe(false);
+		expect((await sharp(out.png).metadata()).hasAlpha).toBe(false);
+		for (const [x, y] of corners(out.width, out.height)) {
+			expect(await pixelAt(out.png, x, y)).toEqual([255, 255, 255]);
+		}
+		// The stem of the "I" of "Invoice".
+		const [red, green, blue] = await pixelAt(out.png, 80, 200);
+		expect(Math.max(red, green, blue)).toBeLessThan(40);
+	});
 
 	it("keeps its alpha when no background is asked for", async () => {
 		const out = await decodeImageToPng(transparentPage, "image/heic");
