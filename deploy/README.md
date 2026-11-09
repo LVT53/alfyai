@@ -248,6 +248,13 @@ normal deploy, just aimed backward. `scripts/deploy.sh` does this automatically 
 post-cutover health check fails. The last 3 releases are always retained so a manual rollback target
 is always available.
 
+**A rollback that crosses the MinerU 4.1 release has a mandatory order.** Set `MINERU_API_URL` back
+to the 4.0.12 server first, and only then re-point `current` at a release older than the 4.1 one:
+that release has no guard against a 4.1 server and fails every document it sends there, each needing
+a manual Retry (the reason, and the whole runbook, are in
+[Cutting over to 4.1 and rolling back](#cutting-over-to-41-and-rolling-back)). `deploy.sh`'s own
+automatic rollback runs before the URL is flipped, so it is safe.
+
 **Migration ordering — expand/contract.** `db:prepare` runs against the shared database *before*
 the symlink flip, so for the interval between migrating and restarting, the still-running old code
 sees the new schema, and a rollback runs the old code against the already-migrated database. Both
@@ -613,8 +620,8 @@ from cold), the first Basic one about 10 s on top of that.
 ### Cutting over to 4.1 and rolling back
 
 The two servers run side by side and each app moves by changing its own `MINERU_API_URL`; the
-previous release and the old server stay one flip away
-([plan](../docs/plans/mineru-4-1/client-spec.md) §6).
+previous release and the old server stay available for a rollback, which has a mandatory order
+(step 4) ([plan](../docs/plans/mineru-4-1/client-spec.md) §6).
 
 1. `mineru41.service` up on :8004, health 200, one synthetic parse through it with curl. On
    2026-11-09 it reported 4.1.7 with tiers flash, basic and standard, and parsed the spike's
@@ -630,10 +637,18 @@ previous release and the old server stay one flip away
    finish once the URL points at 4.1. That wait is bounded by the outage window (30 minutes by
    default, `DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS`): a document still waiting when it ends fails as
    `unavailable` and needs a Retry. Check the release link, the service, health and one real upload.
-4. **Rollback:** set `MINERU_API_URL` back to `http://127.0.0.1:8002` (4.0.12 is still running) and
-   deploy the previous release. Jobs in between wait in the same way, under the same 30-minute
-   bound.
-5. A week of stable production later, and only with the owner's OK, retire the 4.0 side:
+4. **Rollback, in this order only:** first set `MINERU_API_URL` back to `http://127.0.0.1:8002`
+   (4.0.12 is still running), then deploy the previous release. **The order is mandatory.** With the
+   URL back on :8002 first, the 4.1 release waits out 4.0.12 like any outage (jobs in between wait
+   in the same way, under the same 30-minute bound). The previous release has no guard against 4.1:
+   pointed at :8004 it reads 4.1's FastAPI 404 (`{"detail":"Not Found"}` for `POST /v1/uploads`) as
+   a permanent error (`protocol`, not retryable) and fails every document it sends there, each
+   needing a manual Retry. So never re-point `current` to a release older than the 4.1 one while
+   `MINERU_API_URL` still names :8004. `scripts/deploy.sh`'s own automatic rollback, which runs
+   when the health check after a cutover fails, happens before the URL is flipped, so it is safe.
+5. A week of stable production later, and only with the owner's OK, retire the 4.0 side. **Type
+   each full path; never a glob such as `.venv*` or `m4*`:** `.venv`, `.venv-4.0.12` and
+   `.venv-4.1.7` share one directory, and `m4`, `m4p12`, `m4prod`, `m41s` and `m41p` look alike.
    - Stop and disable the services: `systemctl disable --now mineru4.service` (4.0.12) and
      `systemctl disable --now mineru4-dev.service` (4.0.6, the dev server). The dev server's own
      removal commands are in `/home/alfydesign/apps/mineru4-dev/SWITCH.md`; its `MINERU_HOME` is
