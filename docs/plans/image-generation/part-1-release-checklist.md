@@ -35,7 +35,7 @@ What to check, do and decide before part 1 ships. The design is [`design.md`](./
 
 ## Follow-ups
 
-- HEIC decoding blocks the event loop, about 0.8 s for a 12 MP photo. The cheap mitigation is to hand heic-decode's raw RGBA straight to sharp. A worker thread if that is not enough.
+- HEIC decoding blocks the event loop: measured later at 1.2 to 1.8 s for a 12 MP photo (half of it heic-convert's pure-JS JPEG step) and about 6 s with a memory peak of 1.6 GB for a 48 MP one, where this first said about 0.8 s. The cheap mitigation is to hand heic-decode's raw RGBA straight to sharp. A worker thread if that is not enough.
 - Record usage for the description call before any paid cloud model is ticked "Can see images". Today its spend is not recorded.
 - Label each image part ("Picture N: name"). This is the first task of part 2's plan.
 - Attempt-aware connector gates. This gap was there before part 1. The text of a connector tool result (photo file names and places, and every other connector's) on a failover attempt is gated for the model the turn started on, not for the attempt's own. It can happen on a plain-loop failover after tools ran, and on a stream whose primary fails before its first output. Fix it before Option A is relied on with a cloud failover target. The code is in `normal-chat-tools/connector-distill.ts`, `normal-chat-tools/index.ts` and `chat-turn/shared-normal-chat-model-run-helpers.ts`.

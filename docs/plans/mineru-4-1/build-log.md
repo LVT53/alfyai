@@ -95,9 +95,13 @@ client is given, S7) and the TIFF probe under S3. Everything else is for the ai.
 - **HEIC and HEIF** were routed to MinerU, which no 4.x release this project ran accepts. Decided: the fix ships with 4.1
   (R21), the guard follows the new registry reading and its list of known exceptions is empty. Nothing of this has met a
   real 4.1.7: the fake server is held to the captures, as for everything else, and the sweep has no HEIC row (a HEIC photo
-  of a page by hand at the ai.dev run, cutover step 2). The conversion runs in the app's own process, on the calling thread
-  as vision's does (WebAssembly, about 0.8 s for a 12 MP photo on an Apple-silicon Mac, per `prepare-image.ts`), so a
-  backfill of many HEIC photos costs the app that decode as well as MinerU's time.
+  of a page by hand at the ai.dev run, cutover step 2). The conversion runs in the app's own process, on the server's main
+  thread as vision's does (WebAssembly). It costs more than `prepare-image.ts` once said (about 0.8 s for a 12 MP photo):
+  measured in the independent review of the fix, 1.2 to 1.8 s for a 12 MP photo, half of it heic-convert's pure-JS JPEG
+  step, and about 6 s with a memory peak of 1.6 GB for a 48 MP one. It happens again on every retry and every resume, since
+  nothing of the PNG outlives its attempt, so a backfill of many HEIC photos costs the app that decode as well as MinerU's
+  time. A worker-thread decode is the follow-up (with it: the decode after the capability read, without the JPEG step,
+  and a pixel cap read from the file before it is decoded).
 - **Re-reading old documents.** The backfill skips a document whose recorded tier is at or above the one requested (it
   re-reads only documents recorded below it, or with none), so it will not touch documents read by the 4.0 client
   (`mineru4/1`) at the requested tier; `POST .../reextract` with `{"tier": ..., "force": true}` does, one at a time.

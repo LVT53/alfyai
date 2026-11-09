@@ -42,9 +42,10 @@ export class ImagePreparationError extends Error {
 /**
  * An uploaded picture as a PNG for the picture server: upright (EXIF
  * orientation applied), first frame only, transparency kept. HEIC and HEIF take
- * the same hop through heic-convert as `prepareImageForModel`. Bytes it cannot
- * read throw `ImagePreparationError`. `maxLongEdge` shrinks it to fit, and never
- * enlarges.
+ * the same hop through heic-convert as `prepareImageForModel`, with the cost
+ * written there; the extraction runner calls this for every attempt, so a retry
+ * and a resume pay it again. Bytes it cannot read throw `ImagePreparationError`.
+ * `maxLongEdge` shrinks it to fit, and never enlarges.
  */
 export async function decodeImageToPng(
 	input: Uint8Array,
@@ -114,10 +115,13 @@ function isHeif(input: Uint8Array, mimeType: string | null): boolean {
  *
  * That libvips cannot decode HEVC either, so a HEIC or HEIF (found by its MIME
  * type or by the brand in its first bytes) takes a hop through heic-convert
- * first. That hop decodes in WebAssembly on the calling thread: about 0.8 s
- * for a 12 MP phone photo on an Apple-silicon Mac, against about 50 ms for
- * sharp. sharp keeps its strict defaults on purpose, because these bytes are an
- * upload: it fails on a damaged file and on one over 268 megapixels.
+ * first. That hop decodes in WebAssembly on the calling thread, which on the
+ * server is the main one: measured at 1.2 to 1.8 s for a 12 MP phone photo
+ * (half of it heic-convert's pure-JS JPEG step) and about 6 s with a memory
+ * peak of 1.6 GB for a 48 MP one, against about 50 ms for sharp. A
+ * worker-thread decode is the follow-up. sharp keeps its strict defaults on
+ * purpose, because these bytes are an upload: it fails on a damaged file and
+ * on one over 268 megapixels.
  */
 export async function prepareImageForModel(
 	input: Uint8Array,

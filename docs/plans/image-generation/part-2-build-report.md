@@ -640,7 +640,7 @@ Already checked here (read only, ai.dev): the vLLM unit has no `--limit-mm-per-p
 3. Attached pictures get only the passing "Looking at the image…" line, no lasting "Looked at the photo" row, which design 4.1 asked for. Accept that, or ask for the row?
 4. BMP pictures are not shown to the model (the image library cannot decode them). TIF and SVG are shown instead. Accept that?
 
-Still open there: measure on ai.dev whether the background description call slows the time to the first word, and what re-sending attached pictures on each tool step costs. Follow-ups listed there: HEIC decoding blocks the event loop (about 0.8 s for 12 MP); record usage for the description call before any paid cloud model is ticked "Can see images"; attempt-aware connector gates (fix before Option A is relied on with a cloud failover target).
+Still open there: measure on ai.dev whether the background description call slows the time to the first word, and what re-sending attached pictures on each tool step costs. Follow-ups listed there: HEIC decoding blocks the event loop (measured later at 1.2 to 1.8 s for 12 MP and about 6 s for 48 MP, where this first said about 0.8 s for 12 MP); record usage for the description call before any paid cloud model is ticked "Can see images"; attempt-aware connector gates (fix before Option A is relied on with a cloud failover target).
 
 ### Owner decisions and taste calls
 
