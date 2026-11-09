@@ -80,7 +80,7 @@ export const mineruHealthSchema = z.looseObject({
 		.optional(),
 });
 
-export const mineruTierSchema = z.looseObject({
+const mineruTierSchema = z.looseObject({
 	id: z.enum(MINERU_TIER_IDS),
 	description: z.string(),
 	/** `mineru-4.1.7` for every tier: it names the build, not a model. */
@@ -140,7 +140,7 @@ export const MINERU_TASK_STATUSES = [
 	"failed",
 	"canceled",
 ] as const;
-export type MineruTaskStatus = (typeof MINERU_TASK_STATUSES)[number];
+type MineruTaskStatus = (typeof MINERU_TASK_STATUSES)[number];
 
 /** A file has no `partial`: that is a task that holds a mix. */
 export const MINERU_FILE_STATUSES = [
@@ -169,7 +169,7 @@ export function isTerminalMineruTaskStatus(status: MineruTaskStatus): boolean {
  * Unix second the link stops working (creation plus an hour). Present only
  * while the file waits for bytes; a hash-cache hit never gets one.
  */
-export const mineruUploadLinkSchema = z.looseObject({
+const mineruUploadLinkSchema = z.looseObject({
 	url: z.string(),
 	headers: z.record(z.string(), z.string()).default({}),
 	expires_at: z.number().nullish(),
