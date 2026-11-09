@@ -290,14 +290,31 @@ function probeFailureToExtractionError(
 	});
 }
 
+/**
+ * A result the reader will not use, as the ledger's error.
+ *
+ * The reader's own message is for an operator: it names the zip entries it
+ * refused and quotes the JSON it choked on, which is a piece of the person's
+ * document. The sentence a person reads comes from the code, like every other
+ * failure of this extractor; the reader's words go to `details`, scrubbed and
+ * cut.
+ */
 function resultErrorToExtractionError(
 	error: MineruResultError,
+	apiKey: string,
 ): DocumentExtractionError {
 	return new DocumentExtractionError({
 		code: error.taxonomy,
-		message: error.message,
+		message: extractionErrorMessage(
+			error.taxonomy,
+			"MinerU returned a result this app could not read.",
+		),
 		retryable: error.retryable,
-		details: { mineruResultCode: error.code, ...error.details },
+		details: {
+			mineruResultCode: error.code,
+			...error.details,
+			rawMessage: forOperators(error.message, apiKey),
+		},
 		cause: error,
 	});
 }
@@ -817,7 +834,7 @@ export function createMineru4Extractor(
 					});
 				} catch (error) {
 					if (error instanceof MineruResultError) {
-						throw resultErrorToExtractionError(error);
+						throw resultErrorToExtractionError(error, config.apiKey);
 					}
 					throw error;
 				}
@@ -863,7 +880,7 @@ export function createMineru4Extractor(
 			): DocumentExtractionError {
 				if (error instanceof DocumentExtractionError) return error;
 				if (error instanceof MineruResultError) {
-					return resultErrorToExtractionError(error);
+					return resultErrorToExtractionError(error, config.apiKey);
 				}
 				if (isMineruApiError(error) && error.wrongProtocol) {
 					// The URL still points at the old server, or at a proxy in front of

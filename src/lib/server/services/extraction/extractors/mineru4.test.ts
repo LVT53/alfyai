@@ -28,6 +28,7 @@ import {
 } from "$lib/server/services/mineru/testing/fake-server";
 import { FILE_TYPE_ENTRIES } from "$lib/shared/file-types";
 import type {
+	DocumentExtractionError,
 	ExtractDocumentRequest,
 	ExtractionHandle,
 	ExtractionProgress,
@@ -1272,6 +1273,122 @@ describe("a hostile download", () => {
 			details: { mineruResultCode: "zip_entry_rejected" },
 		});
 		expect(await tempDirCount()).toBe(before);
+	});
+
+	describe("what the reader says about a result it will not use stays with the operator", () => {
+		// `error_message` is read by the send gate and by the Knowledge row. The
+		// reader's own messages name zip entries and quote the JSON they choked on,
+		// which is a piece of the person's document.
+
+		/** An attempt whose result download is a zip holding exactly `entries`. */
+		async function extractFromZip(
+			entries: Record<string, string>,
+		): Promise<DocumentExtractionError> {
+			await start();
+			const zip = new JSZip();
+			for (const [name, content] of Object.entries(entries)) {
+				zip.file(name, content);
+			}
+			const bytes = await zip.generateAsync({ type: "nodebuffer" });
+			const resolved = config(server.baseUrl);
+			const client = new MineruClient({ config: resolved });
+			vi.spyOn(client, "downloadFile").mockImplementation(async (input) => {
+				await writeFile(input.destinationPathAbsolute, bytes);
+				return { bytes: bytes.byteLength };
+			});
+			const { request } = await buildRequest();
+			return (await createMineru4Extractor({
+				resolveConfig: () => resolved,
+				createClient: () => client,
+				tempDirRoot: tempRoot,
+			})
+				.extract(request)
+				.catch((thrown) => thrown)) as DocumentExtractionError;
+		}
+
+		const PROTOCOL_SENTENCE =
+			"The document service sent a response this app could not use.";
+
+		it("an entry the reader refuses is explained in the details, not in the sentence", async () => {
+			const error = await extractFromZip({
+				"structured_content.json": JSON.stringify({
+					pages: [],
+					metadata: {},
+					extensions: {},
+				}),
+				"../escape.txt": "owned",
+			});
+
+			expect(error).toMatchObject({ code: "protocol", retryable: true });
+			expect(error.message).toBe(PROTOCOL_SENTENCE);
+			expect(error.message).not.toContain("escape");
+			expect(error.details).toMatchObject({
+				mineruResultCode: "zip_entry_rejected",
+			});
+			expect(error.details?.reason).toBeDefined();
+			expect(String(error.details?.rawMessage)).toContain("refused");
+		});
+
+		it("a structured_content.json that is not JSON does not quote the document", async () => {
+			const error = await extractFromZip({
+				"structured_content.json":
+					"SECRET-PARAGRAPH-OF-THE-PERSONS-DOCUMENT is not json {",
+			});
+
+			expect(error).toMatchObject({ code: "protocol", retryable: true });
+			expect(error.message).toBe(PROTOCOL_SENTENCE);
+			expect(error.message).not.toContain("SECRET");
+			expect(error.details?.mineruResultCode).toBe(
+				"structured_content_invalid",
+			);
+			// The operator keeps it, cut short.
+			expect(String(error.details?.rawMessage)).toContain("SECRET");
+			expect(String(error.details?.rawMessage).length).toBeLessThanOrEqual(301);
+		});
+
+		it("a result with nothing to read says what an empty document says", async () => {
+			const error = await extractFromZip({
+				"structured_content.json": JSON.stringify({
+					pages: [],
+					metadata: {},
+					extensions: {},
+				}),
+			});
+
+			expect(error).toMatchObject({ code: "empty_result", retryable: false });
+			expect(error.message).toContain("contains no readable text");
+			expect(error.message).not.toContain("renderable");
+			expect(error.details?.mineruResultCode).toBe("empty_result");
+			expect(String(error.details?.rawMessage)).toContain("renderable");
+		});
+
+		it("the api key is scrubbed from what the operator keeps", async () => {
+			// A result whose JSON starts with the key: the parser quotes the first ten
+			// characters of what it choked on, that quotation is the operator's line,
+			// and the credential does not belong in it.
+			await start({ apiKey: "sk-1234" });
+			const zip = new JSZip();
+			zip.file("structured_content.json", "sk-1234 is not JSON");
+			const bytes = await zip.generateAsync({ type: "nodebuffer" });
+			const resolved = config(server.baseUrl, { apiKey: "sk-1234" });
+			const client = new MineruClient({ config: resolved });
+			vi.spyOn(client, "downloadFile").mockImplementation(async (input) => {
+				await writeFile(input.destinationPathAbsolute, bytes);
+				return { bytes: bytes.byteLength };
+			});
+			const { request } = await buildRequest();
+			const error = (await createMineru4Extractor({
+				resolveConfig: () => resolved,
+				createClient: () => client,
+				tempDirRoot: tempRoot,
+			})
+				.extract(request)
+				.catch((thrown) => thrown)) as DocumentExtractionError;
+
+			expect(error.message).not.toContain("sk-1234");
+			expect(String(error.details?.rawMessage)).not.toContain("sk-1234");
+			expect(String(error.details?.rawMessage)).toContain("[redacted]");
+		});
 	});
 });
 
