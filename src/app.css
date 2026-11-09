@@ -980,10 +980,13 @@ body {
 	}
 }
 
-/* The ring on the control the guide's Show me points at (src/lib/actions/spotlight.ts).
+/* The ring on the control the guide's Show me points at (src/lib/actions/spotlight.ts),
+   and on the part of a guide drawing its hovered row points at (src/lib/components/drawings/):
+   one look, so a row and its Show me ring the same way.
    The shadow is !important: a two-second state has to show over the control's own
    shadow, an active tab's or its focus ring, however specific their rules are. */
-.spotlight-ring {
+.spotlight-ring,
+.drawing-spot-lit {
 	box-shadow:
 		0 0 0 2px var(--accent),
 		0 0 0 6px var(--accent-tint) !important;
