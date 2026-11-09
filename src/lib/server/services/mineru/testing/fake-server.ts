@@ -31,7 +31,7 @@
  * Control API (everything a test needs, and nothing that hides a bug):
  *
  * ```ts
- * const server = await createFakeMineruServer({ fixtureInput: "docx" });
+ * const server = await createFakeMineruServer({ parseDelayMs: 20 });
  * server.baseUrl;            // "http://127.0.0.1:<port>": feed it to MineruConfig
  * server.crossOriginBaseUrl; // same port, hostname "localhost": a FOREIGN origin
  * server.requests;           // every request, in order: method, path, json, headers
@@ -98,8 +98,9 @@ export function readMineruProtocolFixture<T = unknown>(
  * first download.
  *
  * Looked up in `fixtures/mineru-v41/protocol/zips/<name>.zip` (three 4.1
- * results: `pdf`, `docx`, `csv`), then in `fixtures/mineru-v1/<name>/` (the
- * 4.0.4 results for the other inputs, which the result parser reads the same).
+ * results: the PDF, the Word document and the CSV), then in
+ * `fixtures/mineru-v1/<name>/` (the 4.0.4 results for the other inputs, which the
+ * result parser reads the same).
  */
 export type FakeMineruFixtureInput = string;
 
@@ -109,8 +110,30 @@ const SERVER_VERSION = "4.1.7";
 const UPLOAD_TTL_SECONDS = 3600;
 const MAX_FILES_PER_TASK = 100;
 const MAX_FILE_NAME_LENGTH = 1024;
-const TASK_OUTPUT_FORMATS = ["default", "docx", "html", "latex"] as const;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+
+/**
+ * What a 4.1.7 server lists under `features` of `/v1/health`: the output
+ * formats it accepts for a task, and its sources. Read from the capture instead
+ * of retyped, so there is one record of it, and so this module names no file
+ * extension of its own.
+ */
+let recordedFeatures: {
+	task_output_formats: string[];
+	sources: string[];
+} | null = null;
+
+function serverFeatures(): {
+	task_output_formats: string[];
+	sources: string[];
+} {
+	recordedFeatures ??= readMineruProtocolFixture<{
+		response: {
+			json: { features: { task_output_formats: string[]; sources: string[] } };
+		};
+	}>("server/health_no_key.json").response.json.features;
+	return recordedFeatures;
+}
 
 /** What a file ends up as once its bytes are in and the parse has run. */
 export type FakeMineruFileOutcome =
@@ -757,7 +780,7 @@ export async function createFakeMineruServer(
 			"ocr_mode" in body &&
 			!(MINERU_OCR_MODES as readonly unknown[]).includes(body.ocr_mode)
 		) {
-			return failure("ocr_mode", "ocr_mode must be 'auto', 'txt' or 'ocr'");
+			return failure("ocr_mode", "ocr_mode is not one of the accepted modes");
 		}
 
 		if ("page_range" in body) {
@@ -783,10 +806,12 @@ export async function createFakeMineruServer(
 				);
 			}
 			for (const [index, format] of asked.entries()) {
-				if (!(TASK_OUTPUT_FORMATS as readonly unknown[]).includes(format)) {
+				if (
+					!(serverFeatures().task_output_formats as unknown[]).includes(format)
+				) {
 					return failure(
 						`output_formats.${index}`,
-						"Input should be 'default', 'docx', 'html' or 'latex'",
+						"Input should be one of the output formats the server lists",
 					);
 				}
 			}
@@ -813,8 +838,8 @@ export async function createFakeMineruServer(
 			version: SERVER_VERSION,
 			features: {
 				webhook: false,
-				task_output_formats: [...TASK_OUTPUT_FORMATS],
-				sources: ["upload", "url"],
+				task_output_formats: [...serverFeatures().task_output_formats],
+				sources: [...serverFeatures().sources],
 			},
 		});
 	}
