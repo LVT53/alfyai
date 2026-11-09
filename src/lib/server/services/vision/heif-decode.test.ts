@@ -156,6 +156,20 @@ function randomGenerator(seed: number): () => number {
 	};
 }
 
+/**
+ * What a promise rejected with. One that resolves fails the test without
+ * printing what it resolved to: a decoded photo is megabytes of pixels, and
+ * an assertion that prints them takes the test process's memory with it.
+ */
+async function rejection(promise: Promise<unknown>): Promise<unknown> {
+	try {
+		await promise;
+	} catch (error) {
+		return error;
+	}
+	throw new Error("expected the promise to reject, but it resolved");
+}
+
 describe("readHeifPixelCount", () => {
 	it("reads the size of a photo from its file", () => {
 		expect(readHeifPixelCount(tinyHeic)).toBe(64 * 42);
@@ -564,7 +578,7 @@ describe("decodeHeifToRgba", () => {
 
 		controller.abort(reason);
 
-		await expect(decoding).rejects.toBe(reason);
+		expect(await rejection(decoding)).toBe(reason);
 		// Its thread is stopped, not left to finish a photo nobody wants.
 		await worker.exited;
 	});
