@@ -369,8 +369,8 @@ side (4.1.7 on a new unit and port, 4.0.12 where it was), and each app switches 
 /api/admin/config`), which applies on the next extraction. The runbook and the rollback are in
 [deploy/README.md](../deploy/README.md#cutting-over-to-41-and-rolling-back).
 
-The app has to survive the seconds between "this release is deployed" and "the URL is flipped", and
-the same in reverse for a rollback. **MinerU 4.0.12 also serves a `/v1/tasks` of its own**, an
+The app has to survive the seconds between "this release is deployed" and "the URL is flipped".
+**MinerU 4.0.12 also serves a `/v1/tasks` of its own**, an
 older API with the same path, so an old server is not a 404: it answers a 4.1 manifest with an HTTP
 400 whose error object carries a `type` (read from the installed 4.0.12 source; the test doubles
 for these bodies are derived from it, not captured). 4.1 never sends one (none of the 128 error
@@ -380,7 +380,18 @@ old server" and not as an answer about the document. That failure is `unavailabl
 patient outage wait, the handle kept, logged as `MinerU answered in another protocol's voice`, and
 never mistaken for a forgotten id. Documents caught in the window wait `queued` ("The document
 service could not be reached.", no attempt spent) and finish by themselves once the URL points at
-4.1.
+4.1, provided that happens within the outage window (30 minutes by default,
+`DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS`): after it they fail as `unavailable` and need a Retry.
+
+**A rollback has the mirror order, and the order is mandatory:** set `MINERU_API_URL` back to the
+4.0.12 server first (the 4.1 release then waits out 4.0.12 like any outage), and only then deploy the
+previous release. The previous release has no guard against 4.1: pointed at `:8004` it reads 4.1's
+FastAPI 404 (`{"detail":"Not Found"}` for `POST /v1/uploads`) as a permanent error (`protocol`, not
+retryable, rule `fallback:4xx`) and fails every document it sends there, each needing a manual Retry.
+So never re-point `current` to a release older than the 4.1 one while `MINERU_API_URL` still names
+`:8004`. `scripts/deploy.sh`'s own automatic rollback, after a failed health check at a cutover,
+runs before the URL is flipped, so it is safe. The runbook is in
+[deploy/README.md](../deploy/README.md#cutting-over-to-41-and-rolling-back).
 
 The capability read catches it earlier: a health answer with a 4.0.x version is `reachable: false`
 with the version kept. The admin card says "runs MinerU 4.0.12, which speaks the old protocol. This
