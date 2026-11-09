@@ -18,8 +18,13 @@
  *  - **The key is same-origin only (S7).** `Authorization` is attached when, and
  *    only when, the request URL passes `isSameMineruOrigin`. `upload.url` and
  *    `result_url` come out of MinerU's own answers, so a URL on any other
- *    origin is refused BEFORE a byte or a credential is sent, and a redirect is
- *    followed only to the configured origin.
+ *    origin is refused BEFORE a byte or a credential is sent.
+ *  - **Redirects are refused, except for one download hop.** Every call is made
+ *    with `redirect: "manual"`: fetch's default follows a 3xx to any origin and
+ *    sends a POST body again, and the manifest (extension, size, hash) is not
+ *    something undici strips the way it strips `Authorization`. The JSON calls
+ *    and the upload PUT turn a 3xx into `protocol_untrusted_redirect`; only the
+ *    result download follows one, once, and only to the configured origin.
  *  - **The request body is built here (S5).** `createTask` writes the body from
  *    fixed keys, so what the 4.1 server rejects with a 400 (`page_range: null`,
  *    `ocr_mode: null`, `include_model_output`, `client_file_id`, `file_id`, any
@@ -375,8 +380,7 @@ export class MineruClient {
 		);
 
 		if (isRedirect(response.status)) {
-			await response.arrayBuffer().catch(() => undefined);
-			throw untrustedRedirect("an upload", path);
+			return refuseRedirect(response, "an upload", path);
 		}
 		if (!response.ok) throw await this.errorFromResponse(response, path);
 		return this.parseBody(
@@ -466,12 +470,19 @@ export class MineruClient {
 		const path = `${taskPath(input.taskId)}/cancel` as const;
 		const response = await this.send(
 			mineruUrl(this.config, path),
-			{ method: "POST", headers: this.baseHeaders(path) },
+			{
+				method: "POST",
+				headers: this.baseHeaders(path),
+				redirect: "manual",
+			},
 			input.signal,
 			this.config.requestTimeoutMs,
 			path,
 		);
 
+		if (isRedirect(response.status)) {
+			return refuseRedirect(response, "a request to the API", path);
+		}
 		if (response.status === 404 || response.status === 409) {
 			await response.arrayBuffer().catch(() => undefined);
 			return null;
@@ -697,12 +708,17 @@ export class MineruClient {
 				headers,
 				body:
 					options.body === undefined ? undefined : JSON.stringify(options.body),
+				// Answered by the configured origin or not at all: see the file header.
+				redirect: "manual",
 			},
 			options.signal,
 			options.timeoutMs ?? this.config.requestTimeoutMs,
 			options.path,
 		);
 
+		if (isRedirect(response.status)) {
+			return refuseRedirect(response, "a request to the API", options.path);
+		}
 		if (!response.ok)
 			throw await this.errorFromResponse(response, options.path);
 		return this.readJson(response, options.path);
@@ -853,6 +869,20 @@ function untrustedRedirect(what: string, path: string): MineruApiError {
 		message: `MinerU redirected ${path} somewhere this client will not follow (${what}).`,
 		requestPath: path,
 	});
+}
+
+/**
+ * A 3xx this client does not follow. The request was made with `redirect:
+ * "manual"`, so it arrives as an answer; its body is drained so the connection
+ * is not left holding it, and it becomes the error.
+ */
+async function refuseRedirect(
+	response: Response,
+	what: string,
+	path: string,
+): Promise<never> {
+	await response.arrayBuffer().catch(() => undefined);
+	throw untrustedRedirect(what, path);
 }
 
 function downloadTooLarge(

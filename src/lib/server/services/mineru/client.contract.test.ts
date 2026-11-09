@@ -21,6 +21,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { stat } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -911,6 +913,116 @@ describe("cancelTask", () => {
 			.cancelTask({ taskId: "job_x", signal: never })
 			.catch((caught) => caught as MineruApiError);
 		expect(mapMineruError(error).taxonomy).toBe("auth_failed");
+	});
+});
+
+describe("a redirect from one of MinerU's own endpoints", () => {
+	// fetch follows a 3xx by default, to any origin, and a 307 or 308 sends the
+	// POST body again. undici drops Authorization when it leaves the origin, but
+	// the manifest (the file's extension, size and hash) is not a credential it
+	// knows about. The JSON calls ask the configured origin and are answered by
+	// it, so, like the PUT, they refuse a redirect instead of following it.
+
+	const API_CALLS: ReadonlyArray<
+		[string, (client: MineruClient) => Promise<unknown>]
+	> = [
+		["createTask", (client) => client.createTask({ ...DOCX, signal: never })],
+		["getTask", (client) => client.getTask({ taskId: "job_x", signal: never })],
+		[
+			"pollTask",
+			(client) => client.pollTask({ taskId: "job_x", signal: never }),
+		],
+		[
+			"cancelTask",
+			(client) => client.cancelTask({ taskId: "job_x", signal: never }),
+		],
+		["getHealth", (client) => client.getHealth(never)],
+		["getTiers", (client) => client.getTiers(never)],
+		["getUsage", (client) => client.getUsage(never)],
+	];
+
+	it.each(
+		API_CALLS,
+	)("%s asks for a manual redirect and refuses the one it is given", async (_name, call) => {
+		const { fetchImpl, calls } = scriptedFetch(
+			() =>
+				new Response(null, {
+					status: 307,
+					headers: { location: "http://attacker.example/steal" },
+				}),
+		);
+		const error = await call(
+			new MineruClient({
+				config: testConfig({ apiKey: "testkey" }),
+				fetchImpl,
+			}),
+		).catch((caught) => caught as MineruApiError);
+
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.redirect).toBe("manual");
+		expect((error as MineruApiError).code).toBe("protocol_untrusted_redirect");
+		expect(mapMineruError(error).retryable).toBe(false);
+	});
+
+	it.each([
+		301, 302, 303, 307, 308,
+	])("refuses a %i, and one that stays on the configured origin as well", async (status) => {
+		const { fetchImpl, calls } = scriptedFetch(
+			() =>
+				new Response(null, {
+					status,
+					headers: { location: `${RECORDED_ORIGIN}/v1/tasks/` },
+				}),
+		);
+		const client = new MineruClient({ config: testConfig(), fetchImpl });
+
+		for (const call of [
+			() => client.createTask({ ...DOCX, signal: never }),
+			() => client.getTask({ taskId: "job_x", signal: never }),
+			() => client.cancelTask({ taskId: "job_x", signal: never }),
+		]) {
+			const error = await call().catch((caught) => caught as MineruApiError);
+			expect((error as MineruApiError).code).toBe(
+				"protocol_untrusted_redirect",
+			);
+		}
+		expect(calls).toHaveLength(3);
+	});
+
+	it("does not send the manifest to the origin it is redirected to, over real sockets", async () => {
+		// The server the redirect points at is a 4.1 server, so a client that follows
+		// it gets a receipt back and the only trace is in that server's request log.
+		const elsewhere = await createFakeMineruServer();
+		const front = createServer((_request, response) => {
+			response.writeHead(307, { location: `${elsewhere.baseUrl}/v1/tasks` });
+			response.end();
+		});
+		await new Promise<void>((resolve) => {
+			front.listen(0, "127.0.0.1", resolve);
+		});
+		try {
+			const { port } = front.address() as AddressInfo;
+			const client = new MineruClient({
+				config: testConfig({
+					baseUrl: `http://127.0.0.1:${port}`,
+					apiKey: "testkey",
+				}),
+			});
+
+			const error = await client
+				.createTask({ ...DOCX, signal: never })
+				.catch((caught) => caught as MineruApiError);
+
+			expect((error as MineruApiError).code).toBe(
+				"protocol_untrusted_redirect",
+			);
+			expect(elsewhere.requests).toEqual([]);
+			expect(elsewhere.tasks.size).toBe(0);
+		} finally {
+			front.closeAllConnections();
+			await new Promise((resolve) => front.close(resolve));
+			await elsewhere.close();
+		}
 	});
 });
 
