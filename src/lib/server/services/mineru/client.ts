@@ -612,7 +612,7 @@ export class MineruClient {
 		if (!isSameMineruOrigin(this.config, resolved.toString())) {
 			// Host only. The path may carry an id; the key is never in here.
 			console.warn(
-				`${LOG_PREFIX} refusing a ${kind} URL on a foreign origin: ${resolved.host}`,
+				`${LOG_PREFIX} refusing ${kind === "upload" ? "an upload" : "a result"} URL on a foreign origin: ${resolved.host}`,
 			);
 			throw refuse(resolved.host);
 		}

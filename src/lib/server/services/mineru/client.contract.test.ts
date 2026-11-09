@@ -23,7 +23,15 @@ import {
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type MockInstance,
+	vi,
+} from "vitest";
 import {
 	getMineruStatusReport,
 	type MineruProbeClientFactory,
@@ -164,7 +172,15 @@ function sampleFile(content = "a,b\n1,2\n"): { path: string; bytes: number } {
 	return { path, bytes: Buffer.byteLength(content) };
 }
 
+/** The client logs the host of a URL it refuses; the tests read it instead of printing it. */
+let warn: MockInstance<typeof console.warn>;
+
+beforeEach(() => {
+	warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+});
+
 afterEach(() => {
+	warn.mockRestore();
 	for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
 	tempDirs = [];
 });
@@ -541,6 +557,32 @@ describe("putTaskFile", () => {
 		expect(mapping.taxonomy).toBe("protocol");
 		// Retrying a hostile or misconfigured server only repeats it.
 		expect(mapping.retryable).toBe(false);
+	});
+
+	it("logs which host it refused, and never the key or the path", async () => {
+		const { fetchImpl } = scriptedFetch(() => {
+			throw new Error("the client must not have sent anything");
+		});
+		await new MineruClient({
+			config: testConfig({ apiKey: "testkey" }),
+			fetchImpl,
+		})
+			.putTaskFile({
+				upload: {
+					...recordedUpload(),
+					url: "http://attacker.example/v1/steal?key=testkey",
+				},
+				filePathAbsolute: sampleFile().path,
+				signal: never,
+			})
+			.catch(() => undefined);
+		expect(warn).toHaveBeenCalledTimes(1);
+		const line = String(warn.mock.calls[0]?.[0]);
+		expect(line).toContain(
+			"an upload URL on a foreign origin: attacker.example",
+		);
+		expect(line).not.toContain("testkey");
+		expect(line).not.toContain("/v1/steal");
 	});
 
 	it("resolves a RELATIVE upload.url against MINERU_API_URL", async () => {
