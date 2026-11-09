@@ -33,7 +33,7 @@
 		"docs/plans/jobs-merge/verify-jobs.mjs",
 		"static/sw.js"
 	],
-	"ignoreDependencies": ["pptxgenjs"],
+	"ignoreDependencies": ["pptxgenjs", "heic-decode"],
 	"usedClassMembers": [
 		{
 			"extends": "Error",

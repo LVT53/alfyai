@@ -201,7 +201,13 @@ const heifPool = createDecodePool({
 
 let decoderPath: string | undefined;
 
-/** Where heic-decode is installed, found once from this module. */
+/**
+ * Where heic-decode is installed, found once from this module. Nothing imports
+ * the package: only the worker loads it, by this path, and a static import here
+ * would load libheif on the main thread. Fallow sees no use of it for that
+ * reason, so `.fallowrc.json` lists it under `ignoreDependencies`; take it out
+ * of the list only together with this loader.
+ */
 function resolveDecoderPath(): string {
 	decoderPath ??= createRequire(import.meta.url).resolve("heic-decode");
 	return decoderPath;
