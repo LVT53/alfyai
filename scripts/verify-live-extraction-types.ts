@@ -17,7 +17,9 @@
 //     its captured answers and run through the app's own parser (spike report
 //     §7, `fixtures/mineru-v41/results`). The two TIFFs are the exception: they
 //     are the v1 PNG sample converted (`sips -s format tiff`, then `tiffutil
-//     -lzw`), so their expectations are the PNG's and unproven until a live run.
+//     -lzw` for the .tif and `-packbits` for the .tiff, so the bytes differ and
+//     no upload can pass for the other), so their expectations are the PNG's and
+//     unproven until a live run.
 //
 // Deliberately standalone, like `verify-live-file-production-types.ts`: no
 // `src/` imports and every type re-declared here, so it cannot be the reason a

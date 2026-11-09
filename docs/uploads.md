@@ -393,8 +393,8 @@ service could not be reached.", no attempt spent) and finish by themselves once 
 The capability read catches it earlier: a health answer with a 4.0.x version is `reachable: false`
 with the version kept. The admin card says "runs MinerU 4.0.12, which speaks the old protocol. This
 app needs MinerU 4.1 or newer: point MINERU_API_URL at a 4.1 server.", Diagnostics shows
-`document_extraction` degraded with the same reason, and the cached answer belongs to the origin it
-was read from, so the flip is seen on the next probe, without a restart. Rule R14 of
+`document_extraction` degraded and says the server speaks the old protocol, and the cached answer
+belongs to the origin it was read from, so the flip is seen on the next probe, without a restart. Rule R14 of
 [the build log](plans/mineru-4-1/build-log.md) rests on 4.1 error bodies never carrying `type`; the
 upgrade checklist in [deploy/README.md](../deploy/README.md#upgrading-mineru) re-checks that on
 every MinerU upgrade.

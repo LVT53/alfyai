@@ -97,9 +97,9 @@ covers except a cancel and a `systemctl restart mineru41` in the middle of a job
   A's: the PUT-400 rules could mark the handle unknown, the fake needs one counted GET before an outcome, a fake-server
   timer test can race under load, three large test files. B's: English-only operator diagnostics, `mineru4.ts` grew from 766
   to 977 lines.
-- The live sweep's TIFF inputs (`fixtures/inputs/scan-sample.tif` and `.tiff`, the same bytes) are the v1 PNG sample
-  converted with `sips -s format tiff` and `tiffutil -lzw` (sha256 of the `.tif`: `73c8b4ea…`); their expectations are the
-  PNG's and unproven until the live run. The expectations for the 4.0.4 samples were read off the 4.0.4 server and are
+- The live sweep's TIFF inputs (`fixtures/inputs/scan-sample.tif` and `.tiff`) are the v1 PNG sample converted with
+  `sips -s format tiff`, then `tiffutil -lzw` for the `.tif` (sha256 `73c8b4ea…`) and `-packbits` for the `.tiff`
+  (`6828d555…`), so the two uploads differ in bytes; their expectations are the PNG's and unproven until the live run. The expectations for the 4.0.4 samples were read off the 4.0.4 server and are
   likewise unproven on 4.1.7.
 - After a week of stable production: disable `mineru4.service` and remove the spike leftovers (the steps are in
   deploy/README.md). Keep the 4.0.12 venv until the owner says otherwise.
