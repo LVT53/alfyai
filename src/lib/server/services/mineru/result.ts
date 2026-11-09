@@ -12,17 +12,20 @@
  *      string `content`; `bbox` is a flat array of four 0..1 floats whose key
  *      is ABSENT (never null) for Office/HTML/EPUB/CSV. There are no ids, no
  *      locators and no page numbers — the page number is the array index + 1.
- *   2. Only `flash` and `basic` output was ever captured. `standard` and
- *      `advanced` may emit block types nobody here has seen, so an unknown
- *      type is rendered as its `content` and treated as an atomic block. It is
- *      never an error, and it is counted into `stats.unknownTypes` so the
- *      GPU-box checklist has data to read.
+ *   2. `fixtures/mineru-v1` holds `flash` and `basic` output, and
+ *      `fixtures/mineru-v41/results` holds MinerU 4.1.7's answers, `standard`
+ *      among them (it added `equation`, `chart` and `page_footnote`).
+ *      `advanced` has never been captured and may emit block types nobody here
+ *      has seen, so an unknown type is rendered as its `content` and treated as
+ *      an atomic block. It is never an error, and it is counted into
+ *      `stats.unknownTypes` so the GPU-box checklist has data to read.
  *   3. The prompt text is built FROM BLOCKS, not from the zip's `markdown.md`:
  *      `markdown.md` is a flat string with no page boundaries and no block
  *      types, and page-aware chunking needs both. `renderMineruMarkdown` is
  *      the proof that the block model loses nothing — it reproduces
- *      `markdown.md` byte for byte on eight of ten fixtures and differs only
- *      by `<a id="…"></a>` anchor lines on HTML and EPUB.
+ *      `markdown.md` byte for byte on eight of the ten 4.0 fixtures and on
+ *      eighteen of the nineteen 4.1 captures, and differs only by
+ *      `<a id="…"></a>` anchor lines on HTML and EPUB.
  */
 
 import { readFile } from "node:fs/promises";
@@ -50,13 +53,21 @@ export const MINERU_PARSER_VERSION = "mineru4/1";
 // ── block vocabulary ───────────────────────────────────────────────────────
 
 /**
- * Exactly the vocabulary observed across the nine fixture inputs, plus `index`.
+ * The vocabulary observed across the 4.0 fixture inputs and the 4.1 captures,
+ * plus `index` and one alias.
  *
  * `index` is a table of contents. It was not in any recorded fixture but real
  * PDFs emit it, and every one of them was reporting an unknown type — which is
  * the GPU-box signal, so a type this common drowns out the ones worth reading.
  * It renders as its own text (the `else` branch: a TOC is prose) and is NOT
  * atomic: a long contents list may be split across chunks like any other text.
+ *
+ * MinerU 4.1 added three, each with its own rendering (`renderInternal`):
+ * `equation` (display math), `chart` (a picture with a caption, kept as a
+ * figure like an `image`) and `page_footnote` (a PDF page's footnote, a slide's
+ * speaker notes). `equation_interline` is the Draft name of the same block as
+ * `equation`: no capture holds one, but it renders identically, so it is no
+ * more a surprise than its twin.
  */
 export const KNOWN_BLOCK_TYPES = [
 	"text",
@@ -69,6 +80,10 @@ export const KNOWN_BLOCK_TYPES = [
 	"header",
 	"footer",
 	"page_number",
+	"equation",
+	"equation_interline",
+	"chart",
+	"page_footnote",
 ] as const;
 export type KnownBlockType = (typeof KNOWN_BLOCK_TYPES)[number];
 
@@ -85,15 +100,17 @@ export const RUNNING_HEAD_BLOCK_TYPES = [
 ] as const;
 
 /**
- * Blocks a chunk boundary must never fall inside. `table` and `image` are the
- * only ones observed; the rest are the Draft names that `standard`/`advanced`
- * may emit and that must not be split if they appear. ANY UNKNOWN TYPE IS
- * ALSO ATOMIC — see `isAtomicBlockType`.
+ * Blocks a chunk boundary must never fall inside. `table`, `image`, `chart` and
+ * `equation` are the ones observed (half a formula is worse than none); the
+ * rest are the Draft names that `standard`/`advanced` may emit and that must
+ * not be split if they appear. ANY UNKNOWN TYPE IS ALSO ATOMIC — see
+ * `isAtomicBlockType`. A `page_footnote` is prose and is not on this list.
  */
 export const ATOMIC_BLOCK_TYPES = [
 	"table",
 	"image",
 	"code",
+	"equation",
 	"equation_interline",
 	"chart",
 	"algorithm",
@@ -881,12 +898,77 @@ export function resolveFigurePath(source: string | undefined): string | null {
 	return `${MINERU_ZIP_IMAGE_PREFIX}${leaf}`;
 }
 
+/** Display math. `equation_interline` is the Draft name for the same block. */
+function isEquationBlockType(type: string): boolean {
+	return type === "equation" || type === "equation_interline";
+}
+
+/**
+ * The LaTeX of a display equation with any `$$ … $$` its producer already put
+ * around it taken off, so the fence is written once and never twice.
+ */
+function unfencedLatex(content: string): string {
+	const trimmed = content.trim();
+	const wrapped = /^\$\$([\s\S]*)\$\$$/.exec(trimmed);
+	return wrapped && !wrapped[1].includes("$$") ? wrapped[1].trim() : trimmed;
+}
+
+/**
+ * A display equation, fenced the way MinerU's own `markdown.md` fences it:
+ * `$$` on a line of its own above and below the LaTeX, `\tag{…}` and all.
+ *
+ * The flash tier has no formula model: its equation arrives with an empty
+ * `content` and only a crop of the page in `image_source`, which MinerU
+ * writes as an image link. The faithful renderer does the same; the prompt text
+ * has nothing to read there, and a crop of an equation is not a figure anyone
+ * asks about, so it gets neither a line nor a figure handle.
+ */
+function renderEquation(
+	block: StructuredBlock,
+	content: string,
+	mode: "faithful" | "prompt",
+): string {
+	const latex = unfencedLatex(content);
+	if (latex) return `$$\n${latex}\n$$`;
+	return mode === "faithful" && block.image_source
+		? `![](${block.image_source})`
+		: "";
+}
+
+/**
+ * MinerU's own markup around a `page_footnote` in `markdown.md`: a grey
+ * `<small>` span. Only the faithful renderer writes it; the prompt text gets the
+ * words alone, since markup costs tokens and means nothing to the model.
+ */
+function mineruFootnoteMarkup(content: string): string {
+	return `<small><span class="docvortex-page-footnote" data-block-type="page_footnote" style="color:#6b7280">${content}</span></small>`;
+}
+
+/**
+ * What the prompt calls a slide's speaker notes. English whatever the language
+ * of the deck: it is text the app writes into a model request (ruling 79).
+ */
+const SPEAKER_NOTES_LABEL = "Speaker notes:";
+const LEADING_SPEAKER_NOTES_LABEL = /^\s*speaker\s+notes\s*:\s*/i;
+
+/**
+ * A slide's notes under one canonical label. MinerU already starts the notes it
+ * reads from a PPTX with `Speaker notes: `, so the label is taken off before it
+ * is put on: it is never said twice, and never says anything but this.
+ */
+function speakerNotes(content: string): string {
+	const notes = content.replace(LEADING_SPEAKER_NOTES_LABEL, "").trim();
+	return notes ? `${SPEAKER_NOTES_LABEL} ${notes}` : "";
+}
+
 /**
  * The FAITHFUL renderer: what MinerU itself writes into `markdown.md`.
  *
  * Exists to prove the block model is complete, and is asserted against the
  * real `markdown.md` of every fixture in `result.test.ts`. It is never used in
- * production — `renderPromptMarkdown` is.
+ * production — `renderPromptMarkdown` is. Its contract is byte parity with
+ * MinerU's file, so it writes MinerU's own markup (`$$` fences, the footnote
+ * span, image links) and adds none of ours: no `Speaker notes:` label.
  */
 export function renderMineruMarkdown(
 	sc: StructuredContent,
@@ -900,10 +982,16 @@ export function renderMineruMarkdown(
  * contentText, and the page offsets it returns are what makes page-aware
  * chunking and `[p. N]` citations possible at all.
  *
- * It differs from the faithful renderer in exactly one rule: an `image` block
- * becomes `[Figure N]` / `[Figure N: <first caption>]` instead of an
- * `![](images/…)` link, which costs fewer tokens and gives the model a handle
- * it can actually ask about.
+ * It differs from the faithful renderer in a few rules, each there to give the
+ * model text it can read and nothing else:
+ *
+ *   - an `image` or `chart` block becomes `[Figure N]` / `[Figure N: <first
+ *     caption>]` instead of an `![](images/…)` link, which costs fewer tokens
+ *     and gives the model a handle it can actually ask about;
+ *   - a heading loses the `**…**` Word wraps around it;
+ *   - a picture-only equation (no LaTeX to read) is left out;
+ *   - a `page_footnote` is its words alone, without MinerU's HTML span, and on a
+ *     slide deck it reads `Speaker notes: …`.
  */
 export function renderPromptMarkdown(
 	sc: StructuredContent,
@@ -975,6 +1063,13 @@ function renderInternal(
 	mode: "faithful" | "prompt",
 ): PromptMarkdownRender {
 	const levelOffset = headingLevelOffsetForFormat(resolveFormatId(options));
+	// On a slide deck every `page_footnote` is a slide's speaker notes. The kind
+	// is the one the result reports (`normalizePageCountKind`), so a legacy
+	// `.ppt` that MinerU gives no kind is a deck too.
+	const slideDeck =
+		mode === "prompt" &&
+		normalizePageCountKind(sc.metadata?.document?.page_count_kind, options) ===
+			"slide";
 	const drafts: RenderDraft[] = [];
 	const figures: RenderedFigure[] = [];
 	// `page_idx` is the producer's own page number and the only thing that is
@@ -1018,10 +1113,15 @@ function renderInternal(
 				]
 					.filter((part) => part.trim())
 					.join("\n\n");
-			} else if (type === "image") {
+			} else if (type === "image" || type === "chart") {
+				// A `chart` is a picture with a caption, exactly as an `image` is,
+				// and the two share one figure numbering. MinerU 4.1.7 leaves a
+				// chart's `content` empty; text it carried beside the picture
+				// would be kept (an `image` never has any).
 				const path = resolveFigurePath(block.image_source);
 				const captions = captionTexts(block.captions);
 				const footnotes = captionTexts(block.footnotes);
+				const beside = type === "chart" && content.trim() ? [content] : [];
 				if (path) {
 					figure = {
 						index: figures.length + 1,
@@ -1037,6 +1137,7 @@ function renderInternal(
 					text = [
 						...(source ? [`![](${source})`] : []),
 						...captions,
+						...beside,
 						...footnotes,
 					].join("\n\n");
 				} else {
@@ -1049,9 +1150,17 @@ function renderInternal(
 							? `[Figure ${figure.index}: ${figure.caption}]`
 							: `[Figure ${figure.index}]`
 						: null;
-					text = [...(label ? [label] : captions), ...footnotes]
+					text = [...(label ? [label] : captions), ...beside, ...footnotes]
 						.filter((part) => part.trim())
 						.join("\n\n");
+				}
+			} else if (isEquationBlockType(type)) {
+				text = renderEquation(block, content, mode);
+			} else if (type === "page_footnote") {
+				if (mode === "faithful") {
+					text = content.trim() ? mineruFootnoteMarkup(content) : "";
+				} else {
+					text = slideDeck ? speakerNotes(content) : content;
 				}
 			} else {
 				text = content;

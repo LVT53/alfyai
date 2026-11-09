@@ -552,8 +552,11 @@ describe("planStructuredChunks — the hard per-chunk ceiling", () => {
 			{ length: 400 },
 			(_, index) => `line ${index}: ${"abcdefghij".repeat(6)}`,
 		);
+		// Any atomic block whose text is its raw content will do. It was an
+		// `equation_interline` until that became display math, which is fenced
+		// with `$$` lines of its own and so no longer quotes `lines` alone.
 		const blocks = synthetic([
-			[{ type: "equation_interline", content: lines.join("\n") }],
+			[{ type: "algorithm", content: lines.join("\n") }],
 		]);
 
 		const plan = planStructuredChunks({
