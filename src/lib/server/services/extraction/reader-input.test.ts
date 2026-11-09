@@ -121,6 +121,33 @@ describe("prepareReaderInput", () => {
 		});
 	});
 
+	it("makes the same bytes every time it converts the same photo", async () => {
+		// A resumed attempt converts again, and the extractor keeps the digest it took
+		// of the first PNG in its stored handle: that digest names the file the
+		// resumed attempt is handed only if the conversion is repeatable.
+		const original = await stored("IMG_0042.heic", tinyHeic);
+
+		const first = await prepare(
+			original,
+			"IMG_0042.heic",
+			"image/heic",
+			"attempt-1",
+		);
+		const second = await prepare(
+			original,
+			"IMG_0042.heic",
+			"image/heic",
+			"attempt-2",
+		);
+
+		expect(second.input.filePathAbsolute).not.toBe(
+			first.input.filePathAbsolute,
+		);
+		expect(await readFile(second.input.filePathAbsolute)).toEqual(
+			await readFile(first.input.filePathAbsolute),
+		);
+	});
+
 	it("decodes at 4096 px on the long side, handing the decoder the entry's MIME type and not the job's", async () => {
 		const decode = vi.spyOn(prepareImage, "decodeImageToPng");
 		const original = await stored("IMG_0042.heic", tinyHeic);
