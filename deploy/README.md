@@ -628,9 +628,10 @@ previous release and the old server stay available for a rollback, which has a m
    synthetic paper PDF in 10.9 s from cold (create, PUT, poll, download of the one ZIP).
 2. ai.dev: deploy the release, then set its `MINERU_API_URL` to `http://127.0.0.1:8004` and run the
    live checks of [Verifying a deployment](../docs/uploads.md#verifying-a-deployment): the sweep
-   script, then by hand a cancel and `systemctl restart mineru41` in the middle of a job (the job
-   has to recover by creating the task again, not fail). Uploads from a script need the `Origin`
-   header. Read the app's error journal afterwards.
+   script, then by hand a cancel, a HEIC photo of a page (the sweep has no row for one; its text has
+   to be read) and `systemctl restart mineru41` in the middle of a job (the job has to recover by
+   creating the task again, not fail). Uploads from a script need the `Origin` header. Read the
+   app's error journal afterwards.
 3. Production: the release gate green on the exact commit; push that SHA to `main`, deploy with
    `scripts/deploy.sh`, then set production's `MINERU_API_URL` to `http://127.0.0.1:8004` straight
    away. Jobs that start in the seconds between the two steps meet the old server and wait, and
@@ -692,8 +693,9 @@ Before an app is pointed at a new release:
 4. Re-check the accepted extensions (`mineru/filetypes.py` in the installed package) against the
    file-type registry's MinerU routes. The guard test "the registry against what MinerU 4.1.7
    accepts" (`src/lib/server/services/extraction/extractors/mineru4.test.ts`) holds a copy of that
-   list and fails when a routed type is not on it, except the known exceptions it names (`heic` and
-   `heif`). Update the list and the registry together.
+   list and fails when a routed type is not on it, except the known exceptions it lists (none today:
+   `heic` and `heif` are not on MinerU's list either, but the app gives MinerU a PNG of such a photo,
+   so the name MinerU receives is `document.png`). Update the list and the registry together.
 5. Re-check that `/v1/tiers`, an omitted `tier`, `parse.tier` for a native document, the result
    ZIP's layout and the block types still behave as docs/uploads.md says, then run the live sweep:
    `extractionUnknownBlockTypes` has to stay empty.
@@ -706,11 +708,11 @@ Before an app is pointed at a new release:
   restarts. Under `scripts/deploy.sh`'s release layout this lives at `shared/data/` and is symlinked
   into every `releases/<sha>/`, so no deploy rebuilds or removes it (see
   [Release layout](#release-layout)).
-- Office/image normalization (and, for HEIC/HEIF/AVIF, the ImageMagick delegate support) is a
-  requirement of **MinerU's own host**, not of this app: `MINERU_API_URL` can point at a MinerU
-  instance running anywhere (4.1 or newer, see
+- Office/image normalization is a requirement of **MinerU's own host**, not of this app:
+  `MINERU_API_URL` can point at a MinerU instance running anywhere (4.1 or newer, see
   [Document extraction service](#document-extraction-service-mineru)), and the Node app never shells
-  out to `libreoffice`, `ImageMagick`, `ghostscript` or `poppler-utils` itself. If you build or
+  out to `libreoffice`, `ImageMagick`, `ghostscript` or `poppler-utils` itself. HEIC and HEIF photos
+  ask nothing of that host: the app decodes them itself and gives MinerU a PNG. If you build or
   operate that host, see
   [docs/uploads.md](../docs/uploads.md#mineru-operations-host-requirements-for-a-custom-image) for
   the AlmaLinux/RHEL delegate setup and the accepted-format list.

@@ -76,10 +76,15 @@ What goes in the manifest, and what never does:
 - **MinerU 4.1.7 accepts these extensions** (read from the installed package, `mineru/filetypes.py`):
   `pdf`; the images `png jpg jpeg webp gif bmp tiff jp2`; and the native documents `doc docx ppt
   pptx xls xlsx rtf odt ods odp`, `html htm shtml`, `mhtml mht`, `csv tsv`, `epub` and `ofd`.
-  `tif` is not among them (hence `document.tiff`), and neither are `heic` and `heif`, which the
-  registry nevertheless routes to MinerU. No 4.x release this project ran has those two on its list
-  (4.0.12's is the same), so such uploads already fail today. That is a known gap with its own
-  follow-up, not something the 4.1 work changes.
+  `tif` is not among them (hence `document.tiff`), and neither are `heic` and `heif`, which no 4.x
+  release this project ran has on its list (4.0.12's is the same). So the app never sends those two
+  as they are. The extraction handler decodes the photo (`decodeImageToPng`, at most 4096 px on the
+  long side) into a PNG of its own for the length of one attempt, and MinerU is given that PNG,
+  told as `document.png` and at an explicit tier like any other image (`intake.readAs` in the
+  registry says so, and `extraction/reader-input.ts` does it). The extractor hashes the PNG itself,
+  since the digest on the artifact is the photo's. The stored photo is never touched: previews and
+  vision read it. A photo that cannot be decoded fails at once as `document_unreadable`, with no
+  request to MinerU.
 - **Never sent**, because each is a 400 on 4.1: `include_model_output`, `ocr_mode: null`,
   `page_range: null`, `client_file_id`, `file_id`, and any `output_formats` other than `["default"]`.
   `MINERU_OCR_MODE=auto` therefore means the key is left out.
@@ -800,14 +805,16 @@ expect `flash` — the app names no tier for a native document and the engine pa
 matter what the job asked for, and catching that discrepancy is the most valuable thing this sweep
 does. `csv` and `tsv` are asserted to be `direct-text` jobs that reach `succeeded` **without** ever
 passing through a `parsing` status: they must make no MinerU request at all. `heic` and `heif` are
-listed under `knownGaps` in the summary and not asserted: the registry routes them to MinerU, which
-has never accepted them.
+listed under `knownGaps` in the summary and not asserted: the app sends MinerU a PNG of the photo,
+which `mineru/heic.integration.test.ts` runs against the 4.1 server's stand-in, but the repo holds
+no HEIC photo with text in it to expect a reading of. Upload one by hand on ai.dev to see it read.
 
 **Not covered by this script, to do by hand on ai.dev:** a cancel (the job ends `canceled`, one
-`POST /v1/tasks/{id}/cancel` in MinerU's access log), and `systemctl restart mineru41` in the
-middle of a job (the job has to succeed by creating the task again; the app's journal shows
-`MinerU forgot an id, recovering`). And the gate itself: it needs a MinerU backend that genuinely
-answers `/v1/health` with a pre-4.x version, which this single-deployment sweep has no way to fake.
+`POST /v1/tasks/{id}/cancel` in MinerU's access log), a HEIC photo of a page (the job succeeds and
+its text is read), and `systemctl restart mineru41` in the middle of a job (the job has to succeed
+by creating the task again; the app's journal shows `MinerU forgot an id, recovering`). And the
+gate itself: it needs a MinerU backend that genuinely answers `/v1/health` with a pre-4.x version,
+which this single-deployment sweep has no way to fake.
 Verify it by pointing a separate deployment's (or a local dev server's) `MINERU_API_URL` at a stub
 that answers `/v1/health` with `{"version":"3.9.0"}`, then confirm
 `GET /api/knowledge/upload/intent` for an `.epub` answers 415 `formatNotEnabled` and the SSR
@@ -832,17 +839,19 @@ converter to do it: there is no `spawn`/`execFile`/`child_process` call and no r
 (confirmed by `git grep -nE "\bspawn|execFile|child_process|execSync" -- src/` and
 `git grep -niE "soffice|libreoffice|imagemagick|ghostscript|pdftoppm|pdftotext|librsvg" -- src/
 scripts/`, whose only real hit is a prompt string in `user-skills.test.ts` that mentions
-"Excel/LibreOffice" by name). `MINERU_API_URL` can point anywhere, and Office/image normalization —
-including HEIC/HEIF/AVIF delegate support — is a requirement of **MinerU's own host**, not of this
-repository's host.
+"Excel/LibreOffice" by name). `MINERU_API_URL` can point anywhere, and Office/image normalization is
+a requirement of **MinerU's own host**, not of this repository's host. HEIC and HEIF photos ask
+nothing of that host: the app decodes them itself, in its own process, and gives MinerU a PNG (AVIF
+is refused at upload).
 
 If you build a custom MinerU image or run MinerU on a host of your own, consult MinerU's own
 documentation for its host requirements (and run 4.1 or newer, see
 [MinerU service](#mineru-service)). The one recipe worth keeping here, because it was
 reverse-engineered against a real EL box rather than being in MinerU's own docs, is for the AlmaLinux
-/RHEL ImageMagick delegate story. It predates MinerU 4.1, and delegates alone do not make HEIC or
-HEIF uploads work: neither 4.0.12 nor 4.1.7 lists those extensions among the file types it accepts
-(see the task API section above), so they stay a known gap whatever the host has installed:
+/RHEL ImageMagick delegate story. It predates MinerU 4.1, and this app's HEIC and HEIF uploads no
+longer depend on it: neither 4.0.12 nor 4.1.7 lists those extensions among the file types it
+accepts, so delegates on its host never made them work, and the app now gives MinerU a PNG of the
+photo (see the task API section above). The recipe is kept as it was found:
 
 ### AlmaLinux / RHEL: ImageMagick delegate setup (HEIC/HEIF/AVIF), for MinerU's own host
 
@@ -875,4 +884,5 @@ magick -list format | egrep -i 'HEIC|HEIF|AVIF|JPEG|PNG|WEBP|TIFF|SVG|PDF'
 
 Expected outcome: `HEIC`/`HEIF`/`AVIF` appear in `magick -list format`. If they do not appear, those
 uploads may still store successfully, but OCR extraction/prep can fail until delegate support is
-available on the MinerU host image.
+available on the MinerU host image. (This app's HEIC and HEIF uploads are not affected, since MinerU
+is given a PNG of the photo.)

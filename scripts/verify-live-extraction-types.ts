@@ -279,19 +279,27 @@ export const FAILURE_CASES: FailureCase[] = [
 ];
 
 /**
- * Types the registry routes to MinerU that no MinerU 4.x release this project
- * ran accepts (4.0.12 and 4.1.7 share the same extension list). Not asserted:
- * another session owns what to do about them. Listed in the summary so a run
- * never reads as complete coverage of the formats the app admits.
+ * Types the registry routes to MinerU that this sweep has no row for. Listed in
+ * the summary so a run never reads as complete coverage of the formats the app
+ * admits.
+ *
+ * MinerU 4.0.12 and 4.1.7 share one extension list and neither has heic or heif
+ * on it, so the app does not send those two as they are: it hands MinerU a PNG
+ * of the photo (`intake.readAs`), told as `document.png`. That is run against
+ * the 4.1 server's stand-in by `mineru/heic.integration.test.ts`. What is
+ * missing here is a live row: the repo holds no HEIC photo with text in it to
+ * expect a reading of (`vision/__fixtures__/tiny.heic` is four flat colours).
  */
 const KNOWN_GAPS = [
 	{
 		id: "heic",
-		reason: "routed to MinerU, which has never listed heic: the upload fails",
+		reason:
+			"sent to MinerU as a PNG the app makes of the photo; no live row, since the repo has no HEIC photo with text in it",
 	},
 	{
 		id: "heif",
-		reason: "routed to MinerU, which has never listed heif: the upload fails",
+		reason:
+			"sent to MinerU as a PNG the app makes of the photo; no live row, since the repo has no HEIF photo with text in it",
 	},
 ] as const;
 

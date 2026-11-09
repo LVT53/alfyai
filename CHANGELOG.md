@@ -163,6 +163,9 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 - Charts in a PDF or an image now reach Alfy as a figure with all its captions,
   and display equations keep their math and tag, where both used to be dropped or
   left unmarked, for documents read from now on.
+- A HEIC or HEIF photo is now read like any other picture, from a PNG made of it
+  for the length of the read, where before every one failed because MinerU does
+  not accept those formats; the stored photo is not changed.
 
 ### Removed
 
