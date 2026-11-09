@@ -16,7 +16,10 @@
  *     structured_content.json  the ZIP copy: relative image paths, no data URIs
  *     pages.json               [{page,start,end}], split out so a page lookup
  *                              never has to parse the blocks
- *     images/<name>.jpg        only the files a figure actually references
+ *     images/<name>.jpg        only the files a figure actually references: the
+ *                              pictures of `image` and `chart` blocks (the
+ *                              crops of tables and equations that MinerU also
+ *                              sends are not figures and are not kept)
  *
  * Deliberately NOT kept: `middle_json.json` (nothing consumes HTML tables or
  * `styles:["bold"]` yet, and it is the second-largest artifact),
