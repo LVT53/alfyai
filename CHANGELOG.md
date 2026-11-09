@@ -114,11 +114,9 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 - Changing your email address asks for your current password, and a wrong one
   counts against the same limit as a wrong password at sign-in. Changing your
   name asks for nothing.
-- Documents are now read through MinerU 4.1. A PDF or an image is always sent at
-  a tier AlfyAI names (the best one the server offers: `standard`, then `basic`,
-  then `flash`), because MinerU 4.1 quietly falls back to a lower tier when none
-  is named; Office, OpenDocument, HTML, RTF and EPUB files are sent with none,
-  because MinerU reads them at `flash` whatever is asked.
+- Documents are now read through MinerU 4.1, with PDFs and images always sent at
+  the best tier the server offers, because 4.1 drops to a lower tier when none is
+  named.
 
 ### Fixed
 
@@ -163,9 +161,8 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   reply is kept in its chat when you go to another chat or leave the page, and
   a draft that holds only a file keeps it through a reload.
 - Charts in a PDF or an image now reach Alfy as a figure with its caption, and
-  display equations keep their math and tag. Until now both were dropped or left
-  unmarked in the text Alfy reads. A document read before this release keeps its
-  old text; `docs/uploads.md` says how to read one again.
+  display equations keep their math and tag, where both used to be dropped or left
+  unmarked, for documents read from now on.
 
 ### Removed
 
@@ -213,16 +210,11 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   `sessions` table, because stored sessions change form. Tell the people who
   use your server before you deploy. Anyone who signs in during the couple of
   minutes between the migration and the restart signs in once more.
-- This release needs MinerU 4.1 or newer. MinerU 4.1 replaced the upload and
-  job API that 4.0.x speaks, so a 4.0.x (or 3.x) server can no longer parse
-  documents for AlfyAI: uploads wait, and the MinerU card in Settings → System
-  says the server speaks the old protocol. Start a 4.1 server (`docs/uploads.md`,
-  `deploy/README.md`), then set the MinerU endpoint in Settings → System to its
-  address. That applies without a restart and the waiting documents finish by
-  themselves. Use the address AlfyAI calls MinerU on directly: MinerU 4.1 builds
-  its upload and result links from the `Host` it was called with, and AlfyAI
-  follows them only on that address, so a proxy that rewrites `Host` breaks every
-  upload.
+- Start a MinerU 4.1 server (`deploy/README.md`) and set the MinerU endpoint in
+  Settings → System to the address AlfyAI calls it on directly, with no proxy
+  that rewrites `Host`, because this release cannot use a 4.0.x server (uploads
+  wait, and the MinerU card says it speaks the old protocol) and the new
+  endpoint applies without a restart.
 
 ## [2.0.0] - 2026-09-17
 
