@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { extractionErrorMessage } from "$lib/server/services/extraction/contracts";
 import {
 	createLedgerFixture,
 	type LedgerFixture,
@@ -253,6 +254,40 @@ describe("a HEIC or HEIF photo reaches MinerU 4.1 as a PNG", () => {
 		// The photo is as it was uploaded, and the PNG did not outlive the attempt.
 		expect(await readFile(storedPath)).toEqual(tinyHeic);
 		expect(existsSync(uploads[0].path)).toBe(false);
+	});
+});
+
+describe("an original that has gone from storage", () => {
+	// What the job stores is what the browser is sent, and the raw text of a Node file
+	// error is an absolute path. A PDF is the control: it is read by the MinerU
+	// extractor itself, which answers an error it does not know with `unavailable`.
+	// The photo, read by the helper before the extractor runs, must end the same way.
+	it.each([
+		["a HEIC photo", "IMG_0042.heic", "image/heic", tinyHeic],
+		["a PDF", "report.pdf", "application/pdf", Buffer.from("%PDF-1.7\n")],
+	])("%s: waits as the document service being unavailable, and the message holds no path", async (_label, fileName, mimeType, bytes) => {
+		await boot({ fixtureInput: "png" });
+		const { jobId, storedPath } = await seedPhotoJob({
+			fileName,
+			mimeType,
+			bytes,
+		});
+		await rm(storedPath);
+
+		const ran = await run();
+
+		const row = await ledger.getExtractionJobRow(jobId);
+		const sentence = extractionErrorMessage("unavailable", "");
+		expect(row?.errorMessage).not.toContain(storageDir);
+		expect(row?.errorMessage).toBe(sentence);
+		expect(row?.errorCode).toBe("unavailable");
+		// An outage code waits and tries again; it does not fail the document.
+		expect(ran).toEqual({ jobId, status: "queued" });
+		const [attempt] = await ledger.listExtractionJobAttempts(jobId);
+		expect(attempt?.errorMessage).toBe(sentence);
+		// The raw text is kept where an operator reads it.
+		expect(attempt?.diagnosticsJson).toContain(storedPath);
+		expect(persisted).toEqual([]);
 	});
 });
 

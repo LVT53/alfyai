@@ -218,6 +218,79 @@ describe("prepareReaderInput", () => {
 		expect(await converted()).toEqual([]);
 	});
 
+	// The job's stored message is what the browser is sent, and a Node file error
+	// names the absolute path it failed on (the storage directory, or the host's temp
+	// directory). So a file the helper cannot read or write is the ledger's error with
+	// the fixed sentence, and the raw text is left for the attempt's diagnostics.
+	//
+	// The code and the sentence are the ones a missing PDF gets from the MinerU
+	// extractor, whose fallback for an error it does not know (`ENOENT` is one) is
+	// `unavailable`, retryable: the same fault, the same words, whichever type it hits.
+	it.each([
+		["gone from storage", ["gone", "IMG_0042.heic"], "ENOENT"],
+		["a directory where the file should be", ["IMG_0042.heic"], "EISDIR"],
+	])("fails an original that is %s as the document service being unavailable, and keeps the raw text out of the message", async (_label, relative, errno) => {
+		const at = path.join(root, ...relative);
+		if (errno === "EISDIR") await mkdir(at);
+
+		const failure = await prepare(at, "IMG_0042.heic", "image/heic").catch(
+			(error: unknown) => error,
+		);
+
+		expect(failure).toBeInstanceOf(DocumentExtractionError);
+		expect(failure).toMatchObject({
+			code: "unavailable",
+			retryable: true,
+			message: extractionErrorMessage("unavailable", ""),
+			// The raw text is for the log and the attempt's diagnostics.
+			details: {
+				step: "read",
+				errno,
+				rawMessage: expect.stringContaining(errno),
+			},
+			cause: expect.objectContaining({ code: errno }),
+		});
+		expect((failure as Error).message).not.toContain(errno);
+		expect((failure as Error).message).not.toContain(root);
+		expect(await converted()).toEqual([]);
+		if (errno === "ENOENT") {
+			// Node names the path it failed on, which is why the raw text stays out.
+			expect(
+				(failure as DocumentExtractionError).details?.rawMessage,
+			).toContain(at);
+		}
+	});
+
+	it("fails a converted file it cannot write the same way, and leaves the original alone", async () => {
+		const original = await stored("IMG_0042.heic", tinyHeic);
+		const noSuchDirectory = path.join(root, "no-such-directory");
+
+		const failure = await prepareReaderInput({
+			fileName: "IMG_0042.heic",
+			mimeType: "image/heic",
+			sizeBytes: 12,
+			filePathAbsolute: original,
+			contentSha256: "a".repeat(64),
+			attemptId: "attempt-1",
+			tempDirRoot: noSuchDirectory,
+		}).catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(DocumentExtractionError);
+		expect(failure).toMatchObject({
+			code: "unavailable",
+			retryable: true,
+			message: extractionErrorMessage("unavailable", ""),
+			details: {
+				step: "write",
+				errno: "ENOENT",
+				rawMessage: expect.stringContaining(noSuchDirectory),
+			},
+			cause: expect.objectContaining({ code: "ENOENT" }),
+		});
+		expect((failure as Error).message).not.toContain(root);
+		expect(await readFile(original)).toEqual(tinyHeic);
+	});
+
 	it("removes the PNG on release, and a second release does nothing", async () => {
 		const original = await stored("IMG_0042.heic", tinyHeic);
 		const reader = await prepare(original, "IMG_0042.heic", "image/heic");

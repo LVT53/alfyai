@@ -15,6 +15,11 @@
 // bytes for the same input and build, so the digest the extractor keeps in its
 // stored handle (it hashes the file on the first attempt only, since
 // `contentSha256` is null here) still names the file it is handed.
+//
+// The runner stores the message of whatever this file throws on the job, and the
+// job data sends it to the browser. So a file this helper cannot read or write is
+// the ledger's error with the fixed sentence (`fileFailure`), and the raw text of a
+// Node file error, an absolute storage or temp path, goes to the attempt's details.
 
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -94,6 +99,36 @@ export function readerFileFor(
 	};
 }
 
+/**
+ * A file error as the ledger's.
+ *
+ * `unavailable`, retryable, with its fixed sentence: what a missing PDF gets from
+ * the MinerU extractor, whose fallback for an error it does not know (`ENOENT`,
+ * `EACCES`, `ENOSPC`) is the same code, so the same fault reads the same whichever
+ * type it hits. Nothing here says anything about the photo itself. The raw text is
+ * kept in `details`, which only the attempt's diagnostics read, and the error
+ * itself in `cause`.
+ */
+function fileFailure(
+	step: "read" | "write",
+	error: unknown,
+): DocumentExtractionError {
+	const errno = (error as { code?: unknown } | null)?.code;
+	return new DocumentExtractionError({
+		code: "unavailable",
+		message: extractionErrorMessage(
+			"unavailable",
+			"The photo could not be prepared for the document service.",
+		),
+		details: {
+			step,
+			...(typeof errno === "string" ? { errno } : {}),
+			rawMessage: error instanceof Error ? error.message : String(error),
+		},
+		cause: error,
+	});
+}
+
 function unchanged(params: ReaderInputParams): PreparedReaderInput {
 	return {
 		input: {
@@ -122,7 +157,12 @@ async function readAsPng(
 	const { decodeImageToPng, ImagePreparationError } = await import(
 		"$lib/server/services/vision/prepare-image"
 	);
-	const bytes = await readFile(filePathAbsolute);
+	let bytes: Buffer;
+	try {
+		bytes = await readFile(filePathAbsolute);
+	} catch (error) {
+		throw fileFailure("read", error);
+	}
 	let png: Buffer;
 	try {
 		({ png } = await decodeImageToPng(
@@ -157,7 +197,7 @@ async function readAsPng(
 	} catch (error) {
 		// A half-written file would outlive the attempt.
 		await rm(pathAbsolute, { force: true }).catch(() => undefined);
-		throw error;
+		throw fileFailure("write", error);
 	}
 
 	return {
