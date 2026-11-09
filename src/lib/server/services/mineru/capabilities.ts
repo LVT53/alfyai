@@ -364,6 +364,19 @@ export function resetMineruCapabilitiesCacheForTests(): void {
 	inFlight = null;
 }
 
+/**
+ * Drops the cached report of the endpoint `config` names, so the next read asks
+ * the server again. For a caller that has just been told the answer on hand is
+ * wrong: the server refused a tier its own list had offered (the box was
+ * restarted at a lower ceiling under a list that is good for minutes more), and
+ * until it is read again every document would be sent the same tier and refused
+ * the same way. A report for another endpoint is not touched; a probe already in
+ * flight is a fresh read and finishes as it was.
+ */
+export function forgetMineruCapabilities(config: MineruConfig): void {
+	if (cached?.report.baseUrl === mineruDisplayOrigin(config)) cached = null;
+}
+
 function isFresh(entry: CacheEntry, ttlMs: number, now: number): boolean {
 	return ttlMs > 0 && now - entry.fetchedAt < ttlMs;
 }

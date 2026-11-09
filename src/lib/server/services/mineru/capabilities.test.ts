@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import {
 	createDefaultMineruProbeClient,
+	forgetMineruCapabilities,
 	getMineruCapabilities,
 	getMineruStatusReport,
 	type MineruProbeClient,
@@ -414,6 +415,56 @@ describe("the cache belongs to one endpoint", () => {
 		});
 
 		expect(getHealth).toHaveBeenCalledTimes(1);
+		expect(again.cached).toBe(true);
+	});
+});
+
+describe("forgetMineruCapabilities", () => {
+	// For a caller that has just been told the cached answer is wrong: the server
+	// refused a tier its list offered, and the list is good for minutes more.
+	it("makes the next read fetch the tier list again", async () => {
+		const getTiers = vi.fn(async () => TIERS.data as never);
+		setMineruProbeClientFactory(() => fakeClient({ getTiers }));
+
+		await getMineruStatusReport({ config: config(), now });
+		forgetMineruCapabilities(config());
+		clock += 1000;
+		const again = await getMineruStatusReport({ config: config(), now });
+
+		expect(getTiers).toHaveBeenCalledTimes(2);
+		expect(again.cached).toBe(false);
+	});
+
+	it("reaches the hot path: the tiers it reports are the ones read after it", async () => {
+		let listed = TIERS.data;
+		setMineruProbeClientFactory(() =>
+			fakeClient({ getTiers: vi.fn(async () => listed as never) }),
+		);
+
+		expect(
+			(await getMineruCapabilities(undefined, { config: config() })).tiers,
+		).toContain("standard");
+		// The box is restarted at a lower ceiling; the list on hand is still good.
+		listed = FLASH_TIERS.data;
+		expect(
+			(await getMineruCapabilities(undefined, { config: config() })).tiers,
+		).toContain("standard");
+
+		forgetMineruCapabilities(config());
+		expect(
+			(await getMineruCapabilities(undefined, { config: config() })).tiers,
+		).toEqual(["flash"]);
+	});
+
+	it("leaves a report for another endpoint alone", async () => {
+		const getTiers = vi.fn(async () => TIERS.data as never);
+		setMineruProbeClientFactory(() => fakeClient({ getTiers }));
+
+		await getMineruStatusReport({ config: config(), now });
+		forgetMineruCapabilities(config({ mineruApiUrl: "http://127.0.0.1:8002" }));
+		const again = await getMineruStatusReport({ config: config(), now });
+
+		expect(getTiers).toHaveBeenCalledTimes(1);
 		expect(again.cached).toBe(true);
 	});
 });

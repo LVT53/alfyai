@@ -61,6 +61,7 @@ import {
 	writeMineruParseBundle,
 } from "$lib/server/services/mineru/bundle";
 import {
+	forgetMineruCapabilities,
 	getMineruCapabilities,
 	MineruProbeError,
 	setMineruProbeClientFactory,
@@ -73,6 +74,7 @@ import {
 import {
 	isMineruApiError,
 	isMineruForgottenIdError,
+	isMineruTierRefusal,
 	MINERU_CLIENT_ERROR_CODES,
 	MineruApiError,
 	mapMineruTaskFailure,
@@ -668,6 +670,12 @@ export function createMineru4Extractor(
 					if (isUploadMismatch(error)) {
 						throw new StaleTask("declaration-refused", error, true);
 					}
+					// The server refused a tier its own list had offered, so the list is
+					// out of date (the box was restarted at a lower ceiling) and is
+					// cached for minutes more. This document fails, since the verdict is
+					// the server's; the next one reads the list again instead of being
+					// sent the same tier and refused the same way.
+					if (isMineruTierRefusal(error)) forgetMineruCapabilities(config);
 					throw error;
 				}
 

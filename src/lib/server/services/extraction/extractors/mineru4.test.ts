@@ -995,6 +995,67 @@ describe("tier resolution happens before the request is made", () => {
 			httpStatus: 400,
 		});
 	});
+
+	it("drops the tier list the server has just contradicted, so the next document reads it again", async () => {
+		// The list was true when it was read; the box was then restarted at a lower
+		// ceiling, and the list is cached for minutes more. The document that meets
+		// the 400 fails, because the verdict is the server's. The ones behind it are
+		// not held to a list that has been shown to be wrong.
+		await start();
+		const cached = { capabilitiesTtlMs: 300_000 };
+		const tierReads = () =>
+			server.requests.filter((entry) => entry.path === "/v1/tiers");
+
+		await extractorFor(cached).extract((await buildRequest()).request);
+		expect(createBody(0).tier).toBe("standard");
+		expect(tierReads()).toHaveLength(1);
+
+		server.setOptions({ tiers: ["flash", "basic"] });
+
+		const error = await extractorFor(cached)
+			.extract((await buildRequest()).request)
+			.catch((thrown) => thrown);
+		expect(error).toMatchObject({ code: "tier_unavailable", retryable: false });
+		expect(createBody(1).tier).toBe("standard");
+		// It was asked from the list on hand: nothing was read for it.
+		expect(tierReads()).toHaveLength(1);
+
+		await extractorFor(cached).extract((await buildRequest()).request);
+		expect(tierReads()).toHaveLength(2);
+		expect(createBody(2).tier).toBe("basic");
+
+		// Once it is right again it is kept, as any whole answer is.
+		await extractorFor(cached).extract((await buildRequest()).request);
+		expect(tierReads()).toHaveLength(2);
+		expect(createBody(3).tier).toBe("basic");
+	});
+
+	it("does not drop a tier list for a refusal that is not about the tier", async () => {
+		await start({
+			failures: [
+				{
+					path: "/v1/tasks",
+					method: "POST",
+					nth: 1,
+					status: 400,
+					body: {
+						error: { code: "invalid_request", message: "x", param: "ocr_mode" },
+					},
+				},
+			],
+		});
+		const cached = { capabilitiesTtlMs: 300_000 };
+		const tierReads = () =>
+			server.requests.filter((entry) => entry.path === "/v1/tiers");
+
+		await extractorFor(cached)
+			.extract((await buildRequest()).request)
+			.catch(() => undefined);
+		await extractorFor(cached).extract((await buildRequest()).request);
+
+		expect(creates()).toHaveLength(2);
+		expect(tierReads()).toHaveLength(1);
+	});
 });
 
 describe("a backend that is not a MinerU 4.1", () => {

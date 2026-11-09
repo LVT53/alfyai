@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 import type { ExtractionErrorCode } from "$lib/shared/extraction-status";
 import {
 	isMineruForgottenIdError,
+	isMineruTierRefusal,
 	MINERU_CLIENT_ERROR_CODES,
 	MINERU_FORGOTTEN_ID_CODES,
 	MineruApiError,
@@ -571,6 +572,55 @@ describe("tiers and 5xx", () => {
 			}),
 		);
 		expect(other.taxonomy).toBe("protocol");
+	});
+
+	it("tells the server's refusal of a tier from our own check of the list", () => {
+		// Only the server's answer proves that the list a tier was chosen from is out
+		// of date. `decideTier` refusing a tier the list lacks is the list talking.
+		expect(
+			isMineruTierRefusal(
+				errorFor("errors/08_tier_advanced_above_ceiling.json"),
+			),
+		).toBe(true);
+		expect(isMineruTierRefusal(errorFor("errors/09_tier_bogus.json"))).toBe(
+			true,
+		);
+
+		expect(
+			isMineruTierRefusal(
+				new MineruApiError({
+					code: MINERU_CLIENT_ERROR_CODES.tierNotAvailable,
+					message: "x",
+				}),
+			),
+		).toBe(false);
+		expect(
+			isMineruTierRefusal(
+				mineruApiErrorFromBody({
+					status: 400,
+					bodyText: JSON.stringify({
+						error: { code: "invalid_request", message: "x", param: "ocr_mode" },
+					}),
+				}),
+			),
+		).toBe(false);
+		// 4.0.12 says every error in its own voice, with an error.type: whatever it
+		// refuses, it is the old server and not a list that went stale.
+		expect(
+			isMineruTierRefusal(
+				mineruApiErrorFromBody({
+					status: 400,
+					bodyText: JSON.stringify({
+						error: {
+							...MINERU_4_0_12_ERRORS.invalidManifest.error,
+							param: "tier",
+						},
+					}),
+				}),
+			),
+		).toBe(false);
+		expect(isMineruTierRefusal(new Error("tier"))).toBe(false);
+		expect(isMineruTierRefusal(undefined)).toBe(false);
 	});
 
 	it("retries a 503 server_shutting_down and any other 503", () => {

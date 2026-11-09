@@ -382,6 +382,9 @@ interface MineruErrorRule {
 	reason: string;
 }
 
+/** The row that reads the server's refusal of a tier (see `isMineruTierRefusal`). */
+const TIER_REFUSAL_RULE = "400:tier-not-available";
+
 /**
  * Ordered: the first matching row wins. Order matters in two places: the tier
  * row sits before the generic `invalid_request` it is a case of, and the
@@ -549,7 +552,7 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 	 * misconfiguration an admin fixes, never an outage and never a loop.
 	 */
 	{
-		rule: "400:tier-not-available",
+		rule: TIER_REFUSAL_RULE,
 		code: "invalid_request",
 		param: "tier",
 		taxonomy: "tier_unavailable",
@@ -948,6 +951,18 @@ export function isMineruForgottenIdError(error: unknown): boolean {
 		(error.wrongProtocol ?? null) === null &&
 		(MINERU_FORGOTTEN_ID_CODES as readonly string[]).includes(error.code)
 	);
+}
+
+/**
+ * True when the SERVER refused a tier on a request: 400 `invalid_request` with
+ * `param: "tier"`, in 4.1's voice. This client only asks for a tier its own read
+ * of `/v1/tiers` listed, so the refusal means that read is out of date, and
+ * whoever holds a copy of it should read it again. A tier our own check refused
+ * (`client_tier_not_available`) is the list speaking, not the server, and is not
+ * this.
+ */
+export function isMineruTierRefusal(error: unknown): boolean {
+	return mapMineruError(error).rule === TIER_REFUSAL_RULE;
 }
 
 // ---------------------------------------------------------------------------
