@@ -78,6 +78,7 @@ Browser and shared:
 - `src/lib/components/document-workspace/` — the side panel: dock width, tab memory, history entries.
 - `src/lib/components/artifacts/` — card, rows, headers, popovers, Download; `canvas/`, `document/`, `history/`, `image/` and `tour/` each keep their own file.
 - `src/lib/components/drawings/` — the drawing kit: small drawn copies of real controls (words from their keys, Lucide icons, tokens only, hidden from screen readers, spots a guide row lights), and the rule that a drawing follows its control.
+- `src/lib/components/guide/` — the Feature Guide page: its content list and words, its six drawings, Try it and Show me, NEW, and the rule that every Show me spotlight has a marker on its real control and a line in the end-to-end spec.
 
 Routes and tests:
 
