@@ -979,3 +979,11 @@ body {
 		opacity: 1;
 	}
 }
+
+/* The ring on the control the guide's Show me points at (src/lib/actions/spotlight.ts). */
+.spotlight-ring {
+	box-shadow:
+		0 0 0 2px var(--accent),
+		0 0 0 6px var(--accent-tint);
+	transition: box-shadow var(--duration-standard);
+}
