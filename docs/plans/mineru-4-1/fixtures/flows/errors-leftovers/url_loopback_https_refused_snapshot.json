@@ -1,0 +1,29 @@
+{
+  "snapshot": {
+    "task_id": "job_0e03241755eb80abf69c8d7c",
+    "status": "failed",
+    "created_at": "2026-11-05T11:55:18Z",
+    "started_at": "2026-11-05T11:55:18Z",
+    "finished_at": "2026-11-05T11:55:19Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 1,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-f0f57af01e70b84366bc53cf",
+        "file_name": "never.pdf",
+        "status": "failed",
+        "url": "https://127.0.0.1:9/never.pdf",
+        "error": {
+          "code": "parse_failed",
+          "message": "All connection attempts failed"
+        }
+      }
+    ]
+  }
+}

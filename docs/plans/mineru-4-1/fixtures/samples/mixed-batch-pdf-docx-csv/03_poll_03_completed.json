@@ -1,0 +1,57 @@
+{
+  "t_since_create_ms": 978,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_6405e867db53e9f63eda5a34",
+    "status": "completed",
+    "created_at": "2026-11-05T11:53:14Z",
+    "started_at": "2026-11-05T11:53:14Z",
+    "finished_at": "2026-11-05T11:53:15Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 3,
+      "failed": 0,
+      "total": 3
+    },
+    "files": [
+      {
+        "file_id": "file-35a7970afcf2676f8a28ed8f",
+        "file_name": "paper-en.pdf",
+        "status": "completed",
+        "bytes": 241664,
+        "parse": {
+          "tier": "standard",
+          "duration_ms": 781,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-35a7970afcf2676f8a28ed8f/content"
+      },
+      {
+        "file_id": "file-7713eb2f423b8896b8752a5d",
+        "file_name": "report.docx",
+        "status": "completed",
+        "bytes": 50722,
+        "parse": {
+          "tier": "flash",
+          "duration_ms": 96,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-7713eb2f423b8896b8752a5d/content"
+      },
+      {
+        "file_id": "file-811b3b57e0d4e540dbf09a08",
+        "file_name": "table.csv",
+        "status": "completed",
+        "bytes": 130,
+        "parse": {
+          "tier": "flash",
+          "duration_ms": 5,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-811b3b57e0d4e540dbf09a08/content"
+      }
+    ]
+  }
+}

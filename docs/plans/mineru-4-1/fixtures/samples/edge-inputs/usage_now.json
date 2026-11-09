@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/usage",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:02:59 GMT",
+      "server": "uvicorn",
+      "content-length": "320",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "object": "usage",
+      "access_level": "registered",
+      "billing_period": {
+        "start": "2026-11-05T11:58:19Z",
+        "end": null
+      },
+      "current": {
+        "pages_processed": 158,
+        "files_processed": 17,
+        "jobs_created": 21
+      },
+      "limits": {
+        "max_pages_per_file": null,
+        "max_file_size_bytes": null,
+        "max_files_per_job": 100,
+        "max_concurrent_jobs": 2,
+        "max_file_retention_days": 1
+      }
+    }
+  }
+}

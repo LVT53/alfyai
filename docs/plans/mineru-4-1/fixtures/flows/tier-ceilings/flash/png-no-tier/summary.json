@@ -1,0 +1,40 @@
+{
+  "slug": "png-no-tier",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 2,
+      "file_name": "scan.png",
+      "status": "completed",
+      "parse": {
+        "tier": "flash",
+        "duration_ms": 5785,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 64923,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_table_5.jpg"
+        ],
+        "member_count": 5
+      }
+    }
+  ],
+  "task_id": "job_2497c8287c5ea4bb051b0cfb",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 5990,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  }
+}

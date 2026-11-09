@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "conc1.pdf",
+          "bytes": 2309975,
+          "sha256sum": "3273c82eed92d4379e97b61f2b7fb61fd11f1282601d7514ea14c0edc3903c24"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:01:18 GMT",
+      "server": "uvicorn",
+      "content-length": "363",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 2,
+    "json": {
+      "task_id": "job_9463451eed6115e4b47a4320",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-5a9e33132e3cf5be6d3a4669",
+          "file_name": "conc1.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_9463451eed6115e4b47a4320/uploads/file-5a9e33132e3cf5be6d3a4669",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883678
+          }
+        }
+      ]
+    }
+  }
+}

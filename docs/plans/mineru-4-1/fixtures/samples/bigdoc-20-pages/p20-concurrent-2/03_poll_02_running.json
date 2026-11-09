@@ -1,0 +1,26 @@
+{
+  "t_since_create_ms": 4453,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_b72d071ba009bfe7d9527f6c",
+    "status": "running",
+    "created_at": "2026-11-05T12:01:18Z",
+    "started_at": "2026-11-05T12:01:23Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-94b6f9f8991e1ec59dd85988",
+        "file_name": "conc2.pdf",
+        "status": "running",
+        "bytes": 2309975
+      }
+    ]
+  }
+}

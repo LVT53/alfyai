@@ -1,0 +1,42 @@
+{
+  "slug": "scan-pdf-default-tier",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 1,
+      "file_name": "scan-page.pdf",
+      "status": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 628,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 53845,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_table_5.jpg"
+        ],
+        "member_count": 5
+      }
+    }
+  ],
+  "task_id": "job_26d504d02bc434f67af98bce",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 829,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "t_start_epoch": 1793879591.671,
+  "t_end_epoch": 1793879592.502
+}

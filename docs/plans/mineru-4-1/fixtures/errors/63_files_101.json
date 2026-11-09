@@ -1,0 +1,437 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "f0.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f1.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f2.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f3.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f4.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f5.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f6.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f7.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f8.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f9.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f10.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f11.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f12.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f13.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f14.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f15.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f16.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f17.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f18.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f19.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f20.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f21.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f22.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f23.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f24.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f25.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f26.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f27.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f28.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f29.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f30.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f31.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f32.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f33.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f34.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f35.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f36.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f37.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f38.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f39.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f40.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f41.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f42.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f43.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f44.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f45.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f46.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f47.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f48.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f49.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f50.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f51.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f52.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f53.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f54.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f55.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f56.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f57.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f58.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f59.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f60.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f61.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f62.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f63.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f64.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f65.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f66.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f67.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f68.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f69.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f70.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f71.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f72.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f73.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f74.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f75.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f76.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f77.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f78.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f79.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f80.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f81.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f82.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f83.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f84.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f85.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f86.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f87.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f88.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f89.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f90.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f91.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f92.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f93.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f94.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f95.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f96.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f97.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f98.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f99.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "f100.pdf",
+          "bytes": 10
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 400,
+    "reason": "Bad Request",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "371",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "error": {
+        "code": "invalid_request",
+        "message": "Invalid request: 1 validation error for CreateTaskRequest\nfiles\n  List should have at most 100 items after validation, not 101 [type=too_long, input_value=[{'file_name': 'f0.pdf', ...f100.pdf', 'bytes': 10}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.14/v/too_long",
+        "param": "files"
+      }
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-ffb3021ea609ee0ae99fb55a/content",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:53:13 GMT",
+      "server": "uvicorn",
+      "content-type": "application/zip",
+      "accept-ranges": "bytes",
+      "content-disposition": "attachment; filename=\"slides.zip\"",
+      "content-length": "2191",
+      "last-modified": "Thu, 05 Nov 2026 11:53:13 GMT",
+      "etag": "\"1abbd219a46e57089aa7219da2fb8d43\"",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "body_bytes": 2191,
+    "same_origin_key_sent": true
+  },
+  "zip_listing": [
+    {
+      "name": "markdown.md",
+      "size": 447,
+      "compressed": 332
+    },
+    {
+      "name": "middle_json.json",
+      "size": 3451,
+      "compressed": 777
+    },
+    {
+      "name": "structured_content.json",
+      "size": 1696,
+      "compressed": 640
+    },
+    {
+      "name": "images/",
+      "size": 0,
+      "compressed": 2
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "slug": "txt-unsupported",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 1,
+      "file_name": "notes.txt",
+      "status": "failed",
+      "parse": null,
+      "error": {
+        "code": "parse_failed",
+        "message": "Unsupported file type: notes.txt"
+      }
+    }
+  ],
+  "task_id": "job_277af2146c783f5cbc20decb",
+  "create_ms": 1,
+  "polls_distinct": 1,
+  "wall_ms_create_to_terminal": 3,
+  "final_status": "failed",
+  "progress": {
+    "completed": 0,
+    "failed": 1,
+    "total": 1
+  },
+  "t_start_epoch": 1793879594.739,
+  "t_end_epoch": 1793879594.743
+}

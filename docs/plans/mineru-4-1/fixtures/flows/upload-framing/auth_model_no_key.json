@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/models/mineru-4.1.7",
+    "headers": {}
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:03:49 GMT",
+      "server": "uvicorn",
+      "content-length": "266",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "id": "mineru-4.1.7",
+      "object": "model",
+      "created": 1793879899,
+      "owned_by": "mineru",
+      "description": "MinerU virtual model. PDF/image quality is selected per request via tier; native documents always use flash. this id identifies the server version, not a specific engine."
+    }
+  }
+}

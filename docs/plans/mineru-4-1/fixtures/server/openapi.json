@@ -1,0 +1,1686 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MinerU API",
+    "description": "Parse documents into structured Middle JSON via self-hosted or remote capacity.\n\nSubmit a JSON files array to `/v1/tasks`, upload missing files to their one-hour URLs,\nthen poll the task and download each completed file's `result_url`. Each file runs\nas soon as it is ready; other files may still be waiting for upload. File\nentries can instead provide a source `url`, with optional `bytes`; workers download\nthese inputs in the background. Choose one or more of default/docx/html/latex in\n`output_formats`. Task status contains metadata only, never inline result bytes.\nHealth and usage\nendpoints report server readiness and quota state. Tiers (`flash`, `basic`,\n`standard`, `advanced`) select the quality/speed trade-off; the set advertised\nby `/v1/tiers` is what this server can actually serve.\n",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Get Health",
+        "description": "Health check endpoint.",
+        "operationId": "get_health_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "List Models",
+        "description": "List all available parsing models.",
+        "operationId": "list_models_v1_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelListResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/models/{model}": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Get Model",
+        "description": "Retrieve a single model by ID.",
+        "operationId": "get_model_v1_models__model__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "model",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Model ID",
+              "title": "Model"
+            },
+            "description": "Model ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tiers": {
+      "get": {
+        "tags": [
+          "Tiers"
+        ],
+        "summary": "List Tiers",
+        "description": "发布 PDF/图片可选档位；原生文档的固定 Flash 能力不由该列表控制。",
+        "operationId": "list_tiers_v1_tiers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TierListResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/files/{file_id}": {
+      "get": {
+        "tags": [
+          "Files"
+        ],
+        "summary": "Get File",
+        "description": "Retrieve file metadata.",
+        "operationId": "get_file_v1_files__file_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "File ID (file-...)",
+              "title": "File Id"
+            },
+            "description": "File ID (file-...)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileObjectModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/files/{file_id}/content": {
+      "get": {
+        "tags": [
+          "Files"
+        ],
+        "summary": "Get File Content",
+        "description": "直接流式发送已保存的产物，下载期间持有文件租约。",
+        "operationId": "get_file_content_v1_files__file_id__content_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "File ID",
+              "title": "File Id"
+            },
+            "description": "File ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File content",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "302": {
+            "description": "Redirect to CDN (cloud mode)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "tags": [
+          "Usage"
+        ],
+        "summary": "Get Usage",
+        "description": "Query current usage and limits.",
+        "operationId": "get_usage_v1_usage_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/tasks": {
+      "post": {
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "Create Task",
+        "description": "先验证 JSON 再建立稳定任务 ID，HTTP 结束后逐文件工作独立继续。",
+        "operationId": "create_task_v1_tasks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "tier": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "flash",
+                          "basic",
+                          "standard",
+                          "advanced"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Tier",
+                    "description": "PDF/image tier only. Omitted or null selects the first supported tier in the order standard, basic, flash, advanced; advanced is automatic only when it is the sole available tier. Explicit unsupported tiers are rejected. All servers support native document formats with flash, independently of /v1/tiers and ignoring any valid tier value."
+                  },
+                  "ocr_mode": {
+                    "type": "string",
+                    "enum": [
+                      "auto",
+                      "txt",
+                      "ocr"
+                    ],
+                    "title": "Ocr Mode",
+                    "default": "auto"
+                  },
+                  "page_range": {
+                    "type": "string",
+                    "title": "Page Range",
+                    "default": ""
+                  },
+                  "output_formats": {
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "default",
+                        "docx",
+                        "html",
+                        "latex"
+                      ]
+                    },
+                    "type": "array",
+                    "minItems": 1,
+                    "title": "Output Formats"
+                  },
+                  "files": {
+                    "items": {
+                      "properties": {
+                        "file_name": {
+                          "type": "string",
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "title": "File Name",
+                          "description": "Logical basename, not a path. No '/', backslash, ':', Unicode Cc control characters, or names '.' / '..'. Hidden names and spaces are allowed; accepted names are preserved without trimming or URL decoding."
+                        },
+                        "bytes": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "exclusiveMinimum": 0.0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Bytes"
+                        },
+                        "url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Url"
+                        },
+                        "sha256sum": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{64}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Sha256Sum"
+                        },
+                        "page_range": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Page Range",
+                          "description": "PDF page selection: 1-based inclusive ranges, e.g. '1-5,8,r3-r1'; 'r1' is the last page and 'all' selects every page. Blank means unspecified. Selections are sorted and deduplicated; out-of-bounds pages are omitted. Reversed ranges, '~' and negative page numbers are invalid."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "file_name"
+                      ],
+                      "title": "TaskFileInput",
+                      "description": "仅声明输入，文件标识由服务端分配，不接受任何客户端 ID。"
+                    },
+                    "type": "array",
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "title": "Files"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "files"
+                ],
+                "title": "CreateTaskRequest",
+                "description": "严格 JSON 创建请求，清单是数组而不是编码后的字符串。"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTaskResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "Get Task",
+        "description": "读取逐文件状态与结果地址，上传链接截止时间保持不变。",
+        "operationId": "get_task_v1_tasks__task_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{task_id}/uploads/{file_id}": {
+      "put": {
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "Upload Task File",
+        "description": "每条上传链接只接收一个文件，该文件就绪后立即提交执行。",
+        "operationId": "upload_task_file_v1_tasks__task_id__uploads__file_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "File Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadFileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{task_id}/cancel": {
+      "post": {
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "Cancel Task",
+        "description": "统一取消等待上传与正在执行的任务，不重建后台作业。",
+        "operationId": "cancel_task_v1_tasks__task_id__cancel_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelTaskResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CancelTaskResponse": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "canceled",
+            "title": "Status"
+          },
+          "finished_at": {
+            "type": "string",
+            "title": "Finished At"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/CanceledTaskFile"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "status",
+          "finished_at",
+          "files"
+        ],
+        "title": "CancelTaskResponse",
+        "description": "取消回执只描述本次取消后的确定终态，不携带上传或查询扩展字段。"
+      },
+      "CanceledTaskFile": {
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "File Id"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "failed",
+              "canceled"
+            ],
+            "title": "Status"
+          },
+          "parse": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileParseInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Url"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_id",
+          "file_name",
+          "status"
+        ],
+        "title": "CanceledTaskFile",
+        "description": "取消回执保留每个文件的终态、可下载产物和失败原因。"
+      },
+      "CreateTaskResponse": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "waiting-file",
+              "pending",
+              "running",
+              "completed",
+              "partial",
+              "failed",
+              "canceled"
+            ],
+            "title": "Status"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/CreatedTaskFile"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "status",
+          "files"
+        ],
+        "title": "CreateTaskResponse",
+        "description": "创建回执独立于查询详情，后续详情扩展不会进入创建响应。"
+      },
+      "CreatedTaskFile": {
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "File Id"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "waiting-file",
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "canceled"
+            ],
+            "title": "Status"
+          },
+          "upload": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskUploadLink"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_id",
+          "file_name",
+          "status"
+        ],
+        "title": "CreatedTaskFile",
+        "description": "创建回执只提供输入映射、当前状态和可执行的上传动作。"
+      },
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "param": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Param"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail",
+        "description": "公共错误只使用稳定错误码和说明，可选参数路径用于精确定位输入。"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse"
+      },
+      "FileObjectModel": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "object": {
+            "type": "string",
+            "const": "file",
+            "title": "Object",
+            "default": "file"
+          },
+          "bytes": {
+            "type": "integer",
+            "title": "Bytes"
+          },
+          "created_at": {
+            "type": "integer",
+            "title": "Created At"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "parse",
+              "parse_output"
+            ],
+            "title": "Purpose"
+          },
+          "sha256sum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256Sum"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "bytes",
+          "created_at",
+          "file_name",
+          "purpose"
+        ],
+        "title": "FileObjectModel",
+        "description": "A file resource (source or parse output)."
+      },
+      "FileParseInfo": {
+        "properties": {
+          "tier": {
+            "type": "string",
+            "enum": [
+              "flash",
+              "basic",
+              "standard",
+              "advanced"
+            ],
+            "title": "Tier"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "parser_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parser Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tier"
+        ],
+        "title": "FileParseInfo"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthFeatures": {
+        "properties": {
+          "webhook": {
+            "type": "boolean",
+            "title": "Webhook",
+            "default": false
+          },
+          "task_output_formats": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "default",
+                "docx",
+                "html",
+                "latex"
+              ]
+            },
+            "type": "array",
+            "title": "Task Output Formats"
+          },
+          "sources": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "upload",
+                "url"
+              ]
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "HealthFeatures"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "ok"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "features": {
+            "$ref": "#/components/schemas/HealthFeatures"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "HealthResponse"
+      },
+      "ModelInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "object": {
+            "type": "string",
+            "const": "model",
+            "title": "Object",
+            "default": "model"
+          },
+          "created": {
+            "type": "integer",
+            "title": "Created"
+          },
+          "owned_by": {
+            "type": "string",
+            "title": "Owned By",
+            "default": "mineru"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "created"
+        ],
+        "title": "ModelInfo"
+      },
+      "ModelListResponse": {
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "list",
+            "title": "Object",
+            "default": "list"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ModelInfo"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "ModelListResponse"
+      },
+      "TaskDetailResponse": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "waiting-file",
+              "pending",
+              "running",
+              "completed",
+              "partial",
+              "failed",
+              "canceled"
+            ],
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "output_formats": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "default",
+                "docx",
+                "html",
+                "latex"
+              ]
+            },
+            "type": "array",
+            "title": "Output Formats"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/TaskProgress"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/TaskFileDetail"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "status",
+          "created_at",
+          "output_formats",
+          "progress",
+          "files"
+        ],
+        "title": "TaskDetailResponse",
+        "description": "任务状态只携带元数据；每个成功文件提供自己的下载链接。"
+      },
+      "TaskFileDetail": {
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "File Id"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "waiting-file",
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "canceled"
+            ],
+            "title": "Status"
+          },
+          "bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "upload": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskUploadLink"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parse": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileParseInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Url"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_id",
+          "file_name",
+          "status"
+        ],
+        "title": "TaskFileDetail",
+        "description": "用统一状态描述文件准备和解析，上传对象仅表示客户端当前可执行的动作。"
+      },
+      "TaskProgress": {
+        "properties": {
+          "completed": {
+            "type": "integer",
+            "title": "Completed",
+            "default": 0
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed",
+            "default": 0
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "TaskProgress"
+      },
+      "TaskUploadLink": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Headers"
+          },
+          "expires_at": {
+            "type": "integer",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url",
+          "headers",
+          "expires_at"
+        ],
+        "title": "TaskUploadLink",
+        "description": "描述一个文件的上传目标，客户端原样使用服务端给出的地址和请求头。"
+      },
+      "TierInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "flash",
+              "basic",
+              "standard",
+              "advanced"
+            ],
+            "title": "Id"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "current_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Model"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "description"
+        ],
+        "title": "TierInfo"
+      },
+      "TierListResponse": {
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "list",
+            "title": "Object",
+            "default": "list"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/TierInfo"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TierListResponse"
+      },
+      "UploadFileResponse": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "file_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "File Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "waiting-file",
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "canceled"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "file_id",
+          "status"
+        ],
+        "title": "UploadFileResponse",
+        "description": "确认一次文件上传，仅返回对应文件的身份和当前状态。"
+      },
+      "UsageBillingPeriod": {
+        "properties": {
+          "start": {
+            "type": "string",
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start"
+        ],
+        "title": "UsageBillingPeriod"
+      },
+      "UsageCurrent": {
+        "properties": {
+          "pages_processed": {
+            "type": "integer",
+            "title": "Pages Processed",
+            "default": 0
+          },
+          "files_processed": {
+            "type": "integer",
+            "title": "Files Processed",
+            "default": 0
+          },
+          "jobs_created": {
+            "type": "integer",
+            "title": "Jobs Created",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "UsageCurrent"
+      },
+      "UsageLimits": {
+        "properties": {
+          "max_pages_per_file": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Pages Per File"
+          },
+          "max_file_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Size Bytes"
+          },
+          "max_files_per_job": {
+            "type": "integer",
+            "title": "Max Files Per Job",
+            "default": 100
+          },
+          "max_concurrent_jobs": {
+            "type": "integer",
+            "title": "Max Concurrent Jobs",
+            "default": 1
+          },
+          "max_file_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Retention Days"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "UsageLimits"
+      },
+      "UsageResponse": {
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "usage",
+            "title": "Object",
+            "default": "usage"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "anonymous",
+              "registered"
+            ],
+            "title": "Access Level"
+          },
+          "billing_period": {
+            "$ref": "#/components/schemas/UsageBillingPeriod"
+          },
+          "current": {
+            "$ref": "#/components/schemas/UsageCurrent"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/UsageLimits"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "access_level",
+          "billing_period",
+          "current",
+          "limits"
+        ],
+        "title": "UsageResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "description": "Bearer API key when configured",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Tasks",
+      "description": "JSON task creation, per-file uploads, details and cancellation receipts."
+    },
+    {
+      "name": "Health",
+      "description": "Liveness and server readiness."
+    },
+    {
+      "name": "Tiers",
+      "description": "Parsing tiers and runtime capability advertised by this server."
+    },
+    {
+      "name": "Models",
+      "description": "VLM models available for parsing."
+    },
+    {
+      "name": "Files",
+      "description": "Inspect saved files and download completed parsing artifacts."
+    },
+    {
+      "name": "Usage",
+      "description": "Remote service quota and usage reporting."
+    }
+  ]
+}

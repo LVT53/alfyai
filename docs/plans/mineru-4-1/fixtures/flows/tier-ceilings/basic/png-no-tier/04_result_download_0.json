@@ -1,0 +1,54 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-508ebd56d308506053e30693/content",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:09:32 GMT",
+      "server": "uvicorn",
+      "content-type": "application/zip",
+      "accept-ranges": "bytes",
+      "content-disposition": "attachment; filename=\"scan.zip\"",
+      "content-length": "64949",
+      "last-modified": "Thu, 05 Nov 2026 12:09:32 GMT",
+      "etag": "\"20872f3bb631c54fc6574b26fa684eb0\"",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "body_bytes": 64949,
+    "same_origin_key_sent": true
+  },
+  "zip_listing": [
+    {
+      "name": "markdown.md",
+      "size": 731,
+      "compressed": 487
+    },
+    {
+      "name": "middle_json.json",
+      "size": 3486,
+      "compressed": 1033
+    },
+    {
+      "name": "structured_content.json",
+      "size": 2509,
+      "compressed": 945
+    },
+    {
+      "name": "images/",
+      "size": 0,
+      "compressed": 2
+    },
+    {
+      "name": "images/page_0_table_5.jpg",
+      "size": 63181,
+      "compressed": 61916
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "renamed-copy.pdf",
+          "bytes": 241697,
+          "sha256sum": "af87e5eeed1711d725c91dbe909ada044ddd25d8878949df9f01fbd327cf0c40"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:58:07 GMT",
+      "server": "uvicorn",
+      "content-length": "165",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_7dc145488007dcfc78fb384a",
+      "status": "pending",
+      "files": [
+        {
+          "file_id": "file-804653c6cb077007edd9b0b3",
+          "file_name": "renamed-copy.pdf",
+          "status": "pending"
+        }
+      ]
+    }
+  }
+}

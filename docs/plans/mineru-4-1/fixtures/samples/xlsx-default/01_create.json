@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "data.xlsx",
+          "bytes": 5784,
+          "sha256sum": "c291448435563e8d589983a9528c8bc8bdc6bf7f5d087e7de600cef9103bff95"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:53:11 GMT",
+      "server": "uvicorn",
+      "content-length": "363",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_5f6ee2035777d0151f57b4f0",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-18c8d9d2030ea46a74880b77",
+          "file_name": "data.xlsx",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_5f6ee2035777d0151f57b4f0/uploads/file-18c8d9d2030ea46a74880b77",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883192
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-5c77757c4a504070e858b972/content",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:53:15 GMT",
+      "server": "uvicorn",
+      "content-type": "text/html; charset=utf-8",
+      "accept-ranges": "bytes",
+      "content-disposition": "attachment; filename=\"paper-en.html\"",
+      "content-length": "76435",
+      "last-modified": "Thu, 05 Nov 2026 11:53:16 GMT",
+      "etag": "\"75bcd2a76b65631e72191324897416e1\"",
+      "vary": "Accept-Encoding",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "body_bytes": 76435,
+    "same_origin_key_sent": true
+  }
+}

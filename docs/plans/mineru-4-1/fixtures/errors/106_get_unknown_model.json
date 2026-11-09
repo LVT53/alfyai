@@ -1,0 +1,27 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/models/nope",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 404,
+    "reason": "Not Found",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "71",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 0,
+    "json": {
+      "error": {
+        "code": "model_not_found",
+        "message": "Model 'nope' not found"
+      }
+    }
+  }
+}

@@ -1,0 +1,416 @@
+{
+  "metadata": {
+    "file_suffix": "pdf",
+    "producer": {
+      "name": "mineru",
+      "version": "4.1.7"
+    },
+    "document": {
+      "title": "Throughput of tiered document parsing",
+      "languages": [
+        "en"
+      ],
+      "created_at": "2026-11-05T11:51:25+00:00",
+      "modified_at": "2026-11-05T11:51:25+00:00",
+      "creator_application": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+      "producer_application": "Skia/PDF m157",
+      "page_count": 2,
+      "page_count_kind": "physical"
+    }
+  },
+  "extensions": {
+    "mineru": {
+      "tier": "flash",
+      "parse_mode": "txt"
+    },
+    "docvortex_layout": {
+      "version": 1,
+      "pages": [
+        {
+          "page_idx": 0,
+          "width_pt": 594.9599609375,
+          "height_pt": 841.9199829101562
+        },
+        {
+          "page_idx": 1,
+          "width_pt": 594.9599609375,
+          "height_pt": 841.9199829101562
+        }
+      ]
+    }
+  },
+  "pages": [
+    {
+      "page_idx": 0,
+      "blocks": [
+        {
+          "type": "header",
+          "index": 0,
+          "bbox": [
+            0.648,
+            0.069,
+            0.906,
+            0.081
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Spike Journal of Document Parsing, Vol. 1"
+            }
+          ]
+        },
+        {
+          "type": "doc_title",
+          "index": 1,
+          "bbox": [
+            0.237,
+            0.11,
+            0.765,
+            0.134
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Throughput of Tiered Document Parsing"
+            }
+          ],
+          "level": 1
+        },
+        {
+          "type": "text",
+          "index": 2,
+          "bbox": [
+            0.405,
+            0.148,
+            0.598,
+            0.162
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Ada Example, Bela Minta"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "index": 3,
+          "bbox": [
+            0.143,
+            0.186,
+            0.819,
+            0.216
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Abstract.",
+              "styles": [
+                "bold"
+              ]
+            },
+            {
+              "type": "text",
+              "content": " We compare four parsing tiers on a small synthetic corpus and report how layout analysis, optical character recognition and formula recognition change throughput and fidelity."
+            }
+          ]
+        },
+        {
+          "type": "paragraph_title",
+          "index": 4,
+          "bbox": [
+            0.096,
+            0.238,
+            0.236,
+            0.256
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "1. Introduction"
+            }
+          ],
+          "level": 2
+        },
+        {
+          "type": "text",
+          "index": 5,
+          "bbox": [
+            0.096,
+            0.263,
+            0.906,
+            0.322
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Let denote the feature vector of page , and let be a mixing weight. The empirical loss xi ∈ Rd i α ∈ (0, 1) is and the regulariser satisfies ∥θ∥2 ≤ 1.1 The latency model that we fit L(θ) = ℓ(f (x ), y ) N 1 ∑i=1 N θ i i is given by"
+            }
+          ]
+        },
+        {
+          "type": "equation",
+          "index": 6,
+          "bbox": [
+            0.282,
+            0.333,
+            0.906,
+            0.377
+          ],
+          "image_path": "images/page_0_equation_6.jpg",
+          "content": ""
+        },
+        {
+          "type": "text",
+          "index": 7,
+          "bbox": [
+            0.096,
+            0.39,
+            0.906,
+            0.422
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "where is the number of pages and , , are fitted constants. In Section 2 we report the measured n a b c latencies, and we discuss the Hungarian-language test page in Section 3."
+            }
+          ]
+        },
+        {
+          "type": "paragraph_title",
+          "index": 8,
+          "bbox": [
+            0.096,
+            0.447,
+            0.19,
+            0.464
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "2. Method"
+            }
+          ],
+          "level": 2
+        },
+        {
+          "type": "text",
+          "index": 9,
+          "bbox": [
+            0.096,
+            0.474,
+            0.906,
+            0.506
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Each document is parsed once per tier. The median and the 95th percentile of the wall-clock time are recorded for every run, and the results are summarised in Table 1 on the next page."
+            }
+          ]
+        },
+        {
+          "type": "footer",
+          "index": 10,
+          "bbox": [
+            0.096,
+            0.866,
+            0.578,
+            0.894
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "1 The norm constraint is the usual unit-ball regularisation; it is stated here only as an example footnote."
+            }
+          ]
+        },
+        {
+          "type": "page_number",
+          "index": 11,
+          "bbox": [
+            0.497,
+            0.912,
+            0.505,
+            0.925
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "page_idx": 1,
+      "blocks": [
+        {
+          "type": "header",
+          "index": 0,
+          "bbox": [
+            0.648,
+            0.069,
+            0.906,
+            0.081
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Spike Journal of Document Parsing, Vol. 1"
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "index": 2,
+          "bbox": [
+            0.319,
+            0.137,
+            0.683,
+            0.264
+          ],
+          "content": [
+            {
+              "type": "table_caption",
+              "index": 1,
+              "bbox": [
+                0.343,
+                0.109,
+                0.659,
+                0.122
+              ],
+              "content": [
+                {
+                  "type": "text",
+                  "content": "Table 1. Parsing latency by tier (milliseconds)."
+                }
+              ]
+            },
+            {
+              "type": "table_body",
+              "index": 2,
+              "bbox": [
+                0.319,
+                0.137,
+                0.683,
+                0.264
+              ],
+              "image_path": "images/page_1_table_2.jpg",
+              "content": "<table><tbody><tr><td>Tier</td><td>Pages</td><td>Median</td><td>p95</td></tr><tr><td>flash</td><td>12</td><td>810</td><td>1 240</td></tr><tr><td>basic</td><td>12</td><td>1 126</td><td>2 980</td></tr><tr><td>standard</td><td>12</td><td>4 310</td><td>9 870</td></tr><tr><td>advanced</td><td>12</td><td>7 450</td><td>15 200</td></tr></tbody></table>"
+            }
+          ]
+        },
+        {
+          "type": "image",
+          "index": 3,
+          "bbox": [
+            0.216,
+            0.273,
+            0.787,
+            0.507
+          ],
+          "content": [
+            {
+              "type": "image_body",
+              "index": 3,
+              "bbox": [
+                0.216,
+                0.273,
+                0.787,
+                0.507
+              ],
+              "image_path": "images/page_1_image_3.jpg",
+              "content": ""
+            },
+            {
+              "type": "image_caption",
+              "index": 4,
+              "bbox": [
+                0.375,
+                0.517,
+                0.628,
+                0.53
+              ],
+              "content": [
+                {
+                  "type": "text",
+                  "content": "Figure 1. Relative throughput by tier."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph_title",
+          "index": 5,
+          "bbox": [
+            0.096,
+            0.553,
+            0.307,
+            0.57
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "3. Hungarian test page"
+            }
+          ],
+          "level": 2
+        },
+        {
+          "type": "text",
+          "index": 6,
+          "bbox": [
+            0.096,
+            0.58,
+            0.906,
+            0.63
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Az árvíztűrő tükörfúrógép egy magyar pangram: minden ékezetes magyar betűt tartalmaz, így az ő és az ű betűt is. A dokumentum feldolgozása után a szövegnek pontosan meg kell maradnia. ÁRVÍZTŰRŐ TÜKÖRFÚRÓGÉP."
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "index": 7,
+          "bbox": [
+            0.096,
+            0.642,
+            0.906,
+            0.677
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "The quadratic term satisfies for every tier, and the fitted curve passes within of each c > 0 ϵ = 0.05 measurement."
+            }
+          ]
+        },
+        {
+          "type": "page_number",
+          "index": 8,
+          "bbox": [
+            0.497,
+            0.912,
+            0.505,
+            0.925
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "2"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "is_full_document": true,
+  "schema": "docvortex.middle",
+  "schema_version": "2.0"
+}

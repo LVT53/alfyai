@@ -1,0 +1,39 @@
+{
+  "slug": "final/png-ok-basic",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put": "skipped",
+      "file_name": "scan.png",
+      "status": "completed",
+      "parse": {
+        "tier": "basic",
+        "duration_ms": 725,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 64949,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_table_5.jpg"
+        ],
+        "member_count": 5
+      }
+    }
+  ],
+  "task_id": "job_46dbf7ef8ea445e57b512e7e",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 928,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  }
+}

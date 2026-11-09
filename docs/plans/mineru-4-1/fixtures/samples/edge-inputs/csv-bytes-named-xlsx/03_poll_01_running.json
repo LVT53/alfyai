@@ -1,0 +1,26 @@
+{
+  "t_since_create_ms": 3,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_9d361689d802f1fd14cdb3ee",
+    "status": "running",
+    "created_at": "2026-11-05T12:02:58Z",
+    "started_at": "2026-11-05T12:02:58Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-eb7a297870e0d48a075c8cfd",
+        "file_name": "table-as.xlsx",
+        "status": "running",
+        "bytes": 130
+      }
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "slug": "p20-standard-range-r1",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put": "skipped",
+      "file_name": "paper-20p.pdf",
+      "status": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 406,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 61567,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_19_chart_3.jpg",
+          "images/page_19_table_2.jpg"
+        ],
+        "member_count": 6
+      }
+    }
+  ],
+  "task_id": "job_8597dd554c3e7a312a88d7b7",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 605,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "t_start_epoch": 1793880078.083,
+  "t_end_epoch": 1793880078.692
+}

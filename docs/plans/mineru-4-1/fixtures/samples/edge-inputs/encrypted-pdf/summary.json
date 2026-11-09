@@ -1,0 +1,28 @@
+{
+  "slug": "final/encrypted-pdf",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 2,
+      "file_name": "encrypted.pdf",
+      "status": "failed",
+      "parse": null,
+      "error": {
+        "code": "parse_failed",
+        "message": "Failed to load document (PDFium: Incorrect password error)."
+      }
+    }
+  ],
+  "task_id": "job_8cc5ec3e03e74c42f218ea50",
+  "create_ms": 2,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 208,
+  "final_status": "failed",
+  "progress": {
+    "completed": 0,
+    "failed": 1,
+    "total": 1
+  }
+}

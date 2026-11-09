@@ -1,0 +1,199 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-2b503fbf1c0fa9dbaf50fba3/content",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:01:00 GMT",
+      "server": "uvicorn",
+      "content-type": "application/zip",
+      "accept-ranges": "bytes",
+      "content-disposition": "attachment; filename=\"paper-20p.zip\"",
+      "content-length": "731269",
+      "last-modified": "Thu, 05 Nov 2026 12:01:00 GMT",
+      "etag": "\"3663621c7187238ff13544fe5d08247d\"",
+      "connection": "close"
+    },
+    "elapsed_ms": 7,
+    "body_bytes": 731269,
+    "same_origin_key_sent": true
+  },
+  "zip_listing": [
+    {
+      "name": "markdown.md",
+      "size": 20103,
+      "compressed": 1408
+    },
+    {
+      "name": "middle_json.json",
+      "size": 107010,
+      "compressed": 3675
+    },
+    {
+      "name": "structured_content.json",
+      "size": 65591,
+      "compressed": 2854
+    },
+    {
+      "name": "images/",
+      "size": 0,
+      "compressed": 2
+    },
+    {
+      "name": "images/page_0_equation_6.jpg",
+      "size": 15660,
+      "compressed": 13887
+    },
+    {
+      "name": "images/page_10_equation_6.jpg",
+      "size": 15660,
+      "compressed": 13887
+    },
+    {
+      "name": "images/page_11_chart_3.jpg",
+      "size": 44068,
+      "compressed": 28022
+    },
+    {
+      "name": "images/page_11_table_2.jpg",
+      "size": 44040,
+      "compressed": 29993
+    },
+    {
+      "name": "images/page_12_equation_6.jpg",
+      "size": 15660,
+      "compressed": 13887
+    },
+    {
+      "name": "images/page_13_chart_3.jpg",
+      "size": 44068,
+      "compressed": 28022
+    },
+    {
+      "name": "images/page_13_table_2.jpg",
+      "size": 44040,
+      "compressed": 29993
+    },
+    {
+      "name": "images/page_14_equation_6.jpg",
+      "size": 15660,
+      "compressed": 13887
+    },
+    {
+      "name": "images/page_15_chart_3.jpg",
+      "size": 44068,
+      "compressed": 28022
+    },
+    {
+      "name": "images/page_15_table_2.jpg",
+      "size": 44040,
+      "compressed": 29993
+    },
+    {
+      "name": "images/page_16_equation_6.jpg",
+      "size": 15660,
+      "compressed": 13887
+    },
+    {
+      "name": "images/page_17_chart_3.jpg",
+      "size": 44068,
+      "compressed": 28022
+    },
+    {
+      "name": "images/page_17_table_2.jpg",
+      "size": 44040,
+      "compressed": 29993
+    },
+    {
+      "name": "images/page_18_equation_6.jpg",
+      "size": 15660,
+      "compressed": 13887
+    },
+    {
+      "name": "images/page_19_chart_3.jpg",
+      "size": 44068,
+      "compressed": 28022
+    },
+    {
+      "name": "images/page_19_table_2.jpg",
+      "size": 44040,
+      "compressed": 29993
+    },
+    {
+      "name": "images/page_1_chart_3.jpg",
+      "size": 44068,
+      "compressed": 28022
+    },
+    {
+      "name": "images/page_1_table_2.jpg",
+      "size": 44040,
+      "compressed": 29993
+    },
+    {
+      "name": "images/page_2_equation_6.jpg",
+      "size": 15660,
+      "compressed": 13887
+    },
+    {
+      "name": "images/page_3_chart_3.jpg",
+      "size": 44068,
+      "compressed": 28022
+    },
+    {
+      "name": "images/page_3_table_2.jpg",
+      "size": 44040,
+      "compressed": 29993
+    },
+    {
+      "name": "images/page_4_equation_6.jpg",
+      "size": 15660,
+      "compressed": 13887
+    },
+    {
+      "name": "images/page_5_chart_3.jpg",
+      "size": 44068,
+      "compressed": 28022
+    },
+    {
+      "name": "images/page_5_table_2.jpg",
+      "size": 44040,
+      "compressed": 29993
+    },
+    {
+      "name": "images/page_6_equation_6.jpg",
+      "size": 15660,
+      "compressed": 13887
+    },
+    {
+      "name": "images/page_7_chart_3.jpg",
+      "size": 44068,
+      "compressed": 28022
+    },
+    {
+      "name": "images/page_7_table_2.jpg",
+      "size": 44040,
+      "compressed": 29993
+    },
+    {
+      "name": "images/page_8_equation_6.jpg",
+      "size": 15660,
+      "compressed": 13887
+    },
+    {
+      "name": "images/page_9_chart_3.jpg",
+      "size": 44068,
+      "compressed": 28022
+    },
+    {
+      "name": "images/page_9_table_2.jpg",
+      "size": 44040,
+      "compressed": 29993
+    }
+  ]
+}

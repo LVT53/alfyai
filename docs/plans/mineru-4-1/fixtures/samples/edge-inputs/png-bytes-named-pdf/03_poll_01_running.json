@@ -1,0 +1,26 @@
+{
+  "t_since_create_ms": 4,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_3af1aa61b553800f84fa38b5",
+    "status": "running",
+    "created_at": "2026-11-05T12:02:56Z",
+    "started_at": "2026-11-05T12:02:56Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-8e60b7aecac2a17667ee0a04",
+        "file_name": "scan-as.pdf",
+        "status": "running",
+        "bytes": 768284
+      }
+    ]
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "slug": "final/png-bytes-named-pdf",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 2,
+      "file_name": "scan-as.pdf",
+      "status": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 720,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 64958,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_table_5.jpg"
+        ],
+        "member_count": 5
+      }
+    }
+  ],
+  "task_id": "job_3af1aa61b553800f84fa38b5",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 922,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  }
+}

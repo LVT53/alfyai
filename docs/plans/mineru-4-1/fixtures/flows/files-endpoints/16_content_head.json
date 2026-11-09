@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "HEAD",
+    "path": "/v1/files/file-5f19f9ed9efd0ec303433dfd/content",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 405,
+    "reason": "Method Not Allowed",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:57:05 GMT",
+      "server": "uvicorn",
+      "allow": "GET",
+      "content-length": "31",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 0
+  }
+}

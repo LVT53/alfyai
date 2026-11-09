@@ -1,0 +1,224 @@
+{
+  "metadata": {
+    "file_suffix": "pdf",
+    "producer": {
+      "name": "mineru",
+      "version": "4.1.7"
+    },
+    "document": {
+      "title": "Throughput of tiered document parsing",
+      "languages": [
+        "en"
+      ],
+      "created_at": "2026-11-05T11:51:25+00:00",
+      "modified_at": "2026-11-05T11:51:25+00:00",
+      "creator_application": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+      "producer_application": "Skia/PDF m157",
+      "page_count": 2,
+      "page_count_kind": "physical"
+    }
+  },
+  "extensions": {
+    "mineru": {
+      "tier": "standard",
+      "parse_mode": "txt"
+    },
+    "docvortex_layout": {
+      "version": 1,
+      "pages": [
+        {
+          "page_idx": 1,
+          "width_pt": 594.9599609375,
+          "height_pt": 841.9199829101562
+        }
+      ]
+    }
+  },
+  "pages": [
+    {
+      "page_idx": 1,
+      "blocks": [
+        {
+          "type": "header",
+          "index": 0,
+          "bbox": [
+            0.643,
+            0.068,
+            0.91,
+            0.083
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Spike Journal of Document Parsing, Vol. 1"
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "index": 2,
+          "bbox": [
+            0.317,
+            0.135,
+            0.684,
+            0.263
+          ],
+          "content": [
+            {
+              "type": "table_caption",
+              "index": 1,
+              "bbox": [
+                0.339,
+                0.108,
+                0.66,
+                0.124
+              ],
+              "content": [
+                {
+                  "type": "text",
+                  "content": "Table 1. Parsing latency by tier (milliseconds)."
+                }
+              ]
+            },
+            {
+              "type": "table_body",
+              "index": 2,
+              "bbox": [
+                0.317,
+                0.135,
+                0.684,
+                0.263
+              ],
+              "image_path": "images/page_1_table_2.jpg",
+              "content": "<table><tbody><tr><td>Tier</td><td>Pages</td><td>Median</td><td>p95</td></tr><tr><td>flash</td><td>12</td><td>810</td><td>1 240</td></tr><tr><td>basic</td><td>12</td><td>1 126</td><td>2 980</td></tr><tr><td>standard</td><td>12</td><td>4 310</td><td>9 870</td></tr><tr><td>advanced</td><td>12</td><td>7 450</td><td>15 200</td></tr></tbody></table>"
+            }
+          ]
+        },
+        {
+          "type": "chart",
+          "index": 3,
+          "bbox": [
+            0.268,
+            0.273,
+            0.764,
+            0.504
+          ],
+          "content": [
+            {
+              "type": "chart_body",
+              "index": 3,
+              "bbox": [
+                0.268,
+                0.273,
+                0.764,
+                0.504
+              ],
+              "image_path": "images/page_1_chart_3.jpg",
+              "content": ""
+            },
+            {
+              "type": "chart_caption",
+              "index": 4,
+              "bbox": [
+                0.37,
+                0.516,
+                0.63,
+                0.532
+              ],
+              "content": [
+                {
+                  "type": "text",
+                  "content": "Figure 1. Relative throughput by tier."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph_title",
+          "index": 5,
+          "bbox": [
+            0.091,
+            0.553,
+            0.311,
+            0.572
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "3. Hungarian test page"
+            }
+          ],
+          "level": 2
+        },
+        {
+          "type": "text",
+          "index": 6,
+          "bbox": [
+            0.09,
+            0.58,
+            0.91,
+            0.631
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Az árvíztűrő tükörfúrógép egy magyar pangram: minden ékezetes magyar betűt tartalmaz, így az ő és az ű betűt is. A dokumentum feldolgozása után a szövegnek pontosan meg kell maradnia. ÁRVÍZTŰRŐ TÜKÖRFÚRÓGÉP."
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "index": 7,
+          "bbox": [
+            0.091,
+            0.644,
+            0.91,
+            0.678
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "The quadratic term satisfies "
+            },
+            {
+              "type": "equation_inline",
+              "content": "c > 0"
+            },
+            {
+              "type": "text",
+              "content": " for every tier, and the fitted curve passes within "
+            },
+            {
+              "type": "equation_inline",
+              "content": "\\epsilon = 0.05"
+            },
+            {
+              "type": "text",
+              "content": " of each measurement."
+            }
+          ]
+        },
+        {
+          "type": "page_number",
+          "index": 8,
+          "bbox": [
+            0.494,
+            0.912,
+            0.508,
+            0.924
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "2"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "is_full_document": false,
+  "schema": "docvortex.middle",
+  "schema_version": "2.0"
+}

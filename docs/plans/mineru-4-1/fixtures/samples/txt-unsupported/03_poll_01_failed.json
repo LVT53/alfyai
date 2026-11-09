@@ -1,0 +1,31 @@
+{
+  "t_since_create_ms": 3,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_277af2146c783f5cbc20decb",
+    "status": "failed",
+    "created_at": "2026-11-05T11:53:14Z",
+    "started_at": "2026-11-05T11:53:14Z",
+    "finished_at": "2026-11-05T11:53:14Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 1,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-11652dba9e5e4d75be0d50ac",
+        "file_name": "notes.txt",
+        "status": "failed",
+        "bytes": 220,
+        "error": {
+          "code": "parse_failed",
+          "message": "Unsupported file type: notes.txt"
+        }
+      }
+    ]
+  }
+}

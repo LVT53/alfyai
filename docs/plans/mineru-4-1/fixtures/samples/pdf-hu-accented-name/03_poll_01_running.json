@@ -1,0 +1,26 @@
+{
+  "t_since_create_ms": 3,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_b85a5f059c1294c4bf092d8a",
+    "status": "running",
+    "created_at": "2026-11-05T11:53:13Z",
+    "started_at": "2026-11-05T11:53:13Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-f6f3a8f39bd5edf9d5e5afad",
+        "file_name": "Árvíztűrő tükörfúrógép jelentés.pdf",
+        "status": "running",
+        "bytes": 32833
+      }
+    ]
+  }
+}

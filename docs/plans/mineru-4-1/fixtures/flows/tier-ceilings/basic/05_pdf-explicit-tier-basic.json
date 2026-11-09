@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "t.pdf",
+          "bytes": 10
+        }
+      ],
+      "tier": "basic"
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:09:32 GMT",
+      "server": "uvicorn",
+      "content-length": "359",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_0bbfa535db10c823d4188826",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-1cb8cea902289de25ea9a36c",
+          "file_name": "t.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8013/v1/tasks/job_0bbfa535db10c823d4188826/uploads/file-1cb8cea902289de25ea9a36c",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793884173
+          }
+        }
+      ]
+    }
+  }
+}

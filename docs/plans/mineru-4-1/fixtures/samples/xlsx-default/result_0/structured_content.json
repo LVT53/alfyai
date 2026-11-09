@@ -1,0 +1,60 @@
+{
+  "pages": [
+    {
+      "page_idx": 0,
+      "blocks": [
+        {
+          "type": "paragraph_title",
+          "level": 2,
+          "content": "Latency"
+        },
+        {
+          "type": "table",
+          "content": "| Tier | Pages | Median ms | p95 ms | Note |\n| --- | --- | --- | --- | --- |\n| flash | 12 | 810 | 1240 | fast |\n| basic | 12 | 1126 | 2980 | OCR |\n| standard | 12 | 4310 | 9870 | árvíztűrő |\n| advanced | 12 | 7450 | 15200 | tükörfúrógép |\n|  |  |  |  |  |\n| Total median |  |  |  |  |",
+          "captions": [],
+          "footnotes": []
+        }
+      ]
+    },
+    {
+      "page_idx": 1,
+      "blocks": [
+        {
+          "type": "paragraph_title",
+          "level": 2,
+          "content": "Notes"
+        },
+        {
+          "type": "table",
+          "content": "| Key | Value |\n| --- | --- |\n| language | hu |\n| sentence | Az árvíztűrő tükörfúrógép egy magyar pangram: minden ékezetes magyar betűt tartalmaz, így az ő és az ű betűt is. A dokumentum feldolgozása után a szövegnek pontosan meg kell maradnia. |",
+          "captions": [],
+          "footnotes": []
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "file_suffix": "xlsx",
+    "producer": {
+      "name": "mineru",
+      "version": "4.1.7"
+    },
+    "document": {
+      "authors": [
+        "openpyxl"
+      ],
+      "created_at": "2026-11-05T11:51:28Z",
+      "modified_at": "2026-11-05T11:51:28Z",
+      "creator_application": "Microsoft Excel Compatible / Openpyxl 3.1.5",
+      "page_count": 2,
+      "page_count_kind": "sheet"
+    }
+  },
+  "extensions": {
+    "mineru": {
+      "tier": "flash",
+      "parse_mode": "txt"
+    }
+  },
+  "is_full_document": true
+}

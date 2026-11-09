@@ -1,0 +1,392 @@
+{
+  "system": {
+    "name": "Linux",
+    "release": "6.12.0-211.73.1.el10_2.x86_64",
+    "version": "#1 SMP PREEMPT_DYNAMIC Mon Nov  2 12:34:27 EST 2026",
+    "os_version": "6.12.0-211.73.1.el10_2.x86_64",
+    "distribution": "AlmaLinux 10.2 (Lavender Lion)",
+    "architecture": "x86_64"
+  },
+  "python": {
+    "version": "3.12.15",
+    "executable": "<VENV>/bin/python"
+  },
+  "mineru": {
+    "version": "4.1.7",
+    "module_path": "<VENV>/lib/python3.12/site-packages/mineru/__init__.py"
+  },
+  "cpu": {
+    "model": "AMD Ryzen 9 9950X 16-Core Processor",
+    "physical_cores": 16,
+    "logical_cores": 32,
+    "available_cores": 32,
+    "base_mhz": null,
+    "current_mhz": 2330.53203125,
+    "max_mhz": 5756.452
+  },
+  "memory": {
+    "total_bytes": 199441735680,
+    "available_bytes": 74985095168
+  },
+  "gpus": [
+    {
+      "name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+      "vendor": "NVIDIA",
+      "device_id": "0x10de:0x2bb1",
+      "kind": "discrete",
+      "kind_source": "vulkan",
+      "bus_id": "00000000:01:00.0",
+      "driver": "615.71.10",
+      "dedicated_memory_bytes": 102641958912,
+      "shared_memory_bytes": null,
+      "unified_memory": null,
+      "source": "sysfs"
+    },
+    {
+      "name": "NVIDIA RTX PRO 5000 Blackwell",
+      "vendor": "NVIDIA",
+      "device_id": "0x10de:0x2bb3",
+      "kind": "discrete",
+      "kind_source": "vulkan",
+      "bus_id": "00000000:03:00.0",
+      "driver": "615.71.10",
+      "dedicated_memory_bytes": 51312066560,
+      "shared_memory_bytes": null,
+      "unified_memory": null,
+      "source": "sysfs"
+    },
+    {
+      "name": "Advanced Micro Devices, Inc. [AMD/ATI] Granite Ridge [Radeon Graphics]",
+      "vendor": "AMD",
+      "device_id": "0x1002:0x13c0",
+      "kind": "unknown",
+      "kind_source": "unknown",
+      "bus_id": "0000:72:00.0",
+      "driver": null,
+      "dedicated_memory_bytes": null,
+      "shared_memory_bytes": null,
+      "unified_memory": null,
+      "source": "sysfs"
+    }
+  ],
+  "packages": [
+    {
+      "name": "mineru",
+      "version": "4.1.7",
+      "location": "<VENV>/lib64/python3.12/site-packages"
+    },
+    {
+      "name": "docvortex",
+      "version": "0.6.14",
+      "location": "<VENV>/lib64/python3.12/site-packages"
+    },
+    {
+      "name": "mineru-llama-cpp",
+      "version": "0.2.0",
+      "location": "<VENV>/lib64/python3.12/site-packages"
+    },
+    {
+      "name": "mineru-vl-utils",
+      "version": "2.0.8",
+      "location": "<VENV>/lib64/python3.12/site-packages"
+    },
+    {
+      "name": "torch",
+      "version": "2.15.0",
+      "location": "<VENV>/lib64/python3.12/site-packages"
+    },
+    {
+      "name": "transformers",
+      "version": "5.22.1",
+      "location": "<VENV>/lib64/python3.12/site-packages"
+    },
+    {
+      "name": "onnxruntime",
+      "version": "1.31.1",
+      "location": "<VENV>/lib64/python3.12/site-packages"
+    },
+    {
+      "name": "onnxruntime-ep-webgpu",
+      "version": "0.5.0",
+      "location": "<VENV>/lib64/python3.12/site-packages"
+    },
+    {
+      "name": "pypdfium2",
+      "version": "5.14.0",
+      "location": "<VENV>/lib64/python3.12/site-packages"
+    }
+  ],
+  "runtimes": [
+    {
+      "name": "selection",
+      "status": "ok",
+      "data": {
+        "small_backend": "torch",
+        "vlm_engine": "llama-cpp"
+      },
+      "error": null
+    },
+    {
+      "name": "torch",
+      "status": "ok",
+      "data": {
+        "version": "2.15.0+cu132",
+        "module_path": "<VENV>/lib64/python3.12/site-packages/torch/__init__.py",
+        "cuda_build": "13.2",
+        "rocm_build": null,
+        "backends": {
+          "cuda": {
+            "available": true,
+            "devices": [
+              {
+                "index": 0,
+                "name": "NVIDIA RTX PRO 5000 Blackwell",
+                "total_memory_bytes": 50850103296
+              }
+            ]
+          },
+          "mps": {
+            "available": false
+          },
+          "xpu": {
+            "available": false,
+            "devices": []
+          }
+        },
+        "selected_device": {
+          "device": "cuda",
+          "reason": "torch_accelerator",
+          "warning": null
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "onnx",
+      "status": "ok",
+      "data": {
+        "version": "1.31.1",
+        "module_path": "<VENV>/lib64/python3.12/site-packages/onnxruntime/__init__.py",
+        "providers": [
+          "AzureExecutionProvider",
+          "CPUExecutionProvider"
+        ],
+        "backend": "webgpu",
+        "adapters": [
+          {
+            "kind": "unknown",
+            "kind_source": "unknown",
+            "unified_memory": null,
+            "vendor_id": 4318,
+            "device_id": 11187,
+            "metadata": [
+              [
+                "Discrete",
+                "1"
+              ],
+              [
+                "card_idx",
+                "0"
+              ],
+              [
+                "pci_bus_id",
+                "0000:03:00.0"
+              ]
+            ],
+            "vulkan_device": null
+          },
+          {
+            "kind": "unknown",
+            "kind_source": "unknown",
+            "unified_memory": null,
+            "vendor_id": 4318,
+            "device_id": 11185,
+            "metadata": [
+              [
+                "Discrete",
+                "1"
+              ],
+              [
+                "card_idx",
+                "1"
+              ],
+              [
+                "pci_bus_id",
+                "0000:01:00.0"
+              ]
+            ],
+            "vulkan_device": null
+          }
+        ],
+        "selected_adapter": {
+          "kind": "discrete",
+          "kind_source": "vulkan",
+          "unified_memory": null,
+          "vendor_id": 4318,
+          "device_id": 11185,
+          "metadata": [
+            [
+              "Discrete",
+              "1"
+            ],
+            [
+              "card_idx",
+              "1"
+            ],
+            [
+              "pci_bus_id",
+              "0000:01:00.0"
+            ]
+          ],
+          "vulkan_device": [
+            4318,
+            11185
+          ]
+        },
+        "selected_device": {
+          "device": "gpu",
+          "adapter": {
+            "kind": "discrete",
+            "kind_source": "vulkan",
+            "unified_memory": null,
+            "vendor_id": 4318,
+            "device_id": 11185,
+            "metadata": [
+              [
+                "Discrete",
+                "1"
+              ],
+              [
+                "card_idx",
+                "1"
+              ],
+              [
+                "pci_bus_id",
+                "0000:01:00.0"
+              ]
+            ],
+            "vulkan_device": [
+              4318,
+              11185
+            ]
+          },
+          "reason": "discrete_gpu",
+          "backend": "webgpu"
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "llama-cpp",
+      "status": "ok",
+      "data": {
+        "devices": [
+          {
+            "kind": "discrete",
+            "kind_source": "vulkan",
+            "unified_memory": null,
+            "name": "Vulkan0",
+            "description": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+            "backend": "vulkan",
+            "vendor_id": 4318,
+            "device_id": 11185,
+            "vulkan_index": 0,
+            "luid": null
+          },
+          {
+            "kind": "discrete",
+            "kind_source": "vulkan",
+            "unified_memory": null,
+            "name": "Vulkan1",
+            "description": "NVIDIA RTX PRO 5000 Blackwell",
+            "backend": "vulkan",
+            "vendor_id": 4318,
+            "device_id": 11187,
+            "vulkan_index": 1,
+            "luid": null
+          }
+        ]
+      },
+      "error": null
+    },
+    {
+      "name": "vulkan",
+      "status": "ok",
+      "data": {
+        "devices": [
+          {
+            "kind": "discrete",
+            "kind_source": "vulkan",
+            "unified_memory": null,
+            "vendor_id": 4318,
+            "device_id": 11185,
+            "name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+            "index": 0,
+            "dedicated_memory_bytes": null,
+            "memory_budget_bytes": null,
+            "memory_error": null,
+            "luid": null
+          },
+          {
+            "kind": "discrete",
+            "kind_source": "vulkan",
+            "unified_memory": null,
+            "vendor_id": 4318,
+            "device_id": 11187,
+            "name": "NVIDIA RTX PRO 5000 Blackwell",
+            "index": 1,
+            "dedicated_memory_bytes": null,
+            "memory_budget_bytes": null,
+            "memory_error": null,
+            "luid": null
+          }
+        ]
+      },
+      "error": null
+    }
+  ],
+  "effective_config": {
+    "config_file": "<MINERU_HOME>/config.yaml",
+    "settings": {
+      "model.small_backend": {
+        "value": "torch",
+        "source": "env"
+      },
+      "model.onnx_device": {
+        "value": "auto",
+        "source": "default"
+      },
+      "model.vlm.engine": {
+        "value": "auto",
+        "source": "default"
+      }
+    },
+    "remote_vlm": {
+      "enabled": false,
+      "source": "default"
+    },
+    "environment": {
+      "MINERU_DEVICE_MODE": "cuda",
+      "CUDA_VISIBLE_DEVICES": "1"
+    },
+    "resolved": {
+      "small_backend": "torch",
+      "vlm_engine": "llama-cpp"
+    }
+  },
+  "calibration": {
+    "path": "<MINERU_HOME>/config.yaml.onnx-calibration.json",
+    "status": "missing",
+    "matches_environment": null,
+    "decision_valid": null,
+    "outputs_match": null,
+    "cpu_elapsed": null,
+    "gpu_elapsed": null,
+    "ratio": null,
+    "threshold": null,
+    "model_sha256": null,
+    "error": null
+  },
+  "warnings": [],
+  "schema_version": 1
+}

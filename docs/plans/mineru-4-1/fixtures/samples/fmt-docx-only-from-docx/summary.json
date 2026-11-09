@@ -1,0 +1,54 @@
+{
+  "slug": "fmt-docx-only-from-docx",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put": "skipped",
+      "file_name": "report.docx",
+      "status": "completed",
+      "parse": {
+        "tier": "flash",
+        "duration_ms": 96,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 54192,
+        "members": [
+          "[Content_Types].xml",
+          "_rels/.rels",
+          "docProps/core.xml",
+          "docProps/app.xml",
+          "word/document.xml",
+          "word/_rels/document.xml.rels",
+          "word/styles.xml",
+          "word/stylesWithEffects.xml",
+          "word/settings.xml",
+          "word/webSettings.xml",
+          "word/fontTable.xml",
+          "word/theme/theme1.xml",
+          "customXml/item1.xml",
+          "customXml/_rels/item1.xml.rels",
+          "customXml/itemProps1.xml",
+          "word/numbering.xml",
+          "word/media/image1.jpg",
+          "docProps/thumbnail.jpeg"
+        ],
+        "member_count": 18
+      }
+    }
+  ],
+  "task_id": "job_9a57dc977a9d33c9fb27a55b",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 204,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "t_start_epoch": 1793879598.469,
+  "t_end_epoch": 1793879598.674
+}

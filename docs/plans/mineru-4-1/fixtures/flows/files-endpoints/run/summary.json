@@ -1,0 +1,42 @@
+{
+  "slug": "files-endpoints/run",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 2,
+      "file_name": "files-probe.pdf",
+      "status": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 1085,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 78586,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_equation_6.jpg",
+          "images/page_1_chart_3.jpg",
+          "images/page_1_table_2.jpg"
+        ],
+        "member_count": 7
+      }
+    }
+  ],
+  "task_id": "job_5c52c1c850de0d1127e1db05",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 1284,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "snapshot": {
+    "task_id": "job_588213b4fffadd2cb8ee7a8e",
+    "status": "completed",
+    "created_at": "2026-11-05T11:58:09Z",
+    "started_at": "2026-11-05T11:58:09Z",
+    "finished_at": "2026-11-05T11:58:09Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-613fdd80f93282d4245b11ca",
+        "file_name": "cache-a.pdf",
+        "status": "completed",
+        "bytes": 241697,
+        "parse": {
+          "tier": "flash",
+          "duration_ms": 48,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-613fdd80f93282d4245b11ca/content"
+      }
+    ]
+  }
+}

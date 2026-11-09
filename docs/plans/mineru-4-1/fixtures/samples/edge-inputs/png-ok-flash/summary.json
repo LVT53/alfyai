@@ -1,0 +1,39 @@
+{
+  "slug": "final/png-ok-flash",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put": "skipped",
+      "file_name": "scan.png",
+      "status": "completed",
+      "parse": {
+        "tier": "flash",
+        "duration_ms": 516,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 64923,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_table_5.jpg"
+        ],
+        "member_count": 5
+      }
+    }
+  ],
+  "task_id": "job_e24d13b04222e88e4bdfe37e",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 719,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  }
+}

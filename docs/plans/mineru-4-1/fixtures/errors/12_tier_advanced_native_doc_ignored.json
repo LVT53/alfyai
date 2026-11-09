@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "a.docx",
+          "bytes": 1234
+        }
+      ],
+      "tier": "advanced"
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "360",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_78067b4a7e52a11b101c55de",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-acec802ac787e03bc856a9d1",
+          "file_name": "a.docx",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_78067b4a7e52a11b101c55de/uploads/file-acec802ac787e03bc856a9d1",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883318
+          }
+        }
+      ]
+    }
+  }
+}

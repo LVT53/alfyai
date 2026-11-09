@@ -1,0 +1,24 @@
+{
+  "snapshot": {
+    "task_id": "job_588213b4fffadd2cb8ee7a8e",
+    "status": "running",
+    "created_at": "2026-11-05T11:58:09Z",
+    "started_at": "2026-11-05T11:58:09Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-613fdd80f93282d4245b11ca",
+        "file_name": "cache-a.pdf",
+        "status": "running",
+        "bytes": 241697
+      }
+    ]
+  }
+}

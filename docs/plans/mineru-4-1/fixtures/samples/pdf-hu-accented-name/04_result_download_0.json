@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-f6f3a8f39bd5edf9d5e5afad/content",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:53:14 GMT",
+      "server": "uvicorn",
+      "content-type": "application/zip",
+      "accept-ranges": "bytes",
+      "content-disposition": "attachment; filename*=utf-8''%C3%81rv%C3%ADzt%C5%B1r%C5%91%20t%C3%BCk%C3%B6rf%C3%BAr%C3%B3g%C3%A9p%20jelent%C3%A9s.zip",
+      "content-length": "2632",
+      "last-modified": "Thu, 05 Nov 2026 11:53:14 GMT",
+      "etag": "\"24ac663a3f4e927fcb1c1dfe3739e781\"",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "body_bytes": 2632,
+    "same_origin_key_sent": true
+  },
+  "zip_listing": [
+    {
+      "name": "markdown.md",
+      "size": 455,
+      "compressed": 295
+    },
+    {
+      "name": "middle_json.json",
+      "size": 3304,
+      "compressed": 978
+    },
+    {
+      "name": "structured_content.json",
+      "size": 2531,
+      "compressed": 917
+    },
+    {
+      "name": "images/",
+      "size": 0,
+      "compressed": 2
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-5f19f9ed9efd0ec303433dfd/content",
+    "headers": {
+      "Range": "bytes=0-99",
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 206,
+    "reason": "Partial Content",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:57:05 GMT",
+      "server": "uvicorn",
+      "content-type": "application/zip",
+      "accept-ranges": "bytes",
+      "content-disposition": "attachment; filename=\"files-probe.zip\"",
+      "content-length": "100",
+      "last-modified": "Thu, 05 Nov 2026 11:57:06 GMT",
+      "etag": "\"4b04d37ecda5c9182476f9910884d3ed\"",
+      "content-range": "bytes 0-99/78586",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "body_bytes": 100
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "metadata": {
+    "file_suffix": "html",
+    "producer": {
+      "name": "mineru",
+      "version": "4.1.7"
+    },
+    "document": {
+      "title": "Spike HTML page",
+      "languages": [
+        "hu"
+      ],
+      "page_count": 1,
+      "page_count_kind": "logical"
+    }
+  },
+  "extensions": {
+    "mineru": {
+      "tier": "flash",
+      "parse_mode": "txt"
+    }
+  },
+  "pages": [
+    {
+      "page_idx": 0,
+      "blocks": [
+        {
+          "type": "doc_title",
+          "index": 0,
+          "content": [
+            {
+              "type": "text",
+              "content": "Spike HTML page"
+            }
+          ],
+          "anchor": "html-fe1f6f741c0dc2fbc810",
+          "level": 1
+        },
+        {
+          "type": "text",
+          "index": 1,
+          "content": [
+            {
+              "type": "text",
+              "content": "An "
+            },
+            {
+              "type": "text",
+              "content": "HTML",
+              "styles": [
+                "italic"
+              ]
+            },
+            {
+              "type": "text",
+              "content": " document with a table and a list. Az árvíztűrő tükörfúrógép egy magyar pangram: minden ékezetes magyar betűt tartalmaz, így az ő és az ű betűt is. A dokumentum feldolgozása után a szövegnek pontosan meg kell maradnia."
+            }
+          ]
+        },
+        {
+          "type": "list",
+          "index": 2,
+          "content": [
+            {
+              "type": "text",
+              "content": [
+                {
+                  "type": "text",
+                  "content": "- alma"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "content": [
+                {
+                  "type": "text",
+                  "content": "- körte"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "content": [
+                {
+                  "type": "text",
+                  "content": "- szilva"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "index": 3,
+          "content": [
+            {
+              "type": "table_body",
+              "index": 3,
+              "content": "<table><thead><tr><th>Tier</th><th>Median ms</th></tr></thead> <tbody><tr><td>flash</td><td>810</td></tr><tr><td>basic</td><td>1126</td></tr></tbody></table>"
+            }
+          ]
+        },
+        {
+          "type": "paragraph_title",
+          "index": 4,
+          "content": [
+            {
+              "type": "text",
+              "content": "Footer"
+            }
+          ],
+          "anchor": "html-6db0e8ee4c37ff31e0ac",
+          "level": 2
+        },
+        {
+          "type": "text",
+          "index": 5,
+          "content": [
+            {
+              "type": "text",
+              "content": "End of page."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "is_full_document": true,
+  "schema": "docvortex.middle",
+  "schema_version": "2.0"
+}

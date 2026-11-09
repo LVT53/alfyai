@@ -1,0 +1,27 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks/job_b3565fc79201291b6742f04e/cancel",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 409,
+    "reason": "Conflict",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:56:59 GMT",
+      "server": "uvicorn",
+      "content-length": "70",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "error": {
+        "code": "task_already_terminal",
+        "message": "Task is partial"
+      }
+    }
+  }
+}

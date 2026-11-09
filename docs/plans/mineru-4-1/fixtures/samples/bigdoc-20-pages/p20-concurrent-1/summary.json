@@ -1,0 +1,29 @@
+{
+  "slug": "p20-concurrent-1",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 10,
+      "file_name": "conc1.pdf",
+      "status": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 4294,
+        "parser_version": "4.1.7"
+      },
+      "error": null
+    }
+  ],
+  "task_id": "job_9463451eed6115e4b47a4320",
+  "create_ms": 2,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 4454,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  }
+}

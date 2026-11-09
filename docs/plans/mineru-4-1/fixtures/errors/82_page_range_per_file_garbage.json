@@ -1,0 +1,38 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "x.pdf",
+          "bytes": 1234,
+          "page_range": "x-y"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 400,
+    "reason": "Bad Request",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "152",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "error": {
+        "code": "page_range_invalid",
+        "message": "Invalid page range 'x-y': expected a page, an inclusive range, or 'all'",
+        "param": "files.0.page_range"
+      }
+    }
+  }
+}

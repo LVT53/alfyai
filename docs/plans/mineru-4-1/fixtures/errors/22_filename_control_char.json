@@ -1,0 +1,37 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "bad\u0007name.pdf",
+          "bytes": 1234
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 400,
+    "reason": "Bad Request",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "364",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "error": {
+        "code": "invalid_request",
+        "message": "Invalid request: 1 validation error for CreateTaskRequest\nfiles.0.file_name\n  Value error, File name must not contain control characters [type=value_error, input_value='bad\\x07name.pdf', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.14/v/value_error",
+        "param": "files.0.file_name"
+      }
+    }
+  }
+}

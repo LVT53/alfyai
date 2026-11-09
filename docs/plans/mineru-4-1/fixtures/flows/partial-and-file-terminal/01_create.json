@@ -1,0 +1,66 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "good.pdf",
+          "bytes": 241699,
+          "sha256sum": "c34e212e463f9094eed4625e6c4610acc605e2e5c31eec8fe0c35cd049360c45"
+        },
+        {
+          "file_name": "bad.pdf",
+          "bytes": 4028,
+          "sha256sum": "1faf94545b2f3507e7ec88b9c4fe94e0451f58a6145770e5d5a63b798ba27d82"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:56:58 GMT",
+      "server": "uvicorn",
+      "content-length": "647",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 2,
+    "json": {
+      "task_id": "job_b3565fc79201291b6742f04e",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-afb6ab55753403ee10550ab4",
+          "file_name": "good.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_b3565fc79201291b6742f04e/uploads/file-afb6ab55753403ee10550ab4",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883419
+          }
+        },
+        {
+          "file_id": "file-3b34c0c5c592f2e7ae59f83b",
+          "file_name": "bad.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_b3565fc79201291b6742f04e/uploads/file-3b34c0c5c592f2e7ae59f83b",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883419
+          }
+        }
+      ]
+    }
+  }
+}

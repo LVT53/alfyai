@@ -1,0 +1,39 @@
+{
+  "t_start_epoch": 1793880078.692,
+  "t_end_epoch": 1793880085.769,
+  "tasks": [
+    {
+      "i": 0,
+      "wall_ms": 4458,
+      "final": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 4290,
+        "parser_version": "4.1.7"
+      },
+      "polls": 2
+    },
+    {
+      "i": 1,
+      "wall_ms": 4457,
+      "final": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 4294,
+        "parser_version": "4.1.7"
+      },
+      "polls": 2
+    },
+    {
+      "i": 2,
+      "wall_ms": 7072,
+      "final": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 2377,
+        "parser_version": "4.1.7"
+      },
+      "polls": 3
+    }
+  ]
+}

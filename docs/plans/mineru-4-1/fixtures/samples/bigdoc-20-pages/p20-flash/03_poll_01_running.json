@@ -1,0 +1,26 @@
+{
+  "t_since_create_ms": 2,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_73ec69015be31bc62108d989",
+    "status": "running",
+    "created_at": "2026-11-05T12:01:15Z",
+    "started_at": "2026-11-05T12:01:15Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-fffcefaa008cefb818f24818",
+        "file_name": "paper-20p.pdf",
+        "status": "running",
+        "bytes": 2309941
+      }
+    ]
+  }
+}

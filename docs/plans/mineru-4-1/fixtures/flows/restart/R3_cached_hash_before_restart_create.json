@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "restart-done.pdf",
+          "bytes": 241704,
+          "sha256sum": "6a1b2a8aed521779e9a694c017205dfe2fba8b6ead4a6b8fbc1bd31df715d346"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:58:14 GMT",
+      "server": "uvicorn",
+      "content-length": "165",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_d5be07d245bf01ba16d5ae33",
+      "status": "pending",
+      "files": [
+        {
+          "file_id": "file-71350becaabc9757531af12c",
+          "file_name": "restart-done.pdf",
+          "status": "pending"
+        }
+      ]
+    }
+  }
+}

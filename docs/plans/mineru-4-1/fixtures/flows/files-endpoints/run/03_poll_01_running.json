@@ -1,0 +1,26 @@
+{
+  "t_since_create_ms": 5,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_5c52c1c850de0d1127e1db05",
+    "status": "running",
+    "created_at": "2026-11-05T11:57:05Z",
+    "started_at": "2026-11-05T11:57:05Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-5f19f9ed9efd0ec303433dfd",
+        "file_name": "files-probe.pdf",
+        "status": "running",
+        "bytes": 241697
+      }
+    ]
+  }
+}

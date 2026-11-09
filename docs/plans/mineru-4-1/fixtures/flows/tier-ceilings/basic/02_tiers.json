@@ -1,0 +1,36 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/tiers",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:09:14 GMT",
+      "server": "uvicorn",
+      "content-length": "223",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "object": "list",
+      "data": [
+        {
+          "id": "flash",
+          "description": "Fast local text extraction.",
+          "current_model": "mineru-4.1.7"
+        },
+        {
+          "id": "basic",
+          "description": "Basic parsing with local lightweight models.",
+          "current_model": "mineru-4.1.7"
+        }
+      ]
+    }
+  }
+}

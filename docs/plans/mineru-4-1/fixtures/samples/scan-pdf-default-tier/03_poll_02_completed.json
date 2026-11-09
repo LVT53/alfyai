@@ -1,0 +1,33 @@
+{
+  "t_since_create_ms": 829,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_26d504d02bc434f67af98bce",
+    "status": "completed",
+    "created_at": "2026-11-05T11:53:11Z",
+    "started_at": "2026-11-05T11:53:11Z",
+    "finished_at": "2026-11-05T11:53:12Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-05db059434638d3d5e89b988",
+        "file_name": "scan-page.pdf",
+        "status": "completed",
+        "bytes": 212533,
+        "parse": {
+          "tier": "standard",
+          "duration_ms": 628,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-05db059434638d3d5e89b988/content"
+      }
+    ]
+  }
+}

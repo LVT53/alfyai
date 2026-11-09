@@ -1,0 +1,26 @@
+{
+  "t_since_create_ms": 4,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_12f3263b1a785375598e17a9",
+    "status": "running",
+    "created_at": "2026-11-05T12:09:32Z",
+    "started_at": "2026-11-05T12:09:32Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-508ebd56d308506053e30693",
+        "file_name": "scan.png",
+        "status": "running",
+        "bytes": 768284
+      }
+    ]
+  }
+}

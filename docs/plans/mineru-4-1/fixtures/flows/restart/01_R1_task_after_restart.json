@@ -1,0 +1,27 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/tasks/job_c0ef9eb7fea605161ed53aa8",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 404,
+    "reason": "Not Found",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:58:19 GMT",
+      "server": "uvicorn",
+      "content-length": "91",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 2,
+    "json": {
+      "error": {
+        "code": "task_not_found",
+        "message": "Task job_c0ef9eb7fea605161ed53aa8 not found"
+      }
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "report.docx",
+          "bytes": 50722,
+          "sha256sum": "99b17c29720ed689fba92e692706bfa9aa5a82ef4ed1aea5b04d5269b2318885"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:53:11 GMT",
+      "server": "uvicorn",
+      "content-length": "365",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_e25a30af18058622cc7715c7",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-57ecb6bbc422eb333d3d3fc5",
+          "file_name": "report.docx",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_e25a30af18058622cc7715c7/uploads/file-57ecb6bbc422eb333d3d3fc5",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883192
+          }
+        }
+      ]
+    }
+  }
+}

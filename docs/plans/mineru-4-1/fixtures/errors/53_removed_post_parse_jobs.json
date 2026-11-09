@@ -1,0 +1,33 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/parse/jobs",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_id": "f",
+          "name": "x.pdf"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 404,
+    "reason": "Not Found",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "22",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 0,
+    "json": {
+      "detail": "Not Found"
+    }
+  }
+}

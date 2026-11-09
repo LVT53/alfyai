@@ -1,0 +1,28 @@
+{
+  "slug": "final/csv-bytes-named-xlsx",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 1,
+      "file_name": "table-as.xlsx",
+      "status": "failed",
+      "parse": null,
+      "error": {
+        "code": "parse_failed",
+        "message": "Invalid XLSX package: file is not a ZIP archive."
+      }
+    }
+  ],
+  "task_id": "job_9d361689d802f1fd14cdb3ee",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 205,
+  "final_status": "failed",
+  "progress": {
+    "completed": 0,
+    "failed": 1,
+    "total": 1
+  }
+}

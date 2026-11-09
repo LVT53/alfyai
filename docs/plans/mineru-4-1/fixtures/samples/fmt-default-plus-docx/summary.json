@@ -1,0 +1,44 @@
+{
+  "slug": "fmt-default-plus-docx",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put": "skipped",
+      "file_name": "paper-en.pdf",
+      "status": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 772,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 143489,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "document.docx",
+          "images/",
+          "images/page_0_equation_6.jpg",
+          "images/page_1_chart_3.jpg",
+          "images/page_1_table_2.jpg"
+        ],
+        "member_count": 8
+      }
+    }
+  ],
+  "task_id": "job_48bd2ec3684bce2c89607241",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 898,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "t_start_epoch": 1793879596.656,
+  "t_end_epoch": 1793879597.557
+}

@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "x.pdf",
+          "bytes": 1234
+        }
+      ],
+      "purpose": "parse",
+      "callback": {
+        "url": "https://example.invalid/cb"
+      }
+    }
+  },
+  "response": {
+    "status": 400,
+    "reason": "Bad Request",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "535",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "error": {
+        "code": "invalid_request",
+        "message": "Invalid request: 2 validation errors for CreateTaskRequest\npurpose\n  Extra inputs are not permitted [type=extra_forbidden, input_value='parse', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.14/v/extra_forbidden\ncallback\n  Extra inputs are not permitted [type=extra_forbidden, input_value={'url': 'https://example.invalid/cb'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/extra_forbidden",
+        "param": "purpose"
+      }
+    }
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "snapshot": {
+    "task_id": "job_f29210a095b46a21b936ba6c",
+    "status": "canceled",
+    "created_at": "2026-11-05T11:58:09Z",
+    "started_at": "2026-11-05T11:58:09Z",
+    "finished_at": "2026-11-05T11:58:10Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 1,
+      "failed": 0,
+      "total": 10
+    },
+    "files": [
+      {
+        "file_id": "file-78cb4fe1094bd3e2ee4e2b40",
+        "file_name": "m0.pdf",
+        "status": "completed",
+        "bytes": 241694,
+        "parse": {
+          "tier": "standard",
+          "duration_ms": 631,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-78cb4fe1094bd3e2ee4e2b40/content"
+      },
+      {
+        "file_id": "file-77d5c530a72612a10f917b37",
+        "file_name": "m1.pdf",
+        "status": "canceled",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-578446f3ee4c284109cfbd06",
+        "file_name": "m2.pdf",
+        "status": "canceled",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-d4521b2c176777c5b2fa1238",
+        "file_name": "m3.pdf",
+        "status": "canceled",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-e30cf53d8cdfac7f426deba4",
+        "file_name": "m4.pdf",
+        "status": "canceled",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-b609339be115f6df914769d9",
+        "file_name": "m5.pdf",
+        "status": "canceled",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-fae4c9b1040112778c524477",
+        "file_name": "m6.pdf",
+        "status": "canceled",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-c7c2cc85bf2a21ad13a9674b",
+        "file_name": "m7.pdf",
+        "status": "canceled",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-be1f42c698c14dcf7bbbd1b4",
+        "file_name": "m8.pdf",
+        "status": "canceled",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-95298dd9febb73e5c283af68",
+        "file_name": "m9.pdf",
+        "status": "canceled",
+        "bytes": 241693
+      }
+    ]
+  }
+}

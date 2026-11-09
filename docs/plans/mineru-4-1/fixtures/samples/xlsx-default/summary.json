@@ -1,0 +1,41 @@
+{
+  "slug": "xlsx-default",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 1,
+      "file_name": "data.xlsx",
+      "status": "completed",
+      "parse": {
+        "tier": "flash",
+        "duration_ms": 23,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 2308,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/"
+        ],
+        "member_count": 4
+      }
+    }
+  ],
+  "task_id": "job_5f6ee2035777d0151f57b4f0",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 205,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "t_start_epoch": 1793879592.914,
+  "t_end_epoch": 1793879593.121
+}

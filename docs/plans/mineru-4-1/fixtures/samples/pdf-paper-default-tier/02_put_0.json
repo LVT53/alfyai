@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/tasks/job_58fe19d846ff58d8f6909674/uploads/file-3ed5824231309644781f750d",
+    "headers": {
+      "Content-Type": "application/octet-stream",
+      "Authorization": "Bearer <redacted>"
+    },
+    "raw_body_bytes": 241664
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:52:45 GMT",
+      "server": "uvicorn",
+      "content-length": "103",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 2,
+    "json": {
+      "task_id": "job_58fe19d846ff58d8f6909674",
+      "file_id": "file-3ed5824231309644781f750d",
+      "status": "pending"
+    }
+  }
+}
