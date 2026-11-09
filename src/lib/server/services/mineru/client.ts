@@ -539,7 +539,15 @@ export class MineruClient {
 			throw error;
 		}
 
-		if (announced !== null && bytes !== announced) {
+		// `Content-Length` counts the bytes on the wire. If anything between us and
+		// MinerU encoded them (a gzip middleware may wrap any route), fetch hands
+		// over the DECODED body and the two are different numbers on purpose, so
+		// they have to agree only when nothing was encoded.
+		const encoded =
+			(response.headers.get("content-encoding") ?? "identity")
+				.trim()
+				.toLowerCase() !== "identity";
+		if (!encoded && announced !== null && bytes !== announced) {
 			await rm(input.destinationPathAbsolute, { force: true }).catch(
 				() => undefined,
 			);

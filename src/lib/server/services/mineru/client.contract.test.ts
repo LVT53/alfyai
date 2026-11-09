@@ -1005,6 +1005,25 @@ describe("downloadFile", () => {
 		expect(existsSync(destination)).toBe(false);
 	});
 
+	it("does not hold a DECODED body to the length of the encoded one", async () => {
+		// Content-Length counts the bytes on the wire; with a Content-Encoding
+		// fetch hands over the decoded body, which is a different number.
+		const { fetchImpl } = scriptedFetch(() =>
+			zipResponse({ "content-encoding": "gzip", "content-length": "5" }),
+		);
+		const destination = join(tempDir(), "decoded.zip");
+		const { bytes } = await new MineruClient({
+			config: testConfig(),
+			fetchImpl,
+		}).downloadFile({
+			resultUrl: RESULT_URL,
+			destinationPathAbsolute: destination,
+			signal: never,
+		});
+		expect(bytes).toBe(zip().byteLength);
+		expect(readFileSync(destination).equals(zip())).toBe(true);
+	});
+
 	it("reads a result the server forgot as a forgotten id", async () => {
 		const { fetchImpl } = scriptedFetch(() =>
 			replay("flows/restart/03_R1_result_url_after_restart.json"),
