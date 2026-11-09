@@ -218,6 +218,26 @@ function puts() {
 	return server.requests.filter((entry) => entry.method === "PUT");
 }
 
+/**
+ * Wait until a worker that is about to "die" has done everything a worker does
+ * before the parse: the task exists, its handle is on the row, the bytes are up and
+ * the row says `parsing`.
+ *
+ * A bare "the row has a checkpoint" is too early. The handle is written the moment
+ * the task exists, before the PUT, so a test that went on from there raced the
+ * upload: on a busy machine the PUT had not landed when it counted the uploads, or
+ * the `parsing` write replaced the checkpoint it had just read. `parsing` is
+ * reported after the PUT, so it is the one point after which nothing else of the
+ * dying worker's changes the row or the server.
+ */
+async function theDeadWorkerHasItsBytesUp(jobId: string): Promise<void> {
+	await vi.waitFor(async () => {
+		const row = await ledger.getExtractionJobRow(jobId);
+		expect(row?.phase).toBe("parsing");
+		expect(row?.checkpoint).not.toBeNull();
+	});
+}
+
 beforeEach(async () => {
 	persisted.length = 0;
 	userId = `u${randomUUID().replace(/-/g, "")}`;
@@ -632,11 +652,7 @@ describe("a worker that died mid-parse", () => {
 			},
 		};
 		void run({ resolveExtractor: () => dying });
-		await vi.waitFor(async () => {
-			expect(
-				(await ledger.getExtractionJobRow(jobId))?.checkpoint,
-			).not.toBeNull();
-		});
+		await theDeadWorkerHasItsBytesUp(jobId);
 		const handleJson = (await ledger.getExtractionJobRow(jobId))?.checkpoint;
 
 		// The restarted process is a fresh module graph on the same database, with a
@@ -1125,11 +1141,7 @@ describe("a document caught in the cutover window", () => {
 			},
 		};
 		void run({ resolveExtractor: () => dying });
-		await vi.waitFor(async () => {
-			expect(
-				(await ledger.getExtractionJobRow(jobId))?.checkpoint,
-			).not.toBeNull();
-		});
+		await theDeadWorkerHasItsBytesUp(jobId);
 		const handleJson = (await ledger.getExtractionJobRow(jobId))
 			?.checkpoint as string;
 		await reimportAt(server.baseUrl);
