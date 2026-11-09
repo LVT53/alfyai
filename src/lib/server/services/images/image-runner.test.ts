@@ -213,34 +213,61 @@ async function storedHasAlpha(
 		.get()?.hasAlpha;
 }
 
+/**
+ * Every phase the database is given, in order, written down by the database
+ * itself; call it before the take is queued. A poll cannot do this. `submitted`
+ * is written when the engine claims the take and is over about 20 ms later on
+ * a quiet machine (the socket, `POST /prompt`, the first read of ComfyUI's
+ * queue), which is the length of one poll, so whether a poll fell inside it
+ * came down to a millisecond: the test passed under load and failed alone. The
+ * fake cannot stretch it either: it lists a prompt as running the moment it is
+ * posted, and `startDelayMs` only delays the work that follows.
+ */
+function recordPhases(
+	sqlite: ImageFixture["sqlite"],
+): (takeId: string) => string[] {
+	sqlite.exec(`
+		CREATE TABLE phase_log (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			take_id TEXT NOT NULL,
+			phase TEXT NOT NULL
+		);
+		CREATE TRIGGER phase_log_write AFTER UPDATE OF phase ON image_jobs
+		WHEN NEW.phase IS NOT NULL AND NEW.phase IS NOT OLD.phase
+		BEGIN
+			INSERT INTO phase_log (take_id, phase) VALUES (NEW.id, NEW.phase);
+		END;
+	`);
+	return (takeId) =>
+		sqlite
+			.prepare("SELECT phase FROM phase_log WHERE take_id = ? ORDER BY id")
+			.pluck()
+			.all(takeId) as string[];
+}
+
 describe("a new picture", () => {
 	it("renders to a stored PNG and passes every phase", async () => {
 		// A small canvas: the fake paints, and the runner decodes, guards and
 		// stores, every pixel in JS, which at the full size is seconds of CPU
 		// under a loaded run. The phases do not depend on the size.
+		const phasesOf = recordPhases(fixture.sqlite);
 		await startFake({ steps: 4, stepDelayMs: 40 });
 		const takeId = await queueTake(
 			request({ canvas: { width: 256, height: 192 } }),
 		);
-
-		const seen: string[] = [];
-		const watching = (async () => {
-			for (let i = 0; i < 400; i++) {
-				const row = await readTake(takeId);
-				if (row.phase && seen.at(-1) !== row.phase) seen.push(row.phase);
-				if (row.status === "succeeded") return;
-				await new Promise((resolve) => setTimeout(resolve, 20));
-			}
-		})();
 		await drainImageTakes();
-		await watching;
 
 		const take = await readTake(takeId);
 		expect(take.status).toBe("succeeded");
 		expect(take.progressPercent).toBe(100);
 		expect(take.measuresJson).toBeNull();
 		expect(take.resultFileId).not.toBeNull();
-		expect(seen).toEqual(["submitted", "starting", "rendering", "finishing"]);
+		expect(phasesOf(takeId)).toEqual([
+			"submitted",
+			"starting",
+			"rendering",
+			"finishing",
+		]);
 		const meta = await sharp(await resultBytes(takeId)).metadata();
 		expect(meta).toMatchObject({ format: "png", width: 256, height: 192 });
 	});
