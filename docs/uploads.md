@@ -84,7 +84,10 @@ What goes in the manifest, and what never does:
   registry says so, and `extraction/reader-input.ts` does it). The extractor hashes the PNG itself,
   since the digest on the artifact is the photo's. The stored photo is never touched: previews and
   vision read it. A photo that cannot be decoded fails at once as `document_unreadable`, with no
-  request to MinerU.
+  request to MinerU. The PNG is a file named `alfyai-reader-input-<attempt id>.png` in the temp
+  directory, written for its owner alone and removed when the attempt ends; a process that is killed
+  in the middle of one leaves it there, and `mineru/temp-sweep.ts` removes it once it is six hours
+  old, like the other temporary files of a MinerU attempt.
 - **Never sent**, because each is a 400 on 4.1: `include_model_output`, `ocr_mode: null`,
   `page_range: null`, `client_file_id`, `file_id`, and any `output_formats` other than `["default"]`.
   `MINERU_OCR_MODE=auto` therefore means the key is left out.
@@ -535,9 +538,10 @@ way they would from the UI.
   consistent and the sweep is safe to re-run, but it will then report nothing to do while the bytes
   are still there.
 
-  There is no automatic collector for those. `mineru/temp-sweep.ts` collects only `.parse.tmp-`
-  leftovers, i.e. half-written bundles, not the final files of a delete that did not finish. After
-  a sweep that crashed, find them by comparing the disk against the surviving rows:
+  There is no automatic collector for those. `mineru/temp-sweep.ts` collects only the temporary
+  leftovers of a killed MinerU attempt (half-written `.parse.tmp-` bundles, per-attempt download
+  directories and the converted HEIC or HEIF photo), not the final files of a delete that did not
+  finish. After a sweep that crashed, find them by comparing the disk against the surviving rows:
 
   ```
   # Every stored path the database still references.

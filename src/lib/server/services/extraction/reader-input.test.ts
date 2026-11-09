@@ -11,12 +11,17 @@ import {
 	readFile,
 	rm,
 	stat,
+	utimes,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	MINERU_TEMP_MAX_AGE_MS,
+	sweepMineruTempDirs,
+} from "$lib/server/services/mineru/temp-sweep";
 import * as prepareImage from "$lib/server/services/vision/prepare-image";
 import { DocumentExtractionError, extractionErrorMessage } from "./contracts";
 import { prepareReaderInput, readerFileFor } from "./reader-input";
@@ -300,6 +305,30 @@ describe("prepareReaderInput", () => {
 		expect(await converted()).toEqual([]);
 
 		await expect(reader.release()).resolves.toBeUndefined();
+		expect(await readFile(original)).toEqual(tinyHeic);
+	});
+
+	it("leaves, for a process that is killed before `release`, a file the temp sweep collects once it is old", async () => {
+		// The sweep and the helper agree on the name only if the sweep finds what the
+		// helper really wrote, so this runs the helper and then the sweep.
+		const original = await stored("IMG_0042.heic", tinyHeic);
+		const reader = await prepare(original, "IMG_0042.heic", "image/heic");
+		expect(await converted()).toEqual([`${OUTPUT_PREFIX}attempt-1.png`]);
+		const sweep = () =>
+			sweepMineruTempDirs({
+				tempRootAbsolute: root,
+				knowledgeRootAbsolute: path.join(root, "no-knowledge-directory"),
+			});
+
+		// Young: an attempt may be running right now, in this process or another.
+		expect(await sweep()).toEqual({ scanned: 1, removed: 0 });
+		expect(await converted()).toEqual([`${OUTPUT_PREFIX}attempt-1.png`]);
+
+		const old = new Date(Date.now() - MINERU_TEMP_MAX_AGE_MS - 60_000);
+		await utimes(reader.input.filePathAbsolute, old, old);
+		expect(await sweep()).toEqual({ scanned: 1, removed: 1 });
+		expect(await converted()).toEqual([]);
+		// The photo the person uploaded is not the helper's to lose, nor the sweep's.
 		expect(await readFile(original)).toEqual(tinyHeic);
 	});
 

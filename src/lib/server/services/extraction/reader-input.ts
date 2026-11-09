@@ -11,10 +11,11 @@
 // so a PDF's attempt does not load sharp and the HEIC converter.
 //
 // A resumed attempt converts again: nothing of the file outlives the attempt that
-// made it, and a crash leaks at most that attempt's one file. The PNG is the same
-// bytes for the same input and build, so the digest the extractor keeps in its
-// stored handle (it hashes the file on the first attempt only, since
-// `contentSha256` is null here) still names the file it is handed.
+// made it, and a crash leaks at most that attempt's one file (`mineru/temp-sweep.ts`
+// removes it once it is old enough). The PNG is the same bytes for the same input
+// and build, so the digest the extractor keeps in its stored handle (it hashes the
+// file on the first attempt only, since `contentSha256` is null here) still names
+// the file it is handed.
 //
 // The runner stores the message of whatever this file throws on the job, and the
 // job data sends it to the browser. So a file this helper cannot read or write is
@@ -38,8 +39,13 @@ import { DocumentExtractionError, extractionErrorMessage } from "./contracts";
  */
 const READER_PNG_MAX_LONG_EDGE = 4096;
 
-/** The converted file is `<this><attemptId>.<extension>`, one per attempt. */
-const READER_INPUT_FILE_PREFIX = "alfyai-reader-input-";
+/**
+ * The converted file is `<this><attemptId>.<extension>`, one per attempt, directly
+ * in the temp directory. `mineru/temp-sweep.ts` collects the ones a killed process
+ * leaves, by this prefix: renaming it strands those, so the sweep reads it from
+ * here and `reader-input.test.ts` pins the spelling.
+ */
+export const READER_INPUT_FILE_PREFIX = "alfyai-reader-input-";
 
 /** The five fields of an extraction request that describe the file. */
 interface ReaderInput {

@@ -1,15 +1,17 @@
 /**
- * The two temporary directories a killed process leaves behind, and nothing
- * else.
+ * The temporary files and directories a killed process leaves behind, and
+ * nothing else.
  *
- * Both are removed on every ordinary exit path — `extract()` has a `finally`
- * that drops its per-attempt download directory, and `writeMineruParseBundle`
- * has a `catch` that drops its half-written bundle. Neither survives a SIGKILL,
- * an OOM kill or a power loss, and each can hold a whole result zip or a whole
- * bundle:
+ * All are removed on every ordinary exit path — `extract()` has a `finally`
+ * that drops its per-attempt download directory, `writeMineruParseBundle` has a
+ * `catch` that drops its half-written bundle, and the runner releases the PNG a
+ * HEIC or HEIF photo was converted to once the extractor settles. None survives
+ * a SIGKILL, an OOM kill or a power loss, and each can hold a whole result zip,
+ * a whole bundle or a whole photo:
  *
  *   <tmpdir>/alfyai-mineru4-<rand>/result.zip        the downloaded zip
  *   data/knowledge/<user>/<id>.parse.tmp-<pid>-<rand>/   a half-written bundle
+ *   <tmpdir>/alfyai-reader-input-<attemptId>.png     a converted photo (a FILE)
  *
  * The second is the worse one: it sits inside the data directory, it is up to
  * `MINERU_BUNDLE_MAX_BYTES`, `findOrphanFiles` deliberately skips the name so
@@ -24,10 +26,13 @@
  *     is well past any plausible job, so an attempt running right now — in
  *     this process or in another one sharing the box — can never age out from
  *     under itself.
- *  2. **Name.** Only `alfyai-mineru4-*` directly inside the dedicated temp
- *     root, and only `<id>.parse.tmp-*` directly inside a user's knowledge
- *     directory. Never a recursive walk, never a glob that could match a live
- *     `.parse` bundle.
+ *  2. **Name, and kind.** Only `alfyai-mineru4-*` DIRECTORIES and
+ *     `alfyai-reader-input-*` FILES directly inside the temp root (the host's,
+ *     shared with every other service), and only `<id>.parse.tmp-*` directly
+ *     inside a user's knowledge directory. Never a recursive walk, never a glob
+ *     that could match a live `.parse` bundle, and never a directory under the
+ *     photo's prefix or a file under the download directory's: the code that
+ *     made the name made the other kind.
  *  3. **`lstat`, never `stat`.** A symlink is skipped, not followed: a sweep
  *     that resolved one would be a recursive delete pointed at whatever the
  *     link named.
@@ -39,6 +44,7 @@
 import { lstat, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { READER_INPUT_FILE_PREFIX } from "../extraction/reader-input";
 import { MINERU_BUNDLE_TMP_INFIX } from "./bundle";
 
 const LOG_PREFIX = "[MINERU]";
@@ -84,19 +90,28 @@ async function listNames(pathAbsolute: string, limit: number) {
 }
 
 /**
- * Removes one directory when it matches, is old enough and is not a symlink.
- * Returns whether anything was deleted; never throws.
+ * Removes one entry of the kind the caller expects when it is old enough and is
+ * not a symlink. Returns whether anything was deleted; never throws.
+ *
+ * A directory goes with its contents, a file as itself: `rm` without
+ * `recursive` refuses a directory, so a stranger's directory that carries the
+ * photo's prefix is safe even if the kind check above it were wrong.
  */
 async function dropIfStale(
 	pathAbsolute: string,
 	cutoff: number,
+	kind: "directory" | "file",
 ): Promise<boolean> {
 	// `lstat`, so a symlink planted here is skipped rather than followed into a
-	// recursive delete of whatever it names.
+	// recursive delete of whatever it names (a symlink is neither kind).
 	const info = await lstat(pathAbsolute).catch(() => null);
-	if (!info?.isDirectory()) return false;
+	if (!info) return false;
+	if (kind === "directory" ? !info.isDirectory() : !info.isFile()) return false;
 	if (info.mtimeMs > cutoff) return false;
-	return await rm(pathAbsolute, { recursive: true, force: true })
+	return await rm(
+		pathAbsolute,
+		kind === "directory" ? { recursive: true, force: true } : { force: true },
+	)
 		.then(() => true)
 		.catch(() => false);
 }
@@ -118,11 +133,19 @@ export async function sweepMineruTempDirs(
 	let scanned = 0;
 	let removed = 0;
 
-	// 1. Per-attempt download directories, directly inside the temp root.
+	// 1. Per-attempt download directories and converted photos (files), directly
+	//    inside the temp root. One listing, so one bound for both.
 	for (const entry of await listNames(tempRoot, limit)) {
-		if (!entry.name.startsWith(MINERU_ATTEMPT_TMP_PREFIX)) continue;
+		const kind = entry.name.startsWith(MINERU_ATTEMPT_TMP_PREFIX)
+			? "directory"
+			: entry.name.startsWith(READER_INPUT_FILE_PREFIX)
+				? "file"
+				: null;
+		if (!kind) continue;
 		scanned += 1;
-		if (await dropIfStale(join(tempRoot, entry.name), cutoff)) removed += 1;
+		if (await dropIfStale(join(tempRoot, entry.name), cutoff, kind)) {
+			removed += 1;
+		}
 	}
 
 	// 2. Half-written bundles, one level down, inside each user's directory.
@@ -133,7 +156,9 @@ export async function sweepMineruTempDirs(
 		for (const entry of await listNames(userDir, limit)) {
 			if (!entry.name.includes(MINERU_BUNDLE_TMP_INFIX)) continue;
 			scanned += 1;
-			if (await dropIfStale(join(userDir, entry.name), cutoff)) removed += 1;
+			if (await dropIfStale(join(userDir, entry.name), cutoff, "directory")) {
+				removed += 1;
+			}
 		}
 	}
 
@@ -167,7 +192,7 @@ export function scheduleMineruTempSweep(
 		.then((result) => {
 			if (result.removed > 0) {
 				console.info(
-					`${LOG_PREFIX} Swept stale MinerU temp directories`,
+					`${LOG_PREFIX} Swept stale MinerU temp files and directories`,
 					result,
 				);
 			}

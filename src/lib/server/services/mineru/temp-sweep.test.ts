@@ -18,6 +18,7 @@ import { mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { READER_INPUT_FILE_PREFIX } from "../extraction/reader-input";
 import { MINERU_BUNDLE_TMP_INFIX } from "./bundle";
 import {
 	MINERU_ATTEMPT_TMP_PREFIX,
@@ -37,6 +38,14 @@ let knowledgeRoot: string;
 async function seedDir(pathAbsolute: string, ageAt: number): Promise<string> {
 	await mkdir(pathAbsolute, { recursive: true });
 	await writeFile(join(pathAbsolute, "result.zip"), "bytes");
+	const when = new Date(ageAt);
+	await utimes(pathAbsolute, when, when);
+	return pathAbsolute;
+}
+
+/** A file, not a directory: the converted photo is one. */
+async function seedFile(pathAbsolute: string, ageAt: number): Promise<string> {
+	await writeFile(pathAbsolute, "png bytes");
 	const when = new Date(ageAt);
 	await utimes(pathAbsolute, when, when);
 	return pathAbsolute;
@@ -163,6 +172,75 @@ describe("sweepMineruTempDirs", () => {
 				now: () => NOW,
 			}),
 		).resolves.toEqual({ scanned: 0, removed: 0 });
+	});
+});
+
+// The PNG a HEIC or HEIF photo is converted to for one attempt
+// (`extraction/reader-input.ts`): a FILE directly in the temp root, removed when the
+// attempt ends and left behind by a process that is killed in the middle of one.
+describe("sweepMineruTempDirs: the photo converted for the reader", () => {
+	const photoName = () => `${READER_INPUT_FILE_PREFIX}${randomUUID()}.png`;
+
+	it("removes a stale converted photo, a file where the others are directories", async () => {
+		const stale = await seedFile(join(tempRoot, photoName()), OLD);
+
+		expect(await sweep()).toEqual({ scanned: 1, removed: 1 });
+		expect(existsSync(stale)).toBe(false);
+	});
+
+	it("removes it beside a stale download directory, each by its own kind", async () => {
+		const photo = await seedFile(join(tempRoot, photoName()), OLD);
+		const attempt = await seedDir(
+			join(tempRoot, `${MINERU_ATTEMPT_TMP_PREFIX}${randomUUID()}`),
+			OLD,
+		);
+
+		expect(await sweep()).toEqual({ scanned: 2, removed: 2 });
+		expect(existsSync(photo)).toBe(false);
+		expect(existsSync(attempt)).toBe(false);
+	});
+
+	it("leaves a young one alone: an attempt running right now owns it", async () => {
+		const young = await seedFile(join(tempRoot, photoName()), RECENT);
+
+		expect(await sweep()).toEqual({ scanned: 1, removed: 0 });
+		expect(existsSync(young)).toBe(true);
+	});
+
+	it("skips a symlink under its name rather than following it", async () => {
+		const victim = await seedFile(join(knowledgeRoot, "precious.png"), OLD);
+		const link = join(tempRoot, photoName());
+		symlinkSync(victim, link, "file");
+
+		const result = await sweep();
+		expect(result.removed).toBe(0);
+		expect(existsSync(victim)).toBe(true);
+		expect(existsSync(link)).toBe(true);
+	});
+
+	it("never removes a directory under its name: the helper makes files", async () => {
+		// A recursive delete of a stranger's directory is not what this prefix is for.
+		const stranger = await seedDir(join(tempRoot, photoName()), OLD);
+
+		expect(await sweep()).toEqual({ scanned: 1, removed: 0 });
+		expect(existsSync(stranger)).toBe(true);
+	});
+
+	it("ignores a name that only resembles it", async () => {
+		const output = await seedFile(
+			join(tempRoot, "alfyai-reader-output-1.png"),
+			OLD,
+		);
+		const noDash = await seedFile(
+			join(tempRoot, "alfyai-reader-input.png"),
+			OLD,
+		);
+		const elsewhere = await seedFile(join(tempRoot, `x-${photoName()}`), OLD);
+
+		expect(await sweep()).toEqual({ scanned: 0, removed: 0 });
+		expect(existsSync(output)).toBe(true);
+		expect(existsSync(noDash)).toBe(true);
+		expect(existsSync(elsewhere)).toBe(true);
 	});
 });
 
