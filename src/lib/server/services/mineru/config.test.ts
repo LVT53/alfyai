@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeConfig } from "$lib/server/config-store";
+import * as mineruConfigModule from "./config";
 import {
 	isMineruConfigured,
 	isSameMineruOrigin,
 	MINERU_DEFAULT_TIER_VALUES,
 	MINERU_OCR_MODES,
-	MINERU_OUTPUT_FORMATS,
+	MINERU_TASK_OUTPUT_FORMATS,
 	MINERU_TIER_IDS,
 	mineruDisplayOrigin,
 	mineruUrl,
@@ -98,18 +99,25 @@ describe("isSameMineruOrigin", () => {
 		runtime({ mineruApiUrl: "http://127.0.0.1:8765" }),
 	);
 
-	it("accepts the server's own upload URL", () => {
+	it("accepts the server's own upload link and result link", () => {
 		expect(
 			isSameMineruOrigin(
 				config,
-				"http://127.0.0.1:8765/v1/uploads/upload_7e33/content",
+				"http://127.0.0.1:8765/v1/tasks/job_0a1b/uploads/file-7e33",
+			),
+		).toBe(true);
+		expect(
+			isSameMineruOrigin(
+				config,
+				"http://127.0.0.1:8765/v1/files/file-7e33/content",
 			),
 		).toBe(true);
 	});
 
 	it("rejects a different port, host or scheme", () => {
 		// The API key must never be forwarded to an origin the admin did not
-		// configure; a server-supplied upload_url is the one place we would.
+		// configure; the server-supplied `upload.url` and `result_url` are the two
+		// places we would.
 		expect(isSameMineruOrigin(config, "http://127.0.0.1:9999/x")).toBe(false);
 		expect(isSameMineruOrigin(config, "http://evil.test/x")).toBe(false);
 		expect(isSameMineruOrigin(config, "https://127.0.0.1:8765/x")).toBe(false);
@@ -150,12 +158,15 @@ describe("vocabularies", () => {
 		expect(MINERU_OCR_MODES).toEqual(["auto", "txt", "ocr"]);
 	});
 
-	it("requests the four formats every recorded fixture requested", () => {
-		expect(MINERU_OUTPUT_FORMATS).toEqual([
-			"markdown",
-			"middle_json",
-			"structured_content",
-			"zip",
-		]);
+	it("asks a 4.1 server for the default result and nothing else", () => {
+		expect(MINERU_TASK_OUTPUT_FORMATS).toEqual(["default"]);
+	});
+
+	it("no longer carries the 4.0 output-format names", () => {
+		// `markdown`, `middle_json`, `structured_content` and `zip` are 400s on a
+		// 4.1 server. The list that named them is gone, and must stay gone.
+		expect(Object.keys(mineruConfigModule)).not.toContain(
+			"MINERU_OUTPUT_FORMATS",
+		);
 	});
 });

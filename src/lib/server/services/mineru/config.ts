@@ -1,5 +1,5 @@
 /**
- * The MinerU V1 client's view of the runtime configuration.
+ * The MinerU client's view of the runtime configuration.
  *
  * A pure projection: no I/O, no caching, no module-level state. Everything
  * here is read through `getConfig()` at the moment it is needed, which is what
@@ -45,9 +45,10 @@ export function mineruTierRank(tier: string | null | undefined): number {
 }
 
 /**
- * What `MINERU_DEFAULT_TIER` may hold. `auto` means "send no `tier` key at
- * all": the API rejects `tier: null` with a 400, so omission is the only way
- * to defer to the server's own start-up tier.
+ * What `MINERU_DEFAULT_TIER` may hold. `auto` is resolved by the tier policy
+ * (`tier-policy.ts`): for a PDF or an image, the best tier `/v1/tiers` lists
+ * (standard, then basic, then flash); for a native document, no `tier` key at
+ * all. It is never sent to the server as a value.
  */
 export const MINERU_DEFAULT_TIER_VALUES = ["auto", ...MINERU_TIER_IDS] as const;
 export type MineruDefaultTier = (typeof MINERU_DEFAULT_TIER_VALUES)[number];
@@ -55,18 +56,6 @@ export type MineruDefaultTier = (typeof MINERU_DEFAULT_TIER_VALUES)[number];
 /** `auto` again means "omit the key" — `ocr_mode: null` is also a 400. */
 export const MINERU_OCR_MODES = ["auto", "txt", "ocr"] as const;
 export type MineruOcrMode = (typeof MINERU_OCR_MODES)[number];
-
-/**
- * The formats every recorded fixture requested, in the recorded order. Asking
- * for a format costs server-side generation, not transfer, and only the `zip`
- * is downloaded — it is the sole artifact that carries the extracted images.
- */
-export const MINERU_OUTPUT_FORMATS = [
-	"markdown",
-	"middle_json",
-	"structured_content",
-	"zip",
-] as const;
 
 /**
  * The only output format the client ever asks a MinerU 4.1 server for: the
@@ -78,19 +67,18 @@ export const MINERU_OUTPUT_FORMATS = [
 export const MINERU_TASK_OUTPUT_FORMATS = ["default"] as const;
 
 /**
- * The most bytes this app will ever pull down from MinerU, whatever the job
- * says about itself.
+ * The most bytes this app will ever pull down from MinerU for one result.
  *
- * `output_files.zip.bytes` is the server's own claim about its own output, and
- * the download cap used to be `max(expectedBytes, bundleMaxBytes)` — which let
- * the server pick the cap. Declare ten gigabytes, stream ten gigabytes, fill
- * the disk; `MINERU_BUNDLE_MAX_BYTES` bounded only what was KEPT, never what
- * was fetched.
+ * The server states how big a result is (`Content-Length`) and a snapshot's
+ * `bytes` is the size of the SOURCE; neither is allowed to pick the cap. A
+ * server that announced ten gigabytes, or streamed them, could otherwise fill the
+ * disk: `MINERU_BUNDLE_MAX_BYTES` bounds only what is KEPT after filtering, never
+ * what is fetched.
  *
  * 256 MB is not arbitrary: it is `DEFAULT_MINERU_ZIP_LIMITS.maxCompressedBytes`
  * in `result.ts`, the size past which the zip reader refuses to open the file
- * anyway. Downloading more than that could never produce a parse, so a job that
- * declares more is refused before a byte moves rather than after.
+ * anyway. Downloading more than that could never produce a parse, so a result
+ * that announces more is refused before a byte moves rather than after.
  *
  * Kept here rather than in `result.ts` so `client.ts` can read it without
  * dragging `jszip` into every module that touches the protocol.
@@ -108,7 +96,7 @@ export interface MineruConfig {
 	readonly jobTimeoutMs: number;
 	readonly pollMinMs: number;
 	readonly pollMaxMs: number;
-	/** Control-plane calls: health, tiers, usage, job create, job poll. */
+	/** Control-plane calls: health, tiers, usage, task create, task poll, cancel. */
 	readonly requestTimeoutMs: number;
 	/** Byte movement: PUT the upload, GET the result zip. */
 	readonly transferTimeoutMs: number;
@@ -171,12 +159,12 @@ export function mineruUrl(config: MineruConfig, path: `/v1/${string}`): string {
 }
 
 /**
- * The same-origin rule for the API key.
+ * The same-origin rule for the API key (S7).
  *
- * `upload_url` comes back from the server as an absolute URL, and the client
- * must never forward `Authorization` to an origin that is not
- * `MINERU_API_URL`'s. Compares protocol, hostname and port only — the path is
- * the server's business.
+ * `upload.url` and `result_url` come back from the server as absolute URLs, and
+ * the client must never forward `Authorization` to an origin that is not
+ * `MINERU_API_URL`'s. Compares protocol, hostname and port only: the path is the
+ * server's business.
  *
  * Deliberately NOT `connections/host-locality.ts:assertPublicHttpsUrl`: MinerU
  * is normally on loopback or a private address, which is exactly what that
