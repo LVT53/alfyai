@@ -40,15 +40,17 @@
  * makes an unsupported format supported.
  *
  * ── Tier and idempotency ────────────────────────────────────────────────
- * `--tier` defaults to the configured `MINERU_DEFAULT_TIER` (resolved to the
- * server's best offered tier if that is `auto`). A registry `tierHint` of
- * "flash" (every Office, HTML, RTF, EPUB format) still wins per document,
- * exactly as the live extractor's own `decideTier` documents ("Office/HTML/
- * CSV/EPUB inputs execute at flash anyway") — but the CLIENT sends whatever
- * tier the hint override carries, so this script computes the effective
- * per-document tier itself and requests `flash` outright for those types,
- * rather than requesting a tier they can never reach and re-enqueueing them
- * forever.
+ * `--tier` defaults to the configured `MINERU_DEFAULT_TIER`, and `auto` is
+ * resolved with the extractor's own rule (`mineru/tier-policy.ts`
+ * `bestAutoTier`: the best of standard, basic, flash that the server lists,
+ * never `advanced`), not a second reading of it. A registry `tierHint` of
+ * "flash" (every Office, HTML, RTF, EPUB format) marks a native document: the
+ * extractor sends MinerU NO tier for it, whatever is hinted (MinerU reads it at
+ * flash and ignores a valid tier, and an `advanced` one it would accept and
+ * never run), so this script counts such a document's effective tier as `flash`
+ * and hints exactly that. That figure has one job, the "already done" check
+ * below: comparing against a tier these types can never reach would
+ * re-enqueue them forever.
  *
  * A document is skipped as "already done" when it has a `succeeded` job whose
  * normalized artifact's `extractionTier` already ranks at or above the
@@ -376,6 +378,7 @@ async function loadDeps() {
 		fileTypes,
 		mineruConfig,
 		capabilities,
+		tierPolicy,
 		extractionJob,
 		reextract,
 		storageContainment,
@@ -385,6 +388,7 @@ async function loadDeps() {
 		import("$lib/shared/file-types"),
 		import("$lib/server/services/mineru/config"),
 		import("$lib/server/services/mineru/capabilities"),
+		import("$lib/server/services/mineru/tier-policy"),
 		import("$lib/server/services/extraction/extraction-job"),
 		import("$lib/server/services/extraction/reextract"),
 		import("$lib/server/storage-containment"),
@@ -398,24 +402,26 @@ async function loadDeps() {
 		fileTypes,
 		mineruConfig,
 		capabilities,
+		tierPolicy,
 		extractionJob,
 		reextract,
 		storageContainment,
 	};
 }
 
-/** `MINERU_DEFAULT_TIER`, resolved to a concrete tier if it is `auto`. */
+/**
+ * `MINERU_DEFAULT_TIER`, resolved to a concrete tier if it is `auto`: the
+ * extractor's own reading of it (`tier-policy.ts`, the best of standard, basic,
+ * flash that the server lists, never `advanced`), not a second one.
+ */
 async function resolveDefaultTier(deps: Deps): Promise<string> {
 	const config = deps.mineruConfig.resolveMineruConfig();
 	if (config.defaultTier !== "auto") return config.defaultTier;
 	const caps = await deps.capabilities.getMineruCapabilities();
-	const best = [...caps.tiers].sort(
-		(a, b) =>
-			deps.mineruConfig.mineruTierRank(b) - deps.mineruConfig.mineruTierRank(a),
-	)[0];
+	const best = deps.tierPolicy.bestAutoTier(caps.tiers);
 	if (!best) {
 		throw new BackfillUsageError(
-			"MINERU_DEFAULT_TIER=auto and MinerU reports no tiers; pass --tier explicitly.",
+			"MINERU_DEFAULT_TIER=auto and MinerU reports no tier to choose from; pass --tier explicitly.",
 		);
 	}
 	return best;

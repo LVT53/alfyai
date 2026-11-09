@@ -85,6 +85,20 @@ export interface DecideTierInput {
  */
 const AUTO_TIER_ORDER: readonly MineruTierId[] = ["standard", "basic", "flash"];
 
+/**
+ * What "auto" means: the best tier of the standard, basic, flash ladder that
+ * the server lists, or null when it lists none of them. The one definition: the
+ * extractor asks it per document, and the backfill script asks it once for the
+ * tier it requests a whole library at, so the two can never mean different
+ * things by the same setting.
+ */
+export function bestAutoTier(
+	availableTiers: readonly MineruTierId[],
+): MineruTierId | null {
+	const available = new Set<string>(availableTiers);
+	return AUTO_TIER_ORDER.find((tier) => available.has(tier)) ?? null;
+}
+
 function tierUnavailable(tier: string, source: string): MineruApiError {
 	return new MineruApiError({
 		code: MINERU_CLIENT_ERROR_CODES.tierNotAvailable,
@@ -152,7 +166,7 @@ export function decideTier(input: DecideTierInput): TierDecision {
 	}
 
 	// 3: auto means the best tier this server lists.
-	const best = AUTO_TIER_ORDER.find((tier) => available.has(tier));
+	const best = bestAutoTier(input.availableTiers);
 	if (best) {
 		return {
 			tier: best,

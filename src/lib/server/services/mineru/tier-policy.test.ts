@@ -9,7 +9,12 @@ import type { MineruTierId } from "./config";
 import { mapMineruError } from "./errors";
 import { mineruTierListSchema } from "./schemas";
 import { readMineruProtocolFixture } from "./testing/fake-server";
-import { decideOcrMode, decideTier, isMineruTierId } from "./tier-policy";
+import {
+	bestAutoTier,
+	decideOcrMode,
+	decideTier,
+	isMineruTierId,
+} from "./tier-policy";
 
 function tiersFrom(file: string): MineruTierId[] {
 	const capture = readMineruProtocolFixture<{ response: { json: unknown } }>(
@@ -238,6 +243,28 @@ describe("decideTier: the server shapes", () => {
 					}
 				}
 			}
+		}
+	});
+});
+
+describe("bestAutoTier", () => {
+	// The one reading of `MINERU_DEFAULT_TIER=auto`, shared with the backfill
+	// script: standard, then basic, then flash, never advanced.
+	it.each([
+		[["flash", "basic", "standard", "advanced"], "standard"],
+		[["advanced", "basic", "flash"], "basic"],
+		[["flash"], "flash"],
+		[["advanced"], null],
+		[[], null],
+	] as const)("%j is %s", (tiers, expected) => {
+		expect(bestAutoTier([...tiers])).toBe(expected);
+	});
+
+	it("is what decideTier sends for auto", () => {
+		for (const tiers of [STANDARD_SERVER, BASIC_SERVER, FLASH_SERVER]) {
+			expect(
+				decideTier({ configuredTier: "auto", availableTiers: tiers }).tier,
+			).toBe(bestAutoTier(tiers) ?? undefined);
 		}
 	});
 });

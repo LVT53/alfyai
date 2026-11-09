@@ -1508,3 +1508,54 @@ describe("the replace path, end to end against a real MinerU 4 fixture", () => {
 		expect(jobRow?.status).toBe("succeeded");
 	});
 });
+
+describe("the tier it asks for when none is given", () => {
+	// `MINERU_DEFAULT_TIER=auto` means one thing: what the extractor means by it
+	// (`mineru/tier-policy.ts`, S4). A second reading in this script would
+	// re-extract a library at a tier the live app never picks on its own.
+	let server: FakeMineruServer;
+
+	afterEach(async () => {
+		await server?.close();
+		for (const key of [
+			"MINERU_API_URL",
+			"MINERU_API_KEY",
+			"MINERU_CAPABILITIES_TTL_MS",
+			"MINERU_DEFAULT_TIER",
+		]) {
+			delete process.env[key];
+		}
+	});
+
+	async function planTierOnAServerListing(
+		tiers: Array<"flash" | "basic" | "standard" | "advanced">,
+		args: string[] = [],
+	): Promise<string> {
+		server = await createFakeMineruServer({ tiers });
+		process.env.MINERU_API_URL = server.baseUrl;
+		process.env.MINERU_API_KEY = "";
+		process.env.MINERU_CAPABILITIES_TTL_MS = "0";
+		delete process.env.MINERU_DEFAULT_TIER;
+		await reimport();
+		return (await script.buildBackfillPlan(script.parseArgs(args))).tier;
+	}
+
+	it.each([
+		[["flash", "basic", "standard", "advanced"], "standard"],
+		[["flash", "basic", "standard"], "standard"],
+		[["flash", "basic"], "basic"],
+		[["flash"], "flash"],
+	] as const)("picks the extractor's choice on a server listing %j: %s", async (tiers, expected) => {
+		// `advanced` is never picked for you, here or in the app.
+		expect(await planTierOnAServerListing([...tiers])).toBe(expected);
+	});
+
+	it("still lets the operator name any tier the server serves, advanced included", async () => {
+		expect(
+			await planTierOnAServerListing(
+				["flash", "basic", "standard", "advanced"],
+				["--tier", "advanced"],
+			),
+		).toBe("advanced");
+	});
+});
