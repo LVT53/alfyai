@@ -24,6 +24,7 @@ import {
 	renderPromptMarkdown,
 	type StructuredContent,
 } from "./result";
+import { loadV41 } from "./result-corpus.test-helpers";
 
 /** The values `chunk-sync.ts` uses today. */
 const CHAR_TARGET = 1400;
@@ -643,7 +644,6 @@ describe("planStructuredChunks — the hard per-chunk ceiling", () => {
 // must never be cut (half a formula, or a figure handle torn from its caption,
 // is worse than none); a footnote is prose and chunks like any other text.
 
-const V41_ROOT = join(process.cwd(), "fixtures", "mineru-v41", "results");
 const V41_IDS = [
 	"pdf-paper-default-tier",
 	"pdf-paper-basic",
@@ -652,12 +652,6 @@ const V41_IDS = [
 	"pdf-paper-page-range-2",
 	"pptx-default",
 ] as const;
-
-async function loadV41(slug: string): Promise<StructuredContent> {
-	return parseStructuredContent(
-		await readFile(join(V41_ROOT, slug, "structured_content.json"), "utf8"),
-	);
-}
 
 describe("planStructuredChunks — MinerU 4.1 blocks", () => {
 	it.each(

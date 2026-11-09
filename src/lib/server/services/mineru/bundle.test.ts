@@ -41,6 +41,7 @@ import {
 	parseMineruResultZip,
 	type StructuredExtractionResult,
 } from "./result";
+import { V41_PAPER_ZIP } from "./result-corpus.test-helpers";
 
 const PDF_ZIP = join(
 	process.cwd(),
@@ -606,19 +607,10 @@ describe("removeMineruParseBundle", () => {
 // nothing to serve. The zip is the Standard PDF the 4.1 spike captured: a
 // chart, a display equation and a table, each with its own crop in `images/`.
 
-const V41_PDF_ZIP = join(
-	process.cwd(),
-	"fixtures",
-	"mineru-v41",
-	"results",
-	"pdf-paper-default-tier",
-	"result.zip",
-);
-
 async function v41PdfResult(): Promise<StructuredExtractionResult> {
 	return (
 		await parseMineruResultZip({
-			zipPathAbsolute: V41_PDF_ZIP,
+			zipPathAbsolute: V41_PAPER_ZIP,
 			jobTier: "standard",
 			serverParserVersion: "4.1.7",
 			sourceFilename: "document.pdf",
@@ -632,7 +624,7 @@ async function writeV41Bundle(
 	return writeMineruParseBundle({
 		userId,
 		sourceArtifactId,
-		zipPathAbsolute: V41_PDF_ZIP,
+		zipPathAbsolute: V41_PAPER_ZIP,
 		result: await v41PdfResult(),
 		maxBytes: MAX_BYTES,
 		...overrides,

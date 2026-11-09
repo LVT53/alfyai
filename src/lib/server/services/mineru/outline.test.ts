@@ -20,6 +20,7 @@ import {
 	renderPromptMarkdown,
 	type StructuredContent,
 } from "./result";
+import { loadV41 } from "./result-corpus.test-helpers";
 
 const FIXTURE_ROOT = join(process.cwd(), "fixtures", "mineru-v1");
 
@@ -241,16 +242,12 @@ describe("MinerU outline — offsets and previews", () => {
 // heading, but all three change the prompt text the offsets and previews are
 // cut from, so the outline is checked against the 4.1 captures too.
 
-const V41_ROOT = join(process.cwd(), "fixtures", "mineru-v41", "results");
-
 async function outlineForV41(
 	slug: string,
 	sourceFilename: string,
 ): Promise<{ outline: readonly MineruOutlineEntry[]; markdown: string }> {
 	const result = buildStructuredExtractionResult({
-		content: parseStructuredContent(
-			await readFile(join(V41_ROOT, slug, "structured_content.json"), "utf8"),
-		),
+		content: await loadV41(slug),
 		sourceFilename,
 	});
 	return { outline: result.outline, markdown: result.markdown };
