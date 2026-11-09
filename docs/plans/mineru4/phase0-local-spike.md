@@ -1,5 +1,9 @@
 # Phase 0 — MinerU 4.0.4 local spike (recorded facts)
 
+> **A record of MinerU 4.0.4, whose upload and job API MinerU 4.1 removed (2026-11-09).** The
+> fixtures under `fixtures/mineru-v1/` stay as that record; the 4.1 facts are in
+> [docs/plans/mineru-4-1/spike-report.md](../mineru-4-1/spike-report.md).
+
 Purpose: replace the guesses in the upstream **Draft** docs with behaviour actually observed
 from a MinerU 4.0.4 Local Parse Server, so the TypeScript client and result parser are written
 against reality. Every claim here is backed by a fixture under `fixtures/mineru-v1/`.
