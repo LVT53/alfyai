@@ -6,6 +6,7 @@
 // Probes never throw: every failure is normalized to { ok: false, detail }.
 // They receive an injectable `fetch` so tests can drive them without network.
 
+import { mineruSpeaksTasksProtocol } from "$lib/server/services/mineru/protocol-version";
 import type {
 	ToolHealthConfig,
 	ToolHealthEntry,
@@ -81,6 +82,34 @@ function expectOk(response: Response): { ok: boolean; detail?: string } {
 	return response.ok
 		? { ok: true, detail: statusDetail(response) }
 		: { ok: false, detail: statusDetail(response) };
+}
+
+// MinerU's evaluator: up is not enough. 4.0.x answers /v1/health like a healthy
+// server, then refuses the 4.1 requests this app sends, so a 2xx that names a
+// 4.0.x (or older) version is degraded, with the reason. A body that is not JSON
+// or names no readable version is judged by its status alone.
+async function expectMineruTasksProtocol(
+	response: Response,
+): Promise<{ ok: boolean; detail?: string }> {
+	const base = expectOk(response);
+	if (!base.ok) return base;
+	let version: unknown;
+	try {
+		version = ((await response.json()) as { version?: unknown } | null)
+			?.version;
+	} catch {
+		return base;
+	}
+	if (
+		typeof version === "string" &&
+		mineruSpeaksTasksProtocol(version) === false
+	) {
+		return {
+			ok: false,
+			detail: `MinerU ${version} speaks the old protocol; this app needs MinerU 4.1 or newer`,
+		};
+	}
+	return base;
 }
 
 // Evaluator for authenticated APIs where we deliberately send a minimal or
@@ -385,7 +414,7 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 				ctx,
 				`${trimBase(ctx.config.mineruApiUrl)}/v1/health`,
 				{},
-				expectOk,
+				expectMineruTasksProtocol,
 			),
 	},
 	// Picture making. ComfyUI answers /system_stats without a credential.

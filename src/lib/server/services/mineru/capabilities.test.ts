@@ -10,26 +10,39 @@ import {
 	resetMineruCapabilitiesCacheForTests,
 	setMineruProbeClientFactory,
 } from "./capabilities";
+import { MineruClient } from "./client";
 import { type MineruConfig, resolveMineruConfig } from "./config";
+import { MineruApiError } from "./errors";
+import {
+	createFakeMineruServer,
+	type FakeMineruServer,
+	readMineruProtocolFixture,
+} from "./testing/fake-server";
 
-// The recorded 4.0.4 responses, so the probe is tested against what the real
+// The recorded 4.1.7 responses, so the probe is tested against what the real
 // server actually sends rather than against a hand-written idea of it.
-const HEALTH = JSON.parse(
+function captured(file: string): unknown {
+	return readMineruProtocolFixture<{ response: { json: unknown } }>(file)
+		.response.json;
+}
+const HEALTH = captured("server/health_no_key.json") as {
+	version: string;
+	features: Record<string, unknown>;
+};
+const TIERS = captured("server/tiers.json") as { data: unknown[] };
+const USAGE = captured("server/usage.json");
+const FLASH_TIERS = {
+	object: "list",
+	data: [(TIERS.data as Array<{ id: string }>)[0]],
+};
+// The server this app used to talk to: 4.0.4, recorded in the 4.0 spike.
+const OLD_HEALTH = JSON.parse(
 	readFileSync("fixtures/mineru-v1/server/health.json", "utf8"),
-);
-const TIERS = JSON.parse(
-	readFileSync("fixtures/mineru-v1/server/tiers.json", "utf8"),
-);
-const FLASH_TIERS = JSON.parse(
-	readFileSync("fixtures/mineru-v1/server/flash.tiers.json", "utf8"),
-);
-const USAGE = JSON.parse(
-	readFileSync("fixtures/mineru-v1/server/usage.json", "utf8"),
-);
+) as { version: string };
 
 function config(overrides: Partial<RuntimeConfig> = {}): MineruConfig {
 	return resolveMineruConfig({
-		mineruApiUrl: "http://127.0.0.1:8001",
+		mineruApiUrl: "http://127.0.0.1:8004",
 		mineruApiKey: "",
 		mineruDefaultTier: "auto",
 		mineruOcrMode: "auto",
@@ -50,8 +63,8 @@ function fakeClient(
 ): MineruProbeClient {
 	return {
 		getHealth: vi.fn(async () => HEALTH),
-		getTiers: vi.fn(async () => TIERS.data),
-		getUsage: vi.fn(async () => USAGE),
+		getTiers: vi.fn(async () => TIERS.data as never),
+		getUsage: vi.fn(async () => USAGE as never),
 		...overrides,
 	};
 }
@@ -70,40 +83,43 @@ afterEach(() => {
 });
 
 describe("getMineruStatusReport", () => {
-	it("reports the recorded server's version, tiers, formats and limits", async () => {
+	it("reports the recorded 4.1.7 server's version, tiers, formats and limits", async () => {
 		setMineruProbeClientFactory(() => fakeClient());
 
 		const report = await getMineruStatusReport({ config: config(), now });
 
 		expect(report.reachable).toBe(true);
-		expect(report.version).toBe("4.0.4");
+		expect(report.version).toBe("4.1.7");
 		expect(report.webhook).toBe(false);
-		expect(report.outputFormats).toEqual([
-			"markdown",
-			"middle_json",
-			"structured_content",
-			"zip",
-		]);
+		// 4.1 renamed the health key (`output_formats` became
+		// `task_output_formats`) and changed what is in it: the card used to show
+		// an empty list against a 4.1 server.
+		expect(report.outputFormats).toEqual(["default", "docx", "html", "latex"]);
+		expect(report.sources).toEqual(["upload", "url"]);
 		expect(report.tiers).toEqual([
 			{
 				id: "flash",
 				description: "Fast local text extraction.",
-				currentModel: "flash",
+				currentModel: "mineru-4.1.7",
 			},
 			{
 				id: "basic",
 				description: "Basic parsing with local lightweight models.",
-				// Deliberately NOT joined to /v1/models[].id — the server spells
-				// the same model "hybrid-basic" here and "Hybrid-Basic" there.
-				currentModel: "hybrid-basic",
+				// 4.1 reports one model name for every tier.
+				currentModel: "mineru-4.1.7",
+			},
+			{
+				id: "standard",
+				description: "Standard parsing for most documents.",
+				currentModel: "mineru-4.1.7",
 			},
 		]);
-		expect(report.accessLevel).toBe("anonymous");
+		expect(report.accessLevel).toBe("registered");
 		expect(report.limits).toEqual({
-			maxFileSizeBytes: 209715200,
-			maxPagesPerFile: 1000,
+			maxFileSizeBytes: null,
+			maxPagesPerFile: null,
 			maxFilesPerJob: 100,
-			maxConcurrentJobs: 1,
+			maxConcurrentJobs: 2,
 		});
 		expect(report.error).toBeNull();
 	});
@@ -112,12 +128,12 @@ describe("getMineruStatusReport", () => {
 		setMineruProbeClientFactory(() => fakeClient());
 		const report = await getMineruStatusReport({
 			config: config({
-				mineruApiUrl: "http://mineru.internal:8001/base",
+				mineruApiUrl: "http://mineru.internal:8004/base",
 				mineruApiKey: "sk-secret",
 			}),
 			now,
 		});
-		expect(report.baseUrl).toBe("http://mineru.internal:8001");
+		expect(report.baseUrl).toBe("http://mineru.internal:8004");
 		expect(JSON.stringify(report)).not.toContain("sk-secret");
 	});
 
@@ -143,9 +159,9 @@ describe("getMineruStatusReport", () => {
 	});
 
 	it("stays reachable when only the keyed endpoints are refused", async () => {
-		// /v1/health is public even under --api-key. "Reachable, 4.0.4, tiers
-		// unknown" is a more useful answer than "unreachable" because
-		// /v1/usage came back 401.
+		// /v1/health is public even under --api-key. "Reachable, 4.1.7, tiers
+		// unknown" is a more useful answer than "unreachable" because /v1/usage
+		// came back 401.
 		setMineruProbeClientFactory(() =>
 			fakeClient({
 				getTiers: vi.fn(async () => {
@@ -159,7 +175,7 @@ describe("getMineruStatusReport", () => {
 
 		const report = await getMineruStatusReport({ config: config(), now });
 		expect(report.reachable).toBe(true);
-		expect(report.version).toBe("4.0.4");
+		expect(report.version).toBe("4.1.7");
 		expect(report.tiers).toEqual([]);
 		expect(report.limits).toBeNull();
 	});
@@ -257,24 +273,151 @@ describe("getMineruStatusReport", () => {
 	});
 });
 
+describe("the cache belongs to one endpoint", () => {
+	// `MINERU_API_URL` is a live setting and the cutover (S9) is a URL flip, in
+	// either direction. An answer read from the server that URL used to name says
+	// nothing about the one it names now.
+	it("does not serve a report that was read from another origin", async () => {
+		const getHealth = vi.fn(async () => HEALTH);
+		setMineruProbeClientFactory(() => fakeClient({ getHealth }));
+
+		await getMineruStatusReport({ config: config(), now });
+		clock += 1000;
+		const elsewhere = await getMineruStatusReport({
+			config: config({ mineruApiUrl: "http://127.0.0.1:8002" }),
+			now,
+		});
+
+		expect(getHealth).toHaveBeenCalledTimes(2);
+		expect(elsewhere.cached).toBe(false);
+		expect(elsewhere.baseUrl).toBe("http://127.0.0.1:8002");
+	});
+
+	it("still serves it for the same origin under another path or key", async () => {
+		const getHealth = vi.fn(async () => HEALTH);
+		setMineruProbeClientFactory(() => fakeClient({ getHealth }));
+
+		await getMineruStatusReport({ config: config(), now });
+		const again = await getMineruStatusReport({
+			config: config({
+				mineruApiUrl: "http://127.0.0.1:8004/",
+				mineruApiKey: "k",
+			}),
+			now,
+		});
+
+		expect(getHealth).toHaveBeenCalledTimes(1);
+		expect(again.cached).toBe(true);
+	});
+});
+
+describe("a server that speaks the old protocol", () => {
+	// 4.0.12 already serves /v1/tasks (R14), in its own older shape, and answers a
+	// healthy-looking /v1/health. Reading that as "reachable, 4.0.4" lets every
+	// extraction walk up to a 400. It is not a healthy backend for this client.
+	function oldServer() {
+		return fakeClient({ getHealth: vi.fn(async () => OLD_HEALTH as never) });
+	}
+
+	it("is not reachable for this client, and says why", async () => {
+		setMineruProbeClientFactory(() => oldServer());
+
+		const report = await getMineruStatusReport({ config: config(), now });
+
+		expect(report.reachable).toBe(false);
+		expect(report.version).toBe("4.0.4");
+		// `unavailable`, not `backend_misconfigured`: during the cutover (S9) the
+		// URL is flipped within seconds and the retry budget of an outage is what
+		// carries a document across (S6).
+		expect(report.error?.code).toBe("unavailable");
+		expect(report.error?.message).toContain("4.0.4");
+		expect(report.error?.message).toContain("old protocol");
+		expect(report.error?.message).toContain("MINERU_API_URL");
+	});
+
+	it("is refused by the hot path with the same retryable verdict", async () => {
+		setMineruProbeClientFactory(() => oldServer());
+
+		await expect(
+			getMineruCapabilities(undefined, { config: config(), now }),
+		).rejects.toMatchObject({
+			name: "MineruProbeError",
+			code: "unavailable",
+		});
+	});
+
+	it("is not cached, so the first probe after the URL flip sees the new server", async () => {
+		const getHealth = vi
+			.fn()
+			.mockResolvedValueOnce(OLD_HEALTH)
+			.mockResolvedValue(HEALTH);
+		setMineruProbeClientFactory(() => fakeClient({ getHealth }));
+
+		const old = await getMineruStatusReport({ config: config(), now });
+		expect(old.reachable).toBe(false);
+
+		clock += 1000;
+		const flipped = await getMineruStatusReport({ config: config(), now });
+		expect(flipped.reachable).toBe(true);
+		expect(flipped.version).toBe("4.1.7");
+		expect(getHealth).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not withdraw a cached 4.1 answer on its own", async () => {
+		// An old answer on a refresh is a transient fact about the URL, like any
+		// other failed refresh: the same grace window applies.
+		const getHealth = vi
+			.fn()
+			.mockResolvedValueOnce(HEALTH)
+			.mockResolvedValue(OLD_HEALTH);
+		setMineruProbeClientFactory(() => fakeClient({ getHealth }));
+
+		await getMineruStatusReport({ config: config(), now });
+		clock += 400_000;
+		const report = await getMineruStatusReport({
+			config: config(),
+			now,
+			refresh: true,
+		});
+		expect(report.reachable).toBe(true);
+		expect(report.cached).toBe(true);
+	});
+
+	it.each([
+		["4.1.0", true],
+		["4.1.7", true],
+		["4.2.0", true],
+		["5.0.1", true],
+		["4.0.12", false],
+		["4.0.4", false],
+		["3.9.9", false],
+		// A version this app cannot read is not evidence of anything.
+		["nightly", true],
+	])("version %s counts as a healthy backend: %s", async (version, healthy) => {
+		setMineruProbeClientFactory(() =>
+			fakeClient({ getHealth: vi.fn(async () => ({ ...HEALTH, version })) }),
+		);
+		const report = await getMineruStatusReport({ config: config(), now });
+		expect(report.reachable).toBe(healthy);
+	});
+});
+
 describe("getMineruCapabilities", () => {
-	it("returns the version, formats and known tier ids", async () => {
+	it("returns the version and the known tier ids", async () => {
 		setMineruProbeClientFactory(() => fakeClient());
 		const capabilities = await getMineruCapabilities(undefined, {
 			config: config(),
 			now,
 		});
-		expect(capabilities.version).toBe("4.0.4");
-		expect(capabilities.tiers).toEqual(["flash", "basic"]);
-		expect(capabilities.outputFormats).toContain("structured_content");
+		expect(capabilities.version).toBe("4.1.7");
+		expect(capabilities.tiers).toEqual(["flash", "basic", "standard"]);
 	});
 
 	it("reports a flash-only server as exactly that", async () => {
-		// The tier the extractor may ask for depends on this list: omitting the
-		// tier on a flash-only server is a 503 for a PDF, so knowing the list is
-		// what turns that failure into a parse.
+		// What `auto` resolves to depends on this list (S4): an omitted tier on a
+		// lower ceiling is a silent downgrade, an explicit one above it is a 400.
 		setMineruProbeClientFactory(() =>
-			fakeClient({ getTiers: vi.fn(async () => FLASH_TIERS.data) }),
+			fakeClient({ getTiers: vi.fn(async () => FLASH_TIERS.data as never) }),
 		);
 		const capabilities = await getMineruCapabilities(undefined, {
 			config: config(),
@@ -333,14 +476,36 @@ describe("the default probe client", () => {
 		);
 		const signal = new AbortController().signal;
 
-		expect((await client.getHealth(signal)).version).toBe("4.0.4");
-		expect(await client.getTiers(signal)).toHaveLength(2);
-		expect((await client.getUsage(signal)).access_level).toBe("anonymous");
-		expect(seen).toEqual([
-			"http://127.0.0.1:8001/v1/health",
-			"http://127.0.0.1:8001/v1/tiers",
-			"http://127.0.0.1:8001/v1/usage",
+		const health = await client.getHealth(signal);
+		expect(health.version).toBe("4.1.7");
+		expect(health.features?.task_output_formats).toEqual([
+			"default",
+			"docx",
+			"html",
+			"latex",
 		]);
+		expect(await client.getTiers(signal)).toHaveLength(3);
+		expect((await client.getUsage(signal)).access_level).toBe("registered");
+		expect(seen).toEqual([
+			"http://127.0.0.1:8004/v1/health",
+			"http://127.0.0.1:8004/v1/tiers",
+			"http://127.0.0.1:8004/v1/usage",
+		]);
+	});
+
+	it("feeds the admin card the 4.1 formats when it is the probe", async () => {
+		setMineruProbeClientFactory((cfg) =>
+			createDefaultMineruProbeClient(
+				cfg,
+				fetchStub((url) => {
+					if (url.endsWith("/v1/health")) return Response.json(HEALTH);
+					if (url.endsWith("/v1/tiers")) return Response.json(TIERS);
+					return Response.json(USAGE);
+				}),
+			),
+		);
+		const report = await getMineruStatusReport({ config: config(), now });
+		expect(report.outputFormats).toEqual(["default", "docx", "html", "latex"]);
 	});
 
 	it("sends the key as a bearer token only when one is configured", async () => {
@@ -406,32 +571,10 @@ describe("the default probe client", () => {
 describe("a probe client that is NOT the built-in one", () => {
 	// The regression this pins. `describeTransportError` recognised only
 	// `MineruProbeError` and sent everything else to `unavailable`, which is
-	// RETRYABLE. The seam exists so `MineruClient` can be the probe — and
-	// `MineruClient` throws `MineruApiError`. The day that swap happened, "this
-	// is a MinerU 3.x server" (a permanent 404) became an outage that re-probed
-	// forever while every upload failed. P2-B papered over it with an adapter
-	// inside the extractor, which left the admin card — the one surface that
-	// loads `capabilities.ts` without the extractor — still reading the wrong
-	// answer.
-
-	function apiError(init: {
-		status: number | null;
-		code: string;
-		message: string;
-	}) {
-		return Object.assign(new Error(init.message), {
-			name: "MineruApiError",
-			status: init.status,
-			code: init.code,
-			type: null,
-			param: null,
-			detail: null,
-			fastapiValidation: false,
-			bodyExcerpt: null,
-			retryAfterMs: null,
-			requestPath: "/v1/health",
-		});
-	}
+	// RETRYABLE. The seam exists so `MineruClient` can be the probe, and
+	// `MineruClient` throws `MineruApiError`. The day that swap happened, "this is
+	// not a MinerU 4 server" (a permanent 404) became an outage that re-probed
+	// forever while every upload failed.
 
 	async function reportFor(error: unknown) {
 		setMineruProbeClientFactory(() =>
@@ -444,27 +587,137 @@ describe("a probe client that is NOT the built-in one", () => {
 		return getMineruStatusReport({ config: config(), now });
 	}
 
-	it("calls a MinerU 3.x backend a permanent misconfiguration, by name", async () => {
-		const report = await reportFor(
-			apiError({
-				status: 404,
-				code: "",
-				message: "MinerU /v1/health failed with 404: Not Found",
-			}),
-		);
-		expect(report.reachable).toBe(false);
-		// `backend_misconfigured`, not `unavailable` and not the generic
-		// `protocol`: there is no dual-protocol fallback, so retrying a server
-		// that does not speak V1 only delays the honest message — and once an
-		// admin has repointed MINERU_API_URL, every document that failed on it
-		// must become retryable, which a plain `protocol` never was.
-		expect(report.error?.code).toBe("backend_misconfigured");
-		expect(report.error?.message).toContain("not a MinerU 4 server");
-		expect(report.error?.message).toContain(
-			"MinerU 3.x is no longer supported",
-		);
-		expect(report.error?.message).toContain("MINERU_API_URL");
+	describe("against the real client", () => {
+		let server: FakeMineruServer;
+
+		beforeEach(async () => {
+			server = await createFakeMineruServer();
+			setMineruProbeClientFactory((cfg) => new MineruClient({ config: cfg }));
+		});
+
+		afterEach(async () => {
+			await server.close();
+		});
+
+		it("calls a server with no /v1/health a permanent misconfiguration, by name", async () => {
+			// FastAPI's own `{"detail":"Not Found"}`: what a MinerU 3.x server (no
+			// /v1 namespace at all) or any other FastAPI service answers. A's
+			// classification reads that as "another protocol", which is retried for
+			// a task; for the HEALTH call it is the statement "this URL is not a
+			// MinerU 4 server", and no retry changes it.
+			const report = await getMineruStatusReport({
+				config: config({ mineruApiUrl: `${server.baseUrl}/not-mineru4` }),
+				now,
+			});
+
+			expect(report.reachable).toBe(false);
+			// `backend_misconfigured`, not `unavailable` and not the generic
+			// `protocol`: there is no dual-protocol fallback, so retrying a server
+			// that does not speak V1 only delays the honest message, and once an
+			// admin has repointed MINERU_API_URL every document that failed on it
+			// must be retryable, which a plain `protocol` never was.
+			expect(report.error?.code).toBe("backend_misconfigured");
+			expect(report.error?.message).toContain("not a MinerU 4 server");
+			expect(report.error?.message).toContain(
+				"MinerU 3.x is no longer supported",
+			);
+			expect(report.error?.message).toContain("MINERU_API_URL");
+			expect(report.version).toBeNull();
+		});
+
+		it("says the same when /v1/health answers like a non-MinerU server", async () => {
+			setMineruProbeClientFactory(
+				(cfg) =>
+					new MineruClient({
+						config: cfg,
+						fetchImpl: async (input) => {
+							const url = String(input);
+							if (url.endsWith("/v1/health")) {
+								return Response.json({
+									status: "ok",
+									service: "something-else",
+								});
+							}
+							return fetch(input);
+						},
+					}),
+			);
+			const report = await getMineruStatusReport({
+				config: config({ mineruApiUrl: server.baseUrl }),
+				now,
+			});
+			expect(report.error?.code).toBe("backend_misconfigured");
+			expect(report.error?.message).toContain("not a MinerU 4 server");
+		});
+
+		it("says the same when /v1/health answers a page, not JSON", async () => {
+			setMineruProbeClientFactory(
+				(cfg) =>
+					new MineruClient({
+						config: cfg,
+						fetchImpl: async () =>
+							new Response("<html>Welcome to nginx</html>", { status: 200 }),
+					}),
+			);
+			const report = await getMineruStatusReport({
+				config: config({ mineruApiUrl: server.baseUrl }),
+				now,
+			});
+			expect(report.error?.code).toBe("backend_misconfigured");
+		});
+
+		it("reads the real 4.1.7 fake as healthy, with its formats", async () => {
+			const report = await getMineruStatusReport({
+				config: config({ mineruApiUrl: server.baseUrl }),
+				now,
+			});
+			expect(report.reachable).toBe(true);
+			expect(report.version).toBe("4.1.7");
+			expect(report.outputFormats).toEqual([
+				"default",
+				"docx",
+				"html",
+				"latex",
+			]);
+			expect(report.tiers.map((tier) => tier.id)).toEqual([
+				"flash",
+				"basic",
+				"standard",
+			]);
+		});
+
+		it("keeps a 4.0.12-voiced health answer retryable (the cutover window)", async () => {
+			// A typed error body on /v1/health itself is the OLD server, not a
+			// different product: the URL is about to be flipped.
+			setMineruProbeClientFactory(
+				(cfg) =>
+					new MineruClient({
+						config: cfg,
+						fetchImpl: async () =>
+							Response.json(
+								{
+									error: {
+										type: "api_error",
+										code: "internal_error",
+										message: "boom",
+										param: null,
+									},
+								},
+								{ status: 500 },
+							),
+					}),
+			);
+			const report = await getMineruStatusReport({
+				config: config({ mineruApiUrl: server.baseUrl }),
+				now,
+			});
+			expect(report.error?.code).toBe("unavailable");
+		});
 	});
+
+	function apiError(init: { status: number; code: string; message: string }) {
+		return new MineruApiError({ ...init, requestPath: "/v1/health" });
+	}
 
 	it("calls a wrong API key auth_failed", async () => {
 		const report = await reportFor(
@@ -541,5 +794,6 @@ describe("a probe client that is NOT the built-in one", () => {
 		expect(JSON.stringify(report)).not.toContain("sk-super-secret");
 		expect(report.error?.message).toContain("[redacted]");
 		expect(JSON.stringify(warn.mock.calls)).not.toContain("sk-super-secret");
+		warn.mockRestore();
 	});
 });

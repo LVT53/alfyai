@@ -4,21 +4,22 @@
  * Two callers, two shapes:
  *
  *  - `getMineruCapabilities()` is the hot path. Every extraction consults it
- *    before a byte moves, because a tier the server does not offer must fail
+ *    before it asks for anything, because "auto" is resolved against the tiers
+ *    the server lists (S4), because a tier the server does not offer must fail
  *    fast (a 400 "Tier 'standard' not available" is a misconfiguration, not an
- *    outage, and must not look like one), and because requesting an output
- *    format the server cannot produce is the same kind of mistake.
+ *    outage, and must not look like one), and because a server that speaks an
+ *    older protocol (MinerU 4.0.x) is not a backend for this client.
  *  - `getMineruStatusReport()` is the admin card. Same probe, more fields, and
  *    it never throws: "unreachable, here is why" is the answer, not an error.
  *
- * THE PROBE SEAM. The full V1 protocol client (`client.ts`, `schemas.ts`) is a
- * separate slice and is not imported here — this module would otherwise be the
- * one place a config surface drags the whole extraction protocol into its
- * bundle. Instead it defines the narrow, three-method shape it needs and
- * ships a minimal default implementation over `fetch`. `MineruClient`
- * satisfies `MineruProbeClient` structurally, so swapping it in is
+ * THE PROBE SEAM. The protocol client (`client.ts`, `schemas.ts`) is not
+ * imported here: this module would otherwise be the one place a config surface
+ * drags the whole extraction protocol into its bundle. Instead it defines the
+ * narrow, three-method shape it needs and ships a minimal default
+ * implementation over `fetch`. `MineruClient` satisfies `MineruProbeClient`
+ * structurally, so swapping it in is
  * `setMineruProbeClientFactory((config) => new MineruClient({ config }))` and
- * nothing else changes.
+ * nothing else changes (the extractor does exactly that when it loads).
  */
 
 import type { ExtractionErrorCode } from "$lib/shared/extraction-status";
@@ -36,6 +37,7 @@ import {
 	mapMineruError,
 	redactMineruSecrets,
 } from "./errors";
+import { mineruSpeaksTasksProtocol } from "./protocol-version";
 
 // ---------------------------------------------------------------------------
 // The shapes read from the server
@@ -52,7 +54,8 @@ export interface MineruHealthLike {
 	version: string;
 	features?: {
 		webhook?: boolean;
-		output_formats?: readonly string[];
+		/** 4.1's name for what 4.0 called `output_formats`: what a task may ask for. */
+		task_output_formats?: readonly string[];
 		sources?: readonly string[];
 	} | null;
 }
@@ -89,10 +92,9 @@ export type MineruProbeClientFactory = (
 // Public shapes
 // ---------------------------------------------------------------------------
 
-/** What the extractor needs before it commits to a job. */
+/** What the extractor needs before it commits to a task. */
 export interface MineruCapabilities {
 	version: string;
-	outputFormats: readonly string[];
 	/** Only the ids this app knows how to ask for. */
 	tiers: readonly MineruTierId[];
 }
@@ -228,11 +230,18 @@ function describeTransportError(
 /**
  * The one failure that has to be said by name.
  *
- * A MinerU 3.x server has no `/v1` namespace at all, so the probe gets a 404
- * rather than a version. "unreachable" would send an admin looking at the
- * network; this sends them at `MINERU_API_URL`. Applied here rather than in the
- * extractor's adapter so the built-in fetch probe — the one the admin card uses
- * before anything imports the extractor — says it too.
+ * A URL that is not a MinerU 4 server (a MinerU 3.x box has no `/v1` namespace
+ * at all, and any other FastAPI service answers its own `{"detail":"Not Found"}`)
+ * gets a 404 on `/v1/health` rather than a version. "unreachable" would send an
+ * admin looking at the network; this sends them at `MINERU_API_URL`. Applied
+ * here rather than in the extractor's adapter so the built-in fetch probe, the
+ * one the admin card uses before anything imports the extractor, says it too.
+ *
+ * The protocol client reads that same FastAPI 404 as "another protocol", which
+ * for a TASK is retried (the cutover window, S6). For the HEALTH call it is the
+ * statement that this is not a MinerU at all, and no number of retries changes
+ * it. A TYPED error body on health is different: that is MinerU 4.0.x's voice,
+ * the URL is about to be flipped, and it stays the retryable `unavailable`.
  */
 function describeHealthFailure(
 	error: unknown,
@@ -240,16 +249,18 @@ function describeHealthFailure(
 	config: MineruConfig,
 ): { code: ExtractionErrorCode; message: string } {
 	const described = describeTransportError(error, signal, config.apiKey);
-	if (described.code !== "protocol") return described;
+	const notMineru =
+		isMineruApiError(error) && error.fastapi === true && error.status === 404;
+	if (described.code !== "protocol" && !notMineru) return described;
 	// `backend_misconfigured`, not `protocol`. The two used to share a code and
 	// therefore shared a verdict, which is wrong in both directions: a garbled
 	// response from a real MinerU 4 is worth another attempt, while THIS is a
-	// statement about `MINERU_API_URL` that no number of retries changes — and
+	// statement about `MINERU_API_URL` that no number of retries changes, and
 	// once an admin has changed it, every document that failed in the meantime
 	// has to be retryable, which a plain `protocol` was not.
 	return {
 		code: "backend_misconfigured",
-		message: `${mineruDisplayOrigin(config)} is not a MinerU 4 server: ${described.message}. MinerU 3.x is no longer supported; point MINERU_API_URL at a MinerU 4 endpoint.`,
+		message: `${mineruDisplayOrigin(config)} is not a MinerU 4 server: ${described.message}. MinerU 3.x is no longer supported; point MINERU_API_URL at a MinerU 4.1 endpoint.`,
 	};
 }
 
@@ -344,7 +355,8 @@ interface CacheEntry {
 }
 
 let cached: CacheEntry | null = null;
-let inFlight: Promise<MineruStatusReport> | null = null;
+let inFlight: { origin: string; promise: Promise<MineruStatusReport> } | null =
+	null;
 
 /** Test seam: forget the cached probe. */
 export function resetMineruCapabilitiesCacheForTests(): void {
@@ -423,9 +435,25 @@ async function probe(
 		}
 		const features = health.features ?? null;
 
+		// A 4.0.x server answers /v1/health like a healthy one and serves a
+		// `/v1/tasks` of its own, in an older shape, which refuses our manifest
+		// with a 400 (R14). That is not a backend for this client. `unavailable`,
+		// the verdict of an outage, because the cutover (S9) is a URL flip and the
+		// outage budget is what carries a document across it (S6); the version is
+		// kept so the card can show it beside the reason.
+		if (mineruSpeaksTasksProtocol(health.version) === false) {
+			const message = `${origin} runs MinerU ${health.version}, which speaks the old protocol. This app needs MinerU 4.1 or newer: point MINERU_API_URL at a 4.1 server.`;
+			console.warn(`${LOG_PREFIX} status probe failed:`, message);
+			return {
+				...base,
+				version: health.version,
+				error: { code: "unavailable", message },
+			};
+		}
+
 		// Health is the only call that is public under `--api-key`, so the other
 		// two may legitimately fail on a keyed server that we have no key for.
-		// A card that says "reachable, 4.0.4, tiers unknown" is more useful than
+		// A card that says "reachable, 4.1.7, tiers unknown" is more useful than
 		// one that says "unreachable" because /v1/usage was 401.
 		let tiers: MineruTierLike[] = [];
 		let usage: MineruUsageLike = {};
@@ -449,7 +477,7 @@ async function probe(
 			reachable: true,
 			version: health.version,
 			webhook: typeof features?.webhook === "boolean" ? features.webhook : null,
-			outputFormats: [...(features?.output_formats ?? [])],
+			outputFormats: [...(features?.task_output_formats ?? [])],
 			sources: [...(features?.sources ?? [])],
 			tiers: tiers.map((tier) => ({
 				id: tier.id,
@@ -499,19 +527,20 @@ export async function getMineruStatusReport(
 	const config = options.config ?? resolveMineruConfig();
 	const now = options.now ?? Date.now;
 	const at = now();
+	// A report belongs to the endpoint it was read from. `MINERU_API_URL` is a
+	// live setting and the cutover is a flip of it (S9), in either direction: what
+	// the old URL said is no answer about the new one.
+	const origin = mineruDisplayOrigin(config);
+	const held = cached && cached.report.baseUrl === origin ? cached : null;
 
-	if (
-		!options.refresh &&
-		cached &&
-		isFresh(cached, config.capabilitiesTtlMs, at)
-	) {
-		return { ...cached.report, cached: true };
+	if (!options.refresh && held && isFresh(held, config.capabilitiesTtlMs, at)) {
+		return { ...held.report, cached: true };
 	}
 
-	if (inFlight) return inFlight;
+	if (inFlight && inFlight.origin === origin) return inFlight.promise;
 
-	const previous = cached;
-	inFlight = probe(config, now)
+	const previous = held;
+	const promise: Promise<MineruStatusReport> = probe(config, now)
 		.then((report) => {
 			if (report.reachable) {
 				cached = { fetchedAt: now(), report };
@@ -525,14 +554,15 @@ export async function getMineruStatusReport(
 			) {
 				return { ...previous.report, cached: true };
 			}
-			cached = null;
+			if (cached && cached.report.baseUrl === origin) cached = null;
 			return report;
 		})
 		.finally(() => {
-			inFlight = null;
+			if (inFlight?.promise === promise) inFlight = null;
 		});
+	inFlight = { origin, promise };
 
-	return inFlight;
+	return promise;
 }
 
 /**
@@ -555,7 +585,6 @@ export async function getMineruCapabilities(
 	const known = new Set<string>(MINERU_TIER_IDS);
 	return {
 		version: report.version ?? "",
-		outputFormats: report.outputFormats,
 		tiers: report.tiers
 			.map((tier) => tier.id)
 			.filter((id): id is MineruTierId => known.has(id)),

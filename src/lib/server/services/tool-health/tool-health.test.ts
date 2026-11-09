@@ -103,6 +103,63 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
+describe("document_extraction health", () => {
+	// MinerU 4.0.x answers /v1/health with a healthy-looking 200 and serves a
+	// /v1/tasks of its own that refuses what this app sends (R14). A plain "is it
+	// up" probe called that healthy; the version is what tells it apart.
+	function mineruHealth(version: unknown) {
+		return makeDeps((url) =>
+			url === "http://mineru:8001/v1/health"
+				? jsonResponse({ status: "ok", version })
+				: healthyHandler(url),
+		);
+	}
+
+	it("is healthy against a 4.1 server", async () => {
+		const tools = byId(await checkToolHealth(mineruHealth("4.1.7")));
+		expect(tools.document_extraction).toMatchObject({
+			status: "healthy",
+			backend: "MinerU",
+			probed: true,
+		});
+	});
+
+	it("is degraded against a 4.0 server, with the reason", async () => {
+		const tools = byId(await checkToolHealth(mineruHealth("4.0.12")));
+		expect(tools.document_extraction.status).toBe("degraded");
+		expect(tools.document_extraction.detail).toContain("4.0.12");
+		expect(tools.document_extraction.detail).toMatch(/old protocol/i);
+	});
+
+	it("gives no verdict on a version it cannot read, or on a body without one", async () => {
+		const unreadable = byId(await checkToolHealth(mineruHealth("nightly")));
+		expect(unreadable.document_extraction.status).toBe("healthy");
+		const absent = byId(
+			await checkToolHealth(
+				makeDeps((url) =>
+					url === "http://mineru:8001/v1/health"
+						? new Response("OK", { status: 200 })
+						: healthyHandler(url),
+				),
+			),
+		);
+		expect(absent.document_extraction.status).toBe("healthy");
+	});
+
+	it("is still degraded when the server answers an error", async () => {
+		const tools = byId(
+			await checkToolHealth(
+				makeDeps((url) =>
+					url.includes("mineru:8001")
+						? jsonResponse({ detail: "Not Found" }, 404)
+						: healthyHandler(url),
+				),
+			),
+		);
+		expect(tools.document_extraction.status).toBe("degraded");
+	});
+});
+
 describe("make_image health", () => {
 	it("is healthy when /system_stats answers 200", async () => {
 		const deps = makeDeps((url) =>

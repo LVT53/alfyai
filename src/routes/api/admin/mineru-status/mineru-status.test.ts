@@ -30,19 +30,19 @@ function makeEvent(search = ""): RouteEvent {
 
 const report = {
 	checkedAt: "2026-09-20T10:00:00.000Z",
-	baseUrl: "http://127.0.0.1:8001",
+	baseUrl: "http://127.0.0.1:8004",
 	reachable: true,
-	version: "4.0.4",
+	version: "4.1.7",
 	webhook: false,
-	outputFormats: ["markdown", "middle_json", "structured_content", "zip"],
-	sources: ["file_id", "url", "inline"],
-	tiers: [{ id: "flash", description: "Fast.", currentModel: "flash" }],
-	accessLevel: "anonymous",
+	outputFormats: ["default", "docx", "html", "latex"],
+	sources: ["upload", "url"],
+	tiers: [{ id: "flash", description: "Fast.", currentModel: "mineru-4.1.7" }],
+	accessLevel: "registered",
 	limits: {
-		maxFileSizeBytes: 209715200,
-		maxPagesPerFile: 1000,
+		maxFileSizeBytes: null,
+		maxPagesPerFile: null,
 		maxFilesPerJob: 100,
-		maxConcurrentJobs: 1,
+		maxConcurrentJobs: 2,
 	},
 	error: null,
 	cached: false,
@@ -95,5 +95,30 @@ describe("admin MinerU status route", () => {
 			code: "unavailable",
 			message: "fetch failed (ECONNREFUSED)",
 		});
+	});
+
+	it("passes the old-protocol verdict through with its version, so the card can say why", async () => {
+		// A 4.0.x server answers /v1/health, but it is not a backend for the 4.1
+		// tasks protocol: the probe says so as an unreachable report that still
+		// carries the version it read.
+		mockReport.mockResolvedValue({
+			...report,
+			reachable: false,
+			version: "4.0.12",
+			outputFormats: [],
+			sources: [],
+			tiers: [],
+			error: {
+				code: "unavailable",
+				message:
+					"http://127.0.0.1:8002 runs MinerU 4.0.12, which speaks the old protocol.",
+			},
+		});
+		const response = await GET(makeEvent());
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as { report: typeof report };
+		expect(body.report.reachable).toBe(false);
+		expect(body.report.version).toBe("4.0.12");
+		expect(body.report.error?.code).toBe("unavailable");
 	});
 });

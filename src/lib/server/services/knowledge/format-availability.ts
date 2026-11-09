@@ -69,25 +69,30 @@ function parseMajorVersion(version: string): number | null {
 
 /**
  * True only for a probe outcome that POSITIVELY identifies a pre-4.x backend.
- * Everything else — including every flavour of "could not tell" — is false,
+ * Everything else, including every flavour of "could not tell", is false,
  * which is what keeps the gate open by default (OQ9).
+ *
+ * A reported version is evidence whether or not the backend counts as usable.
+ * `reachable` says whether this app can SEND DOCUMENTS to it, and a 4.0.x server
+ * (which speaks the old tasks protocol) is not reachable in that sense; it reads
+ * every format there is, so its "major 4" keeps the gate open. A 3.x version
+ * closes it.
  */
 function isPositivelyPreMineru4(report: {
 	reachable: boolean;
 	version: string | null;
 	error: { code: string; message: string } | null;
 }): boolean {
-	if (report.reachable) {
-		const major = report.version ? parseMajorVersion(report.version) : null;
-		return major !== null && major < 4;
-	}
-	// Unreachable: only `capabilities.ts`'s own "this is not a MinerU 4
-	// server" signal counts. That code is set exclusively from a failed
+	const major = report.version ? parseMajorVersion(report.version) : null;
+	if (major !== null) return major < 4;
+	if (report.reachable) return false;
+	// Unreachable and no version: only `capabilities.ts`'s own "this is not a
+	// MinerU 4 server" signal counts. That code is set exclusively from a failed
 	// `/v1/health` call (every other failure keeps `report.error` null or a
 	// different code), and `describeHealthFailure` attaches it precisely when
-	// the transport failure looks like "no /v1 namespace at all" — the shape
-	// of a MinerU 3.x response. An unconfigured server, a timeout, a DNS
-	// failure or a 5xx all map to a different code and stay "unknown".
+	// the transport failure looks like "no /v1 namespace at all", the shape of
+	// a MinerU 3.x response. An unconfigured server, a timeout, a DNS failure
+	// or a 5xx all map to a different code and stay "unknown".
 	//
 	// The code is `backend_misconfigured`. It used to be `protocol`, and a
 	// later slice split the two apart precisely so that "MINERU_API_URL does
@@ -140,7 +145,7 @@ export async function getUploadFormatGate(): Promise<UploadFormatGate> {
 	return {
 		disabledEntryIds: new Set(getMineru4GatedFileTypeIds()),
 		reason: "backend_version",
-		backendVersion: report.reachable ? report.version : null,
+		backendVersion: report.version,
 		checkedAt: report.checkedAt,
 	};
 }

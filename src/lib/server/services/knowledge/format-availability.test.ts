@@ -18,7 +18,7 @@ function fakeClient(
 ): MineruProbeClient {
 	return {
 		getHealth: vi.fn(
-			async (): Promise<MineruHealthLike> => ({ version: "4.0.4" }),
+			async (): Promise<MineruHealthLike> => ({ version: "4.1.7" }),
 		),
 		getTiers: vi.fn(async () => []),
 		getUsage: vi.fn(async () => ({})),
@@ -55,12 +55,37 @@ describe("getUploadFormatGate", () => {
 		expect(gate.backendVersion).toBeNull();
 	});
 
-	it("stays open on a reachable 4.x backend", async () => {
+	it("stays open on a reachable 4.1 backend", async () => {
+		// 4.1.x passes every "major >= 4" check: the gate is about which FORMATS a
+		// backend can read, and 4.1 reads all of them.
 		setMineruProbeClientFactory(() =>
-			fakeClient({ getHealth: vi.fn(async () => ({ version: "4.0.4" })) }),
+			fakeClient({ getHealth: vi.fn(async () => ({ version: "4.1.7" })) }),
 		);
 
 		const gate = await getUploadFormatGate();
+
+		expect(gate.reason).toBeNull();
+		expect(gate.disabledEntryIds.size).toBe(0);
+		expect(await getMineruStatusReport()).toMatchObject({
+			reachable: true,
+			version: "4.1.7",
+		});
+	});
+
+	it("stays open on a 4.0.x backend even though it is not a usable backend for the tasks protocol", async () => {
+		// The capability probe now says a 4.0.x server is not reachable FOR THIS
+		// CLIENT (it speaks the old protocol). That is a fact about the protocol,
+		// not about formats: 4.0.x reads rtf, odt, epub and the rest, so it must not
+		// close the gate and hide them from the picker.
+		setMineruProbeClientFactory(() =>
+			fakeClient({ getHealth: vi.fn(async () => ({ version: "4.0.12" })) }),
+		);
+
+		const gate = await getUploadFormatGate();
+		expect(await getMineruStatusReport()).toMatchObject({
+			reachable: false,
+			version: "4.0.12",
+		});
 
 		expect(gate.reason).toBeNull();
 		expect(gate.disabledEntryIds.size).toBe(0);
@@ -74,6 +99,7 @@ describe("getUploadFormatGate", () => {
 		const gate = await getUploadFormatGate();
 
 		expect(gate.reason).toBe("backend_version");
+		// The version is evidence whether or not the backend counts as usable.
 		expect(gate.backendVersion).toBe("3.9.0");
 		expect([...gate.disabledEntryIds].sort()).toEqual(
 			[...getMineru4GatedFileTypeIds()].sort(),
@@ -147,7 +173,7 @@ describe("getUploadFormatGate", () => {
 	});
 
 	it("shares exactly one in-flight probe across a concurrent burst", async () => {
-		const getHealth = vi.fn(async () => ({ version: "4.0.4" }));
+		const getHealth = vi.fn(async () => ({ version: "4.1.7" }));
 		setMineruProbeClientFactory(() => fakeClient({ getHealth }));
 
 		const [a, b, c] = await Promise.all([
