@@ -273,6 +273,113 @@ describe("getMineruStatusReport", () => {
 	});
 });
 
+describe("a report whose tier list could not be read", () => {
+	// S4 resolves "auto" against the tier list. A report without one that was
+	// cached would send every PDF and image with no tier (D14: whatever the
+	// server starts at) for the whole cache TTL, because one `/v1/tiers` call
+	// failed once. It is a failed refresh, not an answer to keep.
+	const tierListFails = () =>
+		vi
+			.fn()
+			.mockRejectedValueOnce(new MineruProbeError("unavailable", "boom"))
+			.mockResolvedValue(TIERS.data);
+
+	it("is told to the caller as it is, and not kept: the next read fetches again", async () => {
+		const getHealth = vi.fn(async () => HEALTH);
+		const getTiers = tierListFails();
+		setMineruProbeClientFactory(() => fakeClient({ getHealth, getTiers }));
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		const first = await getMineruStatusReport({ config: config(), now });
+		// The card still says what it knows: reachable, version, tiers unknown.
+		expect(first.reachable).toBe(true);
+		expect(first.version).toBe("4.1.7");
+		expect(first.tiers).toEqual([]);
+		expect(first.cached).toBe(false);
+
+		clock += 1000;
+		const second = await getMineruStatusReport({ config: config(), now });
+		expect(second.tiers.map((tier) => tier.id)).toEqual([
+			"flash",
+			"basic",
+			"standard",
+		]);
+		expect(second.cached).toBe(false);
+		expect(getHealth).toHaveBeenCalledTimes(2);
+		expect(getTiers).toHaveBeenCalledTimes(2);
+
+		// A complete answer is kept as before.
+		clock += 1000;
+		const third = await getMineruStatusReport({ config: config(), now });
+		expect(third.cached).toBe(true);
+		expect(getHealth).toHaveBeenCalledTimes(2);
+	});
+
+	it("reaches the hot path as no tiers once, and as the real list on the next read", async () => {
+		const getTiers = tierListFails();
+		setMineruProbeClientFactory(() => fakeClient({ getTiers }));
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		const first = await getMineruCapabilities(undefined, {
+			config: config(),
+			now,
+		});
+		expect(first.tiers).toEqual([]);
+
+		clock += 1000;
+		const second = await getMineruCapabilities(undefined, {
+			config: config(),
+			now,
+		});
+		expect(second.tiers).toEqual(["flash", "basic", "standard"]);
+	});
+
+	it("does not replace a good answer that is still fresh enough to serve", async () => {
+		const getTiers = vi
+			.fn()
+			.mockResolvedValueOnce(TIERS.data)
+			.mockRejectedValue(new MineruProbeError("unavailable", "boom"));
+		setMineruProbeClientFactory(() => fakeClient({ getTiers }));
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		await getMineruStatusReport({ config: config(), now });
+		// Past the TTL, inside twice the TTL: a refresh that loses the tier list is
+		// a failed refresh, and the earlier answer (with its tiers) is served.
+		clock += 400_000;
+		const report = await getMineruStatusReport({ config: config(), now });
+		expect(report.tiers.map((tier) => tier.id)).toEqual([
+			"flash",
+			"basic",
+			"standard",
+		]);
+		expect(report.cached).toBe(true);
+
+		// Past twice the TTL it is not served any more, and the card is told the truth.
+		clock += 400_000;
+		const honest = await getMineruStatusReport({ config: config(), now });
+		expect(honest.tiers).toEqual([]);
+		expect(honest.cached).toBe(false);
+	});
+
+	it("does not matter when only the usage call fails", async () => {
+		// Usage is decoration for the card: a report without it is complete.
+		const getHealth = vi.fn(async () => HEALTH);
+		setMineruProbeClientFactory(() =>
+			fakeClient({
+				getHealth,
+				getUsage: vi.fn(async () => {
+					throw new MineruProbeError("auth_failed", "invalid_api_key");
+				}),
+			}),
+		);
+		await getMineruStatusReport({ config: config(), now });
+		clock += 1000;
+		const again = await getMineruStatusReport({ config: config(), now });
+		expect(again.cached).toBe(true);
+		expect(getHealth).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe("the cache belongs to one endpoint", () => {
 	// `MINERU_API_URL` is a live setting and the cutover (S9) is a URL flip, in
 	// either direction. An answer read from the server that URL used to name says

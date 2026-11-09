@@ -392,10 +392,21 @@ function normalizeAccessLevel(
 	return value === "anonymous" || value === "registered" ? value : null;
 }
 
+/**
+ * One probe's answer, and whether it is a COMPLETE one worth keeping. A report
+ * that could not read the tier list is still told to the caller (the card says
+ * "reachable, 4.1.7, tiers unknown"), but it is not an answer to reuse: see
+ * `getMineruStatusReport`.
+ */
+interface ProbeOutcome {
+	report: MineruStatusReport;
+	complete: boolean;
+}
+
 async function probe(
 	config: MineruConfig,
 	now: () => number,
-): Promise<MineruStatusReport> {
+): Promise<ProbeOutcome> {
 	const origin = mineruDisplayOrigin(config);
 	const base: MineruStatusReport = {
 		checkedAt: new Date(now()).toISOString(),
@@ -414,8 +425,11 @@ async function probe(
 
 	if (!isMineruConfigured(config)) {
 		return {
-			...base,
-			error: { code: "unavailable", message: "MINERU_API_URL is empty" },
+			report: {
+				...base,
+				error: { code: "unavailable", message: "MINERU_API_URL is empty" },
+			},
+			complete: false,
 		};
 	}
 
@@ -445,9 +459,12 @@ async function probe(
 			const message = `${origin} runs MinerU ${health.version}, which speaks the old protocol. This app needs MinerU 4.1 or newer: point MINERU_API_URL at a 4.1 server.`;
 			console.warn(`${LOG_PREFIX} status probe failed:`, message);
 			return {
-				...base,
-				version: health.version,
-				error: { code: "unavailable", message },
+				report: {
+					...base,
+					version: health.version,
+					error: { code: "unavailable", message },
+				},
+				complete: false,
 			};
 		}
 
@@ -456,10 +473,12 @@ async function probe(
 		// A card that says "reachable, 4.1.7, tiers unknown" is more useful than
 		// one that says "unreachable" because /v1/usage was 401.
 		let tiers: MineruTierLike[] = [];
+		let tierListRead = true;
 		let usage: MineruUsageLike = {};
 		try {
 			tiers = await client.getTiers(controller.signal);
 		} catch (error) {
+			tierListRead = false;
 			console.warn(
 				`${LOG_PREFIX} tier list unavailable:`,
 				describeTransportError(error, controller.signal, config.apiKey).message,
@@ -473,26 +492,30 @@ async function probe(
 
 		const limits = usage.limits ?? null;
 		return {
-			...base,
-			reachable: true,
-			version: health.version,
-			webhook: typeof features?.webhook === "boolean" ? features.webhook : null,
-			outputFormats: [...(features?.task_output_formats ?? [])],
-			sources: [...(features?.sources ?? [])],
-			tiers: tiers.map((tier) => ({
-				id: tier.id,
-				description: tier.description ?? "",
-				currentModel: tier.current_model ?? null,
-			})),
-			accessLevel: normalizeAccessLevel(usage.access_level),
-			limits: limits
-				? {
-						maxFileSizeBytes: limits.max_file_size_bytes ?? null,
-						maxPagesPerFile: limits.max_pages_per_file ?? null,
-						maxFilesPerJob: limits.max_files_per_job ?? null,
-						maxConcurrentJobs: limits.max_concurrent_jobs ?? null,
-					}
-				: null,
+			report: {
+				...base,
+				reachable: true,
+				version: health.version,
+				webhook:
+					typeof features?.webhook === "boolean" ? features.webhook : null,
+				outputFormats: [...(features?.task_output_formats ?? [])],
+				sources: [...(features?.sources ?? [])],
+				tiers: tiers.map((tier) => ({
+					id: tier.id,
+					description: tier.description ?? "",
+					currentModel: tier.current_model ?? null,
+				})),
+				accessLevel: normalizeAccessLevel(usage.access_level),
+				limits: limits
+					? {
+							maxFileSizeBytes: limits.max_file_size_bytes ?? null,
+							maxPagesPerFile: limits.max_pages_per_file ?? null,
+							maxFilesPerJob: limits.max_files_per_job ?? null,
+							maxConcurrentJobs: limits.max_concurrent_jobs ?? null,
+						}
+					: null,
+			},
+			complete: tierListRead,
 		};
 	} catch (error) {
 		const described = describeTransportError(
@@ -501,7 +524,7 @@ async function probe(
 			config.apiKey,
 		);
 		console.warn(`${LOG_PREFIX} status probe failed:`, described.message);
-		return { ...base, error: described };
+		return { report: { ...base, error: described }, complete: false };
 	} finally {
 		clearTimeout(timeout);
 	}
@@ -541,8 +564,12 @@ export async function getMineruStatusReport(
 
 	const previous = held;
 	const promise: Promise<MineruStatusReport> = probe(config, now)
-		.then((report) => {
-			if (report.reachable) {
+		.then(({ report, complete }) => {
+			// Kept only when it is a whole answer. A reachable report that lost its
+			// tier list is a failed refresh like any other: S4 resolves "auto"
+			// against that list, and keeping the gap would send every PDF and image
+			// with no tier for the whole TTL because one call failed once.
+			if (report.reachable && complete) {
 				cached = { fetchedAt: now(), report };
 				return report;
 			}

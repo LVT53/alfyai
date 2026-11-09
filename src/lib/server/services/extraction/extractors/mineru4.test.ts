@@ -798,6 +798,46 @@ describe("tier resolution happens before the request is made", () => {
 		}
 	});
 
+	it("does not let one unreadable tier list decide the tier of every document that follows", async () => {
+		// `/v1/tiers` fails once. The report that could not read it was cached with
+		// no tiers, and for the whole TTL every PDF and image went out with NO tier
+		// (D14: whatever the server starts at, which on a lower ceiling is a silent
+		// downgrade). It is a failed refresh, not an answer to keep.
+		await start({
+			failures: [
+				{
+					path: "/v1/tiers",
+					method: "GET",
+					nth: 1,
+					status: 503,
+					body: {
+						error: { code: "server_shutting_down", message: "stopping" },
+					},
+				},
+			],
+		});
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		const cached = { capabilitiesTtlMs: 300_000 };
+		const tierReads = () =>
+			server.requests.filter((entry) => entry.path === "/v1/tiers");
+
+		await extractorFor(cached).extract((await buildRequest()).request);
+		// The one attempt that ran while the list was unreadable had nothing to
+		// choose from (the one exception to S4)…
+		expect("tier" in createBody(0)).toBe(false);
+		expect(tierReads()).toHaveLength(1);
+
+		// …and the next one reads the list again and names a tier.
+		await extractorFor(cached).extract((await buildRequest()).request);
+		expect(createBody(1).tier).toBe("standard");
+		expect(tierReads()).toHaveLength(2);
+
+		// A whole answer is kept, as it always was.
+		await extractorFor(cached).extract((await buildRequest()).request);
+		expect(createBody(2).tier).toBe("standard");
+		expect(tierReads()).toHaveLength(2);
+	});
+
 	it("names a tier for an image too", async () => {
 		await start({ fixtureInput: "png" });
 		const { request } = await buildRequest({
