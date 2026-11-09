@@ -1,0 +1,5 @@
+| tier | pages | median_ms | megjegyzés |
+| --- | --- | --- | --- |
+| flash | 12 | 810 | gyors |
+| basic | 12 | 1126 | ékezetes: árvíztűrő |
+| standard | 12 | 4310 | tükörfúrógép |

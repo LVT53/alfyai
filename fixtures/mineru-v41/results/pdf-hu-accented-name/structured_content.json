@@ -1,0 +1,106 @@
+{
+  "pages": [
+    {
+      "page_idx": 0,
+      "blocks": [
+        {
+          "type": "paragraph_title",
+          "bbox": [
+            0.124,
+            0.101,
+            0.681,
+            0.13
+          ],
+          "level": 2,
+          "content": "Árvíztűrő tükörfúrógép jelentés"
+        },
+        {
+          "type": "text",
+          "bbox": [
+            0.123,
+            0.15,
+            0.847,
+            0.209
+          ],
+          "content": "Az árvíztűrő tükörfúrógép egy magyar pangram: minden ékezetes magyar betűt tartalmaz, így az ő és az ű betűt is. A dokumentum feldolgozása után a szövegnek pontosan meg kell maradnia."
+        },
+        {
+          "type": "text",
+          "bbox": [
+            0.124,
+            0.223,
+            0.794,
+            0.263
+          ],
+          "content": "Készítette: Kovács Árpád és Tóth Ágnes. Dátum: 2026. november 5. Tárgy: ékezetes fájlnév és szöveg ellenőrzése."
+        },
+        {
+          "type": "text",
+          "bbox": [
+            0.153,
+            0.277,
+            0.317,
+            0.294
+          ],
+          "content": "első tétel: árvíz"
+        },
+        {
+          "type": "text",
+          "bbox": [
+            0.153,
+            0.298,
+            0.351,
+            0.314
+          ],
+          "content": "második tétel: tűrő"
+        },
+        {
+          "type": "text",
+          "bbox": [
+            0.153,
+            0.318,
+            0.393,
+            0.336
+          ],
+          "content": "harmadik tétel: fúrógép"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "file_suffix": "pdf",
+    "producer": {
+      "name": "mineru",
+      "version": "4.1.7"
+    },
+    "document": {
+      "title": "Jelentés",
+      "languages": [
+        "hu"
+      ],
+      "created_at": "2026-11-05T11:51:27+00:00",
+      "modified_at": "2026-11-05T11:51:27+00:00",
+      "creator_application": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+      "producer_application": "Skia/PDF m157",
+      "page_count": 1,
+      "page_count_kind": "physical"
+    }
+  },
+  "extensions": {
+    "mineru": {
+      "tier": "standard",
+      "parse_mode": "txt"
+    },
+    "docvortex_layout": {
+      "version": 1,
+      "pages": [
+        {
+          "page_idx": 0,
+          "width_pt": 594.9599609375,
+          "height_pt": 841.9199829101562
+        }
+      ]
+    }
+  },
+  "is_full_document": true
+}
