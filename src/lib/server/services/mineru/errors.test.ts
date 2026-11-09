@@ -29,6 +29,7 @@ import {
 	mapMineruTaskFailure,
 	mineruApiErrorFromBody,
 	mineruErrorToExtractionError,
+	mineruWaitingUpload,
 	parseMineruErrorBody,
 	pickMineruTaskFile,
 	redactMineruSecrets,
@@ -900,6 +901,62 @@ describe("mapMineruError: transport and client-side codes", () => {
 		);
 		expect(timedOut.taxonomy).toBe("timeout");
 		expect(timedOut.retryable).toBe(true);
+	});
+
+	it("reads a poll that found the file still waiting for its bytes as a retryable protocol error that spends the handle", () => {
+		const error = new MineruApiError({
+			code: MINERU_CLIENT_ERROR_CODES.fileWaitingForBytes,
+			message: "waiting",
+			details: {
+				taskId: "job_x",
+				fileId: "file-x",
+				upload: {
+					url: "http://127.0.0.1:8012/v1/tasks/job_x/uploads/file-x",
+					headers: {},
+				},
+			},
+		});
+		const mapping = mapMineruError(error);
+		expect(mapping.rule).toBe("client:file-waiting");
+		expect(mapping.known).toBe(true);
+		expect(mapping.taxonomy).toBe("protocol");
+		expect(mapping.retryable).toBe(true);
+		expect(mapping.handleUnknown).toBe(true);
+		expect(mapping.disposition).toBe("fail");
+		// Not a forgotten id: re-creating is a choice for the caller, after a PUT
+		// with the link failed.
+		expect(isMineruForgottenIdError(error)).toBe(false);
+	});
+
+	it("hands the waiting upload link back only from that error, and only when it is a link", () => {
+		const link = {
+			url: "http://127.0.0.1:8012/v1/tasks/job_x/uploads/file-x",
+			headers: { "Content-Type": "application/octet-stream" },
+			expires_at: 1793883192,
+		};
+		const waiting = (upload: unknown) =>
+			new MineruApiError({
+				code: MINERU_CLIENT_ERROR_CODES.fileWaitingForBytes,
+				message: "waiting",
+				details: { taskId: "job_x", fileId: "file-x", upload },
+			});
+		expect(mineruWaitingUpload(waiting(link))).toEqual(link);
+		expect(mineruWaitingUpload(waiting(null))).toBeNull();
+		expect(mineruWaitingUpload(waiting("not a link"))).toBeNull();
+		expect(mineruWaitingUpload(waiting({ headers: {} }))).toBeNull();
+		expect(mineruWaitingUpload(waiting({ url: "", headers: {} }))).toBeNull();
+		// Another error that happens to carry the same details is not that error.
+		expect(
+			mineruWaitingUpload(
+				new MineruApiError({
+					code: MINERU_CLIENT_ERROR_CODES.timeout,
+					message: "x",
+					details: { upload: link },
+				}),
+			),
+		).toBeNull();
+		expect(mineruWaitingUpload(new Error("x"))).toBeNull();
+		expect(mineruWaitingUpload(undefined)).toBeNull();
 	});
 
 	it.each([

@@ -60,6 +60,8 @@ import {
 	MINERU_CLIENT_ERROR_CODES,
 	MineruApiError,
 	mineruApiErrorFromBody,
+	mineruFileWaitingError,
+	pickMineruTaskFile,
 	redactMineruSecrets,
 	truncateMineruBody,
 } from "./errors";
@@ -178,6 +180,12 @@ export interface TaskInput {
 }
 
 export interface PollTaskInput extends TaskInput {
+	/**
+	 * The file this caller submitted (default: the first, the only one a one-file
+	 * task has). The poll stops with `client_file_waiting_for_bytes` if THIS file
+	 * is still `waiting-file`.
+	 */
+	fileId?: string | null;
 	/** Whole-job deadline. Defaults to `config.jobTimeoutMs`. */
 	deadlineMs?: number;
 	/** Called after every poll, terminal included. */
@@ -394,7 +402,9 @@ export class MineruClient {
 	 *
 	 * This is the client's ONLY internal loop. It does not interpret the terminal
 	 * task: `mapMineruTaskFailure` in `errors.ts` does that, because a task's
-	 * status is not its file's (a `partial` task holds a good file).
+	 * status is not its file's (a `partial` task holds a good file). It does stop
+	 * early, with `client_file_waiting_for_bytes` (see `mineruWaitingUpload`), when
+	 * the submitted file is still waiting for its bytes.
 	 */
 	async pollTask(input: PollTaskInput): Promise<MineruTaskDetail> {
 		const deadline =
@@ -408,6 +418,17 @@ export class MineruClient {
 			});
 			input.onPoll?.(task);
 			if (isTerminalMineruTaskStatus(task.status)) return task;
+
+			// In a one-file task only a PUT moves the file out of `waiting-file`, and
+			// the caller does the PUT before it polls. Finding it still waiting means
+			// the PUT never landed (a transport error or a timeout during it, a worker
+			// restart before its 200, or a 400 that left the file waiting): polling on
+			// would run to the whole-job deadline, minutes of nothing. Stop, and hand
+			// over the link the snapshot carries so the caller can PUT again.
+			const submitted = pickMineruTaskFile(task, input.fileId);
+			if (submitted?.status === "waiting-file") {
+				throw mineruFileWaitingError(input.taskId, submitted);
+			}
 
 			if (this.now() >= deadline) {
 				throw new MineruApiError({

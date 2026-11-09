@@ -43,6 +43,7 @@ import {
 	type MineruErrorDetail,
 	type MineruTaskDetail,
 	type MineruTaskFile,
+	type MineruUploadLink,
 	mineruErrorResponseSchema,
 } from "./schemas";
 
@@ -79,6 +80,13 @@ export const MINERU_CLIENT_ERROR_CODES = {
 	downloadTooLarge: "client_download_too_large",
 	/** A tier the server does not offer, caught before any bytes move. */
 	tierNotAvailable: "client_tier_not_available",
+	/**
+	 * A poll found the file we submitted still `waiting-file`. In a one-file task
+	 * only a PUT moves a file out of that state, so waiting on would run to the
+	 * whole-job deadline. The error carries the snapshot's `upload` link when it
+	 * has one: `mineruWaitingUpload`.
+	 */
+	fileWaitingForBytes: "client_file_waiting_for_bytes",
 } as const;
 
 /**
@@ -464,6 +472,24 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		taxonomy: "tier_unavailable",
 		retryable: false,
 		reason: "the desired tier is not offered; fail before any bytes move",
+	},
+	/**
+	 * The PUT never landed (a transport error or timeout during it, a worker
+	 * restart between createTask and its 200, or a 400 that left the file waiting,
+	 * D13), and the stored handle brought a later attempt back to a task that will
+	 * not move by itself. The caller's fast path is to PUT again with the link the
+	 * error carries; failing that, create again. If the error escapes, the handle
+	 * is spent so that the next attempt creates a fresh task instead of resuming
+	 * this one into the same stall.
+	 */
+	{
+		rule: "client:file-waiting",
+		code: MINERU_CLIENT_ERROR_CODES.fileWaitingForBytes,
+		taxonomy: "protocol",
+		retryable: true,
+		handleUnknown: true,
+		reason:
+			"the task is still waiting for the file's bytes: PUT them again, or create the task again",
 	},
 
 	// -- the server answered in another protocol's voice ----------------------
@@ -922,6 +948,51 @@ export function isMineruForgottenIdError(error: unknown): boolean {
 		error.wrongProtocol === null &&
 		(MINERU_FORGOTTEN_ID_CODES as readonly string[]).includes(error.code)
 	);
+}
+
+// ---------------------------------------------------------------------------
+// A task that is waiting for its bytes
+// ---------------------------------------------------------------------------
+
+/**
+ * The error a poll throws when the file it was watching is still `waiting-file`.
+ * The snapshot's `upload` link, if it had one, rides in `details` (read it back
+ * with `mineruWaitingUpload`); the details also name the task and the file.
+ */
+export function mineruFileWaitingError(
+	taskId: string,
+	file: MineruTaskFile,
+): MineruApiError {
+	return new MineruApiError({
+		code: MINERU_CLIENT_ERROR_CODES.fileWaitingForBytes,
+		message: `MinerU task ${taskId} is still waiting for the bytes of its file.`,
+		requestPath: `/v1/tasks/${encodeURIComponent(taskId)}`,
+		details: { taskId, fileId: file.file_id, upload: file.upload ?? null },
+	});
+}
+
+/**
+ * The upload link a poll found the submitted file still waiting at, or null when
+ * `error` is not that error or its snapshot carried no link (then there is
+ * nothing to PUT to: create the task again).
+ */
+export function mineruWaitingUpload(error: unknown): MineruUploadLink | null {
+	if (
+		!isMineruApiError(error) ||
+		error.code !== MINERU_CLIENT_ERROR_CODES.fileWaitingForBytes
+	) {
+		return null;
+	}
+	const upload = error.details?.upload as Partial<MineruUploadLink> | null;
+	if (
+		typeof upload?.url !== "string" ||
+		upload.url.length === 0 ||
+		typeof upload.headers !== "object" ||
+		upload.headers === null
+	) {
+		return null;
+	}
+	return upload as MineruUploadLink;
 }
 
 // ---------------------------------------------------------------------------

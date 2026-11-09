@@ -45,6 +45,7 @@ import {
 	MineruApiError,
 	mapMineruError,
 	mapMineruTaskFailure,
+	mineruWaitingUpload,
 } from "./errors";
 import type { MineruCreateTaskResponse, MineruUploadLink } from "./schemas";
 import {
@@ -709,25 +710,128 @@ describe("getTask and pollTask", () => {
 		}
 	});
 
-	it("keeps polling a task that is still waiting for bytes", async () => {
-		let polls = 0;
-		const { fetchImpl } = scriptedFetch(() => {
-			polls += 1;
-			return polls < 3
-				? replay(
-						"flows/partial-and-file-terminal/06_get_before_good_upload.json",
-					)
-				: replay("samples/docx-default/03_poll_02_completed.json");
-		});
-		const task = await new MineruClient({
-			config: testConfig(),
-			fetchImpl,
-		}).pollTask({
+	it("stops at once when the submitted file is still waiting for its bytes, and hands over the upload link", async () => {
+		// In a one-file task only a PUT moves a file out of waiting-file, so
+		// polling it can only run to the whole-job deadline (300 s by default).
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("flows/partial-and-file-terminal/06_get_before_good_upload.json"),
+		);
+		const seen: string[] = [];
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.pollTask({
+				taskId: "job_x",
+				signal: never,
+				onPoll: (snapshot) => seen.push(snapshot.status),
+			})
+			.catch((caught) => caught as MineruApiError);
+
+		// One request. The caller still saw the snapshot.
+		expect(calls).toHaveLength(1);
+		expect(seen).toEqual(["waiting-file"]);
+		expect(error).toBeInstanceOf(MineruApiError);
+		expect((error as MineruApiError).code).toBe(
+			"client_file_waiting_for_bytes",
+		);
+		// The snapshot of a waiting file carries its upload link (captured), and
+		// the error carries it on: PUT again with it.
+		const snapshot = body(
+			"flows/partial-and-file-terminal/06_get_before_good_upload.json",
+		) as { files: Array<{ file_id: string; upload: MineruUploadLink }> };
+		expect(mineruWaitingUpload(error)).toEqual(snapshot.files[0]?.upload);
+		expect((error as MineruApiError).details).toMatchObject({
 			taskId: "job_x",
+			fileId: snapshot.files[0]?.file_id,
+		});
+
+		const mapping = mapMineruError(error);
+		expect(mapping.rule).toBe("client:file-waiting");
+		expect(mapping.known).toBe(true);
+		expect(mapping.taxonomy).toBe("protocol");
+		expect(mapping.retryable).toBe(true);
+		// Unhandled, the next attempt must not resume this task: it never will move.
+		expect(mapping.handleUnknown).toBe(true);
+		expect(isMineruForgottenIdError(error)).toBe(false);
+	});
+
+	it("watches the file it is told to: another file waiting in the same task does not stop it", async () => {
+		// 03_poll_after_bad: file 0 waits for bytes (with its link), file 1 runs.
+		const snapshot = body(
+			"flows/partial-and-file-terminal/03_poll_after_bad.json",
+		) as { files: Array<{ file_id: string; status: string }> };
+		const [waiting, running] = snapshot.files;
+		expect([waiting?.status, running?.status]).toEqual([
+			"waiting-file",
+			"running",
+		]);
+
+		const sequence = [
+			"flows/partial-and-file-terminal/03_poll_after_bad.json",
+			"samples/docx-default/03_poll_02_completed.json",
+		];
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay(sequence[calls.length - 1] as string),
+		);
+		const client = new MineruClient({ config: testConfig(), fetchImpl });
+		const task = await client.pollTask({
+			taskId: "job_x",
+			fileId: running?.file_id,
 			signal: never,
 		});
 		expect(task.status).toBe("completed");
-		expect(polls).toBe(3);
+		expect(calls).toHaveLength(2);
+
+		// Told to watch the waiting one, it stops on the first look.
+		const again = scriptedFetch(() =>
+			replay("flows/partial-and-file-terminal/03_poll_after_bad.json"),
+		);
+		const error = await new MineruClient({
+			config: testConfig(),
+			fetchImpl: again.fetchImpl,
+		})
+			.pollTask({ taskId: "job_x", fileId: waiting?.file_id, signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe(
+			"client_file_waiting_for_bytes",
+		);
+		expect(again.calls).toHaveLength(1);
+	});
+
+	it("a waiting file whose snapshot carries no link is reported without one: create the task again", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			jsonResponse({
+				task_id: "job_x",
+				status: "waiting-file",
+				files: [
+					{ file_id: "file-x", file_name: "x.pdf", status: "waiting-file" },
+				],
+			}),
+		);
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.pollTask({ taskId: "job_x", signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe(
+			"client_file_waiting_for_bytes",
+		);
+		expect(mineruWaitingUpload(error)).toBeNull();
+	});
+
+	it("does not stop at a waiting file inside a task that has already ended", async () => {
+		// A canceled task is terminal whatever its files say; that is for
+		// mapMineruTaskFailure to read, not for the poll to throw.
+		const { fetchImpl } = scriptedFetch(() =>
+			jsonResponse({
+				task_id: "job_x",
+				status: "canceled",
+				files: [
+					{ file_id: "file-x", file_name: "x.pdf", status: "waiting-file" },
+				],
+			}),
+		);
+		const task = await new MineruClient({
+			config: testConfig(),
+			fetchImpl,
+		}).pollTask({ taskId: "job_x", signal: never });
+		expect(task.status).toBe("canceled");
 	});
 
 	it("gives up at the whole-job deadline with a retryable timeout", async () => {
@@ -1552,6 +1656,93 @@ describe("against the fake 4.1 server", () => {
 		expect((poll as MineruApiError).code).toBe("task_not_found");
 		expect(isMineruForgottenIdError(poll)).toBe(true);
 		expect(fake.tasks.size).toBe(0);
+	});
+
+	it("a resumed attempt finds a task whose PUT never landed, stops, and finishes by PUTting again with the link it was handed", async () => {
+		// The worker died between createTask and the PUT's 200 (or the PUT timed
+		// out): the handle is stored, the file is waiting-file, and a poll would
+		// wait out the whole-job deadline. This is what Task B does with the error.
+		const { client } = await start({ inProgressPolls: 1 });
+		const file = sampleFile();
+		const receipt = await client.createTask({
+			fileName: "document.csv",
+			bytes: file.bytes,
+			sha256sum: await client.sha256(file.path),
+			signal: never,
+		});
+		const waiting = await client
+			.pollTask({ taskId: receipt.task_id, signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((waiting as MineruApiError).code).toBe(
+			"client_file_waiting_for_bytes",
+		);
+		const link = mineruWaitingUpload(waiting);
+		expect(link).toEqual(uploadOf(receipt));
+
+		await client.putTaskFile({
+			upload: link as MineruUploadLink,
+			filePathAbsolute: file.path,
+			signal: never,
+		});
+		const task = await client.pollTask({
+			taskId: receipt.task_id,
+			signal: never,
+		});
+		expect(task.status).toBe("completed");
+		expect(mapMineruTaskFailure(task)).toBeNull();
+	});
+
+	it("a PUT the server refused leaves the file waiting; the same link cannot fix a file that no longer matches", async () => {
+		// D13: a 400 upload_size_mismatch leaves the file waiting with its link.
+		// Poll it and it is reported as waiting, with that link; PUT the same
+		// bytes to it again and it is refused again, so the way out is a NEW task
+		// declared from a fresh stat and hash.
+		const { client } = await start();
+		const file = sampleFile("a,b\n1,2\n3,4\n");
+		const sha256 = await client.sha256(file.path);
+		const receipt = await client.createTask({
+			fileName: "document.csv",
+			bytes: file.bytes + 1,
+			sha256sum: sha256,
+			signal: never,
+		});
+		const first = await client
+			.putTaskFile({
+				upload: uploadOf(receipt),
+				filePathAbsolute: file.path,
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect((first as MineruApiError).code).toBe("upload_size_mismatch");
+
+		const waiting = await client
+			.pollTask({ taskId: receipt.task_id, signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((waiting as MineruApiError).code).toBe(
+			"client_file_waiting_for_bytes",
+		);
+		const link = mineruWaitingUpload(waiting) as MineruUploadLink;
+		const again = await client
+			.putTaskFile({ upload: link, filePathAbsolute: file.path, signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((again as MineruApiError).code).toBe("upload_size_mismatch");
+
+		const fresh = await client.createTask({
+			fileName: "document.csv",
+			bytes: file.bytes,
+			sha256sum: sha256,
+			signal: never,
+		});
+		await client.putTaskFile({
+			upload: uploadOf(fresh),
+			filePathAbsolute: file.path,
+			signal: never,
+		});
+		const task = await client.pollTask({
+			taskId: fresh.task_id,
+			signal: never,
+		});
+		expect(task.status).toBe("completed");
 	});
 
 	it("cancels a task that is running, files and all, and swallows a second cancel", async () => {
