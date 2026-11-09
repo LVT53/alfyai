@@ -97,10 +97,13 @@ export function readMineruProtocolFixture<T = unknown>(
  * this module names FIXTURES, not user files. A wrong name fails loudly on the
  * first download.
  *
- * Looked up in `fixtures/mineru-v41/protocol/zips/<name>.zip` (three 4.1
- * results: the PDF, the Word document and the CSV), then in
- * `fixtures/mineru-v1/<name>/` (the 4.0.4 results for the other inputs, which the
- * result parser reads the same).
+ * The names the older tests use (the nine recorded inputs and the flash PDF)
+ * are the 4.0.4 results in `fixtures/mineru-v1/<name>/result.zip`, which the
+ * result parser reads the same: the default is the three-page PDF with its
+ * running heads, which the extractor and backfill tests assert on. The three
+ * 4.1 captures sit under names of their own, so they cannot be mistaken for
+ * those documents: `v41-pdf` (one page), `v41-docx` and `v41-csv`, from
+ * `fixtures/mineru-v41/protocol/zips/<name>.zip`.
  */
 export type FakeMineruFixtureInput = string;
 

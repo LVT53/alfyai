@@ -187,7 +187,7 @@ describe("putTaskFile streams", () => {
 });
 
 describe("the default node file reader", () => {
-	const real = join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "docx.zip");
+	const real = join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "v41-docx.zip");
 
 	it("stats, streams and digests a real file without buffering it", async () => {
 		const reader = createNodeMineruFileReader();

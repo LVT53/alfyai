@@ -811,7 +811,7 @@ describe("cancelTask", () => {
 
 describe("downloadFile", () => {
 	const zip = () =>
-		readFileSync(join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "docx.zip"));
+		readFileSync(join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "v41-docx.zip"));
 	const RESULT_URL = `${RECORDED_ORIGIN}/v1/files/file-57ecb6bbc422eb333d3d3fc5/content`;
 
 	function zipResponse(extra: Record<string, string> = {}): Response {
@@ -1201,7 +1201,10 @@ describe("against the fake 4.1 server", () => {
 		options: FakeMineruServerOptions = {},
 		configPatch: Partial<MineruConfig> = {},
 	): Promise<{ server: FakeMineruServer; client: MineruClient }> {
-		server = await createFakeMineruServer({ fixtureInput: "csv", ...options });
+		server = await createFakeMineruServer({
+			fixtureInput: "v41-csv",
+			...options,
+		});
 		return {
 			server,
 			client: new MineruClient({
@@ -1261,7 +1264,7 @@ describe("against the fake 4.1 server", () => {
 			signal: never,
 		});
 		const expected = readFileSync(
-			join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "csv.zip"),
+			join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "v41-csv.zip"),
 		);
 		expect(bytes).toBe(expected.byteLength);
 		expect(readFileSync(destination).equals(expected)).toBe(true);

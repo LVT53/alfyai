@@ -17,11 +17,13 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import JSZip from "jszip";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	createFakeMineruServer,
 	type FakeMineruServer,
 	type FakeMineruServerOptions,
+	MINERU_FIXTURE_ROOT,
 	MINERU_PROTOCOL_FIXTURE_ROOT,
 	readMineruProtocolFixture,
 } from "./fake-server";
@@ -579,7 +581,7 @@ describe("uploading, polling and the result", () => {
 	});
 
 	it("serves the result as a ZIP with the recorded download headers", async () => {
-		await start({ fixtureInput: "docx" });
+		await start({ fixtureInput: "v41-docx" });
 		const { taskId } = await submit("document.docx", CSV);
 		const done = await getTask(taskId);
 		const url = (done.json.files?.[0] as { result_url: string }).result_url;
@@ -605,9 +607,57 @@ describe("uploading, polling and the result", () => {
 			download.bytes.byteLength,
 		);
 		const zip = readFileSync(
-			join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "docx.zip"),
+			join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "v41-docx.zip"),
 		);
 		expect(download.bytes.equals(zip)).toBe(true);
+	});
+
+	it("keeps the existing input names on the 4.0.4 results, and serves the three 4.1 captures as v41-*", async () => {
+		const results: Array<[string | undefined, string]> = [
+			// The names the older tests use: the 4.0.4 corpus, which the result parser
+			// reads the same. The default is the three-page PDF.
+			[undefined, join(MINERU_FIXTURE_ROOT, "pdf", "result.zip")],
+			["pdf", join(MINERU_FIXTURE_ROOT, "pdf", "result.zip")],
+			["docx", join(MINERU_FIXTURE_ROOT, "docx", "result.zip")],
+			["csv", join(MINERU_FIXTURE_ROOT, "csv", "result.zip")],
+			// The 4.1 captures, under names of their own.
+			["v41-pdf", join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "v41-pdf.zip")],
+			["v41-docx", join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "v41-docx.zip")],
+			["v41-csv", join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "v41-csv.zip")],
+		];
+		for (const [input, path] of results) {
+			await start(input === undefined ? {} : { fixtureInput: input });
+			const { taskId } = await submit("document.pdf", PDF);
+			const done = await getTask(taskId);
+			const download = await call(
+				(done.json.files?.[0] as { result_url: string }).result_url,
+			);
+			expect(download.bytes.equals(readFileSync(path)), String(input)).toBe(
+				true,
+			);
+			await server?.close();
+			server = null;
+		}
+	});
+
+	it("serves, by default, the document the older tests assert on: three pages, with the running heads in it", async () => {
+		// scripts/backfill-extractions.test.ts and the extractor test expect
+		// pageCount 3 and that the running heads ("INDIA Confidential", "JULIET
+		// Document Footer") are stripped. Against a document without them those
+		// not.toContain checks would pass vacuously.
+		await start();
+		const { taskId } = await submit("document.pdf", PDF);
+		const done = await getTask(taskId);
+		const download = await call(
+			(done.json.files?.[0] as { result_url: string }).result_url,
+		);
+		const zip = await JSZip.loadAsync(download.bytes);
+		const structured = await zip
+			.file("structured_content.json")
+			?.async("string");
+		expect(structured).toContain("INDIA Confidential");
+		expect(structured).toContain("JULIET Document Footer");
+		expect(JSON.parse(structured ?? "{}").pages).toHaveLength(3);
 	});
 
 	it("names a non-ASCII result with filename*=, as the recorded server did", async () => {

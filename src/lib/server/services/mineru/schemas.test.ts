@@ -133,9 +133,9 @@ describe("mineru schemas: every recorded body parses with the schema for its fam
 	it("finds the curated tree", () => {
 		expect(JSON_FILES.length).toBeGreaterThan(60);
 		expect(ZIP_FILES).toEqual([
-			"zips/csv.zip",
-			"zips/docx.zip",
-			"zips/pdf.zip",
+			"zips/v41-csv.zip",
+			"zips/v41-docx.zip",
+			"zips/v41-pdf.zip",
 		]);
 	});
 
