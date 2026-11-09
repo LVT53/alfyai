@@ -70,6 +70,7 @@ client, `knowledge/format-availability.ts`, the re-extract route, `scripts/backf
 | R17 | D's minors from its review (the clean-up step, operator facts repeated in two documents, tense before the cutover, the backfill wording, a spelling, the restart claim, a size-limit remnant, the deadline caveat and the 30-minute window, this log's housekeeping, CHANGELOG style, tests for the live sweep's new logic) enter D's fix round 1, with the two Important findings (the service inventory, the key-on-argv warning). | Docs-only and cheap, and an operator follows these steps. Cost if wrong: a longer docs round. |
 | R18 | The independent review-and-fix pass runs as two disjoint slices on the integrated head `229bd08c1` (A, B and C together; D's docs were already reviewed). Slice 1 is the extraction path (the A and B seams, the job engine, cutover and rollback, concurrency, the key, D12, ADR-0069, leftovers, tests, and a triage of A's and B's deferred items): a review, then one fix wave with the full list, then a scoped re-review. Slice 2 is the renderer (C), reviewed and fixed in a branch of its own with failing tests first, which also triages C's six parked minors. | The per-task reviews could not see the seams; slicing keeps each read focused. Cost if wrong: one more fix round. |
 | R19 | The fix wave of slice 1 is: M2 (replace the lengthened test timeouts of `276061b83` with a sleep seam), M3 (the racy fake-server timer test), M4 (JSON calls follow cross-origin redirects, with the manifest re-sent and the key stripped by undici; pre-existing), M5 (a stale-tier 400 keeps the capability cache), M8 (no engine test against a 4.0.12 health answer), an explicit tier against an unreadable tier list becoming a retryable `unavailable`, and moving the boot of `integration.test.ts:264` into `beforeAll` if that is clean. M1 (the rollback order stated as mandatory) goes to the docs branch. M6, M7 and M9, the `max_attempts` wording and the file sizes are recorded for the owner and not fixed. | Cheap, in the path, and they remove a forbidden timeout, a flaky test and two avoidable failure windows. Cost if wrong: one fix wave. |
+| R20 | One combined scoped re-review (Opus, since slice 1's fix wave touches A's and B's code) over the three fix waves (slice 1's, slice 2's and D's fix round 2), once all were in, then the release merge and the release gate. | The waves were built apart, each against its own brief; the merge and the seams between them (the docs against the code, for one) needed a single read before the gate. |
 
 ## Where each task ended
 
@@ -81,7 +82,7 @@ client, `knowledge/format-availability.ts`, the re-extract route, `scripts/backf
 | B: the flow | `mineru41/b-flow` | `01b7f6e93` (9 commits), then `229bd08c1` after fix round 1 (8 commits `01b7f6e93..229bd08c1`) | Opus: spec no on one item, 0 Critical, 1 Important (I1, TIFF sent as `document.tif`), 8 Minor. Re-review of the round: all addressed, no new Critical or Important. | Complete. Gate green on the first run at `01b7f6e93` (check 0/0, vitest 23,988, build clean, Fallow 0 new, Playwright 97), and at `229bd08c1` on its third run (vitest 24,021, Playwright 97, Fallow 0 new; the first run stopped at machine load 20 to 44 with 19 timeouts, the second found a latent race in a restart test). The round: I1 (TIFF through `intake.remoteExtension`), M6, M1, M2, M4, M5, `276061b83` (two engine tests that wait on real polls, given longer timeouts: see "From the independent pass" below) and `229bd08c1` (a latent race in a restart test). |
 | D: the box | (on the box) | - | - | `mineru41.service` on `127.0.0.1:8004`, enabled, health 200, 4.1.7, one synthetic parse through it. No app points at it yet. |
 | D: the docs | `mineru41/d-docs` | `45d6f081a` (10 commits), then `581e09491` after fix round 1 (5 commits) | Sonnet: Needs fixes: 0 Critical, 2 Important (the service inventory: `mineru-openai-server` is a Docker container, not a unit, and `mineru4-dev.service` was missing; the key-on-argv warning named only `mineru41`), about 10 Minor. Its code claims, B's four fix-round statements included, were verified at `229bd08c1`. Re-review of fix round 1: all addressed, no new Critical or Important. | The plan folder, the 4.1 docs, the live sweep, the picture-server health probe; fix round 1 (R17); fix round 2: the rollback order stated as mandatory (the independent review's M1), no globs in the clean-up, the 30-minute bound on the cutover wait, the sweep's entry guard compared by real paths, and this log. |
-| Independent pass | slice 1 `mineru41/ir-flow` and slice 2 `mineru41/ir-render`, both from `229bd08c1` | - | Slice 1 (the extraction path), Opus: 0 Critical, 0 Important, the path is ready. Rollback works only in the documented order: URL back to `:8002` first, then the previous release; the reverse fails every document in that window for good, because the old client reads 4.1.7's FastAPI 404 `{detail}` on `/v1/uploads` as `fallback:4xx`, not retryable. Minors M1 to M9, dispositions under R19. | The fix wave of slice 1 (R19) and slice 2 (the renderer) were under way when this was written. |
+| Independent pass | slice 1 `mineru41/ir-flow` and slice 2 `mineru41/ir-render`, both from `229bd08c1` | `71a4e228e` (`ir-flow`, 6 commits) and `2b4f20e8c` (`ir-render`, 7 commits) | Slice 1 (the extraction path), Opus: 0 Critical, 0 Important, the path is ready. Rollback works only in the documented order: URL back to `:8002` first, then the previous release; the reverse fails every document in that window for good, because the old client reads 4.1.7's FastAPI 404 `{detail}` on `/v1/uploads` as `fallback:4xx`, not retryable. Minors M1 to M9, dispositions under R19. Slice 2 (the renderer), Sonnet, reviewed and fixed in one pass: 0 Critical, 1 Important (fixed), 5 Minor or informational left on purpose, each with its reason. Combined re-review of the three fix waves and the merged release (R20), Opus: ready for the release gate after docs-only corrections, made in the docs commit on top of the release candidate. | IR1 (`229bd08c1..71a4e228e`): six of R19's seven items fixed (M2, M3, M4, M5, M8, the explicit tier against an unreadable tier list), the seventh (the boot move) left with a measurement (see Open items); gate green (vitest 24,051, Playwright 97, Fallow 0 new). IR2 (`229bd08c1..2b4f20e8c`): one Important fixed, test first (the prompt text kept only a figure's first caption and dropped the later ones); of C's six minors, the weak chunk-plan test (#3), the vacuous outline test (#4), the triplicated 4.1 loader (#5) and the "added" comment (#6) fixed, the unobserved shapes (#1) commented, `equation_interline` (#2) left; gate green (vitest 24,072, Playwright 295, Fallow 0 new). The combined re-review: all addressed. Release candidate `37ffd3694` (`90fd9006d` joins the two code branches, `37ffd3694` adds D's fix round 2), plus this docs commit. |
 
 Nothing in the client has met a real 4.1.7: the fakes are held to the captures. Two direct calls have met the real
 server: the box smoke parse (its `upload.url` and `result_url` come back on `http://127.0.0.1:8004`, the origin the
@@ -98,24 +99,34 @@ client is given, S7) and the TIFF probe under S3. Everything else is for the ai.
   re-reads only documents recorded below it, or with none), so it will not touch documents read by the 4.0 client
   (`mineru4/1`) at the requested tier; `POST .../reextract` with `{"tier": ..., "force": true}` does, one at a time.
   Whether to do it for the library is the owner's call after the cutover.
-- Deferred minors: C's unobserved shapes in `result.ts` (comment or drop), `equation_interline` is now a known type so its
-  "first sighting" signal is retired, `chunk-plan.test.ts` and `outline.test.ts` assert less than their 4.0 siblings,
-  the 4.1 fixture loader exists three times, a comment in `result.ts` says 4.1 "added" three types that 4.0.12 also emits.
-  A's: the PUT-400 rules could mark the handle unknown, the fake needs one counted GET before an outcome, a fake-server
-  timer test can race under load, three large test files. B's: English-only operator diagnostics, `mineru4.ts` grew from 766
-  to 977 lines, no report is cached while `/v1/tiers` stays unreadable so every capability read probes again (bounded by the
-  request timeout), and a document too slow for the deadline ends as `max_attempts` in the UI's label with the timeout's
-  sentence stored.
+- Deferred minors. Resolved by the independent pass: C's unobserved shapes in `result.ts` (kept, each now commented
+  "Unobserved"), the weak 4.1 tests in `chunk-plan.test.ts` and `outline.test.ts`, the 4.1 fixture loader that existed three
+  times (one helper now, `result-corpus.test-helpers.ts`; the three 4.0 loaders remain) and the comment in `result.ts` that
+  said 4.1 "added" three types 4.0.12 also emits (all IR2); A's racy fake-server timer test (IR1, `8bc433b3d`, on a fake
+  clock). Still open: C's `equation_interline` is now a known type, so its "first sighting" signal is retired (left by S10,
+  which keeps it as an alias). A's: the PUT-400 rules could mark the handle unknown, the fake needs one counted GET before an
+  outcome, three large test files. B's: English-only operator diagnostics, `mineru4.ts` grew from 766 to 1,064 lines, no
+  report is cached while `/v1/tiers` stays unreadable so every capability read probes again (bounded by the request
+  timeout), and a document too slow for the deadline ends as `max_attempts` in the UI's label with the timeout's sentence
+  stored.
 - **From the independent pass.** B's `276061b83` lengthened three test timeouts in `integration.test.ts`, which the repo
-  forbids; the fix wave (R19, M2) replaces them with a sleep seam. The "parses to non-empty text through the real engine"
-  test took 11 to 12 s at load 20 to 44 against the 5 s default; the triage found CPU starvation and not polls, and R19
-  moves its boot into `beforeAll` if that is clean. Recorded for the owner and not fixed: errors on the app's own disk
-  (`ENOSPC`, `EACCES`, an unsafe path, `ENOENT`) read as an outage (pre-existing); an outage of the VLM server can arrive as
-  an unmatched `parse_failed` that spends attempts (no capture); a cosmetic `resumed: true`; the `max_attempts` wording;
-  the file sizes.
-- **A check at the flip.** An explicit tier (`MINERU_DEFAULT_TIER` other than `auto`, or a re-extract hint) against an
-  unreadable tier list throws `tier_unavailable` and is never auto-retried (`tier-policy.ts`). R19 turns that into a
-  retryable `unavailable`; until that fix is merged, each app's `MINERU_DEFAULT_TIER` is read when its URL is flipped.
+  forbids; the fix wave (R19, M2; `477f8d45c`) replaced them with a sleep seam, so the two deadline tests end through the
+  client's own sleep and wait for nothing, and no timeout is lengthened any more. The "parses to non-empty text through the
+  real engine" test took 11 to 12 s at load 20 to 44 against the 5 s default; the triage found CPU starvation and not polls.
+  R19's boot move was measured and left as it was: the engine boot is about 8 ms of about 90 ms per case, and what every
+  test in the file pays is the migration of a new ledger database (`createLedgerFixture`, in
+  `extraction/testing/ledger-fixtures.ts`), which a `beforeAll` for the boot would not remove. The 11 to 12 s was that same
+  CPU-bound work (cold imports, migrations) under starvation. No timeout was touched. A template-database fixture (migrate
+  once per process, copy the file per test) is the follow-up: it would speed up every test that uses the ledger fixture and
+  wants a review of its own. Recorded for the owner and not fixed: errors on the app's own disk (`ENOSPC`, `EACCES`, an
+  unsafe path, `ENOENT`) read as an outage (pre-existing); an outage of the VLM server can arrive as an unmatched
+  `parse_failed` that spends attempts (no capture); a cosmetic `resumed: true`; the `max_attempts` wording; the file sizes.
+- **A check at the flip (no longer needed).** An explicit tier (`MINERU_DEFAULT_TIER` other than `auto`, or a re-extract
+  hint) against an unreadable tier list used to throw `tier_unavailable` and was never auto-retried (`tier-policy.ts`). R19's
+  fix (`df3af119b`) is in the release: that case is now a retryable `unavailable` (an outage wait, no attempt spent), so no
+  check of each app's `MINERU_DEFAULT_TIER` is needed when its URL is flipped. The re-extract route is a separate,
+  pre-existing gap: when `/v1/tiers` cannot be read it answers 400 `tier_unavailable` before the job is requeued, so
+  nothing is lost, and a 503 `unavailable` would match the rest of the route.
 - The live sweep's TIFF inputs (`fixtures/inputs/scan-sample.tif` and `.tiff`) are the v1 PNG sample converted with
   `sips -s format tiff`, then `tiffutil -lzw` for the `.tif` (sha256 `73c8b4ea…`) and `-packbits` for the `.tiff`
   (`6828d555…`), so the two uploads differ in bytes; their expectations are the PNG's and unproven until the live run.
