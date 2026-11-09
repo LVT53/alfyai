@@ -929,7 +929,11 @@ export function isMineruForgottenIdError(error: unknown): boolean {
 // ---------------------------------------------------------------------------
 
 export interface MineruTaskFailureOptions {
-	/** True when WE issued the cancel; a cancel we asked for is not a failure. */
+	/**
+	 * True when WE issued the cancel. It only changes the verdict for a canceled
+	 * file: `task:canceled-by-us` (taxonomy `canceled`, not retryable) instead of
+	 * `task:canceled-by-someone-else`. It never turns a verdict into `null`.
+	 */
 	canceledByUs?: boolean;
 	/**
 	 * The file this caller submitted. Defaults to the first one, which is the
@@ -974,12 +978,13 @@ function taskVerdict(
 	rule: string,
 	taxonomy: ExtractionErrorCode,
 	reason: string,
+	retryable = true,
 ): MineruErrorMapping {
 	return spent({
 		rule,
 		known: true,
 		taxonomy,
-		retryable: true,
+		retryable,
 		handleUnknown: false,
 		disposition: "fail",
 		retryAfterMs: null,
@@ -993,9 +998,12 @@ function taskVerdict(
  * A 202 at create proves nothing and neither does a task `status`: the file is
  * what counts. A `partial` task holds a completed file beside a failed one, a
  * task cancelled mid-way keeps the results that were already done (spike D24),
- * and a `failed` task has no top-level error, only `files[].error` (D6). Returns
- * `null` when the file is genuinely usable, that is `completed` and carrying a
- * `result_url`.
+ * and a `failed` task has no top-level error, only `files[].error` (D6).
+ *
+ * Returns `null` EXACTLY when the file is usable: `completed` and carrying a
+ * `result_url`, so a caller may download `pickMineruTaskFile(task, fileId).result_url`
+ * whenever this is `null`. Every other outcome, our own cancel included, is a
+ * mapping.
  *
  * Every non-null return carries `handleUnknown: true`; see `spent` above.
  */
@@ -1046,7 +1054,17 @@ export function mapMineruTaskFailure(
 	}
 
 	if (file.status === "canceled" || task.status === "canceled") {
-		if (options.canceledByUs) return null;
+		// Our own cancel is an answer too, and not a result: `null` means there is
+		// a `result_url` to download, and a caller that trusted it here would
+		// download `undefined`.
+		if (options.canceledByUs) {
+			return taskVerdict(
+				"task:canceled-by-us",
+				"canceled",
+				"we canceled the task",
+				false,
+			);
+		}
 		return taskVerdict(
 			"task:canceled-by-someone-else",
 			"job_failed",

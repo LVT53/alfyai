@@ -1568,8 +1568,11 @@ describe("against the fake 4.1 server", () => {
 
 		const after = await client.pollTask({ taskId, signal: never });
 		expect(after.status).toBe("canceled");
-		// A cancel WE asked for is not a failure; someone else's is.
-		expect(mapMineruTaskFailure(after, { canceledByUs: true })).toBeNull();
+		// A cancel WE asked for has a verdict of its own (null is a result to
+		// download); someone else's is a failure.
+		expect(mapMineruTaskFailure(after, { canceledByUs: true })?.rule).toBe(
+			"task:canceled-by-us",
+		);
 		expect(mapMineruTaskFailure(after)?.rule).toBe(
 			"task:canceled-by-someone-else",
 		);

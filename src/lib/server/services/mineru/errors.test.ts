@@ -57,9 +57,13 @@ function walk(dir: string): string[] {
 	return out;
 }
 
-const ERROR_FIXTURES = walk(MINERU_PROTOCOL_FIXTURE_ROOT)
-	.map((path) => relative(MINERU_PROTOCOL_FIXTURE_ROOT, path))
-	.filter((name) => name.endsWith(".json"))
+const ERROR_FIXTURE_TREE = walk(MINERU_PROTOCOL_FIXTURE_ROOT).map((path) =>
+	relative(MINERU_PROTOCOL_FIXTURE_ROOT, path),
+);
+
+const ERROR_FIXTURES = ERROR_FIXTURE_TREE.filter((name) =>
+	name.endsWith(".json"),
+)
 	.filter(
 		(name) =>
 			(readMineruProtocolFixture<Recorded>(name).response?.status ?? 0) >= 400,
@@ -745,16 +749,63 @@ describe("mapMineruTaskFailure: reading a settled task", () => {
 		expect(stopped?.rule).toBe("task:canceled-by-someone-else");
 	});
 
-	it("is not a failure when we are the ones who canceled", () => {
+	it("gives a cancel WE asked for a verdict of its own, never null: null is a result to download", () => {
 		const canceled = task("flows/cancel-running/11_get_after_cancel.json");
 		expect(canceled.status).toBe("canceled");
-		expect(mapMineruTaskFailure(canceled, { canceledByUs: true })).toBeNull();
+		const ours = mapMineruTaskFailure(canceled, { canceledByUs: true });
+		// A caller that trusts "null means usable" must not go and download
+		// `undefined` (`/undefined` is a FastAPI 404, which reads as another protocol).
+		expect(ours).not.toBeNull();
+		expect(ours?.rule).toBe("task:canceled-by-us");
+		expect(ours?.known).toBe(true);
+		expect(ours?.taxonomy).toBe("canceled");
+		expect(ours?.retryable).toBe(false);
+		// The remote task is spent: a Retry makes a new one.
+		expect(ours?.handleUnknown).toBe(true);
 
 		const elsewhere = mapMineruTaskFailure(canceled);
 		expect(elsewhere?.rule).toBe("task:canceled-by-someone-else");
 		expect(elsewhere?.taxonomy).toBe("job_failed");
 		expect(elsewhere?.retryable).toBe(true);
 		expect(elsewhere?.handleUnknown).toBe(true);
+	});
+
+	it("returns null for exactly the files that are usable: completed, with a result_url, whoever canceled", () => {
+		// Every task snapshot we hold, every file in it, with and without our own
+		// cancel: null <=> the file can be downloaded. Nothing else is null.
+		let usable = 0;
+		let unusable = 0;
+		for (const name of ERROR_FIXTURE_TREE.filter((n) => n.endsWith(".json"))) {
+			const recorded = readMineruProtocolFixture<Recorded>(name);
+			const body = recorded.snapshot ?? recorded.response?.json;
+			const parsed = mineruTaskDetailSchema.safeParse(body);
+			if (!parsed.success) continue;
+			for (const file of parsed.data.files) {
+				for (const canceledByUs of [false, true]) {
+					const mapping = mapMineruTaskFailure(parsed.data, {
+						fileId: file.file_id,
+						canceledByUs,
+					});
+					const downloadable =
+						file.status === "completed" && Boolean(file.result_url);
+					expect(
+						mapping === null,
+						`${name} ${file.file_id} ${file.status} canceledByUs=${canceledByUs}`,
+					).toBe(downloadable);
+					if (downloadable) {
+						usable += 1;
+						expect(
+							pickMineruTaskFile(parsed.data, file.file_id)?.result_url,
+						).toBeTruthy();
+					} else {
+						unusable += 1;
+					}
+				}
+			}
+		}
+		// The sweep really covered both kinds.
+		expect(usable).toBeGreaterThan(5);
+		expect(unusable).toBeGreaterThan(20);
 	});
 
 	it("fails a completed file that has no result_url", () => {
@@ -803,6 +854,10 @@ describe("mapMineruTaskFailure: reading a settled task", () => {
 			),
 			mapMineruTaskFailure(
 				task("flows/cancel-running/11_get_after_cancel.json"),
+			),
+			mapMineruTaskFailure(
+				task("flows/cancel-running/11_get_after_cancel.json"),
+				{ canceledByUs: true },
 			),
 			mapMineruTaskFailure(
 				failedFile({ code: "brand_new_code", message: "?" }),
