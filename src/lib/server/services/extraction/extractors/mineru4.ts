@@ -616,6 +616,18 @@ export function createMineru4Extractor(
 				// remembers: after a refused upload, a fresh stat and a fresh digest.
 				if (rehash) sha256 = await client.sha256(request.filePathAbsolute);
 				const { size } = await client.statFile(request.filePathAbsolute);
+				if (size <= 0) {
+					// A task of zero bytes is a 400 (D22), and the server's refusal would
+					// read as a fault of the service. The file is empty; say so.
+					throw new DocumentExtractionError({
+						code: "empty_result",
+						message: extractionErrorMessage(
+							"empty_result",
+							"The file is empty.",
+						),
+						retryable: false,
+					});
+				}
 
 				let receipt: Awaited<ReturnType<MineruClient["createTask"]>>;
 				try {

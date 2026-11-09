@@ -26,7 +26,7 @@ vi.mock("$lib/server/services/mineru/capabilities", () => ({
 			error.code = probe.error.code;
 			throw error;
 		}
-		return { version: "4.0.4", outputFormats: ["zip"], tiers: probe.tiers };
+		return { version: "4.1.7", tiers: probe.tiers };
 	},
 }));
 

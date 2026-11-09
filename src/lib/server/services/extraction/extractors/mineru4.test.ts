@@ -1010,6 +1010,24 @@ describe("mapped failures", () => {
 		});
 	});
 
+	it("calls an empty file empty itself: 4.1 answers 400 to a task of zero bytes", async () => {
+		// Nothing about it is the server's to say (D22), and "the document service
+		// sent a response this app could not use" would send the person looking in
+		// the wrong place.
+		await start();
+		const { request } = await buildRequest();
+		await writeFile(request.filePathAbsolute, "");
+
+		const error = await extractorFor()
+			.extract({ ...request, contentSha256: null })
+			.catch((thrown) => thrown);
+
+		expect(error).toMatchObject({ code: "empty_result", retryable: false });
+		expect(error.message).toContain("contains no readable text");
+		expect(creates()).toHaveLength(0);
+		expect(uploads()).toHaveLength(0);
+	});
+
 	it("maps an unmapped file error code to a retryable job_failed", async () => {
 		await start({
 			outcome: "file-failed",

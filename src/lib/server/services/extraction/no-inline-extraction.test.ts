@@ -61,6 +61,12 @@ const SCANNED_ROOTS = [
  *    which is the only way such a document can cite a page at all. It reads
  *    the index, verifies the bundle digest and nothing else — no client, no
  *    zip.
+ *  - the tool-health probe of the document backend (`tool-health/registry.ts`)
+ *    asks `mineru/protocol-version.ts`, a leaf with no imports of its own,
+ *    whether the version `/v1/health` reports speaks the protocol this client
+ *    speaks, so that Diagnostics calls a 4.0.x server degraded instead of
+ *    healthy. It is the one rule the capability probe applies too; a copy of it
+ *    here would be the first thing to drift.
  *
  * Everything else that wants a MinerU type imports it with `import type`,
  * which this rule ignores.
@@ -73,6 +79,7 @@ const ALLOWED_MINERU_IMPORTERS = new Set([
 	"lib/server/services/normal-chat-tools/read-generated-file.ts",
 	"lib/server/services/task-state/artifacts.ts",
 	"lib/server/services/task-state/chunk-sync.ts",
+	"lib/server/services/tool-health/registry.ts",
 	"routes/api/admin/mineru-status/+server.ts",
 	"routes/api/knowledge/[id]/figure/[name]/+server.ts",
 	"routes/api/knowledge/extraction/[artifactId]/reextract/+server.ts",

@@ -631,10 +631,11 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 	//
 	// Phase 5 D4 / OQ11: every Office and ODF entry carries `tierHint: "flash"`.
 	// The spike resolved docx/xlsx/pptx to `flash` file-level inside a `basic`
-	// job anyway, and OMITTING the tier is a 503 on a flash-only server
-	// (`decideTier` rule 2). `pdf` and every image stay UNHINTED on purpose:
-	// they are the only inputs the fixtures show resolving to `basic`, and
-	// hinting them would trade OCR quality for ~300 ms.
+	// job anyway. Under MinerU 4.1 the hint reads "a native document": the tier
+	// policy (`decideTier` rule 0) sends NO tier for it, since the server
+	// ignores a valid one and never runs `advanced` for such a file. `pdf` and
+	// every image stay UNHINTED on purpose: they are the inputs a tier means
+	// something for, and the policy names one for them.
 	{
 		id: "pdf",
 		extensions: ["pdf"],
