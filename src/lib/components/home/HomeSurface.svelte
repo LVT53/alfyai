@@ -1169,14 +1169,19 @@ async function restorePreparedConversation(conversationId: string) {
 }
 
 /**
- * "Try it" on the Feature Guide left `example` for this box. It goes in as the
- * first words of a box with nothing in it, and it is not sent: the person
- * changes it first. The landing page's saved draft is read back first
- * (`restoring`), because a draft the person already had is theirs and the
- * example never replaces it. The example is dropped then, and a toast says so.
- * A draft counts when it holds anything at all (`hasMeaningfulDraft`: words,
- * files, linked sources, a skill, Atlas mode); one with nothing in it is no
- * draft, and the example goes in as if there were none.
+ * "Try it" on the Feature Guide left `example` for this box. It goes in
+ * unsent, so the person changes it first, and it never replaces words the
+ * person already has. The landing page's saved draft is read back first
+ * (`restoring`), and what it holds decides:
+ *
+ * - Words: they are the person's. The example is dropped and a toast says so.
+ * - No words but something else (`hasMeaningfulDraft`: files, linked sources, a
+ *   skill, Atlas mode): the example becomes the draft's words and the rest
+ *   stays. The composer takes a saved draft that arrives after it opened only
+ *   when the draft has words, so one with none is not on screen yet, and a
+ *   toast about a message in the box would be about nothing the person can see.
+ *   With the example as its words the composer shows all of it.
+ * - Nothing: no draft, and the example goes in as if there were none.
  */
 async function putWaitingExampleInBox(
 	example: string,
@@ -1187,28 +1192,33 @@ async function putWaitingExampleInBox(
 	// on whatever page the person went to.
 	if (!homeComposerLayer) return;
 
+	const saved = conversationDraft;
 	if (
-		conversationDraft &&
+		saved &&
 		hasMeaningfulDraft(
-			conversationDraft.draftText,
-			conversationDraft.selectedAttachmentIds,
-			conversationDraft.selectedLinkedSources,
-			conversationDraft.pendingSkill,
-			conversationDraft.atlasMode === true,
+			saved.draftText,
+			saved.selectedAttachmentIds,
+			saved.selectedLinkedSources,
+			saved.pendingSkill,
+			saved.atlasMode === true,
 		)
 	) {
-		showToast({ type: "success", message: $t("guide.tryItDraftKept") });
-		return;
+		if (saved.draftText.trim() !== "") {
+			showToast({ type: "success", message: $t("guide.tryItDraftKept") });
+			return;
+		}
+		// The new `updatedAt` is what makes the composer look at the draft again.
+		conversationDraft = { ...saved, draftText: example, updatedAt: Date.now() };
+	} else {
+		const draft = createConversationDraftRecord({
+			conversationId: preparedConversationId,
+			draftText: example,
+			selectedAttachmentIds: [],
+			selectedAttachments: [],
+		});
+		if (!draft) return;
+		conversationDraft = draft;
 	}
-
-	const draft = createConversationDraftRecord({
-		conversationId: preparedConversationId,
-		draftText: example,
-		selectedAttachmentIds: [],
-		selectedAttachments: [],
-	});
-	if (!draft) return;
-	conversationDraft = draft;
 	// The composer takes the draft when its effect has run, and the caret goes
 	// in after it.
 	await tick();

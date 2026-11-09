@@ -386,7 +386,10 @@ describe("HomeSurface and an example Try it left for Home", () => {
 		expect(get(toasts)).toEqual([]);
 	});
 
-	it("keeps a saved draft that holds only a file", async () => {
+	// The composer takes a saved draft that arrives after it opened only when the
+	// draft has words, so a draft with none is not on screen. It has something
+	// all the same, and the example is what gives it words.
+	it("puts the example beside a saved file that has no words yet", async () => {
 		saveLandingDraft({
 			draftText: "",
 			selectedAttachmentIds: ["artifact-menu"],
@@ -414,12 +417,38 @@ describe("HomeSurface and an example Try it left for Home", () => {
 
 		renderHome();
 
-		await waitFor(() => expect(get(toasts)).toHaveLength(1));
-		expect(get(toasts)[0].message).toBe(get(t)("guide.tryItDraftKept"));
+		// What the person sees: the example in the box, with the caret in it and
+		// the file still on the composer.
+		await waitFor(() => expect(landingBox()).toHaveValue(example));
+		expect(landingBox()).toHaveFocus();
+		expect(screen.getByTestId("composer-chip-attachment")).toHaveTextContent(
+			"menu.pdf",
+		);
+		// There was no message to protect, so nothing is said about one, and
+		// nothing was written to the server.
 		await settle();
-		// A file is a draft too: the example is not put beside it, and the saved
-		// draft is left as it was.
-		expect(landingBox()).toHaveValue("");
+		expect(get(toasts)).toEqual([]);
+		expect(writesToTheServer()).toEqual([]);
+	});
+
+	it("puts the example into a saved draft that holds only Atlas mode", async () => {
+		saveLandingDraft({
+			draftText: "",
+			atlasMode: true,
+			atlasProfile: "in-depth",
+			clientAtlasTurnId: "atlas-turn-1",
+		});
+		storeHomeComposerSeed(example);
+
+		renderHome();
+
+		await waitFor(() => expect(landingBox()).toHaveValue(example));
+		// Atlas mode stays on, at the depth it was left at and not at its default.
+		expect(screen.getByTestId("composer-chip-atlas")).toHaveTextContent(
+			get(t)("composerTools.atlasInDepth"),
+		);
+		await settle();
+		expect(get(toasts)).toEqual([]);
 		expect(writesToTheServer()).toEqual([]);
 	});
 
