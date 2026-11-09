@@ -552,8 +552,11 @@ describe("planStructuredChunks — the hard per-chunk ceiling", () => {
 			{ length: 400 },
 			(_, index) => `line ${index}: ${"abcdefghij".repeat(6)}`,
 		);
+		// Any atomic block whose text is its raw content will do. It was an
+		// `equation_interline` until that became display math, which is fenced
+		// with `$$` lines of its own and so no longer quotes `lines` alone.
 		const blocks = synthetic([
-			[{ type: "equation_interline", content: lines.join("\n") }],
+			[{ type: "algorithm", content: lines.join("\n") }],
 		]);
 
 		const plan = planStructuredChunks({
@@ -633,5 +636,167 @@ describe("planStructuredChunks — the hard per-chunk ceiling", () => {
 				charOverlap: CHAR_OVERLAP,
 			}),
 		).toEqual([]);
+	});
+});
+
+// MinerU 4.1 added a display equation, a chart and a footnote. The first two
+// must never be cut (half a formula, or a figure handle torn from its caption,
+// is worse than none); a footnote is prose and chunks like any other text.
+
+const V41_ROOT = join(process.cwd(), "fixtures", "mineru-v41", "results");
+const V41_IDS = [
+	"pdf-paper-default-tier",
+	"pdf-paper-basic",
+	"pdf-paper-flash",
+	"pdf-paper-ocr-forced",
+	"pdf-paper-page-range-2",
+	"pptx-default",
+] as const;
+
+async function loadV41(slug: string): Promise<StructuredContent> {
+	return parseStructuredContent(
+		await readFile(join(V41_ROOT, slug, "structured_content.json"), "utf8"),
+	);
+}
+
+describe("planStructuredChunks — MinerU 4.1 blocks", () => {
+	it.each(
+		V41_IDS,
+	)("%s: plans chunks that reassemble into the rendered text", async (slug) => {
+		const result = buildStructuredExtractionResult({
+			content: await loadV41(slug),
+		});
+		const plan = planStructuredChunks({
+			blocks: result.blocks,
+			charTarget: CHAR_TARGET,
+			charOverlap: CHAR_OVERLAP,
+		});
+
+		expect(plan.length).toBeGreaterThan(0);
+		for (const block of result.blocks) {
+			expect(plan.some((chunk) => chunk.text.includes(block.text))).toBe(true);
+		}
+	});
+
+	it.each(
+		V41_IDS,
+	)("%s: never splits an equation, a chart or a table", async (slug) => {
+		const result = buildStructuredExtractionResult({
+			content: await loadV41(slug),
+		});
+		const whole = result.blocks.filter(
+			(block) => block.atomic && block.text.trim().length > 0,
+		);
+
+		for (const target of [40, 200, 1400]) {
+			const plan = planStructuredChunks({
+				blocks: result.blocks,
+				charTarget: target,
+				charOverlap: CHAR_OVERLAP,
+			});
+			for (const block of whole) {
+				expect(
+					plan.some((chunk) => chunk.text.includes(block.text)),
+					`${slug}: ${block.type} cut at charTarget=${target}`,
+				).toBe(true);
+			}
+		}
+	});
+
+	it("keeps a display equation whole, with no overlap on either side", () => {
+		const first = paragraph("FIRST", 900);
+		const second = paragraph("SECOND", 900);
+		const equation = "$$\nT (n) = a + b n + c n ^ {2}\\tag{1}\n$$";
+		const blocks = synthetic([
+			[
+				{ type: "text", content: first },
+				{ type: "equation", content: "T (n) = a + b n + c n ^ {2}\\tag{1}" },
+				{ type: "text", content: second },
+			],
+		]);
+		expect(blocks[1]).toMatchObject({ atomic: true, text: equation });
+
+		// The target sits below paragraph + separator + equation (about 940), so
+		// the short equation cannot ride along in either neighbour's chunk.
+		const plan = planStructuredChunks({
+			blocks,
+			charTarget: 920,
+			charOverlap: CHAR_OVERLAP,
+		});
+
+		expect(plan.map((chunk) => chunk.text)).toEqual([first, equation, second]);
+	});
+
+	it("keeps a chart's handle whole, with no overlap on either side", () => {
+		const first = paragraph("FIRST", 900);
+		const second = paragraph("SECOND", 900);
+		const handle = "[Figure 1: Figure 1. Relative throughput by tier.]";
+		const blocks = synthetic([
+			[
+				{ type: "text", content: first },
+				{
+					type: "chart",
+					content: "",
+					image_source: "images/page_1_chart_3.jpg",
+					captions: [{ content: "Figure 1. Relative throughput by tier." }],
+				},
+				{ type: "text", content: second },
+			],
+		]);
+		expect(blocks[1]).toMatchObject({ atomic: true, text: handle });
+
+		// Below paragraph + separator + handle (about 950): the handle gets its
+		// own chunk instead of riding along with a neighbour.
+		const plan = planStructuredChunks({
+			blocks,
+			charTarget: 920,
+			charOverlap: CHAR_OVERLAP,
+		});
+
+		expect(plan.map((chunk) => chunk.text)).toEqual([first, handle, second]);
+	});
+
+	it("chunks a footnote like prose: it is not atomic and the overlap flows through it", () => {
+		const blocks = synthetic([
+			[
+				{ type: "text", content: paragraph("A", 600) },
+				{ type: "page_footnote", content: paragraph("NOTE", 600) },
+				{ type: "text", content: paragraph("C", 600) },
+			],
+		]);
+		expect(blocks[1]).toMatchObject({ atomic: false, unknownType: false });
+
+		const plan = planStructuredChunks({
+			blocks,
+			charTarget: 1300,
+			charOverlap: CHAR_OVERLAP,
+		});
+
+		expect(plan).toHaveLength(2);
+		// The footnote ends the first chunk, so its tail opens the second.
+		const tail = plan[0].text.slice(-CHAR_OVERLAP).trim();
+		expect(tail.length).toBeGreaterThan(0);
+		expect(plan[1].text.startsWith(tail)).toBe(true);
+	});
+
+	it("plans a slide's speaker notes with its slide", async () => {
+		const result = buildStructuredExtractionResult({
+			content: await loadV41("pptx-default"),
+		});
+		const plan = planStructuredChunks({
+			blocks: result.blocks,
+			charTarget: CHAR_TARGET,
+			charOverlap: CHAR_OVERLAP,
+		});
+
+		const holder = plan.find((chunk) =>
+			chunk.text.includes(
+				"Speaker notes: remember to mention the Hungarian test page.",
+			),
+		);
+		expect(holder).toBeDefined();
+		// The notes are on slide 2 and the chunk that holds them says so.
+		expect(holder?.pageStart).toBeLessThanOrEqual(2);
+		expect(holder?.pageEnd).toBeGreaterThanOrEqual(2);
 	});
 });

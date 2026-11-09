@@ -599,3 +599,115 @@ describe("removeMineruParseBundle", () => {
 		expect(warn).toHaveBeenCalled();
 	});
 });
+
+// MinerU 4.1 sends a chart as its own block type. Before it was rendered like
+// an image, only `image` blocks became figures, so a Standard PDF's bundle kept
+// no picture at all: its `images/` was empty and "show me the chart" had
+// nothing to serve. The zip is the Standard PDF the 4.1 spike captured: a
+// chart, a display equation and a table, each with its own crop in `images/`.
+
+const V41_PDF_ZIP = join(
+	process.cwd(),
+	"fixtures",
+	"mineru-v41",
+	"results",
+	"pdf-paper-default-tier",
+	"result.zip",
+);
+
+async function v41PdfResult(): Promise<StructuredExtractionResult> {
+	return (
+		await parseMineruResultZip({
+			zipPathAbsolute: V41_PDF_ZIP,
+			jobTier: "standard",
+			serverParserVersion: "4.1.7",
+			sourceFilename: "document.pdf",
+		})
+	).result;
+}
+
+async function writeV41Bundle(
+	overrides?: Partial<Parameters<typeof writeMineruParseBundle>[0]>,
+) {
+	return writeMineruParseBundle({
+		userId,
+		sourceArtifactId,
+		zipPathAbsolute: V41_PDF_ZIP,
+		result: await v41PdfResult(),
+		maxBytes: MAX_BYTES,
+		...overrides,
+	});
+}
+
+describe("writeMineruParseBundle — MinerU 4.1 charts", () => {
+	it("keeps the chart's picture as the bundle's one figure", async () => {
+		const manifest = await writeV41Bundle();
+
+		expect(manifest.figures).toEqual([
+			{
+				index: 1,
+				path: "images/page_1_chart_3.jpg",
+				caption: "Figure 1. Relative throughput by tier.",
+				page: 2,
+				bbox: [0.268, 0.273, 0.764, 0.504],
+			},
+		]);
+		expect(manifest.imagesOmitted).toBe(false);
+		// The zip also carries a crop of the equation and of the table. Their text
+		// is already in the Markdown, so neither is a figure and neither is kept.
+		expect(
+			await readdir(join(mineruBundleDir(userId, sourceArtifactId), "images")),
+		).toEqual(["page_1_chart_3.jpg"]);
+	});
+
+	it("serves the chart through the figure reader, and nothing the manifest does not list", async () => {
+		await writeV41Bundle();
+		const chart = await readMineruFigure({
+			userId,
+			sourceArtifactId,
+			name: "page_1_chart_3.jpg",
+		});
+
+		expect(chart?.contentType).toBe("image/jpeg");
+		expect(chart?.bytes).toBe(44_068);
+		for (const name of ["page_0_equation_6.jpg", "page_1_table_2.jpg"]) {
+			expect(
+				await readMineruFigure({ userId, sourceArtifactId, name }),
+				name,
+			).toBeNull();
+		}
+	});
+
+	it("keeps normalized.md as the prompt text, with the chart's handle in it", async () => {
+		const result = await v41PdfResult();
+		await writeV41Bundle({ result });
+		const markdown = await readMineruNormalizedMarkdown(
+			userId,
+			sourceArtifactId,
+		);
+
+		expect(markdown).toBe(result.markdown);
+		expect(markdown).toContain(
+			"[Figure 1: Figure 1. Relative throughput by tier.]",
+		);
+		expect(markdown).toContain("$$\n");
+	});
+
+	it("lists the chart but drops its picture when the budget cannot hold it", async () => {
+		// The chart is 44 068 uncompressed bytes: more than a quarter of 100 000.
+		const manifest = await writeV41Bundle({ maxBytes: 100_000 });
+
+		expect(manifest.imagesOmitted).toBe(true);
+		expect(manifest.figures).toHaveLength(1);
+		expect(
+			await readdir(join(mineruBundleDir(userId, sourceArtifactId), "images")),
+		).toEqual([]);
+		expect(
+			await readMineruFigure({
+				userId,
+				sourceArtifactId,
+				name: "page_1_chart_3.jpg",
+			}),
+		).toBeNull();
+	});
+});
