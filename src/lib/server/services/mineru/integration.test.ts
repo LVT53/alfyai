@@ -842,6 +842,144 @@ describe("a backend that is not answering", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The deadline: a slow document is not an outage
+// ---------------------------------------------------------------------------
+
+describe("a document that outlasts the whole-job deadline", () => {
+	// The deadline is `MINERU_JOB_TIMEOUT_MS`, at its 10 s floor here. Date is
+	// faked so the clock can run past it in the middle of an attempt; the sockets,
+	// the server and the engine are real.
+	const TIMEOUT_SENTENCE = "The document service did not answer in time.";
+	const FLOOR = { MINERU_JOB_TIMEOUT_MS: "10000" };
+
+	/** Runs one attempt, and lets the clock pass the deadline once MinerU has had it a while. */
+	async function attemptPastTheDeadline(
+		options: Parameters<typeof run>[0] = {},
+	) {
+		const polledBefore = taskPolls().length;
+		const attempt = run(options);
+		await vi.waitFor(
+			() => {
+				expect(taskPolls().length).toBeGreaterThanOrEqual(polledBefore + 2);
+			},
+			{ timeout: 15_000 },
+		);
+		vi.setSystemTime(Date.now() + 11_000);
+		return attempt;
+	}
+
+	it("is an attempt when MinerU was running it: the budget is spent, and it ends with the timeout's sentence", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(Date.UTC(2026, 10, 9, 9, 0, 0));
+		try {
+			await boot({ neverFinish: true }, FLOOR);
+			const { jobId, artifactId } = await seedJob();
+			const readModel = await import(
+				"$lib/server/services/extraction/read-model"
+			);
+
+			for (let attempt = 1; attempt <= 2; attempt += 1) {
+				expect(await attemptPastTheDeadline()).toEqual({
+					jobId,
+					status: "queued",
+				});
+				const row = await ledger.getExtractionJobRow(jobId);
+				expect(row?.errorCode).toBe("job_failed");
+				expect(row?.errorMessage).toBe(TIMEOUT_SENTENCE);
+				// The cancelled task is not left behind to be resumed.
+				expect(row?.checkpoint).toBeNull();
+				// An attempt like any other: the budget moved.
+				const dto = await readModel.getExtractionJobForArtifact({
+					userId,
+					artifactId,
+				});
+				expect(dto?.attemptCount).toBe(attempt);
+				clearBackoffGates();
+			}
+
+			// The third try is the last: no more waiting for a document that does not
+			// fit, and no "could not be reached" for one that was reached all along.
+			expect(await attemptPastTheDeadline()).toEqual({
+				jobId,
+				status: "failed",
+			});
+			const failed = await ledger.getExtractionJobRow(jobId);
+			expect(failed?.errorCode).toBe("max_attempts");
+			expect(failed?.errorMessage).toBe(TIMEOUT_SENTENCE);
+			expect(failed?.retryable).toBe(true);
+			expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(3);
+
+			// Three fresh tasks, every one of them cancelled on the server.
+			expect(countRequests("POST", "/v1/tasks")).toBe(3);
+			expect(cancelRequests()).toHaveLength(3);
+			expect(
+				[...server.tasks.values()].every((task) => task.status === "canceled"),
+			).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("is MinerU's queue when it had not started it: the document keeps waiting and spends none of its attempts", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(Date.UTC(2026, 10, 9, 9, 0, 0));
+		try {
+			await boot({ neverFinish: true }, FLOOR);
+			const { jobId, artifactId } = await seedJob();
+			// A MinerU with a long line: whatever the task, the file shows queued.
+			const { createMineru4Extractor } = await import(
+				"$lib/server/services/extraction/extractors/mineru4"
+			);
+			const { MineruClient } = await import("./client");
+			const queuedFetch: typeof fetch = async (input, init) => {
+				const response = await fetch(input, init);
+				const path = new URL(String(input)).pathname;
+				if (
+					(init?.method ?? "GET") !== "GET" ||
+					!/^\/v1\/tasks\/[^/]+$/.test(path)
+				) {
+					return response;
+				}
+				const body = (await response.json()) as {
+					status: string;
+					files: Array<Record<string, unknown>>;
+				};
+				body.status = "pending";
+				for (const file of body.files) file.status = "pending";
+				return Response.json(body, { status: response.status });
+			};
+			const queued = createMineru4Extractor({
+				createClient: (config) =>
+					new MineruClient({ config, fetchImpl: queuedFetch }),
+			});
+			const readModel = await import(
+				"$lib/server/services/extraction/read-model"
+			);
+
+			// Many times over: it is an outage wait, and an outage wait has no bound
+			// of attempts, only the window of the outage budget.
+			for (let wait = 1; wait <= 5; wait += 1) {
+				expect(
+					await attemptPastTheDeadline({ resolveExtractor: () => queued }),
+				).toEqual({ jobId, status: "queued" });
+				const row = await ledger.getExtractionJobRow(jobId);
+				expect(row?.errorCode).toBe("timeout");
+				expect(row?.errorMessage).toBe(TIMEOUT_SENTENCE);
+				const dto = await readModel.getExtractionJobForArtifact({
+					userId,
+					artifactId,
+				});
+				expect(dto?.attemptCount).toBe(0);
+				clearBackoffGates();
+			}
+			expect(cancelRequests()).toHaveLength(5);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
 // Ruling 4: a user cancel, and exactly one DELETE
 // ---------------------------------------------------------------------------
 

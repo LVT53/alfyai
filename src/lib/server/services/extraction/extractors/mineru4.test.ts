@@ -1557,7 +1557,35 @@ describe("cancel", () => {
 });
 
 describe("the whole-job deadline", () => {
-	it("cancels the remote task and fails as a timeout when it never finishes", async () => {
+	// A deadline reached means one of two things, and they are not the same fault.
+	// MinerU had not started the file (its queue is long, or a cold start is still
+	// loading models): that is the box's, it says nothing about the document, and
+	// it waits the way an outage waits. MinerU HAD started it and it was still
+	// running: the document is too slow for the deadline, and trying it again
+	// exactly the same way is an attempt like any other retryable failure, so it
+	// ends after the normal attempt budget instead of being re-parsed from scratch
+	// for half an hour. The task is cancelled either way.
+	const TIMEOUT_SENTENCE = "The document service did not answer in time.";
+
+	/** Snapshots that always show the file queued: a MinerU with a long line. */
+	const queued: typeof fetch = async (input, init) => {
+		const response = await fetch(input, init);
+		if (
+			(init?.method ?? "GET") !== "GET" ||
+			!TASK_PATH.test(new URL(urlOf(input)).pathname)
+		) {
+			return response;
+		}
+		const body = (await response.json()) as {
+			status: string;
+			files: Array<Record<string, unknown>>;
+		};
+		body.status = "pending";
+		for (const file of body.files) file.status = "pending";
+		return Response.json(body, { status: response.status });
+	};
+
+	it("counts as an attempt when MinerU was running the file: job_failed, with the timeout's sentence", async () => {
 		await start({ neverFinish: true });
 		const before = await tempDirCount();
 		const { request } = await buildRequest();
@@ -1566,15 +1594,84 @@ describe("the whole-job deadline", () => {
 			.extract(request)
 			.catch((thrown) => thrown);
 
-		expect(error).toMatchObject({ code: "timeout", retryable: true });
+		// `job_failed` is the ledger's attempt budget; the sentence is the timeout's.
+		expect(error).toMatchObject({ code: "job_failed", retryable: true });
+		expect(error.message).toBe(TIMEOUT_SENTENCE);
 		// The task we cancelled is spent: resuming it would only find it canceled,
-		// and cost an attempt of the document's own budget.
+		// and cost the document an attempt for nothing.
 		expect(error.handleUnknown).toBe(true);
+		expect(error.details).toMatchObject({
+			mineruRule: "client:job-deadline",
+			fileStatus: "running",
+			deadlineMs: 400,
+		});
 		expect(cancels()).toHaveLength(1);
 		const [taskId] = [...server.tasks.keys()];
 		expect(server.tasks.get(taskId)?.status).toBe("canceled");
-		expect(error.message).toBe("The document service did not answer in time.");
 		expect(await tempDirCount()).toBe(before);
+	});
+
+	it("waits like an outage when MinerU had not started the file: timeout, no attempt spent", async () => {
+		await start({ neverFinish: true });
+		const { request } = await buildRequest();
+
+		const error = await extractorThrough(queued, { jobTimeoutMs: 400 })
+			.extract(request)
+			.catch((thrown) => thrown);
+
+		expect(error).toMatchObject({ code: "timeout", retryable: true });
+		expect(error.message).toBe(TIMEOUT_SENTENCE);
+		expect(error.handleUnknown).toBe(true);
+		expect(error.details).toMatchObject({ fileStatus: "pending" });
+		expect(cancels()).toHaveLength(1);
+		const [taskId] = [...server.tasks.keys()];
+		expect(server.tasks.get(taskId)?.status).toBe("canceled");
+	});
+
+	it("waits like an outage when the deadline is already over before the first look", async () => {
+		// A long upload can use up the whole deadline. Nothing was seen of the file,
+		// so nothing says MinerU started it.
+		await start({ neverFinish: true });
+		let clock = 0;
+		const extractor = createMineru4Extractor({
+			resolveConfig: () => config(server.baseUrl, { jobTimeoutMs: 1_000 }),
+			tempDirRoot: tempRoot,
+			now: () => clock,
+		});
+		const { request } = await buildRequest();
+
+		const error = await extractor
+			.extract({
+				...request,
+				onProgress: (entry) => {
+					// The upload is over and the clock has run past the deadline.
+					if (entry.phase === "parsing") clock = 60_000;
+				},
+			})
+			.catch((thrown) => thrown);
+
+		expect(error).toMatchObject({ code: "timeout", retryable: true });
+		expect(error.handleUnknown).toBe(true);
+		expect(error.details?.fileStatus).toBeNull();
+		expect(polls()).toHaveLength(0);
+		expect(cancels()).toHaveLength(1);
+	});
+
+	it("says in the log which of the two it was", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		await start({ neverFinish: true });
+		const { request } = await buildRequest();
+		await extractorFor({ jobTimeoutMs: 400 })
+			.extract(request)
+			.catch(() => undefined);
+
+		const logged = warn.mock.calls.find((call) =>
+			String(call[0]).includes("did not finish within the deadline"),
+		);
+		expect(logged?.[1]).toMatchObject({
+			fileStatus: "running",
+			spendsAnAttempt: true,
+		});
 	});
 });
 

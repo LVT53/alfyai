@@ -699,6 +699,58 @@ export function createMineru4Extractor(
 			}
 
 			/**
+			 * The whole-job deadline was reached and the remote task cancelled. What
+			 * that says depends on what MinerU had done with the file:
+			 *
+			 *  - it had NOT started it (still waiting for bytes, queued behind other
+			 *    work, or nothing seen of it yet): that is the box's line, it says
+			 *    nothing about the document, and it waits the way an outage waits.
+			 *    `timeout` is an outage code and spends none of the document's
+			 *    attempts.
+			 *  - it WAS running it: the document is too slow for the deadline, and
+			 *    another try the same way is an attempt like any other retryable
+			 *    failure. `job_failed` is the ledger's attempt budget, so the document
+			 *    ends after the normal number of tries instead of being re-parsed from
+			 *    scratch for the whole outage window and ending as "could not be
+			 *    reached", which it is not.
+			 *
+			 * The sentence is the timeout's either way (the code picks the budget, the
+			 * sentence says what happened), and the task is spent in both: we cancelled
+			 * it, so the next attempt creates a fresh one.
+			 */
+			function deadlineFailure(
+				taskId: string,
+				fileStatus: string | null,
+			): DocumentExtractionError {
+				const running = fileStatus === "running";
+				console.warn(
+					`${LOG_PREFIX} MinerU task did not finish within the deadline`,
+					{
+						extractor: MINERU4_EXTRACTOR_NAME,
+						taskId,
+						fileStatus,
+						deadlineMs: config.jobTimeoutMs,
+						spendsAnAttempt: running,
+					},
+				);
+				return new DocumentExtractionError({
+					code: running ? "job_failed" : "timeout",
+					message: extractionErrorMessage(
+						"timeout",
+						"The document service did not answer in time.",
+					),
+					retryable: true,
+					handleUnknown: true,
+					details: {
+						mineruRule: "client:job-deadline",
+						taskId,
+						fileStatus,
+						deadlineMs: config.jobTimeoutMs,
+					},
+				});
+			}
+
+			/**
 			 * Poll the one file to a settled task. A file still waiting for bytes
 			 * (the PUT never landed: a worker died, a transfer failed) is sent them
 			 * again with the link the task hands out, once; without a link, or when
@@ -706,15 +758,19 @@ export function createMineru4Extractor(
 			 */
 			async function pollSettled(): Promise<MineruTaskDetail> {
 				let reuploads = 0;
+				// What the last poll showed of the file we submitted: it decides what a
+				// deadline means (see `deadlineFailure`).
+				let lastFileStatus: string | null = null;
+				const noteSnapshot = (task: MineruTaskDetail): void => {
+					lastFileStatus =
+						pickMineruTaskFile(task, state.remoteFileId)?.status ?? null;
+				};
 				for (;;) {
 					const taskId = state.remoteJobId as string;
 					const remaining = deadlineAt - now();
 					if (remaining <= 0) {
 						await cancelRemoteTask(client, taskId);
-						throw new MineruApiError({
-							code: MINERU_CLIENT_ERROR_CODES.jobDeadline,
-							message: `MinerU task ${taskId} did not finish within ${config.jobTimeoutMs}ms.`,
-						});
+						throw deadlineFailure(taskId, lastFileStatus);
 					}
 					try {
 						return await client.pollTask({
@@ -722,12 +778,13 @@ export function createMineru4Extractor(
 							fileId: state.remoteFileId,
 							signal: request.signal,
 							deadlineMs: remaining,
+							onPoll: noteSnapshot,
 						});
 					} catch (error) {
 						if (isDeadlineError(error)) {
 							// The remote is still working on something nobody will read.
 							await cancelRemoteTask(client, taskId);
-							throw error;
+							throw deadlineFailure(taskId, lastFileStatus);
 						}
 						if (!isFileWaitingError(error)) throw error;
 
@@ -963,7 +1020,7 @@ export function createMineru4Extractor(
 					}
 					throw canceledError();
 				}
-				throw failureFrom(error, isDeadlineError(error));
+				throw failureFrom(error, false);
 			} finally {
 				if (tempDir) {
 					await rm(tempDir, { recursive: true, force: true }).catch(
