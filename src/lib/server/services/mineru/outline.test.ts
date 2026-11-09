@@ -235,3 +235,102 @@ describe("MinerU outline — offsets and previews", () => {
 		]);
 	});
 });
+
+// MinerU 4.1 documents hold block types the outline never saw: a display
+// equation, a chart and a footnote sit between the headings. None of them is a
+// heading, but all three change the prompt text the offsets and previews are
+// cut from, so the outline is checked against the 4.1 captures too.
+
+const V41_ROOT = join(process.cwd(), "fixtures", "mineru-v41", "results");
+
+async function outlineForV41(
+	slug: string,
+	sourceFilename: string,
+): Promise<{ outline: readonly MineruOutlineEntry[]; markdown: string }> {
+	const result = buildStructuredExtractionResult({
+		content: parseStructuredContent(
+			await readFile(join(V41_ROOT, slug, "structured_content.json"), "utf8"),
+		),
+		sourceFilename,
+	});
+	return { outline: result.outline, markdown: result.markdown };
+}
+
+describe("MinerU outline — MinerU 4.1 documents", () => {
+	it("pdf (standard): equation, chart and footnote add no entries, and every page is named", async () => {
+		const { outline } = await outlineForV41(
+			"pdf-paper-default-tier",
+			"document.pdf",
+		);
+
+		expect(shape(outline)).toEqual([
+			[1, "Throughput of Tiered Document Parsing", 1],
+			[2, "1. Introduction", 1],
+			[2, "2. Method", 1],
+			[2, "3. Hungarian test page", 2],
+		]);
+	});
+
+	it("pdf (standard): each offset still points at its heading's own `#`", async () => {
+		const { outline, markdown } = await outlineForV41(
+			"pdf-paper-default-tier",
+			"document.pdf",
+		);
+
+		for (const entry of outline) {
+			expect(markdown.slice(entry.offset)).toMatch(/^#{1,6} /);
+			expect(markdown.slice(entry.offset)).toContain(entry.title);
+		}
+	});
+
+	it("pdf (standard): a preview reads the footnote as plain words", async () => {
+		const { outline } = await outlineForV41(
+			"pdf-paper-default-tier",
+			"document.pdf",
+		);
+		const method = outline.find((entry) => entry.title === "2. Method");
+
+		expect(method?.preview.startsWith("Each document is parsed once")).toBe(
+			true,
+		);
+		expect(method?.preview).toContain("1 The norm constraint");
+		expect(method?.preview).not.toContain("<small>");
+	});
+
+	it("pdf (standard): the introduction's preview opens on its prose, not on the equation", async () => {
+		const { outline } = await outlineForV41(
+			"pdf-paper-default-tier",
+			"document.pdf",
+		);
+		const introduction = outline.find(
+			(entry) => entry.title === "1. Introduction",
+		);
+
+		// The preview is the first 300 characters of the body, and the paragraph
+		// that leads into the equation is longer than that.
+		expect(introduction?.preview.startsWith("Let $x_{i}")).toBe(true);
+		expect(introduction?.preview).not.toMatch(/^#/m);
+	});
+
+	it("pptx: slide titles keep their slide, and the notes sit under their own slide's title", async () => {
+		const { outline, markdown } = await outlineForV41(
+			"pptx-default",
+			"document.pptx",
+		);
+
+		expect(shape(outline)).toEqual([
+			[1, "Tiered Parsing", 1],
+			[2, "Key points", 2],
+			[2, "Latency table", 3],
+		]);
+		const keyPoints = outline.find((entry) => entry.title === "Key points");
+		const latency = outline.find((entry) => entry.title === "Latency table");
+		expect(keyPoints?.preview).toContain(
+			"Speaker notes: remember to mention the Hungarian test page.",
+		);
+		// The notes belong to slide 2, so they come before slide 3's heading.
+		const notes = markdown.indexOf("Speaker notes:");
+		expect(notes).toBeGreaterThan(keyPoints?.offset ?? Number.MAX_SAFE_INTEGER);
+		expect(notes).toBeLessThan(latency?.offset ?? Number.MIN_SAFE_INTEGER);
+	});
+});
