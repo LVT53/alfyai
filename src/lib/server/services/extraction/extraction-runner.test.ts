@@ -1,12 +1,22 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+// @vitest-environment node
+//
+// Node and not the default jsdom: the HEIC cases run the real decoder, which
+// refuses a Node Buffer under jsdom ("Cannot pass non-string to std::string")
+// and takes it under Node, as the server does.
+import { existsSync, readFileSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import { createWorkerId, parseWorkerId } from "../jobs/worker-identity";
-import type { DocumentExtractor } from "./contracts";
-import { createFakeExtractor } from "./testing/fake-extractor";
+import { type DocumentExtractor, extractionErrorMessage } from "./contracts";
+import {
+	createFakeExtractor,
+	type FakeExtractorStep,
+} from "./testing/fake-extractor";
 import {
 	createLedgerFixture,
 	type LedgerFixture,
@@ -75,9 +85,12 @@ async function engine() {
  * Storage paths are stored relative to cwd and joined against it by the handler,
  * so the fixture file has to be reachable that way.
  */
-async function seedStoredDocument(name = "report.pdf"): Promise<string> {
+async function seedStoredDocument(
+	name = "report.pdf",
+	bytes: string | Buffer = "stored bytes",
+): Promise<string> {
 	const absolute = join(storageDir, name);
-	await writeFile(absolute, "stored bytes", "utf8");
+	await writeFile(absolute, bytes, "utf8");
 	return fixture.seedArtifact({
 		userId,
 		name,
@@ -91,6 +104,7 @@ async function enqueueJob(
 	fileName = "report.pdf",
 	extra: {
 		intakeRoute?: "direct-text" | "mineru";
+		mimeType?: string;
 		hintsJson?: string | null;
 		priority?: number;
 	} = {},
@@ -104,7 +118,7 @@ async function enqueueJob(
 			origin: "upload",
 			intakeRoute: extra.intakeRoute ?? "mineru",
 			fileName,
-			mimeType: "application/pdf",
+			mimeType: extra.mimeType ?? "application/pdf",
 			sizeBytes: 12,
 			hintsJson: extra.hintsJson ?? null,
 		},
@@ -779,6 +793,127 @@ describe("the extraction handler", () => {
 				}),
 			);
 			expect(readJob(job.id).normalizedArtifactId).toBe(generatedArtifactId);
+		});
+	});
+});
+
+// MinerU never accepts .heic/.heif, so the document reader is handed a PNG of
+// the photo for one attempt (`intake.readAs` in the registry). The stored
+// original is untouched: previews and vision read it.
+describe("a HEIC photo, which the document reader is handed as a PNG", () => {
+	const here = dirname(fileURLToPath(import.meta.url));
+	const tinyHeic = readFileSync(
+		join(here, "..", "vision", "__fixtures__", "tiny.heic"),
+	);
+	const PNG_SIGNATURE = Buffer.from([
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+	]);
+
+	/**
+	 * An extractor that keeps what it was handed, and the bytes at that path while
+	 * it ran (the file is gone once the attempt is over).
+	 */
+	function recordingExtractor(step: FakeExtractorStep) {
+		const base = createFakeExtractor({ steps: [step] });
+		const handed: Array<{
+			request: Parameters<DocumentExtractor["extract"]>[0];
+			bytes: Buffer;
+		}> = [];
+		useExtractor({
+			...base,
+			async extract(request) {
+				handed.push({
+					request,
+					bytes: await readFile(request.filePathAbsolute),
+				});
+				return base.extract(request);
+			},
+		});
+		return handed;
+	}
+
+	it("hands the extractor a PNG of the photo and not the stored HEIC", async () => {
+		const { drain, extractionJob } = await engine();
+		const artifactId = await seedStoredDocument("IMG_0042.HEIC", tinyHeic);
+		await enqueueJob(artifactId, "IMG_0042.HEIC", { mimeType: "image/heic" });
+		const handed = recordingExtractor({ kind: "succeed" });
+		const { calls } = fakePersist();
+
+		await drain(extractionJob);
+
+		expect(handed).toHaveLength(1);
+		const { request, bytes } = handed[0];
+		expect(bytes.subarray(0, 8)).toEqual(PNG_SIGNATURE);
+		expect(request).toMatchObject({
+			fileName: "IMG_0042.png",
+			mimeType: "image/png",
+			sizeBytes: bytes.length,
+			contentSha256: null,
+			// Nothing else about the request changes.
+			intakeRoute: "mineru",
+			sourceArtifactId: artifactId,
+			userId,
+		});
+		expect(request.filePathAbsolute).not.toBe(
+			join(storageDir, "IMG_0042.HEIC"),
+		);
+		// The text is attached to the stored original, under its own name.
+		expect(calls[0]).toMatchObject({
+			sourceArtifactId: artifactId,
+			sourceName: "IMG_0042.HEIC",
+		});
+		expect(await readFile(join(storageDir, "IMG_0042.HEIC"))).toEqual(tinyHeic);
+	});
+
+	it.each<[string, FakeExtractorStep, string]>([
+		["returns", { kind: "succeed" }, "succeeded"],
+		[
+			"throws",
+			{ kind: "throw", code: "unsupported_type", retryable: false },
+			"failed",
+		],
+	])("removes the PNG once the extractor %s", async (_when, step, status) => {
+		const { drain, extractionJob } = await engine();
+		const artifactId = await seedStoredDocument("IMG_0042.HEIC", tinyHeic);
+		const job = await enqueueJob(artifactId, "IMG_0042.HEIC", {
+			mimeType: "image/heic",
+		});
+		const handed = recordingExtractor(step);
+		fakePersist();
+
+		await drain(extractionJob);
+
+		expect(readJob(job.id).status).toBe(status);
+		expect(handed).toHaveLength(1);
+		expect(existsSync(handed[0].request.filePathAbsolute)).toBe(false);
+		expect(existsSync(join(storageDir, "IMG_0042.HEIC"))).toBe(true);
+	});
+
+	it("fails a photo it cannot decode as an unreadable document, and never calls the extractor", async () => {
+		const { drain, extractionJob } = await engine();
+		const artifactId = await seedStoredDocument("broken.heic", "not a photo");
+		const job = await enqueueJob(artifactId, "broken.heic", {
+			mimeType: "image/heic",
+		});
+		const extractor = useExtractor(
+			createFakeExtractor({ steps: [{ kind: "succeed" }] }),
+		);
+		fakePersist();
+
+		await drain(extractionJob);
+
+		expect(extractor.calls).toHaveLength(0);
+		expect(readJob(job.id)).toMatchObject({
+			status: "failed",
+			errorCode: "document_unreadable",
+			errorMessage: extractionErrorMessage("document_unreadable", ""),
+			retryable: false,
+		});
+		// The decoder's own reason is kept for whoever reads the attempts.
+		expect(
+			JSON.parse(readAttempts(job.id)[0].diagnosticsJson ?? "null"),
+		).toMatchObject({
+			reason: expect.stringContaining("image preparation failed"),
 		});
 	});
 });

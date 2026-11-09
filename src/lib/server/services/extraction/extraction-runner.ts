@@ -38,6 +38,7 @@ import { resolveExtractor } from "./extractors/registry";
 import { parseExtractionHints } from "./hints";
 import { createNormalizedArtifactFromExtraction } from "./persist";
 import { getGeneratedFileReadbackSink } from "./readback-sink";
+import { prepareReaderInput } from "./reader-input";
 import type {
 	DocumentExtractionIntakeRoute,
 	DocumentExtractionJobRow,
@@ -277,20 +278,47 @@ export async function runExtraction(
 	try {
 		let result: ExtractDocumentResult;
 		try {
-			result = await extractor.extract({
+			// What the extractor reads: the stored file, or, for a type the document
+			// reader cannot take (a HEIC photo), a converted copy that lives until the
+			// extractor settles. A photo that cannot be decoded throws here and takes
+			// the failure path below, so the extractor is never called for it.
+			const reader =
+				intakeRoute === "mineru"
+					? await prepareReaderInput({
+							fileName: job.fileName,
+							mimeType: job.mimeType,
+							sizeBytes: job.sizeBytes,
+							filePathAbsolute: source.filePathAbsolute,
+							contentSha256: source.contentSha256,
+							attemptId: ctx.attempt.id,
+						})
+					: null;
+			const input = reader?.input ?? {
 				filePathAbsolute: source.filePathAbsolute,
 				fileName: job.fileName,
 				mimeType: job.mimeType,
 				sizeBytes: job.sizeBytes,
-				intakeRoute,
-				signal: bridge.signal,
-				onProgress,
-				resumeHandle,
 				contentSha256: source.contentSha256,
-				sourceArtifactId: job.sourceArtifactId,
-				userId: job.userId,
-				hints: parseExtractionHints(job.hintsJson),
-			});
+			};
+			try {
+				result = await extractor.extract({
+					filePathAbsolute: input.filePathAbsolute,
+					fileName: input.fileName,
+					mimeType: input.mimeType,
+					sizeBytes: input.sizeBytes,
+					intakeRoute,
+					signal: bridge.signal,
+					onProgress,
+					resumeHandle,
+					contentSha256: input.contentSha256,
+					sourceArtifactId: job.sourceArtifactId,
+					userId: job.userId,
+					hints: parseExtractionHints(job.hintsJson),
+				});
+			} finally {
+				// Never throws, so it cannot hide the extractor's own error.
+				await reader?.release();
+			}
 		} catch (error) {
 			if (ctx.signal.aborted) {
 				// We were told to stop, and the verdict belongs to whoever holds the job
