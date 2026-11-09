@@ -1,7 +1,11 @@
-import convertHeic from "heic-convert";
 import sharp from "sharp";
 import { getEntryByMimeType } from "$lib/shared/file-types";
-import { ImagePreparationError } from "./image-errors";
+import { decodeHeifToRgba } from "./heif-decode";
+import {
+	ImageDecodeTimeoutError,
+	ImagePreparationError,
+	ImageTooLargeError,
+} from "./image-errors";
 
 // Callers have always imported the error from here.
 export { ImagePreparationError };
@@ -16,8 +20,6 @@ const TOKEN_TILE_PX = 32;
 const JPEG_QUALITY = 85;
 /** Where a transparent picture ends up: the page behind it is white. */
 const FLATTEN_BACKGROUND = "#ffffff";
-/** Only a hop: sharp encodes the result again, after resizing, at JPEG_QUALITY. */
-const HEIF_HOP_QUALITY = 0.92;
 /** The `ftyp` box starts at byte 4 and its major brand ends at byte 12. */
 const HEIF_BRAND_START = 4;
 const HEIF_BRAND_END = 12;
@@ -37,11 +39,13 @@ export type PreparedImage = {
 
 /**
  * An uploaded picture as a PNG for the picture server: upright (EXIF
- * orientation applied), first frame only, transparency kept. HEIC and HEIF take
- * the same hop through heic-convert as `prepareImageForModel`, with the cost
- * written there; the extraction runner calls this for every attempt, so a retry
- * and a resume pay it again. Bytes it cannot read throw `ImagePreparationError`.
- * `maxLongEdge` shrinks it to fit, and never enlarges.
+ * orientation applied), first frame only, transparency kept. A HEIC or HEIF is
+ * decoded by libheif in a worker thread first (see `prepareImageForModel`) and
+ * keeps the alpha channel libheif gives it, which is fully opaque for most
+ * photos. Bytes it cannot read throw `ImagePreparationError`; a photo over
+ * `HEIF_MAX_PIXELS` throws its subclass `ImageTooLargeError` and a decode that
+ * ran out of time `ImageDecodeTimeoutError`, as they are. `maxLongEdge` shrinks
+ * it to fit, and never enlarges.
  */
 export async function decodeImageToPng(
 	input: Uint8Array,
@@ -54,14 +58,7 @@ export async function decodeImageToPng(
 	hasAlpha: boolean;
 }> {
 	try {
-		const source = isHeif(input, mimeType)
-			? await convertHeic({
-					buffer: input,
-					format: "JPEG",
-					quality: HEIF_HOP_QUALITY,
-				})
-			: input;
-		const upright = sharp(source, { animated: false }).rotate();
+		const upright = (await openForSharp(input, mimeType)).rotate();
 		const fitted = options.maxLongEdge
 			? upright.resize({
 					width: options.maxLongEdge,
@@ -80,10 +77,7 @@ export async function decodeImageToPng(
 			hasAlpha: info.channels === 4,
 		};
 	} catch (error) {
-		const reason = error instanceof Error ? error.message : String(error);
-		throw new ImagePreparationError(`image preparation failed: ${reason}`, {
-			cause: error,
-		});
+		throw preparationFailure(error);
 	}
 }
 
@@ -102,6 +96,40 @@ function isHeif(input: Uint8Array, mimeType: string | null): boolean {
 }
 
 /**
+ * What sharp reads the upload from. libvips cannot decode HEVC, so a HEIC or HEIF
+ * is decoded to RGBA pixels first, in a worker thread (heif-decode.ts: two at a
+ * time for the whole process, a size cap and a timeout), and sharp is handed the
+ * pixels. Anything else is handed the bytes themselves.
+ */
+async function openForSharp(
+	input: Uint8Array,
+	mimeType: string | null,
+): Promise<ReturnType<typeof sharp>> {
+	if (!isHeif(input, mimeType)) return sharp(input, { animated: false });
+	const { width, height, data } = await decodeHeifToRgba(input);
+	return sharp(data, { raw: { width, height, channels: 4 } });
+}
+
+/**
+ * The error a failed preparation throws. The two a caller tells apart by class,
+ * a photo over the pixel limit and a decode that ran out of time, go on as they
+ * are. Anything else is wrapped as `image preparation failed: <reason>` with
+ * itself as the cause: the image library's errors, and libheif's refusals.
+ */
+function preparationFailure(error: unknown): ImagePreparationError {
+	if (
+		error instanceof ImageTooLargeError ||
+		error instanceof ImageDecodeTimeoutError
+	) {
+		return error;
+	}
+	const reason = error instanceof Error ? error.message : String(error);
+	return new ImagePreparationError(`image preparation failed: ${reason}`, {
+		cause: error,
+	});
+}
+
+/**
  * Turns an uploaded image into one JPEG for a model: upright (EXIF orientation
  * applied), flat (no transparency, only the first frame of an animation) and
  * no longer than `maxLongEdge` on its long side. A small image is not
@@ -110,14 +138,17 @@ function isHeif(input: Uint8Array, mimeType: string | null): boolean {
  * libvips has no BMP loader.
  *
  * That libvips cannot decode HEVC either, so a HEIC or HEIF (found by its MIME
- * type or by the brand in its first bytes) takes a hop through heic-convert
- * first. That hop decodes in WebAssembly on the calling thread, which on the
- * server is the main one: measured at 1.2 to 1.8 s for a 12 MP phone photo
- * (half of it heic-convert's pure-JS JPEG step) and about 6 s with a memory
- * peak of 1.6 GB for a 48 MP one, against about 50 ms for sharp. A
- * worker-thread decode is the follow-up. sharp keeps its strict defaults on
- * purpose, because these bytes are an upload: it fails on a damaged file and
- * on one over 268 megapixels.
+ * type or by the brand in its first bytes) is decoded by libheif in a worker
+ * thread first (`decodeHeifToRgba`), and sharp reads the pixels it gives: the
+ * main thread is never held by the decode (it was, for 1.2 to 1.8 s for a 12 MP
+ * photo and about 6 s for a 48 MP one, when libheif ran on the calling thread),
+ * and no JPEG step stands in between. A photo over `HEIF_MAX_PIXELS` throws
+ * `ImageTooLargeError` and a decode that ran out of time
+ * `ImageDecodeTimeoutError`, both `ImagePreparationError`s, as they are; a photo
+ * libheif refuses is a plain one. A
+ * transparent HEIC, like any transparent picture, ends up on white. sharp keeps
+ * its strict defaults on purpose, because these bytes are an upload: it fails
+ * on a damaged file and on one over 268 megapixels.
  */
 export async function prepareImageForModel(
 	input: Uint8Array,
@@ -125,14 +156,7 @@ export async function prepareImageForModel(
 	options: { maxLongEdge: number },
 ): Promise<PreparedImage> {
 	try {
-		const source = isHeif(input, mimeType)
-			? await convertHeic({
-					buffer: input,
-					format: "JPEG",
-					quality: HEIF_HOP_QUALITY,
-				})
-			: input;
-		const { data, info } = await sharp(source, { animated: false })
+		const { data, info } = await (await openForSharp(input, mimeType))
 			.rotate()
 			.flatten({ background: FLATTEN_BACKGROUND })
 			.resize({
@@ -151,9 +175,6 @@ export async function prepareImageForModel(
 			estimatedTokens: estimateImageTokens(info.width, info.height),
 		};
 	} catch (error) {
-		const reason = error instanceof Error ? error.message : String(error);
-		throw new ImagePreparationError(`image preparation failed: ${reason}`, {
-			cause: error,
-		});
+		throw preparationFailure(error);
 	}
 }
