@@ -169,14 +169,17 @@ export interface ExtractDocumentResult {
  * The sentence a user is shown for a failure whose real message is not one.
  *
  * `error_message` on the job row is read by the send gate and by the Knowledge
- * row, and for an availability failure it used to be whatever undici said —
- * "fetch failed", "MinerU capability read failed: fetch failed". That is an
+ * row, and for an availability failure it used to be whatever undici said
+ * ("fetch failed", "MinerU capability read failed: fetch failed"). That is an
  * implementation detail of a HTTP client presented as an explanation of the
  * user's document. The taxonomy code is what actually knows what happened, so
  * the text comes from the code.
  *
- * Only the codes whose upstream message is useless are listed. A `job_failed`
- * carries the engine's own reason and that reason is worth keeping.
+ * Every code a backend can fill is listed: what the backend said (a validation
+ * dump with a URL in it, a PDF reader's reason, the name of a task) is for an
+ * operator, and goes to the attempt's diagnostics and the log, never into the
+ * sentence a person reads. `backend_misconfigured` is the one code left out, on
+ * purpose (see below).
  */
 const EXTRACTION_ERROR_MESSAGES: Partial<Record<ExtractionErrorCode, string>> =
 	{
@@ -202,6 +205,17 @@ const EXTRACTION_ERROR_MESSAGES: Partial<Record<ExtractionErrorCode, string>> =
 		// both land here, so the sentence names both.
 		empty_result:
 			"This document contains no readable text — an empty file, or a scan with nothing legible on it, both look like this. Check the file, and if it is a scan, upload a clearer copy.",
+		// A parse the reader started and could not finish, for a reason it does not
+		// say in words a person can use. Every cause of a failed parse arrives as one
+		// code, and the specific ones above have been told apart already.
+		job_failed: "The document service could not finish reading this file.",
+		// A response this app could not use: the wrong shape, a result with no
+		// download, a request it refused. Nothing the person can change.
+		protocol: "The document service sent a response this app could not use.",
+		tier_unavailable:
+			"The document service does not offer the requested quality tier. Ask an administrator to check the tier setting.",
+		too_large: "This file is too large for the document service to read.",
+		canceled: "Extraction was canceled.",
 	};
 
 /**

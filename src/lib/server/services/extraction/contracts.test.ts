@@ -3,6 +3,7 @@ import {
 	abortDiscardsRemoteWork,
 	DocumentExtractionError,
 	ExtractionAbortError,
+	extractionErrorMessage,
 	isDocumentExtractionError,
 	parseExtractionHandle,
 	readExtractionAbortReason,
@@ -152,6 +153,44 @@ describe("toDocumentExtractionError", () => {
 			expect(() => toDocumentExtractionError(value)).not.toThrow();
 		}
 		expect(toDocumentExtractionError("boom").message).toBe("boom");
+	});
+});
+
+describe("extractionErrorMessage", () => {
+	// `error_message` is read by the send gate and by the Knowledge row. A backend
+	// puts its own wording in the fallback (a pydantic dump with a URL in it, a
+	// PDFium reason, a path), and for these codes none of it may stand in for the
+	// sentence a person reads.
+	const BACKEND_WORDS =
+		"Failed to load document (PDFium: Data format error). See https://errors.pydantic.dev/2.14/v/extra_forbidden";
+
+	it.each([
+		"job_failed",
+		"protocol",
+		"tier_unavailable",
+		"too_large",
+		"canceled",
+		"unavailable",
+		"timeout",
+		"rate_limited",
+		"auth_failed",
+		"unsupported_type",
+		"document_unreadable",
+		"empty_result",
+	] as const)("answers %s with a sentence of its own", (code) => {
+		const message = extractionErrorMessage(code, BACKEND_WORDS);
+		expect(message).not.toBe(BACKEND_WORDS);
+		expect(message).not.toContain("PDFium");
+		expect(message).not.toContain("pydantic");
+		expect(message.length).toBeGreaterThan(10);
+	});
+
+	it("keeps the caller's text for the one code that composes its own", () => {
+		// `backend_misconfigured` names the endpoint and the setting to change, which
+		// this module may not know (the seam names no backend).
+		expect(extractionErrorMessage("backend_misconfigured", "the fix")).toBe(
+			"the fix",
+		);
 	});
 });
 
