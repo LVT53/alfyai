@@ -151,7 +151,9 @@ async function readAsPng(
 		`${READER_INPUT_FILE_PREFIX}${attemptId}${extname(reader.fileName)}`,
 	);
 	try {
-		await writeFile(pathAbsolute, png);
+		// For its owner alone: the temp directory is shared with every other service
+		// on the host, and this is a person's photo.
+		await writeFile(pathAbsolute, png, { mode: 0o600 });
 	} catch (error) {
 		// A half-written file would outlive the attempt.
 		await rm(pathAbsolute, { force: true }).catch(() => undefined);

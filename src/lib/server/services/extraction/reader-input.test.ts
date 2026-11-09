@@ -10,6 +10,7 @@ import {
 	readdir,
 	readFile,
 	rm,
+	stat,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -119,6 +120,17 @@ describe("prepareReaderInput", () => {
 			sizeBytes: png.length,
 			contentSha256: null,
 		});
+	});
+
+	it("writes the PNG for its owner alone", async () => {
+		// A person's photo, in a temp directory every other service on the host can
+		// list: the extractor's own temp directories are private, and so is this file.
+		const original = await stored("IMG_0042.heic", tinyHeic);
+
+		const reader = await prepare(original, "IMG_0042.heic", "image/heic");
+
+		const { mode } = await stat(reader.input.filePathAbsolute);
+		expect((mode & 0o777).toString(8)).toBe("600");
 	});
 
 	it("makes the same bytes every time it converts the same photo", async () => {
