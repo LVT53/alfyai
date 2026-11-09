@@ -1138,6 +1138,72 @@ describe("a document caught in the cutover window", () => {
 		expect(countRequests("POST", "/v1/tasks")).toBe(2);
 	});
 
+	it("is stopped by the version /v1/health reports, before any task is made, and goes through once the box says 4.1", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		// 4.0.12 answers /v1/health like a healthy server and would then refuse what
+		// a 4.1 client sends. The version is what tells them apart, and it is read
+		// before a byte moves.
+		await boot({ version: "4.0.12" });
+		const { jobId, artifactId } = await seedJob();
+
+		expect(await run()).toEqual({ jobId, status: "queued" });
+
+		const waiting = await ledger.getExtractionJobRow(jobId);
+		expect(waiting?.status).toBe("queued");
+		expect(waiting?.errorCode).toBe("unavailable");
+		// A sentence of ours: not the release, not the address.
+		expect(waiting?.errorMessage).toBe(
+			"The document service could not be reached.",
+		);
+		// An outage wait: not one of the document's attempts.
+		const dto = await (
+			await import("$lib/server/services/extraction/read-model")
+		).getExtractionJobForArtifact({ userId, artifactId });
+		expect(dto?.attemptCount).toBe(0);
+		expect(dto?.error?.code).toBe("unavailable");
+		// The capability read is all that reached the box: no task, no bytes.
+		expect(countRequests("GET", "/v1/health")).toBe(1);
+		expect(countRequests("POST", "/v1/tasks")).toBe(0);
+		expect(puts()).toHaveLength(0);
+
+		// An operator finds why, on the attempt and in the log…
+		const attempts = fixture.sqlite
+			.prepare("SELECT diagnostics_json FROM document_extraction_job_attempts")
+			.all() as Array<{ diagnostics_json: string | null }>;
+		expect(attempts).toHaveLength(1);
+		expect(attempts[0].diagnostics_json).toContain("speaks the old protocol");
+		expect(
+			warn.mock.calls.some((call) =>
+				JSON.stringify(call).includes("speaks the old protocol"),
+			),
+		).toBe(true);
+		// …and tool health reports the same release as the old protocol.
+		const { TOOL_HEALTH_REGISTRY } = await import(
+			"$lib/server/services/tool-health/registry"
+		);
+		const probe = TOOL_HEALTH_REGISTRY.find(
+			(tool) => tool.id === "document_extraction",
+		)?.probe;
+		const probed = () =>
+			probe?.({
+				fetch,
+				config: { mineruApiUrl: server.baseUrl },
+				signal: AbortSignal.timeout(5_000),
+			} as never);
+		expect(await probed()).toMatchObject({ ok: false });
+		expect((await probed())?.detail).toBe(
+			"MinerU 4.0.12 speaks the old protocol; this app needs MinerU 4.1 or newer",
+		);
+
+		// The box is updated behind the same URL. The same job row, no user action.
+		server.setOptions({ version: "4.1.7" });
+		clearBackoffGates();
+		expect(await run()).toEqual({ jobId, status: "succeeded" });
+		expect(persisted).toHaveLength(1);
+		expect(countRequests("POST", "/v1/tasks")).toBe(1);
+		expect(await probed()).toMatchObject({ ok: true });
+	});
+
 	it("keeps a resumed task's handle while the old server cannot answer for it", async () => {
 		await boot({ neverFinish: true });
 		const { jobId } = await seedJob();

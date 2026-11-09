@@ -183,6 +183,37 @@ describe("capability reads", () => {
 		expect(health.json).toEqual(recordedBody("server/health_no_key.json"));
 	});
 
+	it("says it is the release a test gives it, everywhere it names one, and flips back", async () => {
+		// The cutover has a moment when the URL still names the old release; a test
+		// stands that up by name. Only the name changes: it is a 4.1 server otherwise.
+		await start({ version: "4.0.12" });
+		const health = await call("/v1/health");
+		expect(health.json.version).toBe("4.0.12");
+		// The rest of the answer is the recorded one.
+		expect({ ...health.json, version: "4.1.7" }).toEqual(
+			recordedBody("server/health_no_key.json"),
+		);
+		const tiers = await call("/v1/tiers");
+		expect(
+			(tiers.json.data as Array<{ current_model: string }>).map(
+				(tier) => tier.current_model,
+			),
+		).toEqual(["mineru-4.0.12", "mineru-4.0.12", "mineru-4.0.12"]);
+		const { taskId } = await submit("document.pdf", PDF);
+		const done = await getTask(taskId);
+		const file = done.json.files?.[0] as { parse: { parser_version: string } };
+		expect(file.parse.parser_version).toBe("4.0.12");
+
+		server?.setOptions({ version: "4.1.7" });
+		expect((await call("/v1/health")).json).toEqual(
+			recordedBody("server/health_no_key.json"),
+		);
+		// Left out, it is the recorded server again.
+		server?.setOptions({ version: "4.0.12" });
+		server?.setOptions({ version: undefined });
+		expect((await call("/v1/health")).json.version).toBe("4.1.7");
+	});
+
 	it("lists the tiers up to its ceiling, with the recorded shape", async () => {
 		await start();
 		const tiers = await call("/v1/tiers");
@@ -1336,6 +1367,24 @@ describe("options are checked where they are set", () => {
 				readFileSync(join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "v41-csv.zip")),
 			),
 		).toBe(true);
+	});
+
+	it("refuses a version that is not major.minor.patch, at construction and from setOptions", async () => {
+		for (const version of ["4.1", "latest", "", "4,1,7", " 4.1.7", "v4.1.7"]) {
+			await expect(
+				createFakeMineruServer({ version }),
+				JSON.stringify(version),
+			).rejects.toThrow(/fake MinerU server: version/);
+		}
+		await start({ version: "4.0.12" });
+		expect(() => server?.setOptions({ version: "4.1" })).toThrow(
+			/fake MinerU server: version/,
+		);
+		expect(() => server?.setOptions({ version: 4.1 as never })).toThrow(
+			/fake MinerU server: version/,
+		);
+		// Refused means refused: it still says what it said.
+		expect((await call("/v1/health")).json.version).toBe("4.0.12");
 	});
 
 	it("refuses numbers and names that cannot mean anything", async () => {

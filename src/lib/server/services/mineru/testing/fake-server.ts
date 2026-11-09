@@ -236,6 +236,15 @@ export interface FakeMineruServerOptions {
 	/** The tiers the server offers, which is its ceiling. Default: what production runs. */
 	tiers?: readonly MineruTierId[];
 	/**
+	 * The release this server says it is, as `major.minor.patch`: in `/v1/health`,
+	 * in each file's `parse.parser_version` and in the tiers' `current_model`.
+	 * Default 4.1.7, the one the captures came from. Only the NAME changes, so a
+	 * test can stand up what the app sees of the old release at the cutover (a
+	 * `4.0.12` health answer) and flip it back with `setOptions`; the old
+	 * release's other answers are `MINERU_4_0_12_ERRORS`.
+	 */
+	version?: string;
+	/**
 	 * How many polls see a file in progress before it reaches its outcome: the
 	 * first says `pending`, the rest `running`. Counted per file, from the moment
 	 * its bytes are in, and by the server, so a test that walks the ladder does not
@@ -504,6 +513,15 @@ function checkOptions(candidate: FakeMineruServerOptions): void {
 		}
 	};
 
+	if (
+		candidate.version !== undefined &&
+		(typeof candidate.version !== "string" ||
+			!/^\d+\.\d+\.\d+$/.test(candidate.version))
+	) {
+		refuse(
+			`version must look like 4.1.7 (major.minor.patch), got ${JSON.stringify(candidate.version)}`,
+		);
+	}
 	if (candidate.tiers !== undefined) {
 		const known = MINERU_TIER_IDS as readonly string[];
 		if (
@@ -653,6 +671,11 @@ export async function createFakeMineruServer(
 		return options.tiers ?? ["flash", "basic", "standard"];
 	}
 
+	/** The release this server says it is (see `FakeMineruServerOptions.version`). */
+	function serverVersion(): string {
+		return options.version ?? SERVER_VERSION;
+	}
+
 	/** What the server picks when a request names no tier (spike D14). */
 	function bestTier(): MineruTierId {
 		const order: readonly MineruTierId[] = [
@@ -763,7 +786,7 @@ export async function createFakeMineruServer(
 				parse: {
 					tier: effectiveTier(task, file),
 					duration_ms: 12,
-					parser_version: SERVER_VERSION,
+					parser_version: serverVersion(),
 				},
 				...(outcome === "completed-without-result-url"
 					? {}
@@ -1097,7 +1120,7 @@ export async function createFakeMineruServer(
 	function handleHealth({ res }: RouteContext) {
 		jsonResponse(res, 200, {
 			status: "ok",
-			version: SERVER_VERSION,
+			version: serverVersion(),
 			features: {
 				webhook: false,
 				task_output_formats: [...serverFeatures().task_output_formats],
@@ -1119,7 +1142,7 @@ export async function createFakeMineruServer(
 			data: tiers().map((id) => ({
 				id,
 				description: TIER_DESCRIPTIONS[id],
-				current_model: `mineru-${SERVER_VERSION}`,
+				current_model: `mineru-${serverVersion()}`,
 			})),
 		});
 	}
