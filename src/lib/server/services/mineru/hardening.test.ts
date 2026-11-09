@@ -198,13 +198,21 @@ describe("a lying Content-Length", () => {
 				}),
 		) as unknown as typeof fetch;
 		const client = new MineruClient({ config: testConfig(), fetchImpl });
+		// A path of our own: if the clamp ever regressed, the byte-count branch
+		// removes the destination, and that must never be a real device file.
+		const destination = join(
+			await mkdtemp(join(tmpdir(), "alfyai-mineru-dl-")),
+			"result.zip",
+		);
 		await expect(
 			client.downloadFile({
 				resultUrl: RESULT_URL,
-				destinationPathAbsolute: "/dev/null",
+				destinationPathAbsolute: destination,
 				maxBytes: Number.MAX_SAFE_INTEGER,
 				signal: AbortSignal.timeout(10_000),
 			}),
 		).rejects.toMatchObject({ code: "client_download_too_large" });
+		expect(existsSync(destination)).toBe(false);
+		await rm(dirname(destination), { recursive: true, force: true });
 	});
 });
