@@ -4,9 +4,10 @@
 // moment MINERU_API_URL points at something hostile, at a compromised box, or
 // at a plain-http origin with a man in the middle. The zip reader already
 // refuses traversals, symlinks and duplicate names; these are the two numbers
-// it was still trusting — a declared page count and a declared output size —
-// both of which are single JSON fields that can be made arbitrarily large.
+// it was still trusting: a declared page count and a declared output size,
+// both of which are single fields that can be made arbitrarily large.
 
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -85,41 +86,86 @@ function testConfig(overrides: Partial<MineruConfig> = {}): MineruConfig {
 	} as MineruConfig;
 }
 
-describe("a lying output_files.zip.bytes", () => {
+const RESULT_URL = "http://mineru.test/v1/files/file_x/content";
+
+describe("a lying Content-Length", () => {
 	it("refuses a declared size past the ceiling before a byte moves", async () => {
-		// `expectedBytes` is the server's own claim about its own output, and the
-		// cap was `max(expectedBytes, bundleMaxBytes)` — so the server chose the
-		// cap. Declare ten gigabytes, stream ten gigabytes, fill the disk;
-		// MINERU_BUNDLE_MAX_BYTES bounded only what was KEPT.
+		// 4.1 states no size in the task snapshot (the file's `bytes` is the
+		// SOURCE's), so the only declaration is the download's own Content-Length,
+		// and it is the server's claim about the server's output. Believe it only
+		// to say no: declare ten gigabytes and the body is never read, so
+		// MINERU_BUNDLE_MAX_BYTES, which bounds only what is KEPT, never has to
+		// watch the disk fill.
 		const fetchImpl = vi.fn(
-			async () => new Response(new Uint8Array(0), { status: 200 }),
+			async () =>
+				new Response(
+					new ReadableStream(
+						{
+							pull() {
+								throw new Error("the body must not be read");
+							},
+						},
+						{ highWaterMark: 0 },
+					),
+					{ status: 200, headers: { "content-length": "10000000000" } },
+				),
 		) as unknown as typeof fetch;
 		const client = new MineruClient({
 			config: testConfig({ bundleMaxBytes: 1_024 }),
 			fetchImpl,
 		});
+		const destination = join(
+			await mkdtemp(join(tmpdir(), "alfyai-mineru-dl-")),
+			"result.zip",
+		);
 
 		await expect(
 			client.downloadFile({
-				fileId: "file_x",
-				destinationPathAbsolute: "/dev/null",
-				expectedBytes: 10_000_000_000,
+				resultUrl: RESULT_URL,
+				destinationPathAbsolute: destination,
 				signal: AbortSignal.timeout(10_000),
 			}),
 		).rejects.toMatchObject({ code: "client_download_too_large" });
 
-		// Not one request. A zip that big could never be opened by the reader, so
-		// fetching it could never produce a parse.
-		expect(fetchImpl).not.toHaveBeenCalled();
+		// One request, the one that returned the header, and nothing on disk. A ZIP
+		// that big could never be opened by the reader, so fetching it could never
+		// produce a parse.
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		expect(existsSync(destination)).toBe(false);
 		expect(MINERU_MAX_DOWNLOAD_BYTES).toBe(
 			DEFAULT_MINERU_ZIP_LIMITS.maxCompressedBytes,
 		);
+		await rm(dirname(destination), { recursive: true, force: true });
+	});
+
+	it("cuts a stream that outgrows the ceiling even when it announced nothing", async () => {
+		// A server that never sends Content-Length cannot be refused up front; the
+		// cap is enforced as the bytes arrive, and nothing is left behind.
+		const fetchImpl = vi.fn(
+			async () => new Response(new Uint8Array(4_096), { status: 200 }),
+		) as unknown as typeof fetch;
+		const client = new MineruClient({ config: testConfig(), fetchImpl });
+		const destination = join(
+			await mkdtemp(join(tmpdir(), "alfyai-mineru-dl-")),
+			"result.zip",
+		);
+
+		await expect(
+			client.downloadFile({
+				resultUrl: RESULT_URL,
+				destinationPathAbsolute: destination,
+				maxBytes: 1_024,
+				signal: AbortSignal.timeout(10_000),
+			}),
+		).rejects.toMatchObject({ code: "client_download_too_large" });
+		expect(existsSync(destination)).toBe(false);
+		await rm(dirname(destination), { recursive: true, force: true });
 	});
 
 	it("still allows a legitimate zip larger than the bundle budget", async () => {
 		// The bundle budget bounds what is kept on disk after filtering; the zip
-		// also carries middle_json, model_output and every image, so it is
-		// routinely bigger. Clamping the download to it would break real parses.
+		// also carries middle_json and every image, so it is routinely bigger.
+		// Clamping the download to it would break real parses.
 		const payload = new Uint8Array(4_096);
 		const fetchImpl = vi.fn(
 			async () => new Response(payload, { status: 200 }),
@@ -135,12 +181,30 @@ describe("a lying output_files.zip.bytes", () => {
 		);
 		await expect(
 			client.downloadFile({
-				fileId: "file_x",
+				resultUrl: RESULT_URL,
 				destinationPathAbsolute: destination,
-				expectedBytes: payload.byteLength,
 				signal: AbortSignal.timeout(10_000),
 			}),
 		).resolves.toEqual({ bytes: payload.byteLength });
 		await rm(dirname(destination), { recursive: true, force: true });
+	});
+
+	it("does not let the caller raise the ceiling past the one the zip reader enforces", async () => {
+		const fetchImpl = vi.fn(
+			async () =>
+				new Response(new Uint8Array(0), {
+					status: 200,
+					headers: { "content-length": String(MINERU_MAX_DOWNLOAD_BYTES + 1) },
+				}),
+		) as unknown as typeof fetch;
+		const client = new MineruClient({ config: testConfig(), fetchImpl });
+		await expect(
+			client.downloadFile({
+				resultUrl: RESULT_URL,
+				destinationPathAbsolute: "/dev/null",
+				maxBytes: Number.MAX_SAFE_INTEGER,
+				signal: AbortSignal.timeout(10_000),
+			}),
+		).rejects.toMatchObject({ code: "client_download_too_large" });
 	});
 });

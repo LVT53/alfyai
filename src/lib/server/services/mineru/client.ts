@@ -1,27 +1,43 @@
 /**
- * The MinerU 4.x V1 protocol client.
+ * The MinerU 4.1 `/v1/tasks` protocol client.
  *
- * It speaks exactly the nine calls the recorded fixtures exercise, validates
- * every body it reads, and does nothing else: no retries (the ledger owns
- * those), no caching (`capabilities.ts` owns that), no zip reading (Phase 4
- * owns that), no knowledge of artifacts, users or the database.
+ * It speaks exactly the calls the captured fixtures exercise, validates every
+ * body it reads, and does nothing else: no retries (the ledger owns those), no
+ * caching (`capabilities.ts` owns that), no zip reading (`result.ts` owns that),
+ * no knowledge of artifacts, users or the database.
  *
- * Five rules it enforces so that callers do not have to:
+ *     createTask   POST /v1/tasks                       202, the receipt
+ *     putTaskFile  PUT  {files[].upload.url}            only when an upload link is present
+ *     getTask      GET  /v1/tasks/{id}
+ *     pollTask     getTask until the task is terminal
+ *     cancelTask   POST /v1/tasks/{id}/cancel
+ *     downloadFile GET  {files[].result_url}            one ZIP per file
  *
- *  - **The key is same-origin only.** `Authorization` is attached when, and
- *    only when, the request URL passes `isSameMineruOrigin`. `upload_url` and
- *    any redirect are server-supplied strings, and a server that points them
- *    somewhere else must not be handed a credential.
+ * Rules it enforces so that callers do not have to:
+ *
+ *  - **The key is same-origin only (S7).** `Authorization` is attached when, and
+ *    only when, the request URL passes `isSameMineruOrigin`. `upload.url` and
+ *    `result_url` come out of MinerU's own answers, so a URL on any other
+ *    origin is refused BEFORE a byte or a credential is sent, and a redirect is
+ *    followed only to the configured origin.
+ *  - **The request body is built here (S5).** `createTask` writes the body from
+ *    fixed keys, so what the 4.1 server rejects with a 400 (`page_range: null`,
+ *    `ocr_mode: null`, `include_model_output`, `client_file_id`, `file_id`, any
+ *    `output_formats` but `["default"]`) cannot be sent, whatever it is handed.
  *  - **Bytes stream.** The upload is piped from disk with `Content-Length` set
- *    from `stat`; the result zip is piped to disk with a byte cap. Neither is
+ *    from `stat`; the result ZIP is piped to disk under a byte cap. Neither is
  *    ever materialised in memory.
  *  - **A 200 is not automatically valid.** Every JSON body goes through a zod
  *    schema before a field is read.
  *  - **Nothing leaks.** The API key is scrubbed from every message, upstream
  *    bodies are truncated to 300 characters, and only the request PATH is kept
- *    on an error — never a full URL, never a header.
+ *    on an error: never a full URL, never a header.
  *  - **Timeouts are ours.** Every call composes the caller's signal with an
  *    `AbortSignal.timeout`, so a hung server cannot pin a worker.
+ *  - **Creation is not retried here.** `POST /v1/tasks` is not idempotent and
+ *    there is no list endpoint: a task whose 202 was lost cannot be found again,
+ *    it just waits out its hour. Retrying is the ledger's decision, made with
+ *    the error's classification in hand.
  */
 
 import { createHash } from "node:crypto";
@@ -34,6 +50,7 @@ import type { ZodType } from "zod";
 import {
 	isSameMineruOrigin,
 	MINERU_MAX_DOWNLOAD_BYTES,
+	MINERU_TASK_OUTPUT_FORMATS,
 	MINERU_TIER_IDS,
 	type MineruConfig,
 	type MineruTierId,
@@ -47,26 +64,27 @@ import {
 	truncateMineruBody,
 } from "./errors";
 import {
-	isTerminalMineruJobStatus,
+	isTerminalMineruTaskStatus,
+	type MineruCancelTaskResponse,
+	type MineruCreateTaskResponse,
 	type MineruHealth,
-	type MineruJob,
+	type MineruTaskDetail,
 	type MineruTier,
-	type MineruUpload,
+	type MineruUploadFileResponse,
+	type MineruUploadLink,
 	type MineruUsage,
+	mineruCancelTaskResponseSchema,
+	mineruCreateTaskResponseSchema,
 	mineruHealthSchema,
-	mineruJobCancelSchema,
-	mineruJobSchema,
+	mineruTaskDetailSchema,
 	mineruTierListLenientSchema,
-	mineruUploadSchema,
+	mineruUploadFileResponseSchema,
 	mineruUsageSchema,
 } from "./schemas";
 
 const LOG_PREFIX = "[MINERU]";
 
-/** Kept identical to `document-extraction.ts`'s prefix so log greps survive. */
-export const MINERU_LOG_PREFIX = LOG_PREFIX;
-
-/** Headers the server may NOT set on our upload PUT. */
+/** Headers the server may NOT set on our upload PUT: the transport owns them. */
 const FORBIDDEN_UPLOAD_HEADERS = new Set([
 	"authorization",
 	"cookie",
@@ -77,13 +95,16 @@ const FORBIDDEN_UPLOAD_HEADERS = new Set([
 	"proxy-authorization",
 ]);
 
+/** 4.1 refuses a longer `file_name`. */
+const MAX_TASK_FILE_NAME_LENGTH = 1024;
+
 // ---------------------------------------------------------------------------
 // Dependencies
 // ---------------------------------------------------------------------------
 
 export interface MineruFileReader {
 	stat(pathAbsolute: string): Promise<{ size: number }>;
-	/** A fresh stream per call — the caller may re-PUT after a hash mismatch. */
+	/** A fresh stream per call: the caller may PUT again after a failed one. */
 	stream(pathAbsolute: string): ReadableStream<Uint8Array>;
 	/** Streams the file through a sha256 digest without buffering it. */
 	sha256(pathAbsolute: string): Promise<string>;
@@ -126,68 +147,59 @@ export function createNodeMineruFileReader(): MineruFileReader {
 // Call inputs
 // ---------------------------------------------------------------------------
 
-export interface CreateUploadInput {
-	/** The artifact's DISPLAY name. Never a local path — see `uploadFilename`. */
-	filename: string;
+export interface CreateTaskInput {
+	/**
+	 * What MinerU is told the file is called (S3: `document.<ext>`, the extension
+	 * is what it routes by). Never a local path: directories, control characters
+	 * and the colon 4.1 refuses are dropped here.
+	 */
+	fileName: string;
+	/** The size of the file, as `statFile` reports it. */
 	bytes: number;
-	mimeType: string;
-	/** Always sent. Dedupe is free, and it is the restart recovery path (D7). */
+	/** Always sent (S2): the same bytes later skip the PUT, through the hash cache. */
 	sha256sum: string;
+	/** Omitted key when undefined. NEVER sent as null. */
+	tier?: MineruTierId;
+	/** Omitted key when undefined. NEVER sent as null (D19). */
+	ocrMode?: "txt" | "ocr";
 	signal: AbortSignal;
 }
 
-export interface PutUploadContentInput {
-	upload: MineruUpload;
+export interface PutTaskFileInput {
+	/** The `upload` object of the receipt (or of a snapshot that still lists one). */
+	upload: MineruUploadLink;
 	filePathAbsolute: string;
 	signal: AbortSignal;
 }
 
-export interface CompleteUploadInput {
-	uploadId: string;
-	sha256sum: string;
+export interface TaskInput {
+	taskId: string;
 	signal: AbortSignal;
 }
 
-export interface CreateJobInput {
-	fileId: string;
-	/** Omitted key when undefined. NEVER sent as null. */
-	tier?: MineruTierId;
-	/** Omitted when the configured mode is `auto`. NEVER sent as null. */
-	ocrMode?: "txt" | "ocr";
-	outputFormats: readonly string[];
-	signal: AbortSignal;
-}
-
-export interface GetJobInput {
-	jobId: string;
-	signal: AbortSignal;
-}
-
-export interface PollJobInput {
-	jobId: string;
-	signal: AbortSignal;
+export interface PollTaskInput extends TaskInput {
 	/** Whole-job deadline. Defaults to `config.jobTimeoutMs`. */
 	deadlineMs?: number;
 	/** Called after every poll, terminal included. */
-	onPoll?: (job: MineruJob) => void;
+	onPoll?: (task: MineruTaskDetail) => void;
 }
 
 export interface DownloadFileInput {
-	fileId: string;
+	/** `files[].result_url` of a completed file. Followed only on the configured origin. */
+	resultUrl: string;
 	destinationPathAbsolute: string;
-	/** `output_files.<format>.bytes`. The download must match it exactly. */
-	expectedBytes: number;
 	signal: AbortSignal;
 	/**
-	 * Cap. Defaults to `max(expectedBytes, config.bundleMaxBytes)`, and is in
-	 * every case clamped to `MINERU_MAX_DOWNLOAD_BYTES` — the server does not
-	 * get to raise it by declaring a larger output.
+	 * Cap in bytes, always clamped to `MINERU_MAX_DOWNLOAD_BYTES`. The default IS
+	 * that ceiling, not `bundleMaxBytes`: the budget bounds what is KEPT after
+	 * filtering, and the ZIP also carries `middle_json.json` and every image, so
+	 * it is routinely bigger.
 	 */
 	maxBytes?: number;
 }
 
 interface RequestOptions {
-	method: "GET" | "POST" | "DELETE";
+	method: "GET" | "POST";
 	path: `/v1/${string}`;
 	body?: unknown;
 	signal: AbortSignal;
@@ -257,158 +269,153 @@ export class MineruClient {
 		return this.parseBody(mineruUsageSchema, body, "/v1/usage");
 	}
 
-	// -- uploads -------------------------------------------------------------
+	// -- tasks ---------------------------------------------------------------
 
 	/**
-	 * `POST /v1/uploads`.
+	 * `POST /v1/tasks` with one file (S2), answering 202.
 	 *
-	 * `status === "completed"` is a sha256 dedupe hit: `file` is populated,
-	 * `upload_url` is null, and the PUT and the complete are both skipped. That
-	 * is also what makes restart recovery free — the bytes outlive the ids.
-	 */
-	async createUpload(input: CreateUploadInput): Promise<MineruUpload> {
-		const body = await this.requestJson({
-			method: "POST",
-			path: "/v1/uploads",
-			signal: input.signal,
-			body: {
-				filename: uploadFilename(input.filename),
-				bytes: input.bytes,
-				mime_type: input.mimeType,
-				purpose: "parse",
-				sha256sum: input.sha256sum,
-			},
-		});
-		return this.parseBody(mineruUploadSchema, body, "/v1/uploads");
-	}
-
-	/**
-	 * `PUT upload.upload_url`, streamed from disk.
+	 * The receipt says what to do next. `status: "waiting-file"` and an `upload`
+	 * object on the file: PUT the bytes there. `status: "pending"` and NO `upload`
+	 * object: the server already holds these bytes (the hash cache) and the task
+	 * is queued; PUT nothing. Either way the receipt holds exactly one file; a
+	 * different count is a protocol error.
 	 *
-	 * Returns void: the server answers 200 with an EMPTY body and no
-	 * `content-type`, and it answers 200 for the WRONG bytes too — a hash
-	 * mismatch only surfaces at `complete`.
+	 * The body is built from fixed keys (see the file header): `files`, the one
+	 * `output_formats` this client ever asks for, and `tier` / `ocr_mode` only
+	 * when given a string.
 	 */
-	async putUploadContent(input: PutUploadContentInput): Promise<void> {
-		const target = this.resolveUploadUrl(input.upload);
-		const { size } = await this.fileReader.stat(input.filePathAbsolute);
-
-		const headers = new Headers({ "content-type": "application/octet-stream" });
-		for (const [name, value] of Object.entries(
-			input.upload.upload_headers ?? {},
-		)) {
-			if (FORBIDDEN_UPLOAD_HEADERS.has(name.toLowerCase())) continue;
-			headers.set(name, value);
-		}
-		headers.set("content-length", String(size));
-		this.applyAuth(headers, target);
-
-		const method = input.upload.upload_method ?? "PUT";
-		const response = await this.send(
-			target,
-			{
-				method,
-				headers,
-				body: this.fileReader.stream(input.filePathAbsolute),
-				duplex: "half",
-			},
-			input.signal,
-			this.config.transferTimeoutMs,
-			uploadPathFor(input.upload.id),
-		);
-
-		if (!response.ok) {
-			throw await this.errorFromResponse(
-				response,
-				uploadPathFor(input.upload.id),
-			);
-		}
-		// The body is empty, but it must still be drained so the socket is freed.
-		await response.arrayBuffer().catch(() => undefined);
-	}
-
-	/** `POST /v1/uploads/{id}/complete`. 400 `file_hash_mismatch` lands HERE. */
-	async completeUpload(input: CompleteUploadInput): Promise<MineruUpload> {
-		const path =
-			`/v1/uploads/${encodeURIComponent(input.uploadId)}/complete` as const;
-		const body = await this.requestJson({
-			method: "POST",
-			path,
-			signal: input.signal,
-			body: { sha256sum: input.sha256sum },
-		});
-		return this.parseBody(mineruUploadSchema, body, path);
-	}
-
-	// -- parse jobs ----------------------------------------------------------
-
-	/**
-	 * `POST /v1/parse/jobs`. Resolves on the 202 — which proves nothing: an
-	 * unknown `file_id` is accepted here and fails inside the job.
-	 *
-	 * The body carries `files`, `output_formats` and at most `tier` and
-	 * `ocr_mode`. It NEVER carries `page_range` (a non-PDF page range is a 202
-	 * followed by a file-level failure, and we have no page-selection feature)
-	 * and NEVER `callback` (`health.features.webhook` is false; it is a hard
-	 * 400 even with a valid key).
-	 */
-	async createJob(input: CreateJobInput): Promise<MineruJob> {
+	async createTask(input: CreateTaskInput): Promise<MineruCreateTaskResponse> {
 		const body: Record<string, unknown> = {
-			files: [{ source: { type: "file_id", file_id: input.fileId } }],
-			output_formats: [...input.outputFormats],
+			files: [
+				{
+					file_name: taskFileName(input.fileName),
+					bytes: input.bytes,
+					sha256sum: input.sha256sum,
+				},
+			],
+			output_formats: [...MINERU_TASK_OUTPUT_FORMATS],
 		};
-		// Assigned only when defined: `tier: null` and `ocr_mode: null` are both
-		// 400s, so an omitted key is the only way to say "you decide".
-		if (input.tier !== undefined) body.tier = input.tier;
-		if (input.ocrMode !== undefined) body.ocr_mode = input.ocrMode;
+		// `typeof` rather than `!== undefined`: a caller that ignores the types and
+		// hands over `null` must still send nothing (`tier: null` is a trap and
+		// `ocr_mode: null` is a 400), and "omitted" is the only way to say "you decide".
+		if (typeof input.tier === "string") body.tier = input.tier;
+		if (typeof input.ocrMode === "string") body.ocr_mode = input.ocrMode;
 
 		const parsed = await this.requestJson({
 			method: "POST",
-			path: "/v1/parse/jobs",
+			path: "/v1/tasks",
 			signal: input.signal,
 			body,
 		});
-		return this.parseBody(mineruJobSchema, parsed, "/v1/parse/jobs");
+		const receipt = this.parseBody(
+			mineruCreateTaskResponseSchema,
+			parsed,
+			"/v1/tasks",
+		);
+		if (receipt.files.length !== 1) {
+			throw new MineruApiError({
+				code: MINERU_CLIENT_ERROR_CODES.schemaMismatch,
+				message: `MinerU /v1/tasks answered a one-file task with ${receipt.files.length} files.`,
+				requestPath: "/v1/tasks",
+			});
+		}
+		return receipt;
 	}
 
-	async getJob(input: GetJobInput): Promise<MineruJob> {
-		const path = `/v1/parse/jobs/${encodeURIComponent(input.jobId)}` as const;
+	/**
+	 * `PUT {upload.url}`, streamed from disk with `Content-Length` set from `stat`.
+	 *
+	 * The URL is the server's, so it is followed only on the configured origin
+	 * (S7) and the key goes only there. `upload.headers` are sent as given; the
+	 * ones the transport owns (`Authorization`, `Content-Length`, `Host`, ...) are
+	 * ours. Answers 200 `{task_id, file_id, status}`; a repeat PUT answers 200
+	 * too, with the file's current status. A wrong length or hash is a 400 and
+	 * leaves the file waiting, so the same link can be used again.
+	 */
+	async putTaskFile(
+		input: PutTaskFileInput,
+	): Promise<MineruUploadFileResponse> {
+		const target = this.resolveServerUrl(input.upload.url, "upload");
+		const path = target.pathname;
+		const { size } = await this.fileReader.stat(input.filePathAbsolute);
+
+		const headers = new Headers({ "content-type": "application/octet-stream" });
+		for (const [name, value] of Object.entries(input.upload.headers)) {
+			if (FORBIDDEN_UPLOAD_HEADERS.has(name.toLowerCase())) continue;
+			try {
+				headers.set(name, value);
+			} catch {
+				// A name or value the platform will not carry is the server's mistake.
+			}
+		}
+		headers.set("content-length", String(size));
+		this.applyAuth(headers, target.toString());
+
+		const response = await this.send(
+			target.toString(),
+			{
+				method: "PUT",
+				headers,
+				body: this.fileReader.stream(input.filePathAbsolute),
+				duplex: "half",
+				// The bytes go where the link says, and nowhere else.
+				redirect: "manual",
+			},
+			input.signal,
+			this.config.transferTimeoutMs,
+			path,
+		);
+
+		if (isRedirect(response.status)) {
+			await response.arrayBuffer().catch(() => undefined);
+			throw untrustedRedirect("an upload", path);
+		}
+		if (!response.ok) throw await this.errorFromResponse(response, path);
+		return this.parseBody(
+			mineruUploadFileResponseSchema,
+			await this.readJson(response, path),
+			path,
+		);
+	}
+
+	async getTask(input: TaskInput): Promise<MineruTaskDetail> {
+		const path = taskPath(input.taskId);
 		const body = await this.requestJson({
 			method: "GET",
 			path,
 			signal: input.signal,
 		});
-		return this.parseBody(mineruJobSchema, body, path);
+		return this.parseBody(mineruTaskDetailSchema, body, path);
 	}
 
 	/**
-	 * Polls to a terminal status with exponential backoff between
-	 * `pollMinMs` and `pollMaxMs`.
+	 * Polls to a terminal status (`completed`, `partial`, `failed`, `canceled`)
+	 * with exponential backoff between `pollMinMs` and `pollMaxMs`.
 	 *
-	 * This is the client's ONLY internal loop. It does not interpret the
-	 * terminal job — `mapMineruJobFailure` in `errors.ts` does that, because a
-	 * `completed` job can still carry a failed file.
+	 * This is the client's ONLY internal loop. It does not interpret the terminal
+	 * task: `mapMineruTaskFailure` in `errors.ts` does that, because a task's
+	 * status is not its file's (a `partial` task holds a good file).
 	 */
-	async pollJob(input: PollJobInput): Promise<MineruJob> {
+	async pollTask(input: PollTaskInput): Promise<MineruTaskDetail> {
 		const deadline =
 			this.now() + (input.deadlineMs ?? this.config.jobTimeoutMs);
 		let wait = Math.max(1, this.config.pollMinMs);
 
 		for (;;) {
-			const job = await this.getJob({
-				jobId: input.jobId,
+			const task = await this.getTask({
+				taskId: input.taskId,
 				signal: input.signal,
 			});
-			input.onPoll?.(job);
-			if (isTerminalMineruJobStatus(job.status)) return job;
+			input.onPoll?.(task);
+			if (isTerminalMineruTaskStatus(task.status)) return task;
 
 			if (this.now() >= deadline) {
 				throw new MineruApiError({
 					code: MINERU_CLIENT_ERROR_CODES.jobDeadline,
-					message: `MinerU job ${input.jobId} did not finish within ${
+					message: `MinerU task ${input.taskId} did not finish within ${
 						input.deadlineMs ?? this.config.jobTimeoutMs
 					}ms.`,
-					requestPath: `/v1/parse/jobs/${input.jobId}`,
+					requestPath: taskPath(input.taskId),
 				});
 			}
 
@@ -425,17 +432,20 @@ export class MineruClient {
 	}
 
 	/**
-	 * `DELETE /v1/parse/jobs/{id}`.
+	 * `POST /v1/tasks/{id}/cancel`. Resolves with the settled receipt, or `null`
+	 * when there was nothing left to cancel.
 	 *
-	 * Swallows 404 `job_not_found` and 409 `job_already_terminal`: both mean
-	 * there is nothing left to cancel, which is the goal. Never throws for a
-	 * cancel that is merely late.
+	 * Swallows 404 (a restart forgot the task, or it never existed) and 409
+	 * `task_already_terminal` (it already ended, `partial` included): both mean
+	 * the goal is met. Every file that had not finished is `canceled`, the running
+	 * ones too, while a file that had finished stays `completed` and its result
+	 * stays downloadable (spike D24).
 	 */
-	async cancelJob(input: GetJobInput): Promise<void> {
-		const path = `/v1/parse/jobs/${encodeURIComponent(input.jobId)}` as const;
+	async cancelTask(input: TaskInput): Promise<MineruCancelTaskResponse | null> {
+		const path = `${taskPath(input.taskId)}/cancel` as const;
 		const response = await this.send(
 			mineruUrl(this.config, path),
-			{ method: "DELETE", headers: this.baseHeaders(path) },
+			{ method: "POST", headers: this.baseHeaders(path) },
 			input.signal,
 			this.config.requestTimeoutMs,
 			path,
@@ -443,69 +453,48 @@ export class MineruClient {
 
 		if (response.status === 404 || response.status === 409) {
 			await response.arrayBuffer().catch(() => undefined);
-			return;
+			return null;
 		}
 		if (!response.ok) throw await this.errorFromResponse(response, path);
-
-		const body = await this.readJson(response, path);
-		// Parsed for its shape only; the caller has nothing to do with it.
-		this.parseBody(mineruJobCancelSchema, body, path);
+		return this.parseBody(
+			mineruCancelTaskResponseSchema,
+			await this.readJson(response, path),
+			path,
+		);
 	}
 
 	// -- downloads -----------------------------------------------------------
 
 	/**
-	 * `GET /v1/files/{id}/content`, streamed to disk.
+	 * `GET {result_url}`, streamed to disk: the ZIP of one completed file.
 	 *
-	 * Locally this always streams a 200 as `application/octet-stream` with no
-	 * `Content-Disposition`; a 302 is advertised in the schema and never used,
-	 * so it is followed exactly once, validated as http(s), and the key travels
-	 * with it only when the redirect stays on MinerU's own origin.
+	 * The URL is the server's, so it is followed only on the configured origin
+	 * (S7), key attached there and nowhere else. A redirect is followed at most
+	 * once and only to that origin; anywhere else is refused. The server states
+	 * the size in `Content-Length`: a result that announces more than the cap is
+	 * refused before a byte is read, a stream that outgrows the cap is cut, and a
+	 * stream that is not the length announced is discarded.
 	 *
-	 * Never sniffs the content type: the caller knows what it asked for.
+	 * Never sniffs the content type: the caller knows it asked for a ZIP.
 	 */
 	async downloadFile(input: DownloadFileInput): Promise<{ bytes: number }> {
-		const path =
-			`/v1/files/${encodeURIComponent(input.fileId)}/content` as const;
-
-		// `expectedBytes` is the SERVER's claim about the server's own output.
-		// Taking it as the cap meant the server chose the cap; a lying
-		// `output_files.zip.bytes` could fill the disk while
-		// `MINERU_BUNDLE_MAX_BYTES` — which bounds only what is kept — watched.
-		// A zip larger than the reader will ever open cannot become a parse, so
-		// it is refused here rather than after the bytes have landed.
 		const cap = Math.min(
-			Math.max(
-				input.maxBytes ?? this.config.bundleMaxBytes,
-				input.expectedBytes,
-			),
+			input.maxBytes ?? MINERU_MAX_DOWNLOAD_BYTES,
 			MINERU_MAX_DOWNLOAD_BYTES,
 		);
-		if (input.expectedBytes > cap) {
-			throw new MineruApiError({
-				code: MINERU_CLIENT_ERROR_CODES.downloadTooLarge,
-				message: `MinerU declared a ${input.expectedBytes} byte result, over the ${cap} byte ceiling.`,
-				requestPath: path,
-				details: { cap, expectedBytes: input.expectedBytes },
-			});
-		}
-
-		let response = await this.send(
-			mineruUrl(this.config, path),
-			{
-				method: "GET",
-				headers: this.baseHeaders(path),
-				redirect: "manual",
-			},
-			input.signal,
-			this.config.transferTimeoutMs,
-			path,
-		);
+		let target = this.resolveServerUrl(input.resultUrl, "result");
+		let response = await this.fetchResult(target, input.signal);
 
 		if (isRedirect(response.status)) {
-			response = await this.followDownloadRedirect(response, input, path);
+			target = await this.redirectTarget(response, target);
+			response = await this.fetchResult(target, input.signal);
+			if (isRedirect(response.status)) {
+				await response.arrayBuffer().catch(() => undefined);
+				throw untrustedRedirect("a second redirect", target.pathname);
+			}
 		}
 
+		const path = target.pathname;
 		if (!response.ok) throw await this.errorFromResponse(response, path);
 		if (!response.body) {
 			throw new MineruApiError({
@@ -514,6 +503,17 @@ export class MineruClient {
 				status: response.status,
 				requestPath: path,
 			});
+		}
+
+		// The server says how big the result is before it sends it. Believe it only
+		// to say no: a result that announces more than the reader will ever open
+		// cannot become a parse, so it is refused before a byte moves.
+		const announced = parseContentLength(
+			response.headers.get("content-length"),
+		);
+		if (announced !== null && announced > cap) {
+			await response.body.cancel().catch(() => undefined);
+			throw downloadTooLarge(cap, announced, path);
 		}
 
 		let bytes = 0;
@@ -526,14 +526,7 @@ export class MineruClient {
 					for await (const chunk of source) {
 						const buffer = chunk as Buffer;
 						bytes += buffer.byteLength;
-						if (bytes > cap) {
-							throw new MineruApiError({
-								code: MINERU_CLIENT_ERROR_CODES.downloadTooLarge,
-								message: `MinerU download exceeded ${cap} bytes.`,
-								requestPath: path,
-								details: { cap, expectedBytes: input.expectedBytes },
-							});
-						}
+						if (bytes > cap) throw downloadTooLarge(cap, announced, path);
 						yield buffer;
 					}
 				})(),
@@ -546,15 +539,15 @@ export class MineruClient {
 			throw error;
 		}
 
-		if (bytes !== input.expectedBytes) {
+		if (announced !== null && bytes !== announced) {
 			await rm(input.destinationPathAbsolute, { force: true }).catch(
 				() => undefined,
 			);
 			throw new MineruApiError({
 				code: MINERU_CLIENT_ERROR_CODES.byteCountMismatch,
-				message: `MinerU download was ${bytes} bytes, the job promised ${input.expectedBytes}.`,
+				message: `MinerU download was ${bytes} bytes, the server announced ${announced}.`,
 				requestPath: path,
-				details: { bytes, expectedBytes: input.expectedBytes },
+				details: { bytes, announced },
 			});
 		}
 
@@ -568,7 +561,7 @@ export class MineruClient {
 		return this.fileReader.sha256(filePathAbsolute);
 	}
 
-	/** `stat` only — the size the upload declares and the PUT sends. */
+	/** `stat` only: the size the task declares and the PUT sends. */
 	statFile(filePathAbsolute: string): Promise<{ size: number }> {
 		return this.fileReader.stat(filePathAbsolute);
 	}
@@ -591,78 +584,74 @@ export class MineruClient {
 		headers.set("authorization", `Bearer ${this.config.apiKey}`);
 	}
 
-	private resolveUploadUrl(upload: MineruUpload): string {
-		const raw = upload.upload_url;
-		if (!raw) {
-			throw new MineruApiError({
-				code: MINERU_CLIENT_ERROR_CODES.schemaMismatch,
-				message: "MinerU returned a pending upload without an upload_url.",
-				requestPath: uploadPathFor(upload.id),
-			});
-		}
+	/**
+	 * A URL out of one of MinerU's answers (`upload.url`, `result_url`), resolved
+	 * (a relative one against `MINERU_API_URL`) and refused unless it is plain
+	 * http(s), carries no credentials, and sits on the configured origin (S7).
+	 */
+	private resolveServerUrl(raw: string, kind: "upload" | "result"): URL {
+		const refuse = (what: string) =>
+			untrustedServerUrl(
+				kind === "upload" ? "upload.url" : "result_url",
+				what,
+				kind,
+			);
 
-		// A relative upload_url is resolved against MINERU_API_URL; an absolute
-		// one is taken as-is and then checked. Both end up at the same guard.
 		let resolved: URL;
 		try {
 			resolved = new URL(raw, `${this.config.baseUrl}/`);
 		} catch {
-			throw untrustedUploadUrl(raw, upload.id);
+			throw refuse("not a URL");
 		}
 		if (resolved.protocol !== "http:" && resolved.protocol !== "https:") {
-			throw untrustedUploadUrl(raw, upload.id);
+			throw refuse(resolved.protocol);
+		}
+		if (resolved.username || resolved.password) {
+			throw refuse("credentials in the URL");
 		}
 		if (!isSameMineruOrigin(this.config, resolved.toString())) {
 			// Host only. The path may carry an id; the key is never in here.
 			console.warn(
-				`${LOG_PREFIX} refusing an upload_url on a foreign origin: ${resolved.host}`,
+				`${LOG_PREFIX} refusing a ${kind} URL on a foreign origin: ${resolved.host}`,
 			);
-			throw untrustedUploadUrl(resolved.host, upload.id);
+			throw refuse(resolved.host);
 		}
-		return resolved.toString();
+		return resolved;
 	}
 
-	private async followDownloadRedirect(
-		response: Response,
-		input: DownloadFileInput,
-		path: string,
-	): Promise<Response> {
+	private fetchResult(target: URL, signal: AbortSignal): Promise<Response> {
+		const headers = new Headers({ accept: "application/zip" });
+		this.applyAuth(headers, target.toString());
+		return this.send(
+			target.toString(),
+			{ method: "GET", headers, redirect: "manual" },
+			signal,
+			this.config.transferTimeoutMs,
+			target.pathname,
+		);
+	}
+
+	/** Where a redirect points, if (and only if) that is the configured origin. */
+	private async redirectTarget(response: Response, from: URL): Promise<URL> {
 		const location = response.headers.get("location");
 		await response.arrayBuffer().catch(() => undefined);
-		if (!location) {
-			throw new MineruApiError({
-				code: MINERU_CLIENT_ERROR_CODES.untrustedRedirect,
-				message: "MinerU redirected a download without a Location header.",
-				status: response.status,
-				requestPath: path,
-			});
-		}
+		if (!location) throw untrustedRedirect("no Location header", from.pathname);
 
 		let target: URL;
 		try {
-			target = new URL(
-				location,
-				mineruUrl(this.config, path as `/v1/${string}`),
-			);
+			target = new URL(location, from);
 		} catch {
-			throw untrustedRedirect(location, path);
+			throw untrustedRedirect("not a URL", from.pathname);
 		}
-		if (target.protocol !== "http:" && target.protocol !== "https:") {
-			throw untrustedRedirect(target.protocol, path);
+		if (
+			(target.protocol !== "http:" && target.protocol !== "https:") ||
+			target.username ||
+			target.password ||
+			!isSameMineruOrigin(this.config, target.toString())
+		) {
+			throw untrustedRedirect(target.host || target.protocol, from.pathname);
 		}
-
-		// Cross-origin is allowed for a download — the bytes are public — but the
-		// key stays behind. `applyAuth` already refuses to attach it.
-		const headers = new Headers({ accept: "application/octet-stream" });
-		this.applyAuth(headers, target.toString());
-
-		return this.send(
-			target.toString(),
-			{ method: "GET", headers, redirect: "error" },
-			input.signal,
-			this.config.transferTimeoutMs,
-			path,
-		);
+		return target;
 	}
 
 	private async requestJson(options: RequestOptions): Promise<unknown> {
@@ -781,13 +770,17 @@ export class MineruClient {
 // ---------------------------------------------------------------------------
 
 /**
- * The name sent upstream is the DISPLAY name only.
+ * The name sent upstream is a NAME, never a path.
  *
  * `data/knowledge/<userId>/<uuid>.pdf` would otherwise travel to the server,
- * appear in its logs, and come back in `files[].name` — leaking a local layout
- * and a user id for no benefit at all.
+ * appear in its logs, and come back in `files[].file_name`: a leaked local
+ * layout and a user id for no benefit at all. 4.1 rejects `/`, `\`, `:` and
+ * control characters outright (D18), so those are dropped rather than sent to
+ * be refused, and an over-long name keeps its extension, which is what MinerU
+ * routes by. Callers are expected to pass `document.<ext>` (S3); this is the
+ * floor under that, not a substitute for it.
  */
-export function uploadFilename(name: string): string {
+function taskFileName(name: string): string {
 	const base = name.split(/[\\/]/).pop() ?? "";
 	// Control characters are dropped by code point rather than by a regex
 	// range: a CR or LF in a filename is how a log line or a header gets
@@ -795,34 +788,64 @@ export function uploadFilename(name: string): string {
 	const cleaned = Array.from(base)
 		.filter((character) => {
 			const code = character.codePointAt(0) ?? 0;
-			return code > 0x1f && code !== 0x7f;
+			return code > 0x1f && code !== 0x7f && character !== ":";
 		})
 		.join("")
 		.trim();
-	return cleaned.length > 0 ? cleaned.slice(0, 255) : "document";
+	if (cleaned.length === 0) return "document";
+	if (cleaned.length <= MAX_TASK_FILE_NAME_LENGTH) return cleaned;
+	const dot = cleaned.lastIndexOf(".");
+	const extension =
+		dot > 0 && cleaned.length - dot <= 16 ? cleaned.slice(dot) : "";
+	return `${cleaned.slice(0, MAX_TASK_FILE_NAME_LENGTH - extension.length)}${extension}`;
 }
 
-function uploadPathFor(uploadId: string): string {
-	return `/v1/uploads/${uploadId}/content`;
+function taskPath(taskId: string): `/v1/tasks/${string}` {
+	return `/v1/tasks/${encodeURIComponent(taskId)}`;
 }
 
-function untrustedUploadUrl(
-	hostOrUrl: string,
-	uploadId: string,
+function untrustedServerUrl(
+	field: string,
+	what: string,
+	kind: "upload" | "result",
 ): MineruApiError {
 	return new MineruApiError({
-		code: MINERU_CLIENT_ERROR_CODES.untrustedUploadUrl,
-		message: `MinerU returned an upload_url this client will not use (${hostOrUrl}).`,
-		requestPath: uploadPathFor(uploadId),
+		code:
+			kind === "upload"
+				? MINERU_CLIENT_ERROR_CODES.untrustedUploadUrl
+				: MINERU_CLIENT_ERROR_CODES.untrustedResultUrl,
+		message: `MinerU returned a ${field} this client will not use (${what}).`,
 	});
 }
 
-function untrustedRedirect(target: string, path: string): MineruApiError {
+function untrustedRedirect(what: string, path: string): MineruApiError {
 	return new MineruApiError({
 		code: MINERU_CLIENT_ERROR_CODES.untrustedRedirect,
-		message: `MinerU redirected a download somewhere this client will not follow (${target}).`,
+		message: `MinerU redirected ${path} somewhere this client will not follow (${what}).`,
 		requestPath: path,
 	});
+}
+
+function downloadTooLarge(
+	cap: number,
+	announced: number | null,
+	path: string,
+): MineruApiError {
+	return new MineruApiError({
+		code: MINERU_CLIENT_ERROR_CODES.downloadTooLarge,
+		message:
+			announced !== null && announced > cap
+				? `MinerU announced a ${announced} byte result, over the ${cap} byte ceiling.`
+				: `MinerU download exceeded ${cap} bytes.`,
+		requestPath: path,
+		details: { cap, announced },
+	});
+}
+
+/** A Content-Length that is a plain non-negative integer, else null. */
+function parseContentLength(header: string | null): number | null {
+	if (header === null || !/^\d+$/.test(header.trim())) return null;
+	return Number(header.trim());
 }
 
 function isRedirect(status: number): boolean {

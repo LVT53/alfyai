@@ -1,20 +1,26 @@
 /**
- * The client against reality, twice over.
+ * The 4.1 client against reality, twice over.
  *
- *  1. **Replay** — the recorded fixtures are handed back through an injected
- *     `fetchImpl`, and the REQUESTS the client made are asserted field by
- *     field. This is where "no page_range, no callback, no `tier: null`, no
- *     `ocr_mode: null`" is proven.
- *  2. **The fake V1 server** — real HTTP on an ephemeral port, with the
- *     scripted behaviours the spike recorded: sha dedupe, a 200 for the wrong
- *     bytes, a hash mismatch that only appears at `complete`, a 202 for an
- *     unknown file id, a restart that forgets every identifier while the bytes
- *     survive, cancels, redirects and downloads.
+ *  1. **Replay**: the captured answers are handed back through an injected
+ *     `fetchImpl`, and the REQUESTS the client made are asserted field by field.
+ *     This is where S5's never-send list is proven (no `page_range`, no
+ *     `include_model_output`, no `client_file_id`, no nulls, only
+ *     `output_formats: ["default"]`) and where S7 is proven (the key goes to the
+ *     configured origin and nowhere else).
+ *  2. **The fake 4.1 server**: real HTTP on an ephemeral port, with the
+ *     behaviours the spike recorded: the hash cache, a restart that forgets
+ *     every id and the cache, a cancel that keeps finished files, FastAPI's
+ *     404 for a server that does not speak /v1/tasks.
  */
 
-import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -26,17 +32,23 @@ import {
 } from "./capabilities";
 import { MineruClient } from "./client";
 import type { MineruConfig } from "./config";
-import { MineruApiError, mapMineruError, mapMineruJobFailure } from "./errors";
-import type { MineruUpload } from "./schemas";
+import {
+	isMineruForgottenIdError,
+	MineruApiError,
+	mapMineruError,
+	mapMineruTaskFailure,
+} from "./errors";
+import type { MineruCreateTaskResponse, MineruUploadLink } from "./schemas";
 import {
 	createFakeMineruServer,
 	type FakeMineruServer,
 	type FakeMineruServerOptions,
-	MINERU_FIXTURE_ROOT,
-	readMineruFixtureJson,
+	MINERU_PROTOCOL_FIXTURE_ROOT,
+	readMineruProtocolFixture,
 } from "./testing/fake-server";
 
-const RECORDED_ORIGIN = "http://127.0.0.1:8765";
+/** The origin the captured URLs name: a client configured for it is "same origin". */
+const RECORDED_ORIGIN = "http://127.0.0.1:8012";
 
 function testConfig(patch: Partial<MineruConfig> = {}): MineruConfig {
 	return {
@@ -62,6 +74,7 @@ interface RecordedCall {
 	method: string;
 	headers: Record<string, string>;
 	body: unknown;
+	redirect: RequestRedirect | undefined;
 }
 
 function scriptedFetch(
@@ -85,6 +98,7 @@ function scriptedFetch(
 			method: init?.method ?? "GET",
 			headers: Object.fromEntries(headers.entries()),
 			body,
+			redirect: init?.redirect,
 		};
 		calls.push(call);
 		return handler(call);
@@ -92,8 +106,36 @@ function scriptedFetch(
 	return { fetchImpl, calls };
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
-	return new Response(JSON.stringify(body), {
+interface Recorded {
+	request: { path: string; json?: unknown };
+	response: {
+		status: number;
+		headers?: Record<string, string>;
+		json?: unknown;
+	};
+	snapshot?: unknown;
+}
+
+/** A captured answer, replayed as a `Response`. */
+function replay(name: string): Response {
+	const recorded = readMineruProtocolFixture<Recorded>(name);
+	const body = recorded.snapshot ?? recorded.response.json;
+	return new Response(body === undefined ? null : JSON.stringify(body), {
+		status: recorded.response?.status ?? 200,
+		headers: { "content-type": "application/json" },
+	});
+}
+
+function body(name: string): Record<string, unknown> {
+	const recorded = readMineruProtocolFixture<Recorded>(name);
+	return (recorded.snapshot ?? recorded.response.json) as Record<
+		string,
+		unknown
+	>;
+}
+
+function jsonResponse(payload: unknown, status = 200): Response {
+	return new Response(JSON.stringify(payload), {
 		status,
 		headers: { "content-type": "application/json" },
 	});
@@ -108,159 +150,371 @@ function tempDir(): string {
 	return dir;
 }
 
+/** The upload link of a create receipt that is waiting for bytes. */
+function uploadOf(receipt: MineruCreateTaskResponse): MineruUploadLink {
+	const upload = receipt.files[0]?.upload;
+	if (!upload) throw new Error("the receipt has no upload link");
+	return upload;
+}
+
+/** A file of known bytes to upload. */
+function sampleFile(content = "a,b\n1,2\n"): { path: string; bytes: number } {
+	const path = join(tempDir(), "document.csv");
+	writeFileSync(path, content);
+	return { path, bytes: Buffer.byteLength(content) };
+}
+
 afterEach(() => {
+	for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
 	tempDirs = [];
 });
 
+const DOCX = {
+	fileName: "report.docx",
+	bytes: 50722,
+	sha256sum: "99b17c29720ed689fba92e692706bfa9aa5a82ef4ed1aea5b04d5269b2318885",
+};
+
 // ---------------------------------------------------------------------------
-// 1. Replaying the recorded sequences
+// 1. Replaying the captured sequences
 // ---------------------------------------------------------------------------
 
-describe("recorded sequence — the PDF dedupe path", () => {
-	it("skips the PUT and the complete when the sha is already known", async () => {
-		const upload = readMineruFixtureJson<MineruUpload>(
-			"pdf/upload.create.json",
+describe("createTask", () => {
+	it("sends the recorded manifest, plus the one output format it ever asks for", async () => {
+		const recorded = readMineruProtocolFixture<Recorded>(
+			"samples/docx-default/01_create.json",
 		);
-		const { fetchImpl, calls } = scriptedFetch((call) => {
-			if (call.url.endsWith("/v1/uploads")) return jsonResponse(upload);
-			throw new Error(`unexpected call: ${call.method} ${call.url}`);
-		});
-
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("samples/docx-default/01_create.json"),
+		);
 		const client = new MineruClient({ config: testConfig(), fetchImpl });
-		const created = await client.createUpload({
-			filename: "sample.pdf",
-			bytes: 6727,
-			mimeType: "application/pdf",
-			sha256sum:
-				"5637ad7a417669669f181aec769fa3ac3a392285f1b9c222830337360a2f42bd",
-			signal: never,
-		});
 
-		expect(created.status).toBe("completed");
-		expect(created.file?.id).toBe("file-10c3b409b0ab0e3b7da5fc00");
+		const receipt = await client.createTask({ ...DOCX, signal: never });
+
 		expect(calls).toHaveLength(1);
+		expect(calls[0]?.method).toBe("POST");
+		expect(calls[0]?.url).toBe(`${RECORDED_ORIGIN}/v1/tasks`);
+		expect(calls[0]?.headers["content-type"]).toBe("application/json");
+		// What the spike sent, and S5's output_formats: ["default"], nothing else.
 		expect(calls[0]?.body).toEqual({
-			filename: "sample.pdf",
-			bytes: 6727,
-			mime_type: "application/pdf",
-			purpose: "parse",
-			sha256sum:
-				"5637ad7a417669669f181aec769fa3ac3a392285f1b9c222830337360a2f42bd",
+			...(recorded.request.json as object),
+			output_formats: ["default"],
 		});
+		expect(receipt.status).toBe("waiting-file");
+		expect(receipt.files[0]?.upload?.url).toContain("/uploads/");
 	});
 
-	it("creates the job with the exact recorded body, then polls and downloads", async () => {
-		const created = readMineruFixtureJson("pdf/job.create.json");
-		const final = readMineruFixtureJson("pdf/job.final.json");
-		const zip = readFileSync(join(MINERU_FIXTURE_ROOT, "pdf", "result.zip"));
-
-		const { fetchImpl, calls } = scriptedFetch((call) => {
-			if (call.url.endsWith("/v1/parse/jobs"))
-				return jsonResponse(created, 202);
-			if (call.url.includes("/v1/parse/jobs/")) return jsonResponse(final);
-			if (call.url.includes("/content")) {
-				return new Response(zip, {
-					headers: {
-						"content-type": "application/octet-stream",
-						"content-length": String(zip.byteLength),
-					},
-				});
-			}
-			throw new Error(`unexpected call: ${call.url}`);
-		});
-
+	it("hands back a cache hit as it is: pending, and no upload object", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			replay("flows/hash-cache/B_same_hash_same_name_create.json"),
+		);
 		const client = new MineruClient({ config: testConfig(), fetchImpl });
-		const job = await client.createJob({
-			fileId: "file-10c3b409b0ab0e3b7da5fc00",
-			tier: "basic",
-			outputFormats: ["markdown", "middle_json", "structured_content", "zip"],
+		const receipt = await client.createTask({
+			fileName: "cache-a.pdf",
+			bytes: 241697,
+			sha256sum:
+				"af87e5eeed1711d725c91dbe909ada044ddd25d8878949df9f01fbd327cf0c40",
 			signal: never,
 		});
-		expect(job.status).toBe("queued");
-		expect(calls[0]?.body).toEqual({
-			files: [
-				{
-					source: {
-						type: "file_id",
-						file_id: "file-10c3b409b0ab0e3b7da5fc00",
-					},
-				},
-			],
-			output_formats: ["markdown", "middle_json", "structured_content", "zip"],
-			tier: "basic",
-		});
+		expect(receipt.status).toBe("pending");
+		expect(receipt.files[0]?.upload).toBeUndefined();
+	});
 
-		const terminal = await client.pollJob({ jobId: job.job_id, signal: never });
-		expect(terminal.status).toBe("completed");
-		expect(mapMineruJobFailure(terminal)).toBeNull();
-
-		const zipRef = terminal.files[0]?.output_files?.zip;
-		expect(zipRef).toBeTruthy();
-		const destination = join(tempDir(), "result.zip");
-		const { bytes } = await client.downloadFile({
-			fileId: zipRef?.file_id as string,
-			destinationPathAbsolute: destination,
-			expectedBytes: zipRef?.bytes as number,
+	it("sends the tier and the OCR mode only when it is given them", async () => {
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("samples/docx-default/01_create.json"),
+		);
+		const client = new MineruClient({ config: testConfig(), fetchImpl });
+		await client.createTask({ ...DOCX, signal: never });
+		await client.createTask({
+			...DOCX,
+			tier: "standard",
+			ocrMode: "ocr",
 			signal: never,
 		});
-		expect(bytes).toBe(71547);
-		expect((await stat(destination)).size).toBe(71547);
-		expect(await readFile(destination)).toEqual(zip);
+		expect(Object.keys(calls[0]?.body as object).sort()).toEqual([
+			"files",
+			"output_formats",
+		]);
+		expect(calls[1]?.body).toMatchObject({ tier: "standard", ocr_mode: "ocr" });
+	});
+
+	it("never sends what S5 forbids, whatever it is given", async () => {
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("samples/docx-default/01_create.json"),
+		);
+		const client = new MineruClient({ config: testConfig(), fetchImpl });
+
+		// Every shape createTask can produce: with and without each optional key.
+		for (const tier of [undefined, "flash", "basic", "standard"] as const) {
+			for (const ocrMode of [undefined, "txt", "ocr"] as const) {
+				await client.createTask({ ...DOCX, tier, ocrMode, signal: never });
+			}
+		}
+		// And what a caller that ignores the types could hand it: nulls, and a
+		// field the 4.0 protocol had.
+		await client.createTask({
+			...DOCX,
+			tier: null,
+			ocrMode: null,
+			page_range: "1-3",
+			include_model_output: true,
+			client_file_id: "c1",
+			file_id: "f1",
+			output_formats: ["markdown", "zip"],
+			signal: never,
+		} as never);
+
+		expect(calls).toHaveLength(13);
+		for (const call of calls) {
+			const sent = call.body as {
+				files: Array<Record<string, unknown>>;
+				output_formats: unknown;
+			} & Record<string, unknown>;
+			// Top level: the manifest, the format, and optionally tier and ocr_mode.
+			expect(
+				Object.keys(sent).filter(
+					(key) =>
+						!["files", "output_formats", "tier", "ocr_mode"].includes(key),
+				),
+			).toEqual([]);
+			expect(sent.output_formats).toEqual(["default"]);
+			expect(sent.files).toHaveLength(1);
+			expect(Object.keys(sent.files[0] ?? {}).sort()).toEqual([
+				"bytes",
+				"file_name",
+				"sha256sum",
+			]);
+			// No null anywhere: ocr_mode:null, page_range:null and tier:null are 400s
+			// or traps (D19), and "omitted" is the only way to say "you decide".
+			expect(JSON.stringify(call.body)).not.toContain("null");
+			for (const forbidden of [
+				"include_model_output",
+				"page_range",
+				"client_file_id",
+				"file_id",
+				"callback",
+			]) {
+				expect(JSON.stringify(call.body)).not.toContain(forbidden);
+			}
+		}
+		// Three tiers (and none) by three modes (and none) = 12, +1 for the sloppy caller.
+		expect(
+			calls.filter((call) => "tier" in (call.body as object)),
+		).toHaveLength(9);
+		expect(
+			calls.filter((call) => "ocr_mode" in (call.body as object)),
+		).toHaveLength(8);
+	});
+
+	it("has none of S5's names in the protocol source", () => {
+		const source = readFileSync(join(__dirname, "client.ts"), "utf8");
+		// Comments explain why they are never sent; code must not name them.
+		const code = source
+			.split("\n")
+			.filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line))
+			.join("\n");
+		for (const forbidden of [
+			"include_model_output",
+			"page_range",
+			"client_file_id",
+			"file_id",
+			"callback",
+		]) {
+			expect(code, forbidden).not.toContain(forbidden);
+		}
+	});
+
+	it("sends a name, never a path: directories, control characters and colons are dropped", async () => {
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("samples/docx-default/01_create.json"),
+		);
+		const client = new MineruClient({ config: testConfig(), fetchImpl });
+		const sentName = async (fileName: string) => {
+			await client.createTask({ ...DOCX, fileName, signal: never });
+			const files = (
+				calls.at(-1)?.body as { files: Array<{ file_name: string }> }
+			).files;
+			return files[0]?.file_name;
+		};
+
+		expect(await sentName("/Users/someone/data/knowledge/u-1/9f2c.pdf")).toBe(
+			"9f2c.pdf",
+		);
+		expect(await sentName("C:\\Users\\someone\\9f2c.pdf")).toBe("9f2c.pdf");
+		expect(await sentName("a:b\nc.pdf")).toBe("abc.pdf");
+		expect(await sentName("  document.docx  ")).toBe("document.docx");
+		expect(await sentName("../../etc/passwd")).toBe("passwd");
+		expect(await sentName("")).toBe("document");
+		expect(await sentName("///")).toBe("document");
+		// 4.1 allows 1024 characters; more is cut, not rejected.
+		const cut = await sentName(`${"a".repeat(2000)}.pdf`);
+		expect(cut?.length).toBe(1024);
+		expect(cut?.endsWith(".pdf")).toBe(true);
+		// A name 4.1 accepts byte for byte is left alone, accents included.
+		expect(await sentName("Árvíztűrő jelentés.pdf")).toBe(
+			"Árvíztűrő jelentés.pdf",
+		);
+	});
+
+	it("sends the key, as a Bearer token, on the configured origin", async () => {
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("samples/docx-default/01_create.json"),
+		);
+		await new MineruClient({
+			config: testConfig({ apiKey: "testkey" }),
+			fetchImpl,
+		}).createTask({ ...DOCX, signal: never });
+		expect(calls[0]?.headers.authorization).toBe("Bearer testkey");
+
+		const anonymous = scriptedFetch(() =>
+			replay("samples/docx-default/01_create.json"),
+		);
+		await new MineruClient({
+			config: testConfig(),
+			fetchImpl: anonymous.fetchImpl,
+		}).createTask({ ...DOCX, signal: never });
+		expect(anonymous.calls[0]?.headers.authorization).toBeUndefined();
+	});
+
+	it("does not retry a creation: it is not idempotent, and a lost 202 cannot be found again", async () => {
+		const { fetchImpl, calls } = scriptedFetch(
+			() => new Response("gateway", { status: 502 }),
+		);
+		const client = new MineruClient({ config: testConfig(), fetchImpl });
+		const error = await client
+			.createTask({ ...DOCX, signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect(error).toBeInstanceOf(MineruApiError);
+		expect(calls).toHaveLength(1);
+	});
+
+	it("refuses a receipt that does not hold exactly the one file it asked for", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			replay("flows/partial-and-file-terminal/01_create.json"),
+		);
+		const client = new MineruClient({ config: testConfig(), fetchImpl });
+		const error = await client
+			.createTask({ ...DOCX, signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe("client_schema_mismatch");
 	});
 });
 
-describe("recorded sequence — the fresh DOCX path", () => {
-	it("PUTs to the recorded upload_url and completes with the sha", async () => {
-		const pending = readMineruFixtureJson<MineruUpload>(
-			"docx/upload.create.json",
-		);
-		const completed = readMineruFixtureJson<MineruUpload>(
-			"docx/upload.complete.json",
-		);
-		const sample = join(MINERU_FIXTURE_ROOT, "docx", "sample.docx");
+describe("putTaskFile", () => {
+	const recordedUpload = () => {
+		const receipt = body("samples/docx-default/01_create.json") as {
+			files: Array<{
+				upload: {
+					url: string;
+					headers: Record<string, string>;
+					expires_at: number;
+				};
+			}>;
+		};
+		return receipt.files[0]?.upload as {
+			url: string;
+			headers: Record<string, string>;
+			expires_at: number;
+		};
+	};
 
-		const { fetchImpl, calls } = scriptedFetch((call) => {
-			if (call.method === "PUT") {
-				// 200, EMPTY body, no content-type — and a 200 even for wrong bytes.
-				return new Response(null, { status: 200 });
-			}
-			if (call.url.endsWith("/complete")) return jsonResponse(completed);
-			return jsonResponse(pending);
-		});
-
+	it("PUTs the bytes to the recorded link with the receipt's headers and the file's size", async () => {
+		const file = sampleFile("x".repeat(777));
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("samples/docx-default/02_put_0.json"),
+		);
 		const client = new MineruClient({
 			config: testConfig({ apiKey: "testkey" }),
 			fetchImpl,
 		});
 
-		await client.putUploadContent({
-			upload: pending,
-			filePathAbsolute: sample,
+		const receipt = await client.putTaskFile({
+			upload: recordedUpload(),
+			filePathAbsolute: file.path,
 			signal: never,
 		});
+
+		expect(calls).toHaveLength(1);
 		const put = calls[0];
 		expect(put?.method).toBe("PUT");
-		expect(put?.url).toBe(pending.upload_url);
-		expect(put?.headers["content-length"]).toBe(
-			String((await stat(sample)).size),
-		);
-		expect(put?.headers["content-type"]).toContain("wordprocessingml");
-		// Same origin as MINERU_API_URL, so the key travels.
+		expect(put?.url).toBe(recordedUpload().url);
+		expect(put?.headers["content-type"]).toBe("application/octet-stream");
+		expect(put?.headers["content-length"]).toBe("777");
+		// Same origin as MINERU_API_URL, so the key travels (D10: the PUT is keyed).
 		expect(put?.headers.authorization).toBe("Bearer testkey");
-
-		const done = await client.completeUpload({
-			uploadId: pending.id,
-			sha256sum: pending.sha256sum as string,
-			signal: never,
+		// A streamed body, and a redirect is never followed with the bytes.
+		expect(put?.body).toBe("<stream>");
+		expect(put?.redirect).toBe("manual");
+		expect(receipt).toEqual({
+			task_id: "job_e25a30af18058622cc7715c7",
+			file_id: "file-57ecb6bbc422eb333d3d3fc5",
+			status: "pending",
 		});
-		expect(done.file?.id).toBe("file-b8425a8a38ec4d53b1985365");
-		expect(calls[1]?.body).toEqual({ sha256sum: pending.sha256sum });
 	});
 
-	it("refuses an upload_url on a foreign origin, before sending a byte", async () => {
-		const pending = readMineruFixtureJson<MineruUpload>(
-			"docx/upload.create.json",
+	it("uses the receipt's headers verbatim, but not the ones the transport owns", async () => {
+		const file = sampleFile("0123456789");
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("samples/docx-default/02_put_0.json"),
 		);
+		const upload = {
+			...recordedUpload(),
+			headers: {
+				"Content-Type": "application/x-special",
+				"X-Upload-Token": "abc",
+				Authorization: "Bearer attacker",
+				"Content-Length": "5",
+				Host: "evil.example",
+				Cookie: "a=b",
+			},
+		};
+		await new MineruClient({
+			config: testConfig({ apiKey: "testkey" }),
+			fetchImpl,
+		}).putTaskFile({ upload, filePathAbsolute: file.path, signal: never });
+		const headers = calls[0]?.headers ?? {};
+		expect(headers["content-type"]).toBe("application/x-special");
+		expect(headers["x-upload-token"]).toBe("abc");
+		// Ours, not the server's.
+		expect(headers.authorization).toBe("Bearer testkey");
+		expect(headers["content-length"]).toBe("10");
+		expect(headers.cookie).toBeUndefined();
+		expect(headers.host).not.toBe("evil.example");
+
+		// With no key configured the server still cannot write our credentials.
+		await new MineruClient({ config: testConfig(), fetchImpl }).putTaskFile({
+			upload,
+			filePathAbsolute: file.path,
+			signal: never,
+		});
+		expect(calls[1]?.headers.authorization).toBeUndefined();
+	});
+
+	it("falls back to an octet-stream content type when the receipt names none", async () => {
+		const file = sampleFile();
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("samples/docx-default/02_put_0.json"),
+		);
+		await new MineruClient({ config: testConfig(), fetchImpl }).putTaskFile({
+			upload: { ...recordedUpload(), headers: {} },
+			filePathAbsolute: file.path,
+			signal: never,
+		});
+		expect(calls[0]?.headers["content-type"]).toBe("application/octet-stream");
+	});
+
+	it.each([
+		["a foreign origin", "http://attacker.example/v1/steal"],
+		["another port on our host", "http://127.0.0.1:9999/v1/tasks/x/uploads/y"],
+		["another scheme", "https://127.0.0.1:8012/v1/tasks/x/uploads/y"],
+		[
+			"a URL with credentials",
+			"http://user:pass@127.0.0.1:8012/v1/tasks/x/uploads/y",
+		],
+		["a file URL", "file:///etc/passwd"],
+		["an unparseable URL", "http://"],
+	])("refuses an upload.url on %s, before sending a byte (S7)", async (_label, url) => {
 		const { fetchImpl, calls } = scriptedFetch(() => {
 			throw new Error("the client must not have sent anything");
 		});
@@ -270,15 +524,18 @@ describe("recorded sequence — the fresh DOCX path", () => {
 		});
 
 		const error = await client
-			.putUploadContent({
-				upload: { ...pending, upload_url: "http://attacker.example/v1/steal" },
-				filePathAbsolute: join(MINERU_FIXTURE_ROOT, "docx", "sample.docx"),
+			.putTaskFile({
+				upload: { ...recordedUpload(), url },
+				filePathAbsolute: sampleFile().path,
 				signal: never,
 			})
 			.catch((caught) => caught as MineruApiError);
 
 		expect(calls).toHaveLength(0);
 		expect(error).toBeInstanceOf(MineruApiError);
+		expect((error as MineruApiError).code).toBe(
+			"protocol_untrusted_upload_url",
+		);
 		expect((error as MineruApiError).message).not.toContain("testkey");
 		const mapping = mapMineruError(error);
 		expect(mapping.taxonomy).toBe("protocol");
@@ -286,99 +543,592 @@ describe("recorded sequence — the fresh DOCX path", () => {
 		expect(mapping.retryable).toBe(false);
 	});
 
-	it("resolves a RELATIVE upload_url against MINERU_API_URL", async () => {
-		const pending = readMineruFixtureJson<MineruUpload>(
-			"docx/upload.create.json",
+	it("resolves a RELATIVE upload.url against MINERU_API_URL", async () => {
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("samples/docx-default/02_put_0.json"),
 		);
-		const { fetchImpl, calls } = scriptedFetch(
-			() => new Response(null, { status: 200 }),
-		);
-		const client = new MineruClient({ config: testConfig(), fetchImpl });
-		await client.putUploadContent({
-			upload: { ...pending, upload_url: "/v1/uploads/upload_x/content" },
-			filePathAbsolute: join(MINERU_FIXTURE_ROOT, "csv", "sample.csv"),
+		await new MineruClient({ config: testConfig(), fetchImpl }).putTaskFile({
+			upload: { ...recordedUpload(), url: "/v1/tasks/job_x/uploads/file-y" },
+			filePathAbsolute: sampleFile().path,
 			signal: never,
 		});
 		expect(calls[0]?.url).toBe(
-			`${RECORDED_ORIGIN}/v1/uploads/upload_x/content`,
+			`${RECORDED_ORIGIN}/v1/tasks/job_x/uploads/file-y`,
 		);
+	});
+
+	it("does not follow a redirect with the bytes: it refuses it", async () => {
+		const { fetchImpl, calls } = scriptedFetch(
+			() =>
+				new Response(null, {
+					status: 307,
+					headers: { location: "http://attacker.example/steal" },
+				}),
+		);
+		const error = await new MineruClient({
+			config: testConfig({ apiKey: "testkey" }),
+			fetchImpl,
+		})
+			.putTaskFile({
+				upload: recordedUpload(),
+				filePathAbsolute: sampleFile().path,
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect(calls).toHaveLength(1);
+		expect((error as MineruApiError).code).toBe("protocol_untrusted_redirect");
+	});
+
+	it("surfaces a wrong-size PUT as the recorded upload_size_mismatch, retryable", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			replay("errors/107_upload_size_short_by_one.json"),
+		);
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.putTaskFile({
+				upload: recordedUpload(),
+				filePathAbsolute: sampleFile().path,
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).status).toBe(400);
+		expect((error as MineruApiError).code).toBe("upload_size_mismatch");
+		expect(mapMineruError(error).retryable).toBe(true);
 	});
 });
 
-describe("the request bodies this client can emit", () => {
-	it("never sends page_range, callback, tier:null or ocr_mode:null", async () => {
-		const { fetchImpl, calls } = scriptedFetch((call) => {
-			if (call.url.endsWith("/v1/parse/jobs")) {
-				return jsonResponse(readMineruFixtureJson("pdf/job.create.json"), 202);
-			}
-			return jsonResponse(readMineruFixtureJson("pdf/upload.create.json"));
-		});
-		const client = new MineruClient({ config: testConfig(), fetchImpl });
-
-		// Every shape createJob can produce: with and without each optional key.
-		for (const tier of [undefined, "flash", "basic"] as const) {
-			for (const ocrMode of [undefined, "txt", "ocr"] as const) {
-				await client.createJob({
-					fileId: "file-1",
-					tier,
-					ocrMode,
-					outputFormats: ["markdown", "zip"],
-					signal: never,
-				});
-			}
-		}
-
-		for (const call of calls) {
-			const body = call.body as Record<string, unknown>;
-			expect(Object.keys(body)).not.toContain("page_range");
-			expect(Object.keys(body)).not.toContain("callback");
-			if ("tier" in body) expect(body.tier).not.toBeNull();
-			if ("ocr_mode" in body) expect(body.ocr_mode).not.toBeNull();
-			expect(JSON.stringify(body)).not.toContain("page_range");
-		}
-		// Three tiers × three ocr modes, and the key is absent when undefined.
-		expect(
-			calls.filter((call) => "tier" in (call.body as object)),
-		).toHaveLength(6);
-		expect(
-			calls.filter((call) => "ocr_mode" in (call.body as object)),
-		).toHaveLength(6);
-	});
-
-	it("has no page_range or callback anywhere in the protocol source", () => {
-		for (const file of ["client.ts", "tier-policy.ts"]) {
-			const source = readFileSync(join(__dirname, file), "utf8");
-			// Comments explain why they are never sent; code must not name them.
-			const code = source
-				.split("\n")
-				.filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line))
-				.join("\n");
-			expect(code).not.toContain("page_range");
-			expect(code).not.toContain("callback");
-		}
-	});
-
-	it("sends the display name only, never a local path", async () => {
+describe("getTask and pollTask", () => {
+	it("reads a snapshot from /v1/tasks/{id}", async () => {
 		const { fetchImpl, calls } = scriptedFetch(() =>
-			jsonResponse(readMineruFixtureJson("pdf/upload.create.json")),
+			replay("samples/docx-default/03_poll_02_completed.json"),
 		);
-		const client = new MineruClient({ config: testConfig(), fetchImpl });
-		await client.createUpload({
-			filename: "/Users/someone/data/knowledge/u-1/9f2c.pdf",
-			bytes: 10,
-			mimeType: "application/pdf",
-			sha256sum: "a".repeat(64),
+		const task = await new MineruClient({
+			config: testConfig(),
+			fetchImpl,
+		}).getTask({ taskId: "job_e25a30af18058622cc7715c7", signal: never });
+		expect(calls[0]?.method).toBe("GET");
+		expect(calls[0]?.url).toBe(
+			`${RECORDED_ORIGIN}/v1/tasks/job_e25a30af18058622cc7715c7`,
+		);
+		expect(task.status).toBe("completed");
+		expect(task.files[0]?.result_url).toContain("/content");
+	});
+
+	it("encodes the task id into the path", async () => {
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("errors/101_get_task_weird_id_slash.json"),
+		);
+		await new MineruClient({ config: testConfig(), fetchImpl })
+			.getTask({ taskId: "job_a/b", signal: never })
+			.catch(() => undefined);
+		expect(calls[0]?.url).toBe(`${RECORDED_ORIGIN}/v1/tasks/job_a%2Fb`);
+	});
+
+	it("polls through running to the terminal snapshot and reports every poll", async () => {
+		const sequence = [
+			"samples/docx-default/03_poll_01_running.json",
+			"samples/docx-default/03_poll_01_running.json",
+			"samples/docx-default/03_poll_02_completed.json",
+		];
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay(sequence[calls.length - 1] as string),
+		);
+		const seen: string[] = [];
+		const task = await new MineruClient({
+			config: testConfig(),
+			fetchImpl,
+		}).pollTask({
+			taskId: "job_e25a30af18058622cc7715c7",
+			signal: never,
+			onPoll: (snapshot) => seen.push(snapshot.status),
+		});
+		expect(task.status).toBe("completed");
+		expect(seen).toEqual(["running", "running", "completed"]);
+		expect(calls).toHaveLength(3);
+		expect(mapMineruTaskFailure(task)).toBeNull();
+	});
+
+	it("stops on every terminal status, partial and canceled included", async () => {
+		for (const [name, status] of [
+			["flows/partial-and-file-terminal/snapshot_02_partial.json", "partial"],
+			["samples/pdf-corrupt-truncated/03_poll_02_failed.json", "failed"],
+			["flows/cancel-running/11_get_after_cancel.json", "canceled"],
+		] as const) {
+			const { fetchImpl, calls } = scriptedFetch(() => replay(name));
+			const task = await new MineruClient({
+				config: testConfig(),
+				fetchImpl,
+			}).pollTask({
+				taskId: "job_x",
+				signal: never,
+			});
+			expect(task.status).toBe(status);
+			expect(calls, name).toHaveLength(1);
+		}
+	});
+
+	it("keeps polling a task that is still waiting for bytes", async () => {
+		let polls = 0;
+		const { fetchImpl } = scriptedFetch(() => {
+			polls += 1;
+			return polls < 3
+				? replay(
+						"flows/partial-and-file-terminal/06_get_before_good_upload.json",
+					)
+				: replay("samples/docx-default/03_poll_02_completed.json");
+		});
+		const task = await new MineruClient({
+			config: testConfig(),
+			fetchImpl,
+		}).pollTask({
+			taskId: "job_x",
 			signal: never,
 		});
-		expect((calls[0]?.body as { filename: string }).filename).toBe("9f2c.pdf");
+		expect(task.status).toBe("completed");
+		expect(polls).toBe(3);
+	});
+
+	it("gives up at the whole-job deadline with a retryable timeout", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			replay("samples/docx-default/03_poll_01_running.json"),
+		);
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.pollTask({ taskId: "job_x", signal: never, deadlineMs: 30 })
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe("client_job_deadline_exceeded");
+		const mapping = mapMineruError(error);
+		expect(mapping.taxonomy).toBe("timeout");
+		expect(mapping.retryable).toBe(true);
+	});
+
+	it("refuses a status it does not know instead of polling it until the deadline", async () => {
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			jsonResponse({
+				...body("samples/docx-default/03_poll_01_running.json"),
+				status: "queued",
+			}),
+		);
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.pollTask({ taskId: "job_x", signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe("client_schema_mismatch");
+		expect(calls).toHaveLength(1);
+	});
+});
+
+describe("cancelTask", () => {
+	it("POSTs /v1/tasks/{id}/cancel with no body and returns the settled receipt", async () => {
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("flows/cancel-midway/cancel_receipt.json"),
+		);
+		const receipt = await new MineruClient({
+			config: testConfig({ apiKey: "testkey" }),
+			fetchImpl,
+		}).cancelTask({ taskId: "job_f29210a095b46a21b936ba6c", signal: never });
+
+		expect(calls[0]?.method).toBe("POST");
+		expect(calls[0]?.url).toBe(
+			`${RECORDED_ORIGIN}/v1/tasks/job_f29210a095b46a21b936ba6c/cancel`,
+		);
+		expect(calls[0]?.body).toBeUndefined();
+		expect(calls[0]?.headers["content-type"]).toBeUndefined();
+		expect(calls[0]?.headers.authorization).toBe("Bearer testkey");
+		expect(receipt?.status).toBe("canceled");
+		expect(receipt?.files[0]?.status).toBe("completed");
+		expect(receipt?.files[0]?.result_url).toBeTruthy();
+	});
+
+	it("swallows a cancel that is merely late: 409 task_already_terminal, 404 task_not_found, a FastAPI 404", async () => {
+		for (const name of [
+			"errors/121_cancel_finished_task.json",
+			"flows/partial-and-file-terminal/08_cancel_partial_task.json",
+			"errors/102_cancel_unknown_task.json",
+			"flows/restart/06_R2_cancel_after_restart.json",
+			"errors/49_removed_post_uploads.json",
+		]) {
+			const { fetchImpl } = scriptedFetch(() => replay(name));
+			await expect(
+				new MineruClient({ config: testConfig(), fetchImpl }).cancelTask({
+					taskId: "job_x",
+					signal: never,
+				}),
+				name,
+			).resolves.toBeNull();
+		}
+	});
+
+	it("still fails a cancel the server refused for another reason", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			replay("errors/01_auth_wrong_key_create.json"),
+		);
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.cancelTask({ taskId: "job_x", signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect(mapMineruError(error).taxonomy).toBe("auth_failed");
+	});
+});
+
+describe("downloadFile", () => {
+	const zip = () =>
+		readFileSync(join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "docx.zip"));
+	const RESULT_URL = `${RECORDED_ORIGIN}/v1/files/file-57ecb6bbc422eb333d3d3fc5/content`;
+
+	function zipResponse(extra: Record<string, string> = {}): Response {
+		const bytes = zip();
+		return new Response(bytes, {
+			headers: {
+				"content-type": "application/zip",
+				"content-length": String(bytes.byteLength),
+				...extra,
+			},
+		});
+	}
+
+	it("streams the result_url to disk, with the key, and reports the size", async () => {
+		const { fetchImpl, calls } = scriptedFetch(() => zipResponse());
+		const destination = join(tempDir(), "result.zip");
+		const { bytes } = await new MineruClient({
+			config: testConfig({ apiKey: "testkey" }),
+			fetchImpl,
+		}).downloadFile({
+			resultUrl: RESULT_URL,
+			destinationPathAbsolute: destination,
+			signal: never,
+		});
+
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.url).toBe(RESULT_URL);
+		expect(calls[0]?.method).toBe("GET");
+		expect(calls[0]?.headers.authorization).toBe("Bearer testkey");
+		expect(bytes).toBe(zip().byteLength);
+		expect((await stat(destination)).size).toBe(bytes);
+		expect(readFileSync(destination).equals(zip())).toBe(true);
+	});
+
+	it.each([
+		["a foreign origin", "http://attacker.example/v1/files/x/content"],
+		["another port", "http://127.0.0.1:9999/v1/files/x/content"],
+		["a file URL", "file:///etc/passwd"],
+	])("refuses a result_url on %s before sending anything, key or not (S7)", async (_label, url) => {
+		const { fetchImpl, calls } = scriptedFetch(() => {
+			throw new Error("the client must not have sent anything");
+		});
+		const destination = join(tempDir(), "never.zip");
+		const error = await new MineruClient({
+			config: testConfig({ apiKey: "testkey" }),
+			fetchImpl,
+		})
+			.downloadFile({
+				resultUrl: url,
+				destinationPathAbsolute: destination,
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+
+		expect(calls).toHaveLength(0);
+		expect((error as MineruApiError).code).toBe(
+			"protocol_untrusted_result_url",
+		);
+		expect((error as MineruApiError).message).not.toContain("testkey");
+		expect(mapMineruError(error).retryable).toBe(false);
+		expect(existsSync(destination)).toBe(false);
+	});
+
+	it("follows one redirect on the configured origin, key and all", async () => {
+		const target = `${RECORDED_ORIGIN}/v1/files/moved/content`;
+		const { fetchImpl, calls } = scriptedFetch((call) =>
+			call.url === RESULT_URL
+				? new Response(null, { status: 302, headers: { location: target } })
+				: zipResponse(),
+		);
+		const destination = join(tempDir(), "moved.zip");
+		await new MineruClient({
+			config: testConfig({ apiKey: "testkey" }),
+			fetchImpl,
+		}).downloadFile({
+			resultUrl: RESULT_URL,
+			destinationPathAbsolute: destination,
+			signal: never,
+		});
+		expect(calls.map((call) => call.url)).toEqual([RESULT_URL, target]);
+		expect(calls.every((call) => call.redirect === "manual")).toBe(true);
+		expect(calls[1]?.headers.authorization).toBe("Bearer testkey");
+		expect(readFileSync(destination).equals(zip())).toBe(true);
+	});
+
+	it("refuses a redirect that leaves the configured origin: nothing is sent there", async () => {
+		const { fetchImpl, calls } = scriptedFetch(
+			() =>
+				new Response(null, {
+					status: 302,
+					headers: { location: "http://localhost:8012/v1/files/x/content" },
+				}),
+		);
+		const destination = join(tempDir(), "x.zip");
+		const error = await new MineruClient({
+			config: testConfig({ apiKey: "testkey" }),
+			fetchImpl,
+		})
+			.downloadFile({
+				resultUrl: RESULT_URL,
+				destinationPathAbsolute: destination,
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect(calls).toHaveLength(1);
+		expect((error as MineruApiError).code).toBe("protocol_untrusted_redirect");
+		expect(mapMineruError(error).retryable).toBe(false);
+		expect(existsSync(destination)).toBe(false);
+	});
+
+	it("does not follow a second redirect", async () => {
+		const { fetchImpl, calls } = scriptedFetch(
+			() =>
+				new Response(null, {
+					status: 302,
+					headers: { location: `${RECORDED_ORIGIN}/v1/files/again/content` },
+				}),
+		);
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.downloadFile({
+				resultUrl: RESULT_URL,
+				destinationPathAbsolute: join(tempDir(), "x.zip"),
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect(calls).toHaveLength(2);
+		expect((error as MineruApiError).code).toBe("protocol_untrusted_redirect");
+	});
+
+	it("refuses a result that announces itself past the ceiling, before reading a byte", async () => {
+		const { fetchImpl } = scriptedFetch(
+			() =>
+				new Response(
+					new ReadableStream(
+						{
+							pull() {
+								throw new Error("the body must not be read");
+							},
+						},
+						{ highWaterMark: 0 },
+					),
+					{ headers: { "content-length": "500" } },
+				),
+		);
+		const destination = join(tempDir(), "big.zip");
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.downloadFile({
+				resultUrl: RESULT_URL,
+				destinationPathAbsolute: destination,
+				maxBytes: 100,
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe("client_download_too_large");
+		expect(existsSync(destination)).toBe(false);
+	});
+
+	it("caps a stream that is longer than it said, and leaves nothing behind", async () => {
+		const { fetchImpl } = scriptedFetch(
+			() => new Response(new Uint8Array(500)),
+		);
+		const destination = join(tempDir(), "capped.zip");
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.downloadFile({
+				resultUrl: RESULT_URL,
+				destinationPathAbsolute: destination,
+				maxBytes: 100,
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe("client_download_too_large");
+		expect(existsSync(destination)).toBe(false);
+	});
+
+	it("rejects a download that is not the length the server announced, and removes it", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			zipResponse({ "content-length": String(zip().byteLength + 10) }),
+		);
+		const destination = join(tempDir(), "short.zip");
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.downloadFile({
+				resultUrl: RESULT_URL,
+				destinationPathAbsolute: destination,
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe("client_byte_count_mismatch");
+		const mapping = mapMineruError(error);
+		expect(mapping.taxonomy).toBe("protocol");
+		expect(mapping.retryable).toBe(true);
+		expect(existsSync(destination)).toBe(false);
+	});
+
+	it("reads a result the server forgot as a forgotten id", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			replay("flows/restart/03_R1_result_url_after_restart.json"),
+		);
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.downloadFile({
+				resultUrl: RESULT_URL,
+				destinationPathAbsolute: join(tempDir(), "gone.zip"),
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe("file_not_found");
+		expect(isMineruForgottenIdError(error)).toBe(true);
+	});
+});
+
+describe("capability reads", () => {
+	it("reads task_output_formats and sources from /v1/health", async () => {
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			replay("server/health_no_key.json"),
+		);
+		const health = await new MineruClient({
+			config: testConfig(),
+			fetchImpl,
+		}).getHealth(never);
+		expect(calls[0]?.url).toBe(`${RECORDED_ORIGIN}/v1/health`);
+		expect(health.version).toBe("4.1.7");
+		expect(health.features?.task_output_formats).toContain("default");
+		expect(health.features?.sources).toEqual(["upload", "url"]);
+	});
+
+	it("reads the tiers and drops an id it does not know", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			jsonResponse({
+				object: "list",
+				data: [
+					...(body("server/tiers.json").data as unknown[]),
+					{ id: "quantum", description: "From a future server." },
+				],
+			}),
+		);
+		const tiers = await new MineruClient({
+			config: testConfig(),
+			fetchImpl,
+		}).getTiers(never);
+		expect(tiers.map((tier) => tier.id)).toEqual([
+			"flash",
+			"basic",
+			"standard",
+		]);
+	});
+
+	it("reads /v1/usage", async () => {
+		const { fetchImpl } = scriptedFetch(() => replay("server/usage.json"));
+		const usage = await new MineruClient({
+			config: testConfig(),
+			fetchImpl,
+		}).getUsage(never);
+		expect(usage.access_level).toBe("registered");
+		expect(usage.limits?.max_concurrent_jobs).toBe(2);
+	});
+
+	it("rejects a 200 that is not the shape we recorded", async () => {
+		const { fetchImpl } = scriptedFetch(() => replay("server/usage.json"));
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.getHealth(never)
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe("client_schema_mismatch");
+		const mapping = mapMineruError(error);
+		expect(mapping.taxonomy).toBe("protocol");
+		expect(mapping.retryable).toBe(true);
+	});
+});
+
+describe("what an error carries", () => {
+	it("keeps the code and the param of a rejected request, and not the pydantic dump", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			replay("errors/14_filename_dotdot_slash.json"),
+		);
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.createTask({ ...DOCX, signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).status).toBe(400);
+		expect((error as MineruApiError).code).toBe("invalid_request");
+		expect((error as MineruApiError).param).toBe("files.0.file_name");
+		expect((error as MineruApiError).requestPath).toBe("/v1/tasks");
+		expect((error as MineruApiError).message).not.toContain("pydantic");
+	});
+
+	it("scrubs the API key from a body that echoes it, and truncates a long one", async () => {
+		const { fetchImpl } = scriptedFetch(
+			() =>
+				new Response(`Bearer sk-secret-key ${"x".repeat(5000)}`, {
+					status: 500,
+				}),
+		);
+		const error = await new MineruClient({
+			config: testConfig({ apiKey: "sk-secret-key" }),
+			fetchImpl,
+		})
+			.getUsage(never)
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).message).not.toContain("sk-secret-key");
+		expect((error as MineruApiError).bodyExcerpt).not.toContain(
+			"sk-secret-key",
+		);
+		expect((error as MineruApiError).bodyExcerpt).toContain("[redacted]");
+		expect((error as MineruApiError).bodyExcerpt?.length).toBeLessThanOrEqual(
+			301,
+		);
+	});
+
+	it("reads Retry-After in seconds, and in a date", async () => {
+		for (const [header, expected] of [
+			["3", 3000],
+			[new Date(Date.now() + 10_000).toUTCString(), 10_000],
+		] as const) {
+			const { fetchImpl } = scriptedFetch(
+				() =>
+					new Response(
+						JSON.stringify({
+							error: { code: "rate_limit_exceeded", message: "slow down" },
+						}),
+						{ status: 429, headers: { "retry-after": header } },
+					),
+			);
+			const error = await new MineruClient({ config: testConfig(), fetchImpl })
+				.getUsage(never)
+				.catch((caught) => caught as MineruApiError);
+			const waited = (error as MineruApiError).retryAfterMs ?? -1;
+			expect(Math.abs(waited - expected)).toBeLessThanOrEqual(1500);
+			expect(mapMineruError(error).retryAfterMs).toBe(waited);
+		}
+	});
+
+	it("does not leak the key through a transport failure", async () => {
+		const fetchImpl = (async () => {
+			throw new TypeError("connect ECONNREFUSED http://x?key=sk-secret-key");
+		}) as unknown as typeof fetch;
+		const error = await new MineruClient({
+			config: testConfig({ apiKey: "sk-secret-key" }),
+			fetchImpl,
+		})
+			.getHealth(never)
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe("client_transport_unreachable");
+		expect((error as MineruApiError).message).not.toContain("sk-secret-key");
+		expect(mapMineruError(error).taxonomy).toBe("unavailable");
+	});
+
+	it("reports a 200 that is not JSON", async () => {
+		const { fetchImpl } = scriptedFetch(
+			() => new Response("<html>hello</html>"),
+		);
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.getTask({ taskId: "job_x", signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe("client_invalid_json");
 	});
 });
 
 // ---------------------------------------------------------------------------
-// 2. The fake V1 server
+// 2. The fake 4.1 server
 // ---------------------------------------------------------------------------
 
-describe("against the fake V1 server", () => {
+describe("against the fake 4.1 server", () => {
 	let server: FakeMineruServer | null = null;
 
 	afterEach(async () => {
@@ -388,462 +1138,543 @@ describe("against the fake V1 server", () => {
 
 	async function start(
 		options: FakeMineruServerOptions = {},
+		configPatch: Partial<MineruConfig> = {},
 	): Promise<{ server: FakeMineruServer; client: MineruClient }> {
 		server = await createFakeMineruServer({ fixtureInput: "csv", ...options });
 		return {
 			server,
 			client: new MineruClient({
-				config: testConfig({ baseUrl: server.baseUrl }),
+				config: testConfig({ baseUrl: server.baseUrl, ...configPatch }),
 			}),
 		};
 	}
 
-	function sampleFile(): { path: string; bytes: number; sha256: string } {
-		const dir = tempDir();
-		const path = join(dir, "sample.csv");
-		const bytes = readFileSync(join(MINERU_FIXTURE_ROOT, "csv", "sample.csv"));
-		writeFileSync(path, bytes);
-		return {
-			path,
-			bytes: bytes.byteLength,
-			sha256: createHash("sha256").update(bytes).digest("hex"),
-		};
-	}
-
-	async function uploadFresh(client: MineruClient, file = sampleFile()) {
-		const created = await client.createUpload({
-			filename: "sample.csv",
+	/** Creates a task for a file of these bytes and uploads it when asked to. */
+	async function submit(client: MineruClient, file = sampleFile()) {
+		const sha256 = await client.sha256(file.path);
+		const receipt = await client.createTask({
+			fileName: "document.csv",
 			bytes: file.bytes,
-			mimeType: "text/csv",
-			sha256sum: file.sha256,
+			sha256sum: sha256,
 			signal: never,
 		});
-		if (created.status === "completed") return { upload: created, file };
-		await client.putUploadContent({
-			upload: created,
-			filePathAbsolute: file.path,
-			signal: never,
-		});
-		const completed = await client.completeUpload({
-			uploadId: created.id,
-			sha256sum: file.sha256,
-			signal: never,
-		});
-		return { upload: completed, file };
-	}
-
-	it("runs the whole upload → job → download sequence over real HTTP", async () => {
-		const { server: fake, client } = await start({ parseDelayMs: 20 });
-		const { upload } = await uploadFresh(client);
-		expect(upload.status).toBe("completed");
-
-		const job = await client.createJob({
-			fileId: upload.file?.id as string,
-			tier: "basic",
-			outputFormats: ["markdown", "middle_json", "structured_content", "zip"],
-			signal: never,
-		});
-		const polls: string[] = [];
-		const terminal = await client.pollJob({
-			jobId: job.job_id,
-			signal: never,
-			onPoll: (state) => polls.push(state.status),
-		});
-
-		expect(terminal.status).toBe("completed");
-		expect(polls.length).toBeGreaterThan(1);
-		expect(polls.at(-1)).toBe("completed");
-		expect(mapMineruJobFailure(terminal)).toBeNull();
-		expect([...fake.jobs.values()][0]?.status).toBe("completed");
-
-		const zipRef = terminal.files[0]?.output_files?.zip;
-		const destination = join(tempDir(), "result.zip");
-		const { bytes } = await client.downloadFile({
-			fileId: zipRef?.file_id as string,
-			destinationPathAbsolute: destination,
-			expectedBytes: zipRef?.bytes as number,
-			signal: never,
-		});
-		expect(bytes).toBe(
-			readFileSync(join(MINERU_FIXTURE_ROOT, "csv", "result.zip")).byteLength,
-		);
-
-		// The terminal job lists all seven output keys, with nulls.
-		expect(Object.keys(terminal.files[0]?.output_files ?? {})).toEqual([
-			"markdown",
-			"middle_json",
-			"structured_content",
-			"html",
-			"latex",
-			"docx",
-			"zip",
-		]);
-	});
-
-	it("dedupes by sha and mints a NEW file id, with no bytes sent", async () => {
-		const { server: fake, client } = await start();
-		const { file, upload } = await uploadFresh(client);
-		fake.resetLog();
-
-		const again = await client.createUpload({
-			filename: "sample.csv",
-			bytes: file.bytes,
-			mimeType: "text/csv",
-			sha256sum: file.sha256,
-			signal: never,
-		});
-		expect(again.status).toBe("completed");
-		expect(again.upload_url).toBeNull();
-		expect(again.file?.id).not.toBe(upload.file?.id);
-		expect(fake.requests.filter((request) => request.method === "PUT")).toEqual(
-			[],
-		);
-	});
-
-	it("answers 200 for the wrong bytes and fails only at complete", async () => {
-		const { client } = await start();
-		const file = sampleFile();
-		const created = await client.createUpload({
-			filename: "sample.csv",
-			bytes: file.bytes,
-			mimeType: "text/csv",
-			sha256sum: "b".repeat(64),
-			signal: never,
-		});
-		// The PUT of the real bytes succeeds even though the claimed sha is wrong.
-		await expect(
-			client.putUploadContent({
-				upload: created,
+		const first = receipt.files[0];
+		if (first?.upload) {
+			await client.putTaskFile({
+				upload: first.upload,
 				filePathAbsolute: file.path,
 				signal: never,
-			}),
-		).resolves.toBeUndefined();
+			});
+		}
+		return {
+			receipt,
+			file,
+			sha256,
+			taskId: receipt.task_id,
+			fileId: first?.file_id,
+		};
+	}
 
-		const error = await client
-			.completeUpload({
-				uploadId: created.id,
-				sha256sum: "b".repeat(64),
-				signal: never,
-			})
-			.catch((caught) => caught as MineruApiError);
-		expect((error as MineruApiError).code).toBe("file_hash_mismatch");
-		const mapping = mapMineruError(error);
-		expect(mapping.taxonomy).toBe("protocol");
-		// Worth exactly one more PUT.
-		expect(mapping.retryable).toBe(true);
-	});
+	it("runs the whole create, PUT, poll, download sequence over real HTTP", async () => {
+		const { server: fake, client } = await start({ parseDelayMs: 25 });
+		const { taskId, receipt } = await submit(client);
+		expect(receipt.status).toBe("waiting-file");
 
-	it("recovers from a MinerU restart: ids are gone, bytes are not", async () => {
-		const { server: fake, client } = await start();
-		const { upload, file } = await uploadFresh(client);
-		const job = await client.createJob({
-			fileId: upload.file?.id as string,
-			outputFormats: ["markdown", "zip"],
+		const polls: string[] = [];
+		const task = await client.pollTask({
+			taskId,
 			signal: never,
+			onPoll: (snapshot) => polls.push(snapshot.status),
 		});
+		expect(task.status).toBe("completed");
+		expect(polls.length).toBeGreaterThan(1);
+		expect(polls.at(-1)).toBe("completed");
+		expect(mapMineruTaskFailure(task)).toBeNull();
+		expect(fake.tasks.get(taskId)?.status).toBe("completed");
 
-		fake.restart();
-
-		// R1: the stored job id is gone.
-		const jobError = await client
-			.getJob({ jobId: job.job_id, signal: never })
-			.catch((caught) => caught as MineruApiError);
-		expect((jobError as MineruApiError).code).toBe("job_not_found");
-		expect(mapMineruError(jobError).disposition).toBe("recover-by-reupload");
-
-		// R4: so is the output file id.
-		const fileError = await client
-			.downloadFile({
-				fileId: upload.file?.id as string,
-				destinationPathAbsolute: join(tempDir(), "gone.zip"),
-				expectedBytes: 1,
-				signal: never,
-			})
-			.catch((caught) => caught as MineruApiError);
-		expect((fileError as MineruApiError).code).toBe("file_not_found");
-
-		// R2: the same sha still dedupes, against a brand new file id.
-		const recovered = await client.createUpload({
-			filename: "sample.csv",
-			bytes: file.bytes,
-			mimeType: "text/csv",
-			sha256sum: file.sha256,
-			signal: never,
-		});
-		expect(recovered.status).toBe("completed");
-		expect(recovered.file?.id).not.toBe(upload.file?.id);
-		expect(fake.blobs.get(file.sha256)).toBe(file.bytes);
-	});
-
-	it("accepts an unknown file_id with a 202 and fails inside the job", async () => {
-		const { client } = await start();
-		const job = await client.createJob({
-			fileId: "file-nope000000000000",
-			outputFormats: ["markdown", "zip"],
-			signal: never,
-		});
-		expect(job.status).toBe("queued");
-
-		const terminal = await client.pollJob({ jobId: job.job_id, signal: never });
-		expect(terminal.status).toBe("failed");
-		const mapping = mapMineruJobFailure(terminal);
-		expect(mapping?.taxonomy).toBe("protocol");
-		// The stored handle is poisonous; the ledger must clear it.
-		expect(mapping?.handleUnknown).toBe(true);
-	});
-
-	it("replays a recorded error fixture on a scripted failure", async () => {
-		const { client } = await start({
-			failures: [
-				{ path: "/v1/parse/jobs", method: "POST", fixture: "tier_standard" },
-			],
-		});
-		const error = await client
-			.createJob({
-				fileId: "file-1",
-				tier: "standard",
-				outputFormats: ["markdown"],
-				signal: never,
-			})
-			.catch((caught) => caught as MineruApiError);
-		expect(mapMineruError(error).taxonomy).toBe("tier_unavailable");
-	});
-
-	it("reports a per-file failure inside a completed-looking job", async () => {
-		const { client } = await start({ jobOutcome: "file-failed" });
-		const { upload } = await uploadFresh(client);
-		const job = await client.createJob({
-			fileId: upload.file?.id as string,
-			outputFormats: ["markdown", "zip"],
-			signal: never,
-		});
-		const terminal = await client.pollJob({ jobId: job.job_id, signal: never });
-		expect(mapMineruJobFailure(terminal)?.taxonomy).toBe("job_failed");
-	});
-
-	it("treats a partial job as a failure — it is unverified upstream", async () => {
-		const { client } = await start({ jobOutcome: "partial" });
-		const { upload } = await uploadFresh(client);
-		const job = await client.createJob({
-			fileId: upload.file?.id as string,
-			outputFormats: ["markdown", "zip"],
-			signal: never,
-		});
-		const terminal = await client.pollJob({ jobId: job.job_id, signal: never });
-		expect(terminal.status).toBe("partial");
-		expect(mapMineruJobFailure(terminal)?.taxonomy).toBe("job_failed");
-	});
-
-	it("fails a completed job whose zip is missing", async () => {
-		const { client } = await start({ jobOutcome: "completed-without-zip" });
-		const { upload } = await uploadFresh(client);
-		const job = await client.createJob({
-			fileId: upload.file?.id as string,
-			outputFormats: ["markdown", "zip"],
-			signal: never,
-		});
-		const terminal = await client.pollJob({ jobId: job.job_id, signal: never });
-		expect(terminal.status).toBe("completed");
-		const mapping = mapMineruJobFailure(terminal);
-		expect(mapping?.taxonomy).toBe("protocol");
-		expect(mapping?.rule).toBe("job:missing-output");
-	});
-
-	it("swallows a cancel that is merely late", async () => {
-		const { client } = await start({ neverFinish: true });
-		const { upload } = await uploadFresh(client);
-		const job = await client.createJob({
-			fileId: upload.file?.id as string,
-			outputFormats: ["markdown", "zip"],
-			signal: never,
-		});
-
-		await expect(
-			client.cancelJob({ jobId: job.job_id, signal: never }),
-		).resolves.toBeUndefined();
-		// 409 job_already_terminal…
-		await expect(
-			client.cancelJob({ jobId: job.job_id, signal: never }),
-		).resolves.toBeUndefined();
-		// …and 404 job_not_found.
-		await expect(
-			client.cancelJob({ jobId: "job_nope0000000000", signal: never }),
-		).resolves.toBeUndefined();
-	});
-
-	it("stops polling at the whole-job deadline", async () => {
-		const { client } = await start({ neverFinish: true });
-		const { upload } = await uploadFresh(client);
-		const job = await client.createJob({
-			fileId: upload.file?.id as string,
-			outputFormats: ["markdown", "zip"],
-			signal: never,
-		});
-		const error = await client
-			.pollJob({ jobId: job.job_id, signal: never, deadlineMs: 30 })
-			.catch((caught) => caught as MineruApiError);
-		const mapping = mapMineruError(error);
-		expect(mapping.taxonomy).toBe("timeout");
-		expect(mapping.retryable).toBe(true);
-	});
-
-	it("aborts in flight when the caller's signal fires", async () => {
-		const { client } = await start({ neverFinish: true });
-		const { upload } = await uploadFresh(client);
-		const job = await client.createJob({
-			fileId: upload.file?.id as string,
-			outputFormats: ["markdown"],
-			signal: never,
-		});
-		const controller = new AbortController();
-		const polling = client.pollJob({
-			jobId: job.job_id,
-			signal: controller.signal,
-		});
-		controller.abort();
-		const error = await polling.catch((caught) => caught);
-		expect(mapMineruError(error).taxonomy).toBe("canceled");
-		expect(mapMineruError(error).retryable).toBe(false);
-	});
-
-	it("follows a download redirect, and drops the key when it leaves our origin", async () => {
-		const { server: fake } = await start({ redirectDownloads: "cross-origin" });
-		const keyedClient = new MineruClient({
-			config: testConfig({ baseUrl: fake.baseUrl, apiKey: "testkey" }),
-		});
-		const { upload } = await uploadFresh(keyedClient);
-		const job = await keyedClient.createJob({
-			fileId: upload.file?.id as string,
-			outputFormats: ["markdown", "zip"],
-			signal: never,
-		});
-		const terminal = await keyedClient.pollJob({
-			jobId: job.job_id,
-			signal: never,
-		});
-		const zipRef = terminal.files[0]?.output_files?.zip;
-
-		fake.resetLog();
-		const destination = join(tempDir(), "redirected.zip");
-		const { bytes } = await keyedClient.downloadFile({
-			fileId: zipRef?.file_id as string,
+		const destination = join(tempDir(), "result.zip");
+		const resultUrl = task.files[0]?.result_url as string;
+		const { bytes } = await client.downloadFile({
+			resultUrl,
 			destinationPathAbsolute: destination,
-			expectedBytes: zipRef?.bytes as number,
 			signal: never,
 		});
-		expect(bytes).toBe(zipRef?.bytes);
-
-		const downloads = fake.requests.filter((request) =>
-			request.path.endsWith("/content"),
+		const expected = readFileSync(
+			join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "csv.zip"),
 		);
-		expect(downloads).toHaveLength(2);
-		// The first hop is ours and carries the key…
-		expect(downloads[0]?.headers.authorization).toBe("Bearer testkey");
-		// …the redirected hop is a different origin and must not.
-		expect(downloads[1]?.headers.host).toContain("localhost");
-		expect(downloads[1]?.headers.authorization).toBeUndefined();
+		expect(bytes).toBe(expected.byteLength);
+		expect(readFileSync(destination).equals(expected)).toBe(true);
 	});
 
-	it("rejects a download whose byte count does not match the job", async () => {
-		const { client } = await start();
-		const { upload } = await uploadFresh(client);
-		const job = await client.createJob({
-			fileId: upload.file?.id as string,
-			outputFormats: ["markdown", "zip"],
+	it("sends the key on every call of a keyed server, and fails cleanly without one", async () => {
+		const { server: fake, client } = await start(
+			{ apiKey: "testkey" },
+			{ apiKey: "testkey" },
+		);
+		const { taskId } = await submit(client);
+		const task = await client.pollTask({ taskId, signal: never });
+		await client.downloadFile({
+			resultUrl: task.files[0]?.result_url as string,
+			destinationPathAbsolute: join(tempDir(), "keyed.zip"),
 			signal: never,
 		});
-		const terminal = await client.pollJob({ jobId: job.job_id, signal: never });
-		const zipRef = terminal.files[0]?.output_files?.zip;
-		const destination = join(tempDir(), "short.zip");
+		const keyed = fake.requests.filter(
+			(request) => request.path !== "/v1/health",
+		);
+		expect(keyed.length).toBeGreaterThanOrEqual(4);
+		expect(
+			keyed.every(
+				(request) => request.headers.authorization === "Bearer testkey",
+			),
+		).toBe(true);
 
-		const error = await client
-			.downloadFile({
-				fileId: zipRef?.file_id as string,
-				destinationPathAbsolute: destination,
-				expectedBytes: (zipRef?.bytes as number) + 10,
-				signal: never,
-			})
-			.catch((caught) => caught as MineruApiError);
-		expect(mapMineruError(error).taxonomy).toBe("protocol");
-		expect(mapMineruError(error).retryable).toBe(true);
-		// The partial file is not left behind for a later reader to trust.
-		await expect(stat(destination)).rejects.toThrow();
-	});
-
-	it("caps a download that exceeds the size it declared", async () => {
-		const { client } = await start();
-		const { upload } = await uploadFresh(client);
-		const job = await client.createJob({
-			fileId: upload.file?.id as string,
-			outputFormats: ["markdown", "zip"],
-			signal: never,
-		});
-		const terminal = await client.pollJob({ jobId: job.job_id, signal: never });
-		const zipRef = terminal.files[0]?.output_files?.zip;
-
-		const error = await client
-			.downloadFile({
-				fileId: zipRef?.file_id as string,
-				destinationPathAbsolute: join(tempDir(), "capped.zip"),
-				expectedBytes: 10,
-				maxBytes: 10,
-				signal: never,
-			})
-			.catch((caught) => caught as MineruApiError);
-		expect((error as MineruApiError).code).toBe("client_download_too_large");
-	});
-
-	it("sends the key on a keyed server and fails cleanly without one", async () => {
-		const { server: fake } = await start({ apiKey: "testkey" });
 		const anonymous = new MineruClient({
 			config: testConfig({ baseUrl: fake.baseUrl }),
 		});
-		const keyed = new MineruClient({
-			config: testConfig({ baseUrl: fake.baseUrl, apiKey: "testkey" }),
-		});
-
 		// /v1/health stays public even under --api-key.
 		await expect(anonymous.getHealth(never)).resolves.toMatchObject({
-			version: "4.0.4",
+			version: "4.1.7",
 		});
-
 		const error = await anonymous
 			.getUsage(never)
 			.catch((caught) => caught as MineruApiError);
 		expect(mapMineruError(error).taxonomy).toBe("auth_failed");
 		expect(mapMineruError(error).retryable).toBe(false);
 		expect((error as MineruApiError).message).not.toContain("testkey");
-
-		await expect(keyed.getUsage(never)).resolves.toMatchObject({
+		await expect(client.getUsage(never)).resolves.toMatchObject({
 			access_level: "registered",
 		});
 	});
 
-	it("reads the tier list and drops a tier id it does not know", async () => {
-		const { server: fake, client } = await start({ tiers: ["flash"] });
-		const tiers = await client.getTiers(never);
-		expect(tiers.map((tier) => tier.id)).toEqual(["flash"]);
-		expect(fake.requests.at(-1)?.path).toBe("/v1/tiers");
+	it("skips the PUT when the server already holds the bytes, and mints new ids", async () => {
+		const { server: fake, client } = await start();
+		const first = await submit(client);
+		fake.resetLog();
+
+		const again = await submit(client, first.file);
+		expect(again.receipt.status).toBe("pending");
+		expect(again.receipt.files[0]?.upload).toBeUndefined();
+		expect(again.taskId).not.toBe(first.taskId);
+		expect(again.fileId).not.toBe(first.fileId);
+		expect(fake.requests.filter((request) => request.method === "PUT")).toEqual(
+			[],
+		);
+
+		const task = await client.pollTask({ taskId: again.taskId, signal: never });
+		expect(task.status).toBe("completed");
 	});
 
-	it("rejects a 200 that is not the shape we recorded", async () => {
-		const { client } = await start({
-			failures: [{ path: "/v1/health", fixture: "auth_valid_key_files" }],
-		});
-		const error = await client
-			.getHealth(never)
+	it("recovers from a MinerU restart: every id is gone, and so is the hash cache", async () => {
+		const { server: fake, client } = await start();
+		const { taskId, file, sha256 } = await submit(client);
+		const done = await client.pollTask({ taskId, signal: never });
+		const resultUrl = done.files[0]?.result_url as string;
+
+		fake.restart();
+
+		// The task is gone…
+		const gone = await client
+			.getTask({ taskId, signal: never })
 			.catch((caught) => caught as MineruApiError);
-		expect((error as MineruApiError).code).toBe("client_schema_mismatch");
+		expect((gone as MineruApiError).code).toBe("task_not_found");
+		expect(isMineruForgottenIdError(gone)).toBe(true);
+		expect(mapMineruError(gone).disposition).toBe("recover-by-reupload");
+		// …and so is its result.
+		const missing = await client
+			.downloadFile({
+				resultUrl,
+				destinationPathAbsolute: join(tempDir(), "gone.zip"),
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect((missing as MineruApiError).code).toBe("file_not_found");
+		expect(isMineruForgottenIdError(missing)).toBe(true);
+
+		// The recovery: create again. The hash cache went with the ids, so this is
+		// a full upload again, not the 'pending' of a cache hit.
+		fake.resetLog();
+		const recovered = await client.createTask({
+			fileName: "document.csv",
+			bytes: file.bytes,
+			sha256sum: sha256,
+			signal: never,
+		});
+		expect(recovered.status).toBe("waiting-file");
+		await client.putTaskFile({
+			upload: uploadOf(recovered),
+			filePathAbsolute: file.path,
+			signal: never,
+		});
+		const finished = await client.pollTask({
+			taskId: recovered.task_id,
+			signal: never,
+		});
+		expect(finished.status).toBe("completed");
+		expect(
+			fake.requests.filter((request) => request.method === "PUT"),
+		).toHaveLength(1);
+	});
+
+	it("meets the restart wherever it lands: before the PUT, and after it", async () => {
+		const early = await start({ restartAfterFirstTask: true });
+		const file = sampleFile();
+		const created = await early.client.createTask({
+			fileName: "document.csv",
+			bytes: file.bytes,
+			sha256sum: await early.client.sha256(file.path),
+			signal: never,
+		});
+		const lost = await early.client
+			.putTaskFile({
+				upload: uploadOf(created),
+				filePathAbsolute: file.path,
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		// R2: the upload link outlived the task it belonged to.
+		expect((lost as MineruApiError).code).toBe("task_not_found");
+		expect(isMineruForgottenIdError(lost)).toBe(true);
+		await server?.close();
+
+		const late = await start({ restartAfterFirstUpload: true });
+		const sent = await submit(late.client);
+		const poll = await late.client
+			.pollTask({ taskId: sent.taskId, signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((poll as MineruApiError).code).toBe("task_not_found");
+		expect(isMineruForgottenIdError(poll)).toBe(true);
+	});
+
+	it("cancels a task that is running, files and all, and swallows a second cancel", async () => {
+		const { client } = await start({ neverFinish: true });
+		const { taskId } = await submit(client);
+		await client.getTask({ taskId, signal: never });
+		expect((await client.getTask({ taskId, signal: never })).status).toBe(
+			"running",
+		);
+
+		const receipt = await client.cancelTask({ taskId, signal: never });
+		expect(receipt?.status).toBe("canceled");
+		expect(receipt?.files.map((file) => file.status)).toEqual(["canceled"]);
+
+		const after = await client.pollTask({ taskId, signal: never });
+		expect(after.status).toBe("canceled");
+		// A cancel WE asked for is not a failure; someone else's is.
+		expect(mapMineruTaskFailure(after, { canceledByUs: true })).toBeNull();
+		expect(mapMineruTaskFailure(after)?.rule).toBe(
+			"task:canceled-by-someone-else",
+		);
+
+		await expect(
+			client.cancelTask({ taskId, signal: never }),
+		).resolves.toBeNull();
+		await expect(
+			client.cancelTask({
+				taskId: "job_000000000000000000000000",
+				signal: never,
+			}),
+		).resolves.toBeNull();
+	});
+
+	it("cancels a task that never got its bytes, and refuses the PUT that follows", async () => {
+		const { client } = await start();
+		const file = sampleFile();
+		const receipt = await client.createTask({
+			fileName: "document.csv",
+			bytes: file.bytes,
+			sha256sum: await client.sha256(file.path),
+			signal: never,
+		});
+		const upload = uploadOf(receipt);
+		expect(
+			(await client.cancelTask({ taskId: receipt.task_id, signal: never }))
+				?.status,
+		).toBe("canceled");
+		const error = await client
+			.putTaskFile({ upload, filePathAbsolute: file.path, signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).status).toBe(409);
+		expect((error as MineruApiError).code).toBe("task_already_terminal");
+		expect(mapMineruError(error).disposition).toBe("swallow");
+	});
+
+	it("reads a partial task, and hands each file its own verdict", async () => {
+		const { server: fake, client } = await start({
+			outcomeFor: ({ fileName }) =>
+				fileName === "bad.pdf" ? "file-failed" : "completed",
+			fileError: {
+				message: "Failed to load document (PDFium: Data format error).",
+			},
+		});
+		const good = Buffer.from("%PDF-1.7 good");
+		const bad = Buffer.from("%PDF-1.7 bad!");
+		const created = await fetch(`${fake.baseUrl}/v1/tasks`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				files: [
+					{ file_name: "good.pdf", bytes: good.byteLength },
+					{ file_name: "bad.pdf", bytes: bad.byteLength },
+				],
+			}),
+		}).then(
+			(response) =>
+				response.json() as Promise<{
+					task_id: string;
+					files: Array<{ file_id: string; upload: { url: string } }>;
+				}>,
+		);
+		for (const [index, content] of [good, bad].entries()) {
+			await fetch(created.files[index]?.upload.url as string, {
+				method: "PUT",
+				body: new Uint8Array(content),
+			});
+		}
+
+		const task = await client.pollTask({
+			taskId: created.task_id,
+			signal: never,
+		});
+		expect(task.status).toBe("partial");
+		const [goodFile, badFile] = created.files;
+		expect(
+			mapMineruTaskFailure(task, { fileId: goodFile?.file_id }),
+		).toBeNull();
+		const failure = mapMineruTaskFailure(task, { fileId: badFile?.file_id });
+		expect(failure?.taxonomy).toBe("document_unreadable");
+		expect(failure?.retryable).toBe(false);
+	});
+
+	it("reads every way a file can fail the way the table says", async () => {
+		const cases: Array<
+			[string, { code?: string; message: string }, string, boolean]
+		> = [
+			[
+				"corrupt",
+				{ message: "Failed to load document (PDFium: Data format error)." },
+				"document_unreadable",
+				false,
+			],
+			[
+				"encrypted",
+				{
+					message:
+						"Failed to load document (PDFium: Incorrect password error).",
+				},
+				"document_unreadable",
+				false,
+			],
+			[
+				"unsupported",
+				{ message: "Unsupported file type: notes.txt" },
+				"unsupported_type",
+				false,
+			],
+			[
+				"xlsx",
+				{ message: "Invalid XLSX package: file is not a ZIP archive." },
+				"document_unreadable",
+				false,
+			],
+			[
+				"other",
+				{ message: "All connection attempts failed" },
+				"job_failed",
+				true,
+			],
+		];
+		for (const [label, fileError, taxonomy, retryable] of cases) {
+			const { client } = await start({ outcome: "file-failed", fileError });
+			const { taskId } = await submit(client);
+			const task = await client.pollTask({ taskId, signal: never });
+			expect(task.status, label).toBe("failed");
+			const failure = mapMineruTaskFailure(task);
+			expect(failure?.taxonomy, label).toBe(taxonomy);
+			expect(failure?.retryable, label).toBe(retryable);
+			await server?.close();
+			server = null;
+		}
+	});
+
+	it("fails a completed task that lost its result_url", async () => {
+		const { client } = await start({ outcome: "completed-without-result-url" });
+		const { taskId } = await submit(client);
+		const task = await client.pollTask({ taskId, signal: never });
+		expect(task.status).toBe("completed");
+		expect(mapMineruTaskFailure(task)?.rule).toBe("task:missing-result-url");
+	});
+
+	it("stops polling at the whole-job deadline", async () => {
+		const { client } = await start({ neverFinish: true });
+		const { taskId } = await submit(client);
+		const error = await client
+			.pollTask({ taskId, signal: never, deadlineMs: 30 })
+			.catch((caught) => caught as MineruApiError);
+		expect(mapMineruError(error).taxonomy).toBe("timeout");
+		expect(mapMineruError(error).retryable).toBe(true);
+	});
+
+	it("aborts in flight when the caller's signal fires", async () => {
+		const { client } = await start({ neverFinish: true });
+		const { taskId } = await submit(client);
+		const controller = new AbortController();
+		const polling = client.pollTask({ taskId, signal: controller.signal });
+		controller.abort();
+		const error = await polling.catch((caught) => caught);
+		expect(mapMineruError(error).taxonomy).toBe("canceled");
+		expect(mapMineruError(error).retryable).toBe(false);
+	});
+
+	it("reports a server that does not speak /v1/tasks as unavailable, once, not as a forgotten id", async () => {
+		const { server: fake, client } = await start({
+			failures: [
+				{
+					path: "/v1/tasks",
+					method: "POST",
+					fixture: "errors/49_removed_post_uploads.json",
+				},
+			],
+		});
+		const file = sampleFile();
+		const error = await client
+			.createTask({
+				fileName: "document.csv",
+				bytes: file.bytes,
+				sha256sum: await client.sha256(file.path),
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).fastapi).toBe(true);
+		expect((error as MineruApiError).status).toBe(404);
+		expect(isMineruForgottenIdError(error)).toBe(false);
 		const mapping = mapMineruError(error);
-		expect(mapping.taxonomy).toBe("protocol");
+		expect(mapping.rule).toBe("fastapi:wrong-protocol");
+		expect(mapping.taxonomy).toBe("unavailable");
 		expect(mapping.retryable).toBe(true);
+		// The client does not retry creation by itself.
+		expect(
+			fake.requests.filter((request) => request.method === "POST"),
+		).toHaveLength(1);
+	});
+
+	it("turns an unavailable tier into a tier error that is not retried", async () => {
+		const { client } = await start({ tiers: ["flash"] });
+		const file = sampleFile();
+		const error = await client
+			.createTask({
+				fileName: "document.pdf",
+				bytes: file.bytes,
+				sha256sum: await client.sha256(file.path),
+				tier: "standard",
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).status).toBe(400);
+		expect((error as MineruApiError).param).toBe("tier");
+		const mapping = mapMineruError(error);
+		expect(mapping.taxonomy).toBe("tier_unavailable");
+		expect(mapping.retryable).toBe(false);
+	});
+
+	it("will not PUT to an upload link on a foreign origin, nor send the key there (S7)", async () => {
+		const { server: fake } = await start({
+			urlOrigin: "cross-origin",
+			apiKey: "testkey",
+		});
+		const client = new MineruClient({
+			config: testConfig({ baseUrl: fake.baseUrl, apiKey: "testkey" }),
+		});
+		const file = sampleFile();
+		const receipt = await client.createTask({
+			fileName: "document.csv",
+			bytes: file.bytes,
+			sha256sum: await client.sha256(file.path),
+			signal: never,
+		});
+		const upload = uploadOf(receipt);
+		expect(upload.url.startsWith(fake.crossOriginBaseUrl)).toBe(true);
+
+		const error = await client
+			.putTaskFile({ upload, filePathAbsolute: file.path, signal: never })
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe(
+			"protocol_untrusted_upload_url",
+		);
+		// Nothing reached the foreign hostname: no PUT, and so no key.
+		expect(fake.requests.filter((request) => request.method === "PUT")).toEqual(
+			[],
+		);
+		expect(
+			fake.requests.some((request) =>
+				request.headers.host?.startsWith("localhost"),
+			),
+		).toBe(false);
+	});
+
+	it("will not download from a result_url on a foreign origin, nor send the key there (S7)", async () => {
+		const { server: fake } = await start({ apiKey: "testkey" });
+		const client = new MineruClient({
+			config: testConfig({ baseUrl: fake.baseUrl, apiKey: "testkey" }),
+		});
+		const { taskId } = await submit(client);
+		await client.pollTask({ taskId, signal: never });
+
+		fake.setOptions({ urlOrigin: "cross-origin" });
+		const task = await client.getTask({ taskId, signal: never });
+		const resultUrl = task.files[0]?.result_url as string;
+		expect(resultUrl.startsWith(fake.crossOriginBaseUrl)).toBe(true);
+
+		fake.resetLog();
+		const error = await client
+			.downloadFile({
+				resultUrl,
+				destinationPathAbsolute: join(tempDir(), "foreign.zip"),
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe(
+			"protocol_untrusted_result_url",
+		);
+		expect(fake.requests).toEqual([]);
+	});
+
+	it("follows a same-origin download redirect, and refuses one that leaves the origin", async () => {
+		const { server: fake, client } = await start({
+			redirectDownloads: "same-origin",
+		});
+		const { taskId } = await submit(client);
+		const task = await client.pollTask({ taskId, signal: never });
+		const resultUrl = task.files[0]?.result_url as string;
+
+		fake.resetLog();
+		const { bytes } = await client.downloadFile({
+			resultUrl,
+			destinationPathAbsolute: join(tempDir(), "redirected.zip"),
+			signal: never,
+		});
+		expect(bytes).toBeGreaterThan(0);
+		expect(
+			fake.requests.filter((request) => request.path.endsWith("/content")),
+		).toHaveLength(2);
+
+		fake.setOptions({ redirectDownloads: "cross-origin" });
+		fake.resetLog();
+		const error = await client
+			.downloadFile({
+				resultUrl,
+				destinationPathAbsolute: join(tempDir(), "left.zip"),
+				signal: never,
+			})
+			.catch((caught) => caught as MineruApiError);
+		expect((error as MineruApiError).code).toBe("protocol_untrusted_redirect");
+		expect(fake.requests).toHaveLength(1);
 	});
 
 	/**
 	 * The seam S0 left for this slice: `MineruClient` satisfies
-	 * `MineruProbeClient` structurally, so P2-B can route the admin card's
-	 * capability read through the real client with one line at module init.
-	 * If a signature here ever drifts, this case stops compiling.
+	 * `MineruProbeClient` structurally, so the admin card's capability read goes
+	 * through the real client with one line at module init. If a signature here
+	 * ever drifts, this case stops compiling.
 	 */
 	it("satisfies MineruProbeClient, so the capability read can use it", async () => {
 		const { server: fake } = await start();
@@ -856,11 +1687,14 @@ describe("against the fake V1 server", () => {
 				config: testConfig({ baseUrl: fake.baseUrl }),
 			});
 			expect(report.reachable).toBe(true);
-			expect(report.version).toBe("4.0.4");
-			expect(report.tiers.map((tier) => tier.id)).toEqual(["flash", "basic"]);
-			expect(report.outputFormats).toContain("structured_content");
+			expect(report.version).toBe("4.1.7");
+			expect(report.tiers.map((tier) => tier.id)).toEqual([
+				"flash",
+				"basic",
+				"standard",
+			]);
 			expect(report.accessLevel).toBe("anonymous");
-			// The origin only — never a key, never a path.
+			// The origin only: never a key, never a path.
 			expect(report.baseUrl).toBe(fake.baseUrl);
 		} finally {
 			setMineruProbeClientFactory(null);

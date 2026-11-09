@@ -1,16 +1,23 @@
 /**
  * The upload never materialises the file, and the download never materialises
- * the zip.
+ * the ZIP.
  *
- * A 180 MB PDF is inside MinerU's own limits (`max_file_size_bytes` is 200 MB),
- * so "read it into a Buffer and POST it" is not a shortcut, it is an
- * out-of-memory error on a box that also runs the model. These cases prove the
- * bytes move a chunk at a time, in both directions, and that `Content-Length`
- * is the `stat` size rather than something derived from a buffer.
+ * A 180 MB PDF is inside MinerU's own limits, so "read it into a Buffer and PUT
+ * it" is not a shortcut, it is an out-of-memory error on a box that also runs
+ * the model. These cases prove the bytes move a chunk at a time, in both
+ * directions, and that `Content-Length` is the `stat` size rather than something
+ * derived from a buffer.
  */
 
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -20,11 +27,10 @@ import {
 	type MineruFileReader,
 } from "./client";
 import type { MineruConfig } from "./config";
-import type { MineruUpload } from "./schemas";
 import {
 	createFakeMineruServer,
 	type FakeMineruServer,
-	MINERU_FIXTURE_ROOT,
+	MINERU_PROTOCOL_FIXTURE_ROOT,
 } from "./testing/fake-server";
 
 const never = new AbortController().signal;
@@ -57,7 +63,7 @@ interface CountingReader extends MineruFileReader {
 /**
  * A reader with NO way to read the whole file: it exposes `stat`, `stream` and
  * `sha256` and nothing else, so a client that wanted to buffer the upload
- * could not, even by accident.
+ * could not, even by accident. The stream is `size` bytes of "A".
  */
 function countingReader(size: number, chunkSize = 64 * 1024): CountingReader {
 	const reader: CountingReader = {
@@ -85,7 +91,7 @@ function countingReader(size: number, chunkSize = 64 * 1024): CountingReader {
 			});
 		},
 		async sha256() {
-			return "c".repeat(64);
+			return createHash("sha256").update(Buffer.alloc(size, 65)).digest("hex");
 		},
 	};
 	return reader;
@@ -103,70 +109,67 @@ function tempDir(): string {
 afterEach(async () => {
 	await server?.close();
 	server = null;
+	for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
 	tempDirs = [];
 });
 
-describe("putUploadContent streams", () => {
+/** A task for `size` bytes of "A" on a fake server, and a client reading them from a counting reader. */
+async function taskFor(size: number) {
+	server = await createFakeMineruServer();
+	const reader = countingReader(size);
+	const client = new MineruClient({
+		config: testConfig({ baseUrl: server.baseUrl }),
+		fileReader: reader,
+	});
+	const receipt = await client.createTask({
+		fileName: "document.pdf",
+		bytes: size,
+		sha256sum: await reader.sha256("/absolute/path/document.pdf"),
+		signal: never,
+	});
+	const upload = receipt.files[0]?.upload;
+	if (!upload) throw new Error("expected an upload link");
+	return { client, reader, upload, receipt };
+}
+
+describe("putTaskFile streams", () => {
 	it("sends stat's size as Content-Length and never buffers the file", async () => {
-		server = await createFakeMineruServer();
 		const size = 3 * 1024 * 1024 + 7;
-		const reader = countingReader(size);
-		const client = new MineruClient({
-			config: testConfig({ baseUrl: server.baseUrl }),
-			fileReader: reader,
-		});
+		const { client, reader, upload } = await taskFor(size);
 
-		const upload = (await client.createUpload({
-			filename: "big.pdf",
-			bytes: size,
-			mimeType: "application/pdf",
-			sha256sum: "d".repeat(64),
-			signal: never,
-		})) as MineruUpload;
-		expect(upload.status).toBe("pending");
-
-		await client.putUploadContent({
+		const answer = await client.putTaskFile({
 			upload,
-			filePathAbsolute: "/absolute/path/big.pdf",
+			filePathAbsolute: "/absolute/path/document.pdf",
 			signal: never,
 		});
+		expect(answer.status).toBe("pending");
 
-		const put = server.requests.find((request) => request.method === "PUT");
+		const put = server?.requests.find((request) => request.method === "PUT");
 		expect(put?.headers["content-length"]).toBe(String(size));
 		expect(put?.bodyBytes).toBe(size);
 
+		// One stat for the declared size (createTask got it from the caller), and
+		// one stream for the body.
 		expect(reader.statCalls).toBe(1);
 		expect(reader.streamCalls).toBe(1);
 		// Many chunks, not one 3 MB blob.
 		expect(reader.chunksProduced).toBeGreaterThan(40);
 	});
 
-	it("hands out a FRESH stream for a re-PUT after a hash mismatch", async () => {
-		server = await createFakeMineruServer();
-		const reader = countingReader(1024);
-		const client = new MineruClient({
-			config: testConfig({ baseUrl: server.baseUrl }),
-			fileReader: reader,
-		});
-		const upload = await client.createUpload({
-			filename: "small.pdf",
-			bytes: 1024,
-			mimeType: "application/pdf",
-			sha256sum: "e".repeat(64),
-			signal: never,
-		});
+	it("hands out a FRESH stream for every PUT, because a stream cannot be read twice", async () => {
+		const { client, reader, upload } = await taskFor(1024);
 
-		await client.putUploadContent({
+		await client.putTaskFile({
 			upload,
-			filePathAbsolute: "/absolute/path/small.pdf",
+			filePathAbsolute: "/absolute/path/document.pdf",
 			signal: never,
 		});
-		await client.putUploadContent({
+		// A repeat PUT is harmless (200), and still asks for its own stream.
+		await client.putTaskFile({
 			upload,
-			filePathAbsolute: "/absolute/path/small.pdf",
+			filePathAbsolute: "/absolute/path/document.pdf",
 			signal: never,
 		});
-		// A single stream cannot be consumed twice; a re-PUT must ask again.
 		expect(reader.streamCalls).toBe(2);
 	});
 
@@ -184,18 +187,19 @@ describe("putUploadContent streams", () => {
 });
 
 describe("the default node file reader", () => {
+	const real = join(MINERU_PROTOCOL_FIXTURE_ROOT, "zips", "docx.zip");
+
 	it("stats, streams and digests a real file without buffering it", async () => {
 		const reader = createNodeMineruFileReader();
-		const path = join(MINERU_FIXTURE_ROOT, "docx", "sample.docx");
-		const bytes = readFileSync(path);
+		const bytes = readFileSync(real);
 
-		expect((await reader.stat(path)).size).toBe(bytes.byteLength);
-		expect(await reader.sha256(path)).toBe(
+		expect((await reader.stat(real)).size).toBe(bytes.byteLength);
+		expect(await reader.sha256(real)).toBe(
 			createHash("sha256").update(bytes).digest("hex"),
 		);
 
 		let streamed = 0;
-		const stream = reader.stream(path);
+		const stream = reader.stream(real);
 		const walker = stream.getReader();
 		for (;;) {
 			const { done, value } = await walker.read();
@@ -205,61 +209,103 @@ describe("the default node file reader", () => {
 		expect(streamed).toBe(bytes.byteLength);
 	});
 
-	it("matches the sha256 the fixtures recorded, which is the dedupe key", async () => {
-		const reader = createNodeMineruFileReader();
-		const recorded = JSON.parse(
-			readFileSync(
-				join(MINERU_FIXTURE_ROOT, "docx", "upload.create.json"),
-				"utf8",
-			),
-		) as { sha256sum: string };
-		expect(
-			await reader.sha256(join(MINERU_FIXTURE_ROOT, "docx", "sample.docx")),
-		).toBe(recorded.sha256sum);
+	it("uploads a real file from disk and the server receives it intact", async () => {
+		server = await createFakeMineruServer();
+		const client = new MineruClient({
+			config: testConfig({ baseUrl: server.baseUrl }),
+		});
+		const receipt = await client.createTask({
+			fileName: "document.docx",
+			bytes: (await client.statFile(real)).size,
+			sha256sum: await client.sha256(real),
+			signal: never,
+		});
+		const upload = receipt.files[0]?.upload;
+		if (!upload) throw new Error("expected an upload link");
+		await client.putTaskFile({ upload, filePathAbsolute: real, signal: never });
+		// The server verified the digest of what it received against the one we
+		// declared, so a 'pending' file means every byte arrived.
+		const task = await client.getTask({
+			taskId: receipt.task_id,
+			signal: never,
+		});
+		expect(task.files[0]?.status).not.toBe("waiting-file");
+		expect([...(server?.blobs.values() ?? [])]).toEqual([statSync(real).size]);
 	});
 });
 
 describe("downloadFile streams to disk", () => {
-	it("writes a multi-megabyte payload without holding it in memory", async () => {
-		const dir = tempDir();
-		const payload = Buffer.alloc(2 * 1024 * 1024, 7);
-		const source = join(dir, "payload.bin");
-		writeFileSync(source, payload);
-
-		// A tiny server whose only job is to stream the payload back.
-		const { createServer } = await import("node:http");
+	async function serving(
+		payload: Buffer,
+		announce: boolean,
+	): Promise<{ origin: string; close: () => Promise<void> }> {
 		const http = createServer((_req, res) => {
 			res.writeHead(200, {
-				"content-type": "application/octet-stream",
-				"content-length": payload.byteLength,
+				"content-type": "application/zip",
+				...(announce ? { "content-length": payload.byteLength } : {}),
 			});
-			res.end(payload);
+			// Several writes, so a server that does not announce a length streams chunked.
+			const half = Math.floor(payload.byteLength / 2);
+			res.write(payload.subarray(0, half));
+			res.end(payload.subarray(half));
 		});
 		await new Promise<void>((resolve) => {
 			http.listen(0, "127.0.0.1", resolve);
 		});
 		const port = (http.address() as { port: number }).port;
+		return {
+			origin: `http://127.0.0.1:${port}`,
+			close: () =>
+				new Promise<void>((resolve) => {
+					http.close(() => {
+						resolve();
+					});
+				}),
+		};
+	}
+
+	it.each([
+		["announcing its length", true],
+		["streaming chunked, with no length at all", false],
+	])("writes a multi-megabyte payload %s without holding it in memory", async (_label, announce) => {
+		const dir = tempDir();
+		const payload = Buffer.alloc(2 * 1024 * 1024, 7);
+		const origin = await serving(payload, announce);
 
 		try {
 			const client = new MineruClient({
-				config: testConfig({ baseUrl: `http://127.0.0.1:${port}` }),
+				config: testConfig({ baseUrl: origin.origin }),
 			});
 			const destination = join(dir, "downloaded.bin");
 			const { bytes } = await client.downloadFile({
-				fileId: "file-big",
+				resultUrl: `${origin.origin}/v1/files/file-big/content`,
 				destinationPathAbsolute: destination,
-				expectedBytes: payload.byteLength,
 				signal: never,
 			});
 			expect(bytes).toBe(payload.byteLength);
 			expect(statSync(destination).size).toBe(payload.byteLength);
 			expect(readFileSync(destination).equals(payload)).toBe(true);
 		} finally {
-			await new Promise<void>((resolve) => {
-				http.close(() => {
-					resolve();
-				});
-			});
+			await origin.close();
 		}
+	});
+
+	it("leaves the destination alone when the result cannot be downloaded", async () => {
+		const dir = tempDir();
+		const destination = join(dir, "precious.zip");
+		writeFileSync(destination, "keep me");
+		server = await createFakeMineruServer();
+		const client = new MineruClient({
+			config: testConfig({ baseUrl: server.baseUrl }),
+		});
+		const error = await client
+			.downloadFile({
+				resultUrl: `${server.baseUrl}/v1/files/file-${"0".repeat(24)}/content`,
+				destinationPathAbsolute: destination,
+				signal: never,
+			})
+			.catch((caught) => caught);
+		expect((error as { code: string }).code).toBe("file_not_found");
+		expect(readFileSync(destination, "utf8")).toBe("keep me");
 	});
 });

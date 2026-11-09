@@ -69,6 +69,15 @@ export const MINERU_OUTPUT_FORMATS = [
 ] as const;
 
 /**
+ * The only `output_formats` value the client ever sends to a MinerU 4.1 server:
+ * `default`, one result ZIP per file with `markdown.md`, `middle_json.json`,
+ * `structured_content.json` and `images/`. Every other name is either a different
+ * artifact nobody reads here (`docx`, `html`, `latex`) or a 4.0 name the 4.1
+ * server answers with a 400 (`markdown`, `zip`, `structured_content`).
+ */
+export const MINERU_TASK_OUTPUT_FORMATS = ["default"] as const;
+
+/**
  * The most bytes this app will ever pull down from MinerU, whatever the job
  * says about itself.
  *
