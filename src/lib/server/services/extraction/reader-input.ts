@@ -71,6 +71,29 @@ export async function prepareReaderInput(
 	return readAs === undefined ? unchanged(params) : readAsPng(params, readAs);
 }
 
+/**
+ * What the reader is told a converted file is: the stored name's stem under the
+ * extension of the type it is read as, and that type's MIME type. The one
+ * definition. `readAsPng` makes the file under this name, and the guard in
+ * `extractors/mineru4.test.ts` that holds the registry against what MinerU
+ * accepts asks for it to learn the name MinerU is sent for such a type.
+ */
+export function readerFileFor(
+	fileName: string,
+	readAs: "png",
+): { fileName: string; mimeType: string } {
+	const target = FILE_TYPE_ENTRIES.find((entry) => entry.id === readAs);
+	if (!target) {
+		throw new Error(
+			`The file-type registry has no entry to read ${fileName} as.`,
+		);
+	}
+	return {
+		fileName: `${basename(fileName, extname(fileName)) || "document"}.${target.extensions[0]}`,
+		mimeType: target.mimeTypes[0],
+	};
+}
+
 function unchanged(params: ReaderInputParams): PreparedReaderInput {
 	return {
 		input: {
@@ -93,13 +116,8 @@ async function readAsPng(
 ): Promise<PreparedReaderInput> {
 	const { fileName, mimeType, filePathAbsolute, attemptId } = params;
 
-	const target = FILE_TYPE_ENTRIES.find((entry) => entry.id === readAs);
-	if (!target) {
-		throw new Error(
-			`The file-type registry has no entry to read ${fileName} as.`,
-		);
-	}
-	const extension = target.extensions[0];
+	// Before a byte is read: a registry that lacks the entry fails here.
+	const reader = readerFileFor(fileName, readAs);
 
 	const { decodeImageToPng, ImagePreparationError } = await import(
 		"$lib/server/services/vision/prepare-image"
@@ -130,7 +148,7 @@ async function readAsPng(
 
 	const pathAbsolute = join(
 		params.tempDirRoot ?? tmpdir(),
-		`${READER_INPUT_FILE_PREFIX}${attemptId}.${extension}`,
+		`${READER_INPUT_FILE_PREFIX}${attemptId}${extname(reader.fileName)}`,
 	);
 	try {
 		await writeFile(pathAbsolute, png);
@@ -143,8 +161,8 @@ async function readAsPng(
 	return {
 		input: {
 			filePathAbsolute: pathAbsolute,
-			fileName: `${basename(fileName, extname(fileName)) || "document"}.${extension}`,
-			mimeType: target.mimeTypes[0],
+			fileName: reader.fileName,
+			mimeType: reader.mimeType,
 			sizeBytes: png.length,
 			contentSha256: null,
 		},

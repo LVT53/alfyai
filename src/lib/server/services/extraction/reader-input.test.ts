@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as prepareImage from "$lib/server/services/vision/prepare-image";
 import { DocumentExtractionError, extractionErrorMessage } from "./contracts";
-import { prepareReaderInput } from "./reader-input";
+import { prepareReaderInput, readerFileFor } from "./reader-input";
 
 // What the extraction runner hands the document reader: the stored file as it
 // is, or, for a type the reader cannot take (a HEIC or HEIF photo), a PNG that
@@ -203,5 +203,22 @@ describe("prepareReaderInput", () => {
 
 		expect(warn).toHaveBeenCalledTimes(1);
 		expect(warn.mock.calls[0]?.[0]).toMatch(/^\[EXTRACTION\] /);
+	});
+});
+
+describe("readerFileFor", () => {
+	it("names the converted file for the stem of the stored name, under the type it is read as", () => {
+		expect(readerFileFor("IMG_0042.HEIC", "png")).toEqual({
+			fileName: "IMG_0042.png",
+			mimeType: "image/png",
+		});
+		expect(readerFileFor("shot.heif", "png").fileName).toBe("shot.png");
+		// Dots in the stem stay; a name with no extension keeps all of it, and one
+		// with nothing to keep gets a neutral stem.
+		expect(readerFileFor("trip.2026.heic", "png").fileName).toBe(
+			"trip.2026.png",
+		);
+		expect(readerFileFor("IMG_0042", "png").fileName).toBe("IMG_0042.png");
+		expect(readerFileFor("", "png").fileName).toBe("document.png");
 	});
 });
