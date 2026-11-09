@@ -877,26 +877,51 @@ describe("a document that outlasts the whole-job deadline", () => {
 	const FLOOR = { MINERU_JOB_TIMEOUT_MS: "10000" };
 
 	/**
-	 * Runs one attempt, and lets the clock pass the deadline once it has looked at
-	 * the file `looks` times. The first look finds a file MinerU has queued, the
-	 * second finds it running, so a test about a RUNNING file needs two; the poll
-	 * interval has a 250 ms floor that the environment cannot lower, which is real
-	 * time these tests really spend, and why each carries an explicit bound.
+	 * The poll loop's only wait is the client's `sleepImpl`, and a real one costs
+	 * the environment's 250 ms floor per look, which a test would really spend
+	 * (and spend ten times over on a loaded machine). This one waits for nothing:
+	 * it counts the looks MinerU has had at the file, and once it has had `looks`
+	 * of them it moves the faked clock past the deadline, so the next look ends
+	 * the poll. The first look finds a file MinerU has queued and the second finds
+	 * it running, so a test about a RUNNING file needs two. A client is built for
+	 * every attempt, and so is a counter: each attempt counts from its first look.
+	 * A wait after the clock has moved means the poll did not end where it should
+	 * have, and without this it would spin through instant waits until the test
+	 * timed out.
 	 */
-	async function attemptPastTheDeadline(
-		options: Parameters<typeof run>[0] = {},
-		looks = 2,
+	function sleepPastTheDeadlineAfter(looks: number) {
+		let slept = 0;
+		return async (_ms: number, signal: AbortSignal): Promise<void> => {
+			signal.throwIfAborted();
+			slept += 1;
+			if (slept > looks) {
+				throw new Error("the poll waited again after the deadline had passed");
+			}
+			if (slept === looks) vi.setSystemTime(Date.now() + 11_000);
+		};
+	}
+
+	/**
+	 * The real MinerU 4 extractor over a client that waits as above. Imported
+	 * after `boot`, so it is the module graph that `boot` built. `fetchImpl` is
+	 * how a test makes MinerU's answers say something the fake would not.
+	 */
+	async function extractorPastTheDeadlineAfter(
+		looks: number,
+		fetchImpl?: typeof fetch,
 	) {
-		const polledBefore = taskPolls().length;
-		const attempt = run(options);
-		await vi.waitFor(
-			() => {
-				expect(taskPolls().length).toBeGreaterThanOrEqual(polledBefore + looks);
-			},
-			{ timeout: 30_000 },
+		const { createMineru4Extractor } = await import(
+			"$lib/server/services/extraction/extractors/mineru4"
 		);
-		vi.setSystemTime(Date.now() + 11_000);
-		return attempt;
+		const { MineruClient } = await import("./client");
+		return createMineru4Extractor({
+			createClient: (config) =>
+				new MineruClient({
+					config,
+					fetchImpl,
+					sleepImpl: sleepPastTheDeadlineAfter(looks),
+				}),
+		});
 	}
 
 	it("is an attempt when MinerU was running it: the budget is spent, and it ends with the timeout's sentence", async () => {
@@ -908,6 +933,10 @@ describe("a document that outlasts the whole-job deadline", () => {
 			const readModel = await import(
 				"$lib/server/services/extraction/read-model"
 			);
+			// Looked at twice, queued and then running, and then the clock moves.
+			const running = await extractorPastTheDeadlineAfter(2);
+			const attemptPastTheDeadline = () =>
+				run({ resolveExtractor: () => running });
 
 			for (let attempt = 1; attempt <= 2; attempt += 1) {
 				expect(await attemptPastTheDeadline()).toEqual({
@@ -949,7 +978,7 @@ describe("a document that outlasts the whole-job deadline", () => {
 		} finally {
 			vi.useRealTimers();
 		}
-	}, 60_000);
+	});
 
 	it("is MinerU's queue when it had not started it: the document keeps waiting and spends none of its attempts", async () => {
 		vi.useFakeTimers({ toFake: ["Date"] });
@@ -958,10 +987,6 @@ describe("a document that outlasts the whole-job deadline", () => {
 			await boot({ neverFinish: true }, FLOOR);
 			const { jobId, artifactId } = await seedJob();
 			// A MinerU with a long line: whatever the task, the file shows queued.
-			const { createMineru4Extractor } = await import(
-				"$lib/server/services/extraction/extractors/mineru4"
-			);
-			const { MineruClient } = await import("./client");
 			const queuedFetch: typeof fetch = async (input, init) => {
 				const response = await fetch(input, init);
 				const path = new URL(String(input)).pathname;
@@ -979,22 +1004,20 @@ describe("a document that outlasts the whole-job deadline", () => {
 				for (const file of body.files) file.status = "pending";
 				return Response.json(body, { status: response.status });
 			};
-			const queued = createMineru4Extractor({
-				createClient: (config) =>
-					new MineruClient({ config, fetchImpl: queuedFetch }),
-			});
+			// One look is all it takes: the file is queued at the first.
+			const queued = await extractorPastTheDeadlineAfter(1, queuedFetch);
 			const readModel = await import(
 				"$lib/server/services/extraction/read-model"
 			);
 
 			// More times than the attempt budget allows (three): it is an outage wait,
 			// and an outage wait has no bound of attempts, only the window of the
-			// outage budget. One look is all it takes: the file is queued at the
-			// first.
+			// outage budget.
 			for (let wait = 1; wait <= 4; wait += 1) {
-				expect(
-					await attemptPastTheDeadline({ resolveExtractor: () => queued }, 1),
-				).toEqual({ jobId, status: "queued" });
+				expect(await run({ resolveExtractor: () => queued })).toEqual({
+					jobId,
+					status: "queued",
+				});
 				const row = await ledger.getExtractionJobRow(jobId);
 				expect(row?.errorCode).toBe("timeout");
 				expect(row?.errorMessage).toBe(TIMEOUT_SENTENCE);
@@ -1009,7 +1032,7 @@ describe("a document that outlasts the whole-job deadline", () => {
 		} finally {
 			vi.useRealTimers();
 		}
-	}, 60_000);
+	});
 });
 
 // ---------------------------------------------------------------------------
