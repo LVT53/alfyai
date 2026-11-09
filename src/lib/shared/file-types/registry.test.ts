@@ -609,54 +609,6 @@ describe("file-type registry invariants", () => {
 		expect(tif?.intake.remoteExtension).toBe("tiff");
 	});
 
-	it("hands the document reader a PNG of a HEIC or HEIF photo and of nothing else", () => {
-		// MinerU 4.0.12 and 4.1.7 never accept .heic/.heif (they route by
-		// extension and know only png, jpg, jpeg, webp, gif, bmp, tiff and jp2),
-		// so those two read a conversion. No other entry needs one.
-		expect(
-			FILE_TYPE_ENTRIES.filter((entry) => entry.intake.readAs !== undefined)
-				.map((entry) => `${entry.id}:${entry.intake.readAs}`)
-				.sort(),
-		).toEqual(["heic:png", "heif:png"]);
-	});
-
-	it("keeps `readAs` on a mineru route, naming an entry the table has", () => {
-		for (const entry of FILE_TYPE_ENTRIES) {
-			const readAs = entry.intake.readAs;
-			if (readAs === undefined) continue;
-			// A conversion for the document reader is meaningless on a route that
-			// never reaches it.
-			expect(entry.intake.route, entry.id).toBe("mineru");
-			// The runner takes the converted file's name and MIME off that entry.
-			expect(
-				FILE_TYPE_ENTRIES.some((candidate) => candidate.id === readAs),
-				`${entry.id} reads as ${readAs}`,
-			).toBe(true);
-		}
-	});
-
-	it("answers `getIntakeReadAs` from the resolved entry, extension first", () => {
-		expect(getIntakeReadAs("IMG_0042.HEIC", "image/heic")).toBe("png");
-		expect(getIntakeReadAs("shot.heif", "image/heif")).toBe("png");
-		// A browser that sends no type for a HEIC still gets the conversion.
-		expect(getIntakeReadAs("IMG_0042.heic", "application/octet-stream")).toBe(
-			"png",
-		);
-		expect(getIntakeReadAs("IMG_0042.heic", null)).toBe("png");
-		// Nothing is converted for a type the reader takes as it is, or for a
-		// file the table does not know.
-		expect(getIntakeReadAs("photo.jpg", "image/jpeg")).toBeUndefined();
-		expect(getIntakeReadAs("scan.pdf", "application/pdf")).toBeUndefined();
-		expect(getIntakeReadAs("mystery.qqq", null)).toBeUndefined();
-	});
-
-	it("still refuses AVIF at upload instead of converting it", () => {
-		const avif = FILE_TYPE_ENTRIES.find((entry) => entry.id === "avif");
-		expect(avif?.intake.route).toBe("reject");
-		expect(avif?.intake.rejectReason).toBe("convertImage");
-		expect(avif?.intake.readAs).toBeUndefined();
-	});
-
 	it("`buildAcceptAttribute` drops exactly the disabled entries", () => {
 		const disabled = new Set(getMineru4GatedFileTypeIds());
 		for (const surface of ["knowledge", "chat"] as const) {
@@ -827,5 +779,55 @@ describe("file-type registry invariants", () => {
 				).toBe(extension);
 			}
 		}
+	});
+});
+
+describe("what the document reader is handed (`intake.readAs`)", () => {
+	it("hands the document reader a PNG of a HEIC or HEIF photo and of nothing else", () => {
+		// MinerU 4.0.12 and 4.1.7 never accept .heic/.heif (they route by
+		// extension and know only png, jpg, jpeg, webp, gif, bmp, tiff and jp2),
+		// so those two read a conversion. No other entry needs one.
+		expect(
+			FILE_TYPE_ENTRIES.filter((entry) => entry.intake.readAs !== undefined)
+				.map((entry) => `${entry.id}:${entry.intake.readAs}`)
+				.sort(),
+		).toEqual(["heic:png", "heif:png"]);
+	});
+
+	it("keeps `readAs` on a mineru route, naming an entry the table has", () => {
+		for (const entry of FILE_TYPE_ENTRIES) {
+			const readAs = entry.intake.readAs;
+			if (readAs === undefined) continue;
+			// A conversion for the document reader is meaningless on a route that
+			// never reaches it.
+			expect(entry.intake.route, entry.id).toBe("mineru");
+			// The runner takes the converted file's name and MIME off that entry.
+			expect(
+				FILE_TYPE_ENTRIES.some((candidate) => candidate.id === readAs),
+				`${entry.id} reads as ${readAs}`,
+			).toBe(true);
+		}
+	});
+
+	it("answers `getIntakeReadAs` from the resolved entry, extension first", () => {
+		expect(getIntakeReadAs("IMG_0042.HEIC", "image/heic")).toBe("png");
+		expect(getIntakeReadAs("shot.heif", "image/heif")).toBe("png");
+		// A browser that sends no type for a HEIC still gets the conversion.
+		expect(getIntakeReadAs("IMG_0042.heic", "application/octet-stream")).toBe(
+			"png",
+		);
+		expect(getIntakeReadAs("IMG_0042.heic", null)).toBe("png");
+		// Nothing is converted for a type the reader takes as it is, or for a
+		// file the table does not know.
+		expect(getIntakeReadAs("photo.jpg", "image/jpeg")).toBeUndefined();
+		expect(getIntakeReadAs("scan.pdf", "application/pdf")).toBeUndefined();
+		expect(getIntakeReadAs("mystery.qqq", null)).toBeUndefined();
+	});
+
+	it("still refuses AVIF at upload instead of converting it", () => {
+		const avif = FILE_TYPE_ENTRIES.find((entry) => entry.id === "avif");
+		expect(avif?.intake.route).toBe("reject");
+		expect(avif?.intake.rejectReason).toBe("convertImage");
+		expect(avif?.intake.readAs).toBeUndefined();
 	});
 });
