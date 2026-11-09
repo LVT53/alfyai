@@ -81,6 +81,11 @@ export const MINERU_CLIENT_ERROR_CODES = {
 	/** A tier the server does not offer, caught before any bytes move. */
 	tierNotAvailable: "client_tier_not_available",
 	/**
+	 * An explicit tier that could not be checked, because the tier list could not
+	 * be read: not evidence that the server lacks it, so not `tierNotAvailable`.
+	 */
+	tierListUnreadable: "client_tier_list_unreadable",
+	/**
 	 * A poll found the file we submitted still `waiting-file`. In a one-file task
 	 * only a PUT moves a file out of that state, so waiting on would run to the
 	 * whole-job deadline. The error carries the snapshot's `upload` link when it
@@ -475,6 +480,14 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		taxonomy: "tier_unavailable",
 		retryable: false,
 		reason: "the desired tier is not offered; fail before any bytes move",
+	},
+	{
+		rule: "client:tier-list-unreadable",
+		code: MINERU_CLIENT_ERROR_CODES.tierListUnreadable,
+		taxonomy: "unavailable",
+		retryable: true,
+		reason:
+			"the tier list could not be read, so an explicit tier could not be checked; the next attempt reads it again",
 	},
 	/**
 	 * The PUT never landed (a transport error or timeout during it, a worker

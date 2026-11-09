@@ -197,6 +197,71 @@ describe("decideTier: the server shapes", () => {
 		});
 	});
 
+	// An EMPTY list is one that was not read: a healthy 4.1 server lists flash at
+	// least, and the auto row above reads an empty one the same way. Calling a tier
+	// missing from it would turn one failed /v1/tiers read into a document that
+	// fails for good (`tier_unavailable` is never retried); it is an outage, and the
+	// next attempt reads the list again. A list that WAS read and lacks the tier is
+	// still the misconfiguration it always was.
+	describe("an explicit tier against a tier list that could not be read", () => {
+		const EXPLICIT = [
+			["a re-extract tier", { hintedTier: "standard", configuredTier: "auto" }],
+			["the configured tier", { configuredTier: "standard" }],
+		] as const;
+
+		function thrownBy(run: () => unknown): unknown {
+			try {
+				run();
+			} catch (error) {
+				return error;
+			}
+			throw new Error("decideTier did not throw");
+		}
+
+		it.each(
+			EXPLICIT,
+		)("%s is a retryable unavailable, not a missing tier", (_name, input) => {
+			const mapping = mapMineruError(
+				thrownBy(() => decideTier({ ...input, availableTiers: [] })),
+			);
+			expect(mapping.rule).toBe("client:tier-list-unreadable");
+			expect(mapping.known).toBe(true);
+			expect(mapping.taxonomy).toBe("unavailable");
+			expect(mapping.retryable).toBe(true);
+		});
+
+		it.each(
+			EXPLICIT,
+		)("%s is still a missing tier against a list that was read and lacks it", (_name, input) => {
+			for (const availableTiers of [BASIC_SERVER, FLASH_SERVER]) {
+				const mapping = mapMineruError(
+					thrownBy(() => decideTier({ ...input, availableTiers })),
+				);
+				expect(mapping.rule).toBe("client:tier-not-available");
+				expect(mapping.taxonomy).toBe("tier_unavailable");
+				expect(mapping.retryable).toBe(false);
+			}
+		});
+
+		it("still lets a soft preference, auto and a native document go on without a tier", () => {
+			expect(
+				decideTier({
+					preferredTier: "flash",
+					configuredTier: "auto",
+					availableTiers: [],
+				}).reason,
+			).toBe("auto-no-tier-list");
+			expect(
+				decideTier({
+					intakeTierHint: "flash",
+					hintedTier: "standard",
+					configuredTier: "standard",
+					availableTiers: [],
+				}).reason,
+			).toBe("native-document");
+		});
+	});
+
 	describe("the configured tier", () => {
 		it("is sent when the server offers it", () => {
 			const decision = decideTier({

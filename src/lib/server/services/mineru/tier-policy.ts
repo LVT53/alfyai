@@ -23,6 +23,9 @@
  *     and never an outage. It is caught here, before the request, whenever the
  *     tier list says so; and when the list was stale, the 400 maps to the same
  *     non-retryable `tier_unavailable` (`mineru/errors.ts`), so it cannot loop.
+ *     The exception is a list that was not read at all (empty, see the auto row):
+ *     it cannot say the tier is missing, so an explicit tier is then a retryable
+ *     `unavailable`, and the next attempt reads the list again.
  */
 
 import {
@@ -107,6 +110,27 @@ function tierUnavailable(tier: string, source: string): MineruApiError {
 	});
 }
 
+/**
+ * An explicit tier the list does not hold. A list that was read and lacks it is
+ * the admin's misconfiguration, never retried. An empty list is one that was not
+ * read (a healthy 4.1 server lists flash at least, and rule 4's "no tier list"
+ * says the same), so it proves nothing about the tier: that is an outage's
+ * `unavailable`, and a transient failure of `/v1/tiers` costs the document a
+ * wait instead of its life.
+ */
+function explicitTierMissing(
+	tier: string,
+	source: string,
+	available: ReadonlySet<string>,
+): MineruApiError {
+	if (available.size > 0) return tierUnavailable(tier, source);
+	return new MineruApiError({
+		code: MINERU_CLIENT_ERROR_CODES.tierListUnreadable,
+		message: `MinerU's tier list could not be read, so the ${source} tier "${tier}" could not be checked.`,
+		details: { tier, source },
+	});
+}
+
 export function isMineruTierId(value: string): value is MineruTierId {
 	return (MINERU_TIER_IDS as readonly string[]).includes(value);
 }
@@ -133,7 +157,7 @@ export function decideTier(input: DecideTierInput): TierDecision {
 	// 1: the user pressed "Re-extract at …". Explicit intent beats everything.
 	if (input.hintedTier) {
 		if (!available.has(input.hintedTier)) {
-			throw tierUnavailable(input.hintedTier, "requested");
+			throw explicitTierMissing(input.hintedTier, "requested", available);
 		}
 		return {
 			tier: input.hintedTier,
@@ -156,7 +180,7 @@ export function decideTier(input: DecideTierInput): TierDecision {
 	// 2: admin intent.
 	if (input.configuredTier !== "auto") {
 		if (!available.has(input.configuredTier)) {
-			throw tierUnavailable(input.configuredTier, "configured");
+			throw explicitTierMissing(input.configuredTier, "configured", available);
 		}
 		return {
 			tier: input.configuredTier,

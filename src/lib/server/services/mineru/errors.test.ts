@@ -1066,6 +1066,7 @@ describe("mapMineruError: transport and client-side codes", () => {
 		[MINERU_CLIENT_ERROR_CODES.downloadTooLarge, "protocol", true],
 		[MINERU_CLIENT_ERROR_CODES.jobDeadline, "timeout", true],
 		[MINERU_CLIENT_ERROR_CODES.tierNotAvailable, "tier_unavailable", false],
+		[MINERU_CLIENT_ERROR_CODES.tierListUnreadable, "unavailable", true],
 	])("maps the client-side code %s", (code, taxonomy, retryable) => {
 		const mapping = mapMineruError(new MineruApiError({ code, message: "x" }));
 		expect(mapping.known).toBe(true);

@@ -996,6 +996,47 @@ describe("tier resolution happens before the request is made", () => {
 		});
 	});
 
+	it.each([
+		["a re-extract tier", {}, { hints: { tier: "standard" } }],
+		["the configured tier", { defaultTier: "standard" as const }, {}],
+	])("does not call %s missing when the tier list could not be read: the document waits, and goes through once it can", async (_name, overrides, requestOverrides) => {
+		// `/v1/tiers` fails once. An empty list is no evidence that the server lacks
+		// the tier, and `tier_unavailable` is never retried: one failed read would
+		// have failed the document for good.
+		await start({
+			failures: [
+				{
+					path: "/v1/tiers",
+					method: "GET",
+					nth: 1,
+					status: 503,
+					body: {
+						error: { code: "server_shutting_down", message: "stopping" },
+					},
+				},
+			],
+		});
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		const error = await extractorFor(overrides)
+			.extract((await buildRequest(requestOverrides)).request)
+			.catch((thrown) => thrown);
+
+		expect(error).toMatchObject({ code: "unavailable", retryable: true });
+		expect(error.message).toBe("The document service could not be reached.");
+		expect(error.details).toMatchObject({
+			mineruRule: "client:tier-list-unreadable",
+		});
+		expect(creates()).toHaveLength(0);
+		expect(uploads()).toHaveLength(0);
+
+		// The report that lost its list was not kept: the next attempt reads it.
+		await extractorFor(overrides).extract(
+			(await buildRequest(requestOverrides)).request,
+		);
+		expect(createBody().tier).toBe("standard");
+	});
+
 	it("drops the tier list the server has just contradicted, so the next document reads it again", async () => {
 		// The list was true when it was read; the box was then restarted at a lower
 		// ceiling, and the list is cached for minutes more. The document that meets
