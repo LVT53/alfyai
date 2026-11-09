@@ -138,6 +138,74 @@ function serverFeatures(): {
 	return recordedFeatures;
 }
 
+/**
+ * What the OLD server, MinerU 4.0.12, answers a 4.1 client with. NOT captured: no
+ * capture of it exists. Derived from the installed 4.0.12 source
+ * (`mineru/parser/task_api.py`, its router included at
+ * `mineru/parser/api_server.py:2844`): 4.0.12 already mounts POST /v1/tasks,
+ * GET and DELETE /v1/tasks/{id} and GET /v1/files/{id}/content, so a 4.1 JSON
+ * manifest reaches `CreateJobRequest.model_validate` (`extra="forbid"`), fails,
+ * and `except (ValidationError, ValueError)` -> `_invalid(str(exc))` answers
+ * HTTP 400 with 4.0's `ErrorResponse(...).model_dump(by_alias=True)`. Every 4.0
+ * error body carries `error.type` and `param` (null when there is none); a 4.1
+ * error body NEVER has `type` (spike section 6). Routes 4.0.12 lacks (the PUT
+ * to an upload link, the cancel POST) answer FastAPI's plain 404 `{detail}`.
+ *
+ * Use them as the `body` of a scripted failure to stand a 4.0.12 server in front
+ * of the client (the cutover window), and clear the failures to "flip the URL":
+ * `failures: [{ path: "/v1/tasks", status: 400, body: MINERU_4_0_12_ERRORS.invalidManifest }]`.
+ */
+export const MINERU_4_0_12_ERRORS = {
+	/** POST /v1/tasks with a 4.1 manifest: 400. */
+	invalidManifest: {
+		error: {
+			type: "invalid_request_error",
+			code: "invalid_request",
+			message:
+				"Invalid request: 3 validation errors for CreateJobRequest\nfiles.0.file_name\n  Extra inputs are not permitted [type=extra_forbidden, input_value='report', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.14/v/extra_forbidden",
+			param: null,
+		},
+	},
+	/** GET /v1/tasks/{id} for an id it does not hold: 404. */
+	taskNotFound: {
+		error: {
+			type: "invalid_request_error",
+			code: "task_not_found",
+			message: "Task job_0123456789abcdef01234567 not found",
+			param: null,
+		},
+	},
+	/** GET /v1/files/{id}/content for an id it does not hold: 404. */
+	fileNotFound: {
+		error: {
+			type: "invalid_request_error",
+			code: "file_not_found",
+			message: "File file-0123456789abcdef01234567 not found",
+			param: null,
+		},
+	},
+	/** A wrong or missing key: 401. */
+	badKey: {
+		error: {
+			type: "authentication_error",
+			code: "invalid_api_key",
+			message: "Invalid or missing API key",
+			param: null,
+		},
+	},
+	/** An engine failure: 500. */
+	engine: {
+		error: {
+			type: "api_error",
+			code: "internal_error",
+			message: "boom",
+			param: null,
+		},
+	},
+	/** FastAPI's own answer for a route 4.0.12 lacks: 404. */
+	routeMissing: { detail: "Not Found" },
+} as const;
+
 /** What a file ends up as once its bytes are in and the parse has run. */
 export type FakeMineruFileOutcome =
 	| "completed"

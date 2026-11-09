@@ -36,6 +36,7 @@ import {
 } from "./errors";
 import { mineruTaskDetailSchema } from "./schemas";
 import {
+	MINERU_4_0_12_ERRORS,
 	MINERU_PROTOCOL_FIXTURE_ROOT,
 	readMineruProtocolFixture,
 } from "./testing/fake-server";
@@ -87,9 +88,9 @@ const INVALID: Expectation = {
 	taxonomy: "protocol",
 	retryable: false,
 };
-/** The server answered in FastAPI's voice: it is not a 4.1 MinerU (S6). */
+/** The server answered in another protocol's voice: it is not a 4.1 MinerU (S6, R14). */
 const WRONG_PROTOCOL: Expectation = {
-	rule: "fastapi:wrong-protocol",
+	rule: "wrong-protocol",
 	taxonomy: "unavailable",
 	retryable: true,
 };
@@ -152,7 +153,13 @@ const EXPECTED: Record<string, Expectation> = {
 	// -- the server does not speak /v1/tasks (4.0.12, or a proxy) -----------
 	"errors/49_removed_post_uploads.json": WRONG_PROTOCOL,
 	"errors/55_removed_get_parse_job.json": WRONG_PROTOCOL,
-	"errors/59_delete_task_not_allowed.json": WRONG_PROTOCOL,
+	// A 405 is a 4.1 server answering a client bug (4.0.12 only ever answers 404
+	// for a route it lacks), so it is not an outage to wait out.
+	"errors/59_delete_task_not_allowed.json": {
+		rule: "405:method-not-allowed",
+		taxonomy: "protocol",
+		retryable: false,
+	},
 	"errors/101_get_task_weird_id_slash.json": WRONG_PROTOCOL,
 
 	// -- forgotten ids and late cancels ---------------------------------------
@@ -287,7 +294,25 @@ describe("S6: the server forgot it", () => {
 					path,
 				}),
 			);
-			expect(mapping.rule, path).toBe("fastapi:wrong-protocol");
+			expect(mapping.rule, path).toBe("wrong-protocol");
+		}
+	});
+
+	it("does NOT read a FastAPI 405 as another protocol: it is a client bug, and must not ride the outage budget", () => {
+		// An empty task id makes /v1/tasks/ , which a 4.1 server answers 405; the
+		// old server only ever says 404 for a route it lacks.
+		for (const path of ["/v1/tasks/", "/v1/tasks"]) {
+			const error = mineruApiErrorFromBody({
+				status: 405,
+				bodyText: JSON.stringify({ detail: "Method Not Allowed" }),
+				path,
+			});
+			const mapping = mapMineruError(error);
+			expect(error.wrongProtocol, path).toBeNull();
+			expect(mapping.rule, path).toBe("405:method-not-allowed");
+			expect(mapping.known, path).toBe(true);
+			expect(mapping.taxonomy, path).toBe("protocol");
+			expect(mapping.retryable, path).toBe(false);
 		}
 	});
 
@@ -310,6 +335,159 @@ describe("S6: the server forgot it", () => {
 		expect(mapping.rule).toBe("fallback:422");
 		expect(mapping.taxonomy).toBe("protocol");
 		expect(mapping.retryable).toBe(false);
+	});
+});
+
+const OLD_SERVER = MINERU_4_0_12_ERRORS;
+
+function oldServerError(
+	status: number,
+	body: unknown,
+	path: string,
+): MineruApiError {
+	return mineruApiErrorFromBody({
+		status,
+		bodyText: JSON.stringify(body),
+		path,
+	});
+}
+
+describe("R14: the old server answered, in its own voice", () => {
+	it("reads a 4.1 manifest refused by 4.0.12 (400 with error.type) as another protocol, not as our bug", () => {
+		// Sent in the seconds between the deploy and the URL flip, this used to land
+		// on 400:invalid_request: permanent, so every extraction started in that
+		// window failed for good.
+		const error = oldServerError(400, OLD_SERVER.invalidManifest, "/v1/tasks");
+		expect(error.wrongProtocol).toBe("error.type invalid_request_error");
+		const mapping = mapMineruError(error);
+		expect(mapping.rule).toBe("wrong-protocol");
+		expect(mapping.known).toBe(true);
+		expect(mapping.taxonomy).toBe("unavailable");
+		expect(mapping.retryable).toBe(true);
+		expect(mapping.disposition).toBe("fail");
+		expect(isMineruForgottenIdError(error)).toBe(false);
+		// And the pydantic dump (the value we sent, a URL) stays out of the message.
+		expect(error.message).not.toContain("pydantic");
+		expect(error.message).not.toContain("report");
+	});
+
+	it("reads 4.0.12's 404 task_not_found WITH a type as another protocol, never as a forgotten id", () => {
+		// The same code, no type, from a 4.1 server IS a forgotten id (see below).
+		const error = oldServerError(
+			404,
+			OLD_SERVER.taskNotFound,
+			"/v1/tasks/job_x",
+		);
+		expect(error.code).toBe("task_not_found");
+		expect(isMineruForgottenIdError(error)).toBe(false);
+		const mapping = mapMineruError(error);
+		expect(mapping.rule).toBe("wrong-protocol");
+		expect(mapping.disposition).toBe("fail");
+		expect(mapping.taxonomy).toBe("unavailable");
+		expect(mapping.retryable).toBe(true);
+	});
+
+	it("reads 4.0.12's 404 file_not_found on a result URL the same way", () => {
+		const error = oldServerError(
+			404,
+			OLD_SERVER.fileNotFound,
+			"/v1/files/file-x/content",
+		);
+		expect(isMineruForgottenIdError(error)).toBe(false);
+		expect(mapMineruError(error).rule).toBe("wrong-protocol");
+		expect(mapMineruError(error).disposition).toBe("fail");
+	});
+
+	it("reads any error body that carries error.type that way, whatever its status or code", () => {
+		for (const [status, body] of [
+			[401, OLD_SERVER.badKey],
+			[500, OLD_SERVER.engine],
+			[400, OLD_SERVER.invalidManifest],
+			[404, OLD_SERVER.taskNotFound],
+		] as const) {
+			for (const path of [
+				"/v1/tasks",
+				"/v1/tasks/job_x",
+				"/v1/tasks/job_x/cancel",
+				"/v1/files/file-x/content",
+			]) {
+				const mapping = mapMineruError(oldServerError(status, body, path));
+				expect(mapping.rule, `${status} ${path}`).toBe("wrong-protocol");
+				expect(mapping.retryable, `${status} ${path}`).toBe(true);
+			}
+		}
+	});
+
+	it("finds the type before it strictly parses the body, so an odd old body cannot hide it", () => {
+		for (const body of [
+			{ error: { type: "api_error" } },
+			{ error: { type: "invalid_request_error", code: 7, message: null } },
+			{
+				error: {
+					type: "authentication_error",
+					code: "invalid_api_key",
+					message: "x",
+					param: null,
+					extra: [],
+				},
+			},
+		]) {
+			const error = oldServerError(400, body, "/v1/tasks");
+			expect(error.wrongProtocol, JSON.stringify(body)).toMatch(
+				/^error\.type /,
+			);
+			expect(mapMineruError(error).rule, JSON.stringify(body)).toBe(
+				"wrong-protocol",
+			);
+		}
+		// `param: null` is how 4.0 says "none"; it is not a schema failure.
+		const parsed = parseMineruErrorBody(
+			JSON.stringify(OLD_SERVER.invalidManifest),
+		);
+		expect(parsed.detail?.code).toBe("invalid_request");
+		expect(parsed.detail?.param).toBeNull();
+	});
+
+	it("leaves 4.1's own answers alone: the same codes WITHOUT a type are still what they were", () => {
+		const forgotten = mineruApiErrorFromBody({
+			status: 404,
+			bodyText: JSON.stringify({
+				error: { code: "task_not_found", message: "Task job_x not found" },
+			}),
+			path: "/v1/tasks/job_x",
+		});
+		expect(forgotten.wrongProtocol).toBeNull();
+		expect(isMineruForgottenIdError(forgotten)).toBe(true);
+		expect(mapMineruError(forgotten).rule).toBe("404:task_not_found");
+
+		const invalid = mineruApiErrorFromBody({
+			status: 400,
+			bodyText: JSON.stringify({
+				error: {
+					code: "invalid_request",
+					message: "x",
+					param: "files.0.file_name",
+				},
+			}),
+			path: "/v1/tasks",
+		});
+		expect(mapMineruError(invalid).rule).toBe("400:invalid_request");
+		expect(mapMineruError(invalid).retryable).toBe(false);
+	});
+
+	it("carries the cause into the ledger error and keeps the user out of it", () => {
+		const error = mineruErrorToExtractionError(
+			oldServerError(400, OLD_SERVER.invalidManifest, "/v1/tasks"),
+			{ context: "MinerU task creation failed" },
+		);
+		expect(error.code).toBe("unavailable");
+		expect(error.retryable).toBe(true);
+		expect(error.handleUnknown).toBe(false);
+		expect(error.details?.mineruRule).toBe("wrong-protocol");
+		expect(error.details?.wrongProtocol).toBe(
+			"error.type invalid_request_error",
+		);
+		expect(error.message).toBe("The document service could not be reached.");
 	});
 });
 
@@ -788,7 +966,9 @@ describe("mineruErrorToExtractionError", () => {
 		);
 		expect(error.code).toBe("unavailable");
 		expect(error.retryable).toBe(true);
-		expect(error.details?.mineruRule).toBe("fastapi:wrong-protocol");
+		expect(error.details?.mineruRule).toBe("wrong-protocol");
+		// The cause rides in the diagnostics.
+		expect(error.details?.wrongProtocol).toBe("a FastAPI 404 {detail}");
 	});
 
 	it("tells the user to convert a file the backend refuses outright", () => {

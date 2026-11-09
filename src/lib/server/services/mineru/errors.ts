@@ -15,11 +15,14 @@
  * status and never on `message`, because 4.1's messages are pydantic dumps with
  * a URL in them (spike D12). Three exceptions, each deliberate:
  *
- *  - A FastAPI `{"detail":"Not Found"}` has no code at all. 4.1's own routes
- *    answer with `{error:{code}}`, so a plain FastAPI 404/405 means the server
- *    does not speak `/v1/tasks`: 4.0.12 during the cutover (S6), or a proxy. It
- *    is retryable, so a job caught in that window succeeds once the URL points
- *    at 4.1.
+ *  - Another protocol's voice (S6, R14). 4.0.12 ALREADY serves `/v1/tasks`, so
+ *    during the seconds between a deploy and the URL flip a 4.1 client meets it,
+ *    and it answers in 4.0's shape: every error body carries `error.type`
+ *    (4.1 never sends one), and a route it lacks answers FastAPI's plain 404
+ *    `{detail}`. Either is `wrong-protocol`: retryable and `unavailable`, so a job
+ *    caught in that window succeeds once the URL points at 4.1, matched BEFORE
+ *    any code rule so 4.0.12's own `task_not_found` is never a forgotten id.
+ *    (A FastAPI 405 is not this: it is a client bug.)
  *  - A file's failure is always `parse_failed` (D6); only its message tells a
  *    corrupt, a locked, an unsupported and an unreadable document apart (S8).
  *  - `invalid_request` with `param: "tier"` is how 4.1 says a tier is missing.
@@ -101,6 +104,12 @@ export interface MineruApiErrorInit {
 	detail?: MineruErrorDetail | null;
 	/** True when the body was FastAPI's `{detail}` rather than MinerU's. */
 	fastapi?: boolean;
+	/**
+	 * Why this answer is another protocol's, or null when it is not: an
+	 * `error.type` (4.0.x sends one on every error body, 4.1 never does), or a
+	 * FastAPI 404 `{detail}` for a route the server lacks.
+	 */
+	wrongProtocol?: string | null;
 	/** Already truncated and already scrubbed. */
 	bodyExcerpt?: string | null;
 	retryAfterMs?: number | null;
@@ -126,6 +135,8 @@ export class MineruApiError extends Error {
 	readonly param: string | null;
 	readonly detail: MineruErrorDetail | null;
 	readonly fastapi: boolean;
+	/** See `MineruApiErrorInit.wrongProtocol`. Such an error is never a forgotten id. */
+	readonly wrongProtocol: string | null;
 	readonly bodyExcerpt: string | null;
 	readonly retryAfterMs: number | null;
 	readonly requestPath: string | null;
@@ -141,6 +152,7 @@ export class MineruApiError extends Error {
 		this.param = init.param ?? null;
 		this.detail = init.detail ?? null;
 		this.fastapi = init.fastapi ?? false;
+		this.wrongProtocol = init.wrongProtocol ?? null;
 		this.bodyExcerpt = init.bodyExcerpt ?? null;
 		this.retryAfterMs = init.retryAfterMs ?? null;
 		this.requestPath = init.requestPath ?? null;
@@ -189,7 +201,23 @@ interface ParsedMineruErrorBody {
 	detail: MineruErrorDetail | null;
 	/** True when FastAPI's `{detail}` envelope was recognised. */
 	fastapi: boolean;
+	/**
+	 * The `error.type` of the body, if it has one. 4.0.x puts one on every error
+	 * (`invalid_request_error`, `authentication_error`, `api_error`, ...); 4.1
+	 * never does (spike section 6). Read from the raw JSON BEFORE the envelope is
+	 * validated, so an old body that fails the 4.1 schema (4.0 sends `param:
+	 * null`, and may send what it likes) cannot hide it.
+	 */
+	legacyType: string | null;
 	excerpt: string;
+}
+
+function legacyTypeOf(parsed: unknown): string | null {
+	if (typeof parsed !== "object" || parsed === null) return null;
+	const error = (parsed as { error?: unknown }).error;
+	if (typeof error !== "object" || error === null) return null;
+	const type = (error as { type?: unknown }).type;
+	return typeof type === "string" && type.length > 0 ? type : null;
 }
 
 /**
@@ -205,12 +233,18 @@ export function parseMineruErrorBody(
 	try {
 		parsed = JSON.parse(bodyText);
 	} catch {
-		return { detail: null, fastapi: false, excerpt };
+		return { detail: null, fastapi: false, legacyType: null, excerpt };
 	}
+	const legacyType = legacyTypeOf(parsed);
 
 	const envelope = mineruErrorResponseSchema.safeParse(parsed);
 	if (envelope.success) {
-		return { detail: envelope.data.error, fastapi: false, excerpt };
+		return {
+			detail: envelope.data.error,
+			fastapi: false,
+			legacyType,
+			excerpt,
+		};
 	}
 
 	const fastapi = fastapiErrorSchema.safeParse(parsed);
@@ -220,6 +254,7 @@ export function parseMineruErrorBody(
 			return {
 				detail: { code: null, message: detail, param: null },
 				fastapi: true,
+				legacyType,
 				excerpt,
 			};
 		}
@@ -231,11 +266,12 @@ export function parseMineruErrorBody(
 				param: first?.loc?.join(".") ?? null,
 			},
 			fastapi: true,
+			legacyType,
 			excerpt,
 		};
 	}
 
-	return { detail: null, fastapi: false, excerpt };
+	return { detail: null, fastapi: false, legacyType, excerpt };
 }
 
 /**
@@ -277,6 +313,12 @@ export function mineruApiErrorFromBody(input: {
 		param: parsed.detail?.param ?? null,
 		detail: parsed.detail,
 		fastapi: parsed.fastapi,
+		wrongProtocol:
+			parsed.legacyType !== null
+				? `error.type ${parsed.legacyType}`
+				: parsed.fastapi && input.status === 404
+					? "a FastAPI 404 {detail}"
+					: null,
 		bodyExcerpt: parsed.excerpt,
 		retryAfterMs: input.retryAfterMs ?? null,
 		requestPath: input.path ?? null,
@@ -320,6 +362,8 @@ interface MineruErrorRule {
 	code?: string;
 	/** Matches an error whose body was FastAPI's `{detail}`, which has no code. */
 	fastapi?: boolean;
+	/** Matches an error that `MineruApiError.wrongProtocol` calls another protocol's. */
+	wrongProtocol?: boolean;
 	status?: number | readonly number[];
 	param?: string | readonly string[];
 	message?: RegExp;
@@ -422,22 +466,44 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		reason: "the desired tier is not offered; fail before any bytes move",
 	},
 
-	// -- the server does not speak /v1/tasks --------------------------------
+	// -- the server answered in another protocol's voice ----------------------
 	/**
-	 * FastAPI's own `{"detail":"Not Found"}` / `{"detail":"Method Not Allowed"}`.
-	 * 4.1 answers its own routes with `{error:{code}}`, so this is a server whose
-	 * routes are not ours: 4.0.12 (it has no /v1/tasks) while a deploy and the
-	 * `MINERU_API_URL` flip are a few seconds apart, or a proxy in front of the
-	 * wrong thing. Retryable and NOT a verdict on the document (S6): `unavailable`
-	 * gets the patient outage budget, and the job succeeds once the URL is right.
+	 * 4.0.12 ALREADY mounts POST /v1/tasks, GET and DELETE /v1/tasks/{id} and GET
+	 * /v1/files/{id}/content (R14), so a 4.1 manifest sent there is refused by its
+	 * own validation: HTTP 400 in 4.0's error shape, `{"error":{"type":
+	 * "invalid_request_error","code":"invalid_request",...,"param":null}}`. Every
+	 * 4.0 error body carries `error.type`; a 4.1 one never does. Routes 4.0.12
+	 * lacks (the PUT, the cancel) answer FastAPI's plain 404 `{detail}`.
+	 *
+	 * Both mean the same thing, and it is not about the document: the URL still
+	 * points at the old server (the seconds between a deploy and the URL flip, S6),
+	 * or at a proxy in front of the wrong thing. `unavailable` gets the patient
+	 * outage budget, and the job succeeds once the URL is right. It comes BEFORE
+	 * every code rule, so 4.0.12's 404 `task_not_found` (which has a type) is not
+	 * mistaken for a forgotten id and re-created into the same wall, and its 401
+	 * is not read as our key being wrong. The cause is in
+	 * `MineruApiError.wrongProtocol` and travels into the error's details.
 	 */
 	{
-		rule: "fastapi:wrong-protocol",
-		fastapi: true,
-		status: [404, 405],
+		rule: "wrong-protocol",
+		wrongProtocol: true,
 		taxonomy: "unavailable",
 		retryable: true,
-		reason: "the server does not speak /v1/tasks (4.0.12 or a proxy)",
+		reason:
+			"the server answered in another protocol's voice (4.0.x): it is not a 4.1 MinerU yet",
+	},
+	/**
+	 * A FastAPI 405 is NOT the old server (it only ever says 404 for a route it
+	 * lacks): it is a 4.1 route answering a method it does not have, i.e. a bug in
+	 * this client such as an empty task id making `/v1/tasks/`. Not an outage.
+	 */
+	{
+		rule: "405:method-not-allowed",
+		fastapi: true,
+		status: 405,
+		taxonomy: "protocol",
+		retryable: false,
+		reason: "a 4.1 route refused our method: a client bug, not an outage",
 	},
 
 	// -- authentication -----------------------------------------------------
@@ -693,9 +759,12 @@ function findRule(input: {
 	param: string | null;
 	message: string;
 	fastapi: boolean;
+	wrongProtocol: boolean;
 }): MineruErrorRule | null {
 	for (const rule of MINERU_ERROR_RULES) {
-		if (rule.fastapi) {
+		if (rule.wrongProtocol) {
+			if (!input.wrongProtocol) continue;
+		} else if (rule.fastapi) {
 			if (!input.fastapi) continue;
 		} else if (!input.code || rule.code !== input.code) {
 			continue;
@@ -785,6 +854,7 @@ export function mapMineruError(error: unknown): MineruErrorMapping {
 			param: error.param,
 			message: error.detail?.message ?? error.message,
 			fastapi: error.fastapi,
+			wrongProtocol: error.wrongProtocol !== null,
 		});
 		if (rule) return toMapping(rule, error.retryAfterMs);
 		return {
@@ -847,6 +917,9 @@ function isTransportFailure(error: unknown): boolean {
 export function isMineruForgottenIdError(error: unknown): boolean {
 	return (
 		isMineruApiError(error) &&
+		// 4.0.12 answers 404 task_not_found too, with an error.type: that is the
+		// old server, and creating the task again would only meet the same wall.
+		error.wrongProtocol === null &&
 		(MINERU_FORGOTTEN_ID_CODES as readonly string[]).includes(error.code)
 	);
 }
@@ -957,6 +1030,7 @@ export function mapMineruTaskFailure(
 			param: file.error.param ?? null,
 			message: file.error.message,
 			fastapi: false,
+			wrongProtocol: false,
 		});
 		if (rule) return spent(toMapping(rule, null));
 		return spent({
@@ -1036,6 +1110,7 @@ export function mineruErrorToExtractionError(
 		if (error.status !== null) details.httpStatus = error.status;
 		details.mineruCode = error.code;
 		if (error.param) details.mineruParam = error.param;
+		if (error.wrongProtocol) details.wrongProtocol = error.wrongProtocol;
 		if (error.requestPath) details.path = error.requestPath;
 	}
 

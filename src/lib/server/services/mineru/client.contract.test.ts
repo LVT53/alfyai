@@ -51,6 +51,7 @@ import {
 	createFakeMineruServer,
 	type FakeMineruServer,
 	type FakeMineruServerOptions,
+	MINERU_4_0_12_ERRORS,
 	MINERU_PROTOCOL_FIXTURE_ROOT,
 	readMineruProtocolFixture,
 } from "./testing/fake-server";
@@ -1040,6 +1041,137 @@ describe("downloadFile", () => {
 	});
 });
 
+/**
+ * R14: MinerU 4.0.12 already serves /v1/tasks. Its answers are NOT captured (none
+ * exists); they are derived from its source (see `MINERU_4_0_12_ERRORS`). A 4.1
+ * client pointed at it during the cutover window must see "another protocol",
+ * retryable, on every path, and never a forgotten id to re-create into the same
+ * wall.
+ */
+describe("a 4.0.12 server answering a 4.1 client", () => {
+	const answer = (status: number, body: unknown) =>
+		new Response(JSON.stringify(body), {
+			status,
+			headers: { "content-type": "application/json" },
+		});
+
+	function expectAnotherProtocol(error: unknown) {
+		expect(error).toBeInstanceOf(MineruApiError);
+		const mapping = mapMineruError(error);
+		expect(mapping.rule).toBe("wrong-protocol");
+		expect(mapping.taxonomy).toBe("unavailable");
+		expect(mapping.retryable).toBe(true);
+		expect(mapping.disposition).toBe("fail");
+		expect(isMineruForgottenIdError(error)).toBe(false);
+	}
+
+	it("POST /v1/tasks: the 400 with error.type, once, is not our bug", async () => {
+		const { fetchImpl, calls } = scriptedFetch(() =>
+			answer(400, MINERU_4_0_12_ERRORS.invalidManifest),
+		);
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.createTask({ ...DOCX, signal: never })
+			.catch((caught) => caught);
+		expectAnotherProtocol(error);
+		// Not retried here, and the pydantic dump is not in the message.
+		expect(calls).toHaveLength(1);
+		expect((error as MineruApiError).message).not.toContain("pydantic");
+	});
+
+	it("GET /v1/tasks/{id}: its 404 task_not_found WITH a type is not a forgotten id", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			answer(404, MINERU_4_0_12_ERRORS.taskNotFound),
+		);
+		const client = new MineruClient({ config: testConfig(), fetchImpl });
+		const error = await client
+			.getTask({ taskId: "job_x", signal: never })
+			.catch((caught) => caught);
+		expect((error as MineruApiError).code).toBe("task_not_found");
+		expectAnotherProtocol(error);
+		// A poll meets it on its first request and stops.
+		const polled = await client
+			.pollTask({ taskId: "job_x", signal: never })
+			.catch((caught) => caught);
+		expectAnotherProtocol(polled);
+	});
+
+	it("GET /v1/files/{id}/content: its 404 file_not_found WITH a type is not a forgotten id", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			answer(404, MINERU_4_0_12_ERRORS.fileNotFound),
+		);
+		const destination = join(tempDir(), "never.zip");
+		const error = await new MineruClient({ config: testConfig(), fetchImpl })
+			.downloadFile({
+				resultUrl: `${RECORDED_ORIGIN}/v1/files/file-x/content`,
+				destinationPathAbsolute: destination,
+				signal: never,
+			})
+			.catch((caught) => caught);
+		expect((error as MineruApiError).code).toBe("file_not_found");
+		expectAnotherProtocol(error);
+		expect(existsSync(destination)).toBe(false);
+	});
+
+	it("PUT to an upload link and POST cancel: the routes it lacks answer FastAPI's 404", async () => {
+		const { fetchImpl } = scriptedFetch(() =>
+			answer(404, MINERU_4_0_12_ERRORS.routeMissing),
+		);
+		const client = new MineruClient({ config: testConfig(), fetchImpl });
+		const put = await client
+			.putTaskFile({
+				upload: {
+					url: `${RECORDED_ORIGIN}/v1/tasks/job_x/uploads/file-x`,
+					headers: {},
+				},
+				filePathAbsolute: sampleFile().path,
+				signal: never,
+			})
+			.catch((caught) => caught);
+		expectAnotherProtocol(put);
+		// A cancel of something the old server does not know is nothing to cancel.
+		await expect(
+			client.cancelTask({ taskId: "job_x", signal: never }),
+		).resolves.toBeNull();
+	});
+
+	it("succeeds on its own once the URL points at 4.1: the cutover window, end to end", async () => {
+		// The fake stands in for 4.0.12 for a request, then "the URL flips".
+		const fake = await createFakeMineruServer({
+			fixtureInput: "v41-csv",
+			failures: [
+				{
+					path: "/v1/tasks",
+					method: "POST",
+					status: 400,
+					body: MINERU_4_0_12_ERRORS.invalidManifest,
+				},
+			],
+		});
+		try {
+			const client = new MineruClient({
+				config: testConfig({ baseUrl: fake.baseUrl }),
+			});
+			const file = sampleFile();
+			const create = async () =>
+				client.createTask({
+					fileName: "document.csv",
+					bytes: file.bytes,
+					sha256sum: await client.sha256(file.path),
+					signal: never,
+				});
+
+			const during = await create().catch((caught) => caught);
+			expectAnotherProtocol(during);
+
+			fake.setOptions({ failures: [] });
+			const receipt = await create();
+			expect(receipt.status).toBe("waiting-file");
+		} finally {
+			await fake.close();
+		}
+	});
+});
+
 describe("capability reads", () => {
 	it("reads task_output_formats and sources from /v1/health", async () => {
 		const { fetchImpl, calls } = scriptedFetch(() =>
@@ -1625,7 +1757,7 @@ describe("against the fake 4.1 server", () => {
 		expect((error as MineruApiError).status).toBe(404);
 		expect(isMineruForgottenIdError(error)).toBe(false);
 		const mapping = mapMineruError(error);
-		expect(mapping.rule).toBe("fastapi:wrong-protocol");
+		expect(mapping.rule).toBe("wrong-protocol");
 		expect(mapping.taxonomy).toBe("unavailable");
 		expect(mapping.retryable).toBe(true);
 		// The client does not retry creation by itself.
