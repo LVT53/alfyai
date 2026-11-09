@@ -544,6 +544,105 @@ Post-deploy checks:
 - When TEI reranking is configured and confident, `sourceReranked` and `reranked` should usually be
   `true`.
 
+## Document extraction service (MinerU)
+
+Uploaded documents are parsed by a MinerU service that the app reaches through `MINERU_API_URL`, a
+live admin setting (Settings → System → Integrations & keys, or `PUT /api/admin/config`; it applies
+on the next extraction, no restart). The app needs **MinerU 4.1 or newer**. How it talks to the
+service (the protocol, tiers, restarts, the old-server rule) is in
+[docs/uploads.md](../docs/uploads.md); this section is the box.
+
+### The units
+
+| Unit | MinerU | Listens on | Role |
+|---|---|---|---|
+| `mineru41.service` | 4.1.7 | `127.0.0.1:8004` | the server the apps call (`MINERU_API_URL=http://127.0.0.1:8004`) |
+| `mineru4.service` | 4.0.12 | `127.0.0.1:8002` | the rollback: it keeps running until a week after the production cutover, then it is disabled |
+| `mineru-openai-server` | the vision-language model | `127.0.0.1:30001` | called by both MinerUs for the Standard tier (`--vlm-server-url`) |
+
+`mineru41.service` is `/etc/systemd/system/mineru41.service`, enabled, copied from
+`mineru4.service`; its header comment holds the steps to remove it. What it sets:
+
+- The venv `/home/alfydesign/apps/mineru4/.venv-4.1.7` (`mineru[torch]==4.1.7`, Python 3.12.15),
+  `MINERU_HOME=/home/alfydesign/m41p` and the upload directory
+  `/home/alfydesign/apps/mineru4/uploads-41`. Two servers must not share an upload directory (it
+  holds a lock), which is why the old unit's directory is not reused.
+- `ExecStart` is `mineru-kit api-server --host 127.0.0.1 --port 8004 --tier standard --concurrency 4
+  --vlm-server-url http://127.0.0.1:30001/v1 --api-key ${MINERU4_API_KEY}` plus `--upload-dir`; the
+  unit runs on GPU 1 (`CUDA_VISIBLE_DEVICES=1`) with `MemoryMax=32G`. `--tier standard` makes
+  `/v1/tiers` report flash, basic and standard, and no `advanced`.
+- `EnvironmentFile=/home/alfydesign/apps/mineru4/mineru4.env` holds `MINERU4_API_KEY`, the key
+  both apps already send as `MINERU_API_KEY`. 4.1.7's `--api-key` has no environment fallback, so
+  systemd's expansion puts the key into the process arguments: **never run an unfiltered
+  `systemctl status mineru41` or `ps` for it.** Use `systemctl is-active mineru41`,
+  `journalctl -u mineru41 -n 50` (the journal holds no key) and
+  `curl http://127.0.0.1:8004/v1/health`.
+- Telemetry is off three ways. A fresh 4.1 install defaults to enabled, in `doclib.db` under
+  `MINERU_HOME`; that file was seeded with `telemetry_state=disabled`, `state_source=user` before the
+  first start, and the unit sets `MINERU_TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1` and
+  `HF_HUB_DISABLE_TELEMETRY=1`. The api-server never starts the telemetry service, so this is belt
+  and braces; keep all three for any future use of the `mineru` CLI or the Doclib.
+  ([spike report](../docs/plans/mineru-4-1/spike-report.md) §2)
+- Models came from `mineru-kit models download --tier standard --small-backend torch --source auto`,
+  run as the service user under the service environment (about 15 s, 2 GB). The command also fetches
+  the 1.2 GB GGUF vision-language weights, which the service never reads because the VLM is remote;
+  they were removed from `m41p/models/`.
+
+Cost and timings ([spike report](../docs/plans/mineru-4-1/spike-report.md) §5): about 6 GiB of RAM
+and 1.1 to 2.6 GiB of VRAM once warm; health answers 4 to 7 s after a start; the first Standard
+document after every start pays about 8 s of model load (the smoke parse on the box took 10.9 s
+from cold), the first Basic one about 10 s on top of that.
+
+### Cutting over to 4.1 and rolling back
+
+The two servers run side by side and each app moves by changing its own `MINERU_API_URL`; the
+previous release and the old server stay one flip away
+([plan](../docs/plans/mineru-4-1/client-spec.md) §6).
+
+1. `mineru41.service` up on :8004, health 200, one synthetic parse through it with curl. On
+   2026-11-09 it reported 4.1.7 with tiers flash, basic and standard, and parsed the spike's
+   synthetic paper PDF in 10.9 s from cold (create, PUT, poll, download of the one ZIP).
+2. ai.dev: deploy the release, then set its `MINERU_API_URL` to `http://127.0.0.1:8004` and run the
+   live checks of [Verifying a deployment](../docs/uploads.md#verifying-a-deployment): the sweep
+   script, then by hand a cancel and `systemctl restart mineru41` in the middle of a job (the job
+   has to recover by creating the task again, not fail). Uploads from a script need the `Origin`
+   header. Read the app's error journal afterwards.
+3. Production: the release gate green on the exact commit; push that SHA to `main`, deploy with
+   `scripts/deploy.sh`, then set production's `MINERU_API_URL` to `http://127.0.0.1:8004` straight
+   away. Jobs that start in the seconds between the two steps meet the old server and wait; they
+   finish once the URL points at 4.1. Check the release link, the service, health and one real
+   upload.
+4. **Rollback:** set `MINERU_API_URL` back to `http://127.0.0.1:8002` (4.0.12 is still running) and
+   deploy the previous release. Jobs in between wait in the same way.
+5. A week of stable production later: disable `mineru4.service`, then remove the spike leftovers
+   `/root/mineru41-spike`, `/home/alfydesign/apps/mineru4/uploads-4.1.7`, `/home/alfydesign/m41s`
+   and `/home/alfydesign/apps/mineru4/mineru41-spike.env`. Keep the 4.0.12 venv until the owner says
+   otherwise. `scripts/images/measure.ts` watches whichever of the two MinerU units is active, so it
+   needs no change when 4.0.12 goes.
+
+### Upgrading MinerU
+
+MinerU changed its whole wire protocol between 4.0 and 4.1, so an upgrade is checked, not assumed.
+Before an app is pointed at a new release:
+
+1. Read the release notes of everything between the two versions. The last upgrade's spike
+   ([plan](../docs/plans/mineru-4-1/spike-report.md)) has the install recipe and the capture tools
+   (`docs/plans/mineru-4-1/fixtures/tools/`).
+2. Install it as a unit of its own on a new port, with its own venv, `MINERU_HOME` and upload
+   directory; seed the telemetry state off before the first start.
+3. Capture its answers again and compare them with `fixtures/mineru-v41/protocol/`. **Confirm that
+   the error bodies still carry no `error.type`.** The app tells a 4.0.x server from a 4.1 one by
+   that field (a body with `type` means "the old server": unavailable, retried), so a release that
+   brings it back would make every error read as the old server until the outage window ends.
+4. Re-check the accepted extensions (`mineru/filetypes.py` in the installed package) against the
+   file-type registry's MinerU routes. The guard test "the registry against what MinerU 4.1.7
+   accepts" (`src/lib/server/services/extraction/extractors/mineru4.test.ts`) holds a copy of that
+   list and fails when a routed type is not on it, except the known exceptions it names (`heic` and
+   `heif`). Update the list and the registry together.
+5. Re-check that `/v1/tiers`, an omitted `tier`, `parse.tier` for a native document, the result
+   ZIP's layout and the block types still behave as docs/uploads.md says, then run the live sweep:
+   `extractionUnknownBlockTypes` has to stay empty.
+
 ## Operational Caveats
 
 - If you bypass `scripts/deploy.sh`, run `npm run db:prepare` before starting the production server
@@ -553,11 +652,13 @@ Post-deploy checks:
   into every `releases/<sha>/`, so no deploy rebuilds or removes it (see
   [Release layout](#release-layout)).
 - Office/image normalization (and, for HEIC/HEIF/AVIF, the ImageMagick delegate support) is a
-  requirement of **MinerU's own container host**, not of this app: `MINERU_API_URL` can point at a
-  MinerU instance running anywhere, and the Node app never shells out to `libreoffice`,
-  `ImageMagick`, `ghostscript` or `poppler-utils` itself. If you build or operate that container, see
+  requirement of **MinerU's own host**, not of this app: `MINERU_API_URL` can point at a MinerU
+  instance running anywhere (4.1 or newer, see
+  [Document extraction service](#document-extraction-service-mineru)), and the Node app never shells
+  out to `libreoffice`, `ImageMagick`, `ghostscript` or `poppler-utils` itself. If you build or
+  operate that host, see
   [docs/uploads.md](../docs/uploads.md#mineru-operations-host-requirements-for-a-custom-image) for
-  the accepted-format list and the AlmaLinux/RHEL delegate setup.
+  the AlmaLinux/RHEL delegate setup and the accepted-format list.
 - MinerU handles OCR natively in all backends; no separate OCR service is required.
 - A sandboxed file-production run that does not actually write a file to `/output` returns an explicit
   error instead of a silent empty success.
