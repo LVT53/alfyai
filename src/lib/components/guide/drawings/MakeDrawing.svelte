@@ -9,9 +9,10 @@
  * (`section-drawing-spots.ts`). The Document is two spots in one: its card in
  * the chat and its page in the panel, so a row about Documents rings both.
  *
- * Keep and Undo take the review bar's short labels (`artifacts.document.review.*`),
- * which the guide's design names. The inline pill itself (`ChangeBar.svelte`)
- * reads `artifacts.document.change.keep` and `.undo`: the same words today.
+ * Keep and Undo are the inline pill's own words and icons (`ChangeBar.svelte`:
+ * `artifacts.document.change.keep` and `.undo`, Check and Undo2), so a pill that
+ * is reworded rewords its drawing. The review bar's `artifacts.document.review.*`
+ * keys belong to another control and are not used here.
  */
 import { Check, Undo2 } from "@lucide/svelte";
 import DrawingFrame from "$lib/components/drawings/DrawingFrame.svelte";
@@ -49,11 +50,11 @@ let { lit = null }: { lit?: string | null } = $props();
 					<span class="pill">
 						<span class="keep">
 							<span class="drawn-ic" style:--ic="8"><Check size="100%" strokeWidth={2.5} aria-hidden="true" /></span>
-							<span>{$t('artifacts.document.review.keepShort')}</span>
+							<span>{$t('artifacts.document.change.keep')}</span>
 						</span>
 						<span class="undo">
 							<span class="drawn-ic" style:--ic="8"><Undo2 size="100%" strokeWidth={2} aria-hidden="true" /></span>
-							<span>{$t('artifacts.document.review.undoShort')}</span>
+							<span>{$t('artifacts.document.change.undo')}</span>
 						</span>
 					</span>
 				</div>

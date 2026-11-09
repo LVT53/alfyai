@@ -2,8 +2,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { render, screen } from "@testing-library/svelte";
-import { get } from "svelte/store";
-import { afterEach, describe, expect, it } from "vitest";
+import { derived, get } from "svelte/store";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildComposerMenuRows } from "$lib/components/chat/composer-bar";
 import { isLit } from "$lib/components/drawings/drawing-spot";
 import { type I18nKey, t } from "$lib/i18n";
@@ -11,6 +11,25 @@ import { uiLanguage } from "$lib/stores/settings";
 import { GUIDE_ENTRIES, GUIDE_SECTION_IDS } from "../guide-content";
 import SectionDrawing from "./SectionDrawing.svelte";
 import { SECTION_DRAWING_SPOTS } from "./section-drawing-spots";
+
+// The dictionary keys a drawing reads, recorded as it renders. Two controls can
+// share a word (the Document's Keep pill and the review bar's both say "Keep"),
+// so the words on screen cannot say which control a drawing follows; the keys do.
+const asked = vi.hoisted(() => new Set<string>());
+vi.mock("$lib/i18n", async (importOriginal) => {
+	const original = await importOriginal<typeof import("$lib/i18n")>();
+	return {
+		...original,
+		t: derived(
+			original.t,
+			(translate) =>
+				(key: I18nKey, params?: Record<string, string | number>) => {
+					asked.add(key);
+					return translate(key, params);
+				},
+		),
+	};
+});
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const KIT = join(HERE, "..", "..", "drawings");
@@ -78,7 +97,9 @@ describe("the guide's drawings", () => {
 		).toBeInTheDocument();
 	});
 
-	// Each word is the dictionary's, so a reworded control rewords its drawing.
+	// The keys of the controls each drawing depicts, so a reworded control
+	// rewords its drawing. Make's Keep and Undo are the inline pill's
+	// (`ChangeBar.svelte`), not the review bar's.
 	const WORDS: Record<(typeof DRAWN)[number], readonly I18nKey[]> = {
 		ask: [
 			"messageEvidenceDetails.sourcesLabel",
@@ -89,17 +110,19 @@ describe("the guide's drawings", () => {
 		],
 		make: [
 			"artifacts.panel.crumb",
-			"artifacts.document.review.keepShort",
-			"artifacts.document.review.undoShort",
+			"artifacts.document.change.keep",
+			"artifacts.document.change.undo",
 		],
 	};
 	it.each(
 		DRAWN.flatMap((section) =>
 			(["en", "hu"] as const).map((language) => [section, language] as const),
 		),
-	)("draws every word of the %s drawing in %s", (section, language) => {
+	)("draws the words of the %s drawing in %s, from its controls' keys and no others", (section, language) => {
 		uiLanguage.set(language);
+		asked.clear();
 		render(SectionDrawing, { props: { section, lit: null } });
+		expect([...asked].sort()).toEqual([...WORDS[section]].sort());
 		for (const key of WORDS[section]) {
 			expect(screen.getByText(get(t)(key))).toBeInTheDocument();
 		}

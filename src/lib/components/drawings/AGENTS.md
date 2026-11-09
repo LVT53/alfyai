@@ -13,4 +13,4 @@ Small drawn copies of real controls (`DrawnReply`, `DrawnComposer`, `DrawnMenu`,
 
 ## A drawing follows its control
 
-A change to a pictured control's icon, order or place changes its part in the same change; words follow on their own, through their keys. `guide/drawings/drawings.test.ts` holds what a test can: the "+" menu's rows against `buildComposerMenuRows`, the words in both languages, the tokens and Lucide rules above. A spot added or removed changes `SECTION_DRAWING_SPOTS` too.
+A change to a pictured control's icon, order or place changes its part in the same change; words follow on their own, through their keys. `guide/drawings/drawings.test.ts` holds what a test can: the "+" menu's rows against `buildComposerMenuRows`, the exact dictionary keys each drawing reads (two controls can share a word, so the key says which one a drawing follows), the tokens and Lucide rules above. A spot added or removed changes `SECTION_DRAWING_SPOTS` too.
