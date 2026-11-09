@@ -222,7 +222,7 @@ anything.
 
 Each entry's `intake.route` decides what happens next:
 
-- **`mineru`** — sent to the MinerU V1 API described above (PDF, Office formats, raster images
+- **`mineru`** — sent to the MinerU task API described above (PDF, Office formats, raster images
   except AVIF, HTML, EPUB, RTF, and the open-document formats).
 - **`direct-text`** — read straight into the ledger as text, no MinerU round trip (plain text,
   Markdown, code, CSV, TSV, SVG — which is XML, not a raster image — and a handful of MIME-sniffed
@@ -380,7 +380,9 @@ side (4.1.7 on a new unit and port, 4.0.12 where it was), and each app switches 
 The app has to survive the seconds between "this release is deployed" and "the URL is flipped", and
 the same in reverse for a rollback. **MinerU 4.0.12 also serves a `/v1/tasks` of its own**, an
 older API with the same path, so an old server is not a 404: it answers a 4.1 manifest with an HTTP
-400 whose error object carries a `type`. 4.1 never sends one, so the app treats any error body with
+400 whose error object carries a `type` (read from the installed 4.0.12 source; the test doubles
+for these bodies are derived from it, not captured). 4.1 never sends one (none of the 128 error
+bodies captured from 4.1.7 has it), so the app treats any error body with
 `error.type`, on any path and with any status or code (a 401 or a `task_not_found` included), as "the
 old server" and not as an answer about the document. That failure is `unavailable`: retryable, a
 patient outage wait, the handle kept, logged as `MinerU answered in another protocol's voice`, and
