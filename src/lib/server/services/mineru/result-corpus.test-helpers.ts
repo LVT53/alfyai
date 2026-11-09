@@ -11,14 +11,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseStructuredContent, type StructuredContent } from "./result";
 
-export const V41_ROOT = join(
-	process.cwd(),
-	"fixtures",
-	"mineru-v41",
-	"results",
-);
+const V41_ROOT = join(process.cwd(), "fixtures", "mineru-v41", "results");
 
-export function v41Path(slug: string, name: string): string {
+function v41Path(slug: string, name: string): string {
 	return join(V41_ROOT, slug, name);
 }
 
@@ -38,7 +33,7 @@ export async function loadV41(slug: string): Promise<StructuredContent> {
  */
 export const V41_PAPER_ZIP = v41Path("pdf-paper-default-tier", "result.zip");
 
-export interface V41Sample {
+interface V41Sample {
 	slug: string;
 	/** What the app sends MinerU (`document.<ext>`), the only format signal. */
 	filename: string;
