@@ -48,7 +48,7 @@ import { MINERU_MAX_DOWNLOAD_BYTES } from "./config";
  * output, so a reviewer can tell which rows were produced by which renderer.
  * Persisted as `metadata.extractionParserVersion`.
  */
-export const MINERU_PARSER_VERSION = "mineru4/1";
+export const MINERU_PARSER_VERSION = "mineru4/2";
 
 // ── block vocabulary ───────────────────────────────────────────────────────
 
