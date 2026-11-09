@@ -19,6 +19,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	MINERU_BUNDLE_DIR_SUFFIX,
@@ -701,5 +702,159 @@ describe("writeMineruParseBundle — MinerU 4.1 charts", () => {
 				name: "page_1_chart_3.jpg",
 			}),
 		).toBeNull();
+	});
+});
+
+// A document with both kinds of picture. The handles in the prompt text and the
+// figures in the manifest are two views of one numbering, so each handle must
+// name the picture the manifest lists under the same number, and the crops MinerU
+// also sends (a table, an equation) are neither numbered nor kept.
+
+describe("writeMineruParseBundle — images and charts together", () => {
+	let zipDir: string;
+
+	beforeEach(async () => {
+		zipDir = await mkdtemp(join(tmpdir(), "alfyai-bundle-mixed-"));
+	});
+
+	afterEach(async () => {
+		await rm(zipDir, { recursive: true, force: true });
+	});
+
+	const PICTURES: Record<string, string> = {
+		"images/page_0_image_1.jpg": "IMAGE-BYTES",
+		"images/page_0_equation_3.jpg": "EQUATION-CROP",
+		"images/page_0_chart_4.jpg": "CHART-BYTES",
+		"images/page_1_table_2.jpg": "TABLE-CROP",
+		"images/page_1_chart_5.jpg": "SECOND-CHART-BYTES",
+	};
+
+	async function mixedZip(): Promise<string> {
+		const zip = new JSZip();
+		zip.file(
+			"structured_content.json",
+			JSON.stringify({
+				pages: [
+					{
+						page_idx: 0,
+						blocks: [
+							{
+								type: "image",
+								content: "",
+								image_source: "images/page_0_image_1.jpg",
+								captions: [{ content: "Figure 1. A photo" }],
+							},
+							{
+								type: "equation",
+								content: "E = m c ^ {2}",
+								image_source: "images/page_0_equation_3.jpg",
+							},
+							{
+								type: "chart",
+								content: "",
+								image_source: "images/page_0_chart_4.jpg",
+								captions: [
+									{ content: "Figure 2. A chart" },
+									{ content: "(b) its second panel" },
+								],
+							},
+						],
+					},
+					{
+						page_idx: 1,
+						blocks: [
+							{
+								type: "table",
+								content: "| a | b |\n| --- | --- |\n| 1 | 2 |",
+								image_source: "images/page_1_table_2.jpg",
+							},
+							{
+								type: "chart",
+								content: "",
+								image_source: "images/page_1_chart_5.jpg",
+							},
+						],
+					},
+				],
+				metadata: { document: { page_count: 2, page_count_kind: "physical" } },
+				extensions: { mineru: { tier: "standard", parse_mode: "txt" } },
+			}),
+		);
+		for (const [name, bytes] of Object.entries(PICTURES)) {
+			zip.file(name, bytes);
+		}
+		const path = join(zipDir, "result.zip");
+		await writeFile(path, await zip.generateAsync({ type: "nodebuffer" }));
+		return path;
+	}
+
+	async function writeMixedBundle() {
+		const zipPathAbsolute = await mixedZip();
+		const { result } = await parseMineruResultZip({
+			zipPathAbsolute,
+			sourceFilename: "document.pdf",
+		});
+		return writeMineruParseBundle({
+			userId,
+			sourceArtifactId,
+			zipPathAbsolute,
+			result,
+			maxBytes: MAX_BYTES,
+		});
+	}
+
+	async function pictureText(name: string): Promise<string | null> {
+		const figure = await readMineruFigure({ userId, sourceArtifactId, name });
+		return figure ? await new Response(figure.stream).text() : null;
+	}
+
+	it("numbers them in one sequence, and each handle names the picture listed under its number", async () => {
+		const manifest = await writeMixedBundle();
+		const markdown = await readMineruNormalizedMarkdown(
+			userId,
+			sourceArtifactId,
+		);
+
+		expect(
+			manifest.figures.map((figure) => [
+				figure.index,
+				figure.path,
+				figure.caption,
+				figure.page,
+			]),
+		).toEqual([
+			[1, "images/page_0_image_1.jpg", "Figure 1. A photo", 1],
+			[2, "images/page_0_chart_4.jpg", "Figure 2. A chart", 1],
+			[3, "images/page_1_chart_5.jpg", null, 2],
+		]);
+		expect(markdown).toBe(
+			[
+				"[Figure 1: Figure 1. A photo]",
+				"$$\nE = m c ^ {2}\n$$",
+				"[Figure 2: Figure 2. A chart]\n\n(b) its second panel",
+				"| a | b |\n| --- | --- |\n| 1 | 2 |",
+				"[Figure 3]",
+			].join("\n\n"),
+		);
+	});
+
+	it("keeps and serves the picture of every figure, and of nothing else", async () => {
+		const manifest = await writeMixedBundle();
+
+		expect(manifest.imagesOmitted).toBe(false);
+		expect(
+			(
+				await readdir(join(mineruBundleDir(userId, sourceArtifactId), "images"))
+			).sort(),
+		).toEqual([
+			"page_0_chart_4.jpg",
+			"page_0_image_1.jpg",
+			"page_1_chart_5.jpg",
+		]);
+		expect(await pictureText("page_0_image_1.jpg")).toBe("IMAGE-BYTES");
+		expect(await pictureText("page_0_chart_4.jpg")).toBe("CHART-BYTES");
+		expect(await pictureText("page_1_chart_5.jpg")).toBe("SECOND-CHART-BYTES");
+		expect(await pictureText("page_0_equation_3.jpg")).toBeNull();
+		expect(await pictureText("page_1_table_2.jpg")).toBeNull();
 	});
 });
