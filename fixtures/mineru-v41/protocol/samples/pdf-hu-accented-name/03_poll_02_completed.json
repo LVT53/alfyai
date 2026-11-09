@@ -1,0 +1,33 @@
+{
+  "t_since_create_ms": 584,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_b85a5f059c1294c4bf092d8a",
+    "status": "completed",
+    "created_at": "2026-11-05T11:53:13Z",
+    "started_at": "2026-11-05T11:53:13Z",
+    "finished_at": "2026-11-05T11:53:14Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-f6f3a8f39bd5edf9d5e5afad",
+        "file_name": "Árvíztűrő tükörfúrógép jelentés.pdf",
+        "status": "completed",
+        "bytes": 32833,
+        "parse": {
+          "tier": "standard",
+          "duration_ms": 382,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-f6f3a8f39bd5edf9d5e5afad/content"
+      }
+    ]
+  }
+}

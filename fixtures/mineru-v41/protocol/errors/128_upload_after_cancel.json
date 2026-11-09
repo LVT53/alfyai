@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/tasks/job_0d1bc3d385a784b632f514e1/uploads/file-eb760c5035480801807aefd8",
+    "headers": {
+      "Content-Type": "application/octet-stream",
+      "Authorization": "Bearer <redacted>"
+    },
+    "raw_body_bytes": 241680
+  },
+  "response": {
+    "status": 409,
+    "reason": "Conflict",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:19 GMT",
+      "server": "uvicorn",
+      "content-length": "72",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "error": {
+        "code": "task_already_terminal",
+        "message": "Task was canceled"
+      }
+    }
+  }
+}

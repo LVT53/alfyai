@@ -1,0 +1,27 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-c0fd930d9b59dac2a1320c5e/content",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 404,
+    "reason": "Not Found",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:58:19 GMT",
+      "server": "uvicorn",
+      "content-length": "92",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "error": {
+        "code": "file_not_found",
+        "message": "File file-c0fd930d9b59dac2a1320c5e not found"
+      }
+    }
+  }
+}
