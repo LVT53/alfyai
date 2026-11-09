@@ -6,9 +6,9 @@ import type { GuideAction } from "./guide-content";
 
 /**
  * Try it: leave the example for Home (`conversation-session.ts` owns the
- * hand-off; Home takes it once and puts it in an empty message box, unsent),
- * then go there. The example is stored before the navigation so that Home finds
- * it when it mounts.
+ * hand-off; Home takes it once and puts it in the message box, unsent, unless
+ * the person already has words there), then go there. The example is stored
+ * before the navigation so that Home finds it when it mounts.
  */
 export async function tryGuideExample(example: string): Promise<void> {
 	storeHomeComposerSeed(example);

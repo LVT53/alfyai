@@ -18,7 +18,7 @@ The `/guide` page, "What AlfyAI can do": six sections, thirty entries, a drawing
 
 - `tryGuideExample` stores the example with `storeHomeComposerSeed` (`src/lib/client/conversation-session.ts`, the one module that owns hand-off keys: the session key is `home-composer-seed`) and then goes to Home. The example is in the reader's language (`guide.entry.<id>.example`) and never in the URL.
 - Home takes it once (`consumeHomeComposerSeed`, `HomeSurface.svelte`), on Home only: a project page leaves a waiting example alone, and sign-out drops one that is still waiting. It goes into the message box unsent, with the caret in it.
-- It goes in only after Home has read the saved draft back. **A draft with anything in it** (words, files, linked sources, a skill, Atlas mode) is kept, the example is dropped and a toast says so (`guide.tryItDraftKept`); a saved draft with nothing in it takes the example.
+- It goes in only after Home has read the saved draft back, and one it cannot read counts as none (`putWaitingExampleInBox`, `HomeSurface.svelte`). **A draft with words** is the person's: the example is dropped and a toast says so (`guide.tryItDraftKept`). **A saved draft with no words but something else** (files, linked sources, a skill, Atlas mode) takes the example as its words and keeps the rest, with no toast: the composer shows a late-arriving saved draft only if it has words, so a toast about an unsent message would sit over a box that shows none. With no draft, the example is the new draft. Do not make a wordless draft block the example again.
 
 ## NEW
 
