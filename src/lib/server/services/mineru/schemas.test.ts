@@ -401,6 +401,20 @@ describe("mineru schemas: task snapshots", () => {
 		expect(task.files[1]?.error?.code).toBe("parse_failed");
 	});
 
+	it("a queued task is pending and has not started: no started_at, no parse, no result", () => {
+		const task = mineruTaskDetailSchema.parse(
+			bodyOf(
+				"samples/bigdoc-20-pages/p20-concurrent-2/03_poll_01_pending.json",
+			),
+		);
+		expect(task.status).toBe("pending");
+		expect(isTerminalMineruTaskStatus(task.status)).toBe(false);
+		expect(task.started_at).toBeUndefined();
+		expect(task.files[0]?.status).toBe("pending");
+		expect(task.files[0]?.parse).toBeUndefined();
+		expect(task.files[0]?.result_url).toBeUndefined();
+	});
+
 	it("keeps per-file results while the task itself is still running", () => {
 		const task = mineruTaskDetailSchema.parse(
 			bodyOf("samples/mixed-batch-pdf-docx-csv/03_poll_02_running.json"),

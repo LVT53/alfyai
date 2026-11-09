@@ -544,6 +544,50 @@ describe("uploading, polling and the result", () => {
 		);
 	});
 
+	it("reports a queued task like the recorded pending snapshot: no started_at until a file runs", async () => {
+		await start({ neverFinish: true });
+		const { taskId } = await submit("report.docx", CSV);
+		const queued = await getTask(taskId);
+		expect(queued.json.status).toBe("pending");
+		expect(queued.json).not.toHaveProperty("started_at");
+		expect(shapeOf(queued.json)).toEqual(
+			shapeOf(
+				recordedBody(
+					"samples/bigdoc-20-pages/p20-concurrent-2/03_poll_01_pending.json",
+				),
+			),
+		);
+		const running = await getTask(taskId);
+		expect(running.json.status).toBe("running");
+		expect(running.json).toHaveProperty("started_at");
+	});
+
+	it("a task that never started has no started_at: nothing uploaded yet, or canceled while waiting", async () => {
+		await start();
+		const receipt = await create([fileFor("document.pdf", PDF)]);
+		const taskId = receipt.json.task_id as string;
+		const waiting = await getTask(taskId);
+		expect(waiting.json.status).toBe("waiting-file");
+		expect(waiting.json).not.toHaveProperty("started_at");
+
+		await cancelTask(taskId);
+		const canceled = await getTask(taskId);
+		expect(canceled.json.status).toBe("canceled");
+		expect(canceled.json).not.toHaveProperty("started_at");
+		expect(canceled.json).toHaveProperty("finished_at");
+	});
+
+	it("a task canceled while its file was running keeps the started_at it earned", async () => {
+		await start({ neverFinish: true });
+		const { taskId } = await submit("document.pdf", PDF);
+		await getTask(taskId);
+		expect((await getTask(taskId)).json.status).toBe("running");
+		await cancelTask(taskId);
+		const canceled = await getTask(taskId);
+		expect(canceled.json.status).toBe("canceled");
+		expect(canceled.json).toHaveProperty("started_at");
+	});
+
 	it("reports a completed file with the recorded snapshot shape", async () => {
 		await start();
 		const done = await submit("report.docx", CSV);

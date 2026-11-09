@@ -280,6 +280,12 @@ interface FileRecord {
 interface TaskRecord {
 	id: string;
 	createdAt: number;
+	/**
+	 * When a file first ran (or finished). A task that is only waiting for bytes
+	 * or queued has no `started_at` in its snapshot (spike: the pending and
+	 * waiting-file captures), and one canceled before anything ran never gets one.
+	 */
+	startedAt: number | null;
 	finishedAt: number | null;
 	canceled: boolean;
 	/** The tier the request asked for, if it asked. */
@@ -463,6 +469,15 @@ export async function createFakeMineruServer(
 		return failed === states.length ? "failed" : "partial";
 	}
 
+	/** Records the first moment a file of the task was seen running or finished. */
+	function noteStarted(task: TaskRecord): void {
+		if (task.startedAt !== null) return;
+		const started = task.files.some((file) =>
+			["running", "completed", "failed"].includes(stateOf(file)),
+		);
+		if (started) task.startedAt = Date.now();
+	}
+
 	function isTerminalTask(status: string): boolean {
 		return ["completed", "partial", "failed", "canceled"].includes(status);
 	}
@@ -552,7 +567,9 @@ export async function createFakeMineruServer(
 			task_id: task.id,
 			status,
 			created_at: isoSeconds(task.createdAt),
-			started_at: isoSeconds(task.createdAt),
+			...(task.startedAt !== null
+				? { started_at: isoSeconds(task.startedAt) }
+				: {}),
 			...(isTerminalTask(status) && task.finishedAt !== null
 				? { finished_at: isoSeconds(task.finishedAt) }
 				: {}),
@@ -925,6 +942,7 @@ export async function createFakeMineruServer(
 		const task: TaskRecord = {
 			id: nextId("job_"),
 			createdAt: now,
+			startedAt: null,
 			finishedAt: null,
 			canceled: false,
 			tier: checked.value.tier,
@@ -967,6 +985,7 @@ export async function createFakeMineruServer(
 		for (const file of task.files) {
 			if (file.readyAt !== null) file.observed += 1;
 		}
+		noteStarted(task);
 		jsonResponse(res, 200, snapshot(task, origin(req)));
 	}
 
@@ -1036,6 +1055,8 @@ export async function createFakeMineruServer(
 		if (isTerminalTask(status)) {
 			return plainError(res, 409, "task_already_terminal", `Task is ${status}`);
 		}
+		// A file that was running when the cancel came had started the task.
+		noteStarted(task);
 		// Every unfinished file stops, running ones included; finished files stay
 		// finished, and their results stay downloadable (spike D24).
 		for (const file of task.files) {
