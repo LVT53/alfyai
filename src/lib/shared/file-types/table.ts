@@ -965,9 +965,11 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		mimeTypes: ["image/heic"],
 		category: "image",
 		preview: { kind: "image", extensionAuthoritative: true },
-		// Untested upstream against MinerU 4 — unlike svg/avif below, nobody has
-		// live-probed HEIC yet, so it keeps the `mineru` route it had.
-		intake: { route: "mineru" },
+		// MinerU 4.0.12 and 4.1.7 never accept .heic/.heif (they route by extension
+		// and know only png, jpg, jpeg, webp, gif, bmp, tiff and jp2), so the
+		// extraction runner hands the reader a PNG of the photo. The stored
+		// original is untouched: previews and vision read it.
+		intake: { route: "mineru", readAs: "png" },
 		production: { requestable: false, types: {}, validation: "none" },
 		textLike: false,
 		surfaces: ["knowledge", "chat"],
@@ -979,8 +981,8 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		mimeTypes: ["image/heif"],
 		category: "image",
 		preview: { kind: "image", extensionAuthoritative: true },
-		// Untested upstream against MinerU 4 — same as heic above.
-		intake: { route: "mineru" },
+		// Same as heic above: the reader is handed a PNG.
+		intake: { route: "mineru", readAs: "png" },
 		production: { requestable: false, types: {}, validation: "none" },
 		textLike: false,
 		surfaces: ["knowledge", "chat"],

@@ -117,6 +117,16 @@ export interface FileTypeIntake {
 	 * `registry.test.ts` asserts both halves of that pairing.
 	 */
 	readonly fallbackRoute?: IntakeRoute;
+	/**
+	 * The registry id of the type the document reader is handed INSTEAD of the
+	 * stored bytes, because it cannot take this one as it is. Only meaningful with
+	 * `route: "mineru"`, and `registry.test.ts` asserts both that and that the id
+	 * names an entry. The extraction runner converts the file through
+	 * `vision/prepare-image.ts`'s `decodeImageToPng` for the length of one
+	 * attempt; the stored original is untouched, since previews and vision read it.
+	 * `heic` and `heif` are its only users.
+	 */
+	readonly readAs?: "png";
 }
 
 export interface FileTypeProduction {

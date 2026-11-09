@@ -658,6 +658,19 @@ export function getIntakeTierHint(
 	return resolveEntry(filename, mimeType)?.intake.tierHint;
 }
 
+/**
+ * The registry id of the type the document reader is handed instead of the
+ * stored bytes (`intake.readAs`), or undefined when it reads them as they are.
+ * Extension first, MIME second, so a HEIC a browser sent as
+ * `application/octet-stream` is still converted.
+ */
+export function getIntakeReadAs(
+	filename: string,
+	mimeType: string | null,
+): "png" | undefined {
+	return resolveEntry(filename, mimeType)?.intake.readAs;
+}
+
 // ── MinerU 4.x gating (phase5-6 spec D6 + the amended OQ2) ─────────────────
 //
 // The registry only LABELS entries. The probe (`/v1/health`, major >= 4), the
