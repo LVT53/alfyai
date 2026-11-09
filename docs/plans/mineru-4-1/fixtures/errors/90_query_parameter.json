@@ -1,0 +1,36 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks?x=1",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "x.pdf",
+          "bytes": 1234
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 400,
+    "reason": "Bad Request",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "111",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 0,
+    "json": {
+      "error": {
+        "code": "invalid_request",
+        "message": "POST parameters must be supplied in the JSON body, not the URL"
+      }
+    }
+  }
+}

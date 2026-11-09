@@ -1,0 +1,43 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "paper-en.pdf",
+          "bytes": 241664,
+          "sha256sum": "75314f7c73538e08c25bf92e37e81adec884e6062736d2ff7565f4a24ae437c1"
+        }
+      ],
+      "tier": "flash"
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:53:07 GMT",
+      "server": "uvicorn",
+      "content-length": "161",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_a512023452e768a318fdd482",
+      "status": "pending",
+      "files": [
+        {
+          "file_id": "file-4173827e2f78fcc4c066b4fa",
+          "file_name": "paper-en.pdf",
+          "status": "pending"
+        }
+      ]
+    }
+  }
+}

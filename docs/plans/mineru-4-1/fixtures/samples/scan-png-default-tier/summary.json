@@ -1,0 +1,42 @@
+{
+  "slug": "scan-png-default-tier",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 2,
+      "file_name": "scan-page.png",
+      "status": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 727,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 64958,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_table_5.jpg"
+        ],
+        "member_count": 5
+      }
+    }
+  ],
+  "task_id": "job_7bbcb7b62664bbe5ff87b691",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 929,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "t_start_epoch": 1793879590.74,
+  "t_end_epoch": 1793879591.671
+}

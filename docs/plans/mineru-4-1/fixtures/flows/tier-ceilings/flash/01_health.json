@@ -1,0 +1,36 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/health",
+    "headers": {}
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:09:00 GMT",
+      "server": "uvicorn",
+      "content-length": "145",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "status": "ok",
+      "version": "4.1.7",
+      "features": {
+        "webhook": false,
+        "task_output_formats": [
+          "default",
+          "docx",
+          "html",
+          "latex"
+        ],
+        "sources": [
+          "upload",
+          "url"
+        ]
+      }
+    }
+  }
+}

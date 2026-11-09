@@ -1,0 +1,33 @@
+{
+  "pages": [
+    {
+      "page_idx": 0,
+      "blocks": [
+        {
+          "type": "table",
+          "content": "| tier | pages | median_ms | megjegyzés |\n| --- | --- | --- | --- |\n| flash | 12 | 810 | gyors |\n| basic | 12 | 1126 | ékezetes: árvíztűrő |\n| standard | 12 | 4310 | tükörfúrógép |",
+          "captions": [],
+          "footnotes": []
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "file_suffix": "csv",
+    "producer": {
+      "name": "mineru",
+      "version": "4.1.7"
+    },
+    "document": {
+      "page_count": 1,
+      "page_count_kind": "logical"
+    }
+  },
+  "extensions": {
+    "mineru": {
+      "tier": "flash",
+      "parse_mode": "txt"
+    }
+  },
+  "is_full_document": true
+}

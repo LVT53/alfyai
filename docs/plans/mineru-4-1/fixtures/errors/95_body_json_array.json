@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "raw_body_bytes": 2
+  },
+  "response": {
+    "status": 400,
+    "reason": "Bad Request",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "309",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 0,
+    "json": {
+      "error": {
+        "code": "invalid_request",
+        "message": "Invalid request: 1 validation error for CreateTaskRequest\n  Input should be a valid dictionary or instance of CreateTaskRequest [type=model_type, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.14/v/model_type"
+      }
+    }
+  }
+}

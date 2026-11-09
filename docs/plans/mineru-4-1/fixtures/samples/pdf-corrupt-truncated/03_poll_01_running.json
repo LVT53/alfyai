@@ -1,0 +1,26 @@
+{
+  "t_since_create_ms": 3,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_b8c07129013e0651a61638cc",
+    "status": "running",
+    "created_at": "2026-11-05T11:53:14Z",
+    "started_at": "2026-11-05T11:53:14Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-dceaf67f93a7d152b8ea9f86",
+        "file_name": "corrupt.pdf",
+        "status": "running",
+        "bytes": 84582
+      }
+    ]
+  }
+}

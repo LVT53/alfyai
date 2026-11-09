@@ -1,0 +1,16 @@
+MainPID=2389220
+ExecStart={ path=<VENV>/bin/mineru-kit ; argv[]=<VENV>/bin/mineru-kit api-server --host 127.0.0.1 --port 8012 --tier standard --concurrency 2 --upload-dir <UPLOAD_DIR> --vlm-server-url http://127.0.0.1:30001/v1 --api-key ${MINERU41_SPIKE_API_KEY} ; ignore_errors=no ;  ; stop_time=[n/a] ;  ; code=(null)  }
+MemoryMax=17179869184
+Environment=CUDA_VISIBLE_DEVICES=1 NVIDIA_VISIBLE_DEVICES=1 MINERU_HOME=<MINERU_HOME> MINERU_DEVICE_MODE=cuda MINERU_MODEL_SMALL_BACKEND=torch MINERU_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 HF_HUB_DISABLE_TELEMETRY=1 PYTHONUNBUFFERED=1 HF_HOME=<MINERU_HOME>/hf HF_XET_CACHE=<MINERU_HOME>/hf/xet XDG_CACHE_HOME=<MINERU_HOME>/cache MODELSCOPE_CACHE=<MINERU_HOME>/modelscope
+EnvironmentFiles=<SPIKE_ENV_FILE> (ignore_errors=no)
+WorkingDirectory=<UPLOAD_DIR>
+Nice=5
+User=alfydesign
+Group=alfydesign
+ReadWritePaths=<UPLOAD_DIR> <MINERU_HOME>
+PrivateTmp=yes
+ProtectHome=read-only
+ProtectSystem=full
+NoNewPrivileges=yes
+Id=mineru41-spike.service
+ActiveState=active

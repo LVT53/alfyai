@@ -1,0 +1,26 @@
+{
+  "t_since_create_ms": 3,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_0b8c12da0fd5a0e223f3133b",
+    "status": "running",
+    "created_at": "2026-11-05T12:09:33Z",
+    "started_at": "2026-11-05T12:09:33Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-03b7f01ebaccc03b55afca92",
+        "file_name": "report.docx",
+        "status": "running",
+        "bytes": 50722
+      }
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "x.pdf"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 400,
+    "reason": "Bad Request",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "346",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "error": {
+        "code": "invalid_request",
+        "message": "Invalid request: 1 validation error for CreateTaskRequest\nfiles.0\n  Value error, bytes is required when url is not supplied [type=value_error, input_value={'file_name': 'x.pdf'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/value_error",
+        "param": "files.0"
+      }
+    }
+  }
+}

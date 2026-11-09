@@ -1,0 +1,64 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "same.pdf",
+          "bytes": 10
+        },
+        {
+          "file_name": "same.pdf",
+          "bytes": 10
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "648",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_e85c35a84d26d05f89c2e2f6",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-124a5f103653f0d63a871a8c",
+          "file_name": "same.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_e85c35a84d26d05f89c2e2f6/uploads/file-124a5f103653f0d63a871a8c",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883318
+          }
+        },
+        {
+          "file_id": "file-6f89c29e2b51ae202b7f5482",
+          "file_name": "same.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_e85c35a84d26d05f89c2e2f6/uploads/file-6f89c29e2b51ae202b7f5482",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883318
+          }
+        }
+      ]
+    }
+  }
+}

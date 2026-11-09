@@ -1,0 +1,31 @@
+{
+  "snapshot": {
+    "task_id": "job_c0ef9eb7fea605161ed53aa8",
+    "status": "completed",
+    "created_at": "2026-11-05T11:58:13Z",
+    "started_at": "2026-11-05T11:58:13Z",
+    "finished_at": "2026-11-05T11:58:14Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-c0fd930d9b59dac2a1320c5e",
+        "file_name": "restart-done.pdf",
+        "status": "completed",
+        "bytes": 241704,
+        "parse": {
+          "tier": "standard",
+          "duration_ms": 715,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-c0fd930d9b59dac2a1320c5e/content"
+      }
+    ]
+  }
+}

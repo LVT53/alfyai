@@ -1,0 +1,33 @@
+{
+  "t_since_create_ms": 205,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_9801cea859f04b57054605f0",
+    "status": "completed",
+    "created_at": "2026-11-05T11:53:13Z",
+    "started_at": "2026-11-05T11:53:13Z",
+    "finished_at": "2026-11-05T11:53:13Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-ffb3021ea609ee0ae99fb55a",
+        "file_name": "slides.pptx",
+        "status": "completed",
+        "bytes": 34963,
+        "parse": {
+          "tier": "flash",
+          "duration_ms": 95,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-ffb3021ea609ee0ae99fb55a/content"
+      }
+    ]
+  }
+}

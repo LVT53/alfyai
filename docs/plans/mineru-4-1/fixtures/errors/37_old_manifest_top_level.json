@@ -1,0 +1,37 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "manifest": [
+        {
+          "filename": "x.pdf",
+          "bytes": 10
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 400,
+    "reason": "Bad Request",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "542",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "error": {
+        "code": "invalid_request",
+        "message": "Invalid request: 2 validation errors for CreateTaskRequest\nfiles\n  Field required [type=missing, input_value={'manifest': [{'filename': 'x.pdf', 'bytes': 10}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing\nmanifest\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[{'filename': 'x.pdf', 'bytes': 10}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.14/v/extra_forbidden",
+        "param": "files"
+      }
+    }
+  }
+}

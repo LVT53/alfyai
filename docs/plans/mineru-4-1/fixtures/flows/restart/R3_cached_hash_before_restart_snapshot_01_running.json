@@ -1,0 +1,24 @@
+{
+  "snapshot": {
+    "task_id": "job_d5be07d245bf01ba16d5ae33",
+    "status": "running",
+    "created_at": "2026-11-05T11:58:14Z",
+    "started_at": "2026-11-05T11:58:14Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-71350becaabc9757531af12c",
+        "file_name": "restart-done.pdf",
+        "status": "running",
+        "bytes": 241704
+      }
+    ]
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "corrupt.pdf",
+          "bytes": 84582,
+          "sha256sum": "bdff247a375887d0a2b5c4138f0e94a3bf93a964ccbf2ece0805aa9a55c2c891"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:53:14 GMT",
+      "server": "uvicorn",
+      "content-length": "365",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_b8c07129013e0651a61638cc",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-dceaf67f93a7d152b8ea9f86",
+          "file_name": "corrupt.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_b8c07129013e0651a61638cc/uploads/file-dceaf67f93a7d152b8ea9f86",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883194
+          }
+        }
+      ]
+    }
+  }
+}

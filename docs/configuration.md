@@ -167,15 +167,16 @@ AlfyAI runs a local, judge-gated long-term memory pipeline (ADRs
 
 ## Document Extraction (MinerU)
 
-Uploads and in-chat documents are parsed by [MinerU](uploads.md), a Docker-hosted document parsing
-engine. These twelve keys are editable live on **Settings → System → Integrations & keys**, which
-also shows a status card with the server's version, quality tiers and output formats.
+Uploads and in-chat documents are parsed by [MinerU](uploads.md), a document parsing engine that has
+to be version 4.1 or newer: this app speaks its `/v1/tasks` API only, and a 4.0.x server is refused.
+These thirteen keys are editable live on **Settings → System → Integrations & keys**, which also
+shows a status card with the server's version, quality tiers and output formats.
 
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
-| `MINERU_API_URL` | No | `http://127.0.0.1:8001` | Base URL of the MinerU V1 API | Set it when MinerU runs on another host or port | Must be reachable from the app server. See [docs/uploads.md](uploads.md) |
+| `MINERU_API_URL` | No | `http://127.0.0.1:8001` | Base URL of the MinerU 4.1 task API | Set it when MinerU runs on another host or port. Moving a deployment from MinerU 4.0 to 4.1 is changing this one value (live, no restart); production and ai.dev keep theirs in `admin_config`: `http://127.0.0.1:8004` (MinerU 4.1.7) from the cutover on | Must be the address the app calls MinerU on directly: 4.1 builds its upload and result links from the `Host` it was called with, and the app follows them only on this origin, so a proxy that rewrites `Host` breaks every upload. See [docs/uploads.md](uploads.md#the-task-api-the-app-uses) |
 | `MINERU_API_KEY` | No | empty | Bearer token sent with every call to the configured origin, `/v1/health` included | Set it when MinerU runs with `--api-key` | Masked everywhere it is read back; empty means anonymous access |
-| `MINERU_DEFAULT_TIER` | No | `auto` | Quality tier requested per document (`auto`, `flash`, `basic`, `standard`, `advanced`) | Pin a tier when the server offers several and you want one | `auto` means "do not force a tier for this deployment", not "never send one": a registry `tierHint` (every Office, HTML, RTF and EPUB format) and a server that offers only `flash` both still send an explicit tier, ahead of this value. Naming a tier the server does not offer fails the extraction rather than downgrading it |
+| `MINERU_DEFAULT_TIER` | No | `auto` | Quality tier requested per document (`auto`, `flash`, `basic`, `standard`, `advanced`) | Pin a tier when the server offers several and you want one | `auto` is resolved by the app, never sent: a PDF or an image gets the best tier the server lists (`standard`, then `basic`, then `flash`; never `advanced`), and a native document (Office, OpenDocument, HTML, RTF, EPUB) gets no tier at all, because MinerU runs it at `flash` whatever it is asked. Naming a tier the server does not offer fails the extraction rather than downgrading it |
 | `MINERU_OCR_MODE` | No | `auto` | Text-layer handling (`auto`, `txt`, `ocr`) | Force `ocr` for scanned archives, `txt` to skip OCR entirely | `auto` omits the field; the API rejects an explicit null |
 | `MINERU_JOB_TIMEOUT_MS` | No | `300000` | Whole-document deadline, upload through result (10000–3600000) | Raise it for very large documents | Replaces `MINERU_TIMEOUT_MS`, which is still read as a deprecated env fallback for one release; an existing `admin_config` override is migrated automatically |
 | `MINERU_POLL_MIN_MS` | No | `2000` | First wait before checking whether a parse has finished (250–60000) | Lower it when parses are typically fast | Backoff grows from here toward the maximum |

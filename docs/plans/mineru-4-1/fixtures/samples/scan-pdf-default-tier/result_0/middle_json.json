@@ -1,0 +1,148 @@
+{
+  "metadata": {
+    "file_suffix": "pdf",
+    "producer": {
+      "name": "mineru",
+      "version": "4.1.7"
+    },
+    "document": {
+      "title": "scan-page",
+      "created_at": "2026-11-05T11:51:28Z",
+      "modified_at": "2026-11-05T11:51:28Z",
+      "page_count": 1,
+      "page_count_kind": "physical"
+    }
+  },
+  "extensions": {
+    "mineru": {
+      "tier": "standard",
+      "parse_mode": "ocr"
+    },
+    "docvortex_layout": {
+      "version": 1,
+      "pages": [
+        {
+          "page_idx": 0,
+          "width_pt": 595.4400024414062,
+          "height_pt": 842.0399780273438
+        }
+      ]
+    }
+  },
+  "pages": [
+    {
+      "page_idx": 0,
+      "blocks": [
+        {
+          "type": "paragraph_title",
+          "index": 0,
+          "bbox": [
+            0.109,
+            0.085,
+            0.478,
+            0.115
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Scanned Page Sample"
+            }
+          ],
+          "level": 2
+        },
+        {
+          "type": "text",
+          "index": 1,
+          "bbox": [
+            0.109,
+            0.141,
+            0.746,
+            0.272
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "This page was rendered to pixels and then degraded with noise, blur and a small rotation so that no text layer exists. The parser has to recognise the characters with optical character recognition rather than read them from the file. The quick brown fox jumps over the lazy dog, 0123456789."
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "index": 2,
+          "bbox": [
+            0.112,
+            0.29,
+            0.747,
+            0.369
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Second paragraph. Tiered parsing trades speed for fidelity: flash is fastest, advanced is most careful. A short list follows: alpha, beta, gamma. The invoice total is 1,234.50 EUR (VAT included)."
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "index": 3,
+          "bbox": [
+            0.114,
+            0.386,
+            0.761,
+            0.437
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Magyar sor: Árvíztűrő tükörfúrógép - ékezetes betűk: á é í ó ö ő ú ü ü."
+            }
+          ]
+        },
+        {
+          "type": "paragraph_title",
+          "index": 4,
+          "bbox": [
+            0.117,
+            0.478,
+            0.304,
+            0.5
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Table of results"
+            }
+          ],
+          "level": 2
+        },
+        {
+          "type": "table",
+          "index": 5,
+          "bbox": [
+            0.121,
+            0.51,
+            0.775,
+            0.633
+          ],
+          "content": [
+            {
+              "type": "table_body",
+              "index": 5,
+              "bbox": [
+                0.121,
+                0.51,
+                0.775,
+                0.633
+              ],
+              "image_path": "images/page_0_table_5.jpg",
+              "content": "<table><tr><td>tier</td><td>pages</td><td>ms</td></tr><tr><td>flash</td><td>1</td><td>810</td></tr><tr><td>basic</td><td>1</td><td>1126</td></tr><tr><td>standard</td><td>1</td><td>4310</td></tr></table>"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "is_full_document": true,
+  "schema": "docvortex.middle",
+  "schema_version": "2.0"
+}

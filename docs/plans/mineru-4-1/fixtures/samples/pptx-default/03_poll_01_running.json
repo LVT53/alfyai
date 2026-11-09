@@ -1,0 +1,26 @@
+{
+  "t_since_create_ms": 3,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_9801cea859f04b57054605f0",
+    "status": "running",
+    "created_at": "2026-11-05T11:53:13Z",
+    "started_at": "2026-11-05T11:53:13Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-ffb3021ea609ee0ae99fb55a",
+        "file_name": "slides.pptx",
+        "status": "running",
+        "bytes": 34963
+      }
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/tasks/job_3a4063d572a42e3b7390d086/uploads/not-a-file-id",
+    "headers": {
+      "Content-Type": "application/octet-stream",
+      "Authorization": "Bearer <redacted>"
+    },
+    "raw_body_bytes": 3
+  },
+  "response": {
+    "status": 404,
+    "reason": "Not Found",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:09:32 GMT",
+      "server": "uvicorn",
+      "content-length": "65",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 0,
+    "json": {
+      "error": {
+        "code": "upload_not_found",
+        "message": "Unknown file_id"
+      }
+    }
+  }
+}

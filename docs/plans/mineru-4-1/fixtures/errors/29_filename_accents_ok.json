@@ -1,0 +1,48 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "Árvíztűrő jelentés.pdf",
+          "bytes": 1234
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "381",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_c8a42f0c670d5c724f97a6e9",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-00eef38399606c47958be237",
+          "file_name": "Árvíztűrő jelentés.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_c8a42f0c670d5c724f97a6e9/uploads/file-00eef38399606c47958be237",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883318
+          }
+        }
+      ]
+    }
+  }
+}

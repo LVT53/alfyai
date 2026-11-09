@@ -1,0 +1,43 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/tasks/job_8392416d5925c6e7e1715caf",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "325",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_8392416d5925c6e7e1715caf",
+      "status": "running",
+      "created_at": "2026-11-05T11:55:18Z",
+      "started_at": "2026-11-05T11:55:18Z",
+      "output_formats": [
+        "default"
+      ],
+      "progress": {
+        "completed": 0,
+        "failed": 0,
+        "total": 1
+      },
+      "files": [
+        {
+          "file_id": "file-9459d2d8f6ad97bd2a992d4d",
+          "file_name": "auth-put.pdf",
+          "status": "running",
+          "bytes": 241699
+        }
+      ]
+    }
+  }
+}

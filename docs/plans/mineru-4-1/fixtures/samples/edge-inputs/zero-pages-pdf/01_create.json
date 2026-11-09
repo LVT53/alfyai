@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "zero-pages.pdf",
+          "bytes": 311,
+          "sha256sum": "c1770c29539e4267a02e8d2257ff36d606f3e72701f923c90ef73fb2b6058b9d"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:02:54 GMT",
+      "server": "uvicorn",
+      "content-length": "368",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_3ca987122cfe4dcc44ca13ba",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-4ed13fe0995f9b727334cde3",
+          "file_name": "zero-pages.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_3ca987122cfe4dcc44ca13ba/uploads/file-4ed13fe0995f9b727334cde3",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883775
+          }
+        }
+      ]
+    }
+  }
+}

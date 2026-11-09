@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "text/plain",
+      "Authorization": "Bearer <redacted>"
+    },
+    "raw_body_bytes": 50
+  },
+  "response": {
+    "status": 415,
+    "reason": "Unsupported Media Type",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "69",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 0,
+    "json": {
+      "error": {
+        "code": "invalid_request",
+        "message": "Use application/json"
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/redoc",
+    "headers": {}
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:03:49 GMT",
+      "server": "uvicorn",
+      "content-length": "724",
+      "content-type": "text/html; charset=utf-8",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "body_bytes": 724,
+    "text_head": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n    <title>MinerU API - ReDoc</title>\n    <!-- needed for adaptive design -->\n    <meta charset=\"utf-8\"/>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    \n    <link rel=\"shortcut icon\" href=\"/docs/assets/vendor/favicon.png\">\n    <!--\n    ReDoc doesn't change outer page styles\n    -->\n    <style>\n      body {\n        margin: 0;\n        padding: 0;\n      }\n    </style>\n    </head>\n    <body>\n    <noscript>\n        ReDoc requires Javascript to function. Please enable it to browse the documentation.\n    </noscript>\n    <redoc spec-url=\"/openapi.json\"></redoc>\n    <script src=\"/docs/assets/redoc.standalone.js\"> </script>\n    </body>\n    </html>\n    "
+  }
+}

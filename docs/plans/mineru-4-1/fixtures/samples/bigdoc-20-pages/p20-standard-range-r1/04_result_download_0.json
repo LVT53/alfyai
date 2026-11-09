@@ -1,0 +1,59 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-e4efef0293c85e328b5910fb/content",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:01:18 GMT",
+      "server": "uvicorn",
+      "content-type": "application/zip",
+      "accept-ranges": "bytes",
+      "content-disposition": "attachment; filename=\"paper-20p.zip\"",
+      "content-length": "61567",
+      "last-modified": "Thu, 05 Nov 2026 12:01:18 GMT",
+      "etag": "\"86bfbc5bfdc38c0416455bb30035c541\"",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "body_bytes": 61567,
+    "same_origin_key_sent": true
+  },
+  "zip_listing": [
+    {
+      "name": "markdown.md",
+      "size": 701,
+      "compressed": 499
+    },
+    {
+      "name": "middle_json.json",
+      "size": 5204,
+      "compressed": 1279
+    },
+    {
+      "name": "structured_content.json",
+      "size": 3221,
+      "compressed": 1076
+    },
+    {
+      "name": "images/",
+      "size": 0,
+      "compressed": 2
+    },
+    {
+      "name": "images/page_19_chart_3.jpg",
+      "size": 44068,
+      "compressed": 28022
+    },
+    {
+      "name": "images/page_19_table_2.jpg",
+      "size": 44040,
+      "compressed": 29993
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "table-as.xlsx",
+          "bytes": 130,
+          "sha256sum": "32260d24d77fdb416d089f8bb1c3f38dee00e5cde5db06ba6ca3490c00ca54a6"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:02:57 GMT",
+      "server": "uvicorn",
+      "content-length": "367",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_9d361689d802f1fd14cdb3ee",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-eb7a297870e0d48a075c8cfd",
+          "file_name": "table-as.xlsx",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_9d361689d802f1fd14cdb3ee/uploads/file-eb7a297870e0d48a075c8cfd",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883778
+          }
+        }
+      ]
+    }
+  }
+}

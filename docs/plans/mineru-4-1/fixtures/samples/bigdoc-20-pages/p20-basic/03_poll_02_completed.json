@@ -1,0 +1,33 @@
+{
+  "t_since_create_ms": 12141,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_38c8802527def719353067cb",
+    "status": "completed",
+    "created_at": "2026-11-05T12:01:03Z",
+    "started_at": "2026-11-05T12:01:03Z",
+    "finished_at": "2026-11-05T12:01:15Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-40b421cdbd4d88541c5b8d0b",
+        "file_name": "paper-20p.pdf",
+        "status": "completed",
+        "bytes": 2309941,
+        "parse": {
+          "tier": "basic",
+          "duration_ms": 11819,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-40b421cdbd4d88541c5b8d0b/content"
+      }
+    ]
+  }
+}

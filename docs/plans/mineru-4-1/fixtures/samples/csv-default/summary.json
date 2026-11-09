@@ -1,0 +1,41 @@
+{
+  "slug": "csv-default",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 1,
+      "file_name": "table.csv",
+      "status": "completed",
+      "parse": {
+        "tier": "flash",
+        "duration_ms": 7,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 1394,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/"
+        ],
+        "member_count": 4
+      }
+    }
+  ],
+  "task_id": "job_410b1d4fafb5936a9c293ac2",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 205,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "t_start_epoch": 1793879593.535,
+  "t_end_epoch": 1793879593.742
+}

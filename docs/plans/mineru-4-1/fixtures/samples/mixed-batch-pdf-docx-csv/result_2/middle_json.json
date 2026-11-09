@@ -1,0 +1,40 @@
+{
+  "metadata": {
+    "file_suffix": "csv",
+    "producer": {
+      "name": "mineru",
+      "version": "4.1.7"
+    },
+    "document": {
+      "page_count": 1,
+      "page_count_kind": "logical"
+    }
+  },
+  "extensions": {
+    "mineru": {
+      "tier": "flash",
+      "parse_mode": "txt"
+    }
+  },
+  "pages": [
+    {
+      "page_idx": 0,
+      "blocks": [
+        {
+          "type": "table",
+          "index": 0,
+          "content": [
+            {
+              "type": "table_body",
+              "index": 0,
+              "content": "<table>\n  <tr>\n    <th>tier</th>\n    <th>pages</th>\n    <th>median_ms</th>\n    <th>megjegyzés</th>\n  </tr>\n  <tr>\n    <td>flash</td>\n    <td>12</td>\n    <td>810</td>\n    <td>gyors</td>\n  </tr>\n  <tr>\n    <td>basic</td>\n    <td>12</td>\n    <td>1126</td>\n    <td>ékezetes: árvíztűrő</td>\n  </tr>\n  <tr>\n    <td>standard</td>\n    <td>12</td>\n    <td>4310</td>\n    <td>tükörfúrógép</td>\n  </tr>\n</table>"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "is_full_document": true,
+  "schema": "docvortex.middle",
+  "schema_version": "2.0"
+}

@@ -1,0 +1,193 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "doc0.pdf",
+          "bytes": 241693
+        },
+        {
+          "file_name": "doc1.pdf",
+          "bytes": 241694
+        },
+        {
+          "file_name": "doc2.pdf",
+          "bytes": 241694
+        },
+        {
+          "file_name": "doc3.pdf",
+          "bytes": 241694
+        },
+        {
+          "file_name": "doc4.pdf",
+          "bytes": 241694
+        },
+        {
+          "file_name": "doc5.pdf",
+          "bytes": 241694
+        },
+        {
+          "file_name": "doc6.pdf",
+          "bytes": 241694
+        },
+        {
+          "file_name": "doc7.pdf",
+          "bytes": 241694
+        },
+        {
+          "file_name": "doc8.pdf",
+          "bytes": 241694
+        },
+        {
+          "file_name": "doc9.pdf",
+          "bytes": 241693
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:56:59 GMT",
+      "server": "uvicorn",
+      "content-length": "2936",
+      "content-type": "application/json",
+      "vary": "Accept-Encoding",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_6c35de9b0af87e78d664b0c8",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-5b0928fd4e59bf28cf469a07",
+          "file_name": "doc0.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_6c35de9b0af87e78d664b0c8/uploads/file-5b0928fd4e59bf28cf469a07",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883420
+          }
+        },
+        {
+          "file_id": "file-4bd6835ae01320bab14bb09f",
+          "file_name": "doc1.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_6c35de9b0af87e78d664b0c8/uploads/file-4bd6835ae01320bab14bb09f",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883420
+          }
+        },
+        {
+          "file_id": "file-eccf24f952a98604d778cb74",
+          "file_name": "doc2.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_6c35de9b0af87e78d664b0c8/uploads/file-eccf24f952a98604d778cb74",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883420
+          }
+        },
+        {
+          "file_id": "file-e5b5194f6aae1f22704876e4",
+          "file_name": "doc3.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_6c35de9b0af87e78d664b0c8/uploads/file-e5b5194f6aae1f22704876e4",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883420
+          }
+        },
+        {
+          "file_id": "file-f627f726dc56491cbd8ec270",
+          "file_name": "doc4.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_6c35de9b0af87e78d664b0c8/uploads/file-f627f726dc56491cbd8ec270",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883420
+          }
+        },
+        {
+          "file_id": "file-c8d03301d643baa0090cfdc9",
+          "file_name": "doc5.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_6c35de9b0af87e78d664b0c8/uploads/file-c8d03301d643baa0090cfdc9",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883420
+          }
+        },
+        {
+          "file_id": "file-a76910cec526ba4433d48bf4",
+          "file_name": "doc6.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_6c35de9b0af87e78d664b0c8/uploads/file-a76910cec526ba4433d48bf4",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883420
+          }
+        },
+        {
+          "file_id": "file-6668c7b829cab59bb029981c",
+          "file_name": "doc7.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_6c35de9b0af87e78d664b0c8/uploads/file-6668c7b829cab59bb029981c",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883420
+          }
+        },
+        {
+          "file_id": "file-ddd966862559c05314e6da12",
+          "file_name": "doc8.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_6c35de9b0af87e78d664b0c8/uploads/file-ddd966862559c05314e6da12",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883420
+          }
+        },
+        {
+          "file_id": "file-f0b3376e63ebe9fe369b112e",
+          "file_name": "doc9.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_6c35de9b0af87e78d664b0c8/uploads/file-f0b3376e63ebe9fe369b112e",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883420
+          }
+        }
+      ]
+    }
+  }
+}

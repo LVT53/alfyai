@@ -1,0 +1,71 @@
+{
+  "slug": "p20-standard",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 4,
+      "file_name": "paper-20p.pdf",
+      "status": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 2798,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 731269,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_equation_6.jpg",
+          "images/page_10_equation_6.jpg",
+          "images/page_11_chart_3.jpg",
+          "images/page_11_table_2.jpg",
+          "images/page_12_equation_6.jpg",
+          "images/page_13_chart_3.jpg",
+          "images/page_13_table_2.jpg",
+          "images/page_14_equation_6.jpg",
+          "images/page_15_chart_3.jpg",
+          "images/page_15_table_2.jpg",
+          "images/page_16_equation_6.jpg",
+          "images/page_17_chart_3.jpg",
+          "images/page_17_table_2.jpg",
+          "images/page_18_equation_6.jpg",
+          "images/page_19_chart_3.jpg",
+          "images/page_19_table_2.jpg",
+          "images/page_1_chart_3.jpg",
+          "images/page_1_table_2.jpg",
+          "images/page_2_equation_6.jpg",
+          "images/page_3_chart_3.jpg",
+          "images/page_3_table_2.jpg",
+          "images/page_4_equation_6.jpg",
+          "images/page_5_chart_3.jpg",
+          "images/page_5_table_2.jpg",
+          "images/page_6_equation_6.jpg",
+          "images/page_7_chart_3.jpg",
+          "images/page_7_table_2.jpg",
+          "images/page_8_equation_6.jpg",
+          "images/page_9_chart_3.jpg",
+          "images/page_9_table_2.jpg"
+        ],
+        "member_count": 34
+      }
+    }
+  ],
+  "task_id": "job_3bddb133af87ca3838b2d150",
+  "create_ms": 2,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 2954,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "t_start_epoch": 1793880058.178,
+  "t_end_epoch": 1793880061.145
+}

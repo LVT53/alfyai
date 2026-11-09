@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "never.pdf",
+          "url": "https://127.0.0.1:9/never.pdf"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "168",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 3,
+    "json": {
+      "task_id": "job_0e03241755eb80abf69c8d7c",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-f0f57af01e70b84366bc53cf",
+          "file_name": "never.pdf",
+          "status": "waiting-file"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "t_since_create_ms": 2,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_8ec513478891b32f7be9371f",
+    "status": "running",
+    "created_at": "2026-11-05T11:53:17Z",
+    "started_at": "2026-11-05T11:53:17Z",
+    "output_formats": [
+      "latex"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-b4f0c451b91a19edcf722552",
+        "file_name": "paper-en.pdf",
+        "status": "running",
+        "bytes": 241664
+      }
+    ]
+  }
+}

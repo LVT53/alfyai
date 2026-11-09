@@ -114,6 +114,9 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 - Changing your email address asks for your current password, and a wrong one
   counts against the same limit as a wrong password at sign-in. Changing your
   name asks for nothing.
+- Documents are now read through MinerU 4.1, with PDFs and images always sent at
+  the best tier the server offers, because 4.1 drops to a lower tier when none is
+  named.
 
 ### Fixed
 
@@ -157,6 +160,9 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   file, picture or report is being made, a message waiting behind a running
   reply is kept in its chat when you go to another chat or leave the page, and
   a draft that holds only a file keeps it through a reload.
+- Charts in a PDF or an image now reach Alfy as a figure with its caption, and
+  display equations keep their math and tag, where both used to be dropped or left
+  unmarked, for documents read from now on.
 
 ### Removed
 
@@ -204,6 +210,11 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   `sessions` table, because stored sessions change form. Tell the people who
   use your server before you deploy. Anyone who signs in during the couple of
   minutes between the migration and the restart signs in once more.
+- Start a MinerU 4.1 server (`deploy/README.md`) and set the MinerU endpoint in
+  Settings → System to the address AlfyAI calls it on directly, with no proxy
+  that rewrites `Host`, because this release cannot use a 4.0.x server (uploads
+  wait, and the MinerU card says it speaks the old protocol) and the new
+  endpoint applies without a restart.
 
 ## [2.0.0] - 2026-09-17
 

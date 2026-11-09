@@ -1,10 +1,25 @@
 // The live counterpart of `mineru/result.test.ts`.
 //
 // `result.test.ts` proves the parser against recorded fixtures; this proves the
-// deployed app against a running MinerU. It uploads the same nine sample files
+// deployed app against a running MinerU 4.1. It uploads the sample files
 // through the real endpoints, watches the extraction ladder, and checks what
-// came back against what the Phase 0 spike recorded — the effective tier, the
-// page count and its kind, the text, the figures and the outline.
+// came back against what was recorded — the MinerU version that answered, the
+// app's parser version, the effective tier, the page count and its kind, the
+// text, the figures and the outline.
+//
+// Two groups of expectations, and the difference matters when one fails:
+//   - `v1`: `fixtures/mineru-v1/<id>/sample.*`, the 4.0.4 spike's samples. Their
+//     page counts, figures and outlines were read off that server's output;
+//     nobody had run MinerU 4.1.7 on these exact files when this was written, so
+//     a mismatch there is first a question about the expectation.
+//   - `plan41`: the 4.1.7 spike's own inputs
+//     (`docs/plans/mineru-4-1/fixtures/inputs`), with expectations taken from
+//     its captured answers and run through the app's own parser (spike report
+//     §7, `fixtures/mineru-v41/results`). The two TIFFs are the exception: they
+//     are the v1 PNG sample converted (`sips -s format tiff`, then `tiffutil
+//     -lzw` for the .tif and `-packbits` for the .tiff, so the bytes differ and
+//     no upload can pass for the other), so their expectations are the PNG's and
+//     unproven until a live run.
 //
 // Deliberately standalone, like `verify-live-file-production-types.ts`: no
 // `src/` imports and every type re-declared here, so it cannot be the reason a
@@ -17,6 +32,14 @@
 // It only ever uploads into, reads from and deletes its OWN conversation, and
 // it never writes configuration. See docs/uploads.md.
 //
+// What it covers of the 4.1 live list (client-spec §5): a text PDF (`pdf`,
+// `paper`), the scan PNG, DOCX, XLSX, PPTX, HTML, CSV (which makes no MinerU
+// request at all: `direct-text`), the Hungarian-named PDF, a corrupt PDF with
+// the right failure sentence, both TIFF spellings, and a re-extract
+// (`LIVE_EXTRACTION_TIER`). NOT automated, by hand on ai.dev: a cancel, and
+// `systemctl restart mineru41` in the middle of a job (the job must recover by
+// creating the task again, not fail).
+//
 // Phase 5 P5-B added six cases (rtf, odt, ods, odp, tsv, plus the `ofd`
 // refusal) and new assertions on `html` (spec §5.1). NOT automated here: the
 // gate case — point a SEPARATE deployment's `MINERU_API_URL` at a stub
@@ -28,9 +51,11 @@
 // staging box already pointed at a 3.x-shaped stub) before trusting D6's gate
 // in production.
 
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "playwright";
 
 // ── configuration ──────────────────────────────────────────────────────────
@@ -41,13 +66,18 @@ const password = process.env.LIVE_AI_PASSWORD;
 const headless = process.env.LIVE_AI_HEADLESS !== "false";
 const keepConversation = process.env.LIVE_AI_KEEP_CONVERSATION === "true";
 /**
- * Raised from the sibling script's 240 s: a cold `basic` PDF took 18.6 s on the
- * spike box and a `standard` PDF has never been timed.
+ * Generous on purpose: the first `standard` job after a MinerU start measured
+ * 8 to 11 s on the box (the one-off model load) and the first `basic` one about
+ * 10 s more, so the real ceiling is one slow document, not a cold start.
  */
 const timeoutMs = Number(process.env.LIVE_AI_TIMEOUT_MS ?? 600_000);
 const fixtureDir =
 	process.env.LIVE_EXTRACTION_FIXTURE_DIR ??
 	path.join(process.cwd(), "fixtures", "mineru-v1");
+/** Where the `plan41` inputs live: the 4.1.7 spike's synthetic files. */
+const plan41InputDir =
+	process.env.LIVE_EXTRACTION_PLAN41_DIR ??
+	path.join(process.cwd(), "docs", "plans", "mineru-4-1", "fixtures", "inputs");
 const outputDir =
 	process.env.LIVE_AI_OUTPUT_DIR ??
 	path.join(
@@ -63,12 +93,29 @@ const onlyCases = (process.env.LIVE_EXTRACTION_CASES ?? "")
 /** When set, every case is additionally re-extracted at this tier. */
 const reextractTier = process.env.LIVE_EXTRACTION_TIER?.trim() || null;
 /**
- * The tier the server is expected to have parsed PDFs and images at. The
- * recorded expectations below are from a `--tier basic` server; point this at
- * `standard` when sweeping a GPU box so a correct run does not read as nine
- * mismatches.
+ * The tier PDFs and images are expected to have been parsed at. The app names
+ * it itself (`MINERU_DEFAULT_TIER=auto` is resolved to the best tier
+ * `/v1/tiers` lists: standard, then basic, then flash), and the box serves
+ * flash, basic and standard, so the default is `standard`. Point this at the
+ * tier a differently started server tops out at, or at a tier an admin pinned,
+ * so a correct run does not read as a wall of mismatches.
  */
-const expectedPdfTier = process.env.LIVE_EXTRACTION_EXPECTED_TIER ?? "basic";
+const expectedPdfTier = process.env.LIVE_EXTRACTION_EXPECTED_TIER ?? "standard";
+/**
+ * The MinerU the deployment is expected to talk to (`/v1/health` `version`, read
+ * through the admin status card) and, per document, `parse.parser_version`
+ * (`extractionServerParserVersion`). Exact on purpose: a newer 4.1.x is a
+ * reason to read its release notes and re-capture, not to pass silently.
+ */
+const expectedServerVersion =
+	process.env.LIVE_EXTRACTION_EXPECTED_SERVER_VERSION ?? "4.1.7";
+/**
+ * The app's own renderer version (`MINERU_PARSER_VERSION` in `mineru/result.ts`,
+ * stored as `extractionParserVersion`): `mineru4/2` since the 4.1 release,
+ * `mineru4/1` for a document the 4.0 client read.
+ */
+const expectedParserVersion =
+	process.env.LIVE_EXTRACTION_EXPECTED_PARSER_VERSION ?? "mineru4/2";
 
 function requireEnv(name: string, value: string | undefined): string {
 	if (!value) throw new Error(`${name} is required`);
@@ -83,6 +130,7 @@ type ExtractionJob = {
 	normalizedArtifactId: string | null;
 	status: string;
 	intakeRoute?: string;
+	retryable?: boolean;
 	error?: { code?: string; message?: string } | null;
 };
 
@@ -119,15 +167,23 @@ type PageCountKind =
 	| "logical"
 	| "unknown";
 
+/** Which input folder a case's `file` is read from (see the header). */
+type FixtureRoot = "v1" | "plan41";
+
 type ExtractionCase = {
 	id: string;
 	file: string;
+	/** Defaults to "v1". */
+	root?: FixtureRoot;
+	/** The file name the upload carries, when it differs from `file`'s. */
+	uploadName?: string;
 	mimeType: string;
 	/**
 	 * Phase 5 P5-B, `tsv`. Defaults to "mineru". A `direct-text` case never
-	 * reaches MinerU at all, so `compare()` skips every MinerU-specific field
-	 * (tier, page count/kind, figures, outline) and checks only the text and
-	 * `statusesSeen` instead.
+	 * reaches MinerU at all (`csv` and `tsv` send it no request), so `compare()`
+	 * skips every MinerU-specific field (tier, versions, page count/kind,
+	 * figures, outline), checks the job's `intakeRoute` instead, and checks the
+	 * text and `statusesSeen`.
 	 */
 	route?: "mineru" | "direct-text";
 	expect: {
@@ -149,6 +205,12 @@ type ExtractionCase = {
 		 * regressed back to `mineru`.
 		 */
 		mustNotSeeStatus?: string;
+		/**
+		 * The name the normalized document must carry (`<stem>.md` of the name the
+		 * person uploaded). The upload's name never reaches MinerU, which is told
+		 * `document.<ext>`; this is where a name with accents has to survive.
+		 */
+		normalizedName?: string;
 	};
 };
 
@@ -177,16 +239,88 @@ const REFUSAL_CASES: RefusalCase[] = [
 ];
 
 /**
+ * A document MinerU cannot read: the upload is accepted, the job ends `failed`,
+ * and what a person reads is the app's own sentence for the code, never
+ * MinerU's wording (every cause of a failed file is the one code
+ * `parse_failed`, and the app maps the message it carries to a reason of its
+ * own, `mineru/errors.ts`).
+ */
+type FailureCase = {
+	id: string;
+	file: string;
+	root: FixtureRoot;
+	mimeType: string;
+	expect: {
+		/** The extraction error code the job ends with. */
+		code: string;
+		/** `retryable` on the job: false when the same bytes can never read. */
+		retryable: boolean;
+		/** MinerU's own words, which must not reach the sentence a person reads. */
+		mustNotContain: string[];
+	};
+};
+
+export const FAILURE_CASES: FailureCase[] = [
+	{
+		// The spike's `garbage.pdf`: `%PDF-1.7` followed by noise. MinerU answers
+		// `parse_failed` "Failed to load document (PDFium: Data format error).",
+		// which the app maps to `document_unreadable`: not retried, no Retry
+		// button, since a repaired file has another hash and arrives as a new one.
+		id: "corrupt-pdf",
+		file: "garbage.pdf",
+		root: "plan41",
+		mimeType: "application/pdf",
+		expect: {
+			code: "document_unreadable",
+			retryable: false,
+			mustNotContain: ["PDFium", "Failed to load", "parse_failed"],
+		},
+	},
+];
+
+/**
+ * Types the registry routes to MinerU that no MinerU 4.x release this project
+ * ran accepts (4.0.12 and 4.1.7 share the same extension list). Not asserted:
+ * another session owns what to do about them. Listed in the summary so a run
+ * never reads as complete coverage of the formats the app admits.
+ */
+const KNOWN_GAPS = [
+	{
+		id: "heic",
+		reason: "routed to MinerU, which has never listed heic: the upload fails",
+	},
+	{
+		id: "heif",
+		reason: "routed to MinerU, which has never listed heif: the upload fails",
+	},
+] as const;
+
+/** What a scanned page as a TIFF must read like: the `png` case's numbers. */
+const TIFF_EXPECT: ExtractionCase["expect"] = {
+	effectiveTier: "expected-pdf-tier",
+	pageCount: 1,
+	pageCountKind: "unknown",
+	minTextLength: 200,
+	mustContain: [],
+	mustNotContain: [],
+	figureCount: 0,
+	outlineMin: 1,
+};
+
+/**
  * Transcribed from §1.4 of the spec and from the fixture Markdown, so this
- * table is the live twin of `result.test.ts`'s.
+ * table is the live twin of `result.test.ts`'s (the `plan41` rows: from the
+ * 4.1.7 captures, through the app's parser).
  *
  * `effectiveTier: "expected-pdf-tier"` resolves to `LIVE_EXTRACTION_EXPECTED_TIER`:
- * PDFs and images are parsed at the server's own tier, while every Office,
- * HTML, CSV and EPUB input is parsed at `flash` no matter what the job asked
- * for — the effective-tier trap, and the single most valuable thing this sweep
- * checks.
+ * the app names that tier for every PDF and image, while every Office,
+ * OpenDocument, HTML, RTF and EPUB input is a native document: the app names no
+ * tier and MinerU runs it at `flash` no matter what the job asked for, which
+ * `parse.tier` says — the effective-tier trap, and the single most valuable
+ * thing this sweep checks. `compare()` holds both `extractionTier` (the
+ * result's own) and `extractionJobTier` (the server's `parse.tier`) to it.
  */
-const CASES: ExtractionCase[] = [
+export const CASES: ExtractionCase[] = [
 	{
 		id: "pdf",
 		file: "pdf/sample.pdf",
@@ -289,17 +423,20 @@ const CASES: ExtractionCase[] = [
 		file: "csv/sample.csv",
 		mimeType: "text/csv",
 		// `csv` has been `direct-text` in the registry since Phase 1, so it
-		// never reaches MinerU and has no tier, page count, figure count or
-		// parser version to check. The expectations below were transcribed from
-		// the Phase 0 spike, which measured csv THROUGH MinerU; without this
-		// field `compare()` asserts all of them and the sweep reports five
-		// mismatches for a case that is working correctly. `tsv` got the field
-		// when Phase 5 added it; `csv` was missed.
+		// never reaches MinerU: the app makes NO `/v1/tasks` request for it (MinerU
+		// 4.1 would run it at flash, as its csv sample did, but the app never
+		// asks), and there is no tier, page count, figure count or parser
+		// version to check. The expectations below were transcribed from the
+		// Phase 0 spike, which measured csv THROUGH MinerU; without this field
+		// `compare()` asserts all of them and the sweep reports five mismatches
+		// for a case that is working correctly. `tsv` got the field when Phase 5
+		// added it; `csv` was missed. The job's `intakeRoute` and the missing
+		// `parsing` status below are what prove the route.
 		route: "direct-text",
 		expect: {
 			// Unused by `compare()` for a direct-text case (kept only so every
 			// case satisfies the same type); the real assertions are
-			// minTextLength and mustContain below.
+			// minTextLength, mustContain and mustNotSeeStatus below.
 			effectiveTier: "flash",
 			pageCount: 1,
 			pageCountKind: "logical",
@@ -308,6 +445,7 @@ const CASES: ExtractionCase[] = [
 			mustNotContain: [],
 			figureCount: 0,
 			outlineMin: 0,
+			mustNotSeeStatus: "parsing",
 		},
 	},
 	{
@@ -450,6 +588,85 @@ const CASES: ExtractionCase[] = [
 			outlineMin: 1,
 		},
 	},
+	// ── MinerU 4.1 (client-spec §5) ─────────────────────────────────────────
+	{
+		// The spike's synthetic two-page paper: a table, a footnote, inline and
+		// display formulas, a chart with a caption, and a Hungarian paragraph.
+		// MinerU 4.0.12 emits the same chart, equation and page_footnote blocks, so
+		// what this proves is the renderer: the chart is a figure handle whose
+		// caption is in the text once, the display math is fenced with its tag
+		// kept, the footnote is a paragraph, and nothing of MinerU's own markup
+		// (an image link, the footnote's span) reaches the prompt text. Numbers:
+		// the capture `pdf-paper-default-tier` through `parseMineruResultZip`.
+		id: "paper",
+		file: "paper-en.pdf",
+		root: "plan41",
+		mimeType: "application/pdf",
+		expect: {
+			effectiveTier: "expected-pdf-tier",
+			pageCount: 2,
+			pageCountKind: "physical",
+			minTextLength: 1500,
+			mustContain: [
+				"Throughput of Tiered Document Parsing",
+				"[Figure 1: Figure 1. Relative throughput by tier.]",
+				"$$",
+				"\\tag{1}",
+				"Table 1. Parsing latency by tier",
+				"The norm constraint is the usual unit-ball",
+				"Az árvíztűrő tükörfúrógép",
+			],
+			mustNotContain: [
+				"![](",
+				"images/page_1_chart",
+				"docvortex-page-footnote",
+			],
+			figureCount: 1,
+			outlineMin: 4,
+		},
+	},
+	{
+		// A name with accents and spaces. MinerU is told `document.pdf`, so none of
+		// it reaches the server; the normalized document keeps the person's name.
+		// Numbers: the capture `pdf-hu-accented-name`.
+		id: "hu-pdf",
+		file: "hu-accented-name.pdf",
+		root: "plan41",
+		uploadName: "Árvíztűrő tükörfúrógép jelentés.pdf",
+		mimeType: "application/pdf",
+		expect: {
+			effectiveTier: "expected-pdf-tier",
+			pageCount: 1,
+			pageCountKind: "physical",
+			minTextLength: 300,
+			mustContain: [
+				"Árvíztűrő tükörfúrógép jelentés",
+				"Az árvíztűrő tükörfúrógép egy magyar pangram",
+			],
+			mustNotContain: [],
+			figureCount: 0,
+			outlineMin: 1,
+			normalizedName: "Árvíztűrő tükörfúrógép jelentés.md",
+		},
+	},
+	// MinerU 4.1.7 lists `tiff` and not `tif`, and routes by the extension, so the
+	// app sends both spellings as `document.tiff`: each upload must reach
+	// `succeeded`. The inputs are the v1 PNG sample converted, so the expectations
+	// are the `png` case's, unproven for TIFF until a live run.
+	{
+		id: "tif",
+		file: "scan-sample.tif",
+		root: "plan41",
+		mimeType: "image/tiff",
+		expect: TIFF_EXPECT,
+	},
+	{
+		id: "tiff",
+		file: "scan-sample.tiff",
+		root: "plan41",
+		mimeType: "image/tiff",
+		expect: TIFF_EXPECT,
+	},
 ];
 
 // ── HTTP, over the browser's session cookie ────────────────────────────────
@@ -534,14 +751,21 @@ async function deleteConversation(page: Page, conversationId: string) {
 
 // ── the sweep ──────────────────────────────────────────────────────────────
 
+/** Where a case's input lives: `v1` samples or the 4.1.7 spike's `plan41` inputs. */
+function fixturePath(root: FixtureRoot | undefined, file: string): string {
+	return path.join(root === "plan41" ? plan41InputDir : fixtureDir, file);
+}
+
 async function uploadFixture(
 	page: Page,
 	conversationId: string,
-	testCase: ExtractionCase,
+	testCase: ExtractionCase | FailureCase,
 ): Promise<UploadResponse> {
-	const absolute = path.join(fixtureDir, testCase.file);
+	const absolute = fixturePath(testCase.root, testCase.file);
 	const bytes = await readFile(absolute);
-	const fileName = path.basename(absolute);
+	const fileName =
+		("uploadName" in testCase ? testCase.uploadName : undefined) ??
+		path.basename(absolute);
 
 	const intent = await apiJson<{ traceId: string }>(
 		page,
@@ -562,7 +786,10 @@ async function uploadFixture(
 		method: "POST",
 		headers: {
 			"Content-Type": testCase.mimeType,
-			"x-alfyai-upload-name": fileName,
+			// Percent-encoded, as the browser client sends it
+			// (`encodeUploadHeaderValue`): a header value must be Latin-1, and the
+			// route decodes it. `hu-pdf` is the first name here that is not ASCII.
+			"x-alfyai-upload-name": encodeURIComponent(fileName),
 			"x-alfyai-upload-size": String(bytes.byteLength),
 			"x-alfyai-upload-trace-id": intent.traceId,
 			"x-alfyai-conversation-id": conversationId,
@@ -660,12 +887,18 @@ type ActualExtraction = {
 	outlineLength: number;
 	outlinePages: number;
 	unknownBlockTypes: unknown;
+	/** The app's renderer version (`mineru4/2`). */
 	parserVersion: unknown;
+	/** MinerU's own `parse.parser_version` for this file (`4.1.7`). */
+	serverParserVersion: unknown;
 	producerVersion: unknown;
+	parseMode: unknown;
 	bundleBytes: unknown;
 };
 
-function readActual(artifact: ArtifactResponse["artifact"]): ActualExtraction {
+export function readActual(
+	artifact: ArtifactResponse["artifact"],
+): ActualExtraction {
 	const metadata = artifact.metadata ?? {};
 	const outline = Array.isArray(metadata.outline) ? metadata.outline : [];
 	return {
@@ -681,29 +914,66 @@ function readActual(artifact: ArtifactResponse["artifact"]): ActualExtraction {
 		).length,
 		unknownBlockTypes: metadata.extractionUnknownBlockTypes ?? {},
 		parserVersion: metadata.extractionParserVersion,
+		serverParserVersion: metadata.extractionServerParserVersion,
 		producerVersion: metadata.extractionProducerVersion,
+		parseMode: metadata.extractionParseMode,
 		bundleBytes: metadata.extractionBundleBytes,
 	};
 }
 
-function compare(
+/** What a run is held to; `main()` fills it from the environment. */
+type Expectations = {
+	/** The tier PDFs and images are expected to have been parsed at. */
+	pdfTier: string;
+	/** The MinerU version, for `parse.parser_version` of every document. */
+	serverVersion: string;
+	/** The app's own renderer version. */
+	parserVersion: string;
+};
+
+/**
+ * Whether a document that reached `succeeded` is the one its case describes:
+ * the mismatches, empty when it is. Pure, so the decisions can be tested without
+ * a deployment.
+ */
+export function compare(
 	testCase: ExtractionCase,
 	actual: ActualExtraction,
 	text: string,
 	statusesSeen: string[],
+	job: ExtractionJob,
+	normalizedName: string,
+	expected: Expectations,
 ): string[] {
 	const mismatches: string[] = [];
 	const isDirectText = testCase.route === "direct-text";
 
+	// The route is what says whether MinerU was asked at all: `csv` and `tsv` are
+	// `direct-text` and make no `/v1/tasks` request, everything else is `mineru`.
+	// Absent on a deployment older than the field, which is no evidence.
+	const expectedRoute = isDirectText ? "direct-text" : "mineru";
+	if (job.intakeRoute !== undefined && job.intakeRoute !== expectedRoute) {
+		mismatches.push(
+			`intakeRoute: expected ${expectedRoute}, got ${job.intakeRoute}`,
+		);
+	}
+
 	if (!isDirectText) {
 		const expectedTier =
 			testCase.expect.effectiveTier === "expected-pdf-tier"
-				? expectedPdfTier
+				? expected.pdfTier
 				: testCase.expect.effectiveTier;
 
 		if (actual.effectiveTier !== expectedTier) {
 			mismatches.push(
 				`effectiveTier: expected ${expectedTier}, got ${String(actual.effectiveTier)}`,
+			);
+		}
+		// The server's own `parse.tier` for this file, which the app records
+		// beside the result's: a native document says `flash` whatever was asked.
+		if (actual.jobTier !== expectedTier) {
+			mismatches.push(
+				`jobTier (parse.tier): expected ${expectedTier}, got ${String(actual.jobTier)}`,
 			);
 		}
 		if (actual.pageCount !== testCase.expect.pageCount) {
@@ -726,11 +996,35 @@ function compare(
 				`outline: expected at least ${testCase.expect.outlineMin} entries, got ${actual.outlineLength}`,
 			);
 		}
-		if (actual.parserVersion === undefined) {
-			mismatches.push("extractionParserVersion is missing");
+		if (actual.parserVersion !== expected.parserVersion) {
+			mismatches.push(
+				`extractionParserVersion: expected ${expected.parserVersion}, got ${String(actual.parserVersion)}`,
+			);
+		}
+		if (actual.serverParserVersion !== expected.serverVersion) {
+			mismatches.push(
+				`extractionServerParserVersion (parse.parser_version): expected ${expected.serverVersion}, got ${String(actual.serverParserVersion)}`,
+			);
+		}
+		// Every block type in the 4.1.7 captures is one the renderer knows; a name
+		// here is a new block type a MinerU upgrade brought, rendered as plain text.
+		const unknownTypes =
+			actual.unknownBlockTypes && typeof actual.unknownBlockTypes === "object"
+				? Object.keys(actual.unknownBlockTypes)
+				: [];
+		if (unknownTypes.length > 0) {
+			mismatches.push(`unknown block types: ${unknownTypes.join(", ")}`);
 		}
 	}
 
+	if (
+		testCase.expect.normalizedName !== undefined &&
+		normalizedName !== testCase.expect.normalizedName
+	) {
+		mismatches.push(
+			`normalized name: expected ${testCase.expect.normalizedName}, got ${normalizedName}`,
+		);
+	}
 	if (actual.textLength < testCase.expect.minTextLength) {
 		mismatches.push(
 			`textLength: expected at least ${testCase.expect.minTextLength}, got ${actual.textLength}`,
@@ -756,7 +1050,7 @@ function compare(
 async function readNormalized(
 	page: Page,
 	normalizedArtifactId: string,
-): Promise<{ actual: ActualExtraction; text: string }> {
+): Promise<{ actual: ActualExtraction; text: string; name: string }> {
 	const payload = await apiJson<ArtifactResponse>(
 		page,
 		`/api/knowledge/${encodeURIComponent(normalizedArtifactId)}`,
@@ -764,7 +1058,87 @@ async function readNormalized(
 	return {
 		actual: readActual(payload.artifact),
 		text: payload.artifact.contentText ?? "",
+		name: payload.artifact.name,
 	};
+}
+
+/**
+ * A document MinerU cannot read: the job has to end `failed` with the app's
+ * own code and sentence, and (for a file whose bytes can never become
+ * readable) without offering a Retry. The mismatches, empty when it did.
+ */
+export function failureMismatches(
+	job: ExtractionJob | null,
+	expect: FailureCase["expect"],
+): string[] {
+	const mismatches: string[] = [];
+	if (!job || job.status !== "failed") {
+		mismatches.push(
+			`expected the extraction to fail, it ended ${job?.status ?? "missing"}`,
+		);
+		return mismatches;
+	}
+	if (job.error?.code !== expect.code) {
+		mismatches.push(
+			`error code: expected ${expect.code}, got ${String(job.error?.code)}`,
+		);
+	}
+	// Absent on a deployment older than the field, which is no evidence.
+	if (job.retryable !== undefined && job.retryable !== expect.retryable) {
+		mismatches.push(
+			`retryable: expected ${expect.retryable}, got ${String(job.retryable)}`,
+		);
+	}
+	const sentence = job.error?.message ?? "";
+	if (!sentence) mismatches.push("the job carries no error sentence");
+	for (const needle of expect.mustNotContain) {
+		if (sentence.includes(needle)) {
+			mismatches.push(`MinerU's wording reached the sentence: ${needle}`);
+		}
+	}
+	return mismatches;
+}
+
+async function checkFailure(
+	page: Page,
+	conversationId: string,
+	testCase: FailureCase,
+): Promise<{
+	mismatches: string[];
+	statusesSeen: string[];
+	error: ExtractionJob["error"];
+}> {
+	const upload = await uploadFixture(page, conversationId, testCase);
+	const { job, statusesSeen } = await pollExtraction(page, upload.artifact.id);
+	return {
+		mismatches: failureMismatches(job, testCase.expect),
+		statusesSeen,
+		error: job?.error ?? null,
+	};
+}
+
+/**
+ * What is wrong with the deployment itself, before any document is read: the
+ * rows mean something only for the MinerU this run was written for, at the tier
+ * it expects. Not fatal, but never silent. Empty when all is as expected.
+ */
+export function preflightProblems(
+	server: MineruStatusResponse["report"] | null,
+	expected: Expectations,
+): string[] {
+	if (!server) return ["the MinerU status card could not be read"];
+	const problems: string[] = [];
+	if (server.version !== expected.serverVersion) {
+		problems.push(
+			`MinerU version: expected ${expected.serverVersion}, the server says ${String(server.version)}`,
+		);
+	}
+	if (!server.tiers?.some((tier) => tier.id === expected.pdfTier)) {
+		problems.push(
+			`the server does not list the tier PDFs and images are expected at (${expected.pdfTier})`,
+		);
+	}
+	return problems;
 }
 
 async function main() {
@@ -773,6 +1147,12 @@ async function main() {
 	const page = await browser.newPage();
 
 	const results: Array<Record<string, unknown>> = [];
+	const expected: Expectations = {
+		pdfTier: expectedPdfTier,
+		serverVersion: expectedServerVersion,
+		parserVersion: expectedParserVersion,
+	};
+	let preflight: string[] = [];
 	let conversationId = "";
 	let server: MineruStatusResponse["report"] | null = null;
 
@@ -780,7 +1160,9 @@ async function main() {
 		await login(page);
 
 		// Every case would fail identically against a MinerU that is down, so
-		// the run stops before it uploads anything.
+		// the run stops before it uploads anything. A 4.0.x server is "down" for
+		// this app too: the status card reports it unreachable, with its version
+		// and "speaks the old protocol".
 		const status = await apiJson<MineruStatusResponse>(
 			page,
 			"/api/admin/mineru-status?refresh=1",
@@ -791,6 +1173,7 @@ async function main() {
 				`MinerU is unreachable from the app: ${server.error?.code ?? "unknown"} ${server.error?.message ?? ""}`.trim(),
 			);
 		}
+		preflight = preflightProblems(server, expected);
 
 		conversationId = await createConversation(page);
 
@@ -798,8 +1181,9 @@ async function main() {
 			? CASES.filter((testCase) => onlyCases.includes(testCase.id))
 			: CASES;
 
-		// Sequential on purpose: MinerU's `max_concurrent_jobs` is 1 on every
-		// box this has run against, so a parallel sweep would only queue.
+		// Sequential on purpose: each row's timing is then its own (the box runs
+		// MinerU with --concurrency 4, and the app's extraction worker has limits
+		// of its own), and a failure points at one document.
 		for (const testCase of selected) {
 			const startedAt = Date.now();
 			const result: Record<string, unknown> = {
@@ -829,12 +1213,21 @@ async function main() {
 				}
 				result.normalizedArtifactId = job.normalizedArtifactId;
 
-				const { actual, text } = await readNormalized(
+				const { actual, text, name } = await readNormalized(
 					page,
 					job.normalizedArtifactId,
 				);
 				result.actual = actual;
-				const mismatches = compare(testCase, actual, text, statusesSeen);
+				result.normalizedName = name;
+				const mismatches = compare(
+					testCase,
+					actual,
+					text,
+					statusesSeen,
+					job,
+					name,
+					expected,
+				);
 				(result.mismatches as string[]).push(...mismatches);
 
 				if (reextractTier) {
@@ -877,6 +1270,30 @@ async function main() {
 				);
 			}
 		}
+
+		// The documents MinerU cannot read: accepted, then failed with our sentence.
+		const selectedFailures = onlyCases.length
+			? FAILURE_CASES.filter((testCase) => onlyCases.includes(testCase.id))
+			: FAILURE_CASES;
+		for (const testCase of selectedFailures) {
+			const result: Record<string, unknown> = {
+				id: testCase.id,
+				ok: false,
+				mismatches: [] as string[],
+			};
+			results.push(result);
+			try {
+				const outcome = await checkFailure(page, conversationId, testCase);
+				result.statusesSeen = outcome.statusesSeen;
+				result.error = outcome.error;
+				(result.mismatches as string[]).push(...outcome.mismatches);
+				result.ok = (result.mismatches as string[]).length === 0;
+			} catch (error) {
+				(result.mismatches as string[]).push(
+					error instanceof Error ? error.message : String(error),
+				);
+			}
+		}
 	} finally {
 		if (conversationId && !keepConversation) {
 			await deleteConversation(page, conversationId).catch((error) => {
@@ -899,10 +1316,14 @@ async function main() {
 					reachable: server.reachable,
 				}
 			: null,
-		expectedPdfTier,
+		expected,
+		preflight,
 		tierUnderTest: reextractTier,
+		// Formats the app admits and MinerU has never read: not asserted, listed
+		// so a green run is not read as covering them.
+		knownGaps: KNOWN_GAPS,
 		results,
-		ok: results.every((result) => result.ok === true),
+		ok: preflight.length === 0 && results.every((result) => result.ok === true),
 	};
 	await writeFile(
 		path.join(outputDir, "summary.json"),
@@ -968,7 +1389,32 @@ async function runReextract(
 	};
 }
 
-main().catch((error) => {
-	console.error(error);
-	process.exit(1);
-});
+/**
+ * The sweep runs only when this file is the one started. The tests import the
+ * decisions above (`compare`, `preflightProblems`, `failureMismatches`) and must
+ * not launch a browser.
+ */
+export function isDirectRun(
+	argv1: string | undefined,
+	moduleUrl: string,
+): boolean {
+	if (!argv1) return false;
+	// Real paths on both sides: started through a symlinked directory the two
+	// spellings differ, the guard would be false, and a live check would print
+	// nothing and exit 0.
+	try {
+		return (
+			realpathSync(path.resolve(argv1)) ===
+			realpathSync(fileURLToPath(moduleUrl))
+		);
+	} catch {
+		return false;
+	}
+}
+
+if (isDirectRun(process.argv[1], import.meta.url)) {
+	main().catch((error) => {
+		console.error(error);
+		process.exit(1);
+	});
+}

@@ -1,0 +1,31 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-5f19f9ed9efd0ec303433dfd",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:57:05 GMT",
+      "server": "uvicorn",
+      "content-length": "250",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "id": "file-5f19f9ed9efd0ec303433dfd",
+      "object": "file",
+      "bytes": 78586,
+      "created_at": 1793879826,
+      "expires_at": 1793966227,
+      "file_name": "files-probe.zip",
+      "purpose": "parse_output",
+      "sha256sum": "e7daab08bd0e6eee17365828d682a3f6183292efdf459eaecb1c64df7fa9bb33"
+    }
+  }
+}

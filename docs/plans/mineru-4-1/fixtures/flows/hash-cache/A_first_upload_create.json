@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "cache-a.pdf",
+          "bytes": 241697,
+          "sha256sum": "af87e5eeed1711d725c91dbe909ada044ddd25d8878949df9f01fbd327cf0c40"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:58:04 GMT",
+      "server": "uvicorn",
+      "content-length": "365",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 2,
+    "json": {
+      "task_id": "job_b8363fc92f6b5a32334e2c74",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-acc6ba317bb73a0eed47971b",
+          "file_name": "cache-a.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_b8363fc92f6b5a32334e2c74/uploads/file-acc6ba317bb73a0eed47971b",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883485
+          }
+        }
+      ]
+    }
+  }
+}

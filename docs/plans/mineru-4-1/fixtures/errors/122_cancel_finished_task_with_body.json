@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks/job_8392416d5925c6e7e1715caf/cancel",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {}
+  },
+  "response": {
+    "status": 409,
+    "reason": "Conflict",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:19 GMT",
+      "server": "uvicorn",
+      "content-length": "72",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "error": {
+        "code": "task_already_terminal",
+        "message": "Task is completed"
+      }
+    }
+  }
+}

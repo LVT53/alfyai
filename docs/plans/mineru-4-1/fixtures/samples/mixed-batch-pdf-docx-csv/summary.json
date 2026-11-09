@@ -1,0 +1,88 @@
+{
+  "slug": "mixed-batch-pdf-docx-csv",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put": "skipped",
+      "file_name": "paper-en.pdf",
+      "status": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 781,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 78586,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_equation_6.jpg",
+          "images/page_1_chart_3.jpg",
+          "images/page_1_table_2.jpg"
+        ],
+        "member_count": 7
+      }
+    },
+    {
+      "i": 1,
+      "put": "skipped",
+      "file_name": "report.docx",
+      "status": "completed",
+      "parse": {
+        "tier": "flash",
+        "duration_ms": 96,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 19030,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_image_8.jpg"
+        ],
+        "member_count": 5
+      }
+    },
+    {
+      "i": 2,
+      "put": "skipped",
+      "file_name": "table.csv",
+      "status": "completed",
+      "parse": {
+        "tier": "flash",
+        "duration_ms": 5,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 1394,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/"
+        ],
+        "member_count": 4
+      }
+    }
+  ],
+  "task_id": "job_6405e867db53e9f63eda5a34",
+  "create_ms": 1,
+  "polls_distinct": 3,
+  "wall_ms_create_to_terminal": 978,
+  "final_status": "completed",
+  "progress": {
+    "completed": 3,
+    "failed": 0,
+    "total": 3
+  },
+  "t_start_epoch": 1793879594.743,
+  "t_end_epoch": 1793879595.726
+}

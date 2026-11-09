@@ -1,0 +1,149 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-fffcefaa008cefb818f24818/content",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:01:16 GMT",
+      "server": "uvicorn",
+      "content-type": "application/zip",
+      "accept-ranges": "bytes",
+      "content-disposition": "attachment; filename=\"paper-20p.zip\"",
+      "content-length": "456329",
+      "last-modified": "Thu, 05 Nov 2026 12:01:16 GMT",
+      "etag": "\"69945de9106734a97edfffef55c614aa\"",
+      "connection": "close"
+    },
+    "elapsed_ms": 2,
+    "body_bytes": 456329,
+    "same_origin_key_sent": true
+  },
+  "zip_listing": [
+    {
+      "name": "markdown.md",
+      "size": 15633,
+      "compressed": 1131
+    },
+    {
+      "name": "middle_json.json",
+      "size": 89322,
+      "compressed": 3272
+    },
+    {
+      "name": "structured_content.json",
+      "size": 60243,
+      "compressed": 2584
+    },
+    {
+      "name": "images/",
+      "size": 0,
+      "compressed": 2
+    },
+    {
+      "name": "images/page_0_equation_6.jpg",
+      "size": 15425,
+      "compressed": 13826
+    },
+    {
+      "name": "images/page_10_equation_6.jpg",
+      "size": 15425,
+      "compressed": 13826
+    },
+    {
+      "name": "images/page_11_table_2.jpg",
+      "size": 45636,
+      "compressed": 30804
+    },
+    {
+      "name": "images/page_12_equation_6.jpg",
+      "size": 15425,
+      "compressed": 13826
+    },
+    {
+      "name": "images/page_13_table_2.jpg",
+      "size": 45636,
+      "compressed": 30804
+    },
+    {
+      "name": "images/page_14_equation_6.jpg",
+      "size": 15425,
+      "compressed": 13826
+    },
+    {
+      "name": "images/page_15_table_2.jpg",
+      "size": 45636,
+      "compressed": 30804
+    },
+    {
+      "name": "images/page_16_equation_6.jpg",
+      "size": 15425,
+      "compressed": 13826
+    },
+    {
+      "name": "images/page_17_table_2.jpg",
+      "size": 45636,
+      "compressed": 30804
+    },
+    {
+      "name": "images/page_18_equation_6.jpg",
+      "size": 15425,
+      "compressed": 13826
+    },
+    {
+      "name": "images/page_19_table_2.jpg",
+      "size": 45636,
+      "compressed": 30804
+    },
+    {
+      "name": "images/page_1_table_2.jpg",
+      "size": 45636,
+      "compressed": 30804
+    },
+    {
+      "name": "images/page_2_equation_6.jpg",
+      "size": 15425,
+      "compressed": 13826
+    },
+    {
+      "name": "images/page_3_table_2.jpg",
+      "size": 45636,
+      "compressed": 30804
+    },
+    {
+      "name": "images/page_4_equation_6.jpg",
+      "size": 15425,
+      "compressed": 13826
+    },
+    {
+      "name": "images/page_5_table_2.jpg",
+      "size": 45636,
+      "compressed": 30804
+    },
+    {
+      "name": "images/page_6_equation_6.jpg",
+      "size": 15425,
+      "compressed": 13826
+    },
+    {
+      "name": "images/page_7_table_2.jpg",
+      "size": 45636,
+      "compressed": 30804
+    },
+    {
+      "name": "images/page_8_equation_6.jpg",
+      "size": 15425,
+      "compressed": 13826
+    },
+    {
+      "name": "images/page_9_table_2.jpg",
+      "size": 45636,
+      "compressed": 30804
+    }
+  ]
+}

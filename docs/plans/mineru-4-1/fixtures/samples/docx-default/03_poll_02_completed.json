@@ -1,0 +1,33 @@
+{
+  "t_since_create_ms": 409,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_e25a30af18058622cc7715c7",
+    "status": "completed",
+    "created_at": "2026-11-05T11:53:12Z",
+    "started_at": "2026-11-05T11:53:12Z",
+    "finished_at": "2026-11-05T11:53:12Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-57ecb6bbc422eb333d3d3fc5",
+        "file_name": "report.docx",
+        "status": "completed",
+        "bytes": 50722,
+        "parse": {
+          "tier": "flash",
+          "duration_ms": 309,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-57ecb6bbc422eb333d3d3fc5/content"
+      }
+    ]
+  }
+}

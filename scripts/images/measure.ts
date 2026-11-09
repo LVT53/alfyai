@@ -129,12 +129,55 @@ export const MEASURE_CASES: ReadonlyArray<MeasureCase> = [
 const HOST = process.env.SSH_HOST ?? "alfyroot";
 const SSH = ["-T", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes", HOST];
 const BASE = process.env.COMFYUI_URL ?? "http://127.0.0.1:8188";
-const HEALTH = [
-	"http://127.0.0.1:7997/health",
-	"http://127.0.0.1:7998/health",
-	"http://127.0.0.1:8002/v1/health",
-	"http://127.0.0.1:30001/health",
-];
+
+/**
+ * The MinerU servers on the box, the one in use first. `mineru41` is MinerU
+ * 4.1.x, the server the apps call; `mineru4` is the 4.0.12 kept beside it as
+ * the rollback for a week after the cutover and then disabled (docs/uploads.md,
+ * deploy/README.md "Document extraction service").
+ */
+const MINERU_SERVERS = [
+	{ unit: "mineru41", health: "http://127.0.0.1:8004/v1/health" },
+	{ unit: "mineru4", health: "http://127.0.0.1:8002/v1/health" },
+] as const;
+
+/**
+ * The units `systemctl is-active <unit...>` reports as `active`. It prints one
+ * state per unit, in the order asked; anything else (`inactive`, `failed`,
+ * `activating`, nothing at all because ssh failed) is not active.
+ */
+export function parseActiveUnits(
+	output: string,
+	units: readonly string[],
+): string[] {
+	const states = output
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+	return units.filter((_, index) => states[index] === "active");
+}
+
+/**
+ * The MinerU health URLs to watch while a picture renders. The server in use is
+ * always probed, so a dead one shows; any other is probed only while its unit
+ * is active, so a retired rollback server never reads as a dead neighbour (and
+ * both are watched while the two run side by side).
+ */
+export function mineruHealthUrls(activeUnits: readonly string[]): string[] {
+	return MINERU_SERVERS.filter(
+		(server, index) => index === 0 || activeUnits.includes(server.unit),
+	).map((server) => server.health);
+}
+
+/** Every neighbour of the picture server whose health must stay 200. */
+export function neighbourHealthUrls(activeUnits: readonly string[]): string[] {
+	return [
+		"http://127.0.0.1:7997/health",
+		"http://127.0.0.1:7998/health",
+		...mineruHealthUrls(activeUnits),
+		"http://127.0.0.1:30001/health",
+	];
+}
 
 function ssh(cmd: string): string {
 	const r = spawnSync("ssh", [...SSH, cmd], {
@@ -149,10 +192,16 @@ function swapUsedMb(): number {
 	return m ? Number(m[1]) : -1;
 }
 
-function healthCodes(): string[] {
-	const cmd = HEALTH.map(
-		(u) => `curl -s -o /dev/null -m 5 -w '%{http_code}' ${u}`,
-	).join('; echo -n " "; ');
+/** Which MinerU units run now. `is-active` prints states only, never an argv. */
+function activeMineruUnits(): string[] {
+	const units = MINERU_SERVERS.map((server) => server.unit);
+	return parseActiveUnits(ssh(`systemctl is-active ${units.join(" ")}`), units);
+}
+
+function healthCodes(urls: readonly string[]): string[] {
+	const cmd = urls
+		.map((u) => `curl -s -o /dev/null -m 5 -w '%{http_code}' ${u}`)
+		.join('; echo -n " "; ');
 	return ssh(cmd).trim().split(/\s+/);
 }
 
@@ -236,6 +285,10 @@ async function main(): Promise<void> {
 		process.exit(2);
 	}
 	await mkdir(outDir, { recursive: true });
+	// Read once, before the first render: a unit that stops during a case is
+	// exactly what the probe is there to catch, so the list must not follow it.
+	const neighbours = neighbourHealthUrls(activeMineruUnits());
+	console.error(`neighbours watched: ${neighbours.join(" ")}`);
 	const sampler = startSampler();
 	await new Promise((r) => setTimeout(r, 1500));
 	const rows: unknown[] = [];
@@ -272,7 +325,7 @@ async function main(): Promise<void> {
 			let done = false;
 			const poller = (async () => {
 				while (!done) {
-					healthLog.push(healthCodes());
+					healthLog.push(healthCodes(neighbours));
 					await new Promise((r) => setTimeout(r, 1000));
 				}
 			})();
@@ -336,7 +389,7 @@ async function main(): Promise<void> {
 		const swapAfter = swapUsedMb();
 		const healthOk = healthLog.length
 			? healthLog.every(
-					(h) => h.length === HEALTH.length && h.every((x) => x === "200"),
+					(h) => h.length === neighbours.length && h.every((x) => x === "200"),
 				)
 			: false;
 		const row = {

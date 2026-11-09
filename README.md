@@ -14,7 +14,7 @@ SQLite persistence — all in a single Node deployment.
 - Vercel AI SDK (`ai` v6) with OpenAI-compatible providers for Normal Chat
 - OpenAI-compatible endpoints for chat, title generation, and optional context summarization
 - Optional Hugging Face Text Embeddings Inference (TEI) endpoints for embeddings and reranking
-- MinerU (Docker) for document/upload extraction and OCR
+- MinerU 4.1 or newer, run as a service of its own, for document/upload extraction and OCR
 - Optional Sentry error monitoring and performance tracing
 
 ## Features

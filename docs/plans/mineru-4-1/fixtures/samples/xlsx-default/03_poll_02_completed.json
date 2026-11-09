@@ -1,0 +1,33 @@
+{
+  "t_since_create_ms": 205,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_5f6ee2035777d0151f57b4f0",
+    "status": "completed",
+    "created_at": "2026-11-05T11:53:12Z",
+    "started_at": "2026-11-05T11:53:12Z",
+    "finished_at": "2026-11-05T11:53:13Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-18c8d9d2030ea46a74880b77",
+        "file_name": "data.xlsx",
+        "status": "completed",
+        "bytes": 5784,
+        "parse": {
+          "tier": "flash",
+          "duration_ms": 23,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-18c8d9d2030ea46a74880b77/content"
+      }
+    ]
+  }
+}

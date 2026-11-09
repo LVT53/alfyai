@@ -1,0 +1,64 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-3770d8c57881a15a426c3efc/content",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:02:58 GMT",
+      "server": "uvicorn",
+      "content-type": "application/zip",
+      "accept-ranges": "bytes",
+      "content-disposition": "attachment; filename=\"paper-as.zip\"",
+      "content-length": "78452",
+      "last-modified": "Thu, 05 Nov 2026 12:02:58 GMT",
+      "etag": "\"d3d8432b2ece893887c7317039bf64f0\"",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "body_bytes": 78452,
+    "same_origin_key_sent": true
+  },
+  "zip_listing": [
+    {
+      "name": "markdown.md",
+      "size": 1630,
+      "compressed": 994
+    },
+    {
+      "name": "middle_json.json",
+      "size": 10230,
+      "compressed": 2267
+    },
+    {
+      "name": "structured_content.json",
+      "size": 7133,
+      "compressed": 2034
+    },
+    {
+      "name": "images/",
+      "size": 0,
+      "compressed": 2
+    },
+    {
+      "name": "images/page_0_equation_6.jpg",
+      "size": 15425,
+      "compressed": 13826
+    },
+    {
+      "name": "images/page_1_image_3.jpg",
+      "size": 43809,
+      "compressed": 27701
+    },
+    {
+      "name": "images/page_1_table_2.jpg",
+      "size": 45636,
+      "compressed": 30804
+    }
+  ]
+}

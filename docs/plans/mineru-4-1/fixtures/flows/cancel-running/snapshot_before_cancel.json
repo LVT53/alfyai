@@ -1,0 +1,78 @@
+{
+  "snapshot": {
+    "task_id": "job_6c35de9b0af87e78d664b0c8",
+    "status": "running",
+    "created_at": "2026-11-05T11:57:00Z",
+    "started_at": "2026-11-05T11:57:00Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 10
+    },
+    "files": [
+      {
+        "file_id": "file-5b0928fd4e59bf28cf469a07",
+        "file_name": "doc0.pdf",
+        "status": "running",
+        "bytes": 241693
+      },
+      {
+        "file_id": "file-4bd6835ae01320bab14bb09f",
+        "file_name": "doc1.pdf",
+        "status": "running",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-eccf24f952a98604d778cb74",
+        "file_name": "doc2.pdf",
+        "status": "pending",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-e5b5194f6aae1f22704876e4",
+        "file_name": "doc3.pdf",
+        "status": "pending",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-f627f726dc56491cbd8ec270",
+        "file_name": "doc4.pdf",
+        "status": "pending",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-c8d03301d643baa0090cfdc9",
+        "file_name": "doc5.pdf",
+        "status": "pending",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-a76910cec526ba4433d48bf4",
+        "file_name": "doc6.pdf",
+        "status": "pending",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-6668c7b829cab59bb029981c",
+        "file_name": "doc7.pdf",
+        "status": "pending",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-ddd966862559c05314e6da12",
+        "file_name": "doc8.pdf",
+        "status": "pending",
+        "bytes": 241694
+      },
+      {
+        "file_id": "file-f0b3376e63ebe9fe369b112e",
+        "file_name": "doc9.pdf",
+        "status": "pending",
+        "bytes": 241693
+      }
+    ]
+  }
+}

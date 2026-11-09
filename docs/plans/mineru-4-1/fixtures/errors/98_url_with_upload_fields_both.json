@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "x.pdf",
+          "bytes": 10,
+          "url": "https://example.invalid/x.pdf"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "164",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 4,
+    "json": {
+      "task_id": "job_72b5dbe63ff6b5c2678ac062",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-51b4cb506051cc41333700ac",
+          "file_name": "x.pdf",
+          "status": "waiting-file"
+        }
+      ]
+    }
+  }
+}

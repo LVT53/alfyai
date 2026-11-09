@@ -1,0 +1,120 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-f9e87af0be5f68a51ece3f02/content",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:53:18 GMT",
+      "server": "uvicorn",
+      "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "accept-ranges": "bytes",
+      "content-disposition": "attachment; filename=\"report.docx\"",
+      "content-length": "54192",
+      "last-modified": "Thu, 05 Nov 2026 11:53:18 GMT",
+      "etag": "\"b24d8d26f679fe0d37e716b0951a30be\"",
+      "vary": "Accept-Encoding",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "body_bytes": 54192,
+    "same_origin_key_sent": true
+  },
+  "zip_listing": [
+    {
+      "name": "[Content_Types].xml",
+      "size": 1789,
+      "compressed": 408
+    },
+    {
+      "name": "_rels/.rels",
+      "size": 734,
+      "compressed": 251
+    },
+    {
+      "name": "docProps/core.xml",
+      "size": 721,
+      "compressed": 362
+    },
+    {
+      "name": "docProps/app.xml",
+      "size": 1132,
+      "compressed": 493
+    },
+    {
+      "name": "word/document.xml",
+      "size": 9668,
+      "compressed": 1594
+    },
+    {
+      "name": "word/_rels/document.xml.rels",
+      "size": 1359,
+      "compressed": 326
+    },
+    {
+      "name": "word/styles.xml",
+      "size": 352590,
+      "compressed": 12483
+    },
+    {
+      "name": "word/stylesWithEffects.xml",
+      "size": 438131,
+      "compressed": 13481
+    },
+    {
+      "name": "word/settings.xml",
+      "size": 2535,
+      "compressed": 960
+    },
+    {
+      "name": "word/webSettings.xml",
+      "size": 438,
+      "compressed": 260
+    },
+    {
+      "name": "word/fontTable.xml",
+      "size": 2811,
+      "compressed": 613
+    },
+    {
+      "name": "word/theme/theme1.xml",
+      "size": 10939,
+      "compressed": 1731
+    },
+    {
+      "name": "customXml/item1.xml",
+      "size": 262,
+      "compressed": 169
+    },
+    {
+      "name": "customXml/_rels/item1.xml.rels",
+      "size": 295,
+      "compressed": 189
+    },
+    {
+      "name": "customXml/itemProps1.xml",
+      "size": 354,
+      "compressed": 226
+    },
+    {
+      "name": "word/numbering.xml",
+      "size": 5513,
+      "compressed": 880
+    },
+    {
+      "name": "word/media/image1.jpg",
+      "size": 28019,
+      "compressed": 16190
+    },
+    {
+      "name": "docProps/thumbnail.jpeg",
+      "size": 8324,
+      "compressed": 1466
+    }
+  ]
+}

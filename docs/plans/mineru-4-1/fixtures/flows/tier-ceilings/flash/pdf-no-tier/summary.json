@@ -1,0 +1,42 @@
+{
+  "slug": "pdf-no-tier",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 2,
+      "file_name": "paper-en.pdf",
+      "status": "completed",
+      "parse": {
+        "tier": "flash",
+        "duration_ms": 1447,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 78452,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_equation_6.jpg",
+          "images/page_1_image_3.jpg",
+          "images/page_1_table_2.jpg"
+        ],
+        "member_count": 7
+      }
+    }
+  ],
+  "task_id": "job_4250dcf3aa384bb47526acc7",
+  "create_ms": 2,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 1630,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  }
+}

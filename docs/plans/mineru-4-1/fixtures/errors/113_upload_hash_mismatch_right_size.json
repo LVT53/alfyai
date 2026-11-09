@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/tasks/job_ba42482e13b42b2d5ad830df/uploads/file-00120e5f74fa91e548e2ab9c",
+    "headers": {
+      "Content-Type": "application/octet-stream",
+      "Authorization": "Bearer <redacted>"
+    },
+    "raw_body_bytes": 241698
+  },
+  "response": {
+    "status": 400,
+    "reason": "Bad Request",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "68",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 4,
+    "json": {
+      "error": {
+        "code": "file_hash_mismatch",
+        "message": "SHA-256 mismatch"
+      }
+    }
+  }
+}

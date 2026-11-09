@@ -1,0 +1,41 @@
+{
+  "slug": "final/pdf-bytes-named-docx-explicit-standard",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put": "skipped",
+      "file_name": "paper-as.docx",
+      "status": "completed",
+      "parse": {
+        "tier": "flash",
+        "duration_ms": 115,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 78452,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_equation_6.jpg",
+          "images/page_1_image_3.jpg",
+          "images/page_1_table_2.jpg"
+        ],
+        "member_count": 7
+      }
+    }
+  ],
+  "task_id": "job_e786b040ad25e4da1d02c05c",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 204,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "slides.pptx",
+          "bytes": 34963,
+          "sha256sum": "84a2b6bc6e5186a3f0dfed662134fde72da11d681a41bb99e6f7ff29ea7667d7"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:53:13 GMT",
+      "server": "uvicorn",
+      "content-length": "365",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_9801cea859f04b57054605f0",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-ffb3021ea609ee0ae99fb55a",
+          "file_name": "slides.pptx",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_9801cea859f04b57054605f0/uploads/file-ffb3021ea609ee0ae99fb55a",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883193
+          }
+        }
+      ]
+    }
+  }
+}

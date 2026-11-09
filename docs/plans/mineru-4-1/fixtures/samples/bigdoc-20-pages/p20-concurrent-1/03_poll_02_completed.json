@@ -1,0 +1,33 @@
+{
+  "t_since_create_ms": 4453,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_9463451eed6115e4b47a4320",
+    "status": "completed",
+    "created_at": "2026-11-05T12:01:18Z",
+    "started_at": "2026-11-05T12:01:18Z",
+    "finished_at": "2026-11-05T12:01:23Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-5a9e33132e3cf5be6d3a4669",
+        "file_name": "conc1.pdf",
+        "status": "completed",
+        "bytes": 2309975,
+        "parse": {
+          "tier": "standard",
+          "duration_ms": 4294,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-5a9e33132e3cf5be6d3a4669/content"
+      }
+    ]
+  }
+}

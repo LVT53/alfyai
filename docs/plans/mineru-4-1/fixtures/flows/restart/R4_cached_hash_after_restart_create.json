@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "restart-done.pdf",
+          "bytes": 241704,
+          "sha256sum": "6a1b2a8aed521779e9a694c017205dfe2fba8b6ead4a6b8fbc1bd31df715d346"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:58:19 GMT",
+      "server": "uvicorn",
+      "content-length": "370",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_da81c46537ca3d48fd1df21b",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-39a2da1fe710676843037bc1",
+          "file_name": "restart-done.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_da81c46537ca3d48fd1df21b/uploads/file-39a2da1fe710676843037bc1",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883499
+          }
+        }
+      ]
+    }
+  }
+}

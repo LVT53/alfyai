@@ -1,0 +1,84 @@
+{
+  "metadata": {
+    "file_suffix": "xlsx",
+    "producer": {
+      "name": "mineru",
+      "version": "4.1.7"
+    },
+    "document": {
+      "authors": [
+        "openpyxl"
+      ],
+      "created_at": "2026-11-05T11:51:28Z",
+      "modified_at": "2026-11-05T11:51:28Z",
+      "creator_application": "Microsoft Excel Compatible / Openpyxl 3.1.5",
+      "page_count": 2,
+      "page_count_kind": "sheet"
+    }
+  },
+  "extensions": {
+    "mineru": {
+      "tier": "flash",
+      "parse_mode": "txt"
+    }
+  },
+  "pages": [
+    {
+      "page_idx": 0,
+      "blocks": [
+        {
+          "type": "paragraph_title",
+          "index": 0,
+          "content": [
+            {
+              "type": "text",
+              "content": "Latency"
+            }
+          ],
+          "level": 2
+        },
+        {
+          "type": "table",
+          "index": 1,
+          "content": [
+            {
+              "type": "table_body",
+              "index": 1,
+              "content": "<table>\n  <tr>\n    <th><p>Tier</p></th>\n    <th><p>Pages</p></th>\n    <th><p>Median ms</p></th>\n    <th><p>p95 ms</p></th>\n    <th><p>Note</p></th>\n  </tr>\n  <tr>\n    <td><p>flash</p></td>\n    <td><p>12</p></td>\n    <td><p>810</p></td>\n    <td><p>1240</p></td>\n    <td><p>fast</p></td>\n  </tr>\n  <tr>\n    <td><p>basic</p></td>\n    <td><p>12</p></td>\n    <td><p>1126</p></td>\n    <td><p>2980</p></td>\n    <td><p>OCR</p></td>\n  </tr>\n  <tr>\n    <td><p>standard</p></td>\n    <td><p>12</p></td>\n    <td><p>4310</p></td>\n    <td><p>9870</p></td>\n    <td><p>árvíztűrő</p></td>\n  </tr>\n  <tr>\n    <td><p>advanced</p></td>\n    <td><p>12</p></td>\n    <td><p>7450</p></td>\n    <td><p>15200</p></td>\n    <td><p>tükörfúrógép</p></td>\n  </tr>\n  <tr>\n    <td><p></p></td>\n    <td><p></p></td>\n    <td><p></p></td>\n    <td><p></p></td>\n    <td><p></p></td>\n  </tr>\n  <tr>\n    <td><p>Total median</p></td>\n    <td><p></p></td>\n    <td><p></p></td>\n    <td><p></p></td>\n    <td><p></p></td>\n  </tr>\n</table>"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "page_idx": 1,
+      "blocks": [
+        {
+          "type": "paragraph_title",
+          "index": 0,
+          "content": [
+            {
+              "type": "text",
+              "content": "Notes"
+            }
+          ],
+          "level": 2
+        },
+        {
+          "type": "table",
+          "index": 1,
+          "content": [
+            {
+              "type": "table_body",
+              "index": 1,
+              "content": "<table>\n  <tr>\n    <th><p>Key</p></th>\n    <th><p>Value</p></th>\n  </tr>\n  <tr>\n    <td><p>language</p></td>\n    <td><p>hu</p></td>\n  </tr>\n  <tr>\n    <td><p>sentence</p></td>\n    <td><p>Az árvíztűrő tükörfúrógép egy magyar pangram: minden ékezetes magyar betűt tartalmaz, így az ő és az ű betűt is. A dokumentum feldolgozása után a szövegnek pontosan meg kell maradnia.</p></td>\n  </tr>\n</table>"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "is_full_document": true,
+  "schema": "docvortex.middle",
+  "schema_version": "2.0"
+}

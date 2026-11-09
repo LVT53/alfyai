@@ -1,0 +1,42 @@
+{
+  "slug": "docx-default",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 1,
+      "file_name": "report.docx",
+      "status": "completed",
+      "parse": {
+        "tier": "flash",
+        "duration_ms": 309,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 19030,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_image_8.jpg"
+        ],
+        "member_count": 5
+      }
+    }
+  ],
+  "task_id": "job_e25a30af18058622cc7715c7",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 409,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "t_start_epoch": 1793879592.503,
+  "t_end_epoch": 1793879592.913
+}

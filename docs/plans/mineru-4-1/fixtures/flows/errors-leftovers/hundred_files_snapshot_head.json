@@ -1,0 +1,22 @@
+{
+  "status": "waiting-file",
+  "progress": {
+    "completed": 0,
+    "failed": 0,
+    "total": 100
+  },
+  "first_file": {
+    "file_id": "file-d1bb2357bd1d6c74a1ee4f98",
+    "file_name": "f0.pdf",
+    "status": "waiting-file",
+    "bytes": 10,
+    "upload": {
+      "url": "http://127.0.0.1:8012/v1/tasks/job_0c9d3766b2804af974c27542/uploads/file-d1bb2357bd1d6c74a1ee4f98",
+      "headers": {
+        "Content-Type": "application/octet-stream"
+      },
+      "expires_at": 1793883318
+    }
+  },
+  "n_files": 100
+}

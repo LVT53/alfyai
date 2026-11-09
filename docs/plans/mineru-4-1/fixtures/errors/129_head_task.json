@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "HEAD",
+    "path": "/v1/tasks/job_0d1bc3d385a784b632f514e1",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 405,
+    "reason": "Method Not Allowed",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:19 GMT",
+      "server": "uvicorn",
+      "allow": "GET",
+      "content-length": "31",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1
+  }
+}

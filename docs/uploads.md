@@ -1,68 +1,138 @@
 # Uploads And Document Extraction
 
 AlfyAI extracts text and structure from uploaded and in-chat documents through **MinerU**, a
-Docker-hosted document parsing engine. Extraction is a durable background job rather than a step
-inside the upload request: the ledger under
+document parsing engine that runs as a service of its own. Extraction is a durable background job
+rather than a step inside the upload request: the ledger under
 [`src/lib/server/services/extraction/`](../src/lib/server/services/extraction/) claims, retries and
-resumes each document, and the MinerU client talks to the service's **V1 API** — there is no MinerU
-3.x fallback and no second protocol; a server that does not answer `GET /v1/health` fails clearly
-rather than degrading.
+resumes each document, and the MinerU client talks to the service's **4.1 task API**
+(`/v1/tasks`). There is no MinerU 3.x fallback and no second protocol: a server that does not answer
+`GET /v1/health` fails clearly rather than degrading, and a 4.0.x server, which answers health like
+a healthy one and then refuses the task manifest, is refused by its version (see
+[The cutover window and the old server](#the-cutover-window-and-the-old-server)).
 
 ## MinerU service
 
 MinerU handles PDF, DOCX, PPTX, XLSX, images, and web pages, with multi-language OCR built in. No
 separate OCR service is required — MinerU handles OCR natively in all backends.
 
-This is the one place the container command belongs. **Pin the tag to a 4.x release.** This app
-speaks the V1 API only, so a `:latest` that resolves to a 3.x image does not fail loudly — it
-answers `GET /v1/health` with a 404, the availability gate closes, and five formats quietly
-disappear from the file picker:
+**Run MinerU 4.1 or newer, and pin the version.** MinerU 4.1 replaced the 4.0 upload and job API
+with `/v1/tasks`, and this app speaks only the new one. A 3.x server has no `/v1/health` at all: the
+availability gate below closes and five formats quietly disappear from the file picker. A 4.0.x
+server answers health but cannot take a document from this app: documents wait for it (see the
+cutover section) and the admin card says why. An install that follows `latest` can jump to a
+release whose protocol changed again, so pin the version and run the checklist in
+[deploy/README.md](../deploy/README.md#upgrading-mineru) after any upgrade.
 
-```bash
-docker run -d --name mineru -p 8001:8001 opendatalab/mineru:4.0.6 --api-key "$MINERU_API_KEY"
-```
+Production runs MinerU as systemd services around `mineru-kit api-server`, each in a Python venv of
+its own. This repository ships and tests no container image. The install, the services and their
+ports, the key on the command line, what a server costs in RAM and VRAM and how long it takes to
+start, the cutover and the rollback all have one home:
+[deploy/README.md](../deploy/README.md#document-extraction-service-mineru). What matters here is that
+an app calls exactly the address in `MINERU_API_URL`: the 4.0.12 server on `127.0.0.1:8002` until its
+flip, and from then on MinerU 4.1.7 on `127.0.0.1:8004` (`http://127.0.0.1:8001` is only the code
+default and the port in the examples). `MINERU_API_KEY` must match whatever the server was started
+with; leave it empty (anonymous access) only for a server that nothing else can reach.
 
-Drop `--api-key` only on a host where nothing else can reach the port; `MINERU_API_KEY` must match
-whatever the container was started with.
+#### The dev MinerU (development only)
 
-#### The dev box's MinerU (development only)
+`mineru4-dev.service` is a MinerU 4.0.6 DEV API server on the box at `http://127.0.0.1:8003`: basic
+tier, CPU only, API key required. It exists so that a checkout can point
+`MINERU_API_URL`/`MINERU_API_KEY` at a real MinerU 4 without standing up a service of its own.
+**It speaks the 4.0 protocol, which this release no longer does**: a checkout pointed at it gets the
+admin card's "runs MinerU 4.0.6, which speaks the old protocol" and its uploads wait. Neither app
+calls it, and it retires with 4.0.12 (the clean-up step of the runbook in deploy/README.md). It is not a
+production endpoint either way: it is CPU-only, it serves one tier, and its port deliberately
+differs from the `8001` default so a deployment cannot drift onto it by accident.
 
-A MinerU 4.0.6 server runs on the dev box at `http://127.0.0.1:8003` — basic tier, CPU only, API key
-required. It exists so a local checkout can point `MINERU_API_URL`/`MINERU_API_KEY` at a real
-MinerU 4 without standing up a container. It is **not** a production endpoint: it is CPU-only, it
-serves one tier, and its port deliberately differs from the `8001` default so a deployment cannot
-drift onto it by accident.
+### The task API the app uses
 
-### The V1 endpoints the app uses
+The protocol client is
+[`mineru/client.ts`](../src/lib/server/services/mineru/client.ts), its failure table is
+[`mineru/errors.ts`](../src/lib/server/services/mineru/errors.ts), and the captured server answers
+that its tests run against are in `fixtures/mineru-v41/protocol/` (recorded from a real 4.1.7 by
+the spike: [spike report](plans/mineru-4-1/spike-report.md)).
 
 | Method | Path | Used for |
 |---|---|---|
-| GET | `/v1/health` | version, `features.output_formats`, `features.sources`. Public even under `--api-key`, which is what the tool-health probe uses |
+| GET | `/v1/health` | version, `features.task_output_formats`, `features.sources`. Public even under `--api-key`, which is what the tool-health probe uses |
 | GET | `/v1/tiers` | the quality tiers this server actually offers |
-| GET | `/v1/usage` | file-size and page limits, shown on the admin status card |
-| POST | `/v1/uploads` | create an upload; a known SHA-256 dedupes instantly |
-| PUT | `/v1/uploads/{id}/content` | stream the bytes |
-| POST | `/v1/uploads/{id}/complete` | finalise; a wrong hash surfaces here, not at the PUT |
-| POST | `/v1/parse/jobs` | submit the parse |
-| GET | `/v1/parse/jobs/{id}` | poll to a terminal status |
-| DELETE | `/v1/parse/jobs/{id}` | cancel |
-| GET | `/v1/files/{id}/content` | download the result archive |
+| GET | `/v1/usage` | limits, shown on the admin status card. 4.1.7 reports no file-size or page limit (`null`), only `max_files_per_job` and `max_concurrent_jobs` (its `--concurrency`) |
+| POST | `/v1/tasks` | create a task for one file: a JSON manifest `{file_name, bytes, sha256sum}` plus `tier` and `ocr_mode` when set, and `output_formats: ["default"]`. Answers 202 with a receipt holding the task id and the file id |
+| PUT | `upload.url` from the receipt | stream the bytes, with `Content-Length` and the receipt's `upload.headers` as given. Only when the file entry carries an `upload` object: a SHA-256 the server already holds comes back `pending` with none, and nothing is sent |
+| GET | `/v1/tasks/{id}` | poll until the task settles (`completed`, `failed`, `canceled`, or `partial`) |
+| POST | `/v1/tasks/{id}/cancel` | cancel. A 404 or 409 answer is swallowed: there is nothing left to cancel |
+| GET | `result_url` from the finished file entry (`/v1/files/{id}/content`) | the result: one ZIP for the file |
+
+What goes in the manifest, and what never does:
+
+- **One task per document, one file in it**, with its `sha256sum` always, so a later task for the
+  same bytes (a retry, a re-extract) hits the server's hash cache and skips the PUT.
+- **`file_name` is canonical**: `document.<ext>`, with the extension the file-type registry gives
+  the type (`photo.JPEG` and `scan.jfif` go as `document.jpg`, `page.htm` as `document.html`, a
+  TIFF as `document.tiff`), never the person's name. 4.1 rejects `/`, `\`, `:` and control
+  characters in a name, so a Mac name with a colon would be a 400, and it sniffs the content but
+  routes by the extension, so the extension has to be one it knows. The name the person sees on the
+  normalized document is still theirs (`<stem>.md`).
+- **MinerU 4.1.7 accepts these extensions** (read from the installed package, `mineru/filetypes.py`):
+  `pdf`; the images `png jpg jpeg webp gif bmp tiff jp2`; and the native documents `doc docx ppt
+  pptx xls xlsx rtf odt ods odp`, `html htm shtml`, `mhtml mht`, `csv tsv`, `epub` and `ofd`.
+  `tif` is not among them (hence `document.tiff`), and neither are `heic` and `heif`, which the
+  registry nevertheless routes to MinerU. No 4.x release this project ran has those two on its list
+  (4.0.12's is the same), so such uploads already fail today. That is a known gap with its own
+  follow-up, not something the 4.1 work changes.
+- **Never sent**, because each is a 400 on 4.1: `include_model_output`, `ocr_mode: null`,
+  `page_range: null`, `client_file_id`, `file_id`, and any `output_formats` other than `["default"]`.
+  `MINERU_OCR_MODE=auto` therefore means the key is left out.
+- **The tier** is the next section's subject.
+
+**The two links in the receipt and in a finished file entry (`upload.url`, `result_url`) are followed
+only on `MINERU_API_URL`'s origin** (scheme, host and port), and the API key is attached only
+there; anything else is refused as a non-retryable `protocol` failure before a byte moves. MinerU
+4.1.7 builds both links from the `Host` header of the request it answers
+(`mineru/tasks/http.py:85` in the installed package; seen live on `:8004`), so
+`MINERU_API_URL` must be the address the app calls MinerU on directly, and every link comes back
+spelled the way the app spelled it: `http://127.0.0.1:8004`, not `http://localhost:8004`. A reverse
+proxy that rewrites `Host` breaks every upload; anything that leaves the header as the app sent it
+(an `ssh -L` tunnel on the same port) satisfies the rule. A mismatch shows on the first upload as
+`mineruCode: protocol_untrusted_upload_url` (or `protocol_untrusted_result_url`) in the attempt's
+diagnostics, with no PUT in MinerU's log.
+
+The result ZIP holds `markdown.md`, `middle_json.json`, `structured_content.json` and an `images/`
+folder. The app builds the prompt text from the blocks of `structured_content.json` and keeps the
+images as figures; `markdown.md` (a flat string with no page boundaries) and `middle_json.json`
+feed neither the text nor the bundle. A block type the app has not seen is kept as its text and
+counted (`extractionUnknownBlockTypes` on the normalized document): that count is how a new MinerU
+release announces a new block type.
 
 ### Quality tiers
 
 MinerU exposes up to four tiers — `flash`, `basic`, `standard`, `advanced` — and a given server
-offers only some of them. `MINERU_DEFAULT_TIER=auto` (the default) means "do not force a tier for
-this deployment"; it does not mean no tier is ever sent. Two rules still send one explicitly, both
-ahead of the configured value: a registry entry carrying `tierHint: "flash"` (every Office, HTML,
-RTF and EPUB format) is submitted at `flash` whenever the server lists that tier, and on a server
-that offers **only** `flash` every input is submitted at `flash` — including PDFs and images, which
-would otherwise have taken the server's own default. Naming a tier the server does not offer fails
-the extraction with a clear "tier unavailable" rather than silently producing worse output; a
-`tierHint` the server does not offer simply falls through.
+offers only some of them (`GET /v1/tiers`; production serves flash, basic and standard). **The app
+always names the tier for a PDF or an image, and never for a native document**, because of how 4.1
+treats an omitted one:
+
+- **PDFs and images always carry a tier.** An omitted tier is not "the best one": the server falls
+  back to the tier it was started with, then Basic, then Flash, and the task still succeeds, so a
+  PDF would be read at Flash and nobody would know. `MINERU_DEFAULT_TIER=auto` (the default) is
+  therefore resolved by the app from `/v1/tiers`: `standard`, then `basic`, then `flash`, whichever
+  the server lists first (a flash-only server gets `flash`). `advanced` is never chosen for you.
+  A configured tier is sent as such when the server offers it; a tier it does not offer fails the
+  extraction with a clear "tier unavailable" and is not retried. The same holds for a Re-extract at a
+  tier the server lacks. Only when `/v1/tiers` cannot be read at all is no tier sent.
+- **Native documents never carry one.** Every Office, OpenDocument, HTML, RTF and EPUB entry in the
+  registry has `tierHint: "flash"`: the server runs such a file at `flash` whatever it is asked, and
+  `advanced` with a `.docx` was accepted at create and then never ran, a task that waits for
+  nothing. So the key is left out, even for a Re-extract. CSV and TSV never reach MinerU at all
+  (below).
+- **`parse.tier` is the tier a file really ran at.** The app records it
+  (`extractionJobTier` on the normalized document) beside the tier written in the result itself
+  (`extractionTier`); for a native document both say `flash`, and for a PDF or an image they say
+  the tier the server ran it at.
 
 **Settings → System → Integrations & keys** shows a MinerU status card: the version that answered,
-the tiers and output formats it reports, its size and page limits, and an explicit "unreachable"
-with a reason when it is down.
+the tiers and output formats (`task_output_formats`) it reports, its limits, and an explicit
+"unreachable" with a reason when it is down. A 4.0.x server shows as unreachable with its version
+and "speaks the old protocol".
 
 ### Configuration
 
@@ -118,6 +188,10 @@ would throw away a better parse and report success. Operators and scripts can ov
 `{"force": true}` in the POST body. Each account may also have at most five re-extractions queued or
 running at once; over that the endpoint answers `429` and the seat frees as jobs finish.
 
+A native document (an Office, OpenDocument, HTML, RTF or EPUB file) is the exception to "a higher
+tier reads it better": MinerU 4.1 runs it at `flash` whatever it is asked, and the app sends it no
+tier, so a re-extract of one rebuilds it at `flash` again.
+
 ## Accepted upload formats
 
 The shared file-type registry ([`src/lib/shared/file-types/`](../src/lib/shared/file-types/)) is
@@ -137,7 +211,7 @@ anything.
 
 Each entry's `intake.route` decides what happens next:
 
-- **`mineru`** — sent to the MinerU V1 API described above (PDF, Office formats, raster images
+- **`mineru`** — sent to the MinerU task API described above (PDF, Office formats, raster images
   except AVIF, HTML, EPUB, RTF, and the open-document formats).
 - **`direct-text`** — read straight into the ledger as text, no MinerU round trip (plain text,
   Markdown, code, CSV, TSV, SVG — which is XML, not a raster image — and a handful of MIME-sniffed
@@ -178,6 +252,12 @@ or toggle for the gate itself. What a user sees on an old backend: five fewer fo
 picker, and the existing "`{EXT}` files aren't supported yet" message if they force one through
 anyway (drag-and-drop, or the OS "All files" dialog).
 
+The gate reads the **major** version only. A 4.0.x server keeps every format open in the picker
+(it reads all of them) although the extractor refuses it, because 4.0.x speaks the old task API:
+uploads are accepted and their documents wait, see
+[The cutover window and the old server](#the-cutover-window-and-the-old-server). Only a 3.x answer
+(or a server without `/v1/health` at all) closes the gate.
+
 ### Direct-text decoding and the size cap
 
 A `direct-text` upload is decoded once, by
@@ -203,8 +283,9 @@ for them, the existing "this file type isn't supported" copy already fits.
 [docs/configuration.md](configuration.md)) caps a `direct-text` upload before any byte is read: past
 8 MiB of raw text is roughly 2M tokens and thousands of chunk/embedding calls from a single upload.
 It does **not** apply to `html`/`htm` any more — they route to MinerU and are bounded instead by
-`MAX_FILE_UPLOAD_SIZE` and MinerU's own size limit — unless the MinerU-4 gate above has fallen them
-back to `direct-text` on an old backend, in which case the cap applies to them again.
+`MAX_FILE_UPLOAD_SIZE` (MinerU 4.1.7 reports no size limit of its own) — unless the MinerU-4 gate
+above has fallen them back to `direct-text` on an old backend, in which case the cap applies to them
+again.
 
 ## The async extraction flow
 
@@ -217,23 +298,109 @@ enqueue time, from the shared registry (adjusted for the MinerU-4 gate); nothing
 re-derives it.
 
 A `mineru`-routed job's own protocol lives entirely in
-[`src/lib/server/services/mineru/`](../src/lib/server/services/mineru/): `POST /v1/uploads`
-(sha256-deduplicated) → `PUT` the bytes → `POST /v1/uploads/{id}/complete` → `POST /v1/parse/jobs` →
-poll `GET /v1/parse/jobs/{id}` → download the result zip from `GET /v1/files/{id}/content`. The zip
-yields the prompt Markdown plus a **parse bundle** on disk at
+[`src/lib/server/services/mineru/`](../src/lib/server/services/mineru/), driven by
+[`extractors/mineru4.ts`](../src/lib/server/services/extraction/extractors/mineru4.ts). One attempt
+is one task with one file: `POST /v1/tasks` (the receipt names the task and the file) → `PUT` the
+bytes to `upload.url` when the receipt has one → poll `GET /v1/tasks/{id}` → download the one ZIP
+from `result_url`. The task id and the file id go into the job's checkpoint (`remoteJobId` and
+`remoteFileId`, the fields the 4.0 client used for its job and file ids, so no migration) as soon as
+the 202 is back and before the bytes move, so a worker that dies mid-upload resumes the same task
+instead of creating a second; a checkpoint without `data.protocol: "tasks/1"` (the 4.0 client's) is
+not resumed. The ZIP yields the prompt Markdown plus a **parse bundle** on disk at
 `data/knowledge/<userId>/<sourceArtifactId>.parse/` (page index, structured content, figures). A
-`direct-text` job skips all of this and reads the file once, in-process.
+`direct-text` job skips all of this and reads the file once, in-process: CSV and TSV never send
+MinerU a request.
 
-A terminal remote job is never resumed: any attempt that finds one failed, canceled, or carrying a
-file-level error clears the stored handle, so the next attempt (automatic or a user Retry) submits a
-fresh `POST /v1/parse/jobs` rather than re-polling a job that cannot change its answer — the
-re-upload costs nothing because `POST /v1/uploads` deduplicates on sha256. On top of that, an
-upstream failure saying the document itself cannot be loaded (MinerU's "Failed to load document
-(PDFium: …)" family, covering damaged, zero-page and password-protected files, plus the
-`file_corrupted` / `file_encrypted` codes) maps to `document_unreadable`, which is neither
-auto-retried nor user-retryable: the same bytes cannot become readable, and a repaired file has a
-different hash and so arrives as a new document. An unexplained `parse_failed` still maps to
-`job_failed` and keeps its small attempt budget.
+A settled remote task is never resumed: any attempt that finds one failed, canceled, or carrying a
+file-level error clears the stored handle, so the next attempt (automatic or a user Retry) creates a
+fresh task rather than re-polling one that cannot change its answer. Sending the bytes again costs
+nothing while the server still holds them: the manifest's `sha256sum` makes it answer `pending`
+with no `upload` object. Every failed file arrives as the single code `parse_failed`, and only
+MinerU's message says why; the app maps the known wordings to its own reasons and never shows the
+message to a person. A damaged, zero-page or password-protected PDF (`PDFium: Data format error`,
+`PDFium: Incorrect password error`) and a workbook that is not one (`Invalid XLSX package`) map to
+`document_unreadable`, which is neither auto-retried nor user-retryable: the same bytes cannot
+become readable, and a repaired file has a different hash and so arrives as a new document.
+`Unsupported file type` maps to `unsupported_type`. An unexplained `parse_failed` still maps to
+`job_failed` and keeps its small attempt budget. MinerU's own words stay with the operator, in the
+attempt's diagnostics (`document_extraction_job_attempts.diagnostics_json`, as `rawMessage` beside
+the rule that matched).
+
+### Restarts, and a server that forgot
+
+MinerU 4.1 keeps every task, file, upload link and its hash cache in memory, so restarting the
+service forgets all of them: the uploaded blobs stay on disk, but nothing indexes them. It also lets
+go of an upload link after an hour and of a task's files after a day (the answer for an expired
+link, a 410 `upload_expired`, is documented but was never seen live). The extractor treats
+`task_not_found`, `file_not_found`, `upload_not_found` and `upload_expired` as "the server
+forgot" and not as a failure: it creates the task again and sends the bytes again, and because the
+hash cache is gone too, the new receipt carries an `upload` link again. That recovery is bounded to
+once per attempt, and so is the second PUT for a task that is still listed but never got its bytes (a
+worker that died between the 202 and the PUT: the snapshot of a `waiting-file` task carries its
+link). A server that forgets again, or a file that no longer matches what its task declared (a 400
+`upload_size_mismatch` or `file_hash_mismatch`; the app then stats and hashes the file afresh before it
+creates the task again), ends the attempt with a retryable failure that clears the handle, and the
+ledger's own retry budget takes over.
+
+While the service is down (a few seconds until health answers, then a one-off model load for the
+first Standard document; the numbers are in deploy/README.md) requests fail as transport errors.
+Those are outage waits and are not charged to the document: the job goes back to `queued` and tries
+again with a growing wait (5 s, doubling to 5 min) for up to `DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS`
+(30 minutes by default), then resumes from the stored handle, meets `task_not_found`, and the
+recovery above makes a new task. The tests prove this against a fake server held to the captures;
+the one run against a real 4.1.7 is the ai.dev live check below, which restarts `mineru41` in the
+middle of a job and expects the job to succeed, not fail.
+
+`MINERU_JOB_TIMEOUT_MS` is the clock of one attempt: it starts with the attempt and is enforced
+while the task is polled (the transfers have their own, `MINERU_TRANSFER_TIMEOUT_MS`). At the
+deadline the task is canceled on the server and spent, and the last snapshot says what that
+means. A file MinerU had not started (still queued, or never sent its bytes) waits like an outage
+and spends no attempt, since the document was never the slow part. A file it was running spends
+an attempt like any other retryable failure, so a document that is simply too slow for the
+deadline ends, once its attempt budget is gone, with the code `max_attempts` (the label the UI
+shows for it; Retry is still offered) and the timeout's sentence as the stored message, not as
+`unavailable` ("could not be reached").
+
+### The cutover window and the old server
+
+Moving from 4.0.12 to 4.1 is a flip of one live setting, not a restart. The two servers run side by
+side (4.1.7 on a new unit and port, 4.0.12 where it was), and each app switches by setting
+`MINERU_API_URL` in its `admin_config` (Settings → System → Integrations & keys, or `PUT
+/api/admin/config`), which applies on the next extraction. The runbook and the rollback are in
+[deploy/README.md](../deploy/README.md#cutting-over-to-41-and-rolling-back).
+
+The app has to survive the seconds between "this release is deployed" and "the URL is flipped".
+**MinerU 4.0.12 also serves a `/v1/tasks` of its own**, an
+older API with the same path, so an old server is not a 404: it answers a 4.1 manifest with an HTTP
+400 whose error object carries a `type` (read from the installed 4.0.12 source; the test doubles
+for these bodies are derived from it, not captured). 4.1 never sends one (none of the 128 error
+bodies captured from 4.1.7 has it), so the app treats any error body with
+`error.type`, on any path and with any status or code (a 401 or a `task_not_found` included), as "the
+old server" and not as an answer about the document. That failure is `unavailable`: retryable, a
+patient outage wait, the handle kept, logged as `MinerU answered in another protocol's voice`, and
+never mistaken for a forgotten id. Documents caught in the window wait `queued` ("The document
+service could not be reached.", no attempt spent) and finish by themselves once the URL points at
+4.1, provided that happens within the outage window (30 minutes by default,
+`DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS`): after it they fail as `unavailable` and need a Retry.
+
+**A rollback has the mirror order, and the order is mandatory:** set `MINERU_API_URL` back to the
+4.0.12 server first (the 4.1 release then waits out 4.0.12 like any outage), and only then deploy the
+previous release. The previous release has no guard against 4.1: pointed at `:8004` it reads 4.1's
+FastAPI 404 (`{"detail":"Not Found"}` for `POST /v1/uploads`) as a permanent error (`protocol`, not
+retryable, rule `fallback:4xx`) and fails every document it sends there, each needing a manual Retry.
+So never re-point `current` to a release older than the 4.1 one while `MINERU_API_URL` still names
+`:8004`. `scripts/deploy.sh`'s own automatic rollback, after a failed health check at a cutover,
+runs before the URL is flipped, so it is safe. The runbook is in
+[deploy/README.md](../deploy/README.md#cutting-over-to-41-and-rolling-back).
+
+The capability read catches it earlier: a health answer with a 4.0.x version is `reachable: false`
+with the version kept. The admin card says "runs MinerU 4.0.12, which speaks the old protocol. This
+app needs MinerU 4.1 or newer: point MINERU_API_URL at a 4.1 server.", Diagnostics shows
+`document_extraction` degraded and says the server speaks the old protocol, and the cached answer
+belongs to the origin it was read from, so the flip is seen on the next probe, without a restart. Rule R14 of
+[the build log](plans/mineru-4-1/build-log.md) rests on 4.1 error bodies never carrying `type`; the
+upgrade checklist in [deploy/README.md](../deploy/README.md#upgrading-mineru) re-checks that on
+every MinerU upgrade.
 
 Parse bundles are derived data — they can always be regenerated by re-extracting the source document
 — and are excluded from the account data archive
@@ -389,6 +556,20 @@ which is how a "legacy" document is told apart from one MinerU 4 produced (D12,
 backfills these on its own: the only user-facing path back is "Re-extract" on the Knowledge list,
 one document at a time.
 
+The MinerU 4.1 release added a second, milder population. The renderer that turns MinerU's blocks
+into prompt text changed with it (a chart picture is kept as a figure with its caption, display
+math is fenced with `$$`, PPTX speaker notes are labelled, see `result.ts`), so
+`MINERU_PARSER_VERSION` moved from `mineru4/1` to `mineru4/2`, and
+`metadata.extractionParserVersion` on a normalized document says which renderer made it. Until
+4.1, the renderer dropped every chart and its caption from the text and left display math
+unfenced; MinerU 4.0.12 emits the same blocks, so documents read before the 4.1 release
+(`mineru4/1`) lack them. They keep their text until they are read again. **The backfill below does
+not do that for a document that already carries the requested tier**: it skips a document whose
+recorded tier is at or above the one requested, whatever renderer read it, so it re-reads only
+documents recorded below that tier or with none. To read a same-tier document again with the new
+renderer, Re-extract it with the `force` override described above (`{"tier": "standard", "force":
+true}`, the tier it already carries), one document at a time.
+
 `scripts/backfill-extractions.ts` is the operator-run equivalent for a whole library. It walks
 every `source_document` artifact (knowledge-page uploads AND chat-attachment documents — both live
 in the one `artifacts` table and differ only by whether `conversation_id` is set, and both go
@@ -442,11 +623,12 @@ cd /home/alfydesign/apps/langflow-chat/current && \
 row beats the environment. The script overlays them the same way the server does at boot
 (`refreshConfig()`, as `ensureRuntimeConfigReady` in [`hooks.server.ts`](../src/hooks.server.ts)
 calls it) — without that it would be reading `.env` rather than the deployment's own settings, and
-on the dev box that meant probing `127.0.0.1:8001` while the app ran against `127.0.0.1:8002`. The
-endpoint it resolved is the first line of the dry-run report, so a mismatch is visible immediately:
+on the dev box that meant probing `127.0.0.1:8001` (the `.env` value) while the app ran against the
+MinerU its admin settings named. The endpoint it resolved is the first line of the dry-run report,
+so a mismatch is visible immediately:
 
 ```
-MinerU:        http://127.0.0.1:8002
+MinerU:        http://127.0.0.1:8004
 Tier:          standard
 ```
 
@@ -457,7 +639,7 @@ Flags:
 | Flag | Effect |
 | --- | --- |
 | `--apply` | Enqueues. Without it, nothing is written. |
-| `--tier <flash\|basic\|standard\|advanced>` | Defaults to the configured `MINERU_DEFAULT_TIER` (resolved to the server's best offered tier when that is `auto`). The owner's stated target for prod is `standard`, so pass it explicitly. Anything that is not one of the four ids is refused before the database is opened, and a tier this MinerU does not serve is refused before `--apply` writes anything (a dry run still works with the backend down — it only warns). A registry `tierHint` of `flash` (every Office, HTML, RTF, EPUB format) still wins per document — those formats are parsed at `flash` regardless, so the script requests `flash` for them outright rather than a tier they can never reach. |
+| `--tier <flash\|basic\|standard\|advanced>` | Defaults to the configured `MINERU_DEFAULT_TIER`, and `auto` is resolved the way the extractor resolves it (the best of `standard`, `basic` and `flash` that the server lists, never `advanced`). The owner's stated target for prod is `standard`, so pass it explicitly. Anything that is not one of the four ids is refused before the database is opened, and a tier this MinerU does not serve is refused before `--apply` writes anything (a dry run still works with the backend down — it only warns). A registry `tierHint` of `flash` (every Office, HTML, RTF, EPUB format) marks a native document: MinerU parses it at `flash` regardless and the extractor sends it no tier at all, so the script counts its tier as `flash` for the "already done" check rather than compare against a tier these types can never reach (which would re-enqueue them forever). |
 | `--include-direct-text` | Also re-chunks `direct-text` documents (plain text, Markdown, CSV, …) through the current chunker. Skipped by default: these never went through MinerU at all, so there is nothing MinerU-version-specific to fix; the flag exists for the rarer case where the chunker itself changed. |
 | `--since <iso>` | Scopes `--status` and `--only-failed` to this script's own campaign, measured in the ledger's `updated_at` (the column a requeue and a completion move — **not** `created_at`, which for every document that already had a ledger row is the day it was uploaded). Defaults to the earliest `updated_at` among the rows this script has ever stamped `requested_by = 'backfill'` — i.e. the script's own first run. Does **not** gate the core "already done" check, which is unconditional: a document already parsed at or above the requested tier is skipped regardless of who produced that parse or when. |
 | `--limit N` | Enqueues at most N documents — a first careful batch. Positive integer, refused otherwise. The batch is sampled **round-robin across accounts** rather than taken off the front of the list, so a first batch exercises the library rather than one account's oldest files; the underlying order is `created_at, id`, so a given `--limit` is reproducible. |
@@ -557,12 +739,20 @@ costs attempts and leaves red rows in the Knowledge list, though never the docum
 
 ## Verifying a deployment
 
-`scripts/verify-live-extraction-types.ts` uploads the `fixtures/mineru-v1/*/sample.*` inputs
-through the real endpoints of a running deployment and checks what comes back against what the
-Phase 0 spike (and, for the formats it never covered, this phase's own live run) recorded: the
-effective tier, the page count and its kind, the text (including the running heads that must NOT
-appear), the figure count and the outline. One case (`ofd`) is a negative check that the upload is
-still refused with a 415. It is the live counterpart of
+`scripts/verify-live-extraction-types.ts` uploads sample inputs through the real endpoints of a
+running deployment and checks what comes back against what was recorded: the MinerU version that
+answered, the app's parser version, the effective tier, the page count and its kind, the text
+(including the running heads that must NOT appear), the figure count and the outline. Two groups of
+inputs run: the 4.0.4 spike's `fixtures/mineru-v1/*/sample.*` (page counts, figures and outlines
+are read off that server's output, so a mismatch is first a question about the expectation), and
+the 4.1.7 spike's own files in `docs/plans/mineru-4-1/fixtures/inputs`, whose expectations come
+from its captured answers run through the app's parser: the two-page paper (`paper`: the chart is
+a figure with its caption in the text once, the display equation is fenced with `$$` and keeps its
+`\tag{1}`, the footnote is a paragraph), the Hungarian-named PDF (`hu-pdf`: the name never reaches
+MinerU and the normalized document keeps it), a corrupt PDF (`corrupt-pdf`: the job ends
+`document_unreadable` with the app's sentence, no Retry, none of MinerU's words in it), and a TIFF
+in both spellings (`tif`, `tiff`: each is sent as `document.tiff`). One case (`ofd`) is a negative
+check that the upload is still refused with a 415. It is the live counterpart of
 `src/lib/server/services/mineru/result.test.ts`.
 
 ```
@@ -576,25 +766,41 @@ LIVE_AI_BASE_URL=https://ai.alfydesign.com LIVE_AI_EMAIL=… LIVE_AI_PASSWORD=�
 | `LIVE_AI_EMAIL` / `LIVE_AI_PASSWORD` | *(required)* | the account it signs in as |
 | `LIVE_AI_HEADLESS` | headless unless `false` | |
 | `LIVE_AI_KEEP_CONVERSATION` | delete unless `true` | |
-| `LIVE_AI_TIMEOUT_MS` | `600000` | per document; a cold `standard` PDF is unmeasured |
+| `LIVE_AI_TIMEOUT_MS` | `600000` | per document; the first `standard` document after a MinerU start measured 8 to 11 s on the box |
 | `LIVE_AI_OUTPUT_DIR` | `test-results/live-extraction-types-<ISO>` | where `summary.json` lands |
-| `LIVE_EXTRACTION_FIXTURE_DIR` | `fixtures/mineru-v1` | |
+| `LIVE_EXTRACTION_FIXTURE_DIR` | `fixtures/mineru-v1` | where the 4.0.4 samples are |
+| `LIVE_EXTRACTION_PLAN41_DIR` | `docs/plans/mineru-4-1/fixtures/inputs` | where the 4.1.7 spike's inputs are |
 | `LIVE_EXTRACTION_CASES` | every case | comma-separated ids, for a narrow smoke |
-| `LIVE_EXTRACTION_EXPECTED_TIER` | `basic` | the tier PDFs and images are expected to parse at |
+| `LIVE_EXTRACTION_EXPECTED_TIER` | `standard` | the tier PDFs and images are expected to parse at |
+| `LIVE_EXTRACTION_EXPECTED_SERVER_VERSION` | `4.1.7` | the MinerU version the status card must show and every document's `parse.parser_version` must carry |
+| `LIVE_EXTRACTION_EXPECTED_PARSER_VERSION` | `mineru4/2` | the app's renderer version (`extractionParserVersion`) |
 | `LIVE_EXTRACTION_TIER` | *(unset)* | when set, every extraction case is re-extracted at this tier and the run reports the diff |
 
-Set `LIVE_EXTRACTION_EXPECTED_TIER` to whatever the server was started with, or a correct run reads
-as a wall of mismatches. Office, HTML, CSV, EPUB and the newly added RTF/ODT/ODS/ODP inputs always
-expect `flash` — the engine parses them there no matter what the job asked for, and catching that
-discrepancy is the most valuable thing this sweep does. `tsv` is asserted to reach `succeeded`
-**without** ever passing through a `parsing` status — it is `direct-text`, so it should never reach
-MinerU at all.
+The run stops before it uploads anything if the admin MinerU status card says the server is
+unreachable (a 4.0.x server is, for this app). A different MinerU version, or a server that does
+not list the expected tier, does not stop it but is written to `preflight` in `summary.json` and
+fails the run: the rows mean something only for the MinerU they were written for. Set
+`LIVE_EXTRACTION_EXPECTED_TIER` to the tier a differently started or pinned server tops out at, or a
+correct run reads as a wall of mismatches. For every document that goes through MinerU the sweep
+also holds `extractionJobTier` (the server's own `parse.tier`) to the same tier as
+`extractionTier`, `extractionServerParserVersion` to the expected MinerU version, and
+`extractionUnknownBlockTypes` to empty. Office, HTML, EPUB and the RTF/ODT/ODS/ODP inputs always
+expect `flash` — the app names no tier for a native document and the engine parses it there no
+matter what the job asked for, and catching that discrepancy is the most valuable thing this sweep
+does. `csv` and `tsv` are asserted to be `direct-text` jobs that reach `succeeded` **without** ever
+passing through a `parsing` status: they must make no MinerU request at all. `heic` and `heif` are
+listed under `knownGaps` in the summary and not asserted: the registry routes them to MinerU, which
+has never accepted them.
 
-**Not covered by this script:** the gate itself needs a MinerU backend that genuinely answers
-`/v1/health` with a pre-4.x version, which this single-deployment sweep has no way to fake. Verify it
-by pointing a separate deployment's (or a local dev server's) `MINERU_API_URL` at a stub that answers
-`/v1/health` with `{"version":"3.9.0"}`, then confirm `GET /api/knowledge/upload/intent` for an
-`.epub` answers 415 `formatNotEnabled` and the SSR shell's accept string omits `.epub`.
+**Not covered by this script, to do by hand on ai.dev:** a cancel (the job ends `canceled`, one
+`POST /v1/tasks/{id}/cancel` in MinerU's access log), and `systemctl restart mineru41` in the
+middle of a job (the job has to succeed by creating the task again; the app's journal shows
+`MinerU forgot an id, recovering`). And the gate itself: it needs a MinerU backend that genuinely
+answers `/v1/health` with a pre-4.x version, which this single-deployment sweep has no way to fake.
+Verify it by pointing a separate deployment's (or a local dev server's) `MINERU_API_URL` at a stub
+that answers `/v1/health` with `{"version":"3.9.0"}`, then confirm
+`GET /api/knowledge/upload/intent` for an `.epub` answers 415 `formatNotEnabled` and the SSR
+shell's accept string omits `.epub`.
 
 The run writes `summary.json` and exits non-zero on any mismatch. It only uploads into, reads from
 and deletes its own conversation, never writes configuration, and prints no credentials. Run it
@@ -616,13 +822,16 @@ converter to do it: there is no `spawn`/`execFile`/`child_process` call and no r
 `git grep -niE "soffice|libreoffice|imagemagick|ghostscript|pdftoppm|pdftotext|librsvg" -- src/
 scripts/`, whose only real hit is a prompt string in `user-skills.test.ts` that mentions
 "Excel/LibreOffice" by name). `MINERU_API_URL` can point anywhere, and Office/image normalization —
-including HEIC/HEIF/AVIF delegate support — is a requirement of **MinerU's own container**, not of
-this repository's host.
+including HEIC/HEIF/AVIF delegate support — is a requirement of **MinerU's own host**, not of this
+repository's host.
 
-If you build a custom MinerU image or run MinerU outside the published Docker image, consult MinerU's
-own documentation for its host requirements. The one recipe worth keeping here, because it was
+If you build a custom MinerU image or run MinerU on a host of your own, consult MinerU's own
+documentation for its host requirements (and run 4.1 or newer, see
+[MinerU service](#mineru-service)). The one recipe worth keeping here, because it was
 reverse-engineered against a real EL box rather than being in MinerU's own docs, is for the AlmaLinux
-/RHEL ImageMagick delegate story:
+/RHEL ImageMagick delegate story. It predates MinerU 4.1, and delegates alone do not make HEIC or
+HEIF uploads work: neither 4.0.12 nor 4.1.7 lists those extensions among the file types it accepts
+(see the task API section above), so they stay a known gap whatever the host has installed:
 
 ### AlmaLinux / RHEL: ImageMagick delegate setup (HEIC/HEIF/AVIF), for MinerU's own host
 

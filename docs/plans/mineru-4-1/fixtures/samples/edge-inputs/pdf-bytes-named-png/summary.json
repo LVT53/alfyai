@@ -1,0 +1,42 @@
+{
+  "slug": "final/pdf-bytes-named-png",
+  "create_status": 202,
+  "files": [
+    {
+      "i": 0,
+      "put_status": 200,
+      "put_ms": 1,
+      "file_name": "paper-as.png",
+      "status": "completed",
+      "parse": {
+        "tier": "standard",
+        "duration_ms": 711,
+        "parser_version": "4.1.7"
+      },
+      "error": null,
+      "result_zip": {
+        "bytes": 78586,
+        "members": [
+          "markdown.md",
+          "middle_json.json",
+          "structured_content.json",
+          "images/",
+          "images/page_0_equation_6.jpg",
+          "images/page_1_chart_3.jpg",
+          "images/page_1_table_2.jpg"
+        ],
+        "member_count": 7
+      }
+    }
+  ],
+  "task_id": "job_c7fbce76805cda81c2b54c33",
+  "create_ms": 1,
+  "polls_distinct": 2,
+  "wall_ms_create_to_terminal": 909,
+  "final_status": "completed",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  }
+}

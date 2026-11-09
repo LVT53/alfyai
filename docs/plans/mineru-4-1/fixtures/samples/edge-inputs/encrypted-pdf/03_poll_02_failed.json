@@ -1,0 +1,31 @@
+{
+  "t_since_create_ms": 208,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_8cc5ec3e03e74c42f218ea50",
+    "status": "failed",
+    "created_at": "2026-11-05T12:02:55Z",
+    "started_at": "2026-11-05T12:02:55Z",
+    "finished_at": "2026-11-05T12:02:55Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 1,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-ac14b689e0ac76533ec22840",
+        "file_name": "encrypted.pdf",
+        "status": "failed",
+        "bytes": 228893,
+        "error": {
+          "code": "parse_failed",
+          "message": "Failed to load document (PDFium: Incorrect password error)."
+        }
+      }
+    ]
+  }
+}

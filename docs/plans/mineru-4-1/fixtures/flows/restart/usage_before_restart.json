@@ -1,0 +1,20 @@
+{
+  "object": "usage",
+  "access_level": "registered",
+  "billing_period": {
+    "start": "2026-11-05T11:46:59Z",
+    "end": null
+  },
+  "current": {
+    "pages_processed": 57,
+    "files_processed": 34,
+    "jobs_created": 61
+  },
+  "limits": {
+    "max_pages_per_file": null,
+    "max_file_size_bytes": null,
+    "max_files_per_job": 100,
+    "max_concurrent_jobs": 2,
+    "max_file_retention_days": 1
+  }
+}

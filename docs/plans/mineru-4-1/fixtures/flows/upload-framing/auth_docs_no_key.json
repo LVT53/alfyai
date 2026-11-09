@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/docs",
+    "headers": {}
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 12:03:49 GMT",
+      "server": "uvicorn",
+      "content-length": "942",
+      "content-type": "text/html; charset=utf-8",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "body_bytes": 942,
+    "text_head": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <link type=\"text/css\" rel=\"stylesheet\" href=\"/docs/assets/vendor/swagger-ui.css\">\n    <link rel=\"shortcut icon\" href=\"/docs/assets/vendor/favicon.png\">\n    <title>MinerU API - Swagger UI</title>\n    </head>\n    <body>\n    <div id=\"swagger-ui\">\n    </div>\n    <script src=\"/docs/assets/vendor/swagger-ui-bundle.js\"></script>\n    <!-- `SwaggerUIBundle` is now available on the page -->\n    <script>\n    const ui = SwaggerUIBundle({\n        url: '/openapi.json',\n    \"dom_id\": \"#swagger-ui\",\n\"layout\": \"BaseLayout\",\n\"deepLinking\": true,\n\"showExtensions\": true,\n\"showCommonExtensions\": true,\noauth2RedirectUrl: window.location.origin + '/docs/oauth2-redirect',\n    presets: [\n        SwaggerUIBundle.presets.apis,\n        SwaggerUIBundle.SwaggerUIStandalonePreset\n        ],\n    })\n    </script>\n    </body>\n    </html>\n    "
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "pages": [
+    {
+      "page_idx": 0,
+      "blocks": [
+        {
+          "type": "doc_title",
+          "anchor": "html-fe1f6f741c0dc2fbc810",
+          "level": 1,
+          "content": "Spike HTML page"
+        },
+        {
+          "type": "text",
+          "content": "An *HTML* document with a table and a list. Az árvíztűrő tükörfúrógép egy magyar pangram: minden ékezetes magyar betűt tartalmaz, így az ő és az ű betűt is. A dokumentum feldolgozása után a szövegnek pontosan meg kell maradnia."
+        },
+        {
+          "type": "list",
+          "content": "- alma\n- körte\n- szilva"
+        },
+        {
+          "type": "table",
+          "content": "| Tier | Median ms |\n| --- | --- |\n| flash | 810 |\n| basic | 1126 |",
+          "captions": [],
+          "footnotes": []
+        },
+        {
+          "type": "paragraph_title",
+          "anchor": "html-6db0e8ee4c37ff31e0ac",
+          "level": 2,
+          "content": "Footer"
+        },
+        {
+          "type": "text",
+          "content": "End of page."
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "file_suffix": "html",
+    "producer": {
+      "name": "mineru",
+      "version": "4.1.7"
+    },
+    "document": {
+      "title": "Spike HTML page",
+      "languages": [
+        "hu"
+      ],
+      "page_count": 1,
+      "page_count_kind": "logical"
+    }
+  },
+  "extensions": {
+    "mineru": {
+      "tier": "flash",
+      "parse_mode": "txt"
+    }
+  },
+  "is_full_document": true
+}

@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/files/file-5f19f9ed9efd0ec303433dfd/content",
+    "headers": {}
+  },
+  "response": {
+    "status": 401,
+    "reason": "Unauthorized",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:57:05 GMT",
+      "server": "uvicorn",
+      "content-length": "75",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 0,
+    "json": {
+      "error": {
+        "code": "invalid_api_key",
+        "message": "Invalid or missing API key"
+      }
+    }
+  }
+}

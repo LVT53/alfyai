@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "Árvíztűrő tükörfúrógép jelentés.pdf",
+          "bytes": 32833,
+          "sha256sum": "0132b9df02846f60c257f511320c41e005f36c29e05d5558ccf136d0ab08b608"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:53:13 GMT",
+      "server": "uvicorn",
+      "content-length": "399",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_b85a5f059c1294c4bf092d8a",
+      "status": "waiting-file",
+      "files": [
+        {
+          "file_id": "file-f6f3a8f39bd5edf9d5e5afad",
+          "file_name": "Árvíztűrő tükörfúrógép jelentés.pdf",
+          "status": "waiting-file",
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_b85a5f059c1294c4bf092d8a/uploads/file-f6f3a8f39bd5edf9d5e5afad",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883193
+          }
+        }
+      ]
+    }
+  }
+}

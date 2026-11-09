@@ -1,0 +1,14 @@
+pdf 241664 bytes, sha256 75314f7c73538e08c25bf92e37e81adec884e6062736d2ff7565f4a24ae437c1
+server version 4.0.12
+upload 200 status pending dedupe hit False
+file id present True
+job created 202
+job completed | job tier standard | elapsed 10.1 s
+file parse {"model_used": null, "duration_ms": 9446, "parser_version": "4.0.12"}
+zip entries: ['markdown.md', 'middle_json.json', 'structured_content.json', 'model_output.json'] | images: 3
+top-level block types: {'chart': 1, 'doc_title': 1, 'equation': 1, 'header': 2, 'page_footnote': 1, 'page_number': 2, 'paragraph_title': 3, 'table': 1, 'text': 7}
+  chart: 1
+  equation: 1
+  equation_interline: 0
+  page_footnote: 1
+  image: 0

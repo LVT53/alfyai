@@ -1,0 +1,33 @@
+{
+  "t_since_create_ms": 872,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_06a5bf0fc5ec89eeea8ab45b",
+    "status": "completed",
+    "created_at": "2026-11-05T11:52:55Z",
+    "started_at": "2026-11-05T11:52:55Z",
+    "finished_at": "2026-11-05T11:52:56Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-941e46d29eaeeab6d98cc909",
+        "file_name": "paper-en.pdf",
+        "status": "completed",
+        "bytes": 241664,
+        "parse": {
+          "tier": "standard",
+          "duration_ms": 675,
+          "parser_version": "4.1.7"
+        },
+        "result_url": "http://127.0.0.1:8012/v1/files/file-941e46d29eaeeab6d98cc909/content"
+      }
+    ]
+  }
+}

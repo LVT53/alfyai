@@ -1,0 +1,182 @@
+{
+  "bigdoc/p20-basic": {
+    "samples": 23,
+    "cgroup_mem_max_MiB": 3546,
+    "our_vram_max_MiB": 2572,
+    "gpu1_used_max_MiB": 17678
+  },
+  "bigdoc/p20-flash": {
+    "samples": 4,
+    "cgroup_mem_max_MiB": 3550,
+    "our_vram_max_MiB": 1538,
+    "gpu1_used_max_MiB": 16644
+  },
+  "bigdoc/p20-standard-again": {
+    "samples": 6,
+    "cgroup_mem_max_MiB": 3190,
+    "our_vram_max_MiB": 1342,
+    "gpu1_used_max_MiB": 16448
+  },
+  "bigdoc/p20-standard-range-1-5": {
+    "samples": 4,
+    "cgroup_mem_max_MiB": 3550,
+    "our_vram_max_MiB": 1538,
+    "gpu1_used_max_MiB": 16644
+  },
+  "bigdoc/p20-standard-range-r1": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 4183,
+    "our_vram_max_MiB": 1608,
+    "gpu1_used_max_MiB": 16674
+  },
+  "bigdoc/p20-standard": {
+    "samples": 7,
+    "cgroup_mem_max_MiB": 3127,
+    "our_vram_max_MiB": 1342,
+    "gpu1_used_max_MiB": 16448
+  },
+  "csv-default": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 3541,
+    "our_vram_max_MiB": 1092,
+    "gpu1_used_max_MiB": 16198
+  },
+  "docx-default": {
+    "samples": 2,
+    "cgroup_mem_max_MiB": 3531,
+    "our_vram_max_MiB": 1092,
+    "gpu1_used_max_MiB": 16198
+  },
+  "fmt-default-plus-docx": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 3667,
+    "our_vram_max_MiB": 1576,
+    "gpu1_used_max_MiB": 16682
+  },
+  "fmt-docx-only-from-docx": {
+    "samples": 2,
+    "cgroup_mem_max_MiB": 3672,
+    "our_vram_max_MiB": 1164,
+    "gpu1_used_max_MiB": 16270
+  },
+  "fmt-html-only": {
+    "samples": 4,
+    "cgroup_mem_max_MiB": 3667,
+    "our_vram_max_MiB": 1576,
+    "gpu1_used_max_MiB": 16682
+  },
+  "fmt-latex-only": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 3672,
+    "our_vram_max_MiB": 1576,
+    "gpu1_used_max_MiB": 16674
+  },
+  "html-default": {
+    "samples": 2,
+    "cgroup_mem_max_MiB": 3534,
+    "our_vram_max_MiB": 1092,
+    "gpu1_used_max_MiB": 16198
+  },
+  "mixed-batch-pdf-docx-csv": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 3665,
+    "our_vram_max_MiB": 1576,
+    "gpu1_used_max_MiB": 16682
+  },
+  "pdf-corrupt-garbage": {
+    "samples": 2,
+    "cgroup_mem_max_MiB": 3560,
+    "our_vram_max_MiB": 1092,
+    "gpu1_used_max_MiB": 16198
+  },
+  "pdf-corrupt-truncated": {
+    "samples": 2,
+    "cgroup_mem_max_MiB": 3560,
+    "our_vram_max_MiB": 1092,
+    "gpu1_used_max_MiB": 16198
+  },
+  "pdf-hu-accented-name": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 3560,
+    "our_vram_max_MiB": 1092,
+    "gpu1_used_max_MiB": 16198
+  },
+  "pdf-paper-basic": {
+    "samples": 22,
+    "cgroup_mem_max_MiB": 3399,
+    "our_vram_max_MiB": 1202,
+    "gpu1_used_max_MiB": 16306
+  },
+  "pdf-paper-default-tier": {
+    "samples": 18,
+    "cgroup_mem_max_MiB": 2958,
+    "our_vram_max_MiB": 1132,
+    "gpu1_used_max_MiB": 16236
+  },
+  "pdf-paper-flash": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 3402,
+    "our_vram_max_MiB": 1080,
+    "gpu1_used_max_MiB": 16184
+  },
+  "pdf-paper-ocr-forced": {
+    "samples": 4,
+    "cgroup_mem_max_MiB": 3527,
+    "our_vram_max_MiB": 1504,
+    "gpu1_used_max_MiB": 16616
+  },
+  "pdf-paper-page-range-2": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 3402,
+    "our_vram_max_MiB": 1080,
+    "gpu1_used_max_MiB": 16184
+  },
+  "pdf-paper-page-range-r1": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 3429,
+    "our_vram_max_MiB": 1504,
+    "gpu1_used_max_MiB": 16608
+  },
+  "pdf-paper-standard": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 2958,
+    "our_vram_max_MiB": 1132,
+    "gpu1_used_max_MiB": 16236
+  },
+  "pptx-default": {
+    "samples": 2,
+    "cgroup_mem_max_MiB": 3534,
+    "our_vram_max_MiB": 1092,
+    "gpu1_used_max_MiB": 16198
+  },
+  "scan-pdf-default-tier": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 3530,
+    "our_vram_max_MiB": 1328,
+    "gpu1_used_max_MiB": 16434
+  },
+  "scan-png-default-tier": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 3530,
+    "our_vram_max_MiB": 1328,
+    "gpu1_used_max_MiB": 16434
+  },
+  "txt-unsupported": {
+    "samples": 1,
+    "cgroup_mem_max_MiB": 3560,
+    "our_vram_max_MiB": 1092,
+    "gpu1_used_max_MiB": 16198
+  },
+  "xlsx-default": {
+    "samples": 3,
+    "cgroup_mem_max_MiB": 3534,
+    "our_vram_max_MiB": 1092,
+    "gpu1_used_max_MiB": 16198
+  },
+  "bigdoc/p20-concurrent(3 tasks, concurrency 2)": {
+    "samples": 14,
+    "cgroup_mem_max_MiB": 5941,
+    "our_vram_max_MiB": 1812,
+    "gpu1_used_max_MiB": 16918
+  }
+}

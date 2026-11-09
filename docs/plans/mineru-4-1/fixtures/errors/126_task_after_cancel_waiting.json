@@ -1,0 +1,43 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/tasks/job_0d1bc3d385a784b632f514e1",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:19 GMT",
+      "server": "uvicorn",
+      "content-length": "334",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_0d1bc3d385a784b632f514e1",
+      "status": "canceled",
+      "created_at": "2026-11-05T11:55:19Z",
+      "finished_at": "2026-11-05T11:55:19Z",
+      "output_formats": [
+        "default"
+      ],
+      "progress": {
+        "completed": 0,
+        "failed": 0,
+        "total": 1
+      },
+      "files": [
+        {
+          "file_id": "file-eb760c5035480801807aefd8",
+          "file_name": "cancel-waiting.pdf",
+          "status": "canceled",
+          "bytes": 241680
+        }
+      ]
+    }
+  }
+}

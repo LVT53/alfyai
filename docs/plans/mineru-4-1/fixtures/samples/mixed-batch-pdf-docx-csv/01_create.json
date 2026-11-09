@@ -1,0 +1,62 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/tasks",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted>"
+    },
+    "json": {
+      "files": [
+        {
+          "file_name": "paper-en.pdf",
+          "bytes": 241664,
+          "sha256sum": "75314f7c73538e08c25bf92e37e81adec884e6062736d2ff7565f4a24ae437c1"
+        },
+        {
+          "file_name": "report.docx",
+          "bytes": 50722,
+          "sha256sum": "99b17c29720ed689fba92e692706bfa9aa5a82ef4ed1aea5b04d5269b2318885"
+        },
+        {
+          "file_name": "table.csv",
+          "bytes": 130,
+          "sha256sum": "32260d24d77fdb416d089f8bb1c3f38dee00e5cde5db06ba6ca3490c00ca54a6"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 202,
+    "reason": "Accepted",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:53:14 GMT",
+      "server": "uvicorn",
+      "content-length": "337",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_6405e867db53e9f63eda5a34",
+      "status": "pending",
+      "files": [
+        {
+          "file_id": "file-35a7970afcf2676f8a28ed8f",
+          "file_name": "paper-en.pdf",
+          "status": "pending"
+        },
+        {
+          "file_id": "file-7713eb2f423b8896b8752a5d",
+          "file_name": "report.docx",
+          "status": "pending"
+        },
+        {
+          "file_id": "file-811b3b57e0d4e540dbf09a08",
+          "file_name": "table.csv",
+          "status": "pending"
+        }
+      ]
+    }
+  }
+}

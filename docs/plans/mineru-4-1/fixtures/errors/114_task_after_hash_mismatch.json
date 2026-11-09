@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/tasks/job_ba42482e13b42b2d5ad830df",
+    "headers": {
+      "Authorization": "Bearer <redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": {
+      "date": "Thu, 05 Nov 2026 11:55:17 GMT",
+      "server": "uvicorn",
+      "content-length": "496",
+      "content-type": "application/json",
+      "connection": "close"
+    },
+    "elapsed_ms": 1,
+    "json": {
+      "task_id": "job_ba42482e13b42b2d5ad830df",
+      "status": "waiting-file",
+      "created_at": "2026-11-05T11:55:18Z",
+      "output_formats": [
+        "default"
+      ],
+      "progress": {
+        "completed": 0,
+        "failed": 0,
+        "total": 1
+      },
+      "files": [
+        {
+          "file_id": "file-00120e5f74fa91e548e2ab9c",
+          "file_name": "hash-wrong.pdf",
+          "status": "waiting-file",
+          "bytes": 241698,
+          "upload": {
+            "url": "http://127.0.0.1:8012/v1/tasks/job_ba42482e13b42b2d5ad830df/uploads/file-00120e5f74fa91e548e2ab9c",
+            "headers": {
+              "Content-Type": "application/octet-stream"
+            },
+            "expires_at": 1793883318
+          }
+        }
+      ]
+    }
+  }
+}

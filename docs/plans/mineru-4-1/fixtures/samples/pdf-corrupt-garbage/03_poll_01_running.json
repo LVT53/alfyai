@@ -1,0 +1,26 @@
+{
+  "t_since_create_ms": 3,
+  "http": 200,
+  "snapshot": {
+    "task_id": "job_4219d8e2d5ce525badd3023f",
+    "status": "running",
+    "created_at": "2026-11-05T11:53:14Z",
+    "started_at": "2026-11-05T11:53:14Z",
+    "output_formats": [
+      "default"
+    ],
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-0bb98b9803e0c5de7411de24",
+        "file_name": "garbage.pdf",
+        "status": "running",
+        "bytes": 4009
+      }
+    ]
+  }
+}

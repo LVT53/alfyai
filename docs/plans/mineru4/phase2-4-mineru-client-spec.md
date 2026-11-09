@@ -1,5 +1,11 @@
 # Phase 2 + Phase 4 — MinerU 4.x V1 client and structured results
 
+> **The wire protocol below is superseded (2026-11-09).** The client this spec describes spoke
+> MinerU 4.0's `/v1/uploads` and `/v1/parse/jobs` API, which MinerU 4.1 removed; it was replaced by
+> a `/v1/tasks` client, see [docs/plans/mineru-4-1/](../mineru-4-1/client-spec.md) and its
+> [build log](../mineru-4-1/build-log.md). What this spec says about results, the ledger and the
+> registry still stands unless the 4.1 plan says otherwise.
+
 Implementation spec. Target repo: `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai`.
 Audience: parallel dev sub-agents in separate worktrees, then an adversarial reviewer.
 
