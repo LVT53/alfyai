@@ -20,7 +20,7 @@ import {
 	renderPromptMarkdown,
 	type StructuredContent,
 } from "./result";
-import { loadV41 } from "./result-corpus.test-helpers";
+import { loadV41, V41_SAMPLES } from "./result-corpus.test-helpers";
 
 const FIXTURE_ROOT = join(process.cwd(), "fixtures", "mineru-v1");
 
@@ -253,6 +253,17 @@ async function outlineForV41(
 	return { outline: result.outline, markdown: result.markdown };
 }
 
+/** A one-page document from hand-written blocks. */
+function singlePage(
+	blocks: ReadonlyArray<Record<string, unknown>>,
+): StructuredContent {
+	return parseStructuredContent({
+		pages: [{ page_idx: 0, blocks }],
+		metadata: { document: {} },
+		extensions: {},
+	});
+}
+
 describe("MinerU outline — MinerU 4.1 documents", () => {
 	it("pdf (standard): equation, chart and footnote add no entries, and every page is named", async () => {
 		const { outline } = await outlineForV41(
@@ -294,19 +305,55 @@ describe("MinerU outline — MinerU 4.1 documents", () => {
 		expect(method?.preview).not.toContain("<small>");
 	});
 
-	it("pdf (standard): the introduction's preview opens on its prose, not on the equation", async () => {
-		const { outline } = await outlineForV41(
-			"pdf-paper-default-tier",
-			"document.pdf",
-		);
-		const introduction = outline.find(
-			(entry) => entry.title === "1. Introduction",
-		);
+	it("a heading's preview reads the fenced equation that follows it", () => {
+		// The paper's own introduction cannot show this: its paragraph is longer
+		// than the 300 characters a preview keeps, so the equation after it is
+		// never reached. Here the equation is the first thing under the heading.
+		const tag = "E = m c ^ {2}\\tag{1}";
+		const { outline } = buildStructuredExtractionResult({
+			content: singlePage([
+				{ type: "paragraph_title", level: 2, content: "Energy" },
+				{ type: "equation", content: tag },
+				{ type: "text", content: "where m is the mass." },
+			]),
+		});
 
-		// The preview is the first 300 characters of the body, and the paragraph
-		// that leads into the equation is longer than that.
-		expect(introduction?.preview.startsWith("Let $x_{i}")).toBe(true);
-		expect(introduction?.preview).not.toMatch(/^#/m);
+		expect(outline.map((entry) => entry.preview)).toEqual([
+			`$$\n${tag}\n$$\n\nwhere m is the mass.`,
+		]);
+	});
+
+	it("a heading's preview opens on the handle and caption of the chart that follows it", () => {
+		// Until 4.1 a chart was dropped from the text, so this preview skipped to
+		// the next paragraph and the section looked as if it had no figure.
+		const { outline } = buildStructuredExtractionResult({
+			content: singlePage([
+				{ type: "paragraph_title", level: 2, content: "Throughput" },
+				{
+					type: "chart",
+					content: "",
+					image_source: "images/page_0_chart_1.jpg",
+					captions: [{ content: "Figure 1. Relative throughput by tier." }],
+				},
+				{ type: "text", content: "Standard is the fastest tier." },
+			]),
+		});
+
+		expect(outline.map((entry) => entry.preview)).toEqual([
+			"[Figure 1: Figure 1. Relative throughput by tier.]\n\nStandard is the fastest tier.",
+		]);
+	});
+
+	it.each(
+		V41_SAMPLES,
+	)("$slug: no preview carries MinerU's markup or an image link", async (sample) => {
+		const { outline } = await outlineForV41(sample.slug, sample.filename);
+
+		for (const entry of outline) {
+			expect(entry.preview, entry.title).not.toContain("<small>");
+			expect(entry.preview, entry.title).not.toContain("docvortex");
+			expect(entry.preview, entry.title).not.toContain("![](");
+		}
 	});
 
 	it("pptx: slide titles keep their slide, and the notes sit under their own slide's title", async () => {
