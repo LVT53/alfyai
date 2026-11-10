@@ -1,38 +1,9 @@
 import { containsTerminalAiSdkUiStreamPayload } from "$lib/services/ai-sdk-ui-stream-contract";
-import {
-	streamDataPartEvent,
-	streamReasoningDeltaEvent,
-	streamReasoningStartEvent,
-	streamResponseActivityEvent,
-	streamTextDeltaEvent,
-	streamTextStartEvent,
-	streamToolCallEvent,
-} from "./stream";
+import { streamDataPartEvent } from "./stream";
 
 export interface ReconnectBuffer {
 	userMessage: string | null;
-	createdAt?: number;
-	tokens: string[];
-	thinking: string[];
-	responseActivity: import("$lib/response-activity-types").ResponseActivityEntry[];
-	toolCalls: Array<{
-		callId?: string;
-		name: string;
-		input: Record<string, unknown>;
-		status: "running" | "done" | "failed";
-		outputSummary?: string | null;
-		sourceType?:
-			| import("$lib/server/services/message-evidence").EvidenceSourceType
-			| null;
-		candidates?: import("$lib/server/services/message-evidence").ToolEvidenceCandidate[];
-		metadata?: Record<string, string | number | boolean | null>;
-		map?: import("$lib/server/services/messages-types").ToolCallMapData | null;
-	}>;
-	eventTimeline?: Array<{
-		seq: number;
-		type: "token" | "thinking" | "response_activity" | "tool_call";
-		index: number;
-	}>;
+	journal: import("./stream-replay-journal").StreamReplayJournal;
 }
 
 export interface ReconnectDeps {
@@ -88,152 +59,6 @@ function getStreamOwner(
 	return { streamId, userId, conversationId };
 }
 
-function hasReplayableBufferData(buffer: ReconnectBuffer | undefined): boolean {
-	if (!buffer) return false;
-	return Boolean(
-		(buffer.eventTimeline?.length ?? 0) ||
-			buffer.tokens.length ||
-			buffer.thinking.length ||
-			buffer.toolCalls.length ||
-			buffer.responseActivity.length,
-	);
-}
-
-function sendReplayStart(
-	enqueueChunk: ReconnectDeps["enqueueChunk"],
-	buffer: ReconnectBuffer,
-) {
-	enqueueChunk(
-		streamDataPartEvent("data-replay-start", {
-			tokenCount: buffer.tokens.length,
-			thinkingCount: buffer.thinking.length,
-			toolCallCount: buffer.toolCalls.length,
-			...(buffer.responseActivity.length > 0
-				? { activityCount: buffer.responseActivity.length }
-				: {}),
-			userMessage: buffer.userMessage,
-		}),
-	);
-}
-
-function sendReplayByTimeline(
-	enqueueChunk: ReconnectDeps["enqueueChunk"],
-	buffer: ReconnectBuffer,
-) {
-	const sortedTimeline = [...(buffer.eventTimeline ?? [])].sort(
-		(a, b) => a.seq - b.seq,
-	);
-	let hasTextStart = false;
-	let hasReasoningStart = false;
-
-	for (const entry of sortedTimeline) {
-		const idx = entry.index;
-		switch (entry.type) {
-			case "token": {
-				const token = buffer.tokens[idx];
-				if (token !== undefined) {
-					if (!hasTextStart) {
-						hasTextStart = true;
-						enqueueChunk(streamTextStartEvent());
-					}
-					enqueueChunk(streamTextDeltaEvent(token));
-				}
-				break;
-			}
-			case "thinking": {
-				const thinking = buffer.thinking[idx];
-				if (thinking !== undefined) {
-					if (!hasReasoningStart) {
-						hasReasoningStart = true;
-						enqueueChunk(streamReasoningStartEvent());
-					}
-					enqueueChunk(streamReasoningDeltaEvent(thinking));
-				}
-				break;
-			}
-			case "response_activity": {
-				const activity = buffer.responseActivity[idx];
-				if (activity !== undefined) {
-					enqueueChunk(streamResponseActivityEvent(activity));
-				}
-				break;
-			}
-			case "tool_call": {
-				const toolCall = buffer.toolCalls[idx];
-				if (toolCall !== undefined) {
-					enqueueChunk(
-						streamToolCallEvent({
-							callId: toolCall.callId,
-							name: toolCall.name,
-							input: toolCall.input,
-							status: toolCall.status,
-							outputSummary: toolCall.outputSummary,
-							sourceType: toolCall.sourceType,
-							candidates: toolCall.candidates,
-							metadata: toolCall.metadata,
-							map: toolCall.map,
-						}),
-					);
-				}
-				break;
-			}
-		}
-	}
-}
-
-function sendReplayFallback(
-	enqueueChunk: ReconnectDeps["enqueueChunk"],
-	buffer: ReconnectBuffer,
-) {
-	if (buffer.tokens.length > 0) {
-		enqueueChunk(streamTextStartEvent());
-	}
-	for (const token of buffer.tokens) {
-		enqueueChunk(streamTextDeltaEvent(token));
-	}
-	if (buffer.thinking.length > 0) {
-		enqueueChunk(streamReasoningStartEvent());
-	}
-	for (const thinking of buffer.thinking) {
-		enqueueChunk(streamReasoningDeltaEvent(thinking));
-	}
-	for (const activity of buffer.responseActivity) {
-		enqueueChunk(streamResponseActivityEvent(activity));
-	}
-	for (const toolCall of buffer.toolCalls) {
-		enqueueChunk(
-			streamToolCallEvent({
-				callId: toolCall.callId,
-				name: toolCall.name,
-				input: toolCall.input,
-				status: toolCall.status,
-				outputSummary: toolCall.outputSummary,
-				sourceType: toolCall.sourceType,
-				candidates: toolCall.candidates,
-				metadata: toolCall.metadata,
-				map: toolCall.map,
-			}),
-		);
-	}
-}
-
-function replayBuffer(
-	enqueueChunk: ReconnectDeps["enqueueChunk"],
-	buffer: ReconnectBuffer | undefined,
-) {
-	if (!buffer || !hasReplayableBufferData(buffer)) {
-		return;
-	}
-
-	sendReplayStart(enqueueChunk, buffer);
-	if (buffer.eventTimeline?.length) {
-		sendReplayByTimeline(enqueueChunk, buffer);
-	} else {
-		sendReplayFallback(enqueueChunk, buffer);
-	}
-	enqueueChunk(streamDataPartEvent("data-replay-end", {}));
-}
-
 function createHeartbeatController(
 	enqueueChunk: ReconnectDeps["enqueueChunk"],
 	createHeartbeatComment: () => string,
@@ -281,6 +106,7 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 	);
 	let connectionClosed = false;
 	const closeConnection = () => {
+		if (connectionClosed) return;
 		connectionClosed = true;
 		heartbeat.clear();
 		closeDownstream();
@@ -291,19 +117,33 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 		enqueueChunk(createSseHeartbeatComment());
 
 		const buffer = getStreamBuffer(streamOwner);
-		if (buffer && hasReplayableBufferData(buffer)) {
-			console.info(
-				"[CHAT_STREAM] Replaying buffer for stream",
-				targetStreamId,
-				{
-					hasContent: true,
-					tokens: buffer.tokens.length,
-					thinking: buffer.thinking.length,
-					hasTimeline: Boolean(buffer.eventTimeline?.length),
-				},
-			);
+		const replay = buffer?.journal.read();
+		if (!replay?.complete) {
+			enqueueChunk(streamDataPartEvent("data-waiting", {}));
+			closeConnection();
+			return;
 		}
-		replayBuffer(enqueueChunk, buffer);
+		if (replay.chunks.length)
+			enqueueChunk(
+				streamDataPartEvent("data-replay-start", {
+					userMessage: buffer?.userMessage,
+					tokenCount: 0,
+					thinkingCount: 0,
+					toolCallCount: 0,
+				}),
+			);
+		for (const chunk of replay.chunks) {
+			if (containsTerminalAiSdkUiStreamPayload(chunk))
+				enqueueChunk(streamDataPartEvent("data-replay-end", {}));
+			enqueueChunk(chunk);
+			if (containsTerminalAiSdkUiStreamPayload(chunk)) {
+				closeConnection();
+				return;
+			}
+		}
+
+		if (replay.chunks.length)
+			enqueueChunk(streamDataPartEvent("data-replay-end", {}));
 
 		let liveListener: (chunk: string) => void;
 		liveListener = (chunk: string) => {

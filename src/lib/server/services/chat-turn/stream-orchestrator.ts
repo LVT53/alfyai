@@ -10,7 +10,6 @@ import {
 	syncGeneratedFilesToMemory,
 } from "$lib/server/services/chat-files";
 import {
-	appendToStreamBuffer,
 	broadcastStreamChunk,
 	clearStreamBuffer,
 	getOrCreateStreamBuffer,
@@ -636,13 +635,7 @@ export function runChatStreamOrchestrator(
 			const chunkRuntime = createServerChunkRuntime({
 				enqueueChunk,
 				skillControlEnabled,
-				onToken: (chunk) => {
-					if (streamId)
-						appendToStreamBuffer(streamId, "token", { text: chunk });
-				},
 				onThinking: (reasoning) => {
-					if (streamId)
-						appendToStreamBuffer(streamId, "thinking", { text: reasoning });
 					// P3b — fed the SAME text that is about to be appended to
 					// chunkRuntime.thinkingContent (this callback fires from
 					// inside flushPendingThinking, after the same cleaning/
@@ -650,21 +643,6 @@ export function runChatStreamOrchestrator(
 					// classifier session's running offset stays in lockstep
 					// with what becomes the persisted messages.thinking text.
 					thoughtStepClassifierSession.onReasoningDelta(reasoning);
-				},
-				onToolCall: (name, input, status, outputSummary, details) => {
-					if (streamId) {
-						appendToStreamBuffer(streamId, "tool_call", {
-							callId: details?.callId,
-							name,
-							input,
-							status,
-							outputSummary,
-							sourceType: details?.sourceType,
-							candidates: details?.candidates,
-							metadata: details?.metadata,
-							map: details?.map,
-						});
-					}
 				},
 				onResponseActivity: (entry) => emitResponseActivity(entry),
 			});
@@ -674,11 +652,6 @@ export function runChatStreamOrchestrator(
 					...entry,
 					occurredAt: entry.occurredAt ?? Date.now(),
 				};
-				if (streamId) {
-					appendToStreamBuffer(streamId, "response_activity", {
-						activity,
-					});
-				}
 				enqueueChunk(streamResponseActivityEvent(activity));
 			};
 			// P2 (ADR-0056) — surface the acknowledgment, if and only if it

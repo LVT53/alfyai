@@ -6,7 +6,12 @@ import type {
 	ToolEvidenceCandidate,
 } from "$lib/server/services/message-evidence";
 import type { ToolCallMapData } from "$lib/server/services/messages-types";
+import {
+	decodeAiSdkUiStreamPayloads,
+	encodeAiSdkUiStreamPart,
+} from "$lib/services/ai-sdk-ui-stream-contract";
 import { toolCallInputKey } from "$lib/utils/tool-calls";
+import { StreamReplayJournal } from "./stream-replay-journal";
 
 const STOP_REQUEST_TTL_MS = 30_000;
 
@@ -44,6 +49,7 @@ const conversationStreams = new Map<string, string>();
 
 // Stream token buffer for reconnection replay
 export interface StreamTokenBuffer {
+	streamId: string;
 	userId: string;
 	conversationId: string;
 	createdAt: number;
@@ -64,19 +70,11 @@ export interface StreamTokenBuffer {
 		metadata?: Record<string, string | number | boolean | null>;
 		map?: ToolCallMapData | null;
 	}>;
-	/** Monotonic sequence counter for event ordering during replay */
-	nextSequence: number;
-	/** Ordered timeline of events: each entry records the type and array index */
-	eventTimeline: Array<{
-		seq: number;
-		type: "token" | "thinking" | "response_activity" | "tool_call";
-		index: number;
-	}>;
+	journal: StreamReplayJournal;
 	listeners: Set<(chunk: string) => void>;
 }
 
 const streamBuffers = new Map<string, StreamTokenBuffer>();
-const BUFFER_MAX_TOKENS = 100_000;
 const BUFFER_CLEANUP_MS = 5 * 60 * 1000;
 const BUFFER_TTL_MS = BUFFER_CLEANUP_MS;
 
@@ -128,7 +126,13 @@ function isStreamBufferExpired(
 	buffer: StreamTokenBuffer,
 	now = Date.now(),
 ): boolean {
-	return now - buffer.updatedAt >= BUFFER_TTL_MS;
+	return (
+		!isStreamActive({
+			streamId: buffer.streamId,
+			userId: buffer.userId,
+			conversationId: buffer.conversationId,
+		}) && now - buffer.updatedAt >= BUFFER_TTL_MS
+	);
 }
 
 function getLiveStreamBuffer(streamId: string): StreamTokenBuffer | null {
@@ -177,6 +181,7 @@ export function getOrCreateStreamBuffer(params: {
 	if (!buffer) {
 		const now = Date.now();
 		buffer = {
+			streamId: params.streamId,
 			userId: params.userId,
 			conversationId: params.conversationId,
 			createdAt: now,
@@ -185,12 +190,19 @@ export function getOrCreateStreamBuffer(params: {
 			...(params.reasoningDepth
 				? { reasoningDepth: params.reasoningDepth }
 				: {}),
-			tokens: [],
-			thinking: [],
-			responseActivity: [],
-			toolCalls: [],
-			nextSequence: 0,
-			eventTimeline: [],
+			journal: new StreamReplayJournal(),
+			get tokens() {
+				return projectBuffer(this).tokens;
+			},
+			get thinking() {
+				return projectBuffer(this).thinking;
+			},
+			get responseActivity() {
+				return projectBuffer(this).responseActivity;
+			},
+			get toolCalls() {
+				return projectBuffer(this).toolCalls;
+			},
 			listeners: new Set(),
 		};
 		streamBuffers.set(params.streamId, buffer);
@@ -265,104 +277,67 @@ export function appendToStreamBuffer(
 ) {
 	const buffer = getLiveStreamBuffer(streamId);
 	if (!buffer) return;
-	buffer.updatedAt = Date.now();
-
-	if (event === "token" && data.text) {
-		buffer.tokens.push(data.text);
-		buffer.eventTimeline.push({
-			seq: buffer.nextSequence++,
-			type: "token",
-			index: buffer.tokens.length - 1,
-		});
-		// Cap buffer size
-		if (buffer.tokens.join("").length > BUFFER_MAX_TOKENS) {
-			buffer.tokens = buffer.tokens.slice(-Math.floor(BUFFER_MAX_TOKENS / 10));
-			// Invalidate timeline since indices shifted; fall back to batch replay
-			buffer.eventTimeline = [];
-		}
-	} else if (event === "thinking" && data.text) {
-		buffer.thinking.push(data.text);
-		buffer.eventTimeline.push({
-			seq: buffer.nextSequence++,
-			type: "thinking",
-			index: buffer.thinking.length - 1,
-		});
-		if (buffer.thinking.join("").length > BUFFER_MAX_TOKENS) {
-			buffer.thinking = buffer.thinking.slice(
-				-Math.floor(BUFFER_MAX_TOKENS / 10),
-			);
-			buffer.eventTimeline = [];
-		}
-	} else if (event === "response_activity" && data.activity) {
-		const existingIndex = buffer.responseActivity.findIndex(
-			(entry) => entry.id === data.activity?.id,
-		);
-		if (existingIndex === -1) {
-			buffer.responseActivity.push(data.activity);
-			buffer.eventTimeline.push({
-				seq: buffer.nextSequence++,
-				type: "response_activity",
-				index: buffer.responseActivity.length - 1,
-			});
-		} else {
-			buffer.responseActivity[existingIndex] = {
-				...buffer.responseActivity[existingIndex],
-				...data.activity,
-			};
-		}
-	} else if (event === "tool_call" && data.name) {
-		if (data.status === "running") {
-			const input = data.input ?? {};
-			const inputKey = toolCallInputKey(input);
-			const duplicateRunning = buffer.toolCalls.some(
-				(toolCall) =>
-					toolCall.status === "running" &&
-					toolCall.name === data.name &&
-					(data.callId
-						? toolCall.callId === data.callId
-						: toolCallInputKey(toolCall.input) === inputKey),
-			);
-			if (duplicateRunning) return;
-			buffer.toolCalls.push({
-				...(data.callId ? { callId: data.callId } : {}),
-				name: data.name,
-				input,
-				status: "running",
-				sourceType: data.sourceType,
-				candidates: data.candidates,
-				metadata: data.metadata,
-			});
-			buffer.eventTimeline.push({
-				seq: buffer.nextSequence++,
-				type: "tool_call",
-				index: buffer.toolCalls.length - 1,
-			});
-		} else {
-			// Mark last matching tool_call as done
-			for (let i = buffer.toolCalls.length - 1; i >= 0; i--) {
-				if (
-					buffer.toolCalls[i].name === data.name &&
-					buffer.toolCalls[i].status === "running" &&
-					(data.callId ? buffer.toolCalls[i].callId === data.callId : true)
-				) {
-					buffer.toolCalls[i] = {
-						...(buffer.toolCalls[i].callId
-							? { callId: buffer.toolCalls[i].callId }
-							: {}),
-						name: data.name,
-						input: buffer.toolCalls[i].input,
-						status: "done",
-						outputSummary: data.outputSummary ?? null,
-						sourceType: data.sourceType ?? buffer.toolCalls[i].sourceType,
-						candidates: data.candidates ?? buffer.toolCalls[i].candidates,
-						metadata: data.metadata,
-						map: data.map ?? buffer.toolCalls[i].map,
-					};
-					break;
+	const part =
+		event === "token" || event === "thinking"
+			? {
+					type:
+						event === "token"
+							? ("text-delta" as const)
+							: ("reasoning-delta" as const),
+					id: event === "token" ? "answer" : "reasoning",
+					delta: data.text ?? "",
 				}
+			: {
+					type:
+						event === "tool_call"
+							? ("data-tool-call" as const)
+							: ("data-response-activity" as const),
+					data: event === "tool_call" ? data : data.activity,
+				};
+	buffer.updatedAt = Date.now();
+	buffer.journal.append(encodeAiSdkUiStreamPart(part));
+}
+
+// Legacy status views are derived on read; replay never reconstructs these arrays.
+function projectBuffer(buffer: StreamTokenBuffer) {
+	const tokens: string[] = [],
+		thinking: string[] = [];
+	const responseActivity = new Map<string, ResponseActivityEntry>();
+	const toolCalls: StreamTokenBuffer["toolCalls"] = [];
+	for (const chunk of buffer.journal.read().chunks) {
+		for (const part of decodeAiSdkUiStreamPayloads(chunk)) {
+			if (part === "[DONE]") continue;
+			if (part.type === "text-delta") tokens.push(part.delta);
+			else if (part.type === "reasoning-delta") thinking.push(part.delta);
+			else if (part.type === "data-response-activity") {
+				const entry = part.data as ResponseActivityEntry;
+				responseActivity.set(entry.id, {
+					...responseActivity.get(entry.id),
+					...entry,
+				});
+			} else if (part.type === "data-tool-call") {
+				const entry = part.data as StreamTokenBuffer["toolCalls"][number];
+				const prior = toolCalls.findLast(
+					(e) =>
+						e.name === entry.name &&
+						(entry.callId
+							? e.callId === entry.callId
+							: entry.status !== "running" ||
+								toolCallInputKey(e.input) ===
+									toolCallInputKey(entry.input ?? {})),
+				);
+				if (prior)
+					Object.assign(prior, entry, { input: entry.input ?? prior.input });
+				else toolCalls.push({ ...entry, input: entry.input ?? {} });
 			}
 		}
 	}
+	return {
+		tokens,
+		thinking,
+		responseActivity: [...responseActivity.values()],
+		toolCalls,
+	};
 }
 
 export function clearStreamBuffer(streamId: string) {
@@ -403,8 +378,10 @@ export function unsubscribeFromStream(
 }
 
 export function broadcastStreamChunk(streamId: string, chunk: string) {
-	const buffer = streamBuffers.get(streamId);
+	const buffer = getLiveStreamBuffer(streamId);
 	if (buffer) {
+		buffer.updatedAt = Date.now();
+		buffer.journal.append(chunk);
 		for (const listener of buffer.listeners) {
 			try {
 				listener(chunk);
