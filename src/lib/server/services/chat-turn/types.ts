@@ -183,6 +183,7 @@ export type WorkCapsuleSummary =
 	| undefined;
 
 export type AssistantAnalytics = {
+	turnSegmentId?: string;
 	model: string;
 	modelDisplayName?: string | null;
 	promptTokens?: number;

@@ -145,6 +145,8 @@ Authenticated account-level personalization fields such as display name and emai
 
 **Direct file-production tool note**: normal chat exposes `produce_file` through the app-owned AI SDK tool boundary. The agent must see the actual `produce_file` action as the tool, with `conversationId` supplied by the runtime and only `produce_file` contract fields model-facing.
 
+**Normal Chat completion:** `chat-turn/prepared-normal-chat-turn.ts` is the shared prepared owner for plain/stream. Model Run owns retained progress/closing/usage totals; `chat-turn/completion-lifetime.ts` owns admission and serialized ledger writes; existing analytics owns pricing. `chat-turn/AGENTS.md` gives the output, exact resume and observe-only journal contracts. Transport never re-prepares a failed turn to replay tools.
+
 **Tool execution envelope note**: app-backed Normal Chat tools in `normal-chat-tools/` should use the shared envelope in `normal-chat-tools/shared.ts` for timeout, abort, model-safe failure text, and recorder behavior. Keep each tool adapter focused on input validation, domain execution, output compaction, and evidence metadata.
 
 **Web-grounding note**: `web-grounding.ts` is the Normal Chat authority for compact `research_web` source/evidence payloads, grounded web candidates, grounded metadata, URL canonicalization, and citation-audit source extraction. Keep freshness/search instructions in `normal-chat-context.ts`, but route retrieved web source/evidence shaping and final citation audit handoff through Web Grounding.

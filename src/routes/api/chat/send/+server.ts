@@ -543,6 +543,7 @@ async function runStandardSendTurn({
 		turn.personalityProfileId,
 	);
 	const modelRunResult = await runPlainNormalChatSendModel({
+		completionRequestId: turn.streamId ?? undefined,
 		userId: user.id,
 		runtimeConfig,
 		message: upstreamMessage,
@@ -605,6 +606,7 @@ async function runStandardSendTurn({
 	}).catch(() => null);
 
 	const completion = await finalizeChatTurn({
+		completionTurn: modelRunResult.completionTurn,
 		turnKind: "send",
 		responseLanguage: turnLanguage?.language ?? user.uiLanguage ?? "en",
 		userId: user.id,
@@ -775,12 +777,20 @@ function normalizeModelRunOutput({
 	modelRunResultText: string;
 	modelRunResult: Awaited<ReturnType<typeof runPlainNormalChatSendModel>>;
 }) {
-	const normalizedAssistantOutput = normalizeAssistantOutputWithSkillControl(
+	const normalizedAnswer = normalizeAssistantOutputWithSkillControl(
 		modelRunResultText,
 		{
 			skillControlEnabled: runtimeConfig.composerCommandRegistryEnabled,
+			structuredOutput: !!modelRunResult.completionTurn,
 		},
 	);
+	const control = modelRunResult.completionTurn?.skillControl;
+	const normalizedAssistantOutput = {
+		...normalizedAnswer,
+		...(control
+			? { operations: control.operations, metadata: control.metadata }
+			: {}),
+	};
 	const responseText = normalizedAssistantOutput.visibleText;
 	const finalToolCalls = (
 		modelRunResult.toolCalls ?? modelRunResult.prefetchedToolCalls

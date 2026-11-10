@@ -116,6 +116,7 @@ export interface StreamCompletionFacts {
 }
 
 export interface CompleteStreamTurnParams extends StreamCompletionFacts {
+	completionTurn?: import("./prepared-normal-chat-turn").CompletionReceipt;
 	// The account's UI language: the last fallback of the language what is
 	// written after the reply is in (reply-language.ts), for a turn whose
 	// language call failed and whose reply says nothing and follows no earlier one.
@@ -382,7 +383,8 @@ export async function completeStreamTurn(
 	const skillControl = wasStopped
 		? { operations: [] }
 		: skillControlEnabled
-			? parseSkillControlEnvelopePayloads(skillControlEnvelopePayloads)
+			? (params.completionTurn?.skillControl ??
+				parseSkillControlEnvelopePayloads(skillControlEnvelopePayloads))
 			: { operations: [] };
 	if (citationGate?.appendedNotice) {
 		console.warn(
@@ -563,6 +565,7 @@ export async function completeStreamTurn(
 				// Finding 4 — see repairedFinalContent above. Omitted entirely
 				// when the citation repair changed nothing, mirroring
 				// thoughtSteps/followUps just above.
+				...(params.completionTurn ? { finalContent: finalResponse } : {}),
 				...(repairedFinalContent !== null
 					? { finalContent: repairedFinalContent }
 					: {}),
@@ -660,7 +663,7 @@ export async function completeStreamTurn(
 	try {
 		if (await endQuietlyWhenItsChatWasDeleted()) return;
 		const persistedAssistantResponse =
-			wasStopped && finalResponse.trim().length === 0
+			wasStopped && !params.completionTurn && finalResponse.trim().length === 0
 				? "Stopped"
 				: finalResponse;
 		// The language of the conversation for the person, named once after the
@@ -786,6 +789,7 @@ export async function completeStreamTurn(
 			});
 		}
 		await finalizeChatTurn({
+			completionTurn: params.completionTurn,
 			turnKind: "stream",
 			streamId,
 			userId,

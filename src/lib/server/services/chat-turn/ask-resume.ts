@@ -20,6 +20,7 @@ import {
 import {
 	type AskResumeInput,
 	buildAskResumeContinuation,
+	buildAskResumeSnapshot,
 	holdsAskResult,
 } from "./ask-capture";
 import {
@@ -382,6 +383,11 @@ export async function prepareAskResumeTurn(p: {
 		askToolCallId: claimed.toolCallId,
 		userMessageId: userMessage.id,
 		continuation: buildAskResumeContinuation(
+			capture,
+			claimed.toolCallId,
+			answered.record.result,
+		),
+		snapshot: buildAskResumeSnapshot(
 			capture,
 			claimed.toolCallId,
 			answered.record.result,

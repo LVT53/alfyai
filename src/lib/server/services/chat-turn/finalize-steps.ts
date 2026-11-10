@@ -130,6 +130,7 @@ export async function recordAssistantTurnAnalytics(params: {
 		messageId: params.assistantMessageId,
 		conversationId: params.conversationId,
 		userId: params.userId,
+		turnSegmentId: analytics.turnSegmentId,
 		model: analytics.model,
 		modelDisplayName: analytics.modelDisplayName,
 		promptTokens: analytics.promptTokens,

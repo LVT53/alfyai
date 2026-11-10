@@ -124,6 +124,7 @@ export type FinalizeChatTurnDurableReceipt = {
 };
 
 export type FinalizeChatTurnParams = {
+	completionTurn?: import("./prepared-normal-chat-turn").CompletionReceipt;
 	// The turn kinds that actually exist (F1) — every other former mode
 	// boolean (persistAssistantMessage, persistUserAttachmentsBeforeAssistantMessage,
 	// waitForEvidenceBeforePostTurnTasks, deferPostTurnProjection, and the
@@ -577,15 +578,42 @@ export function collectInstructionSuggestions(
 export async function finalizeChatTurn(
 	params: FinalizeChatTurnParams,
 ): Promise<FinalizeChatTurnResult> {
+	const snapshot = params.completionTurn?.getSnapshot();
+	if (params.completionTurn)
+		params = {
+			...params,
+			analytics: params.analytics
+				? {
+						...params.analytics,
+						turnSegmentId: params.completionTurn.segmentId,
+					}
+				: params.analytics,
+			assistantMetadata: {
+				...params.assistantMetadata,
+				...(snapshot
+					? {
+							normalChatOutput: {
+								version: 1,
+								events: snapshot.events.filter(
+									(event) => event.segmentId === snapshot.segmentId,
+								),
+							},
+						}
+					: {}),
+			},
+		};
 	const logPrefix = turnLogPrefix(params.turnKind);
 	const isStream = params.turnKind === "stream";
 	// Every former independently-settable mode boolean besides
 	// persistTurnState now derives from the turn kind: send persists
 	// attachments before the assistant message and runs its post-turn
-	// projection eagerly (strict persistence, no deferral); stream persists
-	// attachments after (deferred, best-effort) and always defers the full
+	// projection eagerly; stream persists attachments after and defers the full
 	// projection until onDurableReceiptReady has run.
-	const mode: MessageCreationMode = isStream ? "best_effort" : "strict";
+	const mode: MessageCreationMode = params.completionTurn
+		? "strict"
+		: isStream
+			? "best_effort"
+			: "strict";
 	const persistUserAttachmentsBeforeAssistantMessage = !isStream;
 	const waitForEvidenceBeforePostTurnTasks = isStream;
 	const shouldPersistTurnState = params.persistTurnState ?? true;
@@ -714,6 +742,15 @@ export async function finalizeChatTurn(
 					pause: params.ask.pause,
 				})
 			: undefined;
+
+	if (
+		params.completionTurn &&
+		snapshot?.completion?.outcome === "paused" &&
+		!params.assistantMetadata.wasStopped &&
+		!waitingQuestionId
+	)
+		throw new Error("Paused turn capture could not be persisted");
+	await params.completionTurn?.finish(assistantMessage?.id);
 
 	if (
 		!persistUserAttachmentsBeforeAssistantMessage &&

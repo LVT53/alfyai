@@ -1,7 +1,13 @@
+import { streamTextDeltaEvent as journalTextFrame } from "./stream";
+
+vi.mock("./completion-lifetime", () => ({
+	observeCompletionTurn: async () => null,
+}));
+
 import type { ModelMessage } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	appendToStreamBuffer,
+	broadcastStreamChunk,
 	clearStreamBuffer,
 	getOrCreateStreamBuffer,
 	getStreamBuffer,
@@ -382,6 +388,24 @@ function createNeutralStreamingResult(
 	const normalChatToolCalls =
 		(overrides.normalChatToolCalls as unknown[] | undefined) ?? [];
 	return {
+		completionTurn: {
+			segmentId: "fixture-segment",
+			finish: async () => {},
+			getSnapshot: () => ({
+				segmentId: "fixture-segment",
+				events: [],
+				completion: {
+					version: 1,
+					turnId: "fixture-turn",
+					segmentId: "fixture-segment",
+					phase: "working",
+					outcome: overrides.fixtureOutcome ?? "answered",
+					stopCause: "natural_stop",
+					workingStopCause: "natural_stop",
+					closingAttempted: false,
+				},
+			}),
+		},
 		prepared: {
 			contextStatus: null,
 			taskState: null,
@@ -596,7 +620,111 @@ describe("stream-orchestrator SSE contract", () => {
 	});
 
 	afterEach(() => {
+		clearStreamBuffer("test-stream");
+		unregisterActiveChatStream("test-stream");
 		vi.useRealTimers();
+	});
+
+	it("persists structural completion and explicit narration without rebuilding a fallback", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"./streaming-normal-chat-model-run"
+		);
+		const { runPlainNormalChatSendModel } = await import(
+			"./plain-normal-chat-model-run"
+		);
+		const { createMessage } = await import("../messages");
+		const scope = {
+			version: 1 as const,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "step",
+			phase: "closing" as const,
+		};
+		const completion = {
+			version: 1 as const,
+			turnId: "t",
+			segmentId: "s",
+			phase: "closing" as const,
+			outcome: "answered" as const,
+			stopCause: "natural_stop" as const,
+			workingStopCause: "tool_budget" as const,
+			closingAttempted: true,
+		};
+		const events = [
+			{
+				...scope,
+				sequence: 0,
+				type: "block_start",
+				blockId: "b",
+				nativeId: "b",
+				kind: "text",
+				role: "answer",
+			},
+			{
+				...scope,
+				sequence: 1,
+				type: "block_delta",
+				blockId: "b",
+				text: "Let me check.\n\n## Result\n42",
+			},
+			{ ...scope, sequence: 2, type: "completion", completion },
+		];
+		const finish = vi.fn(async () => {});
+		vi.mocked(runStreamingNormalChatSendModel).mockImplementation(
+			async (params) => {
+				for (const event of events) params.onOutputEvent?.(event as never);
+				return createNeutralStreamingResult(
+					[
+						{ type: "text_delta", text: "Let me check.\n\n## Result\n42" },
+						finishEvent,
+					],
+					{
+						completionTurn: {
+							segmentId: "s",
+							getSnapshot: () => ({ segmentId: "s", events, completion }),
+							finish,
+						},
+					},
+				) as never;
+			},
+		);
+		const parts = parseUiStreamParts(
+			await readSseResponse(runStream({ streamId: "structured-owned" })),
+		);
+		expect(uiDataParts(parts, "data-normal-chat-output")).toEqual(events);
+		expect(createMessage).toHaveBeenCalledWith(
+			"test-conv",
+			"assistant",
+			"Let me check.\n\n## Result\n42",
+			undefined,
+			undefined,
+			expect.objectContaining({ normalChatOutput: { version: 1, events } }),
+		);
+		expect(runPlainNormalChatSendModel).not.toHaveBeenCalled();
+		expect(finish).toHaveBeenCalledWith("msg-1");
+	});
+
+	it("does not return a durable receipt when the new user message cannot be saved", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"./streaming-normal-chat-model-run"
+		);
+		const { createMessage } = await import("../messages");
+		vi.mocked(runStreamingNormalChatSendModel).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Canonical" },
+				finishEvent,
+			]) as never,
+		);
+		vi.mocked(createMessage).mockRejectedValueOnce(
+			new Error("Synthetic user-message storage failure"),
+		);
+		const parts = parseUiStreamParts(
+			await readSseResponse(runStream({ streamId: "failed-user-save" })),
+		);
+		expect(createMessage).toHaveBeenCalledTimes(1);
+		expect(parts).toContainEqual({ type: "finish", finishReason: "error" });
+		expect(uiDataParts(parts, "data-stream-metadata")).toEqual([]);
 	});
 
 	it("emits AI SDK UI message parts from neutral model stream events", async () => {
@@ -647,60 +775,6 @@ describe("stream-orchestrator SSE contract", () => {
 				signal: expect.any(AbortSignal),
 			}),
 		);
-	});
-
-	it("a tool that reports activity every second keeps a 90 s wait from tripping the 60 s idle watchdog", async () => {
-		vi.useFakeTimers();
-		// A 120 s request timeout: the idle watchdog is 60 s and the whole-stream
-		// cap is 120 s, so only the watchdog is in play for a 90 s wait.
-		const { getConfig } = await import("$lib/server/config-store");
-		vi.mocked(getConfig).mockReturnValue({
-			requestTimeoutMs: 120_000,
-			composerCommandRegistryEnabled: true,
-			modelTimeoutFailoverEnabled: false,
-			modelTimeoutFailoverTargetModel: null,
-			modelTimeoutFailoverTimeoutMs: 1000,
-		} as unknown as ReturnType<typeof getConfig>);
-		const { runStreamingNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
-		);
-		let release: () => void = () => undefined;
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		let toolActivity: (() => void) | undefined;
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockImplementation(async (params: { onToolActivity?: () => void }) => {
-			toolActivity = params.onToolActivity;
-			return createNeutralStreamingResult([], {
-				stream: (async function* () {
-					await gate;
-					yield { type: "text_delta", text: "Done" };
-					yield finishEvent;
-				})(),
-			});
-		});
-
-		const reading = readSseResponse(runStream());
-		await vi.advanceTimersByTimeAsync(0);
-		await vi.waitFor(() => expect(toolActivity).toBeTypeOf("function"));
-		for (let second = 0; second < 90; second++) {
-			await vi.advanceTimersByTimeAsync(1000);
-			toolActivity?.();
-		}
-		release();
-		const parts = parseUiStreamParts(await reading);
-
-		expect(parts).toEqual(
-			expect.arrayContaining([
-				{ type: "text-delta", id: "answer", delta: "Done" },
-				{ type: "finish", finishReason: "stop" },
-			]),
-		);
-		expect(
-			parts.some((part) => part !== "[DONE]" && part.type === "error"),
-		).toBe(false);
 	});
 
 	it("hands the card pictures and the marks of the turn to the model run", async () => {
@@ -1984,9 +2058,10 @@ describe("stream-orchestrator SSE contract", () => {
 			userMessage: "Hello",
 			reasoningDepth: "thorough",
 		});
-		appendToStreamBuffer("active-reconnect-stream", "token", {
-			text: "Already streaming",
-		});
+		broadcastStreamChunk(
+			"active-reconnect-stream",
+			journalTextFrame("Already streaming"),
+		);
 		const prepareTurn = vi.fn(async (): Promise<ChatTurnPreparationResult> => {
 			throw new Error("Preparation must not run for active reconnects");
 		});
@@ -2513,963 +2588,6 @@ describe("stream-orchestrator SSE contract", () => {
 				instructionSuggestions: [suggestion],
 			});
 		});
-	});
-
-	// R1 defect 1 — a "failed" tool call is a terminal (non-running) tool call,
-	// not an absence of persistable content. Before the fix,
-	// completedToolCallRecords()/isCompletedFileProductionToolCall() only
-	// recognized status "done", so a produce_file call that ends "failed"
-	// followed by an abrupt upstream close (no finish event, no trailing
-	// text) had nothing to persist and routed to failStream instead of
-	// completing the turn.
-	it("persists the assistant message via completeSuccess when a produce_file tool call fails and the stream then ends abruptly", async () => {
-		const { runStreamingNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
-		);
-		const { persistAssistantEvidence } = await import(
-			"$lib/server/services/chat-turn/finalize-steps"
-		);
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult([
-				{
-					type: "tool_call",
-					callId: "call-produce-failed",
-					toolName: "produce_file",
-					input: { filename: "report.pdf" },
-				},
-				{
-					type: "tool_error",
-					callId: "call-produce-failed",
-					toolName: "produce_file",
-					error: "Render backend unavailable",
-				},
-				// No finish event and no trailing text — the upstream stream
-				// simply ends here (abrupt drop).
-			]),
-		);
-
-		const response = runStream({
-			conversationId: "fix1-conv",
-			streamId: "fix1-stream",
-		});
-		const chunks = await readSseResponse(response);
-		const body = chunks.join("\n\n");
-		const metadataPayload = uiDataParts<Record<string, unknown>>(
-			parseUiStreamParts(chunks),
-			"data-stream-metadata",
-		)[0];
-
-		// Must route through completeSuccess (stream_closed path), not
-		// failStream — the failed tool call counts as persistable content.
-		expect(body).not.toContain("data-stream-error");
-		expect(metadataPayload).toMatchObject({
-			streamClosedWithoutFinish: true,
-		});
-		await vi.waitFor(() => {
-			expect(persistAssistantEvidence).toHaveBeenCalledWith(
-				expect.objectContaining({
-					toolCalls: expect.arrayContaining([
-						expect.objectContaining({
-							name: "produce_file",
-							status: "failed",
-						}),
-					]),
-				}),
-			);
-		});
-	});
-
-	it.each([
-		{
-			name: "repairs a preamble at clean end",
-			preamble: "I'll calculate the costs.",
-			tool: "research_web",
-			after: "",
-			repair: "The answer.",
-			calls: 1,
-			warning: false,
-			error: false,
-		},
-		{
-			name: "preserves a preamble after empty repair",
-			preamble: "I'll calculate the costs.",
-			tool: "research_web",
-			after: "",
-			repair: "",
-			calls: 2,
-			warning: true,
-			error: false,
-		},
-		{
-			name: "preserves a preamble after zero-width repair",
-			preamble: "I'll calculate the costs.",
-			tool: "research_web",
-			after: "",
-			repair: "\u200B",
-			calls: 2,
-			warning: true,
-			error: false,
-		},
-		{
-			name: "accepts an answer after research",
-			preamble: "I'll calculate the costs.",
-			tool: "research_web",
-			after: "The answer.",
-			repair: "",
-			calls: 0,
-			warning: false,
-			error: false,
-		},
-		{
-			name: "accepts an answer before a delivering tool",
-			preamble: "Here is the artifact.",
-			tool: "create_artifact",
-			after: "",
-			repair: "",
-			calls: 0,
-			warning: false,
-			error: false,
-		},
-		{
-			name: "fails when repair leaves no text",
-			preamble: "",
-			tool: "research_web",
-			after: "",
-			repair: "",
-			calls: 2,
-			warning: false,
-			error: true,
-		},
-	])("$name", async ({
-		preamble,
-		tool,
-		after,
-		repair,
-		calls,
-		warning,
-		error,
-	}) => {
-		const { runStreamingNormalChatSendModel } = await import(
-			"./streaming-normal-chat-model-run"
-		);
-		const { runPlainNormalChatSendModel } = await import(
-			"./plain-normal-chat-model-run"
-		);
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult([
-				{ type: "text_delta", text: preamble },
-				{ type: "tool_call", callId: "call-final", toolName: tool, input: {} },
-				{
-					type: "tool_result",
-					callId: "call-final",
-					toolName: tool,
-					output: { success: true },
-				},
-				{ type: "text_delta", text: after },
-				{
-					...finishEvent,
-					stepCount: 3,
-					lastStepOutputTokens: 17,
-					droppedToolCalls: 1,
-				},
-			]),
-		);
-		vi.mocked(runPlainNormalChatSendModel).mockResolvedValue({
-			text: repair,
-		} as Awaited<ReturnType<typeof runPlainNormalChatSendModel>>);
-		const chunks = await readSseResponse(runStream());
-		const parts = parseUiStreamParts(chunks);
-		const body = chunks.join("\n\n");
-		expect(runPlainNormalChatSendModel).toHaveBeenCalledTimes(calls);
-		if (calls)
-			expect(runPlainNormalChatSendModel).toHaveBeenCalledWith(
-				expect.objectContaining({ disableTools: true }),
-			);
-		expect(body.includes("data-stream-error")).toBe(error);
-		if (!error) {
-			const metadata = uiDataParts<Record<string, unknown>>(
-				parts,
-				"data-stream-metadata",
-			)[0];
-			expect(
-				(metadata.completionWarningCodes as string[] | undefined)?.includes(
-					"no_final_answer",
-				) ?? false,
-			).toBe(warning);
-			const { createMessage } = await import("$lib/server/services/messages");
-			const saved = vi
-				.mocked(createMessage)
-				.mock.calls.find((call) => call[1] === "assistant")?.[5];
-			expect(saved).toMatchObject({
-				completion: {
-					end: warning ? "no_final_answer" : calls ? "recovered" : "answered",
-					recovery: warning ? "failed" : calls ? "answered" : "none",
-					finish: "stop",
-					steps: 3,
-					lastStepOutputTokens: 17,
-					droppedToolCalls: 1,
-				},
-			});
-			expect(metadata).not.toHaveProperty("completion");
-
-			const text = parts
-				.filter(
-					(part) => typeof part !== "string" && part.type === "text-delta",
-				)
-				.map((part) => (part as { delta: string }).delta)
-				.join("");
-			expect(text).toContain(preamble);
-			if (repair === "The answer.")
-				expect(text).toBe("I'll calculate the costs.\n\nThe answer.");
-		}
-	});
-
-	it.each([
-		...(["create_artifact", "make_image"] as const).flatMap((tool) =>
-			["", "I'll calculate the costs."].map((preamble) => ({
-				tool,
-				preamble,
-				ok: true,
-				later: false,
-				imageStatus: "succeeded",
-				calls: 0,
-			})),
-		),
-		{
-			tool: "create_artifact",
-			preamble: "",
-			ok: false,
-			later: false,
-			imageStatus: "succeeded",
-			calls: 2,
-		},
-		{
-			tool: "make_image",
-			preamble: "",
-			ok: false,
-			later: false,
-			imageStatus: "failed",
-			calls: 2,
-		},
-		{
-			tool: "make_image",
-			preamble: "",
-			ok: true,
-			later: false,
-			imageStatus: "running",
-			calls: 2,
-		},
-		{
-			tool: "create_artifact",
-			preamble: "",
-			ok: true,
-			later: true,
-			imageStatus: "succeeded",
-			calls: 2,
-		},
-	])("delivery after research: %j", async ({
-		tool,
-		preamble,
-		ok,
-		later,
-		imageStatus,
-		calls,
-	}) => {
-		const { runStreamingNormalChatSendModel } = await import(
-			"./streaming-normal-chat-model-run"
-		);
-		const { runPlainNormalChatSendModel } = await import(
-			"./plain-normal-chat-model-run"
-		);
-		const events: NeutralStreamEvent[] = [
-			{ type: "text_delta", text: preamble },
-			{
-				type: "tool_call",
-				callId: "research-first",
-				toolName: "research_web",
-				input: {},
-			},
-			{
-				type: "tool_result",
-				callId: "research-first",
-				toolName: "research_web",
-				output: {},
-			},
-			{ type: "tool_call", callId: "delivery", toolName: tool, input: {} },
-			{ type: "tool_result", callId: "delivery", toolName: tool, output: {} },
-		];
-		if (later)
-			events.push(
-				{
-					type: "tool_call",
-					callId: "research-later",
-					toolName: "research_web",
-					input: {},
-				},
-				{
-					type: "tool_result",
-					callId: "research-later",
-					toolName: "research_web",
-					output: {},
-				},
-			);
-		events.push(finishEvent);
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult(events, {
-				normalChatToolCalls: [
-					{
-						callId: "delivery",
-						name: tool,
-						input: {},
-						status: "done",
-						metadata: { ok, artifactId: "artifact-1", imageStatus },
-					},
-				],
-			}),
-		);
-		vi.mocked(runPlainNormalChatSendModel).mockResolvedValue({
-			text: "",
-		} as Awaited<ReturnType<typeof runPlainNormalChatSendModel>>);
-		const chunks = await readSseResponse(runStream());
-		expect(runPlainNormalChatSendModel).toHaveBeenCalledTimes(calls);
-		expect(chunks.join("\n").includes("data-stream-error")).toBe(calls > 0);
-		if (!calls) {
-			const metadata = uiDataParts<Record<string, unknown>>(
-				parseUiStreamParts(chunks),
-				"data-stream-metadata",
-			)[0];
-			expect(metadata.completionWarningCodes ?? []).not.toContain(
-				"no_final_answer",
-			);
-			const { createMessage } = await import("$lib/server/services/messages");
-			const saved = vi
-				.mocked(createMessage)
-				.mock.calls.find((call) => call[1] === "assistant")?.[5];
-			expect(saved).toMatchObject({
-				completion: {
-					end: "answered",
-					charsAfterLastToolCall: 0,
-					recovery: "none",
-				},
-			});
-		}
-	});
-
-	it.each([
-		"I'll calculate the costs.",
-		"",
-	])("clears the upstream watchdog before a slow clean-end repair with preamble %j", async (preamble) => {
-		vi.useFakeTimers();
-		const { getConfig } = await import("$lib/server/config-store");
-		vi.mocked(getConfig).mockReturnValue({
-			requestTimeoutMs: 120_000,
-			composerCommandRegistryEnabled: true,
-			modelTimeoutFailoverEnabled: false,
-			modelTimeoutFailoverTargetModel: null,
-			modelTimeoutFailoverTimeoutMs: 1000,
-		} as unknown as ReturnType<typeof getConfig>);
-		const { runStreamingNormalChatSendModel } = await import(
-			"./streaming-normal-chat-model-run"
-		);
-		const { runPlainNormalChatSendModel } = await import(
-			"./plain-normal-chat-model-run"
-		);
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult([
-				{ type: "text_delta", text: preamble },
-				{
-					type: "tool_call",
-					callId: "call-slow",
-					toolName: "research_web",
-					input: {},
-				},
-				{
-					type: "tool_result",
-					callId: "call-slow",
-					toolName: "research_web",
-					output: { success: true },
-				},
-				finishEvent,
-			]),
-		);
-		let entered!: () => void;
-		const started = new Promise<void>((resolve) => {
-			entered = resolve;
-		});
-		let release!: (response: { text: string }) => void;
-		const pending = new Promise<{ text: string }>((resolve) => {
-			release = resolve;
-		});
-		let repairSignal: AbortSignal | undefined;
-		(
-			runPlainNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockImplementation((params: { signal: AbortSignal }) => {
-			repairSignal = params.signal;
-			entered();
-			return pending;
-		});
-		const reading = readSseResponse(runStream());
-		await started;
-		await vi.advanceTimersByTimeAsync(60_001);
-		const callsWhilePending = vi.mocked(runPlainNormalChatSendModel).mock.calls
-			.length;
-		const abortedWhilePending = repairSignal?.aborted;
-		release({ text: preamble ? "" : "Recovered answer." });
-		const chunks = await reading;
-		expect(callsWhilePending).toBe(1);
-		expect(abortedWhilePending).toBe(false);
-		expect(chunks.join("\n")).not.toContain("data-stream-error");
-		const metadata = uiDataParts<Record<string, unknown>>(
-			parseUiStreamParts(chunks),
-			"data-stream-metadata",
-		)[0];
-		expect(metadata.wasStopped).toBe(false);
-		expect(
-			(metadata.completionWarningCodes as string[] | undefined)?.includes(
-				"no_final_answer",
-			) ?? false,
-		).toBe(Boolean(preamble));
-	});
-
-	it("clears the watchdog before slow error-event recovery", async () => {
-		const preamble = "";
-		vi.useFakeTimers();
-		const { getConfig } = await import("$lib/server/config-store");
-		vi.mocked(getConfig).mockReturnValue({
-			requestTimeoutMs: 120_000,
-			composerCommandRegistryEnabled: true,
-			modelTimeoutFailoverEnabled: false,
-			modelTimeoutFailoverTargetModel: null,
-			modelTimeoutFailoverTimeoutMs: 1000,
-		} as unknown as ReturnType<typeof getConfig>);
-		const { runStreamingNormalChatSendModel } = await import(
-			"./streaming-normal-chat-model-run"
-		);
-		const { runPlainNormalChatSendModel } = await import(
-			"./plain-normal-chat-model-run"
-		);
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult([
-				{ type: "text_delta", text: preamble },
-				{
-					type: "tool_call",
-					callId: "call-slow",
-					toolName: "research_web",
-					input: {},
-				},
-				{
-					type: "tool_result",
-					callId: "call-slow",
-					toolName: "research_web",
-					output: { success: true },
-				},
-				{ type: "error", error: "network connection terminated" },
-			]),
-		);
-		let entered!: () => void;
-		const started = new Promise<void>((resolve) => {
-			entered = resolve;
-		});
-		let release!: (response: { text: string }) => void;
-		const pending = new Promise<{ text: string }>((resolve) => {
-			release = resolve;
-		});
-		let repairSignal: AbortSignal | undefined;
-		(
-			runPlainNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockImplementation((params: { signal: AbortSignal }) => {
-			repairSignal = params.signal;
-			entered();
-			return pending;
-		});
-		const reading = readSseResponse(runStream());
-		await started;
-		await vi.advanceTimersByTimeAsync(60_001);
-		const callsWhilePending = vi.mocked(runPlainNormalChatSendModel).mock.calls
-			.length;
-		const abortedWhilePending = repairSignal?.aborted;
-		release({ text: preamble ? "" : "Recovered answer." });
-		const chunks = await reading;
-		expect(callsWhilePending).toBe(1);
-		expect(abortedWhilePending).toBe(false);
-		expect(chunks.join("\n")).not.toContain("data-stream-error");
-		const metadata = uiDataParts<Record<string, unknown>>(
-			parseUiStreamParts(chunks),
-			"data-stream-metadata",
-		)[0];
-		expect(metadata.wasStopped).toBe(false);
-		expect(
-			(metadata.completionWarningCodes as string[] | undefined)?.includes(
-				"no_final_answer",
-			) ?? false,
-		).toBe(Boolean(preamble));
-	});
-
-	it("keeps explicit stop precedence when successful repair waits on side effects", async () => {
-		const { runStreamingNormalChatSendModel } = await import(
-			"./streaming-normal-chat-model-run"
-		);
-		const { runPlainNormalChatSendModel } = await import(
-			"./plain-normal-chat-model-run"
-		);
-		const { attachContinuityToTaskState } = await import(
-			"$lib/server/services/task-state"
-		);
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult([
-				{ type: "text_delta", text: "I'll calculate the costs." },
-				{
-					type: "tool_call",
-					callId: "call-stop-success",
-					toolName: "research_web",
-					input: {},
-				},
-				{
-					type: "tool_result",
-					callId: "call-stop-success",
-					toolName: "research_web",
-					output: { success: true },
-				},
-				finishEvent,
-			]),
-		);
-		(runPlainNormalChatSendModel as ReturnType<typeof vi.fn>).mockResolvedValue(
-			{ text: "Recovered answer." },
-		);
-		let entered!: () => void;
-		const started = new Promise<void>((resolve) => {
-			entered = resolve;
-		});
-		let release!: () => void;
-		const pending = new Promise<null>((resolve) => {
-			release = () => resolve(null);
-		});
-		vi.mocked(attachContinuityToTaskState)
-			.mockResolvedValueOnce(null)
-			.mockImplementationOnce(() => {
-				entered();
-				return pending;
-			});
-		const reading = readSseResponse(runStream());
-		await started;
-		expect(runPlainNormalChatSendModel).toHaveBeenCalledOnce();
-		const stopped = requestActiveChatStreamStop({
-			streamId: "test-stream",
-			userId: "u1",
-		});
-		release();
-		const chunks = await reading;
-		expect(stopped).toBe(true);
-		const metadata = uiDataParts<Record<string, unknown>>(
-			parseUiStreamParts(chunks),
-			"data-stream-metadata",
-		)[0];
-		const { createMessage } = await import("$lib/server/services/messages");
-		const saved = vi
-			.mocked(createMessage)
-			.mock.calls.find((call) => call[1] === "assistant")?.[5];
-		expect(saved).toMatchObject({
-			completion: {
-				end: "stopped",
-				recovery: "answered",
-				finish: "stop",
-				steps: null,
-				lastStepOutputTokens: null,
-				droppedToolCalls: null,
-			},
-		});
-
-		expect(metadata.wasStopped).toBe(true);
-		expect(metadata).not.toHaveProperty("followUps");
-		expect(metadata.completionWarningCodes ?? []).not.toContain(
-			"no_final_answer",
-		);
-		expect(chunks.join("\n")).not.toContain("data-stream-error");
-	});
-
-	it("keeps explicit stop precedence when a preamble repair fails", async () => {
-		const { runStreamingNormalChatSendModel } = await import(
-			"./streaming-normal-chat-model-run"
-		);
-		const { runPlainNormalChatSendModel } = await import(
-			"./plain-normal-chat-model-run"
-		);
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult([
-				{ type: "text_delta", text: "I'll calculate the costs." },
-				{
-					type: "tool_call",
-					callId: "call-stop",
-					toolName: "research_web",
-					input: {},
-				},
-				{
-					type: "tool_result",
-					callId: "call-stop",
-					toolName: "research_web",
-					output: { success: true },
-				},
-				finishEvent,
-			]),
-		);
-		vi.mocked(runPlainNormalChatSendModel).mockImplementation(async () => {
-			requestActiveChatStreamStop({
-				streamId: "test-stream",
-				userId: "u1",
-			});
-			throw new DOMException("Stopped", "AbortError");
-		});
-		const chunks = await readSseResponse(runStream());
-		const metadata = uiDataParts<Record<string, unknown>>(
-			parseUiStreamParts(chunks),
-			"data-stream-metadata",
-		)[0];
-		const { createMessage } = await import("$lib/server/services/messages");
-		const saved = vi
-			.mocked(createMessage)
-			.mock.calls.find((call) => call[1] === "assistant")?.[5];
-		expect(saved).toMatchObject({
-			completion: {
-				end: "stopped",
-				recovery: "failed",
-				finish: "stop",
-				steps: null,
-				lastStepOutputTokens: null,
-				droppedToolCalls: null,
-			},
-		});
-
-		expect(metadata.wasStopped).toBe(true);
-		expect(metadata.completionWarningCodes ?? []).not.toContain(
-			"no_final_answer",
-		);
-		expect(chunks.join("\n")).not.toContain("data-stream-error");
-	});
-
-	it("recovers with non-stream fallback when a socket terminates after a completed non-file tool", async () => {
-		const { runStreamingNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
-		);
-		const { runPlainNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/plain-normal-chat-model-run"
-		);
-		const { persistAssistantEvidence } = await import(
-			"$lib/server/services/chat-turn/finalize-steps"
-		);
-		const recorderEntry = {
-			callId: "call-research",
-			name: "research_web",
-			input: { query: "pasted url" },
-			status: "done",
-			outputSummary: "Web research returned 1 source and 1 evidence snippet.",
-			sourceType: "web",
-			candidates: [
-				{
-					id: "source-1",
-					title: "Fetched page",
-					url: "https://example.com/page",
-					sourceType: "web",
-					material: true,
-				},
-			],
-			metadata: {
-				ok: true,
-				evidenceReady: true,
-				sourceCount: 1,
-				evidenceCount: 1,
-			},
-		};
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult(
-				[
-					{
-						type: "tool_call",
-						callId: "call-research",
-						toolName: "research_web",
-						input: { query: "pasted url" },
-					},
-					{
-						type: "tool_result",
-						callId: "call-research",
-						toolName: "research_web",
-						output: { success: true },
-					},
-					{ type: "error", error: "socket terminated" },
-				],
-				{
-					normalChatToolCalls: [recorderEntry],
-					prepared: {
-						contextStatus: null,
-						taskState: null,
-						contextDebug: null,
-						contextTraceSections: undefined,
-						contextPreparationTimings: [
-							{
-								stageId: "plan",
-								activityClass: "planning",
-								status: "done",
-								startedAt: 10,
-								completedAt: 13,
-								durationMs: 3,
-							},
-						],
-					},
-				},
-			),
-		);
-		(runPlainNormalChatSendModel as ReturnType<typeof vi.fn>).mockResolvedValue(
-			{
-				text: "Recovered answer from fetched page.",
-				contextStatus: null,
-				taskState: null,
-				contextDebug: null,
-				providerUsage: null,
-				normalChatToolCalls: [],
-				modelId: "model1",
-				modelDisplayName: "Model One",
-				contextPreparationTimings: [
-					{
-						stageId: "plan",
-						activityClass: "planning",
-						status: "done",
-						startedAt: 20,
-						completedAt: 27,
-						durationMs: 7,
-					},
-				],
-			},
-		);
-
-		const response = runStream();
-		const chunks = await readSseResponse(response);
-		const body = chunks.join("\n\n");
-		const metadataPayload = uiDataParts<Record<string, unknown>>(
-			parseUiStreamParts(chunks),
-			"data-stream-metadata",
-		)[0];
-		const serverTimeline =
-			metadataPayload.serverTimeline as StreamTimelineTerminalPayload;
-
-		expect(runPlainNormalChatSendModel).toHaveBeenCalledWith(
-			expect.objectContaining({
-				disableTools: true,
-				systemPromptAppendix: expect.stringContaining(
-					"previous streaming attempt completed these tool calls",
-				),
-			}),
-		);
-		expect(body).toContain("Recovered answer from fetched page.");
-		expect(body).not.toContain("data-stream-error");
-		expect(serverTimeline.server).toEqual(
-			expect.objectContaining({
-				[createContextPreparationStageTimelineMark("plan")]: 3,
-				[createContextPreparationStageTimelineMark("plan", {
-					type: "fallback",
-					attempt: 1,
-				})]: 7,
-			}),
-		);
-		expect(persistAssistantEvidence).toHaveBeenCalledWith(
-			expect.objectContaining({
-				toolCalls: expect.arrayContaining([
-					expect.objectContaining({
-						name: "research_web",
-						status: "done",
-						metadata: expect.objectContaining({
-							evidenceReady: true,
-						}),
-					}),
-				]),
-			}),
-		);
-	});
-
-	// R1 defect 3 — "classification stops hard on the first answer text-delta"
-	// (ADR-0056) must also hold on the non-stream fallback path. Before the
-	// fix, only the SSE loop's text_delta branch called
-	// thoughtStepClassifierSession.stop() — emitResolvedAssistantText (the
-	// fallback's own answer-emission path) never did, so a step classified
-	// from an in-flight control-model call could still be emitted after the
-	// fallback answer had already been sent.
-	it("stops the classifier session on the non-stream fallback answer path", async () => {
-		const { runStreamingNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
-		);
-		const { runPlainNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/plain-normal-chat-model-run"
-		);
-		const { createThoughtStepClassifierSession } = await import(
-			"$lib/server/services/chat-turn/thought-step-classifier"
-		);
-		const stop = vi.fn();
-		(
-			createThoughtStepClassifierSession as ReturnType<typeof vi.fn>
-		).mockReturnValue({
-			onReasoningDelta: vi.fn(),
-			stop,
-			getSteps: () => [],
-		});
-		const recorderEntry = {
-			callId: "call-research-fix3",
-			name: "research_web",
-			input: { query: "pasted url" },
-			status: "done",
-			outputSummary: "Web research returned 1 source.",
-			sourceType: "web",
-			candidates: [],
-			metadata: { ok: true, evidenceReady: true },
-		};
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult(
-				[
-					{
-						type: "tool_call",
-						callId: "call-research-fix3",
-						toolName: "research_web",
-						input: { query: "pasted url" },
-					},
-					{
-						type: "tool_result",
-						callId: "call-research-fix3",
-						toolName: "research_web",
-						output: { success: true },
-					},
-					{ type: "error", error: "socket terminated" },
-				],
-				{ normalChatToolCalls: [recorderEntry] },
-			),
-		);
-		(runPlainNormalChatSendModel as ReturnType<typeof vi.fn>).mockResolvedValue(
-			{
-				text: "Recovered fallback answer.",
-				contextStatus: null,
-				taskState: null,
-				contextDebug: null,
-				providerUsage: null,
-				normalChatToolCalls: [],
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			},
-		);
-
-		const response = runStream({
-			conversationId: "fix3-conv",
-			streamId: "fix3-stream",
-		});
-		const chunks = await readSseResponse(response);
-
-		expect(chunks.join("\n\n")).toContain("Recovered fallback answer.");
-		expect(stop).toHaveBeenCalled();
-	});
-
-	it("emits provider error events after completed non-file tools without non-stream fallback", async () => {
-		const { runStreamingNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
-		);
-		const { runPlainNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/plain-normal-chat-model-run"
-		);
-		const recorderEntry = {
-			callId: "call-research-provider-error",
-			name: "research_web",
-			input: { query: "provider error after tool" },
-			status: "done",
-			outputSummary: "Web research returned 1 source.",
-			sourceType: "web",
-			candidates: [
-				{
-					id: "source-provider-error",
-					title: "Fetched page",
-					url: "https://example.com/provider-error",
-					sourceType: "web",
-					material: true,
-				},
-			],
-			metadata: {
-				ok: true,
-				evidenceReady: true,
-				sourceCount: 1,
-				evidenceCount: 1,
-			},
-		};
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult(
-				[
-					{
-						type: "tool_call",
-						callId: "call-research-provider-error",
-						toolName: "research_web",
-						input: { query: "provider error after tool" },
-					},
-					{
-						type: "tool_result",
-						callId: "call-research-provider-error",
-						toolName: "research_web",
-						output: { success: true },
-					},
-					{
-						type: "error",
-						error: "Provider rejected the model response after tool use.",
-					},
-				],
-				{ normalChatToolCalls: [recorderEntry] },
-			),
-		);
-		(runPlainNormalChatSendModel as ReturnType<typeof vi.fn>).mockResolvedValue(
-			{
-				text: "Unexpected fallback answer.",
-				contextStatus: null,
-				taskState: null,
-				contextDebug: null,
-				providerUsage: null,
-				normalChatToolCalls: [],
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			},
-		);
-
-		const response = runStream({
-			conversationId: "provider-error-after-tool-conv",
-			streamId: "provider-error-after-tool-stream",
-		});
-		const chunks = await readSseResponse(response);
-		const parts = parseUiStreamParts(chunks);
-
-		expect(runPlainNormalChatSendModel).not.toHaveBeenCalled();
-		expect(parts).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					type: "data-stream-error",
-					transient: true,
-					data: expect.objectContaining({
-						code: "backend_failure",
-					}),
-				}),
-				{ type: "finish", finishReason: "error" },
-				"[DONE]",
-			]),
-		);
-		expect(chunks.join("\n\n")).not.toContain("Unexpected fallback answer.");
 	});
 
 	it("maps provider usage events into persisted analytics", async () => {
@@ -4031,6 +3149,7 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 		},
 	];
 	const askingRun = {
+		fixtureOutcome: "paused",
 		normalChatToolCalls: [searchEntry, askEntry],
 		prefetchedToolCalls: [fetchEntry],
 		continuationGiven,
@@ -4202,13 +3321,16 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 	it("discards the question of a run that failed after asking", async () => {
 		const logs = captureStreamLogs();
 		try {
-			await mockRun([
-				...askEvents,
-				{
-					type: "error",
-					error: "Provider rejected the model response after tool use.",
-				},
-			]);
+			await mockRun(
+				[
+					...askEvents,
+					{
+						type: "error",
+						error: "Provider rejected the model response after tool use.",
+					},
+				],
+				{ ...askingRun, fixtureOutcome: "failed" },
+			);
 			const { stampAskQuestion, discardAskQuestion } = await import(
 				"$lib/server/services/chat-turn/ask-questions"
 			);
@@ -4224,12 +3346,6 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 					questionId: "q-1",
 				}),
 			);
-			expect(logs.error).toHaveBeenCalledWith(
-				"[STREAM] Upstream error event payload",
-				expect.objectContaining({
-					errorMessage: "Provider rejected the model response after tool use.",
-				}),
-			);
 		} finally {
 			logs.restore();
 		}
@@ -4238,14 +3354,17 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 	it("saves a run that asked and then failed with its words, its ask call reading that the reply ended, and its question discarded", async () => {
 		const logs = captureStreamLogs();
 		try {
-			await mockRun([
-				{ type: "text_delta", text: "Which one?" },
-				...askEvents,
-				{
-					type: "error",
-					error: "Provider rejected the model response after tool use.",
-				},
-			]);
+			await mockRun(
+				[
+					{ type: "text_delta", text: "Which one?" },
+					...askEvents,
+					{
+						type: "error",
+						error: "Provider rejected the model response after tool use.",
+					},
+				],
+				{ ...askingRun, fixtureOutcome: "failed" },
+			);
 			const { stampAskQuestion, discardAskQuestion } = await import(
 				"$lib/server/services/chat-turn/ask-questions"
 			);
@@ -4282,110 +3401,6 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 					userId: "u1",
 					questionId: "q-1",
 				}),
-			);
-			expect(logs.error).toHaveBeenCalledWith(
-				"[STREAM] Upstream error event payload",
-				expect.objectContaining({
-					errorMessage: "Provider rejected the model response after tool use.",
-				}),
-			);
-		} finally {
-			logs.restore();
-		}
-	});
-
-	it.each([
-		[
-			"a run that searched and then asked",
-			[...searchEvents, ...askEvents],
-			[searchEntry, askEntry],
-			true,
-		],
-		["a run that only asked", askEvents, [askEntry], false],
-	])("recovers %s through the fallback without pausing it, and hands the fallback no ask call", async (_label, events, recorded, searched) => {
-		const logs = captureStreamLogs();
-		try {
-			await mockRun(
-				[...events, { type: "error", error: "socket terminated" }],
-				{
-					...askingRun,
-					normalChatToolCalls: recorded,
-				},
-			);
-			const { runPlainNormalChatSendModel } = await import(
-				"$lib/server/services/chat-turn/plain-normal-chat-model-run"
-			);
-			(
-				runPlainNormalChatSendModel as ReturnType<typeof vi.fn>
-			).mockResolvedValue({
-				text: "Recovered answer.",
-				contextStatus: null,
-				taskState: null,
-				contextDebug: null,
-				providerUsage: null,
-				normalChatToolCalls: [],
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			});
-			const { stampAskQuestion, discardAskQuestion } = await import(
-				"$lib/server/services/chat-turn/ask-questions"
-			);
-			const { createMessage } = await import("$lib/server/services/messages");
-
-			const chunks = await readSseResponse(
-				runStream({
-					conversationId: "recovered-ask-conv",
-					streamId: "recovered-ask-stream",
-				}),
-			);
-
-			// the fallback never pauses: it is given no way to
-			expect(runPlainNormalChatSendModel).toHaveBeenCalledTimes(1);
-			expect(runPlainNormalChatSendModel).toHaveBeenCalledWith(
-				expect.not.objectContaining({ canPause: true }),
-			);
-			// It is handed what the run did, in its system context and in the replay
-			// of its tool calls, and never the ask: a question nobody can answer.
-			const given = vi.mocked(runPlainNormalChatSendModel).mock.calls[0]?.[0];
-			const handedOver = JSON.stringify({
-				context: given?.systemPromptAppendix,
-				replay: given?.continuationMessages,
-			});
-			expect(handedOver).not.toContain("ask_user");
-			expect(handedOver).not.toContain("Asked the user");
-			expect(handedOver.includes("research_web")).toBe(searched);
-			expect(chunks.join("\n\n")).toContain("Recovered answer.");
-			expect(terminalMetadata(chunks)).not.toHaveProperty("waitingQuestionId");
-			expect(stampAskQuestion).not.toHaveBeenCalled();
-			// the reply it saves does not read the question as open
-			expect(createMessage).toHaveBeenCalledWith(
-				"recovered-ask-conv",
-				"assistant",
-				"Recovered answer.",
-				undefined,
-				expect.arrayContaining([
-					expect.objectContaining({
-						type: "tool_call",
-						name: "ask_user",
-						outputSummary: ENDED_BEFORE_ANSWER,
-						resultDigest: null,
-					}),
-				]),
-				expect.anything(),
-			);
-			await vi.waitFor(() =>
-				expect(discardAskQuestion).toHaveBeenCalledWith({
-					userId: "u1",
-					questionId: "q-1",
-				}),
-			);
-			expect(logs.error).toHaveBeenCalledWith(
-				"[STREAM] Upstream error event payload",
-				expect.objectContaining({ errorMessage: "socket terminated" }),
-			);
-			expect(logs.warn).toHaveBeenCalledWith(
-				expect.stringContaining("Falling back to non-stream provider run"),
-				expect.objectContaining({ errorMessage: "socket terminated" }),
 			);
 		} finally {
 			logs.restore();
@@ -4433,6 +3448,7 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 				[{ type: "text_delta", text: "Which one?" }, ...askEvents, ...ending],
 				{
 					...askingRun,
+					fixtureOutcome: "incomplete",
 					getResponseMessages: () => responseMessages.slice(0, 2),
 				},
 			);
@@ -4820,6 +3836,10 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 
 		it("runs a resume with its continuation and no instant acknowledgment, and gives its question back when it ends unsaved", async () => {
 			const logs = captureStreamLogs();
+			const { createMessage } = await import("../messages");
+			vi.mocked(createMessage).mockRejectedValueOnce(
+				new Error("Synthetic storage failure"),
+			);
 			try {
 				const runStreaming = await mockRun(
 					[{ type: "error", error: "Provider rejected the model response." }],
@@ -5061,6 +4081,7 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 					finishEvent,
 				],
 				{
+					fixtureOutcome: "paused",
 					normalChatToolCalls: [newSearchEntry, ask2Entry],
 					prefetchedToolCalls: [],
 					// what this run was given is the continuation it was started with
@@ -5302,54 +4323,6 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 			expect(settleAskQuestion).not.toHaveBeenCalled();
 			expect(updateAssistantToolCallResult).not.toHaveBeenCalled();
 			expect(resolveTurnAcknowledgment).toHaveBeenCalledTimes(1);
-		});
-
-		it("starts the model run with the same continuation in the non-stream fallback", async () => {
-			const logs = captureStreamLogs();
-			try {
-				// the run searched again, then its stream died before it said a word
-				await mockRun(
-					[...searchEvents, { type: "error", error: "socket terminated" }],
-					{ normalChatToolCalls: [searchEntry] },
-				);
-				const { runPlainNormalChatSendModel } = await import(
-					"$lib/server/services/chat-turn/plain-normal-chat-model-run"
-				);
-				(
-					runPlainNormalChatSendModel as ReturnType<typeof vi.fn>
-				).mockResolvedValue({
-					text: "Recovered answer.",
-					contextStatus: null,
-					taskState: null,
-					contextDebug: null,
-					providerUsage: null,
-					normalChatToolCalls: [],
-					modelId: "model1",
-					modelDisplayName: "Model One",
-				});
-
-				await readSseResponse(runResume());
-
-				// the fallback is a resume too: the same history cut, no page read
-				// again, and the same reply so far, with the replay of what the
-				// interrupted run did since after it
-				expect(runPlainNormalChatSendModel).toHaveBeenCalledTimes(1);
-				const given = vi.mocked(runPlainNormalChatSendModel).mock.calls[0]?.[0];
-				expect(given).toMatchObject({
-					historyBeforeMessageId: "user-m",
-					skipWebPrefetch: true,
-					gateMessagesForAttempt: expect.any(Function),
-					resumeProvenance: { userTexts: ["Satin, please"] },
-				});
-				expect(
-					given?.continuationMessages?.slice(0, resumeContinuation.length),
-				).toEqual(resumeContinuation);
-				expect(given?.continuationMessages?.length).toBeGreaterThan(
-					resumeContinuation.length,
-				);
-			} finally {
-				logs.restore();
-			}
 		});
 	});
 });

@@ -10,15 +10,11 @@ import {
 	syncGeneratedFilesToMemory,
 } from "$lib/server/services/chat-files";
 import {
+	acquireChatStream,
 	broadcastStreamChunk,
 	clearStreamBuffer,
-	getOrCreateStreamBuffer,
-	getOrphanedStream,
 	getStreamBuffer,
-	isStreamActive,
-	registerActiveChatStream,
 	subscribeToStream,
-	unregisterActiveChatStream,
 	unsubscribeFromStream,
 	wasActiveChatStreamStopRequested,
 } from "$lib/server/services/chat-turn/active-streams";
@@ -27,7 +23,6 @@ import {
 	buildAskResumeCapture,
 	capturedProvenanceResults,
 	gateCapturedConnectorResults,
-	holdsAskResult,
 } from "$lib/server/services/chat-turn/ask-capture";
 import {
 	type AskResumeCapture,
@@ -37,16 +32,15 @@ import {
 } from "$lib/server/services/chat-turn/ask-questions";
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
-import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
 import {
 	classifyStreamErrorCause,
 	createEventStreamResponse,
 	createServerChunkRuntime,
 	createSseHeartbeatComment,
 	createSsePreludeComment,
-	isAbruptUpstreamTermination,
 	type StreamPhaseTimings,
 	streamErrorEvent,
+	streamNormalChatOutputEvent,
 	streamRequestErrorEvent,
 	streamResponseActivityEvent,
 } from "$lib/server/services/chat-turn/stream";
@@ -55,16 +49,7 @@ import {
 	type FileProductionStartSnapshot,
 	type StreamCompletionFact,
 } from "$lib/server/services/chat-turn/stream-completion";
-import { runNonStreamFallback } from "$lib/server/services/chat-turn/stream-fallback";
-import {
-	shouldFallbackOnAbruptTermination,
-	shouldFallbackOnStreamConnectFailure,
-	shouldFallbackOnStreamError,
-	shouldFallbackOnUpstreamErrorEvent,
-} from "$lib/server/services/chat-turn/stream-fallback-policy";
-import { createUpstreamIdleTimeout } from "$lib/server/services/chat-turn/stream-idle-timeout";
 import { doReconnect as runReconnect } from "$lib/server/services/chat-turn/stream-reconnect";
-import { arbitrateStreamStart } from "$lib/server/services/chat-turn/stream-reconnect-arbiter";
 import { createStreamTerminal } from "$lib/server/services/chat-turn/stream-terminal";
 import { runStreamingNormalChatSendModel } from "$lib/server/services/chat-turn/streaming-normal-chat-model-run";
 import { createThoughtStepClassifierSession } from "$lib/server/services/chat-turn/thought-step-classifier";
@@ -88,7 +73,6 @@ import type {
 } from "$lib/server/services/knowledge/context-types";
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
-import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { mapNormalChatModelRunUsageToProviderSnapshot } from "$lib/server/services/normal-chat-model";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import {
@@ -99,7 +83,6 @@ import {
 import type { TaskState } from "$lib/server/services/task-state/types";
 import type { StreamErrorCode } from "$lib/services/stream-protocol";
 import {
-	createFallbackResponseActivityId,
 	createTerminalStreamTimelinePayload,
 	RESPONSE_ACTIVITY_IDS,
 	recordContextPreparationTimelineTimings,
@@ -109,7 +92,6 @@ import {
 	type ServerStreamTimelineMark,
 } from "$lib/services/stream-timeline";
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
-import { isAskToolName } from "$lib/shared/ask-user";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
@@ -121,65 +103,6 @@ import type {
 	StreamingNormalChatPreparedContext,
 	StreamingNormalChatSendModelResult,
 } from "./streaming-normal-chat-model-run";
-
-function getStreamTimeoutMs(): number {
-	return Math.max(60_000, getConfig().requestTimeoutMs);
-}
-
-function truncateFallbackToolText(value: unknown, maxLength: number): string {
-	let text = "";
-	try {
-		text = typeof value === "string" ? value : JSON.stringify(value ?? null);
-	} catch {
-		text = "[unserializable tool payload]";
-	}
-	if (!text) return "";
-	return text.length <= maxLength ? text : `${text.slice(0, maxLength)}...`;
-}
-
-function buildCompletedToolCallFallbackContext(
-	toolCalls: ToolCallEntry[],
-): string | null {
-	const completed = toolCalls
-		.filter(
-			(toolCall) =>
-				toolCall.status === "done" && !isFileProductionToolName(toolCall.name),
-		)
-		.slice(0, 8);
-	if (completed.length === 0) return null;
-
-	return completed
-		.map((toolCall, index) => {
-			const candidates = (toolCall.candidates ?? []).slice(0, 4);
-			const candidateLines = candidates.map((candidate, candidateIndex) => {
-				const title = truncateFallbackToolText(candidate.title, 160);
-				const snippet = truncateFallbackToolText(candidate.snippet, 360);
-				return [
-					`  ${candidateIndex + 1}. ${title || candidate.id}`,
-					snippet ? ` - ${snippet}` : "",
-				].join("");
-			});
-			return [
-				`Tool ${index + 1}: ${toolCall.name}`,
-				`Input: ${truncateFallbackToolText(toolCall.input, 500)}`,
-				toolCall.outputSummary
-					? `Summary: ${truncateFallbackToolText(toolCall.outputSummary, 700)}`
-					: null,
-				candidateLines.length > 0
-					? ["Candidates:", ...candidateLines].join("\n")
-					: null,
-			]
-				.filter((line): line is string => Boolean(line))
-				.join("\n");
-		})
-		.join("\n\n");
-}
-
-function getUpstreamIdleTimeoutMs(): number {
-	const config = getConfig();
-	const requestTimeoutMs = config.requestTimeoutMs;
-	return Math.max(60_000, Math.min(150_000, Math.floor(requestTimeoutMs / 2)));
-}
 
 function unrefTimer(
 	timer: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout>,
@@ -344,6 +267,7 @@ export function runChatStreamOrchestrator(
 	// the person typed, for the address check (ADR-0068).
 	const resumeRunParams = resume
 		? {
+				continuationSnapshot: resume.snapshot,
 				continuationMessages: resume.continuation,
 				historyBeforeMessageId: resume.userMessageId,
 				skipWebPrefetch: true,
@@ -453,22 +377,24 @@ export function runChatStreamOrchestrator(
 			});
 		}
 	};
-	const startHoldingTheClaim = (
-		run: (
-			controller: ReadableStreamDefaultController<Uint8Array>,
-		) => Promise<void>,
-	) =>
-		resume
-			? async (
-					controller: ReadableStreamDefaultController<Uint8Array>,
-				): Promise<void> => {
-					try {
-						await run(controller);
-					} finally {
-						await releaseResumeClaim();
-					}
-				}
-			: run;
+	let releaseOwnedStream: (discard?: boolean) => void = () => {};
+	const startHoldingTheClaim =
+		(
+			run: (
+				controller: ReadableStreamDefaultController<Uint8Array>,
+			) => Promise<void>,
+		) =>
+		async (controller: ReadableStreamDefaultController<Uint8Array>) => {
+			try {
+				await run(controller);
+			} catch (error) {
+				releaseOwnedStream(true);
+				throw error;
+			} finally {
+				releaseOwnedStream();
+				await releaseResumeClaim();
+			}
+		};
 
 	const stream = new ReadableStream({
 		start: startHoldingTheClaim(async (controller) => {
@@ -546,27 +472,25 @@ export function runChatStreamOrchestrator(
 			let isMainStream = false;
 
 			if (streamId) {
-				const decision = arbitrateStreamStart({
+				const decision = acquireChatStream({
 					streamId,
 					userId: user.id,
 					conversationId,
 					controller: upstreamAbortController,
 					userMessage: normalizedMessage,
 					reasoningDepth: turn.reasoningDepth,
-					getOrphanedStream,
-					isStreamActive,
-					registerActiveChatStream,
-					clearStreamBuffer,
-					getOrCreateStreamBuffer,
+					intent: isReconnect ? "observe" : "start",
 				});
-				if (decision.action === "reconnect") {
-					setTimeout(() => doReconnect(decision.targetStreamId), 0);
+				if (decision.action === "observe") {
+					setTimeout(() => doReconnect(decision.streamId), 0);
 					return;
 				}
 				if (decision.action === "close") {
 					closeDownstream();
 					return;
 				}
+				releaseOwnedStream = decision.release;
+
 				isMainStream = true;
 			}
 			// P2 (ADR-0056) — kick off the instant-acknowledgment control call as
@@ -635,6 +559,7 @@ export function runChatStreamOrchestrator(
 			const chunkRuntime = createServerChunkRuntime({
 				enqueueChunk,
 				skillControlEnabled,
+				structuredOutput: true,
 				onThinking: (reasoning) => {
 					// P3b — fed the SAME text that is about to be appended to
 					// chunkRuntime.thinkingContent (this callback fires from
@@ -736,34 +661,6 @@ export function runChatStreamOrchestrator(
 					});
 				}
 			};
-			const emitRecoveredToolCalls = (records: ToolCallEntry[]) => {
-				for (const record of records) {
-					if (record.status !== "running") {
-						emitToolCallEventWithDebug(
-							record.name,
-							asToolInput(record.input),
-							"running",
-							{
-								callId: record.callId,
-							},
-						);
-					}
-					emitToolCallEventWithDebug(
-						record.name,
-						asToolInput(record.input),
-						record.status,
-						{
-							callId: record.callId,
-							outputSummary: record.outputSummary,
-							sourceType: record.sourceType,
-							candidates: record.candidates,
-							metadata: record.metadata,
-							map: record.map,
-							instructionSuggestion: record.instructionSuggestion,
-						},
-					);
-				}
-			};
 			const emitChunkWithOutputHandling = (chunk: string): boolean => {
 				const previousVisibleAnswerLength = chunkRuntime.fullResponse.length;
 				const emitted = chunkRuntime.emitChunkWithOutputHandling(chunk);
@@ -797,60 +694,6 @@ export function runChatStreamOrchestrator(
 
 			const emitError = (code: StreamErrorCode) =>
 				enqueueChunk(streamErrorEvent(code));
-			const emitResolvedAssistantText = async (
-				text: string | null,
-			): Promise<boolean> => {
-				if (!text) {
-					return true;
-				}
-
-				// P3b (ADR-0056) — "classification stops hard on the first answer
-				// text-delta" applies here too: the non-stream fallback emits its
-				// answer through this path (not the SSE loop's text_delta branch),
-				// so it must halt the classifier itself or a classified step could
-				// be emitted after the visible answer was already sent.
-				thoughtStepClassifierSession.stop();
-				return emitChunkWithOutputHandling(
-					chunkRuntime.fullResponse.trim() && !/^[\r\n]/.test(text)
-						? `\n\n${text}`
-						: text,
-				);
-			};
-			const hasEmittedStreamOutput = () =>
-				Boolean(
-					chunkRuntime.fullResponse.trim() ||
-						chunkRuntime.thinkingContent.trim() ||
-						chunkRuntime.toolCallRecords.length > 0,
-				);
-			const hasVisibleStreamOutput = () =>
-				Boolean(
-					chunkRuntime.fullResponse.trim() ||
-						chunkRuntime.toolCallRecords.length > 0,
-				);
-			const hasVisibleAssistantAnswerOutput = () =>
-				Boolean(chunkRuntime.fullResponse.trim());
-			// A "failed" tool call is terminal (not running) just like "done" —
-			// it is still persistable content for the purposes of "did this turn
-			// produce anything to save", so both statuses count as completed
-			// here. Only a still-`running` call must not count.
-			const completedToolCallRecords = () =>
-				chunkRuntime.toolCallRecords.filter(
-					(record) => record.status !== "running",
-				);
-			const isCompletedFileProductionToolCall = (record: ToolCallEntry) =>
-				isFileProductionToolName(record.name) && record.status !== "running";
-			const hasCompletedFileProductionToolCall = () =>
-				completedToolCallRecords().some(isCompletedFileProductionToolCall);
-			const hasCompletedNonFileToolCall = () =>
-				completedToolCallRecords().some(
-					(record) => !isFileProductionToolName(record.name),
-				);
-			const hasPersistableStreamOutput = () =>
-				Boolean(
-					chunkRuntime.fullResponse.trim() ||
-						hasCompletedFileProductionToolCall() ||
-						hasCompletedNonFileToolCall(),
-				);
 			const flushBufferedStreamOutput = () => {
 				flushPendingThinking();
 				if (!flushInlineThinkingBuffer()) {
@@ -885,7 +728,7 @@ export function runChatStreamOrchestrator(
 			let stepCount: number | null = null;
 			let lastStepOutputTokens: number | null = null;
 			let droppedToolCalls: number | null = null;
-			let recovery: "none" | "answered" | "failed" = "none";
+			const recovery: "none" | "answered" | "failed" = "none";
 			let latestUpstreamRawFinishReason: string | null = null;
 			// The streaming model run of this turn, once it exists. What the reply
 			// asked the person (ask_user) and what the run said and read are read
@@ -898,23 +741,6 @@ export function runChatStreamOrchestrator(
 			// (a stream that closed without a finish can end before the step that
 			// asked was captured) could never be answered: such a turn ends as one
 			// that never paused, and its question is discarded.
-			const isPausedReply = (): boolean => {
-				const ask = readTurnAsk();
-				return (
-					ask !== null &&
-					holdsAskResult(
-						streamingRun?.getResponseMessages() ?? [],
-						ask.toolCallId,
-					)
-				);
-			};
-			// The pause of a reply that asked: its question and what the resume
-			// starts from. The tool calls are the prefetched ones and every call the
-			// run recorded, evidence-ready or not, since a failed call's result is in
-			// the messages too. A first segment has no earlier rows (`priorResults`);
-			// a segment that asked inside a resume carries on from the rows of the
-			// segments before it, and what the run was given is that resume's
-			// continuation (the run reports it as `continuationGiven`).
 			const buildAskPause = (): {
 				questionId: string;
 				capture: AskResumeCapture;
@@ -932,6 +758,10 @@ export function runChatStreamOrchestrator(
 							...run.getNormalChatToolCalls(),
 						],
 						priorResults: resume?.capturedResults ?? [],
+						snapshot:
+							run.completionTurn?.getSnapshot()?.fidelity === "exact"
+								? run.completionTurn.getSnapshot()
+								: undefined,
 					}),
 				};
 			};
@@ -960,6 +790,7 @@ export function runChatStreamOrchestrator(
 				noFinalAnswer: boolean;
 			}) => {
 				await completeStreamTurn({
+					completionTurn: streamingRun?.completionTurn,
 					uiLanguage: user.uiLanguage,
 					wasStopped: args.wasStopped,
 					conversationId,
@@ -1050,6 +881,8 @@ export function runChatStreamOrchestrator(
 			};
 			const terminal = createStreamTerminal({
 				isEnded: () => ended,
+				getCompletion: () =>
+					streamingRun?.completionTurn?.getSnapshot()?.completion,
 				markEnded: () => {
 					ended = true;
 				},
@@ -1061,84 +894,22 @@ export function runChatStreamOrchestrator(
 				emitRequestError: (error) =>
 					enqueueChunk(streamRequestErrorEvent(error)),
 				runCompleteStreamTurn,
-				flushNativeToolCalls: () => chunkRuntime.flushNativeToolCalls(),
 				flushBufferedStreamOutput,
 				wasStopRequested,
-				isPaused: isPausedReply,
-				hasFinalAnswer: () =>
-					chunkRuntime.hasTextAfterLastToolCall ||
-					chunkRuntime.hasDeliveredAnswer,
-				hasVisibleAssistantAnswerOutput,
-				hasCompletedFileProductionToolCall,
-				hasCompletedNonFileToolCall,
-				getAttemptedNonStreamFallback: () => attemptedNonStreamFallback,
-				getFallbackRunner: () => fallbackToNonStreaming,
-				getLatestUpstreamAttempt: () => latestUpstreamAttempt,
-				upstreamEndLog: { conversationId, streamId, modelId },
-				getUpstreamEndSnapshot: () => ({
-					thinkingLength: chunkRuntime.thinkingContent.length,
-					toolCallCount: chunkRuntime.toolCallRecords.length,
-					completedToolCallCount: completedToolCallRecords().length,
-					hasCompletedNonFileToolCall: hasCompletedNonFileToolCall(),
-				}),
 			});
 			const {
 				completeSuccess,
 				failStream,
 				failPreparedTurnStream,
-				completeOrRecoverAfterUpstreamEnd,
+				completeAfterUpstreamEnd,
 			} = terminal;
 
-			const timeoutId = setTimeout(() => {
-				failStream("timeout");
-				upstreamAbortController.abort();
-			}, getStreamTimeoutMs());
-			unrefTimer(timeoutId);
-			let fallbackToNonStreaming:
-				| ((
-						reason: "stream_connect_failure" | "stream_read_failure",
-						attempt: number,
-						error: unknown,
-				  ) => Promise<null>)
-				| null = null;
-			const idleTimeout = createUpstreamIdleTimeout({
-				idleTimeoutMs: getUpstreamIdleTimeoutMs(),
-				log: { conversationId, streamId, modelId },
-				snapshot: () => ({
-					responseLength: chunkRuntime.fullResponse.length,
-					thinkingLength: chunkRuntime.thinkingContent.length,
-					toolCallCount: chunkRuntime.toolCallRecords.length,
-				}),
-				hasVisibleAssistantAnswerOutput,
-				onIdleTimeout: (attempt, { willAttemptFallback }) => {
-					if (willAttemptFallback) {
-						void (async () => {
-							if (fallbackToNonStreaming && !ended) {
-								await fallbackToNonStreaming(
-									"stream_read_failure",
-									attempt,
-									new Error("Timed out waiting for upstream stream activity"),
-								);
-								upstreamAbortController.abort();
-								return;
-							}
-							failStream("timeout");
-							upstreamAbortController.abort();
-						})();
-					} else {
-						failStream("timeout");
-						upstreamAbortController.abort();
-					}
-				},
-				unref: unrefTimer,
-			});
-
 			let personalityPrompt: string | undefined;
-			let latestUpstreamAttempt = 1;
+			let _latestUpstreamAttempt = 1;
 			const currentStreamModelId = (modelId ?? undefined) as
 				| ModelId
 				| undefined;
-			let attemptedNonStreamFallback = false;
+			const _attemptedNonStreamFallback = false;
 			const currentSystemPromptAppendix = () => {
 				return retryAppendix?.trim() ? retryAppendix : undefined;
 			};
@@ -1152,141 +923,7 @@ export function runChatStreamOrchestrator(
 					retryPendingSkillInstructions ?? preparedPendingSkillInstructions
 				);
 			};
-			fallbackToNonStreaming = async (
-				reason: "stream_connect_failure" | "stream_read_failure",
-				attempt: number,
-				error: unknown,
-			): Promise<null> => {
-				// The upstream watchdog owns the stream, never its awaited recovery.
-				idleTimeout.clear();
-				attemptedNonStreamFallback = true;
-				const fallbackActivityId = createFallbackResponseActivityId(
-					reason,
-					attempt,
-				);
-				emitResponseActivity({
-					id: fallbackActivityId,
-					kind: "fallback",
-					status: "running",
-					detail: reason,
-				});
-				const fallbackModelId = currentStreamModelId;
-				console.warn(
-					reason === "stream_connect_failure"
-						? "[STREAM] Falling back to non-stream provider run after stream connect failure"
-						: "[STREAM] Falling back to non-stream provider run after stream body terminated before usable output",
-					{
-						conversationId,
-						attempt,
-						fromModelId: currentStreamModelId ?? "model1",
-						modelId: fallbackModelId ?? "model1",
-						errorName: error instanceof Error ? error.name : undefined,
-						errorMessage:
-							error instanceof Error ? error.message : String(error),
-					},
-				);
 
-				// What the fallback is handed of the interrupted run: its tool calls, in
-				// its system context and in the replay of them. Never an ask: the
-				// fallback cannot ask and the question is discarded, so a call that reads
-				// as waiting for the person would only mislead it.
-				const interruptedToolCalls = chunkRuntime.toolCallRecords.filter(
-					(record) => !isAskToolName(record.name),
-				);
-				const recovered = await runNonStreamFallback({
-					runPlainNormalChatSendModel,
-					sendParams: {
-						runtimeConfig: getConfig(),
-						upstreamMessage,
-						conversationId,
-						modelId: (fallbackModelId ?? undefined) as ModelId | undefined,
-						attachmentIds: safeAttachmentIds,
-						activeDocumentArtifactId: activeDocumentArtifactId ?? undefined,
-						pictureRefs: turn.pictureRefs,
-						imageMarks: turn.imageMarks,
-						turnTakes,
-						attachmentTraceId: attachmentTraceId ?? undefined,
-						thinkingMode,
-						depthMetadata: latestDepthMetadata,
-						forceWebSearch: turn.forceWebSearch,
-						enabledConnectionCapabilities: turn.enabledConnectionCapabilities,
-						...resumeRunParams,
-					},
-					user,
-					attachContinuityToTaskState,
-					emitResolvedAssistantText,
-					flushPendingThinking,
-					flushInlineThinkingBuffer,
-					flushOutputBuffer,
-					getVisibleAssistantText: () => chunkRuntime.fullResponse,
-					completeSuccess: () => {
-						recovery = "answered";
-						return completeSuccess(wasStopRequested());
-					},
-					signal: upstreamAbortController.signal,
-					systemPromptAppendix: currentSystemPromptAppendix(),
-					pendingSkillInstructions: currentPendingSkillInstructions(),
-					personalityPrompt,
-					onContextStatus: (status) => {
-						latestContextStatus = status;
-					},
-					onTaskState: (state) => {
-						latestTaskState = state;
-					},
-					onContextDebug: (debug) => {
-						latestContextDebug = debug;
-					},
-					onProviderUsage: (usage) => {
-						latestProviderUsage = usage;
-					},
-					onEstimatedPromptTokens: (estimatedPromptTokens) => {
-						latestEstimatedPromptTokens = estimatedPromptTokens;
-					},
-					onResolvedModel: (resolvedModelId, displayName) => {
-						latestModelId = resolvedModelId;
-						latestModelDisplayName = displayName;
-					},
-					onDepthMetadata: (metadata) => {
-						latestDepthMetadata = metadata;
-					},
-					onRecoveredToolCalls: emitRecoveredToolCalls,
-					onContextPreparationTimings: (timings, fallbackAttempt) => {
-						recordContextPreparationTimelineTimings(phaseTimingMs, timings, {
-							type: "fallback",
-							attempt: fallbackAttempt,
-						});
-					},
-					onResponseActivity: emitResponseActivity,
-					completedToolCallContext:
-						buildCompletedToolCallFallbackContext(interruptedToolCalls),
-					completedToolCalls: interruptedToolCalls,
-				});
-				if (!recovered && !ended) {
-					recovery = "failed";
-					emitResponseActivity({
-						id: fallbackActivityId,
-						kind: "fallback",
-						status: "error",
-						detail: reason,
-					});
-					if (wasStopRequested()) {
-						await completeSuccess(true);
-					} else if (hasVisibleAssistantAnswerOutput()) {
-						await completeSuccess(false, { noFinalAnswer: true });
-					} else {
-						failStream("backend_failure");
-					}
-				} else if (recovered) {
-					emitResponseActivity({
-						id: fallbackActivityId,
-						kind: "fallback",
-						status: "done",
-						detail: reason,
-					});
-				}
-
-				return null;
-			};
 			try {
 				if (!preparedTurn) {
 					if (!prepareTurn) {
@@ -1361,10 +998,16 @@ export function runChatStreamOrchestrator(
 				}
 
 				const attempt = 1;
-				latestUpstreamAttempt = attempt;
+				_latestUpstreamAttempt = attempt;
 				const modelStreamRequestStartedAt = Date.now();
 				const modelRunParams = {
 					userId: user.id,
+					completionRequestId: streamId ?? undefined,
+					onOutputEvent: (
+						event: import("$lib/shared/normal-chat-output").NormalChatOutputEvent,
+					) => {
+						enqueueChunk(streamNormalChatOutputEvent(event));
+					},
 					runtimeConfig: getConfig(),
 					message: upstreamMessage,
 					conversationId,
@@ -1393,31 +1036,10 @@ export function runChatStreamOrchestrator(
 					// A tool waiting on a job (a picture) is activity, so a long wait
 					// never reads as a silent stream. `touch` never revives a stream
 					// that has ended.
-					onToolActivity: () => idleTimeout.touch(latestUpstreamAttempt),
 				};
-				let modelRun: Awaited<
-					ReturnType<typeof runStreamingNormalChatSendModel>
-				> | null = null;
-				try {
-					modelRun = await runStreamingNormalChatSendModel(modelRunParams);
-					latestProviderIconUrl = modelRun.providerIconUrl ?? null;
-				} catch (error) {
-					if (
-						!shouldFallbackOnStreamConnectFailure({
-							error,
-							wasStopRequested: wasStopRequested(),
-							hasEmittedStreamOutput: hasEmittedStreamOutput(),
-						})
-					) {
-						throw error;
-					}
+				const modelRun = await runStreamingNormalChatSendModel(modelRunParams);
+				latestProviderIconUrl = modelRun.providerIconUrl ?? null;
 
-					modelRun = await fallbackToNonStreaming(
-						"stream_connect_failure",
-						attempt,
-						error,
-					);
-				}
 				recordDurationPhase(
 					SERVER_STREAM_TIMELINE_MARKS.MODEL_STREAM_REQUEST,
 					modelStreamRequestStartedAt,
@@ -1467,7 +1089,6 @@ export function runChatStreamOrchestrator(
 					status: "running",
 				});
 
-				idleTimeout.schedule(attempt);
 				// Text written while a produce_file call is in flight (and a short
 				// window after it) is buffered and classified once: leaked document
 				// JSON / repair narration goes to the thinking lane, real answer text
@@ -1483,219 +1104,186 @@ export function runChatStreamOrchestrator(
 						? emitThinking(captured)
 						: emitChunkWithOutputHandling(captured);
 				};
-				try {
-					for await (const upstreamEvent of modelRun.stream) {
-						recordElapsedPhase(
-							SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT,
-						);
-						idleTimeout.markActivity(attempt);
-						switch (upstreamEvent.type) {
-							case "text_delta":
-								if (
-									fileProductionCapture.active ||
-									fileProductionCapture.postWindowChars > 0
-								) {
-									fileProductionCapture.buffer += upstreamEvent.text;
-									if (!fileProductionCapture.active) {
-										fileProductionCapture.postWindowChars = Math.max(
-											0,
-											fileProductionCapture.postWindowChars -
-												upstreamEvent.text.length,
-										);
-										if (
-											fileProductionCapture.postWindowChars === 0 &&
-											!flushFileProductionCapture()
-										) {
-											return;
-										}
-									}
-								} else {
-									// P3b — "Classification stops hard on the first answer
-									// text-delta" (architecture-deepening-slices.md § P3b).
-									// This branch is real visible-answer output (the
-									// file-production capture branch above is not), so this
-									// is exactly that boundary. Idempotent; called on every
-									// answer chunk rather than tracked separately.
-									thoughtStepClassifierSession.stop();
-									if (!emitChunkWithOutputHandling(upstreamEvent.text)) {
+				for await (const upstreamEvent of modelRun.stream) {
+					recordElapsedPhase(SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT);
+					switch (upstreamEvent.type) {
+						case "text_delta":
+							if (modelRun.completionTurn) {
+								thoughtStepClassifierSession.stop();
+								if (!emitChunkWithOutputHandling(upstreamEvent.text)) return;
+								break;
+							}
+							if (
+								fileProductionCapture.active ||
+								fileProductionCapture.postWindowChars > 0
+							) {
+								fileProductionCapture.buffer += upstreamEvent.text;
+								if (!fileProductionCapture.active) {
+									fileProductionCapture.postWindowChars = Math.max(
+										0,
+										fileProductionCapture.postWindowChars -
+											upstreamEvent.text.length,
+									);
+									if (
+										fileProductionCapture.postWindowChars === 0 &&
+										!flushFileProductionCapture()
+									) {
 										return;
 									}
 								}
-								break;
-							case "reasoning_delta":
-								if (!emitThinking(upstreamEvent.text)) {
+							} else {
+								// P3b — "Classification stops hard on the first answer
+								// text-delta" (architecture-deepening-slices.md § P3b).
+								// This branch is real visible-answer output (the
+								// file-production capture branch above is not), so this
+								// is exactly that boundary. Idempotent; called on every
+								// answer chunk rather than tracked separately.
+								thoughtStepClassifierSession.stop();
+								if (!emitChunkWithOutputHandling(upstreamEvent.text)) {
 									return;
 								}
-								break;
-							case "tool_call":
-								if (isFileProductionToolName(upstreamEvent.toolName)) {
-									fileProductionCapture.active = true;
-									fileProductionCapture.postWindowChars = 0;
-								}
-								emitToolCallEventWithDebug(
-									upstreamEvent.toolName,
-									asToolInput(upstreamEvent.input),
-									"running",
-									{ callId: upstreamEvent.callId },
-								);
-								break;
-							case "tool_result": {
-								const matchingToolCall = modelRun
-									.getNormalChatToolCalls()
-									.find((record) => record.callId === upstreamEvent.callId);
-								if (isFileProductionToolName(upstreamEvent.toolName)) {
-									fileProductionCapture.active = false;
-									if (!flushFileProductionCapture()) {
-										return;
-									}
-									fileProductionCapture.postWindowChars =
-										FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS;
-								}
-								// A tool can RETURN a failure rather than throw one — the
-								// AI SDK still calls this a tool_result. produce_file does
-								// exactly that when the file-production ledger reports the
-								// job failed. Honour the recorded entry's own status so the
-								// activity row shows the failure glyph instead of "done",
-								// matching what the thrown-error branch below emits.
-								emitToolCallEventWithDebug(
-									upstreamEvent.toolName,
-									matchingToolCall?.input ?? {},
-									matchingToolCall?.status === "failed" ? "failed" : "done",
-									{
-										callId: upstreamEvent.callId,
-										outputSummary: matchingToolCall?.outputSummary ?? null,
-										resultDigest: matchingToolCall?.resultDigest ?? null,
-										sourceType: matchingToolCall?.sourceType ?? null,
-										candidates: matchingToolCall?.candidates ?? [],
-										metadata: matchingToolCall?.metadata ?? {},
-										map: matchingToolCall?.map ?? null,
-										// Slice F — the recorded entry is the only place a
-										// `suggest_instruction` offer exists at this point;
-										// finalize persists it off the runtime's records.
-										instructionSuggestion:
-											matchingToolCall?.instructionSuggestion ?? null,
-									},
-								);
-								break;
 							}
-							case "tool_error": {
-								const matchingToolCall = modelRun
-									.getNormalChatToolCalls()
-									.find((record) => record.callId === upstreamEvent.callId);
-								if (isFileProductionToolName(upstreamEvent.toolName)) {
-									fileProductionCapture.active = false;
-									if (!flushFileProductionCapture()) {
-										return;
-									}
-									fileProductionCapture.postWindowChars =
-										FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS;
-								}
-								// E1 — a failed tool call is a "failed" status, not a fake
-								// "done". `errorCode` rides the same StreamErrorCode
-								// vocabulary `data-stream-error` uses, via the shared
-								// cause -> code seam (classifyStreamErrorCause), so a
-								// failed tool call is never represented as having
-								// succeeded.
-								emitToolCallEventWithDebug(
-									upstreamEvent.toolName,
-									matchingToolCall?.input ?? {},
-									"failed",
-									{
-										callId: upstreamEvent.callId,
-										outputSummary: null,
-										sourceType: null,
-										candidates: [],
-										metadata: {
-											ok: false,
-											evidenceReady: false,
-											error: upstreamEvent.error,
-											errorCode: classifyStreamErrorCause(
-												new Error(upstreamEvent.error),
-											),
-										},
-									},
-								);
-								break;
+							break;
+						case "reasoning_delta":
+							if (!emitThinking(upstreamEvent.text)) {
+								return;
 							}
-							case "usage": {
-								const mappedUsage = mapModelRunUsage(upstreamEvent.usage);
-								if (mappedUsage) {
-									latestProviderUsage = mappedUsage;
-								}
-								break;
+							break;
+						case "tool_call":
+							if (isFileProductionToolName(upstreamEvent.toolName)) {
+								fileProductionCapture.active = true;
+								fileProductionCapture.postWindowChars = 0;
 							}
-							case "finish":
+							emitToolCallEventWithDebug(
+								upstreamEvent.toolName,
+								asToolInput(upstreamEvent.input),
+								"running",
+								{ callId: upstreamEvent.callId },
+							);
+							break;
+						case "tool_result": {
+							const matchingToolCall = modelRun
+								.getNormalChatToolCalls()
+								.find((record) => record.callId === upstreamEvent.callId);
+							if (isFileProductionToolName(upstreamEvent.toolName)) {
+								fileProductionCapture.active = false;
 								if (!flushFileProductionCapture()) {
 									return;
 								}
-								latestModelId =
-									(upstreamEvent.model.modelId as ModelId | undefined) ??
-									latestModelId;
-								latestModelDisplayName =
-									upstreamEvent.model.displayName ?? latestModelDisplayName;
-								latestUpstreamFinishReason = upstreamEvent.finishReason;
-								streamFinishReason = upstreamEvent.finishReason;
-								stepCount = upstreamEvent.stepCount ?? null;
-								lastStepOutputTokens =
-									upstreamEvent.lastStepOutputTokens ?? null;
-								droppedToolCalls = upstreamEvent.droppedToolCalls ?? null;
-								latestUpstreamRawFinishReason =
-									upstreamEvent.rawFinishReason ?? null;
-								// Upstream has finished; its idle watchdog must not race the repair.
-								idleTimeout.clear();
-								await completeOrRecoverAfterUpstreamEnd("end_event");
-								return;
-							case "error": {
-								const errorMessage = upstreamEvent.error;
-								latestUpstreamFinishReason = "error";
-								latestUpstreamRawFinishReason = errorMessage;
-								console.error("[STREAM] Upstream error event payload", {
-									conversationId,
-									attempt,
-									errorMessage,
-								});
-								const upstreamError = new Error(errorMessage);
-								const errorCode = classifyStreamErrorCause(upstreamError);
-								const canRecoverWithNonStreamFallback =
-									shouldFallbackOnUpstreamErrorEvent({
-										error: upstreamError,
-										attemptedNonStreamFallback,
-										wasStopRequested: wasStopRequested(),
-										hasVisibleAssistantAnswerOutput:
-											hasVisibleAssistantAnswerOutput(),
-										hasVisibleStreamOutput: hasVisibleStreamOutput(),
-										hasCompletedNonFileToolCall: hasCompletedNonFileToolCall(),
-									});
-								if (canRecoverWithNonStreamFallback && fallbackToNonStreaming) {
-									await fallbackToNonStreaming(
-										"stream_read_failure",
-										attempt,
-										upstreamError,
-									);
+								fileProductionCapture.postWindowChars =
+									FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS;
+							}
+							// A tool can RETURN a failure rather than throw one — the
+							// AI SDK still calls this a tool_result. produce_file does
+							// exactly that when the file-production ledger reports the
+							// job failed. Honour the recorded entry's own status so the
+							// activity row shows the failure glyph instead of "done",
+							// matching what the thrown-error branch below emits.
+							emitToolCallEventWithDebug(
+								upstreamEvent.toolName,
+								matchingToolCall?.input ?? {},
+								matchingToolCall?.status === "failed" ? "failed" : "done",
+								{
+									callId: upstreamEvent.callId,
+									outputSummary: matchingToolCall?.outputSummary ?? null,
+									resultDigest: matchingToolCall?.resultDigest ?? null,
+									sourceType: matchingToolCall?.sourceType ?? null,
+									candidates: matchingToolCall?.candidates ?? [],
+									metadata: matchingToolCall?.metadata ?? {},
+									map: matchingToolCall?.map ?? null,
+									// Slice F — the recorded entry is the only place a
+									// `suggest_instruction` offer exists at this point;
+									// finalize persists it off the runtime's records.
+									instructionSuggestion:
+										matchingToolCall?.instructionSuggestion ?? null,
+								},
+							);
+							break;
+						}
+						case "tool_error": {
+							const matchingToolCall = modelRun
+								.getNormalChatToolCalls()
+								.find((record) => record.callId === upstreamEvent.callId);
+							if (isFileProductionToolName(upstreamEvent.toolName)) {
+								fileProductionCapture.active = false;
+								if (!flushFileProductionCapture()) {
 									return;
 								}
-								if (
-									flushBufferedStreamOutput() &&
-									(hasVisibleAssistantAnswerOutput() ||
-										hasCompletedFileProductionToolCall())
-								) {
-									await completeSuccess();
-									return;
-								}
-								failStream(errorCode);
+								fileProductionCapture.postWindowChars =
+									FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS;
+							}
+							// E1 — a failed tool call is a "failed" status, not a fake
+							// "done". `errorCode` rides the same StreamErrorCode
+							// vocabulary `data-stream-error` uses, via the shared
+							// cause -> code seam (classifyStreamErrorCause), so a
+							// failed tool call is never represented as having
+							// succeeded.
+							emitToolCallEventWithDebug(
+								upstreamEvent.toolName,
+								matchingToolCall?.input ?? {},
+								"failed",
+								{
+									callId: upstreamEvent.callId,
+									outputSummary: null,
+									sourceType: null,
+									candidates: [],
+									metadata: {
+										ok: false,
+										evidenceReady: false,
+										error: upstreamEvent.error,
+										errorCode: classifyStreamErrorCause(
+											new Error(upstreamEvent.error),
+										),
+									},
+								},
+							);
+							break;
+						}
+						case "usage": {
+							const mappedUsage = mapModelRunUsage(upstreamEvent.usage);
+							if (mappedUsage) {
+								latestProviderUsage = mappedUsage;
+							}
+							break;
+						}
+						case "finish":
+							if (!flushFileProductionCapture()) {
 								return;
 							}
+							latestModelId =
+								(upstreamEvent.model.modelId as ModelId | undefined) ??
+								latestModelId;
+							latestModelDisplayName =
+								upstreamEvent.model.displayName ?? latestModelDisplayName;
+							latestUpstreamFinishReason = upstreamEvent.finishReason;
+							streamFinishReason = upstreamEvent.finishReason;
+							stepCount = upstreamEvent.stepCount ?? null;
+							lastStepOutputTokens = upstreamEvent.lastStepOutputTokens ?? null;
+							droppedToolCalls = upstreamEvent.droppedToolCalls ?? null;
+							latestUpstreamRawFinishReason =
+								upstreamEvent.rawFinishReason ?? null;
+							// Upstream has finished; its idle watchdog must not race the repair.
+							await completeAfterUpstreamEnd("end_event");
+							return;
+						case "error": {
+							latestUpstreamFinishReason = "error";
+							latestUpstreamRawFinishReason = upstreamEvent.error;
+							if (modelRun.completionTurn?.getSnapshot()?.completion)
+								await completeAfterUpstreamEnd("end_event");
+							else
+								failStream(
+									classifyStreamErrorCause(new Error(upstreamEvent.error)),
+								);
+							return;
 						}
 					}
-
-					if (ended) {
-						return;
-					}
-				} finally {
-					idleTimeout.clear();
 				}
 
-				await completeOrRecoverAfterUpstreamEnd("stream_closed");
+				if (ended) {
+					return;
+				}
+
+				await completeAfterUpstreamEnd("stream_closed");
 				return;
 			} catch (error) {
 				if (ended) {
@@ -1705,47 +1293,7 @@ export function runChatStreamOrchestrator(
 					await completeSuccess(true);
 					return;
 				}
-				if (
-					shouldFallbackOnStreamError({
-						error,
-						attemptedNonStreamFallback,
-						wasStopRequested: wasStopRequested(),
-						hasVisibleAssistantAnswerOutput: hasVisibleAssistantAnswerOutput(),
-						hasVisibleStreamOutput: hasVisibleStreamOutput(),
-						upstreamIdleTimedOutBeforeOutput: idleTimeout.timedOutBeforeOutput,
-					})
-				) {
-					await fallbackToNonStreaming(
-						"stream_read_failure",
-						latestUpstreamAttempt,
-						error,
-					);
-					return;
-				}
-				if (isAbruptUpstreamTermination(error)) {
-					if (flushBufferedStreamOutput() && hasPersistableStreamOutput()) {
-						await completeSuccess(false, {
-							streamClosedWithoutFinish: true,
-						});
-						return;
-					}
-					if (
-						shouldFallbackOnAbruptTermination({
-							error,
-							attemptedNonStreamFallback,
-							wasStopRequested: wasStopRequested(),
-							hasVisibleAssistantAnswerOutput:
-								hasVisibleAssistantAnswerOutput(),
-						})
-					) {
-						await fallbackToNonStreaming(
-							"stream_read_failure",
-							latestUpstreamAttempt,
-							error,
-						);
-						return;
-					}
-				}
+
 				console.error("[STREAM] Chat stream error", {
 					conversationId,
 					userId: user.id,
@@ -1767,12 +1315,18 @@ export function runChatStreamOrchestrator(
 				}
 				failStream(classifyStreamErrorCause(error));
 			} finally {
-				clearInterval(heartbeatIntervalId);
-				clearTimeout(timeoutId);
-				idleTimeout.clear();
-				if (streamId) {
-					unregisterActiveChatStream(streamId, upstreamAbortController);
+				try {
+					await streamingRun?.completionTurn?.finish();
+				} catch (error) {
+					console.error("[CHAT_STREAM] Completion audit could not settle", {
+						conversationId,
+						streamId,
+						error,
+					});
+					if (!ended) failStream("backend_failure");
 				}
+				clearInterval(heartbeatIntervalId);
+				releaseOwnedStream();
 				cancelStream = () => undefined;
 				// A question the run recorded stays only if the reply that asked it was
 				// saved, paused and tied to it (finalize stamps it before the terminal
