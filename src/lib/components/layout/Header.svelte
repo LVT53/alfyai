@@ -1,11 +1,14 @@
 <script lang="ts">
 import { goto, invalidateAll } from "$app/navigation";
 import { onMount } from "svelte";
+import { spotlightTarget } from "$lib/actions/spotlight";
+import { appPlacePath } from "$lib/app-places";
 import { logout } from "$lib/client/api/auth";
 import { clearClientAccountState } from "$lib/client/session-boundary";
 import { t } from "$lib/i18n";
 import {
 	BookOpen,
+	CircleQuestionMark,
 	Menu,
 	User,
 	Plus,
@@ -114,6 +117,13 @@ async function handleOpenKnowledge() {
 	await goto("/knowledge");
 }
 
+// The feature guide's way in on a phone (design 3.1); the sidebar's own ways in
+// are the "?" beside the version badge and the collapsed rail's button.
+async function handleOpenGuide() {
+	mobileMenuOpen = false;
+	await goto(appPlacePath("guide"));
+}
+
 function handleOpenSearch() {
 	mobileMenuOpen = false;
 	// Sidebar owns the actual Workspace Search modal state and isn't a
@@ -121,6 +131,12 @@ function handleOpenSearch() {
 	// store instead of reaching into Sidebar directly (see Task 6 / A3).
 	requestSearchModalOpen();
 }
+
+// The menu's width, in px. At the 188 it had, a row's label had 117px: "What
+// AlfyAI can do" (122px) wrapped with "do" alone on a second line, as the
+// Hungarian "Profil és beállítások" (125px) already did. At 200 it has 129px, and
+// those two are the longest labels the menu has in either language.
+const MENU_WIDTH = 200;
 
 function doUpdatePosition() {
 	if (!triggerRef) return;
@@ -130,7 +146,7 @@ function doUpdatePosition() {
 		(style) => {
 			menuPositionStyle = style;
 		},
-		188,
+		MENU_WIDTH,
 	);
 }
 
@@ -216,6 +232,7 @@ onMount(() => {
 				<button
 					class="btn-icon-bare hbtn"
 					data-testid="incognito-arm-phone"
+					use:spotlightTarget={"home.incognito"}
 					onclick={armIncognito}
 					aria-label={$t('chat.incognitoArm')}
 					title={$t('chat.incognitoArm')}
@@ -274,6 +291,15 @@ onMount(() => {
 						<BookOpen size={18} strokeWidth={2.1} aria-hidden="true" />
 					</span>
 						<span>{$t('header.knowledgeBase')}</span>
+					</button>
+					<button
+						class="header-option flex min-h-[38px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+						onclick={handleOpenGuide}
+					>
+						<span class="header-option-icon">
+							<CircleQuestionMark size={18} strokeWidth={2.1} aria-hidden="true" />
+						</span>
+						<span>{$t('guide.title')}</span>
 					</button>
 					<button
 						class="header-option flex min-h-[38px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"

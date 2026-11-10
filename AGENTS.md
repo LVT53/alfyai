@@ -49,6 +49,7 @@ This file is the canonical engineering map for AlfyAI: the rules that hold every
 - `src/lib/server/env.ts` owns environment parsing, including `getDatabasePath()` for DB bootstrap-only access. Do not read `DATABASE_PATH` directly anywhere else.
 - The model chooses the reply language under one rule, and everything the app writes into a model request is English (ruling 79). Read `src/lib/server/services/chat-turn/AGENTS.md`, which holds the rule and its five invariants, before changing prompt text or adding a model call.
 - An address the app requests without a click comes from the user's own words or a tool's result, never from the model's (ADR-0068). Read `src/lib/server/services/url-provenance/AGENTS.md` before adding anything that loads, embeds or fetches an address on its own.
+- The Feature Guide (`/guide`) is the app's one map of what a person can do. A change that adds, removes, renames or moves a user-facing feature updates its guide entry (`src/lib/components/guide/guide-content.ts`, `src/lib/i18n/guide.ts`) in the same change, and its section's drawing when a pictured control changes. A moved control keeps its spotlight marker, so Show me still finds it.
 
 ## Folder Rules
 
@@ -76,6 +77,8 @@ Browser and shared:
 - `src/lib/components/chat/` — composer, message list, Mermaid (an untrusted source), what a turn made.
 - `src/lib/components/document-workspace/` — the side panel: dock width, tab memory, history entries.
 - `src/lib/components/artifacts/` — card, rows, headers, popovers, Download; `canvas/`, `document/`, `history/`, `image/` and `tour/` each keep their own file.
+- `src/lib/components/drawings/` — the drawing kit: small drawn copies of real controls (words from their keys, Lucide icons, colours, fonts and shadows from tokens and sizes in design pixels, hidden from screen readers, spots a guide row lights), and the rule that a drawing follows its control.
+- `src/lib/components/guide/` — the Feature Guide page: its content list and words, its six drawings, Try it and Show me, NEW, and the rule that every Show me spotlight has a marker on its real control and a line in the end-to-end spec.
 
 Routes and tests:
 

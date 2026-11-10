@@ -5,8 +5,17 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { get } from "svelte/store";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { goto } from "$app/navigation";
+import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
+import { uiLanguage } from "$lib/stores/settings";
+import {
+	pendingSpotlight,
+	requestSpotlight,
+	spotlightRequest,
+} from "$lib/stores/spotlight";
 import {
 	landingIncognitoArmed,
 	landingIncognitoArmVisible,
@@ -61,6 +70,93 @@ describe("Header — mobile menu Search entry (Task 6 / A3)", () => {
 	});
 });
 
+// The Feature Guide's way in on a phone (design 3.1): a row in the user menu,
+// beside the rows the menu already has. The sidebar's ways in (the "?" beside
+// the version badge, the rail's button) are in `Sidebar.test.ts`.
+describe("Header — the feature guide in the phone menu", () => {
+	beforeEach(() => {
+		vi.mocked(goto).mockClear();
+		searchModalOpenRequested.set(false);
+		uiLanguage.set("en");
+	});
+
+	afterEach(() => {
+		uiLanguage.set("en");
+	});
+
+	async function openMobileMenu() {
+		render(Header, {});
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Open user menu" }),
+		);
+	}
+
+	const menuRows = () =>
+		within(document.querySelector(".header-menu") as HTMLElement)
+			.getAllByRole("button")
+			.map((row) => row.textContent?.trim());
+
+	it("lists the guide in the phone menu and closes the menu when it opens it", async () => {
+		await openMobileMenu();
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "What AlfyAI can do" }),
+		);
+
+		expect(goto).toHaveBeenCalledWith("/guide");
+		expect(document.querySelector(".header-menu")).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "What AlfyAI can do" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("puts the guide after Knowledge base, as the menu's sixth row", async () => {
+		await openMobileMenu();
+
+		expect(menuRows()).toEqual([
+			"New chat",
+			"Search",
+			"Knowledge base",
+			"What AlfyAI can do",
+			"Profile & Settings",
+			"Logout",
+		]);
+	});
+
+	it("opens nothing else on the way: no sign-out question, no search", async () => {
+		await openMobileMenu();
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "What AlfyAI can do" }),
+		);
+
+		expect(goto).toHaveBeenCalledTimes(1);
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(get(searchModalOpenRequested)).toBe(false);
+	});
+
+	// jsdom cannot measure text, so this pins the number: at the 188px the menu
+	// had, "What AlfyAI can do" (122px of text) did not fit its row's 117px and
+	// wrapped with "do" on a line of its own; at 200 the row has 129px.
+	it("draws the menu 200px wide, so that the guide's label stays on one line", async () => {
+		await openMobileMenu();
+
+		expect(
+			(document.querySelector(".header-menu") as HTMLElement).style.width,
+		).toBe("200px");
+	});
+
+	it("names the row in the reader's language", async () => {
+		// The menu is opened by its English name, then the language changes.
+		await openMobileMenu();
+		uiLanguage.set("hu");
+		await tick();
+
+		expect(menuRows()).toContain("Amit az AlfyAI tud");
+		expect(menuRows()).not.toContain("What AlfyAI can do");
+	});
+});
+
 // Incognito, one-way (docs/plans/incognito-one-way-spec.md §2). The phone
 // header's mask button mirrors the landing page's own visibility rule
 // (landing route, no conversation yet) via the shared
@@ -111,6 +207,93 @@ describe("Header — incognito", () => {
 		expect(
 			screen.queryByLabelText("Incognito — not remembered"),
 		).not.toBeInTheDocument();
+	});
+});
+
+// The Feature Guide's Show me for the mask button names it `home.incognito`,
+// and the button on the landing page carries the same name (`HomeSurface`).
+// This one is the phone's: the header is `lg:hidden`, so on a desktop window it
+// has no layout and leaves the request for the landing page's own button.
+describe("Header — the guide's Show me", () => {
+	let restoreLayout: () => void = () => undefined;
+
+	beforeEach(() => {
+		// The ring waits one animation frame; the test steps it by hand.
+		vi.useFakeTimers({
+			toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+		});
+		restoreLayout = stubLayoutForSpotlight();
+		spotlightRequest.set(null);
+		landingIncognitoArmed.set(false);
+		landingIncognitoArmVisible.set(true);
+	});
+
+	afterEach(() => {
+		restoreLayout();
+		vi.useRealTimers();
+		spotlightRequest.set(null);
+		landingIncognitoArmVisible.set(false);
+	});
+
+	it("rings the phone's incognito button when Show me asks for it", () => {
+		requestSpotlight("home.incognito");
+
+		render(Header, {});
+
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect(screen.getByTestId("incognito-arm-phone")).toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	// The landing page decides when the button is drawn (it sets the store when
+	// it mounts), so on the way from the guide the request is made before the
+	// button exists.
+	it("rings the button when the landing page draws it after the request", async () => {
+		landingIncognitoArmVisible.set(false);
+		render(Header, {});
+		expect(screen.queryByTestId("incognito-arm-phone")).toBeNull();
+
+		requestSpotlight("home.incognito");
+		landingIncognitoArmVisible.set(true);
+		await tick();
+
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect(screen.getByTestId("incognito-arm-phone")).toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	it("leaves the request alone while the header is not on screen", () => {
+		const withLayout = Element.prototype.getClientRects;
+		Element.prototype.getClientRects = function (this: Element) {
+			return this.closest("header")
+				? ([] as unknown as DOMRectList)
+				: withLayout.call(this);
+		};
+		requestSpotlight("home.incognito");
+
+		render(Header, {});
+		vi.advanceTimersToNextFrame();
+
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("home.incognito");
+		expect(screen.getByTestId("incognito-arm-phone")).not.toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	it("leaves a request for another control alone", () => {
+		requestSpotlight("home.home");
+
+		render(Header, {});
+		vi.advanceTimersToNextFrame();
+
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("home.home");
+		expect(screen.getByTestId("incognito-arm-phone")).not.toHaveClass(
+			"spotlight-ring",
+		);
 	});
 });
 

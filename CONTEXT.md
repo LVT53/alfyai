@@ -206,6 +206,10 @@ _Avoid_: hidden configuration step, feature enablement, tutorial task
 A required first-run onboarding slide that plainly explains that AlfyAI is not fully local, may process messages and files through configured model providers and integrations, and stores memory or analytics according to the deployment's configuration. It is an acknowledgement disclosure unless the product offers a real opt-out.
 _Avoid_: privacy consent toggle, local-only claim, legal fine print
 
+**Feature Guide**:
+The optional page at `/guide`, opened from the "?" beside the **App Version Badge**. It lists everything a person can do with AlfyAI in six sections, each with a drawing; every entry has Try it, Show me or neither. Its entry names are the features' names.
+_Avoid_: tour, help centre, manual
+
 ## Privacy Controls
 
 ### Language

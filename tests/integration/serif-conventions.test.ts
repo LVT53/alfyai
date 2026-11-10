@@ -3,14 +3,14 @@ import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // The serif has one job: a page's own top title. The Home and project greeting
-// and the titles of Settings, Knowledge, the login page and the error page wear
-// Libre Baskerville; everything else is Nimbus Sans L, the Document, its panel,
-// cards, fields and modal headings included (src/lib/components/AGENTS.md, "Font
-// ownership"). It crept into Documents because the Tailwind class
-// (`font-serif`), the token (`var(--font-serif)`) and the family typed out
-// (`'Libre Baskerville', serif`) are three ways in, and nothing said no to any of
-// them. This holds the three as a test, so a new component cannot bring the
-// serif back by accident.
+// and the titles of Settings, Knowledge, the Feature Guide, the login page and
+// the error page wear Libre Baskerville; everything else is Nimbus Sans L, the
+// Document, its panel, cards, fields and modal headings included
+// (src/lib/components/AGENTS.md, "Font ownership"). It crept into Documents
+// because the Tailwind class (`font-serif`), the token (`var(--font-serif)`) and
+// the family typed out (`'Libre Baskerville', serif`) are three ways in, and
+// nothing said no to any of them. This holds the three as a test, so a new
+// component cannot bring the serif back by accident.
 //
 // A file may name the serif only in the way its title does: the Home greeting
 // reads the token, the Knowledge title uses the class. That is why a list of
@@ -79,6 +79,10 @@ const MAY_NAME_THE_SERIF: MayNameTheSerif = {
 		sets: "the Knowledge page title",
 		ways: ["class"],
 	},
+	"src/routes/(app)/guide/+page.svelte": {
+		sets: "the Feature Guide page title",
+		ways: ["class"],
+	},
 	"src/routes/login/+page.svelte": {
 		sets: "the login page title",
 		ways: ["token"],
@@ -90,7 +94,7 @@ const MAY_NAME_THE_SERIF: MayNameTheSerif = {
 };
 
 const RULE =
-	'Only a page\'s own top title wears the serif (the Home and project greeting, and the titles of Settings, Knowledge, the login page and the error page); a Document, a panel, a card, a field and a modal heading are sans. Use font-sans or var(--font-sans). A new page title goes in MAY_NAME_THE_SERIF in tests/integration/serif-conventions.test.ts with the title it sets (src/lib/components/AGENTS.md, "Font ownership").';
+	'Only a page\'s own top title wears the serif (the Home and project greeting, and the titles of Settings, Knowledge, the Feature Guide, the login page and the error page); a Document, a panel, a card, a field and a modal heading are sans. Use font-sans or var(--font-sans). A new page title goes in MAY_NAME_THE_SERIF in tests/integration/serif-conventions.test.ts with the title it sets (src/lib/components/AGENTS.md, "Font ownership").';
 
 function waysIn(text: string): Array<{ id: Way; what: string }> {
 	return WAYS_IN.filter(({ pattern }) => pattern.test(text));

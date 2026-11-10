@@ -102,6 +102,8 @@ import {
 	clearComposerQuoteRequest,
 	composerQuoteRequest,
 } from "$lib/stores/composer-quote";
+import { spotlightTarget } from "$lib/actions/spotlight";
+import { pendingSpotlight, spotlightRequest } from "$lib/stores/spotlight";
 import ContextUsageRing from "./ContextUsageRing.svelte";
 import { followAnchor } from "./anchored-popup";
 import AttachmentOutline from "./AttachmentOutline.svelte";
@@ -118,6 +120,7 @@ import {
 	attachIsOn,
 	attachTooltip,
 	type ComposerTooltip,
+	opensComposerMenu,
 	thinkingTooltip,
 } from "./composer-bar";
 import {
@@ -591,6 +594,11 @@ let documentPickerLoading = $state(false);
 let documentPickerError = $state("");
 let resolvedConversationId = $state<string | null>(null);
 let showToolsMenu = $state(false);
+// Set when the feature guide's Show me opens the "+" menu (see the effect after
+// `closeToolsMenu`): until when a draft that is applied meanwhile leaves the
+// menu open. The time the request lapses, or 0 for no hold. Not state: only the
+// draft effect reads it, and it must not start depending on it.
+let spotlightMenuHeldUntil = 0;
 // Everyday redesign — the phone-only surfaces the bar and the menu open.
 let attachmentSheetOpen = $state(false);
 let skillsPickerOpen = $state(false);
@@ -1685,7 +1693,10 @@ $effect(() => {
 		}
 		// A send queued behind a file would send words the person has not seen.
 		queuedSendAfterProcessing = false;
-		showToolsMenu = false;
+		// Home reads the landing page's saved draft a moment after it opens, so
+		// the draft can arrive after Show me has opened the menu for a row to
+		// ring. Shut then, the menu would flash and take the ring with it.
+		if (Date.now() >= spotlightMenuHeldUntil) showToolsMenu = false;
 		selectedAtlasProfile = draftAtlasMode
 			? (draftAtlasProfile ?? "overview")
 			: null;
@@ -2659,6 +2670,30 @@ function closeToolsMenu() {
 	toolsMenuInitialOpen = null;
 	requestAnimationFrame(() => toolsMenuTrigger?.focus());
 }
+
+// The feature guide's Show me, for a control that lives in this menu (Attach
+// file, From your Library, Atlas report): open the menu, so that the row is
+// there to be rung. The composer only reads the request. The row's own marker
+// takes it when it mounts (`spotlightTarget`), and a request nobody takes is
+// left to lapse.
+//
+// The request is the only thing this effect depends on. It must not open the
+// menu again for a request that is still waiting after the person has shut the
+// menu, which reading `showToolsMenu` here would do, so the rest is read
+// untracked. A composer that its host has switched off, or that holds a message
+// being edited, has a "+" that cannot be pressed, and its menu stays shut as
+// well. The guard reads `disabled`, not `isComposerDisabled`: that one is also
+// true until `onMount` has run, which would make this effect work or not
+// according to where it sits among the others.
+$effect(() => {
+	const request = $spotlightRequest;
+	if (!opensComposerMenu(pendingSpotlight(request))) return;
+	untrack(() => {
+		if (showToolsMenu || disabled || editing) return;
+		toggleToolsMenu();
+		spotlightMenuHeldUntil = request?.expiresAt ?? 0;
+	});
+});
 
 async function loadSkillCount() {
 	try {
@@ -4539,6 +4574,7 @@ async function emitDraftChange(force = false, onlyIfSomethingToSay = false) {
 						data-testid="thinking-bar-toggle"
 						class="composer-face"
 						class:composer-face--on={thinkingIsOn}
+						use:spotlightTarget={"composer.thinking"}
 						onclick={toggleThinking}
 						aria-pressed={thinkingIsOn}
 						aria-label={thinkingLabel}

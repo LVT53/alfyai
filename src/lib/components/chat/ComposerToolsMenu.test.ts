@@ -1,6 +1,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { get } from "svelte/store";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
 import type { AvailableModelsResponse } from "$lib/client/api/models";
+import {
+	pendingSpotlight,
+	requestSpotlight,
+	spotlightRequest,
+} from "$lib/stores/spotlight";
 import ComposerToolsMenu from "./ComposerToolsMenu.svelte";
 import ModelSelector from "./ModelSelector.svelte";
 
@@ -626,5 +633,151 @@ describe("ComposerToolsMenu with the model guide open above it", () => {
 		pressEscape();
 
 		expect(props.onClose).toHaveBeenCalledTimes(1);
+	});
+});
+
+// The guide's Show me asks for a control by name and the control that carries
+// the name rings itself (`spotlightTarget`). Attach file, From your Library and
+// Atlas report are rows of this menu; the composer opens the menu for them
+// (`MessageInput`), and each row takes the request as it mounts.
+describe("ComposerToolsMenu and the guide's Show me", () => {
+	let restoreLayout: () => void = () => undefined;
+
+	beforeEach(() => {
+		// The ring waits one animation frame; the test steps it by hand.
+		vi.useFakeTimers({
+			toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+		});
+		restoreLayout = stubLayoutForSpotlight();
+		spotlightRequest.set(null);
+	});
+
+	afterEach(() => {
+		restoreLayout();
+		vi.useRealTimers();
+		spotlightRequest.set(null);
+	});
+
+	function renderMenu(overrides: Record<string, unknown> = {}) {
+		stubPhone(false);
+		return render(
+			ComposerToolsMenu,
+			baseProps({ triggerElement: stubTrigger(), ...overrides }),
+		);
+	}
+
+	const ROWS = {
+		"composer.attach": "composer-menu-attach",
+		"composer.library": "composer-menu-library",
+		"composer.atlas": "composer-menu-atlas",
+	} as const;
+
+	/** The test ids of the rows that wear the ring right now. */
+	function ringed(): string[] {
+		return Object.values(ROWS).filter((testId) =>
+			screen.getByTestId(testId).classList.contains("spotlight-ring"),
+		);
+	}
+
+	it("rings the Atlas row when Show me asks for it", () => {
+		requestSpotlight("composer.atlas");
+
+		renderMenu();
+
+		// The row took the request as the menu mounted; the ring waits a frame.
+		expect(get(spotlightRequest)).toBeNull();
+		expect(screen.getByTestId("composer-menu-atlas")).not.toHaveClass(
+			"spotlight-ring",
+		);
+		vi.advanceTimersToNextFrame();
+		expect(screen.getByTestId("composer-menu-atlas")).toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	it("rings the Attach file row when Show me asks for it", () => {
+		requestSpotlight("composer.attach");
+
+		renderMenu();
+		vi.advanceTimersToNextFrame();
+
+		expect(get(spotlightRequest)).toBeNull();
+		expect(screen.getByTestId("composer-menu-attach")).toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	it("rings the From your Library row when Show me asks for it", () => {
+		requestSpotlight("composer.library");
+
+		renderMenu();
+		vi.advanceTimersToNextFrame();
+
+		expect(get(spotlightRequest)).toBeNull();
+		expect(screen.getByTestId("composer-menu-library")).toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	it("rings only the row that was asked for", () => {
+		for (const [spotlight, testId] of Object.entries(ROWS)) {
+			requestSpotlight(spotlight as keyof typeof ROWS);
+			const { unmount } = renderMenu();
+			vi.advanceTimersToNextFrame();
+
+			expect(ringed(), spotlight).toEqual([testId]);
+			unmount();
+			document.body.innerHTML = "";
+		}
+	});
+
+	it("rings a row that is already on screen when the request comes", () => {
+		renderMenu();
+		expect(ringed()).toEqual([]);
+
+		requestSpotlight("composer.library");
+		vi.advanceTimersToNextFrame();
+
+		expect(get(spotlightRequest)).toBeNull();
+		expect(ringed()).toEqual(["composer-menu-library"]);
+	});
+
+	// Thinking is on the bar, and that is the control Show me points at; the
+	// menu's own Thinking switch carries no marker, or one press would ring
+	// whichever of the two mounted last.
+	it("leaves the Thinking request to the bar's own button", () => {
+		requestSpotlight("composer.thinking");
+
+		renderMenu();
+		vi.advanceTimersToNextFrame();
+
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("composer.thinking");
+		expect(ringed()).toEqual([]);
+		expect(screen.getByTestId("thinking-toggle")).not.toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	it("leaves a request for a control elsewhere in the app alone", () => {
+		requestSpotlight("sidebar.search");
+
+		renderMenu();
+		vi.advanceTimersToNextFrame();
+
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("sidebar.search");
+		expect(ringed()).toEqual([]);
+	});
+
+	// A deployment without Atlas draws no Atlas row. Nothing is there to ring,
+	// so the request is left to lapse rather than ringing another row.
+	it("rings nothing for Atlas when the menu has no Atlas row", () => {
+		requestSpotlight("composer.atlas");
+
+		renderMenu({ atlasAvailability: null });
+		vi.advanceTimersToNextFrame();
+
+		expect(screen.queryByTestId("composer-menu-atlas")).toBeNull();
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("composer.atlas");
+		expect(document.querySelectorAll(".spotlight-ring")).toHaveLength(0);
 	});
 });

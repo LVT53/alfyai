@@ -1,4 +1,7 @@
 <script lang="ts">
+import { spotlightTarget } from "$lib/actions/spotlight";
+import type { SpotlightId } from "$lib/app-places";
+
 type PageSwitcherItem = {
 	id: string;
 	label: string;
@@ -7,6 +10,13 @@ type PageSwitcherItem = {
 	panelId?: string;
 	badge?: string | number | null;
 	badgeLabel?: string;
+	/**
+	 * The control the feature guide's Show me rings when it asks for this tab.
+	 * Only some tabs have one, and an action cannot be put on some elements
+	 * only, so every tab carries `spotlightTarget` and a tab without an id
+	 * answers to no request.
+	 */
+	spotlight?: SpotlightId;
 };
 
 interface PageSwitcherProps {
@@ -29,6 +39,7 @@ let { items, activeId, ariaLabel, onChange }: PageSwitcherProps = $props();
 				href={item.href}
 				class="page-switcher__item"
 				class:page-switcher__item--active={active}
+				use:spotlightTarget={item.spotlight}
 				role="tab"
 				aria-selected={active}
 				aria-controls={item.panelId}
@@ -51,6 +62,7 @@ let { items, activeId, ariaLabel, onChange }: PageSwitcherProps = $props();
 				type="button"
 				class="page-switcher__item"
 				class:page-switcher__item--active={active}
+				use:spotlightTarget={item.spotlight}
 				role="tab"
 				aria-selected={active}
 				aria-controls={item.panelId}

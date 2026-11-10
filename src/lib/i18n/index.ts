@@ -4,6 +4,7 @@ import artifactsDict from "./artifacts";
 import chatDict from "./chat";
 import commonDict from "./common";
 import connectionsDict from "./connections";
+import guideDict from "./guide";
 import instructionsDict from "./instructions";
 import knowledgeDict from "./knowledge";
 import legalDict from "./legal";
@@ -48,6 +49,7 @@ const dictionary = {
 		...artifactsDict.en,
 		...chatDict.en,
 		...connectionsDict.en,
+		...guideDict.en,
 		...instructionsDict.en,
 		...knowledgeDict.en,
 		...legalDict.en,
@@ -60,6 +62,7 @@ const dictionary = {
 		...artifactsDict.hu,
 		...chatDict.hu,
 		...connectionsDict.hu,
+		...guideDict.hu,
 		...instructionsDict.hu,
 		...knowledgeDict.hu,
 		...legalDict.hu,

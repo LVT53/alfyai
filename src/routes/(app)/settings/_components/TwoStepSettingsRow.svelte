@@ -1,5 +1,6 @@
 <script lang="ts">
 import { KeyRound, ShieldCheck } from "@lucide/svelte";
+import { spotlightTarget } from "$lib/actions/spotlight";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import Spinner from "$lib/components/ui/Spinner.svelte";
 import { t } from "$lib/i18n";
@@ -106,7 +107,11 @@ function handleSetupConfirmed() {
 }
 </script>
 
-<div class="two-step-row" data-testid="two-step-row">
+<div
+	class="two-step-row"
+	data-testid="two-step-row"
+	use:spotlightTarget={"settings.twoStep"}
+>
 	<div class="two-step-text">
 		<p class="two-step-title">
 			{$t('profileTab.twoStepTitle')}
@@ -249,7 +254,13 @@ function handleSetupConfirmed() {
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-md);
-		padding: var(--space-md) 0;
+		/* A box half a rem wider than the words on each side, the width given back
+		   by the negative margin, so the row lays out as it always did. The feature
+		   guide's Show me rings this row, and a ring that touches the words looks
+		   cramped. */
+		padding: var(--space-md) 0.5rem;
+		margin: 0 -0.5rem;
+		border-radius: var(--radius-md);
 	}
 
 	.two-step-text {

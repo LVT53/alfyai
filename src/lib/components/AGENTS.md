@@ -50,6 +50,8 @@ ui/
 |-----------|-------|-------------|
 | `Sidebar.svelte` | `ui` | `sidebarOpen`, `sidebarCollapsed`, `currentConversationId`, `searchModalOpenRequested` (drains Header's Ctrl+K/mobile-menu open requests — see Task 6) |
 | `Sidebar.svelte` | `avatar` | `avatarState` |
+| `Sidebar.svelte` | `spotlight` | `spotlightRequest`, `pendingSpotlight`: a subscription made at init (not an `$effect`) that opens the drawer below desktop, or expands a collapsed rail for Projects, when the guide's Show me asks for Search or Projects; the search pill and the Projects header carry the markers (`src/lib/components/guide/AGENTS.md`, "Show me") |
+| `Sidebar.svelte` | `viewport` (`utils/viewport.svelte.ts`) | `viewportStore.tier` (drawer or desktop sidebar); `initViewportTracking()` on mount, since a page without a composer would never start it |
 | `AvatarCircle.svelte` | props | `src` prop passed from parent; no store dependency |
 | `Header.svelte` | `ui` | `sidebarOpen`, `sidebarCollapsed`, `currentConversationId`, `requestSearchModalOpen()` (mobile menu Search row) |
 | `ConversationList.svelte` | `conversations` | `conversations`, CRUD actions |
@@ -85,6 +87,12 @@ ui/
 - `ui/ProfilePictureEditor.svelte` — avatar management
 - `ui/ConfirmDialog.svelte` — account deletion
 - Route-local `_components/` — `SettingsProfileTab`, `SettingsAdministrationTab`, `SettingsAdminSystemPane`, `SettingsAdminUsersPane`, `SettingsPersonalAnalytics` (Profile "Your Activity"), `SettingsSystemAnalytics` (admin sub-pane), and account/user modals
+
+### Guide (`src/routes/(app)/guide/+page.svelte`)
+- `guide/GuidePage.svelte` — the subtitle, the section chips, the six bands and the shortcuts box; the route draws only the frame and the serif title
+- `guide/GuideSection.svelte`, `guide/GuideRow.svelte` — a band (name, intro, drawing, rows; it holds which spot is lit) and a row (name, NEW, line, Try it or Show me)
+- `guide/drawings/SectionDrawing.svelte` — the section's drawing, built from the kit in `drawings/`
+- `guide/GuideShortcuts.svelte` — the keys and the slash commands, read from `composer-commands.ts`
 
 ### Shell (`src/routes/(app)/+layout.svelte`)
 - `layout/Sidebar.svelte` — navigation
@@ -180,7 +188,7 @@ Do not:
 - Token categories already defined:
   - semantic surface, text, icon, border, status, radius, spacing, duration, and shadow variables
 - Font ownership:
-  - only a page's own top title wears the serif (`Libre Baskerville`, `--font-serif`): the Home and project greeting, and the page titles of Settings, Knowledge, the login page and the error page. Everything else is sans (`Nimbus Sans L`, `--font-sans`): chat messages, the composer, Documents and the panel around them, Version previews, cards, fields and modal headings. The Apps the model writes are sans too, but through their contract and not the test below, which cannot read model output: `src/lib/server/services/artifacts/app/contract.ts` names the stack in full (the frame inherits no token) and the audit's `no-serif` note reports a serif in a generated App. `tests/integration/serif-conventions.test.ts` lists the files that may name the serif and fails on any other
+  - only a page's own top title wears the serif (`Libre Baskerville`, `--font-serif`): the Home and project greeting, and the page titles of Settings, Knowledge, the Feature Guide, the login page and the error page. Everything else is sans (`Nimbus Sans L`, `--font-sans`): chat messages, the composer, Documents and the panel around them, Version previews, cards, fields and modal headings. The Apps the model writes are sans too, but through their contract and not the test below, which cannot read model output: `src/lib/server/services/artifacts/app/contract.ts` names the stack in full (the frame inherits no token) and the audit's `no-serif` note reports a serif in a generated App. `tests/integration/serif-conventions.test.ts` lists the files that may name the serif and fails on any other
   - chat text (the reply, the person's message, the composer) is 14px with a 1.6 line height on desktop, 15px on a phone (the composer stays 16px there, or iOS zooms on focus)
   - code uses the mono stack defined in `tailwind.config.ts`
 

@@ -45,6 +45,8 @@ Do not:
   - Upload, search, and document-management behavior lives inside the main library panel.
   - Also owns the knowledge-side working-document workspace shell and cross-route workspace handoff from global search.
   - It may contain page-local fetches for page-only actions, but shared browser API logic should still move to `src/lib/client/api/` if reused.
+- [`src/routes/(app)/guide/+page.svelte`](guide/+page.svelte)
+  - The Feature Guide: an adapter that draws the frame and the serif title around `GuidePage`. It scrolls in an element of its own, so it exports a `snapshot` of that scroller's `scrollTop` (SvelteKit puts back only the window's scroll on Back). Rules: `src/lib/components/guide/AGENTS.md`.
 - [`src/routes/(app)/settings/+page.svelte`](settings/+page.svelte)
   - User settings and admin/runtime config UI surface.
   - The Profile tab is grouped into Account, Preferences, Assistant, Data & privacy, and Your Activity sections (ADR 0043). Skills is a summary card that opens a dedicated full-screen manager. Personal analytics merged into Profile as "Your Activity"; the standalone Analytics tab is removed for normal users.

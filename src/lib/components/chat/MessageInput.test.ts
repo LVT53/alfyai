@@ -7,7 +7,9 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { tick } from "svelte";
+import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
 import type { AvailableModelsResponse } from "$lib/client/api/models";
 import type { PendingAttachment } from "$lib/server/services/knowledge/types";
 import type { AttachmentReadinessSnapshot } from "$lib/shared/attachment-readiness";
@@ -15,6 +17,11 @@ import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { getAcceptAttribute } from "$lib/shared/file-types";
 import { requestComposerQuote } from "$lib/stores/composer-quote";
 import { selectedModel, uiLanguage } from "$lib/stores/settings";
+import {
+	pendingSpotlight,
+	requestSpotlight,
+	spotlightRequest,
+} from "$lib/stores/spotlight";
 import { currentConversationId } from "$lib/stores/ui";
 import {
 	resetDisabledFileTypeIds,
@@ -8273,5 +8280,294 @@ describe("MessageInput when another chat replaces the one on screen", () => {
 
 			await waitFor(() => expect(view.queryByText("a-file.pdf")).toBeNull());
 		});
+	});
+});
+
+// The Feature Guide's Show me asks for a control by name and the control that
+// carries the name rings itself. Attach file, From your Library and Atlas
+// report are rows of the "+" menu, so the composer opens the menu for them: it
+// only reads the request, and the row's own marker takes it when the row mounts.
+// Thinking is on the bar and needs no menu.
+describe("MessageInput and the guide's Show me", () => {
+	let restoreLayout: () => void = () => undefined;
+	const atlasOffered = { enabled: true, configured: true, reasonCode: null };
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		uiLanguage.set("en");
+		selectedModel.set("model1");
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		discoverSkillsMock.mockResolvedValue([]);
+		setConversationMemoryIncognitoMock.mockResolvedValue({});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		spotlightRequest.set(null);
+	});
+
+	afterEach(() => {
+		restoreLayout();
+		restoreLayout = () => undefined;
+		vi.useRealTimers();
+		spotlightRequest.set(null);
+	});
+
+	/**
+	 * jsdom lays nothing out, so by default no marker finds its control on
+	 * screen and none takes a request. This gives every element a box, which is
+	 * what lets a marker take the request, and holds the animation frame its
+	 * ring waits for so the test can step it.
+	 */
+	function withLayout() {
+		vi.useFakeTimers({
+			toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+		});
+		restoreLayout = stubLayoutForSpotlight();
+	}
+
+	/** Long enough for anything the composer would still do on its own. */
+	async function settle() {
+		await tick();
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		await tick();
+	}
+
+	function pressEscape() {
+		window.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+		);
+	}
+
+	function menuIsOpen(view: { getByTestId: (id: string) => HTMLElement }) {
+		return (
+			view
+				.getByTestId("composer-tools-trigger")
+				.getAttribute("aria-expanded") === "true"
+		);
+	}
+
+	it("opens the + menu for a control that lives in it, and leaves the request to the row", async () => {
+		requestSpotlight("composer.library");
+
+		const view = render(MessageInput);
+
+		await waitFor(() =>
+			expect(view.getByTestId("composer-tools-menu")).toBeInTheDocument(),
+		);
+		expect(menuIsOpen(view)).toBe(true);
+		// The composer only read the request. Without layout the row's marker
+		// leaves it too, so it is still waiting: nothing but a marker takes one.
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("composer.library");
+	});
+
+	it("opens the menu when the request comes while the composer is already on screen", async () => {
+		const view = render(MessageInput, { atlasAvailability: atlasOffered });
+		await settle();
+		expect(menuIsOpen(view)).toBe(false);
+
+		requestSpotlight("composer.atlas");
+
+		await waitFor(() => expect(menuIsOpen(view)).toBe(true));
+		expect(view.getByTestId("composer-menu-atlas")).toBeInTheDocument();
+	});
+
+	it.each([
+		["composer.attach", "composer-menu-attach"],
+		["composer.library", "composer-menu-library"],
+		["composer.atlas", "composer-menu-atlas"],
+	] as const)("rings the row for %s once the menu has opened", async (spotlight, rowTestId) => {
+		withLayout();
+		requestSpotlight(spotlight);
+
+		const view = render(MessageInput, { atlasAvailability: atlasOffered });
+
+		await waitFor(() =>
+			expect(view.getByTestId(rowTestId)).toBeInTheDocument(),
+		);
+		// The row took it as it mounted.
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect(view.getByTestId(rowTestId)).toHaveClass("spotlight-ring");
+	});
+
+	it("rings the Thinking button on the bar and opens no menu", async () => {
+		withLayout();
+		requestSpotlight("composer.thinking");
+
+		const view = render(MessageInput);
+		await tick();
+
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect(view.getByTestId("thinking-bar-toggle")).toHaveClass(
+			"spotlight-ring",
+		);
+		expect(menuIsOpen(view)).toBe(false);
+		expect(view.queryByTestId("composer-tools-menu")).toBeNull();
+	});
+
+	it("does not open the menu for a control that is not in it", async () => {
+		// No layout, so the Thinking request stays pending: the composer had every
+		// chance to open the menu for it and must not.
+		requestSpotlight("composer.thinking");
+
+		const view = render(MessageInput);
+		await settle();
+
+		expect(menuIsOpen(view)).toBe(false);
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("composer.thinking");
+
+		requestSpotlight("sidebar.search");
+		await settle();
+
+		expect(menuIsOpen(view)).toBe(false);
+	});
+
+	it("does not open the menu for a request that has lapsed", async () => {
+		requestSpotlight("composer.atlas", Date.now() - 10_000);
+
+		const view = render(MessageInput, { atlasAvailability: atlasOffered });
+		await settle();
+
+		expect(menuIsOpen(view)).toBe(false);
+		expect(view.queryByTestId("composer-tools-menu")).toBeNull();
+	});
+
+	// The person closes the menu while the request is still waiting for a row
+	// (here nothing takes it, as when the row is not there). Closing is theirs
+	// to decide: the composer does not open the menu again for the same request.
+	it("does not open the menu again once the person has closed it", async () => {
+		requestSpotlight("composer.atlas");
+		const view = render(MessageInput, { atlasAvailability: atlasOffered });
+		await waitFor(() => expect(menuIsOpen(view)).toBe(true));
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("composer.atlas");
+
+		pressEscape();
+		await tick();
+		expect(menuIsOpen(view)).toBe(false);
+		await settle();
+
+		expect(menuIsOpen(view)).toBe(false);
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("composer.atlas");
+	});
+
+	it("does not open the menu again after a row has taken the request", async () => {
+		withLayout();
+		requestSpotlight("composer.library");
+		const view = render(MessageInput);
+		await waitFor(() => expect(menuIsOpen(view)).toBe(true));
+		expect(get(spotlightRequest)).toBeNull();
+
+		pressEscape();
+		await tick();
+		expect(menuIsOpen(view)).toBe(false);
+		vi.advanceTimersToNextFrame();
+		await tick();
+
+		expect(menuIsOpen(view)).toBe(false);
+	});
+
+	it("opens the menu again for the next request", async () => {
+		requestSpotlight("composer.attach");
+		const view = render(MessageInput);
+		await waitFor(() => expect(menuIsOpen(view)).toBe(true));
+		pressEscape();
+		await tick();
+		expect(menuIsOpen(view)).toBe(false);
+
+		requestSpotlight("composer.library");
+
+		await waitFor(() => expect(menuIsOpen(view)).toBe(true));
+	});
+
+	it("leaves a menu the person opened open", async () => {
+		const view = render(MessageInput);
+		await fireEvent.click(view.getByTestId("composer-tools-trigger"));
+		expect(menuIsOpen(view)).toBe(true);
+
+		requestSpotlight("composer.library");
+		await settle();
+
+		// Not toggled shut.
+		expect(menuIsOpen(view)).toBe(true);
+		expect(view.getByTestId("composer-tools-menu")).toBeInTheDocument();
+	});
+
+	// Home reads the landing page's saved draft from the server a moment after it
+	// opens, and a draft that is applied shuts the "+" menu. Shut a moment after
+	// Show me opened it, the menu would flash and take its ring with it.
+	it("leaves the menu open when a saved draft arrives after Show me opened it", async () => {
+		requestSpotlight("composer.library");
+		const view = render(MessageInput, { draftVersion: 0 });
+		await waitFor(() => expect(menuIsOpen(view)).toBe(true));
+
+		await view.rerender({ draftText: "my words", draftVersion: 5 });
+		await settle();
+
+		expect(view.container.querySelector("textarea")).toHaveValue("my words");
+		expect(menuIsOpen(view)).toBe(true);
+	});
+
+	// The exemption is for the menu Show me opened, and for as long as its
+	// request lives; any other draft that is applied still shuts the menu.
+	it("still shuts a menu the person opened when a draft is applied", async () => {
+		const view = render(MessageInput, { draftVersion: 0 });
+		await fireEvent.click(view.getByTestId("composer-tools-trigger"));
+		expect(menuIsOpen(view)).toBe(true);
+
+		await view.rerender({ draftText: "my words", draftVersion: 5 });
+		await settle();
+
+		expect(view.container.querySelector("textarea")).toHaveValue("my words");
+		expect(menuIsOpen(view)).toBe(false);
+	});
+
+	it("shuts the menu Show me opened for a draft that arrives after its six seconds", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			requestSpotlight("composer.library");
+			const view = render(MessageInput, { draftVersion: 0 });
+			await waitFor(() => expect(menuIsOpen(view)).toBe(true));
+
+			vi.setSystemTime(Date.now() + 10_000);
+			await view.rerender({ draftText: "my words", draftVersion: 5 });
+			await settle();
+
+			expect(menuIsOpen(view)).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not open the menu of a composer that is switched off", async () => {
+		requestSpotlight("composer.library");
+
+		const view = render(MessageInput, { disabled: true });
+		await settle();
+
+		expect(view.getByTestId("composer-tools-trigger")).toBeDisabled();
+		expect(menuIsOpen(view)).toBe(false);
+		expect(view.queryByTestId("composer-tools-menu")).toBeNull();
+	});
+
+	it("does not open the menu while a sent message is being edited", async () => {
+		const view = render(MessageInput, {
+			conversationId: "conv-1",
+			editing: { text: "Plan a weekend by the lake.", laterReplies: 0 },
+		});
+		await settle();
+
+		requestSpotlight("composer.library");
+		await settle();
+
+		expect(view.getByTestId("composer-tools-trigger")).toBeDisabled();
+		expect(menuIsOpen(view)).toBe(false);
 	});
 });
