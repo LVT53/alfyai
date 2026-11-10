@@ -78,8 +78,19 @@ Verdict: a bug, the same unit mistake, and the one-turn route does not make it h
 
 What changes for a chat turn: a document the turn names, corrects, refines or works on as the current generated document is still in
 the next turn's prompt when that message does not name it, whenever the file was last written. Before, it was only if the file was written
-within about two minutes of the turn's end. Nothing else moves: a document no signal points to is carried one more turn and then leaves
-the set; the cut of 20 and the limits are as they were.
+within about two minutes of the turn's end. A document that the words of a turn point to is carried one more turn and then leaves the set,
+unless the next turn points to it again; the cut of 20 and the limits are as they were.
+
+One signal does not come from the words of the turn, and it lasts longer than that. A produced file that is a later version of one the
+chat already had (a document family and a version above 1) is "recently refined" on every turn that is not a move-on phrase or a request
+for a new file, whatever the turn is about, for as long as it is among the 8 newest generated outputs of the conversation. The age used
+to cut that after a turn or two. Now it is about seven turns after the one that wrote it, where every reply is one of the 8 (measured
+through `buildConstructedContext`, the file open in the workspace and twelve questions about something else: the file was in the prompt of
+seven of them, before of one; a move-on phrase ends it at once). Only a turn that builds the deep context reads the working set (an open
+document, an attachment, a long or context-sensitive message); a short question with none of those never does, so nothing is added to
+it. This is what `CONTEXT.md` says ("Old generated outputs should decay unless selected or part of an active document family") and not
+something this change added: the age hid it. What a produced file may cost in a prompt is set by the document budgets
+(`context-budget.ts`: per file at most 1.4 kB at reference depth, 18 kB at excerpt depth, 100 kB at task depth), not by this signal.
 
 ## Not changed, and noticed
 
@@ -90,14 +101,17 @@ the set; the cut of 20 and the limits are as they were.
   live focus and 0 of 8 Hungarian ones (an illustration, not a sample of real messages). In the Hungarian run D is in the prompt for the first turn back (carried from the refresh while it was fresh)
   and missing from the second and third, at every age, fresh included: no Hungarian message made it the focus, so nothing renewed it.
   This fix does not touch that.
-- Read from the code, not measured: `refreshConversationWorkingSet` looks at the 8 most recently updated generated outputs of the
-  conversation, and every reply is stored as one, so after a few replies a produced document is no longer among them for the
-  "current generated" and "recently refined" signals. The active-focus signal does not depend on that list.
+- `refreshConversationWorkingSet` looks at the 8 most recently updated generated outputs of the conversation, and every reply is stored
+  as one, so after seven replies a produced document is no longer among them for the "current generated" and "recently refined"
+  signals; that is what ends the refined signal when the person does not say to move on. The active-focus signal does not depend on
+  that list.
 
 ## Verification
 
 `working-set.test.ts` (the five signals at an hour, a day and a month; nothing pointing at a document; newest first on equal signals and
 at the limit; a match alone keeps a fresh document and not an old one) and `tests/integration/working-set-carryover.test.ts` (the
 refresh and the next turn's selection; the next prompt through `buildConstructedContext`; a document is let go once the conversation moves
-on; a 12-turn chat does not pile its replies). Sixteen of them fail on the old code and the two that guard the match term pass on it.
+on; a 12-turn chat does not pile its replies; a refined produced file is carried through turns about something else, ends with a move-on
+phrase, and is gone once newer replies push it out of the 8 outputs). Eighteen of the 21 fail on the old code; the three that pass on it
+are the two that guard the match term and the one that says a document nothing points to is not kept.
 Deliberate breakages: no tie-break fails the two tie tests; the match term without its age fails the unit guard and the long-chat guard.
