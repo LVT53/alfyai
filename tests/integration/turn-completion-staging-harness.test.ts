@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { describe, expect, test, vi } from "vitest";
 import {
-	MODEL_MATRIX,
 	assertGuard,
 	assertKnownAnswer,
 	assertOrdinary,
@@ -9,6 +8,7 @@ import {
 	createClient,
 	createStreamProbe,
 	inspectAudit,
+	MODEL_MATRIX,
 	main,
 	runCase,
 	runSerial,

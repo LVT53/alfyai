@@ -9,8 +9,8 @@ import {
 	COMPLETION_SYNTHESIS,
 	COMPLETION_USEFUL_WORKING,
 	COMPLETION_WORKING,
-	completionMessage,
 	type CompletionMode,
+	completionMessage,
 } from "../fixtures/ai/turn-completion-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
