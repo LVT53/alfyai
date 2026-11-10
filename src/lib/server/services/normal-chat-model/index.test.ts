@@ -4803,6 +4803,60 @@ describe("Streaming Normal Chat Model Run", () => {
 		).toEqual([]);
 	});
 
+	// The filter above is for a run built with a tool set. A run with none reports
+	// a tool call as it always did: the App generator declares no tools and reads
+	// that event as the model trying to look around instead of writing the app
+	// (artifacts/app/generate.ts).
+	it("a run without tools still reports a tool call", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createStreamResponse([
+				{
+					toolCalls: [
+						{
+							id: "call-look-around",
+							name: "research_web",
+							arguments: JSON.stringify({ query: "costs" }),
+						},
+					],
+				},
+				{
+					finishReason: "tool_calls",
+					usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+				},
+			]),
+		);
+
+		const events = await collectStreamingEvents({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+			},
+			messages: [userTextMessage("Write the app")],
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(events).toContainEqual({
+			type: "tool_call",
+			callId: "call-look-around",
+			toolName: "research_web",
+			input: { query: "costs" },
+		});
+		// Its error is reported too, as it was before the filter.
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				type: "tool_error",
+				callId: "call-look-around",
+				toolName: "research_web",
+			}),
+		);
+		expect(fetch).toHaveBeenCalledTimes(1);
+	});
+
 	it("a preamble, a tool call, then a last step with text ends the run with that text", async () => {
 		const toolExecute = vi.fn(async () => ({ answerBrief: "Brief" }));
 		const fetch = vi

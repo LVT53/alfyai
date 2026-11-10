@@ -1782,17 +1782,20 @@ async function* streamStreamingNormalChatModelRunAttempt(
 
 	let responseModelName = params.provider.modelName;
 
-	// `offeredTools` is the tool set this stream was built with. A call to a tool
-	// outside it (a model may still call `done` from habit) is not shown: no
-	// tool_call, tool_result or tool_error reaches the turn for it. The SDK has
-	// already answered the model with its own error for the call, and the run
-	// goes on.
+	// `offeredTools` is the tool set this stream was built with. When there is
+	// one, a call to a tool outside it (a model may still call `done` from habit)
+	// is not shown: no tool_call, tool_result or tool_error reaches the turn for
+	// it. The SDK has already answered the model with its own error for the call,
+	// and the run goes on. A run built with no tool set is not filtered: it
+	// reports every tool call, because a caller that declares no tools reads that
+	// event as the model reaching for one it was never given (the App generator,
+	// artifacts/app/generate.ts, fails the attempt on it).
 	const yieldStreamEvents = async function* (
 		fullStream: AsyncIterable<TextStreamPart<ToolSet>>,
 		offeredTools: ToolSet | undefined,
 	): AsyncGenerator<StreamingNormalChatModelRunAttemptEvent, void, undefined> {
-		const isOffered = (toolName: string) =>
-			offeredTools !== undefined && Object.hasOwn(offeredTools, toolName);
+		const isShown = (toolName: string) =>
+			offeredTools === undefined || Object.hasOwn(offeredTools, toolName);
 		// `finish.totalUsage` sums input tokens across every step of a tool
 		// loop; the last step's own input count is the real size of the final
 		// prompt, which the context usage ring reports.
@@ -1813,7 +1816,7 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					if (
 						typeof part.toolCallId !== "string" ||
 						typeof part.toolName !== "string" ||
-						!isOffered(part.toolName)
+						!isShown(part.toolName)
 					) {
 						break;
 					}
@@ -1828,7 +1831,7 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					if (
 						typeof part.toolCallId !== "string" ||
 						typeof part.toolName !== "string" ||
-						!isOffered(part.toolName)
+						!isShown(part.toolName)
 					) {
 						break;
 					}
@@ -1843,7 +1846,7 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					if (
 						typeof part.toolCallId !== "string" ||
 						typeof part.toolName !== "string" ||
-						!isOffered(part.toolName)
+						!isShown(part.toolName)
 					) {
 						break;
 					}
