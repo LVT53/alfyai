@@ -1247,8 +1247,6 @@ describe("full delivered Document content uses public Markdown export", () => {
 			(s: { key: string }) => s.key === "evidence-create",
 		);
 		const exact = [
-			"# Contract evidence unit",
-			"",
 			...Array.from(
 				{ length: 50 },
 				(_, i) =>
@@ -1259,7 +1257,9 @@ describe("full delivered Document content uses public Markdown export", () => {
 			"",
 		].join("\n");
 		expect(spec.evidence).toBe(exact);
-		expect(spec.evidence.match(/\n/g)).toHaveLength(54);
+		expect(spec.evidence.startsWith("Entry 1:")).toBe(true);
+		expect(spec.evidence).not.toContain("# Contract evidence unit");
+		expect(spec.evidence.match(/\n/g)).toHaveLength(52);
 		expect(spec.evidence).not.toContain("\\n");
 		expect(spec.prompt.endsWith(exact)).toBe(true);
 	});
@@ -1746,4 +1746,41 @@ describe("expected stop accounting keeps unknown costs unknown", () => {
 			});
 		else await expect(run).rejects.toThrow("Stop control did not end stopped");
 	});
+});
+
+test("Document export always hydrates a succeeded brief submission before reading files", async () => {
+	const evidence = syntheticPlan("unit").find(
+		(s: { key: string }) => s.key === "evidence-create",
+	).evidence;
+	const paths: string[] = [];
+	const client = {
+		json: vi.fn(async (path: string) => {
+			paths.push(path);
+			if (path.startsWith("/api/artifacts/"))
+				return {
+					ok: true,
+					job: { id: "brief-job", status: "succeeded", files: [] },
+				};
+			expect(path).toBe("/api/chat/files/jobs/brief-job");
+			return {
+				job: {
+					id: "brief-job",
+					conversationId: "synthetic-doc",
+					status: "succeeded",
+					files: [{ id: "hydrated-file", filename: "evidence.md" }],
+				},
+			};
+		}),
+		request: vi.fn(async (path: string) => {
+			expect(path).toBe("/api/chat/files/hydrated-file/download");
+			return new Response(evidence);
+		}),
+	};
+	await verifyDocumentExport(client, "doc", evidence, {
+		conversationId: "synthetic-doc",
+	});
+	expect(paths).toEqual([
+		"/api/artifacts/doc/export?conversationId=synthetic-doc",
+		"/api/chat/files/jobs/brief-job",
+	]);
 });

@@ -534,7 +534,7 @@ export function validateTarget({ base, execute }) {
 export function syntheticPlan(runId) {
 	need(/^[A-Za-z0-9-]+$/.test(runId), "Invalid synthetic run ID");
 	const title = `Contract evidence ${runId}`;
-	const evidence = `# ${title}\n\n${Array.from({ length: 50 }, (_, i) => `Entry ${i + 1}: synthetic filing context; keep the complete record.`).join("\n")}\n\nArchive key: ORCHID-73. Dispatch is Tuesday. Crates: 19. Loose units: 23.\n`;
+	const evidence = `${Array.from({ length: 50 }, (_, i) => `Entry ${i + 1}: synthetic filing context; keep the complete record.`).join("\n")}\n\nArchive key: ORCHID-73. Dispatch is Tuesday. Crates: 19. Loose units: 23.\n`;
 	const fileContent = [
 		"# Synthetic multiplication receipt",
 		"",
@@ -779,7 +779,8 @@ export async function verifyDocumentExport(client, artifactId, evidence, record)
 	const jobId = submitted.job.id;
 	record.documentExportJobId = jobId;
 	const deadline = Date.now() + 10_000;
-	let job = submitted.job;
+	// Submission may be brief even when reused/succeeded; only GET hydrates files.
+	let job = (await client.json(`/api/chat/files/jobs/${encodeURIComponent(jobId)}`)).job;
 	for (;;) {
 		need(
 			job.id === jobId && job.conversationId === record.conversationId,
