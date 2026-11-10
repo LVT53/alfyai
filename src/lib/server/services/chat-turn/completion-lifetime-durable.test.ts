@@ -290,6 +290,7 @@ it.each([
 			metadata: (name) => ({
 				modelId: "provider:p1:m1",
 				providerId: "p1",
+				providerName: provider.name,
 				displayName: "First",
 				requestedModelName: "first",
 				responseModelName: name,

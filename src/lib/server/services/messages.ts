@@ -378,6 +378,7 @@ function projectMessageMetadata(
 ): Pick<
 	ChatMessage,
 	| "evidenceSummary"
+	| "normalChatOutput"
 	| "webCitationAudit"
 	| "citationAudit"
 	| "evidencePending"

@@ -264,8 +264,8 @@ function projectBuffer(buffer: StreamTokenBuffer) {
 	for (const chunk of buffer.journal.read().chunks) {
 		for (const part of decodeAiSdkUiStreamPayloads(chunk)) {
 			if (part === "[DONE]") continue;
-			if (part.type === "text-delta") tokens.push(part.delta);
-			else if (part.type === "reasoning-delta") thinking.push(part.delta);
+			if (part.type === "text-delta") tokens.push(part.delta ?? "");
+			else if (part.type === "reasoning-delta") thinking.push(part.delta ?? "");
 			else if (part.type === "data-response-activity") {
 				const entry = part.data as ResponseActivityEntry;
 				responseActivity.set(entry.id, {

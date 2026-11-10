@@ -114,9 +114,11 @@ it("captures full original inline context and replaces only the answered ask in 
 		snapshot,
 	});
 	expect(capture.v).toBe(2);
-	const answer = { status: "answered", answers: [] } as Parameters<
-		typeof buildAskResumeSnapshot
-	>[2];
+	const answer: Parameters<typeof buildAskResumeSnapshot>[2] = {
+		status: "answered",
+		answers: [],
+		note: "The user answered.",
+	};
 	const resumed = buildAskResumeSnapshot(capture, "ask", answer);
 	expect(resumed?.original).toEqual(snapshot.original);
 	expect(resumed?.steps[0].response[0]).toEqual(snapshot.steps[0].response[0]);
