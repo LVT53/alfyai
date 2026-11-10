@@ -4184,6 +4184,70 @@ describe("Normal Chat Client Turn Runtime", () => {
 	});
 
 	it.each([
+		"en",
+		"hu",
+	] as const)("localizes saved failed Retry through the existing formatter: %s", async (language) => {
+		const { toFriendlySendError } = await import(
+			"../../routes/(app)/chat/[conversationId]/_helpers"
+		);
+		const { get } = await import("svelte/store");
+		const { t } = await import("$lib/i18n");
+		const { uiLanguage } = await import("$lib/stores/settings");
+		const { default: chatDict } = await import("$lib/i18n/chat");
+		const scope = {
+			version: 1,
+			turnId: "failed",
+			segmentId: "failed",
+			attemptId: "terminal",
+			stepId: "terminal:0",
+			phase: "closing",
+		} as const;
+		const event = {
+			...scope,
+			sequence: 1,
+			type: "completion",
+			completion: {
+				version: 1,
+				turnId: scope.turnId,
+				segmentId: scope.segmentId,
+				phase: "closing",
+				outcome: "failed",
+				stopCause: "transport_error",
+				workingStopCause: "transport_error",
+				closingAttempted: true,
+			},
+		} as const;
+		const made = makeAdapters({
+			toFriendlySendError: vi.fn((error) => toFriendlySendError(error, get(t))),
+		});
+		made.messages.push(
+			{ id: "saved-user", role: "user", timestamp: 1, content: "A" },
+			{
+				id: "saved-failed",
+				role: "assistant",
+				timestamp: 1,
+				content: "",
+				normalChatOutput: { version: 1, events: [event] },
+			},
+		);
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		const previousLanguage = get(uiLanguage);
+		uiLanguage.set(language);
+		try {
+			await runtime.checkForOrphanedStreamOnMount();
+			expect(runtime.snapshot().canRetry).toBe(true);
+			expect(made.adapters.setSendError).toHaveBeenLastCalledWith(
+				chatDict[language]["chat.error.backend"],
+			);
+			expect(made.messages.at(-1)?.id).toBe("saved-failed");
+			expect(made.adapters.streamChat).not.toHaveBeenCalled();
+		} finally {
+			runtime.detach();
+			uiLanguage.set(previousLanguage);
+		}
+	});
+
+	it.each([
 		"direct",
 		"observer",
 		"reload",
@@ -4320,7 +4384,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				lastUserMessage: "A",
 			});
 			expect(made.adapters.setSendError).toHaveBeenLastCalledWith(
-				"chat.completionWarning.providerError",
+				"Chat reply failed.",
 			);
 			expect(made.messages.at(-1)?.id).toBe(failed.id);
 			expect(

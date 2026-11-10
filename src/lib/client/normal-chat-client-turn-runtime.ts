@@ -1989,7 +1989,13 @@ export function createNormalChatClientTurnRuntime(
 		if (!lastUserMessage) lastReasoningDepth = adapters.getReasoningDepth();
 		lastUserMessage = text;
 		canRetry = true;
-		adapters.setSendError("chat.completionWarning.providerError");
+		adapters.setSendError(
+			adapters.toFriendlySendError(
+				Object.assign(new Error("Chat reply failed."), {
+					code: "backend_failure",
+				}),
+			),
+		);
 		return true;
 	}
 
