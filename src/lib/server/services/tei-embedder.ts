@@ -93,6 +93,11 @@ async function postEmbedBatch(
 	if (promptName) {
 		body.prompt_name = promptName;
 	}
+	// Matryoshka cut (TEI `dimensions`): queries and stored documents both pass
+	// through here, so every vector of one model name has the same size.
+	if (config.teiEmbedderDimensions > 0) {
+		body.dimensions = config.teiEmbedderDimensions;
+	}
 
 	const response = await postToTei<TeiEmbedResponse>({
 		baseUrl: config.teiEmbedderUrl,

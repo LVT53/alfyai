@@ -332,6 +332,12 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 	{
+		key: "TEI_EMBEDDER_DIMENSIONS",
+		group: "embeddings",
+		control: int(0),
+		effect: "live",
+	},
+	{
 		key: "TEI_RERANKER_URL",
 		group: "embeddings",
 		control: { kind: "url" },

@@ -1638,6 +1638,9 @@ const settingsDict = {
 		"admin.system.keys.TEI_EMBEDDER_BATCH_SIZE.label": "Texts per embed call",
 		"admin.system.keys.TEI_EMBEDDER_BATCH_SIZE.meaning":
 			"Must not exceed the server's own batch limit.",
+		"admin.system.keys.TEI_EMBEDDER_DIMENSIONS.label": "Embedding size",
+		"admin.system.keys.TEI_EMBEDDER_DIMENSIONS.meaning":
+			"Cuts every vector to this many values. 0 keeps the model's own size.",
 		"admin.system.keys.TEI_RERANKER_URL.label": "Reranker endpoint",
 		"admin.system.keys.TEI_RERANKER_URL.meaning":
 			"Re-scores search hits. Empty switches reranking off.",
@@ -3754,6 +3757,9 @@ const settingsDict = {
 			"Szöveg beágyazási hívásonként",
 		"admin.system.keys.TEI_EMBEDDER_BATCH_SIZE.meaning":
 			"Nem haladhatja meg a szerver saját kötegkorlátját.",
+		"admin.system.keys.TEI_EMBEDDER_DIMENSIONS.label": "Beágyazás mérete",
+		"admin.system.keys.TEI_EMBEDDER_DIMENSIONS.meaning":
+			"Minden vektort ennyi értékre vág. A 0 a modell saját méretét hagyja.",
 		"admin.system.keys.TEI_RERANKER_URL.label": "Újrarangsoroló végpont",
 		"admin.system.keys.TEI_RERANKER_URL.meaning":
 			"Újrapontozza a találatokat. Üresen az újrarangsorolás kikapcsol.",

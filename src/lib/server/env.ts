@@ -48,6 +48,7 @@ interface Config {
 	teiEmbedderApiKey: string;
 	teiEmbedderModel: string;
 	teiEmbedderBatchSize: number;
+	teiEmbedderDimensions: number;
 	teiRerankerUrl: string;
 	teiRerankerApiKey: string;
 	teiRerankerModel: string;
@@ -605,6 +606,10 @@ function readConfig(): Config {
 		teiEmbedderBatchSize: Math.max(
 			1,
 			parseInt(process.env.TEI_EMBEDDER_BATCH_SIZE || "8", 10) || 8,
+		),
+		teiEmbedderDimensions: Math.max(
+			0,
+			parseInt(process.env.TEI_EMBEDDER_DIMENSIONS || "0", 10) || 0,
 		),
 		teiRerankerUrl: process.env.TEI_RERANKER_URL || "",
 		teiRerankerApiKey: process.env.TEI_RERANKER_API_KEY || "",

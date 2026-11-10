@@ -68,6 +68,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"TEI_EMBEDDER_URL",
 	"TEI_EMBEDDER_MODEL",
 	"TEI_EMBEDDER_BATCH_SIZE",
+	"TEI_EMBEDDER_DIMENSIONS",
 	"TEI_RERANKER_URL",
 	"TEI_RERANKER_MODEL",
 	"TEI_RERANKER_MAX_TEXTS",
@@ -214,6 +215,7 @@ export interface RuntimeConfig {
 	teiEmbedderApiKey: string;
 	teiEmbedderModel: string;
 	teiEmbedderBatchSize: number;
+	teiEmbedderDimensions: number;
 	teiRerankerUrl: string;
 	teiRerankerApiKey: string;
 	teiRerankerModel: string;
@@ -789,6 +791,11 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	TEI_EMBEDDER_BATCH_SIZE: (config, value) => {
 		const parsed = parseIntOverride(value);
 		if (parsed !== undefined) config.teiEmbedderBatchSize = Math.max(1, parsed);
+	},
+	TEI_EMBEDDER_DIMENSIONS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.teiEmbedderDimensions = Math.max(0, parsed);
 	},
 	TEI_RERANKER_URL: (config, value) => {
 		config.teiRerankerUrl = value;
@@ -1658,6 +1665,7 @@ export function getResolvedAdminConfigValues(
 		TEI_EMBEDDER_URL: config.teiEmbedderUrl,
 		TEI_EMBEDDER_MODEL: config.teiEmbedderModel,
 		TEI_EMBEDDER_BATCH_SIZE: String(config.teiEmbedderBatchSize),
+		TEI_EMBEDDER_DIMENSIONS: String(config.teiEmbedderDimensions),
 		TEI_RERANKER_URL: config.teiRerankerUrl,
 		TEI_RERANKER_MODEL: config.teiRerankerModel,
 		TEI_RERANKER_MAX_TEXTS: String(config.teiRerankerMaxTexts),

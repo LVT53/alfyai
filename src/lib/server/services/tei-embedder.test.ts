@@ -6,6 +6,7 @@ const { mockRuntimeConfig } = vi.hoisted(() => ({
 		teiEmbedderApiKey: "",
 		teiEmbedderModel: "bge-m3",
 		teiEmbedderBatchSize: 32,
+		teiEmbedderDimensions: 0,
 		teiRerankerUrl: "",
 		teiRerankerApiKey: "",
 		teiRerankerModel: "",
@@ -34,6 +35,7 @@ describe("tei-embedder service", () => {
 		mockRuntimeConfig.teiEmbedderApiKey = "";
 		mockRuntimeConfig.teiEmbedderModel = "bge-m3";
 		mockRuntimeConfig.teiEmbedderBatchSize = 32;
+		mockRuntimeConfig.teiEmbedderDimensions = 0;
 		mockRuntimeConfig.teiTimeoutMs = 5000;
 		const { resetLearnedTeiBatchLimitForTests } = await import(
 			"./tei-embedder"
@@ -53,6 +55,41 @@ describe("tei-embedder service", () => {
 		if (!call) throw new Error(`Expected fetch call ${callIndex}`);
 		return JSON.parse(String(call[1]?.body)).inputs;
 	}
+
+	function requestBody(callIndex: number): Record<string, unknown> {
+		const call = vi.mocked(fetch).mock.calls[callIndex];
+		if (!call) throw new Error(`Expected fetch call ${callIndex}`);
+		return JSON.parse(String(call[1]?.body));
+	}
+
+	it("asks TEI for the configured output size on queries and documents alike", async () => {
+		// Qwen3-Embedding-4B answers at 2560 but is kept at 1024 through Matryoshka
+		// truncation; a query and a stored document must be cut the same way.
+		mockRuntimeConfig.teiEmbedderDimensions = 1024;
+		vi.mocked(fetch)
+			.mockResolvedValueOnce(embedResponse(1))
+			.mockResolvedValueOnce(embedResponse(2));
+
+		const { embedText, embedTexts } = await import("./tei-embedder");
+		await embedText("kérdés", { promptName: "query" });
+		await embedTexts(["a", "b"]);
+
+		expect(requestBody(0)).toMatchObject({
+			dimensions: 1024,
+			prompt_name: "query",
+		});
+		expect(requestBody(1)).toMatchObject({ dimensions: 1024 });
+	});
+
+	it("leaves the output size out of the request when none is configured", async () => {
+		mockRuntimeConfig.teiEmbedderDimensions = 0;
+		vi.mocked(fetch).mockResolvedValueOnce(embedResponse(1));
+
+		const { embedText } = await import("./tei-embedder");
+		await embedText("kérdés");
+
+		expect(requestBody(0)).not.toHaveProperty("dimensions");
+	});
 
 	it("chunks 13 inputs into requests of 8 and 5 at the configured batch size", async () => {
 		mockRuntimeConfig.teiEmbedderBatchSize = 8;

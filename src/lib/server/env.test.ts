@@ -70,6 +70,7 @@ describe("Environment Configuration", () => {
 		delete process.env.TEI_EMBEDDER_API_KEY;
 		delete process.env.TEI_EMBEDDER_MODEL;
 		delete process.env.TEI_EMBEDDER_BATCH_SIZE;
+		delete process.env.TEI_EMBEDDER_DIMENSIONS;
 		delete process.env.TEI_RERANKER_URL;
 		delete process.env.TEI_RERANKER_API_KEY;
 		delete process.env.TEI_RERANKER_MODEL;
@@ -99,6 +100,7 @@ describe("Environment Configuration", () => {
 		expect(config.teiEmbedderApiKey).toBe("");
 		expect(config.teiEmbedderModel).toBe("");
 		expect(config.teiEmbedderBatchSize).toBe(8);
+		expect(config.teiEmbedderDimensions).toBe(0);
 		expect(config.teiRerankerUrl).toBe("");
 		expect(config.teiRerankerApiKey).toBe("");
 		expect(config.teiRerankerModel).toBe("");
@@ -309,6 +311,7 @@ describe("Environment Configuration", () => {
 		process.env.TEI_EMBEDDER_API_KEY = "embed-key";
 		process.env.TEI_EMBEDDER_MODEL = "bge-m3";
 		process.env.TEI_EMBEDDER_BATCH_SIZE = "24";
+		process.env.TEI_EMBEDDER_DIMENSIONS = "1024";
 		process.env.TEI_RERANKER_URL = "http://reranker:8082";
 		process.env.TEI_RERANKER_API_KEY = "rerank-key";
 		process.env.TEI_RERANKER_MODEL = "bge-reranker-v2-m3";
@@ -345,6 +348,7 @@ describe("Environment Configuration", () => {
 		expect(config.teiEmbedderApiKey).toBe("embed-key");
 		expect(config.teiEmbedderModel).toBe("bge-m3");
 		expect(config.teiEmbedderBatchSize).toBe(24);
+		expect(config.teiEmbedderDimensions).toBe(1024);
 		expect(config.teiRerankerUrl).toBe("http://reranker:8082");
 		expect(config.teiRerankerApiKey).toBe("rerank-key");
 		expect(config.teiRerankerModel).toBe("bge-reranker-v2-m3");
@@ -365,6 +369,18 @@ describe("Environment Configuration", () => {
 			"test-session-secret-12345678901234567890123456789012",
 		);
 		expect(config.databasePath).toBe("./test-data/test.db");
+	});
+
+	it("reads no embedder output size from a negative or non-numeric TEI_EMBEDDER_DIMENSIONS", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+
+		for (const bad of ["-3", "abc", ""]) {
+			process.env.TEI_EMBEDDER_DIMENSIONS = bad;
+			vi.resetModules();
+			const { config } = await import("./env");
+			expect(config.teiEmbedderDimensions, JSON.stringify(bad)).toBe(0);
+		}
 	});
 
 	it("should ignore retired WEBHOOK_PORT values at boot", async () => {
