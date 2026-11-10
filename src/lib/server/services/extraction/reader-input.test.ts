@@ -17,6 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	MINERU_TEMP_MAX_AGE_MS,
@@ -35,6 +36,12 @@ import { prepareReaderInput, readerFileFor } from "./reader-input";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tinyHeic = readFileSync(
 	path.join(here, "..", "vision", "__fixtures__", "tiny.heic"),
+);
+// `vision/__fixtures__/transparent-page.heic` is 800x600: "Invoice" and "No. 4271"
+// in bold black on a fully transparent page (how it was made is written in
+// `vision/heif-decode.test.ts`). libheif gives the page as RGBA 0,0,0,0.
+const transparentPage = readFileSync(
+	path.join(here, "..", "vision", "__fixtures__", "transparent-page.heic"),
 );
 
 const PNG_SIGNATURE = Buffer.from([
@@ -177,7 +184,34 @@ describe("prepareReaderInput", () => {
 		expect(decode).toHaveBeenCalledTimes(1);
 		expect(decode).toHaveBeenCalledWith(expect.any(Uint8Array), "image/heic", {
 			maxLongEdge: 4096,
+			background: "#ffffff",
 		});
+	});
+
+	// A transparent page is black text on pixels libheif gives as 0,0,0,0, and a
+	// reader shown that sees black on black: the document read as empty, with no
+	// error. The photo goes to the reader on a white page.
+	it("hands the reader a transparent photo on white, with no alpha left", async () => {
+		const original = await stored("invoice.heic", transparentPage);
+
+		const reader = await prepare(original, "invoice.heic", "image/heic");
+
+		const png = await readFile(reader.input.filePathAbsolute);
+		expect((await sharp(png).metadata()).hasAlpha).toBe(false);
+		const { data, info } = await sharp(png)
+			.raw()
+			.toBuffer({ resolveWithObject: true });
+		expect([info.width, info.height, info.channels]).toEqual([800, 600, 3]);
+		const at = (x: number, y: number) =>
+			Array.from(data.subarray((y * info.width + x) * 3).subarray(0, 3));
+		expect([at(0, 0), at(799, 0), at(0, 599), at(799, 599)]).toEqual([
+			[255, 255, 255],
+			[255, 255, 255],
+			[255, 255, 255],
+			[255, 255, 255],
+		]);
+		// The stem of the "I" of "Invoice" (x 70 to 91, y 152 to 255) is still dark.
+		expect(at(80, 200)).toEqual([0, 0, 0]);
 	});
 
 	it.each([

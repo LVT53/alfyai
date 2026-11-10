@@ -40,6 +40,13 @@ import { DocumentExtractionError, extractionErrorMessage } from "./contracts";
 const READER_PNG_MAX_LONG_EDGE = 4096;
 
 /**
+ * Where a transparent photo ends up for the reader: on a white page. libheif gives
+ * the transparent pixels of a HEIC as RGBA 0,0,0,0, and a reader handed that sees
+ * black text on black, so the document reads as empty and says nothing is wrong.
+ */
+const READER_PNG_BACKGROUND = "#ffffff";
+
+/**
  * The converted file is `<this><attemptId>.<extension>`, one per attempt, directly
  * in the temp directory. `mineru/temp-sweep.ts` collects the ones a killed process
  * leaves, by this prefix: renaming it strands those, so the sweep reads it from
@@ -176,7 +183,10 @@ async function readAsPng(
 			// The entry's own MIME type, not the job's: a `.heic` a browser sent as
 			// application/octet-stream must still take the decoder's HEIC hop.
 			resolveEntry(fileName, mimeType)?.mimeTypes[0] ?? null,
-			{ maxLongEdge: READER_PNG_MAX_LONG_EDGE },
+			{
+				maxLongEdge: READER_PNG_MAX_LONG_EDGE,
+				background: READER_PNG_BACKGROUND,
+			},
 		));
 	} catch (error) {
 		if (!(error instanceof ImagePreparationError)) throw error;
