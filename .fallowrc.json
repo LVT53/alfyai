@@ -31,6 +31,8 @@
 		"scripts/verify-live-extraction-types.ts",
 		"scripts/images/try-render.ts",
 		"docs/plans/jobs-merge/verify-jobs.mjs",
+		"docs/plans/document-ranking/lab/candidates/*.lab.ts",
+		"docs/plans/document-ranking/lab/candidates/vitest.config.ts",
 		"static/sw.js"
 	],
 	"ignoreDependencies": ["pptxgenjs", "heic-decode"],
