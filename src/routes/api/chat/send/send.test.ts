@@ -336,6 +336,56 @@ describe("POST /api/chat/send", () => {
 		mockGetAvailableSkillDefinition.mockResolvedValue(baseUserSkillDefinition);
 	});
 
+	it.each([
+		["incomplete", "content_filter", "Partial answer"],
+		["failed", "transport_error", ""],
+		["stopped", "user_stop", "Partial answer"],
+		["delivered", "tool_budget", ""],
+	] as const)("exposes structured plain completion %s without changing text", async (outcome, stopCause, text) => {
+		seedConversationTurn(mockGetConversation, mockCreateMessage);
+		const terminal = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			phase: "working",
+			outcome,
+			stopCause,
+			workingStopCause: stopCause,
+			closingAttempted: false,
+		};
+		const finish = vi.fn(async () => undefined);
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
+			text,
+			modelId: "model1",
+			modelDisplayName: "Model 1",
+			providerUsage: null,
+			completionTurn: {
+				segmentId: "s",
+				getSnapshot: () => ({
+					segmentId: "s",
+					events: [],
+					completion: terminal,
+				}),
+				finish,
+			},
+		});
+		const response = await POST(
+			makeEvent({ message: "Hello", conversationId: "conv-1" }),
+		);
+		const data = await response.json();
+		expect(response.status).toBe(200);
+		expect(data.response.text).toBe(text);
+		expect(data.completion).toEqual(terminal);
+		if (outcome === "delivered") expect(data.warning).toBeUndefined();
+		else
+			expect(data.warning).toEqual({
+				code: "normal_chat_completion",
+				outcome,
+				stopCause,
+			});
+		expect(finish).toHaveBeenCalled();
+	});
+
 	it("returns AI response text for a valid request", async () => {
 		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Hello" },

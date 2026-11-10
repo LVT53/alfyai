@@ -673,7 +673,19 @@ async function runStandardSendTurn({
 	});
 	await touchConversation(user.id, turn.conversationId).catch(() => undefined);
 
+	const terminal = modelRunResult.completionTurn?.getSnapshot()?.completion;
 	return json({
+		...(terminal ? { completion: terminal } : {}),
+		...(terminal &&
+		["incomplete", "failed", "stopped"].includes(terminal.outcome)
+			? {
+					warning: {
+						code: "normal_chat_completion",
+						outcome: terminal.outcome,
+						stopCause: terminal.stopCause,
+					},
+				}
+			: {}),
 		response: { text: finalResponseText },
 		conversationId: turn.conversationId,
 		contextStatus,
