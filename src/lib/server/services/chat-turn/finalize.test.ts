@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { recordMessageAnalytics } from "$lib/server/services/analytics";
 import type { ChatFile } from "$lib/server/services/chat-files";
 import type { ConversationDraft } from "$lib/server/services/conversations";
@@ -267,6 +267,11 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe("runPostTurnTasks", () => {
+	beforeAll(async () => {
+		// Load the real steps dependency graph during setup, so each test measures
+		// post-turn behavior rather than a cold Vitest transform/import.
+		await vi.importActual("./finalize-steps");
+	});
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockListMessages.mockResolvedValue([]);
