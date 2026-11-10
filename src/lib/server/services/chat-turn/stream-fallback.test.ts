@@ -12,7 +12,8 @@ describe("runNonStreamFallback", () => {
 	const mockFlushPendingThinking = vi.fn();
 	const mockFlushInlineThinking = vi.fn();
 	const mockFlushOutput = vi.fn();
-	const mockHasVisibleAssistantText = vi.fn();
+	const mockGetVisibleAssistantText = vi.fn();
+	let visibleText = "";
 	const mockCompleteSuccess = vi.fn();
 	const mockOnContextStatus = vi.fn();
 	const mockOnTaskState = vi.fn();
@@ -59,7 +60,7 @@ describe("runNonStreamFallback", () => {
 			flushPendingThinking: mockFlushPendingThinking,
 			flushInlineThinkingBuffer: mockFlushInlineThinking,
 			flushOutputBuffer: mockFlushOutput,
-			hasVisibleAssistantText: mockHasVisibleAssistantText,
+			getVisibleAssistantText: mockGetVisibleAssistantText,
 			completeSuccess: mockCompleteSuccess,
 			signal: new AbortController().signal,
 			systemPromptAppendix: undefined,
@@ -77,13 +78,28 @@ describe("runNonStreamFallback", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
 		mockRunPlainNormalChatSendModel.mockResolvedValue(defaultFallbackResponse);
-		mockEmitText.mockResolvedValue(true);
+		mockEmitText.mockImplementation(async (text: string) => {
+			visibleText += text;
+			return true;
+		});
 		mockFlushInlineThinking.mockReturnValue(true);
 		mockFlushOutput.mockReturnValue(true);
-		mockHasVisibleAssistantText.mockReturnValue(true);
+		visibleText = "Preamble.";
+		mockGetVisibleAssistantText.mockImplementation(() => visibleText);
 		mockAttachContinuity.mockImplementation(
 			(_userId: string, taskState: unknown) => Promise.resolve(taskState),
 		);
+	});
+
+	it.each([
+		"",
+		" ",
+		"\u200B\u200C\u200D\u2060\uFEFF",
+	])("does not recover from a preamble when only invisible text is added: %j", async (addition) => {
+		mockRunPlainNormalChatSendModel.mockResolvedValue({ text: addition });
+		expect(await callFallback()).toBe(false);
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledTimes(2);
+		expect(mockCompleteSuccess).not.toHaveBeenCalled();
 	});
 
 	it("calls runPlainNormalChatSendModel with correct parameters", async () => {
@@ -198,7 +214,7 @@ describe("runNonStreamFallback", () => {
 	});
 
 	it("returns early if fallback text normalizes to no visible assistant text", async () => {
-		mockHasVisibleAssistantText.mockReturnValue(false);
+		mockGetVisibleAssistantText.mockReturnValue("Preamble.");
 
 		const result = await callFallback();
 
@@ -500,9 +516,11 @@ describe("runNonStreamFallback", () => {
 		});
 
 		it("carries the history cut, the prefetch skip, the gate and the provenance to every attempt", async () => {
-			mockHasVisibleAssistantText
-				.mockReturnValueOnce(false)
-				.mockReturnValueOnce(true);
+			mockGetVisibleAssistantText
+				.mockReturnValueOnce("Preamble.")
+				.mockReturnValueOnce("Preamble.")
+				.mockReturnValueOnce("Preamble.")
+				.mockReturnValueOnce("Preamble. Answer.");
 
 			await callFallback({ sendParams: resumeSendParams });
 
@@ -530,9 +548,11 @@ describe("runNonStreamFallback", () => {
 	});
 
 	it("retries once when fallback text normalizes to no visible output", async () => {
-		mockHasVisibleAssistantText
-			.mockReturnValueOnce(false)
-			.mockReturnValueOnce(true);
+		mockGetVisibleAssistantText
+			.mockReturnValueOnce("Preamble.")
+			.mockReturnValueOnce("Preamble.")
+			.mockReturnValueOnce("Preamble.")
+			.mockReturnValueOnce("Preamble. Answer.");
 
 		const result = await callFallback();
 

@@ -14,6 +14,7 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { NormalChatContextPreparationStageTiming } from "$lib/server/services/normal-chat-context-preparation";
 import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
 import type { TaskState } from "$lib/server/services/task-state/types";
+import { hasVisibleCharacter } from "$lib/services/stream-protocol";
 import type {
 	ImageMarksRequest,
 	PictureRef,
@@ -100,7 +101,7 @@ export interface NonStreamFallbackDeps {
 	flushPendingThinking: () => void;
 	flushInlineThinkingBuffer: () => boolean;
 	flushOutputBuffer: () => boolean;
-	hasVisibleAssistantText: () => boolean;
+	getVisibleAssistantText: () => string;
 	completeSuccess: () => Promise<void> | void;
 	signal: AbortSignal;
 	systemPromptAppendix: string | undefined;
@@ -372,6 +373,7 @@ export async function runNonStreamFallback(
 				...attemptContext,
 				attempt,
 			};
+			const textBeforeAttempt = deps.getVisibleAssistantText();
 			const fallbackResponse = await runFallbackAttempt(deps, iterationContext);
 			if (fallbackResponse.contextPreparationTimings?.length) {
 				deps.onContextPreparationTimings?.(
@@ -395,7 +397,11 @@ export async function runNonStreamFallback(
 			if (!(await handleFallbackTextEmission(deps, fallbackResponse))) {
 				return false;
 			}
-			if (!deps.hasVisibleAssistantText()) {
+			if (
+				!hasVisibleCharacter(
+					deps.getVisibleAssistantText().slice(textBeforeAttempt.length),
+				)
+			) {
 				console.warn(
 					"[STREAM] Non-stream fallback normalized to no visible text",
 					{

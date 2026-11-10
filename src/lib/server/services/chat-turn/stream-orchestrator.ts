@@ -837,7 +837,11 @@ export function runChatStreamOrchestrator(
 				// so it must halt the classifier itself or a classified step could
 				// be emitted after the visible answer was already sent.
 				thoughtStepClassifierSession.stop();
-				return emitChunkWithOutputHandling(text);
+				return emitChunkWithOutputHandling(
+					chunkRuntime.fullResponse.trim() && !/^[\r\n]/.test(text)
+						? `\n\n${text}`
+						: text,
+				);
 			};
 			const hasEmittedStreamOutput = () =>
 				Boolean(
@@ -975,6 +979,7 @@ export function runChatStreamOrchestrator(
 				wasStopped: boolean;
 				streamClosedWithoutFinish: boolean;
 				paused: boolean;
+				noFinalAnswer: boolean;
 			}) => {
 				await completeStreamTurn({
 					uiLanguage: user.uiLanguage,
@@ -1041,6 +1046,7 @@ export function runChatStreamOrchestrator(
 					upstreamFinishReason: latestUpstreamFinishReason,
 					upstreamRawFinishReason: latestUpstreamRawFinishReason,
 					streamClosedWithoutFinish: args.streamClosedWithoutFinish,
+					noFinalAnswer: args.noFinalAnswer,
 					askPause: args.paused ? buildAskPause() : null,
 					askResume: resume ?? null,
 					serverTimeline: createTerminalStreamTimelinePayload(phaseTimingMs),
@@ -1073,6 +1079,7 @@ export function runChatStreamOrchestrator(
 				flushBufferedStreamOutput,
 				wasStopRequested,
 				isPaused: isPausedReply,
+				hasFinalAnswer: () => chunkRuntime.hasTextAfterLastToolCall,
 				hasVisibleAssistantAnswerOutput,
 				hasCompletedFileProductionToolCall,
 				hasCompletedNonFileToolCall,
@@ -1221,7 +1228,7 @@ export function runChatStreamOrchestrator(
 					flushPendingThinking,
 					flushInlineThinkingBuffer,
 					flushOutputBuffer,
-					hasVisibleAssistantText: hasVisibleAssistantAnswerOutput,
+					getVisibleAssistantText: () => chunkRuntime.fullResponse,
 					completeSuccess,
 					signal: upstreamAbortController.signal,
 					systemPromptAppendix: currentSystemPromptAppendix(),
@@ -1268,7 +1275,13 @@ export function runChatStreamOrchestrator(
 						status: "error",
 						detail: reason,
 					});
-					failStream("backend_failure");
+					if (wasStopRequested()) {
+						await completeSuccess(true);
+					} else if (hasVisibleAssistantAnswerOutput()) {
+						await completeSuccess(false, { noFinalAnswer: true });
+					} else {
+						failStream("backend_failure");
+					}
 				} else if (recovered) {
 					emitResponseActivity({
 						id: fallbackActivityId,
