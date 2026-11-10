@@ -847,6 +847,8 @@ export async function runCase(client, spec, modelId, record) {
 			`/api/conversations/${record.conversationId}/questions/${question.id}/answer`,
 			{
 				streamId: record.resumeStreamId,
+				model: modelId,
+				reasoningDepth: body.reasoningDepth,
 				answer: { kind: "answered", answers: [{ picked: [0], ownWords: null }] },
 			},
 			{

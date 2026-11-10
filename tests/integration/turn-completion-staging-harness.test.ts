@@ -1099,3 +1099,143 @@ describe("least-privilege stage model metadata preflight", () => {
 		expect(result.report.records).toEqual([]);
 	});
 });
+
+describe("matrix intent survives a human answer", () => {
+	test.each(
+		Object.values(MODEL_MATRIX),
+	)("initial and resumed requests retain %s and reasoning depth", async (modelId) => {
+		const paused = { ...completion, outcome: "paused" };
+		const resumed = { ...completion, segmentId: "resume-segment" };
+		const stream = (
+			terminal: typeof completion,
+			answer: string,
+			messageId: string,
+		) => {
+			const scope = {
+				version: 1,
+				turnId: terminal.turnId,
+				segmentId: terminal.segmentId,
+				attemptId: "a",
+				stepId: "step",
+			};
+			const events = [
+				{
+					type: "data-stream-metadata",
+					data: { modelId, assistantMessageId: messageId },
+				},
+				{
+					type: "data-tool-call",
+					data: {
+						callId: "call",
+						name: answer ? "run_python" : "ask_user",
+						status: "done",
+					},
+				},
+				{
+					type: "data-normal-chat-output",
+					data: {
+						...scope,
+						sequence: 1,
+						type: "block_start",
+						blockId: "answer",
+						kind: "text",
+					},
+				},
+				{
+					type: "data-normal-chat-output",
+					data: {
+						...scope,
+						sequence: 2,
+						type: "block_delta",
+						blockId: "answer",
+						text: answer,
+					},
+				},
+				{
+					type: "data-normal-chat-output",
+					data: { ...scope, sequence: 3, type: "step_settled", role: "answer" },
+				},
+				{
+					type: "data-normal-chat-output",
+					data: {
+						...scope,
+						sequence: 4,
+						type: "completion",
+						completion: terminal,
+					},
+				},
+				{ type: "finish", finishReason: "stop" },
+			];
+			return new Response(
+				events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""),
+			);
+		};
+		let reads = 0;
+		const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
+		const client = {
+			json: vi.fn(async (path: string) => {
+				if (path.endsWith("/questions"))
+					return {
+						questions: [
+							{
+								id: "question",
+								status: "waiting",
+								questions: [{ options: [{ label: "17 times 23" }] }],
+							},
+						],
+					};
+				if (path.endsWith("/usage"))
+					return { status: "ready", costUsd: 0.000088 };
+				return {
+					messages: reads++
+						? [
+								{
+									id: "resume-message",
+									role: "assistant",
+									content: "PRODUCT=391",
+									normalChatOutput: {
+										version: 1,
+										events: [{ type: "completion", completion: resumed }],
+									},
+								},
+							]
+						: [],
+				};
+			}),
+			request: vi.fn(async (path: string, init: { body: string }) => {
+				const body = JSON.parse(init.body);
+				requests.push({ path, body });
+				expect(body.model).toBe(modelId);
+				expect(body.reasoningDepth).toBe("thorough");
+				return stream(
+					path.endsWith("/answer") ? resumed : paused,
+					path.endsWith("/answer") ? "PRODUCT=391" : "",
+					path.endsWith("/answer") ? "resume-message" : "pause-message",
+				);
+			}),
+		};
+		const record = {
+			conversationId: "synthetic-pause",
+			streamId: "initial-stream",
+		};
+		const result = await runCase(
+			client,
+			syntheticPlan("unit").find(
+				(s: { key: string }) => s.key === "pause-resume",
+			),
+			modelId,
+			record,
+		);
+		expect(requests.map((r) => r.path)).toEqual([
+			"/api/chat/stream",
+			"/api/conversations/synthetic-pause/questions/question/answer",
+		]);
+		expect(requests[1].body).toMatchObject({
+			model: modelId,
+			reasoningDepth: requests[0].body.reasoningDepth,
+		});
+		expect(result.modelId).toBe(modelId);
+		expect(result.requestedModelId).toBe(modelId);
+		expect(result.pausedSegment.requestedModelId).toBe(modelId);
+	});
+});
