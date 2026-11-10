@@ -39,17 +39,38 @@ function text(content: unknown): string {
 	if (!Array.isArray(content)) return "";
 	return content.map((part) => part?.text ?? "").join("");
 }
-/** Match only the current request, never a marker quoted in recalled history. */
+// Exact app-owned request shape, characterized by the installed-driver test.
+// Never search backwards for a marker through an arbitrary newer user request.
+const closingInstruction =
+	"Complete the original request using the evidence and working text already present. Preserve useful completed subanswers. Do not repeat already committed answer parts. Tools are unavailable. State unresolved limitations honestly.";
 export function completionMode(body: unknown): CompletionMode | null {
-	const message = completionWireMessages(body)
-		.filter((m) => m.role === "user")
-		.at(-1);
-	const source = text(message?.content);
+	const messages = completionWireMessages(body);
+	let root = messages.findLastIndex((message) => message.role === "user");
+	if (root < 0) return null;
+	if (text(messages[root].content) === closingInstruction) {
+		if (!completionToolsOff(body) || root !== messages.length - 1) return null;
+		const closing = root;
+		root = messages.findLastIndex(
+			(message, index) => index < closing && message.role === "user",
+		);
+		if (
+			root < 0 ||
+			!messages
+				.slice(root + 1, closing)
+				.some((message) => message.role === "assistant")
+		)
+			return null;
+	} else if (completionToolsOff(body)) return null;
+	const source = text(messages[root].content);
 	const section =
-		source.split("## Current User Message\n").at(-1)?.split("\n\n## ")[0] ?? "";
+		source
+			.split("## Current User Message\n")
+			.at(-1)
+			?.split("\n\n## ")[0]
+			.trim() ?? "";
 	return (
 		COMPLETION_MODES.find((mode) =>
-			section.includes(`${COMPLETION_MARKER}${mode}.`),
+			section.startsWith(`${COMPLETION_MARKER}${mode}.`),
 		) ?? null
 	);
 }

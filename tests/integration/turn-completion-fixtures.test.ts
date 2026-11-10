@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
-import { test } from "vitest";
-import { turnCompletionReply } from "../mocks/ai-provider/turn-completion-scripts";
+import { expect, test } from "vitest";
+import type { PlainNormalChatModelRunResult } from "../../src/lib/server/services/normal-chat-model";
 import { completionMessage } from "../fixtures/ai/turn-completion-scenarios";
+import {
+	completionMode,
+	completionToolsOff,
+	turnCompletionReply,
+} from "../mocks/ai-provider/turn-completion-scripts";
 
 const tools = [{ type: "function", function: { name: "read_generated_file" } }];
 const user = (mode: Parameters<typeof completionMessage>[0]) => ({
@@ -46,7 +51,7 @@ test("tool work preserves real content/tool_calls/finish/usage wire order", () =
 });
 test("tools-disabled closing retains heading bytes and a distinct truncation finish", () => {
 	const reply = turnCompletionReply({
-		messages: [user("closing-truncated"), attempt],
+		messages: [user("closing-truncated"), attempt, closeUser],
 	});
 	assert.ok(reply);
 	assert.deepEqual(
@@ -58,11 +63,13 @@ test("tools-disabled closing retains heading bytes and a distinct truncation fin
 });
 test("closing failure and empty closing remain separate adversarial responses", () => {
 	assert.equal(
-		turnCompletionReply({ messages: [user("closing-error"), attempt] })?.status,
+		turnCompletionReply({
+			messages: [user("closing-error"), attempt, closeUser],
+		})?.status,
 		500,
 	);
 	const empty = turnCompletionReply({
-		messages: [user("closing-empty"), attempt],
+		messages: [user("closing-empty"), attempt, closeUser],
 	});
 	assert.ok(empty);
 	assert.equal(empty.frames.at(-2)?.choices[0].finish_reason, "stop");
@@ -126,7 +133,7 @@ test("synthesis requires useful working prose AND the later read's full evidence
 		"../fixtures/ai/turn-completion-scenarios"
 	);
 	const contentOf = (messages: unknown[]) =>
-		turnCompletionReply({ messages })
+		turnCompletionReply({ messages: [...messages, closeUser] })
 			?.frames.flatMap((frame) =>
 				frame.choices.map((choice) => choice.delta.content ?? ""),
 			)
@@ -156,4 +163,154 @@ test("synthesis requires useful working prose AND the later read's full evidence
 		]),
 		"## Result\n\nRequired evidence or useful partial was lost.",
 	);
+});
+
+const realClosingInstruction =
+	"Complete the original request using the evidence and working text already present. Preserve useful completed subanswers. Do not repeat already committed answer parts. Tools are unavailable. State unresolved limitations honestly.";
+const closeUser = { role: "user", content: realClosingInstruction };
+test.each([
+	"length",
+	"reasoning-only",
+	"budget",
+	"stagnation",
+	"closing-error",
+	"closing-empty",
+	"closing-truncated",
+	"useful-partial",
+] as const)("actual appended closing user preserves %s scenario lineage", (mode) => {
+	const body = { messages: [user(mode), attempt, closeUser] };
+	expect(completionMode(body)).toBe(mode);
+	const reply = turnCompletionReply(body);
+	expect(reply).not.toBeNull();
+	expect(reply?.hold).toBe("completion-final");
+	if (mode === "closing-error") expect(reply?.status).toBe(500);
+	if (mode === "closing-truncated")
+		expect(reply?.frames.at(-2)?.choices[0].finish_reason).toBe("length");
+	if (mode === "closing-empty")
+		expect(
+			reply?.frames.some((frame) =>
+				frame.choices.some((c) => Boolean(c.delta.content)),
+			),
+		).toBe(false);
+});
+test("closing cannot adopt recalled history or auxiliary/current-user requests", () => {
+	const bodies = [
+		{
+			messages: [
+				user("closing-error"),
+				attempt,
+				{ role: "user", content: "A different current request." },
+				attempt,
+				closeUser,
+			],
+		},
+		{
+			messages: [
+				{
+					role: "user",
+					content: `${completionMessage("closing-error")}\n\n## Current User Message\nA different request.\n\n## Instructions\nContinue.`,
+				},
+				attempt,
+				closeUser,
+			],
+		},
+		{
+			messages: [
+				user("closing-error"),
+				attempt,
+				{ role: "user", content: "Summarize this for a title." },
+			],
+		},
+		{ messages: [attempt, user("closing-error"), closeUser] },
+	];
+	for (const body of bodies) expect(turnCompletionReply(body)).toBeNull();
+});
+test("installed completion driver closing request is dispatched and counted with the working request", async () => {
+	const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+	const { tool } = await import("ai");
+	const { z } = await import("zod");
+	const { runNormalChatCompletion } = await import(
+		"../../src/lib/server/services/normal-chat-model/completion"
+	);
+	const requests: unknown[] = [];
+	const sdk = createOpenAICompatible({
+		name: "completion-lineage",
+		baseURL: "http://synthetic.invalid/v1",
+		includeUsage: true,
+		fetch: async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			requests.push(body);
+			const reply = turnCompletionReply(body);
+			if (!reply)
+				throw new Error("Real request bypassed the completion fixture");
+			return new Response(
+				`${reply.frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join("")}data: [DONE]\n\n`,
+				{ headers: { "Content-Type": "text/event-stream" } },
+			);
+		},
+	});
+	const provider = {
+		id: "synthetic",
+		name: "synthetic",
+		displayName: "Synthetic",
+		baseUrl: "http://synthetic.invalid/v1",
+		modelName: "fake-model",
+		maxOutputTokens: 4096,
+		maxModelContext: 131072,
+	};
+	const run = runNormalChatCompletion(
+		{
+			provider,
+			messages: [{ role: "user", content: completionMessage("length") }],
+			tools: {
+				read_generated_file: tool({
+					inputSchema: z.object({ filename: z.string() }),
+					execute: async () => "synthetic",
+				}),
+			},
+			completionPolicy: {
+				turnId: "t",
+				segmentId: "s",
+				deadlineAt: Date.now() + 300000,
+				totalTimeoutMs: 300000,
+			},
+		},
+		{
+			model: sdk.chatModel("fake-model"),
+			maxModelContext: 131072,
+			providerOptions: undefined,
+			stopWhen: undefined,
+			metadata: (responseModelName) => ({
+				modelId: "synthetic",
+				providerId: "synthetic",
+				providerName: "synthetic",
+				displayName: "Synthetic",
+				requestedModelName: "fake-model",
+				responseModelName,
+			}),
+			mapUsage: () => ({ inputTokens: 31, outputTokens: 13, totalTokens: 44 }),
+		},
+		true,
+	);
+	let result: PlainNormalChatModelRunResult | undefined;
+	for (;;) {
+		const next = await run.next();
+		if (next.done) {
+			result = next.value;
+			break;
+		}
+	}
+	assert.ok(result);
+	expect(result.completion).toMatchObject({
+		outcome: "answered",
+		closingAttempted: true,
+	});
+	expect(result.text).toContain("## Result");
+	expect(requests).toHaveLength(2);
+	expect(requests.map(completionMode)).toEqual(["length", "length"]);
+	expect(completionToolsOff(requests[1])).toBe(true);
+	expect(
+		(requests[1] as { messages: { content: string }[] }).messages.at(-1)
+			?.content,
+	).toBe(realClosingInstruction);
 });

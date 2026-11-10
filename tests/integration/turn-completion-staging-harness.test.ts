@@ -246,6 +246,7 @@ describe("bounded audit and serial execution", () => {
 				conversationId: "conv'1",
 				turnId: "turn-1",
 				assistantMessageId: "msg-1",
+				requestedModelId: MODEL_MATRIX.deepseek,
 			},
 		]);
 		expect(sql).toContain("normal_chat_turns");
@@ -279,6 +280,8 @@ describe("bounded audit and serial execution", () => {
 				total_tokens: 44,
 				cost_usd_micros: 88,
 				model_id: MODEL_MATRIX.deepseek,
+				provider_id: "68d77707-6ace-4e55-8eee-a8ff49e7fec3",
+				provider_model_name: "deepseek-flash",
 			},
 		];
 		const ids = [
@@ -286,6 +289,7 @@ describe("bounded audit and serial execution", () => {
 				conversationId: "conv-1",
 				turnId: "turn-1",
 				assistantMessageId: "msg-1",
+				requestedModelId: MODEL_MATRIX.deepseek,
 			},
 		];
 		expect(inspectAudit({ turns, attempts }, ids).costUsdMicros).toBe(88);
@@ -348,6 +352,10 @@ describe("offline HTTP orchestration", () => {
 									id: "m1",
 									role: "assistant",
 									content: "PRODUCT=391",
+									normalChatOutput: {
+										version: 1,
+										events: [{ type: "completion", completion }],
+									},
 									modelId: MODEL_MATRIX.deepseek,
 									thinkingSegments: [
 										{ type: "tool_call", name: "run_python", status: "done" },
@@ -393,6 +401,10 @@ describe("offline HTTP orchestration", () => {
 									id: "m1",
 									role: "assistant",
 									content: "PRODUCT=391",
+									normalChatOutput: {
+										version: 1,
+										events: [{ type: "completion", completion }],
+									},
 									modelId: MODEL_MATRIX.deepseek,
 									thinkingSegments: [
 										{ type: "tool_call", name: "run_python", status: "done" },
@@ -574,5 +586,173 @@ describe("offline HTTP orchestration", () => {
 	});
 	test("unknown CLI options and a bad family cannot trigger remote calls", async () => {
 		await expect(main(["--model", "deepseek-pro"])).rejects.toThrow(/Unknown/);
+	});
+});
+
+describe("independent review identity and attempt-policy regressions", () => {
+	const selectedProvider = "68d77707-6ace-4e55-8eee-a8ff49e7fec3";
+	const identity = {
+		conversationId: "c",
+		segmentId: "s",
+		turnId: "t",
+		assistantMessageId: "m",
+		requestedModelId: MODEL_MATRIX.deepseek,
+		modelId: MODEL_MATRIX.deepseek,
+		outcome: "answered",
+		costUsdMicros: 3,
+	};
+	const turn = {
+		segment_id: "s",
+		turn_id: "t",
+		conversation_id: "c",
+		message_id: "m",
+		outcome: "answered",
+		accounting_status: "ready",
+		attempt_ids_json: '["a"]',
+	};
+	const attempt = {
+		attempt_id: "a",
+		segment_id: "s",
+		phase: "working",
+		provider_id: selectedProvider,
+		model_id: MODEL_MATRIX.deepseek,
+		provider_model_name: "deepseek-flash",
+		usage_final: 1,
+		input_tokens: 1,
+		output_tokens: 1,
+		total_tokens: 2,
+		cost_usd_micros: 3,
+	};
+	test("all supplied receipt IDs constrain SQL and audit; unsaved results stay scoped", () => {
+		expect(
+			inspectAudit({ turns: [turn], attempts: [attempt] }, [identity])
+				.costUsdMicros,
+		).toBe(3);
+		for (const patch of [
+			{ turnId: "other" },
+			{ assistantMessageId: "other" },
+			{ segmentId: "other" },
+		])
+			expect(() =>
+				inspectAudit({ turns: [turn], attempts: [attempt] }, [
+					{ ...identity, ...patch },
+				]),
+			).toThrow();
+		const sql = buildAuditSql([identity]);
+		expect(sql).toContain(
+			"t.segment_id='s' AND t.turn_id='t' AND t.message_id='m'",
+		);
+		const unsaved = {
+			...identity,
+			assistantMessageId: null,
+			outcome: "failed",
+		};
+		expect(
+			inspectAudit(
+				{
+					turns: [{ ...turn, message_id: null, outcome: "failed" }],
+					attempts: [attempt],
+				},
+				[unsaved],
+			).costUsdMicros,
+		).toBe(3);
+		expect(() =>
+			inspectAudit({ turns: [turn], attempts: [attempt] }, [unsaved]),
+		).toThrow();
+	});
+	test.each([
+		{ provider_id: "unexpected" },
+		{ model_id: MODEL_MATRIX.kimi },
+		{ provider_model_name: "deepseek-pro" },
+		{ provider_model_name: "unexpected-answerer" },
+	])("every attempt must match the requested provider/model/name policy (%j)", (patch) => {
+		const audit = {
+			turns: [{ ...turn, attempt_ids_json: '["a","closing"]' }],
+			attempts: [
+				attempt,
+				{ ...attempt, ...patch, attempt_id: "closing", phase: "closing" },
+			],
+		};
+		expect(() =>
+			inspectAudit(audit, [{ ...identity, costUsdMicros: 6 }]),
+		).toThrow();
+	});
+	test("two permitted attempts pass; observed metadata cannot replace requested identity", () => {
+		const audit = {
+			turns: [{ ...turn, attempt_ids_json: '["a","closing"]' }],
+			attempts: [
+				attempt,
+				{ ...attempt, attempt_id: "closing", phase: "closing" },
+			],
+		};
+		expect(
+			inspectAudit(audit, [{ ...identity, costUsdMicros: 6 }]).attempts,
+		).toBe(2);
+		expect(() =>
+			inspectAudit(audit, [
+				{ ...identity, modelId: MODEL_MATRIX.kimi, costUsdMicros: 6 },
+			]),
+		).toThrow();
+	});
+	test.each([
+		"missing",
+		"wrong-turn",
+		"wrong-segment",
+		"wrong-outcome",
+		"wrong-message",
+		"ambiguous",
+	])("plain saved completion rejects %s linkage despite equal answer text", async (mode) => {
+		let reads = 0;
+		const savedCompletion = {
+			...completion,
+			...(mode === "wrong-turn"
+				? { turnId: "other" }
+				: mode === "wrong-segment"
+					? { segmentId: "other" }
+					: mode === "wrong-outcome"
+						? { outcome: "incomplete" }
+						: {}),
+		};
+		const row = {
+			id: "m1",
+			role: "assistant",
+			content: "PRODUCT=391",
+			modelId: MODEL_MATRIX.deepseek,
+			thinkingSegments: [
+				{ type: "tool_call", name: "run_python", status: "done" },
+			],
+			...(mode !== "missing"
+				? {
+						normalChatOutput: {
+							version: 1,
+							events: [{ type: "completion", completion: savedCompletion }],
+						},
+					}
+				: {}),
+		};
+		const client = {
+			json: vi.fn(async (path: string) => {
+				if (path === "/api/chat/send")
+					return { response: { text: "PRODUCT=391" }, completion };
+				if (path.endsWith("/usage"))
+					return { status: "ready", costUsd: 0.000088 };
+				return {
+					messages: reads++
+						? mode === "ambiguous"
+							? [row, { ...row, id: "m2" }]
+							: [row]
+						: [],
+				};
+			}),
+		};
+		await expect(
+			runCase(client, syntheticPlan("unit")[1], MODEL_MATRIX.deepseek, {
+				conversationId: "synthetic-c1",
+				streamId: "synthetic-s1",
+				...(mode === "wrong-message"
+					? { assistantMessageId: "different-saved-message" }
+					: {}),
+			}),
+		).rejects.toThrow(/saved|ambiguous/i);
 	});
 });

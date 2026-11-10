@@ -18,6 +18,12 @@ export const MODEL_MATRIX = Object.freeze({
 	kimi: "provider:901b7294-cf08-441b-a8e0-46494bc28145:7a511b91-39bf-4f58-8eb3-aa9500c19b05",
 	qwen: "provider:7107c713-f6ff-483b-aba3-72556d569949:c45389f7-2daa-4911-8da9-b679f7657089",
 });
+// Deliberately no substitution in this acceptance matrix, even if the app permits fallback.
+const MODEL_NAMES = Object.freeze({
+	deepseek: "deepseek-flash",
+	kimi: "accounts/fireworks/models/kimi-k3p1-pro",
+	qwen: "qwen3-6-27b",
+});
 const need = (condition, message) => {
 	if (!condition) throw new Error(message);
 };
@@ -183,30 +189,58 @@ function frames(buffer) {
 }
 
 const quote = (value) => `'${String(value).replaceAll("'", "''")}'`;
+const identityFields = [
+	["segmentId", "segment_id"],
+	["turnId", "turn_id"],
+	["assistantMessageId", "message_id"],
+];
+function validateIdentity(identity) {
+	need(
+		typeof identity.conversationId === "string" &&
+			identity.conversationId.length > 0 &&
+			identityFields.some(([key]) => typeof identity[key] === "string" && identity[key].length > 0),
+		"Missing exact generated turn/message identity",
+	);
+	for (const [key] of identityFields)
+		if (identity[key] !== undefined) {
+			need(
+				(key === "assistantMessageId" && identity[key] === null) ||
+					(typeof identity[key] === "string" && identity[key].length > 0),
+				"Malformed generated identity",
+			);
+		}
+}
 function matches(row, identity) {
 	return (
 		row.conversation_id === identity.conversationId &&
-		(identity.segmentId
-			? row.segment_id === identity.segmentId
-			: identity.turnId
-				? row.turn_id === identity.turnId
-				: row.message_id === identity.assistantMessageId)
+		identityFields.every(
+			([key, column]) => identity[key] === undefined || row[column] === identity[key],
+		)
 	);
+}
+function modelPolicy(identity) {
+	const requested = identity.requestedModelId;
+	const family = Object.keys(MODEL_MATRIX).find((key) => MODEL_MATRIX[key] === requested);
+	need(family, "Audit lacks a supported requested model policy");
+	need(
+		identity.modelId === undefined || identity.modelId === requested,
+		"Observed model differs from requested matrix identity",
+	);
+	return { modelId: requested, providerId: requested.split(":")[1], name: MODEL_NAMES[family] };
 }
 export function buildAuditSql(identities) {
 	need(identities.length, "No generated identities to audit");
 	const clauses = identities
 		.map((id) => {
-			need(
-				id.conversationId && (id.segmentId || id.turnId || id.assistantMessageId),
-				"Missing exact generated turn/message identity",
-			);
-			const predicate = id.segmentId
-				? `t.segment_id=${quote(id.segmentId)}`
-				: id.turnId
-					? `t.turn_id=${quote(id.turnId)}`
-					: `t.message_id=${quote(id.assistantMessageId)}`;
-			return `(t.conversation_id=${quote(id.conversationId)} AND ${predicate})`;
+			validateIdentity(id);
+			const predicates = [`t.conversation_id=${quote(id.conversationId)}`];
+			for (const [key, column] of identityFields)
+				if (id[key] !== undefined) {
+					predicates.push(
+						id[key] === null ? `t.${column} IS NULL` : `t.${column}=${quote(id[key])}`,
+					);
+				}
+			return `(${predicates.join(" AND ")})`;
 		})
 		.join(" OR ");
 	// Content-free, SELECT only, no broad conversation scan and no owner data columns.
@@ -217,6 +251,11 @@ export function inspectAudit(audit, identities) {
 		Array.isArray(audit.turns) && Array.isArray(audit.attempts),
 		"Audit must contain turns and attempts arrays",
 	);
+	need(identities.length, "No generated identities to audit");
+	for (const identity of identities) {
+		validateIdentity(identity);
+		modelPolicy(identity);
+	}
 	const segments = new Set(),
 		attempts = new Map();
 	for (const row of audit.attempts) {
@@ -273,11 +312,16 @@ export function inspectAudit(audit, identities) {
 					id.allowedOutcomes.includes(row.outcome),
 					"Plain durable outcome is not answered/delivered",
 				);
-			if (id.modelId)
-				need(
-					children.some((a) => a.model_id === id.modelId),
-					"Durable attempt model differs from requested model",
-				);
+			const policy = modelPolicy(id);
+			need(
+				children.every(
+					(a) =>
+						a.model_id === policy.modelId &&
+						a.provider_id === policy.providerId &&
+						a.provider_model_name === policy.name,
+				),
+				"An actual attempt provider/model/name differs from the requested matrix policy",
+			);
 			if (id.costUsdMicros != null)
 				need(
 					segmentCost === id.costUsdMicros,
@@ -510,18 +554,55 @@ async function readUsage(client, conversationId, messageId) {
 async function savedResult(client, record, beforeIds) {
 	const detail = await client.json(`/api/conversations/${record.conversationId}`);
 	const fresh = detail.messages.filter((m) => m.role === "assistant" && !beforeIds.has(m.id));
-	const saved = record.assistantMessageId
-		? fresh.find((m) => m.id === record.assistantMessageId)
-		: fresh.at(-1);
-	need(saved, "No saved assistant result for generated turn");
-	if (record.scenario === "disconnect-observe")
-		need(fresh.length === 1, "Reconnect duplicated assistant persistence");
+	if (detail.conversation?.id !== undefined)
+		need(detail.conversation.id === record.conversationId, "Wrong saved conversation");
+	const candidates = record.assistantMessageId
+		? fresh.filter((m) => m.id === record.assistantMessageId)
+		: fresh;
+	const permittedIds = new Set(
+		[record.assistantMessageId, record.pausedSegment?.assistantMessageId].filter(Boolean),
+	);
+	need(
+		candidates.length === 1 &&
+			(fresh.length === 1 ||
+				(record.pausedSegment &&
+					fresh.length === 2 &&
+					fresh.every((message) => permittedIds.has(message.id)))),
+		"No unique saved assistant result; ambiguous fresh rows",
+	);
+	const saved = candidates[0];
+	need(
+		saved.normalChatOutput?.version === 1 && Array.isArray(saved.normalChatOutput.events),
+		"Saved result has no structural completion",
+	);
+	const completions = saved.normalChatOutput.events.filter(
+		(event) => event.type === "completion" && event.completion?.segmentId === record.segmentId,
+	);
+	need(
+		completions.length === 1,
+		"Saved completion is missing or ambiguous for the receipt segment",
+	);
+	const actual = completions[0].completion;
+	need(
+		[
+			"version",
+			"turnId",
+			"segmentId",
+			"phase",
+			"outcome",
+			"stopCause",
+			"workingStopCause",
+			"closingAttempted",
+		].every((key) => actual[key] === record.completion?.[key]),
+		"Saved completion disagrees with receipt",
+	);
 	record.assistantMessageId = saved.id;
 	return { detail, saved };
 }
 
 /** HTTP orchestration is dependency-injected for offline transport tests. */
 export async function runCase(client, spec, modelId, record) {
+	record.requestedModelId = modelId;
 	const before = await client.json(`/api/conversations/${record.conversationId}`);
 	const beforeIds = new Set(before.messages.map((m) => m.id));
 	const body = {
@@ -650,6 +731,9 @@ export async function runCase(client, spec, modelId, record) {
 			turnId: result.completion.turnId,
 			segmentId: result.completion.segmentId,
 			outcome: "paused",
+			assistantMessageId: result.assistantMessageId,
+			requestedModelId: modelId,
+			modelId: result.modelId,
 			conversationId: record.conversationId,
 		};
 		record.resumeStreamId = randomUUID();
@@ -823,16 +907,12 @@ export async function main(argv = process.argv.slice(2)) {
 			"Historical staging model IDs no longer listed; rebind after explicit inspection",
 		);
 		// Inspect model metadata only (no provider credentials), before the first model call.
-		const configuredNames = {
-			deepseek: "deepseek-flash",
-			kimi: "accounts/fireworks/models/kimi-k3p1-pro",
-			qwen: "qwen3-6-27b",
-		};
+
 		for (const family of families) {
 			const [, providerId, modelId] = MODEL_MATRIX[family].split(":");
 			const metadata = await client.json(`/api/admin/providers/${providerId}/models`);
 			need(
-				metadata.models.find((m) => m.id === modelId)?.name === configuredNames[family],
+				metadata.models.find((m) => m.id === modelId)?.name === MODEL_NAMES[family],
 				"Staging model binding changed; stop before model execution",
 			);
 		}
@@ -843,6 +923,7 @@ export async function main(argv = process.argv.slice(2)) {
 					family,
 					scenario: spec.key,
 					modelId: MODEL_MATRIX[family],
+					requestedModelId: MODEL_MATRIX[family],
 					streamId: randomUUID(),
 				};
 				records.push(record); // persisted even if create/send/assertion throws
@@ -870,6 +951,7 @@ export async function main(argv = process.argv.slice(2)) {
 							outcome: record.outcome,
 							allowedOutcomes: record.allowedOutcomes,
 							modelId: record.modelId,
+							requestedModelId: record.requestedModelId,
 							costUsdMicros: record.costUsdMicros,
 						});
 					if (record.pausedSegment) identities.push(record.pausedSegment);
