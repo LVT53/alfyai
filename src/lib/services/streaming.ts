@@ -365,23 +365,24 @@ function readObservation(
 		typeof row.segmentId === "string"
 	)
 		return value as NormalChatTurnObservation;
-	const completion = readObservationCompletion(row.completion);
-	if (
-		row.state !== "terminal" ||
-		(row.assistantMessageId !== null &&
-			typeof row.assistantMessageId !== "string") ||
-		!completion
-	)
-		return undefined;
-	const marker = parseNormalChatFinalization(row.normalChatFinalization);
-	const modelCompletion = readObservationCompletion(row.modelCompletion);
-	// Invalid new facts must not silently disappear into a clean answered end.
+	if (row.state !== "terminal") return undefined;
+	// Scope is already validated. A malformed marked terminal still carries a
+	// failure fact; never let shape validation erase it into an ordinary end.
 	const unavailable: NormalChatTurnObservation = {
 		version: 1,
 		streamId: row.streamId,
 		conversationId: row.conversationId,
 		state: "unavailable",
 	};
+	const completion = readObservationCompletion(row.completion);
+	if (
+		(row.assistantMessageId !== null &&
+			typeof row.assistantMessageId !== "string") ||
+		!completion
+	)
+		return row.normalChatFinalization !== undefined ? unavailable : undefined;
+	const marker = parseNormalChatFinalization(row.normalChatFinalization);
+	const modelCompletion = readObservationCompletion(row.modelCompletion);
 	if (row.normalChatFinalization !== undefined) {
 		if (!marker || !modelCompletion || row.assistantMessageId === null)
 			return unavailable;

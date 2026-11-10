@@ -355,6 +355,9 @@ describe("streamChat", () => {
 
 	it.each([
 		"missing-model",
+		"missing-effective",
+		"invalid-effective-shape",
+		"invalid-assistant-id",
 		"wrong-effective",
 		"invalid-marker",
 		"mirrored-id",
@@ -381,7 +384,7 @@ describe("streamChat", () => {
 			streamId: "observer",
 			conversationId: "conv-1",
 			state: "terminal",
-			assistantMessageId: "saved",
+			assistantMessageId: variant === "invalid-assistant-id" ? 123 : "saved",
 			modelCompletion:
 				variant === "missing-model" ? undefined : modelCompletion,
 			normalChatFinalization:
@@ -389,13 +392,17 @@ describe("streamChat", () => {
 					? { ...normalChatFinalization, version: 2 }
 					: normalChatFinalization,
 			completion:
-				variant === "wrong-effective"
-					? modelCompletion
-					: {
-							...modelCompletion,
-							outcome: "failed",
-							stopCause: "uncertain_execution",
-						},
+				variant === "missing-effective"
+					? undefined
+					: variant === "invalid-effective-shape"
+						? { ...modelCompletion, version: 2 }
+						: variant === "wrong-effective"
+							? modelCompletion
+							: {
+									...modelCompletion,
+									outcome: "failed",
+									stopCause: "uncertain_execution",
+								},
 		};
 		const data = {
 			observation,
