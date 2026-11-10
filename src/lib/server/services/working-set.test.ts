@@ -3,6 +3,7 @@ import {
 	countMatchTerms,
 	rankWorkingSetCandidates,
 	scoreMatch,
+	type WorkingSetCandidate,
 } from "./working-set";
 
 describe("working-set ranking", () => {
@@ -231,33 +232,131 @@ describe("working-set ranking", () => {
 		expect(ranked[0]?.artifactId).toBe("doc-multi");
 		expect(ranked[1]?.artifactId).toBe("doc-single");
 	});
+});
 
-	it("applies decay penalty to old artifacts", () => {
-		const now = Date.now();
-		const ranked = rankWorkingSetCandidates([
-			{
-				artifactId: "doc-old",
-				artifactType: "source_document",
-				name: "Old document",
-				summary: null,
-				contentText: null,
-				updatedAt: now - 30 * 24 * 60 * 60 * 1000,
-				isAttachedThisTurn: true,
-			},
-			{
-				artifactId: "doc-new",
-				artifactType: "source_document",
-				name: "New document",
-				summary: null,
-				contentText: null,
-				updatedAt: now,
-				isAttachedThisTurn: true,
-			},
+// How long ago a document was last written says nothing about whether the person
+// is still working with it. The signals are the turn's own verdict (it is attached,
+// it is open and named, it was corrected, its family was refined, it is the
+// current generated document); the age of the file used to be multiplied into
+// them, in SECONDS, as exp(-0.011 * age): 0.001 after ten minutes, so a document
+// written more than about two minutes before the refresh fell under the cut of 20
+// whatever the turn said about it.
+describe("working-set ranking and how long ago a document was written", () => {
+	const HOUR = 60 * 60 * 1000;
+	const DAY = 24 * HOUR;
+
+	function candidate(
+		overrides: Partial<WorkingSetCandidate> & { ageMs?: number },
+	): WorkingSetCandidate {
+		const { ageMs = 0, ...rest } = overrides;
+		return {
+			artifactId: "doc",
+			artifactType: "generated_output",
+			name: "Lease review",
+			summary: null,
+			contentText: null,
+			updatedAt: Date.now() - ageMs,
+			...rest,
+		};
+	}
+
+	it.each([
+		["attached this turn", { isAttachedThisTurn: true }, 100],
+		["the active document focus", { isActiveDocumentFocus: true }, 92],
+		["a recent user correction", { isRecentUserCorrection: true }, 62],
+		[
+			"a recently refined document family",
+			{ isRecentlyRefinedDocumentFamily: true },
+			58,
+		],
+		[
+			"the current generated document",
+			{ isCurrentGeneratedDocument: true },
+			54,
+		],
+	] as const)("keeps a document on the signal %s, however long ago it was written", (_name, signal, weight) => {
+		for (const ageMs of [0, HOUR, DAY, 30 * DAY]) {
+			const [item] = rankWorkingSetCandidates([
+				candidate({ ...signal, ageMs }),
+			]);
+
+			expect(item).toMatchObject({
+				selected: true,
+				state: "active",
+				score: weight,
+			});
+		}
+	});
+
+	it("does not keep a document nothing points to, however recently it was written", () => {
+		const [item] = rankWorkingSetCandidates([candidate({ ageMs: 0 })]);
+
+		expect(item).toMatchObject({ selected: false, state: "cooling", score: 0 });
+	});
+
+	it("lets a match with the message alone keep a document written moments ago, not one written an hour ago", () => {
+		// The one place the age still counts. A match is three-letter pieces of the
+		// message found anywhere in the text ("the", "and" ...), so nearly every
+		// reply of a chat matches the next question. With nothing to age them, the
+		// replies of a long chat all stay in the working set and the prompt.
+		const [fresh] = rankWorkingSetCandidates([
+			candidate({ messageMatchScore: 3 }),
+		]);
+		const [old] = rankWorkingSetCandidates([
+			candidate({ messageMatchScore: 3, ageMs: HOUR }),
 		]);
 
-		expect(ranked[0]?.artifactId).toBe("doc-new");
-		expect(ranked[1]?.artifactId).toBe("doc-old");
-		expect(ranked[0]?.score).toBeGreaterThan(ranked[1]?.score ?? 0);
+		expect(fresh).toMatchObject({ selected: true, state: "active" });
+		expect(old).toMatchObject({ selected: false, state: "cooling" });
+		expect(old.reasonCodes).toEqual(["matched_current_turn"]);
+	});
+
+	it("puts the document written last first when the signals are equal", () => {
+		// The ids sort the other way round, so only the age can put "z-newer" first.
+		const ranked = rankWorkingSetCandidates([
+			candidate({
+				artifactId: "a-older",
+				ageMs: 3 * DAY,
+				isActiveDocumentFocus: true,
+			}),
+			candidate({
+				artifactId: "z-newer",
+				ageMs: HOUR,
+				isActiveDocumentFocus: true,
+			}),
+		]);
+
+		expect(ranked.map((item) => item.artifactId)).toEqual([
+			"z-newer",
+			"a-older",
+		]);
+		expect(ranked[0]?.score).toBe(ranked[1]?.score);
+	});
+
+	it("keeps the documents written last when more tie than the working set can hold", () => {
+		// 60 documents tie on the signal and 48 fit. Their ids sort oldest first, so
+		// the 48 that stay can only be the newest if the age breaks the tie.
+		const ranked = rankWorkingSetCandidates(
+			Array.from({ length: 60 }, (_, index) =>
+				candidate({
+					artifactId: `doc-${String(index).padStart(2, "0")}`,
+					artifactType: "source_document",
+					ageMs: (60 - index) * HOUR,
+					isAttachedThisTurn: true,
+				}),
+			),
+		);
+
+		const selected = ranked
+			.filter((item) => item.selected)
+			.map((item) => item.artifactId)
+			.sort();
+		expect(selected).toEqual(
+			Array.from(
+				{ length: 48 },
+				(_, index) => `doc-${String(index + 12).padStart(2, "0")}`,
+			),
+		);
 	});
 });
 
