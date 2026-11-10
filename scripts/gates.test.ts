@@ -37,6 +37,17 @@ const options = {
 };
 
 describe("the check step", () => {
+	it("requests machine output to match the strict svelte-check log parser", () => {
+		expect(defineSteps(options).check.cmd).toEqual([
+			"npm",
+			"run",
+			"check",
+			"--",
+			"--output",
+			"machine",
+		]);
+	});
+
 	it("reads svelte-check's closing line and passes a clean one", () => {
 		expect(
 			parseCheckLog(

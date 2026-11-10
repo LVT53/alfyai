@@ -212,7 +212,7 @@ export function defineSteps(args) {
 	return {
 		// `check` and `vitest` sync `.svelte-kit/`: never while the build is reading it.
 		check: {
-			cmd: ["npm", "run", "check"],
+			cmd: ["npm", "run", "check", "--", "--output", "machine"],
 			after: ["build"],
 			parse: parseCheckLog,
 		},
