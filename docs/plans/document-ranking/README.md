@@ -19,9 +19,10 @@ in the lab). A question in one language almost never found its answer in the oth
 the same documents), and a paraphrase lost to any document that shared a few everyday words with the question. On staging, with documents
 hours old, the embedder alone put the right one first in 84 to 94% of the probe's queries and the app's order in 36%.
 
-A second, smaller age factor sits downstream of it (below, "The second age factor"). Two more things sit next to it and were left alone:
-`working-set.ts` calls the same function with an age in seconds, and for a non-empty query the candidates are the 120 most recently
-updated documents (`SEMANTIC_ARTIFACT_CANDIDATE_LIMIT`), so an older document is never in the running.
+A second, smaller age factor sits downstream of it (below, "The second age factor"). Two more things sit next to it. `working-set.ts` called
+the same function with an age in seconds; it was checked afterwards and is fixed for the signals that say the person is working with a
+document (`working-set.md` beside this file). For a non-empty query the candidates are the 120 most recently updated documents
+(`SEMANTIC_ARTIFACT_CANDIDATE_LIMIT`), so an older document is never in the running; that was left alone.
 
 ## What replaced it
 
