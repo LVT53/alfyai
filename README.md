@@ -132,6 +132,10 @@ npm run build   # Production build
 Node 22.x is required. `npm run build` runs the Vite build and then patches adapter-node so the default
 `BODY_SIZE_LIMIT` becomes `100M`.
 
+<!-- The SSR CanvasEditor output imports @xyflow/system directly. Keep its exact version in
+production dependencies so adapter-node externalizes that runtime boundary instead of rebundling
+its D3 dependency graph and emitting upstream circular-dependency warnings. -->
+
 ## Testing
 
 - **Unit / integration:** Vitest (`npm test`). A guard test,
