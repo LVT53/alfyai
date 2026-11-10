@@ -165,3 +165,28 @@ it.each([
 		}),
 	).toBe("_Incomplete answer._\n\nStopped");
 });
+
+it.each(
+	[false, true].flatMap((wasStopped) =>
+		["", " \n\t"].map((content) => ({ wasStopped, content })),
+	),
+)("retains marker-only failure for empty outward content: $wasStopped/$content", ({
+	wasStopped,
+	content,
+}) => {
+	const row = {
+		content,
+		normalChatFinalization: {
+			version: 1,
+			status: "failed",
+			cause: "file_association_failed",
+			wasStopped,
+		},
+	} as const;
+	const expected = `_Incomplete answer._\n\n${content}`;
+	expect(getClipboardText(row)).toBe(expected);
+	expect(joinReplyText([row], { legacy: "markdown" })).toBe(expected);
+	expect(row.content).toBe(content);
+	expect(getClipboardText({ content })).toBe("");
+	expect(joinReplyText([{ content }], { legacy: "markdown" })).toBe("");
+});

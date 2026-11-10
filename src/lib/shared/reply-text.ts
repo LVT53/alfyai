@@ -63,7 +63,7 @@ export function joinReplyText(
 				: options.legacy === "markdown"
 					? row.content.trim()
 					: legacyClipboardText(row.content);
-			if (!text.trim()) return "";
+			if (!text.trim() && !marker) return "";
 			const terminal = row.normalChatOutput?.events.findLast(
 				(event) => event.type === "completion",
 			);
