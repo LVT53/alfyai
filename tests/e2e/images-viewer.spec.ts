@@ -26,6 +26,7 @@ import {
 	startChatAs,
 	type TourUser,
 } from "./artifact-tours-helpers";
+import { e2eServerMode } from "./e2e-env";
 import {
 	createEmptyConversation,
 	login,
@@ -672,6 +673,84 @@ test.describe("pictures in the Knowledge Base (Task 22)", () => {
 		await page.getByRole("button", { name: "List view" }).click();
 		await page.reload({ waitUntil: "networkidle" });
 		await expect(page.locator(".documents-table")).toBeVisible();
+	});
+
+	// The owner: the library's list does not show its pictures "until the user
+	// switches to the grid view". The list is drawn by the server, so its pictures
+	// load before the page wakes up. Svelte remembers such a load with an inline
+	// onload attribute and replays it at hydration, but the boxes run
+	// CSP_MODE=enforce, which refuses inline handlers: the load is never heard and a
+	// picture that waits for it stays at opacity 0. The e2e servers send the policy
+	// report-only, so the page is made to enforce the whole of it here, as the boxes
+	// do, and the page's own scripts wait until the pictures are in.
+	test.describe("a full page load under the policy the boxes enforce", () => {
+		test.skip(
+			e2eServerMode() === "dev",
+			"holds the production build's entry scripts",
+		);
+
+		test("shows every picture of the list, with no visit to the grid", async ({
+			page,
+		}) => {
+			await page.setViewportSize(DESKTOP);
+			await seededLibrary(page);
+
+			await page.route(/\/knowledge\?type=image$/, async (route) => {
+				const response = await route.fetch();
+				const headers = { ...response.headers() };
+				const wholePolicy =
+					headers["content-security-policy-report-only"] ??
+					headers["content-security-policy"];
+				delete headers["content-security-policy-report-only"];
+				headers["content-security-policy"] = wholePolicy;
+				await route.fulfill({ response, headers });
+			});
+			const held: Array<() => Promise<void>> = [];
+			await page.route(
+				/\/_app\/immutable\/entry\/(?:start|app)\.[^/]+\.js$/,
+				(route) => {
+					held.push(() => route.continue());
+				},
+			);
+
+			const response = await page.goto("/knowledge?type=image", {
+				waitUntil: "domcontentloaded",
+			});
+			expect(response?.headers()["content-security-policy"]).toMatch(
+				/script-src 'self' 'nonce-/,
+			);
+			expect(response?.headers()["content-security-policy-report-only"]).toBe(
+				undefined,
+			);
+			// The page's code has not run: the table is the server's.
+			await expect.poll(() => held.length).toBeGreaterThan(0);
+			await expect(page.locator(`.documents-table ${KB_THUMBS}`)).toHaveCount(
+				2,
+			);
+			await expect
+				.poll(() =>
+					page.evaluate(
+						(selector) =>
+							Array.from(
+								document.querySelectorAll<HTMLImageElement>(selector),
+							).filter((img) => img.complete && img.naturalWidth > 0).length,
+						`.documents-table ${KB_THUMBS}`,
+					),
+				)
+				.toBe(2);
+
+			// The page wakes up. Both pictures were loaded before it did.
+			for (const release of held.splice(0)) await release();
+			await expect(
+				page.locator(`.documents-table ${KB_THUMBS}.is-loaded`),
+			).toHaveCount(2);
+			for (const picture of await page
+				.locator(`.documents-table ${KB_THUMBS}`)
+				.all()) {
+				await expect(picture).toHaveCSS("opacity", "1");
+			}
+			await expect(page.getByTestId("documents-grid")).toHaveCount(0);
+		});
 	});
 
 	test("the grid holds two columns on a phone", async ({

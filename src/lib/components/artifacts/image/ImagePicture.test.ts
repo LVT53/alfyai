@@ -189,6 +189,113 @@ describe("ImagePicture with a picture already in the cache", () => {
 	});
 });
 
+// A page the server drew has its pictures loading before the browser has run a
+// line of the app. Svelte remembers such a load with an inline `onload` attribute
+// and replays it when the page wakes up, but the policy the boxes run
+// (CSP_MODE=enforce) refuses inline handlers: no load event ever reaches the
+// component, and a picture that waits for one stays at opacity 0. The library's
+// list drew none of its pictures until the grid was opened and closed again.
+describe("ImagePicture drawn by the server", () => {
+	it("shows a picture the browser already holds when the page wakes up, though no load event comes", async () => {
+		const complete = Object.getOwnPropertyDescriptor(
+			HTMLImageElement.prototype,
+			"complete",
+		);
+		const natural = Object.getOwnPropertyDescriptor(
+			HTMLImageElement.prototype,
+			"naturalWidth",
+		);
+		Object.defineProperty(HTMLImageElement.prototype, "complete", {
+			configurable: true,
+			get: () => true,
+		});
+		Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", {
+			configurable: true,
+			get: () => 320,
+		});
+		try {
+			render(ImagePicture, {
+				fileId: "held",
+				width: 320,
+				height: 320,
+				alt: "Held",
+				variant: "thumb",
+			});
+			const img = screen.getByRole("img", { name: "Held" });
+			// A frame later, so that it fades in and never cuts in.
+			expect(img).not.toHaveClass("is-loaded");
+			await waitFor(() => expect(img).toHaveClass("is-loaded"));
+		} finally {
+			if (complete)
+				Object.defineProperty(HTMLImageElement.prototype, "complete", complete);
+			if (natural)
+				Object.defineProperty(
+					HTMLImageElement.prototype,
+					"naturalWidth",
+					natural,
+				);
+		}
+	});
+
+	it("keeps a picture hidden that is still on its way, or that came back broken", async () => {
+		const complete = Object.getOwnPropertyDescriptor(
+			HTMLImageElement.prototype,
+			"complete",
+		);
+		const natural = Object.getOwnPropertyDescriptor(
+			HTMLImageElement.prototype,
+			"naturalWidth",
+		);
+		try {
+			// Still loading: not complete.
+			Object.defineProperty(HTMLImageElement.prototype, "complete", {
+				configurable: true,
+				get: () => false,
+			});
+			Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", {
+				configurable: true,
+				get: () => 0,
+			});
+			const loading = render(ImagePicture, {
+				fileId: "slow",
+				width: 320,
+				height: 320,
+				alt: "Slow",
+			});
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+			expect(screen.getByRole("img", { name: "Slow" })).not.toHaveClass(
+				"is-loaded",
+			);
+			loading.unmount();
+
+			// Finished, but with nothing to draw: a broken picture is not a loaded one.
+			Object.defineProperty(HTMLImageElement.prototype, "complete", {
+				configurable: true,
+				get: () => true,
+			});
+			render(ImagePicture, {
+				fileId: "broken",
+				width: 320,
+				height: 320,
+				alt: "Broken",
+			});
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+			expect(screen.getByRole("img", { name: "Broken" })).not.toHaveClass(
+				"is-loaded",
+			);
+		} finally {
+			if (complete)
+				Object.defineProperty(HTMLImageElement.prototype, "complete", complete);
+			if (natural)
+				Object.defineProperty(
+					HTMLImageElement.prototype,
+					"naturalWidth",
+					natural,
+				);
+		}
+	});
+});
+
 describe("ImagePicture swapping its picture", () => {
 	it("fades the new picture in once it loads, over the one it replaces", async () => {
 		const { rerender } = render(ImagePicture, {

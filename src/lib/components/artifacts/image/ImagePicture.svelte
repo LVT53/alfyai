@@ -119,7 +119,9 @@ function settle(id: string): void {
  * (a picture already in the cache) is never missed, and nothing here is an
  * effect that could re-run on its own write. The motion check found both: an
  * attachment that looped on a cached picture, and a new picture whose
- * attachment never ran, left invisible under the one it replaced.
+ * attachment never ran, left invisible under the one it replaced. (An element
+ * the server drew is the exception: its load may come before these handlers
+ * exist, `showIfHeld` below.)
  */
 function markLoaded(id: string): void {
 	// A picture laid over another (a new take, a new version) is shown a frame
@@ -137,6 +139,27 @@ function markLoaded(id: string): void {
 /** The picture under a new one goes once the new one has faded in. */
 function markShown(id: string, event: TransitionEvent): void {
 	if (event.propertyName === "opacity" && loaded[id]) settle(id);
+}
+
+/**
+ * A picture the browser already holds when its element appears is loaded, load
+ * event or not. A page the server drew has its pictures loading before the
+ * browser has run any of the app: Svelte remembers such a load with an inline
+ * `onload` attribute and replays it when the page wakes up, but the policy the
+ * boxes run (CSP_MODE=enforce) refuses inline handlers, so the replay never
+ * comes and the picture would stay at opacity 0 until its element was made
+ * again (the library's list showed none of its pictures until the grid had been
+ * opened). An action, not an attachment: it runs once and tracks no state of
+ * ours. It waits a frame, as a picture laid over another does (`markLoaded`),
+ * so the picture fades in and never cuts in; a load event that comes first
+ * has already shown it.
+ */
+function showIfHeld(img: HTMLImageElement, id: string) {
+	if (!img.complete || img.naturalWidth === 0) return;
+	const frame = requestAnimationFrame(() => {
+		if (!loaded[id]) markLoaded(id);
+	});
+	return { destroy: () => cancelAnimationFrame(frame) };
 }
 </script>
 
@@ -165,6 +188,7 @@ function markShown(id: string, event: TransitionEvent): void {
 			decoding="async"
 			draggable="false"
 			data-testid={current ? 'image-picture-after' : 'image-picture-leaving'}
+			use:showIfHeld={id}
 			onload={() => markLoaded(id)}
 			ontransitionend={(event) => markShown(id, event)}
 		/>

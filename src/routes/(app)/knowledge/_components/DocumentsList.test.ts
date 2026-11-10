@@ -3155,6 +3155,52 @@ describe("pictures in the library", () => {
 		expect(fileRow?.querySelector('[data-testid="document-thumb"]')).toBeNull();
 	});
 
+	// The owner: the pictures of the library's list "are not loaded until the user
+	// switches to the grid view". The list is drawn by the server, so its pictures
+	// are loading before the page wakes up; the policy the boxes run refuses the
+	// inline handler Svelte uses to replay such a load, and a picture that waits
+	// for its load event stays invisible. The grid, drawn by the browser, hears it.
+	it("shows an Image row's picture in the list with no visit to the grid, though no load event reaches the page", async () => {
+		const complete = Object.getOwnPropertyDescriptor(
+			HTMLImageElement.prototype,
+			"complete",
+		);
+		const natural = Object.getOwnPropertyDescriptor(
+			HTMLImageElement.prototype,
+			"naturalWidth",
+		);
+		Object.defineProperty(HTMLImageElement.prototype, "complete", {
+			configurable: true,
+			get: () => true,
+		});
+		Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", {
+			configurable: true,
+			get: () => 320,
+		});
+		try {
+			render(DocumentsList, {
+				props: { documents: [picture()], typeFilter: "image" },
+			});
+
+			expect(screen.queryByTestId("documents-grid")).not.toBeInTheDocument();
+			const row = screen.getByText("Harbour at dusk").closest("tr");
+			await waitFor(() =>
+				expect(
+					row?.querySelector('[data-testid="document-thumb"] img'),
+				).toHaveClass("is-loaded"),
+			);
+		} finally {
+			if (complete)
+				Object.defineProperty(HTMLImageElement.prototype, "complete", complete);
+			if (natural)
+				Object.defineProperty(
+					HTMLImageElement.prototype,
+					"naturalWidth",
+					natural,
+				);
+		}
+	});
+
 	it("offers List and Grid, List first, and says which is on", () => {
 		render(DocumentsList, {
 			props: { documents: [picture()], typeFilter: "image" },
