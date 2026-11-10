@@ -487,7 +487,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			metadata,
 		});
 		expect(adapters.pollMessageEvidence).toHaveBeenCalledWith("assistant-1");
-		expect(adapters.refreshMessageCost).not.toHaveBeenCalled();
+		expect(adapters.refreshMessageCost).toHaveBeenCalledWith("assistant-1");
 		expect(adapters.maybeTriggerTitleGeneration).toHaveBeenCalledTimes(1);
 		expect(runtime.snapshot()).toMatchObject({
 			active: false,

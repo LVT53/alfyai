@@ -5,6 +5,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatTurnCheck } from "$lib/client/api/chat-turn";
@@ -322,6 +323,7 @@ vi.mock("$lib/client/api/conversations", () => ({
 	persistConversationDraft: vi.fn(async () => undefined),
 	fetchConversationDetail: vi.fn(async () => conversationDetailFixture()),
 	fetchMessageEvidence: vi.fn(),
+	fetchMessageUsage: vi.fn(async () => ({ status: "untracked" })),
 	generateConversationTitle: vi.fn(),
 	renameConversation: vi.fn(async () => ({})),
 	runConversationContextCompression: vi.fn(),
@@ -524,6 +526,7 @@ import {
 	deleteConversationMessages,
 	fetchConversationDetail,
 	fetchMessageEvidence,
+	fetchMessageUsage,
 	generateConversationTitle,
 	persistConversationDraft,
 } from "$lib/client/api/conversations";
@@ -653,6 +656,9 @@ describe("chat page runtime integration", () => {
 			conversationDetailFixture(),
 		);
 		vi.mocked(fetchMessageEvidence).mockReset();
+		vi.mocked(fetchMessageUsage)
+			.mockReset()
+			.mockResolvedValue({ status: "untracked" });
 		fetchActiveCapabilitiesMock.mockReset().mockResolvedValue({
 			served: [],
 			defaultOn: [],
@@ -696,6 +702,50 @@ describe("chat page runtime integration", () => {
 		);
 
 		expect(screen.getByTestId("message-input")).toBeInTheDocument();
+	});
+
+	it("updates the ring and Info cost when accounting lands after context metadata", async () => {
+		vi.mocked(fetchMessageUsage).mockResolvedValueOnce({ status: "pending" });
+		vi.mocked(fetchMessageUsage).mockResolvedValue({
+			status: "ready",
+			costUsd: 0.125,
+			generationDurationMs: 2500,
+			totalCostUsdMicros: 325000,
+			totalTokens: 130,
+		});
+		renderPage();
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "Calculate this" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		const { callbacks } = runtimeHarness.streamInvocations[0];
+		callbacks.onToken("The answer is 42.");
+		callbacks.onEnd("The answer is 42.", {
+			assistantMessageId: "assistant-cost",
+			userMessageId: "user-cost",
+			contextStatus: conversationContextStatusFixture(),
+		});
+		let finishOldDetail!: (detail: ConversationDetail) => void;
+		vi.mocked(fetchConversationDetail).mockReturnValueOnce(
+			new Promise((resolve) => {
+				finishOldDetail = resolve;
+			}),
+		);
+		runtimeHarness.adapters?.hydrateConversationDetail();
+		await waitFor(() => expect(fetchMessageUsage).toHaveBeenCalledTimes(2));
+		await waitFor(() =>
+			expect(screen.getByText("$0.125000")).toBeInTheDocument(),
+		);
+		await waitFor(() =>
+			expect(screen.getByText(/\$0\.3250.*130/)).toBeInTheDocument(),
+		);
+		expect(screen.getByText("$0.1250")).toBeInTheDocument();
+		finishOldDetail(
+			conversationDetailFixture({ totalCostUsdMicros: 0, totalTokens: 0 }),
+		);
+		await tick();
+		await tick();
+		expect(screen.getByText(/\$0\.3250.*130/)).toBeInTheDocument();
 	});
 
 	it("keeps normal in-flight sends visible to the runtime queue adapter", async () => {
