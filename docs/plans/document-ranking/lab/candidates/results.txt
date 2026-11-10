@@ -99,3 +99,142 @@ MEAN of the nine sets                     87.3%        91.2%        94.3%       
   E  en passage <- en question        top1  97.0%  top12  99.0%  top24  99.0%  top48 100.0%
   H  webfaq hu question -> answer     top1  99.0%  top12 100.0%  top24 100.0%  top48 100.0%
   W  webfaq en question -> answer     top1 100.0%  top12 100.0%  top24 100.0%  top48 100.0%
+
+
+=== VECTOR RECALL MEASUREMENT, 2026-11-10 ===
+Public text only. Apple M4 Pro, Node 22.23.4, Vitest 4.1.11. Embedder TEI 1.9.3 on approved owner box; measurement offline.
+Commands: README Reproduce; vector-recall-report.md records method and data handling.
+
+--- embed-summary.txt ---
+embedded 5476 documents and 2226 questions with Qwen/Qwen3-Embedding-4B; vector sizes 1024; norms 1.00000 to 1.00000
+
+--- vector-recall-results.txt ---
+VECTOR RECALL LAB (measured), public text only. The real search over a real SQLite file, stored vectors from the embedder, 24 closest older documents.
+lib            N   set  questions  older  in-vector-group(app)  agree-with-own-cosines  candidates(app)  window
+bel-en-1500     1500     B        300     267                    263                 300/300               296       33
+bel-en-1500     1500     E        300     267                    266                 300/300               299       33
+bel-en-400       400     B        300     212                    211                 300/300               299       88
+bel-en-400       400     E        300     212                    212                 300/300               300       88
+bel-en-488       488     B        300     234                    232                 300/300               298       66
+bel-en-488       488     E        300     234                    234                 300/300               300       66
+bel-hu-1500     1500     C        300     282                    281                 300/300               299       18
+bel-hu-1500     1500     D        300     282                    280                 300/300               298       18
+bel-hu-400       400     C        300     217                    216                 300/300               299       83
+bel-hu-400       400     D        300     217                    215                 300/300               298       83
+bel-hu-488       488     C        300     232                    232                 300/300               300       68
+bel-hu-488       488     D        300     232                    230                 300/300               298       68
+hunsum-1500     1500     A        300     264                    262                 300/300               298       36
+hunsum-1500     1500     K        300     264                    127                 300/300               163       36
+hunsum-1500     1500     P        300     264                    141                 300/300               177       36
+hunsum-400       400     A        300     211                    211                 300/300               300       89
+hunsum-400       400     K        300     211                    146                 300/300               235       89
+hunsum-400       400     P        300     211                    152                 300/300               241       89
+wf-en-1500      1500     W        300     280                    280                 300/300               300       20
+wf-en-400        400     W        300     211                    211                 300/300               300       89
+wf-hu-1500      1500     H        300     274                    273                 300/300               299       26
+wf-hu-400        400     H        300     210                    210                 300/300               300       90
+records 6600; the app's vector group differed from our own cosines in 0
+
+--- vector-recall-report.txt ---
+6600 question runs in 12 libraries
+documents tied with the right one in cosine (all runs): 0
+the app's 24 closest older documents vs our own cosines, disagreements: 0
+searches whose candidate list was not the 120 newest + the vector group (the name group fired): 0
+
+=== MEASURED: the right document among the 24 closest OLDER documents by stored 1024-d vector (Qwen3-Embedding-4B)
+    Q = questions; n = those whose right document is older than the 120 newest (this draw of random ages); found = by the app's own search
+    measured = found / n; age-averaged = exact expectation over every draw of ages for these questions and libraries
+    re-applied = the README's Beta-binomial method on these same questions; README = its published estimate (recomputed = same method, other size)
+set                             library          Q    n found    measured  age-averaged  re-applied   README meas-README
+A  hu news <- hu abstract       hunsum-400     300  211   211      100.0%         99.7%      99.6%    99.7%        -0.0
+A  hu news <- hu abstract       hunsum-1500    300  264   262       99.2%         99.0%      93.8%    92.9%        +6.1
+B  en passage <- hu question    bel-en-400     300  212   211       99.5%         99.3%      99.2%   100.0%        -0.7
+B  en passage <- hu question    bel-en-488     300  234   232       99.1%         99.0%      98.8%    99.9%        -0.9
+B  en passage <- hu question    bel-en-1500    300  267   263       98.5%         98.7%      93.4%    mixed
+C  hu passage <- en question    bel-hu-400     300  217   216       99.5%         99.3%      99.4%   100.0%        -0.7
+C  hu passage <- en question    bel-hu-488     300  232   232      100.0%         99.7%      99.6%    99.9%        -0.3
+C  hu passage <- en question    bel-hu-1500    300  282   281       99.6%         99.7%      94.6%    mixed
+D  hu passage <- hu question    bel-hu-400     300  217   215       99.1%         99.3%      99.2%   100.0%        -0.7
+D  hu passage <- hu question    bel-hu-488     300  232   230       99.1%         99.0%      99.0%    99.8%        -0.8
+D  hu passage <- hu question    bel-hu-1500    300  282   280       99.3%         99.0%      93.9%    mixed
+E  en passage <- en question    bel-en-400     300  212   212      100.0%         99.7%      99.5%    99.0%        +0.7
+E  en passage <- en question    bel-en-488     300  234   234      100.0%         99.7%      99.6%    99.0%        +0.7
+E  en passage <- en question    bel-en-1500    300  267   266       99.6%         99.7%      94.9%    mixed
+H  webfaq hu question -> answer wf-hu-400      300  210   210      100.0%        100.0%     100.0%   100.0%        +0.0
+H  webfaq hu question -> answer wf-hu-1500     300  274   273       99.6%         99.8%      94.6%    95.2%        +4.6
+W  webfaq en question -> answer wf-en-400      300  211   211      100.0%        100.0%     100.0%   100.0%        +0.0
+W  webfaq en question -> answer wf-en-1500     300  280   280      100.0%        100.0%      95.3%    95.4%        +4.6
+P  hu exact phrase (6 words)    hunsum-400     300  211   152       72.0%         75.5%      74.5%    76.1%        -0.6
+P  hu exact phrase (6 words)    hunsum-1500    300  264   141       53.4%         53.2%      50.8%    59.1%        -5.9
+K  hu 3 rare keywords           hunsum-400     300  211   146       69.2%         68.1%      67.4%    69.7%        -1.6
+K  hu 3 rare keywords           hunsum-1500    300  264   127       48.1%         48.2%      44.5%    49.7%        -1.5
+    (meas-README = age-averaged minus README, in points)
+    Descriptive results: shared passages, paired sets and a single library draw preclude independent-question confidence intervals.
+    Differences include sample, library and embedding-source changes; they do not establish statistical significance.
+
+=== MEANS over sets (each set counts once; 'age-averaged' is the exact expectation over ages for these fixed libraries)
+  N= 400 all nine sets                    (9 sets): measured  93.3%  age-averaged  93.4%  re-applied  93.2%  README  93.8%  age-averaged - README  -0.4
+  N= 400 question-style sets              (7 sets): measured  99.7%  age-averaged  99.6%  re-applied  99.6%  README  99.8%  age-averaged - README  -0.2
+  N= 400 P and K (phrase, rare words)     (2 sets): measured  70.6%  age-averaged  71.8%  re-applied  70.9%  README  72.9%  age-averaged - README  -1.1
+  N=1500 A H W P K (like-for-like)        (5 sets): measured  80.1%  age-averaged  80.0%  re-applied  75.8%  README  78.5%  age-averaged - README  +1.6
+  N=1500 A H W (question-style)           (3 sets): measured  99.6%  age-averaged  99.6%  re-applied  94.6%  README  94.5%  age-averaged - README  +5.1
+  N=1500 P and K (phrase, rare words)     (2 sets): measured  50.8%  age-averaged  50.7%  re-applied  47.7%  README  54.4%  age-averaged - README  -3.7
+  N= 488 Belebele B C D E (whole corpus)  (4 sets): measured  99.6%  age-averaged  99.3%  re-applied  99.3%  README  99.7%  age-averaged - README  -0.3
+
+=== The estimator itself, on these questions: re-applied minus age-averaged (positive = the method is optimistic), all cells with a README size
+  14 cells: mean -1.65 points, mean |diff| 1.66, largest -5.19
+
+=== The right document is a CANDIDATE (120 newest + 24 closest older + name group), share of ALL questions of the sets
+    candidate (app) = in the list the ranker was given; expected = 120/N + (1 - 120/N) * age-averaged; README: 99.9 / 95.7 (400), 94.5 / 86.4 (1,500)
+  N= 400 question-style sets  (7 sets): candidate (app)  99.8%   expected  99.7%   README 99.9%
+  N= 400 all sets             (9 sets): candidate (app)  95.3%   expected  95.4%   README 95.7%
+  N= 488 question-style sets  (4 sets): candidate (app)  99.7%   expected  99.5%
+  N=1500 question-style sets  (7 sets): candidate (app)  99.5%   expected  99.4%   README 94.5%   (B-E are mixed libraries here)
+  N=1500 all sets             (9 sets): candidate (app)  90.0%   expected  89.5%   README 86.4%   (B-E are mixed libraries here)
+
+=== Where the right document ranks among the OLDER documents (this draw): found within the K closest, K = 12, 24, 48, 96
+A  hu news <- hu abstract       hunsum-400   n= 211  K12: 100.0%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 8
+A  hu news <- hu abstract       hunsum-1500  n= 264  K12:  98.1%  K24:  99.2%  K48:  99.2%  K96: 100.0%  median rank 1, worst 59
+B  en passage <- hu question    bel-en-400   n= 212  K12:  99.5%  K24:  99.5%  K48:  99.5%  K96:  99.5%  median rank 1, worst 126
+B  en passage <- hu question    bel-en-488   n= 234  K12:  99.1%  K24:  99.1%  K48:  99.1%  K96:  99.1%  median rank 1, worst 176
+B  en passage <- hu question    bel-en-1500  n= 267  K12:  97.0%  K24:  98.5%  K48:  98.9%  K96:  98.9%  median rank 1, worst 1312
+C  hu passage <- en question    bel-hu-400   n= 217  K12:  99.5%  K24:  99.5%  K48:  99.5%  K96:  99.5%  median rank 1, worst 187
+C  hu passage <- en question    bel-hu-488   n= 232  K12: 100.0%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 10
+C  hu passage <- en question    bel-hu-1500  n= 282  K12:  99.3%  K24:  99.6%  K48:  99.6%  K96:  99.6%  median rank 1, worst 643
+D  hu passage <- hu question    bel-hu-400   n= 217  K12:  98.6%  K24:  99.1%  K48:  99.5%  K96:  99.5%  median rank 1, worst 265
+D  hu passage <- hu question    bel-hu-488   n= 232  K12:  99.1%  K24:  99.1%  K48: 100.0%  K96: 100.0%  median rank 1, worst 36
+D  hu passage <- hu question    bel-hu-1500  n= 282  K12:  98.6%  K24:  99.3%  K48:  99.6%  K96:  99.6%  median rank 1, worst 1193
+E  en passage <- en question    bel-en-400   n= 212  K12:  99.5%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 17
+E  en passage <- en question    bel-en-488   n= 234  K12: 100.0%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 4
+E  en passage <- en question    bel-en-1500  n= 267  K12:  99.6%  K24:  99.6%  K48:  99.6%  K96:  99.6%  median rank 1, worst 615
+H  webfaq hu question -> answer wf-hu-400    n= 210  K12: 100.0%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 5
+H  webfaq hu question -> answer wf-hu-1500   n= 274  K12:  98.5%  K24:  99.6%  K48: 100.0%  K96: 100.0%  median rank 1, worst 25
+W  webfaq en question -> answer wf-en-400    n= 211  K12: 100.0%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 2
+W  webfaq en question -> answer wf-en-1500   n= 280  K12: 100.0%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 2
+P  hu exact phrase (6 words)    hunsum-400   n= 211  K12:  60.7%  K24:  72.0%  K48:  82.0%  K96:  89.6%  median rank 6, worst 265
+P  hu exact phrase (6 words)    hunsum-1500  n= 264  K12:  45.8%  K24:  53.4%  K48:  61.0%  K96:  72.0%  median rank 18, worst 1294
+K  hu 3 rare keywords           hunsum-400   n= 211  K12:  56.9%  K24:  69.2%  K48:  79.6%  K96:  87.2%  median rank 6, worst 269
+K  hu 3 rare keywords           hunsum-1500  n= 264  K12:  40.5%  K24:  48.1%  K48:  54.5%  K96:  64.8%  median rank 39, worst 1321
+
+=== Whole real search, milliseconds (median), per library, this Mac (reranker off, query vector handed in)
+  bel-en-400       21
+  bel-en-488       25
+  bel-en-1500      75
+  bel-hu-400       21
+  bel-hu-488       23
+  bel-hu-1500      72
+  hunsum-400       24
+  hunsum-1500      76
+  wf-en-400        20
+  wf-en-1500       74
+  wf-hu-400        19
+  wf-hu-1500       71
+
+--- verification ---
+Measure phase: 1 passed, 1 skipped (embed already completed), 299.92 s. 6,600/6,600 records; 0 app/cosine mismatches.
+Deterministic prep reproduces saved plan/docs byte for byte. All 5,476 source hashes match app-prepared public text.
+All 7,702 vectors finite, 1024-d, unit norm; SQLite integrity OK.
+Report plain/gzip outputs identical; incomplete, duplicate and inconsistent runs rejected.
+Embed cache reuse guard rejects existing output before network access. Hypergeometric formula checked by exhaustive small-case enumeration.
+Fallow-only gate: exit 0, fallow 3.33.1, 4 known circular dependencies, 0 new findings, 0 removed.
+No src changes; full application gates waived by task. Lab files outside normal TS/Biome input globs; runtime exercised with Vitest.

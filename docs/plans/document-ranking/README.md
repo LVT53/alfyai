@@ -142,33 +142,57 @@ conversation and other kinds stay out. A library that fits the window pays nothi
 file) is logged and costs only the addition: the 120 newest are still ranked. Older documents that belong to ANOTHER chat still meet the
 conversation discount of "The second age factor" (0.7% of their score at 100 days), so the gain is mostly for library and project uploads.
 
-**How often the right document is then a candidate.** The vector group's recall is not measured at these library sizes (that takes the embedder
-on the box); it is estimated from the ranking lab's recorded signals: per query the real cosine of the Qwen3-Embedding-4B at 1024 dimensions for
-the right document and 119 others drawn from the same corpus. The share of others that out-score the right one estimates how many of N - 1
-would, and the Beta-binomial over that gives the chance of a place in the top 24 of the older documents (`lab/candidates/cosine-recall.py`;
-predicting the 120-document result from a random 30 of its 119 competitors gives 97.4% against 97.4% actual at K = 24, and 94.1% against 96.2% at
-K = 12, so if anything it is a little pessimistic):
+**How often the right document is then a candidate: measured.** On 2026-11-10 the production Qwen3-Embedding-4B
+embedded 5,476 public documents and 2,226 distinct public question texts at 1024 dimensions. Documents went through the app's own
+`buildArtifactEmbeddingSourceText` and backfill (neutral filename, no summary, public content); queries used the `query` prompt.
+The offline lab then ran the real search over the stored vectors in a real migrated SQLite file: 300 questions per set/library,
+random distinct ages independent of the questions, 6,600 searches across twelve libraries. Every vector-group result agreed with
+a separate full-library cosine calculation; there were no cosine ties or extra candidates from the name group.
 
-| set | 400 documents | 1,500 documents |
-|---|---|---|
-| A  Hungarian article <- its abstract | 99.7% | 92.9% |
-| B  English passage <- Hungarian question | 100% | 93.6% |
-| C  Hungarian passage <- English question | 100% | 94.4% |
-| D  Hungarian passage <- Hungarian question | 100% | 92.7% |
-| E  English passage <- English question | 99.0% | 94.0% |
-| H  WebFAQ Hungarian question -> answer | 100% | 95.2% |
-| W  WebFAQ English question -> answer | 100% | 95.4% |
-| P  Hungarian exact phrase (6 words) | 76.1% | 59.1% |
-| K  Hungarian 3 rare keywords | 69.7% | 49.7% |
+The table is **measured hits / questions whose right document is older than the 120 newest**, beside the original **estimated**
+recall. The estimate used a Beta-binomial over only 119 competitors per query (`cosine-recall.py`). “Optimistic” means the old
+estimate exceeds this observed recall; “pessimistic” means it falls below it. These are descriptive directions for this sample,
+not significance claims.
 
-Of the older documents the right one is among the 24 closest. With the 120 newest (30% and 8% of the questions), the right document is a
-candidate for **99.9% (400 documents) and 94.5% (1,500) of the question-style sets** (A to H, W), against 30% and 8% before, and for 95.7% and
-86.4% of all nine. The ranking then does what the table above says it does with a pool of this size (99.2 mean MRR with 120). The two sets that
-fall short are the ones the embedder is weakest at (an exact phrase from the middle of a long article, a few rare words). Looking for **every
-word of the query in the full text** finds them (SQL, the newest 24 of the matches: 96.7% and 98.3% at 400 documents, 95.0% and 100% at 1,500,
-admitting 0.07 to 0.7% of the library), but it was left out: its cost grows with the size of the library's text and not with the number of
-documents (22 ms for 1,500 documents of 20 KB, 6 ms for 400; a person with longer documents pays proportionally more). It is the next step if
-phrases from the middle of old documents matter; the name-and-summary group does not find them.
+| set | 400 estimated | 400 measured | 1,500 estimated | 1,500 measured | estimate direction, 400 / 1,500 |
+|---|---|---|---|---|---|
+| A Hungarian article <- its abstract | 99.7% | **100.0% (211/211)** | 92.9% | **99.2% (262/264)** | pessimistic / pessimistic |
+| B English passage <- Hungarian question | 100% | **99.5% (211/212)** | 93.6% | **98.5% (263/267), mixed** | optimistic / not comparable |
+| C Hungarian passage <- English question | 100% | **99.5% (216/217)** | 94.4% | **99.6% (281/282), mixed** | optimistic / not comparable |
+| D Hungarian passage <- Hungarian question | 100% | **99.1% (215/217)** | 92.7% | **99.3% (280/282), mixed** | optimistic / not comparable |
+| E English passage <- English question | 99.0% | **100.0% (212/212)** | 94.0% | **99.6% (266/267), mixed** | pessimistic / not comparable |
+| H WebFAQ Hungarian question -> answer | 100% | **100.0% (210/210)** | 95.2% | **99.6% (273/274)** | equal / pessimistic |
+| W WebFAQ English question -> answer | 100% | **100.0% (211/211)** | 95.4% | **100.0% (280/280)** | equal / pessimistic |
+| P Hungarian exact phrase (6 words) | 76.1% | **72.0% (152/211)** | 59.1% | **53.4% (141/264)** | optimistic / optimistic |
+| K Hungarian 3 rare keywords | 69.7% | **69.2% (146/211)** | 49.7% | **48.1% (127/264)** | optimistic / optimistic |
+
+**The Belebele gap:** there are only 488 distinct passages per language. Its 1,500-document libraries contain those passages plus
+1,012 same-language WebFAQ answers, so those four measured cells cannot validate the original same-corpus extrapolation. With all
+488 Belebele passages alone, B/C/D/E measured **99.1% (232/234), 100.0% (232/232), 99.1% (230/232), 100.0% (234/234)**.
+Recomputing the old estimate at 488 gives 99.9/99.9/99.8/99.0%; its directions are optimistic/optimistic/optimistic/pessimistic.
+The 400-document libraries use Belebele alone. HunSum and WebFAQ libraries contain the 300 selected targets plus 100 or 1,200 other
+documents; exact-text duplicates are excluded. These are fixed sampled libraries, not independent new libraries for each question.
+
+To remove the luck of one age draw, the report also computes the exact expectation over all random newest-120 windows using the
+measured full-library cosine ranks (hypergeometric, conditional on the target being older). At 400, question-style sets average
+**99.6%** older recall against **99.8% estimated**: a small optimistic gap. At 1,500, the comparable question-style sets A/H/W average
+**99.6%** against **94.5% estimated**: pessimistic by **5.1 points**. P/K at 1,500 average **50.7%** against **54.4% estimated**:
+optimistic by **3.7 points**. P at 400 is 75.5% age-averaged versus 72.0% in this age draw, illustrating why small differences should
+not be over-read. Reapplying the old estimator to 119-document samples from these same questions underpredicts the 1,500-document
+A/H/W age-averaged recall by about five points. Other differences also include new sampled queries and app-prepared text versus
+the earlier raw-text embedding. The experiment does not isolate those effects.
+
+With the 120 newest included, the right document was a **candidate for 99.8% (400 documents) and 99.5% (1,500) of question-style
+questions**, against the old estimates 99.9% and 94.5%, and for **95.3% / 90.0% of all nine sets**, against 95.7% / 86.4% estimated
+(each set weighted equally). The 1,500 means include the four mixed libraries. Age-averaged candidate shares are 99.7% / 99.4%
+for question-style sets and 95.4% / 89.5% over all nine. These measure candidate selection; the earlier ranking MRR on pools of
+120 does not establish final ranking accuracy for these larger libraries.
+
+The two weak sets remain phrases from the middle of articles and a few rare words. Looking for **every word of the query in the
+full text** found them in the earlier word lab (SQL, newest 24 matches: 96.7% / 98.3% at 400 documents, 95.0% / 100% at 1,500,
+admitting 0.07–0.7% of the library), but that pass was left out: its cost grows with the library's text (22 ms for 1,500 documents
+of 20 KB, 6 ms for 400). The name-and-summary group does not find these examples. Raw measurements and estimator comparisons:
+`lab/candidates/results.txt`; method, validation and data handling: `lab/candidates/vector-recall-report.md`.
 
 **What a search costs.** The vectors are stored as JSON text and compared in JavaScript, so the scan is dominated by `JSON.parse` (70%), then the
 SQL read (11%) and the cosines (6%). Whole search with a query embedding passed in, documents of 20 KB, 15 repetitions, on an Apple M4 Pro
@@ -194,10 +218,11 @@ would take the steady state to about the cosine step alone (4 ms at 1,500 docume
 - The thresholds that read the signals themselves (topic shift under cosine 0.3, cross-conversation eligibility at 0.75 / 0.75 / 3 words)
   are untouched; their behaviour on the 4B embedder is in `docs/plans/embedding-reranker-eval/qwen3-test-2026-11-09.md` where that folder is kept.
 - The project boost (5) now acts on documents of any age, as written; before, it vanished after ten minutes. It was not retuned.
-- The candidate numbers: ages are random and unrelated to the question (the worst case); the vector group's recall at 400 and 1,500 documents is
-  an estimate from 119 competitors a query, not a run of the embedder on libraries of that size; the libraries are random public text, with no
-  near-duplicates; the cost is one Mac. The name-and-summary group has no recall measured, because the public sets have no names; its
-  unit tests (`documents.older-candidates.test.ts`) show what it does and does not admit.
+- The candidate numbers use random ages unrelated to the question. Vector recall is measured with real stored vectors at 400 and 1,500,
+  but Belebele's 1,500 rows use mixed libraries; same-corpus extrapolation there remains unvalidated. There is one library draw per size/corpus,
+  shared passages and paired questions across sets, and no evaluation of near-duplicates or missing vectors. No independent-question confidence
+  intervals are claimed. The cost is one Mac. The name-and-summary group's recall is unmeasured because these public sets use neutral names;
+  its unit tests (`documents.older-candidates.test.ts`) show what it does and does not admit.
 - A document that is a candidate only because of its name still needs a place in the cosine shortlist (the top 24) to earn the embedder's
   18 points: outside it the cosine counts as 0 however high it is, which can leave a document the question names behind documents whose
   cosines are all high. That cliff is in the ranking, not in the candidates, and was not touched.
@@ -235,4 +260,31 @@ The candidate labs (public text only, the real search over a real SQLite file; `
     LAB_DATA=<data-dir> LAB_OUT=<out> npx vitest run -c docs/plans/document-ranking/lab/candidates/vitest.config.ts cutoff     # how often the window cuts the right document off
     LAB_DATA=<data-dir> LAB_OUT=<out> npx vitest run -c docs/plans/document-ranking/lab/candidates/vitest.config.ts keywords   # phrases and rare words
     LAB_DATA=<data-dir> LAB_OUT=<out> npx vitest run -c docs/plans/document-ranking/lab/candidates/vitest.config.ts cost       # what a search and the vector scan cost
-    python -I lab/candidates/cosine-recall.py rank-lab-features.json                                                          # recall of the closest-by-vector group
+    python -I lab/candidates/cosine-recall.py rank-lab-features.json                                                          # original recall estimate
+
+For the measured vector recall, run from the repository root with Node 22 on PATH (in a worktree:
+`PATH=/opt/homebrew/opt/node@22/bin:$PATH`). `data-dir` is the public output of `lab/prep.py`; `plan-out` and `embed-out`
+are separate directories. Ask the owner before connecting to the box or sending text to it. The embed phase requires a fresh
+output directory and the approved 4B TEI endpoint/key; keep the key out of logs and files.
+
+```bash
+python3 -I docs/plans/document-ranking/lab/candidates/vector-recall-prep.py <data-dir> <plan-out>
+LAB_PHASE=embed LAB_PLAN=<plan-out> LAB_OUT=<embed-out> TEI_EMBEDDER_URL=<approved-endpoint> TEI_EMBEDDER_API_KEY=<key> \
+  npx vitest run -c docs/plans/document-ranking/lab/candidates/vitest.config.ts vector-recall
+LAB_PHASE=measure LAB_PLAN=<plan-out> LAB_OUT=<embed-out> \
+  npx vitest run -c docs/plans/document-ranking/lab/candidates/vitest.config.ts vector-recall
+python3 -I docs/plans/document-ranking/lab/candidates/vector-recall-report.py <embed-out>/vector-recall-questions.jsonl [rank-lab-features.json]
+```
+
+The last two steps use the saved vectors offline. The report rejects incomplete runs, duplicate questions, cosine ties and disagreements.
+Belebele has 488 passages per language: its 1,500-document libraries add 1,012 WebFAQ answers and are labelled mixed.
+To reproduce the published tables without datasets or the embedder, run:
+
+```bash
+python3 -I docs/plans/document-ranking/lab/candidates/vector-recall-report.py \
+  docs/plans/document-ranking/lab/candidates/vector-recall-questions.jsonl.gz
+```
+
+The optional earlier features file only adds the old estimator's 488-document comparison. The text-free selection manifest records
+library members, question/gold ids and local dataset hashes; the provenance manifest fingerprints the saved vectors. Upstream dataset
+commit revisions were not recorded by the original downloader. Retain the ignored `data/vector-recall/` artifacts for offline remeasurement.

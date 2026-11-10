@@ -1,5 +1,6 @@
-// Runs the three candidate labs (`*.lab.ts` beside this file) under the app's own vitest setup, so they can
-// import the real search. They are not part of `npm test`: they need the public datasets (LAB_DATA) and take
+// Runs the four candidate labs (`*.lab.ts` beside this file) under the app's own vitest setup, so they can
+// import the real search. They are not part of `npm test`: they need public datasets (LAB_DATA, or LAB_PLAN
+// and LAB_PHASE for vector-recall) and take
 // minutes. See docs/plans/document-ranking/README.md, "Reproduce".
 //
 //   LAB_DATA=<prep.py output> LAB_OUT=<empty dir> npx vitest run -c docs/plans/document-ranking/lab/candidates/vitest.config.ts
