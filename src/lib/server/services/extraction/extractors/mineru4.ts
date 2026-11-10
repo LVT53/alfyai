@@ -539,6 +539,25 @@ export function createMineru4Extractor(
 			const openFile = (): Promise<ExtractionFile> =>
 				(opening ??= request.openFile());
 
+			/**
+			 * The digest of the bytes the file holds, which is what a task is declared
+			 * with: the ledger's when it has a valid one (a stored file's never changes,
+			 * so there is nothing to read), else the file hashed. `trustLedger` false
+			 * hashes the file whatever the ledger says, for a file that has just shown
+			 * the ledger's digest wrong.
+			 */
+			const digestOfFile = async (
+				file: ExtractionFile,
+				trustLedger: boolean,
+			): Promise<string> => {
+				const supplied = trustLedger
+					? (file.contentSha256?.trim().toLowerCase() ?? "")
+					: "";
+				return SHA256_PATTERN.test(supplied)
+					? supplied
+					: client.sha256(file.filePathAbsolute);
+			};
+
 			// -- 1. capabilities, before anything is asked for -------------------
 			let capabilities: Awaited<ReturnType<typeof getMineruCapabilities>>;
 			try {
@@ -588,19 +607,21 @@ export function createMineru4Extractor(
 			//
 			// A resumed task's digest is the one the live task was declared with, so
 			// the attempt goes on with it, and a handle that has one never needs the
-			// file here (a resumed attempt that only polls never opens it at all). The
-			// file is asked for only when there is no digest to go on, and brings the
-			// ledger's if it holds one; otherwise it is hashed.
+			// file here (a resumed attempt that only polls never opens it at all). That
+			// is all a handle's digest is for: a task created fresh declares the digest
+			// of the bytes it is about to send (`submitFresh`), because the handle may
+			// name bytes this attempt does not have. The file is asked for here only
+			// when there is no digest to go on, and brings the ledger's if it holds one;
+			// otherwise it is hashed.
 			const resumed = readHandleState(request.resumeHandle);
 			let sha256 = resumed.sha256;
+			// Whether `sha256` is of the file this attempt opened, and not a handle's.
+			let digestIsOfTheFile = false;
 			if (!sha256) {
 				assertNotAborted(request.signal);
 				try {
-					const file = await openFile();
-					const supplied = file.contentSha256?.trim().toLowerCase() ?? "";
-					sha256 = SHA256_PATTERN.test(supplied)
-						? supplied
-						: await client.sha256(file.filePathAbsolute);
+					sha256 = await digestOfFile(await openFile(), true);
+					digestIsOfTheFile = true;
 				} catch (error) {
 					// Called off while the file was made (a photo's decode): the cancel
 					// it is, as at every other step. Anything else is the reader's
@@ -676,9 +697,18 @@ export function createMineru4Extractor(
 				// size the task declares is the file's, so a photo's decode happens here
 				// (after the capability read and the tier decision, and before the task).
 				const opened = await openFile();
-				// What the task declares is what the file is NOW, not what the ledger
-				// remembers: after a refused upload, a fresh stat and a fresh digest.
-				if (rehash) sha256 = await client.sha256(opened.filePathAbsolute);
+				// A task created now is declared with the digest of the bytes it will be
+				// sent, and never with one a handle carries: that names the bytes of a task
+				// that is gone, and they may not be these (a photo's PNG is not the one the
+				// previous release made). Step 3 already took the file's digest when the
+				// attempt began without a handle's; otherwise it is taken now, the ledger's
+				// if it holds one. What the task declares is what the file is NOW, not what
+				// the ledger remembers: after a refused upload, a fresh stat and a fresh
+				// digest of the file itself.
+				if (rehash || !digestIsOfTheFile) {
+					sha256 = await digestOfFile(opened, !rehash);
+					digestIsOfTheFile = true;
+				}
 				const { size } = await client.statFile(opened.filePathAbsolute);
 				if (size <= 0) {
 					// A task of zero bytes is a 400 (D22), and the server's refusal would

@@ -288,3 +288,9 @@ After the independent review of the finished branch (one commit each):
   its size, as a malformed one does. A real photo has dozens. The walk had no bound but the file's: a 100 MB upload whose
   `ipco` held 12.5 million empty boxes cost the main thread about 0.8 s and about 1.1 GB of heap per call (measured). The
   reader now allocates nothing per box and refuses that file in under a millisecond.
+- D8 holds for continuing a live task, and only for that: a MinerU task created fresh declares the digest of the bytes it
+  will send (the ledger's when the opened file has a valid one, else the file hashed), never one carried over from a resumed
+  handle. The case D8 left open: a handle stored by the previous release names that release's PNG, and when MinerU had
+  forgotten the task as well, the new one was declared with the old digest, refused at the PUT (`file_hash_mismatch`), and
+  the attempt spent its one recovery and failed as `protocol` (the last bullet above holds for a task MinerU still has). A
+  stored file with a ledger digest is still not hashed, and the attempt still opens its file once.

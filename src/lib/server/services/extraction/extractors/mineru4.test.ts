@@ -7,6 +7,7 @@
 // what it does when the server forgets, changes its mind or is not the server
 // it was expected to be.
 
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -2462,6 +2463,89 @@ describe("resuming a stored handle (a worker died; the ledger holds a task id)",
 
 		expect(openFile).toHaveBeenCalledTimes(1);
 		expect(createBody().files[0].sha256sum).toBe(sha);
+	});
+
+	// A handle's digest is for continuing the live task it names, and for nothing
+	// else. A task created fresh declares the digest of the bytes it is about to
+	// send, which is what a deploy that changed those bytes needs: a photo's PNG is
+	// not the one the previous release made, so the handle that release stored
+	// names bytes this one never sends. If MinerU has forgotten the task as well
+	// (a restart, an expiry), declaring the handle's digest would be refused at the
+	// PUT, once the one recovery of the attempt was spent.
+	describe("a task created again after the server forgot the one a handle names", () => {
+		const PREVIOUS_RELEASES_DIGEST = createHash("sha256")
+			.update("the PNG the previous release made of this photo")
+			.digest("hex");
+
+		/**
+		 * A handle to a task the server no longer has, whose digest is that of other
+		 * bytes than the ones the file holds now.
+		 */
+		async function handleToAForgottenTaskOfOtherBytes(): Promise<ExtractionHandle> {
+			await start({ neverFinish: true });
+			const { request } = await buildRequest();
+			const handle = await handleOfAnAttemptStoppedAt("parsing", request);
+			server.restart();
+			server.setOptions({ neverFinish: false });
+			server.resetLog();
+			return {
+				...handle,
+				data: { ...handle.data, sha256: PREVIOUS_RELEASES_DIGEST },
+			};
+		}
+
+		it("declares the digest of the file it sends, and succeeds in one go", async () => {
+			const handle = await handleToAForgottenTaskOfOtherBytes();
+			const resumed = await buildRequest();
+			const actual = createHash("sha256")
+				.update(await readFile(resumed.file.filePathAbsolute))
+				.digest("hex");
+			expect(actual).not.toBe(PREVIOUS_RELEASES_DIGEST);
+
+			const result = await extractorFor().extract({
+				...resumed.request,
+				resumeHandle: handle,
+			});
+
+			expect(result.text.length).toBeGreaterThan(0);
+			// The poll of the old task found nothing; the one task created after it
+			// was declared right, so its PUT landed and nothing was created twice.
+			expect(createBody().files[0].sha256sum).toBe(actual);
+			expect(creates()).toHaveLength(1);
+			expect(uploads()).toHaveLength(1);
+			// One ask for the file, whichever steps needed it.
+			expect(resumed.openFile).toHaveBeenCalledTimes(1);
+			// The handle the ledger ends up holding names the new task and its digest.
+			const kept = resumed.progress.filter((entry) => entry.handle).at(-1);
+			expect(kept?.handle?.remoteJobId).not.toBe(handle.remoteJobId);
+			expect(kept?.handle?.data?.sha256).toBe(actual);
+		});
+
+		it("takes the ledger's digest of a stored file when it holds one, and hashes nothing", async () => {
+			const handle = await handleToAForgottenTaskOfOtherBytes();
+			const resumed = await buildRequest();
+			const resolved = config(server.baseUrl);
+			const client = new MineruClient({ config: resolved });
+			const ledgers = await client.sha256(resumed.file.filePathAbsolute);
+			const hash = vi.spyOn(client, "sha256");
+
+			const result = await createMineru4Extractor({
+				resolveConfig: () => resolved,
+				createClient: () => client,
+				tempDirRoot: tempRoot,
+			}).extract({
+				...openingAs(resumed.request, resumed.file, {
+					contentSha256: ledgers,
+				}),
+				resumeHandle: handle,
+			});
+
+			expect(result.text.length).toBeGreaterThan(0);
+			expect(hash).not.toHaveBeenCalled();
+			expect(createBody().files[0].sha256sum).toBe(ledgers);
+			expect(creates()).toHaveLength(1);
+			expect(uploads()).toHaveLength(1);
+		});
 	});
 
 	it("reports a task that failed while nobody was watching, and spends it", async () => {
