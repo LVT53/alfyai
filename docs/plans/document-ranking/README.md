@@ -19,9 +19,10 @@ in the lab). A question in one language almost never found its answer in the oth
 the same documents), and a paraphrase lost to any document that shared a few everyday words with the question. On staging, with documents
 hours old, the embedder alone put the right one first in 84 to 94% of the probe's queries and the app's order in 36%.
 
-A second, smaller age factor sits downstream of it (below, "The second age factor"). Two more things sit next to it and were left alone:
-`working-set.ts` calls the same function with an age in seconds, and for a non-empty query the candidates are the 120 most recently
-updated documents (`SEMANTIC_ARTIFACT_CANDIDATE_LIMIT`), so an older document is never in the running.
+A second, smaller age factor sits downstream of it (below, "The second age factor"). Two more things sit next to it:
+`working-set.ts` calls the same function with an age in seconds and was left alone, and for a non-empty query the candidates were the 120 most
+recently updated documents (`SEMANTIC_ARTIFACT_CANDIDATE_LIMIT`), so an older document was never in the running (below, "Which documents are in
+the running").
 
 ## What replaced it
 
@@ -95,6 +96,90 @@ Rank fusion in place of the weighted sum scored 87.9. A smaller weight on the wo
 94.4 and lost the exact-phrase sets (83.0 and 78.7 on those two). Doubling the reranker's cap to 16 added half a point (97.6 to 98.1) for
 twice the reranker's work; what it is handed mattered more than how many.
 
+## Which documents are in the running
+
+The order above is only as good as the documents it is given. `selectArtifactSearchCandidates` (`knowledge/store/documents.ts`) read the 120
+most recently updated documents and nothing else, so in a library of more than 120 an older document was never ranked, however well it answered
+and even when the question named it. Measured on public text only (`lab/candidates/`): Belebele and WebFAQ questions, each with the one passage or
+answer that answers it, a library of N documents with random ages in a real migrated SQLite file, 200 questions a library, each run through the
+app's own search with the candidate list read off.
+
+| library | questions with the right document among the 120 newest | cut off | 1 - 120/N |
+|---|---|---|---|
+| Belebele English, 400 documents | 30.5% | **69.5%** | 70.0% |
+| Belebele Hungarian, 400 | 30.5% | **69.5%** | 70.0% |
+| WebFAQ English, 400 | 28.5% | **71.5%** | 70.0% |
+| WebFAQ Hungarian, 400 | 30.5% | **69.5%** | 70.0% |
+| WebFAQ English, 1,500 | 6.5% | **93.5%** | 92.0% |
+| WebFAQ Hungarian, 1,500 | 5.5% | **94.5%** | 92.0% |
+
+With ages that do not depend on the question, the right document's place by age is uniform whatever the ages are, so the cut-off is 1 - 120/N:
+70% at 400 documents, 92% at 1,500. That is the worst case. If a share q of a person's questions is about the 120 newest documents, the cut-off is
+(1 - q)(1 - 120/N).
+
+**The word filter that used to exist does not fix it.** `selectArtifactSearchCandidates` once filtered by the query's words (`LIKE %word%` on
+the name, summary and text) and then took the 120 newest of what was left. It was skipped for every non-empty query ("prefer semantic breadth"),
+so it was dead code, and it would not have helped a question: a question shares a word with nearly every document, so the filter admits 77 to 97%
+of an English library and the 120 newest of that are almost the same 120 (33 to 40% found at 400 documents, 10% at 1,500). A Hungarian question is
+more selective, but the tokenizer cut every word at its accents (57.5% at 400, 21% at 1,500; 70% and 37.5% with whole words). Reading the text of
+every document and ranking by the app's own `scoreMatch` finds 64 to 84% (the 24 best plus the 120 newest), for 63 ms (400 documents) to 242 ms
+(1,500) just to read the texts. The word filter and its tokenizer are removed.
+
+**What replaced it.** When the library holds more than the 120, two small groups of older documents join them (`selectOlderArtifactCandidates`):
+
+1. The 24 whose stored vector is closest to the question, read from the newest 2,000 older documents. It needs the caller's query embedding (a
+   chat turn embeds the question once for every kind it searches), so a caller that did not embed it gets none. 24 is what the usual shortlist
+   takes, and no older document could rank higher than that in it.
+2. Up to 12 whose name or summary (the first lines of the text) hold every one of the question's longer words (letters and digits, three or
+   more, the six longest): "Hatvany lease 2019" among forty leases the embedder finds equally close, an id, a name. It works when the
+   question could not be embedded. It does not read the text.
+
+Both use the window's own visibility rules and then the ownership check, so incognito conversations, other people's documents, the turn's own
+conversation and other kinds stay out. A library that fits the window pays nothing.
+
+**How often the right document is then a candidate.** The vector group's recall is not measured at these library sizes (that takes the embedder
+on the box); it is estimated from the ranking lab's recorded signals: per query the real cosine of the Qwen3-Embedding-4B at 1024 dimensions for
+the right document and 119 others drawn from the same corpus. The share of others that out-score the right one estimates how many of N - 1
+would, and the Beta-binomial over that gives the chance of a place in the top 24 of the older documents (`lab/candidates/cosine-recall.py`;
+predicting the 120-document result from a random 30 of its 119 competitors gives 97.4% against 97.4% actual at K = 24, and 94.1% against 96.2% at
+K = 12, so if anything it is a little pessimistic):
+
+| set | 400 documents | 1,500 documents |
+|---|---|---|
+| A  Hungarian article <- its abstract | 99.7% | 92.9% |
+| B  English passage <- Hungarian question | 100% | 93.6% |
+| C  Hungarian passage <- English question | 100% | 94.4% |
+| D  Hungarian passage <- Hungarian question | 100% | 92.7% |
+| E  English passage <- English question | 99.0% | 94.0% |
+| H  WebFAQ Hungarian question -> answer | 100% | 95.2% |
+| W  WebFAQ English question -> answer | 100% | 95.4% |
+| P  Hungarian exact phrase (6 words) | 76.1% | 59.1% |
+| K  Hungarian 3 rare keywords | 69.7% | 49.7% |
+
+Of the older documents the right one is among the 24 closest. With the 120 newest (30% and 8% of the questions), the right document is a
+candidate for **99.9% (400 documents) and 94.5% (1,500) of the question-style sets** (A to H, W), against 30% and 8% before, and for 95.7% and
+86.4% of all nine. The ranking then does what the table above says it does with a pool of this size (99.2 mean MRR with 120). The two sets that
+fall short are the ones the embedder is weakest at (an exact phrase from the middle of a long article, a few rare words). Looking for **every
+word of the query in the full text** finds them (SQL, the newest 24 of the matches: 96.7% and 98.3% at 400 documents, 95.0% and 100% at 1,500,
+admitting 0.07 to 0.7% of the library), but it was left out: its cost grows with the size of the library's text and not with the number of
+documents (22 ms for 1,500 documents of 20 KB, 6 ms for 400; a person with longer documents pays proportionally more). It is the next step if
+phrases from the middle of old documents matter; the name-and-summary group does not find them.
+
+**What a search costs.** The vectors are stored as JSON text and compared in JavaScript, so the scan is dominated by `JSON.parse` (70%), then the
+SQL read (11%) and the cosines (6%). Whole search with a query embedding passed in, documents of 20 KB, 15 repetitions, on an Apple M4 Pro
+(`lab/candidates/cost.lab.ts`):
+
+| documents | window alone / before | after | the vector scan on its own |
+|---|---|---|---|
+| 120 | 26.5 ms | 26.5 ms | none |
+| 400 | 27.4 ms | 45.3 ms | 12.0 ms |
+| 1,500 | 36.4 ms | 113.6 ms | 60.6 ms |
+| 5,000 | 59.9 ms | 191.9 ms (2,000 scanned) | 237 ms if all 4,880 older ones were read |
+
+With the stored dimension at 2560 (no Matryoshka cut) the scan alone is 2.5 times that: 31.9 ms, 148.8 ms, 632 ms. The search is synchronous
+while it reads, so it holds the server's event loop for that long; the production machine may be slower than this one. A cache of the parsed vectors
+would take the steady state to about the cosine step alone (4 ms at 1,500 documents; 6 MB of `Float32Array`), at the price of a cache to keep right.
+
 ## What the numbers do not show
 
 - The pools are 119 unrelated documents of one corpus and one right answer. A real library has near-duplicates and several relevant
@@ -102,6 +187,15 @@ twice the reranker's work; what it is handed mattered more than how many.
 - The thresholds that read the signals themselves (topic shift under cosine 0.3, cross-conversation eligibility at 0.75 / 0.75 / 3 words)
   are untouched; their behaviour on the 4B embedder is in `docs/plans/embedding-reranker-eval/qwen3-test-2026-11-09.md` where that folder is kept.
 - The project boost (5) now acts on documents of any age, as written; before, it vanished after ten minutes. It was not retuned.
+- The candidate numbers: ages are random and unrelated to the question (the worst case); the vector group's recall at 400 and 1,500 documents is
+  an estimate from 119 competitors a query, not a run of the embedder on libraries of that size; the libraries are random public text, with no
+  near-duplicates; the cost is one Mac. The name-and-summary group has no recall measured, because the public sets have no names; its
+  unit tests (`documents.older-candidates.test.ts`) show what it does and does not admit.
+- A document that is a candidate only because of its name still needs a place in the cosine shortlist (the top 24) to earn the embedder's
+  18 points: outside it the cosine counts as 0 however high it is, which can leave a document the question names behind documents whose
+  cosines are all high. That cliff is in the ranking, not in the candidates, and was not touched.
+- `matchTerms` (`working-set.ts`) keeps the punctuation a word is written with, so the last word of a question ("... 2019?") never matches a
+  document that has it without the question mark. It lowers every question's lexical score by a word; it was not touched either.
 
 ## Verification
 
@@ -114,9 +208,22 @@ bonus from two words) each fail the test meant to catch them.
 The arithmetic in `document-ranking.ts`, run in TypeScript over the lab's recorded signals, reproduces the table above to the digit.
 `context.test.ts` ("orders documents that belong to no conversation by relevance...") failed on the old penalty and fails again when the
 penalty is put back on them.
+`documents.older-candidates.test.ts` runs the real search over a real migrated SQLite file with real stored vectors in a three-dimensional
+space (the embedder and the reranker are the only things replaced; the vector store is the real one, watched to count what a search reads). Eleven
+of its twelve fail on the old candidate pass; the twelfth pins what must not change (older documents with no vectors yet leave the answer to the
+newest), and one of the eleven also pins that a library that fits the window reads no extra vectors. Ten deliberate breakages of the new code (no ownership check, no cap, the newest of
+the older ones instead of the closest, some word instead of every word, no query embedding handed on, ASCII-only words, no lowercase, summary
+ignored, group switched off, no limit on the named group) each fail the test meant to catch them.
 
 ## Reproduce
 
     python -I lab/prep.py <raw-datasets> <data-dir>
     TEI_API_KEY_<port>=... python -I lab/rank-lab-features.py <data-dir> rank-lab-features.json   # needs the embedders and the reranker
     python -I lab/rank-lab-eval.py rank-lab-features.json final        # also: round2, holdout, grid
+
+The candidate labs (public text only, the real search over a real SQLite file; `LAB_DATA` is `prep.py`'s output, `LAB_OUT` an empty directory):
+
+    LAB_DATA=<data-dir> LAB_OUT=<out> npx vitest run -c docs/plans/document-ranking/lab/candidates/vitest.config.ts cutoff     # how often the window cuts the right document off
+    LAB_DATA=<data-dir> LAB_OUT=<out> npx vitest run -c docs/plans/document-ranking/lab/candidates/vitest.config.ts keywords   # phrases and rare words
+    LAB_DATA=<data-dir> LAB_OUT=<out> npx vitest run -c docs/plans/document-ranking/lab/candidates/vitest.config.ts cost       # what a search and the vector scan cost
+    python -I lab/candidates/cosine-recall.py rank-lab-features.json                                                          # recall of the closest-by-vector group

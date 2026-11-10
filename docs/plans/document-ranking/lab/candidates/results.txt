@@ -1,0 +1,101 @@
+CANDIDATE LABS, 2026-11-10. Public text only (LAB_DATA = prep.py's output). Apple M4 Pro, Node 22.
+Commands: README.md, 'Reproduce'. Each block is the lab's own output.
+
+=== cutoff: how often is the right document among the 120 newest? (the real search, 200 questions a library, ages 1-60 days at random)
+    (the 'real pass, no embedding' column is the window plus the name group; the public sets have no names, so it equals the window)
+set        N     queries  newest 120 (SQL)  expected(1-120/N)  real pass, no embedding  LIKE-any,ASCII,recency  LIKE-any,Unicode,recency  LIKE admits (mean share of library)  lexical top24 + newest120  lexical top24 alone
+belebele-eng    400      200         30.5%               30.0%               30.5%                 33.0%                   33.0%                           96.6%                   73.5%               67.5%
+belebele-hun    400      200         30.5%               30.0%               30.5%                 33.0%                   38.5%                           76.4%                   70.0%               63.5%
+webfaq-eng      400      200         28.5%               30.0%               28.5%                 39.5%                   39.5%                           82.0%                   83.5%               80.0%
+webfaq-eng     1500      200          6.5%                8.0%                6.5%                 10.0%                   10.0%                           77.7%                   76.0%               74.0%
+webfaq-hun      400      200         30.5%               30.0%               30.5%                 57.5%                   70.0%                           37.6%                   80.0%               73.5%
+webfaq-hun     1500      200          5.5%                8.0%                5.5%                 21.0%                   37.5%                           42.1%                   64.5%               63.0%
+
+=== keywords: exact phrase (P) and 3 rare words (K) against Hungarian news articles (HunSum), 60 queries each
+    (LIKE-ALL = a SQL scan of the full text for every longer word: measured, NOT shipped; its cost grows with the library's text)
+kind       N   queries  newest 120 (SQL)  real pass, no embedding  LIKE-any,Unicode,recency  LIKE-ALL words (SQL), newest 24 of the matches  ... share of library it admits  lexical top24 (scoreMatch, whole library)
+P phrase     400      60           38.3%               38.3%                   78.3%                                     96.7%                       0.25%                          100.0%
+K 3 rare     400      60           33.3%               33.3%                   95.0%                                     98.3%                       0.70%                          100.0%
+P phrase    1500      60            6.7%                6.7%                   30.0%                                     95.0%                       0.07%                          100.0%
+K 3 rare    1500      57            1.8%                1.8%                   86.0%                                    100.0%                       0.07%                          100.0%
+
+=== cost AFTER the change: whole search and the vector scan by itself (ms, median of 15; documents of 20 KB; vectors as the app stores them)
+dims    N   whole search | vector scan alone: ids  read(SQL)  JSON.parse  cosine+sort  TOTAL(app code) | vector scan as a share of the search | AND-LIKE rare words (SQL)  full-text scan in JS
+1024     120     26.5  |      0.1      0.0      0.0      0.0      0.0 (p95 0.0)  |  0%  |      1.8     18.7
+1024     400     45.3  |      0.2      1.0      8.5      0.9     12.0 (p95 12.7)  |  26%  |      5.9     62.7
+1024    1500    113.6  |      0.5      6.7     43.9      3.8     60.6 (p95 64.7)  |  53%  |     22.5    242.1
+1024    5000    191.9  |      2.9     30.3    165.1     13.0    237.4 (p95 268.4)  |  124%  |     76.8    840.1
+2560     120     39.0  |      1.4      0.0      0.0      0.0      0.0 (p95 0.0)  |  0%  |      1.8     20.8
+2560     400     76.2  |      2.1      2.1     24.4      2.2     31.9 (p95 34.5)  |  42%  |      6.3     69.3
+2560    1500    211.7  |      1.7     14.4    114.7      8.2    148.8 (p95 166.4)  |  70%  |     23.0    251.5
+2560    5000    354.0  |      4.3     73.4    443.6     32.7    632.1 (p95 731.6)  |  179%  |     77.3    894.8
+
+=== cost BEFORE the change (same lab and machine, run on the old candidate pass; 'today's search' = the 120 newest only; the other columns are the scan the change adds)
+dims    N   today's search | older scan: ids  read(SQL)  JSON.parse  cosine+sort  TOTAL(app code) | per-search extra | AND-LIKE rare words (SQL)  full-text scan in JS
+1024     400     27.4  |      0.2      1.0      8.4      0.5     12.2 (p95 15.0)  |  +12 ms (44% on top of today's)  |      5.8     63.2
+1024    1500     36.4  |      0.5      7.0     42.6      3.3     60.3 (p95 65.3)  |  +60 ms (166% on top of today's)  |     21.9    238.1
+1024    5000     59.9  |      1.7     30.8    159.3     12.9    234.6 (p95 284.3)  |  +235 ms (392% on top of today's)  |     75.2    841.0
+2560     400     35.5  |      1.5      2.4     23.7      1.7     29.9 (p95 33.8)  |  +30 ms (84% on top of today's)  |      6.2     64.1
+2560    1500     46.7  |      1.8     14.6    113.5      7.5    146.5 (p95 156.7)  |  +147 ms (314% on top of today's)  |     22.4    241.4
+2560    5000     75.8  |      3.1     66.3    427.8     30.9    585.8 (p95 646.1)  |  +586 ms (773% on top of today's)  |     76.7    850.4
+
+=== cosine-recall.py on the ranking lab's recorded signals (rank-lab-features.json)
+
+=== Qwen3-Embedding-4B, 1024-d (production): P(right document is in the top K by cosine among the library's OLDER documents)
+    (the 120 newest are candidates already; n = N - 121 other older documents compete)
+set                                  N=400/K=12   N=400/K=24   N=400/K=48  N=1500/K=12  N=1500/K=24  N=1500/K=48
+A  hu news <- hu abstract                 98.3%        99.7%       100.0%        80.9%        92.9%        98.0%
+P  hu exact phrase (6 words)              69.0%        76.1%        82.0%        48.6%        59.1%        67.1%
+K  hu 3 rare keywords                     61.3%        69.7%        80.0%        39.2%        49.7%        59.3%
+B  en passage <- hu question              99.3%       100.0%       100.0%        80.9%        93.6%        99.1%
+C  hu passage <- en question              99.4%       100.0%       100.0%        82.6%        94.4%        99.2%
+D  hu passage <- hu question              99.0%       100.0%       100.0%        80.0%        92.7%        98.6%
+E  en passage <- en question              98.6%        99.0%        99.0%        82.2%        94.0%        98.5%
+H  webfaq hu question -> answer           99.6%       100.0%       100.0%        83.4%        95.2%        99.5%
+W  webfaq en question -> answer           99.6%       100.0%       100.0%        83.8%        95.4%        99.5%
+MEAN of the nine sets                     91.6%        93.8%        95.7%        73.5%        85.2%        91.0%
+
+  Right document among the candidates (newest 120 + K older by cosine), mean of the nine sets:
+    N= 400 K=12:  94.1%  (today: 30.0%)
+    N= 400 K=24:  95.7%  (today: 30.0%)
+    N= 400 K=48:  97.0%  (today: 30.0%)
+    N=1500 K=12:  75.6%  (today:  8.0%)
+    N=1500 K=24:  86.4%  (today:  8.0%)
+    N=1500 K=48:  91.7%  (today:  8.0%)
+
+=== old 0.6B: P(right document is in the top K by cosine among the library's OLDER documents)
+    (the 120 newest are candidates already; n = N - 121 other older documents compete)
+set                                  N=400/K=12   N=400/K=24   N=400/K=48  N=1500/K=12  N=1500/K=24  N=1500/K=48
+A  hu news <- hu abstract                 96.5%        98.8%        99.9%        78.6%        90.5%        95.9%
+P  hu exact phrase (6 words)              57.7%        66.8%        78.3%        37.4%        46.6%        55.4%
+K  hu 3 rare keywords                     51.4%        63.0%        74.8%        30.5%        38.9%        48.6%
+B  en passage <- hu question              91.9%        97.2%        99.2%        67.7%        80.9%        90.4%
+C  hu passage <- en question              96.2%        98.3%        99.7%        77.0%        89.3%        95.5%
+D  hu passage <- hu question              96.6%        98.8%        99.0%        75.6%        88.5%        95.8%
+E  en passage <- en question              98.4%        99.0%        99.1%        82.2%        93.7%        98.2%
+H  webfaq hu question -> answer           97.3%        98.8%        99.0%        78.6%        91.1%        96.8%
+W  webfaq en question -> answer           99.6%       100.0%       100.0%        83.8%        95.4%        99.5%
+MEAN of the nine sets                     87.3%        91.2%        94.3%        67.9%        79.4%        86.2%
+
+  Right document among the candidates (newest 120 + K older by cosine), mean of the nine sets:
+    N= 400 K=12:  91.1%  (today: 30.0%)
+    N= 400 K=24:  93.8%  (today: 30.0%)
+    N= 400 K=48:  96.0%  (today: 30.0%)
+    N=1500 K=12:  70.5%  (today:  8.0%)
+    N=1500 K=24:  81.1%  (today:  8.0%)
+    N=1500 K=48:  87.3%  (today:  8.0%)
+
+=== Check of the method: predict P(rank<=K) among 119 competitors from a random 30 of them
+  s4 K=12: actual  96.2%   predicted from 30 competitors  94.1%
+  s4 K=24: actual  97.4%   predicted from 30 competitors  97.4%
+
+=== Raw ranks inside the lab's 120-document pools (no extrapolation), 4B
+  A  hu news <- hu abstract           top1  95.0%  top12 100.0%  top24 100.0%  top48 100.0%
+  P  hu exact phrase (6 words)        top1  51.7%  top12  78.3%  top24  83.3%  top48  96.7%
+  K  hu 3 rare keywords               top1  40.0%  top12  71.7%  top24  83.3%  top48  95.0%
+  B  en passage <- hu question        top1  94.0%  top12 100.0%  top24 100.0%  top48 100.0%
+  C  hu passage <- en question        top1  98.0%  top12 100.0%  top24 100.0%  top48 100.0%
+  D  hu passage <- hu question        top1  93.0%  top12 100.0%  top24 100.0%  top48 100.0%
+  E  en passage <- en question        top1  97.0%  top12  99.0%  top24  99.0%  top48 100.0%
+  H  webfaq hu question -> answer     top1  99.0%  top12 100.0%  top24 100.0%  top48 100.0%
+  W  webfaq en question -> answer     top1 100.0%  top12 100.0%  top24 100.0%  top48 100.0%
