@@ -2457,6 +2457,51 @@ describe("streamChat", () => {
 		);
 	});
 
+	it.each([
+		false,
+		true,
+	])("explicit stop after passive detach cancels the exact observed stream once (failure=%s)", async (failure) => {
+		let rejectObserver!: (reason: Error) => void;
+		const observer = new Promise<Response>((_resolve, reject) => {
+			rejectObserver = reject;
+		});
+		vi.mocked(fetch).mockImplementation((url) =>
+			String(url) === "/api/chat/stream/stop"
+				? failure
+					? Promise.reject(new TypeError("offline"))
+					: Promise.resolve(new Response("{}"))
+				: observer,
+		);
+		const callbacks = makeCallbacks();
+		const handle = streamChat("A", "conv-1", callbacks, {
+			reconnectToStreamId: "exact-observed-stream",
+		});
+		handle.detach();
+		rejectObserver(new DOMException("detached", "AbortError"));
+		await observer.catch(() => undefined);
+		await flushMicrotasks();
+		expect(fetch).toHaveBeenCalledTimes(1);
+		handle.stop();
+		handle.stop();
+		await flushMicrotasks();
+		expect(
+			vi
+				.mocked(fetch)
+				.mock.calls.filter(([url]) => String(url) === "/api/chat/stream/stop"),
+		).toEqual([
+			[
+				"/api/chat/stream/stop",
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ streamId: "exact-observed-stream" }),
+				},
+			],
+		]);
+		expect(callbacks.onEnd).not.toHaveBeenCalled();
+		expect(callbacks.onError).not.toHaveBeenCalled();
+	});
+
 	it("detach() aborts the local stream without requesting a server stop or emitting stop metadata", async () => {
 		const mockFetch = vi.mocked(fetch);
 

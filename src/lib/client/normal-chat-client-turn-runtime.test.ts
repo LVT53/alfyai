@@ -4077,6 +4077,112 @@ describe("Normal Chat Client Turn Runtime", () => {
 		vi.useRealTimers();
 	});
 
+	it("keeps typed pending observation active and stoppable through the runtime state seam", async () => {
+		vi.useFakeTimers();
+		const made = makeAdapters({
+			schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		await runtime.reconnectToOrphanedStream("pending-live", "A");
+		const observer = made.streamInvocations[0];
+		observer.callbacks.onWaiting?.({
+			version: 1,
+			state: "pending",
+			streamId: "pending-live",
+			conversationId: "conv-1",
+			turnId: "t",
+			segmentId: "s",
+		});
+		expect(observer.handle.detach).toHaveBeenCalledOnce();
+		expect(observer.handle.stop).not.toHaveBeenCalled();
+		expect.soft(runtime.snapshot()).toMatchObject({
+			active: true,
+			canStop: true,
+			phase: "polling",
+			isSending: true,
+		});
+		runtime.stop();
+		runtime.stop();
+		await vi.advanceTimersByTimeAsync(4000);
+		expect(observer.handle.stop).toHaveBeenCalledOnce();
+		expect(runtime.snapshot()).toMatchObject({
+			active: false,
+			canStop: false,
+			isSending: false,
+		});
+		expect(made.streamInvocations).toHaveLength(1);
+		vi.useRealTimers();
+	});
+
+	it("keeps cancellation owned while the next observation request is in flight", async () => {
+		vi.useFakeTimers();
+		const made = makeAdapters({
+			schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		await runtime.reconnectToOrphanedStream("pending-live", "A");
+		const first = made.streamInvocations[0];
+		first.callbacks.onWaiting?.({
+			version: 1,
+			state: "pending",
+			streamId: "pending-live",
+			conversationId: "conv-1",
+			turnId: "t",
+			segmentId: "s",
+		});
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(made.streamInvocations).toHaveLength(2);
+		expect
+			.soft(runtime.snapshot())
+			.toMatchObject({ active: true, canStop: true, phase: "polling" });
+		expect(runtime.stop()).toBe(true);
+		expect(first.handle.stop).not.toHaveBeenCalled();
+		expect(made.streamInvocations[1].handle.stop).toHaveBeenCalledOnce();
+		await vi.advanceTimersByTimeAsync(4000);
+		expect(made.streamInvocations).toHaveLength(2);
+		vi.useRealTimers();
+	});
+
+	it("drops stale pending cancellation ownership on reset and Stop targets only B", async () => {
+		vi.useFakeTimers();
+		const made = makeAdapters({
+			schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		await runtime.reconnectToOrphanedStream("pending-A", "A");
+		const a = made.streamInvocations[0];
+		a.callbacks.onWaiting?.({
+			version: 1,
+			state: "pending",
+			streamId: "pending-A",
+			conversationId: "conv-1",
+			turnId: "t",
+			segmentId: "s",
+		});
+		runtime.reset();
+		await runtime.send({
+			message: "B",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		const b = made.streamInvocations[1];
+		a.callbacks.onWaiting?.({
+			version: 1,
+			state: "pending",
+			streamId: "pending-A",
+			conversationId: "conv-1",
+			turnId: "t",
+			segmentId: "s",
+		});
+		runtime.stop();
+		await vi.advanceTimersByTimeAsync(4000);
+		expect(a.handle.stop).not.toHaveBeenCalled();
+		expect(b.handle.stop).toHaveBeenCalledOnce();
+		expect(made.streamInvocations).toHaveLength(2);
+		vi.useRealTimers();
+	});
+
 	it("settles a real abandoned ledger through observer wire, browser decoder and client runtime", async () => {
 		const { createHash } = await import("node:crypto");
 		const { db } = await import("$lib/server/db");

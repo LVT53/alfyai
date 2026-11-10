@@ -3070,6 +3070,28 @@ describe("chat page runtime integration", () => {
 		});
 	});
 
+	it("keeps composer Stop available for typed pending observation and forwards it to its owner", async () => {
+		runtimeHarness.orphanedStreamId = "pending-live";
+		renderPage();
+		await waitFor(() =>
+			expect(runtimeHarness.streamInvocations).toHaveLength(1),
+		);
+		const observer = runtimeHarness.streamInvocations[0];
+		expect(observer.options?.reconnectToStreamId).toBe("pending-live");
+		observer.callbacks.onWaiting?.({
+			version: 1,
+			state: "pending",
+			streamId: "pending-live",
+			conversationId: "conv-1",
+			turnId: "t",
+			segmentId: "s",
+		});
+		await tick();
+		expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+		expect(observer.handle?.stop).toHaveBeenCalledOnce();
+	});
+
 	it("hides Stop while polling after the stream closes for recovery", async () => {
 		let resolveDetail: (
 			value:

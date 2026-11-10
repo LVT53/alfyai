@@ -1270,12 +1270,12 @@ export function streamChat(
 
 	return {
 		stop() {
-			if (stopRequested || detached) {
-				return;
-			}
+			if (stopRequested) return;
 			stopRequested = true;
-			markTimingPhase(BROWSER_STREAM_TIMING_MARKS.STOP);
+			// Passive detach ends observation, not ownership of upstream cancellation.
 			void requestServerSideStreamStop(streamId);
+			if (detached) return;
+			markTimingPhase(BROWSER_STREAM_TIMING_MARKS.STOP);
 			controller.abort();
 		},
 		detach() {

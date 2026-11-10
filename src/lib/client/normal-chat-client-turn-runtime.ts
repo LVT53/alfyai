@@ -112,6 +112,7 @@ export type NormalChatSendPayload = {
 export type NormalChatRuntimeSnapshot = {
 	phase: NormalChatRuntimePhase;
 	active: boolean;
+	canStop: boolean;
 	isSending: boolean;
 	isPollingForCompletion: boolean;
 	streamInterruptedByBackground: boolean;
@@ -686,6 +687,12 @@ export function createNormalChatClientTurnRuntime(
 		return {
 			phase,
 			active: Boolean(activeStream) || cutReplyQuestion !== null,
+			canStop:
+				!detached &&
+				(canStopActiveStream() ||
+					Boolean(pendingObservation && activeStream) ||
+					Boolean(updateWait && !updateWait.detached) ||
+					cutReplyQuestion !== null),
 			isSending,
 			isPollingForCompletion,
 			streamInterruptedByBackground,
@@ -1974,6 +1981,8 @@ export function createNormalChatClientTurnRuntime(
 		const commitReplacement = () => {
 			if (!ownsStream() || !replacementPending || !pendingOutput) return;
 			replacementPending = false;
+			pendingObservation = null;
+			setPhase("generating", params.placeholderId);
 			adapters.applyMessageListEvent({
 				type: "applyNormalChatOutput",
 				placeholderId: params.placeholderId,
@@ -2110,9 +2119,10 @@ export function createNormalChatClientTurnRuntime(
 					observation.state === "pending"
 				) {
 					activeStream?.detach();
-					setActiveStream(null);
-					setPhase("polling", params.placeholderId);
+					// Retain the exact handle's upstream cancellation capability while
+					// its downstream observation is detached, including recheck gaps.
 					pendingObservation = params;
+					setPhase("polling", params.placeholderId);
 					const epoch = turnEpoch;
 					adapters.schedule(() => {
 						if (
@@ -2121,7 +2131,6 @@ export function createNormalChatClientTurnRuntime(
 							pendingObservation !== params
 						)
 							return;
-						pendingObservation = null;
 						if ((params.observationRetryCount ?? 0) >= 60) {
 							void settleObservation(params, {
 								version: 1,
@@ -3348,6 +3357,7 @@ export function createNormalChatClientTurnRuntime(
 		turnEpoch++;
 		if (pendingObservation) {
 			const pending = pendingObservation;
+			activeStream?.stop();
 			adapters.applyMessageListEvent({
 				type: "finalize",
 				placeholderId: pending.placeholderId,

@@ -490,13 +490,7 @@ let normalChatRuntimePhase = $state<NormalChatRuntimePhase>("idle");
 // retry() before this existed), and the page must not offer one it knows
 // will be refused.
 let normalChatRuntimeCanRetry = $state(false);
-let normalChatRuntimeCanStop = $derived(
-	(normalChatRuntimeActive &&
-		(normalChatRuntimePhase === "preparing" ||
-			normalChatRuntimePhase === "generating")) ||
-		// A turn that waits for an update has no stream, and Stop ends the wait.
-		normalChatRuntimePhase === "awaiting_update",
-);
+let normalChatRuntimeCanStop = $state(false);
 let queuedTurn = $state<SendPayload | null>(null);
 // Pictures waiting in the composer (plan 2b T5): a card's, a strip frame's or a
 // History version's Attach puts one here; the composer numbers them with the
@@ -1029,6 +1023,7 @@ function applyNormalChatRuntimeSnapshot(snapshot: NormalChatRuntimeSnapshot) {
 	normalChatRuntimeActive = snapshot.active;
 	normalChatRuntimePhase = snapshot.phase;
 	normalChatRuntimeCanRetry = snapshot.canRetry;
+	normalChatRuntimeCanStop = snapshot.canStop;
 	isSending = snapshot.isSending;
 	queuedTurn = snapshot.queuedTurn;
 }
