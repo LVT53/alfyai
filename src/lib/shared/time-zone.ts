@@ -142,7 +142,7 @@ export function shouldSaveDetectedTimeZone(input: {
  * the browser sees (see `timeZoneChoices`), so nobody is ever shown a row that
  * cannot name their own zone.
  */
-export const COMMON_TIME_ZONES: readonly string[] = [
+const COMMON_TIME_ZONES: readonly string[] = [
 	"America/Chicago",
 	"America/Los_Angeles",
 	"America/New_York",
