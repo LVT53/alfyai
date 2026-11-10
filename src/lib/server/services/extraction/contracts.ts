@@ -215,6 +215,10 @@ const EXTRACTION_ERROR_MESSAGES: Partial<Record<ExtractionErrorCode, string>> =
 		tier_unavailable:
 			"The document service does not offer the requested quality tier. Ask an administrator to check the tier setting.",
 		too_large: "This file is too large for the document service to read.",
+		// The limit is the decoder's (`HEIF_MAX_PIXELS`, 100 million pixels), and a test
+		// holds the number in this sentence and in the Library row's to it.
+		image_too_large:
+			"This photo is larger than 100 megapixels, so it could not be read. Save a smaller copy and upload that.",
 		canceled: "Extraction was canceled.",
 	};
 

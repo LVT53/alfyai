@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import knowledgeDict from "$lib/i18n/knowledge";
+import { HEIF_MAX_PIXELS } from "$lib/server/services/vision/heif-decode";
 import {
 	abortDiscardsRemoteWork,
 	DocumentExtractionError,
@@ -169,6 +171,7 @@ describe("extractionErrorMessage", () => {
 		"protocol",
 		"tier_unavailable",
 		"too_large",
+		"image_too_large",
 		"canceled",
 		"unavailable",
 		"timeout",
@@ -183,6 +186,40 @@ describe("extractionErrorMessage", () => {
 		expect(message).not.toContain("PDFium");
 		expect(message).not.toContain("pydantic");
 		expect(message.length).toBeGreaterThan(10);
+	});
+
+	// The sentence a person is shown when a photo has more pixels than the decoder
+	// takes. It names the limit, and the limit is the decoder's (`HEIF_MAX_PIXELS`),
+	// so a changed constant that leaves a sentence behind fails here.
+	describe("for a photo over the pixel limit", () => {
+		const ledger = extractionErrorMessage("image_too_large", BACKEND_WORDS);
+		const libraryEn =
+			knowledgeDict.en["knowledge.extraction.error.image_too_large"];
+		const libraryHu =
+			knowledgeDict.hu["knowledge.extraction.error.image_too_large"];
+
+		it("is the ledger sentence, whatever the decoder said", () => {
+			expect(ledger).toBe(
+				"This photo is larger than 100 megapixels, so it could not be read. Save a smaller copy and upload that.",
+			);
+		});
+
+		it("is the Library row's sentence, in English and in Hungarian", () => {
+			expect(libraryEn).toBe(
+				"This photo is larger than 100 megapixels, so it could not be read. Save a smaller copy and upload that.",
+			);
+			expect(libraryHu).toBe(
+				"Ez a fotó nagyobb 100 megapixelnél, ezért nem sikerült beolvasni. Ments el belőle egy kisebb példányt, és azt töltsd fel.",
+			);
+		});
+
+		it("names the decoder's limit in every sentence that names one", () => {
+			for (const sentence of [ledger, libraryEn, libraryHu]) {
+				const named = /(\d+) megapixel/.exec(sentence);
+				expect(named, sentence).not.toBeNull();
+				expect(Number(named?.[1]) * 1_000_000, sentence).toBe(HEIF_MAX_PIXELS);
+			}
+		});
 	});
 
 	it("keeps the caller's text for the one code that composes its own", () => {

@@ -130,6 +130,9 @@ const knowledgeDict = {
 		// An image the reader found no text in: a fact about the picture, not a
 		// failed read (see documents-table.ts's isImageWithNoText).
 		"knowledge.extraction.error.imageNoText": "This image has no text in it.",
+		// The number is the decoder's limit (`HEIF_MAX_PIXELS`); a test holds it to that.
+		"knowledge.extraction.error.image_too_large":
+			"This photo is larger than 100 megapixels, so it could not be read. Save a smaller copy and upload that.",
 		"knowledge.extraction.error.internal":
 			"Something went wrong while reading this document.",
 		"knowledge.extraction.error.job_failed":
@@ -649,6 +652,8 @@ const knowledgeDict = {
 		"knowledge.extraction.error.empty_result":
 			"Ebben a fájlban nem található olvasható szöveg.",
 		"knowledge.extraction.error.imageNoText": "Ezen a képen nincs szöveg.",
+		"knowledge.extraction.error.image_too_large":
+			"Ez a fotó nagyobb 100 megapixelnél, ezért nem sikerült beolvasni. Ments el belőle egy kisebb példányt, és azt töltsd fel.",
 		"knowledge.extraction.error.internal":
 			"Hiba történt a dokumentum feldolgozása közben.",
 		"knowledge.extraction.error.job_failed":
