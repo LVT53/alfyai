@@ -31,18 +31,29 @@ export interface RankedWorkingSetItem {
 	selected: boolean;
 }
 
-export function scoreMatch(query: string, haystack: string): number {
-	const terms = query
+/** The words of a query that `scoreMatch` looks for: three letters or more, a repeated word as often as it is written. */
+function matchTerms(query: string): string[] {
+	return query
 		.toLowerCase()
 		.split(/\s+/)
 		.map((term) => term.trim())
 		.filter((term) => term.length > 2);
+}
+
+/** How many of a query's words are found in `haystack`, each at most once. */
+export function scoreMatch(query: string, haystack: string): number {
+	const terms = matchTerms(query);
 	if (terms.length === 0) return 0;
 	const target = haystack.toLowerCase();
 	return terms.reduce(
 		(score, term) => score + (target.includes(term) ? 1 : 0),
 		0,
 	);
+}
+
+/** The most `scoreMatch` can return for `query`: what a score is a share of. */
+export function countMatchTerms(query: string): number {
+	return matchTerms(query).length;
 }
 
 function scoreCandidate(candidate: WorkingSetCandidate): RankedWorkingSetItem {

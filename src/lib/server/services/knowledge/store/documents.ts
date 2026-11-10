@@ -25,7 +25,6 @@ import {
 	type FileFamily,
 	getFileFamily,
 } from "$lib/shared/file-types";
-import { computeDecayScore } from "../../../utils/artifact-decay";
 import { shortlistSemanticMatchesBySubject } from "../../semantic-ranking";
 import {
 	determineTeiWinningMode,
@@ -34,7 +33,7 @@ import {
 	type TeiRerankDiagnostics,
 } from "../../tei-observability";
 import { canUseTeiReranker, rerankItems } from "../../tei-reranker";
-import { scoreMatch } from "../../working-set";
+import { countMatchTerms, scoreMatch } from "../../working-set";
 import type { ArtifactOwnershipScope } from "./core";
 import {
 	buildArtifactVisibilityCondition,
@@ -48,6 +47,7 @@ import {
 	getArtifactDocumentOrigin,
 	parseWorkingDocumentMetadata,
 } from "./document-metadata";
+import { scoreBeforeRerank, scoreRelevance } from "./document-ranking";
 import { resolveWorkingDocumentIdentity } from "./working-document-identity";
 
 const SEMANTIC_ARTIFACT_CANDIDATE_LIMIT = 120;
@@ -1476,9 +1476,10 @@ async function selectArtifactSearchCandidates(params: {
 /**
  * What a project link is worth at retrieval time: a nudge, not a pass.
  *
- * Small on purpose. One unit of `lexicalScore` is worth 10, so this breaks
- * ties in favour of the documents the user's own project holds without ever
- * rescuing one that does not match the query — the relevance gate below is
+ * Small on purpose. A document that holds every word of the query is worth 18
+ * and the reranker's full confidence 24 (`document-ranking.ts`), so this settles
+ * a close call in favour of the documents the user's own project holds without
+ * ever rescuing one that does not match the query — the relevance gate below is
  * what decides whether a candidate is in the running at all.
  */
 const PROJECT_SCOPE_SCORE_BOOST = 5;
@@ -1499,10 +1500,14 @@ async function rankArtifactMatches(params: {
 		return [];
 	}
 
+	const queryTermCount = countMatchTerms(params.query);
 	const lexicalMatches = params.candidates.map((artifact) => ({
 		artifact,
 		lexicalScore: scoreMatch(params.query, buildArtifactSearchBody(artifact)),
 	}));
+	const lexicalScoreById = new Map(
+		lexicalMatches.map((entry) => [entry.artifact.id, entry.lexicalScore]),
+	);
 	const lexicalTop = lexicalMatches
 		.filter((entry) => entry.lexicalScore > 0)
 		.sort((left, right) => {
@@ -1549,13 +1554,33 @@ async function rankArtifactMatches(params: {
 		shortlistedArtifacts.push(...params.candidates.slice(0, params.limit));
 	}
 
+	// The reranker scores only the first few documents it is handed
+	// (TEI_RERANKER_MAX_TEXTS), so they must be the likeliest ones. The shortlist
+	// lists the word hits first, which hands it whatever shares a few everyday words
+	// with the question and leaves the document that answers it, in other words or
+	// in another language, to be the thirteenth.
+	const likeliestFirst = shortlistedArtifacts
+		.map((artifact) => ({
+			artifact,
+			score: scoreBeforeRerank({
+				lexicalScore: lexicalScoreById.get(artifact.id) ?? 0,
+				queryTermCount,
+				semanticScore: semanticScoreById.get(artifact.id) ?? 0,
+			}),
+		}))
+		.sort((left, right) => {
+			if (right.score !== left.score) return right.score - left.score;
+			return right.artifact.updatedAt - left.artifact.updatedAt;
+		})
+		.map((entry) => entry.artifact);
+
 	let rerankScoreById = new Map<string, number>();
 	let rerankDiagnostics: TeiRerankDiagnostics | null = null;
 	if (canUseTeiReranker() && shortlistedArtifacts.length > 1) {
 		try {
 			const reranked = await rerankItems({
 				query: params.query,
-				items: shortlistedArtifacts,
+				items: likeliestFirst,
 				getText: (artifact) => buildArtifactSearchBody(artifact),
 				onDiagnostics: (diagnostics) => {
 					rerankDiagnostics = diagnostics;
@@ -1574,30 +1599,24 @@ async function rankArtifactMatches(params: {
 
 	const rankedMatches = shortlistedArtifacts
 		.map((artifact) => {
-			const lexicalScore =
-				lexicalMatches.find((entry) => entry.artifact.id === artifact.id)
-					?.lexicalScore ?? 0;
+			const lexicalScore = lexicalScoreById.get(artifact.id) ?? 0;
 			const semanticScore = semanticScoreById.get(artifact.id) ?? 0;
 			const rerankScore = rerankScoreById.get(artifact.id) ?? 0;
 			const scopeBoost = params.scopeBoostArtifactIds?.includes(artifact.id)
 				? PROJECT_SCOPE_SCORE_BOOST
 				: 0;
-			const baseScore =
-				lexicalScore * 10 +
-				semanticScore * 18 +
-				rerankScore * 24 +
+			// Only an order: callers sort by it, and the cross-conversation rule reads
+			// the three signals themselves. Recency is the last tie-break, a day moving
+			// the sum by less than a thousandth.
+			const finalScore =
+				scoreRelevance({
+					lexicalScore,
+					queryTermCount,
+					semanticScore,
+					rerankScore,
+				}) +
 				artifact.updatedAt / 1_000_000_000_000 +
 				scopeBoost;
-			const ageSeconds = Math.max(0, (Date.now() - artifact.updatedAt) / 1000);
-
-			const finalScore = computeDecayScore({
-				importance: baseScore,
-				ageSeconds,
-				staleSeconds: ageSeconds,
-				queryOverlap: lexicalScore,
-				queryLength: 1,
-				decayRate: 0.001,
-			});
 
 			return {
 				artifact,

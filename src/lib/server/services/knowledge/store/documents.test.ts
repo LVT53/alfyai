@@ -776,10 +776,8 @@ describe("knowledge documents store", () => {
 	 * older: without a tie-break the newer one wins, which is the setup the
 	 * project boost has to move — and, on an unrelated query, must not move.
 	 *
-	 * Both are injected as just-written, because the fusion score below the
-	 * boost is decayed by age: the boost sits on the same line as the lexical
-	 * and semantic terms, so it decides between documents retrieval considers
-	 * current, and an old fixture would test the decay instead of the boost.
+	 * Both are written just now: the second between them is all that separates
+	 * the two, so the boost has a tie to settle and nothing else decides.
 	 */
 	function pushProjectBoostRows() {
 		mockRows.push(

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { rankWorkingSetCandidates, scoreMatch } from "./working-set";
+import {
+	countMatchTerms,
+	rankWorkingSetCandidates,
+	scoreMatch,
+} from "./working-set";
 
 describe("working-set ranking", () => {
 	it("prioritizes newly attached documents and the current generated document", () => {
@@ -270,5 +274,21 @@ describe("scoreMatch term splitting", () => {
 
 	it("drops terms of two characters or fewer", () => {
 		expect(scoreMatch("is it in the pdf", "the pdf")).toBe(2);
+	});
+});
+
+describe("countMatchTerms", () => {
+	it("counts the terms scoreMatch looks for, a repeated word as often as it is written", () => {
+		expect(
+			countMatchTerms("notice period for ending the rental contract"),
+		).toBe(7);
+		expect(countMatchTerms("is it in the pdf")).toBe(2);
+		expect(countMatchTerms("launch launch plan")).toBe(3);
+		expect(countMatchTerms("  \t ")).toBe(0);
+	});
+
+	it("is the most scoreMatch can return for that query", () => {
+		const query = "lease renewal\tclause for the lease";
+		expect(scoreMatch(query, query)).toBe(countMatchTerms(query));
 	});
 });

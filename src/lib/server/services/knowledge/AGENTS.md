@@ -15,6 +15,7 @@ store.ts (facade — re-exports store/*)
   ├── store/core.ts         ← artifact CRUD, WORKING_SET_*_BUDGET constants
   ├── store/attachments.ts  ← upload → auto-rename → optional conversation link
   ├── store/documents.ts    ← normalized docs, semantic retrieval (Wave 5)
+  ├── store/document-ranking.ts ← the relevance sum a document search is ordered by (pure arithmetic)
   ├── store/cleanup.ts      ← cross-reference-aware deletion
   └── store/document-metadata.ts ← generated-document family metadata
 context.ts                ← working-set ranking, compaction, Working Document Selection integration
@@ -31,6 +32,7 @@ capsules.ts               ← work capsules, generated outputs (not lineage auth
 | Upload + prompt readiness | `store/attachments.ts` `saveUploadedArtifact()`, `resolvePromptAttachmentArtifacts()` |
 | Which unready attachments stop a send (a picture a model that can see is shown needs no text) | `store/attachments.ts` `blockingAttachmentItems()`, `assertPromptReadyAttachments({ exemptImages })`; rules in `../vision/AGENTS.md` |
 | Semantic document retrieval/search composition | `store/documents.ts` |
+| The order a document search returns: the weights, which documents the reranker is handed | `store/document-ranking.ts`, `rankArtifactMatches()` in `store/documents.ts`; the measurements behind it in `docs/plans/document-ranking/README.md` |
 | Delete with ref checks | `store/cleanup.ts` `deleteArtifactForUser()` |
 | Working-set ranking | `context.ts` `selectWorkingSetArtifactsForPrompt()` |
 | Compaction status | `context.ts` `refreshConversationContextStatus()` |
@@ -40,6 +42,7 @@ capsules.ts               ← work capsules, generated outputs (not lineage auth
 
 - **Token budgets**: `WORKING_SET_DOCUMENT_TOKEN_BUDGET` (1.2k), `WORKING_SET_OUTPUT_TOKEN_BUDGET` (1k), and `WORKING_SET_PROMPT_TOKEN_BUDGET` (3k) live in `store/core.ts` as legacy minimum floors and small-context fallbacks. Do not use them as final prompt-depth ceilings when chat-turn context selection has a model-scaled budget available.
 - **Semantic retrieval**: `store/documents.ts` composes lexical fetch + embedding shortlist + TEI rerank; keeps deterministic filters above TEI scores
+- **Search order**: a weighted sum of the three signals (`store/document-ranking.ts`) with recency only as the last tie-break. Never multiply it by an age factor: the one that was there, with the age in seconds, cancelled the embedder and the reranker for any document older than ten minutes. The reranker scores only the first documents it is handed, so hand it the likeliest by the sum before it, not the first word hits. The three signals leave `RankedArtifactMatch` unchanged, because `context.ts` reads them against thresholds of their own.
 - **Library uploads**: `conversationId` may be null; skip `attached_to_conversation` link when null. Filename conflicts auto-rename non-identical files; byte-identical (SHA256 hash) files reuse the existing artifact via `findExistingArtifactByBinaryHash`.
 - **Knowledge Upload Intake**: upload routes own auth, HTTP/body receipt, raw temp writes, and chunk assembly. `upload-intake.ts` owns shared limits, conversation validation, durable completion, normalized extraction, readiness response, and upload trace output after bytes are available.
 - **Memory Profile**: user-facing memory UX is projection-backed through `../memory.ts` and `../memory-profile/`; Knowledge page routes/views should render that projection.
