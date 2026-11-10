@@ -1146,6 +1146,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								intakeStatus: params.intakeStatus,
 								outputSummary: summarizeProduceFileResult(payload),
 							}),
+							// This invocation has not reached file-job submission.
+							{ state: "definitely_not_executed", result: payload },
 						);
 						return payload;
 					};

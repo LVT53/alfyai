@@ -156,7 +156,14 @@ export function optionalScalarMetadata(
 // ── Tool call recorder ─────────────────────────────────────────
 
 export interface ToolCallRecorder {
-	record(entry: ToolCallEntry): ToolCallEntry;
+	record(
+		entry: ToolCallEntry,
+		executionFact?: { state: "definitely_not_executed"; result: object },
+	): ToolCallEntry;
+	/** Server-only original result identity; absent facts remain unknown. */
+	getExecutionCertainty?(
+		result: unknown,
+	): "definitely_not_executed" | undefined;
 	getEntries(): ToolCallEntry[];
 	/**
 	 * Optional: sees what the model was handed by a call that SUCCEEDED, with the
@@ -191,9 +198,20 @@ export function createToolCallRecorder(
 	initialEntries: ToolCallEntry[] = [],
 ): ToolCallRecorder {
 	const entries = initialEntries;
+	const refusedResults = new WeakMap<object, ToolCallEntry>();
 	return {
-		record(entry) {
-			return recordToolCallEntry(entries, entry);
+		record(entry, executionFact) {
+			const recorded = recordToolCallEntry(entries, entry);
+			if (executionFact?.state === "definitely_not_executed")
+				refusedResults.set(executionFact.result, recorded);
+			return recorded;
+		},
+		getExecutionCertainty(result) {
+			return result !== null &&
+				typeof result === "object" &&
+				refusedResults.has(result)
+				? "definitely_not_executed"
+				: undefined;
 		},
 		getEntries() {
 			return [...entries];

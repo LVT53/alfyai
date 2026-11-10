@@ -332,13 +332,11 @@ export async function* runNormalChatCompletion(
 				e.state === "uncertain" ||
 				(e.providerExecuted && e.state === "proposed"),
 		);
-	const hasExecuted = () =>
+	// A proven refusal is not a submitted effect, but is still a tool occurrence.
+	// Automatic recovery after it must not regain pre-work executable tools.
+	const hasToolOccurrence = () =>
 		snapshot.executions.some(
-			(e) =>
-				e.segmentId === policy.segmentId &&
-				(e.state === "dispatched" ||
-					e.state === "succeeded" ||
-					e.state === "uncertain"),
+			(e) => e.segmentId === policy.segmentId && e.state !== "proposed",
 		);
 	const externalAbort = () =>
 		params.abortSignal?.aborted
@@ -473,7 +471,7 @@ export async function* runNormalChatCompletion(
 		const attemptId = `${policy.segmentId}:attempt:${snapshot.nextAttempt++}`;
 		const toolsAllowed =
 			phase === "working" &&
-			(!policy.continuation || resumed || !hasExecuted());
+			(!policy.continuation || resumed || !hasToolOccurrence());
 		try {
 			const prepared = await policy.forAttempt?.({
 				provider: params.provider,
@@ -1209,7 +1207,7 @@ export async function* runNormalChatCompletion(
 		if (
 			attemptError &&
 			phase === "working" &&
-			!hasExecuted() &&
+			!hasToolOccurrence() &&
 			(stopCause === "transport_error" || stopCause === "deadline") &&
 			Date.now() < snapshot.deadlineAt - reserve
 		) {

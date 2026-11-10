@@ -313,8 +313,19 @@ export async function prepareNormalChatTurn(
 					});
 					const policy: NormalChatAttemptPolicy = {
 						tools: pack?.tools,
-						classifyExecution: (execution) =>
-							rowFor(execution)?.status === "done" ? "succeeded" : "uncertain",
+						classifyExecution: (execution, result) => {
+							// Consult this attempt's original result identity before legacy
+							// row lookup; reused IDs/metadata cannot supply refusal certainty.
+							if (
+								result.success &&
+								pack?.recorder?.getExecutionCertainty?.(result.output) ===
+									"definitely_not_executed"
+							)
+								return "definitely_not_executed";
+							return result.success && rowFor(execution)?.status === "done"
+								? "succeeded"
+								: "uncertain";
+						},
 						isDelivery: (execution) => {
 							const row = rowFor(execution),
 								meta = row?.metadata;

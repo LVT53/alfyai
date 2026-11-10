@@ -1,7 +1,7 @@
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type ModelMessage, tool } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createModelCapabilitySet } from "$lib/model-capabilities";
 import type { PlainNormalChatModelRunResult } from "$lib/server/services/normal-chat-model";
@@ -136,6 +136,204 @@ describe("installed SDK native shapes", () => {
 			if (next.done) return next.value;
 		}
 	}
+	it("keeps automatic recovery tools off after a known refusal and lost finish", async () => {
+		let calls = 0;
+		let dispatches = 0;
+		const availability: boolean[] = [];
+		const model = new MockLanguageModelV3({
+			doGenerate: async (options) => {
+				const toolsOn = Boolean(options.tools?.length);
+				availability.push(toolsOn);
+				if (calls++ === 0)
+					return {
+						content: [
+							{
+								type: "tool-call",
+								toolCallId: "refused",
+								toolName: "produce_file",
+								input: "{}",
+							},
+						],
+						finishReason: { unified: "tool-calls", raw: "tool_calls" },
+						usage,
+						warnings: [],
+					};
+				if (toolsOn) throw new Error("Synthetic lost finish");
+				return {
+					content: [{ type: "text", text: "The file was not submitted." }],
+					finishReason: { unified: "stop", raw: "stop" },
+					usage,
+					warnings: [],
+				};
+			},
+		});
+		const fallback = vi.fn(async () => ({
+			provider,
+			modelId: "model1" as const,
+			dependencies: dependencies(model),
+		}));
+		const p = params();
+		const result = await collect(
+			runNormalChatCompletion(
+				{
+					...p,
+					tools: {
+						produce_file: tool({
+							inputSchema: z.object({}),
+							execute: async () => {
+								dispatches++;
+								return { status: "failed" };
+							},
+						}),
+					},
+					completionPolicy: {
+						...p.completionPolicy,
+						forAttempt: () => ({
+							classifyExecution: () => "definitely_not_executed",
+						}),
+					},
+				},
+				{ ...dependencies(model), fallback },
+				false,
+			),
+		);
+		expect(fallback).not.toHaveBeenCalled();
+		expect(dispatches).toBe(1);
+		expect(availability).toEqual([true, true, false]);
+		expect(result.completion).toMatchObject({
+			outcome: "answered",
+			workingStopCause: "transport_error",
+			closingAttempted: true,
+		});
+		expect(
+			result.continuation?.usage.filter((u) => u.phase === "closing"),
+		).toHaveLength(1);
+	});
+
+	it("keeps a thrown reused-ID invocation uncertain despite stale success classification", async () => {
+		let generations = 0,
+			executions = 0;
+		const model = new MockLanguageModelV3({
+			doGenerate: async () => ({
+				content: [
+					{
+						type: "tool-call",
+						toolCallId: "same-id",
+						toolName: "produce_file",
+						input: "{}",
+					},
+				],
+				finishReason: { unified: "tool-calls", raw: "tool_calls" },
+				usage,
+				warnings: [],
+			}),
+		});
+		const p = params();
+		const result = await collect(
+			runNormalChatCompletion(
+				{
+					...p,
+					tools: {
+						produce_file: tool({
+							inputSchema: z.object({}),
+							execute: async () => {
+								generations++;
+								if (executions++ > 0)
+									throw new Error("Synthetic failure before recorder");
+								return { status: "succeeded" };
+							},
+						}),
+					},
+					completionPolicy: {
+						...p.completionPolicy,
+						forAttempt: () => ({ classifyExecution: () => "succeeded" }),
+					},
+				},
+				dependencies(model),
+				false,
+			),
+		);
+		expect(generations).toBe(2);
+		expect(result.continuation?.executions.map((e) => e.state)).toEqual([
+			"succeeded",
+			"uncertain",
+		]);
+		expect(result.completion).toMatchObject({
+			outcome: "incomplete",
+			stopCause: "uncertain_execution",
+			closingAttempted: false,
+		});
+	});
+
+	it("does not let a known refusal clear another uncertain execution", async () => {
+		let generations = 0;
+		const model = new MockLanguageModelV3({
+			doGenerate: async () => {
+				generations++;
+				return {
+					content: [
+						{
+							type: "tool-call",
+							toolCallId: "unknown",
+							toolName: "unknown",
+							input: "{}",
+						},
+						{
+							type: "tool-call",
+							toolCallId: "refused",
+							toolName: "produce_file",
+							input: "{}",
+						},
+					],
+					finishReason: { unified: "tool-calls", raw: "tool_calls" },
+					usage,
+					warnings: [],
+				};
+			},
+		});
+		const p = params();
+		const result = await collect(
+			runNormalChatCompletion(
+				{
+					...p,
+					tools: {
+						unknown: tool({
+							inputSchema: z.object({}),
+							execute: async () => ({ status: "failed" }),
+						}),
+						produce_file: tool({
+							inputSchema: z.object({}),
+							execute: async () => ({ status: "failed" }),
+						}),
+					},
+					completionPolicy: {
+						...p.completionPolicy,
+						forAttempt: () => ({
+							classifyExecution: (execution) =>
+								execution.toolName === "produce_file"
+									? "definitely_not_executed"
+									: "uncertain",
+						}),
+					},
+				},
+				dependencies(model),
+				false,
+			),
+		);
+		expect(generations).toBe(1);
+		expect(result.continuation?.executions.map((e) => e.state)).toContain(
+			"uncertain",
+		);
+		expect(result.continuation?.executions.map((e) => e.state)).toContain(
+			"definitely_not_executed",
+		);
+		expect(result.completion).toMatchObject({
+			outcome: "incomplete",
+			stopCause: "uncertain_execution",
+			closingAttempted: false,
+		});
+	});
+
 	it.each([
 		false,
 		true,

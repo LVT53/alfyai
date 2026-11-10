@@ -26,7 +26,7 @@ export function withUrlProvenance(
 	params: { userId: string; provenance: TurnUrlProvenance },
 ): ToolCallRecorder {
 	return {
-		record(entry) {
+		record(entry, executionFact) {
 			try {
 				// A candidate counts only once the turn knows where its address came
 				// from: a result the call returned, or an address the user gave. A
@@ -39,9 +39,10 @@ export function withUrlProvenance(
 			} catch {
 				console.warn("[URL_PROVENANCE] Could not note a tool call's sources");
 			}
-			return base.record(entry);
+			return base.record(entry, executionFact);
 		},
 		getEntries: () => base.getEntries(),
+		getExecutionCertainty: (result) => base.getExecutionCertainty?.(result),
 		observeResult(result) {
 			try {
 				params.provenance.noteToolResult(result);

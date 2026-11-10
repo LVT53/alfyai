@@ -540,3 +540,40 @@ describe("executeToolWithEnvelope and a local model's summary", () => {
 		expect(isInsideToolCall()).toBe(false);
 	});
 });
+
+it("keeps trusted non-execution certainty private and bound to the original result", () => {
+	const recorder = createToolCallRecorder();
+	const result = { status: "failed", code: "invalid_tool_input" };
+	const entry = recorder.record(
+		{
+			name: "produce_file",
+			callId: "reused",
+			input: {},
+			status: "failed",
+			metadata: { intakeStatus: 422 },
+		},
+		{ state: "definitely_not_executed", result },
+	);
+	expect(recorder.getExecutionCertainty?.(result)).toBe(
+		"definitely_not_executed",
+	);
+	expect(recorder.getEntries()[0]).toBe(entry);
+	expect(recorder.getExecutionCertainty?.({ ...result })).toBeUndefined();
+	expect(
+		recorder.getExecutionCertainty?.({ state: "definitely_not_executed" }),
+	).toBeUndefined();
+	expect(
+		createToolCallRecorder().getExecutionCertainty?.(result),
+	).toBeUndefined();
+	expect(JSON.stringify(entry)).not.toContain("definitely_not_executed");
+	expect(JSON.stringify(result)).not.toContain("definitely_not_executed");
+	const later = { ...result };
+	recorder.record({
+		...entry,
+		metadata: {
+			intakeStatus: 422,
+			executionCertainty: "definitely_not_executed",
+		},
+	});
+	expect(recorder.getExecutionCertainty?.(later)).toBeUndefined();
+});

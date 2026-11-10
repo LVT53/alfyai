@@ -991,7 +991,10 @@ it("permits typed local-only image projection but refuses unprojectable original
 	).toBeNull();
 });
 
-it("keeps actual plain SDK execution records in the persisted tool timeline", async () => {
+it.each([
+	"success",
+	"throw-after-success",
+] as const)("keeps actual plain SDK execution records and reused-ID uncertainty (%s)", async (mode) => {
 	const { MockLanguageModelV3 } = await import("ai/test");
 	const { tool } = await import("ai");
 	const { z } = await import("zod");
@@ -1006,7 +1009,8 @@ it("keeps actual plain SDK execution records in the persisted tool timeline", as
 	let executions = 0;
 	const model = new MockLanguageModelV3({
 		doGenerate: async () => {
-			const call = generations++ === 0;
+			const step = generations++;
+			const call = step === 0 || (mode === "throw-after-success" && step === 1);
 			return {
 				content: call
 					? [
@@ -1037,14 +1041,16 @@ it("keeps actual plain SDK execution records in the persisted tool timeline", as
 		tools: {
 			run_python: tool({
 				inputSchema: z.object({ code: z.string() }),
-				execute: async (input, options) =>
-					executeToolWithEnvelope({
+				execute: async (input, options) => {
+					executions++;
+					if (mode === "throw-after-success" && executions > 1)
+						throw new Error("Synthetic failure before recorder");
+					return executeToolWithEnvelope({
 						toolName: "run_python",
 						options,
 						recorder,
 						timeoutMs: 1000,
 						run: async () => {
-							executions++;
 							return {
 								modelPayload: { success: true, stdout: "391", exitCode: 0 },
 								entry: {
@@ -1067,7 +1073,8 @@ it("keeps actual plain SDK execution records in the persisted tool timeline", as
 								metadata: { ok: false },
 							},
 						}),
-					}),
+					});
+				},
 			}),
 		},
 	});
@@ -1097,6 +1104,22 @@ it("keeps actual plain SDK execution records in the persisted tool timeline", as
 		createPlainNormalChatSendModelParams(),
 	);
 	const result = await run.runPlain();
+	if (mode === "throw-after-success") {
+		expect(executions).toBe(2);
+		expect(generations).toBe(2);
+		expect(recorder.getEntries()).toHaveLength(1);
+		expect(recorder.getEntries()[0].status).toBe("done");
+		expect(run.receipt.getSnapshot()?.executions.map((e) => e.state)).toEqual([
+			"succeeded",
+			"uncertain",
+		]);
+		expect(run.receipt.getSnapshot()?.completion).toMatchObject({
+			outcome: "incomplete",
+			stopCause: "uncertain_execution",
+			closingAttempted: false,
+		});
+		return;
+	}
 	expect(executions).toBe(1);
 	expect(result.text).toBe("PRODUCT391");
 	expect(result.normalChatToolCalls).toMatchObject([
@@ -1121,4 +1144,64 @@ it("keeps actual plain SDK execution records in the persisted tool timeline", as
 		status: "done",
 		metadata: { ok: true, exitCode: 0 },
 	});
+});
+
+it("never inherits refusal certainty through reused call IDs or another attempt pack", async () => {
+	const { createToolCallRecorder } = await import(
+		"../normal-chat-tools/shared"
+	);
+	const first = createToolCallRecorder();
+	const second = createToolCallRecorder();
+	const refused = { status: "failed", code: "invalid_tool_input" };
+	const entry = {
+		name: "produce_file",
+		callId: "same-id",
+		input: {},
+		status: "failed" as const,
+		metadata: { intakeStatus: 422 },
+	};
+	first.record(entry, { state: "definitely_not_executed", result: refused });
+	const pack = (recorder: typeof first) => ({
+		tools: {},
+		recorder,
+		getToolCalls: () => recorder.getEntries(),
+		getTurnAsk: () => null,
+		stepImages: { drain: () => [] },
+	});
+	mocks.tools
+		.mockResolvedValueOnce(pack(first))
+		.mockResolvedValueOnce(pack(second));
+	await prepareNormalChatTurn(createPlainNormalChatSendModelParams());
+	const owner = mocks.model.mock.calls.at(-1)?.[0].completionPolicy;
+	const args = {
+		provider: createPlainNormalChatProvider(),
+		modelId: "model1",
+		phase: "working",
+		attemptId: "first",
+		toolsAllowed: true,
+		snapshot: {},
+	};
+	const execution = { callId: "same-id", toolName: "produce_file" };
+	const a = await owner.forAttempt(args);
+	expect(
+		a.classifyExecution(execution, { success: true, output: refused }),
+	).toBe("definitely_not_executed");
+	const unknown = { ...refused };
+	first.record(entry);
+	expect(
+		a.classifyExecution(execution, { success: true, output: unknown }),
+	).toBe("uncertain");
+	const b = await owner.forAttempt({
+		...args,
+		provider: { ...args.provider, id: "second" },
+		modelId: "model2",
+		attemptId: "second",
+	});
+	second.record(entry);
+	expect(
+		b.classifyExecution(execution, { success: true, output: refused }),
+	).toBe("uncertain");
+	expect(
+		b.classifyExecution(execution, { success: true, output: unknown }),
+	).toBe("uncertain");
 });
