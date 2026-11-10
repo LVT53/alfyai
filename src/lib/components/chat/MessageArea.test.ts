@@ -87,6 +87,57 @@ describe("MessageArea", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("reserves the measured composer height as its live-end minimum clearance through terminal growth", async () => {
+		const messages: ChatMessage[] = [
+			{
+				id: "latest-user",
+				role: "user",
+				content: "Edited request",
+				timestamp: 1,
+			},
+			{ id: "failed", role: "assistant", content: "", timestamp: 2 },
+		];
+		const view = render(MessageArea, {
+			messages,
+			conversationId: "clearance",
+		});
+		const clearance =
+			view.container.querySelector<HTMLElement>(".scroll-clearance");
+		if (!clearance) throw new Error("Missing live-end clearance");
+		// Browser evidence: terminal status and Retry alert increase the measured
+		// composer from 165.59 to 277.91px. Its overlay must not cover actions.
+		const minimum = () =>
+			Number.parseFloat(getComputedStyle(clearance).minHeight);
+		// No measurement overrides the CSS baseline. A later missing measurement
+		// must also remove the inline minimum instead of retaining an old height.
+		expect(clearance.style.minHeight).toBe("");
+		await view.rerender({
+			messages,
+			conversationId: "clearance",
+			composerHeight: 165.59375,
+		});
+		expect(minimum()).toBeGreaterThanOrEqual(165.59375);
+		await view.rerender({
+			messages,
+			conversationId: "clearance",
+			composerHeight: 277.90625,
+		});
+		expect(minimum()).toBeGreaterThanOrEqual(277.90625);
+		await view.rerender({
+			messages,
+			conversationId: "clearance",
+			composerHeight: 180,
+		});
+		expect(minimum()).toBeLessThan(277.90625);
+		expect(minimum()).toBeGreaterThanOrEqual(180);
+		await view.rerender({
+			messages,
+			conversationId: "clearance",
+			composerHeight: 0,
+		});
+		expect(clearance.style.minHeight).toBe("");
+	});
+
 	function makeFileProductionJob(
 		assistantMessageId: string | null,
 		overrides: Partial<FileProductionJob> = {},

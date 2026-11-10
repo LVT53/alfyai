@@ -1515,7 +1515,7 @@ async function scrollToMessage(messageId: string) {
 					</div>
 				{/each}
 			{/each}
-			<div class="scroll-clearance" aria-hidden="true"></div>
+			<div class="scroll-clearance" style:min-height={composerHeight > 0 ? `${composerHeight}px` : undefined} aria-hidden="true"></div>
 			{/if}
 		</div>
 	</div>
@@ -1559,8 +1559,9 @@ async function scrollToMessage(messageId: string) {
 	}
 
 	.scroll-clearance {
-		/* Extra height accounts for the absolutely-positioned floating composer
-		   overlaying the bottom of the scroll area. */
+		/* Keep the baseline space, growing to the measured composer when an
+		   error or queued text makes its overlay taller. The existing resize
+		   hold then reveals the whole message frame, including status/actions. */
 		height: 10.5rem;
 		flex: 0 0 auto;
 	}
