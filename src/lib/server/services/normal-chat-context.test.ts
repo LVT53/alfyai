@@ -72,6 +72,7 @@ import { stripDeprecatedPromptSections } from "../prompts";
 import {
 	appendTurnGuidance,
 	buildOutboundSystemPrompt,
+	buildTimeContextLine,
 	buildTurnGuidance,
 	estimateOutboundPromptTokenTotal,
 	extractPastedUrls,
@@ -1492,6 +1493,166 @@ describe("prepareOutboundChatContext", () => {
 			`## Current User Message\nHello\n\n${guidance}`,
 		);
 		expect(appendTurnGuidance("Hello", "")).toBe("Hello");
+	});
+
+	// The clock the model reads. It is a fact about this minute, so it rides
+	// the turn guidance and never the cached system prompt, and it says what it
+	// is: the current time in the person's zone, so nothing points at a tool.
+	describe("the time context line", () => {
+		const winterAfternoon = new Date("2026-11-10T13:35:00Z");
+		// 11:00 UTC is the same calendar day in every zone from UTC-11 to UTC+12:
+		// the server's own date, which the unknown-zone line keeps, cannot move
+		// with the machine this runs on.
+		const middayUtc = new Date("2026-11-10T11:00:00Z");
+
+		it("gives the person's local date, time of day and zone, and says that line is the current time", () => {
+			const line = buildTimeContextLine({
+				now: winterAfternoon,
+				timeZone: "Europe/Budapest",
+			});
+
+			expect(line).toContain(
+				"Tuesday, November 10, 2026, 14:35 (Europe/Budapest, UTC+01:00)",
+			);
+			expect(line).toMatch(/^\[SYSTEM TIME CONTEXT: .*\]$/);
+			expect(line).toContain("This line is the current time");
+			// One line inside a block of guidance, never a paragraph of its own.
+			expect(line).not.toContain("\n");
+		});
+
+		it("carries the offset in force, so the two 02:30s of the night the clocks go back differ", () => {
+			expect(
+				buildTimeContextLine({
+					now: new Date("2026-10-25T00:30:00Z"),
+					timeZone: "Europe/Budapest",
+				}),
+			).toContain(
+				"Sunday, October 25, 2026, 02:30 (Europe/Budapest, UTC+02:00)",
+			);
+			expect(
+				buildTimeContextLine({
+					now: new Date("2026-10-25T01:30:00Z"),
+					timeZone: "Europe/Budapest",
+				}),
+			).toContain(
+				"Sunday, October 25, 2026, 02:30 (Europe/Budapest, UTC+01:00)",
+			);
+		});
+
+		it("skips the hour the clocks go forward over", () => {
+			expect(
+				buildTimeContextLine({
+					now: new Date("2026-03-29T01:00:00Z"),
+					timeZone: "Europe/Budapest",
+				}),
+			).toContain("Sunday, March 29, 2026, 03:00 (Europe/Budapest, UTC+02:00)");
+		});
+
+		it("reads a zone whose offset is a half hour", () => {
+			expect(
+				buildTimeContextLine({
+					now: winterAfternoon,
+					timeZone: "Asia/Kolkata",
+				}),
+			).toContain(
+				"Tuesday, November 10, 2026, 19:05 (Asia/Kolkata, UTC+05:30)",
+			);
+		});
+
+		it("points at no date or time tool, because there is none", () => {
+			for (const timeZone of ["Europe/Budapest", null]) {
+				const line = buildTimeContextLine({ now: winterAfternoon, timeZone });
+				expect(line, String(timeZone)).not.toMatch(/\btools?\b/i);
+			}
+		});
+
+		// Everything the app writes into a model request is plain English that names
+		// no language and steers none (chat-turn/AGENTS.md, ruling 79). The full scans
+		// that hold whole requests to it (tests/integration/reply-language.test.ts and
+		// english-request-purity.test.ts) run on accounts with no stored zone, because
+		// a line with minutes in it cannot sit in requests those tests compare moments
+		// apart; so each wording of this line is held to the same rule here.
+		it("names no language and says nothing of the reply's, in either wording, and is plain ASCII", () => {
+			for (const timeZone of ["Europe/Budapest", null]) {
+				const line = buildTimeContextLine({ now: winterAfternoon, timeZone });
+
+				expect(line, String(timeZone)).not.toMatch(
+					/\b(?:English|Hungarian|Magyar|languages?|repl(?:y|ies)|respon(?:d|ds|se|ses)|answers?)\b/i,
+				);
+				expect(line, String(timeZone)).toMatch(/^[ -~]+$/);
+			}
+		});
+
+		describe("when the person's zone is not known", () => {
+			it.each([
+				["nothing stored", null],
+				["nothing passed", undefined],
+				["an empty string", ""],
+				["a name the runtime does not know", "Mars/Olympus"],
+				["a UTC offset, which is not a zone name", "+01:00"],
+			])("says the zone is unknown and keeps the server's date: %s", (_label, timeZone) => {
+				const line = buildTimeContextLine({ now: middayUtc, timeZone });
+
+				expect(line).toMatch(/^\[SYSTEM TIME CONTEXT: .*\]$/);
+				expect(line).toContain("Today is Tuesday, November 10, 2026");
+				expect(line).toContain("time zone is unknown");
+				// No time of day, no zone and no offset: nothing here is known.
+				expect(line).not.toMatch(/\d{1,2}:\d{2}/);
+				expect(line).not.toMatch(/UTC[+-]/);
+				expect(line).not.toContain("\n");
+			});
+		});
+
+		it("is the first section of the turn guidance, once, and follows the zone it is given", () => {
+			const budapest = buildTurnGuidance({
+				now: winterAfternoon,
+				timeZone: "Europe/Budapest",
+			});
+			expect(
+				budapest.startsWith(
+					"## Turn Guidance\n[SYSTEM TIME CONTEXT: The person's local date and time is Tuesday, November 10, 2026, 14:35 (Europe/Budapest, UTC+01:00)",
+				),
+			).toBe(true);
+			expect(budapest.match(/SYSTEM TIME CONTEXT/g)).toHaveLength(1);
+			expect(budapest).toContain(REPLY_LANGUAGE_RULE);
+
+			const tokyo = buildTurnGuidance({
+				now: winterAfternoon,
+				timeZone: "Asia/Tokyo",
+			});
+			expect(tokyo).toContain(
+				"Tuesday, November 10, 2026, 22:35 (Asia/Tokyo, UTC+09:00)",
+			);
+			expect(tokyo).not.toContain("Europe/Budapest");
+		});
+
+		it("rides the prepared turn's guidance and never its system prompt", async () => {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(winterAfternoon);
+			try {
+				const prepared = await prepareOutboundChatContext({
+					message: "What day is it?",
+					sessionId: "conv-1",
+					modelConfig,
+					modelId: "model1",
+					contextLimits: {
+						maxModelContext: 262_144,
+						compactionUiThreshold: 209_715,
+						targetConstructedContext: 157_286,
+					},
+					timeZone: "Europe/Budapest",
+					logLabel: "provider request",
+				});
+
+				expect(prepared.turnGuidance).toContain(
+					"Tuesday, November 10, 2026, 14:35 (Europe/Budapest, UTC+01:00)",
+				);
+				expect(prepared.systemPrompt).not.toContain("14:35");
+				expect(prepared.systemPrompt).not.toContain("Europe/Budapest");
+			} finally {
+				vi.useRealTimers();
+			}
+		});
 	});
 
 	// Slice 5a: the artifact catalogue rides the turn guidance (a fact about

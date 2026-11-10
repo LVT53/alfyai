@@ -1,0 +1,240 @@
+CANDIDATE LABS, 2026-11-10. Public text only (LAB_DATA = prep.py's output). Apple M4 Pro, Node 22.
+Commands: README.md, 'Reproduce'. Each block is the lab's own output.
+
+=== cutoff: how often is the right document among the 120 newest? (the real search, 200 questions a library, ages 1-60 days at random)
+    (the 'real pass, no embedding' column is the window plus the name group; the public sets have no names, so it equals the window)
+set        N     queries  newest 120 (SQL)  expected(1-120/N)  real pass, no embedding  LIKE-any,ASCII,recency  LIKE-any,Unicode,recency  LIKE admits (mean share of library)  lexical top24 + newest120  lexical top24 alone
+belebele-eng    400      200         30.5%               30.0%               30.5%                 33.0%                   33.0%                           96.6%                   73.5%               67.5%
+belebele-hun    400      200         30.5%               30.0%               30.5%                 33.0%                   38.5%                           76.4%                   70.0%               63.5%
+webfaq-eng      400      200         28.5%               30.0%               28.5%                 39.5%                   39.5%                           82.0%                   83.5%               80.0%
+webfaq-eng     1500      200          6.5%                8.0%                6.5%                 10.0%                   10.0%                           77.7%                   76.0%               74.0%
+webfaq-hun      400      200         30.5%               30.0%               30.5%                 57.5%                   70.0%                           37.6%                   80.0%               73.5%
+webfaq-hun     1500      200          5.5%                8.0%                5.5%                 21.0%                   37.5%                           42.1%                   64.5%               63.0%
+
+=== keywords: exact phrase (P) and 3 rare words (K) against Hungarian news articles (HunSum), 60 queries each
+    (LIKE-ALL = a SQL scan of the full text for every longer word: measured, NOT shipped; its cost grows with the library's text)
+kind       N   queries  newest 120 (SQL)  real pass, no embedding  LIKE-any,Unicode,recency  LIKE-ALL words (SQL), newest 24 of the matches  ... share of library it admits  lexical top24 (scoreMatch, whole library)
+P phrase     400      60           38.3%               38.3%                   78.3%                                     96.7%                       0.25%                          100.0%
+K 3 rare     400      60           33.3%               33.3%                   95.0%                                     98.3%                       0.70%                          100.0%
+P phrase    1500      60            6.7%                6.7%                   30.0%                                     95.0%                       0.07%                          100.0%
+K 3 rare    1500      57            1.8%                1.8%                   86.0%                                    100.0%                       0.07%                          100.0%
+
+=== cost AFTER the change: whole search and the vector scan by itself (ms, median of 15; documents of 20 KB; vectors as the app stores them)
+dims    N   whole search | vector scan alone: ids  read(SQL)  JSON.parse  cosine+sort  TOTAL(app code) | vector scan as a share of the search | AND-LIKE rare words (SQL)  full-text scan in JS
+1024     120     26.5  |      0.1      0.0      0.0      0.0      0.0 (p95 0.0)  |  0%  |      1.8     18.7
+1024     400     45.3  |      0.2      1.0      8.5      0.9     12.0 (p95 12.7)  |  26%  |      5.9     62.7
+1024    1500    113.6  |      0.5      6.7     43.9      3.8     60.6 (p95 64.7)  |  53%  |     22.5    242.1
+1024    5000    191.9  |      2.9     30.3    165.1     13.0    237.4 (p95 268.4)  |  124%  |     76.8    840.1
+2560     120     39.0  |      1.4      0.0      0.0      0.0      0.0 (p95 0.0)  |  0%  |      1.8     20.8
+2560     400     76.2  |      2.1      2.1     24.4      2.2     31.9 (p95 34.5)  |  42%  |      6.3     69.3
+2560    1500    211.7  |      1.7     14.4    114.7      8.2    148.8 (p95 166.4)  |  70%  |     23.0    251.5
+2560    5000    354.0  |      4.3     73.4    443.6     32.7    632.1 (p95 731.6)  |  179%  |     77.3    894.8
+
+=== cost BEFORE the change (same lab and machine, run on the old candidate pass; 'today's search' = the 120 newest only; the other columns are the scan the change adds)
+dims    N   today's search | older scan: ids  read(SQL)  JSON.parse  cosine+sort  TOTAL(app code) | per-search extra | AND-LIKE rare words (SQL)  full-text scan in JS
+1024     400     27.4  |      0.2      1.0      8.4      0.5     12.2 (p95 15.0)  |  +12 ms (44% on top of today's)  |      5.8     63.2
+1024    1500     36.4  |      0.5      7.0     42.6      3.3     60.3 (p95 65.3)  |  +60 ms (166% on top of today's)  |     21.9    238.1
+1024    5000     59.9  |      1.7     30.8    159.3     12.9    234.6 (p95 284.3)  |  +235 ms (392% on top of today's)  |     75.2    841.0
+2560     400     35.5  |      1.5      2.4     23.7      1.7     29.9 (p95 33.8)  |  +30 ms (84% on top of today's)  |      6.2     64.1
+2560    1500     46.7  |      1.8     14.6    113.5      7.5    146.5 (p95 156.7)  |  +147 ms (314% on top of today's)  |     22.4    241.4
+2560    5000     75.8  |      3.1     66.3    427.8     30.9    585.8 (p95 646.1)  |  +586 ms (773% on top of today's)  |     76.7    850.4
+
+=== cosine-recall.py on the ranking lab's recorded signals (rank-lab-features.json)
+
+=== Qwen3-Embedding-4B, 1024-d (production): P(right document is in the top K by cosine among the library's OLDER documents)
+    (the 120 newest are candidates already; n = N - 121 other older documents compete)
+set                                  N=400/K=12   N=400/K=24   N=400/K=48  N=1500/K=12  N=1500/K=24  N=1500/K=48
+A  hu news <- hu abstract                 98.3%        99.7%       100.0%        80.9%        92.9%        98.0%
+P  hu exact phrase (6 words)              69.0%        76.1%        82.0%        48.6%        59.1%        67.1%
+K  hu 3 rare keywords                     61.3%        69.7%        80.0%        39.2%        49.7%        59.3%
+B  en passage <- hu question              99.3%       100.0%       100.0%        80.9%        93.6%        99.1%
+C  hu passage <- en question              99.4%       100.0%       100.0%        82.6%        94.4%        99.2%
+D  hu passage <- hu question              99.0%       100.0%       100.0%        80.0%        92.7%        98.6%
+E  en passage <- en question              98.6%        99.0%        99.0%        82.2%        94.0%        98.5%
+H  webfaq hu question -> answer           99.6%       100.0%       100.0%        83.4%        95.2%        99.5%
+W  webfaq en question -> answer           99.6%       100.0%       100.0%        83.8%        95.4%        99.5%
+MEAN of the nine sets                     91.6%        93.8%        95.7%        73.5%        85.2%        91.0%
+
+  Right document among the candidates (newest 120 + K older by cosine), mean of the nine sets:
+    N= 400 K=12:  94.1%  (today: 30.0%)
+    N= 400 K=24:  95.7%  (today: 30.0%)
+    N= 400 K=48:  97.0%  (today: 30.0%)
+    N=1500 K=12:  75.6%  (today:  8.0%)
+    N=1500 K=24:  86.4%  (today:  8.0%)
+    N=1500 K=48:  91.7%  (today:  8.0%)
+
+=== old 0.6B: P(right document is in the top K by cosine among the library's OLDER documents)
+    (the 120 newest are candidates already; n = N - 121 other older documents compete)
+set                                  N=400/K=12   N=400/K=24   N=400/K=48  N=1500/K=12  N=1500/K=24  N=1500/K=48
+A  hu news <- hu abstract                 96.5%        98.8%        99.9%        78.6%        90.5%        95.9%
+P  hu exact phrase (6 words)              57.7%        66.8%        78.3%        37.4%        46.6%        55.4%
+K  hu 3 rare keywords                     51.4%        63.0%        74.8%        30.5%        38.9%        48.6%
+B  en passage <- hu question              91.9%        97.2%        99.2%        67.7%        80.9%        90.4%
+C  hu passage <- en question              96.2%        98.3%        99.7%        77.0%        89.3%        95.5%
+D  hu passage <- hu question              96.6%        98.8%        99.0%        75.6%        88.5%        95.8%
+E  en passage <- en question              98.4%        99.0%        99.1%        82.2%        93.7%        98.2%
+H  webfaq hu question -> answer           97.3%        98.8%        99.0%        78.6%        91.1%        96.8%
+W  webfaq en question -> answer           99.6%       100.0%       100.0%        83.8%        95.4%        99.5%
+MEAN of the nine sets                     87.3%        91.2%        94.3%        67.9%        79.4%        86.2%
+
+  Right document among the candidates (newest 120 + K older by cosine), mean of the nine sets:
+    N= 400 K=12:  91.1%  (today: 30.0%)
+    N= 400 K=24:  93.8%  (today: 30.0%)
+    N= 400 K=48:  96.0%  (today: 30.0%)
+    N=1500 K=12:  70.5%  (today:  8.0%)
+    N=1500 K=24:  81.1%  (today:  8.0%)
+    N=1500 K=48:  87.3%  (today:  8.0%)
+
+=== Check of the method: predict P(rank<=K) among 119 competitors from a random 30 of them
+  s4 K=12: actual  96.2%   predicted from 30 competitors  94.1%
+  s4 K=24: actual  97.4%   predicted from 30 competitors  97.4%
+
+=== Raw ranks inside the lab's 120-document pools (no extrapolation), 4B
+  A  hu news <- hu abstract           top1  95.0%  top12 100.0%  top24 100.0%  top48 100.0%
+  P  hu exact phrase (6 words)        top1  51.7%  top12  78.3%  top24  83.3%  top48  96.7%
+  K  hu 3 rare keywords               top1  40.0%  top12  71.7%  top24  83.3%  top48  95.0%
+  B  en passage <- hu question        top1  94.0%  top12 100.0%  top24 100.0%  top48 100.0%
+  C  hu passage <- en question        top1  98.0%  top12 100.0%  top24 100.0%  top48 100.0%
+  D  hu passage <- hu question        top1  93.0%  top12 100.0%  top24 100.0%  top48 100.0%
+  E  en passage <- en question        top1  97.0%  top12  99.0%  top24  99.0%  top48 100.0%
+  H  webfaq hu question -> answer     top1  99.0%  top12 100.0%  top24 100.0%  top48 100.0%
+  W  webfaq en question -> answer     top1 100.0%  top12 100.0%  top24 100.0%  top48 100.0%
+
+
+=== VECTOR RECALL MEASUREMENT, 2026-11-10 ===
+Public text only. Apple M4 Pro, Node 22.23.4, Vitest 4.1.11. Embedder TEI 1.9.3 on approved owner box; measurement offline.
+Commands: README Reproduce; vector-recall-report.md records method and data handling.
+
+--- embed-summary.txt ---
+embedded 5476 documents and 2226 questions with Qwen/Qwen3-Embedding-4B; vector sizes 1024; norms 1.00000 to 1.00000
+
+--- vector-recall-results.txt ---
+VECTOR RECALL LAB (measured), public text only. The real search over a real SQLite file, stored vectors from the embedder, 24 closest older documents.
+lib            N   set  questions  older  in-vector-group(app)  agree-with-own-cosines  candidates(app)  window
+bel-en-1500     1500     B        300     267                    263                 300/300               296       33
+bel-en-1500     1500     E        300     267                    266                 300/300               299       33
+bel-en-400       400     B        300     212                    211                 300/300               299       88
+bel-en-400       400     E        300     212                    212                 300/300               300       88
+bel-en-488       488     B        300     234                    232                 300/300               298       66
+bel-en-488       488     E        300     234                    234                 300/300               300       66
+bel-hu-1500     1500     C        300     282                    281                 300/300               299       18
+bel-hu-1500     1500     D        300     282                    280                 300/300               298       18
+bel-hu-400       400     C        300     217                    216                 300/300               299       83
+bel-hu-400       400     D        300     217                    215                 300/300               298       83
+bel-hu-488       488     C        300     232                    232                 300/300               300       68
+bel-hu-488       488     D        300     232                    230                 300/300               298       68
+hunsum-1500     1500     A        300     264                    262                 300/300               298       36
+hunsum-1500     1500     K        300     264                    127                 300/300               163       36
+hunsum-1500     1500     P        300     264                    141                 300/300               177       36
+hunsum-400       400     A        300     211                    211                 300/300               300       89
+hunsum-400       400     K        300     211                    146                 300/300               235       89
+hunsum-400       400     P        300     211                    152                 300/300               241       89
+wf-en-1500      1500     W        300     280                    280                 300/300               300       20
+wf-en-400        400     W        300     211                    211                 300/300               300       89
+wf-hu-1500      1500     H        300     274                    273                 300/300               299       26
+wf-hu-400        400     H        300     210                    210                 300/300               300       90
+records 6600; the app's vector group differed from our own cosines in 0
+
+--- vector-recall-report.txt ---
+6600 question runs in 12 libraries
+documents tied with the right one in cosine (all runs): 0
+the app's 24 closest older documents vs our own cosines, disagreements: 0
+searches whose candidate list was not the 120 newest + the vector group (the name group fired): 0
+
+=== MEASURED: the right document among the 24 closest OLDER documents by stored 1024-d vector (Qwen3-Embedding-4B)
+    Q = questions; n = those whose right document is older than the 120 newest (this draw of random ages); found = by the app's own search
+    measured = found / n; age-averaged = exact expectation over every draw of ages for these questions and libraries
+    re-applied = the README's Beta-binomial method on these same questions; README = its published estimate (recomputed = same method, other size)
+set                             library          Q    n found    measured  age-averaged  re-applied   README meas-README
+A  hu news <- hu abstract       hunsum-400     300  211   211      100.0%         99.7%      99.6%    99.7%        -0.0
+A  hu news <- hu abstract       hunsum-1500    300  264   262       99.2%         99.0%      93.8%    92.9%        +6.1
+B  en passage <- hu question    bel-en-400     300  212   211       99.5%         99.3%      99.2%   100.0%        -0.7
+B  en passage <- hu question    bel-en-488     300  234   232       99.1%         99.0%      98.8%    99.9%        -0.9
+B  en passage <- hu question    bel-en-1500    300  267   263       98.5%         98.7%      93.4%    mixed
+C  hu passage <- en question    bel-hu-400     300  217   216       99.5%         99.3%      99.4%   100.0%        -0.7
+C  hu passage <- en question    bel-hu-488     300  232   232      100.0%         99.7%      99.6%    99.9%        -0.3
+C  hu passage <- en question    bel-hu-1500    300  282   281       99.6%         99.7%      94.6%    mixed
+D  hu passage <- hu question    bel-hu-400     300  217   215       99.1%         99.3%      99.2%   100.0%        -0.7
+D  hu passage <- hu question    bel-hu-488     300  232   230       99.1%         99.0%      99.0%    99.8%        -0.8
+D  hu passage <- hu question    bel-hu-1500    300  282   280       99.3%         99.0%      93.9%    mixed
+E  en passage <- en question    bel-en-400     300  212   212      100.0%         99.7%      99.5%    99.0%        +0.7
+E  en passage <- en question    bel-en-488     300  234   234      100.0%         99.7%      99.6%    99.0%        +0.7
+E  en passage <- en question    bel-en-1500    300  267   266       99.6%         99.7%      94.9%    mixed
+H  webfaq hu question -> answer wf-hu-400      300  210   210      100.0%        100.0%     100.0%   100.0%        +0.0
+H  webfaq hu question -> answer wf-hu-1500     300  274   273       99.6%         99.8%      94.6%    95.2%        +4.6
+W  webfaq en question -> answer wf-en-400      300  211   211      100.0%        100.0%     100.0%   100.0%        +0.0
+W  webfaq en question -> answer wf-en-1500     300  280   280      100.0%        100.0%      95.3%    95.4%        +4.6
+P  hu exact phrase (6 words)    hunsum-400     300  211   152       72.0%         75.5%      74.5%    76.1%        -0.6
+P  hu exact phrase (6 words)    hunsum-1500    300  264   141       53.4%         53.2%      50.8%    59.1%        -5.9
+K  hu 3 rare keywords           hunsum-400     300  211   146       69.2%         68.1%      67.4%    69.7%        -1.6
+K  hu 3 rare keywords           hunsum-1500    300  264   127       48.1%         48.2%      44.5%    49.7%        -1.5
+    (meas-README = age-averaged minus README, in points)
+    Descriptive results: shared passages, paired sets and a single library draw preclude independent-question confidence intervals.
+    Differences include sample, library and embedding-source changes; they do not establish statistical significance.
+
+=== MEANS over sets (each set counts once; 'age-averaged' is the exact expectation over ages for these fixed libraries)
+  N= 400 all nine sets                    (9 sets): measured  93.3%  age-averaged  93.4%  re-applied  93.2%  README  93.8%  age-averaged - README  -0.4
+  N= 400 question-style sets              (7 sets): measured  99.7%  age-averaged  99.6%  re-applied  99.6%  README  99.8%  age-averaged - README  -0.2
+  N= 400 P and K (phrase, rare words)     (2 sets): measured  70.6%  age-averaged  71.8%  re-applied  70.9%  README  72.9%  age-averaged - README  -1.1
+  N=1500 A H W P K (like-for-like)        (5 sets): measured  80.1%  age-averaged  80.0%  re-applied  75.8%  README  78.5%  age-averaged - README  +1.6
+  N=1500 A H W (question-style)           (3 sets): measured  99.6%  age-averaged  99.6%  re-applied  94.6%  README  94.5%  age-averaged - README  +5.1
+  N=1500 P and K (phrase, rare words)     (2 sets): measured  50.8%  age-averaged  50.7%  re-applied  47.7%  README  54.4%  age-averaged - README  -3.7
+  N= 488 Belebele B C D E (whole corpus)  (4 sets): measured  99.6%  age-averaged  99.3%  re-applied  99.3%  README  99.7%  age-averaged - README  -0.3
+
+=== The estimator itself, on these questions: re-applied minus age-averaged (positive = the method is optimistic), all cells with a README size
+  14 cells: mean -1.65 points, mean |diff| 1.66, largest -5.19
+
+=== The right document is a CANDIDATE (120 newest + 24 closest older + name group), share of ALL questions of the sets
+    candidate (app) = in the list the ranker was given; expected = 120/N + (1 - 120/N) * age-averaged; README: 99.9 / 95.7 (400), 94.5 / 86.4 (1,500)
+  N= 400 question-style sets  (7 sets): candidate (app)  99.8%   expected  99.7%   README 99.9%
+  N= 400 all sets             (9 sets): candidate (app)  95.3%   expected  95.4%   README 95.7%
+  N= 488 question-style sets  (4 sets): candidate (app)  99.7%   expected  99.5%
+  N=1500 question-style sets  (7 sets): candidate (app)  99.5%   expected  99.4%   README 94.5%   (B-E are mixed libraries here)
+  N=1500 all sets             (9 sets): candidate (app)  90.0%   expected  89.5%   README 86.4%   (B-E are mixed libraries here)
+
+=== Where the right document ranks among the OLDER documents (this draw): found within the K closest, K = 12, 24, 48, 96
+A  hu news <- hu abstract       hunsum-400   n= 211  K12: 100.0%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 8
+A  hu news <- hu abstract       hunsum-1500  n= 264  K12:  98.1%  K24:  99.2%  K48:  99.2%  K96: 100.0%  median rank 1, worst 59
+B  en passage <- hu question    bel-en-400   n= 212  K12:  99.5%  K24:  99.5%  K48:  99.5%  K96:  99.5%  median rank 1, worst 126
+B  en passage <- hu question    bel-en-488   n= 234  K12:  99.1%  K24:  99.1%  K48:  99.1%  K96:  99.1%  median rank 1, worst 176
+B  en passage <- hu question    bel-en-1500  n= 267  K12:  97.0%  K24:  98.5%  K48:  98.9%  K96:  98.9%  median rank 1, worst 1312
+C  hu passage <- en question    bel-hu-400   n= 217  K12:  99.5%  K24:  99.5%  K48:  99.5%  K96:  99.5%  median rank 1, worst 187
+C  hu passage <- en question    bel-hu-488   n= 232  K12: 100.0%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 10
+C  hu passage <- en question    bel-hu-1500  n= 282  K12:  99.3%  K24:  99.6%  K48:  99.6%  K96:  99.6%  median rank 1, worst 643
+D  hu passage <- hu question    bel-hu-400   n= 217  K12:  98.6%  K24:  99.1%  K48:  99.5%  K96:  99.5%  median rank 1, worst 265
+D  hu passage <- hu question    bel-hu-488   n= 232  K12:  99.1%  K24:  99.1%  K48: 100.0%  K96: 100.0%  median rank 1, worst 36
+D  hu passage <- hu question    bel-hu-1500  n= 282  K12:  98.6%  K24:  99.3%  K48:  99.6%  K96:  99.6%  median rank 1, worst 1193
+E  en passage <- en question    bel-en-400   n= 212  K12:  99.5%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 17
+E  en passage <- en question    bel-en-488   n= 234  K12: 100.0%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 4
+E  en passage <- en question    bel-en-1500  n= 267  K12:  99.6%  K24:  99.6%  K48:  99.6%  K96:  99.6%  median rank 1, worst 615
+H  webfaq hu question -> answer wf-hu-400    n= 210  K12: 100.0%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 5
+H  webfaq hu question -> answer wf-hu-1500   n= 274  K12:  98.5%  K24:  99.6%  K48: 100.0%  K96: 100.0%  median rank 1, worst 25
+W  webfaq en question -> answer wf-en-400    n= 211  K12: 100.0%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 2
+W  webfaq en question -> answer wf-en-1500   n= 280  K12: 100.0%  K24: 100.0%  K48: 100.0%  K96: 100.0%  median rank 1, worst 2
+P  hu exact phrase (6 words)    hunsum-400   n= 211  K12:  60.7%  K24:  72.0%  K48:  82.0%  K96:  89.6%  median rank 6, worst 265
+P  hu exact phrase (6 words)    hunsum-1500  n= 264  K12:  45.8%  K24:  53.4%  K48:  61.0%  K96:  72.0%  median rank 18, worst 1294
+K  hu 3 rare keywords           hunsum-400   n= 211  K12:  56.9%  K24:  69.2%  K48:  79.6%  K96:  87.2%  median rank 6, worst 269
+K  hu 3 rare keywords           hunsum-1500  n= 264  K12:  40.5%  K24:  48.1%  K48:  54.5%  K96:  64.8%  median rank 39, worst 1321
+
+=== Whole real search, milliseconds (median), per library, this Mac (reranker off, query vector handed in)
+  bel-en-400       21
+  bel-en-488       25
+  bel-en-1500      75
+  bel-hu-400       21
+  bel-hu-488       23
+  bel-hu-1500      72
+  hunsum-400       24
+  hunsum-1500      76
+  wf-en-400        20
+  wf-en-1500       74
+  wf-hu-400        19
+  wf-hu-1500       71
+
+--- verification ---
+Measure phase: 1 passed, 1 skipped (embed already completed), 299.92 s. 6,600/6,600 records; 0 app/cosine mismatches.
+Deterministic prep reproduces saved plan/docs byte for byte. All 5,476 source hashes match app-prepared public text.
+All 7,702 vectors finite, 1024-d, unit norm; SQLite integrity OK.
+Report plain/gzip outputs identical; incomplete, duplicate and inconsistent runs rejected.
+Embed cache reuse guard rejects existing output before network access. Hypergeometric formula checked by exhaustive small-case enumeration.
+Fallow-only gate: exit 0, fallow 3.33.1, 4 known circular dependencies, 0 new findings, 0 removed.
+No src changes; full application gates waived by task. Lab files outside normal TS/Biome input globs; runtime exercised with Vitest.

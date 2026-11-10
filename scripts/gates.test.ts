@@ -1100,3 +1100,16 @@ describe("the gate runner as a command", () => {
 		}
 	});
 });
+
+describe("the check command and its log reader", () => {
+	it("requests the machine format consumed by parseCheckLog", () => {
+		expect(defineSteps(options).check.cmd).toEqual([
+			"npm",
+			"run",
+			"check",
+			"--",
+			"--output",
+			"machine",
+		]);
+	});
+});

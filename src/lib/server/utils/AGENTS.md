@@ -25,7 +25,7 @@ Low-level utilities consumed across server services. Pure functions, no side eff
 | `text.ts` | `task-state/`, `messages.ts` |
 | `$lib/utils/tokens.ts` | `prompt-context.ts`, chat/title/token accounting services |
 | `prompt-context.ts` | `context-selection.ts`, `task-state.ts` |
-| `artifact-decay.ts` | Knowledge retrieval ranking |
+| `artifact-decay.ts` | `computeDecayScore`: the working set's message match only, never a sum of signals (`working-set.ts`); `computeCrossConversationDecay`: evidence ranking (`task-state.ts`) |
 | `conversation-boundary-filter.ts` | Chat context assembly |
 | `topic-shift-detector.ts` | Memory event emission |
 

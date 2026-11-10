@@ -1,6 +1,7 @@
 <script lang="ts">
 import { get, writable } from "svelte/store";
 import { onMount, onDestroy, tick, untrack } from "svelte";
+import { createMessageUsageRefresher } from "$lib/client/message-usage";
 import { t } from "$lib/i18n";
 import { showToast } from "$lib/stores/toast";
 import {
@@ -965,11 +966,53 @@ let bootstrapMode = initialBootstrapMode;
 let sidecarPending = initialSidecarPending;
 let hydratingConversation = false;
 let detailMetadataEpoch = 0;
+// Accounting can settle before a slower conversation-detail snapshot arrives.
+let usageMetadataEpoch = 0;
+const detailUsageEpochs = new WeakMap<
+	Awaited<ReturnType<typeof fetchConversationDetail>>,
+	number
+>();
+
+function readConversationDetail(conversationId: string) {
+	const epoch = usageMetadataEpoch;
+	const reading = fetchConversationDetail(conversationId);
+	// Tag the original promise's result without delaying its existing consumers.
+	void reading.then(
+		(detail) => detailUsageEpochs.set(detail, epoch),
+		() => {},
+	);
+	return reading;
+}
+
+function applyConversationUsage(
+	detail: Awaited<ReturnType<typeof fetchConversationDetail>>,
+) {
+	if (detailUsageEpochs.get(detail) !== usageMetadataEpoch) return;
+	totalCostUsdMicros = detail.totalCostUsdMicros ?? totalCostUsdMicros;
+	totalTokens = detail.totalTokens ?? totalTokens;
+}
 let suppressHydration = $state(false);
 // Set to true when we're waiting for the initial pending message to be sent (landing page transition)
 let initialStreamPending = $state(untrack(() => data.bootstrap ?? false));
 const evidencePollMaxAttempts = 48;
 const evidencePollControllers = new Map<string, AbortController>();
+const messageUsageRefresher = createMessageUsageRefresher(
+	(conversationId, messageId, usage) => {
+		if (data.conversation.id !== conversationId) return;
+		messages.update((list) =>
+			updateMessageById(list, messageId, (message) => ({
+				...message,
+				costUsd: usage.costUsd,
+				generationDurationMs:
+					usage.generationDurationMs ?? message.generationDurationMs,
+			})),
+		);
+		usageMetadataEpoch += 1;
+		totalCostUsdMicros = usage.totalCostUsdMicros;
+		totalTokens = usage.totalTokens;
+	},
+);
+
 const streamTimingDiagnostics = {
 	latest: null as StreamTimingSnapshot | null,
 	record(timing: StreamTimingSnapshot) {
@@ -1128,6 +1171,12 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		contextStatus = metadata?.contextStatus ?? contextStatus;
 		taskState = metadata?.taskState ?? taskState;
 		contextDebug = metadata?.contextDebug ?? contextDebug;
+		if (
+			metadata?.totalCostUsdMicros !== undefined ||
+			metadata?.totalTokens !== undefined
+		) {
+			usageMetadataEpoch += 1;
+		}
 		totalCostUsdMicros = metadata?.totalCostUsdMicros ?? totalCostUsdMicros;
 		totalTokens = metadata?.totalTokens ?? totalTokens;
 	},
@@ -1187,7 +1236,7 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		void pollMessageEvidence(assistantMessageId);
 	},
 	refreshMessageCost: (assistantMessageId) => {
-		setTimeout(() => refreshMessageCost(assistantMessageId), 1500);
+		refreshMessageCost(assistantMessageId);
 	},
 	hydrateConversationDetail: () => {
 		void hydrateConversationDetail(data.conversation.id);
@@ -1201,7 +1250,7 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	readChatMessages: async () =>
 		(
 			await withinOrNull(
-				fetchConversationDetail(data.conversation.id),
+				readConversationDetail(data.conversation.id),
 				SERVER_MESSAGES_READ_MAX_MS,
 			)
 		)?.messages ?? null,
@@ -1798,9 +1847,7 @@ async function handleKeepAsDocument(payload: { messageId: string }) {
 		conversationId,
 		kind: "document",
 	});
-	const detail = await fetchConversationDetail(conversationId).catch(
-		() => null,
-	);
+	const detail = await readConversationDetail(conversationId).catch(() => null);
 	if (detail) applyConversationDetailMetadata(detail);
 }
 
@@ -1892,7 +1939,7 @@ async function handleDeleteArtifact(
 	if (item.kind === "file") {
 		// A produced file's chat rows and its job come from the conversation
 		// detail: read it back, so they say the file was deleted.
-		const detail = await fetchConversationDetail(data.conversation.id).catch(
+		const detail = await readConversationDetail(data.conversation.id).catch(
 			() => null,
 		);
 		if (detail) applyConversationDetailMetadata(detail);
@@ -2165,7 +2212,7 @@ async function openArtifactFromChat(
 		document.previewUrl &&
 		!(await chatFileStillExists(document.previewUrl))
 	) {
-		const detail = await fetchConversationDetail(data.conversation.id).catch(
+		const detail = await readConversationDetail(data.conversation.id).catch(
 			() => null,
 		);
 		if (detail) applyConversationDetailMetadata(detail);
@@ -2189,9 +2236,9 @@ async function openArtifactFromChat(
 			if (error instanceof ApiError && error.status === 404) {
 				// Gone — or only out of this chat's reach (its chat became incognito,
 				// say)? The read answers 404 for both; the server can tell them apart.
-				const detail = await fetchConversationDetail(
-					data.conversation.id,
-				).catch(() => null);
+				const detail = await readConversationDetail(data.conversation.id).catch(
+					() => null,
+				);
 				if (detail?.unreachableArtifactIds?.includes(document.artifactId)) {
 					applyConversationDetailMetadata(detail);
 					handleArtifactUnreachable(document.artifactId);
@@ -2225,7 +2272,7 @@ async function handleRegenerateArtifact(artifactId: string) {
 		);
 		if (result.ok) {
 			deletedArtifactIds = deletedArtifactIds.filter((id) => id !== artifactId);
-			const detail = await fetchConversationDetail(data.conversation.id).catch(
+			const detail = await readConversationDetail(data.conversation.id).catch(
 				() => null,
 			);
 			if (detail) applyConversationDetailMetadata(detail);
@@ -2602,6 +2649,8 @@ function resetState() {
 		controller.abort();
 	}
 	evidencePollControllers.clear();
+	messageUsageRefresher.clear();
+	usageMetadataEpoch += 1;
 	normalChatRuntime.reset();
 	messages.set(data.messages ?? []);
 	hasPersistedMessages = (data.messages?.length ?? 0) > 0;
@@ -2818,10 +2867,7 @@ function applyConversationDetailMetadata(
 	if (detail.contextCompressionSnapshots) {
 		contextCompressionMarkers = [...detail.contextCompressionSnapshots];
 	}
-	if (detail.totalCostUsdMicros != null) {
-		totalCostUsdMicros = detail.totalCostUsdMicros;
-		totalTokens = detail.totalTokens ?? 0;
-	}
+	applyConversationUsage(detail);
 	// Issue 7.5 — pending writes aren't part of ConversationDetail (dedicated
 	// endpoint, see +page.ts), so both callers of this function (the
 	// non-streaming polling fallback and the post-timeout persisted-data
@@ -2838,9 +2884,7 @@ function applyConversationDetailMetadata(
  */
 async function refreshConversationFiles() {
 	const conversationId = data.conversation.id;
-	const detail = await fetchConversationDetail(conversationId).catch(
-		() => null,
-	);
+	const detail = await readConversationDetail(conversationId).catch(() => null);
 	// The person may have opened another chat while this was read (a picture
 	// card's button, then a sidebar click): its answer belongs to the chat it
 	// was asked for, never to the one now shown (hydrateConversationDetail's rule).
@@ -2951,9 +2995,7 @@ async function pollForCompletion(
 
 	console.info("[CHAT] Polling for completion, attempt:", attempt + 1);
 	const conversationId = data.conversation.id;
-	const detail = await fetchConversationDetail(conversationId).catch(
-		() => null,
-	);
+	const detail = await readConversationDetail(conversationId).catch(() => null);
 
 	if (!detail) {
 		setTimeout(
@@ -3075,9 +3117,7 @@ async function loadPersistedData() {
 	// holds to the same rule).
 	const conversationId = data.conversation.id;
 	hasPersistedMessages = true;
-	const detail = await fetchConversationDetail(conversationId).catch(
-		() => null,
-	);
+	const detail = await readConversationDetail(conversationId).catch(() => null);
 	const stillHere = data.conversation.id === conversationId;
 	if (detail && stillHere) {
 		messages.set([...(detail.messages ?? [])]);
@@ -3180,6 +3220,7 @@ onDestroy(() => {
 		controller.abort();
 	}
 	evidencePollControllers.clear();
+	messageUsageRefresher.clear();
 
 	watchTitleOfUnfinishedTurn(data.conversation.id);
 	normalChatRuntime.detach();
@@ -3216,7 +3257,7 @@ async function hydrateConversationDetail(conversationId: string) {
 	const readMaySetDraft = landingMessageOnItsWay !== conversationId;
 
 	try {
-		const payload = await fetchConversationDetail(conversationId);
+		const payload = await readConversationDetail(conversationId);
 		if (
 			conversationId !== data.conversation.id ||
 			payload.conversation?.id !== data.conversation.id
@@ -3259,9 +3300,8 @@ async function hydrateConversationDetail(conversationId: string) {
 			atlasJobs = payload.atlasJobs ?? atlasJobs;
 			contextCompressionMarkers =
 				payload.contextCompressionSnapshots ?? contextCompressionMarkers;
-			totalCostUsdMicros = payload.totalCostUsdMicros ?? totalCostUsdMicros;
-			totalTokens = payload.totalTokens ?? totalTokens;
 		}
+		applyConversationUsage(payload);
 		// The draft the read carries is the one from when it was asked: if this
 		// page changed the draft since, it says nothing about it (`draftEpoch`).
 		if (readMaySetDraft && requestDraftEpoch === draftEpoch && payload.draft) {
@@ -3850,28 +3890,8 @@ function waitForEvidencePollDelay(
 	});
 }
 
-async function refreshMessageCost(messageId: string) {
-	try {
-		const detail = await fetchConversationDetail(data.conversation.id);
-		const msg = detail.messages.find((m) => m.id === messageId);
-		if (msg && (msg.costUsd != null || msg.generationDurationMs != null)) {
-			messages.update((list) =>
-				updateMessageById(list, messageId, (message) => ({
-					...message,
-					costUsd: msg.costUsd ?? message.costUsd,
-					generationDurationMs:
-						msg.generationDurationMs ?? message.generationDurationMs,
-					modelDisplayName: msg.modelDisplayName ?? message.modelDisplayName,
-				})),
-			);
-		}
-		if (detail.totalCostUsdMicros != null) {
-			totalCostUsdMicros = detail.totalCostUsdMicros;
-			totalTokens = detail.totalTokens ?? 0;
-		}
-	} catch {
-		// Silently ignore — cost will show after page refresh
-	}
+function refreshMessageCost(messageId: string) {
+	messageUsageRefresher.refresh(data.conversation.id, messageId);
 }
 
 function patchSkillDraftFromResponse(
@@ -4630,7 +4650,7 @@ async function recordedPicturesOf(
 	held: UserPicturesMetadata | undefined,
 ): Promise<UserPicturesMetadata | undefined> {
 	const detail = await withinOrNull(
-		fetchConversationDetail(data.conversation.id),
+		readConversationDetail(data.conversation.id),
 		MESSAGE_RECORD_READ_MAX_MS,
 	);
 	return (

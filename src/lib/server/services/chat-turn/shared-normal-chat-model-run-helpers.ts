@@ -11,6 +11,7 @@ import { resolveArtifactCatalogueBlock } from "$lib/server/services/artifacts";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import { selectNormalChatToolsForRequest } from "$lib/server/services/chat-turn/normal-chat-tool-gating";
 import { resolveReasoningDepthEffort } from "$lib/server/services/chat-turn/reasoning-depth-effort";
+import { resolveTurnTimeZone } from "$lib/server/services/chat-turn/turn-time-zone";
 import type { Capability } from "$lib/server/services/connections/registry";
 import type { ContextCompressionControlSender } from "$lib/server/services/context-compression";
 import { isExplicitFilterOnFor } from "$lib/server/services/images/picture-check/policy";
@@ -452,6 +453,11 @@ export async function prepareOutboundContext(
 		userId: params.userId,
 		conversationId: params.conversationId,
 	});
+	// The person's own clock: prompt assembly renders the zone and never reads
+	// for it, and every kind of turn prepares its context here, so this one read
+	// is the model's sense of local time on all of them. Fails open to null (the
+	// clock then says the zone is unknown).
+	const timeZone = await resolveTurnTimeZone(params.userId);
 	// The model's configured max output tokens and context limits are passed
 	// through untouched: reasoning depth never shrinks the output reserve or
 	// the constructed-context target (those are fixed per model). Depth only
@@ -471,6 +477,7 @@ export async function prepareOutboundContext(
 		systemPromptAppendix: params.systemPromptAppendix,
 		personalityPrompt: params.personalityPrompt,
 		instructions,
+		timeZone,
 		forceWebSearch: params.forceWebSearch,
 		modelId: runtime.modelId,
 		contextLimits: runtime.baseContextLimits,

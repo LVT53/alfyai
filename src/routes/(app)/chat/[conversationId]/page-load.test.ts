@@ -66,6 +66,7 @@ function appShellDataFixture(
 		userModelPreference: "model1",
 		userTitleLanguage: "auto",
 		userUiLanguage: "en",
+		userTimeZone: null,
 		userPersonality: null,
 		userSidebarProjectsExpanded: true,
 		userSidebarChatsExpanded: true,

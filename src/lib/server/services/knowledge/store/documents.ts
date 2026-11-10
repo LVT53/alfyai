@@ -1,4 +1,14 @@
-import { and, desc, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	ne,
+	or,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifactLinks,
@@ -52,6 +62,33 @@ import { resolveWorkingDocumentIdentity } from "./working-document-identity";
 
 const SEMANTIC_ARTIFACT_CANDIDATE_LIMIT = 120;
 const SEMANTIC_ARTIFACT_SHORTLIST_LIMIT = 24;
+
+/*
+ * The 120 newest documents are always in the running. A library can hold more, and
+ * an older document used to be out of reach however well it answered: a library of
+ * 400 cut off the right document for up to 70% of the questions, one of 1,500 for up
+ * to 92% (the worst case, when no question is about the 120 newest;
+ * docs/plans/document-ranking/README.md, "Which documents are in the running").
+ * Two small groups of OLDER documents now join the 120, and only when there are any:
+ *
+ *  - the ones whose stored vector is closest to the question, as many as the usual
+ *    shortlist takes (no older document could rank higher than that in it anyway),
+ *    chosen among the newest 2,000 of them. The vectors are compared here, in
+ *    JavaScript and synchronously, so a search pays for what it reads and holds
+ *    the event loop for as long: on the machine it was measured on, 12 ms for
+ *    280 older documents of 1024 dimensions, 60 ms for 1,380, and the cap holds
+ *    the scan of a very large library to about 90 ms (107 to 132 ms for the whole
+ *    extra pass at the cap);
+ *  - the ones whose name or summary (the first lines of the text) hold EVERY longer
+ *    word of the question: a series told apart by its year, a name, an id, which
+ *    the embedder cannot tell apart. The text itself is not read, because that
+ *    scan grows with the size of the library's text and not with its document
+ *    count; a phrase from the middle of a long document is the embedder's to find.
+ */
+const OLDER_ARTIFACT_SCAN_LIMIT = 2_000;
+const OLDER_ARTIFACT_SIMILAR_LIMIT = SEMANTIC_ARTIFACT_SHORTLIST_LIMIT;
+const OLDER_ARTIFACT_NAMED_LIMIT = 12;
+const OLDER_ARTIFACT_NAMED_MAX_WORDS = 6;
 
 export interface RankedArtifactMatch {
 	artifact: Artifact;
@@ -1394,17 +1431,101 @@ function buildArtifactSearchBody(artifact: Artifact): string {
 	return `${artifact.name}\n${artifact.summary ?? ""}\n${artifact.contentText ?? ""}`;
 }
 
-function tokenizeArtifactSearchQuery(query: string): string[] {
-	return Array.from(
-		new Set(
-			query
-				.toLowerCase()
-				.split(/[^a-z0-9]+/i)
-				.map((token) => token.trim())
-				.filter((token) => token.length >= 2)
-				.slice(0, 8),
-		),
+/**
+ * The query's longer words, for finding a document whose name holds all of them:
+ * letters and digits only (a Hungarian word is not cut at its accents), three or
+ * more of them, the longest first because they are the rarest. At most a few: a
+ * sentence has more everyday words than any name holds.
+ */
+function namedArtifactSearchWords(query: string): string[] {
+	const words = new Set(
+		query
+			.toLowerCase()
+			.split(/[^\p{L}\p{N}]+/u)
+			.filter((word) => word.length >= 3),
 	);
+	return Array.from(words)
+		.sort((left, right) => right.length - left.length)
+		.slice(0, OLDER_ARTIFACT_NAMED_MAX_WORDS);
+}
+
+/**
+ * The documents older than the newest `SEMANTIC_ARTIFACT_CANDIDATE_LIMIT` that are
+ * worth ranking too: the ones closest to the question by their stored vector, and
+ * the ones that hold every longer word of it. Same visibility rules as the newest
+ * (`baseConditions`, then the ownership check), so nothing is reachable here that
+ * the window could not reach.
+ */
+async function selectOlderArtifactCandidates(params: {
+	userId: string;
+	query: string;
+	queryEmbedding?: number[];
+	ownershipScope: ArtifactOwnershipScope;
+	baseConditions: Array<SQL | undefined>;
+	newestIds: Set<string>;
+}): Promise<Artifact[]> {
+	// The columns the ownership check reads, the name and the summary: the text
+	// of 2,000 documents is not worth loading to find out which to look at.
+	const rows = await db
+		.select({
+			id: artifacts.id,
+			userId: artifacts.userId,
+			type: artifacts.type,
+			conversationId: artifacts.conversationId,
+			name: artifacts.name,
+			summary: artifacts.summary,
+		})
+		.from(artifacts)
+		.where(and(...params.baseConditions))
+		.orderBy(desc(artifacts.updatedAt))
+		.limit(SEMANTIC_ARTIFACT_CANDIDATE_LIMIT + OLDER_ARTIFACT_SCAN_LIMIT);
+	const older = rows.filter(
+		(row) =>
+			!params.newestIds.has(row.id) &&
+			isArtifactCanonicallyOwned({
+				userId: params.userId,
+				ownershipScope: params.ownershipScope,
+				artifact: row,
+			}),
+	);
+	if (older.length === 0) return [];
+
+	const chosenIds = new Set<string>();
+
+	// The caller that embedded the question already (a chat turn does, once, for
+	// every kind it searches) gets the older documents closest to it by meaning.
+	if (params.queryEmbedding?.length) {
+		const similar = await shortlistSemanticMatchesBySubject({
+			userId: params.userId,
+			subjectType: "artifact",
+			query: params.query,
+			items: older,
+			getSubjectId: (row) => row.id,
+			limit: OLDER_ARTIFACT_SIMILAR_LIMIT,
+			queryEmbedding: params.queryEmbedding,
+		});
+		for (const match of similar ?? []) chosenIds.add(match.subjectId);
+	}
+
+	// `older` is newest first, so the newest of the documents that name it come first.
+	const words = namedArtifactSearchWords(params.query);
+	if (words.length > 0) {
+		let named = 0;
+		for (const row of older) {
+			if (named >= OLDER_ARTIFACT_NAMED_LIMIT) break;
+			const heading = `${row.name}\n${row.summary ?? ""}`.toLowerCase();
+			if (!words.every((word) => heading.includes(word))) continue;
+			chosenIds.add(row.id);
+			named += 1;
+		}
+	}
+
+	if (chosenIds.size === 0) return [];
+	const chosen = await db
+		.select()
+		.from(artifacts)
+		.where(inArray(artifacts.id, Array.from(chosenIds)));
+	return chosen.map(mapArtifact);
 }
 
 async function selectArtifactSearchCandidates(params: {
@@ -1414,12 +1535,9 @@ async function selectArtifactSearchCandidates(params: {
 	excludeConversationId?: string;
 	limit: number;
 	preferSemanticBreadth?: boolean;
+	queryEmbedding?: number[];
 }): Promise<Artifact[]> {
 	const ownershipScope = await getArtifactOwnershipScope(params.userId);
-	const tokenFragments = tokenizeArtifactSearchQuery(params.query).map(
-		(token) => `%${token}%`,
-	);
-	const semanticBreadth = params.preferSemanticBreadth ?? false;
 	const baseConditions = [
 		buildArtifactVisibilityCondition({
 			userId: params.userId,
@@ -1443,18 +1561,6 @@ async function selectArtifactSearchCandidates(params: {
 			: undefined,
 	];
 
-	if (!semanticBreadth && tokenFragments.length > 0) {
-		baseConditions.push(
-			or(
-				...tokenFragments.flatMap((fragment) => [
-					like(artifacts.name, fragment),
-					like(artifacts.summary, fragment),
-					like(artifacts.contentText, fragment),
-				]),
-			),
-		);
-	}
-
 	const rows = await db
 		.select()
 		.from(artifacts)
@@ -1462,7 +1568,7 @@ async function selectArtifactSearchCandidates(params: {
 		.orderBy(desc(artifacts.updatedAt))
 		.limit(params.limit);
 
-	return rows
+	const newest = rows
 		.filter((row) =>
 			isArtifactCanonicallyOwned({
 				userId: params.userId,
@@ -1471,6 +1577,32 @@ async function selectArtifactSearchCandidates(params: {
 			}),
 		)
 		.map(mapArtifact);
+
+	// A window that is not full holds the whole library: nothing is older.
+	if (!params.preferSemanticBreadth || rows.length < params.limit) {
+		return newest;
+	}
+
+	// The older documents are an addition to the 120 newest, which answer on their
+	// own: a failure here (an unreadable stored vector, a locked file) must cost
+	// the addition, not the whole search of the turn.
+	let older: Artifact[] = [];
+	try {
+		older = await selectOlderArtifactCandidates({
+			userId: params.userId,
+			query: params.query,
+			queryEmbedding: params.queryEmbedding,
+			ownershipScope,
+			baseConditions,
+			newestIds: new Set(rows.map((row) => row.id)),
+		});
+	} catch (error) {
+		console.error(
+			"[KNOWLEDGE] Older-document candidates failed; ranking the newest documents only:",
+			error,
+		);
+	}
+	return [...newest, ...older];
 }
 
 /**
@@ -1690,6 +1822,7 @@ export async function findRelevantArtifactsByTypesDetailed(params: {
 			? SEMANTIC_ARTIFACT_CANDIDATE_LIMIT
 			: Math.max(params.limit, 12),
 		preferSemanticBreadth: semanticBreadth,
+		queryEmbedding: params.queryEmbedding,
 	});
 
 	if (params.query.trim().length === 0) {

@@ -87,13 +87,26 @@ function scoreCandidate(candidate: WorkingSetCandidate): RankedWorkingSetItem {
 
 	const matchBoost = clamp((candidate.messageMatchScore ?? 0) * 15, 0, 60);
 	if (matchBoost > 0) {
-		score += matchBoost;
 		reasonCodes.push("matched_current_turn");
 	}
 
+	// The signals above are the turn's own verdict on the document. When the file
+	// was last written says nothing about whether the person is still working with
+	// it, so they are not weighed by age. They were: this whole sum went through
+	// `computeDecayScore` with the age in SECONDS (exp(-0.011 * age): 0.001 after
+	// ten minutes), so a document written more than about two minutes before the
+	// refresh fell under the cut of 20 whatever the turn had said about it, and was
+	// not carried to the next turn.
+	//
+	// A match with the message is still weighed by age, exactly as before. It is
+	// the weakest reason there is (three-letter pieces of the message found
+	// anywhere in the text, so nearly every reply of a chat matches the next
+	// question), and with nothing to age it a long chat's own old replies all stay
+	// in the working set and the prompt (measured: 16 active, 18 of 20 replies in
+	// the prompt after 20 turns).
 	const ageSeconds = Math.max(0, (Date.now() - candidate.updatedAt) / 1000);
-	score = computeDecayScore({
-		importance: score,
+	score += computeDecayScore({
+		importance: matchBoost,
 		ageSeconds,
 		staleSeconds: ageSeconds,
 		queryOverlap: candidate.messageMatchScore ?? 0,
@@ -114,10 +127,19 @@ function scoreCandidate(candidate: WorkingSetCandidate): RankedWorkingSetItem {
 export function rankWorkingSetCandidates(
 	candidates: WorkingSetCandidate[],
 ): RankedWorkingSetItem[] {
-	const ranked = candidates.map(scoreCandidate).sort((a, b) => {
-		if (b.score !== a.score) return b.score - a.score;
-		return a.artifactId.localeCompare(b.artifactId);
-	});
+	// Equal scores: the document written last first, then by id so the order is
+	// the same on every run. Which of a tied crowd the limits below keep is this.
+	const ranked = candidates
+		.map((candidate) => ({
+			item: scoreCandidate(candidate),
+			updatedAt: candidate.updatedAt,
+		}))
+		.sort((a, b) => {
+			if (b.item.score !== a.item.score) return b.item.score - a.item.score;
+			if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
+			return a.item.artifactId.localeCompare(b.item.artifactId);
+		})
+		.map(({ item }) => item);
 
 	const selectedIds = new Set<string>();
 	let documentCount = 0;

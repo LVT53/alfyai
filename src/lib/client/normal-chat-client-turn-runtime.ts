@@ -2017,8 +2017,9 @@ export function createNormalChatClientTurnRuntime(
 				});
 				if (serverAssistantId) {
 					adapters.pollMessageEvidence(serverAssistantId);
+					// Context metadata does not establish that accounting is ready.
+					adapters.refreshMessageCost(serverAssistantId);
 					if (shouldHydrateEventualMetadata) {
-						adapters.refreshMessageCost(serverAssistantId);
 						adapters.hydrateConversationDetail();
 					}
 				}

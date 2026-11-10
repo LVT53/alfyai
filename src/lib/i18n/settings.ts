@@ -2011,6 +2011,15 @@ const settingsDict = {
 		"profileTab.langHungarian": "Magyar",
 		"profileTab.titleLanguageHelp":
 			"The language new conversation titles are written in.",
+		// The zone the model is told as the person's clock. The options are IANA
+		// names ("Europe/Budapest"), the same in both dictionaries; only the row's
+		// own words and the two headings of the list are translated. The device's
+		// zone sits alone under the first, so the closed select never has to fit
+		// a marker beside the name.
+		"profileTab.timeZone": "Time zone",
+		"profileTab.timeZoneHelp": "Lets AlfyAI know your local date and time.",
+		"profileTab.timeZoneThisDevice": "This device",
+		"profileTab.timeZoneOthers": "Other zones",
 
 		// Assistant behaviour.
 		"profileTab.assistantTitle": "Assistant behaviour",
@@ -4140,6 +4149,10 @@ const settingsDict = {
 			"Az eszközödet követi, amíg nem választasz mást.",
 		"profileTab.titleLanguageHelp":
 			"Ezen a nyelven készülnek az új beszélgetéscímek.",
+		"profileTab.timeZone": "Időzóna",
+		"profileTab.timeZoneHelp": "Ebből tudja az AlfyAI, mennyi az idő nálad.",
+		"profileTab.timeZoneThisDevice": "Ez az eszköz",
+		"profileTab.timeZoneOthers": "Más időzónák",
 
 		// Az asszisztens viselkedése.
 		"profileTab.assistantTitle": "Az asszisztens viselkedése",

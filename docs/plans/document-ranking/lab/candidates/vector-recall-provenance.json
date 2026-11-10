@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-10",
+  "base_commit": "de8750af9",
+  "model": "Qwen/Qwen3-Embedding-4B",
+  "dimensions": 1024,
+  "tei": {
+    "version": "1.9.3",
+    "dtype": "float16",
+    "normalize": true,
+    "truncate": true,
+    "query_prompt": "query",
+    "document_prompt": null,
+    "batch": 8
+  },
+  "embedding_run_utc": [
+    "2026-11-10T13:45:51Z",
+    "2026-11-10T13:51:36Z"
+  ],
+  "documents": 5476,
+  "queries": 2226,
+  "source": "buildArtifactEmbeddingSourceText: name doc-<dataset-id>.md, null summary, public contentText; whitespace normalized",
+  "source_hash_verification": "5476/5476 match stored source_text_hash",
+  "artifact_sha256": {
+    "plan/plan.json": "831afb42e43cb61a882ee869d639e9607598e0a6a583b8fb393c1fcf89c89d44",
+    "plan/docs.jsonl": "5ad7c1d9802b5817f6c49219f49251e67e3a66f4ec9c35238d276d1b8ac82bfb",
+    "out-real/embedded.db": "1019ab14b8a9263971ddf15155418cb2b8086288819144f1d5fb79d50e494cd2",
+    "out-real/query-vectors.json": "552bb632c41071a2abddb60fe73d8dd2fd0942142e46a5dc3c7a4aac9e968c7b",
+    "rank-lab-features.json": "0b40cb1db93f315945f44466f06a9a43905d7931f09363acb104ae7c46f3d65a"
+  },
+  "retention": "Vectors retained in ignored data/vector-recall/out-real; required for offline remeasurement; public text only. Membership and local dataset hashes in vector-recall-selection.json. Upstream revisions not recorded."
+}

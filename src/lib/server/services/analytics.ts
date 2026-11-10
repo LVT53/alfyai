@@ -2736,3 +2736,54 @@ export async function getConversationCostSummary(
 		totalTokens: row?.totalTokens ?? 0,
 	};
 }
+
+export type MessageUsageState =
+	| { status: "pending" | "untracked" }
+	| ({
+			status: "ready";
+			costUsd: number;
+			generationDurationMs: number | null;
+	  } & ConversationCostSummary);
+
+/** Read accounting independently of the slower turn/evidence projection. */
+export async function getMessageUsageState(
+	userId: string,
+	conversationId: string,
+	messageId: string,
+): Promise<MessageUsageState | null> {
+	const [row] = await db
+		.select({
+			incognito: conversations.memoryIncognito,
+			usageId: usageEvents.id,
+			costUsdMicros: usageEvents.costUsdMicros,
+			generationTimeMs: usageEvents.generationTimeMs,
+		})
+		.from(messages)
+		.innerJoin(conversations, eq(conversations.id, messages.conversationId))
+		.leftJoin(
+			usageEvents,
+			and(
+				eq(usageEvents.messageId, messages.id),
+				eq(usageEvents.conversationId, conversationId),
+				eq(usageEvents.userId, userId),
+			),
+		)
+		.where(
+			and(
+				eq(conversations.userId, userId),
+				eq(messages.conversationId, conversationId),
+				eq(messages.id, messageId),
+				eq(messages.role, "assistant"),
+			),
+		)
+		.limit(1);
+	if (!row) return null;
+	if (row.incognito) return { status: "untracked" };
+	if (!row.usageId) return { status: "pending" };
+	return {
+		status: "ready",
+		costUsd: (row.costUsdMicros ?? 0) / 1_000_000,
+		generationDurationMs: row.generationTimeMs,
+		...(await getConversationCostSummary(conversationId)),
+	};
+}

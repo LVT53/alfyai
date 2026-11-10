@@ -8,6 +8,7 @@ import type {
 } from "$lib/shared/artifacts/image-body";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { resolveInstructionScopeApplication } from "$lib/shared/instructions";
+import { describeLocalMoment } from "$lib/shared/time-zone";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	getConfig,
@@ -640,10 +641,48 @@ const TURN_GUIDANCE_HEADING = "## Turn Guidance";
 const FORCED_WEB_SEARCH_GUIDANCE =
 	"Web research was requested for this turn: call research_web first (set readPages when page-level detail is needed), then answer from its results with citations.";
 
+// What the model is told the time is. A fact about this minute, so it rides
+// the turn guidance and never the cached system prompt. The line IS the clock:
+// there is no date or time tool to call, and the sandbox's own clock is UTC,
+// so it says so rather than point anywhere else. English whatever the account
+// is shown in and naming no language (ruling 79); no input here is a language.
+//
+// With the person's zone it is their own date, time of day and offset, which
+// is what makes "since January" and "last month" mean what they mean to them.
+// Without one (nothing stored yet, or a stored name this runtime no longer
+// knows) it keeps the server's date, as the line did before there was a zone,
+// and says the rest is unknown instead of guessing a time of day.
+export function buildTimeContextLine(params: {
+	now: Date;
+	timeZone?: string | null;
+}): string {
+	const moment = params.timeZone
+		? describeLocalMoment(params.now, params.timeZone)
+		: null;
+	if (moment) {
+		return `[SYSTEM TIME CONTEXT: The person's local date and time is ${moment.date}, ${moment.time} (${params.timeZone}, ${moment.offset}). This line is the current time: use it as your temporal anchor for relative timeframes such as "today", "tomorrow" and "last month", and do not guess or look up the time anywhere else.]`;
+	}
+	const serverDate = params.now.toLocaleDateString("en-US", {
+		weekday: "long",
+		year: "numeric",
+		month: "long",
+		day: "numeric",
+	});
+	return `[SYSTEM TIME CONTEXT: Today is ${serverDate} by the server's clock. The person's time zone is unknown, so their own date may differ near midnight and their time of day is unknown. This line is the current date: use it as your temporal anchor for relative timeframes, and do not guess the time of day.]`;
+}
+
 // Per-turn guidance that used to sit in the system message. It is appended
 // to the user packet (see prepareOutboundChatContext) so the system message
 // plus tool catalogue stays a stable, cacheable prefix across turns.
 export function buildTurnGuidance(params: {
+	// The moment the time line reads (default: now). A turn builds its guidance
+	// more than once (automatic compression measures it, the prepared context
+	// returns it) and hands every build the same reading.
+	now?: Date;
+	// The person's stored IANA zone, resolved by the caller (see
+	// PrepareOutboundChatContextParams.timeZone). Null or unknown: see
+	// buildTimeContextLine.
+	timeZone?: string | null;
 	reasoningDepthEffort?: ReasoningDepthEffort;
 	skipDefaultRuntimeGuidance?: boolean;
 	forceWebSearch?: boolean;
@@ -681,15 +720,11 @@ export function buildTurnGuidance(params: {
 	imageGuidance?: readonly string[];
 }): string {
 	if (params.skipDefaultRuntimeGuidance) return "";
-	const todayStr = new Date().toLocaleDateString("en-US", {
-		weekday: "long",
-		year: "numeric",
-		month: "long",
-		day: "numeric",
-	});
-	const explicitDateContext = `[SYSTEM TIME CONTEXT: Today is ${todayStr}. Use this exact date as your current temporal anchor for relative timeframes. Call a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially depends on it.]`;
 	const sections = [
-		explicitDateContext,
+		buildTimeContextLine({
+			now: params.now ?? new Date(),
+			timeZone: params.timeZone,
+		}),
 		REPLY_LANGUAGE_RULE,
 		...(params.reasoningDepthEffort
 			? [buildReasoningDepthEffortGuard(params.reasoningDepthEffort)]
@@ -1935,6 +1970,12 @@ type PrepareOutboundChatContextParams = {
 	// read belongs to services/instructions.ts, and keeping it out of here
 	// keeps prompt assembly free of DB reads.
 	instructions?: ResolvedTurnInstructions | null;
+	// The person's stored IANA time zone ("Europe/Budapest"), resolved by the
+	// caller for the same reason: the read belongs to
+	// chat-turn/turn-time-zone.ts. Null (nothing stored yet) or a name this
+	// runtime does not know gives the guidance the server's date and the words
+	// "time zone is unknown" (buildTimeContextLine).
+	timeZone?: string | null;
 	forceWebSearch?: boolean;
 	skipDefaultRuntimeGuidance?: boolean;
 	systemPromptOverride?: string;
@@ -2311,9 +2352,14 @@ export async function prepareOutboundChatContext(
 	// compression measures it and the prepared context returns the same text.
 	// Only its image lines depend on the constructed context (which pictures
 	// were sent and which the limit left out), and a rebuild after compression
-	// keeps those, so both calls build the same text.
+	// keeps those, so both calls build the same text. The clock is read once for
+	// the turn, so a minute that turns between the two builds cannot make them
+	// differ either.
+	const turnNow = new Date();
 	const buildGuidanceFor = (turnImages: TurnImages) =>
 		buildTurnGuidance({
+			now: turnNow,
+			timeZone: params.timeZone,
 			reasoningDepthEffort: params.reasoningDepthEffort,
 			skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
 			forceWebSearch: params.forceWebSearch,

@@ -52,6 +52,7 @@ import {
 } from "$lib/stores/avatar";
 import { projects } from "$lib/stores/projects";
 import { pendingSpotlight, spotlightRequest } from "$lib/stores/spotlight";
+import { detectBrowserTimeZone } from "$lib/shared/time-zone";
 import {
 	setSelectedModelAndSync,
 	setModelPreferenceAndSync,
@@ -100,6 +101,7 @@ interface SettingsPageData {
 			theme: "system" | "light" | "dark";
 			titleLanguage: "auto" | "en" | "hu";
 			uiLanguage: "en" | "hu";
+			timeZone?: string | null;
 			memoryEnabled?: boolean;
 		};
 		profilePicture: string | null;
@@ -243,6 +245,16 @@ let selectedTitleLanguage = $state(initialPreferences.titleLanguage ?? "auto");
 let selectedUiLanguage = $state<UiLanguage>(
 	initialPreferences.uiLanguage ?? "en",
 );
+// The IANA zone the server holds (null until a browser has saved one) and the
+// one this browser reports, read after mount: on the server it would be the
+// server's own.
+let selectedTimeZone = $state<string | null>(
+	initialPreferences.timeZone ?? null,
+);
+let detectedTimeZone = $state<string | null>(null);
+onMount(() => {
+	detectedTimeZone = detectBrowserTimeZone();
+});
 let selectedPersonalityId = $state<string | null>(
 	initialPreferences.preferredPersonalityId ?? null,
 );
@@ -634,6 +646,17 @@ async function changeTitleLanguage(lang: TitleLanguage) {
 async function changeUiLanguage(lang: UiLanguage) {
 	selectedUiLanguage = lang;
 	await setUiLanguageAndSync(lang);
+}
+
+async function changeTimeZone(zone: string) {
+	const previous = selectedTimeZone;
+	selectedTimeZone = zone;
+	try {
+		await updateUserPreferences({ timeZone: zone });
+	} catch {
+		// Not saved: show what the server still holds, not a zone it never got.
+		selectedTimeZone = previous;
+	}
 }
 
 // Deep-link from the Knowledge memory empty state (/settings?section=memory):
@@ -1268,10 +1291,13 @@ $effect(() => {
 				{selectedTheme}
 				{selectedTitleLanguage}
 				{selectedUiLanguage}
+				{selectedTimeZone}
+				{detectedTimeZone}
 				onChangeModel={changeModel}
 				onChangeTheme={changeTheme}
 				onChangeTitleLanguage={changeTitleLanguage}
 				onChangeUiLanguage={changeUiLanguage}
+				onChangeTimeZone={changeTimeZone}
 				memoryEnabled={selectedMemoryEnabled}
 				{memorySaving}
 				onChangeMemoryEnabled={changeMemoryEnabled}

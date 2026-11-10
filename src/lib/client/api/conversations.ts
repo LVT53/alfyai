@@ -1,3 +1,4 @@
+import type { MessageUsageState } from "$lib/server/services/analytics";
 import type { AtlasProfile } from "$lib/server/services/atlas/public-types";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
 import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
@@ -720,4 +721,16 @@ export async function fetchConversationMarkdownExport(
 			`${conversationId}.md`,
 		),
 	};
+}
+
+export async function fetchMessageUsage(
+	conversationId: string,
+	messageId: string,
+	signal?: AbortSignal,
+): Promise<MessageUsageState> {
+	return requestJson<MessageUsageState>(
+		`/api/conversations/${conversationId}/messages/${messageId}/usage`,
+		{ signal, cache: "no-store" },
+		"Failed to load message usage",
+	);
 }
