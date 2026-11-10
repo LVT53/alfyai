@@ -1,0 +1,427 @@
+import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
+import type {
+	NormalChatCompletion,
+	NormalChatStopCause,
+} from "$lib/shared/normal-chat-completion";
+import { db } from "../../db";
+import {
+	conversations,
+	normalChatAttempts,
+	normalChatTurns,
+} from "../../db/schema";
+import {
+	linkNormalChatMessageAccounting,
+	priceNormalChatAttempt,
+	recordNormalChatAttemptAccounting,
+} from "../analytics";
+import {
+	withTurnLedgerStorage as durable,
+	TurnLedgerConflictError,
+	TurnLedgerScopeError,
+	TurnLedgerStorageError,
+} from "./turn-ledger-errors";
+
+export {
+	TurnLedgerConflictError,
+	TurnLedgerScopeError,
+	TurnLedgerStorageError,
+} from "./turn-ledger-errors";
+
+export type TurnScope = {
+	userId: string;
+	conversationId: string;
+	turnId: string;
+	segmentId: string;
+};
+export type TurnRecord = typeof normalChatTurns.$inferSelect;
+export type TurnOutcome = NormalChatCompletion["outcome"];
+export type TurnStopCause = NormalChatStopCause;
+export type TurnTerminal = Omit<
+	NormalChatCompletion,
+	"version" | "turnId" | "segmentId"
+> & {
+	recoveryCount: number;
+	attemptIds: readonly string[];
+	messageId?: string | null;
+};
+export type TurnAttempt = {
+	attemptId: string;
+	phase: "working" | "closing";
+	providerId: string | null;
+	modelId: string;
+	providerModelName: string;
+	safeStopCause: TurnStopCause | null;
+	outcome: TurnOutcome | null;
+	/** One authoritative attempt total, never SDK cumulative plus step totals. */
+	inputTokens: number | null;
+	outputTokens: number | null;
+	totalTokens: number | null;
+	cachedInputTokens?: number | null;
+	cacheHitTokens?: number | null;
+	cacheMissTokens?: number | null;
+	reasoningTokens?: number | null;
+	generationTimeMs?: number | null;
+	/** False until usage is final. Unknown final usage still cannot become ready. */
+	usageFinal: boolean;
+};
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+function scoped(scope: TurnScope) {
+	return and(
+		eq(normalChatTurns.segmentId, scope.segmentId),
+		eq(normalChatTurns.turnId, scope.turnId),
+		eq(normalChatTurns.conversationId, scope.conversationId),
+	);
+}
+function requireTurn(tx: Tx, scope: TurnScope): TurnRecord {
+	const row = tx.select().from(normalChatTurns).where(scoped(scope)).get();
+	const chat = tx
+		.select()
+		.from(conversations)
+		.where(
+			and(
+				eq(conversations.id, scope.conversationId),
+				eq(conversations.userId, scope.userId),
+			),
+		)
+		.get();
+	if (!row || !chat || chat.memoryIncognito)
+		throw new TurnLedgerScopeError("Turn scope denied");
+	return row;
+}
+// Exhaustive runtime guards: adding a shared outcome/cause requires updating
+// this content-free whitelist, rather than accepting free-form provider text.
+const outcomes = new Set(
+	Object.keys({
+		answered: true,
+		delivered: true,
+		paused: true,
+		stopped: true,
+		incomplete: true,
+		failed: true,
+	} satisfies Record<TurnOutcome, true>),
+);
+const causes = new Set(
+	Object.keys({
+		natural_stop: true,
+		tool_budget: true,
+		stagnation: true,
+		length: true,
+		content_filter: true,
+		stream_end: true,
+		transport_error: true,
+		deadline: true,
+		user_stop: true,
+		ask_pause: true,
+		context_capacity: true,
+		incompatible_continuation: true,
+		uncertain_execution: true,
+	} satisfies Record<TurnStopCause, true>),
+);
+function count(value: number | null | undefined) {
+	if (value != null && (!Number.isSafeInteger(value) || value < 0))
+		throw new TypeError("Invalid usage count");
+}
+function safeFacts(outcome: string | null, cause: string | null) {
+	if (
+		(outcome != null && !outcomes.has(outcome)) ||
+		(cause != null && !causes.has(cause))
+	)
+		throw new TypeError("Invalid completion fact");
+}
+function reconcile(tx: Tx, row: TurnRecord) {
+	if (!row.attemptIdsJson) return;
+	const ids: string[] = JSON.parse(row.attemptIdsJson);
+	const attempts = tx
+		.select()
+		.from(normalChatAttempts)
+		.where(eq(normalChatAttempts.segmentId, row.segmentId))
+		.all();
+	const ready = ids.every((id) =>
+		attempts.some(
+			(a) => a.attemptId === id && a.usageFinal && a.costUsdMicros !== null,
+		),
+	);
+	tx.update(normalChatTurns)
+		.set({ accountingStatus: ready ? "ready" : "pending" })
+		.where(eq(normalChatTurns.segmentId, row.segmentId))
+		.run();
+}
+
+/** Allocate once for a fresh requested turn; reuse turnId with a new segmentId for an explicit resume. */
+export function allocateTurnIdentity(
+	turnId: string = randomUUID(),
+): Pick<TurnScope, "turnId" | "segmentId"> {
+	return { turnId, segmentId: randomUUID() };
+}
+/** Only `admitted` authorizes the caller to start generation. Existing never does. */
+export function admitTurn(
+	input: TurnScope & { ownerId: string },
+):
+	| { status: "admitted" | "existing"; turn: TurnRecord }
+	| { status: "untracked" } {
+	return durable(() =>
+		db.transaction((tx) => {
+			const chat = tx
+				.select()
+				.from(conversations)
+				.where(
+					and(
+						eq(conversations.id, input.conversationId),
+						eq(conversations.userId, input.userId),
+					),
+				)
+				.get();
+			if (!chat) throw new TurnLedgerScopeError("Turn scope denied");
+			if (chat.memoryIncognito) return { status: "untracked" as const };
+			const existing = tx
+				.select()
+				.from(normalChatTurns)
+				.where(eq(normalChatTurns.segmentId, input.segmentId))
+				.get();
+			if (existing)
+				return { status: "existing" as const, turn: requireTurn(tx, input) };
+			tx.insert(normalChatTurns)
+				.values({
+					segmentId: input.segmentId,
+					turnId: input.turnId,
+					conversationId: input.conversationId,
+					ownerId: input.ownerId,
+				})
+				.run();
+			return { status: "admitted" as const, turn: requireTurn(tx, input) };
+		}),
+	);
+}
+export function observeTurn(scope: TurnScope): TurnRecord | null {
+	return durable(
+		() =>
+			db
+				.select()
+				.from(normalChatTurns)
+				.innerJoin(
+					conversations,
+					eq(conversations.id, normalChatTurns.conversationId),
+				)
+				.where(
+					and(
+						scoped(scope),
+						eq(conversations.userId, scope.userId),
+						eq(conversations.memoryIncognito, false),
+					),
+				)
+				.get()?.normal_chat_turns ?? null,
+	);
+}
+/** Terminal manifests are immutable, but listed late usage may still reconcile. */
+export function settleTurn(
+	scope: TurnScope,
+	terminal: TurnTerminal,
+): TurnRecord {
+	if (
+		(terminal.phase !== "working" && terminal.phase !== "closing") ||
+		typeof terminal.closingAttempted !== "boolean"
+	)
+		throw new TypeError("Invalid terminal phase");
+	safeFacts(terminal.outcome, terminal.stopCause);
+	safeFacts(null, terminal.workingStopCause);
+	count(terminal.recoveryCount);
+	const attemptIdsJson = JSON.stringify(
+		[...new Set(terminal.attemptIds)].sort(),
+	);
+	if (terminal.attemptIds.length !== JSON.parse(attemptIdsJson).length)
+		throw new TypeError("Duplicate attempt IDs");
+	return durable(() =>
+		db.transaction((tx) => {
+			let row = requireTurn(tx, scope);
+			if (terminal.messageId) {
+				linkNormalChatMessageAccounting(tx, {
+					...scope,
+					messageId: terminal.messageId,
+				});
+				row = requireTurn(tx, scope);
+			}
+			const fields = {
+				outcome: terminal.outcome,
+				phase: terminal.phase,
+				closingAttempted: terminal.closingAttempted,
+				stopCause: terminal.stopCause,
+				workingStopCause: terminal.workingStopCause,
+				recoveryCount: terminal.recoveryCount,
+				attemptIdsJson,
+			};
+			if (row.outcome) {
+				if (
+					Object.entries(fields).some(
+						([key, value]) => row[key as keyof TurnRecord] !== value,
+					)
+				)
+					throw new TurnLedgerConflictError("Terminal conflict");
+				return row;
+			}
+			const attempts = tx
+				.select()
+				.from(normalChatAttempts)
+				.where(eq(normalChatAttempts.segmentId, scope.segmentId))
+				.all();
+			if (attempts.some((a) => !terminal.attemptIds.includes(a.attemptId)))
+				throw new TurnLedgerConflictError("Terminal manifest conflict");
+			tx.update(normalChatTurns)
+				.set({ ...fields, settledAt: new Date() })
+				.where(scoped(scope))
+				.run();
+			reconcile(tx, requireTurn(tx, scope));
+			return requireTurn(tx, scope);
+		}),
+	);
+}
+/** Caller supplies authoritative currently live process/run owners. This operation never generates. */
+export function observeAbandonedTurn(
+	scope: TurnScope,
+	liveOwnerIds: readonly string[],
+): TurnRecord | null {
+	return durable(() =>
+		db.transaction((tx) => {
+			const row = tx.select().from(normalChatTurns).where(scoped(scope)).get();
+			if (!row) return null;
+			requireTurn(tx, scope);
+			if (row.outcome || liveOwnerIds.includes(row.ownerId)) return row;
+			const attempts = tx
+				.select()
+				.from(normalChatAttempts)
+				.where(eq(normalChatAttempts.segmentId, scope.segmentId))
+				.all();
+			return settleTurn(scope, {
+				outcome: "incomplete",
+				phase: attempts.some((a) => a.phase === "closing")
+					? "closing"
+					: "working",
+				closingAttempted: attempts.some((a) => a.phase === "closing"),
+				stopCause: "uncertain_execution",
+				workingStopCause: "uncertain_execution",
+				recoveryCount: row.recoveryCount,
+				attemptIds: attempts.map((a) => a.attemptId),
+			});
+		}),
+	);
+}
+
+/** Upsert a single authoritative snapshot, not an increment. Final billed facts are immutable. */
+export async function recordTurnAttempt(
+	scope: TurnScope,
+	input: TurnAttempt,
+): Promise<void> {
+	safeFacts(input.outcome, input.safeStopCause);
+	if (input.phase !== "working" && input.phase !== "closing")
+		throw new TypeError("Invalid attempt phase");
+	for (const key of [
+		"inputTokens",
+		"outputTokens",
+		"totalTokens",
+		"cachedInputTokens",
+		"cacheHitTokens",
+		"cacheMissTokens",
+		"reasoningTokens",
+		"generationTimeMs",
+	] as const)
+		count(input[key]);
+	const row = durable(() => db.transaction((tx) => requireTurn(tx, scope)));
+	const old = durable(() =>
+		db
+			.select()
+			.from(normalChatAttempts)
+			.where(eq(normalChatAttempts.attemptId, input.attemptId))
+			.get(),
+	);
+	// Price windows use durable call start, not delayed reconciliation time.
+	const startedAt = old?.startedAt ?? new Date();
+	let price: Awaited<ReturnType<typeof priceNormalChatAttempt>>;
+	try {
+		price = await priceNormalChatAttempt(input, startedAt);
+	} catch (error) {
+		throw new TurnLedgerStorageError(error);
+	}
+	durable(() =>
+		db.transaction((tx) => {
+			const turn = requireTurn(tx, scope);
+			if (
+				turn.attemptIdsJson &&
+				!(JSON.parse(turn.attemptIdsJson) as string[]).includes(input.attemptId)
+			)
+				throw new TurnLedgerConflictError("Sealed attempt manifest conflict");
+			const existing = tx
+				.select()
+				.from(normalChatAttempts)
+				.where(eq(normalChatAttempts.attemptId, input.attemptId))
+				.get();
+			const facts = {
+				segmentId: row.segmentId,
+				phase: input.phase,
+				providerId: input.providerId,
+				modelId: input.modelId,
+				providerModelName: input.providerModelName,
+				safeStopCause: input.safeStopCause,
+				outcome: input.outcome,
+				inputTokens: input.inputTokens,
+				outputTokens: input.outputTokens,
+				totalTokens: input.totalTokens,
+				cachedInputTokens: input.cachedInputTokens ?? null,
+				cacheHitTokens: input.cacheHitTokens ?? null,
+				cacheMissTokens: input.cacheMissTokens ?? null,
+				reasoningTokens: input.reasoningTokens ?? null,
+				usageFinal: input.usageFinal,
+				generationTimeMs: input.generationTimeMs ?? null,
+			};
+			if (existing) {
+				for (const key of [
+					"segmentId",
+					"phase",
+					"providerId",
+					"modelId",
+					"providerModelName",
+				] as const) {
+					if (existing[key] !== facts[key])
+						throw new TurnLedgerConflictError("Attempt identity conflict");
+				}
+				if (existing.usageFinal) {
+					if (
+						!facts.usageFinal ||
+						Object.entries(facts).some(
+							([key, value]) =>
+								(existing.costUsdMicros !== null ||
+									existing[key as keyof typeof existing] !== null) &&
+								existing[key as keyof typeof existing] !== value,
+						)
+					)
+						throw new TurnLedgerConflictError("Final attempt usage conflict");
+				}
+			}
+			const costUsdMicros =
+				existing?.costUsdMicros ??
+				(input.usageFinal ? price.costUsdMicros : null);
+			const priceRuleId = existing?.priceRuleId ?? price.priceRuleId;
+			tx.insert(normalChatAttempts)
+				.values({
+					attemptId: input.attemptId,
+					...facts,
+					startedAt,
+					costUsdMicros,
+					priceRuleId,
+				})
+				.onConflictDoUpdate({
+					target: normalChatAttempts.attemptId,
+					set: { ...facts, costUsdMicros, priceRuleId },
+				})
+				.run();
+			const saved = tx
+				.select()
+				.from(normalChatAttempts)
+				.where(eq(normalChatAttempts.attemptId, input.attemptId))
+				.get();
+			if (!saved) throw new Error("Attempt write was not durable");
+			recordNormalChatAttemptAccounting(tx, scope, saved);
+
+			reconcile(tx, turn);
+		}),
+	);
+}

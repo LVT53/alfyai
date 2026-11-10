@@ -165,6 +165,16 @@ Full runbook, release layout, staging flow, and operational caveats are in
 
 ## Architecture
 
+The Normal Chat completion ledger (`normal_chat_turns`, `normal_chat_attempts`, migration
+`1777140000125`) stores content-free turn/segment identity, terminal outcomes, result references and
+actual-attempt usage. Its service API is in `services/chat-turn/turn-ledger.ts`; lifecycle integration
+is a separate implementation slice. The ledger contains no model continuation or private prompt/evidence.
+Rows cascade with their conversation and account; incognito remains untracked. Known attempt costs
+use existing pricing and `usage_events` exactly once, including unsaved failures. Message analytics carries `turnSegmentId`; analytics owns association and billing writes, so terminal
+settlement and message metrics can arrive in either order. Linked-message costs
+are a read-time aggregate, ready only after the sealed attempt list has reconciled; unknown costs stay
+nullable and pending. Legacy message usage retains its existing delayed-cost read contract.
+
 AlfyAI runs as a single SvelteKit application with server routes, client UI, and SQLite persistence in
 one repository. Server hooks validate sessions, load config overrides, and start optional schedulers; a
 shared chat-turn pipeline handles request parsing, model execution over the Vercel AI SDK, tool calls,

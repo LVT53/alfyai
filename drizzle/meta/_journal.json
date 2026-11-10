@@ -967,6 +967,13 @@
       "when": 1777140000124,
       "tag": "1777140000124_users_time_zone",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1777140000125,
+      "tag": "1777140000125_normal_chat_ledger",
+      "breakpoints": true
     }
   ]
 }

@@ -21,12 +21,19 @@ import {
 	conversations,
 	messageAnalytics,
 	messages,
+	normalChatAttempts,
+	normalChatTurns,
 	providerModelPriceWindows,
 	providerModels,
 	providers,
 	usageEvents,
 	users,
 } from "../db/schema";
+import {
+	TurnLedgerConflictError,
+	TurnLedgerScopeError,
+	withTurnLedgerStorage,
+} from "./chat-turn/turn-ledger-errors";
 
 export type UsageSource = "provider" | "estimated" | "legacy_estimate";
 
@@ -47,6 +54,8 @@ export interface ProviderUsageSnapshot {
 }
 
 export interface AnalyticsParams {
+	/** Completion-ledger identity. Association/order are owned here, not by callers. */
+	turnSegmentId?: string;
 	messageId: string;
 	conversationId: string;
 	userId: string;
@@ -2215,6 +2224,19 @@ export async function recordConversationAnalytics(params: {
 export async function recordMessageAnalytics(
 	params: AnalyticsParams,
 ): Promise<void> {
+	const turnSegmentId = params.turnSegmentId;
+	if (turnSegmentId) {
+		withTurnLedgerStorage(() =>
+			db.transaction((tx) =>
+				linkNormalChatMessageAccounting(tx, {
+					userId: params.userId,
+					conversationId: params.conversationId,
+					segmentId: turnSegmentId,
+					messageId: params.messageId,
+				}),
+			),
+		);
+	}
 	const providerUsage = params.providerUsage ?? null;
 	const promptTokens = normalizeCount(
 		providerUsage?.promptTokens ?? params.promptTokens,
@@ -2266,6 +2288,22 @@ export async function recordMessageAnalytics(
 		})
 		.onConflictDoNothing();
 
+	// Linked completion-ledger messages are billed per actual attempt. Never
+	// also emit the legacy winning-model aggregate (including on replay).
+	if (
+		db
+			.select()
+			.from(normalChatTurns)
+			.where(
+				and(
+					eq(normalChatTurns.messageId, params.messageId),
+					eq(normalChatTurns.conversationId, params.conversationId),
+				),
+			)
+			.get()
+	)
+		return;
+
 	const [conversation, model] = await Promise.all([
 		getConversationSnapshot(params.userId, params.conversationId),
 		getModelSnapshot(params.model, params.modelDisplayName),
@@ -2300,34 +2338,51 @@ export async function recordMessageAnalytics(
 		reasoningTokens,
 	});
 
-	await db
-		.insert(usageEvents)
-		.values({
-			id: crypto.randomUUID(),
-			userId: params.userId,
-			conversationId: params.conversationId,
-			conversationTitle: conversation.title,
-			messageId: params.messageId,
-			modelId: params.model,
-			modelDisplayName: model.modelDisplayName,
-			providerId: model.providerId,
-			providerDisplayName: model.providerDisplayName,
-			providerBaseUrl: model.providerBaseUrl,
-			providerModelName: model.providerModelName,
-			promptTokens,
-			cachedInputTokens,
-			cacheHitTokens,
-			cacheMissTokens,
-			completionTokens,
-			reasoningTokens,
-			totalTokens,
-			usageSource,
-			generationTimeMs: params.generationTimeMs ?? null,
-			billingMonth: toBillingMonth(),
-			costUsdMicros,
-			priceRuleId: priceRule?.id ?? null,
-		})
-		.onConflictDoNothing();
+	db.transaction((tx) => {
+		if (
+			tx
+				.select()
+				.from(normalChatTurns)
+				.where(
+					and(
+						eq(normalChatTurns.messageId, params.messageId),
+						eq(normalChatTurns.conversationId, params.conversationId),
+					),
+				)
+				.get()
+		)
+			return;
+
+		return tx
+			.insert(usageEvents)
+			.values({
+				id: crypto.randomUUID(),
+				userId: params.userId,
+				conversationId: params.conversationId,
+				conversationTitle: conversation.title,
+				messageId: params.messageId,
+				modelId: params.model,
+				modelDisplayName: model.modelDisplayName,
+				providerId: model.providerId,
+				providerDisplayName: model.providerDisplayName,
+				providerBaseUrl: model.providerBaseUrl,
+				providerModelName: model.providerModelName,
+				promptTokens,
+				cachedInputTokens,
+				cacheHitTokens,
+				cacheMissTokens,
+				completionTokens,
+				reasoningTokens,
+				totalTokens,
+				usageSource,
+				generationTimeMs: params.generationTimeMs ?? null,
+				billingMonth: toBillingMonth(),
+				costUsdMicros,
+				priceRuleId: priceRule?.id ?? null,
+			})
+			.onConflictDoNothing()
+			.run();
+	});
 
 	console.info("[ANALYTICS] Recorded usage event", {
 		userId: params.userId,
@@ -2779,6 +2834,34 @@ export async function getMessageUsageState(
 		.limit(1);
 	if (!row) return null;
 	if (row.incognito) return { status: "untracked" };
+	const ledger = db
+		.select()
+		.from(normalChatTurns)
+		.where(
+			and(
+				eq(normalChatTurns.messageId, messageId),
+				eq(normalChatTurns.conversationId, conversationId),
+			),
+		)
+		.get();
+	if (ledger) {
+		if (ledger.accountingStatus !== "ready") return { status: "pending" };
+		const attempts = db
+			.select()
+			.from(normalChatAttempts)
+			.where(eq(normalChatAttempts.segmentId, ledger.segmentId))
+			.all();
+		return {
+			status: "ready",
+			costUsd:
+				attempts.reduce((sum, a) => sum + (a.costUsdMicros ?? 0), 0) /
+				1_000_000,
+			generationDurationMs: attempts.every((a) => a.generationTimeMs !== null)
+				? attempts.reduce((sum, a) => sum + (a.generationTimeMs ?? 0), 0)
+				: null,
+			...(await getConversationCostSummary(conversationId)),
+		};
+	}
 	if (!row.usageId) return { status: "pending" };
 	return {
 		status: "ready",
@@ -2786,4 +2869,181 @@ export async function getMessageUsageState(
 		generationDurationMs: row.generationTimeMs,
 		...(await getConversationCostSummary(conversationId)),
 	};
+}
+
+/** Actual-attempt pricing: no winning-model lookup or cross-provider fallback. */
+export async function priceNormalChatAttempt(
+	input: {
+		modelId: string;
+		providerId: string | null;
+		providerModelName: string;
+		inputTokens: number | null;
+		outputTokens: number | null;
+		totalTokens: number | null;
+		cachedInputTokens?: number | null;
+		cacheHitTokens?: number | null;
+		cacheMissTokens?: number | null;
+		reasoningTokens?: number | null;
+	},
+	startedAt: Date,
+): Promise<{ costUsdMicros: number | null; priceRuleId: string | null }> {
+	const builtin = input.modelId === "model1" || input.modelId === "model2";
+	const base = await findPriceRule({
+		...input,
+		providerId: builtin ? null : input.providerId,
+	});
+	// The legacy resolver permits name-only fallback. Actual provider identity
+	// is authoritative for the ledger; a different provider's rate is unknown.
+	if (
+		!base ||
+		(!builtin &&
+			(input.providerId === null || base.providerId !== input.providerId))
+	) {
+		return { costUsdMicros: null, priceRuleId: null };
+	}
+	if (
+		input.inputTokens === null ||
+		input.outputTokens === null ||
+		input.totalTokens === null
+	) {
+		return { costUsdMicros: null, priceRuleId: base.id };
+	}
+	const rule = resolveEffectivePriceRule(
+		base,
+		await listPriceWindowsForModel(base.id),
+		startedAt,
+	);
+	return {
+		priceRuleId: base.id,
+		costUsdMicros: calculateCostUsdMicros(rule, {
+			promptTokens: input.inputTokens,
+			completionTokens: input.outputTokens,
+			cachedInputTokens: input.cachedInputTokens ?? 0,
+			cacheHitTokens: input.cacheHitTokens ?? 0,
+			cacheMissTokens: input.cacheMissTokens ?? 0,
+			reasoningTokens: input.reasoningTokens ?? 0,
+		}),
+	};
+}
+
+type AccountingTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+/** @internal Ledger/message association: both terminal and analytics use the same policy. */
+export function linkNormalChatMessageAccounting(
+	tx: AccountingTx,
+	input: {
+		userId: string;
+		conversationId: string;
+		segmentId: string;
+		messageId: string;
+	},
+): void {
+	const row = tx
+		.select({
+			turn: normalChatTurns,
+			userId: conversations.userId,
+			incognito: conversations.memoryIncognito,
+		})
+		.from(normalChatTurns)
+		.innerJoin(
+			conversations,
+			eq(conversations.id, normalChatTurns.conversationId),
+		)
+		.where(
+			and(
+				eq(normalChatTurns.segmentId, input.segmentId),
+				eq(normalChatTurns.conversationId, input.conversationId),
+				eq(conversations.userId, input.userId),
+			),
+		)
+		.get();
+	if (!row || row.incognito)
+		throw new TurnLedgerScopeError("Message scope denied");
+	if (row.turn.messageId === input.messageId) return;
+	if (row.turn.messageId)
+		throw new TurnLedgerConflictError("Message link conflict");
+	const message = tx
+		.select()
+		.from(messages)
+		.where(
+			and(
+				eq(messages.id, input.messageId),
+				eq(messages.conversationId, input.conversationId),
+				eq(messages.role, "assistant"),
+			),
+		)
+		.get();
+	if (!message) throw new TurnLedgerScopeError("Message scope denied");
+	if (
+		tx
+			.select()
+			.from(usageEvents)
+			.where(eq(usageEvents.messageId, input.messageId))
+			.get()
+	)
+		throw new TurnLedgerConflictError("Legacy message already accounted");
+	if (
+		tx
+			.select()
+			.from(normalChatTurns)
+			.where(eq(normalChatTurns.messageId, input.messageId))
+			.get()
+	)
+		throw new TurnLedgerConflictError("Message link conflict");
+	tx.update(normalChatTurns)
+		.set({ messageId: input.messageId })
+		.where(eq(normalChatTurns.segmentId, input.segmentId))
+		.run();
+}
+
+/** @internal Analytics owns the only billing write, atomic with its ledger snapshot. */
+export function recordNormalChatAttemptAccounting(
+	tx: AccountingTx,
+	scope: {
+		userId: string;
+		conversationId: string;
+	},
+	attempt: typeof normalChatAttempts.$inferSelect,
+): void {
+	if (attempt.costUsdMicros === null || !attempt.usageFinal) return;
+	const chat = tx
+		.select()
+		.from(conversations)
+		.where(
+			and(
+				eq(conversations.id, scope.conversationId),
+				eq(conversations.userId, scope.userId),
+			),
+		)
+		.get();
+	if (!chat || chat.memoryIncognito)
+		throw new TurnLedgerScopeError("Accounting scope denied");
+	tx.insert(usageEvents)
+		.values({
+			id: `turn-attempt:${attempt.attemptId}`,
+			messageId: `turn-attempt:${attempt.attemptId}`,
+			userId: scope.userId,
+			conversationId: scope.conversationId,
+			conversationTitle: chat.title,
+			modelId: attempt.modelId,
+			providerId:
+				attempt.modelId === "model1" || attempt.modelId === "model2"
+					? null
+					: attempt.providerId,
+			providerModelName: attempt.providerModelName,
+			promptTokens: attempt.inputTokens ?? 0,
+			completionTokens: attempt.outputTokens ?? 0,
+			totalTokens: attempt.totalTokens ?? 0,
+			cachedInputTokens: attempt.cachedInputTokens ?? 0,
+			cacheHitTokens: attempt.cacheHitTokens ?? 0,
+			cacheMissTokens: attempt.cacheMissTokens ?? 0,
+			reasoningTokens: attempt.reasoningTokens ?? 0,
+			usageSource: "provider",
+			generationTimeMs: attempt.generationTimeMs,
+			billingMonth: attempt.startedAt.toISOString().slice(0, 7),
+			createdAt: attempt.startedAt,
+			costUsdMicros: attempt.costUsdMicros,
+			priceRuleId: attempt.priceRuleId,
+		})
+		.onConflictDoNothing()
+		.run();
 }

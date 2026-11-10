@@ -8,6 +8,10 @@ import {
 	text,
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import type {
+	NormalChatCompletion,
+	NormalChatStopCause,
+} from "$lib/shared/normal-chat-completion";
 import {
 	jobAttemptColumns,
 	jobAttemptIndexes,
@@ -2994,4 +2998,78 @@ export const routingRegions = sqliteTable(
 		index("routing_regions_status_idx").on(table.status),
 		index("routing_regions_transit_status_idx").on(table.transitStatus),
 	],
+);
+
+// Content-free completion/accounting audit. No continuation, prompt or evidence.
+export const normalChatTurns = sqliteTable(
+	"normal_chat_turns",
+	{
+		segmentId: text("segment_id").primaryKey(),
+		turnId: text("turn_id").notNull(),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		ownerId: text("owner_id").notNull(),
+		// Deliberately not an FK: a terminal result outlives deletion of its reply.
+		messageId: text("message_id"),
+		phase: text("phase").$type<NormalChatCompletion["phase"]>(),
+		closingAttempted: integer("closing_attempted", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		outcome: text("outcome").$type<NormalChatCompletion["outcome"]>(),
+		stopCause: text("stop_cause").$type<NormalChatStopCause>(),
+		workingStopCause: text("working_stop_cause").$type<NormalChatStopCause>(),
+		recoveryCount: integer("recovery_count").notNull().default(0),
+		// Null while open, immutable sorted ID manifest once terminal.
+		attemptIdsJson: text("attempt_ids_json"),
+		accountingStatus: text("accounting_status", { enum: ["pending", "ready"] })
+			.notNull()
+			.default("pending"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		settledAt: integer("settled_at", { mode: "timestamp" }),
+	},
+	(t) => ({
+		scopeIdx: index("normal_chat_turns_scope_idx").on(
+			t.conversationId,
+			t.turnId,
+		),
+		messageIdx: uniqueIndex("normal_chat_turns_message_idx").on(t.messageId),
+	}),
+);
+
+export const normalChatAttempts = sqliteTable(
+	"normal_chat_attempts",
+	{
+		attemptId: text("attempt_id").primaryKey(),
+		segmentId: text("segment_id")
+			.notNull()
+			.references(() => normalChatTurns.segmentId, { onDelete: "cascade" }),
+		phase: text("phase", { enum: ["working", "closing"] }).notNull(),
+		providerId: text("provider_id"),
+		modelId: text("model_id").notNull(),
+		providerModelName: text("provider_model_name").notNull(),
+		safeStopCause: text("safe_stop_cause").$type<NormalChatStopCause>(),
+		outcome: text("outcome").$type<NormalChatCompletion["outcome"]>(),
+		inputTokens: integer("input_tokens"),
+		outputTokens: integer("output_tokens"),
+		totalTokens: integer("total_tokens"),
+		cachedInputTokens: integer("cached_input_tokens"),
+		cacheHitTokens: integer("cache_hit_tokens"),
+		cacheMissTokens: integer("cache_miss_tokens"),
+		reasoningTokens: integer("reasoning_tokens"),
+		usageFinal: integer("usage_final", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		costUsdMicros: integer("cost_usd_micros"),
+		priceRuleId: text("price_rule_id"),
+		generationTimeMs: integer("generation_time_ms"),
+		startedAt: integer("started_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(t) => ({
+		segmentIdx: index("normal_chat_attempts_segment_idx").on(t.segmentId),
+	}),
 );
