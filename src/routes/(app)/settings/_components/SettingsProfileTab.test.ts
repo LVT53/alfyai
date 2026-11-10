@@ -962,29 +962,56 @@ describe("SettingsProfileTab — the time zone row", () => {
 		expect(timeZoneSelect()).toHaveValue("Asia/Kolkata");
 	});
 
-	it("marks the zone this device reports, and selects it when none is stored yet", () => {
+	// The device's zone sits alone under its own heading, so the marker costs the
+	// closed select no width: a label that said "this device" after the offset was
+	// cut off by the control ("Europe/Budapest (UTC+01:00) · this d").
+	it("lists the zone this device reports under its own heading, and selects it when none is stored yet", () => {
 		renderTab({ selectedTimeZone: null, detectedTimeZone: "Asia/Kolkata" });
 
+		const device = within(timeZoneSelect()).getByRole("group", {
+			name: "This device",
+		});
 		expect(
-			within(timeZoneSelect()).getByRole("option", {
-				name: "Asia/Kolkata (UTC+05:30) · this device",
-			}),
-		).toBeInTheDocument();
+			within(device)
+				.getAllByRole("option")
+				.map((option) => option.textContent),
+		).toEqual(["Asia/Kolkata (UTC+05:30)"]);
 		expect(timeZoneSelect()).toHaveValue("Asia/Kolkata");
 	});
 
-	it("marks the device's zone even when another is stored", () => {
+	it("keeps the device's zone under its heading when another is stored, and the rest under another", () => {
 		renderTab({
 			selectedTimeZone: "Asia/Tokyo",
 			detectedTimeZone: "Asia/Kolkata",
 		});
 
+		const device = within(timeZoneSelect()).getByRole("group", {
+			name: "This device",
+		});
+		const others = within(timeZoneSelect()).getByRole("group", {
+			name: "Other zones",
+		});
+		expect(within(device).getAllByRole("option")).toHaveLength(1);
 		expect(
-			within(timeZoneSelect()).getByRole("option", {
-				name: "Asia/Kolkata (UTC+05:30) · this device",
-			}),
+			within(device).getByRole("option", { name: "Asia/Kolkata (UTC+05:30)" }),
 		).toBeInTheDocument();
+		// The stored zone is among the others, once, and the device's is not.
+		const otherValues = within(others)
+			.getAllByRole("option")
+			.map((option) => (option as HTMLOptionElement).value);
+		expect(otherValues).toContain("Asia/Tokyo");
+		expect(otherValues).toContain("Europe/Budapest");
+		expect(otherValues).not.toContain("Asia/Kolkata");
+		expect(otherValues).toEqual([...otherValues].sort());
 		expect(timeZoneSelect()).toHaveValue("Asia/Tokyo");
+	});
+
+	it("is one flat list when the device reports no zone", () => {
+		renderTab({ selectedTimeZone: "Europe/Budapest", detectedTimeZone: null });
+
+		expect(
+			within(timeZoneSelect()).queryByRole("group"),
+		).not.toBeInTheDocument();
 	});
 
 	it("shows a dash, and no zone as chosen, when neither the server nor the device knows one", () => {
@@ -1024,9 +1051,10 @@ describe("SettingsProfileTab — the time zone row", () => {
 				screen.getByText("Ebből tudja az AlfyAI, mennyi az idő nálad."),
 			).toBeInTheDocument();
 			expect(
-				within(timeZoneSelect()).getByRole("option", {
-					name: "Asia/Kolkata (UTC+05:30) · ez az eszköz",
-				}),
+				within(timeZoneSelect()).getByRole("group", { name: "Ez az eszköz" }),
+			).toBeInTheDocument();
+			expect(
+				within(timeZoneSelect()).getByRole("group", { name: "Más időzónák" }),
 			).toBeInTheDocument();
 			expect(screen.queryByText("Time zone")).not.toBeInTheDocument();
 		} finally {

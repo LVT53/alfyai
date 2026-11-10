@@ -353,25 +353,29 @@ const titleLanguageOptions = $derived([
 ]);
 
 // The time zone row: the stored zone (or, until one is saved, the device's) is
-// the one shown as chosen. Options are IANA names with the offset in force;
-// the one this device reports is marked, in whichever language the UI is in.
+// the one shown as chosen. Options are IANA names with the offset in force. The
+// zone this device reports sits alone under its own heading and the rest under
+// another, so the closed select shows a plain "Zone (UTC+01:00)" that fits; with
+// no device zone the list is flat.
 const shownTimeZone = $derived(selectedTimeZone ?? detectedTimeZone);
-const timeZoneOptions = $derived.by(() => {
+const timeZoneGroups = $derived.by(() => {
 	const now = new Date();
-	return timeZoneChoices({
+	const option = (zone: string) => {
+		const offset = describeLocalMoment(now, zone)?.offset;
+		return { value: zone, label: offset ? `${zone} (${offset})` : zone };
+	};
+	const zones = timeZoneChoices({
 		stored: selectedTimeZone,
 		detected: detectedTimeZone,
-	}).map((zone) => {
-		const offset = describeLocalMoment(now, zone)?.offset;
-		const named = offset ? `${zone} (${offset})` : zone;
-		return {
-			value: zone,
-			label:
-				zone === detectedTimeZone
-					? `${named} · ${$t("profileTab.timeZoneThisDevice")}`
-					: named,
-		};
 	});
+	const device =
+		detectedTimeZone && zones.includes(detectedTimeZone)
+			? detectedTimeZone
+			: null;
+	return {
+		device: device ? option(device) : null,
+		others: zones.filter((zone) => zone !== device).map(option),
+	};
 });
 
 function handleTimeZoneSelect(event: Event) {
@@ -759,9 +763,20 @@ function handlePersonalitySelect(event: Event) {
 							{#if shownTimeZone === null}
 								<option value="" disabled>—</option>
 							{/if}
-							{#each timeZoneOptions as option (option.value)}
-								<option value={option.value}>{option.label}</option>
-							{/each}
+							{#if timeZoneGroups.device}
+								<optgroup label={$t('profileTab.timeZoneThisDevice')}>
+									<option value={timeZoneGroups.device.value}>{timeZoneGroups.device.label}</option>
+								</optgroup>
+								<optgroup label={$t('profileTab.timeZoneOthers')}>
+									{#each timeZoneGroups.others as option (option.value)}
+										<option value={option.value}>{option.label}</option>
+									{/each}
+								</optgroup>
+							{:else}
+								{#each timeZoneGroups.others as option (option.value)}
+									<option value={option.value}>{option.label}</option>
+								{/each}
+							{/if}
 						</select>
 					</div>
 				</div>
