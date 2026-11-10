@@ -1580,14 +1580,25 @@ async function selectArtifactSearchCandidates(params: {
 		return newest;
 	}
 
-	const older = await selectOlderArtifactCandidates({
-		userId: params.userId,
-		query: params.query,
-		queryEmbedding: params.queryEmbedding,
-		ownershipScope,
-		baseConditions,
-		newestIds: new Set(rows.map((row) => row.id)),
-	});
+	// The older documents are an addition to the 120 newest, which answer on their
+	// own: a failure here (an unreadable stored vector, a locked file) must cost
+	// the addition, not the whole search of the turn.
+	let older: Artifact[] = [];
+	try {
+		older = await selectOlderArtifactCandidates({
+			userId: params.userId,
+			query: params.query,
+			queryEmbedding: params.queryEmbedding,
+			ownershipScope,
+			baseConditions,
+			newestIds: new Set(rows.map((row) => row.id)),
+		});
+	} catch (error) {
+		console.error(
+			"[KNOWLEDGE] Older-document candidates failed; ranking the newest documents only:",
+			error,
+		);
+	}
 	return [...newest, ...older];
 }
 

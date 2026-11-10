@@ -28,7 +28,11 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
-const { vectorReads } = vi.hoisted(() => ({ vectorReads: [] as number[] }));
+const { vectorReads, failReads } = vi.hoisted(() => ({
+	vectorReads: [] as number[],
+	/** When set, a vector read for which it answers true fails. */
+	failReads: { when: null as ((subjectIds: string[]) => boolean) | null },
+}));
 
 vi.mock("$lib/server/services/tei-reranker", () => ({
 	canUseTeiReranker: vi.fn(() => false),
@@ -176,6 +180,7 @@ describe("document search beyond the newest 120", () => {
 		process.env.TEI_EMBEDDER_MODEL = MODEL;
 		vi.resetModules();
 		vectorReads.length = 0;
+		failReads.when = null;
 		// The real vector store, watched: how many vectors each read asks for is the
 		// cost of a search. Registered after the reset, so every test gets the store
 		// of its own database (a factory registered at the top is not run again).
@@ -188,6 +193,9 @@ describe("document search beyond the newest 120", () => {
 				listSemanticEmbeddingsBySubject: (
 					params: Parameters<typeof actual.listSemanticEmbeddingsBySubject>[0],
 				) => {
+					if (failReads.when?.(params.subjectIds)) {
+						throw new Error("stored vectors unreadable");
+					}
 					vectorReads.push(params.subjectIds.length);
 					return actual.listSemanticEmbeddingsBySubject(params);
 				},
@@ -541,5 +549,32 @@ describe("document search beyond the newest 120", () => {
 		]);
 
 		expect((await idsFor("tenant deposit refund"))[0]).toBe("fresh-lease");
+	});
+
+	it("still ranks the newest documents when the older pass fails, and says so in the log", async () => {
+		const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+		addDocuments([
+			{
+				id: "fresh-lease",
+				text: "Deposit refund terms.",
+				ageDays: 2,
+				vector: ABOUT_THE_QUERY,
+			},
+			...fillers("recent", WINDOW, 3),
+			...fillers("old", 40, 60),
+		]);
+		// The older documents' stored vectors cannot be read (a damaged row, a locked file).
+		failReads.when = (subjectIds) =>
+			subjectIds.some((id) => id.startsWith("old-"));
+
+		// One failure in the extra pass must not empty the whole search: it is an
+		// addition to the 120 newest, which still answer.
+		expect((await idsFor("tenant deposit refund"))[0]).toBe("fresh-lease");
+		expect(
+			logged.mock.calls.some(([message]) =>
+				String(message).includes("Older-document candidates failed"),
+			),
+		).toBe(true);
+		logged.mockRestore();
 	});
 });
