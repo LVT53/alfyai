@@ -910,7 +910,11 @@ describe("a HEIC photo, which the document reader is handed as a PNG", () => {
 
 	/**
 	 * An extractor that asks for the file, keeps hold of it, and goes on working
-	 * until it is stopped.
+	 * until it is stopped. `holding` settles when it has the file in hand and has
+	 * reported its progress, the checkpoint included (the fake reports it, and the
+	 * ledger writes it, before `extract` returns its promise): a test waits for
+	 * that and not for a clock, since what comes first is a worker thread's start,
+	 * libheif's load and a decode, which take as long as the machine takes.
 	 */
 	function holdingExtractor() {
 		const base = createFakeExtractor({
@@ -918,14 +922,20 @@ describe("a HEIC photo, which the document reader is handed as a PNG", () => {
 			emitHandleAfterPhase: "uploading",
 		});
 		const held: string[] = [];
+		let holdsTheFile: () => void = () => undefined;
+		const holding = new Promise<void>((resolve) => {
+			holdsTheFile = resolve;
+		});
 		useExtractor({
 			...base,
 			async extract(request) {
 				held.push((await request.openFile()).filePathAbsolute);
-				return base.extract(request);
+				const hanging = base.extract(request);
+				holdsTheFile();
+				return hanging;
 			},
 		});
-		return held;
+		return { held, holding };
 	}
 
 	it("hands the extractor the PNG's name and type, and a way to ask for the PNG", async () => {
@@ -1050,12 +1060,13 @@ describe("a HEIC photo, which the document reader is handed as a PNG", () => {
 		const job = await enqueueJob(artifactId, "IMG_0042.HEIC", {
 			mimeType: "image/heic",
 		});
-		const held = holdingExtractor();
+		const { held, holding } = holdingExtractor();
 
 		const running = drain(extractionJob);
-		await vi.waitFor(() => {
-			expect(readJob(job.id).checkpoint).not.toBeNull();
-		});
+		// An attempt that ends without holding the file fails the assertions below,
+		// and not with a wait that never ends.
+		await Promise.race([holding, running]);
+		expect(readJob(job.id).checkpoint).not.toBeNull();
 		// One file per attempt, in the host's temp directory, named for the attempt,
 		// and on the disk for as long as the extractor holds it.
 		const [attempt] = readAttempts(job.id);
