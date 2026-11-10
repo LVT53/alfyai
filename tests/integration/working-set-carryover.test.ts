@@ -79,8 +79,15 @@ afterAll(async () => {
  * A user, a conversation and a document written at T0 by the turn that ended with
  * a refresh while the document was fresh. The clock is then moved `ageMs` on, so
  * the person comes back to a document written that long ago.
+ *
+ * With `refined`, the document is a later version of a produced file (a family
+ * and a version above 1), the way `produce_file` stores a file the model rewrote,
+ * and the turn that wrote it ends with the reply as its generated output.
  */
-async function worldWithDocumentWrittenAgo(ageMs: number) {
+async function worldWithDocumentWrittenAgo(
+	ageMs: number,
+	{ refined = false }: { refined?: boolean } = {},
+) {
 	worlds += 1;
 	const userId = randomUUID();
 	createdUserIds.push(userId);
@@ -104,13 +111,35 @@ async function worldWithDocumentWrittenAgo(ageMs: number) {
 		extension: "md",
 		contentText: `Lease review. The tenant deposit refund clause (${marker}) says the landlord returns the deposit within thirty days.`,
 		summary: "Lease review: the deposit refund clause",
+		...(refined
+			? {
+					metadata: {
+						generatedFile: true,
+						generatedFilename: "Lease review.md",
+						documentFamilyId: `lease-review-family-${worlds}`,
+						documentLabel: "Lease review.md",
+						documentFamilyStatus: "active",
+						versionNumber: 2,
+						supersedesArtifactId: randomUUID(),
+					},
+				}
+			: {}),
 	});
 	vi.setSystemTime(T0 + 5_000);
+	const producingReply = refined
+		? await createGeneratedOutputArtifact({
+				userId,
+				conversationId: conversation.id,
+				messageId: randomUUID(),
+				content: "I rewrote the lease review.",
+				sourceArtifactIds: [],
+			})
+		: null;
 	await refreshConversationWorkingSet({
 		userId,
 		conversationId: conversation.id,
 		message: "Write a lease review",
-		selectedGeneratedArtifactId: document.id,
+		selectedGeneratedArtifactId: producingReply?.id ?? document.id,
 	});
 	vi.setSystemTime(T0 + Math.max(ageMs, 5_000));
 	return { userId, conversationId: conversation.id, document, marker };
@@ -278,5 +307,42 @@ describe.each([
 
 		expect(carried).toBe(true);
 		expect(letGo).toBe(false);
+	});
+});
+
+describe("a produced document the model has refined", () => {
+	// The one signal that is not read from the message: a document with a family and
+	// a later version is "recently refined" on every turn that is not a move-on or a
+	// request for a new file, for as long as it is among the eight newest generated
+	// outputs of the conversation (every reply is stored as one).
+	it("is carried through turns about something else, and a move-on phrase lets it go", async () => {
+		const world = await worldWithDocumentWrittenAgo(HOUR, { refined: true });
+
+		const inPrompt: boolean[] = [];
+		for (const message of [
+			"What is the capital of Hungary?",
+			"And what is the capital of Austria?",
+			"Let's move on to something else",
+			"What is the capital of Italy?",
+		]) {
+			inPrompt.push(await turn(world, message));
+		}
+
+		expect(inPrompt).toEqual([true, true, false, false]);
+	});
+
+	it("leaves once newer replies have pushed it out of the outputs the refresh looks at", async () => {
+		const world = await worldWithDocumentWrittenAgo(HOUR, { refined: true });
+
+		const inPrompt: boolean[] = [];
+		for (let index = 1; index <= 12; index += 1) {
+			inPrompt.push(
+				await turn(world, `What is the capital of country number ${index}?`),
+			);
+		}
+
+		expect(inPrompt.slice(0, 3)).toEqual([true, true, true]);
+		expect(inPrompt.at(-1)).toBe(false);
+		expect(inPrompt.filter(Boolean).length).toBeLessThanOrEqual(8);
 	});
 });
