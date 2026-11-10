@@ -1,14 +1,16 @@
 <script lang="ts">
 /**
- * One section's drawing, with the spot its hovered row names ringed.
- *
- * Ask and Make are drawn. Until the other four are, a section gets an empty
- * frame, so the page lays out as it will and a row naming a spot lights nothing.
+ * One section's drawing, with the spot its hovered row names ringed. Each of
+ * the six sections has its own, drawn from the real screens where its
+ * features live.
  */
-import DrawingFrame from "$lib/components/drawings/DrawingFrame.svelte";
 import type { GuideSectionId } from "../guide-content";
+import AccountDrawing from "./AccountDrawing.svelte";
 import AskDrawing from "./AskDrawing.svelte";
+import KnowsYouDrawing from "./KnowsYouDrawing.svelte";
 import MakeDrawing from "./MakeDrawing.svelte";
+import OrganizedDrawing from "./OrganizedDrawing.svelte";
+import YourThingsDrawing from "./YourThingsDrawing.svelte";
 
 let { section, lit }: { section: GuideSectionId; lit: string | null } =
 	$props();
@@ -18,6 +20,12 @@ let { section, lit }: { section: GuideSectionId; lit: string | null } =
 	<AskDrawing {lit} />
 {:else if section === 'make'}
 	<MakeDrawing {lit} />
+{:else if section === 'knowsYou'}
+	<KnowsYouDrawing {lit} />
+{:else if section === 'yourThings'}
+	<YourThingsDrawing {lit} />
+{:else if section === 'organized'}
+	<OrganizedDrawing {lit} />
 {:else}
-	<DrawingFrame />
+	<AccountDrawing {lit} />
 {/if}

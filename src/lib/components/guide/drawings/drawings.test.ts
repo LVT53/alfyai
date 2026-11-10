@@ -8,7 +8,12 @@ import { buildComposerMenuRows } from "$lib/components/chat/composer-bar";
 import { isLit } from "$lib/components/drawings/drawing-spot";
 import { type I18nKey, t } from "$lib/i18n";
 import { uiLanguage } from "$lib/stores/settings";
-import { GUIDE_ENTRIES, GUIDE_SECTION_IDS } from "../guide-content";
+import { DOCUMENT_TYPE_FILTER_ORDER } from "../../../../routes/(app)/knowledge/_components/documents-table";
+import {
+	GUIDE_ENTRIES,
+	GUIDE_SECTION_IDS,
+	type GuideSectionId,
+} from "../guide-content";
 import SectionDrawing from "./SectionDrawing.svelte";
 import { SECTION_DRAWING_SPOTS } from "./section-drawing-spots";
 
@@ -34,8 +39,8 @@ vi.mock("$lib/i18n", async (importOriginal) => {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const KIT = join(HERE, "..", "..", "drawings");
 
-/** The sections drawn so far; Task 7 draws the other four. */
-const DRAWN = ["ask", "make"] as const;
+/** Every section has its drawing. */
+const DRAWN = GUIDE_SECTION_IDS;
 
 /** Every spot of every drawn section, as [section, spot]. */
 const DRAWN_SPOTS = DRAWN.flatMap((section) =>
@@ -99,8 +104,24 @@ describe("the guide's drawings", () => {
 
 	// The keys of the controls each drawing depicts, so a reworded control
 	// rewords its drawing. Make's Keep and Undo are the inline pill's
-	// (`ChangeBar.svelte`), not the review bar's.
-	const WORDS: Record<(typeof DRAWN)[number], readonly I18nKey[]> = {
+	// (`ChangeBar.svelte`), not the review bar's. Where two controls of one
+	// drawing say the same word (the Knowledge Base's "Documents" tab and its
+	// Documents chip), both keys are listed and the word is on screen twice.
+	//
+	// It knows you: the Knowledge Base's tabs (`knowledge/+page.svelte`), the
+	// Memory Profile's summary head and Needs Review card (`PersonaSummaryCard`,
+	// `KnowledgeMemoryView`), and Settings > Profile's Preferences and Assistant
+	// behaviour rows (`SettingsProfileTab`).
+	// Your things: the Documents tab's kind chips (`DocumentsList`), Settings'
+	// tabs and the Connections tab's "Add a connection" card, the "+" menu's
+	// first two rows, and the "Send this email?" permission card
+	// (`write-card-view.ts`).
+	// Stay organized: the sidebar's search pill and section heads
+	// (`Sidebar`, `ConversationList`), and Home's projects row and Recent list
+	// (`HomeProjects`, `HomeRecent`).
+	// Your account: Settings > Profile's two-step row, Your Activity, Preferences
+	// and Data & privacy cards.
+	const WORDS: Record<GuideSectionId, readonly I18nKey[]> = {
 		ask: [
 			"messageEvidenceDetails.sourcesLabel",
 			"composerTools.attachFile",
@@ -113,6 +134,66 @@ describe("the guide's drawings", () => {
 			"artifacts.document.change.keep",
 			"artifacts.document.change.undo",
 		],
+		knowsYou: [
+			"memory.title",
+			"knowledge.documents",
+			"memoryProfile.summaryTitle",
+			"memoryProfile.aboutYou",
+			"memoryProfile.needsReview",
+			"settings_defaultModel",
+			"settings_conversationStyle",
+			"profileTab.personalInstructions",
+			"profileTab.personalInstructionsEdit",
+			"settings_memory",
+			"profileTab.memoryOn",
+			"settings_skillsManagerSummaryLabel",
+			"profileTab.manageSkills",
+		],
+		yourThings: [
+			"memory.title",
+			"knowledge.documents",
+			"knowledge.documents.filter.all",
+			"knowledge.documents.filter.document",
+			"knowledge.documents.filter.canvas",
+			"knowledge.documents.filter.app",
+			"knowledge.documents.filter.image",
+			"knowledge.documents.filter.uploaded",
+			"settingsProfile",
+			"settingsConnections",
+			"connections.addConnection.title",
+			"composerTools.attachFile",
+			"composerTools.fromLibrary",
+			"connections.writeConfirm.question.emailSend",
+			"connections.writeConfirm.cancel",
+			"connections.writeConfirm.approve.emailSend",
+		],
+		organized: [
+			"sidebar.search",
+			"sidebar.pinned",
+			"sidebar.projects",
+			"sidebar.chats",
+			"home.projectsHeading",
+			"home.allConversations",
+			"home.runningNow",
+		],
+		account: [
+			"profileTab.twoStepTitle",
+			"profileTab.twoStepTurnOn",
+			"settings_sectionYourActivity",
+			"profileTab.tokensAllTime",
+			"settings_appearance",
+			"settings_system",
+			"settings_light",
+			"settings_dark",
+			"settings_interfaceLanguage",
+			"profileTab.langEnglish",
+			"profileTab.langHungarian",
+			"settings_sectionDataPrivacy",
+			"chatgptImport.settingsButton",
+			"profileTab.importChooseZip",
+			"settings_downloadMyData",
+			"profileTab.prepareArchive",
+		],
 	};
 	it.each(
 		DRAWN.flatMap((section) =>
@@ -124,7 +205,7 @@ describe("the guide's drawings", () => {
 		render(SectionDrawing, { props: { section, lit: null } });
 		expect([...asked].sort()).toEqual([...WORDS[section]].sort());
 		for (const key of WORDS[section]) {
-			expect(screen.getByText(get(t)(key))).toBeInTheDocument();
+			expect(screen.getAllByText(get(t)(key)).length).toBeGreaterThan(0);
 		}
 	});
 
@@ -165,8 +246,9 @@ describe("the guide's drawings", () => {
 		}
 	});
 
-	it("lists the + menu's rows in the order the real menu does", () => {
-		const real = buildComposerMenuRows({
+	// The rows of the real "+" menu's "This message" section, in its order.
+	const realMenuRows = () =>
+		buildComposerMenuRows({
 			canAttach: true,
 			skillsEnabled: true,
 			atlasVisible: true,
@@ -176,21 +258,63 @@ describe("the guide's drawings", () => {
 		})
 			.filter((row) => row.section === "message")
 			.map((row) => row.id);
-		const key: Record<string, I18nKey> = {
-			attach: "composerTools.attachFile",
-			library: "composerTools.fromLibrary",
-			skills: "composerMenu.skills",
-			atlas: "composerMenu.atlasReport",
-		};
+	const MENU_ROW_KEYS: Record<string, I18nKey> = {
+		attach: "composerTools.attachFile",
+		library: "composerTools.fromLibrary",
+		skills: "composerMenu.skills",
+		atlas: "composerMenu.atlasReport",
+	};
 
+	it("lists the + menu's rows in the order the real menu does", () => {
 		render(SectionDrawing, { props: { section: "ask", lit: null } });
-		const drawn = real.map((id) => screen.getByText(get(t)(key[id])));
+		const drawn = realMenuRows().map((id) =>
+			screen.getByText(get(t)(MENU_ROW_KEYS[id])),
+		);
 		for (let i = 1; i < drawn.length; i++) {
 			expect(
 				drawn[i - 1].compareDocumentPosition(drawn[i]) &
 					Node.DOCUMENT_POSITION_FOLLOWING,
 			).toBeTruthy();
 		}
+	});
+
+	// The keys a drawing reads, in the order it draws them: a template is
+	// evaluated top to bottom, so this is the order on screen.
+	function keysDrawn(section: GuideSectionId): string[] {
+		asked.clear();
+		const { unmount } = render(SectionDrawing, {
+			props: { section, lit: null },
+		});
+		unmount();
+		return [...asked];
+	}
+
+	it("draws the rows of the + menu that Your things shows in the real menu's order", () => {
+		const shown: string[] = [MENU_ROW_KEYS.attach, MENU_ROW_KEYS.library];
+		const real = realMenuRows()
+			.map((id) => MENU_ROW_KEYS[id])
+			.filter((key) => shown.includes(key));
+		const drawn = keysDrawn("yourThings").filter((key) => shown.includes(key));
+		expect(drawn).toEqual(real);
+	});
+
+	it("draws the Knowledge Base's kind chips in the order its list does", () => {
+		const real = DOCUMENT_TYPE_FILTER_ORDER.map(
+			(kind) => `knowledge.documents.filter.${kind}`,
+		);
+		const drawn = keysDrawn("yourThings").filter((key) =>
+			key.startsWith("knowledge.documents.filter."),
+		);
+		expect(drawn).toEqual(real);
+	});
+
+	it("draws the sidebar's sections in the order the real sidebar does", () => {
+		// Pinned, then Projects, then Chats (`ConversationList.svelte`).
+		const sections = ["sidebar.pinned", "sidebar.projects", "sidebar.chats"];
+		const drawn = keysDrawn("organized").filter((key) =>
+			sections.includes(key),
+		);
+		expect(drawn).toEqual(sections);
 	});
 });
 

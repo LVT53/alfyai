@@ -10,8 +10,9 @@ let {
 }: {
 	/** A CSS width, usually a share of the line the bar sits in. */
 	width?: string;
-	/** `strong` is a title or a name, `soft` running text, `change` text Alfy changed. */
-	tone?: "strong" | "soft" | "change";
+	/** `strong` is a title or a name, `soft` running text, `change` text Alfy
+	 *  changed, `accent` a figure the screen sets in the accent (Your Activity's total). */
+	tone?: "strong" | "soft" | "change" | "accent";
 	/** A title's line is a little taller than the text's. */
 	thick?: boolean;
 } = $props();
@@ -21,6 +22,7 @@ let {
 	class="drawn-bar"
 	class:soft={tone === 'soft'}
 	class:change={tone === 'change'}
+	class:accent={tone === 'accent'}
 	class:thick
 	style:width
 ></span>
@@ -43,6 +45,11 @@ let {
 	.drawn-bar.change {
 		background: var(--alfy-mark);
 		box-shadow: inset 0 calc(var(--u) * -1) 0 var(--accent);
+	}
+
+	/* A figure in the accent, as the activity total is set. */
+	.drawn-bar.accent {
+		background: var(--accent);
 	}
 
 	.drawn-bar.thick {
