@@ -75,7 +75,10 @@ import {
 	decodeEditDocumentSlowlyPayload,
 } from "../../fixtures/ai/openai-compatible-scenarios";
 import { scriptedChatTurnReply } from "./chat-turn-scripts";
-import { turnCompletionReply } from "./turn-completion-scripts";
+import {
+	currentScenarioUserText,
+	turnCompletionReply,
+} from "./turn-completion-scripts";
 
 const TOOL_CALL_ID = "call_fake_report_1";
 const TOOL_CALL_INPUT = { title: "Deterministic fake report" };
@@ -404,6 +407,12 @@ function buildTextStreamResponse(): Response {
 		{
 			...chunkBase,
 			choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+		},
+		// include_usage: a separate terminal usage chunk follows the text finish.
+		{
+			...chunkBase,
+			choices: [],
+			usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
 		},
 	]);
 }
@@ -921,8 +930,7 @@ function sliceCurrentTurn(text: string): string {
 }
 
 function currentTurnText(body: unknown): string | null {
-	const text = lastUserMessageText(body);
-	return text === null ? null : sliceCurrentTurn(text);
+	return currentScenarioUserText(body);
 }
 
 function bodyAsksForCanvasEdit(body: unknown): boolean {

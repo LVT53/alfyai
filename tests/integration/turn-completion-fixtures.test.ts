@@ -459,3 +459,195 @@ test.each([
 		await harness.stop();
 	}
 });
+
+test("default text stream has trailing usage consumed by the installed SDK", async () => {
+	const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+	const { streamText } = await import("ai");
+	const harness = createOpenAICompatibleProviderHarness();
+	let wire = "";
+	try {
+		await harness.start();
+		const sdk = createOpenAICompatible({
+			name: "synthetic",
+			baseURL: harness.baseURL,
+			includeUsage: true,
+			fetch: async (url, init) => {
+				const response = await fetch(url, init);
+				wire = await response.clone().text();
+				return response;
+			},
+		});
+		const run = streamText({
+			model: sdk.chatModel("alfyai-fake-chat-model"),
+			prompt: "Say hello through the fake provider.",
+			maxRetries: 0,
+		});
+		await run.consumeStream();
+		expect(await run.text).toBe("Streaming fake provider response.");
+		expect(await run.finishReason).toBe("stop");
+		expect(await run.usage).toMatchObject({
+			inputTokens: 12,
+			outputTokens: 5,
+			totalTokens: 17,
+		});
+		const frames = wire
+			.split("\n\n")
+			.filter((s) => s.startsWith("data: {"))
+			.map((s) => JSON.parse(s.slice(6)));
+		expect(frames.at(-2).choices[0].finish_reason).toBe("stop");
+		expect(frames.at(-1)).toMatchObject({
+			model: "alfyai-fake-chat-model",
+			choices: [],
+			usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
+		});
+	} finally {
+		await harness.stop();
+	}
+});
+
+test("actual SDK closing projection cannot turn a refused request into a successful fake answer", async () => {
+	const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+	const { runNormalChatCompletion } = await import(
+		"../../src/lib/server/services/normal-chat-model/completion"
+	);
+	const { AI_SMOKE_REFUSE_SLOWLY_MARKER } = await import(
+		"../fixtures/ai/openai-compatible-scenarios"
+	);
+	const harness = createOpenAICompatibleProviderHarness();
+	const statuses: number[] = [];
+	try {
+		await harness.start();
+		const sdk = createOpenAICompatible({
+			name: "synthetic",
+			baseURL: harness.baseURL,
+			includeUsage: true,
+			fetch: async (url, init) => {
+				const response = await fetch(url, init);
+				statuses.push(response.status);
+				return response;
+			},
+		});
+		const run = runNormalChatCompletion(
+			{
+				provider: {
+					id: "synthetic-refusal",
+					name: "synthetic",
+					displayName: "Synthetic",
+					baseUrl: harness.baseURL,
+					modelName: "alfyai-fake-chat-model",
+					maxModelContext: 131072,
+					maxOutputTokens: 4096,
+				},
+				messages: [
+					{ role: "user", content: `${AI_SMOKE_REFUSE_SLOWLY_MARKER} Hello` },
+				],
+				completionPolicy: {
+					turnId: "refusal",
+					segmentId: "refusal",
+					deadlineAt: Date.now() + 300000,
+					totalTimeoutMs: 300000,
+				},
+			},
+			{
+				model: sdk.chatModel("alfyai-fake-chat-model"),
+				maxModelContext: 131072,
+				providerOptions: undefined,
+				stopWhen: undefined,
+				metadata: (responseModelName) => ({
+					modelId: "synthetic",
+					providerId: "synthetic",
+					providerName: "synthetic",
+					displayName: "Synthetic",
+					requestedModelName: "alfyai-fake-chat-model",
+					responseModelName,
+				}),
+				mapUsage: () => ({
+					inputTokens: null,
+					outputTokens: null,
+					totalTokens: null,
+				}),
+			},
+			true,
+		);
+		let result: PlainNormalChatModelRunResult | undefined;
+		for (;;) {
+			const next = await run.next();
+			if (next.done) {
+				result = next.value;
+				break;
+			}
+		}
+		expect(statuses).toEqual([500, 500]);
+		expect(result?.completion).toMatchObject({
+			outcome: "failed",
+			stopCause: "transport_error",
+			closingAttempted: true,
+		});
+		expect(result?.text).toBe("");
+		const requests = harness.requests();
+		expect(requests).toHaveLength(2);
+		expect(completionToolsOff(requests[1].body)).toBe(true);
+		expect(
+			(requests[1].body as { messages: { content: string }[] }).messages.at(-1)
+				?.content,
+		).toBe(realClosingInstruction);
+	} finally {
+		await harness.stop();
+	}
+});
+
+test.each([
+	"new-user",
+	"paraphrase",
+	"recalled-bundle",
+	"closing-with-tools",
+])("a refusal marker cannot hijack %s", async (mode) => {
+	const { AI_SMOKE_REFUSE_SLOWLY_MARKER } = await import(
+		"../fixtures/ai/openai-compatible-scenarios"
+	);
+	const harness = createOpenAICompatibleProviderHarness();
+	const recalled = {
+		role: "user",
+		content: `${AI_SMOKE_REFUSE_SLOWLY_MARKER} Hello`,
+	};
+	const messages =
+		mode === "recalled-bundle"
+			? [
+					{
+						role: "user",
+						content: `${AI_SMOKE_REFUSE_SLOWLY_MARKER}\n\n## Current User Message\nA different question.\n\n## Instructions\nContinue.`,
+					},
+				]
+			: [
+					recalled,
+					attempt,
+					{
+						role: "user",
+						content:
+							mode === "new-user"
+								? "A different question."
+								: mode === "paraphrase"
+									? "Please finish now."
+									: realClosingInstruction,
+					},
+				];
+	try {
+		await harness.start();
+		const response = await fetch(`${harness.baseURL}/chat/completions`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				model: "alfyai-fake-chat-model",
+				stream: true,
+				messages,
+				...(mode === "closing-with-tools" ? { tools } : {}),
+			}),
+		});
+		expect(response.status).toBe(200);
+		expect(await response.text()).toContain(
+			"Streaming fake provider response.",
+		);
+	} finally {
+		await harness.stop();
+	}
+});

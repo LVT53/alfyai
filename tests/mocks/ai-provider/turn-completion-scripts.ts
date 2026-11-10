@@ -43,7 +43,14 @@ function text(content: unknown): string {
 // Never search backwards for a marker through an arbitrary newer user request.
 const closingInstruction =
 	"Complete the original request using the evidence and working text already present. Preserve useful completed subanswers. Do not repeat already committed answer parts. Tools are unavailable. State unresolved limitations honestly.";
-export function completionMode(body: unknown): CompletionMode | null {
+/** The current request section, with only the app's exact tools-disabled closing envelope unwrapped.
+ * Exported for scenario dispatch and request-ledger counts; never search recalled markers.
+ * A failed HTTP attempt has no assistant response, whereas completion scenarios require one.
+ */
+export function currentScenarioUserText(
+	body: unknown,
+	requireWorkingAssistant = false,
+): string | null {
 	const messages = completionWireMessages(body);
 	let root = messages.findLastIndex((message) => message.role === "user");
 	if (root < 0) return null;
@@ -55,22 +62,34 @@ export function completionMode(body: unknown): CompletionMode | null {
 		);
 		if (
 			root < 0 ||
-			!messages
-				.slice(root + 1, closing)
-				.some((message) => message.role === "assistant")
+			(requireWorkingAssistant &&
+				!messages
+					.slice(root + 1, closing)
+					.some((message) => message.role === "assistant"))
 		)
 			return null;
-	} else if (completionToolsOff(body)) return null;
+	}
 	const source = text(messages[root].content);
-	const section =
+	return (
 		source
 			.split("## Current User Message\n")
 			.at(-1)
 			?.split("\n\n## ")[0]
-			.trim() ?? "";
+			.trim() ?? ""
+	);
+}
+export function completionMode(body: unknown): CompletionMode | null {
+	const messages = completionWireMessages(body);
+	const lastUser = messages.findLast((message) => message.role === "user");
+	if (
+		text(lastUser?.content) !== closingInstruction &&
+		completionToolsOff(body)
+	)
+		return null;
+	const section = currentScenarioUserText(body, true);
 	return (
 		COMPLETION_MODES.find((mode) =>
-			section.startsWith(`${COMPLETION_MARKER}${mode}.`),
+			section?.startsWith(`${COMPLETION_MARKER}${mode}.`),
 		) ?? null
 	);
 }

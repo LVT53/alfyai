@@ -226,6 +226,13 @@ describe("fake OpenAI-compatible provider harness", () => {
 				model: AI_SMOKE_MODEL_ID,
 				choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
 			},
+			{
+				id: "chatcmpl_fake_stream",
+				object: "chat.completion.chunk",
+				model: AI_SMOKE_MODEL_ID,
+				choices: [],
+				usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
+			},
 		]);
 
 		expect(provider.requests()).toMatchObject([
