@@ -1,3 +1,5 @@
+import type { NormalChatOutputEvent } from "$lib/shared/normal-chat-output";
+
 export const AI_SDK_UI_STREAM_DONE = "[DONE]" as const;
 
 export type AiSdkUiStreamDone = typeof AI_SDK_UI_STREAM_DONE;
@@ -193,4 +195,72 @@ export function extractAiSdkUiStreamMetadataData(
 	return data && typeof data === "object"
 		? (data as Record<string, unknown>)
 		: undefined;
+}
+
+/** Decode the direct versioned data payload; role policy belongs to the shared reducer. */
+export function readNormalChatOutputEvent(
+	value: unknown,
+): NormalChatOutputEvent | null {
+	if (!value || typeof value !== "object") return null;
+	const e = value as Record<string, unknown>;
+	if (
+		e.version !== 1 ||
+		!Number.isSafeInteger(e.sequence) ||
+		Number(e.sequence) < 0 ||
+		![e.turnId, e.segmentId, e.attemptId, e.stepId].every(
+			(v) => typeof v === "string",
+		) ||
+		(e.phase !== "working" && e.phase !== "closing")
+	)
+		return null;
+	const block = typeof e.blockId === "string";
+	const finish = e.finishReason === null || typeof e.finishReason === "string";
+	switch (e.type) {
+		case "step_start":
+			break;
+		case "block_start":
+			if (
+				!block ||
+				typeof e.nativeId !== "string" ||
+				!["text", "reasoning"].includes(String(e.kind)) ||
+				!["provisional", "activity", "answer"].includes(String(e.role))
+			)
+				return null;
+			break;
+		case "block_delta":
+			if (!block || typeof e.text !== "string") return null;
+			break;
+		case "block_end":
+			if (!block) return null;
+			break;
+		case "step_end":
+			if (!finish || typeof e.toolAttempted !== "boolean") return null;
+			break;
+		case "step_settled":
+			if (!finish || (e.role !== "activity" && e.role !== "answer"))
+				return null;
+			break;
+		case "completion": {
+			const c = e.completion as Record<string, unknown> | null;
+			if (
+				!c ||
+				c.version !== 1 ||
+				c.turnId !== e.turnId ||
+				c.segmentId !== e.segmentId ||
+				![
+					"answered",
+					"delivered",
+					"paused",
+					"stopped",
+					"incomplete",
+					"failed",
+				].includes(String(c.outcome))
+			)
+				return null;
+			break;
+		}
+		default:
+			return null;
+	}
+	return value as NormalChatOutputEvent;
 }

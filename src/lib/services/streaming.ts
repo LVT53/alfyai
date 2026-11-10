@@ -16,11 +16,16 @@ import {
 	isDocumentExtractionStatus,
 	isExtractionErrorCode,
 } from "$lib/shared/extraction-status";
+import {
+	createNormalChatOutputAccumulator,
+	type NormalChatOutputProjection,
+} from "$lib/shared/normal-chat-output";
 import { observeSessionFromResponse } from "$lib/stores/session";
 import {
 	type AiSdkUiStreamFrame,
 	consumeAiSdkUiStreamFrames,
 	extractAiSdkUiStreamMetadataData,
+	readNormalChatOutputEvent,
 	type UiMessageStreamPart,
 } from "./ai-sdk-ui-stream-contract";
 import {
@@ -135,6 +140,7 @@ export interface StreamTimingSnapshot {
 export type StreamFinishPart = Extract<UiMessageStreamPart, { type: "finish" }>;
 
 export interface StreamCallbacks {
+	onNormalChatOutput?: (view: NormalChatOutputProjection) => void;
 	onToken: (chunk: string) => void;
 	onThinking: (chunk: string) => void;
 	onEnd: (fullText: string, metadata?: StreamMetadata) => void;
@@ -687,6 +693,11 @@ export function streamChat(
 	let stopRequested = false;
 	let detached = false;
 	let fullText = "";
+	let structuralOutput = false;
+	const output = createNormalChatOutputAccumulator();
+	// Wire-kind lookup for the legacy thinking callback only. The accumulator
+	// exclusively owns block text, order and roles; this stores no text/history.
+	const reasoningBlocks = new Set<string>();
 	let latestMetadata: StreamMetadata | undefined;
 	let terminalPartSeen = false;
 	let finishPartReported = false;
@@ -709,6 +720,7 @@ export function streamChat(
 	}
 
 	function flushInlineBufferAtEnd() {
+		if (structuralOutput) return;
 		void flushInlineThinkingState(inlineThinkingState, {
 			onVisible(visibleChunk) {
 				fullText += visibleChunk;
@@ -1006,7 +1018,37 @@ export function streamChat(
 
 				const { part } = frame;
 				switch (part.type) {
+					case "data-normal-chat-output": {
+						const event = readNormalChatOutputEvent(part.data);
+						if (!event) return false;
+						if (!structuralOutput) replayThinkingBuffer.length = 0;
+						structuralOutput = true;
+						replayTokenBuffer.length = 0;
+						if (output.apply(event)) {
+							const view = output.getProjection();
+							const blockKey =
+								"blockId" in event
+									? JSON.stringify([
+											event.turnId,
+											event.segmentId,
+											event.attemptId,
+											event.stepId,
+											event.blockId,
+										])
+									: "";
+							if (event.type === "block_start" && event.kind === "reasoning")
+								reasoningBlocks.add(blockKey);
+							if (event.type === "block_delta" && reasoningBlocks.has(blockKey))
+								emitThinkingChunk(event.text);
+							fullText = view.answer;
+							if (fullText)
+								markTimingPhase(BROWSER_STREAM_TIMING_MARKS.FIRST_TOKEN);
+							callbacks.onNormalChatOutput?.(view);
+						}
+						return false;
+					}
 					case "text-delta": {
+						if (structuralOutput) return false;
 						const chunk =
 							typeof part.delta === "string"
 								? part.delta
@@ -1025,6 +1067,7 @@ export function streamChat(
 					}
 
 					case "reasoning-delta": {
+						if (structuralOutput) return false;
 						const rawThinking =
 							typeof part.delta === "string"
 								? part.delta

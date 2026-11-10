@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+	NormalChatOutputEvent,
+	NormalChatOutputProjection,
+} from "$lib/shared/normal-chat-output";
 import {
 	aiSdkUiStreamCloseAfterFinishSequence,
 	aiSdkUiStreamContractMetadata,
@@ -37,6 +41,258 @@ describe("streamChat", () => {
 
 	afterEach(() => {
 		vi.unstubAllGlobals();
+	});
+
+	it.each([
+		"Let me check.",
+		"Hello. Let me check.",
+	])("keeps %s out of the answer across distinct SSE IDs", async (working) => {
+		const scope = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "w",
+			phase: "working",
+		};
+		const events = [
+			{
+				...scope,
+				sequence: 0,
+				type: "block_start",
+				blockId: "b",
+				nativeId: "text-1",
+				kind: "text",
+				role: "provisional",
+			},
+			{
+				...scope,
+				sequence: 1,
+				type: "block_delta",
+				blockId: "b",
+				text: working,
+			},
+			{
+				...scope,
+				sequence: 2,
+				type: "step_settled",
+				role: "activity",
+				finishReason: "tool-calls",
+			},
+			{
+				...scope,
+				stepId: "c",
+				phase: "closing",
+				sequence: 3,
+				type: "block_start",
+				blockId: "c",
+				nativeId: "text-2",
+				kind: "text",
+				role: "answer",
+			},
+			{
+				...scope,
+				stepId: "c",
+				phase: "closing",
+				sequence: 4,
+				type: "block_delta",
+				blockId: "c",
+				text: "## Result",
+			},
+		];
+		const views: { answer: string; activity: string[] }[] = [];
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
+				...events.flatMap((event) => [
+					uiFrame({ type: "data-normal-chat-output", data: event }),
+					uiFrame({ type: "text-delta", id: "old", delta: "duplicate" }),
+				]),
+				uiFrame({ type: "data-normal-chat-output", data: events[4] }),
+				endEvent({ finalContent: "## Result [repaired]" }),
+			],
+			callbacks: {
+				...makeCallbacks(),
+				onNormalChatOutput: (view: NormalChatOutputProjection) => {
+					views.push({
+						answer: view.answer,
+						activity: view.activity.map((b) => b.text),
+					});
+				},
+			},
+		});
+		await done;
+		expect(views[1]).toEqual({ answer: "", activity: [working] });
+		expect(views.at(-1)).toEqual({ answer: "## Result", activity: [working] });
+		expect(views).toHaveLength(5);
+		expect(cb.onToken).not.toHaveBeenCalled();
+		expect(cb.onEnd).toHaveBeenCalledWith(
+			"## Result",
+			expect.objectContaining({ finalContent: "## Result [repaired]" }),
+		);
+	});
+
+	it.each([
+		"natural",
+		"replay",
+		"tool",
+		"missing-finish",
+		"closing-error",
+	])("preserves block order and explicit roles on %s", async (scenario) => {
+		const natural = scenario === "natural" || scenario === "replay";
+		const replayLog = vi
+			.spyOn(console, "info")
+			.mockImplementation(() => undefined);
+		const scope = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "w",
+			phase: scenario === "closing-error" ? "closing" : "working",
+		} as const;
+		let sequence = 0;
+		const events: NormalChatOutputEvent[] = [
+			{
+				...scope,
+				sequence: sequence++,
+				type: "block_start",
+				blockId: "first",
+				nativeId: "1",
+				kind: "text",
+				role: scenario === "closing-error" ? "answer" : "provisional",
+			},
+			{
+				...scope,
+				sequence: sequence++,
+				type: "block_delta",
+				blockId: "first",
+				text: "## Heading\n",
+			},
+			{
+				...scope,
+				sequence: sequence++,
+				type: "block_start",
+				blockId: "second",
+				nativeId: "2",
+				kind: "text",
+				role: scenario === "closing-error" ? "answer" : "provisional",
+			},
+			{
+				...scope,
+				sequence: sequence++,
+				type: "block_delta",
+				blockId: "second",
+				text: "```ts\ncode\n```",
+			},
+		];
+		if (natural || scenario === "tool")
+			events.push({
+				...scope,
+				sequence: sequence++,
+				type: "step_settled",
+				role: natural ? "answer" : "activity",
+				finishReason: natural ? "stop" : "tool-calls",
+			});
+		const views: { answer: string; ids: string[] }[] = [];
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
+				...(scenario === "replay"
+					? [uiFrame({ type: "data-replay-start" })]
+					: []),
+				...events.map((event) =>
+					uiFrame({ type: "data-normal-chat-output", data: event }),
+				),
+				...(scenario === "replay"
+					? [uiFrame({ type: "data-replay-end" })]
+					: []),
+				...(scenario === "missing-finish"
+					? []
+					: scenario === "closing-error"
+						? [errorEvent({ message: "failed" })]
+						: [endEvent()]),
+			],
+			callbacks: {
+				...makeCallbacks(),
+				onNormalChatOutput: (view: NormalChatOutputProjection) => {
+					views.push({
+						answer: view.answer,
+						ids: view.blocks.map((b) => b.nativeId),
+					});
+				},
+			},
+		});
+		await done;
+		replayLog.mockRestore();
+		expect(views.at(-1)).toEqual({
+			answer:
+				natural || scenario === "closing-error"
+					? "## Heading\n```ts\ncode\n```"
+					: "",
+			ids: ["1", "2"],
+		});
+		if (natural)
+			expect(views.slice(0, -1).every((v) => v.answer === "")).toBe(true);
+		if (scenario === "missing-finish" || scenario === "closing-error") {
+			expect(cb.onError).toHaveBeenCalled();
+			expect(cb.onEnd).not.toHaveBeenCalled();
+		}
+	});
+
+	it("keeps real structural reasoning distinct from commentary and ignores legacy duplicates", async () => {
+		const scope = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "w",
+			phase: "working",
+		} as const;
+		const events: NormalChatOutputEvent[] = [
+			{
+				...scope,
+				sequence: 0,
+				type: "block_start",
+				blockId: "r",
+				nativeId: "reason",
+				kind: "reasoning",
+				role: "activity",
+			},
+			{
+				...scope,
+				sequence: 1,
+				type: "block_delta",
+				blockId: "r",
+				text: "Real reasoning",
+			},
+			{
+				...scope,
+				sequence: 2,
+				type: "block_start",
+				blockId: "b",
+				nativeId: "text",
+				kind: "text",
+				role: "provisional",
+			},
+			{
+				...scope,
+				sequence: 3,
+				type: "block_delta",
+				blockId: "b",
+				text: "Ordinary commentary",
+			},
+		];
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
+				...events.map((event) =>
+					uiFrame({ type: "data-normal-chat-output", data: event }),
+				),
+				thinkingEvent("duplicate reasoning"),
+				endEvent(),
+			],
+		});
+		await done;
+		expect(cb.onThinking.mock.calls).toEqual([["Real reasoning"]]);
+		expect(cb.onEnd).toHaveBeenCalledWith("", undefined);
 	});
 
 	it("decodes the shared AI SDK UI stream contract fixture end-to-end", async () => {
