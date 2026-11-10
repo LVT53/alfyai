@@ -76,7 +76,8 @@ type NewDocument = {
 	summary?: string;
 	userId?: string;
 	conversationId?: string | null;
-	type?: "normalized_document" | "source_document";
+	type?: "normalized_document" | "source_document" | "generated_output";
+	retrievalClass?: "durable" | "ephemeral_followup";
 };
 
 function addDocuments(documents: NewDocument[]) {
@@ -90,7 +91,7 @@ function addDocuments(documents: NewDocument[]) {
 					userId,
 					conversationId: document.conversationId ?? null,
 					type: document.type ?? "normalized_document",
-					retrievalClass: "durable",
+					retrievalClass: document.retrievalClass ?? "durable",
 					name: document.name ?? `${document.id}.md`,
 					summary: document.summary ?? null,
 					mimeType: "text/markdown",
@@ -145,13 +146,14 @@ async function search(
 		queryEmbedding?: number[];
 		excludeConversationId?: string;
 		limit?: number;
+		types?: Array<"normalized_document" | "generated_output">;
 	} = {},
 ) {
 	const { findRelevantArtifactsByTypesDetailed } = await import("./documents");
 	return findRelevantArtifactsByTypesDetailed({
 		userId: USER,
 		query,
-		types: ["normalized_document"],
+		types: options.types ?? ["normalized_document"],
 		limit: options.limit ?? 5,
 		excludeConversationId: options.excludeConversationId,
 		queryEmbedding:
@@ -348,6 +350,52 @@ describe("document search beyond the newest 120", () => {
 		});
 
 		expect(ids).toEqual(["mine-old"]);
+	});
+
+	it("leaves out the older generated outputs the search may not see either, by vector and by name", async () => {
+		const aboutTheQuery = {
+			name: "Tenant deposit refund.md",
+			text: "Tenant deposit refund terms.",
+			vector: ABOUT_THE_QUERY,
+			type: "generated_output" as const,
+		};
+		addDocuments([
+			...fillers("recent", WINDOW, 1).map((filler) => ({
+				...filler,
+				type: "generated_output" as const,
+				conversationId: CURRENT,
+			})),
+			{
+				...aboutTheQuery,
+				id: "kept-old",
+				ageDays: 200,
+				conversationId: CURRENT,
+			},
+			// A chat's output outlives the chat only as a row: it is no one's to read.
+			{ ...aboutTheQuery, id: "chat-gone-old", ageDays: 201 },
+			{
+				...aboutTheQuery,
+				id: "follow-up-old",
+				ageDays: 202,
+				conversationId: CURRENT,
+				retrievalClass: "ephemeral_followup",
+			},
+			{
+				...aboutTheQuery,
+				id: "incognito-chats-old",
+				ageDays: 203,
+				conversationId: INCOGNITO,
+			},
+		]);
+
+		for (const queryEmbedding of [QUERY_VECTOR, undefined]) {
+			expect(
+				await idsFor("tenant deposit refund", {
+					types: ["generated_output"],
+					queryEmbedding,
+				}),
+			).toEqual(["kept-old"]);
+		}
 	});
 
 	it("finds the one document of a series that the question names by its year, when forty others are closer in meaning", async () => {

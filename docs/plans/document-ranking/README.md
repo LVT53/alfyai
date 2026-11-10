@@ -210,11 +210,13 @@ The arithmetic in `document-ranking.ts`, run in TypeScript over the lab's record
 `context.test.ts` ("orders documents that belong to no conversation by relevance...") failed on the old penalty and fails again when the
 penalty is put back on them.
 `documents.older-candidates.test.ts` runs the real search over a real migrated SQLite file with real stored vectors in a three-dimensional
-space (the embedder and the reranker are the only things replaced; the vector store is the real one, watched to count what a search reads). Eleven
-of its twelve fail on the old candidate pass; the twelfth pins what must not change (older documents with no vectors yet leave the answer to the
-newest), and one of the eleven also pins that a library that fits the window reads no extra vectors. Ten deliberate breakages of the new code (no ownership check, no cap, the newest of
+space (the embedder and the reranker are the only things replaced; the vector store is the real one, watched to count what a search reads). Twelve
+of its thirteen fail on the old candidate pass; the thirteenth pins what must not change (older documents with no vectors yet leave the answer to the
+newest), and one of the twelve also pins that a library that fits the window reads no extra vectors. Ten deliberate breakages of the new code (no ownership check, no cap, the newest of
 the older ones instead of the closest, some word instead of every word, no query embedding handed on, ASCII-only words, no lowercase, summary
-ignored, group switched off, no limit on the named group) each fail the test meant to catch them.
+ignored, group switched off, no limit on the named group) each fail the test meant to catch them. The generated-output search gets its own
+visibility test (a chat's output whose chat is gone, a follow-up's, an incognito chat's), which also fails when the older pass drops the
+retrieval-class rule that only that search carries.
 
 ## Reproduce
 
