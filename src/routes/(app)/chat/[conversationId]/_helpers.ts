@@ -2,6 +2,7 @@ import {
 	createConversationDraftRecord,
 	type DraftSaveRequest,
 } from "$lib/client/conversation-session";
+import { normalChatOutputView } from "$lib/client/normal-chat-output-view";
 import { buildAppRebuildActivity } from "$lib/components/artifacts/app/app-rebuild-activity";
 import { buildCanvasAlfyActivity } from "$lib/components/artifacts/canvas/canvas-alfy-activity";
 import {
@@ -817,6 +818,7 @@ export function landedAssistantRow(
 ): boolean {
 	return (
 		Boolean(row.content) ||
+		Boolean(normalChatOutputView(row)?.completion) ||
 		questions.some((question) => question.assistantMessageId === row.id)
 	);
 }
@@ -1189,9 +1191,11 @@ export function finalizeStreamingMessageList(
 				// repair rewrote what was already streamed here as tokens.
 				// Without this swap the live bubble keeps the raw links while
 				// the reloaded conversation shows the repaired ones.
-				content: params.metadata?.wasStopped
-					? message.content || "Stopped"
-					: (params.metadata?.finalContent ?? message.content),
+				content:
+					params.metadata?.finalContent ??
+					(params.metadata?.wasStopped && !normalChatOutputView(message)
+						? message.content || "Stopped"
+						: message.content),
 				// stopped-marker — carry wasStopped onto the finalized client
 				// message so the LIVE session can render the "stopped early" chip
 				// immediately, not just after a reload (server persistence already

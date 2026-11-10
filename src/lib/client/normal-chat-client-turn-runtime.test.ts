@@ -7,6 +7,7 @@ import {
 	type NormalChatMessageListEvent,
 	type NormalChatRuntimeSnapshot,
 } from "$lib/client/normal-chat-client-turn-runtime";
+import { applyNormalChatOutputView } from "$lib/client/normal-chat-output-view";
 import type { ServerUpdateKind } from "$lib/client/server-update-watch";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
@@ -21,6 +22,7 @@ import type {
 	StreamTimingSnapshot,
 } from "$lib/services/streaming";
 import type { AskAnswer } from "$lib/shared/ask-user";
+import { createNormalChatOutputAccumulator } from "$lib/shared/normal-chat-output";
 
 type StreamInvocation = {
 	message: string;
@@ -194,6 +196,17 @@ function makeAdapters(
 				return;
 			case "appendAssistantPlaceholder":
 				messageListEvents.appendAssistantPlaceholder(event.placeholder);
+				return;
+			case "applyNormalChatOutput":
+				messages.splice(
+					0,
+					messages.length,
+					...applyNormalChatOutputView(
+						messages,
+						event.placeholderId,
+						event.view,
+					),
+				);
 				return;
 			case "appendToken":
 				messageListEvents.appendTokenChunk(event.placeholderId, event.chunk);
@@ -3640,6 +3653,147 @@ describe("Normal Chat Client Turn Runtime", () => {
 	// treatment). RED before the fix: this exact scenario (onToken then a
 	// plain network Error) hit the unconditional `removeMessage` and never
 	// called `checkForOrphanedStream` at all.
+	it("keeps structural partials on failed recovery and ignores stale output/end after B starts", async () => {
+		vi.useFakeTimers();
+		const made = makeAdapters({
+			schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		await runtime.send({
+			message: "A",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		const a = made.streamInvocations[0].callbacks;
+		const output = createNormalChatOutputAccumulator();
+		const scope = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "w",
+			phase: "working",
+		} as const;
+		output.apply({
+			...scope,
+			sequence: 0,
+			type: "block_start",
+			blockId: "b",
+			nativeId: "n",
+			kind: "text",
+			role: "provisional",
+		});
+		output.apply({
+			...scope,
+			sequence: 1,
+			type: "block_delta",
+			blockId: "b",
+			text: "Working",
+		});
+		a.onNormalChatOutput?.(output.getProjection());
+		expect(made.messages.at(-1)?.content).toBe("");
+		a.onError(new Error("model failed"));
+		await vi.advanceTimersByTimeAsync(3500);
+		expect(
+			made.messages.find((message) => message.id === "id-2"),
+		).toMatchObject({ content: "", isStreaming: false });
+		await runtime.send({
+			message: "B",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		const state = runtime.snapshot();
+		vi.mocked(made.adapters.applyMessageListEvent).mockClear();
+		a.onNormalChatOutput?.(output.getProjection());
+		a.onEnd("stale", { finalContent: "stale", assistantMessageId: "old" });
+		expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
+		expect(runtime.snapshot()).toEqual(state);
+		vi.useRealTimers();
+	});
+
+	it("does not reload or join A after background recovery yields to B", async () => {
+		let resolveStream!: (value: string | null) => void;
+		const made = makeAdapters({
+			isBrowserHidden: () => true,
+			checkForOrphanedStream: vi.fn(
+				() =>
+					new Promise<string | null>((resolve) => {
+						resolveStream = resolve;
+					}),
+			),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		await runtime.send({
+			message: "A",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		made.streamInvocations[0].callbacks.onToken("A partial");
+		made.streamInvocations[0].callbacks.onError(
+			Object.assign(new Error("background"), { name: "AbortError" }),
+		);
+		const recovery = runtime.handleVisibilityVisible();
+		expect(made.adapters.checkForOrphanedStream).toHaveBeenCalledTimes(1);
+		await runtime.send({
+			message: "B",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		const before = runtime.snapshot();
+		vi.mocked(made.adapters.applyMessageListEvent).mockClear();
+		resolveStream("stream-A");
+		await recovery;
+		expect(made.streamInvocations).toHaveLength(2);
+		expect(made.adapters.loadPersistedData).not.toHaveBeenCalled();
+		expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
+		expect(runtime.snapshot()).toEqual(before);
+	});
+
+	it("a stale recovery preserves A partial and B progress before any removal", async () => {
+		vi.useFakeTimers();
+		let resolveInfo!: (value: { exists: boolean; userMessage: string }) => void;
+		const { adapters, streamInvocations, messageListEvents } = makeAdapters({
+			schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+			checkForOrphanedStream: vi.fn(async () => "stream-A"),
+			getStreamBufferInfo: vi.fn(
+				() =>
+					new Promise<{ exists: boolean; userMessage: string }>((resolve) => {
+						resolveInfo = resolve;
+					}),
+			),
+		});
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		await runtime.send({
+			message: "A",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		streamInvocations[0].callbacks.onToken("A partial");
+		streamInvocations[0].callbacks.onError(new Error("Failed to fetch"));
+		await vi.advanceTimersByTimeAsync(500);
+		await runtime.send({
+			message: "B",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		streamInvocations[1].callbacks.onToken("B progress");
+		const before = runtime.snapshot();
+		messageListEvents.removeMessage.mockClear();
+		resolveInfo({ exists: true, userMessage: "A" });
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(messageListEvents.removeMessage).not.toHaveBeenCalled();
+		expect(runtime.snapshot()).toEqual(before);
+		expect(streamInvocations).toHaveLength(2);
+		vi.useRealTimers();
+	});
+
 	it("R1 defect 1 — preserves the partial answer on a mid-stream network drop and attempts automatic reconnect recovery", async () => {
 		vi.useFakeTimers();
 		const { adapters, streamInvocations, messageListEvents } = makeAdapters({
@@ -6580,7 +6734,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 					pendingAttachments: [],
 				};
 
-				it("asks for no stream it cannot join, settles the reply around that turn and leaves the turn alone", async () => {
+				it("leaves the cut reply and the newer waiting turn intact without stale recovery", async () => {
 					const made = drainingAdapters();
 					streamAppearsOnTheFourthLook(made);
 					const runtime = createNormalChatClientTurnRuntime(made.adapters);
@@ -6596,14 +6750,14 @@ describe("Normal Chat Client Turn Runtime", () => {
 					await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
 
 					// The three looks of the drop found nothing, and a fourth could not be used.
-					expect(made.adapters.checkForOrphanedStream).toHaveBeenCalledTimes(3);
+					expect(made.adapters.checkForOrphanedStream).not.toHaveBeenCalled();
 					expect(made.streamInvocations).toHaveLength(2);
 					// The server was asked what it holds of the cut reply, and the reply left
 					// the screen with no error: the chat brings it back when it is read.
-					expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
+					expect(made.adapters.readChatMessages).not.toHaveBeenCalled();
 					expect(
 						made.messages.find((message) => message.id === cutReplyId),
-					).toBeUndefined();
+					).toMatchObject({ content: "Half an" });
 					expect(sentenceShown(made.adapters)).toEqual([]);
 					// The turn that waits for the update is as it was, and still goes.
 					expect(runtime.snapshot()).toMatchObject({
@@ -6655,16 +6809,9 @@ describe("Normal Chat Client Turn Runtime", () => {
 					expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
 					expect(
 						made.messages.find((message) => message.id === cutReplyId),
-					).toBeUndefined();
-					// And it stayed on the screen until the server had been asked.
-					const removals = made.messageListEvents.removeMessage.mock;
-					expect(
-						vi.mocked(made.adapters.readChatMessages as () => Promise<unknown>)
-							.mock.invocationCallOrder[0],
-					).toBeLessThan(
-						removals.invocationCallOrder[
-							removals.calls.findIndex(([id]) => id === cutReplyId)
-						],
+					).toMatchObject({ content: "Half an" });
+					expect(made.messageListEvents.removeMessage).not.toHaveBeenCalledWith(
+						cutReplyId,
 					);
 					expect(sentenceShown(made.adapters)).toEqual([]);
 					expect(runtime.snapshot()).toMatchObject({
@@ -7686,9 +7833,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 				await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
 
-				expect(reported(made.onAskEvent, "answerNotSent")).toEqual([
-					{ type: "answerNotSent", questionId: "q-1", quiet: false },
-				]);
+				expect(reported(made.onAskEvent, "answerNotSent")).toEqual([]);
 				expect(runtime.snapshot()).toMatchObject({
 					isSending: true,
 					active: true,

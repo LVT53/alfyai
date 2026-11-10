@@ -1,6 +1,7 @@
 import type { RetryOrigin } from "$lib/chat-turn-origin";
 import { submitAtlasTurn } from "$lib/client/api/atlas";
 import type { ServerHealth } from "$lib/client/api/health";
+import { normalChatOutputView } from "$lib/client/normal-chat-output-view";
 import {
 	SERVER_UPDATE_WATCH_MAX_MS,
 	SERVER_UPDATE_WATCH_POLL_MS,
@@ -47,6 +48,7 @@ import type {
 	UserPicturesMetadata,
 } from "$lib/shared/artifacts/image-body";
 import { type AskAnswer, isAskToolName } from "$lib/shared/ask-user";
+import type { NormalChatOutputProjection } from "$lib/shared/normal-chat-output";
 import {
 	isFileProductionToolName,
 	toolCallInputKey,
@@ -134,6 +136,11 @@ export type NormalChatRuntimeSnapshot = {
 export type NormalChatMessageListEvent =
 	| { type: "appendUser"; message: ChatMessage }
 	| { type: "appendAssistantPlaceholder"; placeholder: ChatMessage }
+	| {
+			type: "applyNormalChatOutput";
+			placeholderId: string;
+			view: NormalChatOutputProjection;
+	  }
 	| { type: "appendToken"; placeholderId: string; chunk: string }
 	| { type: "appendThinking"; placeholderId: string; chunk: string }
 	| {
@@ -668,6 +675,7 @@ export function createNormalChatClientTurnRuntime(
 	// visible and the recovery has looked (`recoverBackgroundInterruptedStream`), which
 	// joins the resume with its answer and its row, or tells the page it is gone.
 	let interruptedResume: ResumeContext | null = null;
+	let turnEpoch = 0;
 
 	function snapshot(): NormalChatRuntimeSnapshot {
 		return {
@@ -715,6 +723,7 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	function beginTurn() {
+		turnEpoch++;
 		isSending = true;
 		phase = "preparing";
 		emitState();
@@ -1306,13 +1315,23 @@ export function createNormalChatClientTurnRuntime(
 		if (detached || !isTurnConversationActive(params.turnConversationId)) {
 			return;
 		}
-		adapters.applyMessageListEvent({
-			type: "remove",
-			messageId: params.placeholderId,
-		});
-		// A new turn can have started while the page asked: it owns the state. (A
-		// turn that holds the state is this one's own: nothing else could start.)
+		// Ownership is checked before touching either turn's visible state.
 		if (isSending && !options.ownsTurn) return;
+		const partial = adapters
+			.getMessages()
+			.find((message) => message.id === params.placeholderId);
+		if (partial && normalChatOutputView(partial) && outcome.kind !== "landed") {
+			adapters.applyMessageListEvent({
+				type: "finalize",
+				placeholderId: params.placeholderId,
+				clientUserMessageId: params.clientUserMessageId,
+			});
+		} else {
+			adapters.applyMessageListEvent({
+				type: "remove",
+				messageId: params.placeholderId,
+			});
+		}
 		completeTurn();
 		if (outcome.kind === "landed") {
 			lastSend = null;
@@ -1806,8 +1825,12 @@ export function createNormalChatClientTurnRuntime(
 		// call site — otherwise a flush triggered from one of those
 		// unconditional call sites would still deliver a stale turn's
 		// buffered text to the current conversation.
+		const ownsStream = () =>
+			!detached &&
+			activePlaceholderId === params.placeholderId &&
+			isTurnConversationActive(params.turnConversationId);
 		const tokenBuffer = new TokenDisplayBuffer((text) => {
-			if (!isTurnConversationActive(params.turnConversationId)) return;
+			if (!ownsStream()) return;
 			adapters.applyMessageListEvent({
 				type: "appendToken",
 				placeholderId: params.placeholderId,
@@ -1815,7 +1838,7 @@ export function createNormalChatClientTurnRuntime(
 			});
 		});
 		const thinkingBuffer = new TokenDisplayBuffer((text) => {
-			if (!isTurnConversationActive(params.turnConversationId)) return;
+			if (!ownsStream()) return;
 			adapters.applyMessageListEvent({
 				type: "appendThinking",
 				placeholderId: params.placeholderId,
@@ -1852,22 +1875,33 @@ export function createNormalChatClientTurnRuntime(
 		};
 
 		return {
+			onNormalChatOutput(view) {
+				if (!ownsStream()) return;
+				hasStreamedContent = true;
+				noteResumeRunning();
+				setPhase("generating", params.placeholderId);
+				adapters.applyMessageListEvent({
+					type: "applyNormalChatOutput",
+					placeholderId: params.placeholderId,
+					view,
+				});
+			},
 			onToken(chunk) {
 				hasStreamedContent = true;
-				if (!isTurnConversationActive(params.turnConversationId)) return;
+				if (!ownsStream()) return;
 				noteResumeRunning();
 				setPhase("generating", params.placeholderId);
 				tokenBuffer.append(chunk);
 			},
 			onThinking(chunk) {
 				hasStreamedContent = true;
-				if (!isTurnConversationActive(params.turnConversationId)) return;
+				if (!ownsStream()) return;
 				noteResumeRunning();
 				setPhase("generating", params.placeholderId);
 				thinkingBuffer.append(chunk);
 			},
 			onToolCall(name, input, status, details) {
-				if (!isTurnConversationActive(params.turnConversationId)) return;
+				if (!ownsStream()) return;
 				noteResumeRunning();
 				setPhase("generating", params.placeholderId);
 				adapters.applyMessageListEvent({
@@ -1916,7 +1950,7 @@ export function createNormalChatClientTurnRuntime(
 				}
 			},
 			onResponseActivity(entry) {
-				if (!isTurnConversationActive(params.turnConversationId)) return;
+				if (!ownsStream()) return;
 				noteResumeRunning();
 				setPhase("generating", params.placeholderId);
 				adapters.applyMessageListEvent({
@@ -1931,13 +1965,14 @@ export function createNormalChatClientTurnRuntime(
 				}
 				tokenBuffer.flush();
 				thinkingBuffer.flush();
-				if (!isTurnConversationActive(params.turnConversationId)) return;
+				if (!ownsStream()) return;
 				setPhase("finalizing", params.placeholderId);
 			},
 			onTiming(timing) {
 				adapters.onStreamTiming?.(timing);
 			},
 			onWaiting() {
+				if (!ownsStream()) return;
 				activeStream?.detach();
 				isPollingForCompletion = true;
 				phase = "polling";
@@ -1957,6 +1992,7 @@ export function createNormalChatClientTurnRuntime(
 				}
 			},
 			onEnd(fullText, metadata) {
+				if (!ownsStream()) return;
 				tokenBuffer.flush();
 				thinkingBuffer.flush();
 
@@ -2059,6 +2095,7 @@ export function createNormalChatClientTurnRuntime(
 				void drainPostTurnQueue();
 			},
 			onError(error) {
+				if (!ownsStream()) return;
 				// Read before anything is awaited: it is what the page knew of the
 				// version when this failure was handled (`isNewVersionLive`).
 				const versionWasLive = adapters.isNewVersionLive();
@@ -2205,6 +2242,7 @@ export function createNormalChatClientTurnRuntime(
 					const retryCount = params.networkRetryCount ?? 0;
 					if (retryCount < 3) {
 						const delay = 2 ** retryCount * 500;
+						const recoveryEpoch = turnEpoch;
 						completeTurn();
 						adapters.schedule(() => {
 							void recoverNetworkDroppedStream(
@@ -2212,6 +2250,7 @@ export function createNormalChatClientTurnRuntime(
 								err,
 								retryCount + 1,
 								versionWasLive,
+								recoveryEpoch,
 							);
 						}, delay);
 						return;
@@ -2279,10 +2318,21 @@ export function createNormalChatClientTurnRuntime(
 					return;
 				}
 
-				adapters.applyMessageListEvent({
-					type: "remove",
-					messageId: params.placeholderId,
-				});
+				const partial = adapters
+					.getMessages()
+					.find((message) => message.id === params.placeholderId);
+				if (partial && normalChatOutputView(partial)) {
+					adapters.applyMessageListEvent({
+						type: "finalize",
+						placeholderId: params.placeholderId,
+						clientUserMessageId: params.clientUserMessageId,
+					});
+				} else {
+					adapters.applyMessageListEvent({
+						type: "remove",
+						messageId: params.placeholderId,
+					});
+				}
 				completeTurn();
 
 				if (isBackgroundAbort) {
@@ -2398,17 +2448,22 @@ export function createNormalChatClientTurnRuntime(
 		originalError: Error,
 		retryCount: number,
 		versionWasLive: boolean,
+		recoveryEpoch: number,
 	) {
 		// A recovery that was scheduled before the page was left reconnects nothing
 		// from it, and asks nothing of the server.
-		if (detached || !isTurnConversationActive(params.turnConversationId)) {
+		if (
+			turnEpoch !== recoveryEpoch ||
+			detached ||
+			!isTurnConversationActive(params.turnConversationId)
+		) {
 			return;
 		}
 
 		const streamId = await adapters.checkForOrphanedStream(
 			params.turnConversationId,
 		);
-		if (detached) return;
+		if (turnEpoch !== recoveryEpoch || detached) return;
 
 		if (!streamId) {
 			if (retryCount < 3) {
@@ -2419,6 +2474,7 @@ export function createNormalChatClientTurnRuntime(
 							originalError,
 							retryCount + 1,
 							versionWasLive,
+							recoveryEpoch,
 						);
 					},
 					2 ** retryCount * 500,
@@ -2473,7 +2529,11 @@ export function createNormalChatClientTurnRuntime(
 			params.turnConversationId,
 		);
 
-		if (detached || !isTurnConversationActive(params.turnConversationId)) {
+		if (
+			turnEpoch !== recoveryEpoch ||
+			detached ||
+			!isTurnConversationActive(params.turnConversationId)
+		) {
 			return;
 		}
 
@@ -3090,6 +3150,7 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	function stop() {
+		turnEpoch++;
 		// A turn that waits for an update has no stream: Stop ends the wait, and the
 		// turn ends the way the wait's own give-up decides.
 		if (updateWait && !updateWait.detached) {
@@ -3112,6 +3173,7 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	function detach() {
+		turnEpoch++;
 		activeTokenBuffer?.flush();
 		activeThinkingBuffer?.flush();
 		activeTokenBuffer = null;
@@ -3331,12 +3393,15 @@ export function createNormalChatClientTurnRuntime(
 		if (isSending || activeStream) {
 			return false;
 		}
-		const running = await findRunningStream(adapters.getConversationId());
-		if (!running) return false;
+		const turnConversationId = adapters.getConversationId();
+		const epoch = turnEpoch;
+		const running = await findRunningStream(turnConversationId);
+		if (!running || epoch !== turnEpoch || !canStartTurnIn(turnConversationId))
+			return false;
 		return joinRunningStream(
 			running,
 			running.bufferInfo?.userMessage ?? "",
-			undefined,
+			turnConversationId,
 			takenOverFrom,
 		);
 	}
@@ -3346,6 +3411,8 @@ export function createNormalChatClientTurnRuntime(
 		// the stream is joined as that resume (its row goes on, and the answer was
 		// taken up); if it does not, the page is told so, quietly, and reads the
 		// questions and the chat to learn whether it finished.
+		const epoch = turnEpoch;
+		const conversationId = adapters.getConversationId();
 		const cutOff = interruptedResume;
 		interruptedResume = null;
 		const reconnected = await joinRunningStreamOfChat(cutOff ?? undefined);
@@ -3353,6 +3420,7 @@ export function createNormalChatClientTurnRuntime(
 			if (cutOff?.answer) reportAnswerAccepted(cutOff.answer);
 			return;
 		}
+		if (epoch !== turnEpoch || !canStartTurnIn(conversationId)) return;
 		if (cutOff?.answer) {
 			adapters.onAskEvent?.({
 				type: "answerNotSent",

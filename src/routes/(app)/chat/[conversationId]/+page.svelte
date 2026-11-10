@@ -1,4 +1,5 @@
 <script lang="ts">
+import { applyNormalChatOutputView } from "$lib/client/normal-chat-output-view";
 import { get, writable } from "svelte/store";
 import { onMount, onDestroy, tick, untrack } from "svelte";
 import { createMessageUsageRefresher } from "$lib/client/message-usage";
@@ -1097,6 +1098,11 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 			case "appendAssistantPlaceholder":
 				messages.update((list) =>
 					appendAssistantPlaceholder(list, event.placeholder),
+				);
+				return;
+			case "applyNormalChatOutput":
+				messages.update((list) =>
+					applyNormalChatOutputView(list, event.placeholderId, event.view),
 				);
 				return;
 			case "appendToken":
