@@ -6,10 +6,11 @@ vi.mock("$lib/server/auth/hooks", () => ({
 
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
-	appendToStreamBuffer,
+	broadcastStreamChunk,
 	clearStreamBuffer,
 	getOrCreateStreamBuffer,
 } from "$lib/server/services/chat-turn/active-streams";
+import { encodeAiSdkUiStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
 import { GET } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
@@ -73,16 +74,41 @@ describe("GET /api/chat/stream/buffer", () => {
 			userMessage: "original question",
 			reasoningDepth: "thorough",
 		});
-		appendToStreamBuffer("stream-buffer-existing", "token", { text: "Hello" });
-		appendToStreamBuffer("stream-buffer-existing", "token", { text: " world" });
-		appendToStreamBuffer("stream-buffer-existing", "thinking", {
-			text: "Need evidence",
-		});
-		appendToStreamBuffer("stream-buffer-existing", "tool_call", {
-			name: "web_search",
-			input: { query: "current evidence" },
-			status: "running",
-		});
+		broadcastStreamChunk(
+			"stream-buffer-existing",
+			encodeAiSdkUiStreamPart({
+				type: "text-delta",
+				id: "answer",
+				delta: "Hello",
+			}),
+		);
+		broadcastStreamChunk(
+			"stream-buffer-existing",
+			encodeAiSdkUiStreamPart({
+				type: "text-delta",
+				id: "answer",
+				delta: " world",
+			}),
+		);
+		broadcastStreamChunk(
+			"stream-buffer-existing",
+			encodeAiSdkUiStreamPart({
+				type: "reasoning-delta",
+				id: "reasoning",
+				delta: "Need evidence",
+			}),
+		);
+		broadcastStreamChunk(
+			"stream-buffer-existing",
+			encodeAiSdkUiStreamPart({
+				type: "data-tool-call",
+				data: {
+					name: "web_search",
+					input: { query: "current evidence" },
+					status: "running",
+				},
+			}),
+		);
 
 		try {
 			const response = await GET(
@@ -107,6 +133,30 @@ describe("GET /api/chat/stream/buffer", () => {
 		}
 	});
 
+	it("does not report a user's stream under a different conversation", async () => {
+		getOrCreateStreamBuffer({
+			streamId: "stream-buffer-existing",
+			userId: "user-1",
+			conversationId: "conv-buffer-existing",
+			userMessage: "private question",
+		});
+		broadcastStreamChunk(
+			"stream-buffer-existing",
+			encodeAiSdkUiStreamPart({
+				type: "text-delta",
+				id: "answer",
+				delta: "private answer",
+			}),
+		);
+		const response = await GET(
+			makeEvent(
+				"?streamId=stream-buffer-existing&conversationId=other-conversation",
+			),
+		);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ exists: false });
+	});
+
 	it("does not report another user's stream buffer by stream id", async () => {
 		getOrCreateStreamBuffer({
 			streamId: "stream-buffer-other-user",
@@ -114,9 +164,14 @@ describe("GET /api/chat/stream/buffer", () => {
 			conversationId: "conv-buffer-other-user",
 			userMessage: "private question",
 		});
-		appendToStreamBuffer("stream-buffer-other-user", "token", {
-			text: "private answer",
-		});
+		broadcastStreamChunk(
+			"stream-buffer-other-user",
+			encodeAiSdkUiStreamPart({
+				type: "text-delta",
+				id: "answer",
+				delta: "private answer",
+			}),
+		);
 
 		try {
 			const response = await GET(
