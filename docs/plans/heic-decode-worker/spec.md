@@ -301,3 +301,11 @@ After the independent review of the finished branch (one commit each):
   the reader maps it to `job_failed`, retryable, with `details: { reason }`: it spends an attempt like the timeout, so a box
   that stays short ends after the attempt budget. A worker that exits without an answer, and a worker's `error` event, stay
   `document_unreadable`: a crash is most likely the file.
+- What a decode costs in memory, measured after the build: a worker peaks at about 3.3 times its RGBA (the 12 MP fixture:
+  about 159 MB of RSS for 48 MB of RGBA), so a decode at D6's cap is about 1.3 GB in its worker and not "about 1 GB", and its
+  RGBA (up to 400 MB) then lives in the main thread while sharp works, after the pool's place was freed. So D4's cap of two
+  bounds threads and not the process's decode memory. And D6's cap is a limit on what the file says: libheif refuses a grid
+  whose `ispe` understates its size only after decoding the grid (the 12 MP grid fixture with its `ispe` set to 100 x 100
+  was refused after 311 ms, its whole decode), so a crafted file can push one worker to libheif-js's 2 GB WebAssembly heap
+  ceiling whatever the cap is. Before the workers that happened on the main thread. The comments on `HEIF_MAX_PIXELS` and
+  `HEIF_DECODE_CONCURRENCY` say so; no code changed.

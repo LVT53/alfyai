@@ -21,15 +21,27 @@ import { ImagePreparationError, ImageTooLargeError } from "./image-errors";
 
 /**
  * The most pixels a photo may have, read from its file before any decoding. Every
- * phone photo fits, a 48 or 50 MP one and an iPhone panorama included, and the
- * decode of one this size takes about 1 GB in its worker (RGBA, four bytes a
- * pixel, as well as libheif's own heap); more than this is refused, not decoded.
+ * phone photo fits, a 48 or 50 MP one and an iPhone panorama included. A decode
+ * peaks at about 3.3 times its RGBA, four bytes a pixel (measured on the 12 MP
+ * fixture: about 159 MB of RSS in its worker for 48 MB of RGBA), so one at this
+ * size is about 1.3 GB in its worker, and its 400 MB of RGBA then lives on in the
+ * main thread while sharp works on it. More than this is refused, not decoded.
+ *
+ * It limits what the file SAYS, and no more. libheif refuses a grid whose `ispe`
+ * understates its size only after it has decoded the grid, so a crafted file can
+ * still push one worker to libheif-js's 2 GB WebAssembly heap ceiling, whatever
+ * this number is. That costs one worker; before the workers it cost the main
+ * thread.
  */
 export const HEIF_MAX_PIXELS = 100_000_000;
 
 /**
- * Decodes at once for the whole process. Each is a thread and, for a big photo,
- * a gigabyte or so; the rest wait their turn.
+ * Decodes at once for the whole process. This bounds threads, and the heap each
+ * holds while it decodes (about 1.3 GB at the pixel limit); it does not bound the
+ * process's decode memory. A place is free once its worker has exited, and the
+ * RGBA (up to 400 MB) then lives on in the main thread while sharp orients,
+ * flattens, resizes and encodes it, with the next decode already running. The
+ * rest wait their turn.
  */
 export const HEIF_DECODE_CONCURRENCY = 2;
 
