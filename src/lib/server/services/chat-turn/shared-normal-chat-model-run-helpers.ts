@@ -184,6 +184,7 @@ export function estimateTurnPromptTokens(params: {
 // shared code can treat `disableTools`/`forceProduceFileTool` uniformly.
 
 export type NormalChatSendModelBaseParams = {
+	resumeDepthOverride?: boolean;
 	completionRequestId?: string;
 	continuationSnapshot?: import("../normal-chat-model").NormalChatContinuationSnapshot;
 	onOutputEvent?: (

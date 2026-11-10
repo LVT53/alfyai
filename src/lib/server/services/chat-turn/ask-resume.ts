@@ -377,6 +377,7 @@ export async function prepareAskResumeTurn(p: {
 	];
 
 	const resume: AskResumeInput = {
+		depthOverride: body.reasoningDepth !== undefined,
 		questionId: claimed.id,
 		claim,
 		askedMessageId,

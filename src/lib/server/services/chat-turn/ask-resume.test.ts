@@ -645,6 +645,7 @@ describe("prepareAskResumeTurn", () => {
 		);
 		// the claim goes through as it was won, and names the row and the call
 		expect(resume).toMatchObject({
+			depthOverride: false,
 			questionId: claimed.row.id,
 			claim: claimed.claim,
 			askedMessageId: "asst-1",
@@ -830,7 +831,7 @@ describe("prepareAskResumeTurn", () => {
 	it("runs on the model, depth, personality, capabilities and document the answer was sent with", async () => {
 		const claimed = await oneSegmentReply();
 
-		await prepare(claimed, {
+		const result = await prepare(claimed, {
 			streamId: "stream-answer",
 			model: "model2",
 			reasoningDepth: "thorough",
@@ -839,6 +840,9 @@ describe("prepareAskResumeTurn", () => {
 			activeDocumentArtifactId: "doc-1",
 		});
 
+		expect(
+			result.ok && result.value.orchestratorInput.resume?.depthOverride,
+		).toBe(true);
 		expect(capturedSyntheticBodies[0]).toMatchObject({
 			streamId: "stream-answer",
 			model: "model2",

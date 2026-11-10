@@ -5,9 +5,14 @@ import {
 	createPlainNormalChatProvider,
 	createPlainNormalChatSendModelParams,
 } from "./plain-normal-chat-model-run.test-helpers";
+import {
+	buildReasoningDepthProviderOptions,
+	resolveReasoningDepthEffort,
+} from "./reasoning-depth-effort";
 
 const mocks = vi.hoisted(() => ({
 	prepare: vi.fn(),
+	runtime: vi.fn(),
 	tools: vi.fn(),
 	model: vi.fn(),
 	admit: vi.fn(),
@@ -26,11 +31,7 @@ vi.mock("./shared-normal-chat-model-run-helpers", async (original) => ({
 	>()),
 	prepareOutboundContext: mocks.prepare,
 	createToolPack: mocks.tools,
-	resolveProviderRuntime: async () => ({
-		provider: createPlainNormalChatProvider(),
-		modelId: "model1",
-		depthEffort: null,
-	}),
+	resolveProviderRuntime: (...args: unknown[]) => mocks.runtime(...args),
 }));
 vi.mock("../connections/resolve", () => ({
 	resolveActiveCapabilities: async () => new Set(),
@@ -47,6 +48,19 @@ import { prepareNormalChatTurn } from "./prepared-normal-chat-turn";
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.runtime.mockImplementation(async (params) => {
+		const provider = createPlainNormalChatProvider();
+		return {
+			provider,
+			modelId: "model1",
+			depthEffort: params.depthMetadata
+				? resolveReasoningDepthEffort({
+						depthMetadata: params.depthMetadata,
+						provider,
+					})
+				: null,
+		};
+	});
 	mocks.admit.mockReturnValue({ status: "admitted" });
 	mocks.record.mockResolvedValue(undefined);
 	mocks.prepare.mockResolvedValue(
@@ -541,4 +555,183 @@ it.each([
 		expect(result.text.startsWith("Answer")).toBe(true);
 		expect(generations).toBe(2);
 	} else expect(run.receipt.getSnapshot()?.completion?.outcome).toBe("stopped");
+});
+
+it.each([
+	false,
+	true,
+])("keeps captured v2 defaults but respects validated explicit depth overrides (%s)", async (explicit) => {
+	const oldDepth = {
+		requested: "quick" as const,
+		appliedProfile: "off" as const,
+		fallback: false,
+	};
+	const newDepth = {
+		requested: "thorough" as const,
+		appliedProfile: "standard" as const,
+		fallback: false,
+	};
+	const first = await prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams({
+			depthMetadata: oldDepth,
+			thinkingMode: "off",
+		}),
+	);
+	const original = mocks.model.mock.calls.at(-1)?.[0];
+	await first.runPlain();
+	const snapshot: import("../normal-chat-model").NormalChatContinuationSnapshot =
+		{
+			version: 1,
+			fidelity: "exact",
+			turnId: "t",
+			segmentId: "old",
+			original: {
+				providerId: "model1",
+				providerBaseUrl: "https://test.invalid",
+				modelName: "gpt-4.1",
+				system: original.system,
+				messages: original.messages,
+				provenance: original.completionPolicy.contextProvenance,
+			},
+			steps: [],
+			prepared: { maxOutputTokens: 100 },
+			pendingImageEntries: [],
+			executions: [],
+			events: [],
+			usage: [],
+			sequence: 0,
+			nextAttempt: 0,
+			workingSteps: 0,
+			closingSegments: [],
+			deadlineAt: Date.now() + 10000,
+			totalTimeoutMs: 10000,
+		};
+	const resumed = await prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams({
+			continuationSnapshot: snapshot,
+			resumeDepthOverride: explicit,
+			depthMetadata: newDepth,
+			thinkingMode: "on",
+		}),
+	);
+	const effective = mocks.model.mock.calls.at(-1)?.[0];
+	const expected = resolveReasoningDepthEffort({
+		depthMetadata: explicit ? newDepth : oldDepth,
+		provider: createPlainNormalChatProvider(),
+	});
+	expect(effective.maxToolSteps).toBe(expected.maxToolSteps);
+	expect(
+		effective.resolveProviderOptions(createPlainNormalChatProvider()),
+	).toEqual(
+		buildReasoningDepthProviderOptions(
+			createPlainNormalChatProvider(),
+			expected,
+		),
+	);
+	expect(
+		effective.completionPolicy.contextProvenance.settings.depthMetadata
+			.requested,
+	).toBe(explicit ? "thorough" : "quick");
+	expect(effective.messages).toEqual(original.messages);
+	expect(effective.system).toBe(original.system);
+	expect(mocks.prepare).toHaveBeenCalledOnce();
+	await resumed.runPlain();
+});
+
+it.each([
+	{ capacity: 8192, maxTokens: 777, expectedCalls: 1 },
+	{ capacity: 8192, maxTokens: null, expectedCalls: 0 },
+	{ capacity: 128, maxTokens: 777, expectedCalls: 0 },
+])("binds the prepared output reserve and preserves pre-SDK capacity refusal ($capacity/$maxTokens)", async ({
+	capacity,
+	maxTokens,
+	expectedCalls,
+}) => {
+	const { deriveModelContextBudget } = await import("./context-budget");
+	const { MockLanguageModelV3 } = await import("ai/test");
+	const { runNormalChatCompletion } = await import(
+		"../normal-chat-model/completion"
+	);
+	const provider = createPlainNormalChatProvider({
+		maxModelContext: capacity,
+		maxOutputTokens: undefined,
+	});
+	mocks.runtime.mockResolvedValue({
+		provider,
+		modelId: "model1",
+		depthEffort: null,
+	});
+	const budget = deriveModelContextBudget({
+		maxModelContext: capacity,
+		maxTokens,
+	});
+	mocks.prepare.mockResolvedValue(
+		createPlainNormalChatPreparedContext({
+			inputValue: "Tiny input",
+			systemPrompt: "Tiny instructions",
+			turnGuidance: "",
+			outputTokenBudget: {
+				configuredMaxTokens: budget.configuredMaxTokens,
+				effectiveMaxTokens: budget.effectiveMaxTokens,
+				outputReserve: budget.outputReserve,
+				outputReserveClamped: budget.outputReserveClamped,
+			},
+		}),
+	);
+	const generate = vi.fn(async (options: { maxOutputTokens?: number }) => {
+		expect(options.maxOutputTokens).toBe(budget.effectiveMaxTokens);
+		return {
+			content: [{ type: "text" as const, text: "Answer" }],
+			finishReason: { unified: "stop" as const, raw: "stop" },
+			usage: {
+				inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+				outputTokens: { total: 1, text: 1, reasoning: 0 },
+			},
+			warnings: [],
+		};
+	});
+	const model = new MockLanguageModelV3({ doGenerate: generate });
+	mocks.model.mockImplementation((params) => ({
+		runPlain: async () => {
+			const driver = runNormalChatCompletion(
+				params,
+				{
+					model,
+					maxModelContext: params.provider.maxModelContext,
+					providerOptions: undefined,
+					stopWhen: undefined,
+					metadata: () => createPlainNormalChatModelRunResult().model,
+					mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+				},
+				false,
+			);
+			for (;;) {
+				const next = await driver.next();
+				if (next.done) return next.value;
+			}
+		},
+		stream: async function* () {},
+		getSnapshot: () => null,
+	}));
+	const prepared = await prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams(),
+	);
+	await prepared.runPlain();
+	const effective = mocks.model.mock.calls.at(-1)?.[0];
+	expect(effective.provider.maxModelContext).toBe(capacity);
+	expect(effective.maxOutputTokens).toBe(budget.effectiveMaxTokens);
+	expect(generate).toHaveBeenCalledTimes(expectedCalls);
+	expect(prepared.receipt.getSnapshot()?.completion).toMatchObject(
+		expectedCalls
+			? { outcome: "answered", stopCause: "natural_stop" }
+			: {
+					outcome: "incomplete",
+					stopCause: "context_capacity",
+					closingAttempted: false,
+				},
+	);
+	if (!expectedCalls)
+		expect(prepared.receipt.getSnapshot()?.steps).toHaveLength(0);
+	if (maxTokens === null) expect(budget.outputReserve).toBe(0);
+	else expect(budget.effectiveMaxTokens).toBeGreaterThan(0);
 });

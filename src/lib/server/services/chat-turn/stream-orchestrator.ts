@@ -268,6 +268,7 @@ export function runChatStreamOrchestrator(
 	const resumeRunParams = resume
 		? {
 				continuationSnapshot: resume.snapshot,
+				resumeDepthOverride: resume.depthOverride,
 				continuationMessages: resume.continuation,
 				historyBeforeMessageId: resume.userMessageId,
 				skipWebPrefetch: true,

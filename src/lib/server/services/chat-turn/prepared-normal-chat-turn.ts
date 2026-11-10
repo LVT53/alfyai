@@ -64,7 +64,19 @@ export async function prepareNormalChatTurn(
 ) {
 	const continuation = given.continuationSnapshot;
 	const saved = continuation?.original.provenance as Provenance | undefined;
-	const params = saved?.version === 1 ? { ...given, ...saved.settings } : given;
+	const params =
+		saved?.version === 1
+			? {
+					...given,
+					...saved.settings,
+					...(given.resumeDepthOverride
+						? {
+								thinkingMode: given.thinkingMode,
+								depthMetadata: given.depthMetadata,
+							}
+						: {}),
+				}
+			: given;
 	const lifetime = beginCompletionLifetime({
 		userId: params.userId,
 		conversationId: params.conversationId,

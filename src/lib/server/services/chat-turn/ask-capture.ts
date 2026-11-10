@@ -247,6 +247,8 @@ export function buildAskResumeSnapshot(
  * orchestrator's types.
  */
 export type AskResumeInput = {
+	/** Validated human depth selection overrides captured defaults only when present. */
+	depthOverride?: boolean;
 	snapshot?: NormalChatContinuationSnapshot;
 	questionId: string;
 	/** The token of the won claim: release and settle act only for it (ask-questions.ts). */

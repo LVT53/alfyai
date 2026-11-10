@@ -3760,6 +3760,7 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 		];
 		const CALENDAR_DIGEST = { ok: true, summary: "Found 1 event." };
 		const resume: AskResumeInput = {
+			depthOverride: true,
 			questionId: "q-1",
 			claim: "claim-1",
 			askedMessageId: "asst-1",
@@ -3861,6 +3862,7 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 					message: "Hello",
 					conversationId: "test-conv",
 					continuationMessages: resumeContinuation,
+					resumeDepthOverride: true,
 					historyBeforeMessageId: "user-m",
 					skipWebPrefetch: true,
 				});
