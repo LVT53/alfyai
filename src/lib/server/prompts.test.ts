@@ -210,6 +210,45 @@ describe("prompts", () => {
 		});
 	});
 
+	// The per-turn guidance carries the clock (normal-chat-context.ts's
+	// buildTimeContextLine). No date or time tool exists, so the prompt must say
+	// that line is the current time instead of pointing the model at one.
+	describe("the clock", () => {
+		it("says the injected time context is the current date and time, in the zone it names", () => {
+			expect(ALFYAI_NEMOTRON_PROMPT).toContain(
+				'The injected system time context is the current date and time: take "today", "now" and every relative timeframe from it, in the time zone it names.',
+			);
+			expect(ALFYAI_NEMOTRON_PROMPT).toContain(
+				"When it says the time zone is unknown, the time of day is unknown too.",
+			);
+		});
+
+		it("points at no date or time tool, because there is none", () => {
+			expect(ALFYAI_NEMOTRON_PROMPT).not.toMatch(/date\/time tool/i);
+			expect(ALFYAI_NEMOTRON_PROMPT).not.toMatch(
+				/\b(?:date|time|clock) tool\b/i,
+			);
+			expect(ALFYAI_NEMOTRON_PROMPT).not.toContain(
+				"Use a date/time tool only when",
+			);
+		});
+
+		it("sends run_python to that line for the date and the time, not to its own UTC clock", () => {
+			expect(ALFYAI_NEMOTRON_PROMPT).toContain(
+				"Take the current date and time from the injected system time context, never from the sandbox clock (it runs on UTC and knows nothing of the person's zone).",
+			);
+		});
+
+		// The immediately previous body is kept verbatim so a stored copy of it
+		// still resolves to the built-in key (see its own comment): its old time
+		// sentence stays, and is not "fixed" along with the live prompt.
+		it("leaves the legacy snapshot's own time sentence as it was", () => {
+			expect(LEGACY_ALFYAI_NEMOTRON_PROMPT_TOOL_TABLE).toContain(
+				"Use a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially matters.",
+			);
+		});
+	});
+
 	it("does not force English-only answers in the built-in assistant prompt", () => {
 		expect(ALFYAI_NEMOTRON_PROMPT).not.toMatch(
 			/always respond in english|every word you write must be in english|never attempt to generate text in hungarian|non-english language|dedicated translation layer/i,
