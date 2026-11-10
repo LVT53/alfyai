@@ -1,0 +1,330 @@
+{
+  "codeCommit": "e2045e1dacc63f5a4a105e5d77e5a3937ffbfac1",
+  "release": "releases/e2045e1da",
+  "runs": [
+    {
+      "file": "turn-completion-targeted-deepseek-multi-smoke.json",
+      "turns": 4,
+      "toolTurns": 4,
+      "conversations": 1,
+      "outcomes": {
+        "ok": 4
+      },
+      "ends": {
+        "answered": 4
+      },
+      "providerModels": [
+        "deepseek-flash"
+      ],
+      "summary": {
+        "turns": 4,
+        "completed": 4,
+        "errors": 0,
+        "withWarnings": {},
+        "emptyVisible": 0,
+        "fallbackTurns": 0,
+        "doneToolTurns": 0,
+        "servedAs": [
+          "provider:68d77707-6ace-4e55-8eee-a8ff49e7fec3:5b03df4e-1144-465e-ab7e-d8a40f8c70c6 DeepSeek V4.1 Flash 1017"
+        ],
+        "model": "provider:68d77707-6ace-4e55-8eee-a8ff49e7fec3:5b03df4e-1144-465e-ab7e-d8a40f8c70c6",
+        "set": "smoke",
+        "label": "targeted-deepseek-multi"
+      }
+    },
+    {
+      "file": "turn-completion-targeted-deepseek-quiet.json",
+      "turns": 3,
+      "toolTurns": 3,
+      "conversations": 3,
+      "outcomes": {
+        "ok+fb": 3
+      },
+      "ends": {
+        "recovered": 3
+      },
+      "providerModels": [
+        "deepseek-flash"
+      ],
+      "summary": {
+        "turns": 3,
+        "completed": 3,
+        "errors": 0,
+        "withWarnings": {},
+        "emptyVisible": 0,
+        "fallbackTurns": 3,
+        "doneToolTurns": 0,
+        "servedAs": [
+          "provider:68d77707-6ace-4e55-8eee-a8ff49e7fec3:5b03df4e-1144-465e-ab7e-d8a40f8c70c6 DeepSeek V4.1 Flash 1017"
+        ],
+        "model": "provider:68d77707-6ace-4e55-8eee-a8ff49e7fec3:5b03df4e-1144-465e-ab7e-d8a40f8c70c6",
+        "set": "quiet",
+        "label": "targeted-deepseek"
+      }
+    },
+    {
+      "file": "turn-completion-targeted-deepseek-silent.json",
+      "turns": 1,
+      "toolTurns": 1,
+      "conversations": 1,
+      "outcomes": {
+        "ok": 1
+      },
+      "ends": {
+        "answered": 1
+      },
+      "providerModels": [
+        "deepseek-flash"
+      ],
+      "summary": {
+        "turns": 1,
+        "completed": 1,
+        "errors": 0,
+        "withWarnings": {},
+        "emptyVisible": 0,
+        "fallbackTurns": 0,
+        "doneToolTurns": 0,
+        "servedAs": [
+          "provider:68d77707-6ace-4e55-8eee-a8ff49e7fec3:5b03df4e-1144-465e-ab7e-d8a40f8c70c6 DeepSeek V4.1 Flash 1017"
+        ],
+        "model": "provider:68d77707-6ace-4e55-8eee-a8ff49e7fec3:5b03df4e-1144-465e-ab7e-d8a40f8c70c6",
+        "set": "silent",
+        "label": "targeted-deepseek"
+      }
+    },
+    {
+      "file": "turn-completion-targeted-deepseek-tools.json",
+      "turns": 12,
+      "toolTurns": 12,
+      "conversations": 12,
+      "outcomes": {
+        "ok": 12
+      },
+      "ends": {
+        "answered": 12
+      },
+      "providerModels": [
+        "deepseek-flash"
+      ],
+      "summary": {
+        "turns": 12,
+        "completed": 12,
+        "errors": 0,
+        "withWarnings": {},
+        "emptyVisible": 0,
+        "fallbackTurns": 0,
+        "doneToolTurns": 0,
+        "servedAs": [
+          "provider:68d77707-6ace-4e55-8eee-a8ff49e7fec3:5b03df4e-1144-465e-ab7e-d8a40f8c70c6 DeepSeek V4.1 Flash 1017"
+        ],
+        "model": "provider:68d77707-6ace-4e55-8eee-a8ff49e7fec3:5b03df4e-1144-465e-ab7e-d8a40f8c70c6",
+        "set": "tools",
+        "label": "targeted-deepseek"
+      }
+    },
+    {
+      "file": "turn-completion-targeted-kimi-quiet.json",
+      "turns": 3,
+      "toolTurns": 3,
+      "conversations": 3,
+      "outcomes": {
+        "ERR:backend_failure+fb": 1,
+        "ok+fb": 2
+      },
+      "ends": {
+        "recovered": 2
+      },
+      "providerModels": [
+        "accounts/fireworks/models/kimi-k3p1-pro"
+      ],
+      "summary": {
+        "turns": 3,
+        "completed": 2,
+        "errors": 1,
+        "withWarnings": {},
+        "emptyVisible": 1,
+        "fallbackTurns": 3,
+        "doneToolTurns": 0,
+        "servedAs": [
+          "provider:901b7294-cf08-441b-a8e0-46494bc28145:7a511b91-39bf-4f58-8eb3-aa9500c19b05 Kimi K3.1 Pro"
+        ],
+        "model": "provider:901b7294-cf08-441b-a8e0-46494bc28145:7a511b91-39bf-4f58-8eb3-aa9500c19b05",
+        "set": "quiet",
+        "label": "targeted-kimi"
+      }
+    },
+    {
+      "file": "turn-completion-targeted-kimi-silent.json",
+      "turns": 1,
+      "toolTurns": 1,
+      "conversations": 1,
+      "outcomes": {
+        "ok+fb": 1
+      },
+      "ends": {
+        "recovered": 1
+      },
+      "providerModels": [
+        "accounts/fireworks/models/kimi-k3p1-pro"
+      ],
+      "summary": {
+        "turns": 1,
+        "completed": 1,
+        "errors": 0,
+        "withWarnings": {},
+        "emptyVisible": 0,
+        "fallbackTurns": 1,
+        "doneToolTurns": 0,
+        "servedAs": [
+          "provider:901b7294-cf08-441b-a8e0-46494bc28145:7a511b91-39bf-4f58-8eb3-aa9500c19b05 Kimi K3.1 Pro"
+        ],
+        "model": "provider:901b7294-cf08-441b-a8e0-46494bc28145:7a511b91-39bf-4f58-8eb3-aa9500c19b05",
+        "set": "silent",
+        "label": "targeted-kimi"
+      }
+    },
+    {
+      "file": "turn-completion-targeted-kimi-tools.json",
+      "turns": 12,
+      "toolTurns": 12,
+      "conversations": 12,
+      "outcomes": {
+        "ok": 12
+      },
+      "ends": {
+        "answered": 12
+      },
+      "providerModels": [
+        "accounts/fireworks/models/kimi-k3p1-pro"
+      ],
+      "summary": {
+        "turns": 12,
+        "completed": 12,
+        "errors": 0,
+        "withWarnings": {},
+        "emptyVisible": 0,
+        "fallbackTurns": 0,
+        "doneToolTurns": 0,
+        "servedAs": [
+          "provider:901b7294-cf08-441b-a8e0-46494bc28145:7a511b91-39bf-4f58-8eb3-aa9500c19b05 Kimi K3.1 Pro"
+        ],
+        "model": "provider:901b7294-cf08-441b-a8e0-46494bc28145:7a511b91-39bf-4f58-8eb3-aa9500c19b05",
+        "set": "tools",
+        "label": "targeted-kimi"
+      }
+    },
+    {
+      "file": "turn-completion-targeted-qwen-quiet.json",
+      "turns": 3,
+      "toolTurns": 3,
+      "conversations": 3,
+      "outcomes": {
+        "ok+fb": 1,
+        "PAUSED": 1,
+        "ok": 1
+      },
+      "ends": {
+        "recovered": 1,
+        "paused": 1,
+        "answered": 1
+      },
+      "providerModels": [
+        "qwen3-6-27b"
+      ],
+      "summary": {
+        "turns": 3,
+        "completed": 3,
+        "errors": 0,
+        "withWarnings": {},
+        "emptyVisible": 1,
+        "fallbackTurns": 1,
+        "doneToolTurns": 0,
+        "servedAs": [
+          "provider:7107c713-f6ff-483b-aba3-72556d569949:c45389f7-2daa-4911-8da9-b679f7657089 Nemotron 3 Super"
+        ],
+        "model": "provider:7107c713-f6ff-483b-aba3-72556d569949:c45389f7-2daa-4911-8da9-b679f7657089",
+        "set": "quiet",
+        "label": "targeted-qwen"
+      }
+    },
+    {
+      "file": "turn-completion-targeted-qwen-silent.json",
+      "turns": 1,
+      "toolTurns": 1,
+      "conversations": 1,
+      "outcomes": {
+        "ok": 1
+      },
+      "ends": {
+        "answered": 1
+      },
+      "providerModels": [
+        "qwen3-6-27b"
+      ],
+      "summary": {
+        "turns": 1,
+        "completed": 1,
+        "errors": 0,
+        "withWarnings": {},
+        "emptyVisible": 0,
+        "fallbackTurns": 0,
+        "doneToolTurns": 0,
+        "servedAs": [
+          "provider:7107c713-f6ff-483b-aba3-72556d569949:c45389f7-2daa-4911-8da9-b679f7657089 Nemotron 3 Super"
+        ],
+        "model": "provider:7107c713-f6ff-483b-aba3-72556d569949:c45389f7-2daa-4911-8da9-b679f7657089",
+        "set": "silent",
+        "label": "targeted-qwen"
+      }
+    },
+    {
+      "file": "turn-completion-targeted-qwen-tools.json",
+      "turns": 20,
+      "toolTurns": 20,
+      "conversations": 20,
+      "outcomes": {
+        "ok": 20
+      },
+      "ends": {
+        "answered": 20
+      },
+      "providerModels": [
+        "qwen3-6-27b"
+      ],
+      "summary": {
+        "turns": 20,
+        "completed": 20,
+        "errors": 0,
+        "withWarnings": {},
+        "emptyVisible": 0,
+        "fallbackTurns": 0,
+        "doneToolTurns": 0,
+        "servedAs": [
+          "provider:7107c713-f6ff-483b-aba3-72556d569949:c45389f7-2daa-4911-8da9-b679f7657089 Nemotron 3 Super"
+        ],
+        "model": "provider:7107c713-f6ff-483b-aba3-72556d569949:c45389f7-2daa-4911-8da9-b679f7657089",
+        "set": "tools",
+        "label": "targeted-qwen"
+      }
+    }
+  ],
+  "missingRecords": [],
+  "unsafeSavedTurns": [],
+  "droppedCalls": 0,
+  "attemptedTurns": 60,
+  "conversationCount": 57,
+  "savedTurns": 59,
+  "savedEndings": {
+    "answered": 51,
+    "recovered": 7,
+    "paused": 1
+  },
+  "journal": {
+    "turnEndLines": 59,
+    "reasoningPassbackErrors": 0,
+    "droppedCallWarnings": 0,
+    "fallbackReturnedNoText": 4,
+    "upstreamErrorEvents": 0,
+    "fallbackExceptions": 0
+  }
+}
