@@ -34,6 +34,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Vitest's browser-eval.test.ts launches real Chromium for sandbox/CSP checks.
+      # npm ci installs Playwright's API, but not its browser or Linux libraries.
+      - name: Install Chromium for browser-backed unit tests
+        run: npx playwright install --with-deps chromium
+
       - name: Unit tests
         run: npm run test:ci
 
