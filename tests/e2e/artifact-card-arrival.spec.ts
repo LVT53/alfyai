@@ -11,7 +11,6 @@ import {
 } from "../fixtures/ai/late-card-scenario";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
-	assistantAnswer,
 	createTemporaryFakeProviderModel,
 	deleteTemporaryProvider,
 	expectTerminalActivityGone,
@@ -217,24 +216,37 @@ test.describe("an artifact card that arrives late", () => {
 			).toBeLessThanOrEqual(1);
 
 			fakeProvider.release(AI_SMOKE_LATE_CARD_HOLD);
-			await expect(assistantAnswer(page)).toContainText(
-				AI_SMOKE_LATE_CARD_FINAL_ANSWER,
+			// Identify this reply by its unique canonical outline, then pin its durable
+			// message identity so seeded older answers and reload cannot change the target.
+			const outlinedReply = page.getByTestId("assistant-message").filter({
+				has: page
+					.locator(".prose-container")
+					.getByText(AI_SMOKE_LATE_CARD_OUTLINE, { exact: true }),
+			});
+			await expect(outlinedReply).toHaveCount(1);
+			const messageId = await outlinedReply.getAttribute("data-message-id");
+			expect(messageId).toBeTruthy();
+			const reply = page.locator(
+				`[data-testid="assistant-message"][data-message-id=${JSON.stringify(messageId)}]`,
 			);
+			await expect(reply).toHaveCount(1);
+			const answer = reply.locator(".prose-container");
+			await expect(answer).toHaveText(AI_SMOKE_LATE_CARD_FINAL_ANSWER);
 			await expectTerminalActivityGone(page);
 			// Useful partial answers survive synthesis and reload; working narration fades.
-			const sentences = assistantAnswer(page).getByText(
-				AI_SMOKE_LATE_CARD_OUTLINE,
-				{ exact: true },
-			);
+			const sentences = answer.getByText(AI_SMOKE_LATE_CARD_OUTLINE, {
+				exact: true,
+			});
 			await expect(sentences).toBeVisible();
 			expect(
 				fakeProvider
 					.requests()
 					.filter((r) => r.path === "/v1/chat/completions"),
 			).toHaveLength(2);
-			const card = page.getByTestId("artifact-card");
+			const card = reply.getByTestId("artifact-card");
+			await expect(card).toHaveCount(1);
 			await expectBelow(card, sentences);
-			return { page, sentences, card };
+			return { page, answer, sentences, card };
 		} finally {
 			fakeProvider.release(AI_SMOKE_LATE_CARD_HOLD);
 			await updateUserModelPreference(page, previousModelPreference);
@@ -246,15 +258,14 @@ test.describe("an artifact card that arrives late", () => {
 		page,
 	}) => {
 		test.setTimeout(120_000);
-		const { sentences, card } = await runLateCardTurn(page, {
+		const { answer, sentences, card } = await runLateCardTurn(page, {
 			earlierTurns: 0,
 		});
 		await page.reload({ waitUntil: "networkidle" });
 		await expect(card).toBeVisible();
 		await expect(sentences).toBeVisible();
-		await expect(assistantAnswer(page)).toContainText(
-			AI_SMOKE_LATE_CARD_FINAL_ANSWER,
-		);
+		await expect(answer).toHaveCount(1);
+		await expect(answer).toHaveText(AI_SMOKE_LATE_CARD_FINAL_ANSWER);
 		await expectTerminalActivityGone(page);
 		await expectBelow(card, sentences);
 	});
