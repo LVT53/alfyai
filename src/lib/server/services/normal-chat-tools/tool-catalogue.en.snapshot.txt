@@ -1759,25 +1759,6 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
   {
     "type": "function",
     "function": {
-      "name": "done",
-      "description": "Call once, at the very end, when the answer is complete and every requested file has been produced; pass a one-line `summary`. Do not use it before the answer text exists, or while another tool call might still be needed — it ends the turn.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "summary": {
-            "type": "string",
-            "description": "One line on what was accomplished"
-          }
-        },
-        "required": [
-          "summary"
-        ]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
       "name": "ask_user",
       "description": "Ask the user one question with 2-4 options, when the choice is truly theirs: before you make something, at a fork in the conversation, or while talking an idea through. A card holds one question: ask the one that matters most, and the next after the answer if you still need it. Your reply pauses here until they choose, then goes on in the same reply with their choice as this call's result. Mark exactly one option recommended on a one-pick question (any number with multiple: true). Phrase questions and options in the conversation's language. Do not use it for what you can find out or decide yourself, or to ask again what the user closed.",
       "parameters": {

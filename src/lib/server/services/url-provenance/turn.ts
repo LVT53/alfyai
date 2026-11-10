@@ -102,7 +102,6 @@ export const NON_PROVENANCE_RESULT_TOOLS: ReadonlySet<string> = new Set([
 	"edit_artifact",
 	"suggest_instruction",
 	"ask_user",
-	"done",
 ]);
 
 /** The most addresses one set of keys holds: a hostile page cannot grow it past this. */

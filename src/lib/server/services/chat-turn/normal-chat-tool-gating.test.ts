@@ -21,7 +21,6 @@ function fakeToolSet(): ToolSetParam {
 		create_artifact: {},
 		read_artifact: {},
 		edit_artifact: {},
-		done: {},
 	} as unknown as ToolSetParam;
 }
 

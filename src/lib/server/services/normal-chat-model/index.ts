@@ -66,7 +66,6 @@ export {
 } from "./openai-compatible-provider";
 
 const DEFAULT_MAX_TOOL_STEPS = 20;
-const DONE_TOOL_NAME = "done";
 type NormalChatModelRunProviderOptions = NonNullable<
 	Parameters<typeof generateText>[0]["providerOptions"]
 >;
@@ -136,28 +135,6 @@ function stagnantProgress(): StopCondition<ToolSet> {
 	};
 }
 
-// `done` ends the loop only once the visible answer exists. Models sometimes
-// call it right after a tool result, before writing anything; ending there
-// leaves the turn with no answer, the stream is reported as "ended before
-// final assistant answer", and the orchestrator falls back to a full
-// non-streaming re-run — a whole second generation. A premature `done` now
-// returns a nudge (see the tool's execute) and the loop continues; a second
-// premature `done` in a row still stops, so a model that insists cannot loop.
-function doneAfterAnswer(): StopCondition<ToolSet> {
-	return ({ steps }) => {
-		const isDoneStep = (step: (typeof steps)[number]) =>
-			step.toolCalls?.some((call) => call.toolName === DONE_TOOL_NAME) ?? false;
-		const last = steps.at(-1);
-		if (!last || !isDoneStep(last)) return false;
-		const hasAnswerText = steps.some(
-			(step) => (step.text ?? "").trim().length > 0,
-		);
-		if (hasAnswerText) return true;
-		const prematureDoneSteps = steps.filter(isDoneStep).length;
-		return prematureDoneSteps >= 2;
-	};
-}
-
 // `ask_user` pauses the reply: the run ends right after the step whose ask
 // result is the pause marker, and the turn keeps what the run said and read so
 // the answer can carry the same reply on. Only that result counts. `hasToolCall`
@@ -176,21 +153,19 @@ function askedTheUser(): StopCondition<ToolSet> {
 	};
 }
 
+// A run ends when the model stops calling tools: a step with no tool call is
+// the SDK's own end of the loop. These conditions end it early, when the person
+// is asked, when the calls stop getting anywhere, or when the step budget is spent.
 function buildToolStopWhen(maxToolSteps: number): StopCondition<ToolSet>[] {
-	return [
-		doneAfterAnswer(),
-		askedTheUser(),
-		stagnantProgress(),
-		stepCountIs(maxToolSteps),
-	];
+	return [askedTheUser(), stagnantProgress(), stepCountIs(maxToolSteps)];
 }
 
 // Forces a specific tool choice on the FIRST model step only (stepNumber is
 // 0-indexed), leaving every later step's tool choice automatic. Used for a
 // forced-web-search turn: the model must call research_web on step 1 (so it
 // can't answer from parametric memory instead), but forcing it on every step
-// would loop forever once stopWhen's done-after-answer condition never fires
-// because the model is never allowed to call anything else. Returns
+// would loop until the step budget is spent: a run ends on a step with no tool
+// call, and a model made to call a tool on every step never takes one. Returns
 // `undefined` when no tool choice needs forcing, so callers can pass this
 // straight through to `prepareStep` without a null check.
 function buildFirstStepOnlyPrepareStep(
@@ -262,47 +237,6 @@ function buildAttemptPrepareStep(params: {
 			systemPromptTokens: params.systemPromptTokens,
 		}),
 	);
-}
-
-function readDoneToolSummary(input: unknown): string | null {
-	if (!input || typeof input !== "object" || Array.isArray(input)) return null;
-	const summary = (input as Record<string, unknown>).summary;
-	if (typeof summary !== "string") return null;
-	const trimmed = summary.trim();
-	return trimmed ? trimmed : null;
-}
-
-function extractDoneToolSummaryFromCalls(toolCalls: unknown): string | null {
-	if (!Array.isArray(toolCalls)) return null;
-	for (const toolCall of toolCalls) {
-		if (!toolCall || typeof toolCall !== "object" || Array.isArray(toolCall)) {
-			continue;
-		}
-		const record = toolCall as Record<string, unknown>;
-		if (record.toolName !== DONE_TOOL_NAME) continue;
-		const summary = readDoneToolSummary(record.input);
-		if (summary) return summary;
-	}
-	return null;
-}
-
-function extractDoneToolSummary(result: unknown): string | null {
-	if (!result || typeof result !== "object" || Array.isArray(result))
-		return null;
-	const record = result as Record<string, unknown>;
-
-	const topLevelSummary = extractDoneToolSummaryFromCalls(record.toolCalls);
-	if (topLevelSummary) return topLevelSummary;
-
-	if (!Array.isArray(record.steps)) return null;
-	for (const step of record.steps) {
-		if (!step || typeof step !== "object" || Array.isArray(step)) continue;
-		const summary = extractDoneToolSummaryFromCalls(
-			(step as Record<string, unknown>).toolCalls,
-		);
-		if (summary) return summary;
-	}
-	return null;
 }
 
 type NormalChatReasoningEffort = NonNullable<ModelConfig["reasoningEffort"]>;
@@ -1532,7 +1466,7 @@ async function runPlainNormalChatModelRunAttempt(
 	}
 
 	return {
-		text: result.text || extractDoneToolSummary(result) || "",
+		text: result.text || "",
 		finishReason: result.finishReason,
 		usage: {
 			// generateText's `usage` is already the LAST step's usage (its
@@ -1848,9 +1782,17 @@ async function* streamStreamingNormalChatModelRunAttempt(
 
 	let responseModelName = params.provider.modelName;
 
+	// `offeredTools` is the tool set this stream was built with. A call to a tool
+	// outside it (a model may still call `done` from habit) is not shown: no
+	// tool_call, tool_result or tool_error reaches the turn for it. The SDK has
+	// already answered the model with its own error for the call, and the run
+	// goes on.
 	const yieldStreamEvents = async function* (
 		fullStream: AsyncIterable<TextStreamPart<ToolSet>>,
+		offeredTools: ToolSet | undefined,
 	): AsyncGenerator<StreamingNormalChatModelRunAttemptEvent, void, undefined> {
+		const isOffered = (toolName: string) =>
+			offeredTools !== undefined && Object.hasOwn(offeredTools, toolName);
 		// `finish.totalUsage` sums input tokens across every step of a tool
 		// loop; the last step's own input count is the real size of the final
 		// prompt, which the context usage ring reports.
@@ -1868,15 +1810,10 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					}
 					break;
 				case "tool-call":
-					if (part.toolName === DONE_TOOL_NAME) {
-						// Done tool summary is internal model metadata, not
-						// user-facing text. Suppress emission to prevent
-						// narrative summaries from leaking to the chat UI.
-						break;
-					}
 					if (
 						typeof part.toolCallId !== "string" ||
-						typeof part.toolName !== "string"
+						typeof part.toolName !== "string" ||
+						!isOffered(part.toolName)
 					) {
 						break;
 					}
@@ -1888,10 +1825,10 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					};
 					break;
 				case "tool-result":
-					if (part.toolName === DONE_TOOL_NAME) break;
 					if (
 						typeof part.toolCallId !== "string" ||
-						typeof part.toolName !== "string"
+						typeof part.toolName !== "string" ||
+						!isOffered(part.toolName)
 					) {
 						break;
 					}
@@ -1903,10 +1840,10 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					};
 					break;
 				case "tool-error":
-					if (part.toolName === DONE_TOOL_NAME) break;
 					if (
 						typeof part.toolCallId !== "string" ||
-						typeof part.toolName !== "string"
+						typeof part.toolName !== "string" ||
+						!isOffered(part.toolName)
 					) {
 						break;
 					}
@@ -1973,6 +1910,7 @@ async function* streamStreamingNormalChatModelRunAttempt(
 		try {
 			yield* yieldStreamEvents(
 				streamText(buildStreamConfig(params.tools, stopWhen)).fullStream,
+				params.tools,
 			);
 		} catch (innerError) {
 			if (
@@ -1991,6 +1929,7 @@ async function* streamStreamingNormalChatModelRunAttempt(
 
 			yield* yieldStreamEvents(
 				streamText(buildStreamConfig(undefined, undefined)).fullStream,
+				undefined,
 			);
 		}
 	} catch (error) {

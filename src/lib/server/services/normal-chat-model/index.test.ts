@@ -1,4 +1,10 @@
-import { generateText, streamText, type ToolResultPart, tool } from "ai";
+import {
+	generateText,
+	NoSuchToolError,
+	streamText,
+	type ToolResultPart,
+	tool,
+} from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -97,10 +103,6 @@ const researchWebSchema = z.object({
 	query: z.string(),
 });
 
-const doneToolSchema = z.object({
-	summary: z.string(),
-});
-
 function userTextMessage(content: string): ChatRunMessage {
 	return {
 		role: "user",
@@ -131,13 +133,6 @@ function createResearchWebTool(
 		description: "Search the web.",
 		inputSchema: researchWebSchema,
 		execute,
-	});
-}
-
-function createDoneTool() {
-	return tool({
-		description: "Finish the assistant response.",
-		inputSchema: doneToolSchema,
 	});
 }
 
@@ -3388,73 +3383,108 @@ describe("Plain Normal Chat Model Run", () => {
 		expect(secondMessages.length).toBeLessThan(50_000);
 	});
 
-	it("uses a done tool summary as the plain assistant text", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(
-			async () =>
-				new Response(
-					JSON.stringify({
-						id: "chatcmpl-1",
-						model: "provider-returned-model",
-						created: 1_717_171_717,
-						choices: [
-							{
-								index: 0,
-								message: {
-									role: "assistant",
-									content: null,
-									tool_calls: [
-										{
-											id: "call-done",
-											type: "function",
-											function: {
-												name: "done",
-												arguments: JSON.stringify({
-													summary: "Finished.",
-												}),
-											},
-										},
-									],
-								},
-								finish_reason: "tool_calls",
-							},
-						],
-						usage: {
-							prompt_tokens: 11,
-							completion_tokens: 7,
-							total_tokens: 18,
-						},
-					}),
-					{
-						status: 200,
-						headers: { "Content-Type": "application/json" },
-					},
-				),
-		);
+	it("the plain run returns the last step's text, and an empty string when that step has none", async () => {
+		const provider = {
+			id: "provider-1",
+			name: "fireworks",
+			displayName: "Fireworks",
+			baseUrl: "https://api.fireworks.ai/inference/v1",
+			modelName: "accounts/fireworks/models/kimi-k2p6",
+			apiKey: "plain-secret",
+		};
+		const messages = [userTextMessage("What do the costs come to?")];
+		const tools = {
+			research_web: createResearchWebTool(async () => ({
+				answerBrief: "Brief",
+			})),
+		};
+		const lookItUp = {
+			id: "call-1",
+			type: "function",
+			function: {
+				name: "research_web",
+				arguments: JSON.stringify({ query: "costs" }),
+			},
+		};
 
-		const result = await runPlainNormalChatModelRun({
-			provider: {
-				id: "provider-1",
-				name: "fireworks",
-				displayName: "Fireworks",
-				baseUrl: "https://api.fireworks.ai/inference/v1",
-				modelName: "accounts/fireworks/models/kimi-k2p6",
-				apiKey: "plain-secret",
-			},
-			messages: [
-				{
-					role: "user",
-					content: [{ type: "text", text: "Wrap this up" }],
-				},
-			],
-			tools: {
-				done: createDoneTool(),
-			},
-			fetch,
+		// A preamble and a tool call, then a last step with text: the run's text is
+		// that last step's text, not the words before the call.
+		const answered = vi
+			.fn<typeof globalThis.fetch>()
+			.mockResolvedValueOnce(
+				createMockChatCompletionResponse({
+					message: {
+						role: "assistant",
+						content: "I'll look that up.",
+						tool_calls: [lookItUp],
+					},
+					finishReason: "tool_calls",
+				}),
+			)
+			.mockResolvedValueOnce(
+				createMockChatCompletionResponse({
+					message: { role: "assistant", content: "The answer." },
+				}),
+			);
+		const withAnswer = await runPlainNormalChatModelRun({
+			provider,
+			messages,
+			tools,
+			fetch: answered,
 			maxRetries: 0,
 		});
+		expect(withAnswer.text).toBe("The answer.");
+		expect(answered).toHaveBeenCalledTimes(2);
 
-		expect(result.text).toBe("Finished.");
-		expect(fetch).toHaveBeenCalledTimes(1);
+		// A last step with no text gives an empty string, and nothing stands in for
+		// the answer. A `done` call's summary used to; the tool is gone, so a model
+		// that still calls it from habit gets the SDK's error and its summary is
+		// not the reply.
+		const unanswered = vi
+			.fn<typeof globalThis.fetch>()
+			.mockResolvedValueOnce(
+				createMockChatCompletionResponse({
+					message: {
+						role: "assistant",
+						content: "I'll look that up.",
+						tool_calls: [lookItUp],
+					},
+					finishReason: "tool_calls",
+				}),
+			)
+			.mockResolvedValueOnce(
+				createMockChatCompletionResponse({
+					message: {
+						role: "assistant",
+						content: null,
+						tool_calls: [
+							{
+								id: "call-habit",
+								type: "function",
+								function: {
+									name: "done",
+									arguments: JSON.stringify({ summary: "Looked it up." }),
+								},
+							},
+						],
+					},
+					finishReason: "tool_calls",
+				}),
+			)
+			.mockResolvedValueOnce(
+				createMockChatCompletionResponse({
+					message: { role: "assistant", content: null },
+				}),
+			);
+		const withoutAnswer = await runPlainNormalChatModelRun({
+			provider,
+			messages,
+			tools,
+			fetch: unanswered,
+			maxRetries: 0,
+		});
+		expect(withoutAnswer.text).toBe("");
+		expect(unanswered).toHaveBeenCalledTimes(3);
 	});
 });
 
@@ -4683,9 +4713,12 @@ describe("Streaming Normal Chat Model Run", () => {
 		expect(secondMessages.length).toBeLessThan(50_000);
 	});
 
-	it("keeps generating after a premature done call until answer text exists", async () => {
-		// Step 1: the model calls `done` before writing anything (no text).
-		// Step 2: after the nudge result, it writes the answer and stops.
+	// "done" is the call a model makes from habit; "wrap_up" shows the rule is
+	// about the tool set the run was built with, not about one name.
+	it.each([
+		"done",
+		"wrap_up",
+	])("goes on after a call to a tool it does not offer, and shows nothing of that call (%s)", async (unofferedToolName) => {
 		const fetch = vi
 			.fn<typeof globalThis.fetch>()
 			.mockImplementationOnce(async () =>
@@ -4693,8 +4726,8 @@ describe("Streaming Normal Chat Model Run", () => {
 					{
 						toolCalls: [
 							{
-								id: "call-done-early",
-								name: "done",
+								id: "call-habit",
+								name: unofferedToolName,
 								arguments: JSON.stringify({ summary: "Finished." }),
 							},
 						],
@@ -4711,7 +4744,7 @@ describe("Streaming Normal Chat Model Run", () => {
 			)
 			.mockImplementationOnce(async () =>
 				createStreamResponse([
-					{ content: "Here is the actual answer." },
+					{ content: "The answer." },
 					{
 						finishReason: "stop",
 						usage: {
@@ -4732,259 +4765,121 @@ describe("Streaming Normal Chat Model Run", () => {
 				modelName: "accounts/fireworks/models/kimi-k2p6",
 				apiKey: "plain-secret",
 			},
-			messages: [
-				{ role: "user", content: [{ type: "text", text: "Wrap this up" }] },
-			],
-			tools: {
-				done: tool({
-					description: "Finish the assistant response.",
-					inputSchema: doneToolSchema,
-					execute: async () => ({ acknowledged: true }),
-				}),
-			},
+			messages: [userTextMessage("Wrap this up")],
+			tools: { research_web: createResearchWebTool() },
 			fetch,
 			maxRetries: 0,
 		});
 
+		// The run goes on: the model gets another step and writes its answer.
 		expect(fetch).toHaveBeenCalledTimes(2);
 		expect(events).toContainEqual({
 			type: "text_delta",
-			text: "Here is the actual answer.",
+			text: "The answer.",
 		});
-	});
-
-	it("treats whitespace-only step text as no answer and keeps generating after done", async () => {
-		// Step 1 emits only whitespace alongside `done` — that is not an answer,
-		// so the loop must continue rather than end the turn with blank text.
-		const fetch = vi
-			.fn<typeof globalThis.fetch>()
-			.mockImplementationOnce(async () =>
-				createStreamResponse([
-					{ content: "   \n  " },
-					{
-						toolCalls: [
-							{
-								id: "call-done-blank",
-								name: "done",
-								arguments: JSON.stringify({ summary: "Finished." }),
-							},
-						],
-					},
-					{
-						finishReason: "tool_calls",
-						usage: {
-							prompt_tokens: 11,
-							completion_tokens: 7,
-							total_tokens: 18,
-						},
-					},
-				]),
-			)
-			.mockImplementationOnce(async () =>
-				createStreamResponse([
-					{ content: "The real answer." },
-					{
-						finishReason: "stop",
-						usage: {
-							prompt_tokens: 20,
-							completion_tokens: 6,
-							total_tokens: 26,
-						},
-					},
-				]),
-			);
-
-		const events = await collectStreamingEvents({
-			provider: {
-				id: "provider-1",
-				name: "fireworks",
-				displayName: "Fireworks",
-				baseUrl: "https://api.fireworks.ai/inference/v1",
-				modelName: "accounts/fireworks/models/kimi-k2p6",
-				apiKey: "plain-secret",
-			},
-			messages: [
-				{ role: "user", content: [{ type: "text", text: "Wrap this up" }] },
-			],
-			tools: {
-				done: tool({
-					description: "Finish the assistant response.",
-					inputSchema: doneToolSchema,
-					execute: async () => ({ acknowledged: true }),
-				}),
-			},
-			fetch,
-			maxRetries: 0,
-		});
-
-		expect(fetch).toHaveBeenCalledTimes(2);
-		expect(events).toContainEqual({
-			type: "text_delta",
-			text: "The real answer.",
-		});
-	});
-
-	it("stops on a second premature done so an insistent model cannot loop", async () => {
-		// Two done-only steps in a row and still no answer text: the loop gives
-		// up rather than nudging forever.
-		const doneOnlyStep = () =>
-			createStreamResponse([
-				{
-					toolCalls: [
-						{
-							id: `call-done-${Math.random().toString(36).slice(2, 8)}`,
-							name: "done",
-							arguments: JSON.stringify({ summary: "Finished." }),
-						},
-					],
-				},
-				{
-					finishReason: "tool_calls",
-					usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
-				},
-			]);
-		const fetch = vi
-			.fn<typeof globalThis.fetch>()
-			.mockImplementation(async () => doneOnlyStep());
-
-		await collectStreamingEvents({
-			provider: {
-				id: "provider-1",
-				name: "fireworks",
-				displayName: "Fireworks",
-				baseUrl: "https://api.fireworks.ai/inference/v1",
-				modelName: "accounts/fireworks/models/kimi-k2p6",
-				apiKey: "plain-secret",
-			},
-			messages: [
-				{ role: "user", content: [{ type: "text", text: "Wrap this up" }] },
-			],
-			tools: {
-				done: tool({
-					description: "Finish the assistant response.",
-					inputSchema: doneToolSchema,
-					execute: async () => ({ acknowledged: true }),
-				}),
-			},
-			fetch,
-			maxRetries: 0,
-		});
-
-		expect(fetch).toHaveBeenCalledTimes(2);
-	});
-
-	it("stops immediately when done arrives in the same step as the answer text", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-			createStreamResponse([
-				{ content: "The complete answer." },
-				{
-					toolCalls: [
-						{
-							id: "call-done-with-text",
-							name: "done",
-							arguments: JSON.stringify({ summary: "Finished." }),
-						},
-					],
-				},
-				{
-					finishReason: "tool_calls",
-					usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
-				},
-			]),
-		);
-
-		const events = await collectStreamingEvents({
-			provider: {
-				id: "provider-1",
-				name: "fireworks",
-				displayName: "Fireworks",
-				baseUrl: "https://api.fireworks.ai/inference/v1",
-				modelName: "accounts/fireworks/models/kimi-k2p6",
-				apiKey: "plain-secret",
-			},
-			messages: [
-				{ role: "user", content: [{ type: "text", text: "Wrap this up" }] },
-			],
-			tools: {
-				done: tool({
-					description: "Finish the assistant response.",
-					inputSchema: doneToolSchema,
-					execute: async () => ({ acknowledged: true }),
-				}),
-			},
-			fetch,
-			maxRetries: 0,
-		});
-
-		expect(fetch).toHaveBeenCalledTimes(1);
-		expect(events).toContainEqual({
-			type: "text_delta",
-			text: "The complete answer.",
-		});
-	});
-
-	it("suppresses done tool summary text and neutral tool events in streaming runs", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-			createStreamResponse([
-				{
-					toolCalls: [
-						{
-							id: "call-done",
-							name: "done",
-							arguments: JSON.stringify({ summary: "Finished." }),
-						},
-					],
-				},
-				{
-					finishReason: "tool_calls",
-					usage: {
-						prompt_tokens: 11,
-						completion_tokens: 7,
-						total_tokens: 18,
-					},
-				},
-			]),
-		);
-
-		const events = await collectStreamingEvents({
-			provider: {
-				id: "provider-1",
-				name: "fireworks",
-				displayName: "Fireworks",
-				baseUrl: "https://api.fireworks.ai/inference/v1",
-				modelName: "accounts/fireworks/models/kimi-k2p6",
-				apiKey: "plain-secret",
-			},
-			messages: [
-				{
-					role: "user",
-					content: [{ type: "text", text: "Wrap this up" }],
-				},
-			],
-			tools: {
-				done: createDoneTool(),
-			},
-			fetch,
-			maxRetries: 0,
-		});
-
-		expect(events).not.toContainEqual({
-			type: "text_delta",
-			text: "Finished.",
-		});
-		expect(events).not.toContainEqual(
-			expect.objectContaining({
-				type: "tool_call",
-				toolName: "done",
-			}),
-		);
 		expect(events).toContainEqual(
+			expect.objectContaining({ type: "finish", finishReason: "stop" }),
+		);
+
+		// The model is answered with the SDK's own error for the call.
+		const sdkError = new NoSuchToolError({
+			toolName: unofferedToolName,
+			availableTools: ["research_web"],
+		}).message;
+		expect(parseRequestBody(fetch, 1).messages).toContainEqual(
 			expect.objectContaining({
-				type: "finish",
-				finishReason: "tool-calls",
+				role: "tool",
+				tool_call_id: "call-habit",
+				content: sdkError,
 			}),
 		);
-		expect(fetch).toHaveBeenCalledTimes(1);
+
+		// The person is shown nothing of it: no tool_call, tool_result or
+		// tool_error for a tool this run was not built with.
+		expect(
+			events.filter(
+				(event) => "toolName" in event && event.toolName === unofferedToolName,
+			),
+		).toEqual([]);
+	});
+
+	it("a preamble, a tool call, then a last step with text ends the run with that text", async () => {
+		const toolExecute = vi.fn(async () => ({ answerBrief: "Brief" }));
+		const fetch = vi
+			.fn<typeof globalThis.fetch>()
+			.mockImplementationOnce(async () =>
+				createStreamResponse([
+					{ content: "I'll look that up." },
+					{
+						toolCalls: [
+							{
+								id: "call-1",
+								name: "research_web",
+								arguments: JSON.stringify({ query: "costs" }),
+							},
+						],
+					},
+					{
+						finishReason: "tool_calls",
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					},
+				]),
+			)
+			.mockImplementationOnce(async () =>
+				createStreamResponse([
+					{ content: "The answer." },
+					{
+						finishReason: "stop",
+						usage: {
+							prompt_tokens: 20,
+							completion_tokens: 6,
+							total_tokens: 26,
+						},
+					},
+				]),
+			);
+
+		const events = await collectStreamingEvents({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+			},
+			messages: [userTextMessage("What do the costs come to?")],
+			tools: { research_web: createResearchWebTool(toolExecute) },
+			fetch,
+			maxRetries: 0,
+		});
+
+		// Two steps and no third: a step with no tool call ends the run, with
+		// nothing in the tool set to say so.
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(toolExecute).toHaveBeenCalledTimes(1);
+		expect(events.map((event) => event.type)).toEqual([
+			"text_delta",
+			"tool_call",
+			"tool_result",
+			"text_delta",
+			"usage",
+			"finish",
+		]);
+		expect(
+			events.flatMap((event) =>
+				event.type === "text_delta" ? [event.text] : [],
+			),
+		).toEqual(["I'll look that up.", "The answer."]);
+		expect(events.at(-1)).toMatchObject({
+			type: "finish",
+			finishReason: "stop",
+			rawFinishReason: "stop",
+		});
 	});
 
 	it("sends named tool choice for required streaming tool runs", async () => {

@@ -3233,20 +3233,6 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 				},
 			}),
 		),
-		done: tool({
-			description:
-				"Call once, at the very end, when the answer is complete and every requested file has been produced; pass a one-line `summary`. Do not use it before the answer text exists, or while another tool call might still be needed — it ends the turn.",
-			inputSchema: z.object({
-				summary: z.string().describe("One line on what was accomplished"),
-			}),
-			// The loop stops on `done` only once answer text exists (see
-			// normal-chat-model's doneAfterAnswer). When the model calls it
-			// before writing anything, this result is what it reads next.
-			execute: async () => ({
-				acknowledged: true,
-				note: "If the final answer has not been written yet, write it now in full; otherwise you are finished.",
-			}),
-		}),
 		// Last, so the cached prompt prefix moves only at its end.
 		ask_user: askUser.tool,
 	};

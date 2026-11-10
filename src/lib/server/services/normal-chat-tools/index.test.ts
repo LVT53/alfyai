@@ -5770,7 +5770,11 @@ describe("tool description hygiene", () => {
 	// after, so the ceiling is raised by exactly the 25 tokens (ask_user is 161 tokens,
 	// 644 characters; the largest tool, edit_artifact, is 564 of the per-tool 566).
 	// No margin.
-	const CATALOGUE_TOKEN_CEILING = 5518;
+	// 2026-11-10: the `done` tool is removed (docs/plans/turn-completion, D1: a reply
+	// ends when the model stops calling tools). Re-measured the same way: 5,518 before
+	// and 5,458 after (done was 60 tokens, 240 characters), so the ceiling is lowered
+	// by exactly that. No margin.
+	const CATALOGUE_TOKEN_CEILING = 5458;
 
 	function estimateTokens(text: string): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN);
@@ -5886,7 +5890,6 @@ describe("tool description hygiene", () => {
 				"calendar",
 				"contacts",
 				"create_artifact",
-				"done",
 				"edit_artifact",
 				"email",
 				"fetch_url",
@@ -5913,13 +5916,10 @@ describe("tool description hygiene", () => {
 
 	// Decisions.md ruling 40's own hazard: `executeToolWithEnvelope` applies NO
 	// timeout when TOOL_TIMEOUTS_MS lacks the tool's key (shared.ts), so a
-	// missing row is not a safe default — it is an unbounded call. `done` is
-	// the one deliberate exception: it never reaches the envelope at all (a
-	// bare synchronous `tool()`, no async work to bound).
-	it("has a TOOL_TIMEOUTS_MS row for every enveloped tool in the full catalogue", () => {
-		const ENVELOPE_EXEMPT_TOOLS = new Set(["done"]);
+	// missing row is not a safe default — it is an unbounded call. Every tool in
+	// the catalogue goes through the envelope; there is no exemption.
+	it("has a TOOL_TIMEOUTS_MS row for every tool in the full catalogue", () => {
 		for (const { name } of buildFullToolCatalogue()) {
-			if (ENVELOPE_EXEMPT_TOOLS.has(name)) continue;
 			expect(TOOL_TIMEOUTS_MS[name], name).toBeGreaterThan(0);
 		}
 	});

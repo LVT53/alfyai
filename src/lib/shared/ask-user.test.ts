@@ -632,7 +632,7 @@ describe("isAskPauseOutput and isAskToolName", () => {
 			false,
 		);
 		expect(isAskPauseOutput("waiting_for_user")).toBe(false);
-		expect([isAskToolName("ask_user"), isAskToolName("done")]).toEqual([
+		expect([isAskToolName("ask_user"), isAskToolName("research_web")]).toEqual([
 			true,
 			false,
 		]);
