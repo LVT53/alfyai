@@ -534,30 +534,55 @@ export async function runCase(client, spec, modelId, record) {
 	let result;
 	if (spec.transport === "plain") {
 		const reply = await client.json("/api/chat/send", body);
-		const { saved } = await savedResult(client, record, beforeIds);
-		// Plain response currently exposes text, not output blocks. Audit remains mandatory.
 		result = {
 			status: 200,
-			terminal: true,
+			terminal: Boolean(reply.completion),
 			answer: reply.response?.text,
-			tools: (saved.thinkingSegments ?? []).filter((segment) => segment.type === "tool_call"),
-			modelId: saved.modelId,
-			completion: null,
+			completion: reply.completion,
+			warning: reply.warning,
 			errors: [],
 		};
-		Object.assign(record, result, {
-			auditRequired: true,
-			allowedOutcomes: ["answered", "delivered"],
-		});
-		need(normalize(result.answer) === normalize(saved.content), "Plain/saved answer disagreement");
-		assertKnownAnswer(result.answer, spec.expected);
-		need(result.answer && result.modelId === modelId, "Plain model identity or answer missing");
+		// Capture receipt IDs even when an unsaved/partial ordinary turn must fail.
+		identify(record, result);
+		record.auditRequired = true;
+		const receipt = reply.completion;
 		need(
-			result.tools.some(
-				(t) => t.name === spec.tool && t.status === "done" && t.metadata?.ok !== false,
-			),
-			"Plain required tool missing",
+			receipt?.version === 1 &&
+				typeof receipt.turnId === "string" &&
+				receipt.turnId.length > 0 &&
+				typeof receipt.segmentId === "string" &&
+				receipt.segmentId.length > 0 &&
+				["working", "closing"].includes(receipt.phase) &&
+				["answered", "delivered", "paused", "stopped", "incomplete", "failed"].includes(
+					receipt.outcome,
+				) &&
+				typeof receipt.stopCause === "string" &&
+				receipt.stopCause.length > 0 &&
+				typeof receipt.workingStopCause === "string" &&
+				receipt.workingStopCause.length > 0 &&
+				typeof receipt.closingAttempted === "boolean",
+			"Plain completion is missing or malformed",
 		);
+		if (["incomplete", "failed", "stopped"].includes(receipt.outcome)) {
+			need(
+				reply.warning?.code === "normal_chat_completion" &&
+					reply.warning.outcome === receipt.outcome &&
+					reply.warning.stopCause === receipt.stopCause,
+				"Plain warning missing or disagrees with completion",
+			);
+		} else
+			need(reply.warning === undefined, "Plain warning contradicts successful/paused completion");
+		need(
+			["answered", "delivered"].includes(receipt.outcome),
+			"Ordinary plain turn is not answered/delivered",
+		);
+		const { saved } = await savedResult(client, record, beforeIds);
+		result.tools = (saved.thinkingSegments ?? []).filter((segment) => segment.type === "tool_call");
+		result.modelId = saved.modelId;
+		identify(record, result);
+		record.allowedOutcomes = ["answered", "delivered"];
+		need(normalize(result.answer) === normalize(saved.content), "Plain/saved answer disagreement");
+		assertOrdinary(result, spec.expected, modelId, spec.tool);
 		const usage = await readUsage(client, record.conversationId, saved.id);
 		record.costUsdMicros = Math.round(usage.costUsd * 1_000_000);
 		return record;
@@ -775,7 +800,7 @@ export async function main(argv = process.argv.slice(2)) {
 			identities,
 			limitations: [
 				"No forced-budget/length/failover/content-filter coverage claimed from ordinary real-model calls",
-				"Plain completion and all durable outcomes require external exact-ID audit",
+				"Receipt completion is checked on both transports; durable outcomes require external exact-ID audit",
 				"Disconnect is after a received tool result, not a forced in-flight lost-finish or replay-buffer overflow",
 				"Live HTTP cannot prove activity fade or browser Copy behavior",
 			],

@@ -333,12 +333,12 @@ describe("bounded audit and serial execution", () => {
 });
 
 describe("offline HTTP orchestration", () => {
-	test("plain parity reads real modelId/thinkingSegments shape and defers durable truth to audit", async () => {
+	test("plain parity asserts direct completion and retains exact durable audit identity", async () => {
 		let reads = 0;
 		const client = {
 			json: vi.fn(async (path: string) => {
 				if (path === "/api/chat/send")
-					return { response: { text: "PRODUCT=391" } };
+					return { response: { text: "PRODUCT=391" }, completion };
 				if (path.endsWith("/usage"))
 					return { status: "ready", costUsd: 0.000088 };
 				return {
@@ -367,7 +367,120 @@ describe("offline HTTP orchestration", () => {
 		expect(result.assistantMessageId).toBe("m1");
 		expect(result.costUsdMicros).toBe(88);
 		expect(result.allowedOutcomes).toEqual(["answered", "delivered"]);
-		expect(result.completion).toBeNull();
+		expect(result.completion).toEqual(completion);
+		expect(result.turnId).toBe("turn-1");
+		expect(result.segmentId).toBe("seg-1");
+		expect(result.outcome).toBe("answered");
+		expect(result.warning).toBeUndefined();
+		expect(result.auditRequired).toBe(true);
+	});
+	function plainClient(receipt: unknown, warning?: unknown) {
+		let reads = 0;
+		return {
+			json: vi.fn(async (path: string) => {
+				if (path === "/api/chat/send")
+					return {
+						response: { text: "PRODUCT=391" },
+						completion: receipt,
+						warning,
+					};
+				if (path.endsWith("/usage"))
+					return { status: "ready", costUsd: 0.000088 };
+				return {
+					messages: reads++
+						? [
+								{
+									id: "m1",
+									role: "assistant",
+									content: "PRODUCT=391",
+									modelId: MODEL_MATRIX.deepseek,
+									thinkingSegments: [
+										{ type: "tool_call", name: "run_python", status: "done" },
+									],
+								},
+							]
+						: [],
+				};
+			}),
+		};
+	}
+	const plainSpec = () =>
+		syntheticPlan("unit").find((s: { key: string }) => s.key === "plain-math");
+	test.each([
+		["missing", undefined],
+		["wrong version", { ...completion, version: 2 }],
+		["missing identity", { ...completion, segmentId: "" }],
+	])("plain known text cannot replace %s completion", async (_name, receipt) => {
+		await expect(
+			runCase(plainClient(receipt), plainSpec(), MODEL_MATRIX.deepseek, {
+				conversationId: "synthetic-c1",
+				streamId: "synthetic-s1",
+			}),
+		).rejects.toThrow(/Plain completion/);
+	});
+	test.each([
+		"incomplete",
+		"failed",
+		"stopped",
+	])("plain %s with a matching warning never passes ordinary known-answer acceptance", async (outcome) => {
+		const receipt = { ...completion, outcome, stopCause: "length" };
+		const warning = {
+			code: "normal_chat_completion",
+			outcome,
+			stopCause: "length",
+		};
+		const record: Record<string, unknown> = {
+			conversationId: "synthetic-c1",
+			streamId: "synthetic-s1",
+		};
+		await expect(
+			runCase(
+				plainClient(receipt, warning),
+				plainSpec(),
+				MODEL_MATRIX.deepseek,
+				record,
+			),
+		).rejects.toThrow(/not answered/);
+		expect(record.completion).toEqual(receipt);
+		expect(record.warning).toEqual(warning);
+		expect(record.segmentId).toBe("seg-1");
+		expect(record.auditRequired).toBe(true);
+	});
+	test.each([
+		undefined,
+		{ code: "other", outcome: "incomplete", stopCause: "length" },
+		{ code: "normal_chat_completion", outcome: "failed", stopCause: "length" },
+		{
+			code: "normal_chat_completion",
+			outcome: "incomplete",
+			stopCause: "natural_stop",
+		},
+	])("plain incomplete receipt requires its exact additive warning (%j)", async (warning) => {
+		await expect(
+			runCase(
+				plainClient(
+					{ ...completion, outcome: "incomplete", stopCause: "length" },
+					warning,
+				),
+				plainSpec(),
+				MODEL_MATRIX.deepseek,
+				{ conversationId: "synthetic-c1", streamId: "synthetic-s1" },
+			),
+		).rejects.toThrow(/Plain warning/);
+	});
+	test("plain successful completion rejects a contradictory warning", async () => {
+		await expect(
+			runCase(
+				plainClient(completion, {
+					code: "normal_chat_completion",
+					outcome: "incomplete",
+					stopCause: "length",
+				}),
+				plainSpec(),
+				MODEL_MATRIX.deepseek,
+				{ conversationId: "synthetic-c1", streamId: "synthetic-s1" },
+			),
+		).rejects.toThrow(/Plain warning/);
 	});
 	test("real stream-consumer path rejects legacy text-only success without published roles", async () => {
 		const payload = [
