@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { NormalChatOutputProjection } from "$lib/shared/normal-chat-output";
 import { t, type I18nKey } from "$lib/i18n";
 import type {
 	InterimThoughtStep,
@@ -60,6 +61,7 @@ import { thoughtStepIconTypeForClass } from "$lib/utils/activity-presentation";
 
 let {
 	content = "",
+	output = undefined,
 	thinkingIsDone = false,
 	segments = [],
 	thinkingDurationSeconds = 0,
@@ -137,6 +139,7 @@ let {
 	deletedArtifacts = undefined,
 }: {
 	content?: string;
+	output?: NormalChatOutputProjection;
 	thinkingIsDone?: boolean;
 	segments?: ThinkingSegment[];
 	thinkingDurationSeconds?: number;
@@ -212,8 +215,21 @@ const visibleTools = $derived(segments.filter(isVisibleThinkingToolCall));
 // header describes. A file-production job alone is NOT reasoning, so it never
 // conjures a thinking header (see hasVisibleSurface below): it renders as a
 // bare pinned activity row.
+const commentary = $derived(output?.activity ?? []);
+const outputOutcome = $derived(output?.completion?.outcome);
+const hasCommentary = $derived(
+	commentary.length > 0 &&
+		(!thinkingIsDone ||
+			(outputOutcome !== "answered" && outputOutcome !== "delivered")),
+);
+const commentaryOnly = $derived(
+	!content.trim() && !hasSegments && !visibleTools.length,
+);
 const hasThinkingSurface = $derived(
-	content.trim().length > 0 || hasSegments || visibleTools.length > 0,
+	hasCommentary ||
+		content.trim().length > 0 ||
+		hasSegments ||
+		visibleTools.length > 0,
 );
 const hasVisibleSurface = $derived(
 	hasThinkingSurface || fileProductionJobs.length > 0,
@@ -830,6 +846,7 @@ function toggleFullReasoning(): void {
 	// transitions interpolate styles directly, which the app-wide CSS
 	// reduced-motion override cannot reach, unlike plain :hover transitions.
 	const slideTransition = reducedMotionAware(slide);
+	const commentaryFade = reducedMotionAware(fade);
 	const flyTransition = reducedMotionAware(fly);
 	// The collapsed summary strip and the pinned deliverables both appear the
 	// moment the live list disappears; they fade in rather than pop.
@@ -985,7 +1002,7 @@ function toggleFullReasoning(): void {
 {/snippet}
 
 {#if hasVisibleSurface}
-<div class="thinking-block" bind:this={container}>
+<div class="thinking-block" bind:this={container} out:commentaryFade={{ duration: 150 }}>
 	{#if hasThinkingSurface}
 	<div class="thinking-header-row">
 		<button
@@ -1014,7 +1031,9 @@ function toggleFullReasoning(): void {
 				the live headline.
 			-->
 			<span class="thinking-label" class:is-active={isActiveThinking} aria-live="polite">
-				{#if thinkingIsDone && formattedThinkingTime}
+				{#if commentaryOnly && hasCommentary}
+					<span class="thinking-label-text">{$t(thinkingIsDone ? 'chat.output.previousActivity' : 'chat.output.activity')}</span>
+				{:else if thinkingIsDone && formattedThinkingTime}
 					<span class="thinking-label-text">{$t('chat.thoughtFor', { time: formattedThinkingTime })}</span>
 				{:else if thinkingIsDone}
 					<span class="thinking-label-text">{$t('chat.thought')}</span>
@@ -1156,7 +1175,14 @@ function toggleFullReasoning(): void {
 		{/if}
 	{/if}
 
-{#if expanded}
+{#if hasCommentary && (!thinkingIsDone || expanded)}
+	<section class="normal-chat-commentary" data-testid="normal-chat-commentary" aria-label={$t('chat.output.activity')} out:commentaryFade={{ duration: 150 }}>
+		{#each commentary as block (JSON.stringify([block.turnId, block.segmentId, block.attemptId, block.stepId, block.blockId]))}
+			<p>{output && block.text}</p>
+		{/each}
+	</section>
+{/if}
+{#if expanded && !commentaryOnly}
 <!--
 	Owner polish pass (visual fixes) — expand/collapse is a plain vertical
 	slide at the app's standard disclosure duration (CodeBlock's code-body and
@@ -1295,6 +1321,9 @@ function toggleFullReasoning(): void {
 {/if}
 
 <style>
+	.normal-chat-commentary { color: var(--text-muted); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+	.normal-chat-commentary p { margin: 0 0 var(--space-sm, 8px); }
+
 	.thinking-block {
 		margin-bottom: var(--space-md);
 		width: 100%;

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { normalChatOutputView } from "$lib/client/normal-chat-output-view";
 import { get } from "svelte/store";
 import {
 	recordAnswerNowClicked,
@@ -396,6 +397,7 @@ let sentUploadNumbers = $derived(
 		]),
 	),
 );
+const outputView = $derived(normalChatOutputView(message));
 let hasThinking = $derived(Boolean(message.thinking?.trim()));
 let isFinalizing = $derived(message.runtimePhase === "finalizing");
 // The server is being updated and this turn waits for it (its request was turned
@@ -746,9 +748,11 @@ let toolIsRunning = $derived(
 	isStreaming && thinkingSegmentsForDisplay.some(isRunningVisibleToolCall),
 );
 let thinkingIsDone = $derived(
-	!message.isThinkingStreaming &&
-		!toolIsRunning &&
-		(message.content.trim().length > 0 || isDone || isFinalizing),
+	outputView
+		? isDone || isFinalizing
+		: !message.isThinkingStreaming &&
+				!toolIsRunning &&
+				(message.content.trim().length > 0 || isDone || isFinalizing),
 );
 let reasoningDepthIndicatorProfile = $derived(
 	getVisibleReasoningDepthProfile(
@@ -1224,7 +1228,7 @@ function sendFollowUp(question: string) {
 				{/each}
 			</div>
 		{/if}
-		{#if !isUser && (hasThinking || hasVisibleThinkingSegments || hasToolCalls || hasFileProductionCards)}
+		{#if !isUser && (hasThinking || hasVisibleThinkingSegments || hasToolCalls || hasFileProductionCards || outputView?.activity.length)}
 		<!--
 			Unified tool activity rows — file-production jobs and route cards are
 			no longer separate components under the message body: they render as
@@ -1233,6 +1237,7 @@ function sendFollowUp(question: string) {
 		-->
 		<ThinkingBlock
 			content={message.thinking ?? ''}
+			output={outputView}
 			thinkingIsDone={thinkingIsDone}
 			segments={thinkingSegmentsForDisplay}
 			thinkingDurationSeconds={message.generationDurationMs ? Math.round(message.generationDurationMs / 1000) : 0}
@@ -1503,6 +1508,12 @@ function sendFollowUp(question: string) {
 	{#if !isUser && message.wasStopped && !isStreaming}
 		<div class="stopped-early-chip" data-testid="stopped-early-chip">
 			{$t('chat.stoppedEarly')}
+		</div>
+	{/if}
+
+	{#if !isUser && !isStreaming && outputView?.completion && ['paused', 'stopped', 'incomplete', 'failed'].includes(outputView.completion.outcome) && !(message.wasStopped && outputView.completion.outcome === 'stopped')}
+		<div class="stopped-early-chip" data-testid="normal-chat-output-status">
+			{$t(`chat.output.${outputView.completion.outcome}` as I18nKey)}
 		</div>
 	{/if}
 

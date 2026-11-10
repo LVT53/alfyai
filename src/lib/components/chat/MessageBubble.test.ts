@@ -10,6 +10,10 @@ import {
 import type { ComponentProps } from "svelte";
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	applyNormalChatOutputView,
+	type NormalChatOutputMessage,
+} from "$lib/client/normal-chat-output-view";
 import chatDict from "$lib/i18n/chat";
 import type { InterimThoughtStep } from "$lib/response-activity-types";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
@@ -18,6 +22,7 @@ import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
 import type { AskQuestion, AskQuestionDto } from "$lib/shared/ask-user";
+import { createNormalChatOutputAccumulator } from "$lib/shared/normal-chat-output";
 import { uiLanguage } from "$lib/stores/settings";
 import { clearToasts, toasts } from "$lib/stores/toast";
 import { renderMarkdown } from "$lib/utils/markdown-loader";
@@ -112,6 +117,177 @@ describe("MessageBubble", () => {
 
 	afterEach(() => {
 		clearToasts();
+	});
+
+	it("copies canonical saved content while retaining escaped interrupted activity", async () => {
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: { writeText },
+		});
+		const scope = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "w",
+			phase: "working",
+		} as const;
+		const message: NormalChatOutputMessage = {
+			id: "saved-output",
+			role: "assistant",
+			timestamp: 1,
+			content: "## Result [fixed]",
+			normalChatOutput: {
+				version: 1,
+				events: [
+					{
+						...scope,
+						sequence: 0,
+						type: "block_start",
+						blockId: "b",
+						nativeId: "1",
+						kind: "text",
+						role: "activity",
+					},
+					{
+						...scope,
+						sequence: 1,
+						type: "block_delta",
+						blockId: "b",
+						text: "Let me check. <img src=x>",
+					},
+					{
+						...scope,
+						sequence: 2,
+						type: "completion",
+						completion: {
+							version: 1,
+							turnId: "t",
+							segmentId: "s",
+							phase: "working",
+							outcome: "incomplete",
+							stopCause: "stream_end",
+							workingStopCause: "stream_end",
+							closingAttempted: false,
+						},
+					},
+				],
+			},
+		};
+		const { container } = render(MessageBubble, { message });
+		expect(screen.getByTestId("normal-chat-output-status")).toHaveTextContent(
+			"Answer incomplete",
+		);
+		await fireEvent.click(
+			screen.getByRole("button", { name: /Previous activity/ }),
+		);
+		expect(screen.getByTestId("normal-chat-commentary")).toHaveTextContent(
+			"Let me check. <img src=x>",
+		);
+		expect(container.querySelector("img[src=x]")).toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+		expect(writeText).toHaveBeenCalledWith("## Result [fixed]");
+	});
+
+	it("keeps activity live while an explicit closing answer streams", () => {
+		const message: NormalChatOutputMessage = {
+			id: "closing",
+			role: "assistant",
+			timestamp: 1,
+			content: "Closing partial",
+			isStreaming: true,
+			normalChatOutputView: {
+				answer: "Closing partial",
+				blocks: [],
+				activity: [
+					{
+						version: 1,
+						turnId: "t",
+						segmentId: "s",
+						attemptId: "a",
+						stepId: "w",
+						phase: "working",
+						blockId: "b",
+						nativeId: "n",
+						kind: "text",
+						role: "activity",
+						text: "Earlier work",
+						ended: true,
+					},
+				],
+			},
+		};
+		render(MessageBubble, { message });
+		expect(screen.getByTestId("normal-chat-commentary")).toHaveTextContent(
+			"Earlier work",
+		);
+	});
+
+	it("renders successive incremental activity deltas without starting answer markdown", async () => {
+		const output = createNormalChatOutputAccumulator();
+		const scope = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "w",
+			phase: "working",
+		} as const;
+		output.apply({
+			...scope,
+			sequence: 0,
+			type: "block_start",
+			blockId: "b",
+			nativeId: "1",
+			kind: "text",
+			role: "provisional",
+		});
+		output.apply({
+			...scope,
+			sequence: 1,
+			type: "block_delta",
+			blockId: "b",
+			text: "First",
+		});
+		let list: ChatMessage[] = [
+			{
+				id: "live-output",
+				role: "assistant",
+				timestamp: 1,
+				content: "",
+				isStreaming: true,
+			},
+		];
+		list = applyNormalChatOutputView(
+			list,
+			"live-output",
+			output.getProjection(),
+		);
+		const { rerender } = render(MessageBubble, { message: list[0] });
+		expect(screen.getByTestId("normal-chat-commentary")).toHaveTextContent(
+			"First",
+		);
+		output.apply({
+			...scope,
+			sequence: 2,
+			type: "block_delta",
+			blockId: "b",
+			text: " next",
+		});
+		list = applyNormalChatOutputView(
+			list,
+			"live-output",
+			output.getProjection(),
+		);
+		await rerender({ message: list[0] });
+		expect(screen.getByTestId("normal-chat-commentary")).toHaveTextContent(
+			"First next",
+		);
+		expect(list[0].content).toBe("");
+		expect(markdownLoaderMock.renderMarkdown).not.toHaveBeenCalledWith(
+			expect.stringContaining("First"),
+		);
 	});
 
 	it("shows a lightweight preparation status for an empty streaming assistant response", () => {

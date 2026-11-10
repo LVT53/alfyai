@@ -2,6 +2,12 @@
 
 const chatDict = {
 	en: {
+		"chat.output.activity": "Activity",
+		"chat.output.previousActivity": "Previous activity",
+		"chat.output.paused": "Waiting for your answer",
+		"chat.output.stopped": "Stopped early",
+		"chat.output.incomplete": "Answer incomplete",
+		"chat.output.failed": "Reply failed",
 		"attachmentChip.pages": "{count} pages",
 		"attachmentChip.tokensPerTurn": "{tokens} tokens per turn",
 		"attachmentOutline.more": "… {count} more",
@@ -1305,6 +1311,12 @@ const chatDict = {
 		"messageProvenance.webSources": "{count} sources",
 	},
 	hu: {
+		"chat.output.activity": "Tevékenység",
+		"chat.output.previousActivity": "Korábbi tevékenység",
+		"chat.output.paused": "Válaszodra vár",
+		"chat.output.stopped": "Korábban leállítva",
+		"chat.output.incomplete": "Befejezetlen válasz",
+		"chat.output.failed": "A válasz nem sikerült",
 		"attachmentChip.pages": "{count} oldal",
 		"attachmentChip.tokensPerTurn": "{tokens} token / forduló",
 		"attachmentOutline.more": "… még {count}",
