@@ -326,6 +326,41 @@ type SavedMessage = {
 	normalChatOutput?: { version: 1; events: NormalChatOutputEvent[] };
 };
 
+type MeasuredEditRect = { top: number; bottom: number; height: number };
+type FastEditGeometrySample = {
+	time: number;
+	frame: number;
+	reason: string;
+	user: MeasuredEditRect | null;
+	body: MeasuredEditRect | null;
+	wholeFrame: MeasuredEditRect | null;
+	status: MeasuredEditRect | null;
+	statusText?: string;
+	actions: Array<{ label: string | null; bounds: MeasuredEditRect | null }>;
+	composer: MeasuredEditRect | null;
+	scroller: MeasuredEditRect | null;
+	scrollTop?: number;
+	scrollHeight?: number;
+	clientHeight?: number;
+};
+type FastEditGeometryProbe = {
+	armed: boolean;
+	sse: string;
+	headers: Record<string, string>;
+	status: number;
+	userInserted: number | null;
+	delivered: number | null;
+	terminalDOM: number | null;
+	firstAlignmentWrite: number | null;
+	browserBody: Record<string, unknown> | null;
+	samples: FastEditGeometrySample[];
+	stable: number;
+	geometryKey: string;
+	frame: number;
+	snapshot: (reason: string) => FastEditGeometrySample;
+	resolveResponse?: (response: Response) => void;
+};
+
 /** What the server holds of the chat, in order: what a reload would show. */
 async function savedMessages(
 	page: Page,
@@ -533,6 +568,319 @@ test.describe("Editing a message in the composer", () => {
 		await expect(page.getByText("Question 9, asked again")).toBeInViewport({
 			timeout: 10_000,
 		});
+	});
+
+	test("an immediate failed edit reveals its terminal status and actions above the composer", async ({
+		page,
+	}, info) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		const { conversationId, userIds } = await seedTurns(page, 10);
+		// A real provider failure, not invented terminal wire. It completes once
+		// on the server before its exact saved SSE is delivered to the browser.
+		const providerId = await pointTheUserAtFakeModel(
+			page,
+			"http://127.0.0.1:1/v1",
+		);
+		const key = "__fastTerminalEditGeometry";
+		await page.addInitScript(
+			({ key }) => {
+				const nativeRAF = window.requestAnimationFrame.bind(window);
+				const originalFetch = window.fetch.bind(window);
+				const probe: FastEditGeometryProbe = {
+					armed: false,
+					sse: "",
+					headers: {},
+					status: 200,
+					userInserted: null,
+					delivered: null,
+					terminalDOM: null,
+					firstAlignmentWrite: null,
+					browserBody: null,
+					samples: [],
+					stable: 0,
+					geometryKey: "",
+					frame: 0,
+					snapshot: () => {
+						throw new Error("Probe not initialized");
+					},
+				};
+				Reflect.set(window, key, probe);
+				const rect = (
+					element: Element | null | undefined,
+				): MeasuredEditRect | null => {
+					if (!element) return null;
+					const { top, bottom, height } = element.getBoundingClientRect();
+					return { top, bottom, height };
+				};
+				probe.snapshot = (reason) => {
+					const scroller =
+						document.querySelector<HTMLElement>(".scroll-container");
+					const user = [
+						...document.querySelectorAll('[data-testid="user-message"]'),
+					].find((element) =>
+						element.textContent?.includes("Question 9, asked again"),
+					);
+					const body = [
+						...document.querySelectorAll('[data-testid="assistant-message"]'),
+					].at(-1);
+					const frame = body?.parentElement;
+					const status = frame?.querySelector(
+						'[data-testid="normal-chat-output-status"]',
+					);
+					const actions = [
+						...(frame?.querySelectorAll(".copy-action-row button") ?? []),
+					]
+						.filter((button) => button.getBoundingClientRect().height > 0)
+						.map((button) => ({
+							label: button.getAttribute("aria-label"),
+							bounds: rect(button),
+						}));
+					const sample = {
+						time: performance.now(),
+						frame: probe.frame,
+						reason,
+						user: rect(user),
+						body: rect(body),
+						wholeFrame: rect(frame),
+						status: rect(status),
+						statusText: status?.textContent?.trim(),
+						actions,
+						composer: rect(document.querySelector(".composer-layer")),
+						scroller: rect(scroller),
+						scrollTop: scroller?.scrollTop,
+						scrollHeight: scroller?.scrollHeight,
+						clientHeight: scroller?.clientHeight,
+					};
+					if (probe.armed && probe.samples.length < 600)
+						probe.samples.push(sample);
+					return sample;
+				};
+				const descriptor = Object.getOwnPropertyDescriptor(
+					Element.prototype,
+					"scrollTop",
+				);
+				if (!descriptor?.set)
+					throw new Error("Missing native scrollTop setter");
+				const setScrollTop = descriptor.set;
+				// Observe native writes; never change their value, scheduling or target.
+				Object.defineProperty(Element.prototype, "scrollTop", {
+					...descriptor,
+					set(this: Element, value: number) {
+						setScrollTop.call(this, value);
+						if (probe.armed && this.classList.contains("scroll-container")) {
+							const sample = probe.snapshot("native-alignment-write");
+							if (sample.user && probe.firstAlignmentWrite === null)
+								probe.firstAlignmentWrite = sample.time;
+						}
+					},
+				});
+				const deliver = () => {
+					if (!probe.armed) return;
+					const sample = probe.snapshot("dom-mutation");
+					if (sample.user && probe.userInserted === null)
+						probe.userInserted = sample.time;
+					if (
+						sample.statusText === "Reply failed" &&
+						probe.terminalDOM === null
+					)
+						probe.terminalDOM = sample.time;
+					if (
+						sample.user &&
+						probe.resolveResponse &&
+						probe.delivered === null
+					) {
+						probe.delivered = performance.now();
+						const resolve = probe.resolveResponse;
+						delete probe.resolveResponse;
+						resolve(
+							new Response(probe.sse, {
+								status: probe.status,
+								headers: probe.headers,
+							}),
+						);
+					}
+				};
+				new MutationObserver(deliver).observe(document, {
+					subtree: true,
+					childList: true,
+					attributes: true,
+				});
+				window.fetch = (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.href
+								: input.url;
+					if (
+						probe.armed &&
+						new URL(url, location.href).pathname === "/api/chat/stream" &&
+						init?.method === "POST"
+					) {
+						probe.browserBody = JSON.parse(String(init.body));
+						return new Promise<Response>((resolve) => {
+							probe.resolveResponse = resolve;
+							deliver();
+						});
+					}
+					return originalFetch(input, init);
+				};
+				const observeFrame = () => {
+					probe.frame += 1;
+					if (probe.armed) {
+						const sample = probe.snapshot("native-frame");
+						const geometry = JSON.stringify([
+							sample.user,
+							sample.wholeFrame,
+							sample.status,
+							sample.actions,
+							sample.composer,
+							sample.scroller,
+							sample.scrollTop,
+							sample.scrollHeight,
+						]);
+						probe.stable =
+							geometry === probe.geometryKey ? probe.stable + 1 : 0;
+						probe.geometryKey = geometry;
+					}
+					nativeRAF(observeFrame);
+				};
+				nativeRAF(observeFrame);
+			},
+			{ key },
+		);
+		let checked: Record<string, unknown> | undefined;
+		page.on("request", (request) => {
+			if (
+				request.method() === "POST" &&
+				new URL(request.url()).pathname === "/api/chat/turn-check"
+			)
+				checked = request.postDataJSON();
+		});
+		let upstreamPayload: Record<string, unknown> | undefined;
+		const deleteUrl = `**/api/conversations/${conversationId}/messages`;
+		try {
+			await open(page, conversationId);
+			await pressPencil(page, userIds[8]);
+			await page.getByTestId("message-input").fill("Question 9, asked again");
+			await page.evaluate(() => {
+				const scroller =
+					document.querySelector<HTMLElement>(".scroll-container");
+				if (scroller) scroller.scrollTop = 0;
+			});
+			await expect(
+				page.locator(`[data-message-id="${userIds[0]}"]`),
+			).toBeInViewport();
+			await page.route(deleteUrl, async (route) => {
+				if (route.request().method() !== "DELETE") {
+					await route.continue();
+					return;
+				}
+				const deleted = await route.fetch();
+				expect(deleted.ok()).toBe(true);
+				if (!checked) throw new Error("Missing real edit preflight");
+				upstreamPayload = {
+					message: "Question 9, asked again",
+					conversationId,
+					streamId: randomUUID(),
+					model: checked.model,
+					skipPersistUserMessage: false,
+					attachmentIds: [],
+					linkedSources: [],
+					pendingSkill: null,
+					reasoningDepth: "thorough",
+					personalityProfileId: null,
+					isEditResend: true,
+				};
+				const response = await page.request.post("/api/chat/stream", {
+					data: upstreamPayload,
+				});
+				const sse = await response.text();
+				expect(sse).toContain('"outcome":"failed"');
+				await page.evaluate(
+					({ key, sse, status, headers }) => {
+						const probe = Reflect.get(window, key) as FastEditGeometryProbe;
+						Object.assign(probe, { sse, status, headers, armed: true });
+					},
+					{ key, sse, status: response.status(), headers: response.headers() },
+				);
+				await route.fulfill({ response: deleted });
+			});
+			await page.getByTestId("send-button").click();
+			await page.waitForFunction(
+				(key) => {
+					const probe = Reflect.get(window, key) as FastEditGeometryProbe;
+					return probe.terminalDOM !== null && probe.stable >= 8;
+				},
+				key,
+				{ polling: 25 },
+			);
+			const observation = await page.evaluate((key) => {
+				const p = Reflect.get(window, key) as FastEditGeometryProbe;
+				return {
+					userInserted: p.userInserted,
+					delivered: p.delivered,
+					terminalDOM: p.terminalDOM,
+					firstAlignmentWrite: p.firstAlignmentWrite,
+					browserBody: p.browserBody,
+					settled: p.snapshot("settled"),
+					samples: p.samples,
+				};
+			}, key);
+			await info.attach("immediate-terminal-geometry", {
+				body: JSON.stringify({ upstreamPayload, ...observation }),
+				contentType: "application/json",
+			});
+			if (!observation.browserBody || !upstreamPayload)
+				throw new Error("Missing captured transport bodies");
+			// The sole real turn is prefetched under its own streamId. Exact saved
+			// SSE/row IDs and all other request fields match. This proves layout,
+			// not native transport timing, cancellation, reconnect or execution identity.
+			const { streamId: browserStreamId, ...browserBody } =
+				observation.browserBody;
+			const { streamId: upstreamStreamId, ...upstreamBody } = upstreamPayload;
+			expect(typeof browserStreamId).toBe("string");
+			expect(typeof upstreamStreamId).toBe("string");
+			expect(browserBody).toEqual(upstreamBody);
+			if (
+				observation.userInserted === null ||
+				observation.delivered === null ||
+				observation.terminalDOM === null ||
+				observation.firstAlignmentWrite === null
+			)
+				throw new Error("Missing required ordering observation");
+			expect(observation.userInserted).toBeLessThanOrEqual(
+				observation.delivered,
+			);
+			expect(observation.delivered).toBeLessThan(
+				observation.firstAlignmentWrite,
+			);
+			expect(observation.terminalDOM).toBeLessThan(
+				observation.firstAlignmentWrite,
+			);
+			const s = observation.settled;
+			if (!s.scroller || !s.composer)
+				throw new Error("Missing effective viewport");
+			const top = s.scroller.top;
+			const bottom = Math.min(s.scroller.bottom, s.composer.top);
+			const readable = (r: MeasuredEditRect | null) =>
+				Boolean(r && r.top >= top && r.bottom <= bottom);
+			expect(s.statusText).toBe("Reply failed");
+			expect(readable(s.status), "terminal failure status above composer").toBe(
+				true,
+			);
+			expect(s.actions.map((action) => action.label)).toEqual(
+				expect.arrayContaining(["Info", "Regenerate response", "Copy message"]),
+			);
+			for (const action of s.actions)
+				expect(
+					readable(action.bounds),
+					`${action.label} lies inside scroller above composer`,
+				).toBe(true);
+		} finally {
+			await page.unroute(deleteUrl);
+			await restoreTheUsersModel(page, providerId);
+		}
 	});
 
 	test("a delete that fails keeps the edit, what was typed and the messages; sending again works", async ({
