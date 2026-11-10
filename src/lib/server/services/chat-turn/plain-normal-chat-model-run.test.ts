@@ -10,6 +10,15 @@ import {
 	createPlainNormalChatSendModelParams,
 } from "./plain-normal-chat-model-run.test-helpers";
 
+vi.mock("./turn-ledger", () => ({
+	admitTurn: () => ({ status: "untracked" }),
+	recordTurnAttempt: vi.fn(),
+	settleTurn: vi.fn(),
+}));
+vi.mock("../connections/locality", async (original) => ({
+	...(await original<typeof import("../connections/locality")>()),
+	hasLocalDistillEnabled: async () => false,
+}));
 const mocks = vi.hoisted(() => ({
 	createNormalChatTools: vi.fn(),
 	resolveActiveCapabilities: vi.fn(),
@@ -44,6 +53,11 @@ vi.mock("$lib/server/services/normal-chat-model", async (importOriginal) => {
 		...actual,
 		resolveNormalChatModelRunProvider: mocks.resolveNormalChatModelRunProvider,
 		runPlainNormalChatModelRun: mocks.runPlainNormalChatModelRun,
+		prepareNormalChatCompletionRun: (params: unknown) => ({
+			runPlain: () => mocks.runPlainNormalChatModelRun(params),
+			stream: () => mocks.runPlainNormalChatModelRun(params),
+			getSnapshot: () => null,
+		}),
 	};
 });
 
@@ -107,11 +121,14 @@ describe("runPlainNormalChatSendModel", () => {
 		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({
 				resolveProviderOptions: expect.any(Function),
-				abortSignal: expect.any(AbortSignal),
+				completionPolicy: expect.objectContaining({
+					totalTimeoutMs: 1500,
+					deadlineAt: expect.any(Number),
+				}),
 			}),
 		);
 		const call = mocks.runPlainNormalChatModelRun.mock.calls[0]?.[0];
-		expect(call.abortSignal.aborted).toBe(false);
+		expect(call.completionPolicy.deadlineAt).toBeGreaterThan(Date.now());
 		expect(call.resolveProviderOptions(call.provider)).toEqual({
 			model1: { reasoningEffort: "high" },
 		});

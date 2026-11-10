@@ -184,6 +184,11 @@ export function estimateTurnPromptTokens(params: {
 // shared code can treat `disableTools`/`forceProduceFileTool` uniformly.
 
 export type NormalChatSendModelBaseParams = {
+	completionRequestId?: string;
+	continuationSnapshot?: import("../normal-chat-model").NormalChatContinuationSnapshot;
+	onOutputEvent?: (
+		event: import("$lib/shared/normal-chat-output").NormalChatOutputEvent,
+	) => void;
 	userId: string;
 	runtimeConfig: RuntimeConfig;
 	message: string;
@@ -262,20 +267,6 @@ export type NormalChatSendModelBaseParams = {
 	 */
 	canPause?: boolean;
 };
-
-/**
- * What a resume of a reply that asked adds to a run's params, for the types that
- * carry a run's params on without being this one (the streaming run's, the
- * non-stream fallback's). All optional: an ordinary turn sets none.
- */
-export type ResumeRunParams = Pick<
-	NormalChatSendModelBaseParams,
-	| "continuationMessages"
-	| "historyBeforeMessageId"
-	| "skipWebPrefetch"
-	| "gateMessagesForAttempt"
-	| "resumeProvenance"
->;
 
 export type DepthEffort = Awaited<
 	ReturnType<typeof resolveReasoningDepthEffort>
@@ -564,12 +555,13 @@ export async function createToolPack(
 	modelId: ModelId,
 	enabledConnectionCapabilities: Set<Capability>,
 	turnPictures: TurnPictureIndex,
+	sharedStepImages?: StepImageQueue,
 ): Promise<ToolPack> {
 	const routingCoverage = await resolveRoutingCoverageLabels();
 	const routingCoverageLabel = routingCoverage.routing;
 	// One queue for the turn, shared by the tools that fill it and the model run
 	// that empties it (every attempt of the run, failover included).
-	const stepImages = createStepImageQueue();
+	const stepImages = sharedStepImages ?? createStepImageQueue();
 	// Whether make_image's description tells the model to decline explicit
 	// pictures; only read when there is a make_image to describe.
 	const explicitPictureFilter = isImageMakingConfigured(getConfig())

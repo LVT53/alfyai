@@ -23,25 +23,15 @@ export function normalizeAssistantOutputWithSkillControl(
 	options: { skillControlEnabled?: boolean; structuredOutput?: boolean } = {},
 ) {
 	if (!text) return { visibleText: "", operations: [] };
-	if (options.structuredOutput) {
-		const parsed =
-			options.skillControlEnabled === false
-				? { visibleText: text, operations: [] }
-				: parseSkillControlEnvelopeFromAssistantText(text);
-		return {
-			...parsed,
-			visibleText: stripLeakedToolDiagnostics(
-				sanitizeNormalChatAnswer(parsed.visibleText),
-				undefined,
-				{ leading: false, final: true },
-			),
-		};
-	}
 
-	const split = splitLeadingThinkingPreamble(text, { allowOpenEnded: true });
-	const inputText = split
-		? split.visibleText
-		: stripLeadingResponseMarker(text);
+	const split = options.structuredOutput
+		? null
+		: splitLeadingThinkingPreamble(text, { allowOpenEnded: true });
+	const inputText = options.structuredOutput
+		? text
+		: split
+			? split.visibleText
+			: stripLeadingResponseMarker(text);
 
 	const state = createInlineThinkingState();
 	let visibleText = "";
@@ -58,6 +48,21 @@ export function normalizeAssistantOutputWithSkillControl(
 		},
 		onThinking() {},
 	});
+
+	if (options.structuredOutput) {
+		const parsed =
+			options.skillControlEnabled === false
+				? { visibleText, operations: [] }
+				: parseSkillControlEnvelopeFromAssistantText(visibleText);
+		return {
+			...parsed,
+			visibleText: stripLeakedToolDiagnostics(
+				sanitizeNormalChatAnswer(parsed.visibleText),
+				undefined,
+				{ leading: false, final: true },
+			),
+		};
+	}
 
 	if (options.skillControlEnabled === false) {
 		return {

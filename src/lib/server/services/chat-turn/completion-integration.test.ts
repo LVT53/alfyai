@@ -127,3 +127,33 @@ it("captures full original inline context and replaces only the answered ask in 
 		content: [{ output: { value: { paused: true } } }],
 	});
 });
+it("extracts Skill Control only from visible answer text, never private reasoning", () => {
+	const payload = JSON.stringify({
+		version: 1,
+		operations: [
+			{
+				operationId: "op-1",
+				kind: "skill_draft",
+				draft: {
+					id: "synthetic",
+					displayName: "Synthetic",
+					description: "A synthetic draft",
+					instructions: "Write the requested answer.",
+					activationExamples: ["Write the answer"],
+				},
+			},
+		],
+	});
+	const envelope = `<skill_control_v1>${payload}</skill_control_v1>`;
+	expect(
+		normalizeAssistantOutputWithSkillControl(`Answer${envelope}`, {
+			structuredOutput: true,
+		}).operations,
+	).toHaveLength(1);
+	const result = normalizeAssistantOutputWithSkillControl(
+		`<think>${envelope}</think>Answer`,
+		{ structuredOutput: true },
+	);
+	expect(result.operations).toEqual([]);
+	expect(result.visibleText).toBe("Answer");
+});

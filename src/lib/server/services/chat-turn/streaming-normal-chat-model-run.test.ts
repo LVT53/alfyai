@@ -5,6 +5,15 @@ import type { RuntimeConfig } from "$lib/server/config-store";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "./conversation-history";
 
+vi.mock("./turn-ledger", () => ({
+	admitTurn: () => ({ status: "untracked" }),
+	recordTurnAttempt: vi.fn(),
+	settleTurn: vi.fn(),
+}));
+vi.mock("../connections/locality", async (original) => ({
+	...(await original<typeof import("../connections/locality")>()),
+	hasLocalDistillEnabled: async () => false,
+}));
 const mocks = vi.hoisted(() => ({
 	createNormalChatTools: vi.fn(),
 	resolveActiveCapabilities: vi.fn(),
@@ -83,6 +92,11 @@ vi.mock("$lib/server/services/normal-chat-model", async (importOriginal) => {
 		...actual,
 		resolveNormalChatModelRunProvider: mocks.resolveNormalChatModelRunProvider,
 		runStreamingNormalChatModelRun: mocks.runStreamingNormalChatModelRun,
+		prepareNormalChatCompletionRun: (params: unknown) => ({
+			runPlain: () => mocks.runStreamingNormalChatModelRun(params),
+			stream: () => mocks.runStreamingNormalChatModelRun(params),
+			getSnapshot: () => null,
+		}),
 	};
 });
 
@@ -213,7 +227,7 @@ describe("runStreamingNormalChatSendModel", () => {
 					targetConstructedContext: 345,
 					compactionUiThreshold: 678,
 				},
-				logLabel: "provider streaming request",
+				logLabel: "provider request",
 			}),
 		);
 		expect(result.prepared.contextStatus).toEqual({ status: "ready" });
@@ -1362,18 +1376,11 @@ describe("runStreamingNormalChatSendModel", () => {
 			expect(result.getTurnAsk()).toBeNull();
 			expect(result.getResponseMessages()).toEqual([]);
 
-			// the run reports each step with everything said and read so far
-			const runParams = mocks.runStreamingNormalChatModelRun.mock.calls[0]?.[0];
-			expect(runParams?.onStepMessages).toBeTypeOf("function");
-			const onStepMessages = runParams.onStepMessages as (
-				messages: unknown[],
-			) => void;
-			const firstStep = [prefetchedToolMessages[0]];
-			const secondStep = [...firstStep, prefetchedToolMessages[1]];
-			onStepMessages(firstStep);
-			expect(result.getResponseMessages()).toEqual(firstStep);
-			onStepMessages(secondStep);
-			expect(result.getResponseMessages()).toEqual(secondStep);
+			// Exact response capture now comes from the retained completion snapshot, not SDK finish callbacks.
+			expect(
+				mocks.runStreamingNormalChatModelRun.mock.calls[0]?.[0].completionPolicy
+					.onSnapshot,
+			).toBeTypeOf("function");
 
 			// the tool recorded the question
 			recordedAsk = ask;
@@ -1556,46 +1563,28 @@ describe("runStreamingNormalChatSendModel", () => {
 			).toBe(estimateHistoryMessagesTokens(continuation, estimateTokenCount));
 		});
 
-		it("folds the continuation into text for a provider that takes no tool messages", async () => {
+		it("retains canonical messages and refuses unsupported lossy destination folding", async () => {
 			mocks.historyMode.value = "flatten";
-
-			const result = await send({ continuationMessages: continuation });
-
-			// the person's message and the page are as they were; the continuation is
-			// one assistant message of text
-			const sent = sentMessages();
-			expect(sent).toHaveLength(prefetchedToolMessages.length + 2);
-			expect(sent.slice(0, -1)).toEqual([
-				userMessage,
-				...prefetchedToolMessages,
-			]);
-			expect(sent.at(-1)).toEqual({
-				role: "assistant",
-				content: [
-					'[used calendar: {"events":[{"title":"Dentist with Dr. Kovacs"}]}]',
-					"Which one?",
-					"[asked the user: Which colour?]",
-					`[the user's answer: {"status":"answered"}]`,
-				].join("\n"),
+			await send({ continuationMessages: continuation });
+			expect(sentMessages().slice(-continuation.length)).toEqual(continuation);
+			const params =
+				mocks.runStreamingNormalChatModelRun.mock.calls.at(-1)?.[0];
+			const adapter = await params.completionPolicy.forAttempt({
+				provider: params.provider,
+				modelId: params.modelId,
+				phase: "working",
+				attemptId: "fold-attempt",
+				toolsAllowed: false,
+				snapshot: {},
 			});
-			// the capture of a reply that asks again keeps the messages as they were,
-			// not the text a provider that cannot take them was sent
-			expect(result.continuationGiven).toEqual([
-				...prefetchedToolMessages,
-				...continuation,
-			]);
-		});
-
-		it("counts what a provider that takes no tool messages is sent, the text, in the prompt estimate", async () => {
-			const without = await send();
-			mocks.historyMode.value = "flatten";
-			const flattened = await send({ continuationMessages: continuation });
-			const folded = sentMessages().slice(-1);
-
 			expect(
-				(flattened.prepared.estimatedPromptTokens ?? 0) -
-					(without.prepared.estimatedPromptTokens ?? 0),
-			).toBe(estimateHistoryMessagesTokens(folded, estimateTokenCount));
+				adapter.projectContext({
+					snapshot: { steps: [], pendingImageEntries: [] },
+					system: params.system,
+					messages: sentMessages(),
+					provider: params.provider,
+				}),
+			).toBeNull();
 		});
 
 		it("leaves the continuation as messages for a provider that takes them", async () => {
@@ -1604,44 +1593,6 @@ describe("runStreamingNormalChatSendModel", () => {
 			await send({ continuationMessages: continuation });
 
 			expect(sentMessages().slice(-continuation.length)).toEqual(continuation);
-		});
-
-		it("applies the turn's gate to the continuation before folding it, so a provider that takes no tool messages is not handed what an attempt off the person's box may not see", async () => {
-			mocks.historyMode.value = "flatten";
-			const gate = vi.fn((messages: ModelMessage[]) =>
-				messages.map((message) =>
-					message.role === "tool"
-						? {
-								...message,
-								content: message.content.map((part) =>
-									part.type === "tool-result" && part.toolCallId === "call-cal"
-										? {
-												...part,
-												output: {
-													type: "json" as const,
-													value: { ok: true, summary: "Found 1 event." },
-												},
-											}
-										: part,
-								),
-							}
-						: message,
-				),
-			);
-
-			await send({
-				continuationMessages: continuation,
-				gateMessagesForAttempt: gate,
-			});
-
-			const folded = sentMessages().at(-1)?.content as string;
-			expect(folded).toContain("[used calendar: Found 1 event.]");
-			expect(folded).not.toContain("Dr. Kovacs");
-			// the gate was asked with the provider the run starts on
-			expect(gate).toHaveBeenCalledWith(
-				continuation,
-				expect.objectContaining({ id: "provider-1" }),
-			);
 		});
 
 		it("does not ask the gate itself for a provider that takes tool messages: the model run decides for each attempt", async () => {
