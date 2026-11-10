@@ -104,3 +104,11 @@ Task 2 is split by write ownership into 2A (durable turn/attempt ledger and actu
 ### Reviewed-interface scheduling
 
 Task 1 review accepted its public ownership/interface shape but found three internal correctness defects. Its implementer fixes them without changing published signatures. Tasks 2B/3 may work in disjoint scopes against that frozen contract concurrently; their final acceptance still requires the corrected model review. No finding is waived or marked complete, and any required interface amendment is coordinated before integration.
+
+## Bounded prepared output reserve — controller-selected integration fix
+
+Ruling: resolve a finite positive Normal Chat output cap before context preparation, using the positive selected model setting, then the positive provider setting, otherwise `C - deriveDefaultTargetConstructedContext(C)` from the existing finite model-context owner (provider window first, then the selected runtime window, matching Model Run). This is an application policy, not a provider-capability claim. Missing/nonfinite/nonpositive settings fall through; positive fractional settings normalize to integer tokens under the existing convention. Why: an absent limit previously reserved zero in preparation and then failed Model Run before SDK dispatch. Cost if wrong: the application fallback may be below or above the provider-native default; an explicit cap overrides it.
+
+`context-budget.ts` owns candidate resolution; the shared `prepareNormalChatTurn` applies it to a runtime copy before preparation. Existing target/input clamps produce the effective cap, and that exact positive value binds the SDK request, continuation snapshot and closing phase. Generic nullable budgets/model callers and selected reasoning controls are unchanged. A positive captured cap stays frozen across destinations; old missing/invalid captures receive repaired reserve metadata without refetching or rebuilding canonical evidence. Destination fit remains mandatory, with no absent-limit bypass or smaller-destination cap reduction.
+
+Validation remains estimator-based: this fix does not add tokenizer or serialized tool-schema accounting, and does not establish that an ordinary tool catalogue fits an 8k window. The existing Model Run margin and full-context capacity refusal remain authoritative for this change.

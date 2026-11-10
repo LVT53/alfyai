@@ -7,6 +7,7 @@ import {
 	deriveModelContextBudget,
 	deriveProactiveConnectorContextBudget,
 	deriveSessionHistoryBudget,
+	resolveCompletionMaxTokens,
 } from "./context-budget";
 
 describe("deriveModelContextBudget", () => {
@@ -381,5 +382,56 @@ describe("deriveModelContextBudget", () => {
 				totalTokenBudget: 46_006,
 			},
 		]);
+	});
+});
+
+describe("completion-only bounded output policy", () => {
+	it.each([
+		null,
+		undefined,
+		NaN,
+		Infinity,
+		-Infinity,
+		0,
+		-1,
+	])("resolves absent/invalid selected caps from existing context defaults: %s", (maxTokens) => {
+		expect(
+			resolveCompletionMaxTokens({ maxModelContext: 8192, maxTokens }),
+		).toBe(820);
+	});
+	it("keeps selected cap precedence, then provider cap, then application fallback", () => {
+		expect(
+			resolveCompletionMaxTokens({
+				maxModelContext: 8192,
+				maxTokens: 777,
+				providerMaxOutputTokens: 321,
+			}),
+		).toBe(777);
+		expect(
+			resolveCompletionMaxTokens({
+				maxModelContext: 8192,
+				maxTokens: null,
+				providerMaxOutputTokens: 321,
+			}),
+		).toBe(321);
+		expect(
+			resolveCompletionMaxTokens({
+				maxModelContext: 8192,
+				maxTokens: NaN,
+				providerMaxOutputTokens: Infinity,
+			}),
+		).toBe(820);
+		expect(resolveCompletionMaxTokens({ maxModelContext: 262144 })).toBe(26215);
+		expect(resolveCompletionMaxTokens({ maxModelContext: undefined })).toBe(
+			26215,
+		);
+		expect(
+			resolveCompletionMaxTokens({ maxModelContext: 8192, maxTokens: 777.9 }),
+		).toBe(777);
+	});
+	it("leaves generic nullable budgeting unchanged", () => {
+		expect(
+			deriveModelContextBudget({ maxModelContext: 8192, maxTokens: null }),
+		).toMatchObject({ effectiveMaxTokens: null, outputReserve: 0 });
 	});
 });

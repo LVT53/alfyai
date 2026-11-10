@@ -3,6 +3,7 @@ import {
 	createPlainNormalChatModelRunResult,
 	createPlainNormalChatPreparedContext,
 	createPlainNormalChatProvider,
+	createPlainNormalChatRuntimeConfig,
 	createPlainNormalChatSendModelParams,
 } from "./plain-normal-chat-model-run.test-helpers";
 import {
@@ -53,6 +54,13 @@ beforeEach(() => {
 		return {
 			provider,
 			modelId: "model1",
+			modelConfig: params.runtimeConfig.model1,
+			baseContextLimits: {
+				maxModelContext: params.runtimeConfig.model1MaxModelContext,
+				targetConstructedContext:
+					params.runtimeConfig.model1TargetConstructedContext,
+				compactionUiThreshold: params.runtimeConfig.model1CompactionUiThreshold,
+			},
 			depthEffort: params.depthMetadata
 				? resolveReasoningDepthEffort({
 						depthMetadata: params.depthMetadata,
@@ -529,6 +537,7 @@ it.each([
 					model,
 					maxModelContext: 32000,
 					providerOptions: undefined,
+					stopWhen: undefined,
 					metadata: () => createPlainNormalChatModelRunResult().model,
 					mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
 				},
@@ -638,100 +647,296 @@ it.each([
 	await resumed.runPlain();
 });
 
-it.each([
-	{ capacity: 8192, maxTokens: 777, expectedCalls: 1 },
-	{ capacity: 8192, maxTokens: null, expectedCalls: 0 },
-	{ capacity: 128, maxTokens: 777, expectedCalls: 0 },
-])("binds the prepared output reserve and preserves pre-SDK capacity refusal ($capacity/$maxTokens)", async ({
-	capacity,
-	maxTokens,
-	expectedCalls,
-}) => {
+// The external preparation boundary uses the real context-budget owner, while
+// the actual prepared owner and real SDK completion engine remain under test.
+async function reserveFixture(
+	options: {
+		configured?: number | null;
+		providerCap?: number;
+		capacity?: number;
+		target?: number;
+		closing?: boolean;
+		runtimeCapacity?: number;
+	} = {},
+) {
 	const { deriveModelContextBudget } = await import("./context-budget");
 	const { MockLanguageModelV3 } = await import("ai/test");
 	const { runNormalChatCompletion } = await import(
 		"../normal-chat-model/completion"
 	);
+	const capacity = options.capacity ?? 8192;
 	const provider = createPlainNormalChatProvider({
 		maxModelContext: capacity,
-		maxOutputTokens: undefined,
+		maxOutputTokens: options.providerCap,
 	});
-	mocks.runtime.mockResolvedValue({
+	const config = createPlainNormalChatRuntimeConfig();
+	const runtime = {
 		provider,
 		modelId: "model1",
 		depthEffort: null,
-	});
-	const budget = deriveModelContextBudget({
-		maxModelContext: capacity,
-		maxTokens,
-	});
-	mocks.prepare.mockResolvedValue(
-		createPlainNormalChatPreparedContext({
+		modelConfig: { ...config.model1, maxTokens: options.configured },
+		baseContextLimits: {
+			maxModelContext: options.runtimeCapacity ?? capacity,
+			targetConstructedContext:
+				options.target ??
+				Math.floor((options.runtimeCapacity ?? capacity) * 0.9),
+			compactionUiThreshold: Math.floor(
+				(options.runtimeCapacity ?? capacity) * 0.8,
+			),
+		},
+	};
+	mocks.runtime.mockResolvedValue(runtime);
+	mocks.prepare.mockImplementation(async (_params, actual) => {
+		const budget = deriveModelContextBudget({
+			...actual.baseContextLimits,
+			maxTokens: actual.modelConfig.maxTokens,
+		});
+		return createPlainNormalChatPreparedContext({
 			inputValue: "Tiny input",
 			systemPrompt: "Tiny instructions",
 			turnGuidance: "",
+			contextLimits: actual.baseContextLimits,
 			outputTokenBudget: {
 				configuredMaxTokens: budget.configuredMaxTokens,
 				effectiveMaxTokens: budget.effectiveMaxTokens,
 				outputReserve: budget.outputReserve,
 				outputReserveClamped: budget.outputReserveClamped,
 			},
-		}),
-	);
-	const generate = vi.fn(async (options: { maxOutputTokens?: number }) => {
-		expect(options.maxOutputTokens).toBe(budget.effectiveMaxTokens);
-		return {
-			content: [{ type: "text" as const, text: "Answer" }],
-			finishReason: { unified: "stop" as const, raw: "stop" },
-			usage: {
-				inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-				outputTokens: { total: 1, text: 1, reasoning: 0 },
-			},
-			warnings: [],
-		};
+		});
 	});
-	const model = new MockLanguageModelV3({ doGenerate: generate });
-	mocks.model.mockImplementation((params) => ({
-		runPlain: async () => {
-			const driver = runNormalChatCompletion(
+	const sdkCaps: Array<number | undefined> = [];
+	let generations = 0;
+	const model = new MockLanguageModelV3({
+		doGenerate: async (call) => {
+			sdkCaps.push(call.maxOutputTokens);
+			generations++;
+			return {
+				content: [{ type: "text", text: "Answer" }],
+				finishReason: {
+					unified: options.closing && generations === 1 ? "length" : "stop",
+					raw: options.closing && generations === 1 ? "length" : "stop",
+				},
+				usage: {
+					inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+					outputTokens: { total: 1, text: 1, reasoning: 0 },
+				},
+				warnings: [],
+			};
+		},
+		doStream: async (call) => {
+			sdkCaps.push(call.maxOutputTokens);
+			generations++;
+			const reason = options.closing && generations === 1 ? "length" : "stop";
+			return {
+				stream: new ReadableStream<
+					import("@ai-sdk/provider").LanguageModelV3StreamPart
+				>({
+					start(c) {
+						c.enqueue({ type: "stream-start", warnings: [] });
+						c.enqueue({ type: "text-start", id: "b" });
+						c.enqueue({ type: "text-delta", id: "b", delta: "Answer" });
+						c.enqueue({ type: "text-end", id: "b" });
+						c.enqueue({
+							type: "finish",
+							finishReason: { unified: reason, raw: reason },
+							usage: {
+								inputTokens: {
+									total: 1,
+									noCache: 1,
+									cacheRead: 0,
+									cacheWrite: 0,
+								},
+								outputTokens: { total: 1, text: 1, reasoning: 0 },
+							},
+						});
+						c.close();
+					},
+				}),
+			};
+		},
+	});
+	mocks.model.mockImplementation((params) => {
+		const make = (streaming: boolean) =>
+			runNormalChatCompletion(
 				params,
 				{
 					model,
 					maxModelContext: params.provider.maxModelContext,
-					providerOptions: undefined,
+					providerOptions: params.resolveProviderOptions?.(params.provider),
 					stopWhen: undefined,
 					metadata: () => createPlainNormalChatModelRunResult().model,
 					mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
 				},
-				false,
+				streaming,
 			);
-			for (;;) {
-				const next = await driver.next();
-				if (next.done) return next.value;
-			}
-		},
-		stream: async function* () {},
-		getSnapshot: () => null,
-	}));
-	const prepared = await prepareNormalChatTurn(
+		return {
+			runPlain: async () => {
+				const driver = make(false);
+				for (;;) {
+					const next = await driver.next();
+					if (next.done) return next.value;
+				}
+			},
+			stream: () => make(true),
+			getSnapshot: () => null,
+		};
+	});
+	return { sdkCaps, runtime, config };
+}
+
+it.each([
+	"plain",
+	"stream",
+] as const)("resolves an absent cap before preparation and sends that exact reserve to the real SDK (%s)", async (mode) => {
+	const fixture = await reserveFixture({ configured: null });
+	const run = await prepareNormalChatTurn(
 		createPlainNormalChatSendModelParams(),
 	);
-	await prepared.runPlain();
-	const effective = mocks.model.mock.calls.at(-1)?.[0];
-	expect(effective.provider.maxModelContext).toBe(capacity);
-	expect(effective.maxOutputTokens).toBe(budget.effectiveMaxTokens);
-	expect(generate).toHaveBeenCalledTimes(expectedCalls);
-	expect(prepared.receipt.getSnapshot()?.completion).toMatchObject(
-		expectedCalls
-			? { outcome: "answered", stopCause: "natural_stop" }
-			: {
-					outcome: "incomplete",
-					stopCause: "context_capacity",
-					closingAttempted: false,
-				},
+	if (mode === "plain") await run.runPlain();
+	else
+		for await (const _event of run.stream().stream) {
+		}
+	expect(mocks.prepare.mock.calls[0][1].modelConfig.maxTokens).toBe(820);
+	expect(fixture.runtime.modelConfig.maxTokens).toBeNull();
+	expect(mocks.model.mock.calls[0][0].maxOutputTokens).toBe(820);
+	expect(fixture.sdkCaps).toEqual([820]);
+	expect(run.receipt.getSnapshot()?.prepared.maxOutputTokens).toBe(820);
+	expect(run.receipt.getSnapshot()?.completion?.outcome).toBe("answered");
+});
+it.each([
+	{ configured: 777, providerCap: 321, expected: 777 },
+	{ configured: null, providerCap: 321, expected: 321 },
+	{ configured: undefined, providerCap: undefined, expected: 820 },
+	{ configured: NaN, providerCap: Infinity, expected: 820 },
+	{ configured: Infinity, providerCap: 321, expected: 321 },
+	{ configured: 5000, providerCap: undefined, target: 7000, expected: 1192 },
+])("keeps configured/provider/default precedence and existing preparation clamps ($configured/$providerCap)", async ({
+	expected,
+	...options
+}) => {
+	const fixture = await reserveFixture(options);
+	const run = await prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams(),
 	);
-	if (!expectedCalls)
-		expect(prepared.receipt.getSnapshot()?.steps).toHaveLength(0);
-	if (maxTokens === null) expect(budget.outputReserve).toBe(0);
-	else expect(budget.effectiveMaxTokens).toBeGreaterThan(0);
+	await run.runPlain();
+	expect(mocks.model.mock.calls[0][0].maxOutputTokens).toBe(expected);
+	expect(fixture.sdkCaps).toEqual([expected]);
+	expect(
+		mocks.model.mock.calls[0][0].completionPolicy.contextProvenance.prepared
+			.outputTokenBudget,
+	).toMatchObject({ effectiveMaxTokens: expected, outputReserve: expected });
+	expect(run.receipt.getSnapshot()?.prepared.maxOutputTokens).toBe(expected);
+});
+it.each([
+	"plain",
+	"stream",
+] as const)("freezes the same effective reserve for working and closing (%s)", async (mode) => {
+	const fixture = await reserveFixture({ configured: null, closing: true });
+	const run = await prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams(),
+	);
+	if (mode === "plain") await run.runPlain();
+	else
+		for await (const _event of run.stream().stream) {
+		}
+	expect(fixture.sdkCaps).toEqual([820, 820]);
+	expect(run.receipt.getSnapshot()?.completion).toMatchObject({
+		outcome: "answered",
+		closingAttempted: true,
+	});
+	expect(run.receipt.getSnapshot()?.prepared.maxOutputTokens).toBe(820);
+});
+it("uses the existing provider-first context window for the fallback rather than a larger runtime placeholder", async () => {
+	const fixture = await reserveFixture({
+		capacity: 8192,
+		runtimeCapacity: 262144,
+		configured: null,
+	});
+	const run = await prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams(),
+	);
+	await run.runPlain();
+	expect(mocks.prepare.mock.calls[0][1].modelConfig.maxTokens).toBe(820);
+	expect(fixture.sdkCaps).toEqual([820]);
+	expect(run.receipt.getSnapshot()?.completion?.outcome).toBe("answered");
+});
+it("keeps tiny actual capacity refusal before the SDK", async () => {
+	const fixture = await reserveFixture({ capacity: 128, configured: 777 });
+	const run = await prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams(),
+	);
+	await run.runPlain();
+	expect(fixture.sdkCaps).toEqual([]);
+	expect(run.receipt.getSnapshot()?.completion?.stopCause).toBe(
+		"context_capacity",
+	);
+});
+it.each([
+	null,
+	undefined,
+	NaN,
+	Infinity,
+	"missing_prepared",
+] as const)("repairs a legacy absent/invalid captured reserve without rebuilding evidence (%s)", async (legacyCap) => {
+	const fixture = await reserveFixture({ configured: null });
+	const first = await prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams(),
+	);
+	await first.runPlain();
+	const captured = first.receipt.getSnapshot();
+	if (!captured) throw new Error("Missing snapshot");
+	if (legacyCap === "missing_prepared")
+		Reflect.deleteProperty(captured, "prepared");
+	else Reflect.set(captured.prepared, "maxOutputTokens", legacyCap);
+	const provenance = captured.original.provenance;
+	if (
+		!provenance ||
+		typeof provenance !== "object" ||
+		!("prepared" in provenance) ||
+		!provenance.prepared ||
+		typeof provenance.prepared !== "object"
+	)
+		throw new Error("Missing captured provenance");
+	Reflect.deleteProperty(provenance.prepared, "outputTokenBudget");
+	const resumed = await prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams({ continuationSnapshot: captured }),
+	);
+	await resumed.runPlain();
+	expect(mocks.prepare).toHaveBeenCalledOnce();
+	expect(fixture.sdkCaps).toEqual([820, 820]);
+	expect(resumed.receipt.getSnapshot()?.prepared.maxOutputTokens).toBe(820);
+	expect(resumed.receipt.getSnapshot()?.original.messages).toEqual(
+		captured.original.messages,
+	);
+	expect(
+		mocks.model.mock.calls.at(-1)?.[0].completionPolicy.contextProvenance
+			.prepared.outputTokenBudget,
+	).toMatchObject({ effectiveMaxTokens: 820, outputReserve: 820 });
+});
+it("refuses a smaller resumed destination without lowering the captured cap", async () => {
+	const fixture = await reserveFixture({ configured: null });
+	const first = await prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams(),
+	);
+	await first.runPlain();
+	const captured = first.receipt.getSnapshot();
+	if (!captured) throw new Error("Missing snapshot");
+	mocks.runtime.mockResolvedValue({
+		...fixture.runtime,
+		provider: { ...fixture.runtime.provider, maxModelContext: 4500 },
+		baseContextLimits: {
+			...fixture.runtime.baseContextLimits,
+			maxModelContext: 4500,
+		},
+	});
+	const resumed = await prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams({ continuationSnapshot: captured }),
+	);
+	await resumed.runPlain();
+	expect(fixture.sdkCaps).toEqual([820]);
+	expect(mocks.model.mock.calls.at(-1)?.[0].maxOutputTokens).toBe(820);
+	expect(resumed.receipt.getSnapshot()?.completion?.stopCause).toBe(
+		"context_capacity",
+	);
+	expect(mocks.prepare).toHaveBeenCalledOnce();
 });

@@ -18,6 +18,10 @@ import { providerRunsLocally } from "../vision/provider-vision";
 import { createStepImageQueue } from "../vision/step-images";
 import { buildCurrentUserMessage } from "../vision/turn-images";
 import { beginCompletionLifetime } from "./completion-lifetime";
+import {
+	deriveModelContextBudget,
+	resolveCompletionMaxTokens,
+} from "./context-budget";
 import { normalizeAssistantOutputWithSkillControl } from "./normalizer";
 import { logOutboundMessageShape } from "./outbound-debug";
 import type { PlainNormalChatSendModelResult } from "./plain-normal-chat-model-run";
@@ -58,11 +62,15 @@ type Provenance = {
 	>;
 };
 
+function isFiniteTokenLimit(value: unknown): value is number {
+	return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
 /** Owns preparation, dispatch admission and effective-attempt policy for both transports. */
 export async function prepareNormalChatTurn(
 	given: NormalChatSendModelBaseParams,
 ) {
-	const continuation = given.continuationSnapshot;
+	let continuation = given.continuationSnapshot;
 	const saved = continuation?.original.provenance as Provenance | undefined;
 	const params =
 		saved?.version === 1
@@ -84,13 +92,35 @@ export async function prepareNormalChatTurn(
 		turnId: continuation?.turnId ?? params.createTurnId?.(),
 	});
 	try {
-		const runtime = await resolveProviderRuntime(params);
+		const selectedRuntime = await resolveProviderRuntime(params);
+		const capturedLimit = continuation?.prepared?.maxOutputTokens;
+		const contextWindow = isFiniteTokenLimit(
+			selectedRuntime.provider.maxModelContext,
+		)
+			? selectedRuntime.provider.maxModelContext
+			: selectedRuntime.baseContextLimits.maxModelContext;
+		const requestedLimit = isFiniteTokenLimit(capturedLimit)
+			? capturedLimit
+			: resolveCompletionMaxTokens({
+					maxModelContext: contextWindow,
+					maxTokens: selectedRuntime.modelConfig.maxTokens,
+					providerMaxOutputTokens: selectedRuntime.provider.maxOutputTokens,
+				});
+		// Resolve before preparation so its output reservation and the SDK cap agree.
+		// This copy preserves selected runtime config and all reasoning controls.
+		const runtime = {
+			...selectedRuntime,
+			modelConfig: {
+				...selectedRuntime.modelConfig,
+				maxTokens: requestedLimit,
+			},
+		};
 		const effort = resolveActiveDepthEffort(runtime.depthEffort);
 		const capabilities = await resolveActiveCapabilities(
 			params.userId,
 			params.enabledConnectionCapabilities,
 		).catch(() => new Set<Capability>());
-		const prepared: PreparedModelContext =
+		let prepared: PreparedModelContext =
 			saved?.version === 1
 				? {
 						...saved.prepared,
@@ -103,6 +133,35 @@ export async function prepareNormalChatTurn(
 						},
 					}
 				: await prepareOutboundContext(params, runtime, effort, capabilities);
+		const preparedLimit = prepared.outputTokenBudget?.effectiveMaxTokens;
+		const outputLimit = isFiniteTokenLimit(capturedLimit)
+			? capturedLimit
+			: isFiniteTokenLimit(preparedLimit)
+				? preparedLimit
+				: deriveModelContextBudget({
+						...prepared.contextLimits,
+						maxTokens: requestedLimit,
+					}).effectiveMaxTokens;
+		if (!isFiniteTokenLimit(outputLimit))
+			throw new Error("Normal Chat requires a finite positive output reserve");
+		if (preparedLimit !== outputLimit) {
+			// Old captures may have no reserve. Repair metadata only: never refetch,
+			// rebuild or shorten their canonical evidence to fit the destination.
+			prepared = {
+				...prepared,
+				outputTokenBudget: {
+					configuredMaxTokens: requestedLimit,
+					effectiveMaxTokens: outputLimit,
+					outputReserve: outputLimit,
+					outputReserveClamped: requestedLimit !== outputLimit,
+				},
+			};
+		}
+		if (continuation)
+			continuation = {
+				...continuation,
+				prepared: { ...continuation.prepared, maxOutputTokens: outputLimit },
+			};
 		const keepLocal = await hasLocalDistillEnabled(params.userId);
 		const provenance: Provenance = {
 			version: 1,
@@ -206,9 +265,7 @@ export async function prepareNormalChatTurn(
 			abortSignal: params.signal
 				? AbortSignal.any([params.signal, lifetime.signal])
 				: lifetime.signal,
-			maxOutputTokens:
-				continuation?.prepared.maxOutputTokens ??
-				prepared.outputTokenBudget?.effectiveMaxTokens,
+			maxOutputTokens: outputLimit,
 			maxToolSteps: effort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
 			tools: initial.tools,
 			firstStepToolChoice: undefined,

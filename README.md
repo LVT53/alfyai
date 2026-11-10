@@ -120,6 +120,15 @@ admin UI. The essentials:
 The complete reference — every variable, default, and caveat — is in
 [docs/configuration.md](docs/configuration.md).
 
+Normal Chat reserves a bounded output budget before preparing its context: the selected model's
+positive max-token setting takes precedence, then the provider's positive output setting. If both
+are absent or invalid, the app uses the room outside its default constructed-context target
+(about 10% of the model context window: 820 tokens for an 8,192-token window). Existing preparation
+clamps still apply. The effective cap is sent to the provider and retained for closing and resume;
+reasoning settings are unchanged. This application fallback may differ from a provider's native
+default; set an explicit output cap to override it. A continuation that cannot fit its complete
+permitted context plus the retained reserve fails explicitly rather than dropping evidence.
+
 ## Development
 
 ```bash

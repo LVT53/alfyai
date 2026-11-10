@@ -2,6 +2,7 @@ import {
 	DEFAULT_COMPACTION_UI_THRESHOLD_RATIO,
 	DEFAULT_MAX_MODEL_CONTEXT_TOKENS,
 	DEFAULT_TARGET_CONSTRUCTED_CONTEXT_RATIO,
+	deriveDefaultTargetConstructedContext,
 	MIN_MODEL_CONTEXT_TOKENS,
 	normalizeModelContextLimit,
 	normalizeModelContextTokens,
@@ -167,6 +168,20 @@ const BASELINE_MEMORY_PROFILE_MAX_TOTAL_BUDGET = 32_000;
 const PROACTIVE_CONNECTOR_CONTEXT_TARGET_CONTEXT_RATIO = 0.004;
 const PROACTIVE_CONNECTOR_CONTEXT_MIN_TOTAL_BUDGET = 300;
 const PROACTIVE_CONNECTOR_CONTEXT_MAX_TOTAL_BUDGET = 1_200;
+
+/** Completion opts in before preparation; generic nullable budgets stay unchanged. */
+export function resolveCompletionMaxTokens(input: {
+	maxModelContext: number | null | undefined;
+	maxTokens?: number | null;
+	providerMaxOutputTokens?: number | null;
+}): number {
+	for (const value of [input.maxTokens, input.providerMaxOutputTokens]) {
+		if (typeof value === "number" && Number.isFinite(value) && value >= 1)
+			return Math.floor(value);
+	}
+	const capacity = normalizeModelContextTokens(input.maxModelContext);
+	return capacity - deriveDefaultTargetConstructedContext(capacity);
+}
 
 export function deriveModelContextBudget(
 	input: ModelContextBudgetInput,
