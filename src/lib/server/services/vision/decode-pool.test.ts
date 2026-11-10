@@ -162,6 +162,9 @@ describe("a decode pool", () => {
 
 	describe("a worker that never answers", () => {
 		it("is terminated at the timeout, and the next job runs", async () => {
+			// Advance the deadline ourselves: a fresh worker may take more than
+			// 50 ms to start on CI, including the next worker that must succeed.
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 			const decode = pool({ concurrency: 1, timeoutMs: 50 });
 
 			const stuck = decode.run({ workerData: { mode: "spin" } });
@@ -171,6 +174,8 @@ describe("a decode pool", () => {
 				timeoutMs: 50,
 			});
 
+			await once(startedWorkers()[0], "online");
+			vi.advanceTimersByTime(50);
 			await rejection;
 			await expect(stuck).rejects.toBeInstanceOf(ImageDecodeTimeoutError);
 			// Its place stays taken until the thread has really gone, so the next
