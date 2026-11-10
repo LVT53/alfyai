@@ -1,13 +1,16 @@
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
-import { tool } from "ai";
+import { type ModelMessage, tool } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { createModelCapabilitySet } from "$lib/model-capabilities";
 import type { PlainNormalChatModelRunResult } from "$lib/server/services/normal-chat-model";
 import {
 	type NormalChatContinuationSnapshot,
 	runNormalChatCompletion,
 } from "$lib/server/services/normal-chat-model/completion";
+import { createStepImageQueue } from "$lib/server/services/vision/step-images";
+import { STRIPPED_IMAGE_NOTE } from "$lib/server/services/vision/turn-images";
 import {
 	type NormalChatOutputEvent,
 	projectNormalChatOutput,
@@ -82,6 +85,345 @@ describe("installed SDK native shapes", () => {
 			},
 		};
 	}
+
+	const picture = {
+		artifactId: "immich:one",
+		name: "private.jpg",
+		image: {
+			base64: "AQID",
+			mediaType: "image/jpeg" as const,
+			width: 1,
+			height: 1,
+			estimatedTokens: 1,
+		},
+	};
+	const seeing = createModelCapabilitySet({
+		imageMessageParts: {
+			state: "manual_override",
+			supported: true,
+			source: "manual_override",
+		},
+	});
+	const originalPictures: ModelMessage[] = [
+		{
+			role: "user",
+			content: [
+				{ type: "text", text: "original picture" },
+				{ type: "image", image: "BAUG", mediaType: "image/jpeg" },
+			],
+		},
+	];
+	function pixelCount(value: unknown): number {
+		if (Array.isArray(value))
+			return value.reduce((n, item) => n + pixelCount(item), 0);
+		if (!value || typeof value !== "object") return 0;
+		if (
+			("type" in value && value.type === "image") ||
+			("type" in value &&
+				value.type === "file" &&
+				"mediaType" in value &&
+				String(value.mediaType).startsWith("image/"))
+		)
+			return 1;
+		return Object.values(value).reduce<number>(
+			(n, item) => n + pixelCount(item),
+			0,
+		);
+	}
+	async function collect(run: ReturnType<typeof runNormalChatCompletion>) {
+		for (;;) {
+			const next = await run.next();
+			if (next.done) return next.value;
+		}
+	}
+	it.each([
+		false,
+		true,
+	])("combines native context projection with entry vision policy (local-only: %s)", async (localOnly) => {
+		const queue = createStepImageQueue();
+		queue.push({
+			label: "private names",
+			labelWithoutNames: "positions: 1, 2, 3",
+			localOnly: localOnly ? true : undefined,
+			images: [picture, picture, picture],
+		});
+		const seen: unknown[] = [];
+		const model = new MockLanguageModelV3({
+			doGenerate: async (input) => {
+				seen.push(input.prompt);
+				return {
+					content: [{ type: "text", text: "Final" }],
+					finishReason: { unified: "stop", raw: "stop" },
+					usage,
+					warnings: [],
+				};
+			},
+		});
+		const args = params();
+		const result = await collect(
+			runNormalChatCompletion(
+				{
+					...args,
+					provider: {
+						...provider,
+						capabilities: localOnly ? seeing : undefined,
+					},
+					stepImages: queue,
+					completionPolicy: {
+						...args.completionPolicy,
+						forAttempt: () => ({
+							projectContext: ({ system, messages }) => ({ system, messages }),
+						}),
+					},
+				},
+				dependencies(model),
+				false,
+			),
+		);
+		expect(result.completion?.outcome).toBe("answered");
+		expect(seen).toHaveLength(1);
+		expect(pixelCount(seen)).toBe(0);
+		const wire = JSON.stringify(seen);
+		expect(wire.split(STRIPPED_IMAGE_NOTE)).toHaveLength(2);
+		expect(wire).toContain(localOnly ? "positions: 1, 2, 3" : "private names");
+		if (localOnly) expect(wire).not.toContain("private names");
+		expect(result.continuation?.steps[0].imageEntries[0].images).toHaveLength(
+			3,
+		);
+	});
+	it.each([
+		false,
+		true,
+	])("expires completed step thumbnails while retaining original prepared pictures (stream: %s)", async (streaming) => {
+		const queue = createStepImageQueue();
+		const seen: unknown[] = [];
+		let executions = 0;
+		const model = new MockLanguageModelV3({
+			doGenerate: async (input) => {
+				seen.push(input.prompt);
+				return {
+					content:
+						seen.length < 3
+							? [
+									{
+										type: "tool-call",
+										toolCallId: `c${seen.length}`,
+										toolName: "lookup",
+										input: "{}",
+									},
+								]
+							: [{ type: "text", text: "Final" }],
+					finishReason: {
+						unified: seen.length < 3 ? "tool-calls" : "stop",
+						raw: "stop",
+					},
+					usage,
+					warnings: [],
+				};
+			},
+			doStream: async (input) => {
+				seen.push(input.prompt);
+				return {
+					stream: stream(
+						seen.length < 3
+							? [
+									{
+										type: "tool-call",
+										toolCallId: `c${seen.length}`,
+										toolName: "lookup",
+										input: "{}",
+									},
+									finish("tool-calls"),
+								]
+							: [...textParts("Final"), finish()],
+					),
+				};
+			},
+		});
+		const args = params();
+		const result = await collect(
+			runNormalChatCompletion(
+				{
+					...args,
+					provider: { ...provider, capabilities: seeing },
+					messages: originalPictures,
+					stepImages: queue,
+					tools: {
+						lookup: tool({
+							inputSchema: z.object({}),
+							execute: async () => {
+								if (++executions === 1)
+									queue.push({ label: "step picture", images: [picture] });
+								return "evidence";
+							},
+						}),
+					},
+					completionPolicy: {
+						...args.completionPolicy,
+						forAttempt: () => ({
+							classifyExecution: () => "succeeded",
+							projectContext: ({ system, messages }) => ({ system, messages }),
+						}),
+					},
+				},
+				dependencies(model),
+				streaming,
+			),
+		);
+		expect(result.completion?.outcome).toBe("answered");
+		expect(seen.map(pixelCount)).toEqual([1, 2, 1]);
+		expect(JSON.stringify(seen[2])).not.toContain("step picture");
+		expect(result.continuation?.steps[1].imageEntries[0].images).toHaveLength(
+			1,
+		);
+		expect(pixelCount(result.continuation?.steps[1].inserts)).toBe(1);
+		expect(pixelCount(result.continuation?.original.messages)).toBe(1);
+	});
+	it.each([
+		false,
+		true,
+	])("retains an unfinished look across pre-execution retry (stream: %s)", async (streaming) => {
+		const queue = createStepImageQueue();
+		queue.push({ label: "retry picture", images: [picture] });
+		const seen: unknown[] = [];
+		const failed = new MockLanguageModelV3({
+			doGenerate: async (input) => {
+				seen.push(input.prompt);
+				throw new Error("offline before response");
+			},
+			doStream: async (input) => {
+				seen.push(input.prompt);
+				throw new Error("offline before response");
+			},
+		});
+		const recovered = new MockLanguageModelV3({
+			doGenerate: async (input) => {
+				seen.push(input.prompt);
+				return {
+					content: [{ type: "text", text: "Final" }],
+					finishReason: { unified: "stop", raw: "stop" },
+					usage,
+					warnings: [],
+				};
+			},
+			doStream: async (input) => {
+				seen.push(input.prompt);
+				return { stream: stream([...textParts("Final"), finish()]) };
+			},
+		});
+		const result = await collect(
+			runNormalChatCompletion(
+				{
+					...params(),
+					provider: { ...provider, capabilities: seeing },
+					messages: originalPictures,
+					stepImages: queue,
+				},
+				{
+					...dependencies(failed),
+					fallback: async () => ({
+						provider: { ...provider, capabilities: seeing },
+						modelId: "native",
+						dependencies: dependencies(recovered),
+					}),
+				},
+				streaming,
+			),
+		);
+		expect(result.completion).toMatchObject({
+			outcome: "answered",
+			closingAttempted: false,
+		});
+		expect(seen.map(pixelCount)).toEqual([2, 2]);
+		expect(result.continuation?.steps[0].finished).toBe(false);
+		expect(pixelCount(result.continuation?.steps[0].inserts)).toBe(1);
+	});
+
+	it.each([
+		["length", "stop", 2],
+		["failed", "stop", 2],
+		["stop", "stop", 1],
+		["length", "length", 2],
+		["failed", "failed", 2],
+	] as const)("keeps unfinished step image eligibility through closing (%s → %s)", async (first, closing, wantClosingPixels) => {
+		const queue = createStepImageQueue();
+		queue.push({ label: "unfinished picture", images: [picture] });
+		const seen: unknown[] = [];
+		const model = new MockLanguageModelV3({
+			doGenerate: async (input) => {
+				seen.push(input.prompt);
+				const end = seen.length === 1 ? first : closing;
+				if (end === "failed") throw new Error("connection failed");
+				return {
+					content: [{ type: "text", text: seen.length === 1 ? "" : "Final" }],
+					finishReason: { unified: end, raw: end },
+					usage,
+					warnings: [],
+				};
+			},
+		});
+		const result = await collect(
+			runNormalChatCompletion(
+				{
+					...params(),
+					provider: { ...provider, capabilities: seeing },
+					messages: originalPictures,
+					stepImages: queue,
+				},
+				dependencies(model),
+				false,
+			),
+		);
+		expect(seen.map(pixelCount)).toEqual([2, wantClosingPixels]);
+		expect(result.completion?.closingAttempted).toBe(true);
+		expect(result.completion?.outcome).toBe(
+			closing === "stop"
+				? "answered"
+				: closing === "failed"
+					? "failed"
+					: "incomplete",
+		);
+		expect(result.continuation?.steps[0].imageEntries[0].images).toHaveLength(
+			1,
+		);
+		expect(pixelCount(result.continuation?.steps[0].inserts)).toBe(1);
+		const resumedInputs: unknown[] = [];
+		const resumedModel = new MockLanguageModelV3({
+			doGenerate: async (input) => {
+				resumedInputs.push(input.prompt);
+				return {
+					content: [{ type: "text", text: "Resumed answer" }],
+					finishReason: { unified: "stop", raw: "stop" },
+					usage,
+					warnings: [],
+				};
+			},
+		});
+		const args = params();
+		const resumed = await collect(
+			runNormalChatCompletion(
+				{
+					...args,
+					provider: { ...provider, capabilities: seeing },
+					messages: originalPictures,
+					completionPolicy: {
+						...args.completionPolicy,
+						segmentId: "new",
+						continuation: result.continuation,
+						continuationKind: "user_resume",
+					},
+				},
+				dependencies(resumedModel),
+				false,
+			),
+		);
+		expect(resumed.completion?.outcome).toBe("answered");
+		expect(resumedInputs.map(pixelCount)).toEqual([
+			closing === "stop" || first === "stop" ? 1 : 2,
+		]);
+		expect(pixelCount(resumed.continuation?.steps[0].inserts)).toBe(1);
+	});
+
 	it("binds a buffered tool result to its source step while the consumer waits for the next SDK step", async () => {
 		let calls = 0;
 		let executions = 0;

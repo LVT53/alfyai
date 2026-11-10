@@ -159,7 +159,7 @@ export type NormalChatAttemptPolicy = {
 		| { kind: "new" }
 		| { kind: "reuse"; executionId: string }
 		| { kind: "refuse" };
-	/** Reproject the WHOLE canonical context (system, inserts, reasoning, pixels included). Null fails closed. */
+	/** Whole-context policy after step-local vision projection; lossless canonical inputs remain in snapshot. Null fails closed. */
 	projectContext?: (input: {
 		snapshot: Readonly<NormalChatContinuationSnapshot>;
 		system?: string;
@@ -365,6 +365,48 @@ export async function* runNormalChatCompletion(
 		return messages;
 	};
 	const project = async (messages: ModelMessage[]) => {
+		// The journal is lossless; queued pictures are outbound step-local inputs.
+		// A truncated/failed step has not consumed its look. Keep it eligible until
+		// a clean step completes, including a tools-disabled closing attempt.
+		let offset = snapshot.original.messages.length;
+		const boundaries = snapshot.steps.map((saved) => {
+			const start = offset;
+			offset += saved.inserts.length + saved.response.length;
+			return { saved, start };
+		});
+		messages = clone(messages);
+		let consumed = false;
+		for (const { saved, start } of boundaries.reverse()) {
+			consumed ||=
+				saved.finished &&
+				(saved.finishReason === "stop" || saved.finishReason === "tool-calls");
+			if (!saved.imageEntries.length) continue;
+			const entries = consumed ? [] : clone(saved.imageEntries);
+			const imageProjection = await buildVisionPrepareStep({
+				queue: {
+					drain: () => entries,
+					push: () => {},
+					reserve: () => 0,
+					release: () => {},
+					room: () => 0,
+				},
+				providerCanSee: providerCanSeeImages(params.provider),
+				providerIsLocal: providerRunsLocally(params.provider),
+			})({
+				stepNumber: 0,
+				steps: [],
+				messages: [],
+				model: deps.model,
+				experimental_context: undefined,
+			});
+			messages.splice(
+				start,
+				saved.inserts.length,
+				...(imageProjection?.messages ?? []),
+			);
+		}
+		// Apply whole-context policy AFTER the typed entries have been projected.
+		// It may still refuse original context that has no safe destination form.
 		const projected = attemptPolicy.projectContext?.({
 			snapshot: clone(snapshot),
 			system: snapshot.original.system,
@@ -379,40 +421,6 @@ export async function* runNormalChatCompletion(
 					snapshot.original.modelName !== params.provider.modelName))
 		)
 			throw new CompletionExit("incompatible_continuation");
-		if (!projected) {
-			// Rebuild inserts from their canonical privacy boundary for THIS destination.
-			let offset = snapshot.original.messages.length;
-			messages = clone(messages);
-			for (const saved of snapshot.steps) {
-				if (saved.imageEntries.length) {
-					const entries = clone(saved.imageEntries);
-					const queue = {
-						drain: () => entries,
-						push: () => {},
-						reserve: () => 0,
-						release: () => {},
-						room: () => 0,
-					};
-					const imageProjection = await buildVisionPrepareStep({
-						queue,
-						providerCanSee: providerCanSeeImages(params.provider),
-						providerIsLocal: providerRunsLocally(params.provider),
-					})({
-						stepNumber: 0,
-						steps: [],
-						messages: [],
-						model: deps.model,
-						experimental_context: undefined,
-					});
-					messages.splice(
-						offset,
-						saved.inserts.length,
-						...(imageProjection?.messages ?? []),
-					);
-				}
-				offset += saved.inserts.length + saved.response.length;
-			}
-		}
 		const input = projected ?? { system: snapshot.original.system, messages };
 		if (!providerCanSeeImages(params.provider))
 			input.messages = stripImageParts(input.messages);

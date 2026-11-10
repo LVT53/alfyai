@@ -636,10 +636,6 @@ function callsAModel(code: string): boolean {
 
 /** Who can make a model call, and how an English turn's request from it is checked. */
 const MODEL_CALLERS: Record<string, string> = {
-	"lib/server/services/chat-turn/plain-normal-chat-model-run.ts":
-		"driver: chat",
-	"lib/server/services/chat-turn/streaming-normal-chat-model-run.ts":
-		"driver: chat (the same prepareOutboundContext and createToolPack)",
 	"lib/server/services/chat-turn/shared-normal-chat-model-run-helpers.ts":
 		"driver: chat (automatic compression sender)",
 	"lib/server/services/chat-turn/short-local-text.ts":

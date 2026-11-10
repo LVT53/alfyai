@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 	admit: vi.fn(),
 	record: vi.fn(),
 	settle: vi.fn(),
+	keepLocal: vi.fn(),
 }));
 vi.mock("./turn-ledger", () => ({
 	admitTurn: mocks.admit,
@@ -38,7 +39,7 @@ vi.mock("../connections/resolve", () => ({
 	resolveActiveCapabilities: async () => new Set(),
 }));
 vi.mock("../connections/locality", () => ({
-	hasLocalDistillEnabled: async () => false,
+	hasLocalDistillEnabled: mocks.keepLocal,
 }));
 vi.mock("../normal-chat-model", async (original) => ({
 	...(await original<typeof import("../normal-chat-model")>()),
@@ -49,6 +50,7 @@ import { prepareNormalChatTurn } from "./prepared-normal-chat-turn";
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.keepLocal.mockResolvedValue(false);
 	mocks.runtime.mockImplementation(async (params) => {
 		const provider = createPlainNormalChatProvider();
 		return {
@@ -939,4 +941,52 @@ it("refuses a smaller resumed destination without lowering the captured cap", as
 		"context_capacity",
 	);
 	expect(mocks.prepare).toHaveBeenCalledOnce();
+});
+
+it("permits typed local-only image projection but refuses unprojectable original private context", async () => {
+	await prepareNormalChatTurn(createPlainNormalChatSendModelParams());
+	const args = mocks.model.mock.calls.at(-1)?.[0];
+	const attempt = await args.completionPolicy.forAttempt({
+		provider: args.provider,
+		modelId: "model1",
+		phase: "working",
+		attemptId: "a",
+		toolsAllowed: false,
+		snapshot: {},
+	});
+	const messages = [{ role: "user", content: "safe projected entry" }];
+	const snapshot = {
+		steps: [{ imageEntries: [{ localOnly: true }] }],
+		pendingImageEntries: [],
+	};
+	const provider = { ...args.provider, baseUrl: "https://cloud.example/v1" };
+	expect(
+		attempt.projectContext({ snapshot, messages, system: "public", provider }),
+	).toEqual({ system: "public", messages });
+	// The separately captured original preparation has no safe reconstruction path.
+	const input = createPlainNormalChatSendModelParams();
+	const localRuntime = await mocks.runtime(input);
+	mocks.runtime.mockResolvedValue({
+		...localRuntime,
+		provider: { ...localRuntime.provider, baseUrl: "http://127.0.0.1/v1" },
+	});
+	mocks.keepLocal.mockResolvedValue(true);
+	await prepareNormalChatTurn(input);
+	const privateArgs = mocks.model.mock.calls.at(-1)?.[0];
+	const privateAttempt = await privateArgs.completionPolicy.forAttempt({
+		provider,
+		modelId: "model1",
+		phase: "closing",
+		attemptId: "b",
+		toolsAllowed: false,
+		snapshot: {},
+	});
+	expect(
+		privateAttempt.projectContext({
+			snapshot,
+			messages,
+			system: "private",
+			provider,
+		}),
+	).toBeNull();
 });

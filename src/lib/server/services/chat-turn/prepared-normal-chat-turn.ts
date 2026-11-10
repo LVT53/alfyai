@@ -342,17 +342,15 @@ export async function prepareNormalChatTurn(
 									: { kind: "refuse" }
 								: { kind: "new" };
 						},
-						projectContext: ({ snapshot, system, messages, provider }) => {
+						projectContext: ({ system, messages, provider }) => {
 							if (resolveHistoryToolMessagesMode(provider) === "flatten")
 								return null;
+							// Model Run projects typed step images through the vision owner.
+							// Original private preparation still has no safe cloud reconstruction.
 							if (
 								!providerRunsLocally(provider) &&
-								((provenance.originalLocal &&
-									(keepLocal || saved?.keptLocal)) ||
-									snapshot.steps.some((step) =>
-										step.imageEntries.some((entry) => entry.localOnly),
-									) ||
-									snapshot.pendingImageEntries.some((entry) => entry.localOnly))
+								provenance.originalLocal &&
+								(keepLocal || saved?.keptLocal)
 							)
 								return null;
 							return { system, messages };
