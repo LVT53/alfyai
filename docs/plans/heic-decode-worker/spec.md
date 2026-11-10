@@ -221,8 +221,8 @@ the touched tests while iterating. The whole gate runs once at the end, in the o
 
 ## As built
 
-Where the build differs from the spec above, which stays as it was decided. Slice A is `b9f9fa574` to `bfa67c743`, Slice B
-is `412c6f0fa`, `782fcd262`, `40a46e693`, `061261150`, `44d61eb80` and the docs commit after them.
+Where the build differs from the spec above, which stays as it was decided. Slice A is `b9f9fa574` to `bfa67c743`; Slice B
+is every commit from `412c6f0fa` on (the code is `412c6f0fa`, `782fcd262`, `40a46e693` and `061261150`).
 
 Slice A, the decoder:
 
