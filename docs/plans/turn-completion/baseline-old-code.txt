@@ -17,7 +17,7 @@ RELEASE releases/aba3e8fbe 2026-11-10T12:57:57Z
 SUMMARY {"turns":12,"completed":12,"errors":0,"withWarnings":{},"emptyVisible":0,"fallbackTurns":0,"doneToolTurns":0,"set":"tools","label":"base-kimi"}
 === kimi silent limit=all
 01    17.8s  tools=run_python  vis=3  post=3  ok+fb  | 391
-02    27.5s  tools=research_web  vis=0  post=0  ERR:backend_failure+fb  | 
+02    27.5s  tools=research_web  vis=0  post=0  ERR:backend_failure+fb  |
 SUMMARY {"turns":2,"completed":1,"errors":1,"withWarnings":{},"emptyVisible":1,"fallbackTurns":2,"doneToolTurns":0,"set":"silent","label":"base-kimi"}
 === deepseek silent limit=all
 01     5.6s  tools=run_python  vis=3  post=3  ok  | 391
@@ -27,7 +27,7 @@ SUMMARY {"turns":2,"completed":2,"errors":0,"withWarnings":{},"emptyVisible":0,"
 01     4.5s  tools=run_python  vis=414  post=414  ok  | **Costs**  | Component | Tokens | Rate | Exact cost | Rounded | |---|-
 02     6.2s  tools=run_python  vis=1216  post=1216  ok  | **Monthly payment: 1,280.10** **Total interest: 144,029.29** (total re
 03    36.2s  tools=research_web,research_web,fetch_url  vis=3158  post=2973  ok  | Now let me pin down the Limerick city figure, since Limerick's adminis
-04     5.0s  tools=run_python  vis=560  post=560  ok  | Computed with Python (P = 5,000, 12 years, 3.7% nominal annual rate): 
+04     5.0s  tools=run_python  vis=560  post=560  ok  | Computed with Python (P = 5,000, 12 years, 3.7% nominal annual rate):
 05    17.4s  tools=research_web,research_web  vis=2076  post=2076  ok  | ## Answer  **The River Shannon is much longer — about 228 km longer.**
 06     5.7s  tools=run_python  vis=1051  post=1051  ok  | **Results** (12 readings, total 3,971 kWh)  | Statistic | Value | |---
 SUMMARY {"turns":6,"completed":6,"errors":0,"withWarnings":{},"emptyVisible":0,"fallbackTurns":0,"doneToolTurns":0,"set":"tools","label":"base-deepseek"}
@@ -37,10 +37,10 @@ SUMMARY {"turns":6,"completed":6,"errors":0,"withWarnings":{},"emptyVisible":0,"
 SUMMARY {"turns":2,"completed":2,"errors":0,"withWarnings":{},"emptyVisible":0,"fallbackTurns":1,"doneToolTurns":0,"set":"silent","label":"base-qwen"}
 === qwen tools limit=8
 01     4.3s  tools=run_python  vis=464  post=464  ok  |   **Costs (computed from unrounded token counts, rounded only at the e
-02     4.9s  tools=run_python  vis=380  post=380  ok  |   **Results:**  - **Monthly payment:** 1,280.10 - **Total interest:** 
+02     4.9s  tools=run_python  vis=380  post=380  ok  |   **Results:**  - **Monthly payment:** 1,280.10 - **Total interest:**
 03    17.6s  tools=research_web,research_web  vis=2642  post=2566  ok  |   I'll search for the latest official population figures for both citi
 04     5.1s  tools=run_python  vis=421  post=421  ok  |   **Results (Python, `P·(1+r/n)^(n·t)` with P=5,000, r=3.7%, t=12 year
-05    21.2s  tools=research_web,research_web  vis=1967  post=1966  ok  |    **The Shannon is longer — by about 228.5 km** (360.5 km vs 132 km, 
+05    21.2s  tools=research_web,research_web  vis=1967  post=1966  ok  |    **The Shannon is longer — by about 228.5 km** (360.5 km vs 132 km,
 06     5.0s  tools=run_python  vis=429  post=429  ok  |   Results from Python:  - **Mean:** 330.92 kWh - **Median:** 321.0 kWh
 07     3.5s  tools=fetch_url  vis=900  post=900  ok  |   The Antikythera mechanism was recovered in 1901 (probably July) from
 08     4.4s  tools=run_python  vis=274  post=274  ok  |   **2,262 primes** below 20,000, summing to **21,171,191**.  Method: S
@@ -58,19 +58,19 @@ RELEASE releases/aba3e8fbe 2026-11-10T13:09:30Z
 08    17.7s  tools=run_python  vis=361  post=281  ok  | I’ll use the standard fixed-rate amortization formula with 300 monthly
 SUMMARY {"turns":8,"completed":8,"errors":0,"withWarnings":{},"emptyVisible":0,"fallbackTurns":0,"doneToolTurns":0,"set":"repro","label":"base-kimi"}
 === deepseek quiet
-01     5.8s  tools=run_python  vis=0  post=0  ERR:backend_failure+fb  | 
+01     5.8s  tools=run_python  vis=0  post=0  ERR:backend_failure+fb  |
 02    13.9s  tools=research_web  vis=404  post=404  ok+fb  |   <｜｜DSML｜｜ calls> <｜｜DSML｜｜ invoke name="research_web"> <｜｜DSML｜｜ par
 03     7.1s  tools=run_python  vis=234  post=234  ok+fb  |   <｜｜DSML｜｜ calls> <｜｜DSML｜｜ invoke name="done"> <｜｜DSML｜｜ parameter n
 SUMMARY {"turns":3,"completed":2,"errors":1,"withWarnings":{},"emptyVisible":1,"fallbackTurns":3,"doneToolTurns":0,"set":"quiet","label":"base-deepseek"}
 === kimi quiet
-01    15.6s  tools=run_python,run_python  vis=0  post=0  ERR:backend_failure+fb  | 
+01    15.6s  tools=run_python,run_python  vis=0  post=0  ERR:backend_failure+fb  |
 02    18.9s  tools=research_web  vis=1  post=1  ok  | ​
 03    13.6s  tools=run_python  vis=1  post=1  ok+fb  | ​
 SUMMARY {"turns":3,"completed":2,"errors":1,"withWarnings":{},"emptyVisible":1,"fallbackTurns":2,"doneToolTurns":0,"set":"quiet","label":"base-kimi"}
 === qwen quiet
-01     4.9s  tools=run_python  vis=2  post=2  ERR:backend_failure+fb  |   
+01     4.9s  tools=run_python  vis=2  post=2  ERR:backend_failure+fb  |
 02     4.5s  tools=research_web  vis=7  post=7  ok  |   Done.
-03     6.1s  tools=run_python  vis=0  post=0  ERR:backend_failure+fb  | 
+03     6.1s  tools=run_python  vis=0  post=0  ERR:backend_failure+fb  |
 SUMMARY {"turns":3,"completed":1,"errors":2,"withWarnings":{},"emptyVisible":2,"fallbackTurns":2,"doneToolTurns":0,"set":"quiet","label":"base-qwen"}
 RELEASE releases/aba3e8fbe 2026-11-10T13:13:24Z
 === deepseek quiet depth=thorough (third run, typed from the session)
