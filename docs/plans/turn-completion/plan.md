@@ -47,7 +47,9 @@ the root docs; leave `docs/adr` and other dated documents alone).
    `buildFirstStepOnlyPrepareStep`, which explains itself through the deleted rule.
 3. A call to a tool the run does not offer (a model may still call `done` from habit) is not shown: the run yields no
    `tool_call`, `tool_result` or `tool_error` event for a tool name that is not in the tool set this attempt was built
-   with. The model still gets the SDK's error for it and the run goes on.
+   with. The model still gets the SDK's error for it and the run goes on. An attempt built with no tool set at all is
+   not filtered: it reports tool calls as before (the App generator reads that event to see a model that tried to
+   call a tool; ruling after the Task 1 review).
 
 **Tests** (`normal-chat-model/index.test.ts`):
 
