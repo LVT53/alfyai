@@ -1,6 +1,6 @@
 # Feature Guide
 
-The `/guide` page, "What AlfyAI can do": six sections, thirty entries, a drawing per section, and a box of keys and slash commands. It is the app's one map of what a person can do (`docs/plans/feature-guide/design.md`). The route, `src/routes/(app)/guide/+page.svelte`, is an adapter: it draws the frame and the serif title (the only serif on the page, and the one `MAY_NAME_THE_SERIF` entry for it is a class) and renders `GuidePage`. Nothing in the chat shell imports this folder: the "?" that opens the page only links to it. Its drawings are `drawings/` here, built from the kit in `src/lib/components/drawings/` (its own AGENTS.md).
+The `/guide` page, "What AlfyAI can do": six sections, thirty entries, a drawing per section, and a box of keys and slash commands. It is the app's one map of what a person can do (`docs/plans/feature-guide/design.md`). The route, `src/routes/(app)/guide/+page.svelte`, is an adapter: it draws the frame and the serif title (the only serif on the page, and the one `MAY_NAME_THE_SERIF` entry for it is a class), renders `GuidePage` and keeps the scroller's place for Back (see The page). Nothing in the chat shell imports this folder: the "?" that opens the page only links to it. Its drawings are `drawings/` here, built from the kit in `src/lib/components/drawings/` (its own AGENTS.md).
 
 ## Where the content and the words live
 
@@ -32,6 +32,7 @@ The guide never mentions an admin feature (the Administration tab, campaigns, sy
 
 ## The page
 
+- **Back keeps the reader's place.** The page scrolls in `guide-scroller` and the window never moves, which is all SvelteKit puts back when Back returns to a page, and nearly every button on the page takes the reader away (Show me, Try it). So the route exports a `snapshot` (`Snapshot<number>`) of that scroller's `scrollTop`: SvelteKit keeps it per history entry, in its own storage and not under a key of the app's, and hands it back after Back or a reload. Keep it in the route, and keep it a number. Back also rings nothing again, since a Show me's request is taken once. `feature-guide.spec.ts`, "coming back", holds both.
 - **Stable hooks** for the end-to-end spec: `data-testid="guide-scroller"` (the route's scroller), `guide-section` with `id="guide-section-<id>"` on each band, `guide-row` with `data-entry-id="<id>"` on each row, `guide-shortcuts` and `guide-shortcut-keys`.
 - **Layout.** The sections answer to the width of the page's column, not the window's: two columns (a 330 px column for the name, intro and drawing, and the rows) from 46rem of column, which a phone, a tablet held upright and a 1024 px window with its sidebar open do not have. Stacked, the drawing is `position: sticky; top: 0` inside its band, capped at 28rem, so a row tapped far down still shows its spot; the band tells its rows how much that hides (`--guide-pinned`) so a focused button is never left under it. A window under 36rem tall pins nothing.
 - **Words wrap.** A name or a line is never cut short (some Hungarian names run to two lines at 360 px), and neither the page nor a drawing scrolls sideways at 360 px.

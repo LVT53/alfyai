@@ -272,7 +272,7 @@ const guideDict = {
 			"Hogyan beszél Alfy, és melyik modell válaszol alapból.",
 		"guide.entry.skills.name": "Készségek",
 		"guide.entry.skills.line":
-			"Beépített segítők, például a Study Coach, és a sajátjaid.",
+			"Beépített segítők, például a Tanulási coach, és a sajátjaid.",
 
 		// ── Your things ────────────────────────────────────────────────────
 		"guide.entry.knowledgeBase.name": "Tudásbázis",

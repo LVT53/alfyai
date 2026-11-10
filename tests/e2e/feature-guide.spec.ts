@@ -139,6 +139,20 @@ async function firstRinging(page: Page) {
 	return page.evaluateHandle(() => (window as RingWindow).__rings?.[0]?.el);
 }
 
+/**
+ * Waits until the page has drawn two frames. A control takes a Show me request as
+ * it mounts and rings in the next frame, so what is read after this has seen any
+ * ring that mount started.
+ */
+async function afterTwoFrames(page: Page) {
+	await page.evaluate(
+		() =>
+			new Promise<void>((done) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => done())),
+			),
+	);
+}
+
 /** Waits until every ring that came on has been looked at and has gone out. */
 async function ringsThatHaveEnded(page: Page) {
 	await page.waitForFunction(
@@ -585,6 +599,70 @@ test.describe("the Feature Guide: every Show me rings its control", () => {
 				});
 			});
 		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Coming back. Nearly every button on the page takes the reader away (Show me,
+// Try it), so the page's main loop is to press one, look, and come back. The
+// guide scrolls in an element of its own and the window never moves, which is
+// all SvelteKit's scroll memory puts back, so the route keeps the scroller's
+// place itself (`snapshot`, src/routes/(app)/guide/+page.svelte).
+// ---------------------------------------------------------------------------
+
+test.describe("the Feature Guide: coming back", () => {
+	test("Back from a Show me brings the reader to the place they left, and neither Back nor Forward rings again", async ({
+		page,
+	}) => {
+		// A throwaway user: nothing here changes what the shared admin sees.
+		const user = await createTourUser("en");
+		await recordRings(page);
+		await login(page, user.email, user.password);
+		await openGuide(page);
+
+		const scroller = page.getByTestId("guide-scroller");
+		const account = page.locator("#guide-section-account");
+		const showMe = page.getByRole("button", {
+			name: "Show me: Two-step sign-in",
+		});
+		const scrollTop = () => scroller.evaluate((node) => node.scrollTop);
+
+		// The last band of a page taller than the window: far from the top.
+		await showMe.scrollIntoViewIfNeeded();
+		await expect(account).toBeInViewport();
+		const leftAt = await scrollTop();
+		expect(leftAt, "px the reader has scrolled down").toBeGreaterThan(0);
+
+		await showMe.click();
+		await expect(page).toHaveURL(/\/settings/);
+		await firstRinging(page);
+		// The ring is over before the reader comes back.
+		expect(
+			await ringsThatHaveEnded(page),
+			"rings made by Show me",
+		).toHaveLength(1);
+
+		await page.goBack();
+		await expect(page).toHaveURL(/\/guide$/);
+		await expect(
+			account,
+			"Back brings the reader to the band they left",
+		).toBeInViewport();
+		await expect
+			.poll(scrollTop, { message: "px the guide is scrolled after Back" })
+			.toBe(leftAt);
+		// Back is no Show me: the same document, and no second ring.
+		expect(await ringsThatHaveEnded(page), "rings after Back").toHaveLength(1);
+
+		// Nor is Forward. Settings opens as a page does, and its control, which a
+		// request still alive would ring as it mounts, is left alone.
+		await page.goForward();
+		await expect(page).toHaveURL(/\/settings/);
+		await expect(page.getByTestId("two-step-row")).toBeVisible();
+		await afterTwoFrames(page);
+		expect(await ringsThatHaveEnded(page), "rings after Forward").toHaveLength(
+			1,
+		);
 	});
 });
 
