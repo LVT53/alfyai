@@ -392,6 +392,17 @@ describe("extraction i18n keys", () => {
 			"knowledge.extraction.error.canceled",
 		);
 	});
+
+	it("explains a photo over the pixel limit with its own sentence, not the file-size one", () => {
+		expect(
+			extractionDetailKey(
+				job({
+					status: "failed",
+					error: { code: "image_too_large", message: "100 megapixels" },
+				}),
+			),
+		).toBe("knowledge.extraction.error.image_too_large");
+	});
 });
 
 // A picture the reader found no text in is not a file that failed to read: it

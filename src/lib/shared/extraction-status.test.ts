@@ -7,6 +7,7 @@ import {
 	DOCUMENT_EXTRACTION_STATUSES,
 	DOCUMENT_EXTRACTION_TERMINAL_STATUSES,
 	EXTRACTION_ERROR_CODES,
+	EXTRACTION_ERROR_POLICIES,
 	isActiveExtractionStatus,
 	isDocumentExtractionStatus,
 	isExtractionErrorCode,
@@ -95,6 +96,18 @@ describe("extraction error codes", () => {
 		] as const) {
 			expect(isRetryableExtractionErrorCode(code), code).toBe(false);
 		}
+	});
+
+	// A photo with more pixels than the decoder takes. The same bytes are over the
+	// limit every time, so nothing retries it and the Retry button is withheld, as
+	// for `too_large`: a smaller copy is a new document.
+	it("has image_too_large, a permanent fact about a photo", () => {
+		expect(isExtractionErrorCode("image_too_large")).toBe(true);
+		expect(EXTRACTION_ERROR_POLICIES.image_too_large).toEqual({
+			autoRetry: "none",
+			userRetryable: false,
+		});
+		expect(isRetryableExtractionErrorCode("image_too_large")).toBe(false);
 	});
 
 	it("recognises its own codes and nothing else", () => {

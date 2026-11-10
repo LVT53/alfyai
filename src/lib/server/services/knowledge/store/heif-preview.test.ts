@@ -33,7 +33,7 @@ describe("createHeifPreviewQueue", () => {
 		expect(convert).toHaveBeenCalledTimes(1);
 	});
 
-	it("converts one photo at a time, because a decode holds the calling thread", async () => {
+	it("converts one photo at a time, so a page of tiles does not take the decode pool", async () => {
 		const first = deferred();
 		const second = deferred();
 		const convert = vi

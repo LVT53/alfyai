@@ -20,6 +20,10 @@
  *     back as `backend_misconfigured` is how a deployment pointing at something
  *     that is not MinerU 4 announces itself, and it is NON-RETRYABLE: there is no
  *     dual-protocol fallback (S1), so retrying only delays the honest message.
+ *     The file is asked for in the same spirit (`request.openFile()`): where the
+ *     bytes are first needed, after the capability read and the tier decision, so
+ *     a HEIC photo is not decoded for an attempt that never gets that far, nor
+ *     for one that only polls a task it resumed.
  *  2. **The handle is emitted as soon as the remote task exists**, before the
  *     PUT and so before the first poll. A worker that dies between
  *     `POST /v1/tasks` and the first `GET` must RESUME that task on the next
@@ -109,6 +113,7 @@ import type {
 	DocumentExtractor,
 	ExtractDocumentRequest,
 	ExtractDocumentResult,
+	ExtractionFile,
 	ExtractionHandle,
 } from "../contracts";
 import {
@@ -524,6 +529,35 @@ export function createMineru4Extractor(
 			// room for a cold start and a poll or two on top of it.
 			const deadlineAt = now() + config.jobTimeoutMs;
 
+			// The file, asked for at the first step that needs bytes and never before:
+			// for a HEIC photo that is the decode, and an attempt that stops earlier (a
+			// server that cannot be reached, a tier it does not offer) or only polls a
+			// task it resumed does not pay for it. Asked for once however many steps
+			// need it (the digest, the size the task declares, each PUT); whatever it
+			// fails with, it fails with for the attempt.
+			let opening: Promise<ExtractionFile> | null = null;
+			const openFile = (): Promise<ExtractionFile> =>
+				(opening ??= request.openFile());
+
+			/**
+			 * The digest of the bytes the file holds, which is what a task is declared
+			 * with: the ledger's when it has a valid one (a stored file's never changes,
+			 * so there is nothing to read), else the file hashed. `trustLedger` false
+			 * hashes the file whatever the ledger says, for a file that has just shown
+			 * the ledger's digest wrong.
+			 */
+			const digestOfFile = async (
+				file: ExtractionFile,
+				trustLedger: boolean,
+			): Promise<string> => {
+				const supplied = trustLedger
+					? (file.contentSha256?.trim().toLowerCase() ?? "")
+					: "";
+				return SHA256_PATTERN.test(supplied)
+					? supplied
+					: client.sha256(file.filePathAbsolute);
+			};
+
 			// -- 1. capabilities, before anything is asked for -------------------
 			let capabilities: Awaited<ReturnType<typeof getMineruCapabilities>>;
 			try {
@@ -569,13 +603,34 @@ export function createMineru4Extractor(
 				request.mimeType,
 			);
 
-			// -- 3. the digest: reuse the ledger's, compute only when absent -----
-			const supplied = request.contentSha256?.trim().toLowerCase() ?? "";
+			// -- 3. the digest: the handle's if it has one, else the file's ------
+			//
+			// A resumed task's digest is the one the live task was declared with, so
+			// the attempt goes on with it, and a handle that has one never needs the
+			// file here (a resumed attempt that only polls never opens it at all). That
+			// is all a handle's digest is for: a task created fresh declares the digest
+			// of the bytes it is about to send (`submitFresh`), because the handle may
+			// name bytes this attempt does not have. The file is asked for here only
+			// when there is no digest to go on, and brings the ledger's if it holds one;
+			// otherwise it is hashed.
 			const resumed = readHandleState(request.resumeHandle);
-			let sha256 = SHA256_PATTERN.test(supplied) ? supplied : resumed.sha256;
+			let sha256 = resumed.sha256;
+			// Whether `sha256` is of the file this attempt opened, and not a handle's.
+			let digestIsOfTheFile = false;
 			if (!sha256) {
 				assertNotAborted(request.signal);
-				sha256 = await client.sha256(request.filePathAbsolute);
+				try {
+					sha256 = await digestOfFile(await openFile(), true);
+					digestIsOfTheFile = true;
+				} catch (error) {
+					// Called off while the file was made (a photo's decode): the cancel
+					// it is, as at every other step. Anything else is the reader's
+					// verdict on the file, or the disk's, and goes on as it is.
+					if (isAbortLike(error) || request.signal.aborted) {
+						throw canceledError();
+					}
+					throw error;
+				}
 			}
 
 			const state = resumed.state;
@@ -614,10 +669,12 @@ export function createMineru4Extractor(
 
 			/** The bytes, to the link a task hands out. A mismatch is a stale task. */
 			async function putBytes(upload: MineruUploadLink): Promise<void> {
+				// Outside the try: a file that cannot be made is not a refused upload.
+				const file = await openFile();
 				try {
 					await client.putTaskFile({
 						upload,
-						filePathAbsolute: request.filePathAbsolute,
+						filePathAbsolute: file.filePathAbsolute,
 						signal: request.signal,
 					});
 				} catch (error) {
@@ -636,10 +693,23 @@ export function createMineru4Extractor(
 				emit("uploading", false);
 				assertNotAborted(request.signal);
 
-				// What the task declares is what the file is NOW, not what the ledger
-				// remembers: after a refused upload, a fresh stat and a fresh digest.
-				if (rehash) sha256 = await client.sha256(request.filePathAbsolute);
-				const { size } = await client.statFile(request.filePathAbsolute);
+				// Where the attempt first needs the bytes, when the digest did not: the
+				// size the task declares is the file's, so a photo's decode happens here
+				// (after the capability read and the tier decision, and before the task).
+				const opened = await openFile();
+				// A task created now is declared with the digest of the bytes it will be
+				// sent, and never with one a handle carries: that names the bytes of a task
+				// that is gone, and they may not be these (a photo's PNG is not the one the
+				// previous release made). Step 3 already took the file's digest when the
+				// attempt began without a handle's; otherwise it is taken now, the ledger's
+				// if it holds one. What the task declares is what the file is NOW, not what
+				// the ledger remembers: after a refused upload, a fresh stat and a fresh
+				// digest of the file itself.
+				if (rehash || !digestIsOfTheFile) {
+					sha256 = await digestOfFile(opened, !rehash);
+					digestIsOfTheFile = true;
+				}
+				const { size } = await client.statFile(opened.filePathAbsolute);
 				if (size <= 0) {
 					// A task of zero bytes is a 400 (D22), and the server's refusal would
 					// read as a fault of the service. The file is empty; say so.

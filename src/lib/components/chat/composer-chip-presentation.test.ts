@@ -509,6 +509,19 @@ describe("extractionChipState", () => {
 		expect(state.canRetry).toBe(false);
 	});
 
+	it("names a photo over the pixel limit, and offers no retry for it", () => {
+		const state = extractionChipState(
+			job({
+				status: "failed",
+				retryable: false,
+				cancelable: false,
+				error: { code: "image_too_large", message: "100 megapixels" },
+			}),
+		);
+		expect(state.errorKey).toBe("chat.extraction.error.image_too_large");
+		expect(state.canRetry).toBe(false);
+	});
+
 	it("falls back to a generic clause for a failure with no code", () => {
 		expect(
 			extractionChipState(

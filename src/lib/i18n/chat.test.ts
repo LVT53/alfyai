@@ -57,6 +57,17 @@ describe("chat i18n dictionary", () => {
 		}
 	});
 
+	// The chip keeps one short line, and a photo over the decoder's pixel limit
+	// says so in it. The longer sentence, with the number, is the Library row's.
+	it("labels a photo over the pixel limit on the chip, in both languages", () => {
+		expect(chatDict.en["chat.extraction.error.image_too_large"]).toBe(
+			"Photo too large to read",
+		);
+		expect(chatDict.hu["chat.extraction.error.image_too_large"]).toBe(
+			"A fotó túl nagy a beolvasáshoz",
+		);
+	});
+
 	// The four non-terminal statuses and `canceled` each get a clause; the two
 	// remaining terminals (`succeeded`, `failed`) are covered by the plain chip
 	// and by `chat.extraction.failed` / `.failedRetry` respectively.

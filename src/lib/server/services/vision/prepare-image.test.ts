@@ -598,6 +598,48 @@ describe("decodeImageToPng", () => {
 		expect([out.width, out.height]).toEqual([64, 42]);
 	});
 
+	it("flattens onto the background it is given, and then has no alpha", async () => {
+		const seeThrough = await sharp({
+			create: {
+				width: 8,
+				height: 8,
+				channels: 4,
+				background: { r: 0, g: 0, b: 255, alpha: 0 },
+			},
+		})
+			.png()
+			.toBuffer();
+
+		const onWhite = await decodeImageToPng(seeThrough, "image/png", {
+			background: "#ffffff",
+		});
+		const onRed = await decodeImageToPng(seeThrough, "image/png", {
+			background: "#ff0000",
+			maxLongEdge: 4,
+		});
+
+		expect(onWhite.hasAlpha).toBe(false);
+		expect(await pixelAt(onWhite.png, 3, 3)).toEqual([255, 255, 255]);
+		expect(onRed.hasAlpha).toBe(false);
+		expect([onRed.width, onRed.height]).toEqual([4, 4]);
+		expect(await pixelAt(onRed.png, 1, 1)).toEqual([255, 0, 0]);
+	});
+
+	it("leaves an opaque picture as it is when given a background", async () => {
+		const opaque = await sharp({
+			create: { width: 8, height: 8, channels: 3, background: "#336699" },
+		})
+			.png()
+			.toBuffer();
+
+		const out = await decodeImageToPng(opaque, "image/png", {
+			background: "#ffffff",
+		});
+
+		expect(out.hasAlpha).toBe(false);
+		expect(await pixelAt(out.png, 4, 4)).toEqual([0x33, 0x66, 0x99]);
+	});
+
 	it("refuses bytes that are not a picture", async () => {
 		await expect(
 			decodeImageToPng(new Uint8Array([1, 2, 3]), "image/jpeg"),

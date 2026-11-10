@@ -103,6 +103,7 @@ describe("the error policy table", () => {
 			"unsupported_type",
 			"document_unreadable",
 			"too_large",
+			"image_too_large",
 			"empty_result",
 		] as const) {
 			expect(EXTRACTION_ERROR_POLICIES[code], code).toEqual({
@@ -185,6 +186,17 @@ describe("decideExtractionRetry", () => {
 				jobRetryable: false,
 			},
 		);
+	});
+
+	it("fails a photo over the pixel limit on the first attempt, with its own code", () => {
+		expect(
+			decideExtractionRetry({ ...base, code: "image_too_large" }),
+		).toMatchObject({
+			requeue: false,
+			delayMs: 0,
+			jobErrorCode: "image_too_large",
+			jobRetryable: false,
+		});
 	});
 
 	it("keeps a non-retryable code non-retryable even at the cap", () => {

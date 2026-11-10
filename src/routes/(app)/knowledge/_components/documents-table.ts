@@ -95,6 +95,7 @@ const EXTRACTION_ERROR_KEYS: Record<ExtractionErrorCode, I18nKey> = {
 	auth_failed: "knowledge.extraction.error.auth_failed",
 	backend_misconfigured: "knowledge.extraction.error.backend_misconfigured",
 	too_large: "knowledge.extraction.error.too_large",
+	image_too_large: "knowledge.extraction.error.image_too_large",
 	rate_limited: "knowledge.extraction.error.rate_limited",
 	job_failed: "knowledge.extraction.error.job_failed",
 	canceled: "knowledge.extraction.error.canceled",

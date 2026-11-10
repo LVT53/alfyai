@@ -7,11 +7,20 @@
 // what it does when the server forgets, changes its mind or is not the server
 // it was expected to be.
 
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import JSZip from "jszip";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type Mock,
+	vi,
+} from "vitest";
 import {
 	getMineruStatusReport,
 	resetMineruCapabilitiesCacheForTests,
@@ -28,12 +37,17 @@ import {
 } from "$lib/server/services/mineru/testing/fake-server";
 import { FILE_TYPE_ENTRIES } from "$lib/shared/file-types";
 import type {
-	DocumentExtractionError,
 	ExtractDocumentRequest,
+	ExtractionFile,
 	ExtractionHandle,
 	ExtractionProgress,
 } from "../contracts";
-import { ExtractionAbortError, isDocumentExtractionError } from "../contracts";
+import {
+	DocumentExtractionError,
+	ExtractionAbortError,
+	extractionErrorMessage,
+	isDocumentExtractionError,
+} from "../contracts";
 import { readerFileFor } from "../reader-input";
 import {
 	canonicalTaskFileName,
@@ -100,10 +114,16 @@ function extractorThrough(
 
 interface RequestOverrides extends Partial<ExtractDocumentRequest> {
 	fixture?: string;
+	/** The digest the ledger holds of the file, when it holds one; null: the extractor hashes it. */
+	contentSha256?: string | null;
 }
 
 async function buildRequest(overrides: RequestOverrides = {}): Promise<{
 	request: ExtractDocumentRequest;
+	/** What `request.openFile()` hands out. */
+	file: ExtractionFile;
+	/** `request.openFile`, as a spy: how often, and when, the extractor asked for the file. */
+	openFile: Mock<() => Promise<ExtractionFile>>;
 	progress: ExtractionProgress[];
 	controller: AbortController;
 }> {
@@ -118,22 +138,43 @@ async function buildRequest(overrides: RequestOverrides = {}): Promise<{
 
 	const progress: ExtractionProgress[] = [];
 	const controller = new AbortController();
-	const { fixture: _drop, ...rest } = overrides;
+	const { fixture: _drop, contentSha256 = null, ...rest } = overrides;
+	const file: ExtractionFile = {
+		filePathAbsolute: absolute,
+		sizeBytes: bytes.byteLength,
+		contentSha256,
+	};
+	const openFile = vi.fn(async () => file);
 
 	return {
 		progress,
 		controller,
+		file,
+		openFile,
 		request: {
-			filePathAbsolute: absolute,
 			fileName,
 			mimeType: "application/pdf",
-			sizeBytes: bytes.byteLength,
+			openFile,
 			intakeRoute: "mineru",
 			signal: controller.signal,
 			onProgress: (entry) => progress.push(entry),
 			...rest,
 		} as ExtractDocumentRequest,
 	};
+}
+
+/** The same request, its file opened as `file` changed by `patch` says. */
+function openingAs(
+	request: ExtractDocumentRequest,
+	file: ExtractionFile,
+	patch: Partial<ExtractionFile>,
+): ExtractDocumentRequest {
+	return { ...request, openFile: async () => ({ ...file, ...patch }) };
+}
+
+/** What the fake had been asked, as `METHOD /path`, at the moment this is called. */
+function requestsSoFar(): string[] {
+	return server.requests.map((entry) => `${entry.method} ${entry.path}`);
 }
 
 /**
@@ -545,7 +586,7 @@ describe("the registry against what MinerU 4.1.7 accepts", () => {
 describe("the happy path", () => {
 	it("creates one task, uploads, polls, downloads only the result and returns the prompt text", async () => {
 		await start({ fixtureInput: "pdf" });
-		const { request, progress } = await buildRequest();
+		const { request, file, progress } = await buildRequest();
 
 		const result = await extractorFor().extract(request);
 
@@ -577,7 +618,7 @@ describe("the happy path", () => {
 
 		const body = createBody();
 		expect(body.files).toHaveLength(1);
-		expect(body.files[0].bytes).toBe(request.sizeBytes);
+		expect(body.files[0].bytes).toBe(file.sizeBytes);
 		expect(body.files[0].sha256sum).toMatch(/^[a-f0-9]{64}$/);
 		// Only the default result, and only the keys a 4.1 server accepts (S5).
 		expect(body.output_formats).toEqual(["default"]);
@@ -754,17 +795,17 @@ describe("the happy path", () => {
 describe("the digest", () => {
 	it("reuses the ledger's sha256 instead of re-reading the file", async () => {
 		await start();
-		const { request } = await buildRequest();
+		const { request, file } = await buildRequest();
 		const resolved = config(server.baseUrl);
 		const client = new MineruClient({ config: resolved });
-		const sha = await client.sha256(request.filePathAbsolute);
+		const sha = await client.sha256(file.filePathAbsolute);
 		const spy = vi.spyOn(client, "sha256");
 
 		await createMineru4Extractor({
 			resolveConfig: () => resolved,
 			createClient: () => client,
 			tempDirRoot: tempRoot,
-		}).extract({ ...request, contentSha256: sha });
+		}).extract(openingAs(request, file, { contentSha256: sha }));
 
 		expect(spy).not.toHaveBeenCalled();
 		expect(createBody().files[0].sha256sum).toBe(sha);
@@ -772,11 +813,122 @@ describe("the digest", () => {
 
 	it("computes it when the ledger has none, and ignores a malformed one", async () => {
 		await start();
-		const { request } = await buildRequest();
+		const { request, file } = await buildRequest();
 
-		await extractorFor().extract({ ...request, contentSha256: "not-a-digest" });
+		await extractorFor().extract(
+			openingAs(request, file, { contentSha256: "not-a-digest" }),
+		);
 
 		expect(createBody().files[0].sha256sum).toMatch(/^[a-f0-9]{64}$/);
+	});
+});
+
+// The photo of a HEIC upload is made when the extractor first needs bytes, and
+// the extractor says when that is by asking for the file (`openFile`): after it
+// has asked the server what it can do and has settled the tier, and not at all
+// in an attempt that only polls a task which is already alive.
+describe("asking for the file", () => {
+	it("asks once, when it first needs the bytes: after the capability read, and before the task exists", async () => {
+		await start();
+		const { request, file, openFile } = await buildRequest();
+		const seen: string[][] = [];
+		openFile.mockImplementation(async () => {
+			seen.push(requestsSoFar());
+			return file;
+		});
+
+		await extractorFor().extract(request);
+
+		// For the digest, for the size the task declares and for the PUT: one ask.
+		expect(openFile).toHaveBeenCalledTimes(1);
+		expect(seen[0]).toEqual(
+			expect.arrayContaining(["GET /v1/health", "GET /v1/tiers"]),
+		);
+		expect(seen[0].some((entry) => entry.startsWith("POST /v1/tasks"))).toBe(
+			false,
+		);
+		expect(seen[0].some((entry) => entry.startsWith("PUT"))).toBe(false);
+	});
+
+	it("asks once for an attempt that has to create its task again", async () => {
+		// Two declarations and two PUTs, one file.
+		await start({ restartAfterFirstUpload: true });
+		const { request, openFile } = await buildRequest();
+
+		await extractorFor().extract(request);
+
+		expect(creates()).toHaveLength(2);
+		expect(openFile).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not ask while the server cannot say what it can do", async () => {
+		await start();
+		const { request, openFile } = await buildRequest();
+		const resolved = config(`${server.baseUrl}/not-mineru4`);
+
+		await expect(
+			createMineru4Extractor({
+				resolveConfig: () => resolved,
+				tempDirRoot: tempRoot,
+			}).extract(request),
+		).rejects.toMatchObject({ code: "backend_misconfigured" });
+
+		expect(openFile).not.toHaveBeenCalled();
+	});
+
+	it("does not ask when the tier cannot be had", async () => {
+		await start({ tiers: ["flash", "basic"] });
+		const { request, openFile } = await buildRequest({
+			hints: { tier: "standard" },
+		});
+
+		await expect(extractorFor().extract(request)).rejects.toMatchObject({
+			code: "tier_unavailable",
+		});
+
+		expect(openFile).not.toHaveBeenCalled();
+	});
+
+	it("lets a failure to open the file through as it is, with no task created", async () => {
+		// The reader says what is wrong with a photo in the ledger's words
+		// (`document_unreadable` for one libheif refuses); the extractor adds nothing.
+		await start();
+		const failure = new DocumentExtractionError({
+			code: "document_unreadable",
+			message: extractionErrorMessage("document_unreadable", ""),
+			retryable: false,
+			details: { reason: "image preparation failed: not a photo" },
+		});
+		const { request, openFile } = await buildRequest();
+		openFile.mockRejectedValue(failure);
+
+		const error = await extractorFor()
+			.extract(request)
+			.catch((thrown) => thrown);
+
+		expect(error).toBe(failure);
+		// It had asked the server what it can do, and was never given a task.
+		expect(requestsSoFar()).toContain("GET /v1/health");
+		expect(creates()).toHaveLength(0);
+		expect(uploads()).toHaveLength(0);
+	});
+
+	it("stops with the cancel when the file is called off while it opens", async () => {
+		await start();
+		const { request, controller, openFile } = await buildRequest();
+		const reason = new ExtractionAbortError("user-cancel");
+		openFile.mockImplementation(async () => {
+			controller.abort(reason);
+			throw reason;
+		});
+
+		await expect(extractorFor().extract(request)).rejects.toMatchObject({
+			code: "canceled",
+			retryable: false,
+		});
+
+		expect(creates()).toHaveLength(0);
+		expect(cancels()).toHaveLength(0);
 	});
 });
 
@@ -1341,11 +1493,11 @@ describe("mapped failures", () => {
 		// sent a response this app could not use" would send the person looking in
 		// the wrong place.
 		await start();
-		const { request } = await buildRequest();
-		await writeFile(request.filePathAbsolute, "");
+		const { request, file } = await buildRequest();
+		await writeFile(file.filePathAbsolute, "");
 
 		const error = await extractorFor()
-			.extract({ ...request, contentSha256: null })
+			.extract(request)
 			.catch((thrown) => thrown);
 
 		expect(error).toMatchObject({ code: "empty_result", retryable: false });
@@ -2011,7 +2163,7 @@ describe("restart amnesia: a server that forgets every id (S6)", () => {
 			resolveConfig: () => resolved,
 			createClient: () => client,
 			tempDirRoot: tempRoot,
-		}).extract({ ...request, contentSha256: null });
+		}).extract(request);
 
 		expect(result.text.length).toBeGreaterThan(0);
 		expect(creates()).toHaveLength(2);
@@ -2097,14 +2249,19 @@ describe("resuming a stored handle (a worker died; the ledger holds a task id)",
 
 		// The remote task can progress now: queued, working, done.
 		server.setOptions({ neverFinish: false, inProgressPolls: 2 });
+		const resumed = await buildRequest();
 		const result = await extractorFor().extract({
-			...(await buildRequest()).request,
+			...resumed.request,
 			resumeHandle: handle,
 		});
 
 		expect(result.text.length).toBeGreaterThan(0);
 		expect(creates()).toHaveLength(0);
 		expect(uploads()).toHaveLength(0);
+		// The task already holds the bytes and the handle holds their digest: an
+		// attempt that only polls never asks for the file (a photo is not decoded
+		// again to be looked at by nobody).
+		expect(resumed.openFile).not.toHaveBeenCalled();
 		expect(polls().length).toBeGreaterThanOrEqual(3);
 		expect(downloads()).toHaveLength(1);
 		expect(
@@ -2124,14 +2281,16 @@ describe("resuming a stored handle (a worker died; the ledger holds a task id)",
 		server.resetLog();
 
 		// Exactly what the ledger hands a second attempt after a restart.
+		const resumed = await buildRequest();
 		const result = await extractor.extract({
-			...(await buildRequest()).request,
+			...resumed.request,
 			resumeHandle: handle,
 		});
 
 		expect(result.text.length).toBeGreaterThan(0);
 		expect(creates()).toHaveLength(0);
 		expect(uploads()).toHaveLength(0);
+		expect(resumed.openFile).not.toHaveBeenCalled();
 		expect(downloads()).toHaveLength(1);
 	});
 
@@ -2165,12 +2324,15 @@ describe("resuming a stored handle (a worker died; the ledger holds a task id)",
 	it("PUTs again, with the link the task hands out, when the bytes never landed", async () => {
 		const handle = await attemptWhoseBytesNeverLanded();
 
+		const resumed = await buildRequest();
 		const result = await extractorFor().extract({
-			...(await buildRequest()).request,
+			...resumed.request,
 			resumeHandle: handle,
 		});
 
 		expect(result.text.length).toBeGreaterThan(0);
+		// The bytes are needed after all, and this is the first the attempt knows it.
+		expect(resumed.openFile).toHaveBeenCalledTimes(1);
 		// The same task: no second create, one PUT, to its own file.
 		expect(creates()).toHaveLength(0);
 		expect(uploads()).toHaveLength(1);
@@ -2242,14 +2404,148 @@ describe("resuming a stored handle (a worker died; the ledger holds a task id)",
 		server.setOptions({ neverFinish: false });
 		server.resetLog();
 
+		const resumed = await buildRequest();
 		const result = await extractorFor().extract({
-			...(await buildRequest()).request,
+			...resumed.request,
 			resumeHandle: handle,
 		});
 
 		expect(result.text.length).toBeGreaterThan(0);
 		expect(creates()).toHaveLength(1);
 		expect(uploads()).toHaveLength(1);
+		// A task of its own to declare and send: now the bytes are needed.
+		expect(resumed.openFile).toHaveBeenCalledTimes(1);
+	});
+
+	// The handle's digest is the one the live task was declared with, so it is the
+	// one the attempt goes on with: ahead of what the file brings, and without
+	// opening the file to find out (D8). Both name the same bytes for a stored file,
+	// which never changes; a photo's PNG has no ledger digest at all.
+	it("goes on with the digest the live task was declared with, and does not open the file for it", async () => {
+		await start({ neverFinish: true });
+		const { request } = await buildRequest();
+		const handle = await handleOfAnAttemptStoppedAt("parsing", request);
+		server.setOptions({ neverFinish: false });
+		server.resetLog();
+
+		const resumed = await buildRequest({ contentSha256: "b".repeat(64) });
+		await extractorFor().extract({ ...resumed.request, resumeHandle: handle });
+
+		const declared = handle.data?.sha256;
+		expect(declared).toMatch(/^[a-f0-9]{64}$/);
+		const kept = resumed.progress.filter((entry) => entry.handle).at(-1);
+		expect(kept?.handle?.data?.sha256).toBe(declared);
+		expect(kept?.handle?.data?.sha256).not.toBe("b".repeat(64));
+		expect(resumed.openFile).not.toHaveBeenCalled();
+	});
+
+	it("opens the file for the digest when the handle has none to give", async () => {
+		// A handle the 4.0 client wrote is not ours to resume, and its digest is not
+		// ours to trust: the file brings the one the new task is declared with.
+		await start();
+		const { request, file } = await buildRequest();
+		const sha = await new MineruClient({
+			config: config(server.baseUrl),
+		}).sha256(file.filePathAbsolute);
+		const openFile = vi.fn(async () => ({ ...file, contentSha256: sha }));
+
+		await extractorFor().extract({
+			...request,
+			openFile,
+			resumeHandle: {
+				extractor: MINERU4_EXTRACTOR_NAME,
+				version: 1,
+				remoteJobId: "job_00000000000000000000beef",
+				remoteFileId: "file-00000000000000000000beef",
+				data: { sha256: "f".repeat(64) },
+			},
+		});
+
+		expect(openFile).toHaveBeenCalledTimes(1);
+		expect(createBody().files[0].sha256sum).toBe(sha);
+	});
+
+	// A handle's digest is for continuing the live task it names, and for nothing
+	// else. A task created fresh declares the digest of the bytes it is about to
+	// send, which is what a deploy that changed those bytes needs: a photo's PNG is
+	// not the one the previous release made, so the handle that release stored
+	// names bytes this one never sends. If MinerU has forgotten the task as well
+	// (a restart, an expiry), declaring the handle's digest would be refused at the
+	// PUT, once the one recovery of the attempt was spent.
+	describe("a task created again after the server forgot the one a handle names", () => {
+		const PREVIOUS_RELEASES_DIGEST = createHash("sha256")
+			.update("the PNG the previous release made of this photo")
+			.digest("hex");
+
+		/**
+		 * A handle to a task the server no longer has, whose digest is that of other
+		 * bytes than the ones the file holds now.
+		 */
+		async function handleToAForgottenTaskOfOtherBytes(): Promise<ExtractionHandle> {
+			await start({ neverFinish: true });
+			const { request } = await buildRequest();
+			const handle = await handleOfAnAttemptStoppedAt("parsing", request);
+			server.restart();
+			server.setOptions({ neverFinish: false });
+			server.resetLog();
+			return {
+				...handle,
+				data: { ...handle.data, sha256: PREVIOUS_RELEASES_DIGEST },
+			};
+		}
+
+		it("declares the digest of the file it sends, and succeeds in one go", async () => {
+			const handle = await handleToAForgottenTaskOfOtherBytes();
+			const resumed = await buildRequest();
+			const actual = createHash("sha256")
+				.update(await readFile(resumed.file.filePathAbsolute))
+				.digest("hex");
+			expect(actual).not.toBe(PREVIOUS_RELEASES_DIGEST);
+
+			const result = await extractorFor().extract({
+				...resumed.request,
+				resumeHandle: handle,
+			});
+
+			expect(result.text.length).toBeGreaterThan(0);
+			// The poll of the old task found nothing; the one task created after it
+			// was declared right, so its PUT landed and nothing was created twice.
+			expect(createBody().files[0].sha256sum).toBe(actual);
+			expect(creates()).toHaveLength(1);
+			expect(uploads()).toHaveLength(1);
+			// One ask for the file, whichever steps needed it.
+			expect(resumed.openFile).toHaveBeenCalledTimes(1);
+			// The handle the ledger ends up holding names the new task and its digest.
+			const kept = resumed.progress.filter((entry) => entry.handle).at(-1);
+			expect(kept?.handle?.remoteJobId).not.toBe(handle.remoteJobId);
+			expect(kept?.handle?.data?.sha256).toBe(actual);
+		});
+
+		it("takes the ledger's digest of a stored file when it holds one, and hashes nothing", async () => {
+			const handle = await handleToAForgottenTaskOfOtherBytes();
+			const resumed = await buildRequest();
+			const resolved = config(server.baseUrl);
+			const client = new MineruClient({ config: resolved });
+			const ledgers = await client.sha256(resumed.file.filePathAbsolute);
+			const hash = vi.spyOn(client, "sha256");
+
+			const result = await createMineru4Extractor({
+				resolveConfig: () => resolved,
+				createClient: () => client,
+				tempDirRoot: tempRoot,
+			}).extract({
+				...openingAs(resumed.request, resumed.file, {
+					contentSha256: ledgers,
+				}),
+				resumeHandle: handle,
+			});
+
+			expect(result.text.length).toBeGreaterThan(0);
+			expect(hash).not.toHaveBeenCalled();
+			expect(createBody().files[0].sha256sum).toBe(ledgers);
+			expect(creates()).toHaveLength(1);
+			expect(uploads()).toHaveLength(1);
+		});
 	});
 
 	it("reports a task that failed while nobody was watching, and spends it", async () => {

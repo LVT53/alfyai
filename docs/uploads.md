@@ -85,15 +85,30 @@ What goes in the manifest, and what never does:
   told as `document.png` and at an explicit tier like any other image (`intake.readAs` in the
   registry says so, and `extraction/reader-input.ts` does it). The extractor hashes the PNG itself,
   since the digest on the artifact is the photo's. The stored photo is never touched: previews and
-  vision read it. A photo that cannot be decoded fails at once as `document_unreadable`, with no
-  request to MinerU. The decode runs in the app's own process, on the server's main thread, and
-  again on every retry and resume: measured at 1.2 to 1.8 s for a 12 MP photo and about 6 s with a
-  memory peak of 1.6 GB for a 48 MP one, so a backfill of many photos costs the app that as well as
-  MinerU's time (a worker-thread decode is the follow-up). The PNG is a file named
-  `alfyai-reader-input-<attempt id>.png` in the temp directory, written for its owner alone and
-  removed when the attempt ends; a process that is killed in the middle of one leaves it there, and
-  `mineru/temp-sweep.ts` removes it once it is six hours old, like the other temporary files of a
-  MinerU attempt.
+  vision read it. The photo is decoded when the extractor first needs its bytes: after it has asked
+  MinerU what it can do and settled the tier, and before it creates the task. An attempt that never
+  gets that far (MinerU cannot be reached, the tier is not offered) or that only polls a task it
+  resumed decodes nothing. A photo that cannot be decoded fails as `document_unreadable`, once
+  MinerU has been asked what it can do and before any task is created. The decode runs in a worker
+  thread (`vision/heif-decode.ts`: libheif's WebAssembly through `heic-decode`), not on the
+  server's main thread, so the server keeps answering while a photo decodes. Each photo gets a
+  fresh worker, at most two run at once for the whole process, each is stopped after 60 s (the job
+  then fails as `job_failed`, which spends an attempt, so a slow box gets another try; so does a
+  decode whose thread the system would not make, since that is the box's fault and not the photo's),
+  and a worker's memory goes back to the system when it ends. The decode repeats for every attempt that
+  needs the bytes (a retry, a resume that has to send them again). Measured on
+  the box with the main-thread decode this replaced: 1.2 to 1.8 s for a 12 MP photo (half of it a
+  JPEG step that is gone) and about 6 s with a memory peak of 1.6 GB for a 48 MP one. The libheif
+  part of that is now a worker's time and memory, so a backfill of many photos costs the app a
+  worker's time and heap for each photo, two at a time, as well as MinerU's time. A photo of more
+  than 100 megapixels (`HEIF_MAX_PIXELS`, read from the file's `ispe` boxes before any worker
+  starts) is refused, not decoded: the job fails as `image_too_large`, with a sentence that names
+  the limit and no retry. A transparent photo is flattened onto white for the reader
+  (`decodeImageToPng`'s `background` option; it used to read as a black page). The PNG is a file
+  named `alfyai-reader-input-<attempt id>.png` in the temp directory, written for its owner alone
+  and removed when the attempt ends; a process that is killed in the middle of one leaves it
+  there, and `mineru/temp-sweep.ts` removes it once it is six hours old, like the other temporary
+  files of a MinerU attempt.
 - **Never sent**, because each is a 400 on 4.1: `include_model_output`, `ocr_mode: null`,
   `page_range: null`, `client_file_id`, `file_id`, and any `output_formats` other than `["default"]`.
   `MINERU_OCR_MODE=auto` therefore means the key is left out.

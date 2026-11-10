@@ -8,11 +8,16 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Worker } from "node:worker_threads";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import { createWorkerId, parseWorkerId } from "../jobs/worker-identity";
-import { type DocumentExtractor, extractionErrorMessage } from "./contracts";
+import {
+	type DocumentExtractor,
+	type ExtractionFile,
+	extractionErrorMessage,
+} from "./contracts";
 import {
 	createFakeExtractor,
 	type FakeExtractorStep,
@@ -43,7 +48,43 @@ let fixture: LedgerFixture;
 let storageDir: string;
 const userId = "user-1";
 
+// Every worker thread the decode pool starts, so a test can wait for one to be
+// stopped, and see whether it ever answered (a thread called off mid-decode never
+// does). The pool is the process's, so a thread an earlier test left is still
+// counted until it has exited.
+type Recorded = Worker & {
+	readonly exited: Promise<number>;
+	readonly answered: boolean;
+};
+const spawned = vi.hoisted(() => ({
+	workers: [] as unknown[],
+	/** Called in the very tick a thread is made, for a test that must act while it starts. */
+	onStart: null as null | ((worker: unknown) => void),
+}));
+const startedWorkers = () => spawned.workers as Recorded[];
+
+vi.mock("node:worker_threads", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:worker_threads")>();
+	class RecordingWorker extends actual.Worker {
+		readonly exited: Promise<number>;
+		answered = false;
+		constructor(...args: ConstructorParameters<typeof actual.Worker>) {
+			super(...args);
+			this.exited = new Promise((resolve) => this.once("exit", resolve));
+			this.once("message", () => {
+				this.answered = true;
+			});
+			spawned.workers.push(this);
+			spawned.onStart?.(this);
+		}
+	}
+	return { ...actual, Worker: RecordingWorker };
+});
+
 beforeEach(async () => {
+	await Promise.all(startedWorkers().map((worker) => worker.exited));
+	spawned.workers.length = 0;
+	spawned.onStart = null;
 	resetSeams();
 	fixture = createLedgerFixture("extraction-runner");
 	fixture.seedUser(userId);
@@ -300,25 +341,46 @@ describe("the extraction handler", () => {
 		expect(readJob(job.id).status).toBe("succeeded");
 	});
 
-	it("hands the extractor the artifact's hash, id and owner", async () => {
+	it("hands the extractor the artifact's id and owner, and the file with the artifact's hash", async () => {
 		// Δ1/Δ2: the ledger already holds the verified digest, so a backend must
 		// never have to re-stream 200 MB to recompute it.
 		const { drain, extractionJob } = await engine();
 		const artifactId = await seedStoredDocument();
 		await enqueueJob(artifactId);
-		const extractor = useExtractor(
-			createFakeExtractor({ steps: [{ kind: "succeed" }] }),
-		);
+		const opened: ExtractionFile[] = [];
+		const base = createFakeExtractor({ steps: [{ kind: "succeed" }] });
+		const extractor = useExtractor({
+			...base,
+			async extract(request) {
+				opened.push(await request.openFile());
+				return base.extract(request);
+			},
+		});
 		fakePersist();
 
 		await drain(extractionJob);
 
-		expect(extractor.calls[0].request).toMatchObject({
-			contentSha256: "a".repeat(64),
+		const { request } = base.calls[0];
+		expect(request).toMatchObject({
 			sourceArtifactId: artifactId,
 			userId,
 			intakeRoute: "mineru",
+			fileName: "report.pdf",
+			mimeType: "application/pdf",
 		});
+		// The file is asked for, not handed over: a path, its size and its digest
+		// come out of `openFile`, which for a stored file looks at nothing.
+		expect(request).not.toHaveProperty("filePathAbsolute");
+		expect(request).not.toHaveProperty("sizeBytes");
+		expect(request).not.toHaveProperty("contentSha256");
+		expect(opened).toEqual([
+			{
+				filePathAbsolute: join(storageDir, "report.pdf"),
+				sizeBytes: 12,
+				contentSha256: "a".repeat(64),
+			},
+		]);
+		expect(extractor.name).toBe("fake");
 	});
 
 	it("strips what the ledger once reserved from the hints an extractor sees", async () => {
@@ -798,33 +860,47 @@ describe("the extraction handler", () => {
 });
 
 // MinerU never accepts .heic/.heif, so the document reader is handed a PNG of
-// the photo for one attempt (`intake.readAs` in the registry). The stored
-// original is untouched: previews and vision read it.
+// the photo for one attempt (`intake.readAs` in the registry). The PNG is made
+// when the extractor asks for the file, and not before: an attempt that never
+// gets as far as needing the bytes decodes nothing. The stored original is
+// untouched: previews and vision read it.
 describe("a HEIC photo, which the document reader is handed as a PNG", () => {
 	const here = dirname(fileURLToPath(import.meta.url));
 	const tinyHeic = readFileSync(
 		join(here, "..", "vision", "__fixtures__", "tiny.heic"),
 	);
+	// 4032x3024, a decode that takes about 300 ms: long enough to be called off.
+	const photoGrid = readFileSync(
+		join(here, "..", "vision", "__fixtures__", "photo-grid.heic"),
+	);
 	const PNG_SIGNATURE = Buffer.from([
 		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 	]);
 
+	/** Where the reader puts the PNG of an attempt: the host's temp directory, one file per attempt. */
+	const readerFileOf = (attemptId: string) =>
+		join(tmpdir(), `alfyai-reader-input-${attemptId}.png`);
+
 	/**
-	 * An extractor that keeps what it was handed, and the bytes at that path while
-	 * it ran (the file is gone once the attempt is over).
+	 * An extractor that asks for the file as soon as it runs, as the direct-text one
+	 * does, and keeps what it was handed, what `openFile` gave, and the bytes at that
+	 * path while it ran (the file is gone once the attempt is over).
 	 */
-	function recordingExtractor(step: FakeExtractorStep) {
+	function openingExtractor(step: FakeExtractorStep) {
 		const base = createFakeExtractor({ steps: [step] });
 		const handed: Array<{
 			request: Parameters<DocumentExtractor["extract"]>[0];
+			file: ExtractionFile;
 			bytes: Buffer;
 		}> = [];
 		useExtractor({
 			...base,
 			async extract(request) {
+				const file = await request.openFile();
 				handed.push({
 					request,
-					bytes: await readFile(request.filePathAbsolute),
+					file,
+					bytes: await readFile(file.filePathAbsolute),
 				});
 				return base.extract(request);
 			},
@@ -832,37 +908,120 @@ describe("a HEIC photo, which the document reader is handed as a PNG", () => {
 		return handed;
 	}
 
-	it("hands the extractor a PNG of the photo and not the stored HEIC", async () => {
+	/**
+	 * An extractor that asks for the file, keeps hold of it, and goes on working
+	 * until it is stopped. `holding` settles when it has the file in hand and has
+	 * reported its progress, the checkpoint included (the fake reports it, and the
+	 * ledger writes it, before `extract` returns its promise): a test waits for
+	 * that and not for a clock, since what comes first is a worker thread's start,
+	 * libheif's load and a decode, which take as long as the machine takes.
+	 */
+	function holdingExtractor() {
+		const base = createFakeExtractor({
+			steps: [{ kind: "hang" }],
+			emitHandleAfterPhase: "uploading",
+		});
+		const held: string[] = [];
+		let holdsTheFile: () => void = () => undefined;
+		const holding = new Promise<void>((resolve) => {
+			holdsTheFile = resolve;
+		});
+		useExtractor({
+			...base,
+			async extract(request) {
+				held.push((await request.openFile()).filePathAbsolute);
+				const hanging = base.extract(request);
+				holdsTheFile();
+				return hanging;
+			},
+		});
+		return { held, holding };
+	}
+
+	it("hands the extractor the PNG's name and type, and a way to ask for the PNG", async () => {
 		const { drain, extractionJob } = await engine();
 		const artifactId = await seedStoredDocument("IMG_0042.HEIC", tinyHeic);
 		await enqueueJob(artifactId, "IMG_0042.HEIC", { mimeType: "image/heic" });
-		const handed = recordingExtractor({ kind: "succeed" });
+		const handed = openingExtractor({ kind: "succeed" });
 		const { calls } = fakePersist();
 
 		await drain(extractionJob);
 
 		expect(handed).toHaveLength(1);
-		const { request, bytes } = handed[0];
+		const { request, file, bytes } = handed[0];
 		expect(bytes.subarray(0, 8)).toEqual(PNG_SIGNATURE);
 		expect(request).toMatchObject({
 			fileName: "IMG_0042.png",
 			mimeType: "image/png",
-			sizeBytes: bytes.length,
-			contentSha256: null,
 			// Nothing else about the request changes.
 			intakeRoute: "mineru",
 			sourceArtifactId: artifactId,
 			userId,
 		});
-		expect(request.filePathAbsolute).not.toBe(
-			join(storageDir, "IMG_0042.HEIC"),
-		);
+		expect(file).toEqual({
+			filePathAbsolute: expect.not.stringContaining("IMG_0042.HEIC"),
+			sizeBytes: bytes.length,
+			// The digest on the ledger is of the HEIC; the reader hashes the PNG itself.
+			contentSha256: null,
+		});
 		// The text is attached to the stored original, under its own name.
 		expect(calls[0]).toMatchObject({
 			sourceArtifactId: artifactId,
 			sourceName: "IMG_0042.HEIC",
 		});
 		expect(await readFile(join(storageDir, "IMG_0042.HEIC"))).toEqual(tinyHeic);
+	});
+
+	it("decodes nothing for an extractor that never asks for the file", async () => {
+		// An attempt that waits out an outage, or one that only polls a task it
+		// resumed, gets no further than this.
+		const { drain, extractionJob } = await engine();
+		const prepareImage = await import(
+			"$lib/server/services/vision/prepare-image"
+		);
+		const decode = vi.spyOn(prepareImage, "decodeImageToPng");
+		const artifactId = await seedStoredDocument("IMG_0042.HEIC", tinyHeic);
+		const job = await enqueueJob(artifactId, "IMG_0042.HEIC", {
+			mimeType: "image/heic",
+		});
+		const extractor = useExtractor(
+			createFakeExtractor({ steps: [{ kind: "succeed" }] }),
+		);
+		fakePersist();
+
+		await drain(extractionJob);
+
+		expect(extractor.calls).toHaveLength(1);
+		expect(readJob(job.id).status).toBe("succeeded");
+		expect(decode).not.toHaveBeenCalled();
+		expect(startedWorkers()).toHaveLength(0);
+		const [attempt] = readAttempts(job.id);
+		expect(existsSync(readerFileOf(attempt.id))).toBe(false);
+	});
+
+	it("makes the PNG when it is asked for, and not a moment before", async () => {
+		const { drain, extractionJob } = await engine();
+		const artifactId = await seedStoredDocument("IMG_0042.HEIC", tinyHeic);
+		const job = await enqueueJob(artifactId, "IMG_0042.HEIC", {
+			mimeType: "image/heic",
+		});
+		const base = createFakeExtractor({ steps: [{ kind: "succeed" }] });
+		const seen: boolean[] = [];
+		useExtractor({
+			...base,
+			async extract(request) {
+				const [attempt] = readAttempts(job.id);
+				seen.push(existsSync(readerFileOf(attempt.id)));
+				await request.openFile();
+				seen.push(existsSync(readerFileOf(attempt.id)));
+				return base.extract(request);
+			},
+		});
+		fakePersist();
+
+		await drain(extractionJob);
+
+		expect(seen).toEqual([false, true]);
 	});
 
 	it.each<[string, FakeExtractorStep, string]>([
@@ -878,31 +1037,100 @@ describe("a HEIC photo, which the document reader is handed as a PNG", () => {
 		const job = await enqueueJob(artifactId, "IMG_0042.HEIC", {
 			mimeType: "image/heic",
 		});
-		const handed = recordingExtractor(step);
+		const handed = openingExtractor(step);
 		fakePersist();
 
 		await drain(extractionJob);
 
 		expect(readJob(job.id).status).toBe(status);
 		expect(handed).toHaveLength(1);
-		expect(existsSync(handed[0].request.filePathAbsolute)).toBe(false);
+		expect(existsSync(handed[0].file.filePathAbsolute)).toBe(false);
 		expect(existsSync(join(storageDir, "IMG_0042.HEIC"))).toBe(true);
 	});
 
-	it("fails a photo it cannot decode as an unreadable document, and never calls the extractor", async () => {
+	// B4. The extractor holds the opened PNG when the job is cancelled, and when the
+	// attempt is taken away from it: either way the handler stops, and the file the
+	// attempt made goes with it.
+	it.each([
+		["a cancel", "cancelled", "cancelled"],
+		["a lost lease", "stale_worker", "queued"],
+	] as const)("removes the PNG an extractor is holding when it is stopped by %s", async (_how, _code, status) => {
+		const { drain, extractionJob, cancel, recover } = await engine();
+		const artifactId = await seedStoredDocument("IMG_0042.HEIC", tinyHeic);
+		const job = await enqueueJob(artifactId, "IMG_0042.HEIC", {
+			mimeType: "image/heic",
+		});
+		const { held, holding } = holdingExtractor();
+
+		const running = drain(extractionJob);
+		// An attempt that ends without holding the file fails the assertions below,
+		// and not with a wait that never ends.
+		await Promise.race([holding, running]);
+		expect(readJob(job.id).checkpoint).not.toBeNull();
+		// One file per attempt, in the host's temp directory, named for the attempt,
+		// and on the disk for as long as the extractor holds it.
+		const [attempt] = readAttempts(job.id);
+		expect(held).toEqual([readerFileOf(attempt.id)]);
+		expect(existsSync(held[0])).toBe(true);
+
+		if (status === "cancelled") {
+			await cancel(extractionJob, job.id, { userId });
+		} else {
+			// Another worker takes the claim out from under this one.
+			await recover(extractionJob, {
+				staleBefore: new Date(Date.now() + 60_000),
+			});
+		}
+		await running;
+
+		expect(existsSync(held[0])).toBe(false);
+		expect(readJob(job.id).status).toBe(status);
+		expect(existsSync(join(storageDir, "IMG_0042.HEIC"))).toBe(true);
+	});
+
+	// B5. A cancel that lands while the photo is being decoded calls the decode
+	// off: its thread is stopped before it can answer, so no PNG is ever made.
+	it("stops a decode that is running when the job is cancelled", async () => {
+		const { drain, extractionJob, cancel } = await engine();
+		const artifactId = await seedStoredDocument("IMG_BIG.HEIC", photoGrid);
+		const job = await enqueueJob(artifactId, "IMG_BIG.HEIC", {
+			mimeType: "image/heic",
+		});
+		openingExtractor({ kind: "succeed" });
+		fakePersist();
+
+		// The cancel lands the moment the decode has a thread: well before the
+		// photo's 300 ms of work can be done, however busy the machine is.
+		const started = new Promise<Recorded>((resolve) => {
+			spawned.onStart = (worker) => resolve(worker as Recorded);
+		});
+		const running = drain(extractionJob);
+		const worker = await started;
+		await cancel(extractionJob, job.id, { userId });
+		await running;
+
+		// The thread is stopped, not left to finish a photo nobody wants: it ended
+		// without having said a word, so there was never a PNG to write.
+		await worker.exited;
+		expect(worker.answered).toBe(false);
+		expect(readJob(job.id).status).toBe("cancelled");
+		const [attempt] = readAttempts(job.id);
+		expect(existsSync(readerFileOf(attempt.id))).toBe(false);
+	});
+
+	it("fails a photo it cannot decode as an unreadable document, once the extractor asks for it", async () => {
 		const { drain, extractionJob } = await engine();
 		const artifactId = await seedStoredDocument("broken.heic", "not a photo");
 		const job = await enqueueJob(artifactId, "broken.heic", {
 			mimeType: "image/heic",
 		});
-		const extractor = useExtractor(
-			createFakeExtractor({ steps: [{ kind: "succeed" }] }),
-		);
+		const handed = openingExtractor({ kind: "succeed" });
 		fakePersist();
 
 		await drain(extractionJob);
 
-		expect(extractor.calls).toHaveLength(0);
+		// The extractor asked, and the refusal reached the ledger as it is.
+		expect(handed).toHaveLength(0);
 		expect(readJob(job.id)).toMatchObject({
 			status: "failed",
 			errorCode: "document_unreadable",

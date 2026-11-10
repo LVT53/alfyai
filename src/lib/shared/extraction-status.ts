@@ -53,6 +53,11 @@ export const EXTRACTION_ERROR_CODES = [
 	"auth_failed",
 	"backend_misconfigured",
 	"too_large",
+	// A photo with more pixels than the app's decoder takes: a fact about the
+	// photo, found before anything is decoded, and apart from `too_large` because
+	// the person's cure is a different one (a smaller copy of the picture, not a
+	// smaller file) and so is the sentence.
+	"image_too_large",
 	"rate_limited",
 	"job_failed",
 	"canceled",
@@ -104,8 +109,8 @@ export interface ExtractionErrorPolicy {
  * `backend_misconfigured`, and `unavailable` once its outage window is spent)
  * are NOT auto-retried but ARE user-retryable. Document-level permanent
  * failures (`unsupported_type`, `document_unreadable`, `too_large`,
- * `empty_result`) are neither: nothing anyone can do from the outside makes the
- * same bytes readable.
+ * `image_too_large`, `empty_result`) are neither: nothing anyone can do from the
+ * outside makes the same bytes readable.
  */
 export const EXTRACTION_ERROR_POLICIES: Readonly<
 	Record<ExtractionErrorCode, ExtractionErrorPolicy>
@@ -138,6 +143,7 @@ export const EXTRACTION_ERROR_POLICIES: Readonly<
 	// repaired file has a different hash and therefore becomes a new document.
 	document_unreadable: { autoRetry: "none", userRetryable: false },
 	too_large: { autoRetry: "none", userRetryable: false },
+	image_too_large: { autoRetry: "none", userRetryable: false },
 	empty_result: { autoRetry: "none", userRetryable: false },
 	internal: { autoRetry: "none", userRetryable: false },
 

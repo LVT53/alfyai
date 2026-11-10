@@ -18,10 +18,10 @@ import type { PreparedImage } from "./prepare-image";
 export const MAX_TURN_IMAGES = 8;
 
 /**
- * Pictures prepared at once. A HEIC photo decodes on the calling thread (about
- * a second for 12 MP), so eight at once would hold the server's one thread for
- * about eight seconds in a row; two at a time leave it free for other requests
- * between them and still overlap one picture's file read with another's work.
+ * Pictures prepared at once. A HEIC photo decodes in a worker thread, and the
+ * whole process decodes two at a time (heif-decode.ts), so more lanes than that
+ * would only queue behind each other and behind other people's photos; two at a
+ * time still overlap one picture's file read with another's work.
  */
 const PREPARE_CONCURRENCY = 2;
 

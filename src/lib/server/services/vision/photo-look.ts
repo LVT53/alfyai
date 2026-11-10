@@ -35,9 +35,10 @@ export const PIXELS_LOOK_DEADLINE_MS = 8_000;
 export const DESCRIBE_LOOK_DEADLINE_MS = 12_000;
 
 /**
- * Thumbnails fetched and prepared at once. A HEIC original would decode on the
- * calling thread, and a describing call is a model call on the person's own
- * box; two at a time keep both polite and still overlap one with another.
+ * Thumbnails fetched and prepared at once. A HEIC original would decode in a
+ * worker thread (two at a time for the whole process, heif-decode.ts), and a
+ * describing call is a model call on the person's own box; two at a time keep
+ * both polite and still overlap one with another.
  */
 const LOOK_CONCURRENCY = 2;
 
