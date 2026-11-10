@@ -48,9 +48,42 @@ describe("module hygiene", () => {
 	// The same zero-value-import guard the other shared leaves carry
 	// (extraction-status.ts, ask-user.ts): the chat components and the artifacts
 	// service both import this file, and anything it imported would travel to both.
-	it("has no imports", () => {
+	it("has no runtime imports", () => {
 		const here = path.dirname(fileURLToPath(import.meta.url));
 		const source = readFileSync(path.join(here, "reply-text.ts"), "utf8");
-		expect(source.match(/^import\s/gm)).toBeNull();
+		expect(source.match(/^import(?! type\s)\s/gm)).toBeNull();
+	});
+});
+
+describe("status-aware outward replies", () => {
+	const row = (
+		outcome: "answered" | "incomplete" | "stopped" | "failed",
+		content: string,
+	) => ({ content, normalChatOutputView: { completion: { outcome } } });
+	it.each([
+		"incomplete",
+		"stopped",
+		"failed",
+	] as const)("labels %s canonical answer without changing its bytes", (outcome) => {
+		const content = "  The checked result is 42\n";
+		expect(joinReplyText([row(outcome, content)])).toBe(
+			`_Incomplete answer._\n\n${content}`,
+		);
+	});
+	it("keeps completed canonical bytes, legacy compatibility and empty activity separate", () => {
+		expect(joinReplyText([row("answered", "  Exact\n")])).toBe("  Exact\n");
+		expect(joinReplyText([{ content: "  Legacy words.\n" }])).toBe(
+			"Legacy words.",
+		);
+		expect(joinReplyText([row("failed", "")])).toBe("");
+	});
+	it("joins earlier committed answers once and labels the incomplete segment only", () => {
+		expect(
+			joinReplyText([
+				row("answered", "Earlier"),
+				row("failed", ""),
+				row("incomplete", "Partial"),
+			]),
+		).toBe("Earlier\n\n_Incomplete answer._\n\nPartial");
 	});
 });

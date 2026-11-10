@@ -1296,6 +1296,53 @@ describe("messages metadata", () => {
 			});
 		});
 
+		it("keeps incomplete status with finalized canonical content for Open as document", async () => {
+			mockRows.push({
+				id: "partial",
+				conversationId: "conv-1",
+				role: "assistant",
+				content: "  Canonical partial\n",
+				thinking: "PRIVATE",
+				toolCalls: null,
+				createdAt: new Date(0),
+				metadataJson: JSON.stringify({
+					normalChatOutput: {
+						version: 1,
+						events: [
+							{
+								version: 1,
+								turnId: "t",
+								segmentId: "s",
+								attemptId: "a",
+								stepId: "c",
+								phase: "closing",
+								sequence: 0,
+								type: "completion",
+								completion: {
+									version: 1,
+									turnId: "t",
+									segmentId: "s",
+									phase: "closing",
+									outcome: "incomplete",
+									stopCause: "length",
+									workingStopCause: "tool_budget",
+									closingAttempted: true,
+								},
+							},
+						],
+					},
+				}),
+			});
+			const { getReplyForDocumentKeep } = await import("./messages");
+			const result = await getReplyForDocumentKeep({
+				conversationId: "conv-1",
+				messageId: "partial",
+			});
+			expect(result?.content).toBe(
+				"_Incomplete answer._\n\n  Canonical partial\n",
+			);
+		});
+
 		it("reads a previously kept document's id back", async () => {
 			mockRows.push({
 				id: "assistant-1",

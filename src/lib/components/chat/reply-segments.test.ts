@@ -697,3 +697,41 @@ describe("the helpers a page uses to read a reply in segments", () => {
 		expect(continuesRowAbove(messages, -1)).toBe(false);
 	});
 });
+
+it("carries earlier canonical segments once and incomplete status to the chain Copy", () => {
+	const completion = {
+		version: 1,
+		turnId: "t",
+		segmentId: "s",
+		phase: "closing",
+		outcome: "incomplete",
+		stopCause: "length",
+		workingStopCause: "tool_budget",
+		closingAttempted: true,
+	} as const;
+	const messages = [
+		row("first", "assistant", "Earlier"),
+		row("last", "assistant", "  Partial\n", {
+			continuesMessageId: "first",
+			normalChatOutput: {
+				version: 1,
+				events: [
+					{
+						version: 1,
+						turnId: "t",
+						segmentId: "s",
+						attemptId: "a",
+						stepId: "c",
+						phase: "closing",
+						sequence: 0,
+						type: "completion",
+						completion,
+					},
+				],
+			},
+		}),
+	];
+	expect(placeReplySegments(messages, [], null).get("last")?.copyText).toBe(
+		"Earlier\n\n_Incomplete answer._\n\n  Partial\n",
+	);
+});

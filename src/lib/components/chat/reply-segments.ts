@@ -244,8 +244,7 @@ export function placeReplySegments(
 	let reply: ChatMessage[] = [];
 	const closeReply = () => {
 		const last = reply.length - 1;
-		const copyText =
-			reply.length > 1 ? joinReplyText(reply.map((row) => row.content)) : null;
+		const copyText = reply.length > 1 ? joinReplyText(reply) : null;
 		const userIntent = reply.length > 1 ? (reply[0].userIntent ?? null) : null;
 		const sources = reply.length > 1 ? mergeReplyEvidence(reply) : null;
 		for (const [position, row] of reply.entries()) {

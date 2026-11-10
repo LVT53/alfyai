@@ -5,6 +5,7 @@
 // turn actually did that survives a page reload.
 import { buildContentDisposition } from "$lib/server/services/file-serving-response-policy";
 import type { ChatMessage } from "$lib/server/services/messages-types";
+import { joinReplyText } from "$lib/shared/reply-text";
 
 function formatTimestamp(timestamp: number): string {
 	return new Date(timestamp).toISOString();
@@ -33,16 +34,10 @@ function renderMessage(message: ChatMessage): string[] {
 		lines.push(...toolCallSummaries, "");
 	}
 
-	const terminal = message.normalChatOutput?.events.findLast(
-		(event) => event.type === "completion",
+	lines.push(
+		joinReplyText([message], { legacy: "markdown" }) || "_(no content)_",
+		"",
 	);
-	if (
-		message.content?.trim() &&
-		terminal?.type === "completion" &&
-		["stopped", "incomplete", "failed"].includes(terminal.completion.outcome)
-	)
-		lines.push("_Incomplete answer._", "");
-	lines.push(message.content?.trim() || "_(no content)_", "");
 	return lines;
 }
 
@@ -54,7 +49,7 @@ export function renderConversationMarkdown(
 	for (const message of messages) {
 		lines.push(...renderMessage(message));
 	}
-	return `${lines.join("\n").trimEnd()}\n`;
+	return lines.join("\n");
 }
 
 /**

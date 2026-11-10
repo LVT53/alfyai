@@ -1269,7 +1269,12 @@ export async function getReplyForDocumentKeep(params: {
 	const segments = (await walkReplySegments(readRow, pressed.id)) ?? [pressed];
 	const metadata = parseMetadata(pressed.metadataJson);
 	return {
-		content: joinReplyText(segments.map((segment) => segment.content)),
+		content: joinReplyText(
+			segments.map((segment) => ({
+				content: segment.content,
+				normalChatOutput: parseMetadata(segment.metadataJson)?.normalChatOutput,
+			})),
+		),
 		documentArtifactId:
 			typeof metadata?.documentArtifactId === "string"
 				? metadata.documentArtifactId

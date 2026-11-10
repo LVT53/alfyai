@@ -350,9 +350,7 @@ let continuedBelow = $derived(replyPlace?.continuedBelow ?? false);
 // The words of the reply this row ends: every segment's, joined, on the last row of a
 // reply in segments (`copyText`), else the row's own. What Copy takes and what "Open
 // as document" keeps, so the button is offered exactly when there is something to keep.
-let replyText = $derived(
-	replyPlace?.copyText ?? getClipboardText(message.content),
-);
+let replyText = $derived(replyPlace?.copyText ?? getClipboardText(message));
 let hasAttachments = $derived((message.attachments?.length ?? 0) > 0);
 // The card pictures a user message carried, in their numbers, and the number
 // each uploaded photo went by (plan 2b T5). Both come with the message from its

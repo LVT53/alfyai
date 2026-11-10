@@ -187,7 +187,9 @@ describe("MessageBubble", () => {
 		);
 		expect(container.querySelector("img[src=x]")).toBeNull();
 		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
-		expect(writeText).toHaveBeenCalledWith("## Result [fixed]");
+		expect(writeText).toHaveBeenCalledWith(
+			"_Incomplete answer._\n\n## Result [fixed]",
+		);
 	});
 
 	it("hides working Skill Control syntax while Copy keeps only the canonical answer", async () => {
@@ -233,6 +235,68 @@ describe("MessageBubble", () => {
 			.toBe("Ordinary commentary");
 		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
 		expect(writeText).toHaveBeenCalledWith("Canonical answer");
+	});
+
+	it.each([
+		"live",
+		"reload",
+		"completed",
+	] as const)("Copy preserves canonical closing status: %s", async (mode) => {
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: { writeText },
+		});
+		const completion = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			phase: "closing",
+			outcome: mode === "completed" ? "answered" : "incomplete",
+			stopCause: "length",
+			workingStopCause: "tool_budget",
+			closingAttempted: true,
+		} as const;
+		const message: NormalChatOutputMessage = {
+			id: "closing-copy",
+			role: "assistant",
+			timestamp: 1,
+			content: "  Partial [fixed]\n",
+			...(mode === "reload"
+				? {
+						normalChatOutput: {
+							version: 1,
+							events: [
+								{
+									version: 1,
+									turnId: "t",
+									segmentId: "s",
+									attemptId: "a",
+									stepId: "c",
+									phase: "closing",
+									sequence: 0,
+									type: "completion",
+									completion,
+								},
+							],
+						},
+					}
+				: {
+						normalChatOutputView: {
+							answer: "RAW",
+							activity: [],
+							blocks: [],
+							completion,
+						},
+					}),
+		};
+		render(MessageBubble, { message });
+		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+		expect(writeText).toHaveBeenCalledWith(
+			mode === "completed"
+				? message.content
+				: `_Incomplete answer._\n\n${message.content}`,
+		);
 	});
 
 	it("keeps activity live while an explicit closing answer streams", () => {
