@@ -124,38 +124,85 @@ async function pointTheUserAtFakeModel(page: Page, baseUrl: string) {
 				}),
 			});
 			const { provider } = (await providerResponse.json()) as {
-				provider: { id: string };
+				provider?: { id: string };
 			};
-			const modelResponse = await fetch(
-				`/api/admin/providers/${provider.id}/models/batch`,
-				{
-					method: "POST",
+			if (!providerResponse.ok || !provider?.id) {
+				throw new Error(`provider creation ${providerResponse.status}`);
+			}
+			try {
+				const modelResponse = await fetch(
+					`/api/admin/providers/${provider.id}/models/batch`,
+					{
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							models: [
+								{
+									name: modelName,
+									displayName: "Fake Edit Model",
+									contextLength: 131_072,
+									supportsChat: true,
+									supportsTools: true,
+								},
+							],
+						}),
+					},
+				);
+				const { models } = (await modelResponse.json()) as {
+					models?: Array<{ id: string }>;
+				};
+				const modelId = models?.[0]?.id;
+				if (!modelResponse.ok || !modelId) {
+					throw new Error(`model creation ${modelResponse.status}`);
+				}
+				// Batch import sets context; the model PUT schema owns the output cap.
+				const configured = await fetch(
+					`/api/admin/providers/${provider.id}/models/${modelId}`,
+					{
+						method: "PUT",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							maxModelContext: 131_072,
+							maxTokens: 4_096,
+						}),
+					},
+				);
+				const configuredBody = (await configured.json()) as {
+					model?: { maxModelContext?: number; maxTokens?: number };
+				};
+				if (
+					!configured.ok ||
+					configuredBody.model?.maxModelContext !== 131_072 ||
+					configuredBody.model?.maxTokens !== 4_096
+				) {
+					throw new Error(
+						`Fake edit model capacity configuration failed (${configured.status})`,
+					);
+				}
+				const preference = await fetch("/api/settings/preferences", {
+					method: "PATCH",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
-						models: [
-							{
-								name: modelName,
-								displayName: "Fake Edit Model",
-								contextLength: 8192,
-								supportsChat: true,
-								supportsTools: true,
-							},
-						],
+						preferredModel: `provider:${provider.id}:${modelId}`,
 					}),
-				},
-			);
-			const { models } = (await modelResponse.json()) as {
-				models: Array<{ id: string }>;
-			};
-			const preference = await fetch("/api/settings/preferences", {
-				method: "PATCH",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					preferredModel: `provider:${provider.id}:${models[0].id}`,
-				}),
-			});
-			if (!preference.ok) throw new Error(`model ${preference.status}`);
-			return provider.id;
+				});
+				if (!preference.ok) throw new Error(`model ${preference.status}`);
+				return provider.id;
+			} catch (error) {
+				try {
+					const cleanup = await fetch(`/api/admin/providers/${provider.id}`, {
+						method: "DELETE",
+					});
+					if (!cleanup.ok)
+						throw new Error(`provider cleanup ${cleanup.status}`);
+				} catch (cleanupError) {
+					throw new AggregateError(
+						[error, cleanupError],
+						"Fake edit model setup and provider cleanup failed",
+					);
+				}
+				throw error;
+			}
 		},
 		{ apiKey: AI_SMOKE_API_KEY, base: baseUrl, modelName: AI_SMOKE_MODEL_ID },
 	);
