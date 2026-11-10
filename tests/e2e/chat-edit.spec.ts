@@ -552,22 +552,76 @@ test.describe("Editing a message in the composer", () => {
 	}) => {
 		await page.setViewportSize({ width: 1280, height: 720 });
 		const { conversationId, userIds } = await seedTurns(page, 10);
-		await open(page, conversationId);
-		await pressPencil(page, userIds[8]);
-		await page.getByTestId("message-input").fill("Question 9, asked again");
-
-		await page.evaluate(() => {
-			const scroller = document.querySelector<HTMLElement>(".scroll-container");
-			if (scroller) scroller.scrollTop = 0;
+		const provider = createOpenAICompatibleProviderHarness();
+		let providerId: string | null = null;
+		let releaseResponse = () => {};
+		const responseGate = new Promise<void>((resolve) => {
+			releaseResponse = resolve;
 		});
-		await expect(
-			page.locator(`[data-message-id="${userIds[0]}"]`),
-		).toBeInViewport();
-		await page.getByTestId("send-button").click();
-
-		await expect(page.getByText("Question 9, asked again")).toBeInViewport({
-			timeout: 10_000,
+		let noteRequestStarted = () => {};
+		const requestStarted = new Promise<void>((resolve) => {
+			noteRequestStarted = resolve;
 		});
+		let inFlight: Promise<void> | undefined;
+		const streamUrl = "**/api/chat/stream";
+		try {
+			await provider.start();
+			providerId = await pointTheUserAtFakeModel(page, provider.baseURL);
+			await open(page, conversationId);
+			await pressPencil(page, userIds[8]);
+			await page.getByTestId("message-input").fill("Question 9, asked again");
+
+			await page.evaluate(() => {
+				const scroller =
+					document.querySelector<HTMLElement>(".scroll-container");
+				if (scroller) scroller.scrollTop = 0;
+			});
+			await expect(
+				page.locator(`[data-message-id="${userIds[0]}"]`),
+			).toBeInViewport();
+			await page.route(streamUrl, async (route) => {
+				if (route.request().method() !== "POST") {
+					await route.continue();
+					return;
+				}
+				inFlight = (async () => {
+					const response = await route.fetch();
+					// Observe the initial edit reveal before delivering the actual reply.
+					// The separate immediate-terminal case protects fast live-end geometry.
+					await responseGate;
+					await route.fulfill({ response });
+				})();
+				noteRequestStarted();
+				await inFlight;
+			});
+			await page.getByTestId("send-button").click();
+
+			await expect(page.getByText("Question 9, asked again")).toBeInViewport({
+				timeout: 10_000,
+			});
+			releaseResponse();
+			await requestStarted;
+			await inFlight;
+			await expect(
+				page
+					.getByTestId("assistant-message")
+					.last()
+					.locator(".prose-container")
+					.getByText(/fake provider response/i),
+			).toBeVisible();
+			await expect(page.getByTestId("stop-button")).toHaveCount(0);
+			await expect(page.getByTestId("send-button")).toBeVisible();
+		} finally {
+			// Also release and drain the real request if the reveal assertion fails.
+			releaseResponse();
+			try {
+				await inFlight?.catch(() => undefined);
+				await page.unroute(streamUrl);
+				if (providerId) await restoreTheUsersModel(page, providerId);
+			} finally {
+				await provider.stop();
+			}
+		}
 	});
 
 	test.describe("immediate edit response delivery", () => {
