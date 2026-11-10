@@ -294,3 +294,10 @@ After the independent review of the finished branch (one commit each):
   forgotten the task as well, the new one was declared with the old digest, refused at the PUT (`file_hash_mismatch`), and
   the attempt spent its one recovery and failed as `protocol` (the last bullet above holds for a task MinerU still has). A
   stored file with a ledger digest is still not hashed, and the attempt still opens its file once.
+- D9 told a photo's decode failures apart in three, and the pool's own failure to start a thread was not among them: when
+  `new Worker` throws (EAGAIN, `ERR_WORKER_INIT_FAILED` when the box is out of threads or memory) the box is at fault, and
+  the photo ended for good as `document_unreadable`, with no Retry. The pool now rejects with `ImageDecodeUnavailableError`
+  (an `ImagePreparationError` of its own, in `image-errors.ts`), `prepare-image.ts` passes it on as it does the timeout, and
+  the reader maps it to `job_failed`, retryable, with `details: { reason }`: it spends an attempt like the timeout, so a box
+  that stays short ends after the attempt budget. A worker that exits without an answer, and a worker's `error` event, stay
+  `document_unreadable`: a crash is most likely the file.

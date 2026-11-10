@@ -34,3 +34,16 @@ export class ImageDecodeTimeoutError extends ImagePreparationError {
 		this.timeoutMs = timeoutMs;
 	}
 }
+
+/**
+ * No decoder could be started for the photo: the system would not make a worker
+ * thread for it (out of threads or memory). The box is short of something, and
+ * the photo is not at fault, so this is told apart from a photo libheif refuses
+ * and from a worker that crashed on one.
+ */
+export class ImageDecodeUnavailableError extends ImagePreparationError {
+	constructor(message: string, options?: ErrorOptions) {
+		super(message, options);
+		this.name = "ImageDecodeUnavailableError";
+	}
+}

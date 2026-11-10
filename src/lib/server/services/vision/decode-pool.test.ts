@@ -3,13 +3,21 @@ import { once } from "node:events";
 import type { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDecodePool } from "./decode-pool";
-import { ImageDecodeTimeoutError, ImagePreparationError } from "./image-errors";
+import {
+	ImageDecodeTimeoutError,
+	ImageDecodeUnavailableError,
+	ImagePreparationError,
+} from "./image-errors";
 
 // Every worker the pool starts, in order, with a promise for its `exit`. The
 // pool's own listeners are added after the recorder's, so by the time the
 // promise has settled the pool has already handled the exit.
 type Recorded = Worker & { readonly exited: Promise<number> };
-const spawned = vi.hoisted(() => ({ workers: [] as unknown[] }));
+const spawned = vi.hoisted(() => ({
+	workers: [] as unknown[],
+	/** While set, `new Worker` throws it, as a system that cannot make a thread does. */
+	refuse: null as Error | null,
+}));
 const startedWorkers = () => spawned.workers as Recorded[];
 
 vi.mock("node:worker_threads", async (importOriginal) => {
@@ -17,6 +25,7 @@ vi.mock("node:worker_threads", async (importOriginal) => {
 	class RecordingWorker extends actual.Worker {
 		readonly exited: Promise<number>;
 		constructor(...args: ConstructorParameters<typeof actual.Worker>) {
+			if (spawned.refuse) throw spawned.refuse;
 			super(...args);
 			this.exited = new Promise((resolve) => this.once("exit", resolve));
 			spawned.workers.push(this);
@@ -81,6 +90,7 @@ function pool(options: { concurrency?: number; timeoutMs?: number } = {}) {
 
 beforeEach(() => {
 	spawned.workers.length = 0;
+	spawned.refuse = null;
 });
 
 afterEach(() => {
@@ -209,6 +219,8 @@ describe("a decode pool", () => {
 			const error = await broken.catch((caught: unknown) => caught);
 			expect(error).toBeInstanceOf(ImagePreparationError);
 			expect(error).not.toBeInstanceOf(ImageDecodeTimeoutError);
+			// A crash is most likely the photo's doing, unlike a thread that was never made.
+			expect(error).not.toBeInstanceOf(ImageDecodeUnavailableError);
 			expect((error as Error).message).toContain("boom in a timer");
 			expect((error as Error).cause).toBeInstanceOf(Error);
 			expect(await next).toEqual({ answer: "after" });
@@ -221,6 +233,9 @@ describe("a decode pool", () => {
 			const next = decode.run<Answer>(answering("after"));
 
 			await expect(exiting).rejects.toBeInstanceOf(ImagePreparationError);
+			await expect(exiting).rejects.not.toBeInstanceOf(
+				ImageDecodeUnavailableError,
+			);
 			await expect(exiting).rejects.toThrow(/code 7/);
 			expect(await next).toEqual({ answer: "after" });
 		});
@@ -245,6 +260,36 @@ describe("a decode pool", () => {
 
 			await expect(job).rejects.toBeInstanceOf(ImagePreparationError);
 			expect(await next).toEqual({ answer: "after" });
+		});
+
+		it("fails that job as unavailable, not as unreadable, when the system will not make a thread", async () => {
+			// EAGAIN and ERR_WORKER_INIT_FAILED when the box is out of threads or
+			// memory: nothing is wrong with the photo, and the next one may be fine.
+			const refusal = Object.assign(
+				new Error("Resource temporarily unavailable"),
+				{ code: "EAGAIN" },
+			);
+			spawned.refuse = refusal;
+			const decode = pool({ concurrency: 1 });
+
+			const error = await decode
+				.run(answering("x"))
+				.catch((caught: unknown) => caught);
+
+			expect(error).toBeInstanceOf(ImageDecodeUnavailableError);
+			expect(error).toBeInstanceOf(ImagePreparationError);
+			expect(error).not.toBeInstanceOf(ImageDecodeTimeoutError);
+			expect((error as Error).message).toContain(
+				"Resource temporarily unavailable",
+			);
+			expect((error as Error).cause).toBe(refusal);
+			// No thread, so no place is held and nothing is left to wait for.
+			expect(startedWorkers()).toHaveLength(0);
+			expect([decode.running, decode.waiting]).toEqual([0, 0]);
+			spawned.refuse = null;
+			expect(await decode.run<Answer>(answering("after"))).toEqual({
+				answer: "after",
+			});
 		});
 
 		it("fails that job when no worker can be started for it, and keeps the place", async () => {

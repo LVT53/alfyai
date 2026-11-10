@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	ImageDecodeTimeoutError,
+	ImageDecodeUnavailableError,
 	ImagePreparationError,
 	ImageTooLargeError,
 } from "./image-errors";
@@ -30,6 +31,20 @@ describe("the errors of preparing a picture", () => {
 		expect(error.name).toBe("ImageDecodeTimeoutError");
 		expect(error.timeoutMs).toBe(60_000);
 		expect(error.message).toContain("60000");
+	});
+
+	it("names a decode that could not start, apart from the others of its family", () => {
+		const cause = new Error("Resource temporarily unavailable");
+		const error = new ImageDecodeUnavailableError(
+			"image decode worker could not start: Resource temporarily unavailable",
+			{ cause },
+		);
+
+		expect(error).toBeInstanceOf(ImagePreparationError);
+		expect(error).not.toBeInstanceOf(ImageDecodeTimeoutError);
+		expect(error).not.toBeInstanceOf(ImageTooLargeError);
+		expect(error.name).toBe("ImageDecodeUnavailableError");
+		expect(error.cause).toBe(cause);
 	});
 
 	it("keeps the cause it is given, as every error of this family does", () => {

@@ -42,6 +42,7 @@ import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import {
 	ImageDecodeTimeoutError,
+	ImageDecodeUnavailableError,
 	ImagePreparationError,
 	ImageTooLargeError,
 } from "$lib/server/services/vision/image-errors";
@@ -183,8 +184,8 @@ function fileFailure(
 }
 
 /**
- * A photo the decoder gave up on, as the ledger's error. Three things can be
- * wrong, and each has its own cure, so each has its own code:
+ * A photo the decoder gave up on, as the ledger's error. Four things can be
+ * wrong, and each has its own cure, so each is told apart:
  *
  *  - more pixels than the decoder takes (`ImageTooLargeError`): `image_too_large`,
  *    never retried. The same photo is over the limit every time; the person saves
@@ -193,9 +194,15 @@ function fileFailure(
  *    `job_failed`, retried. It spends an attempt, like any parse the reader could
  *    not finish, so a slow box gets another try and a photo that always hangs ends
  *    after the attempt budget instead of waiting forever.
+ *  - the decode could not even start (`ImageDecodeUnavailableError`: the system
+ *    would not make a thread for it, out of threads or memory): `job_failed`,
+ *    retried, the same way. The box is at fault and not the photo, so it must not
+ *    end as a damaged file with no Retry; a box that stays short ends after the
+ *    attempt budget, as a slow one does.
  *  - anything else the decoder refuses, libheif's refusals and a worker that
- *    crashed (a plain `ImagePreparationError`): `document_unreadable`, never
- *    retried. The same bytes are refused the same way.
+ *    crashed or left without an answer (a plain `ImagePreparationError`):
+ *    `document_unreadable`, never retried. The same bytes are refused the same
+ *    way, and a crash is most likely the file's doing.
  *
  * The decoder's own words are for an operator: they go to `details`, and the
  * sentence a person reads comes from the code.
@@ -226,6 +233,18 @@ function decodeFailure(error: ImagePreparationError): DocumentExtractionError {
 			),
 			retryable: true,
 			details: { reason: error.message, timeoutMs: error.timeoutMs },
+			cause: error,
+		});
+	}
+	if (error instanceof ImageDecodeUnavailableError) {
+		return new DocumentExtractionError({
+			code: "job_failed",
+			message: extractionErrorMessage(
+				"job_failed",
+				"The photo could not be decoded just now.",
+			),
+			retryable: true,
+			details: { reason: error.message },
 			cause: error,
 		});
 	}

@@ -3,6 +3,7 @@ import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ImageDecodeTimeoutError,
+	ImageDecodeUnavailableError,
 	ImagePreparationError,
 	ImageTooLargeError,
 } from "./image-errors";
@@ -60,9 +61,15 @@ describe.each(preparations)("%s with a HEIC photo", (_name, prepare) => {
 	});
 
 	it.each([
-		["too large", new ImageTooLargeError(100_010_000, 100_000_000)],
-		["out of time", new ImageDecodeTimeoutError(60_000)],
-	])("throws the decoder's error as it is when the photo is %s", async (_why, failure) => {
+		["a photo too large", new ImageTooLargeError(100_010_000, 100_000_000)],
+		["a decode out of time", new ImageDecodeTimeoutError(60_000)],
+		[
+			"a decode that could not start",
+			new ImageDecodeUnavailableError(
+				"image decode worker could not start: Resource temporarily unavailable",
+			),
+		],
+	])("throws the decoder's error as it is for %s", async (_why, failure) => {
 		decoder.mockRejectedValue(failure);
 
 		const caught = await prepare(heicBytes).catch((error: unknown) => error);

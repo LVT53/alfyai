@@ -323,9 +323,11 @@ export function readDecoderAnswer(answer: unknown): HeifPixels {
  *
  * Rejects with an `ImageTooLargeError` before any worker starts when the file
  * declares more than `HEIF_MAX_PIXELS`, with an `ImageDecodeTimeoutError` when
- * the worker is stopped at its deadline, with an `ImagePreparationError` for a
- * file libheif refuses (and for a worker that crashed or left without an
- * answer), and with `signal.reason` when the signal is aborted (a decode that
+ * the worker is stopped at its deadline, with an `ImageDecodeUnavailableError`
+ * when the system will not make the worker's thread at all, with an
+ * `ImagePreparationError` for a file libheif refuses (and for a worker that
+ * crashed or left without an answer), and with `signal.reason` when the signal
+ * is aborted (a decode that
  * is waiting for a place never starts; one that is running has its worker
  * terminated).
  *

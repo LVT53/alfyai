@@ -1,5 +1,9 @@
 import { type TransferListItem, Worker } from "node:worker_threads";
-import { ImageDecodeTimeoutError, ImagePreparationError } from "./image-errors";
+import {
+	ImageDecodeTimeoutError,
+	ImageDecodeUnavailableError,
+	ImagePreparationError,
+} from "./image-errors";
 
 // Runs jobs of one kind, each in a worker thread of its own, a few at a time.
 //
@@ -106,10 +110,13 @@ export function createDecodePool(options: DecodePoolOptions): DecodePool {
 							transferList: job.transferList as TransferListItem[] | undefined,
 						});
 					} catch (error) {
-						// No thread was made, so there is no exit to wait for.
+						// No thread was made, so there is no exit to wait for. The system
+						// would not make one (EAGAIN, ERR_WORKER_INIT_FAILED when it is out
+						// of threads or memory): the box is at fault and not the photo, so
+						// this is an error of its own and not a refusal of the file.
 						running -= 1;
 						fail(
-							new ImagePreparationError(
+							new ImageDecodeUnavailableError(
 								`image decode worker could not start: ${reasonOf(error)}`,
 								{ cause: error },
 							),

@@ -91,8 +91,9 @@ What goes in the manifest, and what never does:
   thread (`vision/heif-decode.ts`: libheif's WebAssembly through `heic-decode`), not on the
   server's main thread, so the server keeps answering while a photo decodes. Each photo gets a
   fresh worker, at most two run at once for the whole process, each is stopped after 60 s (the job
-  then fails as `job_failed`, which spends an attempt, so a slow box gets another try), and a
-  worker's memory goes back to the system when it ends. The decode repeats for every attempt that
+  then fails as `job_failed`, which spends an attempt, so a slow box gets another try; so does a
+  decode whose thread the system would not make, since that is the box's fault and not the photo's),
+  and a worker's memory goes back to the system when it ends. The decode repeats for every attempt that
   needs the bytes (a retry, a resume that has to send them again). Measured on
   the box with the main-thread decode this replaced: 1.2 to 1.8 s for a 12 MP photo (half of it a
   JPEG step that is gone) and about 6 s with a memory peak of 1.6 GB for a 48 MP one. The libheif

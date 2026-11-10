@@ -26,6 +26,7 @@ import {
 import { HEIF_MAX_PIXELS } from "$lib/server/services/vision/heif-decode";
 import {
 	ImageDecodeTimeoutError,
+	ImageDecodeUnavailableError,
 	ImagePreparationError,
 } from "$lib/server/services/vision/image-errors";
 import * as prepareImage from "$lib/server/services/vision/prepare-image";
@@ -403,6 +404,30 @@ describe("prepareReaderInput", () => {
 			retryable: true,
 			message: extractionErrorMessage("job_failed", ""),
 			details: { timeoutMs: 60_000 },
+		});
+		expect(await converted()).toEqual([]);
+	});
+
+	it("fails a decode that could not get a thread as job_failed, retryable: the box was short, the photo is not at fault", async () => {
+		vi.spyOn(prepareImage, "decodeImageToPng").mockRejectedValueOnce(
+			new ImageDecodeUnavailableError(
+				"image decode worker could not start: Resource temporarily unavailable",
+			),
+		);
+		const original = await stored("IMG_0042.heic", tinyHeic);
+
+		const failure = await rejection(
+			prepare(original, "IMG_0042.heic", "image/heic").openFile(),
+		);
+
+		expect(failure).toBeInstanceOf(DocumentExtractionError);
+		expect(failure).toMatchObject({
+			code: "job_failed",
+			retryable: true,
+			message: extractionErrorMessage("job_failed", ""),
+			details: {
+				reason: expect.stringContaining("could not start"),
+			},
 		});
 		expect(await converted()).toEqual([]);
 	});

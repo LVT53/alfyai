@@ -3,6 +3,7 @@ import { getEntryByMimeType } from "$lib/shared/file-types";
 import { decodeHeifToRgba } from "./heif-decode";
 import {
 	ImageDecodeTimeoutError,
+	ImageDecodeUnavailableError,
 	ImagePreparationError,
 	ImageTooLargeError,
 } from "./image-errors";
@@ -43,9 +44,10 @@ export type PreparedImage = {
  * decoded by libheif in a worker thread first (see `prepareImageForModel`) and
  * keeps the alpha channel libheif gives it, which is fully opaque for most
  * photos. Bytes it cannot read throw `ImagePreparationError`; a photo over
- * `HEIF_MAX_PIXELS` throws its subclass `ImageTooLargeError` and a decode that
- * ran out of time `ImageDecodeTimeoutError`, as they are. `maxLongEdge` shrinks
- * it to fit, and never enlarges.
+ * `HEIF_MAX_PIXELS` throws its subclass `ImageTooLargeError`, a decode that
+ * ran out of time `ImageDecodeTimeoutError` and one that could not get a
+ * thread `ImageDecodeUnavailableError`, as they are. `maxLongEdge` shrinks it to
+ * fit, and never enlarges.
  *
  * `background` (a colour sharp can read, such as `#ffffff`) flattens the
  * picture onto it, so the PNG has no alpha channel: the document reader asks
@@ -135,9 +137,10 @@ async function openForSharp(
 
 /**
  * What a failed preparation throws. A preparation its caller called off throws
- * the signal's reason, whatever else was going on when it was. Otherwise the two
- * errors a caller tells apart by class, a photo over the pixel limit and a
- * decode that ran out of time, go on as they are, and anything else is wrapped
+ * the signal's reason, whatever else was going on when it was. Otherwise the
+ * errors a caller tells apart by class go on as they are: a photo over the pixel
+ * limit, a decode that ran out of time and a decode that could not get a thread
+ * (the last two are about the box and not the photo). Anything else is wrapped
  * as `image preparation failed: <reason>` with itself as the cause: the image
  * library's errors, and libheif's refusals.
  */
@@ -148,7 +151,8 @@ function preparationFailure(
 	if (signal?.aborted) return signal.reason;
 	if (
 		error instanceof ImageTooLargeError ||
-		error instanceof ImageDecodeTimeoutError
+		error instanceof ImageDecodeTimeoutError ||
+		error instanceof ImageDecodeUnavailableError
 	) {
 		return error;
 	}
@@ -172,12 +176,12 @@ function preparationFailure(
  * main thread is never held by the decode (it was, for 1.2 to 1.8 s for a 12 MP
  * photo and about 6 s for a 48 MP one, when libheif ran on the calling thread),
  * and no JPEG step stands in between. A photo over `HEIF_MAX_PIXELS` throws
- * `ImageTooLargeError` and a decode that ran out of time
- * `ImageDecodeTimeoutError`, both `ImagePreparationError`s, as they are; a photo
- * libheif refuses is a plain one. A
- * transparent HEIC, like any transparent picture, ends up on white. sharp keeps
- * its strict defaults on purpose, because these bytes are an upload: it fails
- * on a damaged file and on one over 268 megapixels.
+ * `ImageTooLargeError`, a decode that ran out of time `ImageDecodeTimeoutError`
+ * and one that could not get a thread `ImageDecodeUnavailableError`, all
+ * `ImagePreparationError`s, as they are; a photo libheif refuses is a plain
+ * one. A transparent HEIC, like any transparent picture, ends up on white.
+ * sharp keeps its strict defaults on purpose, because these bytes are an
+ * upload: it fails on a damaged file and on one over 268 megapixels.
  *
  * `signal` calls the preparation off, as it does for `decodeImageToPng`: it
  * rejects with `signal.reason` as it is, and a HEIC decode in flight has its
