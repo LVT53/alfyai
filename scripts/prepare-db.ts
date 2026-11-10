@@ -35,6 +35,8 @@ const requiredExistingTables = [
 	"browser_push_subscriptions",
 	"conversations",
 	"messages",
+	"normal_chat_turns",
+	"normal_chat_attempts",
 	"projects",
 	"artifacts",
 	"artifact_links",
