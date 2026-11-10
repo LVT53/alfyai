@@ -882,8 +882,10 @@ export function createServerChunkRuntime({
 			hasDeliveredAnswer = false;
 		} else if (
 			status === "done" &&
-			details?.metadata?.ok === true &&
-			(name !== "make_image" || details.metadata.imageStatus === "succeeded")
+			(name === "suggest_instruction"
+				? details?.metadata?.offered === true
+				: details?.metadata?.ok === true) &&
+			(name !== "make_image" || details?.metadata?.imageStatus === "succeeded")
 		) {
 			// Delivery is an answer, but never fabricates text or character counts.
 			hasDeliveredAnswer = true;

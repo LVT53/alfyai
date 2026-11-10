@@ -1796,7 +1796,7 @@ describe("successful delivery is separate from text", () => {
 		{ status: "done" as const, metadata: { ok: true }, delivered: true },
 		{ status: "failed" as const, metadata: { ok: true }, delivered: false },
 		{ status: "done" as const, metadata: { ok: false }, delivered: false },
-		{ status: "done" as const, metadata: {}, delivered: false },
+		{ status: "done" as const, metadata: { ok: null }, delivered: false },
 	])("counts only recorded successful delivery: %j", ({
 		status,
 		metadata,
@@ -1818,5 +1818,24 @@ describe("successful delivery is separate from text", () => {
 			callId: "later",
 		});
 		expect(runtime.hasDeliveredAnswer).toBe(false);
+	});
+});
+
+describe("instruction delivery after research", () => {
+	it.each([
+		true,
+		false,
+	])("uses the recorder's offered=%s without an ok field", (offered) => {
+		const runtime = createServerChunkRuntime({ enqueueChunk: () => true });
+		runtime.emitToolCallEvent("research_web", {}, "done", {
+			callId: "research",
+		});
+		runtime.emitToolCallEvent("suggest_instruction", {}, "done", {
+			callId: "offer",
+			metadata: { offered },
+		});
+		expect(runtime.hasDeliveredAnswer).toBe(offered);
+		expect(runtime.hasTextAfterLastToolCall).toBe(false);
+		expect(runtime.visibleCharsAfterLastToolCall).toBe(0);
 	});
 });

@@ -2818,7 +2818,9 @@ describe("stream-orchestrator SSE contract", () => {
 				},
 			);
 		events.push(finishEvent);
-		vi.mocked(runStreamingNormalChatSendModel).mockResolvedValue(
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
 			createNeutralStreamingResult(events, {
 				normalChatToolCalls: [
 					{
