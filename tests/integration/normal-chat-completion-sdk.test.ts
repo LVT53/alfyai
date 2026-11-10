@@ -1,6 +1,9 @@
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
+import { tool } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import type { PlainNormalChatModelRunResult } from "$lib/server/services/normal-chat-model";
 import {
 	type NormalChatContinuationSnapshot,
 	runNormalChatCompletion,
@@ -50,6 +53,322 @@ function dependencies(model: MockLanguageModelV3) {
 	};
 }
 describe("installed SDK native shapes", () => {
+	function textParts(text: string): LanguageModelV3StreamPart[] {
+		return [
+			{ type: "text-start", id: "b" },
+			{ type: "text-delta", id: "b", delta: text },
+			{ type: "text-end", id: "b" },
+		];
+	}
+	function finish(
+		reason: "stop" | "length" | "tool-calls" = "stop",
+	): LanguageModelV3StreamPart {
+		return {
+			type: "finish",
+			usage,
+			finishReason: { unified: reason, raw: reason },
+		};
+	}
+	function params() {
+		return {
+			provider,
+			messages: [{ role: "user" as const, content: "synthetic request" }],
+			completionPolicy: {
+				turnId: "t",
+				segmentId: "s",
+				deadlineAt: Date.now() + 300000,
+				totalTimeoutMs: 300000,
+				forAttempt: () => ({ classifyExecution: () => "succeeded" as const }),
+			},
+		};
+	}
+	it("binds a buffered tool result to its source step while the consumer waits for the next SDK step", async () => {
+		let calls = 0;
+		let executions = 0;
+		let nextStepPrepared!: () => void;
+		const prepared = new Promise<void>((resolve) => {
+			nextStepPrepared = resolve;
+		});
+		const model = new MockLanguageModelV3({
+			doStream: async () => {
+				if (++calls > 1) nextStepPrepared();
+				return {
+					stream: stream(
+						calls === 1
+							? [
+									...textParts("Working"),
+									{
+										type: "tool-call",
+										toolCallId: "c",
+										toolName: "lookup",
+										input: "{}",
+									},
+									finish("tool-calls"),
+								]
+							: [...textParts("Final"), finish()],
+					),
+				};
+			},
+		});
+		const run = runNormalChatCompletion(
+			{
+				...params(),
+				tools: {
+					lookup: tool({
+						inputSchema: z.object({}),
+						execute: async () => {
+							executions++;
+							return "evidence";
+						},
+					}),
+				},
+			},
+			dependencies(model),
+			true,
+		);
+		let result: PlainNormalChatModelRunResult;
+		for (;;) {
+			const next = await run.next();
+			if (next.done) {
+				result = next.value;
+				break;
+			}
+			if (next.value.type === "tool_call") await prepared;
+		}
+		expect(result.completion).toMatchObject({
+			outcome: "answered",
+			closingAttempted: false,
+		});
+		expect(result.text).toBe("Final");
+		expect(calls).toBe(2);
+		expect(executions).toBe(1);
+		expect(result.continuation?.steps).toHaveLength(2);
+		expect(result.continuation?.steps.map((s) => s.toolAttempted)).toEqual([
+			true,
+			false,
+		]);
+		expect(result.continuation?.executions).toHaveLength(1);
+		expect(result.continuation?.executions[0].stepId).toBe(
+			result.continuation?.steps[0].stepId,
+		);
+		expect(result.continuation?.usage).toHaveLength(1);
+		expect(result.continuation?.usage[0].inputTokens).toBe(2);
+		expect(
+			result.continuation?.steps.map((s) =>
+				s.response
+					.filter((m) => m.role === "assistant")
+					.flatMap((m) =>
+						typeof m.content === "string"
+							? [m.content]
+							: m.content.filter((p) => p.type === "text").map((p) => p.text),
+					)
+					.join(""),
+			),
+		).toEqual(["Working", "Final"]);
+		expect(
+			result.continuation?.events
+				.filter((e) => e.type === "step_start" || e.type === "step_end")
+				.map((e) => [e.type, e.stepId]),
+		).toEqual([
+			["step_start", "s:attempt:0:step:0"],
+			["step_end", "s:attempt:0:step:0"],
+			["step_start", "s:attempt:0:step:1"],
+			["step_end", "s:attempt:0:step:1"],
+		]);
+
+		expect(
+			projectNormalChatOutput(result.continuation?.events ?? []).activity.map(
+				(b) => b.text,
+			),
+		).toEqual(["Working"]);
+	});
+	it.each([
+		"stream",
+		"plain",
+	] as const)("requires a visible character for working and closing answers (%s)", async (mode) => {
+		let calls = 0;
+		const model = new MockLanguageModelV3({
+			doStream: async () => {
+				calls++;
+				return { stream: stream([...textParts("\u200B"), finish()]) };
+			},
+			doGenerate: async () => {
+				calls++;
+				return {
+					content: [{ type: "text", text: "\u200B" }],
+					finishReason: { unified: "stop", raw: "stop" },
+					usage,
+					warnings: [],
+				};
+			},
+		});
+		const run = runNormalChatCompletion(
+			params(),
+			dependencies(model),
+			mode === "stream",
+		);
+		let result: PlainNormalChatModelRunResult;
+		for (;;) {
+			const next = await run.next();
+			if (next.done) {
+				result = next.value;
+				break;
+			}
+		}
+		expect(result.completion).toMatchObject({
+			outcome: "incomplete",
+			closingAttempted: true,
+		});
+		expect(calls).toBe(2);
+		expect(result.continuation?.steps.map((s) => s.phase)).toEqual([
+			"working",
+			"closing",
+		]);
+		expect(
+			projectNormalChatOutput(result.continuation?.events ?? []).activity.map(
+				(b) => b.text,
+			),
+		).toEqual(["\u200B"]);
+	});
+	it.each([
+		["length", "stop", "length", "answered"],
+		["length", "length", "length", "incomplete"],
+		["missing_finish", "stop", "stream_end", "answered"],
+		["error", "stop", "transport_error", "answered"],
+	] as const)("does not let earlier delivery mask later %s work or closing %s", async (workingEnd, closingEnd, workingStopCause, outcome) => {
+		let calls = 0;
+		const model = new MockLanguageModelV3({
+			doStream: async () => ({
+				stream: stream(
+					++calls === 1
+						? [
+								{
+									type: "tool-call",
+									toolCallId: "c",
+									toolName: "deliver",
+									input: "{}",
+								},
+								finish("tool-calls"),
+							]
+						: calls === 2
+							? [
+									...textParts("Later analysis cut short"),
+									...(workingEnd === "length"
+										? [finish("length")]
+										: workingEnd === "error"
+											? [
+													{
+														type: "error" as const,
+														error: new Error("later stream failed"),
+													},
+												]
+											: []),
+								]
+							: [...textParts("Completed remaining work"), finish(closingEnd)],
+				),
+			}),
+		});
+		const base = params();
+		const run = runNormalChatCompletion(
+			{
+				...base,
+				tools: {
+					deliver: tool({
+						inputSchema: z.object({}),
+						execute: async () => "real delivery",
+					}),
+				},
+				completionPolicy: {
+					...base.completionPolicy,
+					forAttempt: () => ({
+						...base.completionPolicy.forAttempt(),
+						isDelivery: () => true,
+					}),
+				},
+			},
+			dependencies(model),
+			true,
+		);
+		let result: PlainNormalChatModelRunResult;
+		for (;;) {
+			const next = await run.next();
+			if (next.done) {
+				result = next.value;
+				break;
+			}
+		}
+		expect(result.completion).toMatchObject({
+			outcome,
+			closingAttempted: true,
+			workingStopCause,
+		});
+		expect(result.text).toBe("Completed remaining work");
+		expect(calls).toBe(3);
+		expect(
+			projectNormalChatOutput(result.continuation?.events ?? []).activity.map(
+				(b) => b.text,
+			),
+		).toEqual(["Later analysis cut short"]);
+	});
+	it.each([
+		false,
+		true,
+	])("retains artifact-only delivery without closing (clean blank follow-up: %s)", async (blankFollowup) => {
+		let calls = 0;
+		const base = params();
+		const model = new MockLanguageModelV3({
+			doStream: async () => {
+				calls++;
+				if (calls > 1) return { stream: stream([finish()]) };
+				return {
+					stream: stream([
+						{
+							type: "tool-call",
+							toolCallId: "c",
+							toolName: "deliver",
+							input: "{}",
+						},
+						finish("tool-calls"),
+					]),
+				};
+			},
+		});
+		const run = runNormalChatCompletion(
+			{
+				...base,
+				maxToolSteps: blankFollowup ? 2 : 1,
+				tools: {
+					deliver: tool({
+						inputSchema: z.object({}),
+						execute: async () => "real delivery",
+					}),
+				},
+				completionPolicy: {
+					...base.completionPolicy,
+					forAttempt: () => ({
+						...base.completionPolicy.forAttempt(),
+						isDelivery: () => true,
+					}),
+				},
+			},
+			dependencies(model),
+			true,
+		);
+		let result: PlainNormalChatModelRunResult;
+		for (;;) {
+			const next = await run.next();
+			if (next.done) {
+				result = next.value;
+				break;
+			}
+		}
+		expect(result.completion).toMatchObject({
+			outcome: "delivered",
+			closingAttempted: false,
+		});
+		expect(calls).toBe(blankFollowup ? 2 : 1);
+	});
+
 	it("preserves multiple native block IDs within a single clean answer", async () => {
 		const output: NormalChatOutputEvent[] = [];
 		const model = new MockLanguageModelV3({

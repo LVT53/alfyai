@@ -10,6 +10,7 @@ import {
 	type ToolResultPart,
 	type ToolSet,
 } from "ai";
+import { hasVisibleCharacter } from "$lib/services/stream-protocol";
 import { ASK_USER_TOOL_NAME, isAskPauseOutput } from "$lib/shared/ask-user";
 import type {
 	NormalChatAttemptUsage,
@@ -499,7 +500,8 @@ export async function* runNormalChatCompletion(
 				: params.tools
 			: undefined;
 
-		let step: NormalChatContinuationStep | undefined;
+		const stepsByNumber = new Map<number, NormalChatContinuationStep>();
+		let preparedStepNumber = 0;
 		let attemptFinished = false;
 		let attemptError = false;
 		let rawError: unknown;
@@ -523,7 +525,7 @@ export async function* runNormalChatCompletion(
 		const clearFirstOutputTimeout = () => {
 			if (firstOutputTimer) clearTimeout(firstOutputTimer);
 		};
-		let stepCount = 0;
+
 		const usage: NormalChatAttemptUsage = {
 			turnId: policy.turnId,
 			segmentId: policy.segmentId,
@@ -539,20 +541,23 @@ export async function* runNormalChatCompletion(
 			complete: false,
 		};
 		snapshot.usage.push(usage);
-		const scope = (): NormalChatOutputScope => ({
+		const scope = (
+			current: NormalChatContinuationStep,
+		): NormalChatOutputScope => ({
 			version: 1,
 			turnId: policy.turnId,
 			segmentId: policy.segmentId,
 			attemptId,
-			stepId: step?.stepId ?? `${attemptId}:step:0`,
+			stepId: current.stepId,
 			phase,
 		});
-		const ensureStep = () => {
-			if (!step || step.finished) {
-				step = {
+		const ensureStep = (stepNumber = preparedStepNumber) => {
+			let current = stepsByNumber.get(stepNumber);
+			if (!current) {
+				current = {
 					segmentId: policy.segmentId,
 					attemptId,
-					stepId: `${attemptId}:step:${stepCount++}`,
+					stepId: `${attemptId}:step:${stepNumber}`,
 					phase,
 					response: [],
 					inserts: [],
@@ -561,25 +566,28 @@ export async function* runNormalChatCompletion(
 					toolAttempted: false,
 					finishReason: null,
 				};
-				snapshot.steps.push(step);
-				lastScope = scope();
-				emit(lastScope, { type: "step_start" });
+				stepsByNumber.set(stepNumber, current);
+				snapshot.steps.push(current);
+				if (!streaming) {
+					lastScope = scope(current);
+					emit(lastScope, { type: "step_start" });
+				}
 			}
-			return step;
+			return current;
 		};
-		const executionsForStep = () =>
+		const executionsForStep = (current = ensureStep()) =>
 			snapshot.executions.filter(
-				(e) => e.stepId === step?.stepId && e.attemptId === attemptId,
+				(e) => e.stepId === current.stepId && e.attemptId === attemptId,
 			);
 		const ledger = (
 			callId: string,
 			toolName: string,
 			input: unknown,
 			providerExecuted = false,
+			current = ensureStep(),
 		) => {
-			const current = ensureStep();
 			current.toolAttempted = true;
-			let entry = executionsForStep().find(
+			let entry = executionsForStep(current).find(
 				(e) => e.callId === callId && e.toolName === toolName,
 			);
 			if (!entry) {
@@ -646,7 +654,10 @@ export async function* runNormalChatCompletion(
 				});
 		};
 		const recordCall = (entry: NormalChatExecution) => {
-			const current = ensureStep();
+			const current = snapshot.steps.find(
+				(s) => s.stepId === entry.stepId && s.attemptId === entry.attemptId,
+			);
+			if (!current || current.finished) return;
 			let message = current.response.find((m) => m.role === "assistant");
 			if (!message) {
 				message = { role: "assistant", content: [] };
@@ -717,23 +728,26 @@ export async function* runNormalChatCompletion(
 			id: string,
 			kind: "text" | "reasoning",
 			metadata?: NativeMetadata,
+			current = ensureStep(),
 		) => {
-			const current = ensureStep();
 			const key = `${current.stepId}:${kind}:${id}`;
 			let b = blocks.get(key);
 			if (!b) {
-				let assistant = current.response.find((m) => m.role === "assistant");
-				if (!assistant) {
-					assistant = { role: "assistant", content: [] };
-					current.response.unshift(assistant);
+				let index = -1;
+				if (!current.finished) {
+					let assistant = current.response.find((m) => m.role === "assistant");
+					if (!assistant) {
+						assistant = { role: "assistant", content: [] };
+						current.response.unshift(assistant);
+					}
+					if (!Array.isArray(assistant.content))
+						throw new Error("Expected assistant parts");
+					index = assistant.content.length;
+					assistant.content.push({ type: kind, text: "" });
 				}
-				const content = assistant.content;
-				if (!Array.isArray(content))
-					throw new Error("Expected assistant parts");
-				b = { id: `${key}:${blocks.size}`, index: content.length };
+				b = { id: `${key}:${blocks.size}`, index };
 				blocks.set(key, b);
-				content.push({ type: kind, text: "" });
-				emit(scope(), {
+				emit(scope(current), {
 					type: "block_start",
 					blockId: b.id,
 					nativeId: id,
@@ -746,7 +760,7 @@ export async function* runNormalChatCompletion(
 								: "provisional",
 				});
 			}
-			if (metadata) {
+			if (metadata && !current.finished) {
 				const assistant = current.response.find((m) => m.role === "assistant");
 				if (assistant && Array.isArray(assistant.content)) {
 					const part = assistant.content[b.index];
@@ -759,27 +773,50 @@ export async function* runNormalChatCompletion(
 			}
 			return b;
 		};
-		const delta = (id: string, kind: "text" | "reasoning", text: string) => {
-			const b = startBlock(id, kind);
-			const assistant = ensureStep().response.find(
-				(m) => m.role === "assistant",
-			);
-			if (assistant && Array.isArray(assistant.content)) {
+		const delta = (
+			id: string,
+			kind: "text" | "reasoning",
+			text: string,
+			current = ensureStep(),
+		) => {
+			const b = startBlock(id, kind, undefined, current);
+			const assistant = current.response.find((m) => m.role === "assistant");
+			if (!current.finished && assistant && Array.isArray(assistant.content)) {
 				const part = assistant.content[b.index];
 				if (part?.type === "text" || part?.type === "reasoning")
 					part.text += text;
 			}
-			emit(scope(), { type: "block_delta", blockId: b.id, text });
+			emit(scope(current), { type: "block_delta", blockId: b.id, text });
+		};
+		const settleOutputStep = (
+			current: NormalChatContinuationStep,
+			finishReason: string | null,
+		) => {
+			emit(scope(current), {
+				type: "step_end",
+				finishReason,
+				toolAttempted: current.toolAttempted,
+			});
+			emit(scope(current), {
+				type: "step_settled",
+				role: phase === "closing" ? "answer" : "activity",
+				finishReason,
+			});
 		};
 		const finishStep = (event: OnStepFinishEvent<ToolSet>) => {
 			clearFirstOutputTimeout();
-			const current = ensureStep();
+			const current = ensureStep(event.stepNumber);
 			if (!streaming)
 				for (const [i, part] of event.content.entries()) {
 					if (part.type === "text" || part.type === "reasoning") {
-						const b = startBlock(String(i), part.type);
-						delta(String(i), part.type, part.text);
-						emit(scope(), { type: "block_end", blockId: b.id });
+						const b = startBlock(
+							String(i),
+							part.type,
+							part.providerMetadata,
+							current,
+						);
+						delta(String(i), part.type, part.text, current);
+						emit(scope(current), { type: "block_end", blockId: b.id });
 					}
 				}
 			current.toolAttempted ||= event.toolCalls.length > 0;
@@ -794,6 +831,7 @@ export async function* runNormalChatCompletion(
 					call.toolName,
 					call.input,
 					call.providerExecuted === true,
+					current,
 				);
 				if (call.invalid && entry.state === "proposed")
 					entry.state = "definitely_not_executed";
@@ -804,6 +842,7 @@ export async function* runNormalChatCompletion(
 					result.toolName,
 					result.input,
 					result.providerExecuted === true,
+					current,
 				);
 				entry.preliminary = result.preliminary === true;
 				if (result.providerExecuted && !entry.preliminary) {
@@ -840,17 +879,7 @@ export async function* runNormalChatCompletion(
 			usage.inputTokens = addKnown(usage.inputTokens, mapped.inputTokens);
 			usage.outputTokens = addKnown(usage.outputTokens, mapped.outputTokens);
 			usage.totalTokens = addKnown(usage.totalTokens, mapped.totalTokens);
-			emit(scope(), {
-				type: "step_end",
-				finishReason: event.finishReason,
-				toolAttempted: current.toolAttempted,
-			});
-			// Only the terminal invocation settlement can promote ordinary text.
-			emit(scope(), {
-				type: "step_settled",
-				role: phase === "closing" ? "answer" : "activity",
-				finishReason: event.finishReason,
-			});
+			if (!streaming) settleOutputStep(current, event.finishReason);
 			if ("onStepMessages" in params)
 				params.onStepMessages?.(
 					clone(canonical().slice(snapshot.original.messages.length)),
@@ -861,7 +890,8 @@ export async function* runNormalChatCompletion(
 			if (stopped()) throw new CompletionExit("user_stop");
 			if (uncertain()) throw new CompletionExit("uncertain_execution");
 			if (Date.now() >= deadline) throw new CompletionExit("deadline");
-			const current = ensureStep();
+			preparedStepNumber = options.stepNumber;
+			const current = ensureStep(options.stepNumber);
 			const entries = [
 				...snapshot.pendingImageEntries.splice(0),
 				...clone(params.stepImages?.drain() ?? []),
@@ -934,7 +964,17 @@ export async function* runNormalChatCompletion(
 			};
 			if (streaming) {
 				const result = streamText({ ...request, onError: () => {} });
+				let streamStepNumber = -1;
 				for await (const part of result.fullStream) {
+					if (part.type === "start-step") {
+						streamStepNumber++;
+						const current = ensureStep(streamStepNumber);
+						lastScope = scope(current);
+						emit(lastScope, { type: "step_start" });
+					}
+					const sourceStep = () => ensureStep(Math.max(0, streamStepNumber));
+					if (part.type === "finish-step")
+						settleOutputStep(sourceStep(), part.finishReason);
 					if (
 						part.type === "text-delta" ||
 						part.type === "reasoning-delta" ||
@@ -946,17 +986,20 @@ export async function* runNormalChatCompletion(
 							part.id,
 							part.type === "text-start" ? "text" : "reasoning",
 							part.providerMetadata,
+							sourceStep(),
 						);
 					if (part.type === "text-delta" || part.type === "reasoning-delta") {
 						startBlock(
 							part.id,
 							part.type === "text-delta" ? "text" : "reasoning",
 							part.providerMetadata,
+							sourceStep(),
 						);
 						delta(
 							part.id,
 							part.type === "text-delta" ? "text" : "reasoning",
 							part.text,
+							sourceStep(),
 						);
 						if (part.type === "reasoning-delta")
 							yield { type: "reasoning_delta", text: part.text };
@@ -968,11 +1011,18 @@ export async function* runNormalChatCompletion(
 							part.id,
 							part.type === "text-end" ? "text" : "reasoning",
 							part.providerMetadata,
+							sourceStep(),
 						);
-						emit(scope(), { type: "block_end", blockId: b.id });
+						emit(scope(sourceStep()), { type: "block_end", blockId: b.id });
 					}
 					if (part.type === "tool-input-start") {
-						ledger(part.id, part.toolName, undefined, part.providerExecuted);
+						ledger(
+							part.id,
+							part.toolName,
+							undefined,
+							part.providerExecuted,
+							sourceStep(),
+						);
 					}
 					if (part.type === "tool-call") {
 						const entry = ledger(
@@ -980,6 +1030,7 @@ export async function* runNormalChatCompletion(
 							part.toolName,
 							part.input,
 							part.providerExecuted,
+							sourceStep(),
 						);
 						entry.input = clone(part.input);
 						entry.providerOptions = clone(part.providerMetadata);
@@ -1002,6 +1053,7 @@ export async function* runNormalChatCompletion(
 							part.toolName,
 							part.input,
 							part.providerExecuted,
+							sourceStep(),
 						);
 						entry.preliminary = part.preliminary === true;
 						if (part.providerExecuted) entry.output = clone(part.output);
@@ -1036,6 +1088,7 @@ export async function* runNormalChatCompletion(
 							part.toolName,
 							part.input,
 							part.providerExecuted,
+							sourceStep(),
 						);
 						if (entry.state === "dispatched") entry.state = "uncertain";
 						if (!tools || Object.hasOwn(tools, part.toolName))
@@ -1170,7 +1223,7 @@ export async function* runNormalChatCompletion(
 			lastReason === "stop" &&
 			finalStep?.finished &&
 			!finalStep.toolAttempted &&
-			sanitizeNormalChatAnswer(finalText).trim().length > 0;
+			hasVisibleCharacter(sanitizeNormalChatAnswer(finalText));
 		if (natural) {
 			emit(
 				{ ...lastScope, stepId: finalStep.stepId },
@@ -1185,9 +1238,27 @@ export async function* runNormalChatCompletion(
 		const lastExecution = snapshot.executions
 			.filter((e) => e.segmentId === policy.segmentId)
 			.at(-1);
+		const deliveryStepIndex = lastExecution
+			? snapshot.steps.findIndex(
+					(s) =>
+						s.stepId === lastExecution.stepId &&
+						s.attemptId === lastExecution.attemptId,
+				)
+			: -1;
+		const laterUnfinishedWork =
+			deliveryStepIndex < 0 ||
+			snapshot.steps
+				.slice(deliveryStepIndex + 1)
+				.some(
+					(s) =>
+						s.segmentId === policy.segmentId &&
+						(!s.finished || s.finishReason !== "stop" || s.toolAttempted),
+				);
 		if (
+			phase === "working" &&
 			lastExecution?.state === "succeeded" &&
-			lastExecution.delivered === true
+			lastExecution.delivered === true &&
+			!laterUnfinishedWork
 		) {
 			outcome = "delivered";
 			break;
