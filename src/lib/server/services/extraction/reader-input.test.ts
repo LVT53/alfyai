@@ -23,6 +23,8 @@ import {
 	MINERU_TEMP_MAX_AGE_MS,
 	sweepMineruTempDirs,
 } from "$lib/server/services/mineru/temp-sweep";
+import { HEIF_MAX_PIXELS } from "$lib/server/services/vision/heif-decode";
+import { ImageDecodeTimeoutError } from "$lib/server/services/vision/image-errors";
 import * as prepareImage from "$lib/server/services/vision/prepare-image";
 import { DocumentExtractionError, extractionErrorMessage } from "./contracts";
 import { prepareReaderInput, readerFileFor } from "./reader-input";
@@ -59,6 +61,19 @@ afterEach(async () => {
 	vi.restoreAllMocks();
 	await rm(root, { recursive: true, force: true });
 });
+
+/**
+ * A copy of a real photo that says it has another size: the first `ispe` box
+ * holds the width and the height, after its version and flags (the pattern of
+ * `vision/heif-decode.test.ts`). The decoder reads the size before it decodes.
+ */
+function withIspe(bytes: Buffer, width: number, height: number): Buffer {
+	const patched = Buffer.from(bytes);
+	const at = patched.indexOf("ispe");
+	patched.writeUInt32BE(width, at + 8);
+	patched.writeUInt32BE(height, at + 12);
+	return patched;
+}
 
 async function stored(name: string, bytes: Buffer): Promise<string> {
 	const filePathAbsolute = path.join(root, name);
@@ -328,6 +343,54 @@ describe("prepareReaderInput", () => {
 		});
 		expect((failure as Error).message).not.toContain(root);
 		expect(await readFile(original)).toEqual(tinyHeic);
+	});
+
+	// What the ledger says of a photo the decoder gives up on (D9): a photo over
+	// the pixel limit is its own fact about the photo, a decode that ran out of
+	// time is the box being slow and gets another try, and a photo libheif refuses
+	// is unreadable, as it always was (the test above).
+	it("fails a photo over the pixel limit as image_too_large, not retryable, and leaves no file", async () => {
+		const original = await stored(
+			"panorama.heic",
+			withIspe(tinyHeic, 10_001, 10_000),
+		);
+
+		const failure = await prepare(
+			original,
+			"panorama.heic",
+			"image/heic",
+		).catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(DocumentExtractionError);
+		expect(failure).toMatchObject({
+			code: "image_too_large",
+			retryable: false,
+			message: extractionErrorMessage("image_too_large", ""),
+			details: { pixels: 100_010_000, limit: HEIF_MAX_PIXELS },
+		});
+		expect(await converted()).toEqual([]);
+	});
+
+	it("fails a decode that ran out of time as job_failed, retryable, so it is tried again", async () => {
+		vi.spyOn(prepareImage, "decodeImageToPng").mockRejectedValueOnce(
+			new ImageDecodeTimeoutError(60_000),
+		);
+		const original = await stored("IMG_0042.heic", tinyHeic);
+
+		const failure = await prepare(
+			original,
+			"IMG_0042.heic",
+			"image/heic",
+		).catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(DocumentExtractionError);
+		expect(failure).toMatchObject({
+			code: "job_failed",
+			retryable: true,
+			message: extractionErrorMessage("job_failed", ""),
+			details: { timeoutMs: 60_000 },
+		});
+		expect(await converted()).toEqual([]);
 	});
 
 	it("removes the PNG on release, and a second release does nothing", async () => {

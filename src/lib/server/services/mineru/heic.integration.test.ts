@@ -24,6 +24,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractionErrorMessage } from "$lib/server/services/extraction/contracts";
 import {
@@ -40,6 +41,25 @@ import {
 } from "./testing/fake-server";
 
 type Ledger = typeof import("$lib/server/services/extraction/extraction-job");
+
+// Every worker thread the decode pool starts, so a test can say that none did,
+// and wait for the ones a test started to have exited before the next one counts.
+type Recorded = Worker & { readonly exited: Promise<number> };
+const spawned = vi.hoisted(() => ({ workers: [] as unknown[] }));
+const startedWorkers = () => spawned.workers as Recorded[];
+
+vi.mock("node:worker_threads", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:worker_threads")>();
+	class RecordingWorker extends actual.Worker {
+		readonly exited: Promise<number>;
+		constructor(...args: ConstructorParameters<typeof actual.Worker>) {
+			super(...args);
+			this.exited = new Promise((resolve) => this.once("exit", resolve));
+			spawned.workers.push(this);
+		}
+	}
+	return { ...actual, Worker: RecordingWorker };
+});
 
 // `vision/__fixtures__/tiny.heic` is 64x42, brand `ftypheic`; how it was made is
 // written in `vision/prepare-image.test.ts`.
@@ -62,6 +82,19 @@ const persisted: Array<Record<string, unknown>> = [];
 
 function sha256(bytes: Buffer): string {
 	return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * A copy of a real photo that says it has another size: the first `ispe` box
+ * holds the width and the height, after its version and flags (the pattern of
+ * `vision/heif-decode.test.ts`). The decoder reads the size before it decodes.
+ */
+function withIspe(bytes: Buffer, width: number, height: number): Buffer {
+	const patched = Buffer.from(bytes);
+	const at = patched.indexOf("ispe");
+	patched.writeUInt32BE(width, at + 8);
+	patched.writeUInt32BE(height, at + 12);
+	return patched;
 }
 
 /** The configuration arrives the way it does in production: through the environment. */
@@ -176,6 +209,10 @@ async function captureUploads() {
 }
 
 beforeEach(async () => {
+	// The decode pool is the process's, so a thread an earlier test left is still
+	// counted until it has exited.
+	await Promise.all(startedWorkers().map((worker) => worker.exited));
+	spawned.workers.length = 0;
 	persisted.length = 0;
 	userId = `u${randomUUID().replace(/-/g, "")}`;
 	fixture = createLedgerFixture("mineru4-heic");
@@ -287,6 +324,76 @@ describe("an original that has gone from storage", () => {
 		expect(attempt?.errorMessage).toBe(sentence);
 		// The raw text is kept where an operator reads it.
 		expect(attempt?.diagnosticsJson).toContain(storedPath);
+		expect(persisted).toEqual([]);
+	});
+});
+
+describe("a photo over the pixel limit", () => {
+	it("fails once as image_too_large, with the ledger's sentence, and no decoder starts", async () => {
+		await boot({ fixtureInput: "png" });
+		const { jobId } = await seedPhotoJob({
+			fileName: "panorama.heic",
+			mimeType: "image/heic",
+			bytes: withIspe(tinyHeic, 10_001, 10_000),
+		});
+
+		expect(await run()).toEqual({ jobId, status: "failed" });
+
+		const row = await ledger.getExtractionJobRow(jobId);
+		expect(row).toMatchObject({
+			errorCode: "image_too_large",
+			// The same photo is over the limit every time: no second attempt, no Retry.
+			retryable: false,
+			errorMessage: extractionErrorMessage("image_too_large", ""),
+		});
+		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(1);
+		// Refused from its file, before a thread was made for it.
+		expect(startedWorkers()).toHaveLength(0);
+		// MinerU was given no task, and no bytes.
+		expect(createBody()).toBeUndefined();
+		expect(puts()).toEqual([]);
+		expect(persisted).toEqual([]);
+	});
+});
+
+describe("a photo whose decode ran out of time", () => {
+	it("waits for another try as job_failed, and ends after the attempt budget", async () => {
+		await boot({ fixtureInput: "png" });
+		// Classes from the module graph `boot` just made: the reader compares by class.
+		const { ImageDecodeTimeoutError } = await import(
+			"$lib/server/services/vision/image-errors"
+		);
+		const prepareImage = await import(
+			"$lib/server/services/vision/prepare-image"
+		);
+		vi.spyOn(prepareImage, "decodeImageToPng").mockRejectedValue(
+			new ImageDecodeTimeoutError(60_000),
+		);
+		const { jobId } = await seedPhotoJob({
+			fileName: "IMG_0042.heic",
+			mimeType: "image/heic",
+			bytes: tinyHeic,
+		});
+
+		// A slow box gets another try: the code spends an attempt, and says so.
+		expect(await run()).toEqual({ jobId, status: "queued" });
+		expect(await ledger.getExtractionJobRow(jobId)).toMatchObject({
+			errorCode: "job_failed",
+			retryable: true,
+			errorMessage: extractionErrorMessage("job_failed", ""),
+		});
+
+		// A photo that always hangs does not go on for ever.
+		for (let attempt = 2; attempt <= 3; attempt++) {
+			fixture.sqlite
+				.prepare("UPDATE document_extraction_jobs SET next_attempt_at = NULL")
+				.run();
+			await run();
+		}
+		const row = await ledger.getExtractionJobRow(jobId);
+		expect(row?.status).toBe("failed");
+		expect(row?.errorCode).toBe("max_attempts");
+		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(3);
 		expect(persisted).toEqual([]);
 	});
 });

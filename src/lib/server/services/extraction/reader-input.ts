@@ -26,6 +26,11 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import {
+	ImageDecodeTimeoutError,
+	ImagePreparationError,
+	ImageTooLargeError,
+} from "$lib/server/services/vision/image-errors";
+import {
 	FILE_TYPE_ENTRIES,
 	getIntakeReadAs,
 	resolveEntry,
@@ -142,6 +147,65 @@ function fileFailure(
 	});
 }
 
+/**
+ * A photo the decoder gave up on, as the ledger's error. Three things can be
+ * wrong, and each has its own cure, so each has its own code:
+ *
+ *  - more pixels than the decoder takes (`ImageTooLargeError`): `image_too_large`,
+ *    never retried. The same photo is over the limit every time; the person saves
+ *    a smaller copy.
+ *  - the decode did not finish in its time (`ImageDecodeTimeoutError`):
+ *    `job_failed`, retried. It spends an attempt, like any parse the reader could
+ *    not finish, so a slow box gets another try and a photo that always hangs ends
+ *    after the attempt budget instead of waiting forever.
+ *  - anything else the decoder refuses, libheif's refusals and a worker that
+ *    crashed (a plain `ImagePreparationError`): `document_unreadable`, never
+ *    retried. The same bytes are refused the same way.
+ *
+ * The decoder's own words are for an operator: they go to `details`, and the
+ * sentence a person reads comes from the code.
+ */
+function decodeFailure(error: ImagePreparationError): DocumentExtractionError {
+	if (error instanceof ImageTooLargeError) {
+		return new DocumentExtractionError({
+			code: "image_too_large",
+			message: extractionErrorMessage(
+				"image_too_large",
+				"The photo has more pixels than can be read.",
+			),
+			retryable: false,
+			details: {
+				reason: error.message,
+				pixels: error.pixels,
+				limit: error.limit,
+			},
+			cause: error,
+		});
+	}
+	if (error instanceof ImageDecodeTimeoutError) {
+		return new DocumentExtractionError({
+			code: "job_failed",
+			message: extractionErrorMessage(
+				"job_failed",
+				"The photo took too long to decode.",
+			),
+			retryable: true,
+			details: { reason: error.message, timeoutMs: error.timeoutMs },
+			cause: error,
+		});
+	}
+	return new DocumentExtractionError({
+		code: "document_unreadable",
+		message: extractionErrorMessage(
+			"document_unreadable",
+			"The photo could not be decoded.",
+		),
+		retryable: false,
+		details: { reason: error.message },
+		cause: error,
+	});
+}
+
 function unchanged(params: ReaderInputParams): PreparedReaderInput {
 	return {
 		input: {
@@ -167,7 +231,7 @@ async function readAsPng(
 	// Before a byte is read: a registry that lacks the entry fails here.
 	const reader = readerFileFor(fileName, readAs);
 
-	const { decodeImageToPng, ImagePreparationError } = await import(
+	const { decodeImageToPng } = await import(
 		"$lib/server/services/vision/prepare-image"
 	);
 	let bytes: Buffer;
@@ -190,16 +254,7 @@ async function readAsPng(
 		));
 	} catch (error) {
 		if (!(error instanceof ImagePreparationError)) throw error;
-		throw new DocumentExtractionError({
-			code: "document_unreadable",
-			message: extractionErrorMessage(
-				"document_unreadable",
-				"The photo could not be decoded.",
-			),
-			retryable: false,
-			details: { reason: error.message },
-			cause: error,
-		});
+		throw decodeFailure(error);
 	}
 
 	const pathAbsolute = join(
