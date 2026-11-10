@@ -710,3 +710,62 @@ it("derives dashboard message joins for multi-attempt billing without multiplyin
 		),
 	).toBe(true);
 });
+
+it("refines a preregistered alias to the authoritative billable response model before reconciliation", async () => {
+	database.db
+		.insert(schema.providerModels)
+		.values({
+			id: "response-rule",
+			providerId: "p1",
+			name: "resolved-version",
+			displayName: "Resolved",
+			inputUsdMicrosPer1m: 3_000_000,
+			outputUsdMicrosPer1m: 4_000_000,
+		})
+		.run();
+	ledger.admitTurn({ ...scope, ownerId: "process" });
+	await ledger.recordTurnAttempt(scope, {
+		...attempt,
+		inputTokens: null,
+		outputTokens: null,
+		totalTokens: null,
+		outcome: null,
+		safeStopCause: null,
+		usageFinal: false,
+	});
+	const startedAt = database.db
+		.select()
+		.from(schema.normalChatAttempts)
+		.get()?.startedAt;
+	const resolved = { ...attempt, providerModelName: "resolved-version" };
+	await ledger.recordTurnAttempt(scope, resolved);
+	const settled = ledger.settleTurn(scope, { ...terminal, attemptIds: ["a"] });
+	expect(settled.accountingStatus).toBe("ready");
+	await ledger.recordTurnAttempt(scope, resolved);
+	expect(ledger.settleTurn(scope, { ...terminal, attemptIds: ["a"] })).toEqual(
+		settled,
+	);
+	expect(
+		database.db.select().from(schema.normalChatAttempts).get(),
+	).toMatchObject({
+		startedAt,
+		providerModelName: "resolved-version",
+		costUsdMicros: 380,
+		priceRuleId: "response-rule",
+	});
+	expect(database.db.select().from(schema.usageEvents).all()).toMatchObject([
+		{
+			id: "turn-attempt:a",
+			providerModelName: "resolved-version",
+			costUsdMicros: 380,
+			priceRuleId: "response-rule",
+		},
+	]);
+	await expect(ledger.recordTurnAttempt(scope, attempt)).rejects.toThrowError(
+		/conflict/i,
+	);
+	expect(await analytics.getConversationCostSummary("c")).toEqual({
+		totalCostUsdMicros: 380,
+		totalTokens: 120,
+	});
+});

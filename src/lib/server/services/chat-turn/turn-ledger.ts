@@ -50,6 +50,7 @@ export type TurnAttempt = {
 	phase: "working" | "closing";
 	providerId: string | null;
 	modelId: string;
+	/** Configured alias initially; authoritative response name may refine it before billing. */
 	providerModelName: string;
 	safeStopCause: TurnStopCause | null;
 	outcome: TurnOutcome | null;
@@ -378,7 +379,6 @@ export async function recordTurnAttempt(
 					"phase",
 					"providerId",
 					"modelId",
-					"providerModelName",
 				] as const) {
 					if (existing[key] !== facts[key])
 						throw new TurnLedgerConflictError("Attempt identity conflict");
@@ -388,6 +388,11 @@ export async function recordTurnAttempt(
 						!facts.usageFinal ||
 						Object.entries(facts).some(
 							([key, value]) =>
+								// The configured alias may resolve before billing. The call identity
+								// (provider/model/phase/segment/attempt) remains immutable.
+								!(
+									key === "providerModelName" && existing.costUsdMicros === null
+								) &&
 								(existing.costUsdMicros !== null ||
 									existing[key as keyof typeof existing] !== null) &&
 								existing[key as keyof typeof existing] !== value,
@@ -399,7 +404,10 @@ export async function recordTurnAttempt(
 			const costUsdMicros =
 				existing?.costUsdMicros ??
 				(input.usageFinal ? price.costUsdMicros : null);
-			const priceRuleId = existing?.priceRuleId ?? price.priceRuleId;
+			const priceRuleId =
+				existing && existing.costUsdMicros !== null
+					? existing.priceRuleId
+					: price.priceRuleId;
 			tx.insert(normalChatAttempts)
 				.values({
 					attemptId: input.attemptId,
