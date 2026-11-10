@@ -8,7 +8,8 @@ import type { StreamErrorCode } from "$lib/services/stream-protocol";
  * Owns the three ways a chat stream can end plus the "upstream ended, now what?"
  * decision tree that used to be four sibling closures in the orchestrator:
  *  - {@link StreamTerminal.completeSuccess} — happy-path / stopped / paused (the reply asked
- *    the person and stops there) / closed-without-finish
+ *    the person and stops there) / closed-without-finish / no-final-answer (the model
+ *    stopped before it wrote its answer; saved as it is, with a notice)
  *    finalization (delegates the actual finalize payload to the driver via
  *    {@link StreamTerminalDeps.runCompleteStreamTurn}, so the `completeStreamTurn`
  *    boundary is not widened here — that is C5's concern).
@@ -51,6 +52,11 @@ export interface StreamTerminalDeps {
 		streamClosedWithoutFinish: boolean;
 		/** The reply asked the person and stops there: it is saved as a paused segment. */
 		paused: boolean;
+		/**
+		 * The model stopped before it wrote its final answer and the repair did not
+		 * make one: the turn is saved as it is, with the `no_final_answer` notice.
+		 */
+		noFinalAnswer: boolean;
 	}) => Promise<void>;
 	// completeOrRecoverAfterUpstreamEnd collaborators
 	flushNativeToolCalls: () => void;
@@ -62,6 +68,14 @@ export interface StreamTerminalDeps {
 	 * the reply is paused for the answer, not finished and not failed.
 	 */
 	isPaused: () => boolean;
+	/**
+	 * The turn has its final answer: visible text was shown after the last tool
+	 * call that needs words after it (`chat-turn/AGENTS.md`, "A Turn's Final
+	 * Answer"). A sentence written before a tool call is visible text and is not a
+	 * final answer.
+	 */
+	hasFinalAnswer: () => boolean;
+	/** Any visible text at all: a preamble counts. */
 	hasVisibleAssistantAnswerOutput: () => boolean;
 	hasCompletedFileProductionToolCall: () => boolean;
 	hasCompletedNonFileToolCall: () => boolean;
@@ -81,10 +95,16 @@ export interface StreamTerminalDeps {
 	};
 }
 
+export interface CompleteSuccessOptions {
+	streamClosedWithoutFinish?: boolean;
+	paused?: boolean;
+	noFinalAnswer?: boolean;
+}
+
 export interface StreamTerminal {
 	completeSuccess: (
 		wasStopped?: boolean,
-		options?: { streamClosedWithoutFinish?: boolean; paused?: boolean },
+		options?: CompleteSuccessOptions,
 	) => Promise<void>;
 	failStream: (code: StreamErrorCode) => void;
 	failPreparedTurnStream: (error: ChatTurnRequestError) => void;
@@ -96,7 +116,7 @@ export interface StreamTerminal {
 export function createStreamTerminal(deps: StreamTerminalDeps): StreamTerminal {
 	const completeSuccess = async (
 		wasStopped = false,
-		options: { streamClosedWithoutFinish?: boolean; paused?: boolean } = {},
+		options: CompleteSuccessOptions = {},
 	) => {
 		if (deps.isEnded()) return;
 		deps.markEnded();
@@ -111,6 +131,7 @@ export function createStreamTerminal(deps: StreamTerminalDeps): StreamTerminal {
 			wasStopped,
 			streamClosedWithoutFinish: options.streamClosedWithoutFinish === true,
 			paused: options.paused === true,
+			noFinalAnswer: options.noFinalAnswer === true,
 		});
 	};
 
@@ -165,10 +186,12 @@ export function createStreamTerminal(deps: StreamTerminalDeps): StreamTerminal {
 			});
 			return;
 		}
-		if (
-			deps.hasVisibleAssistantAnswerOutput() ||
-			deps.hasCompletedFileProductionToolCall()
-		) {
+		// A turn is finished when visible text came after the last tool call that
+		// needs words after it, or when its file was made (the file card is the
+		// answer). A sentence the model wrote before a tool call is visible text and
+		// is not that: the next check sends such a turn to the repair when there is
+		// one, and saves it as it is, with a notice, when there is not.
+		if (deps.hasFinalAnswer() || deps.hasCompletedFileProductionToolCall()) {
 			await completeSuccess(false, {
 				streamClosedWithoutFinish: reason === "stream_closed",
 			});
@@ -204,6 +227,17 @@ export function createStreamTerminal(deps: StreamTerminalDeps): StreamTerminal {
 				);
 				return;
 			}
+		}
+		// No final answer, and no repair to run or the repair was spent. Words the
+		// model wrote stay: the turn is saved as it is and carries the notice, which
+		// beats an error that would throw them and the tool results away. With no
+		// visible text at all there is nothing to save, and the turn fails as before.
+		if (deps.hasVisibleAssistantAnswerOutput()) {
+			await completeSuccess(false, {
+				streamClosedWithoutFinish: reason === "stream_closed",
+				noFinalAnswer: true,
+			});
+			return;
 		}
 		failStream("backend_failure");
 	};

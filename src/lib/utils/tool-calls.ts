@@ -119,6 +119,32 @@ export function isFileProductionToolName(name: string): boolean {
 	);
 }
 
+// The tools besides file production whose result is itself what the person
+// asked for: an item, a change to one, a picture, an offer, a question.
+const DELIVERING_TOOL_NAMES: ReadonlySet<string> = new Set([
+	"create_artifact",
+	"edit_artifact",
+	"make_image",
+	"suggest_instruction",
+]);
+
+/**
+ * A tool whose result is the thing asked for, so the reply needs no words after
+ * it: file production, `create_artifact`, `edit_artifact`, `make_image`,
+ * `suggest_instruction` and `ask_user`. Every other tool (a search, a page, a
+ * calculation, a connection read) hands the model something to answer from, and
+ * the reply has to say it. The stream runtime reads this to tell a turn that
+ * ended on its final answer from one that stopped on a preamble
+ * (`chat-turn/stream.ts`, `hasTextAfterLastToolCall`).
+ */
+export function isDeliveringToolName(name: string): boolean {
+	return (
+		isFileProductionToolName(name) ||
+		isAskToolName(name) ||
+		DELIVERING_TOOL_NAMES.has(normalizeToolNameForComparison(name))
+	);
+}
+
 export function isConnectionWriteToolName(name: string): boolean {
 	const normalized = normalizeToolNameForComparison(name);
 	return isToolNameMatch(normalized, CONNECTION_WRITE_TOOL_IDENTIFIERS);

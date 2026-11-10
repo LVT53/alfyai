@@ -1548,6 +1548,164 @@ describe("a reply is kept whole", () => {
 	});
 });
 
+// Whether the turn has a final answer: visible text on screen after the last tool
+// call that needs words after it (`chat-turn/AGENTS.md`, "A Turn's Final Answer").
+// The stream terminal reads the fact at a clean end of the model stream.
+describe("createServerChunkRuntime: hasTextAfterLastToolCall", () => {
+	function runtimeWithNoOutput() {
+		return createServerChunkRuntime({
+			enqueueChunk() {
+				return true;
+			},
+		});
+	}
+
+	function callOf(
+		runtime: ReturnType<typeof runtimeWithNoOutput>,
+		name: string,
+		callId: string,
+	) {
+		runtime.emitToolCallEvent(name, { q: "x" }, "running", { callId });
+		runtime.emitToolCallEvent(name, { q: "x" }, "done", { callId });
+	}
+
+	it("is false at the start", () => {
+		expect(runtimeWithNoOutput().hasTextAfterLastToolCall).toBe(false);
+	});
+
+	it("is true once visible text is on screen", () => {
+		const runtime = runtimeWithNoOutput();
+		runtime.emitChunkWithOutputHandling("The total is 42.");
+		runtime.flushInlineThinkingBuffer();
+
+		expect(runtime.fullResponse).toBe("The total is 42.");
+		expect(runtime.hasTextAfterLastToolCall).toBe(true);
+	});
+
+	it("is false after a call to a tool that needs words after it, even when words came before", () => {
+		const runtime = runtimeWithNoOutput();
+		runtime.emitChunkWithOutputHandling("I'll calculate the costs.");
+		runtime.emitToolCallEvent("run_python", { code: "1+1" }, "running", {
+			callId: "call-1",
+		});
+
+		// the call flushed the preamble onto the screen, and the call took the fact back
+		expect(runtime.fullResponse).toBe("I'll calculate the costs.");
+		expect(runtime.hasTextAfterLastToolCall).toBe(false);
+		runtime.emitToolCallEvent("run_python", { code: "1+1" }, "done", {
+			callId: "call-1",
+		});
+		expect(runtime.hasTextAfterLastToolCall).toBe(false);
+	});
+
+	it("is false after research_web too, and true again once words follow the result", () => {
+		const runtime = runtimeWithNoOutput();
+		runtime.emitChunkWithOutputHandling("Here is a first look.");
+		callOf(runtime, "research_web", "call-1");
+		expect(runtime.hasTextAfterLastToolCall).toBe(false);
+
+		runtime.emitChunkWithOutputHandling("The answer is 42.");
+		runtime.flushInlineThinkingBuffer();
+		expect(runtime.hasTextAfterLastToolCall).toBe(true);
+	});
+
+	it("is taken back by the last call of several, whichever finishes first", () => {
+		const runtime = runtimeWithNoOutput();
+		runtime.emitToolCallEvent("research_web", { q: "a" }, "running", {
+			callId: "call-a",
+		});
+		runtime.emitToolCallEvent("research_web", { q: "b" }, "running", {
+			callId: "call-b",
+		});
+		runtime.emitToolCallEvent("research_web", { q: "b" }, "done", {
+			callId: "call-b",
+		});
+		// words between the two results are not the answer to the second one
+		runtime.emitChunkWithOutputHandling("Half of it is in.");
+		runtime.flushInlineThinkingBuffer();
+		expect(runtime.hasTextAfterLastToolCall).toBe(true);
+		runtime.emitToolCallEvent("research_web", { q: "a" }, "done", {
+			callId: "call-a",
+		});
+
+		expect(runtime.hasTextAfterLastToolCall).toBe(false);
+	});
+
+	it.each([
+		"create_artifact",
+		"edit_artifact",
+		"make_image",
+		"suggest_instruction",
+		"ask_user",
+		"produce_file",
+	])("is unchanged by a %s call: true stays true", (toolName) => {
+		const runtime = runtimeWithNoOutput();
+		runtime.emitChunkWithOutputHandling("Here is the thing you asked for.");
+		callOf(runtime, toolName, "call-1");
+
+		expect(runtime.hasTextAfterLastToolCall).toBe(true);
+	});
+
+	it.each([
+		"create_artifact",
+		"edit_artifact",
+		"make_image",
+		"suggest_instruction",
+		"ask_user",
+		"produce_file",
+	])("is unchanged by a %s call: false stays false", (toolName) => {
+		const runtime = runtimeWithNoOutput();
+		callOf(runtime, toolName, "call-1");
+
+		expect(runtime.hasTextAfterLastToolCall).toBe(false);
+	});
+
+	it("is not set by text the cleanup removes", () => {
+		const runtime = runtimeWithNoOutput();
+		runtime.emitChunkWithOutputHandling("Let me search for it.");
+		runtime.flushInlineThinkingBuffer();
+
+		// a narration of the call that is about to be made: the cleanup takes it out
+		expect(runtime.fullResponse).toBe("");
+		expect(runtime.hasTextAfterLastToolCall).toBe(false);
+	});
+
+	it("is not set by whitespace, by zero-width characters, or by reasoning", () => {
+		const runtime = runtimeWithNoOutput();
+		runtime.emitThinking("The user wants the costs. ".repeat(4));
+		runtime.emitChunkWithOutputHandling("\n\n");
+		runtime.emitChunkWithOutputHandling("\u200B");
+		runtime.emitChunkWithOutputHandling("\u200C\u2060 \uFEFF");
+		runtime.flushInlineThinkingBuffer();
+
+		// the zero-width characters are on screen, as the model sent them
+		expect(runtime.fullResponse).toContain("\u200B");
+		expect(runtime.hasTextAfterLastToolCall).toBe(false);
+
+		runtime.emitChunkWithOutputHandling("42");
+		runtime.flushInlineThinkingBuffer();
+		expect(runtime.hasTextAfterLastToolCall).toBe(true);
+	});
+
+	it("is not changed by a repeat of a call it has already seen", () => {
+		const runtime = runtimeWithNoOutput();
+		runtime.emitToolCallEvent("research_web", { q: "x" }, "running", {
+			callId: "call-1",
+		});
+		runtime.emitToolCallEvent("research_web", { q: "x" }, "done", {
+			callId: "call-1",
+		});
+		runtime.emitChunkWithOutputHandling("The answer is 42.");
+		runtime.flushInlineThinkingBuffer();
+		// the same call reported again (a prefetched or recovered copy) is ignored
+		runtime.emitToolCallEvent("research_web", { q: "x" }, "done", {
+			callId: "call-1",
+		});
+
+		expect(runtime.hasTextAfterLastToolCall).toBe(true);
+	});
+});
+
 // The answer to a turn that could not be prepared, for the two routes that prepare
 // a stored turn (a retry, and the resume of a reply from an answer): one mapping,
 // not one in each route.

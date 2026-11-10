@@ -6,6 +6,7 @@ import {
 	flushInlineThinkingState,
 	getLeakedToolDiagnosticPrefixLength,
 	getTextContent,
+	hasVisibleCharacter,
 	mayStartLeadingThinkingPreamble,
 	processInlineThinkingChunk,
 	resetLeakedToolDiagnosticsForNewTextRun,
@@ -1010,5 +1011,43 @@ describe("leaked tool output: the start of a run of reply text", () => {
 			"- 19:00 Escape room - EUR 22 - https://www.example.ie/escape",
 		].join("\n");
 		expect(stripLeakedToolDiagnostics(answer)).toBe(answer);
+	});
+});
+
+// What counts as an answer on screen. Staging, 2026-11-10: Kimi and DeepSeek each
+// "answered" a recovery request with one zero-width space, which `trim()` keeps and
+// which the person sees as nothing.
+describe("hasVisibleCharacter", () => {
+	it("is false for no text and for text that is only whitespace", () => {
+		expect(hasVisibleCharacter("")).toBe(false);
+		expect(hasVisibleCharacter("   ")).toBe(false);
+		expect(hasVisibleCharacter("\n\n\t \r\n")).toBe(false);
+		// a no-break space and a line separator are whitespace too
+		expect(hasVisibleCharacter("\u00A0\u2028\u3000")).toBe(false);
+	});
+
+	it.each([
+		["a zero-width space", "\u200B"],
+		["a zero-width non-joiner", "\u200C"],
+		["a zero-width joiner", "\u200D"],
+		["a word joiner", "\u2060"],
+		["a byte order mark", "\uFEFF"],
+		["all of them among whitespace", " \u200B\n\u200C\u200D\t\u2060\uFEFF "],
+	])("is false for %s alone", (_name, text) => {
+		expect(hasVisibleCharacter(text)).toBe(false);
+	});
+
+	it("is true as soon as one character can be seen", () => {
+		expect(hasVisibleCharacter("a")).toBe(true);
+		expect(hasVisibleCharacter("42")).toBe(true);
+		expect(hasVisibleCharacter(".")).toBe(true);
+		expect(hasVisibleCharacter("Árvíztűrő tükörfúrógép")).toBe(true);
+		expect(hasVisibleCharacter("\u200B\u200B x \u200B")).toBe(true);
+		expect(hasVisibleCharacter("\n\n\u200BThe total is 42.")).toBe(true);
+	});
+
+	it("sees a character outside the basic plane", () => {
+		expect(hasVisibleCharacter("\u200B\u{1F600}")).toBe(true);
+		expect(hasVisibleCharacter("\u{20BB7}")).toBe(true);
 	});
 });

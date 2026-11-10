@@ -21,6 +21,7 @@ import {
 	flushInlineThinkingState,
 	getLeakedToolDiagnosticPrefixLength,
 	getSkillControlEnvelopePrefixHoldLength,
+	hasVisibleCharacter,
 	looksLikeLeadingThinkingPreamble,
 	mayStartLeadingThinkingPreamble,
 	processInlineThinkingChunk,
@@ -59,7 +60,7 @@ export {
 // Internal helpers (moved to sub-modules, retained here for local use)
 // ---------------------------------------------------------------------------
 import { getNestedObject } from "$lib/services/stream-protocol";
-import { toolCallInputKey } from "$lib/utils/tool-calls";
+import { isDeliveringToolName, toolCallInputKey } from "$lib/utils/tool-calls";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const SSE_HEADERS = {
@@ -578,6 +579,17 @@ export function createServerChunkRuntime({
 	// a block of raw results) and is not asked about the rest of the answer: see
 	// `StripLeakedToolDiagnosticsOptions.leading`. A tool call starts a new run.
 	let answerStarted = false;
+	// Whether visible text has been put on screen since the last tool call that
+	// needs words after it: the fact "this turn has a final answer", read by the
+	// stream terminal at a clean end (`stream-terminal.ts`; the rule and the
+	// delivering tools, `chat-turn/AGENTS.md`, "A Turn's Final Answer"). False at
+	// the start, true where `answerStarted` becomes true provided the chunk holds a
+	// character a person can see (a lone zero-width space is not an answer), and
+	// false again where `answerStarted` is reset, unless the tool delivers what was
+	// asked for (a file, an item, a picture) and needs no words after it.
+	// `answerStarted` itself answers a different question, for the cleanup of leaked
+	// output, and is not changed by this.
+	let hasTextAfterLastToolCall = false;
 
 	const emitUiTextDelta = (chunk: string): boolean => {
 		const frames: string[] = [];
@@ -671,6 +683,9 @@ export function createServerChunkRuntime({
 
 		if (visibleChunk.trim()) {
 			answerStarted = true;
+		}
+		if (hasVisibleCharacter(visibleChunk)) {
+			hasTextAfterLastToolCall = true;
 		}
 		fullResponse += visibleChunk;
 		if (onToken) onToken(visibleChunk);
@@ -852,6 +867,9 @@ export function createServerChunkRuntime({
 		// narration before the call ("Let me search for it.") has done its work,
 		// and must not hold back the answer after the tool's result.
 		answerStarted = false;
+		if (!isDeliveringToolName(name)) {
+			hasTextAfterLastToolCall = false;
+		}
 		resetLeakedToolDiagnosticsForNewTextRun(leakedToolDiagnosticsState);
 		if (onToolCall)
 			onToolCall(name, input, status, details?.outputSummary, details);
@@ -1230,6 +1248,9 @@ export function createServerChunkRuntime({
 		flushPendingThinking,
 		get fullResponse() {
 			return fullResponse;
+		},
+		get hasTextAfterLastToolCall() {
+			return hasTextAfterLastToolCall;
 		},
 		get thinkingContent() {
 			return thinkingContent;

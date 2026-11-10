@@ -26,6 +26,7 @@ function createDeps(overrides: Partial<StreamTerminalDeps> = {}) {
 		flushBufferedStreamOutput: vi.fn(() => true),
 		wasStopRequested: vi.fn(() => false),
 		isPaused: vi.fn(() => false),
+		hasFinalAnswer: vi.fn(() => false),
 		hasVisibleAssistantAnswerOutput: vi.fn(() => false),
 		hasCompletedFileProductionToolCall: vi.fn(() => false),
 		hasCompletedNonFileToolCall: vi.fn(() => false),
@@ -59,6 +60,7 @@ describe("createStreamTerminal", () => {
 				wasStopped: false,
 				streamClosedWithoutFinish: false,
 				paused: false,
+				noFinalAnswer: false,
 			});
 		});
 
@@ -71,6 +73,7 @@ describe("createStreamTerminal", () => {
 				wasStopped: true,
 				streamClosedWithoutFinish: false,
 				paused: false,
+				noFinalAnswer: false,
 			});
 		});
 
@@ -85,6 +88,7 @@ describe("createStreamTerminal", () => {
 				wasStopped: false,
 				streamClosedWithoutFinish: true,
 				paused: false,
+				noFinalAnswer: false,
 			});
 		});
 
@@ -97,6 +101,20 @@ describe("createStreamTerminal", () => {
 				wasStopped: false,
 				streamClosedWithoutFinish: false,
 				paused: true,
+				noFinalAnswer: false,
+			});
+		});
+
+		it("hands noFinalAnswer to the finalize call and logs it as a success", async () => {
+			const deps = createDeps();
+			const terminal = createStreamTerminal(deps);
+			await terminal.completeSuccess(false, { noFinalAnswer: true });
+			expect(deps.logPhaseTiming).toHaveBeenCalledWith("success");
+			expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+				wasStopped: false,
+				streamClosedWithoutFinish: false,
+				paused: false,
+				noFinalAnswer: true,
 			});
 		});
 
@@ -195,12 +213,13 @@ describe("createStreamTerminal", () => {
 				wasStopped: true,
 				streamClosedWithoutFinish: false,
 				paused: false,
+				noFinalAnswer: false,
 			});
 		});
 
 		it("completes successfully with closed-without-finish for a stream_closed reason", async () => {
 			const deps = createDeps({
-				hasVisibleAssistantAnswerOutput: vi.fn(() => true),
+				hasFinalAnswer: vi.fn(() => true),
 			});
 			const terminal = createStreamTerminal(deps);
 			await terminal.completeOrRecoverAfterUpstreamEnd("stream_closed");
@@ -208,6 +227,7 @@ describe("createStreamTerminal", () => {
 				wasStopped: false,
 				streamClosedWithoutFinish: true,
 				paused: false,
+				noFinalAnswer: false,
 			});
 		});
 
@@ -229,6 +249,7 @@ describe("createStreamTerminal", () => {
 					wasStopped: false,
 					streamClosedWithoutFinish: false,
 					paused: true,
+					noFinalAnswer: false,
 				});
 				expect(fallbackRunner).not.toHaveBeenCalled();
 				expect(deps.emitError).not.toHaveBeenCalled();
@@ -246,6 +267,7 @@ describe("createStreamTerminal", () => {
 					wasStopped: false,
 					streamClosedWithoutFinish: false,
 					paused: true,
+					noFinalAnswer: false,
 				});
 			});
 
@@ -260,6 +282,7 @@ describe("createStreamTerminal", () => {
 					wasStopped: false,
 					streamClosedWithoutFinish: true,
 					paused: true,
+					noFinalAnswer: false,
 				});
 			});
 
@@ -274,6 +297,7 @@ describe("createStreamTerminal", () => {
 					wasStopped: true,
 					streamClosedWithoutFinish: false,
 					paused: false,
+					noFinalAnswer: false,
 				});
 			});
 
@@ -289,7 +313,7 @@ describe("createStreamTerminal", () => {
 
 			it("never asks for a pause of a run that did not ask", async () => {
 				const deps = createDeps({
-					hasVisibleAssistantAnswerOutput: vi.fn(() => true),
+					hasFinalAnswer: vi.fn(() => true),
 				});
 				const terminal = createStreamTerminal(deps);
 				await terminal.completeOrRecoverAfterUpstreamEnd("end_event");
@@ -332,6 +356,234 @@ describe("createStreamTerminal", () => {
 			await terminal.completeOrRecoverAfterUpstreamEnd("done_signal");
 			expect(deps.emitError).toHaveBeenCalledWith("backend_failure");
 			expect(deps.closeDownstream).toHaveBeenCalled();
+		});
+
+		// A model that writes a sentence before a tool call and then stops after the
+		// tool's result has text on screen and no final answer: `hasFinalAnswer` is
+		// false and `hasVisibleAssistantAnswerOutput` is true (the preamble). That
+		// turn used to be saved as a finished reply (any visible text passed). It
+		// goes to the repair when there is one to run; when there is not, or the
+		// repair was spent, it is saved as it is and says so (`noFinalAnswer`).
+		describe("a preamble and no final answer", () => {
+			const preamble = {
+				hasVisibleAssistantAnswerOutput: vi.fn(() => true),
+			};
+
+			it("completes a turn that has its final answer, with no repair and no flag", async () => {
+				const fallbackRunner = vi.fn(async () => null);
+				const deps = createDeps({
+					hasFinalAnswer: vi.fn(() => true),
+					hasVisibleAssistantAnswerOutput: vi.fn(() => true),
+					hasCompletedNonFileToolCall: vi.fn(() => true),
+					getFallbackRunner: vi.fn(() => fallbackRunner),
+				});
+				await createStreamTerminal(deps).completeOrRecoverAfterUpstreamEnd(
+					"end_event",
+				);
+
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+					wasStopped: false,
+					streamClosedWithoutFinish: false,
+					paused: false,
+					noFinalAnswer: false,
+				});
+				expect(fallbackRunner).not.toHaveBeenCalled();
+				expect(deps.emitError).not.toHaveBeenCalled();
+			});
+
+			it("sends a preamble with a completed non-file tool call to the repair, with no error and no save of its own", async () => {
+				const fallbackRunner = vi.fn(async () => null);
+				const deps = createDeps({
+					...preamble,
+					hasCompletedNonFileToolCall: vi.fn(() => true),
+					getFallbackRunner: vi.fn(() => fallbackRunner),
+				});
+				await createStreamTerminal(deps).completeOrRecoverAfterUpstreamEnd(
+					"end_event",
+				);
+
+				expect(fallbackRunner).toHaveBeenCalledTimes(1);
+				expect(fallbackRunner).toHaveBeenCalledWith(
+					"stream_read_failure",
+					1,
+					expect.any(Error),
+				);
+				// the repair completes the turn itself, or the caller of the repair does
+				expect(deps.runCompleteStreamTurn).not.toHaveBeenCalled();
+				expect(deps.emitError).not.toHaveBeenCalled();
+			});
+
+			it("saves a preamble as it is, with noFinalAnswer, when the repair was already attempted", async () => {
+				const fallbackRunner = vi.fn(async () => null);
+				const deps = createDeps({
+					...preamble,
+					hasCompletedNonFileToolCall: vi.fn(() => true),
+					getAttemptedNonStreamFallback: vi.fn(() => true),
+					getFallbackRunner: vi.fn(() => fallbackRunner),
+				});
+				await createStreamTerminal(deps).completeOrRecoverAfterUpstreamEnd(
+					"end_event",
+				);
+
+				expect(fallbackRunner).not.toHaveBeenCalled();
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+					wasStopped: false,
+					streamClosedWithoutFinish: false,
+					paused: false,
+					noFinalAnswer: true,
+				});
+				expect(deps.logPhaseTiming).toHaveBeenCalledWith("success");
+				expect(deps.emitError).not.toHaveBeenCalled();
+			});
+
+			it("saves a preamble as it is, with noFinalAnswer, when there is no repair to run", async () => {
+				const deps = createDeps({
+					...preamble,
+					hasCompletedNonFileToolCall: vi.fn(() => true),
+					getFallbackRunner: vi.fn(() => null),
+				});
+				await createStreamTerminal(deps).completeOrRecoverAfterUpstreamEnd(
+					"end_event",
+				);
+
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith(
+					expect.objectContaining({ noFinalAnswer: true }),
+				);
+				expect(deps.emitError).not.toHaveBeenCalled();
+			});
+
+			it("saves a preamble with no completed tool call as it is, with noFinalAnswer", async () => {
+				const fallbackRunner = vi.fn(async () => null);
+				const deps = createDeps({
+					...preamble,
+					getFallbackRunner: vi.fn(() => fallbackRunner),
+				});
+				await createStreamTerminal(deps).completeOrRecoverAfterUpstreamEnd(
+					"end_event",
+				);
+
+				expect(fallbackRunner).not.toHaveBeenCalled();
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+					wasStopped: false,
+					streamClosedWithoutFinish: false,
+					paused: false,
+					noFinalAnswer: true,
+				});
+				expect(deps.emitError).not.toHaveBeenCalled();
+			});
+
+			it("names the closed stream as well as the missing answer", async () => {
+				const deps = createDeps({ ...preamble });
+				await createStreamTerminal(deps).completeOrRecoverAfterUpstreamEnd(
+					"stream_closed",
+				);
+
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+					wasStopped: false,
+					streamClosedWithoutFinish: true,
+					paused: false,
+					noFinalAnswer: true,
+				});
+			});
+
+			it("still fails when there is no visible text and nothing to recover", async () => {
+				const deps = createDeps({
+					hasVisibleAssistantAnswerOutput: vi.fn(() => false),
+				});
+				await createStreamTerminal(deps).completeOrRecoverAfterUpstreamEnd(
+					"end_event",
+				);
+
+				expect(deps.emitError).toHaveBeenCalledWith("backend_failure");
+				expect(deps.runCompleteStreamTurn).not.toHaveBeenCalled();
+			});
+
+			it("still fails when there is no visible text and the repair was already attempted", async () => {
+				const deps = createDeps({
+					hasVisibleAssistantAnswerOutput: vi.fn(() => false),
+					hasCompletedNonFileToolCall: vi.fn(() => true),
+					getAttemptedNonStreamFallback: vi.fn(() => true),
+					getFallbackRunner: vi.fn(() => vi.fn(async () => null)),
+				});
+				await createStreamTerminal(deps).completeOrRecoverAfterUpstreamEnd(
+					"end_event",
+				);
+
+				expect(deps.emitError).toHaveBeenCalledWith("backend_failure");
+				expect(deps.runCompleteStreamTurn).not.toHaveBeenCalled();
+			});
+
+			it("completes a completed file production with only a preamble, without the flag", async () => {
+				const fallbackRunner = vi.fn(async () => null);
+				const deps = createDeps({
+					...preamble,
+					hasCompletedFileProductionToolCall: vi.fn(() => true),
+					hasCompletedNonFileToolCall: vi.fn(() => true),
+					getFallbackRunner: vi.fn(() => fallbackRunner),
+				});
+				await createStreamTerminal(deps).completeOrRecoverAfterUpstreamEnd(
+					"end_event",
+				);
+
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+					wasStopped: false,
+					streamClosedWithoutFinish: false,
+					paused: false,
+					noFinalAnswer: false,
+				});
+				expect(fallbackRunner).not.toHaveBeenCalled();
+			});
+
+			it("completes a completed file production with no text at all, as it always did", async () => {
+				const deps = createDeps({
+					hasCompletedFileProductionToolCall: vi.fn(() => true),
+				});
+				await createStreamTerminal(deps).completeOrRecoverAfterUpstreamEnd(
+					"end_event",
+				);
+
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith(
+					expect.objectContaining({ noFinalAnswer: false }),
+				);
+			});
+
+			it("lets a stop win over a preamble: the turn is stopped, not flagged", async () => {
+				const deps = createDeps({
+					...preamble,
+					wasStopRequested: vi.fn(() => true),
+				});
+				await createStreamTerminal(deps).completeOrRecoverAfterUpstreamEnd(
+					"end_event",
+				);
+
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+					wasStopped: true,
+					streamClosedWithoutFinish: false,
+					paused: false,
+					noFinalAnswer: false,
+				});
+			});
+
+			it("lets the pause win over a preamble: the turn is paused, not flagged", async () => {
+				const fallbackRunner = vi.fn(async () => null);
+				const deps = createDeps({
+					...preamble,
+					isPaused: vi.fn(() => true),
+					hasCompletedNonFileToolCall: vi.fn(() => true),
+					getFallbackRunner: vi.fn(() => fallbackRunner),
+				});
+				await createStreamTerminal(deps).completeOrRecoverAfterUpstreamEnd(
+					"end_event",
+				);
+
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+					wasStopped: false,
+					streamClosedWithoutFinish: false,
+					paused: true,
+					noFinalAnswer: false,
+				});
+				expect(fallbackRunner).not.toHaveBeenCalled();
+			});
 		});
 	});
 });

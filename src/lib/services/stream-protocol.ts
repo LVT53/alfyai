@@ -585,6 +585,23 @@ const THINKING_PREAMBLE_PARAGRAPH_RE =
 const DANGLING_THINKING_DELIMITER_RE =
 	/<\/?(?:thinking|think)>|<\|im_start\|>\s*(?:think|analysis)?|<\|im_end\|>/gi;
 
+// A character a person can see: not whitespace, and not one of the zero-width
+// characters (U+200B zero-width space, U+200C and U+200D joiners, U+2060 word
+// joiner, U+FEFF byte order mark). `trim()` keeps all of them but U+FEFF.
+const VISIBLE_CHARACTER_RE = /[^\s​‌‍⁠﻿]/u;
+
+/**
+ * Whether a text holds a character the person can see, which is what makes it an
+ * answer on screen. On staging (2026-11-10) Kimi and DeepSeek each "answered" a
+ * recovery request with one zero-width space: `text.trim()` keeps it, so a check
+ * on `trim()` took it for a reply and the turn was saved with a blank one.
+ * The stream runtime's final-answer fact and the repair read the one test
+ * (`chat-turn/stream.ts`, `chat-turn/stream-fallback.ts`).
+ */
+export function hasVisibleCharacter(text: string): boolean {
+	return VISIBLE_CHARACTER_RE.test(text);
+}
+
 export function stripLeadingResponseMarker(value: string): string {
 	return value
 		.replace(LEADING_RESPONSE_SPACE_BEFORE_UPPER_RE, "")

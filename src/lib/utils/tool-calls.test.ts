@@ -9,6 +9,7 @@ import {
 	isAskToolCall,
 	isConnectionToolName,
 	isConnectionWriteToolName,
+	isDeliveringToolName,
 	isFileProductionToolName,
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
@@ -228,5 +229,41 @@ describe("tool-calls utils", () => {
 		expect(isAskToolCall({ type: "text", content: "ask_user" })).toBe(false);
 		expect(isArtifactToolCall(call("ask_user"))).toBe(false);
 		expect(getToolCallIconType("create_artifact")).toBe("artifact");
+	});
+
+	// A tool whose result is itself the thing asked for needs no words after it
+	// (`chat-turn/AGENTS.md`, "A Turn's Final Answer"); every other tool does.
+	describe("isDeliveringToolName", () => {
+		it("is true for the tools whose result is what the person asked for", () => {
+			expect(isDeliveringToolName("create_artifact")).toBe(true);
+			expect(isDeliveringToolName("edit_artifact")).toBe(true);
+			expect(isDeliveringToolName("make_image")).toBe(true);
+			expect(isDeliveringToolName("suggest_instruction")).toBe(true);
+			expect(isDeliveringToolName("ask_user")).toBe(true);
+		});
+
+		it("is true for a file-production tool under any of its loose spellings", () => {
+			expect(isDeliveringToolName("produce_file")).toBe(true);
+			expect(isDeliveringToolName("PRODUCE FILE")).toBe(true);
+			expect(isDeliveringToolName("produce-file")).toBe(true);
+			expect(isDeliveringToolName("generate_file_production")).toBe(true);
+		});
+
+		it("is false for a tool that needs words after its result", () => {
+			expect(isDeliveringToolName("research_web")).toBe(false);
+			expect(isDeliveringToolName("run_python")).toBe(false);
+			// the connection tools read or propose, and the reply says what came of it
+			expect(isDeliveringToolName("files")).toBe(false);
+			expect(isDeliveringToolName("email")).toBe(false);
+			expect(isDeliveringToolName("use_skill")).toBe(false);
+			expect(isDeliveringToolName("memory_context")).toBe(false);
+		});
+
+		it("is false for a name that only looks like a delivering one, and for no name", () => {
+			expect(isDeliveringToolName("read_artifact")).toBe(false);
+			expect(isDeliveringToolName("ask_user_later")).toBe(false);
+			expect(isDeliveringToolName("image_search")).toBe(false);
+			expect(isDeliveringToolName("")).toBe(false);
+		});
 	});
 });
