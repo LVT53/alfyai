@@ -120,7 +120,7 @@ With ages that do not depend on the question, the right document's place by age 
 
 **The word filter that used to exist does not fix it.** `selectArtifactSearchCandidates` once filtered by the query's words (`LIKE %word%` on
 the name, summary and text) and then took the 120 newest of what was left. It was skipped for every non-empty query ("prefer semantic breadth"),
-so it was dead code, and it would not have helped a question: a question shares a word with nearly every document, so the filter admits 77 to 97%
+so it was dead code, and it would not have helped a question: an English question shares a word with nearly every document, so the filter admits 77 to 97%
 of an English library and the 120 newest of that are almost the same 120 (33 to 40% found at 400 documents, 10% at 1,500). A Hungarian question is
 more selective, but the tokenizer cut every word at its accents (57.5% at 400, 21% at 1,500; 70% and 37.5% with whole words). Reading the text of
 every document and ranking by the app's own `scoreMatch` finds 64 to 84% (the 24 best plus the 120 newest), for 63 ms (400 documents) to 242 ms
@@ -133,10 +133,14 @@ every document and ranking by the app's own `scoreMatch` finds 64 to 84% (the 24
    takes, and no older document could rank higher than that in it.
 2. Up to 12 whose name or summary (the first lines of the text) hold every one of the question's longer words (letters and digits, three or
    more, the six longest): "Hatvany lease 2019" among forty leases the embedder finds equally close, an id, a name. It works when the
-   question could not be embedded. It does not read the text.
+   question could not be embedded. It does not read the text. It fires for a bare name or id: in a full sentence the six longest words
+   include everyday ones ("about", "what", "from") or inflected forms that no name holds, and the year drops out, so it seldom fires for a
+   sentence-style question and the vector group carries those. Its recall was not measured (the independent review's example).
 
 Both use the window's own visibility rules and then the ownership check, so incognito conversations, other people's documents, the turn's own
-conversation and other kinds stay out. A library that fits the window pays nothing.
+conversation and other kinds stay out. A library that fits the window pays nothing. A failure in this pass (an unreadable stored vector, a locked
+file) is logged and costs only the addition: the 120 newest are still ranked. Older documents that belong to ANOTHER chat still meet the
+conversation discount of "The second age factor" (0.7% of their score at 100 days), so the gain is mostly for library and project uploads.
 
 **How often the right document is then a candidate.** The vector group's recall is not measured at these library sizes (that takes the embedder
 on the box); it is estimated from the ranking lab's recorded signals: per query the real cosine of the Qwen3-Embedding-4B at 1024 dimensions for
@@ -178,7 +182,9 @@ SQL read (11%) and the cosines (6%). Whole search with a query embedding passed 
 | 5,000 | 59.9 ms | 191.9 ms (2,000 scanned) | 237 ms if all 4,880 older ones were read |
 
 With the stored dimension at 2560 (no Matryoshka cut) the scan alone is 2.5 times that: 31.9 ms, 148.8 ms, 632 ms. The search is synchronous
-while it reads, so it holds the server's event loop for that long; the production machine may be slower than this one. A cache of the parsed vectors
+while it reads, so it holds the server's event loop for that long (the review measured the worst delay equal to the whole search: 35, 101 and 147 ms
+at 400, 1,500 and 3,000 documents), and a chat turn can run two such searches, one for documents and one for generated outputs; the production
+machine may be slower than this one. Keep `TEI_EMBEDDER_DIMENSIONS=1024` with the 4B model for this reason. A cache of the parsed vectors
 would take the steady state to about the cosine step alone (4 ms at 1,500 documents; 6 MB of `Float32Array`), at the price of a cache to keep right.
 
 ## What the numbers do not show

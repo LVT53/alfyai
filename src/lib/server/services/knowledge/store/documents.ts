@@ -66,16 +66,19 @@ const SEMANTIC_ARTIFACT_SHORTLIST_LIMIT = 24;
 /*
  * The 120 newest documents are always in the running. A library can hold more, and
  * an older document used to be out of reach however well it answered: a library of
- * 400 cut off the right document for 70% of the questions, one of 1,500 for 92%
- * (docs/plans/document-ranking/README.md, "Which documents are in the running").
+ * 400 cut off the right document for up to 70% of the questions, one of 1,500 for up
+ * to 92% (the worst case, when no question is about the 120 newest;
+ * docs/plans/document-ranking/README.md, "Which documents are in the running").
  * Two small groups of OLDER documents now join the 120, and only when there are any:
  *
  *  - the ones whose stored vector is closest to the question, as many as the usual
  *    shortlist takes (no older document could rank higher than that in it anyway),
  *    chosen among the newest 2,000 of them. The vectors are compared here, in
- *    JavaScript, so a search pays for what it reads: on the machine it was
- *    measured on, 12 ms for 280 older documents of 1024 dimensions, 60 ms for
- *    1,380, and the cap holds a very large library to about 90 ms;
+ *    JavaScript and synchronously, so a search pays for what it reads and holds
+ *    the event loop for as long: on the machine it was measured on, 12 ms for
+ *    280 older documents of 1024 dimensions, 60 ms for 1,380, and the cap holds
+ *    the scan of a very large library to about 90 ms (107 to 132 ms for the whole
+ *    extra pass at the cap);
  *  - the ones whose name or summary (the first lines of the text) hold EVERY longer
  *    word of the question: a series told apart by its year, a name, an id, which
  *    the embedder cannot tell apart. The text itself is not read, because that
