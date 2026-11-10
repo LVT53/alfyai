@@ -1569,6 +1569,34 @@ describe("createServerChunkRuntime: hasTextAfterLastToolCall", () => {
 		runtime.emitToolCallEvent(name, { q: "x" }, "done", { callId });
 	}
 
+	it("counts visible characters, resets for research, and preserves them for delivering tools", () => {
+		const runtime = runtimeWithNoOutput();
+		runtime.emitChunkWithOutputHandling("A B\u200B");
+		runtime.flushInlineThinkingBuffer();
+		expect(runtime.visibleCharsAfterLastToolCall).toBe(2);
+		callOf(runtime, "create_artifact", "deliver");
+		expect(runtime.visibleCharsAfterLastToolCall).toBe(2);
+		callOf(runtime, "research_web", "research");
+		expect(runtime.visibleCharsAfterLastToolCall).toBe(0);
+		runtime.emitChunkWithOutputHandling("42.");
+		runtime.flushInlineThinkingBuffer();
+		expect(runtime.visibleCharsAfterLastToolCall).toBe(3);
+	});
+
+	it("counts only diagnostics stripped from visible text across tool calls", () => {
+		const runtime = runtimeWithNoOutput();
+		const leak = "run_python_repl: import subprocess\n";
+		for (const id of ["a", "b"]) {
+			runtime.emitChunkWithOutputHandling(leak);
+			runtime.flushInlineThinkingBuffer();
+			callOf(runtime, "research_web", id);
+		}
+		expect(runtime.strippedVisibleChars).toBe(
+			2 * [...leak].filter((c) => !/\s/.test(c)).length,
+		);
+		expect(runtime.visibleCharsAfterLastToolCall).toBe(0);
+	});
+
 	it("is false at the start", () => {
 		expect(runtimeWithNoOutput().hasTextAfterLastToolCall).toBe(false);
 	});

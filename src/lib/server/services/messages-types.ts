@@ -45,6 +45,18 @@ import type {
 } from "./message-evidence";
 
 // MessageRole type: 'user' | 'assistant'
+// Stored telemetry only; never projected into ChatMessage or browser metadata.
+export type TurnCompletionRecord = {
+	end: "stopped" | "paused" | "no_final_answer" | "recovered" | "answered";
+	finish: string | null;
+	steps: number | null;
+	lastStepOutputTokens: number | null;
+	charsAfterLastToolCall: number;
+	strippedChars: number;
+	recovery: "none" | "answered" | "failed";
+	droppedToolCalls: number | null;
+};
+
 export type MessageRole = "user" | "assistant";
 
 // Inline map card data (map_route and future geography tools). Deliberately

@@ -24,6 +24,7 @@ import type {
 	ChatTurnCompletionWarningCode,
 	ThinkingSegment,
 	ToolCallEntry,
+	TurnCompletionRecord,
 } from "$lib/server/services/messages-types";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
@@ -162,6 +163,14 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	requestStartTime: number;
 	preparedContext: PreparedContextSnapshot;
 	latestProviderUsage: ProviderUsageSnapshot | null;
+	// Original streamed run only; recovery must not replace these facts.
+	streamFinishReason?: FinishReason | null;
+	stepCount?: number | null;
+	lastStepOutputTokens?: number | null;
+	visibleCharsAfterLastToolCall?: number;
+	strippedVisibleChars?: number;
+	droppedToolCalls?: number | null;
+	recovery?: TurnCompletionRecord["recovery"];
 	upstreamFinishReason?: FinishReason | null;
 	upstreamRawFinishReason?: string | null;
 	streamClosedWithoutFinish?: boolean;
@@ -287,6 +296,28 @@ export async function completeStreamTurn(
 	// A stopped turn pauses nothing: a stop asked before the pause wins, so the
 	// segment is saved stopped and its question is discarded (the orchestrator).
 	const askPause = wasStopped ? null : askPauseHandedOver;
+	const recovery = params.recovery ?? "none";
+	const completion: TurnCompletionRecord = {
+		end: wasStopped
+			? "stopped"
+			: askPause
+				? "paused"
+				: noFinalAnswer
+					? "no_final_answer"
+					: recovery === "answered"
+						? "recovered"
+						: "answered",
+		finish:
+			params.streamFinishReason !== undefined
+				? params.streamFinishReason
+				: (params.upstreamFinishReason ?? null),
+		steps: params.stepCount ?? null,
+		lastStepOutputTokens: params.lastStepOutputTokens ?? null,
+		charsAfterLastToolCall: params.visibleCharsAfterLastToolCall ?? 0,
+		strippedChars: params.strippedVisibleChars ?? 0,
+		recovery,
+		droppedToolCalls: params.droppedToolCalls ?? null,
+	};
 	// The segments saved with the message are what a later turn's history replays
 	// of this one. A turn saved without a pause has its question discarded, so an
 	// ask call it recorded (the run asked, then was stopped, failed, was recovered
@@ -767,6 +798,7 @@ export async function completeStreamTurn(
 			assistantThinking: thinkingContent || undefined,
 			serverSegments: savedSegments.length > 0 ? savedSegments : undefined,
 			assistantMetadata: {
+				completion,
 				evidenceStatus: "pending",
 				modelDisplayName,
 				providerDisplayName,
@@ -897,6 +929,9 @@ export async function completeStreamTurn(
 			// promise or task-starting function comes back from finalizeChatTurn
 			// for this transport to separately schedule.
 			onDurableReceiptReady: async (receipt) => {
+				console.info(
+					`[TURN_END] end=${completion.end} finish=${completion.finish ?? "none"} steps=${completion.steps ?? "?"} lastStepOut=${completion.lastStepOutputTokens ?? "?"} afterLastTool=${completion.charsAfterLastToolCall} stripped=${completion.strippedChars} recovery=${completion.recovery} dropped=${completion.droppedToolCalls ?? "?"} model=${modelId ?? "none"}`,
+				);
 				sendEndAndClose(
 					receipt.userMessage?.id,
 					receipt.assistantMessage.id,

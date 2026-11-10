@@ -224,6 +224,9 @@ type NeutralStreamEvent =
 	  }
 	| {
 			type: "finish";
+			stepCount?: number;
+			lastStepOutputTokens?: number;
+			droppedToolCalls?: number;
 			finishReason: string;
 			rawFinishReason: string | undefined;
 			model: {
@@ -2667,7 +2670,12 @@ describe("stream-orchestrator SSE contract", () => {
 					output: { success: true },
 				},
 				{ type: "text_delta", text: after },
-				finishEvent,
+				{
+					...finishEvent,
+					stepCount: 3,
+					lastStepOutputTokens: 17,
+					droppedToolCalls: 1,
+				},
 			]),
 		);
 		vi.mocked(runPlainNormalChatSendModel).mockResolvedValue({
@@ -2692,6 +2700,22 @@ describe("stream-orchestrator SSE contract", () => {
 					"no_final_answer",
 				) ?? false,
 			).toBe(warning);
+			const { createMessage } = await import("$lib/server/services/messages");
+			const saved = vi
+				.mocked(createMessage)
+				.mock.calls.find((call) => call[1] === "assistant")?.[5];
+			expect(saved).toMatchObject({
+				completion: {
+					end: warning ? "no_final_answer" : calls ? "recovered" : "answered",
+					recovery: warning ? "failed" : calls ? "answered" : "none",
+					finish: "stop",
+					steps: 3,
+					lastStepOutputTokens: 17,
+					droppedToolCalls: 1,
+				},
+			});
+			expect(metadata).not.toHaveProperty("completion");
+
 			const text = parts
 				.filter(
 					(part) => typeof part !== "string" && part.type === "text-delta",
@@ -2843,6 +2867,21 @@ describe("stream-orchestrator SSE contract", () => {
 			parseUiStreamParts(chunks),
 			"data-stream-metadata",
 		)[0];
+		const { createMessage } = await import("$lib/server/services/messages");
+		const saved = vi
+			.mocked(createMessage)
+			.mock.calls.find((call) => call[1] === "assistant")?.[5];
+		expect(saved).toMatchObject({
+			completion: {
+				end: "stopped",
+				recovery: "answered",
+				finish: "stop",
+				steps: null,
+				lastStepOutputTokens: null,
+				droppedToolCalls: null,
+			},
+		});
+
 		expect(metadata.wasStopped).toBe(true);
 		expect(metadata).not.toHaveProperty("followUps");
 		expect(metadata.completionWarningCodes ?? []).not.toContain(
@@ -2890,6 +2929,21 @@ describe("stream-orchestrator SSE contract", () => {
 			parseUiStreamParts(chunks),
 			"data-stream-metadata",
 		)[0];
+		const { createMessage } = await import("$lib/server/services/messages");
+		const saved = vi
+			.mocked(createMessage)
+			.mock.calls.find((call) => call[1] === "assistant")?.[5];
+		expect(saved).toMatchObject({
+			completion: {
+				end: "stopped",
+				recovery: "failed",
+				finish: "stop",
+				steps: null,
+				lastStepOutputTokens: null,
+				droppedToolCalls: null,
+			},
+		});
+
 		expect(metadata.wasStopped).toBe(true);
 		expect(metadata.completionWarningCodes ?? []).not.toContain(
 			"no_final_answer",

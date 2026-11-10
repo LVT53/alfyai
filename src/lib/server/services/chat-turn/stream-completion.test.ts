@@ -464,6 +464,86 @@ describe("completeStreamTurn", () => {
 		estimateTokenCount: mockEstimateTokenCount,
 	};
 
+	it.each([
+		{ end: "answered", recovery: "none" as const },
+		{ end: "recovered", recovery: "answered" as const },
+		{
+			end: "no_final_answer",
+			recovery: "failed" as const,
+			noFinalAnswer: true,
+		},
+		{
+			end: "paused",
+			recovery: "none" as const,
+			askPause: { questionId: "question-1", capture: {} as AskResumeCapture },
+			noFinalAnswer: true,
+		},
+		{
+			end: "stopped",
+			recovery: "answered" as const,
+			wasStopped: true,
+			noFinalAnswer: true,
+			askPause: { questionId: "question-1", capture: {} as AskResumeCapture },
+		},
+	])("stores the $end completion privately and logs exact content-free fields", async ({
+		end,
+		...facts
+	}) => {
+		const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
+		await completeStreamTurn({
+			...defaultParams,
+			...facts,
+			upstreamFinishReason: "length",
+			stepCount: 3,
+			lastStepOutputTokens: 7,
+			visibleCharsAfterLastToolCall: 9,
+			strippedVisibleChars: 4,
+			droppedToolCalls: 1,
+		});
+		const saved = mockCreateMessage.mock.calls.find(
+			(call) => call[1] === "assistant",
+		)?.[5];
+		expect(saved).toMatchObject({
+			completion: {
+				end,
+				finish: "length",
+				steps: 3,
+				lastStepOutputTokens: 7,
+				charsAfterLastToolCall: 9,
+				strippedChars: 4,
+				recovery: facts.recovery,
+				droppedToolCalls: 1,
+			},
+		});
+		expect(getLatestEndPayload()).not.toHaveProperty("completion");
+		expect(
+			log.mock.calls.filter(([line]) => String(line).startsWith("[TURN_END]")),
+		).toEqual([
+			[
+				`[TURN_END] end=${end} finish=length steps=3 lastStepOut=7 afterLastTool=9 stripped=4 recovery=${facts.recovery} dropped=1 model=model-1`,
+			],
+		]);
+		log.mockRestore();
+	});
+
+	it("stores unknown original stream facts as null", async () => {
+		await completeStreamTurn({
+			...defaultParams,
+			streamClosedWithoutFinish: true,
+		});
+		const saved = mockCreateMessage.mock.calls.find(
+			(call) => call[1] === "assistant",
+		)?.[5];
+		expect(saved).toMatchObject({
+			completion: {
+				finish: null,
+				steps: null,
+				lastStepOutputTokens: null,
+				droppedToolCalls: null,
+			},
+		});
+	});
+
 	const artifact = (id: string, name: string): ArtifactSummary => ({
 		id,
 		type: "source_document",

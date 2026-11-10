@@ -590,6 +590,10 @@ export function createServerChunkRuntime({
 	// `answerStarted` itself answers a different question, for the cleanup of leaked
 	// output, and is not changed by this.
 	let hasTextAfterLastToolCall = false;
+	let visibleCharsAfterLastToolCall = 0;
+	let strippedVisibleChars = 0;
+	const countVisibleCharacters = (text: string) =>
+		Array.from(text).filter(hasVisibleCharacter).length;
 
 	const emitUiTextDelta = (chunk: string): boolean => {
 		const frames: string[] = [];
@@ -669,6 +673,9 @@ export function createServerChunkRuntime({
 				},
 			},
 		);
+		strippedVisibleChars +=
+			countVisibleCharacters(visibleTokenBuffer) -
+			countVisibleCharacters(sanitizedBuffer);
 		const holdLength = force
 			? 0
 			: getLeakedToolDiagnosticPrefixLength(sanitizedBuffer, { leading });
@@ -687,6 +694,7 @@ export function createServerChunkRuntime({
 		if (hasVisibleCharacter(visibleChunk)) {
 			hasTextAfterLastToolCall = true;
 		}
+		visibleCharsAfterLastToolCall += countVisibleCharacters(visibleChunk);
 		fullResponse += visibleChunk;
 		if (onToken) onToken(visibleChunk);
 		return emitUiTextDelta(visibleChunk);
@@ -869,6 +877,7 @@ export function createServerChunkRuntime({
 		answerStarted = false;
 		if (!isDeliveringToolName(name)) {
 			hasTextAfterLastToolCall = false;
+			visibleCharsAfterLastToolCall = 0;
 		}
 		resetLeakedToolDiagnosticsForNewTextRun(leakedToolDiagnosticsState);
 		if (onToolCall)
@@ -1248,6 +1257,12 @@ export function createServerChunkRuntime({
 		flushPendingThinking,
 		get fullResponse() {
 			return fullResponse;
+		},
+		get visibleCharsAfterLastToolCall() {
+			return visibleCharsAfterLastToolCall;
+		},
+		get strippedVisibleChars() {
+			return strippedVisibleChars;
 		},
 		get hasTextAfterLastToolCall() {
 			return hasTextAfterLastToolCall;

@@ -50,6 +50,7 @@ import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
 import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
 import { repairConversationMessageSequencesWithExecutor } from "./message-sequences";
+import type { TurnCompletionRecord } from "./messages-types";
 
 // The pure half of what a chat's messages say about their artifacts lives in
 // `shared/` — the chat page reads it too, on the messages it holds live — and
@@ -60,6 +61,7 @@ export {
 } from "$lib/shared/artifacts/artifact-calls";
 
 type PersistedMessageMetadata = SkillControlMessageMetadata & {
+	completion?: TurnCompletionRecord;
 	evidenceSummary?: MessageEvidenceSummary | null;
 	evidenceStatus?: MessageEvidenceStatusState;
 	// Workspaces Slice E — how many of the conversation's project files this

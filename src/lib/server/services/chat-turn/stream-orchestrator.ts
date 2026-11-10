@@ -908,6 +908,11 @@ export function runChatStreamOrchestrator(
 			let latestDepthMetadata: DepthMetadata | undefined =
 				preparedTurn?.depthMetadata;
 			let latestUpstreamFinishReason: FinishReason | null = null;
+			let streamFinishReason: FinishReason | null = null;
+			let stepCount: number | null = null;
+			let lastStepOutputTokens: number | null = null;
+			let droppedToolCalls: number | null = null;
+			let recovery: "none" | "answered" | "failed" = "none";
 			let latestUpstreamRawFinishReason: string | null = null;
 			// The streaming model run of this turn, once it exists. What the reply
 			// asked the person (ask_user) and what the run said and read are read
@@ -1043,6 +1048,14 @@ export function runChatStreamOrchestrator(
 						userPictures: latestUserPictures,
 					},
 					latestProviderUsage,
+					streamFinishReason,
+					stepCount,
+					lastStepOutputTokens,
+					droppedToolCalls,
+					recovery,
+					visibleCharsAfterLastToolCall:
+						chunkRuntime.visibleCharsAfterLastToolCall,
+					strippedVisibleChars: chunkRuntime.strippedVisibleChars,
 					upstreamFinishReason: latestUpstreamFinishReason,
 					upstreamRawFinishReason: latestUpstreamRawFinishReason,
 					streamClosedWithoutFinish: args.streamClosedWithoutFinish,
@@ -1229,7 +1242,10 @@ export function runChatStreamOrchestrator(
 					flushInlineThinkingBuffer,
 					flushOutputBuffer,
 					getVisibleAssistantText: () => chunkRuntime.fullResponse,
-					completeSuccess: () => completeSuccess(wasStopRequested()),
+					completeSuccess: () => {
+						recovery = "answered";
+						return completeSuccess(wasStopRequested());
+					},
 					signal: upstreamAbortController.signal,
 					systemPromptAppendix: currentSystemPromptAppendix(),
 					pendingSkillInstructions: currentPendingSkillInstructions(),
@@ -1269,6 +1285,7 @@ export function runChatStreamOrchestrator(
 					completedToolCalls: interruptedToolCalls,
 				});
 				if (!recovered && !ended) {
+					recovery = "failed";
 					emitResponseActivity({
 						id: fallbackActivityId,
 						kind: "fallback",
@@ -1640,6 +1657,11 @@ export function runChatStreamOrchestrator(
 								latestModelDisplayName =
 									upstreamEvent.model.displayName ?? latestModelDisplayName;
 								latestUpstreamFinishReason = upstreamEvent.finishReason;
+								streamFinishReason = upstreamEvent.finishReason;
+								stepCount = upstreamEvent.stepCount ?? null;
+								lastStepOutputTokens =
+									upstreamEvent.lastStepOutputTokens ?? null;
+								droppedToolCalls = upstreamEvent.droppedToolCalls ?? null;
 								latestUpstreamRawFinishReason =
 									upstreamEvent.rawFinishReason ?? null;
 								// Upstream has finished; its idle watchdog must not race the repair.
