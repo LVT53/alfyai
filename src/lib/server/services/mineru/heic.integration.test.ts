@@ -9,9 +9,10 @@
 // file by its extension and has never accepted .heic or .heif (the guard in
 // `extractors/mineru4.test.ts` holds the registry against its list), and the
 // extraction handler hands the document reader a PNG of such a photo for the
-// length of one attempt (`extraction/reader-input.ts`). So what reaches the
-// server is a PNG, told as `document.png` (S3) at an explicit tier (S4), and the
-// photo the person uploaded is the file they get back.
+// length of one attempt (`extraction/reader-input.ts`), made when the extractor
+// first needs the bytes. So what reaches the server is a PNG, told as
+// `document.png` (S3) at an explicit tier (S4), and the photo the person
+// uploaded is the file they get back.
 //
 // A file of its own because the real HEIC decoder refuses a Node Buffer under the
 // repo's default jsdom environment, which `integration.test.ts` runs in, and takes
@@ -172,6 +173,39 @@ function run() {
 	return runExtractionOnce(fixture.sqlite, { persistResult: persistSink() });
 }
 
+/**
+ * A spy on the app's one HEIC decoder that lets the decode through, and writes
+ * down what the fake server had seen when each decode began. Laid over the module
+ * graph `boot` just made, so call it after `boot`.
+ */
+async function watchDecodes() {
+	const prepareImage = await import(
+		"$lib/server/services/vision/prepare-image"
+	);
+	const decode = prepareImage.decodeImageToPng;
+	const requestsSeenAtStart: string[][] = [];
+	const spy = vi
+		.spyOn(prepareImage, "decodeImageToPng")
+		.mockImplementation((...args) => {
+			requestsSeenAtStart.push(
+				server.requests.map((entry) => `${entry.method} ${entry.path}`),
+			);
+			return decode(...args);
+		});
+	return { spy, requestsSeenAtStart };
+}
+
+/** Where the reader puts the PNG of an attempt: the host's temp directory, one file per attempt. */
+function readerFileOf(attemptId: string): string {
+	return join(tmpdir(), `alfyai-reader-input-${attemptId}.png`);
+}
+
+function clearBackoffGates(): void {
+	fixture.sqlite
+		.prepare("UPDATE document_extraction_jobs SET next_attempt_at = NULL")
+		.run();
+}
+
 function createBody() {
 	return server.requests.find(
 		(entry) => entry.method === "POST" && entry.path === "/v1/tasks",
@@ -294,11 +328,106 @@ describe("a HEIC or HEIF photo reaches MinerU 4.1 as a PNG", () => {
 	});
 });
 
+// The photo is decoded when the extractor first needs its bytes: after it has
+// asked MinerU what it can do, and not at all in an attempt that never gets that
+// far. Nothing of the PNG outlives the attempt that made it, so each decode an
+// attempt does not need is a decode saved (a 12 MP photo holds a thread for
+// about half a second, and an outage retries it every few seconds).
+describe("when a photo is decoded", () => {
+	const STORAGE_REFUSED = {
+		status: 503,
+		body: { error: { code: "server_shutting_down", message: "stopping" } },
+	} as const;
+
+	it("does not decode it while MinerU cannot say what it can do, and waits as an outage", async () => {
+		await boot({
+			fixtureInput: "png",
+			failures: [{ path: "/v1/health", ...STORAGE_REFUSED }],
+		});
+		const { spy } = await watchDecodes();
+		const { jobId } = await seedPhotoJob({
+			fileName: "IMG_0042.heic",
+			mimeType: "image/heic",
+			bytes: tinyHeic,
+		});
+
+		expect(await run()).toEqual({ jobId, status: "queued" });
+
+		const row = await ledger.getExtractionJobRow(jobId);
+		expect(row?.errorCode).toBe("unavailable");
+		expect(row?.retryable).toBe(true);
+		expect(spy).not.toHaveBeenCalled();
+		expect(startedWorkers()).toHaveLength(0);
+		const [attempt] = await ledger.listExtractionJobAttempts(jobId);
+		expect(existsSync(readerFileOf(attempt.id))).toBe(false);
+	});
+
+	it("decodes it after the capability read and the tier decision, and before the task is created", async () => {
+		await boot({ fixtureInput: "png" });
+		const { spy, requestsSeenAtStart } = await watchDecodes();
+		const { jobId } = await seedPhotoJob({
+			fileName: "IMG_0042.heic",
+			mimeType: "image/heic",
+			bytes: tinyHeic,
+		});
+
+		expect(await run()).toEqual({ jobId, status: "succeeded" });
+
+		expect(spy).toHaveBeenCalledTimes(1);
+		// What MinerU had been asked when the decode began: what it can do (its
+		// health and its tiers), and nothing about this photo yet.
+		expect(requestsSeenAtStart).toHaveLength(1);
+		expect(requestsSeenAtStart[0]).toEqual(
+			expect.arrayContaining(["GET /v1/health", "GET /v1/tiers"]),
+		);
+		expect(requestsSeenAtStart[0]).not.toContain("POST /v1/tasks");
+		expect(
+			requestsSeenAtStart[0].some((entry) => entry.startsWith("PUT")),
+		).toBe(false);
+	});
+
+	it("does not decode it again in a resumed attempt that only polls the task it left", async () => {
+		// The first attempt creates the task, sends the photo, and has its first poll
+		// refused: a retryable outage that keeps the handle. The second resumes the
+		// task by that handle and polls it to the end.
+		await boot({
+			fixtureInput: "png",
+			failures: [
+				{ path: "/v1/tasks/", method: "GET", nth: 1, ...STORAGE_REFUSED },
+			],
+		});
+		const { spy } = await watchDecodes();
+		const { jobId } = await seedPhotoJob({
+			fileName: "IMG_0042.heic",
+			mimeType: "image/heic",
+			bytes: tinyHeic,
+		});
+
+		expect(await run()).toEqual({ jobId, status: "queued" });
+		expect(spy).toHaveBeenCalledTimes(1);
+		const taskId = [...server.tasks.keys()][0];
+		expect(taskId).toBeTruthy();
+
+		clearBackoffGates();
+		expect(await run()).toEqual({ jobId, status: "succeeded" });
+
+		// Still the one decode, the first attempt's, and no second task or upload.
+		expect(spy).toHaveBeenCalledTimes(1);
+		const attempts = await ledger.listExtractionJobAttempts(jobId);
+		expect(attempts.map((attempt) => attempt.resumed)).toEqual([false, true]);
+		expect([...server.tasks.keys()]).toEqual([taskId]);
+		expect(puts()).toHaveLength(1);
+		for (const attempt of attempts) {
+			expect(existsSync(readerFileOf(attempt.id))).toBe(false);
+		}
+	});
+});
+
 describe("an original that has gone from storage", () => {
 	// What the job stores is what the browser is sent, and the raw text of a Node file
 	// error is an absolute path. A PDF is the control: it is read by the MinerU
 	// extractor itself, which answers an error it does not know with `unavailable`.
-	// The photo, read by the helper before the extractor runs, must end the same way.
+	// The photo, read by the helper when the extractor asks for it, must end the same way.
 	it.each([
 		["a HEIC photo", "IMG_0042.heic", "image/heic", tinyHeic],
 		["a PDF", "report.pdf", "application/pdf", Buffer.from("%PDF-1.7\n")],
@@ -385,9 +514,7 @@ describe("a photo whose decode ran out of time", () => {
 
 		// A photo that always hangs does not go on for ever.
 		for (let attempt = 2; attempt <= 3; attempt++) {
-			fixture.sqlite
-				.prepare("UPDATE document_extraction_jobs SET next_attempt_at = NULL")
-				.run();
+			clearBackoffGates();
 			await run();
 		}
 		const row = await ledger.getExtractionJobRow(jobId);
@@ -399,7 +526,7 @@ describe("a photo whose decode ran out of time", () => {
 });
 
 describe("a photo that cannot be decoded", () => {
-	it("fails once as an unreadable document, and MinerU is never asked", async () => {
+	it("fails once as an unreadable document, and MinerU is given no task", async () => {
 		await boot({ fixtureInput: "png" });
 		const { jobId } = await seedPhotoJob({
 			fileName: "broken.heic",
@@ -414,8 +541,14 @@ describe("a photo that cannot be decoded", () => {
 		// The same bytes can never be read, so no second attempt and no Retry.
 		expect(row?.retryable).toBe(false);
 		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(1);
-		// Not the capability read, not a task: nothing left the process.
-		expect(server.requests).toEqual([]);
+		// The photo is decoded when its bytes are first needed, which is after the
+		// capability read: MinerU was asked what it can do, and was never given a
+		// task or a byte. The decoder's refusal reaches the ledger as it is.
+		expect(server.requests.length).toBeGreaterThan(0);
+		expect(server.requests.every((entry) => entry.method === "GET")).toBe(true);
+		expect(server.requests.map((entry) => entry.path)).toContain("/v1/health");
+		expect(createBody()).toBeUndefined();
+		expect(puts()).toEqual([]);
 		expect(persisted).toEqual([]);
 	});
 });

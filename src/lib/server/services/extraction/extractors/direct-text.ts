@@ -50,14 +50,18 @@ export function createDirectTextExtractor(
 			request: ExtractDocumentRequest,
 		): Promise<ExtractDocumentResult> {
 			assertNotAborted(request.signal);
+			// A text file is read whole and at once, so the bytes are wanted from the
+			// first step. Whatever `openFile` fails with is the ledger's verdict on the
+			// file, and goes on as it is.
+			const file = await request.openFile();
 			const maxBytes =
 				options.maxBytes ?? getExtractionConfig().maxDirectTextBytes;
 
 			// Trust the file, not the caller's `sizeBytes`: the raw upload route
 			// records a size before the body finished arriving, and a cap that can
 			// be talked past by a wrong number is not a cap.
-			const stats = await stat(request.filePathAbsolute).catch(() => null);
-			const actualBytes = stats?.size ?? request.sizeBytes;
+			const stats = await stat(file.filePathAbsolute).catch(() => null);
+			const actualBytes = stats?.size ?? file.sizeBytes;
 
 			if (actualBytes > maxBytes) {
 				throw new DocumentExtractionError({
@@ -73,7 +77,7 @@ export function createDirectTextExtractor(
 
 			let buffer: Buffer;
 			try {
-				buffer = await readFile(request.filePathAbsolute);
+				buffer = await readFile(file.filePathAbsolute);
 			} catch (error) {
 				throw new DocumentExtractionError({
 					code: "internal",

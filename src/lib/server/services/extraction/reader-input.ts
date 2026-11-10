@@ -1,21 +1,36 @@
-// What the document reader is handed for one attempt.
+// What the document reader is handed for one attempt, and when it is made.
 //
 // Most files go to the reader as they are stored. A type the reader cannot take
 // says so in the registry (`intake.readAs`: a HEIC or HEIF photo), and for one
 // attempt the reader is handed a converted file of its own instead. The stored
 // original is never touched: previews and vision read it.
 //
-// The runner calls `prepareReaderInput` and `release`; this file only makes and
-// removes the file. The decoder is the app's one HEIC decoder,
-// `vision/prepare-image.ts`'s `decodeImageToPng`, loaded when a photo needs it,
-// so a PDF's attempt does not load sharp and the HEIC converter.
+// Nothing is made until the extractor asks. `prepareReaderInput` answers at once
+// with what the file will be called and a way to ask for it (`openFile`), and the
+// decode, which holds a thread for about half a second for a 12 MP photo, happens
+// when the extractor first needs the bytes: after it has asked the document
+// service what it can do, and not at all in an attempt that never gets that far
+// (an outage waits and tries again) or that only polls a task it resumed. One
+// attempt gets one file: `openFile` returns the same file every time, and a
+// failure the same failure. The runner calls `prepareReaderInput` and `release`;
+// this file only makes and removes the file.
 //
-// A resumed attempt converts again: nothing of the file outlives the attempt that
-// made it, and a crash leaks at most that attempt's one file (`mineru/temp-sweep.ts`
-// removes it once it is old enough). The PNG is the same bytes for the same input
-// and build, so the digest the extractor keeps in its stored handle (it hashes the
-// file on the first attempt only, since `contentSha256` is null here) still names
-// the file it is handed.
+// The decoder is the app's one HEIC decoder, `vision/prepare-image.ts`'s
+// `decodeImageToPng`, loaded when a photo needs it, so a PDF's attempt does not
+// load sharp. It runs the photo through a worker thread (`vision/heif-decode.ts`)
+// and is called off by the attempt's signal: a decode in flight has its thread
+// stopped, and a decode that was called off writes no file.
+//
+// `release` is what the runner owes once the extractor has settled. It never
+// throws, may be called again, and waits for an open that is still going before it
+// removes the file, so a file cannot be written after it has run; an `openFile`
+// after it rejects. A resumed attempt converts again when it needs the bytes:
+// nothing of the file outlives the attempt that made it, and a crash leaks at most
+// that attempt's one file (`mineru/temp-sweep.ts` removes it once it is old
+// enough). The PNG is the same bytes for the same input and build, so the digest
+// the extractor keeps in its stored handle (it hashes the file on the first
+// attempt only, since `contentSha256` is null here) still names the file it is
+// handed.
 //
 // The runner stores the message of whatever this file throws on the job, and the
 // job data sends it to the browser. So a file this helper cannot read or write is
@@ -35,7 +50,11 @@ import {
 	getIntakeReadAs,
 	resolveEntry,
 } from "$lib/shared/file-types";
-import { DocumentExtractionError, extractionErrorMessage } from "./contracts";
+import {
+	DocumentExtractionError,
+	type ExtractionFile,
+	extractionErrorMessage,
+} from "./contracts";
 
 /**
  * Longest side of a converted picture. A 12 MP phone photo (4032 px) keeps its
@@ -59,39 +78,55 @@ const READER_PNG_BACKGROUND = "#ffffff";
  */
 export const READER_INPUT_FILE_PREFIX = "alfyai-reader-input-";
 
-/** The five fields of an extraction request that describe the file. */
-interface ReaderInput {
-	filePathAbsolute: string;
+/** The stored file, as the job knows it. */
+interface StoredFile {
 	fileName: string;
 	mimeType: string | null;
 	sizeBytes: number;
+	filePathAbsolute: string;
+	/** The ledger's verified digest of the stored bytes, if it has one. */
 	contentSha256: string | null;
 }
 
-interface ReaderInputParams extends ReaderInput {
+interface ReaderInputParams extends StoredFile {
 	/** Names the converted file, so a crash leaks at most one file per attempt. */
 	attemptId: string;
 	/** Where the converted file goes. The OS temp directory by default. */
 	tempDirRoot?: string;
+	/**
+	 * The attempt's. A cancel, or a claim taken away, calls the decode off: a
+	 * decode in flight is stopped and `openFile` rejects with `signal.reason` as
+	 * it is.
+	 */
+	signal: AbortSignal;
 }
 
 interface PreparedReaderInput {
-	input: ReaderInput;
-	/** Removes the converted file, if there is one. Never throws; may be called again. */
+	/** What the reader is told the file is called: the stored name, or the converted file's. */
+	fileName: string;
+	mimeType: string | null;
+	/** The file, made when this is first called. See `ExtractDocumentRequest.openFile`. */
+	openFile(): Promise<ExtractionFile>;
+	/**
+	 * Waits for an open still going, then removes the converted file, if there is
+	 * one. Never throws; may be called again. An `openFile` after it rejects.
+	 */
 	release(): Promise<void>;
 }
 
 /**
  * The file the reader is handed for this job: the source as given, or a
- * conversion of it when the registry says the reader cannot take the type.
- * `release` removes the conversion, and the caller owes it once the extractor
- * has settled.
+ * conversion of it when the registry says the reader cannot take the type. It
+ * reads and writes nothing until `openFile` is called; `release` removes the
+ * conversion, and the caller owes it once the extractor has settled.
  */
-export async function prepareReaderInput(
+export function prepareReaderInput(
 	params: ReaderInputParams,
-): Promise<PreparedReaderInput> {
+): PreparedReaderInput {
 	const readAs = getIntakeReadAs(params.fileName, params.mimeType);
-	return readAs === undefined ? unchanged(params) : readAsPng(params, readAs);
+	return readAs === undefined
+		? storedReaderInput(params)
+		: readAsPng(params, readAs);
 }
 
 /**
@@ -206,88 +241,135 @@ function decodeFailure(error: ImagePreparationError): DocumentExtractionError {
 	});
 }
 
-function unchanged(params: ReaderInputParams): PreparedReaderInput {
+/** What `openFile` says once `release` has run: a bug in the caller, not a fact about the file. */
+function releasedError(): Error {
+	return new Error("The reader input was released before it was opened.");
+}
+
+/**
+ * The stored file, as it is. Nothing is read to hand it over: the extractor looks
+ * at it, and says what is wrong with it in its own words. This is also the runner's
+ * input for a job that never converts (a direct-text one).
+ */
+export function storedReaderInput(file: StoredFile): PreparedReaderInput {
+	const handed: ExtractionFile = {
+		filePathAbsolute: file.filePathAbsolute,
+		sizeBytes: file.sizeBytes,
+		contentSha256: file.contentSha256,
+	};
+	let released = false;
 	return {
-		input: {
-			filePathAbsolute: params.filePathAbsolute,
-			fileName: params.fileName,
-			mimeType: params.mimeType,
-			sizeBytes: params.sizeBytes,
-			contentSha256: params.contentSha256,
+		fileName: file.fileName,
+		mimeType: file.mimeType,
+		openFile: async () => {
+			if (released) throw releasedError();
+			return handed;
 		},
-		release: async () => undefined,
+		release: async () => {
+			released = true;
+		},
 	};
 }
 
 // `readAs` is typed as the one value the registry has: widening
 // `FileTypeIntake.readAs` fails to compile here, until this learns the new
 // conversion.
-async function readAsPng(
+function readAsPng(
 	params: ReaderInputParams,
 	readAs: "png",
-): Promise<PreparedReaderInput> {
-	const { fileName, mimeType, filePathAbsolute, attemptId } = params;
+): PreparedReaderInput {
+	const { fileName, mimeType, filePathAbsolute, attemptId, signal } = params;
 
 	// Before a byte is read: a registry that lacks the entry fails here.
 	const reader = readerFileFor(fileName, readAs);
-
-	const { decodeImageToPng } = await import(
-		"$lib/server/services/vision/prepare-image"
-	);
-	let bytes: Buffer;
-	try {
-		bytes = await readFile(filePathAbsolute);
-	} catch (error) {
-		throw fileFailure("read", error);
-	}
-	let png: Buffer;
-	try {
-		({ png } = await decodeImageToPng(
-			bytes,
-			// The entry's own MIME type, not the job's: a `.heic` a browser sent as
-			// application/octet-stream must still take the decoder's HEIC hop.
-			resolveEntry(fileName, mimeType)?.mimeTypes[0] ?? null,
-			{
-				maxLongEdge: READER_PNG_MAX_LONG_EDGE,
-				background: READER_PNG_BACKGROUND,
-			},
-		));
-	} catch (error) {
-		if (!(error instanceof ImagePreparationError)) throw error;
-		throw decodeFailure(error);
-	}
-
 	const pathAbsolute = join(
 		params.tempDirRoot ?? tmpdir(),
 		`${READER_INPUT_FILE_PREFIX}${attemptId}${extname(reader.fileName)}`,
 	);
-	try {
-		// For its owner alone: the temp directory is shared with every other service
-		// on the host, and this is a person's photo.
-		await writeFile(pathAbsolute, png, { mode: 0o600 });
-	} catch (error) {
-		// A half-written file would outlive the attempt.
-		await rm(pathAbsolute, { force: true }).catch(() => undefined);
-		throw fileFailure("write", error);
+
+	let opening: Promise<ExtractionFile> | null = null;
+	let releasing: Promise<void> | null = null;
+	let released = false;
+
+	async function open(): Promise<ExtractionFile> {
+		// An attempt that is already called off reads nothing.
+		signal.throwIfAborted();
+
+		const { decodeImageToPng } = await import(
+			"$lib/server/services/vision/prepare-image"
+		);
+		let bytes: Buffer;
+		try {
+			bytes = await readFile(filePathAbsolute);
+		} catch (error) {
+			throw fileFailure("read", error);
+		}
+		let png: Buffer;
+		try {
+			({ png } = await decodeImageToPng(
+				bytes,
+				// The entry's own MIME type, not the job's: a `.heic` a browser sent as
+				// application/octet-stream must still take the decoder's HEIC hop.
+				resolveEntry(fileName, mimeType)?.mimeTypes[0] ?? null,
+				{
+					maxLongEdge: READER_PNG_MAX_LONG_EDGE,
+					background: READER_PNG_BACKGROUND,
+					signal,
+				},
+			));
+		} catch (error) {
+			// Called off: that is the whole story, whatever the decoder said while its
+			// thread was being stopped. Nobody is told the photo was bad.
+			if (signal.aborted) throw signal.reason;
+			if (!(error instanceof ImagePreparationError)) throw error;
+			throw decodeFailure(error);
+		}
+		// The decode was called off as it finished: nobody is going to read the file.
+		signal.throwIfAborted();
+
+		try {
+			// For its owner alone: the temp directory is shared with every other service
+			// on the host, and this is a person's photo.
+			await writeFile(pathAbsolute, png, { mode: 0o600 });
+		} catch (error) {
+			// A half-written file would outlive the attempt.
+			await rm(pathAbsolute, { force: true }).catch(() => undefined);
+			throw fileFailure("write", error);
+		}
+		return {
+			filePathAbsolute: pathAbsolute,
+			sizeBytes: png.length,
+			contentSha256: null,
+		};
+	}
+
+	async function removeWhenDone(): Promise<void> {
+		// Never made, nothing to remove. An open still going finishes first, and the
+		// file it writes is removed with the rest.
+		if (!opening) return;
+		await opening.catch(() => undefined);
+		try {
+			await rm(pathAbsolute, { force: true });
+		} catch (error) {
+			console.warn("[EXTRACTION] Reader input could not be removed", {
+				attemptId,
+				reason: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	return {
-		input: {
-			filePathAbsolute: pathAbsolute,
-			fileName: reader.fileName,
-			mimeType: reader.mimeType,
-			sizeBytes: png.length,
-			contentSha256: null,
+		fileName: reader.fileName,
+		mimeType: reader.mimeType,
+		openFile() {
+			if (released) return Promise.reject(releasedError());
+			opening ??= open();
+			return opening;
 		},
-		release: async () => {
-			try {
-				await rm(pathAbsolute, { force: true });
-			} catch (error) {
-				console.warn("[EXTRACTION] Reader input could not be removed", {
-					attemptId,
-					reason: error instanceof Error ? error.message : String(error),
-				});
-			}
+		release() {
+			released = true;
+			releasing ??= removeWhenDone();
+			return releasing;
 		},
 	};
 }

@@ -38,7 +38,7 @@ import { resolveExtractor } from "./extractors/registry";
 import { parseExtractionHints } from "./hints";
 import { createNormalizedArtifactFromExtraction } from "./persist";
 import { getGeneratedFileReadbackSink } from "./readback-sink";
-import { prepareReaderInput } from "./reader-input";
+import { prepareReaderInput, storedReaderInput } from "./reader-input";
 import type {
 	DocumentExtractionIntakeRoute,
 	DocumentExtractionJobRow,
@@ -279,45 +279,50 @@ export async function runExtraction(
 		let result: ExtractDocumentResult;
 		try {
 			// What the extractor reads: the stored file, or, for a type the document
-			// reader cannot take (a HEIC photo), a converted copy that lives until the
-			// extractor settles. A photo that cannot be decoded throws here and takes
-			// the failure path below, so the extractor is never called for it.
+			// reader cannot take (a HEIC photo), a converted copy that is made when the
+			// extractor asks for it (`openFile`) and lives until it settles. A photo is
+			// not decoded before then: an attempt that stops before it needs the bytes
+			// (the backend cannot be reached, the tier is not offered) or that only
+			// polls a task it resumed decodes nothing. A photo that cannot be decoded
+			// fails the extractor's `openFile`, and the failure reaches the ledger as it
+			// is, through the catch below.
 			const reader =
 				intakeRoute === "mineru"
-					? await prepareReaderInput({
+					? prepareReaderInput({
 							fileName: job.fileName,
 							mimeType: job.mimeType,
 							sizeBytes: job.sizeBytes,
 							filePathAbsolute: source.filePathAbsolute,
 							contentSha256: source.contentSha256,
 							attemptId: ctx.attempt.id,
+							// The extractor's own signal, so a decode that is running is
+							// stopped by the same cancel that stops the extractor.
+							signal: bridge.signal,
 						})
-					: null;
-			const input = reader?.input ?? {
-				filePathAbsolute: source.filePathAbsolute,
-				fileName: job.fileName,
-				mimeType: job.mimeType,
-				sizeBytes: job.sizeBytes,
-				contentSha256: source.contentSha256,
-			};
+					: storedReaderInput({
+							fileName: job.fileName,
+							mimeType: job.mimeType,
+							sizeBytes: job.sizeBytes,
+							filePathAbsolute: source.filePathAbsolute,
+							contentSha256: source.contentSha256,
+						});
 			try {
 				result = await extractor.extract({
-					filePathAbsolute: input.filePathAbsolute,
-					fileName: input.fileName,
-					mimeType: input.mimeType,
-					sizeBytes: input.sizeBytes,
+					fileName: reader.fileName,
+					mimeType: reader.mimeType,
+					openFile: () => reader.openFile(),
 					intakeRoute,
 					signal: bridge.signal,
 					onProgress,
 					resumeHandle,
-					contentSha256: input.contentSha256,
 					sourceArtifactId: job.sourceArtifactId,
 					userId: job.userId,
 					hints: parseExtractionHints(job.hintsJson),
 				});
 			} finally {
-				// Never throws, so it cannot hide the extractor's own error.
-				await reader?.release();
+				// Never throws, so it cannot hide the extractor's own error. Waits for an
+				// open still going, so no file is written after this has run.
+				await reader.release();
 			}
 		} catch (error) {
 			if (ctx.signal.aborted) {

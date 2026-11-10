@@ -2,9 +2,12 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtractDocumentRequest } from "../contracts";
-import { isDocumentExtractionError } from "../contracts";
+import {
+	DocumentExtractionError,
+	isDocumentExtractionError,
+} from "../contracts";
 import { createDirectTextExtractor } from "./direct-text";
 
 function utf16leBomBytes(text: string): Buffer {
@@ -39,17 +42,29 @@ async function writeBinaryFixture(
 	return filePath;
 }
 
+/**
+ * A request for the file at `filePathAbsolute`, which the extractor is handed as
+ * `openFile()` does (the claimed `sizeBytes` is what the runner knew of it).
+ */
 function request(
-	overrides: Partial<ExtractDocumentRequest> & { filePathAbsolute: string },
+	overrides: Partial<ExtractDocumentRequest> & {
+		filePathAbsolute: string;
+		sizeBytes?: number;
+	},
 ): ExtractDocumentRequest {
+	const { filePathAbsolute, sizeBytes = 0, ...rest } = overrides;
 	return {
 		fileName: "notes.txt",
 		mimeType: "text/plain",
-		sizeBytes: 0,
+		openFile: async () => ({
+			filePathAbsolute,
+			sizeBytes,
+			contentSha256: null,
+		}),
 		intakeRoute: "direct-text",
 		signal: new AbortController().signal,
 		onProgress: () => undefined,
-		...overrides,
+		...rest,
 	};
 }
 
@@ -139,17 +154,69 @@ describe("directTextExtractor", () => {
 		expect(error.retryable).toBe(false);
 	});
 
-	it("refuses to start on an already-aborted signal", async () => {
+	it("refuses to start on an already-aborted signal, and does not ask for the file", async () => {
 		const filePathAbsolute = await writeFixture("notes.txt", "hello");
 		const controller = new AbortController();
 		controller.abort();
+		const openFile = vi.fn(async () => ({
+			filePathAbsolute,
+			sizeBytes: 5,
+			contentSha256: null,
+		}));
 
 		const error = await capture(
 			createDirectTextExtractor({ maxBytes: 1024 }).extract(
-				request({ filePathAbsolute, signal: controller.signal }),
+				request({ filePathAbsolute, signal: controller.signal, openFile }),
 			),
 		);
 		expect(error.code).toBe("canceled");
+		expect(openFile).not.toHaveBeenCalled();
+	});
+
+	// A text file is read whole and at once, so the bytes are wanted from the
+	// first step: it asks for the file before it measures or reads anything.
+	it("asks for the file once, before it measures or reads it", async () => {
+		const filePathAbsolute = await writeFixture("notes.txt", "hello");
+		const steps: string[] = [];
+		const openFile = vi.fn(async () => {
+			steps.push("open");
+			return { filePathAbsolute, sizeBytes: 5, contentSha256: null };
+		});
+
+		const result = await createDirectTextExtractor({ maxBytes: 1024 }).extract(
+			request({
+				filePathAbsolute,
+				openFile,
+				onProgress: (progress) => steps.push(progress.phase),
+			}),
+		);
+
+		expect(result.text).toBe("hello");
+		expect(openFile).toHaveBeenCalledTimes(1);
+		expect(steps).toEqual(["open", "parsing"]);
+	});
+
+	it("lets a failure to open the file through as it is", async () => {
+		// The runner's reader says what is wrong with a file in the ledger's words;
+		// the extractor adds nothing to it and reads nothing after it.
+		const failure = new DocumentExtractionError({
+			code: "unavailable",
+			message: "The document service could not be reached.",
+		});
+		const onProgress = vi.fn();
+
+		await expect(
+			createDirectTextExtractor({ maxBytes: 1024 }).extract(
+				request({
+					filePathAbsolute: "never read",
+					openFile: async () => {
+						throw failure;
+					},
+					onProgress,
+				}),
+			),
+		).rejects.toBe(failure);
+		expect(onProgress).not.toHaveBeenCalled();
 	});
 
 	it("never resumes, and so is never handed a handle", () => {

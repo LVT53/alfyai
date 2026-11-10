@@ -24,14 +24,18 @@ import {
 	sweepMineruTempDirs,
 } from "$lib/server/services/mineru/temp-sweep";
 import { HEIF_MAX_PIXELS } from "$lib/server/services/vision/heif-decode";
-import { ImageDecodeTimeoutError } from "$lib/server/services/vision/image-errors";
+import {
+	ImageDecodeTimeoutError,
+	ImagePreparationError,
+} from "$lib/server/services/vision/image-errors";
 import * as prepareImage from "$lib/server/services/vision/prepare-image";
 import { DocumentExtractionError, extractionErrorMessage } from "./contracts";
 import { prepareReaderInput, readerFileFor } from "./reader-input";
 
 // What the extraction runner hands the document reader: the stored file as it
 // is, or, for a type the reader cannot take (a HEIC or HEIF photo), a PNG that
-// lives for one attempt. The real decoder runs here, on the real fixture.
+// is made when the extractor asks for the file and lives for one attempt. The
+// real decoder runs here, on the real fixture.
 
 // `vision/__fixtures__/tiny.heic` is 64x42, brand `ftypheic`; how it was made is
 // written in `vision/prepare-image.test.ts`.
@@ -86,11 +90,12 @@ async function converted(): Promise<string[]> {
 	return (await readdir(root)).filter((name) => name.startsWith(OUTPUT_PREFIX));
 }
 
-async function prepare(
+function prepare(
 	filePathAbsolute: string,
 	fileName: string,
 	mimeType: string | null,
 	attemptId = "attempt-1",
+	signal: AbortSignal = new AbortController().signal,
 ) {
 	return prepareReaderInput({
 		fileName,
@@ -100,21 +105,50 @@ async function prepare(
 		contentSha256: "a".repeat(64),
 		attemptId,
 		tempDirRoot: root,
+		signal,
 	});
 }
 
+/** What a promise rejected with. */
+async function rejection(promise: Promise<unknown>): Promise<unknown> {
+	try {
+		await promise;
+	} catch (error) {
+		return error;
+	}
+	throw new Error("expected the promise to reject, but it resolved");
+}
+
 describe("prepareReaderInput", () => {
+	it("makes nothing until the file is asked for, and says what it will be called at once", async () => {
+		const decode = vi.spyOn(prepareImage, "decodeImageToPng");
+		// The original is not even there: nothing is read to answer these.
+		const reader = prepare(
+			path.join(root, "not-there.heic"),
+			"IMG_0042.HEIC",
+			"image/heic",
+		);
+
+		expect(reader.fileName).toBe("IMG_0042.png");
+		expect(reader.mimeType).toBe("image/png");
+		expect(decode).not.toHaveBeenCalled();
+		expect(await converted()).toEqual([]);
+	});
+
 	it("hands the reader a PNG of a HEIC photo, named for it, and leaves the original alone", async () => {
 		const original = await stored("IMG_0042.HEIC", tinyHeic);
 
-		const reader = await prepare(original, "IMG_0042.HEIC", "image/heic");
+		const reader = prepare(original, "IMG_0042.HEIC", "image/heic");
+		const file = await reader.openFile();
 
-		const png = await readFile(reader.input.filePathAbsolute);
+		const png = await readFile(file.filePathAbsolute);
 		expect(png.subarray(0, 8)).toEqual(PNG_SIGNATURE);
-		expect(reader.input).toEqual({
+		expect([reader.fileName, reader.mimeType]).toEqual([
+			"IMG_0042.png",
+			"image/png",
+		]);
+		expect(file).toEqual({
 			filePathAbsolute: path.join(root, `${OUTPUT_PREFIX}attempt-1.png`),
-			fileName: "IMG_0042.png",
-			mimeType: "image/png",
 			sizeBytes: png.length,
 			// The digest on the ledger is of the HEIC. The reader hashes the PNG itself.
 			contentSha256: null,
@@ -137,16 +171,13 @@ describe("prepareReaderInput", () => {
 	])("converts %s the same way", async (_label, fileName, mimeType, expected) => {
 		const original = await stored(fileName, tinyHeic);
 
-		const reader = await prepare(original, fileName, mimeType);
+		const reader = prepare(original, fileName, mimeType);
+		const file = await reader.openFile();
 
-		const png = await readFile(reader.input.filePathAbsolute);
+		const png = await readFile(file.filePathAbsolute);
 		expect(png.subarray(0, 8)).toEqual(PNG_SIGNATURE);
-		expect(reader.input).toMatchObject({
-			fileName: expected,
-			mimeType: "image/png",
-			sizeBytes: png.length,
-			contentSha256: null,
-		});
+		expect([reader.fileName, reader.mimeType]).toEqual([expected, "image/png"]);
+		expect(file).toMatchObject({ sizeBytes: png.length, contentSha256: null });
 	});
 
 	it("writes the PNG for its owner alone", async () => {
@@ -154,9 +185,13 @@ describe("prepareReaderInput", () => {
 		// list: the extractor's own temp directories are private, and so is this file.
 		const original = await stored("IMG_0042.heic", tinyHeic);
 
-		const reader = await prepare(original, "IMG_0042.heic", "image/heic");
+		const file = await prepare(
+			original,
+			"IMG_0042.heic",
+			"image/heic",
+		).openFile();
 
-		const { mode } = await stat(reader.input.filePathAbsolute);
+		const { mode } = await stat(file.filePathAbsolute);
 		expect((mode & 0o777).toString(8)).toBe("600");
 	});
 
@@ -171,27 +206,32 @@ describe("prepareReaderInput", () => {
 			"IMG_0042.heic",
 			"image/heic",
 			"attempt-1",
-		);
+		).openFile();
 		const second = await prepare(
 			original,
 			"IMG_0042.heic",
 			"image/heic",
 			"attempt-2",
-		);
+		).openFile();
 
-		expect(second.input.filePathAbsolute).not.toBe(
-			first.input.filePathAbsolute,
-		);
-		expect(await readFile(second.input.filePathAbsolute)).toEqual(
-			await readFile(first.input.filePathAbsolute),
+		expect(second.filePathAbsolute).not.toBe(first.filePathAbsolute);
+		expect(await readFile(second.filePathAbsolute)).toEqual(
+			await readFile(first.filePathAbsolute),
 		);
 	});
 
-	it("decodes at 4096 px on the long side, handing the decoder the entry's MIME type and not the job's", async () => {
+	it("decodes at 4096 px on the long side, onto white, for the attempt's signal, handing the decoder the entry's MIME type and not the job's", async () => {
 		const decode = vi.spyOn(prepareImage, "decodeImageToPng");
 		const original = await stored("IMG_0042.heic", tinyHeic);
+		const controller = new AbortController();
 
-		await prepare(original, "IMG_0042.heic", "application/octet-stream");
+		await prepare(
+			original,
+			"IMG_0042.heic",
+			"application/octet-stream",
+			"attempt-1",
+			controller.signal,
+		).openFile();
 
 		// A 12 MP phone photo (4032 px) keeps its size and a 48 MP one is halved.
 		// The entry's own MIME is what makes the decoder take the HEIC hop even for
@@ -200,6 +240,7 @@ describe("prepareReaderInput", () => {
 		expect(decode).toHaveBeenCalledWith(expect.any(Uint8Array), "image/heic", {
 			maxLongEdge: 4096,
 			background: "#ffffff",
+			signal: controller.signal,
 		});
 	});
 
@@ -209,9 +250,13 @@ describe("prepareReaderInput", () => {
 	it("hands the reader a transparent photo on white, with no alpha left", async () => {
 		const original = await stored("invoice.heic", transparentPage);
 
-		const reader = await prepare(original, "invoice.heic", "image/heic");
+		const file = await prepare(
+			original,
+			"invoice.heic",
+			"image/heic",
+		).openFile();
 
-		const png = await readFile(reader.input.filePathAbsolute);
+		const png = await readFile(file.filePathAbsolute);
 		expect((await sharp(png).metadata()).hasAlpha).toBe(false);
 		const { data, info } = await sharp(png)
 			.raw()
@@ -232,34 +277,78 @@ describe("prepareReaderInput", () => {
 	it.each([
 		["a jpg", "photo.jpg", "image/jpeg"],
 		["a pdf", "report.pdf", "application/pdf"],
-	])("hands the reader %s as it was given, and its release does nothing", async (_label, fileName, mimeType) => {
+	])("hands the reader %s as it was given, without touching it, and its release does nothing", async (_label, fileName, mimeType) => {
+		const decode = vi.spyOn(prepareImage, "decodeImageToPng");
 		const original = await stored(fileName, Buffer.from("stored bytes"));
-		const source = {
+
+		const reader = prepareReaderInput({
 			fileName,
 			mimeType,
 			sizeBytes: 12,
 			filePathAbsolute: original,
 			contentSha256: "b".repeat(64),
-		};
-
-		const reader = await prepareReaderInput({
-			...source,
 			attemptId: "attempt-2",
 			tempDirRoot: root,
+			signal: new AbortController().signal,
 		});
 
-		expect(reader.input).toEqual(source);
+		expect([reader.fileName, reader.mimeType]).toEqual([fileName, mimeType]);
+		expect(await reader.openFile()).toEqual({
+			filePathAbsolute: original,
+			sizeBytes: 12,
+			contentSha256: "b".repeat(64),
+		});
 		await reader.release();
 		expect(await readFile(original, "utf8")).toBe("stored bytes");
 		expect(await converted()).toEqual([]);
+		expect(decode).not.toHaveBeenCalled();
 	});
 
-	it("fails bytes it cannot decode as an unreadable document, and leaves no file behind", async () => {
-		const original = await stored("broken.heic", Buffer.from("not a photo"));
+	it("opens a stored file without looking at it: the file need not even be there", async () => {
+		// The extractor reads it, and says what is wrong with it in its own words (a
+		// missing PDF is `unavailable` there, as it always was).
+		const gone = path.join(root, "gone", "report.pdf");
 
-		const failure = await prepare(original, "broken.heic", "image/heic").catch(
-			(error: unknown) => error,
-		);
+		const file = await prepareReaderInput({
+			fileName: "report.pdf",
+			mimeType: "application/pdf",
+			sizeBytes: 12,
+			filePathAbsolute: gone,
+			contentSha256: null,
+			attemptId: "attempt-2",
+			tempDirRoot: root,
+			signal: new AbortController().signal,
+		}).openFile();
+
+		expect(file).toEqual({
+			filePathAbsolute: gone,
+			sizeBytes: 12,
+			contentSha256: null,
+		});
+	});
+
+	it("opens once for the attempt: every later call gets the same file", async () => {
+		const decode = vi.spyOn(prepareImage, "decodeImageToPng");
+		const original = await stored("IMG_0042.heic", tinyHeic);
+		const reader = prepare(original, "IMG_0042.heic", "image/heic");
+
+		const [first, second] = await Promise.all([
+			reader.openFile(),
+			reader.openFile(),
+		]);
+		const third = await reader.openFile();
+
+		expect(second).toBe(first);
+		expect(third).toBe(first);
+		expect(decode).toHaveBeenCalledTimes(1);
+		expect(await converted()).toEqual([`${OUTPUT_PREFIX}attempt-1.png`]);
+	});
+
+	it("fails bytes it cannot decode as an unreadable document, leaves no file behind, and fails the same way again", async () => {
+		const original = await stored("broken.heic", Buffer.from("not a photo"));
+		const reader = prepare(original, "broken.heic", "image/heic");
+
+		const failure = await rejection(reader.openFile());
 
 		expect(failure).toBeInstanceOf(DocumentExtractionError);
 		expect(failure).toMatchObject({
@@ -268,6 +357,52 @@ describe("prepareReaderInput", () => {
 			// The person is told the document sentence; the decoder's reason is for the log.
 			message: extractionErrorMessage("document_unreadable", ""),
 			details: { reason: expect.stringContaining("image preparation failed") },
+		});
+		expect(await converted()).toEqual([]);
+		// The attempt does not decode the same bytes a second time to find out.
+		expect(await rejection(reader.openFile())).toBe(failure);
+	});
+
+	// What the ledger says of a photo the decoder gives up on (D9): a photo over
+	// the pixel limit is its own fact about the photo, a decode that ran out of
+	// time is the box being slow and gets another try, and a photo libheif refuses
+	// is unreadable, as it always was (the test above).
+	it("fails a photo over the pixel limit as image_too_large, not retryable, and leaves no file", async () => {
+		const original = await stored(
+			"panorama.heic",
+			withIspe(tinyHeic, 10_001, 10_000),
+		);
+
+		const failure = await rejection(
+			prepare(original, "panorama.heic", "image/heic").openFile(),
+		);
+
+		expect(failure).toBeInstanceOf(DocumentExtractionError);
+		expect(failure).toMatchObject({
+			code: "image_too_large",
+			retryable: false,
+			message: extractionErrorMessage("image_too_large", ""),
+			details: { pixels: 100_010_000, limit: HEIF_MAX_PIXELS },
+		});
+		expect(await converted()).toEqual([]);
+	});
+
+	it("fails a decode that ran out of time as job_failed, retryable, so it is tried again", async () => {
+		vi.spyOn(prepareImage, "decodeImageToPng").mockRejectedValueOnce(
+			new ImageDecodeTimeoutError(60_000),
+		);
+		const original = await stored("IMG_0042.heic", tinyHeic);
+
+		const failure = await rejection(
+			prepare(original, "IMG_0042.heic", "image/heic").openFile(),
+		);
+
+		expect(failure).toBeInstanceOf(DocumentExtractionError);
+		expect(failure).toMatchObject({
+			code: "job_failed",
+			retryable: true,
+			message: extractionErrorMessage("job_failed", ""),
+			details: { timeoutMs: 60_000 },
 		});
 		expect(await converted()).toEqual([]);
 	});
@@ -287,8 +422,8 @@ describe("prepareReaderInput", () => {
 		const at = path.join(root, ...relative);
 		if (errno === "EISDIR") await mkdir(at);
 
-		const failure = await prepare(at, "IMG_0042.heic", "image/heic").catch(
-			(error: unknown) => error,
+		const failure = await rejection(
+			prepare(at, "IMG_0042.heic", "image/heic").openFile(),
 		);
 
 		expect(failure).toBeInstanceOf(DocumentExtractionError);
@@ -319,15 +454,18 @@ describe("prepareReaderInput", () => {
 		const original = await stored("IMG_0042.heic", tinyHeic);
 		const noSuchDirectory = path.join(root, "no-such-directory");
 
-		const failure = await prepareReaderInput({
-			fileName: "IMG_0042.heic",
-			mimeType: "image/heic",
-			sizeBytes: 12,
-			filePathAbsolute: original,
-			contentSha256: "a".repeat(64),
-			attemptId: "attempt-1",
-			tempDirRoot: noSuchDirectory,
-		}).catch((error: unknown) => error);
+		const failure = await rejection(
+			prepareReaderInput({
+				fileName: "IMG_0042.heic",
+				mimeType: "image/heic",
+				sizeBytes: 12,
+				filePathAbsolute: original,
+				contentSha256: "a".repeat(64),
+				attemptId: "attempt-1",
+				tempDirRoot: noSuchDirectory,
+				signal: new AbortController().signal,
+			}).openFile(),
+		);
 
 		expect(failure).toBeInstanceOf(DocumentExtractionError);
 		expect(failure).toMatchObject({
@@ -345,57 +483,10 @@ describe("prepareReaderInput", () => {
 		expect(await readFile(original)).toEqual(tinyHeic);
 	});
 
-	// What the ledger says of a photo the decoder gives up on (D9): a photo over
-	// the pixel limit is its own fact about the photo, a decode that ran out of
-	// time is the box being slow and gets another try, and a photo libheif refuses
-	// is unreadable, as it always was (the test above).
-	it("fails a photo over the pixel limit as image_too_large, not retryable, and leaves no file", async () => {
-		const original = await stored(
-			"panorama.heic",
-			withIspe(tinyHeic, 10_001, 10_000),
-		);
-
-		const failure = await prepare(
-			original,
-			"panorama.heic",
-			"image/heic",
-		).catch((error: unknown) => error);
-
-		expect(failure).toBeInstanceOf(DocumentExtractionError);
-		expect(failure).toMatchObject({
-			code: "image_too_large",
-			retryable: false,
-			message: extractionErrorMessage("image_too_large", ""),
-			details: { pixels: 100_010_000, limit: HEIF_MAX_PIXELS },
-		});
-		expect(await converted()).toEqual([]);
-	});
-
-	it("fails a decode that ran out of time as job_failed, retryable, so it is tried again", async () => {
-		vi.spyOn(prepareImage, "decodeImageToPng").mockRejectedValueOnce(
-			new ImageDecodeTimeoutError(60_000),
-		);
-		const original = await stored("IMG_0042.heic", tinyHeic);
-
-		const failure = await prepare(
-			original,
-			"IMG_0042.heic",
-			"image/heic",
-		).catch((error: unknown) => error);
-
-		expect(failure).toBeInstanceOf(DocumentExtractionError);
-		expect(failure).toMatchObject({
-			code: "job_failed",
-			retryable: true,
-			message: extractionErrorMessage("job_failed", ""),
-			details: { timeoutMs: 60_000 },
-		});
-		expect(await converted()).toEqual([]);
-	});
-
 	it("removes the PNG on release, and a second release does nothing", async () => {
 		const original = await stored("IMG_0042.heic", tinyHeic);
-		const reader = await prepare(original, "IMG_0042.heic", "image/heic");
+		const reader = prepare(original, "IMG_0042.heic", "image/heic");
+		await reader.openFile();
 		expect(await converted()).toEqual([`${OUTPUT_PREFIX}attempt-1.png`]);
 
 		await reader.release();
@@ -405,11 +496,55 @@ describe("prepareReaderInput", () => {
 		expect(await readFile(original)).toEqual(tinyHeic);
 	});
 
+	it("has nothing to remove when the file was never asked for", async () => {
+		const original = await stored("IMG_0042.heic", tinyHeic);
+		const reader = prepare(original, "IMG_0042.heic", "image/heic");
+
+		await expect(reader.release()).resolves.toBeUndefined();
+
+		expect(await converted()).toEqual([]);
+		expect(await readFile(original)).toEqual(tinyHeic);
+	});
+
+	it("waits for an open that is still going when it is released, and then removes what it made", async () => {
+		// An extractor that is stopped while its open is in flight: the open ends,
+		// and the file it writes is not left behind for a release that has gone.
+		const original = await stored("IMG_0042.heic", tinyHeic);
+		const reader = prepare(original, "IMG_0042.heic", "image/heic");
+
+		const opening = reader.openFile();
+		await reader.release();
+
+		await expect(opening).resolves.toMatchObject({ contentSha256: null });
+		expect(await converted()).toEqual([]);
+	});
+
+	it.each([
+		["a photo", "IMG_0042.heic", "image/heic"],
+		["a stored file", "report.pdf", "application/pdf"],
+	])("refuses to open %s once it has been released, and reads nothing", async (_label, fileName, mimeType) => {
+		const decode = vi.spyOn(prepareImage, "decodeImageToPng");
+		const original = await stored(fileName, tinyHeic);
+		const reader = prepare(original, fileName, mimeType);
+		await reader.release();
+
+		const failure = await rejection(reader.openFile());
+
+		expect(failure).toBeInstanceOf(Error);
+		expect((failure as Error).message).toMatch(/released/i);
+		expect(decode).not.toHaveBeenCalled();
+		expect(await converted()).toEqual([]);
+	});
+
 	it("leaves, for a process that is killed before `release`, a file the temp sweep collects once it is old", async () => {
 		// The sweep and the helper agree on the name only if the sweep finds what the
 		// helper really wrote, so this runs the helper and then the sweep.
 		const original = await stored("IMG_0042.heic", tinyHeic);
-		const reader = await prepare(original, "IMG_0042.heic", "image/heic");
+		const file = await prepare(
+			original,
+			"IMG_0042.heic",
+			"image/heic",
+		).openFile();
 		expect(await converted()).toEqual([`${OUTPUT_PREFIX}attempt-1.png`]);
 		const sweep = () =>
 			sweepMineruTempDirs({
@@ -422,7 +557,7 @@ describe("prepareReaderInput", () => {
 		expect(await converted()).toEqual([`${OUTPUT_PREFIX}attempt-1.png`]);
 
 		const old = new Date(Date.now() - MINERU_TEMP_MAX_AGE_MS - 60_000);
-		await utimes(reader.input.filePathAbsolute, old, old);
+		await utimes(file.filePathAbsolute, old, old);
 		expect(await sweep()).toEqual({ scanned: 1, removed: 1 });
 		expect(await converted()).toEqual([]);
 		// The photo the person uploaded is not the helper's to lose, nor the sweep's.
@@ -432,15 +567,129 @@ describe("prepareReaderInput", () => {
 	it("never throws from release: a file it cannot remove is a warning", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 		const original = await stored("IMG_0042.heic", tinyHeic);
-		const reader = await prepare(original, "IMG_0042.heic", "image/heic");
+		const reader = prepare(original, "IMG_0042.heic", "image/heic");
+		const file = await reader.openFile();
 		// `rm` without `recursive` refuses a directory, so this removal fails.
-		await rm(reader.input.filePathAbsolute);
-		await mkdir(reader.input.filePathAbsolute);
+		await rm(file.filePathAbsolute);
+		await mkdir(file.filePathAbsolute);
 
 		await expect(reader.release()).resolves.toBeUndefined();
 
 		expect(warn).toHaveBeenCalledTimes(1);
 		expect(warn.mock.calls[0]?.[0]).toMatch(/^\[EXTRACTION\] /);
+	});
+
+	// The signal is the attempt's. A cancel, or a claim taken away, calls the
+	// decode off, and a decode that was called off writes nothing: a photo nobody
+	// is going to read is not put on the disk.
+	describe("when the attempt is called off", () => {
+		const reason = new Error("the attempt was called off");
+
+		it("refuses to start with the reason, and reads nothing, when it already is", async () => {
+			const decode = vi.spyOn(prepareImage, "decodeImageToPng");
+			// A read would fail as `unavailable`: the original is not there.
+			const reader = prepare(
+				path.join(root, "not-there.heic"),
+				"IMG_0042.heic",
+				"image/heic",
+				"attempt-1",
+				AbortSignal.abort(reason),
+			);
+
+			expect(await rejection(reader.openFile())).toBe(reason);
+
+			expect(decode).not.toHaveBeenCalled();
+			expect(await converted()).toEqual([]);
+		});
+
+		it("stops a decode that is running, with the reason as it is, and writes no file", async () => {
+			const controller = new AbortController();
+			// A decoder still at work when the call is called off.
+			const decode = vi
+				.spyOn(prepareImage, "decodeImageToPng")
+				.mockImplementation(
+					(_input, _mimeType, options) =>
+						new Promise<never>((_resolve, reject) => {
+							options?.signal?.addEventListener(
+								"abort",
+								() => reject(options.signal?.reason),
+								{ once: true },
+							);
+						}),
+				);
+			const original = await stored("IMG_0042.heic", tinyHeic);
+			const reader = prepare(
+				original,
+				"IMG_0042.heic",
+				"image/heic",
+				"attempt-1",
+				controller.signal,
+			);
+
+			const opening = reader.openFile();
+			await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(1));
+			controller.abort(reason);
+
+			expect(await rejection(opening)).toBe(reason);
+			// Looked at before `release` could remove anything: nothing was written.
+			expect(await converted()).toEqual([]);
+		});
+
+		it("gives the reason, not a decoder error, when the decode fails because it was called off", async () => {
+			const controller = new AbortController();
+			vi.spyOn(prepareImage, "decodeImageToPng").mockImplementation(
+				async () => {
+					controller.abort(reason);
+					throw new ImagePreparationError(
+						"image preparation failed: its worker was stopped",
+					);
+				},
+			);
+			const original = await stored("IMG_0042.heic", tinyHeic);
+
+			const failure = await rejection(
+				prepare(
+					original,
+					"IMG_0042.heic",
+					"image/heic",
+					"attempt-1",
+					controller.signal,
+				).openFile(),
+			);
+
+			// Not an unreadable document: nobody was told the photo was bad.
+			expect(failure).toBe(reason);
+			expect(await converted()).toEqual([]);
+		});
+
+		it("writes no file for a decode that finished after it was called off", async () => {
+			const controller = new AbortController();
+			vi.spyOn(prepareImage, "decodeImageToPng").mockImplementation(
+				async () => {
+					controller.abort(reason);
+					return {
+						png: Buffer.from("png bytes"),
+						width: 1,
+						height: 1,
+						hasAlpha: false,
+					};
+				},
+			);
+			const original = await stored("IMG_0042.heic", tinyHeic);
+
+			const failure = await rejection(
+				prepare(
+					original,
+					"IMG_0042.heic",
+					"image/heic",
+					"attempt-1",
+					controller.signal,
+				).openFile(),
+			);
+
+			expect(failure).toBe(reason);
+			expect(await converted()).toEqual([]);
+		});
 	});
 });
 

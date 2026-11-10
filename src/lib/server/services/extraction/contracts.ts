@@ -115,11 +115,45 @@ export interface ExtractionProgress {
 	detail?: string | null;
 }
 
-export interface ExtractDocumentRequest {
+/**
+ * The bytes an extractor reads, as `ExtractDocumentRequest.openFile` hands them
+ * over.
+ */
+export interface ExtractionFile {
 	filePathAbsolute: string;
+	sizeBytes: number;
+	/**
+	 * Verified SHA-256 (lowercase hex) of these bytes when the ledger holds it. An
+	 * extractor that needs the digest must fall back to computing it (null: hash the
+	 * file), so a file that has none still works, it just re-streams the file.
+	 */
+	contentSha256: string | null;
+}
+
+export interface ExtractDocumentRequest {
+	/**
+	 * What the reader is told the file is: the stored name and type, or, for a type
+	 * the reader cannot take (a HEIC photo), the converted file's (`IMG_0042.png`,
+	 * `image/png`).
+	 */
 	fileName: string;
 	mimeType: string | null;
-	sizeBytes: number;
+	/**
+	 * The bytes to read. Ask for them where they are first needed, and not before:
+	 * for most files this hands over the stored file without looking at it, but for
+	 * a type the reader cannot take it makes the converted copy, which costs a decode
+	 * (about half a second of a thread for a 12 MP photo). An attempt that stops
+	 * before it needs the bytes (a backend that cannot be reached, a quality tier
+	 * that is not offered) or that only polls a task it resumed never pays for it.
+	 *
+	 * One attempt gets one file: every call returns the same, and a failure is the
+	 * same failure again. A `DocumentExtractionError` it throws is the ledger's
+	 * verdict on the file (a photo too large to read, an unreadable one, a disk
+	 * that failed): let it through as it is. If the attempt is called off while the
+	 * file is being made, it rejects with `signal.reason`. The file lasts until the
+	 * extractor settles; the runner removes it then.
+	 */
+	openFile(): Promise<ExtractionFile>;
 	/** Shared registry verdict. "reject" never reaches an extractor. */
 	intakeRoute: "direct-text" | "mineru";
 	/**
@@ -132,13 +166,6 @@ export interface ExtractDocumentRequest {
 	onProgress: (progress: ExtractionProgress) => void;
 	/** Set when a previous attempt persisted a handle. Undefined = submit fresh. */
 	resumeHandle?: ExtractionHandle | null;
-	/**
-	 * Verified SHA-256 (lowercase hex) of the bytes at `filePathAbsolute`, when
-	 * the ledger already holds it. An extractor that needs the digest must fall
-	 * back to computing it, so a caller that omits this still works — it just
-	 * re-streams the file.
-	 */
-	contentSha256?: string | null;
 	/** Present for an upload job; absent for a readback. */
 	sourceArtifactId?: string | null;
 	userId?: string | null;
