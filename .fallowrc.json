@@ -36,7 +36,13 @@
 		"docs/plans/document-ranking/lab/candidates/vitest.config.ts",
 		"static/sw.js"
 	],
-	"ignoreDependencies": ["pptxgenjs", "heic-decode"],
+	"ignoreDependencies": [
+		"pptxgenjs",
+		"heic-decode",
+		// Generated CanvasEditor SSR imports @xyflow/system directly; its production
+		// declaration makes adapter-node externalize this runtime boundary (see README).
+		"@xyflow/system"
+	],
 	"usedClassMembers": [
 		{
 			"extends": "Error",
