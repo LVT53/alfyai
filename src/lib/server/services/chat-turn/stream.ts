@@ -590,6 +590,7 @@ export function createServerChunkRuntime({
 	// `answerStarted` itself answers a different question, for the cleanup of leaked
 	// output, and is not changed by this.
 	let hasTextAfterLastToolCall = false;
+	let hasDeliveredAnswer = false;
 	let visibleCharsAfterLastToolCall = 0;
 	let strippedVisibleChars = 0;
 	const countVisibleCharacters = (text: string) =>
@@ -878,6 +879,14 @@ export function createServerChunkRuntime({
 		if (!isDeliveringToolName(name)) {
 			hasTextAfterLastToolCall = false;
 			visibleCharsAfterLastToolCall = 0;
+			hasDeliveredAnswer = false;
+		} else if (
+			status === "done" &&
+			details?.metadata?.ok === true &&
+			(name !== "make_image" || details.metadata.imageStatus === "succeeded")
+		) {
+			// Delivery is an answer, but never fabricates text or character counts.
+			hasDeliveredAnswer = true;
 		}
 		resetLeakedToolDiagnosticsForNewTextRun(leakedToolDiagnosticsState);
 		if (onToolCall)
@@ -1263,6 +1272,9 @@ export function createServerChunkRuntime({
 		},
 		get strippedVisibleChars() {
 			return strippedVisibleChars;
+		},
+		get hasDeliveredAnswer() {
+			return hasDeliveredAnswer;
 		},
 		get hasTextAfterLastToolCall() {
 			return hasTextAfterLastToolCall;

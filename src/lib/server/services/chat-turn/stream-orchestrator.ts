@@ -1092,7 +1092,9 @@ export function runChatStreamOrchestrator(
 				flushBufferedStreamOutput,
 				wasStopRequested,
 				isPaused: isPausedReply,
-				hasFinalAnswer: () => chunkRuntime.hasTextAfterLastToolCall,
+				hasFinalAnswer: () =>
+					chunkRuntime.hasTextAfterLastToolCall ||
+					chunkRuntime.hasDeliveredAnswer,
 				hasVisibleAssistantAnswerOutput,
 				hasCompletedFileProductionToolCall,
 				hasCompletedNonFileToolCall,

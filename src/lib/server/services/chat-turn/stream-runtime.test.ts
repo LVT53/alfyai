@@ -1790,3 +1790,33 @@ describe("createPreparationErrorResponse", () => {
 		});
 	});
 });
+
+describe("successful delivery is separate from text", () => {
+	it.each([
+		{ status: "done" as const, metadata: { ok: true }, delivered: true },
+		{ status: "failed" as const, metadata: { ok: true }, delivered: false },
+		{ status: "done" as const, metadata: { ok: false }, delivered: false },
+		{ status: "done" as const, metadata: {}, delivered: false },
+	])("counts only recorded successful delivery: %j", ({
+		status,
+		metadata,
+		delivered,
+	}) => {
+		const runtime = createServerChunkRuntime({ enqueueChunk: () => true });
+		runtime.emitChunkWithOutputHandling("I'll calculate the costs.");
+		runtime.emitToolCallEvent("run_python", {}, "done", {
+			callId: "calculation",
+		});
+		runtime.emitToolCallEvent("create_artifact", {}, status, {
+			callId: "delivery",
+			metadata,
+		});
+		expect(runtime.hasDeliveredAnswer).toBe(delivered);
+		expect(runtime.hasTextAfterLastToolCall).toBe(false);
+		expect(runtime.visibleCharsAfterLastToolCall).toBe(0);
+		runtime.emitToolCallEvent("research_web", {}, "running", {
+			callId: "later",
+		});
+		expect(runtime.hasDeliveredAnswer).toBe(false);
+	});
+});

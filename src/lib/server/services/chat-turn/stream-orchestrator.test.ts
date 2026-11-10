@@ -2729,6 +2729,137 @@ describe("stream-orchestrator SSE contract", () => {
 	});
 
 	it.each([
+		...(["create_artifact", "make_image"] as const).flatMap((tool) =>
+			["", "I'll calculate the costs."].map((preamble) => ({
+				tool,
+				preamble,
+				ok: true,
+				later: false,
+				imageStatus: "succeeded",
+				calls: 0,
+			})),
+		),
+		{
+			tool: "create_artifact",
+			preamble: "",
+			ok: false,
+			later: false,
+			imageStatus: "succeeded",
+			calls: 2,
+		},
+		{
+			tool: "make_image",
+			preamble: "",
+			ok: false,
+			later: false,
+			imageStatus: "failed",
+			calls: 2,
+		},
+		{
+			tool: "make_image",
+			preamble: "",
+			ok: true,
+			later: false,
+			imageStatus: "running",
+			calls: 2,
+		},
+		{
+			tool: "create_artifact",
+			preamble: "",
+			ok: true,
+			later: true,
+			imageStatus: "succeeded",
+			calls: 2,
+		},
+	])("delivery after research: %j", async ({
+		tool,
+		preamble,
+		ok,
+		later,
+		imageStatus,
+		calls,
+	}) => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"./streaming-normal-chat-model-run"
+		);
+		const { runPlainNormalChatSendModel } = await import(
+			"./plain-normal-chat-model-run"
+		);
+		const events: NeutralStreamEvent[] = [
+			{ type: "text_delta", text: preamble },
+			{
+				type: "tool_call",
+				callId: "research-first",
+				toolName: "research_web",
+				input: {},
+			},
+			{
+				type: "tool_result",
+				callId: "research-first",
+				toolName: "research_web",
+				output: {},
+			},
+			{ type: "tool_call", callId: "delivery", toolName: tool, input: {} },
+			{ type: "tool_result", callId: "delivery", toolName: tool, output: {} },
+		];
+		if (later)
+			events.push(
+				{
+					type: "tool_call",
+					callId: "research-later",
+					toolName: "research_web",
+					input: {},
+				},
+				{
+					type: "tool_result",
+					callId: "research-later",
+					toolName: "research_web",
+					output: {},
+				},
+			);
+		events.push(finishEvent);
+		vi.mocked(runStreamingNormalChatSendModel).mockResolvedValue(
+			createNeutralStreamingResult(events, {
+				normalChatToolCalls: [
+					{
+						callId: "delivery",
+						name: tool,
+						input: {},
+						status: "done",
+						metadata: { ok, artifactId: "artifact-1", imageStatus },
+					},
+				],
+			}),
+		);
+		vi.mocked(runPlainNormalChatSendModel).mockResolvedValue({
+			text: "",
+		} as Awaited<ReturnType<typeof runPlainNormalChatSendModel>>);
+		const chunks = await readSseResponse(runStream());
+		expect(runPlainNormalChatSendModel).toHaveBeenCalledTimes(calls);
+		expect(chunks.join("\n").includes("data-stream-error")).toBe(calls > 0);
+		if (!calls) {
+			const metadata = uiDataParts<Record<string, unknown>>(
+				parseUiStreamParts(chunks),
+				"data-stream-metadata",
+			)[0];
+			expect(metadata.completionWarningCodes ?? []).not.toContain(
+				"no_final_answer",
+			);
+			const { createMessage } = await import("$lib/server/services/messages");
+			const saved = vi
+				.mocked(createMessage)
+				.mock.calls.find((call) => call[1] === "assistant")?.[5];
+			expect(saved).toMatchObject({
+				completion: {
+					end: "answered",
+					charsAfterLastToolCall: 0,
+					recovery: "none",
+				},
+			});
+		}
+	});
+
+	it.each([
 		"I'll calculate the costs.",
 		"",
 	])("clears the upstream watchdog before a slow clean-end repair with preamble %j", async (preamble) => {
