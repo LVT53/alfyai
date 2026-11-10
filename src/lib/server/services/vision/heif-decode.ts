@@ -56,59 +56,119 @@ const FULL_BOX_WORD_BYTES = 4;
 /** An `ispe` holds the image's width and height, a 32-bit number each. */
 const ISPE_SIZE_BYTES = 8;
 
-type Box = { type: string; payloadStart: number; end: number };
+/**
+ * The most boxes the size reader looks at in one file, counted over the whole
+ * walk: the top-level boxes up to `meta`, the boxes of `meta` up to `iprp`, and
+ * every box inside `iprp` and inside each `ipco`. A real photo has dozens. The
+ * bytes are an upload and a box can be as small as 8, so 100 MB can hold 12
+ * million empty ones: what reading a file costs has to be bounded by this, not
+ * by how big the file is. A file with more says nothing of its size.
+ */
+export const HEIF_MAX_BOXES_READ = 10_000;
 
-/** The box that starts at `position` in a run that ends at `end`, or null when it does not fit. */
-function readBox(view: DataView, position: number, end: number): Box | null {
-	if (end - position < BOX_HEADER_BYTES) return null;
-	const declared = view.getUint32(position);
-	const type = String.fromCharCode(
-		view.getUint8(position + 4),
-		view.getUint8(position + 5),
-		view.getUint8(position + 6),
-		view.getUint8(position + 7),
-	);
-	let headerBytes = BOX_HEADER_BYTES;
-	let size = declared;
-	if (declared === 1) {
-		headerBytes = LARGE_BOX_HEADER_BYTES;
-		if (end - position < headerBytes) return null;
-		// Exact below 2**53; a size beyond that is past any buffer anyway.
-		size =
-			view.getUint32(position + 8) * 2 ** 32 + view.getUint32(position + 12);
-	} else if (declared === 0) {
-		size = end - position;
+/** A box type: its four letters as the 32-bit number they are stored as. */
+const boxType = (letters: string): number =>
+	((letters.charCodeAt(0) << 24) |
+		(letters.charCodeAt(1) << 16) |
+		(letters.charCodeAt(2) << 8) |
+		letters.charCodeAt(3)) >>>
+	0;
+const META = boxType("meta");
+const IPRP = boxType("iprp");
+const IPCO = boxType("ipco");
+const ISPE = boxType("ispe");
+
+/**
+ * Reads the boxes of one file, one at a time, and counts them against
+ * `HEIF_MAX_BOXES_READ`. It leaves the box it read in its own fields and not in
+ * an object, and compares types as numbers and not as strings, so walking a run
+ * of boxes allocates nothing per box. One reader walks a whole file: its count is
+ * the file's, not a run's.
+ */
+class BoxReader {
+	readonly view: DataView;
+	/** The box read last: its type, where its payload starts and where it ends. */
+	type = 0;
+	payloadStart = 0;
+	end = 0;
+	private remaining = HEIF_MAX_BOXES_READ;
+
+	constructor(view: DataView) {
+		this.view = view;
 	}
-	if (size < headerBytes || size > end - position) return null;
-	return { type, payloadStart: position + headerBytes, end: position + size };
+
+	/**
+	 * Reads the box that starts at `position` in a run that ends at `end`. False
+	 * when it does not fit there (a size smaller than its own header, or running
+	 * past the end) and when the file has used up the boxes it may read.
+	 */
+	read(position: number, end: number): boolean {
+		if (this.remaining === 0 || end - position < BOX_HEADER_BYTES) return false;
+		this.remaining -= 1;
+		const declared = this.view.getUint32(position);
+		let headerBytes = BOX_HEADER_BYTES;
+		let size = declared;
+		if (declared === 1) {
+			headerBytes = LARGE_BOX_HEADER_BYTES;
+			if (end - position < headerBytes) return false;
+			// Exact below 2**53; a size beyond that is past any buffer anyway.
+			size =
+				this.view.getUint32(position + 8) * 2 ** 32 +
+				this.view.getUint32(position + 12);
+		} else if (declared === 0) {
+			size = end - position;
+		}
+		if (size < headerBytes || size > end - position) return false;
+		this.type = this.view.getUint32(position + 4);
+		this.payloadStart = position + headerBytes;
+		this.end = position + size;
+		return true;
+	}
 }
 
-/** The first box of `type` in [start, end). It stops at the first box it finds, and at the first that is malformed. */
-function firstBox(
-	view: DataView,
+/**
+ * Finds the first box of `type` in [start, end) and leaves it in `reader`. It
+ * stops at the first box it finds, and false is what it says when there is none,
+ * when a box before it is malformed and when the file is out of boxes to read.
+ */
+function findBox(
+	reader: BoxReader,
 	start: number,
 	end: number,
-	type: string,
-): Box | null {
+	type: number,
+): boolean {
 	for (let position = start; position < end; ) {
-		const box = readBox(view, position, end);
-		if (!box) return null;
-		if (box.type === type) return box;
-		position = box.end;
+		if (!reader.read(position, end)) return false;
+		if (reader.type === type) return true;
+		position = reader.end;
 	}
-	return null;
+	return false;
 }
 
-/** Every box in [start, end), or null when any of them is malformed. */
-function allBoxes(view: DataView, start: number, end: number): Box[] | null {
-	const boxes: Box[] = [];
+/**
+ * The largest width times height among the `ispe` boxes in [start, end): 0 when
+ * there is none, and null when a box of the run is malformed (an `ispe` too short
+ * to hold a size is) or the file is out of boxes to read. An image with no pixels
+ * is not one libheif reads, so it does not count.
+ */
+function largestIspeIn(
+	reader: BoxReader,
+	start: number,
+	end: number,
+): number | null {
+	let largest = 0;
 	for (let position = start; position < end; ) {
-		const box = readBox(view, position, end);
-		if (!box) return null;
-		boxes.push(box);
-		position = box.end;
+		if (!reader.read(position, end)) return null;
+		if (reader.type === ISPE) {
+			const sizeAt = reader.payloadStart + FULL_BOX_WORD_BYTES;
+			if (reader.end - sizeAt < ISPE_SIZE_BYTES) return null;
+			const pixels =
+				reader.view.getUint32(sizeAt) * reader.view.getUint32(sizeAt + 4);
+			if (pixels > largest) largest = pixels;
+		}
+		position = reader.end;
 	}
-	return boxes;
+	return largest;
 }
 
 /**
@@ -125,7 +185,9 @@ function allBoxes(view: DataView, start: number, end: number): Box[] | null {
  * fit in what holds it, a size smaller than its own header, a missing `meta` or
  * a truncated buffer all mean "no size", which is null. It looks only at the
  * boxes it needs, so a file cut off inside its picture data (after `meta`) still
- * says its size.
+ * says its size. It also looks at no more than `HEIF_MAX_BOXES_READ` boxes, all
+ * of the walk counted together, and a file with more says nothing of its size:
+ * a crafted run of millions of empty boxes costs no more than that to refuse.
  */
 export function readHeifPixelCount(bytes: Uint8Array): number | null {
 	let view: DataView;
@@ -134,35 +196,32 @@ export function readHeifPixelCount(bytes: Uint8Array): number | null {
 	} catch {
 		return null;
 	}
-	const meta = firstBox(view, 0, bytes.byteLength, "meta");
-	if (!meta) return null;
-	const iprp = firstBox(
-		view,
-		meta.payloadStart + FULL_BOX_WORD_BYTES,
-		meta.end,
-		"iprp",
-	);
-	if (!iprp) return null;
-	const containers = allBoxes(view, iprp.payloadStart, iprp.end);
-	if (!containers) return null;
-
-	let largest: number | null = null;
-	for (const container of containers) {
-		if (container.type !== "ipco") continue;
-		const properties = allBoxes(view, container.payloadStart, container.end);
-		if (!properties) return null;
-		for (const property of properties) {
-			if (property.type !== "ispe") continue;
-			const sizeAt = property.payloadStart + FULL_BOX_WORD_BYTES;
-			if (property.end - sizeAt < ISPE_SIZE_BYTES) return null;
-			const pixels = view.getUint32(sizeAt) * view.getUint32(sizeAt + 4);
-			// An image with no pixels is not one libheif reads.
-			if (pixels > 0 && (largest === null || pixels > largest)) {
-				largest = pixels;
-			}
-		}
+	const reader = new BoxReader(view);
+	if (!findBox(reader, 0, bytes.byteLength, META)) return null;
+	const metaEnd = reader.end;
+	if (
+		!findBox(reader, reader.payloadStart + FULL_BOX_WORD_BYTES, metaEnd, IPRP)
+	) {
+		return null;
 	}
-	return largest;
+
+	// Every box of `iprp` must be well formed, and every `ipco` among them is
+	// searched for its sizes as it is met. The reader holds one box at a time, so
+	// where `iprp` ends and where its next box starts are taken before a run inside
+	// it is walked.
+	const iprpEnd = reader.end;
+	let largest = 0;
+	for (let position = reader.payloadStart; position < iprpEnd; ) {
+		if (!reader.read(position, iprpEnd)) return null;
+		const next = reader.end;
+		if (reader.type === IPCO) {
+			const pixels = largestIspeIn(reader, reader.payloadStart, next);
+			if (pixels === null) return null;
+			if (pixels > largest) largest = pixels;
+		}
+		position = next;
+	}
+	return largest > 0 ? largest : null;
 }
 
 // --- The decode, in a worker --------------------------------------------------

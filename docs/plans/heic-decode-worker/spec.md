@@ -280,3 +280,11 @@ Slice B, the document path:
 - A photo's PNG is not byte for byte the one the previous release made (no JPEG step, flattened onto white), so a MinerU
   task that is still waiting for its bytes at the deploy is declared again once: the PUT with the new bytes is refused as a
   digest mismatch, and the extractor's existing recovery creates the task again.
+
+After the independent review of the finished branch (one commit each):
+
+- The size reader of D6 looks at no more than `HEIF_MAX_BOXES_READ = 10_000` boxes in a file, counted over the whole walk (the
+  top level up to `meta`, `meta` up to `iprp`, every box of `iprp` and of each `ipco`), and a file with more says nothing of
+  its size, as a malformed one does. A real photo has dozens. The walk had no bound but the file's: a 100 MB upload whose
+  `ipco` held 12.5 million empty boxes cost the main thread about 0.8 s and about 1.1 GB of heap per call (measured). The
+  reader now allocates nothing per box and refuses that file in under a millisecond.

@@ -7,6 +7,7 @@ import type { Worker } from "node:worker_threads";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	decodeHeifToRgba,
+	HEIF_MAX_BOXES_READ,
 	HEIF_MAX_PIXELS,
 	readDecoderAnswer,
 	readHeifPixelCount,
@@ -112,6 +113,17 @@ const ispe = (width: number, height: number, form?: Form) =>
 	fullBox("ispe", [...u32(width), ...u32(height)], form);
 const ftyp = () => box("ftyp", [...letters("heic"), 0, 0, 0, 0]);
 const mdat = () => box("mdat", [1, 2, 3, 4]);
+
+/** `count` empty boxes of 8 bytes, which a reader can only pass over, made as one run of bytes. */
+function emptyBoxes(count: number): Uint8Array {
+	const run = new Uint8Array(count * 8);
+	const view = new DataView(run.buffer);
+	for (let at = 0; at < run.length; at += 8) {
+		view.setUint32(at, 8);
+		run.set(letters("free"), at + 4);
+	}
+	return run;
+}
 
 /** ftyp, then meta > iprp > ipco > `properties`, then picture data: the shape of a HEIF file. */
 function heifOf(
@@ -333,6 +345,106 @@ describe("readHeifPixelCount", () => {
 			const damaged = heifOf([ispe(640, 480), Uint8Array.from([0, 0, 0])]);
 
 			expect(readHeifPixelCount(damaged)).toBeNull();
+		});
+	});
+
+	// An upload is not trusted to be small: 100 MB holds 12 million empty boxes of 8
+	// bytes, and what reading it costs has to come from a limit and not from the
+	// file. The limit is one for the whole walk, so these files each hold a valid
+	// `ispe` and a run of empty boxes in one of the places the reader walks.
+	describe("a file with a great many boxes", () => {
+		const SIZE = 640 * 480;
+		const properties = () => box("ipco", ispe(640, 480));
+		const places: Array<[string, (many: Uint8Array) => Uint8Array]> = [
+			[
+				"the top level, before meta",
+				(many) =>
+					concat(
+						ftyp(),
+						many,
+						fullBox("meta", box("iprp", properties())),
+						mdat(),
+					),
+			],
+			[
+				"meta, before iprp",
+				(many) =>
+					concat(
+						ftyp(),
+						fullBox("meta", concat(many, box("iprp", properties()))),
+						mdat(),
+					),
+			],
+			[
+				"iprp, before ipco",
+				(many) =>
+					concat(
+						ftyp(),
+						fullBox("meta", box("iprp", concat(many, properties()))),
+						mdat(),
+					),
+			],
+			[
+				"iprp, after ipco",
+				(many) =>
+					concat(
+						ftyp(),
+						fullBox("meta", box("iprp", concat(properties(), many))),
+						mdat(),
+					),
+			],
+			["ipco, around the ispe", (many) => heifOf([many, ispe(640, 480)])],
+		];
+
+		it.each(
+			places,
+		)("reads the size when %s holds a good many", (_place, fileWith) => {
+			expect(
+				readHeifPixelCount(fileWith(emptyBoxes(HEIF_MAX_BOXES_READ / 2))),
+			).toBe(SIZE);
+		});
+
+		it.each(
+			places,
+		)("says nothing of its size when %s holds more than may be read", (_place, fileWith) => {
+			expect(
+				readHeifPixelCount(fileWith(emptyBoxes(HEIF_MAX_BOXES_READ))),
+			).toBeNull();
+		});
+
+		it("counts the boxes of every run against one limit, not one limit for each", () => {
+			const most = emptyBoxes(HEIF_MAX_BOXES_READ * 0.6);
+			const inBoth = concat(
+				ftyp(),
+				fullBox(
+					"meta",
+					box("iprp", concat(most, box("ipco", concat(most, ispe(640, 480))))),
+				),
+				mdat(),
+			);
+			const inIprpOnly = concat(
+				ftyp(),
+				fullBox("meta", box("iprp", concat(most, properties()))),
+				mdat(),
+			);
+
+			// Each run alone is under the limit, which the file with one of them shows.
+			expect(readHeifPixelCount(inIprpOnly)).toBe(SIZE);
+			expect(readHeifPixelCount(inBoth)).toBeNull();
+		});
+
+		it("reads up to exactly the limit, and not a box past it", () => {
+			// ftyp, meta, iprp and ipco are looked at on the way to the properties, and
+			// each of those counts as a box.
+			const onTheWay = 4;
+			const room = HEIF_MAX_BOXES_READ - onTheWay;
+
+			expect(
+				readHeifPixelCount(heifOf([ispe(640, 480), emptyBoxes(room - 1)])),
+			).toBe(SIZE);
+			expect(
+				readHeifPixelCount(heifOf([ispe(640, 480), emptyBoxes(room)])),
+			).toBeNull();
 		});
 	});
 
