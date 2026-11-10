@@ -1559,6 +1559,23 @@ describe("prepareOutboundChatContext", () => {
 			}
 		});
 
+		// Everything the app writes into a model request is plain English that names
+		// no language and steers none (chat-turn/AGENTS.md, ruling 79). The full scans
+		// that hold whole requests to it (tests/integration/reply-language.test.ts and
+		// english-request-purity.test.ts) run on accounts with no stored zone, because
+		// a line with minutes in it cannot sit in requests those tests compare moments
+		// apart; so each wording of this line is held to the same rule here.
+		it("names no language and says nothing of the reply's, in either wording, and is plain ASCII", () => {
+			for (const timeZone of ["Europe/Budapest", null]) {
+				const line = buildTimeContextLine({ now: winterAfternoon, timeZone });
+
+				expect(line, String(timeZone)).not.toMatch(
+					/\b(?:English|Hungarian|Magyar|languages?|repl(?:y|ies)|respon(?:d|ds|se|ses)|answers?)\b/i,
+				);
+				expect(line, String(timeZone)).toMatch(/^[ -~]+$/);
+			}
+		});
+
 		describe("when the person's zone is not known", () => {
 			it.each([
 				["nothing stored", null],
