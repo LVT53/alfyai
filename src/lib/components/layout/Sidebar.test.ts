@@ -1,12 +1,23 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { tick } from "svelte";
-import { readable } from "svelte/store";
+import { get, readable } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
 import {
 	conversations,
 	markConversationAtlasBadgeSeen,
 } from "$lib/stores/conversations";
-import { currentConversationId, sidebarCollapsed } from "$lib/stores/ui";
+import {
+	pendingSpotlight,
+	requestSpotlight,
+	SPOTLIGHT_REQUEST_TTL_MS,
+	spotlightRequest,
+} from "$lib/stores/spotlight";
+import {
+	currentConversationId,
+	sidebarCollapsed,
+	sidebarOpen,
+} from "$lib/stores/ui";
 import Sidebar from "./Sidebar.svelte";
 
 // Deterministic desktop/non-touch viewport so the expanded search pill (and
@@ -270,5 +281,275 @@ describe("Sidebar — collapsed-rail active-conversation indicator (Task 11 / A4
 		expect(
 			screen.queryByTestId("unseen-activity-indicator"),
 		).not.toBeInTheDocument();
+	});
+});
+
+// The Feature Guide's Show me for the sidebar's Search and Projects. The guide
+// stays on its page for these two (the sidebar is on every page), so the
+// sidebar has to be there to be rung: below desktop it is a drawer, and on a
+// collapsed desktop sidebar the rail has no Projects.
+describe("Sidebar — the guide's Show me", () => {
+	let restoreLayout: () => void = () => undefined;
+
+	const searchPill = () =>
+		screen.getByRole("button", { name: "Search conversations and documents" });
+	const projectsHeader = () => screen.getByTestId("sidebar-projects-header");
+	const ringing = () => [...document.querySelectorAll(".spotlight-ring")];
+
+	beforeEach(() => {
+		// The ring waits one animation frame; the test steps it by hand.
+		vi.useFakeTimers({
+			toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+		});
+		// Every element has layout, as the drawer's contents do in a real
+		// browser while it is shut: it is hidden with opacity, a transform and
+		// pointer-events, none of which takes the layout away.
+		restoreLayout = stubLayoutForSpotlight();
+		spotlightRequest.set(null);
+		conversations.set([]);
+		currentConversationId.set(null);
+		mockViewportStore.tier = "desktop";
+		sidebarOpen.set(false);
+		sidebarCollapsed.set(false);
+	});
+
+	afterEach(() => {
+		restoreLayout();
+		vi.useRealTimers();
+		spotlightRequest.set(null);
+		mockViewportStore.tier = "desktop";
+		sidebarOpen.set(false);
+		sidebarCollapsed.set(false);
+	});
+
+	describe("below desktop, where the sidebar is a drawer", () => {
+		beforeEach(() => {
+			mockViewportStore.tier = "phone";
+		});
+
+		// The drawer is mounted while it is shut, so the pill is in the page with
+		// a layout and its marker takes the request the moment the store tells it.
+		// An opener that waited for the next update (an `$effect`) would read a
+		// request that is already gone, leave the drawer shut and let the ring
+		// play on a pill nobody can see.
+		it("opens the phone drawer when Show me asks for Search", async () => {
+			render(Sidebar, { open: false });
+
+			requestSpotlight("sidebar.search");
+			await tick();
+
+			expect(get(sidebarOpen)).toBe(true);
+			// The pill took the request, not the sidebar's opener.
+			expect(get(spotlightRequest)).toBeNull();
+			vi.advanceTimersToNextFrame();
+			expect(ringing()).toEqual([searchPill()]);
+		});
+
+		it("opens the phone drawer when Show me asks for Projects", async () => {
+			render(Sidebar, { open: false });
+
+			requestSpotlight("sidebar.projects");
+			await tick();
+
+			expect(get(sidebarOpen)).toBe(true);
+			expect(get(spotlightRequest)).toBeNull();
+			vi.advanceTimersToNextFrame();
+			expect(ringing()).toEqual([projectsHeader()]);
+		});
+
+		// A tablet is below desktop too, and its sidebar is the same drawer.
+		it.each([
+			["Search", "sidebar.search"],
+			["Projects", "sidebar.projects"],
+		] as const)("opens the drawer on a tablet when Show me asks for %s", async (_name, spotlight) => {
+			mockViewportStore.tier = "tablet";
+			render(Sidebar, { open: false });
+
+			requestSpotlight(spotlight);
+			await tick();
+
+			expect(get(sidebarOpen)).toBe(true);
+			expect(get(spotlightRequest)).toBeNull();
+			vi.advanceTimersToNextFrame();
+			expect(ringing()).toHaveLength(1);
+		});
+
+		it("opens the drawer before a control in it takes the request", () => {
+			render(Sidebar, { open: false });
+			const waitingWhenOpened: unknown[] = [];
+			const open = vi.spyOn(sidebarOpen, "set").mockImplementation((value) => {
+				waitingWhenOpened.push([
+					value,
+					pendingSpotlight(get(spotlightRequest)),
+				]);
+			});
+
+			try {
+				requestSpotlight("sidebar.search");
+
+				// Asked for while the request still waited. The pill's marker takes
+				// it next: it is told after this component, which subscribed first.
+				expect(waitingWhenOpened).toEqual([[true, "sidebar.search"]]);
+			} finally {
+				open.mockRestore();
+			}
+		});
+
+		it("leaves an open drawer open", async () => {
+			sidebarOpen.set(true);
+			render(Sidebar, { open: true });
+
+			requestSpotlight("sidebar.search");
+			await tick();
+
+			expect(get(sidebarOpen)).toBe(true);
+			vi.advanceTimersToNextFrame();
+			expect(ringing()).toEqual([searchPill()]);
+		});
+
+		it("opens nothing for a request for another control", async () => {
+			render(Sidebar, { open: false });
+
+			requestSpotlight("composer.atlas");
+			await tick();
+
+			expect(get(sidebarOpen)).toBe(false);
+			expect(pendingSpotlight(get(spotlightRequest))).toBe("composer.atlas");
+		});
+
+		it("opens nothing for a request that has lapsed", async () => {
+			render(Sidebar, { open: false });
+
+			requestSpotlight(
+				"sidebar.search",
+				Date.now() - SPOTLIGHT_REQUEST_TTL_MS - 1,
+			);
+			await tick();
+
+			expect(get(sidebarOpen)).toBe(false);
+			vi.advanceTimersToNextFrame();
+			expect(ringing()).toEqual([]);
+		});
+
+		it("does not open the drawer again once the person has shut it, and opens it for the next request", async () => {
+			// The pill has no layout here, so the request is left waiting, as one
+			// is when its control is not on screen (`afterEach` puts the stub back).
+			const withLayout = Element.prototype.getClientRects;
+			Element.prototype.getClientRects = function (this: Element) {
+				return this.closest(".search-pill")
+					? ([] as unknown as DOMRectList)
+					: withLayout.call(this);
+			};
+			render(Sidebar, { open: false });
+			requestSpotlight("sidebar.search");
+			await tick();
+			expect(get(sidebarOpen)).toBe(true);
+			expect(pendingSpotlight(get(spotlightRequest))).toBe("sidebar.search");
+
+			sidebarOpen.set(false);
+			await tick();
+			await tick();
+
+			expect(get(sidebarOpen)).toBe(false);
+
+			requestSpotlight("sidebar.search");
+			await tick();
+			expect(get(sidebarOpen)).toBe(true);
+		});
+
+		it("stops listening when the sidebar goes", async () => {
+			const { unmount } = render(Sidebar, { open: false });
+			unmount();
+
+			requestSpotlight("sidebar.search");
+			await tick();
+
+			expect(get(sidebarOpen)).toBe(false);
+		});
+	});
+
+	describe("on a desktop window", () => {
+		it("expands a collapsed sidebar when Show me asks for Projects", async () => {
+			sidebarCollapsed.set(true);
+			render(Sidebar, { open: true });
+			// The rail has no Projects.
+			expect(screen.queryByTestId("sidebar-projects-header")).toBeNull();
+
+			requestSpotlight("sidebar.projects");
+
+			expect(get(sidebarCollapsed)).toBe(false);
+			// Nothing was there to take the request: the opener only reads it.
+			expect(pendingSpotlight(get(spotlightRequest))).toBe("sidebar.projects");
+
+			await tick();
+
+			expect(get(spotlightRequest)).toBeNull();
+			vi.advanceTimersToNextFrame();
+			expect(ringing()).toEqual([projectsHeader()]);
+		});
+
+		it("rings the rail's Search button and leaves the rail as it is", async () => {
+			sidebarCollapsed.set(true);
+			render(Sidebar, { open: true });
+
+			requestSpotlight("sidebar.search");
+			await tick();
+
+			expect(get(sidebarCollapsed)).toBe(true);
+			expect(get(sidebarOpen)).toBe(false);
+			expect(get(spotlightRequest)).toBeNull();
+			vi.advanceTimersToNextFrame();
+			expect(ringing()).toEqual([searchPill()]);
+			expect(ringing()[0]).not.toHaveClass("search-pill");
+		});
+
+		it("rings the search pill and changes nothing else", async () => {
+			render(Sidebar, { open: true });
+
+			requestSpotlight("sidebar.search");
+			await tick();
+
+			expect(get(sidebarCollapsed)).toBe(false);
+			expect(get(sidebarOpen)).toBe(false);
+			vi.advanceTimersToNextFrame();
+			expect(ringing()).toEqual([searchPill()]);
+			expect(searchPill()).toHaveClass("search-pill");
+		});
+
+		it("rings the Projects header of the open sidebar and changes nothing else", async () => {
+			render(Sidebar, { open: true });
+
+			requestSpotlight("sidebar.projects");
+			await tick();
+
+			expect(get(sidebarCollapsed)).toBe(false);
+			expect(get(sidebarOpen)).toBe(false);
+			vi.advanceTimersToNextFrame();
+			expect(ringing()).toEqual([projectsHeader()]);
+		});
+
+		it("does not expand the rail for Search or for another control", async () => {
+			sidebarCollapsed.set(true);
+			render(Sidebar, { open: true });
+
+			requestSpotlight("sidebar.search");
+			requestSpotlight("settings.data");
+			await tick();
+
+			expect(get(sidebarCollapsed)).toBe(true);
+		});
+
+		it("does not expand the rail for a request that has lapsed", async () => {
+			sidebarCollapsed.set(true);
+			render(Sidebar, { open: true });
+
+			requestSpotlight(
+				"sidebar.projects",
+				Date.now() - SPOTLIGHT_REQUEST_TTL_MS - 1,
+			);
+			await tick();
+
+			expect(get(sidebarCollapsed)).toBe(true);
+		});
 	});
 });

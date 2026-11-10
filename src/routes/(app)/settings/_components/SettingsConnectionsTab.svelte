@@ -19,6 +19,7 @@
 // owns locally is view state — which detail dialog is open, and which
 // mutation just failed — because neither is data.
 import { AlertTriangle, Info, RefreshCw } from "@lucide/svelte";
+import { spotlightTarget } from "$lib/actions/spotlight";
 import type { ConnectionPublic } from "$lib/client/api/connections";
 import {
 	type Capability,
@@ -282,8 +283,19 @@ function nameList(capabilities: string[]): string {
 }
 </script>
 
-<p class="settings-group-label">{$t('connections.title')}</p>
-<p class="settings-help-text mb-3">{$t('connections.subtitle')}</p>
+<!-- The feature guide's Show me for connected accounts rings the tab's heading
+     block. The tab has no single root, and ringing all of it would scroll a
+     long tab (a phone) to its middle, away from the heading and the switcher
+     that say where the person is. `.connections-head` keeps the layout it
+     replaces (see its rule below). -->
+<div
+	class="connections-head"
+	data-testid="connections-heading"
+	use:spotlightTarget={"settings.connections"}
+>
+	<p class="settings-group-label">{$t('connections.title')}</p>
+	<p class="settings-help-text">{$t('connections.subtitle')}</p>
+</div>
 
 <div class="connections-stack">
 	<PrivacyCard
@@ -420,6 +432,17 @@ function nameList(capabilities: string[]): string {
 	/* .settings-group-label / .settings-help-text are the shared settings
 	   grammar and live in settings/+page.svelte, so every tab reads the same
 	   rule instead of each carrying a scoped copy of it. */
+
+	/* The heading block has a box of its own for the feature guide's Show me to
+	   ring. It is padded out by half a rem so the ring clears the text, and the
+	   negative margins give that room back (the line's own `mb-3` is now the
+	   0.25rem under the box plus the 0.5rem of padding), so the tab lays out as
+	   it did before the block existed. */
+	.connections-head {
+		margin: -0.5rem -0.5rem 0.25rem;
+		padding: 0.5rem;
+		border-radius: var(--radius-md);
+	}
 
 	.connections-stack {
 		display: flex;

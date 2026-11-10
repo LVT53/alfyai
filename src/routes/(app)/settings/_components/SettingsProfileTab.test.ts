@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	fireEvent,
 	render,
@@ -5,10 +8,18 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
+import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
+import type { SpotlightId } from "$lib/app-places";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
 import type { ModelId } from "$lib/model-types";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
+import {
+	pendingSpotlight,
+	requestSpotlight,
+	spotlightRequest,
+} from "$lib/stores/spotlight";
 import SettingsProfileTab from "./SettingsProfileTab.svelte";
 
 vi.mock("chart.js/auto", () => {
@@ -912,5 +923,209 @@ describe("SettingsProfileTab — the Account card's two-step row", () => {
 		expect(
 			screen.getByRole("button", { name: "Turn off" }),
 		).toBeInTheDocument();
+	});
+});
+
+// The Feature Guide's Show me rings the Profile tab's controls. It asks and
+// then goes to Settings, so the request is waiting when the tab mounts and
+// each control's marker takes it as it is drawn.
+describe("SettingsProfileTab — the guide's Show me", () => {
+	let restoreLayout: () => void = () => undefined;
+
+	const aStyle = { id: "p1", name: "Concise", description: "Short" };
+
+	/** The element each spotlight rings on the Profile tab. */
+	const targets: Array<[SpotlightId, () => Element | null]> = [
+		[
+			"settings.instructions",
+			() =>
+				screen
+					.getByTestId("personal-instructions-open")
+					.closest(".settings-row"),
+		],
+		["settings.style", () => screen.getByTestId("settings-style-group")],
+		[
+			"settings.language",
+			() => screen.getByRole("group", { name: "Interface language" }),
+		],
+		[
+			"settings.skills",
+			() => screen.getByTestId("skills-summary-card").closest(".settings-row"),
+		],
+		[
+			"settings.data",
+			() => document.getElementById("settings-section-data-privacy"),
+		],
+		[
+			"settings.activity",
+			() => document.getElementById("settings-section-your-activity"),
+		],
+		["settings.twoStep", () => screen.getByTestId("two-step-row")],
+	];
+
+	const ringing = () => [...document.querySelectorAll(".spotlight-ring")];
+
+	beforeEach(() => {
+		// The ring waits one animation frame; the test steps it by hand.
+		vi.useFakeTimers({
+			toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+		});
+		restoreLayout = stubLayoutForSpotlight();
+		spotlightRequest.set(null);
+	});
+
+	afterEach(() => {
+		restoreLayout();
+		vi.useRealTimers();
+		spotlightRequest.set(null);
+	});
+
+	it.each(targets)("rings %s on request", (spotlight, target) => {
+		requestSpotlight(spotlight);
+
+		renderTab({ personalityProfiles: [aStyle] });
+
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		const element = target();
+		expect(element).not.toBeNull();
+		// That one and no other, and it was the one scrolled to.
+		expect(ringing()).toEqual([element]);
+		expect(
+			vi.mocked((element as HTMLElement).scrollIntoView).mock.contexts,
+		).toEqual([element]);
+	});
+
+	it.each(
+		targets,
+	)("rings %s when the request comes after the tab is drawn", (spotlight, target) => {
+		renderTab({ personalityProfiles: [aStyle] });
+
+		requestSpotlight(spotlight);
+
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect(ringing()).toEqual([target()]);
+	});
+
+	it("rings the two rows of Style and model together", () => {
+		requestSpotlight("settings.style");
+		renderTab({ personalityProfiles: [aStyle] });
+		vi.advanceTimersToNextFrame();
+
+		const group = screen.getByTestId("settings-style-group");
+		expect(group).toHaveClass("spotlight-ring");
+		expect(
+			within(group).getByTestId("settings-default-model-select"),
+		).toBeInTheDocument();
+		expect(
+			within(group).getByTestId("settings-conversation-style-select"),
+		).toBeInTheDocument();
+		// Appearance is the next row, and it is not part of the group.
+		expect(within(group).queryByText("Appearance")).toBeNull();
+	});
+
+	it("rings the model row alone when no style is offered", () => {
+		requestSpotlight("settings.style");
+		renderTab({ personalityProfiles: [] });
+		vi.advanceTimersToNextFrame();
+
+		const group = screen.getByTestId("settings-style-group");
+		expect(ringing()).toEqual([group]);
+		expect(
+			within(group).getByTestId("settings-default-model-select"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByTestId("settings-conversation-style-select"),
+		).toBeNull();
+	});
+
+	it("rings the Skills row when skills are switched off, as the row is still there", () => {
+		requestSpotlight("settings.skills");
+		renderTab({ skillsEnabled: false });
+		vi.advanceTimersToNextFrame();
+
+		const row = screen
+			.getByText("Skills are disabled by your workspace administrator.")
+			.closest(".settings-row");
+		expect(row).not.toBeNull();
+		expect(ringing()).toEqual([row]);
+	});
+
+	it("rings the Interface language group and not the Title language group", () => {
+		requestSpotlight("settings.language");
+		renderTab();
+		vi.advanceTimersToNextFrame();
+
+		expect(ringing()).toEqual([
+			screen.getByRole("group", { name: "Interface language" }),
+		]);
+		expect(
+			screen.getByRole("group", { name: "Title language" }),
+		).not.toHaveClass("spotlight-ring");
+	});
+
+	it("rings the Personal instructions row and not the Memory row", () => {
+		requestSpotlight("settings.instructions");
+		renderTab();
+		vi.advanceTimersToNextFrame();
+
+		const row = ringing()[0];
+		expect(ringing()).toHaveLength(1);
+		expect(row).toHaveClass("settings-row");
+		expect(row.textContent).toContain("Personal instructions");
+		expect(row.querySelector('[role="switch"]')).toBeNull();
+		// The memory deep link's own target is a different row.
+		expect(row.id).toBe("");
+	});
+
+	it("leaves a request for a control of another tab waiting", () => {
+		requestSpotlight("settings.connections");
+		renderTab();
+		vi.advanceTimersToNextFrame();
+
+		expect(ringing()).toEqual([]);
+		expect(pendingSpotlight(get(spotlightRequest))).toBe(
+			"settings.connections",
+		);
+	});
+
+	it("takes no request while a full view replaces the cards", async () => {
+		// The Skills manager and the Activity view take the Profile's place.
+		// Their cards are not drawn, and the request is left for the lapse.
+		renderTab();
+		await fireEvent.click(screen.getByTestId("skills-summary-card"));
+		await screen.findByTestId("skills-manager");
+
+		requestSpotlight("settings.data");
+		vi.advanceTimersToNextFrame();
+
+		expect(ringing()).toEqual([]);
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("settings.data");
+	});
+
+	// The group is a wrapper where there was none, in a list whose rows draw
+	// their separator as `.settings-row + .settings-row`. A wrapper breaks that
+	// selector between itself and the next row, so the sheet says it again, and
+	// gives the group the rows' own bleed and radius (the memory deep link's ring
+	// was once drawn as a square around a wrapper, `settings-memory-card`).
+	it("gives the group the look of the rows it holds", () => {
+		const source = readFileSync(
+			join(
+				dirname(fileURLToPath(import.meta.url)),
+				"SettingsProfileTab.svelte",
+			),
+			"utf-8",
+		);
+		const rule = (selector: RegExp) =>
+			source.match(new RegExp(`${selector.source}\\s*\\{([^}]*)\\}`))?.[1];
+
+		expect(rule(/\.settings-row-group \+ \.settings-row/)).toMatch(
+			/border-top:\s*1px solid var\(--border-default\)/,
+		);
+		const group = rule(/\.settings-row-group/);
+		expect(group).toMatch(/margin:\s*0 -0\.5rem/);
+		expect(group).toMatch(/padding:\s*0 0\.5rem/);
+		expect(group).toMatch(/border-radius:\s*var\(--radius-md\)/);
 	});
 });

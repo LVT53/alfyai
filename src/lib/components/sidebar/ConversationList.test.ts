@@ -8,6 +8,7 @@ import {
 import { get, readable } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { goto } from "$app/navigation";
+import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
 import {
 	deregisterDialog,
 	registerDialog,
@@ -20,6 +21,11 @@ import {
 } from "$lib/stores/conversations";
 import { clearProjectStore, projects } from "$lib/stores/projects";
 import { uiLanguage } from "$lib/stores/settings";
+import {
+	pendingSpotlight,
+	requestSpotlight,
+	spotlightRequest,
+} from "$lib/stores/spotlight";
 import { clearToasts, toasts } from "$lib/stores/toast";
 import {
 	clearProjectFolderExpanded,
@@ -2583,5 +2589,159 @@ describe("ConversationList multi-select", () => {
 			expect(singleRequests()).toEqual([]);
 			expect(hasRow("a")).toBe(true);
 		});
+	});
+});
+
+// The Feature Guide's Show me for the sidebar's Projects (`sidebar.projects`).
+// The header row is where the section is named, whether or not there are any
+// projects yet, so both branches of the list carry the marker.
+describe("ConversationList — the guide's Show me", () => {
+	let restoreLayout: () => void = () => undefined;
+
+	const project: Project = {
+		id: "project-1",
+		name: "House tasks",
+		sortOrder: 0,
+		hasInstructions: false,
+		createdAt: 1,
+		updatedAt: 1,
+	};
+
+	/** One list with projects, one without: the two branches of the header. */
+	const lists = [
+		["with projects", [project]],
+		["without projects", []],
+	] as const;
+
+	const header = () => screen.getByTestId("sidebar-projects-header");
+
+	beforeEach(() => {
+		// The ring waits one animation frame; the test steps it by hand.
+		vi.useFakeTimers({
+			toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+		});
+		restoreLayout = stubLayoutForSpotlight();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ conversations: [], projects: [] }), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					}),
+			),
+		);
+		spotlightRequest.set(null);
+		conversations.set([]);
+		currentConversationId.set(null);
+		clearProjectStore();
+		sidebarProjectsExpanded.set(true);
+		sidebarChatsExpanded.set(true);
+		sidebarPinnedExpanded.set(true);
+	});
+
+	afterEach(() => {
+		restoreLayout();
+		vi.useRealTimers();
+		vi.unstubAllGlobals();
+		spotlightRequest.set(null);
+	});
+
+	it("rings the Projects header, with and without projects", () => {
+		for (const [name, initialProjects] of lists) {
+			projects.set([...initialProjects]);
+			const { unmount } = render(ConversationList, {
+				initialProjects: [...initialProjects],
+			});
+
+			requestSpotlight("sidebar.projects");
+
+			expect(get(spotlightRequest), name).toBeNull();
+			vi.advanceTimersToNextFrame();
+			expect(header(), name).toHaveClass("spotlight-ring");
+			expect(document.querySelectorAll(".spotlight-ring"), name).toHaveLength(
+				1,
+			);
+			// The stub is one mock for every element; its contexts say which
+			// element the last scroll was asked of.
+			expect(
+				vi.mocked(header().scrollIntoView).mock.contexts.at(-1),
+				name,
+			).toBe(header());
+			unmount();
+		}
+	});
+
+	it.each(lists)("marks the whole header row, %s", (_name, initialProjects) => {
+		projects.set([...initialProjects]);
+		render(ConversationList, { initialProjects: [...initialProjects] });
+
+		// The row that says "Projects" and holds the new-project button, not
+		// the section's toggle alone.
+		expect(
+			within(header()).getByRole("button", {
+				name: "Collapse Projects section",
+			}),
+		).toBeInTheDocument();
+		expect(
+			within(header()).getByRole("button", { name: "Create new project" }),
+		).toBeInTheDocument();
+		// Rounded like the pill beside it, or the ring is a square.
+		expect(header()).toHaveClass("rounded-lg");
+
+		requestSpotlight("sidebar.projects");
+		vi.advanceTimersToNextFrame();
+
+		expect(
+			screen.getByRole("button", { name: "Collapse Projects section" }),
+		).not.toHaveClass("spotlight-ring");
+	});
+
+	it.each(
+		lists,
+	)("rings the header when the section is folded, %s", (_name, initialProjects) => {
+		projects.set([...initialProjects]);
+		sidebarProjectsExpanded.set(false);
+		render(ConversationList, { initialProjects: [...initialProjects] });
+
+		requestSpotlight("sidebar.projects");
+		vi.advanceTimersToNextFrame();
+
+		expect(header()).toHaveClass("spotlight-ring");
+	});
+
+	it("rings a header drawn after the request was made", () => {
+		// Show me asks first, and the list may be drawn a moment later (the
+		// collapsed desktop sidebar mounts it when the guide expands it).
+		requestSpotlight("sidebar.projects");
+
+		render(ConversationList, { initialProjects: [] });
+
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect(header()).toHaveClass("spotlight-ring");
+	});
+
+	it("keeps its ring when the section is folded meanwhile", async () => {
+		render(ConversationList, { initialProjects: [] });
+		requestSpotlight("sidebar.projects");
+		vi.advanceTimersToNextFrame();
+		expect(header()).toHaveClass("spotlight-ring");
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Collapse Projects section" }),
+		);
+
+		expect(header()).toHaveClass("spotlight-ring");
+	});
+
+	it("leaves a request for another control alone", () => {
+		render(ConversationList, { initialProjects: [] });
+
+		requestSpotlight("sidebar.search");
+		vi.advanceTimersToNextFrame();
+
+		expect(header()).not.toHaveClass("spotlight-ring");
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("sidebar.search");
 	});
 });

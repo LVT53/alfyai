@@ -1,6 +1,7 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onDestroy, onMount } from "svelte";
 import { browser } from "$app/environment";
+import { spotlightTarget } from "$lib/actions/spotlight";
 import { logout } from "$lib/client/api/auth";
 import { clearClientAccountState } from "$lib/client/session-boundary";
 import { t } from "$lib/i18n";
@@ -19,6 +20,11 @@ import {
 	conversations,
 	markConversationAtlasBadgeSeen,
 } from "$lib/stores/conversations";
+import {
+	pendingSpotlight,
+	type SpotlightRequest,
+	spotlightRequest,
+} from "$lib/stores/spotlight";
 import { viewportStore } from "$lib/utils/viewport.svelte";
 import { goto, invalidateAll } from "$app/navigation";
 import { navigating } from "$app/stores";
@@ -132,6 +138,44 @@ $effect(() => {
 		openSearchModal();
 	}
 });
+
+// The feature guide's Show me for the two controls this sidebar owns, Search
+// and Projects. The guide stays on its own page for them (the sidebar is on
+// every page), so the sidebar has to be showing the control when Show me asks:
+//  - below desktop the sidebar is a drawer, and the drawer is shut: open it;
+//  - on a desktop window whose sidebar is on its rail, the rail has a Search
+//    button (it carries the marker) but no Projects: expand the rail for those.
+// This only reads the request. The control's own marker takes it
+// (`spotlightTarget`), as the Projects header does when the expanded sidebar
+// draws it.
+//
+// It is a plain subscription made while the component initialises, not an
+// `$effect`, and the order is the point. Below desktop the drawer stays mounted
+// while it is shut: it is hidden with opacity, a transform and
+// `pointer-events: none`, none of which takes its layout away, so the search
+// pill and the Projects header have layout, and their markers take a request in
+// the very call that sets it. A store tells its subscribers in the order they
+// subscribed, and this script runs before the actions of its template and of its
+// children, so this subscriber hears of the request first and finds it still
+// waiting. An `$effect` runs after the update, when the marker has taken the
+// request and the effect reads `null`: the drawer would stay shut, and the ring
+// would play on a pill nobody can see (`Sidebar.test.ts` fails with an effect).
+//
+// Nothing here looks at the sidebar again when the person shuts it: the
+// subscription is told of requests, and of nothing else. The server never gets
+// here (a module-level store is shared by every request it renders).
+function openForShowMe(request: SpotlightRequest | null) {
+	const spotlight = pendingSpotlight(request);
+	if (spotlight !== "sidebar.search" && spotlight !== "sidebar.projects") {
+		return;
+	}
+	if (viewportStore.tier !== "desktop") {
+		sidebarOpen.set(true);
+	} else if (spotlight === "sidebar.projects") {
+		sidebarCollapsed.set(false);
+	}
+}
+if (browser) onDestroy(spotlightRequest.subscribe(openForShowMe));
 
 function isMacPlatform(): boolean {
 	if (!browser) return false;
@@ -360,6 +404,7 @@ onMount(() => {
 				<button
 					type="button"
 					class="compose-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-icon-muted transition-colors duration-150 hover:text-icon-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+					use:spotlightTarget={"sidebar.search"}
 					onclick={openSearchModal}
 					title={$t('sidebar.search')}
 					aria-label={$t('sidebar.searchConversations')}
@@ -392,6 +437,7 @@ onMount(() => {
 			<button
 				type="button"
 				class="search-pill @container flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-sm text-text-muted transition-colors duration-150 hover:border-border-focus hover:bg-surface-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				use:spotlightTarget={"sidebar.search"}
 				onclick={openSearchModal}
 				aria-label={$t('sidebar.searchConversations')}
 			>
