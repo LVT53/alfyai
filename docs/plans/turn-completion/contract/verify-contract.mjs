@@ -485,6 +485,16 @@ export function syntheticPlan(runId) {
 	need(/^[A-Za-z0-9-]+$/.test(runId), "Invalid synthetic run ID");
 	const title = `Contract evidence ${runId}`;
 	const evidence = `# ${title}\n\n${Array.from({ length: 50 }, (_, i) => `Entry ${i + 1}: synthetic filing context; keep the complete record.`).join("\n")}\n\nArchive key: ORCHID-73. Dispatch is Tuesday. Crates: 19. Loose units: 23.\n`;
+	const fileContent = [
+		"# Synthetic multiplication receipt",
+		"",
+		"PRODUCT=391",
+		"",
+		"Inputs: 17 items in each crate and 23 crates in this synthetic delivery.",
+		"Calculation: 17 multiplied by 23 gives 391 items, with no remainder.",
+		"Archive key: ORCHID-73. Dispatch: Tuesday. This complete receipt records the inputs and checked result.",
+		"",
+	].join("\n");
 	return [
 		{
 			key: "stream-math",
@@ -539,7 +549,8 @@ export function syntheticPlan(runId) {
 		{
 			key: "file-delivery",
 			transport: "stream",
-			prompt: `Use produce_file to create a Markdown file contract-${runId}.md containing exactly '# Synthetic result\n\nPRODUCT=391\n'. Then answer FILE=READY.`,
+			prompt: `Use produce_file to create exactly one Markdown file contract-${runId}.md with the following complete content verbatim. Supply it as content with requestedOutputs type md. Afterwards answer FILE=READY.\n\n${fileContent}`,
+			fileContent,
 			expected: { FILE: "READY" },
 			tool: "produce_file",
 			filename: `contract-${runId}.md`,
@@ -929,7 +940,7 @@ export async function runCase(client, spec, modelId, record) {
 			need(made.length === 1, "Expected one durable generated file effect");
 			const file = await client.request(`/api/chat/files/${made[0].id}/download`);
 			need(
-				file.ok && normalize(await file.text()) === "# Synthetic result\n\nPRODUCT=391",
+				file.ok && normalize(await file.text()) === normalize(spec.fileContent),
 				"Delivered file content mismatch",
 			);
 			record.fileId = made[0].id;

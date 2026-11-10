@@ -1355,3 +1355,148 @@ describe("full delivered Document content uses public Markdown export", () => {
 		expect(client.request).not.toHaveBeenCalled();
 	});
 });
+
+describe("file delivery fixture obeys the existing intake contract", () => {
+	const spec = () =>
+		syntheticPlan("unit").find(
+			(s: { key: string }) => s.key === "file-delivery",
+		);
+	test("full synthetic Markdown is substantive under the real produce_file normalizer", async () => {
+		const { normalizeProduceFileInput } = await import(
+			"../../src/lib/server/services/normal-chat-tools/produce-file"
+		);
+		const fixture = spec();
+		expect(typeof fixture.fileContent).toBe("string");
+		expect(fixture.fileContent).toContain("PRODUCT=391");
+		expect(fixture.fileContent).not.toContain("\\n");
+		expect(fixture.prompt.endsWith(fixture.fileContent)).toBe(true);
+		const accepted = normalizeProduceFileInput({
+			filename: fixture.filename,
+			content: fixture.fileContent,
+			requestedOutputs: [{ type: "md" }],
+		});
+		expect(accepted.ok).toBe(true);
+		if (!accepted.ok)
+			throw new Error("Substantive fixture must satisfy existing intake");
+		expect(accepted.input.sourceMode).toBe("inline_text");
+		expect(accepted.input.inlineText?.content).toBe(fixture.fileContent.trim());
+		expect(
+			normalizeProduceFileInput({
+				filename: fixture.filename,
+				content: "# Synthetic result\n\nPRODUCT=391\n",
+			}).ok,
+		).toBe(false);
+	});
+	const deliveryClient = (download: string) => {
+		let reads = 0;
+		const scope = {
+			version: 1,
+			turnId: completion.turnId,
+			segmentId: completion.segmentId,
+			attemptId: "a",
+			stepId: "step",
+		};
+		const payload = [
+			{
+				type: "data-stream-metadata",
+				data: {
+					modelId: MODEL_MATRIX.deepseek,
+					assistantMessageId: "file-message",
+				},
+			},
+			{
+				type: "data-tool-call",
+				data: { callId: "file-call", name: "produce_file", status: "done" },
+			},
+			{
+				type: "data-normal-chat-output",
+				data: {
+					...scope,
+					sequence: 1,
+					type: "block_start",
+					blockId: "answer",
+					kind: "text",
+				},
+			},
+			{
+				type: "data-normal-chat-output",
+				data: {
+					...scope,
+					sequence: 2,
+					type: "block_delta",
+					blockId: "answer",
+					text: "FILE=READY",
+				},
+			},
+			{
+				type: "data-normal-chat-output",
+				data: { ...scope, sequence: 3, type: "step_settled", role: "answer" },
+			},
+			{
+				type: "data-normal-chat-output",
+				data: { ...scope, sequence: 4, type: "completion", completion },
+			},
+			{ type: "finish", finishReason: "stop" },
+		];
+		return {
+			json: vi.fn(async (path: string) =>
+				path.endsWith("/usage")
+					? { status: "ready", costUsd: 0.000088 }
+					: {
+							messages: reads++
+								? [
+										{
+											id: "file-message",
+											role: "assistant",
+											content: "FILE=READY",
+											normalChatOutput: {
+												version: 1,
+												events: [{ type: "completion", completion }],
+											},
+										},
+									]
+								: [],
+							generatedFiles: [
+								{ id: "synthetic-file", filename: spec().filename },
+							],
+						},
+			),
+			request: vi.fn(
+				async (path: string) =>
+					new Response(
+						path.endsWith("/download")
+							? download
+							: payload.map((p) => `data: ${JSON.stringify(p)}\n\n`).join(""),
+					),
+			),
+		};
+	};
+	test.each([
+		"exact",
+		"missing-tail",
+		"wrong-product",
+		"old-short",
+	])("full download comparison: %s", async (variant) => {
+		const fixture = spec();
+		const exact = fixture.fileContent ?? "missing substantive fixture";
+		const body =
+			variant === "missing-tail"
+				? exact.slice(0, exact.indexOf("Archive key:"))
+				: variant === "wrong-product"
+					? exact.replace("PRODUCT=391", "PRODUCT=390")
+					: variant === "old-short"
+						? "# Synthetic result\n\nPRODUCT=391\n"
+						: exact;
+		const client = deliveryClient(body);
+		const run = runCase(client, fixture, MODEL_MATRIX.deepseek, {
+			conversationId: "synthetic-file-conversation",
+			streamId: "file-stream",
+		});
+		if (variant === "exact") {
+			expect((await run).fileId).toBe("synthetic-file");
+			expect(client.request).toHaveBeenCalledWith(
+				"/api/chat/files/synthetic-file/download",
+			);
+		} else await expect(run).rejects.toThrow("Delivered file content mismatch");
+	});
+});
