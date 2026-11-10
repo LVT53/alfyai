@@ -73,6 +73,7 @@ import {
 	decodeEditDocumentSlowlyPayload,
 } from "../../fixtures/ai/openai-compatible-scenarios";
 import { scriptedChatTurnReply } from "./chat-turn-scripts";
+import { turnCompletionReply } from "./turn-completion-scripts";
 
 const TOOL_CALL_ID = "call_fake_report_1";
 const TOOL_CALL_INPUT = { title: "Deterministic fake report" };
@@ -1789,6 +1790,22 @@ export function createOpenAICompatibleProviderHarness(
 			}
 
 			if (isJsonObject(body) && body.stream === true) {
+				const completion = turnCompletionReply(body);
+				if (completion) {
+					if (completion.hold)
+						await waitForRelease(completion.hold, request.signal);
+					if (completion.status)
+						return jsonResponse(
+							{
+								error: {
+									message: "Synthetic closing failure",
+									type: "server_error",
+								},
+							},
+							completion.status,
+						);
+					return streamResponse(completion.frames);
+				}
 				const scripted = scriptedChatTurnReply(body);
 				if (scripted) {
 					if (scripted.delayMs) await delay(scripted.delayMs);
