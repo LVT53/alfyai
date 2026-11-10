@@ -832,21 +832,28 @@ export async function findRelevantKnowledgeArtifacts(params: {
 					(Date.now() - entry.artifact.updatedAt) / DAY_MS,
 				);
 
+				// The penalty is for another conversation's documents. A document in no
+				// conversation (a library or project upload) has no boundary to cross, and
+				// nothing gates it as it gates the others above, so the penalty, a half-life
+				// of a fortnight, alone decided which few of its candidates reached the
+				// prompt: the newest, whatever else matched better.
+				const insideTheBoundary = !isCrossConversation;
+
 				return {
 					...entry,
 					finalScore: applyConversationBoundaryPenalty({
 						score: entry.finalScore,
-						isSameConversation,
+						isSameConversation: insideTheBoundary,
 						daysSinceLastAccess,
 					}),
 					semanticScore: applyConversationBoundaryPenalty({
 						score: entry.semanticScore,
-						isSameConversation,
+						isSameConversation: insideTheBoundary,
 						daysSinceLastAccess,
 					}),
 					rerankScore: applyConversationBoundaryPenalty({
 						score: entry.rerankScore,
-						isSameConversation,
+						isSameConversation: insideTheBoundary,
 						daysSinceLastAccess,
 					}),
 				};

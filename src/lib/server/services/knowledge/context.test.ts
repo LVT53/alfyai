@@ -750,6 +750,74 @@ describe("knowledge context retrieval", () => {
 		expect(results.map((artifact) => artifact.id)).toEqual(["doc-semantic"]);
 		expect(mockDbInsert).not.toHaveBeenCalled();
 	});
+
+	it("orders documents that belong to no conversation by relevance, not by how long ago they were written", async () => {
+		const document = (
+			id: string,
+			conversationId: string | null,
+			updatedAt: number,
+		) => ({
+			id,
+			userId: "user-1",
+			type: "normalized_document",
+			retrievalClass: "durable",
+			name: "Notes",
+			mimeType: "text/plain",
+			sizeBytes: 1024,
+			conversationId,
+			summary: null,
+			metadata: null,
+			contentText: "Notes",
+			extension: "txt",
+			storagePath: null,
+			createdAt: updatedAt,
+			updatedAt,
+		});
+		const yesterday = Date.now() - 24 * 60 * 60 * 1000;
+		const sevenMonthsAgo = Date.parse("2026-04-01T10:00:00Z");
+		mockFindRelevantArtifactsByTypesDetailed
+			.mockResolvedValueOnce([
+				{
+					artifact: document("recent-memo", null, yesterday),
+					lexicalScore: 1,
+					semanticScore: 0.4,
+					rerankScore: 0.2,
+					finalScore: 12,
+				},
+				{
+					artifact: document("old-contract", null, sevenMonthsAgo),
+					lexicalScore: 3,
+					semanticScore: 0.9,
+					rerankScore: 0.9,
+					finalScore: 40,
+				},
+				{
+					artifact: document("earlier-chat", "conv-2", sevenMonthsAgo),
+					lexicalScore: 3,
+					semanticScore: 0.9,
+					rerankScore: 0.9,
+					finalScore: 60,
+				},
+			])
+			.mockResolvedValueOnce([]);
+
+		const { findRelevantKnowledgeArtifacts } = await import("./context");
+		const results = await findRelevantKnowledgeArtifacts({
+			userId: "user-1",
+			currentConversationId: "conv-1",
+			query: "contract renewal terms",
+			limit: 4,
+		});
+
+		// A library upload has no conversation boundary to cross, so only its
+		// relevance orders it. Another chat's document, as old, still counts for
+		// next to nothing next to a recent one.
+		expect(results.map((artifact) => artifact.id)).toEqual([
+			"old-contract",
+			"recent-memo",
+			"earlier-chat",
+		]);
+	});
 });
 
 describe("conversation context status prompt usage", () => {
