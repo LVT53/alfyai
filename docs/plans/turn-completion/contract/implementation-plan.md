@@ -92,3 +92,15 @@ Tasks 2 and 3 can run in parallel only after Task 1 publishes exact event types 
 ## Task interfaces that must be published before parallel work
 
 Task 1 owns a shared `NormalChatOutputBlock` / `NormalChatOutputEvent` / `NormalChatCompletion` schema with version, scoped stable IDs, sequence, step phase, block text and explicit settlement. A pure projection computes answer text, inspectable activity and outcome without heuristics. It also publishes model-run continuation snapshot and per-attempt usage/execution types and continuation entrypoint. Task 2 owns durable IDs, storage and per-destination policy preparation; Task 3 consumes the projection/events and does not determine final roles itself. Exact exported names/signatures are finalized by Task 1's reviewed report and copied into later briefs. Both downstream tasks must include judge-resolution requirements above.
+
+### Scheduling refinement
+
+Task 4's deterministic provider fixtures and black-box browser assertions can be authored while Task 1 runs: their contract is user-visible behavior, not pending internal types. They own only tests/fixtures, tests/mocks, and a new browser spec. They must not build/check/run e2e concurrently with model-focused tests; red evidence is the existing real-function reproduction. Final browser execution and Task 4 acceptance wait for Tasks 2/3. This reduces idle time without sharing implementation files.
+
+### Server slice refinement
+
+Task 2 is split by write ownership into 2A (durable turn/attempt ledger and actual-model accounting) and 2B (lifecycle/context/reconnect integration). 2A can run before Task 1 completes because its durable IDs, terminal record and per-attempt usage requirements are fixed by the judged spec, independently of model invocation signatures. It owns schema/migrations, analytics and one chat-turn ledger module; 2B owns the remaining chat-turn lifecycle and consumes 2A's reviewed interface. This avoids a single worker spanning accounting, schema and all stream/resume logic. Both get independent task reviews; no concurrent writes to shared server files.
+
+### Reviewed-interface scheduling
+
+Task 1 review accepted its public ownership/interface shape but found three internal correctness defects. Its implementer fixes them without changing published signatures. Tasks 2B/3 may work in disjoint scopes against that frozen contract concurrently; their final acceptance still requires the corrected model review. No finding is waived or marked complete, and any required interface amendment is coordinated before integration.

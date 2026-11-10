@@ -15,7 +15,7 @@ The separate “Review harness architecture” chat produced a report, not code.
 - Existing service boundaries, Node 22, Svelte 5 runes, English app-authored model inputs, localized English/Hungarian UI, URL provenance and connector/local-distillation gates remain binding.
 - No text-length, punctuation, language, or content heuristics determine commentary versus answer. No newline-only patch. No fabricated reasoning.
 - Actual provider reasoning, tool call IDs, complete tool results, prompt guidance, pictures and user input remain available to continuation, subject to the existing destination privacy/vision gates.
-- No completed tool is rerun automatically by recovery, failover, reconnect or resume. A fresh explicit user retry may start a new requested turn, but transport recovery is never a retry of side effects.
+- No previously recorded execution is replayed automatically by recovery, failover, reconnect or resume. Explicit human-input segments may authorize newly generated calls under existing tool/domain policy. A fresh explicit user retry may start a new requested turn, but transport recovery is never a retry of side effects.
 - Stops outrank pause, which outranks automatic closing. No closing after a successful delivering tool unless later unfinished work requires it. Failed/pending/refused delivery is not success.
 - No production push, merge, deployment, restart, database writes or production test conversations in this work. Staging is authorized after local verification, using synthetic data and dedicated credentials only.
 
@@ -118,4 +118,18 @@ Keep per-attempt usage with actual provider/model identity, including failed gen
 
 Canonical capture precedes destination flattening. If an original prepared prompt contains locality-sensitive context that cannot be safely projected for another destination, fail explicitly `incompatible_continuation`; do not leak it or rebuild the pipeline. Images/step inserts retain their real privacy/position metadata and bounded codec; do not refetch missing pixels. Legacy v1 ask captures remain readable with reconstructed/legacy evidence fidelity, never described as exact snapshots. New captures include original prepared context, including inline prefetch.
 
-A human answer to ask_user authorizes a new segment and may authorize new tool work. This differs from automatic recovery/failover: the old execution transcript is not rerun. Retain prior execution identity and use existing tool/job operation ownership where applicable; generic semantic exactly-once across a model inventing different operations is not promised. An ambiguous repeat of an earlier side effect must fail closed rather than be justified by a new provider call ID or argument fingerprint. The implementation must test resumed permission to perform a genuinely new operation and refusal/reuse of an already executed operation. No fingerprint-only universal idempotency claim.
+A human answer to ask_user authorizes a new segment and may authorize new tool work. This differs from automatic recovery/failover: the old execution transcript is not rerun. Retain prior execution identity and use existing tool/job operation ownership where applicable; generic semantic exactly-once across a model inventing different operations is not promised. A recorded execution cannot be relabeled as new by a provider call ID or fingerprint. The structural resume clarification below governs genuinely new model calls after human input; it supersedes semantic mutation-family refusal. Test genuinely new resumed work and non-dispatch of recorded executions. No universal semantic idempotency claim.
+
+## Owner's architecture alignment requirement
+
+Where this work overlaps “Review harness architecture”, use its recommended deep-module shape now. [architecture-alignment.md](./architecture-alignment.md) maps the overlapping recommendations to module ownership and interface tests. It is binding for implementation and reviews; no planned refactor debt accepted for these overlaps.
+
+## Final structural resume clarification (judge-approved, binding)
+
+An accepted ask_user answer authorizes a new segment of requested work. Exact prior transcript/results and the scoped execution ledger are context, never executable replay instructions. Harness recovery, retransmission, failover and reconnect must never dispatch a recorded operation again. Known execution reuse returns the recorded result or refuses; a new provider ID/hash cannot relabel replay. Prior unsettled/uncertain effects block dispatch until safely reconciled or explicit failure.
+
+After authenticated admission of the human-input segment, newly generated calls may execute under ordinary validated tool/access/domain-precondition policies. A previous success in the same family does not by itself forbid another operation. Authority is the accepted human-input segment plus those policies, not an ID/fingerprint/model-intent classifier. Existing external write confirmation remains separate; an ask answer does not confirm or execute a pending write.
+
+Automatic recovery after execution in the new segment remains tools-disabled. No semantic exactly-once guarantee is made across independently generated operations in ordinary loops or human-input resumes. Existing concrete operation owners retain their idempotency/preconditions. This permits two requested documents with a pause before the second without inventing a semantic classifier.
+
+This clarification supersedes earlier blanket semantic ambiguous-repeat refusal wording and the conservative proposal in resume-operation-policy.md. Scoped judge evidence: [resume-policy-judge.md](./resume-policy-judge.md).

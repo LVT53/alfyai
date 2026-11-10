@@ -1,0 +1,24 @@
+# Alignment with “Review harness architecture”
+
+The owner's follow-up requires using the review's recommended deep-module shapes wherever this change overlaps. Source: report `architecture-review-20261110-145221.html`, produced by that chat; the chat made no product changes. This is a binding implementation/review constraint, not a second redesign or a future refactor task.
+
+| Report recommendation | Required shape in this change | Acceptance at the interface |
+|---|---|---|
+| 01 Existing-turn observation | Reconnect intent has one owner in the existing stream module. Observe returns live replay, durable result or explicit interruption. Only start-new can admit generation. The adapter does not sequence orphan/status guesses. | Finish between status and reconnect, including drain: zero additional model/tool calls; ownership and question state retained. |
+| 02 Effective attempt model owns tool policy | Existing Model Run attempt ownership carries actual provider/model plus tool/privacy/vision projection. Callers do not retain selected-model-bound closures after effective model changes. | Local→cloud with local distillation emits only permitted data; reverse direction and resumed turns checked; incompatible full-context projection fails closed. |
+| 03 One bounded replay journal | Ordering, retention, incremental size and active-owner lifetime live behind one coherent replay interface. Remove parallel token-array/timeline-index repair obligations, rather than adding another mirror or fixing indexes in reconnect. | Repeated cap crossings, mixed block/reasoning/tool events, quiet live tool wait, ordered settlement, terminal delivery; append work bounded and no full-text join every delta. |
+| 04 Owned stream lifetime (where lifecycle integration touches it) | Existing registry owns acquisition/release and rollback across setup failure. New audit/setup stages cannot leak a registered stream. Preserve the deliberate regenerate capacity exception. | Setup exceptions and stop/drain races release once; no caller-managed cleanup ladder introduced by this patch. Broad unrelated admission redesign is not a separate goal. |
+| 05 Recovery retains original client turn ownership | Normal Chat Client Turn Runtime checks current ownership before any visible recovery mutation. No new page callbacks or remove-then-check sequence. | Turn A recovery after B starts preserves A's partial and B's progress; route change, queued follow-up and Stop covered. |
+| 06 Retained Model Run progress | Existing Model Run module owns completed/uncertain execution, retained transcript and retry eligibility. Provider adapters remain internal. Transport callers cannot restart original messages with tools after execution. Preserve intentional model-specific→global pre-work fallback chain. | Actual SDK interface tests prove completed work executes once, unknown outcome declines replay, and abort/fallback failure is explicit. |
+| 11 Model Run usage accounting | Model Run owns step aggregation and returns actual per-attempt attribution plus aggregate; analytics owns pricing/storage. No second analytics subsystem and no caller obligation to sum individual SDK steps. | Multi-step, cache/reasoning usage, failed known/unknown amounts and last-step context-ring input, with no double counting. |
+
+## Interface discipline
+
+- Extend the existing modules; a new helper file is internal implementation, not a second public owner. Hide step ordering, role settlement, retry eligibility, journal retention and durable-accounting write order from send/stream/page adapters.
+- A narrow prepared-run/continuation handle must give both plain and streaming callers the same policy. Do not expose a bag of lifecycle callbacks that makes each caller rebuild the state machine.
+- One canonical output reducer and one journal, not parallel flattened text/block/timeline authorities. Compatibility projections are derived views with explicit legacy handling.
+- Real external provider I/O has a production adapter and deterministic test adapter; in-process policy is tested directly at its small interface. Do not create hypothetical ports for implementation details.
+- Replace superseded shallow sequencing and tests with interface-level regression coverage when the new module takes ownership. Retain independent safety/legacy compatibility tests; avoid layering duplicate implementations/tests indefinitely.
+- Apply the deletion test in task and final reviews: removing the module should force its substantial policy back into callers. If a wrapper merely forwards caller-managed sequencing, deepen it before acceptance.
+
+The remaining architecture-report candidates (whole-library reads, general prompt-context restructuring, unrelated metadata mutation races) remain outside this change. A touched failure/lifecycle path still must be correct under this completion contract.
