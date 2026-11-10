@@ -14,6 +14,10 @@ import {
 } from "../fixtures/ai/late-picture-scenario";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
+	assistantAnswer,
+	expectTerminalActivityGone,
+} from "./artifact-live-edit.helpers";
+import {
 	createTourUser,
 	IMAGE_ITEM_TITLE,
 	markToursSeen,
@@ -551,9 +555,12 @@ test.describe("enlarging the card's picture (Task 22)", () => {
 				'[data-testid="image-card-stage"] [data-testid="image-picture-after"]',
 			),
 		).toHaveClass(/is-loaded/, { timeout: 45_000 });
-		await expect(page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT)).toBeVisible({
+		await expect(
+			assistantAnswer(page).getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+		).toBeVisible({
 			timeout: 30_000,
 		});
+		await expectTerminalActivityGone(page);
 		const shownSrc = await card
 			.locator('[data-testid="image-picture-after"]')
 			.getAttribute("src");

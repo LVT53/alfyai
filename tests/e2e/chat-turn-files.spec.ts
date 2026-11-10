@@ -6,8 +6,10 @@ import {
 } from "../fixtures/ai/chat-turn-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
+	assistantAnswer,
 	createTemporaryFakeProviderModel,
 	deleteTemporaryProvider,
+	expectTerminalActivityGone,
 	snapshotUserModelPreference,
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
@@ -28,13 +30,16 @@ async function runPdfTurn(page: Page, baseURL: string) {
 	const conversationId = await createEmptyConversation(page);
 	await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
 	await sendMessage(page, AI_SMOKE_PRODUCE_PDF_MARKER);
-	await expect(page.getByText(AI_SMOKE_PRODUCE_PDF_FINAL_TEXT)).toBeVisible({
+	await expect(
+		assistantAnswer(page).getByText(AI_SMOKE_PRODUCE_PDF_FINAL_TEXT),
+	).toBeVisible({
 		timeout: 45_000,
 	});
 	// The turn is over: the composer offers Send again, and the file's card is in the reply.
 	await expect(page.getByTestId("stop-button")).toHaveCount(0, {
 		timeout: 30_000,
 	});
+	await expectTerminalActivityGone(page);
 	await expect(page.getByTestId("file-production-card")).toBeVisible({
 		timeout: 30_000,
 	});
