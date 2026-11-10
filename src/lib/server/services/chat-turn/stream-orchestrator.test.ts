@@ -2704,6 +2704,153 @@ describe("stream-orchestrator SSE contract", () => {
 		}
 	});
 
+	it.each([
+		"I'll calculate the costs.",
+		"",
+	])("clears the upstream watchdog before a slow clean-end repair with preamble %j", async (preamble) => {
+		vi.useFakeTimers();
+		const { getConfig } = await import("$lib/server/config-store");
+		vi.mocked(getConfig).mockReturnValue({
+			requestTimeoutMs: 120_000,
+			composerCommandRegistryEnabled: true,
+			modelTimeoutFailoverEnabled: false,
+			modelTimeoutFailoverTargetModel: null,
+			modelTimeoutFailoverTimeoutMs: 1000,
+		} as unknown as ReturnType<typeof getConfig>);
+		const { runStreamingNormalChatSendModel } = await import(
+			"./streaming-normal-chat-model-run"
+		);
+		const { runPlainNormalChatSendModel } = await import(
+			"./plain-normal-chat-model-run"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: preamble },
+				{
+					type: "tool_call",
+					callId: "call-slow",
+					toolName: "research_web",
+					input: {},
+				},
+				{
+					type: "tool_result",
+					callId: "call-slow",
+					toolName: "research_web",
+					output: { success: true },
+				},
+				finishEvent,
+			]),
+		);
+		let entered!: () => void;
+		const started = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		let release!: (response: { text: string }) => void;
+		const pending = new Promise<{ text: string }>((resolve) => {
+			release = resolve;
+		});
+		let repairSignal: AbortSignal | undefined;
+		(
+			runPlainNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockImplementation((params: { signal: AbortSignal }) => {
+			repairSignal = params.signal;
+			entered();
+			return pending;
+		});
+		const reading = readSseResponse(runStream());
+		await started;
+		await vi.advanceTimersByTimeAsync(60_001);
+		const callsWhilePending = vi.mocked(runPlainNormalChatSendModel).mock.calls
+			.length;
+		const abortedWhilePending = repairSignal?.aborted;
+		release({ text: preamble ? "" : "Recovered answer." });
+		const chunks = await reading;
+		expect(callsWhilePending).toBe(1);
+		expect(abortedWhilePending).toBe(false);
+		expect(chunks.join("\n")).not.toContain("data-stream-error");
+		const metadata = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-stream-metadata",
+		)[0];
+		expect(metadata.wasStopped).toBe(false);
+		expect(
+			(metadata.completionWarningCodes as string[] | undefined)?.includes(
+				"no_final_answer",
+			) ?? false,
+		).toBe(Boolean(preamble));
+	});
+
+	it("keeps explicit stop precedence when successful repair waits on side effects", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"./streaming-normal-chat-model-run"
+		);
+		const { runPlainNormalChatSendModel } = await import(
+			"./plain-normal-chat-model-run"
+		);
+		const { attachContinuityToTaskState } = await import(
+			"$lib/server/services/task-state"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "I'll calculate the costs." },
+				{
+					type: "tool_call",
+					callId: "call-stop-success",
+					toolName: "research_web",
+					input: {},
+				},
+				{
+					type: "tool_result",
+					callId: "call-stop-success",
+					toolName: "research_web",
+					output: { success: true },
+				},
+				finishEvent,
+			]),
+		);
+		(runPlainNormalChatSendModel as ReturnType<typeof vi.fn>).mockResolvedValue(
+			{ text: "Recovered answer." },
+		);
+		let entered!: () => void;
+		const started = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		let release!: () => void;
+		const pending = new Promise<null>((resolve) => {
+			release = () => resolve(null);
+		});
+		vi.mocked(attachContinuityToTaskState)
+			.mockResolvedValueOnce(null)
+			.mockImplementationOnce(() => {
+				entered();
+				return pending;
+			});
+		const reading = readSseResponse(runStream());
+		await started;
+		expect(runPlainNormalChatSendModel).toHaveBeenCalledOnce();
+		const stopped = requestActiveChatStreamStop({
+			streamId: "test-stream",
+			userId: "u1",
+		});
+		release();
+		const chunks = await reading;
+		expect(stopped).toBe(true);
+		const metadata = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-stream-metadata",
+		)[0];
+		expect(metadata.wasStopped).toBe(true);
+		expect(metadata).not.toHaveProperty("followUps");
+		expect(metadata.completionWarningCodes ?? []).not.toContain(
+			"no_final_answer",
+		);
+		expect(chunks.join("\n")).not.toContain("data-stream-error");
+	});
+
 	it("keeps explicit stop precedence when a preamble repair fails", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"./streaming-normal-chat-model-run"

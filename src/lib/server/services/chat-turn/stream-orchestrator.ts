@@ -1229,7 +1229,7 @@ export function runChatStreamOrchestrator(
 					flushInlineThinkingBuffer,
 					flushOutputBuffer,
 					getVisibleAssistantText: () => chunkRuntime.fullResponse,
-					completeSuccess,
+					completeSuccess: () => completeSuccess(wasStopRequested()),
 					signal: upstreamAbortController.signal,
 					systemPromptAppendix: currentSystemPromptAppendix(),
 					pendingSkillInstructions: currentPendingSkillInstructions(),
@@ -1642,6 +1642,8 @@ export function runChatStreamOrchestrator(
 								latestUpstreamFinishReason = upstreamEvent.finishReason;
 								latestUpstreamRawFinishReason =
 									upstreamEvent.rawFinishReason ?? null;
+								// Upstream has finished; its idle watchdog must not race the repair.
+								idleTimeout.clear();
 								await completeOrRecoverAfterUpstreamEnd("end_event");
 								return;
 							case "error": {
