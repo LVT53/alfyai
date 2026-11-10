@@ -149,7 +149,7 @@ const guideDict = {
 		// ── Your account ───────────────────────────────────────────────────
 		"guide.entry.languageAndLook.name": "Language and look",
 		"guide.entry.languageAndLook.line":
-			"Interface language, chat title language, light or dark.",
+			"Interface and title language, time zone, light or dark.",
 		"guide.entry.twoStep.name": "Two-step sign-in",
 		"guide.entry.twoStep.line":
 			"A code from your phone as well as your password.",
@@ -307,7 +307,7 @@ const guideDict = {
 		// ── Your account ───────────────────────────────────────────────────
 		"guide.entry.languageAndLook.name": "Nyelv és megjelenés",
 		"guide.entry.languageAndLook.line":
-			"A felület és a címek nyelve, világos vagy sötét.",
+			"A felület és a címek nyelve, időzóna, világos vagy sötét.",
 		"guide.entry.twoStep.name": "Kétlépcsős bejelentkezés",
 		"guide.entry.twoStep.line":
 			"A jelszó mellett egy kód is kell a telefonodról.",

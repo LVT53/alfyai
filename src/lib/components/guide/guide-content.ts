@@ -271,6 +271,7 @@ export const GUIDE_ENTRIES: readonly GuideEntry[] = [
 	},
 	// ── Your account ─────────────────────────────────────────────────────
 	{
+		// Preferences also holds the local time zone; the existing language spotlight stays.
 		id: "languageAndLook",
 		section: "account",
 		drawingSpot: "language",
