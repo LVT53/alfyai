@@ -1,5 +1,9 @@
 <script lang="ts">
 import type { NormalChatOutputProjection } from "$lib/shared/normal-chat-output";
+import {
+	getSkillControlEnvelopePrefixHoldLength,
+	stripCompleteSkillControlEnvelopeBlocks,
+} from "$lib/services/stream-protocol";
 import { t, type I18nKey } from "$lib/i18n";
 import type {
 	InterimThoughtStep,
@@ -687,6 +691,13 @@ $effect(() => {
 	openActivityKeys = next;
 });
 
+// Display only: raw blocks remain intact for the existing control-operation owner.
+function commentaryTextForDisplay(text: string): string {
+	const visible = stripCompleteSkillControlEnvelopeBlocks(text).visibleText;
+	const hold = getSkillControlEnvelopePrefixHoldLength(visible);
+	return hold ? visible.slice(0, -hold) : visible;
+}
+
 function formatThinkingTextForDisplay(text: string): string {
 	return text.replace(/([a-z0-9)])([.!?])(?=[A-Z](?:[a-z]|\s))/g, "$1$2\n\n");
 }
@@ -1178,7 +1189,7 @@ function toggleFullReasoning(): void {
 {#if hasCommentary && (!thinkingIsDone || expanded)}
 	<section class="normal-chat-commentary" data-testid="normal-chat-commentary" aria-label={$t('chat.output.activity')} out:commentaryFade={{ duration: 150 }}>
 		{#each commentary as block (JSON.stringify([block.turnId, block.segmentId, block.attemptId, block.stepId, block.blockId]))}
-			<p>{output && block.text}</p>
+			<p>{output && commentaryTextForDisplay(block.text)}</p>
 		{/each}
 	</section>
 {/if}

@@ -190,6 +190,51 @@ describe("MessageBubble", () => {
 		expect(writeText).toHaveBeenCalledWith("## Result [fixed]");
 	});
 
+	it("hides working Skill Control syntax while Copy keeps only the canonical answer", async () => {
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: { writeText },
+		});
+		const control =
+			'<skill_control_v1>{"version":1,"operations":[{"operationId":"working-draft","kind":"skill_draft","draft":{"id":"digest","displayName":"Digest","instructions":"Summarize the notes."}}]}</skill_control_v1>';
+		const message: NormalChatOutputMessage = {
+			id: "working-control",
+			role: "assistant",
+			timestamp: 1,
+			content: "Canonical answer",
+			normalChatOutputView: {
+				answer: "Canonical answer",
+				blocks: [],
+				activity: [
+					{
+						version: 1,
+						turnId: "t",
+						segmentId: "s",
+						attemptId: "a",
+						stepId: "w",
+						phase: "working",
+						blockId: "b",
+						nativeId: "n",
+						kind: "text",
+						role: "activity",
+						text: `Ordinary commentary ${control}`,
+						ended: true,
+					},
+				],
+			},
+		};
+		render(MessageBubble, { message });
+		await fireEvent.click(
+			screen.getByRole("button", { name: /Previous activity/ }),
+		);
+		expect
+			.soft(screen.getByTestId("normal-chat-commentary").textContent?.trim())
+			.toBe("Ordinary commentary");
+		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+		expect(writeText).toHaveBeenCalledWith("Canonical answer");
+	});
+
 	it("keeps activity live while an explicit closing answer streams", () => {
 		const message: NormalChatOutputMessage = {
 			id: "closing",

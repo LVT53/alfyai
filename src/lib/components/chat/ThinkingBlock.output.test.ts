@@ -78,6 +78,40 @@ describe("ordinary commentary in the existing activity disclosure", () => {
 		expect(container.querySelector("img")).toBeNull();
 		expect(screen.queryByText("Thinking Trace")).toBeNull();
 	});
+	it.each([
+		'<skill_control_v1>{"version":1,"operations":[{"operationId":"working-draft","kind":"skill_draft","draft":{"id":"digest","displayName":"Digest","instructions":"Summarize the notes."}}]}</skill_control_v1>',
+		'<skill_control_v1>{"version":1,"operations":[',
+		"<skill_control_v",
+	])("hides explicit Skill Control syntax from live commentary: %s", (control) => {
+		const blocks = [
+			{ ...commentary[0], ended: false, text: `Let me check. ${control}` },
+		];
+		render(ThinkingBlock, { output: view(blocks), thinkingIsDone: false });
+		expect(
+			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
+		).toBe("Let me check.");
+		expect(blocks[0].text).toBe(`Let me check. ${control}`);
+	});
+
+	it("preserves commentary around a complete Skill Control envelope in retained activity", async () => {
+		const blocks = [
+			{
+				...commentary[0],
+				text: 'Before.<skill_control_v1>{"version":1,"operations":[{"operationId":"working-draft","kind":"skill_draft","draft":{"id":"digest","displayName":"Digest","instructions":"Summarize the notes."}}]}</skill_control_v1>After.',
+			},
+		];
+		render(ThinkingBlock, {
+			output: view(blocks, "paused"),
+			thinkingIsDone: true,
+		});
+		await fireEvent.click(
+			screen.getByRole("button", { name: /Previous activity/ }),
+		);
+		expect(
+			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
+		).toBe("Before.After.");
+	});
+
 	it("updates the same accumulator block as live deltas arrive", async () => {
 		const blocks = commentary.map((b) => ({ ...b, text: "First" }));
 		const { rerender } = render(ThinkingBlock, {
