@@ -1184,6 +1184,8 @@ export function runChatStreamOrchestrator(
 				attempt: number,
 				error: unknown,
 			): Promise<null> => {
+				// The upstream watchdog owns the stream, never its awaited recovery.
+				idleTimeout.clear();
 				attemptedNonStreamFallback = true;
 				const fallbackActivityId = createFallbackResponseActivityId(
 					reason,
