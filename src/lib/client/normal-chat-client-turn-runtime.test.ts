@@ -4183,6 +4183,209 @@ describe("Normal Chat Client Turn Runtime", () => {
 		vi.useRealTimers();
 	});
 
+	it.each([
+		"direct",
+		"observer",
+		"reload",
+		"polling",
+		"reconnect-error",
+	] as const)("offers explicit Retry for a saved failed completion through %s transport settlement", async (mode) => {
+		const { streamChat } = await import("$lib/services/streaming");
+		const { endEvent, errorEvent, uiFrame } = await import(
+			"$lib/services/streaming.test-helpers"
+		);
+		const scope = {
+			version: 1,
+			turnId: "failed-turn",
+			segmentId: "failed-segment",
+			attemptId: "a",
+			stepId: "w",
+			phase: "working",
+		} as const;
+		const completion = {
+			version: 1,
+			turnId: scope.turnId,
+			segmentId: scope.segmentId,
+			phase: "working",
+			outcome: "failed",
+			stopCause: "transport_error",
+			workingStopCause: "transport_error",
+			closingAttempted: false,
+		} as const;
+		const events = [
+			{
+				...scope,
+				sequence: 0,
+				type: "block_start",
+				blockId: "b",
+				nativeId: "n",
+				kind: "text",
+				role: "provisional",
+			},
+			{
+				...scope,
+				sequence: 1,
+				type: "block_delta",
+				blockId: "b",
+				text: "Attempted work",
+			},
+			{ ...scope, sequence: 2, type: "completion", completion },
+		] satisfies import("$lib/shared/normal-chat-output").NormalChatOutputEvent[];
+		const user = {
+			id: "saved-user",
+			role: "user",
+			content: "A",
+			timestamp: 1,
+		} satisfies ChatMessage;
+		const failed = {
+			id: "saved-failed",
+			role: "assistant",
+			content: "",
+			timestamp: 1,
+			normalChatOutput: { version: 1, events },
+		} satisfies ChatMessage;
+		const made = makeAdapters({
+			schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+			streamChat,
+			checkForOrphanedStream: vi.fn(async () =>
+				mode === "observer" || mode === "reconnect-error"
+					? "observed-failed"
+					: null,
+			),
+			getStreamBufferInfo: vi.fn(async () => ({
+				exists: true,
+				userMessage: "A",
+			})),
+			readChatMessages: vi.fn(async () => [user, failed]),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		const fetch = vi.fn(async () => {
+			if (mode === "direct")
+				runtime.queue({
+					message: "Queued B",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+			return new Response(
+				mode === "reconnect-error"
+					? errorEvent({ message: "The model failed", code: "provider_error" })
+					: mode === "observer"
+						? endEvent({
+								observation: {
+									version: 1,
+									streamId: "observed-failed",
+									conversationId: "conv-1",
+									state: "terminal",
+									assistantMessageId: failed.id,
+									completion,
+								},
+							})
+						: events
+								.map((data) =>
+									uiFrame({ type: "data-normal-chat-output", data }),
+								)
+								.join("") +
+							endEvent({ assistantMessageId: failed.id, finalContent: "" }),
+				{ headers: { "Content-Type": "text/event-stream" } },
+			);
+		});
+		vi.mocked(made.adapters.loadPersistedData).mockImplementation(async () => {
+			made.messages.splice(0, made.messages.length, user, failed);
+			runtime.completePollingRecovery();
+		});
+		vi.stubGlobal("fetch", fetch);
+		try {
+			if (mode === "reload" || mode === "polling") {
+				made.messages.push(user, failed);
+				if (mode === "polling") runtime.completePollingRecovery();
+				else await runtime.checkForOrphanedStreamOnMount();
+			} else {
+				if (mode === "observer" || mode === "reconnect-error") {
+					made.messages.push(user);
+					await runtime.checkForOrphanedStreamOnMount();
+				} else
+					await runtime.send({
+						message: "A",
+						attachmentIds: [],
+						attachments: [],
+						pendingAttachments: [],
+					});
+				await vi.waitFor(() =>
+					expect(runtime.snapshot().isSending).toBe(false),
+				);
+			}
+			expect(runtime.snapshot()).toMatchObject({
+				canRetry: true,
+				lastUserMessage: "A",
+			});
+			expect(made.adapters.setSendError).toHaveBeenLastCalledWith(
+				"chat.completionWarning.providerError",
+			);
+			expect(made.messages.at(-1)?.id).toBe(failed.id);
+			expect(
+				normalChatOutputView(made.messages[made.messages.length - 1])
+					?.activity[0].text,
+			).toBe("Attempted work");
+			expect(fetch).toHaveBeenCalledTimes(
+				mode === "reload" || mode === "polling" ? 0 : 1,
+			);
+			if (mode === "direct")
+				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+					expect.objectContaining({ message: "Queued B" }),
+				);
+			vi.mocked(made.adapters.checkForOrphanedStream).mockResolvedValue(null);
+			// Only a deliberate Retry replaces the failed row; no automatic tool replay.
+			let finishRetry!: (response: Response) => void;
+			fetch.mockImplementation(
+				() =>
+					new Promise<Response>((resolve) => {
+						finishRetry = resolve;
+					}),
+			);
+			await Promise.all([runtime.retry(), runtime.retry()]);
+			expect(fetch).toHaveBeenCalledTimes(
+				mode === "reload" || mode === "polling" ? 1 : 2,
+			);
+			const [url, init] = vi.mocked(globalThis.fetch).mock.calls.at(-1) ?? [];
+			expect(url).toBe("/api/chat/retry");
+			expect(JSON.parse(String(init?.body))).toMatchObject({
+				assistantMessageId: failed.id,
+				userMessageId: made.messages[0].id,
+				retryOrigin: "error_retry",
+				userMessage: "A",
+			});
+			expect(made.messages.filter((row) => row.role === "user")).toHaveLength(
+				1,
+			);
+			finishRetry(
+				new Response(
+					endEvent({
+						assistantMessageId: "fresh-answer",
+						finalContent: "Fresh answer",
+					}),
+					{ headers: { "Content-Type": "text/event-stream" } },
+				),
+			);
+			await vi.waitFor(() => expect(runtime.snapshot().isSending).toBe(false));
+			expect(runtime.snapshot().canRetry).toBe(false);
+			expect(made.messages.at(-1)?.id).toBe("fresh-answer");
+			expect(
+				made.messageListEvents.finalizeStreamingMessage,
+			).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					metadata: expect.objectContaining({
+						assistantMessageId: "fresh-answer",
+						finalContent: "Fresh answer",
+					}),
+				}),
+			);
+		} finally {
+			runtime.detach();
+			vi.unstubAllGlobals();
+		}
+	});
+
 	it("settles a real abandoned ledger through observer wire, browser decoder and client runtime", async () => {
 		const { createHash } = await import("node:crypto");
 		const { db } = await import("$lib/server/db");

@@ -1667,6 +1667,17 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	async function drainPostTurnQueue() {
+		// A read-back may find a saved failure rather than a completed answer.
+		// It remains a deliberate Retry; queued work returns to the draft.
+		const tail = adapters.getMessages().at(-1);
+		if (
+			canRetry &&
+			tail &&
+			normalChatOutputView(tail)?.completion?.outcome === "failed"
+		) {
+			restoreQueuedTurnToDraft();
+			return;
+		}
 		if (takeQueuedContextCompression()) {
 			await adapters.runManualContextCompression();
 		}
@@ -1795,9 +1806,20 @@ export function createNormalChatClientTurnRuntime(
 		const heldIds = new Set(
 			adapters.getMessages().map((message) => message.id),
 		);
-		await loadChatHoldingTheTurn();
-		if (detached || !isTurnConversationActive(params.turnConversationId))
+		const loading = loadChatHoldingTheTurn();
+		const recoveryEpoch = turnEpoch;
+		await loading;
+		if (
+			recoveryEpoch !== turnEpoch ||
+			detached ||
+			!isTurnConversationActive(params.turnConversationId)
+		)
 			return;
+		if (offerFailedTailRetry()) {
+			emitState();
+			restoreQueuedTurnToDraft();
+			return;
+		}
 		// After the load, which ends the page's own recovery state: set this one last.
 		const text = params.message;
 		// The reconnect only lost the end of a turn the server finished: the chat
@@ -1920,8 +1942,17 @@ export function createNormalChatClientTurnRuntime(
 		lastAssistantResponse = saved?.content ?? held?.content ?? "";
 		isPollingForCompletion = false;
 		canRetry = false;
+		const failed =
+			resolved &&
+			offerFailedReplyRetry(
+				adapters
+					.getMessages()
+					.find((row) => row.id === (saved?.id ?? params.placeholderId)),
+				params.message,
+			);
 		completeTurn();
-		adapters.setSendError(resolved ? null : "chat.observationUnavailable");
+		if (!failed)
+			adapters.setSendError(resolved ? null : "chat.observationUnavailable");
 		if (saved) {
 			adapters.pollMessageEvidence(saved.id);
 			adapters.refreshMessageCost(saved.id);
@@ -1933,6 +1964,33 @@ export function createNormalChatClientTurnRuntime(
 		)
 			await drainPostTurnQueue();
 		else restoreQueuedTurnToDraft();
+	}
+
+	// A durable failure is an inspectable reply, not a successful answer. The
+	// existing explicit Retry route replaces it only after the person's press.
+	// Resumes remain owned by their question card rather than the send's Retry.
+	function offerFailedTailRetry() {
+		const rows = adapters.getMessages();
+		const user = rows.at(-2);
+		return (
+			user?.role === "user" && offerFailedReplyRetry(rows.at(-1), user.content)
+		);
+	}
+
+	function offerFailedReplyRetry(reply: ChatMessage | undefined, text: string) {
+		if (
+			!reply ||
+			reply.role !== "assistant" ||
+			reply.continuesMessageId ||
+			!text.trim() ||
+			normalChatOutputView(reply)?.completion?.outcome !== "failed"
+		)
+			return false;
+		if (!lastUserMessage) lastReasoningDepth = adapters.getReasoningDepth();
+		lastUserMessage = text;
+		canRetry = true;
+		adapters.setSendError("chat.completionWarning.providerError");
+		return true;
 	}
 
 	function buildCallbacks(params: StartStreamParams): StreamCallbacks {
@@ -2225,6 +2283,15 @@ export function createNormalChatClientTurnRuntime(
 						: fullText);
 				lastAssistantResponse = finalText;
 				canRetry = false;
+				const failed =
+					!params.answer &&
+					!params.continuesMessageId &&
+					offerFailedReplyRetry(
+						adapters
+							.getMessages()
+							.find((row) => row.id === params.placeholderId),
+						params.message,
+					);
 				completeTurn();
 
 				if (!isTurnConversationActive(params.turnConversationId)) {
@@ -2277,7 +2344,7 @@ export function createNormalChatClientTurnRuntime(
 					});
 				}
 
-				if (metadata?.wasStopped || pausedFor) {
+				if (metadata?.wasStopped || pausedFor || failed) {
 					if (takeQueuedContextCompression()) {
 						void adapters.runManualContextCompression();
 					}
@@ -3619,7 +3686,13 @@ export function createNormalChatClientTurnRuntime(
 			return false;
 		}
 		detached = false;
-		return joinRunningStreamOfChat();
+		const epoch = turnEpoch;
+		const conversationId = adapters.getConversationId();
+		const joined = await joinRunningStreamOfChat();
+		if (!joined && epoch === turnEpoch && canStartTurnIn(conversationId)) {
+			if (offerFailedTailRetry()) emitState();
+		}
+		return joined;
 	}
 
 	async function joinRunningStreamOfChat(takenOverFrom?: ResumeContext) {
@@ -3686,6 +3759,7 @@ export function createNormalChatClientTurnRuntime(
 			phase = "idle";
 			activePlaceholderId = null;
 			setActiveStream(null);
+			if (offerFailedTailRetry()) emitState();
 		},
 		restoreQueuedTurnToDraft,
 		drainPostTurnQueue,
