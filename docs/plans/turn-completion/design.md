@@ -90,6 +90,7 @@ and DeepSeek:
    Enough: every turn is saved with a final answer or with the notice, and at most one turn per model needed the
    repair or ended with the notice.
 2. One turn that is told to call a tool and then write nothing. Enough: the repair writes the answer, on DeepSeek too.
-3. No tool row named `done`, and no new warning in the staging journal.
+3. No turn's record counts a hidden call to a tool that is not offered (`droppedToolCalls` is 0: no model still calls
+   `done` from habit), and no new warning in the staging journal.
 
 If a model misses 1 or 2, the work stops there and the deeper options above go to the owner.

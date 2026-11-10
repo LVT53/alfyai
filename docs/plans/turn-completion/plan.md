@@ -147,12 +147,15 @@ does.
 
 1. The model run's `finish` event gains `stepCount` (the number of steps the run made) and `lastStepOutputTokens`
    (the last step's output tokens, when the provider reports them).
+   It also gains `droppedToolCalls`: how many calls to a tool the run does not offer it hid (Task 1's rule), and the
+   run logs one content-free line per hidden call, `[NORMAL_CHAT_MODEL] dropped a call to a tool that is not offered`,
+   with the tool's name cut to 40 characters. Today a hidden call leaves no trace anywhere.
 2. The chunk runtime counts `visibleCharsAfterLastToolCall` (visible characters put on screen since the last
    tool-call event of a tool that is not delivering; reset with `hasTextAfterLastToolCall`) and `strippedVisibleChars`
    (characters `stripLeakedToolDiagnostics` removed from visible text over the whole turn).
 3. Every streamed turn that is saved (answered, repaired, paused, stopped) stores in the assistant message's
    `metadata_json`:
-   `completion: { end, finish, steps, lastStepOutputTokens, charsAfterLastToolCall, strippedChars, recovery }`
+   `completion: { end, finish, steps, lastStepOutputTokens, charsAfterLastToolCall, strippedChars, recovery, droppedToolCalls }`
    - `end`: `"stopped"` if stopped, else `"paused"` if it paused to ask, else `"no_final_answer"` if it carries that
      code, else `"recovered"` if the repair wrote the answer, else `"answered"`.
    - `finish`: the streamed run's last finish reason, `null` when the stream closed without one.
@@ -160,10 +163,11 @@ does.
    - `recovery`: `"none"`, `"answered"` or `"failed"`.
    It is stored only: nothing sends it to the browser.
 4. One log line per saved streamed turn, content-free:
-   `[TURN_END] end=<end> finish=<finish or none> steps=<n or ?> lastStepOut=<n or ?> afterLastTool=<n> stripped=<n> recovery=<recovery> model=<model id>`.
+   `[TURN_END] end=<end> finish=<finish or none> steps=<n or ?> lastStepOut=<n or ?> afterLastTool=<n> stripped=<n> recovery=<recovery> dropped=<n> model=<model id>`.
 5. `chat-turn/AGENTS.md`: the record's fields in the "A Turn's Final Answer" section.
 
-**Tests:** the `finish` event carries both fields for a one-step and a three-step run; the two counters (a tool call
+**Tests:** the `finish` event carries both fields for a one-step and a three-step run, and `droppedToolCalls` is 1
+after one call to a tool that is not offered (0 otherwise), with the log line written once; the two counters (a tool call
 resets the first, a delivering tool does not; a removed leak adds to the second); the saved metadata holds the record
 for an answered, a repaired, a `no_final_answer`, a paused and a stopped turn; the log line has exactly those fields
 and no message text.
