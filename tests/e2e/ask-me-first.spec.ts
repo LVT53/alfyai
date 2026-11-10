@@ -642,13 +642,18 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await expect(
 			card.getByRole("button", { name: "Close the question" }),
 		).toBeVisible();
-		// The words before the ask remain inspectable activity above the card; the composer waits.
-		await inspectAskActivity(page);
 		await expect(page.getByTestId("message-input")).toBeDisabled();
+		// Measure automatic arrival before the reader opens activity. A pointer
+		// press deliberately releases MessageArea's held position.
+		await expect(
+			page.getByTestId("assistant-message").first().locator(".thinking-header"),
+		).toHaveAttribute("aria-expanded", "false");
 		// This card fits the window, so the thread rests at its bottom, as it always did:
 		// the end of the thread is the top of the card only when the card does not fit
 		// (the phone and Hungarian tests).
 		await expect.poll(() => distanceFromBottom(page)).toBeLessThan(2);
+		// Explicit inspection is a separate reader action, after the arrival oracle.
+		await inspectAskActivity(page);
 
 		// The press (answers wake after 400 ms).
 		await pressWhenAwake(

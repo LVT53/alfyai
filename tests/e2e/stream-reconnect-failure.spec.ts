@@ -131,9 +131,9 @@ test.describe("A reload while a turn is still failing", () => {
 			});
 			const bubble = page.getByTestId("assistant-message");
 			await expect(bubble).toHaveAttribute("data-message-id", failed.id);
-			await expect(bubble.getByTestId("normal-chat-output-status")).toHaveText(
-				"Reply failed",
-			);
+			await expect(
+				bubble.locator("..").getByTestId("normal-chat-output-status"),
+			).toHaveText("Reply failed");
 			expect(streamPosts).toHaveLength(2);
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);

@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	applyNormalChatOutputView,
 	type NormalChatOutputMessage,
+	normalChatOutputView,
 } from "$lib/client/normal-chat-output-view";
 import chatDict from "$lib/i18n/chat";
 import type { InterimThoughtStep } from "$lib/response-activity-types";
@@ -26,6 +27,7 @@ import { createNormalChatOutputAccumulator } from "$lib/shared/normal-chat-outpu
 import { uiLanguage } from "$lib/stores/settings";
 import { clearToasts, toasts } from "$lib/stores/toast";
 import { renderMarkdown } from "$lib/utils/markdown-loader";
+import { finalizeStreamingMessageList } from "../../../routes/(app)/chat/[conversationId]/_helpers";
 import {
 	card as imageCard,
 	take as imageTake,
@@ -117,6 +119,82 @@ describe("MessageBubble", () => {
 
 	afterEach(() => {
 		clearToasts();
+	});
+
+	it.each([
+		"live-finalized",
+		"reload",
+		"observer-finalized",
+	] as const)("renders an empty failed reply scoped to its message: %s", (mode) => {
+		// Actual failure shape from affected browser DB: one closing completion,
+		// no blocks, no answer or thinking bytes, sequence 1.
+		const scope = {
+			version: 1,
+			turnId: "failed-turn",
+			segmentId: "failed-turn",
+			attemptId: "failed-turn:terminal",
+			stepId: "failed-turn:terminal:0",
+			phase: "closing",
+		} as const;
+		const event = {
+			...scope,
+			sequence: 1,
+			type: "completion",
+			completion: {
+				version: 1,
+				turnId: scope.turnId,
+				segmentId: scope.segmentId,
+				phase: "closing",
+				outcome: "failed",
+				stopCause: "transport_error",
+				workingStopCause: "transport_error",
+				closingAttempted: true,
+			},
+		} as const;
+		const base: NormalChatOutputMessage = {
+			id: "saved-empty-failed",
+			role: "assistant",
+			timestamp: 1,
+			content: "",
+		};
+		let message: NormalChatOutputMessage = {
+			...base,
+			normalChatOutput: { version: 1, events: [event] },
+		};
+		if (mode !== "reload") {
+			const accumulator = createNormalChatOutputAccumulator();
+			accumulator.apply(event);
+			const live = applyNormalChatOutputView(
+				[
+					{
+						...base,
+						id: "placeholder",
+						isStreaming: true,
+						isThinkingStreaming: true,
+					},
+				],
+				"placeholder",
+				accumulator.getProjection(),
+			);
+			[message] = finalizeStreamingMessageList(live, {
+				placeholderId: "placeholder",
+				clientUserMessageId: null,
+				metadata: { assistantMessageId: base.id, finalContent: "" },
+			});
+		}
+		expect(normalChatOutputView(message)?.completion).toEqual(event.completion);
+		expect(message.isStreaming).toBeFalsy();
+		expect(message.isThinkingStreaming).toBeFalsy();
+		const { container } = render(MessageBubble, { message });
+		const body = screen.getByTestId("assistant-message");
+		expect(body).toHaveAttribute("data-message-id", base.id);
+		const messageFrame = body.parentElement;
+		if (!messageFrame) throw new Error("Missing message frame");
+		expect(
+			within(messageFrame).getByTestId("normal-chat-output-status"),
+		).toHaveTextContent("Reply failed");
+		expect(container.querySelector(".thinking-block")).toBeNull();
+		expect(message.content).toBe("");
 	});
 
 	it("copies canonical saved content while retaining escaped interrupted activity", async () => {

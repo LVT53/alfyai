@@ -1012,15 +1012,15 @@ test.describe("Editing a message in the composer", () => {
 					type: "completion",
 					completion: { outcome: "failed", stopCause: "transport_error" },
 				});
-				const failedBubble = page
-					.getByTestId("assistant-message")
-					.filter({ has: page.getByTestId("normal-chat-output-status") });
+				const failedBubble = page.locator(
+					`[data-testid="assistant-message"][data-message-id="${failedReply.id}"]`,
+				);
 				await expect(failedBubble).toHaveAttribute(
 					"data-message-id",
 					failedReply.id,
 				);
 				await expect(
-					failedBubble.getByTestId("normal-chat-output-status"),
+					failedBubble.locator("..").getByTestId("normal-chat-output-status"),
 				).toHaveText("Reply failed");
 				await expect(page.getByTestId("assistant-message")).toHaveCount(2);
 				await expect(page.getByTestId("user-message")).toHaveCount(2);
