@@ -122,6 +122,16 @@ test.describe("turn completion contract", () => {
 				}
 			}
 		};
+		// Advertise a realistic synthetic model: room for the complete app prompt,
+		// plus an explicit output reserve. Missing-reserve product policy is tested separately.
+		const configured = await page.request.put(
+			`/api/admin/providers/${fake.providerId}/models/${fake.modelId}`,
+			{ data: { maxModelContext: 131_072, maxTokens: 4_096 } },
+		);
+		expect(configured.ok()).toBe(true);
+		expect(await configured.json()).toMatchObject({
+			model: { maxModelContext: 131_072, maxTokens: 4_096 },
+		});
 		if (priced) {
 			const response = await page.request.put(
 				`/api/admin/providers/${fake.providerId}/models/${fake.modelId}`,

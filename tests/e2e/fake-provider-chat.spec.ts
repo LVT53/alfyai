@@ -42,12 +42,18 @@ test.describe("fake OpenAI-compatible provider app journey", () => {
 				`/api/admin/providers/${temporaryProvider.providerId}/models/${temporaryProvider.modelId}`,
 				{
 					data: {
+						// Full app prompt capacity and an explicit synthetic output reserve.
+						maxModelContext: 131_072,
+						maxTokens: 4_096,
 						inputUsdMicrosPer1m: 1_000_000_000,
 						outputUsdMicrosPer1m: 1_000_000_000,
 					},
 				},
 			);
 			expect(pricing.ok()).toBe(true);
+			expect(await pricing.json()).toMatchObject({
+				model: { maxModelContext: 131_072, maxTokens: 4_096 },
+			});
 
 			await updateUserModelPreference(page, temporaryProvider.selectedModel);
 			await setBrowserSelectedModel(page, temporaryProvider.selectedModel);
@@ -178,7 +184,7 @@ async function createTemporaryFakeProviderModel(
 							{
 								name: modelName,
 								displayName: "Fake Provider Chat Model",
-								contextLength: 8192,
+								contextLength: 131_072,
 								supportsChat: true,
 								supportsTools: true,
 							},
