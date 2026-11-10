@@ -96,11 +96,8 @@ something this change added: the age hid it. What a produced file may cost in a 
 
 - The match term's age is still in seconds. It is what keeps a chat's own old replies out; what a message match should keep, and
   `scoreMatch` counting "the" as a hit, is a change of its own and wants its own measurement.
-- The wording that makes an open document the turn's focus is English only (`DOCUMENT_FOCUS_RE`, `DOCUMENT_ACTION_RE`,
-  `DOCUMENT_REFERENCE_RE`, the correction and reset phrases). With D open, 3 of 10 English follow-ups written for the probe made it the
-  live focus and 0 of 8 Hungarian ones (an illustration, not a sample of real messages). In the Hungarian run D is in the prompt for the first turn back (carried from the refresh while it was fresh)
-  and missing from the second and third, at every age, fresh included: no Hungarian message made it the focus, so nothing renewed it.
-  This fix does not touch that.
+- The Hungarian wording gap noticed here is now covered by a separate fix and measurement:
+  [Working Document Selection in Hungarian](working-document-wording.md). English answers are held to the recorded baseline.
 - `refreshConversationWorkingSet` looks at the 8 most recently updated generated outputs of the conversation, and every reply is stored
   as one, so after seven replies a produced document is no longer among them for the "current generated" and "recently refined"
   signals; that is what ends the refined signal when the person does not say to move on. The active-focus signal does not depend on

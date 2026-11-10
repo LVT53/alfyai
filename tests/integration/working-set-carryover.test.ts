@@ -19,8 +19,8 @@
 // and its own marker word: the cross-conversation search would otherwise return a
 // copy of the document from another test's conversation and read as a hit.
 //
-// The messages are English because the wording that makes an open document the
-// turn's focus is read from English words; that gate is not what is tested here.
+// English and Hungarian follow-ups exercise the wording gates as well as the
+// working set: a turn that names the document must keep it for the next prompt.
 import { randomUUID } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
 import {
@@ -344,5 +344,30 @@ describe("a produced document the model has refined", () => {
 		expect(inPrompt.slice(0, 3)).toEqual([true, true, true]);
 		expect(inPrompt.at(-1)).toBe(false);
 		expect(inPrompt.filter(Boolean).length).toBeLessThanOrEqual(8);
+	});
+});
+
+describe.each([
+	["ten minutes", 10 * MINUTE],
+	["an hour", HOUR],
+	["a day", DAY],
+])("Hungarian follow-ups on a document written %s ago", (_label, ageMs) => {
+	it("carries the document through all three prompts", async () => {
+		const world = await worldWithDocumentWrittenAgo(ageMs);
+		const present = [];
+		for (const message of [
+			"Rövidítsd le ezt a dokumentumot",
+			"És mi a helyzet a második bekezdéssel?",
+			"Írd át formálisabbra",
+		]) {
+			present.push(await turn(world, message));
+		}
+		expect(present).toEqual([true, true, true]);
+	});
+	it("lets the document go after a topic change", async () => {
+		const world = await worldWithDocumentWrittenAgo(ageMs);
+		await turn(world, "Rövidítsd le ezt a dokumentumot");
+		expect(await turn(world, "Mi Ausztria fővárosa?")).toBe(true);
+		expect(await turn(world, "És Németországé?")).toBe(false);
 	});
 });

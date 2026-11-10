@@ -52,7 +52,7 @@ capsules.ts               ← work capsules, generated outputs (not lineage auth
 - **Memory Profile**: user-facing memory UX is projection-backed through `../memory.ts` and `../memory-profile/`; Knowledge page routes/views should render that projection.
 - **Document families**: generated-document families are metadata-driven via `store/document-metadata.ts`; `document-resolution.ts` is authority for "which generated version is current"
 - **AI-facing document view**: source-plus-normalized documents are listed as one source row, but the Knowledge Documents UI must keep an on-demand AI-facing version panel backed by the normalized prompt artifact. This panel is document prompt visibility and should not be removed as part of memory-system cleanup.
-- **Working Document Selection**: live focus, correction, recent-refinement, reset, prompt, retrieval, and task-evidence signal views come from `../working-document-selection.ts`
+- **Working Document Selection**: live focus, correction, recent-refinement, reset, prompt, retrieval, and task-evidence signal views come from `../working-document-selection.ts`. Wording invariants and the English/Hungarian measurement are owned by the parent services AGENTS.md (Working Document wording) and `docs/plans/document-ranking/working-document-wording.md`.
 - **Capsules**: workflow summaries only; document lineage lives in artifact metadata + links
 - **Observability**: `[CONTEXT] Working document selection` summary in `context.ts`; extend it rather than per-candidate logs
 
