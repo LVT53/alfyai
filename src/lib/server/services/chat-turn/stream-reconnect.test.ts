@@ -1,3 +1,7 @@
+vi.mock("./completion-lifetime", () => ({
+	observeCompletionTurn: async () => null,
+}));
+
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
 	streamDataPartEvent,
@@ -9,16 +13,27 @@ import { StreamReplayJournal } from "./stream-replay-journal";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
-function connect(chunks: string[] = []) {
+function connect(chunks: string[] = [], alreadyAborted = false) {
 	const journal = new StreamReplayJournal();
 	for (const chunk of chunks) journal.append(chunk);
 	const buffer = { journal, userMessage: "synthetic" };
 	const getStreamBuffer = vi.fn(() => buffer as typeof buffer | undefined);
-	const enqueueChunk = vi.fn(() => true),
+	const enqueueChunk = vi.fn((_chunk: string) => true),
 		closeDownstream = vi.fn();
-	const subscribeToStream = vi.fn(() => true),
-		unsubscribeFromStream = vi.fn();
+	const subscribeToStream = vi.fn(
+			(
+				_owner: { streamId: string; userId: string; conversationId: string },
+				_listener: (chunk: string) => void,
+			) => true,
+		),
+		unsubscribeFromStream = vi.fn(
+			(
+				_owner: { streamId: string; userId: string; conversationId: string },
+				_listener: (chunk: string) => void,
+			) => {},
+		);
 	const abort = new AbortController();
+	if (alreadyAborted) abort.abort();
 	doReconnect("s", {
 		userId: "u",
 		conversationId: "c",
@@ -90,4 +105,11 @@ it("replays terminal once without opening another subscription", () => {
 	const c = connect([streamErrorEvent("backend_failure")]);
 	expect(c.subscribeToStream).not.toHaveBeenCalled();
 	expect(c.closeDownstream).toHaveBeenCalledOnce();
+});
+
+it("does not retain a subscription for an already-cancelled observer", () => {
+	const c = connect([], true);
+	expect(c.subscribeToStream).not.toHaveBeenCalled();
+	expect(c.closeDownstream).toHaveBeenCalledOnce();
+	expect(vi.getTimerCount()).toBe(0);
 });

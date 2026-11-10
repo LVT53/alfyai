@@ -1,3 +1,7 @@
+vi.mock("./completion-lifetime", () => ({
+	observeCompletionTurn: async () => null,
+}));
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { containsTerminalAiSdkUiStreamPayload } from "$lib/services/ai-sdk-ui-stream-contract";
 import * as registry from "./active-streams";
@@ -33,11 +37,11 @@ function startRun() {
 	});
 }
 
-function reconnect() {
+async function reconnect() {
 	const chunks: string[] = [];
 	const closeDownstream = vi.fn();
 	const abort = new AbortController();
-	doReconnect(OWNER.streamId, {
+	await doReconnect(OWNER.streamId, {
 		userId: OWNER.userId,
 		conversationId: OWNER.conversationId,
 		enqueueChunk: (chunk) => {
@@ -72,28 +76,9 @@ function runTerminal() {
 			registry.broadcastStreamChunk(OWNER.streamId, streamErrorEvent(code)),
 		emitRequestError: vi.fn(),
 		runCompleteStreamTurn: vi.fn(async () => undefined),
-		flushNativeToolCalls: vi.fn(),
-		flushBufferedStreamOutput: vi.fn(() => true),
-		wasStopRequested: vi.fn(() => false),
-		isPaused: vi.fn(() => false),
-		hasFinalAnswer: vi.fn(() => false),
-		hasVisibleAssistantAnswerOutput: vi.fn(() => false),
-		hasCompletedFileProductionToolCall: vi.fn(() => false),
-		hasCompletedNonFileToolCall: vi.fn(() => false),
-		getAttemptedNonStreamFallback: vi.fn(() => false),
-		getFallbackRunner: vi.fn(() => null),
-		getLatestUpstreamAttempt: vi.fn(() => 1),
-		upstreamEndLog: {
-			conversationId: OWNER.conversationId,
-			streamId: OWNER.streamId,
-			modelId: "m1",
-		},
-		getUpstreamEndSnapshot: () => ({
-			thinkingLength: 0,
-			toolCallCount: 0,
-			completedToolCallCount: 0,
-			hasCompletedNonFileToolCall: false,
-		}),
+		flushBufferedStreamOutput: () => true,
+		wasStopRequested: () => false,
+		getCompletion: () => undefined,
 	});
 	return { terminal, closeDownstream };
 }
@@ -106,9 +91,9 @@ describe("a browser that reconnected while the run was still failing", () => {
 		vi.spyOn(console, "warn").mockImplementation(() => undefined);
 	});
 
-	it("hears the run's error and its connection ends, instead of waiting on heartbeats for ever", () => {
+	it("hears the run's error and its connection ends, instead of waiting on heartbeats for ever", async () => {
 		startRun();
-		const connection = reconnect();
+		const connection = await reconnect();
 		expect(connection.closeDownstream).not.toHaveBeenCalled();
 
 		// The original run's failure lands after the reconnect subscribed.
@@ -125,11 +110,11 @@ describe("a browser that reconnected while the run was still failing", () => {
 		expect(run.closeDownstream).toHaveBeenCalledOnce();
 	});
 
-	it("is handed a wait, not silence, when it connects after the failure", () => {
+	it("is handed a wait, not silence, when it connects after the failure", async () => {
 		startRun();
 		runTerminal().terminal.failStream("backend_failure");
 
-		const connection = reconnect();
+		const connection = await reconnect();
 		expect(connection.closeDownstream).toHaveBeenCalledOnce();
 		expect(connection.chunks.join("")).toContain("data-waiting");
 	});

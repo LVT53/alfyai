@@ -1,6 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest";
 import * as registry from "./active-streams";
-import { streamDataPartEvent, streamTextDeltaEvent } from "./stream";
+import {
+	streamReasoningDeltaEvent as journalReasoningFrame,
+	streamTextDeltaEvent as journalTextFrame,
+	streamDataPartEvent,
+	streamTextDeltaEvent,
+} from "./stream";
 import { doReconnect } from "./stream-reconnect";
 
 const scope = {
@@ -55,12 +60,14 @@ it("retains quiet live owners beyond the idle replay TTL", () => {
 it("never replays a suffix after repeated mixed-event cap crossings", () => {
 	buffer();
 	for (let n = 0; n < 5; n++) {
-		registry.appendToStreamBuffer(scope.streamId, "token", {
-			text: "x".repeat(60_000),
-		});
-		registry.appendToStreamBuffer(scope.streamId, "thinking", {
-			text: "y".repeat(60_000),
-		});
+		registry.broadcastStreamChunk(
+			scope.streamId,
+			journalTextFrame("x".repeat(60_000)),
+		);
+		registry.broadcastStreamChunk(
+			scope.streamId,
+			journalReasoningFrame("y".repeat(60_000)),
+		);
 	}
 	const connection = reconnect();
 	expect(connection.chunks.join("")).toContain("data-waiting");

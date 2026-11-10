@@ -1,5 +1,6 @@
 import { containsTerminalAiSdkUiStreamPayload } from "$lib/services/ai-sdk-ui-stream-contract";
-import { streamDataPartEvent } from "./stream";
+import { observeCompletionTurn } from "./completion-lifetime";
+import { streamDataPartEvent, streamErrorEvent } from "./stream";
 
 export interface ReconnectBuffer {
 	userMessage: string | null;
@@ -86,7 +87,10 @@ function createHeartbeatController(
 	return { start, clear };
 }
 
-export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
+export async function doReconnect(
+	targetStreamId: string,
+	deps: ReconnectDeps,
+): Promise<void> {
 	const {
 		enqueueChunk,
 		closeDownstream,
@@ -105,18 +109,31 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 		createSseHeartbeatComment,
 	);
 	let connectionClosed = false;
+	let unsubscribe = () => {};
 	const closeConnection = () => {
 		if (connectionClosed) return;
 		connectionClosed = true;
 		heartbeat.clear();
+		unsubscribe();
+		downstreamAbortSignal.removeEventListener("abort", closeConnection);
 		closeDownstream();
 	};
 
 	try {
+		if (downstreamAbortSignal.aborted) {
+			closeConnection();
+			return;
+		}
 		enqueueChunk(createSsePreludeComment());
 		enqueueChunk(createSseHeartbeatComment());
 
 		const buffer = getStreamBuffer(streamOwner);
+		if (!buffer)
+			await observeCompletionTurn({
+				userId,
+				conversationId,
+				requestId: targetStreamId,
+			});
 		const replay = buffer?.journal.read();
 		if (!replay?.complete) {
 			enqueueChunk(streamDataPartEvent("data-waiting", {}));
@@ -149,25 +166,24 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 		liveListener = (chunk: string) => {
 			enqueueChunk(chunk);
 			if (containsTerminalAiSdkUiStreamPayload(chunk)) {
-				unsubscribeFromStream(streamOwner, liveListener);
 				closeConnection();
 			}
 		};
+		unsubscribe = () => unsubscribeFromStream(streamOwner, liveListener);
 		const subscribed = subscribeToStream(streamOwner, liveListener);
 		if (subscribed === false) {
 			enqueueChunk(streamDataPartEvent("data-waiting", {}));
-			closeDownstream();
+			closeConnection();
+			return;
+		}
+		if (downstreamAbortSignal.aborted) {
+			closeConnection();
 			return;
 		}
 
-		downstreamAbortSignal.addEventListener(
-			"abort",
-			() => {
-				unsubscribeFromStream(streamOwner, liveListener);
-				closeConnection();
-			},
-			{ once: true },
-		);
+		downstreamAbortSignal.addEventListener("abort", closeConnection, {
+			once: true,
+		});
 
 		// The listener lives on the stream's record (its buffer). If that goes without
 		// this connection having heard how the run ended (a failure that cleared it
@@ -184,7 +200,6 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 				recordIsThere = false;
 			}
 			if (recordIsThere) return;
-			unsubscribeFromStream(streamOwner, liveListener);
 			enqueueChunk(streamDataPartEvent("data-waiting", {}));
 			closeConnection();
 		};
@@ -196,6 +211,7 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 		);
 	} catch (err) {
 		console.error("[CHAT_STREAM] doReconnect threw", { targetStreamId, err });
-		closeDownstream();
+		enqueueChunk(streamErrorEvent("backend_failure"));
+		closeConnection();
 	}
 }

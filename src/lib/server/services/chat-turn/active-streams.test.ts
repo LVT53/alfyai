@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-	appendToStreamBuffer,
 	broadcastStreamChunk,
 	checkStreamCapacity,
 	clearStreamBuffer,
@@ -21,6 +20,10 @@ import {
 	userHasActiveChatStream,
 	wasActiveChatStreamStopRequested,
 } from "./active-streams";
+import {
+	streamDataPartEvent as journalDataFrame,
+	streamTextDeltaEvent as journalTextFrame,
+} from "./stream";
 
 describe("active chat streams registry", () => {
 	afterEach(() => {
@@ -291,7 +294,7 @@ describe("active chat streams registry", () => {
 			conversationId: "conversation-owned-buffer",
 			userMessage: "private question",
 		});
-		appendToStreamBuffer("stream-owned-buffer", "token", { text: "Hello" });
+		broadcastStreamChunk("stream-owned-buffer", journalTextFrame("Hello"));
 
 		try {
 			expect(
@@ -355,9 +358,10 @@ describe("active chat streams registry", () => {
 			conversationId: "conversation-owned-reconnect-buffer",
 			userMessage: "private reconnect question",
 		});
-		appendToStreamBuffer("stream-owned-reconnect-buffer", "token", {
-			text: "Hello",
-		});
+		broadcastStreamChunk(
+			"stream-owned-reconnect-buffer",
+			journalTextFrame("Hello"),
+		);
 
 		try {
 			expect(
@@ -490,9 +494,10 @@ describe("active chat streams registry", () => {
 			conversationId: "conversation-private-buffer",
 			userMessage: "private reconnect question",
 		});
-		appendToStreamBuffer("stream-colliding-buffer", "token", {
-			text: "private answer",
-		});
+		broadcastStreamChunk(
+			"stream-colliding-buffer",
+			journalTextFrame("private answer"),
+		);
 
 		const replacement = getOrCreateStreamBuffer({
 			streamId: "stream-colliding-buffer",
@@ -575,9 +580,10 @@ describe("active chat streams registry", () => {
 		});
 		vi.setSystemTime(5 * 60 * 1000);
 
-		appendToStreamBuffer("stream-expired-append-buffer", "token", {
-			text: "late token",
-		});
+		broadcastStreamChunk(
+			"stream-expired-append-buffer",
+			journalTextFrame("late token"),
+		);
 
 		expect(
 			getStreamBufferSnapshot({
@@ -596,29 +602,35 @@ describe("active chat streams registry", () => {
 			userMessage: "search this",
 		});
 
-		appendToStreamBuffer("stream-tool-buffer", "tool_call", {
-			callId: "tool-call-1",
-			name: "web_search",
-			input: { query: "OpenAI news" },
-			status: "running",
-		});
-		appendToStreamBuffer("stream-tool-buffer", "tool_call", {
-			callId: "tool-call-1",
-			name: "web_search",
-			status: "done",
-			outputSummary: "Found current sources",
-			sourceType: "web",
-			candidates: [
-				{
-					id: "src-1",
-					title: "OpenAI",
-					url: "https://openai.com/",
-					snippet: "Official source",
-					sourceType: "web",
-				},
-			],
-			metadata: { resultCount: 1 },
-		});
+		broadcastStreamChunk(
+			"stream-tool-buffer",
+			journalDataFrame("data-tool-call", {
+				callId: "tool-call-1",
+				name: "web_search",
+				input: { query: "OpenAI news" },
+				status: "running",
+			}),
+		);
+		broadcastStreamChunk(
+			"stream-tool-buffer",
+			journalDataFrame("data-tool-call", {
+				callId: "tool-call-1",
+				name: "web_search",
+				status: "done",
+				outputSummary: "Found current sources",
+				sourceType: "web",
+				candidates: [
+					{
+						id: "src-1",
+						title: "OpenAI",
+						url: "https://openai.com/",
+						snippet: "Official source",
+						sourceType: "web",
+					},
+				],
+				metadata: { resultCount: 1 },
+			}),
+		);
 
 		expect(
 			getStreamBuffer({
@@ -657,24 +669,33 @@ describe("active chat streams registry", () => {
 			userMessage: "search this",
 		});
 
-		appendToStreamBuffer("stream-tool-buffer-dedupe", "tool_call", {
-			callId: "tool-call-1",
-			name: "web_search",
-			input: { query: "OpenAI news" },
-			status: "running",
-		});
-		appendToStreamBuffer("stream-tool-buffer-dedupe", "tool_call", {
-			callId: "tool-call-1",
-			name: "web_search",
-			input: { query: "OpenAI news" },
-			status: "running",
-		});
-		appendToStreamBuffer("stream-tool-buffer-dedupe", "tool_call", {
-			callId: "tool-call-1",
-			name: "web_search",
-			status: "done",
-			outputSummary: "Found current sources",
-		});
+		broadcastStreamChunk(
+			"stream-tool-buffer-dedupe",
+			journalDataFrame("data-tool-call", {
+				callId: "tool-call-1",
+				name: "web_search",
+				input: { query: "OpenAI news" },
+				status: "running",
+			}),
+		);
+		broadcastStreamChunk(
+			"stream-tool-buffer-dedupe",
+			journalDataFrame("data-tool-call", {
+				callId: "tool-call-1",
+				name: "web_search",
+				input: { query: "OpenAI news" },
+				status: "running",
+			}),
+		);
+		broadcastStreamChunk(
+			"stream-tool-buffer-dedupe",
+			journalDataFrame("data-tool-call", {
+				callId: "tool-call-1",
+				name: "web_search",
+				status: "done",
+				outputSummary: "Found current sources",
+			}),
+		);
 
 		expect(
 			getStreamBuffer({

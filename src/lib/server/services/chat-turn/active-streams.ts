@@ -6,10 +6,7 @@ import type {
 	ToolEvidenceCandidate,
 } from "$lib/server/services/message-evidence";
 import type { ToolCallMapData } from "$lib/server/services/messages-types";
-import {
-	decodeAiSdkUiStreamPayloads,
-	encodeAiSdkUiStreamPart,
-} from "$lib/services/ai-sdk-ui-stream-contract";
+import { decodeAiSdkUiStreamPayloads } from "$lib/services/ai-sdk-ui-stream-contract";
 import { toolCallInputKey } from "$lib/utils/tool-calls";
 import { StreamReplayJournal } from "./stream-replay-journal";
 
@@ -256,46 +253,6 @@ export function getStreamBufferSnapshot(params: {
 			: {}),
 		createdAt: buffer.createdAt,
 	};
-}
-
-export function appendToStreamBuffer(
-	streamId: string,
-	event: "token" | "thinking" | "tool_call" | "response_activity",
-	data: {
-		text?: string;
-		activity?: ResponseActivityEntry;
-		callId?: string;
-		name?: string;
-		input?: Record<string, unknown>;
-		status?: "running" | "done" | "failed";
-		outputSummary?: string | null;
-		sourceType?: EvidenceSourceType | null;
-		candidates?: ToolEvidenceCandidate[];
-		metadata?: Record<string, string | number | boolean | null>;
-		map?: ToolCallMapData | null;
-	},
-) {
-	const buffer = getLiveStreamBuffer(streamId);
-	if (!buffer) return;
-	const part =
-		event === "token" || event === "thinking"
-			? {
-					type:
-						event === "token"
-							? ("text-delta" as const)
-							: ("reasoning-delta" as const),
-					id: event === "token" ? "answer" : "reasoning",
-					delta: data.text ?? "",
-				}
-			: {
-					type:
-						event === "tool_call"
-							? ("data-tool-call" as const)
-							: ("data-response-activity" as const),
-					data: event === "tool_call" ? data : data.activity,
-				};
-	buffer.updatedAt = Date.now();
-	buffer.journal.append(encodeAiSdkUiStreamPart(part));
 }
 
 // Legacy status views are derived on read; replay never reconstructs these arrays.
@@ -657,5 +614,50 @@ export function getStreamStats(): StreamStats {
 		perUserCounts: new Map(userStreamCounts),
 		maxGlobal: config.concurrentStreamLimit,
 		maxPerUser: config.perUserStreamLimit,
+	};
+}
+
+/** Start and observe are distinct intents. Only a new owned lifetime can generate. */
+export function acquireChatStream(params: {
+	streamId: string;
+	userId: string;
+	conversationId: string;
+	controller: AbortController;
+	userMessage: string;
+	reasoningDepth?: ReasoningDepth;
+	intent: "start" | "observe";
+}):
+	| { action: "observe"; streamId: string }
+	| { action: "close" }
+	| { action: "owned"; release(discard?: boolean): void } {
+	if (params.intent === "observe")
+		return { action: "observe", streamId: params.streamId };
+	if (getStreamBuffer(params))
+		return { action: "observe", streamId: params.streamId };
+	const current = getOrphanedStream(params);
+	if (current) return { action: "observe", streamId: current };
+	if (!registerActiveChatStream(params)) return { action: "close" };
+	try {
+		getOrCreateStreamBuffer({
+			streamId: params.streamId,
+			userId: params.userId,
+			conversationId: params.conversationId,
+			userMessage: params.userMessage,
+			reasoningDepth: params.reasoningDepth,
+		});
+	} catch (error) {
+		unregisterActiveChatStream(params.streamId, params.controller);
+		clearStreamBuffer(params.streamId);
+		throw error;
+	}
+	let released = false;
+	return {
+		action: "owned",
+		release(discard = false) {
+			if (released) return;
+			released = true;
+			unregisterActiveChatStream(params.streamId, params.controller);
+			if (discard) clearStreamBuffer(params.streamId);
+		},
 	};
 }
