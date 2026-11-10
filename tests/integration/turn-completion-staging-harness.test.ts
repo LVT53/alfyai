@@ -1,5 +1,9 @@
 // @vitest-environment node
-import { describe, expect, test, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
 	assertGuard,
 	assertKnownAnswer,
@@ -10,10 +14,12 @@ import {
 	inspectAudit,
 	MODEL_MATRIX,
 	main,
+	parseModelMetadata,
 	runCase,
 	runSerial,
 	syntheticPlan,
 	validateTarget,
+	verifyModelBindings,
 } from "../../docs/plans/turn-completion/contract/verify-contract.mjs";
 
 const completion = {
@@ -754,5 +760,342 @@ describe("independent review identity and attempt-policy regressions", () => {
 					: {}),
 			}),
 		).rejects.toThrow(/saved|ambiguous/i);
+	});
+});
+
+describe("least-privilege stage model metadata preflight", () => {
+	const names = {
+		deepseek: "deepseek-flash",
+		kimi: "accounts/fireworks/models/kimi-k3p1-pro",
+		qwen: "qwen3-6-27b",
+	};
+	const families = ["deepseek", "kimi", "qwen"] as const;
+	type Metadata = {
+		version: number;
+		source: string;
+		base: string;
+		models: Array<{
+			providerId: string;
+			modelId: string;
+			name: string;
+			[key: string]: unknown;
+		}>;
+		[key: string]: unknown;
+	};
+	const metadata = (): Metadata => ({
+		version: 1,
+		source: "stage-db-readonly",
+		base: "https://ai.dev.alfydesign.com",
+		models: families.map((family) => ({
+			providerId: MODEL_MATRIX[family].split(":")[1],
+			modelId: MODEL_MATRIX[family].split(":")[2],
+			name: names[family],
+		})),
+	});
+	const publicModels = () => ({
+		providers: [
+			{
+				models: families.map((f) => ({
+					id: MODEL_MATRIX[f],
+					displayName: `Public ${f}`,
+				})),
+			},
+		],
+	});
+	const folders: string[] = [];
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+		for (const folder of folders.splice(0))
+			rmSync(folder, { recursive: true, force: true });
+	});
+
+	test("validated export retains exact bindings and byte digest with no admin requests", async () => {
+		const bytes = JSON.stringify(metadata(), null, 2);
+		const trusted = parseModelMetadata(bytes, families);
+		const client = {
+			json: vi.fn(async (path: string) => {
+				expect(path).toBe("/api/models");
+				return publicModels();
+			}),
+		};
+		const result = await verifyModelBindings(client, families, trusted);
+		expect(client.json).toHaveBeenCalledTimes(1);
+		expect(result.bindings).toEqual(
+			families.map((family) => ({
+				family,
+				...metadata().models[families.indexOf(family)],
+			})),
+		);
+		expect(result.provenance).toEqual({
+			version: 1,
+			source: "stage-db-readonly",
+			base: "https://ai.dev.alfydesign.com",
+			sha256: createHash("sha256").update(bytes).digest("hex"),
+		});
+	});
+	const invalidMetadataCases: Array<[string, (m: Metadata) => void]> = [
+		[
+			"version",
+			(m) => {
+				m.version = 2;
+			},
+		],
+		[
+			"source",
+			(m) => {
+				m.source = "production-db-readonly";
+			},
+		],
+		[
+			"base",
+			(m) => {
+				m.base = "https://ai.alfydesign.com";
+			},
+		],
+		[
+			"name",
+			(m) => {
+				m.models[0].name = "deepseek-pro";
+			},
+		],
+		[
+			"provider",
+			(m) => {
+				m.models[0].providerId = m.models[1].providerId;
+			},
+		],
+		[
+			"model",
+			(m) => {
+				m.models[0].modelId = m.models[1].modelId;
+			},
+		],
+		[
+			"non-string-provider",
+			(m) => {
+				Object.assign(m.models[0], { providerId: [m.models[0].providerId] });
+			},
+		],
+		[
+			"non-string-model",
+			(m) => {
+				Object.assign(m.models[0], { modelId: [m.models[0].modelId] });
+			},
+		],
+		[
+			"duplicate",
+			(m) => {
+				m.models.push(m.models[0]);
+			},
+		],
+		[
+			"missing",
+			(m) => {
+				m.models.pop();
+			},
+		],
+		[
+			"unknown-row",
+			(m) => {
+				m.models.push({ providerId: "other", modelId: "other", name: "other" });
+			},
+		],
+		[
+			"unknown-field",
+			(m) => {
+				m.password = "PRIVATE-SENTINEL";
+			},
+		],
+		[
+			"row-field",
+			(m) => {
+				m.models[0].apiKey = "PRIVATE-SENTINEL";
+			},
+		],
+	];
+	test.each(
+		invalidMetadataCases,
+	)("rejects %s metadata before binding/generation", (_label, change) => {
+		const value = metadata();
+		change(value);
+		expect(() => parseModelMetadata(JSON.stringify(value), families)).toThrow(
+			"Invalid trusted stage model metadata",
+		);
+	});
+	test("every supplied unselected row is still validated; selected coverage is mandatory", () => {
+		const value = metadata();
+		value.models[2].name = "unexpected";
+		expect(() =>
+			parseModelMetadata(JSON.stringify(value), ["deepseek"]),
+		).toThrow();
+		expect(() =>
+			parseModelMetadata(JSON.stringify(metadata()), ["deepseek"]),
+		).not.toThrow();
+		expect(() => parseModelMetadata("{PRIVATE-SENTINEL", families)).toThrow(
+			"Invalid trusted stage model metadata",
+		);
+	});
+	test("trusted rows never replace normal-account enabled public IDs", async () => {
+		const client = { json: vi.fn(async () => ({ providers: [] })) };
+		await expect(
+			verifyModelBindings(
+				client,
+				families,
+				parseModelMetadata(JSON.stringify(metadata()), families),
+			),
+		).rejects.toThrow("Selected staging model is unavailable");
+		expect(client.json.mock.calls).toHaveLength(1);
+	});
+	test("without a file the existing admin endpoint still checks canonical names", async () => {
+		const paths: string[] = [];
+		const client = {
+			json: vi.fn(async (path: string) => {
+				paths.push(path);
+				return path === "/api/models"
+					? publicModels()
+					: {
+							models: [
+								{ id: metadata().models[0].modelId, name: names.deepseek },
+							],
+						};
+			}),
+		};
+		expect(
+			(await verifyModelBindings(client, ["deepseek"])).bindings[0].name,
+		).toBe(names.deepseek);
+		expect(paths).toEqual([
+			"/api/models",
+			`/api/admin/providers/${metadata().models[0].providerId}/models`,
+		]);
+		client.json.mockImplementation(async (path) =>
+			path === "/api/models"
+				? publicModels()
+				: {
+						models: [{ id: metadata().models[0].modelId, name: "substituted" }],
+					},
+		);
+		await expect(verifyModelBindings(client, ["deepseek"])).rejects.toThrow(
+			"Staging model binding changed",
+		);
+	});
+
+	async function startup(
+		options: {
+			file?: string;
+			status?: number;
+			publicMissing?: boolean;
+			adminWrong?: boolean;
+			thrown?: boolean;
+		} = {},
+	) {
+		const folder = mkdtempSync(join(tmpdir(), "alfyai-task4-preflight-"));
+		folders.push(folder);
+		const output = join(folder, "report.json");
+		const input = join(folder, "PRIVATE-PATH-SENTINEL.json");
+		if (options.file !== "unreadable" && options.file !== undefined)
+			writeFileSync(input, options.file);
+		vi.stubEnv("BASE", "http://127.0.0.1:3002");
+		vi.stubEnv("EMAIL", "synthetic@example.invalid");
+		vi.stubEnv("PASSWORD", "PRIVATE-PASSWORD-SENTINEL");
+		const paths: string[] = [];
+		const transport = vi.fn(async (url: string | URL | Request) => {
+			const path = new URL(String(url)).pathname;
+			paths.push(path);
+			if (path === "/api/auth/login") return Response.json({});
+			if (path === "/api/models") {
+				if (options.thrown) throw new Error("PRIVATE-TRANSPORT-SENTINEL");
+				return Response.json(
+					options.publicMissing ? { providers: [] } : publicModels(),
+				);
+			}
+			if (path.startsWith("/api/admin/"))
+				return Response.json(
+					options.adminWrong
+						? { models: [{ id: metadata().models[0].modelId, name: "wrong" }] }
+						: { error: "PRIVATE-RESPONSE-SENTINEL" },
+					{ status: options.status ?? 500 },
+				);
+			// Preflight succeeded; intentionally stop at synthetic conversation creation.
+			return Response.json(
+				{ error: "synthetic controlled stop" },
+				{ status: 503 },
+			);
+		});
+		vi.stubGlobal("fetch", transport);
+		const args = ["--execute", "--families", "deepseek", "--out", output];
+		if (options.file !== undefined) args.push("--model-metadata-json", input);
+		const code = await main(args);
+		return {
+			code,
+			paths,
+			report: JSON.parse(readFileSync(output, "utf8")),
+			serialized: readFileSync(output, "utf8"),
+		};
+	}
+	test("valid file bypasses admin and persists trusted provenance before controlled no-generation stop", async () => {
+		const result = await startup({ file: JSON.stringify(metadata()) });
+		expect(result.code).toBe(1);
+		expect(result.paths).toEqual([
+			"/api/auth/login",
+			"/api/models",
+			"/api/conversations",
+			"/api/chat/stream/stop",
+		]);
+		expect(result.report.modelMetadata.sha256).toMatch(/^[a-f0-9]{64}$/);
+		expect(result.report.modelBindings).toHaveLength(1);
+		expect(result.report.createdConversations).toEqual([]);
+		expect(result.serialized).not.toContain("PRIVATE-");
+	});
+	test.each([
+		"unreadable",
+		"{PRIVATE-CONTENT-SENTINEL",
+		JSON.stringify({ ...metadata(), source: "production" }),
+	])("bad metadata file stops before login and generations", async (file) => {
+		const result = await startup({ file });
+		expect(result.code).toBe(1);
+		expect(result.paths).toEqual([]);
+		expect(result.report.records).toEqual([]);
+		expect(result.report.setupFailure).toMatchObject({
+			phase: "metadata-file",
+			code: "invalid-model-metadata",
+		});
+		expect(result.serialized).not.toContain("PRIVATE-");
+	});
+	test("file cannot authorize a model absent from the public list", async () => {
+		const result = await startup({
+			file: JSON.stringify(metadata()),
+			publicMissing: true,
+		});
+		expect(result.paths).toEqual(["/api/auth/login", "/api/models"]);
+		expect(result.report.setupFailure).toMatchObject({
+			phase: "public-models",
+			code: "selected-model-unavailable",
+		});
+		expect(result.report.records).toEqual([]);
+	});
+	test.each([
+		403, 500,
+	])("admin-path HTTP%d is reported as observed, with safe normal-account guidance", async (status) => {
+		const result = await startup({ status });
+		expect(result.report.setupFailure).toMatchObject({
+			phase: "model-bindings",
+			code: "admin-metadata-unavailable",
+			httpStatus: status,
+		});
+		expect(result.report.setupFailure.hint).toContain("--model-metadata-json");
+		expect(result.report.records).toEqual([]);
+		expect(result.paths.some((p) => p === "/api/conversations")).toBe(false);
+		expect(result.serialized).not.toContain("PRIVATE-");
+	});
+	test("setup transport errors are bounded and do not expose raw exception content", async () => {
+		const result = await startup({ thrown: true });
+		expect(result.report.setupFailure).toMatchObject({
+			phase: "public-models",
+			code: "setup-request-failed",
+		});
+		expect(result.serialized).not.toContain("PRIVATE-");
+		expect(result.report.records).toEqual([]);
 	});
 });

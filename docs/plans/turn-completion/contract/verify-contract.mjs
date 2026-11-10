@@ -8,7 +8,7 @@
  * missing tools, model substitution or persistence disagreement. Forced SDK exits
  * and buffer exhaustion belong to deterministic integration tests, not this live probe.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
@@ -31,6 +31,111 @@ const normalize = (text) =>
 	String(text ?? "")
 		.replace(/\r\n/g, "\n")
 		.trim();
+
+const STAGE_BASE = "https://ai.dev.alfydesign.com";
+class SetupFailure extends Error {
+	constructor(code, message) {
+		super(message);
+		this.code = code;
+	}
+}
+class ApiFailure extends Error {
+	constructor(path, status) {
+		super(`API refused ${path.split("?")[0]} HTTP ${status}`);
+		this.status = status;
+	}
+}
+const exactKeys = (value, keys) =>
+	value !== null &&
+	typeof value === "object" &&
+	!Array.isArray(value) &&
+	Object.keys(value).length === keys.length &&
+	keys.every((key) => Object.hasOwn(value, key));
+export function parseModelMetadata(bytes, families) {
+	try {
+		const value = JSON.parse(bytes);
+		need(
+			exactKeys(value, ["version", "source", "base", "models"]) &&
+				value.version === 1 &&
+				value.source === "stage-db-readonly" &&
+				value.base === STAGE_BASE &&
+				Array.isArray(value.models) &&
+				value.models.length > 0,
+			"invalid",
+		);
+		const seen = new Set();
+		for (const row of value.models) {
+			need(
+				exactKeys(row, ["providerId", "modelId", "name"]) &&
+					[row.providerId, row.modelId, row.name].every((value) => typeof value === "string"),
+				"invalid",
+			);
+			const id = `provider:${row.providerId}:${row.modelId}`;
+			const family = Object.keys(MODEL_MATRIX).find((key) => MODEL_MATRIX[key] === id);
+			need(family && row.name === MODEL_NAMES[family] && !seen.has(id), "invalid");
+			seen.add(id);
+		}
+		need(
+			families.every((family) => seen.has(MODEL_MATRIX[family])),
+			"invalid",
+		);
+		return {
+			models: value.models,
+			provenance: {
+				version: value.version,
+				source: value.source,
+				base: value.base,
+				sha256: createHash("sha256").update(bytes).digest("hex"),
+			},
+		};
+	} catch {
+		throw new SetupFailure("invalid-model-metadata", "Invalid trusted stage model metadata");
+	}
+}
+export async function verifyModelBindings(client, families, trustedMetadata, onPhase = () => {}) {
+	onPhase("public-models");
+	const listed = await client.json("/api/models");
+	const ids = listed.providers.flatMap((p) => p.models.map((m) => m.id));
+	if (!families.every((f) => ids.includes(MODEL_MATRIX[f])))
+		throw new SetupFailure("selected-model-unavailable", "Selected staging model is unavailable");
+	onPhase("model-bindings");
+	const bindings = [];
+	for (const family of families) {
+		const [, providerId, modelId] = MODEL_MATRIX[family].split(":");
+		const models = trustedMetadata
+			? trustedMetadata.models
+			: (await client.json(`/api/admin/providers/${providerId}/models`)).models;
+		const matches = models.filter(
+			(m) => m.id === modelId || (m.modelId === modelId && m.providerId === providerId),
+		);
+		if (matches.length !== 1 || matches[0].name !== MODEL_NAMES[family])
+			throw new SetupFailure("model-binding-mismatch", "Staging model binding changed");
+		bindings.push({ family, providerId, modelId, name: MODEL_NAMES[family] });
+	}
+	return {
+		bindings,
+		provenance: trustedMetadata?.provenance ?? { source: "admin-api", base: STAGE_BASE },
+	};
+}
+function setupDiagnostic(phase, error) {
+	const code =
+		error instanceof SetupFailure
+			? error.code
+			: error instanceof ApiFailure && phase === "model-bindings"
+				? "admin-metadata-unavailable"
+				: "setup-request-failed";
+	return {
+		phase,
+		code,
+		...(error instanceof ApiFailure ? { httpStatus: error.status } : {}),
+		hint:
+			phase === "model-bindings" && code === "admin-metadata-unavailable"
+				? "Admin model metadata unavailable; a normal account must use --model-metadata-json with an authoritative read-only stage export."
+				: phase === "metadata-file"
+					? "Supply a valid stage-only export for every selected model; no admin fallback is attempted."
+					: "Check this staging setup phase before retrying; no model generation was started.",
+	};
+}
 
 export function assertKnownAnswer(answer, expected) {
 	// Explicit output grammar requested in synthetic prompts; wrong/duplicate keys fail.
@@ -494,7 +599,7 @@ export function createClient({ base, origin, fetchImpl = fetch, signal }) {
 			path,
 			body === undefined ? {} : { method: "POST", body: JSON.stringify(body) },
 		);
-		need(res.ok, `API refused ${path.split("?")[0]} HTTP ${res.status}`);
+		if (!res.ok) throw new ApiFailure(path, res.status);
 		return res.json();
 	}
 	return { request, json };
@@ -818,6 +923,7 @@ export async function main(argv = process.argv.slice(2)) {
 				"--families",
 				"--inspect",
 				"--audit-json",
+				"--model-metadata-json",
 			].includes(key),
 			"Unknown CLI option",
 		);
@@ -826,7 +932,7 @@ export async function main(argv = process.argv.slice(2)) {
 	}
 	if (args["--help"]) {
 		console.log(
-			"verify-contract.mjs --plan | --execute --families deepseek,kimi,qwen --out REPORT.json | --inspect REPORT.json --audit-json AUDIT.json\nExecution requires dedicated synthetic staging EMAIL/PASSWORD, BASE, APP_ORIGIN. No DB queries are executed. Audit remains a separate read-only, exact-ID verification step.",
+			"verify-contract.mjs --plan | --execute --families deepseek,kimi,qwen --out REPORT.json [--model-metadata-json STAGE-MODELS.json] | --inspect REPORT.json --audit-json AUDIT.json\nExecution requires dedicated synthetic staging EMAIL/PASSWORD, BASE, APP_ORIGIN. Normal accounts require the trusted stage model-metadata JSON; omitting it uses existing admin metadata access. No DB queries are executed. Audit remains a separate read-only, exact-ID verification step.",
 		);
 		return 0;
 	}
@@ -874,6 +980,9 @@ export async function main(argv = process.argv.slice(2)) {
 		records = [],
 		created = [],
 		identities = [];
+	let setupPhase = "metadata-file",
+		trustedMetadata,
+		preflight;
 	const persist = (report) => {
 		const value = {
 			...report,
@@ -882,6 +991,10 @@ export async function main(argv = process.argv.slice(2)) {
 			createdConversations: created,
 			records,
 			identities,
+			...(trustedMetadata ? { modelMetadata: trustedMetadata.provenance } : {}),
+			...(preflight
+				? { modelMetadata: preflight.provenance, modelBindings: preflight.bindings }
+				: {}),
 			limitations: [
 				"No forced-budget/length/failover/content-filter coverage claimed from ordinary real-model calls",
 				"Receipt completion is checked on both transports; durable outcomes require external exact-ID audit",
@@ -898,24 +1011,20 @@ export async function main(argv = process.argv.slice(2)) {
 	const shared = new Map();
 	try {
 		await persist({ status: "running", results: [] });
+		if (args["--model-metadata-json"] !== undefined) {
+			try {
+				trustedMetadata = parseModelMetadata(readFileSync(args["--model-metadata-json"]), families);
+			} catch {
+				throw new SetupFailure("invalid-model-metadata", "Invalid trusted stage model metadata");
+			}
+		}
+		setupPhase = "login";
 		const login = await client.json("/api/auth/login", { email, password, rememberMe: false });
 		need(!login.twoStep, "Dedicated test account must not require two-step login");
-		const listed = await client.json("/api/models");
-		const ids = listed.providers.flatMap((p) => p.models.map((m) => m.id));
-		need(
-			families.every((f) => ids.includes(MODEL_MATRIX[f])),
-			"Historical staging model IDs no longer listed; rebind after explicit inspection",
-		);
-		// Inspect model metadata only (no provider credentials), before the first model call.
-
-		for (const family of families) {
-			const [, providerId, modelId] = MODEL_MATRIX[family].split(":");
-			const metadata = await client.json(`/api/admin/providers/${providerId}/models`);
-			need(
-				metadata.models.find((m) => m.id === modelId)?.name === MODEL_NAMES[family],
-				"Staging model binding changed; stop before model execution",
-			);
-		}
+		preflight = await verifyModelBindings(client, families, trustedMetadata, (phase) => {
+			setupPhase = phase;
+		});
+		setupPhase = null;
 		const report = await runSerial(
 			items,
 			async ({ family, spec }) => {
@@ -961,11 +1070,12 @@ export async function main(argv = process.argv.slice(2)) {
 			persist,
 		);
 		return report.status === "failed" ? 1 : 3; // audit-pending is never full acceptance
-	} catch {
+	} catch (error) {
 		await persist({
 			status: "failed",
 			failure:
 				"Setup/transport/contract failure; inspect only generated records, no automatic retry",
+			...(setupPhase ? { setupFailure: setupDiagnostic(setupPhase, error) } : {}),
 		});
 		return 1;
 	} finally {
