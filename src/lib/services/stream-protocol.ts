@@ -1029,6 +1029,16 @@ function isMarkdownToolCallBlockPrefix(value: string): boolean {
 	return true;
 }
 
+/** Recognise only sampled DSML calls and the tool blocks cleanup already holds. */
+export function startsWithToolCallMarkup(value: string): boolean {
+	const firstVisible = value.search(VISIBLE_CHARACTER_RE);
+	const candidate = firstVisible < 0 ? "" : value.slice(firstVisible);
+	return (
+		candidate.startsWith("<｜｜DSML｜｜ calls>") ||
+		isMarkdownToolCallBlockPrefix(candidate)
+	);
+}
+
 function splitPreservingLineEndings(
 	value: string,
 ): Array<{ line: string; lineEnding: string }> {

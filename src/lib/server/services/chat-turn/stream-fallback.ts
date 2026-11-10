@@ -14,7 +14,10 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { NormalChatContextPreparationStageTiming } from "$lib/server/services/normal-chat-context-preparation";
 import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
 import type { TaskState } from "$lib/server/services/task-state/types";
-import { hasVisibleCharacter } from "$lib/services/stream-protocol";
+import {
+	hasVisibleCharacter,
+	startsWithToolCallMarkup,
+} from "$lib/services/stream-protocol";
 import type {
 	ImageMarksRequest,
 	PictureRef,
@@ -199,7 +202,7 @@ function buildFallbackAttemptSystemPrompt(
 				[
 					context.shouldAllowForcedFileTool
 						? "The previous streaming attempt completed these tool calls before ending without a final answer. Use this compact tool context to create the requested file now; do not call more context/search tools."
-						: "The previous streaming attempt completed these tool calls before ending without a final answer. Use this compact tool context to answer now; do not call more tools unless the context is unusable.",
+						: "The previous streaming attempt completed these tool calls before ending without a final answer. You cannot call tools in this reply. Use this compact tool context to write the final answer now, as plain text.",
 					completedToolCallContext,
 				].join("\n\n"),
 			)
@@ -262,8 +265,13 @@ function buildFallbackAttemptParams(
 			? { resumeProvenance: sendParams.resumeProvenance }
 			: {}),
 		personalityPrompt,
-		thinkingMode: sendParams.thinkingMode,
-		depthMetadata: sendParams.depthMetadata,
+		thinkingMode: shouldDisableTools ? "off" : sendParams.thinkingMode,
+		// Depth effort takes precedence over thinkingMode in the plain-send path.
+		// Use the quick profile through that same seam, leaving the turn untouched.
+		depthMetadata:
+			shouldDisableTools && sendParams.depthMetadata
+				? { ...sendParams.depthMetadata, appliedProfile: "off" }
+				: sendParams.depthMetadata,
 		forceWebSearch: sendParams.forceWebSearch,
 		enabledConnectionCapabilities: sendParams.enabledConnectionCapabilities,
 		signal: sendSignal,
@@ -383,7 +391,10 @@ export async function runNonStreamFallback(
 			}
 			await applyFallbackModelSideEffects(deps, fallbackResponse);
 
-			if (!fallbackResponse.text?.trim()) {
+			if (
+				!hasVisibleCharacter(fallbackResponse.text ?? "") ||
+				startsWithToolCallMarkup(fallbackResponse.text ?? "")
+			) {
 				if (attempt < 2) {
 					console.warn("[STREAM] Non-stream fallback returned no text", {
 						conversationId: deps.sendParams.conversationId,

@@ -1,9 +1,26 @@
-import type { ModelMessage } from "ai";
+import { readFileSync } from "node:fs";
+import { jsonSchema, type ModelMessage, tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelId } from "$lib/model-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import { createTurnTakes } from "$lib/server/services/images/turn-takes";
+import {
+	buildNormalChatModelRunProviderOptions,
+	runPlainNormalChatModelRun,
+} from "$lib/server/services/normal-chat-model";
+import type { DepthMetadata } from "./depth-metadata-types";
+import {
+	buildReasoningDepthProviderOptions,
+	resolveReasoningDepthEffort,
+} from "./reasoning-depth-effort";
 import { runNonStreamFallback } from "./stream-fallback";
+
+const recoveryReplySamples: { visible: string; prompt: string }[] = JSON.parse(
+	readFileSync(
+		"docs/plans/turn-completion/recovery-reply-samples.json",
+		"utf8",
+	),
+);
 
 describe("runNonStreamFallback", () => {
 	const mockRunPlainNormalChatSendModel = vi.fn();
@@ -100,6 +117,223 @@ describe("runNonStreamFallback", () => {
 		expect(await callFallback()).toBe(false);
 		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledTimes(2);
 		expect(mockCompleteSuccess).not.toHaveBeenCalled();
+	});
+
+	it.each(
+		recoveryReplySamples.filter((sample) =>
+			sample.visible.includes("<｜｜DSML｜｜ calls>"),
+		),
+	)("rejects sampled markup before emission: $prompt", async (sample) => {
+		mockRunPlainNormalChatSendModel.mockResolvedValue({ text: sample.visible });
+		expect(await callFallback()).toBe(false);
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledTimes(2);
+		expect(mockEmitText).not.toHaveBeenCalled();
+		expect(mockCompleteSuccess).not.toHaveBeenCalled();
+	});
+	it.each([
+		"\u200B",
+		'\u200B\n```json\n{"query":"test","mode":"quick"}\n```',
+	])("rejects invisible or tool-block replies before emission: %j", async (text) => {
+		mockRunPlainNormalChatSendModel.mockResolvedValue({ text });
+		expect(await callFallback()).toBe(false);
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledTimes(2);
+		expect(mockEmitText).not.toHaveBeenCalled();
+	});
+	it.each([
+		"The research_web tool found the answer.",
+		"The marker <｜｜DSML｜｜ calls> denotes tool calls.",
+		'```json\n{"name":"Alice","age":30}\n```',
+		'```json\n{"query":"example"}\n```',
+	])("keeps prose and ordinary code: %j", async (text) => {
+		mockRunPlainNormalChatSendModel.mockResolvedValue({ text });
+		expect(await callFallback()).toBe(true);
+		expect(mockEmitText).toHaveBeenCalledExactlyOnceWith(text);
+	});
+	it("retries raw markup and emits only the next answer", async () => {
+		mockRunPlainNormalChatSendModel
+			.mockResolvedValueOnce({ text: "<｜｜DSML｜｜ calls>" })
+			.mockResolvedValueOnce({ text: "The answer." });
+		expect(await callFallback()).toBe(true);
+		expect(mockEmitText).toHaveBeenCalledExactlyOnceWith("The answer.");
+	});
+	it.each([
+		"deepseek",
+		"qwen",
+	])("serializes tools-off %s recovery like quick depth without mutating the turn", async (family) => {
+		const provider = {
+			id: family,
+			name: family,
+			displayName: family,
+			baseUrl:
+				family === "deepseek"
+					? "https://api.deepseek.com/v1"
+					: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+			modelName: family === "deepseek" ? "deepseek-chat" : "qwen3.6-plus",
+			apiKey: "test-key",
+			thinkingType: "enabled" as const,
+			reasoningEffort: "high" as const,
+		};
+		const original: DepthMetadata = {
+			requested: "thorough",
+			appliedProfile: "maximum",
+			fallback: false,
+		};
+		const snapshot = structuredClone(original);
+		const bodies: Record<string, unknown>[] = [];
+		const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+			bodies.push(JSON.parse(String(init?.body)));
+			return new Response(
+				JSON.stringify({
+					id: "reply",
+					object: "chat.completion",
+					created: 1,
+					model: provider.modelName,
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "The answer." },
+							finish_reason: "stop",
+						},
+					],
+					usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				}),
+				{ headers: { "content-type": "application/json" } },
+			);
+		});
+		const sendRequest = async (
+			params: Parameters<
+				Parameters<
+					typeof runNonStreamFallback
+				>[0]["runPlainNormalChatSendModel"]
+			>[0],
+		) => {
+			const effort = params.depthMetadata
+				? resolveReasoningDepthEffort({
+						depthMetadata: params.depthMetadata,
+						provider,
+					})
+				: null;
+			return runPlainNormalChatModelRun({
+				provider,
+				fetch,
+				messages: [
+					{ role: "user", content: params.message },
+					...(params.continuationMessages ?? []),
+				],
+				// The plain-send tool pack uses disableTools to omit the catalogue.
+				// Its own focused test covers that boundary; this checks serialization.
+				tools: params.disableTools
+					? undefined
+					: {
+							research_web: tool({
+								inputSchema: jsonSchema({ type: "object", properties: {} }),
+							}),
+						},
+				system: params.systemPromptAppendix,
+				resolveProviderOptions: (attemptProvider) =>
+					effort
+						? buildReasoningDepthProviderOptions(attemptProvider, effort)
+						: buildNormalChatModelRunProviderOptions(
+								attemptProvider,
+								params.thinkingMode,
+							),
+			});
+		};
+		await sendRequest({
+			userId: "user-1",
+			...defaultSendParams,
+			message: "test",
+			thinkingMode: "off",
+			depthMetadata: {
+				requested: "quick",
+				appliedProfile: "off",
+				fallback: false,
+			},
+		});
+		const quick = bodies[0];
+		expect(
+			family === "deepseek" ? quick.thinking : quick.enable_thinking,
+		).toEqual(family === "deepseek" ? { type: "disabled" } : false);
+		for (const depthMetadata of [original, undefined]) {
+			expect(
+				await callFallback({
+					runPlainNormalChatSendModel: sendRequest,
+					sendParams: {
+						...defaultSendParams,
+						thinkingMode: "on",
+						depthMetadata,
+					},
+					completedToolCallContext: "Tool 1: research_web",
+					completedToolCalls: [
+						{
+							callId: "call-1",
+							name: "research_web",
+							status: "done",
+							input: { query: "test" },
+							outputSummary: "Found the answer.",
+						},
+					],
+				}),
+			).toBe(true);
+			const recovery = bodies.at(-1);
+			if (!recovery) throw new Error("No recovery request captured");
+			for (const key of ["thinking", "enable_thinking", "reasoning_effort"])
+				expect(recovery[key]).toEqual(quick[key]);
+			expect(recovery).not.toHaveProperty("tools");
+			expect(recovery).not.toHaveProperty("tool_choice");
+			expect(JSON.stringify(recovery.messages)).toContain('"tool_calls"');
+			expect(JSON.stringify(recovery.messages)).toContain(
+				"The previous streaming attempt completed these tool calls before ending without a final answer. You cannot call tools in this reply. Use this compact tool context to write the final answer now, as plain text.",
+			);
+			expect(JSON.stringify(recovery.messages)).not.toContain(
+				"unless the context is unusable",
+			);
+		}
+		// The same request seam must retain the turn's reasoning when tools stay on.
+		expect(
+			await callFallback({
+				runPlainNormalChatSendModel: sendRequest,
+				sendParams: {
+					...defaultSendParams,
+					thinkingMode: "on",
+					depthMetadata: original,
+				},
+			}),
+		).toBe(true);
+		const toolsOn = bodies.at(-1);
+		if (!toolsOn) throw new Error("No tools-on request captured");
+		expect(toolsOn).toHaveProperty("tools");
+		expect(
+			family === "deepseek" ? toolsOn.thinking : toolsOn.enable_thinking,
+		).toEqual(family === "deepseek" ? { type: "enabled" } : true);
+		expect(original).toEqual(snapshot);
+	});
+	it("keeps tools-on settings and overrides depth only on the tools-off retry", async () => {
+		const depthMetadata: DepthMetadata = {
+			requested: "thorough",
+			appliedProfile: "maximum",
+			fallback: false,
+		};
+		mockRunPlainNormalChatSendModel
+			.mockResolvedValueOnce({ text: null })
+			.mockResolvedValueOnce({ text: "Answer." });
+		await callFallback({
+			sendParams: { ...defaultSendParams, thinkingMode: "on", depthMetadata },
+		});
+		expect(mockRunPlainNormalChatSendModel.mock.calls[0][0]).toMatchObject({
+			disableTools: false,
+			thinkingMode: "on",
+			depthMetadata,
+		});
+		expect(mockRunPlainNormalChatSendModel.mock.calls[0][0].depthMetadata).toBe(
+			depthMetadata,
+		);
+		expect(mockRunPlainNormalChatSendModel.mock.calls[1][0]).toMatchObject({
+			disableTools: true,
+			thinkingMode: "off",
+			depthMetadata: { appliedProfile: "off" },
+		});
+		expect(depthMetadata.appliedProfile).toBe("maximum");
 	});
 
 	it("calls runPlainNormalChatSendModel with correct parameters", async () => {

@@ -11,6 +11,7 @@ import {
 	processInlineThinkingChunk,
 	resetLeakedToolDiagnosticsForNewTextRun,
 	splitLeadingThinkingPreamble,
+	startsWithToolCallMarkup,
 	stripLeadingResponseMarker,
 	stripLeakedToolDiagnostics,
 } from "./stream-protocol";
@@ -1049,5 +1050,25 @@ describe("hasVisibleCharacter", () => {
 	it("sees a character outside the basic plane", () => {
 		expect(hasVisibleCharacter("\u200B\u{1F600}")).toBe(true);
 		expect(hasVisibleCharacter("\u{20BB7}")).toBe(true);
+	});
+});
+
+describe("startsWithToolCallMarkup", () => {
+	it.each([
+		"<｜｜DSML｜｜ calls>",
+		"\u200B\n<｜｜DSML｜｜ calls>",
+		'```json\n{"query":"test","mode":"quick"}\n```',
+		'```\n{"query":"test","mode":"quick"}',
+	])("recognises evidenced opener %j", (text) => {
+		expect(startsWithToolCallMarkup(text)).toBe(true);
+	});
+	it.each([
+		"The research_web tool found it.",
+		"Mention <｜｜DSML｜｜ calls> in prose.",
+		'```json\n{"name":"Alice","age":30}\n```',
+		'```json\n{"query":"example"}\n```',
+		"```ts\nconst tool_calls = [];\n```",
+	])("retains prose and ordinary code %j", (text) => {
+		expect(startsWithToolCallMarkup(text)).toBe(false);
 	});
 });
