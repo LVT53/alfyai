@@ -192,7 +192,7 @@ test.describe("turn completion contract", () => {
 				.click();
 			await expect
 				.poll(() => page.evaluate(() => navigator.clipboard.readText()))
-				.toBe(COMPLETION_ANSWER.trim());
+				.toBe(COMPLETION_ANSWER);
 			await exportedAnswer(page, id);
 			expect(requests()).toHaveLength(2);
 		});

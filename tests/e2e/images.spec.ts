@@ -14,6 +14,10 @@ import {
 	AI_SMOKE_TRANSPARENT_PICTURE_MARKER,
 } from "../fixtures/ai/late-picture-scenario";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
+import {
+	assistantAnswer,
+	expectTerminalActivityGone,
+} from "./artifact-live-edit.helpers";
 import { createTourUser, markToursSeen } from "./artifact-tours-helpers";
 import {
 	clearAdminConfig,
@@ -76,9 +80,12 @@ async function openChat(page: Page): Promise<string> {
 async function makePicture(page: Page, marker = AI_SMOKE_LATE_PICTURE_MARKER) {
 	await sendMessage(page, marker);
 	await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
-	await expect(page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT)).toBeVisible({
+	await expect(
+		assistantAnswer(page).getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+	).toBeVisible({
 		timeout: 30_000,
 	});
+	await expectTerminalActivityGone(page);
 }
 
 /** Waits for the card's take, its pick and its Image item to be written (three writes, not one). */
@@ -162,9 +169,16 @@ test.describe("Pictures end to end", () => {
 			const tick = () => {
 				let top: number | null = null;
 				for (const paragraph of document.querySelectorAll(
-					'[data-testid="assistant-message"] p',
+					'[data-testid="normal-chat-commentary"] p',
 				)) {
-					if (paragraph.textContent?.startsWith(introStart)) {
+					if (
+						paragraph.textContent?.startsWith(introStart) &&
+						!document
+							.querySelector(
+								'[data-testid="assistant-message"] .prose-container',
+							)
+							?.textContent?.trim()
+					) {
 						top = paragraph.getBoundingClientRect().top;
 						break;
 					}
@@ -195,23 +209,9 @@ test.describe("Pictures end to end", () => {
 		await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
 		const card = page.locator(CARD).last();
 		await expect(card).toBeVisible({ timeout: 30_000 });
-		comfy.holdQueue(false);
-		// Being made: the box shows only the shimmer; the words are for screen readers.
-		await expect(
-			card.locator('[data-testid="image-card-body"][data-state="making"]'),
-		).toBeVisible({ timeout: 30_000 });
-		await expect(card.getByTestId("image-card-shimmer")).toBeVisible();
-		await expect(card.getByTestId("image-card-status")).toHaveText(
-			/^Making the picture…/,
-		);
-		await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
-		await expect(page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT)).toBeVisible({
-			timeout: 30_000,
-		});
-
 		// The card is drawn after the prose, inside the message's deliverables.
 		const sentences = page
-			.getByTestId("assistant-message")
+			.getByTestId("normal-chat-commentary")
 			.getByText(INTRO_START);
 		const sentencesBox = await sentences.boundingBox();
 		const cardBox = await card.boundingBox();
@@ -222,8 +222,25 @@ test.describe("Pictures end to end", () => {
 			"the card starts below the sentences",
 		).toBe(true);
 
+		comfy.holdQueue(false);
+		// Being made: the box shows only the shimmer; the words are for screen readers.
+		await expect(
+			card.locator('[data-testid="image-card-body"][data-state="making"]'),
+		).toBeVisible({ timeout: 30_000 });
+		await expect(card.getByTestId("image-card-shimmer")).toBeVisible();
+		await expect(card.getByTestId("image-card-status")).toHaveText(
+			/^Making the picture…/,
+		);
+		await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
+		await expect(
+			assistantAnswer(page).getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+		).toBeVisible({
+			timeout: 30_000,
+		});
+		await expectTerminalActivityGone(page);
+
 		// Review Focus 1: the first sentence keeps its top edge, frame by frame,
-		// from the frame before the card came to the end of the turn, and the
+		// while the activity is visible before terminal fade, and the
 		// picture box keeps the size it was reserved at through waiting, making
 		// and the picture loading.
 		const frames = await page.evaluate(
@@ -294,9 +311,12 @@ test.describe("Pictures end to end", () => {
 		const card = page.locator(CARD).last();
 		await expect(card).toBeVisible({ timeout: 30_000 });
 		await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
-		await expect(page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT)).toBeVisible({
+		await expect(
+			assistantAnswer(page).getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+		).toBeVisible({
 			timeout: 30_000,
 		});
+		await expectTerminalActivityGone(page);
 		await waitForSettledCard(page, conversationId as string, 1);
 	});
 
@@ -314,9 +334,12 @@ test.describe("Pictures end to end", () => {
 		await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
 		await expect(page.locator(CARD).last()).toBeVisible({ timeout: 30_000 });
 		await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
-		await expect(page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT)).toBeVisible({
+		await expect(
+			assistantAnswer(page).getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+		).toBeVisible({
 			timeout: 30_000,
 		});
+		await expectTerminalActivityGone(page);
 		await expect(page.getByTestId("send-button")).toBeVisible({
 			timeout: 15_000,
 		});
@@ -440,8 +463,9 @@ test.describe("Pictures end to end", () => {
 		await sendMessage(page, AI_SMOKE_EDIT_PHOTO_MARKER);
 		await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
 		await expect(
-			page.getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT),
+			assistantAnswer(page).getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT),
 		).toBeVisible({ timeout: 30_000 });
+		await expectTerminalActivityGone(page);
 		await waitForSettledCard(page, conversationId, 1);
 
 		const card = page.locator(CARD).last();

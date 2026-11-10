@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { expect, test } from "vitest";
 import type { PlainNormalChatModelRunResult } from "../../src/lib/server/services/normal-chat-model";
+import {
+	AI_SMOKE_LATE_CARD_FINAL_ANSWER,
+	AI_SMOKE_LATE_CARD_INTRO,
+	AI_SMOKE_LATE_CARD_MARKER,
+	AI_SMOKE_LATE_CARD_TITLE,
+} from "../fixtures/ai/late-card-scenario";
 import { completionMessage } from "../fixtures/ai/turn-completion-scenarios";
+import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
 	completionMode,
 	completionToolsOff,
@@ -313,4 +320,142 @@ test("installed completion driver closing request is dispatched and counted with
 		(requests[1] as { messages: { content: string }[] }).messages.at(-1)
 			?.content,
 	).toBe(realClosingInstruction);
+});
+
+// This is the app driver's actual SDK request, not a synthetic page.route SSE.
+test("late-card continuation carries the full useful outline and exact tool result once", async () => {
+	const { runStreamingNormalChatModelRun } = await import(
+		"../../src/lib/server/services/normal-chat-model"
+	);
+	const { tool } = await import("ai");
+	const { z } = await import("zod");
+	const harness = createOpenAICompatibleProviderHarness();
+	const result = {
+		success: true,
+		artifactId: "synthetic-late-card",
+		artifactType: "document",
+		title: AI_SMOKE_LATE_CARD_TITLE,
+	};
+	let executions = 0;
+	try {
+		await harness.start();
+		const events = [];
+		for await (const event of runStreamingNormalChatModelRun({
+			provider: {
+				id: "synthetic-late-card",
+				name: "synthetic",
+				displayName: "Synthetic",
+				baseUrl: harness.baseURL,
+				modelName: "alfyai-fake-chat-model",
+				maxModelContext: 131072,
+				maxOutputTokens: 4096,
+			},
+			messages: [{ role: "user", content: AI_SMOKE_LATE_CARD_MARKER }],
+			tools: {
+				create_artifact: tool({
+					inputSchema: z.object({
+						artifactType: z.literal("document"),
+						title: z.string(),
+						body: z.string(),
+					}),
+					execute: async () => {
+						executions++;
+						return result;
+					},
+				}),
+			},
+		}))
+			events.push(event);
+		const requests = harness
+			.requests()
+			.filter((r) => r.path === "/v1/chat/completions");
+		expect(requests).toHaveLength(2);
+		const messages = (
+			requests[1].body as {
+				messages: { role: string; content: string; tool_call_id?: string }[];
+			}
+		).messages;
+		expect(
+			messages
+				.filter((m) => m.role === "assistant")
+				.map((m) => m.content)
+				.join(""),
+		).toContain(AI_SMOKE_LATE_CARD_INTRO.join(""));
+		expect(messages.filter((m) => m.role === "tool")).toEqual([
+			{
+				role: "tool",
+				tool_call_id: "call_fake_create_artifact_1",
+				content: JSON.stringify(result),
+			},
+		]);
+		expect(executions).toBe(1);
+		const answer = events
+			.filter((e) => e.type === "text_delta")
+			.map((e) => e.text)
+			.join("");
+		expect(answer).toContain(
+			"szombaton a belváros, vasárnap pedig a múzeumok.",
+		);
+		expect(AI_SMOKE_LATE_CARD_FINAL_ANSWER).toContain(
+			"szombaton a belváros, vasárnap pedig a múzeumok.",
+		);
+	} finally {
+		await harness.stop();
+	}
+});
+
+test.each([
+	"outline",
+	"tool-result",
+	"failed-tool",
+])("late-card refuses a confident synthesis when %s evidence is missing", async (lost) => {
+	const harness = createOpenAICompatibleProviderHarness();
+	try {
+		await harness.start();
+		const response = await fetch(`${harness.baseURL}/chat/completions`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				model: "alfyai-fake-chat-model",
+				stream: true,
+				messages: [
+					{ role: "user", content: AI_SMOKE_LATE_CARD_MARKER },
+					{
+						role: "assistant",
+						content:
+							lost === "outline"
+								? "Only a digest."
+								: AI_SMOKE_LATE_CARD_INTRO.join(""),
+						tool_calls: [
+							{
+								id: "call_fake_create_artifact_1",
+								type: "function",
+								function: { name: "create_artifact", arguments: "{}" },
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_fake_create_artifact_1",
+						content: JSON.stringify(
+							lost === "tool-result"
+								? {}
+								: {
+										success: lost !== "failed-tool",
+										artifactId: "synthetic-late-card",
+										artifactType: "document",
+										title: AI_SMOKE_LATE_CARD_TITLE,
+									},
+						),
+					},
+				],
+			}),
+		});
+		expect(response.status).toBe(422);
+		expect(await response.text()).toContain(
+			"Late-card continuation lost required evidence",
+		);
+	} finally {
+		await harness.stop();
+	}
 });

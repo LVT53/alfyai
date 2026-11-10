@@ -2,18 +2,28 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { db } from "../../src/lib/server/db";
 import { messages } from "../../src/lib/server/db/schema";
 import {
-	AI_SMOKE_LATE_CARD_FINAL_TEXT,
+	AI_SMOKE_LATE_CARD_FINAL_ANSWER,
+	AI_SMOKE_LATE_CARD_HELD_MARKER,
+	AI_SMOKE_LATE_CARD_HOLD,
 	AI_SMOKE_LATE_CARD_INTRO,
-	AI_SMOKE_LATE_CARD_MARKER,
+	AI_SMOKE_LATE_CARD_OUTLINE,
+	AI_SMOKE_LATE_CARD_TITLE,
 } from "../fixtures/ai/late-card-scenario";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
+	assistantAnswer,
 	createTemporaryFakeProviderModel,
 	deleteTemporaryProvider,
+	expectTerminalActivityGone,
 	snapshotUserModelPreference,
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
-import { createEmptyConversation, login, sendMessage } from "./helpers";
+import {
+	createEmptyConversation,
+	login,
+	sendMessage,
+	waitForMotionToSettle,
+} from "./helpers";
 
 // F16 (friction audit, ruling 77): an artifact card must not drop in late and
 // push the text the reader is reading down. The scripted model says a few
@@ -34,7 +44,7 @@ async function recordFrames(page: Page) {
 		const tick = () => {
 			let top: number | null = null;
 			for (const paragraph of document.querySelectorAll(
-				'[data-testid="assistant-message"] p',
+				'[data-testid="normal-chat-commentary"] p',
 			)) {
 				if (paragraph.textContent?.startsWith(introStart)) {
 					top = paragraph.getBoundingClientRect().top;
@@ -140,17 +150,52 @@ test.describe("an artifact card that arrives late", () => {
 			await updateUserModelPreference(page, provider.selectedModel);
 			await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
 			// A thread that scrolls opens at its end; let it settle there.
-			await page.waitForTimeout(800);
+			await waitForMotionToSettle(page);
 			await recordFrames(page);
 
-			await sendMessage(page, AI_SMOKE_LATE_CARD_MARKER);
+			await sendMessage(page, AI_SMOKE_LATE_CARD_HELD_MARKER);
 			await expect(page.getByTestId("artifact-card")).toBeVisible({
 				timeout: 30_000,
 			});
-			await expect(page.getByText(AI_SMOKE_LATE_CARD_FINAL_TEXT)).toBeVisible({
-				timeout: 30_000,
+			// The final response is held: observe the live prose while it is actually visible.
+			await expect
+				.poll(
+					() =>
+						fakeProvider
+							.requests()
+							.filter((r) => r.path === "/v1/chat/completions").length,
+				)
+				.toBe(2);
+			const requests = fakeProvider
+				.requests()
+				.filter((r) => r.path === "/v1/chat/completions");
+			const continuation = (
+				requests[1].body as {
+					messages: { role: string; content: string; tool_call_id?: string }[];
+				}
+			).messages;
+			expect(
+				continuation
+					.filter((m) => m.role === "assistant")
+					.map((m) => m.content)
+					.join(""),
+			).toContain(AI_SMOKE_LATE_CARD_INTRO.join(""));
+			const results = continuation.filter((m) => m.role === "tool");
+			expect(results).toHaveLength(1);
+			expect(results[0].tool_call_id).toBe("call_fake_create_artifact_1");
+			expect(JSON.parse(results[0].content)).toMatchObject({
+				success: true,
+				artifactId: expect.any(String),
+				artifactType: "document",
+				title: AI_SMOKE_LATE_CARD_TITLE,
 			});
-			await page.waitForTimeout(800);
+			const liveSentences = page
+				.getByTestId("normal-chat-commentary")
+				.getByText(INTRO_START);
+			await expect(liveSentences).toBeVisible();
+			await expect(page.getByTestId("stop-button")).toBeVisible();
+			await waitForMotionToSettle(page);
+			await expectBelow(page.getByTestId("artifact-card"), liveSentences);
 
 			const frames = (await readFrames(page)).filter(
 				(frame) => frame.top !== null,
@@ -160,9 +205,8 @@ test.describe("an artifact card that arrives late", () => {
 			);
 			expect(arrival, "the card or its row arrived").toBeGreaterThan(0);
 
-			// The sentences stay exactly where the reader was reading them, from
-			// the frame before the card came to the end of the turn (the closing
-			// sentence, the tool row settling, the thinking block folding).
+			// Card arrival must not move visible working prose. Terminal activity fading
+			// is intentional and is checked independently after releasing the final answer.
 			const before = frames[arrival - 1].top as number;
 			const moved = frames
 				.slice(arrival)
@@ -172,14 +216,27 @@ test.describe("an artifact card that arrives late", () => {
 				"how far the sentences moved after the card arrived, in px",
 			).toBeLessThanOrEqual(1);
 
-			// What the turn made comes after what it said.
-			const sentences = page
-				.getByTestId("assistant-message")
-				.getByText(INTRO_START);
+			fakeProvider.release(AI_SMOKE_LATE_CARD_HOLD);
+			await expect(assistantAnswer(page)).toContainText(
+				AI_SMOKE_LATE_CARD_FINAL_ANSWER,
+			);
+			await expectTerminalActivityGone(page);
+			// Useful partial answers survive synthesis and reload; working narration fades.
+			const sentences = assistantAnswer(page).getByText(
+				AI_SMOKE_LATE_CARD_OUTLINE,
+				{ exact: true },
+			);
+			await expect(sentences).toBeVisible();
+			expect(
+				fakeProvider
+					.requests()
+					.filter((r) => r.path === "/v1/chat/completions"),
+			).toHaveLength(2);
 			const card = page.getByTestId("artifact-card");
 			await expectBelow(card, sentences);
 			return { page, sentences, card };
 		} finally {
+			fakeProvider.release(AI_SMOKE_LATE_CARD_HOLD);
 			await updateUserModelPreference(page, previousModelPreference);
 			if (providerId) await deleteTemporaryProvider(page, providerId);
 		}
@@ -194,6 +251,11 @@ test.describe("an artifact card that arrives late", () => {
 		});
 		await page.reload({ waitUntil: "networkidle" });
 		await expect(card).toBeVisible();
+		await expect(sentences).toBeVisible();
+		await expect(assistantAnswer(page)).toContainText(
+			AI_SMOKE_LATE_CARD_FINAL_ANSWER,
+		);
+		await expectTerminalActivityGone(page);
 		await expectBelow(card, sentences);
 	});
 

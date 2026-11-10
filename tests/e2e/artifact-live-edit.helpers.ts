@@ -81,7 +81,7 @@ export async function createTemporaryFakeProviderModel(
 							{
 								name: modelName,
 								displayName: "Fake Edit Artifact Provider Model",
-								contextLength: 8192,
+								contextLength: 131_072,
 								supportsChat: true,
 								supportsTools: true,
 							},
@@ -100,6 +100,30 @@ export async function createTemporaryFakeProviderModel(
 					status: modelResponse.status,
 					error: modelBody.error ?? "Provider model creation failed",
 					providerId: providerBody.provider.id,
+				};
+			}
+			// Batch import advertises context; explicit output caps use the model PUT schema.
+			const configured = await fetch(
+				`/api/admin/providers/${providerBody.provider.id}/models/${modelId}`,
+				{
+					method: "PUT",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ maxModelContext: 131_072, maxTokens: 4_096 }),
+				},
+			);
+			const configuredBody = await configured.json();
+			if (
+				!configured.ok ||
+				configuredBody.model?.maxModelContext !== 131_072 ||
+				configuredBody.model?.maxTokens !== 4_096
+			) {
+				await fetch(`/api/admin/providers/${providerBody.provider.id}`, {
+					method: "DELETE",
+				});
+				return {
+					ok: false as const,
+					status: configured.status,
+					error: "Fake model capacity configuration failed",
 				};
 			}
 			return {
@@ -136,4 +160,13 @@ export async function deleteTemporaryProvider(
 	await page.evaluate(async (id) => {
 		await fetch(`/api/admin/providers/${id}`, { method: "DELETE" });
 	}, providerId);
+}
+
+/** Canonical answer only: live/inspectable activity is a separate surface. */
+export const assistantAnswer = (page: Page) =>
+	page.getByTestId("assistant-message").locator(".prose-container");
+
+export async function expectTerminalActivityGone(page: Page) {
+	await expect(page.getByTestId("stop-button")).toHaveCount(0);
+	await expect(page.getByTestId("normal-chat-commentary")).toHaveCount(0);
 }

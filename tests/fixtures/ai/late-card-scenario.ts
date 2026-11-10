@@ -10,12 +10,18 @@
 export const AI_SMOKE_LATE_CARD_MARKER =
 	"Fake model step: say a few words, then make the document late.";
 
+/** Opt-in hold for measuring visible activity before intentional terminal fade. */
+export const AI_SMOKE_LATE_CARD_HOLD = "late-card-final";
+export const AI_SMOKE_LATE_CARD_HELD_MARKER = `${AI_SMOKE_LATE_CARD_MARKER} Hold final synthesis.`;
+export const AI_SMOKE_LATE_CARD_OUTLINE =
+	"Addig is itt a vázlat: szombaton a belváros, vasárnap pedig a múzeumok.";
+
 /** What the model says before it starts writing the document, piece by piece. */
 export const AI_SMOKE_LATE_CARD_INTRO = [
 	"Rendben, összeállítom a hétvégi tervet. ",
 	"Először átgondolom, mi fér bele egy napba, ",
 	"aztán a végén írok hozzá egy rövid csomagolási listát is. ",
-	"Addig is itt a vázlat: szombaton a belváros, vasárnap pedig a múzeumok.",
+	AI_SMOKE_LATE_CARD_OUTLINE,
 ];
 
 /** Between two pieces of the intro. */
@@ -41,6 +47,7 @@ export const AI_SMOKE_LATE_CARD_MARKDOWN = [
 
 export const AI_SMOKE_LATE_CARD_FINAL_TEXT =
 	"Elkészült a dokumentum, nézd át nyugodtan.";
+export const AI_SMOKE_LATE_CARD_FINAL_ANSWER = `${AI_SMOKE_LATE_CARD_OUTLINE}\n\n${AI_SMOKE_LATE_CARD_FINAL_TEXT}`;
 
 /** The model's pause before it answers once the tool returned. */
 export const AI_SMOKE_LATE_CARD_FINAL_DELAY_MS = 800;

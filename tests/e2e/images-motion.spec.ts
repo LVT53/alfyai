@@ -24,8 +24,10 @@ import {
 } from "../fixtures/ai/late-picture-scenario";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
+	assistantAnswer,
 	createTemporaryFakeProviderModel,
 	deleteTemporaryProvider,
+	expectTerminalActivityGone,
 	snapshotUserModelPreference,
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
@@ -98,7 +100,8 @@ const PHONE = { width: 390, height: 844 };
 const CARD =
 	'[data-testid="message-deliverables"] [data-testid="artifact-card"]';
 const STAGE = '[data-testid="image-card-stage"]';
-const PROSE = '[data-testid="assistant-message"] .prose-container';
+// Arrival geometry follows visible working activity; final answer has its own boundary.
+const PROSE = '[data-testid="normal-chat-commentary"]';
 const BODY_STATE = (state: string) =>
 	`[data-testid="image-card-body"][data-state="${state}"]`;
 
@@ -642,8 +645,11 @@ async function runArrival(flow: Flow, options: { loops?: number } = {}) {
 	await expect(page.locator(TRACK.loaded)).toBeVisible({ timeout: 30_000 });
 	mark(flow, "loaded");
 	await expect(
-		page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT, { exact: false }),
+		assistantAnswer(page).getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT, {
+			exact: false,
+		}),
 	).toBeVisible({ timeout: 30_000 });
+	await expectTerminalActivityGone(page);
 	mark(flow, "final-text");
 	const run = await stopRecording(page);
 	return {
@@ -694,8 +700,7 @@ function measureArrival(run: MotionRun) {
 	const grew = frames.findIndex(
 		(frame, index) =>
 			index > arrival &&
-			frame.tracked.prose != null &&
-			frame.tracked.prose.h > proseHeight + 1,
+			(frame.tracked.prose == null || frame.tracked.prose.h > proseHeight + 1),
 	);
 	const end = grew < 0 ? frames.length : grew;
 	const cardFrames = frames.slice(arrival, end);
@@ -709,7 +714,7 @@ function measureArrival(run: MotionRun) {
 	const startOffset = offset(frames[arrival - 1]) ?? 0;
 	const proseMoved = Math.max(
 		0,
-		...frames.slice(arrival).map((frame) => {
+		...frames.slice(arrival, end).map((frame) => {
 			const now = offset(frame);
 			return now === null ? 0 : Math.abs(now - startOffset);
 		}),
@@ -968,8 +973,9 @@ test.describe("the picture card moves like the Document's", () => {
 			await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
 			await expect(page.locator(TRACK.loaded)).toBeVisible({ timeout: 45_000 });
 			await expect(
-				page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+				assistantAnswer(page).getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
 			).toBeVisible({ timeout: 30_000 });
+			await expectTerminalActivityGone(page);
 
 			comfy.setOptions({ steps: 12, stepDelayMs: 400 });
 			await startRecording(page, {
@@ -1074,8 +1080,9 @@ test.describe("the picture card moves like the Document's", () => {
 			const conversationId = await newChat(flow);
 			await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
 			await expect(
-				page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+				assistantAnswer(page).getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
 			).toBeVisible({ timeout: 45_000 });
+			await expectTerminalActivityGone(page);
 			await expect
 				.poll(
 					async () => (await readCards(page, conversationId))[0]?.artifactId,
@@ -1090,8 +1097,9 @@ test.describe("the picture card moves like the Document's", () => {
 				`${AI_SMOKE_CHANGE_PICTURE_MARKER} ${made.artifactId}`,
 			);
 			await expect(
-				page.getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT),
+				assistantAnswer(page).getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT),
 			).toBeVisible({ timeout: 45_000 });
+			await expectTerminalActivityGone(page);
 			const changed = page.locator(CARD).last();
 			const before = changed.getByTestId("image-card-before");
 			await expect(before).toBeVisible({ timeout: 20_000 });
@@ -1208,8 +1216,9 @@ test.describe("the picture card moves like the Document's", () => {
 			const conversationId = await newChat(flow);
 			await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
 			await expect(
-				page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+				assistantAnswer(page).getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
 			).toBeVisible({ timeout: 45_000 });
+			await expectTerminalActivityGone(page);
 			await expect
 				.poll(
 					async () => (await readCards(page, conversationId))[0]?.artifactId,
@@ -1391,9 +1400,12 @@ test.describe("the picture card moves like the Document's", () => {
 				await sendMessage(page, AI_SMOKE_LATE_CARD_MARKER);
 				await expect(page.locator(CARD)).toBeVisible({ timeout: 30_000 });
 				mark(flow, "card");
-				await expect(page.getByText("Elkészült a dokumentum")).toBeVisible({
+				await expect(
+					assistantAnswer(page).getByText("Elkészült a dokumentum"),
+				).toBeVisible({
 					timeout: 30_000,
 				});
+				await expectTerminalActivityGone(page);
 				mark(flow, "final-text");
 				const run = await stopRecording(page);
 				const frames = run.frames;
@@ -1406,9 +1418,9 @@ test.describe("the picture card moves like the Document's", () => {
 				const grew = frames.findIndex(
 					(frame, index) =>
 						index > arrival &&
-						frame.tracked.prose != null &&
-						frame.tracked.prose.h >
-							(frames[arrival - 1]?.tracked.prose?.h ?? 0) + 1,
+						(frame.tracked.prose == null ||
+							frame.tracked.prose.h >
+								(frames[arrival - 1]?.tracked.prose?.h ?? 0) + 1),
 				);
 				metrics = {
 					arrivalMs: frames[arrival]?.t ?? null,
@@ -1419,10 +1431,12 @@ test.describe("the picture card moves like the Document's", () => {
 					),
 					proseMovedPx: Math.max(
 						0,
-						...frames.slice(arrival).map((frame) => {
-							const now = offsetOf(frame);
-							return now === null ? 0 : Math.abs(now - proseTop);
-						}),
+						...frames
+							.slice(arrival, grew < 0 ? frames.length : grew)
+							.map((frame) => {
+								const now = offsetOf(frame);
+								return now === null ? 0 : Math.abs(now - proseTop);
+							}),
 					),
 					cardHeightFirstFrame: frames[arrival]?.tracked.card?.h ?? null,
 					cardHeightSettled: boxes(frames, "card").at(-1)?.h ?? null,
@@ -1605,9 +1619,12 @@ async function makePicture(flow: Flow) {
 	await expect(page.locator(TRACK.loaded).last()).toBeVisible({
 		timeout: 45_000,
 	});
-	await expect(page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT)).toBeVisible({
+	await expect(
+		assistantAnswer(page).getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+	).toBeVisible({
 		timeout: 30_000,
 	});
+	await expectTerminalActivityGone(page);
 	await expect
 		.poll(async () => (await readCards(page, conversationId))[0]?.artifactId, {
 			timeout: 20_000,
@@ -1620,14 +1637,14 @@ async function makePicture(flow: Flow) {
 /** Asks Alfy to change the picture, and waits for the change's card to show its picture. */
 async function changePicture(flow: Flow, artifactId: string) {
 	const { page } = flow;
-	const before = await page
+	const before = await assistantAnswer(page)
 		.getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT)
 		.count();
 	await sendMessage(page, `${AI_SMOKE_CHANGE_PICTURE_MARKER} ${artifactId}`);
-	await expect(page.getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT)).toHaveCount(
-		before + 1,
-		{ timeout: 45_000 },
-	);
+	await expect(
+		assistantAnswer(page).getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT),
+	).toHaveCount(before + 1, { timeout: 45_000 });
+	await expectTerminalActivityGone(page);
 }
 
 /** Makes a Document through the chat's late card, the side-by-side's other kind. */
@@ -1636,8 +1653,11 @@ async function makeDocument(flow: Flow) {
 	await sendMessage(flow.page, AI_SMOKE_LATE_CARD_MARKER);
 	await expect(flow.page.locator(CARD)).toBeVisible({ timeout: 30_000 });
 	await expect(
-		flow.page.getByText(AI_SMOKE_LATE_CARD_FINAL_TEXT, { exact: false }),
+		assistantAnswer(flow.page).getByText(AI_SMOKE_LATE_CARD_FINAL_TEXT, {
+			exact: false,
+		}),
 	).toBeVisible({ timeout: 30_000 });
+	await expectTerminalActivityGone(flow.page);
 }
 
 /**
@@ -4108,8 +4128,9 @@ test.describe("pictures in the composer: a card's picture, numbered, sent (T5)",
 				const conversationId = await newChat(flow);
 				await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
 				await expect(
-					page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+					assistantAnswer(page).getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
 				).toBeVisible({ timeout: 45_000 });
+				await expectTerminalActivityGone(page);
 				await expect(page.locator(TRACK.loaded)).toBeVisible({
 					timeout: 30_000,
 				});
@@ -4188,8 +4209,9 @@ test.describe("pictures in the composer: a card's picture, numbered, sent (T5)",
 				).toContainText(AI_SMOKE_CHANGE_PICTURE_MARKER);
 				await expect(page.locator(CHIP)).toHaveCount(0);
 				await expect(
-					page.getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT),
+					assistantAnswer(page).getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT),
 				).toBeVisible({ timeout: 45_000 });
+				await expectTerminalActivityGone(page);
 				await settle(page);
 				sendRun = await stopRecording(page);
 				sentBubbles = await page.evaluate(
@@ -5450,8 +5472,9 @@ test.describe("marks sent with a message, and left from an older picture (T6)", 
 			sentBody = (await request).postDataJSON() as Record<string, unknown>;
 			await expect(page.locator(MARKS_CHIP)).toHaveCount(0);
 			await expect(
-				page.getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT),
+				assistantAnswer(page).getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT),
 			).toBeVisible({ timeout: 45_000 });
+			await expectTerminalActivityGone(page);
 			metrics.sentBody = {
 				imageMarks: sentBody.imageMarks,
 				pictureRefs: sentBody.pictureRefs,

@@ -6,8 +6,10 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
+	AI_SMOKE_LATE_CARD_FINAL_ANSWER,
 	AI_SMOKE_LATE_CARD_FINAL_DELAY_MS,
-	AI_SMOKE_LATE_CARD_FINAL_TEXT,
+	AI_SMOKE_LATE_CARD_HELD_MARKER,
+	AI_SMOKE_LATE_CARD_HOLD,
 	AI_SMOKE_LATE_CARD_INTRO,
 	AI_SMOKE_LATE_CARD_MARKDOWN,
 	AI_SMOKE_LATE_CARD_MARKER,
@@ -1239,7 +1241,7 @@ const LATE_CARD_SCRIPT: LateTurnScript = {
 			body: AI_SMOKE_LATE_CARD_MARKDOWN,
 		},
 	},
-	finalText: AI_SMOKE_LATE_CARD_FINAL_TEXT,
+	finalText: AI_SMOKE_LATE_CARD_FINAL_ANSWER,
 };
 
 /**
@@ -1917,8 +1919,57 @@ export function createOpenAICompatibleProviderHarness(
 					return buildTextStreamResponse();
 				}
 				if (bodyAsksForLateCard(body)) {
+					const final = hasToolResultFor(body, CREATE_ARTIFACT_CALL_ID);
+					if (final) {
+						const messages = Array.isArray(body.messages) ? body.messages : [];
+						const root = messages.findLastIndex(
+							(m) => isJsonObject(m) && m.role === "user",
+						);
+						const continuation = messages.slice(root + 1);
+						const fullOutline = continuation.some(
+							(m) =>
+								isJsonObject(m) &&
+								m.role === "assistant" &&
+								typeof m.content === "string" &&
+								m.content.includes(AI_SMOKE_LATE_CARD_INTRO.join("")),
+						);
+						const evidence = continuation.find(
+							(m) =>
+								isJsonObject(m) &&
+								m.role === "tool" &&
+								m.tool_call_id === CREATE_ARTIFACT_CALL_ID,
+						);
+						let created = false;
+						if (
+							isJsonObject(evidence) &&
+							typeof evidence.content === "string"
+						) {
+							try {
+								const result = JSON.parse(evidence.content);
+								created =
+									result.success === true &&
+									typeof result.artifactId === "string" &&
+									result.artifactId.length > 0 &&
+									result.title === AI_SMOKE_LATE_CARD_TITLE &&
+									result.artifactType === "document";
+							} catch {
+								/* malformed tool output is not evidence */
+							}
+						}
+						if (!fullOutline || !created)
+							return jsonResponse(
+								{
+									error: {
+										message: "Late-card continuation lost required evidence",
+									},
+								},
+								422,
+							);
+						if (currentTurnText(body)?.includes(AI_SMOKE_LATE_CARD_HELD_MARKER))
+							await waitForRelease(AI_SMOKE_LATE_CARD_HOLD, request.signal);
+					}
 					return lateCardStreamResponse(
-						hasToolResultMessage(body) ? "final" : "call",
+						final ? "final" : "call",
 						request.signal ?? new AbortController().signal,
 					);
 				}

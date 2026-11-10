@@ -9,6 +9,10 @@ import {
 import { AI_SMOKE_STREAM_TEXT } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
+	assistantAnswer,
+	expectTerminalActivityGone,
+} from "./artifact-live-edit.helpers";
+import {
 	clearAdminConfig,
 	createEmptyConversation,
 	login,
@@ -56,9 +60,12 @@ async function openChat(page: Page): Promise<string> {
 async function makePicture(page: Page) {
 	await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
 	await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
-	await expect(page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT)).toBeVisible({
+	await expect(
+		assistantAnswer(page).getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+	).toBeVisible({
 		timeout: 30_000,
 	});
+	await expectTerminalActivityGone(page);
 }
 
 /** The reply to a plain question is whole: its words are there and nothing is being generated any more. */

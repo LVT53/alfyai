@@ -8,8 +8,10 @@ import {
 	itemTurnMessage,
 } from "../fixtures/ai/chat-turn-scenarios";
 import {
+	assistantAnswer,
 	createTemporaryFakeProviderModel,
 	deleteTemporaryProvider,
+	expectTerminalActivityGone,
 	snapshotUserModelPreference,
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
@@ -44,9 +46,12 @@ export async function runItemTurn(
 	const conversationId = await createEmptyConversation(page);
 	await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
 	await sendMessage(page, itemTurnMessage(mode));
-	await expect(page.getByText(AI_SMOKE_ITEM_TURN_FINAL_TEXT)).toBeVisible({
+	await expect(
+		assistantAnswer(page).getByText(AI_SMOKE_ITEM_TURN_FINAL_TEXT),
+	).toBeVisible({
 		timeout: 60_000,
 	});
+	await expectTerminalActivityGone(page);
 	await expect(page.getByTestId("stop-button")).toHaveCount(0, {
 		timeout: 30_000,
 	});
