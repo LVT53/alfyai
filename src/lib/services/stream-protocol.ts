@@ -588,7 +588,7 @@ const DANGLING_THINKING_DELIMITER_RE =
 // A character a person can see: not whitespace, and not one of the zero-width
 // characters (U+200B zero-width space, U+200C and U+200D joiners, U+2060 word
 // joiner, U+FEFF byte order mark). `trim()` keeps all of them but U+FEFF.
-const VISIBLE_CHARACTER_RE = /[^\s​‌‍⁠﻿]/u;
+const VISIBLE_CHARACTER_RE = /[^\s\u200B-\u200D\u2060\uFEFF]/u;
 
 /**
  * Whether a text holds a character the person can see, which is what makes it an
