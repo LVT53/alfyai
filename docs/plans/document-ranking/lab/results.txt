@@ -1,0 +1,32 @@
+
+FINAL, 4B embedder (production now)  (hit@1 / MRR, x100; embedder s4)
+variant                                               A          P          K          B          C          D          E          H          W       mean  cross-lang   lexical
+0  today (decay zeroes semantic + rerank)      82/ 87   100/100   100/100    17/ 27    12/ 19    40/ 48    48/ 57    52/ 62    58/ 66       63.0        23.2     100.0
+1  shipped                                     99/ 99   100/100   100/100    95/ 98    99/ 99    96/ 98    99/ 99   100/100   100/100       99.2        98.4     100.0
+2  shipped, reranker down                      95/ 97   100/100   100/100    94/ 97    98/ 99    93/ 96    98/ 98    99/100   100/100       98.4        97.7     100.0
+ref  embedder alone                            95/ 97    52/ 61    40/ 51    94/ 97    98/ 99    93/ 96    97/ 98    99/100   100/100       88.6        97.7      55.7
+ref  retrieve by cosine, rerank the top 8      97/ 98    73/ 75    67/ 68    96/ 98    98/ 99    98/ 99    97/ 98   100/100   100/100       92.6        98.3      71.4
+
+FINAL, old 0.6B embedder  (hit@1 / MRR, x100; embedder s06)
+variant                                               A          P          K          B          C          D          E          H          W       mean  cross-lang   lexical
+0  today (decay zeroes semantic + rerank)      82/ 87   100/100   100/100    15/ 26    12/ 19    40/ 48    48/ 57    52/ 62    58/ 66       62.8        22.4     100.0
+1  shipped                                     99/ 99   100/100   100/100    84/ 88    92/ 94    96/ 97    99/ 99    99/ 99   100/100       97.3        91.2     100.0
+2  shipped, reranker down                      96/ 97   100/100   100/100    76/ 83    90/ 93    87/ 91    98/ 98    94/ 96   100/100       95.4        87.9     100.0
+ref  embedder alone                            92/ 94    38/ 48    32/ 41    76/ 83    90/ 93    87/ 91    98/ 98    91/ 94   100/100       82.6        87.9      44.9
+ref  retrieve by cosine, rerank the top 8      97/ 98    63/ 65    60/ 62    91/ 93    96/ 97    97/ 98    97/ 98    99/ 99   100/100       89.9        95.1      63.3
+
+even-numbered queries only, 4B  (hit@1 / MRR, x100; embedder s4)
+variant                                               A          P          K          B          C          D          E          H          W       mean  cross-lang   lexical
+0  today (decay zeroes semantic + rerank)      82/ 87   100/100   100/100    22/ 32    14/ 21    44/ 53    46/ 55    48/ 59    56/ 65       63.6        26.8     100.0
+1  shipped                                    100/100   100/100   100/100    94/ 97   100/100    96/ 97   100/100   100/100   100/100       99.4        98.5     100.0
+2  shipped, reranker down                      96/ 98   100/100   100/100    94/ 97    98/ 99    96/ 97    98/ 98    98/ 99   100/100       98.7        98.0     100.0
+
+odd-numbered queries only, 4B  (hit@1 / MRR, x100; embedder s4)
+variant                                               A          P          K          B          C          D          E          H          W       mean  cross-lang   lexical
+0  today (decay zeroes semantic + rerank)      82/ 87   100/100   100/100    12/ 22    10/ 17    36/ 43    50/ 60    56/ 65    60/ 68       62.5        19.6     100.0
+1  shipped                                     98/ 98   100/100   100/100    96/ 98    98/ 98    96/ 98    98/ 98   100/100   100/100       99.0        98.2     100.0
+2  shipped, reranker down                      94/ 96   100/100   100/100    94/ 96    98/ 98    90/ 95    98/ 98   100/100   100/100       98.2        97.4     100.0
+
+Gain of the shipped order over today's, MRR x100, mean of the nine sets (paired bootstrap over queries, 95% interval):
+  s4: +36.1  [+34.0 .. +38.3]
+  s06: +34.5  [+32.3 .. +36.7]
