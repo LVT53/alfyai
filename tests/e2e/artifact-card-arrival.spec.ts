@@ -224,6 +224,7 @@ test.describe("an artifact card that arrives late", () => {
 					.getByText(AI_SMOKE_LATE_CARD_OUTLINE, { exact: true }),
 			});
 			await expect(outlinedReply).toHaveCount(1);
+			await expectTerminalActivityGone(page);
 			const messageId = await outlinedReply.getAttribute("data-message-id");
 			expect(messageId).toBeTruthy();
 			const reply = page.locator(
@@ -232,7 +233,6 @@ test.describe("an artifact card that arrives late", () => {
 			await expect(reply).toHaveCount(1);
 			const answer = reply.locator(".prose-container");
 			await expect(answer).toHaveText(AI_SMOKE_LATE_CARD_FINAL_ANSWER);
-			await expectTerminalActivityGone(page);
 			// Useful partial answers survive synthesis and reload; working narration fades.
 			const sentences = answer.getByText(AI_SMOKE_LATE_CARD_OUTLINE, {
 				exact: true,
