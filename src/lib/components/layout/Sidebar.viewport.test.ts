@@ -19,6 +19,11 @@ vi.mock("$app/stores", () => ({
 	page: readable({ url: new URL("http://localhost/") }),
 }));
 
+// The "?" that opens the feature guide reads the page's path.
+vi.mock("$app/state", () => ({
+	page: { url: new URL("http://localhost/") },
+}));
+
 vi.mock("$lib/client/api/workspace-search", () => ({
 	fetchWorkspaceSearch: vi.fn().mockResolvedValue({
 		mode: "default",

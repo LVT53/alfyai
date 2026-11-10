@@ -1,7 +1,9 @@
 <script lang="ts">
 import { onDestroy, onMount } from "svelte";
 import { browser } from "$app/environment";
+import { page } from "$app/state";
 import { spotlightTarget } from "$lib/actions/spotlight";
+import { appPlacePath } from "$lib/app-places";
 import { logout } from "$lib/client/api/auth";
 import { clearClientAccountState } from "$lib/client/session-boundary";
 import { t } from "$lib/i18n";
@@ -48,6 +50,7 @@ import {
 	FilePen,
 	Search,
 	BookOpen,
+	CircleQuestionMark,
 	LogOut,
 } from "@lucide/svelte";
 import type { SessionUser } from "$lib/server/services/auth-types";
@@ -262,6 +265,16 @@ function navigateAndClose(path: string) {
 	goto(path);
 }
 
+// The feature guide's "?" (beside the version badge, and in the collapsed
+// rail). `page` is read through a rune, so the sidebar, which stays mounted from
+// one page to the next, follows the person to the guide and away from it.
+const guidePath = appPlacePath("guide");
+const onGuidePage = $derived(page.url.pathname === guidePath);
+
+function openGuide() {
+	navigateAndClose(guidePath);
+}
+
 function requestLogout() {
 	showLogoutConfirm = true;
 }
@@ -355,6 +368,19 @@ onMount(() => {
 						onClick={onAppVersionClick}
 					/>
 				{/if}
+				<!-- The feature guide. Outside the version's `{#if}`: the version
+				     arrives after hydration and the "?" must not wait for it. The
+				     badge answers "what's new", this answers "what can it do". -->
+				<button
+					type="button"
+					class="guide-link relative flex h-[17px] w-[17px] shrink-0 cursor-pointer items-center justify-center rounded-full text-icon-muted transition-colors duration-150 hover:text-icon-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+					onclick={openGuide}
+					title={$t('guide.title')}
+					aria-label={$t('guide.title')}
+					aria-current={onGuidePage ? 'page' : undefined}
+				>
+					<CircleQuestionMark size={15} strokeWidth={2.1} aria-hidden="true" />
+				</button>
 			</div>
 		{:else}
 			<!-- Collapsed rail: the centered mark is also the expand affordance. -->
@@ -438,6 +464,18 @@ onMount(() => {
 					<BookOpen size={19} strokeWidth={2.1} aria-hidden="true" />
 				{/if}
 			</button>
+				<!-- The feature guide: the rail shows only the logo, so the "?" beside
+				     the version badge is not drawn here. -->
+				<button
+					type="button"
+					class="guide-rail-link compose-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-icon-muted transition-colors duration-150 hover:text-icon-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+					onclick={openGuide}
+					title={$t('guide.title')}
+					aria-label={$t('guide.title')}
+					aria-current={onGuidePage ? 'page' : undefined}
+				>
+					<CircleQuestionMark size={19} strokeWidth={2.1} aria-hidden="true" />
+				</button>
 		</div>
 	{:else}
 		<!-- Expanded: search pill + compose icon in a single row -->
@@ -722,6 +760,43 @@ onMount(() => {
 	.profile-btn:hover {
 		background: color-mix(in srgb, var(--border-default) 18%, transparent 82%);
 		border-color: var(--border-default);
+	}
+
+	/* The feature guide's "?" beside the version badge (design 3.1): a quiet
+	   circle as tall as the badge (11px text, 2px padding and a 1px border either
+	   side: 17px), so it sits in the header's row without growing it. It is not
+	   `.btn-icon-bare` or `.compose-btn`: app.css stretches those to 44px under
+	   768px. */
+	.guide-link {
+		border: 1px solid transparent;
+	}
+
+	.guide-link:hover {
+		background: color-mix(in srgb, var(--border-default) 18%, transparent 82%);
+		border-color: var(--border-default);
+	}
+
+	/* On the guide the "?" shows as active, here and in the collapsed rail: the
+	   accent glyph on a tint of it, which reads as "you are here" and not as an
+	   action, as the rail's accent New chat does. */
+	.guide-link[aria-current='page'],
+	.guide-rail-link[aria-current='page'] {
+		color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
+	}
+
+	/* A finger needs 44px, and the header is 64px tall, so the touch area is a
+	   pseudo-element, not a taller button. It is 44px square: 13.5px past the
+	   circle above and below, 19px past it on the far side and only the 8px gap
+	   towards the badge, so that it never covers the badge. `inset` is measured
+	   from the padding box, which is the circle less its 1px border, hence the
+	   1px more on each side. */
+	@media (max-width: 767px) {
+		.guide-link::after {
+			content: '';
+			position: absolute;
+			inset: -14.5px -20px -14.5px -9px;
+		}
 	}
 
 	@media (max-width: 1023px) {

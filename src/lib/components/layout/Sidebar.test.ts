@@ -2,11 +2,14 @@ import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { get, readable } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { goto } from "$app/navigation";
+import { page } from "$app/state";
 import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
 import {
 	conversations,
 	markConversationAtlasBadgeSeen,
 } from "$lib/stores/conversations";
+import { uiLanguage } from "$lib/stores/settings";
 import {
 	pendingSpotlight,
 	requestSpotlight,
@@ -45,6 +48,14 @@ vi.mock("$app/stores", () => ({
 	navigating: readable(null),
 	page: readable({ url: new URL("http://localhost/") }),
 }));
+
+// `page` of `$app/state` is a reactive object, read through runes only. A
+// `SvelteURL` is reactive in the same way, so a test can move it to another path
+// after the sidebar is drawn and see whether the sidebar follows.
+vi.mock("$app/state", async () => {
+	const { SvelteURL } = await import("svelte/reactivity");
+	return { page: { url: new SvelteURL("http://localhost/") } };
+});
 
 vi.mock("$lib/client/api/workspace-search", () => ({
 	fetchWorkspaceSearch: vi.fn().mockResolvedValue({
@@ -592,5 +603,221 @@ describe("Sidebar — the viewport", () => {
 		await tick();
 
 		expect(initViewportTrackingMock).toHaveBeenCalledTimes(2);
+	});
+});
+
+// The Feature Guide's ways in (design 3.1): a "?" beside the version badge in
+// the expanded header, a fourth button in the collapsed rail (the rail shows
+// only the logo, so the badge and the "?" are gone there), and, on a phone, a
+// row in the header's user menu (`Header.test.ts`).
+describe("Sidebar — the ? that opens the feature guide", () => {
+	const guideButton = () =>
+		screen.getByRole("button", { name: "What AlfyAI can do" });
+	const appVersion = { compact: "v2.0.1", full: "2.0.1 (abc1234)" };
+
+	beforeEach(() => {
+		vi.mocked(goto).mockClear();
+		page.url.pathname = "/";
+		mockViewportStore.tier = "desktop";
+		sidebarOpen.set(false);
+		sidebarCollapsed.set(false);
+		uiLanguage.set("en");
+	});
+
+	afterEach(() => {
+		page.url.pathname = "/";
+		mockViewportStore.tier = "desktop";
+		sidebarOpen.set(false);
+		sidebarCollapsed.set(false);
+		uiLanguage.set("en");
+	});
+
+	describe("beside the version badge", () => {
+		// The version arrives after hydration; the "?" must not wait for it.
+		it("puts a ? beside the version badge that opens the guide, before the version has loaded", async () => {
+			render(Sidebar, { open: true, appVersion: null });
+
+			await fireEvent.click(guideButton());
+
+			expect(goto).toHaveBeenCalledWith("/guide");
+		});
+
+		it("sits right after the badge once the version has arrived", () => {
+			render(Sidebar, { open: true, appVersion });
+
+			const badge = screen.getByRole("button", { name: "App version v2.0.1" });
+			expect(badge.nextElementSibling).toBe(guideButton());
+			expect(guideButton().closest(".sidebar-header")).not.toBeNull();
+		});
+
+		it("leaves each button its own job: the badge replays the release card, the ? opens the guide", async () => {
+			const onAppVersionClick = vi.fn();
+			render(Sidebar, { open: true, appVersion, onAppVersionClick });
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "App version v2.0.1" }),
+			);
+			expect(onAppVersionClick).toHaveBeenCalledTimes(1);
+			expect(goto).not.toHaveBeenCalled();
+
+			await fireEvent.click(guideButton());
+			expect(goto).toHaveBeenCalledWith("/guide");
+			expect(onAppVersionClick).toHaveBeenCalledTimes(1);
+		});
+
+		it("is named and titled with the guide's title, in the reader's language", () => {
+			const { unmount } = render(Sidebar, { open: true });
+			expect(guideButton()).toHaveAttribute("title", "What AlfyAI can do");
+			unmount();
+
+			uiLanguage.set("hu");
+			render(Sidebar, { open: true });
+			const hungarian = screen.getByRole("button", {
+				name: "Amit az AlfyAI tud",
+			});
+			expect(hungarian).toHaveAttribute("title", "Amit az AlfyAI tud");
+		});
+
+		it("is drawn once, in the header", () => {
+			render(Sidebar, { open: true, appVersion });
+
+			expect(
+				screen.getAllByRole("button", { name: "What AlfyAI can do" }),
+			).toHaveLength(1);
+		});
+
+		// `app.css` forces `.btn-icon-bare` and `.compose-btn` to 44 px under 768 px,
+		// which would turn a badge-high circle into a 44 px box and grow the header.
+		// Its touch area is a pseudo-element instead.
+		it("is not one of the classes that app.css stretches to 44 px on a phone", () => {
+			render(Sidebar, { open: true, appVersion });
+
+			expect(guideButton()).not.toHaveClass("btn-icon-bare");
+			expect(guideButton()).not.toHaveClass("compose-btn");
+		});
+
+		it("closes the phone drawer when it opens the guide", async () => {
+			mockViewportStore.tier = "phone";
+			sidebarOpen.set(true);
+			render(Sidebar, { open: true });
+
+			await fireEvent.click(guideButton());
+
+			expect(goto).toHaveBeenCalledWith("/guide");
+			expect(get(sidebarOpen)).toBe(false);
+		});
+
+		it("leaves a desktop sidebar as it is when it opens the guide", async () => {
+			sidebarOpen.set(true);
+			render(Sidebar, { open: true });
+
+			await fireEvent.click(guideButton());
+
+			expect(goto).toHaveBeenCalledWith("/guide");
+			expect(get(sidebarOpen)).toBe(true);
+		});
+	});
+
+	describe("the current page", () => {
+		it("marks the ? as the current page on the guide", () => {
+			page.url.pathname = "/guide";
+			render(Sidebar, { open: true });
+
+			expect(guideButton()).toHaveAttribute("aria-current", "page");
+		});
+
+		it.each([
+			"/",
+			"/knowledge",
+			"/settings",
+			"/chat/abc",
+			"/guidelines",
+			"/guide/extra",
+		])("does not mark it on %s", (pathname) => {
+			page.url.pathname = pathname;
+			render(Sidebar, { open: true });
+
+			expect(guideButton()).not.toHaveAttribute("aria-current");
+		});
+
+		// `page` is read through runes, so the sidebar, which stays mounted from
+		// one page to the next, has to follow it.
+		it("follows the page as the person moves to the guide and away from it", async () => {
+			render(Sidebar, { open: true });
+			expect(guideButton()).not.toHaveAttribute("aria-current");
+
+			page.url.pathname = "/guide";
+			await tick();
+			expect(guideButton()).toHaveAttribute("aria-current", "page");
+
+			page.url.pathname = "/knowledge";
+			await tick();
+			expect(guideButton()).not.toHaveAttribute("aria-current");
+		});
+	});
+
+	describe("in the collapsed rail", () => {
+		const knowledgeButton = () =>
+			screen.getByRole("button", { name: "Open knowledge base" });
+
+		beforeEach(() => {
+			sidebarCollapsed.set(true);
+		});
+
+		it("puts a ? in the collapsed rail", async () => {
+			render(Sidebar, { open: true, appVersion });
+
+			await fireEvent.click(guideButton());
+
+			expect(goto).toHaveBeenCalledWith("/guide");
+		});
+
+		it("is the rail's fourth button, after Knowledge", () => {
+			render(Sidebar, { open: true });
+
+			const rail = guideButton().parentElement;
+			expect(rail).toHaveClass("collapsed-rail");
+			expect(
+				within(rail as HTMLElement)
+					.getAllByRole("button")
+					.map((button) => button.getAttribute("aria-label")),
+			).toEqual([
+				"New chat",
+				"Search conversations and documents",
+				"Open knowledge base",
+				"What AlfyAI can do",
+			]);
+			expect(knowledgeButton().nextElementSibling).toBe(guideButton());
+		});
+
+		it("is named and titled with the guide's title, and is the only one", () => {
+			render(Sidebar, { open: true, appVersion });
+
+			expect(guideButton()).toHaveAttribute("title", "What AlfyAI can do");
+			expect(
+				screen.getAllByRole("button", { name: "What AlfyAI can do" }),
+			).toHaveLength(1);
+			// The badge is gone with the rest of the expanded header.
+			expect(
+				screen.queryByRole("button", { name: "App version v2.0.1" }),
+			).toBeNull();
+		});
+
+		it("is styled like the rail's other buttons", () => {
+			render(Sidebar, { open: true });
+
+			for (const className of ["compose-btn", "h-9", "w-9", "rounded-lg"]) {
+				expect(guideButton()).toHaveClass(className);
+				expect(knowledgeButton()).toHaveClass(className);
+			}
+		});
+
+		it("marks the current page on the guide, as the ? beside the badge does", () => {
+			page.url.pathname = "/guide";
+			render(Sidebar, { open: true });
+
+			expect(guideButton()).toHaveAttribute("aria-current", "page");
+			expect(knowledgeButton()).not.toHaveAttribute("aria-current");
+		});
 	});
 });

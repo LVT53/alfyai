@@ -8,7 +8,9 @@ import {
 import { tick } from "svelte";
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { goto } from "$app/navigation";
 import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
+import { uiLanguage } from "$lib/stores/settings";
 import {
 	pendingSpotlight,
 	requestSpotlight,
@@ -65,6 +67,93 @@ describe("Header — mobile menu Search entry (Task 6 / A3)", () => {
 		expect(
 			screen.queryByRole("button", { name: "Search" }),
 		).not.toBeInTheDocument();
+	});
+});
+
+// The Feature Guide's way in on a phone (design 3.1): a row in the user menu,
+// beside the rows the menu already has. The sidebar's ways in (the "?" beside
+// the version badge, the rail's button) are in `Sidebar.test.ts`.
+describe("Header — the feature guide in the phone menu", () => {
+	beforeEach(() => {
+		vi.mocked(goto).mockClear();
+		searchModalOpenRequested.set(false);
+		uiLanguage.set("en");
+	});
+
+	afterEach(() => {
+		uiLanguage.set("en");
+	});
+
+	async function openMobileMenu() {
+		render(Header, {});
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Open user menu" }),
+		);
+	}
+
+	const menuRows = () =>
+		within(document.querySelector(".header-menu") as HTMLElement)
+			.getAllByRole("button")
+			.map((row) => row.textContent?.trim());
+
+	it("lists the guide in the phone menu and closes the menu when it opens it", async () => {
+		await openMobileMenu();
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "What AlfyAI can do" }),
+		);
+
+		expect(goto).toHaveBeenCalledWith("/guide");
+		expect(document.querySelector(".header-menu")).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "What AlfyAI can do" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("puts the guide after Knowledge base, as the menu's sixth row", async () => {
+		await openMobileMenu();
+
+		expect(menuRows()).toEqual([
+			"New chat",
+			"Search",
+			"Knowledge base",
+			"What AlfyAI can do",
+			"Profile & Settings",
+			"Logout",
+		]);
+	});
+
+	it("opens nothing else on the way: no sign-out question, no search", async () => {
+		await openMobileMenu();
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "What AlfyAI can do" }),
+		);
+
+		expect(goto).toHaveBeenCalledTimes(1);
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(get(searchModalOpenRequested)).toBe(false);
+	});
+
+	// jsdom cannot measure text, so this pins the number: at the 188px the menu
+	// had, "What AlfyAI can do" (122px of text) did not fit its row's 117px and
+	// wrapped with "do" on a line of its own; at 200 the row has 129px.
+	it("draws the menu 200px wide, so that the guide's label stays on one line", async () => {
+		await openMobileMenu();
+
+		expect(
+			(document.querySelector(".header-menu") as HTMLElement).style.width,
+		).toBe("200px");
+	});
+
+	it("names the row in the reader's language", async () => {
+		// The menu is opened by its English name, then the language changes.
+		await openMobileMenu();
+		uiLanguage.set("hu");
+		await tick();
+
+		expect(menuRows()).toContain("Amit az AlfyAI tud");
+		expect(menuRows()).not.toContain("What AlfyAI can do");
 	});
 });
 
