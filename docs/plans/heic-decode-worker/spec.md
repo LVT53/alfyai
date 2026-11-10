@@ -262,7 +262,9 @@ Slice B, the document path:
   pixels and the limit only.
 - An undecodable photo through the real extractor now costs one capability read: MinerU is asked what it can do (the answer
   is cached for `capabilitiesTtlMs`), and then no task is created. The old test claimed "MinerU is never asked"; that is
-  the other side of D7, and the test says what is true now.
+  the other side of D7, and the test says what is true now. It also means that while MinerU cannot be reached, a photo that
+  libheif refuses or that is over the cap waits out the outage like every other file and fails when MinerU answers, where it
+  used to fail at once.
 - B1 to B3 and B6 to B8 run through the real engine, the real MinerU extractor and the fake server
   (`mineru/heic.integration.test.ts`, which records the threads the pool starts with a subclass of `Worker`), and B3, B8 and
   the order of B2 have counterparts at the extractor (`mineru4.test.ts`). B4 and B5 are in `extraction-runner.test.ts`. B5's
