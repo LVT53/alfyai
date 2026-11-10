@@ -225,10 +225,13 @@ describe("HomeSurface in project mode: the files half of the quiet line", () => 
 });
 
 // The Feature Guide's "Try it" stores an example (`storeHomeComposerSeed`) and
-// opens Home. The example goes into the box, unsent, but only into a box with
-// nothing in it: a draft the person already had is theirs and is never replaced.
-// That draft is the landing page's saved one, which Home reads back from the
-// server as it opens, so the tests that save one answer that read.
+// opens Home. The example goes into the box, unsent, and never over the person's
+// words: a saved draft with words is kept (a toast says the example was left
+// out), one with no words but something else (files, linked sources, Atlas mode)
+// takes the example as its words and keeps the rest, and with no draft the
+// example is the draft. That draft is the landing page's saved one, which Home
+// reads back from the server as it opens, so the tests that save one answer that
+// read.
 describe("HomeSurface and an example Try it left for Home", () => {
 	const example =
 		"How do I get from Keleti station to the airport by public transport?";

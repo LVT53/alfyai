@@ -300,9 +300,9 @@ function cancelLogout() {
 }
 
 onMount(() => {
-	// isDesktop is derived from viewportStore, which follows resize/orientation/
-	// pointer changes once `initViewportTracking()` has run (Slice 0). Until then
-	// it keeps the server's default, "desktop", and only the composer and the
+	// isDesktop is derived from viewportStore, which follows resize and
+	// orientation changes once `initViewportTracking()` has run (Slice 0). Until
+	// then it keeps the server's default, "desktop", and only the composer and the
 	// model selector used to start it: on a page without a composer that was
 	// loaded directly (a reload of Settings, the Knowledge Base or the guide) a
 	// phone's sidebar took itself for a desktop one, the header's button toggled

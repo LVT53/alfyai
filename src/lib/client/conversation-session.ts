@@ -340,8 +340,9 @@ export function consumeProjectComposerFocus(projectId: string): boolean {
 
 /**
  * A Feature Guide example, carried across one navigation. "Try it" stores the
- * words and opens Home; Home consumes them and puts them in its empty message
- * box, unsent (`HomeSurface`). Like the focus mark above it lives in the
+ * words and opens Home; Home consumes them and puts them in its message box,
+ * unsent, unless the person's own words are there already (`HomeSurface`,
+ * `putWaitingExampleInBox`). Like the focus mark above it lives in the
  * session rather than in the address, so the example is never in the URL or the
  * history, and it is *consumed*, not read: a reload of Home must not add it a
  * second time. A second example before Home has taken the first replaces it,

@@ -50,6 +50,8 @@ ui/
 |-----------|-------|-------------|
 | `Sidebar.svelte` | `ui` | `sidebarOpen`, `sidebarCollapsed`, `currentConversationId`, `searchModalOpenRequested` (drains Header's Ctrl+K/mobile-menu open requests — see Task 6) |
 | `Sidebar.svelte` | `avatar` | `avatarState` |
+| `Sidebar.svelte` | `spotlight` | `spotlightRequest`, `pendingSpotlight`: a subscription made at init (not an `$effect`) that opens the drawer below desktop, or expands a collapsed rail for Projects, when the guide's Show me asks for Search or Projects; the search pill and the Projects header carry the markers (`src/lib/components/guide/AGENTS.md`, "Show me") |
+| `Sidebar.svelte` | `viewport` (`utils/viewport.svelte.ts`) | `viewportStore.tier` (drawer or desktop sidebar); `initViewportTracking()` on mount, since a page without a composer would never start it |
 | `AvatarCircle.svelte` | props | `src` prop passed from parent; no store dependency |
 | `Header.svelte` | `ui` | `sidebarOpen`, `sidebarCollapsed`, `currentConversationId`, `requestSearchModalOpen()` (mobile menu Search row) |
 | `ConversationList.svelte` | `conversations` | `conversations`, CRUD actions |

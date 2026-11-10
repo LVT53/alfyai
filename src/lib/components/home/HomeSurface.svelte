@@ -1181,7 +1181,9 @@ async function restorePreparedConversation(conversationId: string) {
  *   stays. The composer takes a saved draft that arrives after it opened only
  *   when the draft has words, so one with none is not on screen yet, and a
  *   toast about a message in the box would be about nothing the person can see.
- *   With the example as its words the composer shows all of it.
+ *   With the example as its words the composer takes the draft and draws what
+ *   Home hands it: the files, Atlas mode, and linked sources while the command
+ *   registry is on. Home hands it no skill, so a saved skill is not drawn.
  * - Nothing: no draft, and the example goes in as if there were none.
  */
 async function putWaitingExampleInBox(

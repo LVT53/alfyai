@@ -6,10 +6,11 @@
  * width its container gives it, with the proportions it was designed in. The
  * frame is a container (`container-type: inline-size`) whose height comes from
  * `aspect-ratio`, and it hands its parts one design pixel, `--u`: a part sizes
- * itself as `calc(var(--u) * 12)` and never in `px`, `rem` or `%` of the
- * frame. The container's own width is known at the first paint, so nothing is
- * measured and nothing jumps after hydration; where the frame's inside is 330
- * px wide, `--u` is 1px.
+ * itself as `calc(var(--u) * 12)`, never in `rem` and in `px` only for a 1px
+ * border; a column may be a `%` of the frame (a drawing's two panes are). The
+ * container's own width is known at the first paint, so nothing is measured and
+ * nothing jumps after hydration; where the frame's inside is 330 px wide, `--u`
+ * is 1px.
  *
  * It is decorative (`aria-hidden`): everything a drawing shows is also said in
  * the words around it, and nothing inside it may take focus.
