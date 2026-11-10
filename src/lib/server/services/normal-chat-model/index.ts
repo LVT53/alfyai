@@ -27,10 +27,14 @@ import {
 import { readModelImageInput } from "$lib/model-image-input";
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
-import type { RuntimeConfig } from "$lib/server/config-store";
+import {
+	getMaxModelContext,
+	type RuntimeConfig,
+} from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
 import { repairMalformedToolCallJson } from "$lib/server/utils/tool-json-repair";
 import { ASK_USER_TOOL_NAME, isAskPauseOutput } from "$lib/shared/ask-user";
+import type { NormalChatCompletion } from "$lib/shared/normal-chat-completion";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import type { ProviderUsageSnapshot } from "../analytics";
 import { DEFAULT_MODEL_MAX_RETRIES } from "../normal-chat-model-config";
@@ -51,7 +55,14 @@ import {
 	type StepImageQueue,
 } from "../vision/step-images";
 import { stripImageParts } from "../vision/turn-images";
+import {
+	type NormalChatCompletionDependencies,
+	type NormalChatCompletionPolicy,
+	type NormalChatContinuationSnapshot,
+	runNormalChatCompletion,
+} from "./completion";
 import { buildContextGuardPrepareStep } from "./context-guard";
+import { cloneNormalChatContextValue } from "./continuation-codec";
 import {
 	isRetryableNormalChatFallbackError,
 	resolveNormalChatFallbackTargetModelId,
@@ -60,6 +71,17 @@ import { createOpenAICompatibleProviderForNormalChatModelRun } from "./openai-co
 import { resolveOpenAICompatibleProviderAdapterProfile } from "./provider-compatibility";
 import { resolveModelCallSampling } from "./sampling";
 
+export type {
+	NormalChatAttemptPolicy,
+	NormalChatCompletionPolicy,
+	NormalChatContinuationSnapshot,
+	NormalChatContinuationStep,
+	NormalChatExecution,
+} from "./completion";
+export {
+	parseNormalChatContinuation,
+	serializeNormalChatContinuation,
+} from "./continuation-codec";
 export {
 	createOpenAICompatibleProviderForNormalChatModelRun,
 	type NormalChatOpenAICompatibleProviderConfig,
@@ -279,6 +301,8 @@ type NormalChatModelRunRuntimeConfig = {
 };
 
 export type NormalChatModelRunBaseParams = {
+	/** Normal Chat only. Omit to preserve generic model-run behavior. */
+	completionPolicy?: NormalChatCompletionPolicy;
 	provider: NormalChatModelRunProvider;
 	modelId?: ModelId;
 	runtimeConfig?: RuntimeConfig;
@@ -347,6 +371,8 @@ export type StreamingNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 };
 
 export type PlainNormalChatModelRunResult = {
+	completion?: NormalChatCompletion;
+	continuation?: NormalChatContinuationSnapshot;
 	text: string;
 	finishReason: FinishReason;
 	usage: NormalChatModelRunUsage;
@@ -360,7 +386,54 @@ export type PlainNormalChatModelRunResult = {
 	};
 };
 
+export type PreparedNormalChatCompletionRun = {
+	runPlain(): Promise<PlainNormalChatModelRunResult>;
+	stream(): AsyncIterable<StreamingNormalChatModelRunEvent>;
+	getSnapshot(): NormalChatContinuationSnapshot | null;
+};
+
+/** A single-use prepared run owns either transport. Reusing it can never restart tools. */
+export function prepareNormalChatCompletionRun(
+	params: StreamingNormalChatModelRunParams & {
+		completionPolicy: NormalChatCompletionPolicy;
+	},
+): PreparedNormalChatCompletionRun {
+	let mode: "plain" | "stream" | null = null;
+	let plain: Promise<PlainNormalChatModelRunResult> | undefined;
+	let snapshot = params.completionPolicy.continuation
+		? cloneNormalChatContextValue(params.completionPolicy.continuation)
+		: null;
+	const owned = {
+		...params,
+		completionPolicy: {
+			...params.completionPolicy,
+			onSnapshot: (next: NormalChatContinuationSnapshot) => {
+				snapshot = next;
+				params.completionPolicy.onSnapshot?.(next);
+			},
+		},
+	};
+	return {
+		runPlain() {
+			if (mode === "stream")
+				throw new Error("Prepared model run already uses streaming transport");
+			if (plain) return plain;
+			mode = "plain";
+			plain = runPlainNormalChatModelRun(owned);
+			return plain;
+		},
+		stream() {
+			if (mode) throw new Error("Prepared model run was already consumed");
+			mode = "stream";
+			return runStreamingNormalChatModelRun(owned);
+		},
+		getSnapshot: () =>
+			snapshot ? cloneNormalChatContextValue(snapshot) : null,
+	};
+}
+
 export type NormalChatModelRunUsage = {
+	reasoningTokens?: number;
 	inputTokens: number | undefined;
 	outputTokens: number | undefined;
 	totalTokens: number | undefined;
@@ -1255,6 +1328,16 @@ function messagesForAttempt(
 export async function runPlainNormalChatModelRun(
 	params: PlainNormalChatModelRunParams,
 ): Promise<PlainNormalChatModelRunResult> {
+	if (params.completionPolicy) {
+		const run = createCompletionRun(
+			{ ...params, completionPolicy: params.completionPolicy },
+			false,
+		);
+		for (;;) {
+			const next = await run.next();
+			if (next.done) return next.value;
+		}
+	}
 	let currentProvider = params.provider;
 	const originalModelId =
 		params.modelId ?? params.provider.modelId ?? params.provider.id;
@@ -1492,6 +1575,11 @@ async function runPlainNormalChatModelRunAttempt(
 export function runStreamingNormalChatModelRun(
 	params: StreamingNormalChatModelRunParams,
 ): AsyncIterable<StreamingNormalChatModelRunEvent> {
+	if (params.completionPolicy)
+		return createCompletionRun(
+			{ ...params, completionPolicy: params.completionPolicy },
+			true,
+		);
 	assertNormalChatModelRunCapabilities({
 		provider: params.provider,
 		streaming: true,
@@ -1499,6 +1587,107 @@ export function runStreamingNormalChatModelRun(
 	});
 
 	return streamStreamingNormalChatModelRunWithFailover(params);
+}
+
+function createCompletionRun(
+	params: (
+		| PlainNormalChatModelRunParams
+		| StreamingNormalChatModelRunParams
+	) & { completionPolicy: NormalChatCompletionPolicy },
+	streaming: boolean,
+) {
+	if (!params.completionPolicy.forAttempt)
+		assertNormalChatModelRunCapabilities({
+			provider: params.provider,
+			streaming,
+			tools: params.tools,
+		});
+	return runNormalChatCompletion(
+		params,
+		completionDependencies(params, streaming),
+		streaming,
+	);
+}
+
+function completionDependencies(
+	params: (
+		| PlainNormalChatModelRunParams
+		| StreamingNormalChatModelRunParams
+	) & { completionPolicy: NormalChatCompletionPolicy },
+	streaming: boolean,
+	fallbackAttempts = 0,
+	originalModelId = params.modelId ??
+		params.provider.modelId ??
+		params.provider.id,
+): NormalChatCompletionDependencies {
+	const provider = createNormalChatOpenAICompatibleProvider({
+		provider: params.provider,
+		fetch: params.fetch,
+	});
+	return {
+		model: provider(params.provider.modelName),
+		maxModelContext:
+			params.provider.maxModelContext ??
+			(params.modelId === "model1"
+				? params.runtimeConfig?.model1MaxModelContext
+				: params.modelId === "model2"
+					? params.runtimeConfig?.model2MaxModelContext
+					: params.runtimeConfig?.maxModelContext) ??
+			getMaxModelContext(params.modelId),
+		providerOptions: resolveProviderOptionsForAttempt(params, params.provider),
+		stopWhen:
+			params.stopWhen ??
+			buildToolStopWhen(params.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS),
+		metadata: (responseModel) =>
+			modelMetadata(
+				params.provider,
+				responseModel,
+				params.modelId ?? params.provider.modelId ?? params.provider.id,
+			),
+		mapUsage,
+		validateTools: (tools) =>
+			assertNormalChatModelRunCapabilities({
+				provider: params.provider,
+				streaming,
+				tools,
+			}),
+		firstOutputTimeoutMs: () =>
+			resolveFirstOutputTimeoutMs(
+				params,
+				params.modelId ?? params.provider.modelId ?? params.provider.id,
+				fallbackAttempts < 2,
+				originalModelId,
+				fallbackAttempts > 0,
+			),
+		fallback: async (error) => {
+			const target = await resolveNormalChatFallbackProvider({
+				error,
+				currentProvider: params.provider,
+				currentModelId:
+					params.modelId ?? params.provider.modelId ?? params.provider.id,
+				originalModelId,
+				skipPerModelFallback: fallbackAttempts > 0,
+				allowFallbackAttempt: fallbackAttempts < 2,
+				runtimeConfig: params.runtimeConfig,
+			});
+			if (!target) return null;
+			const next = {
+				...params,
+				provider: target.provider,
+				modelId: target.modelId as ModelId,
+			};
+			return {
+				provider: next.provider,
+				modelId: next.modelId,
+				dependencies: completionDependencies(
+					next,
+					streaming,
+					fallbackAttempts + 1,
+					originalModelId,
+				),
+			};
+		},
+	};
 }
 
 function hasEmittedRetryBoundaryEvent(

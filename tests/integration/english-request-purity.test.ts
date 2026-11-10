@@ -671,6 +671,8 @@ const MODEL_CALLERS: Record<string, string> = {
 		"exempt: one English question about a question's language; the question is the person's own text, held by layer 4",
 	"lib/server/services/normal-chat-model/index.ts":
 		"the transport: no prompt text of its own",
+	"lib/server/services/normal-chat-model/completion.ts":
+		"driver: chat (opt-in completion/closing; its English-only scaffold is held by layer 4)",
 	"lib/server/services/normal-chat-control-model.ts":
 		"the control transport: no prompt text of its own",
 	"lib/server/services/memory-control-model.ts":
