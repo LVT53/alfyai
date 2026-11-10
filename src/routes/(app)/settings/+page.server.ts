@@ -42,6 +42,7 @@ export const load: ServerLoad = async (event) => {
 			theme: (userRow.theme ?? "system") as "system" | "light" | "dark",
 			titleLanguage: (userRow.titleLanguage ?? "auto") as "auto" | "en" | "hu",
 			uiLanguage: (userRow.uiLanguage ?? "en") as "en" | "hu",
+			timeZone: userRow.timeZone ?? null,
 			preferredPersonalityId: userRow.preferredPersonalityId ?? null,
 			sidebarProjectsExpanded: userRow.sidebarProjectsExpanded ?? true,
 			sidebarChatsExpanded: userRow.sidebarChatsExpanded ?? true,

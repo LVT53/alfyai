@@ -111,4 +111,59 @@ describe("settings preferences route", () => {
 		expect(response.status).toBe(400);
 		expect(invalidateHomeSummary).not.toHaveBeenCalled();
 	});
+
+	// The person's IANA zone ("Europe/Budapest"): the browser saves the one it
+	// detects, and the Settings row saves the one the person picks. It is the
+	// clock the model is told, so a name the runtime cannot read must never be
+	// stored (the prompt would fall back to "unknown" for that person for good).
+	describe("timeZone", () => {
+		it.each([
+			"Europe/Budapest",
+			"UTC",
+			// A browser can still report the old name of a renamed zone.
+			"Asia/Calcutta",
+			"America/Argentina/Buenos_Aires",
+		])("stores the zone %s", async (zone) => {
+			const response = await PATCH(makeEvent({ timeZone: zone }));
+
+			expect(response.status).toBe(200);
+			expect(updateSet).toHaveBeenLastCalledWith(
+				expect.objectContaining({ timeZone: zone }),
+			);
+		});
+
+		it.each([
+			["a name the runtime does not know", "Mars/Olympus"],
+			["a UTC offset, which is not a zone name", "+01:00"],
+			["an empty string", ""],
+			["a name with a trailing newline", "Europe/Budapest\n"],
+			["text that is not a name", "UTC; DROP TABLE users"],
+			["a number", 3600],
+			["null: the zone is replaced, never cleared", null],
+			["an object", { zone: "Europe/Budapest" }],
+		])("refuses %s and stores nothing", async (_label, value) => {
+			const response = await PATCH(makeEvent({ timeZone: value }));
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: "Invalid timeZone" });
+			expect(updateSet).not.toHaveBeenCalled();
+		});
+
+		it("does not touch the stored zone when the body does not mention it", async () => {
+			const response = await PATCH(makeEvent({ theme: "dark" }));
+
+			expect(response.status).toBe(200);
+			const written = updateSet.mock.calls.at(-1)?.[0] as Record<
+				string,
+				unknown
+			>;
+			expect(written).not.toHaveProperty("timeZone");
+		});
+
+		it("does not drop the cached home summary: its figures are not written in a zone it reads", async () => {
+			await PATCH(makeEvent({ timeZone: "Europe/Budapest" }));
+
+			expect(invalidateHomeSummary).not.toHaveBeenCalled();
+		});
+	});
 });

@@ -22,6 +22,8 @@ export interface UserPreferences {
 	theme: Theme;
 	titleLanguage: "auto" | "en" | "hu";
 	uiLanguage: UiLanguage;
+	/** IANA name ("Europe/Budapest"); null until a browser has saved one. */
+	timeZone: string | null;
 	preferredPersonalityId: string | null;
 	sidebarProjectsExpanded: boolean;
 	sidebarChatsExpanded: boolean;

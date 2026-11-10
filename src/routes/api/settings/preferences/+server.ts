@@ -14,6 +14,7 @@ import {
 	modelPreferenceStorageForSystemDefault,
 } from "$lib/server/services/model-preferences";
 import { validateInstructionInput } from "$lib/shared/instructions";
+import { isValidTimeZone } from "$lib/shared/time-zone";
 import type { RequestHandler } from "./$types";
 
 const VALID_THEMES = ["system", "light", "dark"];
@@ -29,6 +30,7 @@ export const PATCH: RequestHandler = async (event) => {
 		theme?: unknown;
 		titleLanguage?: unknown;
 		uiLanguage?: unknown;
+		timeZone?: unknown;
 		preferredPersonalityId?: unknown;
 		sidebarProjectsExpanded?: unknown;
 		sidebarChatsExpanded?: unknown;
@@ -85,6 +87,17 @@ export const PATCH: RequestHandler = async (event) => {
 			return json({ error: "Invalid uiLanguage" }, { status: 400 });
 		}
 		updates.uiLanguage = body.uiLanguage;
+	}
+
+	// An IANA name this runtime can read, or nothing is stored: the model is
+	// told this zone as the person's clock, and an unreadable one would leave
+	// it saying "unknown" for good. There is no null: a zone is replaced, never
+	// cleared, and the browser saves its own again whenever none is stored.
+	if (body.timeZone !== undefined) {
+		if (!isValidTimeZone(body.timeZone)) {
+			return json({ error: "Invalid timeZone" }, { status: 400 });
+		}
+		updates.timeZone = body.timeZone;
 	}
 
 	if (body.preferredPersonalityId !== undefined) {
