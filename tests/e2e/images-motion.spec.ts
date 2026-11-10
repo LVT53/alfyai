@@ -56,6 +56,7 @@ import {
 	startFakeComfyUiForSpec,
 	stopFakeComfyUiForSpec,
 } from "./images-helpers";
+import { measureLiveActivity } from "./live-activity-motion";
 import {
 	installMotionRecorder,
 	type MotionFrame,
@@ -374,6 +375,8 @@ const TRACK = {
 	card: CARD,
 	stage: STAGE,
 	prose: PROSE,
+	answer: '[data-testid="assistant-message"] .prose-container p',
+	stop: '[data-testid="stop-button"]',
 	waiting: BODY_STATE("waiting"),
 	making: BODY_STATE("making"),
 	ready: BODY_STATE("ready"),
@@ -694,35 +697,14 @@ function measureArrival(run: MotionRun) {
 	const frames = run.frames;
 	const arrival = firstSeen(frames, "card");
 	expect(arrival, "the card arrived").toBeGreaterThan(0);
-	const before = frames[arrival - 1].tracked.prose;
-	const proseHeight = before?.h ?? 0;
-	// The closing sentence is the first thing that grows the prose after the card.
-	const grew = frames.findIndex(
-		(frame, index) =>
-			index > arrival &&
-			(frame.tracked.prose == null || frame.tracked.prose.h > proseHeight + 1),
+	const { end, proseMovedPx: proseMoved } = measureLiveActivity(
+		frames,
+		arrival,
 	);
-	const end = grew < 0 ? frames.length : grew;
 	const cardFrames = frames.slice(arrival, end);
-	// Where the prose sits in the thread: against the reader's own message above
-	// it, which scrolls with it. A phone's thread follows the bottom while a reply
-	// streams, so a position on screen would count that scroll as a move.
-	const offset = (frame: MotionFrame) =>
-		frame.tracked.prose && frame.tracked.user
-			? frame.tracked.prose.y - frame.tracked.user.y
-			: null;
-	const startOffset = offset(frames[arrival - 1]) ?? 0;
-	const proseMoved = Math.max(
-		0,
-		...frames.slice(arrival, end).map((frame) => {
-			const now = offset(frame);
-			return now === null ? 0 : Math.abs(now - startOffset);
-		}),
-	);
 	const arrivalT = frames[arrival].t;
-	// A layout-shift entry is stamped a little before the frame that shows it: the
-	// closing sentence's shift belongs to the frame the prose grew in, so the card's
-	// window ends at the last frame before it.
+	// Only independently observed canonical prose or terminal Stop removal ends
+	// the live window. Rewrapping/growth and every preceding jump still count.
 	const endT =
 		end < frames.length ? frames[end - 1].t : Number.POSITIVE_INFINITY;
 	const moments = ["waiting", "making", "ready", "loaded"]
@@ -1394,6 +1376,8 @@ test.describe("the picture card moves like the Document's", () => {
 				await startRecording(page, {
 					card: CARD,
 					prose: PROSE,
+					answer: '[data-testid="assistant-message"] .prose-container p',
+					stop: '[data-testid="stop-button"]',
 					user: '[data-testid="user-message"]',
 				});
 				mark(flow, "send");
@@ -1410,34 +1394,15 @@ test.describe("the picture card moves like the Document's", () => {
 				const run = await stopRecording(page);
 				const frames = run.frames;
 				const arrival = firstSeen(frames, "card");
-				const offsetOf = (frame: MotionFrame | undefined) =>
-					frame?.tracked.prose && frame.tracked.user
-						? frame.tracked.prose.y - frame.tracked.user.y
-						: null;
-				const proseTop = offsetOf(frames[arrival - 1]) ?? 0;
-				const grew = frames.findIndex(
-					(frame, index) =>
-						index > arrival &&
-						(frame.tracked.prose == null ||
-							frame.tracked.prose.h >
-								(frames[arrival - 1]?.tracked.prose?.h ?? 0) + 1),
-				);
+				expect(
+					arrival,
+					"the Document card arrived after live prose",
+				).toBeGreaterThan(0);
+				const { end, proseMovedPx } = measureLiveActivity(frames, arrival);
 				metrics = {
 					arrivalMs: frames[arrival]?.t ?? null,
-					arrivalScroll: arrivalScroll(
-						frames,
-						arrival - 1,
-						grew < 0 ? frames.length : grew,
-					),
-					proseMovedPx: Math.max(
-						0,
-						...frames
-							.slice(arrival, grew < 0 ? frames.length : grew)
-							.map((frame) => {
-								const now = offsetOf(frame);
-								return now === null ? 0 : Math.abs(now - proseTop);
-							}),
-					),
+					arrivalScroll: arrivalScroll(frames, arrival - 1, end),
+					proseMovedPx,
 					cardHeightFirstFrame: frames[arrival]?.tracked.card?.h ?? null,
 					cardHeightSettled: boxes(frames, "card").at(-1)?.h ?? null,
 					clsAll: run.shifts.reduce((sum, entry) => sum + entry.value, 0),
