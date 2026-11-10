@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { describeLocalMoment, isValidTimeZone } from "./time-zone";
+import {
+	describeLocalMoment,
+	detectBrowserTimeZone,
+	isValidTimeZone,
+	shouldSaveDetectedTimeZone,
+	timeZoneChoices,
+} from "./time-zone";
 
 const at = (iso: string) => new Date(iso);
 
@@ -209,5 +215,153 @@ describe("isValidTimeZone", () => {
 		["an object", { zone: "Europe/Budapest" }],
 	])("rejects %s", (_label, value) => {
 		expect(isValidTimeZone(value)).toBe(false);
+	});
+});
+
+describe("detectBrowserTimeZone", () => {
+	it("is the zone this runtime reports for itself, when that is a name the app accepts", () => {
+		const reported = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+		const detected = detectBrowserTimeZone();
+
+		expect(detected).toBe(isValidTimeZone(reported) ? reported : null);
+		// Whatever it answers, it is a name the route will store.
+		if (detected !== null) expect(isValidTimeZone(detected)).toBe(true);
+	});
+});
+
+// When the browser's own zone replaces the one the server holds. The browser
+// saves without a prompt, so the rule must never undo a zone the person chose:
+// it saves when nothing is stored, and when THIS browser has moved since it
+// last looked (the person travelled); an unchanged browser, or one that has
+// never looked here, leaves what is stored alone.
+describe("shouldSaveDetectedTimeZone", () => {
+	const budapest = "Europe/Budapest";
+	const london = "Europe/London";
+	const tokyo = "Asia/Tokyo";
+
+	it("saves the first zone a browser sees, when nothing is stored", () => {
+		expect(
+			shouldSaveDetectedTimeZone({
+				stored: null,
+				detected: budapest,
+				lastDetected: null,
+			}),
+		).toBe(true);
+	});
+
+	it("saves nothing when the browser has no zone to offer", () => {
+		expect(
+			shouldSaveDetectedTimeZone({
+				stored: null,
+				detected: null,
+				lastDetected: null,
+			}),
+		).toBe(false);
+		expect(
+			shouldSaveDetectedTimeZone({
+				stored: budapest,
+				detected: null,
+				lastDetected: london,
+			}),
+		).toBe(false);
+	});
+
+	it("saves nothing when the server already holds the browser's zone: no write on every load", () => {
+		expect(
+			shouldSaveDetectedTimeZone({
+				stored: budapest,
+				detected: budapest,
+				lastDetected: budapest,
+			}),
+		).toBe(false);
+		expect(
+			shouldSaveDetectedTimeZone({
+				stored: budapest,
+				detected: budapest,
+				lastDetected: london,
+			}),
+		).toBe(false);
+	});
+
+	it("follows the browser when it has moved: it looked at Budapest last time and sees London now", () => {
+		expect(
+			shouldSaveDetectedTimeZone({
+				stored: budapest,
+				detected: london,
+				lastDetected: budapest,
+			}),
+		).toBe(true);
+	});
+
+	it("leaves a zone the person chose alone while their browser still sees the zone it saw before", () => {
+		// They live in Budapest, their browser says so, and they picked Tokyo.
+		expect(
+			shouldSaveDetectedTimeZone({
+				stored: tokyo,
+				detected: budapest,
+				lastDetected: budapest,
+			}),
+		).toBe(false);
+	});
+
+	it("leaves the stored zone alone for a browser that has never looked here, whatever it sees", () => {
+		// A second device, or one whose storage was cleared, must not overwrite
+		// what the person set on the first.
+		expect(
+			shouldSaveDetectedTimeZone({
+				stored: tokyo,
+				detected: budapest,
+				lastDetected: null,
+			}),
+		).toBe(false);
+	});
+});
+
+// The few zones the Settings row offers, in a stable order: it never jumps
+// after a choice, and it always holds the zone that is stored and the one the
+// browser sees, whatever they are.
+describe("timeZoneChoices", () => {
+	it("offers a short, sorted list every zone of which this runtime can read", () => {
+		const choices = timeZoneChoices({ stored: null, detected: null });
+
+		expect(choices.length).toBeGreaterThan(5);
+		expect(choices.length).toBeLessThan(25);
+		expect(choices).toEqual([...choices].sort());
+		expect(choices.every((zone) => isValidTimeZone(zone))).toBe(true);
+		expect(choices).toContain("Europe/Budapest");
+		expect(choices).toContain("UTC");
+	});
+
+	it("adds the stored zone and the browser's, once each, when they are not on the list", () => {
+		const choices = timeZoneChoices({
+			stored: "Asia/Kolkata",
+			detected: "Pacific/Auckland",
+		});
+
+		expect(choices.filter((zone) => zone === "Asia/Kolkata")).toHaveLength(1);
+		expect(choices.filter((zone) => zone === "Pacific/Auckland")).toHaveLength(
+			1,
+		);
+		expect(choices).toEqual([...choices].sort());
+	});
+
+	it("does not repeat a zone that is already on the list", () => {
+		const plain = timeZoneChoices({ stored: null, detected: null });
+
+		expect(
+			timeZoneChoices({
+				stored: "Europe/Budapest",
+				detected: "Europe/Budapest",
+			}),
+		).toEqual(plain);
+	});
+
+	it("leaves out a name this runtime cannot read, instead of offering an option that cannot be shown", () => {
+		const plain = timeZoneChoices({ stored: null, detected: null });
+
+		expect(
+			timeZoneChoices({ stored: "Mars/Olympus", detected: "+01:00" }),
+		).toEqual(plain);
 	});
 });

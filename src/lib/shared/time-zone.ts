@@ -94,9 +94,83 @@ export function describeLocalMoment(
 		time: `${hour}:${minute}`,
 		// "GMT+01:00" in the usual case and a bare "GMT" for zero on some ICU
 		// versions; spelt UTC either way.
-		offset:
-			zoneName === "GMT"
-				? "UTC+00:00"
-				: zoneName.replace(/^GMT/, "UTC").replace(/−/g, "-"),
+		offset: zoneName === "GMT" ? "UTC+00:00" : zoneName.replace(/^GMT/, "UTC"),
 	};
+}
+
+/**
+ * The zone this browser reports for itself, or null when it reports none the
+ * app can store. Browser-side: on the server it would be the server's own.
+ */
+export function detectBrowserTimeZone(): string | null {
+	try {
+		const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+		return isValidTimeZone(zone) ? zone : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Whether the browser's zone replaces the one the server holds. The browser
+ * saves without a prompt, so the rule must never undo a zone the person chose
+ * in Settings, and it can only go on what this one browser knows:
+ *
+ * - nothing stored: the first zone any browser sees is saved;
+ * - the same zone is stored: nothing to write (no write on every load);
+ * - something else is stored: the browser's zone replaces it only when THIS
+ *   browser has moved since it last looked (`lastDetected`, which it keeps for
+ *   itself: the person travelled). A browser that still sees what it saw
+ *   before leaves a chosen zone alone, and one that has never looked here (a
+ *   second device, cleared storage) leaves whatever is stored alone.
+ */
+export function shouldSaveDetectedTimeZone(input: {
+	stored: string | null;
+	detected: string | null;
+	lastDetected: string | null;
+}): boolean {
+	const { stored, detected, lastDetected } = input;
+	if (!detected) return false;
+	if (stored === detected) return false;
+	if (!stored) return true;
+	return lastDetected !== null && lastDetected !== detected;
+}
+
+/**
+ * The zones the Settings row offers without a search: where this family's
+ * people live, and a few more. The row adds the zone that is stored and the one
+ * the browser sees (see `timeZoneChoices`), so nobody is ever shown a row that
+ * cannot name their own zone.
+ */
+export const COMMON_TIME_ZONES: readonly string[] = [
+	"America/Chicago",
+	"America/Los_Angeles",
+	"America/New_York",
+	"Asia/Dubai",
+	"Asia/Tokyo",
+	"Australia/Sydney",
+	"Europe/Berlin",
+	"Europe/Bucharest",
+	"Europe/Budapest",
+	"Europe/Dublin",
+	"Europe/London",
+	"Europe/Vienna",
+	"UTC",
+];
+
+/**
+ * The Settings row's options: the common zones plus the stored one and the
+ * browser's when they are not among them, each once, sorted, so the list never
+ * jumps after a choice. A name this runtime cannot read is left out: it could
+ * not be labelled.
+ */
+export function timeZoneChoices(input: {
+	stored: string | null;
+	detected: string | null;
+}): string[] {
+	const zones = new Set(COMMON_TIME_ZONES);
+	for (const zone of [input.stored, input.detected]) {
+		if (isValidTimeZone(zone)) zones.add(zone);
+	}
+	return [...zones].sort();
 }

@@ -248,6 +248,8 @@ export async function updateUserPreferences(params: {
 	theme?: "system" | "light" | "dark";
 	titleLanguage?: "auto" | "en" | "hu";
 	uiLanguage?: "en" | "hu";
+	/** An IANA name ("Europe/Budapest"); the server refuses anything else. */
+	timeZone?: string;
 	preferredPersonalityId?: string | null;
 	sidebarProjectsExpanded?: boolean;
 	sidebarChatsExpanded?: boolean;
