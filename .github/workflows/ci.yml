@@ -13,7 +13,8 @@ concurrency:
 jobs:
   test:
     name: Check, lint and unit tests
-    runs-on: ubuntu-latest
+    # Playwright 1.59.1 supports Ubuntu 24.04; ubuntu-latest now uses 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       CI: true
