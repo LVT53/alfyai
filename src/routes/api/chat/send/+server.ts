@@ -616,6 +616,7 @@ async function runStandardSendTurn({
 		normalizedMessage: turn.normalizedMessage,
 		upstreamMessage,
 		assistantResponse: finalResponseText,
+		serverSegments: modelRunResult.serverSegments,
 		assistantMetadata: {
 			evidenceStatus: "pending",
 			...(turnLanguage

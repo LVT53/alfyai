@@ -386,6 +386,44 @@ describe("POST /api/chat/send", () => {
 		expect(finish).toHaveBeenCalled();
 	});
 
+	it("persists the plain prepared tool timeline with the canonical answer", async () => {
+		seedConversationTurn(mockGetConversation, mockCreateMessage);
+		const call = {
+			callId: "python-391",
+			name: "run_python",
+			input: { code: "print(17 * 23)" },
+			status: "done",
+			outputSummary: "run_python finished: exit code 0.",
+			resultDigest: "stdout: 391",
+			metadata: { ok: true, exitCode: 0 },
+		};
+		const timeline = [{ type: "tool_call", ...call }];
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
+			text: "PRODUCT391",
+			modelId: "model1",
+			modelDisplayName: "Model 1",
+			toolCalls: [call],
+			normalChatToolCalls: [call],
+			serverSegments: timeline,
+		});
+		const response = await POST(
+			makeEvent({
+				message: "Multiply 17 by 23 using Python.",
+				conversationId: "conv-1",
+			}),
+		);
+		expect(response.status).toBe(200);
+		expect((await response.json()).response.text).toBe("PRODUCT391");
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			"PRODUCT391",
+			undefined,
+			timeline,
+			expect.any(Object),
+		);
+	});
+
 	it("returns AI response text for a valid request", async () => {
 		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Hello" },

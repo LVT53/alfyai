@@ -409,6 +409,8 @@ export async function prepareNormalChatTurn(
 					try {
 						const result = await run.runPlain();
 						if (result.continuation) lifetime.capture(result.continuation);
+						const recorded = calls();
+						const timeline = [...prefetched, ...recorded];
 						return {
 							...presentation,
 							text: result.continuation
@@ -428,8 +430,16 @@ export async function prepareNormalChatTurn(
 								result.usage,
 							),
 							prefetchedToolCalls: prefetched,
-							normalChatToolCalls: calls(),
+							normalChatToolCalls: recorded,
 							toolCalls: shared.getToolCalls(),
+							// The plain transport has no live segment accumulator. Persist
+							// recorder facts separately from the success-only evidence view.
+							serverSegments: timeline.length
+								? timeline.map((entry) => ({
+										type: "tool_call" as const,
+										...entry,
+									}))
+								: undefined,
 							modelId: result.model.modelId as ModelId,
 							modelDisplayName: result.model.displayName,
 							resolvedProviderId: result.model.providerId,

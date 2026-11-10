@@ -990,3 +990,135 @@ it("permits typed local-only image projection but refuses unprojectable original
 		}),
 	).toBeNull();
 });
+
+it("keeps actual plain SDK execution records in the persisted tool timeline", async () => {
+	const { MockLanguageModelV3 } = await import("ai/test");
+	const { tool } = await import("ai");
+	const { z } = await import("zod");
+	const { createToolCallRecorder, executeToolWithEnvelope } = await import(
+		"../normal-chat-tools/shared"
+	);
+	const { runNormalChatCompletion } = await import(
+		"../normal-chat-model/completion"
+	);
+	const recorder = createToolCallRecorder();
+	let generations = 0;
+	let executions = 0;
+	const model = new MockLanguageModelV3({
+		doGenerate: async () => {
+			const call = generations++ === 0;
+			return {
+				content: call
+					? [
+							{
+								type: "tool-call" as const,
+								toolCallId: "python-391",
+								toolName: "run_python",
+								input: JSON.stringify({ code: "print(17 * 23)" }),
+							},
+						]
+					: [{ type: "text" as const, text: "PRODUCT391" }],
+				finishReason: {
+					unified: call ? ("tool-calls" as const) : ("stop" as const),
+					raw: call ? "tool_calls" : "stop",
+				},
+				usage: {
+					inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+					outputTokens: { total: 1, text: 1, reasoning: 0 },
+				},
+				warnings: [],
+			};
+		},
+	});
+	mocks.tools.mockResolvedValue({
+		stepImages: { drain: () => [] },
+		getToolCalls: () => recorder.getEntries(),
+		getTurnAsk: () => null,
+		tools: {
+			run_python: tool({
+				inputSchema: z.object({ code: z.string() }),
+				execute: async (input, options) =>
+					executeToolWithEnvelope({
+						toolName: "run_python",
+						options,
+						recorder,
+						timeoutMs: 1000,
+						run: async () => {
+							executions++;
+							return {
+								modelPayload: { success: true, stdout: "391", exitCode: 0 },
+								entry: {
+									name: "run_python",
+									callId: options.toolCallId,
+									input,
+									status: "done",
+									outputSummary: "run_python finished: exit code 0.",
+									metadata: { ok: true, exitCode: 0 },
+								},
+							};
+						},
+						onError: () => ({
+							modelPayload: { success: false },
+							entry: {
+								name: "run_python",
+								callId: options.toolCallId,
+								input,
+								status: "failed",
+								metadata: { ok: false },
+							},
+						}),
+					}),
+			}),
+		},
+	});
+	mocks.model.mockImplementation((params) => ({
+		runPlain: async () => {
+			const driver = runNormalChatCompletion(
+				params,
+				{
+					model,
+					maxModelContext: 32000,
+					providerOptions: undefined,
+					stopWhen: undefined,
+					metadata: () => createPlainNormalChatModelRunResult().model,
+					mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+				},
+				false,
+			);
+			for (;;) {
+				const next = await driver.next();
+				if (next.done) return next.value;
+			}
+		},
+		stream: async function* () {},
+		getSnapshot: () => null,
+	}));
+	const run = await prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams(),
+	);
+	const result = await run.runPlain();
+	expect(executions).toBe(1);
+	expect(result.text).toBe("PRODUCT391");
+	expect(result.normalChatToolCalls).toMatchObject([
+		{
+			name: "run_python",
+			callId: "python-391",
+			status: "done",
+			metadata: { ok: true },
+		},
+	]);
+	expect(result.toolCalls).toEqual(result.normalChatToolCalls);
+	expect(result.serverSegments).toEqual(
+		result.normalChatToolCalls?.map((entry) => ({
+			type: "tool_call",
+			...entry,
+		})),
+	);
+	expect(result.serverSegments?.[0]).toMatchObject({
+		type: "tool_call",
+		name: "run_python",
+		callId: "python-391",
+		status: "done",
+		metadata: { ok: true, exitCode: 0 },
+	});
+});

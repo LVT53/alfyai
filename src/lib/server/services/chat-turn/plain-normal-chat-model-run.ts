@@ -6,7 +6,7 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 } from "../knowledge/context-types";
-import type { ToolCallEntry } from "../messages-types";
+import type { ThinkingSegment, ToolCallEntry } from "../messages-types";
 import type { NormalChatContextPreparationStageTiming } from "../normal-chat-context-preparation";
 import type { TaskState } from "../task-state/types";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
@@ -34,6 +34,7 @@ export type PlainNormalChatSendModelResult = {
 	prefetchedToolCalls?: ToolCallEntry[];
 	normalChatToolCalls?: ToolCallEntry[];
 	toolCalls?: ToolCallEntry[];
+	serverSegments?: ThinkingSegment[];
 	modelId: ModelId;
 	modelDisplayName: string;
 	resolvedProviderId: string;
