@@ -25,6 +25,7 @@ import {
 	type AiSdkUiStreamFrame,
 	consumeAiSdkUiStreamFrames,
 	extractAiSdkUiStreamMetadataData,
+	type NormalChatTurnObservation,
 	readNormalChatOutputEvent,
 	type UiMessageStreamPart,
 } from "./ai-sdk-ui-stream-contract";
@@ -43,6 +44,7 @@ import {
 } from "./stream-timeline";
 
 export interface StreamMetadata {
+	observation?: NormalChatTurnObservation;
 	thinkingTokenCount?: number;
 	responseTokenCount?: number;
 	totalTokenCount?: number;
@@ -140,6 +142,7 @@ export interface StreamTimingSnapshot {
 export type StreamFinishPart = Extract<UiMessageStreamPart, { type: "finish" }>;
 
 export interface StreamCallbacks {
+	onReplayComplete?: () => void;
 	onNormalChatOutput?: (view: NormalChatOutputProjection) => void;
 	onToken: (chunk: string) => void;
 	onThinking: (chunk: string) => void;
@@ -147,7 +150,7 @@ export interface StreamCallbacks {
 	onError: (error: Error) => void;
 	onFinishPart?: (part: StreamFinishPart) => void;
 	onTiming?: (timing: StreamTimingSnapshot) => void;
-	onWaiting?: () => void;
+	onWaiting?: (observation?: NormalChatTurnObservation) => void;
 	onToolCall?: (
 		name: string,
 		input: Record<string, unknown>,
@@ -336,10 +339,54 @@ export function isStreamTransportFailure(error: unknown): boolean {
 const TOOL_CALLS_BLOCK_PATTERN =
 	/<tool_calls>[\r\n]*[\r\n\ta-zA-Z0-9_./:,'"{}\u4e00-\u9fff-]*?<\/tool_calls>/gi;
 
+function readObservation(
+	value: unknown,
+): NormalChatTurnObservation | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const row = value as Record<string, unknown>;
+	if (
+		row.version !== 1 ||
+		typeof row.streamId !== "string" ||
+		typeof row.conversationId !== "string"
+	)
+		return undefined;
+	if (row.state === "unavailable") return value as NormalChatTurnObservation;
+	if (
+		row.state === "pending" &&
+		typeof row.turnId === "string" &&
+		typeof row.segmentId === "string"
+	)
+		return value as NormalChatTurnObservation;
+	const completion = row.completion as Record<string, unknown> | undefined;
+	if (
+		row.state === "terminal" &&
+		(row.assistantMessageId === null ||
+			typeof row.assistantMessageId === "string") &&
+		completion?.version === 1 &&
+		typeof completion.turnId === "string" &&
+		typeof completion.segmentId === "string" &&
+		["working", "closing"].includes(String(completion.phase)) &&
+		[
+			"answered",
+			"delivered",
+			"paused",
+			"stopped",
+			"incomplete",
+			"failed",
+		].includes(String(completion.outcome)) &&
+		typeof completion.stopCause === "string" &&
+		typeof completion.workingStopCause === "string" &&
+		typeof completion.closingAttempted === "boolean"
+	)
+		return value as NormalChatTurnObservation;
+	return undefined;
+}
+
 function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 	const parsed =
 		data && typeof data === "object" ? (data as Record<string, unknown>) : {};
 	const nextMetadata: StreamMetadata = {
+		observation: readObservation(parsed.observation),
 		thinkingTokenCount: parsed.thinkingTokenCount as
 			| StreamMetadata["thinkingTokenCount"]
 			| undefined,
@@ -855,12 +902,13 @@ export function streamChat(
 				callbacks.onThinking(thinkingChunk);
 			},
 		});
+		callbacks.onReplayComplete?.();
 	}
 
 	function emitWaiting() {
 		console.info("[STREAM] Waiting for original stream to complete");
 		flushInlineBufferAtEnd();
-		callbacks.onWaiting?.();
+		callbacks.onWaiting?.(latestMetadata?.observation);
 	}
 
 	(async () => {

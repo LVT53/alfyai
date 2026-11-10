@@ -7,7 +7,10 @@ import {
 	type NormalChatMessageListEvent,
 	type NormalChatRuntimeSnapshot,
 } from "$lib/client/normal-chat-client-turn-runtime";
-import { applyNormalChatOutputView } from "$lib/client/normal-chat-output-view";
+import {
+	applyNormalChatOutputView,
+	normalChatOutputView,
+} from "$lib/client/normal-chat-output-view";
 import type { ServerUpdateKind } from "$lib/client/server-update-watch";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
@@ -3861,6 +3864,347 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect.soft(runtime.snapshot()).toEqual(before);
 		expect(made.messages.find((row) => row.id === "id-2")).toBeDefined();
 		vi.useRealTimers();
+	});
+
+	it.each([
+		"waiting",
+		"failed",
+		"replay",
+	] as const)("keeps structural partial until atomic observer replacement: %s", async (result) => {
+		vi.useFakeTimers();
+		const made = makeAdapters({
+			schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
+			checkForOrphanedStream: vi.fn(async () => "observer"),
+			getStreamBufferInfo: vi.fn(async () => ({
+				exists: true,
+				userMessage: "A",
+			})),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		await runtime.send({
+			message: "A",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		const projection = (text: string) => {
+			const output = createNormalChatOutputAccumulator();
+			const scope = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				attemptId: "a",
+				stepId: "c",
+				phase: "closing",
+			} as const;
+			output.apply({
+				...scope,
+				sequence: 0,
+				type: "block_start",
+				blockId: "b",
+				nativeId: "n",
+				kind: "text",
+				role: "answer",
+			});
+			output.apply({
+				...scope,
+				sequence: 1,
+				type: "block_delta",
+				blockId: "b",
+				text,
+			});
+			return output.getProjection();
+		};
+		made.streamInvocations[0].callbacks.onNormalChatOutput?.(
+			projection("Partial 42"),
+		);
+		made.streamInvocations[0].callbacks.onError(new Error("Failed to fetch"));
+		await vi.advanceTimersByTimeAsync(500);
+		const observer = made.streamInvocations[1].callbacks;
+		expect(made.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
+		expect(made.messages.at(-1)?.content).toBe("Partial 42");
+		if (result === "waiting") observer.onWaiting?.();
+		else if (result === "failed")
+			observer.onError(new TypeError("observer lost"));
+		else {
+			observer.onNormalChatOutput?.(projection("Replayed"));
+			expect(made.messages.at(-1)?.content).toBe("Partial 42");
+			observer.onNormalChatOutput?.(projection("Complete replacement 42"));
+			observer.onReplayComplete?.();
+			expect(made.messages.at(-1)?.content).toBe("Complete replacement 42");
+		}
+		if (result !== "replay")
+			expect(made.messages.at(-1)?.content).toBe("Partial 42");
+		expect(made.messageListEvents.removeMessage).not.toHaveBeenCalledWith(
+			"id-2",
+		);
+		if (result === "failed")
+			expect(made.messages.at(-1)?.isStreaming).toBe(false);
+		vi.useRealTimers();
+	});
+
+	it.each([
+		"unsaved",
+		"saved",
+		"pending-stop",
+		"unavailable",
+		"saved-missing",
+		"pending-terminal",
+	] as const)("settles scoped durable observation without impossible message polling: %s", async (result) => {
+		vi.useFakeTimers();
+		const made = makeAdapters({
+			schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
+			readChatMessages: vi.fn(async () => [
+				{
+					id: result === "saved-missing" ? "different-row" : "saved",
+					role: "assistant" as const,
+					content: "Canonical durable answer",
+					timestamp: 1,
+				},
+			]),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		await runtime.reconnectToOrphanedStream("observer", "A");
+		const callbacks = made.streamInvocations[0].callbacks;
+		const identity = {
+			version: 1 as const,
+			streamId: "observer",
+			conversationId: "conv-1",
+		};
+		if (result === "pending-stop") {
+			callbacks.onWaiting?.({
+				...identity,
+				state: "pending",
+				turnId: "t",
+				segmentId: "s",
+			});
+			expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
+			runtime.stop();
+			await vi.advanceTimersByTimeAsync(2000);
+			expect(made.streamInvocations).toHaveLength(1);
+			expect(runtime.snapshot().isSending).toBe(false);
+		} else if (result === "unavailable") {
+			callbacks.onEnd("", {
+				observation: { ...identity, state: "unavailable" },
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
+			expect(made.adapters.setSendError).toHaveBeenCalledWith(
+				"chat.observationUnavailable",
+			);
+			expect(runtime.snapshot().isSending).toBe(false);
+		} else {
+			let terminalCallbacks = callbacks;
+			if (result === "pending-terminal") {
+				callbacks.onWaiting?.({
+					...identity,
+					state: "pending",
+					turnId: "t",
+					segmentId: "s",
+				});
+				await vi.advanceTimersByTimeAsync(2000);
+				expect(made.streamInvocations).toHaveLength(2);
+				terminalCallbacks = made.streamInvocations[1].callbacks;
+			}
+			terminalCallbacks.onEnd("", {
+				observation: {
+					...identity,
+					state: "terminal",
+					assistantMessageId:
+						result === "saved" || result === "saved-missing" ? "saved" : null,
+					completion: {
+						version: 1,
+						turnId: "t",
+						segmentId: "s",
+						phase: "closing",
+						outcome: result === "saved" ? "answered" : "incomplete",
+						stopCause: "uncertain_execution",
+						workingStopCause: "transport_error",
+						closingAttempted: true,
+					},
+				},
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
+			expect(runtime.snapshot().isSending).toBe(false);
+			if (result === "saved")
+				expect(made.messages.at(-1)?.content).toBe("Canonical durable answer");
+			else if (result === "saved-missing")
+				expect(made.messages.at(-1)?.content).not.toBe(
+					"Canonical durable answer",
+				);
+			else
+				expect(
+					normalChatOutputView(
+						made.messages.at(-1) ?? {
+							id: "missing",
+							role: "assistant",
+							content: "",
+							timestamp: 0,
+						},
+					)?.completion?.outcome,
+				).toBe("incomplete");
+		}
+		vi.useRealTimers();
+	});
+
+	it("cancels pending observation ownership on route reset before a newer turn is stopped", async () => {
+		vi.useFakeTimers();
+		const made = makeAdapters({
+			schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		await runtime.reconnectToOrphanedStream("observer", "A");
+		made.streamInvocations[0].callbacks.onWaiting?.({
+			version: 1,
+			state: "pending",
+			streamId: "observer",
+			conversationId: "conv-1",
+			turnId: "t",
+			segmentId: "s",
+		});
+		runtime.reset();
+		await runtime.send({
+			message: "B",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		runtime.stop();
+		expect(made.streamInvocations[1].handle.stop).toHaveBeenCalledOnce();
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(made.streamInvocations).toHaveLength(2);
+		vi.useRealTimers();
+	});
+
+	it("settles a real abandoned ledger through observer wire, browser decoder and client runtime", async () => {
+		const { createHash } = await import("node:crypto");
+		const { db } = await import("$lib/server/db");
+		const { users, conversations } = await import("$lib/server/db/schema");
+		const { eq } = await import("drizzle-orm");
+		const { admitTurn } = await import(
+			"$lib/server/services/chat-turn/turn-ledger"
+		);
+		const { doReconnect } = await import(
+			"$lib/server/services/chat-turn/stream-reconnect"
+		);
+		const { streamChat } = await import("$lib/services/streaming");
+		const userId = "whole-client-synthetic-user";
+		const conversationId = "whole-client-synthetic-conversation";
+		const requestId = "whole-client-abandoned";
+		db.insert(users)
+			.values({
+				id: userId,
+				email: "whole-client@test.invalid",
+				passwordHash: "synthetic",
+			})
+			.run();
+		db.insert(conversations)
+			.values({ id: conversationId, userId, title: "Synthetic" })
+			.run();
+		try {
+			const segmentId = createHash("sha256")
+				.update(JSON.stringify([userId, conversationId, requestId]))
+				.digest("hex");
+			admitTurn({
+				userId,
+				conversationId,
+				turnId: "whole-client-turn",
+				segmentId,
+				ownerId: "lost-process",
+			});
+			const made = makeAdapters({ getConversationId: () => conversationId });
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.reconnectToOrphanedStream(requestId, "A");
+			const callbacks = made.streamInvocations[0].callbacks;
+			const output = createNormalChatOutputAccumulator();
+			const scope = {
+				version: 1,
+				turnId: "whole-client-turn",
+				segmentId,
+				attemptId: "a",
+				stepId: "w",
+				phase: "working",
+			} as const;
+			output.apply({
+				...scope,
+				sequence: 0,
+				type: "block_start",
+				blockId: "w",
+				nativeId: "w",
+				kind: "text",
+				role: "activity",
+			});
+			output.apply({
+				...scope,
+				sequence: 1,
+				type: "block_delta",
+				blockId: "w",
+				text: "Working commentary",
+			});
+			output.apply({
+				...scope,
+				stepId: "c",
+				phase: "closing",
+				sequence: 2,
+				type: "block_start",
+				blockId: "c",
+				nativeId: "c",
+				kind: "text",
+				role: "answer",
+			});
+			output.apply({
+				...scope,
+				stepId: "c",
+				phase: "closing",
+				sequence: 3,
+				type: "block_delta",
+				blockId: "c",
+				text: "Partial 42",
+			});
+			callbacks.onNormalChatOutput?.(output.getProjection());
+			const frames: string[] = [];
+			await doReconnect(requestId, {
+				userId,
+				conversationId,
+				enqueueChunk: (chunk) => {
+					frames.push(chunk);
+					return true;
+				},
+				closeDownstream: vi.fn(),
+				downstreamAbortSignal: new AbortController().signal,
+				getStreamBuffer: () => undefined,
+				subscribeToStream: vi.fn(() => false),
+				unsubscribeFromStream: vi.fn(),
+				createSsePreludeComment: () => ": prelude\n\n",
+				createSseHeartbeatComment: () => ": heartbeat\n\n",
+			});
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(
+					async () =>
+						new Response(frames.join(""), {
+							headers: { "Content-Type": "text/event-stream" },
+						}),
+				),
+			);
+			streamChat("A", conversationId, callbacks, {
+				reconnectToStreamId: requestId,
+			});
+			await vi.waitFor(() => expect(runtime.snapshot().isSending).toBe(false));
+			expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
+			const held = made.messages.at(-1);
+			expect(held?.content).toBe("Partial 42");
+			const view = held && normalChatOutputView(held);
+			expect(view?.activity[0].text).toBe("Working commentary");
+			expect(view?.completion).toMatchObject({
+				outcome: "incomplete",
+				stopCause: "uncertain_execution",
+			});
+		} finally {
+			vi.unstubAllGlobals();
+			db.delete(users).where(eq(users.id, userId)).run();
+		}
 	});
 
 	it("a stale recovery preserves A partial and B progress before any removal", async () => {

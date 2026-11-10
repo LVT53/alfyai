@@ -29,6 +29,7 @@ import type {
 	NormalChatRuntimePhase,
 } from "$lib/server/services/messages-types";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import type { NormalChatTurnObservation } from "$lib/services/ai-sdk-ui-stream-contract";
 import {
 	checkForOrphanedStream,
 	getStreamBufferInfo,
@@ -425,6 +426,8 @@ type AnswerInFlight = {
 };
 
 type StartStreamParams = {
+	retainedPartial?: boolean;
+	observationRetryCount?: number;
 	message: string;
 	placeholderId: string;
 	clientUserMessageId: string | null;
@@ -475,7 +478,8 @@ type StartStreamParams = {
  * it (a rejoin after a drop, the recovery of a tab the browser cut off): the answer
  * and the row, so the new stream is still the resume, not a reply of its own.
  */
-type ResumeContext = Pick<StartStreamParams, "answer" | "continuesMessageId">;
+type ResumeContext = Pick<StartStreamParams, "answer" | "continuesMessageId"> &
+	Partial<Pick<StartStreamParams, "placeholderId">>;
 
 /**
  * The last send, as Retry needs it again. The server keeps nothing of a turn that
@@ -676,6 +680,7 @@ export function createNormalChatClientTurnRuntime(
 	// joins the resume with its answer and its row, or tells the page it is gone.
 	let interruptedResume: ResumeContext | null = null;
 	let turnEpoch = 0;
+	let pendingObservation: StartStreamParams | null = null;
 
 	function snapshot(): NormalChatRuntimeSnapshot {
 		return {
@@ -730,6 +735,7 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	function completeTurn() {
+		pendingObservation = null;
 		isSending = false;
 		phase = "idle";
 		activePlaceholderId = null;
@@ -1281,10 +1287,6 @@ export function createNormalChatClientTurnRuntime(
 		// asked.)
 		if (ownsTurn) completeTurn();
 		if (!canStartTurnIn(params.turnConversationId)) return "none";
-		adapters.applyMessageListEvent({
-			type: "remove",
-			messageId: params.placeholderId,
-		});
 		await reconnectToOrphanedStream(
 			running.streamId,
 			params.message,
@@ -1835,6 +1837,97 @@ export function createNormalChatClientTurnRuntime(
 		emitState();
 	}
 
+	function observationIsScoped(
+		params: StartStreamParams,
+		observation: NormalChatTurnObservation,
+	) {
+		return (
+			observation.conversationId === params.turnConversationId &&
+			observation.streamId === params.streamOptions.reconnectToStreamId
+		);
+	}
+
+	async function settleObservation(
+		params: StartStreamParams,
+		observation: Exclude<NormalChatTurnObservation, { state: "pending" }>,
+	) {
+		const epoch = turnEpoch;
+		let saved: ChatMessage | undefined;
+		if (observation.state === "terminal" && observation.assistantMessageId) {
+			try {
+				const rows = await answerWithin(
+					Promise.resolve(adapters.readChatMessages?.() ?? null),
+					STREAM_QUESTION_MAX_MS,
+				);
+				saved = rows?.find(
+					(row) =>
+						row.id === observation.assistantMessageId &&
+						row.role === "assistant",
+				);
+			} catch {
+				/* Retain the partial when the exact durable row cannot be read. */
+			}
+		}
+		if (
+			epoch !== turnEpoch ||
+			detached ||
+			activePlaceholderId !== params.placeholderId ||
+			!isTurnConversationActive(params.turnConversationId)
+		)
+			return;
+		const held = adapters
+			.getMessages()
+			.find((row) => row.id === params.placeholderId);
+		const previous = held && normalChatOutputView(held);
+		const terminal = observation.state === "terminal" ? observation : undefined;
+		const resolved = Boolean(
+			terminal && (!terminal.assistantMessageId || saved),
+		);
+		if (resolved) {
+			const view = saved ? normalChatOutputView(saved) : previous;
+			adapters.applyMessageListEvent({
+				type: "applyNormalChatOutput",
+				placeholderId: params.placeholderId,
+				view: {
+					answer: saved?.content ?? held?.content ?? "",
+					activity: view?.activity ?? [],
+					blocks: view?.blocks ?? [],
+					completion: terminal?.completion,
+				},
+			});
+		}
+		adapters.applyMessageListEvent({
+			type: "finalize",
+			placeholderId: params.placeholderId,
+			clientUserMessageId: params.clientUserMessageId,
+			metadata: {
+				assistantMessageId: saved?.id,
+				finalContent: saved?.content,
+				thinking: saved?.thinking,
+				wasStopped: terminal?.completion.outcome === "stopped",
+				...(!resolved
+					? { completionWarningCodes: ["stream_closed_without_finish"] }
+					: {}),
+			},
+		});
+		lastAssistantResponse = saved?.content ?? held?.content ?? "";
+		isPollingForCompletion = false;
+		canRetry = false;
+		completeTurn();
+		adapters.setSendError(resolved ? null : "chat.observationUnavailable");
+		if (saved) {
+			adapters.pollMessageEvidence(saved.id);
+			adapters.refreshMessageCost(saved.id);
+		}
+		if (
+			resolved &&
+			(terminal?.completion.outcome === "answered" ||
+				terminal?.completion.outcome === "delivered")
+		)
+			await drainPostTurnQueue();
+		else restoreQueuedTurnToDraft();
+	}
+
 	function buildCallbacks(params: StartStreamParams): StreamCallbacks {
 		// R1 (ADR-0060, defect 2) — the buffer's flush fires from several
 		// places (onFinishPart, onEnd, onError all call `.flush()`
@@ -1875,7 +1968,19 @@ export function createNormalChatClientTurnRuntime(
 		// to preserve and falls through to the existing error surface; a
 		// drop after content exists is the case defect 1 names ("after N
 		// visible tokens").
-		let hasStreamedContent = false;
+		let hasStreamedContent = Boolean(params.retainedPartial);
+		let replacementPending = Boolean(params.retainedPartial);
+		let pendingOutput: NormalChatOutputProjection | undefined;
+		const commitReplacement = () => {
+			if (!ownsStream() || !replacementPending || !pendingOutput) return;
+			replacementPending = false;
+			adapters.applyMessageListEvent({
+				type: "applyNormalChatOutput",
+				placeholderId: params.placeholderId,
+				view: pendingOutput,
+			});
+			pendingOutput = undefined;
+		};
 
 		// Item 6 (UX-speed plan) — maps a produce_file tool call (keyed by its
 		// callId, falling back to a name+input key when the server doesn't
@@ -1894,8 +1999,13 @@ export function createNormalChatClientTurnRuntime(
 		};
 
 		return {
+			onReplayComplete: commitReplacement,
 			onNormalChatOutput(view) {
 				if (!ownsStream()) return;
+				if (replacementPending) {
+					pendingOutput = view;
+					return;
+				}
 				hasStreamedContent = true;
 				noteResumeRunning();
 				setPhase("generating", params.placeholderId);
@@ -1906,6 +2016,7 @@ export function createNormalChatClientTurnRuntime(
 				});
 			},
 			onToken(chunk) {
+				if (replacementPending) return;
 				hasStreamedContent = true;
 				if (!ownsStream()) return;
 				noteResumeRunning();
@@ -1913,6 +2024,7 @@ export function createNormalChatClientTurnRuntime(
 				tokenBuffer.append(chunk);
 			},
 			onThinking(chunk) {
+				if (replacementPending) return;
 				hasStreamedContent = true;
 				if (!ownsStream()) return;
 				noteResumeRunning();
@@ -1990,8 +2102,50 @@ export function createNormalChatClientTurnRuntime(
 			onTiming(timing) {
 				adapters.onStreamTiming?.(timing);
 			},
-			onWaiting() {
+			onWaiting(observation) {
 				if (!ownsStream()) return;
+				if (
+					observation &&
+					observationIsScoped(params, observation) &&
+					observation.state === "pending"
+				) {
+					activeStream?.detach();
+					setActiveStream(null);
+					setPhase("polling", params.placeholderId);
+					pendingObservation = params;
+					const epoch = turnEpoch;
+					adapters.schedule(() => {
+						if (
+							!ownsStream() ||
+							epoch !== turnEpoch ||
+							pendingObservation !== params
+						)
+							return;
+						pendingObservation = null;
+						if ((params.observationRetryCount ?? 0) >= 60) {
+							void settleObservation(params, {
+								version: 1,
+								state: "unavailable",
+								streamId: observation.streamId,
+								conversationId: observation.conversationId,
+							});
+							return;
+						}
+						startStream({
+							...params,
+							retainedPartial: Boolean(
+								adapters
+									.getMessages()
+									.find(
+										(m) =>
+											m.id === params.placeholderId && normalChatOutputView(m),
+									),
+							),
+							observationRetryCount: (params.observationRetryCount ?? 0) + 1,
+						});
+					}, 2000);
+					return;
+				}
 				activeStream?.detach();
 				isPollingForCompletion = true;
 				phase = "polling";
@@ -2012,6 +2166,12 @@ export function createNormalChatClientTurnRuntime(
 			},
 			onEnd(fullText, metadata) {
 				if (!ownsStream()) return;
+				if (metadata?.observation) {
+					if (!observationIsScoped(params, metadata.observation)) return;
+					if (metadata.observation.state !== "pending")
+						void settleObservation(params, metadata.observation);
+					return;
+				}
 				tokenBuffer.flush();
 				thinkingBuffer.flush();
 
@@ -2048,7 +2208,12 @@ export function createNormalChatClientTurnRuntime(
 				// differ, so retry/title-generation see what the conversation
 				// actually stored (the message list itself is swapped in
 				// finalizeStreamingMessageList).
-				const finalText = metadata?.finalContent ?? fullText;
+				const finalText =
+					metadata?.finalContent ??
+					(replacementPending
+						? (adapters.getMessages().find((m) => m.id === params.placeholderId)
+								?.content ?? "")
+						: fullText);
 				lastAssistantResponse = finalText;
 				canRetry = false;
 				completeTurn();
@@ -2117,6 +2282,21 @@ export function createNormalChatClientTurnRuntime(
 				if (!ownsStream()) return;
 				// Read before anything is awaited: it is what the page knew of the
 				// version when this failure was handled (`isNewVersionLive`).
+				if (params.retainedPartial) {
+					adapters.applyMessageListEvent({
+						type: "finalize",
+						placeholderId: params.placeholderId,
+						clientUserMessageId: params.clientUserMessageId,
+						metadata: {
+							completionWarningCodes: ["stream_closed_without_finish"],
+						},
+					});
+					completeTurn();
+					adapters.setSendError(adapters.toFriendlySendError(error));
+					canRetry = true;
+					emitState();
+					return;
+				}
 				const versionWasLive = adapters.isNewVersionLive();
 				tokenBuffer.flush();
 				thinkingBuffer.flush();
@@ -2560,10 +2740,6 @@ export function createNormalChatClientTurnRuntime(
 		// into a fresh placeholder, so the dropped one is superseded rather
 		// than lost — there is no window where the answer is simply gone; at
 		// worst it swaps out for the replayed (equal or more complete) text.
-		adapters.applyMessageListEvent({
-			type: "remove",
-			messageId: params.placeholderId,
-		});
 		await reconnectToOrphanedStream(
 			streamId,
 			bufferInfo?.userMessage ?? params.message,
@@ -3170,6 +3346,21 @@ export function createNormalChatClientTurnRuntime(
 
 	function stop() {
 		turnEpoch++;
+		if (pendingObservation) {
+			const pending = pendingObservation;
+			adapters.applyMessageListEvent({
+				type: "finalize",
+				placeholderId: pending.placeholderId,
+				clientUserMessageId: pending.clientUserMessageId,
+				metadata: {
+					wasStopped: true,
+					completionWarningCodes: ["stream_closed_without_finish"],
+				},
+			});
+			completeTurn();
+			restoreQueuedTurnToDraft();
+			return true;
+		}
 		// A turn that waits for an update has no stream: Stop ends the wait, and the
 		// turn ends the way the wait's own give-up decides.
 		if (updateWait && !updateWait.detached) {
@@ -3193,6 +3384,7 @@ export function createNormalChatClientTurnRuntime(
 
 	function detach() {
 		turnEpoch++;
+		pendingObservation = null;
 		activeTokenBuffer?.flush();
 		activeThinkingBuffer?.flush();
 		activeTokenBuffer = null;
@@ -3275,7 +3467,17 @@ export function createNormalChatClientTurnRuntime(
 
 		beginTurn();
 		adapters.markHasPersistedMessages?.();
-		const placeholderId = adapters.randomId();
+		const previous = takenOverFrom?.placeholderId
+			? adapters.getMessages().find((m) => m.id === takenOverFrom.placeholderId)
+			: undefined;
+		const retainedPartial = Boolean(previous && normalChatOutputView(previous));
+		const placeholderId =
+			retainedPartial && previous ? previous.id : adapters.randomId();
+		if (previous && !retainedPartial)
+			adapters.applyMessageListEvent({
+				type: "remove",
+				messageId: previous.id,
+			});
 		let clientUserMessageId = findExistingReconnectUserMessageId(userMessage);
 		if (!clientUserMessageId && userMessage.trim()) {
 			clientUserMessageId = adapters.randomId();
@@ -3293,15 +3495,16 @@ export function createNormalChatClientTurnRuntime(
 			takenOverFrom?.continuesMessageId ??
 			adapters.getAnsweringQuestionMessageId?.() ??
 			undefined;
-		adapters.applyMessageListEvent({
-			type: "appendAssistantPlaceholder",
-			placeholder: createAssistantPlaceholder(
-				placeholderId,
-				replayElapsedMs,
-				undefined,
-				continuesMessageId,
-			),
-		});
+		if (!retainedPartial)
+			adapters.applyMessageListEvent({
+				type: "appendAssistantPlaceholder",
+				placeholder: createAssistantPlaceholder(
+					placeholderId,
+					replayElapsedMs,
+					undefined,
+					continuesMessageId,
+				),
+			});
 
 		startStream({
 			message: userMessage || "",
@@ -3311,6 +3514,7 @@ export function createNormalChatClientTurnRuntime(
 			continuesMessageId,
 			answer: takenOverFrom?.answer,
 			isReconnect: true,
+			retainedPartial,
 			reconnectStreamId: streamId,
 			reconnectRetryCount: retryCount,
 			streamOptions: {

@@ -2,6 +2,8 @@
 
 const chatDict = {
 	en: {
+		"chat.observationUnavailable":
+			"The previous reply’s status is unavailable. Any partial answer is kept.",
 		"chat.output.activity": "Activity",
 		"chat.output.previousActivity": "Previous activity",
 		"chat.output.paused": "Waiting for your answer",
@@ -1311,6 +1313,8 @@ const chatDict = {
 		"messageProvenance.webSources": "{count} sources",
 	},
 	hu: {
+		"chat.observationUnavailable":
+			"A korábbi válasz állapota nem érhető el. A részleges válasz megmarad.",
 		"chat.output.activity": "Tevékenység",
 		"chat.output.previousActivity": "Korábbi tevékenység",
 		"chat.output.paused": "Válaszodra vár",

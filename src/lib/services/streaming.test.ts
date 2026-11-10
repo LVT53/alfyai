@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { NormalChatTurnObservation } from "$lib/services/ai-sdk-ui-stream-contract";
 import type {
 	NormalChatOutputEvent,
 	NormalChatOutputProjection,
@@ -293,6 +294,34 @@ describe("streamChat", () => {
 		await done;
 		expect(cb.onThinking.mock.calls).toEqual([["Real reasoning"]]);
 		expect(cb.onEnd).toHaveBeenCalledWith("", undefined);
+	});
+
+	it("preserves scoped observer terminal truth in stream metadata", async () => {
+		const observation: NormalChatTurnObservation = {
+			version: 1,
+			streamId: "observer",
+			conversationId: "conv-1",
+			state: "terminal",
+			assistantMessageId: null,
+			completion: {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				phase: "closing",
+				outcome: "incomplete",
+				stopCause: "uncertain_execution",
+				workingStopCause: "transport_error",
+				closingAttempted: true,
+			},
+		};
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [endEvent({ observation })],
+		});
+		await done;
+		expect(cb.onEnd).toHaveBeenCalledWith(
+			"",
+			expect.objectContaining({ observation }),
+		);
 	});
 
 	it("decodes the shared AI SDK UI stream contract fixture end-to-end", async () => {
