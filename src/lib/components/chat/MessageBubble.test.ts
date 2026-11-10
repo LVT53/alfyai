@@ -4417,6 +4417,151 @@ describe("MessageBubble", () => {
 			};
 		}
 
+		it("keeps waiting pause visible then removes its stale chip when the answered reply continues", async () => {
+			const scope = {
+				version: 1,
+				turnId: "ask-turn",
+				segmentId: "ask-segment",
+				attemptId: "terminal",
+				stepId: "terminal:0",
+				phase: "working",
+			} as const;
+			const event = {
+				...scope,
+				sequence: 1,
+				type: "completion",
+				completion: {
+					version: 1,
+					turnId: scope.turnId,
+					segmentId: scope.segmentId,
+					phase: "working",
+					outcome: "paused",
+					stopCause: "ask_pause",
+					workingStopCause: "ask_pause",
+					closingAttempted: false,
+				},
+			} as const;
+			const message = segment({
+				content: "",
+				normalChatOutput: { version: 1, events: [event] },
+			});
+			const before = JSON.stringify(message.normalChatOutput);
+			const question = asked();
+			const { rerender } = render(MessageBubble, {
+				message,
+				replyPlace: place({ continuedBelow: true, question }),
+				askQuestion: question,
+				joinedBelow: true,
+			});
+			expect(screen.getByTestId("normal-chat-output-status")).toHaveTextContent(
+				chatDict.en["chat.output.paused"],
+			);
+			expect(screen.getByTestId("ask-card")).toBeVisible();
+			const answered = asked(answeredWithTheParty);
+			await rerender({
+				message,
+				replyPlace: place({ continuedBelow: true, question: answered }),
+				askQuestion: answered,
+				joinedBelow: true,
+			});
+			expect(screen.getByTestId("ask-folded")).toHaveTextContent(
+				"A party at home",
+			);
+			expect(screen.queryByTestId("normal-chat-output-status")).toBeNull();
+			expect(normalChatOutputView(message)?.completion).toEqual(
+				event.completion,
+			);
+			expect(JSON.stringify(message.normalChatOutput)).toBe(before);
+		});
+
+		it("does not claim an answer already in flight is waiting for the person", () => {
+			const scope = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				attemptId: "a",
+				stepId: "w",
+				phase: "working",
+			} as const;
+			const question = asked({ ...answeredWithTheParty, status: "answering" });
+			const message = segment({
+				normalChatOutput: {
+					version: 1,
+					events: [
+						{
+							...scope,
+							sequence: 1,
+							type: "completion",
+							completion: {
+								version: 1,
+								turnId: "t",
+								segmentId: "s",
+								phase: "working",
+								outcome: "paused",
+								stopCause: "ask_pause",
+								workingStopCause: "ask_pause",
+								closingAttempted: false,
+							},
+						},
+					],
+				},
+			});
+			render(MessageBubble, {
+				message,
+				replyPlace: place({ continuedBelow: true, question }),
+				askQuestion: question,
+			});
+			expect(screen.getByTestId("ask-folded")).toBeVisible();
+			expect(screen.queryByTestId("normal-chat-output-status")).toBeNull();
+		});
+
+		it.each([
+			"failed",
+			"incomplete",
+			"stopped",
+		] as const)("retains a %s status even with continuation context", (outcome) => {
+			const scope = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				attemptId: "a",
+				stepId: "c",
+				phase: "closing",
+			} as const;
+			const stopCause = outcome === "stopped" ? "user_stop" : "transport_error";
+			const message = segment({
+				normalChatOutput: {
+					version: 1,
+					events: [
+						{
+							...scope,
+							sequence: 1,
+							type: "completion",
+							completion: {
+								version: 1,
+								turnId: "t",
+								segmentId: "s",
+								phase: "closing",
+								outcome,
+								stopCause,
+								workingStopCause: stopCause,
+								closingAttempted: true,
+							},
+						},
+					],
+				},
+			});
+			const question = asked(answeredWithTheParty);
+			render(MessageBubble, {
+				message,
+				replyPlace: place({ continuedBelow: true, question }),
+				askQuestion: question,
+			});
+			expect(screen.getByTestId("normal-chat-output-status")).toHaveTextContent(
+				chatDict.en[`chat.output.${outcome}`],
+			);
+		});
+
 		// The ask call as the first segment stores it: it paused the reply.
 		const askCall = {
 			type: "tool_call",

@@ -1509,7 +1509,10 @@ function sendFollowUp(question: string) {
 		</div>
 	{/if}
 
-	{#if !isUser && !isStreaming && outputView?.completion && ['paused', 'stopped', 'incomplete', 'failed'].includes(outputView.completion.outcome) && !(message.wasStopped && outputView.completion.outcome === 'stopped')}
+	<!-- A continued segment keeps its historical paused completion, but the
+	     question's folded line owns its answered/answering presentation. A
+	     question still waiting retains the present-tense pause label. -->
+	{#if !isUser && !isStreaming && outputView?.completion && ['paused', 'stopped', 'incomplete', 'failed'].includes(outputView.completion.outcome) && !(message.wasStopped && outputView.completion.outcome === 'stopped') && !(outputView.completion.outcome === 'paused' && continuedBelow && askQuestion?.status !== 'waiting')}
 		<div class="stopped-early-chip" data-testid="normal-chat-output-status">
 			{$t(`chat.output.${outputView.completion.outcome}` as I18nKey)}
 		</div>
