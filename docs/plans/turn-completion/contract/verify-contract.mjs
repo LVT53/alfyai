@@ -705,6 +705,50 @@ async function savedResult(client, record, beforeIds) {
 	return { detail, saved };
 }
 
+/** Verify the public Markdown projection, not addressing markers in stored body. */
+export async function verifyDocumentExport(client, artifactId, evidence, record) {
+	const submitted = await client.json(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/export?conversationId=${encodeURIComponent(record.conversationId)}`,
+		{ format: "markdown" },
+	);
+	need(
+		submitted.ok === true && typeof submitted.job?.id === "string" && submitted.job.id.length > 0,
+		"Document Markdown export returned no job",
+	);
+	const jobId = submitted.job.id;
+	record.documentExportJobId = jobId;
+	const deadline = Date.now() + 10_000;
+	let job = submitted.job;
+	for (;;) {
+		need(
+			job.id === jobId && job.conversationId === record.conversationId,
+			"Document Markdown export identity mismatch",
+		);
+		if (job.status === "succeeded") break;
+		need(
+			["queued", "running"].includes(job.status) && Date.now() < deadline,
+			"Document Markdown export did not succeed within scoped polling bound",
+		);
+		await new Promise((resolve) => setTimeout(resolve, 250));
+		job = (await client.json(`/api/chat/files/jobs/${encodeURIComponent(jobId)}`)).job;
+	}
+	need(
+		job.files?.length === 1 &&
+			typeof job.files[0].id === "string" &&
+			job.files[0].id.length > 0 &&
+			job.files[0].filename?.endsWith(".md"),
+		"Document Markdown export has no unique file",
+	);
+	record.documentExportFileId = job.files[0].id;
+	const file = await client.request(
+		`/api/chat/files/${encodeURIComponent(job.files[0].id)}/download`,
+	);
+	need(
+		file.ok && normalize(await file.text()) === normalize(evidence),
+		"Full delivered Document body differs from synthetic evidence",
+	);
+}
+
 /** HTTP orchestration is dependency-injected for offline transport tests. */
 export async function runCase(client, spec, modelId, record) {
 	record.requestedModelId = modelId;
@@ -877,14 +921,8 @@ export async function runCase(client, spec, modelId, record) {
 		if (spec.artifactTitle) {
 			const made = detail.artifacts.filter((a) => a.title === spec.artifactTitle);
 			need(made.length === 1, "Expected one durable Document effect");
-			const artifact = await client.json(
-				`/api/artifacts/${made[0].id}?conversationId=${record.conversationId}`,
-			);
-			need(
-				normalize(artifact.artifact.body) === normalize(spec.evidence),
-				"Full delivered Document body differs from synthetic evidence",
-			);
 			record.artifactId = made[0].id;
+			await verifyDocumentExport(client, record.artifactId, spec.evidence, record);
 		}
 		if (spec.filename) {
 			const made = detail.generatedFiles.filter((f) => f.filename === spec.filename);

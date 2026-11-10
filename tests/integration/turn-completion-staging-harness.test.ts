@@ -19,6 +19,7 @@ import {
 	runSerial,
 	syntheticPlan,
 	validateTarget,
+	verifyDocumentExport,
 	verifyModelBindings,
 } from "../../docs/plans/turn-completion/contract/verify-contract.mjs";
 
@@ -1237,5 +1238,120 @@ describe("matrix intent survives a human answer", () => {
 		expect(result.modelId).toBe(modelId);
 		expect(result.requestedModelId).toBe(modelId);
 		expect(result.pausedSegment.requestedModelId).toBe(modelId);
+	});
+});
+
+describe("full delivered Document content uses public Markdown export", () => {
+	test("evidence already has real newlines, every entry and the full tail", () => {
+		const spec = syntheticPlan("unit").find(
+			(s: { key: string }) => s.key === "evidence-create",
+		);
+		const exact = [
+			"# Contract evidence unit",
+			"",
+			...Array.from(
+				{ length: 50 },
+				(_, i) =>
+					`Entry ${i + 1}: synthetic filing context; keep the complete record.`,
+			),
+			"",
+			"Archive key: ORCHID-73. Dispatch is Tuesday. Crates: 19. Loose units: 23.",
+			"",
+		].join("\n");
+		expect(spec.evidence).toBe(exact);
+		expect(spec.evidence.match(/\n/g)).toHaveLength(54);
+		expect(spec.evidence).not.toContain("\\n");
+		expect(spec.prompt.endsWith(exact)).toBe(true);
+	});
+	const record = () => ({ conversationId: "synthetic-document" });
+	const clientFor = (body: string, patch = {}) => ({
+		json: vi.fn(async () => ({
+			ok: true,
+			job: {
+				id: "export-job",
+				conversationId: "synthetic-document",
+				status: "succeeded",
+				files: [{ id: "export-file", filename: "evidence.md" }],
+				...patch,
+			},
+		})),
+		request: vi.fn(async () => new Response(body)),
+	});
+	test("actual Document block projection preserves the complete evidence despite storage markers", async () => {
+		const { parseDocument, stripEmptyTabAnchorPlaceholder } = await import(
+			"../../src/lib/shared/artifact-document/blocks"
+		);
+		const evidence = syntheticPlan("unit").find(
+			(s: { key: string }) => s.key === "evidence-create",
+		).evidence;
+		const stored = parseDocument(evidence).markdown;
+		expect(stored).toContain("<!--b:");
+		const exported = parseDocument(stored, { mint: false })
+			.blocks.map((block) => stripEmptyTabAnchorPlaceholder(block.markdown))
+			.join("\n\n")
+			.trim();
+		expect(exported).toBe(evidence.trim());
+		const client = clientFor(exported);
+		const output = record();
+		await verifyDocumentExport(client, "document-id", evidence, output);
+		expect(client.json).toHaveBeenCalledWith(
+			"/api/artifacts/document-id/export?conversationId=synthetic-document",
+			{ format: "markdown" },
+		);
+		expect(client.request).toHaveBeenCalledWith(
+			"/api/chat/files/export-file/download",
+		);
+		expect(output).toMatchObject({
+			documentExportJobId: "export-job",
+			documentExportFileId: "export-file",
+		});
+	});
+	test.each([
+		"tail",
+		"middle",
+	])("full comparison rejects lost or changed %s even if delivery otherwise succeeds", async (mutation) => {
+		const evidence = syntheticPlan("unit").find(
+			(s: { key: string }) => s.key === "evidence-create",
+		).evidence;
+		const body =
+			mutation === "tail"
+				? evidence.slice(0, evidence.indexOf("Archive key:"))
+				: evidence.replace("Entry 25:", "Entry 999:");
+		await expect(
+			verifyDocumentExport(clientFor(body), "document-id", evidence, record()),
+		).rejects.toThrow(
+			"Full delivered Document body differs from synthetic evidence",
+		);
+	});
+	test("marker-looking fenced content must survive the public export unchanged", async () => {
+		const expected =
+			"# Marker example\n\n```html\n<!--b:literal-->\n<p>Keep me</p>\n```\n";
+		await expect(
+			verifyDocumentExport(
+				clientFor(expected),
+				"document-id",
+				expected,
+				record(),
+			),
+		).resolves.toBeUndefined();
+		await expect(
+			verifyDocumentExport(
+				clientFor(expected.replace("<!--b:literal-->\n", "")),
+				"document-id",
+				expected,
+				record(),
+			),
+		).rejects.toThrow("Full delivered Document body differs");
+	});
+	test.each([
+		{ conversationId: "wrong" },
+		{ status: "failed" },
+		{ files: [] },
+	])("invalid or failed export cannot pass full delivery (%j)", async (patch) => {
+		const client = clientFor("unchanged", patch);
+		await expect(
+			verifyDocumentExport(client, "document-id", "unchanged", record()),
+		).rejects.toThrow();
+		expect(client.request).not.toHaveBeenCalled();
 	});
 });
