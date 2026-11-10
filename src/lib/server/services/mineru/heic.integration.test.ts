@@ -14,10 +14,13 @@
 // `document.png` (S3) at an explicit tier (S4), and the photo the person
 // uploaded is the file they get back.
 //
-// A file of its own because the real HEIC decoder refuses a Node Buffer under the
-// repo's default jsdom environment, which `integration.test.ts` runs in, and takes
-// it under Node, as the server does. The harness is that file's, cut to what
-// these cases need.
+// A file of its own, under Node as the server runs. The decoder is no longer the
+// reason: it runs in a worker thread, which is plain Node whatever the
+// environment, and the real decodes of this file pass under the repo's default
+// jsdom, which `integration.test.ts` runs in. What jsdom takes away is the
+// recording of the threads the decode pool starts (`vi.mock("node:worker_threads")`
+// does not reach the pool there), and without it the "no thread" cases below say
+// nothing. The harness is that file's, cut to what these cases need.
 
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";

@@ -1,8 +1,11 @@
 // @vitest-environment node
 //
-// Node and not the default jsdom: the real decoder refuses a Node Buffer under
-// jsdom ("Cannot pass non-string to std::string") and takes it under Node, as
-// the server does.
+// Node and not the default jsdom, as the server runs. The decoder is no longer
+// the reason: it runs in a worker thread, which is plain Node whatever the
+// environment, and the real decodes of this file pass under jsdom as well. What
+// fails there is the test's own matcher, `expect.any(Uint8Array)`, which the Node
+// Buffer that `readFile` gives does not match once jsdom has put a `Uint8Array`
+// of its own in the global scope.
 import { readFileSync } from "node:fs";
 import {
 	mkdir,
