@@ -218,3 +218,63 @@ re-extracting documents read before this change; push or deploy.
 
 Each slice: failing test first, small commits (one logical change each, the message says why), `npm run check` and
 the touched tests while iterating. The whole gate runs once at the end, in the orchestrating session.
+
+## As built
+
+Where the build differs from the spec above, which stays as it was decided. Slice A is `b9f9fa574` to `bfa67c743`, Slice B
+is `412c6f0fa`, `782fcd262`, `40a46e693`, `061261150`, `44d61eb80` and the docs commit after them.
+
+Slice A, the decoder:
+
+- A5 waits one 30 ms tick after `monitorEventLoopDelay.enable()` before it starts the decode: a decode that blocks from the
+  very instant of `enable()` records no lag at all, so the test would pass against the main-thread decode it must fail
+  against.
+- The input is copied with `new Uint8Array(input)`, not `input.slice()`: a Buffer's `slice` is a view on the same memory, and
+  the memory of a pooled Buffer cannot be transferred.
+- A pool place is freed on the worker's `exit`, not when the job settles. A stopped worker still holds its heap until its
+  thread is gone, and the cap of two is a cap on that.
+- Only `ImageTooLargeError`, `ImageDecodeTimeoutError` and the abort reason pass out of `prepare-image.ts` as they are.
+  Everything else is wrapped `image preparation failed: …`, which is what the existing tests assert.
+- `readDecoderAnswer` is exported: it is the one check of the worker's reply (a picture over the cap, pixels that are not
+  the size they claim), and a test drives it without a thread.
+- A HEIC's PNG made without `background` carries a fully opaque alpha channel (`hasAlpha` is true), as a transparent PNG's
+  does; only the reader, which asks for white, gets none.
+- `heic-decode` is listed in Fallow's `ignoreDependencies`: only the worker loads it, by path, so no import names it.
+
+Slice B, the document path:
+
+- `prepareReaderInput` is synchronous (no I/O before `openFile`), and `reader-input.ts` has a second export,
+  `storedReaderInput`, which the runner uses for a direct-text job (as before, only a MinerU job can be converted) and
+  `prepareReaderInput` uses for a type the reader takes as it is. An `openFile` after `release` rejects for both, with a plain
+  `Error` and not a `DocumentExtractionError`: it means the caller used the file after the attempt, which is no fact about the
+  file.
+- The reader looks at the attempt's signal before it reads anything and again when the decode returns, and once the signal is
+  aborted it throws `signal.reason` whatever the decoder failed with, so a cancel is never reported as a bad photo. It passes
+  the extractor's signal (the bridge's, whose reason is an `ExtractionAbortError`), not the engine's.
+- The MinerU extractor memoizes its own ask for the file as well (one `request.openFile()` call per attempt, however many
+  steps need the bytes), on top of the reader's memoization. It keeps `statFile` as the authority for the size a task
+  declares ("what the file is NOW"); `ExtractionFile.sizeBytes` is read by the direct-text extractor only, as its fallback
+  when the file cannot be measured. An abort at the digest step, which sits outside the recovery loop, is mapped to
+  `canceled` there.
+- The digest order of D8 changed no existing test: none held a resumed handle and a ledger digest that differ. The new test
+  gives both and expects the handle's.
+- `image_too_large`'s `details` are `{ reason, pixels, limit }` and a timeout's `{ reason, timeoutMs }`; the spec named the
+  pixels and the limit only.
+- An undecodable photo through the real extractor now costs one capability read: MinerU is asked what it can do (the answer
+  is cached for `capabilitiesTtlMs`), and then no task is created. The old test claimed "MinerU is never asked"; that is
+  the other side of D7, and the test says what is true now.
+- B1 to B3 and B6 to B8 run through the real engine, the real MinerU extractor and the fake server
+  (`mineru/heic.integration.test.ts`, which records the threads the pool starts with a subclass of `Worker`), and B3, B8 and
+  the order of B2 have counterparts at the extractor (`mineru4.test.ts`). B4 and B5 are in `extraction-runner.test.ts`. B5's
+  proof that the thread was stopped is a flag on the recording worker, set if it ever answers: a worker called off mid-decode
+  ends without a word, whereas the exit code says nothing (the pool terminates a worker that has answered, too). The test
+  cancels as soon as the recording worker's constructor reports the thread, so the cancel lands before the decode could
+  finish however busy the machine is.
+  B7 runs the attempt budget out as well: three tries end as `max_attempts`. The "100" of B10 is held in
+  `extraction/contracts.test.ts`, which reads the ledger sentence and both Library sentences.
+- `docs/uploads.md` belongs to Slice A and was edited again here: its sentence that an undecodable photo "fails at once as
+  `document_unreadable`, with no request to MinerU" stopped being true with D7, and it now says when the decode happens and
+  which ledger code each failure of it gets (D9).
+- A photo's PNG is not byte for byte the one the previous release made (no JPEG step, flattened onto white), so a MinerU
+  task that is still waiting for its bytes at the deploy is declared again once: the PUT with the new bytes is refused as a
+  digest mismatch, and the extractor's existing recovery creates the task again.

@@ -95,13 +95,26 @@ client is given, S7) and the TIFF probe under S3. Everything else is for the ai.
 - **HEIC and HEIF** were routed to MinerU, which no 4.x release this project ran accepts. Decided: the fix ships with 4.1
   (R21), the guard follows the new registry reading and its list of known exceptions is empty. Nothing of this has met a
   real 4.1.7: the fake server is held to the captures, as for everything else, and the sweep has no HEIC row (a HEIC photo
-  of a page by hand at the ai.dev run, cutover step 2). The conversion runs in the app's own process, on the server's main
-  thread as vision's does (WebAssembly). It costs more than `prepare-image.ts` once said (about 0.8 s for a 12 MP photo):
-  measured in the independent review of the fix, 1.2 to 1.8 s for a 12 MP photo, half of it heic-convert's pure-JS JPEG
-  step, and about 6 s with a memory peak of 1.6 GB for a 48 MP one. It happens again on every retry and every resume, since
-  nothing of the PNG outlives its attempt, so a backfill of many HEIC photos costs the app that decode as well as MinerU's
-  time. A worker-thread decode is the follow-up (with it: the decode after the capability read, without the JPEG step,
-  and a pixel cap read from the file before it is decoded).
+  of a page by hand at the ai.dev run, cutover step 2). The conversion first ran in the app's own process, on the server's
+  main thread (WebAssembly). It cost more than `prepare-image.ts` once said: measured in the independent review of the
+  fix, 1.2 to 1.8 s for a 12 MP photo, half of it heic-convert's pure-JS JPEG step, and about 6 s with a memory peak of
+  1.6 GB for a 48 MP one. It ran before the extractor's capability read, so every attempt paid it again, an outage retry
+  that only waited included, and a transparent photo came out as a black page.
+  **Done** (2026-11-09 and 10, `docs/plans/heic-decode-worker/spec.md`; committed, not pushed or deployed): the decode runs in a
+  worker thread, one per photo, two at a time for the process, 60 s each, with no JPEG step, and a pixel cap of 100 MP is
+  read from the file before any thread starts (Slice A: `b9f9fa574` to `bfa67c743`). A transparent photo is flattened onto
+  white for the reader (`782fcd262`). The document path decodes only when the extractor first needs the bytes: after the
+  capability read and the tier decision, once per attempt, and not at all for an attempt that waits out an outage or only
+  polls a task it resumed (`061261150`, with `openFile` in the extraction request in place of the file's path, size and
+  digest). Each failure of the decode has its own code: a photo over the cap is `image_too_large`, in the ledger and in both
+  languages (`412c6f0fa`), a decode that ran out of time is `job_failed` and gets another try, and a photo libheif refuses
+  is `document_unreadable` as before (`40a46e693`).
+  **Left:** a real 4.1.7 and a real phone photo, which no test has met; the worker's cost on the box itself (the figures
+  above are the main-thread ones, and the worker's come from the dev Mac); and what the spec names under "Not in this
+  change": refusing an over-limit photo at upload, settings for the cap, the concurrency and the timeout (constants for
+  now, each with its reason), AVIF, and re-reading photos read before this change. At the deploy, a MinerU task that is
+  still waiting for a photo's bytes is declared again once, since the PNG is not byte for byte the one the old release
+  made (no JPEG step, flattened onto white) and the digest in its stored handle names the old one.
 - **Re-reading old documents.** The backfill skips a document whose recorded tier is at or above the one requested (it
   re-reads only documents recorded below it, or with none), so it will not touch documents read by the 4.0 client
   (`mineru4/1`) at the requested tier; `POST .../reextract` with `{"tier": ..., "force": true}` does, one at a time.
