@@ -1,4 +1,5 @@
 import { expect, type Request, test } from "@playwright/test";
+import type { NormalChatOutputEvent } from "../../src/lib/shared/normal-chat-output";
 import { AI_SMOKE_REFUSE_SLOWLY_MARKER } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
@@ -15,9 +16,8 @@ import { createEmptyConversation, login, sendMessage } from "./helpers";
 // path cleared the stream's buffer (which holds the reconnected listeners) before
 // it emitted the error, so the reconnect subscribed in the window heard nothing.
 //
-// (The server keeps nothing of a turn that failed, so what a reload shows is the
-// reader's own message put back with the error and a Retry, which the last assertions
-// check, and not an empty conversation.)
+// The failed turn now keeps an inspectable assistant completion. The reconnect must
+// settle it and offer explicit Retry without sending another request automatically.
 //
 // The fake provider refuses every request of the turn after 1.5 s (HTTP 500: the
 // streaming attempt and the non-streaming fallback alike), so the turn is still
@@ -99,14 +99,42 @@ test.describe("A reload while a turn is still failing", () => {
 			});
 			await expect(page.getByTestId("send-button")).toBeVisible();
 			await expect(page.getByText("Drafting response")).toHaveCount(0);
-			// And the chat says the turn failed (FX-1 item 5, FB-8's note): the server
-			// kept nothing of it, so the reader's message is put back where it was,
-			// with the error and a Retry, not an empty conversation that says nothing.
+			// The saved failure remains inspectable beside its one user message.
 			await expect(
 				page.getByText(`${AI_SMOKE_REFUSE_SLOWLY_MARKER} Hello`),
 			).toBeVisible();
 			await expect(page.getByRole("alert")).toBeVisible();
 			await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+			const response = await page.request.get(
+				`/api/conversations/${conversationId}`,
+			);
+			expect(response.ok()).toBe(true);
+			const detail = (await response.json()) as {
+				messages: Array<{
+					id: string;
+					role: string;
+					normalChatOutput?: { version: 1; events: NormalChatOutputEvent[] };
+				}>;
+			};
+			expect(detail.messages.map((message) => message.role)).toEqual([
+				"user",
+				"assistant",
+			]);
+			const failed = detail.messages[1];
+			expect(
+				failed.normalChatOutput?.events.findLast(
+					(event) => event.type === "completion",
+				),
+			).toMatchObject({
+				type: "completion",
+				completion: { outcome: "failed", stopCause: "transport_error" },
+			});
+			const bubble = page.getByTestId("assistant-message");
+			await expect(bubble).toHaveAttribute("data-message-id", failed.id);
+			await expect(bubble.getByTestId("normal-chat-output-status")).toHaveText(
+				"Reply failed",
+			);
+			expect(streamPosts).toHaveLength(2);
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (providerId) await deleteTemporaryProvider(page, providerId);

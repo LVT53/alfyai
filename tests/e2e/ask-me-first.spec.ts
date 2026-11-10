@@ -423,6 +423,25 @@ async function reloadChat(page: Page) {
 	await waitForHydration(page);
 }
 
+/** Inspect the paused segment's retained commentary through its existing disclosure.
+ * It remains activity, including after reload; the canonical answer stays separate.
+ */
+async function inspectAskActivity(page: Page): Promise<Locator> {
+	const segment = page.getByTestId("assistant-message").first();
+	await expect(segment.locator(".prose-container")).not.toContainText(
+		AI_SMOKE_ASK_INTRO,
+	);
+	const disclosure = segment.locator(".thinking-header");
+	await expect(disclosure).toBeVisible();
+	if ((await disclosure.getAttribute("aria-expanded")) === "false")
+		await disclosure.click();
+	const intro = segment
+		.getByTestId("normal-chat-commentary")
+		.getByText(AI_SMOKE_ASK_INTRO, { exact: true });
+	await expect(intro).toBeVisible();
+	return intro;
+}
+
 /**
  * The card of the one-question script as a question that waits is drawn: the question,
  * its three answers, the words Alfy wrote before it asked, and the message box off.
@@ -440,7 +459,7 @@ async function expectWaitingCard(page: Page): Promise<Locator> {
 	]) {
 		await expect(card.getByRole("button", { name })).toBeVisible();
 	}
-	await expect(page.getByText(AI_SMOKE_ASK_INTRO)).toBeVisible();
+	await inspectAskActivity(page);
 	await expect(page.getByTestId("message-input")).toBeDisabled();
 	return card;
 }
@@ -623,8 +642,8 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await expect(
 			card.getByRole("button", { name: "Close the question" }),
 		).toBeVisible();
-		// The words Alfy wrote before it asked are above the card, and the composer waits.
-		await expect(page.getByText(AI_SMOKE_ASK_INTRO)).toBeVisible();
+		// The words before the ask remain inspectable activity above the card; the composer waits.
+		await inspectAskActivity(page);
 		await expect(page.getByTestId("message-input")).toBeDisabled();
 		// This card fits the window, so the thread rests at its bottom, as it always did:
 		// the end of the thread is the top of the card only when the card does not fit
@@ -652,7 +671,12 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		const segments = page.getByTestId("assistant-message");
 		await expectCarriedOn(page, "A party at home");
 		await expect(segments).toHaveCount(2);
-		await expect(segments.first()).toContainText(AI_SMOKE_ASK_INTRO);
+		await expect(
+			segments.first().getByTestId("normal-chat-commentary"),
+		).toContainText(AI_SMOKE_ASK_INTRO);
+		await expect(
+			segments.first().locator(".prose-container"),
+		).not.toContainText(AI_SMOKE_ASK_INTRO);
 		await expect(segments.first().getByTestId("ask-folded")).toBeVisible();
 		await expectReplyEnded(page);
 
@@ -1044,7 +1068,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await startTurn(page, "one");
 		const card = askCard(page);
 		await expect(card).toBeVisible({ timeout: 30_000 });
-		const intro = page.getByText(AI_SMOKE_ASK_INTRO);
+		const intro = await inspectAskActivity(page);
 		await waitForStableBoundingBox(intro);
 		const before = await topInThreadOf(intro);
 
@@ -1243,7 +1267,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await expect(card).toBeVisible({ timeout: 30_000 });
 		await expect(card.getByTestId("ask-question")).toHaveCount(1);
 		await expect(card.getByText("Which way should we take it?")).toBeVisible();
-		await expect(page.getByText(AI_SMOKE_ASK_INTRO)).toBeVisible();
+		await inspectAskActivity(page);
 		// ... and it is the only card there ever was, with nothing said of a refusal.
 		await expect(page.getByTestId("ask-card")).toHaveCount(1);
 		await expect(page.getByTestId("ask-error")).toHaveCount(0);

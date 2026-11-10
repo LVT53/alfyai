@@ -7,12 +7,17 @@ import {
 	messages,
 	users,
 } from "../../src/lib/server/db/schema";
+import type { NormalChatOutputEvent } from "../../src/lib/shared/normal-chat-output";
 import {
 	AI_SMOKE_API_KEY,
 	AI_SMOKE_MODEL_ID,
 	AI_SMOKE_REFUSE_SLOWLY_MARKER,
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
+import {
+	completionToolsOff,
+	currentScenarioUserText,
+} from "../mocks/ai-provider/turn-completion-scripts";
 import {
 	createEmptyConversation,
 	ensureSidebarExpanded,
@@ -271,6 +276,7 @@ type SavedMessage = {
 	role: string;
 	content: string;
 	attachments?: Array<{ artifactId: string; name: string }>;
+	normalChatOutput?: { version: 1; events: NormalChatOutputEvent[] };
 };
 
 /** What the server holds of the chat, in order: what a reload would show. */
@@ -575,7 +581,12 @@ test.describe("Editing a message in the composer", () => {
 				await page.getByTestId("send-button").click();
 
 				// The turn has landed: its reply is there and carries its actions.
-				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+				await expect(
+					page
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible({
 					timeout: 30_000,
 				});
 				await expect(
@@ -657,7 +668,12 @@ test.describe("Editing a message in the composer", () => {
 					conversationId,
 					attachmentIds: [fileId],
 				});
-				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+				await expect(
+					page
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible({
 					timeout: 30_000,
 				});
 				await expect(
@@ -738,7 +754,12 @@ test.describe("Editing a message in the composer", () => {
 				);
 				await page.getByTestId("message-input").fill(question);
 				await page.getByTestId("send-button").click();
-				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+				await expect(
+					page
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible({
 					timeout: 30_000,
 				});
 				await expect.poll(() => turnHasSettled(conversationId)).toBe(true);
@@ -768,7 +789,12 @@ test.describe("Editing a message in the composer", () => {
 				await expect(page.getByTestId("composer-edit-strip")).toBeVisible();
 				await expect(composer).toHaveValue(reworded);
 				await expect(page.getByText(question)).toBeVisible();
-				await expect(page.getByText(/fake provider response/i)).toBeVisible();
+				await expect(
+					page
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible();
 				expect(requests.filter((r) => r.startsWith("DELETE"))).toEqual(
 					deletesBefore,
 				);
@@ -782,7 +808,12 @@ test.describe("Editing a message in the composer", () => {
 				await page.reload();
 				await expect(page.getByTestId("assistant-message")).toHaveCount(1);
 				await expect(page.getByText(question)).toBeVisible();
-				await expect(page.getByText(/fake provider response/i)).toBeVisible();
+				await expect(
+					page
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible();
 				const after = await savedMessages(page, conversationId);
 				expect(after.map((message) => message.id)).toEqual(
 					before.map((message) => message.id),
@@ -827,8 +858,8 @@ test.describe("Editing a message in the composer", () => {
 					.poll(() =>
 						fakeProvider
 							.requests()
-							.some((request) =>
-								(JSON.stringify(request.body) ?? "").includes(marked),
+							.some(
+								(request) => currentScenarioUserText(request.body) === marked,
 							),
 					)
 					.toBe(true);
@@ -860,7 +891,12 @@ test.describe("Editing a message in the composer", () => {
 					timeout: 30_000,
 				});
 				await other.getByTestId("send-button").click();
-				await expect(other.getByText(/fake provider response/i)).toBeVisible({
+				await expect(
+					other
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible({
 					timeout: 30_000,
 				});
 				await expect(other.getByTestId("composer-edit-strip")).toHaveCount(0);
@@ -873,11 +909,8 @@ test.describe("Editing a message in the composer", () => {
 			}
 		});
 
-		// A regenerate deletes its reply before the model runs, and the server keeps
-		// nothing of a turn that fails, so when the model is down the reply is gone and
-		// the user message ends the chat. The Retry button asks again for that reply:
-		// the server answered "not found" for ever; it now runs the retry on the
-		// message that has no reply, deleting nothing.
+		// A failed regenerate persists an inspectable failed completion. Retry is a
+		// fresh request made only by the person's press, replacing that failed reply.
 		test("Retry after a regenerate that failed gets the reply, and a reload finds every message once", async ({
 			page,
 		}) => {
@@ -914,17 +947,39 @@ test.describe("Editing a message in the composer", () => {
 					timeout: 30_000,
 				});
 
-				// The reply was deleted on the server before the model failed, and the
-				// page shows the chat as the server has it: the question has no reply.
+				const failedRows = await savedMessages(page, conversationId);
+				expect(failedRows.slice(0, 3).map((message) => message.id)).toEqual([
+					firstQuestion.id,
+					firstReply.id,
+					secondQuestion.id,
+				]);
+				expect(failedRows).toHaveLength(4);
+				const failedReply = failedRows[3];
+				expect(failedReply.role).toBe("assistant");
+				expect(failedReply.id).not.toBe(secondReply.id);
 				expect(
-					(await savedMessages(page, conversationId)).map(
-						(message) => message.id,
+					failedReply.normalChatOutput?.events.findLast(
+						(event) => event.type === "completion",
 					),
-				).toEqual([firstQuestion.id, firstReply.id, secondQuestion.id]);
-				await expect(page.getByTestId("assistant-message")).toHaveCount(1);
+				).toMatchObject({
+					type: "completion",
+					completion: { outcome: "failed", stopCause: "transport_error" },
+				});
+				const failedBubble = page
+					.getByTestId("assistant-message")
+					.filter({ has: page.getByTestId("normal-chat-output-status") });
+				await expect(failedBubble).toHaveAttribute(
+					"data-message-id",
+					failedReply.id,
+				);
+				await expect(
+					failedBubble.getByTestId("normal-chat-output-status"),
+				).toHaveText("Reply failed");
+				await expect(page.getByTestId("assistant-message")).toHaveCount(2);
 				await expect(page.getByTestId("user-message")).toHaveCount(2);
+				expect(retryBodies).toHaveLength(1);
 
-				// The model is back; Retry asks for the reply that is gone.
+				// No retry runs before this explicit press; the failed row remains saved.
 				await setProviderBaseUrl(page, providerId, fakeProvider.baseURL);
 				const answered = page.waitForResponse(
 					(response) =>
@@ -935,7 +990,12 @@ test.describe("Editing a message in the composer", () => {
 				);
 				await page.getByRole("button", { name: "Retry" }).click();
 				expect((await answered).status()).toBe(200);
-				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+				await expect(
+					page
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible({
 					timeout: 30_000,
 				});
 				await expect(page.getByTestId("assistant-message")).toHaveCount(2);
@@ -943,7 +1003,7 @@ test.describe("Editing a message in the composer", () => {
 				expect(retryBodies).toHaveLength(2);
 				expect(retryBodies[1]).toMatchObject({
 					conversationId,
-					assistantMessageId: secondReply.id,
+					assistantMessageId: failedReply.id,
 					userMessageId: secondQuestion.id,
 					retryOrigin: "error_retry",
 				});
@@ -969,6 +1029,7 @@ test.describe("Editing a message in the composer", () => {
 					secondQuestion.id,
 				]);
 				expect(after[3].content).toMatch(/fake provider response/i);
+				expect(after[3].id).not.toBe(failedReply.id);
 				expect(
 					after.filter((message) => message.content === secondQuestion.content),
 				).toHaveLength(1);
@@ -1023,7 +1084,12 @@ test.describe("Editing a message in the composer", () => {
 				await retry.click();
 
 				// The page shows what the server holds: the reply, no error, no Retry.
-				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+				await expect(
+					page
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible({
 					timeout: 30_000,
 				});
 				await expect(retry).toHaveCount(0);
@@ -1085,11 +1151,9 @@ test.describe("Editing a message in the composer", () => {
 			const modelRequests = () =>
 				fakeProvider
 					.requests()
-					.filter((request) =>
-						(JSON.stringify(request.body) ?? "").includes(
-							AI_SMOKE_REFUSE_SLOWLY_MARKER,
-						),
-					).length;
+					.filter(
+						(request) => currentScenarioUserText(request.body) === question,
+					);
 			try {
 				await open(page, conversationId);
 
@@ -1122,16 +1186,20 @@ test.describe("Editing a message in the composer", () => {
 				// message, as the backoff made, while the first turn ran and after it.
 				await expect(retry).toHaveCount(0);
 				await expect(retry).toBeVisible({ timeout: 30_000 });
-				const asked = modelRequests();
-				expect(asked).toBeGreaterThan(0);
+				await expect.poll(() => modelRequests().length).toBe(2);
+				// One working attempt and its tools-disabled closing attempt belong to
+				// the original request. Reconnect must not generate either again.
+				expect(
+					modelRequests().map((request) => completionToolsOff(request.body)),
+				).toEqual([false, true]);
 				await page.waitForTimeout(3_000);
-				expect(modelRequests()).toBe(asked);
+				expect(modelRequests()).toHaveLength(2);
 				expect(streamBodies).toHaveLength(2);
 				expect(
 					(await savedMessages(page, conversationId)).map(
 						(message) => message.role,
 					),
-				).toEqual(["user", "assistant"]);
+				).toEqual(["user", "assistant", "user", "assistant"]);
 			} finally {
 				await page.unroute("**/api/chat/stream").catch(() => undefined);
 				await restoreTheUsersModel(page, providerId);
@@ -1165,7 +1233,12 @@ test.describe("Editing a message in the composer", () => {
 					.toBe("an idea for after the reply");
 
 				releaseTheReply();
-				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+				await expect(
+					page
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible({
 					timeout: 30_000,
 				});
 				await expect.poll(() => turnHasSettled(conversationId)).toBe(true);
@@ -1217,7 +1290,12 @@ test.describe("Editing a message in the composer", () => {
 					}
 
 					releaseTheReply();
-					await expect(page.getByText(/fake provider response/i)).toBeVisible({
+					await expect(
+						page
+							.getByTestId("assistant-message")
+							.locator(".prose-container")
+							.getByText(/fake provider response/i),
+					).toBeVisible({
 						timeout: 30_000,
 					});
 					await expect.poll(() => turnHasSettled(conversationId)).toBe(true);
@@ -1282,7 +1360,12 @@ test.describe("Editing a message in the composer", () => {
 				);
 				await page.getByTestId("send-button").click();
 
-				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+				await expect(
+					page
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible({
 					timeout: 30_000,
 				});
 				await expect(composer).toHaveValue("");
@@ -1362,7 +1445,12 @@ test.describe("Editing a message in the composer", () => {
 				await firstRead;
 				releaseCapabilities();
 
-				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+				await expect(
+					page
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible({
 					timeout: 30_000,
 				});
 				expect(landingDeleteLost).toBe(true);
@@ -1675,7 +1763,12 @@ test.describe("The words in the composer stay with their chat", () => {
 				const sent = page.getByTestId("user-message").last();
 				await expect(sent).toContainText("C: typed since");
 				await expect(sent).toContainText("B: queued behind the reply");
-				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+				await expect(
+					page
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible({
 					timeout: 30_000,
 				});
 				await expect(composer).toHaveValue("");
@@ -1766,7 +1859,12 @@ test.describe("The words in the composer stay with their chat", () => {
 					{ timeout: 15_000 },
 				);
 				await page.getByTestId("send-button").click();
-				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+				await expect(
+					page
+						.getByTestId("assistant-message")
+						.locator(".prose-container")
+						.getByText(/fake provider response/i),
+				).toBeVisible({
 					timeout: 30_000,
 				});
 				await expect.poll(() => turnHasSettled(conversationId)).toBe(true);
