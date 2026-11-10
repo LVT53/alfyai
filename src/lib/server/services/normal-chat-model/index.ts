@@ -414,6 +414,9 @@ export type StreamingNormalChatModelRunEvent =
 	  }
 	| {
 			type: "finish";
+			stepCount?: number;
+			lastStepOutputTokens?: number;
+			droppedToolCalls?: number;
 			finishReason: FinishReason;
 			rawFinishReason: string | undefined;
 			model: NormalChatModelRunModelMetadata;
@@ -1800,6 +1803,9 @@ async function* streamStreamingNormalChatModelRunAttempt(
 		// loop; the last step's own input count is the real size of the final
 		// prompt, which the context usage ring reports.
 		let lastStepInputTokens: number | undefined;
+		let stepCount = 0;
+		let lastStepOutputTokens: number | undefined;
+		let droppedToolCalls = 0;
 		for await (const part of fullStream) {
 			switch (part.type) {
 				case "text-delta":
@@ -1813,6 +1819,14 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					}
 					break;
 				case "tool-call":
+					if (typeof part.toolName === "string" && !isShown(part.toolName)) {
+						droppedToolCalls++;
+						console.warn(
+							"[NORMAL_CHAT_MODEL] dropped a call to a tool that is not offered",
+							part.toolName.slice(0, 40),
+						);
+						break;
+					}
 					if (
 						typeof part.toolCallId !== "string" ||
 						typeof part.toolName !== "string" ||
@@ -1858,6 +1872,8 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					};
 					break;
 				case "finish-step":
+					stepCount++;
+					lastStepOutputTokens = part.usage?.outputTokens;
 					if (
 						part.response &&
 						typeof part.response === "object" &&
@@ -1887,6 +1903,9 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					};
 					yield {
 						type: "finish",
+						stepCount,
+						lastStepOutputTokens,
+						droppedToolCalls,
 						finishReason: part.finishReason,
 						rawFinishReason: part.rawFinishReason,
 						model: modelMetadata(

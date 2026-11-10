@@ -4713,12 +4713,67 @@ describe("Streaming Normal Chat Model Run", () => {
 		expect(secondMessages.length).toBeLessThan(50_000);
 	});
 
+	it.each([
+		1, 3,
+	])("records original finish statistics for %i steps", async (count) => {
+		const fetch = vi.fn<typeof globalThis.fetch>();
+		for (let i = 0; i < count; i++) {
+			fetch.mockResolvedValueOnce(
+				createStreamResponse([
+					...(i < count - 1
+						? [
+								{
+									toolCalls: [
+										{
+											id: `call-${i}`,
+											name: "research_web",
+											arguments: JSON.stringify({ query: `query-${i}` }),
+										},
+									],
+								},
+							]
+						: [{ content: "The answer." }]),
+					{
+						finishReason: i < count - 1 ? "tool_calls" : "stop",
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: i + 3,
+							total_tokens: i + 14,
+						},
+					},
+				]),
+			);
+		}
+		const events = await collectStreamingEvents({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+			},
+			messages: [userTextMessage("Research this")],
+			tools: { research_web: createResearchWebTool() },
+			fetch,
+			maxRetries: 0,
+		});
+		expect(events.at(-1)).toMatchObject({
+			type: "finish",
+			stepCount: count,
+			lastStepOutputTokens: count + 2,
+			droppedToolCalls: 0,
+		});
+	});
+
 	// "done" is the call a model makes from habit; "wrap_up" shows the rule is
 	// about the tool set the run was built with, not about one name.
 	it.each([
 		"done",
 		"wrap_up",
+		"x".repeat(60),
 	])("goes on after a call to a tool it does not offer, and shows nothing of that call (%s)", async (unofferedToolName) => {
+		const log = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 		const fetch = vi
 			.fn<typeof globalThis.fetch>()
 			.mockImplementationOnce(async () =>
@@ -4780,6 +4835,25 @@ describe("Streaming Normal Chat Model Run", () => {
 		expect(events).toContainEqual(
 			expect.objectContaining({ type: "finish", finishReason: "stop" }),
 		);
+
+		expect(events.at(-1)).toMatchObject({
+			stepCount: 2,
+			lastStepOutputTokens: 6,
+			droppedToolCalls: 1,
+		});
+		expect(
+			log.mock.calls.filter(
+				([line]) =>
+					line ===
+					"[NORMAL_CHAT_MODEL] dropped a call to a tool that is not offered",
+			),
+		).toEqual([
+			[
+				"[NORMAL_CHAT_MODEL] dropped a call to a tool that is not offered",
+				unofferedToolName.slice(0, 40),
+			],
+		]);
+		log.mockRestore();
 
 		// The model is answered with the SDK's own error for the call.
 		const sdkError = new NoSuchToolError({
