@@ -5,8 +5,15 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { get } from "svelte/store";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
+import {
+	pendingSpotlight,
+	requestSpotlight,
+	spotlightRequest,
+} from "$lib/stores/spotlight";
 import {
 	landingIncognitoArmed,
 	landingIncognitoArmVisible,
@@ -111,6 +118,93 @@ describe("Header — incognito", () => {
 		expect(
 			screen.queryByLabelText("Incognito — not remembered"),
 		).not.toBeInTheDocument();
+	});
+});
+
+// The Feature Guide's Show me for the mask button names it `home.incognito`,
+// and the button on the landing page carries the same name (`HomeSurface`).
+// This one is the phone's: the header is `lg:hidden`, so on a desktop window it
+// has no layout and leaves the request for the landing page's own button.
+describe("Header — the guide's Show me", () => {
+	let restoreLayout: () => void = () => undefined;
+
+	beforeEach(() => {
+		// The ring waits one animation frame; the test steps it by hand.
+		vi.useFakeTimers({
+			toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+		});
+		restoreLayout = stubLayoutForSpotlight();
+		spotlightRequest.set(null);
+		landingIncognitoArmed.set(false);
+		landingIncognitoArmVisible.set(true);
+	});
+
+	afterEach(() => {
+		restoreLayout();
+		vi.useRealTimers();
+		spotlightRequest.set(null);
+		landingIncognitoArmVisible.set(false);
+	});
+
+	it("rings the phone's incognito button when Show me asks for it", () => {
+		requestSpotlight("home.incognito");
+
+		render(Header, {});
+
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect(screen.getByTestId("incognito-arm-phone")).toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	// The landing page decides when the button is drawn (it sets the store when
+	// it mounts), so on the way from the guide the request is made before the
+	// button exists.
+	it("rings the button when the landing page draws it after the request", async () => {
+		landingIncognitoArmVisible.set(false);
+		render(Header, {});
+		expect(screen.queryByTestId("incognito-arm-phone")).toBeNull();
+
+		requestSpotlight("home.incognito");
+		landingIncognitoArmVisible.set(true);
+		await tick();
+
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect(screen.getByTestId("incognito-arm-phone")).toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	it("leaves the request alone while the header is not on screen", () => {
+		const withLayout = Element.prototype.getClientRects;
+		Element.prototype.getClientRects = function (this: Element) {
+			return this.closest("header")
+				? ([] as unknown as DOMRectList)
+				: withLayout.call(this);
+		};
+		requestSpotlight("home.incognito");
+
+		render(Header, {});
+		vi.advanceTimersToNextFrame();
+
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("home.incognito");
+		expect(screen.getByTestId("incognito-arm-phone")).not.toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	it("leaves a request for another control alone", () => {
+		requestSpotlight("home.home");
+
+		render(Header, {});
+		vi.advanceTimersToNextFrame();
+
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("home.home");
+		expect(screen.getByTestId("incognito-arm-phone")).not.toHaveClass(
+			"spotlight-ring",
+		);
 	});
 });
 

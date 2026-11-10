@@ -1,6 +1,7 @@
 <script lang="ts">
 import { goto, invalidateAll } from "$app/navigation";
 import { onMount } from "svelte";
+import { spotlightTarget } from "$lib/actions/spotlight";
 import { logout } from "$lib/client/api/auth";
 import { clearClientAccountState } from "$lib/client/session-boundary";
 import { t } from "$lib/i18n";
@@ -216,6 +217,7 @@ onMount(() => {
 				<button
 					class="btn-icon-bare hbtn"
 					data-testid="incognito-arm-phone"
+					use:spotlightTarget={"home.incognito"}
 					onclick={armIncognito}
 					aria-label={$t('chat.incognitoArm')}
 					title={$t('chat.incognitoArm')}

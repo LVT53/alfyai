@@ -16,6 +16,7 @@
  * own chats and has no weekly bars at all.
  */
 import { goto } from "$app/navigation";
+import { spotlightTarget } from "$lib/actions/spotlight";
 import PhotoMarkDialog from "$lib/components/chat/PhotoMarkDialog.svelte";
 import { showToast } from "$lib/stores/toast";
 import {
@@ -1300,6 +1301,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					type="button"
 					class="incognito-arm"
 					data-testid="incognito-arm"
+					use:spotlightTarget={"home.incognito"}
 					aria-label={$t('chat.incognitoArm')}
 					aria-describedby="incognito-arm-tooltip"
 					onclick={armIncognito}
@@ -1345,7 +1347,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					     right-aligned and sitting on the greeting's baseline. Armed
 					     incognito replaces both with a single italic line — nothing here
 					     is counted, so the record goes with the rest of the board. -->
-					<div class="home-band" in:greetingFade={{ duration: isFromChat ? 400 : 0, delay: isFromChat ? 100 : 0 }}>
+					<div class="home-band" use:spotlightTarget={"home.home"} in:greetingFade={{ duration: isFromChat ? 400 : 0, delay: isFromChat ? 100 : 0 }}>
 						{#if isProjectMode}
 							<!-- The project's name is the page's anchor, armed or not: the
 							     tint and the italic face are what say "this chat is not

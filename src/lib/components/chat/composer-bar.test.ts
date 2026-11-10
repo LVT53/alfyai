@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SPOTLIGHT_IDS } from "$lib/app-places";
 import {
 	accountsBadge,
 	accountsIsOn,
@@ -6,9 +7,11 @@ import {
 	attachIsOn,
 	attachTooltip,
 	buildComposerMenuRows,
+	COMPOSER_MENU_SPOTLIGHTS,
 	type ComposerMenuInput,
 	groupComposerMenuRows,
 	nextMenuIndex,
+	opensComposerMenu,
 	thinkingTooltip,
 } from "./composer-bar";
 
@@ -257,5 +260,35 @@ describe("nextMenuIndex", () => {
 
 	it("returns null when every row is disabled", () => {
 		expect(nextMenuIndex([{ disabled: true }], 0, "ArrowDown")).toBeNull();
+	});
+});
+
+// The guide's Show me rings a real control. Three of the controls it can ring
+// live inside the "+" menu, so the composer opens the menu for them first and
+// the row's own marker takes the request when it mounts.
+describe("opensComposerMenu", () => {
+	it("opens the + menu only for the controls that live in it", () => {
+		expect(COMPOSER_MENU_SPOTLIGHTS.every(opensComposerMenu)).toBe(true);
+		expect(opensComposerMenu("composer.thinking")).toBe(false);
+		expect(opensComposerMenu(null)).toBe(false);
+	});
+
+	it("opens nothing for a control anywhere else in the app", () => {
+		const elsewhere = SPOTLIGHT_IDS.filter(
+			(id) => !(COMPOSER_MENU_SPOTLIGHTS as readonly string[]).includes(id),
+		);
+		expect(elsewhere.length).toBeGreaterThan(0);
+		for (const id of elsewhere) {
+			expect(opensComposerMenu(id), id).toBe(false);
+		}
+	});
+
+	// A spotlight id for a row the menu does not draw would open a menu that
+	// has nothing to ring.
+	it("names only rows the menu draws", () => {
+		const drawn = buildComposerMenuRows(fullMenu).map((row) => row.id);
+		for (const id of COMPOSER_MENU_SPOTLIGHTS) {
+			expect(drawn, id).toContain(id.replace("composer.", ""));
+		}
 	});
 });

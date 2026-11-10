@@ -73,6 +73,7 @@ import {
 	type MenuPlacement,
 	type PlacementRect,
 } from "./composer-placement";
+import { spotlightTarget } from "$lib/actions/spotlight";
 import { hasOpenDialog } from "$lib/components/ui/DialogShell.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import { maxFileUploadSizeMb } from "$lib/stores/upload-limits";
@@ -533,6 +534,7 @@ onMount(() => {
 				role="menuitem"
 				tabindex={focusedIndex === index ? 0 : -1}
 				use:registerRow={row.id}
+				use:spotlightTarget={"composer.attach"}
 				data-testid="composer-menu-attach"
 				disabled={!canAttach}
 				title={attachmentsEnabled ? $t('composerTools.attachFileMaxSize', { max: maxUploadMb ?? $maxFileUploadSizeMb }) : $t('composerTools.uploadsUnavailable')}
@@ -551,6 +553,7 @@ onMount(() => {
 				role="menuitem"
 				tabindex={focusedIndex === index ? 0 : -1}
 				use:registerRow={row.id}
+				use:spotlightTarget={"composer.library"}
 				data-testid="composer-menu-library"
 				onfocus={() => (focusedIndex = index)}
 				onclick={() => {
@@ -602,6 +605,7 @@ onMount(() => {
 					aria-describedby={row.disabled ? 'atlas-unavailable-reason' : undefined}
 					tabindex={focusedIndex === index ? 0 : -1}
 					use:registerRow={row.id}
+					use:spotlightTarget={"composer.atlas"}
 					data-testid="composer-menu-atlas"
 					disabled={row.disabled}
 					title={atlasAvailable ? $t('composerTools.atlasDescription') : atlasUnavailableReason}

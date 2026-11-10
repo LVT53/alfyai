@@ -2,15 +2,22 @@ import { render, screen, waitFor } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
 import {
 	consumeHomeComposerSeed,
 	setLandingDraftConversationId,
 	storeHomeComposerSeed,
 } from "$lib/client/conversation-session";
+import Header from "$lib/components/layout/Header.svelte";
 import { t } from "$lib/i18n";
 import type { ConversationDraft } from "$lib/server/services/conversations";
 import { uiLanguage } from "$lib/stores/settings";
+import { requestSpotlight, spotlightRequest } from "$lib/stores/spotlight";
 import { clearToasts, toasts } from "$lib/stores/toast";
+import {
+	landingIncognitoArmed,
+	landingIncognitoArmVisible,
+} from "$lib/stores/ui";
 import HomeSurface from "./HomeSurface.svelte";
 
 /**
@@ -481,5 +488,225 @@ describe("HomeSurface and an example Try it left for Home", () => {
 
 		// A toast now would land on whatever page the person went to.
 		expect(get(toasts)).toEqual([]);
+	});
+});
+
+// The Feature Guide's Show me asks for a control by name and the control that
+// carries the name rings itself. Home carries the mask button and the greeting
+// band, and through its composer the Thinking button and the rows of the "+"
+// menu. The phone header has a twin of the mask button, so a test here renders
+// the header beside the surface too.
+describe("HomeSurface and the guide's Show me", () => {
+	let restoreLayout: () => void = () => undefined;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		fetchConversationDetailMock.mockReset();
+		uiLanguage.set("en");
+		gotoMock.mockResolvedValue(undefined);
+		sessionStorage.clear();
+		// The ring waits one animation frame; the test steps it by hand.
+		vi.useFakeTimers({
+			toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+		});
+		restoreLayout = stubLayoutForSpotlight();
+		spotlightRequest.set(null);
+		landingIncognitoArmed.set(false);
+		landingIncognitoArmVisible.set(false);
+	});
+
+	afterEach(() => {
+		restoreLayout();
+		vi.useRealTimers();
+		spotlightRequest.set(null);
+		landingIncognitoArmed.set(false);
+		landingIncognitoArmVisible.set(false);
+	});
+
+	it("rings the incognito button when Show me asks for it", () => {
+		requestSpotlight("home.incognito");
+
+		renderHome();
+
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect(screen.getByTestId("incognito-arm")).toHaveClass("spotlight-ring");
+	});
+
+	it("rings the greeting band when Show me asks for Home", () => {
+		requestSpotlight("home.home");
+
+		const { container } = renderHome();
+
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect(container.querySelector(".home-band")).toHaveClass("spotlight-ring");
+		expect(screen.getByTestId("incognito-arm")).not.toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	it("opens the + menu and rings its Library row when Show me asks for it", async () => {
+		requestSpotlight("composer.library");
+
+		renderHome();
+
+		await waitFor(() =>
+			expect(screen.getByTestId("composer-tools-menu")).toBeInTheDocument(),
+		);
+		expect(screen.getByTestId("composer-tools-trigger")).toHaveAttribute(
+			"aria-expanded",
+			"true",
+		);
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect(screen.getByTestId("composer-menu-library")).toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	// Home reads the landing page's saved draft from the server after it opens,
+	// and a draft that is applied shuts the menu. It must not shut the menu Show
+	// me has just opened, with the row's ring still waiting for its frame.
+	it("keeps the menu open when the saved Home draft is read after it opened", async () => {
+		let answerTheRead: (detail: unknown) => void = () => undefined;
+		setLandingDraftConversationId("landing-1");
+		fetchConversationDetailMock.mockReturnValue(
+			new Promise((resolve) => {
+				answerTheRead = resolve;
+			}),
+		);
+		requestSpotlight("composer.library");
+
+		renderHome();
+		await waitFor(() =>
+			expect(screen.getByTestId("composer-tools-trigger")).toHaveAttribute(
+				"aria-expanded",
+				"true",
+			),
+		);
+		answerTheRead({
+			conversation: {
+				id: "landing-1",
+				title: "New Conversation",
+				projectId: null,
+				memoryIncognito: false,
+			},
+			messages: [],
+			generatedFiles: [],
+			draft: {
+				conversationId: "landing-1",
+				draftText: "my words",
+				selectedAttachmentIds: [],
+				selectedAttachments: [],
+				selectedLinkedSources: [],
+				pendingSkill: null,
+				updatedAt: 1_700_000_000_000,
+			},
+		});
+		await waitFor(() =>
+			expect(
+				screen.getByPlaceholderText(get(t)("chat.messagePlaceholder")),
+			).toHaveValue("my words"),
+		);
+
+		expect(screen.getByTestId("composer-tools-trigger")).toHaveAttribute(
+			"aria-expanded",
+			"true",
+		);
+		vi.advanceTimersToNextFrame();
+		expect(screen.getByTestId("composer-menu-library")).toHaveClass(
+			"spotlight-ring",
+		);
+	});
+
+	it("opens the + menu and rings its Atlas row when Atlas is offered", async () => {
+		requestSpotlight("composer.atlas");
+
+		render(HomeSurface, {
+			mode: { kind: "home" },
+			recent: [],
+			atlasAvailability: { enabled: true, configured: true, reasonCode: null },
+		});
+
+		await waitFor(() =>
+			expect(screen.getByTestId("composer-menu-atlas")).toBeInTheDocument(),
+		);
+		vi.advanceTimersToNextFrame();
+		expect(screen.getByTestId("composer-menu-atlas")).toHaveClass(
+			"spotlight-ring",
+		);
+		expect(get(spotlightRequest)).toBeNull();
+	});
+
+	it("rings the Thinking button on the bar without opening the menu", async () => {
+		requestSpotlight("composer.thinking");
+
+		renderHome();
+		await tick();
+
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect(screen.getByTestId("thinking-bar-toggle")).toHaveClass(
+			"spotlight-ring",
+		);
+		expect(screen.getByTestId("composer-tools-trigger")).toHaveAttribute(
+			"aria-expanded",
+			"false",
+		);
+	});
+
+	// The mask button is drawn twice: here, for a desktop window, and in the
+	// phone header (`lg:hidden` on the header, `display: none` below 1024px on
+	// this one). Both carry the id, and the one that has no layout leaves the
+	// request for the one that has. jsdom has no layout, so the test says which
+	// copy is on screen.
+	describe("with the phone header's twin of the mask button", () => {
+		function renderWithHeader(hidden: "header" | "home") {
+			const withLayout = Element.prototype.getClientRects;
+			Element.prototype.getClientRects = function (this: Element) {
+				const insideHidden =
+					hidden === "header"
+						? this.closest("header") !== null
+						: this.closest(".incognito-arm-wrap") !== null;
+				return insideHidden
+					? ([] as unknown as DOMRectList)
+					: withLayout.call(this);
+			};
+			render(Header, {});
+			return renderHome();
+		}
+
+		it("rings this one on a desktop window, where the header is not shown", async () => {
+			requestSpotlight("home.incognito");
+
+			renderWithHeader("header");
+			await tick();
+
+			expect(screen.getByTestId("incognito-arm-phone")).toBeInTheDocument();
+			expect(get(spotlightRequest)).toBeNull();
+			vi.advanceTimersToNextFrame();
+			expect(screen.getByTestId("incognito-arm")).toHaveClass("spotlight-ring");
+			expect(screen.getByTestId("incognito-arm-phone")).not.toHaveClass(
+				"spotlight-ring",
+			);
+		});
+
+		it("rings the header's on a phone, where this one is not shown", async () => {
+			requestSpotlight("home.incognito");
+
+			renderWithHeader("home");
+			await tick();
+
+			expect(screen.getByTestId("incognito-arm-phone")).toBeInTheDocument();
+			expect(get(spotlightRequest)).toBeNull();
+			vi.advanceTimersToNextFrame();
+			expect(screen.getByTestId("incognito-arm-phone")).toHaveClass(
+				"spotlight-ring",
+			);
+			expect(screen.getByTestId("incognito-arm")).not.toHaveClass(
+				"spotlight-ring",
+			);
+		});
 	});
 });
