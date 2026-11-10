@@ -42,7 +42,10 @@ def v_current(q, emb):
     return order(short, lambda r: 0.35 * r["L"])
 
 
-def make_sum(wl, ws, wr, lex_fraction=False, rerank_by="lexical", cap=CAP, power=1.0, full=0.0):
+BOUNDARY_RATE = 0.05  # context.ts applyConversationBoundaryPenalty: score * exp(-0.05 * days) outside the current conversation
+
+
+def make_sum(wl, ws, wr, lex_fraction=False, rerank_by="lexical", cap=CAP, power=1.0, full=0.0, boundary=0.0):
     def lexical(q, r):
         if not lex_fraction:
             return r["L"]
@@ -62,11 +65,20 @@ def make_sum(wl, ws, wr, lex_fraction=False, rerank_by="lexical", cap=CAP, power
         def key(r):
             s = r[emb] if r["id"] in sem else 0.0
             rr = r["R"] if (r["id"] in reranked and r["R"] is not None) else 0.0
-            return wl * lexical(q, r) + ws * s + wr * rr - r["age_days"] * RECENCY
+            total = wl * lexical(q, r) + ws * s + wr * rr
+            if boundary:
+                total = (total + 1.78) * math.exp(-boundary * r["age_days"])  # 1.78 = updatedAt / 1e12, inside the app's sum
+            return total - r["age_days"] * RECENCY
 
         return order(short, key)
 
     return v
+
+
+def v_current_boundary(q, emb):
+    # today's order, then context.ts's penalty: 0.35 * lexical * exp(-0.05 * days)
+    short, sem = shortlist(q, emb)
+    return order(short, lambda r: 0.35 * r["L"] * math.exp(-BOUNDARY_RATE * r["age_days"]))
 
 
 def make_rrf(wl, ws, wr, k=60, cap=CAP):
@@ -192,6 +204,19 @@ FINAL = [
     ("ref  retrieve by cosine, rerank the top 8", v_retrieve_rerank),
 ]
 
+if len(sys.argv) > 2 and sys.argv[2] == "boundary":
+    # what context.ts then does to documents outside the current conversation, library uploads included
+    shipped_pen = make_sum(10, 18, 24, lex_fraction=True, rerank_by="hybrid", power=2.0, full=8.0, boundary=BOUNDARY_RATE)
+    shipped_half = make_sum(10, 18, 24, lex_fraction=True, rerank_by="hybrid", power=2.0, full=8.0, boundary=BOUNDARY_RATE / 2)
+    rows = [
+        ("0  today", v_current),
+        ("0b today, then context.ts's penalty", v_current_boundary),
+        ("1  shipped", SHIPPED),
+        ("1b shipped, then the penalty (0.05 / day)", shipped_pen),
+        ("1c shipped, then half the penalty", shipped_half),
+    ]
+    table(rows, "s4", label="BOUNDARY PENALTY, 4B embedder (ages 1-60 days, random)")
+    sys.exit(0)
 if len(sys.argv) > 2 and sys.argv[2] == "final":
     table(FINAL, "s4", label="FINAL, 4B embedder (production now)")
     table(FINAL, "s06", label="FINAL, old 0.6B embedder")

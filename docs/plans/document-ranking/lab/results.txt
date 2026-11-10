@@ -30,3 +30,12 @@ variant                                               A          P          K   
 Gain of the shipped order over today's, MRR x100, mean of the nine sets (paired bootstrap over queries, 95% interval):
   s4: +36.1  [+34.0 .. +38.3]
   s06: +34.5  [+32.3 .. +36.7]
+
+
+BOUNDARY PENALTY, 4B embedder (ages 1-60 days, random)  (hit@1 / MRR, x100; embedder s4)
+variant                                               A          P          K          B          C          D          E          H          W       mean  cross-lang   lexical
+0  today                                       82/ 87   100/100   100/100    17/ 27    12/ 19    40/ 48    48/ 57    52/ 62    58/ 66       63.0        23.2     100.0
+0b today, then context.ts's penalty            36/ 45    55/ 63    97/ 98    16/ 26     6/ 14    19/ 30    10/ 21    36/ 48    24/ 35       42.3        20.4      80.7
+1  shipped                                     99/ 99   100/100   100/100    95/ 98    99/ 99    96/ 98    99/ 99   100/100   100/100       99.2        98.4     100.0
+1b shipped, then the penalty (0.05 / day)      47/ 56    58/ 69    65/ 73    35/ 46    37/ 50    43/ 53    43/ 55    55/ 63    64/ 71       59.4        47.6      70.9
+1c shipped, then half the penalty              88/ 91   100/100    98/ 99    58/ 66    76/ 81    78/ 84    84/ 87    92/ 94    93/ 95       88.6        73.6      99.6

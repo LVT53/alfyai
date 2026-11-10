@@ -19,13 +19,14 @@ in the lab). A question in one language almost never found its answer in the oth
 the same documents), and a paraphrase lost to any document that shared a few everyday words with the question. On staging, with documents
 hours old, the embedder alone put the right one first in 84 to 94% of the probe's queries and the app's order in 36%.
 
-Two more things sit next to it and were left alone: `working-set.ts` calls the same function with an age in seconds, and for a non-empty
-query the candidates are the 120 most recently updated documents (`SEMANTIC_ARTIFACT_CANDIDATE_LIMIT`), so an older document is never in the running.
+A second, smaller age factor sits downstream of it (below, "The second age factor"). Two more things sit next to it and were left alone:
+`working-set.ts` calls the same function with an age in seconds, and for a non-empty query the candidates are the 120 most recently
+updated documents (`SEMANTIC_ARTIFACT_CANDIDATE_LIMIT`), so an older document is never in the running.
 
 ## What replaced it
 
 1. No decay. The sum is the order: `relevance + updatedAt / 1e12 + projectBoost`, recency being the last tie-break (a day moves it by less
-   than a thousandth). `finalScore` is only an order; `lexicalScore`, `semanticScore` and `rerankScore` leave unchanged for the
+   than a thousandth). `finalScore` is only an order; `lexicalScore`, `semanticScore` and `rerankScore` are passed on unchanged, for the
    cross-conversation rule's thresholds.
 2. The words count as a **share of the query's words, squared** (x10), plus 8 when a query of three words or more is found whole in the document.
    A question is mostly everyday words ("the", "for", "notice") that any document holds; a document has to hold most of them before the words
@@ -34,13 +35,28 @@ query the candidates are the 120 most recently updated documents (`SEMANTIC_ARTI
 3. The reranker scores only the first 8 documents it is handed (`TEI_RERANKER_MAX_TEXTS`). It is handed the 8 likeliest by words and cosine
    together, not the first 8 word hits.
 
+## The second age factor
+
+`findRelevantKnowledgeArtifacts` (`knowledge/context.ts`) re-sorts the search's result, multiplying the score of every document outside the
+current conversation by `exp(-0.05 * days since it was updated)`, a half-life of a fortnight (`applyConversationBoundaryPenalty`). For
+another chat's documents that is a design: they are gated first (enough words, or a cosine or reranker score above 0.75, or named in the
+question) and then discounted by age. A document that belongs to no conversation (a library or project upload, `conversationId` null) has no
+boundary to cross and no gate, so everything with a word hit or in the cosine shortlist is a candidate, and the discount alone decided which
+few reached the prompt: the newest, not the best.
+
+In the lab, with documents aged 1 to 60 days (a library built up over two months), today's order falls from 63.0 to 42.3 once that
+penalty is applied, and the order above from 99.2 to 59.4 (88.6 with half the penalty; `lab/results.txt`, "BOUNDARY PENALTY"). Fixing only
+the search would have reached the prompt mostly cancelled for library uploads. So the penalty now applies to documents of other
+conversations only (`context.ts`, `insideTheBoundary = !isCrossConversation`); the gate, the penalty and the eligibility rule for those are
+untouched. A library written within a week would have felt this much less than the lab's.
+
 ## The numbers
 
 A lab on public text only (HunSum-2, Belebele Hungarian and English, WebFAQ Hungarian and English; `lab/prep.py` builds the sets). Nine sets
 of 60 to 100 queries. Each query has one right document among 120 (the app's candidate limit), the other 119 drawn from the same corpus, with
 random ages of 1 to 60 days. For every pair the lab records the three signals the app has: `scoreMatch` ported exactly, the cosine of the
 4B embedder at 1024-d (production since 2026-11-10) and of the old 0.6B, and the probability of `bge-reranker-v2-m3` through TEI. Formulas are then
-scored offline on the recorded signals (`lab/rank-lab-eval.py`), with the app's own shortlist (12 word hits, 24 by cosine) and the
+scored offline on the recorded signals (`lab/rank-lab-eval.py`), with the app's own shortlist (12 word hits at a limit of 5, 24 by cosine) and the
 reranker's cap of 8; the project boost is not in the lab. Right-first (hit@1) and MRR, in percent:
 
 | set | today | shipped | shipped, reranker down | embedder alone |
@@ -91,9 +107,13 @@ twice the reranker's work; what it is handed mattered more than how many.
 
 `documents.ranking-order.test.ts` runs the real search over a real migrated SQLite file with the cosines and the reranker set by hand
 (cross-language with no shared word, everyday words against meaning, an exact phrase against a look-alike, what the reranker is handed,
-relevance against recency, recency as the tie-break). Each test was seen to fail on the old order, and four deliberate breakages of the
-new code (no bonus, share not squared, reranker handed the shortlist order, bonus from two words) each fail the test meant to catch them.
+relevance against recency, recency as the tie-break). Four of the six were seen to fail on the old order; the other two pin what must not
+change (a quoted phrase still beats a look-alike, the newer of two equal documents still comes first), and the first of them fails
+without the every-word bonus. Four deliberate breakages of the new code (no bonus, share not squared, reranker handed the shortlist order,
+bonus from two words) each fail the test meant to catch them.
 The arithmetic in `document-ranking.ts`, run in TypeScript over the lab's recorded signals, reproduces the table above to the digit.
+`context.test.ts` ("orders documents that belong to no conversation by relevance...") failed on the old penalty and fails again when the
+penalty is put back on them.
 
 ## Reproduce
 
