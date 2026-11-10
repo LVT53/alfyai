@@ -483,7 +483,8 @@ function anyEntries(
 
 // A definite verb carries "it" unless an accusative object follows (with or without an article).
 const PREVERB = `(?:\\s+(?:le|ki|at|meg|ossze|ujra|fel|el|be|vissza)${NOT_LETTER})?`;
-const BARE_TAIL = `(?!${PREVERB}\\s+(?:(?:a|az)\\s+)?(?:[\\p{L}\\d]+\\s+){0,2}[\\p{L}]*t${NOT_LETTER})`;
+const ADVERB_WITH_T = "(?:most|kicsit|picit|keveset|ismet|ujfent|rogvest)";
+const BARE_TAIL = `(?!${PREVERB}\\s+(?:(?:a|az)\\s+)?(?:[\\p{L}\\d]+\\s+){0,2}(?!${ADVERB_WITH_T}${NOT_LETTER})[\\p{L}]*t${NOT_LETTER})`;
 
 export interface DocumentWording {
 	focusNoun: boolean;

@@ -260,3 +260,10 @@ it("does not use spring water as an existing document source", () => {
 		selection("Készíts PDF-et a forrásvízről").activeFocus.artifactIds,
 	).toEqual([]);
 });
+it.each([
+	"Foglald össze most",
+	"Írd át kicsit formálisabbra",
+	"Rövidítsd le egy kicsit",
+])("keeps an adverb from becoming an explicit object: %s", (message) => {
+	expect(selection(message).activeFocus.artifactIds).toEqual(["doc-1"]);
+});

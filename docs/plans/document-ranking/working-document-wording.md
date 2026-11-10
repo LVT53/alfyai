@@ -87,7 +87,7 @@ through its own focus wording. Topic changes still release it. English integrati
   decomposed Unicode typing. The original text is still used everywhere else.
 - A definite imperative or conditional can carry the omitted object: `Írd át formálisabbra`.
   An accusative object immediately following it, with or without an article, blocks that inference:
-  `Írd át a bevezetőt`, `Foglald össze Hamlet cselekményét`. The search is bounded to three words.
+  `Írd át a bevezetőt`, `Foglald össze Hamlet cselekményét`. The search is bounded to three words; common adverbs ending in `t` (`most`, `kicsit`, `ismét`) remain modifiers rather than objects.
   In the prototype, assuming every definite verb meant the open document hit 11/15 tempting
   off-topic requests; requiring no explicit object reduced that to 1/15. Review additionally
   covered article-free named objects; final follow-up recall is 19/40, rather than the prototype's 20/40.
