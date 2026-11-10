@@ -82,7 +82,11 @@ does.
 2. The chunk runtime (`createServerChunkRuntime`, `stream.ts`) keeps one more fact, `hasTextAfterLastToolCall`: false
    at the start; true once a visible chunk with a non-whitespace character has been put on screen (where
    `answerStarted` becomes true); false again at a tool-call event whose tool is not a delivering tool (where
-   `answerStarted` is reset). `answerStarted` itself is not changed.
+   `answerStarted` is reset). `answerStarted` itself is not changed. For this fact a chunk is visible only when it
+   holds a character that is neither whitespace nor zero-width (U+200B, U+200C, U+200D, U+2060, U+FEFF): on staging
+   Kimi and DeepSeek each "answered" with one U+200B. Put that test in one exported helper beside the stream cleanup
+   helpers (`src/lib/services/stream-protocol.ts`) so the repair (point 5) uses the same one.
+   `hasVisibleAssistantAnswerOutput` keeps its meaning.
 3. `stream-terminal.ts`, `completeOrRecoverAfterUpstreamEnd` only. New dependency `hasFinalAnswer()`. After the stop
    and the pause, in this order:
    - `hasFinalAnswer()` or a completed file-production call: success, as today.
@@ -94,9 +98,9 @@ does.
    not recover ends in `completeSuccess(false, { noFinalAnswer: true })` when any visible text exists, and in
    `failStream("backend_failure")` when none does. `emitResolvedAssistantText` puts a blank line (`"\n\n"`) before the
    repair's text when visible text already exists and the new text does not start with a line break.
-5. `stream-fallback.ts`: an attempt counts as recovered only when the visible text grew during that attempt (today
-   "any visible text" passes at once after a preamble). Replace the `hasVisibleAssistantText` dependency with one that
-   can tell.
+5. `stream-fallback.ts`: an attempt counts as recovered only when the visible text grew during that attempt, by at
+   least one visible character in the sense of point 2 (today "any visible text" passes at once after a preamble).
+   Replace the `hasVisibleAssistantText` dependency with one that can tell.
 6. `stream-completion.ts`: `noFinalAnswer` adds the code `no_final_answer` to `completionWarningCodes` (never on a
    stopped turn) and such a turn asks for no follow-up chips. `ChatTurnCompletionWarningCode` gets the value.
 7. `MessageBubble.svelte` knows the code (`COMPLETION_WARNING_LABEL_KEYS`, `isKnownCompletionWarningCode`), key
@@ -168,8 +172,8 @@ and no message text.
 
 ## Task 4: A tools-off recovery asks for no reasoning (D6)
 
-**Files:** `src/lib/server/services/chat-turn/stream-fallback.ts` (+ test), and only if the documentation requires it
-the replay in the same file.
+**Files:** `src/lib/server/services/chat-turn/stream-fallback.ts` (+ test), `src/lib/services/stream-protocol.ts`
+(+ test) only for a shared opener check, and only if the documentation requires it the replay in the fallback file.
 
 **Behaviour:**
 
@@ -182,10 +186,25 @@ the replay in the same file.
    that family (`buildContinuationMessages`) is sent as text instead (`renderHistoryTurn` has a flatten mode). If not,
    the replay stays as it is.
 
+3. A tools-off recovery is told plainly that it cannot call tools. In `buildFallbackAttemptSystemPrompt` the sentence
+   for the ordinary case becomes: `The previous streaming attempt completed these tool calls before ending without a
+   final answer. You cannot call tools in this reply. Use this compact tool context to write the final answer now, as
+   plain text.` (one line in the code). The sentence for a file request stays as it is.
+4. A recovery reply that is a tool call written out as text is no reply. On staging's old code DeepSeek's recovery
+   twice returned its tool-call markup as the answer, and it was saved as one. The real replies are in
+   `.superpowers/sdd/plan/recovery-reply-samples.json` in the worktree (the two `<｜｜DSML｜｜ calls>` entries; the
+   bars are U+FF5C). A reply whose first visible characters open such a block counts as "returned no text" (the
+   existing second attempt, then the failure path). Recognise DeepSeek's opener from the samples, and whatever
+   tool-call openers the stream cleanup in `src/lib/services/stream-protocol.ts` already recognises; add no pattern
+   that neither a sample nor an existing test backs. A reply with no visible character (Task 2's helper) also counts
+   as no text.
+
 **Tests:** the request a tools-off recovery sends for a DeepSeek-family provider and for a Qwen-family provider has
 reasoning off (compare with what a "quick" turn sends for the same provider); a recovery that keeps its tools sends the
 turn's own setting; if the replay changed, a test that shows the DeepSeek request holds no assistant message with tool
-calls.
+calls; the new instruction sentence is in the tools-off request and the old one is in none; each DSML sample is
+treated as no text and leads to the second attempt, while a reply that merely mentions a tool in a sentence is kept;
+a reply of one U+200B is treated as no text.
 
 If neither step is a small change through existing seams, stop and report BLOCKED with what you found. Do not build a
 new mechanism.

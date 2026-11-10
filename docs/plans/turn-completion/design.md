@@ -52,6 +52,12 @@ audit reads data and not message text.
 for it. Three of the five empty endings were reasoning with no text, and a DeepSeek request without reasoning is not
 held to passing `reasoning_content` back (to be confirmed against DeepSeek's documentation in Task 4, then on staging).
 
+**D7. The repair's reply has to be an answer.** A tool call written out as text, or a reply with no visible character,
+counts as no reply. A baseline on staging's old code (2026-11-10, made-up prompts) showed why: DeepSeek's recovery twice
+returned its tool-call markup (`<｜｜DSML｜｜ calls>`) and it was saved as the answer, and Kimi and DeepSeek each returned
+a single zero-width space. The same baseline saved 1 of 20 Kimi tool turns as a preamble with nothing after the tool.
+The recovery is also told plainly that it cannot call tools.
+
 ## Where each rule lives
 
 | Rule | Owner |
