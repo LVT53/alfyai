@@ -1,7 +1,10 @@
 import type { RetryOrigin } from "$lib/chat-turn-origin";
 import { submitAtlasTurn } from "$lib/client/api/atlas";
 import type { ServerHealth } from "$lib/client/api/health";
-import { normalChatOutputView } from "$lib/client/normal-chat-output-view";
+import {
+	type NormalChatOutputView,
+	normalChatOutputView,
+} from "$lib/client/normal-chat-output-view";
 import {
 	SERVER_UPDATE_WATCH_MAX_MS,
 	SERVER_UPDATE_WATCH_POLL_MS,
@@ -49,6 +52,7 @@ import type {
 	UserPicturesMetadata,
 } from "$lib/shared/artifacts/image-body";
 import { type AskAnswer, isAskToolName } from "$lib/shared/ask-user";
+import { parseNormalChatFinalization } from "$lib/shared/normal-chat-completion";
 import type { NormalChatOutputProjection } from "$lib/shared/normal-chat-output";
 import {
 	isFileProductionToolName,
@@ -141,7 +145,7 @@ export type NormalChatMessageListEvent =
 	| {
 			type: "applyNormalChatOutput";
 			placeholderId: string;
-			view: NormalChatOutputProjection;
+			view: NormalChatOutputView;
 	  }
 	| { type: "appendToken"; placeholderId: string; chunk: string }
 	| { type: "appendThinking"; placeholderId: string; chunk: string }
@@ -427,6 +431,7 @@ type AnswerInFlight = {
 };
 
 type StartStreamParams = {
+	originatingStreamId?: string;
 	retainedPartial?: boolean;
 	observationRetryCount?: number;
 	message: string;
@@ -1671,9 +1676,10 @@ export function createNormalChatClientTurnRuntime(
 		// It remains a deliberate Retry; queued work returns to the draft.
 		const tail = adapters.getMessages().at(-1);
 		if (
-			canRetry &&
-			tail &&
-			normalChatOutputView(tail)?.completion?.outcome === "failed"
+			hasFinalizationFailure(tail) ||
+			(canRetry &&
+				tail &&
+				normalChatOutputView(tail)?.completion?.outcome === "failed")
 		) {
 			restoreQueuedTurnToDraft();
 			return;
@@ -1872,13 +1878,15 @@ export function createNormalChatClientTurnRuntime(
 	) {
 		return (
 			observation.conversationId === params.turnConversationId &&
-			observation.streamId === params.streamOptions.reconnectToStreamId
+			observation.streamId ===
+				(params.streamOptions.reconnectToStreamId ?? params.originatingStreamId)
 		);
 	}
 
 	async function settleObservation(
 		params: StartStreamParams,
 		observation: Exclude<NormalChatTurnObservation, { state: "pending" }>,
+		metadata?: StreamMetadata,
 	) {
 		const epoch = turnEpoch;
 		let saved: ChatMessage | undefined;
@@ -1909,19 +1917,32 @@ export function createNormalChatClientTurnRuntime(
 			.find((row) => row.id === params.placeholderId);
 		const previous = held && normalChatOutputView(held);
 		const terminal = observation.state === "terminal" ? observation : undefined;
+		const normalChatFinalization = parseNormalChatFinalization(
+			terminal?.normalChatFinalization ?? saved?.normalChatFinalization,
+		);
+		const knownFinalizationFailure = Boolean(
+			normalChatFinalization && terminal?.assistantMessageId,
+		);
+		const canonicalAnswer =
+			saved?.content ?? metadata?.finalContent ?? held?.content ?? "";
 		const resolved = Boolean(
 			terminal && (!terminal.assistantMessageId || saved),
 		);
-		if (resolved) {
+		if (resolved || knownFinalizationFailure) {
 			const view = saved ? normalChatOutputView(saved) : previous;
 			adapters.applyMessageListEvent({
 				type: "applyNormalChatOutput",
 				placeholderId: params.placeholderId,
 				view: {
-					answer: saved?.content ?? held?.content ?? "",
+					answer: canonicalAnswer,
 					activity: view?.activity ?? [],
 					blocks: view?.blocks ?? [],
 					completion: terminal?.completion,
+					modelCompletion:
+						terminal?.modelCompletion ??
+						view?.modelCompletion ??
+						view?.completion,
+					normalChatFinalization,
 				},
 			});
 		}
@@ -1930,8 +1951,15 @@ export function createNormalChatClientTurnRuntime(
 			placeholderId: params.placeholderId,
 			clientUserMessageId: params.clientUserMessageId,
 			metadata: {
-				assistantMessageId: saved?.id,
-				finalContent: saved?.content,
+				assistantMessageId:
+					saved?.id ??
+					(knownFinalizationFailure
+						? (terminal?.assistantMessageId ?? undefined)
+						: undefined),
+				normalChatFinalization,
+				finalContent:
+					saved?.content ??
+					(knownFinalizationFailure ? metadata?.finalContent : undefined),
 				thinking: saved?.thinking,
 				wasStopped: terminal?.completion.outcome === "stopped",
 				...(!resolved
@@ -1939,7 +1967,7 @@ export function createNormalChatClientTurnRuntime(
 					: {}),
 			},
 		});
-		lastAssistantResponse = saved?.content ?? held?.content ?? "";
+		lastAssistantResponse = canonicalAnswer;
 		isPollingForCompletion = false;
 		canRetry = false;
 		const failed =
@@ -1952,7 +1980,11 @@ export function createNormalChatClientTurnRuntime(
 			);
 		completeTurn();
 		if (!failed)
-			adapters.setSendError(resolved ? null : "chat.observationUnavailable");
+			adapters.setSendError(
+				resolved || knownFinalizationFailure
+					? null
+					: "chat.observationUnavailable",
+			);
 		if (saved) {
 			adapters.pollMessageEvidence(saved.id);
 			adapters.refreshMessageCost(saved.id);
@@ -1977,7 +2009,17 @@ export function createNormalChatClientTurnRuntime(
 		);
 	}
 
+	function hasFinalizationFailure(reply: ChatMessage | undefined): boolean {
+		return Boolean(
+			reply && normalChatOutputView(reply)?.normalChatFinalization,
+		);
+	}
+
 	function offerFailedReplyRetry(reply: ChatMessage | undefined, text: string) {
+		if (hasFinalizationFailure(reply)) {
+			canRetry = false;
+			return false;
+		}
 		if (
 			!reply ||
 			reply.role !== "assistant" ||
@@ -2239,15 +2281,14 @@ export function createNormalChatClientTurnRuntime(
 			},
 			onEnd(fullText, metadata) {
 				if (!ownsStream()) return;
+				tokenBuffer.flush();
+				thinkingBuffer.flush();
 				if (metadata?.observation) {
 					if (!observationIsScoped(params, metadata.observation)) return;
 					if (metadata.observation.state !== "pending")
-						void settleObservation(params, metadata.observation);
+						void settleObservation(params, metadata.observation, metadata);
 					return;
 				}
-				tokenBuffer.flush();
-				thinkingBuffer.flush();
-
 				if (isPollingForCompletion) {
 					return;
 				}
@@ -2289,15 +2330,19 @@ export function createNormalChatClientTurnRuntime(
 						: fullText);
 				lastAssistantResponse = finalText;
 				canRetry = false;
+				const persistenceFailure = parseNormalChatFinalization(
+					metadata?.normalChatFinalization,
+				);
 				const failed =
-					!params.answer &&
-					!params.continuesMessageId &&
-					offerFailedReplyRetry(
-						adapters
-							.getMessages()
-							.find((row) => row.id === params.placeholderId),
-						params.message,
-					);
+					Boolean(persistenceFailure) ||
+					(!params.answer &&
+						!params.continuesMessageId &&
+						offerFailedReplyRetry(
+							adapters
+								.getMessages()
+								.find((row) => row.id === params.placeholderId),
+							params.message,
+						));
 				completeTurn();
 
 				if (!isTurnConversationActive(params.turnConversationId)) {
@@ -2708,14 +2753,14 @@ export function createNormalChatClientTurnRuntime(
 		}
 		const callbacks = buildCallbacks(params);
 		activePlaceholderId = params.placeholderId;
-		setActiveStream(
-			adapters.streamChat(
-				params.message,
-				adapters.getConversationId(),
-				callbacks,
-				params.streamOptions,
-			),
+		const handle = adapters.streamChat(
+			params.message,
+			adapters.getConversationId(),
+			callbacks,
+			params.streamOptions,
 		);
+		params.originatingStreamId = handle.streamId;
+		setActiveStream(handle);
 	}
 
 	// R1 (ADR-0060, defect 1) — bounded recovery attempt for a fresh send's
@@ -3163,6 +3208,7 @@ export function createNormalChatClientTurnRuntime(
 			isSending ||
 			retryReading ||
 			!canRetry ||
+			hasFinalizationFailure(adapters.getMessages().at(-1)) ||
 			!lastUserMessage
 		) {
 			return;
@@ -3214,6 +3260,7 @@ export function createNormalChatClientTurnRuntime(
 			adapters.isEditOpen() ||
 			isSending ||
 			!canRetry ||
+			hasFinalizationFailure(adapters.getMessages().at(-1)) ||
 			lastUserMessage !== text ||
 			!isTurnConversationActive(turnConversationId)
 		) {

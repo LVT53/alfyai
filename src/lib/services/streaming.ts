@@ -17,6 +17,12 @@ import {
 	isExtractionErrorCode,
 } from "$lib/shared/extraction-status";
 import {
+	type NormalChatCompletion,
+	type NormalChatFinalizationFailure,
+	parseNormalChatFinalization,
+	projectNormalChatFinalization,
+} from "$lib/shared/normal-chat-completion";
+import {
 	createNormalChatOutputAccumulator,
 	type NormalChatOutputProjection,
 } from "$lib/shared/normal-chat-output";
@@ -44,6 +50,7 @@ import {
 } from "./stream-timeline";
 
 export interface StreamMetadata {
+	normalChatFinalization?: NormalChatFinalizationFailure;
 	observation?: NormalChatTurnObservation;
 	thinkingTokenCount?: number;
 	responseTokenCount?: number;
@@ -177,6 +184,7 @@ export interface StreamCallbacks {
 export type { ModelId };
 
 export interface StreamHandle {
+	readonly streamId?: string;
 	stop: () => void;
 	detach: () => void;
 }
@@ -357,36 +365,102 @@ function readObservation(
 		typeof row.segmentId === "string"
 	)
 		return value as NormalChatTurnObservation;
-	const completion = row.completion as Record<string, unknown> | undefined;
+	const completion = readObservationCompletion(row.completion);
 	if (
-		row.state === "terminal" &&
-		(row.assistantMessageId === null ||
-			typeof row.assistantMessageId === "string") &&
-		completion?.version === 1 &&
-		typeof completion.turnId === "string" &&
-		typeof completion.segmentId === "string" &&
-		["working", "closing"].includes(String(completion.phase)) &&
-		[
+		row.state !== "terminal" ||
+		(row.assistantMessageId !== null &&
+			typeof row.assistantMessageId !== "string") ||
+		!completion
+	)
+		return undefined;
+	const marker = parseNormalChatFinalization(row.normalChatFinalization);
+	const modelCompletion = readObservationCompletion(row.modelCompletion);
+	// Invalid new facts must not silently disappear into a clean answered end.
+	const unavailable: NormalChatTurnObservation = {
+		version: 1,
+		streamId: row.streamId,
+		conversationId: row.conversationId,
+		state: "unavailable",
+	};
+	if (row.normalChatFinalization !== undefined) {
+		if (!marker || !modelCompletion || row.assistantMessageId === null)
+			return unavailable;
+		const expected = projectNormalChatFinalization(modelCompletion, marker);
+		if (
+			!expected ||
+			!Object.entries(expected).every(
+				([key, value]) =>
+					(completion as unknown as Record<string, unknown>)[key] === value,
+			)
+		)
+			return unavailable;
+	}
+	if (row.modelCompletion !== undefined && !modelCompletion) return unavailable;
+	return {
+		version: 1,
+		streamId: row.streamId,
+		conversationId: row.conversationId,
+		state: "terminal",
+		assistantMessageId: row.assistantMessageId as string | null,
+		completion,
+		...(marker ? { normalChatFinalization: marker } : {}),
+		...(modelCompletion ? { modelCompletion } : {}),
+	};
+}
+
+function readObservationCompletion(
+	value: unknown,
+): NormalChatCompletion | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const c = value as Record<string, unknown>;
+	if (
+		c.version !== 1 ||
+		typeof c.turnId !== "string" ||
+		typeof c.segmentId !== "string" ||
+		!["working", "closing"].includes(String(c.phase)) ||
+		![
 			"answered",
 			"delivered",
 			"paused",
 			"stopped",
 			"incomplete",
 			"failed",
-		].includes(String(completion.outcome)) &&
-		typeof completion.stopCause === "string" &&
-		typeof completion.workingStopCause === "string" &&
-		typeof completion.closingAttempted === "boolean"
+		].includes(String(c.outcome)) ||
+		typeof c.stopCause !== "string" ||
+		typeof c.workingStopCause !== "string" ||
+		typeof c.closingAttempted !== "boolean"
 	)
-		return value as NormalChatTurnObservation;
-	return undefined;
+		return undefined;
+	return value as NormalChatCompletion;
 }
 
 function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 	const parsed =
 		data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+	let observation = readObservation(parsed.observation);
+	const marker = parseNormalChatFinalization(parsed.normalChatFinalization);
+	if (
+		observation?.state === "terminal" &&
+		((parsed.assistantMessageId !== undefined &&
+			parsed.assistantMessageId !== observation.assistantMessageId) ||
+			(parsed.normalChatFinalization !== undefined &&
+				(!marker ||
+					!observation.normalChatFinalization ||
+					marker.wasStopped !==
+						observation.normalChatFinalization.wasStopped)) ||
+			(observation.normalChatFinalization &&
+				parsed.wasStopped !== undefined &&
+				parsed.wasStopped !== (observation.completion.outcome === "stopped")))
+	)
+		observation = {
+			version: 1,
+			streamId: observation.streamId,
+			conversationId: observation.conversationId,
+			state: "unavailable",
+		};
 	const nextMetadata: StreamMetadata = {
-		observation: readObservation(parsed.observation),
+		observation,
+		normalChatFinalization: marker,
 		thinkingTokenCount: parsed.thinkingTokenCount as
 			| StreamMetadata["thinkingTokenCount"]
 			| undefined,
@@ -1269,6 +1343,7 @@ export function streamChat(
 	})();
 
 	return {
+		streamId,
 		stop() {
 			if (stopRequested) return;
 			stopRequested = true;

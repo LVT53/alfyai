@@ -45,13 +45,13 @@ describe("joinReplyText", () => {
 });
 
 describe("module hygiene", () => {
-	// The same zero-value-import guard the other shared leaves carry
-	// (extraction-status.ts, ask-user.ts): the chat components and the artifacts
-	// service both import this file, and anything it imported would travel to both.
-	it("has no runtime imports", () => {
+	it("depends only on the pure shared finalization owner", () => {
 		const here = path.dirname(fileURLToPath(import.meta.url));
 		const source = readFileSync(path.join(here, "reply-text.ts"), "utf8");
-		expect(source.match(/^import(?! type\s)\s/gm)).toBeNull();
+		const imports = [
+			...source.matchAll(/^import(?! type\s)[\s\S]*?from ["']([^"']+)["'];/gm),
+		].map((match) => match[1]);
+		expect(imports).toEqual(["./normal-chat-completion"]);
 	});
 });
 
@@ -86,4 +86,82 @@ describe("status-aware outward replies", () => {
 			]),
 		).toBe("Earlier\n\n_Incomplete answer._\n\nPartial");
 	});
+});
+
+describe("durable finalization outward status", () => {
+	it.each([
+		false,
+		true,
+	])("Copy and markdown preserve canonical bytes with stopped=%s", (wasStopped) => {
+		const scope = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "c",
+			phase: "closing",
+		} as const;
+		const row = {
+			content: "  Canonical answer\n",
+			normalChatFinalization: {
+				version: 1,
+				status: "failed",
+				cause: "file_association_failed",
+				wasStopped,
+			} as const,
+			normalChatOutput: {
+				version: 1,
+				events: [
+					{
+						...scope,
+						sequence: 1,
+						type: "completion",
+						completion: {
+							version: 1,
+							turnId: "t",
+							segmentId: "s",
+							phase: "closing",
+							outcome: wasStopped ? "stopped" : "answered",
+							stopCause: wasStopped ? "user_stop" : "natural_stop",
+							workingStopCause: "tool_budget",
+							closingAttempted: true,
+						},
+					},
+				],
+			},
+		} as const;
+		expect(getClipboardText(row)).toBe(
+			"_Incomplete answer._\n\n  Canonical answer\n",
+		);
+		expect(joinReplyText([row], { legacy: "markdown" })).toBe(
+			getClipboardText(row),
+		);
+	});
+});
+
+it.each([
+	false,
+	true,
+])("marker-only outward failure preserves canonical bytes without model IDs, stopped=%s", (wasStopped) => {
+	const row = {
+		content: "  Canonical untracked answer\n",
+		normalChatFinalization: {
+			version: 1,
+			status: "failed",
+			cause: "file_association_failed",
+			wasStopped,
+		},
+	} as const;
+	expect(getClipboardText(row)).toBe(
+		"_Incomplete answer._\n\n  Canonical untracked answer\n",
+	);
+	expect(joinReplyText([row], { legacy: "markdown" })).toBe(
+		getClipboardText(row),
+	);
+	expect(
+		getClipboardText({
+			content: "Stopped",
+			normalChatOutputView: { completion: { outcome: "stopped" } },
+		}),
+	).toBe("_Incomplete answer._\n\nStopped");
 });

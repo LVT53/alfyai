@@ -47,6 +47,50 @@ const row = (id: string, content: string): NormalChatOutputMessage => ({
 	content,
 });
 describe("browser output view", () => {
+	it.each([
+		"saved",
+		"live",
+	] as const)("overlays late finalization on the same %s journal without rewriting model truth", (mode) => {
+		const completion = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			phase: "closing",
+			outcome: "answered",
+			stopCause: "natural_stop",
+			workingStopCause: "tool_budget",
+			closingAttempted: true,
+		} as const;
+		const journal: NormalChatOutputEvent[] = [
+			...events,
+			{ ...scope, sequence: 2, type: "completion", completion },
+		];
+		const message: NormalChatOutputMessage = {
+			...row("saved", "  Canonical answer\n"),
+			normalChatOutput: { version: 1, events: journal },
+		};
+		const before = normalChatOutputView(message);
+		if (mode === "live") message.normalChatOutputView = before;
+		message.normalChatFinalization = {
+			version: 1,
+			status: "failed",
+			cause: "file_association_failed",
+			wasStopped: false,
+		};
+		const after = normalChatOutputView(message);
+		expect(after?.completion?.outcome).toBe("failed");
+		expect(after?.modelCompletion).toBe(completion);
+		expect(after?.normalChatFinalization).toEqual(
+			message.normalChatFinalization,
+		);
+		expect(after?.activity).toBe(before?.activity);
+		expect(before?.completion?.outcome).toBe("answered");
+		expect(message.content).toBe("  Canonical answer\n");
+		expect(journal.at(-1)).toMatchObject({
+			completion: { outcome: "answered" },
+		});
+	});
+
 	it("recognizes a saved terminal activity-only reply as landed for polling", () => {
 		const completion = {
 			version: 1,
@@ -118,4 +162,22 @@ describe("browser output view", () => {
 			"Earlier answer\n\nPartial [fixed]",
 		);
 	});
+});
+
+it("projects marker-only rows without fabricating model completion or IDs", () => {
+	const message = {
+		...row("untracked", "  Canonical answer\n"),
+		normalChatFinalization: {
+			version: 1,
+			status: "failed",
+			cause: "file_association_failed",
+			wasStopped: false,
+		},
+	} as const;
+	const view = normalChatOutputView(message);
+	expect(view?.normalChatFinalization).toEqual(message.normalChatFinalization);
+	expect(view?.answer).toBe(message.content);
+	expect(view?.completion).toBeUndefined();
+	expect(view?.modelCompletion).toBeUndefined();
+	expect(view?.blocks).toEqual([]);
 });

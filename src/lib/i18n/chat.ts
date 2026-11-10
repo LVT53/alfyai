@@ -10,6 +10,8 @@ const chatDict = {
 		"chat.output.stopped": "Stopped early",
 		"chat.output.incomplete": "Answer incomplete",
 		"chat.output.failed": "Reply failed",
+		"chat.output.fileAssociationFailed":
+			"The reply was saved, but its generated files could not be linked.",
 		"attachmentChip.pages": "{count} pages",
 		"attachmentChip.tokensPerTurn": "{tokens} tokens per turn",
 		"attachmentOutline.more": "… {count} more",
@@ -1321,6 +1323,8 @@ const chatDict = {
 		"chat.output.stopped": "Korábban leállítva",
 		"chat.output.incomplete": "Befejezetlen válasz",
 		"chat.output.failed": "A válasz nem sikerült",
+		"chat.output.fileAssociationFailed":
+			"A válasz mentve, de a létrehozott fájlokat nem sikerült hozzákapcsolni.",
 		"attachmentChip.pages": "{count} oldal",
 		"attachmentChip.tokensPerTurn": "{tokens} token / forduló",
 		"attachmentOutline.more": "… még {count}",

@@ -296,6 +296,141 @@ describe("streamChat", () => {
 		expect(cb.onEnd).toHaveBeenCalledWith("", undefined);
 	});
 
+	it.each([
+		false,
+		true,
+	])("retains finalization terminal metadata through finish(error/stop), stopped=%s", async (wasStopped) => {
+		const modelCompletion = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			phase: "closing",
+			outcome: "answered",
+			stopCause: "natural_stop",
+			workingStopCause: "tool_budget",
+			closingAttempted: true,
+		} as const;
+		const normalChatFinalization = {
+			version: 1,
+			status: "failed",
+			cause: "file_association_failed",
+			wasStopped,
+		} as const;
+		const observation = {
+			version: 1,
+			streamId: "observer",
+			conversationId: "conv-1",
+			state: "terminal",
+			assistantMessageId: "saved",
+			modelCompletion,
+			normalChatFinalization,
+			completion: {
+				...modelCompletion,
+				outcome: wasStopped ? "stopped" : "failed",
+				stopCause: wasStopped ? "user_stop" : "uncertain_execution",
+			},
+		};
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({
+					type: "data-stream-metadata",
+					data: { observation, normalChatFinalization },
+					transient: true,
+				}),
+				uiFrame({
+					type: "finish",
+					finishReason: wasStopped ? "stop" : "error",
+				}),
+				uiFrame("[DONE]"),
+			],
+		});
+		await done;
+		expect(cb.onError).not.toHaveBeenCalled();
+		expect(cb.onEnd).toHaveBeenCalledOnce();
+		expect(cb.onEnd).toHaveBeenCalledWith(
+			"",
+			expect.objectContaining({ observation, normalChatFinalization }),
+		);
+	});
+
+	it.each([
+		"missing-model",
+		"wrong-effective",
+		"invalid-marker",
+		"mirrored-id",
+		"mirrored-status",
+	] as const)("does not erase malformed or mismatched finalization truth: %s", async (variant) => {
+		const modelCompletion = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			phase: "closing",
+			outcome: "answered",
+			stopCause: "natural_stop",
+			workingStopCause: "tool_budget",
+			closingAttempted: true,
+		} as const;
+		const normalChatFinalization = {
+			version: 1,
+			status: "failed",
+			cause: "file_association_failed",
+			wasStopped: false,
+		} as const;
+		const observation = {
+			version: 1,
+			streamId: "observer",
+			conversationId: "conv-1",
+			state: "terminal",
+			assistantMessageId: "saved",
+			modelCompletion:
+				variant === "missing-model" ? undefined : modelCompletion,
+			normalChatFinalization:
+				variant === "invalid-marker"
+					? { ...normalChatFinalization, version: 2 }
+					: normalChatFinalization,
+			completion:
+				variant === "wrong-effective"
+					? modelCompletion
+					: {
+							...modelCompletion,
+							outcome: "failed",
+							stopCause: "uncertain_execution",
+						},
+		};
+		const data = {
+			observation,
+			...(variant === "mirrored-id" ? { assistantMessageId: "wrong-row" } : {}),
+			...(variant === "mirrored-status"
+				? {
+						normalChatFinalization: {
+							...normalChatFinalization,
+							wasStopped: true,
+						},
+					}
+				: {}),
+		};
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({ type: "data-stream-metadata", data, transient: true }),
+				uiFrame({ type: "finish", finishReason: "error" }),
+				uiFrame("[DONE]"),
+			],
+		});
+		await done;
+		expect(cb.onError).not.toHaveBeenCalled();
+		expect(cb.onEnd).toHaveBeenCalledWith(
+			"",
+			expect.objectContaining({
+				observation: {
+					version: 1,
+					streamId: "observer",
+					conversationId: "conv-1",
+					state: "unavailable",
+				},
+			}),
+		);
+	});
+
 	it("preserves scoped observer terminal truth in stream metadata", async () => {
 		const observation: NormalChatTurnObservation = {
 			version: 1,

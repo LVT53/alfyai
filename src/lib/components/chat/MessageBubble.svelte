@@ -1518,6 +1518,12 @@ function sendFollowUp(question: string) {
 		</div>
 	{/if}
 
+	{#if !isUser && !isStreaming && outputView?.normalChatFinalization}
+		<div class="completion-warning-notice" role="status" data-testid="normal-chat-finalization-warning">
+			<div class="completion-warning-row"><AlertTriangle size={14} strokeWidth={1.5} aria-hidden="true" /><span>{$t('chat.output.fileAssociationFailed')}</span></div>
+		</div>
+	{/if}
+
 	<!-- Chips redesign — the provenance line. Nothing in the stream used to
 	     record what the user had turned on for a turn — a skill, a forced web
 	     search, an Atlas profile: the composer's chips were destroyed on send.

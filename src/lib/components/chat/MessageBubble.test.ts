@@ -197,6 +197,91 @@ describe("MessageBubble", () => {
 		expect(message.content).toBe("");
 	});
 
+	it.each(
+		(["en", "hu"] as const).flatMap((language) =>
+			[false, true].map((wasStopped) => ({ language, wasStopped })),
+		),
+	)("shows separate finalization warning and effective Copy status, $language stopped=$wasStopped", async ({
+		language,
+		wasStopped,
+	}) => {
+		const previousLanguage = get(uiLanguage);
+		uiLanguage.set(language);
+		try {
+			const writeText = vi.fn().mockResolvedValue(undefined);
+			Object.defineProperty(navigator, "clipboard", {
+				configurable: true,
+				value: { writeText },
+			});
+			const scope = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				attemptId: "a",
+				stepId: "c",
+				phase: "closing",
+			} as const;
+			const message: NormalChatOutputMessage = {
+				id: "saved-finalization",
+				role: "assistant",
+				timestamp: 1,
+				content: "Canonical answer",
+				wasStopped,
+				normalChatFinalization: {
+					version: 1,
+					status: "failed",
+					cause: "file_association_failed",
+					wasStopped,
+				},
+				normalChatOutput: {
+					version: 1,
+					events: [
+						{
+							...scope,
+							sequence: 1,
+							type: "completion",
+							completion: {
+								version: 1,
+								turnId: "t",
+								segmentId: "s",
+								phase: "closing",
+								outcome: wasStopped ? "stopped" : "answered",
+								stopCause: wasStopped ? "user_stop" : "natural_stop",
+								workingStopCause: "tool_budget",
+								closingAttempted: true,
+							},
+						},
+					],
+				},
+			};
+			render(MessageBubble, { message });
+			expect(
+				screen.getByTestId(
+					wasStopped ? "stopped-early-chip" : "normal-chat-output-status",
+				),
+			).toHaveTextContent(
+				chatDict[language][
+					wasStopped ? "chat.stoppedEarly" : "chat.output.failed"
+				],
+			);
+			expect(
+				screen.getByTestId("normal-chat-finalization-warning"),
+			).toHaveTextContent(
+				chatDict[language]["chat.output.fileAssociationFailed"],
+			);
+			await fireEvent.click(
+				screen.getByRole("button", {
+					name: chatDict[language]["messageBubble.copyMessage"],
+				}),
+			);
+			expect(writeText).toHaveBeenCalledWith(
+				"_Incomplete answer._\n\nCanonical answer",
+			);
+		} finally {
+			uiLanguage.set(previousLanguage);
+		}
+	});
+
 	it("copies canonical saved content while retaining escaped interrupted activity", async () => {
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		Object.defineProperty(navigator, "clipboard", {

@@ -1,13 +1,24 @@
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import {
+	type NormalChatCompletion,
+	type NormalChatFinalizationFailure,
+	parseNormalChatFinalization,
+	projectNormalChatFinalization,
+} from "$lib/shared/normal-chat-completion";
+import {
 	type NormalChatOutputEvent,
 	type NormalChatOutputProjection,
 	projectNormalChatOutput,
 } from "$lib/shared/normal-chat-output";
 
+export type NormalChatOutputView = NormalChatOutputProjection & {
+	modelCompletion?: NormalChatCompletion;
+	normalChatFinalization?: NormalChatFinalizationFailure;
+};
+
 /** Live derived view only; persisted canonical answer remains message.content. */
 export type NormalChatOutputMessage = ChatMessage & {
-	normalChatOutputView?: NormalChatOutputProjection;
+	normalChatOutputView?: NormalChatOutputView;
 };
 const savedViews = new WeakMap<
 	NormalChatOutputEvent[],
@@ -15,26 +26,46 @@ const savedViews = new WeakMap<
 >();
 export function normalChatOutputView(
 	message: NormalChatOutputMessage,
-): NormalChatOutputProjection | undefined {
-	if (message.normalChatOutputView) return message.normalChatOutputView;
+): NormalChatOutputView | undefined {
+	let view = message.normalChatOutputView;
 	const saved = message.normalChatOutput;
-	if (saved?.version !== 1) return undefined;
-	let view = savedViews.get(saved.events);
-	if (!view) {
-		view = projectNormalChatOutput(saved.events);
-		savedViews.set(saved.events, view);
+	if (!view && saved?.version === 1) {
+		view = savedViews.get(saved.events);
+		if (!view) {
+			view = projectNormalChatOutput(saved.events);
+			savedViews.set(saved.events, view);
+		}
 	}
-	return view;
+	// Cache raw model projection only. A durable fact can arrive with the same
+	// events array or an existing live view after model settlement.
+	const marker = parseNormalChatFinalization(
+		message.normalChatFinalization ?? view?.normalChatFinalization,
+	);
+	if (!marker) return view;
+	const modelCompletion = view?.modelCompletion ?? view?.completion;
+	return {
+		...(view ?? { answer: message.content, activity: [], blocks: [] }),
+		modelCompletion,
+		completion: projectNormalChatFinalization(modelCompletion, marker),
+		normalChatFinalization: marker,
+	};
 }
+
 export function applyNormalChatOutputView(
 	messages: ChatMessage[],
 	placeholderId: string,
-	view: NormalChatOutputProjection,
+	view: NormalChatOutputView,
 ): ChatMessage[] {
 	return messages.map(
 		(message): NormalChatOutputMessage =>
 			message.id === placeholderId
-				? { ...message, content: view.answer, normalChatOutputView: view }
+				? {
+						...message,
+						content: view.answer,
+						normalChatOutputView: view,
+						normalChatFinalization:
+							view.normalChatFinalization ?? message.normalChatFinalization,
+					}
 				: message,
 	);
 }

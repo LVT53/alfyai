@@ -1,4 +1,9 @@
-import type { NormalChatCompletion } from "./normal-chat-completion";
+import {
+	type NormalChatCompletion,
+	type NormalChatFinalizationFailure,
+	parseNormalChatFinalization,
+	projectNormalChatFinalization,
+} from "./normal-chat-completion";
 import type { NormalChatOutputEvent } from "./normal-chat-output";
 
 // The words of a reply, as Copy takes them and as "Open as document" keeps them.
@@ -10,8 +15,8 @@ import type { NormalChatOutputEvent } from "./normal-chat-output";
 // this one definition and cannot drift: each row's words without the model's
 // thinking text, the rows with nothing left of them left out, a blank line between.
 //
-// A leaf with type-only imports: the chat components and the artifacts service
-// both import it, and anything it pulled in would travel to both.
+// Its only runtime dependency is the shared pure finalization projector: browser
+// and server consumers use the same status without importing either runtime.
 
 /** Backward-compatible single-row outward projection. */
 export function getClipboardText(content: string | ReplyTextRow): string {
@@ -28,7 +33,12 @@ function legacyClipboardText(content: string): string {
 export type ReplyTextRow = {
 	content: string;
 	normalChatOutput?: { version: 1; events: readonly NormalChatOutputEvent[] };
-	normalChatOutputView?: { completion?: Pick<NormalChatCompletion, "outcome"> };
+	normalChatOutputView?: {
+		completion?: Pick<NormalChatCompletion, "outcome">;
+		modelCompletion?: NormalChatCompletion;
+		normalChatFinalization?: NormalChatFinalizationFailure;
+	};
+	normalChatFinalization?: NormalChatFinalizationFailure;
 	completionWarningCodes?: readonly string[];
 };
 
@@ -41,8 +51,12 @@ export function joinReplyText(
 		.map((part) => {
 			const row: ReplyTextRow =
 				typeof part === "string" ? { content: part } : part;
+			const marker = parseNormalChatFinalization(
+				row.normalChatFinalization ??
+					row.normalChatOutputView?.normalChatFinalization,
+			);
 			const structural = Boolean(
-				row.normalChatOutput || row.normalChatOutputView,
+				row.normalChatOutput || row.normalChatOutputView || marker,
 			);
 			const text = structural
 				? row.content
@@ -53,11 +67,12 @@ export function joinReplyText(
 			const terminal = row.normalChatOutput?.events.findLast(
 				(event) => event.type === "completion",
 			);
+			const modelCompletion =
+				row.normalChatOutputView?.modelCompletion ??
+				(terminal?.type === "completion" ? terminal.completion : undefined);
 			const outcome =
-				row.normalChatOutputView?.completion?.outcome ??
-				(terminal?.type === "completion"
-					? terminal.completion.outcome
-					: undefined);
+				projectNormalChatFinalization(modelCompletion, marker)?.outcome ??
+				row.normalChatOutputView?.completion?.outcome;
 			const interrupted =
 				structural &&
 				!outcome &&
@@ -68,7 +83,8 @@ export function joinReplyText(
 						"output_truncated",
 					].includes(code),
 				);
-			return interrupted ||
+			return marker ||
+				interrupted ||
 				outcome === "incomplete" ||
 				outcome === "stopped" ||
 				outcome === "failed"

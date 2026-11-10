@@ -4247,6 +4247,180 @@ describe("Normal Chat Client Turn Runtime", () => {
 		}
 	});
 
+	it.each(
+		(["live", "observe", "reload", "unreadable"] as const).flatMap((mode) =>
+			[false, true].map((wasStopped) => ({ mode, wasStopped })),
+		),
+	)("settles persistence-only finalization without generation Retry/recovery: $mode stopped=$wasStopped", async ({
+		mode,
+		wasStopped,
+	}) => {
+		const { streamChat } = await import("$lib/services/streaming");
+		const { uiFrame } = await import("$lib/services/streaming.test-helpers");
+		const { projectNormalChatFinalization } = await import(
+			"$lib/shared/normal-chat-completion"
+		);
+		const scope = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "w",
+			phase: "working",
+		} as const;
+		const modelCompletion = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			phase: "closing",
+			outcome: "answered",
+			stopCause: "natural_stop",
+			workingStopCause: "tool_budget",
+			closingAttempted: true,
+		} as const;
+		const normalChatFinalization = {
+			version: 1,
+			status: "failed",
+			cause: "file_association_failed",
+			wasStopped,
+		} as const;
+		const events: import("$lib/shared/normal-chat-output").NormalChatOutputEvent[] =
+			[
+				{
+					...scope,
+					sequence: 0,
+					type: "block_start",
+					blockId: "b",
+					nativeId: "b",
+					kind: "text",
+					role: "activity",
+				},
+				{
+					...scope,
+					sequence: 1,
+					type: "block_delta",
+					blockId: "b",
+					text: "Working activity",
+				},
+				{
+					...scope,
+					sequence: 2,
+					type: "completion",
+					completion: modelCompletion,
+				},
+			];
+		const saved: ChatMessage = {
+			id: "saved-finalization",
+			role: "assistant",
+			timestamp: 2,
+			content: "  Canonical answer\n",
+			normalChatOutput: { version: 1, events },
+			normalChatFinalization,
+		};
+		const user: ChatMessage = {
+			id: "saved-user",
+			role: "user",
+			timestamp: 1,
+			content: "A",
+		};
+		const made = makeAdapters({
+			streamChat,
+			schedule: vi.fn((cb, delay) => setTimeout(cb, delay)),
+			checkForOrphanedStream: vi.fn(async () =>
+				mode === "observe" ? "observed" : null,
+			),
+			getStreamBufferInfo: vi.fn(async () => ({
+				exists: true,
+				userMessage: "A",
+			})),
+			readChatMessages: vi.fn(async () =>
+				mode === "unreadable" ? [] : [user, saved],
+			),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+			const body = JSON.parse(String(init?.body));
+			runtime.queue({
+				message: "Queued B",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			const observation = {
+				version: 1,
+				streamId: body.streamId,
+				conversationId: "conv-1",
+				state: "terminal",
+				assistantMessageId: saved.id,
+				normalChatFinalization,
+				modelCompletion,
+				completion: projectNormalChatFinalization(
+					modelCompletion,
+					normalChatFinalization,
+				),
+			};
+			return new Response(
+				(mode === "unreadable"
+					? events
+							.map((event) =>
+								uiFrame({ type: "data-normal-chat-output", data: event }),
+							)
+							.join("")
+					: "") +
+					uiFrame({
+						type: "data-stream-metadata",
+						data: {
+							observation,
+							...(mode === "unreadable" ? { finalContent: saved.content } : {}),
+						},
+						transient: true,
+					}) +
+					uiFrame({
+						type: "finish",
+						finishReason: wasStopped ? "stop" : "error",
+					}) +
+					uiFrame("[DONE]"),
+				{ headers: { "Content-Type": "text/event-stream" } },
+			);
+		});
+		vi.stubGlobal("fetch", fetch);
+		try {
+			if (mode === "reload") {
+				made.messages.push(user, saved);
+				await runtime.checkForOrphanedStreamOnMount();
+			} else if (mode === "observe") {
+				made.messages.push(user);
+				await runtime.checkForOrphanedStreamOnMount();
+			} else
+				await runtime.send({
+					message: "A",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+			await vi.waitFor(() => expect(runtime.snapshot().isSending).toBe(false));
+			expect(runtime.snapshot().canRetry).toBe(false);
+			const held = made.messages.at(-1);
+			expect(held?.id).toBe(saved.id);
+			expect(held?.content).toBe(saved.content);
+			expect(held?.normalChatFinalization).toEqual(normalChatFinalization);
+			const view = held && normalChatOutputView(held);
+			expect(view?.completion?.outcome).toBe(wasStopped ? "stopped" : "failed");
+			expect(view?.modelCompletion).toEqual(modelCompletion);
+			expect(view?.activity[0].text).toBe("Working activity");
+			await runtime.retry();
+			expect(fetch).toHaveBeenCalledTimes(mode === "reload" ? 0 : 1);
+			expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
+			if (mode !== "reload")
+				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+					expect.objectContaining({ message: "Queued B" }),
+				);
+		} finally {
+			runtime.detach();
+			vi.unstubAllGlobals();
+		}
+	});
+
 	it.each([
 		"direct",
 		"observer",

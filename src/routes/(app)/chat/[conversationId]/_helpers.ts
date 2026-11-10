@@ -1201,6 +1201,9 @@ export function finalizeStreamingMessageList(
 				// immediately, not just after a reload (server persistence already
 				// round-trips this field; this closes the same-tab gap).
 				wasStopped: params.metadata?.wasStopped ? true : message.wasStopped,
+				normalChatFinalization:
+					params.metadata?.normalChatFinalization ??
+					message.normalChatFinalization,
 				isStreaming: false,
 				runtimePhase: undefined,
 				thinking: params.metadata?.thinking ?? message.thinking,
