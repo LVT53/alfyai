@@ -1,3 +1,9 @@
+import type { NormalChatOutputEvent } from "$lib/shared/normal-chat-output";
+export type NormalChatOutputMetadata = {
+	version: 1;
+	events: NormalChatOutputEvent[];
+};
+
 // The persisted/streamed chat message contract: `ChatMessage` and the
 // smaller shapes it aggregates directly (role, tool-call entries, thinking
 // segments, completion-warning codes, runtime phase, chat attachments).
@@ -282,6 +288,7 @@ export type NormalChatRuntimePhase =
 	| "awaiting_update";
 
 export interface ChatMessage {
+	normalChatOutput?: NormalChatOutputMetadata;
 	id: string;
 	// Stable client-side identity used for keyed rendering so stream finalization
 	// can swap in persisted IDs without remounting the message bubble.

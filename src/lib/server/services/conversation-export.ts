@@ -33,6 +33,15 @@ function renderMessage(message: ChatMessage): string[] {
 		lines.push(...toolCallSummaries, "");
 	}
 
+	const terminal = message.normalChatOutput?.events.findLast(
+		(event) => event.type === "completion",
+	);
+	if (
+		message.content?.trim() &&
+		terminal?.type === "completion" &&
+		["stopped", "incomplete", "failed"].includes(terminal.completion.outcome)
+	)
+		lines.push("_Incomplete answer._", "");
 	lines.push(message.content?.trim() || "_(no content)_", "");
 	return lines;
 }

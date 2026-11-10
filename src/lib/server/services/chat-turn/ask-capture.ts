@@ -6,6 +6,11 @@ import type { ToolResultObservation } from "$lib/server/services/url-provenance"
 import { providerRunsLocally } from "$lib/server/services/vision/provider-vision";
 import { isAskToolName } from "$lib/shared/ask-user";
 import { isConnectionToolName } from "$lib/utils/tool-calls";
+import {
+	type NormalChatContinuationSnapshot,
+	parseNormalChatContinuation,
+	serializeNormalChatContinuation,
+} from "../normal-chat-model";
 import type { AskCapturedResult, AskResumeCapture } from "./ask-questions";
 import {
 	buildHistoryToolDigest,
@@ -53,6 +58,7 @@ export function buildAskResumeCapture(p: {
 	responseMessages: ModelMessage[];
 	toolCalls: ToolCallEntry[];
 	priorResults: AskCapturedResult[];
+	snapshot?: NormalChatContinuationSnapshot | null;
 }): AskResumeCapture {
 	const messages = [...p.continuationGiven, ...p.responseMessages];
 
@@ -94,7 +100,14 @@ export function buildAskResumeCapture(p: {
 		if (!isAsk(part)) results.push(rowFor(part));
 	}
 
-	return { v: 1, messages, results };
+	return p.snapshot
+		? {
+				v: 2,
+				messages,
+				results,
+				continuation: serializeNormalChatContinuation(p.snapshot),
+			}
+		: { v: 1, messages, results };
 }
 
 /** The tool-result parts of the tool messages, in order. */
@@ -193,6 +206,38 @@ export function buildAskResumeContinuation(
 	});
 }
 
+/** Exact private continuation. Only the human answer replaces the recorded pause. */
+export function buildAskResumeSnapshot(
+	capture: AskResumeCapture,
+	askToolCallId: string,
+	result: AskAnswerResult,
+): NormalChatContinuationSnapshot | undefined {
+	if (capture.v !== 2 || !capture.continuation) return undefined;
+	const snapshot = parseNormalChatContinuation(capture.continuation);
+	for (let n = snapshot.steps.length - 1; n >= 0; n--) {
+		const step = snapshot.steps[n];
+		if (!holdsAskResult(step.response, askToolCallId)) continue;
+		step.response = buildAskResumeContinuation(
+			{ v: 1, messages: step.response, results: [] },
+			askToolCallId,
+			result,
+		);
+		const execution = snapshot.executions.findLast(
+			(e) =>
+				e.segmentId === step.segmentId &&
+				e.stepId === step.stepId &&
+				e.callId === askToolCallId &&
+				isAskToolName(e.toolName),
+		);
+		if (execution) {
+			execution.output = result;
+			execution.modelOutput = { type: "json", value: result };
+		}
+		return snapshot;
+	}
+	throw new Error("Exact ask capture has no matching pause");
+}
+
 /**
  * What a resume is run from ("Ask me first"): the claimed question and the claim
  * that holds it, the row that asked and the call that asked, the person's message
@@ -202,6 +247,7 @@ export function buildAskResumeContinuation(
  * orchestrator's types.
  */
 export type AskResumeInput = {
+	snapshot?: NormalChatContinuationSnapshot;
 	questionId: string;
 	/** The token of the won claim: release and settle act only for it (ask-questions.ts). */
 	claim: string;

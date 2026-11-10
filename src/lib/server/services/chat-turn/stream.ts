@@ -39,6 +39,7 @@ import {
 	type StreamTimelineTimingRecord,
 } from "$lib/services/stream-timeline";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
+import type { NormalChatOutputEvent } from "$lib/shared/normal-chat-output";
 import {
 	checkStreamCapacity,
 	type StreamCapacityCheck,
@@ -332,6 +333,12 @@ export function streamDataPartEvent(
 	});
 }
 
+export function streamNormalChatOutputEvent(
+	event: NormalChatOutputEvent,
+): string {
+	return streamDataPartEvent("data-normal-chat-output", event);
+}
+
 export function streamToolCallEvent(data: {
 	callId?: string;
 	name: string;
@@ -539,6 +546,7 @@ export function createServerChunkRuntime({
 	onResponseActivity,
 	thinkingBatchMin = 20,
 	skillControlEnabled = true,
+	structuredOutput = false,
 }: {
 	enqueueChunk: (chunk: string) => boolean;
 	onToken?: (text: string) => void;
@@ -553,6 +561,7 @@ export function createServerChunkRuntime({
 	onResponseActivity?: (entry: ResponseActivityEntry) => void;
 	thinkingBatchMin?: number;
 	skillControlEnabled?: boolean;
+	structuredOutput?: boolean;
 }) {
 	let fullResponse = "";
 	let thinkingContent = "";
@@ -656,7 +665,7 @@ export function createServerChunkRuntime({
 			return true;
 		}
 
-		const leading = !answerStarted;
+		const leading = !structuredOutput && !answerStarted;
 		// A forced flush is the end of the reply or a tool call: the text will not
 		// grow. What is left then is judged as it stands. A tail is dropped only
 		// when it IS a leaked narration or diagnostic (`final` makes the cleanup
@@ -1250,7 +1259,7 @@ export function createServerChunkRuntime({
 
 	const emitChunkWithOutputHandling = (chunk: string): boolean => {
 		if (!chunk) return true;
-		return emitOutputToken(chunk);
+		return structuredOutput ? emitInlineToken(chunk) : emitOutputToken(chunk);
 	};
 
 	const flushOutputBuffer = (): boolean => flushLeadingOutputBuffer(false);

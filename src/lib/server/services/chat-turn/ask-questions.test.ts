@@ -1353,6 +1353,21 @@ describe("the lists", () => {
 // --- the capture ------------------------------------------------------------
 
 describe("reading a capture back", () => {
+	it("rejects a malformed exact capture instead of silently reconstructing it", async () => {
+		const id = await ask();
+		expect(
+			readAskCapture({
+				...rowOf(id),
+				resumeJson: JSON.stringify({
+					v: 2,
+					messages: [],
+					results: [],
+					continuation: "broken exact codec",
+				}),
+			}),
+		).toBeNull();
+	});
+
 	it("reads a capture back only when it is whole", async () => {
 		const id = await ask();
 		const row = rowOf(id);

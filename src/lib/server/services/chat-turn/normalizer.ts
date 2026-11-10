@@ -6,6 +6,7 @@ import {
 	stripLeadingResponseMarker,
 	stripLeakedToolDiagnostics,
 } from "$lib/services/stream-protocol";
+import { sanitizeNormalChatAnswer } from "$lib/shared/normal-chat-output";
 import { parseSkillControlEnvelopeFromAssistantText } from "./skill-control-envelope";
 
 /**
@@ -19,9 +20,23 @@ export function normalizeAssistantOutput(text: string): string {
 
 export function normalizeAssistantOutputWithSkillControl(
 	text: string,
-	options: { skillControlEnabled?: boolean } = {},
+	options: { skillControlEnabled?: boolean; structuredOutput?: boolean } = {},
 ) {
 	if (!text) return { visibleText: "", operations: [] };
+	if (options.structuredOutput) {
+		const parsed =
+			options.skillControlEnabled === false
+				? { visibleText: text, operations: [] }
+				: parseSkillControlEnvelopeFromAssistantText(text);
+		return {
+			...parsed,
+			visibleText: stripLeakedToolDiagnostics(
+				sanitizeNormalChatAnswer(parsed.visibleText),
+				undefined,
+				{ leading: false, final: true },
+			),
+		};
+	}
 
 	const split = splitLeadingThinkingPreamble(text, { allowOpenEnded: true });
 	const inputText = split

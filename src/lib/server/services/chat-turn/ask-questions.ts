@@ -11,6 +11,7 @@ import {
 	parseAskAnswer,
 	parseAskQuestions,
 } from "$lib/shared/ask-user";
+import { parseNormalChatContinuation } from "../normal-chat-model";
 import { getOrphanedStream } from "./active-streams";
 import {
 	type HistoryToolDigest,
@@ -55,7 +56,8 @@ export type AskCapturedResult = {
  * (the reply so far, tool results in full), and one row for each tool result.
  */
 export type AskResumeCapture = {
-	v: 1;
+	v: 1 | 2;
+	continuation?: string;
 	messages: ModelMessage[];
 	results: AskCapturedResult[];
 };
@@ -448,7 +450,8 @@ function isCapturedResult(value: unknown): value is AskCapturedResult {
 function isCapture(value: unknown): value is AskResumeCapture {
 	return (
 		isRecord(value) &&
-		value.v === 1 &&
+		(value.v === 1 ||
+			(value.v === 2 && typeof value.continuation === "string")) &&
 		Array.isArray(value.messages) &&
 		value.messages.every(isModelMessage) &&
 		Array.isArray(value.results) &&
@@ -469,7 +472,15 @@ function parseJson(text: string): unknown {
 export function readAskCapture(row: AskQuestionRow): AskResumeCapture | null {
 	if (row.resumeJson === null) return null;
 	const value = parseJson(row.resumeJson);
-	return isCapture(value) ? value : null;
+	if (!isCapture(value)) return null;
+	if (value.v === 2) {
+		try {
+			parseNormalChatContinuation(value.continuation ?? "");
+		} catch {
+			return null;
+		}
+	}
+	return value;
 }
 
 // --- reading ----------------------------------------------------------------

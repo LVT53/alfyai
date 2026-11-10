@@ -52,6 +52,7 @@ describe("stream helper retirement", () => {
 // instead of a silent new part name slipping onto the wire.
 describe("ADR-0025 amendment (E1) — no new AI SDK UI stream part names", () => {
 	const KNOWN_DATA_PART_NAMES = new Set([
+		"data-normal-chat-output",
 		"data-stream-metadata",
 		"data-tool-call",
 		"data-response-activity",

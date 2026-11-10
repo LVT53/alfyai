@@ -225,6 +225,41 @@ describe("messages metadata", () => {
 		vi.clearAllMocks();
 	});
 
+	it("keeps canonical finalized answer while exposing structured activity separately", async () => {
+		const output = {
+			version: 1,
+			events: [
+				{
+					version: 1,
+					turnId: "t",
+					segmentId: "s",
+					attemptId: "a",
+					stepId: "step",
+					phase: "working",
+					sequence: 0,
+					type: "step_start",
+				},
+			],
+		};
+		mockRows.push({
+			id: "structured",
+			conversationId: "c",
+			role: "assistant",
+			content: "Final citation-repaired answer",
+			thinking: null,
+			toolCalls: null,
+			metadataJson: JSON.stringify({ normalChatOutput: output }),
+			createdAt: new Date(),
+		});
+		const { listMessages } = await import("./messages");
+		expect(await listMessages("c")).toEqual([
+			expect.objectContaining({
+				content: "Final citation-repaired answer",
+				normalChatOutput: output,
+			}),
+		]);
+	});
+
 	it("deletes message rows without deleting immutable usage events", async () => {
 		const { deleteMessages } = await import("./messages");
 		const { messages, usageEvents } = await import("$lib/server/db/schema");

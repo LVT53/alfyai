@@ -50,7 +50,10 @@ import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
 import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
 import { repairConversationMessageSequencesWithExecutor } from "./message-sequences";
-import type { TurnCompletionRecord } from "./messages-types";
+import type {
+	NormalChatOutputMetadata,
+	TurnCompletionRecord,
+} from "./messages-types";
 
 // The pure half of what a chat's messages say about their artifacts lives in
 // `shared/` — the chat page reads it too, on the messages it holds live — and
@@ -61,6 +64,7 @@ export {
 } from "$lib/shared/artifacts/artifact-calls";
 
 type PersistedMessageMetadata = SkillControlMessageMetadata & {
+	normalChatOutput?: NormalChatOutputMetadata;
 	completion?: TurnCompletionRecord;
 	evidenceSummary?: MessageEvidenceSummary | null;
 	evidenceStatus?: MessageEvidenceStatusState;
@@ -409,6 +413,11 @@ function projectMessageMetadata(
 
 	return {
 		evidenceSummary,
+		normalChatOutput:
+			metadata?.normalChatOutput?.version === 1 &&
+			Array.isArray(metadata.normalChatOutput.events)
+				? metadata.normalChatOutput
+				: undefined,
 		webCitationAudit: metadata?.webCitationAudit ?? undefined,
 		citationAudit: readCitationAuditFromMetadata(metadata),
 		evidencePending,
