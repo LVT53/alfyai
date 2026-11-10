@@ -25,7 +25,10 @@ import {
 	type SpotlightRequest,
 	spotlightRequest,
 } from "$lib/stores/spotlight";
-import { viewportStore } from "$lib/utils/viewport.svelte";
+import {
+	initViewportTracking,
+	viewportStore,
+} from "$lib/utils/viewport.svelte";
 import { goto, invalidateAll } from "$app/navigation";
 import { navigating } from "$app/stores";
 import { fade } from "svelte/transition";
@@ -284,9 +287,19 @@ function cancelLogout() {
 }
 
 onMount(() => {
-	// isDesktop is now derived from viewportStore, which updates on
-	// resize/orientation/pointer changes (tracked by Slice 0). Only the
-	// transition-enable timing guard remains here.
+	// isDesktop is derived from viewportStore, which follows resize/orientation/
+	// pointer changes once `initViewportTracking()` has run (Slice 0). Until then
+	// it keeps the server's default, "desktop", and only the composer and the
+	// model selector used to start it: on a page without a composer that was
+	// loaded directly (a reload of Settings, the Knowledge Base or the guide) a
+	// phone's sidebar took itself for a desktop one, the header's button toggled
+	// the rail instead of opening the drawer, and the guide's Show me found no
+	// drawer to open. So the sidebar starts it. Calling it again is safe (it
+	// refreshes the store each time and registers its listeners once), and there
+	// is nothing to undo when the sidebar goes: the listeners belong to the page
+	// and are shared with the composer (`viewport.svelte.ts`).
+	initViewportTracking();
+	// Only the transition-enable timing guard remains here.
 	requestAnimationFrame(() => {
 		transitionsEnabled = true;
 	});

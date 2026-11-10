@@ -22,12 +22,18 @@ import Sidebar from "./Sidebar.svelte";
 
 // Deterministic desktop/non-touch viewport so the expanded search pill (and
 // its kbd hint chip) render regardless of the host machine's jsdom defaults.
+// `initViewportTracking` is a spy here, so a test can ask whether the sidebar
+// started it; `Sidebar.viewport.test.ts` runs the real store.
 const mockViewportStore = { touch: false, tier: "desktop" };
+const { initViewportTrackingMock } = vi.hoisted(() => ({
+	initViewportTrackingMock: vi.fn(),
+}));
 vi.mock("$lib/utils/viewport.svelte", () => ({
 	get viewportStore() {
 		return mockViewportStore;
 	},
 	isTouchDevice: () => false,
+	initViewportTracking: initViewportTrackingMock,
 }));
 
 vi.mock("$app/navigation", () => ({
@@ -551,5 +557,40 @@ describe("Sidebar — the guide's Show me", () => {
 
 			expect(get(sidebarCollapsed)).toBe(true);
 		});
+	});
+});
+
+// The sidebar's `isDesktop`, and the header's button that opens the drawer, read
+// `viewportStore`, which keeps its server-side default ("desktop") until
+// `initViewportTracking()` runs. Only the composer and the model selector used to
+// call it, so a page without a composer that was loaded directly (a reload of
+// Settings, the Knowledge Base or the guide) left a phone's sidebar believing it
+// was a desktop one: the header's button did nothing and the guide's Show me found
+// no drawer to open. The sidebar starts the tracking itself.
+// `Sidebar.viewport.test.ts` runs the real store and shows what that does.
+describe("Sidebar — the viewport", () => {
+	beforeEach(() => {
+		initViewportTrackingMock.mockClear();
+	});
+
+	it("starts tracking the viewport when it mounts", async () => {
+		render(Sidebar, { open: false });
+		await tick();
+
+		expect(initViewportTrackingMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("starts it again for a sidebar that is mounted anew (the call is safe to repeat)", async () => {
+		// Signing out and in again drops the shell and builds it again. The
+		// tracking is the page's, shared with the composer, and `initViewportTracking`
+		// registers its listeners once and only refreshes the store on a later call
+		// (`viewport.test.ts`), so each sidebar asks and none has to undo anything.
+		const first = render(Sidebar, { open: false });
+		await tick();
+		first.unmount();
+		render(Sidebar, { open: false });
+		await tick();
+
+		expect(initViewportTrackingMock).toHaveBeenCalledTimes(2);
 	});
 });
