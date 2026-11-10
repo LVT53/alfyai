@@ -218,6 +218,7 @@ task-state.ts (facade — 1,535 lines)
 
 ## Service Ownership
 
+- Server URL prefetch representation belongs to `normal-chat-model/provider-compatibility.ts` (`prefetchToolMessages`), passed through `chat-turn/shared-normal-chat-model-run-helpers.ts` to `normal-chat-context.ts`. DeepSeek reuses the existing retrieved-evidence splice in the user packet: app-generated `fetch_url` calls have no model reasoning to replay. Keep this separate from `historyToolMessages`, SDK-native in-flight tool calls, and the MiMo/MiniMax replay helper. It adds no durable reasoning or resume-evidence storage.
 - `src/lib/server/services/images/` — making and changing pictures: the ComfyUI client and its fake, graphs, pixel guards, picture files, cards and takes, the image job.
 - TEI embedder/reranker transport belongs in thin server services. Do not bury retrieval authority or semantic tie-break logic inside the raw TEI clients.
 - TEI embedding persistence belongs in the shared `semantic_embeddings` store, not in per-feature side tables. Keep artifact and task semantic storage on the same substrate; legacy `persona_cluster` embedding rows may exist, but do not revive a local persona-cluster pipeline around them.

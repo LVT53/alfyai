@@ -7,12 +7,27 @@ import {
 	runStreamingNormalChatModelRun,
 } from "$lib/server/services/normal-chat-model";
 
+import { resolveHistoryToolMessagesMode } from "$lib/server/services/normal-chat-model/provider-compatibility";
+
+const deepseekProvider = {
+	id: "deepseek-test",
+	name: "deepseek",
+	displayName: "DeepSeek",
+	baseUrl: "https://api.deepseek.com/v1",
+	modelName: "deepseek-v4-pro",
+	apiKey: "synthetic",
+};
+
 const reasoning = " \nSynthetic reasoning α.\t\n";
 
 describe("DeepSeek native tool continuation HTTP requests", () => {
-	for (const history of ["fresh", "explicit", "stored"] as const) {
+	for (const history of [
+		"fresh",
+		"explicit",
+		"native-without-reasoning",
+	] as const) {
 		for (const streaming of [true, false]) {
-			it(`${history === "stored" ? "surfaces missing stored reasoning without fabricating it" : "preserves exact reasoning over multiple tool steps"}: ${streaming ? "streaming" : "plain"}, ${history} history`, async () => {
+			it(`${history === "native-without-reasoning" ? "rejects native history missing required reasoning without fabricating it" : "preserves exact reasoning over multiple tool steps"}: ${streaming ? "streaming" : "plain"}, ${history} history`, async () => {
 				const prior: ModelMessage[] =
 					history === "fresh"
 						? []
@@ -48,7 +63,7 @@ describe("DeepSeek native tool continuation HTTP requests", () => {
 											},
 										],
 									},
-									"native",
+									resolveHistoryToolMessagesMode(deepseekProvider),
 								);
 				const requests: Record<string, unknown>[] = [];
 				const fakeFetch: typeof fetch = async (_input, init) => {
@@ -157,14 +172,7 @@ describe("DeepSeek native tool continuation HTTP requests", () => {
 					);
 				};
 				const params = {
-					provider: {
-						id: "deepseek-test",
-						name: "deepseek",
-						displayName: "DeepSeek",
-						baseUrl: "https://api.deepseek.com/v1",
-						modelName: "deepseek-v4-pro",
-						apiKey: "synthetic",
-					},
+					provider: deepseekProvider,
 					fetch: fakeFetch,
 					maxRetries: 0,
 					messages: [
@@ -178,7 +186,7 @@ describe("DeepSeek native tool continuation HTTP requests", () => {
 						}),
 					},
 				};
-				if (history === "stored") {
+				if (history === "native-without-reasoning") {
 					if (streaming) {
 						const events = [];
 						for await (const event of runStreamingNormalChatModelRun(params))

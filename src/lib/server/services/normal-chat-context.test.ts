@@ -1,4 +1,6 @@
+import { tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import type { ResolvedTurnInstructions } from "$lib/server/services/instructions";
 import { estimateTokenCount } from "$lib/utils/tokens";
 
@@ -87,6 +89,11 @@ import {
 	type NormalChatContextPreparationStageTiming,
 	runNormalChatContextPreparationStages,
 } from "./normal-chat-context-preparation";
+import {
+	runPlainNormalChatModelRun,
+	runStreamingNormalChatModelRun,
+} from "./normal-chat-model";
+import { resolveOpenAICompatibleProviderAdapterProfile } from "./normal-chat-model/provider-compatibility";
 import {
 	createTurnUrlProvenance,
 	hasSourceHost,
@@ -3293,6 +3300,180 @@ describe("prepareOutboundChatContext", () => {
 		// The forced search itself travels as turn guidance.
 		expect(prepared.turnGuidance).toContain("call research_web first");
 	});
+
+	for (const streaming of [true, false]) {
+		it(`sends fresh DeepSeek URL prefetch as evidence without inventing assistant reasoning (${streaming ? "streaming" : "plain"})`, async () => {
+			const provider = {
+				id: "deepseek-prefetch",
+				name: "gateway",
+				displayName: "Gateway",
+				baseUrl: "https://gateway.example/v1",
+				modelName: "deepseek-v4-pro",
+				apiKey: "synthetic",
+			};
+			const profile = resolveOpenAICompatibleProviderAdapterProfile(provider);
+			const message = "Summarize https://example.com/source";
+			const prepared = await prepareOutboundChatContext({
+				message,
+				sessionId: "fresh-prefetch",
+				modelConfig: { ...modelConfig, modelName: provider.modelName },
+				modelId: "model1",
+				contextLimits: {
+					maxModelContext: 262_144,
+					compactionUiThreshold: 209_715,
+					targetConstructedContext: 157_286,
+				},
+				historyToolMessages: profile.historyToolMessages,
+				prefetchToolMessages: profile.prefetchToolMessages,
+				logLabel: "prefetch request test",
+			});
+			const requests: Array<{
+				messages: Array<{
+					role: string;
+					content?: unknown;
+					reasoning_content?: string;
+					tool_calls?: unknown[];
+				}>;
+				tools?: unknown[];
+			}> = [];
+			const capturedReasoning = " \nSynthetic tool decision.\t\n";
+			const fakeFetch: typeof fetch = async (_input, init) => {
+				const body = JSON.parse(String(init?.body));
+				requests.push(body);
+				if (
+					body.messages.some(
+						(item: { role: string; reasoning_content?: string }) =>
+							item.role === "assistant" &&
+							item.reasoning_content !== capturedReasoning,
+					)
+				) {
+					return Response.json(
+						{
+							error: {
+								message: "missing historical reasoning_content",
+								type: "invalid_request_error",
+							},
+						},
+						{ status: 400 },
+					);
+				}
+				const first = requests.length === 1;
+				const responseMessage = first
+					? {
+							content: null,
+							reasoning_content: capturedReasoning,
+							tool_calls: [
+								{
+									id: "model-fetch",
+									type: "function",
+									function: {
+										name: "fetch_url",
+										arguments: '{"url":"https://example.com/next"}',
+									},
+								},
+							],
+						}
+					: { content: "Finished." };
+				const frame = {
+					id: "prefetch-completion",
+					object: "chat.completion",
+					created: 1,
+					model: provider.modelName,
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", ...responseMessage },
+							finish_reason: first ? "tool_calls" : "stop",
+						},
+					],
+					usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+				};
+				if (!body.stream) return Response.json(frame);
+				const delta = first
+					? {
+							...responseMessage,
+							tool_calls: responseMessage.tool_calls?.map((call, index) => ({
+								...call,
+								index,
+							})),
+						}
+					: responseMessage;
+				return new Response(
+					`data: ${JSON.stringify({ ...frame, object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ ...frame, choices: [{ index: 0, delta: {}, finish_reason: first ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`,
+					{ headers: { "content-type": "text/event-stream" } },
+				);
+			};
+			const params = {
+				provider,
+				fetch: fakeFetch,
+				maxRetries: 0,
+				messages: [
+					{ role: "user" as const, content: prepared.inputValue },
+					...(prepared.prefetchedToolMessages ?? []),
+				],
+				tools: {
+					fetch_url: tool({
+						inputSchema: z.object({ url: z.string() }),
+						execute: async () => ({ text: "Next page." }),
+					}),
+				},
+			};
+			if (streaming) {
+				const events = [];
+				for await (const event of runStreamingNormalChatModelRun(params))
+					events.push(event);
+				expect(events).toContainEqual({
+					type: "text_delta",
+					text: "Finished.",
+				});
+				expect(events.some((event) => event.type === "error")).toBe(false);
+			} else {
+				expect((await runPlainNormalChatModelRun(params)).text).toBe(
+					"Finished.",
+				);
+			}
+			expect(requests).toHaveLength(2);
+			expect(requests[0].messages.map((item) => item.role)).toEqual(["user"]);
+			expect(requests[0].messages[0].content).toContain(
+				"Research brief for: What changed today?\n\nSources:\n[S1] Official source - https://example.com/source",
+			);
+			expect(JSON.stringify(requests[0].messages)).toContain(
+				"https://example.com/source",
+			);
+			expect(requests[0].tools).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						function: expect.objectContaining({ name: "fetch_url" }),
+					}),
+				]),
+			);
+			expect(requests[1].messages).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						role: "assistant",
+						reasoning_content: capturedReasoning,
+						tool_calls: expect.arrayContaining([
+							expect.objectContaining({ id: "model-fetch" }),
+						]),
+					}),
+				]),
+			);
+			expect(prepared.prefetchedToolMessages).toEqual([]);
+			expect(prepared.prefetchedToolCalls).toEqual([
+				expect.objectContaining({
+					name: "fetch_url",
+					metadata: expect.objectContaining({
+						serverPrefetched: true,
+						evidenceReady: true,
+					}),
+					candidates: expect.arrayContaining([
+						expect.objectContaining({ url: "https://example.com/source" }),
+					]),
+				}),
+			]);
+			expect(mocks.fetchUrlViaParallel).toHaveBeenCalledTimes(1);
+		});
+	}
 
 	it("prefetches pasted URLs before the model run as a native fetch_url tool-call/result exchange", async () => {
 		const url = "https://example.com/source";

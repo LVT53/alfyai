@@ -147,9 +147,9 @@ export type PreparedOutboundChatContext = {
 	// pasted-URL fetch (see maybePrefetchWebSearch), placed AFTER the current
 	// user message so the model sees a completed fetch_url exchange instead
 	// of re-issuing the call itself. Empty when there was nothing to
-	// prefetch, or when historyToolMessages is "flatten" (a provider that
-	// can't take tool messages instead gets the old text splice back into
-	// inputValue).
+	// prefetch, or when prefetchToolMessages is "flatten": a provider requiring
+	// actual model reasoning on assistant tool calls gets retrieved evidence in
+	// inputValue instead. Legacy historyToolMessages: "flatten" also inlines it.
 	prefetchedToolMessages?: ModelMessage[];
 	outputTokenBudget?: OutputTokenBudget;
 	contextLimits: PromptContextLimits;
@@ -899,6 +899,7 @@ async function maybePrefetchWebSearch(params: {
 	sessionId: string;
 	modelId: ModelId | string | undefined;
 	historyToolMessages?: "native" | "flatten";
+	prefetchToolMessages?: "native" | "flatten";
 }): Promise<WebPrefetchResult> {
 	const pastedUrls = containsDirectHttpUrl(params.message)
 		? extractPastedUrls(params.message)
@@ -996,9 +997,11 @@ async function maybePrefetchWebSearch(params: {
 			metadata,
 		};
 
-		// A provider that cannot take native tool messages still gets the old
-		// text splice into the user packet.
-		if (params.historyToolMessages === "flatten") {
+		// App-generated prefetch has no model reasoning. Providers requiring it
+		// on assistant tool calls get retrieved evidence in the user packet.
+		if (
+			(params.prefetchToolMessages ?? params.historyToolMessages) === "flatten"
+		) {
 			const webContext = [
 				"## Current Web Research",
 				"Server-prefetched page content for the pasted URL; use it as retrieved evidence.",
@@ -1945,6 +1948,9 @@ type PrepareOutboundChatContextParams = {
 	// How prior-turn tool activity is replayed in the history (provider
 	// capability, resolved by the caller). Defaults to native.
 	historyToolMessages?: "native" | "flatten";
+	// App-generated URL prefetch may need text evidence even when real model
+	// history and native in-flight tool calls remain supported.
+	prefetchToolMessages?: "native" | "flatten";
 	// On-demand skill loading (replaces the former session-based Skill
 	// Control Envelope system-prompt appendix): the compact per-user "##
 	// Skills available" catalogue line (resolved by the caller from
@@ -2130,10 +2136,9 @@ async function runForcedWebPrefetchStage(input: {
 > {
 	// A resume of a reply that asked reads nothing again: the page for a pasted
 	// address was read when the reply began, and the continuation carries it as the
-	// finished fetch_url exchange it was. (A provider in flatten mode got that page
-	// spliced into the person's message instead, which the resume rebuilds without
-	// it, so such a resume goes on without the page. No provider uses flatten mode
-	// today.)
+	// finished fetch_url exchange it was. Inlined prefetch evidence instead rides
+	// inputValue, which the resume rebuilds without it; this stage does not
+	// reconstruct that evidence on a resume.
 	if (input.params.skipWebPrefetch) {
 		return {
 			inputValue: input.state.inputValue,
@@ -2147,6 +2152,7 @@ async function runForcedWebPrefetchStage(input: {
 		sessionId: input.params.sessionId,
 		modelId: input.params.modelId,
 		historyToolMessages: input.params.historyToolMessages,
+		prefetchToolMessages: input.params.prefetchToolMessages,
 	});
 	// The page reaches the model as a finished fetch_url exchange that never
 	// passes through the tool set the turn builds afterwards, so the user's

@@ -945,3 +945,46 @@ describe("createToolPack and the permission to pause", () => {
 		});
 	});
 });
+
+describe("prepareOutboundContext prefetch compatibility", () => {
+	it.each([
+		{ modelName: "deepseek-v4-pro", name: "gateway", want: "flatten" },
+		{ modelName: "deepseek-flash", name: "gateway", want: "flatten" },
+		{ modelName: "qwen3-6-27b", name: "DeepSeek", want: "native" },
+		{ modelName: "mimo-v2.5-pro", name: "gateway", want: "native" },
+		{ modelName: "MiniMax-M3", name: "gateway", want: "native" },
+		{ modelName: "kimi-k2.7", name: "gateway", want: "native" },
+	])("prepares $modelName prefetch as $want without flattening real history", async ({
+		modelName,
+		name,
+		want,
+	}) => {
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+		});
+		const params = {
+			userId: "user-1",
+			runtimeConfig,
+			message: "Read https://example.com/source",
+			conversationId: "prefetch-test",
+			modelId: "model1" as const,
+		};
+		const runtime = await resolveProviderRuntime({
+			...params,
+			overrideProvider: {
+				id: "prefetch-provider",
+				name,
+				displayName: name,
+				baseUrl: "https://gateway.example/v1",
+				modelName,
+				apiKey: "synthetic",
+			},
+		});
+		await prepareOutboundContext(params, runtime, null, new Set());
+		expect(mocks.prepareOutboundChatContext.mock.lastCall?.[0]).toMatchObject({
+			historyToolMessages: "native",
+			prefetchToolMessages: want,
+		});
+	});
+});

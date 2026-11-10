@@ -50,6 +50,7 @@ export type OpenAICompatibleProviderAdapterProfile = {
 	usesMaxCompletionTokens: boolean;
 	replaysReasoningContentForToolCalls: boolean;
 	historyToolMessages: "native" | "flatten";
+	prefetchToolMessages: "native" | "flatten";
 	classifyProviderError: (
 		error: unknown,
 	) => OpenAICompatibleProviderErrorClassification;
@@ -74,6 +75,9 @@ type AdapterBehavior = {
 	family: OpenAICompatibleProviderFamily;
 	usesMaxCompletionTokens?: boolean;
 	replaysReasoningContentForToolCalls?: boolean;
+	// Server prefetch has no model reasoning. Keep its representation separate
+	// from real history and SDK-native tool continuations.
+	prefetchToolMessages?: "native" | "flatten";
 	thinkingOptions?: "kimi" | "qwen" | "none" | "minimax";
 	toolChoicePolicy?:
 		| "auto-only"
@@ -158,6 +162,7 @@ const PROVIDER_FAMILY_REGISTRY: ProviderFamilyRegistryEntry[] = [
 	{
 		behavior: {
 			family: "deepseek",
+			prefetchToolMessages: "flatten",
 			toolChoicePolicy: "deepseek-legacy-reasoner-when-thinking",
 		},
 		modelPatterns: [
@@ -323,6 +328,8 @@ function createProviderAdapterProfile(
 		replaysReasoningContentForToolCalls:
 			behavior.replaysReasoningContentForToolCalls === true,
 		historyToolMessages: behavior.historyToolMessages ?? "native",
+		prefetchToolMessages:
+			behavior.prefetchToolMessages ?? behavior.historyToolMessages ?? "native",
 		classifyProviderError: classifyOpenAICompatibleProviderError,
 		buildProviderOptions: (provider, thinkingMode) =>
 			buildProviderOptionsForProfile(provider, thinkingMode, behavior),

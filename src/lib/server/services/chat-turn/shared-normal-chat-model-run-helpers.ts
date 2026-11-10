@@ -34,7 +34,10 @@ import {
 	type NormalChatModelRunProvider,
 	resolveNormalChatModelRunProvider,
 } from "$lib/server/services/normal-chat-model";
-import { resolveHistoryToolMessagesMode } from "$lib/server/services/normal-chat-model/provider-compatibility";
+import {
+	resolveHistoryToolMessagesMode,
+	resolveOpenAICompatibleProviderAdapterProfile,
+} from "$lib/server/services/normal-chat-model/provider-compatibility";
 import {
 	createNormalChatTools,
 	createToolCallRecorder,
@@ -478,6 +481,9 @@ export async function prepareOutboundContext(
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
 		activeConnectionCapabilities: enabledConnectionCapabilities,
 		historyToolMessages: resolveHistoryToolMessagesMode(runtime.provider),
+		prefetchToolMessages: resolveOpenAICompatibleProviderAdapterProfile(
+			runtime.provider,
+		).prefetchToolMessages,
 		// Pixels are prepared only for a model the admin marked "Can see images".
 		collectImages: providerCanSeeImages(runtime.provider),
 		skillCatalogueBlock,
