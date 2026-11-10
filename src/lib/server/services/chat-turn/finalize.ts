@@ -18,16 +18,28 @@ import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
-import type { ChatGeneratedFile } from "$lib/server/services/file-production/types";
+import {
+	ARTIFACT_EXPORT_JOB_ORIGIN,
+	type ChatGeneratedFile,
+} from "$lib/server/services/file-production/types";
 import type { SupportedLanguage } from "$lib/server/services/language";
 import {
 	createMessage,
 	updateAssistantToolCallResult,
 } from "$lib/server/services/messages";
-import type { ThinkingSegment } from "$lib/server/services/messages-types";
+import type {
+	ThinkingSegment,
+	ToolCallEntry,
+} from "$lib/server/services/messages-types";
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import { ASK_USER_TOOL_NAME } from "$lib/shared/ask-user";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
+import type {
+	NormalChatCompletion,
+	NormalChatFinalizationFailure,
+} from "$lib/shared/normal-chat-completion";
+import { isFileProductionToolName } from "$lib/utils/tool-calls";
+import { wasActiveChatStreamStopRequested } from "./active-streams";
 import type { AskResumeInput } from "./ask-capture";
 import {
 	type AskResumeCapture,
@@ -65,13 +77,17 @@ type CreateMessageFn = typeof createMessage;
 
 type FileProductionJobSummary = {
 	id: string;
+	assistantMessageId?: string | null;
+	origin?: string;
 	files?: Array<{ id: string }>;
 };
 
 type PendingWriteSummary = { id: string };
 
 export type GeneratedOutputReconciliationParams = {
-	fileProductionJobIdsAtStart: Set<string>;
+	// Raw server-recorded producer receipts for this occurrence only, before
+	// evidence filtering. No chronology/global-conversation delta grants ownership.
+	fileProductionToolCalls?: ToolCallEntry[];
 	getFileProductionJobs?: (
 		userId: string,
 		conversationId: string,
@@ -84,8 +100,8 @@ export type GeneratedOutputReconciliationParams = {
 	) => Promise<void>;
 	syncGeneratedFilesToMemory?: typeof syncGeneratedFilesToMemory;
 	getChatFilesForAssistantMessage?: typeof getChatFilesForAssistantMessage;
-	// Issue 7.5 — same "snapshot at turn start, diff at finalize" mechanism
-	// as fileProductionJobIdsAtStart above, applied to
+	// Pending writes keep their own "snapshot at turn start, diff at finalize"
+	// mechanism, applied to
 	// connection_pending_writes: a pending write is created synchronously
 	// by a write tool mid-turn (createPendingWrite already has
 	// conversationId via ctx — see normal-chat-tools/*.ts), but its
@@ -106,10 +122,32 @@ export type GeneratedOutputReconciliationParams = {
 	) => Promise<void>;
 };
 
+export class FileAssociationFinalizationError extends Error {
+	readonly #finalContent: string;
+	get finalContent(): string {
+		return this.#finalContent;
+	}
+	constructor(
+		cause: unknown,
+		readonly assistantMessageId: string,
+		readonly normalChatFinalization: NormalChatFinalizationFailure,
+		readonly modelCompletion: NormalChatCompletion | undefined,
+		finalContent: string,
+	) {
+		super(cause instanceof Error ? cause.message : "File association failed", {
+			cause,
+		});
+		// Keep canonical answer bytes available to the authenticated receipt,
+		// without exposing them when the error itself is logged.
+		this.#finalContent = finalContent;
+	}
+}
+
 // The durable identities a completed turn hands back once its user/assistant
 // messages are persisted. This is all a stream transport needs to flush its
 // terminal receipt — see onDurableReceiptReady below. finalize only invokes
-// onDurableReceiptReady after validating the assistant message identity, so
+// onDurableReceiptReady after validating the assistant identity and linking
+// this turn's file jobs and produced files, so
 // assistantMessage is guaranteed present here (unlike the send-path result,
 // which stays defensively optional — see FinalizeChatTurnResult).
 export type FinalizeChatTurnDurableReceipt = {
@@ -260,99 +298,59 @@ async function createTurnMessage(
 	return mode === "best_effort" ? create.catch(() => undefined) : create;
 }
 
+// Durable association is part of saving the turn, not a best-effort projection.
+// Failures propagate so no successful receipt can outrun the linked file rows.
 async function reconcileGeneratedOutputsForAssistantMessage(params: {
-	turnKind: ChatTurnRoute;
 	userId: string;
 	conversationId: string;
 	assistantMessageId: string;
-	assistantResponse: string;
 	reconciliation: GeneratedOutputReconciliationParams;
-}): Promise<ChatGeneratedFile[]> {
-	const logPrefix = turnLogPrefix(params.turnKind);
-	const getFileProductionJobsImpl =
+}): Promise<{ generatedFiles: ChatGeneratedFile[]; fileIds: string[] }> {
+	const exactIds = new Set<string>();
+	for (const call of params.reconciliation.fileProductionToolCalls ?? []) {
+		if (!isFileProductionToolName(call.name)) continue;
+		const id = call.metadata?.jobId;
+		if (typeof id === "string" && id.trim()) exactIds.add(id.trim());
+		else if (
+			call.metadata?.ok === true ||
+			call.metadata?.jobStatus === "succeeded"
+		) {
+			throw new Error("Successful file production has no trusted job identity");
+		}
+	}
+	if (exactIds.size === 0) return { generatedFiles: [], fileIds: [] };
+	const getJobs =
 		params.reconciliation.getFileProductionJobs ??
 		listConversationFileProductionJobs;
-	const assignFileProductionJobsImpl =
+	const assignJobs =
 		params.reconciliation.assignFileProductionJobsToAssistantMessage ??
 		assignFileProductionJobsToAssistantMessage;
-	const syncGeneratedFilesToMemoryImpl =
-		params.reconciliation.syncGeneratedFilesToMemory ??
-		syncGeneratedFilesToMemory;
-	const getChatFilesForAssistantMessageImpl =
+	const getFiles =
 		params.reconciliation.getChatFilesForAssistantMessage ??
 		getChatFilesForAssistantMessage;
-
-	try {
-		const fileProductionJobs = await getFileProductionJobsImpl(
+	const jobs = await getJobs(params.userId, params.conversationId);
+	const newJobs = jobs.filter(
+		(job) =>
+			exactIds.has(job.id) &&
+			(!("origin" in job) || job.origin !== ARTIFACT_EXPORT_JOB_ORIGIN) &&
+			(!job.assistantMessageId ||
+				job.assistantMessageId === params.assistantMessageId),
+	);
+	if (newJobs.length !== exactIds.size)
+		throw new Error("Produced job is unavailable for this turn");
+	const jobIds = newJobs.map((job) => job.id);
+	if (jobIds.length > 0) {
+		await assignJobs(
 			params.userId,
 			params.conversationId,
+			params.assistantMessageId,
+			jobIds,
 		);
-		const newFileProductionJobs = fileProductionJobs.filter(
-			(job) => !params.reconciliation.fileProductionJobIdsAtStart.has(job.id),
-		);
-		const newFileProductionJobIds = newFileProductionJobs.map((job) => job.id);
-
-		if (newFileProductionJobIds.length > 0) {
-			await assignFileProductionJobsImpl(
-				params.userId,
-				params.conversationId,
-				params.assistantMessageId,
-				newFileProductionJobIds,
-			);
-		}
-
-		const initialGeneratedFileIds = getUniqueGeneratedFileIds(
-			newFileProductionJobs,
-		);
-		const refreshedJobs = await getFileProductionJobsImpl(
-			params.userId,
-			params.conversationId,
-		);
-		const refreshedGeneratedFileIds = getUniqueGeneratedFileIds(
-			refreshedJobs.filter(
-				(job) => !params.reconciliation.fileProductionJobIdsAtStart.has(job.id),
-			),
-		);
-		const newGeneratedFileIds = Array.from(
-			new Set([...initialGeneratedFileIds, ...refreshedGeneratedFileIds]),
-		);
-
-		if (newGeneratedFileIds.length > 0) {
-			void syncGeneratedFilesToMemoryImpl({
-				userId: params.userId,
-				conversationId: params.conversationId,
-				assistantMessageId: params.assistantMessageId,
-				fileIds: newGeneratedFileIds,
-				assistantResponse: params.assistantResponse,
-			}).catch((error) => {
-				console.error(
-					`${logPrefix} Background generated-file memory sync failed`,
-					{
-						conversationId: params.conversationId,
-						assistantMessageId: params.assistantMessageId,
-						fileIds: newGeneratedFileIds,
-						error,
-					},
-				);
-			});
-		}
-
-		const generatedFiles = (
-			await getChatFilesForAssistantMessageImpl(
-				params.conversationId,
-				params.assistantMessageId,
-			)
-		).map(toPublicGeneratedFile);
-
-		return generatedFiles;
-	} catch (error) {
-		console.error(`${logPrefix} Failed to reconcile generated outputs`, {
-			conversationId: params.conversationId,
-			assistantMessageId: params.assistantMessageId,
-			error,
-		});
-		return [];
 	}
+	const generatedFiles = (
+		await getFiles(params.conversationId, params.assistantMessageId)
+	).map(toPublicGeneratedFile);
+	return { generatedFiles, fileIds: generatedFiles.map((file) => file.id) };
 }
 
 // Issue 7.5 — sibling reconciliation to the file-production one above,
@@ -519,12 +517,6 @@ async function settleAnsweredAskQuestion(params: {
 			},
 		);
 	}
-}
-
-function getUniqueGeneratedFileIds(jobs: FileProductionJobSummary[]): string[] {
-	return Array.from(
-		new Set(jobs.flatMap((job) => (job.files ?? []).map((file) => file.id))),
-	);
 }
 
 function toPublicGeneratedFile(file: ChatGeneratedFile): ChatGeneratedFile {
@@ -750,6 +742,66 @@ export async function finalizeChatTurn(
 		!waitingQuestionId
 	)
 		throw new Error("Paused turn capture could not be persisted");
+	let reconciledOutputs: Awaited<
+		ReturnType<typeof reconcileGeneratedOutputsForAssistantMessage>
+	> | null = null;
+	try {
+		if (assistantMessage && params.generatedOutputReconciliation) {
+			reconciledOutputs = await reconcileGeneratedOutputsForAssistantMessage({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				assistantMessageId: assistantMessage.id,
+				reconciliation: params.generatedOutputReconciliation,
+			});
+		}
+	} catch (error) {
+		if (!assistantMessage) throw error;
+		let marker: NormalChatFinalizationFailure;
+		try {
+			const { recordFileAssociationFailure } = await import("./turn-ledger");
+			const trackedSegmentId = params.completionTurn?.segmentId;
+			if (
+				trackedSegmentId &&
+				(!snapshot?.turnId || snapshot.segmentId !== trackedSegmentId)
+			) {
+				throw new Error("Missing or mismatched tracked finalization snapshot");
+			}
+			marker = recordFileAssociationFailure({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				messageId: assistantMessage.id,
+				wasStopped:
+					params.assistantMetadata.wasStopped === true ||
+					snapshot?.completion?.outcome === "stopped" ||
+					wasActiveChatStreamStopRequested({
+						streamId: params.streamId,
+						userId: params.userId,
+					}),
+				...(trackedSegmentId && snapshot
+					? {
+							mode: "tracked",
+							segmentId: trackedSegmentId,
+							turnId: snapshot.turnId,
+						}
+					: { mode: "untracked" }),
+			});
+		} catch (recordError) {
+			// Keep the actual association error primary if storage also fails.
+			console.error(`${logPrefix} Could not record file-association failure`, {
+				conversationId: params.conversationId,
+				assistantMessageId: assistantMessage.id,
+				error: recordError,
+			});
+			throw error;
+		}
+		throw new FileAssociationFinalizationError(
+			error,
+			assistantMessage.id,
+			marker,
+			snapshot?.completion,
+			params.assistantResponse,
+		);
+	}
 	await params.completionTurn?.finish(assistantMessage?.id);
 
 	if (
@@ -773,7 +825,8 @@ export async function finalizeChatTurn(
 
 	// The single ordered post-turn projection, shared by both callers. Each
 	// side effect runs exactly once in a fixed order — assistant turn-state →
-	// evidence → generated-output reconciliation
+	// evidence → generated-file memory sync. Durable file association is already
+	// complete above, independently of this slower projection.
 	// — so a new post-turn side effect is added in exactly one place.
 	const runPostTurnProjection = async (): Promise<{
 		turnState: PersistAssistantTurnStateResult | null;
@@ -898,17 +951,29 @@ export async function finalizeChatTurn(
 		const resolvedAttachedArtifacts =
 			attachedArtifacts ?? (await attachmentTask);
 
-		const generatedFiles =
-			assistantMessage && params.generatedOutputReconciliation
-				? await reconcileGeneratedOutputsForAssistantMessage({
-						turnKind: params.turnKind,
-						userId: params.userId,
+		const generatedFiles = reconciledOutputs?.generatedFiles ?? [];
+		if (assistantMessage && reconciledOutputs?.fileIds.length) {
+			const sync =
+				params.generatedOutputReconciliation?.syncGeneratedFilesToMemory ??
+				syncGeneratedFilesToMemory;
+			void sync({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				assistantMessageId: assistantMessage.id,
+				assistantResponse: params.assistantResponse,
+				fileIds: reconciledOutputs.fileIds,
+			}).catch((error) =>
+				console.error(
+					`${turnLogPrefix(params.turnKind)} Background generated-file memory sync failed`,
+					{
 						conversationId: params.conversationId,
 						assistantMessageId: assistantMessage.id,
-						assistantResponse: params.assistantResponse,
-						reconciliation: params.generatedOutputReconciliation,
-					})
-				: [];
+						fileIds: reconciledOutputs.fileIds,
+						error,
+					},
+				),
+			);
+		}
 
 		return {
 			turnState,

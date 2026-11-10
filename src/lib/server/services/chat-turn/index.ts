@@ -24,7 +24,7 @@ export type {
 	FinalizeChatTurnParams,
 	FinalizeChatTurnResult,
 } from "./finalize";
-export { finalizeChatTurn } from "./finalize";
+export { FileAssociationFinalizationError, finalizeChatTurn } from "./finalize";
 export { normalizeAssistantOutputWithSkillControl } from "./normalizer";
 export { runPlainNormalChatSendModel } from "./plain-normal-chat-model-run";
 export {

@@ -10,6 +10,7 @@ import { recordCompletedTurnContextUsage } from "$lib/server/services/chat-turn/
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import {
 	collectInstructionSuggestions,
+	FileAssociationFinalizationError,
 	finalizeChatTurn,
 } from "$lib/server/services/chat-turn/finalize";
 import { getConversation } from "$lib/server/services/conversations";
@@ -40,6 +41,7 @@ import {
 	askCallPausedTheReply,
 } from "$lib/shared/ask-user";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
+import { projectNormalChatFinalization } from "$lib/shared/normal-chat-completion";
 import {
 	isConnectionWriteToolName,
 	isFileProductionToolName,
@@ -92,26 +94,8 @@ export type PreparedContextSnapshot = {
 	userPictures?: UserPicturesMetadata;
 };
 
-export type FileProductionStartSnapshot =
-	| Set<string>
-	| {
-			jobIds: Set<string>;
-			snapshotStartedAt: number;
-	  };
-
-type NormalizedFileProductionStartSnapshot = {
-	jobIds: Set<string>;
-	snapshotStartedAt?: number;
-};
-
 export interface StreamCompletionFacts {
 	startedResetGeneration?: StreamCompletionFact<number>;
-	fileProductionJobIdsAtStart: StreamCompletionFact<FileProductionStartSnapshot>;
-	// Issue 7.5 — sibling fact to fileProductionJobIdsAtStart, resolved
-	// (not deferred) at completion time: see startPendingWriteIdsAtStartFact
-	// in stream-orchestrator.ts for why pending writes don't need the
-	// deferred-until-ready dance file production's background worker
-	// requires.
 	pendingWriteIdsAtStart?: StreamCompletionFact<Set<string>>;
 }
 
@@ -141,6 +125,8 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	thinkingContent: string;
 	fullResponse: string;
 	toolCallRecords: ToolCallEntry[];
+	// Current server recorder, before any lossy display/evidence adaptation.
+	fileProductionToolCalls?: ToolCallEntry[];
 	// P3b (ADR-0056) — the durable Interim Thought Step rail accumulated by
 	// the reasoning-phase classifier this turn (possibly empty — a slow,
 	// rejected, or unavailable classifier degrades to zero steps, never a
@@ -271,7 +257,6 @@ export async function completeStreamTurn(
 		userIntent,
 		activeDocumentArtifactId,
 		requestStartTime,
-		fileProductionJobIdsAtStart: fileProductionJobIdsAtStartFact,
 		pendingWriteIdsAtStart: pendingWriteIdsAtStartFact,
 		preparedContext,
 		latestProviderUsage,
@@ -407,7 +392,9 @@ export async function completeStreamTurn(
 		name: record.name,
 		status: record.status,
 	}));
-	const hadFileProductionToolCall = toolCallSummary.some((record) =>
+	const rawFileProductionToolCalls =
+		params.fileProductionToolCalls ?? toolCallRecords;
+	const hadFileProductionToolCall = rawFileProductionToolCalls.some((record) =>
 		isFileProductionToolName(record.name),
 	);
 	// Issue 7.5 — widens the generatedOutputReconciliation gate below so a
@@ -417,23 +404,6 @@ export async function completeStreamTurn(
 	const hadConnectionWriteToolCall = toolCallSummary.some((record) =>
 		isConnectionWriteToolName(record.name),
 	);
-	const deferredFileProductionJobIdsAtStart = new Set<string>();
-	let fileProductionReconciliationReady = !hadFileProductionToolCall;
-	let fileProductionReconciliationSkipped = false;
-	const getDeferredFileProductionJobs = async (
-		requestUserId: string,
-		requestConversationId: string,
-	): Promise<FileProductionJob[]> => {
-		if (
-			!fileProductionReconciliationReady ||
-			fileProductionReconciliationSkipped
-		) {
-			throw new Error(
-				"File-production start snapshot was unavailable for deferred stream reconciliation",
-			);
-		}
-		return getFileProductionJobs(requestUserId, requestConversationId);
-	};
 
 	if (getConfig().contextDiagnosticsDebug) {
 		console.info("[CHAT_STREAM] Tool-call summary", {
@@ -918,8 +888,8 @@ export async function completeStreamTurn(
 			generatedOutputReconciliation:
 				hadFileProductionToolCall || hadConnectionWriteToolCall
 					? {
-							fileProductionJobIdsAtStart: deferredFileProductionJobIdsAtStart,
-							getFileProductionJobs: getDeferredFileProductionJobs,
+							fileProductionToolCalls: rawFileProductionToolCalls,
+							getFileProductionJobs,
 							assignFileProductionJobsToAssistantMessage,
 							syncGeneratedFilesToMemory,
 							getChatFilesForAssistantMessage,
@@ -941,50 +911,6 @@ export async function completeStreamTurn(
 					receipt.assistantMessage.id,
 					receipt.waitingQuestionId,
 				);
-
-				if (!hadFileProductionToolCall) return;
-
-				try {
-					const fileProductionStartSnapshot =
-						await resolveFileProductionJobIdsAtStart({
-							conversationId,
-							streamId,
-							fact: fileProductionJobIdsAtStartFact,
-						});
-					const fileProductionJobIdsAtStart = fileProductionStartSnapshot
-						? await buildEffectiveFileProductionJobIdsAtStart({
-								userId,
-								conversationId,
-								snapshot: fileProductionStartSnapshot,
-								toolCallRecords,
-								getFileProductionJobs,
-							})
-						: null;
-
-					deferredFileProductionJobIdsAtStart.clear();
-					if (fileProductionJobIdsAtStart) {
-						for (const jobId of fileProductionJobIdsAtStart) {
-							deferredFileProductionJobIdsAtStart.add(jobId);
-						}
-						fileProductionReconciliationSkipped = false;
-					} else {
-						fileProductionReconciliationSkipped = true;
-					}
-				} catch (error) {
-					// Defensive only — resolveFileProductionJobIdsAtStart and
-					// buildEffectiveFileProductionJobIdsAtStart already catch their
-					// own failures internally. This local catch exists so an
-					// unexpected throw here degrades to "skip reconciliation"
-					// instead of rejecting onDurableReceiptReady, which has already
-					// sent the terminal receipt above and must not fail the turn.
-					console.error(
-						"[CHAT_STREAM] Deferred file-production snapshot resolution failed",
-						{ conversationId, streamId, error },
-					);
-					fileProductionReconciliationSkipped = true;
-				} finally {
-					fileProductionReconciliationReady = true;
-				}
 			},
 		});
 		return;
@@ -999,7 +925,52 @@ export async function completeStreamTurn(
 				error,
 			},
 		);
-		sendErrorAndClose();
+		if (
+			error instanceof FileAssociationFinalizationError &&
+			error.modelCompletion &&
+			streamId
+		) {
+			const observation = {
+				version: 1 as const,
+				state: "terminal" as const,
+				streamId,
+				conversationId,
+				assistantMessageId: error.assistantMessageId,
+				normalChatFinalization: error.normalChatFinalization,
+				modelCompletion: error.modelCompletion,
+				completion:
+					projectNormalChatFinalization(
+						error.modelCompletion,
+						error.normalChatFinalization,
+					) ?? error.modelCompletion,
+			};
+			enqueueChunk(
+				streamDataPartEvent("data-stream-metadata", {
+					observation,
+					finalContent: error.finalContent,
+					assistantMessageId: error.assistantMessageId,
+					normalChatFinalization: error.normalChatFinalization,
+				}),
+			);
+			enqueueChunk(
+				streamFinishEvent(
+					error.normalChatFinalization.wasStopped ||
+						observation.completion.outcome === "stopped"
+						? "stop"
+						: "error",
+				),
+			);
+			enqueueChunk(createUiMessageStreamDoneFrame());
+			if (streamId) clearStreamBuffer(streamId);
+			closeDownstream();
+			return;
+		}
+		if (
+			hadFileProductionToolCall &&
+			(wasStopped || wasActiveChatStreamStopRequested({ streamId, userId }))
+		)
+			sendStoppedAndClose();
+		else sendErrorAndClose();
 		return;
 	}
 }
@@ -1030,12 +1001,7 @@ async function resolveStartedResetGenerationFact(params: {
 	}
 }
 
-// Issue 7.5 — resolves startPendingWriteIdsAtStartFact's snapshot. Unlike
-// resolveFileProductionJobIdsAtStart below, there is no "deferred, wait for
-// ready" dance: this is awaited directly at stream-completion time (see the
-// call site above), so a failure here just means pending-write
-// reconciliation is skipped for this turn (best-effort, never blocks or
-// fails the turn itself).
+// Pending-write snapshot failure remains best effort and independent of file ownership.
 async function resolvePendingWriteIdsAtStartFact(params: {
 	conversationId: string;
 	streamId: string | null;
@@ -1054,93 +1020,6 @@ async function resolvePendingWriteIdsAtStartFact(params: {
 		);
 		return undefined;
 	}
-}
-
-async function resolveFileProductionJobIdsAtStart(params: {
-	conversationId: string;
-	streamId: string | null;
-	fact: StreamCompletionFact<FileProductionStartSnapshot>;
-}): Promise<NormalizedFileProductionStartSnapshot | null> {
-	try {
-		return normalizeFileProductionStartSnapshot(
-			await resolveCompletionFact(params.fact),
-		);
-	} catch (error) {
-		console.warn(
-			"[CHAT_STREAM] Failed to snapshot file-production jobs at stream start",
-			{
-				conversationId: params.conversationId,
-				streamId: params.streamId,
-				error,
-			},
-		);
-		return null;
-	}
-}
-
-function normalizeFileProductionStartSnapshot(
-	snapshot: FileProductionStartSnapshot,
-): NormalizedFileProductionStartSnapshot {
-	return snapshot instanceof Set
-		? { jobIds: snapshot }
-		: {
-				jobIds: snapshot.jobIds,
-				snapshotStartedAt: Number.isFinite(snapshot.snapshotStartedAt)
-					? snapshot.snapshotStartedAt
-					: undefined,
-			};
-}
-
-async function buildEffectiveFileProductionJobIdsAtStart(params: {
-	userId: string;
-	conversationId: string;
-	snapshot: NormalizedFileProductionStartSnapshot;
-	toolCallRecords: ToolCallEntry[];
-	getFileProductionJobs: (
-		userId: string,
-		conversationId: string,
-	) => Promise<FileProductionJob[]>;
-}): Promise<Set<string>> {
-	const effectiveJobIds = new Set(params.snapshot.jobIds);
-
-	for (const jobId of getSameTurnFileProductionJobIds(params.toolCallRecords)) {
-		effectiveJobIds.delete(jobId);
-	}
-
-	if (params.snapshot.snapshotStartedAt === undefined) {
-		return effectiveJobIds;
-	}
-
-	const currentJobs = await params
-		.getFileProductionJobs(params.userId, params.conversationId)
-		.catch(() => [] as FileProductionJob[]);
-	for (const job of currentJobs) {
-		if (
-			effectiveJobIds.has(job.id) &&
-			Number.isFinite(job.createdAt) &&
-			job.createdAt >= params.snapshot.snapshotStartedAt
-		) {
-			effectiveJobIds.delete(job.id);
-		}
-	}
-
-	return effectiveJobIds;
-}
-
-function getSameTurnFileProductionJobIds(
-	toolCallRecords: ToolCallEntry[],
-): Set<string> {
-	const jobIds = new Set<string>();
-	for (const record of toolCallRecords) {
-		if (!isFileProductionToolName(record.name) || record.status !== "done") {
-			continue;
-		}
-		const jobId = record.metadata?.jobId;
-		if (typeof jobId === "string" && jobId.trim()) {
-			jobIds.add(jobId.trim());
-		}
-	}
-	return jobIds;
 }
 
 // Settles the ask calls of a reply saved without a pause, with what a later

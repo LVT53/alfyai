@@ -201,10 +201,10 @@ vi.mock("$lib/server/services/file-production", () => ({
 }));
 
 // Issue 7.5 — startPendingWriteIdsAtStartFact's sibling snapshot to
-// startFileProductionJobIdsAtStartFact above. Mocked here (rather than left
+// the turn-start fact. Mocked here (rather than left
 // pointed at the real $lib/server/db default) so the "does not block
 // startup" / "degrades on rejection" robustness tests below can control it
-// directly, mirroring the file-production pair immediately above.
+// directly. File association uses exact current producer IDs, not a snapshot.
 vi.mock("$lib/server/services/connections/pending-writes", () => ({
 	listPendingWritesForConversation: vi.fn(() => Promise.resolve([])),
 	assignPendingWritesToAssistantMessage: vi.fn(),
@@ -1172,96 +1172,7 @@ describe("stream-orchestrator SSE contract", () => {
 		await expect(fact).rejects.toBe(startedError);
 	});
 
-	it("does not let a slow file-production start snapshot block context/model startup", async () => {
-		const { runStreamingNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
-		);
-		const { listConversationFileProductionJobs } = await import(
-			"$lib/server/services/file-production"
-		);
-		let resolveSnapshot!: (jobs: Array<{ id: string }>) => void;
-		let snapshotResolved = false;
-		const slowSnapshot = new Promise<Array<{ id: string }>>((resolve) => {
-			resolveSnapshot = (jobs) => {
-				snapshotResolved = true;
-				resolve(jobs);
-			};
-		});
-		(
-			listConversationFileProductionJobs as ReturnType<typeof vi.fn>
-		).mockReturnValueOnce(slowSnapshot);
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult([
-				{ type: "text_delta", text: "Hi" },
-				finishEvent,
-			]),
-		);
-
-		const response = runStream({
-			conversationId: "slow-snapshot-conv",
-			streamId: "slow-snapshot-stream",
-		});
-		const reader = response.body?.getReader();
-		if (!reader) throw new Error("Missing response body");
-
-		try {
-			const initialChunks = [
-				await readNextSseChunk(reader),
-				await readNextSseChunk(reader),
-			].join("\n\n");
-
-			expect(initialChunks).toContain(":");
-			expect(initialChunks).toContain("context-preparing");
-			expect(listConversationFileProductionJobs).toHaveBeenCalledWith(
-				"u1",
-				"slow-snapshot-conv",
-			);
-			await vi.waitFor(
-				() => expect(runStreamingNormalChatSendModel).toHaveBeenCalled(),
-				{ timeout: 100 },
-			);
-		} finally {
-			if (!snapshotResolved) {
-				resolveSnapshot([]);
-			}
-			await reader.cancel().catch(() => undefined);
-		}
-	});
-
-	it("handles a rejected hot file-production start snapshot when no file tool runs", async () => {
-		const { runStreamingNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
-		);
-		const {
-			assignFileProductionJobsToAssistantMessage,
-			listConversationFileProductionJobs,
-		} = await import("$lib/server/services/file-production");
-		(
-			listConversationFileProductionJobs as ReturnType<typeof vi.fn>
-		).mockReturnValueOnce(Promise.reject(new Error("snapshot failed")));
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult([
-				{ type: "text_delta", text: "Hi" },
-				finishEvent,
-			]),
-		);
-
-		const response = runStream({
-			conversationId: "rejected-snapshot-conv",
-			streamId: "rejected-snapshot-stream",
-		});
-		const chunks = await readSseResponse(response);
-
-		expect(chunks.join("\n\n")).toContain("Hi");
-		expect(assignFileProductionJobsToAssistantMessage).not.toHaveBeenCalled();
-	});
-
-	// Issue 7.5 — startPendingWriteIdsAtStartFact mirror of the two
-	// startFileProductionJobIdsAtStartFact robustness tests above: the
+	// Pending writes retain their independent turn-start snapshot: the
 	// snapshot is kicked off eagerly (ensurePendingWriteIdsAtStart, called
 	// unconditionally at turn start) and must neither block model startup nor
 	// crash/mis-stamp the turn if it rejects.

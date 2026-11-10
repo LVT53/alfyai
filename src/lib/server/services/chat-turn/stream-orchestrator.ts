@@ -46,7 +46,6 @@ import {
 } from "$lib/server/services/chat-turn/stream";
 import {
 	completeStreamTurn,
-	type FileProductionStartSnapshot,
 	type StreamCompletionFact,
 } from "$lib/server/services/chat-turn/stream-completion";
 import { doReconnect as runReconnect } from "$lib/server/services/chat-turn/stream-reconnect";
@@ -145,36 +144,7 @@ export function startStartedResetGenerationFact(
 	return startedResetGeneration;
 }
 
-function startFileProductionJobIdsAtStartFact(params: {
-	userId: string;
-	conversationId: string;
-}): StreamCompletionFact<FileProductionStartSnapshot> {
-	const snapshotStartedAt = Date.now();
-	let snapshot: Promise<FileProductionStartSnapshot>;
-	try {
-		snapshot = listConversationFileProductionJobs(
-			params.userId,
-			params.conversationId,
-		).then((jobs) => ({
-			jobIds: new Set(jobs.map((job) => job.id)),
-			snapshotStartedAt,
-		}));
-	} catch (error) {
-		snapshot = Promise.reject(error);
-	}
-	void snapshot.catch(() => undefined);
-	return snapshot;
-}
-
-// Issue 7.5 — same "kick off the snapshot query as soon as turn prep is
-// done, in parallel with the (long) model stream, then resolve it once at
-// finalize" pattern as startFileProductionJobIdsAtStartFact above. Simpler
-// than that one: a pending write is created SYNCHRONOUSLY by a write tool's
-// execute() (createPendingWrite is awaited before the tool call ever
-// returns to the model) — unlike file-production jobs, there is no
-// background worker that could still be racing to create one after this
-// snapshot, so a plain Set (no snapshotStartedAt tracking, no
-// toolCallRecords cross-referencing) is enough.
+// Pending writes keep their own synchronous turn-start snapshot.
 function startPendingWriteIdsAtStartFact(params: {
 	userId: string;
 	conversationId: string;
@@ -766,15 +736,6 @@ export function runChatStreamOrchestrator(
 					}),
 				};
 			};
-			let fileProductionJobIdsAtStart: StreamCompletionFact<FileProductionStartSnapshot> | null =
-				null;
-			const ensureFileProductionJobIdsAtStart = () => {
-				fileProductionJobIdsAtStart ??= startFileProductionJobIdsAtStartFact({
-					userId: user.id,
-					conversationId,
-				});
-				return fileProductionJobIdsAtStart;
-			};
 			let pendingWriteIdsAtStart: StreamCompletionFact<Set<string>> | null =
 				null;
 			const ensurePendingWriteIdsAtStart = () => {
@@ -812,6 +773,7 @@ export function runChatStreamOrchestrator(
 					thinkingContent: chunkRuntime.thinkingContent,
 					fullResponse: chunkRuntime.fullResponse,
 					toolCallRecords: chunkRuntime.toolCallRecords,
+					fileProductionToolCalls: streamingRun?.getNormalChatToolCalls(),
 					// P3b (ADR-0056) — the durable step rail accumulated this turn,
 					// read back at completion time and persisted into
 					// assistantMetadata.thoughtSteps (see stream-completion.ts).
@@ -838,7 +800,6 @@ export function runChatStreamOrchestrator(
 					}),
 					activeDocumentArtifactId: activeDocumentArtifactId ?? null,
 					requestStartTime,
-					fileProductionJobIdsAtStart: ensureFileProductionJobIdsAtStart(),
 					pendingWriteIdsAtStart: ensurePendingWriteIdsAtStart(),
 					// The former latest*/initial* mirror-pairs always held the same
 					// value at this boundary, so they collapse into one prepared-context
@@ -964,7 +925,6 @@ export function runChatStreamOrchestrator(
 					status: "done",
 					detail: latestDepthMetadata.appliedProfile,
 				});
-				ensureFileProductionJobIdsAtStart();
 				ensurePendingWriteIdsAtStart();
 				// A crash, or a turn that could not save, leaves questions that no reply
 				// was saved with. A turn that holds the chat's stream (the arbiter above

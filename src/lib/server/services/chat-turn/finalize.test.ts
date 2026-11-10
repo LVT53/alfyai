@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { recordMessageAnalytics } from "$lib/server/services/analytics";
 import type { ChatFile } from "$lib/server/services/chat-files";
@@ -662,6 +664,296 @@ describe("runPostTurnTasks", () => {
 });
 
 describe("finalizeChatTurn", () => {
+	const linkageParams = () => ({
+		turnKind: "stream" as const,
+		responseLanguage: "en" as const,
+		userId: "user-1",
+		conversationId: "conv-1",
+		userMessageContent: "Make a file",
+		persistUserMessage: true,
+		normalizedMessage: "Make a file",
+		upstreamMessage: "Make a file",
+		assistantResponse: "Done",
+		assistantMetadata: {},
+		attachmentIds: [],
+		activeDocumentArtifactId: null,
+		contextStatus: null,
+		initialTaskState: null,
+		initialContextDebug: null,
+		analytics: null,
+		assistantMirrorContent: "Done",
+		maintenanceReason: "chat_stream" as const,
+	});
+
+	it.each([
+		"stream",
+		"send",
+	] as const)("makes linked files canonically visible before %s heavy projection", async (turnKind) => {
+		const { db } = await import("$lib/server/db");
+		const schema = await import("$lib/server/db/schema");
+		const {
+			listConversationFileProductionJobs,
+			listConversationGeneratedFiles,
+		} = await import("../file-production/read-model");
+		const { assignFileProductionJobsToAssistantMessage } = await import(
+			"../file-production/job-links"
+		);
+		const { finalizeChatTurn } = await import("./finalize");
+		const userId = randomUUID(),
+			conversationId = randomUUID(),
+			assistantId = randomUUID(),
+			otherUserId = randomUUID(),
+			otherConversationId = randomUUID(),
+			otherAssistantId = randomUUID();
+		await db.insert(schema.users).values({
+			id: userId,
+			email: `${userId}@example.com`,
+			passwordHash: "hash",
+		});
+		await db
+			.insert(schema.conversations)
+			.values({ id: conversationId, userId, title: "Files" });
+		await db.insert(schema.messages).values({
+			id: assistantId,
+			conversationId,
+			role: "assistant",
+			content: "Done",
+		});
+		await db.insert(schema.users).values({
+			id: otherUserId,
+			email: `${otherUserId}@example.com`,
+			passwordHash: "hash",
+		});
+		await db
+			.insert(schema.conversations)
+			.values({ id: otherConversationId, userId, title: "Other" });
+		await db.insert(schema.messages).values({
+			id: otherAssistantId,
+			conversationId,
+			role: "assistant",
+			content: "Earlier reply",
+		});
+		const ids = {
+			current: randomUUID(),
+			concurrentForeign: randomUUID(),
+			old: randomUUID(),
+			exported: randomUUID(),
+			assigned: randomUUID(),
+			otherOwner: randomUUID(),
+			otherConversation: randomUUID(),
+		};
+		for (const [kind, id] of Object.entries(ids)) {
+			const fileUserId = kind === "otherOwner" ? otherUserId : userId;
+			const fileConversationId =
+				kind === "otherConversation" ? otherConversationId : conversationId;
+			await db.insert(schema.fileProductionJobs).values({
+				id,
+				userId: fileUserId,
+				conversationId: fileConversationId,
+				assistantMessageId: kind === "assigned" ? otherAssistantId : null,
+				title: kind,
+				status: "succeeded",
+				origin: kind === "exported" ? "artifact_export" : "unified_produce",
+			});
+			await db.insert(schema.chatGeneratedFiles).values({
+				id: `file-${id}`,
+				userId: fileUserId,
+				conversationId: fileConversationId,
+				assistantMessageId: null,
+				filename: `${kind}.md`,
+				mimeType: "text/markdown",
+				sizeBytes: 5,
+				storagePath: `${id}.md`,
+			});
+			await db.insert(schema.fileProductionJobFiles).values({
+				id: `link-${id}`,
+				jobId: id,
+				chatGeneratedFileId: `file-${id}`,
+				sortOrder: 0,
+			});
+		}
+		mockCreateMessage.mockImplementation(async (_conversationId, role) =>
+			makeChatMessage(
+				role === "assistant" ? assistantId : randomUUID(),
+				role,
+				"Done",
+			),
+		);
+		const heavy = createDeferred<{
+			activeWorkingSet: [];
+			taskState: null;
+			contextDebug: null;
+			workCapsule: undefined;
+		}>();
+		const atProjection = createDeferred<void>();
+		const atReceipt = createDeferred<void>();
+		let projectedFiles: string[] = [],
+			receiptFiles: string[] = [];
+		mockPersistAssistantTurnState.mockImplementationOnce(async () => {
+			projectedFiles = (
+				await listConversationGeneratedFiles(conversationId)
+			).map((file) => file.id);
+			atProjection.resolve();
+			return heavy.promise;
+		});
+		const assign = vi.fn(assignFileProductionJobsToAssistantMessage);
+		const sync = vi.fn(async () => undefined);
+		const completion = finalizeChatTurn({
+			...linkageParams(),
+			turnKind,
+			userId,
+			conversationId,
+			generatedOutputReconciliation: {
+				fileProductionToolCalls: [
+					{
+						name: "produce_file",
+						input: {},
+						status: "done",
+						metadata: { jobId: ids.current },
+					},
+				],
+				getFileProductionJobs: listConversationFileProductionJobs,
+				assignFileProductionJobsToAssistantMessage: assign,
+				syncGeneratedFilesToMemory: sync,
+				getChatFilesForAssistantMessage: async () =>
+					(await listConversationGeneratedFiles(conversationId))
+						.filter((file) => file.assistantMessageId === assistantId)
+						.map((file) => ({
+							...file,
+							assistantMessageId: file.assistantMessageId ?? null,
+							artifactId: file.artifactId ?? null,
+							userId,
+							storagePath: "unused",
+						})),
+			},
+			onDurableReceiptReady: async () => {
+				receiptFiles = (
+					await listConversationGeneratedFiles(conversationId)
+				).map((file) => file.id);
+				atReceipt.resolve();
+			},
+		});
+		try {
+			await (turnKind === "stream" ? atReceipt.promise : atProjection.promise);
+			expect(turnKind === "stream" ? receiptFiles : projectedFiles).toEqual([
+				`file-${ids.current}`,
+			]);
+			const jobs = await db
+				.select()
+				.from(schema.fileProductionJobs)
+				.where(eq(schema.fileProductionJobs.conversationId, conversationId));
+			expect(
+				jobs.find((job) => job.id === ids.current)?.assistantMessageId,
+			).toBe(assistantId);
+			for (const job of jobs.filter((job) => job.id !== ids.current)) {
+				expect(job.assistantMessageId).toBe(
+					job.id === ids.assigned ? otherAssistantId : null,
+				);
+			}
+			expect(assign).toHaveBeenCalledTimes(1);
+			expect(assign).toHaveBeenCalledWith(userId, conversationId, assistantId, [
+				ids.current,
+			]);
+		} finally {
+			heavy.resolve({
+				activeWorkingSet: [],
+				taskState: null,
+				contextDebug: null,
+				workCapsule: undefined,
+			});
+			const result = await completion;
+			if (turnKind === "send")
+				expect(result.generatedFiles.map((file) => file.id)).toEqual([
+					`file-${ids.current}`,
+				]);
+			expect(sync).toHaveBeenCalledTimes(1);
+			await db
+				.delete(schema.conversations)
+				.where(eq(schema.conversations.id, otherConversationId));
+			await db
+				.delete(schema.conversations)
+				.where(eq(schema.conversations.id, conversationId));
+			await db.delete(schema.users).where(eq(schema.users.id, userId));
+			await db.delete(schema.users).where(eq(schema.users.id, otherUserId));
+		}
+	});
+
+	it("holds the durable receipt until assignment completes", async () => {
+		const { finalizeChatTurn } = await import("./finalize");
+		const held = createDeferred<void>(),
+			entered = createDeferred<void>();
+		const receipt = vi.fn();
+		const completion = finalizeChatTurn({
+			...linkageParams(),
+			onDurableReceiptReady: receipt,
+			generatedOutputReconciliation: {
+				fileProductionToolCalls: [
+					{
+						name: "produce_file",
+						input: {},
+						status: "done",
+						metadata: { jobId: "new" },
+					},
+				],
+				getFileProductionJobs: async () => [{ id: "new", files: [] }],
+				assignFileProductionJobsToAssistantMessage: async () => {
+					entered.resolve();
+					await held.promise;
+				},
+			},
+		});
+		await entered.promise;
+		try {
+			expect(receipt).not.toHaveBeenCalled();
+		} finally {
+			held.resolve();
+			await completion;
+		}
+		expect(receipt).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		["stream", "selection"],
+		["send", "selection"],
+		["stream", "assignment"],
+		["send", "assignment"],
+		["stream", "file read"],
+		["send", "file read"],
+	] as const)("%s withholds receipt on critical %s failure", async (turnKind, step) => {
+		const { finalizeChatTurn } = await import("./finalize");
+		const failure = new Error(`${step} offline`),
+			receipt = vi.fn();
+		await expect(
+			finalizeChatTurn({
+				...linkageParams(),
+				turnKind,
+				onDurableReceiptReady: receipt,
+				generatedOutputReconciliation: {
+					fileProductionToolCalls: [
+						{
+							name: "produce_file",
+							input: {},
+							status: "done",
+							metadata: { jobId: "new" },
+						},
+					],
+					getFileProductionJobs: async () => {
+						if (step === "selection") throw failure;
+						return [{ id: "new", files: [] }];
+					},
+					assignFileProductionJobsToAssistantMessage: async () => {
+						if (step === "assignment") throw failure;
+					},
+					getChatFilesForAssistantMessage: async () => {
+						if (step === "file read") throw failure;
+						return [];
+					},
+				},
+			}),
+		).rejects.toThrow(failure);
+		expect(receipt).not.toHaveBeenCalled();
+	});
+
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCreateMessage.mockReset();
@@ -890,7 +1182,14 @@ describe("finalizeChatTurn", () => {
 			assistantMirrorContent: "Done.",
 			maintenanceReason: "chat_send",
 			generatedOutputReconciliation: {
-				fileProductionJobIdsAtStart: new Set(["job-existing"]),
+				fileProductionToolCalls: [
+					{
+						name: "produce_file",
+						input: {},
+						status: "done",
+						metadata: { jobId: "job-new" },
+					},
+				],
 				getFileProductionJobs: vi.fn(async () => [
 					{ id: "job-existing", files: [{ id: "file-existing" }] },
 					{ id: "job-new", files: [{ id: "file-new" }] },
@@ -955,7 +1254,6 @@ describe("finalizeChatTurn", () => {
 			assistantMirrorContent: "assistant response",
 			maintenanceReason: "chat_stream",
 			generatedOutputReconciliation: {
-				fileProductionJobIdsAtStart: new Set<string>(),
 				pendingWriteIdsAtStart: new Set(["pw-existing"]),
 				getPendingWrites: vi.fn(async () => [
 					{ id: "pw-existing" },
@@ -981,35 +1279,45 @@ describe("finalizeChatTurn", () => {
 		const assignPendingWrites = vi.fn(async () => undefined);
 		const { finalizeChatTurn } = await import("./finalize");
 
-		await finalizeChatTurn({
-			turnKind: "send",
-			responseLanguage: "en",
-			userId: "user-1",
-			conversationId: "conv-1",
-			userMessageContent: "user message",
-			persistUserMessage: true,
-			normalizedMessage: "user message",
-			upstreamMessage: "upstream message",
-			assistantResponse: "assistant response",
-			assistantMetadata: { evidenceStatus: "pending" },
-			attachmentIds: [],
-			activeDocumentArtifactId: null,
-			contextStatus: null,
-			initialTaskState: null,
-			initialContextDebug: null,
-			analytics: null,
-			assistantMirrorContent: "assistant response",
-			maintenanceReason: "chat_send",
-			generatedOutputReconciliation: {
-				fileProductionJobIdsAtStart: new Set<string>(),
-				getFileProductionJobs: vi.fn(async () => {
-					throw new Error("job ledger down");
-				}),
-				pendingWriteIdsAtStart: new Set<string>(),
-				getPendingWrites: vi.fn(async () => [{ id: "pw-new" }]) as never,
-				assignPendingWritesToAssistantMessage: assignPendingWrites,
-			},
-		});
+		await expect(
+			finalizeChatTurn({
+				turnKind: "send",
+				responseLanguage: "en",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "assistant response",
+				assistantMetadata: { evidenceStatus: "pending" },
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: null,
+				assistantMirrorContent: "assistant response",
+				maintenanceReason: "chat_send",
+				generatedOutputReconciliation: {
+					fileProductionToolCalls: [
+						{
+							name: "produce_file",
+							input: {},
+							status: "failed",
+							metadata: { jobId: "new" },
+						},
+					],
+
+					getFileProductionJobs: vi.fn(async () => {
+						throw new Error("job ledger down");
+					}),
+					pendingWriteIdsAtStart: new Set<string>(),
+					getPendingWrites: vi.fn(async () => [{ id: "pw-new" }]) as never,
+					assignPendingWritesToAssistantMessage: assignPendingWrites,
+				},
+			}),
+		).rejects.toThrow("job ledger down");
 
 		expect(assignPendingWrites).toHaveBeenCalledTimes(1);
 	});
@@ -1049,7 +1357,6 @@ describe("finalizeChatTurn", () => {
 			assistantMirrorContent: "Done.",
 			maintenanceReason: "chat_send",
 			generatedOutputReconciliation: {
-				fileProductionJobIdsAtStart: new Set(),
 				getFileProductionJobs: vi.fn(async () => []),
 				getChatFilesForAssistantMessage: vi.fn(async () => []),
 				pendingWriteIdsAtStart: new Set(["pw-existing"]),
@@ -1097,7 +1404,6 @@ describe("finalizeChatTurn", () => {
 			assistantMirrorContent: "Done.",
 			maintenanceReason: "chat_send",
 			generatedOutputReconciliation: {
-				fileProductionJobIdsAtStart: new Set(),
 				getFileProductionJobs: vi.fn(async () => []),
 				getChatFilesForAssistantMessage: vi.fn(async () => []),
 				getPendingWrites,

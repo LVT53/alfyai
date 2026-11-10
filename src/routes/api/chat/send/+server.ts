@@ -14,6 +14,7 @@ import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import {
 	checkStreamCapacity,
 	classifyStreamErrorCause,
+	FileAssociationFinalizationError,
 	finalizeChatTurn,
 	findWaitingQuestionRefusal,
 	normalizeAssistantOutputWithSkillControl,
@@ -27,7 +28,6 @@ import {
 import { recordCompletedTurnContextUsage } from "$lib/server/services/chat-turn/context-usage";
 import { listPendingWritesForConversation } from "$lib/server/services/connections/pending-writes";
 import { touchConversation } from "$lib/server/services/conversations";
-import { listConversationFileProductionJobs } from "$lib/server/services/file-production";
 import {
 	createArtifactLink,
 	isAttachmentReadinessError,
@@ -39,6 +39,7 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
 import { FRIENDLY_STREAM_ERRORS } from "$lib/services/stream-protocol";
+import { projectNormalChatFinalization } from "$lib/shared/normal-chat-completion";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import type { RequestHandler } from "./$types";
 
@@ -173,7 +174,22 @@ export const POST: RequestHandler = async (event) => {
 		// (client) concern.
 		const errorKey = classifyStreamErrorCause(error);
 		return json(
-			{ error: FRIENDLY_STREAM_ERRORS[errorKey], code: errorKey },
+			{
+				error: FRIENDLY_STREAM_ERRORS[errorKey],
+				code: errorKey,
+				...(error instanceof FileAssociationFinalizationError
+					? {
+							assistantMessageId: error.assistantMessageId,
+							response: { text: error.finalContent },
+							normalChatFinalization: error.normalChatFinalization,
+							modelCompletion: error.modelCompletion,
+							completion: projectNormalChatFinalization(
+								error.modelCompletion,
+								error.normalChatFinalization,
+							),
+						}
+					: {}),
+			},
 			{ status: 502 },
 		);
 	}
@@ -530,10 +546,6 @@ async function runStandardSendTurn({
 	runtimeConfig: ReturnType<typeof getConfig>;
 }): Promise<Response> {
 	const upstreamMessage = turn.normalizedMessage;
-	const fileProductionJobIdsAtStart = await snapshotConversationFileJobs({
-		userId: user.id,
-		conversationId: turn.conversationId,
-	});
 	const pendingWriteIdsAtStart = await snapshotConversationPendingWrites({
 		userId: user.id,
 		conversationId: turn.conversationId,
@@ -668,7 +680,10 @@ async function runStandardSendTurn({
 		contextTraceSections: modelRunResult.contextTraceSections,
 		webCitationAudit: modelRunArtifacts.citationGate.audit,
 		generatedOutputReconciliation: {
-			fileProductionJobIdsAtStart,
+			fileProductionToolCalls:
+				modelRunResult.normalChatToolCalls ??
+				modelRunResult.toolCalls ??
+				modelRunResult.prefetchedToolCalls,
 			pendingWriteIdsAtStart,
 		},
 	});
@@ -695,31 +710,6 @@ async function runStandardSendTurn({
 		contextDebug: completion.turnState?.contextDebug,
 		generatedFiles: completion.generatedFiles,
 	});
-}
-
-async function snapshotConversationFileJobs({
-	userId,
-	conversationId,
-}: {
-	userId: string;
-	conversationId: string;
-}): Promise<Set<string>> {
-	try {
-		const jobs = await listConversationFileProductionJobs(
-			userId,
-			conversationId,
-		);
-		return new Set(jobs.map((job) => job.id));
-	} catch (error) {
-		console.warn(
-			"[CHAT_SEND] Failed to snapshot file-production jobs at send start",
-			{
-				conversationId,
-				error,
-			},
-		);
-		return new Set();
-	}
 }
 
 // Issue 7.5 — same "snapshot at turn start" pattern as

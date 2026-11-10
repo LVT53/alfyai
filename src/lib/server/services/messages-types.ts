@@ -288,6 +288,7 @@ export type NormalChatRuntimePhase =
 	| "awaiting_update";
 
 export interface ChatMessage {
+	normalChatFinalization?: import("$lib/shared/normal-chat-completion").NormalChatFinalizationFailure;
 	normalChatOutput?: NormalChatOutputMetadata;
 	id: string;
 	// Stable client-side identity used for keyed rendering so stream finalization

@@ -97,6 +97,116 @@ afterEach(() => {
 	rmSync(directory, { recursive: true, force: true });
 });
 
+it("rejects missing tracked turn identity atomically instead of inferring it", () => {
+	ledger.admitTurn({ ...scope, ownerId: "owner" });
+	database.db
+		.insert(schema.messages)
+		.values({
+			id: "saved",
+			conversationId: "c",
+			role: "assistant",
+			content: "Answer",
+			metadataJson: JSON.stringify({ preserved: true }),
+		})
+		.run();
+	const input = {
+		...scope,
+		mode: "tracked",
+		messageId: "saved",
+		wasStopped: false,
+	};
+	expect(() =>
+		Reflect.apply(ledger.recordFileAssociationFailure, undefined, [
+			{ ...input, turnId: undefined },
+		]),
+	).toThrow();
+	expect(
+		database.db.select().from(schema.normalChatTurns).get()?.messageId,
+	).toBeNull();
+	expect(database.db.select().from(schema.messages).get()?.metadataJson).toBe(
+		JSON.stringify({ preserved: true }),
+	);
+});
+
+it("scopes finalization failure identity and preserves the old message link on conflicts", () => {
+	ledger.admitTurn({ ...scope, ownerId: "owner" });
+	database.db
+		.insert(schema.messages)
+		.values([
+			{
+				id: "saved",
+				conversationId: "c",
+				role: "assistant",
+				content: "Answer",
+				metadataJson: "{}",
+			},
+			{
+				id: "second",
+				conversationId: "c",
+				role: "assistant",
+				content: "Other",
+				metadataJson: "{}",
+			},
+		])
+		.run();
+	const input = {
+		...scope,
+		mode: "tracked" as const,
+		messageId: "saved",
+		wasStopped: false,
+	};
+	for (const invalid of [
+		{ ...input, turnId: "wrong" },
+		{ ...input, segmentId: "missing" },
+		{ ...input, mode: undefined },
+	]) {
+		expect(() =>
+			Reflect.apply(ledger.recordFileAssociationFailure, undefined, [invalid]),
+		).toThrow();
+	}
+	ledger.recordFileAssociationFailure(input);
+	ledger.recordFileAssociationFailure({ ...input, wasStopped: true });
+	ledger.recordFileAssociationFailure(input);
+	expect(() =>
+		ledger.recordFileAssociationFailure({ ...input, messageId: "second" }),
+	).toThrow();
+	expect(
+		database.db.select().from(schema.normalChatTurns).get()?.messageId,
+	).toBe("saved");
+	const rows = database.db.select().from(schema.messages).all();
+	expect(
+		JSON.parse(rows.find((row) => row.id === "saved")?.metadataJson ?? "{}")
+			.normalChatFinalization,
+	).toMatchObject({ wasStopped: true });
+	expect(rows.find((row) => row.id === "second")?.metadataJson).toBe("{}");
+});
+
+it("explicitly marks an untracked saved message without creating ledger or accounting rows", () => {
+	database.db
+		.insert(schema.messages)
+		.values({
+			id: "saved",
+			conversationId: "c",
+			role: "assistant",
+			content: "Answer",
+			metadataJson: "{}",
+		})
+		.run();
+	ledger.recordFileAssociationFailure({
+		mode: "untracked",
+		userId: "u",
+		conversationId: "c",
+		messageId: "saved",
+		wasStopped: false,
+	});
+	expect(database.db.select().from(schema.normalChatTurns).all()).toEqual([]);
+	expect(
+		JSON.parse(
+			database.db.select().from(schema.messages).get()?.metadataJson ?? "{}",
+		).normalChatFinalization,
+	).toMatchObject({ status: "failed" });
+});
+
 it("persists an admitted unsaved failure and makes admission and terminal replay idempotent", () => {
 	expect(ledger.admitTurn({ ...scope, ownerId: "process1" }).status).toBe(
 		"admitted",

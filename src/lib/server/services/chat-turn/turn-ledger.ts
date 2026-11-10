@@ -1,12 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
+import { parseJsonRecord } from "$lib/server/utils/json";
 import type {
 	NormalChatCompletion,
+	NormalChatFinalizationFailure,
 	NormalChatStopCause,
 } from "$lib/shared/normal-chat-completion";
+import { parseNormalChatFinalization } from "$lib/shared/normal-chat-completion";
 import { db } from "../../db";
 import {
 	conversations,
+	messages,
 	normalChatAttempts,
 	normalChatTurns,
 } from "../../db/schema";
@@ -66,6 +70,75 @@ export type TurnAttempt = {
 	/** False until usage is final. Unknown final usage still cannot become ready. */
 	usageFinal: boolean;
 };
+
+/** A separate persistence fact: never rewrite a sealed model terminal or priced attempt. */
+export function recordFileAssociationFailure(
+	input: {
+		userId: string;
+		conversationId: string;
+		messageId: string;
+		wasStopped: boolean;
+	} & (
+		| { mode: "tracked"; segmentId: string; turnId: string }
+		| { mode: "untracked" }
+	),
+): NormalChatFinalizationFailure {
+	return durable(() =>
+		db.transaction((tx) => {
+			const chat = tx
+				.select()
+				.from(conversations)
+				.where(
+					and(
+						eq(conversations.id, input.conversationId),
+						eq(conversations.userId, input.userId),
+					),
+				)
+				.get();
+			const message = tx
+				.select()
+				.from(messages)
+				.where(
+					and(
+						eq(messages.id, input.messageId),
+						eq(messages.conversationId, input.conversationId),
+						eq(messages.role, "assistant"),
+					),
+				)
+				.get();
+			if (!chat || !message)
+				throw new TurnLedgerScopeError("Finalization message scope denied");
+			if (input.mode === "tracked") {
+				if (!input.segmentId || !input.turnId)
+					throw new TurnLedgerScopeError("Missing finalization turn identity");
+				requireTurn(tx, input);
+				linkNormalChatMessageAccounting(tx, {
+					...input,
+					segmentId: input.segmentId,
+				});
+			} else if (input.mode !== "untracked")
+				throw new TurnLedgerScopeError("Finalization tracking mode required");
+			const metadata = parseJsonRecord(message.metadataJson) ?? {};
+			const old = parseNormalChatFinalization(metadata.normalChatFinalization);
+			const marker: NormalChatFinalizationFailure = {
+				version: 1,
+				status: "failed",
+				cause: "file_association_failed",
+				wasStopped: input.wasStopped || old?.wasStopped === true,
+			};
+			tx.update(messages)
+				.set({
+					metadataJson: JSON.stringify({
+						...metadata,
+						normalChatFinalization: marker,
+					}),
+				})
+				.where(eq(messages.id, message.id))
+				.run();
+			return marker;
+		}),
+	);
+}
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 function scoped(scope: TurnScope) {
 	return and(

@@ -123,6 +123,182 @@ const attempt = {
 	modelId: "provider:p1:m1",
 	providerModelName: "first",
 } as const;
+
+it.each([
+	{ step: "assignment", wasStopped: false, lateStop: false },
+	{ step: "selection", wasStopped: false, lateStop: false },
+	{ step: "file read", wasStopped: false, lateStop: false },
+	{ step: "assignment", wasStopped: true, lateStop: false },
+	{ step: "assignment", wasStopped: false, lateStop: true },
+])("preserves model truth but exposes durable $step failure (stopped=$wasStopped) after saving", async ({
+	step,
+	wasStopped,
+	lateStop,
+}) => {
+	vi.doMock("./finalize-steps", () => ({
+		persistUserTurnAttachments: vi.fn(async () => undefined),
+		persistAssistantTurnState: vi.fn(async () => ({
+			activeWorkingSet: [],
+			taskState: null,
+			contextDebug: null,
+		})),
+		persistAssistantEvidence: vi.fn(async () => undefined),
+		runPostTurnTasks: vi.fn(async () => undefined),
+		recordAssistantTurnAnalytics: vi.fn(async () => undefined),
+		nameConversationAfterTurn: vi.fn(),
+	}));
+	const life = module.beginCompletionLifetime(input);
+	await life.register(attempt);
+	const state = snapshot(life.scope, true);
+	if (!state.completion) throw new Error("Fixture missing completion");
+	state.events = [
+		{
+			version: 1,
+			...life.scope,
+			attemptId: "a",
+			stepId: "step",
+			phase: "working",
+			sequence: 0,
+			type: "completion",
+			completion: state.completion,
+		},
+	];
+	life.capture(state);
+	await life.finish(); // The real model result has already sealed before finalization.
+	const beforeAttempts = database.db
+		.select()
+		.from(schema.normalChatAttempts)
+		.all();
+	const { finalizeChatTurn } = await import("./finalize");
+	const failure = new Error("association fault");
+	let assignmentEntered = () => {};
+	let rejectAssignment: (reason: unknown) => void = () => {};
+	const entered = new Promise<void>((resolve) => {
+		assignmentEntered = resolve;
+	});
+	const held = new Promise<void>((_resolve, reject) => {
+		rejectAssignment = reject;
+	});
+	const completion = finalizeChatTurn({
+		turnKind: "stream",
+		responseLanguage: "en",
+		userId: "u",
+		conversationId: "c",
+		streamId: input.requestId,
+		persistUserMessage: false,
+		userMessageContent: "Make file",
+		normalizedMessage: "Make file",
+		upstreamMessage: "Make file",
+		assistantResponse: "Actual canonical answer",
+		assistantMetadata: { wasStopped },
+		attachmentIds: [],
+		activeDocumentArtifactId: null,
+		contextStatus: null,
+		initialTaskState: null,
+		initialContextDebug: null,
+		analytics: null,
+		assistantMirrorContent: "Actual canonical answer",
+		maintenanceReason: "chat_stream",
+		completionTurn: {
+			segmentId: life.scope.segmentId,
+			getSnapshot: life.getSnapshot,
+			finish: life.finish,
+		},
+		generatedOutputReconciliation: {
+			fileProductionToolCalls: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "failed",
+					metadata: { jobId: "new" },
+				},
+			],
+			getFileProductionJobs: async () => {
+				if (step === "selection") throw failure;
+				return [{ id: "new", files: [] }];
+			},
+			assignFileProductionJobsToAssistantMessage: async () => {
+				if (step === "assignment") {
+					if (lateStop) {
+						assignmentEntered();
+						await held;
+					} else throw failure;
+				}
+			},
+			getChatFilesForAssistantMessage: async () => {
+				if (step === "file read") throw failure;
+				return [];
+			},
+		},
+	});
+	const rejected = expect(completion).rejects.toMatchObject({
+		message: failure.message,
+		cause: failure,
+	});
+	if (lateStop) {
+		await entered;
+		const { requestActiveChatStreamStop, registerActiveChatStream } =
+			await import("./active-streams");
+		registerActiveChatStream({
+			streamId: input.requestId,
+			userId: "u",
+			conversationId: "c",
+			controller: new AbortController(),
+		});
+		expect(await module.observeCompletionTurn(input)).toMatchObject({
+			state: "pending",
+		});
+		requestActiveChatStreamStop({ streamId: input.requestId, userId: "u" });
+		rejectAssignment(failure);
+	}
+	await rejected;
+	const saved = database.db.select().from(schema.messages).get();
+	expect(saved?.content).toBe("Actual canonical answer");
+	if (!saved?.metadataJson) throw new Error("Missing saved assistant metadata");
+	const marker = {
+		version: 1,
+		status: "failed",
+		cause: "file_association_failed",
+		wasStopped: wasStopped || lateStop,
+	};
+	expect(JSON.parse(saved.metadataJson).normalChatFinalization).toEqual(marker);
+	expect(JSON.parse(saved.metadataJson).normalChatOutput.events).toEqual(
+		state.events,
+	);
+	const messages = await import("../messages");
+	expect((await messages.listMessages("c"))[0]).toMatchObject({
+		id: saved.id,
+		content: "Actual canonical answer",
+		normalChatFinalization: marker,
+	});
+	const observed = await module.observeCompletionTurn(input);
+	expect(observed).toMatchObject({
+		state: "terminal",
+		assistantMessageId: saved.id,
+		normalChatFinalization: marker,
+		modelCompletion: state.completion,
+		completion: { outcome: wasStopped || lateStop ? "stopped" : "failed" },
+	});
+	const ledger = await import("./turn-ledger");
+	ledger.recordFileAssociationFailure({
+		mode: "tracked",
+		...life.scope,
+		messageId: saved.id,
+		wasStopped,
+	});
+	await life.finish(saved.id); // Late ordinary finish must not erase failure or conflict.
+	expect(await module.observeCompletionTurn(input)).toEqual(observed);
+	expect(database.db.select().from(schema.normalChatTurns).get()).toMatchObject(
+		{ outcome: "answered", messageId: saved.id, accountingStatus: "ready" },
+	);
+	expect(database.db.select().from(schema.normalChatAttempts).all()).toEqual(
+		beforeAttempts,
+	);
+	const wire = await observeWire();
+	expect(wire.observation).toEqual(observed);
+	vi.doUnmock("./finalize-steps");
+});
+
 it("keeps delayed message accounting pending until late registered usage settles once", async () => {
 	const life = module.beginCompletionLifetime(input);
 	await life.register(attempt);

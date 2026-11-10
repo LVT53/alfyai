@@ -10,6 +10,7 @@ import type {
 	ChatMessage,
 	ToolCallEntry,
 } from "$lib/server/services/messages-types";
+import type { NormalChatContinuationSnapshot } from "$lib/server/services/normal-chat-model";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
@@ -443,7 +444,6 @@ describe("completeStreamTurn", () => {
 		attachmentIds: ["att-1"],
 		activeDocumentArtifactId: "doc-1",
 		requestStartTime: Date.now() - 5000,
-		fileProductionJobIdsAtStart: new Set<string>(),
 		preparedContext: {
 			contextStatus: null,
 			taskState: null,
@@ -2232,8 +2232,14 @@ describe("completeStreamTurn", () => {
 		await completeStreamTurn({
 			...defaultParams,
 			isReconnect: true,
-			fileProductionJobIdsAtStart: new Set(["job-existing"]),
-			toolCallRecords: [{ name: "produce_file", input: {}, status: "done" }],
+			toolCallRecords: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "done",
+					metadata: { jobId: "job-new" },
+				},
+			],
 		});
 
 		expect(mockCreateMessage).toHaveBeenCalledWith(
@@ -2282,7 +2288,14 @@ describe("completeStreamTurn", () => {
 		await completeStreamTurn({
 			...defaultParams,
 			fullResponse: "",
-			toolCallRecords: [{ name: "produce_file", input: {}, status: "done" }],
+			toolCallRecords: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "done",
+					metadata: { jobId: "job-new" },
+				},
+			],
 		});
 
 		expect(mockCreateMessage).toHaveBeenCalledWith(
@@ -2326,6 +2339,7 @@ describe("completeStreamTurn", () => {
 					input: {},
 					status: "done",
 					metadata: {
+						jobId: "job-new",
 						ok: false,
 						evidenceReady: false,
 						error: "Renderer failed",
@@ -2357,6 +2371,228 @@ describe("completeStreamTurn", () => {
 		);
 	});
 
+	it("does not emit terminal success while durable file assignment is held", async () => {
+		const held = createDeferred<void>();
+		const entered = createDeferred<void>();
+		mockGetFileProductionJobs.mockResolvedValue([{ id: "job-new", files: [] }]);
+		mockAssignFileProductionJobs.mockImplementationOnce(async () => {
+			entered.resolve();
+			await held.promise;
+		});
+		const completion = completeStreamTurn({
+			...defaultParams,
+			toolCallRecords: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "done",
+					metadata: { jobId: "job-new" },
+				},
+			],
+		});
+		await entered.promise;
+		try {
+			expect(mockCloseDownstream).not.toHaveBeenCalled();
+		} finally {
+			held.resolve();
+			await completion;
+		}
+		expect(getLatestEndPayload()).toMatchObject({
+			assistantMessageId: "asst-msg-1",
+		});
+	});
+
+	it.each([
+		"failed",
+		"stopped",
+		"late stop",
+	])("emits consumable %s file-finalization observation without a generic error frame", async (ending) => {
+		const ledger = await import("./turn-ledger");
+		const markerWriter = vi
+			.spyOn(ledger, "recordFileAssociationFailure")
+			.mockImplementation((input) => ({
+				version: 1,
+				status: "failed",
+				cause: "file_association_failed",
+				wasStopped: input.wasStopped,
+			}));
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		const modelCompletion = {
+			version: 1 as const,
+			turnId: "turn",
+			segmentId: "segment",
+			phase: "working" as const,
+			outcome: "answered" as const,
+			stopCause: "natural_stop" as const,
+			workingStopCause: "natural_stop" as const,
+			closingAttempted: false,
+		};
+		const snapshot: NormalChatContinuationSnapshot = {
+			version: 1,
+			fidelity: "exact",
+			turnId: "turn",
+			segmentId: "segment",
+			original: {
+				providerId: "p",
+				providerBaseUrl: "https://test.invalid",
+				modelName: "model",
+				messages: [],
+			},
+			prepared: { maxOutputTokens: 1000 },
+			steps: [],
+			pendingImageEntries: [],
+			executions: [],
+			events: [],
+			usage: [],
+			sequence: 0,
+			nextAttempt: 1,
+			workingSteps: 1,
+			closingSegments: [],
+			deadlineAt: Date.now() + 10000,
+			totalTimeoutMs: 10000,
+			completion: modelCompletion,
+		};
+		let entered = () => {};
+		let rejectAssignment: (reason: unknown) => void = () => {};
+		const assignmentEntered = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		const held = new Promise<void>((_resolve, reject) => {
+			rejectAssignment = reject;
+		});
+		mockGetFileProductionJobs.mockResolvedValue([{ id: "job-new", files: [] }]);
+		mockAssignFileProductionJobs.mockImplementationOnce(async () => {
+			if (ending === "late stop") {
+				entered();
+				await held;
+			} else throw new Error("association unavailable");
+		});
+		const streamId = `critical-file-${ending}`;
+		try {
+			const completion = completeStreamTurn({
+				...defaultParams,
+				streamId,
+				wasStopped: ending === "stopped",
+				completionTurn: {
+					segmentId: "segment",
+					getSnapshot: () => snapshot,
+					finish: async () => undefined,
+				},
+				toolCallRecords: [
+					{
+						name: "produce_file",
+						input: {},
+						status: "done",
+						metadata: { jobId: "job-new" },
+					},
+				],
+			});
+			if (ending === "late stop") {
+				await assignmentEntered;
+				requestActiveChatStreamStop({ streamId, userId: "user-1" });
+				rejectAssignment(new Error("association unavailable"));
+			}
+			await completion;
+			const parts = mockEnqueueChunk.mock.calls.flatMap((call: string[]) =>
+				decodeUiMessageStreamParts(call[0] ?? ""),
+			);
+			expect(parts).toEqual([
+				expect.objectContaining({
+					type: "data-stream-metadata",
+					data: expect.objectContaining({
+						observation: expect.objectContaining({
+							state: "terminal",
+							streamId,
+							conversationId: "conv-1",
+							assistantMessageId: "asst-msg-1",
+							modelCompletion,
+							normalChatFinalization: expect.objectContaining({
+								wasStopped: ending !== "failed",
+								cause: "file_association_failed",
+							}),
+							completion: expect.objectContaining({
+								outcome: ending === "failed" ? "failed" : "stopped",
+							}),
+						}),
+					}),
+				}),
+				{
+					type: "finish",
+					finishReason: ending === "failed" ? "error" : "stop",
+				},
+				"[DONE]",
+			]);
+			expect(markerWriter).toHaveBeenCalledTimes(1);
+			expect(getLatestEndPayload()).toMatchObject({
+				finalContent: "response text",
+				assistantMessageId: "asst-msg-1",
+			});
+			expect(snapshot.completion).toBe(modelCompletion);
+		} finally {
+			markerWriter.mockRestore();
+			errorSpy.mockRestore();
+		}
+	});
+
+	it.each([
+		false,
+		true,
+	])("preserves stop=%s without success or generation recovery when file assignment fails", async (wasStopped) => {
+		mockGetFileProductionJobs.mockResolvedValue([{ id: "job-new", files: [] }]);
+		mockAssignFileProductionJobs.mockRejectedValueOnce(
+			new Error("linkage unavailable"),
+		);
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		try {
+			await completeStreamTurn({
+				...defaultParams,
+				wasStopped,
+				toolCallRecords: [
+					{
+						name: "produce_file",
+						input: {},
+						status: "done",
+						metadata: { jobId: "job-new" },
+					},
+				],
+			});
+			const parts = mockEnqueueChunk.mock.calls.flatMap((call: string[]) =>
+				decodeUiMessageStreamParts(call[0] ?? ""),
+			);
+			if (wasStopped) {
+				expect(getLatestEndPayload()).toMatchObject({ wasStopped: true });
+				expect(parts).not.toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({ type: "data-stream-error" }),
+					]),
+				);
+			} else {
+				expect(parts).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							type: "data-stream-error",
+							data: expect.objectContaining({ code: "backend_failure" }),
+						}),
+					]),
+				);
+			}
+			expect(parts).not.toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						type: "data-stream-metadata",
+						data: expect.objectContaining({ assistantMessageId: "asst-msg-1" }),
+					}),
+				]),
+			);
+		} finally {
+			errorSpy.mockRestore();
+		}
+	});
+
 	it("attaches new file-production jobs from produce_file to the assistant message", async () => {
 		mockGetFileProductionJobs.mockResolvedValue([
 			{ id: "job-existing" },
@@ -2365,8 +2601,14 @@ describe("completeStreamTurn", () => {
 
 		await completeStreamTurn({
 			...defaultParams,
-			fileProductionJobIdsAtStart: new Set(["job-existing"]),
-			toolCallRecords: [{ name: "produce_file", input: {}, status: "done" }],
+			toolCallRecords: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "done",
+					metadata: { jobId: "job-new" },
+				},
+			],
 		});
 
 		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
@@ -2375,6 +2617,156 @@ describe("completeStreamTurn", () => {
 			"asst-msg-1",
 			["job-new"],
 		);
+	});
+
+	it("does no file lookup for a connection-only turn", async () => {
+		mockGetFileProductionJobs.mockImplementation(() => {
+			throw new Error("file lookup on a no-file turn");
+		});
+		await completeStreamTurn({
+			...defaultParams,
+			toolCallRecords: [{ name: "files", input: {}, status: "done" }],
+		});
+		expect(mockGetFileProductionJobs).not.toHaveBeenCalled();
+		expect(getLatestEndPayload()).toMatchObject({
+			assistantMessageId: "asst-msg-1",
+		});
+	});
+
+	it("does no job lookup for a legitimate producer refusal with no job ID", async () => {
+		mockGetFileProductionJobs.mockImplementation(() => {
+			throw new Error("must not adopt global orphans");
+		});
+		await completeStreamTurn({
+			...defaultParams,
+			toolCallRecords: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "done",
+					metadata: { ok: false },
+				},
+			],
+		});
+		expect(mockGetFileProductionJobs).not.toHaveBeenCalled();
+		expect(mockAssignFileProductionJobs).not.toHaveBeenCalled();
+		expect(getLatestEndPayload()).toMatchObject({
+			assistantMessageId: "asst-msg-1",
+		});
+	});
+
+	it("uses the current raw failed receipt when display records lost its job identity", async () => {
+		mockGetFileProductionJobs.mockResolvedValue([
+			{ id: "owned", files: [] },
+			{ id: "post-start-foreign", files: [] },
+		]);
+		await completeStreamTurn({
+			...defaultParams,
+			toolCallRecords: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "failed",
+					metadata: { ok: false },
+				},
+			],
+			fileProductionToolCalls: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "failed",
+					metadata: { ok: false, jobId: "owned" },
+				},
+			],
+		});
+		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+			"asst-msg-1",
+			["owned"],
+		);
+	});
+
+	it("does not claim durable success for a successful producer receipt missing its job ID", async () => {
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		try {
+			await completeStreamTurn({
+				...defaultParams,
+				toolCallRecords: [
+					{
+						name: "produce_file",
+						input: {},
+						status: "done",
+						metadata: { ok: true, jobStatus: "succeeded" },
+					},
+				],
+			});
+			expect(mockGetFileProductionJobs).not.toHaveBeenCalled();
+			expectModelSafeTerminalError();
+		} finally {
+			errorSpy.mockRestore();
+		}
+	});
+
+	it.each([
+		"queued",
+		"running",
+		"failed",
+		"cancelled",
+	])("links a stopped turn's %s job without waiting for a renderer", async (status) => {
+		mockGetFileProductionJobs.mockResolvedValue([
+			{ id: "job-new", status, files: [] },
+		]);
+		await completeStreamTurn({
+			...defaultParams,
+			wasStopped: true,
+			toolCallRecords: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "done",
+					metadata: { jobId: "job-new" },
+				},
+			],
+		});
+		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+			"asst-msg-1",
+			["job-new"],
+		);
+		expect(getLatestEndPayload()).toMatchObject({
+			wasStopped: true,
+			assistantMessageId: "asst-msg-1",
+		});
+	});
+
+	it("withholds success when the scoped job read fails", async () => {
+		mockGetFileProductionJobs.mockRejectedValueOnce(
+			new Error("ledger unavailable"),
+		);
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		try {
+			await completeStreamTurn({
+				...defaultParams,
+				toolCallRecords: [
+					{
+						name: "produce_file",
+						input: {},
+						status: "done",
+						metadata: { jobId: "job-new" },
+					},
+				],
+			});
+			expect(mockAssignFileProductionJobs).not.toHaveBeenCalled();
+			expectModelSafeTerminalError();
+		} finally {
+			errorSpy.mockRestore();
+		}
 	});
 
 	it("uses eager completion facts for reset generation and file-production reconciliation", async () => {
@@ -2386,8 +2778,14 @@ describe("completeStreamTurn", () => {
 		await completeStreamTurn({
 			...defaultParams,
 			startedResetGeneration: 7,
-			fileProductionJobIdsAtStart: new Set(["job-existing"]),
-			toolCallRecords: [{ name: "produce_file", input: {}, status: "done" }],
+			toolCallRecords: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "done",
+					metadata: { jobId: "job-new" },
+				},
+			],
 		});
 
 		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
@@ -2405,9 +2803,6 @@ describe("completeStreamTurn", () => {
 
 	it("resolves hot completion fact promises before persistence and file-production reconciliation", async () => {
 		const startedResetGeneration = Promise.resolve(11);
-		const fileProductionJobIdsAtStart = Promise.resolve(
-			new Set(["job-existing"]),
-		);
 		mockGetFileProductionJobs.mockResolvedValue([
 			{ id: "job-existing" },
 			{ id: "job-new" },
@@ -2416,8 +2811,14 @@ describe("completeStreamTurn", () => {
 		await completeStreamTurn({
 			...defaultParams,
 			startedResetGeneration,
-			fileProductionJobIdsAtStart,
-			toolCallRecords: [{ name: "produce_file", input: {}, status: "done" }],
+			toolCallRecords: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "done",
+					metadata: { jobId: "job-new" },
+				},
+			],
 		});
 
 		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
@@ -2487,36 +2888,7 @@ describe("completeStreamTurn", () => {
 		}
 	});
 
-	it("attaches a same-turn file-production job when a late start snapshot includes it", async () => {
-		mockGetFileProductionJobs.mockResolvedValue([
-			{ id: "job-existing", createdAt: 999 },
-			{ id: "job-new", createdAt: 1001 },
-		]);
-
-		await completeStreamTurn({
-			...defaultParams,
-			fileProductionJobIdsAtStart: Promise.resolve({
-				jobIds: new Set(["job-existing", "job-new"]),
-				snapshotStartedAt: 1000,
-			}),
-			toolCallRecords: [
-				{
-					name: "produce_file",
-					input: {},
-					status: "done",
-				},
-			],
-		});
-
-		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
-			"user-1",
-			"conv-1",
-			"asst-msg-1",
-			["job-new"],
-		);
-	});
-
-	it("attaches a produce_file metadata job even when the late start snapshot includes it", async () => {
+	it("attaches a job identified by the current producer receipt", async () => {
 		mockGetFileProductionJobs.mockResolvedValue([
 			{ id: "job-existing", createdAt: 999 },
 			{ id: "job-new", createdAt: 999 },
@@ -2524,10 +2896,6 @@ describe("completeStreamTurn", () => {
 
 		await completeStreamTurn({
 			...defaultParams,
-			fileProductionJobIdsAtStart: Promise.resolve({
-				jobIds: new Set(["job-existing", "job-new"]),
-				snapshotStartedAt: 1000,
-			}),
 			toolCallRecords: [
 				{
 					name: "produce_file",
@@ -2548,52 +2916,19 @@ describe("completeStreamTurn", () => {
 		);
 	});
 
-	it("does not attach current jobs when a hot file-production start snapshot rejects", async () => {
-		const snapshotError = new Error("snapshot failed");
-		const rejectedSnapshot = Promise.reject(snapshotError);
-		rejectedSnapshot.catch(() => undefined);
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-		const errorSpy = vi
-			.spyOn(console, "error")
-			.mockImplementation(() => undefined);
-		mockGetFileProductionJobs.mockResolvedValue([
-			{ id: "job-existing" },
-			{ id: "job-new" },
-		]);
-
-		try {
-			await completeStreamTurn({
-				...defaultParams,
-				startedResetGeneration: 7,
-				fileProductionJobIdsAtStart: rejectedSnapshot,
-				toolCallRecords: [{ name: "produce_file", input: {}, status: "done" }],
-			});
-
-			expect(mockAssignFileProductionJobs).not.toHaveBeenCalled();
-			expect(getLatestEndPayload()).toMatchObject({
-				assistantMessageId: "asst-msg-1",
-			});
-			expect(getLatestEndPayload()).not.toHaveProperty("fileProductionJobs");
-			expect(warn).toHaveBeenCalledWith(
-				"[CHAT_STREAM] Failed to snapshot file-production jobs at stream start",
-				expect.objectContaining({
-					conversationId: "conv-1",
-					streamId: "stream-1",
-					error: snapshotError,
-				}),
-			);
-		} finally {
-			warn.mockRestore();
-			errorSpy.mockRestore();
-		}
-	});
-
 	it("attaches new file-production jobs from file-production tool aliases", async () => {
 		mockGetFileProductionJobs.mockResolvedValue([{ id: "job-new" }]);
 
 		await completeStreamTurn({
 			...defaultParams,
-			toolCallRecords: [{ name: "File Production", input: {}, status: "done" }],
+			toolCallRecords: [
+				{
+					name: "File Production",
+					input: {},
+					status: "done",
+					metadata: { jobId: "job-new" },
+				},
+			],
 		});
 
 		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
@@ -2631,7 +2966,14 @@ describe("completeStreamTurn", () => {
 
 		await completeStreamTurn({
 			...defaultParams,
-			toolCallRecords: [{ name: "produce_file", input: {}, status: "done" }],
+			toolCallRecords: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "done",
+					metadata: { jobId: "job-new" },
+				},
+			],
 		});
 
 		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(

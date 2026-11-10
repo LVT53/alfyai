@@ -35,6 +35,7 @@ vi.mock("$lib/server/services/atlas", () => ({
 
 vi.mock("$lib/server/services/chat-turn/active-streams", () => ({
 	checkStreamCapacity: vi.fn(() => ({ allowed: true })),
+	wasActiveChatStreamStopRequested: vi.fn(() => false),
 }));
 
 vi.mock("$lib/server/services/chat-turn/depth-selection", () => ({
@@ -1171,17 +1172,99 @@ describe("POST /api/chat/send", () => {
 		);
 	});
 
+	it("returns the saved identity and separate effective failure when send association fails", async () => {
+		seedConversationTurn(mockGetConversation, mockCreateMessage);
+		const modelCompletion = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			phase: "working",
+			outcome: "answered",
+			stopCause: "natural_stop",
+			workingStopCause: "natural_stop",
+			closingAttempted: false,
+		};
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
+			text: "Actual answer",
+			toolCalls: [],
+			normalChatToolCalls: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "failed",
+					metadata: { jobId: "new-job", ok: false, evidenceReady: false },
+				},
+			],
+			modelId: "model1",
+			modelDisplayName: "Model 1",
+			providerUsage: null,
+			completionTurn: {
+				segmentId: "s",
+				getSnapshot: () => ({
+					turnId: "t",
+					segmentId: "s",
+					events: [],
+					completion: modelCompletion,
+				}),
+				finish: vi.fn(async () => undefined),
+			},
+		});
+		mockListFileProductionJobs.mockResolvedValue([
+			{ id: "new-job", files: [] },
+		]);
+		mockAssignFileProductionJobs.mockRejectedValueOnce(
+			new Error("association unavailable"),
+		);
+		const marker = {
+			version: 1 as const,
+			status: "failed" as const,
+			cause: "file_association_failed" as const,
+			wasStopped: false,
+		};
+		const ledger = await import("$lib/server/services/chat-turn/turn-ledger");
+		const writer = vi
+			.spyOn(ledger, "recordFileAssociationFailure")
+			.mockReturnValue(marker);
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		try {
+			const response = await POST(
+				makeEvent({ message: "Make file", conversationId: "conv-1" }),
+			);
+			expect(response.status).toBe(502);
+			expect(errorSpy.mock.calls.at(-1)?.[1]).toHaveProperty(
+				"message",
+				"association unavailable",
+			);
+			expect(writer).toHaveBeenCalledTimes(1);
+			expect(errorSpy.mock.calls.at(-1)?.[1]).toHaveProperty(
+				"normalChatFinalization",
+			);
+			expect(await response.json()).toMatchObject({
+				assistantMessageId: "assistant-msg",
+				normalChatFinalization: marker,
+				modelCompletion,
+				response: { text: "Actual answer" },
+				completion: { outcome: "failed" },
+			});
+			expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledTimes(1);
+		} finally {
+			writer.mockRestore();
+			errorSpy.mockRestore();
+		}
+	});
+
 	it("assigns file-production jobs created during non-stream sends to the persisted assistant message", async () => {
 		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Create a report" },
 			assistantMessage: { content: "Done." },
 		});
-		mockListFileProductionJobs
-			.mockResolvedValueOnce([{ id: "job-existing", files: [] }])
-			.mockResolvedValueOnce([
-				{ id: "job-existing", files: [] },
-				{ id: "job-new", files: [{ id: "file-new" }] },
-			]);
+		mockListFileProductionJobs.mockResolvedValue([
+			{ id: "job-existing", files: [] },
+			{ id: "post-start-foreign", files: [] },
+			{ id: "job-new", files: [{ id: "file-new" }] },
+		]);
 		mockGetChatFilesForAssistantMessage.mockResolvedValueOnce([
 			{
 				id: "file-new",
@@ -1191,6 +1274,15 @@ describe("POST /api/chat/send", () => {
 		]);
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Done.",
+			toolCalls: [],
+			normalChatToolCalls: [
+				{
+					name: "produce_file",
+					input: {},
+					status: "failed",
+					metadata: { jobId: "job-new", ok: false, evidenceReady: false },
+				},
+			],
 			rawResponse: {},
 			contextStatus: undefined,
 		});
@@ -1206,7 +1298,9 @@ describe("POST /api/chat/send", () => {
 			"user-1",
 			"conv-1",
 		);
-		expect(mockListFileProductionJobs.mock.invocationCallOrder[0]).toBeLessThan(
+		expect(
+			mockListFileProductionJobs.mock.invocationCallOrder[0],
+		).toBeGreaterThan(
 			mockRunPlainNormalChatSendModel.mock.invocationCallOrder[0],
 		);
 		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
@@ -1304,6 +1398,11 @@ describe("POST /api/chat/send", () => {
 				},
 			],
 		});
+
+		mockListFileProductionJobs.mockResolvedValue([
+			{ id: "job-success", files: [] },
+			{ id: "concurrent-foreign", files: [] },
+		]);
 
 		const event = makeEvent({
 			message: "What changed today?",

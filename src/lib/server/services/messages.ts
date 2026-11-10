@@ -45,6 +45,10 @@ import type {
 	InstructionSuggestion,
 	InstructionSuggestionStatus,
 } from "$lib/shared/instructions";
+import {
+	type NormalChatFinalizationFailure,
+	parseNormalChatFinalization,
+} from "$lib/shared/normal-chat-completion";
 import { joinReplyText } from "$lib/shared/reply-text";
 import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
@@ -64,6 +68,7 @@ export {
 } from "$lib/shared/artifacts/artifact-calls";
 
 type PersistedMessageMetadata = SkillControlMessageMetadata & {
+	normalChatFinalization?: NormalChatFinalizationFailure;
 	normalChatOutput?: NormalChatOutputMetadata;
 	completion?: TurnCompletionRecord;
 	evidenceSummary?: MessageEvidenceSummary | null;
@@ -379,6 +384,7 @@ function projectMessageMetadata(
 	ChatMessage,
 	| "evidenceSummary"
 	| "normalChatOutput"
+	| "normalChatFinalization"
 	| "webCitationAudit"
 	| "citationAudit"
 	| "evidencePending"
@@ -414,6 +420,9 @@ function projectMessageMetadata(
 
 	return {
 		evidenceSummary,
+		normalChatFinalization: parseNormalChatFinalization(
+			metadata?.normalChatFinalization,
+		),
 		normalChatOutput:
 			metadata?.normalChatOutput?.version === 1 &&
 			Array.isArray(metadata.normalChatOutput.events)
@@ -1274,6 +1283,9 @@ export async function getReplyForDocumentKeep(params: {
 			segments.map((segment) => ({
 				content: segment.content,
 				normalChatOutput: parseMetadata(segment.metadataJson)?.normalChatOutput,
+				normalChatFinalization: parseNormalChatFinalization(
+					parseMetadata(segment.metadataJson)?.normalChatFinalization,
+				),
 			})),
 		),
 		documentArtifactId:

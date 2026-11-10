@@ -1,4 +1,7 @@
-import type { NormalChatCompletion } from "$lib/shared/normal-chat-completion";
+import type {
+	NormalChatCompletion,
+	NormalChatFinalizationFailure,
+} from "$lib/shared/normal-chat-completion";
 import type { NormalChatOutputEvent } from "$lib/shared/normal-chat-output";
 
 /** Scoped observe-only truth carried by data-stream-metadata.observation. */
@@ -11,6 +14,8 @@ export type NormalChatTurnObservation = {
 	| {
 			state: "terminal";
 			completion: NormalChatCompletion;
+			modelCompletion?: NormalChatCompletion;
+			normalChatFinalization?: NormalChatFinalizationFailure;
 			assistantMessageId: string | null;
 	  }
 	| { state: "unavailable" }

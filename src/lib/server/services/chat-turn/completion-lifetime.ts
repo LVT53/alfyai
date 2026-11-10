@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
+import { parseJsonRecord } from "$lib/server/utils/json";
 import type { NormalChatTurnObservation } from "$lib/services/ai-sdk-ui-stream-contract";
-import type { NormalChatCompletion } from "$lib/shared/normal-chat-completion";
+import {
+	type NormalChatCompletion,
+	parseNormalChatFinalization,
+	projectNormalChatFinalization,
+} from "$lib/shared/normal-chat-completion";
 import type { NormalChatContinuationSnapshot } from "../normal-chat-model";
 import { isStreamActive } from "./active-streams";
 import {
@@ -86,12 +91,29 @@ export async function observeCompletionTurn(
 			turnId: record.turnId,
 			segmentId: record.segmentId,
 		};
+	// Model settlement precedes saved-turn finalization. A live owner with no
+	// linked receipt is still finalizing, even if generation already answered.
+	if (
+		!record.messageId &&
+		isStreamActive({
+			streamId: identity.streamId,
+			userId: input.userId,
+			conversationId: input.conversationId,
+		})
+	) {
+		return {
+			...identity,
+			state: "pending",
+			turnId: record.turnId,
+			segmentId: record.segmentId,
+		};
+	}
 	if (!record.phase || !record.stopCause || !record.workingStopCause)
 		throw new Error("Incomplete durable terminal facts");
 	// A terminal survives deletion of its reply; never promise an unavailable saved row.
 	const message = record.messageId
 		? db
-				.select({ id: messages.id })
+				.select({ id: messages.id, metadataJson: messages.metadataJson })
 				.from(messages)
 				.where(
 					and(
@@ -102,20 +124,29 @@ export async function observeCompletionTurn(
 				)
 				.get()
 		: undefined;
+	const modelCompletion: NormalChatCompletion = {
+		version: 1,
+		turnId: record.turnId,
+		segmentId: record.segmentId,
+		phase: record.phase,
+		outcome: record.outcome,
+		stopCause: record.stopCause,
+		workingStopCause: record.workingStopCause,
+		closingAttempted: record.closingAttempted,
+	};
+	const normalChatFinalization = parseNormalChatFinalization(
+		parseJsonRecord(message?.metadataJson ?? null)?.normalChatFinalization,
+	);
 	return {
 		...identity,
 		state: "terminal",
 		assistantMessageId: message?.id ?? null,
-		completion: {
-			version: 1,
-			turnId: record.turnId,
-			segmentId: record.segmentId,
-			phase: record.phase,
-			outcome: record.outcome,
-			stopCause: record.stopCause,
-			workingStopCause: record.workingStopCause,
-			closingAttempted: record.closingAttempted,
-		},
+		completion:
+			projectNormalChatFinalization(modelCompletion, normalChatFinalization) ??
+			modelCompletion,
+		...(normalChatFinalization
+			? { normalChatFinalization, modelCompletion }
+			: {}),
 	};
 }
 export function beginCompletionLifetime(

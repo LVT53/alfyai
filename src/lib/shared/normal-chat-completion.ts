@@ -54,3 +54,45 @@ export type NormalChatAttemptUsage = {
 	lastStepInputTokens?: number;
 	complete: boolean;
 };
+
+/** Application persistence truth, independent of immutable model settlement. */
+export type NormalChatFinalizationFailure = {
+	version: 1;
+	status: "failed";
+	cause: "file_association_failed";
+	wasStopped: boolean;
+};
+
+export function parseNormalChatFinalization(
+	value: unknown,
+): NormalChatFinalizationFailure | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const fact = value as Record<string, unknown>;
+	if (
+		fact.version !== 1 ||
+		fact.status !== "failed" ||
+		fact.cause !== "file_association_failed" ||
+		typeof fact.wasStopped !== "boolean"
+	)
+		return undefined;
+	return {
+		version: 1,
+		status: "failed",
+		cause: "file_association_failed",
+		wasStopped: fact.wasStopped,
+	};
+}
+
+/** Effective outward completion only; never mutate model events or attempt facts. */
+export function projectNormalChatFinalization(
+	completion: NormalChatCompletion | undefined,
+	marker: NormalChatFinalizationFailure | undefined,
+): NormalChatCompletion | undefined {
+	if (!completion || !marker) return completion;
+	const stopped = marker.wasStopped || completion.outcome === "stopped";
+	return {
+		...completion,
+		outcome: stopped ? "stopped" : "failed",
+		stopCause: stopped ? "user_stop" : "uncertain_execution",
+	};
+}
