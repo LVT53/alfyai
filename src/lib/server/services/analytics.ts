@@ -75,7 +75,76 @@ export interface AnalyticsParams {
 	providerUsage?: ProviderUsageSnapshot | null;
 }
 
-type UsageRow = typeof usageEvents.$inferSelect;
+type UsageRow = typeof usageEvents.$inferSelect & {
+	// Read-only association, derived inside analytics. Billing identity stays put.
+	ledgerLinkedMessage?: boolean;
+};
+
+/** Keep billing at attempt grain and project saved-message joins at read time. */
+async function loadDashboardUsageRows(): Promise<UsageRow[]> {
+	const associations = db
+		.select({ eventId: usageEvents.id, messageId: normalChatTurns.messageId })
+		.from(normalChatAttempts)
+		.innerJoin(
+			normalChatTurns,
+			eq(normalChatTurns.segmentId, normalChatAttempts.segmentId),
+		)
+		.innerJoin(
+			usageEvents,
+			and(
+				eq(
+					usageEvents.id,
+					sql<string>`'turn-attempt:' || ${normalChatAttempts.attemptId}`,
+				),
+				eq(usageEvents.conversationId, normalChatTurns.conversationId),
+			),
+		)
+		.innerJoin(
+			conversations,
+			and(
+				eq(conversations.id, normalChatTurns.conversationId),
+				eq(conversations.userId, usageEvents.userId),
+			),
+		)
+		.all();
+	const messageByEvent = new Map(
+		associations.map((row) => [row.eventId, row.messageId]),
+	);
+	return db
+		.select()
+		.from(usageEvents)
+		.all()
+		.map((row) => {
+			const messageId = messageByEvent.get(row.id);
+			return messageId ? { ...row, messageId, ledgerLinkedMessage: true } : row;
+		});
+}
+
+/** A saved turn contributes one duration, regardless of its billed children. */
+function generationDurations(
+	rows: UsageRow[],
+	context: AnalyticsQueryContext,
+): number[] {
+	const durations: number[] = [];
+	const linked = new Map<string, number>();
+	for (const row of rows) {
+		if (row.ledgerLinkedMessage) {
+			linked.set(
+				row.messageId,
+				(linked.get(row.messageId) ?? 0) + (row.generationTimeMs ?? 0),
+			);
+		} else {
+			durations.push(row.generationTimeMs ?? 0);
+		}
+	}
+	for (const [messageId, attemptsDuration] of linked) {
+		durations.push(
+			context.messageAnalyticsById.get(messageId)?.generationTimeMs ??
+				attemptsDuration,
+		);
+	}
+	return durations;
+}
 
 type AnalyticsUser = Pick<SessionUser, "id" | "role">;
 
@@ -1080,9 +1149,15 @@ async function modelBreakdown(
 			reasoningTokens: number[];
 		}
 	>();
+	const measured = new Map<string, Set<string>>();
 	for (const row of rows) {
 		const messageAnalyticsRow = context.messageAnalyticsById.get(row.messageId);
 		if (!messageAnalyticsRow) continue;
+		const modelMessages = measured.get(row.modelId) ?? new Set<string>();
+		if (modelMessages.has(row.messageId)) continue;
+		modelMessages.add(row.messageId);
+		measured.set(row.modelId, modelMessages);
+
 		const bucket = latencyByModel.get(row.modelId) ?? {
 			firstTokenMs: [],
 			generationMs: [],
@@ -1357,8 +1432,14 @@ function favoriteModelFrom(
 	context: AnalyticsQueryContext,
 ): string | null {
 	const votes = new Map<string, number>();
+	const voted = new Set<string>();
 	for (const row of rows) {
-		if (!context.messageAnalyticsById.has(row.messageId)) continue;
+		const foreground = context.messageAnalyticsById.get(row.messageId);
+		if (!foreground) continue;
+		if (row.ledgerLinkedMessage && foreground.model !== row.modelId) continue;
+		const key = JSON.stringify([row.modelId, row.messageId]);
+		if (voted.has(key)) continue;
+		voted.add(key);
 		votes.set(row.modelId, (votes.get(row.modelId) ?? 0) + 1);
 	}
 	if (votes.size === 0) return byModel[0]?.model ?? null;
@@ -1397,7 +1478,7 @@ async function summarize(
 		// counts" section.
 		totalMessages: messageTotals.messages,
 		modelCalls: rows.length,
-		avgGenerationMs: average(rows.map((row) => row.generationTimeMs ?? 0)),
+		avgGenerationMs: average(generationDurations(rows, context)),
 		promptTokens,
 		cachedInputTokens,
 		outputTokens,
@@ -1507,6 +1588,7 @@ function buildLatencyByPromptBucket(
 		PromptTokenBucket,
 		{ n: number; firstTokenMs: number[]; reasoningTokens: number[] }
 	>();
+	const measuredMessages = new Set<string>();
 	for (const row of usageRows) {
 		const messageAnalyticsRow = messageAnalyticsById.get(row.messageId);
 		if (
@@ -1515,6 +1597,9 @@ function buildLatencyByPromptBucket(
 		) {
 			continue;
 		}
+		if (measuredMessages.has(row.messageId)) continue;
+		measuredMessages.add(row.messageId);
+
 		const bucketId = promptTokenBucketFor(messageAnalyticsRow.promptTokens);
 		const bucket = buckets.get(bucketId) ?? {
 			n: 0,
@@ -1573,7 +1658,7 @@ export async function getAnalyticsDashboardReadModel({
 
 	const [usageRows, conversationRows, activityRows, availability] =
 		await Promise.all([
-			db.select().from(usageEvents),
+			loadDashboardUsageRows(),
 			db.select().from(analyticsConversations),
 			// activity_events only ever feeds admin-only sections, and its
 			// month/user narrowing is done in SQL — a non-admin request does not

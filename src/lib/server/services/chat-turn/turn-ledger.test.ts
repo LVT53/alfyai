@@ -571,3 +571,142 @@ it.each([
 	});
 	expect(database.db.select().from(schema.usageEvents).all()).toHaveLength(1);
 });
+
+it("derives dashboard message joins for multi-attempt billing without multiplying foreground metrics", async () => {
+	const closingModel = "provider:p2:m2";
+	const secondScope = { ...scope, turnId: "t2", segmentId: "s2" };
+	database.db
+		.insert(schema.messages)
+		.values([
+			{
+				id: "question1",
+				conversationId: "c",
+				role: "user",
+				content: "one",
+				messageSequence: 1,
+			},
+			{
+				id: "answer1",
+				conversationId: "c",
+				role: "assistant",
+				content: "one",
+				messageSequence: 2,
+			},
+			{
+				id: "question2",
+				conversationId: "c",
+				role: "user",
+				content: "two",
+				messageSequence: 3,
+			},
+			{
+				id: "answer2",
+				conversationId: "c",
+				role: "assistant",
+				content: "two",
+				messageSequence: 4,
+			},
+		])
+		.run();
+	for (const [
+		turn,
+		reply,
+		failedIds,
+		closeId,
+		firstTokenMs,
+		generationTimeMs,
+		reasoningTokens,
+	] of [
+		[scope, "answer1", ["a", "a2", "a3"], "b", 100, 1000, 10],
+		[secondScope, "answer2", ["c"], "d", 900, 9000, 90],
+	] as const) {
+		ledger.admitTurn({ ...turn, ownerId: "process" });
+		for (const attemptId of failedIds) {
+			await ledger.recordTurnAttempt(turn, {
+				...attempt,
+				attemptId,
+				generationTimeMs: 100,
+			});
+		}
+		await ledger.recordTurnAttempt(turn, {
+			...attempt,
+			attemptId: closeId,
+			phase: "closing",
+			providerId: "p2",
+			modelId: closingModel,
+			providerModelName: "second",
+			outcome: "answered",
+			safeStopCause: "natural_stop",
+			generationTimeMs: 200,
+		});
+		ledger.settleTurn(turn, {
+			...terminal,
+			outcome: "answered",
+			stopCause: "natural_stop",
+			attemptIds: [...failedIds, closeId],
+			messageId: reply,
+		});
+		await analytics.recordMessageAnalytics({
+			userId: "u",
+			conversationId: "c",
+			messageId: reply,
+			model: closingModel,
+			turnSegmentId: turn.segmentId,
+			promptTokens: 1000,
+			reasoningTokens,
+			firstTokenMs,
+			generationTimeMs,
+		});
+	}
+	const dashboard = await analytics.getAnalyticsDashboardReadModel({
+		user: { id: "u", role: "admin" },
+	});
+	expect(dashboard.system).toMatchObject({
+		totalMessages: 2,
+		totalConversations: 1,
+		modelCalls: 6,
+		avgGenerationMs: 5000,
+		favoriteModel: closingModel,
+	});
+	expect(dashboard.personal.favoriteModel).toBe(closingModel);
+	expect(
+		dashboard.system?.byModel.find((row) => row.model === attempt.modelId),
+	).toMatchObject({
+		firstTokenP50Ms: 100,
+		firstTokenP90Ms: 900,
+		generationP50Ms: 1000,
+		avgReasoningTokens: 50,
+	});
+	expect(
+		dashboard.latencyByPromptBucket?.find((row) => row.bucket === "<10k"),
+	).toMatchObject({ n: 2, firstTokenP50Ms: 100, firstTokenP90Ms: 900 });
+	for (const filter of [
+		{ modelId: attempt.modelId },
+		{ providerId: "p1" },
+		{ providerId: "p2" },
+	]) {
+		const filtered = await analytics.getAnalyticsDashboardReadModel({
+			user: { id: "u", role: "admin" },
+			...filter,
+		});
+		expect(filtered.system).toMatchObject({
+			totalMessages: 2,
+			totalConversations: 1,
+			avgGenerationMs: 5000,
+		});
+		expect(filtered.perUser?.find((row) => row.userId === "u")).toMatchObject({
+			messageCount: 2,
+			conversationCount: 1,
+		});
+		expect(
+			filtered.latencyByPromptBucket?.find((row) => row.bucket === "<10k")?.n,
+		).toBe(2);
+	}
+	const billed = database.db.select().from(schema.usageEvents).all();
+	expect(billed).toHaveLength(6);
+	expect(
+		billed.every(
+			(row) => row.id === row.messageId && row.id.startsWith("turn-attempt:"),
+		),
+	).toBe(true);
+});
