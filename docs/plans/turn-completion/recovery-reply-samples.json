@@ -1,0 +1,132 @@
+[
+ {
+  "file": "turn-completion-base-deepseek-quiet.json",
+  "prompt": "This is a test of our app. Call run_python with print(17 * 2",
+  "fallback": false,
+  "visibleLength": 0,
+  "codepoints": [],
+  "visible": ""
+ },
+ {
+  "file": "turn-completion-base-deepseek-quiet.json",
+  "prompt": "This is a test of our app. Search the web for the height of ",
+  "fallback": false,
+  "visibleLength": 404,
+  "codepoints": [
+   "a",
+   "a",
+   "3c",
+   "ff5c"
+  ],
+  "visible": "\n\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"research_web\">\n<｜｜DSML｜｜ parameter name=\"query\" string=\"true\">Eiffel Tower official height 330 metres antenna</｜｜DSML｜｜ parameter>\n<｜｜DSML｜｜ parameter name=\"searchQueries\" string=\"false\">[\"tour eiffel 330 metres height official\"]</｜｜DSML｜｜ parameter>\n<｜｜DSML｜｜ parameter name=\"readPages\" string=\"false\">1</｜｜DSML｜｜ parameter>\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>"
+ },
+ {
+  "file": "turn-completion-base-deepseek-quiet.json",
+  "prompt": "Use Python to compute 2 ** 40, then keep your final message ",
+  "fallback": false,
+  "visibleLength": 234,
+  "codepoints": [
+   "a",
+   "a",
+   "3c",
+   "ff5c"
+  ],
+  "visible": "\n\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"done\">\n<｜｜DSML｜｜ parameter name=\"summary\" string=\"true\">Computed 2**40 in Python as requested; final message intentionally left empty.</｜｜DSML｜｜ parameter>\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>"
+ },
+ {
+  "file": "turn-completion-base-deepseek-thorough-quiet.json",
+  "prompt": "This is a test of our app. Call run_python with print(17 * 2",
+  "fallback": false,
+  "visibleLength": 8,
+  "codepoints": [
+   "5c",
+   "62",
+   "65",
+   "67"
+  ],
+  "visible": "\\begin{}"
+ },
+ {
+  "file": "turn-completion-base-deepseek-thorough-quiet.json",
+  "prompt": "This is a test of our app. Search the web for the height of ",
+  "fallback": false,
+  "visibleLength": 1,
+  "codepoints": [
+   "200b"
+  ],
+  "visible": "​"
+ },
+ {
+  "file": "turn-completion-base-deepseek-thorough-quiet.json",
+  "prompt": "Use Python to compute 2 ** 40, then keep your final message ",
+  "fallback": false,
+  "visibleLength": 35,
+  "codepoints": [
+   "44",
+   "6f",
+   "6e",
+   "65"
+  ],
+  "visible": "Done — 2 ** 40 = 1,099,511,627,776."
+ },
+ {
+  "file": "turn-completion-base-kimi-quiet.json",
+  "prompt": "This is a test of our app. Call run_python with print(17 * 2",
+  "fallback": false,
+  "visibleLength": 0,
+  "codepoints": [],
+  "visible": ""
+ },
+ {
+  "file": "turn-completion-base-kimi-quiet.json",
+  "prompt": "This is a test of our app. Search the web for the height of ",
+  "fallback": false,
+  "visibleLength": 1,
+  "codepoints": [
+   "200b"
+  ],
+  "visible": "​"
+ },
+ {
+  "file": "turn-completion-base-kimi-quiet.json",
+  "prompt": "Use Python to compute 2 ** 40, then keep your final message ",
+  "fallback": false,
+  "visibleLength": 1,
+  "codepoints": [
+   "200b"
+  ],
+  "visible": "​"
+ },
+ {
+  "file": "turn-completion-base-qwen-quiet.json",
+  "prompt": "This is a test of our app. Call run_python with print(17 * 2",
+  "fallback": false,
+  "visibleLength": 2,
+  "codepoints": [
+   "a",
+   "a"
+  ],
+  "visible": "\n\n"
+ },
+ {
+  "file": "turn-completion-base-qwen-quiet.json",
+  "prompt": "This is a test of our app. Search the web for the height of ",
+  "fallback": false,
+  "visibleLength": 7,
+  "codepoints": [
+   "a",
+   "a",
+   "44",
+   "6f"
+  ],
+  "visible": "\n\nDone."
+ },
+ {
+  "file": "turn-completion-base-qwen-quiet.json",
+  "prompt": "Use Python to compute 2 ** 40, then keep your final message ",
+  "fallback": false,
+  "visibleLength": 0,
+  "codepoints": [],
+  "visible": ""
+ }
+]

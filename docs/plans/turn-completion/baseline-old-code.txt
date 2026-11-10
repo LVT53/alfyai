@@ -1,0 +1,80 @@
+# Baseline on the OLD code: staging release aba3e8fbe, 2026-11-10 13:00-13:25Z, made-up prompts
+# columns: index, seconds, tools called, vis = visible chars, post = visible chars after the last tool event, end (+fb = the recovery ran), first 70 chars
+RELEASE releases/aba3e8fbe 2026-11-10T12:57:57Z
+=== kimi tools limit=12
+01    15.9s  tools=run_python  vis=282  post=147  ok  | I’ll calculate both costs from the exact token counts, total the unrou
+02    15.6s  tools=run_python  vis=85  post=0  ok  | I’ll assume a fixed-rate amortizing loan with 300 equal monthly paymen
+03   166.2s  tools=research_web,fetch_url,fetch_url,fetch_url,fetch_url,fetch_url,fetch_url,fetch_url,fetch_url,run_python  vis=2385  post=1328  ok  | I’ll use the latest official census figures and
+04    21.2s  tools=run_python  vis=442  post=366  ok  | I’ll calculate both compound-growth amounts and the difference using P
+05    69.7s  tools=research_web,research_web,research_web  vis=1057  post=982  ok  | I’ll look up both river lengths, compare the figures, and cite the sou
+06    32.1s  tools=run_python  vis=512  post=406  ok  | I’ll calculate the statistics in Python, using the sample standard dev
+07     7.3s  tools=fetch_url  vis=695  post=695  ok  | The Antikythera mechanism was recovered in 1901, probably in July, fro
+08    22.7s  tools=run_python  vis=150  post=150  ok  | Using Python’s Sieve of Eratosthenes:  - **Prime numbers below 20,000:
+09    15.9s  tools=research_web  vis=465  post=404  ok  | I’ll look up both opening dates and calculate the difference.- **Panam
+10    23.6s  tools=run_python  vis=677  post=596  ok  | I’ll calculate both using the exact US gallon and international mile d
+11    10.6s  tools=fetch_url  vis=249  post=249  ok  | According to [Wikipedia](https://en.wikipedia.org/wiki/Mount_Kilimanja
+12     9.7s  tools=run_python  vis=208  post=208  ok  | There are **4,585 days** between 14 March 2019 and 2 October 2031, exc
+SUMMARY {"turns":12,"completed":12,"errors":0,"withWarnings":{},"emptyVisible":0,"fallbackTurns":0,"doneToolTurns":0,"set":"tools","label":"base-kimi"}
+=== kimi silent limit=all
+01    17.8s  tools=run_python  vis=3  post=3  ok+fb  | 391
+02    27.5s  tools=research_web  vis=0  post=0  ERR:backend_failure+fb  | 
+SUMMARY {"turns":2,"completed":1,"errors":1,"withWarnings":{},"emptyVisible":1,"fallbackTurns":2,"doneToolTurns":0,"set":"silent","label":"base-kimi"}
+=== deepseek silent limit=all
+01     5.6s  tools=run_python  vis=3  post=3  ok  | 391
+02     7.6s  tools=research_web  vis=130  post=130  ok  | I've completed the web search on the Eiffel Tower's height and stopped
+SUMMARY {"turns":2,"completed":2,"errors":0,"withWarnings":{},"emptyVisible":0,"fallbackTurns":0,"doneToolTurns":0,"set":"silent","label":"base-deepseek"}
+=== deepseek tools limit=6
+01     4.5s  tools=run_python  vis=414  post=414  ok  | **Costs**  | Component | Tokens | Rate | Exact cost | Rounded | |---|-
+02     6.2s  tools=run_python  vis=1216  post=1216  ok  | **Monthly payment: 1,280.10** **Total interest: 144,029.29** (total re
+03    36.2s  tools=research_web,research_web,fetch_url  vis=3158  post=2973  ok  | Now let me pin down the Limerick city figure, since Limerick's adminis
+04     5.0s  tools=run_python  vis=560  post=560  ok  | Computed with Python (P = 5,000, 12 years, 3.7% nominal annual rate): 
+05    17.4s  tools=research_web,research_web  vis=2076  post=2076  ok  | ## Answer  **The River Shannon is much longer — about 228 km longer.**
+06     5.7s  tools=run_python  vis=1051  post=1051  ok  | **Results** (12 readings, total 3,971 kWh)  | Statistic | Value | |---
+SUMMARY {"turns":6,"completed":6,"errors":0,"withWarnings":{},"emptyVisible":0,"fallbackTurns":0,"doneToolTurns":0,"set":"tools","label":"base-deepseek"}
+=== qwen silent limit=all
+01     4.8s  tools=run_python  vis=5  post=5  ok+fb  |   391
+02     6.5s  tools=research_web  vis=45  post=45  ok  |   (Search completed — stopping as requested.)
+SUMMARY {"turns":2,"completed":2,"errors":0,"withWarnings":{},"emptyVisible":0,"fallbackTurns":1,"doneToolTurns":0,"set":"silent","label":"base-qwen"}
+=== qwen tools limit=8
+01     4.3s  tools=run_python  vis=464  post=464  ok  |   **Costs (computed from unrounded token counts, rounded only at the e
+02     4.9s  tools=run_python  vis=380  post=380  ok  |   **Results:**  - **Monthly payment:** 1,280.10 - **Total interest:** 
+03    17.6s  tools=research_web,research_web  vis=2642  post=2566  ok  |   I'll search for the latest official population figures for both citi
+04     5.1s  tools=run_python  vis=421  post=421  ok  |   **Results (Python, `P·(1+r/n)^(n·t)` with P=5,000, r=3.7%, t=12 year
+05    21.2s  tools=research_web,research_web  vis=1967  post=1966  ok  |    **The Shannon is longer — by about 228.5 km** (360.5 km vs 132 km, 
+06     5.0s  tools=run_python  vis=429  post=429  ok  |   Results from Python:  - **Mean:** 330.92 kWh - **Median:** 321.0 kWh
+07     3.5s  tools=fetch_url  vis=900  post=900  ok  |   The Antikythera mechanism was recovered in 1901 (probably July) from
+08     4.4s  tools=run_python  vis=274  post=274  ok  |   **2,262 primes** below 20,000, summing to **21,171,191**.  Method: S
+SUMMARY {"turns":8,"completed":8,"errors":0,"withWarnings":{},"emptyVisible":0,"fallbackTurns":0,"doneToolTurns":0,"set":"tools","label":"base-qwen"}
+RELEASE releases/aba3e8fbe 2026-11-10T13:08:21Z
+RELEASE releases/aba3e8fbe 2026-11-10T13:09:30Z
+=== kimi repro
+01    25.3s  tools=run_python  vis=346  post=254  ok  | I’ll calculate it as a standard fixed-rate, fully amortising loan with
+02    13.8s  tools=run_python  vis=319  post=319  ok  | Using Python with the exact token counts:  | Cost | Unrounded amount |
+03    13.2s  tools=run_python  vis=357  post=260  ok  | I’ll use the standard fixed-rate amortization formula, assuming 300 mo
+04    21.8s  tools=run_python  vis=322  post=322  ok  | Calculated with Python using the exact token counts:  - **Input cost:*
+05     7.2s  tools=run_python  vis=399  post=286  ok  | I’ll use the standard fixed-rate amortization formula, assuming monthl
+06    17.8s  tools=run_python  vis=264  post=164  ok  | I’ll compute both costs in Python using exact decimal arithmetic, then
+07    24.8s  tools=run_python  vis=418  post=311  ok  | I’ll calculate the monthly repayment using Python, assuming a fixed ra
+08    17.7s  tools=run_python  vis=361  post=281  ok  | I’ll use the standard fixed-rate amortization formula with 300 monthly
+SUMMARY {"turns":8,"completed":8,"errors":0,"withWarnings":{},"emptyVisible":0,"fallbackTurns":0,"doneToolTurns":0,"set":"repro","label":"base-kimi"}
+=== deepseek quiet
+01     5.8s  tools=run_python  vis=0  post=0  ERR:backend_failure+fb  | 
+02    13.9s  tools=research_web  vis=404  post=404  ok+fb  |   <｜｜DSML｜｜ calls> <｜｜DSML｜｜ invoke name="research_web"> <｜｜DSML｜｜ par
+03     7.1s  tools=run_python  vis=234  post=234  ok+fb  |   <｜｜DSML｜｜ calls> <｜｜DSML｜｜ invoke name="done"> <｜｜DSML｜｜ parameter n
+SUMMARY {"turns":3,"completed":2,"errors":1,"withWarnings":{},"emptyVisible":1,"fallbackTurns":3,"doneToolTurns":0,"set":"quiet","label":"base-deepseek"}
+=== kimi quiet
+01    15.6s  tools=run_python,run_python  vis=0  post=0  ERR:backend_failure+fb  | 
+02    18.9s  tools=research_web  vis=1  post=1  ok  | ​
+03    13.6s  tools=run_python  vis=1  post=1  ok+fb  | ​
+SUMMARY {"turns":3,"completed":2,"errors":1,"withWarnings":{},"emptyVisible":1,"fallbackTurns":2,"doneToolTurns":0,"set":"quiet","label":"base-kimi"}
+=== qwen quiet
+01     4.9s  tools=run_python  vis=2  post=2  ERR:backend_failure+fb  |   
+02     4.5s  tools=research_web  vis=7  post=7  ok  |   Done.
+03     6.1s  tools=run_python  vis=0  post=0  ERR:backend_failure+fb  | 
+SUMMARY {"turns":3,"completed":1,"errors":2,"withWarnings":{},"emptyVisible":2,"fallbackTurns":2,"doneToolTurns":0,"set":"quiet","label":"base-qwen"}
+RELEASE releases/aba3e8fbe 2026-11-10T13:13:24Z
+=== deepseek quiet depth=thorough (third run, typed from the session)
+01     6.0s  tools=run_python  vis=8  post=8  ok+fb  | egin{}
+02    11.5s  tools=research_web  vis=1  post=1  ok+fb  | (one U+200B)
+03     5.6s  tools=run_python  vis=35  post=35  ok+fb  | Done - 2 ** 40 = 1,099,511,627,776.
+=== deepseek silent depth=thorough: 2 of 2 answered by the model itself, no recovery

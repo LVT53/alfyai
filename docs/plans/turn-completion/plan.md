@@ -198,7 +198,7 @@ and no message text.
    plain text.` (one line in the code). The sentence for a file request stays as it is.
 4. A recovery reply that is a tool call written out as text is no reply. On staging's old code DeepSeek's recovery
    twice returned its tool-call markup as the answer, and it was saved as one. The real replies are in
-   `.superpowers/sdd/plan/recovery-reply-samples.json` in the worktree (the two `<｜｜DSML｜｜ calls>` entries; the
+   `docs/plans/turn-completion/recovery-reply-samples.json` (the two `<｜｜DSML｜｜ calls>` entries; the
    bars are U+FF5C). A reply whose first visible characters open such a block counts as "returned no text" (the
    existing second attempt, then the failure path). Recognise DeepSeek's opener from the samples, and whatever
    tool-call openers the stream cleanup in `src/lib/services/stream-protocol.ts` already recognises; add no pattern
