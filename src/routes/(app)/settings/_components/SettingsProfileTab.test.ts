@@ -914,3 +914,123 @@ describe("SettingsProfileTab — the Account card's two-step row", () => {
 		).toBeInTheDocument();
 	});
 });
+
+// The zone the model is told as the person's clock. The browser saves its own
+// without a prompt; this row shows the one that is saved and lets the person
+// pick another from a few. A dumb prop component: the page owns the save.
+describe("SettingsProfileTab — the time zone row", () => {
+	const timeZoneSelect = () => screen.getByTestId("settings-time-zone-select");
+	const optionValues = (select: HTMLElement) =>
+		within(select)
+			.getAllByRole("option")
+			.map((option) => (option as HTMLOptionElement).value);
+
+	it("is a Time zone select in the Preferences card, showing the stored zone", () => {
+		renderTab({ selectedTimeZone: "Europe/Budapest" });
+
+		const preferences = document.getElementById("settings-section-preferences");
+		expect(preferences).not.toBeNull();
+		expect(
+			within(preferences as HTMLElement).getByTestId(
+				"settings-time-zone-select",
+			),
+		).toBe(timeZoneSelect());
+		expect(
+			screen.getByRole("combobox", { name: "Time zone" }),
+		).toBeInTheDocument();
+		expect(timeZoneSelect()).toHaveValue("Europe/Budapest");
+		expect(
+			screen.getByText("Lets AlfyAI know your local date and time."),
+		).toBeInTheDocument();
+	});
+
+	it("offers a few zones in a stable order, with the offset in force, and the stored zone when it is not among them", () => {
+		renderTab({ selectedTimeZone: "Asia/Kolkata" });
+
+		const values = optionValues(timeZoneSelect());
+		expect(values).toContain("Europe/Budapest");
+		expect(values).toContain("UTC");
+		expect(values.filter((zone) => zone === "Asia/Kolkata")).toHaveLength(1);
+		expect(values.length).toBeLessThan(25);
+		expect(values).toEqual([...values].sort());
+		// Kolkata keeps one offset all year, so its label is the same on any day.
+		expect(
+			within(timeZoneSelect()).getByRole("option", {
+				name: "Asia/Kolkata (UTC+05:30)",
+			}),
+		).toBeInTheDocument();
+		expect(timeZoneSelect()).toHaveValue("Asia/Kolkata");
+	});
+
+	it("marks the zone this device reports, and selects it when none is stored yet", () => {
+		renderTab({ selectedTimeZone: null, detectedTimeZone: "Asia/Kolkata" });
+
+		expect(
+			within(timeZoneSelect()).getByRole("option", {
+				name: "Asia/Kolkata (UTC+05:30) · this device",
+			}),
+		).toBeInTheDocument();
+		expect(timeZoneSelect()).toHaveValue("Asia/Kolkata");
+	});
+
+	it("marks the device's zone even when another is stored", () => {
+		renderTab({
+			selectedTimeZone: "Asia/Tokyo",
+			detectedTimeZone: "Asia/Kolkata",
+		});
+
+		expect(
+			within(timeZoneSelect()).getByRole("option", {
+				name: "Asia/Kolkata (UTC+05:30) · this device",
+			}),
+		).toBeInTheDocument();
+		expect(timeZoneSelect()).toHaveValue("Asia/Tokyo");
+	});
+
+	it("shows a dash, and no zone as chosen, when neither the server nor the device knows one", () => {
+		renderTab({ selectedTimeZone: null, detectedTimeZone: null });
+
+		expect(timeZoneSelect()).toHaveValue("");
+		expect(
+			within(timeZoneSelect()).getByRole("option", { name: "—" }),
+		).toBeDisabled();
+	});
+
+	it("hands the chosen zone to the page", async () => {
+		const onChangeTimeZone = vi.fn();
+		renderTab({ selectedTimeZone: "Europe/Budapest", onChangeTimeZone });
+
+		await fireEvent.change(timeZoneSelect(), {
+			target: { value: "Asia/Tokyo" },
+		});
+
+		expect(onChangeTimeZone).toHaveBeenCalledTimes(1);
+		expect(onChangeTimeZone).toHaveBeenCalledWith("Asia/Tokyo");
+	});
+
+	it("says it in Hungarian in a Hungarian interface", async () => {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			renderTab({
+				selectedTimeZone: "Asia/Tokyo",
+				detectedTimeZone: "Asia/Kolkata",
+			});
+
+			expect(
+				screen.getByRole("combobox", { name: "Időzóna" }),
+			).toBeInTheDocument();
+			expect(
+				screen.getByText("Ebből tudja az AlfyAI, mennyi az idő nálad."),
+			).toBeInTheDocument();
+			expect(
+				within(timeZoneSelect()).getByRole("option", {
+					name: "Asia/Kolkata (UTC+05:30) · ez az eszköz",
+				}),
+			).toBeInTheDocument();
+			expect(screen.queryByText("Time zone")).not.toBeInTheDocument();
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
+});

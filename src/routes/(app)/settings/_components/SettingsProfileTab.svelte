@@ -41,6 +41,7 @@ import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import { t } from "$lib/i18n";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
+import { describeLocalMoment, timeZoneChoices } from "$lib/shared/time-zone";
 import { prefersReducedMotion } from "$lib/utils/motion";
 import {
 	fetchUserSkills,
@@ -120,10 +121,15 @@ let {
 	selectedTheme,
 	selectedTitleLanguage,
 	selectedUiLanguage,
+	// The IANA zone the server holds (null until a browser has saved one) and
+	// the one this device reports; the page reads the second in the browser.
+	selectedTimeZone = null,
+	detectedTimeZone = null,
 	onChangeModel,
 	onChangeTheme,
 	onChangeTitleLanguage,
 	onChangeUiLanguage,
+	onChangeTimeZone = undefined,
 	memoryEnabled = true,
 	memorySaving = false,
 	onChangeMemoryEnabled = undefined,
@@ -189,10 +195,13 @@ let {
 	selectedTheme: Theme;
 	selectedTitleLanguage: TitleLanguage;
 	selectedUiLanguage: UiLanguage;
+	selectedTimeZone?: string | null;
+	detectedTimeZone?: string | null;
 	onChangeModel: (model: UserModelPreference) => void | Promise<void>;
 	onChangeTheme: (theme: Theme) => void | Promise<void>;
 	onChangeTitleLanguage: (lang: TitleLanguage) => void | Promise<void>;
 	onChangeUiLanguage: (lang: UiLanguage) => void | Promise<void>;
+	onChangeTimeZone?: ((zone: string) => void | Promise<void>) | undefined;
 	memoryEnabled?: boolean;
 	memorySaving?: boolean;
 	onChangeMemoryEnabled?:
@@ -342,6 +351,33 @@ const titleLanguageOptions = $derived([
 	{ value: "en" as const, label: $t("profileTab.langEnglish") },
 	{ value: "hu" as const, label: $t("profileTab.langHungarian") },
 ]);
+
+// The time zone row: the stored zone (or, until one is saved, the device's) is
+// the one shown as chosen. Options are IANA names with the offset in force;
+// the one this device reports is marked, in whichever language the UI is in.
+const shownTimeZone = $derived(selectedTimeZone ?? detectedTimeZone);
+const timeZoneOptions = $derived.by(() => {
+	const now = new Date();
+	return timeZoneChoices({
+		stored: selectedTimeZone,
+		detected: detectedTimeZone,
+	}).map((zone) => {
+		const offset = describeLocalMoment(now, zone)?.offset;
+		const named = offset ? `${zone} (${offset})` : zone;
+		return {
+			value: zone,
+			label:
+				zone === detectedTimeZone
+					? `${named} · ${$t("profileTab.timeZoneThisDevice")}`
+					: named,
+		};
+	});
+});
+
+function handleTimeZoneSelect(event: Event) {
+	const value = (event.currentTarget as HTMLSelectElement).value;
+	if (value) void onChangeTimeZone?.(value);
+}
 
 function handleModelSelect(event: Event) {
 	const value = (event.currentTarget as HTMLSelectElement).value;
@@ -704,6 +740,29 @@ function handlePersonalitySelect(event: Event) {
 								>{option.label}</button>
 							{/each}
 						</div>
+					</div>
+				</div>
+
+				<div class="settings-row settings-row--stack">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('profileTab.timeZone')}</p>
+						<p class="settings-row-help">{$t('profileTab.timeZoneHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<select
+							class="settings-select"
+							data-testid="settings-time-zone-select"
+							aria-label={$t('profileTab.timeZone')}
+							value={shownTimeZone ?? ''}
+							onchange={handleTimeZoneSelect}
+						>
+							{#if shownTimeZone === null}
+								<option value="" disabled>—</option>
+							{/if}
+							{#each timeZoneOptions as option (option.value)}
+								<option value={option.value}>{option.label}</option>
+							{/each}
+						</select>
 					</div>
 				</div>
 			</div>
