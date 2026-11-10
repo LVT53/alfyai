@@ -93,11 +93,7 @@ export function beginCompletionLifetime(
 		for (const usage of next.usage) {
 			if (usage.turnId !== scope.turnId || usage.segmentId !== scope.segmentId)
 				continue;
-			const key = JSON.stringify([
-				usage,
-				next.completion?.stopCause,
-				next.completion?.outcome,
-			]);
+			const key = JSON.stringify(usage);
 			if (lastUsage.get(usage.attemptId) === key) continue;
 			lastUsage.set(usage.attemptId, key);
 			const original = registered.get(usage.attemptId);
@@ -109,8 +105,11 @@ export function beginCompletionLifetime(
 				...original,
 				...usage,
 				providerModelName: usage.responseModelId ?? original.providerModelName,
-				safeStopCause: next.completion?.stopCause ?? null,
-				outcome: next.completion?.outcome ?? null,
+				// Usage is attempt-scoped; completion is segment-scoped. The model
+				// does not report attempt outcome/cause in this interface. Keep those
+				// unknown instead of rewriting priced facts with a later closing result.
+				safeStopCause: original.safeStopCause,
+				outcome: original.outcome,
 				usageFinal: usage.complete,
 			};
 			void enqueue(() => recordTurnAttempt(scope, attempt)).catch(

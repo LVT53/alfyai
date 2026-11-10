@@ -183,3 +183,140 @@ it("observes an accepted ownerless resumed segment using its durable parent with
 		module.beginCompletionLifetime({ ...input, turnId: "parent-turn" }),
 	).toThrow(/existing/i);
 });
+
+it("accepts priced final usage before a later terminal snapshot", async () => {
+	const life = module.beginCompletionLifetime(input);
+	await life.register(attempt);
+	const before = snapshot(life.scope, true);
+	delete before.completion;
+	life.capture(before);
+	life.capture(snapshot(life.scope, true));
+	await expect(life.finish()).resolves.toBeUndefined();
+	expect(
+		database.db.select().from(schema.normalChatAttempts).get(),
+	).toMatchObject({
+		usageFinal: true,
+		costUsdMicros: 140,
+		outcome: null,
+		safeStopCause: null,
+	});
+	expect(database.db.select().from(schema.normalChatTurns).get()).toMatchObject(
+		{
+			outcome: "answered",
+			stopCause: "natural_stop",
+		},
+	);
+	const conflictingUsage = snapshot(life.scope, true);
+	conflictingUsage.usage[0].inputTokens = 101;
+	life.capture(conflictingUsage);
+	await expect(life.finish()).rejects.toMatchObject({
+		code: "turn_ledger_conflict",
+	});
+});
+
+it.each([
+	false,
+	true,
+])("settles priced SDK calls with terminal facts separate from attempts (closing=%s)", async (closing) => {
+	const { MockLanguageModelV3 } = await import("ai/test");
+	const { runNormalChatCompletion } = await import(
+		"../normal-chat-model/completion"
+	);
+	const life = module.beginCompletionLifetime(input);
+	let generations = 0;
+	const model = new MockLanguageModelV3({
+		doGenerate: async () => {
+			const truncated = closing && generations++ === 0;
+			return {
+				content: [
+					{ type: "text" as const, text: truncated ? "Partial" : "Answer" },
+				],
+				finishReason: {
+					unified: truncated ? ("length" as const) : ("stop" as const),
+					raw: truncated ? "length" : "stop",
+				},
+				usage: {
+					inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+					outputTokens: { total: 1, text: 1, reasoning: 0 },
+				},
+				warnings: [],
+				response: { id: "synthetic", timestamp: new Date(), modelId: "first" },
+			};
+		},
+	});
+	const provider = {
+		id: "p1",
+		name: "first",
+		displayName: "First",
+		baseUrl: "https://test.invalid",
+		modelName: "first",
+		apiKey: "synthetic",
+		maxOutputTokens: 1000,
+		maxModelContext: 32000,
+	};
+	const driver = runNormalChatCompletion(
+		{
+			provider,
+			modelId: "provider:p1:m1",
+			messages: [{ role: "user", content: "Synthetic request" }],
+			completionPolicy: {
+				...life.scope,
+				deadlineAt: Date.now() + 10000,
+				totalTimeoutMs: 10000,
+				onSnapshot: life.capture,
+				forAttempt: async (context) => {
+					await life.register({
+						attemptId: context.attemptId,
+						phase: context.phase,
+						providerId: context.provider.id,
+						modelId: context.modelId,
+						providerModelName: context.provider.modelName,
+					});
+					return {};
+				},
+			},
+		},
+		{
+			model,
+			maxModelContext: 32000,
+			providerOptions: undefined,
+			stopWhen: undefined,
+			metadata: (name) => ({
+				modelId: "provider:p1:m1",
+				providerId: "p1",
+				displayName: "First",
+				requestedModelName: "first",
+				responseModelName: name,
+			}),
+			mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+		},
+		false,
+	);
+	for (;;) {
+		const next = await driver.next();
+		if (next.done) break;
+	}
+	await expect(life.finish()).resolves.toBeUndefined();
+	const rows = database.db.select().from(schema.normalChatAttempts).all();
+	expect(rows).toHaveLength(closing ? 2 : 1);
+	expect(rows.map((row) => row.phase)).toEqual(
+		closing ? ["working", "closing"] : ["working"],
+	);
+	for (const row of rows)
+		expect(row).toMatchObject({
+			usageFinal: true,
+			costUsdMicros: 3,
+			outcome: null,
+			safeStopCause: null,
+		});
+	expect(database.db.select().from(schema.usageEvents).all()).toHaveLength(
+		closing ? 2 : 1,
+	);
+	expect(database.db.select().from(schema.normalChatTurns).get()).toMatchObject(
+		{
+			outcome: "answered",
+			stopCause: "natural_stop",
+			workingStopCause: closing ? "length" : "natural_stop",
+		},
+	);
+});
