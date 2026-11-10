@@ -51,6 +51,7 @@ import {
 	setAvatarUploaded,
 } from "$lib/stores/avatar";
 import { projects } from "$lib/stores/projects";
+import { pendingSpotlight, spotlightRequest } from "$lib/stores/spotlight";
 import {
 	setSelectedModelAndSync,
 	setModelPreferenceAndSync,
@@ -643,6 +644,16 @@ async function changeUiLanguage(lang: UiLanguage) {
 // names/values this reads.
 onMount(() => {
 	if (typeof window === "undefined") return;
+
+	// The feature guide's Show me for connected accounts: its control is the
+	// Connections tab's content, which is not drawn until the tab is the open
+	// one, so bring the tab forward. This only reads the request; the content's
+	// own marker takes it when it mounts. It comes before the deep links below,
+	// which each end the function.
+	if (pendingSpotlight(get(spotlightRequest)) === "settings.connections") {
+		activeTab = "connections";
+	}
+
 	const params = new URLSearchParams(window.location.search);
 	const section = params.get("section");
 

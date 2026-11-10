@@ -16,6 +16,7 @@
  * own chats and has no weekly bars at all.
  */
 import { goto } from "$app/navigation";
+import { spotlightTarget } from "$lib/actions/spotlight";
 import PhotoMarkDialog from "$lib/components/chat/PhotoMarkDialog.svelte";
 import { showToast } from "$lib/stores/toast";
 import {
@@ -35,10 +36,12 @@ import { shouldShowIncognitoArm } from "$lib/client/home/landing-incognito";
 import { makeGrammarFormatters } from "$lib/client/connections/status-grammar";
 import {
 	cleanupPreparedConversation,
+	consumeHomeComposerSeed,
 	consumePreviousConversationId,
 	createConversationDraftRecord,
 	createDraftPersistence,
 	getLandingDraftConversationId,
+	hasMeaningfulDraft,
 	readComposerMarks,
 	setConversationPersonalitySelection,
 	setLandingDraftConversationId,
@@ -879,6 +882,20 @@ onMount(() => {
 		});
 	}
 
+	// The Feature Guide's "Try it" left an example for Home's box; a project
+	// page leaves it waiting. It goes in only after the restore above has had its
+	// say, so that read's promise is handed over now, while the field still holds
+	// it (the field clears itself when the read ends).
+	if (mode.kind === "home") {
+		const example = consumeHomeComposerSeed();
+		if (example !== null) {
+			void putWaitingExampleInBox(
+				example,
+				preparedConversationValidationPromise,
+			);
+		}
+	}
+
 	// Incognito greeting pick — client-only (see the field's own comment) and
 	// independent of the picked-once-per-day memory below, on purpose: this
 	// line is not trying to avoid repeating itself across visits the way the
@@ -1152,6 +1169,65 @@ async function restorePreparedConversation(conversationId: string) {
 	}
 }
 
+/**
+ * "Try it" on the Feature Guide left `example` for this box. It goes in
+ * unsent, so the person changes it first, and it never replaces words the
+ * person already has. The landing page's saved draft is read back first
+ * (`restoring`), and what it holds decides:
+ *
+ * - Words: they are the person's. The example is dropped and a toast says so.
+ * - No words but something else (`hasMeaningfulDraft`: files, linked sources, a
+ *   skill, Atlas mode): the example becomes the draft's words and the rest
+ *   stays. The composer takes a saved draft that arrives after it opened only
+ *   when the draft has words, so one with none is not on screen yet, and a
+ *   toast about a message in the box would be about nothing the person can see.
+ *   With the example as its words the composer takes the draft and draws what
+ *   Home hands it: the files, Atlas mode, and linked sources while the command
+ *   registry is on. Home hands it no skill, so a saved skill is not drawn.
+ * - Nothing: no draft, and the example goes in as if there were none.
+ */
+async function putWaitingExampleInBox(
+	example: string,
+	restoring: Promise<void> | null,
+) {
+	await restoring;
+	// The page was left while the saved draft was read: a toast now would land
+	// on whatever page the person went to.
+	if (!homeComposerLayer) return;
+
+	const saved = conversationDraft;
+	if (
+		saved &&
+		hasMeaningfulDraft(
+			saved.draftText,
+			saved.selectedAttachmentIds,
+			saved.selectedLinkedSources,
+			saved.pendingSkill,
+			saved.atlasMode === true,
+		)
+	) {
+		if (saved.draftText.trim() !== "") {
+			showToast({ type: "success", message: $t("guide.tryItDraftKept") });
+			return;
+		}
+		// The new `updatedAt` is what makes the composer look at the draft again.
+		conversationDraft = { ...saved, draftText: example, updatedAt: Date.now() };
+	} else {
+		const draft = createConversationDraftRecord({
+			conversationId: preparedConversationId,
+			draftText: example,
+			selectedAttachmentIds: [],
+			selectedAttachments: [],
+		});
+		if (!draft) return;
+		conversationDraft = draft;
+	}
+	// The composer takes the draft when its effect has run, and the caret goes
+	// in after it.
+	await tick();
+	homeComposerLayer?.querySelector("textarea")?.focus();
+}
+
 function handleDraftChange(payload: MessageInputDraftPayload) {
 	const nextDraft = createConversationDraftRecord({
 		conversationId: payload.conversationId,
@@ -1227,6 +1303,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					type="button"
 					class="incognito-arm"
 					data-testid="incognito-arm"
+					use:spotlightTarget={"home.incognito"}
 					aria-label={$t('chat.incognitoArm')}
 					aria-describedby="incognito-arm-tooltip"
 					onclick={armIncognito}
@@ -1272,7 +1349,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					     right-aligned and sitting on the greeting's baseline. Armed
 					     incognito replaces both with a single italic line — nothing here
 					     is counted, so the record goes with the rest of the board. -->
-					<div class="home-band" in:greetingFade={{ duration: isFromChat ? 400 : 0, delay: isFromChat ? 100 : 0 }}>
+					<div class="home-band" use:spotlightTarget={"home.home"} in:greetingFade={{ duration: isFromChat ? 400 : 0, delay: isFromChat ? 100 : 0 }}>
 						{#if isProjectMode}
 							<!-- The project's name is the page's anchor, armed or not: the
 							     tint and the italic face are what say "this chat is not

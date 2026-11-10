@@ -1,6 +1,16 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { get } from "svelte/store";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
 import type { TwoStepStatus } from "$lib/client/api/settings";
+import {
+	pendingSpotlight,
+	requestSpotlight,
+	spotlightRequest,
+} from "$lib/stores/spotlight";
 
 const mockDisable = vi.hoisted(() => vi.fn());
 const mockRegenerate = vi.hoisted(() => vi.fn());
@@ -130,5 +140,96 @@ describe("the Account card's two-step row", () => {
 		expect(onChanged).toHaveBeenCalledWith(
 			expect.objectContaining({ enabled: true, backupCodesLeft: 10 }),
 		);
+	});
+});
+
+// The Feature Guide's Show me for Two-step sign-in. The row is there whether
+// two-step is on or off, so both states carry the marker.
+describe("the two-step row — the guide's Show me", () => {
+	let restoreLayout: () => void = () => undefined;
+
+	const ON: TwoStepStatus = {
+		enabled: true,
+		since: Date.UTC(2026, 9, 15),
+		backupCodesLeft: 8,
+	};
+
+	beforeEach(() => {
+		// The ring waits one animation frame; the test steps it by hand.
+		vi.useFakeTimers({
+			toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+		});
+		restoreLayout = stubLayoutForSpotlight();
+		spotlightRequest.set(null);
+	});
+
+	afterEach(() => {
+		restoreLayout();
+		vi.useRealTimers();
+		spotlightRequest.set(null);
+	});
+
+	it("rings the two-step row on request", () => {
+		// The row is there whether two-step is off or on, so both carry it.
+		for (const [state, status] of [
+			["off", OFF],
+			["on", ON],
+		] as const) {
+			requestSpotlight("settings.twoStep");
+
+			const { unmount } = renderRow(status);
+
+			expect(get(spotlightRequest), state).toBeNull();
+			vi.advanceTimersToNextFrame();
+			const row = screen.getByTestId("two-step-row");
+			expect(row, state).toHaveClass("spotlight-ring");
+			expect(vi.mocked(row.scrollIntoView).mock.contexts.at(-1), state).toBe(
+				row,
+			);
+			unmount();
+		}
+	});
+
+	it("keeps its ring when the row changes from off to on meanwhile", async () => {
+		const { rerender } = renderRow(OFF);
+		requestSpotlight("settings.twoStep");
+		vi.advanceTimersToNextFrame();
+		const row = screen.getByTestId("two-step-row");
+		expect(row).toHaveClass("spotlight-ring");
+
+		await rerender({ status: ON });
+
+		expect(screen.getByTestId("two-step-row")).toBe(row);
+		expect(row).toHaveClass("spotlight-ring");
+	});
+
+	it("leaves a request for another control waiting", () => {
+		requestSpotlight("settings.data");
+
+		renderRow();
+		vi.advanceTimersToNextFrame();
+
+		expect(screen.getByTestId("two-step-row")).not.toHaveClass(
+			"spotlight-ring",
+		);
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("settings.data");
+	});
+
+	// A ring that touches the words looks cramped, so the row's box is half a
+	// rem wider than its words on each side, and the negative margin takes the
+	// width back: the row lays out as it did before.
+	it("keeps its layout while it gives the ring room", () => {
+		const source = readFileSync(
+			join(
+				dirname(fileURLToPath(import.meta.url)),
+				"TwoStepSettingsRow.svelte",
+			),
+			"utf-8",
+		);
+		const rule = source.match(/\.two-step-row\s*\{([^}]*)\}/)?.[1];
+
+		expect(rule).toMatch(/padding:\s*var\(--space-md\) 0\.5rem/);
+		expect(rule).toMatch(/margin:\s*0 -0\.5rem/);
+		expect(rule).toMatch(/border-radius:\s*var\(--radius-md\)/);
 	});
 });

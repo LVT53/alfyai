@@ -37,6 +37,7 @@ import {
 	Trash2,
 	Upload,
 } from "@lucide/svelte";
+import { spotlightTarget } from "$lib/actions/spotlight";
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import { t } from "$lib/i18n";
@@ -596,59 +597,68 @@ function handlePersonalitySelect(event: Event) {
 				</div>
 			</div>
 			<div class="settings-rows">
-				<div class="settings-row settings-row--stack">
-					<div class="settings-row-text">
-						<p class="settings-row-label">{$t('settings_defaultModel')}</p>
-						<p class="settings-row-help">{$t('profileTab.defaultModelHelp')}</p>
-					</div>
-					<div class="settings-row-control">
-						<select
-							class="settings-select"
-							data-testid="settings-default-model-select"
-							aria-label={$t('settings_defaultModel')}
-							value={selectedModel ?? ''}
-							onchange={handleModelSelect}
-						>
-							<option value="">
-								{$t('settings.systemDefaultModelResolved', { model: systemDefaultModelDisplayName })}
-							</option>
-							{#each explicitModelOptions as model (model.id)}
-								<option value={model.id}>{model.displayName}</option>
-							{/each}
-						</select>
-						{#if explicitModelOptions.length > 0}
-							<span class="settings-row-hint">
-								{$t('profileTab.otherModelsAvailable', { count: explicitModelOptions.length })}
-							</span>
-						{/if}
-					</div>
-				</div>
-
-				{#if personalityProfiles.length > 0}
+				<!-- The two rows are one wrapper so the feature guide's Show me can ring
+				     both ("Style and model"); see `.settings-row-group` below for how it
+				     keeps looking like the rows it holds. -->
+				<div
+					class="settings-row-group"
+					data-testid="settings-style-group"
+					use:spotlightTarget={"settings.style"}
+				>
 					<div class="settings-row settings-row--stack">
 						<div class="settings-row-text">
-							<p class="settings-row-label">{$t('settings_conversationStyle')}</p>
-							<p class="settings-row-help">{$t('settings_conversationStyleNote')}</p>
+							<p class="settings-row-label">{$t('settings_defaultModel')}</p>
+							<p class="settings-row-help">{$t('profileTab.defaultModelHelp')}</p>
 						</div>
 						<div class="settings-row-control">
 							<select
 								class="settings-select"
-								data-testid="settings-conversation-style-select"
-								aria-label={$t('settings_conversationStyle')}
-								value={selectedPersonalityId ?? ''}
-								onchange={handlePersonalitySelect}
+								data-testid="settings-default-model-select"
+								aria-label={$t('settings_defaultModel')}
+								value={selectedModel ?? ''}
+								onchange={handleModelSelect}
 							>
-								<option value="">{$t('composerTools.defaultStyle')}</option>
-								{#each personalityProfiles as profile (profile.id)}
-									<option
-										value={profile.id}
-										title={getPersonalityProfileDisplayDescription(profile, $t)}
-									>{getPersonalityProfileDisplayName(profile, $t)}</option>
+								<option value="">
+									{$t('settings.systemDefaultModelResolved', { model: systemDefaultModelDisplayName })}
+								</option>
+								{#each explicitModelOptions as model (model.id)}
+									<option value={model.id}>{model.displayName}</option>
 								{/each}
 							</select>
+							{#if explicitModelOptions.length > 0}
+								<span class="settings-row-hint">
+									{$t('profileTab.otherModelsAvailable', { count: explicitModelOptions.length })}
+								</span>
+							{/if}
 						</div>
 					</div>
-				{/if}
+
+					{#if personalityProfiles.length > 0}
+						<div class="settings-row settings-row--stack">
+							<div class="settings-row-text">
+								<p class="settings-row-label">{$t('settings_conversationStyle')}</p>
+								<p class="settings-row-help">{$t('settings_conversationStyleNote')}</p>
+							</div>
+							<div class="settings-row-control">
+								<select
+									class="settings-select"
+									data-testid="settings-conversation-style-select"
+									aria-label={$t('settings_conversationStyle')}
+									value={selectedPersonalityId ?? ''}
+									onchange={handlePersonalitySelect}
+								>
+									<option value="">{$t('composerTools.defaultStyle')}</option>
+									{#each personalityProfiles as profile (profile.id)}
+										<option
+											value={profile.id}
+											title={getPersonalityProfileDisplayDescription(profile, $t)}
+										>{getPersonalityProfileDisplayName(profile, $t)}</option>
+									{/each}
+								</select>
+							</div>
+						</div>
+					{/if}
+				</div>
 
 				<div class="settings-row settings-row--stack">
 					<div class="settings-row-text">
@@ -675,7 +685,12 @@ function handlePersonalitySelect(event: Event) {
 						<p class="settings-row-help">{$t('settings_interfaceLanguageNote')}</p>
 					</div>
 					<div class="settings-row-control">
-						<div class="settings-seg" role="group" aria-label={$t('settings_interfaceLanguage')}>
+						<div
+							class="settings-seg"
+							role="group"
+							aria-label={$t('settings_interfaceLanguage')}
+							use:spotlightTarget={"settings.language"}
+						>
 							{#each uiLanguageOptions as option (option.value)}
 								<button
 									type="button"
@@ -723,7 +738,7 @@ function handlePersonalitySelect(event: Event) {
 				     text truncated to one line — the whole text is in the dialog,
 				     and a row that wrapped would push the rest of the card off
 				     the screen. -->
-				<div class="settings-row">
+				<div class="settings-row" use:spotlightTarget={"settings.instructions"}>
 					<div class="settings-row-text">
 						<p class="settings-row-label">
 							{$t('profileTab.personalInstructions')}
@@ -778,7 +793,7 @@ function handlePersonalitySelect(event: Event) {
 					</div>
 				</div>
 
-				<div class="settings-row settings-row--stack">
+				<div class="settings-row settings-row--stack" use:spotlightTarget={"settings.skills"}>
 					<div class="settings-row-text">
 						<p class="settings-row-label">{$t('settings_skillsManagerSummaryLabel')}</p>
 						<p class="settings-row-help">
@@ -828,7 +843,11 @@ function handlePersonalitySelect(event: Event) {
 		</section>
 
 		<!-- ═══ Data & privacy ═══ -->
-		<section class="settings-card" id="settings-section-data-privacy">
+		<section
+			class="settings-card"
+			id="settings-section-data-privacy"
+			use:spotlightTarget={"settings.data"}
+		>
 			<div class="settings-card-head">
 				<div class="settings-card-head-text">
 					<h2 class="settings-card-title">{$t('settings_sectionDataPrivacy')}</h2>
@@ -895,7 +914,11 @@ function handlePersonalitySelect(event: Event) {
 
 	<div class="profile-col profile-col-trail">
 		<!-- ═══ Your Activity — summary, with the full view one click away ═══ -->
-		<section class="settings-card" id="settings-section-your-activity">
+		<section
+			class="settings-card"
+			id="settings-section-your-activity"
+			use:spotlightTarget={"settings.activity"}
+		>
 			<div class="settings-card-head">
 				<div class="settings-card-head-text">
 					<h2 class="settings-card-title">{$t('settings_sectionYourActivity')}</h2>
@@ -1399,6 +1422,26 @@ function handlePersonalitySelect(event: Event) {
 		.activity-stat-wide {
 			grid-column: 1 / -1;
 		}
+	}
+
+	/* ── Rows the feature guide's Show me rings together ───────────────────
+	   Default model and Conversation style sit in one wrapper where they sat in
+	   the list directly. The wrapper has to read as the rows it holds:
+	   - the same bleed (`margin: 0 -0.5rem`) and side padding as a row, so the
+	     ring is drawn around what a row's hover is, and the rows inside keep
+	     their own bleed to the wrapper's edge;
+	   - the row's radius, or the ring is a square (the memory deep link's
+	     once was, `#settings-memory-card`);
+	   - the rule above the next row: the list draws it as
+	     `.settings-row + .settings-row`, which a wrapper in between breaks. */
+	.settings-row-group {
+		margin: 0 -0.5rem;
+		padding: 0 0.5rem;
+		border-radius: var(--radius-md);
+	}
+
+	.settings-row-group + .settings-row {
+		border-top: 1px solid var(--border-default);
 	}
 
 	/* ── Danger card ───────────────────────────────────────────────────── */

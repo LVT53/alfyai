@@ -22,6 +22,7 @@
  * answers both "what is this" and "is it on".
  */
 
+import type { SpotlightId } from "$lib/app-places";
 import type { I18nKey } from "$lib/i18n";
 
 /**
@@ -268,4 +269,28 @@ export function nextMenuIndex(
 
 	const next = (position + step + selectable.length) % selectable.length;
 	return selectable[next];
+}
+
+// ── Show me ──────────────────────────────────────────────────────────
+//
+// The feature guide's Show me rings a real control (`spotlightTarget`,
+// `src/lib/actions/spotlight.ts`). Most are always on screen. These three are
+// rows of the "+" menu, which is shut until someone opens it, so the composer
+// opens it for them and each row takes the request as it mounts. The thinking
+// switch is a row of the menu too, but the id `composer.thinking` points at the
+// button on the bar, so it is not here.
+
+/** The controls Show me can ring that live inside the "+" menu. */
+export const COMPOSER_MENU_SPOTLIGHTS = [
+	"composer.attach",
+	"composer.library",
+	"composer.atlas",
+] as const satisfies readonly SpotlightId[];
+
+/** Whether a Show me for this control needs the "+" menu open. */
+export function opensComposerMenu(spotlight: SpotlightId | null): boolean {
+	return (
+		spotlight !== null &&
+		(COMPOSER_MENU_SPOTLIGHTS as readonly SpotlightId[]).includes(spotlight)
+	);
 }

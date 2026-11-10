@@ -37,6 +37,12 @@ const AUDITED_PREFIXES = [
 	// is NOT audited (pre-existing drift), so this narrow prefix is what
 	// would have caught the three worker-reclaim codes landing in EN only.
 	"fileProduction.error.",
+	// The Feature Guide (the /guide page): its own words, every section's name
+	// and intro, and each entry's name, line and example. Its own namespace, so
+	// the whole page is covered the day a key lands — an entry that reached EN
+	// and not HU would show a Hungarian reader the raw key on the one page that
+	// names every feature.
+	"guide.",
 	// The instructions surface (Workspaces feature 1, Slice C): the shared
 	// InstructionsDialog, its scope token and the Settings row. Its own
 	// namespace, so the whole surface is covered rather than a slice of it —

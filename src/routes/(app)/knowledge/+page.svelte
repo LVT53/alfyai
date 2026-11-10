@@ -41,6 +41,7 @@ import KnowledgeMemoryView from "./_components/KnowledgeMemoryView.svelte";
 import DocumentsList from "./_components/DocumentsList.svelte";
 // biome-ignore lint/style/useImportType: this component must remain a runtime import for SSR rendering.
 import KnowledgeWorkspaceCoordinatorComponent from "./_components/KnowledgeWorkspaceCoordinator.svelte";
+import type { SpotlightId } from "$lib/app-places";
 import type {
 	MemoryPersonaSummaryPayload,
 	MemoryProfileActionPayload,
@@ -198,6 +199,7 @@ let knowledgeTabs = $derived<
 		panelId: string;
 		badge?: string | number | null;
 		badgeLabel?: string;
+		spotlight?: SpotlightId;
 	}>
 >([
 	{
@@ -208,6 +210,8 @@ let knowledgeTabs = $derived<
 		panelId: "memory-profile-panel",
 		badge: openMemoryReviewCount > 0 ? openMemoryReviewCount : null,
 		badgeLabel: $t("memoryProfile.needsReview"),
+		// The feature guide's Show me rings the two tabs.
+		spotlight: "knowledge.memory",
 	},
 	{
 		id: "documents",
@@ -215,6 +219,7 @@ let knowledgeTabs = $derived<
 		href: buildKnowledgeLibraryUrl({ tab: "documents" }),
 		tabId: "documents-tab",
 		panelId: "documents-panel",
+		spotlight: "knowledge.library",
 	},
 ]);
 

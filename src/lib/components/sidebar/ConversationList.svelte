@@ -5,6 +5,7 @@ import { MOTION_DURATION, MOTION_EASE } from "$lib/utils/motion";
 import { onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/stores";
+import { spotlightTarget } from "$lib/actions/spotlight";
 import {
 	conversations,
 	deleteConversationById,
@@ -1260,8 +1261,13 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 	<!-- ── Projects section ──────────────────────────────────────────────── -->
 	{#if allProjects.length > 0 || isCreatingProject}
 		<div class="mb-0.5">
-			<!-- Section header -->
-			<div class="group flex items-center justify-between px-2 py-1">
+			<!-- Section header. The feature guide's Show me rings this row, here and
+			     in the no-projects branch below; its class stays a static string. -->
+			<div
+				class="group flex items-center justify-between rounded-lg px-2 py-1"
+				data-testid="sidebar-projects-header"
+				use:spotlightTarget={"sidebar.projects"}
+			>
 				<button
 					class="flex items-center gap-1 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
 					aria-label={projectsSectionExpanded ? $t('sidebar.collapseProjectsSection') : $t('sidebar.expandProjectsSection')}
@@ -1448,7 +1454,11 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 		{/if}
 	{:else}
 		<!-- No projects yet: header + creative empty notice -->
-		<div class="group flex items-center justify-between px-2 py-1">
+		<div
+			class="group flex items-center justify-between rounded-lg px-2 py-1"
+			data-testid="sidebar-projects-header"
+			use:spotlightTarget={"sidebar.projects"}
+		>
 			<button
 				class="flex items-center gap-1 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
 				aria-label={projectsSectionExpanded ? $t('sidebar.collapseProjectsSection') : $t('sidebar.expandProjectsSection')}

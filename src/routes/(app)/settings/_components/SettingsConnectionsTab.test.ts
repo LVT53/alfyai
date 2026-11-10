@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	fireEvent,
 	render,
@@ -5,12 +8,19 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { get } from "svelte/store";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
 import type { ConnectionPublic } from "$lib/client/api/connections";
 import {
 	CONNECTABLE_PROVIDER_LIST,
 	getProviderCatalogEntry,
 } from "$lib/client/connections/provider-catalog";
+import {
+	pendingSpotlight,
+	requestSpotlight,
+	spotlightRequest,
+} from "$lib/stores/spotlight";
 import SettingsConnectionsTab from "./SettingsConnectionsTab.svelte";
 
 function makeConnection(
@@ -789,5 +799,99 @@ describe("SettingsConnectionsTab", () => {
 				).toBeInTheDocument();
 			});
 		});
+	});
+});
+
+// The Feature Guide's Show me for connected accounts. The tab has no single
+// root element, and ringing all of it would scroll a long tab to its middle on
+// a phone, so the marker is on the heading block: the title and the line under
+// it, which sit at the top of the tab on every screen.
+describe("SettingsConnectionsTab — the guide's Show me", () => {
+	let restoreLayout: () => void = () => undefined;
+
+	const heading = () => screen.getByTestId("connections-heading");
+
+	beforeEach(() => {
+		// The ring waits one animation frame; the test steps it by hand.
+		vi.useFakeTimers({
+			toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+		});
+		restoreLayout = stubLayoutForSpotlight();
+		spotlightRequest.set(null);
+	});
+
+	afterEach(() => {
+		restoreLayout();
+		vi.useRealTimers();
+		spotlightRequest.set(null);
+	});
+
+	it("rings the heading block when Show me asks for connected accounts", () => {
+		requestSpotlight("settings.connections");
+
+		render(SettingsConnectionsTab, baseProps());
+
+		expect(get(spotlightRequest)).toBeNull();
+		vi.advanceTimersToNextFrame();
+		expect([...document.querySelectorAll(".spotlight-ring")]).toEqual([
+			heading(),
+		]);
+		expect(vi.mocked(heading().scrollIntoView).mock.contexts).toEqual([
+			heading(),
+		]);
+		// The block holds the title and the line under it, and nothing else.
+		expect(within(heading()).getByText("Connections")).toBeInTheDocument();
+		expect(
+			within(heading()).getByText(/Connect your accounts/),
+		).toBeInTheDocument();
+		expect(heading()).not.toContainElement(
+			screen.getByTestId("connections-empty"),
+		);
+	});
+
+	it.each([
+		["still loading", { loading: true }],
+		["a failed load", { loadFailed: true }],
+		["no accounts yet", {}],
+		["accounts", { connections: [makeConnection()] }],
+	])("rings it while the tab shows %s", (_state, props) => {
+		requestSpotlight("settings.connections");
+
+		render(SettingsConnectionsTab, baseProps(props));
+		vi.advanceTimersToNextFrame();
+
+		expect(heading()).toHaveClass("spotlight-ring");
+	});
+
+	it("leaves a request for another control waiting", () => {
+		requestSpotlight("settings.data");
+
+		render(SettingsConnectionsTab, baseProps());
+		vi.advanceTimersToNextFrame();
+
+		expect(heading()).not.toHaveClass("spotlight-ring");
+		expect(pendingSpotlight(get(spotlightRequest))).toBe("settings.data");
+	});
+
+	// The block is a box where there were two paragraphs, so it pads itself out
+	// for the ring to clear the words and takes the room back with its margins.
+	it("gives the heading block back the room it takes", () => {
+		const source = readFileSync(
+			join(
+				dirname(fileURLToPath(import.meta.url)),
+				"SettingsConnectionsTab.svelte",
+			),
+			"utf-8",
+		);
+		const rule = source.match(/\.connections-head\s*\{([^}]*)\}/)?.[1];
+
+		expect(rule).toMatch(/margin:\s*-0\.5rem -0\.5rem 0\.25rem/);
+		expect(rule).toMatch(/padding:\s*0\.5rem/);
+		expect(rule).toMatch(/border-radius:\s*var\(--radius-md\)/);
+		// The line under the title used to carry the 0.75rem below it as `mb-3`;
+		// the box's own 0.25rem and 0.5rem of padding are that now.
+		expect(source).toMatch(
+			/<p class="settings-help-text">\{\$t\('connections\.subtitle'\)\}<\/p>/,
+		);
 	});
 });

@@ -1,6 +1,9 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onDestroy, onMount } from "svelte";
 import { browser } from "$app/environment";
+import { page } from "$app/state";
+import { spotlightTarget } from "$lib/actions/spotlight";
+import { appPlacePath } from "$lib/app-places";
 import { logout } from "$lib/client/api/auth";
 import { clearClientAccountState } from "$lib/client/session-boundary";
 import { t } from "$lib/i18n";
@@ -19,7 +22,15 @@ import {
 	conversations,
 	markConversationAtlasBadgeSeen,
 } from "$lib/stores/conversations";
-import { viewportStore } from "$lib/utils/viewport.svelte";
+import {
+	pendingSpotlight,
+	type SpotlightRequest,
+	spotlightRequest,
+} from "$lib/stores/spotlight";
+import {
+	initViewportTracking,
+	viewportStore,
+} from "$lib/utils/viewport.svelte";
 import { goto, invalidateAll } from "$app/navigation";
 import { navigating } from "$app/stores";
 import { fade } from "svelte/transition";
@@ -39,6 +50,7 @@ import {
 	FilePen,
 	Search,
 	BookOpen,
+	CircleQuestionMark,
 	LogOut,
 } from "@lucide/svelte";
 import type { SessionUser } from "$lib/server/services/auth-types";
@@ -133,6 +145,44 @@ $effect(() => {
 	}
 });
 
+// The feature guide's Show me for the two controls this sidebar owns, Search
+// and Projects. The guide stays on its own page for them (the sidebar is on
+// every page), so the sidebar has to be showing the control when Show me asks:
+//  - below desktop the sidebar is a drawer, and the drawer is shut: open it;
+//  - on a desktop window whose sidebar is on its rail, the rail has a Search
+//    button (it carries the marker) but no Projects: expand the rail for those.
+// This only reads the request. The control's own marker takes it
+// (`spotlightTarget`), as the Projects header does when the expanded sidebar
+// draws it.
+//
+// It is a plain subscription made while the component initialises, not an
+// `$effect`, and the order is the point. Below desktop the drawer stays mounted
+// while it is shut: it is hidden with opacity, a transform and
+// `pointer-events: none`, none of which takes its layout away, so the search
+// pill and the Projects header have layout, and their markers take a request in
+// the very call that sets it. A store tells its subscribers in the order they
+// subscribed, and this script runs before the actions of its template and of its
+// children, so this subscriber hears of the request first and finds it still
+// waiting. An `$effect` runs after the update, when the marker has taken the
+// request and the effect reads `null`: the drawer would stay shut, and the ring
+// would play on a pill nobody can see (`Sidebar.test.ts` fails with an effect).
+//
+// Nothing here looks at the sidebar again when the person shuts it: the
+// subscription is told of requests, and of nothing else. The server never gets
+// here (a module-level store is shared by every request it renders).
+function openForShowMe(request: SpotlightRequest | null) {
+	const spotlight = pendingSpotlight(request);
+	if (spotlight !== "sidebar.search" && spotlight !== "sidebar.projects") {
+		return;
+	}
+	if (viewportStore.tier !== "desktop") {
+		sidebarOpen.set(true);
+	} else if (spotlight === "sidebar.projects") {
+		sidebarCollapsed.set(false);
+	}
+}
+if (browser) onDestroy(spotlightRequest.subscribe(openForShowMe));
+
 function isMacPlatform(): boolean {
 	if (!browser) return false;
 	const nav = navigator as Navigator & {
@@ -215,6 +265,16 @@ function navigateAndClose(path: string) {
 	goto(path);
 }
 
+// The feature guide's "?" (beside the version badge, and in the collapsed
+// rail). `page` is read through a rune, so the sidebar, which stays mounted from
+// one page to the next, follows the person to the guide and away from it.
+const guidePath = appPlacePath("guide");
+const onGuidePage = $derived(page.url.pathname === guidePath);
+
+function openGuide() {
+	navigateAndClose(guidePath);
+}
+
 function requestLogout() {
 	showLogoutConfirm = true;
 }
@@ -240,9 +300,19 @@ function cancelLogout() {
 }
 
 onMount(() => {
-	// isDesktop is now derived from viewportStore, which updates on
-	// resize/orientation/pointer changes (tracked by Slice 0). Only the
-	// transition-enable timing guard remains here.
+	// isDesktop is derived from viewportStore, which follows resize and
+	// orientation changes once `initViewportTracking()` has run (Slice 0). Until
+	// then it keeps the server's default, "desktop", and only the composer and the
+	// model selector used to start it: on a page without a composer that was
+	// loaded directly (a reload of Settings, the Knowledge Base or the guide) a
+	// phone's sidebar took itself for a desktop one, the header's button toggled
+	// the rail instead of opening the drawer, and the guide's Show me found no
+	// drawer to open. So the sidebar starts it. Calling it again is safe (it
+	// refreshes the store each time and registers its listeners once), and there
+	// is nothing to undo when the sidebar goes: the listeners belong to the page
+	// and are shared with the composer (`viewport.svelte.ts`).
+	initViewportTracking();
+	// Only the transition-enable timing guard remains here.
 	requestAnimationFrame(() => {
 		transitionsEnabled = true;
 	});
@@ -298,6 +368,19 @@ onMount(() => {
 						onClick={onAppVersionClick}
 					/>
 				{/if}
+				<!-- The feature guide. Outside the version's `{#if}`: the version
+				     arrives after hydration and the "?" must not wait for it. The
+				     badge answers "what's new", this answers "what can it do". -->
+				<button
+					type="button"
+					class="guide-link relative flex h-[17px] w-[17px] shrink-0 cursor-pointer items-center justify-center rounded-full text-icon-muted transition-colors duration-150 hover:text-icon-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+					onclick={openGuide}
+					title={$t('guide.title')}
+					aria-label={$t('guide.title')}
+					aria-current={onGuidePage ? 'page' : undefined}
+				>
+					<CircleQuestionMark size={15} strokeWidth={2.1} aria-hidden="true" />
+				</button>
 			</div>
 		{:else}
 			<!-- Collapsed rail: the centered mark is also the expand affordance. -->
@@ -360,6 +443,7 @@ onMount(() => {
 				<button
 					type="button"
 					class="compose-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-icon-muted transition-colors duration-150 hover:text-icon-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+					use:spotlightTarget={"sidebar.search"}
 					onclick={openSearchModal}
 					title={$t('sidebar.search')}
 					aria-label={$t('sidebar.searchConversations')}
@@ -380,6 +464,18 @@ onMount(() => {
 					<BookOpen size={19} strokeWidth={2.1} aria-hidden="true" />
 				{/if}
 			</button>
+				<!-- The feature guide: the rail shows only the logo, so the "?" beside
+				     the version badge is not drawn here. -->
+				<button
+					type="button"
+					class="guide-rail-link compose-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-icon-muted transition-colors duration-150 hover:text-icon-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+					onclick={openGuide}
+					title={$t('guide.title')}
+					aria-label={$t('guide.title')}
+					aria-current={onGuidePage ? 'page' : undefined}
+				>
+					<CircleQuestionMark size={19} strokeWidth={2.1} aria-hidden="true" />
+				</button>
 		</div>
 	{:else}
 		<!-- Expanded: search pill + compose icon in a single row -->
@@ -392,6 +488,7 @@ onMount(() => {
 			<button
 				type="button"
 				class="search-pill @container flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-sm text-text-muted transition-colors duration-150 hover:border-border-focus hover:bg-surface-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				use:spotlightTarget={"sidebar.search"}
 				onclick={openSearchModal}
 				aria-label={$t('sidebar.searchConversations')}
 			>
@@ -663,6 +760,43 @@ onMount(() => {
 	.profile-btn:hover {
 		background: color-mix(in srgb, var(--border-default) 18%, transparent 82%);
 		border-color: var(--border-default);
+	}
+
+	/* The feature guide's "?" beside the version badge (design 3.1): a quiet
+	   circle as tall as the badge (11px text, 2px padding and a 1px border either
+	   side: 17px), so it sits in the header's row without growing it. It is not
+	   `.btn-icon-bare` or `.compose-btn`: app.css stretches those to 44px under
+	   768px. */
+	.guide-link {
+		border: 1px solid transparent;
+	}
+
+	.guide-link:hover {
+		background: color-mix(in srgb, var(--border-default) 18%, transparent 82%);
+		border-color: var(--border-default);
+	}
+
+	/* On the guide the "?" shows as active, here and in the collapsed rail: the
+	   accent glyph on a tint of it, which reads as "you are here" and not as an
+	   action, as the rail's accent New chat does. */
+	.guide-link[aria-current='page'],
+	.guide-rail-link[aria-current='page'] {
+		color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
+	}
+
+	/* A finger needs 44px, and the header is 64px tall, so the touch area is a
+	   pseudo-element, not a taller button. It is 44px square: 13.5px past the
+	   circle above and below, 19px past it on the far side and only the 8px gap
+	   towards the badge, so that it never covers the badge. `inset` is measured
+	   from the padding box, which is the circle less its 1px border, hence the
+	   1px more on each side. */
+	@media (max-width: 767px) {
+		.guide-link::after {
+			content: '';
+			position: absolute;
+			inset: -14.5px -20px -14.5px -9px;
+		}
 	}
 
 	@media (max-width: 1023px) {
