@@ -2,6 +2,7 @@
 import type { NormalChatOutputProjection } from "$lib/shared/normal-chat-output";
 import {
 	getSkillControlEnvelopePrefixHoldLength,
+	SKILL_CONTROL_ENVELOPE_CLOSE_TAG,
 	stripCompleteSkillControlEnvelopeBlocks,
 } from "$lib/services/stream-protocol";
 import { t, type I18nKey } from "$lib/i18n";
@@ -692,9 +693,29 @@ $effect(() => {
 });
 
 // Display only: raw blocks remain intact for the existing control-operation owner.
-function commentaryTextForDisplay(text: string): string {
-	const visible = stripCompleteSkillControlEnvelopeBlocks(text).visibleText;
-	const hold = getSkillControlEnvelopePrefixHoldLength(visible);
+function commentaryTextForDisplay(text: string, final: boolean): string {
+	const parsed = stripCompleteSkillControlEnvelopeBlocks(text);
+	let visible = parsed.visibleText;
+	const envelope = parsed.envelopes.at(-1);
+	// Only a recognized, unclosed envelope can own an unfinished closer.
+	if (
+		envelope &&
+		!envelope.rawBlock.toLowerCase().endsWith(SKILL_CONTROL_ENVELOPE_CLOSE_TAG)
+	) {
+		const rest = text.slice(
+			text.lastIndexOf(envelope.rawBlock) + envelope.rawBlock.length,
+		);
+		const closing = rest.trimStart();
+		if (
+			closing &&
+			SKILL_CONTROL_ENVELOPE_CLOSE_TAG.startsWith(closing.toLowerCase()) &&
+			(!final || closing.length > 1)
+		) {
+			visible = visible.slice(0, -closing.length);
+		}
+	}
+	// An ambiguous ordinary opening prefix is held live, then flushed unchanged.
+	const hold = final ? 0 : getSkillControlEnvelopePrefixHoldLength(visible);
 	return hold ? visible.slice(0, -hold) : visible;
 }
 
@@ -1189,7 +1210,7 @@ function toggleFullReasoning(): void {
 {#if hasCommentary && (!thinkingIsDone || expanded)}
 	<section class="normal-chat-commentary" data-testid="normal-chat-commentary" aria-label={$t('chat.output.activity')} out:commentaryFade={{ duration: 150 }}>
 		{#each commentary as block (JSON.stringify([block.turnId, block.segmentId, block.attemptId, block.stepId, block.blockId]))}
-			<p>{output && commentaryTextForDisplay(block.text)}</p>
+			<p>{output && commentaryTextForDisplay(block.text, block.ended || thinkingIsDone || Boolean(output.completion))}</p>
 		{/each}
 	</section>
 {/if}

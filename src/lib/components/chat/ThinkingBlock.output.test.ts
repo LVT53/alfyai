@@ -112,6 +112,102 @@ describe("ordinary commentary in the existing activity disclosure", () => {
 		).toBe("Before.After.");
 	});
 
+	it("Skill Control delimiter state hides incremental closing chunks until they finish", async () => {
+		const envelope = 'Before.<skill_control_v1>{"version":1,"operations":[]}';
+		const blocks = [{ ...commentary[0], ended: false, text: envelope }];
+		const { rerender } = render(ThinkingBlock, {
+			output: view(blocks),
+			thinkingIsDone: false,
+		});
+		for (const closing of [
+			"<",
+			"</",
+			"</skill_control_v",
+			"</skill_control_v1>",
+		]) {
+			blocks[0].text = envelope + closing;
+			await rerender({ output: view(blocks), thinkingIsDone: false });
+			expect
+				.soft(screen.getByTestId("normal-chat-commentary").textContent?.trim())
+				.toBe("Before.");
+		}
+		blocks[0].text += "After.";
+		await rerender({ output: view(blocks), thinkingIsDone: false });
+		expect(
+			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
+		).toBe("Before.After.");
+		expect(blocks[0].text).toBe(`${envelope}</skill_control_v1>After.`);
+	});
+
+	it.each([
+		true,
+		false,
+	])("Skill Control delimiter state hides interrupted closing syntax with ended=%s", async (ended) => {
+		const blocks = [
+			{
+				...commentary[0],
+				ended,
+				text: 'Before.<skill_control_v1>{"version":1,"operations":[]}\n</skill_control_v',
+			},
+		];
+		render(ThinkingBlock, {
+			output: view(blocks, "incomplete"),
+			thinkingIsDone: true,
+		});
+		await fireEvent.click(
+			screen.getByRole("button", { name: /Previous activity/ }),
+		);
+		expect(
+			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
+		).toBe("Before.");
+	});
+
+	it.each([
+		"Ordinary <",
+		"Ordinary </skill_control_v",
+	])("Skill Control delimiter state flushes completed ordinary text %s", (text) => {
+		const blocks = [{ ...commentary[0], ended: true, text }];
+		render(ThinkingBlock, { output: view(blocks), thinkingIsDone: false });
+		expect(
+			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
+		).toBe(text);
+	});
+
+	it.each([
+		"block-end",
+		"terminal",
+	] as const)("Skill Control delimiter state releases live ambiguity on %s", async (finish) => {
+		const blocks = [{ ...commentary[0], ended: false, text: "Ordinary <" }];
+		const { rerender } = render(ThinkingBlock, {
+			output: view(blocks),
+			thinkingIsDone: false,
+		});
+		expect(
+			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
+		).toBe("Ordinary");
+		blocks[0].ended = finish === "block-end";
+		await rerender({
+			output: view(blocks, finish === "terminal" ? "incomplete" : undefined),
+			thinkingIsDone: false,
+		});
+		expect(
+			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
+		).toBe("Ordinary <");
+	});
+
+	it("Skill Control delimiter state preserves a finalized literal after a closed envelope", () => {
+		const blocks = [
+			{
+				...commentary[0],
+				text: 'Before.<skill_control_v1>{"version":1,"operations":[]}</skill_control_v1>Ordinary <',
+			},
+		];
+		render(ThinkingBlock, { output: view(blocks), thinkingIsDone: false });
+		expect(
+			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
+		).toBe("Before.Ordinary <");
+	});
+
 	it("updates the same accumulator block as live deltas arrive", async () => {
 		const blocks = commentary.map((b) => ({ ...b, text: "First" }));
 		const { rerender } = render(ThinkingBlock, {
