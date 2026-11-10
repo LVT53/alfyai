@@ -165,6 +165,13 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	upstreamFinishReason?: FinishReason | null;
 	upstreamRawFinishReason?: string | null;
 	streamClosedWithoutFinish?: boolean;
+	// The model stopped before it wrote its answer: no visible text came after the
+	// last tool call that needs words after it, and the repair (the non-stream
+	// rerun with tools off) produced none either (`stream-terminal.ts` and the
+	// orchestrator's `fallbackToNonStreaming` decide it). The turn is saved as it
+	// is and carries the `no_final_answer` notice; it gets no follow-up chips.
+	// Never acted on for a stopped turn.
+	noFinalAnswer?: boolean;
 	// The reply asked the person (`ask_user`, "Ask me first") and stops there: the
 	// question the tool recorded and what the resume starts from. Saved as a paused
 	// segment: no follow-up chips, the question tied to the saved message by
@@ -261,6 +268,7 @@ export async function completeStreamTurn(
 		upstreamFinishReason = "stop",
 		upstreamRawFinishReason = null,
 		streamClosedWithoutFinish = false,
+		noFinalAnswer = false,
 		askPause: askPauseHandedOver = null,
 		askResume = null,
 		serverTimeline,
@@ -306,6 +314,7 @@ export async function completeStreamTurn(
 				upstreamFinishReason,
 				upstreamRawFinishReason,
 				streamClosedWithoutFinish,
+				noFinalAnswer,
 			});
 	// A segment that carries a reply on may cite what the segments before it found
 	// (their stored tool calls), and an address the person typed into an answer is
@@ -688,10 +697,13 @@ export async function completeStreamTurn(
 			(record) => record.status === "running",
 		);
 		// A paused segment is not a finished reply: the chips come with the segment
-		// that finishes it, after the person's answer.
+		// that finishes it, after the person's answer. A turn that ended without its
+		// final answer has nothing to follow up either: a chip is the person's next
+		// message about what the reply says, and this reply has not said it.
 		if (
 			!askPause &&
 			!wasStopped &&
+			!noFinalAnswer &&
 			!toolCallsStillRunning &&
 			finalResponse.trim()
 		) {
@@ -1157,6 +1169,7 @@ function buildCompletionWarningCodes(params: {
 	upstreamFinishReason?: FinishReason | null;
 	upstreamRawFinishReason?: string | null;
 	streamClosedWithoutFinish?: boolean;
+	noFinalAnswer?: boolean;
 }): ChatTurnCompletionWarningCode[] {
 	const codes: ChatTurnCompletionWarningCode[] = [];
 	if (hasFailedFileProductionToolCall(params.toolCallRecords)) {
@@ -1165,6 +1178,9 @@ function buildCompletionWarningCodes(params: {
 	const finishWarningCode = classifyCompletionFinishWarning(params);
 	if (finishWarningCode) {
 		codes.push(finishWarningCode);
+	}
+	if (params.noFinalAnswer) {
+		codes.push("no_final_answer");
 	}
 	return codes;
 }

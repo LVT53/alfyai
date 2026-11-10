@@ -243,13 +243,20 @@ export type ThinkingSegment =
 // `data-stream-metadata` payload instead; localized copy for each code is
 // an E2 (client) concern, matching the WebCitationAuditStatus precedent
 // just below (structured status, no baked prose).
+//
+// `no_final_answer`: the model stopped before it wrote the words that answer
+// the person (the turn has no visible text after the last tool call that needs
+// words after it, `chat-turn/AGENTS.md`, "A Turn's Final Answer"), and the one
+// repair that exists did not produce them either. The turn is saved as it is,
+// the words it wrote stay, and this code is what tells the person.
 export type ChatTurnCompletionWarningCode =
 	| "output_truncated"
 	| "content_filtered"
 	| "provider_error"
 	| "non_standard_finish"
 	| "stream_closed_without_finish"
-	| "file_production_failed";
+	| "file_production_failed"
+	| "no_final_answer";
 
 export type NormalChatRuntimePhase =
 	| "idle"

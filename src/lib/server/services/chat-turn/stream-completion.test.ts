@@ -1128,6 +1128,108 @@ describe("completeStreamTurn", () => {
 		});
 	});
 
+	// A turn whose model stopped before it wrote its answer (stream-terminal.ts
+	// decides that, and hands it over as `noFinalAnswer`) is saved as it is, with
+	// the words it wrote, and carries a notice: not an error, and not silent.
+	describe("a turn that ended without its final answer", () => {
+		const preamble = "I'll calculate the costs.";
+
+		function savedAssistantMetadata(): Record<string, unknown> {
+			const assistantCall = mockCreateMessage.mock.calls.find(
+				(call) => call[1] === "assistant",
+			);
+			return (assistantCall?.[5] ?? {}) as Record<string, unknown>;
+		}
+
+		it("keeps the words and reports no_final_answer on the terminal frame and in the saved metadata", async () => {
+			await completeStreamTurn({
+				...defaultParams,
+				fullResponse: preamble,
+				noFinalAnswer: true,
+			});
+
+			const assistantCall = mockCreateMessage.mock.calls.find(
+				(call) => call[1] === "assistant",
+			);
+			expect(assistantCall?.[2]).toBe(preamble);
+			expect(getLatestEndPayload()).toMatchObject({
+				completionWarningCodes: ["no_final_answer"],
+			});
+			expect(savedAssistantMetadata()).toMatchObject({
+				completionWarningCodes: ["no_final_answer"],
+			});
+			expect(
+				getStreamParts().some(
+					(part) => part !== "[DONE]" && part.type === "data-stream-error",
+				),
+			).toBe(false);
+		});
+
+		it("asks for no follow-up chips, so a turn that has no answer offers no next message", async () => {
+			mockGenerateFollowUpSuggestions.mockResolvedValue([
+				"What about the sequel?",
+				"Any other examples?",
+			]);
+
+			await completeStreamTurn({
+				...defaultParams,
+				fullResponse: preamble,
+				noFinalAnswer: true,
+			});
+
+			expect(mockGenerateFollowUpSuggestions).not.toHaveBeenCalled();
+			expect(getLatestEndPayload()).not.toHaveProperty("followUps");
+			expect(savedAssistantMetadata()).not.toHaveProperty("followUps");
+		});
+
+		it("lists it after the code of how the stream finished", async () => {
+			await completeStreamTurn({
+				...defaultParams,
+				fullResponse: preamble,
+				noFinalAnswer: true,
+				upstreamFinishReason: "length",
+				upstreamRawFinishReason: "max_tokens",
+			});
+
+			expect(getLatestEndPayload().completionWarningCodes).toEqual([
+				"output_truncated",
+				"no_final_answer",
+			]);
+		});
+
+		it("never carries the code on a stopped turn", async () => {
+			await completeStreamTurn({
+				...defaultParams,
+				fullResponse: preamble,
+				wasStopped: true,
+				noFinalAnswer: true,
+			});
+
+			expect(getLatestEndPayload()).not.toHaveProperty(
+				"completionWarningCodes",
+			);
+			expect(savedAssistantMetadata()).not.toHaveProperty(
+				"completionWarningCodes",
+			);
+		});
+
+		it("carries no code, and asks for chips as before, when the turn had its answer", async () => {
+			mockGenerateFollowUpSuggestions.mockResolvedValue([
+				"Any other examples?",
+			]);
+
+			await completeStreamTurn({ ...defaultParams, noFinalAnswer: false });
+
+			expect(getLatestEndPayload()).not.toHaveProperty(
+				"completionWarningCodes",
+			);
+			expect(mockGenerateFollowUpSuggestions).toHaveBeenCalledTimes(1);
+			expect(getLatestEndPayload()).toMatchObject({
+				followUps: ["Any other examples?"],
+			});
+		});
+	});
+
 	it("persists the user message before the assistant response for the same turn", async () => {
 		const persistedRoles: string[] = [];
 		let resolveUserMessage: (() => void) | undefined;

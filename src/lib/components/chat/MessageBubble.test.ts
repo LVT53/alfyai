@@ -2762,6 +2762,74 @@ describe("MessageBubble", () => {
 			).toBeInTheDocument();
 		});
 
+		// A turn the model stopped before it wrote its answer is saved as it is
+		// (the words it wrote stay), and this notice is what tells the person.
+		describe("no_final_answer", () => {
+			const stoppedBeforeAnswering = (): ChatMessage => ({
+				id: "assistant-no-final-answer",
+				renderKey: "assistant-no-final-answer",
+				role: "assistant",
+				content: "I'll calculate the costs.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+				completionWarningCodes: ["no_final_answer"],
+			});
+
+			afterEach(() => {
+				uiLanguage.set("en");
+			});
+
+			it("shows the notice in English and keeps the words the model wrote", async () => {
+				const { container } = render(MessageBubble, {
+					message: stoppedBeforeAnswering(),
+				});
+
+				expect(
+					screen.getByText(
+						"The model stopped before writing its answer. Retry the message.",
+					),
+				).toBeInTheDocument();
+				expect(
+					container.querySelectorAll(".completion-warning-row"),
+				).toHaveLength(1);
+				expect(
+					await screen.findByText("I'll calculate the costs."),
+				).toBeInTheDocument();
+			});
+
+			it("shows the notice in Hungarian", () => {
+				uiLanguage.set("hu");
+
+				render(MessageBubble, { message: stoppedBeforeAnswering() });
+
+				expect(
+					screen.getByText(
+						"A modell leállt, mielőtt megírta volna a választ. Próbáld újra az üzenetet.",
+					),
+				).toBeInTheDocument();
+			});
+
+			it("has its copy in both languages in the dictionary", () => {
+				expect(chatDict.en["chat.completionWarning.noFinalAnswer"]).toBe(
+					"The model stopped before writing its answer. Retry the message.",
+				);
+				expect(chatDict.hu["chat.completionWarning.noFinalAnswer"]).toBe(
+					"A modell leállt, mielőtt megírta volna a választ. Próbáld újra az üzenetet.",
+				);
+			});
+
+			it("is not shown while the reply is still streaming", () => {
+				const { container } = render(MessageBubble, {
+					message: { ...stoppedBeforeAnswering(), isStreaming: true },
+				});
+
+				expect(
+					container.querySelector(".completion-warning-notice"),
+				).not.toBeInTheDocument();
+			});
+		});
+
 		// The FileProductionCard row already shows that job's failed state (with
 		// retry/dismiss), and the assistant's own visible text explains it in
 		// words, so this notice would be a third, duplicate warning — suppress

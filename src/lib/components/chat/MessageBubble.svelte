@@ -879,6 +879,7 @@ function getContextPreparationActivityLabelKey(
 const COMPLETION_WARNING_LABEL_KEYS = {
 	content_filtered: "chat.completionWarning.contentFiltered",
 	file_production_failed: "chat.completionWarning.fileProductionFailed",
+	no_final_answer: "chat.completionWarning.noFinalAnswer",
 	non_standard_finish: "chat.completionWarning.nonStandardFinish",
 	output_truncated: "chat.completionWarning.outputTruncated",
 	provider_error: "chat.completionWarning.providerError",
@@ -899,6 +900,7 @@ function isKnownCompletionWarningCode(
 	return (
 		code === "content_filtered" ||
 		code === "file_production_failed" ||
+		code === "no_final_answer" ||
 		code === "non_standard_finish" ||
 		code === "output_truncated" ||
 		code === "provider_error" ||

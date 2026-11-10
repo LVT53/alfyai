@@ -102,6 +102,8 @@ const chatDict = {
 			"The response was stopped by content filtering. Try rephrasing your message.",
 		"chat.completionWarning.fileProductionFailed":
 			"The file could not be created. Retry the message, or try again in a moment.",
+		"chat.completionWarning.noFinalAnswer":
+			"The model stopped before writing its answer. Retry the message.",
 		"chat.completionWarning.nonStandardFinish":
 			"The response ended unexpectedly. Retry the message to try again.",
 		"chat.completionWarning.outputTruncated":
@@ -1382,6 +1384,8 @@ const chatDict = {
 			"A válaszot a tartalomszűrés leállította. Próbáld átfogalmazni az üzeneted.",
 		"chat.completionWarning.fileProductionFailed":
 			"A fájlt nem sikerült elkészíteni. Próbáld újra az üzenetet, vagy próbáld meg kicsit később.",
+		"chat.completionWarning.noFinalAnswer":
+			"A modell leállt, mielőtt megírta volna a választ. Próbáld újra az üzenetet.",
 		"chat.completionWarning.nonStandardFinish":
 			"A válasz váratlanul véget ért. Próbáld újra az üzenetet.",
 		"chat.completionWarning.outputTruncated":
