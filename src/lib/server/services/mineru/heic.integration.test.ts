@@ -334,7 +334,8 @@ describe("a HEIC or HEIF photo reaches MinerU 4.1 as a PNG", () => {
 // attempt does not need is a decode saved (a 12 MP photo holds a thread for
 // about half a second, and an outage retries it every few seconds).
 describe("when a photo is decoded", () => {
-	const STORAGE_REFUSED = {
+	/** A server that is shutting down answers 503: an outage, which keeps the task's handle. */
+	const SERVER_STOPPING = {
 		status: 503,
 		body: { error: { code: "server_shutting_down", message: "stopping" } },
 	} as const;
@@ -342,7 +343,7 @@ describe("when a photo is decoded", () => {
 	it("does not decode it while MinerU cannot say what it can do, and waits as an outage", async () => {
 		await boot({
 			fixtureInput: "png",
-			failures: [{ path: "/v1/health", ...STORAGE_REFUSED }],
+			failures: [{ path: "/v1/health", ...SERVER_STOPPING }],
 		});
 		const { spy } = await watchDecodes();
 		const { jobId } = await seedPhotoJob({
@@ -396,7 +397,7 @@ describe("when a photo is decoded", () => {
 		await boot({
 			fixtureInput: "png",
 			failures: [
-				{ path: "/v1/tasks/", method: "GET", nth: 1, ...STORAGE_REFUSED },
+				{ path: "/v1/tasks/", method: "GET", nth: 1, ...SERVER_STOPPING },
 			],
 		});
 		const { spy } = await watchDecodes();
