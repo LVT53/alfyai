@@ -1,3 +1,14 @@
+vi.mock("./completion-lifetime", () => ({
+	observeCompletionTurn: async () => ({
+		version: 1,
+		streamId: "s",
+		conversationId: "c",
+		state: "pending",
+		turnId: "t",
+		segmentId: "segment",
+	}),
+}));
+
 import { afterEach, expect, it, vi } from "vitest";
 import * as registry from "./active-streams";
 import {
@@ -28,7 +39,7 @@ function reconnect() {
 	const chunks: string[] = [];
 	const closed = vi.fn();
 	const abort = new AbortController();
-	doReconnect(scope.streamId, {
+	const done = doReconnect(scope.streamId, {
 		...scope,
 		enqueueChunk: (chunk) => {
 			chunks.push(chunk);
@@ -42,7 +53,7 @@ function reconnect() {
 		createSsePreludeComment: () => ": prelude\n\n",
 		createSseHeartbeatComment: () => ": heartbeat\n\n",
 	});
-	return { chunks, closed, abort };
+	return { chunks, closed, abort, done };
 }
 it("retains quiet live owners beyond the idle replay TTL", () => {
 	vi.useFakeTimers();
@@ -57,7 +68,7 @@ it("retains quiet live owners beyond the idle replay TTL", () => {
 	vi.advanceTimersByTime(6 * 60_000);
 	expect(registry.getStreamBuffer(scope)).toBeNull();
 });
-it("never replays a suffix after repeated mixed-event cap crossings", () => {
+it("never replays a suffix after repeated mixed-event cap crossings", async () => {
 	buffer();
 	for (let n = 0; n < 5; n++) {
 		registry.broadcastStreamChunk(
@@ -70,6 +81,7 @@ it("never replays a suffix after repeated mixed-event cap crossings", () => {
 		);
 	}
 	const connection = reconnect();
+	await connection.done;
 	expect(connection.chunks.join("")).toContain("data-waiting");
 	expect(connection.chunks.join("")).not.toContain("text-delta");
 	expect(connection.closed).toHaveBeenCalledOnce();

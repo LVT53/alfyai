@@ -1,5 +1,6 @@
+const observation = vi.hoisted(() => vi.fn());
 vi.mock("./completion-lifetime", () => ({
-	observeCompletionTurn: async () => null,
+	observeCompletionTurn: observation,
 }));
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -11,20 +12,38 @@ import {
 import { doReconnect } from "./stream-reconnect";
 import { StreamReplayJournal } from "./stream-replay-journal";
 
-beforeEach(() => vi.useFakeTimers());
+beforeEach(() => {
+	vi.useFakeTimers();
+	observation.mockReset();
+	observation.mockResolvedValue({
+		version: 1,
+		streamId: "s",
+		conversationId: "c",
+		state: "pending",
+		turnId: "t",
+		segmentId: "segment",
+	});
+});
 afterEach(() => vi.useRealTimers());
-function connect(chunks: string[] = [], alreadyAborted = false) {
+function connect(
+	chunks: string[] = [],
+	alreadyAborted = false,
+	missing = false,
+	subscribe = true,
+) {
 	const journal = new StreamReplayJournal();
 	for (const chunk of chunks) journal.append(chunk);
 	const buffer = { journal, userMessage: "synthetic" };
-	const getStreamBuffer = vi.fn(() => buffer as typeof buffer | undefined);
+	const getStreamBuffer = vi.fn(() =>
+		missing ? undefined : (buffer as typeof buffer | undefined),
+	);
 	const enqueueChunk = vi.fn((_chunk: string) => true),
 		closeDownstream = vi.fn();
 	const subscribeToStream = vi.fn(
 			(
 				_owner: { streamId: string; userId: string; conversationId: string },
 				_listener: (chunk: string) => void,
-			) => true,
+			) => subscribe,
 		),
 		unsubscribeFromStream = vi.fn(
 			(
@@ -34,7 +53,7 @@ function connect(chunks: string[] = [], alreadyAborted = false) {
 		);
 	const abort = new AbortController();
 	if (alreadyAborted) abort.abort();
-	doReconnect("s", {
+	const done = doReconnect("s", {
 		userId: "u",
 		conversationId: "c",
 		enqueueChunk,
@@ -47,6 +66,7 @@ function connect(chunks: string[] = [], alreadyAborted = false) {
 		createSseHeartbeatComment: () => ": heartbeat\n\n",
 	});
 	return {
+		done,
 		enqueueChunk,
 		closeDownstream,
 		getStreamBuffer,
@@ -85,10 +105,10 @@ it("terminates on live terminal but not an incomplete terminal frame", () => {
 	vi.advanceTimersByTime(20_000);
 	expect(c.closeDownstream).toHaveBeenCalledOnce();
 });
-it("ends a vanished record explicitly instead of waiting on heartbeats", () => {
+it("ends a vanished record explicitly instead of waiting on heartbeats", async () => {
 	const c = connect();
 	c.getStreamBuffer.mockReturnValue(undefined);
-	vi.advanceTimersByTime(2000);
+	await vi.advanceTimersByTimeAsync(2000);
 	expect(c.enqueueChunk).toHaveBeenCalledWith(
 		streamDataPartEvent("data-waiting", {}),
 	);
@@ -110,6 +130,78 @@ it("replays terminal once without opening another subscription", () => {
 it("does not retain a subscription for an already-cancelled observer", () => {
 	const c = connect([], true);
 	expect(c.subscribeToStream).not.toHaveBeenCalled();
+	expect(c.closeDownstream).toHaveBeenCalledOnce();
+	expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each([
+	"missing",
+	"prefix-loss",
+	"vanished",
+	"subscription-race",
+] as const)("returns durable unsaved terminal truth after %s", async (mode) => {
+	const terminal = {
+		version: 1,
+		streamId: "s",
+		conversationId: "c",
+		state: "terminal",
+		assistantMessageId: null,
+		completion: {
+			version: 1,
+			turnId: "t",
+			segmentId: "segment",
+			phase: "working",
+			outcome: "incomplete",
+			stopCause: "uncertain_execution",
+			workingStopCause: "uncertain_execution",
+			closingAttempted: false,
+		},
+	};
+	observation.mockResolvedValue(terminal);
+	const c = connect(
+		mode === "prefix-loss" ? [streamTextDeltaEvent("x".repeat(200001))] : [],
+		false,
+		mode === "missing",
+		mode !== "subscription-race",
+	);
+	if (mode === "vanished") {
+		c.getStreamBuffer.mockReturnValue(undefined);
+		await vi.advanceTimersByTimeAsync(2000);
+	} else await c.done;
+	expect(c.enqueueChunk).toHaveBeenCalledWith(
+		streamDataPartEvent("data-stream-metadata", { observation: terminal }),
+	);
+	expect(c.enqueueChunk.mock.calls.join("")).not.toContain("data-waiting");
+	expect(c.closeDownstream).toHaveBeenCalledOnce();
+	expect(vi.getTimerCount()).toBe(0);
+});
+
+it("does not emit a late observation after downstream abort", async () => {
+	let resolve!: (value: unknown) => void;
+	observation.mockReturnValue(
+		new Promise((done) => {
+			resolve = done;
+		}),
+	);
+	const c = connect([], false, true);
+	c.abort.abort();
+	const count = c.enqueueChunk.mock.calls.length;
+	resolve({ state: "unavailable" });
+	await c.done;
+	expect(c.enqueueChunk.mock.calls).toHaveLength(count);
+	expect(c.closeDownstream).toHaveBeenCalledOnce();
+	expect(vi.getTimerCount()).toBe(0);
+});
+
+it("reports a durable observation storage failure explicitly", async () => {
+	observation.mockRejectedValue(
+		new Error("Synthetic observation storage failure"),
+	);
+	const c = connect([], false, true);
+	await c.done;
+	expect(c.enqueueChunk).toHaveBeenCalledWith(
+		streamErrorEvent("backend_failure"),
+	);
 	expect(c.closeDownstream).toHaveBeenCalledOnce();
 	expect(vi.getTimerCount()).toBe(0);
 });

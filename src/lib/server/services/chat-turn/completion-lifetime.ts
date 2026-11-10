@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { NormalChatTurnObservation } from "$lib/services/ai-sdk-ui-stream-contract";
 import type { NormalChatCompletion } from "$lib/shared/normal-chat-completion";
 import type { NormalChatContinuationSnapshot } from "../normal-chat-model";
+import { isStreamActive } from "./active-streams";
 import {
 	admitTurn,
 	observeAbandonedTurn,
@@ -34,14 +36,20 @@ function completionScope(input: {
 }
 export async function observeCompletionTurn(
 	input: Parameters<typeof completionScope>[0],
-) {
+): Promise<NormalChatTurnObservation> {
 	const scope = completionScope(input);
+	const identity = {
+		version: 1 as const,
+		streamId: input.requestId ?? "",
+		conversationId: input.conversationId,
+	};
 	// Resolve only the segment's parent identity; scoped access and orphan settlement remain ledger-owned.
-	const [{ db }, { normalChatTurns }, { and, eq }] = await Promise.all([
-		import("../../db"),
-		import("../../db/schema"),
-		import("drizzle-orm"),
-	]);
+	const [{ db }, { normalChatTurns, messages }, { and, eq }] =
+		await Promise.all([
+			import("../../db"),
+			import("../../db/schema"),
+			import("drizzle-orm"),
+		]);
 	const row = db
 		.select({ turnId: normalChatTurns.turnId })
 		.from(normalChatTurns)
@@ -52,10 +60,63 @@ export async function observeCompletionTurn(
 			),
 		)
 		.get();
-	return observeAbandonedTurn(
+	const record = observeAbandonedTurn(
 		{ ...scope, turnId: row?.turnId ?? scope.turnId },
 		[...owners],
 	);
+	if (!record) {
+		// Registry scope also covers setup and incognito lifetimes without a ledger row.
+		return isStreamActive({
+			streamId: identity.streamId,
+			userId: input.userId,
+			conversationId: input.conversationId,
+		})
+			? {
+					...identity,
+					state: "pending",
+					turnId: scope.turnId,
+					segmentId: scope.segmentId,
+				}
+			: { ...identity, state: "unavailable" };
+	}
+	if (!record.outcome)
+		return {
+			...identity,
+			state: "pending",
+			turnId: record.turnId,
+			segmentId: record.segmentId,
+		};
+	if (!record.phase || !record.stopCause || !record.workingStopCause)
+		throw new Error("Incomplete durable terminal facts");
+	// A terminal survives deletion of its reply; never promise an unavailable saved row.
+	const message = record.messageId
+		? db
+				.select({ id: messages.id })
+				.from(messages)
+				.where(
+					and(
+						eq(messages.id, record.messageId),
+						eq(messages.conversationId, input.conversationId),
+						eq(messages.role, "assistant"),
+					),
+				)
+				.get()
+		: undefined;
+	return {
+		...identity,
+		state: "terminal",
+		assistantMessageId: message?.id ?? null,
+		completion: {
+			version: 1,
+			turnId: record.turnId,
+			segmentId: record.segmentId,
+			phase: record.phase,
+			outcome: record.outcome,
+			stopCause: record.stopCause,
+			workingStopCause: record.workingStopCause,
+			closingAttempted: record.closingAttempted,
+		},
+	};
 }
 export function beginCompletionLifetime(
 	input: Parameters<typeof completionScope>[0],

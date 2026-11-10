@@ -1,6 +1,13 @@
-import { containsTerminalAiSdkUiStreamPayload } from "$lib/services/ai-sdk-ui-stream-contract";
+import {
+	containsTerminalAiSdkUiStreamPayload,
+	encodeAiSdkUiStreamDoneFrame,
+} from "$lib/services/ai-sdk-ui-stream-contract";
 import { observeCompletionTurn } from "./completion-lifetime";
-import { streamDataPartEvent, streamErrorEvent } from "./stream";
+import {
+	streamDataPartEvent,
+	streamErrorEvent,
+	streamFinishEvent,
+} from "./stream";
 
 export interface ReconnectBuffer {
 	userMessage: string | null;
@@ -119,25 +126,44 @@ export async function doReconnect(
 		closeDownstream();
 	};
 
+	let observing: Promise<void> | undefined;
+	const observeWithoutReplay = () => {
+		observing ??= (async () => {
+			const observation = await observeCompletionTurn({
+				userId,
+				conversationId,
+				requestId: targetStreamId,
+			});
+			if (connectionClosed) return;
+			enqueueChunk(
+				streamDataPartEvent("data-stream-metadata", { observation }),
+			);
+			if (observation.state === "pending")
+				enqueueChunk(streamDataPartEvent("data-waiting", {}));
+			else {
+				enqueueChunk(streamFinishEvent("other"));
+				enqueueChunk(encodeAiSdkUiStreamDoneFrame());
+			}
+			closeConnection();
+		})();
+		return observing;
+	};
+
 	try {
 		if (downstreamAbortSignal.aborted) {
 			closeConnection();
 			return;
 		}
+		downstreamAbortSignal.addEventListener("abort", closeConnection, {
+			once: true,
+		});
 		enqueueChunk(createSsePreludeComment());
 		enqueueChunk(createSseHeartbeatComment());
 
 		const buffer = getStreamBuffer(streamOwner);
-		if (!buffer)
-			await observeCompletionTurn({
-				userId,
-				conversationId,
-				requestId: targetStreamId,
-			});
 		const replay = buffer?.journal.read();
 		if (!replay?.complete) {
-			enqueueChunk(streamDataPartEvent("data-waiting", {}));
-			closeConnection();
+			await observeWithoutReplay();
 			return;
 		}
 		if (replay.chunks.length)
@@ -172,8 +198,7 @@ export async function doReconnect(
 		unsubscribe = () => unsubscribeFromStream(streamOwner, liveListener);
 		const subscribed = subscribeToStream(streamOwner, liveListener);
 		if (subscribed === false) {
-			enqueueChunk(streamDataPartEvent("data-waiting", {}));
-			closeConnection();
+			await observeWithoutReplay();
 			return;
 		}
 		if (downstreamAbortSignal.aborted) {
@@ -181,16 +206,8 @@ export async function doReconnect(
 			return;
 		}
 
-		downstreamAbortSignal.addEventListener("abort", closeConnection, {
-			once: true,
-		});
-
-		// The listener lives on the stream's record (its buffer). If that goes without
-		// this connection having heard how the run ended (a failure that cleared it
-		// first, a buffer that outlived its time to live under a long silent tool
-		// call), no terminal event can ever reach it: the heartbeats alone would keep
-		// the reader's turn spinning. Say it is waiting, the client's own state for
-		// "ask the saved conversation how it ended", and end the connection.
+		// A vanished live record is resolved by the same durable observer as a
+		// missing replay prefix, never by promising that a saved row will appear.
 		const endIfRecordIsGone = () => {
 			if (connectionClosed) return;
 			let recordIsThere = false;
@@ -200,8 +217,13 @@ export async function doReconnect(
 				recordIsThere = false;
 			}
 			if (recordIsThere) return;
-			enqueueChunk(streamDataPartEvent("data-waiting", {}));
-			closeConnection();
+			void observeWithoutReplay().catch((error) => {
+				console.error("[CHAT_STREAM] Observation failed", error);
+				if (!connectionClosed) {
+					enqueueChunk(streamErrorEvent("backend_failure"));
+					closeConnection();
+				}
+			});
 		};
 		heartbeat.start(endIfRecordIsGone);
 
@@ -211,7 +233,9 @@ export async function doReconnect(
 		);
 	} catch (err) {
 		console.error("[CHAT_STREAM] doReconnect threw", { targetStreamId, err });
-		enqueueChunk(streamErrorEvent("backend_failure"));
-		closeConnection();
+		if (!connectionClosed) {
+			enqueueChunk(streamErrorEvent("backend_failure"));
+			closeConnection();
+		}
 	}
 }

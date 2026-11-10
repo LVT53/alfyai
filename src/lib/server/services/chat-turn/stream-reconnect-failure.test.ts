@@ -1,5 +1,12 @@
 vi.mock("./completion-lifetime", () => ({
-	observeCompletionTurn: async () => null,
+	observeCompletionTurn: async () => ({
+		version: 1,
+		streamId: "s",
+		conversationId: "c",
+		state: "pending",
+		turnId: "t",
+		segmentId: "segment",
+	}),
 }));
 
 import { beforeEach, describe, expect, it, vi } from "vitest";

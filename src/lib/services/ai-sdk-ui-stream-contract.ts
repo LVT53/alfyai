@@ -1,4 +1,20 @@
+import type { NormalChatCompletion } from "$lib/shared/normal-chat-completion";
 import type { NormalChatOutputEvent } from "$lib/shared/normal-chat-output";
+
+/** Scoped observe-only truth carried by data-stream-metadata.observation. */
+export type NormalChatTurnObservation = {
+	version: 1;
+	streamId: string;
+	conversationId: string;
+} & (
+	| { state: "pending"; turnId: string; segmentId: string }
+	| {
+			state: "terminal";
+			completion: NormalChatCompletion;
+			assistantMessageId: string | null;
+	  }
+	| { state: "unavailable" }
+);
 
 export const AI_SDK_UI_STREAM_DONE = "[DONE]" as const;
 

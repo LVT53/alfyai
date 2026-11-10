@@ -170,15 +170,21 @@ it("observes an accepted ownerless resumed segment using its durable parent with
 	database = await import("../../db");
 	const interrupted = await module.observeCompletionTurn(input);
 	expect(interrupted).toMatchObject({
-		turnId: "parent-turn",
-		segmentId: life.scope.segmentId,
-		outcome: "incomplete",
-		stopCause: "uncertain_execution",
-		attemptIdsJson: '["a"]',
+		state: "terminal",
+		assistantMessageId: null,
+		completion: {
+			turnId: "parent-turn",
+			segmentId: life.scope.segmentId,
+			outcome: "incomplete",
+			stopCause: "uncertain_execution",
+		},
 	});
-	expect(await module.observeCompletionTurn(input)).toMatchObject({
-		settledAt: interrupted?.settledAt,
-	});
+	const settled = database.db.select().from(schema.normalChatTurns).get();
+	expect(settled?.attemptIdsJson).toBe('["a"]');
+	expect(await module.observeCompletionTurn(input)).toEqual(interrupted);
+	expect(
+		database.db.select().from(schema.normalChatTurns).get()?.settledAt,
+	).toEqual(settled?.settledAt);
 	expect(() =>
 		module.beginCompletionLifetime({ ...input, turnId: "parent-turn" }),
 	).toThrow(/existing/i);
@@ -319,4 +325,148 @@ it.each([
 			workingStopCause: closing ? "length" : "natural_stop",
 		},
 	);
+});
+
+async function observeWire(requestId = input.requestId, userId = input.userId) {
+	const { doReconnect } = await import("./stream-reconnect");
+	const { decodeAiSdkUiStreamPayloads, extractAiSdkUiStreamMetadataData } =
+		await import("$lib/services/ai-sdk-ui-stream-contract");
+	const chunks: string[] = [];
+	const subscribe = vi.fn(() => false);
+	const close = vi.fn();
+	await doReconnect(requestId, {
+		userId,
+		conversationId: input.conversationId,
+		enqueueChunk: (chunk) => {
+			chunks.push(chunk);
+			return true;
+		},
+		closeDownstream: close,
+		downstreamAbortSignal: new AbortController().signal,
+		getStreamBuffer: () => undefined,
+		subscribeToStream: subscribe,
+		unsubscribeFromStream: vi.fn(),
+		createSsePreludeComment: () => ": prelude\n\n",
+		createSseHeartbeatComment: () => ": heartbeat\n\n",
+	});
+	const metadata = decodeAiSdkUiStreamPayloads(chunks.join(""))
+		.map(extractAiSdkUiStreamMetadataData)
+		.find(Boolean);
+	expect(subscribe).not.toHaveBeenCalled();
+	expect(close).toHaveBeenCalledOnce();
+	return { chunks: chunks.join(""), observation: metadata?.observation };
+}
+
+it("returns an abandoned unsaved ledger terminal over the observer wire after restart", async () => {
+	const life = module.beginCompletionLifetime({ ...input, turnId: "parent" });
+	await life.register(attempt);
+	database.sqlite.close();
+	vi.resetModules();
+	module = await import("./completion-lifetime");
+	database = await import("../../db");
+	const result = await observeWire();
+	expect(result.observation).toMatchObject({
+		version: 1,
+		streamId: input.requestId,
+		conversationId: "c",
+		state: "terminal",
+		assistantMessageId: null,
+		completion: {
+			turnId: "parent",
+			segmentId: life.scope.segmentId,
+			outcome: "incomplete",
+			stopCause: "uncertain_execution",
+		},
+	});
+	expect(result.chunks).not.toContain("data-waiting");
+	expect(result.chunks).toContain('"type":"finish"');
+	expect(result.chunks).toContain("[DONE]");
+});
+
+it.each([
+	false,
+	true,
+])("observes a settled turn with its actual saved reference (saved=%s)", async (saved) => {
+	const life = module.beginCompletionLifetime(input);
+	await life.register(attempt);
+	if (saved)
+		database.db
+			.insert(schema.messages)
+			.values({
+				id: "saved",
+				conversationId: "c",
+				role: "assistant",
+				content: "Canonical",
+			})
+			.run();
+	life.capture(snapshot(life.scope, false));
+	await life.finish(saved ? "saved" : undefined);
+	const result = await observeWire();
+	expect(result.observation).toMatchObject({
+		state: "terminal",
+		assistantMessageId: saved ? "saved" : null,
+		completion: { outcome: "answered", stopCause: "natural_stop" },
+	});
+	expect(result.chunks).not.toContain("data-waiting");
+	if (saved) {
+		database.db.delete(schema.messages).run();
+		expect((await observeWire()).observation).toMatchObject({
+			state: "terminal",
+			assistantMessageId: null,
+		});
+	}
+});
+
+it("observes an admitted live pending owner without sealing it or promising a saved row", async () => {
+	const life = module.beginCompletionLifetime(input);
+	const result = await observeWire();
+	expect(result.observation).toMatchObject({
+		state: "pending",
+		turnId: life.scope.turnId,
+		segmentId: life.scope.segmentId,
+	});
+	expect(result.chunks).toContain("data-waiting");
+	expect(result.chunks).not.toContain('"type":"finish"');
+	expect(
+		database.db.select().from(schema.normalChatTurns).get()?.outcome,
+	).toBeNull();
+	await life.finish();
+});
+
+it("does not expose another user's terminal completion or saved reference", async () => {
+	const life = module.beginCompletionLifetime(input);
+	await life.finish();
+	const result = await observeWire(input.requestId, "another-user");
+	expect(result.observation).toEqual({
+		version: 1,
+		streamId: input.requestId,
+		conversationId: "c",
+		state: "unavailable",
+	});
+	expect(result.chunks).not.toContain(life.scope.segmentId);
+	expect(result.chunks).not.toContain("data-waiting");
+});
+
+it("keeps a scoped live registry lifetime pending even before durable admission", async () => {
+	const registry = await import("./active-streams");
+	registry.registerActiveChatStream({
+		streamId: input.requestId,
+		userId: input.userId,
+		conversationId: input.conversationId,
+		controller: new AbortController(),
+	});
+	try {
+		const result = await observeWire();
+		expect(result.observation).toMatchObject({
+			state: "pending",
+			conversationId: "c",
+			streamId: input.requestId,
+		});
+		expect(result.chunks).toContain("data-waiting");
+		expect(
+			database.db.select().from(schema.normalChatTurns).all(),
+		).toHaveLength(0);
+	} finally {
+		registry.unregisterActiveChatStream(input.requestId);
+	}
 });
