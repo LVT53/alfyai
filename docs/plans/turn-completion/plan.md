@@ -1,12 +1,12 @@
 # A turn ends with an answer: implementation plan
 
-**Spec:** `docs/plans/turn-completion/design.md` (read it first; it is short). **Goal:** D1 to D6 of the spec, in four
+**Spec:** `docs/plans/turn-completion/design.md` (read it first; it is short). **Goal:** D1 to D7 of the spec, in four
 tasks, each built test-first by one agent and reviewed before the next starts.
 
 ## Global Constraints
 
 - Work only in this worktree, on branch `fix/turn-completion`:
-  `/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-hyZLpc/a54c337d-c673-444c-a114-4a15a4a1ca87/scratchpad/wt-turn-completion`.
+  `/Users/lvt53/.codex/worktrees/turn-completion/alfyai`.
   Never touch the main checkout or another worktree. Never push. Every shell command starts with `cd` to that path.
 - Node 22 only. Before `npx` or `npm`:
   `export PATH=/opt/homebrew/opt/node@22/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`.
@@ -23,9 +23,7 @@ tasks, each built test-first by one agent and reviewed before the next starts.
   the existing `completionWarningCodes` list.
 - Stage named paths only (never `git add -A`). Small commits, one logical change each, the message says why. Commit
   attribution follows your own harness instructions.
-- While iterating run single test files (`npx vitest run <file>`) and `npx biome check <changed files>`. Before
-  reporting, once: `scripts/gates.sh agent "$PWD/../gate-task-N" --port 4310 --skip build,chunks,fallow,playwright`
-  (N is your task number); every step it runs must exit 0. Never run `npm run build`.
+- While iterating run single test files (`npx vitest run <file>`) and `npx biome check <changed files>`. Workers run focused tests and typecheck when needed. The orchestrator runs the full gate once after all tasks and reviews, per the root speed rule. Workers never run `npm run build`.
 - Be economical: targeted reads, short output tails. Say in the report which model you are and which docs you checked
   (for the AI SDK the installed source under `node_modules/ai/dist` is the reference: version 6.0.193).
 
