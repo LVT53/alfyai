@@ -1500,3 +1500,250 @@ describe("file delivery fixture obeys the existing intake contract", () => {
 		} else await expect(run).rejects.toThrow("Delivered file content mismatch");
 	});
 });
+
+describe("expected stop accounting keeps unknown costs unknown", () => {
+	const identity = () => ({
+		conversationId: "stop-c",
+		turnId: "stop-t",
+		segmentId: "stop-s",
+		assistantMessageId: null,
+		requestedModelId: MODEL_MATRIX.deepseek,
+		modelId: MODEL_MATRIX.deepseek,
+		scenario: "stop-control",
+		control: "stopped-after-tool",
+		outcome: "stopped",
+		stopCause: "user_stop",
+	});
+	const turn = () => ({
+		conversation_id: "stop-c",
+		turn_id: "stop-t",
+		segment_id: "stop-s",
+		message_id: null,
+		outcome: "stopped",
+		stop_cause: "user_stop",
+		accounting_status: "pending",
+		attempt_ids_json: '["cancelled"]',
+	});
+	const attempt = () => ({
+		attempt_id: "cancelled",
+		segment_id: "stop-s",
+		phase: "working",
+		provider_id: MODEL_MATRIX.deepseek.split(":")[1],
+		model_id: MODEL_MATRIX.deepseek,
+		provider_model_name: "deepseek-flash",
+		usage_final: 0,
+		input_tokens: null,
+		output_tokens: null,
+		total_tokens: null,
+		cost_usd_micros: null,
+	});
+	test("manifest-bound expected user_stop can verify while explicitly remaining unpriced", () => {
+		expect(
+			inspectAudit({ turns: [turn()], attempts: [attempt()] }, [identity()]),
+		).toMatchObject({
+			segments: 1,
+			attempts: 1,
+			pendingStopSegments: 1,
+			pendingUsageAttempts: 1,
+			fullyPriced: false,
+			knownCostUsdMicros: 0,
+			costUsdMicros: null,
+		});
+	});
+	test("known final attempts are counted once while cancelled usage remains NULL", () => {
+		const row = { ...turn(), attempt_ids_json: '["known","cancelled"]' };
+		const known = {
+			...attempt(),
+			attempt_id: "known",
+			usage_final: 1,
+			input_tokens: 3,
+			output_tokens: 2,
+			total_tokens: 5,
+			cost_usd_micros: 7,
+		};
+		expect(
+			inspectAudit({ turns: [row], attempts: [known, attempt()] }, [
+				identity(),
+			]),
+		).toMatchObject({
+			attempts: 2,
+			knownCostUsdMicros: 7,
+			costUsdMicros: null,
+			pendingUsageAttempts: 1,
+			fullyPriced: false,
+		});
+	});
+	test.each([
+		{ scenario: "stream-math" },
+		{ control: "answered" },
+		{ outcome: "answered" },
+		{ stopCause: "natural_stop" },
+		{ scenario: undefined, allowedOutcomes: ["stopped", "answered"] },
+		{ costUsdMicros: 0 },
+		{ turnId: "wrong" },
+		{ modelId: MODEL_MATRIX.kimi },
+	])("pending exception rejects missing/contradictory manifest or receipt (%j)", (patch) => {
+		expect(() =>
+			inspectAudit({ turns: [turn()], attempts: [attempt()] }, [
+				{ ...identity(), ...patch },
+			]),
+		).toThrow();
+	});
+	test.each([
+		{ outcome: "answered" },
+		{ outcome: "paused" },
+		{ outcome: "failed" },
+		{ stop_cause: "transport_error" },
+		{ accounting_status: "ready" },
+		{ attempt_ids_json: '["missing"]' },
+	])("durable pending state must independently match expected user stop (%j)", (patch) => {
+		expect(() =>
+			inspectAudit(
+				{ turns: [{ ...turn(), ...patch }], attempts: [attempt()] },
+				[identity()],
+			),
+		).toThrow();
+	});
+	test.each([
+		{ cost_usd_micros: 0 },
+		{ cost_usd_micros: undefined },
+		{ usage_final: 1 },
+		{ input_tokens: -1 },
+		{ provider_model_name: "unexpected" },
+		{ model_id: MODEL_MATRIX.kimi },
+	])("unknown usage cannot be free, final, corrupt, or substituted (%j)", (patch) => {
+		expect(() =>
+			inspectAudit(
+				{ turns: [turn()], attempts: [{ ...attempt(), ...patch }] },
+				[identity()],
+			),
+		).toThrow();
+	});
+	test("pending row with entirely known attempts still fails reconciliation", () => {
+		const known = {
+			...attempt(),
+			usage_final: 1,
+			input_tokens: 3,
+			output_tokens: 2,
+			total_tokens: 5,
+			cost_usd_micros: 7,
+		};
+		expect(() =>
+			inspectAudit({ turns: [turn()], attempts: [known] }, [identity()]),
+		).toThrow();
+	});
+	test("ordinary ready audit retains the complete numeric price", () => {
+		const known = {
+			...attempt(),
+			usage_final: 1,
+			input_tokens: 3,
+			output_tokens: 2,
+			total_tokens: 5,
+			cost_usd_micros: 7,
+		};
+		expect(
+			inspectAudit(
+				{
+					turns: [{ ...turn(), accounting_status: "ready" }],
+					attempts: [known],
+				},
+				[identity()],
+			),
+		).toMatchObject({
+			costUsdMicros: 7,
+			knownCostUsdMicros: 7,
+			fullyPriced: true,
+			pendingStopSegments: 0,
+			pendingUsageAttempts: 0,
+		});
+	});
+	test("offline inspect labels accepted pending stops without claiming full pricing", async () => {
+		const folder = mkdtempSync(join(tmpdir(), "alfyai-task4-stop-audit-"));
+		try {
+			const reportPath = join(folder, "report.json"),
+				auditPath = join(folder, "audit.json");
+			writeFileSync(
+				reportPath,
+				JSON.stringify({
+					status: "http-checks-passed-audit-pending",
+					identities: [identity()],
+				}),
+			);
+			writeFileSync(
+				auditPath,
+				JSON.stringify({ turns: [turn()], attempts: [attempt()] }),
+			);
+			expect(
+				await main(["--inspect", reportPath, "--audit-json", auditPath]),
+			).toBe(0);
+			const report = JSON.parse(readFileSync(reportPath, "utf8"));
+			expect(report.status).toBe(
+				"verified-http-and-audit-with-pending-stop-usage",
+			);
+			expect(report.audit).toMatchObject({
+				fullyPriced: false,
+				costUsdMicros: null,
+				pendingStopSegments: 1,
+			});
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+	test.each([
+		"user_stop",
+		"natural_stop",
+	])("stop control records only explicit receipt user_stop (%s)", async (cause) => {
+		const stopped = { ...completion, outcome: "stopped", stopCause: cause };
+		const scope = {
+			version: 1,
+			turnId: completion.turnId,
+			segmentId: completion.segmentId,
+			attemptId: "stop-a",
+			stepId: "stop-step",
+		};
+		const payload = [
+			{
+				type: "data-stream-metadata",
+				data: { modelId: MODEL_MATRIX.deepseek },
+			},
+			{
+				type: "data-tool-call",
+				data: { callId: "stop-call", name: "run_python", status: "done" },
+			},
+			{
+				type: "data-normal-chat-output",
+				data: {
+					...scope,
+					sequence: 1,
+					type: "completion",
+					completion: stopped,
+				},
+			},
+			{ type: "finish", finishReason: "stop" },
+		];
+		const client = {
+			json: vi.fn(async () => ({ messages: [] })),
+			request: vi.fn(
+				async () =>
+					new Response(
+						payload.map((p) => `data: ${JSON.stringify(p)}\n\n`).join(""),
+					),
+			),
+		};
+		const run = runCase(
+			client,
+			syntheticPlan("unit").find(
+				(s: { key: string }) => s.key === "stop-control",
+			),
+			MODEL_MATRIX.deepseek,
+			{ conversationId: "stop-c", streamId: "stop-stream" },
+		);
+		if (cause === "user_stop")
+			expect(await run).toMatchObject({
+				scenario: "stop-control",
+				control: "stopped-after-tool",
+				completion: { outcome: "stopped", stopCause: "user_stop" },
+			});
+		else await expect(run).rejects.toThrow("Stop control did not end stopped");
+	});
+});

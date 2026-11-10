@@ -367,7 +367,9 @@ export function inspectAudit(audit, identities) {
 		need(!attempts.has(row.attempt_id), "Duplicate durable attempt");
 		attempts.set(row.attempt_id, row);
 	}
-	let total = 0;
+	let total = 0,
+		pendingStopSegments = 0,
+		pendingUsageAttempts = 0;
 	for (const row of audit.turns) {
 		need(
 			identities.some((id) => matches(row, id)),
@@ -375,9 +377,23 @@ export function inspectAudit(audit, identities) {
 		);
 		need(!segments.has(row.segment_id), "Duplicate terminal segment");
 		segments.add(row.segment_id);
+		const matching = identities.filter((id) => matches(row, id));
+		const pendingStop =
+			row.accounting_status === "pending" &&
+			row.outcome === "stopped" &&
+			row.stop_cause === "user_stop" &&
+			matching.every(
+				(id) =>
+					id.scenario === "stop-control" &&
+					id.control === "stopped-after-tool" &&
+					id.outcome === "stopped" &&
+					id.stopCause === "user_stop" &&
+					typeof id.turnId === "string" &&
+					typeof id.segmentId === "string",
+			);
 		need(
-			row.outcome && row.accounting_status === "ready",
-			"Audit outcome/accounting not terminal/ready",
+			row.outcome && (row.accounting_status === "ready" || pendingStop),
+			"Audit outcome/accounting not terminal/ready or expected pending user_stop",
 		);
 		const manifest = JSON.parse(row.attempt_ids_json ?? "null");
 		need(
@@ -390,8 +406,27 @@ export function inspectAudit(audit, identities) {
 				manifest.every((id) => attempts.get(id)?.segment_id === row.segment_id),
 			"Attempt manifest mismatch",
 		);
-		let segmentCost = 0;
+		let segmentCost = 0,
+			unknownAttempts = 0;
 		for (const child of children) {
+			need(
+				!/deepseek.*pro/i.test(child.provider_model_name ?? ""),
+				"Unexpected DeepSeek pro attempt",
+			);
+			if (child.usage_final === 0) {
+				need(
+					pendingStop && child.cost_usd_micros === null,
+					"Unknown usage requires expected pending user_stop and NULL cost",
+				);
+				need(
+					[child.input_tokens, child.output_tokens, child.total_tokens].every(
+						(n) => n === null || (Number.isSafeInteger(n) && n >= 0),
+					),
+					"Invalid non-final token observations",
+				);
+				unknownAttempts++;
+				continue;
+			}
 			need(
 				child.usage_final === 1 &&
 					Number.isSafeInteger(child.cost_usd_micros) &&
@@ -410,7 +445,14 @@ export function inspectAudit(audit, identities) {
 			);
 			segmentCost += child.cost_usd_micros;
 		}
-		for (const id of identities.filter((id) => matches(row, id))) {
+		if (pendingStop) {
+			need(unknownAttempts > 0, "Pending stop has no non-final usage attempt");
+			pendingStopSegments++;
+			pendingUsageAttempts += unknownAttempts;
+		}
+		for (const id of matching) {
+			if (pendingStop)
+				need(id.costUsdMicros == null, "Pending stop cannot claim a complete priced aggregate");
 			if (id.outcome) need(row.outcome === id.outcome, "Durable outcome disagrees with receipt");
 			if (id.allowedOutcomes)
 				need(
@@ -443,7 +485,15 @@ export function inspectAudit(audit, identities) {
 		audit.attempts.every((a) => segments.has(a.segment_id)),
 		"Unscoped attempt in audit",
 	);
-	return { segments: segments.size, attempts: attempts.size, costUsdMicros: total };
+	return {
+		segments: segments.size,
+		attempts: attempts.size,
+		costUsdMicros: pendingStopSegments ? null : total,
+		knownCostUsdMicros: total,
+		pendingStopSegments,
+		pendingUsageAttempts,
+		fullyPriced: pendingStopSegments === 0,
+	};
 }
 export async function runSerial(items, run, persist) {
 	const report = { status: "running", results: [] };
@@ -868,9 +918,13 @@ export async function runCase(client, spec, modelId, record) {
 	need(result.modelId === modelId, "Actual stream model differs from requested staging model");
 	if (spec.stop) {
 		need(
-			stopIssued && result.terminal && result.completion?.outcome === "stopped",
+			stopIssued &&
+				result.terminal &&
+				result.completion?.outcome === "stopped" &&
+				result.completion.stopCause === "user_stop",
 			"Stop control did not end stopped",
 		);
+		record.scenario = spec.key;
 		record.control = "stopped-after-tool";
 		return record;
 	}
@@ -1001,7 +1055,12 @@ export async function main(argv = process.argv.slice(2)) {
 			JSON.parse(readFileSync(args["--audit-json"], "utf8")),
 			report.identities,
 		);
-		report.status = "verified-http-and-audit";
+		report.status = report.audit.fullyPriced
+			? "verified-http-and-audit"
+			: "verified-http-and-audit-with-pending-stop-usage";
+		if (!report.audit.fullyPriced)
+			report.pricingLimitation =
+				"Expected user-stop provider usage remains pending; known subtotal is not a complete price.";
 		save(args["--inspect"], report);
 		return 0;
 	}
@@ -1110,6 +1169,9 @@ export async function main(argv = process.argv.slice(2)) {
 							assistantMessageId: record.assistantMessageId,
 							outcome: record.outcome,
 							allowedOutcomes: record.allowedOutcomes,
+							scenario: record.scenario,
+							control: record.control,
+							stopCause: record.completion?.stopCause,
 							modelId: record.modelId,
 							requestedModelId: record.requestedModelId,
 							costUsdMicros: record.costUsdMicros,
