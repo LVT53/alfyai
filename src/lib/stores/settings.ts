@@ -5,6 +5,11 @@ import {
 	parseReasoningDepth,
 	type ReasoningDepth,
 } from "$lib/reasoning-depth-types";
+import {
+	detectBrowserTimeZone,
+	isValidTimeZone,
+	shouldSaveDetectedTimeZone,
+} from "$lib/shared/time-zone";
 import { canUseStorage, persist, read } from "./_local-storage";
 
 export type TitleLanguage = "auto" | "en" | "hu";
@@ -21,6 +26,8 @@ export const selectedReasoningDepth = writable<ReasoningDepth>("thorough");
 const SELECTED_MODEL_KEY = "selectedModel";
 const TITLE_LANGUAGE_KEY = "titleLanguage";
 const UI_LANGUAGE_KEY = "uiLanguage";
+// The zone THIS browser saw the last time it looked (shouldSaveDetectedTimeZone).
+const DETECTED_TIME_ZONE_KEY = "detectedTimeZone";
 const REASONING_DEPTH_KEY = "reasoningDepth";
 const LEGACY_THINKING_MODE_KEY = "thinkingMode";
 
@@ -154,4 +161,40 @@ export async function setUiLanguageAndSync(lang: UiLanguage): Promise<void> {
 	} catch {
 		// Non-fatal
 	}
+}
+
+/**
+ * Tells the server the zone this browser is in, without a prompt: the model's
+ * clock (and the timers to come) need the person's own zone, and a browser can
+ * say it. `storedTimeZone` is what the server already holds, from the shell's
+ * load data. The rule for when the browser's zone replaces it is
+ * `shouldSaveDetectedTimeZone`'s: a zone the person chose in Settings stays
+ * until this browser itself moves. Non-fatal like the other syncs: a save that
+ * fails is not remembered, so the next load tries again.
+ */
+export async function syncDetectedTimeZone(
+	storedTimeZone: string | null,
+): Promise<void> {
+	if (!canUseStorage()) return;
+	const detected = detectBrowserTimeZone();
+	const lastDetected = read<string | null>(
+		DETECTED_TIME_ZONE_KEY,
+		null,
+		(v): v is string => isValidTimeZone(v),
+	);
+	if (
+		detected &&
+		shouldSaveDetectedTimeZone({
+			stored: storedTimeZone,
+			detected,
+			lastDetected,
+		})
+	) {
+		try {
+			await updateUserPreferences({ timeZone: detected });
+		} catch {
+			return;
+		}
+	}
+	if (detected) persist(DETECTED_TIME_ZONE_KEY, detected);
 }

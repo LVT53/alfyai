@@ -27,6 +27,13 @@ export const users = sqliteTable("users", {
 	theme: text("theme").notNull().default("system"),
 	titleLanguage: text("title_language").notNull().default("auto"),
 	uiLanguage: text("ui_language").notNull().default("en"),
+	// The person's IANA time zone ("Europe/Budapest"): saved by the browser that
+	// detects it, changed in Settings, and told to the model as their local
+	// clock (normal-chat-context.ts's buildTimeContextLine). NULL until a
+	// browser has saved one; the model is then given the server's date and told
+	// the zone is unknown. Every write goes through shared/time-zone.ts's
+	// isValidTimeZone.
+	timeZone: text("time_zone"),
 	preferredPersonalityId: text("preferred_personality_id"),
 	avatarId: integer("avatar_id"),
 	profilePicture: text("profile_picture"),

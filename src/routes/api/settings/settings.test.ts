@@ -122,6 +122,34 @@ describe("GET /api/settings personal instructions", () => {
 	});
 });
 
+describe("GET /api/settings time zone", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		userRow.row = { ...CLEARED_ROW };
+	});
+
+	it("returns null until the browser has saved one", async () => {
+		const response = await GET(makeGetEvent());
+		const body = (await response.json()) as {
+			preferences: { timeZone: string | null };
+		};
+
+		expect(response.status).toBe(200);
+		expect(body.preferences.timeZone).toBeNull();
+	});
+
+	it("returns the stored zone", async () => {
+		userRow.row = { ...CLEARED_ROW, timeZone: "Europe/Budapest" };
+
+		const response = await GET(makeGetEvent());
+		const body = (await response.json()) as {
+			preferences: { timeZone: string | null };
+		};
+
+		expect(body.preferences.timeZone).toBe("Europe/Budapest");
+	});
+});
+
 describe("PATCH /api/settings/preferences personalInstructions", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();

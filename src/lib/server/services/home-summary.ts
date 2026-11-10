@@ -129,9 +129,11 @@ export interface HomeSummary {
 // ---------------------------------------------------------------------------
 
 /**
- * The zone every home figure is computed in. There is no per-user timezone
- * column in this schema, so "the server's configured timezone" is the process
- * zone (TZ / the host's), resolved once per call so a test can pass its own.
+ * The zone every home figure is computed in: the server's configured timezone,
+ * the process zone (TZ / the host's), resolved once per call so a test can pass
+ * its own. A person's own zone is stored now (`users.time_zone`, read for the
+ * model's clock in chat-turn/turn-time-zone.ts), but these figures do not use it
+ * yet: moving them to it changes which week a message counts in.
  */
 export function reportingTimeZone(): string {
 	try {

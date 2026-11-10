@@ -64,6 +64,7 @@ import {
 	setModelPreferenceAndSync,
 	setSelectedModelAndSync,
 	setUiLanguageAndSync,
+	syncDetectedTimeZone,
 	uiLanguage,
 	type UiLanguage,
 } from "$lib/stores/settings";
@@ -864,6 +865,11 @@ onMount(() => {
 		titleLanguage: data.userTitleLanguage,
 		uiLanguage: data.userUiLanguage,
 	});
+	// The person's own clock for the model: this browser tells the server its
+	// time zone, without a prompt, when the server holds none or the browser has
+	// moved (stores/settings.ts's syncDetectedTimeZone has the rule). A save
+	// that fails is tried again on the next load.
+	void syncDetectedTimeZone(data.userTimeZone ?? null);
 	initAvatar(data.user?.profilePicture ?? null);
 	// Seed the upload limit before the first drag: partitioning a dropped
 	// batch happens without ever asking the server. Set on the client only —

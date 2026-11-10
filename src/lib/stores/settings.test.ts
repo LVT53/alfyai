@@ -1,5 +1,13 @@
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The zone the browser reports is the machine's; a test sets its own.
+const browserZone = vi.hoisted(() => ({ value: null as string | null }));
+vi.mock("$lib/shared/time-zone", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/shared/time-zone")>()),
+	detectBrowserTimeZone: () => browserZone.value,
+}));
+
 import {
 	initSettings,
 	type ModelId,
@@ -9,6 +17,7 @@ import {
 	setSelectedModel,
 	setSelectedModelAndSync,
 	setSelectedReasoningDepth,
+	syncDetectedTimeZone,
 } from "./settings";
 
 describe("settings store", () => {
@@ -185,6 +194,95 @@ describe("settings store", () => {
 					body: JSON.stringify({ preferredModel: null }),
 				}),
 			);
+		});
+	});
+	describe("syncDetectedTimeZone", () => {
+		const zonePatch = (zone: string) =>
+			expect.objectContaining({
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ timeZone: zone }),
+			});
+
+		beforeEach(() => {
+			browserZone.value = null;
+		});
+
+		it("saves the browser's zone without a prompt when the server holds none, and remembers it", async () => {
+			browserZone.value = "Europe/Budapest";
+			vi.mocked(fetch).mockResolvedValueOnce(
+				new Response(JSON.stringify({ success: true })),
+			);
+
+			await syncDetectedTimeZone(null);
+
+			expect(fetch).toHaveBeenCalledTimes(1);
+			expect(fetch).toHaveBeenCalledWith(
+				"/api/settings/preferences",
+				zonePatch("Europe/Budapest"),
+			);
+			expect(localStorageMock.detectedTimeZone).toBe("Europe/Budapest");
+		});
+
+		it("writes nothing when the server already holds that zone, and still remembers what the browser saw", async () => {
+			browserZone.value = "Europe/Budapest";
+
+			await syncDetectedTimeZone("Europe/Budapest");
+
+			expect(fetch).not.toHaveBeenCalled();
+			expect(localStorageMock.detectedTimeZone).toBe("Europe/Budapest");
+		});
+
+		it("follows a browser that has moved since it last looked", async () => {
+			localStorageMock.detectedTimeZone = "Europe/Budapest";
+			browserZone.value = "Europe/London";
+			vi.mocked(fetch).mockResolvedValueOnce(
+				new Response(JSON.stringify({ success: true })),
+			);
+
+			await syncDetectedTimeZone("Europe/Budapest");
+
+			expect(fetch).toHaveBeenCalledWith(
+				"/api/settings/preferences",
+				zonePatch("Europe/London"),
+			);
+			expect(localStorageMock.detectedTimeZone).toBe("Europe/London");
+		});
+
+		it("leaves a zone the person chose alone while the browser still sees what it saw", async () => {
+			localStorageMock.detectedTimeZone = "Europe/Budapest";
+			browserZone.value = "Europe/Budapest";
+
+			await syncDetectedTimeZone("Asia/Tokyo");
+
+			expect(fetch).not.toHaveBeenCalled();
+		});
+
+		it("leaves a stored zone alone for a browser that has never looked here", async () => {
+			browserZone.value = "Europe/Budapest";
+
+			await syncDetectedTimeZone("Asia/Tokyo");
+
+			expect(fetch).not.toHaveBeenCalled();
+			expect(localStorageMock.detectedTimeZone).toBe("Europe/Budapest");
+		});
+
+		it("does not remember the zone when the save fails, so the next load tries again, and never throws", async () => {
+			browserZone.value = "Europe/Budapest";
+			vi.mocked(fetch).mockRejectedValueOnce(new Error("offline"));
+
+			await expect(syncDetectedTimeZone(null)).resolves.toBeUndefined();
+
+			expect(localStorageMock.detectedTimeZone).toBeUndefined();
+		});
+
+		it("does nothing when the browser has no zone to offer", async () => {
+			browserZone.value = null;
+
+			await syncDetectedTimeZone(null);
+
+			expect(fetch).not.toHaveBeenCalled();
+			expect(localStorageMock.detectedTimeZone).toBeUndefined();
 		});
 	});
 });

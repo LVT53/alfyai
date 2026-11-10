@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 	sendJsonControlMessage: vi.fn(),
 	scheduleImageDescriptions: vi.fn(),
 	resolveTurnInstructions: vi.fn(),
+	resolveTurnTimeZone: vi.fn(),
 	skillDraftGuidance:
 		"## Drafting a skill\n<skill_control_v1></skill_control_v1>",
 }));
@@ -42,6 +43,11 @@ vi.mock("$lib/server/config-store", async (importOriginal) => {
 
 vi.mock("$lib/server/services/instructions", () => ({
 	resolveTurnInstructions: mocks.resolveTurnInstructions,
+}));
+
+// The stored zone is the database; its own read is held in turn-time-zone.test.ts.
+vi.mock("$lib/server/services/chat-turn/turn-time-zone", () => ({
+	resolveTurnTimeZone: mocks.resolveTurnTimeZone,
 }));
 
 vi.mock("$lib/server/services/skills/prompt-context", () => ({
@@ -817,6 +823,77 @@ describe("prepareOutboundContext standing instructions wiring", () => {
 		expect(
 			mocks.prepareOutboundChatContext.mock.lastCall?.[0].instructions,
 		).toEqual({ personal: "Use metric units.", project: null });
+	});
+});
+
+describe("prepareOutboundContext time zone wiring", () => {
+	const provider = {
+		id: "provider-1",
+		name: "local",
+		displayName: "Local",
+		baseUrl: "http://local-model/v1",
+		modelName: "local-model",
+		apiKey: "local-key",
+	} as NormalChatModelRunProvider;
+	const params = {
+		userId: "user-1",
+		runtimeConfig,
+		message: "What time is it?",
+		conversationId: "conv-1",
+		modelId: "model1" as const,
+		user: { id: "user-1" },
+	};
+
+	beforeEach(() => {
+		mocks.prepareOutboundChatContext.mockReset();
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+		});
+		mocks.resolveTurnInstructions.mockReset();
+		mocks.resolveTurnInstructions.mockResolvedValue({
+			personal: null,
+			project: null,
+		});
+		mocks.resolveTurnTimeZone.mockReset();
+	});
+
+	// Prompt assembly renders the zone and never reads for it (the same rule as
+	// the instructions above), and every kind of turn (send, stream, retry, the
+	// resume of a reply that asked) prepares its context here, so this one read is
+	// what puts the person's own clock in front of the model on all of them.
+	it("reads the person's stored zone once and hands it to context preparation", async () => {
+		mocks.resolveTurnTimeZone.mockResolvedValue("Europe/Budapest");
+		const runtime = await resolveProviderRuntime({
+			...params,
+			overrideProvider: provider,
+		});
+
+		await prepareOutboundContext(params, runtime, null, new Set());
+
+		expect(mocks.resolveTurnTimeZone).toHaveBeenCalledTimes(1);
+		expect(mocks.resolveTurnTimeZone).toHaveBeenCalledWith("user-1");
+		expect(mocks.prepareOutboundChatContext.mock.lastCall?.[0].timeZone).toBe(
+			"Europe/Budapest",
+		);
+	});
+
+	it("hands over null when no zone is stored, so the clock says it is unknown", async () => {
+		mocks.resolveTurnTimeZone.mockResolvedValue(null);
+		const runtime = await resolveProviderRuntime({
+			...params,
+			overrideProvider: provider,
+		});
+
+		await prepareOutboundContext(params, runtime, null, new Set());
+
+		expect(
+			mocks.prepareOutboundChatContext.mock.lastCall?.[0].timeZone,
+		).toBeNull();
 	});
 });
 

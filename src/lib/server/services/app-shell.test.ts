@@ -33,21 +33,24 @@ vi.mock("$lib/server/config-store", () => ({
 	),
 }));
 
+// The signed-in person's row; a test that needs another sets it.
+const userRow = vi.hoisted(() => ({
+	value: {} as Record<string, unknown>,
+}));
+const BASE_USER_ROW = {
+	preferredModel: "model2",
+	theme: "system",
+	titleLanguage: "auto",
+	uiLanguage: "en",
+	preferredPersonalityId: null,
+};
+userRow.value = BASE_USER_ROW;
+
 vi.mock("$lib/server/db", () => ({
 	db: {
 		select: vi.fn(() => ({
 			from: vi.fn(() => ({
-				where: vi.fn(() =>
-					Promise.resolve([
-						{
-							preferredModel: "model2",
-							theme: "system",
-							titleLanguage: "auto",
-							uiLanguage: "en",
-							preferredPersonalityId: null,
-						},
-					]),
-				),
+				where: vi.fn(() => Promise.resolve([userRow.value])),
 			})),
 		})),
 	},
@@ -117,5 +120,28 @@ describe("getAuthenticatedAppShellData — disabledFileTypeIds", () => {
 		const data = await getAuthenticatedAppShellData(user);
 
 		expect(Array.isArray(data.disabledFileTypeIds)).toBe(true);
+	});
+});
+
+// The shell's load data tells the browser what the server holds for the zone,
+// so the browser can decide whether to save its own (stores/settings.ts's
+// syncDetectedTimeZone) without a request of its own.
+describe("getAuthenticatedAppShellData — userTimeZone", () => {
+	it("is null until a browser has saved a zone", async () => {
+		mockGetUploadFormatGate.mockResolvedValueOnce(openGate());
+		userRow.value = BASE_USER_ROW;
+
+		const data = await getAuthenticatedAppShellData(user);
+
+		expect(data.userTimeZone).toBeNull();
+	});
+
+	it("carries the zone the person has stored", async () => {
+		mockGetUploadFormatGate.mockResolvedValueOnce(openGate());
+		userRow.value = { ...BASE_USER_ROW, timeZone: "Europe/Budapest" };
+
+		const data = await getAuthenticatedAppShellData(user);
+
+		expect(data.userTimeZone).toBe("Europe/Budapest");
 	});
 });

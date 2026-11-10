@@ -59,6 +59,12 @@ export interface AppShellData {
 	userModelPreference: ModelId | null;
 	userTitleLanguage: "auto" | "en" | "hu";
 	userUiLanguage: "en" | "hu";
+	/**
+	 * The IANA zone the server holds for the person, or null until a browser has
+	 * saved one. The shell hands it to `syncDetectedTimeZone`, which decides
+	 * whether this browser's own zone replaces it.
+	 */
+	userTimeZone: string | null;
 	userPersonality: string | null;
 	userSidebarProjectsExpanded: boolean;
 	userSidebarChatsExpanded: boolean;
@@ -117,6 +123,7 @@ export async function getAuthenticatedAppShellData(
 			| "en"
 			| "hu",
 		userUiLanguage: (userRow?.uiLanguage ?? "en") as "en" | "hu",
+		userTimeZone: userRow?.timeZone ?? null,
 		userPersonality: userRow?.preferredPersonalityId ?? null,
 		userSidebarProjectsExpanded: userRow?.sidebarProjectsExpanded ?? true,
 		userSidebarChatsExpanded: userRow?.sidebarChatsExpanded ?? true,
