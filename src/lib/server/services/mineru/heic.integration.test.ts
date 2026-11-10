@@ -374,6 +374,9 @@ describe("when a photo is decoded", () => {
 		expect(await run()).toEqual({ jobId, status: "succeeded" });
 
 		expect(spy).toHaveBeenCalledTimes(1);
+		// In a thread of its own (and so the "no thread" of the cases above says
+		// something: the recording does see the threads the decoder starts).
+		expect(startedWorkers()).toHaveLength(1);
 		// What MinerU had been asked when the decode began: what it can do (its
 		// health and its tiers), and nothing about this photo yet.
 		expect(requestsSeenAtStart).toHaveLength(1);
