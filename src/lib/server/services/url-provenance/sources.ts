@@ -172,17 +172,17 @@ export function noteAtlasJobSources(
 
 /**
  * The page the context step read for the user before the model ran (a link in
- * the message), as the model is handed it: the sources of the finished
- * `fetch_url` exchange go to the ledger, since the tool row shows them, and every
- * address on the page is noted for the turn's provenance, since the model can
- * follow a link on it exactly as on a page it fetched itself.
+ * the message): the fetched sources go to the ledger, since the tool row shows
+ * them. Addresses in the actual retrieved result are noted for the turn's
+ * provenance regardless of how the page is presented to the model, so it can
+ * follow a link exactly as on a page it fetched itself.
  */
 export function noteWebPrefetch(params: {
 	userId: string;
 	conversationId: string;
 	toolCalls: readonly ToolCallEntry[];
-	/** The exchange as handed to the model (empty when it was spliced in as text). */
-	toolMessages: unknown;
+	/** Actual retrieved evidence, never the assembled prompt or model output. */
+	retrievedResult: unknown;
 }): void {
 	for (const entry of params.toolCalls) {
 		noteToolEntrySources(params.userId, entry);
@@ -191,6 +191,6 @@ export function noteWebPrefetch(params: {
 		...params.toolCalls.flatMap((entry) =>
 			(entry.candidates ?? []).map((candidate) => candidate.url),
 		),
-		...extractUrlsFromValue(params.toolMessages, 2_000),
+		...extractUrlsFromValue(params.retrievedResult, 2_000),
 	]);
 }

@@ -3611,6 +3611,53 @@ describe("prepareOutboundChatContext", () => {
 			expect(verdict.refusedCount).toBe(1);
 		});
 
+		it("keeps fetched-page links eligible for authenticated DeepSeek without trusting model context", async () => {
+			const madeUp = "https://model-invented.example/private";
+			mocks.buildConstructedContext.mockResolvedValue(
+				createConstructedContextResult(
+					`Earlier assistant suggested ${madeUp}.\n\n## Current User Message\nWhat does this page say? ${url}`,
+				),
+			);
+			const profile = resolveOpenAICompatibleProviderAdapterProfile({
+				name: "gateway",
+				displayName: "Gateway",
+				baseUrl: "https://gateway.example/v1",
+				modelName: "deepseek-v4-pro",
+			});
+			const prepared = await prepareOutboundChatContext(
+				params({
+					historyToolMessages: profile.historyToolMessages,
+					prefetchToolMessages: profile.prefetchToolMessages,
+				}),
+			);
+			expect(prepared.prefetchedToolMessages).toEqual([]);
+			expect(prepared.inputValue).toContain(linkOnPage);
+			expect(prepared.inputValue).toContain(madeUp);
+			const turn = createTurnUrlProvenance({
+				userId: "user-1",
+				conversationId: "conv-prefetch",
+			});
+			expect(
+				await turn.partition([
+					linkOnPage,
+					"https://sec.example/filing?id=4",
+					madeUp,
+				]),
+			).toEqual({ allowed: [linkOnPage], refusedCount: 2 });
+			const otherUser = createTurnUrlProvenance({
+				userId: "user-2",
+				conversationId: "conv-prefetch",
+			});
+			const otherConversation = createTurnUrlProvenance({
+				userId: "user-1",
+				conversationId: "another-conversation",
+			});
+			expect((await otherUser.partition([linkOnPage])).allowed).toEqual([]);
+			expect((await otherConversation.partition([linkOnPage])).allowed).toEqual(
+				[],
+			);
+		});
+
 		it("still notes the page's sources when the page was spliced in as text", async () => {
 			await prepareOutboundChatContext(
 				params({ historyToolMessages: "flatten" }),

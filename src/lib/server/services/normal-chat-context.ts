@@ -879,10 +879,16 @@ type WebPrefetchResult = {
 	inputValue: string;
 	prefetchedToolCalls: ToolCallEntry[];
 	prefetchedToolMessages: ModelMessage[];
+	retrievedResult: GroundedWebResult | null;
 };
 
 function emptyWebPrefetchResult(inputValue: string): WebPrefetchResult {
-	return { inputValue, prefetchedToolCalls: [], prefetchedToolMessages: [] };
+	return {
+		inputValue,
+		prefetchedToolCalls: [],
+		prefetchedToolMessages: [],
+		retrievedResult: null,
+	};
 }
 
 // Server-side pasted-URL prefetch: when the latest user message contains a
@@ -1015,6 +1021,7 @@ async function maybePrefetchWebSearch(params: {
 				),
 				prefetchedToolCalls: [toolCallEntry],
 				prefetchedToolMessages: [],
+				retrievedResult: result,
 			};
 		}
 
@@ -1060,6 +1067,7 @@ async function maybePrefetchWebSearch(params: {
 			inputValue: params.inputValue,
 			prefetchedToolCalls: [toolCallEntry],
 			prefetchedToolMessages,
+			retrievedResult: result,
 		};
 	} catch (error) {
 		console.warn(`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Web prefetch failed`, {
@@ -2154,9 +2162,9 @@ async function runForcedWebPrefetchStage(input: {
 		historyToolMessages: input.params.historyToolMessages,
 		prefetchToolMessages: input.params.prefetchToolMessages,
 	});
-	// The page reaches the model as a finished fetch_url exchange that never
-	// passes through the tool set the turn builds afterwards, so the user's
-	// source ledger and the turn's address check learn of it here
+	// Prefetch never passes through the turn's tool set. Note the retrieved
+	// result independently of its native or inlined model-facing representation,
+	// so the user's source ledger and the turn's address check learn of it here
 	// (docs/plans/exfil-channels): its sources are what the tool row shows icons
 	// for, and its links are what fetch_url may follow.
 	const userId = input.params.user?.id;
@@ -2165,7 +2173,7 @@ async function runForcedWebPrefetchStage(input: {
 			userId,
 			conversationId: input.params.sessionId,
 			toolCalls: webPrefetch.prefetchedToolCalls,
-			toolMessages: webPrefetch.prefetchedToolMessages,
+			retrievedResult: webPrefetch.retrievedResult,
 		});
 	}
 	return {

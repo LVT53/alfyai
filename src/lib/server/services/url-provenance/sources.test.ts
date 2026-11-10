@@ -293,25 +293,16 @@ describe("noteWebPrefetch (the page read for a link in the message)", () => {
 			userId: "user-1",
 			conversationId: "conversation-prefetch",
 			toolCalls: [
-				entry("fetch_url", [{ url: "https://pasted.example/article" }]),
-			],
-			toolMessages: [
 				{
-					role: "tool",
-					content: [
-						{
-							type: "tool-result",
-							output: {
-								type: "json",
-								value: {
-									answerBriefMarkdown:
-										"See [the report](https://linked.example/report?id=7).",
-								},
-							},
-						},
-					],
+					...entry("fetch_url", [{ url: "https://pasted.example/article" }]),
+					input: { urls: ["https://model-invented.example/private"] },
 				},
 			],
+			retrievedResult: {
+				answerBrief: {
+					markdown: "See [the report](https://linked.example/report?id=7).",
+				},
+			},
 		});
 
 		expect(hasSourceHost("user-1", "pasted.example")).toBe(true);
@@ -322,9 +313,10 @@ describe("noteWebPrefetch (the page read for a link in the message)", () => {
 		const verdict = await provenance.partition([
 			"https://linked.example/report?id=7",
 			"https://linked.example/report?id=8",
+			"https://model-invented.example/private",
 		]);
 		expect(verdict.allowed).toEqual(["https://linked.example/report?id=7"]);
-		expect(verdict.refusedCount).toBe(1);
+		expect(verdict.refusedCount).toBe(2);
 	});
 
 	it("does not carry a prefetch from one conversation, or one user, into another", async () => {
@@ -332,7 +324,7 @@ describe("noteWebPrefetch (the page read for a link in the message)", () => {
 			userId: "user-1",
 			conversationId: "conversation-a",
 			toolCalls: [],
-			toolMessages: [{ note: "https://linked.example/report" }],
+			retrievedResult: [{ note: "https://linked.example/report" }],
 		});
 
 		for (const [userId, conversationId] of [
@@ -401,7 +393,7 @@ describe("the source ledger and the database", () => {
 			userId,
 			conversationId,
 			toolCalls: [entry("fetch_url", [{ url: "https://pasted.example/" }])],
-			toolMessages: [],
+			retrievedResult: [],
 		});
 		// The reads that go to the database: the turn's stored sources, and a report's hosts.
 		await createTurnUrlProvenance({
