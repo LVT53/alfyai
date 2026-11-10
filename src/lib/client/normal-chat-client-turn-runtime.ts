@@ -1170,14 +1170,23 @@ export function createNormalChatClientTurnRuntime(
 		/** Open while the page is asked, for a turn that still holds the turn state: a Stop pressed meanwhile lands here. */
 		question?: CutReplyQuestion;
 	}): Promise<CutReplyVerdict> {
+		const recoveryEpoch = turnEpoch;
 		const kind = await askServerUpdate(held.versionWasLive);
 		const stopped = held.question?.stopped === true;
-		if (held.question) closeCutReplyQuestion(held.question);
+		const ownsStoppedQuestion =
+			stopped &&
+			held.question === cutReplyQuestion &&
+			activePlaceholderId === held.placeholderId;
 		// The page may have been left while it was asked: nothing is started from it.
-		if (detached || !isTurnConversationActive(held.turnConversationId)) {
+		if (
+			(recoveryEpoch !== turnEpoch && !ownsStoppedQuestion) ||
+			detached ||
+			!isTurnConversationActive(held.turnConversationId)
+		) {
 			return "abandoned";
 		}
-		// Stop was pressed meanwhile: no wait, the turn ends.
+		if (held.question) closeCutReplyQuestion(held.question);
+		// Stop of this owned question is intentional; no wait or recovery starts.
 		if (stopped) return "stopped";
 		if (kind === "none") return "none";
 		if (kind === "draining") {
@@ -1252,11 +1261,16 @@ export function createNormalChatClientTurnRuntime(
 			return "none";
 		}
 		if (!ownsTurn && isSending) return "none";
+		const recoveryEpoch = turnEpoch;
 		const running = await findRunningStream(
 			params.turnConversationId,
 			STREAM_QUESTION_MAX_MS,
 		);
-		if (detached || !isTurnConversationActive(params.turnConversationId)) {
+		if (
+			recoveryEpoch !== turnEpoch ||
+			detached ||
+			!isTurnConversationActive(params.turnConversationId)
+		) {
 			return "abandoned";
 		}
 		if (!running || isForAnotherMessage(running.bufferInfo, params.message)) {
@@ -1300,6 +1314,7 @@ export function createNormalChatClientTurnRuntime(
 		originalError: Error,
 		options: { ownsTurn: boolean; cutByUpdate: boolean },
 	) {
+		const recoveryEpoch = turnEpoch;
 		// An answer has no message to ask the server about: the resume's stream is
 		// looked for, or the card comes back with the answer.
 		if (params.answer) {
@@ -1312,7 +1327,11 @@ export function createNormalChatClientTurnRuntime(
 			params.message,
 			params.streamOptions.retryAssistantMessageId,
 		);
-		if (detached || !isTurnConversationActive(params.turnConversationId)) {
+		if (
+			recoveryEpoch !== turnEpoch ||
+			detached ||
+			!isTurnConversationActive(params.turnConversationId)
+		) {
 			return;
 		}
 		// Ownership is checked before touching either turn's visible state.

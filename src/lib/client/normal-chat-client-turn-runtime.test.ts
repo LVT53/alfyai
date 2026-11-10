@@ -3753,6 +3753,116 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(runtime.snapshot()).toEqual(before);
 	});
 
+	it.each(
+		(["legacy", "structural"] as const).flatMap((kind) =>
+			(["saved-read", "update-status"] as const).flatMap((stage) =>
+				(["B-completes", "stop", "route-leave"] as const).map((action) => ({
+					kind,
+					stage,
+					action,
+				})),
+			),
+		),
+	)("keeps late A $stage inert after $action with $kind partials", async ({
+		kind,
+		stage,
+		action,
+	}) => {
+		vi.useFakeTimers();
+		let finishRead!: (value: ChatMessage[]) => void;
+		let finishUpdate!: (value: ServerUpdateKind) => void;
+		const onServerUpdateSign = vi.fn();
+		const made = makeAdapters({
+			onServerUpdateSign,
+			schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+			readChatMessages: vi.fn(
+				() =>
+					new Promise<ChatMessage[]>((resolve) => {
+						finishRead = resolve;
+					}),
+			),
+			askServerUpdate: vi.fn(
+				() =>
+					new Promise<ServerUpdateKind>((resolve) => {
+						finishUpdate = resolve;
+					}),
+			),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		const words = (message: string) => ({
+			message,
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		await runtime.send(words("A"));
+		const a = made.streamInvocations[0].callbacks;
+		if (kind === "legacy") a.onToken("A partial");
+		else {
+			const output = createNormalChatOutputAccumulator();
+			const scope = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				attemptId: "a",
+				stepId: "w",
+				phase: "working",
+			} as const;
+			output.apply({
+				...scope,
+				sequence: 0,
+				type: "block_start",
+				blockId: "b",
+				nativeId: "n",
+				kind: "text",
+				role: "provisional",
+			});
+			output.apply({
+				...scope,
+				sequence: 1,
+				type: "block_delta",
+				blockId: "b",
+				text: "A working",
+			});
+			a.onNormalChatOutput?.(output.getProjection());
+		}
+		a.onError(
+			stage === "saved-read"
+				? new Error("Failed to fetch")
+				: new TypeError("Failed to fetch"),
+		);
+		await vi.advanceTimersByTimeAsync(3500);
+		expect(made.adapters.checkForOrphanedStream).toHaveBeenCalledTimes(3);
+		if (stage === "saved-read")
+			expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
+		else expect(made.adapters.askServerUpdate).toHaveBeenCalledTimes(1);
+		if (action === "B-completes") {
+			await runtime.send(words("B"));
+			made.streamInvocations[1].callbacks.onToken("B answer");
+			made.streamInvocations[1].callbacks.onEnd("B answer");
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				lastUserMessage: "B",
+				lastAssistantResponse: "B answer",
+				canRetry: false,
+			});
+		} else if (action === "stop") runtime.stop();
+		else runtime.detach();
+		const before = runtime.snapshot();
+		vi.mocked(made.adapters.applyMessageListEvent).mockClear();
+		vi.mocked(made.adapters.setSendError).mockClear();
+		onServerUpdateSign.mockClear();
+		if (stage === "saved-read") finishRead([]);
+		else finishUpdate("draining");
+		await vi.advanceTimersByTimeAsync(0);
+		expect.soft(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
+		expect.soft(made.adapters.setSendError).not.toHaveBeenCalled();
+		expect.soft(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
+		expect.soft(runtime.snapshot()).toEqual(before);
+		expect(made.messages.find((row) => row.id === "id-2")).toBeDefined();
+		vi.useRealTimers();
+	});
+
 	it("a stale recovery preserves A partial and B progress before any removal", async () => {
 		vi.useFakeTimers();
 		let resolveInfo!: (value: { exists: boolean; userMessage: string }) => void;
@@ -6806,7 +6916,8 @@ describe("Normal Chat Client Turn Runtime", () => {
 					expect(
 						made.streamInvocations[1].options?.reconnectToStreamId,
 					).toBeUndefined();
-					expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
+					// The originating epoch is stale, so no saved-state read starts.
+					expect(made.adapters.readChatMessages).not.toHaveBeenCalled();
 					expect(
 						made.messages.find((message) => message.id === cutReplyId),
 					).toMatchObject({ content: "Half an" });
