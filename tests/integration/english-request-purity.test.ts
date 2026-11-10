@@ -701,6 +701,9 @@ const MODEL_CALLERS: Record<string, string> = {
  * Hungarian by its own content: the model-facing scaffold is English only.
  */
 const HUNGARIAN_BY_DESIGN: Record<string, string> = {
+	"lib/server/services/working-document-selection.ts":
+		"document cues, matched against the person’s message",
+
 	// UI copy and chrome: shown to a person, never sent to a model
 	"lib/server/services/skills/user-skills.ts":
 		"hu skill texts, shown in the UI",
