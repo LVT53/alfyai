@@ -2,7 +2,6 @@ import { expect, type Page, test } from "@playwright/test";
 import type { ChatMessage } from "../../src/lib/server/services/messages-types";
 import { decodeAiSdkUiStreamPayloads } from "../../src/lib/services/ai-sdk-ui-stream-contract";
 import { projectNormalChatOutput } from "../../src/lib/shared/normal-chat-output";
-import { estimateTokenCount } from "../../src/lib/utils/tokens";
 import {
 	COMPLETION_ANSWER,
 	COMPLETION_ARTIFACT_TITLE,
@@ -214,39 +213,54 @@ test.describe("turn completion contract", () => {
 		return id;
 	}
 
-	test("8192 context catalogue completes a tool turn and survives reload", async ({
+	test("8192 context refuses the full catalogue before dispatch and preserves its receipt", async ({
 		page,
 	}) => {
+		// The strict serialized-request probe found 14355 tokens including output:
+		// the full catalogue cannot fit. Reject it instead of truncating capabilities.
 		const id = await start(page, "tool", false, 8_192);
-		await expect.poll(() => requests().length).toBe(2);
-		for (const request of requests()) {
-			const body = request.body as {
-				messages: unknown[];
-				tools: unknown[];
-				max_tokens: number;
-			};
-			// The configured 1024 cap is clamped by the default 90% input target:
-			// 8192 - floor(8192 * 0.9) = 820 (deriveModelContextBudget).
-			expect(body.max_tokens).toBe(820);
-			expect(body.tools.length).toBeGreaterThan(0);
-			const inputTokens = estimateTokenCount(
-				JSON.stringify({ messages: body.messages, tools: body.tools }),
-			);
-			expect(
-				inputTokens + body.max_tokens,
-				"serialized messages and tool catalogue plus output fit the selected model",
-			).toBeLessThanOrEqual(8_192);
-		}
-		provider.release(COMPLETION_HOLD);
 		await ended(page);
-		await finalAnswer(page);
-		expect((await savedOutput(page, id)).completion?.outcome).toBe("answered");
-		await exportedAnswer(page, id);
+		await expect(page.getByTestId("normal-chat-output-status")).toHaveText(
+			"Answer incomplete",
+		);
+		const readReceipt = async () => {
+			const response = await page.request.get(`/api/conversations/${id}`);
+			expect(response.ok()).toBe(true);
+			const detail: { messages: ChatMessage[] } = await response.json();
+			const assistants = detail.messages.filter(
+				(message) => message.role === "assistant",
+			);
+			expect(assistants).toHaveLength(1);
+			expect(assistants[0].content).toBe("");
+			expect(assistants[0].normalChatOutput?.completion).toMatchObject({
+				outcome: "incomplete",
+				stopCause: "context_capacity",
+				workingStopCause: "context_capacity",
+				phase: "working",
+				closingAttempted: false,
+			});
+			return assistants[0];
+		};
+		const before = await readReceipt();
+		expect(
+			provider
+				.requests()
+				.filter((request) => request.path === "/v1/chat/completions"),
+		).toHaveLength(0);
 		await page.reload();
 		await waitForHydration(page);
-		await finalAnswer(page);
-		expect(requests()).toHaveLength(2);
-		expect(closingRequests()).toHaveLength(0);
+		await expect(page.getByTestId("stop-button")).toHaveCount(0);
+		await expect(page.getByTestId("normal-chat-output-status")).toHaveText(
+			"Answer incomplete",
+		);
+		const after = await readReceipt();
+		expect(after.id).toBe(before.id);
+		expect(after.normalChatOutput).toEqual(before.normalChatOutput);
+		expect(
+			provider
+				.requests()
+				.filter((request) => request.path === "/v1/chat/completions"),
+		).toHaveLength(0);
 	});
 
 	for (const reducedMotion of ["no-preference", "reduce"] as const) {
