@@ -245,8 +245,7 @@ export function getStreamBufferSnapshot(params: {
 		exists: true,
 		userMessage: buffer.userMessage,
 		...(buffer.reasoningDepth ? { reasoningDepth: buffer.reasoningDepth } : {}),
-		tokenCount: buffer.tokens.length,
-		thinkingCount: buffer.thinking.length,
+		...buffer.journal.getOriginalDeltaCounts(),
 		toolCallCount: buffer.toolCalls.length,
 		...(buffer.responseActivity.length > 0
 			? { activityCount: buffer.responseActivity.length }

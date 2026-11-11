@@ -7,7 +7,11 @@ import {
 	createNormalChatOutputAccumulator,
 	type NormalChatOutputEvent,
 } from "$lib/shared/normal-chat-output";
-import { streamNormalChatOutputEvent, streamTextDeltaEvent } from "./stream";
+import {
+	streamNormalChatOutputEvent,
+	streamReasoningDeltaEvent,
+	streamTextDeltaEvent,
+} from "./stream";
 import { StreamReplayJournal } from "./stream-replay-journal";
 
 const scope = {
@@ -18,6 +22,30 @@ const scope = {
 	stepId: "step",
 	phase: "working" as const,
 };
+
+it("preserves original text and reasoning counts independently of compact frames", () => {
+	const journal = new StreamReplayJournal();
+	journal.append(streamTextDeltaEvent("First"));
+	journal.append(streamTextDeltaEvent(" second"));
+	const thinking = streamReasoningDeltaEvent("Reason");
+	journal.append(thinking.slice(0, -1));
+	expect(journal.getOriginalDeltaCounts()).toEqual({
+		tokenCount: 2,
+		thinkingCount: 0,
+	});
+	journal.append(thinking.slice(-1));
+	journal.append(streamReasoningDeltaEvent(" more"));
+	expect(journal.getOriginalDeltaCounts()).toEqual({
+		tokenCount: 2,
+		thinkingCount: 2,
+	});
+	expect(journal.read().chunks).toHaveLength(2);
+	journal.append(streamTextDeltaEvent("x".repeat(200_001)));
+	expect(journal.getOriginalDeltaCounts()).toEqual({
+		tokenCount: 0,
+		thinkingCount: 0,
+	});
+});
 const start: NormalChatOutputEvent = {
 	...scope,
 	sequence: 1,

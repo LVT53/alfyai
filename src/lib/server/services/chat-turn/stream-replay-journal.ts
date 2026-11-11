@@ -16,6 +16,8 @@ export class StreamReplayJournal {
 	private bytes = 0;
 	private pending = "";
 	private complete = true;
+	private tokenCount = 0;
+	private thinkingCount = 0;
 	private deltas = new Map<string, { append: (text: string) => void }>();
 	private legacyDeltas = new Map<string, { append: (text: string) => void }>();
 
@@ -24,6 +26,8 @@ export class StreamReplayJournal {
 		this.frames = [];
 		this.pending = "";
 		this.bytes = 0;
+		this.tokenCount = 0;
+		this.thinkingCount = 0;
 		this.deltas.clear();
 		this.legacyDeltas.clear();
 	}
@@ -47,6 +51,8 @@ export class StreamReplayJournal {
 	}
 
 	private retain(part: UiMessageStreamPart) {
+		if (part.type === "text-delta") this.tokenCount++;
+		if (part.type === "reasoning-delta") this.thinkingCount++;
 		const event =
 			part.type === "data-normal-chat-output"
 				? readNormalChatOutputEvent(part.data)
@@ -90,6 +96,11 @@ export class StreamReplayJournal {
 		}
 		this.frames.push({ encode: () => encodeAiSdkUiStreamPart(part) });
 		this.bytes += Buffer.byteLength(encodeAiSdkUiStreamPart(part));
+	}
+
+	/** Public status counts describe original deltas, not retained compact frames. */
+	getOriginalDeltaCounts() {
+		return { tokenCount: this.tokenCount, thinkingCount: this.thinkingCount };
 	}
 
 	read(): { complete: boolean; chunks: readonly string[] } {
