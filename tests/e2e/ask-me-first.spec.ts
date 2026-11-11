@@ -426,18 +426,19 @@ async function reloadChat(page: Page) {
 /** Inspect the paused segment's retained commentary through its existing disclosure.
  * It remains activity, including after reload; the canonical answer stays separate.
  */
-async function inspectAskActivity(page: Page): Promise<Locator> {
-	const segment = page.getByTestId("assistant-message").first();
-	await expect(segment.locator(".prose-container")).not.toContainText(
-		AI_SMOKE_ASK_INTRO,
-	);
+async function inspectAskActivity(
+	page: Page,
+	segment = page.getByTestId("assistant-message").first(),
+	text = AI_SMOKE_ASK_INTRO,
+): Promise<Locator> {
+	await expect(segment.locator(".prose-container")).not.toContainText(text);
 	const disclosure = segment.locator(".thinking-header");
 	await expect(disclosure).toBeVisible();
 	if ((await disclosure.getAttribute("aria-expanded")) === "false")
 		await disclosure.click();
 	const intro = segment
 		.getByTestId("normal-chat-commentary")
-		.getByText(AI_SMOKE_ASK_INTRO, { exact: true });
+		.getByText(text, { exact: true });
 	await expect(intro).toBeVisible();
 	return intro;
 }
@@ -1004,14 +1005,23 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			first.getByRole("button", { name: "A party at home, recommended" }),
 		);
 
-		// The second card comes under the first folded line, with the words that lead to it.
-		await expect(page.getByText("Inside or in the garden?")).toBeVisible({
+		// The second paused segment retains its lead-in behind its own disclosure.
+		const secondCard = askCard(page);
+		await expect(
+			secondCard.getByText("Inside or in the garden?", { exact: true }),
+		).toBeVisible({
 			timeout: 30_000,
 		});
-		await expect(page.getByText(AI_SMOKE_ASK_SECOND_INTRO)).toBeVisible();
 		await expect(page.getByTestId("ask-folded")).toHaveCount(1);
-		const secondCard = askCard(page);
 		await expect(secondCard).toHaveCount(1);
+		const secondSegment = page
+			.getByTestId("assistant-message")
+			.filter({ has: secondCard });
+		await expect(secondSegment).toHaveCount(1);
+		await expect(
+			secondSegment.getByTestId("normal-chat-commentary"),
+		).toHaveCount(0);
+		await inspectAskActivity(page, secondSegment, AI_SMOKE_ASK_SECOND_INTRO);
 		await waitForStableBoundingBox(secondCard);
 		const foldedBox = await page.getByTestId("ask-folded").boundingBox();
 		const secondBox = await secondCard.boundingBox();

@@ -1,4 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
+import type { ChatMessage } from "../../src/lib/server/services/messages-types";
+import { projectNormalChatOutput } from "../../src/lib/shared/normal-chat-output";
 import {
 	COMPLETION_ANSWER,
 	COMPLETION_ARTIFACT_TITLE,
@@ -53,6 +55,49 @@ const closingRequests = () =>
 	);
 const prose = (page: Page) =>
 	page.getByTestId("assistant-message").locator(".prose-container");
+
+async function inspectLiveWorkingPhase(page: Page) {
+	const segment = page.getByTestId("assistant-message");
+	await expect(segment).toHaveCount(1);
+	const disclosure = segment.locator(".thinking-header");
+	const liveTool = segment
+		.getByTestId("tool-activity-stack")
+		.getByRole("button", {
+			name: "Read completion-evidence.txt",
+			exact: true,
+		});
+	await expect(disclosure).toBeVisible();
+	await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+	await expect(liveTool).toBeVisible();
+	await expect(segment.getByTestId("normal-chat-commentary")).toHaveCount(0);
+	await expect(segment).not.toContainText(COMPLETION_WORKING);
+	await disclosure.click();
+	await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+	await expect(liveTool).toBeVisible();
+	await expect(segment.getByTestId("normal-chat-commentary")).toHaveCount(0);
+	await expect(segment).not.toContainText(COMPLETION_WORKING);
+	await expect(page.getByTestId("stop-button")).toBeVisible();
+}
+
+async function savedOutput(page: Page, conversationId: string) {
+	const response = await page.request.get(
+		`/api/conversations/${conversationId}`,
+	);
+	expect(response.ok()).toBe(true);
+	const detail: { messages: ChatMessage[] } = await response.json();
+	const assistants = detail.messages.filter(
+		(message) => message.role === "assistant",
+	);
+	expect(assistants).toHaveLength(1);
+	const output = assistants[0].normalChatOutput;
+	expect(output?.version).toBe(1);
+	expect(output?.events.length).toBeGreaterThan(0);
+	const projection = projectNormalChatOutput(output?.events ?? []);
+	expect(projection.activity.map((block) => block.text)).toContain(
+		COMPLETION_WORKING,
+	);
+	return projection;
+}
 
 async function ended(page: Page) {
 	await expect(page.getByTestId("stop-button")).toHaveCount(0, {
@@ -161,9 +206,7 @@ test.describe("turn completion contract", () => {
 			await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 			const id = await start(page, "tool");
 			await expect.poll(() => requests().length).toBe(2);
-			await expect(
-				page.getByText(COMPLETION_WORKING, { exact: true }),
-			).toBeVisible();
+			await inspectLiveWorkingPhase(page);
 			await expect(
 				prose(page).getByText("Let me check.", { exact: false }),
 			).toHaveCount(0);
@@ -178,6 +221,7 @@ test.describe("turn completion contract", () => {
 			provider.release(COMPLETION_HOLD);
 			await ended(page);
 			await finalAnswer(page);
+			expect((await savedOutput(page, id)).answer).toBe(COMPLETION_ANSWER);
 			await expect(
 				page.getByText(COMPLETION_WORKING, { exact: true }),
 			).not.toBeVisible();
@@ -349,14 +393,35 @@ test.describe("turn completion contract", () => {
 	}) => {
 		const id = await start(page, "tool");
 		await expect.poll(() => requests().length).toBe(2);
-		await expect(
-			page.getByText(COMPLETION_WORKING, { exact: true }),
-		).toBeVisible();
+		await inspectLiveWorkingPhase(page);
 		await page.getByTestId("stop-button").click();
 		provider.release(COMPLETION_HOLD);
 		await ended(page);
+		const output = await savedOutput(page, id);
+		expect(output.answer).toBe("");
+		expect(output.completion).toMatchObject({
+			outcome: "stopped",
+			closingAttempted: false,
+		});
+		const segment = page.getByTestId("assistant-message");
+		const disclosure = segment.locator(".thinking-header");
+		// Expanding while live did not authorize the newly stopped segment.
+		await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+		await expect(segment.getByTestId("normal-chat-commentary")).toHaveCount(0);
+		await disclosure.click();
+		await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+		await disclosure.click();
+		await expect(segment.getByTestId("normal-chat-commentary")).toHaveText(
+			COMPLETION_WORKING,
+		);
 		await page.reload();
 		await waitForHydration(page);
+		await expect(segment.getByTestId("normal-chat-commentary")).toHaveCount(0);
+		await disclosure.click();
+		await expect(segment.getByTestId("normal-chat-commentary")).toHaveText(
+			COMPLETION_WORKING,
+		);
+		expect((await savedOutput(page, id)).answer).toBe("");
 		await expect(
 			prose(page).getByText(COMPLETION_WORKING, { exact: false }),
 		).toHaveCount(0);
