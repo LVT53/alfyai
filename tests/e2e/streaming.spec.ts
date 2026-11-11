@@ -217,14 +217,50 @@ test.describe("SSE streaming verification", () => {
 	test("stopping a stream restores the queued message as a draft", async ({
 		page,
 	}) => {
-		let callCount = 0;
+		let generationCount = 0;
+		let observerCount = 0;
+		let origin: { streamId: string; conversationId: string } | null = null;
 		let releaseStream: (() => void) | null = null;
 		const streamReleased = new Promise<void>((resolve) => {
 			releaseStream = resolve;
 		});
 
 		await page.route("**/api/chat/stream", async (route) => {
-			callCount += 1;
+			expect(route.request().method()).toBe("POST");
+			const body = route.request().postDataJSON() as Record<string, unknown>;
+			if ("reconnectToStreamId" in body) {
+				observerCount += 1;
+				expect(observerCount).toBeLessThanOrEqual(5);
+				expect(origin).not.toBeNull();
+				// A Stop observer reads the original run, with no generation options
+				// or old/queued prompt. Exact equality rejects every unexpected POST.
+				expect(body).toEqual({
+					message: "",
+					conversationId: origin?.conversationId,
+					streamId: origin?.streamId,
+					reconnectToStreamId: origin?.streamId,
+				});
+				await route.fulfill({
+					status: 200,
+					headers: { "Content-Type": "text/event-stream" },
+					// This legacy stream fixture has no authoritative typed completion.
+					body: buildAiSdkUiStreamBody("", {
+						observation: { version: 1, state: "unavailable", ...origin },
+					}),
+				});
+				return;
+			}
+			generationCount += 1;
+			expect(generationCount).toBe(1);
+			expect(body.message).toBe("Stop primary message");
+			expect(body.streamId).toEqual(expect.any(String));
+			expect(body.streamId).not.toBe("");
+			expect(body.conversationId).toEqual(expect.any(String));
+			expect(body.conversationId).not.toBe("");
+			origin = {
+				streamId: body.streamId as string,
+				conversationId: body.conversationId as string,
+			};
 			await streamReleased;
 			await route
 				.fulfill({
@@ -239,6 +275,11 @@ test.describe("SSE streaming verification", () => {
 		});
 
 		await page.route("**/api/chat/stream/stop", async (route) => {
+			expect(route.request().method()).toBe("POST");
+			expect(origin).not.toBeNull();
+			expect(route.request().postDataJSON()).toEqual({
+				streamId: origin?.streamId,
+			});
 			releaseStream?.();
 			await route.fulfill({
 				status: 200,
@@ -254,6 +295,7 @@ test.describe("SSE streaming verification", () => {
 			timeout: 5000,
 		});
 
+		await expect.poll(() => generationCount).toBe(1);
 		await page.getByTestId("message-input").fill("Queued after stop");
 		await expect(page.getByTestId("queue-button")).toBeVisible();
 		await page.getByTestId("queue-button").click();
@@ -267,7 +309,16 @@ test.describe("SSE streaming verification", () => {
 		await expect(page.getByTestId("message-input")).toHaveValue(
 			"Queued after stop",
 		);
-		expect(callCount).toBe(1);
+		// Wait for the scoped observer to settle, rather than checking counts
+		// before a late request could expose an accidental generation.
+		await expect(page.getByRole("alert")).toBeVisible();
+		expect(generationCount).toBe(1);
+		expect(observerCount).toBeGreaterThanOrEqual(1);
+		expect(observerCount).toBeLessThanOrEqual(5);
+		await expect(page.getByTestId("queued-message-banner")).toHaveCount(0);
+		await expect(page.getByTestId("message-input")).toHaveValue(
+			"Queued after stop",
+		);
 	});
 
 	test("stop button stays enabled while waiting for generation", async ({
