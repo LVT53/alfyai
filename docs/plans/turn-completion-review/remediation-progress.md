@@ -42,3 +42,9 @@ Baseline: `495282bf4` (validated code `29e51551f`, later documentation only). No
 - The file operation owner supplies a private identity-bound fact for settled failed jobs. The exact model result retains that fact through envelope compaction. A known failure remains in the working loop within its existing two-submission cap. Generic failed rows grant no certainty; running jobs and envelope errors are uncertain and cannot continue or close.
 - GREEN: 158 tests in six suites, including the original reproducer, prepared turn, tool envelope, file patch mode, completion policy and real SDK orchestration (`2.2-broad-green.log`). Actual submitted in-flight and internally caught job-read timeout paths each stay at one generation/submission with `uncertain_execution`.
 - Current contract spec, file refusal/certainty amendment and ADR-0026 now distinguish known failure from unknown effects. Official AI SDK tool-calling documentation checked (https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling); no new provider calls or SDK API changes.
+
+## 1.3 — Stop fences capacity backoff
+
+- Original C-capacity reproducer RED: two fresh POSTs after Stop, expected one (`/tmp/turn-completion-remediation/1.3-original-red.log`).
+- Capacity retry captures the turn epoch and rechecks stream ownership before dispatch. Stop/new turn/navigation invalidates the scheduled action.
+- GREEN: retained regression plus runtime suite, 363 tests (`1.3-green.log`). Original assertions retained in `normal-chat-capacity-stop.test.ts`.

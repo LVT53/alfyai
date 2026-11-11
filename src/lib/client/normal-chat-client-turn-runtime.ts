@@ -2705,7 +2705,9 @@ export function createNormalChatClientTurnRuntime(
 					const retryCount = params.capacityRetryCount ?? 0;
 					if (retryCount < 3) {
 						const delay = 2 ** retryCount * 500;
+						const retryEpoch = turnEpoch;
 						adapters.schedule(() => {
+							if (retryEpoch !== turnEpoch || !ownsStream()) return;
 							startStream({ ...params, capacityRetryCount: retryCount + 1 });
 						}, delay);
 						return;
