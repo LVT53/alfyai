@@ -11,3 +11,11 @@ Baseline: `495282bf4` (validated code `29e51551f`, later documentation only). No
 - Logs: `/tmp/turn-completion-remediation/1.1-original-before.log`, `1.1-invariant-red.log`, `1.1-focused-green.log`.
 - Existing oversized database rows are not rewritten here; reads serve compact output, but disk space/parse cost needs an explicit migration if desired.
 - Docs checked: official Vitest CLI (https://vitest.dev/guide/cli.html), AI SDK generation guide (https://ai-sdk.dev/docs/ai-sdk-core/generating-text); no SDK API changed.
+
+## 1.2 — Preserve JSON code-block answers
+
+- Ran the original D sanitizer cases and A completion JSON case before changes: 4 failed (13 unrelated A cases filtered out). Log: `/tmp/turn-completion-remediation/1.2-original-red.log`.
+- Explicit DSML remains control syntax; a JSON fence and ordinary property names do not determine output ownership. Structured final normalization and incremental prefix cleanup preserve fenced examples too; legacy nonstructural cleanup is unchanged.
+- The old JSON-is-markup test oracle was corrected to require preservation, as identified in review section 6. Original exact-text assertions retained in permanent tests; additionally assert final normalized content exactly equals the entire answer.
+- Original cases GREEN: 4 passed (`1.2-original-green.log`). Seven affected suites GREEN: 164 tests (`1.2-focused-green.log`), including explicit DSML/private-thinking protection and metadata size coverage.
+- No new model calls, changes to completion policy or interpretation of prose words.

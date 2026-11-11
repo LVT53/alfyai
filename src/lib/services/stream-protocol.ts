@@ -1029,14 +1029,11 @@ function isMarkdownToolCallBlockPrefix(value: string): boolean {
 	return true;
 }
 
-/** Recognise only sampled DSML calls and the tool blocks cleanup already holds. */
+/** Explicit provider control syntax only; JSON fences are ordinary answer content. */
 export function startsWithToolCallMarkup(value: string): boolean {
 	const firstVisible = value.search(VISIBLE_CHARACTER_RE);
 	const candidate = firstVisible < 0 ? "" : value.slice(firstVisible);
-	return (
-		candidate.startsWith("<｜｜DSML｜｜ calls>") ||
-		isMarkdownToolCallBlockPrefix(candidate)
-	);
+	return candidate.startsWith("<｜｜DSML｜｜ calls>");
 }
 
 function splitPreservingLineEndings(
@@ -1534,7 +1531,11 @@ export function stripLeakedToolDiagnostics(
 	options: StripLeakedToolDiagnosticsOptions = {},
 ): string {
 	const leading = options.leading ?? true;
-	const withoutMarkdownToolBlocks = stripMarkdownToolCallBlocks(value);
+	// Structural output already has a role. JSON property names cannot turn an
+	// answer code sample into a tool call; keep the heuristic on legacy paths only.
+	const withoutMarkdownToolBlocks = leading
+		? stripMarkdownToolCallBlocks(value)
+		: value;
 	// The guesses below are for the start of a run of reply text; a marker or a
 	// payload that says what it is (the web diagnostics, the Python transcripts,
 	// the document source) is read wherever it stands.
@@ -1735,7 +1736,7 @@ export function getLeakedToolDiagnosticPrefixLength(
 			isLeakedPythonToolDiagnosticPrefix(suffix) ||
 			isPlainSourceReferenceMarkerPrefix(suffix) ||
 			isFileProductionPayloadRawOutputPrefix(suffix) ||
-			isMarkdownToolCallBlockPrefix(suffix)
+			(leading && isMarkdownToolCallBlockPrefix(suffix))
 		) {
 			return value.length - index;
 		}

@@ -1051,3 +1051,35 @@ describe("opt-in structural completion with real SDK", () => {
 		]);
 	});
 });
+
+describe("review A: answer projection attacks", () => {
+	const jsonAnswer =
+		'```json\n{\n  "language": "hu",\n  "text": "Szia!"\n}\n```\n\nThis object holds the greeting and its language code.';
+	it("keeps a legitimate answer that opens with a JSON code block", async () => {
+		const { sanitizeNormalChatAnswer } = await import(
+			"$lib/shared/normal-chat-output"
+		);
+		const { normalizeAssistantOutputWithSkillControl } = await import(
+			"$lib/server/services/chat-turn/normalizer"
+		);
+		const args = setup();
+		let requests = 0;
+		const result = await runPlainNormalChatModelRun({
+			...args,
+			fetch: async () => {
+				requests++;
+				return reply(jsonAnswer);
+			},
+		});
+		expect(sanitizeNormalChatAnswer(jsonAnswer)).toBe(jsonAnswer);
+		expect(requests).toBe(1);
+		expect(result.completion?.outcome).toBe("answered");
+		expect(result.text).toBe(jsonAnswer);
+		expect(
+			normalizeAssistantOutputWithSkillControl(jsonAnswer, {
+				structuredOutput: true,
+			}).visibleText,
+		).toBe(jsonAnswer);
+		expect(projectNormalChatOutput(args.output).answer).toBe(jsonAnswer);
+	});
+});
