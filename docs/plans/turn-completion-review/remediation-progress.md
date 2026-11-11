@@ -54,3 +54,10 @@ Baseline: `495282bf4` (validated code `29e51551f`, later documentation only). No
 - Original A repair reproducer RED: completion executed zero calls while the legacy path executed one (`/tmp/turn-completion-remediation/1.4f-original-red.log`).
 - Moved the existing deterministic repair helper into the model tool module and reused it from both legacy requests and the shared completion request; unknown tools remain unrepairable. No repair model call.
 - Original GREEN (`1.4f-original-green.log`); retained coverage expanded to both transports. Four focused suites, 209 tests GREEN (`1.4f-focused-green.log`).
+
+## 1.4 c — An unsaved answer is not observed as success
+
+- Original B server and client reproducers RED: server emitted `answered` with no saved row; client sent the queued follow-up (`/tmp/turn-completion-remediation/1.4c-original-red.log`).
+- Observer projects a missing answered receipt as `failed`, preserving immutable model settlement separately. A live finalizing owner still observes pending. Client defends against both older clean-success/null receipts and new failure projections, shows an error, retains a failed reply and restores the queue instead of sending it.
+- Corrected the durable `saved=false` oracle; a deleted answered row also cannot promise a saved answer. Original assertions retained and strengthened for exact failure/model facts and queue restoration, including reload without original prompt text.
+- Original GREEN: both cases (`1.4c-original-green.log`). Focused GREEN: 382 tests / 3 suites (`1.4c-focused-green.log`). A temporary test helper reference error during test expansion was corrected before the final green run.

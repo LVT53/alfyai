@@ -2072,6 +2072,13 @@ export function createNormalChatClientTurnRuntime(
 			}
 		}
 		const terminal = observation.state === "terminal" ? observation : undefined;
+		// Also defend against older servers that call an unsaved answer successful.
+		const missingAnsweredReceipt = Boolean(
+			terminal &&
+				!terminal.assistantMessageId &&
+				(terminal.completion.outcome === "answered" ||
+					terminal.modelCompletion?.outcome === "answered"),
+		);
 		const normalChatFinalization = parseNormalChatFinalization(
 			terminal?.normalChatFinalization ?? saved?.normalChatFinalization,
 		);
@@ -2081,9 +2088,14 @@ export function createNormalChatClientTurnRuntime(
 		const canonicalAnswer =
 			saved?.content ?? metadata?.finalContent ?? held?.content ?? "";
 		const resolved = Boolean(
-			terminal && (!terminal.assistantMessageId || saved),
+			terminal &&
+				!missingAnsweredReceipt &&
+				(!terminal.assistantMessageId || saved),
 		);
-		if (!saved && (resolved || knownFinalizationFailure)) {
+		if (
+			!saved &&
+			(resolved || knownFinalizationFailure || missingAnsweredReceipt)
+		) {
 			const view = previous;
 			adapters.applyMessageListEvent({
 				type: "applyNormalChatOutput",
@@ -2092,9 +2104,17 @@ export function createNormalChatClientTurnRuntime(
 					answer: canonicalAnswer,
 					activity: view?.activity ?? [],
 					blocks: view?.blocks ?? [],
-					completion: terminal?.completion,
+					completion:
+						missingAnsweredReceipt && terminal
+							? {
+									...terminal.completion,
+									outcome: "failed",
+									stopCause: "uncertain_execution",
+								}
+							: terminal?.completion,
 					modelCompletion:
 						terminal?.modelCompletion ??
+						(missingAnsweredReceipt ? terminal?.completion : undefined) ??
 						view?.modelCompletion ??
 						view?.completion,
 					normalChatFinalization,

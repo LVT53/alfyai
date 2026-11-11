@@ -137,13 +137,25 @@ export async function observeCompletionTurn(
 	const normalChatFinalization = parseNormalChatFinalization(
 		parseJsonRecord(message?.metadataJson ?? null)?.normalChatFinalization,
 	);
+	// Model settlement alone cannot certify an answer survived persistence. Keep
+	// the model fact intact while reporting the missing receipt as failure.
+	const missingAnsweredReceipt =
+		!message && modelCompletion.outcome === "answered";
 	return {
 		...identity,
 		state: "terminal",
 		assistantMessageId: message?.id ?? null,
-		completion:
-			projectNormalChatFinalization(modelCompletion, normalChatFinalization) ??
-			modelCompletion,
+		completion: missingAnsweredReceipt
+			? {
+					...modelCompletion,
+					outcome: "failed",
+					stopCause: "uncertain_execution",
+				}
+			: (projectNormalChatFinalization(
+					modelCompletion,
+					normalChatFinalization,
+				) ?? modelCompletion),
+		...(missingAnsweredReceipt ? { modelCompletion } : {}),
 		...(normalChatFinalization
 			? { normalChatFinalization, modelCompletion }
 			: {}),

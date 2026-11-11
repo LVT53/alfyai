@@ -11227,3 +11227,70 @@ describe("canonical observation through the real message-list finalizer", () => 
 		made.runtime.detach();
 	});
 });
+
+describe("REVIEW-B unsaved answered terminal", () => {
+	it.each([
+		["A", false],
+		["", false],
+		["", true],
+	])("does not settle an answered terminal with no saved row (original message=%s)", async (message, projected) => {
+		vi.useFakeTimers();
+		const made = makeAdapters({
+			schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
+			readChatMessages: vi.fn(async () => []),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		await runtime.reconnectToOrphanedStream("observer", message);
+		runtime.queue({
+			message: "Queued follow-up",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		expect(runtime.snapshot().queuedTurn?.message).toBe("Queued follow-up");
+		const modelCompletion = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			phase: "working",
+			outcome: "answered",
+			stopCause: "natural_stop",
+			workingStopCause: "natural_stop",
+			closingAttempted: false,
+		} as const;
+		made.streamInvocations[0].callbacks.onEnd("", {
+			observation: {
+				version: 1,
+				streamId: "observer",
+				conversationId: "conv-1",
+				state: "terminal",
+				assistantMessageId: null,
+				completion: projected
+					? {
+							...modelCompletion,
+							outcome: "failed",
+							stopCause: "uncertain_execution",
+						}
+					: modelCompletion,
+				...(projected ? { modelCompletion } : {}),
+			},
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		const errors = (
+			made.adapters.setSendError as ReturnType<typeof vi.fn>
+		).mock.calls.map((c) => c[0]);
+		// A finalization failure must stay a failure: no queued follow-up is sent
+		// on top of a reply that does not exist, and an error is shown.
+		expect(made.streamInvocations.map((s) => s.message)).not.toContain(
+			"Queued follow-up",
+		);
+		expect(errors.at(-1)).toBe("chat.observationUnavailable");
+		const failedRow = made.messages.at(-1);
+		if (!failedRow) throw new Error("Missing failed reply");
+		expect(normalChatOutputView(failedRow)?.completion?.outcome).toBe("failed");
+		expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+			expect.objectContaining({ message: "Queued follow-up" }),
+		);
+		vi.useRealTimers();
+	});
+});

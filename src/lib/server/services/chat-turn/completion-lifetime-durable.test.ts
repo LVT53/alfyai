@@ -582,7 +582,10 @@ it.each([
 	expect(result.observation).toMatchObject({
 		state: "terminal",
 		assistantMessageId: saved ? "saved" : null,
-		completion: { outcome: "answered", stopCause: "natural_stop" },
+		completion: saved
+			? { outcome: "answered", stopCause: "natural_stop" }
+			: { outcome: "failed", stopCause: "uncertain_execution" },
+		...(!saved ? { modelCompletion: { outcome: "answered" } } : {}),
 	});
 	expect(result.chunks).not.toContain("data-waiting");
 	if (saved) {
@@ -590,6 +593,8 @@ it.each([
 		expect((await observeWire()).observation).toMatchObject({
 			state: "terminal",
 			assistantMessageId: null,
+			completion: { outcome: "failed" },
+			modelCompletion: { outcome: "answered" },
 		});
 	}
 });
