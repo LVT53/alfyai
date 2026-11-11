@@ -244,15 +244,20 @@ function formatTokenCount(tokens: number): string {
 
 // null is an unavailable measurement; omitted props keep the empty-chat default.
 let showCost = $derived(
-	totalCostUsd === null || totalTokens === null || totalCostUsd > 0 || totalTokens > 0,
+	totalCostUsd === null ||
+		totalTokens === null ||
+		totalCostUsd > 0 ||
+		totalTokens > 0,
 );
 let costText = $derived.by(() => {
 	const unavailable = $t("contextUsageRing.accountingUnavailable");
 	if (totalCostUsd === null && totalTokens === null) return unavailable;
-	const cost = totalCostUsd === null ? unavailable : formatCostUsd(totalCostUsd);
-	const tokens = totalTokens === null
-		? unavailable
-		: `${formatTokenCount(totalTokens)} ${$t("contextUsageRing.tokens")}`;
+	const cost =
+		totalCostUsd === null ? unavailable : formatCostUsd(totalCostUsd);
+	const tokens =
+		totalTokens === null
+			? unavailable
+			: `${formatTokenCount(totalTokens)} ${$t("contextUsageRing.tokens")}`;
 	return `${cost} \u00b7 ${tokens}`;
 });
 let showLastTurnCost = $derived(lastTurnCostUsd > 0);

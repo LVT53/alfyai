@@ -1,6 +1,6 @@
 # Normal Chat completion remediation — 2026-11-11
 
-**Local remediation evidence, not production approval.** Branch `fix/turn-completion`, worktree `/Users/lvt53/.codex/worktrees/turn-completion/alfyai`. Starting validated code: `29e51551f`; starting documentation tip: `495282bf4`. Final code baseline: `c2d7e13c4`; the release gate has started against that code. This report is a later documentation-only commit. Gate results and staging proof remain **PENDING** below. Production must remain `40f2d74fc`; no merge/push to `dev` or `main` is authorized.
+**Local remediation evidence, not production approval.** Branch `fix/turn-completion`, worktree `/Users/lvt53/.codex/worktrees/turn-completion/alfyai`. Starting validated code: `29e51551f`; starting documentation tip: `495282bf4`. Final code baseline: `c2d7e13c4`; the first release gate ran against that code. This report is a later documentation-only commit. Gate results and staging proof remain **PENDING** below. Production must remain `40f2d74fc`; no merge/push to `dev` or `main` is authorized.
 
 The independent [original review](/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/turn-completion-review/fable-verdict-2026-11-11.md) and its 33 saved `.txt` reproducers remain unchanged in the main checkout. The authoritative original path is `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/turn-completion-review/fable-verdict-2026-11-11.md`. The failed Stop v8, Natural v10 and read-only-addendum reports remain failed. No new result retroactively validates them.
 
@@ -111,9 +111,10 @@ The runner drives the real streamed engine, lifetime, finalizer and pricing, the
 
 ## Final release gate — PENDING
 
-- Code baseline: `c2d7e13c4`; gate started by orchestrator. Exact gate tree/working-tree record and final doc-only revision: **PENDING**.
-- Command and output directory: **PENDING** (`scripts/gates.sh release ...`, whole required suite).
-- Gate output/counts/warnings: **PENDING**. Local focused runs above do not replace this.
+- First gate code baseline: `c2d7e13c4`; report commit `5d84bf1a1` was documentation only.
+- First release output: `/tmp/turn-completion-release-20261111/summary.txt`; elapsed15m56s.
+- **First gate FAILED:** check0 errors/0 warnings; Biome1 formatting failure in `ContextUsageRing.svelte`; Vitest26,012 passed/20 failed/3 skipped; Playwright1,589 passed/3 failed/75 skipped/0 flaky. Build, chunks, migrations and Fallow passed.
+- Formatting correction is separate from behavioral/test corrections being made by the owning workers. **Final release gate PENDING**; the failed first gate is retained, and no staging readiness is inferred from its passing steps.
 
 ## Staging-only deployment — PENDING
 
