@@ -151,7 +151,12 @@ test.describe("turn completion contract", () => {
 		restore = undefined;
 	});
 
-	async function start(page: Page, mode: CompletionMode, priced = false) {
+	async function start(
+		page: Page,
+		mode: CompletionMode,
+		priced = false,
+		maxModelContext = 131_072,
+	) {
 		await login(page);
 		const previous = await snapshotUserModelPreference(page);
 		const fake = await createTemporaryFakeProviderModel(page, provider.baseURL);
@@ -174,11 +179,19 @@ test.describe("turn completion contract", () => {
 		// plus an explicit output reserve. Missing-reserve product policy is tested separately.
 		const configured = await page.request.put(
 			`/api/admin/providers/${fake.providerId}/models/${fake.modelId}`,
-			{ data: { maxModelContext: 131_072, maxTokens: 4_096 } },
+			{
+				data: {
+					maxModelContext,
+					maxTokens: maxModelContext === 8_192 ? 1_024 : 4_096,
+				},
+			},
 		);
 		expect(configured.ok()).toBe(true);
 		expect(await configured.json()).toMatchObject({
-			model: { maxModelContext: 131_072, maxTokens: 4_096 },
+			model: {
+				maxModelContext,
+				maxTokens: maxModelContext === 8_192 ? 1_024 : 4_096,
+			},
 		});
 		if (priced) {
 			const response = await page.request.put(
@@ -199,6 +212,23 @@ test.describe("turn completion contract", () => {
 		await sendMessage(page, completionMessage(mode));
 		return id;
 	}
+
+	test("8192 context catalogue completes a tool turn and survives reload", async ({
+		page,
+	}) => {
+		const id = await start(page, "tool", false, 8_192);
+		await expect.poll(() => requests().length).toBe(2);
+		provider.release(COMPLETION_HOLD);
+		await ended(page);
+		await finalAnswer(page);
+		expect((await savedOutput(page, id)).completion?.outcome).toBe("answered");
+		await exportedAnswer(page, id);
+		await page.reload();
+		await waitForHydration(page);
+		await finalAnswer(page);
+		expect(requests()).toHaveLength(2);
+		expect(closingRequests()).toHaveLength(0);
+	});
 
 	for (const reducedMotion of ["no-preference", "reduce"] as const) {
 		test(`working commentary stays activity; final Markdown survives reload, Copy and export (${reducedMotion})`, async ({
