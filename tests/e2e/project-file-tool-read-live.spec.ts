@@ -15,7 +15,11 @@ import {
 	AI_SMOKE_READ_PROJECT_FILE_MARKER,
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
-import { login, waitForHydration } from "./helpers";
+import {
+	configureFakeNormalChatCapacity,
+	login,
+	waitForHydration,
+} from "./helpers";
 import { sameOriginHeader } from "./request-origin";
 
 /**
@@ -317,7 +321,7 @@ async function installFakeProvider(
 							{
 								name: modelName,
 								displayName: "Tool read live model",
-								contextLength: 8192,
+								contextLength: 131_072,
 								supportsChat: true,
 								supportsTools: true,
 							},
@@ -365,6 +369,7 @@ async function installFakeProvider(
 	}
 	const selectedModel =
 		`provider:${result.providerId}:${result.modelId}` as const;
+	await configureFakeNormalChatCapacity(page, selectedModel);
 	await updateUserModelPreference(page, selectedModel);
 	await setBrowserSelectedModel(page, selectedModel);
 	return {

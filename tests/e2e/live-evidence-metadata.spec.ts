@@ -17,6 +17,7 @@ import {
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
 import {
+	configureFakeNormalChatCapacity,
 	deleteProvidersWithPrefix,
 	login,
 	sendMessage,
@@ -329,7 +330,7 @@ async function installFakeProvider(page: Page): Promise<string> {
 							{
 								name: modelName,
 								displayName: "Evidence live model",
-								contextLength: 8192,
+								contextLength: 131_072,
 								supportsChat: true,
 								supportsTools: true,
 							},
@@ -352,6 +353,7 @@ async function installFakeProvider(page: Page): Promise<string> {
 	);
 	expect(result, "the fake provider must register").toBeTruthy();
 	if (!result) throw new Error("no fake provider model");
+	await configureFakeNormalChatCapacity(page, result);
 	await page.evaluate(async (preferredModel) => {
 		await fetch("/api/settings/preferences", {
 			method: "PATCH",

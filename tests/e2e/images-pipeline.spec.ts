@@ -7,7 +7,12 @@ import {
 	AI_SMOKE_MODEL_ID,
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
-import { deleteProvidersWithPrefix, login, sendMessage } from "./helpers";
+import {
+	configureFakeNormalChatCapacity,
+	deleteProvidersWithPrefix,
+	login,
+	sendMessage,
+} from "./helpers";
 import {
 	type FakeComfyUi,
 	startFakeComfyUiForSpec,
@@ -57,7 +62,7 @@ async function createTemporaryModel(page: Page): Promise<string> {
 					{
 						name: AI_SMOKE_MODEL_ID,
 						displayName: `Images E2E Model ${unique}`,
-						contextLength: 8192,
+						contextLength: 131_072,
 						supportsChat: true,
 						supportsTools: true,
 					},
@@ -71,6 +76,10 @@ async function createTemporaryModel(page: Page): Promise<string> {
 	const { models } = (await createdModels.json()) as {
 		models: Array<{ id: string }>;
 	};
+	await configureFakeNormalChatCapacity(
+		page,
+		`provider:${provider.id}:${models[0].id}`,
+	);
 	return `provider:${provider.id}:${models[0].id}`;
 }
 

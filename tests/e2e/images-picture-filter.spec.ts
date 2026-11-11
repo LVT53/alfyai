@@ -11,6 +11,7 @@ import {
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
 	clearAdminConfig,
+	configureFakeNormalChatCapacity,
 	deleteProvidersWithPrefix,
 	login,
 	sendMessage,
@@ -84,7 +85,7 @@ async function useTemporaryModel(page: Page): Promise<void> {
 					{
 						name: AI_SMOKE_MODEL_ID,
 						displayName: `Picture filter E2E Model ${unique}`,
-						contextLength: 8192,
+						contextLength: 131_072,
 						supportsChat: true,
 						supportsTools: true,
 					},
@@ -96,6 +97,10 @@ async function useTemporaryModel(page: Page): Promise<void> {
 	const { models } = (await createdModels.json()) as {
 		models: Array<{ id: string }>;
 	};
+	await configureFakeNormalChatCapacity(
+		page,
+		`provider:${provider.id}:${models[0].id}`,
+	);
 	await writeModelPreference(page, `provider:${provider.id}:${models[0].id}`);
 }
 

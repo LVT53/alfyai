@@ -14,6 +14,7 @@ import {
 	createOpenAICompatibleProviderHarness,
 } from "../mocks/ai-provider/openai-compatible-provider";
 import {
+	configureFakeNormalChatCapacity,
 	deleteProvidersWithPrefix,
 	login,
 	openConversationComposer,
@@ -134,7 +135,7 @@ async function createTemporaryModel(page: Page): Promise<string> {
 					{
 						name: AI_SMOKE_MODEL_ID,
 						displayName: `Time zone E2E Model ${unique}`,
-						contextLength: 8192,
+						contextLength: 131_072,
 						supportsChat: true,
 						supportsTools: true,
 					},
@@ -148,6 +149,10 @@ async function createTemporaryModel(page: Page): Promise<string> {
 	const { models } = (await createdModels.json()) as {
 		models: Array<{ id: string }>;
 	};
+	await configureFakeNormalChatCapacity(
+		page,
+		`provider:${provider.id}:${models[0].id}`,
+	);
 	return `provider:${provider.id}:${models[0].id}`;
 }
 

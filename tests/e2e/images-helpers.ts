@@ -11,7 +11,7 @@ import {
 	AI_SMOKE_API_KEY,
 	AI_SMOKE_MODEL_ID,
 } from "../fixtures/ai/openai-compatible-scenarios";
-import { clearAdminConfig } from "./helpers";
+import { clearAdminConfig, configureFakeNormalChatCapacity } from "./helpers";
 
 export type { FakeComfyUi };
 
@@ -101,7 +101,7 @@ export async function useSpecChatModel(
 					{
 						name: AI_SMOKE_MODEL_ID,
 						displayName: `Pictures E2E Model ${unique}`,
-						contextLength: 8192,
+						contextLength: 131_072,
 						supportsChat: true,
 						supportsTools: true,
 					},
@@ -115,6 +115,10 @@ export async function useSpecChatModel(
 	const { models } = (await createdModels.json()) as {
 		models: Array<{ id: string }>;
 	};
+	await configureFakeNormalChatCapacity(
+		page,
+		`provider:${provider.id}:${models[0].id}`,
+	);
 	// The batch route takes no capabilities: ticking "Can see images" is a save of the model.
 	const ticked = await page.request.put(
 		`/api/admin/providers/${provider.id}/models/${models[0].id}`,

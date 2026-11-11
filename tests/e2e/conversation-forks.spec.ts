@@ -7,6 +7,7 @@ import {
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
 	buildAiSdkUiStreamBody,
+	configureFakeNormalChatCapacity,
 	ensureSidebarExpanded,
 	login,
 	sendMessage,
@@ -254,7 +255,7 @@ async function createTemporaryFakeProviderModel(
 							{
 								name: modelName,
 								displayName: "Fork Provider Chat Model",
-								contextLength: 8192,
+								contextLength: 131_072,
 								supportsChat: true,
 								supportsTools: true,
 							},
@@ -298,6 +299,10 @@ async function createTemporaryFakeProviderModel(
 			"Fake provider setup did not return provider and model ids",
 		);
 	}
+	await configureFakeNormalChatCapacity(
+		page,
+		`provider:${result.providerId}:${result.modelId}`,
+	);
 	return {
 		providerId: result.providerId,
 		modelId: result.modelId,

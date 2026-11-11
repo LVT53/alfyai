@@ -7,7 +7,12 @@ import {
 	AI_SMOKE_SUGGEST_INSTRUCTION_FINAL_TEXT,
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
-import { login, openConversationComposer, sendMessage } from "./helpers";
+import {
+	configureFakeNormalChatCapacity,
+	login,
+	openConversationComposer,
+	sendMessage,
+} from "./helpers";
 
 /**
  * The join `instruction-suggestions.spec.ts` deliberately leaves out: a REAL
@@ -208,7 +213,7 @@ async function createTemporaryFakeProviderModel(
 							{
 								name: modelName,
 								displayName: "Fake Suggest Provider Model",
-								contextLength: 8192,
+								contextLength: 131_072,
 								supportsChat: true,
 								supportsTools: true,
 							},
@@ -254,6 +259,10 @@ async function createTemporaryFakeProviderModel(
 			"Fake provider setup did not return provider and model ids",
 		);
 	}
+	await configureFakeNormalChatCapacity(
+		page,
+		`provider:${result.providerId}:${result.modelId}`,
+	);
 	return {
 		providerId: result.providerId,
 		modelId: result.modelId,

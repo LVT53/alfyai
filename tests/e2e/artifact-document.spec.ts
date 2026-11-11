@@ -17,6 +17,7 @@ import {
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
+	configureFakeNormalChatCapacity,
 	createEmptyConversation,
 	login,
 	sendMessage,
@@ -1652,7 +1653,7 @@ async function createTemporaryFakeProviderModel(
 							{
 								name: modelName,
 								displayName: "Fake Edit Artifact Provider Model",
-								contextLength: 8192,
+								contextLength: 131_072,
 								supportsChat: true,
 								supportsTools: true,
 							},
@@ -1693,6 +1694,10 @@ async function createTemporaryFakeProviderModel(
 			"Fake provider setup did not return provider and model ids",
 		);
 	}
+	await configureFakeNormalChatCapacity(
+		page,
+		`provider:${result.providerId}:${result.modelId}`,
+	);
 	return {
 		providerId: result.providerId,
 		modelId: result.modelId,

@@ -1,5 +1,29 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
+/** Ordinary fake chat flows need room for the real prompt and complete tool catalogue.
+ * Capacity-boundary specs configure their own models instead of using this helper. */
+export async function configureFakeNormalChatCapacity(
+	page: Page,
+	selectedModel: string,
+) {
+	const [kind, providerId, modelId, extra] = selectedModel.split(":");
+	if (kind !== "provider" || !providerId || !modelId || extra !== undefined)
+		throw new Error("Expected a fake provider model identity");
+	const response = await page.request.put(
+		`/api/admin/providers/${providerId}/models/${modelId}`,
+		{
+			data: { maxModelContext: 131_072, maxTokens: 4_096 },
+		},
+	);
+	expect(
+		response.ok(),
+		`fake model capacity save -> ${response.status()}`,
+	).toBe(true);
+	expect(await response.json()).toMatchObject({
+		model: { id: modelId, maxModelContext: 131_072, maxTokens: 4_096 },
+	});
+}
+
 const TEST_EMAIL = process.env.E2E_EMAIL || "admin@local";
 const TEST_PASSWORD = process.env.E2E_PASSWORD || "admin123";
 
