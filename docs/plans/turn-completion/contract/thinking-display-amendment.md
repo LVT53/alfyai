@@ -1,6 +1,6 @@
 # Thinking display amendment
 
-Accepted after independent spec review on 2026-11-11. This amends only ordinary working-text presentation; the ModelRun completion owner and structural answer projection remain unchanged.
+Accepted after independent spec review on 2026-11-11; amended by the owner's same-day ruling restoring live answer streaming. The ModelRun completion owner and canonical answer projection remain unchanged.
 
 ## Regression
 
@@ -8,11 +8,11 @@ Commit `c4b7b001daf7218eccffcb0a83aeebb21185cfd7` added ordinary commentary rend
 
 ## Binding display rules
 
-- Never render ordinary activity prose while its own segment is live, including when the rail is expanded. An activity-only running segment keeps the existing Thinking status. Existing thought summaries, tool/status rows, anchored reveals and full-reasoning opt-in keep their behavior.
+- Never render ordinary activity or provisional answer prose inside ThinkingBlock while its own segment is live, including when the rail is expanded. The current step's provisional text streams in the answer area as it arrives. Its first tool occurrence withdraws that text immediately, before tool execution settles, and it never reaches canonical answer content, Copy, export, reload or later prompts. Only a tool occurrence or clean step stop decides the role, never words, length or punctuation. An activity-only running segment keeps the existing Thinking status. Existing thought summaries, tool/status rows, anchored reveals and full-reasoning opt-in keep their behavior.
 - Retained ordinary activity is inspectable only for an explicitly completed stopped, paused, incomplete or failed segment, after deliberate terminal disclosure. Missing completion and answered/delivered outcomes never authorize it.
 - Rail expansion during a live segment does not authorize terminal activity disclosure. Authorization is scoped to the completion's turn ID, segment ID and outcome, and is cleared on every eligibility-key change, including transitions through a different terminal segment or a live state. An already expanded reasoning rail stays expanded: close and reopen it to disclose newly retained activity. Keeping rail expansion distinct preserves existing reasoning opt-in and tool-row ownership.
 - A paused segment explicitly opened by the reader stays inspectable while another segment resumes. Eligibility is per component/segment, never a conversation-wide streaming flag. Revoked prose is removed immediately rather than retained by an exit transition.
-- Preserve event bytes, ordering, role settlement, persistence, replay, completion notices, canonical captions and legitimate partial answers. Copy/export retain their existing answer-only projection and incomplete-answer labels. Do not promote working prose, delete events, add a classifier or change answer timing.
+- Preserve event bytes, ordering, role settlement, persistence, replay, completion notices, canonical captions and legitimate partial answers. Copy/export retain their existing answer-only projection and incomplete-answer labels. Provisional display does not commit an answer, add a model call or alter completion eligibility. The clean stop commits the displayed text once; a tool call withdraws it without leaving another live prose line.
 
 ## Verification
 

@@ -1814,6 +1814,29 @@ export function createOpenAICompatibleProviderHarness(
 							},
 							completion.status,
 						);
+					if (completion.frameHolds) {
+						const encoder = new TextEncoder();
+						return new Response(
+							new ReadableStream<Uint8Array>({
+								async start(controller) {
+									for (const [index, frame] of completion.frames.entries()) {
+										const hold = completion.frameHolds?.find(
+											(entry) => entry.before === index,
+										);
+										if (hold) await waitForRelease(hold.name, request.signal);
+										if (request.signal.aborted) {
+											controller.close();
+											return;
+										}
+										controller.enqueue(encoder.encode(toEventLine(frame)));
+									}
+									controller.enqueue(encoder.encode(toEventLine("[DONE]")));
+									controller.close();
+								},
+							}),
+							{ status: 200, headers: STREAM_HEADERS },
+						);
+					}
 					return streamResponse(completion.frames);
 				}
 				const scripted = scriptedChatTurnReply(body);

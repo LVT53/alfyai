@@ -7,11 +7,13 @@ import {
 	COMPLETION_ANSWER,
 	COMPLETION_ARTIFACT_TITLE,
 	COMPLETION_CALL_ID,
+	COMPLETION_CHUNK_HOLD,
 	COMPLETION_EVIDENCE_BODY,
 	COMPLETION_EVIDENCE_TAIL,
 	COMPLETION_HOLD,
 	COMPLETION_MARKER,
 	COMPLETION_MODES,
+	COMPLETION_STEP_HOLD,
 	COMPLETION_SYNTHESIS,
 	COMPLETION_USEFUL_WORKING,
 	COMPLETION_WORKING,
@@ -100,6 +102,7 @@ export function completionToolsOff(body: unknown): boolean {
 export type CompletionReply = {
 	frames: OpenAICompatibleStreamChunk[];
 	hold?: string;
+	frameHolds?: Array<{ before: number; name: string }>;
 	status?: number;
 };
 function frames(
@@ -324,6 +327,25 @@ export function turnCompletionReply(body: unknown): CompletionReply | null {
 		};
 	}
 	if (mode === "natural") return answer("natural");
+	if (mode === "live-natural")
+		return {
+			...answer("live-natural"),
+			hold: undefined,
+			frameHolds: [
+				{ before: 2, name: COMPLETION_CHUNK_HOLD },
+				{ before: 3, name: COMPLETION_STEP_HOLD },
+			],
+		};
+	if (mode === "live-tool")
+		return results.length === 0
+			? {
+					...read(0, false),
+					frameHolds: [
+						{ before: 2, name: COMPLETION_CHUNK_HOLD },
+						{ before: 3, name: COMPLETION_STEP_HOLD },
+					],
+				}
+			: answer("live-tool-final");
 	if (mode === "pause") {
 		if (results.some((m) => m.tool_call_id === "call_completion_ask"))
 			return answer("resumed");

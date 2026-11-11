@@ -136,6 +136,78 @@ describe("installed SDK native shapes", () => {
 			if (next.done) return next.value;
 		}
 	}
+	it("withdraws provisional text when a tool starts, before its result settles", async () => {
+		let releaseTool!: () => void;
+		let beganTool!: () => void;
+		const pendingTool = new Promise<void>((resolve) => {
+			releaseTool = resolve;
+		});
+		const toolStarted = new Promise<void>((resolve) => {
+			beganTool = resolve;
+		});
+		const events: NormalChatOutputEvent[] = [];
+		let calls = 0;
+		const model = new MockLanguageModelV3({
+			doStream: async () => ({
+				stream: stream(
+					calls++ === 0
+						? [
+								...textParts("Let me check."),
+								{
+									type: "tool-call",
+									toolCallId: "pending",
+									toolName: "lookup",
+									input: "{}",
+								},
+								finish("tool-calls"),
+							]
+						: [...textParts("The answer is 42."), finish()],
+				),
+			}),
+		});
+		const options = params();
+		const run = collect(
+			runNormalChatCompletion(
+				{
+					...options,
+					completionPolicy: {
+						...options.completionPolicy,
+						onOutputEvent: (event) => events.push(event),
+						forAttempt: () => ({
+							classifyExecution: () => "succeeded" as const,
+							tools: {
+								lookup: tool({
+									inputSchema: z.object({}),
+									execute: async () => {
+										beganTool();
+										await pendingTool;
+										return { answer: 42 };
+									},
+								}),
+							},
+						}),
+					},
+				},
+				dependencies(model),
+				true,
+			),
+		);
+		try {
+			await toolStarted;
+			expect(
+				projectNormalChatOutput(events).blocks.find(
+					(block) => block.kind === "text",
+				)?.role,
+			).toBe("activity");
+			expect(projectNormalChatOutput(events).answer).toBe("");
+		} finally {
+			releaseTool();
+		}
+		const result = await run;
+		expect(result.text).toBe("The answer is 42.");
+		expect(projectNormalChatOutput(events).answer).toBe(result.text);
+		expect(calls).toBe(2);
+	});
 	it("keeps automatic recovery tools off after a known refusal and lost finish", async () => {
 		let calls = 0;
 		let dispatches = 0;

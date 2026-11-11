@@ -5,9 +5,11 @@ import {
 	COMPLETION_ANSWER,
 	COMPLETION_ARTIFACT_TITLE,
 	COMPLETION_CALL_ID,
+	COMPLETION_CHUNK_HOLD,
 	COMPLETION_EVIDENCE_TAIL,
 	COMPLETION_HOLD,
 	COMPLETION_PARTIAL,
+	COMPLETION_STEP_HOLD,
 	COMPLETION_SYNTHESIS,
 	COMPLETION_USEFUL_WORKING,
 	COMPLETION_WORKING,
@@ -241,6 +243,60 @@ test.describe("turn completion contract", () => {
 			expect(requests()).toHaveLength(2);
 		});
 	}
+
+	test("natural answer chunks are visible before the provider finishes", async ({
+		page,
+	}) => {
+		await start(page, "live-natural");
+		await expect.poll(() => requests().length).toBe(1);
+		await expect(
+			prose(page).getByRole("heading", { name: "Result", exact: true }),
+		).toBeVisible();
+		await expect(prose(page)).not.toContainText("The checked result is");
+		await expect(page.getByTestId("stop-button")).toBeVisible();
+		provider.release(COMPLETION_CHUNK_HOLD);
+		await finalAnswer(page);
+		await expect(page.getByTestId("stop-button")).toBeVisible();
+		await expect(page.getByTestId("normal-chat-commentary")).toHaveCount(0);
+		provider.release(COMPLETION_STEP_HOLD);
+		await ended(page);
+		await finalAnswer(page);
+		expect(requests()).toHaveLength(1);
+	});
+
+	test("live prose is withdrawn when its step calls a tool and never reaches saved answer actions", async ({
+		page,
+		context,
+	}) => {
+		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+		const id = await start(page, "live-tool");
+		await expect(prose(page)).toContainText("Hello.");
+		await expect(prose(page)).not.toContainText("Let me check.");
+		provider.release(COMPLETION_CHUNK_HOLD);
+		await expect(prose(page)).toContainText(COMPLETION_WORKING);
+		await expect(page.getByTestId("stop-button")).toBeVisible();
+		await expect(page.getByTestId("normal-chat-commentary")).toHaveCount(0);
+		provider.release(COMPLETION_STEP_HOLD);
+		await expect.poll(() => requests().length).toBe(2);
+		await expect(prose(page)).not.toContainText(COMPLETION_WORKING);
+		await inspectLiveWorkingPhase(page);
+		provider.release(COMPLETION_HOLD);
+		await ended(page);
+		await finalAnswer(page);
+		expect((await savedOutput(page, id)).answer).toBe(COMPLETION_ANSWER);
+		await exportedAnswer(page, id);
+		await page.reload();
+		await waitForHydration(page);
+		await finalAnswer(page);
+		await page.getByTestId("assistant-message").hover();
+		await page
+			.getByRole("button", { name: "Copy message", exact: true })
+			.click();
+		await expect
+			.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+			.toBe(COMPLETION_ANSWER);
+		expect(requests()).toHaveLength(2);
+	});
 
 	test("a natural terminal answer needs no extra closing generation", async ({
 		page,

@@ -595,6 +595,12 @@ export async function* runNormalChatCompletion(
 			providerExecuted = false,
 			current = ensureStep(),
 		) => {
+			if (!current.toolAttempted && phase === "working")
+				emit(scope(current), {
+					type: "step_settled",
+					role: "activity",
+					finishReason: null,
+				});
 			current.toolAttempted = true;
 			let entry = executionsForStep(current).find(
 				(e) => e.callId === callId && e.toolName === toolName,
@@ -766,7 +772,9 @@ export async function* runNormalChatCompletion(
 							? "activity"
 							: phase === "closing"
 								? "answer"
-								: "provisional",
+								: current.toolAttempted
+									? "activity"
+									: "provisional",
 				});
 			}
 			if (metadata && !current.finished) {

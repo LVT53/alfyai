@@ -13,11 +13,15 @@ export const COMPLETION_SYNTHESIS =
 	"## Result\n\n6 × 7 = **42**. Archive key: **ORCHID-73**. Dispatch is **Tuesday**.";
 export const COMPLETION_PARTIAL = "## Result\n\nThe checked result is";
 export const COMPLETION_HOLD = "completion-final";
+export const COMPLETION_CHUNK_HOLD = "completion-next-chunk";
+export const COMPLETION_STEP_HOLD = "completion-step-end";
 export const COMPLETION_ARTIFACT_TITLE = "Completion execution-once evidence";
 export const COMPLETION_CALL_ID = "call_completion_read_0";
 export const COMPLETION_MODES = [
 	"natural",
 	"tool",
+	"live-natural",
+	"live-tool",
 	"reasoning-only",
 	"length",
 	"stagnation",

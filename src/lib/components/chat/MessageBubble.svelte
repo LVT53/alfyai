@@ -1,5 +1,6 @@
 <script lang="ts">
 import { normalChatOutputView } from "$lib/client/normal-chat-output-view";
+import { sanitizeNormalChatAnswer } from "$lib/shared/normal-chat-output";
 import { get } from "svelte/store";
 import {
 	recordAnswerNowClicked,
@@ -406,6 +407,27 @@ const isStreaming = $derived(
 	Boolean(message.isStreaming || message.isThinkingStreaming),
 );
 let markdownIsStreaming = $derived(isStreaming && !isFinalizing);
+// Provisional prose is a live display only: Copy, export and saved content
+// continue to consume the canonical answer. A tool occurrence settles its
+// step as activity immediately, withdrawing the preview before execution ends.
+const displayContent = $derived.by(() => {
+	if (!markdownIsStreaming || outputView?.completion) return message.content;
+	const current = outputView?.blocks.at(-1);
+	const provisional =
+		outputView?.blocks
+			.filter(
+				(block) =>
+					block.kind === "text" &&
+					block.role === "provisional" &&
+					block.turnId === current?.turnId &&
+					block.segmentId === current?.segmentId &&
+					block.attemptId === current?.attemptId &&
+					block.stepId === current?.stepId,
+			)
+			.map((block) => block.text)
+			.join("") ?? "";
+	return message.content + sanitizeNormalChatAnswer(provisional);
+});
 let liveResponseActivityEntries = $derived(
 	!isUser && markdownIsStreaming ? (message.responseActivity ?? []) : [],
 );
@@ -594,7 +616,7 @@ let isGenerating = $derived(
 		(message.isStreaming || message.isThinkingStreaming) && !isFinalizing,
 	),
 );
-let hasVisibleContent = $derived(message.content.trim().length > 0);
+let hasVisibleContent = $derived(displayContent.trim().length > 0);
 // E2 — surfaced even when hasVisibleContent is false: a truncated/
 // content-filtered turn (E1) can finalize with an empty body, and this is
 // the only thing telling the user why.
@@ -1335,7 +1357,7 @@ function sendFollowUp(question: string) {
 			     report's executive summary as the assistant message, so it renders
 			     here like any other answer (the row below carries the document). -->
 			<MarkdownRenderer
-				content={message.content}
+				content={displayContent}
 				isDark={$isDark}
 				isStreaming={markdownIsStreaming}
 				compactExternalLinks

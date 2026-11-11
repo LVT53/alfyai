@@ -26,3 +26,11 @@ Baseline: `495282bf4` (validated code `29e51551f`, later documentation only). No
 - Added bare/fenced regressions for version/blocks, documentSource blocks/template and program/sourceCode, plus four incomplete JSON-prefix cases. RED: 8 failed, 4 passed (`/tmp/turn-completion-remediation/1.2-payload-red.log`).
 - Restricted generic document/program payload scanning and prefix buffering to legacy leading cleanup. Structural answers keep these JSON shapes; explicit DSML and private-thinking removal still pass.
 - GREEN: 3 suites, 110 tests (`/tmp/turn-completion-remediation/1.2-payload-green.log`). No changes to completion/UI files owned by the concurrent worker.
+
+## 2.1 — Restore live answer streaming
+
+- RED: two focused tests failed: first provisional chunk absent from the answer UI; SDK tool-start snapshot still provisional while its deferred execution waited. Log: `/tmp/turn-completion-remediation/2.1-red.log`.
+- The answer area previews only the live current step's provisional blocks. Canonical `message.content` stays answer-only. First tool occurrence emits structural activity settlement immediately; later text in that step remains activity. Thinking presentation and completion eligibility are unchanged.
+- GREEN: 427 tests across MessageBubble, ThinkingBlock, output view, completion, SDK and staging-verifier suites; two additional exact settlement/Stop tests pass. Logs: `2.1-focused-green.log`, `2.1-broad-green.log`, `2.1-settlement-green.log` in the same directory.
+- Browser cases added with provider frame gates: visible first and subsequent chunks before finish; tool-call withdrawal; saved answer, reload, Copy and export exclude commentary. They await the orchestrator's release gate (no extra build run here).
+- Current spec, thinking display amendment, ADR-0026/0056 and chat folder rules amended; historical verdicts remain unchanged. Official Svelte `$derived` docs and Vitest timer docs checked.

@@ -103,11 +103,11 @@ We chose the last. Raw trace with a counter quantifies a wait without explaining
 
 Ordinary ModelRun working prose is retained structural activity, not native reasoning or an anchored/classified Interim Thought Step. Reusing ThinkingBlock does not authorize a classifier claim or replace persisted thought-step state.
 
-- Never show ordinary activity prose while its segment is live, even in an expanded rail. Retain existing live status, tool rows and native-reasoning behavior.
+- Never show ordinary activity or provisional answer prose in the thinking block while its segment is live, even in an expanded rail. The answer area streams the current provisional step and withdraws it immediately if a tool call arrives. Retain existing live status, tool rows and native-reasoning behavior.
 - Only explicit stopped, paused, incomplete or failed completion makes that segment's retained activity eligible for deliberate terminal disclosure. Missing completion and successful outcomes do not. Expansion while live does not authorize later disclosure.
 - Disclosure authority follows turn/segment/outcome identity and is revoked on eligibility changes, including a round trip through another identity. An independently resumed segment does not revoke an explicitly opened paused segment.
 - Preserve the existing clean anchored rail, selected-span reveal and full-reasoning opt-in. Where no anchored rail exists, preserve the native-reasoning fallback. Ordinary activity never enters answer Copy/export.
 
-We reject live working-prose display and prose classification: answer-shaped provisional text could otherwise appear as thinking before settlement. Separate terminal disclosure preserves inspectability at the cost of an explicit reader action. Canonical saved-row adoption must preserve component identity while replacing durable trace/anchor data ([ADR-0060](0060-client-turn-runtime-owns-turn-state.md)).
+We reject prose classification and live answer text inside thinking. The owner ruling of 2026-11-11 restores provisional streaming in the answer area; a tool occurrence withdraws it rather than leaving a separate working line. Only step structure decides the role. Separate terminal disclosure preserves inspectability at the cost of an explicit reader action. Canonical saved-row adoption must preserve component identity while replacing durable trace/anchor data ([ADR-0060](0060-client-turn-runtime-owns-turn-state.md)).
 
 Evidence: [ThinkingBlock tests](../../src/lib/components/chat/ThinkingBlock.output.test.ts), [display amendment](../plans/turn-completion/contract/thinking-display-amendment.md), [browser contract tests](../../tests/e2e/turn-completion-contract.spec.ts).

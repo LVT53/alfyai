@@ -509,7 +509,7 @@ describe("MessageBubble", () => {
 		);
 	});
 
-	it("keeps successive incremental activity deltas hidden without starting answer markdown", async () => {
+	it("streams provisional deltas in the answer area and withdraws them on a tool call", async () => {
 		const output = createNormalChatOutputAccumulator();
 		const scope = {
 			version: 1,
@@ -551,6 +551,7 @@ describe("MessageBubble", () => {
 		);
 		const { rerender } = render(MessageBubble, { message: list[0] });
 		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+		await waitFor(() => expect(screen.getByText("First")).toBeInTheDocument());
 		output.apply({
 			...scope,
 			sequence: 2,
@@ -566,9 +567,99 @@ describe("MessageBubble", () => {
 		await rerender({ message: list[0] });
 		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
 		expect(list[0].content).toBe("");
-		expect(markdownLoaderMock.renderMarkdown).not.toHaveBeenCalledWith(
-			expect.stringContaining("First"),
+		await waitFor(() =>
+			expect(screen.getByText("First next")).toBeInTheDocument(),
 		);
+		output.apply({
+			...scope,
+			sequence: 3,
+			type: "step_settled",
+			role: "activity",
+			finishReason: null,
+		});
+		list = applyNormalChatOutputView(
+			list,
+			"live-output",
+			output.getProjection(),
+		);
+		await rerender({ message: list[0] });
+		expect(screen.queryByText("First next")).toBeNull();
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+		expect(list[0].content).toBe("");
+	});
+
+	it.each([
+		"answered",
+		"stopped",
+	] as const)("settles a live provisional preview without duplication or promotion: %s", async (outcome) => {
+		const output = createNormalChatOutputAccumulator();
+		const scope = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "w",
+			phase: "working",
+		} as const;
+		output.apply({
+			...scope,
+			sequence: 0,
+			type: "block_start",
+			blockId: "b",
+			nativeId: "b",
+			kind: "text",
+			role: "provisional",
+		});
+		output.apply({
+			...scope,
+			sequence: 1,
+			type: "block_delta",
+			blockId: "b",
+			text: "Previewed answer",
+		});
+		let list: ChatMessage[] = [
+			{
+				id: "preview",
+				role: "assistant",
+				timestamp: 1,
+				content: "",
+				isStreaming: true,
+			},
+		];
+		list = applyNormalChatOutputView(list, "preview", output.getProjection());
+		const { rerender } = render(MessageBubble, { message: list[0] });
+		await waitFor(() =>
+			expect(screen.getByText("Previewed answer")).toBeInTheDocument(),
+		);
+		output.apply({
+			...scope,
+			sequence: 2,
+			type: "step_settled",
+			role: outcome === "answered" ? "answer" : "activity",
+			finishReason: outcome === "answered" ? "stop" : null,
+		});
+		list = applyNormalChatOutputView(list, "preview", output.getProjection());
+		await rerender({
+			message: {
+				...list[0],
+				isStreaming: false,
+				wasStopped: outcome === "stopped",
+			},
+		});
+		if (outcome === "answered") {
+			await waitFor(() =>
+				expect(
+					document.querySelector(".prose-container")?.textContent?.trim(),
+				).toBe("Previewed answer"),
+			);
+			expect(list[0].content).toBe("Previewed answer");
+		} else {
+			expect(screen.queryByText("Previewed answer")).toBeNull();
+			expect(list[0].content).toBe("");
+			expect(normalChatOutputView(list[0])?.activity[0].text).toBe(
+				"Previewed answer",
+			);
+		}
 	});
 
 	it("shows a lightweight preparation status for an empty streaming assistant response", () => {
