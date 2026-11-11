@@ -38,9 +38,10 @@ SQLite persistence — all in a single Node deployment.
   empty and degraded when the server stops answering `/system_stats`. `IMAGE_REFERENCE_CAP`
   (default 4, 1 to 10) is how many source pictures Alfy may hand the server for one image; each
   extra one costs the server about 2 GiB. Both are live settings on the admin System page. A
-  picture's wait inside a chat turn is up to 100 s, and the turn's stream-wide cap is
-  `max(60 s, REQUEST_TIMEOUT_MS)` (default 300 s), so an admin `REQUEST_TIMEOUT_MS` under about
-  130 s can end a picture's wait early.
+  picture's wait inside a chat turn is up to 100 s. Normal Chat model execution uses
+  `REQUEST_TIMEOUT_MS` with a reserved closing budget (default 300 s total, 240 s working).
+  The remaining working budget or an explicit Stop can end the picture wait earlier.
+  The former idle/outer stream watchdogs are absent; preparation and finalization have no overall deadline.
 - **Explicit picture filter** — on for everyone by default (`IMAGE_EXPLICIT_FILTER_ENABLED`, a live
   setting in admin System > Integrations > Pictures; an admin can also exempt one person in Users).
   Alfy declines explicit picture requests, the server refuses a make_image prompt that plainly asks
@@ -180,8 +181,11 @@ Full runbook, release layout, staging flow, and operational caveats are in
 
 The Normal Chat completion ledger (`normal_chat_turns`, `normal_chat_attempts`, migration
 `1777140000125`) stores content-free turn/segment identity, terminal outcomes, result references and
-actual-attempt usage. Its service API is in `services/chat-turn/turn-ledger.ts`; lifecycle integration
-is a separate implementation slice. The ledger contains no model continuation or private prompt/evidence.
+actual-attempt usage. `services/chat-turn/completion-lifetime.ts` integrates admission, attempt
+registration, snapshot usage and terminal settlement with `services/chat-turn/turn-ledger.ts`.
+Turn outcome/stop cause are recorded; per-attempt outcome/stop-cause fields currently remain null
+because the snapshot interface supplies usage rather than those facts. Recording them remains open.
+The ledger contains no model continuation or private prompt/evidence.
 Rows cascade with their conversation and account; incognito remains untracked. Known attempt costs
 use existing pricing and `usage_events` exactly once, including unsaved failures. Message analytics carries `turnSegmentId`; analytics owns association and billing writes, so terminal
 settlement and message metrics can arrive in either order. Linked-message costs
