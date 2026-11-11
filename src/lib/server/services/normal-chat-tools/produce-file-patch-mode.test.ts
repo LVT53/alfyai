@@ -1484,7 +1484,9 @@ it.each([
 		);
 		const result = await prepared.runPlain();
 		const snapshot = prepared.receipt.getSnapshot();
-		expect(fallback).not.toHaveBeenCalled();
+		expect(fallback).toHaveBeenCalledTimes(
+			mode === "refusal-transport" ? 1 : 0,
+		);
 		expect(result.normalChatToolCalls?.[0]).toMatchObject({
 			name: "produce_file",
 			status:
@@ -1527,6 +1529,7 @@ it.each([
 			});
 			expect(result.text).toContain("The file was not created");
 			if (mode === "refusal-transport") {
+				expect(generations).toBe(3);
 				expect(toolAvailability).toEqual([true, true, false]);
 				expect(
 					snapshot?.usage.filter((u) => u.phase === "closing"),

@@ -269,7 +269,8 @@ describe("installed SDK native shapes", () => {
 				false,
 			),
 		);
-		expect(fallback).not.toHaveBeenCalled();
+		expect(fallback).toHaveBeenCalledOnce();
+		expect(calls).toBe(3);
 		expect(dispatches).toBe(1);
 		expect(availability).toEqual([true, true, false]);
 		expect(result.completion).toMatchObject({

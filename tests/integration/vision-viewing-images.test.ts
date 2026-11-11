@@ -34,6 +34,8 @@ vi.hoisted(() => {
 	process.env.MODEL_2_API_KEY = "k2";
 });
 
+import { readNormalChatOutputEvent } from "$lib/services/ai-sdk-ui-stream-contract";
+import { projectNormalChatOutput } from "$lib/shared/normal-chat-output";
 import { setModelImageInput } from "../../src/lib/model-image-input";
 import { db } from "../../src/lib/server/db";
 import { users } from "../../src/lib/server/db/schema";
@@ -230,6 +232,28 @@ async function streamTurn(
 	};
 }
 
+/** Locate actual canonical answer text, excluding reasoning or withdrawn activity. */
+function firstAnswerDeltaIndex(parts: Part[]): number {
+	const events = parts.map((part) =>
+		part.type === "data-normal-chat-output"
+			? readNormalChatOutputEvent(part.data)
+			: null,
+	);
+	const answerBlocks = new Set(
+		projectNormalChatOutput(events.filter((event) => event !== null))
+			.blocks.filter(
+				(block) => block.kind === "text" && block.role === "answer",
+			)
+			.map((block) => block.blockId),
+	);
+	return events.findIndex(
+		(event) =>
+			event?.type === "block_delta" &&
+			answerBlocks.has(event.blockId) &&
+			event.text.trim().length > 0,
+	);
+}
+
 function viewingParts(parts: Part[]): Part[] {
 	return parts.filter(
 		(part) =>
@@ -275,7 +299,7 @@ describe("a streamed turn that sends pictures", () => {
 			"status",
 		]);
 
-		const firstText = parts.findIndex((part) => part.type === "text-delta");
+		const firstText = firstAnswerDeltaIndex(parts);
 		expect(firstText).toBeGreaterThan(-1);
 		expect(parts.indexOf(viewing[0])).toBeLessThan(firstText);
 
@@ -315,7 +339,7 @@ describe("a streamed turn that sends no picture", () => {
 
 		expect(viewingParts(parts)).toEqual([]);
 		// The turn itself ran: the answer streamed.
-		expect(parts.some((part) => part.type === "text-delta")).toBe(true);
+		expect(firstAnswerDeltaIndex(parts)).toBeGreaterThan(-1);
 	});
 
 	it("says nothing to a model that cannot see, though an image is attached", async () => {
@@ -325,7 +349,7 @@ describe("a streamed turn that sends no picture", () => {
 		);
 
 		expect(viewingParts(parts)).toEqual([]);
-		expect(parts.some((part) => part.type === "text-delta")).toBe(true);
+		expect(firstAnswerDeltaIndex(parts)).toBeGreaterThan(-1);
 		expect(chatRequests.map(imageUrlCount)).not.toContain(1);
 	});
 
