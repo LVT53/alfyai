@@ -1278,6 +1278,12 @@ export async function* runNormalChatCompletion(
 			Date.now() < snapshot.deadlineAt - reserve
 		) {
 			const fallback = await deps.fallback?.(rawError);
+			if (externalAbort()) continue;
+			if (Date.now() >= snapshot.deadlineAt - reserve) {
+				workingCause = "deadline";
+				phase = "closing";
+				continue;
+			}
 			if (fallback) {
 				for (const step of snapshot.steps)
 					if (step.attemptId === attemptId)
@@ -1294,7 +1300,11 @@ export async function* runNormalChatCompletion(
 			if (stopCause === "transport_error" && !receivedUpstreamOutput) {
 				// One bounded working retry preserves the original tool-enabled task.
 				// A second unreachable request is a failure, not a tools-off answer.
-				if (!workingRetryAttempted) {
+				if (
+					!workingRetryAttempted &&
+					!externalAbort() &&
+					Date.now() < snapshot.deadlineAt - reserve
+				) {
 					workingRetryAttempted = true;
 					continue;
 				}
