@@ -17,6 +17,7 @@ import {
 	reportAuthFailure,
 	requestJson,
 	requestResponse,
+	requestText,
 	requestVoid,
 } from "./http";
 
@@ -416,5 +417,116 @@ describe("one row, one announcement", () => {
 		for (let i = 0; i < 5; i += 1) reportAuthFailure(401, "Unauthorized");
 
 		expect(isSessionExpired()).toBe(false);
+	});
+});
+
+describe("session authority across response ordering", () => {
+	function deferred<T>() {
+		let resolve!: (value: T) => void;
+		const promise = new Promise<T>((done) => {
+			resolve = done;
+		});
+		return { promise, resolve };
+	}
+
+	it.each([
+		"response",
+		"json",
+		"void",
+		"text",
+	])("does not let an old success clear a newer expiry (%s)", async (helper) => {
+		const pending = deferred<Response>();
+		const fetchImpl = vi.fn(() => pending.promise);
+		const oldSuccess =
+			helper === "response"
+				? requestResponse("/api/old", undefined, fetchImpl)
+				: helper === "json"
+					? requestJson("/api/old", undefined, "failed", fetchImpl)
+					: helper === "void"
+						? requestVoid("/api/old", undefined, "failed", fetchImpl)
+						: requestText("/api/old", undefined, "failed", fetchImpl);
+		await requestResponse("/api/refused", undefined, async () => gateRefusal());
+		const count = get(sessionExpiry).alertCount;
+		pending.resolve(jsonResponse({}, 200));
+		await oldSuccess;
+		expect(isSessionExpired()).toBe(true);
+		await requestResponse("/api/refused-again", undefined, async () =>
+			gateRefusal(),
+		);
+		expect(get(sessionExpiry).alertCount).toBe(count);
+	});
+
+	it.each([
+		gateRefusal,
+		unauthorized,
+	])("does not let an old refusal undo newer healing (%s)", async (refusal) => {
+		const pending = deferred<Response>();
+		const oldFailure = requestJson(
+			"/api/old",
+			undefined,
+			"failed",
+			() => pending.promise,
+		).catch((error: unknown) => error);
+		markSessionExpired();
+		await requestResponse("/api/healed", undefined, async () =>
+			jsonResponse({}, 200),
+		);
+		const count = get(sessionExpiry).alertCount;
+		pending.resolve(refusal());
+		expect(await oldFailure).toBeInstanceOf(ApiError);
+		expect(isSessionExpired()).toBe(false);
+		expect(get(sessionExpiry).alertCount).toBe(count);
+	});
+
+	it.each([
+		gateRefusal,
+		unauthorized,
+	])("retains raw response authority while its error body is delayed (%s)", async (refusal) => {
+		const response = refusal();
+		const body = deferred<string>();
+		const text = await response.text();
+		vi.spyOn(response, "text").mockReturnValue(body.promise);
+		const raw = await requestResponse(
+			"/api/old",
+			undefined,
+			async () => response,
+		);
+		expect(raw).toBe(response);
+		const reading = readErrorPayload(raw, "failed");
+		markSessionExpired();
+		await requestResponse("/api/healed", undefined, async () =>
+			jsonResponse({}, 200),
+		);
+		const count = get(sessionExpiry).alertCount;
+		body.resolve(text);
+		await reading;
+		expect(isSessionExpired()).toBe(false);
+		expect(get(sessionExpiry).alertCount).toBe(count);
+	});
+
+	it("invalidates an in-flight refusal on an explicit reset even while healthy", async () => {
+		const pending = deferred<Response>();
+		const old = requestResponse("/api/old", undefined, () => pending.promise);
+		clearSessionExpiry();
+		pending.resolve(gateRefusal());
+		await old;
+		expect(isSessionExpired()).toBe(false);
+	});
+
+	it("keeps the direct-fetch await scheduling and raw identity", async () => {
+		const response = jsonResponse({}, 200);
+		const events: string[] = [];
+		const fetchImpl = vi.fn(() => Promise.resolve(response));
+		const result = requestResponse("/api/raw", undefined, fetchImpl).then(
+			(raw) => {
+				events.push("response");
+				expect(raw).toBe(response);
+			},
+		);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(events).toEqual(["response"]);
+		expect(fetchImpl).toHaveBeenCalledWith("/api/raw");
+		await result;
 	});
 });

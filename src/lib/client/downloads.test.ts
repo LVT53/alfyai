@@ -7,6 +7,7 @@
 // say anything went wrong.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { requestResponse } from "$lib/client/api/http";
 import {
 	SESSION_EXPIRED_CODE,
 	SESSION_EXPIRED_HEADER,
@@ -453,4 +454,49 @@ describe("downloadProducedFile", () => {
 			}),
 		).resolves.toEqual({ ok: false, reason: "session_ended" });
 	});
+});
+
+describe("download session response ordering", () => {
+	it.each([
+		200, 400, 404,
+	])("does not heal newer expiry from an old gate-admitted %i probe", async (status) => {
+		let resolve!: (response: Response) => void;
+		const pending = new Promise<Response>((done) => {
+			resolve = done;
+		});
+		const probe = confirmSessionForDownload(() => pending);
+		markSessionExpired();
+		resolve(jsonResponse(status, {}));
+		expect(await probe).toBe(true);
+		expect(isSessionExpired()).toBe(true);
+	});
+
+	it("does not re-expire a healed session from a delayed probe refusal body", async () => {
+		let release!: (text: string) => void;
+		const response = jsonResponse(401, { error: "Unauthorized" });
+		vi.spyOn(response, "text").mockReturnValue(
+			new Promise((done) => {
+				release = done;
+			}),
+		);
+		const probe = confirmSessionForDownload(async () => response);
+		await Promise.resolve();
+		markSessionExpired();
+		clearSessionExpiry();
+		release('{"error":"Unauthorized"}');
+		expect(await probe).toBe(false);
+		expect(isSessionExpired()).toBe(false);
+	});
+});
+
+it("a healthy download probe does not retire a sibling refusal without an auth transition", async () => {
+	let release!: (response: Response) => void;
+	const pending = new Promise<Response>((done) => {
+		release = done;
+	});
+	const sibling = requestResponse("/api/sibling", undefined, () => pending);
+	await confirmSessionForDownload(async () => jsonResponse(200, {}));
+	release(jsonResponse(401, {}, { [SESSION_EXPIRED_HEADER]: "1" }));
+	await sibling;
+	expect(isSessionExpired()).toBe(true);
 });

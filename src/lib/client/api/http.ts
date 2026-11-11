@@ -1,5 +1,6 @@
 import { isSessionExpiredResponse } from "$lib/session-expiry";
 import {
+	captureSessionRequest,
 	markSessionExpired,
 	observeSessionFromResponse,
 } from "$lib/stores/session";
@@ -179,11 +180,12 @@ function noteSessionExpiry(
 	status: number,
 	message: string,
 	response?: SessionSignal | null,
+	generation = captureSessionRequest(),
 ): void {
 	if (!isSessionExpiry(status, message, response)) return;
 	if (typeof window === "undefined") return;
 	if (window.location.pathname === LOGIN_PATH) return;
-	markSessionExpired();
+	markSessionExpired(generation);
 }
 
 /**
@@ -196,8 +198,11 @@ export function reportAuthFailure(
 	status: number,
 	message: string,
 	response?: SessionSignal | null,
+	generation = response
+		? (responseGenerations.get(response) ?? captureSessionRequest())
+		: captureSessionRequest(),
 ): void {
-	noteSessionExpiry(status, message, response);
+	noteSessionExpiry(status, message, response, generation);
 }
 
 function performRequest(
@@ -208,6 +213,8 @@ function performRequest(
 	return init === undefined ? fetchImpl(input) : fetchImpl(input, init);
 }
 
+const responseGenerations = new WeakMap<SessionSignal, number>();
+
 /**
  * Report what the response says about this tab's session, and hand it straight
  * back. Called by each helper below on a response it has already awaited —
@@ -216,8 +223,11 @@ function performRequest(
  * between `fetch` resolving and the caller seeing it. Component code that
  * renders after one `await tick()` is sensitive to exactly that.
  */
-function observed(response: Response): Response {
-	observeSessionFromResponse(response);
+function observed(response: Response, generation: number): Response {
+	// Keep the original authority for later readErrorPayload/reportAuthFailure,
+	// including known-stale responses: stale must never fall back to current.
+	if (response) responseGenerations.set(response, generation);
+	observeSessionFromResponse(response, generation);
 	return response;
 }
 
@@ -268,9 +278,10 @@ type ErrorPayload = {
 export async function readErrorPayload(
 	response: Response,
 	fallback: string,
+	generation = responseGenerations.get(response) ?? captureSessionRequest(),
 ): Promise<ErrorPayload> {
 	const payload = await parseErrorPayload(response, fallback);
-	noteSessionExpiry(response.status, payload.message, response);
+	noteSessionExpiry(response.status, payload.message, response, generation);
 	return payload;
 }
 
@@ -385,7 +396,11 @@ export async function requestJson<T>(
 	errorMessage: string,
 	fetchImpl: FetchLike = fetch,
 ): Promise<T> {
-	const response = observed(await performRequest(fetchImpl, input, init));
+	const generation = captureSessionRequest();
+	const response = observed(
+		await performRequest(fetchImpl, input, init),
+		generation,
+	);
 	if (!response.ok) {
 		await throwRequestError(response, errorMessage);
 	}
@@ -405,7 +420,11 @@ export async function requestVoid(
 	errorMessage: string,
 	fetchImpl: FetchLike = fetch,
 ): Promise<void> {
-	const response = observed(await performRequest(fetchImpl, input, init));
+	const generation = captureSessionRequest();
+	const response = observed(
+		await performRequest(fetchImpl, input, init),
+		generation,
+	);
 	if (!response.ok) {
 		await throwRequestError(response, errorMessage);
 	}
@@ -416,7 +435,8 @@ export async function requestResponse(
 	init: RequestInit | undefined,
 	fetchImpl: FetchLike = fetch,
 ): Promise<Response> {
-	return observed(await performRequest(fetchImpl, input, init));
+	const generation = captureSessionRequest();
+	return observed(await performRequest(fetchImpl, input, init), generation);
 }
 
 export async function requestText(
@@ -425,7 +445,11 @@ export async function requestText(
 	errorMessage: string,
 	fetchImpl: FetchLike = fetch,
 ): Promise<string> {
-	const response = observed(await performRequest(fetchImpl, input, init));
+	const generation = captureSessionRequest();
+	const response = observed(
+		await performRequest(fetchImpl, input, init),
+		generation,
+	);
 	if (!response.ok) {
 		await throwRequestError(response, errorMessage);
 	}

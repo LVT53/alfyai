@@ -16,6 +16,8 @@ import {
 } from "../../../tests/fixtures/ai-sdk-ui-stream-contract";
 import type { StreamCallbacks, StreamMetadata } from "./streaming";
 import {
+	checkForOrphanedStream,
+	getStreamBufferInfo,
 	isServerUpdateRefusal,
 	isStreamTransportFailure,
 	streamChat,
@@ -2677,5 +2679,88 @@ describe("streamChat", () => {
 		expect(cb.onEnd).not.toHaveBeenCalled();
 		expect(cb.onError).not.toHaveBeenCalled();
 		expect(cb.onTiming).not.toHaveBeenCalled();
+	});
+});
+
+describe("stream transport session response authority", () => {
+	it.each([
+		"status",
+		"buffer",
+		"send",
+	])("does not heal a newer expiry from an old %s response", async (kind) => {
+		const { clearSessionExpiry, markSessionExpired, isSessionExpired } =
+			await import("$lib/stores/session");
+		clearSessionExpiry();
+		let release!: (response: Response) => void;
+		const pending = new Promise<Response>((done) => {
+			release = done;
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => pending),
+		);
+		try {
+			const waiting =
+				kind === "status"
+					? checkForOrphanedStream("conv-1")
+					: kind === "buffer"
+						? getStreamBufferInfo("stream-1", "conv-1")
+						: runStreamAndWait(
+								"hello",
+								"conv-1",
+								makeCallbacks() as unknown as StreamCallbacks,
+							);
+			markSessionExpired();
+			release(
+				kind === "send"
+					? new Response("data: [DONE]\n\n", {
+							headers: { "Content-Type": "text/event-stream" },
+						})
+					: new Response("{}"),
+			);
+			await waiting;
+			expect(isSessionExpired()).toBe(true);
+		} finally {
+			clearSessionExpiry();
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("does not re-expire newer healing when the send's refusal body resolves late", async () => {
+		const { clearSessionExpiry, markSessionExpired, isSessionExpired } =
+			await import("$lib/stores/session");
+		clearSessionExpiry();
+		let release!: (body: { error: string }) => void;
+		let reading!: () => void;
+		const bodyStarted = new Promise<void>((done) => {
+			reading = done;
+		});
+		const response = new Response(null, { status: 401 });
+		vi.spyOn(response, "json").mockImplementation(() => {
+			reading();
+			return new Promise((done) => {
+				release = done;
+			});
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => response),
+		);
+		try {
+			const waiting = runStreamAndWait(
+				"hello",
+				"conv-1",
+				makeCallbacks() as unknown as StreamCallbacks,
+			);
+			await bodyStarted;
+			markSessionExpired();
+			clearSessionExpiry();
+			release({ error: "Unauthorized" });
+			await waiting;
+			expect(isSessionExpired()).toBe(false);
+		} finally {
+			clearSessionExpiry();
+			vi.unstubAllGlobals();
+		}
 	});
 });

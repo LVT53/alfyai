@@ -3343,3 +3343,41 @@ describe("pictures in the library", () => {
 		).not.toBeChecked();
 	});
 });
+
+it("does not re-expire a healed session when an older AI-version refusal arrives", async () => {
+	uiLanguage.set("en");
+	const { clearSessionExpiry, markSessionExpired, isSessionExpired } =
+		await import("$lib/stores/session");
+	clearSessionExpiry();
+	let release!: (response: Response) => void;
+	const pending = new Promise<Response>((done) => {
+		release = done;
+	});
+	const fetchMock = vi.spyOn(globalThis, "fetch").mockReturnValue(pending);
+	try {
+		render(DocumentsList, {
+			props: {
+				documents: [
+					makeDocument({
+						normalizedAvailable: true,
+						promptArtifactId: "old-prompt",
+					}),
+				],
+			},
+		});
+		await fireEvent.click(
+			screen.getByRole("button", { name: /what the ai sees/i }),
+		);
+		expect(fetchMock).toHaveBeenCalledWith("/api/knowledge/old-prompt", {
+			signal: expect.any(AbortSignal),
+		});
+		markSessionExpired();
+		clearSessionExpiry();
+		release(new Response('{"error":"Unauthorized"}', { status: 401 }));
+		await screen.findByText("Failed to load AI-facing version");
+		expect(isSessionExpired()).toBe(false);
+	} finally {
+		clearSessionExpiry();
+		fetchMock.mockRestore();
+	}
+});

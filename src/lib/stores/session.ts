@@ -36,6 +36,13 @@ export const sessionExpiry = writable<SessionExpiryState>({
 // current value to plain functions.
 let expired = false;
 let lastAlertAt = 0;
+// A response only speaks for the auth state in which its request began.
+// Transitions retire in-flight evidence; this is ordering, not wall-clock trust.
+let sessionGeneration = 0;
+
+export function captureSessionRequest(): number {
+	return sessionGeneration;
+}
 
 export function isSessionExpired(): boolean {
 	return expired;
@@ -45,7 +52,9 @@ export function isSessionExpired(): boolean {
  * Record that the server has refused a request because the session is gone.
  * Idempotent for the row; throttled for the announcement.
  */
-export function markSessionExpired(): void {
+export function markSessionExpired(generation = sessionGeneration): void {
+	if (generation !== sessionGeneration) return;
+	if (!expired) sessionGeneration += 1;
 	const now = Date.now();
 	const announce = now - lastAlertAt >= ALERT_THROTTLE_MS;
 	if (announce) lastAlertAt = now;
@@ -66,7 +75,10 @@ export function markSessionExpired(): void {
  * announcement counter deliberately survives — resetting it would make the next
  * announcement look like one a watcher had already shown.
  */
-export function clearSessionExpiry(): void {
+export function clearSessionExpiry(generation = sessionGeneration): void {
+	if (generation !== sessionGeneration) return;
+	// Explicit reauthentication/reset also retires requests when already healthy.
+	sessionGeneration += 1;
 	if (!expired) return;
 	expired = false;
 	lastAlertAt = 0;
@@ -90,15 +102,17 @@ export function observeSessionFromResponse(
 		  }
 		| null
 		| undefined,
+	generation = sessionGeneration,
 ): void {
 	if (!response) return;
 	if (isSessionExpiredResponse(response)) {
-		markSessionExpired();
+		markSessionExpired(generation);
 		return;
 	}
 	const ok =
 		typeof response.ok === "boolean"
 			? response.ok
 			: response.status >= 200 && response.status < 300;
-	if (ok) clearSessionExpiry();
+	// A healthy observation without a transition must not retire sibling calls.
+	if (ok && expired) clearSessionExpiry(generation);
 }

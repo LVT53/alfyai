@@ -429,3 +429,24 @@ describe("office renderer code splitting", () => {
 		).toEqual([]);
 	});
 });
+
+it("does not re-expire a healed session from an older preview refusal", async () => {
+	const { clearSessionExpiry, markSessionExpired, isSessionExpired } =
+		await import("$lib/stores/session");
+	clearSessionExpiry();
+	let resolve!: (response: Response) => void;
+	const pending = new Promise<Response>((done) => {
+		resolve = done;
+	});
+	const preview = loadPreviewRuntime({
+		artifactId: "old-preview",
+		filename: "old.txt",
+		mimeType: "text/plain",
+		fetchImpl: () => pending,
+	});
+	markSessionExpired();
+	clearSessionExpiry();
+	resolve(new Response('{"error":"Unauthorized"}', { status: 401 }));
+	expectError(await preview);
+	expect(isSessionExpired()).toBe(false);
+});

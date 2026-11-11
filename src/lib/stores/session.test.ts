@@ -5,6 +5,7 @@ import {
 	SESSION_EXPIRED_MESSAGE,
 } from "$lib/session-expiry";
 import {
+	captureSessionRequest,
 	clearSessionExpiry,
 	isSessionExpired,
 	markSessionExpired,
@@ -120,5 +121,38 @@ describe("session expiry store", () => {
 			} as unknown as Response),
 		).not.toThrow();
 		expect(() => observeSessionFromResponse(undefined)).not.toThrow();
+	});
+});
+
+describe("session request generations", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		markSessionExpired();
+		clearSessionExpiry();
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("keeps healthy sibling responses authoritative until an auth transition", () => {
+		const generation = captureSessionRequest();
+		observeSessionFromResponse(new Response("{}"), generation);
+		observeSessionFromResponse(expiredResponse(), generation);
+		expect(isSessionExpired()).toBe(true);
+	});
+
+	it("heals from a fresh success, reannounces a new refusal, and preserves the throttle", () => {
+		markSessionExpired();
+		const first = get(sessionExpiry).alertCount;
+		observeSessionFromResponse(new Response("{}"), captureSessionRequest());
+		expect(isSessionExpired()).toBe(false);
+		observeSessionFromResponse(expiredResponse(), captureSessionRequest());
+		expect(get(sessionExpiry).alertCount).toBe(first + 1);
+		vi.advanceTimersByTime(29_999);
+		observeSessionFromResponse(expiredResponse(), captureSessionRequest());
+		expect(get(sessionExpiry).alertCount).toBe(first + 1);
+		vi.advanceTimersByTime(1);
+		observeSessionFromResponse(expiredResponse(), captureSessionRequest());
+		expect(get(sessionExpiry).alertCount).toBe(first + 2);
 	});
 });

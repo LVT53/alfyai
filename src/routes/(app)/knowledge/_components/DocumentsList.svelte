@@ -39,6 +39,7 @@ import { formatByteSize } from "$lib/utils/format";
 import { portalToBody } from "$lib/utils/portal";
 import { formatMediumDateTime } from "$lib/utils/time";
 import { readErrorPayload } from "$lib/client/api/http";
+import { captureSessionRequest } from "$lib/stores/session";
 import { type I18nKey, t } from "$lib/i18n";
 import {
 	AppWindow,
@@ -891,6 +892,7 @@ async function toggleAiVersion(documentId: string, promptArtifactId: string) {
 	};
 
 	try {
+		const generation = captureSessionRequest();
 		const response = await fetch(`/api/knowledge/${promptArtifactId}`, {
 			signal: controller.signal,
 		});
@@ -905,6 +907,7 @@ async function toggleAiVersion(documentId: string, promptArtifactId: string) {
 			await readErrorPayload(
 				response,
 				$t("knowledge.aiVersionLoadFailed"),
+				generation,
 			).catch(() => undefined);
 			throw new Error($t("knowledge.aiVersionLoadFailed"));
 		}

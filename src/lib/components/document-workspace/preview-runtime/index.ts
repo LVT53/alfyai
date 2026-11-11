@@ -5,6 +5,7 @@ import {
 	isGenericMimeType,
 	normalizeMimeType,
 } from "$lib/shared/file-types";
+import { captureSessionRequest } from "$lib/stores/session";
 import {
 	determinePreviewFileType,
 	type PreviewFileType,
@@ -107,7 +108,10 @@ export function resolvePreviewSourceUrl({
  * the preview renderers and has no other reason to pull the API client into
  * their chunk.
  */
-async function reportUnauthorizedPreview(response: Response): Promise<void> {
+async function reportUnauthorizedPreview(
+	response: Response,
+	generation: number,
+): Promise<void> {
 	let message = "";
 	try {
 		const text = await response.text();
@@ -120,7 +124,7 @@ async function reportUnauthorizedPreview(response: Response): Promise<void> {
 		// readable.
 	}
 	const { reportAuthFailure } = await import("$lib/client/api/http");
-	reportAuthFailure(401, message, response);
+	reportAuthFailure(401, message, response, generation);
 }
 
 export async function loadPreviewRuntime(
@@ -132,6 +136,7 @@ export async function loadPreviewRuntime(
 	}
 
 	try {
+		const generation = captureSessionRequest();
 		const response = await (input.fetchImpl ?? fetch)(sourceUrl);
 		if (!response.ok) {
 			// This is the one call site that CONSUMED the old 303-to-login:
@@ -145,7 +150,7 @@ export async function loadPreviewRuntime(
 			// function's contract is a `PreviewRuntimeResult`, and a body that
 			// cannot be read is still a failed preview, not a different one.
 			if (response.status === 401) {
-				await reportUnauthorizedPreview(response);
+				await reportUnauthorizedPreview(response, generation);
 			}
 			return {
 				status: "error",

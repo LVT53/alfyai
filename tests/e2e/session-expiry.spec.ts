@@ -142,3 +142,76 @@ test.describe("Expired session", () => {
 		await expect(page.getByTestId("login-session-expired")).toBeHidden();
 	});
 });
+
+test("an authenticated response held across expiry cannot re-arm its announcement", async ({
+	page,
+}) => {
+	await login(page);
+	await waitForHydration(page);
+
+	let release!: () => void;
+	const released = new Promise<void>((done) => {
+		release = done;
+	});
+	let captured!: () => void;
+	const held = new Promise<void>((done) => {
+		captured = done;
+	});
+	await page.route(
+		"**/api/conversations",
+		async (route) => {
+			const response = await route.fetch();
+			expect(response.status()).toBe(200);
+			captured();
+			await released;
+			await route.fulfill({ response });
+		},
+		{ times: 1 },
+	);
+
+	try {
+		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+		await held;
+		await killSessionServerSide(page);
+		await page
+			.getByRole("button", { name: "Search conversations and documents" })
+			.click();
+		const notice = page.getByTestId("session-expired-notice");
+		await expect(notice).toBeVisible();
+		await expect(page.getByTestId("toast-entry")).toHaveCount(1);
+
+		const oldResponse = page.waitForResponse(
+			(response) =>
+				new URL(response.url()).pathname === "/api/conversations" &&
+				response.status() === 200,
+		);
+		release();
+		await (await oldResponse).finished();
+		// The response's fetch continuations and Svelte effects settle before
+		// this frame. Then make another real API action with the dead cookie.
+		await page.evaluate(
+			() => new Promise<void>((done) => requestAnimationFrame(() => done())),
+		);
+		await expect(notice).toBeVisible();
+		const refused = page.waitForResponse(
+			(response) =>
+				new URL(response.url()).pathname === "/api/workspace-search" &&
+				response.status() === 401,
+		);
+		await page
+			.getByRole("textbox", {
+				name: "Search conversations and documents",
+				exact: true,
+			})
+			.fill("still signed out");
+		await (await refused).finished();
+		await expect(notice).toBeVisible();
+		await expect(page.getByTestId("toast-entry")).toHaveCount(1);
+		await expect(page.getByTestId("toast-entry")).toContainText(
+			"Your session has expired",
+		);
+	} finally {
+		release();
+		await page.unrouteAll({ behavior: "wait" });
+	}
+});

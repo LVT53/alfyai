@@ -30,7 +30,11 @@ import {
 } from "$lib/client/api/file-production";
 import { readErrorPayload } from "$lib/client/api/http";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
-import { clearSessionExpiry } from "$lib/stores/session";
+import {
+	captureSessionRequest,
+	clearSessionExpiry,
+	isSessionExpired,
+} from "$lib/stores/session";
 
 /**
  * The session probe.
@@ -75,16 +79,22 @@ export async function confirmSessionForDownload(
 	fetchImpl: FetchLike = fetch,
 ): Promise<boolean> {
 	try {
+		const generation = captureSessionRequest();
 		const response = await fetchImpl(SESSION_PROBE_URL, {
 			method: "GET",
 			headers: { Accept: "application/json" },
 		});
 		if (response.status === 401) {
-			await readErrorPayload(response, "Unauthorized").catch(() => undefined);
+			await readErrorPayload(response, "Unauthorized", generation).catch(
+				() => undefined,
+			);
 			return false;
 		}
 		// Anything the gate admitted (below 500) is proof the session is good.
-		if (response.status < 500) clearSessionExpiry();
+		// A healthy probe is an observation, not an explicit auth reset: keep
+		// sibling requests authoritative until an actual transition.
+		if (response.status < 500 && isSessionExpired())
+			clearSessionExpiry(generation);
 		return true;
 	} catch {
 		// The probe could not be made at all. Not evidence of an expired
