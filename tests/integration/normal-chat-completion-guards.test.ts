@@ -77,12 +77,16 @@ it.each([
 			};
 		},
 	});
+	let terminalSnapshot: NormalChatContinuationSnapshot | undefined;
 	const run = runNormalChatCompletion(
 		{
 			provider,
 			abortSignal: parent.signal,
 			messages: [{ role: "user", content: "test" }],
 			completionPolicy: {
+				onSnapshot: (snapshot) => {
+					terminalSnapshot = structuredClone(snapshot);
+				},
 				turnId: "t",
 				segmentId: "s",
 				deadlineAt: Date.now() + 1000,
@@ -128,6 +132,18 @@ it.each([
 			outcome: "answered",
 			closingAttempted: mode === "working",
 		});
+		expect(
+			terminalSnapshot?.usage.map((attempt) => ({
+				outcome: attempt.outcome,
+				safeStopCause: attempt.safeStopCause,
+			})),
+		).toEqual([
+			{
+				outcome: mode === "working" ? "incomplete" : "failed",
+				safeStopCause: mode === "working" ? "deadline" : "transport_error",
+			},
+			{ outcome: "answered", safeStopCause: "natural_stop" },
+		]);
 	} finally {
 		parent.abort();
 		await result;

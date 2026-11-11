@@ -1258,6 +1258,29 @@ export async function* runNormalChatCompletion(
 				e.state === "succeeded" &&
 				isAskPauseOutput(e.output),
 		);
+		const natural =
+			attemptFinished &&
+			!attemptError &&
+			lastReason === "stop" &&
+			finalStep?.finished &&
+			!finalStep.toolAttempted &&
+			hasVisibleCharacter(sanitizeNormalChatAnswer(finalText));
+		// These facts describe this attempt, never the later closing attempt.
+		usage.safeStopCause = stopped()
+			? "user_stop"
+			: paused
+				? "ask_pause"
+				: stopCause;
+		usage.outcome = stopped()
+			? "stopped"
+			: paused
+				? "paused"
+				: natural
+					? "answered"
+					: attemptError && stopCause === "transport_error"
+						? "failed"
+						: "incomplete";
+		notify();
 		if (stopped()) {
 			outcome = "stopped";
 			stopCause = "user_stop";
@@ -1319,13 +1342,7 @@ export async function* runNormalChatCompletion(
 				break;
 			}
 		}
-		const natural =
-			attemptFinished &&
-			!attemptError &&
-			lastReason === "stop" &&
-			finalStep?.finished &&
-			!finalStep.toolAttempted &&
-			hasVisibleCharacter(sanitizeNormalChatAnswer(finalText));
+
 		if (natural) {
 			emit(
 				{ ...lastScope, stepId: finalStep.stepId },
