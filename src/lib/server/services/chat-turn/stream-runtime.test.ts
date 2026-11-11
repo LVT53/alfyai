@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	containsTerminalAiSdkUiStreamPayload,
 	extractAiSdkUiStreamMetadataData,
