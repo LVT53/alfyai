@@ -52,7 +52,10 @@ import type {
 	UserPicturesMetadata,
 } from "$lib/shared/artifacts/image-body";
 import { type AskAnswer, isAskToolName } from "$lib/shared/ask-user";
-import { parseNormalChatFinalization } from "$lib/shared/normal-chat-completion";
+import {
+	parseNormalChatFinalization,
+	projectNormalChatFinalization,
+} from "$lib/shared/normal-chat-completion";
 import type { NormalChatOutputProjection } from "$lib/shared/normal-chat-output";
 import {
 	isFileProductionToolName,
@@ -434,6 +437,7 @@ type StartStreamParams = {
 	originatingStreamId?: string;
 	retainedPartial?: boolean;
 	observationRetryCount?: number;
+	observedScope?: { turnId: string; segmentId: string };
 	message: string;
 	placeholderId: string;
 	clientUserMessageId: string | null;
@@ -596,6 +600,7 @@ const NO_ANSWER: ServerHealth = { state: "unreachable" };
  * meanwhile has nothing to stop: it is recorded here, and the decision honours it.
  */
 type CutReplyQuestion = {
+	params: StartStreamParams;
 	stopped: boolean;
 	/** The handle of the stream that failed; Stop still asks the server to stop the run it may have. */
 	deadStream: StreamHandle | null;
@@ -687,6 +692,14 @@ export function createNormalChatClientTurnRuntime(
 	let interruptedResume: ResumeContext | null = null;
 	let turnEpoch = 0;
 	let pendingObservation: StartStreamParams | null = null;
+	let activeStreamParams: StartStreamParams | null = null;
+	// One private read-only handoff. It never owns active/composer state.
+	let stopHandoff: { cancel: () => void } | null = null;
+
+	function cancelStopHandoff() {
+		stopHandoff?.cancel();
+		stopHandoff = null;
+	}
 
 	function snapshot(): NormalChatRuntimeSnapshot {
 		return {
@@ -740,6 +753,7 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	function beginTurn() {
+		cancelStopHandoff();
 		turnEpoch++;
 		isSending = true;
 		phase = "preparing";
@@ -748,6 +762,7 @@ export function createNormalChatClientTurnRuntime(
 
 	function completeTurn() {
 		pendingObservation = null;
+		activeStreamParams = null;
 		isSending = false;
 		phase = "idle";
 		activePlaceholderId = null;
@@ -1240,8 +1255,11 @@ export function createNormalChatClientTurnRuntime(
 	 * (`stop()`). While it is open the turn counts as active, so Stop stays within
 	 * reach for the moment the page is asked.
 	 */
-	function openCutReplyQuestion(deadStream: StreamHandle | null) {
-		const question: CutReplyQuestion = { stopped: false, deadStream };
+	function openCutReplyQuestion(
+		deadStream: StreamHandle | null,
+		params: StartStreamParams,
+	) {
+		const question: CutReplyQuestion = { stopped: false, deadStream, params };
 		cutReplyQuestion = question;
 		emitState();
 		return question;
@@ -1409,7 +1427,7 @@ export function createNormalChatClientTurnRuntime(
 			turnConversationId: params.turnConversationId,
 			ownsTurn: true,
 			versionWasLive,
-			question: openCutReplyQuestion(deadStream),
+			question: openCutReplyQuestion(deadStream, params),
 		});
 		if (hold === "abandoned") {
 			completeStaleTurn(params.placeholderId);
@@ -1460,7 +1478,7 @@ export function createNormalChatClientTurnRuntime(
 			turnConversationId: params.turnConversationId,
 			ownsTurn: true,
 			versionWasLive,
-			question: openCutReplyQuestion(deadStream),
+			question: openCutReplyQuestion(deadStream, params),
 		});
 		if (hold === "abandoned") {
 			completeStaleTurn(params.placeholderId);
@@ -1887,19 +1905,23 @@ export function createNormalChatClientTurnRuntime(
 		params: StartStreamParams,
 		observation: Exclude<NormalChatTurnObservation, { state: "pending" }>,
 		metadata?: StreamMetadata,
+		stopSettlement?: {
+			owns: () => boolean;
+			remainingMs: () => number;
+			targetId: () => string | undefined;
+		},
 	) {
 		const epoch = turnEpoch;
 		let saved: ChatMessage | undefined;
 		if (observation.state === "terminal" && observation.assistantMessageId) {
+			const assistantMessageId = observation.assistantMessageId;
 			try {
 				const rows = await answerWithin(
 					Promise.resolve(adapters.readChatMessages?.() ?? null),
-					STREAM_QUESTION_MAX_MS,
+					stopSettlement?.remainingMs() ?? STREAM_QUESTION_MAX_MS,
 				);
 				saved = rows?.find(
-					(row) =>
-						row.id === observation.assistantMessageId &&
-						row.role === "assistant",
+					(row) => row.id === assistantMessageId && row.role === "assistant",
 				);
 			} catch {
 				/* Retain the partial when the exact durable row cannot be read. */
@@ -1908,13 +1930,32 @@ export function createNormalChatClientTurnRuntime(
 		if (
 			epoch !== turnEpoch ||
 			detached ||
-			activePlaceholderId !== params.placeholderId ||
+			(stopSettlement
+				? !stopSettlement.owns()
+				: activePlaceholderId !== params.placeholderId) ||
 			!isTurnConversationActive(params.turnConversationId)
 		)
 			return;
-		const held = adapters
-			.getMessages()
-			.find((row) => row.id === params.placeholderId);
+		if (stopSettlement && saved && observation.state === "terminal") {
+			const completion = normalChatOutputView(saved)?.completion;
+			const expected = observation.completion;
+			if (
+				!completion ||
+				(Object.keys(completion) as (keyof typeof completion)[]).some(
+					(key) => completion[key] !== expected[key],
+				)
+			) {
+				saved = undefined;
+				observation = {
+					version: 1,
+					state: "unavailable",
+					streamId: observation.streamId,
+					conversationId: observation.conversationId,
+				};
+			}
+		}
+		const targetId = stopSettlement?.targetId() ?? params.placeholderId;
+		const held = adapters.getMessages().find((row) => row.id === targetId);
 		const previous = held && normalChatOutputView(held);
 		const terminal = observation.state === "terminal" ? observation : undefined;
 		const normalChatFinalization = parseNormalChatFinalization(
@@ -1932,7 +1973,7 @@ export function createNormalChatClientTurnRuntime(
 			const view = saved ? normalChatOutputView(saved) : previous;
 			adapters.applyMessageListEvent({
 				type: "applyNormalChatOutput",
-				placeholderId: params.placeholderId,
+				placeholderId: targetId,
 				view: {
 					answer: canonicalAnswer,
 					activity: view?.activity ?? [],
@@ -1946,9 +1987,10 @@ export function createNormalChatClientTurnRuntime(
 				},
 			});
 		}
+		if (stopSettlement && !stopSettlement.owns()) return;
 		adapters.applyMessageListEvent({
 			type: "finalize",
-			placeholderId: params.placeholderId,
+			placeholderId: targetId,
 			clientUserMessageId: params.clientUserMessageId,
 			metadata: {
 				assistantMessageId:
@@ -1967,6 +2009,18 @@ export function createNormalChatClientTurnRuntime(
 					: {}),
 			},
 		});
+		if (stopSettlement) {
+			if (!stopSettlement.owns()) return;
+			adapters.setSendError(
+				resolved || knownFinalizationFailure
+					? null
+					: "chat.observationUnavailable",
+			);
+			if (saved && stopSettlement.owns())
+				adapters.pollMessageEvidence(saved.id);
+			if (saved && stopSettlement.owns()) adapters.refreshMessageCost(saved.id);
+			return;
+		}
 		lastAssistantResponse = canonicalAnswer;
 		isPollingForCompletion = false;
 		canRetry = false;
@@ -2228,6 +2282,7 @@ export function createNormalChatClientTurnRuntime(
 					// Retain the exact handle's upstream cancellation capability while
 					// its downstream observation is detached, including recheck gaps.
 					pendingObservation = params;
+					params.observedScope = observation;
 					setPhase("polling", params.placeholderId);
 					const epoch = turnEpoch;
 					adapters.schedule(() => {
@@ -2752,6 +2807,7 @@ export function createNormalChatClientTurnRuntime(
 			return;
 		}
 		const callbacks = buildCallbacks(params);
+		activeStreamParams = params;
 		activePlaceholderId = params.placeholderId;
 		const handle = adapters.streamChat(
 			params.message,
@@ -3473,46 +3529,265 @@ export function createNormalChatClientTurnRuntime(
 		void adapters.runManualContextCompression();
 	}
 
-	function stop() {
-		turnEpoch++;
-		if (pendingObservation) {
-			const pending = pendingObservation;
-			activeStream?.stop();
-			adapters.applyMessageListEvent({
-				type: "finalize",
-				placeholderId: pending.placeholderId,
-				clientUserMessageId: pending.clientUserMessageId,
-				metadata: {
-					wasStopped: true,
-					completionWarningCodes: ["stream_closed_without_finish"],
-				},
-			});
-			completeTurn();
-			restoreQueuedTurnToDraft();
-			return true;
+	/** Observe the exact stopped request; reconnect is read-only on the server. */
+	function reconcileStoppedTurn(params: StartStreamParams, epoch: number) {
+		if (
+			epoch !== turnEpoch ||
+			detached ||
+			!isTurnConversationActive(params.turnConversationId)
+		)
+			return;
+		cancelStopHandoff();
+		const deadline = Date.now() + 10_000;
+		const streamId =
+			params.streamOptions.reconnectToStreamId ?? params.originatingStreamId;
+		if (!streamId) {
+			adapters.setSendError("chat.observationUnavailable");
+			return;
 		}
-		// A turn that waits for an update has no stream: Stop ends the wait, and the
-		// turn ends the way the wait's own give-up decides.
+		const held = adapters
+			.getMessages()
+			.find((row) => row.id === params.placeholderId);
+		const view = held && normalChatOutputView(held);
+		let scope = params.observedScope ?? view?.completion ?? view?.blocks[0];
+		let observer: StreamHandle | null = null;
+		let cancelled = false;
+		const timers = new Set<ReturnType<typeof setTimeout>>();
+		const handoff = {
+			cancel() {
+				cancelled = true;
+				observer?.detach();
+				observer = null;
+				for (const timer of timers) clearTimeout(timer);
+				timers.clear();
+			},
+		};
+		stopHandoff = handoff;
+		const remainingMs = () => Math.max(0, deadline - Date.now());
+		const targetId = () =>
+			adapters
+				.getMessages()
+				.find(
+					(row) =>
+						row.id === params.placeholderId ||
+						row.renderKey === params.placeholderId,
+				)?.id;
+		const owns = () =>
+			!cancelled &&
+			stopHandoff === handoff &&
+			epoch === turnEpoch &&
+			!detached &&
+			isTurnConversationActive(params.turnConversationId) &&
+			targetId() !== undefined;
+		const matchesScope = (candidate: { turnId: string; segmentId: string }) =>
+			!scope ||
+			(candidate.turnId === scope.turnId &&
+				candidate.segmentId === scope.segmentId);
+		const later = (callback: () => void, ms: number) => {
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			timer = adapters.schedule(() => {
+				if (timer !== undefined) timers.delete(timer);
+				if (owns()) callback();
+				else handoff.cancel();
+			}, ms);
+			timers.add(timer);
+		};
+		const unavailable: NormalChatTurnObservation = {
+			version: 1,
+			state: "unavailable",
+			streamId: streamId ?? "",
+			conversationId: params.turnConversationId,
+		};
+		let settling = false;
+		const settle = (
+			observation: Exclude<NormalChatTurnObservation, { state: "pending" }>,
+			metadata?: StreamMetadata,
+		) => {
+			if (!owns() || settling) return;
+			settling = true;
+			observer?.detach();
+			observer = null;
+			void settleObservation(params, observation, metadata, {
+				owns,
+				remainingMs,
+				targetId,
+			}).finally(() => {
+				if (stopHandoff === handoff) {
+					handoff.cancel();
+					stopHandoff = null;
+				}
+			});
+		};
+		const read = (attempt: number) => {
+			if (!owns()) {
+				handoff.cancel();
+				return;
+			}
+			if (!streamId || !remainingMs()) {
+				settle(unavailable);
+				return;
+			}
+			let done = false;
+			let projection: NormalChatOutputProjection | undefined;
+			let handle: StreamHandle | null = null;
+			const finish = (
+				observation: NormalChatTurnObservation,
+				metadata?: StreamMetadata,
+			) => {
+				if (done || !owns()) return;
+				done = true;
+				handle?.detach();
+				if (observer === handle) observer = null;
+				if (
+					!observationIsScoped(params, observation) ||
+					(observation.state !== "unavailable" &&
+						!matchesScope(
+							observation.state === "terminal"
+								? observation.completion
+								: observation,
+						))
+				) {
+					settle(unavailable);
+					return;
+				}
+				if (observation.state === "pending") {
+					scope ??= observation;
+					if (attempt < 5 && remainingMs() > 250)
+						later(() => read(attempt + 1), 250);
+					else settle(unavailable);
+				} else settle(observation, metadata);
+			};
+			later(() => finish(unavailable), Math.min(2000, remainingMs()));
+			try {
+				handle = adapters.streamChat(
+					"",
+					params.turnConversationId,
+					{
+						onToken() {},
+						onThinking() {},
+						onNormalChatOutput(next) {
+							if (!done && owns()) projection = next;
+						},
+						onWaiting(observation) {
+							finish(observation ?? unavailable);
+						},
+						onEnd(_text, metadata) {
+							if (metadata?.observation) {
+								finish(metadata.observation, metadata);
+								return;
+							}
+							const modelCompletion = projection?.completion;
+							const marker = parseNormalChatFinalization(
+								metadata?.normalChatFinalization,
+							);
+							const completion =
+								modelCompletion &&
+								(projectNormalChatFinalization(modelCompletion, marker) ??
+									modelCompletion);
+							if (
+								completion &&
+								metadata?.wasStopped !== undefined &&
+								metadata.wasStopped !==
+									(marker?.wasStopped ?? completion.outcome === "stopped")
+							) {
+								finish(unavailable);
+								return;
+							}
+							finish(
+								completion && metadata?.assistantMessageId
+									? {
+											version: 1,
+											state: "terminal",
+											streamId,
+											conversationId: params.turnConversationId,
+											assistantMessageId: metadata.assistantMessageId,
+											completion,
+											modelCompletion,
+											normalChatFinalization: marker,
+										}
+									: unavailable,
+								metadata,
+							);
+						},
+						onError() {
+							finish(unavailable);
+						},
+					},
+					{ reconnectToStreamId: streamId },
+				);
+				if (done || !owns()) handle.detach();
+				else observer = handle;
+			} catch {
+				finish(unavailable);
+			}
+		};
+		read(1);
+	}
+
+	function stop() {
+		// No-op presses cannot invalidate a read already reconciling a prior Stop.
+		if (detached) return false;
 		if (updateWait && !updateWait.detached) {
+			turnEpoch++;
 			endUpdateWait(updateWait, "stopped");
 			return true;
 		}
-		// A cut reply whose page is being asked what the server is doing: its stream
-		// is gone, so the Stop is recorded for the question to honour, and the run the
-		// server may still have is asked to stop.
-		if (cutReplyQuestion && !detached) {
-			cutReplyQuestion.stopped = true;
-			cutReplyQuestion.deadStream?.stop();
-			return true;
+		const question = cutReplyQuestion;
+		const params = pendingObservation ?? question?.params ?? activeStreamParams;
+		if (
+			!params ||
+			(!pendingObservation && !question && !canStopActiveStream())
+		) {
+			if (!stopHandoff) turnEpoch++;
+			return false;
 		}
-		if (!canStopActiveStream()) return false;
+		const stoppedEpoch = ++turnEpoch;
 		activeTokenBuffer?.flush();
 		activeThinkingBuffer?.flush();
-		activeStream?.stop();
+		canRetry = false;
+		isPollingForCompletion = false;
+		lastAssistantResponse =
+			adapters.getMessages().find((row) => row.id === params.placeholderId)
+				?.content ?? "";
+		const handle = question?.deadStream ?? activeStream;
+		// Retire local callback ownership before abort can synchronously call back.
+		if (question) question.stopped = true;
+		cutReplyQuestion = null;
+		completeTurn();
+		handle?.stop();
+		if (params.answer && !params.answer.accepted) {
+			endAnswer(params, {
+				type: "answerNotSent",
+				questionId: params.answer.questionId,
+				quiet: true,
+			});
+			return true;
+		}
+		adapters.applyMessageListEvent({
+			type: "finalize",
+			placeholderId: params.placeholderId,
+			clientUserMessageId: params.clientUserMessageId,
+			metadata: {
+				wasStopped: true,
+				completionWarningCodes: ["stream_closed_without_finish"],
+			},
+		});
+		if (
+			stoppedEpoch !== turnEpoch ||
+			detached ||
+			!isTurnConversationActive(params.turnConversationId)
+		)
+			return true;
+		if (takeQueuedContextCompression())
+			void adapters.runManualContextCompression();
+		restoreQueuedTurnToDraft();
+		reconcileStoppedTurn(params, stoppedEpoch);
 		return true;
 	}
 
 	function detach() {
+		cancelStopHandoff();
+		activeStreamParams = null;
 		turnEpoch++;
 		pendingObservation = null;
 		activeTokenBuffer?.flush();

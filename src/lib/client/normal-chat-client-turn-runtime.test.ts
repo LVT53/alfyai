@@ -3981,7 +3981,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
 			runtime.stop();
 			await vi.advanceTimersByTimeAsync(2000);
-			expect(made.streamInvocations).toHaveLength(1);
+			expect(made.streamInvocations).toHaveLength(2);
 			expect(runtime.snapshot().isSending).toBe(false);
 		} else if (result === "unavailable") {
 			callbacks.onEnd("", {
@@ -4110,7 +4110,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			canStop: false,
 			isSending: false,
 		});
-		expect(made.streamInvocations).toHaveLength(1);
+		expect(made.streamInvocations).toHaveLength(2);
 		vi.useRealTimers();
 	});
 
@@ -4139,7 +4139,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(first.handle.stop).not.toHaveBeenCalled();
 		expect(made.streamInvocations[1].handle.stop).toHaveBeenCalledOnce();
 		await vi.advanceTimersByTimeAsync(4000);
-		expect(made.streamInvocations).toHaveLength(2);
+		expect(made.streamInvocations).toHaveLength(3);
 		vi.useRealTimers();
 	});
 
@@ -7452,7 +7452,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				made.answer("restarting");
 				await vi.advanceTimersByTimeAsync(0);
 
-				// No wait, no sign: the turn ended, after the server was asked what it holds.
+				// No wait or unscoped detail fallback: a handle without a stream ID cannot establish a terminal fact.
 				expect(
 					made.messages.some(
 						(message) => message.runtimePhase === "awaiting_update",
@@ -7460,7 +7460,10 @@ describe("Normal Chat Client Turn Runtime", () => {
 				).toBe(false);
 				expect(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
 				expect(made.adapters.setTurnWaitingForUpdate).not.toHaveBeenCalled();
-				expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
+				expect(made.adapters.readChatMessages).not.toHaveBeenCalled();
+				expect(sentenceShown(made.adapters)).toEqual([
+					"chat.observationUnavailable",
+				]);
 				expect(runtime.snapshot()).toMatchObject({
 					isSending: false,
 					active: false,
@@ -7471,7 +7474,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				expect(made.streamInvocations).toHaveLength(1);
 			});
 
-			it("loads the turn when the server finished it meanwhile, after a Stop", async () => {
+			it("does not load an unscoped legacy reply as proof of terminal completion after Stop", async () => {
 				const made = askedLate();
 				made.server.chat = heldByTheServer;
 				const runtime = createNormalChatClientTurnRuntime(made.adapters);
@@ -7482,8 +7485,10 @@ describe("Normal Chat Client Turn Runtime", () => {
 				made.answer("restarting");
 				await vi.advanceTimersByTimeAsync(0);
 
-				expect(made.adapters.loadPersistedData).toHaveBeenCalledTimes(1);
-				expect(sentenceShown(made.adapters)).toEqual([]);
+				expect(made.adapters.loadPersistedData).not.toHaveBeenCalled();
+				expect(sentenceShown(made.adapters)).toEqual([
+					"chat.observationUnavailable",
+				]);
 			});
 
 			it("ends a Stop pressed during a reconnect's question the same way", async () => {
@@ -9747,5 +9752,747 @@ describe("Normal Chat Client Turn Runtime", () => {
 				"AB",
 			);
 		});
+	});
+});
+
+describe("Stop terminal handoff", () => {
+	beforeEach(() => vi.useFakeTimers());
+	afterEach(() => vi.useRealTimers());
+
+	function fixture(outcome: "stopped" | "answered" = "stopped") {
+		const output = createNormalChatOutputAccumulator();
+		const scope = {
+			version: 1,
+			turnId: "stop-turn",
+			segmentId: "stop-segment",
+			attemptId: "attempt",
+			stepId: "working",
+			phase: "working",
+		} as const;
+		output.apply({
+			...scope,
+			sequence: 1,
+			type: "block_start",
+			blockId: "work",
+			nativeId: "work",
+			kind: "text",
+			role: "activity",
+		});
+		output.apply({
+			...scope,
+			sequence: 2,
+			type: "block_delta",
+			blockId: "work",
+			text: "Retained working activity",
+		});
+		const live = output.getProjection();
+		const completion = {
+			version: 1,
+			turnId: scope.turnId,
+			segmentId: scope.segmentId,
+			phase: "working",
+			outcome,
+			stopCause: "user_stop",
+			workingStopCause: "user_stop",
+			closingAttempted: false,
+		} as const;
+		output.apply({ ...scope, sequence: 3, type: "completion", completion });
+		const terminal = output.getProjection();
+		const saved = applyNormalChatOutputView(
+			[{ id: "saved-stop", role: "assistant", content: "", timestamp: 1 }],
+			"saved-stop",
+			terminal,
+		)[0];
+		return { live, terminal, saved, completion };
+	}
+
+	async function stopped(
+		overrides: Partial<NormalChatClientTurnRuntimeAdapters> = {},
+		beforeStop?: (
+			runtime: ReturnType<typeof createNormalChatClientTurnRuntime>,
+			original: StreamInvocation,
+		) => void,
+		live = true,
+	) {
+		const facts = fixture();
+		const made = makeAdapters({
+			schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
+			readChatMessages: vi.fn(async () => [facts.saved]),
+			...overrides,
+		});
+		const stream = made.adapters.streamChat;
+		made.adapters.streamChat = vi.fn((...args: Parameters<typeof stream>) =>
+			Object.assign(stream(...args), {
+				streamId: args[3]?.reconnectToStreamId ?? "stop-stream",
+			}),
+		);
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		await runtime.send({
+			message: "A",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		const original = made.streamInvocations[0];
+		if (live) original.callbacks.onNormalChatOutput?.(facts.live);
+		beforeStop?.(runtime, original);
+		expect(runtime.stop()).toBe(true);
+		return { ...made, runtime, facts, original };
+	}
+
+	it("reconciles authoritative stopped activity after immediate composer release", async () => {
+		const made = await stopped();
+		expect(made.original.handle.stop).toHaveBeenCalledOnce();
+		expect(made.runtime.snapshot()).toMatchObject({
+			active: false,
+			isSending: false,
+			canStop: false,
+		});
+		expect(made.streamInvocations).toHaveLength(2);
+		const observer = made.streamInvocations[1];
+		expect(observer.options).toMatchObject({
+			reconnectToStreamId: made.original.handle.streamId,
+		});
+		observer.callbacks.onEnd("", {
+			observation: {
+				version: 1,
+				state: "terminal",
+				streamId: made.original.handle.streamId ?? "missing",
+				conversationId: "conv-1",
+				assistantMessageId: "saved-stop",
+				completion: made.facts.completion,
+			},
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		expect(
+			normalChatOutputView(
+				made.messages.at(-1) ?? {
+					id: "missing",
+					role: "assistant",
+					content: "",
+					timestamp: 0,
+				},
+			),
+		).toMatchObject({
+			answer: "",
+			completion: { outcome: "stopped" },
+			activity: [{ text: "Retained working activity" }],
+		});
+		expect(made.adapters.refreshMessageCost).toHaveBeenCalledWith("saved-stop");
+		expect(observer.handle.stop).not.toHaveBeenCalled();
+		expect(observer.handle.detach).toHaveBeenCalled();
+	});
+	function terminalObservation(made: Awaited<ReturnType<typeof stopped>>) {
+		return {
+			version: 1,
+			state: "terminal",
+			streamId: made.original.handle.streamId ?? "missing",
+			conversationId: "conv-1",
+			assistantMessageId: "saved-stop",
+			completion: made.facts.completion,
+		} as const;
+	}
+	function terminalReceipt(
+		made: Awaited<ReturnType<typeof stopped>>,
+		overrides: Partial<StreamMetadata> = {},
+	) {
+		return {
+			observation: terminalObservation(made),
+			...overrides,
+		} satisfies StreamMetadata;
+	}
+
+	it.each([
+		"retained replay",
+		"replay-to-live",
+	])("accepts explicit completion and exact receipt from %s without replaying effects", async () => {
+		const made = await stopped();
+		const observer = made.streamInvocations[1];
+		const before = vi.mocked(made.adapters.applyMessageListEvent).mock.calls
+			.length;
+		observer.callbacks.onToken("Must not append");
+		observer.callbacks.onThinking("Must not append");
+		observer.callbacks.onToolCall?.("make_image", {}, "done");
+		observer.callbacks.onNormalChatOutput?.(made.facts.terminal);
+		expect(
+			vi.mocked(made.adapters.applyMessageListEvent).mock.calls,
+		).toHaveLength(before);
+		observer.callbacks.onEnd("Must not append", {
+			assistantMessageId: "saved-stop",
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		expect(
+			normalChatOutputView(
+				made.messages.at(-1) ?? {
+					id: "missing",
+					role: "assistant",
+					content: "",
+					timestamp: 0,
+				},
+			)?.completion?.outcome,
+		).toBe("stopped");
+		expect(made.messages.at(-1)?.content).toBe("");
+		expect(made.adapters.hydrateConversationDetail).not.toHaveBeenCalled();
+		expect(made.streamInvocations).toHaveLength(2);
+	});
+
+	it("applies already answered truth without draining a queued message or completing twice", async () => {
+		const answered = fixture("answered");
+		const made = await stopped({
+			readChatMessages: vi.fn(async () => [answered.saved]),
+		});
+		// A post-Stop queue is still owned by its caller, never this background read.
+		made.runtime.queue({
+			message: "queued",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		const state = made.runtime.snapshot();
+		const observer = made.streamInvocations[1];
+		observer.callbacks.onNormalChatOutput?.(answered.terminal);
+		observer.callbacks.onEnd("", { assistantMessageId: "saved-stop" });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(made.runtime.snapshot()).toEqual(state);
+		expect(
+			normalChatOutputView(
+				made.messages.at(-1) ?? {
+					id: "missing",
+					role: "assistant",
+					content: "",
+					timestamp: 0,
+				},
+			)?.completion?.outcome,
+		).toBe("answered");
+		expect(made.streamInvocations).toHaveLength(2);
+	});
+
+	it.each([
+		"send",
+		"resume",
+		"detach",
+		"reset",
+		"chat",
+	])("drops late observer callbacks after %s", async (action) => {
+		let chat = "conv-1";
+		const made = await stopped({ getConversationId: () => chat });
+		const observer = made.streamInvocations[1];
+		if (action === "send")
+			await made.runtime.send({
+				message: "B",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+		if (action === "resume")
+			await made.runtime.answerQuestion({
+				questionId: "new-question",
+				answer: { kind: "left_to_alfy" },
+				continuesMessageId: "asking",
+				userMessage: "B",
+			});
+		if (action === "detach") made.runtime.detach();
+		if (action === "reset") made.runtime.reset();
+		if (action === "chat") chat = "conv-2";
+		const state = made.runtime.snapshot();
+		vi.mocked(made.adapters.applyMessageListEvent).mockClear();
+		vi.mocked(made.adapters.setSendError).mockClear();
+		observer.callbacks.onNormalChatOutput?.(made.facts.terminal);
+		observer.callbacks.onEnd("", terminalReceipt(made));
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
+		expect(made.adapters.setSendError).not.toHaveBeenCalled();
+		expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
+		expect(made.runtime.snapshot()).toEqual(state);
+		expect(observer.handle.detach).toHaveBeenCalled();
+		expect(observer.handle.stop).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"send",
+		"detach",
+		"chat",
+	])("fences the saved-row read after %s", async (action) => {
+		let resolve: (rows: ChatMessage[]) => void = () => {
+			throw new Error("read not started");
+		};
+		let chat = "conv-1";
+		const made = await stopped({
+			getConversationId: () => chat,
+			readChatMessages: () =>
+				new Promise((done) => {
+					resolve = done;
+				}),
+		});
+		made.streamInvocations[1].callbacks.onEnd("", terminalReceipt(made));
+		await Promise.resolve();
+		if (action === "send")
+			await made.runtime.send({
+				message: "B",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+		if (action === "detach") made.runtime.detach();
+		if (action === "chat") chat = "conv-2";
+		const state = made.runtime.snapshot();
+		vi.mocked(made.adapters.applyMessageListEvent).mockClear();
+		vi.mocked(made.adapters.setSendError).mockClear();
+		resolve([made.facts.saved]);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
+		expect(made.adapters.setSendError).not.toHaveBeenCalled();
+		expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
+		expect(made.runtime.snapshot()).toEqual(state);
+	});
+
+	it.each([
+		"hung",
+		"unavailable",
+		"missing receipt",
+		"missing completion",
+		"wrong stream",
+		"wrong segment",
+		"missing row",
+		"wrong saved identity",
+	])("keeps %s explicitly unavailable without inventing completion", async (mode) => {
+		const made = await stopped(
+			mode === "missing row"
+				? { readChatMessages: async () => [] }
+				: mode === "wrong saved identity"
+					? {
+							readChatMessages: async () =>
+								applyNormalChatOutputView([fixture().saved], "saved-stop", {
+									...fixture().terminal,
+									completion: { ...fixture().completion, segmentId: "other" },
+								}),
+						}
+					: {},
+		);
+		const observer = made.streamInvocations[1];
+		if (mode === "unavailable")
+			observer.callbacks.onEnd("", {
+				observation: {
+					version: 1,
+					state: "unavailable",
+					streamId: "stop-stream",
+					conversationId: "conv-1",
+				},
+			});
+		else if (mode === "missing receipt") {
+			observer.callbacks.onNormalChatOutput?.(made.facts.terminal);
+			observer.callbacks.onEnd("");
+		} else if (mode === "missing completion")
+			observer.callbacks.onEnd("", {
+				assistantMessageId: "saved-stop",
+				wasStopped: true,
+			});
+		else if (mode === "wrong stream")
+			observer.callbacks.onEnd(
+				"",
+				terminalReceipt(made, {
+					observation: {
+						...terminalObservation(made),
+						streamId: "other",
+					},
+				}),
+			);
+		else if (mode === "wrong segment")
+			observer.callbacks.onEnd(
+				"",
+				terminalReceipt(made, {
+					observation: {
+						...terminalObservation(made),
+						completion: { ...made.facts.completion, segmentId: "other" },
+					},
+				}),
+			);
+		else if (mode !== "hung")
+			observer.callbacks.onEnd("", terminalReceipt(made));
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(
+			normalChatOutputView(
+				made.messages.at(-1) ?? {
+					id: "missing",
+					role: "assistant",
+					content: "",
+					timestamp: 0,
+				},
+			)?.completion,
+		).toBeUndefined();
+		expect(
+			normalChatOutputView(
+				made.messages.at(-1) ?? {
+					id: "missing",
+					role: "assistant",
+					content: "",
+					timestamp: 0,
+				},
+			)?.activity[0].text,
+		).toBe("Retained working activity");
+		expect(made.adapters.setSendError).toHaveBeenCalledWith(
+			"chat.observationUnavailable",
+		);
+		expect(made.runtime.snapshot().isSending).toBe(false);
+		expect(observer.handle.detach).toHaveBeenCalled();
+	});
+
+	it("bounds pending reads and includes hung detail in the total deadline", async () => {
+		const made = await stopped({
+			readChatMessages: () => new Promise(() => {}),
+		});
+		for (let i = 1; i < 5; i++) {
+			made.streamInvocations[i].callbacks.onWaiting?.({
+				version: 1,
+				state: "pending",
+				streamId: "stop-stream",
+				conversationId: "conv-1",
+				turnId: "stop-turn",
+				segmentId: "stop-segment",
+			});
+			await vi.advanceTimersByTimeAsync(250);
+		}
+		made.streamInvocations[5].callbacks.onEnd("", terminalReceipt(made));
+		await vi.advanceTimersByTimeAsync(9000);
+		expect(made.streamInvocations).toHaveLength(6);
+		expect(made.adapters.setSendError).toHaveBeenCalledWith(
+			"chat.observationUnavailable",
+		);
+		expect(
+			normalChatOutputView(
+				made.messages.at(-1) ?? {
+					id: "missing",
+					role: "assistant",
+					content: "",
+					timestamp: 0,
+				},
+			)?.completion,
+		).toBeUndefined();
+	});
+
+	it("does not invalidate settlement on repeated Stop", async () => {
+		const made = await stopped();
+		expect(made.runtime.stop()).toBe(false);
+		const observer = made.streamInvocations[1];
+		observer.callbacks.onEnd("", terminalReceipt(made));
+		observer.callbacks.onEnd("", terminalReceipt(made));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(made.original.handle.stop).toHaveBeenCalledOnce();
+		expect(made.adapters.refreshMessageCost).toHaveBeenCalledOnce();
+	});
+	it("restores the pre-Stop queue immediately and never drains it on late success", async () => {
+		const made = await stopped({}, (runtime) =>
+			runtime.queue({
+				message: "queued-before-Stop",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			}),
+		);
+		expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+			expect.objectContaining({ message: "queued-before-Stop" }),
+		);
+		expect(made.runtime.snapshot().queuedTurn).toBeNull();
+		made.streamInvocations[1].callbacks.onEnd("", terminalReceipt(made));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledOnce();
+		expect(made.streamInvocations).toHaveLength(2);
+	});
+
+	it("uses the handle identity when Stop precedes all output and metadata", async () => {
+		const made = await stopped({}, undefined, false);
+		made.streamInvocations[1].callbacks.onEnd("", terminalReceipt(made));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(
+			normalChatOutputView(made.messages.at(-1) ?? made.facts.saved)?.completion
+				?.outcome,
+		).toBe("stopped");
+		expect(made.adapters.readChatMessages).toHaveBeenCalledOnce();
+	});
+
+	it.each([
+		"pending",
+		"cut",
+	])("hands %s Stop to the same private terminal application seam", async (mode) => {
+		const made = await stopped(
+			{ askServerUpdate: () => new Promise(() => {}) },
+			(_runtime, original) => {
+				if (mode === "pending")
+					original.callbacks.onWaiting?.({
+						version: 1,
+						state: "pending",
+						streamId: "stop-stream",
+						conversationId: "conv-1",
+						turnId: "stop-turn",
+						segmentId: "stop-segment",
+					});
+				else original.callbacks.onError(new TypeError("Failed to fetch"));
+			},
+			false,
+		);
+		made.streamInvocations[1].callbacks.onEnd("", terminalReceipt(made));
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(made.streamInvocations).toHaveLength(2);
+		expect(made.original.handle.stop).toHaveBeenCalledOnce();
+		expect(made.adapters.checkForOrphanedStream).not.toHaveBeenCalled();
+		expect(
+			normalChatOutputView(made.messages.at(-1) ?? made.facts.saved)?.completion
+				?.outcome,
+		).toBe("stopped");
+	});
+
+	it("ends perpetual pending after five reads without a completion fact", async () => {
+		const made = await stopped();
+		for (let i = 1; i <= 5; i++) {
+			made.streamInvocations[i].callbacks.onWaiting?.({
+				version: 1,
+				state: "pending",
+				streamId: "stop-stream",
+				conversationId: "conv-1",
+				turnId: "stop-turn",
+				segmentId: "stop-segment",
+			});
+			await vi.advanceTimersByTimeAsync(250);
+		}
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(made.streamInvocations).toHaveLength(6);
+		expect(made.adapters.setSendError).toHaveBeenCalledWith(
+			"chat.observationUnavailable",
+		);
+		expect(
+			normalChatOutputView(made.messages.at(-1) ?? made.facts.saved)
+				?.completion,
+		).toBeUndefined();
+	});
+
+	it("retains partial answer and authoritative unsaved terminal without claiming a durable row", async () => {
+		const made = await stopped({}, (_runtime, original) =>
+			original.callbacks.onToken("Partial answer"),
+		);
+		made.streamInvocations[1].callbacks.onEnd(
+			"",
+			terminalReceipt(made, {
+				observation: {
+					...terminalObservation(made),
+					assistantMessageId: null,
+				},
+			}),
+		);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(
+			normalChatOutputView(made.messages.at(-1) ?? made.facts.saved),
+		).toMatchObject({
+			answer: "Partial answer",
+			completion: { outcome: "stopped" },
+		});
+		expect(made.messages.at(-1)?.id).toBe("id-2");
+		expect(made.adapters.readChatMessages).not.toHaveBeenCalled();
+		expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
+	});
+
+	it("preserves finalization failure and the underlying model outcome when the row cannot be saved", async () => {
+		const { projectNormalChatFinalization } = await import(
+			"$lib/shared/normal-chat-completion"
+		);
+		const made = await stopped({ readChatMessages: async () => [] });
+		const marker = {
+			version: 1,
+			status: "failed",
+			cause: "file_association_failed",
+			wasStopped: true,
+		} as const;
+		const completion = projectNormalChatFinalization(
+			made.facts.completion,
+			marker,
+		);
+		expect(completion).toBeDefined();
+		if (!completion) throw new Error("missing projected failure");
+		made.streamInvocations[1].callbacks.onEnd("", {
+			observation: {
+				...terminalObservation(made),
+				completion,
+				modelCompletion: made.facts.completion,
+				normalChatFinalization: marker,
+			},
+			finalContent: "Partial unsaved answer",
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		expect(
+			normalChatOutputView(made.messages.at(-1) ?? made.facts.saved),
+		).toMatchObject({
+			answer: "Partial unsaved answer",
+			normalChatFinalization: marker,
+			modelCompletion: made.facts.completion,
+		});
+		expect(made.runtime.snapshot().canRetry).toBe(false);
+		expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
+	});
+
+	it("observes a real transport after abort without dispatching a second generation", async () => {
+		const { streamChat } = await import("$lib/services/streaming");
+		const { uiFrame } = await import("$lib/services/streaming.test-helpers");
+		const facts = fixture();
+		const scope = {
+			version: 1,
+			turnId: "stop-turn",
+			segmentId: "stop-segment",
+			attemptId: "attempt",
+			stepId: "working",
+			phase: "working",
+		} as const;
+		const working = [
+			{
+				...scope,
+				sequence: 1,
+				type: "block_start",
+				blockId: "work",
+				nativeId: "work",
+				kind: "text",
+				role: "activity",
+			},
+			{
+				...scope,
+				sequence: 2,
+				type: "block_delta",
+				blockId: "work",
+				text: "Retained working activity",
+			},
+		];
+		const frames = (events: unknown[]) =>
+			events
+				.map((event) =>
+					uiFrame({ type: "data-normal-chat-output", data: event }),
+				)
+				.join("");
+		const bodies: Record<string, unknown>[] = [];
+		const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+			if (url === "/api/chat/stream/stop") return new Response("{}");
+			const body = JSON.parse(String(init?.body));
+			bodies.push(body);
+			if (!body.reconnectToStreamId)
+				return new Response(
+					new ReadableStream({
+						start(controller) {
+							controller.enqueue(new TextEncoder().encode(frames(working)));
+							init?.signal?.addEventListener(
+								"abort",
+								() =>
+									controller.error(new DOMException("Aborted", "AbortError")),
+								{ once: true },
+							);
+						},
+					}),
+					{ headers: { "Content-Type": "text/event-stream" } },
+				);
+			return new Response(
+				frames([
+					...working,
+					{
+						...scope,
+						sequence: 3,
+						type: "completion",
+						completion: facts.completion,
+					},
+				]) +
+					uiFrame({
+						type: "data-stream-metadata",
+						data: { assistantMessageId: "saved-stop" },
+					}) +
+					uiFrame({ type: "finish", finishReason: "stop" }) +
+					uiFrame("[DONE]"),
+				{ headers: { "Content-Type": "text/event-stream" } },
+			);
+		});
+		vi.stubGlobal("fetch", fetch);
+		const made = makeAdapters({
+			streamChat,
+			schedule: (cb, ms) => setTimeout(cb, ms),
+			readChatMessages: async () => [facts.saved],
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		try {
+			await runtime.send({
+				message: "A",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			await vi.waitFor(() =>
+				expect(
+					normalChatOutputView(made.messages.at(-1) ?? facts.saved)?.activity[0]
+						?.text,
+				).toBe("Retained working activity"),
+			);
+			runtime.queue({
+				message: "B",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			expect(runtime.stop()).toBe(true);
+			expect(runtime.snapshot()).toMatchObject({
+				active: false,
+				isSending: false,
+			});
+			await vi.waitFor(() =>
+				expect(
+					normalChatOutputView(made.messages.at(-1) ?? facts.saved)?.completion
+						?.outcome,
+				).toBe("stopped"),
+			);
+			expect(bodies).toHaveLength(2);
+			expect(bodies[1]).toMatchObject({
+				reconnectToStreamId: bodies[0].streamId,
+				conversationId: "conv-1",
+				message: "",
+			});
+			expect(
+				fetch.mock.calls.filter(([url]) => url === "/api/chat/stream/stop"),
+			).toHaveLength(1);
+			expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledOnce();
+			expect(made.adapters.refreshMessageCost).toHaveBeenCalledWith(
+				"saved-stop",
+			);
+		} finally {
+			runtime.detach();
+			vi.unstubAllGlobals();
+		}
+	});
+	it("resolves a renamed row through its retained renderKey before applying terminal output", async () => {
+		const made = await stopped();
+		const held = made.messages.at(-1);
+		if (!held) throw new Error("missing placeholder");
+		held.id = "saved-stop";
+		expect(held.renderKey).toBe("id-2");
+		made.streamInvocations[1].callbacks.onEnd("", terminalReceipt(made));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(
+			normalChatOutputView(made.messages.at(-1) ?? made.facts.saved)?.completion
+				?.outcome,
+		).toBe("stopped");
+		expect(made.adapters.applyMessageListEvent).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "applyNormalChatOutput",
+				placeholderId: "saved-stop",
+			}),
+		);
+		expect(made.adapters.refreshMessageCost).toHaveBeenCalledWith("saved-stop");
+	});
+	it("rejects contradictory normal replay receipt evidence", async () => {
+		const made = await stopped();
+		const observer = made.streamInvocations[1];
+		observer.callbacks.onNormalChatOutput?.(made.facts.terminal);
+		observer.callbacks.onEnd("", {
+			assistantMessageId: "saved-stop",
+			wasStopped: false,
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		expect(
+			normalChatOutputView(made.messages.at(-1) ?? made.facts.saved)
+				?.completion,
+		).toBeUndefined();
+		expect(made.adapters.setSendError).toHaveBeenCalledWith(
+			"chat.observationUnavailable",
+		);
 	});
 });
