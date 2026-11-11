@@ -547,8 +547,10 @@ export function createServerChunkRuntime({
 	thinkingBatchMin = 20,
 	skillControlEnabled = true,
 	structuredOutput = false,
+	structuralTransport = () => false,
 }: {
 	enqueueChunk: (chunk: string) => boolean;
+	structuralTransport?: () => boolean;
 	onToken?: (text: string) => void;
 	onThinking?: (text: string) => void;
 	onToolCall?: (
@@ -606,6 +608,7 @@ export function createServerChunkRuntime({
 		Array.from(text).filter(hasVisibleCharacter).length;
 
 	const emitUiTextDelta = (chunk: string): boolean => {
+		if (structuralTransport()) return true;
 		const frames: string[] = [];
 		if (!textPartStarted) {
 			textPartStarted = true;
@@ -616,6 +619,7 @@ export function createServerChunkRuntime({
 	};
 
 	const emitUiReasoningDelta = (chunk: string): boolean => {
+		if (structuralTransport()) return true;
 		const frames: string[] = [];
 		if (!reasoningPartStarted) {
 			reasoningPartStarted = true;

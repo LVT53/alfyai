@@ -52,6 +52,7 @@ describe("stream helper retirement", () => {
 // instead of a silent new part name slipping onto the wire.
 describe("ADR-0025 amendment (E1) — no new AI SDK UI stream part names", () => {
 	const KNOWN_DATA_PART_NAMES = new Set([
+		"data-normal-chat-delta",
 		"data-normal-chat-output",
 		"data-stream-metadata",
 		"data-tool-call",
@@ -275,6 +276,22 @@ function responseActivityLabels(chunks: string[]): string[] {
 }
 
 describe("createServerChunkRuntime", () => {
+	it("keeps structural completion content internally without duplicate legacy wire deltas", () => {
+		const enqueueChunk = vi.fn(() => true);
+		const runtime = createServerChunkRuntime({
+			enqueueChunk,
+			structuredOutput: true,
+			thinkingBatchMin: 1,
+			structuralTransport: () => true,
+		});
+		runtime.emitThinking("Reasoning remains available.");
+		runtime.emitChunkWithOutputHandling("The answer.");
+		runtime.flushOutputBuffer();
+		expect(runtime.thinkingContent).toBe("Reasoning remains available.");
+		expect(runtime.fullResponse).toBe("The answer.");
+		expect(enqueueChunk).not.toHaveBeenCalled();
+	});
+
 	it("keeps the app-owned encoder compatible with installed AI SDK UI stream framing", async () => {
 		const stream = createUIMessageStream({
 			execute({ writer }) {

@@ -1,8 +1,8 @@
 import {
 	consumeAiSdkUiStreamFrames,
+	createNormalChatWireDecoder,
 	encodeAiSdkUiStreamDoneFrame,
 	encodeAiSdkUiStreamPart,
-	readNormalChatOutputEvent,
 	type UiMessageStreamPart,
 } from "$lib/services/ai-sdk-ui-stream-contract";
 
@@ -20,6 +20,7 @@ export class StreamReplayJournal {
 	private thinkingCount = 0;
 	private deltas = new Map<string, { append: (text: string) => void }>();
 	private legacyDeltas = new Map<string, { append: (text: string) => void }>();
+	private decoder = createNormalChatWireDecoder();
 
 	private invalidate() {
 		this.complete = false;
@@ -30,6 +31,7 @@ export class StreamReplayJournal {
 		this.thinkingCount = 0;
 		this.deltas.clear();
 		this.legacyDeltas.clear();
+		this.decoder = createNormalChatWireDecoder();
 	}
 
 	append(chunk: string): void {
@@ -40,7 +42,14 @@ export class StreamReplayJournal {
 			if (frame.kind === "done") {
 				this.frames.push({ encode: encodeAiSdkUiStreamDoneFrame });
 				this.bytes += Buffer.byteLength(encodeAiSdkUiStreamDoneFrame());
-			} else this.retain(frame.part);
+			} else {
+				try {
+					this.retain(frame.part);
+				} catch {
+					this.invalidate();
+					return;
+				}
+			}
 			if (this.bytes > MAX_BYTES || this.frames.length > MAX_FRAMES) {
 				this.invalidate();
 				return;
@@ -53,10 +62,9 @@ export class StreamReplayJournal {
 	private retain(part: UiMessageStreamPart) {
 		if (part.type === "text-delta") this.tokenCount++;
 		if (part.type === "reasoning-delta") this.thinkingCount++;
-		const event =
-			part.type === "data-normal-chat-output"
-				? readNormalChatOutputEvent(part.data)
-				: null;
+		const event = this.decoder.consume(part);
+		if (part.type === "data-normal-chat-delta" && event)
+			part = { type: "data-normal-chat-output", data: event, transient: true };
 		let key: string | undefined;
 		let text: string | undefined;
 		let append: ((text: string) => void) | undefined;

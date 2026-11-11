@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
+import { createOutputEventWriter } from "$lib/server/services/chat-turn/output-event-writer";
 import {
+	createServerChunkRuntime,
 	streamNormalChatOutputEvent,
 	streamReasoningDeltaEvent,
 	streamTextDeltaEvent,
@@ -28,7 +30,11 @@ const provider = {
 	maxModelContext: 32000,
 };
 
-async function overflowPoint(reasoningTokens: number, answerTokens: number) {
+async function overflowPoint(
+	reasoningTokens: number,
+	answerTokens: number,
+	compactWire = false,
+) {
 	const segmentId = createHash("sha256")
 		.update(JSON.stringify(["user", "conversation", "stream"]))
 		.digest("hex");
@@ -65,6 +71,21 @@ async function overflowPoint(reasoningTokens: number, answerTokens: number) {
 			overflowAtBytes = wireBytes;
 		}
 	};
+	const writer = createOutputEventWriter(
+		(frame) => {
+			append(frame);
+			return true;
+		},
+		{ compact: compactWire },
+	);
+	const runtime = createServerChunkRuntime({
+		enqueueChunk: (frame) => {
+			append(frame);
+			return true;
+		},
+		structuredOutput: true,
+		structuralTransport: () => compactWire,
+	});
 	const run = runNormalChatCompletion(
 		{
 			provider,
@@ -77,7 +98,8 @@ async function overflowPoint(reasoningTokens: number, answerTokens: number) {
 				forAttempt: () => ({ classifyExecution: () => "succeeded" as const }),
 				onOutputEvent: (event) => {
 					if (event.type === "block_delta") streamedTokens++;
-					append(streamNormalChatOutputEvent(event));
+					if (compactWire) writer.write(event);
+					else append(streamNormalChatOutputEvent(event));
 				},
 			},
 		},
@@ -111,10 +133,17 @@ async function overflowPoint(reasoningTokens: number, answerTokens: number) {
 		const next = await run.next();
 		if (next.done) break;
 		if (next.value.type === "reasoning_delta")
-			append(streamReasoningDeltaEvent(next.value.text));
+			compactWire
+				? runtime.emitThinking(next.value.text)
+				: append(streamReasoningDeltaEvent(next.value.text));
 		if (next.value.type === "text_delta")
-			append(streamTextDeltaEvent(next.value.text));
+			compactWire
+				? runtime.emitChunkWithOutputHandling(next.value.text)
+				: append(streamTextDeltaEvent(next.value.text));
 	}
+	writer.flush();
+	runtime.flushPendingThinking();
+	runtime.flushOutputBuffer();
 	return {
 		reasoningTokens,
 		answerTokens,
@@ -136,4 +165,14 @@ describe("compact complete replay", () => {
 		expect(row.replayBytes).toBeLessThan(40_000);
 		expect(row.replayFrames).toBeLessThan(30);
 	});
+});
+
+it("bounds the reviewed turn on the live wire as well as in retained replay", async () => {
+	const row = await overflowPoint(1200, 1957, true);
+	process.stdout.write(
+		`${JSON.stringify({ measurement: "reviewed-turn-wire", ...row })}\n`,
+	);
+	expect(row.totalStreamedTokens).toBe(3157);
+	expect(row.totalWireBytes).toBeLessThan(40000);
+	expect(row.replayCompleteAtEnd).toBe(true);
 });

@@ -20,7 +20,10 @@ import type {
 } from "$lib/shared/normal-chat-output";
 
 afterEach(() => vi.unstubAllGlobals());
-it("reconnects after consuming the first delta, replaces compact replay, then applies live tail exactly once", async () => {
+it.each([
+	false,
+	true,
+])("compact wire=%s reconnects after consuming the first delta, replaces compact replay, then applies live tail exactly once", async (compact) => {
 	vi.stubGlobal("fetch", vi.fn());
 	const scope = {
 		version: 1 as const,
@@ -47,6 +50,14 @@ it("reconnects after consuming the first delta, replaces compact replay, then ap
 		text,
 	});
 	const journal = new StreamReplayJournal();
+	const wire = (event: NormalChatOutputEvent) =>
+		compact && event.type === "block_delta"
+			? streamDataPartEvent("data-normal-chat-delta", {
+					ref: 1,
+					sequence: event.sequence,
+					text: event.text,
+				})
+			: streamNormalChatOutputEvent(event);
 	const initial = [start, delta(2, "First ")];
 	let messages: ChatMessage[] = [
 		{ id: "reply", role: "assistant", content: "", timestamp: 0 },
@@ -67,14 +78,13 @@ it("reconnects after consuming the first delta, replaces compact replay, then ap
 			replacement = false;
 		},
 	});
-	for (const event of initial)
-		journal.append(streamNormalChatOutputEvent(event));
+	for (const event of initial) journal.append(wire(event));
 	await runStreamWithMockedResponse({
-		responseChunks: initial.map(streamNormalChatOutputEvent),
+		responseChunks: initial.map(wire),
 		callbacks: callbacks(),
 	}).done;
 	expect(normalChatOutputView(messages[0])?.blocks[0].text).toBe("First ");
-	journal.append(streamNormalChatOutputEvent(delta(3, "second")));
+	journal.append(wire(delta(3, "second")));
 	replacement = true;
 	const next = runStreamWithMockedResponse({
 		message: "",
@@ -84,8 +94,8 @@ it("reconnects after consuming the first delta, replaces compact replay, then ap
 			streamDataPartEvent("data-replay-start", {}),
 			...journal.read().chunks,
 			streamDataPartEvent("data-replay-end", {}),
-			streamNormalChatOutputEvent(delta(4, " third")),
-			streamNormalChatOutputEvent(delta(4, " third")),
+			wire(delta(4, " third")),
+			wire(delta(4, " third")),
 			streamNormalChatOutputEvent({
 				...scope,
 				sequence: 5,
