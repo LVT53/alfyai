@@ -300,6 +300,8 @@ test.describe("turn completion contract", () => {
 		await finalAnswer(page);
 		await page.getByTestId("assistant-message").hover();
 		await page
+			.getByTestId("assistant-message")
+			.locator("..")
 			.getByRole("button", { name: "Copy message", exact: true })
 			.click();
 		await expect

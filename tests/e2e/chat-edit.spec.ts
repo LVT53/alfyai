@@ -16,6 +16,7 @@ import {
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
 	completionToolsOff,
+	completionWireMessages,
 	currentScenarioUserText,
 } from "../mocks/ai-provider/turn-completion-scripts";
 import {
@@ -873,7 +874,10 @@ test.describe("Editing a message in the composer", () => {
 					expect(attempts).toHaveLength(2);
 					expect(
 						attempts.map((request) => completionToolsOff(request.body)),
-					).toEqual([false, true]);
+					).toEqual([false, false]);
+					expect(completionWireMessages(attempts[1].body)).toEqual(
+						completionWireMessages(attempts[0].body),
+					);
 					await page.evaluate(
 						({ key, sse, status, headers }) => {
 							const probe = Reflect.get(window, key) as FastEditGeometryProbe;
@@ -1670,11 +1674,14 @@ test.describe("Editing a message in the composer", () => {
 				await expect(retry).toHaveCount(0);
 				await expect(retry).toBeVisible({ timeout: 30_000 });
 				await expect.poll(() => modelRequests().length).toBe(2);
-				// One working attempt and its tools-disabled closing attempt belong to
-				// the original request. Reconnect must not generate either again.
+				// One working attempt and its bounded pre-output working retry belong
+				// to the original request. Reconnect must not generate either again.
 				expect(
 					modelRequests().map((request) => completionToolsOff(request.body)),
-				).toEqual([false, true]);
+				).toEqual([false, false]);
+				expect(completionWireMessages(modelRequests()[1].body)).toEqual(
+					completionWireMessages(modelRequests()[0].body),
+				);
 				await page.waitForTimeout(3_000);
 				expect(modelRequests()).toHaveLength(2);
 				expect(streamBodies).toHaveLength(2);

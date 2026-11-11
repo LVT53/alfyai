@@ -12,6 +12,7 @@ import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/open
 import {
 	completionMode,
 	completionToolsOff,
+	completionWireMessages,
 	turnCompletionReply,
 } from "../mocks/ai-provider/turn-completion-scripts";
 
@@ -505,7 +506,7 @@ test("default text stream has trailing usage consumed by the installed SDK", asy
 	}
 });
 
-test("actual SDK closing projection cannot turn a refused request into a successful fake answer", async () => {
+test("actual SDK bounds pre-output refusal to two working attempts without a successful fake answer", async () => {
 	const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
 	const { runNormalChatCompletion } = await import(
 		"../../src/lib/server/services/normal-chat-model/completion"
@@ -581,16 +582,19 @@ test("actual SDK closing projection cannot turn a refused request into a success
 		expect(result?.completion).toMatchObject({
 			outcome: "failed",
 			stopCause: "transport_error",
-			closingAttempted: true,
+			phase: "working",
+			closingAttempted: false,
 		});
 		expect(result?.text).toBe("");
 		const requests = harness.requests();
 		expect(requests).toHaveLength(2);
 		expect(completionToolsOff(requests[1].body)).toBe(true);
-		expect(
-			(requests[1].body as { messages: { content: string }[] }).messages.at(-1)
-				?.content,
-		).toBe(realClosingInstruction);
+		expect(completionWireMessages(requests[1].body)).toEqual(
+			completionWireMessages(requests[0].body),
+		);
+		expect(completionWireMessages(requests[1].body).at(-1)?.content).toBe(
+			`${AI_SMOKE_REFUSE_SLOWLY_MARKER} Hello`,
+		);
 	} finally {
 		await harness.stop();
 	}

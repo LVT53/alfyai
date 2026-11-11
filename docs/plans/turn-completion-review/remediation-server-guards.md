@@ -28,3 +28,10 @@
 - No overall bound was added around preparation/finalization. The removed idle/outer watchdog is not restored; working and first-output timers are now directly mutation-protected.
 - Small-context 8,192-token model/catalogue certification remains open. Browser fixtures retain their larger advertised context.
 - No real-provider calls, build or release gate were run by this worker; the orchestrator owns the full gate and staging-only deployment.
+
+## First release-gate corrections
+
+- Gate found the public buffer `tokenCount` changed from two original deltas to one compact frame. Added constant-size original text/reasoning counters alongside compact replay, including split-frame and overflow semantics. The route test's exact `tokenCount: 2` assertion remains unchanged.
+- The SDK refusal fixture and two chat-edit browser tests still expected pre-output recovery to become tools-disabled closing. Their exact expectations now require two working attempts with identical original messages; two requests, failure/empty output, geometry, Retry, saved rows and no extra generation assertions are retained. Actual closing fixtures are unchanged.
+- The live-prose browser test reached its final Copy action after withdrawal/save/reload checks passed, then matched both user and assistant Copy buttons. The locator now selects the intended assistant outer row; no `.first()` or broader text assertion was added.
+- Focused unit verification: **61 tests in four suites passed**, `/tmp/turn-completion-remediation/gate-engine-corrections-green.log`. Browser corrections await the orchestrator's focused browser run and full release rerun.
