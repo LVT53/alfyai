@@ -1,6 +1,6 @@
 # AI SDK UI streams and messages ship before the next remote deployment
 
-Accepted. AlfyAI will retire Langflow first by implementing **Normal Chat Model Run** on top of Vercel AI SDK, then replace the browser-facing stream contract and Normal Chat message runtime shape with Vercel AI SDK UI streams and UI messages in separate local development passes. The browser-facing stream contract has moved from the existing **Browser SSE Protocol** to AI SDK UI stream framing. Normal Chat persistence still uses the app-owned message schema and remains a follow-up before the next remote deployment if we want durable messages to match AI SDK UI messages directly. The next remote deployment should happen only after Langflow is removed, Vercel AI SDK Normal Chat is stable, AI SDK UI streams are stable, and either UI-compatible persistence is complete or explicitly accepted as a temporary app-owned envelope.
+Accepted. The staged migration retired Langflow before replacing the Browser SSE Protocol with AI SDK UI stream framing. Normal Chat retains app-owned durable messages; the 2026-11-11 amendment records the structural envelope decision. The options and migration rationale below describe the original sequencing decision, not an outstanding prerequisite to repeat the migration before deployment.
 
 **Considered Options**
 
@@ -19,3 +19,15 @@ We chose the staged local migration because AI SDK UI streams and UI messages re
 - The `/api/chat/send` non-streaming JSON error response gained a `code` field (an `errorKey`) drawn from the same `classifyStreamErrorCause` seam, so send and stream failures share one code space; this is a JSON body field, not a stream part at all.
 
 E1 defines the codes; localizing them into user-facing copy is E2 (client), which still owns `src/lib/services/streaming.ts` and `src/routes/(app)/chat/[conversationId]/_helpers.ts`'s rendering of `data-stream-error`, `data-tool-call`, and `data-stream-metadata` payloads.
+
+## Amendment (2026-11-11) — structural output and bounded read-only replay
+
+Normal Chat retains its app-owned durable message envelope with additive versioned structural output/completion metadata; this change does not migrate storage to raw SDK UI messages or reset legacy conversations. Existing legacy content remains readable without heuristic rewriting.
+
+- `data-normal-chat-output` carries scoped block/step role settlement and completion; `data-stream-metadata.observation` carries scoped pending/terminal/unavailable truth. These are additive app data on AI SDK UI framing, not a second transport protocol.
+- [Shared codec](../../src/lib/services/ai-sdk-ui-stream-contract.ts) owns frame grammar, terminal detection and metadata extraction; server stream helpers own application payloads. Browser transport decodes; ModelRun owns role settlement.
+- One [wire journal](../../src/lib/server/services/chat-turn/stream-replay-journal.ts) retains ordered complete replay within 200,000 bytes/10,000 chunks. Crossing either bound invalidates replay and releases retained chunks; a truncated suffix must not masquerade as a complete answer. Saved-state observation resolves through the existing reconnect owner.
+
+We choose bounded all-or-unavailable replay over parallel token/timeline authorities or partial-prefix repair. This limits retention and preserves structural order, at the cost of saved-state recovery once replay is unavailable. Reconnect never gains authority to generate ([ADR-0041](0041-stream-admission-before-turn-preparation.md)).
+
+Evidence: [journal tests](../../src/lib/server/services/chat-turn/stream-journal.test.ts), [reconnect tests](../../src/lib/server/services/chat-turn/stream-reconnect.test.ts), [browser transport tests](../../src/lib/services/streaming.test.ts), [output reducer tests](../../src/lib/shared/normal-chat-output.test.ts).

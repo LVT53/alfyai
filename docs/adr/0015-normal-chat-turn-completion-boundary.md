@@ -23,7 +23,7 @@ We chose the chat-turn boundary because completion is the second half of a Norma
 
 - New post-turn side effects for Normal Chat should enter through `src/lib/server/services/chat-turn/finalize.ts`.
 - Route files and stream adapters may format transport payloads, but they should not own durable completion sequencing.
-- Browser-facing SSE event names and payloads belong in `src/lib/services/stream-protocol.ts`; completion code may supply payload data, but it should not duplicate raw event-string builders.
+- Browser-facing part payloads belong in `chat-turn/stream.ts`; shared wire encoding/decoding belongs in `src/lib/services/ai-sdk-ui-stream-contract.ts`. Completion supplies facts without duplicating frame builders.
 - Browser-side send, retry, reconnect, waiting, stop, and queue transitions belong in `src/lib/client/normal-chat-client-turn-runtime.ts`; that runtime applies completion results but must not recreate durable completion sequencing.
 - Response-facing Context Sources changes need completion-boundary tests, not only route tests.
 
@@ -47,3 +47,15 @@ Two clarifications the facade makes concrete about how transports adapt without 
   awaits at the correct point; the transport never receives a promise to await or a task-starting function
   to call. This keeps "durable completion sequencing lives in chat-turn, transports only format payloads"
   true even for the timing-sensitive stream path.
+
+## Amendment (2026-11-11) — structural settlement and durable finalization
+
+ModelRun decides structural completion; chat-turn decides its durable application. The shared [prepared turn](../../src/lib/server/services/chat-turn/prepared-normal-chat-turn.ts) serves plain and streaming callers; [completion lifetime](../../src/lib/server/services/chat-turn/completion-lifetime.ts) owns scoped admission and serialized ledger writes. Routes and stream orchestration must not reconstruct either sequence.
+
+- Model outcomes distinguish answered, delivered, paused, stopped, incomplete and failed. `answered` establishes structural settlement, never correctness, topic relevance, requested format or synthesis fidelity.
+- [Finalization](../../src/lib/server/services/chat-turn/finalize.ts) remains the single persistence/side-effect owner. A file-association failure is a separate durable failure marker and outward projection; it does not rewrite sealed model events or priced attempt facts.
+- Terminal identity survives an unsaved failure or deletion of its assistant row. Missing storage is explicit failure/unavailability, never permission to regenerate work.
+
+Keeping model settlement separate from persistence avoids treating a successful generation as successful delivery; it requires consumers to respect both facts. The rejected alternative was transport-local recovery/finalization, which could repeat preparation or lose durable failure state. Model continuation policy is recorded in [ADR-0026](0026-normal-chat-retires-langflow-for-vercel-ai-sdk.md); pricing in [ADR-0047](0047-provider-cost-price-windows-and-cache-accounting.md).
+
+Evidence: [completion lifetime tests](../../src/lib/server/services/chat-turn/completion-lifetime-durable.test.ts), [finalization tests](../../src/lib/server/services/chat-turn/finalize.test.ts), [contract](../plans/turn-completion/contract/spec.md).

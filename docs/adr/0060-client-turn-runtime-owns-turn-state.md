@@ -38,3 +38,16 @@ The first two were the conservative path and were the standing plan until this d
 - Migration is incremental. Ownership moves one concern at a time (message text, then reasoning, then lifetime, then terminal outcome), with the adapter seam remaining for everything not yet moved. No slice may leave two owners for the same field.
 - Dead mirrored page state (`activeWorkingSet`, the page copy of `queuedContextCompression`) is removed as part of the move.
 - ADR-0019 is marked superseded on this point only, with a pointer here. Its placement decision — the runtime lives above `streamChat`, not inside transport, not in the page — is still the governing rule.
+
+## Amendment (2026-11-11) — canonical observation and Stop settlement
+
+The runtime validates exact stream/chat/turn/segment and assistant identity before observed saved state may settle an owned row. Its existing finalize event carries the whole canonical `ChatMessage`; the [message-list finalizer](../../src/routes/(app)/chat/[conversationId]/_helpers.ts) replaces that exact row from the saved base, preserving render identity and explicit client lifecycle overrides. Absent saved fields clear stale values.
+
+- For adoption of an observed full canonical row, reject field-by-field reconstruction through stream metadata, whole-list replacement and latest-row/content matching. Preserve legacy receipt-only observation and metadata-only fallback; Stop and observations advertising structural completion still require strict scoped identity/completion validation. Canonical adoption keeps durable fields consistent without a new adapter or reconciliation owner.
+- Stop releases the composer and restores queued draft immediately, sends upstream Stop once, and may observe only the captured turn. Its private handoff is bounded to ten seconds and five requests; terminal row reads share that deadline. It never revives sending, drains the queue or starts generation.
+- Local Stop, `wasStopped` and EOF cannot invent structural completion. Unavailable/mismatched saved evidence retains partial output and explicit uncertainty. Canonical adoption preserves known finalization failures and does not await accounting readiness.
+- Runtime-owned action settlement supplies current permits for navigation/regeneration. Regeneration requires authoritative row identity; navigation requires reader settlement. Recheck ownership, target and permit after awaits; a stale command cannot slice messages or dispatch retry.
+
+This replaces page polling and selective metadata copying with one authority/lifetime seam. The trade-off is bounded unavailability when identity cannot be established, rather than speculative retries. Same-completion adoption preserves keyed disclosure state without opting the reader into reasoning; a changed eligibility identity still revokes retained-prose disclosure.
+
+Evidence: [runtime tests](../../src/lib/client/normal-chat-client-turn-runtime.test.ts), [finalizer tests](../../src/routes/(app)/chat/[conversationId]/_helpers.test.ts), [canonical specification](../plans/turn-completion/contract/canonical-message-reconciliation.md), [Stop action specification](../plans/turn-completion/contract/stop-action-settlement.md).

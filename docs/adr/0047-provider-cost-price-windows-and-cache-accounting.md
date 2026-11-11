@@ -31,3 +31,16 @@ These populate `cachedInputTokens` / `cacheHitTokens` / `cacheMissTokens` on the
 - **Cache accounting depends on provider metadata shape.** New providers that report cached tokens in an unrecognized field silently record zero cache tokens (billed as full input) until a mapping is added to `mapCachedPromptTokensFromProviderMetadata`.
 - **Window validation lives in `price-windows.ts`** (`PriceWindowValidationError`); the admin editor is the Time-slot pricing surface on the model form. The resolver-facing loader filters to `enabled` windows; the admin loader returns all.
 - **CONTEXT.md needs Model-Provider terms** for **Price Window** (recurring rate override + resolution/tie-break/fallback) and **Prompt Cache Accounting** (cache-key emission + cache-aware cost). These are operator/product-facing cost concepts, so glossary entries are warranted.
+
+## Amendment (2026-11-11) — actual-attempt accounting and honest unknowns
+
+ModelRun owns step aggregation and actual provider/model attribution; [analytics](../../src/lib/server/services/analytics.ts) owns pricing and billing storage. The content-free [turn/attempt ledger](../../src/lib/server/services/chat-turn/turn-ledger.ts) records accepted and unsaved terminal work without becoming another analytics subsystem.
+
+- Price each actual working/closing/failed attempt at its own resolved model rates; sum known charges once. Never add cumulative SDK totals to constituent steps or bill a linked message aggregate again in conversation totals.
+- Attempt outcome/stop cause and provider finish reason may be unknown; token amounts remain nullable. Do not infer them from the enclosing turn. Usage completion and aggregate reconciliation gate `ready`; unknown final usage cannot become ready or zero. Late facts reconcile idempotently.
+- Message linkage, terminal settlement and late usage may arrive in either order. A terminal receipt does not establish final accounting readiness; retain targeted serial message refresh rather than requiring financial readiness for visible completion.
+- Incognito admission skips durable turn/attempt tracking, and financial writers exclude incognito. This does not promise no saved conversation state. Ledger rows cascade with conversation/account erasure; terminal references may outlive assistant-row deletion. No raw conversation/evidence content belongs in accounting telemetry.
+
+We reject attributing all spend to the selected model or last attempt: fallback/closing can use different billable models and failed unsaved work can cost money. Explicit unknowns and idempotent reconciliation require more state but avoid invented totals and duplicate charges. Optional read-enrichment privacy/failure behavior is recorded in [ADR-0022](0022-conversation-detail-read-model-boundary.md).
+
+Evidence: [ledger accounting/privacy tests](../../src/lib/server/services/chat-turn/turn-ledger.test.ts), [analytics usage tests](../../src/lib/server/services/analytics.message-usage.test.ts), [message projection tests](../../src/lib/server/services/messages.usage-projection.test.ts).

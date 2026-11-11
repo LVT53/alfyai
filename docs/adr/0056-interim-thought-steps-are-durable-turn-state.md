@@ -98,3 +98,16 @@ We chose the last. Raw trace with a counter quantifies a wait without explaining
 **Disclosure UX: clean by default, transparency on demand.** The expanded view stops dumping the full interleaved raw chain-of-thought. It becomes a compact, ordered step list (phase icon + the summary + duration), with tool calls as distinct inline chips; selecting a step reveals **only that step's anchored span**, and the full raw **Thinking Trace** lives behind an explicit, opt-in "show full reasoning" control. The **Thought Step Anchor**'s "select a step → see the exact reasoning that produced it" contract is unchanged and, in fact, becomes the primary transparency affordance rather than an always-on wall of text.
 
 **Considered and rejected here:** *free paraphrase, audit-only* (no runtime tether — maximum polish, but an unfaithful summary can reach a user live and is only caught in aggregate after the fact) and *a live per-step faithfulness judge* (safest, but adds reasoning-path latency and suppresses more steps, partially reintroducing the static feel). Entity-grounded paraphrase plus an offline faithfulness gate is the chosen balance: most of the polish, most of the safety, no reasoning-path judge.
+
+## Amendment (2026-11-11) — working prose has separate disclosure authority
+
+Ordinary ModelRun working prose is retained structural activity, not native reasoning or an anchored/classified Interim Thought Step. Reusing ThinkingBlock does not authorize a classifier claim or replace persisted thought-step state.
+
+- Never show ordinary activity prose while its segment is live, even in an expanded rail. Retain existing live status, tool rows and native-reasoning behavior.
+- Only explicit stopped, paused, incomplete or failed completion makes that segment's retained activity eligible for deliberate terminal disclosure. Missing completion and successful outcomes do not. Expansion while live does not authorize later disclosure.
+- Disclosure authority follows turn/segment/outcome identity and is revoked on eligibility changes, including a round trip through another identity. An independently resumed segment does not revoke an explicitly opened paused segment.
+- Preserve the existing clean anchored rail, selected-span reveal and full-reasoning opt-in. Where no anchored rail exists, preserve the native-reasoning fallback. Ordinary activity never enters answer Copy/export.
+
+We reject live working-prose display and prose classification: answer-shaped provisional text could otherwise appear as thinking before settlement. Separate terminal disclosure preserves inspectability at the cost of an explicit reader action. Canonical saved-row adoption must preserve component identity while replacing durable trace/anchor data ([ADR-0060](0060-client-turn-runtime-owns-turn-state.md)).
+
+Evidence: [ThinkingBlock tests](../../src/lib/components/chat/ThinkingBlock.output.test.ts), [display amendment](../plans/turn-completion/contract/thinking-display-amendment.md), [browser contract tests](../../tests/e2e/turn-completion-contract.spec.ts).
