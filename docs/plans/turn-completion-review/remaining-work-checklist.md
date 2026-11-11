@@ -99,3 +99,11 @@ The CLI resolves the database realpath and only permits apply on the exact stagi
 
 - Plain ownership guard `3e6841f04`: `/tmp/remaining-plain-owner-red.log` proves prepared transfer fails when disabled; `/tmp/remaining-plain-owner-durable-red.log` proves terminal-before-link pending fails when owner retention is removed. Restored implementation: `/tmp/remaining-plain-owner-green.log`,58/58 pass. The durable fixture explicitly models terminal persistence before message linkage, then verifies released unsaved ownership becomes a failure. This is additional boundary coverage, not a claim that a new production defect was discovered.
 - Stronger8192 browser certification remains pending: initial strengthened assertion incorrectly assumed a1024-token output reserve; actual policy applies820 for8192 context. The browser worker is aligning the assertion with the existing adaptive budget policy; the full serialized input-plus-reserve bound remains mandatory. This intermediate run is not a pass.
+
+### 8192-context defect discovered during stronger certification
+
+The stronger browser check exposed a real budget defect: serialized messages plus tool definitions and reserved output totaled **14,355 tokens against8,192**. The earlier successful browser run did not certify that bound. This is not merely an820-versus1024 output-reserve assertion issue.
+
+The server fix must count the actual serialized tool schemas and fail closed before dispatch when the complete request cannot fit. The full catalogue therefore has an explicit capacity-failure expectation with **zero provider requests** at8,192; supporting a14,355-token catalogue inside8,192 is not claimed. Positive actual-SDK tests with a small tool catalogue must prove a fitting request in both plain and streaming transports. Gate and strengthened browser evidence are pending.
+
+The new browser test's initial assumption that the full catalogue should succeed has been revised to the required safe capacity behavior. No assertion in any of the33 original review reproducers was weakened or rewritten. The original review requested small-context certification; this boundary covers both fit and explicit refusal rather than silently omitting required context or tool definitions.
