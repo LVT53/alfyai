@@ -1,8 +1,8 @@
 # Accounting-independent message reads
 
-Status: **Astra SPEC DESIGN PASS — conditional on the binding clarification below, now recorded.** Verdict supplied by the controller; no independent reviewer dispatch is claimed by this specification author. Controller selected rank 1 of the fresh architecture scan. This document is the sole authorized write. **Current live UI verification remains pending; application implementation is not authorized by this update.** The controller must confirm UI completion and then dispatch a fresh implementation worker under the clarified specification. A specification pass is not implementation acceptance or release authorization.
+Status: **Implemented and Astra-accepted:** accounting isolation `11bbca855`, 159 focused tests PASS. Integrated source `29e51551f` passed gate14 and is deployed to staging only; production remains `40f2d74fc`, untouched. Controller/Astra granted qualified functional acceptance for observed app behavior; original Stop v8/Natural v10 and the v3 GET-only addendum remain **FAILED watchdogs**, release evidence is not all green, and independent Fable review is pending. See [verification](verification.md) for exact evidence and limits. Historical inspection below describes the pre-fix source, not current behavior. Normative requirements remain binding.
 
-## Problem and evidence
+## Historical problem and evidence — pre-fix inspection
 
 Durable conversation history must remain readable when optional accounting queries fail independently of message storage. The inspected source was `75274b2ee`; the failure chain is confirmed by source inspection, not by a fault-injection run in this scan.
 

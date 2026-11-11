@@ -1,8 +1,8 @@
 # Canonical saved-message reconciliation
 
-Status: Astra SPEC PASS and controller implementation authorization received after specification commit `066f53d7a`; client implementation now frozen for independent diff review. Focused validation passed; release acceptance remains open. Original source inspection HEAD: `7ebd7f3930a810512a91bd3e9b3a82c1e17729f0` (2026-11-11).
+Status: **Implemented and Astra-accepted:** canonical adoption `439403eef`, 777 focused tests PASS. Integrated source `29e51551f` passed gate14 and is deployed to staging only; production remains `40f2d74fc`, untouched. Controller/Astra granted qualified functional acceptance for observed app behavior; original Stop v8/Natural v10 and the v3 GET-only addendum remain **FAILED watchdogs**, release evidence is not all green, and independent Fable review is pending. See [verification](verification.md) for exact evidence and limits. Historical source inspection below was at `7ebd7f3930a810512a91bd3e9b3a82c1e17729f0` (2026-11-11), before the fix; normative requirements remain binding.
 
-## Proven defect and evidence limits
+## Historical proven defect and evidence limits — pre-fix inspection
 
 Stop/reconnect observation reads the complete saved assistant `ChatMessage`, but loses durable fields when applying it to the current page. `settleObservation` in `src/lib/client/normal-chat-client-turn-runtime.ts:1944–2068` finds the exact saved assistant, applies its structural output, then reconstructs `StreamMetadata` from selected fields. It forwards `thinking` but omits `thoughtSteps`. `finalizeStreamingMessageList` in the chat page's `_helpers.ts:1169–1296` only uses `metadata.thoughtSteps ?? message.thoughtSteps`; a live placeholder has no completed durable rail to fall back to. Other saved display fields can be lost or remain stale through the same mechanism.
 
