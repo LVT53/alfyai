@@ -615,7 +615,7 @@ describe("installed SDK native shapes", () => {
 		["stop", "stop", 1],
 		["length", "length", 2],
 		["failed", "failed", 2],
-	] as const)("keeps unfinished step image eligibility through closing (%s → %s)", async (first, closing, wantClosingPixels) => {
+	] as const)("keeps unfinished step image eligibility through recovery (%s → %s)", async (first, closing, wantClosingPixels) => {
 		const queue = createStepImageQueue();
 		queue.push({ label: "unfinished picture", images: [picture] });
 		const seen: unknown[] = [];
@@ -645,7 +645,11 @@ describe("installed SDK native shapes", () => {
 			),
 		);
 		expect(seen.map(pixelCount)).toEqual([2, wantClosingPixels]);
-		expect(result.completion?.closingAttempted).toBe(true);
+		expect(seen).toHaveLength(2);
+		expect(result.completion?.closingAttempted).toBe(first !== "failed");
+		expect(result.completion?.phase).toBe(
+			first === "failed" ? "working" : "closing",
+		);
 		expect(result.completion?.outcome).toBe(
 			closing === "stop"
 				? "answered"

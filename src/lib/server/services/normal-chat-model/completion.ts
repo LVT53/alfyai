@@ -76,6 +76,8 @@ export type NormalChatContinuationStep = {
 	stepId: string;
 	phase: NormalChatOutputPhase;
 	response: ModelMessage[];
+	/** Failed pre-work output is retained for audit, never supplied to a fallback. */
+	responseExcludedFromContext?: boolean;
 	finished: boolean;
 	toolAttempted: boolean;
 	finishReason: string | null;
@@ -326,6 +328,8 @@ export async function* runNormalChatCompletion(
 	let responseModel = params.provider.modelName;
 	let closingAttempted = snapshot.closingSegments.includes(policy.segmentId);
 	let droppedToolCalls = 0;
+	let workingRetryAttempted = false;
+	let receivedUpstreamOutput = false;
 	let segmentWorkingSteps = snapshot.steps.filter(
 		(s) =>
 			s.segmentId === policy.segmentId && s.phase === "working" && s.finished,
@@ -361,10 +365,46 @@ export async function* runNormalChatCompletion(
 			continuation: snapshot,
 		};
 	}
+	const contextResponse = (
+		step: NormalChatContinuationStep,
+	): ModelMessage[] => {
+		if (step.responseExcludedFromContext) return [];
+		if (phase !== "closing") return step.response;
+		const results = new Set(
+			step.response.flatMap((message) =>
+				message.role === "tool"
+					? message.content
+							.filter((part) => part.type === "tool-result")
+							.map((part) => part.toolCallId)
+					: [],
+			),
+		);
+		const unexecuted = new Set(
+			snapshot.executions
+				.filter(
+					(entry) =>
+						entry.attemptId === step.attemptId &&
+						entry.stepId === step.stepId &&
+						entry.state === "definitely_not_executed" &&
+						!results.has(entry.callId),
+				)
+				.map((entry) => entry.callId),
+		);
+		// A rejected call is not execution evidence. Remove only its unmatched
+		// request from the outbound projection; retain the lossless audit journal.
+		return step.response.flatMap((message): ModelMessage[] => {
+			if (message.role !== "assistant" || !Array.isArray(message.content))
+				return [message];
+			const content = message.content.filter(
+				(part) => part.type !== "tool-call" || !unexecuted.has(part.toolCallId),
+			);
+			return content.length ? [{ ...message, content }] : [];
+		});
+	};
 	const canonical = (): ModelMessage[] => {
 		const messages = clone(snapshot.original.messages);
 		for (const step of snapshot.steps) {
-			messages.push(...clone(step.inserts), ...clone(step.response));
+			messages.push(...clone(step.inserts), ...clone(contextResponse(step)));
 		}
 		return messages;
 	};
@@ -375,7 +415,7 @@ export async function* runNormalChatCompletion(
 		let offset = snapshot.original.messages.length;
 		const boundaries = snapshot.steps.map((saved) => {
 			const start = offset;
-			offset += saved.inserts.length + saved.response.length;
+			offset += saved.inserts.length + contextResponse(saved).length;
 			return { saved, start };
 		});
 		messages = clone(messages);
@@ -824,6 +864,7 @@ export async function* runNormalChatCompletion(
 			});
 		};
 		const finishStep = (event: OnStepFinishEvent<ToolSet>) => {
+			receivedUpstreamOutput = true;
 			clearFirstOutputTimeout();
 			const current = ensureStep(event.stepNumber);
 			if (!streaming)
@@ -987,6 +1028,16 @@ export async function* runNormalChatCompletion(
 				const result = streamText({ ...request, onError: () => {} });
 				let streamStepNumber = -1;
 				for await (const part of result.fullStream) {
+					if (
+						part.type === "text-start" ||
+						part.type === "text-delta" ||
+						part.type === "reasoning-start" ||
+						part.type === "reasoning-delta" ||
+						part.type === "tool-input-start" ||
+						part.type === "tool-call" ||
+						part.type === "tool-result"
+					)
+						receivedUpstreamOutput = true;
 					if (part.type === "start-step") {
 						streamStepNumber++;
 						const current = ensureStep(streamStepNumber);
@@ -1228,6 +1279,9 @@ export async function* runNormalChatCompletion(
 		) {
 			const fallback = await deps.fallback?.(rawError);
 			if (fallback) {
+				for (const step of snapshot.steps)
+					if (step.attemptId === attemptId)
+						step.responseExcludedFromContext = true;
 				params = {
 					...params,
 					provider: fallback.provider,
@@ -1236,6 +1290,16 @@ export async function* runNormalChatCompletion(
 				deps = fallback.dependencies;
 				responseModel = params.provider.modelName;
 				continue;
+			}
+			if (stopCause === "transport_error" && !receivedUpstreamOutput) {
+				// One bounded working retry preserves the original tool-enabled task.
+				// A second unreachable request is a failure, not a tools-off answer.
+				if (!workingRetryAttempted) {
+					workingRetryAttempted = true;
+					continue;
+				}
+				outcome = "failed";
+				break;
 			}
 		}
 		const natural =

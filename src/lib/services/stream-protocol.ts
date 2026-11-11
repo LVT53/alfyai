@@ -1030,6 +1030,11 @@ function isMarkdownToolCallBlockPrefix(value: string): boolean {
 }
 
 /** Explicit provider control syntax only; JSON fences are ordinary answer content. */
+export function containsToolCallMarkup(value: string): boolean {
+	return value.includes("<｜｜DSML｜｜ calls>");
+}
+
+/** Legacy prefix cleanup recognizes the same explicit syntax at the start. */
 export function startsWithToolCallMarkup(value: string): boolean {
 	const firstVisible = value.search(VISIBLE_CHARACTER_RE);
 	const candidate = firstVisible < 0 ? "" : value.slice(firstVisible);

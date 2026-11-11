@@ -1,8 +1,8 @@
 import {
+	containsToolCallMarkup,
 	createInlineThinkingState,
 	flushInlineThinkingState,
 	processInlineThinkingChunk,
-	startsWithToolCallMarkup,
 	stripCompleteSkillControlEnvelopeBlocks,
 } from "$lib/services/stream-protocol";
 import type { NormalChatCompletion } from "./normal-chat-completion";
@@ -115,7 +115,7 @@ export function sanitizeNormalChatAnswer(text: string): string {
 		emit,
 	);
 	flushInlineThinkingState(state, emit);
-	return startsWithToolCallMarkup(result) ? "" : result;
+	return containsToolCallMarkup(result) ? "" : result;
 }
 
 export type NormalChatOutputProjection = {

@@ -104,6 +104,8 @@ After a known execution outcome, automatic recovery/failover is tools-disabled c
 
 One closing generation invocation per running segment, no recursive closing, SDK generation retries or provider failover inside closing. A resumed segment after explicit user input has its own one-call allowance and same reply lineage. Working budgets are existing step budgets (not individual tool-call counts); continuation never resets them.
 
+A transport failure before any upstream text, reasoning or tool occurrence may receive one bounded working retry with tools, after configured pre-work failover is exhausted and only inside the original deadline. A second such failure ends failed; it must not silently turn a tool-enabled task into a tools-disabled answer. Once output or a tool occurrence exists, this retry is forbidden. Pre-work failover excludes the failed attempt's response text/reasoning from outbound context while preserving its audit record and unconsumed picture inputs. Closing removes unmatched calls proven not executed from its outbound projection; it never invents results for unknown effects. Explicit DSML tool syntax anywhere in output prevents answer promotion, including after visible prose; ordinary JSON fences remain answer text.
+
 The plan fixes deadline/output allocation before implementation. No closing after parent deadline or content filter. A destination must fit complete policy-gated context plus output reserve; otherwise explicit incomplete context_capacity, never silent truncation/digests/refetch or a smaller-window fallback. Truncation of working output can request closing when eligible; closing truncation remains incomplete. Retain original working stop cause separately from closing outcome.
 
 ### Durable identity and accounting
