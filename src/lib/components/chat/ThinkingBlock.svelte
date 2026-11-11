@@ -1,5 +1,8 @@
 <script lang="ts">
-import type { NormalChatOutputProjection } from "$lib/shared/normal-chat-output";
+import {
+	sanitizeNormalChatAnswer,
+	type NormalChatOutputProjection,
+} from "$lib/shared/normal-chat-output";
 import {
 	getSkillControlEnvelopePrefixHoldLength,
 	SKILL_CONTROL_ENVELOPE_CLOSE_TAG,
@@ -738,7 +741,7 @@ function commentaryTextForDisplay(text: string, final: boolean): string {
 	}
 	// An ambiguous ordinary opening prefix is held live, then flushed unchanged.
 	const hold = final ? 0 : getSkillControlEnvelopePrefixHoldLength(visible);
-	return hold ? visible.slice(0, -hold) : visible;
+	return sanitizeNormalChatAnswer(hold ? visible.slice(0, -hold) : visible);
 }
 
 function formatThinkingTextForDisplay(text: string): string {
