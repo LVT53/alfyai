@@ -95,7 +95,7 @@ function snapshot(
 				responseModelId: "first",
 				inputTokens: complete ? 100 : null,
 				outputTokens: complete ? 20 : null,
-				reasoningTokens: complete ? 5 : null,
+				reasoningTokens: complete ? 5 : undefined,
 				totalTokens: complete ? 120 : null,
 				complete,
 			},
