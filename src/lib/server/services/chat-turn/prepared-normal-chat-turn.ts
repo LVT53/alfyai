@@ -286,8 +286,8 @@ export async function prepareNormalChatTurn(
 				prepared.turnPictures,
 				stepImages,
 			);
-			params.signal?.throwIfAborted();
 			packs.push(pack);
+			params.signal?.throwIfAborted();
 			return pack;
 		};
 		const initial = await packFor(runtime.modelId);

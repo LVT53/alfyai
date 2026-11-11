@@ -1399,3 +1399,27 @@ it.each([
 	expect(mocks.tools).not.toHaveBeenCalled();
 	expect(mocks.model).not.toHaveBeenCalled();
 });
+
+it("settles the lifetime exactly once if cancellation arrives while the initial tool pack is prepared", async () => {
+	const controller = new AbortController();
+	let release!: (value: unknown) => void;
+	mocks.tools.mockReturnValue(
+		new Promise((resolve) => {
+			release = resolve;
+		}),
+	);
+	const pending = prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams({ signal: controller.signal }),
+	);
+	await vi.waitFor(() => expect(mocks.tools).toHaveBeenCalledOnce());
+	controller.abort(new Error("cancelled tool preparation"));
+	release({
+		tools: {},
+		stepImages: { drain: () => [] },
+		getToolCalls: () => [],
+		getTurnAsk: () => null,
+	});
+	await expect(pending).rejects.toThrow("cancelled tool preparation");
+	expect(mocks.model).not.toHaveBeenCalled();
+	expect(mocks.settle).toHaveBeenCalledOnce();
+});
