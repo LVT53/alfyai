@@ -1,12 +1,12 @@
 # Normal Chat completion remediation — 2026-11-11
 
-**Local remediation evidence, not production approval.** Branch `fix/turn-completion`, worktree `/Users/lvt53/.codex/worktrees/turn-completion/alfyai`. Starting validated code: `29e51551f`; starting documentation tip: `495282bf4`. Final code baseline: `c2d7e13c4`; the first release gate ran against that code. This report is a later documentation-only commit. Gate results and staging proof remain **PENDING** below. Production must remain `40f2d74fc`; no merge/push to `dev` or `main` is authorized.
+**Local remediation evidence, not production approval.** Branch `fix/turn-completion`, worktree `/Users/lvt53/.codex/worktrees/turn-completion/alfyai`. Starting validated code: `29e51551f`; starting documentation tip: `495282bf4`. Final validated code baseline: `70a045514`; all release gates passed. Subsequent `eb2869fd6` changes documentation only. Staging deployment and real-provider proof remain **PENDING** below. Production must remain `40f2d74fc`; no merge/push to `dev` or `main` is authorized.
 
 The independent [original review](/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/turn-completion-review/fable-verdict-2026-11-11.md) and its 33 saved `.txt` reproducers remain unchanged in the main checkout. The authoritative original path is `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/turn-completion-review/fable-verdict-2026-11-11.md`. The failed Stop v8, Natural v10 and read-only-addendum reports remain failed. No new result retroactively validates them.
 
 ## How to read the evidence
 
-`R/` below means `/tmp/turn-completion-remediation/`; other `/tmp/` paths are literal local logs. Counts are focused runs, not additive release totals. “Fixed” means the cited deterministic test passed; it does not claim a new full gate or live-provider success. Permanent tests live in the branch; transient logs remain local. Original probes that deliberately assert old behavior are distinguished from desired invariants. Their source and assertions were not weakened.
+`R/` below means `/tmp/turn-completion-remediation/`; other `/tmp/` paths are literal local logs. Counts are focused runs, not additive release totals. “Fixed” means the cited deterministic test passed; final combined gate evidence appears below; no live-provider success is claimed. Permanent tests live in the branch; transient logs remain local. Original probes that deliberately assert old behavior are distinguished from desired invariants. Their source and assertions were not weakened.
 
 Detailed slice reports: [initial priorities](remediation-progress.md), [engine/replay](remediation-engine-replay.md), [client/incognito](client-observation-remediation.md), [lower client/UI](client-ui-lower-remediation.md), [accounting/audit guards](remediation-accounting-guards.md). Server/lower guard evidence: [server outcomes and guards](remediation-server-guards.md), commits `012db58ce`, `c09da1a4e`, `c2d7e13c4`.
 
@@ -16,7 +16,7 @@ Detailed slice reports: [initial priorities](remediation-progress.md), [engine/r
 |---|---|---|---|
 | 1.1 | **Fixed:** stored snapshots/finalization/read responses compact deltas by scoped block; live callbacks unchanged | Original size measurement passed while exposing 161,564 / 1,683,676 / 3,193,580 bytes. New bounds failed, then passed: metadata ≤ text bytes + 8,000 and ≤12 events for fixtures; legacy reads bounded too. `R/1.1-original-before.log`, `1.1-invariant-red.log`, `1.1-focused-green.log` (208 tests) | `tests/integration/normal-chat-output-size.test.ts`; shared output reducer tests |
 | 1.2 | **Fixed:** JSON fences/ordinary keys never classify answer ownership; generic document/program JSON preserved through final normalization | Original D sanitizer + A JSON case 4 failed →4 passed. Follow-up payload examples 8 failed →110 focused tests passed. `R/1.2-original-{red,green}.log`, `1.2-payload-{red,green}.log` | `normal-chat-completion.test.ts`, `normal-chat-output.test.ts`, stream-protocol/normalizer tests |
-| 2.1 | **Fixed locally:** provisional chunks stream in answer area; first tool occurrence withdraws them; clean stop commits once | 2 red invariants →427 focused tests plus settlement tests passed. `R/2.1-red.log`, `2.1-broad-green.log`, `2.1-settlement-green.log`. Frame-gated browser additions await release gate | `normal-chat-output-view.test.ts`, MessageBubble/ThinkingBlock, completion SDK; `tests/e2e/turn-completion-contract.spec.ts` |
+| 2.1 | **Fixed locally:** provisional chunks stream in answer area; first tool occurrence withdraws them; clean stop commits once | 2 red invariants →427 focused tests plus settlement tests passed. `R/2.1-red.log`, `2.1-broad-green.log`, `2.1-settlement-green.log`. Frame-gated browser additions passed the final release gate | `normal-chat-output-view.test.ts`, MessageBubble/ThinkingBlock, completion SDK; `tests/e2e/turn-completion-contract.spec.ts` |
 | 2.2 | **Fixed:** settled file-job failure reaches model; working loop can correct it within existing two-submission cap | Original A-prepared:1 generation/1 submission instead of3/2 →original exact3/2/answer assertion passes; unknown/running/throw/abort/timeout remain uncertain. `R/2.2-original-red.log`, `2.2-invariant-red.log`, `2.2-broad-green.log` (158 tests) | `chat-turn/zz-review-A-prepared.test.ts`, `produce-file-patch-mode.test.ts`, tool-envelope certainty tests |
 | 1.3 | **Fixed:** capacity callback checks captured epoch and stream ownership | Original C-capacity:2 fresh POSTs after Stop →1. `R/1.3-original-red.log`, `1.3-green.log` (363 tests) | `normal-chat-capacity-stop.test.ts` |
 | 1.4 f | **Fixed:** completion shares existing deterministic JSON repair; no repair-model request | Original completion executed0 tools vs legacy1 →both1, both transports. `R/1.4f-original-{red,green}.log`, `1.4f-focused-green.log` (209 tests) | `tests/integration/normal-chat-completion.test.ts`, “keeps production tool-call JSON repair” |
@@ -24,7 +24,7 @@ Detailed slice reports: [initial priorities](remediation-progress.md), [engine/r
 
 The two owner-ruled regressions were corrected in code and current documents: contract `spec.md`, `thinking-display-amendment.md`, `produce-file-refusal-certainty.md`, ADR-0026/0056, and chat component folder rules. Status-label content policy was also corrected in the contract and durable-file-linkage policy. Historical review verdicts were not rewritten.
 
-The section5 invariants remain the intended contract: one engine for both transports, one tools-off closing per segment, Stop/pause precedence, no generation on observe/reconnect, exact saved-row adoption, durable file linkage before receipt, privacy-first/all-or-nothing accounting and unknown usage remaining unknown. Structural step/tool facts alone determine commentary versus answer; no word, length or punctuation classifier was added. The detailed scoped regressions exercise those boundaries; the full release gate remains the final combined check.
+The section5 invariants remain the intended contract: one engine for both transports, one tools-off closing per segment, Stop/pause precedence, no generation on observe/reconnect, exact saved-row adoption, durable file linkage before receipt, privacy-first/all-or-nothing accounting and unknown usage remaining unknown. Structural step/tool facts alone determine commentary versus answer; no word, length or punctuation classifier was added. The detailed scoped regressions exercise those boundaries; the final release gate passed as the combined check.
 
 ## Remaining 1.4 cases
 
@@ -62,7 +62,7 @@ Replay still has hard200KB/10,000-frame limits. It does not promise unlimited re
 | Interrupted partial passed as complete history | **Fixed locally:** native and flat history label failed/stopped/incomplete partials | `context-selection.test.ts`; `R/1.5-history-red.log`, `1.5-server-focused-green.log` |
 | Removed150s idle/300s outer timers; no overall prep/finalize bound | **OPEN:** old watchdogs not restored; current working/first-output guards now mutation-protected. No new preparation/finalization overall bound | F-hung-stream remains measurement of existing deadline behavior; no claim that all hangs are bounded |
 
-Server lower slice original result:9 failed/1 control passed →10 passed; history2 new invariants red →green; six focused files400 passed (`R/1.5-server-focused-green.log`). Client lower suite initially exposed four compatibility regressions; corrected before394 focused tests passed. The earlier `1.5-focused.log` is **not a green run**: it also contained12 obsolete status-prefix oracles. Accounting/verifier slice171 passed; rendered missing/zero2 passed; final ring17 passed. Full gate still pending.
+Server lower slice original result:9 failed/1 control passed →10 passed; history2 new invariants red →green; six focused files400 passed (`R/1.5-server-focused-green.log`). Client lower suite initially exposed four compatibility regressions; corrected before394 focused tests passed. The earlier `1.5-focused.log` is **not a green run**: it also contained12 obsolete status-prefix oracles. Accounting/verifier slice171 passed; rendered missing/zero2 passed; final ring17 passed. The final full gate passed; see its durable summary below.
 
 ## Section 6 guard and oracle protection
 
@@ -82,10 +82,10 @@ Server lower slice original result:9 failed/1 control passed →10 passed; histo
 | Audit duplicate terminal segment | Same method | **Killed**, `audit-mutation-5.log` |
 | Audit known final token counts | Same method | **Killed**, `audit-mutation-6.log` |
 | Audit outside-generated-ID rows | Same method | **Killed**, `audit-mutation-7.log` |
-| Browser failed/incomplete regex | Exact mode outcome plus saved/reloaded outcome assertions added | **Pending release execution** |
-| Second browser observer never observes | Explicit completed observe POST and unchanged provider-call count added | **Pending release execution** |
-| Live text checked at one instant | Frame gates assert successive chunks before finish, then tool withdrawal and canonical actions | **Pending release execution** |
-| Reduced-motion variants assert no difference | Computed active thinking animation `none` versus `thinking-sweep` assertion added | **Pending release execution** |
+| Browser failed/incomplete regex | Exact mode outcome plus saved/reloaded outcome assertions added | **Passed final release gate** |
+| Second browser observer never observes | Explicit completed observe POST and unchanged provider-call count added | **Passed final release gate** |
+| Live text checked at one instant | Frame gates assert successive chunks before finish, then tool withdrawal and canonical actions | **Passed final release gate** |
+| Reduced-motion variants assert no difference | Computed active thinking animation `none` versus `thinking-sweep` assertion added | **Passed final release gate** |
 | Small8192-context browser catalogue | No certified small-context scenario added | **OPEN** |
 
 Engine/reconnect guard baseline18 passed (`R/section6-guards-green.log`). Audit tests are `tests/integration/turn-completion-staging-harness.test.ts`, “review audit guard coverage”;7 new cases pass. Audit mutations use temporary module/test copies; the shipped verifier already contained the guards and was not edited. `--inspect` still does not certify matrix completeness by itself.
@@ -109,17 +109,19 @@ Owner explicitly approved both bounded DeepSeek Flash cases, **after fixes, full
 
 The runner drives the real streamed engine, lifetime, finalizer and pricing, then audits exact generated IDs through a read-only SQLite connection. It disables only optional turn-state maintenance and uses pre-titled conversations to avoid title calls. It proves **engine + persistence + accounting**, not browser routing/full preparation. Offline7/7 tests pass, including standalone `tsx` import with network blocked and missing-price failure despite a saved receipt (`/tmp/closing-runner-final.log`). This is not real-provider evidence; Kimi/Qwen closing remains untested.
 
-## Final release gate — PENDING
+## Final release gate — PASSED
 
 - First gate code baseline: `c2d7e13c4`; report commit `5d84bf1a1` was documentation only.
 - First release output: `/tmp/turn-completion-release-20261111/summary.txt`; elapsed15m56s.
-- Final gate code baseline: `70a045514`; running, result **PENDING**. Later documentation-only corrections do not change that code baseline.
 - **First gate FAILED:** check0 errors/0 warnings; Biome1 formatting failure in `ContextUsageRing.svelte`; Vitest26,012 passed/20 failed/3 skipped; Playwright1,589 passed/3 failed/75 skipped/0 flaky. Build, chunks, migrations and Fallow passed.
-- Formatting correction is separate from behavioral/test corrections being made by the owning workers. **Final release gate PENDING**; the failed first gate is retained, and no staging readiness is inferred from its passing steps.
+- Corrections: `95450d420` scoped formatting; `44be15646` preserves original public delta counts despite compact replay; `577d1d653` makes refusal fixtures exercise both bounded attempts and scopes Copy to the answer; `aef404eb3` preserves literal trailing activity text and corrects obsolete status-prefix/navigation oracles without dropping exact-content assertions.
+- **Second gate FAILED:** `/tmp/turn-completion-release-final-20261111/vitest.log` had26,032 unit passes/1 failure/3 skips; browser1,592 passed/75 skipped/0 failed/0 flaky. The remaining failure was the existing decode-worker fixture's50ms wall-clock startup race. `fde6466cc` cherry-picked only the known test fix: fake pool timers, await real worker startup, advance exactly50ms. Real termination/recovery assertions stay intact; no product timeout, assertion weakening or retry increase. All16 focused decode tests passed; no other dev commit merged.
+- **Final release gate PASSED at `70a045514`:**26,033 unit tests passed/3 skipped;1,592 browser tests passed/75 skipped/0 failed/0 flaky; all static gates passed. Check:0 errors/0 warnings in9,114 files. Biome:exit0, one informational diagnostic. Build:exit0, unused-css0/aria0. Migrations/chunks passed; Fallow3.33.1 reports four existing circular dependencies and no new baseline findings. Elapsed13m51s, eight browser workers.
+- Original final output: `/tmp/turn-completion-release-verified-20261111/summary.txt`. Durable verbatim copy: [release-gate-summary-2026-11-11.txt](release-gate-summary-2026-11-11.txt). Failed earlier gates remain recorded; later documentation-only commits do not change the validated code.
 
 ## Staging-only deployment — PENDING
 
-- Side-branch push/deployed revision and staging health evidence: **PENDING**.
+- Side branch through documentation-only `eb2869fd6` pushed and verified by orchestrator. Deployed staging revision and health evidence: **PENDING**.
 - Production remained `40f2d74fc`; final read-only confirmation: **PENDING**.
 - No `dev`/`main` push or production deployment authorized.
 

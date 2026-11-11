@@ -1,0 +1,12 @@
+gates release at 70a045514 Record release-gate worker fixture race and focused verificati — 17:06:26
+machine: 14 cores, load at start 3.0 6.0 6.9; e2e workers 8; schedule overlap
+check      exit=0 ok      54s (+19s) :: 0 errors, 0 warnings in 9114 files
+biome      exit=0 ok       2s (+0s) :: Found 1 info.
+migrations exit=0 ok       0s (+0s) :: All schema tables have corresponding migrations.
+vitest     exit=0 ok   11m08s (+19s) :: files 1346 passed | 1 skipped (1347); tests 26033 passed | 3 skipped (26036)
+build      exit=0 ok      19s (+0s) :: unused-css=0 aria=0 (baseline 0/0)
+chunks     exit=0 ok       1s (+19s) :: editor closure 70.9 kB gzip; chat route first paint 638641 B gzip in 99 chunks (information only)
+fallow     exit=0 ok       4s (+0s) :: total=4 circular=4 new_vs_baseline=0 gone_vs_baseline=0; fallow 3.33.1: health 86.3 (A), duplication 3.8%, 1,274,828 LOC (information only)
+playwright exit=0 ok   13m33s (+19s) :: 1592 passed, 75 skipped, 0 failed, 0 flaky on 8 workers
+total 13m51s; load at end 2.6 7.1 8.3; ALL GATES PASSED
+logs: ../../../../../../tmp/turn-completion-release-verified-20261111
