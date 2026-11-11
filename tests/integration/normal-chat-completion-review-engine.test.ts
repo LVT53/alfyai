@@ -99,6 +99,69 @@ function fallbackConfig() {
 }
 
 describe("review A: Model Run completion attacks", () => {
+	it.each([
+		true,
+		false,
+	])("settled-tool failover uses one closing only when destination is admissible=%s", async (admissible) => {
+		const args = setup();
+		const urls: string[] = [];
+		const bodies: Array<Record<string, unknown>> = [];
+		const execute = vi.fn(async () => ({ fact: "settled evidence" }));
+		const result = await runPlainNormalChatModelRun({
+			...args,
+			modelId: "model1",
+			runtimeConfig: fallbackConfig(),
+			completionPolicy: {
+				...args.completionPolicy,
+				forAttempt: () => ({
+					classifyExecution: () => "succeeded",
+					projectContext: ({ system, messages, provider }) =>
+						admissible || provider.baseUrl === args.provider.baseUrl
+							? { system, messages }
+							: null,
+				}),
+			},
+			tools: { lookup: tool({ inputSchema: z.object({}), execute }) },
+			fetch: async (input, init) => {
+				urls.push(String(input));
+				bodies.push(JSON.parse(String(init?.body)));
+				if (urls.length === 1)
+					return reply("", "tool_calls", [
+						{
+							id: "lookup-1",
+							type: "function",
+							function: { name: "lookup", arguments: "{}" },
+						},
+					]);
+				if (urls.length === 2)
+					throw Object.assign(new Error("request timed out"), {
+						name: "TimeoutError",
+					});
+				return reply("Answer from settled evidence.");
+			},
+		});
+		if (!admissible) {
+			expect(urls).toHaveLength(2);
+			expect(execute).toHaveBeenCalledTimes(1);
+			expect(result.text).toBe("");
+			expect(result.completion).toMatchObject({
+				outcome: "incomplete",
+				stopCause: "incompatible_continuation",
+				closingAttempted: true,
+			});
+			return;
+		}
+		expect(urls).toHaveLength(3);
+		expect(urls[2]).toContain("fallback.invalid");
+		expect(bodies[2].tools).toBeUndefined();
+		expect(JSON.stringify(bodies[2].messages)).toContain("settled evidence");
+		expect(execute).toHaveBeenCalledTimes(1);
+		expect(result.text).toBe("Answer from settled evidence.");
+		expect(result.completion).toMatchObject({
+			outcome: "answered",
+			closingAttempted: true,
+		});
+	});
 	it("pre-work failover after streamed partial output must not replay the failed attempt's partial assistant text/reasoning to the new provider", async () => {
 		const args = setup();
 		const bodies: string[] = [];

@@ -1303,6 +1303,30 @@ export async function* runNormalChatCompletion(
 		if (
 			attemptError &&
 			phase === "working" &&
+			hasToolOccurrence() &&
+			(stopCause === "transport_error" || stopCause === "deadline") &&
+			Date.now() < snapshot.deadlineAt
+		) {
+			// Settled evidence can cross providers; operations never do. The one
+			// closing allowance is consumed at the destination with tools disabled.
+			const fallback = await deps.fallback?.(rawError);
+			if (externalAbort()) continue;
+			if (fallback && Date.now() < snapshot.deadlineAt) {
+				params = {
+					...params,
+					provider: fallback.provider,
+					modelId: fallback.modelId,
+				};
+				deps = fallback.dependencies;
+				responseModel = params.provider.modelName;
+				workingCause = stopCause;
+				phase = "closing";
+				continue;
+			}
+		}
+		if (
+			attemptError &&
+			phase === "working" &&
 			!hasToolOccurrence() &&
 			(stopCause === "transport_error" || stopCause === "deadline") &&
 			Date.now() < snapshot.deadlineAt - reserve
