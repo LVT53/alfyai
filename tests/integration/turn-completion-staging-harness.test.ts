@@ -1784,3 +1784,87 @@ test("Document export always hydrates a succeeded brief submission before readin
 		"/api/chat/files/jobs/brief-job",
 	]);
 });
+
+describe("review audit guard coverage", () => {
+	const fixture = () => ({
+		turns: [
+			{
+				segment_id: "seg-1",
+				turn_id: "turn-1",
+				conversation_id: "conv-1",
+				message_id: "msg-1",
+				outcome: "answered",
+				accounting_status: "ready",
+				attempt_ids_json: '["a1"]',
+			},
+		],
+		attempts: [
+			{
+				attempt_id: "a1",
+				segment_id: "seg-1",
+				usage_final: 1,
+				input_tokens: 31,
+				output_tokens: 13,
+				total_tokens: 44,
+				cost_usd_micros: 88,
+				model_id: MODEL_MATRIX.deepseek,
+				provider_id: "68d77707-6ace-4e55-8eee-a8ff49e7fec3",
+				provider_model_name: "deepseek-flash",
+			},
+		],
+	});
+	const ids = [
+		{
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			assistantMessageId: "msg-1",
+			requestedModelId: MODEL_MATRIX.deepseek,
+			outcome: "answered",
+		},
+	];
+	test.each([
+		["missing rows", "Generated turn missing from durable audit"],
+		["unscoped attempt", "Unscoped attempt in audit"],
+		["pending accounting", "Audit outcome/accounting not terminal/ready"],
+		["receipt outcome", "Durable outcome disagrees with receipt"],
+		["duplicate segment", "Duplicate terminal segment"],
+		["unknown tokens", "Attempt token usage remains unknown"],
+		["outside IDs", "Audit contains data outside generated IDs"],
+	] as const)("review audit guard %s", (name, message) => {
+		const audit = fixture();
+		expect(inspectAudit(audit, ids).costUsdMicros).toBe(88);
+		switch (name) {
+			case "missing rows":
+				audit.turns = [];
+				audit.attempts = [];
+				break;
+			case "unscoped attempt":
+				audit.attempts.push({
+					...audit.attempts[0],
+					attempt_id: "orphan",
+					segment_id: "other",
+				});
+				break;
+			case "pending accounting":
+				audit.turns[0].accounting_status = "pending";
+				break;
+			case "receipt outcome":
+				audit.turns[0].outcome = "failed";
+				break;
+			case "duplicate segment":
+				audit.turns.push({ ...audit.turns[0] });
+				break;
+			case "unknown tokens":
+				Object.assign(audit.attempts[0], { input_tokens: null });
+				break;
+			case "outside IDs":
+				audit.turns.push({
+					...audit.turns[0],
+					segment_id: "other",
+					conversation_id: "owner-data",
+				});
+				break;
+		}
+		expect(() => inspectAudit(audit, ids)).toThrow(message);
+	});
+});
