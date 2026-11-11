@@ -205,3 +205,25 @@ it("reports a durable observation storage failure explicitly", async () => {
 	expect(c.closeDownstream).toHaveBeenCalledOnce();
 	expect(vi.getTimerCount()).toBe(0);
 });
+
+it("sends the prelude and heartbeat immediately, then heartbeats until abort", async () => {
+	const c = connect();
+	expect(c.enqueueChunk.mock.calls.slice(0, 2)).toEqual([
+		[": prelude\n\n"],
+		[": heartbeat\n\n"],
+	]);
+	await vi.advanceTimersByTimeAsync(9999);
+	expect(
+		c.enqueueChunk.mock.calls.filter(([chunk]) => chunk === ": heartbeat\n\n"),
+	).toHaveLength(1);
+	await vi.advanceTimersByTimeAsync(1);
+	expect(
+		c.enqueueChunk.mock.calls.filter(([chunk]) => chunk === ": heartbeat\n\n"),
+	).toHaveLength(2);
+	c.abort.abort();
+	await vi.advanceTimersByTimeAsync(10000);
+	expect(
+		c.enqueueChunk.mock.calls.filter(([chunk]) => chunk === ": heartbeat\n\n"),
+	).toHaveLength(2);
+	expect(vi.getTimerCount()).toBe(0);
+});
