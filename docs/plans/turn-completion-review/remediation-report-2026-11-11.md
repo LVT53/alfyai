@@ -1,5 +1,7 @@
 # Normal Chat completion remediation — 2026-11-11
 
+**Historical first-pass report.** The owner reopened the omissions after this staging deployment. Current scope, all33 corpus dispositions and resumed red/green evidence are tracked in [remaining-work-checklist.md](remaining-work-checklist.md). The open list below describes the first pass; it is not the current completion verdict.
+
 **Remediation and staging evidence, not production approval.** Branch `fix/turn-completion`, worktree `/Users/lvt53/.codex/worktrees/turn-completion/alfyai`. Starting validated code: `29e51551f`; starting documentation tip: `495282bf4`. Final validated code baseline: `70a045514`; all release gates passed. Subsequent `eb2869fd6` changes documentation only. Staging release `eb2869fd6` and both explicitly authorized DeepSeek Flash closing cases passed; production remains `40f2d74fc`. Production must remain `40f2d74fc`; no merge/push to `dev` or `main` is authorized.
 
 The independent [original review](/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/turn-completion-review/fable-verdict-2026-11-11.md) and its 33 saved `.txt` reproducers remain unchanged in the main checkout. The authoritative original path is `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/turn-completion-review/fable-verdict-2026-11-11.md`. The failed Stop v8, Natural v10 and read-only-addendum reports remain failed. No new result retroactively validates them.

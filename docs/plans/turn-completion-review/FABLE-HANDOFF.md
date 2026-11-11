@@ -1,0 +1,23 @@
+# Independent adversarial verification handoff
+
+Status: draft awaiting final release gate, staging deployment and live proof. Do not infer production readiness from this document. Production must remain `40f2d74fc`; never push `dev` or `main` or deploy production. This handoff prepares a later independent review; it does not launch Fable.
+
+Review branch `fix/turn-completion` in `/Users/lvt53/.codex/worktrees/turn-completion/alfyai`. First read the original memo in full: `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/turn-completion-review/fable-verdict-2026-11-11.md`. The33 original `.txt` reproducers remain beside it in `reproducers/`; `~` encodes `/`. Read them in the main checkout; run temporary copies in the side worktree. Do not weaken assertions or overwrite original historical evidence. Some measurements intentionally assert the old bug and now fail; the complete disposition and desired-invariant tests are in `remaining-work-checklist.md`.
+
+The first resumed local implementation includes attempt ledger/lifetime f57be4a6e; safe scoped repair02a04d94e +401aad67b; captured native prefetch/destination projection c128f7749 +1852aece7; engine attempt facts9e88a4941; post-tool fallback efe451c3d; stream lifecycle be3856c96; plain lifecycle915e75195. Final validated/deployed SHA: PENDING. Full gate output directory and result: PENDING. Staging receipt/provider proof paths: PENDING. These fields must be replaced with observed evidence before delivery.
+
+Read the consolidated report and checklist, then challenge these boundaries independently:
+
+- Admission/idle/total deadlines through hanging preflight, preparation, stream reads, finalization reads and cleanup. A pending database commit must not create a false failure, release ownership prematurely, write twice or invite duplicate generation. Plain202 identities must observe the actual later result. Timeout before commit must fence late writes.
+- Stop during capacity backoff and closing: no subsequent generation/tool effects, exact visible partial prefix retained, stopped/user_stop receipt; known failed file jobs remain model-visible outcomes.
+- Negotiated compact transport versus legacy consumers, duplicate/out-of-order batches, shared reducer, reconnect and reload/export. JSON-first answers and literal trailing `<` must survive. No text heuristics classify commentary.
+- Post-tool provider failure: preserve original intent and completed tool facts, switch only to safe tools-disabled closing, never replay side effects. Per-destination prefetch projection preserves user images/history and unrelated native pairs without refetch.
+- Each attempt has immutable local outcome/stop cause and once-only priced usage. Failed/length working followed by successful closing must remain distinguishable in the ledger.
+- Actual8192-context browser path includes serialized tool definitions in its budget and checks answer/reload/export; a large default context is not evidence.
+- Explicit legacy metadata repair preserves the complete reducer projection, all unrelated metadata/content, scopes exact assistant IDs and bounds each transaction. Malformed input rolls back; repeat is idempotent. No production writes or automatic startup repair.
+
+Local evidence is named precisely in `remaining-work-checklist.md`, including untouched original measurements, each red/green log and focused test names. Historical failed watchdog/Qwen/old-contract reports remain historical failures, not silently rewritten passes. To reproduce final acceptance, use the repository-prescribed full gate from this worktree: `scripts/gates.sh release <fresh-out-dir> --port <free-base>`. Do not overlap builds with check/test sync or run two e2e suites in the same worktree.
+
+The owner now authorizes further bounded synthetic real-model runs for this task; staging only. Use the explicit provider-bound runner and recorded synthetic fixtures, never owner conversation content or credentials in reports. No production permission is implied. Review existing live evidence before spending more calls. Record request/case IDs, completion/attempt/pricing audits and any uncertainty without secrets.
+
+Currently unproven in this draft: final integrated gate, deployed SHA, new live matrix and applied old-metadata repair. Model quality outside the synthetic cases is not certified. Report defects with exact reproduction and expected/actual evidence; distinguish actual original defects from architectural observations that do not require a gratuitous rewrite.
