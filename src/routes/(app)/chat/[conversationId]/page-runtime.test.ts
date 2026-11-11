@@ -11284,3 +11284,17 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 		});
 	});
 });
+
+it("shows unavailable accounting on a loaded chat instead of inventing zero cost", async () => {
+	renderPage(
+		pageData({
+			totalCostUsdMicros: undefined,
+			totalTokens: 100,
+			contextStatus: conversationContextStatusFixture(),
+		}),
+	);
+	await waitFor(() =>
+		expect(screen.getByText(/Unavailable.*100/)).toBeInTheDocument(),
+	);
+	expect(screen.queryByText(/\$0\.0000.*100/)).not.toBeInTheDocument();
+});

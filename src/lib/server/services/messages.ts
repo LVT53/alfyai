@@ -345,7 +345,9 @@ function projectMessageModel(
 	"modelId" | "modelDisplayName" | "providerDisplayName" | "providerIconUrl"
 > {
 	return {
-		modelId: modelId as ChatMessage["modelId"],
+		modelId: (modelId ??
+			readDepthMetadataFromMetadata(metadata)
+				?.modelId) as ChatMessage["modelId"],
 		modelDisplayName:
 			typeof metadata?.modelDisplayName === "string"
 				? metadata.modelDisplayName

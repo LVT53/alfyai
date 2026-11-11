@@ -457,9 +457,9 @@ let {
 				) => void;
 		  }) => void)
 		| undefined;
-	totalCostUsd?: number;
+	totalCostUsd?: number | null;
 	lastTurnCostUsd?: number;
-	totalTokens?: number;
+	totalTokens?: number | null;
 	personalityProfiles?: Array<{
 		id: string;
 		name: string;
@@ -1520,8 +1520,8 @@ let thinkingLabel = $derived(resolveTooltip(thinkingTooltip(thinkingIsOn)));
 let hasContextToShow = $derived(
 	contextStatus !== null ||
 		composerArtifacts.length > 0 ||
-		totalTokens > 0 ||
-		totalCostUsd > 0,
+		(totalTokens ?? 0) > 0 ||
+		(totalCostUsd ?? 0) > 0,
 );
 
 // The `autofocus` prop's one job: put the caret in the box after the textarea

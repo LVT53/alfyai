@@ -172,9 +172,9 @@ let {
 				) => void;
 		  }) => void)
 		| undefined;
-	totalCostUsd?: number;
+	totalCostUsd?: number | null;
 	lastTurnCostUsd?: number;
-	totalTokens?: number;
+	totalTokens?: number | null;
 	composerCommandRegistryEnabled?: boolean;
 	// `/instruction <text>` — the chat page owns the dialog, so it owns the
 	// scopes it can offer (project scope only exists when the conversation has

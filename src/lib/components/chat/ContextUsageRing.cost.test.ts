@@ -307,3 +307,21 @@ describe("ContextUsageRing humanized stat labels", () => {
 		expect(screen.getByText("contextUsageRing.whatAlfyRemembers")).toBeTruthy();
 	});
 });
+
+it("distinguishes unavailable accounting from a known zero cost", async () => {
+	const view = renderRing({ totalCostUsd: null, totalTokens: 100 });
+	expect(
+		screen.getByText(/contextUsageRing.accountingUnavailable/),
+	).toBeTruthy();
+	expect(screen.queryByText(/\$0\.0000/)).toBeNull();
+	await view.rerender({
+		contextStatus: null,
+		attachedArtifacts: [],
+		totalCostUsd: 0,
+		totalTokens: 100,
+	});
+	expect(screen.getByText(/\$0\.0000/)).toBeTruthy();
+	expect(
+		screen.queryByText(/contextUsageRing.accountingUnavailable/),
+	).toBeNull();
+});

@@ -239,8 +239,9 @@ describe("chat conversation page load", () => {
 			deletedArtifactIds: [],
 			unreachableArtifactIds: [],
 			contextCompressionSnapshots: [],
-			totalCostUsdMicros: 0,
-			totalTokens: 0,
+			// Missing accounting is unknown, unlike an explicitly reported zero.
+			totalCostUsdMicros: undefined,
+			totalTokens: undefined,
 			// Issue 7.5 — defaults to [] when the endpoint has nothing to say
 			// (e.g. the mocked conversation-detail response reused here has no
 			// `pendingWrites` field at all).
@@ -448,4 +449,33 @@ describe("chat conversation page load", () => {
 		expect(data.composerCommandRegistryEnabled).toBe(true);
 		expect(data.maxMessageLength).toBe(12000);
 	});
+});
+
+it.each([
+	undefined,
+	0,
+	42,
+])("preserves unknown versus numeric accounting totals (%s)", async (total) => {
+	const fetch = vi.fn(
+		async () =>
+			new Response(
+				JSON.stringify({
+					conversation: conversationFixture("conv-1"),
+					messages: [],
+					...(total === undefined
+						? {}
+						: { totalCostUsdMicros: total, totalTokens: total }),
+				}),
+				{ status: 200 },
+			),
+	);
+	const data = await load(
+		makeLoadEvent(
+			fetch,
+			async () => appShellDataFixture(),
+			"http://localhost/chat/conv-1",
+		),
+	);
+	expect(data?.totalCostUsdMicros).toBe(total);
+	expect(data?.totalTokens).toBe(total);
 });

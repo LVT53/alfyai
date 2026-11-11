@@ -334,8 +334,8 @@ function getAtlasAvailabilityValue(
 const initialMessages = getData().messages ?? [];
 const initialHasPersistedMessages = initialMessages.length > 0;
 const initialContextStatus = getData().contextStatus ?? null;
-const initialTotalCostUsdMicros = getData().totalCostUsdMicros ?? 0;
-const initialTotalTokens = getData().totalTokens ?? 0;
+const initialTotalCostUsdMicros = getData().totalCostUsdMicros ?? null;
+const initialTotalTokens = getData().totalTokens ?? null;
 const initialAttachedArtifacts = getData().attachedArtifacts ?? [];
 const initialTaskState = getData().taskState ?? null;
 const initialContextDebug = getData().contextDebug ?? null;
@@ -709,7 +709,9 @@ let contextStatus = $state<ConversationContextStatus | null>(
 );
 let totalCostUsdMicros = $state(initialTotalCostUsdMicros);
 let totalTokens = $state(initialTotalTokens);
-let totalCostUsd = $derived(totalCostUsdMicros / 1_000_000);
+let totalCostUsd = $derived(
+	totalCostUsdMicros === null ? null : totalCostUsdMicros / 1_000_000,
+);
 // Last-turn cost: the costUsd of the most recent assistant message that has one.
 let lastTurnCostUsd = $derived.by(() => {
 	for (let i = $messages.length - 1; i >= 0; i--) {
@@ -2721,8 +2723,8 @@ function resetState() {
 	questionsReads += 1;
 	contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
 	conversationStatus = data.conversation.status ?? "open";
-	totalCostUsdMicros = data.totalCostUsdMicros ?? 0;
-	totalTokens = data.totalTokens ?? 0;
+	totalCostUsdMicros = data.totalCostUsdMicros ?? null;
+	totalTokens = data.totalTokens ?? null;
 	detailMetadataEpoch = 0;
 	restorePersistedWorkspaceState();
 	bootstrapMode = data.bootstrap ?? false;

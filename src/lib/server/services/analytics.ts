@@ -3077,6 +3077,9 @@ export async function getMessageReadUsageProjections(
 	} catch {
 		// Neither a partial ledger sum nor stale legacy data is authoritative
 		// after any required accounting lookup fails.
+		console.warn("[ANALYTICS] Optional message accounting unavailable", {
+			messageCount: ids.length,
+		});
 		return { availability: "unavailable" };
 	}
 }
