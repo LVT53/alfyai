@@ -2,7 +2,7 @@
 
 Resumed 2026-11-11 from `db028c4bd`, after the owner asked to finish the omissions. This ledger supplements, not erases, [the first remediation report](remediation-report-2026-11-11.md). No original `.txt` source is changed.
 
-## Progress denominator
+## Historical progress denominator (before final acceptance)
 
 Count findings, not elapsed effort: original ordered defects = 31 (1.1–1.3:3, 1.4:10, 1.5:16, owner regressions:2). Prior pass evidenced29/31. Additional distinct section6 protection findings =20 (batch bound/dedup:2, runtime guards:6, verifier guards:7, browser oracles:4, small-context catalogue:1), prior pass19/20. Thus **48/51 original findings evidenced**, with wire overhead, watchdog bounds and 8192-context certification unfinished at that checkpoint. The resumed implementation now covers these; final integrated acceptance remains pending. This does not mean94% of remaining execution time is done.
 
@@ -12,16 +12,16 @@ All33 original files have a disposition below; incomplete subcase coverage is tr
 
 | ID | Work | Owner | Status |
 |---|---|---|---|
-| R1 | Compact live wire and remove duplicate reasoning without hiding streaming | server worker | Implemented; focused evidence below; final gate pending |
-| R2 | Idle and admission-to-finalization deadline; tool activity and cancellation/uncertainty | server worker | Implemented; focused evidence below; final gate pending |
-| R3 | 8192-context browser catalogue certification | browser worker | Initial real production-build browser pass; strengthened serialized-budget check awaits final gate |
-| R4 | Close exact unverified shared/UI/producer/registry/race probe cases below | browser/server workers | All33 files mapped; shared/UI regressions fixed, exact remaining measurements run; final gate pending |
-| R5 | Real per-attempt outcome and stop cause, independent of later closing result | inventory + server workers | Lifetime/ledger52 tests green (`f57be4a6e`); engine integrated9e88a4941 with10 focused passes |
-| R6 | Safe post-tool failover and destination-specific prefetch | server worker / orchestrator | Prefetch/cancellation70 tests green (`c128f7749`); post-tool engine efe451c3d with178 focused passes |
-| R7 | Explicit bounded, idempotent old-metadata repair; dry run first, staging only if applied | inventory worker | Tool7 tests green (`02a04d94e`, `401aad67b`); staging application pending |
-| R8 | Review actual cleanup/canonical persistence risks; correct docs or fix proven defect | orchestrator | Canonical producerP4 and interrupted closing exact parity pass; lifecycle bounded cleanup under R2; no gratuitous rewrite |
-| R9 | Fresh release gate and staging-only deployment | orchestrator | Pending |
-| R10 | Appropriate real-model closing followthrough using synthetic data | orchestrator | DeepSeek/Kimi/Qwen bounded runner9 offline tests pass (`36374d7c0`); new live runs pending |
+| R1 | Compact live wire and remove duplicate reasoning without hiding streaming | server worker | Implemented; final integrated release gate passed |
+| R2 | Idle and admission-to-finalization deadline; tool activity and cancellation/uncertainty | server worker | Implemented; final integrated release gate passed |
+| R3 | 8192-context browser catalogue certification | browser worker | Certified safe capacity refusal at 8192 with zero dispatch; small fitting catalogue positive cases pass |
+| R4 | Close exact unverified shared/UI/producer/registry/race probe cases below | browser/server workers | All 33 original files mapped; integrated release gate passed |
+| R5 | Real per-attempt outcome and stop cause, independent of later closing result | inventory + server workers | Immutable attempt facts covered; integrated release gate passed |
+| R6 | Safe post-tool failover and destination-specific prefetch | server worker / orchestrator | Safe failover and destination prefetch covered; integrated release gate passed |
+| R7 | Explicit bounded, idempotent old-metadata repair; dry run first, staging only if applied | inventory worker | Staging repair complete: 229 selected, 192 compacted, repeated apply 0 changes |
+| R8 | Review actual cleanup/canonical persistence risks; correct docs or fix proven defect | orchestrator | Canonical persistence/ownership coverage passed integrated gate |
+| R9 | Fresh release gate and staging-only deployment | orchestrator | Full release gate passed; staging runtime 584cc9c3a deployed and healthy |
+| R10 | Appropriate real-model closing followthrough using synthetic data | orchestrator | Partial: DeepSeek A/B pass; Kimi A pass/B failed; Qwen verifier preflight refused, 0 calls |
 
 R5–R8 close concrete limitations named in the prior response. They are not permission for unrelated module redesign. Historical failed watchdog/Qwen reports stay failed; new results cannot overwrite them. Model-quality variation and the old21-reply legacy-preservation claim require honest evidence, not fabricated pass status.
 
@@ -65,7 +65,7 @@ Files are in the main checkout review `reproducers/` directory. Decode `~` to `/
 | `zz-review-main-persisted-events-size.test.ts.txt` | Exact original size/legacyTextDeltaEvents=1 assertions pass `/tmp/remaining-final-original-measurements.log`. Compatibility canonical delta remains one; progressive provisional output travels structural events. Separate storage bounds enforce compactness. |
 | `zz-review-main-read-cost.test.ts.txt` | Exact original synthetic50-reply read-cost measurement passed `/tmp/remaining-corpus-original.log`; bounded served-metadata tests green. This fixture proves no live performance claim; old rows use R7 explicit repair. |
 
-## Evidence updates
+## Historical implementation evidence (before final acceptance)
 
 Browser/shared probe baseline `/tmp/remaining-browser-original-red.log`:65 cases,7 failed/58 passed; subsequent shared/UI fixes97 focused passed, producerP2 fixed by server worker. Attempt audit baseline `/tmp/remaining-attempt-facts-red.log`:2 intended failures/44 pass. Official Vitest mocking and Drizzle transaction docs checked on 2026-11-11 for the attempt/persistence slice. No owner conversation content or credentials are used for tests.
 
@@ -89,7 +89,7 @@ node --import tsx scripts/compact-normal-chat-metadata.ts \
 
 The CLI resolves the database realpath and only permits apply on the exact staging database. Each transaction is bounded to100 IDs and32MiB. It does not run VACUUM, rewrite content, modify production, run on startup, or call a provider. An apply reduces logical metadata bytes; database file-size reclamation is not claimed. No staging repair has run yet in this resumed pass.
 
-### Final implementation checkpoint (release acceptance pending)
+### Historical implementation checkpoint (acceptance was pending)
 
 - Compact transport is explicitly negotiated by `X-Alfy-Output-Transport: compact-v1`; legacy consumers retain full canonical delivery and reconnect uses canonical broadcasts. Decoder111 focused passes; no speech-length/word/punctuation heuristic classifies commentary.
 - Stream watchdog/finalization ownership: `be3856c96`,224 focused passes (`/tmp/remaining-watchdog-final-focused.log`). Additional ownership2 red and expired-admission1 red precede green. Preparation, stream reads, finalization reads and cleanup are bounded. An already-started database commit is not falsely claimed cancelled: transport detaches and the same owner settles the eventual receipt.
@@ -100,7 +100,7 @@ The CLI resolves the database realpath and only permits apply on the exact stagi
 - Plain ownership guard `3e6841f04`: `/tmp/remaining-plain-owner-red.log` proves prepared transfer fails when disabled; `/tmp/remaining-plain-owner-durable-red.log` proves terminal-before-link pending fails when owner retention is removed. Restored implementation: `/tmp/remaining-plain-owner-green.log`,58/58 pass. The durable fixture explicitly models terminal persistence before message linkage, then verifies released unsaved ownership becomes a failure. This is additional boundary coverage, not a claim that a new production defect was discovered.
 - Stronger8192 browser certification remains pending: initial strengthened assertion incorrectly assumed a1024-token output reserve; actual policy applies820 for8192 context. The browser worker is aligning the assertion with the existing adaptive budget policy; the full serialized input-plus-reserve bound remains mandatory. This intermediate run is not a pass.
 
-### 8192-context defect discovered during stronger certification
+### Historical 8192-context defect discovered during stronger certification
 
 The stronger browser check exposed a real budget defect: serialized messages plus tool definitions and reserved output totaled **14,355 tokens against8,192**. The earlier successful browser run did not certify that bound. This is not merely an820-versus1024 output-reserve assertion issue.
 
