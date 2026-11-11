@@ -109,3 +109,7 @@ Review disposition: controller reports **Astra SPEC DESIGN PASS**, conditional o
 Review state: conditional SPEC DESIGN PASS and binding clarification recorded; controller prerequisite **live UI verification still pending**. Fresh implementation-worker dispatch remains controller-owned. No application edits, tests, gates, browser/model/network calls, commit, push or deployment performed by this specification slice.
 
 Controller review checkpoint (2026-11-11): Astra independently reread the recorded clarification and returned **final SPEC PASS**. The native UI prerequisite remains pending; no application edits are authorized yet. A fresh implementation worker is preparing only.
+
+### Reviewed delivery-prerequisite amendment — 2026-11-11
+
+The initial native UI tests have now executed and **failed with a confirmed same-session canonical-message hydration defect**; they have not passed acceptance. Astra explicitly approved batching its client correction with this independent server accounting change after both specifications pass, using disjoint workers and separate commits, followed by one combined full release gate and staging deployment, then both native Kimi UI checks and the all-three-model matrix. This supersedes the earlier requirement to finish UI acceptance before starting accounting implementation. It does not waive UI acceptance, change either behavior contract, or authorize production. Controller implementation authorization is still required.
