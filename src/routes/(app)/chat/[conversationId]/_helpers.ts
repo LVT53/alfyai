@@ -1178,7 +1178,18 @@ export function finalizeStreamingMessageList(
 	const serverAssistantId = params.metadata?.assistantMessageId;
 	const serverUserMessageId = params.metadata?.userMessageId;
 
-	return list.map((message) => {
+	// A reload may already have inserted the durable row beside this placeholder.
+	// Keep the placeholder's render identity and adopt exactly one canonical row.
+	const canonicalId = params.canonicalMessage?.id;
+	const hasPlaceholder = list.some(
+		(message) => message.id === params.placeholderId,
+	);
+	const rows =
+		canonicalId && canonicalId !== params.placeholderId && hasPlaceholder
+			? list.filter((message) => message.id !== canonicalId)
+			: list;
+
+	return rows.map((message) => {
 		if (message.id === params.placeholderId) {
 			if (params.canonicalMessage) {
 				// The read-model row is the complete durable snapshot. Only client

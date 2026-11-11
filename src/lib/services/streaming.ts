@@ -387,7 +387,7 @@ function readObservation(
 			typeof row.assistantMessageId !== "string") ||
 		!completion
 	)
-		return row.normalChatFinalization !== undefined ? unavailable : undefined;
+		return unavailable;
 	const marker = parseNormalChatFinalization(row.normalChatFinalization);
 	const modelCompletion = readObservationCompletion(row.modelCompletion);
 	if (row.normalChatFinalization !== undefined) {

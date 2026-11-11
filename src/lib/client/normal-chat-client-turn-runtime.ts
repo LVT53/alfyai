@@ -2146,11 +2146,8 @@ export function createNormalChatClientTurnRuntime(
 		});
 		if (stopSettlement) {
 			if (!stopSettlement.owns()) return;
-			adapters.setSendError(
-				resolved || knownFinalizationFailure
-					? null
-					: "chat.observationUnavailable",
-			);
+			if (!resolved && !knownFinalizationFailure)
+				adapters.setSendError("chat.observationUnavailable");
 			if (saved && stopSettlement.owns())
 				adapters.pollMessageEvidence(saved.id);
 			if (saved && stopSettlement.owns()) adapters.refreshMessageCost(saved.id);
@@ -2514,6 +2511,18 @@ export function createNormalChatClientTurnRuntime(
 							conversationId: params.turnConversationId,
 						});
 					}
+					return;
+				}
+				if (
+					params.streamOptions.reconnectToStreamId &&
+					!metadata?.assistantMessageId
+				) {
+					void settleObservation(params, {
+						version: 1,
+						state: "unavailable",
+						streamId: params.streamOptions.reconnectToStreamId,
+						conversationId: params.turnConversationId,
+					});
 					return;
 				}
 				if (isPollingForCompletion) {
@@ -2983,6 +2992,8 @@ export function createNormalChatClientTurnRuntime(
 		}
 		const callbacks = buildCallbacks(params);
 		activeStreamParams = params;
+		if (pendingObservation?.placeholderId === params.placeholderId)
+			pendingObservation = params;
 		activePlaceholderId = params.placeholderId;
 		const handle = adapters.streamChat(
 			params.message,
@@ -4141,7 +4152,8 @@ export function createNormalChatClientTurnRuntime(
 			!params ||
 			(!pendingObservation && !question && !canStopActiveStream())
 		) {
-			if (!stopHandoff) turnEpoch++;
+			// Retire detached recovery work, but leave an owned saved-row read intact.
+			if (!stopHandoff && !isSending) turnEpoch++;
 			return false;
 		}
 		cancelStopHandoff();
