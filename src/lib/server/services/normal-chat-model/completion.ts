@@ -780,6 +780,7 @@ export async function* runNormalChatCompletion(
 		]);
 		let cumulativeMessageCount = 0;
 		const blocks = new Map<string, { id: string; index: number }>();
+		let blockOrdinal = 0;
 		type NativeMetadata = Extract<
 			TextStreamPart<ToolSet>,
 			{ type: "text-start" }
@@ -805,7 +806,7 @@ export async function* runNormalChatCompletion(
 					index = assistant.content.length;
 					assistant.content.push({ type: kind, text: "" });
 				}
-				b = { id: `${key}:${blocks.size}`, index };
+				b = { id: `${key}:${blockOrdinal++}`, index };
 				blocks.set(key, b);
 				emit(scope(current), {
 					type: "block_start",
@@ -1088,6 +1089,10 @@ export async function* runNormalChatCompletion(
 							sourceStep(),
 						);
 						emit(scope(sourceStep()), { type: "block_end", blockId: b.id });
+						// Native IDs may be reused after end within the same step.
+						blocks.delete(
+							`${sourceStep().stepId}:${part.type === "text-end" ? "text" : "reasoning"}:${part.id}`,
+						);
 					}
 					if (part.type === "tool-input-start") {
 						ledger(
