@@ -80,6 +80,9 @@ describe("streamChat", () => {
 		});
 		await done;
 		expect(callbacks.onEnd).toHaveBeenCalledWith("Visible", undefined);
+		expect(vi.mocked(fetch).mock.calls[0]?.[1]?.headers).toMatchObject({
+			"X-Alfy-Output-Transport": "compact-v1",
+		});
 		expect(callbacks.onError).not.toHaveBeenCalled();
 	});
 
@@ -1590,7 +1593,10 @@ describe("streamChat", () => {
 			"/api/chat/stream",
 			expect.objectContaining({
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: {
+					"Content-Type": "application/json",
+					"X-Alfy-Output-Transport": "compact-v1",
+				},
 				body: expect.any(String),
 			}),
 		);
@@ -1650,7 +1656,10 @@ describe("streamChat", () => {
 			"/api/chat/retry",
 			expect.objectContaining({
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: {
+					"Content-Type": "application/json",
+					"X-Alfy-Output-Transport": "compact-v1",
+				},
 				body: expect.any(String),
 			}),
 		);
@@ -1828,7 +1837,10 @@ describe("streamChat", () => {
 			"/api/conversations/conv-1/questions/q-1/answer",
 			expect.objectContaining({
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: {
+					"Content-Type": "application/json",
+					"X-Alfy-Output-Transport": "compact-v1",
+				},
 				body: expect.any(String),
 			}),
 		);

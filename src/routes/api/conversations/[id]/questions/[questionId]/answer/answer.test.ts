@@ -653,6 +653,7 @@ describe("POST /api/conversations/[id]/questions/[questionId]/answer", () => {
 		expect(mocks.runChatStreamOrchestrator).toHaveBeenCalledTimes(1);
 		const options = mocks.runChatStreamOrchestrator.mock.calls[0][0];
 		expect(options).toEqual({
+			compactOutput: false,
 			user: {
 				id: seeded.userId,
 				displayName: "User",

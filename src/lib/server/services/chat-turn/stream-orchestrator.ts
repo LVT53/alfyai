@@ -40,7 +40,6 @@ import {
 	createSsePreludeComment,
 	type StreamPhaseTimings,
 	streamErrorEvent,
-	streamNormalChatOutputEvent,
 	streamRequestErrorEvent,
 	streamResponseActivityEvent,
 } from "$lib/server/services/chat-turn/stream";
@@ -98,10 +97,15 @@ import {
 	createFileProductionCapture,
 	looksLikeFileProductionLeak,
 } from "./file-production-capture";
+import {
+	createCanonicalOutputRelay,
+	createOutputEventWriter,
+} from "./output-event-writer";
 import type {
 	StreamingNormalChatPreparedContext,
 	StreamingNormalChatSendModelResult,
 } from "./streaming-normal-chat-model-run";
+import { createTurnWatchdog } from "./turn-watchdog";
 
 function unrefTimer(
 	timer: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout>,
@@ -163,6 +167,7 @@ function startPendingWriteIdsAtStartFact(params: {
 }
 
 export interface StreamOrchestratorOptions {
+	compactOutput?: boolean;
 	user: {
 		id: string;
 		displayName: string | null;
@@ -197,7 +202,7 @@ export type AdmittedStreamOrchestratorOptions = Omit<
 	"turn" | "prepareTurn"
 > & {
 	turn: AdmittedChatTurn;
-	prepareTurn: () => Promise<ChatTurnPreparationResult>;
+	prepareTurn: (signal: AbortSignal) => Promise<ChatTurnPreparationResult>;
 };
 
 function isPreparedChatTurn(
@@ -228,6 +233,7 @@ export function runChatStreamOrchestrator(
 		resume,
 		routePhaseTimings,
 		prepareTurn,
+		compactOutput = false,
 	} = options;
 	// What a resume adds to every model run of the turn, the stream's and its
 	// non-stream rerun's: the reply so far, with the answer as the ask's result,
@@ -349,6 +355,7 @@ export function runChatStreamOrchestrator(
 		}
 	};
 	let releaseOwnedStream: (discard?: boolean) => void = () => {};
+	let deferredFinalization: Promise<void> | undefined;
 	const startHoldingTheClaim =
 		(
 			run: (
@@ -363,7 +370,9 @@ export function runChatStreamOrchestrator(
 				throw error;
 			} finally {
 				releaseOwnedStream();
-				await releaseResumeClaim();
+				if (deferredFinalization) {
+					void deferredFinalization.catch(() => {}).then(releaseResumeClaim);
+				} else await releaseResumeClaim();
 			}
 		};
 
@@ -373,6 +382,7 @@ export function runChatStreamOrchestrator(
 			const downstreamSignal = downstreamAbortController.signal;
 			let downstreamClosed = false;
 			let ended = false;
+			let structuralTransport = false;
 
 			const closeDownstream = (): void => {
 				if (downstreamClosed) return;
@@ -415,12 +425,13 @@ export function runChatStreamOrchestrator(
 				});
 			};
 
+			const canonicalRelay = createCanonicalOutputRelay();
 			const enqueueChunk = (chunk: string): boolean => {
 				// Always broadcast to reconnect listeners first, even if this downstream
 				// is already closed (e.g. reconnect client navigated away). The listener
 				// needs terminal UI stream parts to finalize the UI placeholder.
 				if (isMainStream && streamId) {
-					broadcastStreamChunk(streamId, chunk);
+					broadcastStreamChunk(streamId, canonicalRelay(chunk));
 				}
 				if (downstreamClosed) return true;
 
@@ -440,6 +451,13 @@ export function runChatStreamOrchestrator(
 				});
 			}
 			const upstreamAbortController = new AbortController();
+			const outputWriter = createOutputEventWriter(enqueueChunk, {
+				compact: compactOutput,
+			});
+			const watchdog = createTurnWatchdog(
+				upstreamAbortController,
+				requestStartTime + getConfig().requestTimeoutMs,
+			);
 			let isMainStream = false;
 
 			if (streamId) {
@@ -453,10 +471,12 @@ export function runChatStreamOrchestrator(
 					intent: isReconnect ? "observe" : "start",
 				});
 				if (decision.action === "observe") {
+					watchdog.dispose();
 					setTimeout(() => doReconnect(decision.streamId), 0);
 					return;
 				}
 				if (decision.action === "close") {
+					watchdog.dispose();
 					closeDownstream();
 					return;
 				}
@@ -531,6 +551,7 @@ export function runChatStreamOrchestrator(
 				enqueueChunk,
 				skillControlEnabled,
 				structuredOutput: true,
+				structuralTransport: () => structuralTransport,
 				onThinking: (reasoning) => {
 					// P3b — fed the SAME text that is about to be appended to
 					// chunkRuntime.thinkingContent (this callback fires from
@@ -576,6 +597,7 @@ export function runChatStreamOrchestrator(
 					recordElapsedPhase(SERVER_STREAM_TIMELINE_MARKS.FIRST_THINKING);
 				}
 				const emitted = chunkRuntime.emitThinking(reasoning);
+				watchdog.touch();
 				return emitted;
 			};
 			const emitToolCallEventWithDebug = (
@@ -600,6 +622,7 @@ export function runChatStreamOrchestrator(
 				},
 			) => {
 				chunkRuntime.emitToolCallEvent(name, input, status, details);
+				watchdog.touch();
 			};
 			const emitPrefetchedToolCalls = (
 				records:
@@ -706,6 +729,14 @@ export function runChatStreamOrchestrator(
 			// from it at the ending, long after the closures below were made. The
 			// non-stream fallback has none and never asks.
 			let streamingRun: StreamingNormalChatSendModelResult | null = null;
+			let upstreamIterator:
+				| ReturnType<
+						StreamingNormalChatSendModelResult["stream"][typeof Symbol.asyncIterator]
+				  >
+				| undefined;
+			let finalizationTask: Promise<void> | undefined;
+			let persistenceStarted = false;
+			let detachedFinalization = false;
 			const readTurnAsk = () => streamingRun?.getTurnAsk() ?? null;
 			// The reply is paused when the run asked and what it said and read holds
 			// the ask's result. A resume answers that result, so a capture without it
@@ -752,6 +783,10 @@ export function runChatStreamOrchestrator(
 				noFinalAnswer: boolean;
 			}) => {
 				await completeStreamTurn({
+					persistenceSignal: watchdog.timeoutSignal,
+					onPersistenceStarted: () => {
+						persistenceStarted = true;
+					},
 					completionTurn: streamingRun?.completionTurn,
 					uiLanguage: user.uiLanguage,
 					wasStopped: args.wasStopped,
@@ -855,7 +890,21 @@ export function runChatStreamOrchestrator(
 				emitError,
 				emitRequestError: (error) =>
 					enqueueChunk(streamRequestErrorEvent(error)),
-				runCompleteStreamTurn,
+				runCompleteStreamTurn: async (args) => {
+					finalizationTask = runCompleteStreamTurn(args);
+					try {
+						await watchdog.wait(finalizationTask, true);
+					} catch (error) {
+						if (!watchdog.timeoutSignal.aborted) throw error;
+						if (persistenceStarted) {
+							// A commit cannot be cancelled by abandoning its Promise. Keep
+							// its durable owner until it can publish the real saved receipt.
+							detachedFinalization = true;
+							deferredFinalization = finalizationTask;
+						} else emitError("backend_failure");
+						closeDownstream();
+					}
+				},
 				flushBufferedStreamOutput,
 				wasStopRequested,
 			});
@@ -894,7 +943,7 @@ export function runChatStreamOrchestrator(
 					const turnPreparationStartedAt = Date.now();
 					let preparation: ChatTurnPreparationResult;
 					try {
-						preparation = await prepareTurn();
+						preparation = await watchdog.wait(prepareTurn(watchdog.signal));
 					} finally {
 						recordDurationPhase(
 							SERVER_STREAM_TIMELINE_MARKS.TURN_PREPARATION,
@@ -935,10 +984,12 @@ export function runChatStreamOrchestrator(
 				// stream. Best-effort: a store that is down must not stop the turn.
 				if (isMainStream) {
 					try {
-						await discardStaleAskQuestions({
-							userId: user.id,
-							conversationId,
-						});
+						await watchdog.wait(
+							discardStaleAskQuestions({
+								userId: user.id,
+								conversationId,
+							}),
+						);
 					} catch (error) {
 						console.warn(
 							"[CHAT_STREAM] Could not clear the chat's stale questions",
@@ -952,9 +1003,9 @@ export function runChatStreamOrchestrator(
 				}
 
 				if (personalityProfileId) {
-					const profile = await getPersonalityProfile(
-						personalityProfileId,
-					).catch(() => null);
+					const profile = await watchdog.wait(
+						getPersonalityProfile(personalityProfileId).catch(() => null),
+					);
 					personalityPrompt = profile?.promptText || undefined;
 				}
 
@@ -962,12 +1013,16 @@ export function runChatStreamOrchestrator(
 				_latestUpstreamAttempt = attempt;
 				const modelStreamRequestStartedAt = Date.now();
 				const modelRunParams = {
+					completionDeadlineAt: watchdog.deadlineAt,
 					userId: user.id,
 					completionRequestId: streamId ?? undefined,
 					onOutputEvent: (
 						event: import("$lib/shared/normal-chat-output").NormalChatOutputEvent,
 					) => {
-						enqueueChunk(streamNormalChatOutputEvent(event));
+						if (ended) return;
+						watchdog.touch();
+						structuralTransport = true;
+						outputWriter.write(event);
 					},
 					runtimeConfig: getConfig(),
 					message: upstreamMessage,
@@ -994,11 +1049,21 @@ export function runChatStreamOrchestrator(
 					...resumeRunParams,
 					signal: upstreamAbortController.signal,
 					onResponseActivity: emitResponseActivity,
+					onToolActivity: watchdog.touch,
 					// A tool waiting on a job (a picture) is activity, so a long wait
 					// never reads as a silent stream. `touch` never revives a stream
 					// that has ended.
 				};
-				const modelRun = await runStreamingNormalChatSendModel(modelRunParams);
+				watchdog.signal.throwIfAborted();
+				const preparingModelRun =
+					runStreamingNormalChatSendModel(modelRunParams);
+				void preparingModelRun
+					.then(async (late) => {
+						if (watchdog.signal.aborted && late && streamingRun !== late)
+							await late.completionTurn?.finish();
+					})
+					.catch(() => {});
+				const modelRun = await watchdog.wait(preparingModelRun);
 				latestProviderIconUrl = modelRun.providerIconUrl ?? null;
 
 				recordDurationPhase(
@@ -1031,17 +1096,18 @@ export function runChatStreamOrchestrator(
 				latestUserPictures = prepared.userPictures;
 				latestTaskState =
 					prepared.taskState ??
-					(await getConversationTaskState(user.id, conversationId).catch(
-						() => null,
+					(await watchdog.wait(
+						getConversationTaskState(user.id, conversationId).catch(() => null),
 					));
-				latestTaskState = await attachContinuityToTaskState(
-					user.id,
-					latestTaskState ?? null,
-				).catch(() => latestTaskState ?? null);
+				latestTaskState = await watchdog.wait(
+					attachContinuityToTaskState(user.id, latestTaskState ?? null).catch(
+						() => latestTaskState ?? null,
+					),
+				);
 				latestContextDebug =
 					prepared.contextDebug ??
-					(await getContextDebugState(user.id, conversationId).catch(
-						() => null,
+					(await watchdog.wait(
+						getContextDebugState(user.id, conversationId).catch(() => null),
 					));
 				latestContextTraceSections = prepared.contextTraceSections;
 				emitResponseActivity({
@@ -1065,7 +1131,13 @@ export function runChatStreamOrchestrator(
 						? emitThinking(captured)
 						: emitChunkWithOutputHandling(captured);
 				};
-				for await (const upstreamEvent of modelRun.stream) {
+				const iterator = modelRun.stream[Symbol.asyncIterator]();
+				upstreamIterator = iterator;
+				for (;;) {
+					const next = await watchdog.wait(iterator.next(), true);
+					if (next.done) break;
+					const upstreamEvent = next.value;
+					watchdog.touch();
 					recordElapsedPhase(SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT);
 					switch (upstreamEvent.type) {
 						case "text_delta":
@@ -1276,8 +1348,23 @@ export function runChatStreamOrchestrator(
 				}
 				failStream(classifyStreamErrorCause(error));
 			} finally {
-				try {
+				outputWriter.flush();
+				const settleOwner = async () => {
+					await upstreamIterator?.return?.();
 					await streamingRun?.completionTurn?.finish();
+				};
+				try {
+					if (detachedFinalization && finalizationTask) {
+						void finalizationTask
+							.catch(() => {})
+							.then(settleOwner)
+							.catch((error) =>
+								console.error(
+									"[CHAT_STREAM] Deferred completion audit could not settle",
+									{ streamId, error },
+								),
+							);
+					} else await watchdog.wait(settleOwner(), true);
 				} catch (error) {
 					console.error("[CHAT_STREAM] Completion audit could not settle", {
 						conversationId,
@@ -1286,6 +1373,7 @@ export function runChatStreamOrchestrator(
 					});
 					if (!ended) failStream("backend_failure");
 				}
+				watchdog.dispose();
 				clearInterval(heartbeatIntervalId);
 				releaseOwnedStream();
 				cancelStream = () => undefined;
@@ -1296,22 +1384,29 @@ export function runChatStreamOrchestrator(
 				// to belong to, so it goes. The store ignores a stamped question.
 				const askedQuestion = readTurnAsk();
 				if (askedQuestion) {
-					try {
-						await discardAskQuestion({
-							userId: user.id,
-							questionId: askedQuestion.questionId,
-						});
-					} catch (error) {
-						console.warn(
-							"[CHAT_STREAM] Could not discard an unsaved question",
-							{
-								conversationId,
-								streamId,
+					const discardUnstampedQuestion = async () => {
+						try {
+							await discardAskQuestion({
+								userId: user.id,
 								questionId: askedQuestion.questionId,
-								error,
-							},
-						);
-					}
+							});
+						} catch (error) {
+							console.warn(
+								"[CHAT_STREAM] Could not discard an unsaved question",
+								{
+									conversationId,
+									streamId,
+									questionId: askedQuestion.questionId,
+									error,
+								},
+							);
+						}
+					};
+					if (detachedFinalization && finalizationTask)
+						void finalizationTask
+							.catch(() => {})
+							.then(discardUnstampedQuestion);
+					else void discardUnstampedQuestion();
 				}
 			}
 		}),

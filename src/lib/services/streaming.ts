@@ -1056,7 +1056,10 @@ export function streamChat(
 			const generation = captureSessionRequest();
 			const res = await fetch(url, {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: {
+					"Content-Type": "application/json",
+					"X-Alfy-Output-Transport": "compact-v1",
+				},
 				body,
 				signal: controller.signal,
 			});

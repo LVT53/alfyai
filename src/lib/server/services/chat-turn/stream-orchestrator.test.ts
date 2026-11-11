@@ -998,6 +998,213 @@ describe("stream-orchestrator SSE contract", () => {
 		});
 	});
 
+	it("detaches at the deadline without falsely failing an assistant commit already in flight", async () => {
+		vi.useFakeTimers();
+		const { createMessage } = await import("$lib/server/services/messages");
+		const finish = vi.fn(async (_id?: string) => {});
+		const { runStreamingNormalChatSendModel: run } = await import(
+			"./streaming-normal-chat-model-run"
+		);
+		vi.mocked(run).mockResolvedValue(
+			createNeutralStreamingResult(
+				[{ type: "text_delta", text: "Answer." }, finishEvent],
+				{
+					completionTurn: {
+						segmentId: "fixture-segment",
+						getSnapshot: () => ({
+							segmentId: "fixture-segment",
+							events: [],
+							completion: {
+								version: 1,
+								turnId: "fixture-turn",
+								segmentId: "fixture-segment",
+								phase: "working",
+								outcome: "answered",
+								stopCause: "natural_stop",
+								workingStopCause: "natural_stop",
+								closingAttempted: false,
+							},
+						}),
+						finish,
+					},
+				},
+			),
+		);
+		let land!: (value: never) => void;
+		const pending = new Promise<never>((resolve) => {
+			land = resolve;
+		});
+		vi.mocked(createMessage).mockImplementation(async (_conversation, role) =>
+			role === "assistant" ? pending : ({ id: "user-row" } as never),
+		);
+		let settled = false;
+		const reading = readSseResponse(runStream()).then((value) => {
+			settled = true;
+			return value;
+		});
+		try {
+			await vi.advanceTimersByTimeAsync(0);
+			expect(createMessage).toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(30_000);
+			expect(settled).toBe(true);
+			expect((await reading).join("")).not.toContain("data-stream-error");
+			expect(finish).not.toHaveBeenCalled();
+			expect(run).toHaveBeenCalledTimes(1);
+			land({ id: "late-assistant" } as never);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(finish).toHaveBeenCalledWith("late-assistant");
+		} finally {
+			land({ id: "late-assistant" } as never);
+			await vi.advanceTimersByTimeAsync(0);
+			vi.useRealTimers();
+		}
+	});
+
+	it("bounds a stalled task-state read after model preparation without pulling the model", async () => {
+		vi.useFakeTimers();
+		const { getConversationTaskState } = await import(
+			"$lib/server/services/task-state"
+		);
+		vi.mocked(getConversationTaskState).mockReturnValue(new Promise(() => {}));
+		let pulled = false;
+		const { runStreamingNormalChatSendModel: run } = await import(
+			"./streaming-normal-chat-model-run"
+		);
+		vi.mocked(run).mockResolvedValue(
+			createNeutralStreamingResult([], {
+				stream: (async function* () {
+					pulled = true;
+					yield finishEvent;
+				})(),
+			}),
+		);
+		let settled = false;
+		const reading = readSseResponse(runStream()).then((value) => {
+			settled = true;
+			return value;
+		});
+		try {
+			await vi.advanceTimersByTimeAsync(30_000);
+			expect(settled).toBe(true);
+			expect((await reading).join("")).toContain("data-stream-error");
+			expect(pulled).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("returns a stalled model iterator and releases its transport on deadline", async () => {
+		vi.useFakeTimers();
+		const { runStreamingNormalChatSendModel: run } = await import(
+			"./streaming-normal-chat-model-run"
+		);
+		const finish = vi.fn(async () => {});
+		const returned = vi.fn(async () => ({
+			done: true as const,
+			value: undefined,
+		}));
+		const next = vi.fn(
+			() => new Promise<IteratorResult<NeutralStreamEvent>>(() => {}),
+		);
+		vi.mocked(run).mockResolvedValue(
+			createNeutralStreamingResult([], {
+				stream: { [Symbol.asyncIterator]: () => ({ next, return: returned }) },
+				completionTurn: { finish, getSnapshot: () => null },
+			}),
+		);
+		const reading = readSseResponse(runStream());
+		try {
+			await vi.advanceTimersByTimeAsync(0);
+			expect(next).toHaveBeenCalledTimes(1);
+			await vi.advanceTimersByTimeAsync(30_000);
+			expect((await reading).join("")).toContain("data-stream-error");
+			expect(returned).toHaveBeenCalledTimes(1);
+			expect(finish).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("bounds finalization reads and prevents a late read from starting persistence", async () => {
+		vi.useFakeTimers();
+		const { runStreamingNormalChatSendModel } = await import(
+			"./streaming-normal-chat-model-run"
+		);
+		const { createMessage } = await import("$lib/server/services/messages");
+		vi.mocked(runStreamingNormalChatSendModel).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Answer." },
+				finishEvent,
+			]),
+		);
+		let resolveReset!: (value: number) => void;
+		const pendingReset = new Promise<number>((resolve) => {
+			resolveReset = resolve;
+		});
+		const response = runChatStreamOrchestrator({
+			user: { id: "u1", displayName: "User", email: "u@test.com" },
+			turn: createTurn(),
+			upstreamMessage: "Hello",
+			downstreamAbortSignal: new AbortController().signal,
+			requestStartTime: Date.now(),
+			startedResetGeneration: pendingReset,
+		});
+		let settled = false;
+		const reading = readSseResponse(response).then((value) => {
+			settled = true;
+			return value;
+		});
+		try {
+			await vi.advanceTimersByTimeAsync(30000);
+			expect(settled).toBe(true);
+			expect((await reading).join("")).toContain("data-stream-error");
+			resolveReset(0);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(createMessage).not.toHaveBeenCalled();
+		} finally {
+			resolveReset(0);
+			await vi.advanceTimersByTimeAsync(0);
+			vi.useRealTimers();
+		}
+	});
+	it("bounds preparation and fences a late completion before any model dispatch", async () => {
+		vi.useFakeTimers();
+		const { runStreamingNormalChatSendModel } = await import(
+			"./streaming-normal-chat-model-run"
+		);
+		let resolvePreparation!: (value: ChatTurnPreparationResult) => void;
+		const preparation = new Promise<ChatTurnPreparationResult>((resolve) => {
+			resolvePreparation = resolve;
+		});
+		const response = runChatStreamOrchestrator({
+			user: { id: "u1", displayName: "User", email: "u@test.com" },
+			turn: createAdmittedTurn(),
+			prepareTurn: () => preparation,
+			upstreamMessage: "Hello",
+			downstreamAbortSignal: new AbortController().signal,
+			requestStartTime: Date.now(),
+		});
+		let settled = false;
+		const reading = readSseResponse(response).then((value) => {
+			settled = true;
+			return value;
+		});
+		try {
+			await vi.advanceTimersByTimeAsync(30000);
+			expect(settled).toBe(true);
+			expect((await reading).join("")).toContain("data-stream-error");
+			resolvePreparation({ ok: true, value: createTurn() });
+			await vi.advanceTimersByTimeAsync(0);
+			expect(runStreamingNormalChatSendModel).not.toHaveBeenCalled();
+		} finally {
+			resolvePreparation({
+				ok: false,
+				error: { status: 500, error: "test cleanup" },
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			vi.useRealTimers();
+		}
+	});
 	it("emits attachment readiness preparation failures as structured terminal stream frames", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"

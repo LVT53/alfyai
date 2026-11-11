@@ -163,6 +163,9 @@ export type FinalizeChatTurnDurableReceipt = {
 };
 
 export type FinalizeChatTurnParams = {
+	/** Cancellation fences new writes; an assistant commit already begun must settle its truthful receipt. */
+	persistenceSignal?: AbortSignal;
+	onPersistenceStarted?: () => void;
 	completionTurn?: import("./prepared-normal-chat-turn").CompletionReceipt;
 	// The turn kinds that actually exist (F1) — every other former mode
 	// boolean (persistAssistantMessage, persistUserAttachmentsBeforeAssistantMessage,
@@ -571,6 +574,7 @@ export function collectInstructionSuggestions(
 export async function finalizeChatTurn(
 	params: FinalizeChatTurnParams,
 ): Promise<FinalizeChatTurnResult> {
+	params.persistenceSignal?.throwIfAborted();
 	const snapshot = params.completionTurn?.getSnapshot();
 	if (params.completionTurn)
 		params = {
@@ -631,6 +635,7 @@ export async function finalizeChatTurn(
 			)
 		: undefined;
 
+	params.persistenceSignal?.throwIfAborted();
 	if (
 		persistUserAttachmentsBeforeAssistantMessage &&
 		userMessage &&
@@ -695,6 +700,8 @@ export async function finalizeChatTurn(
 	};
 	// The assistant message is always persisted — no turn kind or caller ever
 	// legitimately skips it, so this is no longer a param to thread.
+	params.persistenceSignal?.throwIfAborted();
+	params.onPersistenceStarted?.();
 	const assistantMessage = await createTurnMessage(
 		{
 			conversationId: params.conversationId,

@@ -55,6 +55,8 @@ export const POST: RequestHandler = async (event) => {
 	}
 	const startedResetGeneration = await getCurrentMemoryResetGeneration(user.id);
 	return runChatStreamOrchestrator({
+		compactOutput:
+			event.request.headers.get("X-Alfy-Output-Transport") === "compact-v1",
 		user: {
 			id: user.id,
 			displayName: user.displayName,

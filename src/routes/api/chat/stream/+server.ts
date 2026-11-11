@@ -90,6 +90,8 @@ export const POST: RequestHandler = async (event) => {
 	const upstreamMessage = turn.normalizedMessage;
 	const startedResetGeneration = startStartedResetGenerationFact(user.id);
 	return runChatStreamOrchestrator({
+		compactOutput:
+			event.request.headers.get("X-Alfy-Output-Transport") === "compact-v1",
 		user: {
 			id: user.id,
 			displayName: user.displayName,
@@ -97,11 +99,11 @@ export const POST: RequestHandler = async (event) => {
 			uiLanguage: user.uiLanguage,
 		},
 		turn,
-		prepareTurn: () =>
+		prepareTurn: (signal) =>
 			prepareAdmittedChatTurn({
 				userId: user.id,
 				admittedTurn: turn,
-				signal: event.request.signal,
+				signal: AbortSignal.any([event.request.signal, signal]),
 			}),
 		upstreamMessage,
 		downstreamAbortSignal: event.request.signal,

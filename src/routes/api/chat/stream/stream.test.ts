@@ -256,7 +256,8 @@ describe("POST /api/chat/stream route adapter", () => {
 			mocks.runChatStreamOrchestrator.mock.calls[0][0].routePhaseTimings,
 		).not.toHaveProperty("preflight");
 		const delegatedOptions = mocks.runChatStreamOrchestrator.mock.calls[0][0];
-		await delegatedOptions.prepareTurn();
+		const preparationController = new AbortController();
+		await delegatedOptions.prepareTurn(preparationController.signal);
 		expect(prepareAdmittedChatTurn).toHaveBeenCalledWith({
 			userId: "user-1",
 			admittedTurn,
@@ -264,6 +265,11 @@ describe("POST /api/chat/stream route adapter", () => {
 			// that went away releases the server instead of paying out the budget.
 			signal: expect.any(AbortSignal),
 		});
+		const forwardedSignal = vi.mocked(prepareAdmittedChatTurn).mock.calls[0][0]
+			.signal;
+		preparationController.abort();
+		expect(forwardedSignal?.aborted).toBe(true);
+		expect(delegatedOptions.compactOutput).toBe(false);
 	});
 
 	it("delegates the stream response without awaiting deferred turn preparation", async () => {
@@ -280,7 +286,7 @@ describe("POST /api/chat/stream route adapter", () => {
 		let startedPreparation: Promise<unknown> | null = null;
 		mocks.prepareAdmittedChatTurn.mockReturnValueOnce(deferredPreparation);
 		mocks.runChatStreamOrchestrator.mockImplementationOnce((options) => {
-			startedPreparation = options.prepareTurn();
+			startedPreparation = options.prepareTurn(new AbortController().signal);
 			return makeStreamResponse();
 		});
 

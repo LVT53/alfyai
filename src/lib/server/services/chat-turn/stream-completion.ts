@@ -100,6 +100,8 @@ export interface StreamCompletionFacts {
 }
 
 export interface CompleteStreamTurnParams extends StreamCompletionFacts {
+	persistenceSignal?: AbortSignal;
+	onPersistenceStarted?: () => void;
 	completionTurn?: import("./prepared-normal-chat-turn").CompletionReceipt;
 	// The account's UI language: the last fallback of the language what is
 	// written after the reply is in (reply-language.ts), for a turn whose
@@ -632,6 +634,7 @@ export async function completeStreamTurn(
 
 	try {
 		if (await endQuietlyWhenItsChatWasDeleted()) return;
+		params.persistenceSignal?.throwIfAborted();
 		const persistedAssistantResponse =
 			wasStopped && !params.completionTurn && finalResponse.trim().length === 0
 				? "Stopped"
@@ -652,6 +655,7 @@ export async function completeStreamTurn(
 				}).catch(() => null)
 			: null;
 		const responseLanguage = turnLanguage?.language ?? uiLanguage ?? "en";
+		params.persistenceSignal?.throwIfAborted();
 		// Issue 7.5 — resolved (not deferred) here: by the time the stream has
 		// fully finished, every pending write this turn's tool calls created
 		// already exists in the DB (createPendingWrite is awaited inside the
@@ -677,6 +681,7 @@ export async function completeStreamTurn(
 			streamId,
 			fact: startedResetGenerationFact,
 		});
+		params.persistenceSignal?.throwIfAborted();
 		// Fold the completed turn's prompt usage (provider-reported input
 		// tokens, else the wrapper's full-prompt estimate) into the context
 		// status before finalize persists it and the terminal frames flush.
@@ -689,6 +694,7 @@ export async function completeStreamTurn(
 			estimatedPromptTokens: preparedContext.estimatedPromptTokens,
 			logPrefix: "[CHAT_STREAM]",
 		});
+		params.persistenceSignal?.throwIfAborted();
 		// Owner idea (variant A) — up to two short follow-up questions for this
 		// turn. Skipped (never attempted) when the turn was stopped early, a
 		// tool call is still mid-flight, or there is no finished answer to base
@@ -735,6 +741,7 @@ export async function completeStreamTurn(
 				role: message.role as "user" | "assistant",
 				content: message.content,
 			}));
+			params.persistenceSignal?.throwIfAborted();
 			// The marks this window's messages and this turn carried: only a chat
 			// that had marks is told they are gone, and has its chips checked for them.
 			const goneMarkLetters = goneMarkLettersOf([
@@ -742,6 +749,7 @@ export async function completeStreamTurn(
 				{ pictures: preparedContext.userPictures ?? null },
 			]);
 			followUps = await generateFollowUpSuggestions({
+				signal: params.persistenceSignal,
 				userId,
 				conversationId,
 				userMessage: normalizedMessage,
@@ -758,7 +766,10 @@ export async function completeStreamTurn(
 				return null;
 			});
 		}
+		params.persistenceSignal?.throwIfAborted();
 		await finalizeChatTurn({
+			persistenceSignal: params.persistenceSignal,
+			onPersistenceStarted: params.onPersistenceStarted,
 			completionTurn: params.completionTurn,
 			turnKind: "stream",
 			streamId,
