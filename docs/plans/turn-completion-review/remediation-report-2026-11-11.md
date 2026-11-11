@@ -1,6 +1,6 @@
 # Normal Chat completion remediation — 2026-11-11
 
-**Local remediation evidence, not production approval.** Branch `fix/turn-completion`, worktree `/Users/lvt53/.codex/worktrees/turn-completion/alfyai`. Starting validated code: `29e51551f`; starting documentation tip: `495282bf4`. Final validated code baseline: `70a045514`; all release gates passed. Subsequent `eb2869fd6` changes documentation only. Staging release `eb2869fd6` and both explicitly authorized DeepSeek Flash closing cases passed; production remains `40f2d74fc`. Production must remain `40f2d74fc`; no merge/push to `dev` or `main` is authorized.
+**Remediation and staging evidence, not production approval.** Branch `fix/turn-completion`, worktree `/Users/lvt53/.codex/worktrees/turn-completion/alfyai`. Starting validated code: `29e51551f`; starting documentation tip: `495282bf4`. Final validated code baseline: `70a045514`; all release gates passed. Subsequent `eb2869fd6` changes documentation only. Staging release `eb2869fd6` and both explicitly authorized DeepSeek Flash closing cases passed; production remains `40f2d74fc`. Production must remain `40f2d74fc`; no merge/push to `dev` or `main` is authorized.
 
 The independent [original review](/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/turn-completion-review/fable-verdict-2026-11-11.md) and its 33 saved `.txt` reproducers remain unchanged in the main checkout. The authoritative original path is `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/turn-completion-review/fable-verdict-2026-11-11.md`. The failed Stop v8, Natural v10 and read-only-addendum reports remain failed. No new result retroactively validates them.
 
@@ -122,7 +122,7 @@ The runner drives the real streamed engine, lifetime, finalizer and pricing, the
 ## Staging-only deployment — PASSED
 
 - Deployed side branch release `eb2869fd6` (documentation-only difference from validated `70a045514`); deployment log `/tmp/turn-completion-staging-deploy-20261111.log`, exit0. Migrations completed, zero active streams drained, atomic release switch and service restart succeeded.
-- Local/public health OK, draining=false, active streams=0, service active. [Concise durable evidence](staging-deployment-evidence-2026-11-11.txt).
+- Local/public health OK, draining=false, active streams=0, service active. Final read-only check after both provider cases confirmed the same staging/production releases and healthy public state; staging journal since18:24:40 had no error/failed/warn matches. [Concise durable evidence](staging-deployment-evidence-2026-11-11.txt).
 - Production release symlink checked before and after: `40f2d74fc`, unchanged. No `dev`/`main` push and no production deployment. Later evidence-only commits do not change deployed code.
 
 ## DeepSeek Flash results — PASSED

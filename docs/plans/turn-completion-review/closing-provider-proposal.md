@@ -2,7 +2,7 @@
 
 Date: 2026-11-11. Status: **owner approved both cases; both real staging cases passed after the release gate and staging deployment**.
 
-This addresses section 3 and section 7 item 8 of the independent completion review. Existing staging results contain no closing attempt. They do not establish real-provider closing behavior. Keep the prior failed watchdog reports recorded as failed.
+This addresses section 3 and section 7 item 8 of the independent completion review. The staging results available before remediation contained no closing attempt; the authorized execution below supplies the new bounded evidence. Keep the prior failed watchdog reports recorded as failed.
 
 ## Proposed permission scope
 
@@ -41,6 +41,8 @@ Use an explicitly titled synthetic conversation so `ensureConversationTitle` exi
 Do not use incognito to avoid side effects: incognito intentionally skips the accounting ledger needed for this proof. Do not use `PLAYWRIGHT_TEST`, a scratch database, or mocked finalization and then describe the result as a staging persistence proof.
 
 ## Dedicated executable
+
+The authorized two-case run is complete. The command below is retained as a runbook, not permission for another execution; additional model runs require new approval.
 
 `scripts/verify-closing-provider.ts` uses the engine, real completion lifetime and real `finalizeChatTurn` persistence with `turnKind: "send"` so accounting projection is awaited. It disables only the optional turn-state maintenance tail; fresh explicitly titled conversations prevent title calls. No app behavior or public switch is changed.
 

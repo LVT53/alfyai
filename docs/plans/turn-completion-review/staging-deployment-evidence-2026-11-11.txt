@@ -15,3 +15,7 @@ Orchestrator post-deploy verification:
 Local and public health: OK; draining=false; active streams=0; service=active.
 Production release symlink before and after: 40f2d74fc, unchanged.
 Only fix/turn-completion pushed; no dev/main push or production deployment.
+
+Final read-only verification after both provider cases (orchestrator observed):
+Staging eb2869fd6; production 40f2d74fc unchanged; public health OK, draining=false, active streams=0.
+Staging journal since 18:24:40: no error/failed/warn matches.
