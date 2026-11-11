@@ -1,0 +1,24 @@
+gates release at c0117ff6a Project stored output events when checking the capacity receip — 21:47:39
+machine: 14 cores, load at start 1.7 1.9 1.9; e2e workers 8; schedule overlap
+check      exit=0 ok      55s (+18s) :: 0 errors, 0 warnings in 9126 files
+biome      exit=0 ok       2s (+0s) :: Found 1 info.
+migrations exit=0 ok       0s (+0s) :: All schema tables have corresponding migrations.
+vitest     exit=1 FAIL 11m01s (+18s) :: files 3 failed | 1354 passed | 1 skipped (1358); tests 5 failed | 26150 passed | 3 skipped (26158)
+build      exit=0 ok      18s (+0s) :: unused-css=0 aria=0 (baseline 0/0)
+chunks     exit=0 ok       1s (+18s) :: editor closure 70.9 kB gzip; chat route first paint 639182 B gzip in 99 chunks (information only)
+fallow     exit=0 ok       4s (+0s) :: total=4 circular=4 new_vs_baseline=0 gone_vs_baseline=0; fallow 3.33.1: health 86.3 (A), duplication 3.8%, 1,278,764 LOC (information only)
+playwright exit=1 FAIL 16m28s (+18s) :: 1553 passed, 75 skipped, 40 failed, 0 flaky on 8 workers
+      FAILED artifact-chat-card.spec.ts:217 shows the card during the turn, Open reaches the panel on it, and it survives a reload
+      FAILED artifact-chat-card.spec.ts:337 Open on a chat card while the panel shows its list leaves the list and shows that item
+      FAILED artifact-chat-card.spec.ts:397 Delete on a Document made in this very turn promises Regenerate, not "can't be undone", without a reload
+      FAILED artifact-chat-card.spec.ts:461 the in-chat card follows a live edit_artifact call without a reload
+      FAILED artifact-chat-card.spec.ts:553 a Document the turn made is listed in the message's Sources, and its row opens it
+      FAILED artifact-document.spec.ts:1037 marks the applied block and shows the refusal notice for the refused one
+      FAILED artifact-document.spec.ts:1204 puts the refusal card in the comment column at its line's position, between the threads either side of it
+      FAILED artifact-document.spec.ts:1342 the chat card, list row and count-button dot follow the persisted review state through Keep all and a reload
+      FAILED artifact-document.spec.ts:1491 opening the panel from the card never flashes 'Reviewed' while a change is still pending (re-check regression)
+      FAILED conversation-forks.spec.ts:50 forks a persisted response and keeps lineage usable across navigation and refresh
+      FAILED core-user-flows-smoke.spec.ts:45 logs in, sends from landing through the fake provider, and reloads the persisted response
+      FAILED images-composer.spec.ts:161 Attach puts a picture into the next message
+total 16m46s; load at end 2.3 5.1 5.8; FAILED: vitest, playwright
+logs: ../../../../../../tmp/turn-completion-remaining-release-20261111

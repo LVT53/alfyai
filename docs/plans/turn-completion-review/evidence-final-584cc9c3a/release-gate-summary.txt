@@ -1,0 +1,12 @@
+gates release at 584cc9c3a Give ordinary fake chat models capacity for the real tool cata — 22:06:48
+machine: 14 cores, load at start 1.9 3.8 5.2; e2e workers 8; schedule overlap
+check      exit=0 ok      55s (+18s) :: 0 errors, 0 warnings in 9126 files
+biome      exit=0 ok       2s (+0s) :: Found 1 info.
+migrations exit=0 ok       0s (+0s) :: All schema tables have corresponding migrations.
+vitest     exit=0 ok   11m13s (+18s) :: files 1357 passed | 1 skipped (1358); tests 26155 passed | 3 skipped (26158)
+build      exit=0 ok      18s (+0s) :: unused-css=0 aria=0 (baseline 0/0)
+chunks     exit=0 ok       1s (+18s) :: editor closure 70.9 kB gzip; chat route first paint 639158 B gzip in 99 chunks (information only)
+fallow     exit=0 ok       4s (+0s) :: total=4 circular=4 new_vs_baseline=0 gone_vs_baseline=0; fallow 3.33.1: health 86.3 (A), duplication 3.8%, 1,278,882 LOC (information only)
+playwright exit=0 ok   13m34s (+18s) :: 1593 passed, 75 skipped, 0 failed, 0 flaky on 8 workers
+total 13m52s; load at end 2.8 7.0 7.6; ALL GATES PASSED
+logs: ../../../../../../tmp/turn-completion-remaining-release-final-20261111

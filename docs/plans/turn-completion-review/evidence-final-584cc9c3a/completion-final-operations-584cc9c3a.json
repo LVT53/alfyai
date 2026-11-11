@@ -1,0 +1,80 @@
+{
+  "sha": "584cc9c3a226fc11ddde2f2c70bb0472ebb81d10",
+  "staging": "584cc9c3a",
+  "production": "40f2d74fc",
+  "repair": {
+    "dry": [
+      {
+        "mode": "dry-run",
+        "selected": 100,
+        "changed": 87,
+        "beforeBytes": 17675803,
+        "afterBytes": 1763278
+      },
+      {
+        "mode": "dry-run",
+        "selected": 100,
+        "changed": 79,
+        "beforeBytes": 10950139,
+        "afterBytes": 1653313
+      },
+      {
+        "mode": "dry-run",
+        "selected": 29,
+        "changed": 26,
+        "beforeBytes": 12527881,
+        "afterBytes": 584019
+      }
+    ],
+    "apply": [
+      {
+        "mode": "apply",
+        "selected": 100,
+        "changed": 87,
+        "beforeBytes": 17675803,
+        "afterBytes": 1763278
+      },
+      {
+        "mode": "apply",
+        "selected": 100,
+        "changed": 79,
+        "beforeBytes": 10950139,
+        "afterBytes": 1653313
+      },
+      {
+        "mode": "apply",
+        "selected": 29,
+        "changed": 26,
+        "beforeBytes": 12527881,
+        "afterBytes": 584019
+      }
+    ],
+    "repeat": [
+      {
+        "mode": "apply",
+        "selected": 100,
+        "changed": 0,
+        "beforeBytes": 1763278,
+        "afterBytes": 1763278
+      },
+      {
+        "mode": "apply",
+        "selected": 100,
+        "changed": 0,
+        "beforeBytes": 1653313,
+        "afterBytes": 1653313
+      },
+      {
+        "mode": "apply",
+        "selected": 29,
+        "changed": 0,
+        "beforeBytes": 584019,
+        "afterBytes": 584019
+      }
+    ]
+  },
+  "qwen": {
+    "status": "started",
+    "cases": []
+  }
+}

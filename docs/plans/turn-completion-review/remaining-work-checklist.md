@@ -107,3 +107,28 @@ The stronger browser check exposed a real budget defect: serialized messages plu
 The server fix must count the actual serialized tool schemas and fail closed before dispatch when the complete request cannot fit. The full catalogue therefore has an explicit capacity-failure expectation with **zero provider requests** at8,192; supporting a14,355-token catalogue inside8,192 is not claimed. Positive actual-SDK tests with a small tool catalogue must prove a fitting request in both plain and streaming transports. Gate and strengthened browser evidence are pending.
 
 The new browser test's initial assumption that the full catalogue should succeed has been revised to the required safe capacity behavior. No assertion in any of the33 original review reproducers was weakened or rewritten. The original review requested small-context certification; this boundary covers both fit and explicit refusal rather than silently omitting required context or tool definitions.
+
+
+## Final staging acceptance — 2026-11-11
+
+Validated runtime commit: `584cc9c3a226fc11ddde2f2c70bb0472ebb81d10`. Full release gate `/tmp/turn-completion-remaining-release-final-20261111`: every step exit 0; check 0 errors/0 warnings; 26,155 unit passed/3 skipped; 1,593 browser passed/75 skipped/0 failed/0 flaky; Fallow four known cycles, zero new findings; elapsed 13m52s. Compiler warning scan clean. The first full gate failed 5 unit / 40 browser tests; preserved summary and subsequent test-only corrections `886a146fa`, `584cc9c3a` retain intended oracles. Neither the failed gate nor original probe evidence is erased.
+
+Exact tested SHA pushed only to `fix/turn-completion`; staging deployed `releases/584cc9c3a`. Local 3002 and public `https://ai.dev.alfydesign.com/api/health` both returned status OK, draining false, activeStreams 0; staging service active. Production symlink remained `releases/40f2d74fc` before and after; no production mutation. Deploy backup `shared/backups/chat-20261111T222204Z-584cc9c3a.db`; migrations current. Deployment completed successfully. Dependency installation separately reported 37 npm audit findings/deprecations and a gradio/Pillow dependency conflict; sandbox imports passed. These are not compiler warnings or newly resolved dependencies. Bounded staging journal since 22:22UTC had no error/failed/warn matches.
+
+### Bounded real-provider evidence: partial, not a green matrix
+
+Evidence files: [final evidence directory](evidence-final-584cc9c3a/). All fixtures use the dedicated synthetic account; no owner content or credentials in reports. These test engine, persistence and accounting, not full authenticated HTTP/browser transport.
+
+- DeepSeek Flash: A and B passed, 4 total provider calls, zero auxiliary calls; persisted receipts and priced attempt audits pass.
+- Kimi: A passed with working+closing calls. B failed `accounting_not_ready`: one working request recorded cap 32, but provider returned 179 output tokens, natural_stop/answered, no closing attempt; receipt matches and priced working audit exists. The failure is preserved; no rerun or pass reclassification. Gateway sets `max_tokens` immediately before native fetch; inspected installed OpenAI-compatible SDK emits `max_tokens`, with no competing `max_completion_tokens` found. This does not establish the upstream reason for the observed cap behavior. Kimi length-to-closing certification remains open.
+- Qwen: refused before any provider call (`provider_binding_mismatch`). Both enabled configured Qwen models have null `max_model_context`; the runner requires an explicit value>= 8192. Provider/model names themselves match. No alias, admin configuration or deployed code was changed to bypass this guard. Qwen matrix remains unverified.
+
+Total actual provider calls 7; no blind reruns. Historical failed reports remain failures. No claim of complete provider certification or production readiness.
+
+### Explicit legacy metadata maintenance
+
+Three exact-ID manifests selected 229 staging assistant rows, each batch<= 100 IDs and 32 MiB. All dry runs passed before apply. Apply compacted 192 rows, reducing logical metadata bytes 41,153,823→4,000,610 (37,153,213 saved). Every batch's immediate second apply changed 0 rows. The tool verifies complete canonical projection equality, preserves unrelated metadata/content, and uses scoped compare-and-swap transactions. No content printed, no production operation, no VACUUM, and no database-file-size reclamation claim. Aggregate dry/apply/repeat results are in `evidence-final-584cc9c3a/completion-final-operations-584cc9c3a.json`; exact manifests stay on staging `/tmp/completion-final-repair-manifest-{0,1,2}.json`.
+
+R1–R8 local integrated gate coverage and R7 staging maintenance now have acceptance evidence; R9 staging release is complete. R10 remains partially unverified for the reasons above. Independent Fable review is prepared, not launched or passed.
+
+Read-only follow-up: Qwen refusal is a **stricter verifier precondition**, not evidence the app cannot run Qwen. The production engine falls back from absent provider context through runtime config to `getMaxModelContext(modelId)` (`normal-chat-model/index.ts`, `config-store.ts`); the provider-ID form uses the global setting, and staging's admin `MAX_MODEL_CONTEXT` is 146000. The verifier currently insists on a non-null catalogue row. Kimi B's synthetic persisted answer has 153 bytes, 55 lines, 54 integer-only lines, no ellipsis and no `END=200`; it did not satisfy the requested 200-integer list despite its upstream natural-stop classification. No raw answer, reasoning, or owner content was retrieved into evidence. These limitations remain open for independent review.
