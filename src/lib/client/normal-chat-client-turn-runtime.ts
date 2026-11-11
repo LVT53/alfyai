@@ -2480,9 +2480,24 @@ export function createNormalChatClientTurnRuntime(
 				tokenBuffer.flush();
 				thinkingBuffer.flush();
 				if (metadata?.observation) {
-					if (!observationIsScoped(params, metadata.observation)) return;
-					if (metadata.observation.state !== "pending")
-						void settleObservation(params, metadata.observation, metadata);
+					const observation = metadata.observation;
+					if (
+						observationIsScoped(params, observation) &&
+						observation.state !== "pending"
+					) {
+						void settleObservation(params, observation, metadata);
+					} else {
+						// An ended reader cannot remain pending or lend another turn's receipt.
+						void settleObservation(params, {
+							version: 1,
+							state: "unavailable",
+							streamId:
+								params.streamOptions.reconnectToStreamId ??
+								params.originatingStreamId ??
+								"",
+							conversationId: params.turnConversationId,
+						});
+					}
 					return;
 				}
 				if (isPollingForCompletion) {
