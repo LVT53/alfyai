@@ -19,3 +19,10 @@ Baseline: `495282bf4` (validated code `29e51551f`, later documentation only). No
 - The old JSON-is-markup test oracle was corrected to require preservation, as identified in review section 6. Original exact-text assertions retained in permanent tests; additionally assert final normalized content exactly equals the entire answer.
 - Original cases GREEN: 4 passed (`1.2-original-green.log`). Seven affected suites GREEN: 164 tests (`1.2-focused-green.log`), including explicit DSML/private-thinking protection and metadata size coverage.
 - No new model calls, changes to completion policy or interpretation of prose words.
+
+### 1.2 independent-review follow-up — generic JSON payloads
+
+- Reviewer found structured final normalization still erased a valid `{version:1, blocks:[...]}` example through the legacy document-payload scanner.
+- Added bare/fenced regressions for version/blocks, documentSource blocks/template and program/sourceCode, plus four incomplete JSON-prefix cases. RED: 8 failed, 4 passed (`/tmp/turn-completion-remediation/1.2-payload-red.log`).
+- Restricted generic document/program payload scanning and prefix buffering to legacy leading cleanup. Structural answers keep these JSON shapes; explicit DSML and private-thinking removal still pass.
+- GREEN: 3 suites, 110 tests (`/tmp/turn-completion-remediation/1.2-payload-green.log`). No changes to completion/UI files owned by the concurrent worker.

@@ -1553,10 +1553,9 @@ export function stripLeakedToolDiagnostics(
 				state,
 			)
 		: withoutLeadingToolNarration;
-	const withoutDocumentSourceDiagnostics = stripLeakedDocumentSourceDiagnostics(
-		withoutFileProductionRepair,
-		state,
-	);
+	const withoutDocumentSourceDiagnostics = leading
+		? stripLeakedDocumentSourceDiagnostics(withoutFileProductionRepair, state)
+		: withoutFileProductionRepair;
 	const withoutWebDiagnostics = stripLeakedWebToolDiagnostics(
 		withoutDocumentSourceDiagnostics,
 		state,
@@ -1735,7 +1734,7 @@ export function getLeakedToolDiagnosticPrefixLength(
 			(leading && isFileProductionRepairNarrationPrefix(suffix)) ||
 			isLeakedPythonToolDiagnosticPrefix(suffix) ||
 			isPlainSourceReferenceMarkerPrefix(suffix) ||
-			isFileProductionPayloadRawOutputPrefix(suffix) ||
+			(leading && isFileProductionPayloadRawOutputPrefix(suffix)) ||
 			(leading && isMarkdownToolCallBlockPrefix(suffix))
 		) {
 			return value.length - index;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeAssistantOutputWithSkillControl } from "$lib/server/services/chat-turn/normalizer";
+import { getLeakedToolDiagnosticPrefixLength } from "$lib/services/stream-protocol";
 import {
 	createNormalChatOutputAccumulator,
 	type NormalChatOutputEvent,
@@ -58,5 +59,49 @@ describe("review D: explicit-markup sanitizer applied to a whole legitimate answ
 			normalizeAssistantOutputWithSkillControl(text, { structuredOutput: true })
 				.visibleText,
 		).toBe(text);
+	});
+});
+
+describe("structural answers containing file payload examples", () => {
+	const samples = [
+		'{"version":1,"blocks":[{"type":"paragraph","text":"Hello"}]}',
+		'{"documentSource":{"blocks":[{"type":"paragraph","text":"Hello"}]}}',
+		'{"documentSource":{"template":"report"}}',
+		'{"program":{"language":"python","sourceCode":"print(1)"}}',
+	];
+	it.each(samples)("preserves JSON payload %s, bare and fenced", (json) => {
+		for (const text of [
+			json,
+			`\x60\x60\x60json\n${json}\n\x60\x60\x60\nThis is a sample document payload.`,
+		]) {
+			expect(sanitizeNormalChatAnswer(text)).toBe(text);
+			expect(
+				normalizeAssistantOutputWithSkillControl(text, {
+					structuredOutput: true,
+				}).visibleText,
+			).toBe(text);
+		}
+	});
+	it.each([
+		'{"documentSource":',
+		'{"program":',
+		'{"version":1,"blocks"',
+		'{"version":1,"template"',
+	])("does not buffer a structural JSON prefix %s as a tool diagnostic", (text) => {
+		expect(getLeakedToolDiagnosticPrefixLength(text, { leading: false })).toBe(
+			0,
+		);
+	});
+	it("continues removing explicit private/control syntax", () => {
+		expect(
+			normalizeAssistantOutputWithSkillControl("<think>private</think>Answer", {
+				structuredOutput: true,
+			}).visibleText,
+		).toBe("Answer");
+		expect(
+			normalizeAssistantOutputWithSkillControl("<｜｜DSML｜｜ calls>control", {
+				structuredOutput: true,
+			}).visibleText,
+		).toBe("");
 	});
 });
