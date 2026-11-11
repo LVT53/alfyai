@@ -28,6 +28,22 @@ export function assertStageIdentity(input: {
 		"not_staging_database",
 	);
 }
+/**
+ * The context size the app itself runs this model with: the catalogue row's
+ * own value, or the runtime default when the row leaves it unset
+ * (normal-chat-model/index.ts, completionDependencies).
+ */
+export function assertClosingModelContext(input: {
+	catalogue: number | null | undefined;
+	runtime: number;
+}): number {
+	const context =
+		typeof input.catalogue === "number" && input.catalogue > 0
+			? input.catalogue
+			: input.runtime;
+	need(Number.isFinite(context) && context >= 8192, "model_context_too_small");
+	return context;
+}
 export function assertClosingBinding(input: {
 	family: string;
 	providerName: string;
@@ -103,12 +119,19 @@ export function createClosingGateway(input: {
 			const cap =
 				input.caseName === "B" ? (phase === "working" ? 32 : 1024) : 512;
 			requests.push({ phase, cap, tools });
+			// One cap, in the field this adapter already uses: the two are aliases
+			// that a provider refuses or resolves its own way when both are sent.
+			const capField =
+				body.max_completion_tokens === undefined
+					? "max_tokens"
+					: "max_completion_tokens";
+			const capped: Record<string, unknown> = { ...body, [capField]: cap };
+			if (capField === "max_completion_tokens") delete capped.max_tokens;
 			return input.fetch(url, {
 				...init,
 				redirect: "error",
 				body: JSON.stringify({
-					...body,
-					max_tokens: cap,
+					...capped,
 					...((input.disableThinking ?? input.modelName === undefined)
 						? { thinking: { type: "disabled" } }
 						: {}),
@@ -506,13 +529,14 @@ async function main() {
 		),
 		model = await models.getProviderModel(values["model-id"]);
 	need(
-		provider?.enabled &&
-			model?.enabled &&
-			model.providerId === provider.id &&
-			model.maxModelContext &&
-			model.maxModelContext >= 8192,
+		provider?.enabled && model?.enabled && model.providerId === provider.id,
 		"provider_binding_mismatch",
 	);
+	const { getConfig } = await import("../src/lib/server/config-store");
+	assertClosingModelContext({
+		catalogue: model.maxModelContext,
+		runtime: getConfig().maxModelContext,
+	});
 	assertClosingBinding({
 		family: values.family,
 		providerName: provider.name,
@@ -532,7 +556,7 @@ async function main() {
 			provider.apiKeyEncrypted,
 			provider.apiKeyIv,
 		),
-		maxModelContext: model.maxModelContext,
+		maxModelContext: model.maxModelContext ?? undefined,
 		thinkingType:
 			provider.name === "deepseek"
 				? "disabled"

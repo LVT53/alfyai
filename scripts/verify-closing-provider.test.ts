@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import {
 	assertClosingBinding,
+	assertClosingModelContext,
 	assertStageIdentity,
 	createClosingGateway,
 } from "./verify-closing-provider";
@@ -296,5 +297,69 @@ describe("explicit closing provider matrix binding", () => {
 			}),
 		});
 		expect(transport).toHaveBeenCalledTimes(1);
+	});
+});
+
+// The Kimi adapter sends its output cap as `max_completion_tokens`
+// (provider-compatibility.ts, usesMaxCompletionTokens). Fireworks documents the
+// two fields as aliases that "cannot be specified together": on 2026-11-11 the
+// gateway added `max_tokens: 32` beside the adapter's 1024, the provider kept
+// the 1024, and case B never reached its length stop.
+describe("closing proof output cap", () => {
+	it("replaces the cap field the adapter sent instead of adding a second one", async () => {
+		const bodies: Record<string, unknown>[] = [];
+		const transport = vi.fn<typeof fetch>(async (_url, init) => {
+			bodies.push(JSON.parse(String(init?.body)));
+			return new Response("ok");
+		});
+		const endpoint = "https://api.fireworks.ai/inference/v1/chat/completions";
+		const modelName = "accounts/fireworks/models/kimi-k3p1-pro";
+		const gate = createClosingGateway({
+			caseName: "B",
+			endpoint,
+			modelName,
+			fetch: transport,
+		});
+		for (const phase of ["working", "closing"] as const) {
+			gate.enter(phase);
+			await gate.fetch(endpoint, {
+				method: "POST",
+				body: JSON.stringify({
+					model: modelName,
+					stream: true,
+					max_completion_tokens: 1024,
+				}),
+			});
+		}
+		expect(bodies.map((b) => b.max_completion_tokens)).toEqual([32, 1024]);
+		expect(bodies.map((b) => "max_tokens" in b)).toEqual([false, false]);
+		expect(gate.requests.map((r) => r.cap)).toEqual([32, 1024]);
+	});
+});
+
+// The app runs a model whose catalogue row has no context size on its
+// configured default (normal-chat-model/index.ts completionDependencies), so
+// the proof must accept the same models the app accepts.
+describe("closing proof model context", () => {
+	it("uses the runtime context when the catalogue row has none", () => {
+		expect(
+			assertClosingModelContext({ catalogue: null, runtime: 146000 }),
+		).toBe(146000);
+		expect(
+			assertClosingModelContext({ catalogue: undefined, runtime: 8192 }),
+		).toBe(8192);
+	});
+	it("prefers the catalogue row's own context", () => {
+		expect(
+			assertClosingModelContext({ catalogue: 32768, runtime: 146000 }),
+		).toBe(32768);
+	});
+	it("refuses a model whose effective context is below 8192", () => {
+		expect(() =>
+			assertClosingModelContext({ catalogue: null, runtime: 4096 }),
+		).toThrow("model_context_too_small");
+		expect(() =>
+			assertClosingModelContext({ catalogue: 4096, runtime: 146000 }),
+		).toThrow("model_context_too_small");
 	});
 });
