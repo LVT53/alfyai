@@ -37,7 +37,10 @@ import {
 	type StepImageEntry,
 } from "../vision/step-images";
 import { buildStepImagesMessage, stripImageParts } from "../vision/turn-images";
-import { buildCompletionTools } from "./completion-tools";
+import {
+	buildCompletionTools,
+	toolCallRepairFunction,
+} from "./completion-tools";
 import { CONTEXT_GUARD_MARGIN_TOKENS } from "./context-guard";
 import { cloneNormalChatContextValue } from "./continuation-codec";
 import type {
@@ -977,6 +980,7 @@ export async function* runNormalChatCompletion(
 				maxRetries: 0,
 				abortSignal: signal,
 				headers: params.headers,
+				experimental_repairToolCall: toolCallRepairFunction,
 				onStepFinish: finishStep,
 			};
 			if (streaming) {

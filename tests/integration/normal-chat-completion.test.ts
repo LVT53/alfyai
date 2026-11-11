@@ -1083,3 +1083,64 @@ describe("review A: answer projection attacks", () => {
 		expect(projectNormalChatOutput(args.output).answer).toBe(jsonAnswer);
 	});
 });
+
+it.each([
+	false,
+	true,
+])("keeps production tool-call JSON repair (streaming=%s)", async (streaming) => {
+	const malformed = [
+		{
+			id: "c1",
+			type: "function",
+			function: { name: "lookup", arguments: '{"query":"x"' },
+		},
+	];
+	const run = async (withCompletion: boolean) => {
+		const args = setup();
+		let executions = 0;
+		let requests = 0;
+		const params = {
+			...args,
+			tools: {
+				lookup: tool({
+					inputSchema: z.object({ query: z.string() }),
+					execute: async () => {
+						executions++;
+						return "evidence";
+					},
+				}),
+			},
+			fetch: async () => {
+				const first = ++requests === 1;
+				return streaming
+					? first
+						? streamed(
+								[{ tool_calls: [{ index: 0, ...malformed[0] }] }],
+								"tool_calls",
+							)
+						: streamed([{ content: "answer" }])
+					: first
+						? reply("", "tool_calls", malformed)
+						: reply("answer");
+			},
+		};
+		const execute = async (
+			input: typeof params | Omit<typeof params, "completionPolicy">,
+		) => {
+			if (streaming) {
+				for await (const _ of runStreamingNormalChatModelRun(input)) {
+					/* drain */
+				}
+			} else await runPlainNormalChatModelRun(input);
+		};
+		if (!withCompletion) {
+			const { completionPolicy: _omit, ...legacy } = params;
+			await execute(legacy);
+		} else await execute(params);
+		return executions;
+	};
+	const legacy = await run(false);
+	const completion = await run(true);
+	expect(legacy).toBe(1);
+	expect(completion).toBe(legacy);
+});

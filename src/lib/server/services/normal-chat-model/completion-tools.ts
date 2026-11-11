@@ -1,4 +1,11 @@
-import type { JSONValue, ToolResultPart, ToolSet } from "ai";
+import {
+	type InvalidToolInputError,
+	type JSONValue,
+	NoSuchToolError,
+	type ToolResultPart,
+	type ToolSet,
+} from "ai";
+import { repairMalformedToolCallJson } from "$lib/server/utils/tool-json-repair";
 import type { NormalChatStopCause } from "$lib/shared/normal-chat-completion";
 import type { NormalChatOutputPhase } from "$lib/shared/normal-chat-output";
 import type {
@@ -209,4 +216,23 @@ export function buildCompletionTools(context: {
 			};
 		}
 	return Object.keys(wrapped).length ? wrapped : undefined;
+}
+
+/** Deterministic syntax repair shared by legacy and structural completion calls. */
+export function toolCallRepairFunction({
+	error,
+	toolCall,
+}: {
+	error: InvalidToolInputError | NoSuchToolError;
+	toolCall: { toolCallId: string; toolName: string; input: string };
+}): Promise<{
+	type: "tool-call";
+	toolCallId: string;
+	toolName: string;
+	input: string;
+} | null> {
+	if (NoSuchToolError.isInstance(error)) return Promise.resolve(null);
+	const repaired = repairMalformedToolCallJson(toolCall.input);
+	if (!repaired) return Promise.resolve(null);
+	return Promise.resolve({ type: "tool-call", ...toolCall, input: repaired });
 }

@@ -48,3 +48,9 @@ Baseline: `495282bf4` (validated code `29e51551f`, later documentation only). No
 - Original C-capacity reproducer RED: two fresh POSTs after Stop, expected one (`/tmp/turn-completion-remediation/1.3-original-red.log`).
 - Capacity retry captures the turn epoch and rechecks stream ownership before dispatch. Stop/new turn/navigation invalidates the scheduled action.
 - GREEN: retained regression plus runtime suite, 363 tests (`1.3-green.log`). Original assertions retained in `normal-chat-capacity-stop.test.ts`.
+
+## 1.4 f — Restore deterministic tool-call repair
+
+- Original A repair reproducer RED: completion executed zero calls while the legacy path executed one (`/tmp/turn-completion-remediation/1.4f-original-red.log`).
+- Moved the existing deterministic repair helper into the model tool module and reused it from both legacy requests and the shared completion request; unknown tools remain unrepairable. No repair model call.
+- Original GREEN (`1.4f-original-green.log`); retained coverage expanded to both transports. Four focused suites, 209 tests GREEN (`1.4f-focused-green.log`).

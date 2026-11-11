@@ -3,10 +3,8 @@ import {
 	APICallError,
 	type FinishReason,
 	generateText,
-	type InvalidToolInputError,
 	type LanguageModelUsage,
 	type ModelMessage,
-	NoSuchToolError,
 	type OnStepFinishEvent,
 	type PrepareStepFunction,
 	type StopCondition,
@@ -32,7 +30,6 @@ import {
 	type RuntimeConfig,
 } from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
-import { repairMalformedToolCallJson } from "$lib/server/utils/tool-json-repair";
 import { ASK_USER_TOOL_NAME, isAskPauseOutput } from "$lib/shared/ask-user";
 import type { NormalChatCompletion } from "$lib/shared/normal-chat-completion";
 import { estimateTokenCount } from "$lib/utils/tokens";
@@ -61,6 +58,7 @@ import {
 	type NormalChatContinuationSnapshot,
 	runNormalChatCompletion,
 } from "./completion";
+import { toolCallRepairFunction } from "./completion-tools";
 import { buildContextGuardPrepareStep } from "./context-guard";
 import { cloneNormalChatContextValue } from "./continuation-codec";
 import {
@@ -91,24 +89,6 @@ const DEFAULT_MAX_TOOL_STEPS = 20;
 type NormalChatModelRunProviderOptions = NonNullable<
 	Parameters<typeof generateText>[0]["providerOptions"]
 >;
-
-function toolCallRepairFunction({
-	error,
-	toolCall,
-}: {
-	error: InvalidToolInputError | NoSuchToolError;
-	toolCall: { toolCallId: string; toolName: string; input: string };
-}): Promise<{
-	type: "tool-call";
-	toolCallId: string;
-	toolName: string;
-	input: string;
-} | null> {
-	if (NoSuchToolError.isInstance(error)) return Promise.resolve(null);
-	const repaired = repairMalformedToolCallJson(toolCall.input);
-	if (!repaired) return Promise.resolve(null);
-	return Promise.resolve({ type: "tool-call", ...toolCall, input: repaired });
-}
 
 function stagnantProgress(): StopCondition<ToolSet> {
 	return ({ steps }) => {
