@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import type { ChatMessage } from "../../src/lib/server/services/messages-types";
+import { decodeAiSdkUiStreamPayloads } from "../../src/lib/services/ai-sdk-ui-stream-contract";
 import { projectNormalChatOutput } from "../../src/lib/shared/normal-chat-output";
 import {
 	COMPLETION_ANSWER,
@@ -209,6 +210,15 @@ test.describe("turn completion contract", () => {
 			const id = await start(page, "tool");
 			await expect.poll(() => requests().length).toBe(2);
 			await inspectLiveWorkingPhase(page);
+			const liveHeadline = page
+				.getByTestId("assistant-message")
+				.locator(".thinking-label.is-active .thinking-label-text");
+			await expect(liveHeadline).toBeVisible();
+			const animation = await liveHeadline.evaluate(
+				(node) => getComputedStyle(node).animationName,
+			);
+			if (reducedMotion === "reduce") expect(animation).toBe("none");
+			else expect(animation).toContain("thinking-sweep");
 			await expect(
 				prose(page).getByText("Let me check.", { exact: false }),
 			).toHaveCount(0);
@@ -353,14 +363,16 @@ test.describe("turn completion contract", () => {
 			await expect.poll(() => closingRequests().length).toBe(1);
 			provider.release(COMPLETION_HOLD);
 			await ended(page);
-			// Assert a user-visible failure/incomplete state, not a guessed private outcome key.
-			await expect(
-				page
-					.getByText(
-						/incomplete|interrupted|could not complete|failed|something went wrong/i,
-					)
-					.first(),
-			).toBeVisible();
+			const outcome = mode === "closing-error" ? "failed" : "incomplete";
+			const label = outcome === "failed" ? "Reply failed" : "Answer incomplete";
+			await expect(page.getByTestId("normal-chat-output-status")).toHaveText(
+				label,
+			);
+			expect((await savedOutput(page, id)).completion).toMatchObject({
+				outcome,
+				phase: "closing",
+				closingAttempted: true,
+			});
 			await expect(
 				prose(page).getByText(COMPLETION_WORKING, { exact: false }),
 			).toHaveCount(0);
@@ -375,6 +387,9 @@ test.describe("turn completion contract", () => {
 			await page.reload();
 			await waitForHydration(page);
 			await expect(page.getByTestId("stop-button")).toHaveCount(0);
+			await expect(page.getByTestId("normal-chat-output-status")).toHaveText(
+				label,
+			);
 			expect(closingRequests()).toHaveLength(1);
 			expect(
 				requests().filter((r) => !completionToolsOff(r.body)),
@@ -597,7 +612,14 @@ test.describe("turn completion contract", () => {
 		page,
 		context,
 	}) => {
+		const started = page.waitForRequest(
+			(request) =>
+				request.method() === "POST" &&
+				new URL(request.url()).pathname === "/api/chat/stream",
+		);
 		const id = await start(page, "tool");
+		const original = (await started).postDataJSON() as { streamId: string };
+		expect(original.streamId).toBeTruthy();
 		await expect.poll(() => requests().length).toBe(2);
 		await page.reload();
 		await waitForHydration(page);
@@ -611,6 +633,43 @@ test.describe("turn completion contract", () => {
 			await waitForHydration(observer);
 			await finalAnswer(observer);
 			await exportedAnswer(observer, id);
+			const observed = await observer.request.post("/api/chat/stream", {
+				headers: { Origin: new URL(observer.url()).origin },
+				data: {
+					message: "",
+					conversationId: id,
+					streamId: original.streamId,
+					reconnectToStreamId: original.streamId,
+				},
+			});
+			expect(observed.ok()).toBe(true);
+			const payloads = decodeAiSdkUiStreamPayloads(await observed.text());
+			expect(
+				payloads.some((part) => part !== "[DONE]" && part.type === "finish"),
+			).toBe(true);
+			expect(
+				payloads.some((part) => {
+					if (part === "[DONE]") return false;
+					const data = part.data as
+						| {
+								type?: string;
+								completion?: { outcome?: string };
+								observation?: {
+									state?: string;
+									completion?: { outcome?: string };
+								};
+						  }
+						| undefined;
+					return (
+						(part.type === "data-normal-chat-output" &&
+							data?.type === "completion" &&
+							data.completion?.outcome === "answered") ||
+						(part.type === "data-stream-metadata" &&
+							data?.observation?.state === "terminal" &&
+							data.observation.completion?.outcome === "answered")
+					);
+				}),
+			).toBe(true);
 			expect(requests()).toHaveLength(2);
 		} finally {
 			await observer.close();
