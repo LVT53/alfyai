@@ -291,3 +291,74 @@ export function readNormalChatOutputEvent(
 	}
 	return value as NormalChatOutputEvent;
 }
+
+/**
+ * One dictionary per connection. The engine's event sequence is monotonic across
+ * attempts, so a start sequence is a compact reference, never an implicit scope.
+ * We bind and validate the complete identity and fail closed on collisions.
+ * Canonical replay starts prime this same dictionary before a compact live tail.
+ */
+export function createNormalChatWireDecoder() {
+	const blocks = new Map<
+		number,
+		Extract<NormalChatOutputEvent, { type: "block_start" }>
+	>();
+	let segment: string | undefined;
+	const identity = (event: NormalChatOutputEvent) =>
+		JSON.stringify([
+			event.turnId,
+			event.segmentId,
+			event.attemptId,
+			event.stepId,
+			event.phase,
+			"blockId" in event ? event.blockId : null,
+		]);
+	return {
+		consume(part: UiMessageStreamPart): NormalChatOutputEvent | null {
+			if (part.type === "data-normal-chat-output") {
+				const event = readNormalChatOutputEvent(part.data);
+				if (!event) return null;
+				const nextSegment = JSON.stringify([event.turnId, event.segmentId]);
+				if (segment !== nextSegment) {
+					blocks.clear();
+					segment = nextSegment;
+				}
+				if (event.type === "block_start") {
+					const prior = blocks.get(event.sequence);
+					if (prior && identity(prior) !== identity(event))
+						throw new Error("output_reference_collision");
+					if (!prior && blocks.size >= 10_000)
+						throw new Error("output_reference_capacity");
+					blocks.set(event.sequence, event);
+				} else if (event.type === "block_end") {
+					for (const [ref, block] of blocks)
+						if (identity(block) === identity(event)) blocks.delete(ref);
+				}
+				return event;
+			}
+			if (part.type !== "data-normal-chat-delta") return null;
+			const data = part.data as {
+				ref?: unknown;
+				sequence?: unknown;
+				text?: unknown;
+			} | null;
+			if (
+				!data ||
+				!Number.isSafeInteger(data.ref) ||
+				Number(data.ref) < 0 ||
+				!Number.isSafeInteger(data.sequence) ||
+				Number(data.sequence) < 0 ||
+				typeof data.text !== "string"
+			)
+				throw new Error("invalid_output_delta");
+			const block = blocks.get(Number(data.ref));
+			if (!block) throw new Error("unknown_output_reference");
+			return {
+				...block,
+				type: "block_delta",
+				sequence: Number(data.sequence),
+				text: data.text,
+			};
+		},
+	};
+}

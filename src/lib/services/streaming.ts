@@ -33,9 +33,9 @@ import {
 import {
 	type AiSdkUiStreamFrame,
 	consumeAiSdkUiStreamFrames,
+	createNormalChatWireDecoder,
 	extractAiSdkUiStreamMetadataData,
 	type NormalChatTurnObservation,
-	readNormalChatOutputEvent,
 	type UiMessageStreamPart,
 } from "./ai-sdk-ui-stream-contract";
 import {
@@ -826,6 +826,7 @@ export function streamChat(
 	let fullText = "";
 	let structuralOutput = false;
 	const output = createNormalChatOutputAccumulator();
+	const wireOutput = createNormalChatWireDecoder();
 	// Wire-kind lookup for the legacy thinking callback only. The accumulator
 	// exclusively owns block text, order and roles; this stores no text/history.
 	const reasoningBlocks = new Set<string>();
@@ -1151,8 +1152,9 @@ export function streamChat(
 
 				const { part } = frame;
 				switch (part.type) {
-					case "data-normal-chat-output": {
-						const event = readNormalChatOutputEvent(part.data);
+					case "data-normal-chat-output":
+					case "data-normal-chat-delta": {
+						const event = wireOutput.consume(part);
 						if (!event) return false;
 						if (!structuralOutput) replayThinkingBuffer.length = 0;
 						structuralOutput = true;

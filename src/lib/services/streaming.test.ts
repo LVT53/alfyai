@@ -46,6 +46,58 @@ describe("streamChat", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it("expands compact wire deltas after a replay start without duplicate text", async () => {
+		const scope = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "w",
+			phase: "working",
+		};
+		const start = {
+			...scope,
+			sequence: 1,
+			type: "block_start",
+			blockId: "b",
+			nativeId: "n",
+			kind: "text",
+			role: "answer",
+		};
+		const compact = uiFrame({
+			type: "data-normal-chat-delta",
+			data: { ref: 1, sequence: 2, text: "Visible" },
+		});
+		const { callbacks, done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({ type: "data-replay-start", data: {} }),
+				uiFrame({ type: "data-normal-chat-output", data: start }),
+				uiFrame({ type: "data-replay-end", data: {} }),
+				compact,
+				compact,
+				endEvent({}),
+			],
+		});
+		await done;
+		expect(callbacks.onEnd).toHaveBeenCalledWith("Visible", undefined);
+		expect(callbacks.onError).not.toHaveBeenCalled();
+	});
+
+	it("reports unknown compact wire references as transport errors", async () => {
+		const { callbacks, done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({
+					type: "data-normal-chat-delta",
+					data: { ref: 404, sequence: 2, text: "Wrong" },
+				}),
+				endEvent({}),
+			],
+		});
+		await done;
+		expect(callbacks.onError).toHaveBeenCalledTimes(1);
+		expect(callbacks.onEnd).not.toHaveBeenCalled();
+	});
+
 	it("preserves the pending model deadline in observation metadata", async () => {
 		const observation = {
 			version: 1,
