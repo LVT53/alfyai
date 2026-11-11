@@ -1423,3 +1423,14 @@ it("settles the lifetime exactly once if cancellation arrives while the initial 
 	expect(mocks.model).not.toHaveBeenCalled();
 	expect(mocks.settle).toHaveBeenCalledOnce();
 });
+
+it("transfers a successful plain lifetime to finalization before releasing its owner", async () => {
+	const run = await prepareNormalChatTurn({
+		...createPlainNormalChatSendModelParams(),
+		retainCompletionForFinalization: true,
+	});
+	const result = await run.runPlain();
+	expect(mocks.settle).not.toHaveBeenCalled();
+	await result.completionTurn?.finish("saved");
+	expect(mocks.settle).toHaveBeenCalledTimes(1);
+});

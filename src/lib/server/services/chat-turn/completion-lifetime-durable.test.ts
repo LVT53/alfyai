@@ -745,3 +745,33 @@ it("publishes the admission deadline before preparation and never extends it fro
 	});
 	await life.finish();
 });
+
+it("keeps answered unsaved plain ownership pending until finalization releases it", async () => {
+	const life = module.beginCompletionLifetime(input);
+	await life.register(attempt);
+	life.capture(snapshot(life.scope, true));
+	// Exercise the terminal-before-link persistence window while the real owner remains held.
+	database.db
+		.update(schema.normalChatTurns)
+		.set({
+			outcome: "answered",
+			phase: "working",
+			stopCause: "natural_stop",
+			workingStopCause: "natural_stop",
+			closingAttempted: false,
+			recoveryCount: 0,
+			attemptIdsJson: JSON.stringify(["a"]),
+		})
+		.run();
+	expect(await module.observeCompletionTurn(input)).toMatchObject({
+		state: "pending",
+		segmentId: life.scope.segmentId,
+	});
+	await life.finish();
+	expect(await module.observeCompletionTurn(input)).toMatchObject({
+		state: "terminal",
+		assistantMessageId: null,
+		completion: { outcome: "failed" },
+		modelCompletion: { outcome: "answered" },
+	});
+});
