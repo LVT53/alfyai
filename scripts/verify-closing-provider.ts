@@ -28,9 +28,45 @@ export function assertStageIdentity(input: {
 		"not_staging_database",
 	);
 }
+export function assertClosingBinding(input: {
+	family: string;
+	providerName: string;
+	modelName: string;
+	baseUrl: string;
+	expectedProviderName: string;
+	expectedModelName: string;
+	expectedOrigin: string;
+}) {
+	const base = new URL(input.baseUrl);
+	const expected = new URL(input.expectedOrigin);
+	need(
+		expected.origin === input.expectedOrigin &&
+			!base.username &&
+			!base.password &&
+			base.origin === expected.origin,
+		"unexpected_provider_origin",
+	);
+	need(
+		input.providerName === input.expectedProviderName &&
+			input.modelName === input.expectedModelName,
+		"provider_binding_mismatch",
+	);
+	need(
+		(input.family === "deepseek" &&
+			input.providerName === "deepseek" &&
+			input.modelName === "deepseek-flash" &&
+			base.origin === "https://api.deepseek.com") ||
+			(input.family === "kimi" && /kimi/i.test(input.modelName)) ||
+			(input.family === "qwen" && /qwen/i.test(input.modelName)),
+		"unsupported_provider_family",
+	);
+}
+
 export function createClosingGateway(input: {
 	caseName: "A" | "B";
 	endpoint: string;
+	modelName?: string;
+	disableThinking?: boolean;
 	fetch: typeof fetch;
 }) {
 	let phase: "working" | "closing" | undefined;
@@ -58,7 +94,8 @@ export function createClosingGateway(input: {
 			);
 			const body = JSON.parse(String(init.body)) as Record<string, unknown>;
 			need(
-				body.model === "deepseek-flash" && body.stream === true,
+				body.model === (input.modelName ?? "deepseek-flash") &&
+					body.stream === true,
 				"unexpected_model",
 			);
 			const tools = Array.isArray(body.tools) ? body.tools.length : 0;
@@ -72,7 +109,9 @@ export function createClosingGateway(input: {
 				body: JSON.stringify({
 					...body,
 					max_tokens: cap,
-					thinking: { type: "disabled" },
+					...((input.disableThinking ?? input.modelName === undefined)
+						? { thinking: { type: "disabled" } }
+						: {}),
 				}),
 			});
 		}) satisfies typeof fetch,
@@ -130,6 +169,8 @@ export async function runClosingCase(input: ClosingCaseInput) {
 		caseName: input.caseName,
 		endpoint: `${normalizeOpenAICompatibleBaseUrl(input.provider.baseUrl)}/chat/completions`,
 		fetch: input.fetch,
+		modelName: input.provider.modelName,
+		disableThinking: input.provider.name === "deepseek",
 	});
 	let toolExecutions = 0,
 		closingDeltas = 0;
@@ -157,6 +198,8 @@ export async function runClosingCase(input: ClosingCaseInput) {
 			totalTokens: number | null;
 			costUsdMicros: number | null;
 			modelId: string;
+			outcome: string | null;
+			stopCause: string | null;
 		}>,
 		completion: null as unknown,
 	};
@@ -178,7 +221,7 @@ export async function runClosingCase(input: ClosingCaseInput) {
 					}
 				: undefined;
 		const run = model.prepareNormalChatCompletionRun({
-			provider: { ...input.provider, thinkingType: "disabled" },
+			provider: input.provider,
 			modelId: input.modelId,
 			runtimeConfig: { ...getConfig(), modelTimeoutFailoverEnabled: false },
 			messages: [{ role: "user", content: prompt }],
@@ -290,6 +333,8 @@ export async function runClosingCase(input: ClosingCaseInput) {
 				totalTokens: a.totalTokens,
 				costUsdMicros: a.costUsdMicros,
 				modelId: a.modelId,
+				outcome: a.outcome,
+				stopCause: a.stopCause,
 			}));
 			const rows = audit
 				.select()
@@ -314,6 +359,8 @@ export async function runClosingCase(input: ClosingCaseInput) {
 					attempts.every(
 						(a) =>
 							a.usageFinal &&
+							a.outcome !== null &&
+							a.stopCause !== null &&
 							a.inputTokens !== null &&
 							a.outputTokens !== null &&
 							a.totalTokens !== null &&
@@ -380,12 +427,19 @@ async function main() {
 			"user-email": { type: "string" },
 			"provider-id": { type: "string" },
 			"model-id": { type: "string" },
+			family: { type: "string", default: "deepseek" },
+			"provider-name": { type: "string", default: "deepseek" },
+			"model-name": { type: "string", default: "deepseek-flash" },
+			"expected-origin": {
+				type: "string",
+				default: "https://api.deepseek.com",
+			},
 			report: { type: "string" },
 		},
 	});
 	if (!values.execute) {
 		console.log(
-			"Proposal: staging only; DeepSeek Flash; cases A/B; at most two model requests each. --execute requires explicit owner approval. See closing-provider-proposal.md.",
+			"Staging only; explicit DeepSeek Flash/Kimi/Qwen binding; cases A/B; at most two requests each, no auxiliary calls or retries. --execute requires owner authorization. See closing-provider-proposal.md.",
 		);
 		return;
 	}
@@ -451,18 +505,21 @@ async function main() {
 		model = await models.getProviderModel(values["model-id"]);
 	need(
 		provider?.enabled &&
-			provider.name === "deepseek" &&
 			model?.enabled &&
 			model.providerId === provider.id &&
-			model.name === "deepseek-flash" &&
 			model.maxModelContext &&
 			model.maxModelContext >= 8192,
-		"flash_binding_mismatch",
+		"provider_binding_mismatch",
 	);
-	need(
-		new URL(provider.baseUrl).origin === "https://api.deepseek.com",
-		"unexpected_provider_origin",
-	);
+	assertClosingBinding({
+		family: values.family,
+		providerName: provider.name,
+		modelName: model.name,
+		baseUrl: provider.baseUrl,
+		expectedProviderName: values["provider-name"],
+		expectedModelName: values["model-name"],
+		expectedOrigin: values["expected-origin"],
+	});
 	const binding: NormalChatModelRunProvider = {
 		id: provider.id,
 		name: provider.name,
@@ -474,7 +531,11 @@ async function main() {
 			provider.apiKeyIv,
 		),
 		maxModelContext: model.maxModelContext,
-		thinkingType: "disabled",
+		thinkingType:
+			provider.name === "deepseek"
+				? "disabled"
+				: (model.thinkingType ?? undefined),
+		reasoningEffort: model.reasoningEffort ?? undefined,
 	};
 	const results = [];
 	for (const caseName of ["A", "B"] as const) {

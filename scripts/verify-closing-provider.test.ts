@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import {
+	assertClosingBinding,
 	assertStageIdentity,
 	createClosingGateway,
 } from "./verify-closing-provider";
@@ -223,3 +224,63 @@ it.each([
 		f.close();
 	}
 }, 20000);
+
+describe("explicit closing provider matrix binding", () => {
+	const binding = {
+		family: "kimi",
+		providerName: "fireworks-ai",
+		modelName: "accounts/fireworks/models/kimi-k3",
+		baseUrl: "https://api.fireworks.ai/inference/v1",
+		expectedProviderName: "fireworks-ai",
+		expectedModelName: "accounts/fireworks/models/kimi-k3",
+		expectedOrigin: "https://api.fireworks.ai",
+	};
+	it("requires exact expected binding in addition to the allowed family", () => {
+		expect(() => assertClosingBinding(binding)).not.toThrow();
+		for (const patch of [
+			{ providerName: "other" },
+			{ modelName: "accounts/fireworks/models/kimi-other" },
+			{ baseUrl: "https://elsewhere.invalid/v1" },
+			{ family: "other" },
+			{ expectedOrigin: "https://api.fireworks.ai/path" },
+		])
+			expect(() => assertClosingBinding({ ...binding, ...patch })).toThrow();
+		expect(() =>
+			assertClosingBinding({
+				...binding,
+				family: "qwen",
+				providerName: "local",
+				expectedProviderName: "local",
+				modelName: "Qwen3.8-Flash-Next",
+				expectedModelName: "Qwen3.8-Flash-Next",
+				baseUrl: "http://127.0.0.1:9000/v1",
+				expectedOrigin: "http://127.0.0.1:9000",
+			}),
+		).not.toThrow();
+	});
+	it("preserves the selected adapter's thinking format for a non-DeepSeek model", async () => {
+		const transport = vi.fn<typeof fetch>(async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			expect(body).not.toHaveProperty("thinking");
+			expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
+			return new Response("ok");
+		});
+		const gate = createClosingGateway({
+			caseName: "A",
+			endpoint: "http://127.0.0.1:9000/v1/chat/completions",
+			modelName: "Qwen3.8-Flash-Next",
+			disableThinking: false,
+			fetch: transport,
+		});
+		gate.enter("working");
+		await gate.fetch("http://127.0.0.1:9000/v1/chat/completions", {
+			method: "POST",
+			body: JSON.stringify({
+				model: "Qwen3.8-Flash-Next",
+				stream: true,
+				chat_template_kwargs: { enable_thinking: false },
+			}),
+		});
+		expect(transport).toHaveBeenCalledTimes(1);
+	});
+});
