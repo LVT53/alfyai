@@ -3822,14 +3822,18 @@ export function createNormalChatClientTurnRuntime(
 						return;
 					}
 					if (request.purpose === "navigate") {
-						if (!fact || fact.readerSettled || fact.terminalSettled)
+						if (
+							!fact ||
+							fact.readerSettled ||
+							fact.terminalSettled ||
+							fact.observationDone
+						)
 							finish({
 								status: "ready",
 								purpose: "navigate",
 								isCurrent,
 								release,
 							});
-						else if (fact.observationDone) finish({ status: "unavailable" });
 						return;
 					}
 					const rows = adapters.getMessages();
@@ -3847,7 +3851,12 @@ export function createNormalChatClientTurnRuntime(
 						(request.messageId === fact.params.placeholderId ||
 							row.renderKey === fact.params.placeholderId ||
 							row.id === fact.assistantMessageId);
-					if (fact && !fact.readerSettled && !fact.terminalSettled) {
+					if (
+						isStoppedTarget &&
+						fact &&
+						!fact.readerSettled &&
+						!fact.terminalSettled
+					) {
 						if (fact.observationDone) finish({ status: "unavailable" });
 						return;
 					}

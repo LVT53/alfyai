@@ -10571,16 +10571,23 @@ describe("Stop terminal handoff", () => {
 		});
 	});
 
-	it("retains unavailable facts across later navigation and regeneration attempts", async () => {
+	it("permits navigation but retains unavailable facts for the stopped reply", async () => {
 		const made = await stopped();
 		const pending = made.runtime.settleStoppedAction({ purpose: "navigate" });
 		made.streamInvocations[1].callbacks.onError(new Error("unavailable"));
 		await vi.advanceTimersByTimeAsync(0);
-		expect(await pending).toEqual({ status: "unavailable" });
+		const navigation = await pending;
+		expect(navigation).toMatchObject({ status: "ready", purpose: "navigate" });
+		if (navigation.status === "ready") navigation.release();
 		expect(made.runtime.stop()).toBe(false);
-		expect(
-			await made.runtime.settleStoppedAction({ purpose: "navigate" }),
-		).toEqual({ status: "unavailable" });
+		const laterNavigation = await made.runtime.settleStoppedAction({
+			purpose: "navigate",
+		});
+		expect(laterNavigation).toMatchObject({
+			status: "ready",
+			purpose: "navigate",
+		});
+		if (laterNavigation.status === "ready") laterNavigation.release();
 		expect(
 			await made.runtime.settleStoppedAction({
 				purpose: "regenerate",
@@ -10719,7 +10726,7 @@ describe("Stop terminal handoff", () => {
 		expect(made.messages).toEqual(before);
 	});
 
-	it("keeps a known older retry target behind the stopped reader settlement", async () => {
+	it("permits an independent saved historical target despite unresolved Stop", async () => {
 		const made = await stopped();
 		made.messages.unshift(
 			{ id: "old-user", role: "user", content: "Earlier", timestamp: 0 },
@@ -10739,10 +10746,18 @@ describe("Stop terminal handoff", () => {
 			ready = true;
 		});
 		await Promise.resolve();
-		expect(ready).toBe(false);
+		expect(ready).toBe(true);
 		made.streamInvocations[1].callbacks.onError(new Error("Unavailable"));
 		await vi.advanceTimersByTimeAsync(0);
-		expect(await pending).toEqual({ status: "unavailable" });
+		const permit = await pending;
+		expect(permit).toMatchObject({
+			status: "ready",
+			assistantMessageId: "old-assistant",
+		});
+		if (permit.status === "ready") {
+			expect(permit.isCurrent()).toBe(true);
+			permit.release();
+		}
 	});
 	it("never promotes an unresolved old placeholder to retry identity after a newer turn", async () => {
 		const made = await stopped();
