@@ -1,0 +1,17 @@
+Staging-only deployment, 2026-11-11
+Source log: /tmp/turn-completion-staging-deploy-20261111.log
+Deployment command exit: 0 (orchestrator observed)
+
+Selected verbatim deployment output:
+Database migrations are up to date for ./data/chat.db.
+✓ Database migrations complete
+✓ Drained: 0 active streams
+✓ current -> releases/eb2869fd6
+✓ langflow-chat-dev.service restarted
+✓ Health check passed
+=== Deployment complete! current -> releases/eb2869fd6 ===
+
+Orchestrator post-deploy verification:
+Local and public health: OK; draining=false; active streams=0; service=active.
+Production release symlink before and after: 40f2d74fc, unchanged.
+Only fix/turn-completion pushed; no dev/main push or production deployment.

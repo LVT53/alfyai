@@ -1,12 +1,12 @@
 # Normal Chat completion remediation — 2026-11-11
 
-**Local remediation evidence, not production approval.** Branch `fix/turn-completion`, worktree `/Users/lvt53/.codex/worktrees/turn-completion/alfyai`. Starting validated code: `29e51551f`; starting documentation tip: `495282bf4`. Final validated code baseline: `70a045514`; all release gates passed. Subsequent `eb2869fd6` changes documentation only. Staging deployment and real-provider proof remain **PENDING** below. Production must remain `40f2d74fc`; no merge/push to `dev` or `main` is authorized.
+**Local remediation evidence, not production approval.** Branch `fix/turn-completion`, worktree `/Users/lvt53/.codex/worktrees/turn-completion/alfyai`. Starting validated code: `29e51551f`; starting documentation tip: `495282bf4`. Final validated code baseline: `70a045514`; all release gates passed. Subsequent `eb2869fd6` changes documentation only. Staging release `eb2869fd6` and both explicitly authorized DeepSeek Flash closing cases passed; production remains `40f2d74fc`. Production must remain `40f2d74fc`; no merge/push to `dev` or `main` is authorized.
 
 The independent [original review](/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/turn-completion-review/fable-verdict-2026-11-11.md) and its 33 saved `.txt` reproducers remain unchanged in the main checkout. The authoritative original path is `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/turn-completion-review/fable-verdict-2026-11-11.md`. The failed Stop v8, Natural v10 and read-only-addendum reports remain failed. No new result retroactively validates them.
 
 ## How to read the evidence
 
-`R/` below means `/tmp/turn-completion-remediation/`; other `/tmp/` paths are literal local logs. Counts are focused runs, not additive release totals. “Fixed” means the cited deterministic test passed; final combined gate evidence appears below; no live-provider success is claimed. Permanent tests live in the branch; transient logs remain local. Original probes that deliberately assert old behavior are distinguished from desired invariants. Their source and assertions were not weakened.
+`R/` below means `/tmp/turn-completion-remediation/`; other `/tmp/` paths are literal local logs. Counts are focused runs, not additive release totals. “Fixed” means the cited deterministic test passed; final combined gate and bounded DeepSeek Flash evidence appear below. Permanent tests live in the branch; transient logs remain local. Original probes that deliberately assert old behavior are distinguished from desired invariants. Their source and assertions were not weakened.
 
 Detailed slice reports: [initial priorities](remediation-progress.md), [engine/replay](remediation-engine-replay.md), [client/incognito](client-observation-remediation.md), [lower client/UI](client-ui-lower-remediation.md), [accounting/audit guards](remediation-accounting-guards.md). Server/lower guard evidence: [server outcomes and guards](remediation-server-guards.md), commits `012db58ce`, `c09da1a4e`, `c2d7e13c4`.
 
@@ -103,11 +103,11 @@ The saved33 files are a review corpus, not33 production gate files. Some intenti
 
 Still open unless later evidence below explicitly supersedes it: attempt `safeStopCause`/`outcome` remain initialized null and snapshots copy those original values; no real audit of non-null attempt facts is claimed. Destination-specific prefetch rebuilding, failover after completed tools, caller-managed `finish()` cleanup and the parallel flattened persistence channel were not rearchitected. Current README, image folder guidance and `.env.example` now describe the integrated lifetime and actual model deadline rather than the removed idle/outer watchdogs. Contract spec and ADR-0047 explicitly mark attempt outcome/stop-cause recording and post-tool failover as unimplemented/open; correcting those claims does not implement the missing behavior. Historical “same21 replies” evidence is branch-format output, not a production-history certification; old Qwen/Natural failures remain unresolved historical evidence. History partial labeling and unknown-total display are the section3 claims directly repaired here.
 
-## Authorized provider proof — not yet executed
+## Authorized provider proof — executed successfully
 
 Owner explicitly approved both bounded DeepSeek Flash cases, **after fixes, full release gate and staging deployment**. The dedicated [proposal/runbook](closing-provider-proposal.md) and `scripts/verify-closing-provider.ts` implement that scope (`573976829`): fresh pre-titled synthetic conversations, exact synthetic account, verified staging cwd/origin/database, one harmless deterministic read tool for A, no tools for B, one working and one tools-off closing request per case. Hard transport cap2 per case includes failed dispatches; redirects and auxiliary network requests are blocked. A working cap512/closing512, B working32/closing1024; no automatic reruns or other models.
 
-The runner drives the real streamed engine, lifetime, finalizer and pricing, then audits exact generated IDs through a read-only SQLite connection. It disables only optional turn-state maintenance and uses pre-titled conversations to avoid title calls. It proves **engine + persistence + accounting**, not browser routing/full preparation. Offline7/7 tests pass, including standalone `tsx` import with network blocked and missing-price failure despite a saved receipt (`/tmp/closing-runner-final.log`). This is not real-provider evidence; Kimi/Qwen closing remains untested.
+The runner drives the real streamed engine, lifetime, finalizer and pricing, then audits exact generated IDs through a read-only SQLite connection. It disables only optional turn-state maintenance and uses pre-titled conversations to avoid title calls. It proves **engine + persistence + accounting**, not browser routing/full preparation. Offline7/7 tests pass, including standalone `tsx` import with network blocked and missing-price failure despite a saved receipt (`/tmp/closing-runner-final.log`). Offline tests are separate from the real-provider results below. Kimi/Qwen closing remains untested.
 
 ## Final release gate — PASSED
 
@@ -119,15 +119,29 @@ The runner drives the real streamed engine, lifetime, finalizer and pricing, the
 - **Final release gate PASSED at `70a045514`:**26,033 unit tests passed/3 skipped;1,592 browser tests passed/75 skipped/0 failed/0 flaky; all static gates passed. Check:0 errors/0 warnings in9,114 files. Biome:exit0, one informational diagnostic. Build:exit0, unused-css0/aria0. Migrations/chunks passed; Fallow3.33.1 reports four existing circular dependencies and no new baseline findings. Elapsed13m51s, eight browser workers.
 - Original final output: `/tmp/turn-completion-release-verified-20261111/summary.txt`. Durable verbatim copy: [release-gate-summary-2026-11-11.txt](release-gate-summary-2026-11-11.txt). Failed earlier gates remain recorded; later documentation-only commits do not change the validated code.
 
-## Staging-only deployment — PENDING
+## Staging-only deployment — PASSED
 
-- Side branch through documentation-only `eb2869fd6` pushed and verified by orchestrator. Deployed staging revision and health evidence: **PENDING**.
-- Production remained `40f2d74fc`; final read-only confirmation: **PENDING**.
-- No `dev`/`main` push or production deployment authorized.
+- Deployed side branch release `eb2869fd6` (documentation-only difference from validated `70a045514`); deployment log `/tmp/turn-completion-staging-deploy-20261111.log`, exit0. Migrations completed, zero active streams drained, atomic release switch and service restart succeeded.
+- Local/public health OK, draining=false, active streams=0, service active. [Concise durable evidence](staging-deployment-evidence-2026-11-11.txt).
+- Production release symlink checked before and after: `40f2d74fc`, unchanged. No `dev`/`main` push and no production deployment. Later evidence-only commits do not change deployed code.
 
-## DeepSeek Flash results — PENDING
+## DeepSeek Flash results — PASSED
 
-- Case A request count, working stop, closing outcome, streamed bytes, receipt and priced attempts: **PENDING**.
-- Case B same facts, including actual provider `length`: **PENDING**.
-- Exact report/audit paths and total cost: **PENDING**.
-- Any refusal, inconclusive result or failure must remain explicit; no automatic additional calls.
+[Durable safe report](closing-provider-results-2026-11-11.json), copied from `/tmp/turn-completion-closing-proof-20261111-authorized.json`; runner exit0, auxiliary calls0. Only the two approved cases ran, with no additional models or automatic reruns.
+
+| Case | Working stop | Requests / executed tools | Closing deltas / answer bytes | Attempt costs (microUSD) | Saved receipt |
+|---|---|---|---|---|---|
+| A | `tool_budget` | 2 / 1 | 4 / 11 | 55 + 16 | Matches |
+| B | Actual `length` | 2 / 0 | 454 / 938 | 23 + 287 | Matches |
+
+Both reports have `phase=closing`, `outcome=answered`, `stopCause=natural_stop`, `closingAttempted=true`, no closing tools and exactly two priced attempts. Total recorded cost381 microUSD (**$0.000381**). This proves real-provider engine streaming, persistence and accounting under the dedicated harness budgets; it does not exercise HTTP admission/browser routing/full preparation or certify other providers.
+
+## Still open
+
+- Live per-token wire overhead and duplicate reasoning traffic; existing oversized stored rows are not migrated/reclaimed.
+- The removed150s idle/300s outer watchdogs and an overall preparation/finalization bound; current model timers are covered, those broader bounds are not restored.
+- 8,192-token catalogue/browser certification and real-provider Kimi/Qwen closing behavior.
+- Actual per-attempt outcome/stop-cause recording (currently null), post-tool cross-provider failover, full destination-specific prefetch rebuilding, and the other section3 architectural/legacy-evidence limitations above.
+- Unmapped review subcases explicitly listed above, including incognito arbitrary-ID projection; no blanket claim that every saved adversarial subcase passes.
+
+The branch was deployed to **staging only**. Passing this gate and the two bounded Flash cases is not a production-ready declaration; the open items remain visible for owner review.

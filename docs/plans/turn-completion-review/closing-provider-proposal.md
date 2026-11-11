@@ -1,6 +1,6 @@
 # DeepSeek Flash closing proof
 
-Date: 2026-11-11. Status: **owner approved both cases; runner offline-tested; real execution pending release gate and staging deployment**.
+Date: 2026-11-11. Status: **owner approved both cases; both real staging cases passed after the release gate and staging deployment**.
 
 This addresses section 3 and section 7 item 8 of the independent completion review. Existing staging results contain no closing attempt. They do not establish real-provider closing behavior. Keep the prior failed watchdog reports recorded as failed.
 
@@ -76,3 +76,14 @@ The live audit reads only generated IDs, uses query-only/read-only database acce
 ## Limits of the resulting proof
 
 A successful run proves real-provider completion-engine behavior, streaming from closing, durable persistence and accounting under the stated harness budgets. It does **not** exercise browser display, HTTP admission, the full preparation pipeline or ordinary thought-step rendering. Those remain covered separately by deterministic route/browser regressions and the release gate. It makes no claim about Kimi or Qwen closing behavior.
+
+## Authorized execution results
+
+Run on staging release `eb2869fd6`, runner exit0. The owner authorized these two cases explicitly; no additional model or rerun was made. [Safe exact-ID report](closing-provider-results-2026-11-11.json).
+
+| Case | Working cause | Requests / tools executed | Closing deltas / answer bytes | Priced attempts | Receipt |
+|---|---|---|---|---|---|
+| A | `tool_budget` | 2 / 1 | 4 / 11 | 55 + 16 microUSD | Matches |
+| B | Actual provider `length` | 2 / 0 | 454 / 938 | 23 + 287 microUSD | Matches |
+
+Both finish `closing`, `answered`, `natural_stop`, with `closingAttempted=true`, tools absent from closing, two priced attempts and no auxiliary network calls. Total recorded cost:381 microUSD ($0.000381). These results establish the bounded engine/persistence/accounting proof above; they do not claim a real-provider HTTP/browser run or coverage for Kimi/Qwen.

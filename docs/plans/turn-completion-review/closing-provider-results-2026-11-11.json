@@ -1,0 +1,114 @@
+{
+  "status": "passed",
+  "auxiliaryCalls": 0,
+  "cases": [
+    {
+      "caseName": "A",
+      "conversationId": "280810f6-527b-48ec-90d9-1fb52e49779b",
+      "requestId": "000bad4c-7237-4464-ae15-f833f663df9c",
+      "segmentId": "064bea141a0a59ce8109bb0569c64ff155462966419fcd7f10e1466428ed79b5",
+      "status": "passed",
+      "code": "ok",
+      "requests": [
+        {
+          "phase": "working",
+          "cap": 512,
+          "tools": 1
+        },
+        {
+          "phase": "closing",
+          "cap": 512,
+          "tools": 0
+        }
+      ],
+      "toolExecutions": 1,
+      "closingDeltas": 4,
+      "answerBytes": 11,
+      "receiptMatches": true,
+      "attempts": [
+        {
+          "attemptId": "064bea141a0a59ce8109bb0569c64ff155462966419fcd7f10e1466428ed79b5:attempt:0",
+          "phase": "working",
+          "inputTokens": 299,
+          "outputTokens": 17,
+          "totalTokens": 316,
+          "costUsdMicros": 55,
+          "modelId": "provider:68d77707-6ace-4e55-8eee-a8ff49e7fec3:5b03df4e-1144-465e-ab7e-d8a40f8c70c6"
+        },
+        {
+          "attemptId": "064bea141a0a59ce8109bb0569c64ff155462966419fcd7f10e1466428ed79b5:attempt:1",
+          "phase": "closing",
+          "inputTokens": 91,
+          "outputTokens": 4,
+          "totalTokens": 95,
+          "costUsdMicros": 16,
+          "modelId": "provider:68d77707-6ace-4e55-8eee-a8ff49e7fec3:5b03df4e-1144-465e-ab7e-d8a40f8c70c6"
+        }
+      ],
+      "completion": {
+        "version": 1,
+        "turnId": "064bea141a0a59ce8109bb0569c64ff155462966419fcd7f10e1466428ed79b5",
+        "segmentId": "064bea141a0a59ce8109bb0569c64ff155462966419fcd7f10e1466428ed79b5",
+        "phase": "closing",
+        "outcome": "answered",
+        "stopCause": "natural_stop",
+        "workingStopCause": "tool_budget",
+        "closingAttempted": true
+      }
+    },
+    {
+      "caseName": "B",
+      "conversationId": "11675c3e-1c7d-42b8-963a-a9960b27d4dc",
+      "requestId": "ef7938df-55bd-4fa9-a4e3-ab3e15e9cf0c",
+      "segmentId": "ce93443ad40498c77513672a3790512503637a7b9ef9f58c5bf19bb1590d1214",
+      "status": "passed",
+      "code": "ok",
+      "requests": [
+        {
+          "phase": "working",
+          "cap": 32,
+          "tools": 0
+        },
+        {
+          "phase": "closing",
+          "cap": 1024,
+          "tools": 0
+        }
+      ],
+      "toolExecutions": 0,
+      "closingDeltas": 454,
+      "answerBytes": 938,
+      "receiptMatches": true,
+      "attempts": [
+        {
+          "attemptId": "ce93443ad40498c77513672a3790512503637a7b9ef9f58c5bf19bb1590d1214:attempt:0",
+          "phase": "working",
+          "inputTokens": 24,
+          "outputTokens": 32,
+          "totalTokens": 56,
+          "costUsdMicros": 23,
+          "modelId": "provider:68d77707-6ace-4e55-8eee-a8ff49e7fec3:5b03df4e-1144-465e-ab7e-d8a40f8c70c6"
+        },
+        {
+          "attemptId": "ce93443ad40498c77513672a3790512503637a7b9ef9f58c5bf19bb1590d1214:attempt:1",
+          "phase": "closing",
+          "inputTokens": 97,
+          "outputTokens": 454,
+          "totalTokens": 551,
+          "costUsdMicros": 287,
+          "modelId": "provider:68d77707-6ace-4e55-8eee-a8ff49e7fec3:5b03df4e-1144-465e-ab7e-d8a40f8c70c6"
+        }
+      ],
+      "completion": {
+        "version": 1,
+        "turnId": "ce93443ad40498c77513672a3790512503637a7b9ef9f58c5bf19bb1590d1214",
+        "segmentId": "ce93443ad40498c77513672a3790512503637a7b9ef9f58c5bf19bb1590d1214",
+        "phase": "closing",
+        "outcome": "answered",
+        "stopCause": "natural_stop",
+        "workingStopCause": "length",
+        "closingAttempted": true
+      }
+    }
+  ]
+}
