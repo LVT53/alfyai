@@ -315,13 +315,11 @@ export async function prepareNormalChatTurn(
 						tools: pack?.tools,
 						classifyExecution: (execution, result) => {
 							// Consult this attempt's original result identity before legacy
-							// row lookup; reused IDs/metadata cannot supply refusal certainty.
-							if (
-								result.success &&
-								pack?.recorder?.getExecutionCertainty?.(result.output) ===
-									"definitely_not_executed"
-							)
-								return "definitely_not_executed";
+							// row lookup; reused IDs/metadata cannot supply execution certainty.
+							const certainty = result.success
+								? pack?.recorder?.getExecutionCertainty?.(result.output)
+								: undefined;
+							if (certainty) return certainty;
 							return result.success && rowFor(execution)?.status === "done"
 								? "succeeded"
 								: "uncertain";

@@ -26,7 +26,12 @@ import {
 	shouldUseDocumentSourceForOutputs as shouldUseDocumentSourceForOutputTypes,
 } from "$lib/shared/file-types/production";
 
-import { isRecord, shortHash, stableStringify } from "./shared";
+import {
+	isRecord,
+	shortHash,
+	stableStringify,
+	withToolExecutionFact,
+} from "./shared";
 
 /** What `dev`'s /\.([a-z0-9]+)$/i accepted as an extension. See `outputTypeFromFilename`. */
 const ALPHANUMERIC_EXTENSION = /^[a-z0-9]+$/;
@@ -3090,7 +3095,7 @@ export function createProduceFileToolCallEntry(params: {
 		metadata.retryable = params.payload.retryable;
 	}
 
-	return {
+	const entry: ToolCallEntry = {
 		callId: params.callId,
 		name: "produce_file",
 		input,
@@ -3103,6 +3108,14 @@ export function createProduceFileToolCallEntry(params: {
 		sourceType: "tool",
 		metadata,
 	};
+	// A failed payload with a job ID is built only from the settled ledger
+	// verdict. Unknown effects return running (or throw into the envelope).
+	// Keep this fact private and attached to this exact entry, not metadata.
+	return params.payload.status === "failed" && params.payload.jobId
+		? withToolExecutionFact(entry, "failed")
+		: params.payload.status === "running"
+			? withToolExecutionFact(entry, "uncertain")
+			: entry;
 }
 
 /**

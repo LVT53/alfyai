@@ -34,6 +34,7 @@ export type NormalChatExecutionState =
 	| "proposed"
 	| "dispatched"
 	| "succeeded"
+	| "failed"
 	| "definitely_not_executed"
 	| "uncertain";
 export type NormalChatAttemptUsage = {

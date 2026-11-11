@@ -1323,6 +1323,8 @@ it.each([
 	"refusal",
 	"refusal-transport",
 	"submitted-failure",
+	"submitted-running",
+	"submitted-throw",
 ] as const)("classifies real file execution under prepared SDK policy (%s)", async (mode) => {
 	const helpers = await import(
 		"../chat-turn/shared-normal-chat-model-run-helpers"
@@ -1352,23 +1354,25 @@ it.each([
 		doGenerate: async (options) => {
 			const toolsOn = Boolean(options.tools?.length);
 			toolAvailability.push(toolsOn);
-			const first = generations++ === 0;
+			const generation = generations++;
+			const first = generation === 0;
+			const callsTool =
+				first || (mode === "submitted-failure" && generation === 1);
 			if (!first && mode === "refusal-transport" && toolsOn)
 				throw new Error("Synthetic lost finish after refusal");
 			return {
-				content: first
+				content: callsTool
 					? [
 							{
 								type: "tool-call" as const,
-								toolCallId: "same-id",
+								toolCallId: `call-${generation}`,
 								toolName: "produce_file",
 								input: JSON.stringify({
 									requestTitle: TITLE,
 									filename: "report.md",
-									markdown:
-										mode === "submitted-failure"
-											? PREVIOUS_MARKDOWN
-											: "Too short.",
+									markdown: mode.startsWith("submitted-")
+										? PREVIOUS_MARKDOWN
+										: "Too short.",
 								}),
 							},
 						]
@@ -1379,8 +1383,8 @@ it.each([
 							},
 						],
 				finishReason: {
-					unified: first ? ("tool-calls" as const) : ("stop" as const),
-					raw: first ? "tool_calls" : "stop",
+					unified: callsTool ? ("tool-calls" as const) : ("stop" as const),
+					raw: callsTool ? "tool_calls" : "stop",
 				},
 				usage: {
 					inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
@@ -1400,6 +1404,12 @@ it.each([
 					retryable: true,
 				},
 			}),
+		);
+	if (mode === "submitted-running")
+		getJobMock.mockResolvedValue(job({ status: "running" }));
+	if (mode === "submitted-throw")
+		getJobMock.mockRejectedValue(
+			new Error("Timed out reading the submitted job"),
 		);
 	try {
 		vi.spyOn(ledger, "admitTurn").mockReturnValue({ status: "untracked" });
@@ -1425,6 +1435,7 @@ it.each([
 				userId: USER,
 				conversationId: CONVERSATION,
 				turnId: "certainty",
+				fileProductionVerdictWaitMs: 0,
 			});
 			packs.push(pack);
 			return {
@@ -1476,17 +1487,37 @@ it.each([
 		expect(fallback).not.toHaveBeenCalled();
 		expect(result.normalChatToolCalls?.[0]).toMatchObject({
 			name: "produce_file",
-			status: "failed",
-			metadata: { ok: false },
+			status:
+				mode === "submitted-running" || mode === "submitted-throw"
+					? "done"
+					: "failed",
+			metadata: {
+				ok: mode === "submitted-running" || mode === "submitted-throw",
+			},
 		});
-		if (mode === "submitted-failure") {
+		if (mode === "submitted-running" || mode === "submitted-throw") {
 			expect(submitIntakeMock).toHaveBeenCalledOnce();
 			expect(generations).toBe(1);
+			expect(snapshot?.executions[0].state).toBe("uncertain");
 			expect(snapshot?.completion).toMatchObject({
 				outcome: "incomplete",
 				stopCause: "uncertain_execution",
 				closingAttempted: false,
 			});
+		} else if (mode === "submitted-failure") {
+			expect(submitIntakeMock).toHaveBeenCalledTimes(2);
+			expect(generations).toBe(3);
+			expect(snapshot?.completion).toMatchObject({
+				outcome: "answered",
+				stopCause: "natural_stop",
+				closingAttempted: false,
+			});
+			expect(snapshot?.executions.map((entry) => entry.state)).toEqual([
+				"failed",
+				"failed",
+			]);
+			expect(toolAvailability).toEqual([true, true, true]);
+			expect(result.text).toContain("The file was not created");
 		} else {
 			expect(submitIntakeMock).not.toHaveBeenCalled();
 			expect(snapshot?.executions[0].state).toBe("definitely_not_executed");

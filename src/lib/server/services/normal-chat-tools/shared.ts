@@ -155,15 +155,32 @@ export function optionalScalarMetadata(
 
 // ── Tool call recorder ─────────────────────────────────────────
 
+const entryExecutionFacts = new WeakMap<
+	ToolCallEntry,
+	"failed" | "uncertain"
+>();
+
+/** An operation owner supplies certainty; payload/status strings cannot grant it. */
+export function withToolExecutionFact(
+	entry: ToolCallEntry,
+	state: "failed" | "uncertain",
+): ToolCallEntry {
+	entryExecutionFacts.set(entry, state);
+	return entry;
+}
+
 export interface ToolCallRecorder {
 	record(
 		entry: ToolCallEntry,
-		executionFact?: { state: "definitely_not_executed"; result: object },
+		executionFact?: {
+			state: "definitely_not_executed" | "failed" | "uncertain";
+			result: object;
+		},
 	): ToolCallEntry;
 	/** Server-only original result identity; absent facts remain unknown. */
 	getExecutionCertainty?(
 		result: unknown,
-	): "definitely_not_executed" | undefined;
+	): "definitely_not_executed" | "failed" | "uncertain" | undefined;
 	getEntries(): ToolCallEntry[];
 	/**
 	 * Optional: sees what the model was handed by a call that SUCCEEDED, with the
@@ -198,19 +215,20 @@ export function createToolCallRecorder(
 	initialEntries: ToolCallEntry[] = [],
 ): ToolCallRecorder {
 	const entries = initialEntries;
-	const refusedResults = new WeakMap<object, ToolCallEntry>();
+	const executionFacts = new WeakMap<
+		object,
+		"definitely_not_executed" | "failed" | "uncertain"
+	>();
 	return {
 		record(entry, executionFact) {
 			const recorded = recordToolCallEntry(entries, entry);
-			if (executionFact?.state === "definitely_not_executed")
-				refusedResults.set(executionFact.result, recorded);
+			if (executionFact)
+				executionFacts.set(executionFact.result, executionFact.state);
 			return recorded;
 		},
 		getExecutionCertainty(result) {
-			return result !== null &&
-				typeof result === "object" &&
-				refusedResults.has(result)
-				? "definitely_not_executed"
+			return result !== null && typeof result === "object"
+				? executionFacts.get(result)
 				: undefined;
 		},
 		getEntries() {
@@ -486,7 +504,15 @@ export async function executeToolWithEnvelope<
 			payload: modelPayload,
 			entry: result.entry,
 		});
-		params.recorder.record(result.entry);
+		// Transfer an operation owner's fact to the exact compacted result.
+		// A generic failed row is not proof: a tool may have caught a timeout.
+		const certainty = entryExecutionFacts.get(result.entry);
+		params.recorder.record(
+			result.entry,
+			certainty && modelPayload !== null && typeof modelPayload === "object"
+				? { state: certainty, result: modelPayload }
+				: undefined,
+		);
 		return modelPayload;
 	} catch (error) {
 		const failure = params.onError(error);
@@ -494,7 +520,12 @@ export async function executeToolWithEnvelope<
 			failure.entry.metadata,
 			startedAt,
 		);
-		params.recorder.record(failure.entry);
+		params.recorder.record(
+			failure.entry,
+			failure.modelPayload !== null && typeof failure.modelPayload === "object"
+				? { state: "uncertain", result: failure.modelPayload }
+				: undefined,
+		);
 		return failure.modelPayload;
 	}
 }

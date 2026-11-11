@@ -34,3 +34,11 @@ Baseline: `495282bf4` (validated code `29e51551f`, later documentation only). No
 - GREEN: 427 tests across MessageBubble, ThinkingBlock, output view, completion, SDK and staging-verifier suites; two additional exact settlement/Stop tests pass. Logs: `2.1-focused-green.log`, `2.1-broad-green.log`, `2.1-settlement-green.log` in the same directory.
 - Browser cases added with provider frame gates: visible first and subsequent chunks before finish; tool-call withdrawal; saved answer, reload, Copy and export exclude commentary. They await the orchestrator's release gate (no extra build run here).
 - Current spec, thinking display amendment, ADR-0026/0056 and chat folder rules amended; historical verdicts remain unchanged. Official Svelte `$derived` docs and Vitest timer docs checked.
+
+## 2.2 — Continue after known terminal file-job failure
+
+- Original reviewer `zz-review-A-prepared.test.ts` copied into the permanent suite with its assertions unchanged. RED: one generation/submission instead of the expected three generations/two submissions; `/tmp/turn-completion-remediation/2.2-original-red.log`.
+- Replaced the old submitted-failure oracle as requested. Additional invariant RED: five failures across known failure and returned/thrown/abort/timeout certainty tests (`2.2-invariant-red.log`).
+- The file operation owner supplies a private identity-bound fact for settled failed jobs. The exact model result retains that fact through envelope compaction. A known failure remains in the working loop within its existing two-submission cap. Generic failed rows grant no certainty; running jobs and envelope errors are uncertain and cannot continue or close.
+- GREEN: 158 tests in six suites, including the original reproducer, prepared turn, tool envelope, file patch mode, completion policy and real SDK orchestration (`2.2-broad-green.log`). Actual submitted in-flight and internally caught job-read timeout paths each stay at one generation/submission with `uncertain_execution`.
+- Current contract spec, file refusal/certainty amendment and ADR-0026 now distinguish known failure from unknown effects. Official AI SDK tool-calling documentation checked (https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling); no new provider calls or SDK API changes.

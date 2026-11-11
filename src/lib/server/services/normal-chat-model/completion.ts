@@ -149,7 +149,7 @@ export type NormalChatAttemptPolicy = {
 	classifyExecution?: (
 		execution: Readonly<NormalChatExecution>,
 		result: { success: boolean; output?: unknown; error?: unknown },
-	) => "succeeded" | "definitely_not_executed" | "uncertain";
+	) => "succeeded" | "failed" | "definitely_not_executed" | "uncertain";
 	/** Real delivering operation ownership; later calls invalidate a previous delivery. */
 	isDelivery?: (execution: Readonly<NormalChatExecution>) => boolean;
 	/** Required for a resumed segment with prior operations; new call IDs prove nothing. */

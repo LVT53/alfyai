@@ -11,6 +11,7 @@ import {
 	isInsideToolCall,
 	markCallLocallyDistilled,
 	type ToolCallRecorder,
+	withToolExecutionFact,
 } from "./shared";
 
 describe("compactModelPayload", () => {
@@ -539,6 +540,52 @@ describe("executeToolWithEnvelope and a local model's summary", () => {
 		expect(inside).toBe(true);
 		expect(isInsideToolCall()).toBe(false);
 	});
+});
+
+it.each([
+	"returned",
+	"unproven",
+	"thrown",
+	"aborted",
+	"timeout",
+] as const)("distinguishes a returned failure from uncertain envelope exits: %s", async (mode) => {
+	const recorder = createToolCallRecorder();
+	const controller = new AbortController();
+	if (mode === "aborted") controller.abort();
+	const failure = () => ({
+		modelPayload: { ok: false, status: "failed" },
+		entry: {
+			name: "produce_file",
+			callId: "same",
+			input: {},
+			status: "failed" as const,
+		},
+	});
+	const output = await executeToolWithEnvelope({
+		toolName: "produce_file",
+		timeoutMs: mode === "timeout" ? 1 : 1000,
+		options: { toolCallId: "same", abortSignal: controller.signal },
+		recorder,
+		run: async () => {
+			if (mode === "thrown") throw new Error("unknown outcome");
+			if (mode === "timeout") await new Promise(() => {});
+			const result = failure();
+			if (mode === "returned") withToolExecutionFact(result.entry, "failed");
+			return result;
+		},
+		onError: failure,
+	});
+	expect(recorder.getExecutionCertainty?.(output)).toBe(
+		mode === "returned"
+			? "failed"
+			: mode === "unproven"
+				? undefined
+				: "uncertain",
+	);
+	expect(recorder.getExecutionCertainty?.({ ...output })).toBeUndefined();
+	expect(
+		createToolCallRecorder().getExecutionCertainty?.(output),
+	).toBeUndefined();
 });
 
 it("keeps trusted non-execution certainty private and bound to the original result", () => {
