@@ -76,6 +76,60 @@ export async function holdThinkingCardDelivery(page: Page) {
 					),
 			);
 		},
+		/** Called with final synthesis held by the fixture, after tool delivery.
+		 * Collect real layout samples before the test may release that hold.
+		 */
+		async sampleLiveCard(cardSelector: string) {
+			const samples = await page.evaluate(
+				(selector) =>
+					new Promise<Array<{ offset: number; cardTop: number }>>(
+						(resolve, reject) => {
+							const samples: Array<{ offset: number; cardTop: number }> = [];
+							const sample = () => {
+								const card = document.querySelector(selector);
+								const header = document.querySelector(
+									'[data-testid="assistant-message"] .thinking-header',
+								);
+								const user = document.querySelector(
+									'[data-testid="user-message"]',
+								);
+								const answer = document.querySelector(
+									'[data-testid="assistant-message"] .prose-container p',
+								);
+								if (
+									!card ||
+									!header ||
+									!user ||
+									answer ||
+									!document.querySelector('[data-testid="stop-button"]')
+								) {
+									reject(
+										new Error(
+											"Missing live card/status phase before synthesis release",
+										),
+									);
+									return;
+								}
+								samples.push({
+									offset:
+										header.getBoundingClientRect().top -
+										user.getBoundingClientRect().top,
+									cardTop: card.getBoundingClientRect().top,
+								});
+								if (samples.length === 2) resolve(samples);
+								else requestAnimationFrame(sample);
+							};
+							requestAnimationFrame(sample);
+						},
+					),
+				cardSelector,
+			);
+			expect(
+				samples,
+				"painted live card/status samples while synthesis is held",
+			).toHaveLength(2);
+			return samples;
+		},
 		async release() {
 			await page.evaluate(() =>
 				(

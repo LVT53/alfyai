@@ -13,6 +13,8 @@ import sharp from "sharp";
 import { updateArtifactBody } from "../../src/lib/server/services/artifacts";
 import {
 	AI_SMOKE_LATE_CARD_FINAL_TEXT,
+	AI_SMOKE_LATE_CARD_HELD_MARKER,
+	AI_SMOKE_LATE_CARD_HOLD,
 	AI_SMOKE_LATE_CARD_MARKER,
 } from "../fixtures/ai/late-card-scenario";
 import {
@@ -1386,11 +1388,24 @@ test.describe("the picture card moves like the Document's", () => {
 				});
 				mark(flow, "send");
 				const delivery = await holdThinkingCardDelivery(page);
-				await sendMessage(page, AI_SMOKE_LATE_CARD_MARKER);
+				await sendMessage(page, AI_SMOKE_LATE_CARD_HELD_MARKER);
 				await delivery.wait();
 				await delivery.release();
 				await expect(page.locator(CARD)).toBeVisible({ timeout: 30_000 });
 				mark(flow, "card");
+				// The browser may consume tool and final frames together after the
+				// delivery gate. Hold synthesis until actual live card frames exist.
+				await expect
+					.poll(
+						() =>
+							fakeProvider
+								.requests()
+								.filter((request) => request.path === "/v1/chat/completions")
+								.length,
+					)
+					.toBe(2);
+				const heldLiveSamples = await delivery.sampleLiveCard(CARD);
+				fakeProvider.release(AI_SMOKE_LATE_CARD_HOLD);
 				await expect(
 					assistantAnswer(page).getByText("Elkészült a dokumentum"),
 				).toBeVisible({
@@ -1407,6 +1422,7 @@ test.describe("the picture card moves like the Document's", () => {
 				).toBeGreaterThan(0);
 				const { end, proseMovedPx } = measureLiveActivity(frames, arrival);
 				metrics = {
+					heldLiveSamples,
 					arrivalMs: frames[arrival]?.t ?? null,
 					arrivalScroll: arrivalScroll(frames, arrival - 1, end),
 					proseMovedPx,
@@ -1424,6 +1440,7 @@ test.describe("the picture card moves like the Document's", () => {
 					cardTransitionProperties: cardTransitions(run).properties,
 				};
 			} finally {
+				fakeProvider.release(AI_SMOKE_LATE_CARD_HOLD);
 				await closeFlow(flow, variant.name, metrics);
 			}
 			expect(flow.errors, "the page logged an error").toEqual([]);

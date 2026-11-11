@@ -307,7 +307,20 @@ test.describe("an artifact card that arrives late", () => {
 							text: "A committed answer stays here.",
 						});
 						Object.assign(window, {
-							__deliverSyntheticCard: () =>
+							__deliverSyntheticCard: () => {
+								// The client settles done onto an existing running segment.
+								write({
+									type: "data-tool-call",
+									data: {
+										name: "create_artifact",
+										callId: "display-card",
+										status: "running",
+										input: {
+											artifactType: "document",
+											title: "Late display card",
+										},
+									},
+								});
 								write({
 									type: "data-tool-call",
 									data: {
@@ -325,7 +338,8 @@ test.describe("an artifact card that arrives late", () => {
 											artifactTitle: "Late display card",
 										},
 									},
-								}),
+								});
+							},
 							__finishSyntheticCard: () => {
 								output({ sequence: 2, type: "block_end", blockId: "answer" });
 								output({
