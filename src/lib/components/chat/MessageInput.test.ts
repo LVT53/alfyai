@@ -645,6 +645,41 @@ describe("MessageInput", () => {
 		});
 	});
 
+	it.each([
+		false,
+		"stale",
+	])("/new requests explicit settlement even when Stop is hidden and honors %s veto", async (result) => {
+		const permit = { isCurrent: () => false, release: vi.fn() };
+		const onStop = vi.fn(async () =>
+			result === false ? (false as const) : permit,
+		);
+		const view = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			isGenerating: false,
+			canStopStreaming: false,
+			onStop,
+		});
+		const input = view.getByPlaceholderText("Type a message...");
+		await fireEvent.input(input, { target: { value: "/new" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		await waitFor(() =>
+			expect(onStop).toHaveBeenCalledWith({ purpose: "navigate" }),
+		);
+		expect(gotoMock).not.toHaveBeenCalled();
+		if (result === "stale") expect(permit.release).toHaveBeenCalledOnce();
+	});
+
+	it("ordinary Stop passes no navigation intent", async () => {
+		const onStop = vi.fn();
+		const view = render(MessageInput, {
+			isGenerating: true,
+			canStopStreaming: true,
+			onStop,
+		});
+		await fireEvent.click(view.getByRole("button", { name: "Stop" }));
+		expect(onStop).toHaveBeenCalledExactlyOnceWith();
+	});
+
 	// Reviewer report — "I want /remember to be a feature" opened the command
 	// tray, and Enter then saved a memory note instead of sending the
 	// sentence. A slash only starts a command at the very start of the

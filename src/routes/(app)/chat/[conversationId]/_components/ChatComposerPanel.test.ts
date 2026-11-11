@@ -63,6 +63,21 @@ function renderComposerPanel(props: Record<string, unknown> = {}) {
 }
 
 describe("ChatComposerPanel", () => {
+	it("forwards explicit /new intent and its navigation veto", async () => {
+		const onStop = vi.fn(async () => false as const);
+		const view = renderComposerPanel({
+			composerCommandRegistryEnabled: true,
+			canStopStreaming: false,
+			onStop,
+		});
+		const input = view.getByPlaceholderText("Type a message...");
+		await fireEvent.input(input, { target: { value: "/new" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		await waitFor(() =>
+			expect(onStop).toHaveBeenCalledExactlyOnceWith({ purpose: "navigate" }),
+		);
+	});
+
 	it("does not expose the removed long-form research composer control", async () => {
 		const { getByPlaceholderText, queryByRole } = renderComposerPanel({
 			composerCommandRegistryEnabled: true,

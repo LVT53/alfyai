@@ -116,6 +116,29 @@ export type NormalChatSendPayload = {
 	isEditResend?: boolean;
 };
 
+/** A command continuation belongs to the runtime owner that issued it. */
+type StopCommandPermit = {
+	isCurrent: () => boolean;
+	release: () => void;
+};
+export type StopIntent = { purpose: "navigate" };
+export type StopHostResult = undefined | false | StopCommandPermit;
+export type StopHostCallback = (
+	intent?: StopIntent,
+) => void | StopHostResult | Promise<void> | Promise<StopHostResult>;
+type StoppedActionRequest =
+	| { purpose: "navigate" }
+	| { purpose: "regenerate"; messageId: string };
+type StoppedActionResult =
+	| ({ status: "ready"; purpose: "navigate" } & StopCommandPermit)
+	| ({
+			status: "ready";
+			purpose: "regenerate";
+			assistantMessageId: string;
+			userMessageId?: string;
+	  } & StopCommandPermit)
+	| { status: "unavailable" | "superseded" };
+
 export type NormalChatRuntimeSnapshot = {
 	phase: NormalChatRuntimePhase;
 	active: boolean;
@@ -694,9 +717,26 @@ export function createNormalChatClientTurnRuntime(
 	let pendingObservation: StartStreamParams | null = null;
 	let activeStreamParams: StartStreamParams | null = null;
 	// One private read-only handoff. It never owns active/composer state.
-	let stopHandoff: { cancel: () => void } | null = null;
+	type StopHandoff = {
+		params: StartStreamParams;
+		epoch: number;
+		deadline: number;
+		readerSettled: boolean;
+		terminalSettled: boolean;
+		assistantMessageId?: string;
+		userMessageId?: string;
+		observationDone: boolean;
+		cancel: () => void;
+	};
+	let stopHandoff: StopHandoff | null = null;
+	let stoppedAction: {
+		purpose: StoppedActionRequest["purpose"];
+		check: () => void;
+		supersede: () => void;
+	} | null = null;
 
 	function cancelStopHandoff() {
+		stoppedAction?.supersede();
 		stopHandoff?.cancel();
 		stopHandoff = null;
 	}
@@ -1909,10 +1949,16 @@ export function createNormalChatClientTurnRuntime(
 			owns: () => boolean;
 			remainingMs: () => number;
 			targetId: () => string | undefined;
+			onSettled: (
+				terminal: boolean,
+				assistantId?: string,
+				userId?: string,
+			) => void;
 		},
 	) {
 		const epoch = turnEpoch;
 		let saved: ChatMessage | undefined;
+		let savedUserId: string | undefined;
 		if (observation.state === "terminal" && observation.assistantMessageId) {
 			const assistantMessageId = observation.assistantMessageId;
 			try {
@@ -1923,6 +1969,13 @@ export function createNormalChatClientTurnRuntime(
 				saved = rows?.find(
 					(row) => row.id === assistantMessageId && row.role === "assistant",
 				);
+				if (saved && rows) {
+					const previousUser = rows
+						.slice(0, rows.indexOf(saved))
+						.reverse()
+						.find((row) => row.role === "user");
+					savedUserId = previousUser?.id;
+				}
 			} catch {
 				/* Retain the partial when the exact durable row cannot be read. */
 			}
@@ -1993,6 +2046,7 @@ export function createNormalChatClientTurnRuntime(
 			placeholderId: targetId,
 			clientUserMessageId: params.clientUserMessageId,
 			metadata: {
+				userMessageId: savedUserId,
 				assistantMessageId:
 					saved?.id ??
 					(knownFinalizationFailure
@@ -2019,6 +2073,12 @@ export function createNormalChatClientTurnRuntime(
 			if (saved && stopSettlement.owns())
 				adapters.pollMessageEvidence(saved.id);
 			if (saved && stopSettlement.owns()) adapters.refreshMessageCost(saved.id);
+			if (stopSettlement.owns())
+				stopSettlement.onSettled(
+					Boolean(terminal),
+					resolved ? saved?.id : undefined,
+					savedUserId,
+				);
 			return;
 		}
 		lastAssistantResponse = canonicalAnswer;
@@ -2335,6 +2395,7 @@ export function createNormalChatClientTurnRuntime(
 				}
 			},
 			onEnd(fullText, metadata) {
+				if (receiveStoppedReader(params, metadata)) return;
 				if (!ownsStream()) return;
 				tokenBuffer.flush();
 				thinkingBuffer.flush();
@@ -2461,6 +2522,7 @@ export function createNormalChatClientTurnRuntime(
 				void drainPostTurnQueue();
 			},
 			onError(error) {
+				if (receiveStoppedReader(params)) return;
 				if (!ownsStream()) return;
 				// Read before anything is awaited: it is what the page knew of the
 				// version when this failure was handled (`isNewVersionLive`).
@@ -3529,31 +3591,235 @@ export function createNormalChatClientTurnRuntime(
 		void adapters.runManualContextCompression();
 	}
 
+	function stoppedFactIsCurrent(fact: StopHandoff): boolean {
+		return (
+			stopHandoff === fact &&
+			fact.epoch === turnEpoch &&
+			!detached &&
+			isTurnConversationActive(fact.params.turnConversationId)
+		);
+	}
+
+	/** The retired reader may report identity, never prose/completion or queue effects. */
+	function receiveStoppedReader(
+		params: StartStreamParams,
+		metadata?: StreamMetadata,
+	): boolean {
+		const fact = stopHandoff;
+		if (!fact || fact.params !== params || !stoppedFactIsCurrent(fact))
+			return false;
+		if (fact.readerSettled) return true;
+		fact.readerSettled = true;
+		if (
+			metadata?.observation &&
+			!observationIsScoped(params, metadata.observation)
+		) {
+			stoppedAction?.check();
+			return true;
+		}
+		const assistantId = metadata?.assistantMessageId;
+		if (
+			assistantId &&
+			assistantId !== params.placeholderId &&
+			(!fact.assistantMessageId || fact.assistantMessageId === assistantId) &&
+			(!fact.userMessageId ||
+				!metadata?.userMessageId ||
+				fact.userMessageId === metadata.userMessageId)
+		) {
+			const target = adapters
+				.getMessages()
+				.find(
+					(row) =>
+						row.id === params.placeholderId ||
+						row.renderKey === params.placeholderId,
+				);
+			if (target) {
+				adapters.applyMessageListEvent({
+					type: "finalize",
+					placeholderId:
+						target.id === assistantId ? params.placeholderId : target.id,
+					clientUserMessageId: params.clientUserMessageId,
+					metadata: {
+						assistantMessageId: assistantId,
+						userMessageId: metadata?.userMessageId,
+					},
+				});
+				fact.assistantMessageId = assistantId;
+				fact.userMessageId ??= metadata?.userMessageId;
+			}
+		}
+		stoppedAction?.check();
+		return true;
+	}
+
+	/** Stop UI is synchronous; commands acquire evidence and an epoch-scoped permit. */
+	function settleStoppedAction(
+		request: StoppedActionRequest,
+	): Promise<StoppedActionResult> {
+		if (detached) return Promise.resolve({ status: "superseded" });
+		stoppedAction?.check();
+		if (stoppedAction) {
+			if (
+				request.purpose !== "navigate" ||
+				stoppedAction.purpose === "navigate"
+			)
+				return Promise.resolve({ status: "superseded" });
+			stoppedAction.supersede();
+		}
+		if (
+			isSending ||
+			activeStream ||
+			pendingObservation ||
+			cutReplyQuestion ||
+			(updateWait && !updateWait.detached)
+		) {
+			if (request.purpose === "regenerate") {
+				const params =
+					pendingObservation ?? cutReplyQuestion?.params ?? activeStreamParams;
+				if (!params || request.messageId !== params.placeholderId)
+					return Promise.resolve({ status: "unavailable" });
+			}
+			stop();
+		}
+		const epoch = turnEpoch;
+		const conversationId = adapters.getConversationId();
+		const fact = stopHandoff;
+		return new Promise((resolve) => {
+			let resolved = false;
+			let released = false;
+			let settledTargetId: string | undefined;
+			let targetsStoppedRow = false;
+			const isCurrent = () =>
+				!released &&
+				stoppedAction === action &&
+				epoch === turnEpoch &&
+				!detached &&
+				isTurnConversationActive(conversationId) &&
+				(settledTargetId === undefined ||
+					(adapters
+						.getMessages()
+						.some(
+							(row) => row.role === "assistant" && row.id === settledTargetId,
+						) &&
+						(!targetsStoppedRow ||
+							fact?.assistantMessageId === settledTargetId)));
+			const release = () => {
+				released = true;
+				if (stoppedAction === action) stoppedAction = null;
+			};
+			const finish = (result: StoppedActionResult) => {
+				if (resolved) return;
+				resolved = true;
+				if (result.status !== "ready") release();
+				resolve(result);
+			};
+			const action = {
+				purpose: request.purpose,
+				supersede() {
+					finish({ status: "superseded" });
+					release();
+				},
+				check() {
+					if (!isCurrent()) {
+						action.supersede();
+						return;
+					}
+					if (request.purpose === "navigate") {
+						if (!fact || fact.readerSettled || fact.terminalSettled)
+							finish({
+								status: "ready",
+								purpose: "navigate",
+								isCurrent,
+								release,
+							});
+						else if (fact.observationDone) finish({ status: "unavailable" });
+						return;
+					}
+					const rows = adapters.getMessages();
+					const row = rows.find(
+						(row) =>
+							row.id === request.messageId ||
+							row.renderKey === request.messageId,
+					);
+					if (!row || row.role !== "assistant") {
+						finish({ status: "unavailable" });
+						return;
+					}
+					const isStoppedTarget =
+						fact &&
+						(request.messageId === fact.params.placeholderId ||
+							row.renderKey === fact.params.placeholderId ||
+							row.id === fact.assistantMessageId);
+					if (fact && !fact.readerSettled && !fact.terminalSettled) {
+						if (fact.observationDone) finish({ status: "unavailable" });
+						return;
+					}
+					// A retained render key equal to the row ID is still the client placeholder.
+					// A later turn may retire its handoff, but cannot make that ID authoritative.
+					if (!isStoppedTarget && row.id === row.renderKey) {
+						finish({ status: "unavailable" });
+						return;
+					}
+					const assistantMessageId = isStoppedTarget
+						? fact.assistantMessageId
+						: row.id;
+					if (assistantMessageId) {
+						settledTargetId = assistantMessageId;
+						targetsStoppedRow = Boolean(isStoppedTarget);
+						const previousUser = rows
+							.slice(0, rows.indexOf(row))
+							.reverse()
+							.find((candidate) => candidate.role === "user");
+						const userMessageId = isStoppedTarget
+							? fact.userMessageId
+							: previousUser?.id;
+						finish({
+							status: "ready",
+							purpose: "regenerate",
+							assistantMessageId,
+							userMessageId,
+							isCurrent,
+							release,
+						});
+					} else if (fact?.observationDone) finish({ status: "unavailable" });
+				},
+			};
+			stoppedAction = action;
+			action.check();
+		});
+	}
+
 	/** Observe the exact stopped request; reconnect is read-only on the server. */
-	function reconcileStoppedTurn(params: StartStreamParams, epoch: number) {
+	function reconcileStoppedTurn(handoff: StopHandoff) {
+		const { params, epoch, deadline } = handoff;
 		if (
 			epoch !== turnEpoch ||
 			detached ||
 			!isTurnConversationActive(params.turnConversationId)
 		)
 			return;
-		cancelStopHandoff();
-		const deadline = Date.now() + 10_000;
+
 		const streamId =
 			params.streamOptions.reconnectToStreamId ?? params.originatingStreamId;
 		if (!streamId) {
 			adapters.setSendError("chat.observationUnavailable");
+			handoff.observationDone = true;
+			stoppedAction?.check();
 			return;
 		}
 		const held = adapters
 			.getMessages()
-			.find((row) => row.id === params.placeholderId);
+			.find(
+				(row) =>
+					row.id === params.placeholderId ||
+					row.renderKey === params.placeholderId,
+			);
 		const view = held && normalChatOutputView(held);
 		let scope = params.observedScope ?? view?.completion ?? view?.blocks[0];
 		let observer: StreamHandle | null = null;
 		let cancelled = false;
 		const timers = new Set<ReturnType<typeof setTimeout>>();
-		const handoff = {
+		Object.assign(handoff, {
 			cancel() {
 				cancelled = true;
 				observer?.detach();
@@ -3561,8 +3827,7 @@ export function createNormalChatClientTurnRuntime(
 				for (const timer of timers) clearTimeout(timer);
 				timers.clear();
 			},
-		};
-		stopHandoff = handoff;
+		});
 		const remainingMs = () => Math.max(0, deadline - Date.now());
 		const targetId = () =>
 			adapters
@@ -3588,7 +3853,11 @@ export function createNormalChatClientTurnRuntime(
 			timer = adapters.schedule(() => {
 				if (timer !== undefined) timers.delete(timer);
 				if (owns()) callback();
-				else handoff.cancel();
+				else {
+					handoff.cancel();
+					handoff.observationDone = true;
+					stoppedAction?.check();
+				}
 			}, ms);
 			timers.add(timer);
 		};
@@ -3611,16 +3880,25 @@ export function createNormalChatClientTurnRuntime(
 				owns,
 				remainingMs,
 				targetId,
+				onSettled(terminal, assistantId, userId) {
+					if (!owns()) return;
+					handoff.terminalSettled = terminal;
+					handoff.assistantMessageId ??= assistantId;
+					handoff.userMessageId ??= userId;
+				},
 			}).finally(() => {
 				if (stopHandoff === handoff) {
 					handoff.cancel();
-					stopHandoff = null;
+					handoff.observationDone = true;
+					stoppedAction?.check();
 				}
 			});
 		};
 		const read = (attempt: number) => {
 			if (!owns()) {
 				handoff.cancel();
+				handoff.observationDone = true;
+				stoppedAction?.check();
 				return;
 			}
 			if (!streamId || !remainingMs()) {
@@ -3640,6 +3918,9 @@ export function createNormalChatClientTurnRuntime(
 				if (observer === handle) observer = null;
 				if (
 					!observationIsScoped(params, observation) ||
+					(observation.state === "terminal" &&
+						handoff.assistantMessageId !== undefined &&
+						observation.assistantMessageId !== handoff.assistantMessageId) ||
 					(observation.state !== "unavailable" &&
 						!matchesScope(
 							observation.state === "terminal"
@@ -3721,7 +4002,7 @@ export function createNormalChatClientTurnRuntime(
 				finish(unavailable);
 			}
 		};
-		read(1);
+		later(() => read(1), 0);
 	}
 
 	function stop() {
@@ -3741,7 +4022,18 @@ export function createNormalChatClientTurnRuntime(
 			if (!stopHandoff) turnEpoch++;
 			return false;
 		}
+		cancelStopHandoff();
 		const stoppedEpoch = ++turnEpoch;
+		const handoff: StopHandoff = {
+			params,
+			epoch: stoppedEpoch,
+			deadline: Date.now() + 10_000,
+			readerSettled: false,
+			terminalSettled: false,
+			observationDone: false,
+			cancel() {},
+		};
+		stopHandoff = handoff;
 		activeTokenBuffer?.flush();
 		activeThinkingBuffer?.flush();
 		canRetry = false;
@@ -3756,6 +4048,7 @@ export function createNormalChatClientTurnRuntime(
 		completeTurn();
 		handle?.stop();
 		if (params.answer && !params.answer.accepted) {
+			handoff.observationDone = true;
 			endAnswer(params, {
 				type: "answerNotSent",
 				questionId: params.answer.questionId,
@@ -3765,7 +4058,7 @@ export function createNormalChatClientTurnRuntime(
 		}
 		adapters.applyMessageListEvent({
 			type: "finalize",
-			placeholderId: params.placeholderId,
+			placeholderId: handoff.assistantMessageId ?? params.placeholderId,
 			clientUserMessageId: params.clientUserMessageId,
 			metadata: {
 				wasStopped: true,
@@ -3781,7 +4074,7 @@ export function createNormalChatClientTurnRuntime(
 		if (takeQueuedContextCompression())
 			void adapters.runManualContextCompression();
 		restoreQueuedTurnToDraft();
-		reconcileStoppedTurn(params, stoppedEpoch);
+		reconcileStoppedTurn(handoff);
 		return true;
 	}
 
@@ -4078,6 +4371,7 @@ export function createNormalChatClientTurnRuntime(
 		editQueuedTurn,
 		compact,
 		stop,
+		settleStoppedAction,
 		detach,
 		reset,
 		completePollingRecovery() {

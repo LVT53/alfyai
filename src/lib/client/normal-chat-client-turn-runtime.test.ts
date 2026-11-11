@@ -9837,6 +9837,7 @@ describe("Stop terminal handoff", () => {
 		if (live) original.callbacks.onNormalChatOutput?.(facts.live);
 		beforeStop?.(runtime, original);
 		expect(runtime.stop()).toBe(true);
+		await vi.advanceTimersByTimeAsync(0);
 		return { ...made, runtime, facts, original };
 	}
 
@@ -10494,5 +10495,301 @@ describe("Stop terminal handoff", () => {
 		expect(made.adapters.setSendError).toHaveBeenCalledWith(
 			"chat.observationUnavailable",
 		);
+	});
+	it("settles late original identity without granting structural completion", async () => {
+		const made = await stopped();
+		const pending = made.runtime.settleStoppedAction({
+			purpose: "regenerate",
+			messageId: "id-2",
+		});
+		let ready = false;
+		void pending.then(() => {
+			ready = true;
+		});
+		await Promise.resolve();
+		expect(ready).toBe(false);
+		made.original.callbacks.onEnd("Untrusted receipt prose", {
+			wasStopped: true,
+			assistantMessageId: "server-a",
+			userMessageId: "server-u",
+		});
+		const permit = await pending;
+		expect(permit).toMatchObject({
+			status: "ready",
+			assistantMessageId: "server-a",
+			userMessageId: "server-u",
+		});
+		expect(made.messages.at(-1)?.id).toBe("server-a");
+		expect(
+			normalChatOutputView(made.messages.at(-1) ?? made.facts.saved)
+				?.completion,
+		).toBeUndefined();
+		expect(made.messages.at(-1)?.content).not.toBe("Untrusted receipt prose");
+		expect(made.original.handle.stop).toHaveBeenCalledOnce();
+	});
+
+	it("uses canonical identity when the original abort receipt contains no IDs", async () => {
+		const made = await stopped();
+		const pending = made.runtime.settleStoppedAction({
+			purpose: "regenerate",
+			messageId: "id-2",
+		});
+		made.original.callbacks.onEnd("", { wasStopped: true });
+		let ready = false;
+		void pending.then(() => {
+			ready = true;
+		});
+		await Promise.resolve();
+		expect(ready).toBe(false);
+		made.streamInvocations[1].callbacks.onEnd("", terminalReceipt(made));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(await pending).toMatchObject({
+			status: "ready",
+			assistantMessageId: "saved-stop",
+		});
+	});
+
+	it("retains unavailable facts across later navigation and regeneration attempts", async () => {
+		const made = await stopped();
+		const pending = made.runtime.settleStoppedAction({ purpose: "navigate" });
+		made.streamInvocations[1].callbacks.onError(new Error("unavailable"));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(await pending).toEqual({ status: "unavailable" });
+		expect(made.runtime.stop()).toBe(false);
+		expect(
+			await made.runtime.settleStoppedAction({ purpose: "navigate" }),
+		).toEqual({ status: "unavailable" });
+		expect(
+			await made.runtime.settleStoppedAction({
+				purpose: "regenerate",
+				messageId: "id-2",
+			}),
+		).toEqual({ status: "unavailable" });
+		expect(made.streamInvocations).toHaveLength(2);
+		made.original.callbacks.onEnd("", {
+			wasStopped: true,
+			assistantMessageId: "late-a",
+		});
+		const permit = await made.runtime.settleStoppedAction({
+			purpose: "regenerate",
+			messageId: "id-2",
+		});
+		expect(permit).toMatchObject({
+			status: "ready",
+			assistantMessageId: "late-a",
+		});
+	});
+
+	it("invalidates a ready permit when a same-chat newer turn begins and ends", async () => {
+		const made = await stopped();
+		made.original.callbacks.onEnd("", {
+			wasStopped: true,
+			assistantMessageId: "old-a",
+		});
+		const permit = await made.runtime.settleStoppedAction({
+			purpose: "regenerate",
+			messageId: "id-2",
+		});
+		if (permit.status !== "ready") throw new Error("expected permit");
+		expect(permit.isCurrent()).toBe(true);
+		await made.runtime.send({
+			message: "New turn",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		made.streamInvocations
+			.at(-1)
+			?.callbacks.onEnd("New answer", { assistantMessageId: "new-a" });
+		expect(made.runtime.snapshot().isSending).toBe(false);
+		expect(permit.isCurrent()).toBe(false);
+		const before = structuredClone(made.messages);
+		made.original.callbacks.onEnd("Late prose", {
+			assistantMessageId: "wrong-late-a",
+		});
+		expect(made.messages).toEqual(before);
+		permit.release();
+	});
+
+	it("reserves command priority only for actual navigation and rejects duplicate regeneration", async () => {
+		const made = await stopped();
+		const regen = made.runtime.settleStoppedAction({
+			purpose: "regenerate",
+			messageId: "id-2",
+		});
+		expect(
+			await made.runtime.settleStoppedAction({
+				purpose: "regenerate",
+				messageId: "id-2",
+			}),
+		).toEqual({ status: "superseded" });
+		const navigation = made.runtime.settleStoppedAction({
+			purpose: "navigate",
+		});
+		expect(await regen).toEqual({ status: "superseded" });
+		made.original.callbacks.onEnd("", { wasStopped: true });
+		const permit = await navigation;
+		expect(permit.status).toBe("ready");
+		if (permit.status === "ready") permit.release();
+		expect(made.original.handle.stop).toHaveBeenCalledOnce();
+	});
+
+	it("captures synchronous original abort receipt before releasing stream ownership", async () => {
+		const made = await stopped({}, (_runtime, original) => {
+			vi.mocked(original.handle.stop).mockImplementation(() =>
+				original.callbacks.onEnd("", {
+					wasStopped: true,
+					assistantMessageId: "sync-a",
+				}),
+			);
+		});
+		expect(
+			await made.runtime.settleStoppedAction({
+				purpose: "regenerate",
+				messageId: "id-2",
+			}),
+		).toMatchObject({ status: "ready", assistantMessageId: "sync-a" });
+	});
+
+	it("ignores duplicate original receipts after accepting identity", async () => {
+		const made = await stopped();
+		made.original.callbacks.onEnd("", {
+			assistantMessageId: "original-a",
+			wasStopped: true,
+		});
+		vi.mocked(made.adapters.applyMessageListEvent).mockClear();
+		made.original.callbacks.onEnd("wrong prose", {
+			assistantMessageId: "original-a",
+			wasStopped: true,
+		});
+		expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
+	});
+
+	it("does not replace original authoritative identity with contradictory canonical identity", async () => {
+		const made = await stopped();
+		made.original.callbacks.onEnd("", {
+			assistantMessageId: "original-a",
+			wasStopped: true,
+		});
+		made.streamInvocations[1].callbacks.onEnd("", terminalReceipt(made));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(made.messages.at(-1)?.id).toBe("original-a");
+		expect(
+			normalChatOutputView(made.messages.at(-1) ?? made.facts.saved)
+				?.completion,
+		).toBeUndefined();
+	});
+
+	it.each([
+		"detach",
+		"reset",
+		"conversation",
+	] as const)("supersedes a pending command on %s", async (action) => {
+		const made = await stopped();
+		const pending = made.runtime.settleStoppedAction({ purpose: "navigate" });
+		if (action === "conversation")
+			vi.mocked(made.adapters.getConversationId).mockReturnValue("other");
+		else made.runtime[action]();
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(await pending).toEqual({ status: "superseded" });
+		const before = structuredClone(made.messages);
+		made.original.callbacks.onEnd("late", { assistantMessageId: "late-a" });
+		expect(made.messages).toEqual(before);
+	});
+
+	it("keeps a known older retry target behind the stopped reader settlement", async () => {
+		const made = await stopped();
+		made.messages.unshift(
+			{ id: "old-user", role: "user", content: "Earlier", timestamp: 0 },
+			{
+				id: "old-assistant",
+				role: "assistant",
+				content: "Earlier answer",
+				timestamp: 0,
+			},
+		);
+		const pending = made.runtime.settleStoppedAction({
+			purpose: "regenerate",
+			messageId: "old-assistant",
+		});
+		let ready = false;
+		void pending.then(() => {
+			ready = true;
+		});
+		await Promise.resolve();
+		expect(ready).toBe(false);
+		made.streamInvocations[1].callbacks.onError(new Error("Unavailable"));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(await pending).toEqual({ status: "unavailable" });
+	});
+	it("never promotes an unresolved old placeholder to retry identity after a newer turn", async () => {
+		const made = await stopped();
+		made.streamInvocations[1].callbacks.onError(new Error("Unavailable"));
+		await vi.advanceTimersByTimeAsync(0);
+		await made.runtime.send({
+			message: "New turn",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		made.streamInvocations
+			.at(-1)
+			?.callbacks.onEnd("New answer", { assistantMessageId: "new-a" });
+		expect(
+			await made.runtime.settleStoppedAction({
+				purpose: "regenerate",
+				messageId: "id-2",
+			}),
+		).toEqual({ status: "unavailable" });
+	});
+	it.each([
+		"removed",
+		"conflicting canonical ID",
+	] as const)("invalidates a ready permit when its target is %s without notifying the runtime", async (change) => {
+		const made = await stopped();
+		made.original.callbacks.onEnd("", {
+			assistantMessageId: "ready-a",
+			userMessageId: "ready-u",
+			wasStopped: true,
+		});
+		const permit = await made.runtime.settleStoppedAction({
+			purpose: "regenerate",
+			messageId: "id-2",
+		});
+		if (permit.status !== "ready") throw new Error("expected ready permit");
+		expect(permit.isCurrent()).toBe(true);
+		const targetIndex = made.messages.findIndex((row) => row.id === "ready-a");
+		if (change === "removed") made.messages.splice(targetIndex, 1);
+		else
+			made.messages[targetIndex] = {
+				...made.messages[targetIndex],
+				id: "different-canonical-a",
+			};
+		vi.mocked(made.adapters.applyMessageListEvent).mockClear();
+		const before = structuredClone(made.messages);
+		expect(permit.isCurrent()).toBe(false);
+		expect(made.messages).toEqual(before);
+		expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
+		permit.release();
+	});
+
+	it("keeps a ready permit valid when the exact authoritative row is reloaded without its render key", async () => {
+		const made = await stopped();
+		made.original.callbacks.onEnd("", {
+			assistantMessageId: "ready-a",
+			wasStopped: true,
+		});
+		const permit = await made.runtime.settleStoppedAction({
+			purpose: "regenerate",
+			messageId: "id-2",
+		});
+		if (permit.status !== "ready") throw new Error("expected ready permit");
+		const targetIndex = made.messages.findIndex((row) => row.id === "ready-a");
+		made.messages[targetIndex] = {
+			...made.messages[targetIndex],
+			renderKey: undefined,
+		};
+		expect(permit.isCurrent()).toBe(true);
+		permit.release();
 	});
 });

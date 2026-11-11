@@ -9,6 +9,7 @@ import { tick } from "svelte";
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatTurnCheck } from "$lib/client/api/chat-turn";
+import { applyNormalChatOutputView } from "$lib/client/normal-chat-output-view";
 import type { ModelId } from "$lib/model-types";
 import type { AppShellData } from "$lib/server/services/app-shell";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
@@ -26,6 +27,7 @@ import type {
 	StreamChatOptions,
 } from "$lib/services/streaming";
 import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
+import { uiLanguage } from "$lib/stores/settings";
 import { FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE } from "./lifecycle-guards";
 
 const runtimeHarness = vi.hoisted(() => ({
@@ -56,6 +58,7 @@ const runtimeHarness = vi.hoisted(() => ({
 	orphanedStream: null as { streamId: string; userMessage: string } | null,
 	/** What the page handed the runtime, for the tests that speak to the page the way the runtime does. */
 	adapters: null as {
+		setSendError: (message: string | null) => void;
 		restorePayloadToDraft: (payload: {
 			message: string;
 			attachmentIds: string[];
@@ -463,7 +466,11 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 			return actual.createNormalChatClientTurnRuntime({
 				...adapters,
 				streamChat: vi.fn((message, _conversationId, callbacks, options) => {
-					const handle = { stop: vi.fn(), detach: vi.fn() };
+					const handle = {
+						stop: vi.fn(),
+						detach: vi.fn(),
+						streamId: `page-stream-${runtimeHarness.streamInvocations.length}`,
+					};
 					runtimeHarness.streamInvocations.push({
 						message,
 						callbacks,
@@ -610,6 +617,72 @@ function renderPage(data = pageData()) {
 	});
 }
 
+/** Real abort has no IDs: only scoped canonical evidence may authorize a retry. */
+async function settleStoppedPageObservation() {
+	const completion = {
+		version: 1,
+		turnId: "stopped-turn",
+		segmentId: "stopped-segment",
+		phase: "working",
+		outcome: "stopped",
+		stopCause: "user_stop",
+		workingStopCause: "user_stop",
+		closingAttempted: false,
+	} as const;
+	const saved = applyNormalChatOutputView(
+		[
+			{
+				id: "canonical-stopped-a",
+				role: "assistant",
+				content: "",
+				timestamp: 2,
+			},
+		],
+		"canonical-stopped-a",
+		{ answer: "", activity: [], blocks: [], completion },
+	);
+	vi.mocked(fetchConversationDetail).mockResolvedValue(
+		conversationDetailFixture({
+			messages: [
+				{
+					id: "canonical-user",
+					role: "user",
+					content: "Explain the tradeoffs",
+					timestamp: 1,
+				},
+				...saved,
+			],
+		}),
+	);
+	await waitFor(() =>
+		expect(
+			runtimeHarness.streamInvocations.some(
+				(call) => call.options?.reconnectToStreamId,
+			),
+		).toBe(true),
+	);
+	const observer = runtimeHarness.streamInvocations.find(
+		(call) => call.options?.reconnectToStreamId,
+	);
+	observer?.callbacks.onEnd("", {
+		observation: {
+			version: 1,
+			state: "terminal",
+			streamId: observer.options?.reconnectToStreamId ?? "missing",
+			conversationId: "conv-1",
+			assistantMessageId: "canonical-stopped-a",
+			completion,
+		},
+	});
+	await waitFor(() =>
+		expect(
+			runtimeHarness.streamInvocations.filter(
+				(call) => !call.options?.reconnectToStreamId,
+			),
+		).toHaveLength(2),
+	);
+}
+
 type AnimationFrameTimer = number;
 
 let animationFrameId = 0;
@@ -643,6 +716,7 @@ function clearAnimationFrameMockTimers() {
 
 describe("chat page runtime integration", () => {
 	afterEach(() => {
+		uiLanguage.set("en");
 		clearAnimationFrameMockTimers();
 		runtimeHarness.atlasFailure = null;
 		runtimeHarness.orphanedStream = null;
@@ -809,6 +883,27 @@ describe("chat page runtime integration", () => {
 		);
 	});
 
+	it.each([
+		[
+			"en",
+			"The previous reply’s status is unavailable. Any partial answer is kept.",
+		],
+		[
+			"hu",
+			"A korábbi válasz állapota nem érhető el. A részleges válasz megmarad.",
+		],
+	] as const)("translates observation unavailability in %s", async (language, expected) => {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		renderPage();
+		uiLanguage.set(language);
+		runtimeHarness.adapters?.setSendError("chat.observationUnavailable");
+		await waitFor(() => expect(screen.getByText(expected)).toBeInTheDocument());
+		expect(
+			screen.queryByText("chat.observationUnavailable"),
+		).not.toBeInTheDocument();
+		uiLanguage.set("en");
+	});
+
 	// Owner idea — "Answer now" clicks the ThinkingBlock header's quick-answer
 	// button while a turn is still reasoning: it must interrupt the CURRENT
 	// stream first (the same stop() the Stop button uses), wait for that to
@@ -841,12 +936,16 @@ describe("chat page runtime integration", () => {
 		// aborted fetch's reader settles, onEnd fires with wasStopped: true.
 		firstInvocation.callbacks.onEnd("", { wasStopped: true });
 
-		await waitFor(() => {
-			expect(runtimeHarness.streamInvocations).toHaveLength(2);
-		});
-		const retryInvocation = runtimeHarness.streamInvocations[1];
+		await settleStoppedPageObservation();
+		const retryInvocation = runtimeHarness.streamInvocations.filter(
+			(call) => !call.options?.reconnectToStreamId,
+		)[1];
 		expect(retryInvocation.message).toBe("Explain the tradeoffs");
 		expect(retryInvocation.options?.reasoningDepth).toBe("quick");
+		expect(retryInvocation.options?.retryAssistantMessageId).toBe(
+			"canonical-stopped-a",
+		);
+		expect(retryInvocation.options?.retryUserMessageId).toBe("canonical-user");
 	});
 
 	// The streaming assistant message is keyed by a CLIENT placeholder id
@@ -908,13 +1007,12 @@ describe("chat page runtime integration", () => {
 
 		firstInvocation.callbacks.onEnd("", { wasStopped: true });
 
-		await waitFor(() => {
-			expect(runtimeHarness.streamInvocations).toHaveLength(2);
-		});
-		// Give the second click's own idle wait time to resolve and (wrongly)
-		// dispatch a third stream before asserting there is none.
-		await new Promise((resolve) => setTimeout(resolve, 120));
-		expect(runtimeHarness.streamInvocations).toHaveLength(2);
+		await settleStoppedPageObservation();
+		expect(
+			runtimeHarness.streamInvocations.filter(
+				(call) => !call.options?.reconnectToStreamId,
+			),
+		).toHaveLength(2);
 	});
 
 	// Reviewer report — `/new` fired mid-turn navigated away with the stream
@@ -947,6 +1045,82 @@ describe("chat page runtime integration", () => {
 		await waitFor(() => {
 			expect(gotoMock).toHaveBeenCalledWith("/");
 		});
+	});
+
+	it("toolbar regeneration after plain Stop waits for canonical identity without quick override", async () => {
+		renderPage();
+		const input = screen.getByTestId("message-input");
+		await fireEvent.input(input, {
+			target: { value: "Explain the tradeoffs" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		const original = runtimeHarness.streamInvocations[0];
+		original.callbacks.onToken("Partial answer");
+		await fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
+		await fireEvent.click(
+			await screen.findByRole("button", { name: "Regenerate response" }),
+		);
+		original.callbacks.onEnd("", { wasStopped: true });
+		expect(
+			runtimeHarness.streamInvocations.filter(
+				(call) => !call.options?.reconnectToStreamId,
+			),
+		).toHaveLength(1);
+		await settleStoppedPageObservation();
+		const retry = runtimeHarness.streamInvocations.filter(
+			(call) => !call.options?.reconnectToStreamId,
+		)[1];
+		expect(retry.options?.retryAssistantMessageId).toBe("canonical-stopped-a");
+		expect(retry.options?.retryOrigin).toBe("regenerate");
+		expect(original.handle?.stop).toHaveBeenCalledOnce();
+	});
+
+	it("Stop followed by /new still waits when canStop is already false", async () => {
+		renderPage(pageData({ composerCommandRegistryEnabled: true }));
+		vi.mocked(goto).mockClear();
+		const input = screen.getByTestId("message-input");
+		await fireEvent.input(input, {
+			target: { value: "Explain the tradeoffs" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		const original = runtimeHarness.streamInvocations[0];
+		await fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
+		await fireEvent.input(input, { target: { value: "/new" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		expect(goto).not.toHaveBeenCalled();
+		original.callbacks.onEnd("", { wasStopped: true });
+		await waitFor(() => expect(goto).toHaveBeenCalledExactlyOnceWith("/"));
+		expect(original.handle?.stop).toHaveBeenCalledOnce();
+	});
+
+	it("later /new and toolbar commands cannot bypass an unavailable stopped fact", async () => {
+		renderPage(pageData({ composerCommandRegistryEnabled: true }));
+		vi.mocked(goto).mockClear();
+		const input = screen.getByTestId("message-input");
+		await fireEvent.input(input, {
+			target: { value: "Explain the tradeoffs" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		const original = runtimeHarness.streamInvocations[0];
+		original.callbacks.onToken("Partial answer");
+		await fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
+		await waitFor(() =>
+			expect(runtimeHarness.streamInvocations).toHaveLength(2),
+		);
+		runtimeHarness.streamInvocations[1].callbacks.onError(
+			new Error("Unavailable"),
+		);
+		await screen.findByText(
+			"The previous reply’s status is unavailable. Any partial answer is kept.",
+		);
+		await fireEvent.click(
+			await screen.findByRole("button", { name: "Regenerate response" }),
+		);
+		await fireEvent.input(input, { target: { value: "/new" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		expect(goto).not.toHaveBeenCalled();
+		expect(runtimeHarness.streamInvocations).toHaveLength(2);
+		expect(original.handle?.stop).toHaveBeenCalledOnce();
 	});
 
 	// Owner idea (variant A) — clicking a follow-up chip on the latest
@@ -6118,6 +6292,47 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 		expect(runtimeHarness.streamInvocations[0].message).toBe(
 			"What's on my calendar?",
 		);
+	});
+
+	it("discards a ready regenerate permit if a same-chat turn starts and ends during preparation", async () => {
+		let releaseCheck: (value: { shouldWarn: boolean }) => void = () => {
+			throw new Error("check not started");
+		};
+		checkCloudWarningMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					releaseCheck = resolve;
+				}),
+		);
+		renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+		await waitFor(() => expect(fetchActiveCapabilitiesMock).toHaveBeenCalled());
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Regenerate response" }),
+		);
+		await waitFor(() => expect(checkCloudWarningMock).toHaveBeenCalledOnce());
+		const send = pageChildren.composer?.onSend as (payload: {
+			message: string;
+			attachmentIds: string[];
+			attachments: [];
+			pendingAttachments: [];
+		}) => Promise<void>;
+		await send({
+			message: "A newer turn",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		runtimeHarness.streamInvocations[0].callbacks.onToken("Newer answer");
+		runtimeHarness.streamInvocations[0].callbacks.onEnd("Newer answer", {
+			assistantMessageId: "newer-assistant",
+		});
+		releaseCheck({ shouldWarn: false });
+		await tick();
+		await tick();
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		expect(screen.getByText("You have a 2pm meeting.")).toBeInTheDocument();
+		expect(screen.getByText("A newer turn")).toBeInTheDocument();
 	});
 
 	it("does not bypass the warning on a double-send while the check is in flight", async () => {

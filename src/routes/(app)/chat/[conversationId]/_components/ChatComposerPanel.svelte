@@ -1,4 +1,5 @@
 <script lang='ts'>
+import type { StopHostCallback } from "$lib/client/normal-chat-client-turn-runtime";
 import type { Snippet } from "svelte";
 import ErrorMessage from "$lib/components/chat/ErrorMessage.svelte";
 import type {
@@ -119,7 +120,7 @@ let {
 				mimeType?: string | null;
 		  }) => void)
 		| undefined;
-	onStop: () => void | Promise<void>;
+	onStop: StopHostCallback;
 	onDraftChange: (payload: DraftChangePayload) => void;
 	/** A sent message being edited in the composer (MessageInput's `editing`). */
 	editing?: { text: string; laterReplies: number } | null;

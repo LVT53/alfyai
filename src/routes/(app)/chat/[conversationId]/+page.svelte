@@ -189,6 +189,8 @@ import {
 	type AskRuntimeEvent,
 	createBrowserNormalChatClientTurnRuntime,
 	type NormalChatRuntimeSnapshot,
+	type StopIntent,
+	type StopHostResult,
 } from "$lib/client/normal-chat-client-turn-runtime";
 import {
 	personMessageOfReply,
@@ -1317,6 +1319,10 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		// The sentences for a server update: a wait that ran out, and a reply it cut.
 		if (message === "chat.updateStillRunning") {
 			sendError = $t("chat.updateStillRunning");
+			return;
+		}
+		if (message === "chat.observationUnavailable") {
+			sendError = $t("chat.observationUnavailable");
 			return;
 		}
 		if (message === "chat.updateCutReply") {
@@ -4434,29 +4440,6 @@ async function handleRetry() {
 	void normalChatRuntime.retry();
 }
 
-// "Answer now" — polls the runtime's own `isSending` snapshot (updated
-// synchronously by applyNormalChatRuntimeSnapshot whenever the runtime's
-// internal state actually changes) rather than assuming the abort triggered
-// by normalChatRuntime.stop() has settled by the time this call returns:
-// stop() only requests the abort (AbortController.abort()) — the runtime's
-// completeTurn()/isSending=false only runs once the aborted fetch's reader
-// promise actually rejects, which is a real (if usually fast) async hop, not
-// something the caller can assume finished in the same tick. Bounded so a
-// pathological stall degrades to "give up and let the caller's own isSending
-// guard reject the regenerate" rather than hanging forever.
-function waitForRuntimeIdle(timeoutMs = 4000): Promise<void> {
-	if (!isSending) return Promise.resolve();
-	return new Promise((resolve) => {
-		const start = Date.now();
-		const interval = setInterval(() => {
-			if (!isSending || Date.now() - start >= timeoutMs) {
-				clearInterval(interval);
-				resolve();
-			}
-		}, 20);
-	});
-}
-
 async function handleRegenerate(
 	payload: MessageRegeneratePayload,
 	confirmForkedSourceHistoryMutation = false,
@@ -4469,135 +4452,148 @@ async function handleRegenerate(
 	) {
 		return;
 	}
-	if (isSending) {
-		// Only the "Answer now" quick-answer button (ThinkingBlock's header,
-		// wired through MessageBubble's existing onRegenerate prop — see
-		// MessageBubble.svelte) may regenerate while a turn is still
-		// in flight: it targets the very message that is currently streaming,
-		// interrupting it first (the same stop() the Stop button uses) and
-		// then regenerating in quick mode. Every other regenerate call site
-		// (the toolbar button) never sets reasoningDepthOverride and keeps the
-		// pre-existing "never regenerate mid-stream" guard unchanged.
-		if (!payload.reasoningDepthOverride) return;
-		normalChatRuntime.stop();
-		await waitForRuntimeIdle();
-		if (isSending || isEditResendPending) return;
-	}
-	// Issue 7.4 fix pass — gate BEFORE any optimistic mutation (removing the
-	// assistant message from $messages below), so a cancelled regenerate
-	// leaves the timeline untouched rather than showing a response already
-	// removed while the user is still deciding. handleSend() itself is NOT
-	// gated a second time below — it's already covered by this check, and
-	// re-running it would risk a second round-trip re-showing the modal
-	// (e.g. after "Turn on local mode", which doesn't ack — see
-	// shouldWarnCloudConnector) for a single regenerate action.
-	const proceed = await prepareTurn();
-	if (!proceed || editingMessage || questionOpen) return;
-	const { messageId, reasoningDepthOverride } = payload;
-	const msgs = $messages;
-	// A still-streaming assistant message is keyed by the CLIENT placeholder
-	// id the runtime minted for it; a stopped turn is persisted server-side
-	// and its terminal frame carries the real assistantMessageId, which
-	// finalizeStreamingMessageList swaps in (keeping `renderKey` pinned to
-	// the placeholder id). "Answer now" captures the id at click time, so by
-	// the time the stop above has settled, `messageId` may only match the
-	// finalized message's renderKey — match either, or the whole action
-	// silently no-ops.
-	const pressedIdx = msgs.findIndex(
-		(m) => m.id === messageId || m.renderKey === messageId,
-	);
-	if (pressedIdx === -1) return;
-	// "Ask me first": a reply that paused to ask is several rows, and the button sits
-	// under the last. Redoing it redoes it all, from its first segment (the row the
-	// person's message is right before); the turns it would drop are counted from its last.
-	const firstSegmentId = replyFirstMessageId(msgs, msgs[pressedIdx].id);
-	const assistantIdx = msgs.findIndex((m) => m.id === firstSegmentId);
-	const assistantMessageId = msgs[assistantIdx].id;
-	// Captured before the slice below removes this message from the timeline.
-	const assistantUserIntent = msgs[assistantIdx].userIntent;
-	const hasKnownForks = hasForkedAssistantInRange(msgs, assistantIdx);
-	if (
-		hasKnownForks &&
-		!confirmForkedSourceHistoryMutation &&
-		!window.confirm(get(t)("fork.regenerateWarning"))
-	) {
-		return;
-	}
-
-	// B1 — regenerating a non-latest assistant message silently discarded
-	// every later turn. Warn before that destructive slice, unless the fork
-	// guard above already covered this range: a fork in range implies later
-	// turns exist, so one confirmation suffices (no double-prompt).
-	if (
-		!hasKnownForks &&
-		!confirmForkedSourceHistoryMutation &&
-		regenerateDropsLaterTurns(msgs, assistantIdx) &&
-		!window.confirm(
-			get(t)("chat.regenerateLaterTurnsWarning", {
-				count: laterTurnCount(msgs, assistantIdx),
-			}),
+	if (isSending && !payload.reasoningDepthOverride) return;
+	// Every regenerate crosses the identity seam, including toolbar after Stop.
+	const action = await normalChatRuntime.settleStoppedAction({
+		purpose: "regenerate",
+		messageId: payload.messageId,
+	});
+	if (action.status !== "ready" || action.purpose !== "regenerate") return;
+	try {
+		// Issue 7.4 fix pass — gate BEFORE any optimistic mutation (removing the
+		// assistant message from $messages below), so a cancelled regenerate
+		// leaves the timeline untouched rather than showing a response already
+		// removed while the user is still deciding. handleSend() itself is NOT
+		// gated a second time below — it's already covered by this check, and
+		// re-running it would risk a second round-trip re-showing the modal
+		// (e.g. after "Turn on local mode", which doesn't ack — see
+		// shouldWarnCloudConnector) for a single regenerate action.
+		const proceed = await prepareTurn();
+		if (
+			!proceed ||
+			!action.isCurrent() ||
+			isSending ||
+			isEditResendPending ||
+			isConversationReadOnlyForChat ||
+			editingMessage ||
+			questionOpen
 		)
-	) {
-		return;
+			return;
+		const { messageId, reasoningDepthOverride } = payload;
+		const msgs = $messages;
+		// A still-streaming assistant message is keyed by the CLIENT placeholder
+		// id the runtime minted for it; a stopped turn is persisted server-side
+		// and its terminal frame carries the real assistantMessageId, which
+		// finalizeStreamingMessageList swaps in (keeping `renderKey` pinned to
+		// the placeholder id). "Answer now" captures the id at click time, so by
+		// the time the stop above has settled, `messageId` may only match the
+		// finalized message's renderKey — match either, or the whole action
+		// silently no-ops.
+		const pressedIdx = msgs.findIndex(
+			(m) => m.id === messageId || m.renderKey === messageId,
+		);
+		if (pressedIdx === -1 || msgs[pressedIdx].id !== action.assistantMessageId)
+			return;
+		// "Ask me first": a reply that paused to ask is several rows, and the button sits
+		// under the last. Redoing it redoes it all, from its first segment (the row the
+		// person's message is right before); the turns it would drop are counted from its last.
+		const firstSegmentId = replyFirstMessageId(msgs, msgs[pressedIdx].id);
+		const assistantIdx = msgs.findIndex((m) => m.id === firstSegmentId);
+		const assistantMessageId =
+			assistantIdx === pressedIdx
+				? action.assistantMessageId
+				: msgs[assistantIdx].id;
+		// Captured before the slice below removes this message from the timeline.
+		const assistantUserIntent = msgs[assistantIdx].userIntent;
+		const hasKnownForks = hasForkedAssistantInRange(msgs, assistantIdx);
+		if (
+			hasKnownForks &&
+			!confirmForkedSourceHistoryMutation &&
+			!window.confirm(get(t)("fork.regenerateWarning"))
+		) {
+			return;
+		}
+
+		// B1 — regenerating a non-latest assistant message silently discarded
+		// every later turn. Warn before that destructive slice, unless the fork
+		// guard above already covered this range: a fork in range implies later
+		// turns exist, so one confirmation suffices (no double-prompt).
+		if (
+			!hasKnownForks &&
+			!confirmForkedSourceHistoryMutation &&
+			regenerateDropsLaterTurns(msgs, assistantIdx) &&
+			!window.confirm(
+				get(t)("chat.regenerateLaterTurnsWarning", {
+					count: laterTurnCount(msgs, assistantIdx),
+				}),
+			)
+		) {
+			return;
+		}
+
+		// Find the user message immediately before this assistant message
+		const userIdx = assistantIdx - 1;
+		if (userIdx < 0 || msgs[userIdx].role !== "user") return;
+
+		const userText = msgs[userIdx].content;
+
+		// Preserve the user message's attachments so they survive regenerate.
+		const originalAttachments = msgs[userIdx].attachments ?? [];
+		const regenAttachmentIds: string[] = originalAttachments.map(
+			(a) => a.artifactId,
+		);
+		const regenAttachments = originalAttachments.map((a) => ({
+			id: a.artifactId,
+			type: a.type,
+			retrievalClass: "durable" as const,
+			name: a.name,
+			mimeType: a.mimeType,
+			sizeBytes: a.sizeBytes,
+			conversationId: a.conversationId,
+			summary: null,
+			createdAt: a.createdAt,
+			updatedAt: a.createdAt,
+		}));
+
+		if (!action.isCurrent()) return;
+		// Remove the assistant message(s) from in-memory state
+		messages.update((m) => m.slice(0, assistantIdx));
+
+		sendError = null;
+		await handleSend(
+			{
+				message: userText,
+				attachmentIds: regenAttachmentIds,
+				attachments: regenAttachments,
+				pendingAttachments: [],
+				// "Answer now" — this turn only; the user's own reasoning-depth
+				// toggle (adapters.getReasoningDepth()) is never touched. Undefined
+				// for every other regenerate path, which keeps the user's depth.
+				reasoningDepth: reasoningDepthOverride,
+			},
+			true,
+			true,
+			// The old question again, not the composer's text: the draft stays.
+			false,
+			assistantMessageId,
+			assistantIdx === pressedIdx
+				? (action.userMessageId ?? msgs[userIdx].id)
+				: msgs[userIdx].id,
+			confirmForkedSourceHistoryMutation || hasKnownForks,
+			() => {
+				messages.set(msgs);
+				if (window.confirm(get(t)("fork.regenerateWarning"))) {
+					handleRegenerate(payload, true);
+				}
+			},
+			assistantUserIntent,
+			// Only "Answer now" sets reasoningDepthOverride (see the isSending
+			// guard above); it is already recorded as its own answer_now event.
+			reasoningDepthOverride ? "answer_now" : "regenerate",
+		);
+	} finally {
+		action.release();
 	}
-
-	// Find the user message immediately before this assistant message
-	const userIdx = assistantIdx - 1;
-	if (userIdx < 0 || msgs[userIdx].role !== "user") return;
-
-	const userText = msgs[userIdx].content;
-
-	// Preserve the user message's attachments so they survive regenerate.
-	const originalAttachments = msgs[userIdx].attachments ?? [];
-	const regenAttachmentIds: string[] = originalAttachments.map(
-		(a) => a.artifactId,
-	);
-	const regenAttachments = originalAttachments.map((a) => ({
-		id: a.artifactId,
-		type: a.type,
-		retrievalClass: "durable" as const,
-		name: a.name,
-		mimeType: a.mimeType,
-		sizeBytes: a.sizeBytes,
-		conversationId: a.conversationId,
-		summary: null,
-		createdAt: a.createdAt,
-		updatedAt: a.createdAt,
-	}));
-
-	// Remove the assistant message(s) from in-memory state
-	messages.update((m) => m.slice(0, assistantIdx));
-
-	sendError = null;
-	handleSend(
-		{
-			message: userText,
-			attachmentIds: regenAttachmentIds,
-			attachments: regenAttachments,
-			pendingAttachments: [],
-			// "Answer now" — this turn only; the user's own reasoning-depth
-			// toggle (adapters.getReasoningDepth()) is never touched. Undefined
-			// for every other regenerate path, which keeps the user's depth.
-			reasoningDepth: reasoningDepthOverride,
-		},
-		true,
-		true,
-		// The old question again, not the composer's text: the draft stays.
-		false,
-		assistantMessageId,
-		msgs[userIdx].id,
-		confirmForkedSourceHistoryMutation || hasKnownForks,
-		() => {
-			messages.set(msgs);
-			if (window.confirm(get(t)("fork.regenerateWarning"))) {
-				handleRegenerate(payload, true);
-			}
-		},
-		assistantUserIntent,
-		// Only "Answer now" sets reasoningDepthOverride (see the isSending
-		// guard above); it is already recorded as its own answer_now event.
-		reasoningDepthOverride ? "answer_now" : "regenerate",
-	);
 }
 
 // The pencil on a message: edit it in the composer. Not on a sealed chat, and
@@ -4886,12 +4882,17 @@ async function handleEdit(
 	handleSend(resend, false, false, false);
 }
 
-// Async so callers that must not race the dying turn can await it — the
-// composer's `/new` awaits this before navigating away. The Stop button and
-// the composer's own Stop control ignore the promise, exactly as before.
-async function handleStop() {
-	normalChatRuntime.stop();
-	await waitForRuntimeIdle();
+// Plain Stop owns cancellation only; the actual /new command requests a permit.
+function handleStop(
+	intent?: StopIntent,
+): StopHostResult | Promise<StopHostResult> {
+	if (intent?.purpose !== "navigate") {
+		normalChatRuntime.stop();
+		return;
+	}
+	return normalChatRuntime
+		.settleStoppedAction({ purpose: "navigate" })
+		.then((result) => (result.status === "ready" ? result : false));
 }
 
 function latestTimelineMessageId(): string | null {

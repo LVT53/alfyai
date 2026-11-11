@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { StopHostCallback } from "$lib/client/normal-chat-client-turn-runtime";
 import { onMount, tick, untrack } from "svelte";
 import {
 	Ban,
@@ -414,7 +415,7 @@ let {
 		| undefined;
 	onSend?: ((payload: SendPayload) => void) | undefined;
 	onQueue?: ((payload: SendPayload) => void) | undefined;
-	onStop?: (() => void | Promise<void>) | undefined;
+	onStop?: StopHostCallback | undefined;
 	onEditQueuedMessage?: (() => void) | undefined;
 	onDeleteQueuedMessage?: (() => void) | undefined;
 	onCompact?: (() => void) | undefined;
@@ -2404,10 +2405,9 @@ function queue(nextMessage: string = message) {
 	clearComposerAfterSubmit();
 }
 
-// Returns the host's stop promise (the page awaits its runtime going idle)
-// so callers that must not race the in-flight turn — `/new`, which navigates
-// away straight after — can await it. The Stop button ignores the result.
-function stop(): void | Promise<void> {
+// Ordinary Stop requests immediate cancellation only. `/new` passes its
+// explicit command intent separately and awaits the runtime-owned permit.
+function stop() {
 	if (isComposerDisabled) return;
 	if (!canStop) return;
 	const stopped = onStop?.();
@@ -3186,12 +3186,16 @@ function toggleThinking() {
 // reset, which is what makes "/new" typed into an armed landing composer
 // mean something rather than navigate to the page it is already on.
 async function startNewConversationFromCommand() {
-	// `/new` fired mid-turn used to navigate away with the stream still
-	// running. Interrupt it first through the very same path the Stop button
-	// uses, awaited so the abort has actually settled before the route
-	// changes (the host resolves it once its runtime reports idle).
-	await stop();
-	await startNewChat((href) => goto(href));
+	if (isComposerDisabled) return;
+	// Command intent is explicit and joins settlement even after Stop hid itself.
+	const permit = await onStop?.({ purpose: "navigate" });
+	if (permit === false) return;
+	try {
+		if (permit && !permit.isCurrent()) return;
+		await startNewChat((href) => goto(href));
+	} finally {
+		if (permit) permit.release();
+	}
 }
 
 async function submitMemoryNoteCommand(text: string) {
@@ -4661,7 +4665,7 @@ async function emitDraftChange(force = false, onlyIfSomethingToSay = false) {
 						<button
 							data-testid="stop-button"
 							type="button"
-							onclick={stop}
+							onclick={() => { void stop(); }}
 							disabled={isComposerDisabled}
 							aria-label={$t('chat.stop')}
 							class="composer-stop-accent flex h-[40px] w-[40px] items-center justify-center rounded-[10px] shadow-sm animate-in"
