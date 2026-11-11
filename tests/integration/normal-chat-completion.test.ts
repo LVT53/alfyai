@@ -2,10 +2,12 @@ import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
+import type { NormalChatCompletion } from "$lib/shared/normal-chat-completion";
 import {
 	type NormalChatOutputEvent,
 	projectNormalChatOutput,
 } from "$lib/shared/normal-chat-output";
+import { estimateTokenCount } from "$lib/utils/tokens";
 
 const records = vi.hoisted(() => ({
 	providers: new Map<string, unknown>(),
@@ -996,6 +998,79 @@ describe("opt-in structural completion with real SDK", () => {
 		});
 		expect(executions).toBe(1);
 		expect(requests).toBe(1);
+	});
+
+	it.each([
+		false,
+		true,
+	])("budgets actual tool schemas before dispatch, streaming=%s", async (streaming) => {
+		for (const oversized of [true, false]) {
+			const args = setup();
+			const bodies: Array<{
+				messages: unknown;
+				tools: unknown;
+				max_completion_tokens: number;
+			}> = [];
+			const execute = vi.fn(async () => "unused");
+			const params = {
+				...args,
+				provider: { ...provider, maxModelContext: 8192, maxOutputTokens: 820 },
+				maxOutputTokens: 820,
+				tools: {
+					lookup: tool({
+						description: "Look up evidence.",
+						inputSchema: z.object({
+							query: z
+								.string()
+								.describe(
+									oversized ? "schema constraint ".repeat(5000) : "A query.",
+								),
+						}),
+						execute,
+					}),
+				},
+				fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+					bodies.push(JSON.parse(String(init?.body)));
+					return streaming
+						? streamed([{ content: "Within capacity." }])
+						: reply("Within capacity.");
+				},
+			};
+			let completion: NormalChatCompletion | undefined;
+			if (streaming) {
+				for await (const _event of runStreamingNormalChatModelRun(params)) {
+				}
+				const terminal = args.output.findLast(
+					(event) => event.type === "completion",
+				);
+				completion =
+					terminal?.type === "completion" ? terminal.completion : undefined;
+			} else completion = (await runPlainNormalChatModelRun(params)).completion;
+			expect(execute).not.toHaveBeenCalled();
+			if (oversized) {
+				expect(bodies).toHaveLength(0);
+				expect(completion).toMatchObject({
+					outcome: "incomplete",
+					stopCause: "context_capacity",
+					closingAttempted: false,
+				});
+			} else {
+				expect(bodies).toHaveLength(1);
+				expect(bodies[0].max_completion_tokens).toBe(820);
+				expect(completion).toMatchObject({
+					outcome: "answered",
+					closingAttempted: false,
+				});
+				expect(
+					estimateTokenCount(
+						JSON.stringify({
+							messages: bodies[0].messages,
+							tools: bodies[0].tools,
+						}),
+					) + bodies[0].max_completion_tokens,
+				).toBeLessThanOrEqual(8192);
+			}
+		}
 	});
 	it("reports capacity failure without shrinking completed evidence", async () => {
 		const args = setup();

@@ -1,4 +1,5 @@
 import {
+	asSchema,
 	generateText,
 	type JSONValue,
 	type LanguageModel,
@@ -477,15 +478,54 @@ export async function* runNormalChatCompletion(
 				: input.messages,
 		};
 	};
-	const assertFits = (input: { system?: string; messages: ModelMessage[] }) => {
+	const catalogueTokens = new WeakMap<ToolSet, Promise<number>>();
+	const countCatalogue = (tools: ToolSet | undefined): Promise<number> => {
+		if (!tools) return Promise.resolve(0);
+		let counted = catalogueTokens.get(tools);
+		if (!counted) {
+			counted = Promise.all(
+				Object.entries(tools).map(async ([name, definition]) =>
+					definition.type === "provider"
+						? {
+								type: "provider",
+								name,
+								id: definition.id,
+								args: definition.args,
+							}
+						: {
+								type: "function",
+								function: {
+									name,
+									description: definition.description,
+									parameters: await asSchema(definition.inputSchema).jsonSchema,
+									strict: definition.strict,
+								},
+								inputExamples: definition.inputExamples,
+								providerOptions: definition.providerOptions,
+							},
+				),
+			).then((catalogue) => estimateTokenCount(JSON.stringify(catalogue)));
+			catalogueTokens.set(tools, counted);
+		}
+		return counted;
+	};
+	const assertFits = async (
+		input: { system?: string; messages: ModelMessage[] },
+		tools: ToolSet | undefined,
+	) => {
 		const output = params.maxOutputTokens ?? params.provider.maxOutputTokens;
 		const capacity = deps.maxModelContext;
+		const toolTokens = await countCatalogue(tools);
+		const aborted = externalAbort();
+		if (aborted) throw new CompletionExit(aborted);
+		if (Date.now() >= snapshot.deadlineAt) throw new CompletionExit("deadline");
 		// No invented model table and no shrinking of continuation evidence.
 		if (
 			capacity === undefined ||
 			output === undefined ||
 			estimateHistoryMessagesTokens(input.messages, estimateTokenCount) +
 				estimateTokenCount(input.system ?? "") +
+				toolTokens +
 				output +
 				CONTEXT_GUARD_MARGIN_TOKENS >
 				capacity
@@ -968,7 +1008,7 @@ export async function* runNormalChatCompletion(
 			if (phase === "closing")
 				messages.push({ role: "user", content: closingInstruction });
 			const input = await project(messages);
-			assertFits(input);
+			await assertFits(input, tools);
 			current.observedInput = clone({
 				providerId: params.provider.id,
 				...input,
@@ -988,7 +1028,7 @@ export async function* runNormalChatCompletion(
 			const input = await project(canonical());
 			if (phase === "closing")
 				input.messages.push({ role: "user", content: closingInstruction });
-			assertFits(input);
+			await assertFits(input, tools);
 			const request = {
 				model: deps.model,
 				...input,
