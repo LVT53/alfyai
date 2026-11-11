@@ -232,7 +232,10 @@ test.describe("turn completion contract", () => {
 			);
 			expect(assistants).toHaveLength(1);
 			expect(assistants[0].content).toBe("");
-			expect(assistants[0].normalChatOutput?.completion).toMatchObject({
+			expect(
+				projectNormalChatOutput(assistants[0].normalChatOutput?.events ?? [])
+					.completion,
+			).toMatchObject({
 				outcome: "incomplete",
 				stopCause: "context_capacity",
 				workingStopCause: "context_capacity",
