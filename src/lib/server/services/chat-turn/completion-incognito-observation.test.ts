@@ -164,3 +164,24 @@ it("incognito receipt survives module restart without accounting rows and stays 
 		state: "unavailable",
 	});
 });
+
+it("pending observation publishes the absolute working plus closing budget", async () => {
+	const input = {
+		userId: "u",
+		conversationId: "tracked",
+		requestId: "deadline",
+	};
+	const life = module.beginCompletionLifetime(input);
+	const snapshot = answered(life.scope);
+	snapshot.completion = undefined;
+	snapshot.deadlineAt = Date.now() + 500_000;
+	life.capture(snapshot);
+	expect(await module.observeCompletionTurn(input)).toMatchObject({
+		state: "pending",
+		deadlineAt: snapshot.deadlineAt,
+	});
+	await life.finish();
+	expect(await module.observeCompletionTurn(input)).not.toHaveProperty(
+		"deadlineAt",
+	);
+});

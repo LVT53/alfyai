@@ -10,7 +10,13 @@ export type NormalChatTurnObservation = {
 	streamId: string;
 	conversationId: string;
 } & (
-	| { state: "pending"; turnId: string; segmentId: string }
+	| {
+			state: "pending";
+			turnId: string;
+			segmentId: string;
+			/** Absolute working + closing model deadline. */
+			deadlineAt?: number;
+	  }
 	| {
 			state: "terminal";
 			completion: NormalChatCompletion;

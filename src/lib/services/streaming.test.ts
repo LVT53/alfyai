@@ -46,6 +46,26 @@ describe("streamChat", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it("preserves the pending model deadline in observation metadata", async () => {
+		const observation = {
+			version: 1,
+			state: "pending",
+			streamId: "observer",
+			conversationId: "conv-1",
+			turnId: "t",
+			segmentId: "s",
+			deadlineAt: Date.now() + 500_000,
+		} as const;
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [endEvent({ observation })],
+		});
+		await done;
+		expect(cb.onEnd).toHaveBeenCalledWith(
+			"",
+			expect.objectContaining({ observation }),
+		);
+	});
+
 	it.each([
 		"Let me check.",
 		"Hello. Let me check.",

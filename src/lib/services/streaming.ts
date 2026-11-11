@@ -365,7 +365,11 @@ function readObservation(
 	if (
 		row.state === "pending" &&
 		typeof row.turnId === "string" &&
-		typeof row.segmentId === "string"
+		typeof row.segmentId === "string" &&
+		(row.deadlineAt === undefined ||
+			(typeof row.deadlineAt === "number" &&
+				Number.isFinite(row.deadlineAt) &&
+				row.deadlineAt > 0))
 	)
 		return value as NormalChatTurnObservation;
 	if (row.state !== "terminal") return undefined;

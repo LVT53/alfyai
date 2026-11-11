@@ -11189,6 +11189,68 @@ describe("canonical observation through the real message-list finalizer", () => 
 	it.each([
 		false,
 		true,
+	])("observes a pending turn beyond 120 seconds until its saved answer arrives (server budget=%s)", async (serverBudget) => {
+		const saved = savedReply();
+		const made = await observing("normal", saved);
+		const deadlineAt = Date.now() + 500_000;
+		for (let count = 0; count < (serverBudget ? 200 : 70); count++) {
+			required(made.streamInvocations.at(-1)).callbacks.onWaiting?.({
+				version: 1,
+				state: "pending",
+				streamId: "canonical-stream",
+				conversationId: "conv-1",
+				turnId: "canonical-turn",
+				segmentId: "canonical-segment",
+				...(serverBudget ? { deadlineAt } : {}),
+			});
+			await vi.advanceTimersByTimeAsync(2000);
+			expect(made.runtime.snapshot().isSending).toBe(true);
+			expect(made.streamInvocations).toHaveLength(count + 2);
+		}
+		expect(
+			made.streamInvocations.every(
+				(entry) => entry.options?.reconnectToStreamId === "canonical-stream",
+			),
+		).toBe(true);
+		required(made.streamInvocations.at(-1)).callbacks.onEnd("", made.receipt);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(made.messages.at(-1)?.id).toBe(saved.id);
+		expect(made.runtime.snapshot().isSending).toBe(false);
+		made.runtime.detach();
+	});
+	it.each([
+		false,
+		true,
+	])("bounds pending observation through persistence grace (server budget=%s)", async (serverBudget) => {
+		const made = await observing("normal", savedReply());
+		const deadlineAt = Date.now() + 4_000;
+		const elapsed = serverBudget ? 34_000 : 330_000;
+		for (let time = 0; time < elapsed; time += 2000) {
+			required(made.streamInvocations.at(-1)).callbacks.onWaiting?.({
+				version: 1,
+				state: "pending",
+				streamId: "canonical-stream",
+				conversationId: "conv-1",
+				turnId: "canonical-turn",
+				segmentId: "canonical-segment",
+				...(serverBudget ? { deadlineAt } : {}),
+			});
+			await vi.advanceTimersByTimeAsync(2000);
+		}
+		expect(made.runtime.snapshot().isSending).toBe(false);
+		expect(made.adapters.setSendError).toHaveBeenCalledWith(
+			"chat.observationUnavailable",
+		);
+		expect(
+			made.streamInvocations.every(
+				(entry) => entry.options?.reconnectToStreamId === "canonical-stream",
+			),
+		).toBe(true);
+		made.runtime.detach();
+	});
+	it.each([
+		false,
+		true,
 	])("reconciles a legacy receipt after the actual pending reconnect schedule (mismatched=%s)", async (mismatched) => {
 		const saved = savedReply();
 		saved.normalChatOutput = undefined;

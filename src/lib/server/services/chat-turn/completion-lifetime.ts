@@ -22,6 +22,7 @@ import {
 
 const bootId = randomUUID();
 const owners = new Set<string>();
+const liveDeadlines = new Map<string, number>();
 function completionScope(input: {
 	userId: string;
 	conversationId: string;
@@ -158,6 +159,7 @@ export async function observeCompletionTurn(
 	input: Parameters<typeof completionScope>[0],
 ): Promise<NormalChatTurnObservation> {
 	const scope = completionScope(input);
+	const deadlineAt = liveDeadlines.get(scope.segmentId);
 	const identity = {
 		version: 1 as const,
 		streamId: input.requestId ?? "",
@@ -216,6 +218,7 @@ export async function observeCompletionTurn(
 			? {
 					...identity,
 					state: "pending",
+					...(deadlineAt === undefined ? {} : { deadlineAt }),
 					turnId: scope.turnId,
 					segmentId: scope.segmentId,
 				}
@@ -225,6 +228,7 @@ export async function observeCompletionTurn(
 		return {
 			...identity,
 			state: "pending",
+			...(deadlineAt === undefined ? {} : { deadlineAt }),
 			turnId: record.turnId,
 			segmentId: record.segmentId,
 		};
@@ -241,6 +245,7 @@ export async function observeCompletionTurn(
 		return {
 			...identity,
 			state: "pending",
+			...(deadlineAt === undefined ? {} : { deadlineAt }),
 			turnId: record.turnId,
 			segmentId: record.segmentId,
 		};
@@ -329,6 +334,8 @@ export function beginCompletionLifetime(
 	};
 	const capture = (next: NormalChatContinuationSnapshot) => {
 		snapshot = next;
+		if (!sealed && Number.isFinite(next.deadlineAt) && next.deadlineAt > 0)
+			liveDeadlines.set(scope.segmentId, next.deadlineAt);
 		if (!tracked) return;
 		// Snapshot totals belong to Model Run. Prior segments already have their own admission/accounting.
 		for (const usage of next.usage) {
@@ -415,6 +422,7 @@ export function beginCompletionLifetime(
 					});
 			} finally {
 				owners.delete(ownerId);
+				liveDeadlines.delete(scope.segmentId);
 			}
 		},
 	};

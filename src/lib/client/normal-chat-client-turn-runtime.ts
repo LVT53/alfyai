@@ -460,7 +460,8 @@ type AnswerInFlight = {
 type StartStreamParams = {
 	originatingStreamId?: string;
 	retainedPartial?: boolean;
-	observationRetryCount?: number;
+	observationDeadlineAt?: number;
+	observedServerDeadlineAt?: number;
 	observedScope?: { turnId: string; segmentId: string };
 	message: string;
 	placeholderId: string;
@@ -2423,6 +2424,22 @@ export function createNormalChatClientTurnRuntime(
 					// its downstream observation is detached, including recheck gaps.
 					pendingObservation = params;
 					params.observedScope = observation;
+					// Older servers omit the budget: allow the default five-minute total
+					// model budget, plus a finite thirty-second persistence grace. New
+					// servers publish their actual working + closing absolute deadline.
+					params.observationDeadlineAt ??= Date.now() + 300_000 + 30_000;
+					if (
+						typeof observation.deadlineAt === "number" &&
+						Number.isFinite(observation.deadlineAt) &&
+						observation.deadlineAt > 0
+					) {
+						params.observedServerDeadlineAt = Math.min(
+							params.observedServerDeadlineAt ?? observation.deadlineAt,
+							observation.deadlineAt,
+						);
+						params.observationDeadlineAt =
+							params.observedServerDeadlineAt + 30_000;
+					}
 					setPhase("polling", params.placeholderId);
 					const epoch = turnEpoch;
 					adapters.schedule(() => {
@@ -2432,7 +2449,7 @@ export function createNormalChatClientTurnRuntime(
 							pendingObservation !== params
 						)
 							return;
-						if ((params.observationRetryCount ?? 0) >= 60) {
+						if (Date.now() >= (params.observationDeadlineAt ?? 0)) {
 							void settleObservation(params, {
 								version: 1,
 								state: "unavailable",
@@ -2451,7 +2468,6 @@ export function createNormalChatClientTurnRuntime(
 											m.id === params.placeholderId && normalChatOutputView(m),
 									),
 							),
-							observationRetryCount: (params.observationRetryCount ?? 0) + 1,
 						});
 					}, 2000);
 					return;
