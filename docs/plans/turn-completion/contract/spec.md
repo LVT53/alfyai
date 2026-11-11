@@ -139,3 +139,9 @@ After authenticated admission of the human-input segment, newly generated calls 
 Automatic recovery after execution in the new segment remains tools-disabled. No semantic exactly-once guarantee is made across independently generated operations in ordinary loops or human-input resumes. Existing concrete operation owners retain their idempotency/preconditions. This permits two requested documents with a pause before the second without inventing a semantic classifier.
 
 This clarification supersedes earlier blanket semantic ambiguous-repeat refusal wording and the conservative proposal in resume-operation-policy.md. Scoped judge evidence: [resume-policy-judge.md](./resume-policy-judge.md).
+
+### Admission and finalization bounds (2026-11-11 remediation)
+
+Normal Chat applies the configured total request deadline from admission across preparation, working/closing execution and finalization, plus a 150-second meaningful-activity idle limit. Provider progress and tool activity refresh the idle bound; neither extends the total deadline. Plain preflight and execution share the same absolute deadline. A late preparation result cannot dispatch a model or tool after cancellation.
+
+Before assistant persistence starts, timeout fences subsequent writes. Once a database commit has begun, transport timeout cannot truthfully claim that commit was cancelled: the lifetime remains owned until its actual result settles. Streaming detaches; plain send returns HTTP202 with the scoped pending observation identity. The eventual saved receipt or persistence failure remains authoritative. Cleanup must itself be bounded and must not await a hung iterator before releasing a separately settled durable owner. An answered model result without a saved assistant row becomes failed once its finalization owner is released; retaining a real pending owner must not fabricate that failure early.
