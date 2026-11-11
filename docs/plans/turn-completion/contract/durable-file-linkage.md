@@ -20,8 +20,10 @@
 - Failure wire is data-stream-metadata { observation, finalContent, saved identity,
   normalChatFinalization } → finish(error), or finish(stop) → DONE. No
   data-stream-error discards the marker. Observation carries effective failed/stopped
-  completion and original modelCompletion. Live/reload/observe/Copy/export consume
-  the same marker. Persistence-only failure offers no generation Retry or recovery.
+  completion and original modelCompletion. Live/reload/observe consume the same
+  marker through localized status UI. Copy, Open as document, titles and Markdown
+  answer text retain only canonical answer words; an empty caption cannot become
+  a label-only document. Persistence-only failure offers no generation Retry or recovery.
 
 This is the final selected policy approved by Kierkegaard. The earlier chronology
 and amendment discussion below is retained only as historical review context and

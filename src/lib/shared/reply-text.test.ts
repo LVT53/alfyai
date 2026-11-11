@@ -64,11 +64,9 @@ describe("status-aware outward replies", () => {
 		"incomplete",
 		"stopped",
 		"failed",
-	] as const)("labels %s canonical answer without changing its bytes", (outcome) => {
+	] as const)("preserves %s canonical answer bytes without a status prefix", (outcome) => {
 		const content = "  The checked result is 42\n";
-		expect(joinReplyText([row(outcome, content)])).toBe(
-			`_Incomplete answer._\n\n${content}`,
-		);
+		expect(joinReplyText([row(outcome, content)])).toBe(content);
 	});
 	it("keeps completed canonical bytes, legacy compatibility and empty activity separate", () => {
 		expect(joinReplyText([row("answered", "  Exact\n")])).toBe("  Exact\n");
@@ -77,14 +75,14 @@ describe("status-aware outward replies", () => {
 		);
 		expect(joinReplyText([row("failed", "")])).toBe("");
 	});
-	it("joins earlier committed answers once and labels the incomplete segment only", () => {
+	it("joins earlier and incomplete answer words once without status labels", () => {
 		expect(
 			joinReplyText([
 				row("answered", "Earlier"),
 				row("failed", ""),
 				row("incomplete", "Partial"),
 			]),
-		).toBe("Earlier\n\n_Incomplete answer._\n\nPartial");
+		).toBe("Earlier\n\nPartial");
 	});
 });
 
@@ -130,9 +128,7 @@ describe("durable finalization outward status", () => {
 				],
 			},
 		} as const;
-		expect(getClipboardText(row)).toBe(
-			"_Incomplete answer._\n\n  Canonical answer\n",
-		);
+		expect(getClipboardText(row)).toBe("  Canonical answer\n");
 		expect(joinReplyText([row], { legacy: "markdown" })).toBe(
 			getClipboardText(row),
 		);
@@ -152,9 +148,7 @@ it.each([
 			wasStopped,
 		},
 	} as const;
-	expect(getClipboardText(row)).toBe(
-		"_Incomplete answer._\n\n  Canonical untracked answer\n",
-	);
+	expect(getClipboardText(row)).toBe("  Canonical untracked answer\n");
 	expect(joinReplyText([row], { legacy: "markdown" })).toBe(
 		getClipboardText(row),
 	);
@@ -163,14 +157,14 @@ it.each([
 			content: "Stopped",
 			normalChatOutputView: { completion: { outcome: "stopped" } },
 		}),
-	).toBe("_Incomplete answer._\n\nStopped");
+	).toBe("Stopped");
 });
 
 it.each(
 	[false, true].flatMap((wasStopped) =>
 		["", " \n\t"].map((content) => ({ wasStopped, content })),
 	),
-)("retains marker-only failure for empty outward content: $wasStopped/$content", ({
+)("keeps marker-only status out of empty outward content: $wasStopped/$content", ({
 	wasStopped,
 	content,
 }) => {
@@ -183,7 +177,7 @@ it.each(
 			wasStopped,
 		},
 	} as const;
-	const expected = `_Incomplete answer._\n\n${content}`;
+	const expected = "";
 	expect(getClipboardText(row)).toBe(expected);
 	expect(joinReplyText([row], { legacy: "markdown" })).toBe(expected);
 	expect(row.content).toBe(content);

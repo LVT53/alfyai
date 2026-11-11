@@ -2,7 +2,6 @@ import {
 	type NormalChatCompletion,
 	type NormalChatFinalizationFailure,
 	parseNormalChatFinalization,
-	projectNormalChatFinalization,
 } from "./normal-chat-completion";
 import type { NormalChatOutputEvent } from "./normal-chat-output";
 
@@ -15,8 +14,8 @@ import type { NormalChatOutputEvent } from "./normal-chat-output";
 // this one definition and cannot drift: each row's words without the model's
 // thinking text, the rows with nothing left of them left out, a blank line between.
 //
-// Its only runtime dependency is the shared pure finalization projector: browser
-// and server consumers use the same status without importing either runtime.
+// Its only runtime dependency is the shared pure finalization marker parser:
+// a marker identifies structural content without becoming answer text.
 
 /** Backward-compatible single-row outward projection. */
 export function getClipboardText(content: string | ReplyTextRow): string {
@@ -42,7 +41,7 @@ export type ReplyTextRow = {
 	completionWarningCodes?: readonly string[];
 };
 
-/** One outward status owner for Copy, kept replies and Markdown exports. */
+/** Answer words shared by Copy, kept replies and Markdown exports. */
 export function joinReplyText(
 	rows: readonly (ReplyTextRow | string)[],
 	options: { legacy?: "copy" | "markdown" } = {},
@@ -63,33 +62,8 @@ export function joinReplyText(
 				: options.legacy === "markdown"
 					? row.content.trim()
 					: legacyClipboardText(row.content);
-			if (!text.trim() && !marker) return "";
-			const terminal = row.normalChatOutput?.events.findLast(
-				(event) => event.type === "completion",
-			);
-			const modelCompletion =
-				row.normalChatOutputView?.modelCompletion ??
-				(terminal?.type === "completion" ? terminal.completion : undefined);
-			const outcome =
-				projectNormalChatFinalization(modelCompletion, marker)?.outcome ??
-				row.normalChatOutputView?.completion?.outcome;
-			const interrupted =
-				structural &&
-				!outcome &&
-				row.completionWarningCodes?.some((code) =>
-					[
-						"stream_closed_without_finish",
-						"provider_error",
-						"output_truncated",
-					].includes(code),
-				);
-			return marker ||
-				interrupted ||
-				outcome === "incomplete" ||
-				outcome === "stopped" ||
-				outcome === "failed"
-				? `_Incomplete answer._\n\n${text}`
-				: text;
+			// Completion belongs to localized status UI, never to copied answer words.
+			return text.trim() ? text : "";
 		})
 		.filter((text) => text !== "")
 		.join("\n\n");
