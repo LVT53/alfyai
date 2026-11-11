@@ -1205,3 +1205,197 @@ it("never inherits refusal certainty through reused call IDs or another attempt 
 		b.classifyExecution(execution, { success: true, output: unknown }),
 	).toBe("uncertain");
 });
+
+it.each([
+	"openai",
+	"deepseek",
+] as const)("captures native prefetch once from %s and projects only that exchange for each destination", async (initialFamily) => {
+	const baseRuntime = await mocks.runtime(
+		createPlainNormalChatSendModelParams(),
+	);
+	mocks.runtime.mockResolvedValue({
+		...baseRuntime,
+		provider: {
+			...baseRuntime.provider,
+			name: initialFamily,
+			modelName: initialFamily === "deepseek" ? "deepseek-flash" : "gpt-test",
+			baseUrl:
+				initialFamily === "deepseek"
+					? "https://api.deepseek.com"
+					: "https://api.openai.com/v1",
+		},
+	});
+	const pair = [
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId: "prefetch-1",
+					toolName: "fetch_url",
+					input: { urls: ["https://public.invalid"] },
+				},
+			],
+		},
+		{
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "prefetch-1",
+					toolName: "fetch_url",
+					output: {
+						type: "json",
+						value: {
+							answer: "CAPTURED-EVIDENCE",
+							urls: ["https://public.invalid"],
+						},
+					},
+				},
+			],
+		},
+	] as const;
+	mocks.prepare.mockResolvedValue(
+		createPlainNormalChatPreparedContext({
+			inputValue: "User intent stays exact",
+			prefetchedToolMessages: structuredClone(pair) as never,
+			prefetchedToolCalls: [
+				{
+					callId: "prefetch-1",
+					name: "fetch_url",
+					input: {},
+					status: "done",
+					outputSummary: "CAPTURED-EVIDENCE",
+				},
+			],
+		}),
+	);
+	await prepareNormalChatTurn(createPlainNormalChatSendModelParams());
+	expect(mocks.prepare.mock.calls[0][5]).toBe("native");
+	const args = mocks.model.mock.calls.at(-1)?.[0];
+	const native = {
+		...args.provider,
+		name: "openai",
+		modelName: "gpt-test",
+		baseUrl: "https://api.openai.com/v1",
+	};
+	const flatten = {
+		...native,
+		id: "ds",
+		name: "deepseek",
+		modelName: "deepseek-flash",
+		baseUrl: "https://api.deepseek.com",
+	};
+	const other = [
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId: "real-tool",
+					toolName: "lookup",
+					input: {},
+				},
+			],
+		},
+		{
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "real-tool",
+					toolName: "lookup",
+					output: { type: "text", value: "REAL-RESULT" },
+				},
+			],
+		},
+	];
+	const messages = [...args.messages, ...other];
+	// Images and the exact user text are never rebuilt while rebinding evidence.
+	messages[0] = {
+		role: "user",
+		content: [
+			...messages[0].content,
+			{
+				type: "image",
+				image: new Uint8Array([1, 2, 3]),
+				mediaType: "image/png",
+			},
+		],
+	};
+	const before = JSON.stringify(messages);
+	for (const [provider, id] of [
+		[flatten, "a"],
+		[native, "b"],
+		[flatten, "c"],
+	] as const) {
+		const policy = await args.completionPolicy.forAttempt({
+			provider,
+			modelId: id,
+			phase: "closing",
+			attemptId: id,
+			toolsAllowed: false,
+			snapshot: {},
+		});
+		const projected = policy.projectContext({
+			snapshot: {},
+			system: "system",
+			messages,
+			provider,
+		});
+		expect(projected.messages[0]).toEqual(messages[0]);
+		expect(projected.messages.slice(-2)).toEqual(other);
+		if (provider === flatten) {
+			expect(projected.messages).toHaveLength(messages.length - 1);
+			expect(projected.messages[1]).toMatchObject({
+				role: "user",
+				content: expect.stringContaining("CAPTURED-EVIDENCE"),
+			});
+			expect(JSON.stringify(projected.messages)).not.toContain(
+				'"toolCallId":"prefetch-1"',
+			);
+		} else expect(projected.messages).toEqual(messages);
+	}
+	expect(JSON.stringify(messages)).toBe(before);
+	expect(mocks.prepare).toHaveBeenCalledOnce();
+});
+
+it.each([
+	"runtime",
+	"preparation",
+] as const)("does not continue preparation after abort during %s", async (stage) => {
+	const controller = new AbortController();
+	let release!: () => void;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const current =
+		stage === "runtime"
+			? mocks.runtime.getMockImplementation()
+			: mocks.prepare.getMockImplementation();
+	const prepared = createPlainNormalChatPreparedContext();
+	if (stage === "runtime")
+		mocks.runtime.mockImplementation(async (...args) => {
+			await held;
+			if (!current) throw new Error("Missing runtime fixture");
+			return current(...args);
+		});
+	else
+		mocks.prepare.mockImplementation(async () => {
+			await held;
+			return prepared;
+		});
+	const pending = prepareNormalChatTurn(
+		createPlainNormalChatSendModelParams({ signal: controller.signal }),
+	);
+	await vi.waitFor(() =>
+		expect(
+			stage === "runtime" ? mocks.runtime : mocks.prepare,
+		).toHaveBeenCalledOnce(),
+	);
+	controller.abort(new Error("cancelled preparation"));
+	release();
+	await expect(pending).rejects.toThrow("cancelled preparation");
+	expect(mocks.tools).not.toHaveBeenCalled();
+	expect(mocks.model).not.toHaveBeenCalled();
+});

@@ -186,6 +186,7 @@ export function estimateTurnPromptTokens(params: {
 export type NormalChatSendModelBaseParams = {
 	resumeDepthOverride?: boolean;
 	completionRequestId?: string;
+	completionDeadlineAt?: number;
 	continuationSnapshot?: import("../normal-chat-model").NormalChatContinuationSnapshot;
 	onOutputEvent?: (
 		event: import("$lib/shared/normal-chat-output").NormalChatOutputEvent,
@@ -420,11 +421,13 @@ export async function prepareOutboundContext(
 	activeDepthEffort: ActiveDepthEffort | null,
 	enabledConnectionCapabilities: Set<Capability>,
 	logLabel = "provider request",
+	prefetchToolMessages?: "native" | "flatten",
 ): Promise<PreparedModelContext> {
 	const {
 		catalogueBlock: skillCatalogueBlock,
 		draftGuidance: skillDraftGuidance,
 	} = await resolveSkillPromptContext(params.userId);
+	params.signal?.throwIfAborted();
 	// The "## In this chat" artifact catalogue: a fact about the conversation
 	// (what it has already made), resolved here for the same reason the skill
 	// catalogue is — it needs a DB read prepareOutboundChatContext does not
@@ -436,6 +439,7 @@ export async function prepareOutboundContext(
 				conversationId: params.conversationId,
 			})
 		: null;
+	params.signal?.throwIfAborted();
 	// Standing guidance is resolved here, once per turn, and passed in as
 	// data: prompt assembly renders it and never reads for it. Unlike the
 	// catalogue block these do NOT ride the user packet — short messages skip
@@ -445,11 +449,13 @@ export async function prepareOutboundContext(
 		userId: params.userId,
 		conversationId: params.conversationId,
 	});
+	params.signal?.throwIfAborted();
 	// The person's own clock: prompt assembly renders the zone and never reads
 	// for it, and every kind of turn prepares its context here, so this one read
 	// is the model's sense of local time on all of them. Fails open to null (the
 	// clock then says the zone is unknown).
 	const timeZone = await resolveTurnTimeZone(params.userId);
+	params.signal?.throwIfAborted();
 	// The model's configured max output tokens and context limits are passed
 	// through untouched: reasoning depth never shrinks the output reserve or
 	// the constructed-context target (those are fixed per model). Depth only
@@ -480,9 +486,10 @@ export async function prepareOutboundContext(
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
 		activeConnectionCapabilities: enabledConnectionCapabilities,
 		historyToolMessages: resolveHistoryToolMessagesMode(runtime.provider),
-		prefetchToolMessages: resolveOpenAICompatibleProviderAdapterProfile(
-			runtime.provider,
-		).prefetchToolMessages,
+		prefetchToolMessages:
+			prefetchToolMessages ??
+			resolveOpenAICompatibleProviderAdapterProfile(runtime.provider)
+				.prefetchToolMessages,
 		// Pixels are prepared only for a model the admin marked "Can see images".
 		collectImages: providerCanSeeImages(runtime.provider),
 		skillCatalogueBlock,
@@ -493,6 +500,7 @@ export async function prepareOutboundContext(
 			createNormalChatContextPreparationActivityHandler(params),
 		logLabel,
 	});
+	params.signal?.throwIfAborted();
 	// The pictures this turn sends are described once, in the background, so the
 	// turns after it carry a few words instead of the pixels (vision/AGENTS.md).
 	// `currentImages` is the UPLOADED pictures alone (R15: an image file is never

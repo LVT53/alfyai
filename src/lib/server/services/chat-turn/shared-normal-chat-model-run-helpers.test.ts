@@ -1063,5 +1063,17 @@ describe("prepareOutboundContext prefetch compatibility", () => {
 			historyToolMessages: "native",
 			prefetchToolMessages: want,
 		});
+		await prepareOutboundContext(
+			params,
+			runtime,
+			null,
+			new Set(),
+			"completion canonical",
+			"native",
+		);
+		expect(mocks.prepareOutboundChatContext.mock.lastCall?.[0]).toMatchObject({
+			historyToolMessages: "native",
+			prefetchToolMessages: "native",
+		});
 	});
 });

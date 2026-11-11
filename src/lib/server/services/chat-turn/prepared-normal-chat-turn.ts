@@ -13,7 +13,10 @@ import {
 	type NormalChatExecution,
 	prepareNormalChatCompletionRun,
 } from "../normal-chat-model";
-import { resolveHistoryToolMessagesMode } from "../normal-chat-model/provider-compatibility";
+import {
+	resolveHistoryToolMessagesMode,
+	resolveOpenAICompatibleProviderAdapterProfile,
+} from "../normal-chat-model/provider-compatibility";
 import { providerRunsLocally } from "../vision/provider-vision";
 import { createStepImageQueue } from "../vision/step-images";
 import { buildCurrentUserMessage } from "../vision/turn-images";
@@ -66,6 +69,71 @@ function isFiniteTokenLimit(value: unknown): value is number {
 	return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
+/** Project only the captured app-owned exchange, never text markers or real model tools. */
+function projectCapturedPrefetch(
+	messages: ModelMessage[],
+	prepared: PreparedModelContext,
+	provider: Parameters<typeof resolveOpenAICompatibleProviderAdapterProfile>[0],
+): ModelMessage[] | null {
+	const captured = prepared.prefetchedToolMessages ?? [];
+	if (
+		captured.length === 0 ||
+		resolveOpenAICompatibleProviderAdapterProfile(provider)
+			.prefetchToolMessages === "native"
+	)
+		return messages;
+	const offset = (prepared.historyMessages ?? []).length + 1;
+	const actual = messages.slice(offset, offset + captured.length);
+	// App prefetch is one completed pair; malformed or altered captures fail closed.
+	if (captured.length !== 2 || actual.length !== 2) return null;
+	const [call, result] = actual;
+	const [ownedCall, ownedResult] = captured;
+	if (
+		call.role !== "assistant" ||
+		result.role !== "tool" ||
+		ownedCall.role !== "assistant" ||
+		ownedResult.role !== "tool" ||
+		!Array.isArray(call.content) ||
+		!Array.isArray(ownedCall.content) ||
+		call.content.length !== 1 ||
+		result.content.length !== 1 ||
+		ownedCall.content.length !== 1 ||
+		ownedResult.content.length !== 1
+	)
+		return null;
+	const part = call.content[0],
+		output = result.content[0];
+	const expectedCall = ownedCall.content[0],
+		expectedResult = ownedResult.content[0];
+	if (
+		part.type !== "tool-call" ||
+		expectedCall.type !== "tool-call" ||
+		output.type !== "tool-result" ||
+		expectedResult.type !== "tool-result" ||
+		part.toolCallId !== expectedCall.toolCallId ||
+		output.toolCallId !== part.toolCallId ||
+		output.toolCallId !== expectedResult.toolCallId ||
+		part.toolName !== expectedCall.toolName ||
+		output.toolName !== expectedResult.toolName
+	)
+		return null;
+	const evidence: ModelMessage = {
+		role: "user",
+		content:
+			"Server-prefetched page evidence; this read already completed.\n" +
+			JSON.stringify({
+				tool: part.toolName,
+				input: part.input,
+				output: output.output,
+			}),
+	};
+	return [
+		...messages.slice(0, offset),
+		evidence,
+		...messages.slice(offset + captured.length),
+	];
+}
+
 /** Owns preparation, dispatch admission and effective-attempt policy for both transports. */
 export async function prepareNormalChatTurn(
 	given: NormalChatSendModelBaseParams,
@@ -89,10 +157,13 @@ export async function prepareNormalChatTurn(
 		userId: params.userId,
 		conversationId: params.conversationId,
 		requestId: params.completionRequestId,
+		deadlineAt: params.completionDeadlineAt,
 		turnId: continuation?.turnId ?? params.createTurnId?.(),
 	});
 	try {
+		params.signal?.throwIfAborted();
 		const selectedRuntime = await resolveProviderRuntime(params);
+		params.signal?.throwIfAborted();
 		const capturedLimit = continuation?.prepared?.maxOutputTokens;
 		const contextWindow = isFiniteTokenLimit(
 			selectedRuntime.provider.maxModelContext,
@@ -120,6 +191,7 @@ export async function prepareNormalChatTurn(
 			params.userId,
 			params.enabledConnectionCapabilities,
 		).catch(() => new Set<Capability>());
+		params.signal?.throwIfAborted();
 		let prepared: PreparedModelContext =
 			saved?.version === 1
 				? {
@@ -132,7 +204,15 @@ export async function prepareNormalChatTurn(
 								) ?? null,
 						},
 					}
-				: await prepareOutboundContext(params, runtime, effort, capabilities);
+				: await prepareOutboundContext(
+						params,
+						runtime,
+						effort,
+						capabilities,
+						"provider request",
+						"native",
+					);
+		params.signal?.throwIfAborted();
 		const preparedLimit = prepared.outputTokenBudget?.effectiveMaxTokens;
 		const outputLimit = isFiniteTokenLimit(capturedLimit)
 			? capturedLimit
@@ -163,6 +243,7 @@ export async function prepareNormalChatTurn(
 				prepared: { ...continuation.prepared, maxOutputTokens: outputLimit },
 			};
 		const keepLocal = await hasLocalDistillEnabled(params.userId);
+		params.signal?.throwIfAborted();
 		const provenance: Provenance = {
 			version: 1,
 			keptLocal: keepLocal,
@@ -205,6 +286,7 @@ export async function prepareNormalChatTurn(
 				prepared.turnPictures,
 				stepImages,
 			);
+			params.signal?.throwIfAborted();
 			packs.push(pack);
 			return pack;
 		};
@@ -282,7 +364,10 @@ export async function prepareNormalChatTurn(
 			gateMessagesForAttempt: params.gateMessagesForAttempt,
 			completionPolicy: {
 				...lifetime.scope,
-				deadlineAt: Date.now() + params.runtimeConfig.requestTimeoutMs,
+				deadlineAt: Math.min(
+					params.completionDeadlineAt ?? Infinity,
+					Date.now() + params.runtimeConfig.requestTimeoutMs,
+				),
 				totalTimeoutMs: params.runtimeConfig.requestTimeoutMs,
 				contextProvenance: provenance,
 				continuation,
@@ -296,6 +381,7 @@ export async function prepareNormalChatTurn(
 							? "user_stop"
 							: "deadline",
 				forAttempt: async (context) => {
+					params.signal?.throwIfAborted();
 					const pack = context.toolsAllowed
 						? first &&
 							context.provider.id === runtime.provider.id &&
@@ -303,6 +389,7 @@ export async function prepareNormalChatTurn(
 							? initial
 							: await packFor(context.modelId)
 						: null;
+					params.signal?.throwIfAborted();
 					first = false;
 					await lifetime.register({
 						attemptId: context.attemptId,
@@ -311,6 +398,7 @@ export async function prepareNormalChatTurn(
 						modelId: context.modelId,
 						providerModelName: context.provider.modelName,
 					});
+					params.signal?.throwIfAborted();
 					const policy: NormalChatAttemptPolicy = {
 						tools: pack?.tools,
 						classifyExecution: (execution, result) => {
@@ -362,7 +450,12 @@ export async function prepareNormalChatTurn(
 								(keepLocal || saved?.keptLocal)
 							)
 								return null;
-							return { system, messages };
+							const projected = projectCapturedPrefetch(
+								messages,
+								prepared,
+								provider,
+							);
+							return projected ? { system, messages: projected } : null;
 						},
 					};
 					return policy;
