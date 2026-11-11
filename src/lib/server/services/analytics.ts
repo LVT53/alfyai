@@ -2969,6 +2969,118 @@ export async function getNormalChatMessageUsageProjections(
 	return projections;
 }
 
+type MessageReadUsageProjection = {
+	status: "ready" | "pending" | "legacy" | "untracked";
+	costUsdMicros?: number | null;
+	generationTimeMs?: number | null;
+	completionTokens?: number | null;
+	reasoningTokens?: number | null;
+	totalTokens?: number | null;
+	modelId?: string | null;
+	modelDisplayName?: string | null;
+};
+
+type MessageReadUsageResult =
+	| {
+			availability: "resolved";
+			projections: Map<string, MessageReadUsageProjection>;
+	  }
+	| { availability: "unavailable" };
+
+/**
+ * Optional history enrichment. Privacy is mandatory; accounting is published
+ * only after every required batch succeeds. Strict financial readers keep
+ * using the ledger/summary interfaces directly.
+ */
+export async function getMessageReadUsageProjections(
+	conversationId: string,
+	messageIds: readonly string[],
+): Promise<MessageReadUsageResult> {
+	const ids = [...new Set(messageIds)];
+	const projections = new Map<string, MessageReadUsageProjection>();
+	if (ids.length === 0) return { availability: "resolved", projections };
+	// A failed privacy read must reject, whereas successful absence (including
+	// deletion after core selection) simply leaves those selected rows unenriched.
+	const privacy = db
+		.select({ incognito: conversations.memoryIncognito })
+		.from(conversations)
+		.where(eq(conversations.id, conversationId))
+		.get();
+	if (!privacy) return { availability: "unavailable" };
+	if (privacy.incognito) {
+		for (const id of ids) projections.set(id, { status: "untracked" });
+		return { availability: "resolved", projections };
+	}
+	try {
+		const ledger = await getNormalChatMessageUsageProjections(
+			conversationId,
+			ids,
+		);
+		for (const [id, projection] of ledger) projections.set(id, projection);
+		// Observed historical identity is needed for ledger-backed rows too.
+		// Reading it does not make those rows eligible for legacy numeric usage.
+		for (let offset = 0; offset < ids.length; offset += 500) {
+			const rows = db
+				.select({
+					messageId: messages.id,
+					modelId: usageEvents.modelId,
+					legacyModel: messageAnalytics.model,
+					modelDisplayName: usageEvents.modelDisplayName,
+					generationTimeMs: usageEvents.generationTimeMs,
+					legacyGenerationTimeMs: messageAnalytics.generationTimeMs,
+					costUsdMicros: usageEvents.costUsdMicros,
+					completionTokens: usageEvents.completionTokens,
+					reasoningTokens: usageEvents.reasoningTokens,
+					totalTokens: usageEvents.totalTokens,
+				})
+				.from(messages)
+				.innerJoin(conversations, eq(conversations.id, messages.conversationId))
+				.leftJoin(
+					usageEvents,
+					and(
+						eq(usageEvents.messageId, messages.id),
+						eq(usageEvents.conversationId, conversationId),
+					),
+				)
+				.leftJoin(
+					messageAnalytics,
+					and(
+						eq(messageAnalytics.messageId, messages.id),
+						eq(messageAnalytics.userId, conversations.userId),
+					),
+				)
+				.where(
+					and(
+						eq(messages.conversationId, conversationId),
+						eq(messages.role, "assistant"),
+						inArray(messages.id, ids.slice(offset, offset + 500)),
+					),
+				)
+				.all();
+			for (const row of rows) {
+				const usage: MessageReadUsageProjection = ledger.get(row.messageId) ?? {
+					status: "legacy",
+					generationTimeMs: row.generationTimeMs ?? row.legacyGenerationTimeMs,
+					costUsdMicros: row.costUsdMicros,
+					completionTokens: row.completionTokens,
+					reasoningTokens: row.reasoningTokens,
+					totalTokens: row.totalTokens,
+				};
+				projections.set(row.messageId, {
+					...usage,
+					modelId: row.modelId ?? row.legacyModel,
+					modelDisplayName: row.modelDisplayName,
+				});
+			}
+		}
+		return { availability: "resolved", projections };
+	} catch {
+		// Neither a partial ledger sum nor stale legacy data is authoritative
+		// after any required accounting lookup fails.
+		return { availability: "unavailable" };
+	}
+}
+
 /** Read accounting independently of the slower turn/evidence projection. */
 export async function getMessageUsageState(
 	userId: string,

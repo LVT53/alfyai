@@ -234,6 +234,43 @@ describe("Conversation Detail Read Model", () => {
 		});
 	});
 
+	it("omits unavailable aggregate fields rather than fabricating zero", async () => {
+		mockGetConversationCostSummary.mockRejectedValueOnce(
+			new Error("accounting unavailable"),
+		);
+		const detail = await getConversationDetail({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+		expect(detail).not.toHaveProperty("totalCostUsdMicros");
+		expect(detail).not.toHaveProperty("totalTokens");
+	});
+
+	it("keeps successful known-zero aggregate fields", async () => {
+		mockGetConversationCostSummary.mockResolvedValueOnce({
+			totalCostUsdMicros: 0,
+			totalTokens: 0,
+		});
+		expect(
+			await getConversationDetail({
+				userId: "user-1",
+				conversationId: "conv-1",
+			}),
+		).toMatchObject({ totalCostUsdMicros: 0, totalTokens: 0 });
+	});
+
+	it("does not let optional summary recovery hide a mandatory detail failure", async () => {
+		mockGetConversationCostSummary.mockRejectedValueOnce(
+			new Error("accounting unavailable"),
+		);
+		mockListConversationArtifacts.mockRejectedValueOnce(
+			new Error("mandatory artifacts"),
+		);
+		await expect(
+			getConversationDetail({ userId: "user-1", conversationId: "conv-1" }),
+		).rejects.toThrow("mandatory artifacts");
+	});
+
 	it("returns the cheap bootstrap detail payload with stable defaults", async () => {
 		const detail = await getConversationDetail({
 			userId: "user-1",

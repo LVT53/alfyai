@@ -215,7 +215,9 @@ export async function getConversationDetail({
 		listConversationImageCards(userId, conversationId),
 		listConversationAtlasJobs(userId, conversationId),
 		listContextCompressionSnapshots(conversationId),
-		getConversationCostSummary(conversationId),
+		conversation.memoryIncognito
+			? Promise.resolve(null)
+			: getConversationCostSummary(conversationId).catch(() => null),
 		// The panel list's and the header count's one source (Slice 0 Task
 		// S7): the same listArtifactsForConversation call the panel needs, not
 		// a second query per row.
@@ -267,8 +269,12 @@ export async function getConversationDetail({
 		bootstrap: false,
 		sidecarPending: false,
 		hasMoreMessages: messageWindow.hasMoreBefore,
-		totalCostUsdMicros: costSummary.totalCostUsdMicros,
-		totalTokens: costSummary.totalTokens,
+		...(costSummary
+			? {
+					totalCostUsdMicros: costSummary.totalCostUsdMicros,
+					totalTokens: costSummary.totalTokens,
+				}
+			: {}),
 	};
 }
 

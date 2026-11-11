@@ -10,9 +10,7 @@ import { db } from "$lib/server/db";
 import {
 	contextCompressionSnapshots,
 	conversations,
-	messageAnalytics,
 	messages,
-	usageEvents,
 } from "$lib/server/db/schema";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type {
@@ -50,7 +48,7 @@ import {
 	parseNormalChatFinalization,
 } from "$lib/shared/normal-chat-completion";
 import { joinReplyText } from "$lib/shared/reply-text";
-import { getNormalChatMessageUsageProjections } from "./analytics";
+import { getMessageReadUsageProjections } from "./analytics";
 import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
 import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
@@ -340,6 +338,7 @@ function readDepthMetadataFromMetadata(
 function projectMessageModel(
 	metadata: PersistedMessageMetadata | null,
 	modelId?: string | null,
+	modelDisplayName?: string | null,
 ): Pick<
 	ChatMessage,
 	"modelId" | "modelDisplayName" | "providerDisplayName" | "providerIconUrl"
@@ -347,9 +346,17 @@ function projectMessageModel(
 	return {
 		modelId: modelId as ChatMessage["modelId"],
 		modelDisplayName:
-			metadata?.modelDisplayName ?? getModelDisplayName(modelId),
-		providerDisplayName: metadata?.providerDisplayName ?? undefined,
-		providerIconUrl: metadata?.providerIconUrl ?? undefined,
+			typeof metadata?.modelDisplayName === "string"
+				? metadata.modelDisplayName
+				: (modelDisplayName ?? getModelDisplayName(modelId)),
+		providerDisplayName:
+			typeof metadata?.providerDisplayName === "string"
+				? metadata.providerDisplayName
+				: undefined,
+		providerIconUrl:
+			typeof metadata?.providerIconUrl === "string"
+				? metadata.providerIconUrl
+				: undefined,
 	};
 }
 
@@ -555,6 +562,7 @@ function mapRowToChatMessage(
 		reasoningTokens?: number | null;
 		totalTokens?: number | null;
 	},
+	modelDisplayName?: string | null,
 ): ChatMessage {
 	const metadata = parseMetadata(row.metadataJson);
 
@@ -565,7 +573,7 @@ function mapRowToChatMessage(
 		thinking: row.thinking ?? undefined,
 		thinkingSegments: readThinkingSegmentsFromRow(row),
 		timestamp: row.createdAt.getTime(),
-		...projectMessageModel(metadata, modelId),
+		...projectMessageModel(metadata, modelId, modelDisplayName),
 		...projectMessageUsage(generationTimeMs, costUsdMicros, usageTokens),
 		...projectMessageMetadata(row, metadata),
 	};
@@ -583,21 +591,8 @@ function parseMetadata(value: string | null): PersistedMessageMetadata | null {
 
 function messageWindowBaseQuery(conversationId: string) {
 	return db
-		.select({
-			message: messages,
-			model: usageEvents.modelId,
-			legacyModel: messageAnalytics.model,
-			modelDisplayName: usageEvents.modelDisplayName,
-			generationTimeMs: usageEvents.generationTimeMs,
-			costUsdMicros: usageEvents.costUsdMicros,
-			completionTokens: usageEvents.completionTokens,
-			reasoningTokens: usageEvents.reasoningTokens,
-			totalTokens: usageEvents.totalTokens,
-			legacyGenerationTimeMs: messageAnalytics.generationTimeMs,
-		})
+		.select({ message: messages })
 		.from(messages)
-		.leftJoin(usageEvents, eq(messages.id, usageEvents.messageId))
-		.leftJoin(messageAnalytics, eq(messages.id, messageAnalytics.messageId))
 		.where(eq(messages.conversationId, conversationId));
 }
 
@@ -609,40 +604,29 @@ async function mapMessageWindowRows(
 	rows: MessageWindowRow[],
 	attachmentMap: Awaited<ReturnType<typeof listMessageAttachments>>,
 ): Promise<ChatMessage[]> {
-	const uniqueRows = new Map<string, MessageWindowRow>();
-	for (const row of rows) {
-		if (!uniqueRows.has(row.message.id)) {
-			uniqueRows.set(row.message.id, row);
-		}
-	}
-	// Callers have already applied message ordering/offset/limit. Attempt
-	// multiplicity belongs inside analytics and cannot consume page slots.
-	const ledgerUsage = await getNormalChatMessageUsageProjections(
+	// Ordering, lookahead and paging have already happened at message grain.
+	const enrichment = await getMessageReadUsageProjections(
 		rows[0]?.message.conversationId ?? "",
-		[...uniqueRows.values()]
+		rows
 			.filter((row) => row.message.role === "assistant")
 			.map((row) => row.message.id),
 	);
-
-	return Array.from(uniqueRows.values()).map((row) => {
-		const usage = ledgerUsage.get(row.message.id);
+	return rows.map(({ message }) => {
+		const usage =
+			enrichment.availability === "resolved"
+				? enrichment.projections.get(message.id)
+				: undefined;
 		const mapped = mapRowToChatMessage(
-			row.message,
-			row.model ?? row.legacyModel,
-			usage
-				? usage.generationTimeMs
-				: (row.generationTimeMs ?? row.legacyGenerationTimeMs),
-			usage ? usage.costUsdMicros : row.costUsdMicros,
-			usage ?? {
-				completionTokens: row.completionTokens,
-				reasoningTokens: row.reasoningTokens,
-				totalTokens: row.totalTokens,
-			},
+			message,
+			usage?.modelId,
+			usage?.generationTimeMs,
+			usage?.costUsdMicros,
+			usage,
+			usage?.modelDisplayName,
 		);
 		return {
 			...mapped,
-			modelDisplayName: row.modelDisplayName ?? mapped.modelDisplayName,
-			attachments: attachmentMap.get(row.message.id) ?? [],
+			attachments: attachmentMap.get(message.id) ?? [],
 		};
 	});
 }

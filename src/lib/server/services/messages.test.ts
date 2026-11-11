@@ -3,7 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Metadata projection is isolated here; ledger accounting crosses the real
 // owners in messages.usage-projection.test.ts with a migrated SQLite database.
 vi.mock("./analytics", () => ({
-	getNormalChatMessageUsageProjections: vi.fn(async () => new Map()),
+	getMessageReadUsageProjections: vi.fn(async () => ({
+		availability: "resolved",
+		projections: new Map(
+			mockUsageRows.map((row) => [
+				row.messageId,
+				{
+					...row,
+					status: "legacy",
+				},
+			]),
+		),
+	})),
 }));
 
 type MessageRow = {
@@ -50,23 +61,8 @@ const {
 				},
 			];
 		}
-		if ("message" in selection) {
-			return mockRows.map((row) => {
-				const usage = mockUsageRows.find(
-					(candidate) => candidate.messageId === row.id,
-				);
-				const usageAliases: Record<string, keyof UsageRow> = {
-					model: "modelId",
-				};
-				return Object.fromEntries(
-					Object.keys(selection).map((key) => {
-						if (key === "message") return [key, row];
-						const usageKey = usageAliases[key] ?? (key as keyof UsageRow);
-						return [key, usage?.[usageKey] ?? null];
-					}),
-				);
-			});
-		}
+		if ("message" in selection) return mockRows.map((message) => ({ message }));
+
 		return mockRows.map((row) =>
 			Object.fromEntries(
 				Object.keys(selection).map((key) => [
