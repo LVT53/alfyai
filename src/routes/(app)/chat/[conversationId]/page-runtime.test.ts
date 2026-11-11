@@ -1226,7 +1226,7 @@ describe("chat page runtime integration", () => {
 		expect(original.handle?.stop).toHaveBeenCalledOnce();
 	});
 
-	it("later /new and toolbar commands cannot bypass an unavailable stopped fact", async () => {
+	it("allows later /new while protecting the unavailable stopped row from Regenerate", async () => {
 		renderPage(pageData({ composerCommandRegistryEnabled: true }));
 		vi.mocked(goto).mockClear();
 		const input = screen.getByTestId("message-input");
@@ -1249,9 +1249,11 @@ describe("chat page runtime integration", () => {
 		await fireEvent.click(
 			await screen.findByRole("button", { name: "Regenerate response" }),
 		);
+		expect(goto).not.toHaveBeenCalled();
+		expect(runtimeHarness.streamInvocations).toHaveLength(2);
 		await fireEvent.input(input, { target: { value: "/new" } });
 		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
-		expect(goto).not.toHaveBeenCalled();
+		expect(goto).toHaveBeenCalledExactlyOnceWith("/");
 		expect(runtimeHarness.streamInvocations).toHaveLength(2);
 		expect(original.handle?.stop).toHaveBeenCalledOnce();
 	});
@@ -9793,6 +9795,10 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 			},
 		});
 		await screen.findByText(SECOND_WORDS);
+		if (mode === "Stop")
+			expect(screen.getByTestId("normal-chat-output-status")).toHaveTextContent(
+				"Stopped",
+			);
 		expect(screen.getByText(FIRST_WORDS)).toBeInTheDocument();
 		expect(
 			screen.getAllByRole("button", { name: "Regenerate response" }),
@@ -9806,9 +9812,7 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 		try {
 			const copies = screen.getAllByRole("button", { name: "Copy message" });
 			await fireEvent.click(copies[copies.length - 1]);
-			expect(copy).toHaveBeenCalledWith(
-				`${FIRST_WORDS}\n\n${mode === "Stop" ? "_Incomplete answer._\n\n" : ""}${SECOND_WORDS}`,
-			);
+			expect(copy).toHaveBeenCalledWith(`${FIRST_WORDS}\n\n${SECOND_WORDS}`);
 		} finally {
 			if (previous) Object.defineProperty(navigator, "clipboard", previous);
 			else Reflect.deleteProperty(navigator, "clipboard");

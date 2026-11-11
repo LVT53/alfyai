@@ -54,7 +54,7 @@ it("exports the finalized incomplete answer with its status and no activity or p
 		normalChatOutput: { version: 1, events },
 	};
 	const markdown = renderConversationMarkdown("Synthetic", [message]);
-	expect(markdown).toContain("Incomplete answer");
+	expect(markdown).not.toContain("Incomplete answer");
 	expect(markdown).toContain(message.content);
 	expect(markdown).not.toContain("raw uncorrected");
 	expect(markdown).not.toContain("private reasoning");

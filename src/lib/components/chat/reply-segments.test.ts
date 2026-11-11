@@ -732,6 +732,6 @@ it("carries earlier canonical segments once and incomplete status to the chain C
 		}),
 	];
 	expect(placeReplySegments(messages, [], null).get("last")?.copyText).toBe(
-		"Earlier\n\n_Incomplete answer._\n\n  Partial\n",
+		"Earlier\n\n  Partial\n",
 	);
 });

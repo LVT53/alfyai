@@ -1,9 +1,10 @@
 <script lang="ts">
+import type { NormalChatOutputProjection } from "$lib/shared/normal-chat-output";
 import {
-	sanitizeNormalChatAnswer,
-	type NormalChatOutputProjection,
-} from "$lib/shared/normal-chat-output";
-import {
+	containsToolCallMarkup,
+	createInlineThinkingState,
+	flushInlineThinkingState,
+	processInlineThinkingChunk,
 	getSkillControlEnvelopePrefixHoldLength,
 	SKILL_CONTROL_ENVELOPE_CLOSE_TAG,
 	stripCompleteSkillControlEnvelopeBlocks,
@@ -741,7 +742,28 @@ function commentaryTextForDisplay(text: string, final: boolean): string {
 	}
 	// An ambiguous ordinary opening prefix is held live, then flushed unchanged.
 	const hold = final ? 0 : getSkillControlEnvelopePrefixHoldLength(visible);
-	return sanitizeNormalChatAnswer(hold ? visible.slice(0, -hold) : visible);
+	const state = createInlineThinkingState();
+	let displayed = "";
+	const emitters = {
+		onVisible: (chunk: string) => {
+			displayed += chunk;
+			return true;
+		},
+		onThinking: () => true,
+	};
+	processInlineThinkingChunk(
+		state,
+		hold ? visible.slice(0, -hold) : visible,
+		emitters,
+	);
+	// At the final boundary an unfinished opener is literal text, unless a
+	// complete opening delimiter already established a private thinking region.
+	if (final && !state.insideThinking) {
+		displayed += state.buffer;
+		state.buffer = "";
+	}
+	flushInlineThinkingState(state, emitters);
+	return containsToolCallMarkup(displayed) ? "" : displayed;
 }
 
 function formatThinkingTextForDisplay(text: string): string {

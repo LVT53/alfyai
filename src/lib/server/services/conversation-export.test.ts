@@ -43,9 +43,7 @@ describe("outward canonical answer status", () => {
 		};
 		const result = renderConversationMarkdown("Synthetic", [message]);
 		expect(result).toContain(message.content);
-		expect(result.includes("_Incomplete answer._")).toBe(
-			outcome !== "answered",
-		);
+		expect(result).not.toContain("_Incomplete answer._");
 		expect(result).not.toContain("PRIVATE");
 	});
 });

@@ -1340,9 +1340,7 @@ describe("messages metadata", () => {
 				conversationId: "conv-1",
 				messageId: "partial",
 			});
-			expect(result?.content).toBe(
-				"_Incomplete answer._\n\n  Canonical partial\n",
-			);
+			expect(result?.content).toBe("  Canonical partial\n");
 		});
 
 		it("reads a previously kept document's id back", async () => {

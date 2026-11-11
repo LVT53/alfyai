@@ -274,9 +274,7 @@ describe("MessageBubble", () => {
 					name: chatDict[language]["messageBubble.copyMessage"],
 				}),
 			);
-			expect(writeText).toHaveBeenCalledWith(
-				"_Incomplete answer._\n\nCanonical answer",
-			);
+			expect(writeText).toHaveBeenCalledWith("Canonical answer");
 		} finally {
 			uiLanguage.set(previousLanguage);
 		}
@@ -350,9 +348,7 @@ describe("MessageBubble", () => {
 		);
 		expect(container.querySelector("img[src=x]")).toBeNull();
 		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
-		expect(writeText).toHaveBeenCalledWith(
-			"_Incomplete answer._\n\n## Result [fixed]",
-		);
+		expect(writeText).toHaveBeenCalledWith("## Result [fixed]");
 	});
 
 	it("hides working Skill Control syntax while Copy keeps only the canonical answer", async () => {
@@ -407,9 +403,7 @@ describe("MessageBubble", () => {
 			.soft(screen.getByTestId("normal-chat-commentary").textContent?.trim())
 			.toBe("Ordinary commentary");
 		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
-		expect(writeText).toHaveBeenCalledWith(
-			"_Incomplete answer._\n\nCanonical answer",
-		);
+		expect(writeText).toHaveBeenCalledWith("Canonical answer");
 	});
 
 	it.each([
@@ -466,12 +460,12 @@ describe("MessageBubble", () => {
 					}),
 		};
 		render(MessageBubble, { message });
+		if (mode !== "completed")
+			expect(screen.getByTestId("normal-chat-output-status")).toHaveTextContent(
+				chatDict.en["chat.output.incomplete"],
+			);
 		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
-		expect(writeText).toHaveBeenCalledWith(
-			mode === "completed"
-				? message.content
-				: `_Incomplete answer._\n\n${message.content}`,
-		);
+		expect(writeText).toHaveBeenCalledWith(message.content);
 	});
 
 	it("hides working prose while an explicit closing answer streams", async () => {
