@@ -222,6 +222,7 @@ const finishEvent: NeutralStreamEvent = {
 	finishReason: "stop",
 	rawFinishReason: "stop",
 	model: {
+		modelId: "model1",
 		providerId: "model1",
 		providerName: "Model One",
 		displayName: "Model One",
@@ -294,7 +295,6 @@ function createTurn(
 		normalizedMessage: "Hello",
 		streamId: "test-stream",
 		modelId: "model1" as const,
-		resolvedProviderId: "model1",
 		modelDisplayName: "Model One",
 		skipPersistUserMessage: false,
 		turnOrigin: "send",
@@ -446,7 +446,7 @@ function createWatchdogStreamingResult(
 					segmentId: "fixture-segment",
 					phase: "working" as const,
 					outcome: (overrides.fixtureOutcome ??
-						"answered") as import("$lib/shared/normal-chat-output").NormalChatCompletion["outcome"],
+						"answered") as import("$lib/shared/normal-chat-completion").NormalChatCompletion["outcome"],
 					stopCause: "natural_stop" as const,
 					workingStopCause: "natural_stop" as const,
 					closingAttempted: false,
@@ -3393,7 +3393,10 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 			...searchEvents,
 			{ type: "text_delta", text: "Which one?" },
 			...askEvents,
-			{ type: "usage", usage: { inputTokens: 11, outputTokens: 7 } },
+			{
+				type: "usage",
+				usage: { inputTokens: 11, outputTokens: 7, totalTokens: 18 },
+			},
 			finishEvent,
 		]);
 		const { runPlainNormalChatSendModel } = await import(
