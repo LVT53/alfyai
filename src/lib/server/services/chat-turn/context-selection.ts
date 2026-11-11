@@ -14,6 +14,7 @@ import type {
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type {
 	ChatAttachment,
+	ChatMessage,
 	ThinkingSegment,
 } from "$lib/server/services/messages-types";
 import {
@@ -42,6 +43,8 @@ import type {
 	UserPicturesMetadata,
 } from "$lib/shared/artifacts/image-body";
 import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
+import { projectNormalChatFinalization } from "$lib/shared/normal-chat-completion";
+import { projectNormalChatOutput } from "$lib/shared/normal-chat-output";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { getConfig } from "../../config-store";
 import {
@@ -164,6 +167,22 @@ type PromptContextMessage = {
 	// short lines (conversation-history.ts); ids and names only.
 	pictures?: UserPicturesMetadata;
 };
+
+function historyContent(message: ChatMessage): string {
+	if (message.role !== "assistant" || !message.content) return message.content;
+	const modelCompletion = message.normalChatOutput
+		? projectNormalChatOutput(message.normalChatOutput.events).completion
+		: undefined;
+	const completion =
+		projectNormalChatFinalization(
+			modelCompletion,
+			message.normalChatFinalization,
+		) ?? modelCompletion;
+	return completion &&
+		["stopped", "incomplete", "failed"].includes(completion.outcome)
+		? `[Previous assistant turn ended ${completion.outcome}; this is an incomplete partial answer.]\n${message.content}`
+		: message.content;
+}
 
 type PromptContextAttachment = Pick<
 	ChatAttachment,
@@ -1327,7 +1346,7 @@ async function loadSessionPromptContext(params: {
 		.map((message) => ({
 			id: message.id,
 			role: message.role,
-			content: message.content,
+			content: historyContent(message),
 			createdAt: message.timestamp,
 			messageSequence: sequenceByMessageId.get(message.id),
 			forkCopy: message.forkCopy,

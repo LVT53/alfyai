@@ -817,6 +817,70 @@ describe("buildConstructedContext", () => {
 		expect(mocks.selectWorkingSetArtifactsForPrompt).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		false,
+		true,
+	])("labels a stopped structural partial in later model history (native=%s)", async (nativeHistoryEnabled) => {
+		resetConstructedContextMocks();
+		mocks.getConfig.mockReturnValue({
+			contextDiagnosticsDebug: false,
+			nativeHistoryEnabled,
+		});
+		const completion = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			phase: "closing",
+			outcome: "stopped",
+			stopCause: "user_stop",
+			workingStopCause: "user_stop",
+			closingAttempted: true,
+		};
+		mocks.listMessages.mockResolvedValue([
+			{ id: "u1", role: "user", content: "QUESTION", timestamp: 1 },
+			{
+				id: "a1",
+				role: "assistant",
+				content: "Partial conclusion",
+				timestamp: 2,
+				normalChatOutput: {
+					version: 1,
+					events: [
+						{
+							version: 1,
+							turnId: "t",
+							segmentId: "s",
+							attemptId: "a",
+							stepId: "step",
+							phase: "closing",
+							sequence: 1,
+							type: "completion",
+							completion,
+						},
+					],
+				},
+			},
+		]);
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Continue",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16000,
+				compactionUiThreshold: 12000,
+				targetConstructedContext: 8000,
+			},
+		});
+		const outbound = nativeHistoryEnabled
+			? JSON.stringify(constructed.historyMessages)
+			: constructed.inputValue;
+		expect(outbound).toContain(
+			"[Previous assistant turn ended stopped; this is an incomplete partial answer.]",
+		);
+		expect(outbound).toContain("Partial conclusion");
+	});
+
 	it("reports the native history window after the compression boundary, counting dropped turns", async () => {
 		resetConstructedContextMocks();
 		mocks.getConfig.mockReturnValue({

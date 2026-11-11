@@ -359,7 +359,9 @@ export async function* runNormalChatCompletion(
 		return {
 			text: projectNormalChatOutput(snapshot.events).answer,
 			finishReason: saved.outcome === "answered" ? "stop" : "other",
-			usage: aggregateUsage(snapshot.usage),
+			usage: aggregateUsage(
+				snapshot.usage.filter((entry) => entry.segmentId === policy.segmentId),
+			),
 			model: deps.metadata(responseModel),
 			completion: saved,
 			continuation: snapshot,
@@ -1376,6 +1378,16 @@ export async function* runNormalChatCompletion(
 		phase = "closing";
 	}
 	if (!closingAttempted) workingCause = stopCause;
+	const lastSettledExecution = snapshot.executions
+		.filter((entry) => entry.segmentId === policy.segmentId)
+		.at(-1);
+	if (
+		outcome === "failed" &&
+		!uncertain() &&
+		lastSettledExecution?.state === "succeeded" &&
+		lastSettledExecution.delivered
+	)
+		outcome = "delivered";
 	const completion: NormalChatCompletion = {
 		version: 1,
 		turnId: policy.turnId,
@@ -1389,7 +1401,9 @@ export async function* runNormalChatCompletion(
 	snapshot.completion = completion;
 	emit({ ...lastScope, phase }, { type: "completion", completion });
 	notify();
-	const aggregate = aggregateUsage(snapshot.usage);
+	const aggregate = aggregateUsage(
+		snapshot.usage.filter((entry) => entry.segmentId === policy.segmentId),
+	);
 	yield { type: "usage", usage: aggregate };
 	yield {
 		type: "finish",

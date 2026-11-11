@@ -965,12 +965,7 @@ export async function completeStreamTurn(
 			closeDownstream();
 			return;
 		}
-		if (
-			hadFileProductionToolCall &&
-			(wasStopped || wasActiveChatStreamStopRequested({ streamId, userId }))
-		)
-			sendStoppedAndClose();
-		else sendErrorAndClose();
+		sendErrorAndClose();
 		return;
 	}
 }

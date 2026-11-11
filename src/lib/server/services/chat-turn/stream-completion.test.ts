@@ -2539,7 +2539,7 @@ describe("completeStreamTurn", () => {
 	it.each([
 		false,
 		true,
-	])("preserves stop=%s without success or generation recovery when file assignment fails", async (wasStopped) => {
+	])("reports failure without success or generation recovery when file assignment fails (stop=%s)", async (wasStopped) => {
 		mockGetFileProductionJobs.mockResolvedValue([{ id: "job-new", files: [] }]);
 		mockAssignFileProductionJobs.mockRejectedValueOnce(
 			new Error("linkage unavailable"),
@@ -2563,23 +2563,7 @@ describe("completeStreamTurn", () => {
 			const parts = mockEnqueueChunk.mock.calls.flatMap((call: string[]) =>
 				decodeUiMessageStreamParts(call[0] ?? ""),
 			);
-			if (wasStopped) {
-				expect(getLatestEndPayload()).toMatchObject({ wasStopped: true });
-				expect(parts).not.toEqual(
-					expect.arrayContaining([
-						expect.objectContaining({ type: "data-stream-error" }),
-					]),
-				);
-			} else {
-				expect(parts).toEqual(
-					expect.arrayContaining([
-						expect.objectContaining({
-							type: "data-stream-error",
-							data: expect.objectContaining({ code: "backend_failure" }),
-						}),
-					]),
-				);
-			}
+			expectModelSafeTerminalError();
 			expect(parts).not.toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
@@ -3755,6 +3739,76 @@ describe("completeStreamTurn", () => {
 				mockStampAskQuestion.mock.invocationCallOrder[0],
 			);
 			expect(getLatestEndPayload()).toMatchObject({ waitingQuestionId: "q-2" });
+		});
+	});
+	// Reviewer B reproducer. Contract (AGENTS.md chat-turn, stream-completion.ts:602-610,
+	// existing test "still reports a failure when the conversation is there"): a stopped
+	// turn whose conversation is still there but whose save fails ends with the error.
+	// The only difference here is that the turn called produce_file.
+	describe("reviewer B: stopped turn with a file-production call whose save fails", () => {
+		let streamController: AbortController;
+		beforeEach(() => {
+			streamController = new AbortController();
+			vi.spyOn(console, "error").mockImplementation(() => {});
+			vi.spyOn(console, "info").mockImplementation(() => {});
+			registerActiveChatStream({
+				streamId: "stream-1",
+				userId: "user-1",
+				conversationId: "conv-1",
+				controller: streamController,
+			});
+			requestActiveChatStreamStop({ streamId: "stream-1", userId: "user-1" });
+		});
+		afterEach(() => {
+			unregisterActiveChatStream("stream-1", streamController);
+		});
+
+		it.each([
+			{
+				label: "no file-production call (control)",
+				records: [] as ToolCallEntry[],
+			},
+			{
+				label: "a produce_file call",
+				records: [
+					{
+						name: "produce_file",
+						input: {},
+						status: "done",
+						metadata: { jobId: "job-new" },
+					},
+				] as ToolCallEntry[],
+			},
+		])("assistant persistence offline, $label: ends with an explicit error", async ({
+			records,
+		}) => {
+			mockCreateMessage
+				.mockReset()
+				.mockResolvedValueOnce({ id: "user-msg-1" })
+				.mockRejectedValueOnce(new Error("assistant persistence offline"));
+			mockGetFileProductionJobs.mockResolvedValue([
+				{ id: "job-new", files: [] },
+			]);
+
+			await completeStreamTurn({
+				...defaultParams,
+				wasStopped: true,
+				toolCallRecords: records,
+			});
+
+			// Conversation still there; nothing was saved.
+			const parts = getStreamParts();
+			console.log(
+				"REVIEW-B parts:",
+				JSON.stringify(
+					parts.map((p) =>
+						p === "[DONE]"
+							? p
+							: { type: p.type, data: (p as { data?: unknown }).data },
+					),
+				),
+			);
+			expectModelSafeTerminalError();
 		});
 	});
 });
