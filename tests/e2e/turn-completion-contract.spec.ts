@@ -225,7 +225,9 @@ test.describe("turn completion contract", () => {
 				tools: unknown[];
 				max_tokens: number;
 			};
-			expect(body.max_tokens).toBe(1_024);
+			// The configured 1024 cap is clamped by the default 90% input target:
+			// 8192 - floor(8192 * 0.9) = 820 (deriveModelContextBudget).
+			expect(body.max_tokens).toBe(820);
 			expect(body.tools.length).toBeGreaterThan(0);
 			const inputTokens = estimateTokenCount(
 				JSON.stringify({ messages: body.messages, tools: body.tools }),
