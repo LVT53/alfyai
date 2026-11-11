@@ -95,6 +95,7 @@ function seedLegacyConversationDatabase() {
 			id text PRIMARY KEY NOT NULL,
 			user_id text NOT NULL,
 			title text NOT NULL,
+			memory_incognito integer DEFAULT 0 NOT NULL,
 			created_at integer DEFAULT (unixepoch()) NOT NULL,
 			updated_at integer DEFAULT (unixepoch()) NOT NULL
 		);
@@ -135,6 +136,19 @@ function seedLegacyConversationDatabase() {
 			('a-assistant-message', 'conv-1', 'assistant', 'Answer second', 1777140001);
 	`);
 	applyLegacyMessageMigrations(sqlite);
+	// This fixture intentionally exercises the old message-table backfill,
+	// while the current reader also requires the empty completion ledger.
+	const current = new Database(":memory:");
+	migrate(drizzle(current), { migrationsFolder: "./drizzle" });
+	for (const table of ["normal_chat_turns", "normal_chat_attempts"]) {
+		const definition = current
+			.prepare(
+				"SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+			)
+			.get(table) as { sql: string };
+		sqlite.exec(definition.sql);
+	}
+	current.close();
 	sqlite.close();
 }
 

@@ -2885,6 +2885,90 @@ export type MessageUsageState =
 			generationDurationMs: number | null;
 	  } & ConversationCostSummary);
 
+/**
+ * Saved-reply projection only: billing stays at actual-attempt grain. A map
+ * entry (including pending) takes precedence over legacy message analytics.
+ */
+export async function getNormalChatMessageUsageProjections(
+	conversationId: string,
+	messageIds: readonly string[],
+): Promise<
+	Map<
+		string,
+		{
+			status: "pending" | "ready";
+			costUsdMicros: number | null;
+			generationTimeMs: number | null;
+			completionTokens: number | null;
+			reasoningTokens: number | null;
+			totalTokens: number | null;
+		}
+	>
+> {
+	const projections: Awaited<
+		ReturnType<typeof getNormalChatMessageUsageProjections>
+	> = new Map();
+	const ids = [...new Set(messageIds)];
+	// Stay below SQLite's parameter limit even for full-history callers. Each
+	// message belongs to one batch, and each batch reads status + sums in one
+	// SQL snapshot; a late reconciliation cannot produce a torn ready total.
+	for (let offset = 0; offset < ids.length; offset += 500) {
+		const rows = db
+			.select({
+				messageId: messages.id,
+				status: normalChatTurns.accountingStatus,
+				costUsdMicros: sql<number>`coalesce(sum(${normalChatAttempts.costUsdMicros}), 0)`,
+				generationTimeMs: sql<number | null>`case
+					when count(${normalChatAttempts.attemptId}) = count(${normalChatAttempts.generationTimeMs})
+					then coalesce(sum(${normalChatAttempts.generationTimeMs}), 0) end`,
+				completionTokens: sql<number | null>`case
+					when count(${normalChatAttempts.attemptId}) = count(${normalChatAttempts.outputTokens})
+					then sum(${normalChatAttempts.outputTokens}) end`,
+				reasoningTokens: sql<number | null>`case
+					when count(${normalChatAttempts.attemptId}) = count(${normalChatAttempts.reasoningTokens})
+					then sum(${normalChatAttempts.reasoningTokens}) end`,
+				totalTokens: sql<number | null>`case
+					when count(${normalChatAttempts.attemptId}) = count(${normalChatAttempts.totalTokens})
+					then sum(${normalChatAttempts.totalTokens}) end`,
+			})
+			.from(normalChatTurns)
+			.innerJoin(
+				messages,
+				and(
+					eq(messages.id, normalChatTurns.messageId),
+					eq(messages.conversationId, normalChatTurns.conversationId),
+				),
+			)
+			.innerJoin(conversations, eq(conversations.id, messages.conversationId))
+			.leftJoin(
+				normalChatAttempts,
+				eq(normalChatAttempts.segmentId, normalChatTurns.segmentId),
+			)
+			.where(
+				and(
+					eq(normalChatTurns.conversationId, conversationId),
+					eq(messages.role, "assistant"),
+					eq(conversations.memoryIncognito, false),
+					inArray(messages.id, ids.slice(offset, offset + 500)),
+				),
+			)
+			.groupBy(normalChatTurns.segmentId)
+			.all();
+		for (const row of rows) {
+			const ready = row.status === "ready";
+			projections.set(row.messageId, {
+				status: row.status,
+				costUsdMicros: ready ? row.costUsdMicros : null,
+				generationTimeMs: ready ? row.generationTimeMs : null,
+				completionTokens: ready ? row.completionTokens : null,
+				reasoningTokens: ready ? row.reasoningTokens : null,
+				totalTokens: ready ? row.totalTokens : null,
+			});
+		}
+	}
+	return projections;
+}
+
 /** Read accounting independently of the slower turn/evidence projection. */
 export async function getMessageUsageState(
 	userId: string,
@@ -2919,31 +3003,15 @@ export async function getMessageUsageState(
 		.limit(1);
 	if (!row) return null;
 	if (row.incognito) return { status: "untracked" };
-	const ledger = db
-		.select()
-		.from(normalChatTurns)
-		.where(
-			and(
-				eq(normalChatTurns.messageId, messageId),
-				eq(normalChatTurns.conversationId, conversationId),
-			),
-		)
-		.get();
+	const ledger = (
+		await getNormalChatMessageUsageProjections(conversationId, [messageId])
+	).get(messageId);
 	if (ledger) {
-		if (ledger.accountingStatus !== "ready") return { status: "pending" };
-		const attempts = db
-			.select()
-			.from(normalChatAttempts)
-			.where(eq(normalChatAttempts.segmentId, ledger.segmentId))
-			.all();
+		if (ledger.status !== "ready") return { status: "pending" };
 		return {
 			status: "ready",
-			costUsd:
-				attempts.reduce((sum, a) => sum + (a.costUsdMicros ?? 0), 0) /
-				1_000_000,
-			generationDurationMs: attempts.every((a) => a.generationTimeMs !== null)
-				? attempts.reduce((sum, a) => sum + (a.generationTimeMs ?? 0), 0)
-				: null,
+			costUsd: (ledger.costUsdMicros ?? 0) / 1_000_000,
+			generationDurationMs: ledger.generationTimeMs,
 			...(await getConversationCostSummary(conversationId)),
 		};
 	}

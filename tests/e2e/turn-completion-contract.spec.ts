@@ -316,6 +316,31 @@ test.describe("turn completion contract", () => {
 			costUsd: 0.088,
 			totalCostUsdMicros: 88_000,
 		});
+		// The standalone usage endpoint can be correct while the normal reload
+		// projection loses its values. Check the saved reply and the real UI too.
+		const detailResponse = await page.request.get(`/api/conversations/${id}`);
+		expect(detailResponse.ok()).toBe(true);
+		const detail = await detailResponse.json();
+		expect(
+			detail.messages.find(
+				(message: { id: string }) => message.id === messageId,
+			),
+		).toMatchObject({
+			id: messageId,
+			costUsd: 0.088,
+			responseTokenCount: 26,
+			totalTokenCount: 88,
+		});
+		await expect(page.getByTestId("assistant-message").last()).toHaveAttribute(
+			"data-message-id",
+			messageId as string,
+		);
+		await page.getByTestId("context-usage-ring").click();
+		const costPopover = page.getByTestId("context-usage-popover");
+		await expect(costPopover).toBeVisible();
+		await expect(costPopover.locator(".popover-cost-secondary")).toHaveText(
+			"$0.0880",
+		);
 		expect(requests()).toHaveLength(2);
 	});
 

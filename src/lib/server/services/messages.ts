@@ -50,6 +50,7 @@ import {
 	parseNormalChatFinalization,
 } from "$lib/shared/normal-chat-completion";
 import { joinReplyText } from "$lib/shared/reply-text";
+import { getNormalChatMessageUsageProjections } from "./analytics";
 import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
 import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
@@ -604,24 +605,35 @@ type MessageWindowRow = Awaited<
 	ReturnType<typeof messageWindowBaseQuery>
 >[number];
 
-function mapMessageWindowRows(
+async function mapMessageWindowRows(
 	rows: MessageWindowRow[],
 	attachmentMap: Awaited<ReturnType<typeof listMessageAttachments>>,
-): ChatMessage[] {
+): Promise<ChatMessage[]> {
 	const uniqueRows = new Map<string, MessageWindowRow>();
 	for (const row of rows) {
 		if (!uniqueRows.has(row.message.id)) {
 			uniqueRows.set(row.message.id, row);
 		}
 	}
+	// Callers have already applied message ordering/offset/limit. Attempt
+	// multiplicity belongs inside analytics and cannot consume page slots.
+	const ledgerUsage = await getNormalChatMessageUsageProjections(
+		rows[0]?.message.conversationId ?? "",
+		[...uniqueRows.values()]
+			.filter((row) => row.message.role === "assistant")
+			.map((row) => row.message.id),
+	);
 
 	return Array.from(uniqueRows.values()).map((row) => {
+		const usage = ledgerUsage.get(row.message.id);
 		const mapped = mapRowToChatMessage(
 			row.message,
 			row.model ?? row.legacyModel,
-			row.generationTimeMs ?? row.legacyGenerationTimeMs,
-			row.costUsdMicros,
-			{
+			usage
+				? usage.generationTimeMs
+				: (row.generationTimeMs ?? row.legacyGenerationTimeMs),
+			usage ? usage.costUsdMicros : row.costUsdMicros,
+			usage ?? {
 				completionTokens: row.completionTokens,
 				reasoningTokens: row.reasoningTokens,
 				totalTokens: row.totalTokens,
@@ -689,7 +701,7 @@ export async function listMessageWindow(
 	const windowRowsAscending = result.slice(0, limit).reverse();
 
 	return {
-		messages: mapMessageWindowRows(windowRowsAscending, attachmentMap),
+		messages: await mapMessageWindowRows(windowRowsAscending, attachmentMap),
 		hasMoreBefore,
 	};
 }

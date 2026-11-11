@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Metadata projection is isolated here; ledger accounting crosses the real
+// owners in messages.usage-projection.test.ts with a migrated SQLite database.
+vi.mock("./analytics", () => ({
+	getNormalChatMessageUsageProjections: vi.fn(async () => new Map()),
+}));
+
 type MessageRow = {
 	id: string;
 	conversationId: string;
