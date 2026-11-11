@@ -138,6 +138,13 @@ function main() {
 	const manifest = scopesFrom(
 		JSON.parse(readFileSync(values.manifest, "utf8")),
 	);
+	// Reserve the report before any mutation; an existing/unwritable report must
+	// never turn a committed repair into an apparently refused operation.
+	if (values.report)
+		writeFileSync(values.report, `${JSON.stringify({ status: "started" })}\n`, {
+			flag: "wx",
+			mode: 0o600,
+		});
 	const sqlite = new Database(path, {
 		readonly: !values.apply,
 		fileMustExist: true,
@@ -151,7 +158,7 @@ function main() {
 		};
 		const json = `${JSON.stringify(report, null, 2)}\n`;
 		if (values.report)
-			writeFileSync(values.report, json, { flag: "wx", mode: 0o600 });
+			writeFileSync(values.report, json, { flag: "w", mode: 0o600 });
 		process.stdout.write(json);
 	} finally {
 		sqlite.close();
