@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	compactNormalChatOutputEvents,
 	createNormalChatOutputAccumulator,
 	type NormalChatOutputEvent,
 	projectNormalChatOutput,
@@ -207,4 +208,87 @@ describe("canonical output ownership", () => {
 		expect(projectNormalChatOutput(events).answer).toBe("One\n## Two");
 		expect(projectNormalChatOutput(events).activity).toEqual([]);
 	});
+});
+
+it("compacts interleaved blocks without changing scopes, ownership or replay identity", () => {
+	const scope = {
+		version: 1 as const,
+		turnId: "t",
+		segmentId: "s",
+		attemptId: "a",
+		stepId: "a:0",
+		phase: "working" as const,
+	};
+	const events: NormalChatOutputEvent[] = [
+		{
+			...scope,
+			sequence: 1,
+			type: "block_start",
+			blockId: "b",
+			nativeId: "b",
+			kind: "text",
+			role: "provisional",
+		},
+		{ ...scope, sequence: 2, type: "block_delta", blockId: "b", text: "First" },
+		{
+			...scope,
+			sequence: 3,
+			type: "block_start",
+			blockId: "r",
+			nativeId: "r",
+			kind: "reasoning",
+			role: "activity",
+		},
+		{
+			...scope,
+			sequence: 4,
+			type: "block_delta",
+			blockId: "r",
+			text: "private",
+		},
+		{
+			...scope,
+			sequence: 5,
+			type: "block_delta",
+			blockId: "b",
+			text: " answer",
+		},
+		{ ...scope, sequence: 6, type: "block_end", blockId: "b" },
+		{
+			...scope,
+			sequence: 7,
+			type: "step_settled",
+			role: "answer",
+			finishReason: "stop",
+		},
+		{
+			...scope,
+			segmentId: "s2",
+			sequence: 1,
+			type: "block_start",
+			blockId: "b",
+			nativeId: "b",
+			kind: "text",
+			role: "answer",
+		},
+		{
+			...scope,
+			segmentId: "s2",
+			sequence: 2,
+			type: "block_delta",
+			blockId: "b",
+			text: "Second",
+		},
+	];
+	const original = structuredClone(events);
+	const compact = compactNormalChatOutputEvents([...events, ...events]);
+	expect(compact).toHaveLength(events.length - 1);
+	expect(projectNormalChatOutput(compact)).toEqual(
+		projectNormalChatOutput(events),
+	);
+	expect(projectNormalChatOutput([...compact, ...compact])).toEqual(
+		projectNormalChatOutput(events),
+	);
+	expect(compactNormalChatOutputEvents(compact)).toEqual(compact);
+	expect(events).toEqual(original);
 });

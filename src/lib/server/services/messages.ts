@@ -47,6 +47,7 @@ import {
 	type NormalChatFinalizationFailure,
 	parseNormalChatFinalization,
 } from "$lib/shared/normal-chat-completion";
+import { compactNormalChatOutputEvents } from "$lib/shared/normal-chat-output";
 import { joinReplyText } from "$lib/shared/reply-text";
 import { getMessageReadUsageProjections } from "./analytics";
 import { parseThoughtSteps } from "./chat-turn/thought-steps";
@@ -434,7 +435,12 @@ function projectMessageMetadata(
 		normalChatOutput:
 			metadata?.normalChatOutput?.version === 1 &&
 			Array.isArray(metadata.normalChatOutput.events)
-				? metadata.normalChatOutput
+				? {
+						version: 1,
+						events: compactNormalChatOutputEvents(
+							metadata.normalChatOutput.events,
+						),
+					}
 				: undefined,
 		webCitationAudit: metadata?.webCitationAudit ?? undefined,
 		citationAudit: readCitationAuditFromMetadata(metadata),

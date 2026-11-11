@@ -38,6 +38,7 @@ import type {
 	NormalChatCompletion,
 	NormalChatFinalizationFailure,
 } from "$lib/shared/normal-chat-completion";
+import { compactNormalChatOutputEvents } from "$lib/shared/normal-chat-output";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
 import { wasActiveChatStreamStopRequested } from "./active-streams";
 import type { AskResumeInput } from "./ask-capture";
@@ -586,8 +587,10 @@ export async function finalizeChatTurn(
 					? {
 							normalChatOutput: {
 								version: 1,
-								events: snapshot.events.filter(
-									(event) => event.segmentId === snapshot.segmentId,
+								events: compactNormalChatOutputEvents(
+									snapshot.events.filter(
+										(event) => event.segmentId === snapshot.segmentId,
+									),
 								),
 							},
 						}

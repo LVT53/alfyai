@@ -1,0 +1,13 @@
+# Review remediation — 2026-11-11
+
+Baseline: `495282bf4` (validated code `29e51551f`, later documentation only). No provider calls, push or deployment in these fixes.
+
+## 1.1 — Compact stored and read output events
+
+- Original `zz-review-main-persisted-events-size` probe ran unchanged and passed its measurement oracle. Before: 307 / 3,166 / 6,009 stored events; 161,564 / 1,683,676 / 3,193,580 bytes for 1,500 / 9,785 / 20,000 answer characters (latter two include reasoning).
+- Added desired invariant in `tests/integration/normal-chat-output-size.test.ts`: metadata <= total text bytes + 8,000 fixed overhead; <= 12 events for these one-step cases. RED: 161,564 was not < 9,500. Legacy-read test RED: 157,419 was not < 7,000.
+- Compact snapshot journal combines each scoped block's deltas, preserves all structural events/first sequence and leaves live callbacks untouched. Finalize compacts defensively; message readers compact old per-token metadata without changing stored rows.
+- GREEN: 6 focused files, 208 tests (`normal-chat-output-size`, shared reducer, finalize, messages, completion, completion SDK). Replay/scope/interleaving/idempotency/input-immutability covered.
+- Logs: `/tmp/turn-completion-remediation/1.1-original-before.log`, `1.1-invariant-red.log`, `1.1-focused-green.log`.
+- Existing oversized database rows are not rewritten here; reads serve compact output, but disk space/parse cost needs an explicit migration if desired.
+- Docs checked: official Vitest CLI (https://vitest.dev/guide/cli.html), AI SDK generation guide (https://ai-sdk.dev/docs/ai-sdk-core/generating-text); no SDK API changed.

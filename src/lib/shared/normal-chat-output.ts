@@ -47,6 +47,57 @@ export type NormalChatOutputEvent = NormalChatOutputScope & {
 		| { type: "completion"; completion: NormalChatCompletion }
 	);
 
+/**
+ * Compact snapshots retain one delta per scoped block, with its original first
+ * sequence. Live transport still receives the untouched incremental events.
+ * Never append a compact snapshot to a live reducer: adopt it as a fresh view.
+ */
+export function createNormalChatOutputJournal(
+	initial: readonly NormalChatOutputEvent[] = [],
+) {
+	const events: NormalChatOutputEvent[] = [];
+	const deltas = new Map<
+		string,
+		Extract<NormalChatOutputEvent, { type: "block_delta" }>
+	>();
+	const seen = new Set<string>();
+	const append = (event: NormalChatOutputEvent) => {
+		const identity = JSON.stringify([
+			event.turnId,
+			event.segmentId,
+			event.sequence,
+		]);
+		if (seen.has(identity)) return;
+		seen.add(identity);
+		if (event.type === "block_delta") {
+			const key = JSON.stringify([
+				event.turnId,
+				event.segmentId,
+				event.attemptId,
+				event.stepId,
+				event.blockId,
+			]);
+			const prior = deltas.get(key);
+			if (prior) {
+				prior.text += event.text;
+				return;
+			}
+			const copy = { ...event };
+			deltas.set(key, copy);
+			events.push(copy);
+		} else events.push({ ...event });
+	};
+	for (const event of initial) append(event);
+	return { events, append };
+}
+
+/** Legacy rows use the same compact representation as newly saved snapshots. */
+export function compactNormalChatOutputEvents(
+	events: readonly NormalChatOutputEvent[],
+): NormalChatOutputEvent[] {
+	return createNormalChatOutputJournal(events).events;
+}
+
 /** Strip explicit control syntax only. Ordinary narration is never classified or removed. */
 export function sanitizeNormalChatAnswer(text: string): string {
 	const state = createInlineThinkingState();

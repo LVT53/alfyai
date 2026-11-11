@@ -19,6 +19,7 @@ import type {
 	NormalChatStopCause,
 } from "$lib/shared/normal-chat-completion";
 import {
+	createNormalChatOutputJournal,
 	type NormalChatOutputEvent,
 	type NormalChatOutputPhase,
 	type NormalChatOutputScope,
@@ -289,13 +290,15 @@ export async function* runNormalChatCompletion(
 		);
 		policy.onSnapshot?.(clone(snapshot));
 	};
+	const outputJournal = createNormalChatOutputJournal(snapshot.events);
+	snapshot.events = outputJournal.events;
 	const emit = (scope: NormalChatOutputScope, event: EventBody) => {
 		const full = {
 			...scope,
 			...event,
 			sequence: ++snapshot.sequence,
 		} as NormalChatOutputEvent;
-		snapshot.events.push(full);
+		outputJournal.append(full);
 		policy.onOutputEvent?.(full);
 	};
 	type EventBody = NormalChatOutputEvent extends infer E
