@@ -15,9 +15,12 @@ const start = {
 	kind: "text",
 	role: "provisional",
 } as const;
-const full = (data: unknown) => ({ type: "data-normal-chat-output", data });
+const full = (data: unknown) => ({
+	type: "data-normal-chat-output" as const,
+	data,
+});
 const delta = (ref = 1) => ({
-	type: "data-normal-chat-delta",
+	type: "data-normal-chat-delta" as const,
 	data: { ref, sequence: 2, text: "Visible" },
 });
 describe("compact output wire references", () => {
@@ -52,7 +55,7 @@ describe("compact output wire references", () => {
 		decoder.consume(full(start));
 		expect(() =>
 			decoder.consume({
-				type: "data-normal-chat-delta",
+				type: "data-normal-chat-delta" as const,
 				data: { ref: 1, sequence: 2, text: 3 },
 			}),
 		).toThrow("invalid_output_delta");

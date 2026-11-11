@@ -214,6 +214,20 @@ it.each([
 		});
 		expect(result.requests).toHaveLength(2);
 		expect(result.attempts).toHaveLength(2);
+		expect(
+			result.attempts.map(({ phase, outcome, stopCause }) => ({
+				phase,
+				outcome,
+				stopCause,
+			})),
+		).toEqual([
+			{
+				phase: "working",
+				outcome: "incomplete",
+				stopCause: caseName === "A" ? "stream_end" : "length",
+			},
+			{ phase: "closing", outcome: "answered", stopCause: "natural_stop" },
+		]);
 		expect(transport).toHaveBeenCalledTimes(2);
 		if (missingPrice)
 			expect(result.attempts.every((a) => a.costUsdMicros === null)).toBe(true);

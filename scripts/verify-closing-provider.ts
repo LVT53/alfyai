@@ -334,7 +334,7 @@ export async function runClosingCase(input: ClosingCaseInput) {
 				costUsdMicros: a.costUsdMicros,
 				modelId: a.modelId,
 				outcome: a.outcome,
-				stopCause: a.stopCause,
+				stopCause: a.safeStopCause,
 			}));
 			const rows = audit
 				.select()
@@ -359,8 +359,10 @@ export async function runClosingCase(input: ClosingCaseInput) {
 					attempts.every(
 						(a) =>
 							a.usageFinal &&
-							a.outcome !== null &&
-							a.stopCause !== null &&
+							typeof a.outcome === "string" &&
+							a.outcome.length > 0 &&
+							typeof a.safeStopCause === "string" &&
+							a.safeStopCause.length > 0 &&
 							a.inputTokens !== null &&
 							a.outputTokens !== null &&
 							a.totalTokens !== null &&

@@ -215,35 +215,7 @@ vi.mock("$lib/utils/tokens", () => ({
 }));
 
 type NeutralStreamEvent =
-	| { type: "text_delta"; text: string }
-	| { type: "reasoning_delta"; text: string }
-	| { type: "tool_call"; callId: string; toolName: string; input: unknown }
-	| { type: "tool_result"; callId: string; toolName: string; output: unknown }
-	| { type: "tool_error"; callId: string; toolName: string; error: string }
-	| {
-			type: "usage";
-			usage: {
-				inputTokens?: number;
-				outputTokens?: number;
-				totalTokens?: number;
-			};
-	  }
-	| {
-			type: "finish";
-			stepCount?: number;
-			lastStepOutputTokens?: number;
-			droppedToolCalls?: number;
-			finishReason: string;
-			rawFinishReason: string | undefined;
-			model: {
-				providerId: string;
-				providerName: string;
-				displayName: string;
-				requestedModelName: string;
-				responseModelName: string;
-			};
-	  }
-	| { type: "error"; error: string };
+	import("../normal-chat-model").StreamingNormalChatModelRunEvent;
 
 const finishEvent: NeutralStreamEvent = {
 	type: "finish",
@@ -321,7 +293,8 @@ function createTurn(
 		conversationId: "test-conv",
 		normalizedMessage: "Hello",
 		streamId: "test-stream",
-		modelId: "model1",
+		modelId: "model1" as const,
+		resolvedProviderId: "model1",
 		modelDisplayName: "Model One",
 		skipPersistUserMessage: false,
 		turnOrigin: "send",
@@ -413,6 +386,81 @@ function createNeutralStreamingResult(
 			contextTraceSections: undefined,
 		},
 		modelId: "model1",
+		modelDisplayName: "Model One",
+		stream: (async function* () {
+			for (const event of events) {
+				yield event;
+			}
+		})(),
+		prefetchedToolCalls: [],
+		getNormalChatToolCalls: () => normalChatToolCalls,
+		getToolCalls: () => normalChatToolCalls,
+		// A run that asked the person says so through getTurnAsk, and hands over
+		// what it said and read (getResponseMessages) after what it was given
+		// (continuationGiven): a test of a pause overrides them.
+		getTurnAsk: () => null,
+		getResponseMessages: () => [],
+		continuationGiven: [],
+		...overrides,
+	};
+}
+
+function createWatchdogStreamingResult(
+	events: NeutralStreamEvent[],
+	overrides: Record<string, unknown> = {},
+) {
+	const normalChatToolCalls =
+		(overrides.normalChatToolCalls as
+			| import("../messages-types").ToolCallEntry[]
+			| undefined) ?? [];
+	return {
+		completionTurn: {
+			segmentId: "fixture-segment",
+			finish: async () => {},
+			getSnapshot: () => ({
+				version: 1 as const,
+				fidelity: "exact" as const,
+				turnId: "fixture-turn",
+				original: {
+					providerId: "model1",
+					providerBaseUrl: "https://fixture.invalid",
+					modelName: "model1",
+					messages: [],
+				},
+				steps: [],
+				prepared: { maxOutputTokens: 1024 },
+				pendingImageEntries: [],
+				executions: [],
+				usage: [],
+				sequence: 0,
+				nextAttempt: 0,
+				workingSteps: 0,
+				closingSegments: [],
+				deadlineAt: 30000,
+				totalTimeoutMs: 30000,
+				segmentId: "fixture-segment",
+				events: [],
+				completion: {
+					version: 1 as const,
+					turnId: "fixture-turn",
+					segmentId: "fixture-segment",
+					phase: "working" as const,
+					outcome: (overrides.fixtureOutcome ??
+						"answered") as import("$lib/shared/normal-chat-output").NormalChatCompletion["outcome"],
+					stopCause: "natural_stop" as const,
+					workingStopCause: "natural_stop" as const,
+					closingAttempted: false,
+				},
+			}),
+		},
+		prepared: {
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: undefined,
+		},
+		modelId: "model1" as const,
+		resolvedProviderId: "model1",
 		modelDisplayName: "Model One",
 		stream: (async function* () {
 			for (const event of events) {
@@ -1006,7 +1054,7 @@ describe("stream-orchestrator SSE contract", () => {
 			"./streaming-normal-chat-model-run"
 		);
 		vi.mocked(run).mockResolvedValue(
-			createNeutralStreamingResult(
+			createWatchdogStreamingResult(
 				[{ type: "text_delta", text: "Answer." }, finishEvent],
 				{
 					completionTurn: {
@@ -1071,7 +1119,7 @@ describe("stream-orchestrator SSE contract", () => {
 			"./streaming-normal-chat-model-run"
 		);
 		vi.mocked(run).mockResolvedValue(
-			createNeutralStreamingResult([], {
+			createWatchdogStreamingResult([], {
 				stream: (async function* () {
 					pulled = true;
 					yield finishEvent;
@@ -1093,21 +1141,25 @@ describe("stream-orchestrator SSE contract", () => {
 		}
 	});
 
-	it("returns a stalled model iterator and releases its transport on deadline", async () => {
+	it.each([
+		false,
+		true,
+	])("releases its owner when stalled iterator cleanup hangs=%s", async (cleanupHangs) => {
 		vi.useFakeTimers();
 		const { runStreamingNormalChatSendModel: run } = await import(
 			"./streaming-normal-chat-model-run"
 		);
 		const finish = vi.fn(async () => {});
-		const returned = vi.fn(async () => ({
-			done: true as const,
-			value: undefined,
-		}));
+		const returned = vi.fn(() =>
+			cleanupHangs
+				? new Promise<IteratorResult<NeutralStreamEvent>>(() => {})
+				: Promise.resolve({ done: true as const, value: undefined }),
+		);
 		const next = vi.fn(
 			() => new Promise<IteratorResult<NeutralStreamEvent>>(() => {}),
 		);
 		vi.mocked(run).mockResolvedValue(
-			createNeutralStreamingResult([], {
+			createWatchdogStreamingResult([], {
 				stream: { [Symbol.asyncIterator]: () => ({ next, return: returned }) },
 				completionTurn: { finish, getSnapshot: () => null },
 			}),
@@ -1132,7 +1184,7 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 		const { createMessage } = await import("$lib/server/services/messages");
 		vi.mocked(runStreamingNormalChatSendModel).mockResolvedValue(
-			createNeutralStreamingResult([
+			createWatchdogStreamingResult([
 				{ type: "text_delta", text: "Answer." },
 				finishEvent,
 			]),

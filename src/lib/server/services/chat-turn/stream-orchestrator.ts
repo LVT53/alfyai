@@ -1350,7 +1350,15 @@ export function runChatStreamOrchestrator(
 			} finally {
 				outputWriter.flush();
 				const settleOwner = async () => {
-					await upstreamIterator?.return?.();
+					// An iterator may queue return behind a hung next; it must not retain the durable owner.
+					void Promise.resolve()
+						.then(() => upstreamIterator?.return?.())
+						.catch((error) =>
+							console.error("[CHAT_STREAM] Iterator cleanup failed", {
+								streamId,
+								error,
+							}),
+						);
 					await streamingRun?.completionTurn?.finish();
 				};
 				try {
