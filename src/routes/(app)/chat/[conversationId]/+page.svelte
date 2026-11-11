@@ -1151,6 +1151,7 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 				messages.update((list) =>
 					finalizeStreamingMessageList(list, {
 						placeholderId: event.placeholderId,
+						canonicalMessage: event.canonicalMessage,
 						clientUserMessageId: event.clientUserMessageId,
 						metadata: event.metadata,
 					}),

@@ -40,6 +40,7 @@ const runtimeHarness = vi.hoisted(() => ({
 		// quick override" without reaching into module internals.
 		options?: StreamChatOptions;
 		handle?: {
+			streamId: string;
 			stop: ReturnType<typeof vi.fn>;
 			detach: ReturnType<typeof vi.fn>;
 		};
@@ -58,6 +59,9 @@ const runtimeHarness = vi.hoisted(() => ({
 	orphanedStream: null as { streamId: string; userMessage: string } | null,
 	/** What the page handed the runtime, for the tests that speak to the page the way the runtime does. */
 	adapters: null as {
+		applyMessageListEvent: (
+			event: import("$lib/client/normal-chat-client-turn-runtime").NormalChatMessageListEvent,
+		) => void;
 		setSendError: (message: string | null) => void;
 		restorePayloadToDraft: (payload: {
 			message: string;
@@ -760,6 +764,135 @@ describe("chat page runtime integration", () => {
 			configurable: true,
 			value: "visible",
 		});
+	});
+
+	it("hydrates canonical Stop anchors through the real page without remounting its disclosed rail", async () => {
+		renderPage();
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "Explain this" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		const original = runtimeHarness.streamInvocations[0];
+		original.callbacks.onThinking("Stale live trace");
+		await waitFor(() =>
+			expect(document.querySelector(".thinking-header")).not.toBeNull(),
+		);
+		const header = document.querySelector(".thinking-header");
+		if (!header || !original.handle)
+			throw new Error("Missing live thinking surface");
+		await fireEvent.click(header);
+		const scope = {
+			version: 1,
+			turnId: "canonical-turn",
+			segmentId: "canonical-segment",
+			attemptId: "a",
+			stepId: "s",
+			phase: "working",
+		} as const;
+		const completion = {
+			version: 1,
+			turnId: scope.turnId,
+			segmentId: scope.segmentId,
+			phase: "working",
+			outcome: "stopped",
+			stopCause: "user_stop",
+			workingStopCause: "user_stop",
+			closingAttempted: false,
+		} as const;
+		const saved: ChatMessage = {
+			id: "canonical-stop",
+			role: "assistant",
+			content: "Saved partial",
+			timestamp: 2,
+			thinking: "Canonical native reasoning.",
+			thoughtSteps: [
+				{
+					id: "anchor",
+					source: "deterministic",
+					activityClass: "understanding-request",
+					impliesExternalAction: false,
+					anchor: { start: 0, end: 9 },
+				},
+			],
+			thinkingSegments: [
+				{ type: "text", content: "Canonical native reasoning." },
+			],
+			normalChatOutput: {
+				version: 1,
+				events: [
+					{
+						...scope,
+						sequence: 1,
+						type: "block_start",
+						blockId: "activity",
+						nativeId: "activity",
+						kind: "text",
+						role: "activity",
+					},
+					{
+						...scope,
+						sequence: 2,
+						type: "block_delta",
+						blockId: "activity",
+						text: "Retained ordinary activity",
+					},
+					{ ...scope, sequence: 3, type: "completion", completion },
+				],
+			},
+		};
+		vi.mocked(fetchConversationDetail).mockResolvedValue(
+			conversationDetailFixture({ messages: [saved] }),
+		);
+		await fireEvent.click(screen.getByTestId("stop-button"));
+		expect(screen.getByTestId("message-input")).not.toBeDisabled();
+		expect(original.handle?.stop).toHaveBeenCalledTimes(1);
+		await waitFor(() =>
+			expect(runtimeHarness.streamInvocations).toHaveLength(2),
+		);
+		const observer = runtimeHarness.streamInvocations[1];
+		observer.callbacks.onEnd("", {
+			observation: {
+				version: 1,
+				state: "terminal",
+				streamId: original.handle.streamId,
+				conversationId: "conv-1",
+				assistantMessageId: saved.id,
+				completion,
+			},
+		});
+		await waitFor(() =>
+			expect(document.querySelector(".thought-step-row")).not.toBeNull(),
+		);
+		expect(document.querySelector(".thinking-header")).toBe(header);
+		expect(
+			document.querySelector(".full-reasoning-header-toggle"),
+		).not.toBeNull();
+		expect(
+			screen.queryByTestId("normal-chat-commentary"),
+		).not.toBeInTheDocument();
+		await fireEvent.click(header);
+		await fireEvent.click(header);
+		expect(screen.getByTestId("normal-chat-commentary")).toHaveTextContent(
+			"Retained ordinary activity",
+		);
+		runtimeHarness.adapters?.applyMessageListEvent({
+			type: "finalize",
+			placeholderId: saved.id,
+			clientUserMessageId: null,
+			canonicalMessage: saved,
+		});
+		await tick();
+		expect(document.querySelector(".thinking-header")).toBe(header);
+		expect(screen.getByTestId("normal-chat-commentary")).toHaveTextContent(
+			"Retained ordinary activity",
+		);
+		expect(document.querySelector(".full-reasoning-view")).toBeNull();
+		const anchor = document.querySelector(".thought-step-row");
+		if (!anchor) throw new Error("Missing canonical anchor");
+		await fireEvent.click(anchor);
+		expect(
+			document.querySelector(".thought-step-anchor-highlight"),
+		).toHaveTextContent("Canonical");
 	});
 
 	it("renders while layout model metadata is still resolving", async () => {
@@ -9598,6 +9731,88 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 		).toHaveLength(1);
 		expect(screen.getByTestId("message-input")).toBeEnabled();
 		expect(sidebarMark()).toBe(false);
+	});
+
+	it.each([
+		"normal",
+		"Stop",
+	] as const)("keeps a canonically reconciled resume folded with its asking reply through %s", async (mode) => {
+		renderAskedChat();
+		await chooseOnCard("Dinner out");
+		await waitFor(() =>
+			expect(runtimeHarness.streamInvocations).toHaveLength(1),
+		);
+		const resume = runtimeHarness.streamInvocations[0];
+		resume.callbacks.onToken("Provisional continued text");
+		await tick();
+		const scope = {
+			version: 1,
+			turnId: "resume-turn",
+			segmentId: "resume-segment",
+			attemptId: "a",
+			stepId: "s",
+			phase: "working",
+		} as const;
+		const completion = {
+			version: 1,
+			turnId: scope.turnId,
+			segmentId: scope.segmentId,
+			phase: "working",
+			outcome: mode === "Stop" ? "stopped" : "answered",
+			stopCause: mode === "Stop" ? "user_stop" : "natural_stop",
+			workingStopCause: mode === "Stop" ? "user_stop" : "natural_stop",
+			closingAttempted: false,
+		} as const;
+		const rows = answeredChat();
+		rows[2].normalChatOutput = {
+			version: 1,
+			events: [{ ...scope, sequence: 1, type: "completion", completion }],
+		};
+		vi.mocked(fetchConversationDetail).mockResolvedValue(
+			conversationDetailFixture({ messages: rows }),
+		);
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([
+			answeredQuestion(),
+		]);
+		if (mode === "Stop") {
+			await fireEvent.click(screen.getByTestId("stop-button"));
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(2),
+			);
+		}
+		const observer = runtimeHarness.streamInvocations.at(-1);
+		if (!observer || !resume.handle) throw new Error("Missing resumed stream");
+		observer.callbacks.onEnd("", {
+			observation: {
+				version: 1,
+				state: "terminal",
+				streamId: resume.handle.streamId,
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-2",
+				completion,
+			},
+		});
+		await screen.findByText(SECOND_WORDS);
+		expect(screen.getByText(FIRST_WORDS)).toBeInTheDocument();
+		expect(
+			screen.getAllByRole("button", { name: "Regenerate response" }),
+		).toHaveLength(1);
+		const copy = vi.fn().mockResolvedValue(undefined);
+		const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: { writeText: copy },
+		});
+		try {
+			const copies = screen.getAllByRole("button", { name: "Copy message" });
+			await fireEvent.click(copies[copies.length - 1]);
+			expect(copy).toHaveBeenCalledWith(
+				`${FIRST_WORDS}\n\n${mode === "Stop" ? "_Incomplete answer._\n\n" : ""}${SECOND_WORDS}`,
+			);
+		} finally {
+			if (previous) Object.defineProperty(navigator, "clipboard", previous);
+			else Reflect.deleteProperty(navigator, "clipboard");
+		}
 	});
 
 	it("draws the continued reply's web search while the resume runs, and after it ends", async () => {

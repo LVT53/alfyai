@@ -196,6 +196,7 @@ export type NormalChatMessageListEvent =
 	| { type: "remove"; messageId: string }
 	| {
 			type: "finalize";
+			canonicalMessage?: ChatMessage;
 			placeholderId: string;
 			clientUserMessageId: string | null;
 			metadata?: StreamMetadata;
@@ -1989,27 +1990,87 @@ export function createNormalChatClientTurnRuntime(
 			!isTurnConversationActive(params.turnConversationId)
 		)
 			return;
-		if (stopSettlement && saved && observation.state === "terminal") {
-			const completion = normalChatOutputView(saved)?.completion;
+		const targetId =
+			stopSettlement?.targetId() ??
+			adapters
+				.getMessages()
+				.find(
+					(row) =>
+						row.id === params.placeholderId ||
+						row.renderKey === params.placeholderId,
+				)?.id;
+		const held = adapters.getMessages().find((row) => row.id === targetId);
+		if (!held || !targetId) return;
+		const previous = normalChatOutputView(held);
+		if (observation.state === "terminal") {
 			const expected = observation.completion;
+			const knownScopes = [
+				params.observedScope,
+				previous?.completion,
+				previous?.blocks[0],
+			];
+			const marker = parseNormalChatFinalization(
+				observation.normalChatFinalization,
+			);
+			const savedMarker = parseNormalChatFinalization(
+				saved?.normalChatFinalization,
+			);
+			const savedView = saved && normalChatOutputView(saved);
+			const completion = projectNormalChatFinalization(
+				savedView?.completion,
+				marker,
+			);
+			const modelCompletion =
+				savedView?.modelCompletion ?? savedView?.completion;
+			// Older receipt-only observations may name a row with no structural
+			// output. Absence is compatible only when neither side advertised it.
+			const requiresStructuralCompletion = Boolean(
+				stopSettlement ||
+					previous ||
+					saved?.normalChatOutput ||
+					savedView ||
+					observation.modelCompletion ||
+					marker ||
+					savedMarker,
+			);
+			const conflicts = (
+				actual: typeof expected | undefined,
+				wanted: typeof expected,
+			) =>
+				!actual ||
+				(Object.keys(wanted) as (keyof typeof wanted)[]).some(
+					(key) => actual[key] !== wanted[key],
+				);
 			if (
-				!completion ||
-				(Object.keys(completion) as (keyof typeof completion)[]).some(
-					(key) => completion[key] !== expected[key],
-				)
+				knownScopes.some(
+					(scope) =>
+						scope &&
+						(scope.turnId !== expected.turnId ||
+							scope.segmentId !== expected.segmentId),
+				) ||
+				(saved &&
+					((requiresStructuralCompletion && conflicts(completion, expected)) ||
+						(observation.modelCompletion &&
+							conflicts(modelCompletion, observation.modelCompletion)) ||
+						(marker &&
+							savedMarker &&
+							marker.wasStopped !== savedMarker.wasStopped))) ||
+				(held.id !== params.placeholderId &&
+					held.id !== observation.assistantMessageId)
 			) {
 				saved = undefined;
+				savedUserId = undefined;
 				observation = {
 					version: 1,
 					state: "unavailable",
 					streamId: observation.streamId,
 					conversationId: observation.conversationId,
 				};
+			} else if (saved && marker) {
+				// A validated persistence failure can arrive after the row snapshot.
+				saved = { ...saved, normalChatFinalization: marker };
 			}
 		}
-		const targetId = stopSettlement?.targetId() ?? params.placeholderId;
-		const held = adapters.getMessages().find((row) => row.id === targetId);
-		const previous = held && normalChatOutputView(held);
 		const terminal = observation.state === "terminal" ? observation : undefined;
 		const normalChatFinalization = parseNormalChatFinalization(
 			terminal?.normalChatFinalization ?? saved?.normalChatFinalization,
@@ -2022,8 +2083,8 @@ export function createNormalChatClientTurnRuntime(
 		const resolved = Boolean(
 			terminal && (!terminal.assistantMessageId || saved),
 		);
-		if (resolved || knownFinalizationFailure) {
-			const view = saved ? normalChatOutputView(saved) : previous;
+		if (!saved && (resolved || knownFinalizationFailure)) {
+			const view = previous;
 			adapters.applyMessageListEvent({
 				type: "applyNormalChatOutput",
 				placeholderId: targetId,
@@ -2045,23 +2106,22 @@ export function createNormalChatClientTurnRuntime(
 			type: "finalize",
 			placeholderId: targetId,
 			clientUserMessageId: params.clientUserMessageId,
-			metadata: {
-				userMessageId: savedUserId,
-				assistantMessageId:
-					saved?.id ??
-					(knownFinalizationFailure
-						? (terminal?.assistantMessageId ?? undefined)
-						: undefined),
-				normalChatFinalization,
-				finalContent:
-					saved?.content ??
-					(knownFinalizationFailure ? metadata?.finalContent : undefined),
-				thinking: saved?.thinking,
-				wasStopped: terminal?.completion.outcome === "stopped",
-				...(!resolved
-					? { completionWarningCodes: ["stream_closed_without_finish"] }
-					: {}),
-			},
+			canonicalMessage: saved,
+			metadata: saved
+				? { userMessageId: savedUserId }
+				: {
+						assistantMessageId: knownFinalizationFailure
+							? (terminal?.assistantMessageId ?? undefined)
+							: undefined,
+						normalChatFinalization,
+						finalContent: knownFinalizationFailure
+							? metadata?.finalContent
+							: undefined,
+						wasStopped: terminal?.completion.outcome === "stopped",
+						...(!resolved
+							? { completionWarningCodes: ["stream_closed_without_finish"] }
+							: {}),
+					},
 		});
 		if (stopSettlement) {
 			if (!stopSettlement.owns()) return;

@@ -1169,6 +1169,7 @@ export function applyToolCallUpdateToMessageList(
 export function finalizeStreamingMessageList(
 	list: ChatMessage[],
 	params: {
+		canonicalMessage?: ChatMessage;
 		placeholderId: string;
 		clientUserMessageId: string | null;
 		metadata?: StreamMetadata;
@@ -1179,6 +1180,19 @@ export function finalizeStreamingMessageList(
 
 	return list.map((message) => {
 		if (message.id === params.placeholderId) {
+			if (params.canonicalMessage) {
+				// The read-model row is the complete durable snapshot. Only client
+				// identity/lifecycle survive; omitted durable fields must disappear.
+				return {
+					...params.canonicalMessage,
+					renderKey: message.renderKey ?? message.id,
+					isStreaming: false,
+					isThinkingStreaming: false,
+					runtimePhase: undefined,
+					responseActivity: undefined,
+					evidencePending: !params.canonicalMessage.evidenceSummary,
+				};
+			}
 			const finalizedThinkingSegments = message.thinkingSegments?.map(
 				finalizeThinkingSegment,
 			);

@@ -3299,3 +3299,102 @@ describe("the draft a chat is opened with", () => {
 		});
 	});
 });
+
+describe("canonical message finalization", () => {
+	it("replaces one durable snapshot, clears absent fields, and keeps only client identity/lifecycle", () => {
+		const saved: ChatMessage = Object.freeze({
+			id: "saved",
+			role: "assistant",
+			timestamp: 5,
+			content: "Canonical partial",
+			railSummary: "A durable field unrelated to streaming",
+			projectFilesRead: 2,
+			continuesMessageId: "asking-segment",
+		});
+		const held = Object.freeze({
+			id: "placeholder",
+			renderKey: "stable-key",
+			role: "assistant",
+			timestamp: 1,
+			content: "Old",
+			thinking: "Old trace",
+			thoughtSteps: [],
+			thinkingSegments: [],
+			followUps: ["Old"],
+			attachments: [],
+			costUsd: 9,
+			wasStopped: true,
+			completionWarningCodes: ["stream_closed_without_finish"],
+			userIntent: { webSearch: true },
+			normalChatOutputView: { answer: "Old", activity: [], blocks: [] },
+		}) as ChatMessage;
+		const other: ChatMessage = Object.freeze({
+			id: "other",
+			role: "assistant",
+			timestamp: 0,
+			content: "Untouched",
+		});
+		const user: ChatMessage = Object.freeze({
+			id: "local-user",
+			renderKey: "local-user",
+			role: "user",
+			timestamp: 0,
+			content: "Question",
+		});
+		const params = {
+			placeholderId: held.id,
+			clientUserMessageId: user.id,
+			canonicalMessage: saved,
+			metadata: { userMessageId: "saved-user" },
+		};
+		const result = finalizeStreamingMessageList([other, user, held], params);
+		expect(result[0]).toBe(other);
+		expect(result[1]).toEqual({ ...user, id: "saved-user" });
+		expect(result[2]).toEqual({
+			...saved,
+			renderKey: "stable-key",
+			isStreaming: false,
+			isThinkingStreaming: false,
+			runtimePhase: undefined,
+			responseActivity: undefined,
+			evidencePending: true,
+		});
+		expect(
+			finalizeStreamingMessageList(result, {
+				...params,
+				placeholderId: saved.id,
+			}),
+		).toEqual(result);
+		expect(held.content).toBe("Old");
+		expect(saved).not.toHaveProperty("renderKey");
+	});
+	it("does not replace an absent target or use the saved render key", () => {
+		const saved: ChatMessage = {
+			id: "saved",
+			renderKey: "server-key",
+			role: "assistant",
+			timestamp: 1,
+			content: "Saved",
+		};
+		const held: ChatMessage = {
+			id: "local",
+			role: "assistant",
+			timestamp: 0,
+			content: "Held",
+		};
+		expect(
+			finalizeStreamingMessageList([held], {
+				placeholderId: "missing",
+				clientUserMessageId: null,
+				canonicalMessage: saved,
+			}),
+		).toEqual([held]);
+		expect(
+			finalizeStreamingMessageList([held], {
+				placeholderId: held.id,
+				clientUserMessageId: null,
+				canonicalMessage: saved,
+			})[0].renderKey,
+		).toBe("local");
+	});
+});
