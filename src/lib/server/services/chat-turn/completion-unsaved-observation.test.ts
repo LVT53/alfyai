@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { NormalChatTurnObservation } from "$lib/services/ai-sdk-ui-stream-contract";
 import * as schema from "../../db/schema";
 import type { NormalChatContinuationSnapshot } from "../normal-chat-model";
 
@@ -147,7 +148,10 @@ async function observeWire(requestId = input.requestId, userId = input.userId) {
 	const metadata = decodeAiSdkUiStreamPayloads(chunks.join(""))
 		.map(extractAiSdkUiStreamMetadataData)
 		.find(Boolean);
-	return { chunks: chunks.join(""), observation: metadata?.observation };
+	return {
+		chunks: chunks.join(""),
+		observation: metadata?.observation as NormalChatTurnObservation | undefined,
+	};
 }
 
 // Reviewer B reproducer: the model answered, finalization then failed to save the
