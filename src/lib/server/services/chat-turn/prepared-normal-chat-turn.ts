@@ -508,11 +508,13 @@ export async function prepareNormalChatTurn(
 			receipt,
 			runPlain(): Promise<PlainNormalChatSendModelResult> {
 				plain ??= (async () => {
+					let transferred = false;
 					try {
 						const result = await run.runPlain();
 						if (result.continuation) lifetime.capture(result.continuation);
 						const recorded = calls();
 						const timeline = [...prefetched, ...recorded];
+						transferred = params.retainCompletionForFinalization === true;
 						return {
 							...presentation,
 							text: result.continuation
@@ -549,7 +551,7 @@ export async function prepareNormalChatTurn(
 							completionTurn: receipt,
 						};
 					} finally {
-						await lifetime.finish();
+						if (!transferred) await lifetime.finish();
 					}
 				})();
 				return plain;

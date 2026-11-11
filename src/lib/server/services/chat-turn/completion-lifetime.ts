@@ -236,11 +236,12 @@ export async function observeCompletionTurn(
 	// linked receipt is still finalizing, even if generation already answered.
 	if (
 		!record.messageId &&
-		isStreamActive({
-			streamId: identity.streamId,
-			userId: input.userId,
-			conversationId: input.conversationId,
-		})
+		(owners.has(record.ownerId) ||
+			isStreamActive({
+				streamId: identity.streamId,
+				userId: input.userId,
+				conversationId: input.conversationId,
+			}))
 	) {
 		return {
 			...identity,

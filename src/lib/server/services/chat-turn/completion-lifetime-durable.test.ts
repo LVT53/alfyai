@@ -489,8 +489,9 @@ it.each([
 		expect(row).toMatchObject({
 			usageFinal: true,
 			costUsdMicros: 3,
-			outcome: null,
-			safeStopCause: null,
+			outcome: closing && row.phase === "working" ? "incomplete" : "answered",
+			safeStopCause:
+				closing && row.phase === "working" ? "length" : "natural_stop",
 		});
 	expect(database.db.select().from(schema.usageEvents).all()).toHaveLength(
 		closing ? 2 : 1,

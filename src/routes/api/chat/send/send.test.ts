@@ -169,10 +169,12 @@ vi.mock("$lib/server/env", async (importOriginal) => ({
 
 const configMockState = vi.hoisted(() => ({
 	composerCommandRegistryEnabled: true,
+	requestTimeoutMs: 300000,
 }));
 
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({
+		requestTimeoutMs: configMockState.requestTimeoutMs,
 		concurrentStreamLimit: 100,
 		perUserStreamLimit: 10,
 		composerCommandRegistryEnabled:
@@ -288,9 +290,11 @@ const mockResolveEffectiveSkillDefinition =
 describe("POST /api/chat/send", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockCreateMessage.mockReset();
 		mockReadConversationLanguage.mockReset();
 		mockReadConversationLanguage.mockResolvedValue(null);
 		configMockState.composerCommandRegistryEnabled = true;
+		configMockState.requestTimeoutMs = 300000;
 		mockRequireAuth.mockReturnValue(undefined);
 		mockCheckStreamCapacity.mockReset();
 		mockCheckStreamCapacity.mockReturnValue({ allowed: true });
@@ -335,6 +339,117 @@ describe("POST /api/chat/send", () => {
 			baseResolvedSkillDefinition,
 		);
 		mockGetAvailableSkillDefinition.mockResolvedValue(baseUserSkillDefinition);
+	});
+
+	afterEach(() => vi.useRealTimers());
+	it.each([
+		"preflight",
+		"preparation",
+	])("bounds hanging %s before model dispatch", async (stage) => {
+		vi.useFakeTimers();
+		configMockState.requestTimeoutMs = 1000;
+		seedConversationTurn(mockGetConversation, mockCreateMessage);
+		let release!: () => void;
+		const held = new Promise<void>((r) => {
+			release = r;
+		});
+		if (stage === "preflight")
+			mockGetConversation.mockImplementationOnce(async () => {
+				await held;
+				return null;
+			});
+		else
+			mockListPendingWrites.mockImplementationOnce(async () => {
+				await held;
+				return [];
+			});
+		const response = POST(
+			makeEvent({ message: "Hello", conversationId: "conv-1" }),
+		);
+		await vi.advanceTimersByTimeAsync(1000);
+		expect((await response).status).toBe(502);
+		release();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
+	});
+	it("fences assistant persistence after a late user write", async () => {
+		vi.useFakeTimers();
+		configMockState.requestTimeoutMs = 1000;
+		seedConversationTurn(mockGetConversation, mockCreateMessage);
+		let release!: () => void;
+		const held = new Promise<void>((r) => {
+			release = r;
+		});
+		mockCreateMessage.mockReset();
+		mockCreateMessage.mockImplementationOnce(async () => {
+			await held;
+			return {
+				id: "user-saved",
+				role: "user",
+				content: "Hello",
+				timestamp: Date.now(),
+			};
+		});
+		const response = POST(
+			makeEvent({ message: "Hello", conversationId: "conv-1" }),
+		);
+		await vi.advanceTimersByTimeAsync(1000);
+		expect((await response).status).toBe(502);
+		release();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(mockCreateMessage).toHaveBeenCalledTimes(1);
+	});
+	it("returns scoped pending while the assistant commit settles", async () => {
+		vi.useFakeTimers();
+		configMockState.requestTimeoutMs = 1000;
+		seedConversationTurn(mockGetConversation, mockCreateMessage);
+		let release!: () => void;
+		const held = new Promise<void>((r) => {
+			release = r;
+		});
+		const finish = vi.fn(async () => undefined);
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
+			text: "Hello",
+			modelId: "model1",
+			completionTurn: { segmentId: "s", getSnapshot: () => null, finish },
+		});
+		mockCreateMessage.mockReset();
+		mockCreateMessage
+			.mockImplementationOnce(async () => ({
+				id: "user-saved",
+				role: "user",
+				content: "Hello",
+				timestamp: Date.now(),
+			}))
+			.mockImplementationOnce(async () => {
+				await held;
+				return {
+					id: "assistant-saved",
+					role: "assistant",
+					content: "Hello",
+					timestamp: Date.now(),
+				};
+			});
+		const response = POST(
+			makeEvent({
+				message: "Hello",
+				conversationId: "conv-1",
+				streamId: "plain-pending",
+			}),
+		);
+		await vi.advanceTimersByTimeAsync(1000);
+		const res = await response;
+		expect(res.status).toBe(202);
+		expect(await res.json()).toMatchObject({
+			streamId: "plain-pending",
+			conversationId: "conv-1",
+			segmentId: "s",
+			observation: { state: "pending" },
+		});
+		expect(finish).not.toHaveBeenCalled();
+		release();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(finish).toHaveBeenCalledExactlyOnceWith("assistant-saved");
 	});
 
 	it.each([

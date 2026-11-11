@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
 import { buildMessageUserIntent } from "$lib/message-user-intent";
@@ -23,6 +24,7 @@ import {
 	preflightAtlasTurnSources,
 	preflightChatTurn,
 	resolveTurnReplyLanguage,
+	runBoundedPlainTurn,
 	runPlainNormalChatSendModel,
 } from "$lib/server/services/chat-turn";
 import { recordCompletedTurnContextUsage } from "$lib/server/services/chat-turn/context-usage";
@@ -102,46 +104,67 @@ export const POST: RequestHandler = async (event) => {
 	if (capacityResponse) {
 		return capacityResponse;
 	}
-	const sendRefused = await refuseWhileQuestionWaits(
-		user.id,
-		parsedRequest.value.conversationId,
-	);
-	if (sendRefused) return sendRefused;
-
-	const preflight = await preflightChatTurn({
-		userId: user.id,
-		request: parsedRequest.value,
-		// A send the client already abandoned must not keep a server task
-		// polling the extraction ledger for the rest of the preflight budget.
-		signal: event.request.signal,
-	});
-	if (!preflight.ok) {
-		return json(
-			{
-				error: preflight.error.error,
-				code: preflight.error.code,
-				attachmentIds: preflight.error.attachmentIds,
-				// Present only for the two extraction refusals; it carries the
-				// status and error code per attachment so the composer can
-				// translate the message instead of echoing the server's English.
-				attachmentExtraction: preflight.error.attachmentExtraction,
-				attachmentReadiness: preflight.error.attachmentReadiness,
-			},
-			{ status: preflight.error.status },
-		);
-	}
-
-	const turn = preflight.value;
-
+	const deadlineAt =
+		Date.now() +
+		(Number.isFinite(runtimeConfig.requestTimeoutMs) &&
+		runtimeConfig.requestTimeoutMs > 0
+			? runtimeConfig.requestTimeoutMs
+			: 300000);
+	let turn: SendTurn | undefined;
 	try {
+		const prepared = await runBoundedPlainTurn(
+			runtimeConfig.requestTimeoutMs,
+			async (guard) => {
+				const sendRefused = await guard.wait(
+					refuseWhileQuestionWaits(user.id, parsedRequest.value.conversationId),
+				);
+				if (sendRefused) return { response: sendRefused };
+
+				const preflight = await guard.wait(
+					preflightChatTurn({
+						userId: user.id,
+						request: parsedRequest.value,
+						// A send the client already abandoned must not keep a server task
+						// polling the extraction ledger for the rest of the preflight budget.
+						signal: AbortSignal.any([event.request.signal, guard.signal]),
+					}),
+				);
+				if (!preflight.ok) {
+					return {
+						response: json(
+							{
+								error: preflight.error.error,
+								code: preflight.error.code,
+								attachmentIds: preflight.error.attachmentIds,
+								// Present only for the two extraction refusals; it carries the
+								// status and error code per attachment so the composer can
+								// translate the message instead of echoing the server's English.
+								attachmentExtraction: preflight.error.attachmentExtraction,
+								attachmentReadiness: preflight.error.attachmentReadiness,
+							},
+							{ status: preflight.error.status },
+						),
+					};
+				}
+
+				return preflight;
+			},
+			deadlineAt,
+		);
+		if (prepared.state !== "complete")
+			throw new Error("Unexpected preflight persistence");
+		if ("response" in prepared.value) return prepared.value.response;
+		turn = prepared.value.value;
+
 		return await runStandardSendTurn({
 			user,
 			turn,
 			runtimeConfig,
+			deadlineAt,
 		});
 	} catch (error) {
 		console.error("Normal Chat Model Run send error:", error);
-		if (turn.attachmentTraceId) {
+		if (turn?.attachmentTraceId) {
 			logAttachmentTrace("send_failure", {
 				traceId: turn.attachmentTraceId,
 				conversationId: turn.conversationId,
@@ -535,6 +558,7 @@ async function runStandardSendTurn({
 	user,
 	turn,
 	runtimeConfig,
+	deadlineAt,
 }: {
 	user: {
 		id: string;
@@ -544,172 +568,221 @@ async function runStandardSendTurn({
 	};
 	turn: SendTurn;
 	runtimeConfig: ReturnType<typeof getConfig>;
+	deadlineAt: number;
 }): Promise<Response> {
-	const upstreamMessage = turn.normalizedMessage;
-	const pendingWriteIdsAtStart = await snapshotConversationPendingWrites({
-		userId: user.id,
-		conversationId: turn.conversationId,
-	});
-	const startedResetGeneration = await getCurrentMemoryResetGeneration(user.id);
-	const personalityPrompt = await resolvePersonalityPrompt(
-		turn.personalityProfileId,
-	);
-	const modelRunResult = await runPlainNormalChatSendModel({
-		completionRequestId: turn.streamId ?? undefined,
-		userId: user.id,
-		runtimeConfig,
-		message: upstreamMessage,
-		conversationId: turn.conversationId,
-		modelId: turn.modelId,
-		user: buildModelUser(user),
-		attachmentIds: turn.attachmentIds,
-		activeDocumentArtifactId: turn.activeDocumentArtifactId,
-		pictureRefs: turn.pictureRefs,
-		imageMarks: turn.imageMarks,
-		attachmentTraceId: turn.attachmentTraceId,
-		pendingSkillInstructions: turn.appliedSkill?.instructionsEnvelope,
-		personalityPrompt,
-		thinkingMode: turn.thinkingMode,
-		depthMetadata: turn.depthMetadata,
-		forceWebSearch: turn.forceWebSearch,
-		enabledConnectionCapabilities: turn.enabledConnectionCapabilities,
-	});
+	const requestId = turn.streamId ?? randomUUID();
+	const bounded = await runBoundedPlainTurn(
+		runtimeConfig.requestTimeoutMs,
+		async (guard) => {
+			const upstreamMessage = turn.normalizedMessage;
+			const pendingWriteIdsAtStart = await guard.wait(
+				snapshotConversationPendingWrites({
+					userId: user.id,
+					conversationId: turn.conversationId,
+				}),
+			);
+			const startedResetGeneration = await guard.wait(
+				getCurrentMemoryResetGeneration(user.id),
+			);
+			const personalityPrompt = await guard.wait(
+				resolvePersonalityPrompt(turn.personalityProfileId),
+			);
+			const modelRunResult = await guard.model(
+				runPlainNormalChatSendModel({
+					completionRequestId: requestId,
+					completionDeadlineAt: guard.deadlineAt,
+					retainCompletionForFinalization: true,
+					signal: guard.signal,
+					onToolActivity: guard.touch,
+					onOutputEvent: guard.touch,
+					userId: user.id,
+					runtimeConfig,
+					message: upstreamMessage,
+					conversationId: turn.conversationId,
+					modelId: turn.modelId,
+					user: buildModelUser(user),
+					attachmentIds: turn.attachmentIds,
+					activeDocumentArtifactId: turn.activeDocumentArtifactId,
+					pictureRefs: turn.pictureRefs,
+					imageMarks: turn.imageMarks,
+					attachmentTraceId: turn.attachmentTraceId,
+					pendingSkillInstructions: turn.appliedSkill?.instructionsEnvelope,
+					personalityPrompt,
+					thinkingMode: turn.thinkingMode,
+					depthMetadata: turn.depthMetadata,
+					forceWebSearch: turn.forceWebSearch,
+					enabledConnectionCapabilities: turn.enabledConnectionCapabilities,
+				}),
+			);
 
-	const modelRunArtifacts = normalizeModelRunOutput({
-		runtimeConfig,
-		turn,
-		modelRunResultText: modelRunResult.text ?? "",
-		modelRunResult,
-	});
-	const finalResponseText =
-		modelRunArtifacts.citationGate.response ?? modelRunArtifacts.responseText;
-	// Post-turn prompt usage (provider-reported input tokens, else the
-	// wrapper's full-prompt estimate) so the response's contextStatus reports
-	// the real prompt size against the model's context window.
-	const contextStatus =
-		(await recordCompletedTurnContextUsage({
-			userId: user.id,
-			conversationId: turn.conversationId,
-			contextStatus: modelRunResult.contextStatus,
-			providerUsage: modelRunResult.providerUsage,
-			estimatedPromptTokens: modelRunResult.estimatedPromptTokens,
-			logPrefix: "[CHAT_SEND]",
-		})) ?? null;
+			const modelRunArtifacts = normalizeModelRunOutput({
+				runtimeConfig,
+				turn,
+				modelRunResultText: modelRunResult.text ?? "",
+				modelRunResult,
+			});
+			const finalResponseText =
+				modelRunArtifacts.citationGate.response ??
+				modelRunArtifacts.responseText;
+			// Post-turn prompt usage (provider-reported input tokens, else the
+			// wrapper's full-prompt estimate) so the response's contextStatus reports
+			// the real prompt size against the model's context window.
+			const contextStatus =
+				(await guard.wait(
+					recordCompletedTurnContextUsage({
+						userId: user.id,
+						conversationId: turn.conversationId,
+						contextStatus: modelRunResult.contextStatus,
+						providerUsage: modelRunResult.providerUsage,
+						estimatedPromptTokens: modelRunResult.estimatedPromptTokens,
+						logPrefix: "[CHAT_SEND]",
+					}),
+				)) ?? null;
 
-	const userIntent = buildMessageUserIntent({
-		skill: turn.appliedSkill
-			? {
-					id: turn.appliedSkill.skillId,
-					displayName: turn.appliedSkill.skillDisplayName,
-				}
-			: null,
-		forceWebSearch: turn.forceWebSearch,
-	});
+			const userIntent = buildMessageUserIntent({
+				skill: turn.appliedSkill
+					? {
+							id: turn.appliedSkill.skillId,
+							displayName: turn.appliedSkill.skillDisplayName,
+						}
+					: null,
+				forceWebSearch: turn.forceWebSearch,
+			});
 
-	// The language of the conversation for the person, named once after the reply
-	// (chat-turn/reply-language.ts): the rail headline and the record on the
-	// message follow it, not a guess made before the reply.
-	const turnLanguage = await resolveTurnReplyLanguage({
-		userId: user.id,
-		conversationId: turn.conversationId,
-		reply: finalResponseText,
-		latestUserMessage: turn.normalizedMessage,
-		uiLanguage: user.uiLanguage,
-	}).catch(() => null);
+			// The language of the conversation for the person, named once after the reply
+			// (chat-turn/reply-language.ts): the rail headline and the record on the
+			// message follow it, not a guess made before the reply.
+			const turnLanguage = await guard.wait(
+				resolveTurnReplyLanguage({
+					userId: user.id,
+					conversationId: turn.conversationId,
+					reply: finalResponseText,
+					latestUserMessage: turn.normalizedMessage,
+					uiLanguage: user.uiLanguage,
+				}).catch(() => null),
+			);
 
-	const completion = await finalizeChatTurn({
-		completionTurn: modelRunResult.completionTurn,
-		turnKind: "send",
-		responseLanguage: turnLanguage?.language ?? user.uiLanguage ?? "en",
-		userId: user.id,
-		conversationId: turn.conversationId,
-		userMessageContent: turn.normalizedMessage,
-		persistUserMessage: true,
-		normalizedMessage: turn.normalizedMessage,
-		upstreamMessage,
-		assistantResponse: finalResponseText,
-		serverSegments: modelRunResult.serverSegments,
-		assistantMetadata: {
-			evidenceStatus: "pending",
-			...(turnLanguage
-				? {
-						conversationLanguage: turnLanguage.language,
-						replyLanguage: turnLanguage.reply,
-					}
-				: {}),
-			modelDisplayName: modelRunArtifacts.effectiveModelDisplayName,
-			...(modelRunArtifacts.citationGate.repair
-				? { citationAudit: modelRunArtifacts.citationGate.repair }
-				: {}),
-			// What the USER chose for this turn (see $lib/message-user-intent.ts)
-			// — the provenance line reads this, never the tool calls. Omitted
-			// entirely when they chose nothing.
-			...(userIntent ? { userIntent } : {}),
-			// Which instruction scopes the prompt carried, for the Info popover.
-			// Read off the run result — the model run is where the prepared
-			// system prompt's sections were decided — so it is never re-read from
-			// the user's settings here. Omitted entirely when nothing applied.
-			...(modelRunResult.instructionsApplied
-				? { instructionsApplied: modelRunResult.instructionsApplied }
-				: {}),
-			...modelRunArtifacts.normalizedAssistantOutput.metadata,
-		},
-		reasoningDepth: turn.reasoningDepth,
-		depthMetadata: modelRunResult.depthMetadata ?? turn.depthMetadata,
-		attachmentIds: turn.attachmentIds,
-		userPictures: modelRunResult.userPictures,
-		activeDocumentArtifactId: turn.activeDocumentArtifactId ?? null,
-		contextStatus,
-		initialTaskState: modelRunResult.taskState,
-		initialContextDebug: modelRunResult.contextDebug,
-		analytics: {
-			model: modelRunArtifacts.effectiveModelId,
-			modelDisplayName: modelRunArtifacts.effectiveModelDisplayName,
-			promptTokens: estimateTokenCount(upstreamMessage),
-			completionTokens: estimateTokenCount(finalResponseText),
-			generationTimeMs: undefined,
-			providerUsage: modelRunResult.providerUsage,
-		},
-		assistantMirrorContent: modelRunResult.text ?? "",
-		maintenanceReason: "chat_send",
-		startedResetGeneration,
-		toolCalls: modelRunArtifacts.finalToolCalls,
-		skillUse: turn.appliedSkill
-			? { displayName: turn.appliedSkill.skillDisplayName }
-			: null,
-		contextTraceSections: modelRunResult.contextTraceSections,
-		webCitationAudit: modelRunArtifacts.citationGate.audit,
-		generatedOutputReconciliation: {
-			fileProductionToolCalls:
-				modelRunResult.normalChatToolCalls ??
-				modelRunResult.toolCalls ??
-				modelRunResult.prefetchedToolCalls,
-			pendingWriteIdsAtStart,
-		},
-	});
-	await touchConversation(user.id, turn.conversationId).catch(() => undefined);
-
-	const terminal = modelRunResult.completionTurn?.getSnapshot()?.completion;
-	return json({
-		...(terminal ? { completion: terminal } : {}),
-		...(terminal &&
-		["incomplete", "failed", "stopped"].includes(terminal.outcome)
-			? {
-					warning: {
-						code: "normal_chat_completion",
-						outcome: terminal.outcome,
-						stopCause: terminal.stopCause,
+			const completion = await guard.finalize(
+				finalizeChatTurn({
+					persistenceSignal: guard.persistenceSignal,
+					onPersistenceStarted: guard.onPersistenceStarted,
+					completionTurn: modelRunResult.completionTurn,
+					turnKind: "send",
+					responseLanguage: turnLanguage?.language ?? user.uiLanguage ?? "en",
+					userId: user.id,
+					conversationId: turn.conversationId,
+					userMessageContent: turn.normalizedMessage,
+					persistUserMessage: true,
+					normalizedMessage: turn.normalizedMessage,
+					upstreamMessage,
+					assistantResponse: finalResponseText,
+					serverSegments: modelRunResult.serverSegments,
+					assistantMetadata: {
+						evidenceStatus: "pending",
+						...(turnLanguage
+							? {
+									conversationLanguage: turnLanguage.language,
+									replyLanguage: turnLanguage.reply,
+								}
+							: {}),
+						modelDisplayName: modelRunArtifacts.effectiveModelDisplayName,
+						...(modelRunArtifacts.citationGate.repair
+							? { citationAudit: modelRunArtifacts.citationGate.repair }
+							: {}),
+						// What the USER chose for this turn (see $lib/message-user-intent.ts)
+						// — the provenance line reads this, never the tool calls. Omitted
+						// entirely when they chose nothing.
+						...(userIntent ? { userIntent } : {}),
+						// Which instruction scopes the prompt carried, for the Info popover.
+						// Read off the run result — the model run is where the prepared
+						// system prompt's sections were decided — so it is never re-read from
+						// the user's settings here. Omitted entirely when nothing applied.
+						...(modelRunResult.instructionsApplied
+							? { instructionsApplied: modelRunResult.instructionsApplied }
+							: {}),
+						...modelRunArtifacts.normalizedAssistantOutput.metadata,
 					},
-				}
-			: {}),
-		response: { text: finalResponseText },
-		conversationId: turn.conversationId,
-		contextStatus,
-		activeWorkingSet: completion.turnState?.activeWorkingSet,
-		taskState: completion.turnState?.taskState,
-		contextDebug: completion.turnState?.contextDebug,
-		generatedFiles: completion.generatedFiles,
-	});
+					reasoningDepth: turn.reasoningDepth,
+					depthMetadata: modelRunResult.depthMetadata ?? turn.depthMetadata,
+					attachmentIds: turn.attachmentIds,
+					userPictures: modelRunResult.userPictures,
+					activeDocumentArtifactId: turn.activeDocumentArtifactId ?? null,
+					contextStatus,
+					initialTaskState: modelRunResult.taskState,
+					initialContextDebug: modelRunResult.contextDebug,
+					analytics: {
+						model: modelRunArtifacts.effectiveModelId,
+						modelDisplayName: modelRunArtifacts.effectiveModelDisplayName,
+						promptTokens: estimateTokenCount(upstreamMessage),
+						completionTokens: estimateTokenCount(finalResponseText),
+						generationTimeMs: undefined,
+						providerUsage: modelRunResult.providerUsage,
+					},
+					assistantMirrorContent: modelRunResult.text ?? "",
+					maintenanceReason: "chat_send",
+					startedResetGeneration,
+					toolCalls: modelRunArtifacts.finalToolCalls,
+					skillUse: turn.appliedSkill
+						? { displayName: turn.appliedSkill.skillDisplayName }
+						: null,
+					contextTraceSections: modelRunResult.contextTraceSections,
+					webCitationAudit: modelRunArtifacts.citationGate.audit,
+					generatedOutputReconciliation: {
+						fileProductionToolCalls:
+							modelRunResult.normalChatToolCalls ??
+							modelRunResult.toolCalls ??
+							modelRunResult.prefetchedToolCalls,
+						pendingWriteIdsAtStart,
+					},
+				}),
+			);
+			await guard.wait(
+				touchConversation(user.id, turn.conversationId).catch(() => undefined),
+			);
+
+			const terminal = modelRunResult.completionTurn?.getSnapshot()?.completion;
+			return json({
+				...(terminal ? { completion: terminal } : {}),
+				...(terminal &&
+				["incomplete", "failed", "stopped"].includes(terminal.outcome)
+					? {
+							warning: {
+								code: "normal_chat_completion",
+								outcome: terminal.outcome,
+								stopCause: terminal.stopCause,
+							},
+						}
+					: {}),
+				response: { text: finalResponseText },
+				conversationId: turn.conversationId,
+				contextStatus,
+				activeWorkingSet: completion.turnState?.activeWorkingSet,
+				taskState: completion.turnState?.taskState,
+				contextDebug: completion.turnState?.contextDebug,
+				generatedFiles: completion.generatedFiles,
+			});
+		},
+		deadlineAt,
+	);
+	return bounded.state === "complete"
+		? bounded.value
+		: json(
+				{
+					status: "pending",
+					streamId: requestId,
+					conversationId: turn.conversationId,
+					segmentId: bounded.segmentId,
+					observation: {
+						version: 1,
+						state: "pending",
+						streamId: requestId,
+						conversationId: turn.conversationId,
+						turnId: bounded.segmentId,
+						segmentId: bounded.segmentId,
+					},
+				},
+				{ status: 202, headers: { "Cache-Control": "no-store" } },
+			);
 }
 
 // Issue 7.5 — same "snapshot at turn start" pattern as

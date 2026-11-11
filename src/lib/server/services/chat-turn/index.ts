@@ -27,6 +27,7 @@ export type {
 export { FileAssociationFinalizationError, finalizeChatTurn } from "./finalize";
 export { normalizeAssistantOutputWithSkillControl } from "./normalizer";
 export { runPlainNormalChatSendModel } from "./plain-normal-chat-model-run";
+export { runBoundedPlainTurn } from "./plain-turn-lifetime";
 export {
 	admitChatTurnStream,
 	checkChatTurn,

@@ -187,6 +187,8 @@ export type NormalChatSendModelBaseParams = {
 	resumeDepthOverride?: boolean;
 	completionRequestId?: string;
 	completionDeadlineAt?: number;
+	/** Plain HTTP owner keeps admission through durable finalization. */
+	retainCompletionForFinalization?: boolean;
 	continuationSnapshot?: import("../normal-chat-model").NormalChatContinuationSnapshot;
 	onOutputEvent?: (
 		event: import("$lib/shared/normal-chat-output").NormalChatOutputEvent,
