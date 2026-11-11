@@ -166,8 +166,8 @@ describe("review C: a Stop whose reader never reports and whose observation fail
 		const h = harness({
 			askServerUpdate: vi.fn(
 				() =>
-					new Promise((resolve) => {
-						answerUpdate = resolve as never;
+					new Promise<ServerUpdateKind>((resolve) => {
+						answerUpdate = resolve;
 					}),
 			),
 		});
