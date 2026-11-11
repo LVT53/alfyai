@@ -353,8 +353,9 @@ export function createNormalChatWireDecoder() {
 				throw new Error("invalid_output_delta");
 			const block = blocks.get(Number(data.ref));
 			if (!block) throw new Error("unknown_output_reference");
+			const { nativeId: _nativeId, kind: _kind, role: _role, ...scope } = block;
 			return {
-				...block,
+				...scope,
 				type: "block_delta",
 				sequence: Number(data.sequence),
 				text: data.text,

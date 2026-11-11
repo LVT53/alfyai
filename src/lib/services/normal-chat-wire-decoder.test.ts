@@ -25,8 +25,9 @@ describe("compact output wire references", () => {
 		const decoder = createNormalChatWireDecoder();
 		expect(decoder.consume(full(start))).toEqual(start);
 		expect(decoder.consume(full(start))).toEqual(start);
+		const { nativeId: _nativeId, kind: _kind, role: _role, ...scope } = start;
 		expect(decoder.consume(delta())).toEqual({
-			...start,
+			...scope,
 			type: "block_delta",
 			sequence: 2,
 			text: "Visible",
