@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { parseJsonRecord } from "$lib/server/utils/json";
-import type { NormalChatTurnObservation } from "$lib/services/ai-sdk-ui-stream-contract";
+import {
+	type NormalChatTurnObservation,
+	readNormalChatOutputEvent,
+} from "$lib/services/ai-sdk-ui-stream-contract";
 import {
 	type NormalChatCompletion,
 	parseNormalChatFinalization,
@@ -39,6 +42,118 @@ function completionScope(input: {
 		segmentId,
 	};
 }
+/** Incognito retains the receipt on its saved reply, never in accounting tables. */
+async function readIncognitoReceipt(scope: TurnScope) {
+	const [{ db }, { conversations, messages }, { and, eq, sql }] =
+		await Promise.all([
+			import("../../db"),
+			import("../../db/schema"),
+			import("drizzle-orm"),
+		]);
+	const row = db
+		.select({ id: messages.id, metadataJson: messages.metadataJson })
+		.from(messages)
+		.innerJoin(conversations, eq(conversations.id, messages.conversationId))
+		.where(
+			and(
+				eq(conversations.id, scope.conversationId),
+				eq(conversations.userId, scope.userId),
+				eq(conversations.memoryIncognito, true),
+				eq(messages.role, "assistant"),
+				sql`json_extract(case when json_valid(${messages.metadataJson}) then ${messages.metadataJson} else '{}' end, '$.normalChatOutput.events[#-1].segmentId') = ${scope.segmentId}`,
+			),
+		)
+		.limit(1)
+		.get();
+	if (!row) return null;
+	const metadata = parseJsonRecord(row.metadataJson);
+	const output = metadata?.normalChatOutput as
+		| { version?: unknown; events?: unknown }
+		| undefined;
+	if (output?.version !== 1 || !Array.isArray(output.events)) return null;
+	const event = readNormalChatOutputEvent(output.events.at(-1));
+	if (event?.type !== "completion" || event.segmentId !== scope.segmentId)
+		return null;
+	return {
+		row,
+		modelCompletion: event.completion,
+		normalChatFinalization: parseNormalChatFinalization(
+			metadata?.normalChatFinalization,
+		),
+	};
+}
+
+async function saveIncognitoReceipt(
+	scope: TurnScope,
+	messageId: string,
+	completion: NormalChatCompletion,
+) {
+	const [{ db }, { conversations, messages }, { and, eq }] = await Promise.all([
+		import("../../db"),
+		import("../../db/schema"),
+		import("drizzle-orm"),
+	]);
+	db.transaction((tx) => {
+		const row = tx
+			.select({ id: messages.id, metadataJson: messages.metadataJson })
+			.from(messages)
+			.innerJoin(conversations, eq(conversations.id, messages.conversationId))
+			.where(
+				and(
+					eq(messages.id, messageId),
+					eq(conversations.id, scope.conversationId),
+					eq(conversations.userId, scope.userId),
+					eq(conversations.memoryIncognito, true),
+					eq(messages.role, "assistant"),
+				),
+			)
+			.get();
+		if (!row) throw new Error("Incognito completion receipt scope denied");
+		const metadata = parseJsonRecord(row.metadataJson) ?? {};
+		const output = metadata.normalChatOutput as
+			| { version?: unknown; events?: unknown }
+			| undefined;
+		const events =
+			output?.version === 1 && Array.isArray(output.events)
+				? output.events
+				: [];
+		const terminal = readNormalChatOutputEvent(events.at(-1));
+		if (terminal?.type === "completion") {
+			if (
+				terminal.turnId !== scope.turnId ||
+				terminal.segmentId !== scope.segmentId
+			)
+				throw new Error("Incognito completion receipt identity mismatch");
+			return;
+		}
+		const receipt = {
+			version: 1,
+			turnId: scope.turnId,
+			segmentId: scope.segmentId,
+			attemptId: `${scope.segmentId}:terminal`,
+			stepId: `${scope.segmentId}:terminal`,
+			phase: completion.phase,
+			sequence:
+				events.reduce(
+					(highest: number, e: unknown) =>
+						Math.max(highest, readNormalChatOutputEvent(e)?.sequence ?? 0),
+					0,
+				) + 1,
+			type: "completion",
+			completion,
+		};
+		tx.update(messages)
+			.set({
+				metadataJson: JSON.stringify({
+					...metadata,
+					normalChatOutput: { version: 1, events: [...events, receipt] },
+				}),
+			})
+			.where(eq(messages.id, row.id))
+			.run();
+	});
+}
+
 export async function observeCompletionTurn(
 	input: Parameters<typeof completionScope>[0],
 ): Promise<NormalChatTurnObservation> {
@@ -70,6 +185,28 @@ export async function observeCompletionTurn(
 		[...owners],
 	);
 	if (!record) {
+		const saved = await readIncognitoReceipt(scope);
+		if (
+			saved &&
+			(!input.turnId || saved.modelCompletion.turnId === input.turnId)
+		) {
+			return {
+				...identity,
+				state: "terminal",
+				assistantMessageId: saved.row.id,
+				completion:
+					projectNormalChatFinalization(
+						saved.modelCompletion,
+						saved.normalChatFinalization,
+					) ?? saved.modelCompletion,
+				...(saved.normalChatFinalization
+					? {
+							normalChatFinalization: saved.normalChatFinalization,
+							modelCompletion: saved.modelCompletion,
+						}
+					: {}),
+			};
+		}
 		// Registry scope also covers setup and incognito lifetimes without a ledger row.
 		return isStreamActive({
 			streamId: identity.streamId,
@@ -261,6 +398,8 @@ export function beginCompletionLifetime(
 					workingStopCause: "uncertain_execution",
 					closingAttempted: false,
 				};
+				if (!tracked && linkedMessageId)
+					await saveIncognitoReceipt(scope, linkedMessageId, sealed);
 				if (tracked)
 					settleTurn(scope, {
 						...sealed,

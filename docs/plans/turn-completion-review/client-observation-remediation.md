@@ -12,3 +12,7 @@
 - A finished unavailable observation no longer blocks navigation. Historical durable rows can receive independent Regenerate permits; the unresolved stopped row still cannot. Epoch, row identity and single-permit ownership checks remain.
 - Updated two old tests that explicitly accepted the regression. Fixtures release newly granted navigation/historical permits before requesting another, as real command callers must; the original historical-ready assertion is unchanged.
 - GREEN: 367 tests across retained Stop, runtime and unsaved observation suites (`1.4e-green.log`).
+
+## 1.4b — saved incognito observation
+
+Original incognito reproducer: red (expected terminal, received unavailable), `/tmp/turn-completion-remediation/1.4b-original-red.log`; unchanged assertions green2 in `1.4b-original-green.log`. Saved incognito replies retain a structural receipt in existing message metadata; owner/conversation/request/turn scoped observation survives lifetime-module restart without writing accounting turns or attempts. Deleted replies become unavailable. Focused lifetime/incognito/unsaved tests green9 (`1.4b-focused-green.log`). No raw answer content is loaded for observation; no incognito ledger introduced.
