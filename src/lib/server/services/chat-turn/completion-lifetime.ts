@@ -304,7 +304,7 @@ export async function observeCompletionTurn(
 	};
 }
 export function beginCompletionLifetime(
-	input: Parameters<typeof completionScope>[0],
+	input: Parameters<typeof completionScope>[0] & { deadlineAt?: number },
 ) {
 	const scope = completionScope(input);
 	const ownerId = `${bootId}:${randomUUID()}`;
@@ -312,6 +312,14 @@ export function beginCompletionLifetime(
 	if (admission.status === "existing")
 		throw new Error("Existing completion turn may only be observed");
 	owners.add(ownerId);
+	const admissionDeadline =
+		input.deadlineAt &&
+		Number.isFinite(input.deadlineAt) &&
+		input.deadlineAt > 0
+			? input.deadlineAt
+			: Number.POSITIVE_INFINITY;
+	if (Number.isFinite(admissionDeadline))
+		liveDeadlines.set(scope.segmentId, admissionDeadline);
 	const tracked = admission.status !== "untracked";
 	const cancellation = new AbortController();
 	const registered = new Map<string, TurnAttempt>();
@@ -335,7 +343,10 @@ export function beginCompletionLifetime(
 	const capture = (next: NormalChatContinuationSnapshot) => {
 		snapshot = next;
 		if (!sealed && Number.isFinite(next.deadlineAt) && next.deadlineAt > 0)
-			liveDeadlines.set(scope.segmentId, next.deadlineAt);
+			liveDeadlines.set(
+				scope.segmentId,
+				Math.min(admissionDeadline, next.deadlineAt),
+			);
 		if (!tracked) return;
 		// Snapshot totals belong to Model Run. Prior segments already have their own admission/accounting.
 		for (const usage of next.usage) {
@@ -353,13 +364,13 @@ export function beginCompletionLifetime(
 				...original,
 				...usage,
 				providerModelName: usage.responseModelId ?? original.providerModelName,
-				// Usage is attempt-scoped; completion is segment-scoped. The model
-				// does not report attempt outcome/cause in this interface. Keep those
-				// unknown instead of rewriting priced facts with a later closing result.
-				safeStopCause: original.safeStopCause,
-				outcome: original.outcome,
+				// An attempt settles independently of a later working/closing result.
+				// Legacy captures may omit these facts; keep already known values.
+				safeStopCause: usage.safeStopCause ?? original.safeStopCause,
+				outcome: usage.outcome ?? original.outcome,
 				usageFinal: usage.complete,
 			};
+			registered.set(attempt.attemptId, attempt);
 			void enqueue(() => recordTurnAttempt(scope, attempt)).catch(
 				() => undefined,
 			);

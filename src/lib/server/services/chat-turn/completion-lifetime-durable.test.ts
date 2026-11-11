@@ -652,3 +652,95 @@ it("keeps a scoped live registry lifetime pending even before durable admission"
 		registry.unregisterActiveChatStream(input.requestId);
 	}
 });
+
+it("records each attempt's terminal facts after priced usage without copying the closing result", async () => {
+	const life = module.beginCompletionLifetime(input);
+	const registration = {
+		attemptId: "a",
+		phase: "working" as const,
+		providerId: "p1",
+		modelId: "provider:p1:m1",
+		providerModelName: "first",
+	};
+	await life.register(registration);
+	const next = snapshot(life.scope, true);
+	life.capture(next);
+	await life.register({ ...registration, attemptId: "b", phase: "closing" });
+	Object.assign(next.usage[0], {
+		safeStopCause: "transport_error",
+		outcome: "failed",
+	});
+	next.usage.push({
+		...next.usage[0],
+		attemptId: "b",
+		phase: "closing",
+		...{ safeStopCause: "natural_stop", outcome: "answered" },
+	});
+	next.completion = {
+		version: 1,
+		turnId: life.scope.turnId,
+		segmentId: life.scope.segmentId,
+		phase: "closing",
+		outcome: "answered",
+		stopCause: "natural_stop",
+		workingStopCause: "transport_error",
+		closingAttempted: true,
+	};
+	life.capture(next);
+	await life.finish();
+	const rows = database.db.select().from(schema.normalChatAttempts).all();
+	expect(rows.find((r) => r.attemptId === "a")).toMatchObject({
+		outcome: "failed",
+		safeStopCause: "transport_error",
+		usageFinal: true,
+		inputTokens: 100,
+		outputTokens: 20,
+	});
+	expect(rows.find((r) => r.attemptId === "b")).toMatchObject({
+		outcome: "answered",
+		safeStopCause: "natural_stop",
+		usageFinal: true,
+	});
+	expect(rows.every((r) => r.costUsdMicros !== null)).toBe(true);
+});
+
+it("keeps absent legacy attempt facts unknown instead of inventing the segment result", async () => {
+	const life = module.beginCompletionLifetime(input);
+	await life.register({
+		attemptId: "a",
+		phase: "working",
+		providerId: "p1",
+		modelId: "provider:p1:m1",
+		providerModelName: "first",
+	});
+	life.capture(snapshot(life.scope, true));
+	await life.finish();
+	expect(
+		database.db.select().from(schema.normalChatAttempts).get(),
+	).toMatchObject({ outcome: null, safeStopCause: null });
+});
+
+it("publishes the admission deadline before preparation and never extends it from a model snapshot", async () => {
+	const deadlineAt = Date.now() + 5000;
+	const life = module.beginCompletionLifetime({ ...input, ...{ deadlineAt } });
+	expect(await module.observeCompletionTurn(input)).toMatchObject({
+		state: "pending",
+		deadlineAt,
+	});
+	const next = snapshot(life.scope, false);
+	next.usage = [];
+	delete next.completion;
+	next.deadlineAt = deadlineAt + 10000;
+	life.capture(next);
+	expect(await module.observeCompletionTurn(input)).toMatchObject({
+		state: "pending",
+		deadlineAt,
+	});
+	next.deadlineAt = deadlineAt - 1000;
+	life.capture(next);
+	expect(await module.observeCompletionTurn(input)).toMatchObject({
+		state: "pending",
+		deadlineAt: deadlineAt - 1000,
+	});
+	await life.finish();
+});

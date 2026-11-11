@@ -879,3 +879,38 @@ it("refines a preregistered alias to the authoritative billable response model b
 		totalTokens: 120,
 	});
 });
+
+it("adds terminal facts after pricing, then refuses to rewrite or erase those facts", async () => {
+	ledger.admitTurn({ ...scope, ownerId: "owner" });
+	await ledger.recordTurnAttempt(scope, {
+		...attempt,
+		outcome: null,
+		safeStopCause: null,
+	});
+	const price = database.db
+		.select()
+		.from(schema.normalChatAttempts)
+		.get()?.costUsdMicros;
+	await ledger.recordTurnAttempt(scope, attempt);
+	expect(
+		database.db.select().from(schema.normalChatAttempts).get(),
+	).toMatchObject({
+		outcome: "failed",
+		safeStopCause: "transport_error",
+		costUsdMicros: price,
+	});
+	await expect(
+		ledger.recordTurnAttempt(scope, {
+			...attempt,
+			outcome: "answered",
+			safeStopCause: "natural_stop",
+		}),
+	).rejects.toThrow(/conflict/i);
+	await expect(
+		ledger.recordTurnAttempt(scope, {
+			...attempt,
+			outcome: null,
+			safeStopCause: null,
+		}),
+	).rejects.toThrow(/conflict/i);
+});

@@ -38,6 +38,9 @@ export type NormalChatExecutionState =
 	| "definitely_not_executed"
 	| "uncertain";
 export type NormalChatAttemptUsage = {
+	/** Attempt-local terminal facts; absent in legacy captures, never inferred from a later segment. */
+	outcome?: NormalChatCompletion["outcome"] | null;
+	safeStopCause?: NormalChatStopCause | null;
 	turnId: string;
 	segmentId: string;
 	attemptId: string;

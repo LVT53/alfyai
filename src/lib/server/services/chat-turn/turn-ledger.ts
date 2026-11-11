@@ -456,11 +456,20 @@ export async function recordTurnAttempt(
 					if (existing[key] !== facts[key])
 						throw new TurnLedgerConflictError("Attempt identity conflict");
 				}
+				for (const key of ["safeStopCause", "outcome"] as const) {
+					if (existing[key] !== null && existing[key] !== facts[key])
+						throw new TurnLedgerConflictError("Final attempt outcome conflict");
+				}
 				if (existing.usageFinal) {
 					if (
 						!facts.usageFinal ||
 						Object.entries(facts).some(
 							([key, value]) =>
+								// Terminal facts can arrive after final usage/pricing.
+								!(
+									(key === "safeStopCause" || key === "outcome") &&
+									existing[key] === null
+								) &&
 								// The configured alias may resolve before billing. The call identity
 								// (provider/model/phase/segment/attempt) remains immutable.
 								!(
