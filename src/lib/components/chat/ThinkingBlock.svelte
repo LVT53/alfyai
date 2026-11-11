@@ -758,11 +758,9 @@ function commentaryTextForDisplay(text: string, final: boolean): string {
 	);
 	// At the final boundary an unfinished opener is literal text, unless a
 	// complete opening delimiter already established a private thinking region.
-	if (final && !state.insideThinking) {
-		displayed += state.buffer;
-		state.buffer = "";
-	}
-	flushInlineThinkingState(state, emitters);
+	flushInlineThinkingState(state, emitters, {
+		preserveIncompleteVisibleTag: final,
+	});
 	return containsToolCallMarkup(displayed) ? "" : displayed;
 }
 

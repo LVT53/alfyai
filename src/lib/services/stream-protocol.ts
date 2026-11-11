@@ -290,6 +290,7 @@ export function processInlineThinkingChunk(
 export function flushInlineThinkingState(
 	state: InlineThinkingState,
 	emitters: InlineThinkingEmitters,
+	options: { preserveIncompleteVisibleTag?: boolean } = {},
 ): boolean {
 	if (!state.buffer) {
 		return true;
@@ -306,7 +307,7 @@ export function flushInlineThinkingState(
 	const isPartialOpenTag = THINKING_OPEN_TAGS.some((tag) =>
 		tag.startsWith(remainder),
 	);
-	if (isPartialOpenTag) {
+	if (isPartialOpenTag && !options.preserveIncompleteVisibleTag) {
 		return true;
 	}
 

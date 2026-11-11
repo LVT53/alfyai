@@ -65,6 +65,7 @@ export function createNormalChatOutputJournal(
 		const identity = JSON.stringify([
 			event.turnId,
 			event.segmentId,
+			event.attemptId,
 			event.sequence,
 		]);
 		if (seen.has(identity)) return;
@@ -114,7 +115,7 @@ export function sanitizeNormalChatAnswer(text: string): string {
 		stripCompleteSkillControlEnvelopeBlocks(text).visibleText,
 		emit,
 	);
-	flushInlineThinkingState(state, emit);
+	flushInlineThinkingState(state, emit, { preserveIncompleteVisibleTag: true });
 	return containsToolCallMarkup(result) ? "" : result;
 }
 
@@ -134,6 +135,11 @@ export function createNormalChatOutputAccumulator(): NormalChatOutputAccumulator
 	const byId = new Map<string, NormalChatOutputBlock>();
 	const byStep = new Map<string, NormalChatOutputBlock[]>();
 	const ordered: NormalChatOutputBlock[] = [];
+	const settlements = new Map<
+		string,
+		{ sequence: number; role: "activity" | "answer" }
+	>();
+	const pending = new Map<string, NormalChatOutputEvent[]>();
 	const seen = new Set<string>();
 	let completion: NormalChatCompletion | undefined;
 	let answer = "";
@@ -147,66 +153,102 @@ export function createNormalChatOutputAccumulator(): NormalChatOutputAccumulator
 	let activityDirty = false;
 	const stepKey = (e: NormalChatOutputScope) =>
 		JSON.stringify([e.turnId, e.segmentId, e.attemptId, e.stepId]);
-	return {
-		apply(event) {
-			const identity = JSON.stringify([
-				event.turnId,
-				event.segmentId,
-				event.sequence,
-			]);
-			if (seen.has(identity)) return false;
-			seen.add(identity);
-			const scopedStep = stepKey(event);
-			const key =
-				"blockId" in event ? JSON.stringify([scopedStep, event.blockId]) : "";
-			if (event.type === "block_start" && !byId.has(key)) {
-				const block: NormalChatOutputBlock = {
-					...event,
-					text: "",
-					ended: false,
-				};
-				byId.set(key, block);
-				ordered.push(block);
-				if (block.kind === "text" && block.role === "answer")
-					lastAnswerBlock = block;
-				const stepBlocks = byStep.get(scopedStep) ?? [];
-				stepBlocks.push(block);
-				byStep.set(scopedStep, stepBlocks);
+	const apply = (event: NormalChatOutputEvent): boolean => {
+		const identity = JSON.stringify([
+			event.turnId,
+			event.segmentId,
+			event.attemptId,
+			event.sequence,
+		]);
+		if (seen.has(identity)) return false;
+		const scopedStep = stepKey(event);
+		const key =
+			"blockId" in event ? JSON.stringify([scopedStep, event.blockId]) : "";
+		if (
+			(event.type === "block_delta" || event.type === "block_end") &&
+			!byId.has(key)
+		) {
+			const waiting = pending.get(key) ?? [];
+			if (!waiting.some((item) => item.sequence === event.sequence))
+				waiting.push(event);
+			pending.set(key, waiting);
+			return false;
+		}
+		seen.add(identity);
+		if (event.type === "block_start" && !byId.has(key)) {
+			const block: NormalChatOutputBlock = {
+				version: event.version,
+				turnId: event.turnId,
+				segmentId: event.segmentId,
+				attemptId: event.attemptId,
+				stepId: event.stepId,
+				phase: event.phase,
+				blockId: event.blockId,
+				nativeId: event.nativeId,
+				kind: event.kind,
+				role:
+					event.kind === "text"
+						? (settlements.get(scopedStep)?.role ?? event.role)
+						: event.role,
+				text: "",
+				ended: false,
+			};
+			byId.set(key, block);
+			ordered.push(block);
+			if (block.kind === "text" && block.role === "answer")
+				lastAnswerBlock = block;
+			const stepBlocks = byStep.get(scopedStep) ?? [];
+			stepBlocks.push(block);
+			byStep.set(scopedStep, stepBlocks);
+			activityDirty = true;
+			const waiting = pending.get(key);
+			pending.delete(key);
+			for (const deferred of waiting?.sort((a, b) => a.sequence - b.sequence) ??
+				[])
+				apply(deferred);
+		}
+		if (event.type === "block_delta") {
+			const block = byId.get(key);
+			if (block) {
+				block.text += event.text;
 				activityDirty = true;
-			}
-			if (event.type === "block_delta") {
-				const block = byId.get(key);
-				if (block) {
-					block.text += event.text;
-					if (block.kind === "text" && block.role === "answer") {
-						if (block === lastAnswerBlock && !answerOrderDirty) {
-							answerRaw += event.text;
-							answerNeedsSanitizer ||= event.text.includes("<");
-							if (answerPrefix.length < 3)
-								answerPrefix = (answerPrefix + event.text.trimStart()).slice(
-									0,
-									3,
-								);
-							answerNeedsSanitizer ||= answerPrefix === "```";
-						} else answerOrderDirty = true;
-						answerDirty = true;
-					}
+				if (block.kind === "text" && block.role === "answer") {
+					if (block === lastAnswerBlock && !answerOrderDirty) {
+						answerRaw += event.text;
+						answerNeedsSanitizer ||= event.text.includes("<");
+						if (answerPrefix.length < 3)
+							answerPrefix = (answerPrefix + event.text.trimStart()).slice(
+								0,
+								3,
+							);
+						answerNeedsSanitizer ||= answerPrefix === "```";
+					} else answerOrderDirty = true;
+					answerDirty = true;
 				}
 			}
-			if (event.type === "block_end") {
-				const block = byId.get(key);
-				if (block) block.ended = true;
-			}
-			if (event.type === "step_settled") {
-				for (const block of byStep.get(scopedStep) ?? [])
-					if (block.kind === "text") block.role = event.role;
-				answerDirty = true;
-				answerOrderDirty = true;
-				activityDirty = true;
-			}
-			if (event.type === "completion") completion = event.completion;
-			return true;
-		},
+		}
+		if (event.type === "block_end") {
+			const block = byId.get(key);
+			if (block) block.ended = true;
+		}
+		if (event.type === "step_settled") {
+			const prior = settlements.get(scopedStep);
+			if (prior && prior.sequence > event.sequence) return true;
+			settlements.set(scopedStep, {
+				sequence: event.sequence,
+				role: event.role,
+			});
+			for (const block of byStep.get(scopedStep) ?? [])
+				if (block.kind === "text") block.role = event.role;
+			answerDirty = true;
+			answerOrderDirty = true;
+			activityDirty = true;
+		}
+		if (event.type === "completion") completion = event.completion;
+		return true;
+	};
+	return {
+		apply,
 		// Views belong to the accumulator; consumers read, never mutate them.
 		getProjection() {
 			if (answerDirty) {
@@ -229,7 +271,7 @@ export function createNormalChatOutputAccumulator(): NormalChatOutputAccumulator
 			}
 			if (activityDirty) {
 				activity = ordered.filter(
-					(b) => b.kind === "text" && b.role !== "answer",
+					(b) => b.kind === "text" && b.role !== "answer" && b.text.length > 0,
 				);
 				activityDirty = false;
 			}
