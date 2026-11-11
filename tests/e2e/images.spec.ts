@@ -9,7 +9,6 @@ import {
 	AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
 	AI_SMOKE_EDIT_PHOTO_MARKER,
 	AI_SMOKE_LATE_PICTURE_FINAL_TEXT,
-	AI_SMOKE_LATE_PICTURE_INTRO,
 	AI_SMOKE_LATE_PICTURE_MARKER,
 	AI_SMOKE_TRANSPARENT_PICTURE_MARKER,
 } from "../fixtures/ai/late-picture-scenario";
@@ -38,6 +37,7 @@ import {
 	useSpecChatModel,
 	VIDEO_DIR,
 } from "./images-helpers";
+import { holdThinkingCardDelivery } from "./thinking-display-barrier";
 
 // The picture card, the panel and History, end to end (docs/plans/image-generation,
 // part 2b Task 8). The fake chat model calls the app's real make_image tool, the
@@ -51,7 +51,6 @@ const PROVIDER_PREFIX = "images_t8_";
 const CARD =
 	'[data-testid="message-deliverables"] [data-testid="artifact-card"]';
 const LOADED = `${CARD} [data-testid="image-card-stage"] [data-testid="image-picture-after"].is-loaded`;
-const INTRO_START = AI_SMOKE_LATE_PICTURE_INTRO[0].slice(0, 20);
 
 type Detail = {
 	imageCards: Array<{
@@ -156,7 +155,7 @@ test.describe("Pictures end to end", () => {
 
 		// Every frame: where the reply's first sentence is, what the card holds,
 		// and how big its picture box is (the method of artifact-card-arrival.spec.ts).
-		await page.evaluate((introStart) => {
+		await page.evaluate(() => {
 			type Frame = {
 				top: number | null;
 				user: number | null;
@@ -168,21 +167,15 @@ test.describe("Pictures end to end", () => {
 			(window as unknown as { __frames: Frame[] }).__frames = frames;
 			const tick = () => {
 				let top: number | null = null;
-				for (const paragraph of document.querySelectorAll(
-					'[data-testid="normal-chat-commentary"] p',
-				)) {
-					if (
-						paragraph.textContent?.startsWith(introStart) &&
-						!document
-							.querySelector(
-								'[data-testid="assistant-message"] .prose-container',
-							)
-							?.textContent?.trim()
-					) {
-						top = paragraph.getBoundingClientRect().top;
-						break;
-					}
-				}
+				const header = document.querySelector(
+					'[data-testid="assistant-message"] .thinking-header',
+				);
+				if (
+					!document
+						.querySelector('[data-testid="assistant-message"] .prose-container')
+						?.textContent?.trim()
+				)
+					top = header?.getBoundingClientRect().top ?? null;
 				const card = document.querySelector(
 					'[data-testid="message-deliverables"] [data-testid="artifact-card"]',
 				);
@@ -204,15 +197,18 @@ test.describe("Pictures end to end", () => {
 				requestAnimationFrame(tick);
 			};
 			requestAnimationFrame(tick);
-		}, INTRO_START);
+		});
 
+		const delivery = await holdThinkingCardDelivery(page);
 		await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
+		await delivery.wait();
+		await delivery.release();
 		const card = page.locator(CARD).last();
 		await expect(card).toBeVisible({ timeout: 30_000 });
 		// The card is drawn after the prose, inside the message's deliverables.
 		const sentences = page
-			.getByTestId("normal-chat-commentary")
-			.getByText(INTRO_START);
+			.locator('[data-testid="assistant-message"] .thinking-header')
+			.last();
 		const sentencesBox = await sentences.boundingBox();
 		const cardBox = await card.boundingBox();
 		expect(sentencesBox && cardBox, "both are laid out").toBeTruthy();
@@ -268,7 +264,11 @@ test.describe("Pictures end to end", () => {
 		const arrival = seen.findIndex((frame) => frame.cards > 0);
 		expect(
 			arrival,
-			"the card arrived after the first sentence",
+			"the card arrived after the live status baseline",
+		).toBeGreaterThan(0);
+		expect(
+			seen.length - arrival,
+			"post-arrival status samples",
 		).toBeGreaterThan(0);
 		const before = seen[arrival - 1].top as number;
 		const moved = seen
@@ -276,7 +276,7 @@ test.describe("Pictures end to end", () => {
 			.map((frame) => Math.abs((frame.top as number) - before));
 		expect(
 			Math.max(...moved),
-			"how far the first sentence moved once the card was there, in px",
+			"how far live status moved once the card was there, in px",
 		).toBeLessThanOrEqual(1);
 		expect(
 			frames.some((frame) => frame.making),

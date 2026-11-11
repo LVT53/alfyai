@@ -23,6 +23,7 @@ import {
 	sendMessage,
 	waitForMotionToSettle,
 } from "./helpers";
+import { holdThinkingCardDelivery } from "./thinking-display-barrier";
 
 // F16 (friction audit, ruling 77): an artifact card must not drop in late and
 // push the text the reader is reading down. The scripted model says a few
@@ -32,24 +33,20 @@ import {
 // Send); the only code that is not input is observation: every frame, the
 // position of the sentences on screen and what has arrived.
 
-const INTRO_START = AI_SMOKE_LATE_CARD_INTRO[0].slice(0, 20);
-
 type Frame = { t: number; top: number | null; cards: number; rows: number };
 
 async function recordFrames(page: Page) {
-	await page.evaluate((introStart) => {
+	await page.evaluate(() => {
 		const frames: Frame[] = [];
 		(window as unknown as { __frames: Frame[] }).__frames = frames;
 		const tick = () => {
 			let top: number | null = null;
-			for (const paragraph of document.querySelectorAll(
-				'[data-testid="normal-chat-commentary"] p',
-			)) {
-				if (paragraph.textContent?.startsWith(introStart)) {
-					top = paragraph.getBoundingClientRect().top;
-					break;
-				}
-			}
+			const header = [
+				...document.querySelectorAll(
+					'[data-testid="assistant-message"] .thinking-header',
+				),
+			].at(-1);
+			top = header?.getBoundingClientRect().top ?? null;
 			frames.push({
 				t: performance.now(),
 				top,
@@ -61,7 +58,7 @@ async function recordFrames(page: Page) {
 			requestAnimationFrame(tick);
 		};
 		requestAnimationFrame(tick);
-	}, INTRO_START);
+	});
 }
 
 async function readFrames(page: Page): Promise<Frame[]> {
@@ -152,11 +149,14 @@ test.describe("an artifact card that arrives late", () => {
 			await waitForMotionToSettle(page);
 			await recordFrames(page);
 
+			const delivery = await holdThinkingCardDelivery(page);
 			await sendMessage(page, AI_SMOKE_LATE_CARD_HELD_MARKER);
+			await delivery.wait();
+			await delivery.release();
 			await expect(page.getByTestId("artifact-card")).toBeVisible({
 				timeout: 30_000,
 			});
-			// The final response is held: observe the live prose while it is actually visible.
+			// Final synthesis is held: measure the existing live status, not working prose.
 			await expect
 				.poll(
 					() =>
@@ -189,8 +189,8 @@ test.describe("an artifact card that arrives late", () => {
 				title: AI_SMOKE_LATE_CARD_TITLE,
 			});
 			const liveSentences = page
-				.getByTestId("normal-chat-commentary")
-				.getByText(INTRO_START);
+				.locator('[data-testid="assistant-message"] .thinking-header')
+				.last();
 			await expect(liveSentences).toBeVisible();
 			await expect(page.getByTestId("stop-button")).toBeVisible();
 			await waitForMotionToSettle(page);
@@ -204,15 +204,19 @@ test.describe("an artifact card that arrives late", () => {
 			);
 			expect(arrival, "the card or its row arrived").toBeGreaterThan(0);
 
-			// Card arrival must not move visible working prose. Terminal activity fading
-			// is intentional and is checked independently after releasing the final answer.
+			// Card arrival must not move the existing live status. The canonical
+			// answer and its card ordering are checked after releasing synthesis.
+			expect(
+				frames.length - arrival,
+				"post-arrival status samples",
+			).toBeGreaterThan(0);
 			const before = frames[arrival - 1].top as number;
 			const moved = frames
 				.slice(arrival)
 				.map((frame) => (frame.top as number) - before);
 			expect(
 				Math.max(...moved.map(Math.abs)),
-				"how far the sentences moved after the card arrived, in px",
+				"how far live status moved after the card arrived, in px",
 			).toBeLessThanOrEqual(1);
 
 			fakeProvider.release(AI_SMOKE_LATE_CARD_HOLD);
@@ -253,6 +257,188 @@ test.describe("an artifact card that arrives late", () => {
 			if (providerId) await deleteTemporaryProvider(page, providerId);
 		}
 	}
+
+	// Renderer-only F16 oracle: an explicitly committed answer precedes a late
+	// card. These synthetic client phases do not assert ModelRun can call tools
+	// after entering its closing phase, or change any production role rules.
+	test("keeps already committed answer prose fixed when a late card arrives", async ({
+		page,
+	}) => {
+		await login(page);
+		const conversationId = await createEmptyConversation(page);
+		await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
+		await page.evaluate(() => {
+			const original = window.fetch.bind(window);
+			window.fetch = async (...args) => {
+				const url = String(args[0] instanceof Request ? args[0].url : args[0]);
+				if (!url.endsWith("/api/chat/stream")) return original(...args);
+				const encoder = new TextEncoder();
+				const scope = {
+					version: 1,
+					turnId: "display-turn",
+					segmentId: "display-segment",
+					attemptId: "display-attempt",
+					stepId: "closing",
+					phase: "closing",
+				};
+				const body = new ReadableStream<Uint8Array>({
+					start(controller) {
+						const write = (part: unknown) =>
+							controller.enqueue(
+								encoder.encode(`data: ${JSON.stringify(part)}\n\n`),
+							);
+						const output = (event: object) =>
+							write({
+								type: "data-normal-chat-output",
+								data: { ...scope, ...event },
+							});
+						output({
+							sequence: 0,
+							type: "block_start",
+							blockId: "answer",
+							nativeId: "answer",
+							kind: "text",
+							role: "answer",
+						});
+						output({
+							sequence: 1,
+							type: "block_delta",
+							blockId: "answer",
+							text: "A committed answer stays here.",
+						});
+						Object.assign(window, {
+							__deliverSyntheticCard: () =>
+								write({
+									type: "data-tool-call",
+									data: {
+										name: "create_artifact",
+										callId: "display-card",
+										status: "done",
+										input: {
+											artifactType: "document",
+											title: "Late display card",
+										},
+										metadata: {
+											ok: true,
+											artifactId: "display-document",
+											artifactKind: "document",
+											artifactTitle: "Late display card",
+										},
+									},
+								}),
+							__finishSyntheticCard: () => {
+								output({ sequence: 2, type: "block_end", blockId: "answer" });
+								output({
+									sequence: 3,
+									type: "completion",
+									completion: {
+										version: 1,
+										turnId: "display-turn",
+										segmentId: "display-segment",
+										phase: "closing",
+										outcome: "answered",
+										stopCause: "natural_stop",
+										workingStopCause: "natural_stop",
+										closingAttempted: true,
+									},
+								});
+								write({ type: "finish", finishReason: "stop" });
+								controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+								controller.close();
+							},
+						});
+					},
+				});
+				return new Response(body, {
+					headers: {
+						"content-type": "text/event-stream",
+						"x-vercel-ai-ui-message-stream": "v1",
+					},
+				});
+			};
+		});
+		await sendMessage(page, "Synthetic late-card rendering check");
+		const reply = page.getByTestId("assistant-message").last();
+		const answer = reply
+			.locator(".prose-container")
+			.getByText("A committed answer stays here.", { exact: true });
+		await expect(answer).toBeVisible();
+		await waitForMotionToSettle(page);
+		await page.evaluate(() => {
+			const frames: { offset: number; card: boolean }[] = [];
+			Object.assign(window, { __committedFrames: frames });
+			const tick = () => {
+				const reply = [
+					...document.querySelectorAll('[data-testid="assistant-message"]'),
+				].at(-1);
+				const prose = reply?.querySelector(".prose-container p");
+				const user = [
+					...document.querySelectorAll('[data-testid="user-message"]'),
+				].at(-1);
+				if (prose && user)
+					frames.push({
+						offset:
+							prose.getBoundingClientRect().top -
+							user.getBoundingClientRect().top,
+						card: !!reply?.querySelector('[data-testid="artifact-card"]'),
+					});
+				requestAnimationFrame(tick);
+			};
+			requestAnimationFrame(tick);
+		});
+		try {
+			await expect
+				.poll(() =>
+					page.evaluate(
+						() =>
+							(window as unknown as { __committedFrames: unknown[] })
+								.__committedFrames.length,
+					),
+				)
+				.toBeGreaterThanOrEqual(2);
+			await page.evaluate(() =>
+				(
+					window as unknown as { __deliverSyntheticCard: () => void }
+				).__deliverSyntheticCard(),
+			);
+			const card = reply.getByTestId("artifact-card");
+			await expect(card).toBeVisible();
+			await expectBelow(card, answer);
+			await waitForMotionToSettle(page);
+			const frames = await page.evaluate(
+				() =>
+					(
+						window as unknown as {
+							__committedFrames: { offset: number; card: boolean }[];
+						}
+					).__committedFrames,
+			);
+			const arrival = frames.findIndex((frame) => frame.card);
+			expect(arrival, "committed prose baseline before card").toBeGreaterThan(
+				0,
+			);
+			expect(
+				frames.length - arrival,
+				"committed prose samples after card",
+			).toBeGreaterThan(0);
+			const baseline = frames[arrival - 1].offset;
+			expect(
+				Math.max(
+					...frames
+						.slice(arrival)
+						.map((frame) => Math.abs(frame.offset - baseline)),
+				),
+				"committed answer displacement in px",
+			).toBeLessThanOrEqual(1);
+			await expect(answer).toHaveText("A committed answer stays here.");
+		} finally {
+			await page.evaluate(() =>
+				(
+					window as unknown as { __finishSyntheticCard: () => void }
+				).__finishSyntheticCard(),
+			);
+		}
+	});
 
 	test("does not push the sentences above it down, and sits below them, in a turn and after a reload", async ({
 		page,

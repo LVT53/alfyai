@@ -67,6 +67,7 @@ import {
 	stopRecording,
 	type TrackedBox,
 } from "./panel-motion-helpers";
+import { holdThinkingCardDelivery } from "./thinking-display-barrier";
 
 /**
  * The picture card's motion check (plan 2b T2, MOTION-PARITY "By measurement").
@@ -101,8 +102,8 @@ const PHONE = { width: 390, height: 844 };
 const CARD =
 	'[data-testid="message-deliverables"] [data-testid="artifact-card"]';
 const STAGE = '[data-testid="image-card-stage"]';
-// Arrival geometry follows visible working activity; final answer has its own boundary.
-const PROSE = '[data-testid="normal-chat-commentary"]';
+// Arrival geometry follows existing live status; final answer has its own boundary.
+const PROSE = '[data-testid="assistant-message"] .thinking-header';
 const BODY_STATE = (state: string) =>
 	`[data-testid="image-card-body"][data-state="${state}"]`;
 
@@ -621,7 +622,10 @@ async function runArrival(flow: Flow, options: { loops?: number } = {}) {
 	await newChat(flow);
 	await startRecording(page, TRACK);
 	mark(flow, "send");
+	const delivery = await holdThinkingCardDelivery(page);
 	await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
+	await delivery.wait();
+	await delivery.release();
 	await expect(
 		page.locator(CARD).last().locator(BODY_STATE("waiting")),
 	).toBeVisible({
@@ -742,7 +746,7 @@ function measureArrival(run: MotionRun) {
 function holdArrival(metrics: ReturnType<typeof measureArrival>) {
 	expect(
 		metrics.proseMovedPx,
-		"the prose above the card moved",
+		"the live status above the card moved",
 	).toBeLessThanOrEqual(1);
 	expect(
 		metrics.stageDrift.w,
@@ -1381,7 +1385,10 @@ test.describe("the picture card moves like the Document's", () => {
 					user: '[data-testid="user-message"]',
 				});
 				mark(flow, "send");
+				const delivery = await holdThinkingCardDelivery(page);
 				await sendMessage(page, AI_SMOKE_LATE_CARD_MARKER);
+				await delivery.wait();
+				await delivery.release();
 				await expect(page.locator(CARD)).toBeVisible({ timeout: 30_000 });
 				mark(flow, "card");
 				await expect(
@@ -1396,7 +1403,7 @@ test.describe("the picture card moves like the Document's", () => {
 				const arrival = firstSeen(frames, "card");
 				expect(
 					arrival,
-					"the Document card arrived after live prose",
+					"the Document card arrived after live status",
 				).toBeGreaterThan(0);
 				const { end, proseMovedPx } = measureLiveActivity(frames, arrival);
 				metrics = {

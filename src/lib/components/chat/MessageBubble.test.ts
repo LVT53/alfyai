@@ -370,6 +370,16 @@ describe("MessageBubble", () => {
 			content: "Canonical answer",
 			normalChatOutputView: {
 				answer: "Canonical answer",
+				completion: {
+					version: 1,
+					turnId: "t",
+					segmentId: "s",
+					phase: "working",
+					outcome: "incomplete",
+					stopCause: "stream_end",
+					workingStopCause: "stream_end",
+					closingAttempted: false,
+				},
 				blocks: [],
 				activity: [
 					{
@@ -397,7 +407,9 @@ describe("MessageBubble", () => {
 			.soft(screen.getByTestId("normal-chat-commentary").textContent?.trim())
 			.toBe("Ordinary commentary");
 		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
-		expect(writeText).toHaveBeenCalledWith("Canonical answer");
+		expect(writeText).toHaveBeenCalledWith(
+			"_Incomplete answer._\n\nCanonical answer",
+		);
 	});
 
 	it.each([
@@ -462,7 +474,7 @@ describe("MessageBubble", () => {
 		);
 	});
 
-	it("keeps activity live while an explicit closing answer streams", () => {
+	it("hides working prose while an explicit closing answer streams", async () => {
 		const message: NormalChatOutputMessage = {
 			id: "closing",
 			role: "assistant",
@@ -491,12 +503,13 @@ describe("MessageBubble", () => {
 			},
 		};
 		render(MessageBubble, { message });
-		expect(screen.getByTestId("normal-chat-commentary")).toHaveTextContent(
-			"Earlier work",
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+		await waitFor(() =>
+			expect(screen.getByText("Closing partial")).toBeInTheDocument(),
 		);
 	});
 
-	it("renders successive incremental activity deltas without starting answer markdown", async () => {
+	it("keeps successive incremental activity deltas hidden without starting answer markdown", async () => {
 		const output = createNormalChatOutputAccumulator();
 		const scope = {
 			version: 1,
@@ -537,9 +550,7 @@ describe("MessageBubble", () => {
 			output.getProjection(),
 		);
 		const { rerender } = render(MessageBubble, { message: list[0] });
-		expect(screen.getByTestId("normal-chat-commentary")).toHaveTextContent(
-			"First",
-		);
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
 		output.apply({
 			...scope,
 			sequence: 2,
@@ -553,9 +564,7 @@ describe("MessageBubble", () => {
 			output.getProjection(),
 		);
 		await rerender({ message: list[0] });
-		expect(screen.getByTestId("normal-chat-commentary")).toHaveTextContent(
-			"First next",
-		);
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
 		expect(list[0].content).toBe("");
 		expect(markdownLoaderMock.renderMarkdown).not.toHaveBeenCalledWith(
 			expect.stringContaining("First"),

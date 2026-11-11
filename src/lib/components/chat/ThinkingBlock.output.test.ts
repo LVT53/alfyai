@@ -67,82 +67,164 @@ describe("ordinary commentary in the existing activity disclosure", () => {
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 	});
-	it("shows live escaped commentary separately from private reasoning", async () => {
-		const { container } = render(ThinkingBlock, {
+	it.each([
+		"activity",
+		"provisional",
+	] as const)("hides live %s prose even when expanded", async (role) => {
+		render(ThinkingBlock, {
+			output: view([{ ...commentary[0], role }]),
+			thinkingIsDone: false,
+		});
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: /Thinking/ }));
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+		expect(screen.queryByText(commentary[0].text)).toBeNull();
+	});
+	it.each([
+		"stopped",
+		"paused",
+		"incomplete",
+		"failed",
+	] as const)("requires a fresh terminal disclosure for %s", async (outcome) => {
+		const { rerender } = render(ThinkingBlock, {
 			output: view(),
 			thinkingIsDone: false,
 		});
-		expect(screen.getByTestId("normal-chat-commentary").textContent).toContain(
+		await fireEvent.click(screen.getByRole("button"));
+		await rerender({ output: view(commentary, outcome), thinkingIsDone: true });
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+		const header = screen.getByRole("button", { name: /Previous activity/ });
+		// A live expansion never authorizes retained prose. Close and explicitly reopen.
+		if (header.getAttribute("aria-expanded") === "true")
+			await fireEvent.click(header);
+		await fireEvent.click(header);
+		expect(screen.getByTestId("normal-chat-commentary")).toHaveTextContent(
 			commentary[0].text,
 		);
-		expect(container.querySelector("img")).toBeNull();
-		expect(screen.queryByText("Thinking Trace")).toBeNull();
+		expect(document.querySelector("img")).toBeNull();
 	});
 	it.each([
-		'<skill_control_v1>{"version":1,"operations":[{"operationId":"working-draft","kind":"skill_draft","draft":{"id":"digest","displayName":"Digest","instructions":"Summarize the notes."}}]}</skill_control_v1>',
-		'<skill_control_v1>{"version":1,"operations":[',
-		"<skill_control_v",
-	])("hides explicit Skill Control syntax from live commentary: %s", (control) => {
-		const blocks = [
-			{ ...commentary[0], ended: false, text: `Let me check. ${control}` },
-		];
-		render(ThinkingBlock, { output: view(blocks), thinkingIsDone: false });
-		expect(
-			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
-		).toBe("Let me check.");
-		expect(blocks[0].text).toBe(`Let me check. ${control}`);
-	});
-
-	it("preserves commentary around a complete Skill Control envelope in retained activity", async () => {
-		const blocks = [
-			{
-				...commentary[0],
-				text: 'Before.<skill_control_v1>{"version":1,"operations":[{"operationId":"working-draft","kind":"skill_draft","draft":{"id":"digest","displayName":"Digest","instructions":"Summarize the notes."}}]}</skill_control_v1>After.',
-			},
-		];
+		undefined,
+		"answered",
+		"delivered",
+	] as const)("never discloses prose with completion %s", async (outcome) => {
 		render(ThinkingBlock, {
-			output: view(blocks, "paused"),
+			output: view(commentary, outcome),
 			thinkingIsDone: true,
 		});
+		const header = screen.queryByRole("button");
+		if (header) await fireEvent.click(header);
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+	});
+	it.each([
+		["answered", false],
+		["answered", true],
+		["delivered", false],
+		["delivered", true],
+	] as const)("immediately hides disclosed activity at %s, reduced motion=%s", async (outcome, reduced) => {
+		vi.stubGlobal("matchMedia", () => ({ matches: reduced }));
+		const { rerender } = render(ThinkingBlock, {
+			output: view(commentary, "paused"),
+			thinkingIsDone: true,
+		});
+		await fireEvent.click(screen.getByRole("button"));
+		expect(screen.getByTestId("normal-chat-commentary")).toBeTruthy();
+		await rerender({ output: view(commentary, outcome), thinkingIsDone: true });
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+	});
+	it("does not reuse another segment's disclosure", async () => {
+		const { rerender } = render(ThinkingBlock, {
+			output: view(commentary, "paused"),
+			thinkingIsDone: true,
+		});
+		await fireEvent.click(screen.getByRole("button"));
+		expect(screen.getByTestId("normal-chat-commentary")).toBeTruthy();
+		const next = view(
+			commentary.map((b) => ({ ...b, segmentId: "next" })),
+			"paused",
+		);
+		if (next.completion)
+			next.completion = { ...next.completion, segmentId: "next" };
+		await rerender({ output: next, thinkingIsDone: true });
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+	});
+	it("requires fresh access when returning to a previously disclosed segment", async () => {
+		const original = view(commentary, "paused");
+		const { rerender } = render(ThinkingBlock, {
+			output: original,
+			thinkingIsDone: true,
+		});
+		await fireEvent.click(screen.getByRole("button"));
+		const next = view(
+			commentary.map((b) => ({ ...b, segmentId: "next" })),
+			"paused",
+		);
+		if (next.completion)
+			next.completion = { ...next.completion, segmentId: "next" };
+		await rerender({ output: next, thinkingIsDone: true });
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+		await rerender({ output: original, thinkingIsDone: true });
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+	});
+	it("keeps an explicitly opened paused segment visible when another segment runs", async () => {
+		const paused = render(ThinkingBlock, {
+			output: view(commentary, "paused"),
+			thinkingIsDone: true,
+		});
+		await fireEvent.click(screen.getByRole("button"));
+		render(ThinkingBlock, { output: view(), thinkingIsDone: false });
+		expect(paused.getByTestId("normal-chat-commentary")).toHaveTextContent(
+			commentary[0].text,
+		);
+	});
+	it("does not reuse a disclosure after the same segment becomes live again", async () => {
+		const { rerender } = render(ThinkingBlock, {
+			output: view(commentary, "paused"),
+			thinkingIsDone: true,
+		});
+		await fireEvent.click(screen.getByRole("button"));
+		await rerender({ output: view(), thinkingIsDone: false });
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+		await rerender({
+			output: view(commentary, "paused"),
+			thinkingIsDone: true,
+		});
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
+	});
+	it.each([
+		[
+			'Before.<skill_control_v1>{"version":1,"operations":[]}</skill_control_v1>After.',
+			"Before.After.",
+		],
+		[
+			'Before.<skill_control_v1>{"version":1,"operations":[]}\n</skill_control_v',
+			"Before.",
+		],
+		[
+			'Before.<skill_control_v1>{"version":1,"operations":[]}</skill_control_v1>Ordinary <',
+			"Before.Ordinary <",
+		],
+		["Ordinary <", "Ordinary <"],
+		["Ordinary </skill_control_v", "Ordinary </skill_control_v"],
+	])("sanitizes explicitly disclosed retained activity: %s", async (text, expected) => {
+		const blocks = [{ ...commentary[0], text }];
+		render(ThinkingBlock, {
+			output: view(blocks, "incomplete"),
+			thinkingIsDone: true,
+		});
+		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
 		await fireEvent.click(
 			screen.getByRole("button", { name: /Previous activity/ }),
 		);
 		expect(
 			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
-		).toBe("Before.After.");
+		).toBe(expected);
+		expect(blocks[0].text).toBe(text);
 	});
-
-	it("Skill Control delimiter state hides incremental closing chunks until they finish", async () => {
-		const envelope = 'Before.<skill_control_v1>{"version":1,"operations":[]}';
-		const blocks = [{ ...commentary[0], ended: false, text: envelope }];
-		const { rerender } = render(ThinkingBlock, {
-			output: view(blocks),
-			thinkingIsDone: false,
-		});
-		for (const closing of [
-			"<",
-			"</",
-			"</skill_control_v",
-			"</skill_control_v1>",
-		]) {
-			blocks[0].text = envelope + closing;
-			await rerender({ output: view(blocks), thinkingIsDone: false });
-			expect
-				.soft(screen.getByTestId("normal-chat-commentary").textContent?.trim())
-				.toBe("Before.");
-		}
-		blocks[0].text += "After.";
-		await rerender({ output: view(blocks), thinkingIsDone: false });
-		expect(
-			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
-		).toBe("Before.After.");
-		expect(blocks[0].text).toBe(`${envelope}</skill_control_v1>After.`);
-	});
-
 	it.each([
 		true,
 		false,
-	])("Skill Control delimiter state hides interrupted closing syntax with ended=%s", async (ended) => {
+	])("hides interrupted control closing syntax with ended=%s", async (ended) => {
 		const blocks = [
 			{
 				...commentary[0],
@@ -154,105 +236,10 @@ describe("ordinary commentary in the existing activity disclosure", () => {
 			output: view(blocks, "incomplete"),
 			thinkingIsDone: true,
 		});
-		await fireEvent.click(
-			screen.getByRole("button", { name: /Previous activity/ }),
-		);
+		await fireEvent.click(screen.getByRole("button"));
 		expect(
 			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
 		).toBe("Before.");
-	});
-
-	it.each([
-		"Ordinary <",
-		"Ordinary </skill_control_v",
-	])("Skill Control delimiter state flushes completed ordinary text %s", (text) => {
-		const blocks = [{ ...commentary[0], ended: true, text }];
-		render(ThinkingBlock, { output: view(blocks), thinkingIsDone: false });
-		expect(
-			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
-		).toBe(text);
-	});
-
-	it.each([
-		"block-end",
-		"terminal",
-	] as const)("Skill Control delimiter state releases live ambiguity on %s", async (finish) => {
-		const blocks = [{ ...commentary[0], ended: false, text: "Ordinary <" }];
-		const { rerender } = render(ThinkingBlock, {
-			output: view(blocks),
-			thinkingIsDone: false,
-		});
-		expect(
-			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
-		).toBe("Ordinary");
-		blocks[0].ended = finish === "block-end";
-		await rerender({
-			output: view(blocks, finish === "terminal" ? "incomplete" : undefined),
-			thinkingIsDone: false,
-		});
-		expect(
-			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
-		).toBe("Ordinary <");
-	});
-
-	it("Skill Control delimiter state preserves a finalized literal after a closed envelope", () => {
-		const blocks = [
-			{
-				...commentary[0],
-				text: 'Before.<skill_control_v1>{"version":1,"operations":[]}</skill_control_v1>Ordinary <',
-			},
-		];
-		render(ThinkingBlock, { output: view(blocks), thinkingIsDone: false });
-		expect(
-			screen.getByTestId("normal-chat-commentary").textContent?.trim(),
-		).toBe("Before.Ordinary <");
-	});
-
-	it("updates the same accumulator block as live deltas arrive", async () => {
-		const blocks = commentary.map((b) => ({ ...b, text: "First" }));
-		const { rerender } = render(ThinkingBlock, {
-			output: view(blocks),
-			thinkingIsDone: false,
-		});
-		blocks[0].text += " next";
-		await rerender({ output: view(blocks), thinkingIsDone: false });
-		expect(screen.getByTestId("normal-chat-commentary").textContent).toContain(
-			"First next",
-		);
-	});
-	it.each([
-		"stopped",
-		"paused",
-		"incomplete",
-		"failed",
-	] as const)("retains %s activity in the existing disclosure after reload", async (outcome) => {
-		render(ThinkingBlock, {
-			output: view(commentary, outcome),
-			thinkingIsDone: true,
-		});
-		const header = screen.getByRole("button", { name: /Previous activity/ });
-		await fireEvent.click(header);
-		expect(screen.getByTestId("normal-chat-commentary").textContent).toContain(
-			commentary[0].text,
-		);
-	});
-	it.each([
-		false,
-		true,
-	])("removes successful commentary at terminal under reduced motion=%s", async (reduced) => {
-		vi.stubGlobal("matchMedia", () => ({ matches: reduced }));
-		const { rerender } = render(ThinkingBlock, {
-			output: view(),
-			thinkingIsDone: false,
-		});
-		expect(screen.getByTestId("normal-chat-commentary")).toBeTruthy();
-		await rerender({
-			output: view(commentary, "answered"),
-			thinkingIsDone: true,
-		});
-		await vi.waitFor(() =>
-			expect(screen.queryByTestId("normal-chat-commentary")).toBeNull(),
-		);
 	});
 	it("labels retained activity in Hungarian", () => {
 		uiLanguage.set("hu");

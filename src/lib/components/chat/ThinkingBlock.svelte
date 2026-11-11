@@ -221,11 +221,33 @@ const visibleTools = $derived(segments.filter(isVisibleThinkingToolCall));
 // conjures a thinking header (see hasVisibleSurface below): it renders as a
 // bare pinned activity row.
 const commentary = $derived(output?.activity ?? []);
-const outputOutcome = $derived(output?.completion?.outcome);
+// Ordinary working text is never a live progress surface. Terminal inspection
+// requires an explicit disclosure for this turn/segment, separate from expanding
+// the reasoning rail while the model was running.
+const retainedActivityKey = $derived.by(() => {
+	const completion = output?.completion;
+	if (!thinkingIsDone || !completion || !commentary.length) return null;
+	if (
+		!["stopped", "paused", "incomplete", "failed"].includes(completion.outcome)
+	)
+		return null;
+	return JSON.stringify([
+		completion.turnId,
+		completion.segmentId,
+		completion.outcome,
+	]);
+});
+let disclosedActivityKey = $state<string | null>(null);
+let previousRetainedActivityKey: string | null = null;
+$effect(() => {
+	const key = retainedActivityKey;
+	if (key !== previousRetainedActivityKey) {
+		previousRetainedActivityKey = key;
+		disclosedActivityKey = null;
+	}
+});
 const hasCommentary = $derived(
-	commentary.length > 0 &&
-		(!thinkingIsDone ||
-			(outputOutcome !== "answered" && outputOutcome !== "delivered")),
+	commentary.length > 0 && (!thinkingIsDone || retainedActivityKey !== null),
 );
 const commentaryOnly = $derived(
 	!content.trim() && !hasSegments && !visibleTools.length,
@@ -841,6 +863,7 @@ function stepDurationLabel(step: InterimThoughtStep): string | null {
 async function toggle() {
 	await preserveScrollOnToggle(container, expanded, () => {
 		expanded = !expanded;
+		disclosedActivityKey = expanded ? retainedActivityKey : null;
 		if (!expanded) {
 			selectedStepId = null;
 			showFullReasoning = false;
@@ -878,7 +901,6 @@ function toggleFullReasoning(): void {
 	// transitions interpolate styles directly, which the app-wide CSS
 	// reduced-motion override cannot reach, unlike plain :hover transitions.
 	const slideTransition = reducedMotionAware(slide);
-	const commentaryFade = reducedMotionAware(fade);
 	const flyTransition = reducedMotionAware(fly);
 	// The collapsed summary strip and the pinned deliverables both appear the
 	// moment the live list disappears; they fade in rather than pop.
@@ -1034,7 +1056,7 @@ function toggleFullReasoning(): void {
 {/snippet}
 
 {#if hasVisibleSurface}
-<div class="thinking-block" bind:this={container} out:commentaryFade={{ duration: 150 }}>
+<div class="thinking-block" bind:this={container}>
 	{#if hasThinkingSurface}
 	<div class="thinking-header-row">
 		<button
@@ -1064,7 +1086,7 @@ function toggleFullReasoning(): void {
 			-->
 			<span class="thinking-label" class:is-active={isActiveThinking} aria-live="polite">
 				{#if commentaryOnly && hasCommentary}
-					<span class="thinking-label-text">{$t(thinkingIsDone ? 'chat.output.previousActivity' : 'chat.output.activity')}</span>
+					<span class="thinking-label-text">{$t(thinkingIsDone ? 'chat.output.previousActivity' : 'chat.thinking')}</span>
 				{:else if thinkingIsDone && formattedThinkingTime}
 					<span class="thinking-label-text">{$t('chat.thoughtFor', { time: formattedThinkingTime })}</span>
 				{:else if thinkingIsDone}
@@ -1207,8 +1229,8 @@ function toggleFullReasoning(): void {
 		{/if}
 	{/if}
 
-{#if hasCommentary && (!thinkingIsDone || expanded)}
-	<section class="normal-chat-commentary" data-testid="normal-chat-commentary" aria-label={$t('chat.output.activity')} out:commentaryFade={{ duration: 150 }}>
+{#if retainedActivityKey && expanded && disclosedActivityKey === retainedActivityKey}
+	<section class="normal-chat-commentary" data-testid="normal-chat-commentary" aria-label={$t('chat.output.activity')}>
 		{#each commentary as block (JSON.stringify([block.turnId, block.segmentId, block.attemptId, block.stepId, block.blockId]))}
 			<p>{output && commentaryTextForDisplay(block.text, block.ended || thinkingIsDone || Boolean(output.completion))}</p>
 		{/each}
