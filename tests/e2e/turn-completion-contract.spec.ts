@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import type { ChatMessage } from "../../src/lib/server/services/messages-types";
 import { decodeAiSdkUiStreamPayloads } from "../../src/lib/services/ai-sdk-ui-stream-contract";
 import { projectNormalChatOutput } from "../../src/lib/shared/normal-chat-output";
+import { estimateTokenCount } from "../../src/lib/utils/tokens";
 import {
 	COMPLETION_ANSWER,
 	COMPLETION_ARTIFACT_TITLE,
@@ -218,6 +219,22 @@ test.describe("turn completion contract", () => {
 	}) => {
 		const id = await start(page, "tool", false, 8_192);
 		await expect.poll(() => requests().length).toBe(2);
+		for (const request of requests()) {
+			const body = request.body as {
+				messages: unknown[];
+				tools: unknown[];
+				max_tokens: number;
+			};
+			expect(body.max_tokens).toBe(1_024);
+			expect(body.tools.length).toBeGreaterThan(0);
+			const inputTokens = estimateTokenCount(
+				JSON.stringify({ messages: body.messages, tools: body.tools }),
+			);
+			expect(
+				inputTokens + body.max_tokens,
+				"serialized messages and tool catalogue plus output fit the selected model",
+			).toBeLessThanOrEqual(8_192);
+		}
 		provider.release(COMPLETION_HOLD);
 		await ended(page);
 		await finalAnswer(page);
