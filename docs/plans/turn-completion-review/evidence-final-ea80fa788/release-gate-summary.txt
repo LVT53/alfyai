@@ -1,0 +1,12 @@
+gates release at ea80fa788 Note in the changelog that the context target leaves room for  — 01:14:17
+machine: 14 cores, load at start 3.4 4.8 5.1; e2e workers 8; schedule overlap
+check      exit=0 ok      50s (+19s) :: 0 errors, 0 warnings in 9128 files
+biome      exit=0 ok       2s (+0s) :: Found 1 info.
+migrations exit=0 ok       0s (+0s) :: All schema tables have corresponding migrations.
+vitest     exit=0 ok   10m53s (+19s) :: files 1360 passed | 1 skipped (1361); tests 26239 passed | 3 skipped (26242)
+build      exit=0 ok      19s (+0s) :: unused-css=0 aria=0 (baseline 0/0)
+chunks     exit=0 ok       1s (+19s) :: editor closure 70.9 kB gzip; chat route first paint 639197 B gzip in 99 chunks (information only)
+fallow     exit=0 ok       4s (+0s) :: total=4 circular=4 new_vs_baseline=0 gone_vs_baseline=0; fallow 3.33.1: health 86.2 (A), duplication 3.8%, 1,281,737 LOC (information only)
+playwright exit=0 ok   13m27s (+19s) :: 1593 passed, 75 skipped, 0 failed, 0 flaky on 8 workers
+total 13m46s; load at end 1.8 6.2 7.1; ALL GATES PASSED
+logs: ../../../../../../tmp/turn-completion-final-gate-20261112

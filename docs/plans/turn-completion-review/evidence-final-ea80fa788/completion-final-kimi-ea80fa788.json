@@ -1,0 +1,122 @@
+{
+  "status": "passed",
+  "auxiliaryCalls": 0,
+  "cases": [
+    {
+      "caseName": "A",
+      "conversationId": "fd847bdf-5f6f-42d5-9ba7-ba127d7466e9",
+      "requestId": "fd4e69aa-e0e8-41ba-817d-834755730deb",
+      "segmentId": "73cded3d88bebdbbc3ac8cdb8d614fecd81389ec884151665b29fd79a2ca251a",
+      "status": "passed",
+      "code": "ok",
+      "requests": [
+        {
+          "phase": "working",
+          "cap": 512,
+          "tools": 1
+        },
+        {
+          "phase": "closing",
+          "cap": 512,
+          "tools": 0
+        }
+      ],
+      "toolExecutions": 1,
+      "closingDeltas": 143,
+      "answerBytes": 11,
+      "receiptMatches": true,
+      "attempts": [
+        {
+          "attemptId": "73cded3d88bebdbbc3ac8cdb8d614fecd81389ec884151665b29fd79a2ca251a:attempt:0",
+          "phase": "working",
+          "inputTokens": 166,
+          "outputTokens": 62,
+          "totalTokens": 228,
+          "costUsdMicros": 952,
+          "modelId": "provider:901b7294-cf08-441b-a8e0-46494bc28145:7a511b91-39bf-4f58-8eb3-aa9500c19b05",
+          "outcome": "incomplete",
+          "stopCause": "stream_end"
+        },
+        {
+          "attemptId": "73cded3d88bebdbbc3ac8cdb8d614fecd81389ec884151665b29fd79a2ca251a:attempt:1",
+          "phase": "closing",
+          "inputTokens": 177,
+          "outputTokens": 156,
+          "totalTokens": 333,
+          "costUsdMicros": 1914,
+          "modelId": "provider:901b7294-cf08-441b-a8e0-46494bc28145:7a511b91-39bf-4f58-8eb3-aa9500c19b05",
+          "outcome": "answered",
+          "stopCause": "natural_stop"
+        }
+      ],
+      "completion": {
+        "version": 1,
+        "turnId": "73cded3d88bebdbbc3ac8cdb8d614fecd81389ec884151665b29fd79a2ca251a",
+        "segmentId": "73cded3d88bebdbbc3ac8cdb8d614fecd81389ec884151665b29fd79a2ca251a",
+        "phase": "closing",
+        "outcome": "answered",
+        "stopCause": "natural_stop",
+        "workingStopCause": "tool_budget",
+        "closingAttempted": true
+      }
+    },
+    {
+      "caseName": "B",
+      "conversationId": "45c1b84f-eb20-4e7b-a456-065473e53233",
+      "requestId": "7baf824c-f927-400f-b3d2-7399c4b4ef59",
+      "segmentId": "de4c85c4e7cdffe4a9edecede80eb9285d58c2742043b19800c9ff7876869c8a",
+      "status": "passed",
+      "code": "ok",
+      "requests": [
+        {
+          "phase": "working",
+          "cap": 32,
+          "tools": 0
+        },
+        {
+          "phase": "closing",
+          "cap": 4096,
+          "tools": 0
+        }
+      ],
+      "toolExecutions": 0,
+      "closingDeltas": 747,
+      "answerBytes": 699,
+      "receiptMatches": true,
+      "attempts": [
+        {
+          "attemptId": "de4c85c4e7cdffe4a9edecede80eb9285d58c2742043b19800c9ff7876869c8a:attempt:0",
+          "phase": "working",
+          "inputTokens": 41,
+          "outputTokens": 32,
+          "totalTokens": 73,
+          "costUsdMicros": 402,
+          "modelId": "provider:901b7294-cf08-441b-a8e0-46494bc28145:7a511b91-39bf-4f58-8eb3-aa9500c19b05",
+          "outcome": "incomplete",
+          "stopCause": "length"
+        },
+        {
+          "attemptId": "de4c85c4e7cdffe4a9edecede80eb9285d58c2742043b19800c9ff7876869c8a:attempt:1",
+          "phase": "closing",
+          "inputTokens": 143,
+          "outputTokens": 760,
+          "totalTokens": 903,
+          "costUsdMicros": 7814,
+          "modelId": "provider:901b7294-cf08-441b-a8e0-46494bc28145:7a511b91-39bf-4f58-8eb3-aa9500c19b05",
+          "outcome": "answered",
+          "stopCause": "natural_stop"
+        }
+      ],
+      "completion": {
+        "version": 1,
+        "turnId": "de4c85c4e7cdffe4a9edecede80eb9285d58c2742043b19800c9ff7876869c8a",
+        "segmentId": "de4c85c4e7cdffe4a9edecede80eb9285d58c2742043b19800c9ff7876869c8a",
+        "phase": "closing",
+        "outcome": "answered",
+        "stopCause": "natural_stop",
+        "workingStopCause": "length",
+        "closingAttempted": true
+      }
+    }
+  ]
+}

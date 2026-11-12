@@ -1,0 +1,6 @@
+current=releases/ea80fa788
+health={"status":"OK","draining":false,"activeStreams":0}
+health_after={"status":"OK","draining":false,"activeStreams":0}
+=== Deployment complete! current -> releases/ea80fa788 ===
+
+deploy rc=0
