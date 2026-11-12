@@ -3,7 +3,10 @@ import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
-import type { NormalChatOutputEvent } from "$lib/shared/normal-chat-output";
+import {
+	type NormalChatOutputEvent,
+	projectNormalChatOutput,
+} from "$lib/shared/normal-chat-output";
 
 vi.mock("$lib/server/services/providers", () => ({
 	getProviderByName: async () => null,
@@ -257,6 +260,97 @@ describe("review A: Model Run completion attacks", () => {
 		});
 		expect(result.completion?.outcome).not.toBe("answered");
 		expect(result.text).not.toContain("DSML");
+	});
+
+	// Review 2, finding 2.8: Qwen (the local model) writes a call as a Hermes-style
+	// `<tool_call>` block, not as DeepSeek's token. Explicit control syntax is not an
+	// answer whoever wrote it, and the engine settles it the same way.
+	const hermesCall =
+		'<tool_call>\n{"name": "research_web", "arguments": {"query": "height"}}\n</tool_call>';
+	it.each([
+		["working natural stop", 0],
+		["closing after a spent budget", 1],
+	])("does not promote Hermes-style <tool_call> markup after a visible preface to answered (%s)", async (_label, toolStepsBeforeMarkup) => {
+		const args = setup();
+		let requests = 0;
+		const result = await runPlainNormalChatModelRun({
+			...args,
+			maxToolSteps: 1,
+			tools: {
+				lookup: tool({
+					inputSchema: z.object({}),
+					execute: async () => "evidence",
+				}),
+			},
+			fetch: async () => {
+				requests++;
+				if (requests <= toolStepsBeforeMarkup)
+					return reply("working", "tool_calls", [
+						{
+							id: `c${requests}`,
+							type: "function",
+							function: { name: "lookup", arguments: "{}" },
+						},
+					]);
+				return reply(`Let me look that up.\n${hermesCall}`);
+			},
+		});
+		expect(result.completion?.outcome).not.toBe("answered");
+		expect(result.text).not.toContain("<tool_call>");
+	});
+
+	it.each([
+		[
+			"DeepSeek's token",
+			'I will verify that.\n\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="research_web">\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>',
+		],
+		["a Hermes-style block", `Let me look that up.\n${hermesCall}`],
+	])("settles %s after a visible preface the same way on the streaming transport: incomplete, none of it in the answer", async (_label, markup) => {
+		const args = setup();
+		for await (const _event of runStreamingNormalChatModelRun({
+			...args,
+			tools: {
+				lookup: tool({
+					inputSchema: z.object({}),
+					execute: async () => "evidence",
+				}),
+			},
+			fetch: async () => streamed([{ content: markup }]),
+		})) {
+		}
+		const projection = projectNormalChatOutput(args.output);
+		expect(projection.completion?.outcome).toBe("incomplete");
+		expect(projection.answer).toBe("");
+	});
+
+	it.each([
+		[
+			"the tag named in prose",
+			"Qwen models wrap each call in a <tool_call> tag and close it with </tool_call>.",
+		],
+		[
+			"a complete block shown in a code fence",
+			`Qwen writes a call like this:\n\`\`\`xml\n${hermesCall}\n\`\`\`\nThe server turns it into a structured call.`,
+		],
+		[
+			"DeepSeek's token quoted in a code fence",
+			"Its calls start with:\n```\n<｜｜DSML｜｜ calls>\n```\nand end with a closing tag.",
+		],
+		["a JSON-first answer", '{"name": "Alice", "arguments": {"age": 30}}'],
+	])("still answers with %s", async (_label, text) => {
+		const args = setup();
+		const result = await runPlainNormalChatModelRun({
+			...args,
+			tools: {
+				lookup: tool({
+					inputSchema: z.object({}),
+					execute: async () => "evidence",
+				}),
+			},
+			fetch: async () => reply(text),
+		});
+		expect(result.completion?.outcome).toBe("answered");
+		expect(result.text).toBe(text);
 	});
 
 	it("never sends closing an assistant tool call without its tool result", async () => {

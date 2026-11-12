@@ -50,6 +50,26 @@ describe("review D: explicit-markup sanitizer applied to a whole legitimate answ
 			"plain fence (no info string) with content/markdown keys",
 			'```\n{"content": "# Title", "markdown": true}\n```\nThat is the payload shape.',
 		],
+		[
+			"a JSON-first answer with a name key",
+			'{"name": "Alice", "arguments": {"age": 30}}',
+		],
+		[
+			"the Hermes tag named in prose",
+			"Qwen models wrap each call in a <tool_call> tag and close it with </tool_call>.",
+		],
+		[
+			"a complete Hermes-style block shown in a code fence",
+			'Qwen writes a call like this:\n```xml\n<tool_call>\n{"name": "research_web", "arguments": {"query": "height"}}\n</tool_call>\n```\nThe server turns it into a structured call.',
+		],
+		[
+			"a complete Hermes-style block shown in a tilde fence",
+			'~~~\n<tool_call>{"name": "f", "arguments": {}}</tool_call>\n~~~\nThat is the whole format.',
+		],
+		[
+			"DeepSeek's token quoted in a code fence",
+			"Its calls start with this line:\n```\n<｜｜DSML｜｜ calls>\n```\nand every call sits inside it.",
+		],
 	];
 	it.each(legit)("S1: %s keeps its prose", (_name, text) => {
 		const sanitized = sanitizeNormalChatAnswer(text);
@@ -102,6 +122,16 @@ describe("structural answers containing file payload examples", () => {
 			normalizeAssistantOutputWithSkillControl("<｜｜DSML｜｜ calls>control", {
 				structuredOutput: true,
 			}).visibleText,
+		).toBe("");
+	});
+	it("blanks a complete Hermes-style tool call after a visible preface, as it does DeepSeek's markup", () => {
+		const text =
+			'Let me look that up.\n<tool_call>\n{"name": "research_web", "arguments": {"query": "height"}}\n</tool_call>';
+		expect(sanitizeNormalChatAnswer(text)).toBe("");
+		expect(answerOf(text)).toBe("");
+		expect(
+			normalizeAssistantOutputWithSkillControl(text, { structuredOutput: true })
+				.visibleText,
 		).toBe("");
 	});
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+	containsToolCallMarkup,
 	createInlineThinkingState,
 	createLeakedToolDiagnosticsState,
 	FRIENDLY_STREAM_ERRORS,
@@ -1050,6 +1051,138 @@ describe("hasVisibleCharacter", () => {
 	it("sees a character outside the basic plane", () => {
 		expect(hasVisibleCharacter("\u200B\u{1F600}")).toBe(true);
 		expect(hasVisibleCharacter("\u{20BB7}")).toBe(true);
+	});
+});
+
+// Explicit control syntax only: DeepSeek's markup token and a complete Hermes-style
+// block (what Qwen writes) whose body is a JSON object with a string `name`.
+// Never a rule on words, length or punctuation, and never text that Markdown draws
+// as code (review 2, finding 2.8).
+describe("containsToolCallMarkup", () => {
+	const call = '{"name": "research_web", "arguments": {"query": "height"}}';
+	const block = `<tool_call>\n${call}\n</tool_call>`;
+
+	it.each([
+		[
+			"DeepSeek's token",
+			'<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="x">',
+		],
+		[
+			"DeepSeek's token after a visible preface",
+			"I will verify that.\n\n<｜｜DSML｜｜ calls>",
+		],
+		["a Hermes-style block", block],
+		[
+			"a Hermes-style block after a visible preface",
+			`Let me look that up.\n${block}`,
+		],
+		["a Hermes-style block on one line", `<tool_call>${call}</tool_call>`],
+		["a Hermes-style block with CRLF line ends", block.replace(/\n/g, "\r\n")],
+		[
+			"a Hermes-style block with a nested object",
+			'<tool_call>{"name":"f","arguments":{"a":{"b":[1,{"c":"</tool"}]}}}</tool_call>',
+		],
+		["two Hermes-style blocks", `${block}\n${block}`],
+		[
+			"a block that follows a prose mention of the tag",
+			`The <tool_call> tag wraps a JSON object.\n${block}`,
+		],
+		[
+			"a block that follows a closed code fence that showed one",
+			`Format:\n\`\`\`\n${block}\n\`\`\`\nNow:\n${block}`,
+		],
+	])("recognises %s", (_name, text) => {
+		expect(containsToolCallMarkup(text)).toBe(true);
+	});
+
+	it.each([
+		["nothing", ""],
+		["an ordinary answer", "Paris is the capital of France."],
+		[
+			"the tag mentioned in prose",
+			"Qwen models wrap each call in a <tool_call> tag.",
+		],
+		[
+			"both tags mentioned in prose",
+			"Open it with <tool_call> and close it with </tool_call>.",
+		],
+		["the tags around words", "<tool_call>look it up</tool_call>"],
+		[
+			"a block that is not finished",
+			`Let me look that up.\n<tool_call>\n${call}`,
+		],
+		[
+			"a body that is not JSON",
+			'<tool_call>{"name": "research_web", </tool_call>',
+		],
+		[
+			"a body that is not an object",
+			'<tool_call>[{"name": "research_web"}]</tool_call>',
+		],
+		["a body with no name", '<tool_call>{"tool": "research_web"}</tool_call>'],
+		["a body whose name is not a string", '<tool_call>{"name": 7}</tool_call>'],
+		["an empty body", "<tool_call>\n</tool_call>"],
+		["a JSON-first answer", '{"name": "Alice", "age": 30}'],
+		[
+			"a JSON answer in a fence",
+			'```json\n{"name": "Alice", "arguments": {}}\n```',
+		],
+		[
+			"a prose mention of DeepSeek's token in a fence",
+			"```\n<｜｜DSML｜｜ calls>\n```",
+		],
+	])("keeps %s as an answer", (_name, text) => {
+		expect(containsToolCallMarkup(text)).toBe(false);
+	});
+
+	it.each([
+		[
+			"a backtick fence",
+			`Here is the format:\n\`\`\`xml\n${block}\n\`\`\`\nThat is all.`,
+		],
+		["a fence with no info string", `\`\`\`\n${block}\n\`\`\``],
+		["a tilde fence", `~~~\n${block}\n~~~`],
+		[
+			"a fence in a list item",
+			`1. Send:\n    \`\`\`\n    ${block.replace(/\n/g, "\n    ")}\n    \`\`\`\n`,
+		],
+		[
+			"a fence in a quote",
+			"> Its calls start with:\n> ```\n> <｜｜DSML｜｜ calls>\n> ```",
+		],
+		[
+			"a longer fence around a shorter one",
+			`\`\`\`\`md\n\`\`\`\n${block}\n\`\`\`\n\`\`\`\``,
+		],
+		["a fence that is never closed", `Format:\n\`\`\`\n${block}`],
+		[
+			"DeepSeek's token",
+			"Its calls start with:\n```\n<｜｜DSML｜｜ calls>\n```\nand end with a closing tag.",
+		],
+	])("ignores what %s shows", (_name, text) => {
+		expect(containsToolCallMarkup(text)).toBe(false);
+	});
+
+	it("does not join the two sides of a fence into one block", () => {
+		expect(
+			containsToolCallMarkup(
+				`<tool_call>\n\`\`\`\nnote\n\`\`\`\n${call}\n</tool_call>`,
+			),
+		).toBe(false);
+	});
+
+	it("still recognises markup that follows a fence the reply left open and then closed", () => {
+		expect(containsToolCallMarkup(`\`\`\`\nnote\n\`\`\`\n${block}`)).toBe(true);
+	});
+
+	it("takes a closing line only of the same fence character, at least as long, with nothing after it", () => {
+		// ``` is not closed by ~~~, by `` or by ```js: the block stays code to the end.
+		for (const closer of ["~~~", "``", "```js"]) {
+			expect(
+				containsToolCallMarkup(`\`\`\`\n${closer}\n${block}`),
+				closer,
+			).toBe(false);
+		}
 	});
 });
 

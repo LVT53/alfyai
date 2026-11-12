@@ -1029,16 +1029,103 @@ function isMarkdownToolCallBlockPrefix(value: string): boolean {
 	return true;
 }
 
-/** Explicit provider control syntax only; JSON fences are ordinary answer content. */
-export function containsToolCallMarkup(value: string): boolean {
-	return value.includes("<｜｜DSML｜｜ calls>");
+const DSML_CALLS_OPEN_TAG = "<｜｜DSML｜｜ calls>";
+const HERMES_TOOL_CALL_OPEN_TAG = "<tool_call>";
+const HERMES_TOOL_CALL_CLOSE_TAG = "</tool_call>";
+// A Markdown code fence is a line of three or more backticks or tildes (an info
+// string may follow an opening one, but not contain a backtick after backticks). It
+// is read in a list item or a quote too: any indentation and `>` marks before it.
+const CODE_FENCE_OPEN_RE = /^[ \t>]*(`{3,}|~{3,})(.*)$/;
+const CODE_FENCE_CLOSE_RE = /^[ \t>]*(`{3,}|~{3,})[ \t]*$/;
+
+/**
+ * The parts of a Markdown text that no code fence holds, in order. A fence is
+ * closed by a line of the same character at least as long as the one that opened
+ * it, with nothing after it; one that is never closed holds the rest of the text,
+ * as Markdown draws it. Text on the two sides of a fence is never joined.
+ */
+function textOutsideCodeFences(value: string): string[] {
+	const parts: string[] = [];
+	let current = "";
+	let fence: { char: string; length: number } | null = null;
+	for (const { line, lineEnding } of splitPreservingLineEndings(value)) {
+		if (fence) {
+			const closing = CODE_FENCE_CLOSE_RE.exec(line)?.[1];
+			if (
+				closing &&
+				closing[0] === fence.char &&
+				closing.length >= fence.length
+			)
+				fence = null;
+			continue;
+		}
+		const opening = CODE_FENCE_OPEN_RE.exec(line);
+		if (opening && !(opening[1][0] === "`" && opening[2].includes("`"))) {
+			fence = { char: opening[1][0], length: opening[1].length };
+			if (current) parts.push(current);
+			current = "";
+			continue;
+		}
+		current += line + lineEnding;
+	}
+	if (current) parts.push(current);
+	return parts;
 }
 
-/** Legacy prefix cleanup recognizes the same explicit syntax at the start. */
+/** A `<tool_call>` ... `</tool_call>` whose body is a JSON object with a string `name`. */
+function containsHermesToolCallBlock(text: string): boolean {
+	let open = text.indexOf(HERMES_TOOL_CALL_OPEN_TAG);
+	while (open !== -1) {
+		const bodyStart = open + HERMES_TOOL_CALL_OPEN_TAG.length;
+		const close = text.indexOf(HERMES_TOOL_CALL_CLOSE_TAG, bodyStart);
+		// No close tag after this opener means none after a later one either.
+		if (close === -1) return false;
+		try {
+			const body: unknown = JSON.parse(text.slice(bodyStart, close));
+			if (
+				typeof body === "object" &&
+				body !== null &&
+				!Array.isArray(body) &&
+				typeof (body as { name?: unknown }).name === "string"
+			)
+				return true;
+		} catch {
+			// Not a call; a later opener may still start one.
+		}
+		open = text.indexOf(HERMES_TOOL_CALL_OPEN_TAG, bodyStart);
+	}
+	return false;
+}
+
+/**
+ * Explicit provider control syntax only, outside Markdown code fences:
+ * DeepSeek's `<｜｜DSML｜｜ calls>` token, and a complete Hermes-style block (what
+ * Qwen writes), `<tool_call>` ... `</tool_call>` around a JSON object with a
+ * string `name`. Never a rule on words, length or punctuation: the tag named in
+ * prose, a block that is not finished, a JSON-first answer and anything a code
+ * fence shows (a reply that explains the format) are ordinary answer content.
+ */
+export function containsToolCallMarkup(value: string): boolean {
+	if (
+		!value.includes(DSML_CALLS_OPEN_TAG) &&
+		!value.includes(HERMES_TOOL_CALL_OPEN_TAG)
+	)
+		return false;
+	return textOutsideCodeFences(value).some(
+		(text) =>
+			text.includes(DSML_CALLS_OPEN_TAG) || containsHermesToolCallBlock(text),
+	);
+}
+
+/**
+ * Legacy prefix cleanup recognizes DeepSeek's token at the start. A Hermes-style
+ * block cannot be told from a mention of the tag by its opener, so only its whole
+ * body does (`containsToolCallMarkup`).
+ */
 export function startsWithToolCallMarkup(value: string): boolean {
 	const firstVisible = value.search(VISIBLE_CHARACTER_RE);
 	const candidate = firstVisible < 0 ? "" : value.slice(firstVisible);
-	return candidate.startsWith("<｜｜DSML｜｜ calls>");
+	return candidate.startsWith(DSML_CALLS_OPEN_TAG);
 }
 
 function splitPreservingLineEndings(

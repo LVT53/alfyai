@@ -32,6 +32,7 @@ table-layout.ts      - Markdown table rendering
 | `data-tool-call` UI stream parts | Browser-facing structured tool-call updates emitted by `chat-turn/stream.ts`; do not introduce textual `<tool_calls>` as a new protocol |
 | AI SDK UI stream frames | `ai-sdk-ui-stream-contract.ts` owns `data: ...` frame encoding/decoding, `[DONE]`, terminal detection, and metadata extraction |
 | `[CONTEXT]`, `[MEMORY]`, `[KNOWLEDGE]` | Log prefixes only, not stream payload syntax |
+| `<｜｜DSML｜｜ calls>`, a complete `<tool_call>{"name": …}</tool_call>` block | Explicit provider tool syntax (DeepSeek's token; Hermes-style, which Qwen writes: the body is a JSON object with a string `name`), recognised by `containsToolCallMarkup` outside Markdown code fences only. `sanitizeNormalChatAnswer` blanks a reply that holds it, so the engine never settles that reply `answered`. The tag named in prose, a block that is not finished, a JSON-first answer and whatever a code fence shows (a reply that explains the format) are answer text |
 
 ## Conventions
 
