@@ -1,5 +1,4 @@
 import {
-	asSchema,
 	generateText,
 	type JSONValue,
 	type LanguageModel,
@@ -42,7 +41,10 @@ import {
 	buildCompletionTools,
 	toolCallRepairFunction,
 } from "./completion-tools";
-import { CONTEXT_GUARD_MARGIN_TOKENS } from "./context-guard";
+import {
+	CONTEXT_GUARD_MARGIN_TOKENS,
+	countToolCatalogueTokens,
+} from "./context-guard";
 import { cloneNormalChatContextValue } from "./continuation-codec";
 import type {
 	NormalChatModelRunModelMetadata,
@@ -478,33 +480,14 @@ export async function* runNormalChatCompletion(
 				: input.messages,
 		};
 	};
+	// The count is shared with the prepared turn, which charges it before it
+	// builds the context (context-guard.ts); a tool set is counted once a run.
 	const catalogueTokens = new WeakMap<ToolSet, Promise<number>>();
 	const countCatalogue = (tools: ToolSet | undefined): Promise<number> => {
 		if (!tools) return Promise.resolve(0);
 		let counted = catalogueTokens.get(tools);
 		if (!counted) {
-			counted = Promise.all(
-				Object.entries(tools).map(async ([name, definition]) =>
-					definition.type === "provider"
-						? {
-								type: "provider",
-								name,
-								id: definition.id,
-								args: definition.args,
-							}
-						: {
-								type: "function",
-								function: {
-									name,
-									description: definition.description,
-									parameters: await asSchema(definition.inputSchema).jsonSchema,
-									strict: definition.strict,
-								},
-								inputExamples: definition.inputExamples,
-								providerOptions: definition.providerOptions,
-							},
-				),
-			).then((catalogue) => estimateTokenCount(JSON.stringify(catalogue)));
+			counted = countToolCatalogueTokens(tools);
 			catalogueTokens.set(tools, counted);
 		}
 		return counted;

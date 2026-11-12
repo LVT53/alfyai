@@ -2,6 +2,11 @@ import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
+import { estimateHistoryMessagesTokens } from "$lib/server/services/chat-turn/conversation-history";
+import {
+	CONTEXT_GUARD_MARGIN_TOKENS,
+	countToolCatalogueTokens,
+} from "$lib/server/services/normal-chat-model/context-guard";
 import type { NormalChatCompletion } from "$lib/shared/normal-chat-completion";
 import {
 	type NormalChatOutputEvent,
@@ -1070,6 +1075,67 @@ describe("opt-in structural completion with real SDK", () => {
 					) + bodies[0].max_completion_tokens,
 				).toBeLessThanOrEqual(8192);
 			}
+		}
+	});
+	// The prepared turn budgets its context with countToolCatalogueTokens and the
+	// engine's margin (chat-turn/context-budget.ts, fitContextLimitsToRequest).
+	// This holds the engine to the same count: the window that exactly fits the
+	// request goes out, one token less is refused before any provider call.
+	it.each([
+		false,
+		true,
+	])("charges the tool catalogue as countToolCatalogueTokens counts it, streaming=%s", async (streaming) => {
+		const tools = {
+			lookup: tool({
+				description: "Look up evidence.",
+				inputSchema: z.object({
+					query: z.string().describe("A query. ".repeat(300)),
+				}),
+				execute: async () => "unused",
+			}),
+		};
+		const catalogue = await countToolCatalogueTokens(tools);
+		expect(catalogue).toBeGreaterThan(500);
+		const maxOutputTokens = 820;
+		const args = setup();
+		const needed =
+			estimateHistoryMessagesTokens(args.messages, estimateTokenCount) +
+			catalogue +
+			maxOutputTokens +
+			CONTEXT_GUARD_MARGIN_TOKENS;
+		for (const [window, goesOut] of [
+			[needed, true],
+			[needed - 1, false],
+		] as const) {
+			let requests = 0;
+			const params = {
+				...setup(),
+				provider: { ...provider, maxModelContext: window, maxOutputTokens },
+				maxOutputTokens,
+				tools,
+				fetch: async () => {
+					requests++;
+					return streaming
+						? streamed([{ content: "Within capacity." }])
+						: reply("Within capacity.");
+				},
+			};
+			let completion: NormalChatCompletion | undefined;
+			if (streaming) {
+				for await (const _event of runStreamingNormalChatModelRun(params)) {
+				}
+				const terminal = params.output.findLast(
+					(event) => event.type === "completion",
+				);
+				completion =
+					terminal?.type === "completion" ? terminal.completion : undefined;
+			} else completion = (await runPlainNormalChatModelRun(params)).completion;
+			expect(requests).toBe(goesOut ? 1 : 0);
+			expect(completion).toMatchObject(
+				goesOut
+					? { outcome: "answered" }
+					: { outcome: "incomplete", stopCause: "context_capacity" },
+			);
 		}
 	});
 	it("reports capacity failure without shrinking completed evidence", async () => {

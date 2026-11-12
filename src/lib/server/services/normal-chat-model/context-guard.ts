@@ -1,5 +1,10 @@
 import type { ToolResultOutput } from "@ai-sdk/provider-utils";
-import type { ModelMessage, PrepareStepFunction, ToolSet } from "ai";
+import {
+	asSchema,
+	type ModelMessage,
+	type PrepareStepFunction,
+	type ToolSet,
+} from "ai";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "../chat-turn/conversation-history";
 import { deriveToolResultDigest } from "../normal-chat-tools/tool-result-digest";
@@ -28,6 +33,49 @@ import { deriveToolResultDigest } from "../normal-chat-tools/tool-result-digest"
 
 /** Room a step keeps for the answer plus the error in our token estimate. */
 export const CONTEXT_GUARD_MARGIN_TOKENS = 4_096;
+
+/**
+ * What a turn's tool catalogue costs the request: each tool's name, description
+ * and input schema (and what else a provider is sent about it) as JSON, counted
+ * with the repo's token estimator. The engine's capacity check
+ * (completion.ts, `assertFits`) charges exactly this beside the messages, the
+ * system prompt, the output cap and `CONTEXT_GUARD_MARGIN_TOKENS`, and the
+ * prepared turn charges it before it builds the context
+ * (chat-turn/context-budget.ts, `fitContextLimitsToRequest`), so the two cannot
+ * count it differently.
+ *
+ * `asSchema(...).jsonSchema` is a value or a promise (`ai` 6.0.193 over
+ * `@ai-sdk/provider-utils` 4.0.27: a lazily created schema resolves on first
+ * read), so it is awaited. A turn with no tools costs nothing.
+ */
+export async function countToolCatalogueTokens(
+	tools: ToolSet | undefined,
+): Promise<number> {
+	if (!tools) return 0;
+	const catalogue = await Promise.all(
+		Object.entries(tools).map(async ([name, definition]) =>
+			definition.type === "provider"
+				? {
+						type: "provider",
+						name,
+						id: definition.id,
+						args: definition.args,
+					}
+				: {
+						type: "function",
+						function: {
+							name,
+							description: definition.description,
+							parameters: await asSchema(definition.inputSchema).jsonSchema,
+							strict: definition.strict,
+						},
+						inputExamples: definition.inputExamples,
+						providerOptions: definition.providerOptions,
+					},
+		),
+	);
+	return estimateTokenCount(JSON.stringify(catalogue));
+}
 
 const TOOL_RESULT_TRUNCATION_SUFFIX =
 	"\n\n[truncated to fit the context window]";
