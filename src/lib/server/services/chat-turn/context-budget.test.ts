@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { deriveModelContextLimits } from "$lib/model-context-defaults";
+import { CONTEXT_GUARD_MARGIN_TOKENS } from "../normal-chat-model/context-guard";
 import {
 	deriveBaselineMemoryProfileBudget,
 	deriveCurrentTurnAttachmentBudget,
@@ -7,6 +9,7 @@ import {
 	deriveModelContextBudget,
 	deriveProactiveConnectorContextBudget,
 	deriveSessionHistoryBudget,
+	fitContextLimitsToRequest,
 	resolveCompletionMaxTokens,
 } from "./context-budget";
 
@@ -433,5 +436,274 @@ describe("completion-only bounded output policy", () => {
 		expect(
 			deriveModelContextBudget({ maxModelContext: 8192, maxTokens: null }),
 		).toMatchObject({ effectiveMaxTokens: null, outputReserve: 0 });
+	});
+});
+
+// The engine (normal-chat-model/completion.ts) refuses a request before any
+// provider call when messages + system + the tool catalogue + the output cap +
+// CONTEXT_GUARD_MARGIN_TOKENS exceed the model's window. A context built to its
+// target leaves the first three and the cap no room unless the target itself is
+// held back for them: that is what preparation is handed.
+describe("fitting the built context to the request around it", () => {
+	// What the engine's own count charged for the real catalogue: with no
+	// connector, and with all nine (the 2026-11-12 review's measurement).
+	const catalogues = [0, 11_595, 16_529] as const;
+
+	type Configuration = {
+		name: string;
+		maxModelContext: number;
+		/** The configured TARGET_CONSTRUCTED_CONTEXT; absent is the default ratio. */
+		target?: number;
+		/** The configured max output tokens; absent is the application reserve. */
+		cap?: number;
+		/** The cap the request carries: the configured one, held to what the target leaves. */
+		reserve: number;
+		configuredTarget: number;
+		/** The target the context is built to, for the catalogues above. */
+		targets: [number, number, number];
+	};
+	const configurations: Configuration[] = [
+		{
+			name: "146,000 with an explicit target of 102,200 (the provider models)",
+			maxModelContext: 146_000,
+			target: 102_200,
+			reserve: 14_600,
+			configuredTarget: 102_200,
+			targets: [102_200, 102_200, 102_200],
+		},
+		{
+			name: "146,000 on the default ratios",
+			maxModelContext: 146_000,
+			reserve: 14_600,
+			configuredTarget: 131_400,
+			targets: [127_304, 115_709, 110_775],
+		},
+		{
+			name: "131,072 on the default ratios",
+			maxModelContext: 131_072,
+			reserve: 13_108,
+			configuredTarget: 117_964,
+			targets: [113_868, 102_273, 97_339],
+		},
+		{
+			name: "262,144 with an explicit target of 235,929 and no output cap (MODEL_1)",
+			maxModelContext: 262_144,
+			target: 235_929,
+			reserve: 26_215,
+			configuredTarget: 235_929,
+			targets: [231_833, 220_238, 215_304],
+		},
+		{
+			name: "262,144 with a 24,576 cap and a target of 102,200",
+			maxModelContext: 262_144,
+			target: 102_200,
+			cap: 24_576,
+			reserve: 24_576,
+			configuredTarget: 102_200,
+			targets: [102_200, 102_200, 102_200],
+		},
+		{
+			// 384,000 is more than the 100,000 the default target leaves: the
+			// existing clamp holds the cap to that, and the cap stays 100,000.
+			name: "1,000,000 with a 384,000 cap on the default ratios (deepseek-flash)",
+			maxModelContext: 1_000_000,
+			cap: 384_000,
+			reserve: 100_000,
+			configuredTarget: 900_000,
+			targets: [895_904, 884_309, 879_375],
+		},
+		{
+			name: "1,048,576 with a 65,536 cap on the default ratios (kimi)",
+			maxModelContext: 1_048_576,
+			cap: 65_536,
+			reserve: 65_536,
+			configuredTarget: 943_718,
+			targets: [943_718, 943_718, 943_718],
+		},
+		{
+			name: "262,144 with a 24,576 cap on the default ratios (qwen3-6-27b)",
+			maxModelContext: 262_144,
+			cap: 24_576,
+			reserve: 24_576,
+			configuredTarget: 235_929,
+			targets: [233_472, 221_877, 216_943],
+		},
+	];
+
+	function request(configuration: Configuration) {
+		return {
+			limits: deriveModelContextLimits({
+				maxModelContext: configuration.maxModelContext,
+				targetConstructedContext: configuration.target,
+			}),
+			contextWindow: configuration.maxModelContext,
+			maxTokens: resolveCompletionMaxTokens({
+				maxModelContext: configuration.maxModelContext,
+				maxTokens: configuration.cap,
+			}),
+			marginTokens: CONTEXT_GUARD_MARGIN_TOKENS,
+		};
+	}
+
+	describe.each(configurations)("$name", (configuration) => {
+		it.each(
+			catalogues.map((tokens, index) => [tokens, index] as const),
+		)("with a catalogue of %i tokens, a context built to its target plus the request fits the window", (toolCatalogueTokens, index) => {
+			const given = request(configuration);
+			expect(given.limits.targetConstructedContext).toBe(
+				configuration.configuredTarget,
+			);
+			const fitted = fitContextLimitsToRequest({
+				...given,
+				toolCatalogueTokens,
+			});
+
+			// What preparation derives from what it is handed, with its own rules
+			// (resolveOutputTokenBudget and buildConstructedContext): the cap must
+			// not be given back, and the target is the one it builds to.
+			const downstream = deriveModelContextBudget({
+				...fitted.limits,
+				maxTokens: fitted.maxTokens,
+			});
+			expect(fitted.maxTokens).toBe(configuration.reserve);
+			expect(downstream.effectiveMaxTokens).toBe(configuration.reserve);
+			expect(downstream.targetConstructedContext).toBe(
+				configuration.targets[index],
+			);
+			expect(fitted.limits.targetConstructedContext).toBe(
+				configuration.targets[index],
+			);
+			expect(
+				downstream.targetConstructedContext +
+					downstream.outputReserve +
+					toolCatalogueTokens +
+					CONTEXT_GUARD_MARGIN_TOKENS,
+			).toBeLessThanOrEqual(configuration.maxModelContext);
+
+			// The window is the model's own; the compaction threshold never sits
+			// above a target that was held back.
+			expect(fitted.limits.maxModelContext).toBe(given.limits.maxModelContext);
+			const lowered =
+				fitted.limits.targetConstructedContext <
+				given.limits.targetConstructedContext;
+			expect(fitted.limits.compactionUiThreshold).toBe(
+				lowered
+					? Math.min(
+							given.limits.compactionUiThreshold,
+							fitted.limits.targetConstructedContext,
+						)
+					: given.limits.compactionUiThreshold,
+			);
+		});
+
+		it("lowers the target exactly when the configured one did not leave the room", () => {
+			const given = request(configuration);
+			for (const toolCatalogueTokens of catalogues) {
+				const fitted = fitContextLimitsToRequest({
+					...given,
+					toolCatalogueTokens,
+				});
+				const unfitted =
+					given.limits.targetConstructedContext +
+					configuration.reserve +
+					toolCatalogueTokens +
+					CONTEXT_GUARD_MARGIN_TOKENS;
+				if (unfitted > configuration.maxModelContext) {
+					expect(fitted.limits.targetConstructedContext).toBeLessThan(
+						given.limits.targetConstructedContext,
+					);
+				} else {
+					// Nothing to lower: the same numbers, not a copy that drifts.
+					expect(fitted).toEqual({
+						limits: given.limits,
+						maxTokens: configuration.reserve,
+					});
+				}
+			}
+		});
+	});
+
+	it("leaves the provider models' 146,000 / 102,200 exactly as configured", () => {
+		const given = request(configurations[0]);
+		for (const toolCatalogueTokens of catalogues) {
+			expect(
+				fitContextLimitsToRequest({ ...given, toolCatalogueTokens }),
+			).toEqual({ limits: given.limits, maxTokens: 14_600 });
+		}
+	});
+
+	it("measures the room from the window the engine checks, not from a placeholder in the limits", () => {
+		// The provider says 8,192 while the limits carry the 262,144 placeholder:
+		// the cap is held to what the limits' own target leaves (as preparation
+		// does), and the target to what the real window leaves.
+		const limits = deriveModelContextLimits({ maxModelContext: 262_144 });
+		const fitted = fitContextLimitsToRequest({
+			limits,
+			contextWindow: 8_192,
+			maxTokens: 820,
+			toolCatalogueTokens: 0,
+			marginTokens: CONTEXT_GUARD_MARGIN_TOKENS,
+		});
+		expect(fitted.maxTokens).toBe(820);
+		expect(fitted.limits).toEqual({
+			maxModelContext: 262_144,
+			targetConstructedContext: 8_192 - 820 - CONTEXT_GUARD_MARGIN_TOKENS,
+			compactionUiThreshold: 8_192 - 820 - CONTEXT_GUARD_MARGIN_TOKENS,
+		});
+	});
+
+	it("keeps the cap a clamped turn already had, so the lowered target cannot give it back", () => {
+		// 5,000 asked, 7,000 of 8,192 as the target: the target leaves 1,192.
+		const limits = {
+			maxModelContext: 8_192,
+			targetConstructedContext: 7_000,
+			compactionUiThreshold: 6_553,
+		};
+		const fitted = fitContextLimitsToRequest({
+			limits,
+			contextWindow: 8_192,
+			maxTokens: 5_000,
+			toolCatalogueTokens: 0,
+			marginTokens: CONTEXT_GUARD_MARGIN_TOKENS,
+		});
+		expect(fitted.maxTokens).toBe(1_192);
+		expect(fitted.limits.targetConstructedContext).toBe(
+			8_192 - 1_192 - CONTEXT_GUARD_MARGIN_TOKENS,
+		);
+		// Handing the unclamped 5,000 to preparation would let its own rule
+		// (the cap may use what the lowered target leaves) read the cap back as
+		// 5,000, and nothing would fit.
+		expect(
+			deriveModelContextBudget({ ...fitted.limits, maxTokens: 5_000 })
+				.effectiveMaxTokens,
+		).toBe(5_000);
+		expect(
+			deriveModelContextBudget({
+				...fitted.limits,
+				maxTokens: fitted.maxTokens,
+			}).effectiveMaxTokens,
+		).toBe(1_192);
+	});
+
+	it("builds to one token when the window cannot hold the catalogue, and the engine refuses", () => {
+		const given = request({
+			name: "8,192",
+			maxModelContext: 8_192,
+			reserve: 820,
+			configuredTarget: 7_372,
+			targets: [0, 0, 0],
+		});
+		const fitted = fitContextLimitsToRequest({
+			...given,
+			toolCatalogueTokens: 11_595,
+		});
+		expect(fitted.maxTokens).toBe(820);
+		expect(fitted.limits.targetConstructedContext).toBe(1);
+		expect(fitted.limits.compactionUiThreshold).toBe(1);
+		// A tools-off turn on the same window keeps what the margin leaves.
+		expect(
+			fitContextLimitsToRequest({ ...given, toolCatalogueTokens: 0 }).limits
+				.targetConstructedContext,
+		).toBe(8_192 - 820 - CONTEXT_GUARD_MARGIN_TOKENS);
 	});
 });

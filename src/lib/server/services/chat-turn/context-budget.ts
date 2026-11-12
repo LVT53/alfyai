@@ -4,6 +4,7 @@ import {
 	DEFAULT_TARGET_CONSTRUCTED_CONTEXT_RATIO,
 	deriveDefaultTargetConstructedContext,
 	MIN_MODEL_CONTEXT_TOKENS,
+	type ModelContextLimits,
 	normalizeModelContextLimit,
 	normalizeModelContextTokens,
 } from "$lib/model-context-defaults";
@@ -181,6 +182,74 @@ export function resolveCompletionMaxTokens(input: {
 	}
 	const capacity = normalizeModelContextTokens(input.maxModelContext);
 	return capacity - deriveDefaultTargetConstructedContext(capacity);
+}
+
+export type RequestFitInput = {
+	/** The limits as configured or derived: what a context would be built to if nothing sat beside it. */
+	limits: ModelContextLimits;
+	/** The window the engine checks the request against (the provider's own first). */
+	contextWindow: number;
+	/** The output cap the turn resolved (`resolveCompletionMaxTokens`). */
+	maxTokens: number;
+	/** What the turn's tool catalogue costs the request, counted as the engine counts it. */
+	toolCatalogueTokens: number;
+	/** What the engine keeps beside the request (`CONTEXT_GUARD_MARGIN_TOKENS`). */
+	marginTokens: number;
+};
+
+/**
+ * What context preparation is handed so that the context it builds fits the
+ * request around it. The engine (normal-chat-model/completion.ts) refuses a
+ * request before any provider call when
+ *
+ *   messages + system + tool catalogue + output cap + margin > window
+ *
+ * and the built context is the first two. So the target it is built to is never
+ * more than `window - cap - catalogue - margin`, and everything that reads the
+ * limits (the history window, the evidence and memory budgets, automatic
+ * compression, the status the page shows) reads that one number.
+ *
+ * The cap is the one the request will carry: the configured cap held to what the
+ * CONFIGURED target leaves (the clamp `deriveModelContextBudget` applies), so
+ * the lowered target does not hand room back to it and preparation's own clamp
+ * finds the same cap. A configuration that already leaves the room comes back
+ * unchanged. The compaction threshold follows a lowered target down; it is never
+ * left above the number the context is built to. A window too small to hold
+ * the catalogue gets a target of one token and the engine's refusal.
+ */
+export function fitContextLimitsToRequest(input: RequestFitInput): {
+	limits: ModelContextLimits;
+	maxTokens: number;
+} {
+	const { limits } = input;
+	const maxTokens =
+		deriveModelContextBudget({
+			maxModelContext: limits.maxModelContext,
+			targetConstructedContext: limits.targetConstructedContext,
+			maxTokens: input.maxTokens,
+		}).effectiveMaxTokens ?? Math.max(1, Math.floor(input.maxTokens));
+	const room =
+		Math.floor(input.contextWindow) -
+		maxTokens -
+		Math.max(0, Math.floor(input.toolCatalogueTokens)) -
+		Math.max(0, Math.floor(input.marginTokens));
+	const targetConstructedContext = Math.max(
+		1,
+		Math.min(limits.targetConstructedContext, room),
+	);
+	if (targetConstructedContext >= limits.targetConstructedContext)
+		return { limits, maxTokens };
+	return {
+		limits: {
+			...limits,
+			targetConstructedContext,
+			compactionUiThreshold: Math.min(
+				limits.compactionUiThreshold,
+				targetConstructedContext,
+			),
+		},
+		maxTokens,
+	};
 }
 
 export function deriveModelContextBudget(
