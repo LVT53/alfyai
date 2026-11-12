@@ -4636,6 +4636,166 @@ describe("prepareOutboundChatContext", () => {
 	});
 });
 
+// The engine refuses a request whose context, system prompt, tool catalogue,
+// output cap and margin do not fit the window (normal-chat-model/completion.ts).
+// The turn tells preparation what it will be charged beside the context
+// (`requestRoom`), and preparation lowers the target it builds to, once, before
+// any reader of the limits looks: the numbers below are
+// chat-turn/context-budget.ts's `fitContextLimitsToRequest`, held where they are
+// read.
+describe("prepareOutboundChatContext and the room the request needs", () => {
+	const room = {
+		contextWindow: 131_072,
+		toolCatalogueTokens: 16_529,
+		marginTokens: 4_096,
+	};
+	const configured = {
+		maxModelContext: 131_072,
+		compactionUiThreshold: 104_857,
+		targetConstructedContext: 117_964,
+	};
+	// 131,072 - 13,108 (the cap) - 16,529 (the catalogue) - 4,096 (the margin).
+	const lowered = {
+		maxModelContext: 131_072,
+		compactionUiThreshold: 97_339,
+		targetConstructedContext: 97_339,
+	};
+	const turn = (overrides: Record<string, unknown> = {}) => ({
+		message: "Carry on.",
+		sessionId: "conv-1",
+		modelConfig: { ...modelConfig, maxTokens: 13_108 },
+		user: { id: "user-1" },
+		modelId: "model1" as const,
+		contextLimits: configured,
+		logLabel: "provider request",
+		...overrides,
+	});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.buildConstructedContext.mockReset();
+		mocks.listContextCompressionSourceMessages.mockReset();
+		mocks.listContextCompressionSnapshots.mockReset();
+		mocks.getConfig.mockReturnValue({ contextDiagnosticsDebug: false });
+		mocks.getSystemPrompt.mockReturnValue("Base system prompt");
+		mocks.getLatestValidContextCompressionSnapshot.mockResolvedValue(null);
+		mocks.listContextCompressionSnapshots.mockResolvedValue([]);
+		mocks.listContextCompressionSourceMessages.mockResolvedValue([]);
+		mocks.buildProactiveConnectorContext.mockResolvedValue(null);
+		mocks.buildConstructedContext.mockResolvedValue(
+			createConstructedContextResult("## Current User Message\nCarry on."),
+		);
+	});
+
+	it("builds the context to the lowered target and reports it, with the compaction threshold under it", async () => {
+		const prepared = await prepareOutboundChatContext(
+			turn({ requestRoom: room }),
+		);
+
+		expect(mocks.buildConstructedContext).toHaveBeenCalledWith(
+			expect.objectContaining({ contextLimits: lowered }),
+		);
+		expect(prepared.contextLimits).toEqual(lowered);
+		expect(prepared.outputTokenBudget).toEqual({
+			configuredMaxTokens: 13_108,
+			effectiveMaxTokens: 13_108,
+			outputReserve: 13_108,
+			outputReserveClamped: false,
+		});
+	});
+
+	it("reads the lowered target in the prompt budget too", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		mocks.getConfig.mockReturnValue({ contextDiagnosticsDebug: true });
+		try {
+			// A packet that fits the configured target's budget and not the lowered one.
+			mocks.buildConstructedContext.mockResolvedValue(
+				createConstructedContextResult(
+					`${"document ".repeat(105_000)}\n\n## Current User Message\nCarry on.`,
+				),
+			);
+			const prepared = await prepareOutboundChatContext(
+				turn({ requestRoom: room }),
+			);
+
+			const payload = findBudgetDiagnosticPayload(warn);
+			expect(payload).toMatchObject({
+				targetConstructedContext: 97_339,
+				compactionUiThreshold: 97_339,
+			});
+			expect(payload?.configuredPromptBudget as number).toBeLessThanOrEqual(
+				97_339,
+			);
+			expect(estimateTokenCount(prepared.inputValue)).toBeLessThan(97_339);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	it("hands preparation the cap the request carries, and says what was configured when it was cut", async () => {
+		// 384,000 asked on a 1,000,000 window whose target leaves 100,000.
+		const prepared = await prepareOutboundChatContext(
+			turn({
+				modelConfig: { ...modelConfig, maxTokens: 384_000 },
+				contextLimits: {
+					maxModelContext: 1_000_000,
+					compactionUiThreshold: 800_000,
+					targetConstructedContext: 900_000,
+				},
+				requestRoom: { ...room, contextWindow: 1_000_000 },
+			}),
+		);
+
+		expect(prepared.outputTokenBudget).toEqual({
+			configuredMaxTokens: 384_000,
+			effectiveMaxTokens: 100_000,
+			outputReserve: 100_000,
+			outputReserveClamped: true,
+		});
+		// 1,000,000 - 100,000 - 16,529 - 4,096: the lowered target does not give the
+		// cap back to the 384,000 asked.
+		expect(prepared.contextLimits.targetConstructedContext).toBe(879_375);
+	});
+
+	it("uses the limits as they are without a room, and when the cap is not known", async () => {
+		const without = await prepareOutboundChatContext(turn());
+		expect(without.contextLimits).toEqual(configured);
+		expect(mocks.buildConstructedContext).toHaveBeenLastCalledWith(
+			expect.objectContaining({ contextLimits: configured }),
+		);
+
+		const unknownCap = await prepareOutboundChatContext(
+			turn({
+				modelConfig: { ...modelConfig, maxTokens: null },
+				requestRoom: room,
+			}),
+		);
+		expect(unknownCap.contextLimits).toEqual(configured);
+	});
+
+	it("leaves a configuration that already has the room exactly as configured", async () => {
+		const fitting = {
+			maxModelContext: 146_000,
+			compactionUiThreshold: 116_800,
+			targetConstructedContext: 102_200,
+		};
+		const prepared = await prepareOutboundChatContext(
+			turn({
+				modelConfig: { ...modelConfig, maxTokens: 14_600 },
+				contextLimits: fitting,
+				requestRoom: { ...room, contextWindow: 146_000 },
+			}),
+		);
+
+		expect(prepared.contextLimits).toEqual(fitting);
+		expect(prepared.outputTokenBudget).toMatchObject({
+			configuredMaxTokens: 14_600,
+			effectiveMaxTokens: 14_600,
+			outputReserveClamped: false,
+		});
+	});
+});
+
 describe("resolvePromptContextLimits", () => {
 	const runtimeConfig = {
 		model1MaxModelContext: 1_000_000,

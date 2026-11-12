@@ -1077,3 +1077,145 @@ describe("prepareOutboundContext prefetch compatibility", () => {
 		});
 	});
 });
+
+// The engine refuses a request when the context, the system prompt, the tool
+// catalogue, the output cap and its margin do not fit the window. The turn tells
+// preparation what the request needs beside the context by handing it a function
+// that says so; this helper asks it once, before the context is prepared, and
+// hands the answer on as data. Lowering the target is context preparation's work
+// (normal-chat-context.test.ts, "the room the request needs"): the limits and the
+// cap reach it as configured.
+describe("prepareOutboundContext and the room the request needs", () => {
+	const provider: NormalChatModelRunProvider = {
+		id: "provider-room",
+		name: "gateway",
+		displayName: "Gateway",
+		baseUrl: "https://gateway.example/v1",
+		modelName: "room-model",
+		apiKey: "synthetic",
+		maxModelContext: 131_072,
+	};
+	const params = {
+		userId: "user-1",
+		runtimeConfig,
+		message: "Carry on.",
+		conversationId: "conv-room",
+		modelId: "provider:provider-room:room-model" as const,
+		overrideProvider: provider,
+	};
+	const room = {
+		contextWindow: 131_072,
+		toolCatalogueTokens: 16_529,
+		marginTokens: 4_096,
+	};
+
+	async function runtimeWith(maxTokens: number | null) {
+		const runtime = await resolveProviderRuntime(params);
+		return {
+			...runtime,
+			modelConfig: { ...runtime.modelConfig, maxTokens },
+		};
+	}
+
+	beforeEach(() => {
+		mocks.prepareOutboundChatContext.mockReset();
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+		});
+	});
+
+	it("hands context preparation the room it was told, with the limits and the cap as configured", async () => {
+		const runtime = await runtimeWith(13_108);
+
+		await prepareOutboundContext(
+			params,
+			runtime,
+			null,
+			new Set(),
+			"provider request",
+			"native",
+			async () => room,
+		);
+
+		const call = mocks.prepareOutboundChatContext.mock.lastCall?.[0];
+		expect(call.requestRoom).toEqual(room);
+		expect(call.contextLimits).toBe(runtime.baseContextLimits);
+		expect(call.modelConfig.maxTokens).toBe(13_108);
+	});
+
+	it("asks for the room once, after the reads of the turn and before it prepares anything", async () => {
+		const runtime = await runtimeWith(13_108);
+		const requestRoom = vi.fn(async () => room);
+
+		await prepareOutboundContext(
+			params,
+			runtime,
+			null,
+			new Set(),
+			"provider request",
+			"native",
+			requestRoom,
+		);
+
+		expect(requestRoom).toHaveBeenCalledOnce();
+		expect(requestRoom.mock.invocationCallOrder[0]).toBeLessThan(
+			mocks.prepareOutboundChatContext.mock.invocationCallOrder[0],
+		);
+	});
+
+	it("prepares as it always did when the turn asks for no room", async () => {
+		await prepareOutboundContext(
+			params,
+			await runtimeWith(13_108),
+			null,
+			new Set(),
+		);
+
+		expect(
+			mocks.prepareOutboundChatContext.mock.lastCall?.[0].requestRoom,
+		).toBeUndefined();
+	});
+
+	it.each([
+		null,
+		0,
+	])("does not ask for the room, nor build anything for it, when the cap is %s", async (maxTokens) => {
+		const requestRoom = vi.fn();
+
+		await prepareOutboundContext(
+			params,
+			await runtimeWith(maxTokens),
+			null,
+			new Set(),
+			"provider request",
+			"native",
+			requestRoom,
+		);
+
+		expect(requestRoom).not.toHaveBeenCalled();
+		expect(
+			mocks.prepareOutboundChatContext.mock.lastCall?.[0].requestRoom,
+		).toBeUndefined();
+	});
+
+	it("prepares nothing once the turn is cancelled while the room is worked out", async () => {
+		const controller = new AbortController();
+
+		await expect(
+			prepareOutboundContext(
+				{ ...params, signal: controller.signal },
+				await runtimeWith(13_108),
+				null,
+				new Set(),
+				"provider request",
+				"native",
+				async () => {
+					controller.abort(new Error("cancelled while the room is worked out"));
+					return room;
+				},
+			),
+		).rejects.toThrow("cancelled while the room is worked out");
+		expect(mocks.prepareOutboundChatContext).not.toHaveBeenCalled();
+	});
+});

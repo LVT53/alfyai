@@ -184,17 +184,21 @@ export function resolveCompletionMaxTokens(input: {
 	return capacity - deriveDefaultTargetConstructedContext(capacity);
 }
 
-export type RequestFitInput = {
-	/** The limits as configured or derived: what a context would be built to if nothing sat beside it. */
-	limits: ModelContextLimits;
+/** What the engine charges beside the context a turn builds. */
+export type RequestRoom = {
 	/** The window the engine checks the request against (the provider's own first). */
 	contextWindow: number;
-	/** The output cap the turn resolved (`resolveCompletionMaxTokens`). */
-	maxTokens: number;
 	/** What the turn's tool catalogue costs the request, counted as the engine counts it. */
 	toolCatalogueTokens: number;
 	/** What the engine keeps beside the request (`CONTEXT_GUARD_MARGIN_TOKENS`). */
 	marginTokens: number;
+};
+
+export type RequestFitInput = RequestRoom & {
+	/** The limits as configured or derived: what a context would be built to if nothing sat beside it. */
+	limits: ModelContextLimits;
+	/** The output cap the turn resolved (`resolveCompletionMaxTokens`). */
+	maxTokens: number;
 };
 
 /**

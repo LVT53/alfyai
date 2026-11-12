@@ -63,6 +63,7 @@ import type {
 	PictureRef,
 } from "$lib/shared/artifacts/image-body";
 import { estimateTokenCount } from "$lib/utils/tokens";
+import type { RequestRoom } from "./context-budget";
 import { estimateHistoryMessagesTokens } from "./conversation-history";
 
 export function isEvidenceReadyToolCall(toolCall: ToolCallEntry): boolean {
@@ -171,7 +172,9 @@ export function estimateTurnPromptTokens(params: {
 //
 // Both the plain and streaming send-model entry points share the same
 // four-step orchestration (provider runtime → depth effort → outbound
-// context → tool pack). Those steps live here so they exist once (AGENTS.md:
+// context → tool pack; the prepared turn builds the pack when the outbound
+// context first asks how much room it must leave for the catalogue). Those
+// steps live here so they exist once (AGENTS.md:
 // "Shared behavior should exist once. Do not copy logic between send and
 // stream.").
 //
@@ -424,6 +427,15 @@ export async function prepareOutboundContext(
 	enabledConnectionCapabilities: Set<Capability>,
 	logLabel = "provider request",
 	prefetchToolMessages?: "native" | "flatten",
+	/**
+	 * Asked for once, after the turn's other reads and before the context is
+	 * prepared, when the turn wants its context built to leave room for the
+	 * request around it (the prepared turn does: it builds its tool pack when
+	 * asked, because the catalogue is the largest part of that room). The answer
+	 * goes to context preparation as data, which lowers the target it builds to
+	 * (`fitContextLimitsToRequest`); without it the limits are used as they are.
+	 */
+	requestRoom?: () => Promise<RequestRoom>,
 ): Promise<PreparedModelContext> {
 	const {
 		catalogueBlock: skillCatalogueBlock,
@@ -458,6 +470,13 @@ export async function prepareOutboundContext(
 	// clock then says the zone is unknown).
 	const timeZone = await resolveTurnTimeZone(params.userId);
 	params.signal?.throwIfAborted();
+	// Only a turn with a known output cap has a room to ask about.
+	const cap = runtime.modelConfig.maxTokens;
+	const room =
+		requestRoom && typeof cap === "number" && cap >= 1
+			? await requestRoom()
+			: undefined;
+	params.signal?.throwIfAborted();
 	// The model's configured max output tokens and context limits are passed
 	// through untouched: reasoning depth never shrinks the output reserve or
 	// the constructed-context target (those are fixed per model). Depth only
@@ -481,6 +500,7 @@ export async function prepareOutboundContext(
 		forceWebSearch: params.forceWebSearch,
 		modelId: runtime.modelId,
 		contextLimits: runtime.baseContextLimits,
+		requestRoom: room,
 		// Without a sender the automatic compression stage reports
 		// `missing_control_message_sender` and never compresses.
 		compressionControlMessageSender: sendCompressionControlMessage,

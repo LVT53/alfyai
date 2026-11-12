@@ -26,6 +26,8 @@ import {
 import {
 	deriveModelContextBudget,
 	deriveSessionHistoryBudget,
+	fitContextLimitsToRequest,
+	type RequestRoom,
 } from "./chat-turn/context-budget";
 import {
 	buildConstructedContext,
@@ -2038,6 +2040,14 @@ type PrepareOutboundChatContextParams = {
 	// The page for a pasted address was read when the reply began and the
 	// continuation carries it, so this turn reads no page.
 	skipWebPrefetch?: boolean;
+	// What the engine will charge beside the context this builds: the tool
+	// catalogue and its margin (chat-turn/context-budget.ts). Resolved by the
+	// caller, which owns the turn's tools. When given, the context is built to a
+	// target that leaves that room, and every reader below this point (the history
+	// window, the evidence budgets, automatic compression, the status the page
+	// shows, the output budget returned) reads the lowered limits. Absent, the
+	// limits are used as given.
+	requestRoom?: RequestRoom;
 	logLabel: string;
 };
 
@@ -2316,20 +2326,43 @@ function runPromptBudgetStage(input: {
 }
 
 export async function prepareOutboundChatContext(
-	params: PrepareOutboundChatContextParams,
+	given: PrepareOutboundChatContextParams,
 ): Promise<PreparedOutboundChatContext> {
 	let runtimeConfig: RuntimeConfig | undefined;
 	const getPreparationConfig = () => {
 		runtimeConfig ??= getConfig();
 		return runtimeConfig;
 	};
-	const contextLimits =
-		params.contextLimits ??
+	const configuredLimits =
+		given.contextLimits ??
 		resolvePromptContextLimits({
-			modelId: params.modelId ?? "model1",
-			contextLimits: params.modelConfig.contextLimits,
+			modelId: given.modelId ?? "model1",
+			contextLimits: given.modelConfig.contextLimits,
 			runtimeConfig: getPreparationConfig(),
 		});
+	// The request around the context takes its room first: the target the context
+	// is built to is lowered once, here, so that no reader below sees the
+	// configured one. The output cap preparation works with is the one the request
+	// will carry (the configured cap held to what the configured target leaves);
+	// the returned budget still says what was configured.
+	const configuredMaxTokens = given.modelConfig.maxTokens;
+	const fitted =
+		given.requestRoom &&
+		typeof configuredMaxTokens === "number" &&
+		configuredMaxTokens >= 1
+			? fitContextLimitsToRequest({
+					...given.requestRoom,
+					limits: configuredLimits,
+					maxTokens: configuredMaxTokens,
+				})
+			: null;
+	const contextLimits = fitted?.limits ?? configuredLimits;
+	const params: PrepareOutboundChatContextParams = fitted
+		? {
+				...given,
+				modelConfig: { ...given.modelConfig, maxTokens: fitted.maxTokens },
+			}
+		: given;
 	const constructedContextParams: ConstructedContextTurnParams | null = params
 		.user?.id
 		? {
@@ -2512,6 +2545,10 @@ export async function prepareOutboundChatContext(
 		);
 
 	const turnImages = state.turnImages ?? noTurnImages();
+	const outputTokenBudget = requirePreparationValue(
+		state.outputTokenBudget,
+		"outputTokenBudget",
+	);
 	return {
 		inputValue: state.inputValue,
 		turnGuidance: buildGuidanceFor(turnImages),
@@ -2526,10 +2563,17 @@ export async function prepareOutboundChatContext(
 		contextTraceSections: state.contextTraceSections,
 		prefetchedToolCalls: state.prefetchedToolCalls,
 		prefetchedToolMessages: state.prefetchedToolMessages,
-		outputTokenBudget: requirePreparationValue(
-			state.outputTokenBudget,
-			"outputTokenBudget",
-		),
+		// Built with the cap the request carries; the budget says what was
+		// configured and whether it was cut, as it did before the fit existed.
+		outputTokenBudget:
+			fitted && fitted.maxTokens !== configuredMaxTokens
+				? {
+						...outputTokenBudget,
+						configuredMaxTokens: configuredMaxTokens ?? null,
+						outputReserveClamped:
+							configuredMaxTokens !== outputTokenBudget.effectiveMaxTokens,
+					}
+				: outputTokenBudget,
 		contextLimits: requirePreparationValue(
 			state.contextLimits,
 			"contextLimits",
