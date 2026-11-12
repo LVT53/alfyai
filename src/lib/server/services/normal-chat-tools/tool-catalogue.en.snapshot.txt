@@ -1776,6 +1776,11 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
                   "maxLength": 160,
                   "description": "The question itself, one short sentence."
                 },
+                "detail": {
+                  "description": "Optional explanation of the question, one or two sentences.",
+                  "type": "string",
+                  "maxLength": 280
+                },
                 "multiple": {
                   "description": "true when the user may pick several options.",
                   "type": "boolean"

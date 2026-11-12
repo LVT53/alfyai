@@ -75,6 +75,8 @@ describe("the vocabulary", () => {
 			// model wrote four answers on three of the four cards the app turned back.
 			maxOptions: 4,
 			questionChars: 160,
+			// W5: an optional detail under the title, up to 280 characters.
+			detailChars: 280,
 			labelChars: 50,
 			noteChars: 100,
 			ownWordsChars: 500,
@@ -413,6 +415,7 @@ describe("checkAskQuestions", () => {
 	it("takes every cap exactly at its limit", () => {
 		const atTheLimit: AskQuestion = {
 			question: "q".repeat(ASK_LIMITS.questionChars),
+			detail: "d".repeat(ASK_LIMITS.detailChars),
 			options: [
 				{
 					label: "l".repeat(ASK_LIMITS.labelChars),
@@ -425,6 +428,71 @@ describe("checkAskQuestions", () => {
 		const one = [atTheLimit];
 		expect(checkAskQuestions(one)).toEqual({ ok: true });
 		expect(parseAskQuestions(JSON.parse(JSON.stringify(one)))).toEqual(one);
+	});
+
+	// W5 (docs/plans/ui-wishes-2026-11): an optional detail explains the question under
+	// its title. The cap lives once, in ASK_LIMITS, and the check names a broken detail
+	// with the same numbered wording as the rest of the card.
+	describe("a question's detail", () => {
+		const withDetail = (detail?: string): AskQuestion =>
+			detail === undefined ? { ...card[0] } : { ...card[0], detail };
+
+		it("takes a card with no detail", () => {
+			expect(checkAskQuestions([withDetail()])).toEqual({ ok: true });
+			expect(checkAskQuestions(card)).toEqual({ ok: true });
+		});
+
+		it("takes a detail at the cap", () => {
+			expect(
+				checkAskQuestions([withDetail("d".repeat(ASK_LIMITS.detailChars))]),
+			).toEqual({ ok: true });
+		});
+
+		it("refuses a detail one character over the cap, naming its question", () => {
+			const over = "d".repeat(ASK_LIMITS.detailChars + 1);
+			const message = `Question 1 has a detail longer than ${ASK_LIMITS.detailChars} characters.`;
+			expect(checkAskQuestions([withDetail(over)])).toEqual({
+				ok: false,
+				message,
+			});
+			expect(message).toMatch(/^[\x20-\x7e]+$/);
+			// ... and the number is the question's own, as for every other problem
+			expect(checkAskQuestions([card[0], withDetail(over)])).toEqual({
+				ok: false,
+				message: [
+					COUNT_LINE,
+					`Question 2 has a detail longer than ${ASK_LIMITS.detailChars} characters.`,
+				].join("\n"),
+			});
+		});
+
+		it("refuses a detail that is only whitespace", () => {
+			expect(checkAskQuestions([withDetail(" \n\t ")])).toEqual({
+				ok: false,
+				message: "Question 1 has an empty detail.",
+			});
+		});
+
+		it("reads a stored detail back with its question, and no over-cap one", () => {
+			const detailed = withDetail(
+				"Two more people are coming, so a table for twelve.",
+			);
+			expect(parseAskQuestions(JSON.parse(JSON.stringify([detailed])))).toEqual(
+				[detailed],
+			);
+			expect(
+				parseAskQuestions(
+					JSON.parse(
+						JSON.stringify([
+							withDetail("d".repeat(ASK_LIMITS.detailChars + 1)),
+						]),
+					),
+				),
+			).toBeNull();
+			expect(
+				parseAskQuestions(JSON.parse(JSON.stringify([withDetail("   ")]))),
+			).toBeNull();
+		});
 	});
 });
 

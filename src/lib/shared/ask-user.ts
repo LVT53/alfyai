@@ -54,6 +54,8 @@ export const ASK_LIMITS = {
 	minOptions: 2,
 	maxOptions: 4,
 	questionChars: 160,
+	/** How long the optional `detail` under a question's title may be. */
+	detailChars: 280,
 	labelChars: 50,
 	noteChars: 100,
 	ownWordsChars: 500,
@@ -61,9 +63,17 @@ export const ASK_LIMITS = {
 
 export type AskOption = { label: string; note?: string; recommended?: boolean };
 
-/** A question takes one pick unless `multiple` says it takes several. */
+/**
+ * A question takes one pick unless `multiple` says it takes several.
+ *
+ * `detail` is an optional explanation under the title: the model's own words in
+ * the conversation's language, drawn in the card's muted body style (W5). The
+ * title stays short enough to scan; the detail carries the rest. It lives in the
+ * stored questions JSON, so no column knows it.
+ */
 export type AskQuestion = {
 	question: string;
+	detail?: string;
 	multiple?: boolean;
 	options: AskOption[];
 };
@@ -150,8 +160,8 @@ const PROBLEMS_LISTED = 30;
 
 /**
  * Every rule the questions break, one message each, in the order of the card: the
- * count of questions, then each question in turn (its text, its number of options,
- * its mark, then its options' texts). Empty when nothing is broken.
+ * count of questions, then each question in turn (its text, its detail, its number
+ * of options, its mark, then its options' texts). Empty when nothing is broken.
  *
  * The counts and lengths in `ASK_LIMITS` are always held (an empty text is too
  * short). The Recommended mark is held only `asking`: it is a rule for what Alfy may
@@ -174,7 +184,10 @@ function problemsOf(
 				: `Ask ${limits.minQuestions} to ${limits.maxQuestions} questions.`,
 		);
 	}
-	for (const [q, { question, multiple, options }] of questions.entries()) {
+	for (const [
+		q,
+		{ question, detail, multiple, options },
+	] of questions.entries()) {
 		const name = `Question ${q + 1}`;
 		if (isBlank(question)) {
 			problems.push(`${name} has no text.`);
@@ -182,6 +195,16 @@ function problemsOf(
 			problems.push(
 				`${name} is longer than ${limits.questionChars} characters.`,
 			);
+		}
+		if (detail !== undefined) {
+			// Absent draws nothing; present, it must say something, and stay short.
+			if (isBlank(detail)) {
+				problems.push(`${name} has an empty detail.`);
+			} else if (detail.length > limits.detailChars) {
+				problems.push(
+					`${name} has a detail longer than ${limits.detailChars} characters.`,
+				);
+			}
 		}
 		if (
 			options.length < limits.minOptions ||
@@ -261,8 +284,9 @@ function parseOption(value: unknown): AskOption | null {
 
 function parseQuestion(value: unknown): AskQuestion | null {
 	if (!isRecord(value)) return null;
-	const { question, multiple, options } = value;
+	const { question, detail, multiple, options } = value;
 	if (typeof question !== "string" || !Array.isArray(options)) return null;
+	if (detail !== undefined && typeof detail !== "string") return null;
 	if (multiple !== undefined && typeof multiple !== "boolean") return null;
 	const parsed: AskOption[] = [];
 	for (const entry of options) {
@@ -270,9 +294,12 @@ function parseQuestion(value: unknown): AskQuestion | null {
 		if (option === null) return null;
 		parsed.push(option);
 	}
-	return multiple === undefined
-		? { question, options: parsed }
-		: { question, multiple, options: parsed };
+	const read: AskQuestion =
+		multiple === undefined
+			? { question, options: parsed }
+			: { question, multiple, options: parsed };
+	if (detail !== undefined) read.detail = detail;
+	return read;
 }
 
 /**

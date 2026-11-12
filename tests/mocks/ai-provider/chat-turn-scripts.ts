@@ -9,6 +9,7 @@ import {
 	AI_SMOKE_ASK_BROKEN,
 	AI_SMOKE_ASK_BROKEN_CALL_ID,
 	AI_SMOKE_ASK_CALL_ID,
+	AI_SMOKE_ASK_DETAIL,
 	AI_SMOKE_ASK_FIXED,
 	AI_SMOKE_ASK_FOUR,
 	AI_SMOKE_ASK_HOLD_ASK,
@@ -381,8 +382,9 @@ function askAnswerText(body: unknown, callId: string): string {
  * and the request that carries the answer as the ask's result is the resume: the model
  * carries the reply on by saying what it was told. `twice` asks once more before it does,
  * `read` makes a Document and reads it back first (the create-then-read chain of the item
- * turn), `slow` holds the ask and `slowresume` holds the words after the answer, each
- * until the test releases it (`ScriptedChatTurnReply.hold`).
+ * turn), `detail` asks a question that carries a `detail` (W5), `slow` holds the ask and
+ * `slowresume` holds the words after the answer, each until the test releases it
+ * (`ScriptedChatTurnReply.hold`).
  */
 function askTurnReply(body: unknown, mode: AskTurnMode): ScriptedChatTurnReply {
 	const answered = answeredCallId(body);
@@ -467,7 +469,9 @@ function askTurnReply(body: unknown, mode: AskTurnMode): ScriptedChatTurnReply {
 				? AI_SMOKE_ASK_MANY
 				: mode === "four"
 					? AI_SMOKE_ASK_FOUR
-					: AI_SMOKE_ASK_ONE,
+					: mode === "detail"
+						? AI_SMOKE_ASK_DETAIL
+						: AI_SMOKE_ASK_ONE,
 		),
 		...(mode === "slow" ? { hold: AI_SMOKE_ASK_HOLD_ASK } : {}),
 	};

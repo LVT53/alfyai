@@ -331,16 +331,22 @@ function takeKey(event: KeyboardEvent) {
 		<div class="ask-body">
 			{#each question.questions as asked, index}
 				{@const textId = `${uid}-q${index}`}
+				{@const detailId = `${textId}-detail`}
 				<div class="q" data-testid="ask-question">
 					<p class="q-text">
 						{#if many}<span class="q-num" aria-hidden="true">{index + 1}</span>{/if}
 						<span id={textId}>{asked.question}</span>
 						{#if asked.multiple}<span class="q-hint">{$t('chat.ask.pickAny')}</span>{/if}
 					</p>
+					<!-- W5: the model's own words explaining the question, under the title. -->
+					{#if asked.detail}
+						<p class="q-detail" id={detailId} data-testid="ask-detail">{asked.detail}</p>
+					{/if}
 					<div
 						class="opts"
 						role={asked.multiple || lone ? 'group' : 'radiogroup'}
 						aria-labelledby={textId}
+						aria-describedby={asked.detail ? detailId : undefined}
 					>
 						{#each asked.options as option, optionIndex}
 							{@const selected = form.picks[index]?.includes(optionIndex) ?? false}
@@ -521,6 +527,21 @@ function takeKey(event: KeyboardEvent) {
 
 	/* Room for the X. */
 	.q:first-child .q-text {
+		padding-right: 30px;
+	}
+
+	/* W5: an optional explanation under the title, in the muted body style the notes
+	   use. It wraps to as many lines as it needs; nothing cuts or shortens it. */
+	.q-detail {
+		margin: 0 2px 10px;
+		color: var(--text-muted);
+		font-size: var(--text-sm);
+		line-height: 1.4;
+		overflow-wrap: anywhere;
+	}
+
+	/* The X's room, as the title has it. */
+	.q:first-child .q-detail {
 		padding-right: 30px;
 	}
 
@@ -816,6 +837,10 @@ function takeKey(event: KeyboardEvent) {
 		}
 
 		.q:first-child .q-text {
+			padding-right: 36px;
+		}
+
+		.q:first-child .q-detail {
 			padding-right: 36px;
 		}
 

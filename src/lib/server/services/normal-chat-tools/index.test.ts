@@ -5774,6 +5774,13 @@ describe("tool description hygiene", () => {
 	// ends when the model stops calling tools). Re-measured the same way: 5,518 before
 	// and 5,458 after (done was 60 tokens, 240 characters), so the ceiling is lowered
 	// by exactly that. No margin.
+	// 2026-11-12: W5 (docs/plans/ui-wishes-2026-11) adds an optional `detail` field
+	// (280 characters) to ask_user's shown input schema, under the question's title.
+	// It is schema only: the budget below sums tool DESCRIPTIONS, so re-measured by
+	// this same test it is 5,458 before and 5,458 after (delta 0) and the ceiling
+	// stays 5,458. The field is in the frozen snapshot, which records the schema as
+	// well, and the engine counts schemas separately (`countToolCatalogueTokens`);
+	// no other tool's description was cut. No margin.
 	const CATALOGUE_TOKEN_CEILING = 5458;
 
 	function estimateTokens(text: string): number {
