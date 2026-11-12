@@ -123,6 +123,16 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   chat is summarized or trimmed sooner instead of being refused for lack of room,
   and the context status shows the lowered number; a target that already leaves
   the room is used as set.
+- Alfy now keeps better records of what the model did, so an answer that failed
+  or was cut off can be looked into afterwards. The usage rows behind the admin
+  analytics name each model, its provider and its address and say how long each
+  model call took, so two models of one provider no longer share a label. The
+  time to a reply's first byte and first word is recorded again for replies
+  written the new way. The server log gets one line per reply saying how it ended
+  (`[TURN_SETTLED]`, with no text and no names). And one anonymous record per
+  reply (which model, how it ended, how many tokens, how long) is kept after its
+  chat is deleted and for incognito chats too; it holds no user, chat or message
+  id and none of the conversation, so it cannot be tied back to either.
 
 ### Fixed
 
