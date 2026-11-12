@@ -709,6 +709,32 @@ describe.each(TRANSPORTS)("the fallback fails too (%s)", (transport) => {
 	});
 });
 
+describe.each(TRANSPORTS)("the fallback cannot be bound (%s)", (transport) => {
+	it.each([
+		false,
+		true,
+	])("its stored key cannot be read (after a tool: %s): the turn ends in an outcome, not in a thrown error", async (afterTool) => {
+		const h = setup(transport);
+		records.brokenKey = true;
+		h.network.script(
+			PRIMARY,
+			...(afterTool
+				? [(c: Ctx) => respond(c.transport, { call: "lookup-1" })]
+				: []),
+			() => httpFailure(503),
+			() => httpFailure(503),
+			(c) => respond(c.transport, { text: "closing on the same provider" }),
+		);
+		h.network.script(FALLBACK, (c) =>
+			respond(c.transport, { text: "must not be asked" }),
+		);
+		await expect(h.run()).resolves.toBeUndefined();
+		expect(h.network.to(FALLBACK)).toHaveLength(0);
+		expect(h.completion).toBeDefined();
+		expect(h.ran.fallback).toBe(0);
+	});
+});
+
 describe.each(
 	TRANSPORTS,
 )("Stop pressed during a failover (%s)", (transport) => {

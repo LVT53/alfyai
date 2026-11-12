@@ -395,6 +395,19 @@ export async function* runNormalChatCompletion(
 		snapshot.executions.some(
 			(e) => e.segmentId === policy.segmentId && e.state !== "proposed",
 		);
+	// The recovery path must not fail the turn it is recovering: a fallback that
+	// cannot be bound (a provider gone, a key that cannot be read) is no fallback.
+	const resolveFallback = async (error: unknown) => {
+		try {
+			return (await deps.fallback?.(error)) ?? null;
+		} catch (failure) {
+			console.warn(
+				"[NORMAL_CHAT_MODEL] fallback could not be resolved; continuing without it",
+				{ error: failure instanceof Error ? failure.message : "unknown" },
+			);
+			return null;
+		}
+	};
 	const externalAbort = () =>
 		params.abortSignal?.aborted
 			? (policy.abortCause?.() ?? "user_stop")
@@ -1385,7 +1398,7 @@ export async function* runNormalChatCompletion(
 		) {
 			// Settled evidence can cross providers; operations never do. The one
 			// closing allowance is consumed at the destination with tools disabled.
-			const fallback = await deps.fallback?.(rawError);
+			const fallback = await resolveFallback(rawError);
 			if (externalAbort()) continue;
 			if (fallback && Date.now() < snapshot.deadlineAt) {
 				// What the dead provider wrote stays in the journal; the destination is
@@ -1411,7 +1424,7 @@ export async function* runNormalChatCompletion(
 			(stopCause === "transport_error" || stopCause === "deadline") &&
 			Date.now() < snapshot.deadlineAt - reserve
 		) {
-			const fallback = await deps.fallback?.(rawError);
+			const fallback = await resolveFallback(rawError);
 			if (externalAbort()) continue;
 			if (Date.now() >= snapshot.deadlineAt - reserve) {
 				workingCause = "deadline";
