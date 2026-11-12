@@ -1,7 +1,17 @@
+import { TURN_FINALIZATION_WINDOW_MS } from "$lib/shared/normal-chat-completion";
 import type { CompletionReceipt } from "./prepared-normal-chat-turn";
 import { createTurnWatchdog } from "./turn-watchdog";
 
-/** Plain transport owns admission-to-receipt time without abandoning an in-flight commit. */
+/**
+ * Plain transport owns admission-to-receipt time without abandoning an in-flight commit.
+ *
+ * `deadlineAt` (or `timeoutMs` after admission) is the model deadline: it is what
+ * the work is given as `deadlineAt` and what the engine must get, so the model
+ * never has more than `requestTimeoutMs`. The turn itself is cut off
+ * `TURN_FINALIZATION_WINDOW_MS` later, so a reply whose model work legally ran
+ * until the deadline still has time to be finalized and saved, and a finalization
+ * that hangs still ends in an explicit failure when that window closes.
+ */
 export async function runBoundedPlainTurn<T>(
 	timeoutMs: number,
 	work: (context: {
@@ -22,9 +32,10 @@ export async function runBoundedPlainTurn<T>(
 > {
 	const duration =
 		Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 300000;
+	const modelDeadlineAt = deadlineAt ?? Date.now() + duration;
 	const watchdog = createTurnWatchdog(
 		new AbortController(),
-		deadlineAt ?? Date.now() + duration,
+		modelDeadlineAt + TURN_FINALIZATION_WINDOW_MS,
 	);
 	let receipt: CompletionReceipt | undefined,
 		finished = false,
@@ -75,7 +86,7 @@ export async function runBoundedPlainTurn<T>(
 					commitStarted = true;
 				},
 				signal: watchdog.signal,
-				deadlineAt: watchdog.deadlineAt,
+				deadlineAt: modelDeadlineAt,
 				touch: watchdog.touch,
 			}),
 		);

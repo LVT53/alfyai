@@ -41,7 +41,7 @@ SQLite persistence — all in a single Node deployment.
   picture's wait inside a chat turn is up to 100 s. Normal Chat model execution uses
   `REQUEST_TIMEOUT_MS` with a reserved closing budget (default 300 s total, 240 s working).
   The remaining working budget or an explicit Stop can end the picture wait earlier.
-  Normal Chat bounds preparation, model execution and finalization with a 150 s meaningful-activity idle limit and the configured total deadline from admission. If a database commit already started when the deadline expires, transport detaches while the durable receipt settles; plain send returns a scoped pending observation instead of inviting a duplicate retry.
+  Normal Chat bounds preparation, model execution and finalization with a 150 s meaningful-activity idle limit and the configured total deadline from admission, plus a 30 s finalization window: model execution ends at the deadline (`REQUEST_TIMEOUT_MS` is all the model time there is), and a reply that finished near it still has the window for the language call, the follow-up chips and the save, so it is saved instead of discarded. A finalization that hangs past the window ends in an explicit failure. If a database commit already started when the window expires, transport detaches while the durable receipt settles; plain send returns a scoped pending observation instead of inviting a duplicate retry.
 - **Explicit picture filter** — on for everyone by default (`IMAGE_EXPLICIT_FILTER_ENABLED`, a live
   setting in admin System > Integrations > Pictures; an admin can also exempt one person in Users).
   Alfy declines explicit picture requests, the server refuses a make_image prompt that plainly asks

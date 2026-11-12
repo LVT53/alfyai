@@ -100,3 +100,24 @@ export function projectNormalChatFinalization(
 		stopCause: stopped ? "user_stop" : "uncertain_execution",
 	};
 }
+
+/**
+ * The time a Normal Chat turn keeps for finalization after its model deadline.
+ *
+ * The model work (preparation, tools, the closing allowance) ends at
+ * `requestStartTime + requestTimeoutMs`, and the engine is given exactly that
+ * instant: it must never get more model time than `requestTimeoutMs`. What
+ * happens after the model work ends is the language call that names the
+ * conversation's language (cut short after 4 s), the follow-up chips (cut short
+ * after 6 s) and the save, whose reads and writes go to local SQLite. The two
+ * model calls bound themselves, so a finalization that is not hung takes about
+ * 10 s; the window is three times that. A reply whose model work legally ran
+ * until the deadline (a clean answer a moment before it, or a closing allowance
+ * cut at it) is therefore still saved, and a finalization that really hangs
+ * still ends in an explicit failure when the window closes.
+ *
+ * Both transports' watchdogs (`chat-turn/stream-orchestrator.ts`,
+ * `chat-turn/plain-turn-lifetime.ts`) cut a turn off at the model deadline plus
+ * this window. Change it in one place.
+ */
+export const TURN_FINALIZATION_WINDOW_MS = 30_000;

@@ -25,6 +25,7 @@ import {
 	STREAM_TIMELINE_PAYLOAD_VERSION,
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
+import { TURN_FINALIZATION_WINDOW_MS } from "$lib/shared/normal-chat-completion";
 import { type AskResumeInput, capturedProvenanceResults } from "./ask-capture";
 import {
 	runChatStreamOrchestrator,
@@ -48,6 +49,12 @@ vi.mock("$lib/server/config-store", () => ({
 		modelTimeoutFailoverTimeoutMs: 1000,
 	})),
 }));
+
+// The watchdog cuts a turn off at the model deadline (requestTimeoutMs above)
+// plus the finalization window: the instant the hang tests below advance to.
+// The engine itself is still given the model deadline (turn-deadline-
+// finalization.test.ts).
+const TURN_BOUND_MS = 30_000 + TURN_FINALIZATION_WINDOW_MS;
 
 vi.mock("$lib/server/services/conversations", () => ({
 	touchConversation: vi.fn(() => Promise.resolve()),
@@ -1093,7 +1100,7 @@ describe("stream-orchestrator SSE contract", () => {
 		try {
 			await vi.advanceTimersByTimeAsync(0);
 			expect(createMessage).toHaveBeenCalled();
-			await vi.advanceTimersByTimeAsync(30_000);
+			await vi.advanceTimersByTimeAsync(TURN_BOUND_MS);
 			expect(settled).toBe(true);
 			expect((await reading).join("")).not.toContain("data-stream-error");
 			expect(finish).not.toHaveBeenCalled();
@@ -1132,7 +1139,7 @@ describe("stream-orchestrator SSE contract", () => {
 			return value;
 		});
 		try {
-			await vi.advanceTimersByTimeAsync(30_000);
+			await vi.advanceTimersByTimeAsync(TURN_BOUND_MS);
 			expect(settled).toBe(true);
 			expect((await reading).join("")).toContain("data-stream-error");
 			expect(pulled).toBe(false);
@@ -1168,7 +1175,7 @@ describe("stream-orchestrator SSE contract", () => {
 		try {
 			await vi.advanceTimersByTimeAsync(0);
 			expect(next).toHaveBeenCalledTimes(1);
-			await vi.advanceTimersByTimeAsync(30_000);
+			await vi.advanceTimersByTimeAsync(TURN_BOUND_MS);
 			expect((await reading).join("")).toContain("data-stream-error");
 			expect(returned).toHaveBeenCalledTimes(1);
 			expect(finish).toHaveBeenCalledTimes(1);
@@ -1207,7 +1214,7 @@ describe("stream-orchestrator SSE contract", () => {
 			return value;
 		});
 		try {
-			await vi.advanceTimersByTimeAsync(30000);
+			await vi.advanceTimersByTimeAsync(TURN_BOUND_MS);
 			expect(settled).toBe(true);
 			expect((await reading).join("")).toContain("data-stream-error");
 			resolveReset(0);
@@ -1242,7 +1249,7 @@ describe("stream-orchestrator SSE contract", () => {
 			return value;
 		});
 		try {
-			await vi.advanceTimersByTimeAsync(30000);
+			await vi.advanceTimersByTimeAsync(TURN_BOUND_MS);
 			expect(settled).toBe(true);
 			expect((await reading).join("")).toContain("data-stream-error");
 			resolvePreparation({ ok: true, value: createTurn() });

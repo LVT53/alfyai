@@ -237,6 +237,7 @@ import {
 	resolveEffectiveSkillDefinition,
 } from "$lib/server/services/skills/user-skills";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
+import { TURN_FINALIZATION_WINDOW_MS } from "$lib/shared/normal-chat-completion";
 import { POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
@@ -366,7 +367,7 @@ describe("POST /api/chat/send", () => {
 		const response = POST(
 			makeEvent({ message: "Hello", conversationId: "conv-1" }),
 		);
-		await vi.advanceTimersByTimeAsync(1000);
+		await vi.advanceTimersByTimeAsync(1000 + TURN_FINALIZATION_WINDOW_MS);
 		expect((await response).status).toBe(502);
 		release();
 		await vi.advanceTimersByTimeAsync(0);
@@ -393,7 +394,7 @@ describe("POST /api/chat/send", () => {
 		const response = POST(
 			makeEvent({ message: "Hello", conversationId: "conv-1" }),
 		);
-		await vi.advanceTimersByTimeAsync(1000);
+		await vi.advanceTimersByTimeAsync(1000 + TURN_FINALIZATION_WINDOW_MS);
 		expect((await response).status).toBe(502);
 		release();
 		await vi.advanceTimersByTimeAsync(0);
@@ -437,7 +438,7 @@ describe("POST /api/chat/send", () => {
 				streamId: "plain-pending",
 			}),
 		);
-		await vi.advanceTimersByTimeAsync(1000);
+		await vi.advanceTimersByTimeAsync(1000 + TURN_FINALIZATION_WINDOW_MS);
 		const res = await response;
 		expect(res.status).toBe(202);
 		expect(await res.json()).toMatchObject({
@@ -450,6 +451,87 @@ describe("POST /api/chat/send", () => {
 		release();
 		await vi.advanceTimersByTimeAsync(0);
 		expect(finish).toHaveBeenCalledExactlyOnceWith("assistant-saved");
+	});
+
+	// The model engine legally uses its time up to the deadline the route gives it
+	// (`requestTimeoutMs` after the request started, no more). Finalization (the
+	// language call after the reply, the save) comes after it and has its own
+	// window, so a reply whose model work ends at the deadline is still saved.
+	it.each([
+		["ends just before the engine deadline", 500],
+		["is cut at the engine deadline", 0],
+	])("saves a reply whose model work %s", async (_name, endsBefore) => {
+		vi.useFakeTimers();
+		configMockState.requestTimeoutMs = 5000;
+		seedConversationTurn(mockGetConversation, mockCreateMessage);
+		const started = Date.now();
+		let engineDeadline = 0;
+		const finish = vi.fn(async () => undefined);
+		mockRunPlainNormalChatSendModel.mockImplementation(
+			async (params: { completionDeadlineAt: number }) => {
+				engineDeadline = params.completionDeadlineAt;
+				await new Promise((resolve) =>
+					setTimeout(resolve, engineDeadline - endsBefore - Date.now()),
+				);
+				return {
+					text: "Hello from the closing allowance",
+					modelId: "model1",
+					modelDisplayName: "Model 1",
+					providerUsage: null,
+					completionTurn: { segmentId: "s", getSnapshot: () => null, finish },
+				};
+			},
+		);
+		// The control-model call that names the conversation's language after the
+		// reply takes a second, past the engine deadline.
+		mockReadConversationLanguage.mockImplementation(
+			() => new Promise((resolve) => setTimeout(() => resolve(null), 1000)),
+		);
+		const response = POST(
+			makeEvent({ message: "Hello", conversationId: "conv-1" }),
+		);
+		await vi.advanceTimersByTimeAsync(5000 + TURN_FINALIZATION_WINDOW_MS);
+		const res = await response;
+		// The engine got requestTimeoutMs of model time and not a millisecond more.
+		expect(engineDeadline - started).toBe(5000);
+		expect(res.status).toBe(200);
+		expect((await res.json()).response.text).toBe(
+			"Hello from the closing allowance",
+		);
+		expect(
+			mockCreateMessage.mock.calls.filter((call) => call[1] === "assistant"),
+		).toHaveLength(1);
+		expect(finish).toHaveBeenCalledTimes(1);
+	});
+	it("still answers a hung finalization with an explicit failure when the finalization window closes, and not before", async () => {
+		vi.useFakeTimers();
+		configMockState.requestTimeoutMs = 5000;
+		seedConversationTurn(mockGetConversation, mockCreateMessage);
+		const finish = vi.fn(async () => undefined);
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
+			text: "Hello",
+			modelId: "model1",
+			modelDisplayName: "Model 1",
+			providerUsage: null,
+			completionTurn: { segmentId: "s", getSnapshot: () => null, finish },
+		});
+		// The language call after the reply never answers.
+		mockReadConversationLanguage.mockImplementation(
+			() => new Promise(() => {}),
+		);
+		let settled = false;
+		const response = Promise.resolve(
+			POST(makeEvent({ message: "Hello", conversationId: "conv-1" })),
+		).finally(() => {
+			settled = true;
+		});
+		await vi.advanceTimersByTimeAsync(5000 + TURN_FINALIZATION_WINDOW_MS - 1);
+		expect(settled).toBe(false);
+		await vi.advanceTimersByTimeAsync(1);
+		expect((await response).status).toBe(502);
+		// A timeout before the commit starts fences the save for good.
+		expect(mockCreateMessage).not.toHaveBeenCalled();
+		expect(finish).toHaveBeenCalledTimes(1);
 	});
 
 	it.each([

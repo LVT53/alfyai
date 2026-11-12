@@ -91,6 +91,7 @@ import {
 } from "$lib/services/stream-timeline";
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
+import { TURN_FINALIZATION_WINDOW_MS } from "$lib/shared/normal-chat-completion";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
 import {
@@ -454,9 +455,18 @@ export function runChatStreamOrchestrator(
 			const outputWriter = createOutputEventWriter(enqueueChunk, {
 				compact: compactOutput,
 			});
+			// The model work gets `requestTimeoutMs` from the request's start and not
+			// a millisecond more: the engine is given exactly this instant and cuts
+			// itself there (a closing allowance is cut at it). The watchdog is the
+			// backstop beyond it: finalization (the language call, the follow-up
+			// chips, the save) has its own TURN_FINALIZATION_WINDOW_MS after the
+			// model deadline, so a reply whose model work ran until it is still
+			// saved, and a finalization that hangs still ends in an explicit failure
+			// when the window closes.
+			const modelDeadlineAt = requestStartTime + getConfig().requestTimeoutMs;
 			const watchdog = createTurnWatchdog(
 				upstreamAbortController,
-				requestStartTime + getConfig().requestTimeoutMs,
+				modelDeadlineAt + TURN_FINALIZATION_WINDOW_MS,
 			);
 			let isMainStream = false;
 
@@ -1013,7 +1023,7 @@ export function runChatStreamOrchestrator(
 				_latestUpstreamAttempt = attempt;
 				const modelStreamRequestStartedAt = Date.now();
 				const modelRunParams = {
-					completionDeadlineAt: watchdog.deadlineAt,
+					completionDeadlineAt: modelDeadlineAt,
 					userId: user.id,
 					completionRequestId: streamId ?? undefined,
 					onOutputEvent: (
