@@ -466,6 +466,14 @@ The files in this directory can still be used as examples for a more manual host
 - `deploy/apache-site.conf`
 - `deploy/apache-modules.md`
 
+`deploy/apache-site.conf` sets `ProxyTimeout 660` in its `<VirtualHost *:443>` block. The plain chat
+route (`/api/chat/send`, served through the catch-all `ProxyPass /`) answers only when the turn has
+ended, so Apache waits for the whole of it: the app's request limit (`REQUEST_TIMEOUT_MS`, 600
+seconds on the live sites) plus the 30-second finalization window, plus 30 seconds of margin. On any
+host keep `ProxyTimeout` above `REQUEST_TIMEOUT_MS` plus 30 seconds, or Apache answers 504 while the
+app still finishes and saves the reply. The streaming routes send a keep-alive every 15 seconds and
+never sit silent that long.
+
 `deploy/langflow-chat.service` matches the real production unit: `WorkingDirectory`,
 `EnvironmentFile`, and `ExecStart` all point at the `current` symlink (never a specific
 `releases/<sha>/` directory), so a cutover only ever re-points the symlink — the unit file itself

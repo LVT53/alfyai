@@ -219,6 +219,11 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   (`/api/conversations/<id>/questions/<id>/answer`) unbuffered, as
   `/api/chat/stream` is (see `deploy/apache-site.conf`); otherwise a Retry and a
   carried-on reply arrive in one piece.
+- If you run AlfyAI behind Apache with your own site file, keep `ProxyTimeout`
+  above `REQUEST_TIMEOUT_MS` plus 30 seconds. The template in
+  `deploy/apache-site.conf` now sets 660 for a 600-second limit; at 300, Apache
+  answers 504 to a plain `/api/chat/send` request whose turn runs longer, while
+  the app still finishes and saves the reply.
 
 ### Upgrade notes
 

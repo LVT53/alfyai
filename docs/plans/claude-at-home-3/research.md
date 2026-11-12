@@ -105,7 +105,7 @@ Collected 2026-10-12 by research subagents and a read-only code study. Every cla
   - At most 300 s per turn (`REQUEST_TIMEOUT_MS`), with a 150 s upstream idle limit.
   - Per-tool timeouts sit in `normal-chat-tools/shared.ts` `TOOL_TIMEOUTS_MS`: no default, 120 s maximum today.
 - **Connections' pending writes end the turn, and the model never learns the outcome** (`connections/pending-writes.ts`, `WriteConfirmCard.svelte`).
-- **Transport.** adapter-node, no custom server, no WebSocket. Apache with an SSE `LocationMatch` and `ProxyTimeout 300` (`deploy/apache-site.conf`). Drain knows only chat streams.
+- **Transport.** adapter-node, no custom server, no WebSocket. Apache with an SSE `LocationMatch` and `ProxyTimeout 660` (`deploy/apache-site.conf`; it was 300 when this was written). Drain knows only chat streams.
 - **Existing leak channels** (fixed by a separate task first):
   - markdown images are unproxied (`services/markdown.ts`) with CSP `img-src https:`;
   - the favicon proxy fetches hosts the model chose;
