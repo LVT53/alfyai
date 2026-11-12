@@ -56,6 +56,19 @@ describe("the check step", () => {
 		).toEqual({ ok: true, text: "0 errors, 0 warnings in 8411 files" });
 	});
 
+	it("reads svelte-check 4.x's closing line too", () => {
+		expect(
+			parseCheckLog("svelte-check found 0 errors and 0 warnings\n"),
+		).toEqual({
+			ok: true,
+			text: "0 errors, 0 warnings",
+		});
+		const warned = parseCheckLog("svelte-check found 0 errors and 1 warning\n");
+		expect(warned.ok).toBe(false);
+		expect(warned.text).toContain("0 errors, 1 warnings");
+		expect(warned.text).toContain("NEW CHECK WARNINGS");
+	});
+
 	it("fails on a single warning, naming it (svelte-check itself exits 0 on warnings)", () => {
 		const result = parseCheckLog(
 			"COMPLETED 8411 FILES 0 ERRORS 1 WARNINGS 1 FILES_WITH_PROBLEMS",

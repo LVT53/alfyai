@@ -288,18 +288,30 @@ export function defineSteps(args) {
 // exit code is judged on top of it.
 
 export function parseCheckLog(log) {
-	const done = stripAnsi(log).match(
-		/COMPLETED (\d+) FILES (\d+) ERRORS (\d+) WARNINGS/,
+	const text = stripAnsi(log);
+	const done = text.match(/COMPLETED (\d+) FILES (\d+) ERRORS (\d+) WARNINGS/);
+	if (done) {
+		const [, files, errors, warnings] = done;
+		// AGENTS.md ("Typecheck Gate") keeps svelte-check at 0 errors and 0 warnings, so a warning
+		// is a regression and not a number to stay under. svelte-check itself exits 0 with
+		// warnings, which is why the verdict is read here and not left to the exit code.
+		return {
+			ok: Number(errors) === 0 && Number(warnings) === 0,
+			text: `${errors} errors, ${warnings} warnings in ${files} files${Number(warnings) > 0 ? "  NEW CHECK WARNINGS" : ""}`,
+		};
+	}
+	// svelte-check 4.x prints this closing line instead of the COMPLETED summary.
+	const modern = text.match(
+		/svelte-check found (\d+) errors? and (\d+) warnings?/,
 	);
-	if (!done) return { ok: false, text: lastLine(log) };
-	const [, files, errors, warnings] = done;
-	// AGENTS.md ("Typecheck Gate") keeps svelte-check at 0 errors and 0 warnings, so a warning
-	// is a regression and not a number to stay under. svelte-check itself exits 0 with
-	// warnings, which is why the verdict is read here and not left to the exit code.
-	return {
-		ok: Number(errors) === 0 && Number(warnings) === 0,
-		text: `${errors} errors, ${warnings} warnings in ${files} files${Number(warnings) > 0 ? "  NEW CHECK WARNINGS" : ""}`,
-	};
+	if (modern) {
+		const [, errors, warnings] = modern;
+		return {
+			ok: Number(errors) === 0 && Number(warnings) === 0,
+			text: `${errors} errors, ${warnings} warnings${Number(warnings) > 0 ? "  NEW CHECK WARNINGS" : ""}`,
+		};
+	}
+	return { ok: false, text: lastLine(log) };
 }
 
 export function parseVitestLog(log) {
