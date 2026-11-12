@@ -13,7 +13,8 @@ concurrency:
 jobs:
   test:
     name: Check, lint and unit tests
-    runs-on: ubuntu-latest
+    # Playwright 1.59.1 supports Ubuntu 24.04; ubuntu-latest now uses 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       CI: true
@@ -33,6 +34,11 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      # Vitest's browser-eval.test.ts launches real Chromium for sandbox/CSP checks.
+      # npm ci installs Playwright's API, but not its browser or Linux libraries.
+      - name: Install Chromium for browser-backed unit tests
+        run: npx playwright install --with-deps chromium
 
       - name: Unit tests
         run: npm run test:ci
