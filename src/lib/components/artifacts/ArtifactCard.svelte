@@ -419,7 +419,11 @@ function handleOpen(): void {
 				<span>{rowSubLine}</span>
 			</span>
 		</span>
-		<span class="artifact-row-end">
+		<span
+			class="artifact-row-end"
+			class:artifact-row-end-chevron={view.pendingReviewCount == null &&
+				Boolean(view.updatedAtLabel)}
+		>
 			{#if view.updatedAtLabel}
 				<span class="artifact-row-time">{view.updatedAtLabel}</span>
 			{/if}
@@ -1276,7 +1280,14 @@ function handleOpen(): void {
 		font-size: 0.78rem;
 	}
 
+	/* W12 (UI wishes, 2026-11): the stack is unchanged when a review pill is
+	   drawn (time above it, both right-aligned). When there is no review
+	   marker, the chevron below the time is the only thing keeping the time
+	   off the row's centre, so it leaves the flow in that one case — the time
+	   then is the column's only in-flow child and the row centres it. No slot
+	   is reserved for a pill that is not there. */
 	.artifact-row-end {
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		align-items: flex-end;
@@ -1293,6 +1304,17 @@ function handleOpen(): void {
 		transition:
 			opacity var(--duration-standard) var(--ease-out),
 			transform var(--duration-standard) var(--ease-out);
+	}
+
+	/* No review marker and a time: the chevron is a hover hint, not content.
+	   It keeps the place it always had (just under the time, at its right) but
+	   out of the column's flow, so it cannot lift the time off the row's
+	   centre. With a Reviewed or pending pill the chevron is not drawn at all. */
+	.artifact-row-end-chevron .artifact-row-chev {
+		position: absolute;
+		top: 100%;
+		right: 0;
+		margin-top: 0.25rem;
 	}
 
 	.artifact-row:hover .artifact-row-chev,

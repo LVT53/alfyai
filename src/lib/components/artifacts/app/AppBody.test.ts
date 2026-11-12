@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { get } from "svelte/store";
@@ -140,6 +143,61 @@ describe("AppBody — loading and tabs", () => {
 		const codeTab = screen.getByRole("tab", { name: /Code/ });
 		expect(previewTab.getAttribute("aria-selected")).toBe("true");
 		expect(codeTab.getAttribute("aria-selected")).toBe("false");
+	});
+
+	// W11 (UI wishes, 2026-11): "Preview" is wider than "Code", so a flex row
+	// left the two segments unequal while the sliding thumb assumed halves —
+	// the selected Preview lost the right edge of its own background. Equal
+	// 1fr tracks make the two segments one width, padding included.
+	it("gives both segments equal inner padding in one equal-track control", async () => {
+		const { container } = render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Habit tracker",
+			body: null,
+		});
+		await screen.findByRole("tab", { name: /Preview/ });
+		expect(container.querySelector(".app-seg")).not.toBeNull();
+		expect(container.querySelectorAll(".app-seg-tab")).toHaveLength(2);
+
+		// jsdom renders no stylesheet (see DocumentsList.test.ts's own note):
+		// the rule text is the only thing here that can pin the fix. The real
+		// geometry is measured by artifact-app.spec.ts in a browser.
+		const source = await import("./AppBody.svelte?raw");
+		const styleText =
+			source.default.match(/<style>([\s\S]*)<\/style>/)?.[1] ?? "";
+		const segRule = styleText.match(/\.app-seg\s*\{([^}]*)\}/)?.[1] ?? "";
+		expect(segRule).toMatch(/display:\s*inline-grid/);
+		expect(segRule).toMatch(/grid-auto-flow:\s*column/);
+		expect(segRule).toMatch(/grid-auto-columns:\s*1fr/);
+
+		const tabRule = styleText.match(/\.app-seg-tab\s*\{([^}]*)\}/)?.[1] ?? "";
+		expect(tabRule).toMatch(/padding:\s*0\.35rem 0\.7rem/);
+
+		// The track must not grow when the selected tab turns bold: each label
+		// stacks a hidden bold copy over its visible text, so the track is
+		// always the bold face's width and switching never shifts the control.
+		const labels = container.querySelectorAll(".app-seg-label");
+		expect(labels).toHaveLength(2);
+		for (const label of labels) {
+			expect(label.querySelector(".app-seg-label-visible")).not.toBeNull();
+			const bold = label.querySelector(".app-seg-label-bold");
+			expect(bold).not.toBeNull();
+			expect(bold?.getAttribute("aria-hidden")).toBe("true");
+		}
+		const labelRule =
+			styleText.match(/\.app-seg-label\s*\{([^}]*)\}/)?.[1] ?? "";
+		expect(labelRule).toMatch(/display:\s*inline-grid/);
+		const boldRule =
+			styleText.match(/\.app-seg-label-bold\s*\{([^}]*)\}/)?.[1] ?? "";
+		expect(boldRule).toMatch(/font-weight:\s*600/);
+		expect(boldRule).toMatch(/visibility:\s*hidden/);
+		expect(boldRule).toMatch(/height:\s*0/);
+		const selectedRule =
+			styleText.match(
+				/\.app-seg-tab\[aria-selected='true'\]\s*\{([^}]*)\}/,
+			)?.[1] ?? "";
+		expect(selectedRule).toMatch(/font-weight:\s*600/);
 	});
 
 	// Ruling 58: the highlighter loads ON DEMAND when the Code tab opens, not
@@ -807,6 +865,80 @@ describe("AppBody — download (registered with the panel header)", () => {
 // and it opens a popover (not a modal) whose own submit reads "Rebuild" —
 // see redesign §6.2/§6.3.
 describe("AppBody — regenerate", () => {
+	// W7 (UI wishes, 2026-11): the trigger's icon and label touched. The
+	// measured neighbour is the Preview/Code tab beside it in `.app-bar`,
+	// whose icon+label gap is 0.3rem (4.8px at the 16px root); the button
+	// now carries that same value rather than guessing a new one.
+	it("gives the trigger the panel's measured icon-to-label gap", async () => {
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Habit tracker",
+			body: null,
+		});
+		const trigger = await screen.findByRole("button", {
+			name: /Change this app/,
+		});
+		expect(trigger).toHaveClass("app-regen-trigger");
+
+		const here = path.dirname(fileURLToPath(import.meta.url));
+		const source = readFileSync(path.join(here, "AppBody.svelte"), "utf-8");
+		const styleText = source.match(/<style>([\s\S]*)<\/style>/)?.[1] ?? "";
+		const triggerRule =
+			styleText.match(/\.app-regen-trigger\s*\{([^}]*)\}/)?.[1] ?? "";
+		const neighbourRule =
+			styleText.match(/\.app-seg-tab\s*\{([^}]*)\}/)?.[1] ?? "";
+		const gapOf = (rule: string) => rule.match(/gap:\s*([^;]+);/)?.[1].trim();
+		expect(gapOf(triggerRule), "the trigger declares a gap").toBe("0.3rem");
+		expect(gapOf(triggerRule)).toBe(gapOf(neighbourRule));
+	});
+
+	// W7: the menu was visibly plainer than every other panel popover. Its
+	// shell now mirrors AnchoredPopover.svelte (the family's flex column,
+	// hidden overflow, family head padding, scrolling body), while its
+	// contents — the prompt label, the textarea, Rebuild/Cancel and the
+	// effect line — stay exactly as they were.
+	it("opens its menu in the family's anchored-popover shell with the same contents", async () => {
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Habit tracker",
+			body: null,
+		});
+		await fireEvent.click(
+			await screen.findByRole("button", { name: /Change this app/ }),
+		);
+		const popover = await screen.findByTestId("app-regenerate-popover");
+		expect(popover.querySelector(".app-regen-pop-head")).not.toBeNull();
+		expect(popover.querySelector(".app-regen-pop-body")).not.toBeNull();
+		// Contents unchanged.
+		expect(screen.getByLabelText(en.regeneratePrompt)).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /Rebuild/ })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /Cancel/ })).toBeInTheDocument();
+
+		const here = path.dirname(fileURLToPath(import.meta.url));
+		const source = readFileSync(path.join(here, "AppBody.svelte"), "utf-8");
+		const styleText = source.match(/<style>([\s\S]*)<\/style>/)?.[1] ?? "";
+		const shellRule =
+			styleText.match(/\.app-regen-popover\s*\{([^}]*)\}/)?.[1] ?? "";
+		expect(shellRule).toMatch(/display:\s*flex/);
+		expect(shellRule).toMatch(/flex-direction:\s*column/);
+		expect(shellRule).toMatch(/overflow:\s*hidden/);
+		expect(shellRule).toMatch(/max-height:/);
+		expect(shellRule).toMatch(/border-radius:\s*var\(--radius-lg/);
+		expect(shellRule).toMatch(/background:\s*var\(--surface-overlay\)/);
+		expect(shellRule).toMatch(/border:\s*1px solid var\(--border-default\)/);
+		expect(shellRule).toMatch(/box-shadow:\s*var\(--shadow-lg\)/);
+
+		const headRule =
+			styleText.match(/\.app-regen-pop-head\s*\{([^}]*)\}/)?.[1] ?? "";
+		expect(headRule).toMatch(/padding:\s*0\.75rem 0\.625rem 0\.5rem 0\.875rem/);
+		const bodyRule =
+			styleText.match(/\.app-regen-pop-body\s*\{([^}]*)\}/)?.[1] ?? "";
+		expect(bodyRule).toMatch(/overflow-y:\s*auto/);
+		expect(bodyRule).toMatch(/padding:\s*0 0\.875rem 0\.875rem/);
+	});
+
 	it("opens a popover, sends { prompt, expectVersion } and reloads the detail on success, with a toast that says it was rebuilt, offering Undo", async () => {
 		// A real App always has at least its own current version to restore —
 		// this is what the toast's Undo needs (see AppBody.svelte's own note on

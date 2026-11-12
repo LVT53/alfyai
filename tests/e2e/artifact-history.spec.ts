@@ -1323,10 +1323,11 @@ test.describe("History mode: an App", () => {
 		await expect(preview.getByTestId("history-app-runs")).toHaveText(
 			"Runs with today's saved data; changes aren't saved.",
 		);
-		// The sandbox bar says what is true of a preview: it keeps nothing (RV-V I-5).
-		await expect(preview.locator(".app-frame-sandbox-bar")).toHaveText(
-			"Runs sandboxed · no internet · read-only",
-		);
+		// W13 (UI wishes, 2026-11): the sandbox notice row is gone in a preview
+		// too; the preview's own chrome above ("Runs with today's saved data…")
+		// is what says it changes nothing.
+		await expect(preview.locator(".app-frame-sandbox-bar")).toHaveCount(0);
+		await expect(preview.getByText(/Runs sandboxed/)).toHaveCount(0);
 		const frame = preview.locator("iframe");
 		await expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-forms");
 		await expect(frame).toHaveAttribute(
@@ -1385,10 +1386,10 @@ test.describe("History mode: an App", () => {
 		await expect(
 			page.frameLocator("iframe.app-frame").getByTestId("app-heading"),
 		).toHaveText("Trip budget, first version");
-		// The live App's bar is as it was: it does keep the reader's data.
-		await expect(page.locator(".app-frame-sandbox-bar")).toHaveText(
-			"Runs sandboxed · no internet · keeps your data",
-		);
+		// W13: the live App draws no sandbox notice row either, and nothing was
+		// left in its place above the frame.
+		await expect(page.locator(".app-frame-sandbox-bar")).toHaveCount(0);
+		await expect(page.getByText(/Runs sandboxed/)).toHaveCount(0);
 		expect(writes).toEqual([]);
 		expect(
 			await getKv({ userId, artifactId, conversationId, key: "mood" }),

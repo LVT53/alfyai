@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
@@ -8,7 +8,13 @@ import {
 	artifactVersions,
 	users,
 } from "../../src/lib/server/db/schema";
-import { createEmptyConversation, expectTopmost, login } from "./helpers";
+import {
+	createEmptyConversation,
+	expectTopmost,
+	login,
+	waitForMotionToSettle,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // The App kind, end to end (Feature 2 · Artifacts, Slice 2).
 //
@@ -246,6 +252,10 @@ test.describe("the App kind, in the panel", () => {
 
 		const iframe = page.locator("iframe.app-frame");
 		await expect(iframe).toBeVisible();
+		// W13 (UI wishes, 2026-11): the sandbox notice row is gone, and
+		// nothing was left in its place above the frame.
+		await expect(page.locator(".app-frame-sandbox-bar")).toHaveCount(0);
+		await expect(page.getByText(/Runs sandboxed/)).toHaveCount(0);
 		// Ruling 58: allow-forms joined allow-scripts so a generated app's
 		// <form> submit event can fire; see the dedicated form test below for
 		// proof the submission itself is still refused.
@@ -370,6 +380,123 @@ test.describe("the App kind, in the panel", () => {
 
 		await page.getByRole("tab", { name: /Preview/ }).click();
 		await expect(page.locator("iframe.app-frame")).toBeVisible();
+	});
+
+	// W11 (UI wishes, 2026-11): the selected "Preview" segment's right padding
+	// was covered by the sliding thumb, because the two segments sized to
+	// their own text ("Preview" is wider than "Code") while the thumb assumed
+	// halves. Both segments must be equal in width and inner padding, and the
+	// thumb must cover the selected segment exactly in both states.
+	test("the Preview/Code segments are equal in width and padding, and the selected thumb covers one exactly", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"Make me a notes app",
+		);
+		await seedApp(conversationId, NOTES_APP_HTML);
+		await openChatAndReload(page, conversationId);
+		await openAppPanel(page);
+
+		const previewTab = page.getByRole("tab", { name: /Preview/ });
+		const codeTab = page.getByRole("tab", { name: /Code/ });
+		const thumb = page.locator(".app-seg-thumb");
+		const control = page.locator(".app-seg");
+
+		// The panel animates in: let its motion finish, wait for the control's
+		// box, and then read the tab and thumb rects in ONE evaluate so the
+		// comparison is never between two different instants.
+		await waitForMotionToSettle(page);
+		await waitForStableBoundingBox(control);
+		const readSegments = () =>
+			control.evaluate((el) => {
+				const rect = (element: Element) => {
+					const box = element.getBoundingClientRect();
+					return {
+						x: box.x,
+						y: box.y,
+						width: box.width,
+						height: box.height,
+					};
+				};
+				const [previewEl, codeEl] = el.querySelectorAll(".app-seg-tab");
+				const thumbEl = el.querySelector(".app-seg-thumb");
+				if (!previewEl || !codeEl || !thumbEl) {
+					throw new Error("the segmented control is incomplete");
+				}
+				return {
+					control: rect(el),
+					preview: rect(previewEl),
+					code: rect(codeEl),
+					thumb: rect(thumbEl),
+				};
+			});
+		const innerPadding = (locator: Locator) =>
+			locator.evaluate((el) => {
+				const style = getComputedStyle(el);
+				return {
+					left: Number.parseFloat(style.paddingLeft),
+					right: Number.parseFloat(style.paddingRight),
+				};
+			});
+
+		const before = await readSegments();
+		expect(
+			Math.abs(before.preview.width - before.code.width),
+			"the two segments must be equal in width",
+		).toBeLessThanOrEqual(1);
+		expect(
+			Math.abs(before.preview.height - before.code.height),
+			"the two segments must be equal in height",
+		).toBeLessThanOrEqual(1);
+		const previewPadding = await innerPadding(previewTab);
+		const codePadding = await innerPadding(codeTab);
+		expect(previewPadding).toEqual(codePadding);
+		expect(previewPadding.left).toBeGreaterThan(0);
+		expect(previewPadding.right).toBeGreaterThan(0);
+
+		// Preview selected: the thumb's box is the Preview segment's own box,
+		// read in the same instant as that segment's box.
+		expect(
+			Math.abs(before.thumb.width - before.preview.width),
+			"the thumb covers the selected Preview segment",
+		).toBeLessThanOrEqual(1);
+		expect(
+			Math.abs(
+				before.thumb.x +
+					before.thumb.width -
+					(before.preview.x + before.preview.width),
+			),
+			"the thumb's right edge meets Preview's right edge",
+		).toBeLessThanOrEqual(1);
+
+		// Code selected: still one exact segment, with no width shift. The thumb
+		// slides, so wait for it to settle and read every box together again.
+		await codeTab.click();
+		await waitForMotionToSettle(page);
+		await waitForStableBoundingBox(thumb);
+		await waitForStableBoundingBox(control);
+		const after = await readSegments();
+		expect(
+			Math.abs(after.control.width - before.control.width),
+			"selecting the bold Code label must not widen the control",
+		).toBeLessThanOrEqual(1);
+		expect(
+			Math.abs(after.thumb.width - after.code.width),
+			"the thumb covers the selected Code segment",
+		).toBeLessThanOrEqual(1);
+		expect(
+			Math.abs(after.thumb.x - after.code.x),
+			"the selected thumb starts where the Code segment starts",
+		).toBeLessThanOrEqual(1);
+		expect(
+			Math.abs(after.preview.width - before.preview.width),
+			"switching must not resize the segments",
+		).toBeLessThanOrEqual(1);
+		expect(
+			Math.abs(after.code.width - before.code.width),
+			"switching must not resize the segments",
+		).toBeLessThanOrEqual(1);
 	});
 
 	test("a network-reaching fixture shows its glitch line and still runs", async ({
@@ -664,6 +791,34 @@ test.describe("the App kind, in the panel", () => {
 		// `artifacts.app.regenerate.prompt`) used in the test above.
 		const popover = page.getByRole("dialog", { name: "Change this app…" });
 		await expect(popover).toBeVisible();
+
+		// W7 (UI wishes, 2026-11): the trigger's icon and label now carry the
+		// measured gap of the neighbouring Preview/Code tab in the same bar
+		// (0.3rem / 4.8px), and the menu wears the family's popover shell.
+		const trigger = page.getByRole("button", { name: /Change this app/ });
+		const neighbouringTab = page.getByRole("tab", { name: /Preview/ });
+		const gapOf = (locator: Locator) =>
+			locator.evaluate((el) => Number.parseFloat(getComputedStyle(el).gap));
+		expect(
+			Math.abs((await gapOf(trigger)) - (await gapOf(neighbouringTab))),
+		).toBeLessThanOrEqual(0.5);
+		const shell = await popover.evaluate((el) => {
+			const style = getComputedStyle(el);
+			return {
+				display: style.display,
+				direction: style.flexDirection,
+				overflow: style.overflow,
+				radius: Number.parseFloat(style.borderTopLeftRadius),
+				shadow: style.boxShadow,
+				border: Number.parseFloat(style.borderTopWidth),
+			};
+		});
+		expect(shell.display, "the family's flex column shell").toBe("flex");
+		expect(shell.direction).toBe("column");
+		expect(shell.overflow).toBe("hidden");
+		expect(shell.radius).toBeGreaterThan(0);
+		expect(shell.shadow).not.toBe("none");
+		expect(shell.border).toBeGreaterThan(0);
 
 		// Before the z-index fix, `.app-regen-popover` (z-index: 60) painted
 		// UNDER `.workspace-shell-expanded` (z-index: 115) — `toBeVisible`

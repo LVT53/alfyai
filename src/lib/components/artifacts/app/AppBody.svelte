@@ -2,8 +2,8 @@
 // The App's panel body (Feature 2 · Artifacts, Slice 2; redesigned Wave 2.5
 // Step 13): a status row (fact-check line, Alfy's note, glitches), a
 // segmented Preview/Code control beside "Change this app…", the running
-// frame (AppFrame owns its own sandbox bar) or the read-only code view, and
-// the regenerate popover. This is the whole App surface (Owner decision 8) —
+// frame or the read-only code view, and the regenerate popover. This is the
+// whole App surface (Owner decision 8) —
 // no debug gallery, no attempt history, no "show the prompt". Download lives
 // in the shared panel header now (`registerPanelActions`), never here.
 //
@@ -396,7 +396,23 @@ function measureRegeneratePopover(): void {
 	if (typeof window === "undefined" || !regenerateTriggerEl) return;
 	const rect = regenerateTriggerEl.getBoundingClientRect();
 	const right = Math.max(12, window.innerWidth - rect.right);
-	regeneratePopoverStyle = `top: ${rect.bottom + 8}px; right: ${right}px;`;
+	// W7: the family shell caps the menu's height, so keep the whole shell in
+	// the window: prefer the space below the trigger, flip above it when that
+	// space is too small, and let the body scroll inside what is left.
+	const menu = document.querySelector<HTMLElement>(
+		'[data-testid="app-regenerate-popover"]',
+	);
+	const gap = 8;
+	const margin = 12;
+	const wanted = Math.min(menu?.scrollHeight ?? 480, 480);
+	const below = window.innerHeight - margin - (rect.bottom + gap);
+	const above = rect.top - gap - margin;
+	const opensBelow = below >= Math.min(wanted, 160) || below >= above;
+	const maxHeight = Math.max(60, Math.min(480, opensBelow ? below : above));
+	const top = opensBelow
+		? rect.bottom + gap
+		: Math.max(margin, rect.top - gap - maxHeight);
+	regeneratePopoverStyle = `top: ${top}px; right: ${right}px; max-height: ${maxHeight}px;`;
 }
 
 $effect(() => {
@@ -589,7 +605,10 @@ const regeneratePopoverFocusTrap = focusTrap({
 					onclick={() => (activeTab = 'preview')}
 				>
 					<Eye size={14} strokeWidth={1.75} aria-hidden="true" />
-					{$t('artifacts.app.tab.preview')}
+					<span class="app-seg-label">
+						<span class="app-seg-label-visible">{$t('artifacts.app.tab.preview')}</span>
+						<span class="app-seg-label-bold" aria-hidden="true">{$t('artifacts.app.tab.preview')}</span>
+					</span>
 				</button>
 				<button
 					type="button"
@@ -601,13 +620,16 @@ const regeneratePopoverFocusTrap = focusTrap({
 					onclick={() => (activeTab = 'code')}
 				>
 					<CodeXml size={14} strokeWidth={1.75} aria-hidden="true" />
-					{$t('artifacts.app.tab.code')}
+					<span class="app-seg-label">
+						<span class="app-seg-label-visible">{$t('artifacts.app.tab.code')}</span>
+						<span class="app-seg-label-bold" aria-hidden="true">{$t('artifacts.app.tab.code')}</span>
+					</span>
 				</button>
 			</div>
 			<span class="app-bar-grow"></span>
 			<button
 				type="button"
-				class="btn-primary btn-sm"
+				class="app-regen-trigger btn-primary btn-sm"
 				bind:this={regenerateTriggerEl}
 				aria-haspopup="dialog"
 				aria-expanded={regeneratePopoverOpen}
@@ -920,9 +942,16 @@ const regeneratePopoverFocusTrap = focusTrap({
 		flex: 1;
 	}
 
+	/* W11 (UI wishes, 2026-11): two equal 1fr tracks, not a flex row. "Preview"
+	   is wider than "Code", so flex sized the segments to their own text while
+	   the sliding thumb assumes halves — the selected Preview lost the right
+	   edge of its own padding. Equal tracks give both segments one width, and
+	   the thumb covers one exactly in both states. */
 	.app-seg {
 		position: relative;
-		display: inline-flex;
+		display: inline-grid;
+		grid-auto-flow: column;
+		grid-auto-columns: 1fr;
 		border-radius: var(--radius-md);
 		background: var(--surface-elevated);
 		padding: 2px;
@@ -948,7 +977,6 @@ const regeneratePopoverFocusTrap = focusTrap({
 		position: relative;
 		z-index: 1;
 		display: inline-flex;
-		flex: 1 1 0;
 		align-items: center;
 		justify-content: center;
 		gap: 0.3rem;
@@ -959,6 +987,26 @@ const regeneratePopoverFocusTrap = focusTrap({
 		font-size: var(--text-sm);
 		cursor: pointer;
 		white-space: nowrap;
+	}
+
+	/* W11: a track must not resize with the selected weight. The visible
+	   label's cell also holds a hidden bold copy, stacked in the same place,
+	   so the cell is always as wide as the bold face — the selected tab stays
+	   as wide as it was unselected, and the control does not shift when the
+	   selection moves. */
+	.app-seg-label {
+		display: inline-grid;
+	}
+
+	.app-seg-label > span {
+		grid-area: 1 / 1;
+		white-space: nowrap;
+	}
+
+	.app-seg-label-bold {
+		height: 0;
+		visibility: hidden;
+		font-weight: 600;
 	}
 
 	.app-seg-tab[aria-selected='true'] {
@@ -1104,13 +1152,28 @@ const regeneratePopoverFocusTrap = focusTrap({
 		padding: var(--space-sm);
 	}
 
+	/* W7 (UI wishes, 2026-11): the trigger's icon and label touched. 0.3rem
+	   (4.8px at the 16px root) is the measured gap of the neighbouring
+	   Preview/Code tab in this same bar, not a new guess. */
+	.app-regen-trigger {
+		gap: 0.3rem;
+	}
+
 	/* ── The regenerate popover (desktop) ────────────────────────── */
+	/* W7: the same shell and rhythm as `AnchoredPopover.svelte` (the family's
+	   Download/Versions/Delete popovers): a flex column, the family's head
+	   padding and type, a body that scrolls inside a capped height, the same
+	   border, radius, surface and shadow. The contents are unchanged. */
 	.app-regen-popover {
 		position: fixed;
 		/* Above `.workspace-shell-expanded` (DocumentWorkspace.svelte: 115) —
 		   plain 60 painted this popover UNDER the expanded panel. */
 		z-index: 130;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
 		width: min(340px, calc(100vw - 24px));
+		max-height: min(480px, calc(100vh - 24px));
 		border-radius: var(--radius-lg, 12px);
 		background: var(--surface-overlay);
 		border: 1px solid var(--border-default);
@@ -1119,6 +1182,7 @@ const regeneratePopoverFocusTrap = focusTrap({
 
 	.app-regen-pop-head {
 		display: flex;
+		flex: none;
 		align-items: center;
 		gap: 0.5rem;
 		padding: 0.75rem 0.625rem 0.5rem 0.875rem;
@@ -1130,9 +1194,14 @@ const regeneratePopoverFocusTrap = focusTrap({
 		font-size: 0.84rem;
 		font-weight: 700;
 		color: var(--text-primary);
+		overflow-wrap: break-word;
 	}
 
 	.app-regen-pop-body {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
 		padding: 0 0.875rem 0.875rem;
 	}
 
@@ -1185,7 +1254,7 @@ const regeneratePopoverFocusTrap = focusTrap({
 		padding-top: 0.5rem;
 		border-top: 1px solid var(--border-subtle, var(--border-default));
 		color: var(--text-muted);
-		font-size: 0.72rem;
+		font-size: 0.78rem;
 		line-height: 1.45;
 	}
 

@@ -424,9 +424,13 @@ const note = $derived(
 		padding: 0.625rem 1rem 0.375rem;
 	}
 
-	/* The App's own segmented control, as small. */
+	/* The App's own segmented control, as small. W11 (UI wishes, 2026-11):
+	   the same equal 1fr tracks as AppBody's control, so both segments are one
+	   width and the selected Preview keeps its right padding too. */
 	.seg {
-		display: inline-flex;
+		display: inline-grid;
+		grid-auto-flow: column;
+		grid-auto-columns: 1fr;
 		padding: 2px;
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-md);
