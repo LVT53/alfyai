@@ -596,6 +596,36 @@ describe("what a call is made from", () => {
 		]);
 	});
 
+	// W14 T1 (diagnosis): naming three pictures must reach the picture server as
+	// all three, the first as the base and the other two as references, in the
+	// order the prompt names them. If this fails, the take itself is made from
+	// fewer pictures than the person gave: a P1, not a display fix.
+	it("names three pictures in prompt order: the first is the base, the other two its references", async () => {
+		const [a, b, c] = await Promise.all([1, 2, 3].map(() => storeFile()));
+		const result = await resolve(
+			{ pictures: ["1", "2", "3"] },
+			{
+				turnPictures: index([
+					fileSource(a.id, { name: "first picture" }),
+					fileSource(b.id, { name: "second picture" }),
+					fileSource(c.id, { name: "third picture" }),
+				]),
+			},
+		);
+		if (!result.ok) throw new Error("not resolved");
+		expect(result.plan.request.mode).toBe("edit");
+		expect(result.plan.request.inputs.map((input) => input.role)).toEqual([
+			"base",
+			"reference",
+			"reference",
+		]);
+		expect(result.plan.request.inputs.map((input) => input.name)).toEqual([
+			"first picture",
+			"second picture",
+			"third picture",
+		]);
+	});
+
 	it("changes the older version the person chose, not the newest", async () => {
 		const { artifactId, file: newest } = await makeItem();
 		const older = await storeFile();

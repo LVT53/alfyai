@@ -1,9 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import { db } from "../../src/lib/server/db";
-import { memoryProfileItems, users } from "../../src/lib/server/db/schema";
+import {
+	imageCards,
+	memoryProfileItems,
+	messages,
+	users,
+} from "../../src/lib/server/db/schema";
 import { createMemoryProfileItem } from "../../src/lib/server/services/memory-profile/projection-store";
 import {
 	AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
@@ -112,6 +118,102 @@ async function waitForSettledCard(
 		)
 		.toBe("settled");
 	return (await readDetail(page, conversationId)).imageCards[0];
+}
+
+/**
+ * W14: a settled card made from two pictures, seeded through the app's own
+ * services (the fake model only ever scripts one-picture calls). The take's
+ * request names the base first and the reference second, as `make_image`'s
+ * `<image1>` / `<image2>` do.
+ */
+async function seedMadeFromTwoPictures(
+	conversationId: string,
+): Promise<{ baseFileId: string; referenceFileId: string }> {
+	const { storeImageFile } = await import(
+		"../../src/lib/server/services/images/files"
+	);
+	const { createCard } = await import(
+		"../../src/lib/server/services/images/cards"
+	);
+	const { insertTake, takeRequest } = await import(
+		"../../src/lib/server/services/images/testing/takes"
+	);
+	const [user] = await db
+		.select({ id: users.id })
+		.from(users)
+		.where(eq(users.email, TEST_EMAIL))
+		.limit(1);
+	if (!user) throw new Error("the e2e admin must exist");
+	const store = async (role: "input" | "take") =>
+		storeImageFile({
+			userId: user.id,
+			conversationId,
+			role,
+			png: new Uint8Array((await randomPng()).buffer),
+		});
+	const base = await store("input");
+	const reference = await store("input");
+	const result = await store("take");
+	const messageId = randomUUID();
+	const { cardId } = await createCard({
+		userId: user.id,
+		conversationId,
+		turnId: messageId,
+		artifactId: null,
+		title: "Cosy room",
+		madeFrom: "pictures",
+		sourceCount: 2,
+	});
+	const takeId = await insertTake({
+		userId: user.id,
+		conversationId,
+		cardId,
+		resultFileId: result.id,
+		request: takeRequest({
+			mode: "edit",
+			inputs: [
+				{ fileId: base.id, role: "base", name: "room.png" },
+				{ fileId: reference.id, role: "reference", name: "sofa.png" },
+			],
+		}),
+	});
+	await db
+		.update(imageCards)
+		.set({ pickedTakeId: takeId })
+		.where(eq(imageCards.id, cardId));
+	await db.insert(messages).values([
+		{
+			id: randomUUID(),
+			conversationId,
+			messageSequence: 1,
+			role: "user",
+			content: "Put the sofa from the second picture into the first room.",
+		},
+		{
+			id: messageId,
+			conversationId,
+			messageSequence: 2,
+			role: "assistant",
+			content: "Here it is, made from both pictures.",
+			toolCalls: JSON.stringify([
+				{
+					type: "tool_call",
+					callId: `call-made-from-${cardId}`,
+					name: "make_image",
+					input: { prompt: "The room with the sofa in it", title: "Cosy room" },
+					status: "done",
+					metadata: {
+						ok: true,
+						imageStatus: "succeeded",
+						imageCardId: cardId,
+						imageTakeId: takeId,
+						imageTitle: "Cosy room",
+					},
+				},
+			]),
+		},
+	]);
+	return { baseFileId: base.id, referenceFileId: reference.id };
 }
 
 test.use({
@@ -474,6 +576,8 @@ test.describe("Pictures end to end", () => {
 
 		const card = page.locator(CARD).last();
 		await expect(card).toContainText("Image · from your photo");
+		// W14: one picture is no source row.
+		await expect(card.getByTestId("image-card-made-from")).toHaveCount(0);
 
 		// Before / After flips the card's picture between the photo and the change.
 		const picture = card.getByTestId("image-picture");
@@ -493,6 +597,32 @@ test.describe("Pictures end to end", () => {
 		await expect(frames.first()).toBeVisible({ timeout: 20_000 });
 		await expect(frames.first()).toHaveAttribute("aria-label", /Your photo$/);
 		await expect(frames).toHaveCount(2);
+	});
+
+	// W14: a result made from N pictures draws N thumbnails, numbered the way
+	// the prompt named them (`<image1>` is the base, `<image2>` the reference).
+	test("a card made from two pictures draws both of them, numbered in the prompt's order", async ({
+		page,
+	}) => {
+		videoName = "made-from-two-pictures";
+		const conversationId = await openChat(page);
+		const { baseFileId, referenceFileId } =
+			await seedMadeFromTwoPictures(conversationId);
+		await page.reload({ waitUntil: "domcontentloaded" });
+
+		const row = page.locator(CARD).last().getByTestId("image-card-made-from");
+		await expect(row).toBeVisible({ timeout: 20_000 });
+		await expect(row).toContainText("Made from");
+		// Two, not one: the base used to be dropped from the row.
+		await expect(row.locator("img")).toHaveCount(2);
+		await expect(row.locator(".image-card-number")).toHaveText(["1", "2"]);
+		const sources = await row
+			.locator("img")
+			.evaluateAll((images) =>
+				images.map((image) => image.getAttribute("src") ?? ""),
+			);
+		expect(sources[0]).toContain(baseFileId);
+		expect(sources[1]).toContain(referenceFileId);
 	});
 
 	test("History compares and restores", async ({ page }) => {

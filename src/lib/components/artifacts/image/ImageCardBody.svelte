@@ -153,9 +153,26 @@ let canUse = $derived(
 			shown.status === "succeeded",
 	),
 );
+/**
+ * The request's own cap: the picture graphs have ten picture slots, so a take
+ * is never made from more. A row written around a cap change still clips to
+ * ten rather than overflowing the card.
+ */
+const MAX_MADE_FROM_PICTURES = 10;
+
+/**
+ * The pictures the shown take was made from, in the order the prompt addresses
+ * them (the take's base first, then its references): the read model's one list,
+ * so the numbers under the thumbnails are the prompt's own `<image1>` …
+ * `<imageN>`. Never built by joining the base and the references here.
+ */
 let madeFromIds = $derived(
 	card.madeFrom === "pictures"
-		? (shown?.sourceFileIds ?? card.takes[0]?.sourceFileIds ?? [])
+		? (
+				shown?.sourceFileIdsInPromptOrder ??
+				card.takes[0]?.sourceFileIdsInPromptOrder ??
+				[]
+			).slice(0, MAX_MADE_FROM_PICTURES)
 		: [],
 );
 // Another is offered once nothing of the card is on its way: not beside Stop

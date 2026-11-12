@@ -632,18 +632,68 @@ describe("ImageCardBody", () => {
 		).toContain("after-f");
 	});
 
-	it("shows the pictures a card was made from, numbered", () => {
+	it("shows every picture a card was made from, numbered in the prompt's order, base first", () => {
 		render(ImageCardBody, {
-			card: card([take({ sourceFileIds: ["src-1", "src-2"] })], {
-				madeFrom: "pictures",
-				sourceCount: 2,
-			}),
+			card: card(
+				[
+					take({
+						baseFileId: "base-src",
+						sourceFileIdsInPromptOrder: ["base-src", "ref-1", "ref-2"],
+					}),
+				],
+				{ madeFrom: "pictures", sourceCount: 3 },
+			),
 		});
 		const row = screen.getByTestId("image-card-made-from");
 		expect(row).toHaveTextContent("Made from");
-		expect(row).toHaveTextContent("1");
-		expect(row).toHaveTextContent("2");
-		expect(row.querySelectorAll("img")).toHaveLength(2);
+		expect(row.querySelectorAll("img")).toHaveLength(3);
+		// The numbers are the prompt's own: the base is <image1>, then the references.
+		expect(
+			[...row.querySelectorAll(".image-card-number")].map(
+				(node) => node.textContent,
+			),
+		).toEqual(["1", "2", "3"]);
+		const sources = [...row.querySelectorAll("img")].map((img) =>
+			img.getAttribute("src"),
+		);
+		expect(sources[0]).toContain("base-src");
+		expect(sources[1]).toContain("ref-1");
+		expect(sources[2]).toContain("ref-2");
+	});
+
+	it("draws no Made from row for a card made from words", () => {
+		render(ImageCardBody, {
+			card: card([take()], { madeFrom: "words" }),
+		});
+		expect(screen.queryByTestId("image-card-made-from")).toBeNull();
+	});
+
+	it("draws no Made from row for a card made from one photo, even if its take has references", () => {
+		render(ImageCardBody, {
+			card: card(
+				[
+					take({
+						sourceFileIdsInPromptOrder: ["base-src", "ref-1"],
+					}),
+				],
+				{ madeFrom: "photo", sourceCount: 1 },
+			),
+		});
+		expect(screen.queryByTestId("image-card-made-from")).toBeNull();
+	});
+
+	it("clips the Made from row at the ten pictures one take can be given", () => {
+		const sources = Array.from({ length: 12 }, (_, i) => `source-${i + 1}`);
+		render(ImageCardBody, {
+			card: card([take({ sourceFileIdsInPromptOrder: sources })], {
+				madeFrom: "pictures",
+				sourceCount: 12,
+			}),
+		});
+		const row = screen.getByTestId("image-card-made-from");
+		expect(row.querySelectorAll("img")).toHaveLength(10);
+		expect(row).toHaveTextContent("10");
+		expect(row).not.toHaveTextContent("11");
 	});
 
 	it("keeps the shown take with a quiet note while the server checks it once more, in the same box", async () => {

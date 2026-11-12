@@ -50,7 +50,14 @@ export type ImageTakeView = {
 	height: number | null;
 	hasAlpha: boolean;
 	baseFileId: string | null;
-	sourceFileIds: string[];
+	/**
+	 * Every picture the take was made from, in the order the prompt addresses
+	 * them: the base first, then the references. A picture reaching the take
+	 * twice is listed once, and a picture made from words has none. The card's
+	 * "Made from" row numbers this list, so its numbers match `<image1>` …
+	 * `<imageN>`.
+	 */
+	sourceFileIdsInPromptOrder: string[];
 	retried: boolean;
 	errorCode: string | null;
 	retryable: boolean;
@@ -155,6 +162,21 @@ export async function listConversationImageCards(
 				? request.inputs.find((input) => input.role === "base")?.fileId
 				: undefined;
 		const baseFile = baseId ? fileById.get(baseId) : null;
+		// One list, in the prompt's order: the base, then the references. `marked`
+		// is only ever read from rows written before boxed copies stopped being
+		// sent, and the runner leaves it out, so it is no source picture.
+		const sourceFileIdsInPromptOrder = request
+			? [
+					...new Set([
+						...request.inputs
+							.filter((input) => input.role === "base")
+							.map((input) => input.fileId),
+						...request.inputs
+							.filter((input) => input.role === "reference")
+							.map((input) => input.fileId),
+					]),
+				]
+			: [];
 		const now = Date.now();
 		const view: ImageTakeView = {
 			id: take.id,
@@ -185,10 +207,7 @@ export async function listConversationImageCards(
 			hasAlpha: Boolean(file?.hasAlpha),
 			baseFileId:
 				request?.inputs.find((input) => input.role === "base")?.fileId ?? null,
-			sourceFileIds:
-				request?.inputs
-					.filter((input) => input.role === "reference")
-					.map((input) => input.fileId) ?? [],
+			sourceFileIdsInPromptOrder,
 			retried: take.retried === 1,
 			errorCode: take.errorCode,
 			retryable: take.retryable,
