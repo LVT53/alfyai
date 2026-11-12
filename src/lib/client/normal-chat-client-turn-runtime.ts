@@ -2085,11 +2085,16 @@ export function createNormalChatClientTurnRuntime(
 		}
 		const terminal = observation.state === "terminal" ? observation : undefined;
 		// Also defend against older servers that call an unsaved answer successful.
-		const missingAnsweredReceipt = Boolean(
+		// `answered` and `delivered` are the two successful model outcomes: either
+		// one with no saved reply left the person with neither the reply nor, for
+		// `delivered`, the file card, so it is a failure, not a clean ending.
+		const succeeded = (outcome: string | undefined) =>
+			outcome === "answered" || outcome === "delivered";
+		const missingSuccessfulReceipt = Boolean(
 			terminal &&
 				!terminal.assistantMessageId &&
-				(terminal.completion.outcome === "answered" ||
-					terminal.modelCompletion?.outcome === "answered"),
+				(succeeded(terminal.completion.outcome) ||
+					succeeded(terminal.modelCompletion?.outcome)),
 		);
 		const normalChatFinalization = parseNormalChatFinalization(
 			terminal?.normalChatFinalization ?? saved?.normalChatFinalization,
@@ -2101,12 +2106,12 @@ export function createNormalChatClientTurnRuntime(
 			saved?.content ?? metadata?.finalContent ?? held?.content ?? "";
 		const resolved = Boolean(
 			terminal &&
-				!missingAnsweredReceipt &&
+				!missingSuccessfulReceipt &&
 				(!terminal.assistantMessageId || saved),
 		);
 		if (
 			!saved &&
-			(resolved || knownFinalizationFailure || missingAnsweredReceipt)
+			(resolved || knownFinalizationFailure || missingSuccessfulReceipt)
 		) {
 			const view = previous;
 			adapters.applyMessageListEvent({
@@ -2117,7 +2122,7 @@ export function createNormalChatClientTurnRuntime(
 					activity: view?.activity ?? [],
 					blocks: view?.blocks ?? [],
 					completion:
-						missingAnsweredReceipt && terminal
+						missingSuccessfulReceipt && terminal
 							? {
 									...terminal.completion,
 									outcome: "failed",
@@ -2126,7 +2131,7 @@ export function createNormalChatClientTurnRuntime(
 							: terminal?.completion,
 					modelCompletion:
 						terminal?.modelCompletion ??
-						(missingAnsweredReceipt ? terminal?.completion : undefined) ??
+						(missingSuccessfulReceipt ? terminal?.completion : undefined) ??
 						view?.modelCompletion ??
 						view?.completion,
 					normalChatFinalization,
