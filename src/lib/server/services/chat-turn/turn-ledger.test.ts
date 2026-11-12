@@ -631,6 +631,151 @@ it.each([
 	});
 });
 
+/** The three names a billing row keeps, so a test reads only what it pins. */
+function namesOf(row: typeof schema.usageEvents.$inferSelect | undefined) {
+	return {
+		modelDisplayName: row?.modelDisplayName,
+		providerDisplayName: row?.providerDisplayName,
+		providerBaseUrl: row?.providerBaseUrl,
+	};
+}
+
+it("names the attempt's own model, its provider and its address on the billing row, after a failover too", async () => {
+	// Two models of one provider: a row that carried only the provider's name
+	// could not tell them apart on the dashboard.
+	database.db
+		.insert(schema.providers)
+		.values({
+			id: "pa",
+			name: "alpha-co",
+			displayName: "Alpha Co",
+			baseUrl: "https://alpha.test.invalid/v1",
+			apiKeyEncrypted: "x",
+			apiKeyIv: "x",
+		})
+		.run();
+	database.db
+		.insert(schema.providerModels)
+		.values([
+			{
+				id: "ma1",
+				providerId: "pa",
+				name: "alpha-one",
+				displayName: "Alpha One",
+				inputUsdMicrosPer1m: 1_000_000,
+				outputUsdMicrosPer1m: 2_000_000,
+			},
+			{
+				id: "ma2",
+				providerId: "pa",
+				name: "alpha-two",
+				displayName: "Alpha Two",
+				inputUsdMicrosPer1m: 3_000_000,
+				outputUsdMicrosPer1m: 4_000_000,
+			},
+		])
+		.run();
+	ledger.admitTurn({ ...scope, ownerId: "process" });
+	// The person picked alpha-one, it failed, and alpha-two closed the turn.
+	await ledger.recordTurnAttempt(scope, {
+		...attempt,
+		providerId: "pa",
+		modelId: "provider:pa:ma1",
+		providerModelName: "alpha-one",
+	});
+	await ledger.recordTurnAttempt(scope, {
+		...attempt,
+		attemptId: "b",
+		phase: "closing",
+		providerId: "pa",
+		modelId: "provider:pa:ma2",
+		providerModelName: "alpha-two",
+		outcome: "answered",
+		safeStopCause: "natural_stop",
+	});
+	const rows = database.db.select().from(schema.usageEvents).all();
+	expect(namesOf(rows.find((r) => r.id === "turn-attempt:a"))).toEqual({
+		modelDisplayName: "Alpha One",
+		providerDisplayName: "Alpha Co",
+		providerBaseUrl: "https://alpha.test.invalid/v1",
+	});
+	expect(namesOf(rows.find((r) => r.id === "turn-attempt:b"))).toEqual({
+		modelDisplayName: "Alpha Two",
+		providerDisplayName: "Alpha Co",
+		providerBaseUrl: "https://alpha.test.invalid/v1",
+	});
+});
+
+it.each([
+	"model1",
+	"model2",
+] as const)("gives the built-in %s the names the legacy per-message writer gave it", async (modelId) => {
+	// The legacy writer is the reference; nothing is written here from memory.
+	database.db
+		.insert(schema.messages)
+		.values({
+			id: "legacy",
+			conversationId: "c",
+			role: "assistant",
+			content: "old answer",
+		})
+		.run();
+	await analytics.recordMessageAnalytics({
+		userId: "u",
+		conversationId: "c",
+		messageId: "legacy",
+		model: modelId,
+	});
+	ledger.admitTurn({ ...scope, ownerId: "process" });
+	await ledger.recordTurnAttempt(scope, {
+		...attempt,
+		modelId,
+		providerId: modelId,
+	});
+	const rows = database.db.select().from(schema.usageEvents).all();
+	const ledgerRow = rows.find((r) => r.id === "turn-attempt:a");
+	const legacyRow = rows.find((r) => r.messageId === "legacy");
+	const { getConfig } = await import("../../config-store");
+	expect(namesOf(ledgerRow)).toEqual(namesOf(legacyRow));
+	expect(namesOf(ledgerRow)).toEqual({
+		modelDisplayName: getConfig()[modelId].displayName,
+		providerDisplayName: null,
+		providerBaseUrl: getConfig()[modelId].baseUrl,
+	});
+});
+
+it("leaves a name null when its lookup finds nothing, and still books the attempt", async () => {
+	ledger.admitTurn({ ...scope, ownerId: "process" });
+	// Provider p1 exists, the model row "gone" does not: the model has no name
+	// to keep, the provider's two facts are still known.
+	await ledger.recordTurnAttempt(scope, {
+		...attempt,
+		modelId: "provider:p1:gone",
+	});
+	// Nothing at all is known about this id: all three stay null.
+	await ledger.recordTurnAttempt(scope, {
+		...attempt,
+		attemptId: "b",
+		phase: "closing",
+		modelId: "somewhere-else",
+	});
+	const rows = database.db.select().from(schema.usageEvents).all();
+	expect(rows).toHaveLength(2);
+	expect(namesOf(rows.find((r) => r.id === "turn-attempt:a"))).toEqual({
+		modelDisplayName: null,
+		providerDisplayName: "first",
+		providerBaseUrl: "https://test.invalid",
+	});
+	expect(namesOf(rows.find((r) => r.id === "turn-attempt:b"))).toEqual({
+		modelDisplayName: null,
+		providerDisplayName: null,
+		providerBaseUrl: null,
+	});
+	expect(
+		database.db.select().from(schema.normalChatAttempts).all(),
+	).toHaveLength(2);
+});
+
 it.each([
 	"analytics-first",
 	"terminal-first",

@@ -1077,6 +1077,13 @@ function materializeUsageBreakdown<T extends { totalCostMicros: number }>(
 		.sort(sort);
 }
 
+const STORED_NAME_FIELDS = [
+	"modelDisplayName",
+	"providerDisplayName",
+	"providerModelName",
+] as const;
+type StoredNameField = (typeof STORED_NAME_FIELDS)[number];
+
 async function modelBreakdown(
 	rows: UsageRow[],
 	context: AnalyticsQueryContext,
@@ -1116,20 +1123,54 @@ async function modelBreakdown(
 		}
 	}
 
+	// A group's names are facts about its model, not about whichever of its rows
+	// comes first: a row written before names were stored has none, and a model
+	// can have been labelled differently over time. Each name is the newest one
+	// any row of the group stored (ties by id), so no order of rows changes it.
+	const newestRow = new Map<
+		string,
+		Partial<Record<StoredNameField, UsageRow>>
+	>();
+	for (const row of rows) {
+		const group = newestRow.get(row.modelId) ?? {};
+		for (const field of STORED_NAME_FIELDS) {
+			const best = group[field];
+			if (
+				row[field] &&
+				(!best ||
+					row.createdAt > best.createdAt ||
+					(row.createdAt.getTime() === best.createdAt.getTime() &&
+						row.id > best.id))
+			)
+				group[field] = row;
+		}
+		newestRow.set(row.modelId, group);
+	}
+	const storedName = (modelId: string, field: StoredNameField) =>
+		newestRow.get(modelId)?.[field]?.[field] ?? null;
+
 	for (const row of rows) {
 		const key = row.modelId;
 		const providerId = isProviderModelId(row.modelId)
 			? getProviderIdFromModelId(row.modelId)
 			: null;
+		// With no stored label a provider model is named after the model itself
+		// (its row, while it exists, else the name its attempts ran under). The
+		// provider's name stands in only for the older `provider:<provider>` id,
+		// which names no model at all.
+		const modelUuid = parseProviderModelId(row.modelId)?.modelUuid;
 		const resolvedName =
-			row.modelDisplayName ??
+			storedName(key, "modelDisplayName") ??
+			(modelUuid
+				? context.availability.providerModelsById.get(modelUuid)?.displayName
+				: null) ??
 			(providerId ? providerNames.get(providerId) : null) ??
-			row.providerModelName ??
+			storedName(key, "providerModelName") ??
 			fallbackModelDisplayName(row.modelId);
 		const current = grouped.get(key) ?? {
 			model: row.modelId,
 			displayName: resolvedName,
-			providerDisplayName: row.providerDisplayName,
+			providerDisplayName: storedName(key, "providerDisplayName"),
 			msgCount: 0,
 			...createUsageAccumulator(),
 		};
@@ -2001,34 +2042,45 @@ async function getConversationSnapshot(userId: string, conversationId: string) {
 	return row ?? { id: conversationId, title: null, createdAt: new Date() };
 }
 
+// The two built-in aliases are config-driven, so their snapshot needs no
+// lookup and no await. Shared by `getModelSnapshot` and by the accounting
+// transaction's name read below: one rule for what a built-in model is.
+function builtinModelSnapshot(
+	modelId: string,
+	fallbackDisplayName?: string | null,
+) {
+	if (modelId !== "model1" && modelId !== "model2") return null;
+	const model = getConfig()[modelId];
+	return {
+		modelDisplayName: fallbackDisplayName ?? model.displayName,
+		providerId: null,
+		providerDisplayName: null,
+		providerBaseUrl: model.baseUrl,
+		providerModelName: model.modelName,
+	};
+}
+
+// `provider:<provider>:<model>`, the older `provider:<provider>` and a bare
+// provider id all name their provider first. Shared like the helper above.
+function splitModelId(modelId: string): {
+	providerId: string;
+	providerModelId: string | null;
+} {
+	const rawId = modelId.startsWith("provider:")
+		? modelId.slice("provider:".length)
+		: modelId;
+	const [providerId, providerModelId] = rawId.split(":");
+	return { providerId, providerModelId: providerModelId || null };
+}
+
 async function getModelSnapshot(
 	modelId: string,
 	fallbackDisplayName?: string | null,
 ) {
-	const config = getConfig();
-	if (modelId === "model1") {
-		return {
-			modelDisplayName: fallbackDisplayName ?? config.model1.displayName,
-			providerId: null,
-			providerDisplayName: null,
-			providerBaseUrl: config.model1.baseUrl,
-			providerModelName: config.model1.modelName,
-		};
-	}
-	if (modelId === "model2") {
-		return {
-			modelDisplayName: fallbackDisplayName ?? config.model2.displayName,
-			providerId: null,
-			providerDisplayName: null,
-			providerBaseUrl: config.model2.baseUrl,
-			providerModelName: config.model2.modelName,
-		};
-	}
+	const builtin = builtinModelSnapshot(modelId, fallbackDisplayName);
+	if (builtin) return builtin;
 
-	const rawId = modelId.startsWith("provider:")
-		? modelId.slice("provider:".length)
-		: modelId;
-	const providerId = rawId.includes(":") ? rawId.split(":")[0] : rawId;
+	const { providerId } = splitModelId(modelId);
 	try {
 		const [{ getProviderWithSecrets }, { listEnabledProviderModels }] =
 			await Promise.all([import("./providers"), import("./provider-models")]);
@@ -3263,6 +3315,59 @@ export function linkNormalChatMessageAccounting(
 		.run();
 }
 
+/**
+ * The names a billing row keeps for the model ONE attempt ran on (after a
+ * failover that is the fallback, not the model the person picked), read inside
+ * the accounting transaction.
+ *
+ * `getModelSnapshot` owns these rules for the per-message writer, but it is
+ * async (it loads the provider through the secret-decrypting provider services)
+ * and a transaction on this driver is synchronous, so the three display facts
+ * are read straight from the tables here. What can be shared is shared: the
+ * built-in branch and the reading of a model id. A lookup that finds nothing
+ * leaves its field null, and no failure of it may fail the accounting.
+ */
+function readAttemptModelNames(tx: AccountingTx, modelId: string) {
+	const unknown = {
+		modelDisplayName: null,
+		providerDisplayName: null,
+		providerBaseUrl: null,
+	};
+	try {
+		const builtin = builtinModelSnapshot(modelId);
+		if (builtin) return builtin;
+		const { providerId, providerModelId } = splitModelId(modelId);
+		const provider = tx
+			.select({
+				displayName: providers.displayName,
+				baseUrl: providers.baseUrl,
+			})
+			.from(providers)
+			.where(eq(providers.id, providerId))
+			.get();
+		if (!provider) return unknown;
+		const model = providerModelId
+			? tx
+					.select({ displayName: providerModels.displayName })
+					.from(providerModels)
+					.where(
+						and(
+							eq(providerModels.id, providerModelId),
+							eq(providerModels.providerId, providerId),
+						),
+					)
+					.get()
+			: undefined;
+		return {
+			modelDisplayName: model?.displayName ?? null,
+			providerDisplayName: provider.displayName,
+			providerBaseUrl: provider.baseUrl,
+		};
+	} catch {
+		return unknown;
+	}
+}
+
 /** @internal Analytics owns the only billing write, atomic with its ledger snapshot. */
 export function recordNormalChatAttemptAccounting(
 	tx: AccountingTx,
@@ -3285,6 +3390,7 @@ export function recordNormalChatAttemptAccounting(
 		.get();
 	if (!chat || chat.memoryIncognito)
 		throw new TurnLedgerScopeError("Accounting scope denied");
+	const names = readAttemptModelNames(tx, attempt.modelId);
 	tx.insert(usageEvents)
 		.values({
 			id: `turn-attempt:${attempt.attemptId}`,
@@ -3293,6 +3399,9 @@ export function recordNormalChatAttemptAccounting(
 			conversationId: scope.conversationId,
 			conversationTitle: chat.title,
 			modelId: attempt.modelId,
+			modelDisplayName: names.modelDisplayName,
+			providerDisplayName: names.providerDisplayName,
+			providerBaseUrl: names.providerBaseUrl,
 			providerId:
 				attempt.modelId === "model1" || attempt.modelId === "model2"
 					? null

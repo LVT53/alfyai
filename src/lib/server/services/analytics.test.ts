@@ -477,6 +477,178 @@ describe("analytics dashboard read model", () => {
 		]);
 	});
 
+	describe("model labels on rows that carry no names", () => {
+		/** One provider with several models, and one person to read them back. */
+		function seedProviderWithModels() {
+			const { sqlite, database } = openSeedDatabase();
+			database
+				.insert(schema.users)
+				.values({
+					id: "user-1",
+					email: "user@example.com",
+					name: "User One",
+					passwordHash: "hash",
+					role: "user",
+				})
+				.run();
+			database
+				.insert(schema.providers)
+				.values({
+					id: "pa",
+					name: "alpha-co",
+					displayName: "Alpha Co",
+					baseUrl: "https://alpha.test.invalid/v1",
+					apiKeyEncrypted: "x",
+					apiKeyIv: "x",
+				})
+				.run();
+			database
+				.insert(schema.providerModels)
+				.values(
+					["one", "two", "three", "four"].map((word) => ({
+						id: `ma-${word}`,
+						providerId: "pa",
+						name: `alpha-${word}`,
+						displayName: `Alpha ${word[0].toUpperCase()}${word.slice(1)}`,
+					})),
+				)
+				.run();
+			return { sqlite, database };
+		}
+
+		let sequence = 0;
+		/** A billing row; the rows a ledger attempt wrote before names existed have none. */
+		function usageRow(
+			word: string,
+			createdAt: string,
+			names: {
+				modelDisplayName?: string;
+				providerDisplayName?: string;
+			} = {},
+		) {
+			sequence += 1;
+			return {
+				id: `usage-${sequence}`,
+				userId: "user-1",
+				conversationId: "conversation-1",
+				messageId: `turn-attempt:${sequence}`,
+				modelId: `provider:pa:ma-${word}`,
+				providerId: "pa",
+				providerModelName: `alpha-${word}`,
+				billingMonth: "2026-05",
+				costUsdMicros: 1000,
+				createdAt: new Date(createdAt),
+				...names,
+			};
+		}
+
+		async function personalModels() {
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "user-1", role: "user" }),
+			});
+			return Object.fromEntries(
+				result.personal.byModel.map((row) => [
+					row.model,
+					{
+						displayName: row.displayName,
+						providerDisplayName: row.providerDisplayName,
+						msgCount: row.msgCount,
+					},
+				]),
+			);
+		}
+
+		it("takes a group's label from a row that stored one, whichever row comes first", async () => {
+			const { sqlite, database } = seedProviderWithModels();
+			database
+				.insert(schema.usageEvents)
+				.values([
+					// "one": the nameless row is first in the table and the oldest.
+					usageRow("one", "2026-05-01T10:00:00Z"),
+					usageRow("one", "2026-05-02T10:00:00Z", {
+						modelDisplayName: "Alpha One (stored)",
+						providerDisplayName: "Alpha Co (stored)",
+					}),
+					// "two": the labelled row is first in the table, the nameless one is newest.
+					usageRow("two", "2026-05-01T10:00:00Z", {
+						modelDisplayName: "Alpha Two (stored)",
+						providerDisplayName: "Alpha Co (stored)",
+					}),
+					usageRow("two", "2026-05-02T10:00:00Z"),
+				])
+				.run();
+			sqlite.close();
+
+			expect(await personalModels()).toEqual({
+				"provider:pa:ma-one": {
+					displayName: "Alpha One (stored)",
+					providerDisplayName: "Alpha Co (stored)",
+					msgCount: 2,
+				},
+				"provider:pa:ma-two": {
+					displayName: "Alpha Two (stored)",
+					providerDisplayName: "Alpha Co (stored)",
+					msgCount: 2,
+				},
+			});
+		});
+
+		it("lets the newest stored label win when a model was labelled differently over time", async () => {
+			const { sqlite, database } = seedProviderWithModels();
+			database
+				.insert(schema.usageEvents)
+				.values([
+					// The per-message writer stored the provider's name as the model's
+					// when it was given no name of its own; a later row knows better.
+					// "one" has the older row first in the table, "two" the newer.
+					usageRow("one", "2026-05-01T10:00:00Z", {
+						modelDisplayName: "Alpha Co",
+					}),
+					usageRow("one", "2026-05-03T10:00:00Z", {
+						modelDisplayName: "Alpha One",
+					}),
+					usageRow("two", "2026-05-03T10:00:00Z", {
+						modelDisplayName: "Alpha Two",
+					}),
+					usageRow("two", "2026-05-01T10:00:00Z", {
+						modelDisplayName: "Alpha Co",
+					}),
+				])
+				.run();
+			sqlite.close();
+
+			const models = await personalModels();
+			expect(models["provider:pa:ma-one"]?.displayName).toBe("Alpha One");
+			expect(models["provider:pa:ma-two"]?.displayName).toBe("Alpha Two");
+		});
+
+		it("names a provider model with no stored label after the model, never after its provider", async () => {
+			const { sqlite, database } = seedProviderWithModels();
+			database
+				.insert(schema.usageEvents)
+				.values([
+					usageRow("three", "2026-05-01T10:00:00Z"),
+					usageRow("four", "2026-05-01T10:00:00Z"),
+					// A model row since deleted: the name its attempt ran under is left.
+					{
+						...usageRow("one", "2026-05-01T10:00:00Z"),
+						modelId: "provider:pa:ma-deleted",
+						providerModelName: "alpha-deleted",
+					},
+				])
+				.run();
+			sqlite.close();
+
+			const models = await personalModels();
+			expect(models["provider:pa:ma-three"]?.displayName).toBe("Alpha Three");
+			expect(models["provider:pa:ma-four"]?.displayName).toBe("Alpha Four");
+			expect(models["provider:pa:ma-deleted"]?.displayName).toBe(
+				"alpha-deleted",
+			);
+		});
+	});
+
 	it("applies the personal month filter and preserves invalid timeline as yearly", async () => {
 		seedAnalyticsRows();
 		const { getAnalyticsDashboardReadModel } = await import("./analytics");
