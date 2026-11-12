@@ -58,7 +58,7 @@ describe("closing proof execution guards", () => {
 				max_tokens: 1024,
 			}),
 		});
-		expect(bodies.map((b) => b.max_tokens)).toEqual([32, 1024]);
+		expect(bodies.map((b) => b.max_tokens)).toEqual([32, 4096]);
 		await expect(
 			gate.fetch("https://api.deepseek.com/chat/completions", {
 				method: "POST",
@@ -179,7 +179,7 @@ it.each([
 			const frame = (d: unknown, finish_reason: string | null) =>
 				`data: ${JSON.stringify({ id: "proof", object: "chat.completion.chunk", created: 1, model: "deepseek-flash", choices: [{ index: 0, delta: d, finish_reason }], ...(finish_reason ? { usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 } } : {}) })}\n\n`;
 			expect(body.max_tokens).toBe(
-				caseName === "B" ? (first ? 32 : 1024) : 512,
+				caseName === "B" ? (first ? 32 : 4096) : 512,
 			);
 			return new Response(
 				frame(delta, null) +
@@ -331,9 +331,9 @@ describe("closing proof output cap", () => {
 				}),
 			});
 		}
-		expect(bodies.map((b) => b.max_completion_tokens)).toEqual([32, 1024]);
+		expect(bodies.map((b) => b.max_completion_tokens)).toEqual([32, 4096]);
 		expect(bodies.map((b) => "max_tokens" in b)).toEqual([false, false]);
-		expect(gate.requests.map((r) => r.cap)).toEqual([32, 1024]);
+		expect(gate.requests.map((r) => r.cap)).toEqual([32, 4096]);
 	});
 });
 

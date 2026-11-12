@@ -117,7 +117,7 @@ export function createClosingGateway(input: {
 			const tools = Array.isArray(body.tools) ? body.tools.length : 0;
 			need(phase !== "closing" || tools === 0, "closing_has_tools");
 			const cap =
-				input.caseName === "B" ? (phase === "working" ? 32 : 1024) : 512;
+				input.caseName === "B" ? (phase === "working" ? 32 : 4096) : 512;
 			requests.push({ phase, cap, tools });
 			// One cap, in the field this adapter already uses: the two are aliases
 			// that a provider refuses or resolves its own way when both are sent.
@@ -254,7 +254,7 @@ export async function runClosingCase(input: ClosingCaseInput) {
 					? { type: "tool", toolName: "lookup_product" }
 					: undefined,
 			maxToolSteps: 1,
-			maxOutputTokens: input.caseName === "A" ? 512 : 1024,
+			maxOutputTokens: input.caseName === "A" ? 512 : 4096,
 			fetch: gateway.fetch,
 			abortSignal: AbortSignal.timeout(120000),
 			completionPolicy: {
