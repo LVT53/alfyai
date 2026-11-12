@@ -120,6 +120,21 @@ async function loadDashboardUsageRows(): Promise<UsageRow[]> {
 		});
 }
 
+/**
+ * How long a saved turn took, stated once for the dashboard and for the number
+ * under a reply: the time its message recorded when the reply was saved
+ * (request start to save, context preparation included), else the sum of its
+ * attempts' own model-call times. The page keeps the time it was told at the end
+ * of the stream, so the sum, which is shorter, may never replace the message's
+ * own time once that exists.
+ */
+function savedTurnDurationMs<T extends number | null>(
+	recorded: number | null | undefined,
+	attemptsSum: T,
+): number | T {
+	return recorded ?? attemptsSum;
+}
+
 /** A saved turn contributes one duration, regardless of its billed children. */
 function generationDurations(
 	rows: UsageRow[],
@@ -139,8 +154,10 @@ function generationDurations(
 	}
 	for (const [messageId, attemptsDuration] of linked) {
 		durations.push(
-			context.messageAnalyticsById.get(messageId)?.generationTimeMs ??
+			savedTurnDurationMs(
+				context.messageAnalyticsById.get(messageId)?.generationTimeMs,
 				attemptsDuration,
+			),
 		);
 	}
 	return durations;
@@ -3136,6 +3153,29 @@ export async function getMessageReadUsageProjections(
 	}
 }
 
+/**
+ * The time a message's own analytics row recorded when its reply was saved. The
+ * last row wins, as in the dashboard's map: schema.ts declares a unique index on
+ * message_id that no migration ever created, so a replayed save can leave two.
+ */
+async function readRecordedGenerationTimeMs(
+	userId: string,
+	messageId: string,
+): Promise<number | null> {
+	const [row] = await db
+		.select({ generationTimeMs: messageAnalytics.generationTimeMs })
+		.from(messageAnalytics)
+		.where(
+			and(
+				eq(messageAnalytics.messageId, messageId),
+				eq(messageAnalytics.userId, userId),
+			),
+		)
+		.orderBy(sql`${messageAnalytics}.rowid desc`)
+		.limit(1);
+	return row?.generationTimeMs ?? null;
+}
+
 /** Read accounting independently of the slower turn/evidence projection. */
 export async function getMessageUsageState(
 	userId: string,
@@ -3178,7 +3218,10 @@ export async function getMessageUsageState(
 		return {
 			status: "ready",
 			costUsd: (ledger.costUsdMicros ?? 0) / 1_000_000,
-			generationDurationMs: ledger.generationTimeMs,
+			generationDurationMs: savedTurnDurationMs(
+				await readRecordedGenerationTimeMs(userId, messageId),
+				ledger.generationTimeMs,
+			),
 			...(await getConversationCostSummary(conversationId)),
 		};
 	}

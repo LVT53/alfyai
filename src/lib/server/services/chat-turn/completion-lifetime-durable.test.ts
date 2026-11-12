@@ -721,6 +721,188 @@ it("keeps absent legacy attempt facts unknown instead of inventing the segment r
 	).toMatchObject({ outcome: null, safeStopCause: null });
 });
 
+// An attempt's model-call time is measured from the moment its durable
+// registration completes (the engine dispatches right after) to the capture
+// that shows it ended: its usage complete, or its terminal outcome set, which
+// the engine does in the same tick. The clock is Date, as for every other
+// deadline here, and only Date is faked, as in the test above.
+it("records each attempt's own model-call time, fixed by the capture that shows it ended", async () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		const start = Date.parse("2026-11-12T10:00:00Z");
+		vi.setSystemTime(start);
+		const life = module.beginCompletionLifetime(input);
+		const usage = (
+			attemptId: string,
+			phase: "working" | "closing",
+			over: Partial<NormalChatContinuationSnapshot["usage"][number]> = {},
+		) => ({
+			...snapshot(life.scope, false).usage[0],
+			attemptId,
+			phase,
+			...over,
+		});
+		const capture = (...entries: ReturnType<typeof usage>[]) => {
+			const next = snapshot(life.scope, false);
+			delete next.completion;
+			next.usage = entries;
+			life.capture(next);
+		};
+		const final = { inputTokens: 100, outputTokens: 20, totalTokens: 120 };
+		// Working attempt "a" runs 1,200 ms and fails; no usage ever completes.
+		await life.register(attempt);
+		vi.setSystemTime(start + 400);
+		capture(usage("a", "working"));
+		vi.setSystemTime(start + 1200);
+		const failed = usage("a", "working", {
+			safeStopCause: "transport_error",
+			outcome: "failed",
+		});
+		capture(failed);
+		// Closing attempt "b" is registered 100 ms later, then runs 3,000 ms.
+		vi.setSystemTime(start + 1300);
+		await life.register({ ...attempt, attemptId: "b", phase: "closing" });
+		vi.setSystemTime(start + 4300);
+		capture(failed, usage("b", "closing", { ...final, complete: true }));
+		// The terminal facts arrive a moment later; the time must not move.
+		vi.setSystemTime(start + 4301);
+		capture(
+			failed,
+			usage("b", "closing", {
+				...final,
+				complete: true,
+				safeStopCause: "natural_stop",
+				outcome: "answered",
+			}),
+		);
+		await life.finish();
+		const rows = database.db.select().from(schema.normalChatAttempts).all();
+		expect(rows.find((r) => r.attemptId === "a")).toMatchObject({
+			usageFinal: false,
+			generationTimeMs: 1200,
+		});
+		expect(rows.find((r) => r.attemptId === "b")).toMatchObject({
+			usageFinal: true,
+			generationTimeMs: 3000,
+			outcome: "answered",
+		});
+		expect(database.db.select().from(schema.usageEvents).all()).toMatchObject([
+			{ id: "turn-attempt:b", generationTimeMs: 3000 },
+		]);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it.each([
+	false,
+	true,
+])("records the time of every SDK call on its attempt and billing rows (closing=%s)", async (closing) => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		vi.setSystemTime(Date.parse("2026-11-12T10:00:00Z"));
+		const { MockLanguageModelV3 } = await import("ai/test");
+		const { runNormalChatCompletion } = await import(
+			"../normal-chat-model/completion"
+		);
+		const life = module.beginCompletionLifetime(input);
+		// A truncated working call, then the closing call; or one answering call.
+		const takes = closing ? [1200, 800] : [1500];
+		let call = 0;
+		const model = new MockLanguageModelV3({
+			doGenerate: async () => {
+				const truncated = closing && call === 0;
+				vi.setSystemTime(Date.now() + takes[call++]);
+				return {
+					content: [
+						{ type: "text" as const, text: truncated ? "Partial" : "Answer" },
+					],
+					finishReason: {
+						unified: truncated ? ("length" as const) : ("stop" as const),
+						raw: truncated ? "length" : "stop",
+					},
+					usage: {
+						inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+						outputTokens: { total: 1, text: 1, reasoning: 0 },
+					},
+					warnings: [],
+					response: {
+						id: "synthetic",
+						timestamp: new Date(),
+						modelId: "first",
+					},
+				};
+			},
+		});
+		const provider = {
+			id: "p1",
+			name: "first",
+			displayName: "First",
+			baseUrl: "https://test.invalid",
+			modelName: "first",
+			apiKey: "synthetic",
+			maxOutputTokens: 1000,
+			maxModelContext: 32000,
+		};
+		const driver = runNormalChatCompletion(
+			{
+				provider,
+				modelId: "provider:p1:m1",
+				messages: [{ role: "user", content: "Synthetic request" }],
+				completionPolicy: {
+					...life.scope,
+					deadlineAt: Date.now() + 10000,
+					totalTimeoutMs: 10000,
+					onSnapshot: life.capture,
+					forAttempt: async (context) => {
+						await life.register({
+							attemptId: context.attemptId,
+							phase: context.phase,
+							providerId: context.provider.id,
+							modelId: context.modelId,
+							providerModelName: context.provider.modelName,
+						});
+						return {};
+					},
+				},
+			},
+			{
+				model,
+				maxModelContext: 32000,
+				providerOptions: undefined,
+				stopWhen: undefined,
+				metadata: (name) => ({
+					modelId: "provider:p1:m1",
+					providerId: "p1",
+					providerName: provider.name,
+					displayName: "First",
+					requestedModelName: "first",
+					responseModelName: name,
+				}),
+				mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+			},
+			false,
+		);
+		for (;;) {
+			const next = await driver.next();
+			if (next.done) break;
+		}
+		await expect(life.finish()).resolves.toBeUndefined();
+		const rows = database.db.select().from(schema.normalChatAttempts).all();
+		expect(rows.map((row) => row.generationTimeMs)).toEqual(takes);
+		const billed = database.db.select().from(schema.usageEvents).all();
+		expect(
+			rows.map(
+				(row) =>
+					billed.find((event) => event.id === `turn-attempt:${row.attemptId}`)
+						?.generationTimeMs,
+			),
+		).toEqual(takes);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
 it("publishes the admission deadline before preparation and never extends it from a model snapshot", async () => {
 	const deadlineAt = Date.now() + 5000;
 	const life = module.beginCompletionLifetime({ ...input, ...{ deadlineAt } });

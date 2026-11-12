@@ -164,6 +164,85 @@ it("batches scoped saved-assistant projections without writing or charging a mes
 	expect(database.db.select().from(schema.usageEvents).all()).toEqual(before);
 });
 
+// The number under a reply must not change when its accounting settles: the
+// page keeps the time it was told at the end of the stream, which is the
+// message's own (request start to save, context preparation included) and
+// longer than the attempts' sum. The dashboard has the rule: a saved turn's
+// duration is its message's recorded time, the attempts' sum only the fallback.
+it("reads a saved turn's duration as the dashboard does: the message's own time, else the attempts' sum", async () => {
+	await segment("saved", { generationTimeMs: 700 }, 2); // attempts sum 1400
+	await segment("blank", { generationTimeMs: 700 }, 2); // row without a time
+	await segment("none", { generationTimeMs: 700 }, 2); // no row at all
+	database.db
+		.insert(schema.messageAnalytics)
+		.values([
+			{
+				id: "ma-saved",
+				messageId: "saved",
+				userId: "u",
+				model: "m",
+				generationTimeMs: 2600,
+			},
+			{
+				id: "ma-blank",
+				messageId: "blank",
+				userId: "u",
+				model: "m",
+				generationTimeMs: null,
+			},
+		])
+		.run();
+	const analytics = await import("./analytics");
+	// The endpoint the page polls once the accounting is ready.
+	for (const [id, expected] of [
+		["saved", 2600],
+		["blank", 1400],
+		["none", 1400],
+	] as const) {
+		expect(await analytics.getMessageUsageState("u", "c", id)).toMatchObject({
+			status: "ready",
+			generationDurationMs: expected,
+		});
+	}
+	// And the dashboard: the same three durations, averaged. (The plain sums
+	// would average to 1400.)
+	const dashboard = await analytics.getAnalyticsDashboardReadModel({
+		user: { id: "u", role: "user" },
+	});
+	expect(dashboard.personal.avgGenerationMs).toBe((2600 + 1400 + 1400) / 3);
+});
+
+// schema.ts declares a unique index on message_analytics.message_id that no
+// migration ever created, so a message can have two rows (a replayed save). The
+// recorded time is then the last row's, as the dashboard's map reads it, and the
+// accounting beside it is untouched.
+it("reads the last of two analytics rows for a message", async () => {
+	await segment("twice", { generationTimeMs: 700 }, 2);
+	database.db
+		.insert(schema.messageAnalytics)
+		.values([
+			{
+				id: "ma-first",
+				messageId: "twice",
+				userId: "u",
+				model: "m",
+				generationTimeMs: 5000,
+			},
+			{
+				id: "ma-second",
+				messageId: "twice",
+				userId: "u",
+				model: "m",
+				generationTimeMs: 2600,
+			},
+		])
+		.run();
+	const analytics = await import("./analytics");
+	expect(await analytics.getMessageUsageState("u", "c", "twice")).toMatchObject(
+		{ status: "ready", costUsd: 0.00028, generationDurationMs: 2600 },
+	);
+});
+
 it("keeps unpriced final usage pending with NULL aggregate fields", async () => {
 	await segment("unpriced", {
 		modelId: "provider:p1:absent",

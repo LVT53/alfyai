@@ -343,10 +343,15 @@ it("projects multi-provider attempts once without mixing resumed segments or leg
 		});
 		expect(rows[3].costUsd).toBeUndefined();
 	}
+	// The usage endpoint gives the saved turn's duration the way the dashboard
+	// does: the time its message recorded when the reply was saved (9999 here),
+	// the attempts' sum (3500, which the history rows above show) only as the
+	// fallback. The page keeps the time it was told at the end of the stream, so
+	// the endpoint may not hand back a shorter sum.
 	expect(await analytics.getMessageUsageState("u", "c", "new")).toMatchObject({
 		status: "ready",
 		costUsd: 0.00036,
-		generationDurationMs: 3500,
+		generationDurationMs: 9999,
 		totalCostUsdMicros: 518,
 		totalTokens: 339,
 	});

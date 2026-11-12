@@ -329,6 +329,9 @@ export function beginCompletionLifetime(
 	let sealed: NormalChatCompletion | null = null;
 	let linkedMessageId: string | null = null;
 	const lastUsage = new Map<string, string>();
+	// When each attempt's model call began: the moment its durable registration
+	// completed, because the engine dispatches as soon as `register` returns.
+	const requestStartedAt = new Map<string, number>();
 	const enqueue = (operation: () => Promise<void>) => {
 		const next = pending.then(() => {
 			if (failure) throw failure;
@@ -360,6 +363,19 @@ export function beginCompletionLifetime(
 				failure = new Error("Unregistered completion attempt usage");
 				continue;
 			}
+			// The attempt's own model-call time (a working attempt includes its tool
+			// steps), from its registration to the first capture that shows the call
+			// ended: usage complete, or the terminal outcome set (the engine sets
+			// both in the same tick, right after the call returns or fails). It is
+			// taken once and kept: a final attempt's facts are immutable, and the
+			// capture that completes the usage is the one that is billed. Date is
+			// the clock for every deadline here; a clock set back reads as zero.
+			const startedAtMs = requestStartedAt.get(usage.attemptId);
+			const generationTimeMs =
+				original.generationTimeMs ??
+				(startedAtMs !== undefined && (usage.complete || usage.outcome != null)
+					? Math.max(0, Date.now() - startedAtMs)
+					: null);
 			const attempt: TurnAttempt = {
 				...original,
 				...usage,
@@ -369,6 +385,7 @@ export function beginCompletionLifetime(
 				safeStopCause: usage.safeStopCause ?? original.safeStopCause,
 				outcome: usage.outcome ?? original.outcome,
 				usageFinal: usage.complete,
+				generationTimeMs,
 			};
 			registered.set(attempt.attemptId, attempt);
 			void enqueue(() => recordTurnAttempt(scope, attempt)).catch(
@@ -400,6 +417,7 @@ export function beginCompletionLifetime(
 			};
 			registered.set(entry.attemptId, entry);
 			if (tracked) await enqueue(() => recordTurnAttempt(scope, entry));
+			requestStartedAt.set(entry.attemptId, Date.now());
 		},
 		async finish(messageId?: string) {
 			try {
