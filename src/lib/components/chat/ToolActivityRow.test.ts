@@ -79,7 +79,7 @@ describe("ToolActivityRow", () => {
 	});
 
 	it("shows a failed row with the danger word and the reason in its body, keeping the normal label", () => {
-		const { getByTestId, getByText } = render(ToolActivityRow, {
+		const { getByTestId } = render(ToolActivityRow, {
 			item: item({
 				name: "fetch_url",
 				input: { url: "https://weather.metoffice.gov.uk" },
@@ -99,8 +99,12 @@ describe("ToolActivityRow", () => {
 		expect(row.querySelector(".act-object")?.textContent).toBe(
 			"weather.metoffice.gov.uk",
 		);
-		expect(getByTestId("tool-activity-error")).toBeInTheDocument();
-		expect(getByText("request timed out after 20 s")).toBeInTheDocument();
+		expect(getByTestId("tool-activity-error")).toHaveTextContent(
+			"request timed out after 20 s",
+		);
+		expect(getByTestId("tool-activity-summary-reason")).toHaveTextContent(
+			"request timed out after 20 s",
+		);
 	});
 
 	// docs/plans/exfil-channels: the favicon of a host the call returned is asked of the
@@ -345,6 +349,163 @@ describe("ToolActivityRow", () => {
 		expect(body.querySelector(".act-kv-key")?.textContent).toBe("thing");
 		expect(body.querySelector(".act-kv-value")?.textContent).toBe("value");
 		expect(body.textContent).toContain("it worked");
+	});
+
+	// W3: opening a row reads as an account for the person, not as the call's
+	// data. What happened and on what lead, what came back follows as its own
+	// line, and the raw material waits behind a closed Details disclosure.
+	function searchWithResults(
+		count: number,
+		overrides: Partial<ToolCallSegment> = {},
+	): Partial<ToolCallSegment> {
+		return {
+			name: "research_web",
+			input: { query: "cork weather" },
+			candidates: Array.from({ length: count }, (_, index) => ({
+				id: `c${index}`,
+				title: `Result ${index + 1}`,
+				url: `https://example${index}.test/page`,
+				sourceType: "web",
+				status: "selected",
+			})) as ToolCallSegment["candidates"],
+			...overrides,
+		};
+	}
+
+	function summaryLines(body: HTMLElement) {
+		return {
+			action: body.querySelector(".act-summary-action")?.textContent ?? "",
+			outcome: body.querySelector(".act-summary-outcome")?.textContent ?? "",
+		};
+	}
+
+	it("opens a search body with what happened, on what, and what came back", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: item(searchWithResults(12)),
+			open: true,
+		});
+
+		const lines = summaryLines(getByTestId("tool-activity-summary-text"));
+		expect(lines.action).toBe("Searched “cork weather”.");
+		expect(lines.outcome).toBe("Found 12 results.");
+	});
+
+	it("says a failed call could not reach the page, with the reason visible and a raw copy in Details", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: item({
+				name: "fetch_url",
+				input: { url: "https://weather.metoffice.gov.uk" },
+				status: "failed",
+				metadata: { error: "request timed out after 20 s" },
+			}),
+			open: true,
+		});
+
+		const lines = summaryLines(getByTestId("tool-activity-summary-text"));
+		expect(lines.action).toBe("Read “weather.metoffice.gov.uk”.");
+		expect(lines.outcome).toBe("Could not reach it.");
+		// Why is the one thing a person opens a failed row for: it is in the
+		// account itself, not a press away.
+		expect(getByTestId("tool-activity-summary-reason")).toHaveTextContent(
+			"request timed out after 20 s",
+		);
+
+		const details = getByTestId("tool-activity-details");
+		expect(details.tagName.toLowerCase()).toBe("details");
+		expect((details as HTMLDetailsElement).open).toBe(false);
+		expect(
+			within(details).getByTestId("tool-activity-error"),
+		).toHaveTextContent("request timed out after 20 s");
+	});
+
+	it("says a call that is still running is still working", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: item(searchWithResults(1, { status: "running" })),
+			open: true,
+		});
+
+		const lines = summaryLines(getByTestId("tool-activity-summary-text"));
+		expect(lines.action).toBe("Searching “cork weather”.");
+		expect(lines.outcome).toBe("Still working.");
+	});
+
+	it("leaves the clause out when the call names no readable target", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: item(searchWithResults(1, { input: {} })),
+			open: true,
+		});
+
+		const lines = summaryLines(getByTestId("tool-activity-summary-text"));
+		expect(lines.action).toBe("Searched.");
+		expect(lines.outcome).toBe("Found 1 result.");
+	});
+
+	it("reads sensibly for a tool the map does not know, with its raw data behind Details", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: item({
+				name: "some_new_tool",
+				input: { thing: "value" },
+				outputSummary: "it worked",
+			}),
+			open: true,
+		});
+
+		const lines = summaryLines(getByTestId("tool-activity-summary-text"));
+		expect(lines.action).toBe("Alfy used a tool.");
+		expect(lines.outcome).toBe("Finished.");
+
+		const details = getByTestId("tool-activity-details");
+		expect((details as HTMLDetailsElement).open).toBe(false);
+		expect(within(details).getByText("thing")).toBeInTheDocument();
+		expect(within(details).getByText("it worked")).toBeInTheDocument();
+	});
+
+	it("clips a very long target at a word boundary instead of widening the row", () => {
+		const longQuery = Array.from(
+			{ length: 40 },
+			(_, index) => `term${index}`,
+		).join(" ");
+		const { getByTestId } = render(ToolActivityRow, {
+			item: item(searchWithResults(1, { input: { query: longQuery } })),
+			open: true,
+		});
+
+		const action = summaryLines(
+			getByTestId("tool-activity-summary-text"),
+		).action;
+		expect(action).toMatch(/…”.$/);
+		const target = action.slice(
+			action.indexOf("“") + 1,
+			action.lastIndexOf("”"),
+		);
+		expect(target.length).toBeLessThanOrEqual(120);
+		expect(target.endsWith("…")).toBe(true);
+		expect(target).not.toContain(longQuery);
+	});
+
+	it("does not double the colon a failed create/edit label ends with", () => {
+		// The Hungarian frame supplies the colon itself, and the failed row's
+		// label already ends with one.
+		uiLanguage.set("hu");
+		const { getByTestId } = render(ToolActivityRow, {
+			item: item({
+				name: "edit_artifact",
+				input: { artifactId: "a1", patches: [] },
+				status: "failed",
+				metadata: {
+					artifactKind: "document",
+					artifactTitle: "Trip plan",
+					error: "patch ops were malformed",
+				},
+			}),
+			open: true,
+		});
+
+		const action = summaryLines(
+			getByTestId("tool-activity-summary-text"),
+		).action;
+		expect(action).toBe("Nem sikerült szerkeszteni: „Trip plan”.");
+		expect(action).not.toContain("::");
 	});
 
 	it("lists the transit itinerary legs above the map", () => {

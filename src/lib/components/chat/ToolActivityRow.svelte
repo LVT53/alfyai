@@ -29,7 +29,7 @@ import {
 	X,
 } from "@lucide/svelte";
 import type { Snippet } from "svelte";
-import { t } from "$lib/i18n";
+import { t, type I18nKey } from "$lib/i18n";
 import { formatRelativeTime } from "$lib/utils/time";
 import ArtifactCard, {
 	type ArtifactCardView,
@@ -56,6 +56,7 @@ import type {
 } from "$lib/utils/tool-activity";
 import RouteItinerary from "./RouteItinerary.svelte";
 import ToolActivityIcon from "./ToolActivityIcon.svelte";
+import { describeToolCall, type ToolSummaryOutcome } from "./tool-call-summary";
 
 let {
 	item,
@@ -423,6 +424,78 @@ const rowLabel = $derived(
 	[item.verb, item.object, item.objectSuffix].filter(Boolean).join(" ").trim(),
 );
 
+// W3: the opened body's plain-language account. `tool-call-summary.ts` returns
+// parts only (the row's label, the thing it named, how it ended, the raw detail
+// for the disclosure); the frames and outcome wording are the words above,
+// composed here in the reader's language.
+const SUMMARY_BODY_KINDS = new Set<ToolActivityBody["kind"]>([
+	"sources",
+	"page",
+	"python",
+	"map",
+	"text",
+	"bullets",
+	"error",
+	"generic",
+]);
+const SUMMARY_OUTCOME_KEYS = {
+	found: "chat.toolSummary.outcome.found",
+	read: "chat.toolSummary.outcome.read",
+	done: "chat.toolSummary.outcome.done",
+	running: "chat.toolSummary.outcome.running",
+	failed: "chat.toolSummary.outcome.failed",
+	unreachable: "chat.toolSummary.outcome.unreachable",
+	skipped: "chat.toolSummary.outcome.skipped",
+} as const satisfies Record<ToolSummaryOutcome["kind"], I18nKey>;
+const summary = $derived(
+	describeToolCall({
+		iconType: item.iconType,
+		status: item.status,
+		label: item.verb,
+		target: item.object,
+		count: item.summaryCount ?? null,
+		body: item.body,
+		genericLabel: $t("toolCalls.generic"),
+	}),
+);
+const showsSummary = $derived(
+	item.body !== null && SUMMARY_BODY_KINDS.has(item.body.kind),
+);
+// A failed create/edit label is a colon-introduced phrase in the row ("Nem
+// sikerült szerkeszteni:"); the summary's own frame supplies the colon, so it
+// must not arrive twice.
+const summaryActionLabel = $derived(item.verb.replace(/:\s*$/, ""));
+const summaryAction = $derived(
+	summary.actionKey === "generic"
+		? $t("chat.toolSummary.genericAction")
+		: summary.target
+			? $t("chat.toolSummary.action", {
+					action: summaryActionLabel,
+					target: summary.target,
+				})
+			: $t("chat.toolSummary.actionNoTarget", {
+					action: summaryActionLabel,
+				}),
+);
+const summaryOutcome = $derived(
+	$t(
+		SUMMARY_OUTCOME_KEYS[summary.outcome.kind],
+		summary.outcome.kind === "found"
+			? { count: summary.outcome.count }
+			: undefined,
+	),
+);
+// Failure is the one outcome a person opens a row to understand. The reason
+// stays in the account itself — "why" is not a second press away — while the
+// raw arguments and result JSON still wait behind Details.
+const summaryFailureReason = $derived(
+	(summary.outcome.kind === "failed" ||
+		summary.outcome.kind === "unreachable") &&
+		summary.detail?.result
+		? summary.detail.result
+		: null,
+);
+
 // The map body's MapLibre component is dynamic-imported the same way
 // MessageBubble used to lazy-load MapRouteCard — the library never touches
 // the entry chat bundle for a turn with no route.
@@ -637,6 +710,19 @@ function handleToggle() {
 	{#if isOpen && item.body && item.body.kind !== 'artifact' && item.body.kind !== 'artifact-creating' && item.body.kind !== 'artifact-failed' && item.body.kind !== 'image-card'}
 		{@const body = item.body}
 		<div class="act-body" data-testid="tool-activity-body" transition:slideTransition={{ duration: 200 }}>
+			{#if showsSummary}
+				<!-- What happened and on what, then what came back: the account a
+				     person reads before any of the call's data. The row's own label is
+				     the action; a failure's reason belongs to that account, while the
+				     raw arguments and result wait below, closed. -->
+				<div class="act-summary" data-testid="tool-activity-summary-text">
+					<p class="act-summary-action">{summaryAction}</p>
+					<p class="act-summary-outcome">{summaryOutcome}</p>
+					{#if summaryFailureReason}
+						<p class="act-summary-reason" data-testid="tool-activity-summary-reason">{summaryFailureReason}</p>
+					{/if}
+				</div>
+			{/if}
 			{#if body.kind === 'sources'}
 				<div class="act-eyebrow">
 					{$t('toolActivity.sourcesEyebrow')}
@@ -715,20 +801,36 @@ function handleToggle() {
 					</div>
 				{/each}
 			{:else if body.kind === 'error'}
-				<div class="act-error" data-testid="tool-activity-error">{body.reason}</div>
-			{:else if body.kind === 'generic'}
-				{#if body.args.length > 0}
-					<div class="act-eyebrow">{$t('toolCalls.detailArguments')}</div>
-					{#each body.args as arg (arg.key)}
-						<div class="act-kv">
-							<span class="act-kv-key">{arg.key}</span>
-							<span class="act-kv-value">{arg.value}</span>
+				<!-- The reason is also in the summary above, where the reader does not
+				     have to ask for it; this is the raw copy, one press away. -->
+				{#if summary.detail?.result}
+					<details class="act-details" data-testid="tool-activity-details">
+						<summary>{$t('chat.toolSummary.details')}</summary>
+						<div class="act-details-body">
+							<div class="act-error" data-testid="tool-activity-error">{summary.detail.result}</div>
 						</div>
-					{/each}
+					</details>
 				{/if}
-				{#if body.result}
-					<div class="act-eyebrow">{$t('toolCalls.detailResult')}</div>
-					<div class="act-excerpt">{body.result}</div>
+			{:else if body.kind === 'generic'}
+				{#if summary.detail && (summary.detail.args.length > 0 || summary.detail.result)}
+					<details class="act-details" data-testid="tool-activity-details">
+						<summary>{$t('chat.toolSummary.details')}</summary>
+						<div class="act-details-body">
+							{#if summary.detail.args.length > 0}
+								<div class="act-eyebrow">{$t('toolCalls.detailArguments')}</div>
+								{#each summary.detail.args as arg (arg.key)}
+									<div class="act-kv">
+										<span class="act-kv-key">{arg.key}</span>
+										<span class="act-kv-value">{arg.value}</span>
+									</div>
+								{/each}
+							{/if}
+							{#if summary.detail.result}
+								<div class="act-eyebrow">{$t('toolCalls.detailResult')}</div>
+								<div class="act-excerpt">{summary.detail.result}</div>
+							{/if}
+						</div>
+					</details>
 				{/if}
 			{/if}
 		</div>
@@ -952,6 +1054,60 @@ function handleToggle() {
 		font-family: var(--font-sans);
 		font-size: var(--text-xs);
 		color: var(--text-muted);
+	}
+
+	.act-summary {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+	.act-summary p {
+		margin: 0;
+		overflow-wrap: anywhere;
+	}
+	/* The account is the reading text, so it takes the row's own size rather
+	   than the small body size; its outcome line stays quiet beneath it. */
+	.act-summary-action {
+		font-size: var(--text-sm);
+		line-height: 1.45;
+		color: var(--text-primary);
+	}
+	.act-summary-outcome {
+		font-size: var(--text-xs);
+		line-height: 1.45;
+		color: var(--text-muted);
+	}
+	/* Why it failed is the account's third line, not a disclosure: the row is
+	   already red, and this is the sentence the reader opened it for. */
+	.act-summary-reason {
+		font-size: var(--text-sm);
+		line-height: 1.45;
+		color: var(--danger);
+	}
+
+	.act-details {
+		min-width: 0;
+	}
+	.act-details > summary {
+		width: fit-content;
+		border-radius: 4px;
+		color: var(--text-muted);
+		font-size: var(--text-xs);
+		cursor: pointer;
+	}
+	.act-details > summary:hover {
+		color: var(--text-primary);
+	}
+	.act-details > summary:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+	.act-details-body {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		margin-top: 6px;
 	}
 
 	.act-eyebrow {

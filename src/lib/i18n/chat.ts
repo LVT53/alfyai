@@ -350,6 +350,21 @@ const chatDict = {
 		// compact step list.
 		"chat.thoughtStep.hideFullReasoning": "Hide full reasoning",
 		"chat.thoughtStep.showFullReasoning": "Show full reasoning",
+		// W3: the plain-language account at the top of a tool row's opened body.
+		// The action comes from the row's own label; these keys only frame it,
+		// word the outcome, and name the closed Details disclosure.
+		"chat.toolSummary.action": "{action} “{target}”.",
+		"chat.toolSummary.actionNoTarget": "{action}.",
+		"chat.toolSummary.details": "Details",
+		"chat.toolSummary.genericAction": "Alfy used a tool.",
+		"chat.toolSummary.outcome.done": "Finished.",
+		"chat.toolSummary.outcome.failed": "Could not complete it.",
+		"chat.toolSummary.outcome.found":
+			"Found {count} result{count, plural, one {} other {s}}.",
+		"chat.toolSummary.outcome.read": "The page came back.",
+		"chat.toolSummary.outcome.running": "Still working.",
+		"chat.toolSummary.outcome.skipped": "Nothing was done.",
+		"chat.toolSummary.outcome.unreachable": "Could not reach it.",
 		// A conversation nothing has named yet (F5): the stored default is one
 		// English sentence, and a reader sees this one in their own language.
 		"chat.untitledConversation": "New Conversation",
@@ -1594,6 +1609,17 @@ const chatDict = {
 		"chat.thoughtStep.viewInTrace": "Megtekintés a gondolkodási folyamatban",
 		"chat.thoughtStep.hideFullReasoning": "Teljes gondolatmenet elrejtése",
 		"chat.thoughtStep.showFullReasoning": "Teljes gondolatmenet megjelenítése",
+		"chat.toolSummary.action": "{action}: „{target}”.",
+		"chat.toolSummary.actionNoTarget": "{action}.",
+		"chat.toolSummary.details": "Részletek",
+		"chat.toolSummary.genericAction": "Az AlfyAI egy eszközt használt.",
+		"chat.toolSummary.outcome.done": "Befejeződött.",
+		"chat.toolSummary.outcome.failed": "Nem sikerült befejezni.",
+		"chat.toolSummary.outcome.found": "{count} találatot hozott.",
+		"chat.toolSummary.outcome.read": "Az oldal megérkezett.",
+		"chat.toolSummary.outcome.running": "Még dolgozik.",
+		"chat.toolSummary.outcome.skipped": "Nem történt semmi.",
+		"chat.toolSummary.outcome.unreachable": "Nem sikerült elérni.",
 		"chat.untitledConversation": "Új beszélgetés",
 		"chat.updateCutReply":
 			"A válasz írása közben frissült az AlfyAI, ezért megszakadt. Az Újrapróbálom gombbal újra elküldheted az üzenetedet.",
