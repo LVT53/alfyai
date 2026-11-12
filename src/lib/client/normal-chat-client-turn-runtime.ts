@@ -461,8 +461,14 @@ type AnswerInFlight = {
 type StartStreamParams = {
 	originatingStreamId?: string;
 	retainedPartial?: boolean;
+	/** When the wait on a pending observation ends, on THIS browser's clock. */
 	observationDeadlineAt?: number;
-	observedServerDeadlineAt?: number;
+	/**
+	 * The turn's model deadline as the server last said it, on THIS browser's
+	 * clock (the time it had left when the observation arrived, counted from that
+	 * moment). It only ever gets earlier.
+	 */
+	observedModelDeadlineAt?: number;
 	observedScope?: { turnId: string; segmentId: string };
 	message: string;
 	placeholderId: string;
@@ -604,6 +610,33 @@ const STREAM_QUESTION_MAX_MS = 5000;
  * closed. So the browser never gives up before the server can have finished.
  */
 const PENDING_OBSERVATION_GRACE_MS = TURN_FINALIZATION_WINDOW_MS + 10_000;
+
+/**
+ * When a pending turn's model deadline falls, on this browser's clock. The
+ * server's clock and the browser's need not agree (a phone a few minutes off is
+ * enough), so while the server says how much time it has left (`remainingMs`),
+ * the instant it also publishes (`deadlineAt`) is never set against `Date.now()`:
+ * the time left is counted from the moment the observation arrives. A server that
+ * predates `remainingMs` publishes only the instant, which is read as if the two
+ * clocks agreed, as it always was. Undefined when the observation says neither.
+ */
+function observedModelDeadlineAt(
+	observation: Extract<NormalChatTurnObservation, { state: "pending" }>,
+): number | undefined {
+	if (
+		typeof observation.remainingMs === "number" &&
+		Number.isFinite(observation.remainingMs) &&
+		observation.remainingMs >= 0
+	)
+		return Date.now() + observation.remainingMs;
+	if (
+		typeof observation.deadlineAt === "number" &&
+		Number.isFinite(observation.deadlineAt) &&
+		observation.deadlineAt > 0
+	)
+		return observation.deadlineAt;
+	return undefined;
+}
 
 // A turn that waits for a server update (ADR-0054, "An Update During A Turn"):
 
@@ -2440,20 +2473,17 @@ export function createNormalChatClientTurnRuntime(
 					// Older servers omit the budget (and predate the finalization
 					// window): allow the default five-minute total model budget, plus a
 					// finite thirty-second persistence grace. New servers publish their
-					// actual working + closing absolute model deadline, and the browser
-					// waits out their finalization window after it.
+					// actual working + closing model budget, and the browser waits out
+					// their finalization window after it.
 					params.observationDeadlineAt ??= Date.now() + 300_000 + 30_000;
-					if (
-						typeof observation.deadlineAt === "number" &&
-						Number.isFinite(observation.deadlineAt) &&
-						observation.deadlineAt > 0
-					) {
-						params.observedServerDeadlineAt = Math.min(
-							params.observedServerDeadlineAt ?? observation.deadlineAt,
-							observation.deadlineAt,
+					const modelDeadlineAt = observedModelDeadlineAt(observation);
+					if (modelDeadlineAt !== undefined) {
+						params.observedModelDeadlineAt = Math.min(
+							params.observedModelDeadlineAt ?? modelDeadlineAt,
+							modelDeadlineAt,
 						);
 						params.observationDeadlineAt =
-							params.observedServerDeadlineAt + PENDING_OBSERVATION_GRACE_MS;
+							params.observedModelDeadlineAt + PENDING_OBSERVATION_GRACE_MS;
 					}
 					setPhase("polling", params.placeholderId);
 					const epoch = turnEpoch;

@@ -369,7 +369,11 @@ function readObservation(
 		(row.deadlineAt === undefined ||
 			(typeof row.deadlineAt === "number" &&
 				Number.isFinite(row.deadlineAt) &&
-				row.deadlineAt > 0))
+				row.deadlineAt > 0)) &&
+		(row.remainingMs === undefined ||
+			(typeof row.remainingMs === "number" &&
+				Number.isFinite(row.remainingMs) &&
+				row.remainingMs >= 0))
 	)
 		return value as NormalChatTurnObservation;
 	if (row.state !== "terminal") return undefined;

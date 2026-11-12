@@ -165,6 +165,19 @@ export async function observeCompletionTurn(
 		streamId: input.requestId ?? "",
 		conversationId: input.conversationId,
 	};
+	// A turn still running. The deadline is an instant on this server's clock; the
+	// browser's may differ, so the model time left by this clock goes with it and
+	// the browser waits that long from the moment it hears (`remainingMs`).
+	const pending = (turnId: string, segmentId: string) =>
+		({
+			...identity,
+			state: "pending",
+			...(deadlineAt === undefined
+				? {}
+				: { deadlineAt, remainingMs: Math.max(0, deadlineAt - Date.now()) }),
+			turnId,
+			segmentId,
+		}) satisfies NormalChatTurnObservation;
 	// Resolve only the segment's parent identity; scoped access and orphan settlement remain ledger-owned.
 	const [{ db }, { normalChatTurns, messages }, { and, eq }] =
 		await Promise.all([
@@ -215,23 +228,10 @@ export async function observeCompletionTurn(
 			userId: input.userId,
 			conversationId: input.conversationId,
 		})
-			? {
-					...identity,
-					state: "pending",
-					...(deadlineAt === undefined ? {} : { deadlineAt }),
-					turnId: scope.turnId,
-					segmentId: scope.segmentId,
-				}
+			? pending(scope.turnId, scope.segmentId)
 			: { ...identity, state: "unavailable" };
 	}
-	if (!record.outcome)
-		return {
-			...identity,
-			state: "pending",
-			...(deadlineAt === undefined ? {} : { deadlineAt }),
-			turnId: record.turnId,
-			segmentId: record.segmentId,
-		};
+	if (!record.outcome) return pending(record.turnId, record.segmentId);
 	// Model settlement precedes saved-turn finalization. A live owner with no
 	// linked receipt is still finalizing, even if generation already answered.
 	if (
@@ -243,13 +243,7 @@ export async function observeCompletionTurn(
 				conversationId: input.conversationId,
 			}))
 	) {
-		return {
-			...identity,
-			state: "pending",
-			...(deadlineAt === undefined ? {} : { deadlineAt }),
-			turnId: record.turnId,
-			segmentId: record.segmentId,
-		};
+		return pending(record.turnId, record.segmentId);
 	}
 	if (!record.phase || !record.stopCause || !record.workingStopCause)
 		throw new Error("Incomplete durable terminal facts");

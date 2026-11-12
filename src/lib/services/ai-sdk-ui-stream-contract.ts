@@ -14,8 +14,16 @@ export type NormalChatTurnObservation = {
 			state: "pending";
 			turnId: string;
 			segmentId: string;
-			/** Absolute working + closing model deadline. */
+			/** Absolute working + closing model deadline, on the server's clock. */
 			deadlineAt?: number;
+			/**
+			 * Model time left when the server wrote this observation, by its own
+			 * clock (`deadlineAt` minus its `Date.now()`, never negative). The
+			 * browser anchors it to its own clock when the observation arrives, so
+			 * a clock that differs from the server's never decides how long it
+			 * waits. A server that predates it sends only `deadlineAt`.
+			 */
+			remainingMs?: number;
 	  }
 	| {
 			state: "terminal";

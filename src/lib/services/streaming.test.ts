@@ -121,6 +121,61 @@ describe("streamChat", () => {
 		);
 	});
 
+	// The model time left on the server's own clock, so that the browser need not
+	// set the server's deadline against its own clock (review 2, finding 2.4). The
+	// observation reaches the runtime with the stream's `data-waiting`.
+	describe("a pending observation's remaining model time", () => {
+		const pendingObservation = {
+			version: 1,
+			state: "pending",
+			streamId: "observer",
+			conversationId: "conv-1",
+			turnId: "t",
+			segmentId: "s",
+			deadlineAt: Date.now() + 500_000,
+		} as const;
+		async function waitingWith(observation: unknown) {
+			const onWaiting = vi.fn();
+			const { done } = runStreamWithMockedResponse({
+				responseChunks: [
+					uiFrame({
+						type: "data-stream-metadata",
+						data: { observation },
+						transient: true,
+					}),
+					uiFrame({ type: "data-waiting", data: {}, transient: true }),
+					uiFrame("[DONE]"),
+				],
+				callbacks: { ...makeCallbacks(), onWaiting },
+			});
+			await done;
+			return onWaiting;
+		}
+
+		it("is preserved", async () => {
+			const observation = { ...pendingObservation, remainingMs: 500_000 };
+			expect(await waitingWith(observation)).toHaveBeenCalledWith(observation);
+		});
+
+		it("is not required: a server that predates it sends the deadline alone", async () => {
+			expect(await waitingWith(pendingObservation)).toHaveBeenCalledWith(
+				pendingObservation,
+			);
+		});
+
+		it.each([
+			-1,
+			"500000",
+			null,
+		])("is not taken from %j", async (remainingMs) => {
+			// An unreadable observation is dropped, as an unreadable deadline is: the
+			// runtime hears of the wait without one and polls the chat.
+			expect(
+				await waitingWith({ ...pendingObservation, remainingMs }),
+			).toHaveBeenCalledWith(undefined);
+		});
+	});
+
 	it.each([
 		"Let me check.",
 		"Hello. Let me check.",

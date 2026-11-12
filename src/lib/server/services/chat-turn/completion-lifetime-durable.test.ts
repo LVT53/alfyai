@@ -746,6 +746,43 @@ it("publishes the admission deadline before preparation and never extends it fro
 	await life.finish();
 });
 
+// The browser's clock and the server's need not agree, so a pending observation
+// also says how much of the model deadline is left by the server's own clock:
+// the browser waits that long from the moment it hears, instead of setting the
+// server's absolute deadline against its own `Date.now()` (review 2, finding 2.4).
+it("publishes the model time left by the server's own clock beside the absolute deadline", async () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		const start = Date.parse("2026-11-12T10:00:00Z");
+		vi.setSystemTime(start);
+		const deadlineAt = start + 5000;
+		const life = module.beginCompletionLifetime({
+			...input,
+			...{ deadlineAt },
+		});
+		vi.setSystemTime(start + 1500);
+		expect(await module.observeCompletionTurn(input)).toMatchObject({
+			state: "pending",
+			deadlineAt,
+			remainingMs: 3500,
+		});
+		// Past the model deadline the server is still finalizing: nothing is left,
+		// and the time left is never negative.
+		vi.setSystemTime(deadlineAt + 7000);
+		expect(await module.observeCompletionTurn(input)).toMatchObject({
+			state: "pending",
+			deadlineAt,
+			remainingMs: 0,
+		});
+		await life.finish();
+		expect(await module.observeCompletionTurn(input)).not.toHaveProperty(
+			"remainingMs",
+		);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
 it("keeps answered unsaved plain ownership pending until finalization releases it", async () => {
 	const life = module.beginCompletionLifetime(input);
 	await life.register(attempt);
@@ -763,10 +800,13 @@ it("keeps answered unsaved plain ownership pending until finalization releases i
 			attemptIdsJson: JSON.stringify(["a"]),
 		})
 		.run();
-	expect(await module.observeCompletionTurn(input)).toMatchObject({
+	const finalizing = await module.observeCompletionTurn(input);
+	expect(finalizing).toMatchObject({
 		state: "pending",
 		segmentId: life.scope.segmentId,
 	});
+	// Still finalizing, so it too says how long the browser may wait.
+	expect(finalizing).toHaveProperty("remainingMs", expect.any(Number));
 	await life.finish();
 	expect(await module.observeCompletionTurn(input)).toMatchObject({
 		state: "terminal",

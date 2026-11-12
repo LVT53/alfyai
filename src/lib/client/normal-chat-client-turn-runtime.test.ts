@@ -11255,6 +11255,127 @@ describe("canonical observation through the real message-list finalizer", () => 
 		expect(made.runtime.snapshot().isSending).toBe(false);
 		made.runtime.detach();
 	});
+	// The browser's clock and the server's need not agree. The server publishes the
+	// model deadline on its own clock (`deadlineAt`) and the time it has left by
+	// that clock (`remainingMs`); the browser waits that long from the moment the
+	// observation arrives and never sets the server's deadline against its own
+	// `Date.now()`. (Review 2, finding 2.4.)
+	describe("when the browser's clock and the server's disagree", () => {
+		// What the server sends when its clock is `serverAheadMs` ahead of this
+		// browser's (negative: behind) and the model deadline is `modelDeadlineAt`
+		// on that clock: the deadline stays put, the time left is read at each send.
+		const pending = {
+			version: 1 as const,
+			state: "pending" as const,
+			streamId: "canonical-stream",
+			conversationId: "conv-1",
+			turnId: "canonical-turn",
+			segmentId: "canonical-segment",
+		};
+		const pendingFromServer = (
+			serverAheadMs: number,
+			modelDeadlineAt: number,
+		) => ({
+			...pending,
+			deadlineAt: modelDeadlineAt,
+			remainingMs: Math.max(0, modelDeadlineAt - (Date.now() + serverAheadMs)),
+		});
+
+		it("does not give a healthy pending turn up because the browser's clock runs ahead of the server's", async () => {
+			const saved = savedReply();
+			const made = await observing("normal", saved);
+			// The server's clock is 5 minutes behind this browser's, and by its own
+			// clock it has 200 s of working and closing budget left.
+			const serverAheadMs = -300_000;
+			const modelDeadlineAt = Date.now() + serverAheadMs + 200_000;
+			required(made.streamInvocations.at(-1)).callbacks.onWaiting?.(
+				pendingFromServer(serverAheadMs, modelDeadlineAt),
+			);
+			await vi.advanceTimersByTimeAsync(2_100);
+			// Still observing: the turn has 200 s left, so a 2 s poll must not give up.
+			expect(made.adapters.setSendError).not.toHaveBeenCalledWith(
+				"chat.observationUnavailable",
+			);
+			expect(made.runtime.snapshot().isSending).toBe(true);
+			// And so on through everything the server has left: its budget, then its
+			// finalization window.
+			for (
+				let time = 2_000;
+				time < 200_000 + TURN_FINALIZATION_WINDOW_MS;
+				time += 2_000
+			) {
+				required(made.streamInvocations.at(-1)).callbacks.onWaiting?.(
+					pendingFromServer(serverAheadMs, modelDeadlineAt),
+				);
+				await vi.advanceTimersByTimeAsync(2_000);
+				expect(made.runtime.snapshot().isSending).toBe(true);
+			}
+			expect(made.adapters.setSendError).not.toHaveBeenCalledWith(
+				"chat.observationUnavailable",
+			);
+			required(made.streamInvocations.at(-1)).callbacks.onEnd("", made.receipt);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(made.messages.at(-1)?.id).toBe(saved.id);
+			expect(made.runtime.snapshot().isSending).toBe(false);
+			made.runtime.detach();
+		});
+
+		it("gives a pending turn up once the time it has left and the finalization window have passed, however far the browser's clock is behind the server's", async () => {
+			const made = await observing("normal");
+			// The server's clock is an hour ahead of this browser's, so its deadline
+			// is an hour away on the browser's clock; by its own it has 4 s left.
+			const serverAheadMs = 3_600_000;
+			const modelDeadlineAt = Date.now() + serverAheadMs + 4_000;
+			let time = 0;
+			for (
+				;
+				time < 4_000 + TURN_FINALIZATION_WINDOW_MS + 2_000;
+				time += 2_000
+			) {
+				required(made.streamInvocations.at(-1)).callbacks.onWaiting?.(
+					pendingFromServer(serverAheadMs, modelDeadlineAt),
+				);
+				await vi.advanceTimersByTimeAsync(2_000);
+				expect(made.runtime.snapshot().isSending).toBe(true);
+			}
+			// Well within two windows after the deadline it is given up, as for a
+			// server whose clock agrees with the browser's; the offset adds nothing.
+			for (; time < 4_000 + 2 * TURN_FINALIZATION_WINDOW_MS; time += 2_000) {
+				required(made.streamInvocations.at(-1)).callbacks.onWaiting?.(
+					pendingFromServer(serverAheadMs, modelDeadlineAt),
+				);
+				await vi.advanceTimersByTimeAsync(2_000);
+			}
+			expect(made.runtime.snapshot().isSending).toBe(false);
+			expect(made.adapters.setSendError).toHaveBeenCalledWith(
+				"chat.observationUnavailable",
+			);
+			made.runtime.detach();
+		});
+
+		it("does not start the wait again with every observation", async () => {
+			const made = await observing("normal");
+			// A server that goes on saying it has 4 s left (a stuck clock, an old
+			// answer replayed) cannot keep the browser waiting for ever: the wait is
+			// anchored at the first observation and can only get shorter.
+			for (
+				let time = 0;
+				time < 4_000 + 2 * TURN_FINALIZATION_WINDOW_MS;
+				time += 2_000
+			) {
+				required(made.streamInvocations.at(-1)).callbacks.onWaiting?.({
+					...pending,
+					remainingMs: 4_000,
+				});
+				await vi.advanceTimersByTimeAsync(2_000);
+			}
+			expect(made.runtime.snapshot().isSending).toBe(false);
+			expect(made.adapters.setSendError).toHaveBeenCalledWith(
+				"chat.observationUnavailable",
+			);
+			made.runtime.detach();
+		});
+	});
 	it.each([
 		false,
 		true,
