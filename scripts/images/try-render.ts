@@ -33,7 +33,7 @@ async function main(): Promise<void> {
 		);
 		process.exit(2);
 	}
-	const found = graphFor(mode, false);
+	const found = graphFor("qwen", mode, false);
 	if (!found) throw new Error(`no ${mode} template`);
 	const client = createComfyUiClient({
 		baseUrl: process.env.COMFYUI_URL ?? "http://127.0.0.1:8188",
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
 	const started = Date.now();
 	try {
 		let images: string[] = [];
-		let canvas = canvasForNewPicture("landscape", false);
+		let canvas = canvasForNewPicture("landscape", false, "qwen");
 		let prompt = third ?? GENERATE_PROMPT;
 		if (mode === "edit") {
 			if (!third) throw new Error("edit needs an input picture");
@@ -51,6 +51,7 @@ async function main(): Promise<void> {
 			canvas = canvasForEdit(
 				{ width: meta.width ?? 1248, height: meta.height ?? 832 },
 				false,
+				"qwen",
 			);
 			const ref = await client.uploadImage(bytes, "try-render-input.png");
 			images = [

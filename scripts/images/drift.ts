@@ -217,7 +217,7 @@ async function renderPng(
 	inputs: Uint8Array[],
 	size: { width: number; height: number },
 ): Promise<Uint8Array> {
-	const found = graphFor(mode, false);
+	const found = graphFor("qwen", mode, false);
 	if (!found) throw new Error(`no ${mode} template`);
 	const images: string[] = [];
 	for (const [i, bytes] of inputs.entries()) {
@@ -290,7 +290,7 @@ async function makeScenes(dir: string): Promise<void> {
 	await mkdir(dir, { recursive: true });
 	const client = createComfyUiClient({ baseUrl: BASE_URL });
 	try {
-		const size = canvasForNewPicture("landscape", false);
+		const size = canvasForNewPicture("landscape", false, "qwen");
 		for (const [i, prompt] of SCENE_PROMPTS.entries()) {
 			const png = await renderPng(client, "generate", prompt, [], size);
 			await writeFile(join(dir, `room-${i}.png`), png);
@@ -350,6 +350,7 @@ async function main(): Promise<void> {
 			const canvas = canvasForEdit(
 				{ width: base.width, height: base.height },
 				false,
+				"qwen",
 			);
 			const png = await renderPng(client, "edit", prompt, inputs, canvas);
 			await writeFile(rawPath, png);

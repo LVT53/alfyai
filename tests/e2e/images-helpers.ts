@@ -6,6 +6,7 @@ import sharp from "sharp";
 import {
 	createFakeComfyUi,
 	type FakeComfyUi,
+	type FakeRequest,
 } from "../../src/lib/server/services/images/comfyui/testing/fake-comfyui";
 import {
 	AI_SMOKE_API_KEY,
@@ -15,32 +16,184 @@ import { clearAdminConfig, configureFakeNormalChatCapacity } from "./helpers";
 
 export type { FakeComfyUi };
 
+/** The two picture models the Admin switch chooses between (`IMAGE_MODEL`). */
+export type PictureModel = "qwen" | "h3";
+
+/** The admin keys the picture-model specs write: both servers and the switch. */
+export const PICTURE_CONFIG_KEYS = [
+	"IMAGE_MODEL",
+	"COMFYUI_URL",
+	"COMFYUI_H3_URL",
+] as const;
+
+/** A graph POSTed to the fake, and the prompt id the app submitted it under. */
+export type SubmittedPrompt = {
+	graph: Record<
+		string,
+		{ class_type?: string; inputs?: Record<string, unknown> }
+	>;
+	promptId: string;
+};
+
+async function putPictureConfig(
+	page: Page,
+	values: Record<string, string>,
+): Promise<void> {
+	const response = await page.request.put("/api/admin/config", {
+		data: values,
+	});
+	expect(
+		response.ok(),
+		`picture config set ${Object.keys(values).join(", ")} -> ${response.status()}`,
+	).toBe(true);
+}
+
+/** Sets `IMAGE_MODEL` alone (the takes already queued keep their own model). */
+export async function setPictureModel(
+	page: Page,
+	model: PictureModel,
+): Promise<void> {
+	await putPictureConfig(page, { IMAGE_MODEL: model });
+}
+
 /**
  * Starts a fake ComfyUI in the spec's own process and points the app at it
  * through the admin config route, the way settings-admin.spec.ts sets keys.
- * The setting is a live one, so the next turn sees it.
+ * The setting is a live one, so the next turn sees it. `IMAGE_MODEL` is pinned
+ * too: a worker keeps its database from one spec file to the next, so a spec
+ * that leaves a model selected cannot decide this one's.
  */
 export async function startFakeComfyUiForSpec(
 	page: Page,
+	model: PictureModel = "qwen",
 ): Promise<FakeComfyUi> {
 	const fake = await createFakeComfyUi();
-	const response = await page.request.put("/api/admin/config", {
-		data: { COMFYUI_URL: fake.baseUrl },
+	await putPictureConfig(page, {
+		COMFYUI_URL: fake.baseUrl,
+		IMAGE_MODEL: model,
 	});
-	expect(response.ok(), `COMFYUI_URL set -> ${response.status()}`).toBe(true);
 	return fake;
 }
 
-/** Puts the setting back (empty turns picture making off), then closes the fake. */
+/** Puts the settings back (empty turns picture making off), then closes the fake. */
 export async function stopFakeComfyUiForSpec(
 	page: Page,
 	fake: FakeComfyUi,
 ): Promise<void> {
 	try {
-		await clearAdminConfig(page, ["COMFYUI_URL"]);
+		await clearAdminConfig(page, ["COMFYUI_URL", "IMAGE_MODEL"]);
 	} finally {
 		await fake.close();
 	}
+}
+
+export type FakePictureServers = { qwen: FakeComfyUi; h3: FakeComfyUi };
+
+/**
+ * Both picture servers as fakes, both configured, with the Admin switch on
+ * `model`: what a spec needs to tell an H3 take from a Qwen one by the fake
+ * that received it. `COMFYUI_URL` is the Qwen server and `COMFYUI_H3_URL` the
+ * H3 server, exactly as the real 0.43/0.44 pair is wired.
+ */
+export async function startPictureServersForSpec(
+	page: Page,
+	model: PictureModel = "qwen",
+): Promise<FakePictureServers> {
+	const [qwen, h3] = await Promise.all([
+		createFakeComfyUi(),
+		createFakeComfyUi(),
+	]);
+	try {
+		await putPictureConfig(page, {
+			IMAGE_MODEL: model,
+			COMFYUI_URL: qwen.baseUrl,
+			COMFYUI_H3_URL: h3.baseUrl,
+		});
+	} catch (error) {
+		await Promise.all([qwen.close(), h3.close()]);
+		throw error;
+	}
+	return { qwen, h3 };
+}
+
+/** Puts all three picture keys back, then closes both fakes. */
+export async function stopPictureServersForSpec(
+	page: Page,
+	servers: FakePictureServers | null,
+): Promise<void> {
+	if (!servers) return;
+	try {
+		await clearAdminConfig(page, [...PICTURE_CONFIG_KEYS]);
+	} finally {
+		await Promise.all([servers.qwen.close(), servers.h3.close()]);
+	}
+}
+
+/** The requests a fake recorded, by method and path. */
+export function comfyRequests(
+	fake: FakeComfyUi,
+	method: string,
+	path: string,
+): FakeRequest[] {
+	return fake.requests.filter(
+		(request) => request.method === method && request.path === path,
+	);
+}
+
+/** Every `POST /prompt` a fake recorded, with the graph the app built. */
+export function submittedPrompts(fake: FakeComfyUi): SubmittedPrompt[] {
+	return comfyRequests(fake, "POST", "/prompt").map((request) => {
+		const json = request.json as
+			| { prompt?: SubmittedPrompt["graph"]; prompt_id?: unknown }
+			| undefined;
+		return {
+			graph: json?.prompt ?? {},
+			promptId: typeof json?.prompt_id === "string" ? json.prompt_id : "",
+		};
+	});
+}
+
+/** The one node of a class in a submitted graph, if the graph has it. */
+export function graphNodeByClass(
+	graph: SubmittedPrompt["graph"],
+	classType: string,
+): { class_type?: string; inputs?: Record<string, unknown> } | undefined {
+	return Object.values(graph).find((node) => node.class_type === classType);
+}
+
+/**
+ * The prompt text a submitted graph really carries: H3's conditioning node or
+ * Qwen's text encoder. The transparent wrap and `<Picture 1> ` are visible here.
+ */
+export function submittedPromptText(graph: SubmittedPrompt["graph"]): string {
+	const node =
+		graphNodeByClass(graph, "MiniMaxH3ImageConditioning") ??
+		graphNodeByClass(graph, "TextEncodeQwenImage21");
+	const prompt = node?.inputs?.prompt;
+	return typeof prompt === "string" ? prompt : "";
+}
+
+/** The width and height a submitted graph asks for, read from its first sized node. */
+export function submittedCanvas(graph: SubmittedPrompt["graph"]): {
+	width: number;
+	height: number;
+} {
+	for (const node of Object.values(graph)) {
+		const width = node.inputs?.width;
+		const height = node.inputs?.height;
+		if (typeof width === "number" && typeof height === "number") {
+			return { width, height };
+		}
+	}
+	throw new Error("the submitted graph carries no width/height");
+}
+
+/** The `LoadImage` slots a submitted graph still holds (`image` is a picture name). */
+export function submittedImageSlots(graph: SubmittedPrompt["graph"]): string[] {
+	return Object.values(graph)
+		.filter((node) => node.class_type === "LoadImage")
+		.map((node) => node.inputs?.image)
+		.filter((image): image is string => typeof image === "string");
 }
 
 // --- plan 2b T8: what the end-to-end image specs share -----------------------

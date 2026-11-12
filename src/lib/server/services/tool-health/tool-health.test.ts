@@ -30,6 +30,8 @@ function fullConfig(
 		mineruApiUrl: "http://mineru:8001",
 		mineruApiKey: "",
 		comfyuiUrl: "http://comfy:8188",
+		imageModel: "qwen",
+		comfyuiH3Url: "",
 		imageExplicitFilterEnabled: true,
 		...overrides,
 	};
@@ -48,6 +50,7 @@ function emptyConfig(): ToolHealthConfig {
 		owntracksRecorderUrl: "",
 		mineruApiUrl: "",
 		comfyuiUrl: "",
+		comfyuiH3Url: "",
 	});
 }
 
@@ -180,6 +183,84 @@ describe("make_image health", () => {
 		const tools = byId(await checkToolHealth(deps));
 		expect(tools.make_image.status).toBe("degraded");
 		expect(tools.make_image.detail).toBeTruthy();
+	});
+
+	it("probes the H3 server when the H3 picture model is selected", async () => {
+		// Both addresses are set; only the selected model's server may be hit.
+		const deps = makeDeps(
+			(url) =>
+				url === "http://h3:8189/system_stats"
+					? jsonResponse({ system: {} })
+					: healthyHandler(url),
+			{
+				getConfig: () =>
+					fullConfig({
+						imageModel: "h3",
+						comfyuiH3Url: "http://h3:8189",
+					}),
+			},
+		);
+		const tools = byId(await checkToolHealth(deps));
+		expect(tools.make_image).toMatchObject({
+			status: "healthy",
+			probed: true,
+		});
+		// The explicit-picture check is local, but it too follows the selected
+		// model: H3 pictures are checked while H3 is the picture model.
+		expect(tools["make_image:picture_check"].status).toBe("healthy");
+		expect(
+			deps.fetch.mock.calls.some(
+				([url]) => String(url) === "http://h3:8189/system_stats",
+			),
+		).toBe(true);
+		expect(
+			deps.fetch.mock.calls.some(([url]) => String(url).includes("comfy:8188")),
+		).toBe(false);
+	});
+
+	it("is unconfigured when the selected model has no server, even if the other model does", async () => {
+		const deps = makeDeps(healthyHandler, {
+			getConfig: () =>
+				fullConfig({
+					imageModel: "h3",
+					comfyuiH3Url: "",
+					comfyuiUrl: "http://comfy:8188",
+				}),
+		});
+		const tools = byId(await checkToolHealth(deps));
+		expect(tools.make_image).toMatchObject({
+			status: "unconfigured",
+			probed: false,
+		});
+		expect(
+			deps.fetch.mock.calls.some(([url]) => String(url).includes("comfy:8188")),
+		).toBe(false);
+	});
+
+	it("keeps probing the Qwen server, and only it, when Qwen is selected", async () => {
+		const deps = makeDeps(
+			(url) =>
+				url === "http://comfy:8188/system_stats"
+					? jsonResponse({ system: {} })
+					: healthyHandler(url),
+			{
+				getConfig: () =>
+					fullConfig({
+						imageModel: "qwen",
+						comfyuiH3Url: "http://h3:8189",
+					}),
+			},
+		);
+		const tools = byId(await checkToolHealth(deps));
+		expect(tools.make_image.status).toBe("healthy");
+		expect(
+			deps.fetch.mock.calls.some(
+				([url]) => String(url) === "http://comfy:8188/system_stats",
+			),
+		).toBe(true);
+		expect(
+			deps.fetch.mock.calls.some(([url]) => String(url).includes("h3:8189")),
+		).toBe(false);
 	});
 });
 

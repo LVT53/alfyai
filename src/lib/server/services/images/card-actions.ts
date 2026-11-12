@@ -110,7 +110,10 @@ export async function anotherTake(params: {
 	const first = takes[0];
 	const request = first ? parseTakeRequest(first.requestJson) : null;
 	if (!first || !request) return { ok: false, reason: "not_found" };
-	if (!isImageMakingConfigured(getConfig())) {
+	// The card's own model decides whether its request can run: another Qwen
+	// take needs COMFYUI_URL even while H3 is selected, and the reverse. A card
+	// whose model has no address keeps the existing not-configured refusal.
+	if (!isImageMakingConfigured({ ...getConfig(), imageModel: request.model })) {
 		return { ok: false, reason: "not_configured" };
 	}
 	if (

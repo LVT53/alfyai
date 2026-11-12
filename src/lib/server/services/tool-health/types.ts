@@ -22,6 +22,8 @@ export type ToolHealthConfig = Pick<
 	| "mineruApiUrl"
 	| "mineruApiKey"
 	| "comfyuiUrl"
+	| "imageModel"
+	| "comfyuiH3Url"
 	| "imageExplicitFilterEnabled"
 >;
 

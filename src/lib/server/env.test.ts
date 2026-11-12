@@ -454,4 +454,27 @@ describe("Environment Configuration", () => {
 		}
 		delete process.env.IMAGE_EXPLICIT_FILTER_ENABLED;
 	});
+
+	it("selects the picture model and reads the H3 picture server address", async () => {
+		delete process.env.IMAGE_MODEL;
+		delete process.env.COMFYUI_H3_URL;
+		let { config } = await import("./env");
+		expect(config.imageModel).toBe("qwen");
+		expect(config.comfyuiH3Url).toBe("");
+
+		vi.resetModules();
+		process.env.IMAGE_MODEL = "h3";
+		process.env.COMFYUI_H3_URL = "  http://127.0.0.1:8189  ";
+		({ config } = await import("./env"));
+		expect(config.imageModel).toBe("h3");
+		expect(config.comfyuiH3Url).toBe("http://127.0.0.1:8189");
+
+		// Only the two model names are accepted; a hand-edited typo keeps the
+		// Qwen behaviour every install has today instead of inventing a third
+		// path.
+		vi.resetModules();
+		process.env.IMAGE_MODEL = "h4";
+		({ config } = await import("./env"));
+		expect(config.imageModel).toBe("qwen");
+	});
 });

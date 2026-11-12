@@ -7,6 +7,7 @@ import type { TakeRequest } from "../take-request";
 export function takeRequest(overrides: Partial<TakeRequest> = {}): TakeRequest {
 	return {
 		v: 1,
+		model: "qwen",
 		mode: "generate",
 		prompt: "a cosy living room",
 		inputs: [],

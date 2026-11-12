@@ -29,6 +29,13 @@ export interface ModelConfig {
 	thinkingType: "enabled" | "disabled" | null;
 }
 
+/**
+ * Which ComfyUI picture model new pictures use. Qwen keeps the existing 1 MP /
+ * 4 MP print / transparent path on `COMFYUI_URL`; H3 uses its own 4 MP server on
+ * `COMFYUI_H3_URL`.
+ */
+export type ImageModel = "qwen" | "h3";
+
 interface Config {
 	alfyaiApiSigningKey: string;
 	attachmentTraceDebug: boolean;
@@ -124,6 +131,12 @@ interface Config {
 	mineruApiUrl: string;
 	// Empty means picture making is off.
 	comfyuiUrl: string;
+	// Which picture model new pictures use. The Qwen path above stays as it is;
+	// H3 has its own server address below.
+	imageModel: ImageModel;
+	// Empty means the H3 model cannot make pictures, even when selected. Only
+	// read while `imageModel` is "h3".
+	comfyuiH3Url: string;
 	imageReferenceCap: number;
 	// The explicit-picture filter (request check and picture check). On unless
 	// the environment says "false"; an admin may turn it off at runtime.
@@ -427,6 +440,15 @@ function normalizeMineruDefaultTier(value: string | undefined): string {
 function normalizeMineruOcrMode(value: string | undefined): string {
 	const normalized = (value ?? "").trim().toLowerCase();
 	return ["auto", "txt", "ocr"].includes(normalized) ? normalized : "auto";
+}
+
+/**
+ * The picture model. `qwen` is the behaviour every install has today, so a
+ * missing or unrecognised value keeps it instead of refusing to boot; the admin
+ * route validates the two names before a stored override can reach here.
+ */
+function normalizeImageModel(value: string | undefined): ImageModel {
+	return (value ?? "").trim().toLowerCase() === "h3" ? "h3" : "qwen";
 }
 
 /**
@@ -816,6 +838,8 @@ function readConfig(): Config {
 		),
 		mineruApiUrl: process.env.MINERU_API_URL || "http://127.0.0.1:8001",
 		comfyuiUrl: (process.env.COMFYUI_URL || "").trim(),
+		imageModel: normalizeImageModel(process.env.IMAGE_MODEL),
+		comfyuiH3Url: (process.env.COMFYUI_H3_URL || "").trim(),
 		imageReferenceCap: clampParsedInt(
 			process.env.IMAGE_REFERENCE_CAP,
 			4,

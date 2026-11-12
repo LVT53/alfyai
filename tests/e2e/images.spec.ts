@@ -28,12 +28,16 @@ import {
 import {
 	attachPhoto,
 	type FakeComfyUi,
+	graphNodeByClass,
 	randomPng,
 	releaseSpecChatModel,
 	type SpecChatModel,
 	saveSpecVideo,
 	startFakeComfyUiForSpec,
 	stopFakeComfyUiForSpec,
+	submittedCanvas,
+	submittedPrompts,
+	submittedPromptText,
 	useSpecChatModel,
 	VIDEO_DIR,
 } from "./images-helpers";
@@ -580,6 +584,23 @@ test.describe("Pictures end to end", () => {
 			const conversationId = await openChat(page);
 			await makePicture(page, AI_SMOKE_TRANSPARENT_PICTURE_MARKER);
 			await waitForSettledCard(page, conversationId, 1);
+
+			// Qwen regression: transparent still runs on the Qwen 30-step graph,
+			// on the Qwen server, with the unchanged transparent prompt wrap.
+			const transparentPrompt = submittedPrompts(fake as FakeComfyUi)[0];
+			expect(
+				graphNodeByClass(transparentPrompt.graph, "TextEncodeQwenImage21"),
+			).toBeTruthy();
+			expect(
+				graphNodeByClass(transparentPrompt.graph, "KSampler")?.inputs?.steps,
+			).toBe(30);
+			expect(submittedCanvas(transparentPrompt.graph)).toEqual({
+				width: 1248,
+				height: 832,
+			});
+			expect(submittedPromptText(transparentPrompt.graph)).toContain(
+				"This is an RGBA format image with transparency.",
+			);
 
 			const card = page.locator(CARD).last();
 			await expect(card).toContainText("Lighthouse cut-out");

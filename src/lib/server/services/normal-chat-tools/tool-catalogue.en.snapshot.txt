@@ -1280,11 +1280,11 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             ]
           },
           "print": {
-            "description": "True only when the user wants print or wallpaper quality (about 4 MP, slower).",
+            "description": "True only when the user wants print or wallpaper quality (about 4 MP, slower). The Qwen picture model doubles the canvas for it; MiniMax-H3-Image always makes 4 MP pictures, so print has no effect there.",
             "type": "boolean"
           },
           "transparent": {
-            "description": "True when the user wants a cut-out on a transparent background.",
+            "description": "True when the user wants a cut-out on a transparent background. Only the Qwen picture model can make transparent pictures: under MiniMax-H3-Image the request is refused, and the user must switch the Admin \"Picture model\" to Qwen. Never route a transparent request yourself.",
             "type": "boolean"
           },
           "startNew": {

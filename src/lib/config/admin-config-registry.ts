@@ -637,6 +637,20 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 	{
+		// The global picture model switch. It is live because the take records
+		// the model it was enqueued with; a change here only reaches new takes.
+		key: "IMAGE_MODEL",
+		group: "integrations",
+		control: { kind: "select", options: ["h3", "qwen"] },
+		effect: "live",
+	},
+	{
+		key: "COMFYUI_H3_URL",
+		group: "integrations",
+		control: { kind: "url" },
+		effect: "live",
+	},
+	{
 		key: "IMAGE_REFERENCE_CAP",
 		group: "limits",
 		control: int(1, 10, "count"),

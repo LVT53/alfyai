@@ -448,8 +448,9 @@ const IMAGE_FILTER_ERRORS = new Set(["image_blocked", "image_unchecked"]);
 /**
  * The localized reason for a make_image row that did not make its picture; null
  * when the person has nothing to act on. A refusal (too many takes, a repeated
- * retry, an unknown picture name...) is a correction for the model, which
- * recovers by itself, so only "no picture server" is worth saying.
+ * retry, an unknown picture name...) is mostly a correction for the model, which
+ * recovers by itself; only the refusals the person must act on — no server, an
+ * explicit request, H3's missing transparency — get words here.
  */
 function imageReasonKey(
 	metadata: Record<string, string | number | boolean | null> | undefined,
@@ -465,6 +466,9 @@ function imageReasonKey(
 		}
 		if (refusal === "explicit_request") {
 			return "toolActivity.pictureReason.explicitRequest";
+		}
+		if (refusal === "transparent_unavailable") {
+			return "toolActivity.pictureReason.transparentUnavailable";
 		}
 		return metadata?.imageUnreadable === true
 			? "toolActivity.pictureReason.unreadable"
@@ -718,11 +722,14 @@ function makeImageRow(
 	}
 	// A refusal meant only for the model (too many takes, a repeated retry, an
 	// unknown picture name): the model corrects itself, so the person sees a
-	// neutral row, not a failure.
+	// neutral row, not a failure. An explicit request and H3's transparent
+	// refusal are the person's to act on, so they fall through to the failed
+	// branch and get their own reason below.
 	if (
 		typeof metadata?.imageRefusal === "string" &&
 		metadata.imageRefusal !== "not_configured" &&
 		metadata.imageRefusal !== "explicit_request" &&
+		metadata.imageRefusal !== "transparent_unavailable" &&
 		metadata.imageUnreadable !== true
 	) {
 		const adjustedVerb = translate(VERB_KEYS.pictureRequestAdjusted);
@@ -739,7 +746,8 @@ function makeImageRow(
 	}
 	if (status === "failed" || metadata?.ok === false) {
 		const failedVerb = translate(
-			metadata?.imageRefusal === "explicit_request"
+			metadata?.imageRefusal === "explicit_request" ||
+				metadata?.imageRefusal === "transparent_unavailable"
 				? VERB_KEYS.pictureNotMade
 				: typeof metadata?.imageError === "string" &&
 						IMAGE_FILTER_ERRORS.has(metadata.imageError)

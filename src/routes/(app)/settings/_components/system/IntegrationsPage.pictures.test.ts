@@ -46,4 +46,39 @@ describe("the Pictures section of Integrations", () => {
 		renderPage({ adminConfig: { COMFYUI_URL: "http://comfy:8188" } });
 		expect(screen.getByDisplayValue("http://comfy:8188")).toBeInTheDocument();
 	});
+
+	it("shows the picture model switch and both picture servers", () => {
+		renderPage({
+			adminConfig: {
+				IMAGE_MODEL: "h3",
+				COMFYUI_H3_URL: "http://h3:8189",
+				COMFYUI_URL: "http://comfy:8188",
+			},
+		});
+
+		const select = screen.getByRole("combobox", { name: "Picture model" });
+		expect(select).toHaveValue("h3");
+		expect(select).toHaveDisplayValue("MiniMax-H3-Image");
+		expect(screen.getByDisplayValue("http://h3:8189")).toBeInTheDocument();
+		expect(screen.getByDisplayValue("http://comfy:8188")).toBeInTheDocument();
+	});
+
+	it("switches to Qwen without touching the Qwen server address", async () => {
+		const { setValue } = renderPage({
+			adminConfig: {
+				IMAGE_MODEL: "h3",
+				COMFYUI_H3_URL: "http://h3:8189",
+				COMFYUI_URL: "http://comfy:8188",
+			},
+		});
+
+		await fireEvent.change(
+			screen.getByRole("combobox", { name: "Picture model" }),
+			{ target: { value: "qwen" } },
+		);
+
+		expect(setValue).toHaveBeenCalledWith("IMAGE_MODEL", "qwen");
+		expect(setValue).not.toHaveBeenCalledWith("COMFYUI_URL", expect.anything());
+		expect(screen.getByDisplayValue("http://comfy:8188")).toBeInTheDocument();
+	});
 });

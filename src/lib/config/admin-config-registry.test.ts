@@ -136,6 +136,10 @@ describe("restart-vs-live map", () => {
 		expect(ADMIN_CONFIG_EFFECT_BY_KEY.CONCURRENT_STREAM_LIMIT).toBe("live");
 		expect(ADMIN_CONFIG_EFFECT_BY_KEY.FILE_PRODUCTION_MAX_OUTPUTS).toBe("live");
 		expect(ADMIN_CONFIG_EFFECT_BY_KEY.ATLAS_STALE_MONTHS).toBe("live");
+		// The picture model switch is read when a take is enqueued, so a new
+		// value applies without a restart and without touching queued takes.
+		expect(ADMIN_CONFIG_EFFECT_BY_KEY.IMAGE_MODEL).toBe("live");
+		expect(ADMIN_CONFIG_EFFECT_BY_KEY.COMFYUI_H3_URL).toBe("live");
 	});
 
 	it("keeps the restart badge to the keys that genuinely need one", () => {
@@ -169,6 +173,29 @@ describe("validateAdminConfigValue", () => {
 		expect(
 			validateAdminConfigValue(spec("COMFYUI_URL"), "http://127.0.0.1:8188"),
 		).toMatchObject({ ok: true });
+	});
+
+	it("accepts only the two picture models and a URL for the H3 server", () => {
+		for (const model of ["h3", "qwen"] as const) {
+			expect(validateAdminConfigValue(spec("IMAGE_MODEL"), model)).toEqual({
+				ok: true,
+				value: model,
+			});
+		}
+		expect(validateAdminConfigValue(spec("IMAGE_MODEL"), "h4")).toEqual({
+			ok: false,
+			reason: "invalid-option",
+		});
+		expect(
+			validateAdminConfigValue(spec("COMFYUI_H3_URL"), "http://127.0.0.1:8189"),
+		).toEqual({ ok: true, value: "http://127.0.0.1:8189" });
+		expect(
+			validateAdminConfigValue(spec("COMFYUI_H3_URL"), "127.0.0.1:8189"),
+		).toEqual({ ok: false, reason: "invalid-url" });
+		expect(validateAdminConfigValue(spec("COMFYUI_H3_URL"), "")).toEqual({
+			ok: true,
+			value: "",
+		});
 	});
 
 	it("treats the empty string as a reset, never as an error", () => {

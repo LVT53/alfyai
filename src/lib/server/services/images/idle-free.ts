@@ -1,10 +1,15 @@
-// Gives the picture server's GPU memory back after a quiet spell. One unref'd
-// timer on `globalThis` (so a double import or an HMR re-evaluation finds the
-// same one); every take that ends re-arms it. When it fires with no take
-// queued or running in this app and nothing in ComfyUI's queue, the models are
-// unloaded with POST /free.
+// GPU memory ownership across the two picture services. After a quiet spell
+// (one unref'd timer on `globalThis`, so a double import or an HMR
+// re-evaluation finds the same one) every configured service is freed. Before a
+// take is submitted, the OTHER model's service is freed as well: H3 4 MP peaks at
+// the card's edge, so Qwen's resident models must go before H3 loads, and the
+// same is true the other way round. The take's own service is never freed.
 
 import { inArray } from "drizzle-orm";
+import {
+	getComfyuiUrlForModel,
+	type ImageModel,
+} from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { imageJobs } from "$lib/server/db/schema";
 import { createConfiguredComfyClient } from "./comfy-client";
@@ -16,6 +21,9 @@ export { IMAGE_IDLE_FREE_MS };
 
 const TIMER_KEY = Symbol.for("alfyai.images.idleFreeTimer");
 type Holder = { [TIMER_KEY]?: ReturnType<typeof setTimeout> };
+
+/** Every picture model the app can talk to, in a stable free order. */
+const PICTURE_MODELS: readonly ImageModel[] = ["qwen", "h3"];
 
 /** Whether a take is queued or running in the app's ledger. */
 async function anyLiveTake(): Promise<boolean> {
@@ -35,6 +43,64 @@ export async function freeIfIdle(client: ComfyUiClient): Promise<boolean> {
 	return true;
 }
 
+/** One server is one address, whether or not a hand-typed URL ends in "/". */
+function sameAddress(a: string, b: string): boolean {
+	return a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
+}
+
+/** The model a take does not use: its service's models must go before the take loads its own. */
+export function otherPictureModel(model: ImageModel): ImageModel {
+	return model === "h3" ? "qwen" : "h3";
+}
+
+/**
+ * Frees the OTHER picture model's service before a take is submitted. A service
+ * that is not configured (or shares the selected one's address) is skipped, and
+ * an unreachable one is ignored: the free is a memory optimisation, never a
+ * reason for a take to fail.
+ */
+export async function freeOtherPictureModel(model: ImageModel): Promise<void> {
+	const other = otherPictureModel(model);
+	const otherUrl = getComfyuiUrlForModel(other);
+	if (otherUrl === "" || sameAddress(otherUrl, getComfyuiUrlForModel(model))) {
+		return;
+	}
+	const client = createConfiguredComfyClient(other);
+	if (!client) return;
+	try {
+		await client.free();
+	} catch {
+		// The other server is down or refusing; the take goes on.
+	} finally {
+		client.close();
+	}
+}
+
+/**
+ * The idle timer's work: free every configured service, the selected one
+ * included. A picture server that is down has nothing to free.
+ */
+export async function freeConfiguredServices(): Promise<void> {
+	const freed: string[] = [];
+	for (const model of PICTURE_MODELS) {
+		const url = getComfyuiUrlForModel(model);
+		if (url === "" || freed.some((seen) => sameAddress(seen, url))) continue;
+		freed.push(url);
+		const client = createConfiguredComfyClient(model);
+		if (!client) continue;
+		try {
+			await freeIfIdle(client);
+		} catch (error) {
+			console.warn("[IMAGES] Could not free a picture server", {
+				model,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		} finally {
+			client.close();
+		}
+	}
+}
+
 export function scheduleIdleFree(options?: { delayMs?: number }): void {
 	const holder = globalThis as Holder;
 	const existing = holder[TIMER_KEY];
@@ -47,17 +113,7 @@ export function scheduleIdleFree(options?: { delayMs?: number }): void {
 	holder[TIMER_KEY] = timer;
 }
 
-/** The timer's work. Never rejects: a picture server that is down has nothing to free. */
+/** The timer's work. Never rejects. */
 async function fire(): Promise<void> {
-	const client = createConfiguredComfyClient();
-	if (!client) return;
-	try {
-		await freeIfIdle(client);
-	} catch (error) {
-		console.warn("[IMAGES] Could not free the picture server", {
-			error: error instanceof Error ? error.message : String(error),
-		});
-	} finally {
-		client.close();
-	}
+	await freeConfiguredServices();
 }

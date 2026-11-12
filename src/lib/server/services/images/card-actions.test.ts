@@ -19,6 +19,8 @@ beforeEach(async () => {
 	fixture.seedCard({ id: "card-1", userId: "u1", conversationId: "c1" });
 	process.env.DATABASE_PATH = fixture.dbPath;
 	process.env.COMFYUI_URL = "http://127.0.0.1:9";
+	delete process.env.COMFYUI_H3_URL;
+	delete process.env.IMAGE_MODEL;
 	vi.resetModules();
 });
 
@@ -30,11 +32,36 @@ afterEach(async () => {
 		// The database module was never imported.
 	}
 	delete process.env.COMFYUI_URL;
+	delete process.env.COMFYUI_H3_URL;
+	delete process.env.IMAGE_MODEL;
 	fixture.cleanup();
 	vi.restoreAllMocks();
 });
 
 const base = { userId: "u1", conversationId: "c1", cardId: "card-1" };
+
+/** The live Admin switch and both server URLs, as the config store holds them. */
+async function configurePictureModels(
+	selected: "qwen" | "h3",
+	urls: { qwen?: string; h3?: string },
+): Promise<void> {
+	const { getConfig } = await import("$lib/server/config-store");
+	const config = getConfig();
+	config.imageModel = selected;
+	config.comfyuiUrl = urls.qwen ?? "";
+	config.comfyuiH3Url = urls.h3 ?? "";
+}
+
+async function queuedRequest(takeId: string): Promise<Record<string, unknown>> {
+	const { db } = await import("$lib/server/db");
+	const [row] = db
+		.select()
+		.from(schema.imageJobs)
+		.where(eq(schema.imageJobs.id, takeId))
+		.all();
+	if (!row) throw new Error("No queued take");
+	return JSON.parse(row.requestJson) as Record<string, unknown>;
+}
 
 describe("anotherTake", () => {
 	it("queues the first take's request with origin another and a seed unlike the card's", async () => {
@@ -86,6 +113,52 @@ describe("anotherTake", () => {
 		vi.resetModules();
 		const { anotherTake } = await import("./card-actions");
 		await insertTake(base);
+		expect(await anotherTake({ userId: "u1", cardId: "card-1" })).toEqual({
+			ok: false,
+			reason: "not_configured",
+		});
+	});
+
+	it("uses the card's Qwen model while H3 is selected, even with no H3 address", async () => {
+		await insertTake({
+			...base,
+			request: takeRequest({ model: "qwen", prompt: "a qwen card" }),
+		});
+		await configurePictureModels("h3", { qwen: "http://127.0.0.1:8188" });
+		const { anotherTake } = await import("./card-actions");
+		const result = await anotherTake({ userId: "u1", cardId: "card-1" });
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(await queuedRequest(result.takeId)).toMatchObject({
+			model: "qwen",
+			prompt: "a qwen card",
+		});
+	});
+
+	it("uses the card's H3 model while Qwen is selected, even with no Qwen address", async () => {
+		await insertTake({
+			...base,
+			request: takeRequest({ model: "h3", prompt: "an H3 card" }),
+		});
+		await configurePictureModels("qwen", { h3: "http://127.0.0.1:8189" });
+		const { anotherTake } = await import("./card-actions");
+		const result = await anotherTake({ userId: "u1", cardId: "card-1" });
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(await queuedRequest(result.takeId)).toMatchObject({
+			model: "h3",
+			prompt: "an H3 card",
+		});
+	});
+
+	it("keeps not_configured when the card's own model has no address", async () => {
+		await insertTake({
+			...base,
+			request: takeRequest({ model: "h3", prompt: "an H3 card" }),
+		});
+		// The selected model (Qwen) has an address; the card's model (H3) has none.
+		await configurePictureModels("qwen", { qwen: "http://127.0.0.1:8188" });
+		const { anotherTake } = await import("./card-actions");
 		expect(await anotherTake({ userId: "u1", cardId: "card-1" })).toEqual({
 			ok: false,
 			reason: "not_configured",

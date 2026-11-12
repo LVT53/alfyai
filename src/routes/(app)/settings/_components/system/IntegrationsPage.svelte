@@ -320,6 +320,30 @@ function allowanceFieldValue(): string {
 	<span class="sys-eyebrow">{$t('admin.system.integrations.pictures')}</span>
 	<div class="sys-rows">
 		<SettingRow
+			label={$t('admin.system.keys.IMAGE_MODEL.label')}
+			meaning={$t('admin.system.keys.IMAGE_MODEL.meaning')}
+			configKey="IMAGE_MODEL"
+			controlId="IMAGE_MODEL"
+			dirty={isDirty('IMAGE_MODEL')}
+			highlighted={highlightKey === 'IMAGE_MODEL'}
+			onReset={() => resetValue('IMAGE_MODEL')}
+			canReset={canResetKey('IMAGE_MODEL')}
+		>
+			{#snippet control()}
+				<select
+					id="IMAGE_MODEL"
+					class="sys-input sys-input-md"
+					aria-label={$t('admin.system.keys.IMAGE_MODEL.label')}
+					value={adminConfig.IMAGE_MODEL || envDefaults.IMAGE_MODEL || 'qwen'}
+					onchange={(event) => setValue('IMAGE_MODEL', event.currentTarget.value)}
+				>
+					<option value="qwen">Qwen-Image-2.1</option>
+					<option value="h3">MiniMax-H3-Image</option>
+				</select>
+			{/snippet}
+		</SettingRow>
+
+		<SettingRow
 			label={$t('admin.system.keys.COMFYUI_URL.label')}
 			meaning={$t('admin.system.keys.COMFYUI_URL.meaning')}
 			configKey="COMFYUI_URL"
@@ -336,6 +360,27 @@ function allowanceFieldValue(): string {
 					value={adminConfig.COMFYUI_URL ?? ''}
 					placeholder={envDefaults.COMFYUI_URL ?? ''}
 					onchange={(next) => setValue('COMFYUI_URL', next)}
+				/>
+			{/snippet}
+		</SettingRow>
+
+		<SettingRow
+			label={$t('admin.system.keys.COMFYUI_H3_URL.label')}
+			meaning={$t('admin.system.keys.COMFYUI_H3_URL.meaning')}
+			configKey="COMFYUI_H3_URL"
+			controlId="COMFYUI_H3_URL"
+			dirty={isDirty('COMFYUI_H3_URL')}
+			highlighted={highlightKey === 'COMFYUI_H3_URL'}
+			onReset={() => resetValue('COMFYUI_H3_URL')}
+			canReset={canResetKey('COMFYUI_H3_URL')}
+		>
+			{#snippet control()}
+				<ValueField
+					id="COMFYUI_H3_URL"
+					mono
+					value={adminConfig.COMFYUI_H3_URL ?? ''}
+					placeholder={envDefaults.COMFYUI_H3_URL ?? ''}
+					onchange={(next) => setValue('COMFYUI_H3_URL', next)}
 				/>
 			{/snippet}
 		</SettingRow>

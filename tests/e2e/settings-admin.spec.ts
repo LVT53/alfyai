@@ -6,6 +6,12 @@ import { db } from "../../src/lib/server/db";
 import { providerModels, providers } from "../../src/lib/server/db/schema";
 import { normalizeSystemPromptReference } from "../../src/lib/server/prompts";
 import { login } from "./helpers";
+import {
+	comfyRequests,
+	type FakePictureServers,
+	startPictureServersForSpec,
+	stopPictureServersForSpec,
+} from "./images-helpers";
 
 type AdminConfigPayload = {
 	currentValues: Record<string, string>;
@@ -28,6 +34,42 @@ async function fetchAdminConfig(page: Page): Promise<AdminConfigPayload> {
 		`admin config fetch failed with status ${payload.status}`,
 	).toBe(true);
 	return payload.body;
+}
+
+async function putAdminConfig(
+	page: Page,
+	values: Record<string, string>,
+): Promise<{
+	status: number;
+	body: {
+		invalid?: Record<string, { reason: string; limit?: number }>;
+	};
+}> {
+	return page.evaluate(async (data) => {
+		const response = await fetch("/api/admin/config", {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(data),
+		});
+		return {
+			status: response.status,
+			body: (await response.json()) as {
+				invalid?: Record<string, { reason: string; limit?: number }>;
+			},
+		};
+	}, values);
+}
+
+/** Runs Tool Health now (not the cached snapshot) and answers its report. */
+async function runToolHealth(
+	page: Page,
+): Promise<{ tools: Array<{ id: string; status: string }> }> {
+	const response = await page.request.post("/api/admin/tool-health");
+	expect(response.ok(), `tool health -> ${response.status()}`).toBe(true);
+	const { snapshot } = (await response.json()) as {
+		snapshot: { tools: Array<{ id: string; status: string }> };
+	};
+	return snapshot;
 }
 
 async function setPromptOverrideViaApi(page: Page, value: string) {
@@ -626,5 +668,116 @@ test.describe("Admin user management", () => {
 		// The address appears in both the table row and the detail panel while
 		// the account exists, so assert on the count rather than one element.
 		await expect(page.getByText(uniqueEmail)).toHaveCount(0);
+	});
+});
+
+// The live Admin "Picture model" switch (docs/plans/minimax-h3-image, Task 5):
+// the Pictures section persists the model and both servers, the API refuses a
+// model name it does not know, and Tool Health probes the SELECTED model's
+// server (H3's `/system_stats` while H3 is on, Qwen's while Qwen is on).
+test.describe("Admin picture model settings", () => {
+	let servers: FakePictureServers | null = null;
+
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+		// Both servers are fakes, so the tool-health probes are local and fast.
+		servers = await startPictureServersForSpec(page, "qwen");
+	});
+
+	test.afterEach(async ({ page }) => {
+		await stopPictureServersForSpec(page, servers);
+		servers = null;
+	});
+
+	test("persists the model and both servers, rejects a bad model, and Tool Health follows the switch", async ({
+		page,
+	}) => {
+		const { qwen, h3 } = servers as FakePictureServers;
+		await openAdministrationTab(page, "integrations");
+
+		// The Pictures section shows the switch and both server fields.
+		const model = page.locator("#IMAGE_MODEL");
+		await expect(model).toBeVisible();
+		await expect(model).toHaveValue("qwen");
+		await expect(page.locator("#COMFYUI_URL")).toHaveValue(qwen.baseUrl);
+		await expect(page.locator("#COMFYUI_H3_URL")).toHaveValue(h3.baseUrl);
+
+		// Choose H3 and save it through the screen's own bar.
+		await model.selectOption("h3");
+		await Promise.all([
+			page.waitForResponse(
+				(response) =>
+					response.url().includes("/api/admin/config") &&
+					response.request().method() === "PUT" &&
+					response.status() === 200,
+			),
+			page.getByTestId("system-save").click(),
+		]);
+		await expect(page.getByText("Configuration saved.")).toBeVisible();
+
+		// The effective config is the stored one, and it survives a reload.
+		const saved = await fetchAdminConfig(page);
+		expect(saved.overrides.IMAGE_MODEL).toBe("h3");
+		expect(saved.currentValues.IMAGE_MODEL).toBe("h3");
+		expect(saved.overrides.COMFYUI_H3_URL).toBe(h3.baseUrl);
+		expect(saved.currentValues.COMFYUI_H3_URL).toBe(h3.baseUrl);
+		await reloadAdministrationTab(page, "integrations");
+		await expect(page.locator("#IMAGE_MODEL")).toHaveValue("h3");
+		await expect(page.locator("#COMFYUI_H3_URL")).toHaveValue(h3.baseUrl);
+		await expect(page.locator("#COMFYUI_URL")).toHaveValue(qwen.baseUrl);
+
+		// A model name the registry does not know is refused, and the stored
+		// value does not move.
+		const badModel = await putAdminConfig(page, { IMAGE_MODEL: "h4" });
+		expect(badModel.status, "an unknown model is rejected").toBe(400);
+		expect(badModel.body.invalid?.IMAGE_MODEL?.reason).toBe("invalid-option");
+		expect((await fetchAdminConfig(page)).currentValues.IMAGE_MODEL).toBe("h3");
+		// So is a server address that is not an absolute URL.
+		const badUrl = await putAdminConfig(page, { COMFYUI_H3_URL: "8189" });
+		expect(badUrl.status, "a bare address is rejected").toBe(400);
+		expect(badUrl.body.invalid?.COMFYUI_H3_URL?.reason).toBe("invalid-url");
+
+		// With H3 selected, Tool Health probes H3's server and never Qwen's.
+		const h3Health = await runToolHealth(page);
+		expect(
+			h3Health.tools.find((tool) => tool.id === "make_image")?.status,
+		).toBe("healthy");
+		expect(
+			comfyRequests(h3, "GET", "/system_stats").length,
+		).toBeGreaterThanOrEqual(1);
+		expect(
+			comfyRequests(qwen, "GET", "/system_stats"),
+			"Qwen is not probed",
+		).toHaveLength(0);
+
+		// Switch to Qwen on the same screen; Tool Health follows the selection.
+		await page.locator("#IMAGE_MODEL").selectOption("qwen");
+		await Promise.all([
+			page.waitForResponse(
+				(response) =>
+					response.url().includes("/api/admin/config") &&
+					response.request().method() === "PUT" &&
+					response.status() === 200,
+			),
+			page.getByTestId("system-save").click(),
+		]);
+		await expect(page.getByText("Configuration saved.")).toBeVisible();
+		expect((await fetchAdminConfig(page)).currentValues.IMAGE_MODEL).toBe(
+			"qwen",
+		);
+
+		const h3StatsBefore = comfyRequests(h3, "GET", "/system_stats").length;
+		const qwenHealth = await runToolHealth(page);
+		expect(
+			qwenHealth.tools.find((tool) => tool.id === "make_image")?.status,
+		).toBe("healthy");
+		expect(
+			comfyRequests(qwen, "GET", "/system_stats").length,
+			"Qwen's own server is probed now",
+		).toBeGreaterThanOrEqual(1);
+		expect(
+			comfyRequests(h3, "GET", "/system_stats").length,
+			"H3 is not probed while Qwen is selected",
+		).toBe(h3StatsBefore);
 	});
 });

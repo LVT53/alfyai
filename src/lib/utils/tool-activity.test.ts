@@ -2098,6 +2098,40 @@ describe("make_image rows", () => {
 		});
 	});
 
+	it("says the H3 transparent refusal plainly, never as an adjusted request", () => {
+		const modelText =
+			'MiniMax-H3-Image cannot make transparent pictures. Tell the user to switch the Admin "Picture model" to Qwen for a transparent picture, then call make_image again.';
+		const item = buildToolActivityItem(
+			makeImageCall({
+				outputSummary: modelText,
+				metadata: {
+					ok: false,
+					imageRefusal: "transparent_unavailable",
+				},
+			}),
+			"transparent",
+			translate,
+		);
+
+		expect(item).toMatchObject({
+			status: "failed",
+			verb: "Picture not made",
+			body: {
+				kind: "error",
+				reason:
+					"H3 cannot make transparent pictures. Switch the Admin “Picture model” to Qwen.",
+			},
+		});
+		// The model's English instruction never becomes the person's row.
+		expect(JSON.stringify(item)).not.toContain(modelText);
+		expect(
+			chatDict.en["toolActivity.pictureReason.transparentUnavailable"],
+		).toBeTruthy();
+		expect(
+			chatDict.hu["toolActivity.pictureReason.transparentUnavailable"],
+		).toBeTruthy();
+	});
+
 	it("says a picture the filter stopped plainly, from the code, never the model's words", () => {
 		const modelText = "Tell the user plainly that it was blocked.";
 		const blocked = buildToolActivityItem(

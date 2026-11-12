@@ -4,6 +4,7 @@ import { parseTakeRequest, type TakeRequest } from "./take-request";
 function request(overrides: Partial<TakeRequest> = {}): TakeRequest {
 	return {
 		v: 1,
+		model: "qwen",
 		mode: "generate",
 		prompt: "a cosy living room",
 		inputs: [],
@@ -54,6 +55,25 @@ describe("parseTakeRequest", () => {
 			],
 		});
 		expect(parseTakeRequest(JSON.stringify(wrongOrder))).toBeNull();
+	});
+
+	it("round-trips the model a take was enqueued with", () => {
+		const h3 = request({ model: "h3" });
+		expect(parseTakeRequest(JSON.stringify(h3))).toEqual(h3);
+	});
+
+	it("reads an old v1 row without a model as Qwen", () => {
+		const { model: _model, ...old } = request();
+		const parsed = parseTakeRequest(JSON.stringify(old));
+		expect(parsed?.model).toBe("qwen");
+	});
+
+	it("refuses an unknown model instead of silently defaulting", () => {
+		for (const model of ["h4", "", null, 3]) {
+			expect(
+				parseTakeRequest(JSON.stringify({ ...request(), model })),
+			).toBeNull();
+		}
 	});
 
 	it("refuses a canvas side that is not a multiple of 32", () => {

@@ -145,6 +145,14 @@ async function configureOnly() {
 	useFakeComfyUi("http://127.0.0.1:1");
 }
 
+/** Selects the picture model live, as an admin's switch does; H3 points at the fake. */
+async function selectPictureModel(model: "qwen" | "h3", h3Url?: string) {
+	const { getConfig } = await import("$lib/server/config-store");
+	const config = getConfig();
+	config.imageModel = model;
+	if (model === "h3") config.comfyuiH3Url = h3Url ?? fake?.baseUrl ?? "";
+}
+
 async function run(
 	input: Partial<MakeImageInput>,
 	options: {
@@ -1902,5 +1910,79 @@ describe("the tool in the set", () => {
 			ok: false,
 			errorCode: "not_configured",
 		});
+	});
+});
+
+describe("the H3 picture model", () => {
+	it("refuses a transparent request before a card or take, naming the Admin Qwen switch", async () => {
+		await startPictureServer({ steps: 2 });
+		await selectPictureModel("h3");
+
+		const { modelPayload } = await run({ transparent: true });
+		expect(modelPayload).toMatchObject({
+			ok: false,
+			errorCode: "transparent_unavailable",
+		});
+		const message = modelPayload.ok ? "" : modelPayload.message;
+		expect(message).toContain('Admin "Picture model"');
+		expect(message).toContain("Qwen");
+		// Nothing was created: no card, no take, no ComfyUI request.
+		const { cards, takes } = await rows();
+		expect(cards).toHaveLength(0);
+		expect(takes).toHaveLength(0);
+		expect(fake?.requests ?? []).toHaveLength(0);
+	});
+
+	it("makes an H3 print request on H3's own 4 MP canvas", async () => {
+		await startPictureServer({ steps: 2 });
+		await selectPictureModel("h3");
+		await startEngine();
+
+		const { modelPayload } = await run({
+			title: "Tall picture",
+			size: "tall",
+			print: true,
+		});
+		expect(modelPayload).toMatchObject({ ok: true, status: "succeeded" });
+		const { takes } = await rows();
+		expect(takes).toHaveLength(1);
+		const request = JSON.parse(takes[0]?.requestJson ?? "{}");
+		expect(request.model).toBe("h3");
+		expect(request.canvas).toEqual({ width: 1536, height: 2720 });
+		// No 8/16 MP double from print.
+		expect(request.canvas.width * request.canvas.height).toBeLessThan(
+			5_000_000,
+		);
+	});
+
+	it("still makes Qwen transparent pictures exactly as before", async () => {
+		await startPictureServer({ steps: 2 });
+		await selectPictureModel("qwen");
+		await startEngine();
+
+		const { modelPayload } = await run({
+			title: "Cut-out",
+			transparent: true,
+		});
+		expect(modelPayload).toMatchObject({ ok: true, status: "succeeded" });
+		const { takes } = await rows();
+		const request = JSON.parse(takes[0]?.requestJson ?? "{}");
+		expect(request).toMatchObject({
+			model: "qwen",
+			transparent: true,
+			canvas: { width: 1248, height: 832 },
+		});
+	});
+
+	it("tells the model H3 is 4 MP with no transparent path, and Qwen is the transparent fallback", async () => {
+		const { makeImageInputSchema } = await import("./make-image");
+		const print = makeImageInputSchema.shape.print.description ?? "";
+		const transparent =
+			makeImageInputSchema.shape.transparent.description ?? "";
+		expect(print).toContain("4 MP");
+		expect(print).toContain("H3");
+		expect(transparent).toContain("H3");
+		expect(transparent).toContain("Qwen");
+		expect(transparent).toContain("Admin");
 	});
 });

@@ -10,7 +10,7 @@
 
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { getImageReferenceCap } from "$lib/server/config-store";
+import { getImageModel, getImageReferenceCap } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { imageJobs } from "$lib/server/db/schema";
 import { oneLineName } from "$lib/server/services/vision/turn-images";
@@ -38,7 +38,8 @@ export type MakeImageRefusal =
 	| "too_many_takes"
 	| "too_many_calls"
 	| "retry_unknown"
-	| "retry_twice";
+	| "retry_twice"
+	| "transparent_unavailable";
 
 /** What a call carries (the tool's own schema is assignable to it). */
 export type MakeImageRequestInput = {
@@ -325,6 +326,17 @@ export async function resolveMakeImageRequest(params: {
 	const { userId, conversationId, input, turnTakes } = params;
 	if (input.retryOf) return planRetry(input, turnTakes);
 
+	const model = getImageModel();
+	// H3 has no transparent path (no alpha in its graph or VAE). It is refused
+	// before any card or take exists, and there is no automatic Qwen route: the
+	// person switches the Admin picture model to Qwen for a cut-out.
+	if (model === "h3" && Boolean(input.transparent)) {
+		return refuse(
+			"transparent_unavailable",
+			'MiniMax-H3-Image cannot make transparent pictures. Tell the user to switch the Admin "Picture model" to Qwen for a transparent picture, then call make_image again.',
+		);
+	}
+
 	const named = await sourcesNamed({
 		userId,
 		conversationId,
@@ -360,7 +372,7 @@ export async function resolveMakeImageRequest(params: {
 
 	const template =
 		params.template === undefined
-			? (graphFor("edit", Boolean(input.transparent))?.template ?? null)
+			? (graphFor(model, "edit", Boolean(input.transparent))?.template ?? null)
 			: params.template;
 	const limit = Math.min(
 		getImageReferenceCap(),
@@ -416,11 +428,12 @@ export async function resolveMakeImageRequest(params: {
 	if (!first) {
 		const request: TakeRequest = {
 			v: 1,
+			model,
 			mode: "generate",
 			prompt,
 			inputs: [],
 			baseFromUpload: false,
-			canvas: canvasForNewPicture(input.size, print),
+			canvas: canvasForNewPicture(input.size, print, model),
 			transparent,
 			avoidSeeds: [],
 			anchor: null,
@@ -507,6 +520,7 @@ export async function resolveMakeImageRequest(params: {
 	const canvas: CanvasSize = canvasForEdit(
 		{ width: loadedBase.width, height: loadedBase.height },
 		print,
+		model,
 	);
 	const marks =
 		marked?.type === "image_file" && marked.marks?.length ? marked.marks : null;
@@ -532,6 +546,7 @@ export async function resolveMakeImageRequest(params: {
 					: "pictures";
 	const request: TakeRequest = {
 		v: 1,
+		model,
 		mode: "edit",
 		prompt,
 		inputs,

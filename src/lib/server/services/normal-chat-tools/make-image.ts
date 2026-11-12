@@ -80,13 +80,13 @@ export const makeImageInputSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			"True only when the user wants print or wallpaper quality (about 4 MP, slower).",
+			"True only when the user wants print or wallpaper quality (about 4 MP, slower). The Qwen picture model doubles the canvas for it; MiniMax-H3-Image always makes 4 MP pictures, so print has no effect there.",
 		),
 	transparent: z
 		.boolean()
 		.optional()
 		.describe(
-			"True when the user wants a cut-out on a transparent background.",
+			'True when the user wants a cut-out on a transparent background. Only the Qwen picture model can make transparent pictures: under MiniMax-H3-Image the request is refused, and the user must switch the Admin "Picture model" to Qwen. Never route a transparent request yourself.',
 		),
 	startNew: z
 		.boolean()

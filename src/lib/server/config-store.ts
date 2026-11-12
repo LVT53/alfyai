@@ -10,7 +10,7 @@ import { deriveMaxMessageLengthFromContextTokens } from "$lib/model-limit-preset
 import type { ModelId } from "$lib/model-types";
 import { db } from "./db";
 import { adminConfig } from "./db/schema";
-import type { ModelConfig } from "./env";
+import type { ImageModel, ModelConfig } from "./env";
 import { config as envConfig } from "./env";
 import { getSystemPrompt, normalizeSystemPromptReference } from "./prompts";
 import {
@@ -19,7 +19,7 @@ import {
 	modelIconUrl as projectedModelIconUrl,
 } from "./services/available-models";
 
-export type { ModelConfig } from "./env";
+export type { ImageModel, ModelConfig } from "./env";
 
 export const ADMIN_CONFIG_KEYS = [
 	"MAX_MESSAGE_LENGTH",
@@ -74,6 +74,8 @@ export const ADMIN_CONFIG_KEYS = [
 	"TEI_RERANKER_MAX_TEXTS",
 	"MINERU_API_URL",
 	"COMFYUI_URL",
+	"IMAGE_MODEL",
+	"COMFYUI_H3_URL",
 	"IMAGE_REFERENCE_CAP",
 	"IMAGE_EXPLICIT_FILTER_ENABLED",
 	"MINERU_API_KEY",
@@ -277,6 +279,8 @@ export interface RuntimeConfig {
 	memoryMaintenanceIntervalMinutes: number;
 	mineruApiUrl: string;
 	comfyuiUrl: string;
+	imageModel: ImageModel;
+	comfyuiH3Url: string;
 	imageReferenceCap: number;
 	imageExplicitFilterEnabled: boolean;
 	mineruApiKey: string;
@@ -812,6 +816,17 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	COMFYUI_URL: (config, value) => {
 		config.comfyuiUrl = value.trim();
+	},
+	IMAGE_MODEL: (config, value) => {
+		const normalized = value.trim().toLowerCase();
+		// The registry refuses anything else; a hand-edited row is ignored so the
+		// env default (or the last good override) stays in effect.
+		if (normalized === "h3" || normalized === "qwen") {
+			config.imageModel = normalized;
+		}
+	},
+	COMFYUI_H3_URL: (config, value) => {
+		config.comfyuiH3Url = value.trim();
 	},
 	IMAGE_REFERENCE_CAP: (config, value) => {
 		const parsed = parseIntOverride(value);
@@ -1403,11 +1418,40 @@ export function getImageReferenceCap(): number {
 	return runtimeConfig.imageReferenceCap;
 }
 
-/** Picture making is on only when an admin points COMFYUI_URL at a server. */
+/** Which picture model NEW pictures use. Queued takes keep their own model. */
+export function getImageModel(): ImageModel {
+	return runtimeConfig.imageModel;
+}
+
+/** The H3 picture server address, trimmed; empty means H3 is off. */
+export function getComfyuiH3Url(): string {
+	return runtimeConfig.comfyuiH3Url.trim();
+}
+
+/** The picture server address the given model uses. */
+export function getComfyuiUrlForModel(model: ImageModel): string {
+	return imageModelUrl(model, runtimeConfig).trim();
+}
+
+function imageModelUrl(
+	model: ImageModel,
+	config: { comfyuiUrl: string; comfyuiH3Url?: string },
+): string {
+	return model === "h3" ? (config.comfyuiH3Url ?? "") : config.comfyuiUrl;
+}
+
+/**
+ * Picture making is on only when the SELECTED model has a server address.
+ * `imageModel` is optional for callers (and test doubles) written before the
+ * switch existed; they mean Qwen, the model every install ran first.
+ */
 export function isImageMakingConfigured(
-	config: Pick<RuntimeConfig, "comfyuiUrl">,
+	config: Pick<RuntimeConfig, "comfyuiUrl"> & {
+		imageModel?: ImageModel;
+		comfyuiH3Url?: string;
+	},
 ): boolean {
-	return config.comfyuiUrl.trim() !== "";
+	return imageModelUrl(config.imageModel ?? "qwen", config).trim() !== "";
 }
 
 export function getDocumentTokenBudget(): number {
@@ -1671,6 +1715,8 @@ export function getResolvedAdminConfigValues(
 		TEI_RERANKER_MAX_TEXTS: String(config.teiRerankerMaxTexts),
 		MINERU_API_URL: config.mineruApiUrl,
 		COMFYUI_URL: config.comfyuiUrl,
+		IMAGE_MODEL: config.imageModel,
+		COMFYUI_H3_URL: config.comfyuiH3Url,
 		IMAGE_REFERENCE_CAP: String(config.imageReferenceCap),
 		IMAGE_EXPLICIT_FILTER_ENABLED: String(config.imageExplicitFilterEnabled),
 		// Masked from day one. The four older API-key rows above return their

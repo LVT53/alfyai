@@ -422,7 +422,12 @@ export async function createFakeComfyUi(
 				}
 				return reply(res, 200, {});
 			}
-			if (method === "POST" && path === "/free") return reply(res, 200, {});
+			if (method === "POST" && path === "/free") {
+				// Held like the other requests a spec may need parked: the
+				// cross-model free has to happen before the take's own prompt.
+				await gate(path);
+				return reply(res, 200, {});
+			}
 			if (method === "GET" && path === "/system_stats") {
 				return reply(res, 200, { system: { os: "fake" }, devices: [] });
 			}

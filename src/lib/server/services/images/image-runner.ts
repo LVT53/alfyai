@@ -36,7 +36,7 @@ import {
 } from "./files";
 import { guardEdit } from "./guards/guard-edit";
 import { decodeRaw, encodePng } from "./guards/raw-image";
-import { scheduleIdleFree } from "./idle-free";
+import { freeOtherPictureModel, scheduleIdleFree } from "./idle-free";
 import { promptWithMarks } from "./marks";
 import { checkFinishedPicture } from "./picture-check";
 import {
@@ -129,7 +129,7 @@ export async function runImageTake(ctx: Ctx): Promise<void> {
 		});
 		return;
 	}
-	const client = createConfiguredComfyClient();
+	const client = createConfiguredComfyClient(request.model);
 	if (!client) {
 		await ctx.fail({
 			code: "image_server_not_configured",
@@ -218,7 +218,13 @@ async function takeMayBeSeeThrough(
 	ctx: Ctx,
 	request: TakeRequest,
 ): Promise<boolean> {
-	if (graphFor(request.mode, request.transparent)?.transparentApplied) {
+	// H3 has no alpha path at all: its results are stored opaque, whatever the
+	// pixels or the base carry.
+	if (request.model === "h3") return false;
+	if (
+		graphFor(request.model, request.mode, request.transparent)
+			?.transparentApplied
+	) {
 		return true;
 	}
 	const base = request.mode === "edit" ? request.inputs[0] : undefined;
@@ -246,7 +252,11 @@ async function submitTake(
 	client: ComfyUiClient,
 	prompt: { setPromptId(id: string): void },
 ): Promise<string | null> {
-	const graphChoice = graphFor(request.mode, request.transparent);
+	const graphChoice = graphFor(
+		request.model,
+		request.mode,
+		request.transparent,
+	);
 	if (!graphChoice) {
 		throw new TakeError(
 			"image_graph_missing",
@@ -275,6 +285,10 @@ async function submitTake(
 		height: request.canvas.height,
 		images: names,
 	});
+	// H3 4 MP peaks at the card's edge: free the other model's resident models
+	// BEFORE this take submits, so the selected service loads into free memory.
+	await freeOtherPictureModel(request.model);
+	if (ctx.signal.aborted) return null;
 	const promptId = randomUUID();
 	// Refused once the take is stopped: then nothing is posted.
 	const recorded = await ctx.progress({ checkpoint: { promptId } });

@@ -137,6 +137,8 @@ function safeConfig(deps: ToolHealthDeps): ToolHealthConfig {
 			mineruApiUrl: "",
 			mineruApiKey: "",
 			comfyuiUrl: "",
+			imageModel: "qwen",
+			comfyuiH3Url: "",
 			imageExplicitFilterEnabled: false,
 		};
 	}

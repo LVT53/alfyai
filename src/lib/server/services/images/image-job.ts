@@ -21,7 +21,7 @@ import {
 } from "$lib/server/services/jobs";
 import { createConfiguredComfyClient } from "./comfy-client";
 import { freshSeed } from "./seeds";
-import { promptIdOf, type TakeRequest } from "./take-request";
+import { parseTakeRequest, promptIdOf, type TakeRequest } from "./take-request";
 
 export { IMAGE_RENDER_DEADLINE_MS } from "./take-request";
 
@@ -114,6 +114,7 @@ export async function cancelTake(
 			userId: imageJobs.userId,
 			status: imageJobs.status,
 			checkpoint: imageJobs.checkpoint,
+			requestJson: imageJobs.requestJson,
 		})
 		.from(imageJobs)
 		.where(eq(imageJobs.id, takeId))
@@ -136,9 +137,15 @@ export async function cancelTake(
 			});
 			return cancelled > 0;
 		}
-		// Submitted: take it out of ComfyUI's queue if it is still waiting there.
-		// Anything else (rendering, gone, ComfyUI unreachable) leaves the take alone.
-		const client = createConfiguredComfyClient();
+		// Submitted: take it out of the take's own ComfyUI queue if it is still
+		// waiting there. The take's stored model decides the server, not the live
+		// Admin switch: a take enqueued under H3 must be stopped on H3 after the
+		// switch to Qwen. A model with no address is left alone rather than
+		// reaching the other server. Anything else (rendering, gone, ComfyUI
+		// unreachable) leaves the take alone.
+		const request = parseTakeRequest(row.requestJson);
+		if (!request) return false;
+		const client = createConfiguredComfyClient(request.model);
 		if (!client) return false;
 		try {
 			const found = await client.cancel(promptId, { interrupt: false });

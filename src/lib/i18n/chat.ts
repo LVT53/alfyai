@@ -1071,6 +1071,8 @@ const chatDict = {
 			"The picture could not be checked, so it was not shown.",
 		"toolActivity.pictureReason.explicitRequest":
 			"Explicit pictures are not made here.",
+		"toolActivity.pictureReason.transparentUnavailable":
+			"H3 cannot make transparent pictures. Switch the Admin “Picture model” to Qwen.",
 		"toolActivity.pictureReason.unreadable": "This picture could not be read.",
 		"toolActivity.pictureReason.unreachable":
 			"The picture server could not be reached.",
@@ -2299,6 +2301,8 @@ const chatDict = {
 			"A képet nem sikerült ellenőrizni, ezért nem jelenik meg.",
 		"toolActivity.pictureReason.explicitRequest":
 			"Szexuális tartalmú képek itt nem készülnek.",
+		"toolActivity.pictureReason.transparentUnavailable":
+			"A H3 nem tud átlátszó képet készíteni. Az Admin „Képmodell” beállításban válts Qwenre.",
 		"toolActivity.pictureReason.unreadable": "A kép nem olvasható.",
 		"toolActivity.pictureReason.unreachable": "A képkészítő nem érhető el.",
 		"toolActivity.pictureReason.rejected":

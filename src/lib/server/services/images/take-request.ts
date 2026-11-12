@@ -3,6 +3,7 @@
 // through `parseTakeRequest`, which trusts nothing: a row written by an older
 // or a broken release answers null and the take fails cleanly.
 
+import type { ImageModel } from "$lib/server/config-store";
 import {
 	type ImageMark,
 	parseImageMarks,
@@ -27,6 +28,8 @@ export type TakeInput = {
 
 export type TakeRequest = {
 	v: 1;
+	/** The picture model this take was enqueued for; an in-flight take keeps it. */
+	model: ImageModel;
 	mode: "generate" | "edit";
 	prompt: string;
 	inputs: TakeInput[];
@@ -105,6 +108,10 @@ export function parseTakeRequest(json: string): TakeRequest | null {
 		return null;
 	}
 	if (!isRecord(value) || value.v !== 1) return null;
+	// Old v1 rows predate the picture-model switch: they ran Qwen. An unknown
+	// value is unreadable rather than a silent default.
+	const model = value.model === undefined ? "qwen" : value.model;
+	if (model !== "qwen" && model !== "h3") return null;
 	const { mode, prompt, baseFromUpload, canvas, transparent } = value;
 	if (mode !== "generate" && mode !== "edit") return null;
 	if (typeof prompt !== "string" || prompt.trim() === "") return null;
@@ -131,6 +138,7 @@ export function parseTakeRequest(json: string): TakeRequest | null {
 	if (value.summary !== null && typeof value.summary !== "string") return null;
 	return {
 		v: 1,
+		model,
 		mode,
 		prompt,
 		inputs,

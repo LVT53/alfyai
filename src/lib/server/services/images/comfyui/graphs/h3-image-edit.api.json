@@ -1,0 +1,137 @@
+{
+	"1": {
+		"class_type": "UNETLoader",
+		"inputs": {
+			"unet_name": "minimax_h3_image_pruned_nvfp4.safetensors",
+			"weight_dtype": "default"
+		}
+	},
+	"2": {
+		"class_type": "CLIPLoader",
+		"inputs": {
+			"clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+			"type": "minimax",
+			"weight_dtype": "default"
+		}
+	},
+	"3": {
+		"class_type": "VAELoader",
+		"inputs": {
+			"vae_name": "minimax_h3_image_vae_fp16.safetensors"
+		}
+	},
+	"4": {
+		"class_type": "MiniMaxH3ImageConditioning",
+		"inputs": {
+			"clip": ["2", 0],
+			"vae": ["3", 0],
+			"prompt": "",
+			"width": 2496,
+			"height": 1664,
+			"images.image_1": ["9", 0],
+			"images.image_2": ["10", 0],
+			"images.image_3": ["11", 0],
+			"images.image_4": ["12", 0],
+			"images.image_5": ["13", 0],
+			"images.image_6": ["14", 0],
+			"images.image_7": ["15", 0],
+			"images.image_8": ["16", 0],
+			"images.image_9": ["17", 0],
+			"images.image_10": ["18", 0]
+		}
+	},
+	"5": {
+		"class_type": "ConditioningZeroOut",
+		"inputs": {
+			"conditioning": ["4", 0]
+		}
+	},
+	"6": {
+		"class_type": "KSampler",
+		"inputs": {
+			"model": ["1", 0],
+			"positive": ["4", 0],
+			"negative": ["5", 0],
+			"latent_image": ["4", 1],
+			"seed": 0,
+			"steps": 6,
+			"cfg": 1,
+			"sampler_name": "euler",
+			"scheduler": "simple",
+			"denoise": 1
+		}
+	},
+	"7": {
+		"class_type": "VAEDecode",
+		"inputs": {
+			"samples": ["6", 0],
+			"vae": ["3", 0]
+		}
+	},
+	"8": {
+		"class_type": "PreviewImage",
+		"inputs": {
+			"images": ["7", 0]
+		}
+	},
+	"9": {
+		"class_type": "LoadImage",
+		"inputs": {
+			"image": ""
+		}
+	},
+	"10": {
+		"class_type": "LoadImage",
+		"inputs": {
+			"image": ""
+		}
+	},
+	"11": {
+		"class_type": "LoadImage",
+		"inputs": {
+			"image": ""
+		}
+	},
+	"12": {
+		"class_type": "LoadImage",
+		"inputs": {
+			"image": ""
+		}
+	},
+	"13": {
+		"class_type": "LoadImage",
+		"inputs": {
+			"image": ""
+		}
+	},
+	"14": {
+		"class_type": "LoadImage",
+		"inputs": {
+			"image": ""
+		}
+	},
+	"15": {
+		"class_type": "LoadImage",
+		"inputs": {
+			"image": ""
+		}
+	},
+	"16": {
+		"class_type": "LoadImage",
+		"inputs": {
+			"image": ""
+		}
+	},
+	"17": {
+		"class_type": "LoadImage",
+		"inputs": {
+			"image": ""
+		}
+	},
+	"18": {
+		"class_type": "LoadImage",
+		"inputs": {
+			"image": ""
+		}
+	}
+}

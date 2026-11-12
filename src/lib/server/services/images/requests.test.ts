@@ -210,6 +210,7 @@ async function resolve(
 function request(overrides: Partial<TakeRequest> = {}): TakeRequest {
 	return {
 		v: 1,
+		model: "qwen",
 		mode: "generate",
 		prompt: "a cosy room",
 		inputs: [],
@@ -369,6 +370,83 @@ describe("which card a call belongs to", () => {
 	});
 });
 
+describe("the H3 picture model", () => {
+	async function useH3() {
+		const { getConfig } = await import("$lib/server/config-store");
+		getConfig().imageModel = "h3";
+	}
+
+	it("makes a new picture on H3's 4 MP canvas, or the shape asked for, and stays 4 MP for print", async () => {
+		await useH3();
+		const plain = await resolve({});
+		if (!plain.ok) throw new Error("not resolved");
+		expect(plain.plan.request).toMatchObject({
+			model: "h3",
+			mode: "generate",
+			canvas: { width: 2496, height: 1664 },
+		});
+
+		const phone = await resolve({ size: "tall", print: true });
+		if (!phone.ok) throw new Error("not resolved");
+		expect(phone.plan.request).toMatchObject({
+			model: "h3",
+			canvas: { width: 1536, height: 2720 },
+		});
+
+		const square = await resolve({ size: "square", print: true });
+		if (!square.ok) throw new Error("not resolved");
+		expect(square.plan.request.canvas).toEqual({ width: 2048, height: 2048 });
+	});
+
+	it("edits at 4 MP keeping the base's shape, and print does not enlarge it", async () => {
+		await useH3();
+		const upload = await makeUpload(640, 480);
+		const turnPictures = index([upload]);
+		const plain = await resolve({ pictures: ["1"] }, { turnPictures });
+		if (!plain.ok) throw new Error("not resolved");
+		expect(plain.plan.request).toMatchObject({
+			model: "h3",
+			mode: "edit",
+			canvas: { width: 2368, height: 1760 },
+		});
+		const print = await resolve(
+			{ pictures: ["1"], print: true },
+			{ turnPictures },
+		);
+		if (!print.ok) throw new Error("not resolved");
+		expect(print.plan.request.canvas).toEqual({ width: 2368, height: 1760 });
+	});
+
+	it("refuses a transparent request before a card or take, naming the Admin Qwen switch", async () => {
+		await useH3();
+		const file = await storeFile();
+		const turnPictures = index([fileSource(file.id)]);
+		for (const input of [
+			{ transparent: true },
+			{ pictures: ["1"], transparent: true },
+		]) {
+			const result = await resolve(input, { turnPictures });
+			expect(result).toMatchObject({
+				ok: false,
+				refusal: "transparent_unavailable",
+			});
+			if (result.ok) throw new Error("not refused");
+			expect(result.message).toContain('Admin "Picture model"');
+			expect(result.message).toContain("Qwen");
+		}
+	});
+
+	it("keeps Qwen's transparent generate on its own 1 MP canvas and model", async () => {
+		const result = await resolve({ transparent: true });
+		if (!result.ok) throw new Error("not resolved");
+		expect(result.plan.request).toMatchObject({
+			model: "qwen",
+			transparent: true,
+			canvas: { width: 1248, height: 832 },
+		});
+	});
+});
+
 describe("what a call is made from", () => {
 	it("makes a new picture from words on the default canvas, or the shape and quality asked for", async () => {
 		const plain = await resolve({});
@@ -382,6 +460,7 @@ describe("what a call is made from", () => {
 			baseFromUpload: false,
 		});
 		expect(phone.plan.request.canvas).toEqual({ width: 1536, height: 2752 });
+		expect(plain.plan.request.model).toBe("qwen");
 	});
 
 	it("starts an item from a photo: the upload is the base and version 1", async () => {
@@ -561,6 +640,7 @@ describe("what a call is made from", () => {
 			retryOf: null,
 			request: {
 				v: 1,
+				model: "qwen",
 				mode: "generate",
 				prompt: "a cosy room",
 				inputs: [],

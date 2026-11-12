@@ -38,6 +38,8 @@ const cardId = "card-1";
 
 let fixture: ImageFixture;
 let fake: FakeComfyUi | null = null;
+/** The other model's server, when a test configures both. */
+let otherFake: FakeComfyUi | null = null;
 let workdir: string;
 
 async function startFake(
@@ -80,7 +82,10 @@ afterEach(async () => {
 	vi.useRealTimers();
 	await fake?.close();
 	fake = null;
+	await otherFake?.close();
+	otherFake = null;
 	useFakeComfyUi(null);
+	delete process.env.COMFYUI_H3_URL;
 	try {
 		const { sqlite } = await import("$lib/server/db");
 		sqlite.close();
@@ -96,6 +101,7 @@ afterEach(async () => {
 function request(overrides: Partial<TakeRequest> = {}): TakeRequest {
 	return {
 		v: 1,
+		model: "qwen",
 		mode: "generate",
 		prompt: "a cosy living room",
 		inputs: [],
@@ -393,6 +399,132 @@ describe("see-through, by the request", () => {
 		await drainImageTakes();
 		const take = await readTake(takeId);
 		expect(await storedHasAlpha(take.resultFileId)).toBe(0);
+	});
+});
+
+describe("an H3 take", () => {
+	/** Only the H3 address answers: a runner that used the selected Qwen URL would fail. */
+	async function startH3Only() {
+		const h3Fake = await startFake({ steps: 2 });
+		useFakeComfyUi("http://127.0.0.1:9");
+		process.env.COMFYUI_H3_URL = h3Fake.baseUrl;
+		return h3Fake;
+	}
+
+	it("runs the take's own model at 4 MP with 6 steps / CFG 1, and stores no alpha", async () => {
+		const comfy = await startH3Only();
+		const takeId = await queueTake(
+			request({ model: "h3", canvas: { width: 2496, height: 1664 } }),
+		);
+		await drainImageTakes();
+
+		const take = await readTake(takeId);
+		expect([take.status, take.errorCode]).toEqual(["succeeded", null]);
+		const body = comfy.requests.find((r) => r.path === "/prompt")?.json as {
+			prompt: Record<
+				string,
+				{ class_type: string; inputs: Record<string, unknown> }
+			>;
+		};
+		const classes = Object.values(body.prompt).map((node) => node.class_type);
+		expect(classes).toContain("MiniMaxH3ImageConditioning");
+		expect(classes).toContain("ConditioningZeroOut");
+		expect(classes).not.toContain("TextEncodeQwenImage21");
+		const sampler = Object.values(body.prompt).find(
+			(node) => node.class_type === "KSampler",
+		);
+		expect(sampler?.inputs.steps).toBe(6);
+		expect(sampler?.inputs.cfg).toBe(1);
+
+		const meta = await sharp(await resultBytes(takeId)).metadata();
+		expect(meta.width).toBe(2496);
+		expect(meta.height).toBe(1664);
+		expect(meta.channels).toBe(3);
+		expect(await storedHasAlpha(take.resultFileId)).toBe(0);
+	});
+
+	it("keeps the boxed edit path and <Picture 1> framing, and stores it opaque", async () => {
+		const comfy = await startH3Only();
+		const base = await storeInput(await photo(512, 384));
+		const takeId = await queueTake(
+			request({
+				model: "h3",
+				mode: "edit",
+				prompt: "Make the middle red",
+				canvas: { width: 512, height: 384 },
+				inputs: [{ fileId: base, role: "base", name: "room.png" }],
+				baseFromUpload: true,
+				anchor: { fileId: base, chainSinceAnchor: 0 },
+				marks: [{ letter: "A", x: 0.2, y: 0.2, w: 0.3, h: 0.3 }],
+			}),
+		);
+		await drainImageTakes();
+
+		const take = await readTake(takeId);
+		expect([take.status, take.errorCode]).toEqual(["succeeded", null]);
+		expect(
+			comfy.requests.filter((r) => r.path === "/upload/image"),
+		).toHaveLength(1);
+		const body = comfy.requests.find((r) => r.path === "/prompt")?.json as {
+			prompt: Record<string, { inputs: Record<string, unknown> }>;
+		};
+		const conditioning = Object.values(body.prompt).find(
+			(node) => "images.image_1" in node.inputs,
+		);
+		expect(conditioning).toBeDefined();
+		const prompt = String(conditioning?.inputs.prompt);
+		expect(prompt.startsWith("<Picture 1> ")).toBe(true);
+		expect(prompt).toContain("Make this change only at");
+		expect(await storedHasAlpha(take.resultFileId)).toBe(0);
+	});
+});
+
+describe("freeing the other picture model before a take", () => {
+	function frees(server: FakeComfyUi): number {
+		return server.requests.filter((request) => request.path === "/free").length;
+	}
+
+	it("frees the Qwen service before an H3 take, and never H3 itself", async () => {
+		const qwenFake = await createFakeComfyUi({ steps: 2 });
+		otherFake = qwenFake;
+		const h3Fake = await startFake({ steps: 2 });
+		useFakeComfyUi(qwenFake.baseUrl);
+		process.env.COMFYUI_H3_URL = h3Fake.baseUrl;
+
+		const takeId = await queueTake(
+			request({ model: "h3", canvas: { width: 2048, height: 2048 } }),
+		);
+		await drainImageTakes();
+
+		expect((await readTake(takeId)).status).toBe("succeeded");
+		expect(frees(qwenFake)).toBe(1);
+		expect(frees(h3Fake)).toBe(0);
+	});
+
+	it("frees the H3 service before a Qwen take, and never Qwen itself", async () => {
+		const h3Fake = await createFakeComfyUi({ steps: 2 });
+		otherFake = h3Fake;
+		const qwenFake = await startFake({ steps: 2 });
+		process.env.COMFYUI_H3_URL = h3Fake.baseUrl;
+
+		const takeId = await queueTake(
+			request({ model: "qwen", canvas: { width: 256, height: 192 } }),
+		);
+		await drainImageTakes();
+
+		expect((await readTake(takeId)).status).toBe("succeeded");
+		expect(frees(h3Fake)).toBe(1);
+		expect(frees(qwenFake)).toBe(0);
+	});
+
+	it("does not free anything when only the take's own service is configured", async () => {
+		const qwenFake = await startFake({ steps: 2 });
+		const takeId = await queueTake(
+			request({ model: "qwen", canvas: { width: 256, height: 192 } }),
+		);
+		await drainImageTakes();
+		expect((await readTake(takeId)).status).toBe("succeeded");
+		expect(frees(qwenFake)).toBe(0);
 	});
 });
 
@@ -729,7 +861,7 @@ describe("waiting in ComfyUI's queue", () => {
 	it("writes how many are ahead", async () => {
 		const comfy = await startFake();
 		comfy.holdQueue(true);
-		const other = graphFor("generate", false);
+		const other = graphFor("qwen", "generate", false);
 		if (!other) throw new Error("no generate graph");
 		const client = createComfyUiClient({ baseUrl: comfy.baseUrl });
 		await client.submit(
@@ -846,6 +978,73 @@ describe("stopping a render", () => {
 
 		expect((await readTake(takeId)).status).toBe("succeeded");
 		expect(comfy.requests.some((r) => r.path === "/interrupt")).toBe(false);
+	});
+});
+
+describe("stopping a take on its own server", () => {
+	async function runningWithPrompt(takeId: string, promptId: string) {
+		const { db } = await import("$lib/server/db");
+		db.update(schema.imageJobs)
+			.set({ status: "running", checkpoint: JSON.stringify({ promptId }) })
+			.where(eq(schema.imageJobs.id, takeId))
+			.run();
+	}
+
+	it("cancels on the take's server after the selected model changed", async () => {
+		const qwenFake = await createFakeComfyUi();
+		otherFake = qwenFake;
+		const h3Fake = await startFake();
+		// The Admin switched to Qwen after this H3 take was enqueued.
+		useFakeComfyUi(qwenFake.baseUrl);
+		process.env.COMFYUI_H3_URL = h3Fake.baseUrl;
+
+		const takeId = await queueTake(
+			request({ model: "h3", canvas: { width: 256, height: 192 } }),
+		);
+		// A prompt of the take's H3 server is still waiting in its queue.
+		h3Fake.holdQueue(true);
+		const h3Client = createComfyUiClient({ baseUrl: h3Fake.baseUrl });
+		const choice = graphFor("h3", "generate", false);
+		if (!choice) throw new Error("no H3 generate graph");
+		await h3Client.submit(
+			buildPromptGraph(choice.template, {
+				prompt: "x",
+				seed: 1,
+				width: 256,
+				height: 192,
+				images: [],
+			}),
+			{ promptId: "h3-prompt" },
+		);
+		h3Client.close();
+		await runningWithPrompt(takeId, "h3-prompt");
+
+		const { cancelTake } = await import("./image-job");
+		expect(await cancelTake(userId, takeId, { interrupt: false })).toBe(true);
+		expect(
+			h3Fake.requests.some(
+				(entry) => entry.path === "/queue" && entry.method === "POST",
+			),
+		).toBe(true);
+		expect(qwenFake.requests).toHaveLength(0);
+		expect((await readTake(takeId)).status).toBe("cancelled");
+	});
+
+	it("does not touch another server when the take's own model has no address", async () => {
+		const qwenFake = await createFakeComfyUi();
+		otherFake = qwenFake;
+		await startFake();
+		useFakeComfyUi(qwenFake.baseUrl);
+		// No COMFYUI_H3_URL: the take's H3 model has no server of its own.
+		const takeId = await queueTake(
+			request({ model: "h3", canvas: { width: 256, height: 192 } }),
+		);
+		await runningWithPrompt(takeId, "h3-prompt");
+
+		const { cancelTake } = await import("./image-job");
+		expect(await cancelTake(userId, takeId, { interrupt: false })).toBe(false);
+		expect(qwenFake.requests).toHaveLength(0);
+		expect((await readTake(takeId)).status).toBe("running");
 	});
 });
 
@@ -1097,7 +1296,7 @@ describe("freeing ComfyUI", () => {
 	it("does not free it while ComfyUI has work queued", async () => {
 		const comfy = await startFake();
 		comfy.holdQueue(true);
-		const other = graphFor("generate", false);
+		const other = graphFor("qwen", "generate", false);
 		if (!other) throw new Error("no generate graph");
 		const client = createComfyUiClient({ baseUrl: comfy.baseUrl });
 		await client.submit(

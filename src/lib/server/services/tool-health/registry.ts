@@ -24,6 +24,18 @@ function hasValue(value: string | undefined | null): boolean {
 	return Boolean(value?.trim());
 }
 
+/**
+ * The picture server the SELECTED model uses. Kept local and pure: importing
+ * config-store's getter here would load the database in the unit tests that
+ * inject fake deps (see deps.ts). The rule is the same as
+ * `getComfyuiUrlForModel` in config-store.
+ */
+function pictureServerUrl(config: ToolHealthConfig): string {
+	const url =
+		config.imageModel === "h3" ? config.comfyuiH3Url : config.comfyuiUrl;
+	return url.trim();
+}
+
 function describeError(error: unknown, signal: AbortSignal): string {
 	if (signal.aborted) return "timed out";
 	if (error instanceof Error) {
@@ -417,16 +429,18 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 				expectMineruTasksProtocol,
 			),
 	},
-	// Picture making. ComfyUI answers /system_stats without a credential.
+	// Picture making. ComfyUI answers /system_stats without a credential. The
+	// selected picture model decides which server is described: Qwen's
+	// `COMFYUI_URL` or H3's `COMFYUI_H3_URL`, never the other model's address.
 	{
 		id: "make_image",
 		name: "make_image",
 		backend: "ComfyUI",
-		configured: (config) => hasValue(config.comfyuiUrl),
+		configured: (config) => hasValue(pictureServerUrl(config)),
 		probe: (ctx) =>
 			httpProbe(
 				ctx,
-				`${trimBase(ctx.config.comfyuiUrl)}/system_stats`,
+				`${trimBase(pictureServerUrl(ctx.config))}/system_stats`,
 				{},
 				expectOk,
 			),
@@ -435,13 +449,14 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 	// the filter is on, a check that cannot run keeps every picture back (fail
 	// closed), so an admin must see it here. The probe checks the pinned model
 	// file (present, right SHA-256, cached until it changes); it never loads
-	// the model, which only a real picture check does.
+	// the model, which only a real picture check does. Its configured gate
+	// follows the selected model too: H3 pictures are checked while H3 is on.
 	{
 		id: "make_image:picture_check",
 		name: "make_image",
 		backend: "Explicit picture check (local)",
 		configured: (config) =>
-			hasValue(config.comfyuiUrl) && config.imageExplicitFilterEnabled,
+			hasValue(pictureServerUrl(config)) && config.imageExplicitFilterEnabled,
 		probe: async (ctx) => {
 			const started = Date.now();
 			try {

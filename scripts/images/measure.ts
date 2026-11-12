@@ -52,7 +52,7 @@ export const MEASURE_CASES: ReadonlyArray<MeasureCase> = [
 		id: "generate-cold",
 		mode: "generate",
 		inputs: 0,
-		canvas: canvasForNewPicture("landscape", false),
+		canvas: canvasForNewPicture("landscape", false, "qwen"),
 		runs: 1,
 		note: "after POST /free",
 	},
@@ -60,35 +60,35 @@ export const MEASURE_CASES: ReadonlyArray<MeasureCase> = [
 		id: "generate-warm",
 		mode: "generate",
 		inputs: 0,
-		canvas: canvasForNewPicture("landscape", false),
+		canvas: canvasForNewPicture("landscape", false, "qwen"),
 		runs: 3,
 	},
 	{
 		id: "edit-1",
 		mode: "edit",
 		inputs: 1,
-		canvas: canvasForEdit(EDIT_BASE, false),
+		canvas: canvasForEdit(EDIT_BASE, false, "qwen"),
 		runs: 3,
 	},
 	{
 		id: "edit-2",
 		mode: "edit",
 		inputs: 2,
-		canvas: canvasForEdit(EDIT_BASE, false),
+		canvas: canvasForEdit(EDIT_BASE, false, "qwen"),
 		runs: 1,
 	},
 	{
 		id: "edit-4",
 		mode: "edit",
 		inputs: 4,
-		canvas: canvasForEdit(EDIT_BASE, false),
+		canvas: canvasForEdit(EDIT_BASE, false, "qwen"),
 		runs: 1,
 	},
 	{
 		id: "edit-print",
 		mode: "edit",
 		inputs: 1,
-		canvas: canvasForEdit(EDIT_BASE, true),
+		canvas: canvasForEdit(EDIT_BASE, true, "qwen"),
 		runs: 1,
 		note: "print canvas, about 4 MP",
 	},
@@ -104,7 +104,7 @@ export const MEASURE_CASES: ReadonlyArray<MeasureCase> = [
 		id: "trap-same-seed",
 		mode: "edit",
 		inputs: 1,
-		canvas: canvasForEdit(EDIT_BASE, false),
+		canvas: canvasForEdit(EDIT_BASE, false, "qwen"),
 		runs: 1,
 		note: "seed that made the input (expect a broken picture)",
 	},
@@ -112,7 +112,7 @@ export const MEASURE_CASES: ReadonlyArray<MeasureCase> = [
 		id: "generate-transparent",
 		mode: "generate",
 		inputs: 0,
-		canvas: canvasForNewPicture("square", false),
+		canvas: canvasForNewPicture("square", false, "qwen"),
 		runs: 1,
 		note: "transparent wrap",
 	},
@@ -120,7 +120,7 @@ export const MEASURE_CASES: ReadonlyArray<MeasureCase> = [
 		id: "crash",
 		mode: "edit",
 		inputs: 1,
-		canvas: canvasForEdit(EDIT_BASE, false),
+		canvas: canvasForEdit(EDIT_BASE, false, "qwen"),
 		runs: 1,
 		note: "comfyui.service restarted mid-run; next submit must work",
 	},
@@ -245,7 +245,7 @@ async function render(
 	images: string[],
 	seed: number,
 ): Promise<RunResult> {
-	const found = graphFor(mode, transparent);
+	const found = graphFor("qwen", mode, transparent);
 	if (!found) throw new Error(`no ${mode} template`);
 	const graph = buildPromptGraph(found.template, {
 		prompt,
@@ -294,7 +294,7 @@ async function main(): Promise<void> {
 	const rows: unknown[] = [];
 
 	// Setup: four input scenes at the edit canvas (not measured).
-	const edCanvas = canvasForEdit(EDIT_BASE, false);
+	const edCanvas = canvasForEdit(EDIT_BASE, false, "qwen");
 	const inputs: { name: string; seed: number }[] = [];
 	const sceneSeeds: number[] = [];
 	async function ensureInputs() {
