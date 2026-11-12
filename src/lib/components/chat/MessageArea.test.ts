@@ -13,6 +13,7 @@ import {
 } from "../artifacts/image/image-card-fixtures.test-helpers";
 import MessageArea from "./MessageArea.svelte";
 import MessageAreaAskHarness from "./MessageAreaAskHarness.test.svelte";
+import { MESSAGE_JUMP_GAP_PX } from "./message-jump-offset";
 import { THREAD_END_CARD_INSET_PX } from "./thread-end-target";
 
 vi.mock("$lib/utils/markdown-loader", () => ({
@@ -694,7 +695,13 @@ describe("MessageArea", () => {
 
 		await waitFor(() => {
 			expect(scrollBySpy).toHaveBeenCalledWith(
-				expect.objectContaining({ behavior: "smooth" }),
+				expect.objectContaining({
+					behavior: "smooth",
+					// The reading area's top is 0 and the message's is 900: the
+					// first line lands a fixed gap under it. Centring would have
+					// asked for 900 - (600 - 40) / 2 = 620.
+					top: 900 - MESSAGE_JUMP_GAP_PX,
+				}),
 			);
 		});
 	});

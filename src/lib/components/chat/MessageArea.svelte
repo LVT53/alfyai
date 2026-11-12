@@ -45,6 +45,7 @@ import LogoMark from "./LogoMark.svelte";
 import ConversationJumpRail from "./ConversationJumpRail.svelte";
 import { buildJumpRailTurns } from "./jump-rail";
 import { placeReplySegments } from "./reply-segments";
+import { MESSAGE_JUMP_GAP_PX, jumpOffset } from "./message-jump-offset";
 import { threadEndScrollTop, transformShiftYPx } from "./thread-end-target";
 
 let {
@@ -1271,11 +1272,17 @@ async function scrollToMessage(messageId: string) {
 		if (!target) return;
 		const scrollContainerRect = scrollContainer.getBoundingClientRect();
 		const targetRect = target.getBoundingClientRect();
-		// Center the target vertically within the viewport.
-		const offset =
-			targetRect.top -
-			scrollContainerRect.top -
-			(scrollContainer.clientHeight - targetRect.height) / 2;
+		// Put the message's first line at the top of the reading area, a small
+		// fixed gap under its top edge (the rule lives in `jumpOffset`, with a
+		// test). The browser clamps the delta at both ends of the list, so the
+		// first and last messages still land as far as the list can scroll.
+		const offset = jumpOffset({
+			targetTop: targetRect.top,
+			targetHeight: targetRect.height,
+			containerTop: scrollContainerRect.top,
+			containerHeight: scrollContainer.clientHeight,
+			gap: MESSAGE_JUMP_GAP_PX,
+		});
 		const reducedMotion =
 			typeof window !== "undefined" &&
 			typeof window.matchMedia === "function" &&

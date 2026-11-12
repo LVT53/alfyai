@@ -152,6 +152,12 @@ import {
 } from "$lib/stores/settings";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
+import {
+	MESSAGE_JUMP_GAP_PX,
+	jumpOffset,
+	remainingJumpOffset,
+} from "$lib/components/chat/message-jump-offset";
+import { artifactCounterPillBottom } from "$lib/components/chat/artifact-counter-placement";
 import CloudConnectorWarningModal from "$lib/components/chat/CloudConnectorWarningModal.svelte";
 import { isProviderModelId } from "$lib/model-types";
 import type { ModelId } from "$lib/model-types";
@@ -2325,9 +2331,14 @@ function closeWorkspace() {
 	// which would otherwise drop focus to <body> and strand a keyboard user
 	// at the top of the page. The count button is a stable landing spot
 	// whenever it exists, regardless of what actually opened this panel
-	// instance.
-	artifactCountButtonEl?.focus();
-	artifactCountButtonCompactEl?.focus();
+	// instance. On a phone the floating pill stays mounted but is `hidden`
+	// while the panel is open, so focus it after the render that takes the
+	// attribute away (before it, the ref exists but the element is not
+	// focusable) instead of when the state flips.
+	void tick().then(() => {
+		artifactCountButtonEl?.focus();
+		artifactCountButtonCompactEl?.focus();
+	});
 }
 
 // The browser's Back and Forward close and reopen the panel's layers one at a time
@@ -2445,6 +2456,28 @@ function whenStillOnScreen(
 	});
 }
 
+/** The rects a jump is aimed with, read once from the message and its thread. */
+function jumpInputFor(target: HTMLElement, scroller: HTMLElement) {
+	const scrollerRect = scroller.getBoundingClientRect();
+	const targetRect = target.getBoundingClientRect();
+	return {
+		targetTop: targetRect.top,
+		targetHeight: targetRect.height,
+		containerTop: scrollerRect.top,
+		containerHeight: scroller.clientHeight,
+		gap: MESSAGE_JUMP_GAP_PX,
+	};
+}
+
+/** Aims the one thread scroller; smooth, as a linked message has always been. */
+function scrollThreadBy(scroller: HTMLElement, offset: number) {
+	if (typeof scroller.scrollBy === "function") {
+		scroller.scrollBy({ top: offset, behavior: "smooth" });
+	} else {
+		scroller.scrollTop += offset;
+	}
+}
+
 async function focusMessage(messageId: string) {
 	const conversationId = data.conversation.id;
 	const jump = ++linkedMessageJumps;
@@ -2459,12 +2492,35 @@ async function focusMessage(messageId: string) {
 	// issued before then lands short of it.
 	await whenStillOnScreen(target, 5);
 	if (!isCurrentJump()) return;
-	target?.scrollIntoView({ behavior: "smooth", block: "center" });
+	// The same rule as a jump from the Chat Scroller (W2): the message's first
+	// line at the top of the reading area, a small gap under its edge, never the
+	// middle of a long answer. `jumpOffset` owns the arithmetic; the view is
+	// still the one `.scroll-container` MessageArea owns, and the page only aims
+	// it at a message the person asked to see (a search result, a document's
+	// source). Keep the smooth scroll a linked message has always had.
+	const scroller = target?.closest<HTMLElement>(".scroll-container") ?? null;
+	if (target && scroller) {
+		scrollThreadBy(scroller, jumpOffset(jumpInputFor(target, scroller)));
+	}
 	// The page drives the view only until the message has come to rest on
 	// screen (ten still frames outlast a smooth scroll's start). After that
 	// the view is the reader's, and a later reply, or "jump to latest", may
 	// hold the latest message in view again.
 	await whenStillOnScreen(target, 10);
+	if (!isCurrentJump()) return;
+	// A still target is not a promise that nothing above it will grow: on a
+	// loaded machine markdown or late layout can land after the aim was taken,
+	// and the message comes to rest below the gap (measured: 142 px short in a
+	// gate run). Measure once more at rest and apply what is left. One
+	// correction only — the next measurement is not acted on even if a frame
+	// moved again, so this can never loop.
+	if (target && scroller) {
+		const correction = remainingJumpOffset(jumpInputFor(target, scroller));
+		if (correction !== null) {
+			scrollThreadBy(scroller, correction);
+			await whenStillOnScreen(target, 10);
+		}
+	}
 	if (isCurrentJump()) linkedMessageConversationId = null;
 }
 
@@ -5260,18 +5316,27 @@ function handleDrop(event: DragEvent) {
 				</div>
 			</div>
 
-			<!-- The title bar above is `hidden … lg:flex`; below `lg` this compact
-			     row carries the same button, right-aligned, with no title (the app
-			     shell's own Header already shows the conversation title on small
-			     screens). A distinct test id avoids a strict-mode collision with
-			     the desktop button: both exist in the DOM at every width, CSS
-			     alone decides which one is visible. -->
+			<!-- W6: below the phone breakpoint the counter leaves the header row and
+			     becomes a floating pill in the jump-to-latest controls' corner (see
+			     `artifactCounterPillBottom` for the placement). It keeps the header
+			     button's count, pending dot and accessible name, opens the same
+			     list, and is hidden while the panel covers the chat. It stays in the
+			     DOM while it is hidden: other surfaces read its `aria-pressed` to
+			     tell that the panel is already open (`artifact-canvas-helpers.ts`,
+			     and the 390 px case in `artifacts-panel.spec.ts`), and the desktop
+			     button has always stayed mounted too. Above the breakpoint the
+			     header's own button is the one counter, unchanged. -->
 			{#if artifactCount > 0}
-				<div class="chat-title-bar-compact flex items-center justify-end lg:hidden">
+				<div
+					class="artifact-counter-pill"
+					data-testid="artifact-counter-pill"
+					hidden={isArtifactPanelOpen}
+					style:--artifact-counter-bottom={`${artifactCounterPillBottom({ composerHeight: composerLayerHeight })}px`}
+				>
 					<button
 						bind:this={artifactCountButtonCompactEl}
 						type="button"
-						class="artifact-count-button"
+						class="artifact-counter-pill__button"
 						data-testid="artifact-count-button-compact"
 						aria-label={artifactCountButtonA11yLabel}
 						aria-pressed={isArtifactPanelOpen}
@@ -5280,7 +5345,11 @@ function handleDrop(event: DragEvent) {
 						<LayoutGrid size={16} strokeWidth={1.75} aria-hidden="true" />
 						<b>{artifactCount}</b>
 						{#if showArtifactPendingDot}
-							<span class="artifact-count-dot" data-testid="artifact-count-dot-compact" aria-hidden="true"></span>
+							<span
+								class="artifact-count-dot"
+								data-testid="artifact-count-dot-compact"
+								aria-hidden="true"
+							></span>
 						{/if}
 					</button>
 				</div>
@@ -5568,11 +5637,6 @@ function handleDrop(event: DragEvent) {
 		margin-right: -0.75rem;
 	}
 
-	.chat-title-bar-compact {
-		flex-shrink: 0;
-		padding: var(--space-xs, 0.375rem) var(--space-sm, 0.625rem) 0;
-	}
-
 	.artifact-count-button {
 		display: inline-flex;
 		align-items: center;
@@ -5616,10 +5680,83 @@ function handleDrop(event: DragEvent) {
 		box-shadow: 0 0 0 2px var(--surface-page);
 	}
 
-	.chat-title-bar-compact .artifact-count-button {
-		min-width: 32px;
-		height: 32px;
+	/* W6 — the phone's counter, a floating pill in the jump-to-latest controls'
+	   corner (`ConversationJumpRail.svelte`'s capsule, `MessageArea.svelte`'s
+	   round button): same elevated surface, border, shadow and radius family,
+	   a touch target of at least 44x44. The placement helper keeps it above
+	   the jump controls' reserve and the composer; the right-edge safe area
+	   keeps it off the screen's rounded side, and the measured composer already
+	   carries the bottom one. Above the breakpoint it is not drawn at all: the
+	   header's button is the counter there. */
+	.artifact-counter-pill {
+		position: absolute;
+		right: max(var(--space-md), env(safe-area-inset-right, 0px));
+		/* Exactly the jump controls' reserve plus their height and one gap. The
+		   composer's measured layer already carries the bottom safe-area padding
+		   (`ChatComposerPanel`), so adding it again would float the pill above
+		   the capsule it is meant to match. */
+		bottom: var(--artifact-counter-bottom, 11rem);
+		z-index: 6;
+		display: flex;
+		pointer-events: none;
+	}
+
+	/* The pill stays in the DOM while the panel is open (its `aria-pressed` is
+	   how other surfaces see that the panel is already up), so hide it here.
+	   The author `display: flex` above would otherwise beat the `hidden`
+	   attribute's own user-agent style. */
+	.artifact-counter-pill[hidden] {
+		display: none;
+	}
+
+	.artifact-counter-pill__button {
+		pointer-events: auto;
+		display: inline-flex;
+		align-items: center;
 		justify-content: center;
+		gap: 0.35rem;
+		min-width: 44px;
+		min-height: 44px;
+		padding: 0 0.875rem;
+		border: 1px solid var(--border-default);
+		border-radius: 999px;
+		background: var(--surface-elevated);
+		box-shadow: var(--shadow-md);
+		color: var(--text-secondary);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
+	}
+
+	.artifact-counter-pill__button b {
+		color: var(--text-primary);
+		font-weight: 700;
+	}
+
+	.artifact-counter-pill__button:hover {
+		background: var(--surface-page);
+		color: var(--text-primary);
+	}
+
+	.artifact-counter-pill__button:focus-visible {
+		outline: none;
+		box-shadow:
+			var(--shadow-md),
+			0 0 0 2px var(--focus-ring);
+	}
+
+	/* The dot's ring is the surface it sits on, as on the header button. */
+	.artifact-counter-pill__button .artifact-count-dot {
+		box-shadow: 0 0 0 2px var(--surface-elevated);
+	}
+
+	@media (min-width: 1024px) {
+		.artifact-counter-pill {
+			display: none;
+		}
 	}
 
 	/* Project breadcrumb: dimmed relative to the title so the title itself

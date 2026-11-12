@@ -3839,6 +3839,59 @@ describe("chat page runtime integration", () => {
 		expect(countButton).toHaveAttribute("aria-pressed", "false");
 	});
 
+	// W6 — on a phone the compact counter leaves the header row and becomes a
+	// floating pill in the jump-to-latest controls' corner. The CSS is what
+	// makes it float; this pins what the page owns: the pill wrapper, the same
+	// badge count, pending dot and accessible name as the header's button, the
+	// same list, and a pill hidden — never unmounted — while the panel is open.
+	it("draws the phone's counter as a floating pill, hidden while the panel is open", async () => {
+		renderPage(
+			pageData({
+				artifacts: [
+					{
+						id: "artifact-pill-1",
+						kind: "file",
+						title: "Vienna trip summary.pdf",
+						conversationId: "conv-1",
+						versionNumber: 1,
+						commentCount: 0,
+						pendingReviewCount: 1,
+						updatedAt: Date.now(),
+					},
+				],
+			}),
+		);
+
+		const pill = await screen.findByTestId("artifact-counter-pill");
+		const pillButton = within(pill).getByTestId(
+			"artifact-count-button-compact",
+		);
+		expect(within(pillButton).getByText("1")).toBeInTheDocument();
+		expect(
+			within(pillButton).getByTestId("artifact-count-dot-compact"),
+		).toBeInTheDocument();
+		const headerButton = await screen.findByTestId("artifact-count-button");
+		expect(pillButton.getAttribute("aria-label")).toBe(
+			headerButton.getAttribute("aria-label"),
+		);
+
+		await fireEvent.click(pillButton);
+		await screen.findByTestId("artifact-panel-list");
+		// The pill stays in the DOM and is hidden by its attribute: two Playwright
+		// paths read the compact button's `aria-pressed` to tell that the panel is
+		// already open (`artifact-canvas-helpers.ts`, `artifacts-panel.spec.ts`).
+		expect(screen.getByTestId("artifact-counter-pill")).toHaveAttribute(
+			"hidden",
+		);
+		expect(pillButton).toHaveAttribute("aria-pressed", "true");
+
+		await fireEvent.click(pillButton);
+		await waitFor(() => {
+			expect(pill).not.toHaveAttribute("hidden");
+		});
+		expect(pillButton).toHaveAttribute("aria-pressed", "false");
+	});
+
 	// The count button's dot follows the PERSISTED review state (the third
 	// follow-up chip): the server's per-Document `pendingReviewCount`, read on
 	// every load, is what lights it — never a live-only guess that a reload

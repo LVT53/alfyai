@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import { and, asc, eq } from "drizzle-orm";
+import { MESSAGE_JUMP_GAP_PX } from "../../src/lib/components/chat/message-jump-offset";
 import { db } from "../../src/lib/server/db";
 import { messages, users } from "../../src/lib/server/db/schema";
 import { createConversation as createServerConversation } from "../../src/lib/server/services/conversations";
@@ -188,6 +189,22 @@ async function readThreadView(page: Page): Promise<ThreadView> {
 			latestBottom,
 		};
 	});
+}
+
+/** Where the linked message's own top sits relative to the reading area's top edge. */
+async function readMessageOffset(page: Page, messageId: string) {
+	return page.evaluate((id) => {
+		const scroller = document.querySelector<HTMLElement>(".scroll-container");
+		const target = document.querySelector<HTMLElement>(
+			`#message-${CSS.escape(id)}`,
+		);
+		if (!scroller || !target)
+			throw new Error("The linked message is not on screen.");
+		return {
+			targetTop: target.getBoundingClientRect().top,
+			viewportTop: scroller.getBoundingClientRect().top,
+		};
+	}, messageId);
 }
 
 /** Resolves once the thread's scroll position has held still for a few frames. */
@@ -409,6 +426,65 @@ test.describe("chat scroll — opening a conversation", () => {
 
 		await expect(page.locator(`#message-${focused.id}`)).toBeInViewport();
 		await expect(page.getByText(finalLineFor(label))).not.toBeInViewport();
+	});
+
+	test("a link to a long message lands on its first line, not its middle", async ({
+		page,
+	}) => {
+		// W2: a search result, or a "jump to source", opens the conversation at
+		// one message. A reply taller than the window used to be centred, so the
+		// reader met its middle; the message's first line must lead instead.
+		const label = "the linked long answer";
+		await page.setViewportSize(DESKTOP);
+		await login(page);
+		const conversation = await createServerConversation(
+			await adminUserId(),
+			`Scroll on load: ${label}`,
+		);
+		await createMessage(conversation.id, "user", "The first question?");
+		await createMessage(conversation.id, "assistant", "A short first answer.");
+		await createMessage(conversation.id, "user", "The second question?");
+		const focused = await createMessage(
+			conversation.id,
+			"assistant",
+			longReply(label),
+		);
+		await createMessage(conversation.id, "user", "The third question?");
+		await createMessage(
+			conversation.id,
+			"assistant",
+			longReply("the reply after the link"),
+		);
+
+		await page.goto(`/chat/${conversation.id}?focus_message=${focused.id}`, {
+			waitUntil: "domcontentloaded",
+		});
+		await waitForHydration(page);
+		await waitForThreadRendered(page, label);
+		// Measure after the view has stopped, not between the first smooth
+		// scroll and its one correction.
+		await waitForScrollToSettle(page);
+
+		await expect
+			.poll(
+				async () => {
+					const view = await readMessageOffset(page, focused.id);
+					return Math.abs(
+						view.targetTop - (view.viewportTop + MESSAGE_JUMP_GAP_PX),
+					);
+				},
+				{
+					message:
+						"the linked message's first line must sit at the reading area's top",
+					timeout: 5000,
+				},
+			)
+			.toBeLessThanOrEqual(2);
+		const view = await readMessageOffset(page, focused.id);
+		expect(
+			view.targetTop,
+			"the middle of a long reply is not where a link lands",
+		).toBeLessThan(view.viewportTop + 120);
 	});
 
 	test("a link to one message loads without an error and drops the link from the address", async ({

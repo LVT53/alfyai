@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { db } from "../../src/lib/server/db";
-import { conversations } from "../../src/lib/server/db/schema";
+import { conversations, messages } from "../../src/lib/server/db/schema";
 import { createProject } from "../../src/lib/server/services/projects";
 import {
 	createTourUser,
 	markToursSeen,
 	openItem,
+	panelList,
 	panelShell,
 	seedItem,
 } from "./artifact-tours-helpers";
@@ -39,6 +40,7 @@ async function readerWithItem(
 	page: Page,
 	kind: "document" | "app",
 	title: string,
+	options: { openPanel?: boolean; turns?: number } = {},
 ) {
 	const user = await createTourUser("hu");
 	await markToursSeen(user);
@@ -53,13 +55,47 @@ async function readerWithItem(
 		updatedAt: new Date(),
 	});
 	await seedItem(user, chatId, kind, { title });
+	if (options.turns) await seedTurns(chatId, options.turns);
 	await login(page, user.email, user.password);
 	await page.goto(`/chat/${chatId}`, { waitUntil: "networkidle" });
-	await openItem(page, title);
-	await expect(panelShell(page)).toBeVisible();
-	await waitForMotionToSettle(page);
-	await page.waitForTimeout(400);
+	if (options.openPanel !== false) {
+		await openItem(page, title);
+		await expect(panelShell(page)).toBeVisible();
+		await waitForMotionToSettle(page);
+		await page.waitForTimeout(400);
+	}
 	return { user, chatId };
+}
+
+/** A thread long enough for the Chat Scroller's capsule to appear. */
+async function seedTurns(conversationId: string, turns: number) {
+	const base = Date.now() - turns * 120_000;
+	const rows = [];
+	for (let turn = 1; turn <= turns; turn += 1) {
+		rows.push(
+			{
+				id: randomUUID(),
+				conversationId,
+				messageSequence: turn * 2 - 1,
+				role: "user" as const,
+				content: `Kérdés ${turn} a bécsi hétvégéről`,
+				createdAt: new Date(base + turn * 120_000),
+			},
+			{
+				id: randomUUID(),
+				conversationId,
+				messageSequence: turn * 2,
+				role: "assistant" as const,
+				content: [
+					`Válasz ${turn}. A bécsi hétvége három dolgot jelent: a naschmarkti reggelit, a szecessziós épületeket és a kávéházakat.`,
+					"Egy hétvége elég a belvárosra, ha korán indulsz és laza a terv.",
+					"Szállás a szezon után körülbelül a felébe kerül, és a legtöbb étterem még nyitva van.",
+				].join("\n\n"),
+				createdAt: new Date(base + turn * 120_000 + 30_000),
+			},
+		);
+	}
+	await db.insert(messages).values(rows);
 }
 
 /** What the composer's placeholder is, and how wide it is next to the room the field gives it. */
@@ -139,5 +175,155 @@ test.describe("the composer beside a docked panel", () => {
 
 		const fit = await placeholderFit(page);
 		expect(fit.text).toBe("Kérdezz erről: Útiterv");
+	});
+});
+
+/** Resolves once the thread has stopped changing height (fonts, late rows). */
+async function waitForThreadToSettle(page: Page) {
+	let last = -1;
+	let unchanged = 0;
+	await expect
+		.poll(
+			async () => {
+				const height = await page.evaluate(
+					() => document.querySelector(".scroll-container")?.scrollHeight ?? 0,
+				);
+				unchanged = height === last ? unchanged + 1 : 0;
+				last = height;
+				return unchanged;
+			},
+			{ intervals: [200], timeout: 15_000 },
+		)
+		.toBeGreaterThanOrEqual(3);
+}
+
+// W6 — below the phone breakpoint the artifact counter leaves the header row
+// and becomes a floating pill in the jump-to-latest controls' corner: the
+// capsule, or the round button, above the composer. These are the two portrait
+// sizes the owner named, measured on the real rendered page: the target is at
+// least 44x44, it never sits over the composer or the capsule, it keeps the
+// header button's accessible name, it opens the same list, and it leaves while
+// the panel covers the chat. Above the breakpoint nothing moves.
+test.describe("the phone's artifact counter", () => {
+	for (const viewport of [
+		{ width: 375, height: 667 },
+		{ width: 390, height: 844 },
+	] as const) {
+		test(`is a 44 px floating pill above the composer (${viewport.width}x${viewport.height})`, async ({
+			page,
+		}) => {
+			await page.setViewportSize(viewport);
+			await readerWithItem(page, "document", LONG_ITEM_TITLE, {
+				openPanel: false,
+			});
+			await waitForThreadToSettle(page);
+
+			// The owner's case: the composer is focused (as when the person is
+			// about to type) and the pill must still be out of its way.
+			await page.getByTestId("message-input").click();
+
+			const pill = page.getByTestId("artifact-count-button-compact");
+			await expect(pill).toBeVisible();
+			const box = await boxOf(pill);
+			expect(box.width).toBeGreaterThanOrEqual(44);
+			expect(box.height).toBeGreaterThanOrEqual(44);
+
+			// Its own corner, not the header row: above the composer, below the
+			// app's header, and inside the chat's width.
+			const composer = await boxOf(page.locator(".composer-shell"));
+			expect(
+				box.y + box.height,
+				"the pill must sit above the composer",
+			).toBeLessThanOrEqual(composer.y);
+			const header = await boxOf(page.locator("header.header-bar"));
+			expect(
+				box.y,
+				"the pill must sit below the app header",
+			).toBeGreaterThanOrEqual(header.y + header.height);
+
+			// Same counters as the header's button, which is not drawn here.
+			const headerButton = page.getByTestId("artifact-count-button");
+			await expect(headerButton).toBeHidden();
+			expect(await pill.getAttribute("aria-label")).toBe(
+				await headerButton.getAttribute("aria-label"),
+			);
+			await expect(page.getByTestId("artifact-counter-pill")).toHaveCount(1);
+		});
+	}
+
+	test("opens the same list, and leaves while the panel is open", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await readerWithItem(page, "document", LONG_ITEM_TITLE, {
+			openPanel: false,
+		});
+		await waitForThreadToSettle(page);
+
+		await page.getByTestId("artifact-count-button-compact").click();
+		await expect(panelList(page)).toBeVisible({ timeout: 15_000 });
+		const pill = page.getByTestId("artifact-counter-pill");
+		await expect(
+			pill,
+			"the panel covers the chat: the pill must not float over it",
+		).toBeHidden();
+		// It stays mounted while hidden: other surfaces read the compact button's
+		// aria-pressed to tell that the panel is already open.
+		await expect(
+			page.getByTestId("artifact-count-button-compact"),
+		).toHaveAttribute("aria-pressed", "true");
+	});
+
+	test("stays clear of the jump-to-latest capsule in a long chat", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 375, height: 667 });
+		await readerWithItem(page, "document", LONG_ITEM_TITLE, {
+			openPanel: false,
+			turns: 8,
+		});
+		await expect(page.getByTestId("assistant-message").first()).toBeVisible({
+			timeout: 15_000,
+		});
+		await waitForThreadToSettle(page);
+
+		// Leave the bottom, so the capsule takes the jump controls' corner.
+		await page.evaluate(() => {
+			const scroller = document.querySelector<HTMLElement>(".scroll-container");
+			if (!scroller) throw new Error("The thread is not mounted.");
+			scroller.scrollTop =
+				(scroller.scrollHeight - scroller.clientHeight) * 0.5;
+		});
+		const capsule = page.getByTestId("jump-rail-capsule");
+		await expect(capsule).toBeVisible();
+
+		const pillBox = await boxOf(page.getByTestId("artifact-counter-pill"));
+		const capsuleBox = await boxOf(capsule);
+		expect(
+			pillBox.y + pillBox.height,
+			"the pill sits above the jump capsule, never over it",
+		).toBeLessThanOrEqual(capsuleBox.y);
+		expect(
+			Math.abs(pillBox.x + pillBox.width - (capsuleBox.x + capsuleBox.width)),
+			"the pill shares the capsule's corner",
+		).toBeLessThanOrEqual(2);
+		const composer = await boxOf(page.locator(".composer-shell"));
+		expect(capsuleBox.y + capsuleBox.height).toBeLessThanOrEqual(composer.y);
+	});
+
+	test("above the breakpoint the header's counter is unchanged and the pill is not drawn", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 900 });
+		await readerWithItem(page, "document", LONG_ITEM_TITLE, {
+			openPanel: false,
+		});
+		await waitForThreadToSettle(page);
+
+		await expect(page.getByTestId("artifact-count-button")).toBeVisible();
+		await expect(page.getByTestId("artifact-counter-pill")).toBeHidden();
+		await expect(
+			page.getByTestId("artifact-count-button-compact"),
+		).toBeHidden();
 	});
 });
