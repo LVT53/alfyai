@@ -418,6 +418,119 @@ describe.each(
 			["fb", "closing", "answered", "natural_stop"],
 		]);
 	});
+
+	it("does not send the dead provider's reasoning of a completed step to the fallback", async () => {
+		const h = setup(transport);
+		h.network.script(
+			PRIMARY,
+			(c) =>
+				respond(c.transport, {
+					reasoning: "STEP-ONE-REASONING-OF-PROVIDER-A",
+					text: "Looking it up.",
+					call: "lookup-1",
+				}),
+			failWith(timeoutError),
+		);
+		h.network.script(FALLBACK, (c) =>
+			respond(c.transport, { text: "Answer from settled evidence." }),
+		);
+		await h.run();
+		const closing = h.network.to(FALLBACK)[0];
+		expect(closing.text).toContain("SETTLED-EVIDENCE");
+		expect(closing.text).toContain("Looking it up.");
+		expect(closing.text).toContain("lookup-1");
+		expect(closing.text).not.toContain("STEP-ONE-REASONING-OF-PROVIDER-A");
+		expect(
+			messagesOf(closing.body).filter((m) => "reasoning_content" in m),
+		).toEqual([]);
+	});
+});
+
+describe("provider failover after a tool settled, while the next step was streaming", () => {
+	it("does not send the failed step's partial text or reasoning, only the settled evidence", async () => {
+		const h = setup("streaming");
+		const wire = dyingWire({
+			reasoning: "REASONING-OF-PROVIDER-A",
+			text: "PARTIAL-B",
+		});
+		h.hooks.event = (event) => {
+			if (event.type === "block_delta" && event.text.includes("PARTIAL-B"))
+				setTimeout(wire.die);
+		};
+		h.network.script(
+			PRIMARY,
+			(c) => respond(c.transport, { call: "lookup-1" }),
+			() => wire.response,
+		);
+		h.network.script(FALLBACK, (c) =>
+			respond(c.transport, { text: "fallback closing answer" }),
+		);
+		await h.run();
+		expect(h.ran).toEqual({ primary: 1, fallback: 0 });
+		expect(h.network.to(FALLBACK)).toHaveLength(1);
+		const closing = h.network.to(FALLBACK)[0];
+		expect(closing.body.tools).toBeUndefined();
+		expect(closing.text).toContain("SETTLED-EVIDENCE");
+		expect(closing.text).not.toContain("PARTIAL-B");
+		expect(closing.text).not.toContain("REASONING-OF-PROVIDER-A");
+		const messages = messagesOf(closing.body);
+		const called = messages.flatMap(
+			(m) => m.tool_calls?.map((c) => c.id) ?? [],
+		);
+		const answered = messages
+			.filter((m) => m.role === "tool")
+			.map((m) => m.tool_call_id);
+		expect(called).toEqual(["lookup-1"]);
+		expect(answered).toEqual(["lookup-1"]);
+		expect(h.answer).toBe("fallback closing answer");
+		expect(h.completion).toMatchObject({
+			phase: "closing",
+			outcome: "answered",
+			closingAttempted: true,
+		});
+	});
+
+	it("keeps a tool that settled inside the failed step with its result, without that step's words", async () => {
+		const h = setup("streaming");
+		const wire = dyingWire({
+			reasoning: "REASONING-C",
+			text: "PARTIAL-C",
+			call: "lookup-2",
+		});
+		h.hooks.snapshot = (next) => {
+			if (
+				next.executions.some(
+					(e) => e.callId === "lookup-2" && e.state === "succeeded",
+				)
+			)
+				setTimeout(wire.die);
+		};
+		h.network.script(
+			PRIMARY,
+			(c) => respond(c.transport, { call: "lookup-1" }),
+			() => wire.response,
+		);
+		h.network.script(FALLBACK, (c) =>
+			respond(c.transport, { text: "fallback closing answer" }),
+		);
+		await h.run();
+		// Each call ran once, on the provider that proposed it; the fallback ran none.
+		expect(h.ran).toEqual({ primary: 2, fallback: 0 });
+		expect(h.network.to(FALLBACK)).toHaveLength(1);
+		const closing = h.network.to(FALLBACK)[0];
+		expect(closing.body.tools).toBeUndefined();
+		expect(closing.text).not.toContain("PARTIAL-C");
+		expect(closing.text).not.toContain("REASONING-C");
+		const messages = messagesOf(closing.body);
+		const called = messages.flatMap(
+			(m) => m.tool_calls?.map((c) => c.id) ?? [],
+		);
+		const answered = messages
+			.filter((m) => m.role === "tool")
+			.map((m) => m.tool_call_id);
+		expect(called.sort()).toEqual(["lookup-1", "lookup-2"]);
+		expect(answered.sort()).toEqual(["lookup-1", "lookup-2"]);
+	});
 });
 
 describe("no failover while a tool is running or after an uncertain execution", () => {

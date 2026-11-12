@@ -9,10 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ToolCallEntry } from "../messages-types";
 import {
+	dyingWire,
 	failWith,
 	fakeNetwork,
 	hang,
 	httpFailure,
+	messagesOf,
 	modelRow,
 	providerRecord,
 	respond,
@@ -447,5 +449,34 @@ describe.each(
 			stopCause: "context_capacity",
 		});
 		expect(JSON.stringify(snapshot?.original.messages)).toContain(message);
+	});
+});
+
+describe("failover through the prepared turn, after partial output (streaming)", () => {
+	it("the closing carries the settled evidence and none of the failed step", async () => {
+		const t = setup("streaming");
+		const wire = dyingWire({
+			reasoning: "REASONING-OF-PROVIDER-A",
+			text: "PARTIAL-B",
+		});
+		t.network.script(
+			PRIMARY,
+			(c) => respond(c.transport, { call: "lookup-1" }),
+			() => {
+				setTimeout(wire.die, 20);
+				return wire.response;
+			},
+		);
+		t.network.script(FALLBACK, (c) =>
+			respond(c.transport, { text: "closing answer" }),
+		);
+		await t.run();
+		const closing = t.network.to(FALLBACK)[0];
+		expect(closing.text).toContain("SETTLED-EVIDENCE");
+		expect(closing.text).not.toContain("PARTIAL-B");
+		expect(closing.text).not.toContain("REASONING-OF-PROVIDER-A");
+		expect(
+			messagesOf(closing.body).filter((m) => m.role === "assistant"),
+		).toHaveLength(1);
 	});
 });

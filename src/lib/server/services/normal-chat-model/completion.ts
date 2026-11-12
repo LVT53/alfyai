@@ -81,6 +81,12 @@ export type NormalChatContinuationStep = {
 	response: ModelMessage[];
 	/** Failed pre-work output is retained for audit, never supplied to a fallback. */
 	responseExcludedFromContext?: boolean;
+	/**
+	 * Written by a provider that failed after tools ran, whose closing moved to
+	 * another provider. The response stays whole for audit; what the destination
+	 * is sent of it is `forAnotherProvider`'s.
+	 */
+	fromFailedProvider?: boolean;
 	finished: boolean;
 	toolAttempted: boolean;
 	finishReason: string | null;
@@ -213,6 +219,44 @@ function cause(reason: string | null): NormalChatStopCause {
 }
 function clone<T>(value: T): T {
 	return cloneNormalChatContextValue(value);
+}
+
+/**
+ * A step written by a provider that failed, as the provider the closing moved to
+ * is sent it. Reasoning belongs to the model that wrote it, so none of it goes to
+ * another provider here (a stored reply's history never replays any, and the
+ * flatten and local-to-cloud gates drop it). A step that finished keeps its words
+ * and its calls. A step that never finished is a turn cut off in the middle of a
+ * word: its words go too, and only what settled in it stays, a tool call that has
+ * its result, with that result.
+ */
+function forAnotherProvider(step: NormalChatContinuationStep): ModelMessage[] {
+	const settled = new Set<string>();
+	for (const message of step.response)
+		if (Array.isArray(message.content))
+			for (const part of message.content)
+				if (part.type === "tool-result") settled.add(part.toolCallId);
+	const sent: ModelMessage[] = [];
+	for (const message of step.response) {
+		if (message.role !== "assistant") {
+			// A tool message is results, which are settled by being there.
+			sent.push(message);
+			continue;
+		}
+		if (!Array.isArray(message.content)) {
+			if (step.finished) sent.push(message);
+			continue;
+		}
+		const content = message.content.filter(
+			(part) =>
+				part.type !== "reasoning" &&
+				(step.finished ||
+					((part.type === "tool-call" || part.type === "tool-result") &&
+						settled.has(part.toolCallId))),
+		);
+		if (content.length) sent.push({ ...message, content });
+	}
+	return sent;
 }
 
 /** One engine for plain and streaming. The legacy API enters this ONLY with completionPolicy. */
@@ -374,9 +418,12 @@ export async function* runNormalChatCompletion(
 		step: NormalChatContinuationStep,
 	): ModelMessage[] => {
 		if (step.responseExcludedFromContext) return [];
-		if (phase !== "closing") return step.response;
+		const response = step.fromFailedProvider
+			? forAnotherProvider(step)
+			: step.response;
+		if (phase !== "closing") return response;
 		const results = new Set(
-			step.response.flatMap((message) =>
+			response.flatMap((message) =>
 				message.role === "tool"
 					? message.content
 							.filter((part) => part.type === "tool-result")
@@ -397,7 +444,7 @@ export async function* runNormalChatCompletion(
 		);
 		// A rejected call is not execution evidence. Remove only its unmatched
 		// request from the outbound projection; retain the lossless audit journal.
-		return step.response.flatMap((message): ModelMessage[] => {
+		return response.flatMap((message): ModelMessage[] => {
 			if (message.role !== "assistant" || !Array.isArray(message.content))
 				return [message];
 			const content = message.content.filter(
@@ -1335,6 +1382,10 @@ export async function* runNormalChatCompletion(
 			const fallback = await deps.fallback?.(rawError);
 			if (externalAbort()) continue;
 			if (fallback && Date.now() < snapshot.deadlineAt) {
+				// What the dead provider wrote stays in the journal; the destination is
+				// sent its completed steps and its settled calls, not its unfinished turn.
+				for (const step of snapshot.steps)
+					if (step.attemptId === attemptId) step.fromFailedProvider = true;
 				params = {
 					...params,
 					provider: fallback.provider,
