@@ -132,7 +132,8 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   (`[TURN_SETTLED]`, with no text and no names). And one anonymous record per
   reply (which model, how it ended, how many tokens, how long) is kept after its
   chat is deleted and for incognito chats too; it holds no user, chat or message
-  id and none of the conversation, so it cannot be tied back to either.
+  id and none of the conversation, and an incognito chat's record carries no id
+  at all, so it cannot be tied back to that chat or to the person.
 
 ### Fixed
 
