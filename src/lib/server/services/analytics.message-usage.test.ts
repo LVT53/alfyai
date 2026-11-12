@@ -213,6 +213,40 @@ it("reads a saved turn's duration from its message's recorded time, never from t
 	expect(dashboard.personal.avgGenerationMs).toBe((2600 + 1400 + 1400) / 3);
 });
 
+// A reload reads the same number as the live usage read: the message's recorded
+// time, and none (never the attempts' sum) when that row is missing or empty.
+it("shows a reloaded ledger turn the message's recorded time, and none when there is none", async () => {
+	await segment("saved", { generationTimeMs: 700 }, 2);
+	await segment("blank", { generationTimeMs: 700 }, 2);
+	await segment("none", { generationTimeMs: 700 }, 2);
+	database.db
+		.insert(schema.messageAnalytics)
+		.values([
+			{
+				id: "ma-saved",
+				messageId: "saved",
+				userId: "u",
+				model: "m",
+				generationTimeMs: 2600,
+			},
+			{
+				id: "ma-blank",
+				messageId: "blank",
+				userId: "u",
+				model: "m",
+				generationTimeMs: null,
+			},
+		])
+		.run();
+	const analytics = await import("./analytics");
+	const ids = ["saved", "blank", "none"];
+	const history = await analytics.getMessageReadUsageProjections("c", ids);
+	expect(
+		history.availability === "resolved" &&
+			ids.map((id) => history.projections.get(id)?.generationTimeMs),
+	).toEqual([2600, null, null]);
+});
+
 // schema.ts declares a unique index on message_analytics.message_id that no
 // migration ever created, so a message can have two rows (a replayed save). The
 // recorded time is then the last row's, as the dashboard's map reads it, and the

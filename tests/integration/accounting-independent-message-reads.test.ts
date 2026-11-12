@@ -196,7 +196,9 @@ it("preserves observed healthy ledger message identity without stale legacy numb
 			modelId: "provider:p:m",
 			modelDisplayName: "Accounting display",
 			costUsd: 0.00014,
-			generationDurationMs: 1000,
+			// The time its message recorded (the fixture's analytics row), as live;
+			// cost and tokens come from the ledger, not from the legacy rows.
+			generationDurationMs: 8888,
 			responseTokenCount: 20,
 			thinkingTokenCount: 5,
 			totalTokenCount: 120,

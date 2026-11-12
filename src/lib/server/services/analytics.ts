@@ -3110,14 +3110,28 @@ export async function getMessageReadUsageProjections(
 				)
 				.all();
 			for (const row of rows) {
-				const usage: MessageReadUsageProjection = ledger.get(row.messageId) ?? {
-					status: "legacy",
-					generationTimeMs: row.generationTimeMs ?? row.legacyGenerationTimeMs,
-					costUsdMicros: row.costUsdMicros,
-					completionTokens: row.completionTokens,
-					reasoningTokens: row.reasoningTokens,
-					totalTokens: row.totalTokens,
-				};
+				const fromLedger = ledger.get(row.messageId);
+				// A saved ledger turn shows the number its person saw live: the time its
+				// message recorded when the reply was saved, as the usage read gives it.
+				// With no such time there is none, never the attempts' sum (which is
+				// shorter by the context preparation).
+				const usage: MessageReadUsageProjection = fromLedger
+					? {
+							...fromLedger,
+							generationTimeMs:
+								fromLedger.status === "ready"
+									? row.legacyGenerationTimeMs
+									: null,
+						}
+					: {
+							status: "legacy",
+							generationTimeMs:
+								row.generationTimeMs ?? row.legacyGenerationTimeMs,
+							costUsdMicros: row.costUsdMicros,
+							completionTokens: row.completionTokens,
+							reasoningTokens: row.reasoningTokens,
+							totalTokens: row.totalTokens,
+						};
 				projections.set(row.messageId, {
 					...usage,
 					modelId: row.modelId ?? row.legacyModel,

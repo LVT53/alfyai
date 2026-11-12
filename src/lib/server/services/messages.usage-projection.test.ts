@@ -328,12 +328,14 @@ it("projects multi-provider attempts once without mixing resumed segments or leg
 			totalTokenCount: 14,
 			generationDurationMs: 700,
 		});
+		// A reload shows the time the message recorded (9999 here), as live; the
+		// attempts' times (3500 in all) never stand in for it.
 		expect(rows[1]).toMatchObject({
 			costUsd: 0.00036,
 			responseTokenCount: 35,
 			thinkingTokenCount: 7,
 			totalTokenCount: 205,
-			generationDurationMs: 3500,
+			generationDurationMs: 9999,
 		});
 		expect(rows[2]).toMatchObject({
 			costUsd: 0.00014,
@@ -438,7 +440,7 @@ it("keeps a pending segment unknown despite known children and legacy latency un
 		responseTokenCount: 40,
 		thinkingTokenCount: 10,
 		totalTokenCount: 240,
-		generationDurationMs: 2000,
+		generationDurationMs: 9999,
 	});
 });
 
@@ -463,7 +465,7 @@ it("preserves ready zero values and unknown optional observations without legacy
 		responseTokenCount: 0,
 		thinkingTokenCount: 0,
 		totalTokenCount: 0,
-		generationDurationMs: 0,
+		generationDurationMs: 9999,
 	});
 	expect(rows[1]).toMatchObject({
 		costUsd: 0.00028,
@@ -471,5 +473,6 @@ it("preserves ready zero values and unknown optional observations without legacy
 		totalTokenCount: 240,
 	});
 	expect(rows[1].thinkingTokenCount).toBeUndefined();
-	expect(rows[1].generationDurationMs).toBeUndefined();
+	// The time is the message's recorded one for both, whatever the attempts hold.
+	expect(rows[1].generationDurationMs).toBe(9999);
 });
