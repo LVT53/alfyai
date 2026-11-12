@@ -55,6 +55,7 @@ import { type AskAnswer, isAskToolName } from "$lib/shared/ask-user";
 import {
 	parseNormalChatFinalization,
 	projectNormalChatFinalization,
+	TURN_FINALIZATION_WINDOW_MS,
 } from "$lib/shared/normal-chat-completion";
 import type { NormalChatOutputProjection } from "$lib/shared/normal-chat-output";
 import {
@@ -593,6 +594,16 @@ export function createBrowserNormalChatClientTurnRuntime(
 
 /** How long Retry waits for the server to say whether it still runs the turn before it goes on without an answer. */
 const STREAM_QUESTION_MAX_MS = 5000;
+
+/**
+ * How long a pending observation is kept after the model deadline the server
+ * published. Past that deadline the server still has its finalization window
+ * (`TURN_FINALIZATION_WINDOW_MS`, the same constant its watchdog uses) to save
+ * the reply or to fail explicitly; the margin on top covers the 2 s observation
+ * poll, the reconnect round trip and a commit that began just before the window
+ * closed. So the browser never gives up before the server can have finished.
+ */
+const PENDING_OBSERVATION_GRACE_MS = TURN_FINALIZATION_WINDOW_MS + 10_000;
 
 // A turn that waits for a server update (ADR-0054, "An Update During A Turn"):
 
@@ -2421,9 +2432,11 @@ export function createNormalChatClientTurnRuntime(
 					// its downstream observation is detached, including recheck gaps.
 					pendingObservation = params;
 					params.observedScope = observation;
-					// Older servers omit the budget: allow the default five-minute total
-					// model budget, plus a finite thirty-second persistence grace. New
-					// servers publish their actual working + closing absolute deadline.
+					// Older servers omit the budget (and predate the finalization
+					// window): allow the default five-minute total model budget, plus a
+					// finite thirty-second persistence grace. New servers publish their
+					// actual working + closing absolute model deadline, and the browser
+					// waits out their finalization window after it.
 					params.observationDeadlineAt ??= Date.now() + 300_000 + 30_000;
 					if (
 						typeof observation.deadlineAt === "number" &&
@@ -2435,7 +2448,7 @@ export function createNormalChatClientTurnRuntime(
 							observation.deadlineAt,
 						);
 						params.observationDeadlineAt =
-							params.observedServerDeadlineAt + 30_000;
+							params.observedServerDeadlineAt + PENDING_OBSERVATION_GRACE_MS;
 					}
 					setPhase("polling", params.placeholderId);
 					const epoch = turnEpoch;

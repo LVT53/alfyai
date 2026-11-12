@@ -25,7 +25,10 @@ import type {
 	StreamTimingSnapshot,
 } from "$lib/services/streaming";
 import type { AskAnswer } from "$lib/shared/ask-user";
-import { projectNormalChatFinalization } from "$lib/shared/normal-chat-completion";
+import {
+	projectNormalChatFinalization,
+	TURN_FINALIZATION_WINDOW_MS,
+} from "$lib/shared/normal-chat-completion";
 import { createNormalChatOutputAccumulator } from "$lib/shared/normal-chat-output";
 import { finalizeStreamingMessageList } from "../../routes/(app)/chat/[conversationId]/_helpers";
 
@@ -11218,13 +11221,52 @@ describe("canonical observation through the real message-list finalizer", () => 
 		expect(made.runtime.snapshot().isSending).toBe(false);
 		made.runtime.detach();
 	});
+	it("keeps observing a pending turn through the server's finalization window after the deadline it published", async () => {
+		const saved = savedReply();
+		const made = await observing("normal", saved);
+		// The model deadline passes after 4 s. The server then still has its
+		// finalization window to save the reply (or to fail explicitly), so the
+		// browser must not give up before the window has passed.
+		const deadlineAt = Date.now() + 4_000;
+		for (
+			let time = 0;
+			time < 4_000 + TURN_FINALIZATION_WINDOW_MS + 2_000;
+			time += 2000
+		) {
+			required(made.streamInvocations.at(-1)).callbacks.onWaiting?.({
+				version: 1,
+				state: "pending",
+				streamId: "canonical-stream",
+				conversationId: "conv-1",
+				turnId: "canonical-turn",
+				segmentId: "canonical-segment",
+				deadlineAt,
+			});
+			await vi.advanceTimersByTimeAsync(2000);
+			expect(made.runtime.snapshot().isSending).toBe(true);
+		}
+		expect(made.adapters.setSendError).not.toHaveBeenCalledWith(
+			"chat.observationUnavailable",
+		);
+		// The server finished at the end of its window: the saved answer arrives.
+		required(made.streamInvocations.at(-1)).callbacks.onEnd("", made.receipt);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(made.messages.at(-1)?.id).toBe(saved.id);
+		expect(made.runtime.snapshot().isSending).toBe(false);
+		made.runtime.detach();
+	});
 	it.each([
 		false,
 		true,
 	])("bounds pending observation through persistence grace (server budget=%s)", async (serverBudget) => {
 		const made = await observing("normal", savedReply());
 		const deadlineAt = Date.now() + 4_000;
-		const elapsed = serverBudget ? 34_000 : 330_000;
+		// A server that publishes its deadline gets the browser's patience for its
+		// finalization window after it (the test above), and no more than a margin
+		// beyond: well within two windows it is given up.
+		const elapsed = serverBudget
+			? 4_000 + 2 * TURN_FINALIZATION_WINDOW_MS
+			: 330_000;
 		for (let time = 0; time < elapsed; time += 2000) {
 			required(made.streamInvocations.at(-1)).callbacks.onWaiting?.({
 				version: 1,

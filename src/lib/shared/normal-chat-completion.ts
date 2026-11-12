@@ -118,6 +118,9 @@ export function projectNormalChatFinalization(
  *
  * Both transports' watchdogs (`chat-turn/stream-orchestrator.ts`,
  * `chat-turn/plain-turn-lifetime.ts`) cut a turn off at the model deadline plus
- * this window. Change it in one place.
+ * this window, and the browser, which waits on a pending observation, waits
+ * for the same window after the deadline the server published
+ * (`client/normal-chat-client-turn-runtime.ts`), so it never gives up before the
+ * server can have finished. Change it in one place.
  */
 export const TURN_FINALIZATION_WINDOW_MS = 30_000;
