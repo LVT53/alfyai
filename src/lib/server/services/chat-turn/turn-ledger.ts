@@ -287,6 +287,59 @@ export function observeTurn(scope: TurnScope): TurnRecord | null {
 				.get()?.normal_chat_turns ?? null,
 	);
 }
+export type TurnSettledFacts = {
+	/** Null for a turn that left no ledger row (an incognito chat). */
+	segmentId: string | null;
+	outcome: string | null;
+	stopCause: string | null;
+	workingStopCause: string | null;
+	phase: string | null;
+	closingAttempted: boolean;
+	recoveryCount: number;
+	/** A reply was saved and linked. */
+	saved: boolean;
+	accountingStatus: string | null;
+	attempts: readonly {
+		/** Null for an attempt that left no ledger row. */
+		attemptId: string | null;
+		phase: string;
+		outcome: string | null;
+		safeStopCause: string | null;
+		modelId: string;
+	}[];
+};
+
+/**
+ * One status line for the server log the first time a turn's outcome is
+ * written: the ledger rows go with their conversation, the line does not. Only
+ * `key=value` facts of the turn, never a user, conversation or message id, a
+ * title or any text; the attempt ids are there so that a billing row
+ * (`turn-attempt:<attemptId>`) of a deleted chat can still be matched to the
+ * outcome. Logging must never fail the settle it reports.
+ */
+export function logTurnSettled(facts: TurnSettledFacts): void {
+	try {
+		const attempts = facts.attempts
+			.map((a) =>
+				[
+					a.attemptId,
+					a.phase,
+					a.outcome ?? "-",
+					a.safeStopCause ?? "-",
+					a.modelId,
+				]
+					.filter((part) => part !== null)
+					.join(":"),
+			)
+			.join(",");
+		console.info(
+			`[TURN_SETTLED] segment=${facts.segmentId?.slice(0, 8) ?? "-"} outcome=${facts.outcome ?? "-"} stop=${facts.stopCause ?? "-"} working=${facts.workingStopCause ?? "-"} phase=${facts.phase ?? "-"} closing=${facts.closingAttempted ? 1 : 0} recovery=${facts.recoveryCount} saved=${facts.saved ? 1 : 0} accounting=${facts.accountingStatus ?? "-"} attempts=${attempts || "-"}`,
+		);
+	} catch {
+		// A status line is never worth a failed settle.
+	}
+}
+
 /** Terminal manifests are immutable, but listed late usage may still reconcile. */
 export function settleTurn(
 	scope: TurnScope,
@@ -305,7 +358,7 @@ export function settleTurn(
 	);
 	if (terminal.attemptIds.length !== JSON.parse(attemptIdsJson).length)
 		throw new TypeError("Duplicate attempt IDs");
-	return durable(() =>
+	const { settled, written } = durable(() =>
 		db.transaction((tx) => {
 			let row = requireTurn(tx, scope);
 			if (terminal.messageId) {
@@ -331,7 +384,7 @@ export function settleTurn(
 					)
 				)
 					throw new TurnLedgerConflictError("Terminal conflict");
-				return row;
+				return { settled: row, written: null };
 			}
 			const attempts = tx
 				.select()
@@ -345,9 +398,25 @@ export function settleTurn(
 				.where(scoped(scope))
 				.run();
 			reconcile(tx, requireTurn(tx, scope));
-			return requireTurn(tx, scope);
+			return { settled: requireTurn(tx, scope), written: attempts };
 		}),
 	);
+	// Only the call that wrote the outcome reports it, and only once it is
+	// committed: a replay (idempotent) or a refused conflict logs nothing.
+	if (written)
+		logTurnSettled({
+			segmentId: settled.segmentId,
+			outcome: settled.outcome,
+			stopCause: settled.stopCause,
+			workingStopCause: settled.workingStopCause,
+			phase: settled.phase,
+			closingAttempted: settled.closingAttempted,
+			recoveryCount: settled.recoveryCount,
+			saved: settled.messageId !== null,
+			accountingStatus: settled.accountingStatus,
+			attempts: written,
+		});
+	return settled;
 }
 /** Caller supplies authoritative currently live process/run owners. This operation never generates. */
 export function observeAbandonedTurn(

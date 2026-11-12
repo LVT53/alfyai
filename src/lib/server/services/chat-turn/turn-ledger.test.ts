@@ -1059,3 +1059,165 @@ it("adds terminal facts after pricing, then refuses to rewrite or erase those fa
 		}),
 	).rejects.toThrow(/conflict/i);
 });
+
+// The ledger rows go with their conversation, so a turn's outcome is also
+// written to the server log, once, when it first reaches the ledger.
+const settledLines = (info: { mock: { calls: unknown[][] } }) =>
+	info.mock.calls
+		.map(([line]) => String(line))
+		.filter((line) => line.startsWith("[TURN_SETTLED]"));
+
+it("logs one content-free [TURN_SETTLED] line the first time an outcome is written, never for a replay", async () => {
+	const info = vi.spyOn(console, "info").mockImplementation(() => {});
+	const segmentId = "abcdef0123456789";
+	const turn = { ...scope, segmentId };
+	const first = `${segmentId}:attempt:0`;
+	const second = `${segmentId}:attempt:1`;
+	ledger.admitTurn({ ...turn, ownerId: "process" });
+	database.db
+		.insert(schema.messages)
+		.values({
+			id: "reply",
+			conversationId: "c",
+			role: "assistant",
+			content: "answer",
+		})
+		.run();
+	await ledger.recordTurnAttempt(turn, {
+		...attempt,
+		attemptId: first,
+		outcome: "failed",
+		safeStopCause: "transport_error",
+	});
+	await ledger.recordTurnAttempt(turn, {
+		...attempt,
+		attemptId: second,
+		phase: "closing",
+		providerId: "p2",
+		modelId: "provider:p2:m2",
+		providerModelName: "second",
+		outcome: "answered",
+		safeStopCause: "natural_stop",
+	});
+	expect(settledLines(info)).toEqual([]);
+	const answered = {
+		...terminal,
+		outcome: "answered",
+		stopCause: "natural_stop",
+		attemptIds: [first, second],
+		messageId: "reply",
+	} as const;
+	ledger.settleTurn(turn, answered);
+	expect(settledLines(info)).toEqual([
+		`[TURN_SETTLED] segment=abcdef01 outcome=answered stop=natural_stop working=tool_budget phase=closing closing=1 recovery=1 saved=1 accounting=ready attempts=${first}:working:failed:transport_error:provider:p1:m1,${second}:closing:answered:natural_stop:provider:p2:m2`,
+	]);
+	// An idempotent replay, and a conflicting one that is refused, add nothing.
+	ledger.settleTurn(turn, answered);
+	expect(() =>
+		ledger.settleTurn(turn, { ...answered, outcome: "failed" }),
+	).toThrowError(/conflict/i);
+	expect(settledLines(info)).toHaveLength(1);
+	info.mockRestore();
+});
+
+it("logs an abandoned turn's interruption once, and nothing while its owner is alive", async () => {
+	const info = vi.spyOn(console, "info").mockImplementation(() => {});
+	ledger.admitTurn({ ...scope, ownerId: "old" });
+	await ledger.recordTurnAttempt(scope, {
+		...attempt,
+		outcome: null,
+		safeStopCause: null,
+		inputTokens: null,
+		outputTokens: null,
+		totalTokens: null,
+		usageFinal: false,
+	});
+	ledger.observeAbandonedTurn(scope, ["old"]);
+	expect(settledLines(info)).toEqual([]);
+	ledger.observeAbandonedTurn(scope, ["new"]);
+	ledger.observeAbandonedTurn(scope, ["new"]);
+	expect(settledLines(info)).toEqual([
+		"[TURN_SETTLED] segment=s outcome=incomplete stop=uncertain_execution working=uncertain_execution phase=working closing=0 recovery=0 saved=0 accounting=pending attempts=a:working:-:-:provider:p1:m1",
+	]);
+	info.mockRestore();
+});
+
+it("prints a turn with no attempts as a dash", () => {
+	const info = vi.spyOn(console, "info").mockImplementation(() => {});
+	ledger.admitTurn({ ...scope, ownerId: "process" });
+	ledger.settleTurn(scope, { ...terminal, attemptIds: [] });
+	expect(settledLines(info)).toEqual([
+		"[TURN_SETTLED] segment=s outcome=failed stop=transport_error working=tool_budget phase=closing closing=1 recovery=1 saved=0 accounting=ready attempts=-",
+	]);
+	info.mockRestore();
+});
+
+it("never makes a settle fail because the log failed", () => {
+	const info = vi.spyOn(console, "info").mockImplementation(() => {
+		throw new Error("the log sink is down");
+	});
+	ledger.admitTurn({ ...scope, ownerId: "process" });
+	expect(
+		ledger.settleTurn(scope, { ...terminal, attemptIds: [] }),
+	).toMatchObject({ outcome: "failed" });
+	expect(info).toHaveBeenCalled();
+	info.mockRestore();
+	expect(ledger.observeTurn(scope)).toMatchObject({ outcome: "failed" });
+});
+
+it("prints no user, conversation or message identity, no title and no text", () => {
+	database.db
+		.insert(schema.users)
+		.values({
+			id: "user-id-private",
+			email: "private@test.invalid",
+			passwordHash: "x",
+		})
+		.run();
+	database.db
+		.insert(schema.conversations)
+		.values({
+			id: "conversation-id-private",
+			userId: "user-id-private",
+			title: "A private title",
+		})
+		.run();
+	database.db
+		.insert(schema.messages)
+		.values({
+			id: "message-id-private",
+			conversationId: "conversation-id-private",
+			role: "assistant",
+			content: "Some private words",
+		})
+		.run();
+	const turn = {
+		userId: "user-id-private",
+		conversationId: "conversation-id-private",
+		turnId: "turn-id-private",
+		segmentId: "segment-private",
+	};
+	const info = vi.spyOn(console, "info").mockImplementation(() => {});
+	ledger.admitTurn({ ...turn, ownerId: "process" });
+	ledger.settleTurn(turn, {
+		...terminal,
+		attemptIds: [],
+		messageId: "message-id-private",
+	});
+	const lines = settledLines(info);
+	info.mockRestore();
+	expect(lines).toHaveLength(1);
+	expect(lines[0]).toMatch(
+		/^\[TURN_SETTLED\] segment=segment- outcome=failed .* saved=1 /,
+	);
+	for (const private_ of [
+		"user-id-private",
+		"conversation-id-private",
+		"message-id-private",
+		"turn-id-private",
+		"A private title",
+		"Some private words",
+		"private@test.invalid",
+	])
+		expect(lines[0]).not.toContain(private_);
+});

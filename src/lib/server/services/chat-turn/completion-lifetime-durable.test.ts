@@ -903,6 +903,56 @@ it.each([
 	}
 });
 
+// The ledger rows go with their conversation, so the settle also writes one
+// content-free status line, the first time only, and never for an incognito chat.
+const settledLines = (info: { mock: { calls: unknown[][] } }) =>
+	info.mock.calls
+		.map(([line]) => String(line))
+		.filter((line) => line.startsWith("[TURN_SETTLED]"));
+
+it("logs one [TURN_SETTLED] line when finish settles a tracked turn, however often finish is called", async () => {
+	const info = vi.spyOn(console, "info").mockImplementation(() => {});
+	try {
+		const life = module.beginCompletionLifetime(input);
+		await life.register(attempt);
+		database.db
+			.insert(schema.messages)
+			.values({
+				id: "m",
+				conversationId: "c",
+				role: "assistant",
+				content: "Canonical",
+			})
+			.run();
+		life.capture(snapshot(life.scope, true));
+		expect(settledLines(info)).toEqual([]);
+		await life.finish("m");
+		await life.finish("m");
+		expect(settledLines(info)).toEqual([
+			`[TURN_SETTLED] segment=${life.scope.segmentId.slice(0, 8)} outcome=answered stop=natural_stop working=natural_stop phase=working closing=0 recovery=0 saved=1 accounting=ready attempts=a:working:-:-:provider:p1:m1`,
+		]);
+	} finally {
+		info.mockRestore();
+	}
+});
+
+it("logs no [TURN_SETTLED] line for an incognito turn", async () => {
+	database.sqlite
+		.prepare("UPDATE conversations SET memory_incognito = 1 WHERE id = ?")
+		.run("c");
+	const info = vi.spyOn(console, "info").mockImplementation(() => {});
+	try {
+		const life = module.beginCompletionLifetime(input);
+		expect(life.tracked).toBe(false);
+		await life.register(attempt);
+		life.capture(snapshot(life.scope, true));
+		await life.finish();
+		expect(settledLines(info)).toEqual([]);
+	} finally {
+		info.mockRestore();
+	}
+});
+
 it("publishes the admission deadline before preparation and never extends it from a model snapshot", async () => {
 	const deadlineAt = Date.now() + 5000;
 	const life = module.beginCompletionLifetime({ ...input, ...{ deadlineAt } });
