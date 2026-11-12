@@ -167,9 +167,11 @@ it("batches scoped saved-assistant projections without writing or charging a mes
 // The number under a reply must not change when its accounting settles: the
 // page keeps the time it was told at the end of the stream, which is the
 // message's own (request start to save, context preparation included) and
-// longer than the attempts' sum. The dashboard has the rule: a saved turn's
-// duration is its message's recorded time, the attempts' sum only the fallback.
-it("reads a saved turn's duration as the dashboard does: the message's own time, else the attempts' sum", async () => {
+// longer than the attempts' sum. So the usage read gives the message's recorded
+// time, and null (the page keeps its own) when that row is not there yet or
+// recorded none: never the attempts' sum. The dashboard, which has no page to
+// keep a number for, still falls back to the sum.
+it("reads a saved turn's duration from its message's recorded time, never from the attempts' sum", async () => {
 	await segment("saved", { generationTimeMs: 700 }, 2); // attempts sum 1400
 	await segment("blank", { generationTimeMs: 700 }, 2); // row without a time
 	await segment("none", { generationTimeMs: 700 }, 2); // no row at all
@@ -193,19 +195,18 @@ it("reads a saved turn's duration as the dashboard does: the message's own time,
 		])
 		.run();
 	const analytics = await import("./analytics");
-	// The endpoint the page polls once the accounting is ready.
 	for (const [id, expected] of [
 		["saved", 2600],
-		["blank", 1400],
-		["none", 1400],
+		["blank", null],
+		["none", null],
 	] as const) {
 		expect(await analytics.getMessageUsageState("u", "c", id)).toMatchObject({
 			status: "ready",
 			generationDurationMs: expected,
 		});
 	}
-	// And the dashboard: the same three durations, averaged. (The plain sums
-	// would average to 1400.)
+	// The dashboard averages the same three turns with the fallback: the sums
+	// would average to 1400, the recorded time lifts the first to 2600.
 	const dashboard = await analytics.getAnalyticsDashboardReadModel({
 		user: { id: "u", role: "user" },
 	});
@@ -297,7 +298,7 @@ it("distinguishes a sealed ready empty manifest from unobserved pending usage", 
 		totalTokens: null,
 	});
 	expect(await analytics.getMessageUsageState("u", "c", "empty")).toMatchObject(
-		{ status: "ready", costUsd: 0, generationDurationMs: 0 },
+		{ status: "ready", costUsd: 0, generationDurationMs: null },
 	);
 });
 

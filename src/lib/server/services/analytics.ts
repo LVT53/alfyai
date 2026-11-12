@@ -120,21 +120,6 @@ async function loadDashboardUsageRows(): Promise<UsageRow[]> {
 		});
 }
 
-/**
- * How long a saved turn took, stated once for the dashboard and for the number
- * under a reply: the time its message recorded when the reply was saved
- * (request start to save, context preparation included), else the sum of its
- * attempts' own model-call times. The page keeps the time it was told at the end
- * of the stream, so the sum, which is shorter, may never replace the message's
- * own time once that exists.
- */
-function savedTurnDurationMs<T extends number | null>(
-	recorded: number | null | undefined,
-	attemptsSum: T,
-): number | T {
-	return recorded ?? attemptsSum;
-}
-
 /** A saved turn contributes one duration, regardless of its billed children. */
 function generationDurations(
 	rows: UsageRow[],
@@ -154,10 +139,8 @@ function generationDurations(
 	}
 	for (const [messageId, attemptsDuration] of linked) {
 		durations.push(
-			savedTurnDurationMs(
-				context.messageAnalyticsById.get(messageId)?.generationTimeMs,
+			context.messageAnalyticsById.get(messageId)?.generationTimeMs ??
 				attemptsDuration,
-			),
 		);
 	}
 	return durations;
@@ -3154,9 +3137,11 @@ export async function getMessageReadUsageProjections(
 }
 
 /**
- * The time a message's own analytics row recorded when its reply was saved. The
- * last row wins, as in the dashboard's map: schema.ts declares a unique index on
- * message_id that no migration ever created, so a replayed save can leave two.
+ * The time a message's own analytics row recorded when its reply was saved
+ * (request start to save, context preparation included), or null when the row
+ * is not there yet or recorded none. The last row wins, as in the dashboard's
+ * map: schema.ts declares a unique index on message_id that no migration ever
+ * created, so a replayed save can leave two.
  */
 async function readRecordedGenerationTimeMs(
 	userId: string,
@@ -3218,9 +3203,13 @@ export async function getMessageUsageState(
 		return {
 			status: "ready",
 			costUsd: (ledger.costUsdMicros ?? 0) / 1_000_000,
-			generationDurationMs: savedTurnDurationMs(
-				await readRecordedGenerationTimeMs(userId, messageId),
-				ledger.generationTimeMs,
+			// Never the attempts' sum: it is shorter than the time the page was told
+			// at the end of the stream. The message's own row is written after that
+			// end frame is sent (the deferred post-turn projection), so a read that
+			// comes first finds none and answers null, and the page keeps its time.
+			generationDurationMs: await readRecordedGenerationTimeMs(
+				userId,
+				messageId,
 			),
 			...(await getConversationCostSummary(conversationId)),
 		};
