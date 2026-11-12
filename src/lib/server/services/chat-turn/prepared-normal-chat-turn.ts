@@ -37,6 +37,7 @@ import { normalizeAssistantOutputWithSkillControl } from "./normalizer";
 import { logOutboundMessageShape } from "./outbound-debug";
 import type { PlainNormalChatSendModelResult } from "./plain-normal-chat-model-run";
 import { buildReasoningDepthProviderOptions } from "./reasoning-depth-effort";
+import type { RunLogTiming } from "./run-log";
 import {
 	createToolPack,
 	estimateTurnPromptTokens,
@@ -55,7 +56,7 @@ export type CompletionReceipt = {
 	readonly skillControl?: Omit<ParsedSkillControlEnvelope, "visibleText">;
 	segmentId?: string;
 	getSnapshot(): NormalChatContinuationSnapshot | null;
-	finish(messageId?: string): Promise<void>;
+	finish(messageId?: string, timing?: RunLogTiming): Promise<void>;
 };
 type Provenance = {
 	version: 1;

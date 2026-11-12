@@ -3073,3 +3073,41 @@ export const normalChatAttempts = sqliteTable(
 		segmentIdx: index("normal_chat_attempts_segment_idx").on(t.segmentId),
 	}),
 );
+
+// One anonymous, content-free record per Normal Chat model run, written by
+// `services/chat-turn/run-log.ts` so that a model failure is known whatever
+// happens to the chat afterwards. Deliberately no foreign keys and no user,
+// conversation or message id: it survives the deletion of its conversation,
+// its message and its person, and it covers runs of incognito chats, which have
+// no ledger rows (an untracked run has no segment id and no attempt ids, so it
+// cannot be joined to anything). `settled_at` stays null for a run that never
+// reported an end. `attempts_json` is one entry per attempt.
+export const normalChatRunLog = sqliteTable(
+	"normal_chat_run_log",
+	{
+		id: text("id").primaryKey(),
+		tracked: integer("tracked", { mode: "boolean" }).notNull(),
+		segmentId: text("segment_id"),
+		startedAt: integer("started_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		settledAt: integer("settled_at", { mode: "timestamp" }),
+		outcome: text("outcome").$type<NormalChatCompletion["outcome"]>(),
+		stopCause: text("stop_cause").$type<NormalChatStopCause>(),
+		workingStopCause: text("working_stop_cause").$type<NormalChatStopCause>(),
+		phase: text("phase").$type<NormalChatCompletion["phase"]>(),
+		closingAttempted: integer("closing_attempted", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		recoveryCount: integer("recovery_count").notNull().default(0),
+		saved: integer("saved", { mode: "boolean" }).notNull().default(false),
+		firstByteMs: integer("first_byte_ms"),
+		firstThinkingMs: integer("first_thinking_ms"),
+		firstTokenMs: integer("first_token_ms"),
+		generationTimeMs: integer("generation_time_ms"),
+		attemptsJson: text("attempts_json").notNull().default("[]"),
+	},
+	(t) => ({
+		segmentIdx: uniqueIndex("normal_chat_run_log_segment_idx").on(t.segmentId),
+	}),
+);

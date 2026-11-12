@@ -37,6 +37,7 @@ const requiredExistingTables = [
 	"messages",
 	"normal_chat_turns",
 	"normal_chat_attempts",
+	"normal_chat_run_log",
 	"projects",
 	"artifacts",
 	"artifact_links",

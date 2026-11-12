@@ -812,7 +812,17 @@ export async function finalizeChatTurn(
 			params.assistantResponse,
 		);
 	}
-	await params.completionTurn?.finish(assistantMessage?.id);
+	await params.completionTurn?.finish(
+		assistantMessage?.id,
+		params.analytics
+			? {
+					firstByteMs: params.analytics.firstByteMs,
+					firstThinkingMs: params.analytics.firstThinkingMs,
+					firstTokenMs: params.analytics.firstTokenMs,
+					generationTimeMs: params.analytics.generationTimeMs,
+				}
+			: undefined,
+	);
 
 	if (
 		!persistUserAttachmentsBeforeAssistantMessage &&

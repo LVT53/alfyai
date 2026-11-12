@@ -19,6 +19,7 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
 - `conversations` - Chat threads with optional project linking and durable sidebar pin/order state
 - `messages` - Chat turns with thinking/tool call metadata
 - `normal_chat_turns` / `normal_chat_attempts` - Content-free completion and actual-attempt accounting audit, owned by `services/chat-turn/turn-ledger.ts`. Ownership derives from the conversation FK (and its user FK); both cascade with chat/account erasure. Terminal message references survive assistant-row deletion. Incognito stays untracked. Analytics owns pricing and `usage_events` billing. Pass `turnSegmentId` to message analytics; association, terminal writes and late usage reconcile in either order inside the modules.
+- `normal_chat_run_log` - Anonymous, content-free record of one Normal Chat model run (outcome, each attempt's model, tokens and time, finalize's timing), written by `services/chat-turn/run-log.ts`. No foreign keys and no user, conversation or message id, so it survives deleting any of them and covers incognito runs (their row has no segment or attempt ids). `settled_at` null means the run never reported an end.
 - `ask_questions` - The questions a reply asked, its captured continuation, cascades with the chat and the asking row
 
 **Knowledge Tables:**

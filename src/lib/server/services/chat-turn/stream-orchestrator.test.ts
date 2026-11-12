@@ -761,7 +761,11 @@ describe("stream-orchestrator SSE contract", () => {
 			expect.objectContaining({ normalChatOutput: { version: 1, events } }),
 		);
 		expect(runPlainNormalChatSendModel).not.toHaveBeenCalled();
-		expect(finish).toHaveBeenCalledWith("msg-1");
+		// Finalize hands the turn's timing to the anonymous run record with the id.
+		expect(finish).toHaveBeenCalledWith(
+			"msg-1",
+			expect.objectContaining({ generationTimeMs: expect.any(Number) }),
+		);
 	});
 
 	it("does not return a durable receipt when the new user message cannot be saved", async () => {
@@ -1111,7 +1115,10 @@ describe("stream-orchestrator SSE contract", () => {
 			expect(run).toHaveBeenCalledTimes(1);
 			land({ id: "late-assistant" } as never);
 			await vi.advanceTimersByTimeAsync(0);
-			expect(finish).toHaveBeenCalledWith("late-assistant");
+			expect(finish).toHaveBeenCalledWith(
+				"late-assistant",
+				expect.objectContaining({ generationTimeMs: expect.any(Number) }),
+			);
 		} finally {
 			land({ id: "late-assistant" } as never);
 			await vi.advanceTimersByTimeAsync(0);

@@ -12,6 +12,16 @@ import {
 import type { NormalChatContinuationSnapshot } from "../normal-chat-model";
 import { isStreamActive } from "./active-streams";
 import {
+	completeRunLog,
+	logTurnSettled,
+	openRunLog,
+	type RunLogAttempt,
+	type RunLogOutcome,
+	type RunLogTiming,
+	recordRunLogAttempts,
+	settleRunLog,
+} from "./run-log";
+import {
 	admitTurn,
 	observeAbandonedTurn,
 	recordTurnAttempt,
@@ -321,6 +331,8 @@ export function beginCompletionLifetime(
 	if (Number.isFinite(admissionDeadline))
 		liveDeadlines.set(scope.segmentId, admissionDeadline);
 	const tracked = admission.status !== "untracked";
+	// The anonymous run record opens for every run, incognito ones included.
+	const runLogId = openRunLog({ tracked, segmentId: scope.segmentId });
 	const cancellation = new AbortController();
 	const registered = new Map<string, TurnAttempt>();
 	let snapshot: NormalChatContinuationSnapshot | null = null;
@@ -332,6 +344,68 @@ export function beginCompletionLifetime(
 	// When each attempt's model call began: the moment its durable registration
 	// completed, because the engine dispatches as soon as `register` returns.
 	const requestStartedAt = new Map<string, number>();
+	// What the anonymous run record keeps of the attempts. An incognito run has no
+	// ledger row, so this is what the lifetime holds in memory, and it carries no
+	// attempt ids.
+	const runLogAttempts = (): RunLogAttempt[] =>
+		[...registered.values()].map((a) => ({
+			attemptId: tracked ? a.attemptId : null,
+			phase: a.phase,
+			providerId: a.providerId,
+			modelId: a.modelId,
+			providerModelName: a.providerModelName,
+			outcome: a.outcome,
+			safeStopCause: a.safeStopCause,
+			inputTokens: a.inputTokens,
+			outputTokens: a.outputTokens,
+			reasoningTokens: a.reasoningTokens ?? null,
+			totalTokens: a.totalTokens,
+			usageFinal: a.usageFinal,
+			generationTimeMs: a.generationTimeMs ?? null,
+		}));
+	const recoveryCount = () =>
+		snapshot
+			? Math.max(
+					0,
+					snapshot.usage.filter((u) => u.segmentId === scope.segmentId).length -
+						1,
+				)
+			: 0;
+	const unreported = (): NormalChatCompletion =>
+		sealed ??
+		snapshot?.completion ?? {
+			version: 1,
+			turnId: scope.turnId,
+			segmentId: scope.segmentId,
+			phase: "working",
+			outcome: "incomplete",
+			stopCause: "uncertain_execution",
+			workingStopCause: "uncertain_execution",
+			closingAttempted: false,
+		};
+	// A run with no ledger row (incognito, or a ledger that failed) reports its
+	// own end from memory: the record, and for incognito the status line. Once.
+	let reportedFromMemory = false;
+	const reportFromMemory = (
+		completion: NormalChatCompletion,
+		line: boolean,
+	) => {
+		if (reportedFromMemory) return;
+		reportedFromMemory = true;
+		const facts: RunLogOutcome = {
+			outcome: completion.outcome,
+			stopCause: completion.stopCause,
+			workingStopCause: completion.workingStopCause,
+			phase: completion.phase,
+			closingAttempted: completion.closingAttempted,
+			recoveryCount: recoveryCount(),
+			saved: linkedMessageId !== null,
+			attempts: runLogAttempts(),
+		};
+		if (runLogId) settleRunLog({ id: runLogId }, facts);
+		if (line)
+			logTurnSettled({ ...facts, segmentId: null, accountingStatus: null });
+	};
 	const enqueue = (operation: () => Promise<void>) => {
 		const next = pending.then(() => {
 			if (failure) throw failure;
@@ -350,7 +424,6 @@ export function beginCompletionLifetime(
 				scope.segmentId,
 				Math.min(admissionDeadline, next.deadlineAt),
 			);
-		if (!tracked) return;
 		// Snapshot totals belong to Model Run. Prior segments already have their own admission/accounting.
 		for (const usage of next.usage) {
 			if (usage.turnId !== scope.turnId || usage.segmentId !== scope.segmentId)
@@ -360,7 +433,8 @@ export function beginCompletionLifetime(
 			lastUsage.set(usage.attemptId, key);
 			const original = registered.get(usage.attemptId);
 			if (!original) {
-				failure = new Error("Unregistered completion attempt usage");
+				if (tracked)
+					failure = new Error("Unregistered completion attempt usage");
 				continue;
 			}
 			// The attempt's own model-call time (a working attempt includes its tool
@@ -388,9 +462,10 @@ export function beginCompletionLifetime(
 				generationTimeMs,
 			};
 			registered.set(attempt.attemptId, attempt);
-			void enqueue(() => recordTurnAttempt(scope, attempt)).catch(
-				() => undefined,
-			);
+			if (tracked)
+				void enqueue(() => recordTurnAttempt(scope, attempt)).catch(
+					() => undefined,
+				);
 		}
 	};
 	return {
@@ -418,37 +493,40 @@ export function beginCompletionLifetime(
 			registered.set(entry.attemptId, entry);
 			if (tracked) await enqueue(() => recordTurnAttempt(scope, entry));
 			requestStartedAt.set(entry.attemptId, Date.now());
+			recordRunLogAttempts(runLogId, runLogAttempts());
 		},
-		async finish(messageId?: string) {
+		/**
+		 * Seals the run and settles it. Called more than once by design (the model
+		 * run ends it, finalize ends it again with the saved reply and the turn's
+		 * timing): the outcome is written by the first call only, and the saved
+		 * reply and the timing are filled into the anonymous run record once.
+		 */
+		async finish(messageId?: string, timing?: RunLogTiming) {
 			try {
 				if (messageId) linkedMessageId = messageId;
 				await pending;
-				if (failure) throw failure;
-				sealed ??= snapshot?.completion ?? {
-					version: 1,
-					turnId: scope.turnId,
-					segmentId: scope.segmentId,
-					phase: "working",
-					outcome: "incomplete",
-					stopCause: "uncertain_execution",
-					workingStopCause: "uncertain_execution",
-					closingAttempted: false,
-				};
-				if (!tracked && linkedMessageId)
-					await saveIncognitoReceipt(scope, linkedMessageId, sealed);
+				if (failure) {
+					reportFromMemory(unreported(), false);
+					throw failure;
+				}
+				sealed ??= unreported();
+				if (!tracked) {
+					reportFromMemory(sealed, true);
+					if (linkedMessageId)
+						await saveIncognitoReceipt(scope, linkedMessageId, sealed);
+				}
 				if (tracked)
 					settleTurn(scope, {
 						...sealed,
-						recoveryCount: snapshot
-							? Math.max(
-									0,
-									snapshot.usage.filter((u) => u.segmentId === scope.segmentId)
-										.length - 1,
-								)
-							: 0,
+						recoveryCount: recoveryCount(),
 						attemptIds: [...registered.keys()],
 						messageId: linkedMessageId,
 					});
+				if (runLogId)
+					completeRunLog(
+						{ id: runLogId },
+						{ saved: linkedMessageId !== null, timing },
+					);
 			} finally {
 				owners.delete(ownerId);
 				liveDeadlines.delete(scope.segmentId);

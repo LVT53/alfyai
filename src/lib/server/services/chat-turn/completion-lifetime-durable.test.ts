@@ -904,7 +904,8 @@ it.each([
 });
 
 // The ledger rows go with their conversation, so the settle also writes one
-// content-free status line, the first time only, and never for an incognito chat.
+// content-free status line, the first time only (an incognito chat's has no
+// segment and no attempt ids).
 const settledLines = (info: { mock: { calls: unknown[][] } }) =>
 	info.mock.calls
 		.map(([line]) => String(line))
@@ -936,7 +937,7 @@ it("logs one [TURN_SETTLED] line when finish settles a tracked turn, however oft
 	}
 });
 
-it("logs no [TURN_SETTLED] line for an incognito turn", async () => {
+it("logs the [TURN_SETTLED] line of an incognito turn once, with no segment and no attempt ids", async () => {
 	database.sqlite
 		.prepare("UPDATE conversations SET memory_incognito = 1 WHERE id = ?")
 		.run("c");
@@ -947,7 +948,10 @@ it("logs no [TURN_SETTLED] line for an incognito turn", async () => {
 		await life.register(attempt);
 		life.capture(snapshot(life.scope, true));
 		await life.finish();
-		expect(settledLines(info)).toEqual([]);
+		await life.finish();
+		expect(settledLines(info)).toEqual([
+			"[TURN_SETTLED] segment=- outcome=answered stop=natural_stop working=natural_stop phase=working closing=0 recovery=0 saved=0 accounting=- attempts=working:-:-:provider:p1:m1",
+		]);
 	} finally {
 		info.mockRestore();
 	}
