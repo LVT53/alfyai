@@ -615,7 +615,13 @@ export async function* runNormalChatCompletion(
 			)
 				throw new CompletionExit("incompatible_continuation");
 		} catch {
-			stopCause = "incompatible_continuation";
+			// A Stop (or the deadline) that lands while the attempt is being bound is
+			// that, whatever the binding threw: it is not a destination that refused
+			// the context.
+			const aborted = externalAbort();
+			if (aborted === "user_stop") outcome = "stopped";
+			else if (aborted === "transport_error") outcome = "failed";
+			stopCause = aborted ?? "incompatible_continuation";
 			break;
 		}
 		const effectiveTools = toolsAllowed

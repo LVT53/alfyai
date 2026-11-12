@@ -73,6 +73,7 @@ vi.mock("../provider-models", () => ({
 		[...records.models.values()].flat().find((m) => m.id === id) ?? null,
 }));
 
+import { UserStopReason } from "./active-streams";
 import { prepareNormalChatTurn } from "./prepared-normal-chat-turn";
 
 const PRIMARY = "completion.invalid";
@@ -387,6 +388,72 @@ describe.each(
 		);
 		await t.run();
 		expect(t.network.to(FALLBACK)).toHaveLength(0);
+	});
+});
+
+describe.each(
+	TRANSPORTS,
+)("Stop pressed while the owner binds the fallback (%s)", (transport) => {
+	it.each([
+		false,
+		true,
+	])("the attempt is being registered (after a tool: %s): nothing is sent, and the turn is a stopped one", async (afterTool) => {
+		const t = setup(transport);
+		let release: () => void = () => {};
+		mocks.record.mockImplementation(
+			async (_scope: unknown, attempt: { providerId: string }) => {
+				if (attempt.providerId !== "fb") return;
+				t.abort.abort(new UserStopReason());
+				await new Promise<void>((resolve) => {
+					release = resolve;
+				});
+			},
+		);
+		t.network.script(
+			PRIMARY,
+			...(afterTool
+				? [
+						(c: { transport: Transport }) =>
+							respond(c.transport, { call: "lookup-1" }),
+					]
+				: []),
+			() => httpFailure(503),
+		);
+		t.network.script(FALLBACK, (c) =>
+			respond(c.transport, { text: "must not be asked" }),
+		);
+		const done = t.run();
+		await vi.waitFor(() =>
+			expect(
+				mocks.record.mock.calls.some(([, a]) => a.providerId === "fb"),
+			).toBe(true),
+		);
+		release();
+		const turn = await done;
+		expect(t.network.to(FALLBACK)).toHaveLength(0);
+		expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
+			outcome: "stopped",
+			stopCause: "user_stop",
+		});
+	});
+
+	it("the fallback's tool set is being built: nothing is sent, and the turn is a stopped one", async () => {
+		const t = setup(transport);
+		const build = mocks.tools.getMockImplementation();
+		mocks.tools.mockImplementation(async (...args: unknown[]) => {
+			if (args[3] !== "model1") t.abort.abort(new UserStopReason());
+			return build?.(...args);
+		});
+		t.network.script(PRIMARY, () => httpFailure(503));
+		t.network.script(FALLBACK, (c) =>
+			respond(c.transport, { text: "must not be asked" }),
+		);
+		const turn = await t.run();
+		expect(t.network.to(FALLBACK)).toHaveLength(0);
+		expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
+			outcome: "stopped",
+			stopCause: "user_stop",
+		});
 	});
 });
 
