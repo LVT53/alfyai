@@ -1109,7 +1109,7 @@ it("logs one content-free [TURN_SETTLED] line the first time an outcome is writt
 	} as const;
 	ledger.settleTurn(turn, answered);
 	expect(settledLines(info)).toEqual([
-		`[TURN_SETTLED] segment=abcdef01 outcome=answered stop=natural_stop working=tool_budget phase=closing closing=1 recovery=1 saved=1 accounting=ready attempts=${first}:working:failed:transport_error:provider:p1:m1,${second}:closing:answered:natural_stop:provider:p2:m2`,
+		`[TURN_SETTLED] segment=abcdef01 outcome=answered stop=natural_stop working=tool_budget phase=closing closing=1 recovery=1 accounting=ready attempts=${first}:working:failed:transport_error:provider:p1:m1,${second}:closing:answered:natural_stop:provider:p2:m2`,
 	]);
 	// An idempotent replay, and a conflicting one that is refused, add nothing.
 	ledger.settleTurn(turn, answered);
@@ -1137,7 +1137,7 @@ it("logs an abandoned turn's interruption once, and nothing while its owner is a
 	ledger.observeAbandonedTurn(scope, ["new"]);
 	ledger.observeAbandonedTurn(scope, ["new"]);
 	expect(settledLines(info)).toEqual([
-		"[TURN_SETTLED] segment=s outcome=incomplete stop=uncertain_execution working=uncertain_execution phase=working closing=0 recovery=0 saved=0 accounting=pending attempts=a:working:-:-:provider:p1:m1",
+		"[TURN_SETTLED] segment=s outcome=incomplete stop=uncertain_execution working=uncertain_execution phase=working closing=0 recovery=0 accounting=pending attempts=a:working:-:-:provider:p1:m1",
 	]);
 	info.mockRestore();
 });
@@ -1147,7 +1147,7 @@ it("prints a turn with no attempts as a dash", () => {
 	ledger.admitTurn({ ...scope, ownerId: "process" });
 	ledger.settleTurn(scope, { ...terminal, attemptIds: [] });
 	expect(settledLines(info)).toEqual([
-		"[TURN_SETTLED] segment=s outcome=failed stop=transport_error working=tool_budget phase=closing closing=1 recovery=1 saved=0 accounting=ready attempts=-",
+		"[TURN_SETTLED] segment=s outcome=failed stop=transport_error working=tool_budget phase=closing closing=1 recovery=1 accounting=ready attempts=-",
 	]);
 	info.mockRestore();
 });
@@ -1208,7 +1208,7 @@ it("prints no user, conversation or message identity, no title and no text", () 
 	info.mockRestore();
 	expect(lines).toHaveLength(1);
 	expect(lines[0]).toMatch(
-		/^\[TURN_SETTLED\] segment=segment- outcome=failed .* saved=1 /,
+		/^\[TURN_SETTLED\] segment=segment- outcome=failed /,
 	);
 	for (const private_ of [
 		"user-id-private",

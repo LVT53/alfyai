@@ -930,7 +930,7 @@ it("logs one [TURN_SETTLED] line when finish settles a tracked turn, however oft
 		await life.finish("m");
 		await life.finish("m");
 		expect(settledLines(info)).toEqual([
-			`[TURN_SETTLED] segment=${life.scope.segmentId.slice(0, 8)} outcome=answered stop=natural_stop working=natural_stop phase=working closing=0 recovery=0 saved=1 accounting=ready attempts=a:working:-:-:provider:p1:m1`,
+			`[TURN_SETTLED] segment=${life.scope.segmentId.slice(0, 8)} outcome=answered stop=natural_stop working=natural_stop phase=working closing=0 recovery=0 accounting=ready attempts=a:working:-:-:provider:p1:m1`,
 		]);
 	} finally {
 		info.mockRestore();
@@ -950,7 +950,7 @@ it("logs the [TURN_SETTLED] line of an incognito turn once, with no segment and 
 		await life.finish();
 		await life.finish();
 		expect(settledLines(info)).toEqual([
-			"[TURN_SETTLED] segment=- outcome=answered stop=natural_stop working=natural_stop phase=working closing=0 recovery=0 saved=0 accounting=- attempts=working:-:-:provider:p1:m1",
+			"[TURN_SETTLED] segment=- outcome=answered stop=natural_stop working=natural_stop phase=working closing=0 recovery=0 accounting=- attempts=working:-:-:provider:p1:m1",
 		]);
 	} finally {
 		info.mockRestore();

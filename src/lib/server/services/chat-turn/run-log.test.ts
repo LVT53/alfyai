@@ -275,7 +275,7 @@ it("records an incognito run with no id that could join it to the chat, and stil
 			.map((call: unknown[]) => String(call[0]))
 			.filter((line: string) => line.startsWith("[TURN_SETTLED]")),
 	).toEqual([
-		"[TURN_SETTLED] segment=- outcome=answered stop=natural_stop working=natural_stop phase=working closing=0 recovery=0 saved=0 accounting=- attempts=working:-:-:provider:p1:m1",
+		"[TURN_SETTLED] segment=- outcome=answered stop=natural_stop working=natural_stop phase=working closing=0 recovery=0 accounting=- attempts=working:-:-:provider:p1:m1",
 	]);
 });
 

@@ -364,7 +364,6 @@ export function settleTurn(
 			phase: settled.phase,
 			closingAttempted: settled.closingAttempted,
 			recoveryCount: settled.recoveryCount,
-			saved: settled.messageId !== null,
 			accountingStatus: settled.accountingStatus,
 			attempts: written,
 		});

@@ -68,8 +68,6 @@ export type TurnSettledFacts = {
 	phase: string | null;
 	closingAttempted: boolean;
 	recoveryCount: number;
-	/** A reply was saved and linked. */
-	saved: boolean;
 	accountingStatus: string | null;
 	attempts: readonly {
 		/** Null for an attempt that left no ledger row. */
@@ -105,7 +103,7 @@ export function logTurnSettled(facts: TurnSettledFacts): void {
 			)
 			.join(",");
 		console.info(
-			`[TURN_SETTLED] segment=${facts.segmentId?.slice(0, 8) ?? "-"} outcome=${facts.outcome ?? "-"} stop=${facts.stopCause ?? "-"} working=${facts.workingStopCause ?? "-"} phase=${facts.phase ?? "-"} closing=${facts.closingAttempted ? 1 : 0} recovery=${facts.recoveryCount} saved=${facts.saved ? 1 : 0} accounting=${facts.accountingStatus ?? "-"} attempts=${attempts || "-"}`,
+			`[TURN_SETTLED] segment=${facts.segmentId?.slice(0, 8) ?? "-"} outcome=${facts.outcome ?? "-"} stop=${facts.stopCause ?? "-"} working=${facts.workingStopCause ?? "-"} phase=${facts.phase ?? "-"} closing=${facts.closingAttempted ? 1 : 0} recovery=${facts.recoveryCount} accounting=${facts.accountingStatus ?? "-"} attempts=${attempts || "-"}`,
 		);
 	} catch {
 		// A status line is never worth a failed settle.
