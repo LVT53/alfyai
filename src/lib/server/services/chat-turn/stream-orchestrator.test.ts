@@ -26,6 +26,10 @@ import {
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
 import { TURN_FINALIZATION_WINDOW_MS } from "$lib/shared/normal-chat-completion";
+import type {
+	NormalChatOutputEvent,
+	NormalChatOutputRole,
+} from "$lib/shared/normal-chat-output";
 import { type AskResumeInput, capturedProvenanceResults } from "./ask-capture";
 import {
 	runChatStreamOrchestrator,
@@ -3181,6 +3185,286 @@ describe("stream-orchestrator SSE contract", () => {
 			);
 		});
 		expect(upstreamSignal?.aborted).toBe(false);
+	});
+});
+
+// The first token: the `first_visible_token` mark (saved as
+// `message_analytics.first_token_ms`, which the admin latency figures read) is the
+// moment the first text a person can read in the answer area was written to the
+// stream, counted from the request's start. With the completion engine that text
+// travels as structural output events while the engine works; the accepted answer
+// comes through the model run's stream once, when the engine has finished, so a
+// mark taken there lands on the end of the turn. These tests play the engine by
+// hand under fake timers, so every number is exact.
+describe("stream-orchestrator: when a completion-engine turn takes its first token", () => {
+	const scope = (stepId: string) => ({
+		version: 1 as const,
+		turnId: "first-token-turn",
+		segmentId: "first-token-segment",
+		attemptId: "first-token-attempt",
+		stepId,
+		phase: "working" as const,
+	});
+
+	beforeEach(async () => {
+		vi.resetAllMocks();
+		await resetCompletionMocks();
+	});
+
+	afterEach(() => {
+		clearStreamBuffer("test-stream");
+		unregisterActiveChatStream("test-stream");
+		vi.useRealTimers();
+	});
+
+	// A model run whose engine the test plays: it writes output events through the
+	// callback the orchestrator handed the run whenever the test says so, and its
+	// stream carries the accepted answer once, when the test lets the engine end.
+	async function playEngine() {
+		const { runStreamingNormalChatSendModel } = await import(
+			"./streaming-normal-chat-model-run"
+		);
+		let emit: ((event: NormalChatOutputEvent) => void) | undefined;
+		let accepted = "";
+		let end!: () => void;
+		const ended = new Promise<void>((resolve) => {
+			end = resolve;
+		});
+		vi.mocked(runStreamingNormalChatSendModel).mockImplementation(
+			async (params) => {
+				emit = (event) => params.onOutputEvent?.(event);
+				return createNeutralStreamingResult([], {
+					stream: (async function* () {
+						await ended;
+						yield { type: "text_delta", text: accepted };
+						yield finishEvent;
+					})(),
+				}) as never;
+			},
+		);
+		let sequence = 0;
+		return {
+			// Lets the turn run, without moving the clock, until it has asked the
+			// model run for the engine.
+			async running() {
+				for (let turn = 0; turn < 20 && !emit; turn++)
+					await vi.advanceTimersByTimeAsync(0);
+				if (!emit) throw new Error("The turn never reached the model run");
+			},
+			startBlock(
+				blockId: string,
+				kind: "text" | "reasoning",
+				role: NormalChatOutputRole,
+				stepId = "step-1",
+			) {
+				emit?.({
+					...scope(stepId),
+					sequence: ++sequence,
+					type: "block_start",
+					blockId,
+					nativeId: blockId,
+					kind,
+					role,
+				});
+			},
+			writeText(blockId: string, text: string, stepId = "step-1") {
+				emit?.({
+					...scope(stepId),
+					sequence: ++sequence,
+					type: "block_delta",
+					blockId,
+					text,
+				});
+			},
+			settleStep(role: "activity" | "answer", stepId = "step-1") {
+				emit?.({
+					...scope(stepId),
+					sequence: ++sequence,
+					type: "step_settled",
+					role,
+					finishReason: null,
+				});
+			},
+			acceptAnswer(answer: string) {
+				accepted = answer;
+				end();
+			},
+		};
+	}
+
+	function terminalTimeline(chunks: string[]) {
+		const metadata = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-stream-metadata",
+		)[0];
+		return (metadata.serverTimeline as StreamTimelineTerminalPayload).server;
+	}
+
+	// What the turn hands to be saved with its reply: `analytics.firstTokenMs` is
+	// the number that ends up in `message_analytics.first_token_ms`.
+	async function savedAnalytics() {
+		const { persistAssistantTurnState } = await import(
+			"$lib/server/services/chat-turn/finalize-steps"
+		);
+		await vi.waitFor(() =>
+			expect(persistAssistantTurnState).toHaveBeenCalled(),
+		);
+		return vi.mocked(persistAssistantTurnState).mock.calls[0][0].analytics;
+	}
+
+	it.each([
+		"provisional",
+		"answer",
+	] as const)("takes the first token when the first %s text is written, not when the engine ends", async (role) => {
+		vi.useFakeTimers();
+		const engine = await playEngine();
+		const requestStartedAt = Date.now();
+		const reading = readSseResponse(runStream());
+		await engine.running();
+
+		// The model thinks first. Reasoning is activity, never the first token.
+		engine.startBlock("thinking", "reasoning", "activity");
+		engine.writeText("thinking", "Weighing how to answer.");
+		await vi.advanceTimersByTimeAsync(3_000);
+		// Then the first words of the answer reach the person.
+		engine.startBlock("answer", "text", role);
+		engine.writeText("answer", "The first words of the answer.");
+		const firstWordsAt = Date.now() - requestStartedAt;
+		// The engine keeps writing for a long while before it can accept the answer.
+		await vi.advanceTimersByTimeAsync(17_000);
+		engine.writeText("answer", " And the rest of it.");
+		await vi.advanceTimersByTimeAsync(2_000);
+		engine.acceptAnswer("The first words of the answer. And the rest of it.");
+		await vi.advanceTimersByTimeAsync(0);
+		const chunks = await reading;
+
+		expect(firstWordsAt).toBe(3_000);
+		expect(terminalTimeline(chunks)).toMatchObject({
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN]: firstWordsAt,
+		});
+		expect(await savedAnalytics()).toMatchObject({
+			firstTokenMs: firstWordsAt,
+			generationTimeMs: 22_000,
+		});
+	});
+
+	it("does not take reasoning, activity text or blank text as the first token", async () => {
+		vi.useFakeTimers();
+		const engine = await playEngine();
+		const requestStartedAt = Date.now();
+		const reading = readSseResponse(runStream());
+		await engine.running();
+
+		engine.startBlock("thinking", "reasoning", "activity");
+		engine.writeText("thinking", "Working out what to look up.");
+		await vi.advanceTimersByTimeAsync(1_000);
+		// Text a step writes after its tool call is activity, not the answer.
+		engine.startBlock("remark", "text", "activity");
+		engine.writeText("remark", "Searching the library now.");
+		await vi.advanceTimersByTimeAsync(1_000);
+		// A draft that so far holds only blank text: line breaks, spaces and a
+		// zero-width space, which nobody can see.
+		engine.startBlock("draft", "text", "provisional", "step-2");
+		engine.writeText("draft", "\n\n", "step-2");
+		engine.writeText("draft", "   ", "step-2");
+		engine.writeText("draft", "\u200b", "step-2");
+		await vi.advanceTimersByTimeAsync(2_000);
+		engine.writeText("draft", "Here is what I found.", "step-2");
+		const firstWordsAt = Date.now() - requestStartedAt;
+		await vi.advanceTimersByTimeAsync(5_000);
+		engine.acceptAnswer("\n\n   \u200bHere is what I found.");
+		await vi.advanceTimersByTimeAsync(0);
+		const chunks = await reading;
+
+		expect(firstWordsAt).toBe(4_000);
+		expect(terminalTimeline(chunks)).toMatchObject({
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN]: firstWordsAt,
+		});
+		expect(await savedAnalytics()).toMatchObject({
+			firstTokenMs: firstWordsAt,
+			generationTimeMs: 9_000,
+		});
+	});
+
+	it("counts a remark that a tool call withdraws afterwards", async () => {
+		vi.useFakeTimers();
+		const engine = await playEngine();
+		const requestStartedAt = Date.now();
+		const reading = readSseResponse(runStream());
+		await engine.running();
+
+		await vi.advanceTimersByTimeAsync(2_000);
+		// The person reads this while the step is being written ...
+		engine.startBlock("remark", "text", "provisional");
+		engine.writeText("remark", "Let me check the library first.");
+		const remarkAt = Date.now() - requestStartedAt;
+		await vi.advanceTimersByTimeAsync(500);
+		// ... and the step's tool call withdraws it.
+		engine.settleStep("activity");
+		await vi.advanceTimersByTimeAsync(9_500);
+		engine.startBlock("answer", "text", "provisional", "step-2");
+		engine.writeText("answer", "The library says 42.", "step-2");
+		await vi.advanceTimersByTimeAsync(1_000);
+		engine.acceptAnswer("The library says 42.");
+		await vi.advanceTimersByTimeAsync(0);
+		const chunks = await reading;
+
+		expect(remarkAt).toBe(2_000);
+		expect(terminalTimeline(chunks)).toMatchObject({
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN]: remarkAt,
+		});
+		expect(await savedAnalytics()).toMatchObject({
+			firstTokenMs: remarkAt,
+			generationTimeMs: 13_000,
+		});
+	});
+
+	it("still takes the first token of a run with no completion turn at its first visible text", async () => {
+		vi.useFakeTimers();
+		const infoSpy = vi
+			.spyOn(console, "info")
+			.mockImplementation(() => undefined);
+		const { getConfig } = await import("$lib/server/config-store");
+		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+			requestTimeoutMs: 30000,
+			composerCommandRegistryEnabled: true,
+			contextDiagnosticsDebug: true,
+		});
+		const { runStreamingNormalChatSendModel } = await import(
+			"./streaming-normal-chat-model-run"
+		);
+		const pause = (ms: number) =>
+			new Promise<void>((resolve) => setTimeout(resolve, ms));
+		// The text of this run arrives as the run's own text_delta events, as it did
+		// before the completion engine: there are no output events at all.
+		vi.mocked(runStreamingNormalChatSendModel).mockResolvedValue(
+			createNeutralStreamingResult([], {
+				completionTurn: undefined,
+				stream: (async function* () {
+					await pause(1_000);
+					yield { type: "text_delta", text: "  " };
+					await pause(1_000);
+					yield { type: "text_delta", text: "Hello" };
+					await pause(5_000);
+					yield { type: "text_delta", text: " again." };
+					yield finishEvent;
+				})(),
+			}) as never,
+		);
+		try {
+			const reading = readSseResponse(runStream());
+			await vi.advanceTimersByTimeAsync(7_000);
+			await reading;
+
+			const phaseTimingLog = infoSpy.mock.calls.find(
+				([message]) => message === "[CHAT_STREAM] phase_timing",
+			);
+			expect(phaseTimingLog?.[1]).toMatchObject({
+				first_visible_token_ms: 2_000,
+			});
+		} finally {
+			infoSpy.mockRestore();
+		}
 	});
 });
 

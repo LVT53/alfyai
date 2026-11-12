@@ -79,7 +79,10 @@ import {
 	getConversationTaskState,
 } from "$lib/server/services/task-state";
 import type { TaskState } from "$lib/server/services/task-state/types";
-import type { StreamErrorCode } from "$lib/services/stream-protocol";
+import {
+	hasVisibleCharacter,
+	type StreamErrorCode,
+} from "$lib/services/stream-protocol";
 import {
 	createTerminalStreamTimelinePayload,
 	RESPONSE_ACTIVITY_IDS,
@@ -92,6 +95,7 @@ import {
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { TURN_FINALIZATION_WINDOW_MS } from "$lib/shared/normal-chat-completion";
+import type { NormalChatOutputEvent } from "$lib/shared/normal-chat-output";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
 import {
@@ -677,6 +681,40 @@ export function runChatStreamOrchestrator(
 				}
 				return emitted;
 			};
+			// With the completion engine the answer reaches the person as output
+			// events while the engine works, and the model run's stream carries the
+			// accepted answer once, when the engine has finished, so the stamp above
+			// lands on the end of the turn. The first token is the first text of the
+			// answer area written to the stream: a text block that is provisional
+			// (the step being written, which a tool call may still withdraw: the
+			// person read it all the same) or answer, never reasoning or activity,
+			// and never blank text. The mark keeps its first value, so the
+			// end-of-turn text_delta cannot move it.
+			const answerAreaBlocks = new Set<string>();
+			const recordFirstVisibleOutputText = (event: NormalChatOutputEvent) => {
+				if (
+					phaseTimingMs[SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN] !==
+					undefined
+				)
+					return;
+				if (event.type !== "block_start" && event.type !== "block_delta")
+					return;
+				const block = JSON.stringify([
+					event.turnId,
+					event.segmentId,
+					event.attemptId,
+					event.stepId,
+					event.blockId,
+				]);
+				if (event.type === "block_start") {
+					if (event.kind === "text" && event.role !== "activity")
+						answerAreaBlocks.add(block);
+				} else if (
+					answerAreaBlocks.has(block) &&
+					hasVisibleCharacter(event.text)
+				)
+					recordElapsedPhase(SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN);
+			};
 			const flushPendingThinking = chunkRuntime.flushPendingThinking;
 			const flushInlineThinkingBuffer = chunkRuntime.flushInlineThinkingBuffer;
 			const flushOutputBuffer = chunkRuntime.flushOutputBuffer;
@@ -1033,6 +1071,7 @@ export function runChatStreamOrchestrator(
 						watchdog.touch();
 						structuralTransport = true;
 						outputWriter.write(event);
+						recordFirstVisibleOutputText(event);
 					},
 					runtimeConfig: getConfig(),
 					message: upstreamMessage,
