@@ -4,6 +4,10 @@ import { projectNormalChatOutput } from "$lib/shared/normal-chat-output";
 import { hasLocalDistillEnabled } from "../connections/locality";
 import type { Capability } from "../connections/registry";
 import { resolveActiveCapabilities } from "../connections/resolve";
+import {
+	emptyTurnPictureIndex,
+	type TurnPictureIndex,
+} from "../images/turn-pictures";
 import { appendTurnGuidance } from "../normal-chat-context";
 import {
 	buildNormalChatModelRunProviderOptions,
@@ -13,6 +17,10 @@ import {
 	type NormalChatExecution,
 	prepareNormalChatCompletionRun,
 } from "../normal-chat-model";
+import {
+	CONTEXT_GUARD_MARGIN_TOKENS,
+	countToolCatalogueTokens,
+} from "../normal-chat-model/context-guard";
 import {
 	resolveHistoryToolMessagesMode,
 	resolveOpenAICompatibleProviderAdapterProfile,
@@ -134,6 +142,24 @@ function projectCapturedPrefetch(
 	];
 }
 
+/**
+ * make_image resolves "Picture 2" against the turn's numbered pictures when it
+ * runs. The tool pack can be built while the context that numbers them is still
+ * being prepared (its size is part of that context's budget), so a tool reads
+ * the pictures through this view of whichever index preparation ended with.
+ */
+function viewOfTurnPictures(current: () => TurnPictureIndex): TurnPictureIndex {
+	return {
+		get pictures() {
+			return current().pictures;
+		},
+		byNumber: (number) => current().byNumber(number),
+		get metadata() {
+			return current().metadata;
+		},
+	};
+}
+
 /** Owns preparation, dispatch admission and effective-attempt policy for both transports. */
 export async function prepareNormalChatTurn(
 	given: NormalChatSendModelBaseParams,
@@ -192,6 +218,33 @@ export async function prepareNormalChatTurn(
 			params.enabledConnectionCapabilities,
 		).catch(() => new Set<Capability>());
 		params.signal?.throwIfAborted();
+		// The tool pack is built once. Its catalogue is the largest part of the room
+		// the engine keeps beside the context, so context preparation asks for its
+		// size before it derives a budget and the pack is built then; a turn whose
+		// preparation never asks (a resume reuses what it captured) builds it after
+		// preparation, where it always was.
+		const packs: ToolPack[] = [];
+		const stepImages = createStepImageQueue();
+		let numbered: TurnPictureIndex = emptyTurnPictureIndex();
+		const packFor = async (modelId: string) => {
+			const pack = await createToolPack(
+				params,
+				lifetime.scope.turnId,
+				effort,
+				modelId as ModelId,
+				capabilities,
+				viewOfTurnPictures(() => numbered),
+				stepImages,
+			);
+			packs.push(pack);
+			params.signal?.throwIfAborted();
+			return pack;
+		};
+		let firstPack: Promise<ToolPack> | undefined;
+		const initialPack = () => {
+			firstPack ??= packFor(runtime.modelId);
+			return firstPack;
+		};
 		let prepared: PreparedModelContext =
 			saved?.version === 1
 				? {
@@ -211,7 +264,15 @@ export async function prepareNormalChatTurn(
 						capabilities,
 						"provider request",
 						"native",
+						async () => ({
+							contextWindow,
+							toolCatalogueTokens: await countToolCatalogueTokens(
+								(await initialPack()).tools,
+							),
+							marginTokens: CONTEXT_GUARD_MARGIN_TOKENS,
+						}),
 					);
+		numbered = prepared.turnPictures;
 		params.signal?.throwIfAborted();
 		const preparedLimit = prepared.outputTokenBudget?.effectiveMaxTokens;
 		const outputLimit = isFiniteTokenLimit(capturedLimit)
@@ -274,23 +335,7 @@ export async function prepareNormalChatTurn(
 					...(prepared.prefetchedToolMessages ?? []),
 					...(params.continuationMessages ?? []),
 				];
-		const packs: ToolPack[] = [];
-		const stepImages = createStepImageQueue();
-		const packFor = async (modelId: string) => {
-			const pack = await createToolPack(
-				params,
-				lifetime.scope.turnId,
-				effort,
-				modelId as ModelId,
-				capabilities,
-				prepared.turnPictures,
-				stepImages,
-			);
-			packs.push(pack);
-			params.signal?.throwIfAborted();
-			return pack;
-		};
-		const initial = await packFor(runtime.modelId);
+		const initial = await initialPack();
 		let first = true;
 		const calls = () => packs.flatMap((pack) => pack.getToolCalls());
 		const rowFor = (execution: Readonly<NormalChatExecution>) =>

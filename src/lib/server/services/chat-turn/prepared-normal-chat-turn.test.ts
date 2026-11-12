@@ -1434,3 +1434,170 @@ it("transfers a successful plain lifetime to finalization before releasing its o
 	await result.completionTurn?.finish("saved");
 	expect(mocks.settle).toHaveBeenCalledTimes(1);
 });
+
+// The tool catalogue is the largest part of the room the engine keeps beside the
+// context (completion.ts, assertFits), so preparation asks for its size before
+// it derives a budget (shared-normal-chat-model-run-helpers.ts,
+// prepareOutboundContext). The pack is built when asked, once; a turn whose
+// preparation never asks builds it afterwards, as it always did.
+async function catalogueOf(description: string) {
+	const { tool } = await import("ai");
+	const { z } = await import("zod");
+	const { countToolCatalogueTokens } = await import(
+		"../normal-chat-model/context-guard"
+	);
+	const tools = {
+		lookup: tool({
+			description,
+			inputSchema: z.object({ query: z.string() }),
+			execute: async () => "unused",
+		}),
+	};
+	return { tools, tokens: await countToolCatalogueTokens(tools) };
+}
+
+it("builds the tool pack when preparation asks for the room, once, and runs the first attempt on that pack", async () => {
+	const { tools, tokens } = await catalogueOf("Look up evidence. ".repeat(200));
+	mocks.tools.mockResolvedValue({
+		tools,
+		stepImages: { drain: () => [] },
+		getToolCalls: () => [],
+		getTurnAsk: () => null,
+	});
+	let room: unknown;
+	mocks.prepare.mockImplementation(
+		async (
+			_params,
+			_runtime,
+			_effort,
+			_capabilities,
+			_label,
+			_flatten,
+			ask,
+		) => {
+			expect(mocks.tools).not.toHaveBeenCalled();
+			room = await ask();
+			expect(mocks.tools).toHaveBeenCalledOnce();
+			return createPlainNormalChatPreparedContext();
+		},
+	);
+
+	await prepareNormalChatTurn(createPlainNormalChatSendModelParams());
+
+	expect(tokens).toBeGreaterThan(500);
+	expect(room).toEqual({
+		contextWindow: 10_000,
+		toolCatalogueTokens: tokens,
+		marginTokens: 4_096,
+	});
+	expect(mocks.tools).toHaveBeenCalledOnce();
+	expect(mocks.model.mock.calls[0][0].tools).toBe(tools);
+	await expect(
+		mocks.model.mock.calls[0][0].completionPolicy.forAttempt({
+			provider: mocks.model.mock.calls[0][0].provider,
+			modelId: "model1",
+			phase: "working",
+			attemptId: "first",
+			toolsAllowed: true,
+			snapshot: {},
+		}),
+	).resolves.toMatchObject({ tools });
+	expect(mocks.tools).toHaveBeenCalledOnce();
+});
+
+it("builds the tool pack after preparation when preparation never asks, as it always did", async () => {
+	await prepareNormalChatTurn(createPlainNormalChatSendModelParams());
+	expect(mocks.tools).toHaveBeenCalledOnce();
+	expect(mocks.tools.mock.invocationCallOrder[0]).toBeGreaterThan(
+		mocks.prepare.mock.invocationCallOrder[0],
+	);
+});
+
+it("names the provider's own window as the room, not a larger placeholder in the limits", async () => {
+	const provider = createPlainNormalChatProvider({ maxModelContext: 8_192 });
+	const config = createPlainNormalChatRuntimeConfig();
+	mocks.runtime.mockResolvedValue({
+		provider,
+		modelId: "model1",
+		depthEffort: null,
+		modelConfig: config.model1,
+		baseContextLimits: {
+			maxModelContext: 262_144,
+			targetConstructedContext: 235_929,
+			compactionUiThreshold: 209_715,
+		},
+	});
+	let room: { contextWindow: number } | undefined;
+	mocks.prepare.mockImplementation(
+		async (
+			_params,
+			_runtime,
+			_effort,
+			_capabilities,
+			_label,
+			_flatten,
+			ask,
+		) => {
+			room = await ask();
+			return createPlainNormalChatPreparedContext();
+		},
+	);
+
+	await prepareNormalChatTurn(createPlainNormalChatSendModelParams());
+
+	expect(room?.contextWindow).toBe(8_192);
+});
+
+it("lets a tool read the pictures the context numbers after the pack was built", async () => {
+	const picture = {
+		number: 1,
+		source: {
+			type: "upload" as const,
+			artifactId: "upload-1",
+			name: "a.png",
+			mimeType: "image/png",
+		},
+	};
+	const numbered = {
+		pictures: [picture],
+		byNumber: (number: number) => (number === 1 ? picture : null),
+		metadata: null,
+	};
+	mocks.prepare.mockImplementation(
+		async (
+			_params,
+			_runtime,
+			_effort,
+			_capabilities,
+			_label,
+			_flatten,
+			ask,
+		) => {
+			await ask();
+			// The pack exists, and the context has not numbered anything yet.
+			const early = mocks.tools.mock.calls[0][5];
+			expect(early.pictures).toEqual([]);
+			expect(early.byNumber(1)).toBeNull();
+			return createPlainNormalChatPreparedContext({ turnPictures: numbered });
+		},
+	);
+
+	await prepareNormalChatTurn(createPlainNormalChatSendModelParams());
+
+	const seen = mocks.tools.mock.calls[0][5];
+	expect(seen.pictures).toEqual([picture]);
+	expect(seen.byNumber(1)).toBe(picture);
+	expect(seen.byNumber(2)).toBeNull();
+	expect(seen.metadata).toBeNull();
+	// A failover attempt's pack reads the same pictures.
+	const policy = mocks.model.mock.calls[0][0].completionPolicy;
+	await policy.forAttempt({
+		provider: { ...createPlainNormalChatProvider(), id: "other" },
+		modelId: "model2",
+		phase: "working",
+		attemptId: "other",
+		toolsAllowed: true,
+		snapshot: {},
+	});
+	expect(mocks.tools.mock.calls.at(-1)?.[5].byNumber(1)).toBe(picture);
+});

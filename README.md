@@ -130,6 +130,16 @@ reasoning settings are unchanged. This application fallback may differ from a pr
 default; set an explicit output cap to override it. A continuation that cannot fit its complete
 permitted context plus the retained reserve fails explicitly rather than dropping evidence.
 
+The context is built to a target that leaves the rest of the request its room: the output reserve
+above, the turn's tool catalogue (counted the way the completion engine counts it, so it follows the
+connectors the person has on: 11,595 tokens with none and 16,529 with all nine in the default
+configuration) and the engine's 4,096-token margin. A configured `TARGET_CONSTRUCTED_CONTEXT` that
+already leaves that room is used as it is; one that does not (the default 90% on a 131,072 or
+146,000 window, the built-in 262,144 slot's 235,929) is lowered for that turn, and the status the page
+reads (the context target, the compaction threshold, the output budget) shows the number the context
+was built to, not the configured one. A window that cannot hold the catalogue is still refused
+before any provider request.
+
 ## Development
 
 ```bash
