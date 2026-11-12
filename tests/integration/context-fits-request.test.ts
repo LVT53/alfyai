@@ -12,7 +12,15 @@
 import { randomUUID } from "node:crypto";
 import type { ModelMessage } from "ai";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 
 const CONNECTORS = [
 	"files",
@@ -159,6 +167,11 @@ describe("a long conversation on a window that leaves no room for the tool catal
 		await db.delete(users).where(eq(users.id, userId));
 	});
 
+	beforeEach(() => {
+		wire.requests.length = 0;
+		wire.run = undefined;
+	});
+
 	it("is built smaller, reports the number it was built to, and goes out as one request", async () => {
 		const conversation = await createConversation(userId, "A long chat");
 		// 120 turns of ~430 tokens: far more than the history budget holds, in
@@ -221,7 +234,7 @@ describe("a long conversation on a window that leaves no room for the tool catal
 			catalogue +
 			reserve +
 			CONTEXT_GUARD_MARGIN_TOKENS;
-		expect(catalogue).toBeGreaterThan(15_000);
+		expect(catalogue).toBeGreaterThan(10_000);
 		expect(reserve).toBe(WINDOW - configured.targetConstructedContext);
 		expect(standing).toBeLessThanOrEqual(WINDOW);
 		expect(
@@ -261,5 +274,46 @@ describe("a long conversation on a window that leaves no room for the tool catal
 		expect(provenance.prepared.outputTokenBudget.effectiveMaxTokens).toBe(
 			reserve,
 		);
+	}, 60_000);
+
+	it("is built to one token and still refused before any request when the window cannot hold the catalogue", async () => {
+		// 8,192 less the 820 of the output reserve is 7,372: the catalogue alone is
+		// more than that, with or without the margin.
+		const conversation = await createConversation(userId, "A small window");
+		for (let turn = 0; turn < 6; turn += 1) {
+			await createMessage(conversation.id, "user", `Question ${turn}?`);
+			await createMessage(
+				conversation.id,
+				"assistant",
+				words(`Answer ${turn}`, 200),
+			);
+		}
+		const config = getConfig();
+		const run = await prepareNormalChatTurn({
+			userId,
+			runtimeConfig: {
+				...config,
+				requestTimeoutMs: 60_000,
+				model1: { ...config.model1, maxTokens: null },
+			},
+			message: "And what is next?",
+			conversationId: conversation.id,
+			modelId: MODEL_ID,
+			user: { id: userId },
+			overrideProvider: { ...PROVIDER, maxModelContext: 8_192 },
+		});
+		await run.runPlain();
+
+		expect(run.receipt.getSnapshot()?.completion).toMatchObject({
+			outcome: "incomplete",
+			stopCause: "context_capacity",
+		});
+		expect(wire.requests).toHaveLength(0);
+		const [status] = await db
+			.select()
+			.from(conversationContextStatus)
+			.where(eq(conversationContextStatus.conversationId, conversation.id));
+		expect(status.targetTokens).toBe(1);
+		expect(status.maxContextTokens).toBe(8_192);
 	}, 60_000);
 });

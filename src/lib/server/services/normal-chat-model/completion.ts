@@ -480,8 +480,8 @@ export async function* runNormalChatCompletion(
 				: input.messages,
 		};
 	};
-	// The count is shared with the prepared turn, which charges it before it
-	// builds the context (context-guard.ts); a tool set is counted once a run.
+	// The count is the one the prepared turn charges before it builds the context
+	// (context-guard.ts); the engine counts a tool set once a run.
 	const catalogueTokens = new WeakMap<ToolSet, Promise<number>>();
 	const countCatalogue = (tools: ToolSet | undefined): Promise<number> => {
 		if (!tools) return Promise.resolve(0);

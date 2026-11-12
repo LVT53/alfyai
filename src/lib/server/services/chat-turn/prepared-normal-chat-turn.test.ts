@@ -1443,9 +1443,8 @@ it("transfers a successful plain lifetime to finalization before releasing its o
 async function catalogueOf(description: string) {
 	const { tool } = await import("ai");
 	const { z } = await import("zod");
-	const { countToolCatalogueTokens } = await import(
-		"../normal-chat-model/context-guard"
-	);
+	const { CONTEXT_GUARD_MARGIN_TOKENS, countToolCatalogueTokens } =
+		await import("../normal-chat-model/context-guard");
 	const tools = {
 		lookup: tool({
 			description,
@@ -1453,11 +1452,17 @@ async function catalogueOf(description: string) {
 			execute: async () => "unused",
 		}),
 	};
-	return { tools, tokens: await countToolCatalogueTokens(tools) };
+	return {
+		tools,
+		tokens: await countToolCatalogueTokens(tools),
+		margin: CONTEXT_GUARD_MARGIN_TOKENS,
+	};
 }
 
 it("builds the tool pack when preparation asks for the room, once, and runs the first attempt on that pack", async () => {
-	const { tools, tokens } = await catalogueOf("Look up evidence. ".repeat(200));
+	const { tools, tokens, margin } = await catalogueOf(
+		"Look up evidence. ".repeat(200),
+	);
 	mocks.tools.mockResolvedValue({
 		tools,
 		stepImages: { drain: () => [] },
@@ -1488,7 +1493,7 @@ it("builds the tool pack when preparation asks for the room, once, and runs the 
 	expect(room).toEqual({
 		contextWindow: 10_000,
 		toolCatalogueTokens: tokens,
-		marginTokens: 4_096,
+		marginTokens: margin,
 	});
 	expect(mocks.tools).toHaveBeenCalledOnce();
 	expect(mocks.model.mock.calls[0][0].tools).toBe(tools);
