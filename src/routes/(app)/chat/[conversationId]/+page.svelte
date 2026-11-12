@@ -157,7 +157,6 @@ import {
 	jumpOffset,
 	remainingJumpOffset,
 } from "$lib/components/chat/message-jump-offset";
-import { artifactCounterPillBottom } from "$lib/components/chat/artifact-counter-placement";
 import CloudConnectorWarningModal from "$lib/components/chat/CloudConnectorWarningModal.svelte";
 import { isProviderModelId } from "$lib/model-types";
 import type { ModelId } from "$lib/model-types";
@@ -5317,8 +5316,9 @@ function handleDrop(event: DragEvent) {
 			</div>
 
 			<!-- W6: below the phone breakpoint the counter leaves the header row and
-			     becomes a floating pill in the jump-to-latest controls' corner (see
-			     `artifactCounterPillBottom` for the placement). It keeps the header
+			     becomes a floating pill at the top of the chat, on the reader's right
+			     (owner, 2026-11-12: it belongs in its old top position, only floating
+			     now). It keeps the header
 			     button's count, pending dot and accessible name, opens the same
 			     list, and is hidden while the panel covers the chat. It stays in the
 			     DOM while it is hidden: other surfaces read its `aria-pressed` to
@@ -5331,7 +5331,6 @@ function handleDrop(event: DragEvent) {
 					class="artifact-counter-pill"
 					data-testid="artifact-counter-pill"
 					hidden={isArtifactPanelOpen}
-					style:--artifact-counter-bottom={`${artifactCounterPillBottom({ composerHeight: composerLayerHeight })}px`}
 				>
 					<button
 						bind:this={artifactCountButtonCompactEl}
@@ -5691,11 +5690,10 @@ function handleDrop(event: DragEvent) {
 	.artifact-counter-pill {
 		position: absolute;
 		right: max(var(--space-md), env(safe-area-inset-right, 0px));
-		/* Exactly the jump controls' reserve plus their height and one gap. The
-		   composer's measured layer already carries the bottom safe-area padding
-		   (`ChatComposerPanel`), so adding it again would float the pill above
-		   the capsule it is meant to match. */
-		bottom: var(--artifact-counter-bottom, 11rem);
+		/* The reader's old top corner (owner, 2026-11-12), now floating over the
+		   thread instead of taking a row. The shell header above already carries
+		   the top safe-area inset, so this only keeps its own small gap. */
+		top: var(--space-xs);
 		z-index: 6;
 		display: flex;
 		pointer-events: none;

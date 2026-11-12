@@ -228,8 +228,9 @@ test.describe("the phone's artifact counter", () => {
 			expect(box.width).toBeGreaterThanOrEqual(44);
 			expect(box.height).toBeGreaterThanOrEqual(44);
 
-			// Its own corner, not the header row: above the composer, below the
-			// app's header, and inside the chat's width.
+			// Its own corner, not the header row: floating at the top of the chat,
+			// below the app's header and above the composer (owner, 2026-11-12:
+			// the reader's old top position, only floating now).
 			const composer = await boxOf(page.locator(".composer-shell"));
 			expect(
 				box.y + box.height,
@@ -240,6 +241,10 @@ test.describe("the phone's artifact counter", () => {
 				box.y,
 				"the pill must sit below the app header",
 			).toBeGreaterThanOrEqual(header.y + header.height);
+			expect(
+				box.y - (header.y + header.height),
+				"the pill floats at the top of the chat, not down by the composer",
+			).toBeLessThanOrEqual(24);
 
 			// Same counters as the header's button, which is not drawn here.
 			const headerButton = page.getByTestId("artifact-count-button");
@@ -274,7 +279,7 @@ test.describe("the phone's artifact counter", () => {
 		).toHaveAttribute("aria-pressed", "true");
 	});
 
-	test("stays clear of the jump-to-latest capsule in a long chat", async ({
+	test("floats at the top while the jump capsule holds the bottom", async ({
 		page,
 	}) => {
 		await page.setViewportSize({ width: 375, height: 667 });
@@ -299,14 +304,17 @@ test.describe("the phone's artifact counter", () => {
 
 		const pillBox = await boxOf(page.getByTestId("artifact-counter-pill"));
 		const capsuleBox = await boxOf(capsule);
+		// The owner's split: the counter stays in the reader's top corner while
+		// the jump controls hold the bottom one, so the two never compete.
 		expect(
 			pillBox.y + pillBox.height,
-			"the pill sits above the jump capsule, never over it",
+			"the pill stays at the top, clear of the jump capsule",
 		).toBeLessThanOrEqual(capsuleBox.y);
+		const header = await boxOf(page.locator("header.header-bar"));
 		expect(
-			Math.abs(pillBox.x + pillBox.width - (capsuleBox.x + capsuleBox.width)),
-			"the pill shares the capsule's corner",
-		).toBeLessThanOrEqual(2);
+			pillBox.y - (header.y + header.height),
+			"the pill floats at the top of the chat",
+		).toBeLessThanOrEqual(24);
 		const composer = await boxOf(page.locator(".composer-shell"));
 		expect(capsuleBox.y + capsuleBox.height).toBeLessThanOrEqual(composer.y);
 	});
