@@ -179,6 +179,15 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   the failover timeout, a Stop pressed while the fallback is being set up now
   ends the reply as stopped, and a fallback that cannot be set up no longer
   turns the original failure into an error.
+- A browser that has lost the connection to a long reply no longer gives up on it
+  early when its clock is ahead of the server's: it waits for the time the server
+  says the reply has left, not for a deadline set against its own clock.
+- While the browser can only check on a reply it can no longer follow, it no
+  longer shows the last sentence it saw, such as "Let me search the web for
+  that.", as if it were the answer.
+- A tool call that a Qwen model writes out as text after a sentence
+  (`<tool_call>{"name": ...}</tool_call>`) is no longer saved as the answer, and
+  an answer that shows a tool-call format inside a code block is no longer erased.
 
 ### Removed
 
