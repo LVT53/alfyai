@@ -296,6 +296,28 @@ describe.each(
 		]);
 	});
 
+	it("a fallback that is slow but alive is not held to the failover threshold", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const h = setup(transport);
+		h.network.script(PRIMARY, hang);
+		h.network.script(
+			FALLBACK,
+			answerAfter(25_000, { text: "slow fallback answer" }),
+		);
+		const done = h.run();
+		await vi.waitFor(() => expect(h.network.to(PRIMARY)).toHaveLength(1));
+		await vi.advanceTimersByTimeAsync(10_000);
+		await vi.waitFor(() => expect(h.network.to(FALLBACK)).toHaveLength(1));
+		await vi.advanceTimersByTimeAsync(30_000);
+		await done;
+		expect(h.network.to(FALLBACK)).toHaveLength(1);
+		expect(h.answer).toBe("slow fallback answer");
+		expect(h.completion).toMatchObject({
+			outcome: "answered",
+			stopCause: "natural_stop",
+		});
+	});
+
 	it.each([
 		503, 429,
 	])("a provider error (%s) before any output moves the turn to the fallback", async (status) => {

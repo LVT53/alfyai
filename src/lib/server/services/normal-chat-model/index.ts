@@ -1243,7 +1243,11 @@ async function resolveFirstOutputTimeoutMs(
 		params.runtimeConfig,
 		{ skipPerModelFallback },
 	);
-	if (!fallbackTarget) return null;
+	// The timer exists so that a silent provider can be left for another one. An
+	// attempt that is already on the last provider of the chain has none to be
+	// left for: the timer would only turn a slow answer into a failure (the plain
+	// loop never armed it there either).
+	if (!fallbackTarget || fallbackTarget === currentModelId) return null;
 	const effective = Math.max(
 		1000,
 		params.runtimeConfig.modelTimeoutFailoverTimeoutMs,
