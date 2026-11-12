@@ -48,20 +48,20 @@ describe("canvas", () => {
 
 describe("the H3 canvas", () => {
 	it.each([
-		["landscape", 2496, 1664],
-		["portrait", 1664, 2496],
-		["square", 2048, 2048],
-		["wide", 2720, 1536],
-		["tall", 1536, 2720],
-	] as const)("makes a new %s picture at 4 MP", (size, width, height) => {
+		["landscape", 4224, 2816],
+		["portrait", 2816, 4224],
+		["square", 3456, 3456],
+		["wide", 4608, 2592],
+		["tall", 2592, 4608],
+	] as const)("makes a new %s picture at 12 MP", (size, width, height) => {
 		expect(canvasForNewPicture(size, false, "h3")).toEqual({ width, height });
 		expect(H3_NEW_PICTURE_CANVAS[size]).toEqual({ width, height });
-		// "4 MP" is the tier's name: the five canvases sit within a few percent.
-		expect(width * height).toBeGreaterThan(4_000_000);
-		expect(width * height).toBeLessThanOrEqual(4_194_304);
+		// "12 MP" is the tier's name: the five canvases sit within a few percent.
+		expect(width * height).toBeGreaterThan(11_800_000);
+		expect(width * height).toBeLessThanOrEqual(11_943_936);
 	});
 
-	it("has no print enlargement: print is a no-op at 4 MP", () => {
+	it("has no print enlargement: print is a no-op at 12 MP", () => {
 		for (const size of Object.keys(H3_NEW_PICTURE_CANVAS)) {
 			const plain = canvasForNewPicture(
 				size as keyof typeof H3_NEW_PICTURE_CANVAS,
@@ -74,30 +74,31 @@ describe("the H3 canvas", () => {
 				"h3",
 			);
 			expect(print).toEqual(plain);
-			expect(print.width * print.height).toBeGreaterThan(4_000_000);
+			expect(print.width * print.height).toBeGreaterThan(11_800_000);
 		}
 	});
 
-	it("keeps an edit's shape at 4 MP, in multiples of 32, capped at 6272", () => {
+	it("keeps an edit's shape at 12 MP, in multiples of 32, capped at 6272", () => {
 		expect(canvasForEdit({ width: 4032, height: 3024 }, false, "h3")).toEqual({
-			width: 2368,
-			height: 1760,
+			width: 3968,
+			height: 2976,
 		});
 		expect(canvasForEdit({ width: 4032, height: 3024 }, true, "h3")).toEqual(
 			canvasForEdit({ width: 4032, height: 3024 }, false, "h3"),
 		);
 		expect(canvasForEdit({ width: 3000, height: 3000 }, false, "h3")).toEqual({
-			width: 2048,
-			height: 2048,
+			width: 3456,
+			height: 3456,
 		});
 		expect(canvasForEdit({ width: 4000, height: 1000 }, false, "h3")).toEqual({
-			width: 4096,
-			height: 1024,
+			width: 6272,
+			height: 1728,
 		});
-		// The wider model's own side limit, not Qwen's 2752.
+		// The wider model's own side limit, not Qwen's 2752. A shape past it loses
+		// area, which is why the app never asks for one itself.
 		expect(canvasForEdit({ width: 12000, height: 1000 }, false, "h3")).toEqual({
 			width: 6272,
-			height: 576,
+			height: 992,
 		});
 	});
 

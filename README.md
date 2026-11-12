@@ -44,7 +44,7 @@ SQLite persistence — all in a single Node deployment.
   Normal Chat bounds preparation, model execution and finalization with a 150 s meaningful-activity idle limit and the configured total deadline from admission, plus a 30 s finalization window: model execution ends at the deadline (`REQUEST_TIMEOUT_MS` is all the model time there is), and a reply that finished near it still has the window for the language call, the follow-up chips and the save, so it is saved instead of discarded. A finalization that hangs past the window ends in an explicit failure. If a database commit already started when the window expires, transport detaches while the durable receipt settles; plain send returns a scoped pending observation instead of inviting a duplicate retry.
 - **Picture model switch** — `IMAGE_MODEL` picks the model that makes new pictures. `qwen` (the
   default) keeps the existing Qwen-Image-2.1 path unchanged: 1 MP, 4 MP print and transparent on
-  `COMFYUI_URL`. `h3` uses MiniMax-H3-Image at 4 MP on `COMFYUI_H3_URL`, with no transparent
+  `COMFYUI_URL`. `h3` uses MiniMax-H3-Image at 12 MP on `COMFYUI_H3_URL`, with no transparent
   option, no 8 MP and no 16 MP; switch to Qwen when a transparent picture is wanted. Both URLs and
   the model are live settings in admin System > Integrations > Pictures, and a picture already
   queued keeps the model it was queued with. Leave `COMFYUI_H3_URL` empty and H3 pictures are off.

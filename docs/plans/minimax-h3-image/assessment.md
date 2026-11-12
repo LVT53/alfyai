@@ -1,5 +1,32 @@
 # MiniMax-H3-Image on alfyroot: pre-install assessment
 
+> **Update, 2026-11-12 (after the first production run): the 4 MP tier was wrong, and
+> so was the checkpoint.** Everything below about fit and speed still holds, but two
+> choices made here were replaced:
+>
+> 1. **4 MP was the wrong canvas.** 4 MP is the model's documented *floor*, not its
+>    working size. At 4 MP a full-body person gives the face about 250 px, and the
+>    model fills that with wax and chroma mottle; the same prompt at 12-17 MP has
+>    pores and individual hairs. The app now renders H3 at **12 MP** (4224x2816 and
+>    the other four shapes), and `print` is still a no-op.
+> 2. **The NVFP4 checkpoint was the wrong file.** `minimax_h3_image_pruned_nvfp4`
+>    is a community re-quant (4.99 bits/param, W4A4, no convrot), not the file the
+>    official workflow uses. Measured against Comfy-Org's
+>    `minimax_h3_image_pruned_int8_convrot` (8.35 bits/param, W8A16) at the same
+>    seed and canvas, int8 is clearly better: real skin texture and eyelashes where
+>    NVFP4 is waxy. It also fits: GPU peak 48,384 of 48,935 MiB at 12 and 17 MP,
+>    because ComfyUI evicts the 15 GB text encoder while sampling. The app now loads
+>    the int8 file.
+>
+> Measured after the change, 1664 px-wide, seed 424242, 6 steps, CFG 1: 12 MP
+> renders in 15-21 s and produces 13-21 MB PNGs; 17 MP renders in 28 s and 22 MB.
+> The service's own cgroup cap had to move: `MemoryMax=32G` was sized for 4 MP and
+> the int8 model stages 19,999 MB, so the 12 MP peak hit the cap exactly. It is now
+> 44G.
+>
+> The 4 MP numbers in this document are kept as the record of the trial.
+
+
 Date: 2026-11-12. Scope: read-only inspection of the production picture stack on the
 `alfyroot` SSH box (`alfyws.alfyserver.hu`), the MiniMax-H3-Image release and its
 NVFP4/GGUF quants, and the AlfyAI integration changes a replacement would need.

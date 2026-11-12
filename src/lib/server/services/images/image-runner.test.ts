@@ -411,7 +411,7 @@ describe("an H3 take", () => {
 		return h3Fake;
 	}
 
-	it("runs the take's own model at 4 MP with 6 steps / CFG 1, and stores no alpha", async () => {
+	it("runs the take's own model on the request's canvas with 6 steps / CFG 1, and stores no alpha", async () => {
 		const comfy = await startH3Only();
 		const takeId = await queueTake(
 			request({ model: "h3", canvas: { width: 2496, height: 1664 } }),

@@ -156,7 +156,7 @@ describe("installed MiniMax-H3-Image graphs", () => {
 				.map(([, value]) => value),
 		);
 		expect(files.sort()).toEqual([
-			"minimax_h3_image_pruned_nvfp4.safetensors",
+			"minimax_h3_image_pruned_int8_convrot.safetensors",
 			"minimax_h3_image_vae_fp16.safetensors",
 			"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
 		]);

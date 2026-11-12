@@ -1933,7 +1933,7 @@ describe("the H3 picture model", () => {
 		expect(fake?.requests ?? []).toHaveLength(0);
 	});
 
-	it("makes an H3 print request on H3's own 4 MP canvas", async () => {
+	it("makes an H3 print request on H3's own 12 MP canvas", async () => {
 		await startPictureServer({ steps: 2 });
 		await selectPictureModel("h3");
 		await startEngine();
@@ -1948,10 +1948,10 @@ describe("the H3 picture model", () => {
 		expect(takes).toHaveLength(1);
 		const request = JSON.parse(takes[0]?.requestJson ?? "{}");
 		expect(request.model).toBe("h3");
-		expect(request.canvas).toEqual({ width: 1536, height: 2720 });
+		expect(request.canvas).toEqual({ width: 2592, height: 4608 });
 		// No 8/16 MP double from print.
 		expect(request.canvas.width * request.canvas.height).toBeLessThan(
-			5_000_000,
+			13_000_000,
 		);
 	});
 
@@ -1974,12 +1974,12 @@ describe("the H3 picture model", () => {
 		});
 	});
 
-	it("tells the model H3 is 4 MP with no transparent path, and Qwen is the transparent fallback", async () => {
+	it("tells the model H3 is 12 MP with no transparent path, and Qwen is the transparent fallback", async () => {
 		const { makeImageInputSchema } = await import("./make-image");
 		const print = makeImageInputSchema.shape.print.description ?? "";
 		const transparent =
 			makeImageInputSchema.shape.transparent.description ?? "";
-		expect(print).toContain("4 MP");
+		expect(print).toContain("12 MP");
 		expect(print).toContain("H3");
 		expect(transparent).toContain("H3");
 		expect(transparent).toContain("Qwen");

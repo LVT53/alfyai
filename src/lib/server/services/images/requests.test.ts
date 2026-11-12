@@ -376,29 +376,29 @@ describe("the H3 picture model", () => {
 		getConfig().imageModel = "h3";
 	}
 
-	it("makes a new picture on H3's 4 MP canvas, or the shape asked for, and stays 4 MP for print", async () => {
+	it("makes a new picture on H3's 12 MP canvas, or the shape asked for, and stays 12 MP for print", async () => {
 		await useH3();
 		const plain = await resolve({});
 		if (!plain.ok) throw new Error("not resolved");
 		expect(plain.plan.request).toMatchObject({
 			model: "h3",
 			mode: "generate",
-			canvas: { width: 2496, height: 1664 },
+			canvas: { width: 4224, height: 2816 },
 		});
 
 		const phone = await resolve({ size: "tall", print: true });
 		if (!phone.ok) throw new Error("not resolved");
 		expect(phone.plan.request).toMatchObject({
 			model: "h3",
-			canvas: { width: 1536, height: 2720 },
+			canvas: { width: 2592, height: 4608 },
 		});
 
 		const square = await resolve({ size: "square", print: true });
 		if (!square.ok) throw new Error("not resolved");
-		expect(square.plan.request.canvas).toEqual({ width: 2048, height: 2048 });
+		expect(square.plan.request.canvas).toEqual({ width: 3456, height: 3456 });
 	});
 
-	it("edits at 4 MP keeping the base's shape, and print does not enlarge it", async () => {
+	it("edits at 12 MP keeping the base's shape, and print does not enlarge it", async () => {
 		await useH3();
 		const upload = await makeUpload(640, 480);
 		const turnPictures = index([upload]);
@@ -407,14 +407,14 @@ describe("the H3 picture model", () => {
 		expect(plain.plan.request).toMatchObject({
 			model: "h3",
 			mode: "edit",
-			canvas: { width: 2368, height: 1760 },
+			canvas: { width: 3968, height: 2976 },
 		});
 		const print = await resolve(
 			{ pictures: ["1"], print: true },
 			{ turnPictures },
 		);
 		if (!print.ok) throw new Error("not resolved");
-		expect(print.plan.request.canvas).toEqual({ width: 2368, height: 1760 });
+		expect(print.plan.request.canvas).toEqual({ width: 3968, height: 2976 });
 	});
 
 	it("refuses a transparent request before a card or take, naming the Admin Qwen switch", async () => {

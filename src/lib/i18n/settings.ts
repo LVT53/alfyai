@@ -1785,7 +1785,7 @@ const settingsDict = {
 			"The ComfyUI server that makes pictures. Leave empty to turn picture making off.",
 		"admin.system.keys.IMAGE_MODEL.label": "Picture model",
 		"admin.system.keys.IMAGE_MODEL.meaning":
-			"Which picture model new pictures use. H3 makes 4 MP pictures only and has no transparent option; Qwen keeps 1 MP, 4 MP print and transparent. Pictures already queued keep the model they started with.",
+			"Which picture model new pictures use. H3 makes 12 MP pictures and has no transparent option; Qwen keeps 1 MP, 4 MP print and transparent. Pictures already queued keep the model they started with.",
 		"admin.system.keys.COMFYUI_H3_URL.label": "H3 picture server",
 		"admin.system.keys.COMFYUI_H3_URL.meaning":
 			"The separate ComfyUI server for the H3 picture model. Used only when the picture model is H3; leave it empty and H3 pictures are off.",
@@ -3932,7 +3932,7 @@ const settingsDict = {
 			"A képeket készítő ComfyUI-szerver. Üresen hagyva nincs képkészítés.",
 		"admin.system.keys.IMAGE_MODEL.label": "Képmodell",
 		"admin.system.keys.IMAGE_MODEL.meaning":
-			"Melyik modellel készülnek az új képek. A H3 csak 4 MP-en készít képet, átlátszó hátteret nem; a Qwennél marad az 1 MP, a 4 MP-es nyomat és az átlátszó kép. A már sorban álló képek megtartják a saját modelljüket.",
+			"Melyik modellel készülnek az új képek. A H3 12 MP-en készít képet, átlátszó hátteret nem; a Qwennél marad az 1 MP, a 4 MP-es nyomat és az átlátszó kép. A már sorban álló képek megtartják a saját modelljüket.",
 		"admin.system.keys.COMFYUI_H3_URL.label": "H3-as képszerver",
 		"admin.system.keys.COMFYUI_H3_URL.meaning":
 			"A H3-as képmodell külön ComfyUI-szervere. Csak akkor használja, ha a képmodell H3; üresen hagyva nincs H3-as képkészítés.",

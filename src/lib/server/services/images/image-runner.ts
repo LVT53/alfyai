@@ -285,7 +285,7 @@ async function submitTake(
 		height: request.canvas.height,
 		images: names,
 	});
-	// H3 4 MP peaks at the card's edge: free the other model's resident models
+	// H3 12 MP peaks at the card's edge: free the other model's resident models
 	// BEFORE this take submits, so the selected service loads into free memory.
 	await freeOtherPictureModel(request.model);
 	if (ctx.signal.aborted) return null;

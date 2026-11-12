@@ -2,7 +2,7 @@
 	"1": {
 		"class_type": "UNETLoader",
 		"inputs": {
-			"unet_name": "minimax_h3_image_pruned_nvfp4.safetensors",
+			"unet_name": "minimax_h3_image_pruned_int8_convrot.safetensors",
 			"weight_dtype": "default"
 		}
 	},

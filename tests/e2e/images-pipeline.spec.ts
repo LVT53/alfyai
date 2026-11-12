@@ -68,7 +68,9 @@ const CARD =
 	'[data-testid="message-deliverables"] [data-testid="artifact-card"]';
 const LOADED = `${CARD} [data-testid="image-card-stage"] [data-testid="image-picture-after"].is-loaded`;
 
-const FOUR_MEGAPIXEL = { width: 2496, height: 1664 };
+const H3_CANVAS = { width: 4224, height: 2816 };
+// Qwen's 1 MP print, which is also the landscape pair the specs below name.
+const QWEN_PRINT = { width: 2496, height: 1664 };
 const ONE_MEGAPIXEL = { width: 1248, height: 832 };
 
 type ImageCardJson = {
@@ -451,7 +453,7 @@ const SIZES: PictureSize[] = [
 	"tall",
 ];
 
-test.describe("MiniMax-H3-Image at 4 MP", () => {
+test.describe("MiniMax-H3-Image at 12 MP", () => {
 	let servers: FakePictureServers | null = null;
 	let previousModelPreference: string | null = null;
 	let conversationId: string | null = null;
@@ -492,7 +494,7 @@ test.describe("MiniMax-H3-Image at 4 MP", () => {
 		servers = null;
 	});
 
-	test("makes a 4 MP picture on H3's server, on the card, in History and on Download", async ({
+	test("makes a 12 MP picture on H3's server, on the card, in History and on Download", async ({
 		page,
 	}) => {
 		const { qwen, h3 } = servers as FakePictureServers;
@@ -514,32 +516,32 @@ test.describe("MiniMax-H3-Image at 4 MP", () => {
 			graphNodeByClass(prompt.graph, "KSampler")?.inputs?.steps,
 			"H3's 6 steps",
 		).toBe(6);
-		expect(submittedCanvas(prompt.graph)).toEqual(FOUR_MEGAPIXEL);
+		expect(submittedCanvas(prompt.graph)).toEqual(H3_CANVAS);
 
-		// No 8/16 MP: the requested canvas is the 4 MP one, not a doubled print.
-		expect(area(submittedCanvas(prompt.graph))).toBeLessThan(8 * 1024 * 1024);
+		// No 16 MP: the requested canvas is the 12 MP one, not a doubled print.
+		expect(area(submittedCanvas(prompt.graph))).toBeLessThan(13 * 1024 * 1024);
 
-		// The card's take is told the real 4 MP size (the card draws a thumbnail
+		// The card's take is told the real 12 MP size (the card draws a thumbnail
 		// of it; the file itself is checked below).
 		expect({
 			width: card.takes[0].width,
 			height: card.takes[0].height,
-		}).toEqual(FOUR_MEGAPIXEL);
+		}).toEqual(H3_CANVAS);
 
-		// The served file, its History version and its Download are that same 4 MP PNG.
+		// The served file, its History version and its Download are that same 12 MP PNG.
 		const fileId = card.takes[0].fileId as string;
 		expect(await fileSize(page, fileId, conversationId)).toMatchObject({
-			...FOUR_MEGAPIXEL,
+			...H3_CANVAS,
 		});
 		expect(await downloadSize(page, page.locator(CARD).last())).toEqual(
-			FOUR_MEGAPIXEL,
+			H3_CANVAS,
 		);
 		await expectHistoryHolds(page, fileId);
 
-		// The stored take is H3's, at the 4 MP canvas and 6 steps, transparent false.
+		// The stored take is H3's, at the 12 MP canvas and 6 steps, transparent false.
 		const [stored] = await storedTakes(conversationId);
 		expect(stored.request.model).toBe("h3");
-		expect(stored.request.canvas).toEqual(FOUR_MEGAPIXEL);
+		expect(stored.request.canvas).toEqual(H3_CANVAS);
 		expect(stored.request.transparent).toBe(false);
 
 		// The cross-model free runs on the selected model's OTHER service, never
@@ -550,7 +552,7 @@ test.describe("MiniMax-H3-Image at 4 MP", () => {
 		expect(comfyRequests(h3, "POST", "/free")).toHaveLength(0);
 	});
 
-	test("a change uses H3's edit graph, ten slots and <Picture 1>, at 4 MP", async ({
+	test("a change uses H3's edit graph, ten slots and <Picture 1>, at 12 MP", async ({
 		page,
 	}) => {
 		const { qwen, h3 } = servers as FakePictureServers;
@@ -575,29 +577,29 @@ test.describe("MiniMax-H3-Image at 4 MP", () => {
 			graphNodeByClass(edit.graph, "MiniMaxH3ImageConditioning"),
 		).toBeTruthy();
 		expect(graphNodeByClass(edit.graph, "KSampler")?.inputs?.steps).toBe(6);
-		expect(submittedCanvas(edit.graph)).toEqual(FOUR_MEGAPIXEL);
+		expect(submittedCanvas(edit.graph)).toEqual(H3_CANVAS);
 		// The edit graph keeps the same ten slots; only the base one is wired.
 		expect(submittedImageSlots(edit.graph)).toHaveLength(1);
 		expect(submittedPromptText(edit.graph)).toMatch(/^<Picture 1> /);
-		expect(area(submittedCanvas(edit.graph))).toBeLessThan(8 * 1024 * 1024);
+		expect(area(submittedCanvas(edit.graph))).toBeLessThan(13 * 1024 * 1024);
 
 		const stored = await storedTakes(conversationId);
 		expect(stored).toHaveLength(2);
 		expect(stored[1].request).toMatchObject({
 			model: "h3",
 			mode: "edit",
-			canvas: FOUR_MEGAPIXEL,
+			canvas: H3_CANVAS,
 			marks: null,
 		});
 		expect(stored[1].request.inputs[0]?.role).not.toBe("marked");
 
 		const latest = card.takes[0].fileId as string;
 		expect(await fileSize(page, latest, conversationId)).toMatchObject({
-			...FOUR_MEGAPIXEL,
+			...H3_CANVAS,
 		});
 	});
 
-	test("a boxed change carries its marks into an H3 take that still lands at 4 MP", async ({
+	test("a boxed change carries its marks into an H3 take that still lands at 12 MP", async ({
 		page,
 	}) => {
 		const { qwen, h3 } = servers as FakePictureServers;
@@ -633,7 +635,7 @@ test.describe("MiniMax-H3-Image at 4 MP", () => {
 		const prompts = submittedPrompts(h3);
 		expect(prompts).toHaveLength(2);
 		expect(submittedPrompts(qwen)).toHaveLength(0);
-		expect(submittedCanvas(prompts[1].graph)).toEqual(FOUR_MEGAPIXEL);
+		expect(submittedCanvas(prompts[1].graph)).toEqual(H3_CANVAS);
 		expect(submittedPromptText(prompts[1].graph)).toMatch(/^<Picture 1> /);
 
 		// The boxed take really carried the person's marks; the model is sent the
@@ -645,20 +647,20 @@ test.describe("MiniMax-H3-Image at 4 MP", () => {
 		expect(card.takes[0].status).toBe("succeeded");
 		expect(
 			await fileSize(page, card.takes[0].fileId as string, conversationId),
-		).toMatchObject({ ...FOUR_MEGAPIXEL });
+		).toMatchObject({ ...H3_CANVAS });
 	});
 
-	test("H3 print stays 4 MP, every H3 size is 4 MP, and Qwen keeps 1 MP / 4 MP print", () => {
-		// The app's own canvases: H3 ignores print and never reaches 8 or 16 MP;
+	test("H3 print stays 12 MP, every H3 size is 12 MP, and Qwen keeps 1 MP / 4 MP print", () => {
+		// The app's own canvases: H3 ignores print and never reaches 16 MP;
 		// Qwen keeps today's 1 MP generate and 4 MP print exactly.
 		for (const size of SIZES) {
 			const plain = canvasForNewPicture(size, false, "h3");
 			const printed = canvasForNewPicture(size, true, "h3");
 			expect(printed, `H3 ${size} print is a no-op`).toEqual(plain);
 			expect(plain).toEqual(H3_NEW_PICTURE_CANVAS[size]);
-			expect(area(plain)).toBeGreaterThan(4 * 1024 * 1024 - 100_000);
-			expect(area(plain), `H3 ${size} stays under 8 MP`).toBeLessThan(
-				8 * 1024 * 1024,
+			expect(area(plain)).toBeGreaterThan(11 * 1024 * 1024);
+			expect(area(plain), `H3 ${size} stays under 16 MP`).toBeLessThan(
+				16 * 1024 * 1024,
 			);
 		}
 		for (const size of SIZES) {
@@ -673,13 +675,9 @@ test.describe("MiniMax-H3-Image at 4 MP", () => {
 				8 * 1024 * 1024,
 			);
 		}
-		// The landscape pair the specs above use, named once.
-		expect(canvasForNewPicture("landscape", true, "h3")).toEqual(
-			FOUR_MEGAPIXEL,
-		);
-		expect(canvasForNewPicture("landscape", true, "qwen")).toEqual(
-			FOUR_MEGAPIXEL,
-		);
+		// The landscape pairs the specs above use, named once.
+		expect(canvasForNewPicture("landscape", true, "h3")).toEqual(H3_CANVAS);
+		expect(canvasForNewPicture("landscape", true, "qwen")).toEqual(QWEN_PRINT);
 	});
 
 	test("an H3 take frees the Qwen server before it submits, and never frees its own", async ({

@@ -80,7 +80,7 @@ export const makeImageInputSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			"True only when the user wants print or wallpaper quality (about 4 MP, slower). The Qwen picture model doubles the canvas for it; MiniMax-H3-Image always makes 4 MP pictures, so print has no effect there.",
+			"True only when the user wants print or wallpaper quality (about 4 MP, slower). The Qwen picture model doubles the canvas for it; MiniMax-H3-Image always makes 12 MP pictures, so print has no effect there.",
 		),
 	transparent: z
 		.boolean()

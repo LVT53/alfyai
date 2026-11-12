@@ -1,7 +1,7 @@
 // GPU memory ownership across the two picture services. After a quiet spell
 // (one unref'd timer on `globalThis`, so a double import or an HMR
 // re-evaluation finds the same one) every configured service is freed. Before a
-// take is submitted, the OTHER model's service is freed as well: H3 4 MP peaks at
+// take is submitted, the OTHER model's service is freed as well: H3 12 MP peaks at
 // the card's edge, so Qwen's resident models must go before H3 loads, and the
 // same is true the other way round. The take's own service is never freed.
 
