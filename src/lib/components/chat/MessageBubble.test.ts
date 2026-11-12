@@ -582,6 +582,139 @@ describe("MessageBubble", () => {
 		expect(list[0].content).toBe("");
 	});
 
+	// A browser that only polls (the connection dropped, replay was unavailable and
+	// the server answered with a pending observation) reads no frames of the reply.
+	// The step it last saw may have called a tool since, which would have withdrawn
+	// its text, so that preview must not stand in the answer area. Text already
+	// committed as the answer stays, the reply stays live, and a preview that
+	// arrives live is drawn again (review 2, finding 2.5).
+	describe("while the browser only polls the turn", () => {
+		const scope = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "a:0",
+			phase: "working",
+		} as const;
+
+		function streamingRow(
+			output: ReturnType<typeof createNormalChatOutputAccumulator>,
+			extra: Partial<ChatMessage>,
+		): ChatMessage {
+			return applyNormalChatOutputView(
+				[
+					{
+						id: "polled",
+						role: "assistant",
+						timestamp: 1,
+						content: "",
+						isStreaming: true,
+						...extra,
+					},
+				],
+				"polled",
+				output.getProjection(),
+			)[0];
+		}
+
+		it("does not draw the pre-disconnect preview as the answer, and draws a preview that arrives live again", async () => {
+			const output = createNormalChatOutputAccumulator();
+			output.apply({
+				...scope,
+				sequence: 1,
+				type: "block_start",
+				blockId: "b",
+				nativeId: "b",
+				kind: "text",
+				role: "provisional",
+			});
+			output.apply({
+				...scope,
+				sequence: 2,
+				type: "block_delta",
+				blockId: "b",
+				text: "Let me search the web for that.",
+			});
+			const polling = streamingRow(output, { runtimePhase: "polling" });
+			const { rerender } = render(MessageBubble, { message: polling });
+			// The reply is still live, so the bubble still says it is being worked on.
+			await waitFor(() =>
+				expect(screen.getByText("Preparing response...")).toBeInTheDocument(),
+			);
+			expect(screen.queryByText("Let me search the web for that.")).toBeNull();
+			expect(
+				document.querySelector(".prose-container")?.textContent ?? "",
+			).not.toContain("Let me search the web for that.");
+			// Live frames resume: the preview is the display of the step being written again.
+			await rerender({ message: { ...polling, runtimePhase: "generating" } });
+			await waitFor(() =>
+				expect(
+					screen.getByText("Let me search the web for that."),
+				).toBeInTheDocument(),
+			);
+			expect(screen.queryByText("Preparing response...")).toBeNull();
+		});
+
+		it("keeps the text already committed as the answer and withholds only the preview", async () => {
+			const output = createNormalChatOutputAccumulator();
+			output.apply({
+				...scope,
+				sequence: 1,
+				type: "block_start",
+				blockId: "first",
+				nativeId: "first",
+				kind: "text",
+				role: "provisional",
+			});
+			output.apply({
+				...scope,
+				sequence: 2,
+				type: "block_delta",
+				blockId: "first",
+				text: "Committed answer.",
+			});
+			output.apply({
+				...scope,
+				sequence: 3,
+				type: "step_settled",
+				role: "answer",
+				finishReason: "stop",
+			});
+			const next = { ...scope, stepId: "a:1" };
+			output.apply({
+				...next,
+				sequence: 4,
+				type: "block_start",
+				blockId: "second",
+				nativeId: "second",
+				kind: "text",
+				role: "provisional",
+			});
+			output.apply({
+				...next,
+				sequence: 5,
+				type: "block_delta",
+				blockId: "second",
+				text: " Stale preview.",
+			});
+			const polling = streamingRow(output, { runtimePhase: "polling" });
+			expect(polling.content).toBe("Committed answer.");
+			const { rerender } = render(MessageBubble, { message: polling });
+			await waitFor(() =>
+				expect(
+					document.querySelector(".prose-container")?.textContent?.trim(),
+				).toBe("Committed answer."),
+			);
+			await rerender({ message: { ...polling, runtimePhase: "generating" } });
+			await waitFor(() =>
+				expect(
+					document.querySelector(".prose-container")?.textContent?.trim(),
+				).toBe("Committed answer. Stale preview."),
+			);
+		});
+	});
+
 	it.each([
 		"answered",
 		"stopped",

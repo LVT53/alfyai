@@ -1,5 +1,8 @@
 <script lang="ts">
-import { normalChatOutputView } from "$lib/client/normal-chat-output-view";
+import {
+	normalChatOutputView,
+	showsProvisionalPreview,
+} from "$lib/client/normal-chat-output-view";
 import { sanitizeNormalChatAnswer } from "$lib/shared/normal-chat-output";
 import { get } from "svelte/store";
 import {
@@ -411,7 +414,7 @@ let markdownIsStreaming = $derived(isStreaming && !isFinalizing);
 // continue to consume the canonical answer. A tool occurrence settles its
 // step as activity immediately, withdrawing the preview before execution ends.
 const displayContent = $derived.by(() => {
-	if (!markdownIsStreaming || outputView?.completion) return message.content;
+	if (!showsProvisionalPreview(message, outputView)) return message.content;
 	const current = outputView?.blocks.at(-1);
 	const provisional =
 		outputView?.blocks

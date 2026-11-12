@@ -12,6 +12,7 @@ import {
 	applyNormalChatOutputView,
 	type NormalChatOutputMessage,
 	normalChatOutputView,
+	showsProvisionalPreview,
 } from "./normal-chat-output-view";
 
 const scope = {
@@ -180,4 +181,83 @@ it("projects marker-only rows without fabricating model completion or IDs", () =
 	expect(view?.completion).toBeUndefined();
 	expect(view?.modelCompletion).toBeUndefined();
 	expect(view?.blocks).toEqual([]);
+});
+
+// The provisional preview is the text of the step being written. A browser that
+// only polls reads no frames of the reply, so the step it last saw may have called
+// a tool since, which would have withdrawn the text (review 2, finding 2.5).
+describe("showsProvisionalPreview", () => {
+	const streaming = (
+		extra: Partial<NormalChatOutputMessage> = {},
+	): NormalChatOutputMessage => ({
+		...row("live", ""),
+		isStreaming: true,
+		...extra,
+	});
+
+	it.each([
+		[undefined, true],
+		["preparing", true],
+		["generating", true],
+		["finalizing", false],
+		["polling", false],
+	] as const)("for a reply in the phase %s: %s", (runtimePhase, shown) => {
+		expect(showsProvisionalPreview(streaming({ runtimePhase }))).toBe(shown);
+	});
+
+	it("is drawn again when frames resume after the browser only polled", () => {
+		const polled = streaming({ runtimePhase: "polling" });
+		expect(showsProvisionalPreview(polled)).toBe(false);
+		expect(
+			showsProvisionalPreview({ ...polled, runtimePhase: "generating" }),
+		).toBe(true);
+	});
+
+	it("is not drawn for a reply that is no longer being written", () => {
+		expect(showsProvisionalPreview(row("done", "Final answer"))).toBe(false);
+		expect(
+			showsProvisionalPreview({
+				...row("stopped", ""),
+				isStreaming: false,
+				wasStopped: true,
+			}),
+		).toBe(false);
+	});
+
+	it("counts a reply that is only thinking as still being written", () => {
+		expect(
+			showsProvisionalPreview({
+				...row("thinking", ""),
+				isThinkingStreaming: true,
+			}),
+		).toBe(true);
+	});
+
+	it("is not drawn once the turn has a completion", () => {
+		const completion = {
+			version: 1,
+			turnId: "t",
+			segmentId: "s",
+			phase: "working",
+			outcome: "answered",
+			stopCause: "natural_stop",
+			workingStopCause: "natural_stop",
+			closingAttempted: false,
+		} as const;
+		const settled = streaming({
+			normalChatOutput: {
+				version: 1,
+				events: [
+					...events,
+					{ ...scope, sequence: 2, type: "completion", completion },
+				],
+			},
+		});
+		expect(showsProvisionalPreview(settled)).toBe(false);
+		expect(
+			showsProvisionalPreview(
+				streaming({ normalChatOutput: { version: 1, events } }),
+			),
+		).toBe(true);
+	});
 });

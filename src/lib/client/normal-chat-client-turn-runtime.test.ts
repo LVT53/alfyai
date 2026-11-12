@@ -10,6 +10,7 @@ import {
 import {
 	applyNormalChatOutputView,
 	normalChatOutputView,
+	showsProvisionalPreview,
 } from "$lib/client/normal-chat-output-view";
 import type { ServerUpdateKind } from "$lib/client/server-update-watch";
 import type { ModelId } from "$lib/model-types";
@@ -11556,5 +11557,111 @@ describe("REVIEW2-T unsaved delivered terminal", () => {
 		["", true],
 	])("does not settle a delivered terminal with no saved row (original message=%s)", async (message, projected) => {
 		await expectUnsavedSuccessIsAFailure("delivered", message, projected);
+	});
+});
+
+// The connection drops in the middle of a step and the server cannot replay the
+// turn, so it answers the rejoin with a pending observation: the browser only
+// polls, and the retained view still holds the step it last saw, whose text a tool
+// call may have withdrawn since. The answer area must not draw that preview as the
+// answer while nothing but the observation is read (review 2, finding 2.5;
+// `MessageBubble.test.ts`, "while the browser only polls the turn", holds the
+// drawing itself).
+describe("REVIEW2-T a stale preview while the browser only polls", () => {
+	beforeEach(() => vi.useFakeTimers());
+	afterEach(() => vi.useRealTimers());
+
+	const preview = (text: string) => {
+		const accumulator = createNormalChatOutputAccumulator();
+		const scope = {
+			version: 1,
+			turnId: "turn-1",
+			segmentId: "seg-1",
+			attemptId: "a1",
+			stepId: "a1:0",
+			phase: "working",
+		} as const;
+		accumulator.apply({ ...scope, sequence: 1, type: "step_start" });
+		accumulator.apply({
+			...scope,
+			sequence: 2,
+			type: "block_start",
+			blockId: "b1",
+			nativeId: "t",
+			kind: "text",
+			role: "provisional",
+		});
+		accumulator.apply({
+			...scope,
+			sequence: 3,
+			type: "block_delta",
+			blockId: "b1",
+			text,
+		});
+		return accumulator.getProjection();
+	};
+
+	it("withholds the pre-disconnect preview from the answer while only the pending observation is read, and draws live frames again", async () => {
+		const made = makeAdapters({
+			schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
+			checkForOrphanedStream: vi.fn(async () => "stream-1"),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		await runtime.send({
+			message: "A",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		const row = () => {
+			const last = made.messages.at(-1);
+			if (!last) throw new Error("Missing reply");
+			return last;
+		};
+		const live = made.streamInvocations[0];
+		live.callbacks.onNormalChatOutput?.(
+			preview("Let me search the web for that."),
+		);
+		expect(showsProvisionalPreview(row())).toBe(true);
+		// The connection drops (a TypeError, no status): the runtime rejoins the
+		// same stream, keeping the partial it has.
+		live.callbacks.onError(new TypeError("Failed to fetch"));
+		await vi.advanceTimersByTimeAsync(5_000);
+		const rejoin = made.streamInvocations.find(
+			(invocation) => invocation.options?.reconnectToStreamId,
+		);
+		expect(rejoin).toBeDefined();
+		// The turn is too long to replay: the server sends a pending observation.
+		rejoin?.callbacks.onWaiting?.({
+			version: 1,
+			state: "pending",
+			streamId: rejoin.options?.reconnectToStreamId ?? "",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			segmentId: "seg-1",
+			deadlineAt: Date.now() + 200_000,
+			remainingMs: 200_000,
+		});
+		await vi.advanceTimersByTimeAsync(30_000);
+		// The retained view still holds the step it last saw, and the reply is
+		// still live (the bubble keeps its status) ...
+		expect(
+			normalChatOutputView(row())?.blocks.some(
+				(block) => block.role === "provisional" && block.text,
+			),
+		).toBe(true);
+		expect(row().isStreaming).toBe(true);
+		expect(row().runtimePhase).toBe("polling");
+		// ... but only polled: no tool call would be seen, so that step is not drawn
+		// as the answer.
+		expect(showsProvisionalPreview(row())).toBe(false);
+		// Frames arrive again on the next attach: the partial is replaced and the
+		// preview of the step being written may be drawn.
+		const resumed = made.streamInvocations.at(-1);
+		resumed?.callbacks.onNormalChatOutput?.(preview("Found it, writing."));
+		resumed?.callbacks.onReplayComplete?.();
+		expect(row().runtimePhase).toBe("generating");
+		expect(showsProvisionalPreview(row())).toBe(true);
+		runtime.detach();
 	});
 });

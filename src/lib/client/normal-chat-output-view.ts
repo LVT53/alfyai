@@ -69,3 +69,29 @@ export function applyNormalChatOutputView(
 				: message,
 	);
 }
+
+/**
+ * Whether the answer area draws the provisional preview: the text of the step
+ * being written, which its first tool call withdraws. Only a reply that is
+ * being read live shows it: not in its finalizing tail, not once it has a
+ * completion, and not while the browser only polls (`polling`: a pending
+ * observation after the connection dropped and the turn could not be replayed).
+ * A browser that only polls reads no frames, so the step it last saw may have
+ * called a tool since, which would have withdrawn its text; that preview must
+ * not stand in for the answer. When frames resume the phase is `generating`
+ * again and the preview is drawn again. The preview is a display only: text
+ * already committed as the answer (`message.content`) is not a preview and is
+ * drawn either way, and the reply stays live (`isStreaming`) while it is polled.
+ */
+export function showsProvisionalPreview(
+	message: NormalChatOutputMessage,
+	view: NormalChatOutputView | undefined = normalChatOutputView(message),
+): boolean {
+	if (!message.isStreaming && !message.isThinkingStreaming) return false;
+	if (
+		message.runtimePhase === "finalizing" ||
+		message.runtimePhase === "polling"
+	)
+		return false;
+	return !view?.completion;
+}
