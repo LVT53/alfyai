@@ -418,3 +418,33 @@ it("settles the record of a turn the ledger finds abandoned", async () => {
 		expect.objectContaining({ attemptId: "a", modelId: "provider:p1:m1" }),
 	]);
 });
+
+it("still settles the record from memory when the ledger cannot settle (its chat was deleted mid-run), and finish fails as before", async () => {
+	const life = lifetime.beginCompletionLifetime(input);
+	await life.register(attempt);
+	life.capture(snapshot(life.scope));
+	// Let the ledger take the capture, so nothing is queued when the chat goes.
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	database.sqlite.prepare("DELETE FROM conversations WHERE id = ?").run("c");
+	expect(database.db.select().from(schema.normalChatTurns).all()).toEqual([]);
+	await expect(life.finish()).rejects.toThrow(/scope/i);
+	const [row] = runs();
+	expect(row).toMatchObject({
+		tracked: true,
+		outcome: "answered",
+		stopCause: "natural_stop",
+		workingStopCause: "natural_stop",
+		phase: "working",
+	});
+	expect(row.settledAt).toBeInstanceOf(Date);
+	expect(attemptsOf(row)).toEqual([
+		expect.objectContaining({
+			attemptId: "a",
+			modelId: "provider:p1:m1",
+			inputTokens: 100,
+			outputTokens: 20,
+			totalTokens: 120,
+			usageFinal: true,
+		}),
+	]);
+});

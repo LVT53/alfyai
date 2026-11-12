@@ -516,12 +516,19 @@ export function beginCompletionLifetime(
 						await saveIncognitoReceipt(scope, linkedMessageId, sealed);
 				}
 				if (tracked)
-					settleTurn(scope, {
-						...sealed,
-						recoveryCount: recoveryCount(),
-						attemptIds: [...registered.keys()],
-						messageId: linkedMessageId,
-					});
+					try {
+						settleTurn(scope, {
+							...sealed,
+							recoveryCount: recoveryCount(),
+							attemptIds: [...registered.keys()],
+							messageId: linkedMessageId,
+						});
+					} catch (error) {
+						// The ledger row can be gone (the chat was deleted while the run went
+						// on). The run still ended, and its record says how.
+						reportFromMemory(unreported(), false);
+						throw error;
+					}
 				if (runLogId)
 					completeRunLog(
 						{ id: runLogId },
