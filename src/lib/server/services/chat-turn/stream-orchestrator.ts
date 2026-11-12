@@ -715,6 +715,19 @@ export function runChatStreamOrchestrator(
 				)
 					recordElapsedPhase(SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN);
 			};
+			// The first byte is the first sign that the provider produced output. The
+			// model run's stream gives it (the loop below stamps the first event it
+			// reads), but with the completion engine that stream carries reasoning and
+			// tool calls as they happen and the text of an answer only once, when the
+			// engine has finished: a turn that answers without reasoning would take
+			// its first byte at the end. A block, of any kind, starts and grows only
+			// from a text or reasoning part the provider sent; a step_start carries
+			// no output. The mark keeps its first value, so whichever signal comes
+			// first wins.
+			const recordFirstUpstreamOutput = (event: NormalChatOutputEvent) => {
+				if (event.type === "block_start" || event.type === "block_delta")
+					recordElapsedPhase(SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT);
+			};
 			const flushPendingThinking = chunkRuntime.flushPendingThinking;
 			const flushInlineThinkingBuffer = chunkRuntime.flushInlineThinkingBuffer;
 			const flushOutputBuffer = chunkRuntime.flushOutputBuffer;
@@ -1071,6 +1084,7 @@ export function runChatStreamOrchestrator(
 						watchdog.touch();
 						structuralTransport = true;
 						outputWriter.write(event);
+						recordFirstUpstreamOutput(event);
 						recordFirstVisibleOutputText(event);
 					},
 					runtimeConfig: getConfig(),

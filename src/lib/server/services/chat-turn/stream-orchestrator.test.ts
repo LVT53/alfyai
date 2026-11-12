@@ -3194,7 +3194,10 @@ describe("stream-orchestrator SSE contract", () => {
 // stream, counted from the request's start. With the completion engine that text
 // travels as structural output events while the engine works; the accepted answer
 // comes through the model run's stream once, when the engine has finished, so a
-// mark taken there lands on the end of the turn. These tests play the engine by
+// mark taken there lands on the end of the turn. The first byte is the same
+// story: the `first_upstream_event` mark (`first_byte_ms`) is the first sign that
+// the provider produced output, and for a turn that answers without reasoning the
+// model run's stream shows none until the end. These tests play the engine by
 // hand under fake timers, so every number is exact.
 describe("stream-orchestrator: when a completion-engine turn takes its first token", () => {
 	const scope = (stepId: string) => ({
@@ -3218,26 +3221,31 @@ describe("stream-orchestrator: when a completion-engine turn takes its first tok
 	});
 
 	// A model run whose engine the test plays: it writes output events through the
-	// callback the orchestrator handed the run whenever the test says so, and its
-	// stream carries the accepted answer once, when the test lets the engine end.
+	// callback the orchestrator handed the run whenever the test says so. Its
+	// stream carries what the test hands it, as the engine's does: reasoning and
+	// tool calls as they happen, the accepted answer once, when the engine ends.
 	async function playEngine() {
 		const { runStreamingNormalChatSendModel } = await import(
 			"./streaming-normal-chat-model-run"
 		);
 		let emit: ((event: NormalChatOutputEvent) => void) | undefined;
-		let accepted = "";
-		let end!: () => void;
-		const ended = new Promise<void>((resolve) => {
-			end = resolve;
-		});
+		const handed: NeutralStreamEvent[] = [];
+		let closed = false;
+		let wake: (() => void) | undefined;
 		vi.mocked(runStreamingNormalChatSendModel).mockImplementation(
 			async (params) => {
 				emit = (event) => params.onOutputEvent?.(event);
 				return createNeutralStreamingResult([], {
 					stream: (async function* () {
-						await ended;
-						yield { type: "text_delta", text: accepted };
-						yield finishEvent;
+						for (;;) {
+							const next = handed.shift();
+							if (next) yield next;
+							else if (closed) return;
+							else
+								await new Promise<void>((resolve) => {
+									wake = resolve;
+								});
+						}
 					})(),
 				}) as never;
 			},
@@ -3250,6 +3258,10 @@ describe("stream-orchestrator: when a completion-engine turn takes its first tok
 				for (let turn = 0; turn < 20 && !emit; turn++)
 					await vi.advanceTimersByTimeAsync(0);
 				if (!emit) throw new Error("The turn never reached the model run");
+			},
+			// The engine opens a step. It carries no output.
+			stepStart(stepId = "step-1") {
+				emit?.({ ...scope(stepId), sequence: ++sequence, type: "step_start" });
 			},
 			startBlock(
 				blockId: string,
@@ -3285,9 +3297,16 @@ describe("stream-orchestrator: when a completion-engine turn takes its first tok
 					finishReason: null,
 				});
 			},
+			// An event for the model run's stream, as it happens. The turn reads it
+			// at the current time once it has run (`advanceTimersByTimeAsync(0)`).
+			yieldEvent(event: NeutralStreamEvent) {
+				handed.push(event);
+				wake?.();
+			},
 			acceptAnswer(answer: string) {
-				accepted = answer;
-				end();
+				handed.push({ type: "text_delta", text: answer }, finishEvent);
+				closed = true;
+				wake?.();
 			},
 		};
 	}
@@ -3419,7 +3438,178 @@ describe("stream-orchestrator: when a completion-engine turn takes its first tok
 		});
 	});
 
-	it("still takes the first token of a run with no completion turn at its first visible text", async () => {
+	it("takes the first byte when a direct answer's first text is written, not when the engine ends", async () => {
+		vi.useFakeTimers();
+		const engine = await playEngine();
+		const requestStartedAt = Date.now();
+		const reading = readSseResponse(runStream());
+		await engine.running();
+
+		// No reasoning: the model starts straight on its answer.
+		await vi.advanceTimersByTimeAsync(1_500);
+		engine.startBlock("answer", "text", "provisional");
+		engine.writeText("answer", "The first words of the answer.");
+		const firstBytesAt = Date.now() - requestStartedAt;
+		await vi.advanceTimersByTimeAsync(10_500);
+		engine.acceptAnswer("The first words of the answer.");
+		await vi.advanceTimersByTimeAsync(0);
+		const chunks = await reading;
+
+		expect(firstBytesAt).toBe(1_500);
+		const timeline = terminalTimeline(chunks);
+		expect(timeline).toMatchObject({
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT]: firstBytesAt,
+		});
+		expect(timeline).not.toHaveProperty(
+			SERVER_STREAM_TIMELINE_MARKS.FIRST_THINKING,
+		);
+		const analytics = await savedAnalytics();
+		expect(analytics).toMatchObject({
+			firstByteMs: firstBytesAt,
+			generationTimeMs: 12_000,
+		});
+		expect(analytics?.firstThinkingMs).toBeUndefined();
+	});
+
+	it("keeps the first byte at the first reasoning event of a turn that thinks first", async () => {
+		vi.useFakeTimers();
+		const engine = await playEngine();
+		const requestStartedAt = Date.now();
+		const reading = readSseResponse(runStream());
+		await engine.running();
+
+		await vi.advanceTimersByTimeAsync(2_000);
+		// The engine writes the reasoning block and hands the reasoning to the model
+		// run's stream at the same moment.
+		engine.startBlock("thinking", "reasoning", "activity");
+		engine.writeText("thinking", "Weighing how to answer.");
+		engine.yieldEvent({
+			type: "reasoning_delta",
+			text: "Weighing how to answer.",
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		const firstReasoningAt = Date.now() - requestStartedAt;
+		await vi.advanceTimersByTimeAsync(4_000);
+		engine.startBlock("answer", "text", "provisional");
+		engine.writeText("answer", "The first words of the answer.");
+		await vi.advanceTimersByTimeAsync(3_000);
+		engine.acceptAnswer("The first words of the answer.");
+		await vi.advanceTimersByTimeAsync(0);
+		const chunks = await reading;
+
+		expect(firstReasoningAt).toBe(2_000);
+		expect(terminalTimeline(chunks)).toMatchObject({
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT]: firstReasoningAt,
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_THINKING]: firstReasoningAt,
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN]: 6_000,
+		});
+		expect(await savedAnalytics()).toMatchObject({
+			firstByteMs: firstReasoningAt,
+			firstThinkingMs: firstReasoningAt,
+			firstTokenMs: 6_000,
+			generationTimeMs: 9_000,
+		});
+	});
+
+	it("does not take a step_start, which carries no output, as the first byte", async () => {
+		vi.useFakeTimers();
+		const engine = await playEngine();
+		const requestStartedAt = Date.now();
+		const reading = readSseResponse(runStream());
+		await engine.running();
+
+		// The engine opens a step. The event carries no output, so it is no first byte.
+		engine.stepStart();
+		await vi.advanceTimersByTimeAsync(2_500);
+		engine.startBlock("answer", "text", "provisional");
+		engine.writeText("answer", "The first words of the answer.");
+		const firstBytesAt = Date.now() - requestStartedAt;
+		await vi.advanceTimersByTimeAsync(6_500);
+		engine.acceptAnswer("The first words of the answer.");
+		await vi.advanceTimersByTimeAsync(0);
+		const chunks = await reading;
+
+		expect(firstBytesAt).toBe(2_500);
+		expect(terminalTimeline(chunks)).toMatchObject({
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT]: firstBytesAt,
+		});
+		expect(await savedAnalytics()).toMatchObject({
+			firstByteMs: firstBytesAt,
+			generationTimeMs: 9_000,
+		});
+	});
+
+	it("takes a block of any kind as the first byte, at the moment it starts", async () => {
+		vi.useFakeTimers();
+		const engine = await playEngine();
+		const requestStartedAt = Date.now();
+		const reading = readSseResponse(runStream());
+		await engine.running();
+
+		await vi.advanceTimersByTimeAsync(1_000);
+		// A reasoning block opens and its first words follow a while later. Only
+		// these output events reach the orchestrator (the model run's stream has
+		// nothing to say until the end), so the mark can only come from the block.
+		engine.startBlock("thinking", "reasoning", "activity");
+		const blockStartedAt = Date.now() - requestStartedAt;
+		await vi.advanceTimersByTimeAsync(400);
+		engine.writeText("thinking", "Weighing how to answer.");
+		await vi.advanceTimersByTimeAsync(5_600);
+		engine.acceptAnswer("Done.");
+		await vi.advanceTimersByTimeAsync(0);
+		const chunks = await reading;
+
+		expect(blockStartedAt).toBe(1_000);
+		expect(terminalTimeline(chunks)).toMatchObject({
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT]: blockStartedAt,
+		});
+	});
+
+	it("keeps the first byte at a tool call that the model run's stream showed before any block", async () => {
+		vi.useFakeTimers();
+		const engine = await playEngine();
+		const requestStartedAt = Date.now();
+		const reading = readSseResponse(runStream());
+		await engine.running();
+
+		await vi.advanceTimersByTimeAsync(1_200);
+		// The model calls a tool before it writes a word: the stream shows the call.
+		engine.yieldEvent({
+			type: "tool_call",
+			callId: "call-1",
+			toolName: "research_web",
+			input: { query: "wall colours" },
+		});
+		engine.yieldEvent({
+			type: "tool_result",
+			callId: "call-1",
+			toolName: "research_web",
+			output: { success: true },
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		const toolCallAt = Date.now() - requestStartedAt;
+		await vi.advanceTimersByTimeAsync(3_800);
+		// The answer's first words come later and cannot move the mark.
+		engine.startBlock("answer", "text", "provisional", "step-2");
+		engine.writeText("answer", "The first words of the answer.", "step-2");
+		await vi.advanceTimersByTimeAsync(2_000);
+		engine.acceptAnswer("The first words of the answer.");
+		await vi.advanceTimersByTimeAsync(0);
+		const chunks = await reading;
+
+		expect(toolCallAt).toBe(1_200);
+		expect(terminalTimeline(chunks)).toMatchObject({
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT]: toolCallAt,
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN]: 5_000,
+		});
+		expect(await savedAnalytics()).toMatchObject({
+			firstByteMs: toolCallAt,
+			firstTokenMs: 5_000,
+			generationTimeMs: 7_000,
+		});
+	});
+
+	it("still takes the first byte and the first token of a run with no completion turn from its own events", async () => {
 		vi.useFakeTimers();
 		const infoSpy = vi
 			.spyOn(console, "info")
@@ -3460,6 +3650,7 @@ describe("stream-orchestrator: when a completion-engine turn takes its first tok
 				([message]) => message === "[CHAT_STREAM] phase_timing",
 			);
 			expect(phaseTimingLog?.[1]).toMatchObject({
+				first_upstream_event_ms: 1_000,
 				first_visible_token_ms: 2_000,
 			});
 		} finally {
