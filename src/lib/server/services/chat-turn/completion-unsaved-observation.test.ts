@@ -67,6 +67,7 @@ afterEach(() => {
 function snapshot(
 	scope: ReturnType<typeof module.beginCompletionLifetime>["scope"],
 	complete: boolean,
+	outcome: "answered" | "delivered" = "answered",
 ): NormalChatContinuationSnapshot {
 	return {
 		version: 1,
@@ -110,7 +111,7 @@ function snapshot(
 			turnId: scope.turnId,
 			segmentId: scope.segmentId,
 			phase: "working",
-			outcome: "answered",
+			outcome,
 			stopCause: "natural_stop",
 			workingStopCause: "natural_stop",
 			closingAttempted: false,
@@ -154,12 +155,13 @@ async function observeWire(requestId = input.requestId, userId = input.userId) {
 	};
 }
 
-// Reviewer B reproducer: the model answered, finalization then failed to save the
+// The model settled with a successful outcome, finalization then failed to save the
 // assistant row (strict mode), the live wire got backend_failure, and the
-// orchestrator's finally (stream-orchestrator.ts:1280) plus the prepared generator's
-// finally settle the lifetime with no message. A reconnecting observer must not be
-// told the turn ended cleanly.
-it("REVIEW-B: an answered turn whose assistant row could not be saved is not observed as a clean answered terminal", async () => {
+// orchestrator's finally (stream-orchestrator.ts) plus the prepared generator's
+// finally settle the lifetime with no message. What a reconnecting observer is told.
+async function observeTurnWhoseReplyCouldNotBeSaved(
+	outcome: "answered" | "delivered",
+) {
 	vi.doMock("./finalize-steps", () => ({
 		persistUserTurnAttachments: vi.fn(async () => undefined),
 		persistAssistantTurnState: vi.fn(async () => ({
@@ -185,43 +187,53 @@ it("REVIEW-B: an answered turn whose assistant row could not be saved is not obs
 			),
 		};
 	});
-	const life = module.beginCompletionLifetime(input);
-	await life.register(attempt);
-	life.capture(snapshot(life.scope, true)); // model settled: answered / natural_stop
-	const { finalizeChatTurn } = await import("./finalize");
-	await expect(
-		finalizeChatTurn({
-			turnKind: "stream",
-			responseLanguage: "en",
-			userId: "u",
-			conversationId: "c",
-			streamId: input.requestId,
-			persistUserMessage: false,
-			userMessageContent: "Question",
-			normalizedMessage: "Question",
-			upstreamMessage: "Question",
-			assistantResponse: "Answer that was never saved",
-			assistantMetadata: {},
-			attachmentIds: [],
-			activeDocumentArtifactId: null,
-			contextStatus: null,
-			initialTaskState: null,
-			initialContextDebug: null,
-			analytics: null,
-			assistantMirrorContent: "Answer that was never saved",
-			maintenanceReason: "chat_stream",
-			completionTurn: {
-				segmentId: life.scope.segmentId,
-				getSnapshot: life.getSnapshot,
-				finish: life.finish,
-			},
-		}),
-	).rejects.toThrow(/disk I\/O error/);
-	// What the orchestrator's finally does after the failed finalization.
-	await life.finish();
-	expect(database.db.select().from(schema.messages).all()).toHaveLength(0);
+	try {
+		const life = module.beginCompletionLifetime(input);
+		await life.register(attempt);
+		life.capture(snapshot(life.scope, true, outcome)); // model settled: natural_stop
+		const { finalizeChatTurn } = await import("./finalize");
+		await expect(
+			finalizeChatTurn({
+				turnKind: "stream",
+				responseLanguage: "en",
+				userId: "u",
+				conversationId: "c",
+				streamId: input.requestId,
+				persistUserMessage: false,
+				userMessageContent: "Question",
+				normalizedMessage: "Question",
+				upstreamMessage: "Question",
+				assistantResponse: "Answer that was never saved",
+				assistantMetadata: {},
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: null,
+				assistantMirrorContent: "Answer that was never saved",
+				maintenanceReason: "chat_stream",
+				completionTurn: {
+					segmentId: life.scope.segmentId,
+					getSnapshot: life.getSnapshot,
+					finish: life.finish,
+				},
+			}),
+		).rejects.toThrow(/disk I\/O error/);
+		// What the orchestrator's finally does after the failed finalization.
+		await life.finish();
+		expect(database.db.select().from(schema.messages).all()).toHaveLength(0);
+		return await observeWire();
+	} finally {
+		vi.doUnmock("../messages");
+		vi.doUnmock("./finalize-steps");
+	}
+}
 
-	const wire = await observeWire();
+// Reviewer B reproducer: the model answered, finalization then failed to save the
+// assistant row. A reconnecting observer must not be told the turn ended cleanly.
+it("REVIEW-B: an answered turn whose assistant row could not be saved is not observed as a clean answered terminal", async () => {
+	const wire = await observeTurnWhoseReplyCouldNotBeSaved("answered");
 	expect(wire.observation).toMatchObject({
 		state: "terminal",
 		assistantMessageId: null,
@@ -237,6 +249,23 @@ it("REVIEW-B: an answered turn whose assistant row could not be saved is not obs
 			(wire.observation?.completion as { outcome?: string } | undefined)
 				?.outcome === "answered",
 	).toBe(false);
-	vi.doUnmock("../messages");
-	vi.doUnmock("./finalize-steps");
+});
+
+// Review 2 (T) reproducer: a file turn's model outcome is `delivered`, not
+// `answered`, and its unsaved reply was still observed as `terminal` with no
+// message and `delivered`, which the browser took for success.
+it("REVIEW2-T: a delivered turn whose assistant row could not be saved is not observed as a clean delivered terminal", async () => {
+	const wire = await observeTurnWhoseReplyCouldNotBeSaved("delivered");
+	expect(wire.observation).toMatchObject({
+		state: "terminal",
+		assistantMessageId: null,
+		completion: { outcome: "failed" },
+		modelCompletion: { outcome: "delivered" },
+	});
+	expect(
+		wire.observation?.state === "terminal" &&
+			wire.observation?.assistantMessageId === null &&
+			(wire.observation?.completion as { outcome?: string } | undefined)
+				?.outcome === "delivered",
+	).toBe(false);
 });

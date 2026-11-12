@@ -280,15 +280,20 @@ export async function observeCompletionTurn(
 	const normalChatFinalization = parseNormalChatFinalization(
 		parseJsonRecord(message?.metadataJson ?? null)?.normalChatFinalization,
 	);
-	// Model settlement alone cannot certify an answer survived persistence. Keep
-	// the model fact intact while reporting the missing receipt as failure.
-	const missingAnsweredReceipt =
-		!message && modelCompletion.outcome === "answered";
+	// Model settlement alone cannot certify that an answer, or the file a turn
+	// delivered, survived persistence: `answered` and `delivered` are the two
+	// successful outcomes, and either one with no saved reply left the person
+	// with neither the reply nor its file card. Keep the model fact intact while
+	// reporting the missing receipt as failure.
+	const missingSuccessfulReceipt =
+		!message &&
+		(modelCompletion.outcome === "answered" ||
+			modelCompletion.outcome === "delivered");
 	return {
 		...identity,
 		state: "terminal",
 		assistantMessageId: message?.id ?? null,
-		completion: missingAnsweredReceipt
+		completion: missingSuccessfulReceipt
 			? {
 					...modelCompletion,
 					outcome: "failed",
@@ -298,7 +303,7 @@ export async function observeCompletionTurn(
 					modelCompletion,
 					normalChatFinalization,
 				) ?? modelCompletion),
-		...(missingAnsweredReceipt ? { modelCompletion } : {}),
+		...(missingSuccessfulReceipt ? { modelCompletion } : {}),
 		...(normalChatFinalization
 			? { normalChatFinalization, modelCompletion }
 			: {}),
