@@ -172,6 +172,13 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 - A HEIC or HEIF photo is now read like any other picture, from a PNG made of it
   for the length of the read, where before every one failed because MinerU does
   not accept those formats; the stored photo is not changed.
+- When the model provider fails after a tool has run and the reply is finished
+  on the fallback provider, the fallback now gets the question and what the
+  tools found, and no longer the other provider's half-written sentence or its
+  reasoning. A fallback that is only slow to answer is no longer cut off after
+  the failover timeout, a Stop pressed while the fallback is being set up now
+  ends the reply as stopped, and a fallback that cannot be set up no longer
+  turns the original failure into an error.
 
 ### Removed
 
