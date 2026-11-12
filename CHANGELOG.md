@@ -117,6 +117,12 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 - Documents are now read through MinerU 4.1, with PDFs and images always sent at
   the best tier the server offers, because 4.1 drops to a lower tier when none is
   named.
+- A chat's context is now built to leave room for Alfy's tools, the reply and a
+  safety margin. Where the configured target (the default 90% of the window, or a
+  built-in slot's own) would leave none, it is lowered for that turn, so a long
+  chat is summarized or trimmed sooner instead of being refused for lack of room,
+  and the context status shows the lowered number; a target that already leaves
+  the room is used as set.
 
 ### Fixed
 
