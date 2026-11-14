@@ -289,6 +289,7 @@ import {
 	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
 	shouldPollImageCards,
+	imageCardsPollIntervalMs,
 	type DraftChangePayload,
 	type MessageEditPayload,
 	type MessageRegeneratePayload,
@@ -3565,6 +3566,9 @@ let streamingToolCalls = $derived.by(() => {
 let pollForImageCards = $derived(
 	shouldPollImageCards(imageCards, streamingToolCalls),
 );
+// A take being made re-reads the chat four times faster than the ordinary
+// poll, so a picture that lands between two reads waits ~0.75 s, not ~2.5 s.
+let imageCardsPollMs = $derived(imageCardsPollIntervalMs(imageCards));
 
 $effect(() => {
 	const conversationId = data.conversation?.id;
@@ -3578,7 +3582,7 @@ $effect(() => {
 
 	const interval = setInterval(() => {
 		void hydrateConversationDetail(conversationId);
-	}, 2500);
+	}, imageCardsPollMs);
 
 	return () => {
 		clearInterval(interval);

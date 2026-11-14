@@ -459,6 +459,26 @@ export function shouldPollImageCards(
 	);
 }
 
+/** The chat detail poll while a take is being made: the card must show the picture the moment it lands. */
+const IMAGE_CARDS_ACTIVE_POLL_MS = 750;
+/** The chat detail poll otherwise: file and Atlas jobs still need their reads, but no picture waits. */
+const IMAGE_CARDS_IDLE_POLL_MS = 2500;
+
+/**
+ * How often the chat page reads its detail again while it polls for picture
+ * cards (`shouldPollImageCards`): fast while a take is being made, so a picture
+ * that lands between two reads waits at most ~0.75 s instead of ~2.5 s, and
+ * the chat's ordinary 2.5 s otherwise (a held take, a streaming make_image
+ * call before its card exists, or only file and Atlas jobs moving).
+ */
+export function imageCardsPollIntervalMs(
+	cards: readonly ImageCardView[],
+): number {
+	return hasActiveImageTakes(cards)
+		? IMAGE_CARDS_ACTIVE_POLL_MS
+		: IMAGE_CARDS_IDLE_POLL_MS;
+}
+
 export function isConversationReadOnly(conversation: {
 	status?: "open" | "sealed" | null;
 }): boolean {
