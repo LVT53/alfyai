@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, unlink } from "node:fs/promises";
+import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -154,6 +154,45 @@ describe("GET /api/images/files/[fileId]", () => {
 		)) as Response;
 		expect(res.headers.get("Content-Type")).toBe("image/webp");
 		expect(existsSync(displayPath)).toBe(true);
+	});
+
+	it("regenerates a truncated display copy and serves the whole one", async () => {
+		const large = await storeLargePicture();
+		const displayPath = join(
+			workdir,
+			"data",
+			"image-files",
+			"c1",
+			`${large.id}.display.webp`,
+		);
+		const whole = new Uint8Array(await readFile(displayPath));
+		await writeFile(displayPath, whole.subarray(0, 64));
+		const res = (await GET(
+			event({ fileId: large.id, userId: "u1", query: "?variant=display" }),
+		)) as Response;
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("image/webp");
+		const body = new Uint8Array(await res.arrayBuffer());
+		expect(body.byteLength).toBe(whole.byteLength);
+		expect((await sharp(body).metadata()).format).toBe("webp");
+	});
+
+	it("serves the original when a broken display copy cannot be regenerated", async () => {
+		const large = await storeLargePicture();
+		const directory = join(workdir, "data", "image-files", "c1");
+		const displayPath = join(directory, `${large.id}.display.webp`);
+		const originalPath = join(directory, `${large.id}.png`);
+		await writeFile(displayPath, "not a webp");
+		// The display copy cannot be made from the original, but its bytes are
+		// still readable: the route's answer is the original, only larger.
+		await writeFile(originalPath, "not a png");
+		const res = (await GET(
+			event({ fileId: large.id, userId: "u1", query: "?variant=display" }),
+		)) as Response;
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("image/png");
+		expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("not a png");
+		expect(existsSync(displayPath)).toBe(false);
 	});
 
 	it("downloads the full original whatever variant is named", async () => {

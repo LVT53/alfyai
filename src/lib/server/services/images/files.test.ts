@@ -1,6 +1,13 @@
 // @vitest-environment node
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm, unlink } from "node:fs/promises";
+import {
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
@@ -335,6 +342,35 @@ describe("storeImageFile", () => {
 		expect(left).toEqual([]);
 	});
 
+	it("stores the picture without a display copy when making one fails", async () => {
+		// The display copy is an optimisation: a store that cannot make it still
+		// keeps the original, which is the display of last resort.
+		const proto = Object.getPrototypeOf(
+			sharp({
+				create: { width: 1, height: 1, channels: 3, background: "#fff" },
+			}),
+		) as { webp: (...args: unknown[]) => unknown };
+		vi.spyOn(proto, "webp").mockImplementation((() => {
+			throw new Error("webp encoder unavailable");
+		}) as never);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await photoPng(),
+		});
+		expect(file.width).toBe(2048);
+		expect(warn).toHaveBeenCalledWith(
+			expect.stringContaining("[IMAGES]"),
+			expect.any(Error),
+		);
+		const dir = join(workdir, "data", "image-files", "c1");
+		expect((await readdir(dir)).sort()).toEqual(
+			[`${file.id}.png`, `${file.id}.thumb.png`].sort(),
+		);
+	});
+
 	it("refuses another person's chat", async () => {
 		await expect(
 			files.storeImageFile({
@@ -419,7 +455,7 @@ describe("the display copy", () => {
 			expect(decoded.info.width).toBe(reference.width);
 			expect(decoded.info.height).toBe(reference.height);
 			expect(decoded.info.channels).toBe(4);
-			expect(psnr(decoded.data, reference.data)).toBeGreaterThanOrEqual(40);
+			expect(psnr(decoded.data, reference.data)).toBe(Number.POSITIVE_INFINITY);
 
 			if (alpha) {
 				// The clear band stays clear and the opaque rest stays opaque: the
@@ -451,6 +487,63 @@ describe("the display copy", () => {
 		},
 		30_000,
 	);
+
+	it("regenerates a truncated display copy instead of handing it back", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await photoPng(),
+		});
+		const displayPath = join(
+			workdir,
+			"data",
+			"image-files",
+			"c1",
+			`${file.id}.display.webp`,
+		);
+		const whole = new Uint8Array(await readFile(displayPath));
+		// The signature survives a truncation, the RIFF length does not: a
+		// signature-only check would keep serving this half a WebP forever.
+		await writeFile(displayPath, whole.subarray(0, 64));
+		const display = await files.readImageDisplayBytes(file);
+		expect(display).not.toBeNull();
+		expect((display as Uint8Array).byteLength).toBe(whole.byteLength);
+		expect((await sharp(display as Uint8Array).metadata()).format).toBe("webp");
+		expect(await readFile(displayPath)).toEqual(
+			Buffer.from(display as Uint8Array),
+		);
+		// The regeneration is atomic: no temporary file is left beside it.
+		expect(
+			(await readdir(join(workdir, "data", "image-files", "c1"))).sort(),
+		).toEqual(
+			[
+				`${file.id}.png`,
+				`${file.id}.thumb.png`,
+				`${file.id}.display.webp`,
+			].sort(),
+		);
+	});
+
+	it("removes a display copy that is not a WebP before regenerating it", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await photoPng(),
+		});
+		const displayPath = join(
+			workdir,
+			"data",
+			"image-files",
+			"c1",
+			`${file.id}.display.webp`,
+		);
+		await writeFile(displayPath, "not a webp");
+		const display = await files.readImageDisplayBytes(file);
+		expect((display as Uint8Array).byteLength).toBeGreaterThan(64);
+		expect((await sharp(display as Uint8Array).metadata()).format).toBe("webp");
+	});
 
 	it("is made from the full PNG on first request for a picture stored before display copies, and kept", async () => {
 		const file = await files.storeImageFile({

@@ -199,8 +199,10 @@ original on a slow line; it is paid once per picture, on the server.
 
 `storeImageFile` writes `<id>.display.webp` only when the long edge is past
 `IMAGE_DISPLAY_LONG_EDGE = 1600`: sharp `fit: "inside"`, `withoutEnlargement`,
-`.webp({ lossless: true, exact: true })` (alpha kept, colour under transparent
-pixels kept). A picture within 1600 has no variant (its original is served).
+`.webp({ lossless: true, exact: true })` (alpha kept; sharp zeroes the RGB
+under a fully transparent pixel before encoding, which is invisible and changes
+nothing on screen). A picture within 1600 has no variant (its original is
+served).
 
 `files.test.ts` decodes both files and downsamples the original to the
 variant's size with the same kernel (sharp's default `lanczos3`):
@@ -210,12 +212,16 @@ variant's size with the same kernel (sharp's default `lanczos3`):
 | opaque 2048x1536 | 1600x1200 | **Infinity** (pixel-identical) |
 | transparent 2048x1536 (alpha 0 / 128 / 255 bands) | 1600x1200 | **Infinity** (pixel-identical) |
 
-Lossless WebP clears the "visibly identical" bar trivially (PSNR >= 40 dB was
-the requirement; the result is infinity), so no PNG-at-1600 fallback was
-needed. The transparent copy keeps alpha 0, 128 and 255 exactly, so the
-checkerboard and Before / After crossfade behave as before.
+Lossless WebP clears the "visibly identical" bar trivially: `files.test.ts`
+now asserts **Infinity** for both cases, so a lossy encoder that merely reached
+the old PSNR >= 40 dB bar fails the test. The transparent copy keeps alpha 0,
+128 and 255 exactly, so the checkerboard and Before / After crossfade behave as
+before.
 
 `tests/e2e/images.spec.ts` ("a DPR-2 phone and a large picture") holds the
 browser side: at 390x844 DPR 2 with the same 2048 px fake, the card's
 `currentSrc` is `?variant=display`, its `srcset` carries the `1600w`
-descriptor, and no request for the full PNG is made.
+descriptor, and no request for the full PNG is made. The card now also names
+its real box (`sizes` 92vw under 768, 352 px above), so a tall picture at a
+1280x900 DPR-2 desktop takes its 900w display copy instead of the master
+(`"a DPR-2 desktop and a tall picture"`).
