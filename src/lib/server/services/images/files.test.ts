@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
@@ -41,6 +41,82 @@ async function png(width: number, height: number, alpha = false) {
 		.png()
 		.toBuffer();
 	return new Uint8Array(buffer);
+}
+
+/**
+ * A picture past the display edge with enough detail that the test is about
+ * real pixels: smooth colour fields, a little grain, and (with `alpha`) a
+ * fully clear band and a half-clear one, so "alpha is kept where the original
+ * had it" means something. Deterministic: the identity bar must not depend on
+ * a random draw.
+ */
+async function photoPng(
+	width = 2048,
+	height = 1536,
+	alpha = false,
+): Promise<Uint8Array> {
+	const channels = alpha ? 4 : 3;
+	const data = Buffer.alloc(width * height * channels);
+	let state = 123456789;
+	const random = () => {
+		state = (state * 1664525 + 1013904223) >>> 0;
+		return state / 4294967296;
+	};
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const at = (y * width + x) * channels;
+			const grain = (random() - 0.5) * 6;
+			const wave = Math.sin(x / 97) + Math.cos(y / 113);
+			data[at] = clamp(128 + wave * 40 + grain);
+			data[at + 1] = clamp(120 + Math.cos(x / 151) * 50 + grain);
+			data[at + 2] = clamp(140 + Math.sin(y / 89) * 45 + grain);
+			if (channels === 4) {
+				// A clear band and a half-clear band across the picture.
+				const share = x / width;
+				data[at + 3] = share < 0.1 ? 0 : share < 0.3 ? 128 : 255;
+			}
+		}
+	}
+	return new Uint8Array(
+		await sharp(data, { raw: { width, height, channels } }).png().toBuffer(),
+	);
+}
+
+function clamp(value: number): number {
+	return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+/** Peak signal-to-noise ratio over every channel, in dB; Infinity for identical pixels. */
+function psnr(a: Buffer, b: Buffer): number {
+	let sum = 0;
+	const length = Math.min(a.length, b.length);
+	for (let index = 0; index < length; index++) {
+		const difference = a[index] - b[index];
+		sum += difference * difference;
+	}
+	const mse = sum / length;
+	return mse === 0
+		? Number.POSITIVE_INFINITY
+		: 10 * Math.log10((255 * 255) / mse);
+}
+
+/** The stored original at the display copy's size, through the same kernel the store used (sharp's lanczos3). */
+async function referenceAtDisplaySize(
+	original: Uint8Array,
+	display: Uint8Array,
+): Promise<{ data: Buffer; width: number; height: number }> {
+	const meta = await sharp(display).metadata();
+	const { data, info } = await sharp(original)
+		.resize({
+			width: meta.width,
+			height: meta.height,
+			fit: "inside",
+			withoutEnlargement: true,
+		})
+		.ensureAlpha()
+		.raw()
+		.toBuffer({ resolveWithObject: true });
+	return { data, width: info.width, height: info.height };
 }
 
 beforeEach(async () => {
@@ -269,6 +345,171 @@ describe("storeImageFile", () => {
 			}),
 		).rejects.toThrow();
 		expect(onDisk("c1")).toEqual([]);
+	});
+});
+
+describe("the display copy", () => {
+	it("is written at store time for a picture past the display edge, on the long edge, without alpha", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await photoPng(),
+		});
+		const dir = join(workdir, "data", "image-files", "c1");
+		expect((await readdir(dir)).sort()).toEqual(
+			[
+				`${file.id}.png`,
+				`${file.id}.thumb.png`,
+				`${file.id}.display.webp`,
+			].sort(),
+		);
+		const display = await files.readImageDisplayBytes(file);
+		expect(display).not.toBeNull();
+		const meta = await sharp(display as Uint8Array).metadata();
+		expect(meta.format).toBe("webp");
+		expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(
+			files.IMAGE_DISPLAY_LONG_EDGE,
+		);
+		expect(meta.hasAlpha).toBe(false);
+		expect((display as Uint8Array).byteLength).toBeLessThan(file.sizeBytes);
+	});
+
+	it("is not written for a picture whose long edge is already within the display edge", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await png(1500, 900),
+		});
+		const dir = join(workdir, "data", "image-files", "c1");
+		expect((await readdir(dir)).sort()).toEqual(
+			[`${file.id}.png`, `${file.id}.thumb.png`].sort(),
+		);
+		// Its original IS its display copy.
+		expect(await files.readImageDisplayBytes(file)).toBeNull();
+	});
+
+	it.each([
+		["an opaque picture", false],
+		["a transparent picture", true],
+	])(
+		"is perceptually identical to %s",
+		async (_label, alpha) => {
+			const source = await photoPng(2048, 1536, alpha);
+			const file = await files.storeImageFile({
+				userId: "u1",
+				conversationId: "c1",
+				role: "take",
+				png: source,
+				mayBeSeeThrough: alpha,
+			});
+			expect(file.hasAlpha).toBe(alpha);
+			const display = await files.readImageDisplayBytes(file);
+			expect(display).not.toBeNull();
+			const original = await files.readImageFileBytes(file, "full");
+			const reference = await referenceAtDisplaySize(
+				original,
+				display as Uint8Array,
+			);
+			const decoded = await sharp(display as Uint8Array)
+				.ensureAlpha()
+				.raw()
+				.toBuffer({ resolveWithObject: true });
+			expect(decoded.info.width).toBe(reference.width);
+			expect(decoded.info.height).toBe(reference.height);
+			expect(decoded.info.channels).toBe(4);
+			expect(psnr(decoded.data, reference.data)).toBeGreaterThanOrEqual(40);
+
+			if (alpha) {
+				// The clear band stays clear and the opaque rest stays opaque: the
+				// checkerboard must not be lost.
+				const alphaAt = (fraction: number) =>
+					decoded.data[
+						(Math.floor(decoded.info.height / 2) * decoded.info.width +
+							Math.floor(decoded.info.width * fraction)) *
+							4 +
+							3
+					];
+				expect(alphaAt(0.05)).toBe(0);
+				expect(alphaAt(0.2)).toBe(128);
+				expect(alphaAt(0.6)).toBe(255);
+			} else {
+				const alphaMinimum = Math.min(
+					...Array.from({ length: 4096 }, (_, index) => {
+						const at =
+							Math.floor(
+								(index / 4096) * (decoded.info.width * decoded.info.height),
+							) *
+								4 +
+							3;
+						return decoded.data[at] as number;
+					}),
+				);
+				expect(alphaMinimum).toBe(255);
+			}
+		},
+		30_000,
+	);
+
+	it("is made from the full PNG on first request for a picture stored before display copies, and kept", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await photoPng(),
+		});
+		const displayPath = join(
+			workdir,
+			"data",
+			"image-files",
+			"c1",
+			`${file.id}.display.webp`,
+		);
+		await unlink(displayPath);
+		expect(existsSync(displayPath)).toBe(false);
+		const display = await files.readImageDisplayBytes(file);
+		expect(display).not.toBeNull();
+		expect(existsSync(displayPath)).toBe(true);
+		expect(
+			await readFile(displayPath).then((bytes) =>
+				bytes.subarray(0, 4).toString(),
+			),
+		).toBe("RIFF");
+		expect((await sharp(await readFile(displayPath)).metadata()).format).toBe(
+			"webp",
+		);
+	});
+
+	it("shares one generation between two concurrent requests for the same picture", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await photoPng(),
+		});
+		await unlink(
+			join(workdir, "data", "image-files", "c1", `${file.id}.display.webp`),
+		);
+		const [first, second] = await Promise.all([
+			files.readImageDisplayBytes(file),
+			files.readImageDisplayBytes(file),
+		]);
+		// One promise: both callers hold the same bytes, not two generations.
+		expect(first).toBe(second);
+	});
+
+	it("goes with the picture when the picture is discarded", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await photoPng(),
+		});
+		const dir = join(workdir, "data", "image-files", "c1");
+		expect((await readdir(dir)).length).toBe(3);
+		await files.discardStoredImageFile(file);
+		expect(await readdir(dir)).toEqual([]);
 	});
 });
 

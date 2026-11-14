@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -82,6 +83,20 @@ afterEach(async () => {
 	await rm(workdir, { recursive: true, force: true });
 });
 
+async function storeLargePicture() {
+	const png = await sharp({
+		create: { width: 2048, height: 2048, channels: 3, background: "#336699" },
+	})
+		.png()
+		.toBuffer();
+	return storeImageFile({
+		userId: "u1",
+		conversationId: "c1",
+		role: "take",
+		png: new Uint8Array(png),
+	});
+}
+
 describe("GET /api/images/files/[fileId]", () => {
 	it("serves the PNG to its owner", async () => {
 		const res = (await GET(event({ fileId, userId: "u1" }))) as Response;
@@ -99,6 +114,66 @@ describe("GET /api/images/files/[fileId]", () => {
 			event({ fileId, userId: "u1", query: "?variant=thumb" }),
 		)) as Response;
 		expect(res.status).toBe(200);
+	});
+
+	it("serves the original as the display copy of a picture within the display edge", async () => {
+		const res = (await GET(
+			event({ fileId, userId: "u1", query: "?variant=display" }),
+		)) as Response;
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("image/png");
+		const meta = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
+		expect(meta.width).toBe(40);
+	});
+
+	it("serves the display copy as lossless WebP", async () => {
+		const large = await storeLargePicture();
+		const res = (await GET(
+			event({ fileId: large.id, userId: "u1", query: "?variant=display" }),
+		)) as Response;
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("image/webp");
+		const meta = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
+		expect(meta.format).toBe("webp");
+		expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(1600);
+	});
+
+	it("makes the display copy on first request for a picture stored before it existed", async () => {
+		const large = await storeLargePicture();
+		const displayPath = join(
+			workdir,
+			"data",
+			"image-files",
+			"c1",
+			`${large.id}.display.webp`,
+		);
+		await unlink(displayPath);
+		expect(existsSync(displayPath)).toBe(false);
+		const res = (await GET(
+			event({ fileId: large.id, userId: "u1", query: "?variant=display" }),
+		)) as Response;
+		expect(res.headers.get("Content-Type")).toBe("image/webp");
+		expect(existsSync(displayPath)).toBe(true);
+	});
+
+	it("downloads the full original whatever variant is named", async () => {
+		const large = await storeLargePicture();
+		for (const query of [
+			"?download=1",
+			"?download=1&variant=display",
+			"?download=1&variant=thumb",
+		]) {
+			const res = (await GET(
+				event({ fileId: large.id, userId: "u1", query }),
+			)) as Response;
+			expect(res.status).toBe(200);
+			expect(res.headers.get("Content-Type")).toBe("image/png");
+			expect(res.headers.get("Content-Disposition")).toMatch(
+				/^attachment; filename="picture\.png"/,
+			);
+			const meta = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
+			expect(meta.width).toBe(2048);
+		}
 	});
 
 	it("answers 404 to another user and for an unknown id", async () => {

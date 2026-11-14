@@ -13,12 +13,17 @@
 //
 // `variant: "thumb"` loads only the 320 px thumbnail (strips, chips, "Made
 // from", History's rail); `"full"` lets the browser choose between the
-// thumbnail and the full picture by the box's width (`srcset`, F20), which is
-// what the chat card's main picture uses; `"original"` loads only the full
-// picture (the panel's main view, MOTION-PARITY 4: only the panel loads full).
+// thumbnail, the 1600 px display copy and the full picture by the box's width
+// (`srcset`, F20), which is what the chat card's main picture uses;
+// `"original"` loads only the full picture (the panel's main view,
+// MOTION-PARITY 4: only the panel loads full).
 import { untrack } from "svelte";
 import { imageFileUrl } from "$lib/client/api/images";
-import { thumbWidth } from "$lib/shared/artifacts/image-body";
+import {
+	displayWidth,
+	IMAGE_DISPLAY_LONG_EDGE,
+	thumbWidth,
+} from "$lib/shared/artifacts/image-body";
 import "./checkerboard.css";
 
 let {
@@ -49,15 +54,22 @@ let {
 
 const thumbUrl = (id: string) =>
 	imageFileUrl(id, { variant: "thumb", conversationId });
+const displayUrl = (id: string) =>
+	imageFileUrl(id, { variant: "display", conversationId });
 
 function sourceOf(id: string) {
 	if (variant === "thumb") return { src: thumbUrl(id), srcset: undefined };
 	const full = imageFileUrl(id, { conversationId });
 	if (variant === "original") return { src: full, srcset: undefined };
-	return {
-		src: full,
-		srcset: `${thumbUrl(id)} ${thumbWidth(width, height)}w, ${full} ${width}w`,
-	};
+	// The display copy between the thumbnail and the original: at a card's
+	// width on a DPR-2 screen the browser takes 1600 px instead of the original
+	// PNG, and a deeper zoom still reaches the full picture.
+	const candidates = [`${thumbUrl(id)} ${thumbWidth(width, height)}w`];
+	if (Math.max(width, height) > IMAGE_DISPLAY_LONG_EDGE) {
+		candidates.push(`${displayUrl(id)} ${displayWidth(width, height)}w`);
+	}
+	candidates.push(`${full} ${width}w`);
+	return { src: full, srcset: candidates.join(", ") };
 }
 
 let before = $derived(beforeFileId ? sourceOf(beforeFileId) : null);

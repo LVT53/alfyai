@@ -14,6 +14,7 @@ import { getArtifactOwnershipScope } from "$lib/server/services/knowledge/owners
 import { resolveDeletablePath } from "$lib/server/storage-containment";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import {
+	IMAGE_DISPLAY_LONG_EDGE,
 	IMAGE_THUMB_LONG_EDGE,
 	type ImageVersionBody,
 	parseImageVersionBody,
@@ -37,7 +38,7 @@ export type ImageFile = {
 	createdAt: number;
 };
 
-export { IMAGE_THUMB_LONG_EDGE };
+export { IMAGE_DISPLAY_LONG_EDGE, IMAGE_THUMB_LONG_EDGE };
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const IMAGE_FILES_DIR = join("data", "image-files");
@@ -61,6 +62,39 @@ function toImageFile(row: Row): ImageFile {
 
 function thumbPathOf(storagePath: string): string {
 	return storagePath.replace(/\.png$/, ".thumb.png");
+}
+
+/** The display copy's path: derived from `storage_path` like the thumbnail, so the DB stores nothing new. */
+function displayPathOf(storagePath: string): string {
+	return storagePath.replace(/\.png$/, ".display.webp");
+}
+
+/**
+ * Whether a picture gets a display copy at all: one whose long edge is already
+ * within `IMAGE_DISPLAY_LONG_EDGE` is its own display copy (the original is
+ * served, so "visibly identical" is trivially true).
+ */
+function hasDisplayCopy(file: Pick<ImageFile, "width" | "height">): boolean {
+	return Math.max(file.width, file.height) > IMAGE_DISPLAY_LONG_EDGE;
+}
+
+/** The display copy of a picture: a lossless WebP fit inside `IMAGE_DISPLAY_LONG_EDGE`, alpha kept. */
+async function makeDisplayCopy(png: Uint8Array): Promise<Uint8Array> {
+	return new Uint8Array(
+		await sharp(png)
+			.resize({
+				width: IMAGE_DISPLAY_LONG_EDGE,
+				height: IMAGE_DISPLAY_LONG_EDGE,
+				fit: "inside",
+				withoutEnlargement: true,
+			})
+			// Lossless: the display copy must be the original's own pixels at a
+			// smaller edge, not a second generation of them. `exact` keeps the
+			// colour under fully transparent pixels too, so a decode is a true
+			// copy of the resized original.
+			.webp({ lossless: true, exact: true })
+			.toBuffer(),
+	);
 }
 
 /** Removes files by relative path; a missing file or a path outside the roots is skipped. */
@@ -140,6 +174,12 @@ export async function storeImageFile(params: {
 		})
 		.png()
 		.toBuffer();
+	// The card's display copy (lossless, alpha kept): written beside the PNG so
+	// a card that is wider than the thumbnail never downloads the original.
+	const display =
+		Math.max(meta.width, meta.height) > IMAGE_DISPLAY_LONG_EDGE
+			? await makeDisplayCopy(png)
+			: null;
 
 	// Any chat of the person's, incognito included: a picture made in an
 	// incognito chat is stored like any other (the read rule is `getImageFile`'s).
@@ -153,11 +193,13 @@ export async function storeImageFile(params: {
 	const id = randomUUID();
 	const storagePath = join(IMAGE_FILES_DIR, params.conversationId, `${id}.png`);
 	const thumbPath = thumbPathOf(storagePath);
+	const displayPath = displayPathOf(storagePath);
 	const absolute = join(process.cwd(), storagePath);
 	await mkdir(dirname(absolute), { recursive: true });
 	try {
 		await writeFile(absolute, png);
 		await writeFile(join(process.cwd(), thumbPath), thumb);
+		if (display) await writeFile(join(process.cwd(), displayPath), display);
 		const [row] = await db
 			.insert(imageFiles)
 			.values({
@@ -176,7 +218,7 @@ export async function storeImageFile(params: {
 		if (!row) throw new Error("The picture row was not written.");
 		return toImageFile(row);
 	} catch (error) {
-		await removeFiles([storagePath, thumbPath]);
+		await removeFiles([storagePath, thumbPath, displayPath]);
 		throw error;
 	}
 }
@@ -230,6 +272,56 @@ export async function readImageFileBytes(
 }
 
 /**
+ * One in-flight display copy per picture: two requests for the same file (a
+ * card and its strip, two tabs) share one generation instead of racing to
+ * write the same bytes.
+ */
+const displayCopiesInFlight = new Map<string, Promise<Uint8Array>>();
+
+/**
+ * The display copy's bytes, or `null` when the picture is its own display copy
+ * (its long edge is within `IMAGE_DISPLAY_LONG_EDGE`; the original is served).
+ *
+ * The copy is written at store time. A picture stored before display copies
+ * existed has none: it is made from the full PNG on this first request,
+ * persisted, and served like any other. Every caller of one file shares one
+ * promise, so a concurrent second request waits on the same generation.
+ */
+export async function readImageDisplayBytes(
+	file: ImageFile,
+): Promise<Uint8Array | null> {
+	if (!hasDisplayCopy(file)) return null;
+	const pending = displayCopiesInFlight.get(file.id);
+	if (pending) return pending;
+	const task = (async () => {
+		const storagePath = await storagePathOf(file.id);
+		const absolute = await resolveDeletablePath(displayPathOf(storagePath));
+		if (!absolute) {
+			throw new Error("Picture file is outside the storage roots.");
+		}
+		try {
+			return new Uint8Array(await readFile(absolute));
+		} catch {
+			// Not written yet (or gone): make it from the full PNG and keep it, so
+			// only one request pays for a picture stored before display copies.
+			const source = await resolveDeletablePath(storagePath);
+			if (!source) {
+				throw new Error("Picture file is outside the storage roots.");
+			}
+			const bytes = await makeDisplayCopy(
+				new Uint8Array(await readFile(source)),
+			);
+			await writeFile(absolute, bytes);
+			return bytes;
+		}
+	})().finally(() => {
+		displayCopiesInFlight.delete(file.id);
+	});
+	displayCopiesInFlight.set(file.id, task);
+	return task;
+}
+
+/**
  * Makes pictures an Image item's own, so its delete takes them along. It claims
  * only files of the item's own person and chat that no item owns yet (or that
  * are already this item's): a picture another item made, even one this item was
@@ -274,7 +366,11 @@ async function takeRows(rows: Row[]): Promise<number> {
 		),
 	);
 	await removeFiles(
-		rows.flatMap((row) => [row.storagePath, thumbPathOf(row.storagePath)]),
+		rows.flatMap((row) => [
+			row.storagePath,
+			thumbPathOf(row.storagePath),
+			displayPathOf(row.storagePath),
+		]),
 	);
 	return rows.length;
 }
@@ -294,7 +390,11 @@ export async function discardStoredImageFile(
 		file.conversationId,
 		`${file.id}.png`,
 	);
-	await removeFiles([storagePath, thumbPathOf(storagePath)]);
+	await removeFiles([
+		storagePath,
+		thumbPathOf(storagePath),
+		displayPathOf(storagePath),
+	]);
 }
 
 export async function deleteImageFilesForConversation(

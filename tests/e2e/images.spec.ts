@@ -35,6 +35,7 @@ import {
 	attachPhoto,
 	type FakeComfyUi,
 	graphNodeByClass,
+	largePng,
 	randomPng,
 	releaseSpecChatModel,
 	type SpecChatModel,
@@ -867,6 +868,72 @@ test.describe("Pictures end to end", () => {
 					);
 			});
 			expect(overflowing, "what is wider than its box at 360 px").toEqual([]);
+		});
+	});
+
+	test.describe("a DPR-2 phone and a large picture", () => {
+		test.use({
+			viewport: { width: 390, height: 844 },
+			deviceScaleFactor: 2,
+			hasTouch: true,
+			isMobile: true,
+		});
+
+		test("requests the 1600 px display copy, not the full PNG", async ({
+			page,
+		}) => {
+			videoName = "phone-display-copy";
+			const comfy = fake as FakeComfyUi;
+			comfy.setOptions({
+				steps: 3,
+				stepDelayMs: 100,
+				render: () => largePng(2048),
+			});
+			const conversationId = await openChat(page);
+			const pictureRequests: string[] = [];
+			page.on("request", (request) => {
+				if (
+					request.resourceType() === "image" &&
+					request.url().includes("/api/images/files/")
+				) {
+					pictureRequests.push(request.url());
+				}
+			});
+			await makePicture(page);
+			await waitForSettledCard(page, conversationId, 1);
+
+			const picture = page
+				.locator(
+					`${CARD} [data-testid="image-card-stage"] [data-testid="image-picture-after"]`,
+				)
+				.last();
+			await expect(picture).toBeVisible();
+			// The browser chose the display candidate, not the full PNG.
+			await expect
+				.poll(() =>
+					picture.evaluate((node) => (node as HTMLImageElement).currentSrc),
+				)
+				.toContain("variant=display");
+			// `naturalWidth` is density-corrected for `w` descriptors (it reports
+			// the `sizes` width, not the file's pixels), so the descriptor and the
+			// request are what say which copy arrived.
+			const srcset = (await picture.getAttribute("srcset")) ?? "";
+			expect(srcset).toContain("variant=display");
+			expect(srcset).toMatch(/variant=display[^,]* 1600w/);
+			expect(
+				await picture.evaluate(
+					(node) => (node as HTMLImageElement).naturalWidth,
+				),
+			).toBeGreaterThan(0);
+			expect(
+				pictureRequests.some((url) => /[?&]variant=display/.test(url)),
+				"the card asked for the display copy",
+			).toBe(true);
+			// A request with no variant is the full PNG: the card must not make one.
+			expect(
+				pictureRequests.filter((url) => !/[?&]variant=/.test(url)),
+				"no request for the full PNG",
+			).toEqual([]);
 		});
 	});
 });

@@ -68,6 +68,43 @@ describe("ImagePicture", () => {
 		expect(thumb.hasAttribute("srcset")).toBe(false);
 	});
 
+	it("puts the 1600 px display copy between the thumbnail and the original, so a DPR-2 card takes it", () => {
+		render(ImagePicture, {
+			fileId: "file-big",
+			width: 2048,
+			height: 2048,
+			alt: "Big",
+			conversationId: "conv-1",
+		});
+		const srcset = screen.getByRole("img").getAttribute("srcset") ?? "";
+		const candidates = srcset.split(", ");
+		expect(candidates).toHaveLength(3);
+		expect(candidates[0]).toContain("variant=thumb");
+		expect(candidates[0]).toMatch(/ 320w$/);
+		expect(candidates[1]).toContain("variant=display");
+		expect(candidates[1]).toMatch(/ 1600w$/);
+		expect(candidates[1]).toContain("conversationId=conv-1");
+		expect(candidates[2]).not.toContain("variant=");
+		expect(candidates[2]).toMatch(/ 2048w$/);
+	});
+
+	it("keeps two candidates for a picture within the display edge, whose original is its display copy", () => {
+		render(ImagePicture, {
+			fileId: "file-small",
+			width: 1600,
+			height: 1200,
+			alt: "Small",
+		});
+		const candidates = (
+			screen.getByRole("img").getAttribute("srcset") ?? ""
+		).split(", ");
+		expect(candidates).toHaveLength(2);
+		expect(
+			candidates.some((candidate) => candidate.includes("variant=display")),
+		).toBe(false);
+		expect(candidates[1]).toMatch(/ 1600w$/);
+	});
+
 	it("fades the picture in once it has loaded", async () => {
 		render(ImagePicture, { fileId: "f", width: 10, height: 10, alt: "P" });
 		const img = screen.getByRole("img");
