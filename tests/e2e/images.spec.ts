@@ -871,6 +871,67 @@ test.describe("Pictures end to end", () => {
 		});
 	});
 
+	test.describe("a DPR-2 desktop and a tall picture", () => {
+		test.use({
+			viewport: { width: 1280, height: 900 },
+			deviceScaleFactor: 2,
+		});
+
+		test("requests the display copy of a portrait picture, not the master", async ({
+			page,
+		}) => {
+			videoName = "desktop-portrait-display-copy";
+			const comfy = fake as FakeComfyUi;
+			// A production portrait: the display copy is 900 px wide, below the
+			// 560 * 2 device px the old default `sizes` asked for.
+			comfy.setOptions({
+				steps: 3,
+				stepDelayMs: 100,
+				render: () => largePng(2592, 4608),
+			});
+			const conversationId = await openChat(page);
+			const pictureRequests: string[] = [];
+			page.on("request", (request) => {
+				if (
+					request.resourceType() === "image" &&
+					request.url().includes("/api/images/files/")
+				) {
+					pictureRequests.push(request.url());
+				}
+			});
+			await makePicture(page);
+			await waitForSettledCard(page, conversationId, 1);
+
+			const picture = page
+				.locator(
+					`${CARD} [data-testid="image-card-stage"] [data-testid="image-picture-after"]`,
+				)
+				.last();
+			await expect(picture).toBeVisible();
+			// The browser chose the display candidate, not the full PNG.
+			expect(pictureRequests, "the card asked for the display copy").toEqual(
+				expect.arrayContaining([expect.stringContaining("variant=display")]),
+			);
+			// A request with no variant is the full PNG: the card must not make one.
+			expect(
+				pictureRequests.filter((url) => !/[?&]variant=/.test(url)),
+				"no request for the full PNG",
+			).toEqual([]);
+			await expect
+				.poll(() =>
+					picture.evaluate((node) => (node as HTMLImageElement).currentSrc),
+				)
+				.toContain("variant=display");
+			const srcset = (await picture.getAttribute("srcset")) ?? "";
+			expect(srcset).toMatch(/variant=display[^,]* 900w/);
+			// The card names its real box, so the browser does not ask for
+			// 1120 device px and fall back to the full 2816 px PNG.
+			expect(await picture.getAttribute("sizes")).toBe(
+				"(max-width: 767px) 92vw, 352px",
+			);
+		});
+	});
+
 	test.describe("a DPR-2 phone and a large picture", () => {
 		test.use({
 			viewport: { width: 390, height: 844 },

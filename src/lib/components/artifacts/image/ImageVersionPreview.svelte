@@ -15,8 +15,9 @@
 //
 // A picture is not stepped through change by change: the preview always reports
 // no changes, so the shell shows no stepper. Bodies come from History's one
-// shared memory (`version-bodies.ts`); the preview loads full pictures (the rail
-// has the thumbnails).
+// shared memory (`version-bodies.ts`); the preview offers the thumbnail and
+// the display copy at the box it really draws (the rail has the thumbnails),
+// never the master.
 // The icon file itself, not the barrel: History's preview registry test loads this
 // module cold, and the barrel alone costs it several seconds to transform.
 import Paperclip from "@lucide/svelte/icons/paperclip";
@@ -69,6 +70,15 @@ let shown = $state.raw<ImageVersionBody | null>(null);
 let base = $state.raw<ImageVersionBody | null>(null);
 let position = $state(50);
 let token = 0;
+
+/**
+ * What History's picture box draws: `min(100cqw, 100cqh * ratio, natural
+ * width)` in a panel that is 440-950 px wide, less the 300 px rail and the
+ * preview's padding. A 9:16 picture measures 372 px wide at 1280x900 (the
+ * height limit, not the pane, sets it), so 400 px names it with a little room.
+ * Under 768 px the pane is the window.
+ */
+const PICTURE_SIZES = "(max-width: 767px) 92vw, 400px";
 
 /** Edit this version is open: the picture alone, with the Mark tool. */
 let editing = $state(false);
@@ -260,7 +270,8 @@ const tags = $derived(
 							hasAlpha={shown.hasAlpha}
 							alt={label}
 							{conversationId}
-							variant="original"
+							variant="display"
+							sizes={PICTURE_SIZES}
 						/>
 						{#if editing}
 							<div class="ivp-marks">

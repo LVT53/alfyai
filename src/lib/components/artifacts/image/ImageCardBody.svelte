@@ -77,6 +77,14 @@ let {
 } = $props();
 /** A new picture's size, for a card that has no take to read one from. */
 const FALLBACK_BOX = { width: 1248, height: 832 };
+/**
+ * How wide the card's stage is drawn: at most 22rem (352 px) on a desktop and
+ * 92vw on a phone. The picture's `srcset` is chosen by this, so the browser
+ * asks for the pixels the box really uses: the old 560 px default made a
+ * DPR-2 desktop ask for 1120 device px and take the master for a tall picture
+ * whose display copy is only 900 px wide.
+ */
+const PICTURE_SIZES = "(max-width: 767px) 92vw, 352px";
 const PLACEHOLDER = "placeholder";
 
 const crossfade = reducedMotionAware(fade);
@@ -421,6 +429,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 						{conversationId}
 						beforeFileId={shown.baseFileId}
 						{showing}
+						sizes={PICTURE_SIZES}
 					/>
 				</button>
 				{#if checkingAgain}

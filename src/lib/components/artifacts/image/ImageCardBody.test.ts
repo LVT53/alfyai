@@ -185,6 +185,10 @@ describe("ImageCardBody", () => {
 		expect(img.getAttribute("src")).toContain("/api/images/files/file-a");
 		expect(img).toHaveAttribute("width", "1248");
 		expect(img).toHaveAttribute("height", "832");
+		// The card's box is at most 352 CSS px on a desktop and 92vw on a phone:
+		// telling the browser the default 560 px made a DPR-2 desktop ask for
+		// 1120 device px and take the master for a tall picture.
+		expect(img).toHaveAttribute("sizes", "(max-width: 767px) 92vw, 352px");
 		expect(screen.getByTestId("image-card-stage").style.aspectRatio).toBe(
 			"1248 / 832",
 		);

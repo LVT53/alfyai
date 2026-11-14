@@ -337,12 +337,16 @@ export async function randomPng(
 }
 
 /**
- * A large fake render: `side` x `side` pixels of softly varying colour, a few
- * MB as PNG (about 4 MB at 2048), the size class production pictures are in
- * (2-18 MB). A probe can then tell a download of the original from one of its
- * 1600 px display copy. Deterministic, so two runs measure the same bytes.
+ * A large fake render: `width` x `height` pixels of softly varying colour, a
+ * few MB as PNG (about 4 MB at 2048 square), the size class production
+ * pictures are in (2-18 MB). A probe can then tell a download of the original
+ * from one of its 1600 px display copy. Deterministic, so two runs measure the
+ * same bytes.
  */
-export async function largePng(side = 2048): Promise<Uint8Array> {
+export async function largePng(
+	width = 2048,
+	height = width,
+): Promise<Uint8Array> {
 	const source = 16;
 	const noise = Buffer.alloc(source * source * 3);
 	let state = 987654321;
@@ -355,7 +359,7 @@ export async function largePng(side = 2048): Promise<Uint8Array> {
 	}
 	return new Uint8Array(
 		await sharp(noise, { raw: { width: source, height: source, channels: 3 } })
-			.resize(side, side, { kernel: "cubic" })
+			.resize(width, height, { kernel: "cubic" })
 			.png()
 			.toBuffer(),
 	);

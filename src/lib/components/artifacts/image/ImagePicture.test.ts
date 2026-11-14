@@ -44,6 +44,27 @@ describe("ImagePicture", () => {
 		expect(img.getAttribute("sizes")).toBeNull();
 	});
 
+	it("starts from the display copy for a box that can load before it is laid out", () => {
+		render(ImagePicture, {
+			fileId: "file-big",
+			width: 2048,
+			height: 2048,
+			alt: "History",
+			conversationId: "conv-1",
+			variant: "display",
+			sizes: "(max-width: 767px) 92vw, 400px",
+		});
+		const img = screen.getByRole("img", { name: "History" });
+		// The fallback is the display copy, never the master; the browser still
+		// chooses by the box's width when it can.
+		expect(img.getAttribute("src")).toContain("variant=display");
+		const srcset = img.getAttribute("srcset") ?? "";
+		expect(srcset).toContain("variant=display");
+		expect(srcset).toContain(" 1600w");
+		// History never offers the master: its box cannot use it.
+		expect(srcset).not.toContain(" 2048w");
+	});
+
 	it("offers the thumbnail and the full picture by width, and only the thumbnail for a thumb", () => {
 		render(ImagePicture, {
 			fileId: "file-7",
