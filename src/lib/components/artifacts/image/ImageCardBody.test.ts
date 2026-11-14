@@ -185,12 +185,47 @@ describe("ImageCardBody", () => {
 		expect(img.getAttribute("src")).toContain("/api/images/files/file-a");
 		expect(img).toHaveAttribute("width", "1248");
 		expect(img).toHaveAttribute("height", "832");
-		// The card's box is at most 352 CSS px on a desktop and 92vw on a phone:
-		// telling the browser the default 560 px made a DPR-2 desktop ask for
-		// 1120 device px and take the master for a tall picture.
-		expect(img).toHaveAttribute("sizes", "(max-width: 767px) 92vw, 352px");
+		// The stage's desktop cap is 22rem (352 px) times the picture's ratio,
+		// and 92vw only narrows it on a phone. A landscape take therefore asks
+		// for 352 * 1.5 = 528 px, not the flat 352.
+		expect(img).toHaveAttribute(
+			"sizes",
+			"(max-width: 767px) min(92vw, 528px), 528px",
+		);
 		expect(screen.getByTestId("image-card-stage").style.aspectRatio).toBe(
 			"1248 / 832",
+		);
+	});
+
+	it("names the stage's ratio-aware width, so a DPR-3 portrait does not ask for the master", () => {
+		const sizesFor = (width: number, height: number): string => {
+			const view = render(ImageCardBody, {
+				card: card([
+					take({
+						fileId: `file-${width}x${height}`,
+						box: { width, height },
+						width,
+						height,
+					}),
+				]),
+				conversationId: "conv-1",
+			});
+			const sizes =
+				screen.getByTestId("image-picture-after").getAttribute("sizes") ?? "";
+			view.unmount();
+			return sizes;
+		};
+
+		// 352 * ratio, rounded to whole CSS px: the stage is 22rem * ratio at
+		// most, and 45vh only makes it smaller.
+		expect(sizesFor(2816, 4224)).toBe(
+			"(max-width: 767px) min(92vw, 235px), 235px",
+		);
+		expect(sizesFor(1600, 1600)).toBe(
+			"(max-width: 767px) min(92vw, 352px), 352px",
+		);
+		expect(sizesFor(2592, 4608)).toBe(
+			"(max-width: 767px) min(92vw, 198px), 198px",
 		);
 	});
 

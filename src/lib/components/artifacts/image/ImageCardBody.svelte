@@ -77,14 +77,22 @@ let {
 } = $props();
 /** A new picture's size, for a card that has no take to read one from. */
 const FALLBACK_BOX = { width: 1248, height: 832 };
+/** The stage's desktop width cap: 22rem. */
+const DESKTOP_STAGE_WIDTH = 352;
+
 /**
- * How wide the card's stage is drawn: at most 22rem (352 px) on a desktop and
- * 92vw on a phone. The picture's `srcset` is chosen by this, so the browser
- * asks for the pixels the box really uses: the old 560 px default made a
- * DPR-2 desktop ask for 1120 device px and take the master for a tall picture
- * whose display copy is only 900 px wide.
+ * What the browser should assume the picture's box is: the stage is
+ * `min(100%, min(22rem, 45vh) * ratio)` in CSS, and the desktop cap is
+ * 22rem * ratio (45vh only narrows it further, so this is the conservative
+ * truthful bound). `min(92vw, W)` keeps a phone from claiming the whole
+ * window for a portrait. A flat 92vw asked a DPR-3 phone for ~1098 device px
+ * on a 198 px portrait, past the 900w display copy, so it took the master.
  */
-const PICTURE_SIZES = "(max-width: 767px) 92vw, 352px";
+function pictureSizesOf(stage: { width: number; height: number }): string {
+	const ratio = stage.height > 0 ? stage.width / stage.height : 1;
+	const width = Math.max(1, Math.round(DESKTOP_STAGE_WIDTH * ratio));
+	return `(max-width: 767px) min(92vw, ${width}px), ${width}px`;
+}
 const PLACEHOLDER = "placeholder";
 
 const crossfade = reducedMotionAware(fade);
@@ -145,6 +153,8 @@ let cardState: ImageCardState = $derived(
 let box = $derived(
 	shown?.box ?? takes.at(-1)?.box ?? card.takes.at(-1)?.box ?? FALLBACK_BOX,
 );
+/** The box's own width, for the browser's `srcset` choice. */
+let pictureSizes = $derived(pictureSizesOf(box));
 let ready = $derived(
 	!gone && cardState.kind === "ready" && Boolean(shown?.fileId),
 );
@@ -429,7 +439,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 						{conversationId}
 						beforeFileId={shown.baseFileId}
 						{showing}
-						sizes={PICTURE_SIZES}
+						sizes={pictureSizes}
 					/>
 				</button>
 				{#if checkingAgain}

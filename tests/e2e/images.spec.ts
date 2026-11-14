@@ -217,6 +217,99 @@ async function seedMadeFromTwoPictures(
 	return { baseFileId: base.id, referenceFileId: reference.id };
 }
 
+/**
+ * A settled card whose picture really is 2592x4608, seeded through the app's
+ * services: the fake render can return a portrait PNG while the requested
+ * canvas (the card's reserved box) stays landscape, which is not a production
+ * shape. Here the canvas and the file agree, as a real tall request does.
+ */
+async function seedTallPicture(
+	conversationId: string,
+): Promise<{ fileId: string }> {
+	const { storeImageFile } = await import(
+		"../../src/lib/server/services/images/files"
+	);
+	const { createCard } = await import(
+		"../../src/lib/server/services/images/cards"
+	);
+	const { insertTake, takeRequest } = await import(
+		"../../src/lib/server/services/images/testing/takes"
+	);
+	const [user] = await db
+		.select({ id: users.id })
+		.from(users)
+		.where(eq(users.email, TEST_EMAIL))
+		.limit(1);
+	if (!user) throw new Error("the e2e admin must exist");
+	const file = await storeImageFile({
+		userId: user.id,
+		conversationId,
+		role: "take",
+		png: await largePng(2592, 4608),
+	});
+	const messageId = randomUUID();
+	const { cardId } = await createCard({
+		userId: user.id,
+		conversationId,
+		turnId: messageId,
+		artifactId: null,
+		title: "Tall portrait",
+		madeFrom: "words",
+		sourceCount: 0,
+	});
+	const takeId = await insertTake({
+		userId: user.id,
+		conversationId,
+		cardId,
+		resultFileId: file.id,
+		request: takeRequest({
+			mode: "generate",
+			canvas: { width: 2592, height: 4608 },
+			title: "Tall portrait",
+		}),
+	});
+	await db
+		.update(imageCards)
+		.set({ pickedTakeId: takeId })
+		.where(eq(imageCards.id, cardId));
+	await db.insert(messages).values([
+		{
+			id: randomUUID(),
+			conversationId,
+			messageSequence: 1,
+			role: "user",
+			content: "Make me a tall picture for my phone.",
+		},
+		{
+			id: messageId,
+			conversationId,
+			messageSequence: 2,
+			role: "assistant",
+			content: "Here is the tall picture.",
+			toolCalls: JSON.stringify([
+				{
+					type: "tool_call",
+					callId: `call-tall-${cardId}`,
+					name: "make_image",
+					input: {
+						prompt: "A tall picture for my phone",
+						title: "Tall portrait",
+					},
+					status: "done",
+					metadata: {
+						ok: true,
+						imageStatus: "succeeded",
+						imageCardId: cardId,
+						imageTakeId: takeId,
+						imageTitle: "Tall portrait",
+					},
+				},
+			]),
+		},
+	]);
+	return { fileId: file.id };
+}
+
 test.use({
 	video: VIDEO_DIR ? { mode: "on", size: { width: 1440, height: 900 } } : "off",
 });
@@ -881,15 +974,11 @@ test.describe("Pictures end to end", () => {
 			page,
 		}) => {
 			videoName = "desktop-portrait-display-copy";
-			const comfy = fake as FakeComfyUi;
-			// A production portrait: the display copy is 900 px wide, below the
-			// 560 * 2 device px the old default `sizes` asked for.
-			comfy.setOptions({
-				steps: 3,
-				stepDelayMs: 100,
-				render: () => largePng(2592, 4608),
-			});
+			// A production portrait whose reserved box is the same shape as its
+			// file: the display copy is 900 px wide, below the 560 * 2 device px
+			// the old default `sizes` asked for.
 			const conversationId = await openChat(page);
+			await seedTallPicture(conversationId);
 			const pictureRequests: string[] = [];
 			page.on("request", (request) => {
 				if (
@@ -899,8 +988,10 @@ test.describe("Pictures end to end", () => {
 					pictureRequests.push(request.url());
 				}
 			});
-			await makePicture(page);
-			await waitForSettledCard(page, conversationId, 1);
+			await page.reload({ waitUntil: "domcontentloaded" });
+			await expect(page.locator(LOADED).last()).toBeVisible({
+				timeout: 20_000,
+			});
 
 			const picture = page
 				.locator(
@@ -927,7 +1018,66 @@ test.describe("Pictures end to end", () => {
 			// The card names its real box, so the browser does not ask for
 			// 1120 device px and fall back to the full 2816 px PNG.
 			expect(await picture.getAttribute("sizes")).toBe(
-				"(max-width: 767px) 92vw, 352px",
+				"(max-width: 767px) min(92vw, 198px), 198px",
+			);
+		});
+	});
+
+	test.describe("a DPR-3 phone and a tall picture", () => {
+		test.use({
+			viewport: { width: 390, height: 844 },
+			deviceScaleFactor: 3,
+			hasTouch: true,
+			isMobile: true,
+		});
+
+		test("requests the display copy of a tall picture, not the master", async ({
+			page,
+		}) => {
+			videoName = "phone3-portrait-display-copy";
+			// The stage is about 198 CSS px wide for this portrait, so DPR 3
+			// needs ~594 device px: the old 92vw sizes asked for ~1098 and the
+			// 900w display copy lost to the 2592w master.
+			const conversationId = await openChat(page);
+			await seedTallPicture(conversationId);
+			const pictureRequests: string[] = [];
+			page.on("request", (request) => {
+				if (
+					request.resourceType() === "image" &&
+					request.url().includes("/api/images/files/")
+				) {
+					pictureRequests.push(request.url());
+				}
+			});
+			await page.reload({ waitUntil: "domcontentloaded" });
+			await expect(page.locator(LOADED).last()).toBeVisible({
+				timeout: 20_000,
+			});
+
+			const picture = page
+				.locator(
+					`${CARD} [data-testid="image-card-stage"] [data-testid="image-picture-after"]`,
+				)
+				.last();
+			await expect(picture).toBeVisible();
+			expect(pictureRequests, "the card asked for the display copy").toEqual(
+				expect.arrayContaining([expect.stringContaining("variant=display")]),
+			);
+			expect(
+				pictureRequests.filter((url) => !/[?&]variant=/.test(url)),
+				"no request for the full PNG",
+			).toEqual([]);
+			await expect
+				.poll(() =>
+					picture.evaluate((node) => (node as HTMLImageElement).currentSrc),
+				)
+				.toContain("variant=display");
+			const srcset = (await picture.getAttribute("srcset")) ?? "";
+			expect(srcset).toMatch(/variant=display[^,]* 900w/);
+			// min() in `sizes` is honoured: 92vw would ask for ~1098, min() names
+			// the 198 px stage.
+			expect(await picture.getAttribute("sizes")).toBe(
+				"(max-width: 767px) min(92vw, 198px), 198px",
 			);
 		});
 	});
