@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
+import { preloadData } from "$app/navigation";
 import {
 	Check,
 	ChevronRight,
@@ -140,7 +141,38 @@ function handleRowKeydown(event: KeyboardEvent) {
 		}
 		return;
 	}
+	// Only the row itself opens the chat: an Enter on the ⋮ trigger (or any
+	// other control inside the row) is that control's, and must not select the
+	// conversation as it bubbles through the row.
+	if (event.target !== event.currentTarget) return;
 	if (event.key === "Enter") handleSelect();
+}
+
+// The row is a div that calls goto(), so nothing preloads the chat route the
+// way an anchor with data-sveltekit-preload-data would: ask for its data on
+// intent instead. Preloading is only an optimisation, so a failed load is
+// swallowed and can never keep the row from opening the chat.
+async function preloadConversationRoute() {
+	if (selecting || isEditing) return;
+	try {
+		await preloadData(`/chat/${conversation.id}`);
+	} catch {
+		// The navigation itself reports a load failure.
+	}
+}
+
+function handleRowPointerDown(event: PointerEvent) {
+	// Only the primary button points at the chat: the others open the menu or
+	// scroll, and a modified press means a selection or a new tab.
+	if (event.button !== 0) return;
+	if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+	void preloadConversationRoute();
+}
+
+function handleRowFocus(event: FocusEvent) {
+	// A mouse press focuses the row too; only the keyboard's focus is intent.
+	if (!isKeyboardFocused(event.currentTarget as Element | null)) return;
+	void preloadConversationRoute();
 }
 
 // A Shift-click would also select the text between the two clicks. Not while the
@@ -308,12 +340,89 @@ function scheduleMenuPositionUpdate() {
 	setTimeout(updateAfterLayout, 0);
 }
 
-function toggleMenu(e: MouseEvent) {
+function toggleMenu(e: Event) {
 	e.stopPropagation();
 	showProjectSubmenu = false;
 	menuAnchor = { kind: "trigger" };
 	if (!menuOpen) doUpdatePosition();
 	onMenuToggle?.({ id: conversation.id, open: !menuOpen });
+}
+
+// The menu is portalled to <body>, after the rest of the page: Tab from the
+// trigger goes to the next row, so opening the menu from the keyboard moves the
+// focus into it. A pointer-opened menu leaves the focus where the person put it.
+async function focusFirstMenuItem() {
+	await tick();
+	menuButtons(menuRef)[0]?.focus();
+}
+
+function menuButtons(container: HTMLElement | undefined | null): HTMLElement[] {
+	if (!container) return [];
+	return Array.from(
+		container.querySelectorAll<HTMLElement>("button:not([disabled])"),
+	);
+}
+
+function closeMenu({ restoreFocus = false } = {}) {
+	showProjectSubmenu = false;
+	onMenuClose?.({ id: conversation.id });
+	// Asked before the menu goes: its items are what holds the focus now, and
+	// they are about to be removed.
+	if (restoreFocus) triggerRef?.focus();
+}
+
+function handleTriggerKeydown(event: KeyboardEvent) {
+	if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+		event.preventDefault();
+		event.stopPropagation();
+		if (!menuOpen) toggleMenu(event);
+		void focusFirstMenuItem();
+		return;
+	}
+	if (event.key === "Enter" || event.key === " ") {
+		// The button's own activation is taken over here so the menu opens (or
+		// closes) with the keyboard's focus moved into it.
+		event.preventDefault();
+		event.stopPropagation();
+		const wasOpen = menuOpen;
+		toggleMenu(event);
+		if (!wasOpen) void focusFirstMenuItem();
+	}
+}
+
+// A window capture listener while the menu is open, like the selection bar's
+// Move menu: the menu lives in <body>, away from the row, and Escape must close
+// it before anything else on the page sees that press.
+function handleMenuKeydown(event: KeyboardEvent) {
+	if (!menuOpen) return;
+	if (event.key === "Escape") {
+		event.preventDefault();
+		event.stopPropagation();
+		closeMenu({ restoreFocus: true });
+		return;
+	}
+	if (event.key === "Tab") {
+		// Focus goes back to the trigger and Tab goes on from there: the menu
+		// sits at the far end of the page, so leaving it by Tab would skip the
+		// rest of the list.
+		closeMenu({ restoreFocus: true });
+		return;
+	}
+	const inProjectSubmenu =
+		showProjectSubmenu && !!submenuRef?.contains(document.activeElement);
+	const items = menuButtons(inProjectSubmenu ? submenuRef : menuRef);
+	if (items.length === 0) return;
+	const current = items.indexOf(document.activeElement as HTMLElement);
+	let next: number;
+	if (event.key === "ArrowDown") next = (current + 1) % items.length;
+	else if (event.key === "ArrowUp")
+		next = current <= 0 ? items.length - 1 : current - 1;
+	else if (event.key === "Home") next = 0;
+	else if (event.key === "End") next = items.length - 1;
+	else return;
+	// The arrows and Home/End would scroll the list behind the menu.
+	event.preventDefault();
+	items[next]?.focus();
 }
 
 function openContextMenu(e: MouseEvent) {
@@ -343,12 +452,18 @@ function handleOutsideClick(e: MouseEvent) {
 	}
 }
 
-function toggleProjectSubmenu(e: MouseEvent) {
+async function toggleProjectSubmenu(e: MouseEvent) {
 	e.stopPropagation();
-	showProjectSubmenu = !showProjectSubmenu;
-	if (showProjectSubmenu) {
-		updateSubmenuPosition();
-	}
+	// Asked while the item still has the focus: a person on the keyboard gets
+	// taken into the submenu, which is portalled away from the rest of the page.
+	const byKeyboard = isKeyboardFocused(e.currentTarget as Element | null);
+	const opening = !showProjectSubmenu;
+	showProjectSubmenu = opening;
+	if (!opening) return;
+	updateSubmenuPosition();
+	if (!byKeyboard) return;
+	await tick();
+	menuButtons(submenuRef)[0]?.focus();
 }
 
 function updateSubmenuPosition() {
@@ -433,7 +548,7 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onclick={handleOutsideClick} />
+<svelte:window onclick={handleOutsideClick} onkeydowncapture={handleMenuKeydown} />
 
 <div
   bind:this={rowRef}
@@ -452,6 +567,8 @@ onMount(() => {
 	draggable={dragEnabled && !isEditing}
   onclick={handleRowClick}
 	onmousedown={handleRowMouseDown}
+	onpointerdown={handleRowPointerDown}
+	onfocus={handleRowFocus}
 	oncontextmenu={openContextMenu}
 	ondragstart={handleDragStart}
 	ondragend={handleDragEnd}
@@ -555,7 +672,10 @@ onMount(() => {
 			class:opacity-100={menuOpen || active}
 			class:md:opacity-100={menuOpen || active}
 			onclick={toggleMenu}
+			onkeydown={handleTriggerKeydown}
 			aria-label={$t('sidebar.conversationOptions')}
+			aria-haspopup="menu"
+			aria-expanded={menuOpen}
 		>
 		<EllipsisVertical size={16} strokeWidth={2} aria-hidden="true" />
 		</button>

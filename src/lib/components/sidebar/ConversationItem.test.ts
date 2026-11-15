@@ -1,9 +1,14 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { preloadData } from "$app/navigation";
 import type { ConversationListItem } from "$lib/server/services/conversations";
 import type { Project } from "$lib/server/services/projects";
 import { uiLanguage } from "$lib/stores/settings";
 import ConversationItemWrapper from "./ConversationItemWrapper.test.svelte";
+
+vi.mock("$app/navigation", () => ({
+	preloadData: vi.fn(),
+}));
 
 vi.mock("svelte/transition", () => ({
 	fade: () => ({}),
@@ -45,6 +50,11 @@ describe("ConversationItem Component", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.mocked(preloadData).mockImplementation(async () => ({
+			type: "loaded" as const,
+			status: 200,
+			data: {},
+		}));
 	});
 
 	afterEach(() => {
@@ -548,6 +558,302 @@ describe("ConversationItem Component", () => {
 		);
 
 		expect(onTogglePin).toHaveBeenCalledWith({ id: "conv-1", pinned: false });
+	});
+
+	// The ⋮ trigger sits inside the row, which is itself a button: Enter on the
+	// trigger used to bubble up and open the chat as well as the menu. The row's
+	// own Enter still opens the chat.
+	describe("Enter on the row and on its menu trigger", () => {
+		it("opens the chat on Enter on the row itself", async () => {
+			const onSelect = vi.fn();
+			render(ConversationItemWrapper, {
+				conversation: mockConversation,
+				onSelect,
+			});
+
+			await fireEvent.keyDown(screen.getByTestId("conversation-item"), {
+				key: "Enter",
+			});
+
+			expect(onSelect).toHaveBeenCalledTimes(1);
+			expect(onSelect).toHaveBeenCalledWith({ id: "conv-1" });
+		});
+
+		it("opens only the menu on Enter on the trigger, never the chat", async () => {
+			const onSelect = vi.fn();
+			render(ConversationItemWrapper, {
+				conversation: mockConversation,
+				onSelect,
+			});
+			const trigger = screen.getByRole("button", {
+				name: "Conversation options",
+			});
+			trigger.focus();
+
+			await fireEvent.keyDown(trigger, { key: "Enter" });
+
+			expect(screen.getByRole("menu")).toBeInTheDocument();
+			expect(onSelect).not.toHaveBeenCalled();
+		});
+
+		it("says it opens a menu and whether that menu is open", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+			const trigger = screen.getByRole("button", {
+				name: "Conversation options",
+			});
+			expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+			expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+			await fireEvent.keyDown(trigger, { key: "Enter" });
+
+			await waitFor(() =>
+				expect(trigger).toHaveAttribute("aria-expanded", "true"),
+			);
+		});
+	});
+
+	// The menu is portalled to <body>: a keyboard cannot Tab into it from the
+	// trigger (Tab goes to the next row), so opening it from the keyboard takes
+	// the focus, and the arrow keys, Home and End move between its items.
+	describe("menu keyboard model", () => {
+		function optionsTrigger(): HTMLElement {
+			return screen.getByRole("button", { name: "Conversation options" });
+		}
+
+		async function openMenuFromKeyboard(): Promise<HTMLElement> {
+			const trigger = optionsTrigger();
+			trigger.focus();
+			await fireEvent.keyDown(trigger, { key: "Enter" });
+			await waitFor(() =>
+				expect(screen.getByTestId("pin-option")).toHaveFocus(),
+			);
+			return trigger;
+		}
+
+		it("puts the focus on the first item when the menu is opened from the keyboard", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+
+			await openMenuFromKeyboard();
+
+			expect(screen.getByTestId("pin-option")).toHaveFocus();
+		});
+
+		it("does not steal the focus when the menu is opened with the pointer", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+
+			await fireEvent.click(optionsTrigger());
+
+			expect(screen.getByRole("menu")).toBeInTheDocument();
+			expect(screen.getByTestId("pin-option")).not.toHaveFocus();
+		});
+
+		it("opens the menu on ArrowDown on the trigger too", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+			const trigger = optionsTrigger();
+			trigger.focus();
+
+			await fireEvent.keyDown(trigger, { key: "ArrowDown" });
+
+			expect(screen.getByRole("menu")).toBeInTheDocument();
+			await waitFor(() =>
+				expect(screen.getByTestId("pin-option")).toHaveFocus(),
+			);
+		});
+
+		it("takes the keyboard into the project submenu and back out with Escape", async () => {
+			const projects: Project[] = [
+				{
+					id: "p1",
+					name: "Alpha",
+					sortOrder: 0,
+					createdAt: 1,
+					updatedAt: 1,
+					hasInstructions: false,
+				},
+			];
+			render(ConversationItemWrapper, {
+				conversation: mockConversation,
+				projects,
+			});
+			const trigger = await openMenuFromKeyboard();
+			const moveToProject = screen.getByRole("menuitem", {
+				name: /Move to project/,
+			});
+			moveToProject.focus();
+			const matches = Element.prototype.matches;
+			const keyboard = vi
+				.spyOn(Element.prototype, "matches")
+				.mockImplementation(function (this: Element, selector: string) {
+					return selector === ":focus-visible"
+						? true
+						: matches.call(this, selector);
+				});
+			try {
+				await fireEvent.click(moveToProject);
+
+				await waitFor(() =>
+					expect(screen.getByRole("button", { name: "Alpha" })).toHaveFocus(),
+				);
+
+				// Escape closes the submenu and the menu it came from, and the
+				// focus lands back on the trigger the menu belongs to.
+				await fireEvent.keyDown(screen.getByRole("button", { name: "Alpha" }), {
+					key: "Escape",
+				});
+				await waitFor(() =>
+					expect(screen.queryByRole("menu")).not.toBeInTheDocument(),
+				);
+				expect(trigger).toHaveFocus();
+			} finally {
+				keyboard.mockRestore();
+			}
+		});
+
+		it("moves between the items with ArrowDown and ArrowUp, wrapping at the ends", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+			await openMenuFromKeyboard();
+
+			await fireEvent.keyDown(screen.getByTestId("pin-option"), {
+				key: "ArrowDown",
+			});
+			expect(screen.getByTestId("rename-option")).toHaveFocus();
+
+			// No projects on this row: Select follows Rename.
+			await fireEvent.keyDown(screen.getByTestId("rename-option"), {
+				key: "ArrowDown",
+			});
+			expect(screen.getByTestId("select-option")).toHaveFocus();
+
+			await fireEvent.keyDown(screen.getByTestId("select-option"), {
+				key: "ArrowDown",
+			});
+			expect(screen.getByTestId("delete-option")).toHaveFocus();
+
+			await fireEvent.keyDown(screen.getByTestId("delete-option"), {
+				key: "ArrowDown",
+			});
+			expect(screen.getByTestId("pin-option")).toHaveFocus();
+
+			await fireEvent.keyDown(screen.getByTestId("pin-option"), {
+				key: "ArrowUp",
+			});
+			expect(screen.getByTestId("delete-option")).toHaveFocus();
+		});
+
+		it("jumps to the first and the last item with Home and End", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+			await openMenuFromKeyboard();
+
+			await fireEvent.keyDown(screen.getByTestId("pin-option"), {
+				key: "End",
+			});
+			expect(screen.getByTestId("delete-option")).toHaveFocus();
+
+			await fireEvent.keyDown(screen.getByTestId("delete-option"), {
+				key: "Home",
+			});
+			expect(screen.getByTestId("pin-option")).toHaveFocus();
+		});
+
+		it("closes the menu on Escape and returns the focus to the trigger", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+			const trigger = await openMenuFromKeyboard();
+
+			await fireEvent.keyDown(screen.getByTestId("pin-option"), {
+				key: "Escape",
+			});
+
+			await waitFor(() =>
+				expect(screen.queryByRole("menu")).not.toBeInTheDocument(),
+			);
+			expect(trigger).toHaveFocus();
+			expect(trigger).toHaveAttribute("aria-expanded", "false");
+		});
+
+		it("can be closed with Escape after being opened with the pointer too", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+			const trigger = optionsTrigger();
+			await fireEvent.click(trigger);
+
+			await fireEvent.keyDown(screen.getByTestId("pin-option"), {
+				key: "Escape",
+			});
+
+			await waitFor(() =>
+				expect(screen.queryByRole("menu")).not.toBeInTheDocument(),
+			);
+			expect(trigger).toHaveFocus();
+		});
+	});
+
+	// The row is a div that calls goto(): nothing preloads the chat route the way
+	// an anchor with data-sveltekit-preload-data does. Intent moves the data load
+	// forward: a plain press or the keyboard's focus.
+	describe("chat route preload", () => {
+		function row(): HTMLElement {
+			return screen.getByTestId("conversation-item");
+		}
+
+		it("preloads the chat once on a plain pointerdown", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+
+			await fireEvent.pointerDown(row());
+
+			await waitFor(() => expect(preloadData).toHaveBeenCalledTimes(1));
+			expect(preloadData).toHaveBeenCalledWith("/chat/conv-1");
+		});
+
+		it("preloads the chat once on the keyboard's focus", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+			const matches = Element.prototype.matches;
+			const keyboard = vi
+				.spyOn(Element.prototype, "matches")
+				.mockImplementation(function (this: Element, selector: string) {
+					return selector === ":focus-visible"
+						? true
+						: matches.call(this, selector);
+				});
+			try {
+				await fireEvent.focus(row());
+
+				await waitFor(() => expect(preloadData).toHaveBeenCalledTimes(1));
+				expect(preloadData).toHaveBeenCalledWith("/chat/conv-1");
+			} finally {
+				keyboard.mockRestore();
+			}
+		});
+
+		it("does not preload for a modified press", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+
+			await fireEvent.pointerDown(row(), { shiftKey: true });
+			await fireEvent.pointerDown(row(), { metaKey: true });
+			await fireEvent.pointerDown(row(), { ctrlKey: true });
+			await fireEvent.pointerDown(row(), { altKey: true });
+
+			expect(preloadData).not.toHaveBeenCalled();
+		});
+
+		it("does not preload while a selection is open", async () => {
+			render(ConversationItemWrapper, {
+				conversation: mockConversation,
+				selecting: true,
+			});
+
+			await fireEvent.pointerDown(row());
+
+			expect(preloadData).not.toHaveBeenCalled();
+		});
+
+		it("does not preload while the title is being renamed", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+			await fireEvent.click(screen.getByLabelText("Conversation options"));
+			await fireEvent.click(screen.getByTestId("rename-option"));
+
+			await fireEvent.pointerDown(row());
+
+			expect(preloadData).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("Rename flow", () => {
