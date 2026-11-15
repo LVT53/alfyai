@@ -24,9 +24,9 @@ Do not write a shot list, numbered beats or labelled sections, and do not name a
 
 - make this photo move
 - animate this portrait so she turns and smiles
-- a short clip of the harbour at sunrise, mist drifting
+- make a still of the harbour at sunrise, then animate the mist drifting
 - turn this still into a slow push-in
-- a short reel of rain running down the window
+- make a still of rain on a window, then animate it running down the glass
 - bring this painting to life, just the candle flame flickering
 
 ## Sources
