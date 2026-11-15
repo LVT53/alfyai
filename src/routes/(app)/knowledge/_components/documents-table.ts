@@ -231,7 +231,10 @@ export type DocumentTypeFilter = "all" | KnowledgeDocumentKindFilter;
  * Every `?type=` value the Knowledge page accepts — the ONE list, read by the
  * page's server load and by the page itself. Two hand-kept copies drifted
  * (the page's lacked "image", so `?type=image` silently fell back to All).
- * Slides stays accepted though its chip is shelved (ruling 69, see below).
+ * Slides stays accepted though its chip is shelved (ruling 69, see below), and
+ * Video is accepted as soon as its kind ships even though the chip waits for
+ * the tool slice: a kept link narrows to the Video rows instead of silently
+ * widening to All.
  */
 const KNOWLEDGE_KIND_FILTERS: ReadonlySet<string> =
 	new Set<KnowledgeDocumentKindFilter>([
@@ -240,6 +243,7 @@ const KNOWLEDGE_KIND_FILTERS: ReadonlySet<string> =
 		"app",
 		"slides",
 		"image",
+		"video",
 		"uploaded",
 	]);
 

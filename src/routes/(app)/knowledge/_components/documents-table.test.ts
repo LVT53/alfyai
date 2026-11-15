@@ -32,6 +32,7 @@ import {
 	isExtractionInProgress,
 	isImageWithNoText,
 	nextSortDirection,
+	parseKnowledgeKindFilter,
 	readDocumentsView,
 	sortDocuments,
 	writeDocumentsView,
@@ -693,6 +694,20 @@ describe("nextSortDirection", () => {
 // Slice 7 (Feature 2, ADR-0066): the artifact family joins the Documents tab.
 // A `kind`-bearing row is a Document/App/Canvas/Slides artifact
 // (`type: "artifact"`, `metadata_json.artifactType`).
+
+describe("parseKnowledgeKindFilter", () => {
+	// The hand-written allowlist is the second place a new kind's `?type=`
+	// value can be forgotten; "image" was, once, and `?type=image` silently
+	// fell back to All. Video is a bucket the data model already names.
+	it("accepts video, so ?type=video narrows to Video instead of falling back to All", () => {
+		expect(parseKnowledgeKindFilter("video")).toBe("video");
+	});
+
+	it("ignores a value that is not a bucket at all", () => {
+		expect(parseKnowledgeKindFilter("file")).toBeNull();
+		expect(parseKnowledgeKindFilter(null)).toBeNull();
+	});
+});
 
 describe("DOCUMENT_TYPE_FILTER_ORDER", () => {
 	// Ruling 69 (Slides is shelved): the mockup's six chips lose one. Production
