@@ -7,7 +7,10 @@
 // the wait is injected here, so no take is rendered and no row is written.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { TurnPictureIndex } from "$lib/server/services/images/turn-pictures";
+import type {
+	TurnPictureIndex,
+	TurnPictureSource,
+} from "$lib/server/services/images/turn-pictures";
 import type { VideoTakeSnapshot } from "./make-video";
 
 const config = vi.hoisted(() => ({ video: true }));
@@ -42,6 +45,7 @@ vi.mock("$lib/server/services/images/inputs", () => ({
 
 vi.mock("$lib/server/services/images/files", () => ({
 	storeImageFile: queued.stored,
+	getImageFile: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/images/picture-check/policy", () => ({
@@ -56,19 +60,22 @@ vi.mock("$lib/server/services/chat-turn/active-streams", () => ({
 	UserStopReason: class UserStopReason extends Error {},
 }));
 
+import { createTurnTakes } from "$lib/server/services/images/turn-takes";
 import { makeVideoInputSchema, runMakeVideoTool } from "./make-video";
 
 const userId = "user-1";
 const conversationId = "conv-1";
 const toolCallId = "call-1";
 
-function still(fileId = "file-1") {
+function still(
+	fileId = "file-1",
+): Extract<TurnPictureSource, { type: "image_file" }> {
 	return {
-		type: "image_file" as const,
+		type: "image_file",
 		fileId,
 		name: "Harbour at dawn",
 		artifactId: null,
-		role: "attached" as const,
+		role: "attached",
 	};
 }
 
@@ -104,12 +111,15 @@ beforeEach(() => {
 	queued.caption.mockReset();
 
 	queued.named.mockResolvedValue({ ok: true, sources: [still()] });
-	queued.loaded.mockResolvedValue({
-		png: new Uint8Array([1, 2, 3]),
-		width: 1280,
-		height: 720,
-		fileId: "file-1",
-	});
+	// The real read echoes the source's own file; a source of another chat is null.
+	queued.loaded.mockImplementation(
+		async ({ source }: { source: { type: string; fileId?: string } }) => ({
+			png: new Uint8Array([1, 2, 3]),
+			width: 1280,
+			height: 720,
+			fileId: source.type === "image_file" ? (source.fileId ?? null) : null,
+		}),
+	);
 	queued.stored.mockResolvedValue({ id: "stored-1" });
 	queued.explicit.mockResolvedValue(true);
 	queued.caption.mockImplementation(async (idea: string) => `caption: ${idea}`);
@@ -124,6 +134,7 @@ type RunOptions = {
 	signal?: AbortSignal;
 	state?: { takeId: string | null };
 	turnPictures?: TurnPictureIndex | null;
+	turnTakes?: import("$lib/server/services/images/turn-takes").TurnTakes;
 };
 
 async function run(options: RunOptions = {}) {
@@ -145,6 +156,7 @@ async function run(options: RunOptions = {}) {
 		toolCallId,
 		input: parsed,
 		requestText: options.requestText ?? "animate this picture",
+		turnTakes: options.turnTakes ?? createTurnTakes(),
 		turnPictures:
 			"turnPictures" in options ? (options.turnPictures ?? null) : indexOf(),
 		signal: options.signal ?? new AbortController().signal,
@@ -181,10 +193,10 @@ describe("make_video's input schema", () => {
 		}
 	});
 
-	it("needs a picture and a motion idea", () => {
+	it("needs a motion idea, and takes no picture when the turn has one to animate", () => {
 		expect(
 			makeVideoInputSchema.safeParse({ prompt: "the tide comes in" }).success,
-		).toBe(false);
+		).toBe(true);
 		expect(
 			makeVideoInputSchema.safeParse({ picture: "1", prompt: "" }).success,
 		).toBe(false);
@@ -192,18 +204,71 @@ describe("make_video's input schema", () => {
 });
 
 describe("make_video's refusals", () => {
-	it("refuses a picture the turn does not have, before any take", async () => {
+	it("refuses a picture the turn does not have, and names what it does offer", async () => {
 		queued.named.mockResolvedValue({
 			ok: false,
 			message: 'make_video has no picture "9".',
 		});
-		const { outcome } = await run({ input: { picture: "9" } });
+		const { outcome } = await run({
+			input: { picture: "Cat in Birthday Hat" },
+			turnPictures: indexOf({
+				...still(),
+				artifactId: "image-1",
+				name: "Harbour at dawn",
+			}),
+		});
 		expect(outcome.modelPayload).toMatchObject({
 			ok: false,
 			errorCode: "unknown_picture",
 		});
 		expect(queued.enqueue).not.toHaveBeenCalled();
 		expect(outcome.metadata.videoTakeId).toBeUndefined();
+		const message =
+			"message" in outcome.modelPayload
+				? String(outcome.modelPayload.message)
+				: "";
+		expect(message).toContain(
+			'make_video has no picture "Cat in Birthday Hat"',
+		);
+		expect(message).toContain("a picture number from this message (1)");
+		expect(message).toContain('image-1 is "Harbour at dawn"');
+		expect(message).toContain("takeId a make_image call returned");
+	});
+
+	it("animates the picture open in the panel when no picture is named and the turn made none", async () => {
+		const open = {
+			...still("open-file"),
+			name: "Beach",
+			artifactId: "image-open",
+			role: "open" as const,
+		};
+		const { outcome } = await run({
+			input: { picture: undefined },
+			turnPictures: indexOf(open),
+			// No take of this turn: the empty test database has no image take.
+		});
+		expect(outcome.modelPayload.ok).toBe(true);
+		expect(queued.enqueue.mock.calls[0][0].request.sourceFileId).toBe(
+			"open-file",
+		);
+	});
+
+	it("refuses with how to make a picture when the turn has nothing to animate", async () => {
+		const { outcome } = await run({
+			input: { picture: undefined },
+			turnPictures: null,
+		});
+		expect(outcome.modelPayload).toMatchObject({
+			ok: false,
+			errorCode: "unknown_picture",
+		});
+		const message =
+			"message" in outcome.modelPayload
+				? String(outcome.modelPayload.message)
+				: "";
+		expect(message).toContain("no picture to animate yet");
+		expect(message).toContain("make one with make_image first");
+		expect(queued.enqueue).not.toHaveBeenCalled();
 	});
 
 	it("refuses a picture that cannot be read, before any take", async () => {
@@ -462,6 +527,7 @@ describe("make_video's outcome", () => {
 			input: parsed,
 			requestText: "animate this picture",
 			turnPictures: indexOf(),
+			turnTakes: createTurnTakes(),
 			signal: controller.signal,
 			waitForTake,
 			state: { takeId: null },

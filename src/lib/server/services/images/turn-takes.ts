@@ -47,6 +47,12 @@ export type TurnTakes = {
 	/** Takes of the card this turn that count against its four: a retry takes the place of the take it repeats. */
 	takesInCard(cardId: string): number;
 	take(takeId: string): TurnTakeRecord | undefined;
+	/**
+	 * Every take this turn queued, oldest first (the last is the newest). A
+	 * tool that wants "the picture this turn just made" reads the end of it;
+	 * the result file is the take's own row, never this record.
+	 */
+	takes(): TurnTakeRecord[];
 	/** A take of this turn was queued by this tool call (so a timeout of the call still lands a picture on a card). */
 	hasTakeForCall(toolCallId: string): boolean;
 	/** The card's first non-retry take made for this very request, if any. */
@@ -81,6 +87,7 @@ export function createTurnTakes(): TurnTakes {
 				(record) => record.cardId === cardId && !record.isRetry,
 			).length,
 		take: (takeId) => takes.get(takeId),
+		takes: () => [...takes.values()],
 		hasTakeForCall: (toolCallId) =>
 			[...takes.values()].some((record) => record.toolCallId === toolCallId),
 		firstTakeOfCall: (cardId, callKey) =>

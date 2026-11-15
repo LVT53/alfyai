@@ -100,6 +100,7 @@ describe("the card id make_video reports", () => {
 		const { makeVideoInputSchema, runMakeVideoTool } = await import(
 			"./make-video"
 		);
+		const { createTurnTakes } = await import("../images/turn-takes");
 		const { listConversationVideoCards } = await import(
 			"../images/video/read-model"
 		);
@@ -115,6 +116,7 @@ describe("the card id make_video reports", () => {
 			}),
 			requestText: "animate the harbour",
 			turnPictures: null,
+			turnTakes: createTurnTakes(),
 			signal: new AbortController().signal,
 			state,
 			waitForTake: async (takeId) => ({

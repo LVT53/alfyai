@@ -6012,8 +6012,9 @@ describe("tool description hygiene", () => {
 			(candidate) => candidate.name === "make_video",
 		);
 		expect(entry?.description).toContain(NEGATIVE_CASE_MARKER);
+		expect(entry?.description).toContain('an Image id from "In this chat"');
 		expect(entry?.description).toContain(
-			'an Image from "In this chat" (its id)',
+			"With no `picture` it animates the newest picture this turn made",
 		);
 		expect(entry?.description).toContain("5 seconds by default");
 		expect(estimateTokens(entry?.description ?? "")).toBeLessThanOrEqual(

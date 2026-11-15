@@ -5,21 +5,27 @@
 // It hands the model no picture and no address: the card in the chat shows the
 // clip. A take that outlives the wait is not lost; it lands on its card later.
 //
-// The still is resolved exactly as make_image resolves a picture: the same
-// numbering (`sourcesNamed`, the one authority) and the same read
-// (`loadPicture`), so a number, an Image id, an open picture or an uploaded
-// photo means here what it means there.
+// The still is resolved exactly as make_image resolves a picture (`sourcesNamed`
+// for a number or an Image id, `loadPicture` to read it), and it can be named
+// in the ways a model actually has: a number, an Image id, or the takeId
+// make_image just handed it. A call with NO picture animates the newest picture
+// THIS TURN made, else the picture open in the panel — "make me a picture and
+// animate it" works in one turn without the model knowing any id. A name that
+// resolves to nothing is refused with what the turn does offer.
 //
 // Everything the model reads from here is ASCII English (ruling 79); titles
 // and the person's motion idea ride inside it as their own data.
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getConfig, isVideoMakingConfigured } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
-import { videoJobs } from "$lib/server/db/schema";
+import { imageJobs, videoJobs } from "$lib/server/db/schema";
 import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
-import { storeImageFile } from "$lib/server/services/images/files";
+import {
+	getImageFile,
+	storeImageFile,
+} from "$lib/server/services/images/files";
 import {
 	loadPicture,
 	PictureUnreadableError,
@@ -28,11 +34,13 @@ import { isExplicitFilterOnFor } from "$lib/server/services/images/picture-check
 import { findExplicitRequestTerm } from "$lib/server/services/images/picture-check/request-terms";
 import { sourcesNamed } from "$lib/server/services/images/requests";
 import { freshSeed } from "$lib/server/services/images/seeds";
+import { parseTakeRequest } from "$lib/server/services/images/take-request";
 import { titleFor } from "$lib/server/services/images/title-for";
 import type {
 	TurnPictureIndex,
 	TurnPictureSource,
 } from "$lib/server/services/images/turn-pictures";
+import type { TurnTakes } from "$lib/server/services/images/turn-takes";
 import {
 	VIDEO_TOOL_WAIT_MS,
 	type VideoDurationSeconds,
@@ -59,8 +67,9 @@ export const makeVideoInputSchema = z.object({
 		.string()
 		.min(1)
 		.max(64)
+		.optional()
 		.describe(
-			'The still to animate: a picture number from this message ("3") or an Image id from "In this chat". When the user says "it", it is the picture open in the panel, else the newest Image in "In this chat".',
+			'The still to animate, when the user named one: a picture number from this message ("3"), an Image id from "In this chat", or the takeId a make_image call returned. Leave it out to animate the newest picture this turn made, else the picture open in the panel.',
 		),
 	title: z
 		.string()
@@ -233,6 +242,145 @@ function unmarkedPicture(
 	return base ?? source;
 }
 
+/**
+ * The picture a take made, as a source of this chat: its result file and the
+ * Image item that file belongs to. Scoped to THIS person and THIS chat, so
+ * another person's take, or a take of another chat, resolves to nothing.
+ */
+async function pictureFromTake(params: {
+	userId: string;
+	conversationId: string;
+	takeId: string;
+}): Promise<TurnPictureSource | null> {
+	const [row] = await db
+		.select({
+			resultFileId: imageJobs.resultFileId,
+			requestJson: imageJobs.requestJson,
+		})
+		.from(imageJobs)
+		.where(
+			and(
+				eq(imageJobs.id, params.takeId),
+				eq(imageJobs.userId, params.userId),
+				eq(imageJobs.conversationId, params.conversationId),
+				// A hidden take is one the card does not show: never the turn's picture.
+				eq(imageJobs.hidden, 0),
+			),
+		)
+		.limit(1);
+	if (!row?.resultFileId) return null;
+	const file = await getImageFile({
+		userId: params.userId,
+		fileId: row.resultFileId,
+		conversationId: params.conversationId,
+	});
+	if (!file) return null;
+	return {
+		type: "image_file",
+		fileId: file.id,
+		name: parseTakeRequest(row.requestJson)?.title ?? "Picture",
+		artifactId: file.artifactId,
+		role: "attached",
+	};
+}
+
+/** The newest picture this turn made: its newest take that has a result file. */
+async function newestPictureThisTurn(params: {
+	userId: string;
+	conversationId: string;
+	turnTakes: TurnTakes;
+}): Promise<{ source: TurnPictureSource; takeId: string } | null> {
+	const takes = params.turnTakes.takes();
+	for (let index = takes.length - 1; index >= 0; index -= 1) {
+		const take = takes[index];
+		if (!take) continue;
+		const source = await pictureFromTake({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			takeId: take.takeId,
+		});
+		if (source) return { source, takeId: take.takeId };
+	}
+	return null;
+}
+
+/** The picture open in the panel, when the turn numbered it. */
+function openPictureSource(
+	turnPictures: TurnPictureIndex | null,
+): TurnPictureSource | null {
+	return (
+		turnPictures?.pictures.find(
+			(picture) =>
+				picture.source.type === "image_file" && picture.source.role === "open",
+		)?.source ?? null
+	);
+}
+
+/** The numbers and Image ids this turn does offer, for a refusal that names them. */
+function picturesOnOffer(turnPictures: TurnPictureIndex | null): string[] {
+	const options: string[] = [];
+	const numbers = (turnPictures?.pictures ?? [])
+		.map((picture) => picture.number)
+		.slice(0, 5);
+	if (numbers.length > 0) {
+		options.push(`a picture number from this message (${numbers.join(", ")})`);
+	}
+	const items = (turnPictures?.pictures ?? [])
+		.filter(
+			(picture) =>
+				picture.source.type === "image_file" &&
+				Boolean(picture.source.artifactId),
+		)
+		.slice(0, 3)
+		.map((picture) => {
+			const source = picture.source as Extract<
+				TurnPictureSource,
+				{ type: "image_file" }
+			>;
+			return `${source.artifactId} is ${JSON.stringify(source.name)}`;
+		});
+	if (items.length > 0) {
+		options.push(`an Image id from "In this chat" (${items.join(", ")})`);
+	}
+	return options;
+}
+
+/**
+ * What a call that could not find its still is told: the ways it CAN name a
+ * picture, with this turn's own numbers and Image ids, and the picture the turn
+ * just made — which is the one a model that has only read make_image's result
+ * does not know the id of.
+ */
+async function noPictureMessage(params: {
+	name: string | null;
+	userId: string;
+	conversationId: string;
+	turnPictures: TurnPictureIndex | null;
+	turnTakes: TurnTakes;
+}): Promise<string> {
+	const opener = params.name
+		? `make_video has no picture ${JSON.stringify(params.name)}.`
+		: "This turn has no picture to animate yet.";
+	const options: string[] = [];
+	const made = await newestPictureThisTurn({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		turnTakes: params.turnTakes,
+	});
+	if (made) {
+		options.push(
+			`the newest picture this turn made (${JSON.stringify(made.source.name)}, takeId ${made.takeId}) by leaving "picture" out or by passing that takeId`,
+		);
+	} else {
+		options.push("the takeId a make_image call returned");
+	}
+	options.push(...picturesOnOffer(params.turnPictures));
+	if (options.length === 1 && !made && !params.turnPictures) {
+		return `${opener} This message carries no picture and this turn made none: make one with make_image first, or ask the user to attach a picture.`;
+	}
+	return `${opener} It can animate ${options.join(", ")}.`;
+}
+
 type Plan = {
 	request: VideoTakeRequest;
 	title: string;
@@ -250,9 +398,10 @@ async function planTake(params: {
 	/** The person's own message this turn, for a title the model did not give. */
 	requestText: string;
 	turnPictures: TurnPictureIndex | null;
+	turnTakes: TurnTakes;
 	signal: AbortSignal;
 }): Promise<Planned> {
-	const { userId, conversationId, input, turnPictures } = params;
+	const { userId, conversationId, input, turnPictures, turnTakes } = params;
 	if (params.signal.aborted) return { ok: false, refused: stoppedRefusal() };
 	if (!isVideoMakingConfigured(getConfig())) {
 		return {
@@ -273,20 +422,48 @@ async function planTake(params: {
 		};
 	}
 
-	const named = await sourcesNamed({
-		userId,
-		conversationId,
-		names: [input.picture],
-		turnPictures,
-		tool: "make_video",
-	});
-	if (!named.ok)
-		return { ok: false, refused: refusal("unknown_picture", named.message) };
-	const source = unmarkedPicture(turnPictures, named.sources[0]);
+	// The still, named in a way the model actually has: a number, an Image id or
+	// the takeId make_image handed it; with no name, the picture this turn made,
+	// else the picture open in the panel.
+	let source: TurnPictureSource | null = null;
+	const name = input.picture?.trim();
+	if (name) {
+		const named = await sourcesNamed({
+			userId,
+			conversationId,
+			names: [name],
+			turnPictures,
+			tool: "make_video",
+		});
+		source = named.ok ? named.sources[0] : null;
+		if (!source) {
+			source = await pictureFromTake({ userId, conversationId, takeId: name });
+		}
+	} else {
+		source =
+			(await newestPictureThisTurn({ userId, conversationId, turnTakes }))
+				?.source ?? openPictureSource(turnPictures);
+	}
+	if (!source) {
+		return {
+			ok: false,
+			refused: refusal(
+				"unknown_picture",
+				await noPictureMessage({
+					name: name ?? null,
+					userId,
+					conversationId,
+					turnPictures,
+					turnTakes,
+				}),
+			),
+		};
+	}
+	const still = unmarkedPicture(turnPictures, source);
 
 	let loaded: Awaited<ReturnType<typeof loadPicture>>;
 	try {
-		loaded = await loadPicture({ userId, conversationId, source });
+		loaded = await loadPicture({ userId, conversationId, source: still });
 	} catch (error) {
 		// A picture that is gone or cannot be decoded is the model's to hear about.
 		if (error instanceof PictureUnreadableError) {
@@ -357,6 +534,8 @@ export async function runMakeVideoTool(params: {
 	/** The person's own message this turn, for a title the model did not give. */
 	requestText: string;
 	turnPictures: TurnPictureIndex | null;
+	/** What this turn has made with make_image: the picture a call with no name animates. */
+	turnTakes: TurnTakes;
 	signal: AbortSignal;
 	state: MakeVideoCallState;
 	onTick?: () => void;

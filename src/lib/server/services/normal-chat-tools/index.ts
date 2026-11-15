@@ -390,7 +390,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	make_video: {
 		description:
-			'Make a short video from a still picture: animate ONE picture in this message (its number) or an Image from "In this chat" (its id). Use it only when the user wants a clip: a clip takes minutes and only one is made at a time. Write `prompt` in English as the motion idea: what moves, how the camera moves, and what stays as it is. Clips are 5 seconds by default, or 10 only when the user asks for ten. Do not use it for a still picture (make_image), for trimming or editing a video, or for adding sound.',
+			'Make a short video from a still picture. With no `picture` it animates the newest picture this turn made, else the open one; `picture` may name a message picture number, an Image id from "In this chat", or a make_image takeId. Only for a clip: one at a time, minutes each. Write `prompt` in English: what moves, how the camera moves, and what stays. 5 seconds by default, 10 only when asked. Do not use it for a still picture (make_image), for trimming or editing a video, or for adding sound.',
 		errorPrefix: "Making the video failed",
 	},
 	read_generated_file: {
@@ -2410,6 +2410,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											input,
 											requestText: ctx.requestText ?? "",
 											turnPictures: ctx.turnPictures ?? null,
+											turnTakes,
 											signal: abortSignal,
 											onTick: ctx.onToolActivity,
 											state,

@@ -9,7 +9,11 @@
 // and names ride inside it as the person's own data.
 
 import { z } from "zod";
-import { getConfig, isImageMakingConfigured } from "$lib/server/config-store";
+import {
+	getConfig,
+	isImageMakingConfigured,
+	isVideoMakingConfigured,
+} from "$lib/server/config-store";
 import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
 import {
 	createCard,
@@ -168,6 +172,15 @@ const RETRY_UNCHANGED_NOTE =
 	"The new try changed nothing, so the earlier result stays on its card. Do not call make_image again for it. Tell the user plainly that it could not be improved.";
 const RUNNING_NOTE =
 	"The picture is still being made and will appear on its card in the chat when it is ready. Tell the user it is on its way; do not call make_image again for it.";
+/**
+ * Said after a picture is made, when a video server is configured: a later
+ * make_video can have THIS picture without the model knowing how to name it
+ * (no picture at all is the newest picture the turn made; its id works too).
+ */
+function animateHint(imageId: string | null): string {
+	if (!imageId || !isVideoMakingConfigured(getConfig())) return "";
+	return ` To animate this picture, call make_video with picture "${imageId}", or with no picture at all.`;
+}
 
 const FAILURE_MESSAGES: Record<string, string> = {
 	image_server_unreachable: "The picture server could not be reached.",
@@ -737,15 +750,17 @@ async function succeededOutcome(input: {
 			title: plan.title,
 			inUse,
 			retried,
-			note: snapshot.measures?.miss
-				? plan.request.marks
-					? MARK_UNCHANGED_NOTE
-					: UNCHANGED_NOTE
-				: winnerId === plan.retryOf
-					? RETRY_UNCHANGED_NOTE
-					: looked
-						? lookNote(winnerId, retried)
-						: plainNote,
+			note: `${
+				snapshot.measures?.miss
+					? plan.request.marks
+						? MARK_UNCHANGED_NOTE
+						: UNCHANGED_NOTE
+					: winnerId === plan.retryOf
+						? RETRY_UNCHANGED_NOTE
+						: looked
+							? lookNote(winnerId, retried)
+							: plainNote
+			}${animateHint(imageId)}`,
 		},
 		metadata: {
 			...base,
