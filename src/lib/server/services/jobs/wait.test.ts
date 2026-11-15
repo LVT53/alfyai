@@ -296,3 +296,65 @@ describe("waitForVerdict", () => {
 		});
 	});
 });
+
+describe("subscribeToJobSettled", () => {
+	it("hears one job's verdict and nothing of another's", async () => {
+		const first = await running();
+		const second = await running();
+		const heard: Array<{ kind: string; jobId: string; status: string }> = [];
+		const stop = h.engine.subscribeToJobSettled(
+			h.control.kind,
+			first.jobId,
+			(event) => heard.push(event),
+		);
+
+		h.ledger.succeed(h.control.kind, second.owned);
+		h.ledger.succeed(h.control.kind, first.owned);
+		stop();
+
+		expect(heard).toEqual([
+			{ kind: h.control.kind.name, jobId: first.jobId, status: "succeeded" },
+		]);
+		const { jobsState } = await import("./state");
+		expect(jobsState().settleListeners.size).toBe(0);
+	});
+
+	it("does not mind a job that does not exist, and leaves nothing behind", async () => {
+		const listener = vi.fn();
+		const stop = h.engine.subscribeToJobSettled(
+			h.control.kind,
+			"no-such-job",
+			listener,
+		);
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect(listener).not.toHaveBeenCalled();
+
+		// Unsubscribing twice is harmless: an abort and a cleanup may both run.
+		stop();
+		stop();
+		const { jobsState } = await import("./state");
+		expect(jobsState().settleListeners.size).toBe(0);
+	});
+
+	it("stops on its signal, and starts nothing on one already aborted", async () => {
+		const first = await running();
+		const controller = new AbortController();
+		const heard = vi.fn();
+		h.engine.subscribeToJobSettled(h.control.kind, first.jobId, heard, {
+			signal: controller.signal,
+		});
+		controller.abort();
+
+		h.ledger.succeed(h.control.kind, first.owned);
+		expect(heard).not.toHaveBeenCalled();
+
+		const already = new AbortController();
+		already.abort();
+		const never = vi.fn();
+		h.engine.subscribeToJobSettled(h.control.kind, first.jobId, never, {
+			signal: already.signal,
+		});
+		const { jobsState } = await import("./state");
+		expect(jobsState().settleListeners.size).toBe(0);
+	});
+});

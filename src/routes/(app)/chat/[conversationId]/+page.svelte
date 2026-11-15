@@ -7,6 +7,7 @@ import { t } from "$lib/i18n";
 import { showToast } from "$lib/stores/toast";
 import {
 	anotherImageTake,
+	awaitImageTakeSettled,
 	imageFileUrl,
 	retryImageTake,
 	stopImageTake,
@@ -2149,6 +2150,60 @@ let panelMarks = $derived(
 );
 
 /**
+ * A take a card's Another or Try again just started, and the chat it belongs
+ * to. The take's end is streamed while it is being made (the 750/2500 ms poll
+ * is the fallback), so a picture that lands while nobody is in a turn settles
+ * at once. Nothing of a chat we leave may keep a stream open.
+ */
+type ImageTakeWait = { conversationId: string; close: () => void };
+
+const imageTakeWaits = new Set<ImageTakeWait>();
+
+function waitForImageTakeToSettle(
+	conversationId: string,
+	takeId: string,
+): void {
+	const controller = new AbortController();
+	const wait: ImageTakeWait = {
+		conversationId,
+		close: () => {
+			imageTakeWaits.delete(wait);
+			controller.abort();
+		},
+	};
+	imageTakeWaits.add(wait);
+	// The helper never rejects and never throws: a channel that cannot open
+	// leaves the poll to settle the card.
+	void awaitImageTakeSettled(conversationId, takeId, {
+		signal: controller.signal,
+		onSettled: () => {
+			imageTakeWaits.delete(wait);
+			void hydrateConversationImageCards(conversationId);
+		},
+	});
+}
+
+/** Closes the take channels of one chat, or of every chat. */
+function closeImageTakeWaits(conversationId?: string): void {
+	for (const wait of [...imageTakeWaits]) {
+		if (!conversationId || wait.conversationId === conversationId) {
+			wait.close();
+		}
+	}
+}
+
+let imageTakeWaitConversationId: string | null = null;
+$effect(() => {
+	const conversationId = data.conversation?.id ?? null;
+	if (conversationId === imageTakeWaitConversationId) return;
+	// A subscription belongs to the chat that started it, never to the next one.
+	closeImageTakeWaits();
+	imageTakeWaitConversationId = conversationId;
+});
+
+onDestroy(() => closeImageTakeWaits());
+
+/**
  * What a picture card's buttons ask for (plan 2b T2). Each goes through
  * `client/api/images.ts` and reads the detail back, so the card shows what
  * the server did; a failure says so in a toast and rejects, so the card can
@@ -2182,6 +2237,9 @@ async function handleImageAction(
 					action.cardId,
 					conversationId,
 				);
+				// The take may settle outside a turn: hear its end, so the card
+				// settles at once instead of on the poll tick.
+				waitForImageTakeToSettle(conversationId, takeId);
 				void refreshConversationFiles();
 				return { takeId };
 			}
@@ -2193,6 +2251,7 @@ async function handleImageAction(
 				break;
 			case "retry":
 				await retryImageTake(action.takeId, conversationId);
+				waitForImageTakeToSettle(conversationId, action.takeId);
 				break;
 			case "download":
 				await startAuthenticatedDownload(

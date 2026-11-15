@@ -8,12 +8,14 @@
 // lazily, on the first claim.
 
 import type { SQL } from "drizzle-orm";
+import { onSettled } from "./events";
 import * as ledger from "./ledger";
 import * as recovery from "./recovery";
 import { wake } from "./scheduler";
 import type {
 	EnqueueInput,
 	JobKind,
+	JobStatus,
 	JobTable,
 	RecoverOptions,
 	ReopenInput,
@@ -112,4 +114,51 @@ export async function reopen<J extends JobTable>(
 	const row = ledger.reopen(kind, jobId, input);
 	if (row) wake(kind);
 	return row;
+}
+
+/** What a settle listener hears: the kind, the job, and the verdict. */
+type JobSettleEvent = {
+	kind: string;
+	jobId: string;
+	status: JobStatus;
+};
+
+/**
+ * Hears the verdict of ONE job in this process, so a reader (a route's SSE
+ * channel, a status line) can show it at once instead of polling for it. The
+ * engine announces a settle after the commit that wrote it; the announcement is
+ * a convenience and never the truth, so a caller pairs it with a read: a verdict
+ * already announced never reaches a listener that started after it, and a job
+ * that does not exist is simply never announced. This reads and writes nothing
+ * and assumes nothing about the job.
+ *
+ * Returns the function that stops listening. It is safe to call twice, and the
+ * optional signal calls it on abort (a signal already aborted listens for
+ * nothing).
+ */
+export function subscribeToJobSettled(
+	kind: JobKind,
+	jobId: string,
+	listener: (event: JobSettleEvent) => void,
+	options: { signal?: AbortSignal } = {},
+): () => void {
+	const signal = options.signal;
+	if (!jobId || signal?.aborted) return () => undefined;
+
+	let stopped = false;
+	let unsubscribe: () => void = () => undefined;
+	const stop = (): void => {
+		if (stopped) return;
+		stopped = true;
+		signal?.removeEventListener("abort", stop);
+		unsubscribe();
+	};
+
+	unsubscribe = onSettled(kind.name, jobId, (event) => {
+		if (stopped) return;
+		listener(event);
+	});
+	signal?.addEventListener("abort", stop, { once: true });
+
+	return stop;
 }

@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	anotherImageTake,
+	awaitImageTakeSettled,
 	imageFileUrl,
 	retryImageTake,
 	stopImageTake,
@@ -71,5 +72,106 @@ describe("image card actions", () => {
 	it("throws when the server refuses", async () => {
 		const refused = ok({ error: "not_ready" }, 409);
 		await expect(useImageTake("t1", null, refused)).rejects.toThrow();
+	});
+});
+
+/** The browser's EventSource, as jsdom does not have one: the test drives it. */
+const fakeSources: FakeEventSource[] = [];
+
+class FakeEventSource {
+	readonly url: string;
+	closed = false;
+	private readonly listeners = new Map<string, Set<(event: Event) => void>>();
+
+	constructor(url: string) {
+		this.url = url;
+		fakeSources.push(this);
+	}
+
+	addEventListener(type: string, listener: EventListener) {
+		let set = this.listeners.get(type);
+		if (!set) {
+			set = new Set();
+			this.listeners.set(type, set);
+		}
+		set.add(listener as (event: Event) => void);
+	}
+
+	removeEventListener(type: string, listener: EventListener) {
+		this.listeners.get(type)?.delete(listener as (event: Event) => void);
+	}
+
+	close() {
+		this.closed = true;
+	}
+
+	emit(type: string, data?: unknown) {
+		for (const listener of [...(this.listeners.get(type) ?? [])]) {
+			listener({
+				data: data === undefined ? undefined : JSON.stringify(data),
+			} as Event);
+		}
+	}
+}
+
+describe("awaitImageTakeSettled", () => {
+	beforeEach(() => {
+		fakeSources.length = 0;
+		vi.stubGlobal("EventSource", FakeEventSource);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("opens the take's events channel and closes it on the settled event", async () => {
+		const onSettled = vi.fn();
+		const waiting = awaitImageTakeSettled("c1", "t1", { onSettled });
+		const source = fakeSources.at(-1);
+		expect(source?.url).toBe("/api/images/takes/t1/events?conversationId=c1");
+
+		source?.emit("settled", { takeId: "t1", status: "succeeded" });
+
+		await expect(waiting).resolves.toEqual({ settled: true });
+		expect(source?.closed).toBe(true);
+		expect(onSettled).toHaveBeenCalledTimes(1);
+	});
+
+	it("leaves the chat out of the URL when none is named", async () => {
+		void awaitImageTakeSettled(null, "t1");
+		expect(fakeSources.at(-1)?.url).toBe("/api/images/takes/t1/events");
+	});
+
+	it("answers settled false when the EventSource errors, and closes it", async () => {
+		const waiting = awaitImageTakeSettled("c1", "t1");
+		const source = fakeSources.at(-1);
+
+		source?.emit("error");
+
+		await expect(waiting).resolves.toEqual({ settled: false });
+		expect(source?.closed).toBe(true);
+	});
+
+	it("closes the stream and answers settled false when the caller aborts", async () => {
+		const controller = new AbortController();
+		const waiting = awaitImageTakeSettled("c1", "t1", {
+			signal: controller.signal,
+		});
+		const source = fakeSources.at(-1);
+
+		controller.abort();
+
+		await expect(waiting).resolves.toEqual({ settled: false });
+		expect(source?.closed).toBe(true);
+	});
+
+	it("opens nothing on a signal that is already aborted", async () => {
+		const controller = new AbortController();
+		controller.abort();
+
+		await expect(
+			awaitImageTakeSettled("c1", "t1", { signal: controller.signal }),
+		).resolves.toEqual({ settled: false });
+		expect(fakeSources).toHaveLength(0);
 	});
 });

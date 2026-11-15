@@ -106,6 +106,20 @@ const checkChatTurnMock = vi.hoisted(() =>
 const checkCloudWarningMock = vi.hoisted(() => vi.fn());
 const ackCloudConnectorMock = vi.hoisted(() => vi.fn());
 const setLocalDistillMock = vi.hoisted(() => vi.fn());
+// A picture card's actions and the take's end-of-take channel. The channel is a
+// fast path only: a test that wants the settle calls the `onSettled` the page
+// handed it, and the poll is never involved.
+const imageTakeChannelMock = vi.hoisted(() => ({
+	awaitImageTakeSettled: vi.fn(
+		async (
+			_conversationId: string | null | undefined,
+			_takeId: string,
+			_options: { signal?: AbortSignal; onSettled?: () => void } = {},
+		): Promise<{ settled: boolean }> => ({ settled: false }),
+	),
+	anotherImageTake: vi.fn(async () => ({ takeId: "take-another" })),
+	retryImageTake: vi.fn(async () => undefined),
+}));
 
 function conversationFixture(
 	id: string,
@@ -345,6 +359,13 @@ vi.mock("$lib/client/api/conversations", () => ({
 	runConversationContextCompression: vi.fn(),
 }));
 
+vi.mock("$lib/client/api/images", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/client/api/images")>()),
+	anotherImageTake: imageTakeChannelMock.anotherImageTake,
+	awaitImageTakeSettled: imageTakeChannelMock.awaitImageTakeSettled,
+	retryImageTake: imageTakeChannelMock.retryImageTake,
+}));
+
 vi.mock("$lib/client/api/file-production", async (importOriginal) => ({
 	// The real existence check (a ranged read through the test's own fetch),
 	// the rest stubbed.
@@ -554,6 +575,11 @@ import {
 } from "$lib/client/api/conversations";
 import { ApiError } from "$lib/client/api/http";
 import {
+	anotherImageTake,
+	awaitImageTakeSettled,
+	retryImageTake,
+} from "$lib/client/api/images";
+import {
 	clearConversationSessionState,
 	createDraftPersistence,
 } from "$lib/client/conversation-session";
@@ -575,6 +601,12 @@ afterEach(() => {
 	vi.mocked(fetchConversationQuestions).mockReset();
 	vi.mocked(fetchConversationQuestions).mockResolvedValue([]);
 	vi.mocked(fetchOlderConversationMessages).mockReset();
+	vi.mocked(awaitImageTakeSettled).mockReset();
+	vi.mocked(awaitImageTakeSettled).mockResolvedValue({ settled: false });
+	vi.mocked(anotherImageTake).mockReset();
+	vi.mocked(anotherImageTake).mockResolvedValue({ takeId: "take-another" });
+	vi.mocked(retryImageTake).mockReset();
+	vi.mocked(retryImageTake).mockResolvedValue(undefined);
 	runtimeHarness.orphanedStreamId = null;
 });
 
@@ -3512,6 +3544,90 @@ describe("chat page runtime integration", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	// A take that settles outside a turn (Another, Try again) hears its end on
+	// the take's own SSE channel, so the card settles without a poll tick. The
+	// poll keeps running as the fallback: a channel that cannot open says so
+	// quietly and the tests below still tick normally.
+	it("subscribes to the take Try again starts, and settles the cards when it lands", async () => {
+		const take = imageTakeFixture({ status: "failed", retryable: true });
+		const waits: Array<{ signal?: AbortSignal; onSettled?: () => void }> = [];
+		vi.mocked(awaitImageTakeSettled).mockImplementation(
+			(_conversationId, _takeId, options = {}) => {
+				waits.push(options);
+				return new Promise<{ settled: boolean }>(() => undefined);
+			},
+		);
+		const { unmount } = renderPage(
+			pageData({ imageCards: [imageCardFixture([take])] }),
+		);
+		await tick();
+		vi.mocked(fetchConversationImageCards).mockClear();
+
+		const onImageAction = pageChildren.pane?.onImageAction as
+			| ((...args: unknown[]) => unknown)
+			| undefined;
+		await onImageAction?.({ type: "retry", takeId: take.id });
+
+		expect(retryImageTake).toHaveBeenCalledWith(take.id, "conv-1");
+		expect(awaitImageTakeSettled).toHaveBeenCalledWith(
+			"conv-1",
+			take.id,
+			expect.objectContaining({ onSettled: expect.any(Function) }),
+		);
+
+		waits[0]?.onSettled?.();
+		await waitFor(() =>
+			expect(fetchConversationImageCards).toHaveBeenCalledWith("conv-1"),
+		);
+
+		unmount();
+	});
+
+	it("closes a take channel still open when the page goes away", async () => {
+		const take = imageTakeFixture({ status: "failed", retryable: true });
+		let signal: AbortSignal | undefined;
+		vi.mocked(awaitImageTakeSettled).mockImplementation(
+			(_conversationId, _takeId, options = {}) => {
+				signal = options.signal;
+				return new Promise<{ settled: boolean }>(() => undefined);
+			},
+		);
+		const { unmount } = renderPage(
+			pageData({ imageCards: [imageCardFixture([take])] }),
+		);
+		await tick();
+
+		const onImageAction = pageChildren.pane?.onImageAction as
+			| ((...args: unknown[]) => unknown)
+			| undefined;
+		await onImageAction?.({ type: "retry", takeId: take.id });
+		expect(signal?.aborted).toBe(false);
+
+		unmount();
+		expect(signal?.aborted).toBe(true);
+	});
+
+	it("subscribes to the take Another queues", async () => {
+		const card = imageCardFixture([imageTakeFixture()]);
+		vi.mocked(awaitImageTakeSettled).mockReturnValue(
+			new Promise<{ settled: boolean }>(() => undefined),
+		);
+		renderPage(pageData({ imageCards: [card] }));
+		await tick();
+
+		const onImageAction = pageChildren.pane?.onImageAction as
+			| ((...args: unknown[]) => unknown)
+			| undefined;
+		await onImageAction?.({ type: "another", cardId: card.id });
+
+		expect(anotherImageTake).toHaveBeenCalledWith(card.id, "conv-1");
+		expect(awaitImageTakeSettled).toHaveBeenCalledWith(
+			"conv-1",
+			"take-another",
+			expect.anything(),
+		);
 	});
 
 	it("falls back to the full detail read when a cards tick fails, so a picture never stays mid-shimmer", async () => {

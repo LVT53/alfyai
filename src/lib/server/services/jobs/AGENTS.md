@@ -10,7 +10,7 @@ Everything a caller uses is exported from [`index.ts`](./index.ts), which import
 
 - Define: `defineJobKind(definition)`; build a kind's tables with `jobColumns()` and `jobAttemptColumns()` (plus `liveClaimIndex` and `jobAttemptIndexes` for their indexes).
 - Start and stop, once per process from `hooks.server.ts`: `startJobs(kinds)`, `stopJobs()`. `drain(kind)` runs the claimable jobs now (tests, scripts).
-- Act: `enqueue`, `cancel`, `cancelAll`, `retry`, `reopen`, `recover`, `wake`, `runInline`, `waitForVerdict`; read: `describeJob`.
+- Act: `enqueue`, `cancel`, `cancelAll`, `retry`, `reopen`, `recover`, `wake`, `runInline`, `waitForVerdict`; read: `describeJob`. `subscribeToJobSettled(kind, jobId, listener, { signal })` is the read-only seam for a caller that shows a verdict instead of waiting for it (a route's SSE channel): it hears ONE job settle in this process, returns its unsubscribe, and assumes nothing about the job — a caller pairs it with a read.
 
 A kind's `JobKindDefinition` supplies only what is particular to it: tables, `enabled()`, `limits()`, `lease()`, an optional `claimable` condition, `phases`, `lostAttempt(reason)`, the pure `onFailure(failure, history)` policy, `userRetry`, `onTransition`, a lazily loaded `handler()` and `inline`. The handler gets a `JobRunContext`: `row`, `attempt: { id, number }`, `signal`, and the fenced `progress`, `write`, `succeed` and `fail`.
 
