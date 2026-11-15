@@ -11,10 +11,13 @@ import {
 	messages,
 } from "../../src/lib/server/db/schema";
 import {
+	applyDocumentPatch,
 	createDocumentArtifact,
 	deleteArtifact,
+	readDocumentForAlfy,
 } from "../../src/lib/server/services/artifacts";
 import { storeGeneratedFile } from "../../src/lib/server/services/chat-files";
+import type { PatchSet } from "../../src/lib/shared/artifact-document/patch";
 import {
 	createTourUser,
 	markToursSeen,
@@ -576,6 +579,149 @@ for (const mode of [
 		});
 	});
 }
+
+// W12 (UI wishes, 2026-11): with no review marker the time sat at the top of
+// the end column, because the resting chevron took the line under it. The time
+// must be centred then, while a Reviewed or pending pill keeps the stack it
+// always had (time above the pill).
+test.describe("the row's time is centred when no review pill is drawn (W12)", () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+
+	test("centres the time only in the no-marker case, and keeps the time-above-pill stack otherwise", async ({
+		page,
+	}) => {
+		const user = await createTourUser("en");
+		await markToursSeen(user);
+		const chatId = await startChatAs(page, user);
+		const reviewedId = await seedItem(user, chatId, "document", {
+			title: "Reviewed plan",
+		});
+		const pendingId = await seedItem(user, chatId, "document", {
+			title: "Pending plan",
+		});
+		await seedItem(user, chatId, "document", { title: "Plain plan" });
+
+		// Reviewed: the persisted marker at the only version there is, so the
+		// row reads 0 rather than omitting the count. Keep the rest of the
+		// artifact's metadata intact.
+		const [reviewedRow] = await db
+			.select({ metadataJson: artifacts.metadataJson })
+			.from(artifacts)
+			.where(eq(artifacts.id, reviewedId));
+		const reviewedMetadata = JSON.parse(
+			reviewedRow?.metadataJson ?? "{}",
+		) as Record<string, unknown>;
+		reviewedMetadata.review = { throughVersion: 1, keptBlockIds: [] };
+		await db
+			.update(artifacts)
+			.set({ metadataJson: JSON.stringify(reviewedMetadata) })
+			.where(eq(artifacts.id, reviewedId));
+
+		// Pending: a real Alfy edit after the marker, so the row reads 1.
+		const read = await readDocumentForAlfy({
+			userId: user.id,
+			artifactId: pendingId,
+			conversationId: chatId,
+		});
+		const block = read.blocks[0];
+		if (!block) throw new Error("the seeded Document has no block");
+		const patch: PatchSet = {
+			patchId: `pending-${pendingId}`,
+			label: "Edited",
+			ops: [
+				{
+					opId: `op-${pendingId}`,
+					kind: "replaceBlock",
+					blockId: block.blockId,
+					baseHash: block.hash,
+					blockLabel: block.label,
+					text: `${block.text} — updated`,
+				},
+			],
+		};
+		const applied = await applyDocumentPatch({
+			userId: user.id,
+			artifactId: pendingId,
+			conversationId: chatId,
+			patch,
+		});
+		expect(applied.ok, "the pending edit landed").toBe(true);
+
+		await reopenChat(page, chatId);
+		await openPanelList(page);
+
+		const rowNamed = (title: string) =>
+			panelList(page).getByTestId("artifact-row").filter({ hasText: title });
+		const reviewed = rowNamed("Reviewed plan");
+		const pending = rowNamed("Pending plan");
+		const plain = rowNamed("Plain plan");
+		await expect(reviewed).toContainText("Reviewed");
+		await expect(pending).toContainText("1 change to review");
+		await expect(plain).not.toContainText("Reviewed");
+
+		const boxes = async (locator: Locator) => {
+			const box = await locator.boundingBox();
+			expect(box, "laid out").not.toBeNull();
+			return box as NonNullable<typeof box>;
+		};
+
+		// No marker: the time is the end column's only in-flow child, so its
+		// centre is the row's centre and the end block reserves no pill width.
+		const plainBox = await boxes(plain);
+		const plainTimeBox = await boxes(plain.locator(".artifact-row-time"));
+		expect(
+			Math.abs(
+				plainTimeBox.y +
+					plainTimeBox.height / 2 -
+					(plainBox.y + plainBox.height / 2),
+			),
+			"without a review marker the time is centred in the row",
+		).toBeLessThanOrEqual(2);
+		await expect(plain.locator(".artifact-row-end")).toHaveClass(
+			/artifact-row-end-chevron/,
+		);
+		const plainEndBox = await boxes(plain.locator(".artifact-row-end"));
+		expect(
+			Math.abs(plainEndBox.width - plainTimeBox.width),
+			"the end block reserves nothing for an absent pill",
+		).toBeLessThanOrEqual(1);
+
+		// A review pill keeps the stack: the time sits above it and the row's
+		// height does not grow. (Spec W12 guarantees the no-marker centring and
+		// the unchanged stack, not an exact right-edge equality between the
+		// time and the pill — the two are aligned by the column, and any
+		// sub-pixel difference there is not what this row is about.)
+		const stackOf = async (row: Locator, pillSelector: string) => {
+			const timeBox = await boxes(row.locator(".artifact-row-time"));
+			const pillBox = await boxes(row.locator(pillSelector));
+			expect(
+				timeBox.y + timeBox.height,
+				"the time stays above the pill",
+			).toBeLessThanOrEqual(pillBox.y + 1);
+			return { rowBox: await boxes(row), timeBox, pillBox };
+		};
+		const reviewedStack = await stackOf(
+			reviewed,
+			".artifact-row-pill-reviewed",
+		);
+		const pendingStack = await stackOf(pending, ".artifact-row-pill");
+		await expect(reviewed.locator(".artifact-row-end")).not.toHaveClass(
+			/artifact-row-end-chevron/,
+		);
+		await expect(pending.locator(".artifact-row-end")).not.toHaveClass(
+			/artifact-row-end-chevron/,
+		);
+		for (const [name, stack] of [
+			["Reviewed", reviewedStack],
+			["pending", pendingStack],
+		] as const) {
+			expect(
+				Math.abs(stack.rowBox.height - plainBox.height),
+				`the ${name} row does not grow`,
+			).toBeLessThanOrEqual(1);
+		}
+	});
+});
 
 test.describe("the landing's project card says all of what it knows (F28)", () => {
 	for (const mode of [

@@ -1,6 +1,7 @@
 import { render } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import artifactsDict from "$lib/i18n/artifacts";
 import { APP_IFRAME_SANDBOX } from "$lib/server/services/artifacts/app/sandbox-response";
 import { uiLanguage } from "$lib/stores/settings";
 import AppFrame from "./AppFrame.svelte";
@@ -93,14 +94,16 @@ describe("AppFrame — the sandbox and the served route", () => {
 		expect(iframe.getAttribute("sandbox")).toBe(APP_IFRAME_SANDBOX);
 	});
 
-	// Wave 2.5 Step 13 (redesign §6.2): "the sandbox promise is a thin bar on
-	// the frame itself" — lives here, not in AppBody, since this is the one
-	// component that actually runs the app.
-	it("shows the sandbox promise bar above the frame", () => {
-		const { getByText } = render(AppFrame, { artifactId: "app-1", version: 1 });
-		expect(
-			getByText("Runs sandboxed · no internet · keeps your data"),
-		).toBeInTheDocument();
+	// W13 (UI wishes, 2026-11): the owner removed the sandbox promise row
+	// outright. The frame is the one place an App actually runs, so the row
+	// lived here; no caller may reconstruct it, and no space may be left for it.
+	it("draws no sandbox notice row above the frame", () => {
+		const { container, queryByText } = render(AppFrame, {
+			artifactId: "app-1",
+			version: 1,
+		});
+		expect(container.querySelector(".app-frame-sandbox-bar")).toBeNull();
+		expect(queryByText(/Runs sandboxed/)).toBeNull();
 	});
 
 	it("never carries allow-same-origin or any other sandbox token beyond scripts and forms", () => {
@@ -985,39 +988,35 @@ describe("AppFrame — previewing a stored version (History)", () => {
 		expect(iframe.getAttribute("sandbox")).not.toMatch(/allow-same-origin/);
 	});
 
-	// RV-V I-5: the live bar promises "keeps your data", and in a preview every write
-	// is refused (and History's own line says changes aren't saved), so the promise is
-	// false there. The preview's bar has its own words; the sandbox claims stay.
-	it("has a sandbox bar of its own that says read-only, and never promises to keep the reader's data", () => {
-		const { getByText, queryByText } = previewFrame();
-		expect(
-			getByText("Runs sandboxed · no internet · read-only"),
-		).toBeInTheDocument();
-		expect(queryByText(/keeps your data/)).toBeNull();
-	});
-
-	it("says the same in Hungarian", async () => {
-		uiLanguage.set("hu");
-		try {
-			const { getByText, queryByText } = previewFrame();
-			expect(
-				getByText("Homokozóban fut · nincs internet · csak olvasható"),
-			).toBeInTheDocument();
-			expect(queryByText(/megőrzi/)).toBeNull();
-		} finally {
-			uiLanguage.set("en");
+	// W13 (UI wishes, 2026-11): the preview's own chrome says it is read-only
+	// (History's "Runs sandboxed…" line lives in AppVersionPreview, not here),
+	// so the removed sandbox row is gone in the preview state too — never a
+	// read-only variant of it, and never an empty strip where it stood.
+	it("draws no sandbox notice row in a preview either", () => {
+		for (const previewVersionId of [null, "ver-1"]) {
+			const { container, queryByText, unmount } = render(AppFrame, {
+				artifactId: "app-1",
+				version: previewVersionId ? 0 : 1,
+				previewVersionId,
+			});
+			expect(container.querySelector(".app-frame-sandbox-bar")).toBeNull();
+			expect(queryByText(/Runs sandboxed/)).toBeNull();
+			expect(queryByText(/read-only/)).toBeNull();
+			// The frame keeps the stage it always had: removing the bar must not
+			// remove or reorder the box the iframe sits in.
+			expect(container.querySelector(".app-frame-stage iframe")).not.toBeNull();
+			unmount();
 		}
 	});
 
-	it("leaves the live App's bar as it was", () => {
-		const { getByText, queryByText } = render(AppFrame, {
-			artifactId: "app-1",
-			version: 1,
-		});
-		expect(
-			getByText("Runs sandboxed · no internet · keeps your data"),
-		).toBeInTheDocument();
-		expect(queryByText(/read-only/)).toBeNull();
+	it("keeps both removed strings out of both dictionaries", () => {
+		for (const key of [
+			"artifacts.app.sandboxBar",
+			"artifacts.app.sandboxBarPreview",
+		]) {
+			expect(artifactsDict.en).not.toHaveProperty(key);
+			expect(artifactsDict.hu).not.toHaveProperty(key);
+		}
 	});
 
 	it("encodes an id that is not a path segment's safe text", () => {

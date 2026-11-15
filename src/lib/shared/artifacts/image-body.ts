@@ -14,6 +14,14 @@
  */
 export const IMAGE_THUMB_LONG_EDGE = 320;
 
+/**
+ * The long edge of a picture's display copy (`?variant=display`), in pixels: a
+ * lossless WebP downscale the server makes at store time so a card at 800 CSS
+ * px on a DPR-2 screen (1600 device px) downloads this instead of the original
+ * PNG, while the panel and a deeper zoom still reach the full picture.
+ */
+export const IMAGE_DISPLAY_LONG_EDGE = 1600;
+
 /** Most takes a picture card shows at once; the server refuses Another beyond it, and the card's Another is off there. */
 export const MAX_VISIBLE_TAKES_PER_CARD = 8;
 
@@ -22,6 +30,17 @@ export function thumbWidth(width: number, height: number): number {
 	const longEdge = Math.max(width, height);
 	if (longEdge <= IMAGE_THUMB_LONG_EDGE) return width;
 	return Math.max(1, Math.round((width * IMAGE_THUMB_LONG_EDGE) / longEdge));
+}
+
+/**
+ * The width of a picture's display copy: never wider than the picture itself.
+ * A picture whose long edge is already within the display edge is its own
+ * display copy (the server writes no variant and serves the original).
+ */
+export function displayWidth(width: number, height: number): number {
+	const longEdge = Math.max(width, height);
+	if (longEdge <= IMAGE_DISPLAY_LONG_EDGE) return width;
+	return Math.max(1, Math.round((width * IMAGE_DISPLAY_LONG_EDGE) / longEdge));
 }
 
 export const MARK_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;

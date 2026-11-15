@@ -39,7 +39,7 @@ function take(over: Partial<ImageTakeView> = {}): ImageTakeView {
 		height: 832,
 		hasAlpha: false,
 		baseFileId: null,
-		sourceFileIds: [],
+		sourceFileIdsInPromptOrder: [],
 		retried: false,
 		errorCode: null,
 		retryable: false,

@@ -683,6 +683,87 @@ describe("ArtifactCard", () => {
 			expect(screen.getByText("2 changes to review")).toBeInTheDocument();
 		});
 
+		// W12 (UI wishes, 2026-11): the column stays as it was when a review
+		// pill is drawn (time above it). Only the no-marker case changes: the
+		// chevron that hangs under the time leaves the column's flow, so the
+		// time is its only in-flow child and the row centres it. jsdom renders
+		// no stylesheet, so the rule text and the element structure pin this
+		// here; artifact-panel-rows.spec.ts measures the real boxes.
+		it("keeps the time-above-pill stack, and centres the time only when no review marker is drawn", async () => {
+			const reviewed = render(ArtifactCard, {
+				view: view({ updatedAtLabel: "5 min ago", pendingReviewCount: 0 }),
+				chrome: "row",
+			});
+			let end = screen
+				.getByTestId("artifact-row")
+				.querySelector(".artifact-row-end") as HTMLElement;
+			let time = end.querySelector(".artifact-row-time");
+			let pill = end.querySelector(".artifact-row-pill-reviewed");
+			expect(time).not.toBeNull();
+			expect(pill).not.toBeNull();
+			expect(time?.nextElementSibling, "the time stays above Reviewed").toBe(
+				pill,
+			);
+			expect(end.classList.contains("artifact-row-end-chevron")).toBe(false);
+			reviewed.unmount();
+
+			const pending = render(ArtifactCard, {
+				view: view({ updatedAtLabel: "5 min ago", pendingReviewCount: 2 }),
+				chrome: "row",
+			});
+			end = screen
+				.getByTestId("artifact-row")
+				.querySelector(".artifact-row-end") as HTMLElement;
+			time = end.querySelector(".artifact-row-time");
+			pill = end.querySelector(".artifact-row-pill");
+			expect(time).not.toBeNull();
+			expect(pill).not.toBeNull();
+			expect(time?.nextElementSibling, "the time stays above pending").toBe(
+				pill,
+			);
+			expect(end.classList.contains("artifact-row-end-chevron")).toBe(false);
+			pending.unmount();
+
+			const plain = render(ArtifactCard, {
+				view: view({ updatedAtLabel: "5 min ago" }),
+				chrome: "row",
+			});
+			end = screen
+				.getByTestId("artifact-row")
+				.querySelector(".artifact-row-end") as HTMLElement;
+			expect(end.querySelector(".artifact-row-time")).not.toBeNull();
+			expect(end.querySelector(".artifact-row-chev")).not.toBeNull();
+			expect(end.querySelector(".artifact-row-pill-reviewed")).toBeNull();
+			expect(
+				end.querySelector(".artifact-row-pill"),
+				"no phantom pill slot when no review marker is drawn",
+			).toBeNull();
+			expect(
+				end.classList.contains("artifact-row-end-chevron"),
+				"the no-marker case takes the chevron out of the column's flow",
+			).toBe(true);
+			plain.unmount();
+
+			const here = path.dirname(fileURLToPath(import.meta.url));
+			const source = readFileSync(
+				path.join(here, "ArtifactCard.svelte"),
+				"utf-8",
+			);
+			const styleText = source.match(/<style>([\s\S]*)<\/style>/)?.[1] ?? "";
+			const endRule =
+				styleText.match(/\.artifact-row-end\s*\{([^}]*)\}/)?.[1] ?? "";
+			expect(endRule).toMatch(/flex-direction:\s*column/);
+			expect(endRule).toMatch(/align-items:\s*flex-end/);
+			expect(endRule).not.toMatch(/flex-direction:\s*row/);
+			const chevronRule =
+				styleText.match(
+					/\.artifact-row-end-chevron \.artifact-row-chev\s*\{([^}]*)\}/,
+				)?.[1] ?? "";
+			expect(chevronRule).toMatch(/position:\s*absolute/);
+			expect(chevronRule).toMatch(/top:\s*100%/);
+			expect(chevronRule).toMatch(/right:\s*0/);
+		});
+
 		it("never renders the tickable checklist inline (the row stays one line)", () => {
 			render(ArtifactCard, {
 				view: view({

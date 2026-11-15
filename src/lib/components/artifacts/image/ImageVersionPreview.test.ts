@@ -50,6 +50,12 @@ const stored: Record<string, string> = {
 	}),
 	v3: body({ fileId: "file-3", baseFileId: "file-2" }),
 	vAlpha: body({ fileId: "file-a", baseFileId: "file-1", hasAlpha: true }),
+	vTall: body({
+		fileId: "file-tall",
+		baseFileId: null,
+		width: 2592,
+		height: 4608,
+	}),
 };
 
 let rerenderPreview: (props: Record<string, unknown>) => Promise<void> =
@@ -295,6 +301,20 @@ describe("ImageVersionPreview", () => {
 		await screen.findByTestId("image-version-picture");
 		expect(screen.queryByTestId("compare-wipe")).toBeNull();
 		expect(screen.queryByRole("slider")).toBeNull();
+	});
+
+	it("offers the display copy at the preview's own box, so a tall picture is not the master", async () => {
+		renderPreview({ versionId: "vTall", baseVersionId: null });
+		await screen.findByTestId("image-version-picture");
+		const img = screen
+			.getByTestId("image-version-picture")
+			.querySelector("img");
+		expect(img).not.toBeNull();
+		// History's picture box measures 372 CSS px at 1280x900 for a 9:16
+		// picture, and 92vw under 768. The old default 560 px made a DPR-2
+		// desktop ask for 1120 device px and take the master.
+		expect(img?.getAttribute("sizes")).toBe("(max-width: 767px) 92vw, 400px");
+		expect(img?.getAttribute("srcset")).toContain("variant=display");
 	});
 
 	it("compared with now, wipes against the newest version's picture", async () => {

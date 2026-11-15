@@ -1,9 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import { db } from "../../src/lib/server/db";
-import { memoryProfileItems, users } from "../../src/lib/server/db/schema";
+import {
+	imageCards,
+	memoryProfileItems,
+	messages,
+	users,
+} from "../../src/lib/server/db/schema";
 import { createMemoryProfileItem } from "../../src/lib/server/services/memory-profile/projection-store";
 import {
 	AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
@@ -29,6 +35,7 @@ import {
 	attachPhoto,
 	type FakeComfyUi,
 	graphNodeByClass,
+	largePng,
 	randomPng,
 	releaseSpecChatModel,
 	type SpecChatModel,
@@ -112,6 +119,195 @@ async function waitForSettledCard(
 		)
 		.toBe("settled");
 	return (await readDetail(page, conversationId)).imageCards[0];
+}
+
+/**
+ * W14: a settled card made from two pictures, seeded through the app's own
+ * services (the fake model only ever scripts one-picture calls). The take's
+ * request names the base first and the reference second, as `make_image`'s
+ * `<image1>` / `<image2>` do.
+ */
+async function seedMadeFromTwoPictures(
+	conversationId: string,
+): Promise<{ baseFileId: string; referenceFileId: string }> {
+	const { storeImageFile } = await import(
+		"../../src/lib/server/services/images/files"
+	);
+	const { createCard } = await import(
+		"../../src/lib/server/services/images/cards"
+	);
+	const { insertTake, takeRequest } = await import(
+		"../../src/lib/server/services/images/testing/takes"
+	);
+	const [user] = await db
+		.select({ id: users.id })
+		.from(users)
+		.where(eq(users.email, TEST_EMAIL))
+		.limit(1);
+	if (!user) throw new Error("the e2e admin must exist");
+	const store = async (role: "input" | "take") =>
+		storeImageFile({
+			userId: user.id,
+			conversationId,
+			role,
+			png: new Uint8Array((await randomPng()).buffer),
+		});
+	const base = await store("input");
+	const reference = await store("input");
+	const result = await store("take");
+	const messageId = randomUUID();
+	const { cardId } = await createCard({
+		userId: user.id,
+		conversationId,
+		turnId: messageId,
+		artifactId: null,
+		title: "Cosy room",
+		madeFrom: "pictures",
+		sourceCount: 2,
+	});
+	const takeId = await insertTake({
+		userId: user.id,
+		conversationId,
+		cardId,
+		resultFileId: result.id,
+		request: takeRequest({
+			mode: "edit",
+			inputs: [
+				{ fileId: base.id, role: "base", name: "room.png" },
+				{ fileId: reference.id, role: "reference", name: "sofa.png" },
+			],
+		}),
+	});
+	await db
+		.update(imageCards)
+		.set({ pickedTakeId: takeId })
+		.where(eq(imageCards.id, cardId));
+	await db.insert(messages).values([
+		{
+			id: randomUUID(),
+			conversationId,
+			messageSequence: 1,
+			role: "user",
+			content: "Put the sofa from the second picture into the first room.",
+		},
+		{
+			id: messageId,
+			conversationId,
+			messageSequence: 2,
+			role: "assistant",
+			content: "Here it is, made from both pictures.",
+			toolCalls: JSON.stringify([
+				{
+					type: "tool_call",
+					callId: `call-made-from-${cardId}`,
+					name: "make_image",
+					input: { prompt: "The room with the sofa in it", title: "Cosy room" },
+					status: "done",
+					metadata: {
+						ok: true,
+						imageStatus: "succeeded",
+						imageCardId: cardId,
+						imageTakeId: takeId,
+						imageTitle: "Cosy room",
+					},
+				},
+			]),
+		},
+	]);
+	return { baseFileId: base.id, referenceFileId: reference.id };
+}
+
+/**
+ * A settled card whose picture really is 2592x4608, seeded through the app's
+ * services: the fake render can return a portrait PNG while the requested
+ * canvas (the card's reserved box) stays landscape, which is not a production
+ * shape. Here the canvas and the file agree, as a real tall request does.
+ */
+async function seedTallPicture(
+	conversationId: string,
+): Promise<{ fileId: string }> {
+	const { storeImageFile } = await import(
+		"../../src/lib/server/services/images/files"
+	);
+	const { createCard } = await import(
+		"../../src/lib/server/services/images/cards"
+	);
+	const { insertTake, takeRequest } = await import(
+		"../../src/lib/server/services/images/testing/takes"
+	);
+	const [user] = await db
+		.select({ id: users.id })
+		.from(users)
+		.where(eq(users.email, TEST_EMAIL))
+		.limit(1);
+	if (!user) throw new Error("the e2e admin must exist");
+	const file = await storeImageFile({
+		userId: user.id,
+		conversationId,
+		role: "take",
+		png: await largePng(2592, 4608),
+	});
+	const messageId = randomUUID();
+	const { cardId } = await createCard({
+		userId: user.id,
+		conversationId,
+		turnId: messageId,
+		artifactId: null,
+		title: "Tall portrait",
+		madeFrom: "words",
+		sourceCount: 0,
+	});
+	const takeId = await insertTake({
+		userId: user.id,
+		conversationId,
+		cardId,
+		resultFileId: file.id,
+		request: takeRequest({
+			mode: "generate",
+			canvas: { width: 2592, height: 4608 },
+			title: "Tall portrait",
+		}),
+	});
+	await db
+		.update(imageCards)
+		.set({ pickedTakeId: takeId })
+		.where(eq(imageCards.id, cardId));
+	await db.insert(messages).values([
+		{
+			id: randomUUID(),
+			conversationId,
+			messageSequence: 1,
+			role: "user",
+			content: "Make me a tall picture for my phone.",
+		},
+		{
+			id: messageId,
+			conversationId,
+			messageSequence: 2,
+			role: "assistant",
+			content: "Here is the tall picture.",
+			toolCalls: JSON.stringify([
+				{
+					type: "tool_call",
+					callId: `call-tall-${cardId}`,
+					name: "make_image",
+					input: {
+						prompt: "A tall picture for my phone",
+						title: "Tall portrait",
+					},
+					status: "done",
+					metadata: {
+						ok: true,
+						imageStatus: "succeeded",
+						imageCardId: cardId,
+						imageTakeId: takeId,
+						imageTitle: "Tall portrait",
+					},
+				},
+			]),
+		},
+	]);
+	return { fileId: file.id };
 }
 
 test.use({
@@ -474,6 +670,8 @@ test.describe("Pictures end to end", () => {
 
 		const card = page.locator(CARD).last();
 		await expect(card).toContainText("Image · from your photo");
+		// W14: one picture is no source row.
+		await expect(card.getByTestId("image-card-made-from")).toHaveCount(0);
 
 		// Before / After flips the card's picture between the photo and the change.
 		const picture = card.getByTestId("image-picture");
@@ -493,6 +691,32 @@ test.describe("Pictures end to end", () => {
 		await expect(frames.first()).toBeVisible({ timeout: 20_000 });
 		await expect(frames.first()).toHaveAttribute("aria-label", /Your photo$/);
 		await expect(frames).toHaveCount(2);
+	});
+
+	// W14: a result made from N pictures draws N thumbnails, numbered the way
+	// the prompt named them (`<image1>` is the base, `<image2>` the reference).
+	test("a card made from two pictures draws both of them, numbered in the prompt's order", async ({
+		page,
+	}) => {
+		videoName = "made-from-two-pictures";
+		const conversationId = await openChat(page);
+		const { baseFileId, referenceFileId } =
+			await seedMadeFromTwoPictures(conversationId);
+		await page.reload({ waitUntil: "domcontentloaded" });
+
+		const row = page.locator(CARD).last().getByTestId("image-card-made-from");
+		await expect(row).toBeVisible({ timeout: 20_000 });
+		await expect(row).toContainText("Made from");
+		// Two, not one: the base used to be dropped from the row.
+		await expect(row.locator("img")).toHaveCount(2);
+		await expect(row.locator(".image-card-number")).toHaveText(["1", "2"]);
+		const sources = await row
+			.locator("img")
+			.evaluateAll((images) =>
+				images.map((image) => image.getAttribute("src") ?? ""),
+			);
+		expect(sources[0]).toContain(baseFileId);
+		expect(sources[1]).toContain(referenceFileId);
 	});
 
 	test("History compares and restores", async ({ page }) => {
@@ -737,6 +961,190 @@ test.describe("Pictures end to end", () => {
 					);
 			});
 			expect(overflowing, "what is wider than its box at 360 px").toEqual([]);
+		});
+	});
+
+	test.describe("a DPR-2 desktop and a tall picture", () => {
+		test.use({
+			viewport: { width: 1280, height: 900 },
+			deviceScaleFactor: 2,
+		});
+
+		test("requests the display copy of a portrait picture, not the master", async ({
+			page,
+		}) => {
+			videoName = "desktop-portrait-display-copy";
+			// A production portrait whose reserved box is the same shape as its
+			// file: the display copy is 900 px wide, below the 560 * 2 device px
+			// the old default `sizes` asked for.
+			const conversationId = await openChat(page);
+			await seedTallPicture(conversationId);
+			const pictureRequests: string[] = [];
+			page.on("request", (request) => {
+				if (
+					request.resourceType() === "image" &&
+					request.url().includes("/api/images/files/")
+				) {
+					pictureRequests.push(request.url());
+				}
+			});
+			await page.reload({ waitUntil: "domcontentloaded" });
+			await expect(page.locator(LOADED).last()).toBeVisible({
+				timeout: 20_000,
+			});
+
+			const picture = page
+				.locator(
+					`${CARD} [data-testid="image-card-stage"] [data-testid="image-picture-after"]`,
+				)
+				.last();
+			await expect(picture).toBeVisible();
+			// The browser chose the display candidate, not the full PNG.
+			expect(pictureRequests, "the card asked for the display copy").toEqual(
+				expect.arrayContaining([expect.stringContaining("variant=display")]),
+			);
+			// A request with no variant is the full PNG: the card must not make one.
+			expect(
+				pictureRequests.filter((url) => !/[?&]variant=/.test(url)),
+				"no request for the full PNG",
+			).toEqual([]);
+			await expect
+				.poll(() =>
+					picture.evaluate((node) => (node as HTMLImageElement).currentSrc),
+				)
+				.toContain("variant=display");
+			const srcset = (await picture.getAttribute("srcset")) ?? "";
+			expect(srcset).toMatch(/variant=display[^,]* 900w/);
+			// The card names its real box, so the browser does not ask for
+			// 1120 device px and fall back to the full 2816 px PNG.
+			expect(await picture.getAttribute("sizes")).toBe(
+				"(max-width: 767px) min(92vw, 198px), 198px",
+			);
+		});
+	});
+
+	test.describe("a DPR-3 phone and a tall picture", () => {
+		test.use({
+			viewport: { width: 390, height: 844 },
+			deviceScaleFactor: 3,
+			hasTouch: true,
+			isMobile: true,
+		});
+
+		test("requests the display copy of a tall picture, not the master", async ({
+			page,
+		}) => {
+			videoName = "phone3-portrait-display-copy";
+			// The stage is about 198 CSS px wide for this portrait, so DPR 3
+			// needs ~594 device px: the old 92vw sizes asked for ~1098 and the
+			// 900w display copy lost to the 2592w master.
+			const conversationId = await openChat(page);
+			await seedTallPicture(conversationId);
+			const pictureRequests: string[] = [];
+			page.on("request", (request) => {
+				if (
+					request.resourceType() === "image" &&
+					request.url().includes("/api/images/files/")
+				) {
+					pictureRequests.push(request.url());
+				}
+			});
+			await page.reload({ waitUntil: "domcontentloaded" });
+			await expect(page.locator(LOADED).last()).toBeVisible({
+				timeout: 20_000,
+			});
+
+			const picture = page
+				.locator(
+					`${CARD} [data-testid="image-card-stage"] [data-testid="image-picture-after"]`,
+				)
+				.last();
+			await expect(picture).toBeVisible();
+			expect(pictureRequests, "the card asked for the display copy").toEqual(
+				expect.arrayContaining([expect.stringContaining("variant=display")]),
+			);
+			expect(
+				pictureRequests.filter((url) => !/[?&]variant=/.test(url)),
+				"no request for the full PNG",
+			).toEqual([]);
+			await expect
+				.poll(() =>
+					picture.evaluate((node) => (node as HTMLImageElement).currentSrc),
+				)
+				.toContain("variant=display");
+			const srcset = (await picture.getAttribute("srcset")) ?? "";
+			expect(srcset).toMatch(/variant=display[^,]* 900w/);
+			// min() in `sizes` is honoured: 92vw would ask for ~1098, min() names
+			// the 198 px stage.
+			expect(await picture.getAttribute("sizes")).toBe(
+				"(max-width: 767px) min(92vw, 198px), 198px",
+			);
+		});
+	});
+
+	test.describe("a DPR-2 phone and a large picture", () => {
+		test.use({
+			viewport: { width: 390, height: 844 },
+			deviceScaleFactor: 2,
+			hasTouch: true,
+			isMobile: true,
+		});
+
+		test("requests the 1600 px display copy, not the full PNG", async ({
+			page,
+		}) => {
+			videoName = "phone-display-copy";
+			const comfy = fake as FakeComfyUi;
+			comfy.setOptions({
+				steps: 3,
+				stepDelayMs: 100,
+				render: () => largePng(2048),
+			});
+			const conversationId = await openChat(page);
+			const pictureRequests: string[] = [];
+			page.on("request", (request) => {
+				if (
+					request.resourceType() === "image" &&
+					request.url().includes("/api/images/files/")
+				) {
+					pictureRequests.push(request.url());
+				}
+			});
+			await makePicture(page);
+			await waitForSettledCard(page, conversationId, 1);
+
+			const picture = page
+				.locator(
+					`${CARD} [data-testid="image-card-stage"] [data-testid="image-picture-after"]`,
+				)
+				.last();
+			await expect(picture).toBeVisible();
+			// The browser chose the display candidate, not the full PNG.
+			await expect
+				.poll(() =>
+					picture.evaluate((node) => (node as HTMLImageElement).currentSrc),
+				)
+				.toContain("variant=display");
+			// `naturalWidth` is density-corrected for `w` descriptors (it reports
+			// the `sizes` width, not the file's pixels), so the descriptor and the
+			// request are what say which copy arrived.
+			const srcset = (await picture.getAttribute("srcset")) ?? "";
+			expect(srcset).toContain("variant=display");
+			expect(srcset).toMatch(/variant=display[^,]* 1600w/);
+			expect(
+				await picture.evaluate(
+					(node) => (node as HTMLImageElement).naturalWidth,
+				),
+			).toBeGreaterThan(0);
+			expect(
+				pictureRequests.some((url) => /[?&]variant=display/.test(url)),
+				"the card asked for the display copy",
+			).toBe(true);
+			// A request with no variant is the full PNG: the card must not make one.
+			expect(
+				pictureRequests.filter((url) => !/[?&]variant=/.test(url)),
+				"no request for the full PNG",
+			).toEqual([]);
 		});
 	});
 });

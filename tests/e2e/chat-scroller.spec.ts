@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
+import { MESSAGE_JUMP_GAP_PX } from "../../src/lib/components/chat/message-jump-offset";
 import { db } from "../../src/lib/server/db";
 import { messages } from "../../src/lib/server/db/schema";
 import { createEmptyConversation, expectTopmost, login } from "./helpers";
@@ -136,6 +137,35 @@ test.describe("Chat Scroller", () => {
 		await expect(
 			page.locator(`[data-message-id="${assistantIds[2]}"]`),
 		).toBeInViewport({ timeout: 10_000 });
+		// W2 — the jump lands on the message's first line at the top of the
+		// reading area (a small fixed gap under it), never in the middle of a
+		// long reply.
+		await expect
+			.poll(
+				async () =>
+					page.evaluate(
+						({ messageId, gap }) => {
+							const scroller =
+								document.querySelector<HTMLElement>(".scroll-container");
+							const target = document.querySelector<HTMLElement>(
+								`[data-message-id="${CSS.escape(messageId)}"]`,
+							);
+							if (!scroller || !target)
+								throw new Error("the jumped-to message is not on screen");
+							return Math.abs(
+								target.getBoundingClientRect().top -
+									(scroller.getBoundingClientRect().top + gap),
+							);
+						},
+						{ messageId: assistantIds[2], gap: MESSAGE_JUMP_GAP_PX },
+					),
+				{
+					message:
+						"the jumped-to message's first line must sit at the reading area's top",
+					timeout: 10_000,
+				},
+			)
+			.toBeLessThanOrEqual(2);
 	});
 
 	test("a narrow window: the number opens a centred panel at the current row, not at the first", async ({
@@ -170,7 +200,7 @@ test.describe("Chat Scroller", () => {
 		test("no capsule at the bottom; it appears after scrolling up, and its number opens a sheet above the composer", async ({
 			page,
 		}) => {
-			const { conversationId } = await seedThirtyTurns(page);
+			const { conversationId, assistantIds } = await seedThirtyTurns(page);
 			await open(page, conversationId);
 
 			// At the bottom there is nothing: neither a ruler nor a capsule.
@@ -210,9 +240,38 @@ test.describe("Chat Scroller", () => {
 				sheet.locator('[data-testid="jump-rail-row"][aria-current="true"]'),
 			).toBeInViewport();
 
-			// A row jumps and closes it.
-			await sheet.getByTestId("jump-rail-row").nth(0).tap();
+			// A row jumps and closes it. A middle row, so the message can reach
+			// the reading area's top rather than being clamped at the list's end.
+			await sheet.getByTestId("jump-rail-row").nth(5).tap();
 			await expect(sheet).toBeHidden();
+			// W2 on a phone: the jump lands on the message's first line at the
+			// top of the reading area, never in the middle of the reply.
+			await expect
+				.poll(
+					async () =>
+						page.evaluate(
+							({ messageId, gap }) => {
+								const scroller =
+									document.querySelector<HTMLElement>(".scroll-container");
+								const target = document.querySelector<HTMLElement>(
+									`[data-message-id="${CSS.escape(messageId)}"]`,
+								);
+								if (!scroller || !target)
+									throw new Error("the jumped-to message is not on screen");
+								return Math.abs(
+									target.getBoundingClientRect().top -
+										(scroller.getBoundingClientRect().top + gap),
+								);
+							},
+							{ messageId: assistantIds[5], gap: MESSAGE_JUMP_GAP_PX },
+						),
+					{
+						message:
+							"the jumped-to message's first line must sit at the reading area's top",
+						timeout: 10_000,
+					},
+				)
+				.toBeLessThanOrEqual(2);
 		});
 
 		test("the chevron goes back to the latest message and the capsule leaves", async ({

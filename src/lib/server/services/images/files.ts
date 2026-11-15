@@ -4,7 +4,14 @@
 // `images/`; this file must not import the artifacts facade (no import cycle),
 // so the one thing it needs from an item, its title, is a plain select.
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	readFile,
+	rename,
+	rm,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import sharp from "sharp";
@@ -14,6 +21,7 @@ import { getArtifactOwnershipScope } from "$lib/server/services/knowledge/owners
 import { resolveDeletablePath } from "$lib/server/storage-containment";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import {
+	IMAGE_DISPLAY_LONG_EDGE,
 	IMAGE_THUMB_LONG_EDGE,
 	type ImageVersionBody,
 	parseImageVersionBody,
@@ -37,9 +45,11 @@ export type ImageFile = {
 	createdAt: number;
 };
 
-export { IMAGE_THUMB_LONG_EDGE };
+export { IMAGE_DISPLAY_LONG_EDGE, IMAGE_THUMB_LONG_EDGE };
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const RIFF_SIGNATURE = [0x52, 0x49, 0x46, 0x46]; // "RIFF"
+const WEBP_SIGNATURE = [0x57, 0x45, 0x42, 0x50]; // "WEBP"
 const IMAGE_FILES_DIR = join("data", "image-files");
 
 type Row = typeof imageFiles.$inferSelect;
@@ -61,6 +71,39 @@ function toImageFile(row: Row): ImageFile {
 
 function thumbPathOf(storagePath: string): string {
 	return storagePath.replace(/\.png$/, ".thumb.png");
+}
+
+/** The display copy's path: derived from `storage_path` like the thumbnail, so the DB stores nothing new. */
+function displayPathOf(storagePath: string): string {
+	return storagePath.replace(/\.png$/, ".display.webp");
+}
+
+/**
+ * Whether a picture gets a display copy at all: one whose long edge is already
+ * within `IMAGE_DISPLAY_LONG_EDGE` is its own display copy (the original is
+ * served, so "visibly identical" is trivially true).
+ */
+function hasDisplayCopy(file: Pick<ImageFile, "width" | "height">): boolean {
+	return Math.max(file.width, file.height) > IMAGE_DISPLAY_LONG_EDGE;
+}
+
+/** The display copy of a picture: a lossless WebP fit inside `IMAGE_DISPLAY_LONG_EDGE`, alpha kept. */
+async function makeDisplayCopy(png: Uint8Array): Promise<Uint8Array> {
+	return new Uint8Array(
+		await sharp(png)
+			.resize({
+				width: IMAGE_DISPLAY_LONG_EDGE,
+				height: IMAGE_DISPLAY_LONG_EDGE,
+				fit: "inside",
+				withoutEnlargement: true,
+			})
+			// Lossless: the display copy must be the original's own pixels at a
+			// smaller edge, not a second generation of them. Alpha is kept (sharp
+			// zeroes the RGB under a fully transparent pixel before encoding, which
+			// is invisible and changes nothing on screen).
+			.webp({ lossless: true, exact: true })
+			.toBuffer(),
+	);
 }
 
 /** Removes files by relative path; a missing file or a path outside the roots is skipped. */
@@ -102,6 +145,51 @@ function hasPngSignature(bytes: Uint8Array): boolean {
 	return PNG_SIGNATURE.every((byte, index) => bytes[index] === byte);
 }
 
+function hasSignature(
+	bytes: Uint8Array,
+	offset: number,
+	signature: readonly number[],
+): boolean {
+	return signature.every((byte, index) => bytes[offset + index] === byte);
+}
+
+/**
+ * Whether a display copy is whole: a non-empty WebP, and its RIFF chunk length
+ * agrees with the bytes on disk. The signature alone would pass a write cut
+ * after its first twelve bytes, which is exactly how a truncated copy reads;
+ * the length field catches it.
+ */
+function isWholeDisplayCopy(bytes: Uint8Array): boolean {
+	if (bytes.byteLength < 12) return false;
+	if (!hasSignature(bytes, 0, RIFF_SIGNATURE)) return false;
+	if (!hasSignature(bytes, 8, WEBP_SIGNATURE)) return false;
+	const riffLength = new DataView(
+		bytes.buffer,
+		bytes.byteOffset,
+		bytes.byteLength,
+	).getUint32(4, true);
+	return bytes.byteLength >= riffLength + 8;
+}
+
+/**
+ * Writes beside the target and renames it into place, so no request can read a
+ * half-written display copy: a temporary name in the same directory is the
+ * cheapest atomicity the filesystem gives us.
+ */
+async function writeAtomically(
+	absolute: string,
+	bytes: Uint8Array,
+): Promise<void> {
+	const temporary = `${absolute}.${randomUUID()}.tmp`;
+	try {
+		await writeFile(temporary, bytes);
+		await rename(temporary, absolute);
+	} catch (error) {
+		await rm(temporary, { force: true }).catch(() => undefined);
+		throw error;
+	}
+}
+
 export async function storeImageFile(params: {
 	userId: string;
 	conversationId: string;
@@ -140,6 +228,21 @@ export async function storeImageFile(params: {
 		})
 		.png()
 		.toBuffer();
+	// The card's display copy (lossless, alpha kept): written beside the PNG so
+	// a card that is wider than the thumbnail never downloads the original. A
+	// copy that cannot be made costs the optimisation, never the store: the
+	// original is always the display of last resort.
+	let display: Uint8Array | null = null;
+	if (Math.max(meta.width, meta.height) > IMAGE_DISPLAY_LONG_EDGE) {
+		try {
+			display = await makeDisplayCopy(png);
+		} catch (error) {
+			console.warn(
+				"[IMAGES] Could not make the display copy; storing the picture without one",
+				error,
+			);
+		}
+	}
 
 	// Any chat of the person's, incognito included: a picture made in an
 	// incognito chat is stored like any other (the read rule is `getImageFile`'s).
@@ -153,11 +256,14 @@ export async function storeImageFile(params: {
 	const id = randomUUID();
 	const storagePath = join(IMAGE_FILES_DIR, params.conversationId, `${id}.png`);
 	const thumbPath = thumbPathOf(storagePath);
+	const displayPath = displayPathOf(storagePath);
 	const absolute = join(process.cwd(), storagePath);
 	await mkdir(dirname(absolute), { recursive: true });
 	try {
 		await writeFile(absolute, png);
 		await writeFile(join(process.cwd(), thumbPath), thumb);
+		if (display)
+			await writeAtomically(join(process.cwd(), displayPath), display);
 		const [row] = await db
 			.insert(imageFiles)
 			.values({
@@ -176,7 +282,7 @@ export async function storeImageFile(params: {
 		if (!row) throw new Error("The picture row was not written.");
 		return toImageFile(row);
 	} catch (error) {
-		await removeFiles([storagePath, thumbPath]);
+		await removeFiles([storagePath, thumbPath, displayPath]);
 		throw error;
 	}
 }
@@ -230,6 +336,63 @@ export async function readImageFileBytes(
 }
 
 /**
+ * One in-flight display copy per picture: two requests for the same file (a
+ * card and its strip, two tabs) share one generation instead of racing to
+ * write the same bytes.
+ */
+const displayCopiesInFlight = new Map<string, Promise<Uint8Array>>();
+
+/**
+ * The display copy's bytes, or `null` when the picture is its own display copy
+ * (its long edge is within `IMAGE_DISPLAY_LONG_EDGE`; the original is served).
+ *
+ * The copy is written at store time. A picture stored before display copies
+ * existed has none: it is made from the full PNG on this first request,
+ * persisted, and served like any other. A copy that is not a whole WebP (a
+ * truncated write, a damaged file) is removed and made again once; if making
+ * it fails, the caller falls back to the original. Every caller of one file
+ * shares one promise, so a concurrent second request waits on the same
+ * generation.
+ */
+export async function readImageDisplayBytes(
+	file: ImageFile,
+): Promise<Uint8Array | null> {
+	if (!hasDisplayCopy(file)) return null;
+	const pending = displayCopiesInFlight.get(file.id);
+	if (pending) return pending;
+	const task = (async () => {
+		const storagePath = await storagePathOf(file.id);
+		const absolute = await resolveDeletablePath(displayPathOf(storagePath));
+		if (!absolute) {
+			throw new Error("Picture file is outside the storage roots.");
+		}
+		const existing = await readFile(absolute).catch(() => null);
+		if (existing && isWholeDisplayCopy(existing)) {
+			return new Uint8Array(existing);
+		}
+		if (existing) {
+			// Not whole: it would be served as a WebP forever. Remove it and make
+			// the copy again from the full PNG, once.
+			await unlink(absolute).catch(() => undefined);
+		}
+		const source = await resolveDeletablePath(storagePath);
+		if (!source) {
+			throw new Error("Picture file is outside the storage roots.");
+		}
+		const bytes = await makeDisplayCopy(new Uint8Array(await readFile(source)));
+		if (!isWholeDisplayCopy(bytes)) {
+			throw new Error("The display copy is not a whole WebP.");
+		}
+		await writeAtomically(absolute, bytes);
+		return bytes;
+	})().finally(() => {
+		displayCopiesInFlight.delete(file.id);
+	});
+	displayCopiesInFlight.set(file.id, task);
+	return task;
+}
+
+/**
  * Makes pictures an Image item's own, so its delete takes them along. It claims
  * only files of the item's own person and chat that no item owns yet (or that
  * are already this item's): a picture another item made, even one this item was
@@ -274,7 +437,11 @@ async function takeRows(rows: Row[]): Promise<number> {
 		),
 	);
 	await removeFiles(
-		rows.flatMap((row) => [row.storagePath, thumbPathOf(row.storagePath)]),
+		rows.flatMap((row) => [
+			row.storagePath,
+			thumbPathOf(row.storagePath),
+			displayPathOf(row.storagePath),
+		]),
 	);
 	return rows.length;
 }
@@ -294,7 +461,11 @@ export async function discardStoredImageFile(
 		file.conversationId,
 		`${file.id}.png`,
 	);
-	await removeFiles([storagePath, thumbPathOf(storagePath)]);
+	await removeFiles([
+		storagePath,
+		thumbPathOf(storagePath),
+		displayPathOf(storagePath),
+	]);
 }
 
 export async function deleteImageFilesForConversation(

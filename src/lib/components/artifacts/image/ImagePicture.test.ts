@@ -44,6 +44,27 @@ describe("ImagePicture", () => {
 		expect(img.getAttribute("sizes")).toBeNull();
 	});
 
+	it("starts from the display copy for a box that can load before it is laid out", () => {
+		render(ImagePicture, {
+			fileId: "file-big",
+			width: 2048,
+			height: 2048,
+			alt: "History",
+			conversationId: "conv-1",
+			variant: "display",
+			sizes: "(max-width: 767px) 92vw, 400px",
+		});
+		const img = screen.getByRole("img", { name: "History" });
+		// The fallback is the display copy, never the master; the browser still
+		// chooses by the box's width when it can.
+		expect(img.getAttribute("src")).toContain("variant=display");
+		const srcset = img.getAttribute("srcset") ?? "";
+		expect(srcset).toContain("variant=display");
+		expect(srcset).toContain(" 1600w");
+		// History never offers the master: its box cannot use it.
+		expect(srcset).not.toContain(" 2048w");
+	});
+
 	it("offers the thumbnail and the full picture by width, and only the thumbnail for a thumb", () => {
 		render(ImagePicture, {
 			fileId: "file-7",
@@ -66,6 +87,43 @@ describe("ImagePicture", () => {
 		const thumb = screen.getByRole("img", { name: "Thumb" });
 		expect(thumb.getAttribute("src")).toContain("variant=thumb");
 		expect(thumb.hasAttribute("srcset")).toBe(false);
+	});
+
+	it("puts the 1600 px display copy between the thumbnail and the original, so a DPR-2 card takes it", () => {
+		render(ImagePicture, {
+			fileId: "file-big",
+			width: 2048,
+			height: 2048,
+			alt: "Big",
+			conversationId: "conv-1",
+		});
+		const srcset = screen.getByRole("img").getAttribute("srcset") ?? "";
+		const candidates = srcset.split(", ");
+		expect(candidates).toHaveLength(3);
+		expect(candidates[0]).toContain("variant=thumb");
+		expect(candidates[0]).toMatch(/ 320w$/);
+		expect(candidates[1]).toContain("variant=display");
+		expect(candidates[1]).toMatch(/ 1600w$/);
+		expect(candidates[1]).toContain("conversationId=conv-1");
+		expect(candidates[2]).not.toContain("variant=");
+		expect(candidates[2]).toMatch(/ 2048w$/);
+	});
+
+	it("keeps two candidates for a picture within the display edge, whose original is its display copy", () => {
+		render(ImagePicture, {
+			fileId: "file-small",
+			width: 1600,
+			height: 1200,
+			alt: "Small",
+		});
+		const candidates = (
+			screen.getByRole("img").getAttribute("srcset") ?? ""
+		).split(", ");
+		expect(candidates).toHaveLength(2);
+		expect(
+			candidates.some((candidate) => candidate.includes("variant=display")),
+		).toBe(false);
+		expect(candidates[1]).toMatch(/ 1600w$/);
 	});
 
 	it("fades the picture in once it has loaded", async () => {

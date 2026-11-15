@@ -7,13 +7,15 @@ import { runItemTurn, setLanguage } from "./chat-item-turn-helpers";
 // Document turn. A failed call printed its raw parameters and an English error,
 // expanded, in a row named "Eszköz <uuid>" (with a green tick: the call had
 // "finished"). It names what it tried now, in the reader's language, red, folded,
-// with the model's own words behind a quiet "Részletek" and never the parameters.
+// and opens on the reason itself; a raw copy waits behind a quiet "Részletek",
+// and the parameters never appear.
 //
 // The model is scripted to make a Document, read it, and fail one edit and stop.
 // Driven the way a reader does it (type, press Send, press the row), in Hungarian.
 
 const RAW_PARAMETERS = [/artifactId/, /patches/, /\[object Object\]/];
-// What opening the details may show: the model's own sentence, which names `patches`.
+// What the opened account may show: the model's own sentence, which names
+// `patches`, but never the call's parameters.
 const RAW_PARAMETER_LINES = [
 	/paraméterek/i,
 	/artifactId/,
@@ -66,13 +68,24 @@ test.describe("a failed edit in a turn that makes a Document", () => {
 			for (const raw of RAW_PARAMETERS) expect(text).not.toMatch(raw);
 			expect(text).not.toMatch(ENGLISH_REFUSAL);
 
-			// Behind a quiet "Részletek": the reason, never the parameters.
+			// The account itself says why, without a second press; the raw copy
+			// still waits in Details, and the parameters never appear.
 			await expect(failed).toContainText("Részletek");
 			await failed.click();
 			await expect(failed).toHaveAttribute("aria-expanded", "true");
+			const summary = turn.deliverables.getByTestId(
+				"tool-activity-summary-text",
+			);
+			await expect(summary).toContainText(
+				`Nem sikerült szerkeszteni: „${AI_SMOKE_ITEM_TURN_TITLE}”`,
+			);
+			await expect(summary).toContainText("Nem sikerült befejezni.");
 			await expect(
-				turn.deliverables.getByTestId("tool-activity-error"),
+				turn.deliverables.getByTestId("tool-activity-summary-reason"),
 			).toContainText(ENGLISH_REFUSAL);
+			const details = turn.deliverables.getByTestId("tool-activity-details");
+			await expect(details).not.toHaveAttribute("open", "");
+			await expect(details).toContainText(ENGLISH_REFUSAL);
 			const opened = (await turn.reply.innerText()) ?? "";
 			for (const raw of RAW_PARAMETER_LINES) expect(opened).not.toMatch(raw);
 			await failed.click();

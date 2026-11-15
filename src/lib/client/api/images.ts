@@ -4,13 +4,15 @@ import { type FetchLike, requestJson, requestVoid } from "./http";
 export function imageFileUrl(
 	fileId: string,
 	options: {
-		variant?: "full" | "thumb";
+		variant?: "full" | "thumb" | "display";
 		download?: boolean;
 		conversationId?: string | null;
 	} = {},
 ): string {
 	const query = new URLSearchParams();
-	if (options.variant === "thumb") query.set("variant", "thumb");
+	if (options.variant === "thumb" || options.variant === "display") {
+		query.set("variant", options.variant);
+	}
 	if (options.download) query.set("download", "1");
 	if (options.conversationId) {
 		query.set("conversationId", options.conversationId);

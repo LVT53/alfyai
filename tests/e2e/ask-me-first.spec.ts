@@ -7,6 +7,7 @@ import {
 	AI_SMOKE_ASK_AFTER_PREFIX,
 	AI_SMOKE_ASK_BROKEN_CALL_ID,
 	AI_SMOKE_ASK_CALL_ID,
+	AI_SMOKE_ASK_DETAIL_TEXT,
 	AI_SMOKE_ASK_FIXED,
 	AI_SMOKE_ASK_HOLD_ASK,
 	AI_SMOKE_ASK_HOLD_RESUME,
@@ -618,6 +619,8 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		const card = askCard(page);
 		await expect(card).toBeVisible({ timeout: 30_000 });
 		await expect(card.getByText("Which way should we take it?")).toBeVisible();
+		// W5: the scripted card carries no detail, and a card without one draws no line.
+		await expect(card.getByTestId("ask-detail")).toHaveCount(0);
 		await expect(card.getByTestId("ask-option")).toHaveCount(3);
 		await expect(
 			card.getByRole("button", { name: "A party at home, recommended" }),
@@ -665,6 +668,8 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		const folded = page.getByTestId("ask-folded");
 		await expect(folded).toContainText("Which way should we take it?");
 		await expect(folded).toContainText("A party at home");
+		// W5: the answered line stays title and answer only; a detail is not folded in.
+		await expect(folded.getByTestId("ask-detail")).toHaveCount(0);
 		await expect(card).toHaveCount(0);
 		// An answered line opens, and shows its chevron: the control for the closed line,
 		// which does neither (the X test).
@@ -752,6 +757,52 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			],
 		});
 		expectResumeOfFirstAsk(resume);
+	});
+
+	// W5 (docs/plans/ui-wishes-2026-11): the model may explain its question under the
+	// title. The card draws that explanation above the answers, and the folded answered
+	// line leaves it behind, as the one line it was before.
+	test("a card with a detail draws it under the title, above the answers, and the folded line leaves it behind", async ({
+		page,
+	}) => {
+		await startTurn(page, "detail");
+
+		const card = askCard(page);
+		await expect(card).toBeVisible({ timeout: 30_000 });
+		const title = card.getByText("Inside or in the garden?");
+		const detail = card.getByTestId("ask-detail");
+		await expect(title).toBeVisible();
+		await expect(detail).toHaveText(AI_SMOKE_ASK_DETAIL_TEXT);
+
+		// Under the title and above the first answer: the order the card lays out.
+		await waitForStableBoundingBox(card);
+		const titleBox = await title.boundingBox();
+		const detailBox = await detail.boundingBox();
+		const firstAnswer = await card
+			.getByTestId("ask-option")
+			.first()
+			.boundingBox();
+		expect(
+			titleBox && detailBox && firstAnswer,
+			"all three are laid out",
+		).toBeTruthy();
+		expect(detailBox?.y).toBeGreaterThan(titleBox?.y ?? 0);
+		expect(firstAnswer?.y).toBeGreaterThan(detailBox?.y ?? 0);
+
+		// One question with one pick: a click on an answer carries the reply on.
+		await pressWhenAwake(
+			card.getByRole("button", {
+				name: "In the garden, with a tent, recommended",
+			}),
+		);
+
+		const folded = page.getByTestId("ask-folded");
+		await expect(folded).toContainText("Inside or in the garden?");
+		await expect(folded).toContainText("In the garden, with a tent");
+		await expect(folded).not.toContainText(AI_SMOKE_ASK_DETAIL_TEXT);
+		await expect(folded.getByTestId("ask-detail")).toHaveCount(0);
+		await expect(card).toHaveCount(0);
+		await expectCarriedOn(page, "In the garden, with a tent");
 	});
 
 	// Ruling 42: while the question waits the message box is drawn at half strength, and

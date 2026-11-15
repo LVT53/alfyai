@@ -89,7 +89,10 @@ export const AI_SMOKE_SKILL_DRAFT_EXAMPLE =
  *                (`AI_SMOKE_ASK_HOLD_RESUME`), so the resume runs for as long as the
  *                test wants,
  *   `read`       it makes a Document and reads it back before it asks, so the resume
- *                has a tool result that a history digest would cut.
+ *                has a tool result that a history digest would cut,
+ *   `detail`     one question that carries an optional `detail` under its title (W5,
+ *                docs/plans/ui-wishes-2026-11): the card draws it, and the folded
+ *                answered line does not.
  * The names `slow` and `slowresume` are kept from when they waited a fixed time: a
  * fixed wait races the machine the test runs on, a hold does not. The request is
  * recorded when it arrives, before the hold, so a test that polls the provider's
@@ -106,7 +109,8 @@ export type AskTurnMode =
 	| "twice"
 	| "slow"
 	| "slowresume"
-	| "read";
+	| "read"
+	| "detail";
 export const AI_SMOKE_ASK_INTRO =
 	"The biggest fork is the shape of the day itself, so let's settle that first.";
 export const AI_SMOKE_ASK_SECOND_INTRO =
@@ -249,14 +253,37 @@ export const AI_SMOKE_ASK_SECOND: AskQuestion[] = [
 	},
 ];
 
+/**
+ * W5 (docs/plans/ui-wishes-2026-11): one question with an optional detail under its
+ * title, in the model's own words. The `detail` mode asks it, so a browser test can
+ * see the card draw the explanation and the folded answered line leave it behind.
+ */
+export const AI_SMOKE_ASK_DETAIL_TEXT =
+	"We can put the tent up on Saturday morning, and there is room inside if it rains.";
+export const AI_SMOKE_ASK_DETAIL: AskQuestion[] = [
+	{
+		question: "Inside or in the garden?",
+		detail: AI_SMOKE_ASK_DETAIL_TEXT,
+		options: [
+			{ label: "Inside", note: "No weather worries, but tight for 30" },
+			{
+				label: "In the garden, with a tent",
+				note: "Room for everyone; book the tent by February",
+				recommended: true,
+			},
+		],
+	},
+];
+
 export function askTurnMessage(mode: AskTurnMode): string {
 	return `${AI_SMOKE_ASK_MARKER} ask:${mode}`;
 }
 
 export function decodeAskTurnMode(text: string): AskTurnMode | null {
 	if (!text.includes(AI_SMOKE_ASK_MARKER)) return null;
-	const match = /ask:(one|four|refused|many|twice|slowresume|slow|read)\b/.exec(
-		text,
-	);
+	const match =
+		/ask:(one|four|refused|many|twice|slowresume|slow|read|detail)\b/.exec(
+			text,
+		);
 	return (match?.[1] as AskTurnMode | undefined) ?? null;
 }

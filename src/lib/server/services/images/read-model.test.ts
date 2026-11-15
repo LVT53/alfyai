@@ -138,7 +138,7 @@ describe("listConversationImageCards", () => {
 			height: 32,
 			hasAlpha: false,
 			baseFileId: "base-1",
-			sourceFileIds: ["ref-1"],
+			sourceFileIdsInPromptOrder: ["base-1", "ref-1"],
 			canvas: { width: 1248, height: 832 },
 			retried: false,
 		});
@@ -157,6 +157,76 @@ describe("listConversationImageCards", () => {
 			errorCode: "picture_server_unreachable",
 			retryable: true,
 		});
+	});
+
+	// W14 T1 (diagnosis): the take's whole source list, in the order the prompt
+	// addresses it — the base first, then the references. Naming N pictures must
+	// show N, so a card never draws one fewer thumbnail than it was made from.
+	it("exposes every source picture in prompt order, base first and without duplicates", async () => {
+		const { listConversationImageCards } = await import("./read-model");
+		const card = await makeCard("t1");
+		const two = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+			request: takeRequest({
+				mode: "edit",
+				inputs: [
+					{ fileId: "base-1", role: "base", name: "room.png" },
+					{ fileId: "ref-1", role: "reference", name: "sofa.png" },
+				],
+			}),
+		});
+		const three = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+			request: takeRequest({
+				mode: "edit",
+				inputs: [
+					{ fileId: "base-2", role: "base", name: "room.png" },
+					{ fileId: "ref-2", role: "reference", name: "sofa.png" },
+					{ fileId: "ref-3", role: "reference", name: "lamp.png" },
+				],
+			}),
+		});
+		// A request written twice over the same picture still lists it once: the
+		// row's keys must be unique.
+		const repeated = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+			request: takeRequest({
+				mode: "edit",
+				inputs: [
+					{ fileId: "base-3", role: "base", name: "room.png" },
+					{ fileId: "ref-1", role: "reference", name: "sofa.png" },
+					{ fileId: "ref-1", role: "reference", name: "sofa.png" },
+				],
+			}),
+		});
+		const words = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+		});
+
+		const [view] = await listConversationImageCards("u1", "c1");
+		const byId = new Map(view.takes.map((take) => [take.id, take]));
+		expect(byId.get(two)?.sourceFileIdsInPromptOrder).toEqual([
+			"base-1",
+			"ref-1",
+		]);
+		expect(byId.get(three)?.sourceFileIdsInPromptOrder).toEqual([
+			"base-2",
+			"ref-2",
+			"ref-3",
+		]);
+		expect(byId.get(repeated)?.sourceFileIdsInPromptOrder).toEqual([
+			"base-3",
+			"ref-1",
+		]);
+		expect(byId.get(words)?.sourceFileIdsInPromptOrder).toEqual([]);
 	});
 
 	it("says where a take came from, whether it is held, and what it retries", async () => {

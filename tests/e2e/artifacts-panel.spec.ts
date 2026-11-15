@@ -214,33 +214,59 @@ test.describe("the chat header's artifact count button and panel", () => {
 		});
 	}
 
-	// Below the `lg` breakpoint the title bar is replaced by a compact row that
-	// carries the same button, right-aligned — it must sit at the same end.
-	test("sits at the right end of the compact row too, below the lg breakpoint", async ({
-		page,
-	}) => {
-		await page.setViewportSize({ width: 900, height: 700 });
-		const conversationId = await createEmptyConversation(
+	// W6 — below the `lg` breakpoint the counter is no longer an in-flow row in
+	// the header: it is a floating pill in the jump-to-latest controls' corner,
+	// with a real touch target, above the composer. (The desktop title bar's
+	// button, covered just above, is the counter above the breakpoint.)
+	for (const viewport of [
+		{ width: 900, height: 700 },
+		{ width: 390, height: 844 },
+	]) {
+		test(`floats as a 44 px pill at the chat's right edge below the lg breakpoint (${viewport.width}x${viewport.height})`, async ({
 			page,
-			"Compact header",
-		);
-		await seedProducedFile(conversationId);
-		await openChatAndReload(page, conversationId);
+		}) => {
+			await page.setViewportSize(viewport);
+			const conversationId = await createEmptyConversation(
+				page,
+				"Compact header",
+			);
+			await seedProducedFile(conversationId);
+			await openChatAndReload(page, conversationId);
 
-		const row = page.locator(".chat-title-bar-compact");
-		const button = page.getByTestId("artifact-count-button-compact");
-		await expect(button).toBeVisible();
-		const r = await row.boundingBox();
-		const b = await button.boundingBox();
-		expect(r && b).toBeTruthy();
-		const inset =
-			(r as { x: number; width: number }).x +
-			(r as { x: number; width: number }).width -
-			((b as { x: number; width: number }).x +
-				(b as { x: number; width: number }).width);
-		expect(inset).toBeGreaterThanOrEqual(8);
-		expect(inset).toBeLessThanOrEqual(14);
-	});
+			// The old in-flow compact row is gone; the pill is what is drawn.
+			await expect(page.locator(".chat-title-bar-compact")).toHaveCount(0);
+			await expect(page.locator(".chat-title-bar")).toBeHidden();
+			const pill = page.getByTestId("artifact-count-button-compact");
+			await expect(pill).toBeVisible();
+			await expect(page.getByTestId("artifact-counter-pill")).toBeVisible();
+
+			const box = await pill.boundingBox();
+			expect(box, "the pill must have a box").toBeTruthy();
+			const b = box as {
+				x: number;
+				y: number;
+				width: number;
+				height: number;
+			};
+			// A touch target, not a 32 px header chip.
+			expect(b.width).toBeGreaterThanOrEqual(44);
+			expect(b.height).toBeGreaterThanOrEqual(44);
+
+			const chat = await page.locator(".chat-main").boundingBox();
+			expect(chat, "the chat column must have a box").toBeTruthy();
+			const c = chat as { x: number; width: number };
+			// The same corner as the jump-to-latest controls: `--space-md` in
+			// from the chat column's right edge (no safe-area inset here).
+			const inset = c.x + c.width - (b.x + b.width);
+			expect(inset).toBeGreaterThanOrEqual(12);
+			expect(inset).toBeLessThanOrEqual(20);
+
+			// Above the composer, never over it.
+			const composer = await page.locator(".composer-shell").boundingBox();
+			expect(composer, "the composer must have a box").toBeTruthy();
+			expect(b.y + b.height).toBeLessThanOrEqual((composer as { y: number }).y);
+		});
+	}
 
 	test("opens the File's preview from the list, and closing returns to the chat", async ({
 		page,

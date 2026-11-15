@@ -40,6 +40,7 @@ import {
 	getWorkspacePresentationAfterDocumentOpen,
 	type HeldComposer,
 	hasActiveFileProductionJobs,
+	imageCardsPollIntervalMs,
 	isConversationReadOnly,
 	isPendingSkillUnavailableError,
 	isQuestionOpen,
@@ -2517,6 +2518,36 @@ describe("shouldPollImageCards", () => {
 				],
 			),
 		).toBe(false);
+	});
+});
+
+describe("imageCardsPollIntervalMs", () => {
+	it("reads the chat fast while a take is queued or running", () => {
+		expect(imageCardsPollIntervalMs([])).toBe(2500);
+		expect(
+			imageCardsPollIntervalMs([imageCard([imageTake({ status: "queued" })])]),
+		).toBe(750);
+		expect(
+			imageCardsPollIntervalMs([
+				imageCard([
+					imageTake({ status: "succeeded" }),
+					imageTake({ status: "running" }),
+				]),
+			]),
+		).toBe(750);
+	});
+
+	it("keeps the ordinary 2.5 s poll when nothing is being made", () => {
+		// A settled take, even one still held: its hold is let go by the server,
+		// not by a fast read, and the card re-reads on the 2.5 s poll.
+		expect(
+			imageCardsPollIntervalMs([
+				imageCard([imageTake({ status: "succeeded", held: true })]),
+			]),
+		).toBe(2500);
+		expect(
+			imageCardsPollIntervalMs([imageCard([imageTake({ status: "failed" })])]),
+		).toBe(2500);
 	});
 });
 

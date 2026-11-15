@@ -23,6 +23,9 @@ describe("imageFileUrl", () => {
 		expect(imageFileUrl("f1", { variant: "thumb", conversationId: "c1" })).toBe(
 			"/api/images/files/f1?variant=thumb&conversationId=c1",
 		);
+		expect(
+			imageFileUrl("f1", { variant: "display", conversationId: "c1" }),
+		).toBe("/api/images/files/f1?variant=display&conversationId=c1");
 		expect(imageFileUrl("f1", { download: true })).toBe(
 			"/api/images/files/f1?download=1",
 		);

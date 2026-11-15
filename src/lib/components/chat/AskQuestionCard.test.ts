@@ -241,6 +241,35 @@ describe("AskQuestionCard", () => {
 			expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
 		});
 
+		// W5 (docs/plans/ui-wishes-2026-11): an optional detail explains the question
+		// under its title, in the card's muted body style, before the answers.
+		it("draws a question's detail under its title, before the answers, and nothing when there is none", async () => {
+			const detail = "We can put the tent up on Saturday morning.";
+			const view = await renderCard(dto([{ ...GARDEN, detail }]));
+
+			const line = screen.getByTestId("ask-detail");
+			expect(line.tagName.toLowerCase()).toBe("p");
+			expect(line).toHaveTextContent(detail);
+			const title = screen.getByText("Inside or in the garden?");
+			expect(
+				title.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+			expect(
+				line.compareDocumentPosition(screen.getAllByTestId("ask-option")[0]) &
+					Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+
+			// A long detail is drawn whole: the stylesheet wraps it, never cuts it.
+			const long = "A patient explanation. ".repeat(10).trim();
+			await view.rerender({
+				question: dto([{ ...GARDEN, detail: long }]),
+			});
+			expect(screen.getByTestId("ask-detail")).toHaveTextContent(long);
+
+			await view.rerender({ question: dto([GARDEN]) });
+			expect(screen.queryByTestId("ask-detail")).toBeNull();
+		});
+
 		it("puts the X last in the order, so the first Tab lands on an answer and not on the way out", async () => {
 			await renderCard(dto([WAY]));
 
@@ -1450,6 +1479,22 @@ describe("AskQuestionCard", () => {
 			expect(sessionStorage.getItem("ask-line-draft:q-1")).toBeNull();
 		});
 
+		// W5: the answered card folds to its title and its answer, never its detail.
+		it("keeps the answered line title and answer only, without the detail", async () => {
+			const detail = "We can put the tent up on Saturday morning.";
+			await renderCard(
+				dto([{ ...GARDEN, detail }], {
+					status: "answered",
+					answer: answered(pick(0)),
+				}),
+			);
+
+			const row = screen.getByTestId("tool-activity-row");
+			expect(row).toHaveTextContent("Inside or in the garden?");
+			expect(row).toHaveTextContent("Inside");
+			expect(row).not.toHaveTextContent(detail);
+		});
+
 		it("draws the folded line closed, and a press opens it to show the question and its answer", async () => {
 			await renderCard(
 				dto([WHO, SPLIT], {
@@ -1617,6 +1662,26 @@ describe("AskQuestionCard", () => {
 			const desktopClose = rule(source, ".ask-x");
 			expect(desktopClose).toMatch(/width:\s*28px/);
 			expect(desktopClose).toMatch(/height:\s*28px/);
+		});
+
+		// W5: the detail sits under the title in the card's muted body style and wraps,
+		// on a phone too; it is given the X's room as the title is.
+		it("draws a question's detail muted and wrapping, with room from the X", () => {
+			const detail = rule(source, ".q-detail");
+			expect(detail).toMatch(/color:\s*var\(--text-muted\)/);
+			expect(detail).toMatch(/font-size:\s*var\(--text-sm\)/);
+			expect(detail).toMatch(/line-height:\s*1\.4/);
+			expect(detail).toMatch(/overflow-wrap:\s*anywhere/);
+			// Nothing cuts it: it wraps to as many lines as it needs.
+			expect(detail).not.toMatch(
+				/-webkit-line-clamp|max-height|white-space:\s*nowrap/,
+			);
+			expect(rule(source, ".q:first-child .q-detail")).toMatch(
+				/padding-right:\s*30px/,
+			);
+			expect(rule(phone, ".q:first-child .q-detail")).toMatch(
+				/padding-right:\s*36px/,
+			);
 		});
 
 		it("keeps the folded line 12 px below what is above it and 2 px above what is below", () => {

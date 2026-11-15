@@ -71,6 +71,9 @@ function askUserSchema(caps: boolean) {
 		question: text(ASK_LIMITS.questionChars).describe(
 			"The question itself, one short sentence.",
 		),
+		detail: text(ASK_LIMITS.detailChars)
+			.optional()
+			.describe("Optional explanation of the question, one or two sentences."),
 		multiple: z
 			.boolean()
 			.optional()

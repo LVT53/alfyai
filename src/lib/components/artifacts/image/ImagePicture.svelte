@@ -13,12 +13,19 @@
 //
 // `variant: "thumb"` loads only the 320 px thumbnail (strips, chips, "Made
 // from", History's rail); `"full"` lets the browser choose between the
-// thumbnail and the full picture by the box's width (`srcset`, F20), which is
-// what the chat card's main picture uses; `"original"` loads only the full
+// thumbnail, the 1600 px display copy and the full picture by the box's width
+// (`srcset`, F20), which is what the chat card's main picture uses; `"display"`
+// is the same choice between the thumbnail and the display copy, never the
+// master, for History's main view (a box that can load before it is laid out
+// must not fall back to the full picture); `"original"` loads only the full
 // picture (the panel's main view, MOTION-PARITY 4: only the panel loads full).
 import { untrack } from "svelte";
 import { imageFileUrl } from "$lib/client/api/images";
-import { thumbWidth } from "$lib/shared/artifacts/image-body";
+import {
+	displayWidth,
+	IMAGE_DISPLAY_LONG_EDGE,
+	thumbWidth,
+} from "$lib/shared/artifacts/image-body";
 import "./checkerboard.css";
 
 let {
@@ -42,22 +49,41 @@ let {
 	/** The picture this one was made from, for Before / After. */
 	beforeFileId?: string | null;
 	showing?: "after" | "before";
-	variant?: "full" | "thumb" | "original";
-	/** `variant: "full"` only: how wide the box is drawn, for `srcset`. */
+	variant?: "full" | "thumb" | "original" | "display";
+	/** `variant: "full"` or `"display"`: how wide the box is drawn, for `srcset`. */
 	sizes?: string;
 } = $props();
 
 const thumbUrl = (id: string) =>
 	imageFileUrl(id, { variant: "thumb", conversationId });
+const displayUrl = (id: string) =>
+	imageFileUrl(id, { variant: "display", conversationId });
 
 function sourceOf(id: string) {
 	if (variant === "thumb") return { src: thumbUrl(id), srcset: undefined };
 	const full = imageFileUrl(id, { conversationId });
 	if (variant === "original") return { src: full, srcset: undefined };
-	return {
-		src: full,
-		srcset: `${thumbUrl(id)} ${thumbWidth(width, height)}w, ${full} ${width}w`,
-	};
+	// The display copy between the thumbnail and the original: at a card's
+	// width on a DPR-2 screen the browser takes 1600 px instead of the original
+	// PNG, and a deeper zoom still reaches the full picture.
+	const candidates = [`${thumbUrl(id)} ${thumbWidth(width, height)}w`];
+	if (variant === "display") {
+		// History's box never needs the master, and a box that selects before it
+		// is laid out (a picture created behind a hidden slot) took the master
+		// whenever `sizes` arrived late. Offering only the display copy makes the
+		// fallback and the best candidate the same file.
+		if (Math.max(width, height) > IMAGE_DISPLAY_LONG_EDGE) {
+			candidates.push(`${displayUrl(id)} ${displayWidth(width, height)}w`);
+		} else {
+			candidates.push(`${full} ${width}w`);
+		}
+		return { src: displayUrl(id), srcset: candidates.join(", ") };
+	}
+	if (Math.max(width, height) > IMAGE_DISPLAY_LONG_EDGE) {
+		candidates.push(`${displayUrl(id)} ${displayWidth(width, height)}w`);
+	}
+	candidates.push(`${full} ${width}w`);
+	return { src: full, srcset: candidates.join(", ") };
 }
 
 let before = $derived(beforeFileId ? sourceOf(beforeFileId) : null);

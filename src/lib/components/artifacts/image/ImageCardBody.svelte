@@ -77,6 +77,22 @@ let {
 } = $props();
 /** A new picture's size, for a card that has no take to read one from. */
 const FALLBACK_BOX = { width: 1248, height: 832 };
+/** The stage's desktop width cap: 22rem. */
+const DESKTOP_STAGE_WIDTH = 352;
+
+/**
+ * What the browser should assume the picture's box is: the stage is
+ * `min(100%, min(22rem, 45vh) * ratio)` in CSS, and the desktop cap is
+ * 22rem * ratio (45vh only narrows it further, so this is the conservative
+ * truthful bound). `min(92vw, W)` keeps a phone from claiming the whole
+ * window for a portrait. A flat 92vw asked a DPR-3 phone for ~1098 device px
+ * on a 198 px portrait, past the 900w display copy, so it took the master.
+ */
+function pictureSizesOf(stage: { width: number; height: number }): string {
+	const ratio = stage.height > 0 ? stage.width / stage.height : 1;
+	const width = Math.max(1, Math.round(DESKTOP_STAGE_WIDTH * ratio));
+	return `(max-width: 767px) min(92vw, ${width}px), ${width}px`;
+}
 const PLACEHOLDER = "placeholder";
 
 const crossfade = reducedMotionAware(fade);
@@ -137,6 +153,8 @@ let cardState: ImageCardState = $derived(
 let box = $derived(
 	shown?.box ?? takes.at(-1)?.box ?? card.takes.at(-1)?.box ?? FALLBACK_BOX,
 );
+/** The box's own width, for the browser's `srcset` choice. */
+let pictureSizes = $derived(pictureSizesOf(box));
 let ready = $derived(
 	!gone && cardState.kind === "ready" && Boolean(shown?.fileId),
 );
@@ -153,9 +171,26 @@ let canUse = $derived(
 			shown.status === "succeeded",
 	),
 );
+/**
+ * The request's own cap: the picture graphs have ten picture slots, so a take
+ * is never made from more. A row written around a cap change still clips to
+ * ten rather than overflowing the card.
+ */
+const MAX_MADE_FROM_PICTURES = 10;
+
+/**
+ * The pictures the shown take was made from, in the order the prompt addresses
+ * them (the take's base first, then its references): the read model's one list,
+ * so the numbers under the thumbnails are the prompt's own `<image1>` …
+ * `<imageN>`. Never built by joining the base and the references here.
+ */
 let madeFromIds = $derived(
 	card.madeFrom === "pictures"
-		? (shown?.sourceFileIds ?? card.takes[0]?.sourceFileIds ?? [])
+		? (
+				shown?.sourceFileIdsInPromptOrder ??
+				card.takes[0]?.sourceFileIdsInPromptOrder ??
+				[]
+			).slice(0, MAX_MADE_FROM_PICTURES)
 		: [],
 );
 // Another is offered once nothing of the card is on its way: not beside Stop
@@ -404,6 +439,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 						{conversationId}
 						beforeFileId={shown.baseFileId}
 						{showing}
+						sizes={pictureSizes}
 					/>
 				</button>
 				{#if checkingAgain}
