@@ -4,7 +4,9 @@ import {
 	createConversationFork,
 	deleteConversationMessages,
 	fetchConversationDetail,
+	fetchConversationImageCards,
 	fetchConversationMarkdownExport,
+	fetchOlderConversationMessages,
 	keepMessageAsDocument,
 	persistConversationLinkedSources,
 	runConversationBatch,
@@ -118,6 +120,51 @@ describe("fetchConversationDetail", () => {
 			"/api/conversations/conv-1?view=bootstrap",
 		);
 		expect(detail.bootstrap).toBe(true);
+	});
+});
+
+describe("fetchConversationImageCards", () => {
+	// The picture-card poll's cheap read: the conversation detail's `cards`
+	// view, not the full payload a tick used to fetch.
+	it("requests the cards view of the conversation detail endpoint", async () => {
+		const cards = {
+			conversationId: "conv-1",
+			imageCards: [{ id: "card-1", takes: [] }],
+		};
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(JSON.stringify(cards), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await fetchConversationImageCards("conv-1");
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/conversations/conv-1?view=cards",
+			expect.objectContaining({ cache: "no-store" }),
+		);
+		expect(result).toEqual(cards);
+	});
+
+	it("throws the server's error when the cards read is refused", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ error: "Conversation not found" }), {
+						status: 404,
+						headers: { "content-type": "application/json" },
+					}),
+			),
+		);
+
+		await expect(fetchConversationImageCards("conv-1")).rejects.toMatchObject({
+			message: "Conversation not found",
+			status: 404,
+		});
 	});
 });
 
@@ -801,5 +848,57 @@ describe("updateInstructionSuggestionStatus", () => {
 				fetchMock,
 			),
 		).rejects.toThrow(/cannot be reviewed/);
+	});
+});
+
+describe("fetchOlderConversationMessages", () => {
+	it("asks for the page before the messages already loaded", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						messages: [
+							{ id: "user-1", role: "user", content: "First", timestamp: 1 },
+							{
+								id: "assistant-1",
+								role: "assistant",
+								content: "Second",
+								timestamp: 2,
+							},
+						],
+						hasMoreBefore: true,
+						deletedArtifactIds: ["artifact-gone"],
+						unreachableArtifactIds: ["artifact-elsewhere"],
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+		);
+
+		const page = await fetchOlderConversationMessages("conv-1", 100, fetchMock);
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/conversations/conv-1/messages?offset=100",
+		);
+		expect(page.messages.map((message) => message.id)).toEqual([
+			"user-1",
+			"assistant-1",
+		]);
+		expect(page.hasMoreBefore).toBe(true);
+		expect(page.deletedArtifactIds).toEqual(["artifact-gone"]);
+		expect(page.unreachableArtifactIds).toEqual(["artifact-elsewhere"]);
+	});
+
+	it("throws when the page cannot be read", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ error: "Conversation not found" }), {
+					status: 404,
+					headers: { "content-type": "application/json" },
+				}),
+		);
+
+		await expect(
+			fetchOlderConversationMessages("conv-1", 100, fetchMock),
+		).rejects.toThrow(/not found/i);
 	});
 });

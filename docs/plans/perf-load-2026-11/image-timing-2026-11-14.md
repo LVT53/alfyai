@@ -116,17 +116,17 @@ was not measured here.
 
 ## What could not be measured, and why
 
-- **"The assistant reply finishes" in the browser.** `MessageBubble` draws its
-  `.message-actions` row (Copy, Regenerate, follow-up chips) only once
-  `message.isStreaming` is false. In this probe that row never appeared: not
-  within the 1.5 s settle window after the picture (last sample t+4047,
-  `replyEnded=false`), and not within a 120 s diagnostic run of the same turn.
-  The server had already persisted the assistant row at t+2429, and the final
-  text and the card were both on screen. The probe therefore reports the reply's
-  **durable** finish (t+2429) as the reply-end stamp; the client-side rendering
-  of "finished" is unmeasured. Whether this is the fake-provider harness (the
-  message list kept its streaming placeholder) or a real client behaviour was not
-  investigated further.
+- **"The assistant reply finishes" in the browser.** Resolved 2026-11-15: this was a **probe bug, not a
+  client behaviour**. `MessageBubble` draws its `.message-actions` row (Copy, Regenerate, follow-up chips)
+  only once `message.isStreaming` is false, and the row is a **sibling** of
+  `[data-testid="assistant-message"]` inside the turn's `.group` wrapper, not a descendant — so the
+  probe's descendant query (`node.querySelector(".message-actions")`) was false by construction, and both
+  the 1.5 s window and the 120 s re-run measured the same always-false flag. The state path is sound:
+  `isStreaming` is set by `createAssistantPlaceholder` and cleared only by the stream's `finalize` event
+  (`applyMessageListEvent` → `finalizeStreamingMessageList`), and every existing spec that reaches the
+  action row (follow-up chips, Copy via the parent hop in `fake-provider-chat`, the turn-completion
+  contract) is green. The predicate now counts the row in the document, and `tests/e2e/images.spec.ts`
+  asserts it after a real picture turn — coverage that did not exist before.
 - **The SSE request's end.** `page.on("requestfinished")` for
   `POST /api/chat/stream` never fired, including a 1.5 s (and a 120 s) wait after
   the final text. The probe records the request start (208 ms) and the final text
@@ -222,6 +222,8 @@ before.
 browser side: at 390x844 DPR 2 with the same 2048 px fake, the card's
 `currentSrc` is `?variant=display`, its `srcset` carries the `1600w`
 descriptor, and no request for the full PNG is made. The card now also names
-its real box (`sizes` 92vw under 768, 352 px above), so a tall picture at a
-1280x900 DPR-2 desktop takes its 900w display copy instead of the master
-(`"a DPR-2 desktop and a tall picture"`).
+its real, ratio-aware box (`sizes` `min(92vw, W)` under 767 px and `W` above,
+where `W` is 22rem × the box's ratio), so a tall picture at a 1280x900 DPR-2
+desktop, and at a 390x844 DPR-3 phone, takes its 900w display copy instead of
+the master (`tests/e2e/images.spec.ts`, `"a DPR-2 desktop and a tall picture"`,
+`"a DPR-3 phone and a tall picture"`).

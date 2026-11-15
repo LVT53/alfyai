@@ -28,6 +28,22 @@ import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { TaskState } from "$lib/server/services/task-state/types";
 
+/**
+ * The `cards` view of `/api/conversations/[id]`: what the chat page's
+ * picture-card poll needs while a take is being made, and nothing else. A tick
+ * used to read the whole `ConversationDetail` (the message window and the
+ * sidecar included) every 750 ms; this is a few KB.
+ *
+ * `imageCards` is the very array the `full` view assembles (same read-model
+ * helper), so the page applies it to the state a full read already writes.
+ * `conversationId` is the answer's own name, so a read that answers after the
+ * person moved to another chat is dropped rather than applied there.
+ */
+export interface ConversationCardsDetail {
+	conversationId: string;
+	imageCards: ImageCardView[];
+}
+
 export interface ConversationDetail {
 	conversation: Conversation;
 	messages: ChatMessage[];

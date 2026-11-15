@@ -105,9 +105,8 @@ export async function openConversationComposer(
 }
 
 export async function ensureSidebarExpanded(page: Page) {
-	await page
-		.locator("aside.transitions-enabled")
-		.waitFor({ state: "visible", timeout: 5000 });
+	const sidebar = page.locator("aside.transitions-enabled");
+	await sidebar.waitFor({ state: "visible", timeout: 5000 });
 	const expandButton = page.getByRole("button", { name: "Expand sidebar" });
 	if (await expandButton.isVisible().catch(() => false)) {
 		await expandButton.click();
@@ -115,6 +114,13 @@ export async function ensureSidebarExpanded(page: Page) {
 	await expect(
 		page.getByRole("button", { name: "Collapse sidebar" }),
 	).toBeVisible({ timeout: 5000 });
+	// The label flips with the store, at the start of the aside's 240ms width
+	// transition (`width 240ms` on `.sidebar-panel.transitions-enabled` in
+	// Sidebar.svelte), so a caller that clicks or measures a row right after
+	// this returns could hit it mid-animation. Wait the transition out: the
+	// aside's box must report the same rect across two frames (the no-op path,
+	// already expanded, settles at once).
+	await waitForStableBoundingBox(sidebar);
 }
 
 /**

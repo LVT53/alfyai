@@ -119,9 +119,11 @@ async function sampleDom(page: Page): Promise<DomSample> {
 				finalText: assistantMessages.some(
 					(node) => node.textContent?.includes(finalText) ?? false,
 				),
-				replyEnded: assistantMessages.some(
-					(node) => node.querySelector(".message-actions") !== null,
-				),
+				// The action row is a SIBLING of the assistant body (both sit in the
+				// turn's `.group` wrapper), never a descendant of
+				// `[data-testid="assistant-message"]`, so a descendant query is false
+				// by construction. Ask the document for the row instead.
+				replyEnded: document.querySelectorAll(".message-actions").length > 0,
 			};
 		},
 		{

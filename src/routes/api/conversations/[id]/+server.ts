@@ -1,7 +1,10 @@
 import { isHttpError, isRedirect, json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { deleteConversationWithCleanup } from "$lib/server/services/cleanup";
-import { getConversationDetail } from "$lib/server/services/conversation-detail/read-model";
+import {
+	getConversationCards,
+	getConversationDetail,
+} from "$lib/server/services/conversation-detail/read-model";
 import {
 	conversationHasMessages,
 	getConversation,
@@ -23,18 +26,26 @@ export const GET: RequestHandler = async (event) => {
 	try {
 		const { id } = event.params;
 		const requestedView = event.url.searchParams.get("view");
-		const view = requestedView === "bootstrap" ? "bootstrap" : "full";
-
-		const detail = await getConversationDetail({
-			userId: user.id,
-			conversationId: id,
-			view,
-		});
-		if (!detail) {
+		// `cards` is the light view the chat page's picture-card poll reads: the
+		// image cards alone, never the message window or the sidecar. Any other
+		// value keeps the two views there were — `bootstrap` for a brand-new
+		// conversation, `full` for everything else (an unrecognized value too).
+		const payload =
+			requestedView === "cards"
+				? await getConversationCards({
+						userId: user.id,
+						conversationId: id,
+					})
+				: await getConversationDetail({
+						userId: user.id,
+						conversationId: id,
+						view: requestedView === "bootstrap" ? "bootstrap" : "full",
+					});
+		if (!payload) {
 			return json({ error: "Conversation not found" }, { status: 404 });
 		}
 
-		return json(detail);
+		return json(payload);
 	} catch (err) {
 		if (isHttpError(err) || isRedirect(err)) {
 			throw err;

@@ -488,6 +488,8 @@ describe("the display copy", () => {
 		30_000,
 	);
 
+	// Two sharp encodes and a decode of a real 2048 picture: about
+	// 3.5 s alone, so give it room past the 5 s default on a loaded gate.
 	it("regenerates a truncated display copy instead of handing it back", async () => {
 		const file = await files.storeImageFile({
 			userId: "u1",
@@ -523,7 +525,7 @@ describe("the display copy", () => {
 				`${file.id}.display.webp`,
 			].sort(),
 		);
-	});
+	}, 20_000);
 
 	it("removes a display copy that is not a WebP before regenerating it", async () => {
 		const file = await files.storeImageFile({

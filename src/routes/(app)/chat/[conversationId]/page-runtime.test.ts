@@ -10,6 +10,10 @@ import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatTurnCheck } from "$lib/client/api/chat-turn";
 import { applyNormalChatOutputView } from "$lib/client/normal-chat-output-view";
+import {
+	card as imageCardFixture,
+	take as imageTakeFixture,
+} from "$lib/components/artifacts/image/image-card-fixtures.test-helpers";
 import type { ModelId } from "$lib/model-types";
 import type { AppShellData } from "$lib/server/services/app-shell";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
@@ -102,6 +106,20 @@ const checkChatTurnMock = vi.hoisted(() =>
 const checkCloudWarningMock = vi.hoisted(() => vi.fn());
 const ackCloudConnectorMock = vi.hoisted(() => vi.fn());
 const setLocalDistillMock = vi.hoisted(() => vi.fn());
+// A picture card's actions and the take's end-of-take channel. The channel is a
+// fast path only: a test that wants the settle calls the `onSettled` the page
+// handed it, and the poll is never involved.
+const imageTakeChannelMock = vi.hoisted(() => ({
+	awaitImageTakeSettled: vi.fn(
+		async (
+			_conversationId: string | null | undefined,
+			_takeId: string,
+			_options: { signal?: AbortSignal; onSettled?: () => void } = {},
+		): Promise<{ settled: boolean }> => ({ settled: false }),
+	),
+	anotherImageTake: vi.fn(async () => ({ takeId: "take-another" })),
+	retryImageTake: vi.fn(async () => undefined),
+}));
 
 function conversationFixture(
 	id: string,
@@ -329,11 +347,23 @@ vi.mock("$lib/client/api/conversations", () => ({
 	deleteConversationMessages: vi.fn(),
 	persistConversationDraft: vi.fn(async () => undefined),
 	fetchConversationDetail: vi.fn(async () => conversationDetailFixture()),
+	fetchConversationImageCards: vi.fn(async () => ({
+		conversationId: "conv-1",
+		imageCards: [],
+	})),
 	fetchMessageEvidence: vi.fn(),
 	fetchMessageUsage: vi.fn(async () => ({ status: "untracked" })),
+	fetchOlderConversationMessages: vi.fn(),
 	generateConversationTitle: vi.fn(),
 	renameConversation: vi.fn(async () => ({})),
 	runConversationContextCompression: vi.fn(),
+}));
+
+vi.mock("$lib/client/api/images", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/client/api/images")>()),
+	anotherImageTake: imageTakeChannelMock.anotherImageTake,
+	awaitImageTakeSettled: imageTakeChannelMock.awaitImageTakeSettled,
+	retryImageTake: imageTakeChannelMock.retryImageTake,
 }));
 
 vi.mock("$lib/client/api/file-production", async (importOriginal) => ({
@@ -536,12 +566,19 @@ import {
 	deleteConversationDraft,
 	deleteConversationMessages,
 	fetchConversationDetail,
+	fetchConversationImageCards,
 	fetchMessageEvidence,
 	fetchMessageUsage,
+	fetchOlderConversationMessages,
 	generateConversationTitle,
 	persistConversationDraft,
 } from "$lib/client/api/conversations";
 import { ApiError } from "$lib/client/api/http";
+import {
+	anotherImageTake,
+	awaitImageTakeSettled,
+	retryImageTake,
+} from "$lib/client/api/images";
 import {
 	clearConversationSessionState,
 	createDraftPersistence,
@@ -563,6 +600,13 @@ afterEach(() => {
 	fetchServerHealthMock.mockResolvedValue({ state: "up" });
 	vi.mocked(fetchConversationQuestions).mockReset();
 	vi.mocked(fetchConversationQuestions).mockResolvedValue([]);
+	vi.mocked(fetchOlderConversationMessages).mockReset();
+	vi.mocked(awaitImageTakeSettled).mockReset();
+	vi.mocked(awaitImageTakeSettled).mockResolvedValue({ settled: false });
+	vi.mocked(anotherImageTake).mockReset();
+	vi.mocked(anotherImageTake).mockResolvedValue({ takeId: "take-another" });
+	vi.mocked(retryImageTake).mockReset();
+	vi.mocked(retryImageTake).mockResolvedValue(undefined);
 	runtimeHarness.orphanedStreamId = null;
 });
 
@@ -3456,6 +3500,176 @@ describe("chat page runtime integration", () => {
 			await vi.advanceTimersByTimeAsync(2500);
 
 			expect(fetchConversationDetail).toHaveBeenCalledWith("conv-1");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// The picture-card poll's tick is the conversation detail's `cards` view
+	// alone — a take being made used to re-read the whole chat (the message
+	// window and the sidecar) every 750 ms. Its answer reaches the same
+	// `imageCards` state a full read writes, so the gate closes the moment the
+	// cards hold no active take.
+	it("reads only the picture cards on a poll tick while a take is being made, and stops once none is", async () => {
+		vi.useFakeTimers();
+		try {
+			vi.mocked(fetchConversationImageCards).mockResolvedValueOnce({
+				conversationId: "conv-1",
+				imageCards: [imageCardFixture([imageTakeFixture()])],
+			});
+			renderPage(
+				pageData({
+					imageCards: [
+						imageCardFixture([
+							imageTakeFixture({ status: "running", phase: "rendering" }),
+						]),
+					],
+				}),
+			);
+			await tick();
+			vi.mocked(fetchConversationDetail).mockClear();
+			vi.mocked(fetchConversationImageCards).mockClear();
+
+			// The active take's fast tick: the cards, never the full detail.
+			await vi.advanceTimersByTimeAsync(750);
+
+			expect(fetchConversationImageCards).toHaveBeenCalledWith("conv-1");
+			expect(fetchConversationDetail).not.toHaveBeenCalled();
+
+			// The answer held a finished picture: applied to the page's cards, it
+			// clears `shouldPollImageCards`, so no later tick reads anything.
+			await vi.advanceTimersByTimeAsync(5000);
+			expect(fetchConversationImageCards).toHaveBeenCalledTimes(1);
+			expect(fetchConversationDetail).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// A take that settles outside a turn (Another, Try again) hears its end on
+	// the take's own SSE channel, so the card settles without a poll tick. The
+	// poll keeps running as the fallback: a channel that cannot open says so
+	// quietly and the tests below still tick normally.
+	it("subscribes to the take Try again starts, and settles the cards when it lands", async () => {
+		const take = imageTakeFixture({ status: "failed", retryable: true });
+		const waits: Array<{ signal?: AbortSignal; onSettled?: () => void }> = [];
+		vi.mocked(awaitImageTakeSettled).mockImplementation(
+			(_conversationId, _takeId, options = {}) => {
+				waits.push(options);
+				return new Promise<{ settled: boolean }>(() => undefined);
+			},
+		);
+		const { unmount } = renderPage(
+			pageData({ imageCards: [imageCardFixture([take])] }),
+		);
+		await tick();
+		vi.mocked(fetchConversationImageCards).mockClear();
+
+		const onImageAction = pageChildren.pane?.onImageAction as
+			| ((...args: unknown[]) => unknown)
+			| undefined;
+		await onImageAction?.({ type: "retry", takeId: take.id });
+
+		expect(retryImageTake).toHaveBeenCalledWith(take.id, "conv-1");
+		expect(awaitImageTakeSettled).toHaveBeenCalledWith(
+			"conv-1",
+			take.id,
+			expect.objectContaining({ onSettled: expect.any(Function) }),
+		);
+
+		waits[0]?.onSettled?.();
+		await waitFor(() =>
+			expect(fetchConversationImageCards).toHaveBeenCalledWith("conv-1"),
+		);
+
+		unmount();
+	});
+
+	it("closes a take channel still open when the page goes away", async () => {
+		const take = imageTakeFixture({ status: "failed", retryable: true });
+		let signal: AbortSignal | undefined;
+		vi.mocked(awaitImageTakeSettled).mockImplementation(
+			(_conversationId, _takeId, options = {}) => {
+				signal = options.signal;
+				return new Promise<{ settled: boolean }>(() => undefined);
+			},
+		);
+		const { unmount } = renderPage(
+			pageData({ imageCards: [imageCardFixture([take])] }),
+		);
+		await tick();
+
+		const onImageAction = pageChildren.pane?.onImageAction as
+			| ((...args: unknown[]) => unknown)
+			| undefined;
+		await onImageAction?.({ type: "retry", takeId: take.id });
+		expect(signal?.aborted).toBe(false);
+
+		unmount();
+		expect(signal?.aborted).toBe(true);
+	});
+
+	it("subscribes to the take Another queues", async () => {
+		const card = imageCardFixture([imageTakeFixture()]);
+		vi.mocked(awaitImageTakeSettled).mockReturnValue(
+			new Promise<{ settled: boolean }>(() => undefined),
+		);
+		renderPage(pageData({ imageCards: [card] }));
+		await tick();
+
+		const onImageAction = pageChildren.pane?.onImageAction as
+			| ((...args: unknown[]) => unknown)
+			| undefined;
+		await onImageAction?.({ type: "another", cardId: card.id });
+
+		expect(anotherImageTake).toHaveBeenCalledWith(card.id, "conv-1");
+		expect(awaitImageTakeSettled).toHaveBeenCalledWith(
+			"conv-1",
+			"take-another",
+			expect.anything(),
+		);
+	});
+
+	it("falls back to the full detail read when a cards tick fails, so a picture never stays mid-shimmer", async () => {
+		vi.useFakeTimers();
+		try {
+			vi.mocked(fetchConversationImageCards).mockRejectedValueOnce(
+				new Error("network"),
+			);
+			renderPage(
+				pageData({
+					imageCards: [
+						imageCardFixture([imageTakeFixture({ status: "queued" })]),
+					],
+				}),
+			);
+			await tick();
+			vi.mocked(fetchConversationDetail).mockClear();
+			vi.mocked(fetchConversationImageCards).mockClear();
+
+			await vi.advanceTimersByTimeAsync(750);
+
+			expect(fetchConversationImageCards).toHaveBeenCalledWith("conv-1");
+			expect(fetchConversationDetail).toHaveBeenCalledWith("conv-1");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not read anything on its own when no take, file or Atlas job is active", async () => {
+		vi.useFakeTimers();
+		try {
+			renderPage(
+				pageData({ imageCards: [imageCardFixture([imageTakeFixture()])] }),
+			);
+			await tick();
+			vi.mocked(fetchConversationDetail).mockClear();
+			vi.mocked(fetchConversationImageCards).mockClear();
+
+			await vi.advanceTimersByTimeAsync(5000);
+
+			expect(fetchConversationImageCards).not.toHaveBeenCalled();
+			expect(fetchConversationDetail).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
 		}
@@ -11354,4 +11568,111 @@ it("shows unavailable accounting on a loaded chat instead of inventing zero cost
 		expect(screen.getByText(/Unavailable.*100/)).toBeInTheDocument(),
 	);
 	expect(screen.queryByText(/\$0\.0000.*100/)).not.toBeInTheDocument();
+});
+
+describe("the older messages before the loaded window", () => {
+	const loaded: ChatMessage[] = [
+		{
+			id: "user-2",
+			role: "user",
+			content: "The second question",
+			timestamp: 2,
+		},
+		{
+			id: "assistant-2",
+			role: "assistant",
+			content: "The second answer",
+			timestamp: 3,
+		},
+	];
+	const older: ChatMessage[] = [
+		{ id: "user-1", role: "user", content: "The first question", timestamp: 0 },
+		{
+			id: "assistant-1",
+			role: "assistant",
+			content: "The first answer",
+			timestamp: 1,
+		},
+	];
+	const olderPage = {
+		messages: older,
+		hasMoreBefore: true,
+		deletedArtifactIds: [] as string[],
+		unreachableArtifactIds: [] as string[],
+	};
+
+	function messageIdsInTheThread(container: HTMLElement): (string | null)[] {
+		return [...container.querySelectorAll("[data-message-id]")].map((element) =>
+			element.getAttribute("data-message-id"),
+		);
+	}
+
+	it("offers no control when the chat opened with its whole history", () => {
+		renderPage(pageData({ messages: loaded, hasMoreMessages: false }));
+
+		expect(
+			screen.queryByRole("button", { name: "Load older messages" }),
+		).toBeNull();
+	});
+
+	it("asks for the page before the loaded messages, and prepends it in order", async () => {
+		vi.mocked(fetchOlderConversationMessages).mockResolvedValue(olderPage);
+		const view = renderPage(
+			pageData({ messages: loaded, hasMoreMessages: true }),
+		);
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Load older messages" }),
+		);
+
+		await waitFor(() =>
+			expect(fetchOlderConversationMessages).toHaveBeenCalledWith("conv-1", 2),
+		);
+		await waitFor(() =>
+			expect(messageIdsInTheThread(view.container)).toEqual([
+				"user-1",
+				"assistant-1",
+				"user-2",
+				"assistant-2",
+			]),
+		);
+	});
+
+	it("hides the control once the page says the history starts there", async () => {
+		vi.mocked(fetchOlderConversationMessages).mockResolvedValue({
+			...olderPage,
+			hasMoreBefore: false,
+		});
+		renderPage(pageData({ messages: loaded, hasMoreMessages: true }));
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Load older messages" }),
+		);
+
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("button", { name: "Load older messages" }),
+			).toBeNull(),
+		);
+	});
+
+	it("says the page failed, and offers the control again", async () => {
+		vi.mocked(fetchOlderConversationMessages).mockRejectedValue(
+			new ApiError("Failed to load older messages", { status: 500 }),
+		);
+		renderPage(pageData({ messages: loaded, hasMoreMessages: true }));
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Load older messages" }),
+		);
+
+		await waitFor(() =>
+			expect(screen.getByRole("alert")).toHaveTextContent(
+				"Couldn't load older messages. Try again.",
+			),
+		);
+		expect(
+			screen.getByRole("button", { name: "Load older messages" }),
+		).toBeEnabled();
+	});
 });

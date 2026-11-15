@@ -608,15 +608,30 @@ The MinerU 4.1 release added a second, milder population. The renderer that turn
 into prompt text changed with it (a chart picture is kept as a figure with all its captions, display
 math is fenced with `$$`, PPTX speaker notes are labelled, see `result.ts`), so
 `MINERU_PARSER_VERSION` moved from `mineru4/1` to `mineru4/2`, and
-`metadata.extractionParserVersion` on a normalized document says which renderer made it. Until
-4.1, the renderer dropped every chart and its caption from the text and left display math
+`metadata.extractionParserVersion` on a source (and normalized) document says which renderer made
+it. Until 4.1, the renderer dropped every chart and its caption from the text and left display math
 unfenced; MinerU 4.0.12 emits the same blocks, so documents read before the 4.1 release
-(`mineru4/1`) lack them. They keep their text until they are read again. **The backfill below does
-not do that for a document that already carries the requested tier**: it skips a document whose
-recorded tier is at or above the one requested, whatever renderer read it, so it re-reads only
-documents recorded below that tier or with none. To read a same-tier document again with the new
-renderer, Re-extract it with the `force` override described above (`{"tier": "standard", "force":
-true}`, the tier it already carries), one document at a time.
+(`mineru4/1`) lack them. They keep their text until they are read again.
+
+The backfill's ordinary selection does **not** re-read those: it skips a document whose recorded
+tier is at or above the one requested, whatever renderer read it. The opt-in `--stale-renderer`
+flag is the bulk path for exactly this population. It selects `source_document` artifacts whose
+`metadata.extractionParserVersion` is missing or is not the current `MINERU_PARSER_VERSION` (a
+missing key is stale, never current), ignores the "already at the requested tier" skip for them,
+and requeues each at its **own recorded tier** — never a higher one — through the same
+`requeueExtractionJobForReextraction` call the single-document path uses. A document already on the
+current renderer is reported as `already_current_renderer` and skipped, so a stale-renderer run
+over an up-to-date library enqueues nothing. There is no second ledger: a successful re-read writes
+the new `extractionParserVersion` onto the source row, so re-running after a partial run skips what
+was already re-read. `--tier` still resolves and validates the run's tier, but under the flag a
+document with a recorded tier is requested at that tier instead; only a stale document with no
+recorded tier falls back to the requested one.
+
+To re-read **one** document at a tier it already carries — after changing `MINERU_OCR_MODE`, say —
+Re-extract it with the `force` override described above (`{"tier": "standard", "force": true}`, the
+tier it already carries). That single-document path is unchanged and keeps working; the flag above
+is its whole-library equivalent. Neither applies to `direct-text` documents, which never went
+through MinerU: `--include-direct-text` still governs those.
 
 `scripts/backfill-extractions.ts` is the operator-run equivalent for a whole library. It walks
 every `source_document` artifact (knowledge-page uploads AND chat-attachment documents — both live
@@ -633,8 +648,10 @@ skipped, or whose re-extraction fails, keeps its old content exactly as it was.
 
 `--dry-run` is the DEFAULT: with no `--apply`, nothing is enqueued and the script only reports what
 it would do — counts per intake route, per file type, per user, total bytes, and every exclusion
-with its reason (already at the requested tier, already in flight, the file is missing on disk, or
-the type is `reject`-routed and unsupported today).
+with its reason (already at the requested tier, already on the current renderer, already in flight,
+the file is missing on disk, or the type is `reject`-routed and unsupported today). A
+`--stale-renderer` report also names the renderer it is re-reading up to and how many documents it
+would re-read.
 
 ```
 # ALWAYS first. Reports what would happen; enqueues nothing.
@@ -645,6 +662,14 @@ DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --apply --l
 
 # The rest, once the first batch looks right.
 DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --apply
+
+# Only documents an older MinerU renderer produced (e.g. mineru4/1 before 4.1),
+# each at its own recorded tier. Dry run first; --apply then enqueues exactly those.
+DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --stale-renderer
+DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --apply --stale-renderer
+
+# Every flag, including the stale-renderer one.
+DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --help
 
 # Progress, any time.
 DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --status
@@ -689,6 +714,7 @@ Flags:
 | `--apply` | Enqueues. Without it, nothing is written. |
 | `--tier <flash\|basic\|standard\|advanced>` | Defaults to the configured `MINERU_DEFAULT_TIER`, and `auto` is resolved the way the extractor resolves it (the best of `standard`, `basic` and `flash` that the server lists, never `advanced`). The owner's stated target for prod is `standard`, so pass it explicitly. Anything that is not one of the four ids is refused before the database is opened, and a tier this MinerU does not serve is refused before `--apply` writes anything (a dry run still works with the backend down — it only warns). A registry `tierHint` of `flash` (every Office, HTML, RTF, EPUB format) marks a native document: MinerU parses it at `flash` regardless and the extractor sends it no tier at all, so the script counts its tier as `flash` for the "already done" check rather than compare against a tier these types can never reach (which would re-enqueue them forever). |
 | `--include-direct-text` | Also re-chunks `direct-text` documents (plain text, Markdown, CSV, …) through the current chunker. Skipped by default: these never went through MinerU at all, so there is nothing MinerU-version-specific to fix; the flag exists for the rarer case where the chunker itself changed. |
+| `--stale-renderer` | Re-reads only `mineru`-routed documents whose `metadata.extractionParserVersion` is missing or is not the current `MINERU_PARSER_VERSION`, each at its **own recorded tier** (never a higher one) and ignoring the "already at the requested tier" skip. A document already on the current renderer is skipped as `already_current_renderer`, so a run over an up-to-date library enqueues nothing; `--tier` still resolves and validates the run, but only covers a stale document with no recorded tier. Direct-text documents are unaffected (`--include-direct-text` still governs them). A success records the new version on the source row, so re-running after a partial run skips what was already re-read. |
 | `--since <iso>` | Scopes `--status` and `--only-failed` to this script's own campaign, measured in the ledger's `updated_at` (the column a requeue and a completion move — **not** `created_at`, which for every document that already had a ledger row is the day it was uploaded). Defaults to the earliest `updated_at` among the rows this script has ever stamped `requested_by = 'backfill'` — i.e. the script's own first run. Does **not** gate the core "already done" check, which is unconditional: a document already parsed at or above the requested tier is skipped regardless of who produced that parse or when. |
 | `--limit N` | Enqueues at most N documents — a first careful batch. Positive integer, refused otherwise. The batch is sampled **round-robin across accounts** rather than taken off the front of the list, so a first batch exercises the library rather than one account's oldest files; the underlying order is `created_at, id`, so a given `--limit` is reproducible. |
 | `--user <id\|email>` | Scopes to one account. |
@@ -699,8 +725,11 @@ Flags:
 
 **Idempotent and resumable.** A document already carrying a queued or active job is always skipped.
 A document with a `succeeded` job whose achieved tier already meets the requested tier is skipped.
-Running the script again after a partial run (or after `--limit` capped an earlier batch) only
-touches what is left; a full second run against an already-completed library enqueues nothing.
+With `--stale-renderer`, a document whose source row already carries the current
+`extractionParserVersion` is skipped instead, and a stale one is requeued at its own tier. Running
+the script again after a partial run (or after `--limit` capped an earlier batch) only touches what
+is left; a successful re-read records the new renderer version, so a full second run against an
+already-completed library enqueues nothing, with or without the flag.
 
 **Fairness.** The script enqueues every eligible document up front rather than throttling in
 rounds: the job engine's own claim query

@@ -1,7 +1,10 @@
 import type { MessageUsageState } from "$lib/server/services/analytics";
 import type { AtlasProfile } from "$lib/server/services/atlas/public-types";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
-import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
+import type {
+	ConversationCardsDetail,
+	ConversationDetail,
+} from "$lib/server/services/conversation-detail/types";
 import type { ConversationForkOrigin } from "$lib/server/services/conversation-forks";
 import type {
 	Conversation,
@@ -127,6 +130,80 @@ export async function fetchConversationDetail(
 		undefined,
 		"Failed to load conversation",
 	);
+}
+
+/**
+ * The chat's picture cards alone — the `cards` view of the same detail
+ * endpoint: what the chat page polls for while a take is being made, a few KB
+ * instead of the whole message window and sidecar. The arrays are the full
+ * read's own `imageCards`, so a caller applies them to the state that read
+ * writes. `no-store`: a poll must hear what the server has now, not a cached
+ * answer from the tick before.
+ */
+export async function fetchConversationImageCards(
+	conversationId: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<ConversationCardsDetail> {
+	return requestJson<ConversationCardsDetail>(
+		`/api/conversations/${conversationId}?view=cards`,
+		{ cache: "no-store" },
+		"Failed to load conversation",
+		fetchImpl,
+	);
+}
+
+/**
+ * The page before the bounded window a chat opens with, for the thread's one
+ * "Load older messages" control. `offset` is how many messages are already
+ * loaded, counted from the newest end (the endpoint's own semantics, the same
+ * `listMessageWindow` offset): passing the loaded list's length asks for the
+ * messages immediately older than all of them. The answer's messages are in
+ * the conversation's chronological order, as the window's are, and
+ * `hasMoreBefore` says whether anything still waits above the new page.
+ */
+export interface OlderConversationMessagesPage {
+	messages: ChatMessage[];
+	hasMoreBefore: boolean;
+	/** Older tool calls' artifact cards need these exactly as the detail carries them. */
+	deletedArtifactIds: string[];
+	unreachableArtifactIds: string[];
+}
+
+export async function fetchOlderConversationMessages(
+	conversationId: string,
+	offset: number,
+	fetchImpl: FetchLike = fetch,
+): Promise<OlderConversationMessagesPage> {
+	const safeOffset = Number.isFinite(offset)
+		? Math.max(0, Math.trunc(offset))
+		: 0;
+	const payload = await requestJson<{
+		messages?: ChatMessage[];
+		hasMoreBefore?: boolean;
+		deletedArtifactIds?: string[];
+		unreachableArtifactIds?: string[];
+	}>(
+		`/api/conversations/${conversationId}/messages?offset=${safeOffset}`,
+		undefined,
+		"Failed to load older messages",
+		fetchImpl,
+	);
+	if (
+		!Array.isArray(payload?.messages) ||
+		typeof payload.hasMoreBefore !== "boolean"
+	) {
+		throw new Error("The server returned unexpected data. Please try again.");
+	}
+	return {
+		messages: payload.messages,
+		hasMoreBefore: payload.hasMoreBefore,
+		deletedArtifactIds: Array.isArray(payload.deletedArtifactIds)
+			? payload.deletedArtifactIds
+			: [],
+		unreachableArtifactIds: Array.isArray(payload.unreachableArtifactIds)
+			? payload.unreachableArtifactIds
+			: [],
+	};
 }
 
 export async function conversationExists(

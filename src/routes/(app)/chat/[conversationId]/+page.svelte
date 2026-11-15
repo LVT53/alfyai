@@ -7,6 +7,7 @@ import { t } from "$lib/i18n";
 import { showToast } from "$lib/stores/toast";
 import {
 	anotherImageTake,
+	awaitImageTakeSettled,
 	imageFileUrl,
 	retryImageTake,
 	stopImageTake,
@@ -48,7 +49,9 @@ import {
 	persistConversationDraft,
 	deleteConversationMessages,
 	fetchConversationDetail,
+	fetchConversationImageCards,
 	fetchMessageEvidence,
+	fetchOlderConversationMessages,
 	generateConversationTitle,
 	createConversationFork,
 	keepMessageAsDocument,
@@ -339,6 +342,10 @@ function getAtlasAvailabilityValue(
 
 const initialMessages = getData().messages ?? [];
 const initialHasPersistedMessages = initialMessages.length > 0;
+// The chat opens on a bounded window of its history. The page's own state says
+// whether more waits above it, from here on (a page of older messages may end
+// at the start of the conversation, and then the thread's control goes away).
+const initialHasMoreMessages = getData().hasMoreMessages ?? false;
 const initialContextStatus = getData().contextStatus ?? null;
 const initialTotalCostUsdMicros = getData().totalCostUsdMicros ?? null;
 const initialTotalTokens = getData().totalTokens ?? null;
@@ -710,6 +717,15 @@ function prepareTurn(): Promise<boolean> {
 	);
 }
 let hasPersistedMessages = initialHasPersistedMessages;
+// The one history control's state: whether a page of older messages waits above
+// the loaded window, whether it is on its way, and whether the last try failed.
+// `olderMessagesPrependVersion` rises with every prepend so the thread's scroll
+// orchestrator can tell a page that grew above the reader from a new message
+// below them, and puts the view back by the height the page added.
+let hasMoreMessages = $state(initialHasMoreMessages);
+let loadingOlderMessages = $state(false);
+let olderMessagesFailed = $state(false);
+let olderMessagesPrependVersion = $state(0);
 let contextStatus = $state<ConversationContextStatus | null>(
 	initialContextStatus,
 );
@@ -970,6 +986,9 @@ let selectedPersonalityId = $state<string | null>(
 let bootstrapMode = initialBootstrapMode;
 let sidecarPending = initialSidecarPending;
 let hydratingConversation = false;
+// The poll's own cheap read has its own guard: a slow cards answer must not
+// stack ticks, and it must never hold up a full read (whose guard is above).
+let hydratingImageCards = false;
 let detailMetadataEpoch = 0;
 // Accounting can settle before a slower conversation-detail snapshot arrives.
 let usageMetadataEpoch = 0;
@@ -2131,6 +2150,60 @@ let panelMarks = $derived(
 );
 
 /**
+ * A take a card's Another or Try again just started, and the chat it belongs
+ * to. The take's end is streamed while it is being made (the 750/2500 ms poll
+ * is the fallback), so a picture that lands while nobody is in a turn settles
+ * at once. Nothing of a chat we leave may keep a stream open.
+ */
+type ImageTakeWait = { conversationId: string; close: () => void };
+
+const imageTakeWaits = new Set<ImageTakeWait>();
+
+function waitForImageTakeToSettle(
+	conversationId: string,
+	takeId: string,
+): void {
+	const controller = new AbortController();
+	const wait: ImageTakeWait = {
+		conversationId,
+		close: () => {
+			imageTakeWaits.delete(wait);
+			controller.abort();
+		},
+	};
+	imageTakeWaits.add(wait);
+	// The helper never rejects and never throws: a channel that cannot open
+	// leaves the poll to settle the card.
+	void awaitImageTakeSettled(conversationId, takeId, {
+		signal: controller.signal,
+		onSettled: () => {
+			imageTakeWaits.delete(wait);
+			void hydrateConversationImageCards(conversationId);
+		},
+	});
+}
+
+/** Closes the take channels of one chat, or of every chat. */
+function closeImageTakeWaits(conversationId?: string): void {
+	for (const wait of [...imageTakeWaits]) {
+		if (!conversationId || wait.conversationId === conversationId) {
+			wait.close();
+		}
+	}
+}
+
+let imageTakeWaitConversationId: string | null = null;
+$effect(() => {
+	const conversationId = data.conversation?.id ?? null;
+	if (conversationId === imageTakeWaitConversationId) return;
+	// A subscription belongs to the chat that started it, never to the next one.
+	closeImageTakeWaits();
+	imageTakeWaitConversationId = conversationId;
+});
+
+onDestroy(() => closeImageTakeWaits());
+
+/**
  * What a picture card's buttons ask for (plan 2b T2). Each goes through
  * `client/api/images.ts` and reads the detail back, so the card shows what
  * the server did; a failure says so in a toast and rejects, so the card can
@@ -2164,6 +2237,9 @@ async function handleImageAction(
 					action.cardId,
 					conversationId,
 				);
+				// The take may settle outside a turn: hear its end, so the card
+				// settles at once instead of on the poll tick.
+				waitForImageTakeToSettle(conversationId, takeId);
 				void refreshConversationFiles();
 				return { takeId };
 			}
@@ -2175,6 +2251,7 @@ async function handleImageAction(
 				break;
 			case "retry":
 				await retryImageTake(action.takeId, conversationId);
+				waitForImageTakeToSettle(conversationId, action.takeId);
 				break;
 			case "download":
 				await startAuthenticatedDownload(
@@ -2720,6 +2797,12 @@ function resetState() {
 	normalChatRuntime.reset();
 	messages.set(data.messages ?? []);
 	hasPersistedMessages = (data.messages?.length ?? 0) > 0;
+	// The bounded window of the chat now on screen, and no page of older
+	// messages left over from the one that was.
+	hasMoreMessages = data.hasMoreMessages ?? false;
+	loadingOlderMessages = false;
+	olderMessagesFailed = false;
+	olderMessagesPrependVersion = 0;
 	sendError = null;
 	isSending = false;
 	editingMessage = null;
@@ -3176,6 +3259,51 @@ async function pollForCompletion(
 	);
 }
 
+/**
+ * The thread's one way back into a bounded window's history. `offset` is how
+ * many messages are already loaded, counted from the newest end — the
+ * endpoint's own semantics — so the page it answers with sits immediately
+ * above the oldest message on screen. The answer is in chronological order,
+ * the list's own order, and is prepended whole; a message that arrived while
+ * the page was out (so the count moved) is dropped rather than drawn twice.
+ * The page's control state is the only source of truth: the thread reads it as
+ * props and its scroll owner puts the reader's view back by the height added.
+ */
+async function handleLoadOlderMessages() {
+	if (loadingOlderMessages || !hasMoreMessages) return;
+	const conversationId = data.conversation.id;
+	const offset = get(messages).length;
+	loadingOlderMessages = true;
+	olderMessagesFailed = false;
+	try {
+		const page = await fetchOlderConversationMessages(conversationId, offset);
+		// The person moved to another chat while the page was out: its answer
+		// belongs to the chat it was asked for, which is no longer on screen.
+		if (data.conversation.id !== conversationId) return;
+		const current = get(messages);
+		const loaded = new Set(current.map((message) => message.id));
+		const older = page.messages.filter((message) => !loaded.has(message.id));
+		messages.set([...older, ...current]);
+		// The endpoint answers for the window it returned: nothing above it means
+		// the thread's control has done its job.
+		hasMoreMessages = page.hasMoreBefore;
+		// Older tool calls carry the same artifact signal the detail carries for
+		// the loaded window (a card deleted since, or made in another chat).
+		deletedArtifactIds = page.deletedArtifactIds.reduce(
+			markArtifactDeleted,
+			deletedArtifactIds,
+		);
+		unreachableArtifactIds = [
+			...new Set([...unreachableArtifactIds, ...page.unreachableArtifactIds]),
+		];
+		olderMessagesPrependVersion += 1;
+	} catch {
+		if (data.conversation.id === conversationId) olderMessagesFailed = true;
+	} finally {
+		if (data.conversation.id === conversationId) loadingOlderMessages = false;
+	}
+}
+
 async function loadPersistedData() {
 	console.info("[CHAT] Loading persisted data after polling timeout");
 	// The chat this read is for. A switch to another chat while it is out makes its
@@ -3187,6 +3315,10 @@ async function loadPersistedData() {
 	const stillHere = data.conversation.id === conversationId;
 	if (detail && stillHere) {
 		messages.set([...(detail.messages ?? [])]);
+		// The read replaced the list with the server's window, so the window's
+		// own "more before it" answer is the true one again.
+		hasMoreMessages = detail.hasMoreMessages ?? false;
+		olderMessagesFailed = false;
 		applyConversationDetailMetadata(detail);
 		forkOrigin = detail.forkOrigin ?? forkOrigin;
 		conversationStatus = detail.conversation?.status ?? conversationStatus;
@@ -3313,6 +3445,15 @@ onDestroy(() => {
 	}
 });
 
+/**
+ * The one place a read of the chat's picture cards reaches the page's state: a
+ * full detail read and the picture-card poll's own `cards` read both write
+ * here, so the two can never disagree about where a card goes.
+ */
+function applyImageCards(cards: ImageCardView[] | undefined) {
+	imageCards = cards ?? imageCards;
+}
+
 async function hydrateConversationDetail(conversationId: string) {
 	if (hydratingConversation) return;
 	hydratingConversation = true;
@@ -3350,7 +3491,7 @@ async function hydrateConversationDetail(conversationId: string) {
 		// The picture cards too (plan 2b F4): a take's state only moves forward on
 		// the server, and a mid-turn poll is exactly what moves the boundary, so a
 		// card's first take would otherwise wait for the next poll.
-		imageCards = payload.imageCards ?? imageCards;
+		applyImageCards(payload.imageCards);
 		deletedArtifactIds = (payload.deletedArtifactIds ?? []).reduce(
 			markArtifactDeleted,
 			deletedArtifactIds,
@@ -3388,6 +3529,7 @@ async function hydrateConversationDetail(conversationId: string) {
 			(payload.messages?.length ?? 0) > 0
 		) {
 			messages.set(payload.messages ?? []);
+			hasMoreMessages = payload.hasMoreMessages ?? false;
 			hasPersistedMessages = true;
 		}
 	} catch {
@@ -3402,6 +3544,37 @@ async function hydrateConversationDetail(conversationId: string) {
 	// without a dedicated, parallel hydration path. The questions ride with it.
 	void refreshPendingWrites();
 	void refreshQuestions();
+}
+
+/**
+ * The picture-card poll's tick: reads the chat's cards alone (the detail's
+ * `cards` view — a few KB) and applies them exactly where a full read's
+ * `imageCards` go. It touches nothing else: the message window, artifacts,
+ * files, Atlas jobs, cost and compression markers keep what they have, since
+ * only the pictures are moving between two of these ticks. A failed read is no
+ * reason to leave a picture mid-shimmer, so it falls back to the full detail
+ * read once and the normal cadence carries on.
+ */
+async function hydrateConversationImageCards(conversationId: string) {
+	if (hydratingImageCards) return;
+	hydratingImageCards = true;
+	try {
+		const payload = await fetchConversationImageCards(conversationId);
+		// The person may have opened another chat while this was read: its
+		// answer belongs to the chat it was asked for (hydrateConversationDetail's
+		// rule).
+		if (
+			conversationId !== data.conversation.id ||
+			payload.conversationId !== data.conversation.id
+		) {
+			return;
+		}
+		applyImageCards(payload.imageCards);
+	} catch {
+		await hydrateConversationDetail(conversationId);
+	} finally {
+		hydratingImageCards = false;
+	}
 }
 
 /** The placeholder's time is the browser's and a job's is the server's: the room the two clocks may differ by. */
@@ -3572,16 +3745,24 @@ let imageCardsPollMs = $derived(imageCardsPollIntervalMs(imageCards));
 
 $effect(() => {
 	const conversationId = data.conversation?.id;
-	const shouldPollConversation =
+	// A file or Atlas job's state only arrives with the full read; while neither
+	// is moving, a tick is the picture cards' alone (the `cards` view), so a take
+	// being made costs a few KB, not the whole chat. The effect re-runs whenever
+	// either list changes, so this verdict is the one its interval acts on.
+	const needsFullDetailRead =
 		hasActiveFileProductionJobs(fileProductionJobs) ||
-		hasActiveAtlasJobs(atlasJobs) ||
-		pollForImageCards;
+		hasActiveAtlasJobs(atlasJobs);
+	const shouldPollConversation = needsFullDetailRead || pollForImageCards;
 	if (!browser || !conversationId || !shouldPollConversation) {
 		return;
 	}
 
 	const interval = setInterval(() => {
-		void hydrateConversationDetail(conversationId);
+		if (needsFullDetailRead) {
+			void hydrateConversationDetail(conversationId);
+			return;
+		}
+		void hydrateConversationImageCards(conversationId);
 	}, imageCardsPollMs);
 
 	return () => {
@@ -5397,6 +5578,11 @@ function handleDrop(event: DragEvent) {
 						{forkOpening}
 						{forkingMessageId}
 						showingLinkedMessage={linkedMessageConversationId === data.conversation.id}
+						{hasMoreMessages}
+						olderMessagesLoading={loadingOlderMessages}
+						olderMessagesFailed={olderMessagesFailed}
+						{olderMessagesPrependVersion}
+						onLoadOlderMessages={handleLoadOlderMessages}
 						readOnly={isConversationReadOnlyForChat || questionOpen}
 						{questions}
 						askActionState={askStateForCards}

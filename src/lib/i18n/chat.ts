@@ -230,6 +230,8 @@ const chatDict = {
 		"chat.jumpRailMobileTitle": "Jump to turn",
 		"chat.jumpToLatest": "Jump to latest",
 		"chat.loading": "Loading messages...",
+		"chat.loadOlderMessages": "Load older messages",
+		"chat.loadOlderMessagesFailed": "Couldn't load older messages. Try again.",
 		"chat.messagePlaceholder": "Type a message...",
 		"chat.messageWillSendAutomatically":
 			"Message will send automatically when file processing finishes.",
@@ -1534,6 +1536,9 @@ const chatDict = {
 		"chat.jumpRailMobileTitle": "Ugrás válaszra",
 		"chat.jumpToLatest": "Ugrás a legutóbbi üzenethez",
 		"chat.loading": "Üzenetek betöltése...",
+		"chat.loadOlderMessages": "Korábbi üzenetek betöltése",
+		"chat.loadOlderMessagesFailed":
+			"Nem sikerült betölteni a korábbi üzeneteket. Próbáld újra.",
 		"chat.messagePlaceholder": "Írj üzenetet...",
 		"chat.messageWillSendAutomatically":
 			"Az üzenet automatikusan elküldődik, amikor a fájlfeldolgozás befejeződik.",

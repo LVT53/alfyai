@@ -62,6 +62,11 @@ let {
 	forkOrigin = null,
 	forkingMessageId = null,
 	showingLinkedMessage = false,
+	hasMoreMessages = false,
+	olderMessagesLoading = false,
+	olderMessagesFailed = false,
+	olderMessagesPrependVersion = 0,
+	onLoadOlderMessages = undefined,
 	readOnly = false,
 	onRegenerate = undefined,
 	onSendFollowUp = undefined,
@@ -123,6 +128,24 @@ let {
 	 * the thread holds none.
 	 */
 	showingLinkedMessage?: boolean;
+	/**
+	 * More messages wait before the loaded window (the page opened the chat on a
+	 * bounded window): the thread's top offers the one "Load older messages" control.
+	 */
+	hasMoreMessages?: boolean;
+	/** That older page is on its way; the control stays in its row, off. */
+	olderMessagesLoading?: boolean;
+	/** The last older page could not be read; the thread's top says so. */
+	olderMessagesFailed?: boolean;
+	/**
+	 * Rises once for every older page the page prepended. A prepend is not a new
+	 * message: it grows the thread above the reader, so the scroll orchestrator
+	 * must not take them to the end, and the control's own handler puts the view
+	 * back where it was by the height that was added.
+	 */
+	olderMessagesPrependVersion?: number;
+	/** The page fetches the older page; the thread owns where the reader's view is. */
+	onLoadOlderMessages?: (() => void | Promise<void>) | undefined;
 	readOnly?: boolean;
 	onRegenerate?: ((payload: { messageId: string }) => void) | undefined;
 	onSendFollowUp?: ((payload: { text: string }) => void) | undefined;
@@ -252,6 +275,16 @@ let lastImageCardCount = 0;
 let lastAtlasJobUpdateKey = "";
 let lastContextCompressionMarkerCount = 0;
 let lastConversationId: string | null = null;
+// The older-page count the scroll orchestrator last saw. A prepend grows the
+// thread above the reader, so it must not be read as a new message at the end.
+let lastOlderMessagesPrependVersion = 0;
+// The reader's place when they asked for the older page, taken before the page
+// answers and put back once its rows have been laid out.
+let pendingOlderMessagesAnchor: {
+	scrollTop: number;
+	scrollHeight: number;
+	prependVersion: number;
+} | null = null;
 let shouldJumpToConversationBottom = false;
 let pendingForkBoundaryMessageId: string | null = null;
 let lastForkBoundaryJumpKey: string | null = null;
@@ -584,6 +617,13 @@ $effect.pre(() => {
 
 	if (!scrollContainer) return;
 
+	// An older page was prepended: the thread grew above the reader, and the
+	// control's handler puts the view back by that height. Reading it as a new
+	// message would take them to the end they did not ask for.
+	const prependedOlderMessages =
+		olderMessagesPrependVersion !== lastOlderMessagesPrependVersion;
+	lastOlderMessagesPrependVersion = olderMessagesPrependVersion;
+
 	// Detect conversation change and reset before scroll dispatch.
 	// Must happen here (in $effect.pre) rather than in the regular $effect
 	// because $effect.pre runs first and needs correct counters/flags before
@@ -601,6 +641,7 @@ $effect.pre(() => {
 		lastImageCardCount = 0;
 		lastAtlasJobUpdateKey = "";
 		lastContextCompressionMarkerCount = 0;
+		lastOlderMessagesPrependVersion = olderMessagesPrependVersion;
 		// A restore belongs to the conversation it was scheduled for. Clear any
 		// stale value left over from the PREVIOUS conversation up front — only
 		// the sessionStorage branch below repopulates it, and only for THIS
@@ -663,7 +704,8 @@ $effect.pre(() => {
 		return;
 	}
 
-	const isNewMessage = hasNewMessage(dedupedMessages);
+	const isNewMessage =
+		hasNewMessage(dedupedMessages) && !prependedOlderMessages;
 	const hasNewFileProductionJobs =
 		fileProductionJobs.length > lastFileProductionJobCount;
 	// A picture card arrives under the reply it belongs to, like a file card.
@@ -1171,6 +1213,55 @@ function compactionMarkerStatusClass(
 	return "context-compression-chip--valid";
 }
 
+/**
+ * The one "Load older messages" control: the page fetches the page before the
+ * loaded window and prepends it. The rows land above what the reader is
+ * looking at, so the scroll height they add is what the view must move by —
+ * whether the reader was at the thread's top (the older page fills in under
+ * the control) or partway through it. No animation: the view is the same
+ * sentences, in the same place, a frame later. A failure adds only the
+ * control's own sentence, and the reader's place is left alone.
+ */
+async function loadOlderMessages() {
+	if (!onLoadOlderMessages || olderMessagesLoading) return;
+	const container = scrollContainer;
+	const anchor = container
+		? {
+				scrollTop: container.scrollTop,
+				scrollHeight: container.scrollHeight,
+				prependVersion: olderMessagesPrependVersion,
+			}
+		: null;
+	// The reader asked for what is above; the thread's own hold on the end (a
+	// just-opened chat, a settling reply) must not pull them back down.
+	releaseHeldPosition();
+	pendingOlderMessagesAnchor = anchor;
+	try {
+		await onLoadOlderMessages();
+		await tick();
+	} catch {
+		// The page draws the failure sentence; changing nothing else is right.
+		pendingOlderMessagesAnchor = null;
+		return;
+	}
+	const held = pendingOlderMessagesAnchor;
+	pendingOlderMessagesAnchor = null;
+	// No prepend (the page reported a failure without throwing, say): the
+	// reader's place must not move for the sentence that appeared instead.
+	if (!held || held.prependVersion === olderMessagesPrependVersion) return;
+	requestAnimationFrame(() => {
+		const el = scrollContainer;
+		if (!el) return;
+		const added = el.scrollHeight - held.scrollHeight;
+		if (added === 0) return;
+		el.scrollTop = held.scrollTop + added;
+		lastKnownScrollTop = el.scrollTop;
+		// They are up in the thread now; a streaming reply must not take the view
+		// back to the live edge from the messages they just asked for.
+		shouldAutoScroll = false;
+	});
+}
+
 async function restoreScrollToPosition(
 	position: number,
 	forConversationId: string | null,
@@ -1316,6 +1407,27 @@ async function scrollToMessage(messageId: string) {
 		aria-atomic="false"
 	>
 	<div bind:this={threadContent} class="mx-auto flex min-h-full w-full max-w-[760px] flex-col gap-lg px-sm py-lg md:px-lg md:py-xl lg:px-xl">
+		{#if hasMoreMessages}
+			<!-- The top of the thread: the one way back into the history the bounded
+			     window left out. It keeps its row while the page is on its way, so
+			     nothing below it moves when the answer lands. -->
+			<div class="load-older-messages" data-testid="load-older-messages">
+				<button
+					type="button"
+					class="load-older-messages__button"
+					disabled={olderMessagesLoading}
+					aria-busy={olderMessagesLoading ? "true" : undefined}
+					onclick={loadOlderMessages}
+				>
+					{$t("chat.loadOlderMessages")}
+				</button>
+				{#if olderMessagesFailed}
+					<p class="load-older-messages__error" role="alert">
+						{$t("chat.loadOlderMessagesFailed")}
+					</p>
+				{/if}
+			</div>
+		{/if}
 		{#if isIncognito}
 			<!-- The one-time opening mark (spec §5): part of the scrolling
 			     thread, not sticky, not a banner. Rendered for every incognito
@@ -1590,6 +1702,52 @@ async function scrollToMessage(messageId: string) {
 	.incognito-opening__rule {
 		flex: 1 1 auto;
 		border-top: 1px dashed var(--border-default);
+	}
+
+	/* The top of a bounded window: a quiet line, not a banner. Its row is the
+	   control and nothing else, so it does not take the reader's eye from the
+	   reply they were reading. */
+	.load-older-messages {
+		display: flex;
+		flex: 0 0 auto;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-xs);
+	}
+
+	.load-older-messages__button {
+		padding: 4px 10px;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: none;
+		color: var(--text-muted);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		cursor: pointer;
+	}
+
+	.load-older-messages__button:hover:not(:disabled) {
+		color: var(--text-primary);
+	}
+
+	.load-older-messages__button:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+
+	.load-older-messages__button:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	/* Nothing was lost, so the line is not red (the Ask card's failed answer
+	   uses the same warning colour for the same reason). */
+	.load-older-messages__error {
+		margin: 0;
+		color: var(--warning-text);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		line-height: 1.45;
 	}
 
 	/* B2 — floating "jump to latest" control. Anchored to the message area's

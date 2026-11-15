@@ -13,7 +13,7 @@ describe("index.ts", () => {
 
 		expect(Object.keys(engine).sort()).toEqual(
 			[
-				// The fourteen functions of the interface.
+				// The functions of the interface.
 				"defineJobKind",
 				"startJobs",
 				"stopJobs",
@@ -25,6 +25,9 @@ describe("index.ts", () => {
 				"reopen",
 				"wake",
 				"waitForVerdict",
+				// A reader that shows a verdict instead of polling for it (the
+				// picture take's SSE channel): hears ONE job settle, changes nothing.
+				"subscribeToJobSettled",
 				"runInline",
 				"recover",
 				"describeJob",

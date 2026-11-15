@@ -125,6 +125,7 @@ import {
 	resetUrlProvenanceForTests,
 } from "$lib/server/services/url-provenance";
 import {
+	getConversationCards,
 	getConversationDetail,
 	getOlderConversationMessages,
 } from "./read-model";
@@ -1026,5 +1027,61 @@ describe("Conversation Detail Read Model", () => {
 			expect(hasSourceHost("user-1", "older.example")).toBe(true);
 			expect(hasSourceThumbnail("user-1", THUMB)).toBe(true);
 		});
+	});
+});
+
+// The `cards` view (`GET /api/conversations/<id>?view=cards`): what the chat
+// page's picture-card poll reads while a take is being made. It is the full
+// view's own `imageCards`, through the same helper, and none of the assembly
+// that fills the message window and the sidecar.
+describe("Conversation cards view (the picture-card poll's read)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockGetConversation.mockResolvedValue({
+			id: "conv-1",
+			title: "Chat",
+			projectId: null,
+			sidebarPinned: false,
+			sidebarSortOrder: null,
+			createdAt: 1_777_140_000,
+			updatedAt: 1_777_140_001,
+		});
+		mockListConversationImageCards.mockResolvedValue([]);
+	});
+
+	it("returns only the picture cards, none of the full view's assembly and no messages", async () => {
+		const cards = [{ id: "card-1", takes: [] }];
+		mockListConversationImageCards.mockResolvedValueOnce(cards as never);
+
+		const detail = await getConversationCards({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+
+		expect(mockGetConversation).toHaveBeenCalledWith("user-1", "conv-1");
+		expect(mockListConversationImageCards).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+		);
+		expect(detail).toEqual({ conversationId: "conv-1", imageCards: cards });
+		expect(detail).not.toHaveProperty("messages");
+		expect(mockListMessageWindow).not.toHaveBeenCalled();
+		expect(mockListConversationArtifacts).not.toHaveBeenCalled();
+		expect(mockListArtifactsForConversation).not.toHaveBeenCalled();
+		expect(mockListConversationAtlasJobs).not.toHaveBeenCalled();
+		expect(mockListContextCompressionSnapshots).not.toHaveBeenCalled();
+		expect(mockGetConversationCostSummary).not.toHaveBeenCalled();
+	});
+
+	it("answers null for a conversation the caller does not own, before reading its cards", async () => {
+		mockGetConversation.mockResolvedValueOnce(null);
+
+		expect(
+			await getConversationCards({
+				userId: "user-2",
+				conversationId: "conv-2",
+			}),
+		).toBeNull();
+		expect(mockListConversationImageCards).not.toHaveBeenCalled();
 	});
 });
