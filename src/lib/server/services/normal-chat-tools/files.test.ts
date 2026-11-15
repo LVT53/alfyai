@@ -324,6 +324,8 @@ describe("runFilesTool", () => {
 				size: 4096,
 				contentType: "application/pdf",
 				mtime: null,
+				webUrl:
+					"https://cloud.example.com/index.php/apps/files/?dir=%2FDocuments&scrollto=report.pdf",
 			},
 			{
 				name: "Documents",
@@ -542,6 +544,8 @@ describe("runFilesTool", () => {
 				contentType: "text/plain",
 				content: "hello world",
 				mtime: null,
+				webUrl:
+					"https://cloud.example.com/index.php/apps/files/?dir=%2Fnotes&scrollto=todo.txt",
 			},
 		]);
 		expect(outcome.modelPayload.citations).toEqual([
@@ -2103,6 +2107,222 @@ describe("runFilesTool — share_link action (explicit-confirm write flow, GAP B
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("path is required");
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("runFilesTool — file cards and previews (Task 5)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		nextcloudSearchMock.mockReset();
+		nextcloudListFolderMock.mockReset();
+		nextcloudReadFileMock.mockReset();
+		nextcloudStatMock.mockReset();
+		onedriveSearchMock.mockReset();
+		onedriveListFolderMock.mockReset();
+		onedriveReadFileMock.mockReset();
+		onedriveStatMock.mockReset();
+		onedriveGetAccessTokenForReadMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(false);
+		getConnectionSecretMock.mockResolvedValue("secret");
+	});
+
+	const LAKE_PREVIEW =
+		"/api/connections/nextcloud/preview?connectionId=conn-1&fileId=42&size=192";
+
+	it("gives an image a preview and a link to the file", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		nextcloudSearchMock.mockResolvedValue([
+			{
+				name: "lake.jpg",
+				path: "Photos/lake.jpg",
+				isDir: false,
+				size: 2048,
+				mtime: "2024-01-03T00:00:00Z",
+				contentType: "image/jpeg",
+				etag: "etag-1",
+				fileId: 42,
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "lake" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.results[0]).toMatchObject({
+			fileId: 42,
+			previewUrl: LAKE_PREVIEW,
+			webUrl: expect.stringMatching(/&openfile=42$/),
+		});
+		expect(outcome.cards).toEqual({
+			connectionId: "conn-1",
+			cards: [
+				{
+					name: "lake.jpg",
+					path: "Photos/lake.jpg",
+					size: 2048,
+					mtime: "2024-01-03T00:00:00Z",
+					contentType: "image/jpeg",
+					previewUrl: LAKE_PREVIEW,
+					webUrl: expect.stringMatching(/&openfile=42$/),
+				},
+			],
+			total: 1,
+		});
+	});
+
+	it("gives a document a link but no preview", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		nextcloudSearchMock.mockResolvedValue([
+			{
+				name: "invoice.pdf",
+				path: "Invoices/invoice.pdf",
+				isDir: false,
+				size: 8192,
+				mtime: null,
+				contentType: "application/pdf",
+				etag: "etag-2",
+				fileId: 7,
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "invoice" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.results[0]?.previewUrl).toBeUndefined();
+		expect(outcome.modelPayload.results[0]?.webUrl).toMatch(/&openfile=7$/);
+		expect(outcome.cards?.cards).toHaveLength(1);
+		expect(outcome.cards?.cards[0]?.previewUrl).toBeNull();
+		expect(outcome.cards?.cards[0]?.webUrl).toMatch(/&openfile=7$/);
+	});
+
+	it("never asks for a OneDrive preview", async () => {
+		const conn = makeOneDriveConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		onedriveSearchMock.mockResolvedValue([
+			{
+				name: "lake.jpg",
+				path: "Photos/lake.jpg",
+				isDir: false,
+				size: 2048,
+				mtime: "2024-01-03T00:00:00Z",
+				contentType: "image/jpeg",
+				etag: "etag-1",
+				webUrl: "https://onedrive.live.com/lake.jpg",
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "lake" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.results[0]?.previewUrl).toBeUndefined();
+		expect(outcome.modelPayload.results[0]?.webUrl).toBe(
+			"https://onedrive.live.com/lake.jpg",
+		);
+		expect(outcome.cards).toBeNull();
+	});
+
+	it("keeps six cards and counts the rest", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		nextcloudSearchMock.mockResolvedValue(
+			Array.from({ length: 9 }, (_, index) => ({
+				name: `photo-${index + 1}.jpg`,
+				path: `Photos/photo-${index + 1}.jpg`,
+				isDir: false,
+				size: 1024,
+				mtime: null,
+				contentType: "image/jpeg",
+				etag: `etag-${index + 1}`,
+				fileId: index + 1,
+			})),
+		);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "photo" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.results).toHaveLength(9);
+		expect(outcome.cards?.cards).toHaveLength(6);
+		expect(outcome.cards?.total).toBe(9);
+	});
+
+	it("leaves directories out of the cards", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		nextcloudSearchMock.mockResolvedValue([
+			{
+				name: "Photos",
+				path: "Photos",
+				isDir: true,
+				size: 0,
+				mtime: null,
+				contentType: null,
+				etag: "etag-dir",
+			},
+			{
+				name: "lake.jpg",
+				path: "Photos/lake.jpg",
+				isDir: false,
+				size: 2048,
+				mtime: null,
+				contentType: "image/jpeg",
+				etag: "etag-1",
+				fileId: 42,
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "lake" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.cards?.cards.map((card) => card.name)).toEqual(["lake.jpg"]);
+		expect(outcome.cards?.total).toBe(1);
+	});
+
+	it("previews an image whose server reported no id by path", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		nextcloudSearchMock.mockResolvedValue([
+			{
+				name: "lake.jpg",
+				path: "Photos/lake.jpg",
+				isDir: false,
+				size: 2048,
+				mtime: null,
+				contentType: "image/jpeg",
+				etag: "etag-1",
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "lake" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.results[0]?.previewUrl).toBe(
+			"/api/connections/nextcloud/preview?connectionId=conn-1&path=Photos%2Flake.jpg&size=192",
+		);
 	});
 });
 

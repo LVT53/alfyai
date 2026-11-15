@@ -199,6 +199,31 @@ export interface ToolCallMapData {
 	attribution: string;
 }
 
+// One file the `files` tool found, as the reply's card draws it. The server
+// builds it (it owns the connection and the preview route), the client only
+// draws: no URL is assembled in the browser.
+export interface ToolCallFileCard {
+	name: string;
+	path: string;
+	size: number;
+	mtime: string | null;
+	contentType: string | null;
+	// The app-relative preview route URL, or null when this file has no
+	// preview (not an image, or the provider cannot serve one) — the card then
+	// draws the file-type glyph.
+	previewUrl: string | null;
+	// The Files-app (or OneDrive) link that opens the file itself.
+	webUrl: string;
+}
+
+// The `files` tool's card payload: the first few found files, plus how many
+// there were in all so the card can say "N more".
+export interface ToolCallFilesData {
+	connectionId: string;
+	cards: ToolCallFileCard[];
+	total: number;
+}
+
 // "failed" (E1) is a genuine terminal outcome distinct from "done" — a tool
 // call that errored is finished (not running) but did not succeed. Before
 // E1, failed calls were reported as "done" with only `metadata.ok === false`
@@ -223,6 +248,9 @@ export interface ToolCallEntry {
 	metadata?: Record<string, string | number | boolean | null>;
 	// Inline map card data (map_route only, today). See ToolCallMapData.
 	map?: ToolCallMapData | null;
+	// Inline file cards (files only). Like `map`, turn-local state that is not
+	// rendered from the thinking segment.
+	files?: ToolCallFilesData | null;
 	// The instruction the model offered to write this turn (suggest_instruction
 	// only). The assistant message does not exist while the tool runs, so the
 	// offer rides the tool call and is projected onto the turn's

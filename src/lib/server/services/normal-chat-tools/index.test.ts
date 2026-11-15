@@ -5774,7 +5774,11 @@ describe("tool description hygiene", () => {
 	// ends when the model stops calling tools). Re-measured the same way: 5,518 before
 	// and 5,458 after (done was 60 tokens, 240 characters), so the ceiling is lowered
 	// by exactly that. No margin.
-	const CATALOGUE_TOKEN_CEILING = 5458;
+	// 2026-11-15: the files tool says its results also appear as file cards and
+	// that the reply must not paste file URLs (nextcloud-file-cards, Task 5).
+	// Re-measured the same way: 5,458 before and 5,490 after, so the ceiling is
+	// raised by exactly the 32 tokens. No margin.
+	const CATALOGUE_TOKEN_CEILING = 5490;
 
 	function estimateTokens(text: string): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN);

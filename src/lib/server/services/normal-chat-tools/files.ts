@@ -29,7 +29,9 @@ import {
 	type WritePreview,
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import type { ToolCallFilesData } from "$lib/server/services/messages-types";
 import { getEntryByMimeType } from "$lib/shared/file-types";
+import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage, truncateText } from "./shared";
@@ -89,6 +91,17 @@ export type FilesToolResultItem = {
 	// model can answer "my most recent invoice" / "the newest file" —
 	// impossible without it.
 	mtime: string | null;
+	// Nextcloud's own numeric id, when the adapter reported one. Carried on the
+	// result (not only on the internal FileEntry) so the card data built from
+	// these results can address the file without a second lookup.
+	fileId?: number;
+	// The Files-app deep link, built once per result through webUrlForConn and
+	// reused for the citation — never recomputed. Only concrete files carry
+	// one: a folder is not a document to open.
+	webUrl?: string;
+	// The app-relative preview route URL, for a Nextcloud image the app can
+	// draw. Absent for a non-image, a folder, and every non-Nextcloud provider.
+	previewUrl?: string;
 	content?: string;
 	truncated?: boolean;
 	binary?: boolean;
@@ -117,6 +130,12 @@ export type FilesToolModelPayload = {
 export type FilesToolOutcome = {
 	modelPayload: FilesToolModelPayload;
 	candidates: ToolEvidenceCandidate[];
+	// What the reply's file cards need (messages-types.ts's ToolCallFilesData),
+	// or null when this connection cannot serve previews (OneDrive) or the
+	// outcome has no results to show. Built inside runFilesTool, where the
+	// resolved connection is known. Deliberately NOT part of modelPayload: the
+	// model keeps seeing `results`, never the card data.
+	cards: ToolCallFilesData | null;
 };
 
 // Write actions stay Nextcloud-only for v1 (see the onedrive guard in
@@ -135,6 +154,14 @@ const MAX_SEARCH_RESULTS = 20;
 // 237k-token result and a provider 400). "list" returns the newest
 // MAX_LIST_RESULTS entries plus a summary of the folder instead.
 const MAX_LIST_RESULTS = 50;
+// How many file cards the reply draws under the answer. The rest are counted
+// by the card's "N more" line rather than shown, so a broad search cannot
+// push the answer off the screen.
+export const FILE_CARD_LIMIT = 6;
+// The larger of the two sizes the preview route accepts (96 is the card row,
+// 192 the card's own thumbnail). The card data names one size so the browser
+// never guesses; this is the one it draws.
+export const FILE_PREVIEW_SIZE = 192;
 // The Nextcloud read adapter already caps raw bytes at 25MB (chat-context
 // reads only); this is a second, much tighter cap on the *text* we inline
 // into the model's context so one large text file can't blow the prompt
@@ -305,13 +332,106 @@ function statForConn(
 function webUrlForConn(
 	conn: ConnectionPublic,
 	path: string,
-	fileId?: number,
+	fileId: number | undefined,
 	webUrl?: string | null,
 ): string {
 	if (conn.provider === "onedrive") {
 		return onedriveWebUrl({ webUrl: webUrl ?? null });
 	}
 	return nextcloudWebUiUrl(conn, path, fileId);
+}
+
+// The app-relative URL the file card's <img> loads. Only a Nextcloud
+// connection can serve one (the preview route reads that user's app password
+// server-side), and only for an image the app can draw: asking Nextcloud to
+// render a PDF preview would spend an upstream render on bytes the card can
+// never show. The decision is shared, not a second extension list — see
+// isSeeableImage. The route takes a file id or, when the server reported no
+// id, the path, so a result whose server has no `oc:fileid` still gets a
+// preview instead of silently losing it.
+function previewUrlForConn(
+	conn: ConnectionPublic,
+	name: string,
+	path: string,
+	fileId: number | undefined,
+	contentType: string | null,
+	isDir: boolean,
+): string | undefined {
+	if (conn.provider !== "nextcloud" || isDir) return undefined;
+	if (!isSeeableImage(name, contentType)) return undefined;
+	const target =
+		fileId !== undefined
+			? `fileId=${fileId}`
+			: `path=${encodeURIComponent(path)}`;
+	return `/api/connections/nextcloud/preview?connectionId=${encodeURIComponent(conn.id)}&${target}&size=${FILE_PREVIEW_SIZE}`;
+}
+
+// The result items and their citations for one page of entries, built in one
+// pass so the Files-app link is computed ONCE per entry and shared by both
+// (a citation is not a reason to call webUrlForConn a second time). A folder
+// is neither a citable document nor a card, so it carries no webUrl.
+function toResultItems(
+	conn: ConnectionPublic,
+	files: FileEntry[],
+): { results: FilesToolResultItem[]; citations: FilesCitation[] } {
+	const entries = files.map((file) => {
+		const webUrl = file.isDir
+			? undefined
+			: webUrlForConn(conn, file.path, file.fileId, file.webUrl);
+		const previewUrl = previewUrlForConn(
+			conn,
+			file.name,
+			file.path,
+			file.fileId,
+			file.contentType,
+			file.isDir,
+		);
+		const result: FilesToolResultItem = {
+			name: file.name,
+			path: file.path,
+			isDir: file.isDir,
+			size: file.size,
+			contentType: file.contentType,
+			mtime: file.mtime,
+			...(file.fileId !== undefined ? { fileId: file.fileId } : {}),
+			...(webUrl !== undefined ? { webUrl } : {}),
+			...(previewUrl !== undefined ? { previewUrl } : {}),
+		};
+		return { file, webUrl, result };
+	});
+	return {
+		results: entries.map((entry) => entry.result),
+		citations: entries.flatMap(({ file, webUrl }) =>
+			webUrl === undefined
+				? []
+				: [{ label: file.name, path: file.path, url: webUrl }],
+		),
+	};
+}
+
+// The reply's file cards, from the results the model was also given. Null is
+// the OneDrive gate in one place: only Nextcloud can serve a preview, so a
+// OneDrive result never grows a card. Directories are not files to open, and
+// the list is bounded so a broad search stays a card strip, not a wall.
+export function buildFilesCards(
+	conn: ConnectionPublic,
+	results: FilesToolResultItem[],
+): ToolCallFilesData | null {
+	if (conn.provider !== "nextcloud") return null;
+	const files = results.filter((result) => !result.isDir);
+	return {
+		connectionId: conn.id,
+		cards: files.slice(0, FILE_CARD_LIMIT).map((result) => ({
+			name: result.name,
+			path: result.path,
+			size: result.size,
+			mtime: result.mtime,
+			contentType: result.contentType,
+			previewUrl: result.previewUrl ?? null,
+			webUrl: result.webUrl ?? webUrlForConn(conn, result.path, result.fileId),
+		})),
+		total: files.length,
+	};
 }
 
 function toCandidate(citation: FilesCitation): ToolEvidenceCandidate {
@@ -349,6 +469,10 @@ function buildPayload(params: {
 			...(params.preview ? { preview: params.preview } : {}),
 		},
 		candidates: citations.map(toCandidate),
+		// Every outcome starts with no cards; the read outcomes attach them
+		// through withFileCards once the connection (and thus preview support)
+		// is known, and write/error outcomes correctly stay null.
+		cards: null,
 	};
 }
 
@@ -420,21 +544,7 @@ function searchOutcome(
 	connections: ConnectionPublic[],
 ): FilesToolOutcome {
 	const limited = files.slice(0, MAX_SEARCH_RESULTS);
-	const results: FilesToolResultItem[] = limited.map((file) => ({
-		name: file.name,
-		path: file.path,
-		isDir: file.isDir,
-		size: file.size,
-		contentType: file.contentType,
-		mtime: file.mtime,
-	}));
-	const citations: FilesCitation[] = limited
-		.filter((file) => !file.isDir)
-		.map((file) => ({
-			label: file.name,
-			path: file.path,
-			url: webUrlForConn(conn, file.path, file.fileId, file.webUrl),
-		}));
+	const { results, citations } = toResultItems(conn, limited);
 	const baseMessage =
 		files.length === 0
 			? "No files matched your search."
@@ -516,24 +626,11 @@ function listOutcome(
 	// deterministic and the part of the folder most likely to matter.
 	const ordered = [...files].sort(compareListEntries);
 	const page = ordered.slice(0, MAX_LIST_RESULTS);
-	const results: FilesToolResultItem[] = page.map((file) => ({
-		name: file.name,
-		path: file.path,
-		isDir: file.isDir,
-		size: file.size,
-		contentType: file.contentType,
-		mtime: file.mtime,
-	}));
-	// Only concrete files get a clickable citation — folders aren't documents.
-	// Citations describe the returned page, never the entries the page left
-	// out, so evidence candidates stay one-per-visible-entry.
-	const citations: FilesCitation[] = page
-		.filter((file) => !file.isDir)
-		.map((file) => ({
-			label: file.name,
-			path: file.path,
-			url: webUrlForConn(conn, file.path, file.fileId, file.webUrl),
-		}));
+	// Only concrete files get a clickable citation (and a card) — folders
+	// aren't documents. Citations describe the returned page, never the
+	// entries the page left out, so evidence candidates stay
+	// one-per-visible-entry.
+	const { results, citations } = toResultItems(conn, page);
 	const folderLabel = path?.trim() ? path.trim() : "your Files root";
 	const total = files.length;
 	const dirCount = files.filter((file) => file.isDir).length;
@@ -561,6 +658,19 @@ function listOutcome(
 			byType,
 			nextOffset,
 		},
+	};
+}
+
+// Attaches the reply's card data to an outcome whose results are final (after
+// the local-distillation gate, which only strips `content`). The model payload
+// is untouched — the model keeps seeing `results`, never the cards.
+function withFileCards(
+	conn: ConnectionPublic,
+	outcome: FilesToolOutcome,
+): FilesToolOutcome {
+	return {
+		...outcome,
+		cards: buildFilesCards(conn, outcome.modelPayload.results),
 	};
 }
 
@@ -595,10 +705,19 @@ function readOutcome(
 	connections: ConnectionPublic[],
 ): FilesToolOutcome {
 	const label = fileLabel(path);
+	const webUrl = webUrlForConn(conn, path, fileId, file.webUrl);
+	const previewUrl = previewUrlForConn(
+		conn,
+		label,
+		path,
+		fileId,
+		file.contentType,
+		false,
+	);
 	const citation: FilesCitation = {
 		label,
 		path,
-		url: webUrlForConn(conn, path, fileId, file.webUrl),
+		url: webUrl,
 	};
 
 	let result: FilesToolResultItem;
@@ -613,6 +732,9 @@ function readOutcome(
 			size: file.bytes.byteLength,
 			contentType: file.contentType,
 			mtime: file.mtime ?? null,
+			...(fileId !== undefined ? { fileId } : {}),
+			webUrl,
+			...(previewUrl !== undefined ? { previewUrl } : {}),
 			content: truncateText(text, MAX_INLINE_TEXT_CHARS),
 			...(truncated ? { truncated: true } : {}),
 		};
@@ -625,6 +747,9 @@ function readOutcome(
 			size: file.bytes.byteLength,
 			contentType: file.contentType,
 			mtime: file.mtime ?? null,
+			...(fileId !== undefined ? { fileId } : {}),
+			webUrl,
+			...(previewUrl !== undefined ? { previewUrl } : {}),
 			binary: true,
 		};
 		message = `${label} is a binary file (${file.contentType ?? "unknown type"}); its contents can't be shown as text.`;
@@ -1322,7 +1447,10 @@ export async function runFilesTool(
 					}
 					const files = await searchFilesForConn(conn, secret, input.query);
 					const outcome = searchOutcome(conn, files, ambiguous, connections);
-					return distillFilesReadOutcome({ userId, modelId, input, outcome });
+					return withFileCards(
+						conn,
+						await distillFilesReadOutcome({ userId, modelId, input, outcome }),
+					);
 				}
 
 				// "list" enumerates a folder's immediate children (files + subfolders) so
@@ -1339,7 +1467,10 @@ export async function runFilesTool(
 						ambiguous,
 						connections,
 					);
-					return distillFilesReadOutcome({ userId, modelId, input, outcome });
+					return withFileCards(
+						conn,
+						await distillFilesReadOutcome({ userId, modelId, input, outcome }),
+					);
 				}
 
 				if (!input.path) {
@@ -1385,7 +1516,10 @@ export async function runFilesTool(
 					ambiguous,
 					connections,
 				);
-				return distillFilesReadOutcome({ userId, modelId, input, outcome });
+				return withFileCards(
+					conn,
+					await distillFilesReadOutcome({ userId, modelId, input, outcome }),
+				);
 			} catch (err) {
 				return buildPayload({
 					success: false,

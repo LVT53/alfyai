@@ -386,7 +386,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	files: {
 		description:
-			"List, search, read, and manage the user's connected file storage (Nextcloud or OneDrive). `list` counts a folder's contents (pass its path, or omit it for the root); `search` finds files by name across the whole tree; `read` opens one file by its path. Every result carries the last-modified time, so 'my most recent invoice' or 'the newest file' is answerable. Do not use it for photos or videos (photos), for a file in this conversation (read_generated_file), for a web page (fetch_url), or for remembered preferences (memory_context). Can also `save`, `move`/rename (`destinationPath`), `delete` (to trash, recoverable), `create_folder` and `share_link` (a PUBLIC link anyone with the URL can open, a deliberate exposure — use sparingly): these require the user to have enabled writes, are NOT available for OneDrive (read-only), and NEVER apply immediately — each only proposes a pending write the user must confirm. Returns entries with path, size and modified time; `read` adds the text. With several accounts connected, pass `account` (provider, label, or email).",
+			"List, search, read, and manage the user's connected file storage (Nextcloud or OneDrive). `list` counts a folder's contents (pass its path, or omit it for the root); `search` finds files by name across the whole tree; `read` opens one file by its path. Every result carries the last-modified time, so 'my most recent invoice' or 'the newest file' is answerable. Do not use it for photos or videos (photos), for a file in this conversation (read_generated_file), for a web page (fetch_url), or for remembered preferences (memory_context). Can also `save`, `move`/rename (`destinationPath`), `delete` (to trash, recoverable), `create_folder` and `share_link` (a PUBLIC link anyone with the URL can open, a deliberate exposure — use sparingly): these require the user to have enabled writes, are NOT available for OneDrive (read-only), and NEVER apply immediately — each only proposes a pending write the user must confirm. Returns entries with path, size and modified time; `read` adds the text. Results also appear to the user as file cards automatically (images with a preview), so never paste a file URL into the reply. With several accounts connected, pass `account` (provider, label, or email).",
 		errorPrefix: "Files lookup failed",
 	},
 	calendar: {
@@ -2032,12 +2032,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									options,
 									recorder,
 									run: async () => {
-										const { modelPayload, candidates } = await runFilesTool(
-											ctx.userId,
-											safeInput,
-											ctx.modelId ?? "model1",
-											ctx.conversationId,
-										);
+										const { modelPayload, candidates, cards } =
+											await runFilesTool(
+												ctx.userId,
+												safeInput,
+												ctx.modelId ?? "model1",
+												ctx.conversationId,
+											);
 										return {
 											modelPayload,
 											entry: {
@@ -2048,6 +2049,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												outputSummary: modelPayload.message,
 												sourceType: "document",
 												candidates,
+												files: cards,
 												metadata: {
 													ok: modelPayload.success,
 													evidenceReady:
@@ -2082,6 +2084,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												outputSummary: message,
 												sourceType: "document",
 												candidates: [],
+												// The entry shape stays uniform: an errored call
+												// has no cards.
+												files: null,
 												metadata: {
 													ok: false,
 													evidenceReady: false,
