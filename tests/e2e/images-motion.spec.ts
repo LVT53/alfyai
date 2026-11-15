@@ -492,6 +492,12 @@ async function shimmerState(page: Page, options: { tag?: boolean } = {}) {
 					Math.abs(box.width - stageBox.width) <= 0.5 &&
 					Math.abs(box.height - stageBox.height) <= 0.5,
 				textOnScreen: stage?.textContent?.trim() ?? null,
+				// The one visible line the box carries while a take is made
+				// (plan ltx-video slice 1): the estimate, or the phase's clock.
+				timeChip:
+					stage
+						?.querySelector('[data-testid="image-card-time"]')
+						?.textContent?.trim() ?? null,
 				spinners: card?.querySelectorAll(".image-card-spin").length ?? 0,
 				progressBars:
 					card?.querySelectorAll('[role="progressbar"]').length ?? 0,
@@ -543,16 +549,36 @@ async function shimmerWhen(
 
 type ShimmerState = Awaited<ReturnType<typeof shimmerState>>;
 
+/**
+ * The box's one visible line while a take is made: the render's estimate when it
+ * reports one (either language), otherwise the phase's own `m:ss` clock. The
+ * waiting and starting states carry no time at all.
+ */
+const TIME_CHIP = /^(?:About \d+ s left|Még kb\. \d+ mp|\d+:\d{2})$/;
+
 function holdShimmer(
 	state: ShimmerState,
-	label: string,
+	label: "waiting" | "starting" | "making",
 	reducedMotion: boolean,
 ): void {
 	expect(state.shimmer, `${label}: the box shows the shimmer`).toBe(true);
 	expect(state.coversBox, `${label}: the shimmer covers the whole box`).toBe(
 		true,
 	);
-	expect(state.textOnScreen, `${label}: no words in the box`).toBe("");
+	// The box's own words stay sr-only. While a take is made it carries exactly
+	// one visible line, the time chip; waiting and starting carry none.
+	if (label === "making") {
+		expect(state.timeChip, `${label}: the time is in the box`).toMatch(
+			TIME_CHIP,
+		);
+		expect(
+			state.textOnScreen,
+			`${label}: the box holds the time and nothing else`,
+		).toBe(state.timeChip);
+	} else {
+		expect(state.timeChip, `${label}: no time in the box yet`).toBeNull();
+		expect(state.textOnScreen, `${label}: no words in the box`).toBe("");
+	}
 	expect(state.spinners, `${label}: no spinner in the card`).toBe(0);
 	expect(state.progressBars, `${label}: no progress bar`).toBe(0);
 	expect(state.status, `${label}: the state is still read out`).not.toBe("");

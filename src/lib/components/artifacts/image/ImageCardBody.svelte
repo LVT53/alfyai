@@ -42,12 +42,12 @@ import type {
 import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
 import AnchoredPopover from "../AnchoredPopover.svelte";
 import {
-	etaLabel,
 	type ImageCardAction,
 	type ImageCardActionHandler,
 	type ImageCardState,
 	hasActiveImageTakes,
 	isCheckingAgain,
+	makingDetail,
 	STARTING_SHOWN_AFTER_MS,
 	shownTake,
 	takeState,
@@ -208,24 +208,30 @@ $effect(() => {
 	showing = "after";
 });
 
-// "Starting up" shows once a take has sat in its starting phase for a while:
-// the clock ticks once a second only until then.
+// The clock the card's words read while a take is being made. It ticks once a
+// second while the render reports no estimate (the time this phase has taken is
+// then on the card); an estimate is the server's own number to move, and
+// "Starting up" is a settled sentence once the phase has lasted a while.
 $effect(() => {
 	const take = shown;
+	// Only a take past the queue has a clock: a submitted one counts those ahead.
 	if (
+		gone ||
 		!take ||
 		take.status !== "running" ||
-		take.phase !== "starting" ||
-		take.phaseAt === null
+		take.phase === "submitted"
 	) {
 		return;
 	}
-	const phaseAt = take.phaseAt;
 	now = Date.now();
-	if (now - phaseAt >= STARTING_SHOWN_AFTER_MS) return;
+	if (take.etaSeconds !== null && take.etaSeconds > 0) return;
+	const startingAt = take.phase === "starting" ? take.phaseAt : null;
+	const startingShown = () =>
+		startingAt !== null && Date.now() - startingAt >= STARTING_SHOWN_AFTER_MS;
+	if (startingShown()) return;
 	const timer = setInterval(() => {
 		now = Date.now();
-		if (now - phaseAt >= STARTING_SHOWN_AFTER_MS) clearInterval(timer);
+		if (startingShown()) clearInterval(timer);
 	}, 1000);
 	return () => clearInterval(timer);
 });
@@ -335,7 +341,10 @@ function takeNumber(take: ImageTakeView): number {
 	return takes.indexOf(take) + 1;
 }
 
-function stateWords(current: ImageCardState): {
+function stateWords(
+	current: ImageCardState,
+	now: number,
+): {
 	line: string;
 	detail: string | null;
 } {
@@ -350,7 +359,9 @@ function stateWords(current: ImageCardState): {
 		case "making":
 			return {
 				line: $t("artifacts.image.card.making"),
-				detail: etaLabel(current.etaSeconds, $t),
+				// The estimate when the render reports one, the time this phase
+				// has taken otherwise: never blank while a picture is made.
+				detail: makingDetail(current, now, $t),
 			};
 		case "failed":
 			return {
@@ -376,7 +387,7 @@ function stateWords(current: ImageCardState): {
 	}
 }
 
-let words = $derived(stateWords(cardState));
+let words = $derived(stateWords(cardState, now));
 /**
  * Waiting, starting up and being made are one look: the shimmer, kept as one
  * layer from the first state to the last, so it never restarts between them.
@@ -487,6 +498,13 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 				transition:crossfade={{ duration: MOTION_DURATION.standard }}
 			>
 				<span class="image-card-shimmer-band"></span>
+				{#if cardState.kind === 'making'}
+					<!-- The estimate, or the time this phase has taken: the same string
+					     the sr-only detail carries, shown over the shimmer. It is laid
+					     over the box (no height of its own) and hidden from screen
+					     readers, who read the adjacent, non-live detail instead. -->
+					<span class="image-card-time" data-testid="image-card-time" aria-hidden="true">{statusDetail}</span>
+				{/if}
 			</div>
 		{:else}
 			{#key cardState.kind}
@@ -794,8 +812,11 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		right: 0.5rem;
 	}
 
-	/* "Alfy is trying once more…": a quiet chip over the picture, never a row. */
-	.image-card-checking {
+	/* "Alfy is trying once more…" over a picture, and the time a take being made
+	   has taken: one quiet chip over the box (both absolutely positioned, so
+	   neither adds a row or a height). */
+	.image-card-checking,
+	.image-card-time {
 		position: absolute;
 		left: 0.5rem;
 		bottom: 0.5rem;

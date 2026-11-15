@@ -9,9 +9,11 @@ import { uiLanguage } from "$lib/stores/settings";
 import {
 	canCompareBeforeAfter,
 	cardSubtitle,
+	elapsedClock,
 	etaLabel,
 	hasActiveImageTakes,
 	isCheckingAgain,
+	makingDetail,
 	shownTake,
 	takeState,
 	visibleTakes,
@@ -90,18 +92,26 @@ describe("takeState", () => {
 		expect(takeState(s, 12_000).kind).toBe("making");
 		expect(takeState(s, 13_000)).toEqual({ kind: "starting" });
 	});
-	it("rendering carries the eta", () => {
+	it("rendering carries the eta, and the times the card's clock reads", () => {
 		expect(
 			takeState(
 				take({
 					status: "running",
 					phase: "rendering",
+					phaseAt: 1_000,
+					createdAt: 500,
 					etaSeconds: 8,
 					progressPercent: 40,
 				}),
 				0,
 			),
-		).toEqual({ kind: "making", etaSeconds: 8, progressPercent: 40 });
+		).toEqual({
+			kind: "making",
+			etaSeconds: 8,
+			progressPercent: 40,
+			phaseAt: 1_000,
+			createdAt: 500,
+		});
 	});
 	it("succeeded is ready and cancelled is stopped", () => {
 		expect(takeState(take(), 0)).toEqual({ kind: "ready" });
@@ -289,6 +299,68 @@ describe("etaLabel", () => {
 		expect(etaLabel(7.2, get(t))).toBe("Még kb. 8 mp");
 		expect(etaLabel(null, get(t))).toBeNull();
 		expect(etaLabel(0, get(t))).toBeNull();
+	});
+});
+
+describe("elapsedClock", () => {
+	it("is m:ss, and h:mm:ss once an hour has gone", () => {
+		expect(elapsedClock(0)).toBe("0:00");
+		expect(elapsedClock(7_000)).toBe("0:07");
+		expect(elapsedClock(7_999)).toBe("0:07");
+		expect(elapsedClock(59_999)).toBe("0:59");
+		expect(elapsedClock(60_000)).toBe("1:00");
+		expect(elapsedClock(3_599_000)).toBe("59:59");
+		expect(elapsedClock(3_600_000)).toBe("1:00:00");
+		expect(elapsedClock(3_661_000)).toBe("1:01:01");
+	});
+	it("never counts below zero", () => {
+		expect(elapsedClock(-2_000)).toBe("0:00");
+	});
+});
+
+describe("makingDetail", () => {
+	const making = (
+		over: Partial<{
+			etaSeconds: number | null;
+			phaseAt: number | null;
+			createdAt: number;
+		}> = {},
+	) => ({
+		etaSeconds: null as number | null,
+		phaseAt: 10_000 as number | null,
+		createdAt: 1_000,
+		...over,
+	});
+
+	it("is the estimate whenever the render reports one, exactly as before", () => {
+		expect(makingDetail(making({ etaSeconds: 7.2 }), 4_000, get(t))).toBe(
+			"About 8 s left",
+		);
+		uiLanguage.set("hu");
+		expect(makingDetail(making({ etaSeconds: 7.2 }), 4_000, get(t))).toBe(
+			"Még kb. 8 mp",
+		);
+	});
+	it("is the time this phase has taken when there is no estimate", () => {
+		expect(makingDetail(making(), 17_000, get(t))).toBe("0:07");
+	});
+	it("counts up as the card's clock advances", () => {
+		expect(makingDetail(making(), 17_000, get(t))).toBe("0:07");
+		expect(makingDetail(making(), 18_000, get(t))).toBe("0:08");
+		expect(makingDetail(making(), 79_999, get(t))).toBe("1:09");
+	});
+	it("counts from when the take was created when its phase has no stamp, never blank", () => {
+		expect(
+			makingDetail(
+				making({ phaseAt: null, createdAt: 10_000 }),
+				17_000,
+				get(t),
+			),
+		).toBe("0:07");
+	});
+	it("stays numeric in Hungarian too: the clock is no string", () => {
+		uiLanguage.set("hu");
+		expect(makingDetail(making(), 17_000, get(t))).toBe("0:07");
 	});
 });
 

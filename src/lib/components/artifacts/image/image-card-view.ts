@@ -14,6 +14,12 @@ export type ImageCardState =
 			kind: "making";
 			etaSeconds: number | null;
 			progressPercent: number | null;
+			/**
+			 * When the take entered this phase, and when the take began: the
+			 * clock's own times (the take's, for a phase with no stamp yet).
+			 */
+			phaseAt: number | null;
+			createdAt: number;
 	  }
 	| { kind: "failed"; unavailable: boolean; retryable: boolean }
 	/** The explicit-picture filter kept the picture back: it looked explicit, or (unchecked) the check could not run. */
@@ -109,6 +115,8 @@ export function takeState(take: ImageTakeView, now: number): ImageCardState {
 				kind: "making",
 				etaSeconds: take.etaSeconds,
 				progressPercent: take.progressPercent,
+				phaseAt: take.phaseAt,
+				createdAt: take.createdAt,
 			};
 		}
 		case "succeeded":
@@ -159,6 +167,43 @@ export function waitingLine(ahead: number | null, t: Translate): string {
 export function etaLabel(seconds: number | null, t: Translate): string | null {
 	if (seconds === null || seconds <= 0) return null;
 	return t("artifacts.image.card.eta", { count: Math.ceil(seconds) });
+}
+
+/**
+ * How long something being made has taken, as `m:ss` (`0:07`) and `h:mm:ss`
+ * past an hour. Numeric and locale-neutral on purpose: no dictionary entry, and
+ * nothing to translate. Never negative.
+ */
+export function elapsedClock(elapsedMs: number): string {
+	const total = Math.max(0, Math.floor(elapsedMs / 1000));
+	const seconds = total % 60;
+	const minutes = Math.floor(total / 60) % 60;
+	const hours = Math.floor(total / 3600);
+	const two = (value: number) => String(value).padStart(2, "0");
+	return hours > 0
+		? `${hours}:${two(minutes)}:${two(seconds)}`
+		: `${minutes}:${two(seconds)}`;
+}
+
+/**
+ * The detail slot while a take is being made: the render's estimate when it
+ * reports one ("About 8 s left"), otherwise how long the current phase has
+ * taken ("0:07"). Never null, so a picture being made always has a time beside
+ * its words. A phase with no stamp yet counts from when the take was created,
+ * the earliest moment known to be running; that is an elapsed time that really
+ * happened, not a claim about a phase the card has no time for.
+ */
+export function makingDetail(
+	making: Pick<
+		Extract<ImageCardState, { kind: "making" }>,
+		"etaSeconds" | "phaseAt" | "createdAt"
+	>,
+	now: number,
+	t: Translate,
+): string {
+	const estimate = etaLabel(making.etaSeconds, t);
+	if (estimate !== null) return estimate;
+	return elapsedClock(now - (making.phaseAt ?? making.createdAt));
 }
 
 export function canCompareBeforeAfter(take: ImageTakeView | null): boolean {

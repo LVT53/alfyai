@@ -41,7 +41,9 @@ describe("ImageCardBody", () => {
 
 		const shimmer = screen.getByTestId("image-card-shimmer");
 		expect(shimmer).toHaveAttribute("aria-hidden", "true");
-		expect(shimmer.textContent?.trim()).toBe("");
+		// The box draws no state words (they are screen-reader-only): its one
+		// visible line is the time chip, held by the tests below.
+		expect(within(shimmer).queryByText(/^Making the picture…$/)).toBeNull();
 		expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("image-card-state")).not.toBeInTheDocument();
 		const status = screen.getByTestId("image-card-status");
@@ -77,6 +79,91 @@ describe("ImageCardBody", () => {
 		expect(screen.getByTestId("image-card-status-detail")).toHaveTextContent(
 			"About 6 s left",
 		);
+	});
+
+	it("puts the render's estimate in the image box while a take is made, and only the state line in the live region", () => {
+		const making = take({
+			status: "running",
+			phase: "rendering",
+			phaseAt: Date.now(),
+			etaSeconds: 8,
+			progressPercent: 40,
+			fileId: null,
+			width: null,
+			height: null,
+		});
+		render(ImageCardBody, { card: card([making]) });
+
+		const time = screen.getByTestId("image-card-time");
+		expect(time).toHaveTextContent("About 8 s left");
+		// Hidden from screen readers: the time is beside the live region instead,
+		// so it is there to read but never announced on the tick.
+		expect(time).toHaveAttribute("aria-hidden", "true");
+		// Inside the one layer the box shows while a take is made (a sibling of
+		// the band), so it adds no height to the reserved box.
+		expect(time.parentElement).toBe(screen.getByTestId("image-card-shimmer"));
+		expect(screen.getByTestId("image-card-status")).toHaveTextContent(
+			/^Making the picture…$/,
+		);
+		expect(screen.getByTestId("image-card-status-detail")).toHaveTextContent(
+			"About 8 s left",
+		);
+		expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+	});
+
+	it("shows the time this phase has taken in the box when the render reports no estimate, and counts it up", async () => {
+		vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+		try {
+			vi.setSystemTime(100_000);
+			const making = take({
+				status: "running",
+				phase: "rendering",
+				phaseAt: 93_000,
+				etaSeconds: null,
+				fileId: null,
+				width: null,
+				height: null,
+			});
+			render(ImageCardBody, { card: card([making]) });
+			await tick();
+
+			const time = screen.getByTestId("image-card-time");
+			expect(time).toHaveTextContent(/^0:07$/);
+			expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+
+			await vi.advanceTimersByTimeAsync(1_000);
+			await tick();
+			expect(screen.getByTestId("image-card-time")).toHaveTextContent(/^0:08$/);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("adds the time without moving the box: same stage, same aspect, same shimmer", async () => {
+		const queued = take({ status: "queued", fileId: null });
+		const { rerender } = render(ImageCardBody, { card: card([queued]) });
+		const stage = screen.getByTestId("image-card-stage");
+		const shimmer = screen.getByTestId("image-card-shimmer");
+		expect(stage.style.aspectRatio).toBe("1248 / 832");
+		expect(screen.queryByTestId("image-card-time")).toBeNull();
+
+		await rerender({
+			card: card([
+				{
+					...queued,
+					status: "running",
+					phase: "rendering",
+					// 7.4 s ago: still 0:07 if a second of the test slips by.
+					phaseAt: Date.now() - 7_400,
+					etaSeconds: null,
+				},
+			]),
+		});
+		expect(screen.getByTestId("image-card-stage")).toBe(stage);
+		expect(stage.style.aspectRatio).toBe("1248 / 832");
+		expect(screen.getByTestId("image-card-shimmer")).toBe(shimmer);
+		expect(screen.getByTestId("image-card-time")).toHaveTextContent("0:07");
+		expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
 	});
 
 	it("keeps one shimmer from waiting through making, and fades it out for the picture in place", async () => {
