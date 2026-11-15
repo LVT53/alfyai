@@ -367,6 +367,7 @@ describe("tool-calls utils", () => {
 			expect(isDeliveringToolName("create_artifact")).toBe(true);
 			expect(isDeliveringToolName("edit_artifact")).toBe(true);
 			expect(isDeliveringToolName("make_image")).toBe(true);
+			expect(isDeliveringToolName("make_video")).toBe(true);
 			expect(isDeliveringToolName("suggest_instruction")).toBe(true);
 			expect(isDeliveringToolName("ask_user")).toBe(true);
 		});

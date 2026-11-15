@@ -59,7 +59,7 @@ Server:
 
 - `src/lib/server/services/` — every service and its role: Normal Chat prompt assembly, model runs and sampling, tools, web grounding, embeddings, titles; where each memory, tour and campaign rule lives.
 - `src/lib/server/services/chat-turn/` — the Normal Chat turn (send, stream, retry); the reply-language rule (ruling 79); follow-up chips; short-text cleanup.
-- `src/lib/server/services/artifacts/` — the artifact family (Document, App, Canvas, Slides, File): facade, tables, History derivation, the App audit and WebRTC guard, delete and Regenerate.
+- `src/lib/server/services/artifacts/` — the artifact family (Document, App, Canvas, Slides, File, Image, Video): facade, tables, History derivation, the App audit and WebRTC guard, delete and Regenerate.
 - `src/lib/server/services/images/` — making and changing pictures: the ComfyUI client and its fake, graphs, pixel guards, picture files, cards and takes, the image job.
 - `src/lib/server/services/file-production/` — durable file jobs, exports, renderers, report pictures.
 - `src/lib/server/services/knowledge/` — the knowledge store, uploads, retrieval, the library's rules.
@@ -149,7 +149,7 @@ Do not:
   - `src/lib/server/services/user-admin.ts`
 - New knowledge artifact or context behavior:
   - `src/lib/server/services/knowledge/`
-- New artifact-family (Document/App/Canvas/Slides/File) behavior:
+- New artifact-family (Document/App/Canvas/Slides/File/Image/Video) behavior:
   - `src/lib/server/services/artifacts/`
   - `src/lib/components/artifacts/`
 - New chat-generated file behavior:

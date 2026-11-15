@@ -53,9 +53,11 @@ SQLite persistence — all in a single Node deployment.
   be resident on the card together). A 5 s clip is one render at 1280x704 (704x1280 for a portrait
   still, both sides multiples of 32); a 10 s clip is two 5 s segments chained last-frame to
   first-frame and joined, so the second segment starts exactly where the first ended. The clip is
-  stored as an mp4 with a poster and a thumbnail, and the explicit-picture filter checks the poster
-  plus four frames across it before anything is kept. The server needs `ffmpeg` and `ffprobe` on
-  PATH. The person's motion idea can be rewritten first by an OpenAI-compatible chat server
+  stored as an mp4 with a poster and a thumbnail, and the explicit-picture filter checks **every
+  frame** of it before anything is kept: one pass writes the frames at the classifier's size and
+  batches of 16 run on one session — 8 inference runs for a 5 s clip (≈3.7–4.2 s on the app host)
+  and 16 for a 10 s one (≈7.0 s). The server needs `ffmpeg` and `ffprobe` on PATH. The person's
+  motion idea can be rewritten first by an OpenAI-compatible chat server
   (`LTX_CAPTION_URL` + `LTX_CAPTION_MODEL`, optionally `LTX_CAPTION_API_KEY`) whose system message
   is ComfyUI's own LTX-2.5 image-to-video instruction; with no endpoint the idea goes to LTX as it
   is.

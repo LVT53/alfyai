@@ -2408,6 +2408,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											conversationId: ctx.conversationId,
 											toolCallId: options.toolCallId,
 											input,
+											requestText: ctx.requestText ?? "",
 											turnPictures: ctx.turnPictures ?? null,
 											signal: abortSignal,
 											onTick: ctx.onToolActivity,

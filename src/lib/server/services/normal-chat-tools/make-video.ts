@@ -28,6 +28,7 @@ import { isExplicitFilterOnFor } from "$lib/server/services/images/picture-check
 import { findExplicitRequestTerm } from "$lib/server/services/images/picture-check/request-terms";
 import { sourcesNamed } from "$lib/server/services/images/requests";
 import { freshSeed } from "$lib/server/services/images/seeds";
+import { titleFor } from "$lib/server/services/images/title-for";
 import type {
 	TurnPictureIndex,
 	TurnPictureSource,
@@ -45,7 +46,6 @@ import {
 } from "$lib/server/services/images/video/video-job";
 import { waitForVerdict } from "$lib/server/services/jobs";
 import { buildVideoPrompt } from "$lib/server/services/video-caption";
-import { oneLineName } from "$lib/server/services/vision/turn-images";
 
 export const makeVideoInputSchema = z.object({
 	prompt: z
@@ -67,7 +67,7 @@ export const makeVideoInputSchema = z.object({
 		.max(80)
 		.optional()
 		.describe(
-			"A title, 2-5 words, in the conversation's language: name the clip's subject as a person would (\"Harbour at dawn\"), never restating the request or its verbs (make, animate). Title Case in English, normal capitalisation in Hungarian.",
+			"A title, 2-5 words, in the conversation's language: name the clip's subject as a person would (\"Harbour at dawn\"), never restating the request or its verbs (make, animate). Title Case in English, normal capitalisation in Hungarian. Give it on every call: a clip always starts a new Video, so it never keeps an earlier one's title.",
 		),
 	summary: z
 		.string()
@@ -160,6 +160,7 @@ const FAILURE_MESSAGES: Record<string, string> = {
 	video_item_deleted: "The Video item this clip belongs to is gone.",
 	video_media_unavailable: "The server that makes videos has no video tools.",
 	video_media_failed: "The clip could not be put together.",
+	video_artifact_failed: "The video could not be saved to its item.",
 	video_blocked:
 		"The finished clip was blocked by the explicit-picture filter: it was not shown to the user and not kept. Tell the user plainly that it was blocked. Do not call make_video again for this request.",
 	video_unchecked:
@@ -194,7 +195,6 @@ function stoppedRefusal(): Outcome {
 	};
 }
 
-const TITLE_MAX_CHARS = 80;
 const TITLE_FALLBACK = "Video";
 
 type Metadata = Record<string, string | number | boolean | null>;
@@ -247,6 +247,8 @@ async function planTake(params: {
 	userId: string;
 	conversationId: string;
 	input: MakeVideoInput;
+	/** The person's own message this turn, for a title the model did not give. */
+	requestText: string;
 	turnPictures: TurnPictureIndex | null;
 	signal: AbortSignal;
 }): Promise<Planned> {
@@ -322,10 +324,7 @@ async function planTake(params: {
 		sourceFileId = stored.id;
 	}
 
-	const title =
-		oneLineName(input.title ?? "", TITLE_MAX_CHARS) ||
-		oneLineName(input.prompt, TITLE_MAX_CHARS) ||
-		TITLE_FALLBACK;
+	const title = titleFor(input.title, params.requestText, TITLE_FALLBACK);
 	const summary = input.summary?.trim() ? input.summary.trim() : null;
 	const size = videoSizeForSource({
 		width: loaded.width,
@@ -355,6 +354,8 @@ export async function runMakeVideoTool(params: {
 	conversationId: string;
 	toolCallId: string;
 	input: MakeVideoInput;
+	/** The person's own message this turn, for a title the model did not give. */
+	requestText: string;
 	turnPictures: TurnPictureIndex | null;
 	signal: AbortSignal;
 	state: MakeVideoCallState;

@@ -1300,6 +1300,33 @@ describe("full account erasure leaves no person-linked survivor", () => {
 		expect(jobs.find((row) => row.userId === "keep-me")?.status).toBe("queued");
 	});
 
+	// Video takes are on their own kind, but the same rule holds: a clip being
+	// rendered when erasure started must stop, not store a clip or its item into
+	// the account.
+	it("cancels the user's video takes before deletion, sparing another user's", async () => {
+		seedEveryUserScopedTable("quiesce-me");
+		seedEveryUserScopedTable("keep-me");
+
+		const { sqlite } = openMigratedDb();
+		sqlite.prepare("UPDATE video_jobs SET status = 'queued'").run();
+		sqlite.close();
+
+		const { quiesceUserWorkspace } = await import("./index");
+		await quiesceUserWorkspace("quiesce-me");
+
+		const { db: appDb } = await import("$lib/server/db");
+		const jobs = await appDb
+			.select({
+				userId: schema.videoJobs.userId,
+				status: schema.videoJobs.status,
+			})
+			.from(schema.videoJobs);
+		expect(jobs.find((row) => row.userId === "quiesce-me")?.status).toBe(
+			"cancelled",
+		);
+		expect(jobs.find((row) => row.userId === "keep-me")?.status).toBe("queued");
+	});
+
 	// File production is on the job engine as well: the quiesce used to write the
 	// cancelled state with SQL of its own, which a run this process had going could
 	// not see, so a file could still be stored into an account being erased.

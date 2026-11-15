@@ -119,6 +119,7 @@ beforeEach(() => {
 
 type RunOptions = {
 	input?: Record<string, unknown>;
+	requestText?: string;
 	wait?: VideoTakeSnapshot;
 	signal?: AbortSignal;
 	state?: { takeId: string | null };
@@ -143,6 +144,7 @@ async function run(options: RunOptions = {}) {
 		conversationId,
 		toolCallId,
 		input: parsed,
+		requestText: options.requestText ?? "animate this picture",
 		turnPictures:
 			"turnPictures" in options ? (options.turnPictures ?? null) : indexOf(),
 		signal: options.signal ?? new AbortController().signal,
@@ -289,6 +291,22 @@ describe("make_video's take request", () => {
 		expect(queued.enqueue.mock.calls[0][0].request.durationSeconds).toBe(5);
 	});
 
+	it("titles a clip from a Hungarian message when the model gives no title", async () => {
+		// The motion idea is English (the tool's own contract); the title must
+		// come from the person's words, as make_image's does, not from that idea.
+		const { outcome } = await run({
+			input: { title: undefined },
+			requestText: "Készíts videót a tengerpartról.",
+		});
+		expect(queued.enqueue.mock.calls[0][0].request.title).toBe(
+			"Készíts videót a tengerpartról",
+		);
+		expect(queued.enqueue.mock.calls[0][0].request.title).not.toBe(
+			"the tide comes in slowly",
+		);
+		expect(outcome.metadata.videoTitle).toBe("Készíts videót a tengerpartról");
+	});
+
 	it("animates an attached photo by storing a still of this chat first", async () => {
 		const upload = {
 			type: "upload" as const,
@@ -382,6 +400,24 @@ describe("make_video's outcome", () => {
 		});
 	});
 
+	it("tells the model an item that could not be written can be retried", async () => {
+		const { outcome } = await run({
+			wait: succeeded({
+				status: "failed",
+				resultFileId: null,
+				artifactId: null,
+				errorCode: "video_artifact_failed",
+				retryable: true,
+			}),
+		});
+		expect(outcome.modelPayload).toMatchObject({
+			ok: false,
+			errorCode: "video_artifact_failed",
+			message: "The video could not be saved to its item.",
+			retryable: true,
+		});
+	});
+
 	it("never offers the model a retry of a filtered take", async () => {
 		const { outcome } = await run({
 			wait: succeeded({
@@ -424,6 +460,7 @@ describe("make_video's outcome", () => {
 			conversationId,
 			toolCallId,
 			input: parsed,
+			requestText: "animate this picture",
 			turnPictures: indexOf(),
 			signal: controller.signal,
 			waitForTake,

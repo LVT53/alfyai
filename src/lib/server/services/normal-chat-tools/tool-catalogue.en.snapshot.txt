@@ -1322,7 +1322,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             "description": "The still to animate: a picture number from this message (\"3\") or an Image id from \"In this chat\". When the user says \"it\", it is the picture open in the panel, else the newest Image in \"In this chat\"."
           },
           "title": {
-            "description": "A title, 2-5 words, in the conversation's language: name the clip's subject as a person would (\"Harbour at dawn\"), never restating the request or its verbs (make, animate). Title Case in English, normal capitalisation in Hungarian.",
+            "description": "A title, 2-5 words, in the conversation's language: name the clip's subject as a person would (\"Harbour at dawn\"), never restating the request or its verbs (make, animate). Title Case in English, normal capitalisation in Hungarian. Give it on every call: a clip always starts a new Video, so it never keeps an earlier one's title.",
             "type": "string",
             "maxLength": 80
           },

@@ -188,11 +188,10 @@ export const ARTIFACT_TOUR_DEFAULTS: Record<
 			},
 		],
 	},
-	// The Video kind ships with its server slice (Slice 2 of the LTX plan), but
-	// the card that can open one is slice 3's and no tool makes one until
-	// slice 5's. So its copy waits here, unreachable, exactly as Slides'
-	// waits: `SHIPPED_ARTIFACT_TOUR_TYPES` does not name it, and nothing
-	// serves a tour for a kind no reader can open yet.
+	// The Video kind ships — its card, its player and `make_video` all landed —
+	// but it still has no tour: `SHIPPED_ARTIFACT_TOUR_TYPES` does not name it,
+	// so its copy waits here, unreachable, exactly as Slides' waits. Nothing may
+	// serve a tour for a kind that has none.
 	video: {
 		artifactType: "video",
 		summary: {

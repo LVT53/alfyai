@@ -625,8 +625,16 @@ const MODEL_CALL_ALIAS = new RegExp(
 	"g",
 );
 
+/**
+ * Model callers that write the request themselves instead of going through the
+ * SDK names above: the LTX caption step posts one chat completion with
+ * `fetch`. A new one is a decision, and joins MODEL_CALLERS like the rest.
+ */
+const MODEL_CALL_MODULES = new Set(["lib/server/services/video-caption.ts"]);
+
 /** Whether a file can make a model call, under the name it imports it by too. */
-function callsAModel(code: string): boolean {
+function callsAModel(file: string, code: string): boolean {
+	if (MODEL_CALL_MODULES.has(file)) return true;
 	if (MODEL_CALL.test(code)) return true;
 	for (const alias of code.matchAll(MODEL_CALL_ALIAS)) {
 		if (new RegExp(`\\b${alias[1]}\\s*[(<]`).test(code)) return true;
@@ -681,6 +689,8 @@ const MODEL_CALLERS: Record<string, string> = {
 		"exempt: the connector distill prompt is English-only, held by layer 4",
 	"lib/server/services/vision/describe.ts":
 		"exempt: the one image-description prompt is English-only, held by layer 4",
+	"lib/server/services/video-caption.ts":
+		"exempt: the LTX caption instruction is ComfyUI's own, English-only, held by layer 4 and video-caption.test.ts",
 	"lib/server/services/chatgpt-import/summarizer.ts":
 		"exempt: a one-off import summary, English-only, held by layer 4",
 	"lib/server/services/memory-recuration.ts":
@@ -724,7 +734,7 @@ const HUNGARIAN_BY_DESIGN: Record<string, string> = {
 	"lib/server/services/language.ts": "the reader's word lists",
 	"lib/server/services/chat-turn/short-local-text.ts": "leak checks",
 	"lib/server/services/chat-turn/follow-up-chip.ts": "the chip check",
-	"lib/server/services/images/requests.ts":
+	"lib/server/services/images/title-for.ts":
 		"the title fallback's abbreviation list, matched against the person's words",
 	"lib/server/services/images/picture-check/request-terms.ts":
 		"the explicit-request word list, matched against make_image's prompt and title",
@@ -779,7 +789,7 @@ describe("English prompt text stays English (source layers)", () => {
 
 	it("every file that can make a model call is driven here or named exempt", () => {
 		const callers = all
-			.filter(({ code }) => callsAModel(code))
+			.filter(({ file, code }) => callsAModel(file, code))
 			.map(({ file }) => file)
 			.sort();
 		const unlisted = callers.filter((file) => !(file in MODEL_CALLERS));

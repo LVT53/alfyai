@@ -840,7 +840,9 @@ function videoReasonKey(metadata: VideoErrorMetadata): I18nKey | null {
 	if (code === "video_unchecked") return "artifacts.video.card.uncheckedDetail";
 	if (
 		code === "video_server_unreachable" ||
-		code === "video_server_not_configured"
+		code === "video_server_not_configured" ||
+		// The tool's own refusal code for the same fact (no LTX address set).
+		code === "not_configured"
 	) {
 		return "artifacts.video.card.unavailable";
 	}

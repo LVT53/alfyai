@@ -1,8 +1,8 @@
 /**
  * The seven kinds of artifact (ADR-0066). The UI names them Document, App,
  * Canvas, Slides, File, Image and Video — never "artifact" — through
- * `artifacts.type.*` (the Video entry lands with its card slice; this slice
- * only makes the kind real on the server).
+ * `artifacts.type.*`; Video's card, player and Knowledge Base row ship with
+ * the kind.
  *
  * The union and the list of kinds that ship, with no imports: the panel, the
  * card and the body registry are browser components, and importing the union
@@ -11,7 +11,7 @@
  * `$lib/server/services/artifacts/types`, which re-exports it.
  *
  * `file` is today's `produce_file` output, read from the existing
- * `generated_output` rows (ruling 18); the other five are `type: "artifact"`
+ * `generated_output` rows (ruling 18); the other six are `type: "artifact"`
  * rows carrying their kind in `metadata_json.artifactType`.
  */
 export type ArtifactKind =
@@ -37,8 +37,8 @@ export type ArtifactKind =
  * `produce_file` and never by `create_artifact` / `edit_artifact`, so no item
  * of the family names it. Image is: an item every surface draws, made by
  * `make_image`; it is never regenerable (Regenerate cannot remake a picture).
- * Video is: a short clip, made by `make_video` when its slice lands, and never
- * regenerable either. A kind's tour is a separate fact —
+ * Video is: a short clip, made by `make_video`, and never regenerable either.
+ * A kind's tour is a separate fact —
  * `SHIPPED_ARTIFACT_TOUR_TYPES` (`./tours`) is checked against this list, so a
  * tour cannot exist for a kind that does not ship, and a kind may ship with
  * none.

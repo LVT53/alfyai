@@ -232,9 +232,9 @@ export type DocumentTypeFilter = "all" | KnowledgeDocumentKindFilter;
  * page's server load and by the page itself. Two hand-kept copies drifted
  * (the page's lacked "image", so `?type=image` silently fell back to All).
  * Slides stays accepted though its chip is shelved (ruling 69, see below), and
- * Video is accepted as soon as its kind ships even though the chip waits for
- * the tool slice: a kept link narrows to the Video rows instead of silently
- * widening to All.
+ * Video is accepted though its chip is not in the row yet: the kind, its card
+ * and make_video have shipped, so a kept link narrows to the Video rows
+ * instead of silently widening to All.
  */
 const KNOWLEDGE_KIND_FILTERS: ReadonlySet<string> =
 	new Set<KnowledgeDocumentKindFilter>([

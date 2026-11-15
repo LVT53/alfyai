@@ -331,7 +331,8 @@ export async function quiesceUserWorkspace(userId: string): Promise<void> {
 	await cancelActiveFileProductionForUser(userId);
 	await cancelActiveDocumentExtractionForUser(userId);
 	// A take being rendered when erasure started stops at once and stores no
-	// picture into an account that asked to be forgotten.
+	// picture or clip into an account that asked to be forgotten.
 	await cancelImageTakesForUser(userId);
+	await cancelVideoTakesForUser(userId);
 	await quiesceUserMemoryMaintenance(userId);
 }

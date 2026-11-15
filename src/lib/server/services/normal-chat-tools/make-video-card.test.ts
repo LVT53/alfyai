@@ -113,6 +113,7 @@ describe("the card id make_video reports", () => {
 				picture: "1",
 				title: "Harbour at dawn",
 			}),
+			requestText: "animate the harbour",
 			turnPictures: null,
 			signal: new AbortController().signal,
 			state,

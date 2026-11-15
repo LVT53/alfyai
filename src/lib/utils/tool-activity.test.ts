@@ -1,6 +1,7 @@
 import { get } from "svelte/store";
 import { describe, expect, it } from "vitest";
 import { t } from "$lib/i18n";
+import artifactsDict from "$lib/i18n/artifacts";
 import chatDict from "$lib/i18n/chat";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
@@ -2244,5 +2245,323 @@ describe("make_image rows", () => {
 		}
 		expect(chatDict.hu["toolActivity.pictureStopped"]).toBe("Kép leállítva");
 		expect(chatDict.hu["toolActivity.pictureStillMaking"]).toBeTruthy();
+	});
+});
+
+describe("make_video rows", () => {
+	function makeVideoCall(overrides: Partial<ToolCallSegment>) {
+		return toolCall({
+			name: "make_video",
+			input: { prompt: "the tide comes in", title: "Harbour at dawn" },
+			...overrides,
+		});
+	}
+
+	it("carries the clip's card, by the ids in its metadata, as an open deliverable", () => {
+		const item = buildToolActivityItem(
+			makeVideoCall({
+				metadata: {
+					ok: true,
+					videoStatus: "succeeded",
+					videoCardId: "take-1",
+					videoTakeId: "take-1",
+					videoTitle: "Harbour at dawn",
+				},
+			}),
+			"video-card-row",
+			translate,
+		);
+
+		expect(item.body).toEqual({
+			kind: "video-card",
+			cardId: "take-1",
+			takeId: "take-1",
+			title: "Harbour at dawn",
+		});
+		expect(item).toMatchObject({
+			pinned: true,
+			alwaysOpen: true,
+			iconType: "artifact",
+		});
+	});
+
+	it("carries a card body while the call runs, before it names its card", () => {
+		const item = buildToolActivityItem(
+			makeVideoCall({ status: "running" }),
+			"video-running-row",
+			translate,
+		);
+
+		expect(item.body).toEqual({
+			kind: "video-card",
+			cardId: null,
+			takeId: null,
+			title: "Harbour at dawn",
+		});
+	});
+
+	it("keeps a failed take's card, and a refusal with no card its own body", () => {
+		const failedTake = buildToolActivityItem(
+			makeVideoCall({
+				metadata: {
+					ok: false,
+					videoStatus: "failed",
+					videoError: "video_server_unreachable",
+					videoCardId: "take-1",
+					videoTakeId: "take-1",
+				},
+			}),
+			"video-failed-take",
+			translate,
+		);
+		expect(failedTake.body).toMatchObject({
+			kind: "video-card",
+			cardId: "take-1",
+		});
+		const refusal = buildToolActivityItem(
+			makeVideoCall({
+				metadata: { ok: false, videoError: "not_configured" },
+			}),
+			"video-refused",
+			translate,
+		);
+		expect(refusal.body).toEqual({
+			kind: "error",
+			reason: "Videos can't be made right now.",
+		});
+	});
+
+	it("reads a finished new clip as 'Made' and its title", () => {
+		const item = buildToolActivityItem(
+			makeVideoCall({
+				metadata: {
+					ok: true,
+					videoStatus: "succeeded",
+					videoTitle: "Harbour at dawn",
+				},
+			}),
+			"video-k1",
+			translate,
+		);
+
+		expect(item).toMatchObject({
+			verb: "Made",
+			object: "Harbour at dawn",
+			meta: "",
+			iconType: "artifact",
+			status: "done",
+		});
+	});
+
+	it("reads a running call, and a take still being made, as 'Making a video'", () => {
+		const running = buildToolActivityItem(
+			makeVideoCall({ status: "running" }),
+			"video-k2",
+			translate,
+		);
+		const late = buildToolActivityItem(
+			makeVideoCall({
+				metadata: {
+					ok: true,
+					videoStatus: "running",
+					videoTitle: "Harbour at dawn",
+				},
+			}),
+			"video-k3",
+			translate,
+		);
+
+		expect(running).toMatchObject({
+			verb: "Making a video",
+			status: "running",
+		});
+		expect(late).toMatchObject({
+			verb: "Making a video",
+			status: "done",
+		});
+	});
+
+	it("marks a failed call as failed and keeps the title", () => {
+		const item = buildToolActivityItem(
+			makeVideoCall({
+				metadata: {
+					ok: false,
+					videoStatus: "failed",
+					videoTitle: "Harbour at dawn",
+				},
+			}),
+			"video-k4",
+			translate,
+		);
+
+		expect(item).toMatchObject({
+			status: "failed",
+			verb: "Couldn't make the video",
+			object: "Harbour at dawn",
+		});
+	});
+
+	it("words a failure for the person from its code, never from the model's English", () => {
+		const modelText = "Do not call it again now; tell the user what you made.";
+		const unreachable = buildToolActivityItem(
+			makeVideoCall({
+				outputSummary: modelText,
+				metadata: {
+					ok: false,
+					videoStatus: "failed",
+					videoError: "video_server_unreachable",
+				},
+			}),
+			"video-k5",
+			translate,
+		);
+		expect(unreachable.body).toEqual({
+			kind: "error",
+			reason: "Videos can't be made right now.",
+		});
+		expect(JSON.stringify(unreachable)).not.toContain(modelText);
+
+		const notConfigured = buildToolActivityItem(
+			makeVideoCall({
+				outputSummary: modelText,
+				metadata: { ok: false, videoError: "video_server_not_configured" },
+			}),
+			"video-k6",
+			translate,
+		);
+		expect(notConfigured.body).toEqual({
+			kind: "error",
+			reason: "Videos can't be made right now.",
+		});
+
+		// A refusal (an explicit request, an unknown picture, or the envelope
+		// failing before a take) keeps the model's words out of the person's row.
+		for (const code of ["explicit_request", "unknown_picture", "video_error"]) {
+			const refused = buildToolActivityItem(
+				makeVideoCall({
+					outputSummary: modelText,
+					metadata: { ok: false, videoError: code },
+				}),
+				`video-refusal-${code}`,
+				translate,
+			);
+			expect(refused).toMatchObject({
+				status: "failed",
+				body: { kind: "error", reason: "Couldn't make this one." },
+			});
+			expect(JSON.stringify(refused)).not.toContain(modelText);
+		}
+	});
+
+	it("says a clip the filter stopped plainly, from the code, never the model's words", () => {
+		const modelText = "Tell the user plainly that it was blocked.";
+		const blocked = buildToolActivityItem(
+			makeVideoCall({
+				outputSummary: modelText,
+				metadata: {
+					ok: false,
+					videoStatus: "failed",
+					videoError: "video_blocked",
+				},
+			}),
+			"video-blocked",
+			translate,
+		);
+		expect(blocked).toMatchObject({
+			verb: "The video was blocked",
+			meta: "Details",
+			body: {
+				kind: "error",
+				reason: "It looked explicit, so it isn't shown and wasn't kept.",
+			},
+		});
+		expect(JSON.stringify(blocked)).not.toContain(modelText);
+
+		const unchecked = buildToolActivityItem(
+			makeVideoCall({
+				metadata: {
+					ok: false,
+					videoStatus: "failed",
+					videoError: "video_unchecked",
+				},
+			}),
+			"video-unchecked",
+			translate,
+		);
+		expect(unchecked).toMatchObject({
+			verb: "The video was blocked",
+			body: {
+				kind: "error",
+				reason: "Videos are checked before they appear, so it wasn't kept.",
+			},
+		});
+		expect(artifactsDict.hu["artifacts.video.row.blocked"]).toBeTruthy();
+		expect(artifactsDict.hu["artifacts.video.card.blockedDetail"]).toBeTruthy();
+		expect(
+			artifactsDict.hu["artifacts.video.card.uncheckedDetail"],
+		).toBeTruthy();
+	});
+
+	it("says a timeout that made no take failed plainly", () => {
+		const item = buildToolActivityItem(
+			makeVideoCall({
+				status: "failed",
+				metadata: { ok: false, videoError: "video_error" },
+			}),
+			"video-prep-timeout",
+			translate,
+		);
+		expect(item).toMatchObject({
+			status: "failed",
+			body: { kind: "error", reason: "Couldn't make this one." },
+		});
+		expect(JSON.stringify(item)).not.toContain("still being made");
+	});
+
+	it("says a tool timeout that left the clip rendering is still making, not a failure", () => {
+		const item = buildToolActivityItem(
+			makeVideoCall({
+				status: "failed",
+				metadata: {
+					ok: false,
+					videoError: "video_tool_timeout",
+					videoCardId: "take-1",
+					videoTakeId: "take-1",
+				},
+			}),
+			"video-tool-timeout",
+			translate,
+		);
+
+		expect(item).toMatchObject({
+			status: "done",
+			verb: "The video is still being made",
+			// The take it queued is its card, so the row keeps offering it.
+			body: { kind: "video-card", cardId: "take-1" },
+		});
+	});
+
+	it("reads a Stop as stopped, not as a failure", () => {
+		const item = buildToolActivityItem(
+			makeVideoCall({
+				outputSummary:
+					"The user stopped the turn before this video started, so it was not made.",
+				metadata: {
+					ok: false,
+					videoStatus: "failed",
+					videoStopped: true,
+					videoTitle: "Harbour at dawn",
+				},
+			}),
+			"video-k7",
+			translate,
+		);
+
+		expect(item).toMatchObject({
+			status: "done",
+			verb: "Stopped the video",
+			object: "Harbour at dawn",
+			body: null,
+		});
 	});
 });

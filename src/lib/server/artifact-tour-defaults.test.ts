@@ -56,8 +56,8 @@ const IMAGE_TOUR = {
 	],
 };
 
-/** The Video tour: the clip, its length, and how to ask for one. Its copy waits
- *  for the card that can open a Video — the kind ships without a tour. */
+/** The Video tour: the clip, its length, and how to ask for one. The kind ships
+ *  without a tour yet, so this copy waits unreachable in the table. */
 const VIDEO_TOUR = {
 	artifactType: "video",
 	summary: {
@@ -353,10 +353,10 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 		expect(ARTIFACT_TOUR_DEFAULTS.image).toEqual(IMAGE_TOUR);
 	});
 
-	it("keeps the Video tour's copy for the card slice, and ships it to nobody yet", () => {
-		// The kind ships (SHIPPED_ARTIFACT_KINDS); its tour is a separate fact,
-		// and the card that opens a Video is slice 3's. The copy waits in the
-		// table, unreachable, exactly as Slides' waits for its return.
+	it("keeps the Video tour's copy, and still ships no Video tour", () => {
+		// The kind ships (SHIPPED_ARTIFACT_KINDS) with its card and make_video;
+		// a tour is a separate fact, and Video has none yet. The copy waits in
+		// the table, unreachable, exactly as Slides' waits for its return.
 		expect(ARTIFACT_TOUR_DEFAULTS.video).toEqual(VIDEO_TOUR);
 		expect(SHIPPED_ARTIFACT_TOUR_TYPES).not.toContain("video");
 	});
