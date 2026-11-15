@@ -91,6 +91,7 @@ not restate them, and no mockup overrides them.
 | 5 | The chat model can ask for a video: tool, config, caption | worker-tool (after 4) | `normal-chat-tools/make-video.ts`, `index.ts`, `shared.ts` (timeouts), `env.ts`, `config-store.ts`, `admin-config-registry.ts`, `IntegrationsPage.svelte`, `i18n/settings.ts` | tool tests; config tests; catalogue snapshot |
 | 6 | The explicit filter covers video | worker-filter (after 4) | `services/images/picture-check/{index,policy}.ts` (sampled frames), `image-runner` video branch | blocked/unchecked tests |
 | 7 | An adversarial review of the whole change, by sub-agents who wrote none of it, before anything is deployed | reviewers a-d (after 6) | read-only | findings report, then a re-review of every fix |
+| 8 | A clip can be downloaded as a GIF as well as an mp4 | worker-gif (after 4) | `video-files.ts` (gif path + cache), `video/media.ts` (the conversion), the serving route's `?format=gif`, the card's More menu and the panel's download action, i18n | conversion unit test over a stub, route tests (content type, disposition, cache, cleanup), i18n parity |
 
 Slices 1 and 2 are independent and start together. 3 and 4 both follow 2 and do not share
 files. 5 follows 4. 6 follows 4.
@@ -138,6 +139,34 @@ accepted because it compiles.
 recorded, one end-to-end video take proven over the fake, and a staging smoke before
 production. Deployment stays a separate, explicit step: the gate says the change is ready,
 not that it should ship.
+
+## Slice 8: GIF download
+
+A clip downloads as an mp4 by default and as a GIF on request. On demand, never at store
+time: most people download the mp4, and a GIF costs CPU and disk that nothing would use.
+
+- **Route.** `GET /api/images/files/<id>?download=1&format=gif` answers `image/gif` with
+  `Content-Disposition: attachment`. `format=mp4` (or absent) is today's behaviour, byte
+  for byte. The GIF ignores `Range` (it is small and whole); the mp4 keeps its ranges.
+  Ownership scoping is the picture route's own, unchanged.
+- **Cached beside the clip.** `<id>.gif` is derived from `storage_path` like `.poster.webp`
+  and `.thumb.webp`, made once and served thereafter; the first request makes it
+  atomically (write a temp file, rename), one generation in flight per file, a file that
+  is not a whole GIF removed and made again once, and a failure falls back to a clear
+  error rather than a different format. It is deleted with the clip by every path that
+  deletes the clip.
+- **The conversion.** ffmpeg through the video take's `media.ts` (the same runner ffmpeg
+  already used for the chain): `fps=12`, long edge **480** and never enlarged,
+  `flags=lanczos`, a `palettegen`/`paletteuse` pair (`stats_mode=diff`,
+  `dither=bayer:bayer_scale=5:diff_mode=rectangle`), `-loop 0`, no audio — a GIF has none,
+  and the card does not pretend otherwise.
+- **UI.** The card's More menu gains "Download as GIF" under Download, and the panel's
+  Download gains the same choice; both are disabled while the take has no file. EN and HU
+  for both labels. The mp4 stays the default in both places.
+
+Why 480 px and 12 fps: a 5 s 704×1280 clip at full size is tens of megabytes as a GIF and
+looks worse than the mp4; at 480 px and 12 fps it is a few megabytes and still reads at
+chat size. The constants live in `video/media.ts`, not in the route.
 
 ## Review gates
 
