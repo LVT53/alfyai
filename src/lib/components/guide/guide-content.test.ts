@@ -52,6 +52,22 @@ describe("the feature guide's content", () => {
 		}
 	});
 
+	it("says a found file shows a preview card, and the card opens the file in Nextcloud", () => {
+		// The card the chat draws under a reply: a preview, and a link that
+		// leaves the conversation and opens the file itself (the Nextcloud
+		// file-cards change). OneDrive connections still show none.
+		const previewCard = { en: /preview card/i, hu: /előnézeti kártyá/i };
+		const opensTheFile = {
+			en: /opens the file in Nextcloud/i,
+			hu: /a Nextcloudban nyitja meg a fájlt/i,
+		};
+		for (const lang of LANGUAGES) {
+			const line = words[lang][guideEntryKey("connectedAccounts", "line")];
+			expect(line, `${lang} preview card`).toMatch(previewCard[lang]);
+			expect(line, `${lang} opens the file`).toMatch(opensTheFile[lang]);
+		}
+	});
+
 	it("gives every section a name and an intro, in both languages", () => {
 		expect(guideSectionKey("knowsYou", "name")).toBe(
 			"guide.section.knowsYou.name",
