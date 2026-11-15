@@ -155,6 +155,15 @@ describe("GET /api/connections/nextcloud/preview", () => {
 		);
 	});
 
+	it("returns 401 (not a 302 redirect) for anonymous callers instead of leaking bytes", async () => {
+		await expect(GET(makeEvent({ userId: null }))).rejects.toMatchObject({
+			status: 401,
+		});
+		expect(mockGetConnection).not.toHaveBeenCalled();
+		expect(mockGetConnectionSecret).not.toHaveBeenCalled();
+		expect(mockPreview).not.toHaveBeenCalled();
+	});
+
 	it("404s another user's connection without fetching", async () => {
 		mockGetConnection.mockResolvedValue(null);
 
