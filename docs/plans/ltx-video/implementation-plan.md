@@ -90,7 +90,7 @@ not restate them, and no mockup overrides them.
 | 3b | The card is reachable: its data and its buttons reach the chat | worker-wiring (after 3) | `conversation-detail/read-model.ts` + its page loader, `chat/[conversationId]/+page.svelte`, `_helpers.ts`, `MessageBubble.svelte` (props only), a video action client | read-model test; `_helpers` poll test; e2e that a video card appears and its Stop works |
 | 4 | A video take runs: LTX graph, two-segment chain, store, settle | worker-runner (after 2) | `services/images/video/{job,request,runner}.ts`, `comfyui/ltx-templates.ts`, graph JSON, `comfyui/client.ts` (`readHistory` media), `idle-free.ts` | runner unit tests over the fake; chain test with two prompts |
 | 5 | The chat model can ask for a video: tool, config, caption | worker-tool (after 4) | `normal-chat-tools/make-video.ts`, `index.ts`, `shared.ts` (timeouts), `env.ts`, `config-store.ts`, `admin-config-registry.ts`, `IntegrationsPage.svelte`, `i18n/settings.ts` | tool tests; config tests; catalogue snapshot |
-| 6 | ~~The explicit filter covers video~~ — absorbed into slice 4: the runner samples five frames and checks each before anything is stored, failing closed | worker-runner | — | runner tests (`video_blocked`, `video_unchecked`, nothing stored) |
+| 6 | ~~The explicit filter covers video~~ — absorbed into slice 4: the runner checks **every frame** before anything is stored, failing closed, because the owner ruled a sampled video filter weaker than the picture path is not acceptable (121 frames ≈ 18 s) | worker-runner | — | runner tests (`video_blocked`, `video_unchecked`, a frame between the old samples still blocked, nothing stored) |
 | 7 | An adversarial review of the whole change, by sub-agents who wrote none of it, before anything is deployed | reviewers a-d (after 6) | read-only | findings report, then a re-review of every fix |
 | 8 | A clip can be downloaded as a GIF as well as an mp4 | worker-gif (after 4) | `video-files.ts` (gif path + cache), `video/media.ts` (the conversion), the serving route's `?format=gif`, the card's More menu and the panel's download action, i18n | conversion unit test over a stub, route tests (content type, disposition, cache, cleanup), i18n parity |
 
@@ -224,6 +224,14 @@ cost is the mask UI, not the model.
   markup, stop and bring it back to a shared piece rather than two copies.
 
 ## Decisions taken
+
+**Owner rulings, 2026-11-15 (review gate):**
+
+- **The video filter must not be weaker than the picture path.** The picture path classifies the whole image, so a clip classifies **every frame**, not a sample. Cost is measured, not hoped: about 150 ms a frame on the CPU classifier, so roughly 18 s for a 5 s clip and 36 s for a 10 s one, against a render measured in minutes. A five-frame sample was in the plan and is now wrong; a moment between samples is exactly what a filter exists to catch.
+- **`Another` on a video card is not capped.** The queue is the throttle: a person may queue as many takes as they like, and the picture path's eight-take cap is a property of its takes strip, which a clip does not have.
+- **The caption endpoint is always local**, so the admin screen carries no "the person's words leave this box" warning. If it is ever pointed at a cloud provider, that sentence and a decision belong with it.
+
+
 
 - **`make_video` is hidden when `COMFYUI_LTX_URL` is empty**, exactly as `make_image` is
   absent when no picture service is configured. Tool registration gates on
