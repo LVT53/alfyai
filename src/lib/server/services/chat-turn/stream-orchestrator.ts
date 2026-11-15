@@ -630,6 +630,9 @@ export function runChatStreamOrchestrator(
 					map?:
 						| import("$lib/server/services/messages-types").ToolCallMapData
 						| null;
+					files?:
+						| import("$lib/server/services/messages-types").ToolCallFilesData
+						| null;
 					instructionSuggestion?:
 						| import("$lib/shared/instructions").InstructionSuggestion
 						| null;
@@ -655,6 +658,9 @@ export function runChatStreamOrchestrator(
 							map?:
 								| import("$lib/server/services/messages-types").ToolCallMapData
 								| null;
+							files?:
+								| import("$lib/server/services/messages-types").ToolCallFilesData
+								| null;
 					  }>
 					| undefined,
 			) => {
@@ -666,6 +672,7 @@ export function runChatStreamOrchestrator(
 						candidates: record.candidates,
 						metadata: record.metadata,
 						map: record.map,
+						files: record.files,
 					});
 				}
 			};
@@ -1287,6 +1294,7 @@ export function runChatStreamOrchestrator(
 									candidates: matchingToolCall?.candidates ?? [],
 									metadata: matchingToolCall?.metadata ?? {},
 									map: matchingToolCall?.map ?? null,
+									files: matchingToolCall?.files ?? null,
 									// Slice F — the recorded entry is the only place a
 									// `suggest_instruction` offer exists at this point;
 									// finalize persists it off the runtime's records.

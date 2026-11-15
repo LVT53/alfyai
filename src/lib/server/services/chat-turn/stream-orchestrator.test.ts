@@ -2509,6 +2509,24 @@ describe("stream-orchestrator SSE contract", () => {
 				},
 			],
 			metadata: { ok: true, evidenceReady: true },
+			// The reply's file cards ride the same call entry a map card does;
+			// they must reach the browser's event and the saved segment alike.
+			files: {
+				connectionId: "conn-1",
+				cards: [
+					{
+						name: "report.pdf",
+						path: "Documents/report.pdf",
+						size: 2048,
+						mtime: "2026-11-01T09:00:00.000Z",
+						contentType: "application/pdf",
+						previewUrl: null,
+						webUrl:
+							"https://nextcloud.example.com/index.php/apps/files/?dir=/Documents&openfile=42",
+					},
+				],
+				total: 9,
+			},
 		};
 		(
 			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
@@ -2557,8 +2575,29 @@ describe("stream-orchestrator SSE contract", () => {
 				sourceType: "web",
 				candidates: recorderEntry.candidates,
 				metadata: { ok: true, evidenceReady: true },
+				files: recorderEntry.files,
 			}),
 		]);
+
+		// The same cards are on the saved segment, so a reload draws them again
+		// without the live event.
+		const { createMessage } = await import("$lib/server/services/messages");
+		await vi.waitFor(() => {
+			expect(createMessage).toHaveBeenCalledWith(
+				"test-conv",
+				"assistant",
+				"Answer",
+				undefined,
+				[
+					expect.objectContaining({
+						type: "tool_call",
+						name: "research_web",
+						files: recorderEntry.files,
+					}),
+				],
+				expect.anything(),
+			);
+		});
 	});
 
 	// E1 — a failed tool call now carries a genuine "failed" status (not a

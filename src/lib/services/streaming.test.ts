@@ -962,6 +962,22 @@ describe("streamChat", () => {
 							},
 						],
 						metadata: { count: 1 },
+						files: {
+							connectionId: "conn-1",
+							cards: [
+								{
+									name: "report.pdf",
+									path: "Documents/report.pdf",
+									size: 2048,
+									mtime: "2026-11-01T09:00:00.000Z",
+									contentType: "application/pdf",
+									previewUrl: null,
+									webUrl:
+										"https://nextcloud.example.com/index.php/apps/files/?dir=/Documents&openfile=42",
+								},
+							],
+							total: 9,
+						},
 					},
 					transient: true,
 				}),
@@ -991,6 +1007,22 @@ describe("streamChat", () => {
 					},
 				],
 				metadata: { count: 1 },
+				files: {
+					connectionId: "conn-1",
+					cards: [
+						{
+							name: "report.pdf",
+							path: "Documents/report.pdf",
+							size: 2048,
+							mtime: "2026-11-01T09:00:00.000Z",
+							contentType: "application/pdf",
+							previewUrl: null,
+							webUrl:
+								"https://nextcloud.example.com/index.php/apps/files/?dir=/Documents&openfile=42",
+						},
+					],
+					total: 9,
+				},
 			},
 		);
 	});

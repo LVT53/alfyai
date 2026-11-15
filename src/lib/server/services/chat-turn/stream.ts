@@ -6,6 +6,7 @@ import type {
 } from "$lib/server/services/message-evidence";
 import type {
 	ToolCallEntry,
+	ToolCallFilesData,
 	ToolCallMapData,
 } from "$lib/server/services/messages-types";
 import {
@@ -99,6 +100,7 @@ export type ServerStreamSegment =
 			candidates?: ToolEvidenceCandidate[];
 			metadata?: Record<string, string | number | boolean | null>;
 			map?: ToolCallMapData | null;
+			files?: ToolCallFilesData | null;
 	  };
 
 type NativeToolCallFragment = {
@@ -128,6 +130,7 @@ type StreamToolCallDetails = {
 	candidates?: ToolEvidenceCandidate[];
 	metadata?: Record<string, string | number | boolean | null>;
 	map?: ToolCallMapData | null;
+	files?: ToolCallFilesData | null;
 	// Slice F — the instruction offer a `suggest_instruction` call made, carried
 	// from the tool's own recorded entry. It has to reach the runtime's records
 	// because finalize persists the offer from them (the assistant message does
@@ -349,6 +352,7 @@ export function streamToolCallEvent(data: {
 	candidates?: ToolEvidenceCandidate[];
 	metadata?: Record<string, string | number | boolean | null>;
 	map?: ToolCallMapData | null;
+	files?: ToolCallFilesData | null;
 }): string {
 	return streamDataPartEvent("data-tool-call", stripUndefined(data));
 }
@@ -917,6 +921,7 @@ export function createServerChunkRuntime({
 				candidates: details?.candidates,
 				metadata: details?.metadata,
 				map: details?.map,
+				files: details?.files,
 			}),
 		);
 
@@ -957,6 +962,7 @@ export function createServerChunkRuntime({
 				segment.candidates = details?.candidates;
 				segment.metadata = details?.metadata;
 				segment.map = details?.map ?? null;
+				segment.files = details?.files ?? null;
 				break;
 			}
 		}
@@ -975,6 +981,7 @@ export function createServerChunkRuntime({
 				candidates: details?.candidates,
 				metadata: details?.metadata,
 				map: details?.map ?? null,
+				files: details?.files ?? null,
 				instructionSuggestion: details?.instructionSuggestion ?? null,
 			};
 			toolCallRecords.push(terminalRecord);
@@ -990,6 +997,7 @@ export function createServerChunkRuntime({
 				candidates: details?.candidates,
 				metadata: details?.metadata,
 				map: details?.map ?? null,
+				files: details?.files ?? null,
 			});
 			return;
 		}
@@ -1006,6 +1014,7 @@ export function createServerChunkRuntime({
 					candidates: details?.candidates,
 					metadata: details?.metadata,
 					map: details?.map ?? null,
+					files: details?.files ?? null,
 					instructionSuggestion: details?.instructionSuggestion ?? null,
 				};
 				break;

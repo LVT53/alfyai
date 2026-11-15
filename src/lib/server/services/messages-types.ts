@@ -280,6 +280,7 @@ export type ThinkingSegment =
 			candidates?: ToolEvidenceCandidate[];
 			metadata?: Record<string, string | number | boolean | null>;
 			map?: ToolCallMapData | null;
+			files?: ToolCallFilesData | null;
 	  };
 
 // E1 — stable codes for a chat turn that completed with a caveat. Before E1

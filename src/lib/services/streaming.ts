@@ -179,6 +179,9 @@ export interface StreamCallbacks {
 			map?:
 				| import("$lib/server/services/messages-types").ToolCallMapData
 				| null;
+			files?:
+				| import("$lib/server/services/messages-types").ToolCallFilesData
+				| null;
 		},
 	) => void;
 	onResponseActivity?: (entry: ResponseActivityEntry) => void;
@@ -947,6 +950,10 @@ export function streamChat(
 					| undefined,
 				map: parsed.map as
 					| import("$lib/server/services/messages-types").ToolCallMapData
+					| null
+					| undefined,
+				files: parsed.files as
+					| import("$lib/server/services/messages-types").ToolCallFilesData
 					| null
 					| undefined,
 			},

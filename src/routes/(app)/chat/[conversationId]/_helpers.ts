@@ -47,6 +47,7 @@ import type {
 import type {
 	ChatMessage,
 	ThinkingSegment,
+	ToolCallFilesData,
 	ToolCallMapData,
 } from "$lib/server/services/messages-types";
 import type {
@@ -151,6 +152,7 @@ export type StreamToolCallDetails = {
 	candidates?: ToolEvidenceCandidate[];
 	metadata?: Record<string, string | number | boolean | null>;
 	map?: ToolCallMapData | null;
+	files?: ToolCallFilesData | null;
 };
 
 type Translate = (
@@ -1155,6 +1157,7 @@ export function applyToolCallUpdateToMessageList(
 					candidates: params.details?.candidates,
 					metadata: params.details?.metadata,
 					map: params.details?.map,
+					files: params.details?.files,
 				};
 			}
 		}
