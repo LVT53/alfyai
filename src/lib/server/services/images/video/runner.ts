@@ -40,7 +40,11 @@ import {
 	getImageFile,
 	readImageFileBytes,
 } from "../files";
-import { freeOtherPictureModels, scheduleIdleFree } from "../idle-free";
+import {
+	freeOtherPictureModels,
+	scheduleIdleFree,
+	waitForOtherEnginesIdle,
+} from "../idle-free";
 import { checkFinishedFrames } from "../picture-check";
 import { isExplicitFilterOnFor } from "../picture-check/policy";
 import { discardStoredVideoFile, storeVideoFile } from "../video-files";
@@ -545,6 +549,25 @@ async function renderTake(
 			.run();
 	});
 	if (!baselineWritten || signal.aborted) return;
+
+	// One GPU, one engine's models: wait until no picture take is queued or
+	// running before touching the LTX server. The baseline keeps counting down
+	// while the take waits, so the chip shows waiting, not an error.
+	const waited = await waitForOtherEnginesIdle("ltx", {
+		signal,
+		deadlineMs: VIDEO_RENDER_DEADLINE_MS - (Date.now() - startedAt),
+		claim: { id: row.id, phaseAt: row.phaseAt ?? Date.now() },
+		onTick: () => writeEtaTick(ctx, eta),
+	});
+	if (waited === "cancelled") return;
+	if (waited === "timeout") {
+		throw new TakeError(
+			"video_render_timeout",
+			"The video waited too long for the other engine to finish.",
+			true,
+		);
+	}
+	if (signal.aborted) return;
 
 	const still = await readStill(ctx, request.sourceFileId);
 	const size = videoSizeForSource({

@@ -36,7 +36,11 @@ import {
 } from "./files";
 import { guardEdit } from "./guards/guard-edit";
 import { decodeRaw, encodePng } from "./guards/raw-image";
-import { freeOtherPictureModel, scheduleIdleFree } from "./idle-free";
+import {
+	freeOtherPictureModel,
+	scheduleIdleFree,
+	waitForOtherEnginesIdle,
+} from "./idle-free";
 import { promptWithMarks } from "./marks";
 import { checkFinishedPicture } from "./picture-check";
 import {
@@ -139,6 +143,7 @@ export async function runImageTake(ctx: Ctx): Promise<void> {
 		return;
 	}
 
+	const startedAt = Date.now();
 	let promptId = promptIdOf(row.checkpoint);
 	let stopping: Promise<void> = Promise.resolve();
 
@@ -167,12 +172,34 @@ export async function runImageTake(ctx: Ctx): Promise<void> {
 	signal.addEventListener("abort", onAbort, { once: true });
 
 	try {
-		await renderTake(ctx, request, client, {
-			getPromptId: () => promptId,
-			setPromptId: (id) => {
-				promptId = id;
-			},
+		// One GPU, one engine's models: wait until the other engine's take (a
+		// video, or the other picture model) is done before touching this one.
+		const waited = await waitForOtherEnginesIdle(request.model, {
+			signal,
+			deadlineMs: IMAGE_RENDER_DEADLINE_MS - (Date.now() - startedAt),
+			claim: { id: row.id, phaseAt: row.phaseAt ?? Date.now() },
 		});
+		if (waited === "cancelled") return;
+		if (waited === "timeout") {
+			await ctx.fail({
+				code: "image_render_timeout",
+				message: "The picture waited too long for the other engine to finish.",
+				retryable: true,
+			});
+			return;
+		}
+		await renderTake(
+			ctx,
+			request,
+			client,
+			{
+				getPromptId: () => promptId,
+				setPromptId: (id) => {
+					promptId = id;
+				},
+			},
+			startedAt,
+		);
 		// A cancel that landed while the submit was in flight found no prompt to stop.
 		if (signal.aborted && signal.reason === "cancelled") await stopPrompt();
 	} catch (error) {
@@ -452,9 +479,9 @@ async function renderTake(
 	request: TakeRequest,
 	client: ComfyUiClient,
 	prompt: { getPromptId(): string | null; setPromptId(id: string): void },
+	startedAt: number,
 ): Promise<void> {
 	const { row, signal } = ctx;
-	const startedAt = Date.now();
 	let resubmitted = false;
 	let output: Uint8Array;
 

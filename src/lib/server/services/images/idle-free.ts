@@ -7,7 +7,7 @@
 // hold. The take's own service is never freed — a list, not a pair, because a
 // third engine makes "the other one" wrong.
 
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import {
 	getComfyuiLtxUrl,
 	getComfyuiUrlForModel,
@@ -18,7 +18,7 @@ import { imageJobs, videoJobs } from "$lib/server/db/schema";
 import { createConfiguredComfyClient } from "./comfy-client";
 import { type ComfyUiClient, createComfyUiClient } from "./comfyui/client";
 
-import { IMAGE_IDLE_FREE_MS } from "./take-request";
+import { IMAGE_IDLE_FREE_MS, parseTakeRequest } from "./take-request";
 
 export { IMAGE_IDLE_FREE_MS };
 
@@ -74,6 +74,166 @@ export function otherPictureModels(engine: PictureEngine): PictureEngine[] {
 	return PICTURE_ENGINES.filter((candidate) => candidate !== engine);
 }
 
+/**
+ * How long a take waits for another engine's take to finish before it gives
+ * up: about a second between ledger reads (a video take is tens of seconds, so
+ * a finer poll only spends queries), and the take's own render deadline as the
+ * end of the wait.
+ */
+const OTHER_ENGINE_POLL_MS = 1000;
+
+// A test seam, like the media timeout's: a spec cannot spend 15 minutes waiting
+// for a timeout, so it may shorten the poll and cap the wait.
+const WAIT_TEST_KEY = Symbol.for("alfyai.images.otherEngineWaitTests");
+type WaitTestOverride = { intervalMs?: number; deadlineMs?: number };
+type WaitTestHolder = { [WAIT_TEST_KEY]?: WaitTestOverride };
+export function setOtherEngineWaitForTests(
+	next: WaitTestOverride | undefined,
+): void {
+	if (!process.env.VITEST) {
+		throw new Error("setOtherEngineWaitForTests is for vitest only");
+	}
+	(globalThis as WaitTestHolder)[WAIT_TEST_KEY] = next;
+}
+function waitTestOverride(): WaitTestOverride {
+	return (globalThis as WaitTestHolder)[WAIT_TEST_KEY] ?? {};
+}
+
+/** Whether any queued or running take is rendering on `engine`. */
+async function hasLiveTakeOnEngine(engine: PictureEngine): Promise<boolean> {
+	if (engine === "ltx") {
+		const [video] = await db
+			.select({ id: videoJobs.id })
+			.from(videoJobs)
+			.where(inArray(videoJobs.status, ["queued", "running"]))
+			.limit(1);
+		return video !== undefined;
+	}
+	const pictures = await db
+		.select({ id: imageJobs.id, requestJson: imageJobs.requestJson })
+		.from(imageJobs)
+		.where(inArray(imageJobs.status, ["queued", "running"]));
+	return pictures.some(
+		(picture) => parseTakeRequest(picture.requestJson)?.model === engine,
+	);
+}
+
+/** The take the gate is deciding for: its claim time (ms) and id (a same-ms tie-break). */
+export type EngineClaim = { id: string; phaseAt: number };
+
+/**
+ * Whether another engine holds the card:
+ *  - a take that is ON the GPU (running, with a prompt or a phase past
+ *    `submitted`) always blocks;
+ *  - a take still waiting in its own gate blocks only when it was claimed
+ *    earlier (`phase_at` is milliseconds), so two takes that start together
+ *    have a deterministic order and cannot wait on each other until both
+ *    deadlines.
+ * A queued take does not block: it is not on the GPU, and when it claims it
+ * will see this take running and wait itself. Its own engine's takes never
+ * block (ComfyUI's queue orders those).
+ */
+async function hasLiveTakeOnOtherEngine(
+	engine: PictureEngine,
+	claim: EngineClaim,
+): Promise<boolean> {
+	const occupies = (row: {
+		id: string;
+		phase: string | null;
+		checkpoint: string | null;
+		phaseAt: number | null;
+	}): boolean => {
+		if (row.phase !== "submitted" || row.checkpoint !== null) return true;
+		if (row.phaseAt === null) return false;
+		return (
+			row.phaseAt < claim.phaseAt ||
+			(row.phaseAt === claim.phaseAt && row.id < claim.id)
+		);
+	};
+	const pictures = await db
+		.select({
+			id: imageJobs.id,
+			phase: imageJobs.phase,
+			checkpoint: imageJobs.checkpoint,
+			phaseAt: imageJobs.phaseAt,
+			requestJson: imageJobs.requestJson,
+		})
+		.from(imageJobs)
+		.where(eq(imageJobs.status, "running"));
+	for (const picture of pictures) {
+		const model = parseTakeRequest(picture.requestJson)?.model ?? null;
+		// An unreadable request cannot be placed on our engine: it counts as another.
+		if (model === null || model !== engine) {
+			if (model === null || occupies(picture)) return true;
+		}
+	}
+	if (engine === "ltx") return false;
+	const videos = await db
+		.select({
+			id: videoJobs.id,
+			phase: videoJobs.phase,
+			checkpoint: videoJobs.checkpoint,
+			phaseAt: videoJobs.phaseAt,
+		})
+		.from(videoJobs)
+		.where(eq(videoJobs.status, "running"));
+	return videos.some(occupies);
+}
+
+function waitPause(ms: number, signal: AbortSignal): Promise<void> {
+	return new Promise((resolve) => {
+		const timer = setTimeout(done, ms);
+		function done() {
+			clearTimeout(timer);
+			signal.removeEventListener("abort", done);
+			resolve();
+		}
+		signal.addEventListener("abort", done, { once: true });
+	});
+}
+
+export type OtherEngineWaitResult = "idle" | "cancelled" | "timeout";
+
+/**
+ * The cross-engine gate: one GPU can hold one engine's models, so a take waits
+ * until no take of any OTHER engine is queued or running before it frees
+ * anything or POSTs. Its own engine's takes do not block (ComfyUI's queue
+ * orders those). The wait respects the take's Stop (`cancelled`) and its own
+ * render deadline (`timeout`); a caller that stopped is settled by its runner
+ * as cancelled, never as a timeout.
+ */
+export async function waitForOtherEnginesIdle(
+	engine: PictureEngine,
+	options: {
+		signal: AbortSignal;
+		deadlineMs: number;
+		/** The waiting take; only takes older than it block (oldest wins). */
+		claim: EngineClaim;
+		/** Called once per poll while waiting: the take's own clock keeps ticking. */
+		onTick?: () => Promise<void> | void;
+	},
+): Promise<OtherEngineWaitResult> {
+	const override = waitTestOverride();
+	const intervalMs = override.intervalMs ?? OTHER_ENGINE_POLL_MS;
+	const startedAt = Date.now();
+	const deadlineMs = Math.min(
+		Math.max(0, options.deadlineMs),
+		override.deadlineMs ?? Number.POSITIVE_INFINITY,
+	);
+	for (;;) {
+		if (options.signal.aborted) return "cancelled";
+		if (!(await hasLiveTakeOnOtherEngine(engine, options.claim))) return "idle";
+		const elapsed = Date.now() - startedAt;
+		if (elapsed >= deadlineMs) return "timeout";
+		await options.onTick?.();
+		if (options.signal.aborted) return "cancelled";
+		await waitPause(
+			Math.max(1, Math.min(intervalMs, deadlineMs - elapsed)),
+			options.signal,
+		);
+	}
+}
+
 function createEngineClient(engine: PictureEngine): ComfyUiClient | null {
 	if (engine === "ltx") {
 		const url = getComfyuiLtxUrl();
@@ -98,6 +258,9 @@ export async function freeOtherPictureModels(
 		if (url === "") continue;
 		if (own !== "" && sameAddress(url, own)) continue;
 		if (freed.some((seen) => sameAddress(seen, url))) continue;
+		// Never unload an engine with a live take: at best it is wasted work, at
+		// worst it pulls the models out from under a render (`Fault failed: 2`).
+		if (await hasLiveTakeOnEngine(other)) continue;
 		freed.push(url);
 		const client = createEngineClient(other);
 		if (!client) continue;
