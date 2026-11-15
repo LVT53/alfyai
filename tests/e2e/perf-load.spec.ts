@@ -48,6 +48,19 @@ const BASE_URL = e2eBaseUrl(e2eSlot());
 /** The composer's own field: the app's primary control on both `/` and `/chat/<id>`. */
 const USABLE_SELECTOR = '[data-testid="message-input"]';
 
+/**
+ * The landing sections the run reports on, each addressed by the stable hook it
+ * already carries (no app markup change). The recorder stamps the first moment
+ * a marker exists and is visible; the report lists them in arrival order.
+ */
+const ELEMENT_MARKERS = [
+	{ marker: "greeting", selector: '[data-testid="home-greeting"]' },
+	{ marker: "weekly-bars", selector: '[data-testid="home-weekly-bars"]' },
+	{ marker: "projects", selector: '[data-testid="home-projects"]' },
+	{ marker: "recent-first-row", selector: '[data-testid="home-recent-line"]' },
+	{ marker: "composer", selector: USABLE_SELECTOR },
+] as const;
+
 /** SvelteKit renders this once the root component has mounted (`waitForHydration`). */
 const HYDRATED_SELECTOR = "#svelte-announcer";
 
@@ -164,6 +177,16 @@ type PaintSummary = {
 	firstInputAtMs: number | null;
 };
 
+/**
+ * One landing section's first visible moment, on the document's own clock
+ * (`performance.now()`, milliseconds since navigation start). `atMs` is null
+ * when the marker never became visible before the document was read.
+ */
+type ElementArrival = {
+	marker: string;
+	atMs: number | null;
+};
+
 type ClsSummary = {
 	total: number;
 	excludingRecentInput: number;
@@ -213,6 +236,8 @@ type ScenarioResult = {
 	documentStatus?: number | null;
 	navigation?: NavigationTiming | null;
 	paints?: PaintSummary | null;
+	/** First visible moment of each landing section, sorted by arrival. */
+	elements?: ElementArrival[] | null;
 	cls?: ClsSummary | null;
 	longTasks?: LongTaskSummary | null;
 	performanceMetrics?: Record<string, number>;
@@ -268,6 +293,7 @@ type PerfState = {
 	}>;
 	cls: Array<{ startTime: number; value: number; hadRecentInput: boolean }>;
 	longTasks: Array<{ startTime: number; duration: number; name: string }>;
+	elements: Array<{ marker: string; atMs: number | null }>;
 	firstSeenAtMs: number | null;
 	firstInputAtMs: number | null;
 };
@@ -279,132 +305,177 @@ type PerfState = {
  * only reads entries after the click.
  */
 async function installPerfRecorder(page: Page): Promise<void> {
-	await page.addInitScript((usableSelector: string) => {
-		const state: {
-			fcpMs: number | null;
-			lcp: Array<{
-				startTime: number;
-				size: number;
-				element: string | null;
-				url: string | null;
-			}>;
-			cls: Array<{
-				startTime: number;
-				value: number;
-				hadRecentInput: boolean;
-			}>;
-			longTasks: Array<{
-				startTime: number;
-				duration: number;
-				name: string;
-			}>;
-			firstSeenAtMs: number | null;
-			firstInputAtMs: number | null;
-		} = {
-			fcpMs: null,
-			lcp: [],
-			cls: [],
-			longTasks: [],
-			firstSeenAtMs: null,
-			firstInputAtMs: null,
-		};
-		(window as unknown as { __perfLoad: typeof state }).__perfLoad = state;
+	await page.addInitScript(
+		(options: {
+			usableSelector: string;
+			markers: ReadonlyArray<{ marker: string; selector: string }>;
+		}) => {
+			const { usableSelector, markers } = options;
+			const state: {
+				fcpMs: number | null;
+				lcp: Array<{
+					startTime: number;
+					size: number;
+					element: string | null;
+					url: string | null;
+				}>;
+				cls: Array<{
+					startTime: number;
+					value: number;
+					hadRecentInput: boolean;
+				}>;
+				longTasks: Array<{
+					startTime: number;
+					duration: number;
+					name: string;
+				}>;
+				elements: Array<{ marker: string; atMs: number | null }>;
+				firstSeenAtMs: number | null;
+				firstInputAtMs: number | null;
+			} = {
+				fcpMs: null,
+				lcp: [],
+				cls: [],
+				longTasks: [],
+				elements: markers.map(({ marker }) => ({ marker, atMs: null })),
+				firstSeenAtMs: null,
+				firstInputAtMs: null,
+			};
+			(window as unknown as { __perfLoad: typeof state }).__perfLoad = state;
 
-		// A landing page can pull more than the 250-entry default buffer; without
-		// raising it the earliest chunks would fall out of the resource list.
-		try {
-			performance.setResourceTimingBufferSize(5000);
-		} catch {
-			// an engine without the setter keeps its default buffer
-		}
-
-		const observe = (
-			type: string,
-			callback: (entries: PerformanceEntryList) => void,
-		) => {
+			// A landing page can pull more than the 250-entry default buffer; without
+			// raising it the earliest chunks would fall out of the resource list.
 			try {
-				const observer = new PerformanceObserver((list) =>
-					callback(list.getEntries()),
-				);
-				observer.observe({ type, buffered: true });
+				performance.setResourceTimingBufferSize(5000);
 			} catch {
-				// this entry type does not exist here
+				// an engine without the setter keeps its default buffer
 			}
-		};
 
-		observe("paint", (entries) => {
-			for (const entry of entries) {
-				if (entry.name === "first-contentful-paint") {
-					state.fcpMs = entry.startTime;
+			const observe = (
+				type: string,
+				callback: (entries: PerformanceEntryList) => void,
+			) => {
+				try {
+					const observer = new PerformanceObserver((list) =>
+						callback(list.getEntries()),
+					);
+					observer.observe({ type, buffered: true });
+				} catch {
+					// this entry type does not exist here
 				}
-			}
-		});
+			};
 
-		observe("largest-contentful-paint", (entries) => {
-			for (const entry of entries) {
-				const candidate = entry as PerformanceEntry & {
-					size?: number;
-					element?: Element | null;
-					url?: string;
-				};
-				const element = candidate.element ?? null;
-				state.lcp.push({
-					startTime: entry.startTime,
-					size: Number(candidate.size ?? 0),
-					element: element
-						? (element.getAttribute("data-testid") ??
-							element.id ??
-							element.getAttribute("class") ??
-							element.tagName.toLowerCase())
-						: null,
-					url: candidate.url || null,
-				});
-			}
-		});
+			observe("paint", (entries) => {
+				for (const entry of entries) {
+					if (entry.name === "first-contentful-paint") {
+						state.fcpMs = entry.startTime;
+					}
+				}
+			});
 
-		observe("layout-shift", (entries) => {
-			for (const entry of entries) {
-				const shift = entry as PerformanceEntry & {
-					value?: number;
-					hadRecentInput?: boolean;
-				};
-				state.cls.push({
-					startTime: entry.startTime,
-					value: Number(shift.value ?? 0),
-					hadRecentInput: shift.hadRecentInput === true,
-				});
-			}
-		});
+			observe("largest-contentful-paint", (entries) => {
+				for (const entry of entries) {
+					const candidate = entry as PerformanceEntry & {
+						size?: number;
+						element?: Element | null;
+						url?: string;
+					};
+					const element = candidate.element ?? null;
+					state.lcp.push({
+						startTime: entry.startTime,
+						size: Number(candidate.size ?? 0),
+						element: element
+							? (element.getAttribute("data-testid") ??
+								element.id ??
+								element.getAttribute("class") ??
+								element.tagName.toLowerCase())
+							: null,
+						url: candidate.url || null,
+					});
+				}
+			});
 
-		observe("longtask", (entries) => {
-			for (const entry of entries) {
-				state.longTasks.push({
-					startTime: entry.startTime,
-					duration: entry.duration,
-					name: entry.name,
-				});
-			}
-		});
+			observe("layout-shift", (entries) => {
+				for (const entry of entries) {
+					const shift = entry as PerformanceEntry & {
+						value?: number;
+						hadRecentInput?: boolean;
+					};
+					state.cls.push({
+						startTime: entry.startTime,
+						value: Number(shift.value ?? 0),
+						hadRecentInput: shift.hadRecentInput === true,
+					});
+				}
+			});
 
-		// When the usable control first exists. The scenario's own "usable at" is
-		// the click-based approximation; this is the earlier, cheaper signal.
-		const checkForUsable = () => {
-			if (state.firstSeenAtMs !== null) return;
-			if (!document.querySelector(usableSelector)) return;
-			state.firstSeenAtMs = performance.now();
-			observer.disconnect();
-		};
-		const observer = new MutationObserver(checkForUsable);
-		observer.observe(document, { childList: true, subtree: true });
-		document.addEventListener("DOMContentLoaded", checkForUsable);
-		checkForUsable();
+			observe("longtask", (entries) => {
+				for (const entry of entries) {
+					state.longTasks.push({
+						startTime: entry.startTime,
+						duration: entry.duration,
+						name: entry.name,
+					});
+				}
+			});
 
-		const noteInput = () => {
-			state.firstInputAtMs ??= performance.now();
-		};
-		window.addEventListener("pointerdown", noteInput, { capture: true });
-		window.addEventListener("keydown", noteInput, { capture: true });
-	}, USABLE_SELECTOR);
+			// When the usable control first exists. The scenario's own "usable at" is
+			// the click-based approximation; this is the earlier, cheaper signal.
+			const checkForUsable = () => {
+				if (state.firstSeenAtMs !== null) return;
+				if (!document.querySelector(usableSelector)) return;
+				state.firstSeenAtMs = performance.now();
+			};
+
+			// The first moment a landing section exists and is visible: a non-zero
+			// box and a computed `display` other than none, so an element parked in
+			// the DOM but not on screen does not count as arrived. A marker that never
+			// resolves keeps its null rather than borrowing a later timestamp.
+			const isVisible = (element: Element) => {
+				const rect = element.getBoundingClientRect();
+				if (rect.width <= 0 || rect.height <= 0) return false;
+				return getComputedStyle(element).display !== "none";
+			};
+			const checkForElements = () => {
+				let resolved = 0;
+				for (const [index, marker] of markers.entries()) {
+					const arrival = state.elements[index];
+					if (!arrival) {
+						resolved += 1;
+						continue;
+					}
+					if (arrival.atMs !== null) {
+						resolved += 1;
+						continue;
+					}
+					const element = document.querySelector(marker.selector);
+					if (!element || !isVisible(element)) continue;
+					arrival.atMs = performance.now();
+					resolved += 1;
+				}
+				return resolved === markers.length;
+			};
+
+			const check = () => {
+				checkForUsable();
+				if (checkForElements()) observer.disconnect();
+			};
+			const observer = new MutationObserver(check);
+			observer.observe(document, { childList: true, subtree: true });
+			document.addEventListener("DOMContentLoaded", check);
+			// A final sweep after load: a section can become visible without a new
+			// node (a stylesheet or font settling its box).
+			window.addEventListener("load", check, { once: true });
+			check();
+
+			const noteInput = () => {
+				state.firstInputAtMs ??= performance.now();
+			};
+			window.addEventListener("pointerdown", noteInput, { capture: true });
+			window.addEventListener("keydown", noteInput, { capture: true });
+		},
+		{ usableSelector: USABLE_SELECTOR, markers: ELEMENT_MARKERS },
+	);
 }
 
 // --------------------------------------------------------------- CDP wiring
@@ -639,6 +710,7 @@ async function collectDocument(
 							duration: number;
 							name: string;
 						}>;
+						elements: Array<{ marker: string; atMs: number | null }>;
 						firstSeenAtMs: number | null;
 						firstInputAtMs: number | null;
 					};
@@ -695,6 +767,20 @@ async function collectDocument(
 		...inPage,
 		metrics: await readPerformanceMetrics(cdp),
 	};
+}
+
+function sortElementArrivals(arrivals: ElementArrival[]): ElementArrival[] {
+	return [...arrivals].sort((left, right) => {
+		if (left.atMs === null && right.atMs === null) return 0;
+		if (left.atMs === null) return 1;
+		if (right.atMs === null) return -1;
+		return left.atMs - right.atMs;
+	});
+}
+
+function summarizeElements(state: PerfState | null): ElementArrival[] | null {
+	if (!state) return null;
+	return sortElementArrivals(state.elements);
 }
 
 function summarizePaints(state: PerfState | null): PaintSummary | null {
@@ -952,6 +1038,7 @@ async function measureDocument(options: {
 		documentStatus,
 		navigation: collected.navigation,
 		paints,
+		elements: summarizeElements(collected.state),
 		cls: summarizeCls(collected.state),
 		longTasks: summarizeLongTasks(collected.state),
 		performanceMetrics: collected.metrics,
@@ -1150,6 +1237,16 @@ async function measureClientTransition(options: {
 					"a client-side navigation creates no new document, navigation timing entry or paint entry; the landing document's FCP/LCP/DCL/load are in landingDocument",
 				cls: summarizeCls(transitionState),
 				longTasks: summarizeLongTasks(transitionState),
+				// The chat surface and composer attach during the client-side
+				// navigation on the landing document's clock; the landing
+				// sections' own arrivals stay in landingDocument.elements.
+				elements: sortElementArrivals([
+					{
+						marker: "chat-surface",
+						atMs: transition.chatSurfaceAtMs,
+					},
+					{ marker: "composer", atMs: transition.composerVisibleAtMs },
+				]),
 				performanceMetrics: collected.metrics,
 				performanceMetricsBeforeClick: metricsBeforeClick,
 				performanceMetricsDelta: metricDelta(
@@ -1206,6 +1303,7 @@ async function measureClientTransition(options: {
 		throttle: THROTTLE,
 		navigation: null,
 		paints: null,
+		elements: null,
 		paintsNote:
 			"the transition was not completed, so it has no usable-at, resource or long-task numbers; the landing document it started from is in landingDocument",
 		performanceMetricsBeforeClick: metricsBeforeClick,
@@ -1429,6 +1527,35 @@ function globalTopResources(
 		.slice(0, limit);
 }
 
+/**
+ * One sentence for the owner's stagger question: when each landing section
+ * first became visible and how far apart the arrivals were. It reads whatever
+ * the run recorded and makes no claim about what is fast.
+ */
+function elementArrivalSentence(
+	result: ScenarioResult | undefined,
+	label: string,
+): string | null {
+	const arrivals = result?.elements;
+	if (!arrivals || arrivals.length === 0) return null;
+	const seen = arrivals.filter(
+		(arrival): arrival is ElementArrival & { atMs: number } =>
+			typeof arrival.atMs === "number",
+	);
+	if (seen.length === 0) return null;
+	const parts = seen.map((arrival, index) => {
+		const previous = index > 0 ? seen[index - 1] : undefined;
+		const gapMs = previous ? arrival.atMs - previous.atMs : 0;
+		const gap =
+			gapMs > 0 ? ` (+${round(gapMs)} ms after the previous section)` : "";
+		return `${arrival.marker} at ${ms(arrival.atMs)}${gap}`;
+	});
+	const missing = arrivals
+		.filter((arrival) => arrival.atMs === null)
+		.map((arrival) => arrival.marker);
+	return `${label} first became visible in this order: ${parts.join(", ")}${missing.length > 0 ? `; ${missing.join(", ")} never became visible` : ""}.`;
+}
+
 function buildObservations(results: ScenarioResult[]): string {
 	const sentences: string[] = [];
 	sentences.push(
@@ -1444,6 +1571,12 @@ function buildObservations(results: ScenarioResult[]): string {
 			`The cold desktop landing painted FCP at ${ms(coldLanding.paints.fcpMs)} and LCP at ${ms(coldLanding.paints.lcpMs)}, reached DOMContentLoaded at ${ms(coldLanding.navigation?.domContentLoadedEventEnd)} and load at ${ms(coldLanding.navigation?.loadEventEnd)}, and its composer accepted a click at ${ms(coldLanding.usable?.usableApproxMs)}; it made ${aggregates.requestCount} subresource requests for ${kb(aggregates.totalTransferBytes)}, of which script was ${kb(aggregates.byType.script.transferBytes)} (${pct(aggregates.byType.script.transferBytes, aggregates.totalTransferBytes)}), fonts ${kb(aggregates.byType.font.transferBytes)} (${pct(aggregates.byType.font.transferBytes, aggregates.totalTransferBytes)}), stylesheets ${kb(aggregates.byType.stylesheet.transferBytes)} and fetch/xhr ${kb(aggregates.byType.fetch.transferBytes)}, in ${aggregates.scriptChunkCount} distinct script chunks whose last response ended at ${ms(aggregates.lastScriptResponseEndMs)}.`,
 		);
 	}
+
+	const coldLandingElements = elementArrivalSentence(
+		coldLanding,
+		"On the cold desktop landing, the sections",
+	);
+	if (coldLandingElements) sentences.push(coldLandingElements);
 
 	const coldPhone = results.find(
 		(result) => result.id === "landing-cold-phone",
@@ -1580,6 +1713,9 @@ function buildReport(results: ScenarioResult[], run: RunMeta): string {
 		"- FCP/LCP/CLS come from buffered `PerformanceObserver` entries installed before the document's scripts; long tasks from `longtask`, with TBT approximated as Σ max(0, duration − 50 ms).",
 	);
 	lines.push(
+		"- First appearance by element: the same pre-document recorder also runs a buffered `MutationObserver` that stamps the first `performance.now()` at which each landing marker exists and is visible — a non-zero box and a computed `display` other than `none`, so an element in the DOM but not on screen does not count. The markers are the greeting, the weekly bars, the projects container, the first recent row and the composer. The values are each landing scenario's `elements` array in the raw file (sorted by arrival) and its \"First appearance by element\" table below. A marker that never became visible is `null` / `n/a`; the client-side transition's arrivals are on the landing document's clock, like `chatSurfaceAtMs`.",
+	);
+	lines.push(
 		"- CLS is reported twice: `cls.total` sums every layout-shift value, `cls.excludingRecentInput` drops the shifts the browser attributes to recent input.",
 	);
 	lines.push(
@@ -1619,6 +1755,26 @@ function buildReport(results: ScenarioResult[], run: RunMeta): string {
 			lines.push(`| ${label} | ${value} |`);
 		}
 		lines.push("");
+		if (
+			result.kind === "document" &&
+			result.id.startsWith("landing") &&
+			Array.isArray(result.elements) &&
+			result.elements.length > 0
+		) {
+			lines.push("First appearance by element:");
+			lines.push("");
+			lines.push(
+				"| Element | Hook | First visible (ms since navigation start) |",
+			);
+			lines.push("| --- | --- | --- |");
+			for (const arrival of result.elements) {
+				const hook =
+					ELEMENT_MARKERS.find((entry) => entry.marker === arrival.marker)
+						?.selector ?? "n/a";
+				lines.push(`| ${arrival.marker} | \`${hook}\` | ${ms(arrival.atMs)} |`);
+			}
+			lines.push("");
+		}
 		if (result.kind === "client-nav" && result.landingDocument) {
 			const landing = result.landingDocument;
 			lines.push(
@@ -1671,7 +1827,7 @@ function buildReport(results: ScenarioResult[], run: RunMeta): string {
 	lines.push("## Per-run details in the raw file");
 	lines.push("");
 	lines.push(
-		`\`raw-${DATE_STAMP}.json\` holds, per scenario: the navigation timing entry, every paint and LCP candidate, every layout-shift entry, every long-task entry, all \`Performance.getMetrics\` values (with their pre-navigation baseline and delta), every resource entry, the aggregates (by type, biggest ten, chunk count, last script response end), the usable-at numbers with the click method and any click/hydration errors, and the page errors, console errors and failed requests seen while the scenario ran.`,
+		`\`raw-${DATE_STAMP}.json\` holds, per scenario: the navigation timing entry, every paint and LCP candidate, every layout-shift entry, every long-task entry, the first visible moment of each landing marker (\`elements\`, sorted by arrival), all \`Performance.getMetrics\` values (with their pre-navigation baseline and delta), every resource entry, the aggregates (by type, biggest ten, chunk count, last script response end), the usable-at numbers with the click method and any click/hydration errors, and the page errors, console errors and failed requests seen while the scenario ran.`,
 	);
 	lines.push("");
 	return lines.join("\n");
