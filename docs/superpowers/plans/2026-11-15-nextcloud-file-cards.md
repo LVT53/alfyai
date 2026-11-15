@@ -302,7 +302,7 @@ export interface ToolCallFilesData {
 
   - `FilesToolResultItem` gains `fileId?: number`, `webUrl?: string`, `previewUrl?: string`.
   - `buildFilesCards(conn: ConnectionPublic, results: FilesToolResultItem[]): ToolCallFilesData | null`
-  - constants `FILE_CARD_LIMIT = 6`, `FILE_PREVIEW_SIZE = 192`.
+  - constants `FILE_CARD_LIMIT = 6` (in `$lib/utils/tool-calls.ts`; `files.ts` imports it) and `FILE_PREVIEW_SIZE = 192` (in `files.ts`).
   - `FilesToolModelPayload` is unchanged — the model still sees `results`, not cards.
 
 > **The six-card cap is per REPLY.** `FILE_CARD_LIMIT` here bounds ONE call's
@@ -542,7 +542,7 @@ git commit -m "fix(files): <what the gate found>"
 
 ## Outcome
 
-All nine tasks landed on `h3-deploy`; Task 9 changed no code. The twelve commits:
+All nine tasks landed on `h3-deploy`; Task 9 changed no code. The fourteen commits:
 
 | Commit | What it did |
 | --- | --- |
@@ -558,6 +558,11 @@ All nine tasks landed on `h3-deploy`; Task 9 changed no code. The twelve commits
 | `04cac4b` | Keep a card-rendering `files` call out of the thinking rail |
 | `3ee833d` | Describe found-file cards in the Feature Guide |
 | `3b0162b` | Say a found Nextcloud file comes back as a card |
+| `f9d1dda` | Cap a reply's file cards at six, and close the review gaps (final review wave) |
+| `6fae1db` | Reconcile the plan, spec and guide design with what shipped (final review wave) |
+
+The last two commits are the final whole-branch review wave: the reply-level
+card cap and its tests, then this documentation reconciliation.
 
 ### Plan defects found during implementation
 
@@ -585,6 +590,4 @@ real server, can confirm:
    preview for that file type at all);
 4. clicking a card opens the file in Nextcloud.
 
-The whole change, and the final review wave that capped cards per reply, passed
-`scripts/gates.sh agent` with every step at 0, Fallow's four known cycles and
-nothing new against the baseline.
+The whole change, including the review wave that capped cards per reply, passed `scripts/gates.sh agent` on 6fae1db77: every step at 0 — check 0 errors and 0 warnings in 9,141 files, vitest 26,562 passed (3 skipped), build with zero warnings, Fallow at its four known circular dependencies with `new_vs_baseline=0` — and Playwright 99 passed, 0 failed, 0 flaky, over chat, streaming, conversation and feature-guide.
