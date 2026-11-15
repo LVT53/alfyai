@@ -96,6 +96,16 @@ async function makePicture(page: Page, marker = AI_SMOKE_LATE_PICTURE_MARKER) {
 		timeout: 30_000,
 	});
 	await expectTerminalActivityGone(page);
+	// A reply that is no longer streaming draws its action row (Copy, Regenerate,
+	// the follow-up chips). It is a sibling of the assistant body, not a
+	// descendant, so it is reached through the turn's wrapper.
+	await expect(
+		page
+			.getByTestId("assistant-message")
+			.last()
+			.locator("..")
+			.locator(".message-actions"),
+	).toHaveCount(1);
 }
 
 /** Waits for the card's take, its pick and its Image item to be written (three writes, not one). */
