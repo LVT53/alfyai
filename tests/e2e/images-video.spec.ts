@@ -217,6 +217,19 @@ test("a 5 second take renders, stores and becomes a video artifact", async ({
 		height: 352,
 		length: 121,
 	});
+	// The graph is the LTX one: the measured NVFP4 transformer, the conv video
+	// VAE, the two img-to-video passes and a SaveVideo tail. Literals on
+	// purpose: importing the graph module would pull in its JSON, which
+	// Playwright's transform cannot load outside Vite.
+	expect(nodeOfType(graph, "UNETLoader").unet_name).toBe(
+		"ltx-2.5-22b-distilled-transformer-nvfp4.safetensors",
+	);
+	expect(
+		Object.values(graph).filter(
+			(node) => node.class_type === "LTXVImgToVideoInplace",
+		),
+	).toHaveLength(2);
+	expect(nodeOfType(graph, "SaveVideo").format).toBe("mp4");
 	expect(nodeOfType(graph, "VAELoader").vae_name).toBe(
 		"ltx-2.5-video-vae-conv-bf16.safetensors",
 	);

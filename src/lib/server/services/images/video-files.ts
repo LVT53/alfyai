@@ -21,6 +21,7 @@ import { imageFiles } from "$lib/server/db/schema";
 import { getArtifactOwnershipScope } from "$lib/server/services/knowledge/ownership";
 import { resolveDeletablePath } from "$lib/server/storage-containment";
 import { IMAGE_THUMB_LONG_EDGE } from "$lib/shared/artifacts/image-body";
+import { getContentTypeForFile } from "$lib/shared/file-types";
 import {
 	type ImageFile,
 	type ImageFileRole,
@@ -84,6 +85,14 @@ const IMAGE_FILES_DIR = join("data", "image-files");
 const MP4_BOX_TYPE = [0x66, 0x74, 0x79, 0x70]; // "ftyp"
 const VIDEO_EXTENSION = ".mp4";
 const GIF_EXTENSION = ".gif";
+/** The `format` a caller asks for in place of the mp4 (`?download=1&format=gif`). */
+export const VIDEO_GIF_FORMAT = GIF_EXTENSION.slice(1);
+/**
+ * A stand-in filename, used only to ask the file-type registry what each
+ * representation is served as: the path helpers below put the real suffix on
+ * it, so the answer always follows the formats they write.
+ */
+const CLIP_FILE_NAME = `clip${VIDEO_EXTENSION}`;
 /** "GIF8", then the version's "7a" or "9a", then the trailer byte. */
 const GIF_MAGIC = [0x47, 0x49, 0x46, 0x38];
 const GIF_TRAILER = 0x3b;
@@ -403,6 +412,28 @@ export async function readVideoGifBytes(
 	gifGenerations.set(file.id, generation);
 	return generation;
 }
+
+/**
+ * The content type one stored clip representation is served as — the mp4, its
+ * poster and thumbnail WebPs, or the GIF made beside it — read from the shared
+ * file-type registry through the path helper that writes it.
+ */
+export function videoFileContentType(
+	variant: VideoFileVariant | "gif",
+): string {
+	const name =
+		variant === "poster"
+			? posterPathOf(CLIP_FILE_NAME)
+			: variant === "thumb"
+				? thumbPathOf(CLIP_FILE_NAME)
+				: variant === "gif"
+					? gifPathOf(CLIP_FILE_NAME)
+					: CLIP_FILE_NAME;
+	return getContentTypeForFile(name, null);
+}
+
+/** The GIF representation's content type, asked of the shared registry once. */
+export const VIDEO_GIF_CONTENT_TYPE = videoFileContentType("gif");
 
 /**
  * The name a clip's GIF download carries: the item's title with a `.gif`

@@ -4,6 +4,7 @@ import { buildContentDisposition } from "$lib/server/services/file-serving-respo
 import {
 	getImageFile,
 	type ImageFile,
+	imageFileContentType,
 	imageFileDownloadName,
 	readImageDisplayBytes,
 	readImageFileBytes,
@@ -13,7 +14,10 @@ import {
 	getVideoFile,
 	readVideoFileBytes,
 	readVideoGifBytes,
+	VIDEO_GIF_CONTENT_TYPE,
+	VIDEO_GIF_FORMAT,
 	type VideoFile,
+	videoFileContentType,
 	videoFileDownloadName,
 	videoGifDownloadName,
 } from "$lib/server/services/images/video-files";
@@ -81,7 +85,8 @@ async function serveGif(
 ): Promise<Response> {
 	// The GIF is immutable for its file id, so the id and the format make a
 	// validator that never lies.
-	const etag = `"${video.id}:gif"`;
+	const etag = `"${video.id}:${VIDEO_GIF_FORMAT}"`;
+	const contentType = VIDEO_GIF_CONTENT_TYPE;
 	const cacheControl = "private, max-age=3600";
 	if (matchesIfNoneMatch(event.request.headers.get("if-none-match"), etag)) {
 		return new Response(null, {
@@ -89,7 +94,7 @@ async function serveGif(
 			headers: {
 				ETag: etag,
 				"Cache-Control": cacheControl,
-				"Content-Type": "image/gif",
+				"Content-Type": contentType,
 				"X-Content-Type-Options": "nosniff",
 			},
 		});
@@ -111,7 +116,7 @@ async function serveGif(
 	return new Response(bytes.slice(), {
 		status: 200,
 		headers: {
-			"Content-Type": "image/gif",
+			"Content-Type": contentType,
 			"Content-Length": String(bytes.byteLength),
 			"Cache-Control": cacheControl,
 			"X-Content-Type-Options": "nosniff",
@@ -143,7 +148,7 @@ async function serveVideo(
 	// A GIF is asked for by name, and only as a download: the player asks for
 	// the clip itself, with ranges. A row without a length is not a clip (it is
 	// a picture), and is never turned into a GIF.
-	if (download && format === "gif") {
+	if (download && format === VIDEO_GIF_FORMAT) {
 		if (video.durationMs === null) {
 			return json({ error: "Not found" }, { status: 404 });
 		}
@@ -173,9 +178,12 @@ async function serveVideo(
 	} catch {
 		return json({ error: "Not found" }, { status: 404 });
 	}
-	const isPictureVariant =
-		representation === "poster" || representation === "thumb";
-	const contentType = isPictureVariant ? "image/webp" : "video/mp4";
+	const contentType =
+		representation === "poster"
+			? videoFileContentType("poster")
+			: representation === "thumb"
+				? videoFileContentType("thumb")
+				: videoFileContentType("video");
 	const cacheControl = "private, max-age=3600";
 	const headers: Record<string, string> = {
 		"Content-Type": contentType,
@@ -273,19 +281,20 @@ export const GET: RequestHandler = async (event) => {
 				: "full";
 	const etag = `"${event.params.fileId}:${representation}"`;
 	let bytes: Uint8Array;
-	let contentType = "image/png";
+	let contentType = imageFileContentType("full");
 	try {
 		if (!download && variant === "display") {
 			const display = await readImageDisplayBytes(file);
 			if (display) {
 				bytes = display;
-				contentType = "image/webp";
+				contentType = imageFileContentType("display");
 			} else {
 				// Small enough to be its own display copy: the original is served.
 				bytes = await readImageFileBytes(file, "full");
 			}
 		} else if (!download && variant === "thumb") {
 			bytes = await readImageFileBytes(file, "thumb");
+			contentType = imageFileContentType("thumb");
 		} else {
 			bytes = await readImageFileBytes(file, "full");
 		}
@@ -298,7 +307,7 @@ export const GET: RequestHandler = async (event) => {
 		}
 		try {
 			bytes = await readImageFileBytes(file, "full");
-			contentType = "image/png";
+			contentType = imageFileContentType("full");
 		} catch {
 			return json({ error: "Not found" }, { status: 404 });
 		}

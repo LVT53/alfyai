@@ -885,3 +885,14 @@ describe("imageFileDownloadName", () => {
 		expect(await files.imageFileDownloadName(attached as never)).toBe(expected);
 	});
 });
+
+// The serving route names no MIME of its own; these are the answers it asks
+// this store for, each read from the shared file-type registry through the
+// path helper that wrote the representation.
+describe("imageFileContentType", () => {
+	it("serves the picture and its thumbnail as PNG, and only the display copy as WebP", () => {
+		expect(files.imageFileContentType("full")).toBe("image/png");
+		expect(files.imageFileContentType("thumb")).toBe("image/png");
+		expect(files.imageFileContentType("display")).toBe("image/webp");
+	});
+});

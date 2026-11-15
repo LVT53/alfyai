@@ -26,6 +26,7 @@ import {
 	type ImageVersionBody,
 	parseImageVersionBody,
 } from "$lib/shared/artifacts/image-body";
+import { getContentTypeForFile } from "$lib/shared/file-types";
 import { withFileExtension } from "$lib/shared/file-types/download-name";
 import { normalizePngAlpha } from "./alpha";
 
@@ -69,6 +70,13 @@ function toImageFile(row: Row): ImageFile {
 	};
 }
 
+/**
+ * A stand-in filename, used only to ask the file-type registry what each
+ * representation is served as: the path helpers below put the real suffix on
+ * it, so the answer always follows the format they write.
+ */
+const PICTURE_FILE_NAME = "picture.png";
+
 function thumbPathOf(storagePath: string): string {
 	return storagePath.replace(/\.png$/, ".thumb.png");
 }
@@ -76,6 +84,23 @@ function thumbPathOf(storagePath: string): string {
 /** The display copy's path: derived from `storage_path` like the thumbnail, so the DB stores nothing new. */
 function displayPathOf(storagePath: string): string {
 	return storagePath.replace(/\.png$/, ".display.webp");
+}
+
+/**
+ * The content type one stored picture representation is served as, read from
+ * the shared file-type registry through the very path helper that writes it.
+ * The serving route names no MIME of its own.
+ */
+export function imageFileContentType(
+	variant: "full" | "thumb" | "display",
+): string {
+	const name =
+		variant === "thumb"
+			? thumbPathOf(PICTURE_FILE_NAME)
+			: variant === "display"
+				? displayPathOf(PICTURE_FILE_NAME)
+				: PICTURE_FILE_NAME;
+	return getContentTypeForFile(name, null);
 }
 
 /**

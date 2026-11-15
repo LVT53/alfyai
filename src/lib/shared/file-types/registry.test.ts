@@ -17,6 +17,7 @@ import {
 	fileExtension,
 	getAcceptAttribute,
 	getAcceptedExtensions,
+	getCanonicalMimeForExtension,
 	getEntryByExtension,
 	getEntryByMimeType,
 	getFileFamily,
@@ -829,5 +830,36 @@ describe("what the document reader is handed (`intake.readAs`)", () => {
 		expect(avif?.intake.route).toBe("reject");
 		expect(avif?.intake.rejectReason).toBe("convertImage");
 		expect(avif?.intake.readAs).toBeUndefined();
+	});
+});
+
+// The stored-image serving route hands back four representations its own
+// stores write: a picture PNG, its PNG thumbnail and lossless display WebP, a
+// clip's mp4, its poster and thumbnail WebPs, and the GIF made beside it. The
+// route names no MIME of its own — it asks the registry through the stores'
+// path helpers — so these entries are the answer every representation depends
+// on, and a change to any of them is a change to that route.
+describe("the representations the stored-image route serves", () => {
+	it("names each stored representation's MIME from one entry", () => {
+		expect(getCanonicalMimeForExtension("png")).toBe("image/png");
+		expect(getCanonicalMimeForExtension("webp")).toBe("image/webp");
+		expect(getCanonicalMimeForExtension("gif")).toBe("image/gif");
+		expect(getCanonicalMimeForExtension("mp4")).toBe("video/mp4");
+	});
+
+	it("keeps each one canonical and reverse-resolvable", () => {
+		const served = [
+			["png", "image/png"],
+			["webp", "image/webp"],
+			["gif", "image/gif"],
+			["mp4", "video/mp4"],
+		] as const;
+		for (const [extension, mime] of served) {
+			const entry = getEntryByExtension(extension);
+			expect(entry, extension).not.toBeNull();
+			expect(entry?.extensions[0], extension).toBe(extension);
+			expect(entry?.mimeTypes[0], extension).toBe(mime);
+			expect(getEntryByMimeType(mime)?.id, mime).toBe(entry?.id);
+		}
 	});
 });

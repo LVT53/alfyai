@@ -48,14 +48,14 @@ export const VIDEO_RENDER_DEADLINE_MS = 900_000;
 export const VIDEO_TOOL_WAIT_MS = 240_000;
 
 /**
- * The template's frame rate and segment length: 121 frames at 24 fps. The
- * graph builder writes them into the graph, so these are the same numbers and
- * not two copies of one.
+ * The template's frame rate and segment length: 121 frames at 24 fps. They live
+ * in `comfyui/ltx-spec.ts` (which imports no JSON) and the graph builder writes
+ * them into the graph, so these are the same numbers and not two copies of one.
  */
 export {
 	LTX_SEGMENT_FRAMES as VIDEO_SEGMENT_FRAMES,
 	LTX_VIDEO_FPS as VIDEO_FPS,
-} from "../comfyui/ltx-templates";
+} from "../comfyui/ltx-spec";
 export const VIDEO_SEGMENT_DURATION_MS = 5_000;
 
 /** The product length of one segment, and of the whole take. */

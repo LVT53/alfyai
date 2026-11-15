@@ -15,7 +15,6 @@
  * The transformer is the NVFP4 one the feasibility measurements were made on
  * (18.72 GB): the int8 file the template names is 2.8 GB larger, was never
  * measured on the card, and does not exist in the LTX worktree.
-
  *
  * What is left is the template's own two-pass chain: a half-size first pass
  * (`LTXVImgToVideoInplace` strength 0.7), the latent spatial upscaler, a
@@ -29,32 +28,31 @@
  */
 
 import ltxVideoGraph from "./graphs/ltx-image-to-video.api.json";
+import {
+	LTX_SEGMENT_FRAMES,
+	LTX_TEXT_ENCODER,
+	LTX_VIDEO_FPS,
+	LTX_VIDEO_UNET,
+} from "./ltx-spec";
 import type { ComfyGraph } from "./types";
 
 /**
- * The transformer the feasibility numbers were measured on (`feasibility.md`:
- * 18.72 GB NVFP4). It is the only transformer in the LTX worktree's
- * `diffusion_models/`; the template's int8 file is larger and unmeasured.
+ * The model names and timing are pinned in `ltx-spec.ts`, which imports no
+ * JSON: the video request module needs the frame constants, and a bare JSON
+ * import on that module's path stops Playwright from loading an e2e spec. They
+ * are re-exported here because this is the graph module a reader looks at.
  */
-export const LTX_VIDEO_UNET =
-	"ltx-2.5-22b-distilled-transformer-nvfp4.safetensors";
-/** The int8 Gemma-4 encoder that ships beside it (15.37 GB). */
-export const LTX_TEXT_ENCODER =
-	"gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors";
-/** The conv decoder: faster and crisper than the diffusion VAE (feasibility.md, "The VAE"). */
-export const LTX_VIDEO_VAE = "ltx-2.5-video-vae-conv-bf16.safetensors";
-/** Joint audio: the audio VAE lives in `checkpoints` and is read by its own loader. */
-export const LTX_AUDIO_VAE = "ltx-2.5-audio-vae-bf16.safetensors";
-export const LTX_UPSAMPLER =
-	"ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors";
-
-/** The template's six-step equivalent schedule: eight steps down, then three. */
-export const LTX_SIGMAS_PASS_1 =
-	"1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0";
-export const LTX_SIGMAS_PASS_2 = "0.85, 0.7250, 0.4219, 0.0";
-
-export const LTX_VIDEO_FPS = 24;
-export const LTX_SEGMENT_FRAMES = 121;
+export {
+	LTX_AUDIO_VAE,
+	LTX_SEGMENT_FRAMES,
+	LTX_SIGMAS_PASS_1,
+	LTX_SIGMAS_PASS_2,
+	LTX_TEXT_ENCODER,
+	LTX_UPSAMPLER,
+	LTX_VIDEO_FPS,
+	LTX_VIDEO_UNET,
+	LTX_VIDEO_VAE,
+} from "./ltx-spec";
 
 /** The node ids the builder writes into; the rest of the graph is fixed. */
 const UNET_NODE = "1";

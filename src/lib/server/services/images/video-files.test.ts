@@ -535,3 +535,17 @@ describe("video file cleanup", () => {
 		).toHaveLength(1);
 	});
 });
+
+// The serving route names no MIME of its own; these are the answers it asks
+// this store for, each read from the shared file-type registry through the
+// path helper that wrote the representation.
+describe("what a stored clip is served as", () => {
+	it("asks the shared registry for the mp4, its WebP poster and thumbnail, and the GIF", () => {
+		expect(videoFiles.videoFileContentType("video")).toBe("video/mp4");
+		expect(videoFiles.videoFileContentType("poster")).toBe("image/webp");
+		expect(videoFiles.videoFileContentType("thumb")).toBe("image/webp");
+		expect(videoFiles.videoFileContentType("gif")).toBe("image/gif");
+		expect(videoFiles.VIDEO_GIF_CONTENT_TYPE).toBe("image/gif");
+		expect(videoFiles.VIDEO_GIF_FORMAT).toBe("gif");
+	});
+});
