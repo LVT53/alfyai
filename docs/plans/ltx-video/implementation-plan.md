@@ -169,6 +169,38 @@ Why 480 px and 12 fps: a 5 s 704×1280 clip at full size is tens of megabytes as
 looks worse than the mp4; at 480 px and 12 fps it is a few megabytes and still reads at
 chat size. The constants live in `video/media.ts`, not in the route.
 
+## Beyond generation: restore, refine, in/outpaint (explore, not committed)
+
+Three capabilities Lightricks ships as **IC-LoRAs** on the same 22B transformer. They are
+recorded here so the shape is known; none is in the build queue yet, and each has a
+precondition that is the owner's to clear.
+
+| Capability | What it is | Precondition | Reality on this card |
+|---|---|---|---|
+| **Restore** | reference-conditioned pass that cleans, de-noises and colourises damaged or low-bitrate footage; window 960x544 x 97 frames, overlapping tiles fused every step, long clips chained | the LoRA is **gated** on HF: an account must accept the licence and the box needs a token | the tiled design keeps VRAM tied to the tile, not the frame, so it fits the 26.3 GiB ceiling; cost is minutes per clip, not seconds |
+| **Refine Details** | rebuilds texture, edges and grain on soft, compressed or upscaled footage; 1024x576 tiles fused every step | same gated access | a community report puts 97 frames at 768x1376→1216x2112 at 206 s on a 32 GB card; ours is slower per pixel |
+| **In/outpainting** | mask-conditioned fill or extension of a clip, two-stage, blended with the original; reuses the 2.3 in-outpainting IC-LoRA, documented as 2.5-compatible | gated; and the **product** work is a mask editor over time | the model side is the small half; painting and tracking a mask on a moving clip is the large half |
+
+**Prerequisites before any of them is a slice:**
+
+1. **A Hugging Face token with the licences accepted.** Both LoRAs answer 401 without
+   auth, and no trustworthy mirror exists. Only the account holder can accept them.
+2. **Uploaded video.** "Restore an attached clip" needs an attachment path that accepts
+   mp4 at all: intake validation, storage, serving with Range, a player for attachments,
+   and the vision rules for what a model may be sent of a clip. That is a slice in itself
+   and comes before any restore work.
+3. **LoRA on a quantised base.** Our transformer is NVFP4; an IC-LoRA has to be applied
+   through ComfyUI's quantised LoRA path. That is a measurement, not an assumption.
+
+**On still images, do not use LTX.** It is a video model: a still would be a one-frame
+clip, and its temporal conditioning has nothing to work with. For pictures the right tools
+are the ones we have (H3's edit path for changes, Qwen or H3 for a re-render) or a
+dedicated image upscaler — a different model, not this pipeline.
+
+**On image in-painting, we already have it**: H3's edit graph with marks covers "change
+this region of a picture", and it is shipped. Video in-painting is the new thing, and its
+cost is the mask UI, not the model.
+
 ## Review gates
 
 1. Each worker: TDD note, focused tests, `npm run check` if types moved.
