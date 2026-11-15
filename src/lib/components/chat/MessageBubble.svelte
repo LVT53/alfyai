@@ -519,6 +519,11 @@ let thinkingSegmentsForDisplay = $derived(
 	rawThinkingSegments.filter(
 		(segment) =>
 			!isAskToolCall(segment) &&
+			// A files call that found something is drawn under the reply as cards;
+			// its rail row would be a second, worse copy of the same result (the
+			// generic Details panel) right below the card that already shows it. A
+			// cardless call has nothing else showing it, so the rail keeps it.
+			!isFileCardsToolCall(segment) &&
 			(!isArtifactToolCall(segment) || retriedAttempts.has(segment)),
 	),
 );

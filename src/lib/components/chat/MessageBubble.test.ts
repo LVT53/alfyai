@@ -4542,6 +4542,54 @@ describe("MessageBubble", () => {
 				container.querySelector('[data-testid="message-deliverables"]'),
 			).toBeNull();
 		});
+
+		it("keeps a files call with cards out of the rail, and a cardless one in it", () => {
+			const withCards = render(MessageBubble, {
+				message: buildFilesMessage(),
+				conversationId: "conv-1",
+			});
+			// The cards show the result under the reply…
+			expect(
+				withCards.container.querySelector(
+					'[data-testid="message-deliverables"] a.act-file',
+				),
+			).not.toBeNull();
+			// …so the rail does not list the same call again: its generic Details
+			// panel would be a second, worse copy right under the card
+			// (create_artifact/edit_artifact are kept out of the rail for this).
+			expect(
+				withCards.container.querySelector(
+					'[data-testid="tool-activity-summary"]',
+				),
+			).toBeNull();
+			expect(withCards.container.textContent).not.toContain("Files 1 action");
+			withCards.unmount();
+
+			// A call that found nothing has nothing else showing it, so the rail keeps
+			// its row — the step still happened.
+			const cardless = buildFilesMessage();
+			cardless.thinkingSegments = [
+				{
+					type: "tool_call",
+					callId: "call-files",
+					name: "files",
+					input: { action: "search", query: "Q3 report" },
+					status: "done",
+					files: { connectionId: "conn-1", cards: [], total: 0 },
+				},
+			];
+			const inRail = render(MessageBubble, {
+				message: cardless,
+				conversationId: "conv-1",
+			});
+			expect(
+				inRail.container.querySelector('[data-testid="tool-activity-summary"]')
+					?.textContent,
+			).toContain("Files");
+			expect(
+				inRail.container.querySelector('[data-testid="message-deliverables"]'),
+			).toBeNull();
+		});
 	});
 
 	describe("Follow-up suggestion chips (owner idea, variant A)", () => {
