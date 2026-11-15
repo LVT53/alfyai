@@ -57,6 +57,12 @@ export type FakeComfyUiOptions = {
 	/** Execution fails for every prompt after the first N (a chain's second segment). */
 	failAfterPromptCount?: number;
 	/**
+	 * The exact progress series to send (one event per entry, `stepDelayMs`
+	 * apart) instead of the default `steps` count. A smaller `max` part-way
+	 * through is a node/pass reset, which the ETA must survive.
+	 */
+	progressPlan?: Array<{ value: number; max: number }>;
+	/**
 	 * Prompts after the first N render their steps and then never finish, so a
 	 * test can read the state of a take that is mid-segment. `releaseHanging()`
 	 * lets them finish, like a ComfyUI that keeps rendering after the app died.
@@ -296,15 +302,30 @@ export async function createFakeComfyUi(
 		let failed = false;
 		if (alive()) {
 			send(prompt.clientId, "execution_start", { prompt_id: prompt.id });
-			for (let step = 1; step <= steps && alive(); step++) {
-				await sleep(options.stepDelayMs ?? 5);
-				if (!alive()) break;
-				send(prompt.clientId, "progress", {
-					prompt_id: prompt.id,
-					node: "3",
-					value: step,
-					max: steps,
-				});
+			const plan = options.progressPlan;
+			if (plan && plan.length > 0) {
+				for (const event of plan) {
+					if (!alive()) break;
+					await sleep(options.stepDelayMs ?? 5);
+					if (!alive()) break;
+					send(prompt.clientId, "progress", {
+						prompt_id: prompt.id,
+						node: "3",
+						value: event.value,
+						max: event.max,
+					});
+				}
+			} else {
+				for (let step = 1; step <= steps && alive(); step++) {
+					await sleep(options.stepDelayMs ?? 5);
+					if (!alive()) break;
+					send(prompt.clientId, "progress", {
+						prompt_id: prompt.id,
+						node: "3",
+						value: step,
+						max: steps,
+					});
+				}
 			}
 		}
 		if (gen !== generation) return;

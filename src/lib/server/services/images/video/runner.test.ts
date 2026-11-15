@@ -228,6 +228,37 @@ function nodeOfType(
 	return found;
 }
 
+/**
+ * Polls the take's display columns while it runs, keeping each distinct
+ * (ETA, percent) pair. The chip reads these from the row, so this is the
+ * sequence the person sees.
+ */
+async function recordEta(
+	takeId: string,
+	run: () => Promise<void>,
+): Promise<Array<{ eta: number; percent: number; phase: string | null }>> {
+	const samples: Array<{ eta: number; percent: number; phase: string | null }> =
+		[];
+	const finished = run();
+	let done = false;
+	const settled = finished.finally(() => {
+		done = true;
+	});
+	while (!done) {
+		const row = await readTake(takeId);
+		if (row.etaSeconds !== null) {
+			const last = samples.at(-1);
+			const percent = row.progressPercent ?? 0;
+			if (last?.eta !== row.etaSeconds || last.percent !== percent) {
+				samples.push({ eta: row.etaSeconds, percent, phase: row.phase });
+			}
+		}
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	await settled;
+	return samples;
+}
+
 /** The clip rows of a chat: the source still lives in the same table. */
 async function storedClips() {
 	const { db } = await import("$lib/server/db");
@@ -1063,4 +1094,59 @@ describe("the container's tags", () => {
 		const tags = JSON.stringify(await probeTags(await clipBytes(clip.id)));
 		expect(tags).not.toContain("harbour");
 	});
+});
+
+describe("the chip's ETA", () => {
+	it("writes a plausible baseline before any progress event", async () => {
+		await startLtx({ startDelayMs: 500, stepDelayMs: 20, steps: 4 });
+		const takeId = await queueTake();
+		const samples = await recordEta(takeId, drainVideoTakes);
+		expect(samples.length).toBeGreaterThanOrEqual(1);
+		// 40 s is the 5 s take's cold-ish baseline (measured 30-45 s; 53 s was
+		// the first cold staging).
+		expect(samples[0]?.eta).toBe(40);
+		expect(samples[0]?.percent).toBe(0);
+		// Progress did arrive later (the fake's four steps).
+		expect(samples.some((sample) => sample.percent > 0)).toBe(true);
+	}, 20_000);
+
+	it.each([
+		5, 10,
+	] as const)("only ever falls across a %i s take, even at a node reset", async (durationSeconds) => {
+		await startLtx({
+			startDelayMs: 50,
+			stepDelayMs: durationSeconds === 5 ? 250 : 150,
+			// Two nodes: the first ends at 8/8, the second starts at 1/4, so
+			// ComfyUI's own max drops mid-take.
+			progressPlan: [
+				{ value: 1, max: 8 },
+				{ value: 2, max: 8 },
+				{ value: 3, max: 8 },
+				{ value: 4, max: 8 },
+				{ value: 1, max: 4 },
+				{ value: 2, max: 4 },
+				{ value: 3, max: 4 },
+				{ value: 4, max: 4 },
+			],
+		});
+		const takeId = await queueTake({ durationSeconds });
+		const samples = await recordEta(takeId, drainVideoTakes);
+		const baseline = durationSeconds === 5 ? 40 : 80;
+		expect(samples[0]?.eta).toBe(baseline);
+		for (let index = 1; index < samples.length; index += 1) {
+			const previous = samples[index - 1];
+			const current = samples[index];
+			expect(
+				current?.eta,
+				`ETA rose at sample ${index}: ${samples.map((sample) => sample.eta).join(", ")}`,
+			).toBeLessThanOrEqual(previous?.eta ?? 0);
+			expect(
+				current?.percent,
+				`percent fell at sample ${index}`,
+			).toBeGreaterThanOrEqual(previous?.percent ?? 0);
+		}
+		// It comes down from the baseline, and a pass reached the sampling cap.
+		expect(samples.at(-1)?.eta).toBeLessThan(baseline);
+		expect(samples.some((sample) => sample.percent >= 95)).toBe(true);
+	}, 30_000);
 });

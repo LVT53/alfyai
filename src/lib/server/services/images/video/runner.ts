@@ -45,6 +45,7 @@ import { checkFinishedFrames } from "../picture-check";
 import { isExplicitFilterOnFor } from "../picture-check/policy";
 import { discardStoredVideoFile, storeVideoFile } from "../video-files";
 import { createVideoComfyClient } from "./comfy-client";
+import { createVideoEtaTracker, type VideoEtaTracker } from "./eta";
 import {
 	concatClips,
 	decodeCheckFrames,
@@ -71,8 +72,6 @@ import {
 const FOLLOW_GRACE_MS = 60_000;
 const FOLLOW_RETRY_MS = 1000;
 const PROGRESS_WRITE_EVERY_MS = 1000;
-/** Added to the remaining-steps estimate for decoding, joining and storing. */
-const ETA_FINISH_SECONDS = 5;
 /** A failure the runner raises itself, with the code the take will carry. */
 class TakeError extends Error {
 	constructor(
@@ -242,6 +241,17 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 	});
 }
 
+/** Writes the chip's remaining baseline time for a phase that emits no progress. */
+async function writeEtaTick(ctx: Ctx, eta: VideoEtaTracker): Promise<void> {
+	const etaSeconds = eta.tick();
+	await ctx.write((tx) => {
+		tx.update(videoJobs)
+			.set({ etaSeconds })
+			.where(eq(videoJobs.id, ctx.row.id))
+			.run();
+	});
+}
+
 /**
  * Follows a submitted prompt. A server that stops answering (or answers with
  * an error) after the checkpoint is written is most likely reloading, so the
@@ -252,13 +262,14 @@ async function followWithGrace(
 	client: ComfyUiClient,
 	promptId: string,
 	startedAt: number,
+	eta: VideoEtaTracker,
 ) {
 	let downSince = 0;
 	for (;;) {
 		const left = VIDEO_RENDER_DEADLINE_MS - (Date.now() - startedAt);
 		if (left <= 0) throw new ComfyUiError("timeout", "ComfyUI took too long");
 		try {
-			return await followSegment(ctx, client, promptId, left);
+			return await followSegment(ctx, client, promptId, left, eta);
 		} catch (error) {
 			const transient =
 				error instanceof ComfyUiError &&
@@ -276,6 +287,7 @@ async function followSegment(
 	client: ComfyUiClient,
 	promptId: string,
 	deadlineMs: number,
+	eta: VideoEtaTracker,
 ): Promise<ComfyImageRef[]> {
 	let chain: Promise<unknown> = Promise.resolve();
 	const queue = (work: () => Promise<unknown>) => {
@@ -283,7 +295,6 @@ async function followSegment(
 	};
 	let started = false;
 	let rendering = false;
-	let firstStepAt = 0;
 	let lastWriteAt = 0;
 
 	const onEvent = (event: {
@@ -304,31 +315,39 @@ async function followSegment(
 		} else if (event.type === "started") {
 			if (started) return;
 			started = true;
-			queue(() => enterPhase(ctx, "starting"));
+			queue(async () => {
+				await enterPhase(ctx, "starting");
+				await writeEtaTick(ctx, eta);
+			});
 		} else if (event.type === "progress") {
 			const now = Date.now();
 			if (!rendering) {
 				rendering = true;
-				firstStepAt = now;
 				queue(() => enterPhase(ctx, "rendering"));
 			}
-			if (lastWriteAt !== 0 && now - lastWriteAt < PROGRESS_WRITE_EVERY_MS) {
+			// The tracker sees every event (so a node reset re-bases the rate),
+			// but the row is written at most once a second.
+			const value = event.value ?? 0;
+			const max = event.max ?? 0;
+			const sample = eta.onProgress({ value, max }, now);
+			// A node that just finished is worth a write even inside the throttle:
+			// it is where a pass's percent lands (and the second pass begins).
+			const passFinished = max > 0 && value >= max;
+			if (
+				!passFinished &&
+				lastWriteAt !== 0 &&
+				now - lastWriteAt < PROGRESS_WRITE_EVERY_MS
+			) {
 				return;
 			}
 			lastWriteAt = now;
-			const done = Math.max(1, event.value ?? 0);
-			const left = Math.max(0, (event.max ?? 0) - (event.value ?? 0));
-			const percent = Math.min(
-				100,
-				Math.round(((event.value ?? 0) / Math.max(1, event.max ?? 0)) * 100),
-			);
-			const eta = Math.round(
-				(((now - firstStepAt) / 1000) * left) / done + ETA_FINISH_SECONDS,
-			);
 			queue(() =>
 				ctx.write((tx) => {
 					tx.update(videoJobs)
-						.set({ progressPercent: percent, etaSeconds: eta })
+						.set({
+							progressPercent: sample.progressPercent,
+							etaSeconds: sample.etaSeconds,
+						})
 						.where(eq(videoJobs.id, ctx.row.id))
 						.run();
 				}),
@@ -420,6 +439,7 @@ async function renderSegment(
 		/** The finished segments before this one; at segment n this is length n-1. */
 		segments: readonly VideoSegmentRecord[];
 		startedAt: number;
+		eta: VideoEtaTracker;
 		freedOthers: boolean;
 		setPromptId: (id: string) => void;
 	},
@@ -467,6 +487,7 @@ async function renderSegment(
 		await ctx.progress({ checkpoint });
 	}
 	await enterPhase(ctx, "submitted");
+	await writeEtaTick(ctx, input.eta);
 	if (signal.aborted) return null;
 
 	const refs = await followWithGrace(
@@ -474,9 +495,11 @@ async function renderSegment(
 		client,
 		record.promptId,
 		input.startedAt,
+		input.eta,
 	);
 	if (signal.aborted) return null;
 	await enterPhase(ctx, "finishing");
+	await writeEtaTick(ctx, input.eta);
 	const ref = refs[0];
 	if (!ref) {
 		throw new ComfyUiError("missing_result", "ComfyUI finished without a clip");
@@ -503,6 +526,26 @@ async function renderTake(
 ): Promise<void> {
 	const { row, signal } = ctx;
 	const startedAt = Date.now();
+	const eta = createVideoEtaTracker({
+		durationSeconds: request.durationSeconds,
+		startedAt,
+	});
+	// The chip's first value, before any progress can arrive: a plausible
+	// baseline for the take's length, counting down while ComfyUI stages the
+	// models (a phase that emits nothing).
+	const baseline = eta.baseline(startedAt);
+	const baselineWritten = await ctx.write((tx) => {
+		tx.update(videoJobs)
+			.set({
+				etaSeconds: baseline,
+				progressPercent: 0,
+				phaseAt: Date.now(),
+			})
+			.where(eq(videoJobs.id, row.id))
+			.run();
+	});
+	if (!baselineWritten || signal.aborted) return;
+
 	const still = await readStill(ctx, request.sourceFileId);
 	const size = videoSizeForSource({
 		width: still.file.width,
@@ -558,9 +601,11 @@ async function renderTake(
 						client,
 						recordedPrompt,
 						startedAt,
+						eta,
 					);
 					if (signal.aborted) return;
 					await enterPhase(ctx, "finishing");
+					await writeEtaTick(ctx, eta);
 					const ref = refs[0];
 					if (!ref) {
 						throw new ComfyUiError(
@@ -615,6 +660,7 @@ async function renderTake(
 				segment: segmentNumber,
 				segments: segments.slice(0, segmentNumber - 1),
 				startedAt,
+				eta,
 				freedOthers,
 				setPromptId: prompt.setPromptId,
 			});
