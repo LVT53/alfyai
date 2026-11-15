@@ -67,6 +67,18 @@
  * deliberately never cleared by `completeExtractionAttempt` the way
  * `hints_json` is, so it survives success).
  *
+ * `--stale-renderer` is the one opt-in exception, for the MinerU 4.1 renderer
+ * upgrade. With it, a `mineru` document whose SOURCE row's
+ * `metadata.extractionParserVersion` is missing or is not the current
+ * `MINERU_PARSER_VERSION` (mineru/result.ts) is re-read at its OWN recorded
+ * tier — the tier its current text was produced at, never a higher one — and
+ * the "already done" check above is ignored for it. A document that already
+ * carries the current renderer is skipped as `already_current_renderer`
+ * whatever tier the run asks for, so a stale-renderer run over an up-to-date
+ * library enqueues nothing. A successful re-read rewrites the source row's
+ * version (persist.ts), which is exactly what makes a resumed run skip it;
+ * there is no second ledger. Without the flag nothing above changes.
+ *
  * A document already carrying a queued/active job is always skipped ("already
  * in flight") regardless of tier or `--since`.
  *
@@ -88,11 +100,14 @@
  *   DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --apply
  *   DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --status
  *   DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts \
+ *     --apply --stale-renderer
+ *   DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --help
+ *   DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts \
  *     --verify data/backfill-snapshots/<stamp>.json
  *
  * Flags: --apply, --tier <flash|basic|standard|advanced>, --include-direct-text,
- * --since <iso>, --limit N, --user <id|email>, --only-failed, --status,
- * --verify <snapshot>, --shrink-threshold <0..1>.
+ * --since <iso>, --limit N, --user <id|email>, --only-failed, --stale-renderer,
+ * --status, --verify <snapshot>, --shrink-threshold <0..1>, --help.
  *
  * `--dry-run` is the DEFAULT: with no `--apply`, nothing is written.
  *
@@ -136,6 +151,43 @@ class BackfillUsageError extends Error {
 	override readonly name = "BackfillUsageError";
 }
 
+/**
+ * The `--help` text, written next to `parseArgs` so a new flag has one obvious
+ * place to be named. Printed before the database is opened: an operator asking
+ * "what are the flags" must not need `DATABASE_PATH` or a live ledger.
+ *
+ * The renderer version is a parameter rather than an import so this module
+ * stays free of the MinerU result module until something actually plans a run.
+ */
+function formatUsage(parserVersion: string): string {
+	return [
+		"Knowledge-library extraction backfill.",
+		"",
+		"Usage:",
+		"  DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts [flags]",
+		"",
+		"Flags:",
+		"  --apply                     Enqueue the plan. Without it nothing is written (dry run).",
+		"  --tier <id>                 flash | basic | standard | advanced. Defaults to MINERU_DEFAULT_TIER.",
+		"  --include-direct-text       Also re-chunk direct-text documents (plain text, Markdown, CSV, ...).",
+		"  --stale-renderer            Re-read only MinerU documents whose recorded",
+		`                              extractionParserVersion is missing or is not ${parserVersion},`,
+		"                              each at its OWN recorded tier. Documents already on the current",
+		"                              renderer are reported as already_current_renderer and skipped.",
+		"  --since <iso>               Scope --status / --only-failed to this campaign's updated_at window.",
+		"  --limit N                   Enqueue at most N documents, sampled across accounts.",
+		"  --user <id|email>           Scope to one account.",
+		"  --only-failed               Re-enqueue only this campaign's user-retryable failures.",
+		"  --status                    Print progress from the ledger.",
+		"  --verify <snapshot>         --status plus the shrink check against a snapshot written by --apply.",
+		"  --shrink-threshold <0..1>   Shrink-check threshold (default 0.5).",
+		"  --help, -h                  Print this help and exit.",
+		"",
+		"Re-extraction goes through the same service path as the Knowledge list's",
+		"Re-extract action; this script only enqueues, it never runs the worker.",
+	].join("\n");
+}
+
 export interface BackfillArgs {
 	apply: boolean;
 	tier: string | null;
@@ -144,6 +196,8 @@ export interface BackfillArgs {
 	limit: number | null;
 	user: string | null;
 	onlyFailed: boolean;
+	/** Re-read only documents an older MinerU renderer produced, at their own tier. */
+	staleRenderer: boolean;
 	status: boolean;
 	/** Path to a snapshot written by an earlier `--apply`. */
 	verify: string | null;
@@ -263,6 +317,7 @@ export function parseArgs(argv: string[]): BackfillArgs {
 		limit,
 		user: readFlagValue(argv, "--user"),
 		onlyFailed: argv.includes("--only-failed"),
+		staleRenderer: argv.includes("--stale-renderer"),
 		status: argv.includes("--status"),
 	};
 }
@@ -275,6 +330,7 @@ export type SkipReason =
 	| "missing_file"
 	| "in_flight"
 	| "already_at_tier"
+	| "already_current_renderer"
 	| "already_backfilled";
 
 export interface CandidateDocument {
@@ -303,11 +359,22 @@ export interface PlanItem {
 	jobStatus: string | null;
 	jobId: string | null;
 	legacy: boolean;
+	/**
+	 * True when this item is included because an older MinerU renderer produced
+	 * it (`--stale-renderer`). The run's stale count and the apply summary are
+	 * read from this, so "how many did the flag actually re-read" is one number
+	 * and not a re-derivation of the plan.
+	 */
+	staleRenderer?: boolean;
 }
 
 export interface BackfillPlan {
 	tier: string;
 	since: Date;
+	/** True when `--stale-renderer` scoped this run to older-renderer documents. */
+	staleRenderer: boolean;
+	/** The renderer version `--stale-renderer` re-reads up to; null for an ordinary run. */
+	parserVersion: string | null;
 	/**
 	 * The MinerU endpoint this run resolved to, AFTER the `admin_config`
 	 * overlay. Printed, because the whole class of bug it belongs to — the
@@ -328,6 +395,8 @@ export interface ApplyOutcome {
 export interface ApplyResult {
 	enqueued: ApplyOutcome[];
 	failed: ApplyOutcome[];
+	/** How many of `enqueued` were stale-renderer re-reads (`--stale-renderer`). */
+	staleRenderer: number;
 	/** Where the pre-backfill snapshot went, for `--verify`. */
 	snapshotPath: string | null;
 }
@@ -532,6 +601,64 @@ async function resolveFileExists(
 	}
 }
 
+function parseMetadataObject(
+	metadataJson: string | null,
+): Record<string, unknown> {
+	if (!metadataJson) return {};
+	try {
+		const parsed: unknown = JSON.parse(metadataJson);
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: {};
+	} catch {
+		return {};
+	}
+}
+
+interface RecordedRenderer {
+	/** `metadata.extractionParserVersion`, or null when the row predates it. */
+	parserVersion: string | null;
+	/** `metadata.extractionTier`, only when it is one of the four real tiers. */
+	tier: string | null;
+}
+
+/**
+ * What the SOURCE document row says about the parse that produced its text.
+ *
+ * Read from the source, not the normalized artifact, because that is the row
+ * `--stale-renderer` selects on: `persist.ts` writes the renderer version and
+ * the tier onto both, and the source is the one this script already iterates.
+ * A metadata blob that is absent or unreadable is a row from before either key
+ * existed — the safe reading is "stale", never "current": a document wrongly
+ * called current is never re-read, while one wrongly called stale costs a
+ * re-parse that records the current version and is then skipped.
+ */
+async function readRecordedRenderer(
+	deps: Deps,
+	artifactId: string,
+): Promise<RecordedRenderer> {
+	const [row] = await deps.db
+		.select({ metadataJson: deps.schema.artifacts.metadataJson })
+		.from(deps.schema.artifacts)
+		.where(eq(deps.schema.artifacts.id, artifactId))
+		.limit(1);
+	const meta = parseMetadataObject(row?.metadataJson ?? null);
+	const parserVersion =
+		typeof meta.extractionParserVersion === "string"
+			? meta.extractionParserVersion
+			: null;
+	// Only a tier the extractor would accept counts. A garbage string in
+	// `extractionTier` must fall back to the run's requested tier rather than
+	// become a hint `readHintedTier` discards (which would silently parse at the
+	// server default instead).
+	const tier =
+		typeof meta.extractionTier === "string" &&
+		deps.mineruConfig.mineruTierRank(meta.extractionTier) >= 0
+			? meta.extractionTier
+			: null;
+	return { parserVersion, tier };
+}
+
 /**
  * Builds the full plan: every `source_document` artifact, classified as
  * include-and-enqueue or skip-with-a-reason. Read-only — never writes.
@@ -543,6 +670,11 @@ export async function buildBackfillPlan(
 	const cliTier = await resolveRequestedTier(deps, args);
 	const since = args.since ?? (await resolveDefaultSince(deps));
 	const userId = await resolveUserFilter(deps, args.user);
+	// Only when the flag is on: an ordinary run keeps the old import graph and
+	// never pays for the MinerU result module.
+	const parserVersion = args.staleRenderer
+		? (await import("$lib/server/services/mineru/result")).MINERU_PARSER_VERSION
+		: null;
 
 	const rows = await deps.db
 		.select({
@@ -639,7 +771,7 @@ export async function buildBackfillPlan(
 			doc.fileName,
 			doc.mimeType,
 		);
-		const effectiveTier =
+		let effectiveTier =
 			route === "mineru" ? (tierHint === "flash" ? "flash" : cliTier) : null;
 		const tierForced = tierHint === "flash";
 
@@ -662,6 +794,43 @@ export async function buildBackfillPlan(
 				legacy,
 			});
 			continue;
+		}
+
+		// `--stale-renderer` replaces the tier rule with the renderer rule. A
+		// document already on the current renderer is SKIPPED whatever tier this
+		// run asked for: the flag exists to re-read what an older renderer
+		// produced, not to upgrade a library. A stale one is asked for at the tier
+		// its current text was produced at, never a higher one.
+		//
+		// There is no `force` to pass here. The route's `force: true` only skips
+		// the route's own "not higher" check, and
+		// `requeueExtractionJobForReextraction` has no tier rule at all — which is
+		// exactly why a same-tier hint from this script is legal, the same reason
+		// it is legal from that operator path.
+		let rendererStale = false;
+		let sourceTier: string | null = null;
+		if (route === "mineru" && args.staleRenderer) {
+			const recorded = await readRecordedRenderer(deps, doc.artifactId);
+			sourceTier = recorded.tier;
+			rendererStale = recorded.parserVersion !== parserVersion;
+			if (jobRow?.status === "succeeded" && !rendererStale) {
+				items.push({
+					doc,
+					route,
+					include: false,
+					skipReason: "already_current_renderer",
+					effectiveTier,
+					tierForced,
+					currentTier: recorded.tier,
+					jobStatus,
+					jobId: jobRow.id,
+					legacy,
+				});
+				continue;
+			}
+			if (rendererStale && !tierForced && recorded.tier) {
+				effectiveTier = recorded.tier;
+			}
 		}
 
 		if (
@@ -691,6 +860,32 @@ export async function buildBackfillPlan(
 			}
 			const achievedRank = deps.mineruConfig.mineruTierRank(currentTier);
 			const requestedRank = deps.mineruConfig.mineruTierRank(effectiveTier);
+			if (rendererStale) {
+				// Its own tier, in order of authority: the SOURCE row's recorded
+				// tier (the one the re-extract route calls the current tier), the
+				// normalized row's, then the run's requested tier for a document
+				// that recorded none. A registry-forced `flash` wins over all of
+				// them: MinerU ignores a tier for native formats anyway.
+				const ownTier = tierForced
+					? effectiveTier
+					: (sourceTier ??
+						(deps.mineruConfig.mineruTierRank(currentTier) >= 0
+							? currentTier
+							: effectiveTier));
+				items.push({
+					doc,
+					route,
+					include: true,
+					effectiveTier: ownTier,
+					tierForced,
+					currentTier,
+					jobStatus,
+					jobId: jobRow.id,
+					legacy,
+					staleRenderer: true,
+				});
+				continue;
+			}
 			if (achievedRank >= requestedRank) {
 				items.push({
 					doc,
@@ -769,12 +964,15 @@ export async function buildBackfillPlan(
 			jobStatus,
 			jobId: jobRow?.id ?? null,
 			legacy,
+			...(rendererStale ? { staleRenderer: true } : {}),
 		});
 	}
 
 	return {
 		tier: cliTier,
 		since,
+		staleRenderer: args.staleRenderer,
+		parserVersion,
 		mineruApiUrl: deps.mineruConfig.resolveMineruConfig().baseUrl,
 		items,
 	};
@@ -789,8 +987,11 @@ export async function buildBackfillPlan(
  * The skip reasons matter here as much as the job status. A plan item can
  * carry a retryable failed job AND be excluded — a document whose file is gone
  * from disk is the common one — and re-enqueueing that only spends another
- * attempt to arrive at the same `internal` failure. Only `already_at_tier`,
- * which cannot co-exist with `failed`, and the include-able items are eligible.
+ * attempt to arrive at the same `internal` failure. Only the skips another
+ * attempt cannot fix are ineligible: the file is missing, the job is in
+ * flight, the format is unsupported. `already_at_tier` shows up only on a
+ * `succeeded` job, and `already_current_renderer` describes the last
+ * SUCCESSFUL parse — a failed retry after it should still be allowed to run.
  */
 const ONLY_FAILED_INELIGIBLE_SKIPS: ReadonlySet<SkipReason> = new Set([
 	"missing_file",
@@ -1086,6 +1287,7 @@ export async function applyBackfillPlan(
 
 	const enqueued: ApplyOutcome[] = [];
 	const failed: ApplyOutcome[] = [];
+	let staleRenderer = 0;
 
 	for (const item of toApply) {
 		if (!item.include) continue;
@@ -1185,6 +1387,7 @@ export async function applyBackfillPlan(
 				userId: item.doc.userId,
 				ok: true,
 			});
+			if (item.staleRenderer) staleRenderer += 1;
 		} catch (error) {
 			failed.push({
 				artifactId: item.doc.artifactId,
@@ -1212,7 +1415,7 @@ export async function applyBackfillPlan(
 	// (`IDLE_TICK_MIN_MS`/`IDLE_TICK_MAX_MS` in jobs/scheduler.ts) and claims
 	// whatever is queued, so the backfill starts draining within a minute.
 
-	return { enqueued, failed, snapshotPath };
+	return { enqueued, failed, staleRenderer, snapshotPath };
 }
 
 // ── Status ──────────────────────────────────────────────────────────────
@@ -1478,11 +1681,24 @@ function printDryRunReport(plan: BackfillPlan, limit: number | null): void {
 	// glance whether the script resolved the same backend the app runs on.
 	console.log(`MinerU:        ${plan.mineruApiUrl || "(not configured)"}`);
 	console.log(`Tier:          ${plan.tier}`);
+	if (plan.staleRenderer) {
+		console.log(
+			`Renderer:      ${plan.parserVersion ?? "(unknown)"} (--stale-renderer: older renderer only)`,
+		);
+	}
 	console.log(`Since default: ${plan.since.toISOString()}`);
 	console.log(`Eligible:      ${included.length} document(s)`);
 	if (limit != null && included.length > limit) {
 		console.log(
 			`  (--limit ${limit}: this run would enqueue ${toEnqueue.length} of them)`,
+		);
+	}
+	if (plan.staleRenderer) {
+		// The one number the flag exists to produce. `effectiveTier` above is per
+		// item, so the breakdown below already shows each document's own tier.
+		const staleToEnqueue = toEnqueue.filter((item) => item.staleRenderer);
+		console.log(
+			`Stale renderer: ${staleToEnqueue.length} document(s) would be re-read at their recorded tier`,
 		);
 	}
 
@@ -1661,6 +1877,18 @@ export async function main(argv: string[]): Promise<number> {
 }
 
 async function run(argv: string[]): Promise<number> {
+	// Before the database checks: "what are the flags" is answerable on a box
+	// with no `DATABASE_PATH` set, and printing the flags must not open a
+	// ledger. The renderer version is interpolated so the `--stale-renderer`
+	// line names the exact version a run would re-read up to.
+	if (argv.includes("--help") || argv.includes("-h")) {
+		const { MINERU_PARSER_VERSION } = await import(
+			"$lib/server/services/mineru/result"
+		);
+		console.log(formatUsage(MINERU_PARSER_VERSION));
+		return 0;
+	}
+
 	const databasePath = process.env.DATABASE_PATH?.trim();
 	if (!databasePath) {
 		console.error(
@@ -1754,7 +1982,7 @@ async function run(argv: string[]): Promise<number> {
 			limit: args.limit,
 			tier: plan.tier,
 		});
-		printApplySummary(result);
+		printApplySummary(result, plan);
 		return result.failed.length > 0 ? 1 : 0;
 	}
 
@@ -1770,11 +1998,11 @@ async function run(argv: string[]): Promise<number> {
 		limit: args.limit,
 		tier: plan.tier,
 	});
-	printApplySummary(result);
+	printApplySummary(result, plan);
 	return result.failed.length > 0 ? 1 : 0;
 }
 
-function printApplySummary(result: ApplyResult): void {
+function printApplySummary(result: ApplyResult, plan: BackfillPlan): void {
 	if (result.snapshotPath) {
 		console.log(
 			`\nWhen the queue has drained, check what the re-parse did to these:\n` +
@@ -1782,6 +2010,17 @@ function printApplySummary(result: ApplyResult): void {
 		);
 	}
 	console.log(`\nEnqueued ${result.enqueued.length} document(s).`);
+	if (plan.staleRenderer) {
+		// The flag's own scoreboard, printed even when it is zero: "nothing to
+		// re-read" is the answer an operator running it against an up-to-date
+		// library needs to see, not something to infer from "Enqueued 0".
+		const alreadyCurrent = plan.items.filter(
+			(item) => item.skipReason === "already_current_renderer",
+		).length;
+		console.log(
+			`Stale renderer: ${result.staleRenderer} document(s) re-read; ${alreadyCurrent} already on ${plan.parserVersion ?? "the current renderer"}.`,
+		);
+	}
 	if (result.failed.length > 0) {
 		console.log(
 			`${result.failed.length} document(s) could NOT be enqueued (left untouched):`,

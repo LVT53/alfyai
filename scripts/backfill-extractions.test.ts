@@ -20,6 +20,7 @@ import {
 import { runExtractionOnce } from "$lib/server/services/extraction/testing/run-once";
 import { resetSeams } from "$lib/server/services/extraction/testing/runner-seams";
 import { MINERU_TIER_IDS } from "$lib/server/services/mineru/config";
+import { MINERU_PARSER_VERSION } from "$lib/server/services/mineru/result";
 import {
 	createFakeMineruServer,
 	type FakeMineruServer,
@@ -111,6 +112,7 @@ describe("parseArgs", () => {
 			"--limit=5",
 			"--user=user@example.com",
 			"--only-failed",
+			"--stale-renderer",
 		]);
 		expect(args).toMatchObject({
 			apply: true,
@@ -119,6 +121,7 @@ describe("parseArgs", () => {
 			limit: 5,
 			user: "user@example.com",
 			onlyFailed: true,
+			staleRenderer: true,
 		});
 		expect(args.since?.toISOString()).toBe("2026-01-01T00:00:00.000Z");
 	});
@@ -130,6 +133,7 @@ describe("parseArgs", () => {
 		expect(args.since).toBeNull();
 		expect(args.limit).toBeNull();
 		expect(args.status).toBe(false);
+		expect(args.staleRenderer).toBe(false);
 	});
 
 	it("rejects an unparseable --since", () => {
@@ -401,6 +405,267 @@ describe("buildBackfillPlan: tier logic", () => {
 		expect(plan.items[0]).toMatchObject({
 			include: false,
 			skipReason: "in_flight",
+		});
+	});
+});
+
+describe("buildBackfillPlan: --stale-renderer", () => {
+	/**
+	 * A MinerU-routed source document with a SUCCEEDED job and a normalized
+	 * artifact at `tier`, and (optionally) an `extractionParserVersion` on the
+	 * source row — the exact shape `persist.ts` leaves behind after a parse.
+	 * Omitting `parserVersion` is a document read before the renderer version
+	 * was recorded.
+	 */
+	async function seedParsedDocument(params: {
+		sourceId: string;
+		tier: string;
+		parserVersion?: string;
+		userId?: string;
+	}): Promise<void> {
+		const userId = params.userId ?? "user-1";
+		fixture.seedUser(userId);
+		fixture.seedArtifact({
+			id: params.sourceId,
+			userId,
+			name: `${params.sourceId}.pdf`,
+			mimeType: "application/pdf",
+			storagePath: await seedFile(userId, `${params.sourceId}.pdf`),
+			metadata: {
+				extractionTier: params.tier,
+				...(params.parserVersion
+					? { extractionParserVersion: params.parserVersion }
+					: {}),
+			},
+		});
+		const normalizedId = `norm-${params.sourceId}`;
+		fixture.seedArtifact({
+			id: normalizedId,
+			userId,
+			type: "normalized_document",
+			name: `${params.sourceId} (normalized)`,
+			metadata: { extractionTier: params.tier },
+		});
+		fixture.db
+			.insert(schema.documentExtractionJobs)
+			.values({
+				id: `job-${params.sourceId}`,
+				userId,
+				sourceArtifactId: params.sourceId,
+				normalizedArtifactId: normalizedId,
+				intakeRoute: "mineru",
+				fileName: `${params.sourceId}.pdf`,
+				status: "succeeded",
+			})
+			.run();
+	}
+
+	it("still skips a same-tier document without the flag, whatever renderer read it", async () => {
+		await seedParsedDocument({
+			sourceId: "doc-old",
+			tier: "standard",
+			parserVersion: "mineru4/1",
+		});
+
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+
+		expect(plan.staleRenderer).toBe(false);
+		expect(plan.parserVersion).toBeNull();
+		expect(plan.items[0]).toMatchObject({
+			include: false,
+			skipReason: "already_at_tier",
+			effectiveTier: "standard",
+			currentTier: "standard",
+		});
+	});
+
+	it("re-reads a stale-renderer document at its OWN tier, not the requested higher one", async () => {
+		await seedParsedDocument({
+			sourceId: "doc-old",
+			tier: "standard",
+			parserVersion: "mineru4/1",
+		});
+
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "advanced", "--stale-renderer"]),
+		);
+
+		expect(plan.staleRenderer).toBe(true);
+		expect(plan.parserVersion).toBe(MINERU_PARSER_VERSION);
+		expect(plan.items[0]).toMatchObject({
+			include: true,
+			effectiveTier: "standard",
+			currentTier: "standard",
+			staleRenderer: true,
+		});
+		expect(plan.items[0]?.skipReason).toBeUndefined();
+
+		const result = await script.applyBackfillPlan(
+			plan.items.filter((item) => item.include),
+			{ limit: null, tier: plan.tier },
+		);
+		expect(result.failed).toEqual([]);
+		expect(result.enqueued).toHaveLength(1);
+		expect(result.staleRenderer).toBe(1);
+
+		const [job] = fixture.db
+			.select()
+			.from(schema.documentExtractionJobs)
+			.where(eq(schema.documentExtractionJobs.sourceArtifactId, "doc-old"))
+			.all();
+		expect(job?.status).toBe("queued");
+		// Same tier, not the `advanced` the run asked for: the tier reaches the
+		// extractor as the durable hint, exactly as the route's operator path.
+		expect(JSON.parse(job?.hintsJson ?? "{}")).toMatchObject({
+			tier: "standard",
+		});
+	});
+
+	it("skips an up-to-date document with its own reason, even above the requested tier", async () => {
+		await seedParsedDocument({
+			sourceId: "doc-new",
+			tier: "basic",
+			parserVersion: MINERU_PARSER_VERSION,
+		});
+
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "advanced", "--stale-renderer"]),
+		);
+
+		expect(plan.items[0]).toMatchObject({
+			include: false,
+			skipReason: "already_current_renderer",
+			currentTier: "basic",
+		});
+	});
+
+	it("treats a missing extractionParserVersion as stale", async () => {
+		await seedParsedDocument({ sourceId: "doc-legacy", tier: "standard" });
+
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard", "--stale-renderer"]),
+		);
+
+		expect(plan.items[0]).toMatchObject({
+			include: true,
+			effectiveTier: "standard",
+			staleRenderer: true,
+		});
+	});
+
+	it("does not requeue a document the flag already re-read to the current version", async () => {
+		await seedParsedDocument({
+			sourceId: "doc-old",
+			tier: "standard",
+			parserVersion: "mineru4/1",
+		});
+
+		const first = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard", "--stale-renderer"]),
+		);
+		expect(first.items[0]?.include).toBe(true);
+		await script.applyBackfillPlan(
+			first.items.filter((item) => item.include),
+			{ limit: null, tier: first.tier },
+		);
+
+		// The worker succeeds: `persist.ts` records the current renderer on the
+		// source row. That recorded value is the only ledger this needs.
+		fixture.db
+			.update(schema.artifacts)
+			.set({
+				metadataJson: JSON.stringify({
+					extractionTier: "standard",
+					extractionParserVersion: MINERU_PARSER_VERSION,
+				}),
+			})
+			.where(eq(schema.artifacts.id, "doc-old"))
+			.run();
+		fixture.db
+			.update(schema.documentExtractionJobs)
+			.set({ status: "succeeded" })
+			.where(eq(schema.documentExtractionJobs.sourceArtifactId, "doc-old"))
+			.run();
+
+		const second = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard", "--stale-renderer"]),
+		);
+		expect(second.items[0]).toMatchObject({
+			include: false,
+			skipReason: "already_current_renderer",
+		});
+		expect(second.items.filter((item) => item.include)).toHaveLength(0);
+	});
+
+	it("names the stale count in the plan, and zero on an up-to-date library", async () => {
+		await seedParsedDocument({
+			sourceId: "doc-old",
+			tier: "standard",
+			parserVersion: "mineru4/1",
+		});
+		await seedParsedDocument({
+			sourceId: "doc-new",
+			tier: "standard",
+			parserVersion: MINERU_PARSER_VERSION,
+			userId: "user-2",
+		});
+		const logs: string[] = [];
+		vi.spyOn(console, "log").mockImplementation((...parts: unknown[]) => {
+			logs.push(parts.map(String).join(" "));
+		});
+
+		await expect(
+			script.main(["--tier", "standard", "--stale-renderer"]),
+		).resolves.toBe(0);
+		const planReport = logs.join("\n");
+		expect(planReport).toContain(
+			"Stale renderer: 1 document(s) would be re-read at their recorded tier",
+		);
+		expect(planReport).toContain("already_current_renderer  1");
+
+		// The library's own answer: once nothing is stale the same command is a
+		// no-op that says so, rather than an "Eligible: 0" an operator has to
+		// interpret.
+		fixture.db
+			.update(schema.artifacts)
+			.set({
+				metadataJson: JSON.stringify({
+					extractionTier: "standard",
+					extractionParserVersion: MINERU_PARSER_VERSION,
+				}),
+			})
+			.where(eq(schema.artifacts.id, "doc-old"))
+			.run();
+		logs.length = 0;
+		await expect(
+			script.main(["--tier", "standard", "--stale-renderer"]),
+		).resolves.toBe(0);
+		const upToDateReport = logs.join("\n");
+		expect(upToDateReport).toContain(
+			"Stale renderer: 0 document(s) would be re-read at their recorded tier",
+		);
+		expect(upToDateReport).toContain("already_current_renderer  2");
+	});
+
+	it("leaves a direct-text document to --include-direct-text", async () => {
+		fixture.seedUser("user-1");
+		fixture.seedArtifact({
+			id: "doc-txt",
+			userId: "user-1",
+			name: "notes.txt",
+			mimeType: "text/plain",
+			storagePath: await seedFile("user-1", "notes.txt"),
+		});
+
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard", "--stale-renderer"]),
+		);
+		expect(plan.items[0]).toMatchObject({
+			route: "direct-text",
+			include: false,
+			skipReason: "route_direct_text_excluded",
 		});
 	});
 });
@@ -1280,6 +1545,18 @@ describe("--only-failed", () => {
 });
 
 describe("main: exit codes and operator-facing errors", () => {
+	it("prints usage for --help, naming every flag including --stale-renderer", async () => {
+		const logs: string[] = [];
+		vi.spyOn(console, "log").mockImplementation((...parts: unknown[]) => {
+			logs.push(parts.map(String).join(" "));
+		});
+
+		await expect(script.main(["--help"])).resolves.toBe(0);
+		const usage = logs.join("\n");
+		expect(usage).toContain("--stale-renderer");
+		expect(usage).toContain(MINERU_PARSER_VERSION);
+	});
+
 	it("returns 1 with one readable line for a bad flag, not a stack", async () => {
 		const errors: string[] = [];
 		vi.spyOn(console, "error").mockImplementation((...parts: unknown[]) => {
