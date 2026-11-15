@@ -165,10 +165,16 @@ let Viewer = $state.raw<ImageLightboxComponent | null>(null);
 let viewerIndex = $state<number | null>(null);
 
 /**
- * The control the viewer was opened from. Kept explicitly because the viewer's
- * own focus trap restores whatever had focus when it installed, and Safari does
- * not focus the button a click lands on — so on close the trap would hand focus
- * back to <body> and the person would lose their place in the strip.
+ * The control the viewer was opened from. The viewer's own focus restore is not
+ * dependable here: it hands focus back to whatever had focus when its trap
+ * installed — the pressed tile on Chromium, which focuses a clicked button, but
+ * <body> on Safari, which does not — and it runs only after the viewer's exit
+ * transition, so no tick can wait for it. This component therefore focuses the
+ * tile itself once the close has applied.
+ *
+ * Known limit: if focus moves somewhere else while the lazy viewer chunk is
+ * still loading, the trap installs around that other element instead, and its
+ * late restore can win over this focus.
  */
 let viewerOpener: HTMLElement | null = null;
 
@@ -191,7 +197,8 @@ async function closeViewer() {
 	viewerIndex = null;
 	const opener = viewerOpener;
 	viewerOpener = null;
-	// After the viewer is gone, so its trap's own focus restore cannot undo this.
+	// Let the close apply first, so focus can leave the viewer's controls before
+	// they unmount; the viewer's own restore runs later still (see above).
 	await tick();
 	// A press in the same tick reopened the viewer: that open owns the focus.
 	if (viewerIndex !== null) return;
