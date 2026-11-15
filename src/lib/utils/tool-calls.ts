@@ -200,11 +200,11 @@ export function isFileCardsToolCall(
 
 /**
  * How many file cards one REPLY draws. A reply that searches and then lists
- * would otherwise draw one card strip per call (up to twelve for two full
- * calls), fire a preview request for every one, and repeat a file that both
- * calls found. The cap is taken in result order across the reply's `files`
- * calls, where the reply's cards are assembled (`capFileCards`), never inside
- * one call. The server also bounds a single call's stored payload to this same
+ * would otherwise draw a strip per call — twelve cards for two full calls —
+ * fire a preview request for every one, and repeat a file that both calls
+ * found. The cap is taken in result order across the reply's `files` calls,
+ * where the reply's cards are assembled (`capFileCards`), never inside one
+ * call. The server also bounds a single call's stored payload to this same
  * number (`buildFilesCards` in `normal-chat-tools/files.ts`), so one call can
  * never carry more cards than a whole reply may draw.
  */

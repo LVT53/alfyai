@@ -221,8 +221,9 @@ export interface ToolCallFileCard {
 	webUrl: string;
 }
 
-// The `files` tool's card payload: the first few found files, plus how many
-// there were in all so the card can say "N more".
+// The `files` tool's card payload. Assembly (`capFileCards`) keeps one row per
+// call and sets `total` to the cards that row kept, so no surface reads it as a
+// remainder count: the strip's count tile counts the pictures it leaves out.
 export interface ToolCallFilesData {
 	connectionId: string;
 	cards: ToolCallFileCard[];

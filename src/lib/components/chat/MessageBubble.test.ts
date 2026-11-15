@@ -4554,6 +4554,13 @@ describe("MessageBubble", () => {
 			expect(
 				container.querySelector('[data-testid="files-remainder"]'),
 			).toBeNull();
+			// The rail's summary strip must not repeat the call as a step either:
+			// a card-drawing `files` call is no rail item, so it adds no "Files"
+			// count to the strip (a regression would show "Files 1 action").
+			expect(
+				container.querySelector('[data-testid="tool-activity-summary"]'),
+			).toBeNull();
+			expect(container.textContent).not.toContain("Files 1 action");
 		});
 
 		it("still caps two files calls at six cards, and draws one strip per call", () => {

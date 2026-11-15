@@ -190,9 +190,9 @@ describe("filesStripTiles", () => {
 	});
 });
 
-// The one copy of a card's size-and-date line: the strip's card, its list rows
-// and the old file-card row (before the strip replaced it) all read this, so the
-// two surfaces cannot word the same file differently.
+// The one copy of a card's size-and-date line: the strip's single card and its
+// list rows both read this, so the two surfaces cannot word the same file
+// differently.
 describe("fileCardFacts", () => {
 	it("says the size and, when there is one, the date with its year", () => {
 		const card: ToolCallFileCard = {

@@ -171,11 +171,6 @@ test.describe("the files strip", () => {
 		const countTile = strip.getByTestId("files-strip-count");
 		await expect(countTile).toHaveCount(1);
 		await expect(countTile).toContainText("+2");
-		overflow = await replyOverflow(message);
-		expect(
-			overflow.scrollWidth,
-			`narrow reply scrollWidth ${overflow.scrollWidth} vs clientWidth ${overflow.clientWidth}`,
-		).toBeLessThanOrEqual(overflow.clientWidth + 1);
 
 		// The count tile opens the list. A long Hungarian name is cut with an
 		// ellipsis in it, and its whole name stays reachable on the title.
@@ -183,6 +178,14 @@ test.describe("the files strip", () => {
 		await expect(list).toHaveCount(0);
 		await countTile.click();
 		await expect(list).toBeVisible();
+		// With the list open, its long-name rows are measured too — each row
+		// carries a negative margin, which is what would push the reply column
+		// sideways if the rows were never opened.
+		overflow = await replyOverflow(message);
+		expect(
+			overflow.scrollWidth,
+			`narrow reply with the list open: scrollWidth ${overflow.scrollWidth} vs clientWidth ${overflow.clientWidth}`,
+		).toBeLessThanOrEqual(overflow.clientWidth + 1);
 		const longName = list
 			.getByTestId("files-strip-name")
 			.filter({ hasText: LONG_HUNGARIAN_NAME });

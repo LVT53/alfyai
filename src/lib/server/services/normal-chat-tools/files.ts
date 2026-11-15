@@ -160,9 +160,10 @@ const MAX_LIST_RESULTS = 50;
 // (`capFileCards`), because two calls that each found four must draw six cards
 // in all, not eight. `buildFilesCards` uses it only to bound ONE call's stored
 // JSON, so the two concerns share one number instead of drifting apart.
-// The preview route serves three sizes: 96 for a card row, 192 for the card's
-// own picture, and 1600 for the viewer the strip opens. The card data names
-// the two it carries so the browser never guesses which size to draw or open.
+// The preview route accepts three sizes: 96, which no surface asks for, 192 for
+// the strip's card picture, its tiles and its list rows, and 1600 for the
+// viewer the strip opens. The card data names the two it carries so the browser
+// never guesses which size to draw or open.
 export const FILE_PREVIEW_SIZE = 192;
 // The viewer's copy of the same picture. 1600 is the route's largest size: the
 // whole image fitted in a 1600 box, since the adapter asks Nextcloud to keep

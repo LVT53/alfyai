@@ -9,10 +9,11 @@ import {
 import { getConnectionSecret } from "$lib/server/services/connections/store";
 import type { RequestHandler } from "./$types";
 
-// The only three sizes the files strip asks for: 96 for a card row, 192 for
-// the card picture, and 1600 for the viewer a picture opens in. Anything else
-// is a client bug, never a hint to Nextcloud to render a 4000px image, so it
-// is refused before any network call.
+// The three sizes the route accepts: 192 for the strip's card picture, its
+// tiles and its list rows, 1600 for the viewer a picture opens in, and 96,
+// which the route still serves but no surface asks for. Anything else is a
+// client bug, never a hint to Nextcloud to render a 4000px image, so it is
+// refused before any network call.
 const PREVIEW_SIZES = new Set(["96", "192", "1600"]);
 
 const FILE_ID = /^\d+$/;

@@ -54,13 +54,16 @@ describe("the feature guide's content", () => {
 
 	it("has the connected-files entry say the same three facts in both languages", () => {
 		// The connected accounts are still there for Alfy to read; a file it
-		// finds in Nextcloud arrives as a picture the person can open; and every
-		// file opens in Nextcloud. The three must hold for every shape the reply
-		// draws — one file, a strip, or documents with no picture — so the line
-		// promises no list and no card. Both languages must carry all three; an
-		// earlier English line dropped the purpose clause the Hungarian kept,
-		// which a whole-sentence assertion would have passed. Keywords, not
-		// sentences, so a later rewording stays free.
+		// finds in Nextcloud comes back under the reply, where its picture opens
+		// in the app; and every file opens in Nextcloud. The three must hold for
+		// every shape the reply draws — one picture, a strip, or documents with
+		// no picture at all (a quiet line, no picture) — so the purpose clause
+		// is not "pictures you can open" and the line promises no list and no
+		// card. Both languages must carry all three, each regex strong enough
+		// that dropping a fact fails: the earlier Hungarian regexes were weak
+		// enough that a line dropping "amit megnyithatsz" or "minden fájl"
+		// still passed. Keywords, not sentences, so a later rewording stays
+		// free.
 		const facts = [
 			{
 				fact: "for Alfy to read",
@@ -68,14 +71,14 @@ describe("the feature guide's content", () => {
 				hu: /amit Alfy elolvashat/i,
 			},
 			{
-				fact: "pictures the person can open",
-				en: /pictures you can open/i,
-				hu: /képként jönnek/i,
+				fact: "pictures open in the app",
+				en: /pictures open in the app/i,
+				hu: /a képek az alkalmazásban nyílnak meg/i,
 			},
 			{
 				fact: "every file opens in Nextcloud",
 				en: /every file opens in Nextcloud/i,
-				hu: /a Nextcloudban nyílik meg/i,
+				hu: /minden fájl a Nextcloudban nyílik meg/i,
 			},
 		] as const;
 		// The parity check: every language names every fact, in the same order,
