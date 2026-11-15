@@ -389,7 +389,143 @@ test("the card holds its box, and the player plays, seeks, loops and lets go of 
 	// below arrive with no button focused.
 	await expect(player(page)).toBeFocused();
 
+	// One second of the real clip: the thumb, its left offset and the range's
+	// value only ever move forward, and none of them starts at 0. Wait for the
+	// first painted position so the sampling begins inside the playback, not on
+	// the frame before its first write.
+	await expect
+		.poll(() =>
+			page.evaluate(() => {
+				const row = document.querySelector(
+					'[data-testid="video-player-scrubber-row"]',
+				) as HTMLElement;
+				return (
+					Number.parseFloat(
+						getComputedStyle(row).getPropertyValue("--played"),
+					) || 0
+				);
+			}),
+		)
+		.toBeGreaterThan(0);
+	const samples = await page.evaluate(async () => {
+		const row = document.querySelector(
+			'[data-testid="video-player-scrubber-row"]',
+		) as HTMLElement;
+		const thumb = document.querySelector(".video-player-thumb") as HTMLElement;
+		const range = document.querySelector(
+			'[data-testid="video-player-scrubber"]',
+		) as HTMLInputElement;
+		const out: Array<{ played: number; left: number; value: number }> = [];
+		const started = performance.now();
+		await new Promise<void>((resolve) => {
+			const sample = () => {
+				out.push({
+					played:
+						Number.parseFloat(
+							getComputedStyle(row).getPropertyValue("--played"),
+						) || 0,
+					left: Number.parseFloat(getComputedStyle(thumb).left) || 0,
+					value: Number(range.value),
+				});
+				if (performance.now() - started >= 1000) resolve();
+				else requestAnimationFrame(sample);
+			};
+			requestAnimationFrame(sample);
+		});
+		return out;
+	});
+	expect(samples.length).toBeGreaterThan(10);
+	for (let index = 1; index < samples.length; index += 1) {
+		const previous = samples[index - 1];
+		const current = samples[index];
+		expect(current.played).toBeGreaterThanOrEqual(previous.played);
+		expect(current.value).toBeGreaterThanOrEqual(previous.value);
+		expect(current.left).toBeGreaterThanOrEqual(previous.left - 0.5);
+	}
+	expect(samples.every((sample) => sample.played > 0)).toBe(true);
+
+	// A click while playing pauses at once, and the thumb holds its value: the
+	// pause event may not reset it.
+	const mediaBox = await media(page).boundingBox();
+	const clipPoint = (x: number, y: number) => ({
+		x: (mediaBox?.x ?? 0) + (mediaBox?.width ?? 0) * x,
+		y: (mediaBox?.y ?? 0) + (mediaBox?.height ?? 0) * y,
+	});
+	// Different points keep two presses from being read as one double click.
+	const clickClip = async (x: number, y: number) => {
+		const point = clipPoint(x, y);
+		await page.mouse.click(point.x, point.y);
+	};
+	await clickClip(0.5, 0.5);
+	await expect
+		.poll(() => media(page).evaluate((video: HTMLVideoElement) => video.paused))
+		.toBe(true);
+	const held = await page.evaluate(async () => {
+		const row = document.querySelector(
+			'[data-testid="video-player-scrubber-row"]',
+		) as HTMLElement;
+		const thumb = document.querySelector(".video-player-thumb") as HTMLElement;
+		const read = () => ({
+			played:
+				Number.parseFloat(getComputedStyle(row).getPropertyValue("--played")) ||
+				0,
+			left: getComputedStyle(thumb).left,
+		});
+		const first = read();
+		await new Promise<void>((resolve) =>
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+		);
+		return { first, second: read() };
+	});
+	expect(held.first.played).toBeGreaterThan(0);
+	// It holds the pause position: one last frame may land a hair later, but the
+	// thumb never resets to the start and never runs on after the pause.
+	expect(held.second.played).toBeGreaterThanOrEqual(held.first.played - 0.1);
+	expect(Math.abs(held.second.played - held.first.played)).toBeLessThanOrEqual(
+		1,
+	);
+	expect(held.second.played).toBeGreaterThan(0);
+	expect(
+		Math.abs(
+			Number.parseFloat(held.second.left) - Number.parseFloat(held.first.left),
+		),
+	).toBeLessThanOrEqual(2);
+
+	// A click again plays; the next click pauses at once.
+	await clickClip(0.3, 0.5);
+	await expect
+		.poll(() => media(page).evaluate((video: HTMLVideoElement) => video.paused))
+		.toBe(false);
+	await clickClip(0.7, 0.5);
+	await expect
+		.poll(() => media(page).evaluate((video: HTMLVideoElement) => video.paused))
+		.toBe(true);
+	await clickClip(0.3, 0.5);
+	await expect
+		.poll(() => media(page).evaluate((video: HTMLVideoElement) => video.paused))
+		.toBe(false);
+
+	// A double click ends where it started (the two clicks toggle there and
+	// back; the dblclick itself only enters fullscreen).
+	const doublePoint = clipPoint(0.5, 0.5);
+	await page.mouse.dblclick(doublePoint.x, doublePoint.y);
+	await expect
+		.poll(() =>
+			page.evaluate(
+				() => document.fullscreenElement?.getAttribute("data-testid") ?? null,
+			),
+		)
+		.toBe("video-card-player");
+	await expect
+		.poll(() => media(page).evaluate((video: HTMLVideoElement) => video.paused))
+		.toBe(false);
+	await page.evaluate(() => document.exitFullscreen());
+	await expect
+		.poll(() => page.evaluate(() => document.fullscreenElement === null))
+		.toBe(true);
+
 	// Space pauses from the player itself, now that it has the focus.
+	await player(page).focus();
 	await page.keyboard.press("Space");
 	await expect
 		.poll(() => media(page).evaluate((video: HTMLVideoElement) => video.paused))
@@ -415,6 +551,28 @@ test("the card holds its box, and the player plays, seeks, loops and lets go of 
 		.poll(() => media(page).evaluate((video: HTMLVideoElement) => video.loop))
 		.toBe(false);
 	await expect(page.getByTestId("video-player-status")).toHaveText("Loop off");
+	const loopButton = page.getByTestId("video-player-loop");
+	const muteButton = page.getByTestId("video-player-mute");
+	await expect(loopButton).toHaveAttribute("aria-pressed", "false");
+	await loopButton.click();
+	await expect(loopButton).toHaveAttribute("aria-pressed", "true");
+	expect(
+		await media(page).evaluate((video: HTMLVideoElement) => video.loop),
+	).toBe(true);
+	await expect(page.getByTestId("video-player-status")).toHaveText("Loop on");
+	await expect(muteButton).toHaveAttribute("aria-pressed", "false");
+	await muteButton.click();
+	await expect(muteButton).toHaveAttribute("aria-pressed", "true");
+	expect(
+		await media(page).evaluate((video: HTMLVideoElement) => video.muted),
+	).toBe(true);
+	await expect(page.getByTestId("video-player-status")).toHaveText("Muted");
+	await muteButton.click();
+	await expect(muteButton).toHaveAttribute("aria-pressed", "false");
+	expect(
+		await media(page).evaluate((video: HTMLVideoElement) => video.muted),
+	).toBe(false);
+	await expect(page.getByTestId("video-player-status")).toHaveText("Unmuted");
 
 	// A click on the scrubber seeks, and the visible clock follows.
 	const scrubberBox = await scrubber.boundingBox();
@@ -517,11 +675,19 @@ test("the card holds its box, and the player plays, seeks, loops and lets go of 
 	await page.keyboard.press("Tab");
 	await expect(toggle).toBeFocused();
 	await page.keyboard.press("Tab");
+	await expect(loopButton).toBeFocused();
+	await page.keyboard.press("Tab");
+	await expect(muteButton).toBeFocused();
+	await page.keyboard.press("Tab");
 	await expect(fullscreen).toBeFocused();
 	await page.keyboard.press("Tab");
 	await expect(fullscreen).not.toBeFocused();
 	await page.keyboard.press("Shift+Tab");
 	await expect(fullscreen).toBeFocused();
+	await page.keyboard.press("Shift+Tab");
+	await expect(muteButton).toBeFocused();
+	await page.keyboard.press("Shift+Tab");
+	await expect(loopButton).toBeFocused();
 	await page.keyboard.press("Shift+Tab");
 	await expect(toggle).toBeFocused();
 
@@ -684,17 +850,37 @@ test("the player's and the card's buttons are 44 px targets on a coarse pointer"
 		await openChat(page);
 		await expect(player(page)).toBeVisible();
 		const scrubber = page.getByTestId("video-player-scrubber");
+		const loopButton = page.getByTestId("video-player-loop");
+		const muteButton = page.getByTestId("video-player-mute");
 		await expect(scrubber).toBeVisible();
 		await expect(scrubber).toHaveAttribute("aria-label", "Position");
 		await expect(page.getByTestId("video-player-time")).toBeVisible();
-		const targets = [
+		await expect(loopButton).toHaveAttribute("aria-pressed", "true");
+		await expect(muteButton).toHaveAttribute("aria-pressed", "false");
+		const playerBox = await player(page).boundingBox();
+		expect(playerBox).not.toBeNull();
+		const playerTargets = [
 			page.getByTestId("video-player-toggle"),
+			loopButton,
+			muteButton,
 			page.getByTestId("video-player-fullscreen"),
 			scrubber,
+		];
+		for (const target of playerTargets) {
+			const box = await target.boundingBox();
+			expect(box, await target.getAttribute("data-testid")).not.toBeNull();
+			expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+			expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+			// Four 44 px buttons fit the portrait player at 360: none of them runs
+			// off its right edge.
+			expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(
+				(playerBox?.x ?? 0) + (playerBox?.width ?? 0) + 1,
+			);
+		}
+		for (const target of [
 			page.getByTestId(`video-card-more-${takeId}`),
 			page.getByTestId("video-card-another"),
-		];
-		for (const target of targets) {
+		]) {
 			const box = await target.boundingBox();
 			expect(box, await target.getAttribute("data-testid")).not.toBeNull();
 			expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
@@ -702,10 +888,8 @@ test("the player's and the card's buttons are 44 px targets on a coarse pointer"
 		}
 		// At 360 px the scrubber and its clock stay inside the player, not off the
 		// side of it.
-		const playerBox = await player(page).boundingBox();
 		const scrubberBox = await scrubber.boundingBox();
 		const timeBox = await page.getByTestId("video-player-time").boundingBox();
-		expect(playerBox).not.toBeNull();
 		expect(scrubberBox).not.toBeNull();
 		expect(timeBox).not.toBeNull();
 		expect(scrubberBox?.x ?? 0).toBeGreaterThanOrEqual(playerBox?.x ?? 0);

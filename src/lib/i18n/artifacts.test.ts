@@ -368,6 +368,10 @@ describe("the Video kind's strings", () => {
 		expect(artifactsDict.hu["artifacts.video.player.positionAt"]).toBe(
 			"{current} / {duration} másodperc",
 		);
+		expect(artifactsDict.en["artifacts.video.player.loop"]).toBe("Loop");
+		expect(artifactsDict.en["artifacts.video.player.mute"]).toBe("Mute");
+		expect(artifactsDict.hu["artifacts.video.player.loop"]).toBe("Ismétlés");
+		expect(artifactsDict.hu["artifacts.video.player.mute"]).toBe("Némítás");
 	});
 
 	it("says History is not shown for a clip yet, rather than that it has none", () => {

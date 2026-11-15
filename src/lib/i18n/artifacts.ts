@@ -1216,6 +1216,8 @@ const artifactsDict = {
 		"artifacts.video.player.fullscreen": "Enter fullscreen",
 		"artifacts.video.player.exitFullscreen": "Exit fullscreen",
 		"artifacts.video.player.position": "Position",
+		"artifacts.video.player.loop": "Loop",
+		"artifacts.video.player.mute": "Mute",
 		"artifacts.video.player.positionAt": "{current} of {duration} seconds",
 		"artifacts.video.player.keys":
 			"Space plays or pauses. Left and right seek. Up and down change the volume. M mutes, L loops, F goes fullscreen.",
@@ -2245,6 +2247,8 @@ const artifactsDict = {
 		"artifacts.video.player.fullscreen": "Belépés a teljes képernyőbe",
 		"artifacts.video.player.exitFullscreen": "Kilépés a teljes képernyőből",
 		"artifacts.video.player.position": "Pozíció",
+		"artifacts.video.player.loop": "Ismétlés",
+		"artifacts.video.player.mute": "Némítás",
 		"artifacts.video.player.positionAt": "{current} / {duration} másodperc",
 		"artifacts.video.player.keys":
 			"Szóköz: lejátszás vagy szünet. Balra és jobbra: tekerés. Fel és le: hangerő. M: némítás, L: ismétlés, F: teljes képernyő.",

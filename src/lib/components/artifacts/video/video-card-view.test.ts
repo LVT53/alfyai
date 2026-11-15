@@ -276,6 +276,8 @@ describe("the video dictionary", () => {
 		"artifacts.video.player.exitFullscreen",
 		"artifacts.video.player.position",
 		"artifacts.video.player.positionAt",
+		"artifacts.video.player.loop",
+		"artifacts.video.player.mute",
 		"artifacts.video.player.keys",
 		"artifacts.video.row.making",
 		"artifacts.video.row.made",

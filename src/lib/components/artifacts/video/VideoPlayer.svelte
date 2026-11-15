@@ -13,7 +13,16 @@
 // L loop, F fullscreen (the same toggle as its button). A click toggles play; a
 // double click toggles fullscreen. Nothing here animates a size or a position;
 // the one fade is a control's opacity, gone under `prefers-reduced-motion`.
-import { Maximize2, Minimize2, Pause, Play } from "@lucide/svelte";
+import {
+	Maximize2,
+	Minimize2,
+	Pause,
+	Play,
+	Repeat,
+	RepeatOff,
+	Volume2,
+	VolumeX,
+} from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import { videoDurationLabel, videoFileUrl } from "./video-card-view";
 import {
@@ -36,9 +45,6 @@ let {
 	testId?: string;
 } = $props();
 
-/** A click that starts a double click is not also a play toggle. */
-const DOUBLE_CLICK_WINDOW_MS = 220;
-
 const helpId = $props.id();
 
 let playerEl = $state<HTMLElement | null>(null);
@@ -57,7 +63,6 @@ let bufferedMs = $state(0);
  * both keys change something a sighted reader sees and a screen reader cannot.
  */
 let announcement = $state("");
-let clickTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** This player's own handle in the one-clip registry. */
 const self: ClipPlayback = {
@@ -86,36 +91,49 @@ const positionText = $derived(
 const positionLabel = $derived(videoDurationLabel(Math.round(positionMs)));
 const durationLabel = $derived(videoDurationLabel(Math.round(durationMs)));
 
-function clearClickTimer(): void {
-	if (clickTimer !== null) {
-		clearTimeout(clickTimer);
-		clickTimer = null;
-	}
-}
-
-/** Reads the clip's clock, length and buffered end into the scrubber's state. */
-function syncTime(): void {
+/**
+ * Reads the clip's clock into the scrubber's state. Two guards keep the thumb
+ * from snapping backwards on the transient clock changes the media fires around
+ * seeking and looping: a known duration never goes back to 0 (a NaN or 0
+ * `durationchange` is ignored), and a position behind the last one is ignored
+ * unless this is a real seek or a loop wrap at the clip's end.
+ */
+function syncTime(
+	options: { force?: boolean; fromClock?: boolean } = {},
+): void {
 	const el = videoEl;
 	if (!el) return;
-	positionMs = Number.isFinite(el.currentTime) ? el.currentTime * 1000 : 0;
-	durationMs = Number.isFinite(el.duration) ? el.duration * 1000 : 0;
+	if (Number.isFinite(el.duration) && el.duration > 0) {
+		durationMs = el.duration * 1000;
+	}
+	const next = Number.isFinite(el.currentTime)
+		? Math.max(0, el.currentTime * 1000)
+		: 0;
+	const atEnd = durationMs > 0 && positionMs >= durationMs - 150;
+	const wrapped = atEnd && next <= 500;
+	if (options.force || options.fromClock || next >= positionMs || wrapped) {
+		positionMs = next;
+	}
+	// The buffered range only grows, and never ends before the playhead.
+	let nextBuffered = 0;
 	try {
-		bufferedMs =
+		nextBuffered =
 			el.buffered.length > 0
 				? el.buffered.end(el.buffered.length - 1) * 1000
 				: 0;
 	} catch {
-		bufferedMs = 0;
+		nextBuffered = 0;
 	}
-	// A buffered range never ends before the playhead: the bar must not show a
-	// played stretch that is not covered.
+	if (nextBuffered > 0) bufferedMs = Math.max(bufferedMs, nextBuffered);
 	bufferedMs = Math.max(bufferedMs, positionMs);
 }
 
 async function togglePlay(): Promise<void> {
 	const el = videoEl;
 	if (!el) return;
-	if (playing) {
+	// The media is the truth for a pause: the state can lag a delegated click,
+	// and a press must pause a playing clip even then.
+	if (!el.paused || playing) {
 		el.pause();
 		playing = false;
 		releasePlayback(self);
@@ -134,18 +152,20 @@ async function togglePlay(): Promise<void> {
 
 function handlePlay(): void {
 	playing = true;
-	syncTime();
+	syncTime({ force: true });
 	claimPlayback(self);
 }
 
 function handlePause(): void {
 	playing = false;
-	syncTime();
+	// The thumb holds the position the clip actually stopped at; the pause
+	// event's transient report cannot reset it.
+	syncTime({ force: true });
 	releasePlayback(self);
 }
 
 function handleEnded(): void {
-	syncTime();
+	syncTime({ force: true });
 	if (loop) return;
 	playing = false;
 	releasePlayback(self);
@@ -156,20 +176,17 @@ function focusPlayer(): void {
 	playerEl?.focus();
 }
 
+/**
+ * A press on the clip toggles play at once: no timer decides whether the press
+ * was a click or half of a double click. The second click of a double click
+ * toggles it back, and the `dblclick` itself only enters fullscreen, so a double
+ * click ends where it started and in fullscreen.
+ */
 function handleClick(): void {
-	if (clickTimer !== null) {
-		// The second click of a double click: the dblclick toggles fullscreen.
-		clearClickTimer();
-		return;
-	}
-	clickTimer = setTimeout(() => {
-		clickTimer = null;
-		void togglePlay();
-	}, DOUBLE_CLICK_WINDOW_MS);
+	void togglePlay();
 }
 
 function handleDoubleClick(): void {
-	clearClickTimer();
 	void toggleFullscreen();
 }
 
@@ -199,7 +216,7 @@ function seek(deltaSeconds: number): void {
 	const duration = Number.isFinite(el.duration) ? el.duration : null;
 	const next = Math.max(0, current + deltaSeconds);
 	el.currentTime = duration === null ? next : Math.min(next, duration);
-	syncTime();
+	syncTime({ force: true });
 }
 
 /** The scrubber's own drag/click/keyboard value: the browser handles the pointer. */
@@ -210,7 +227,7 @@ function handleScrub(event: Event): void {
 	if (!Number.isFinite(value)) return;
 	const max = Number.isFinite(el.duration) ? el.duration : value;
 	el.currentTime = Math.min(Math.max(0, value), max);
-	syncTime();
+	syncTime({ force: true });
 }
 
 function changeVolume(delta: number): void {
@@ -305,6 +322,18 @@ $effect(() => {
 	releasePlayback(self);
 });
 
+// While the clip plays, its own clock drives the bar every frame: the thumb
+// never waits for the next `timeupdate` or a re-render ordering, and it cannot
+// be left behind by a transient event.
+$effect(() => {
+	if (!playing) return;
+	let frame = requestAnimationFrame(function tick() {
+		syncTime({ fromClock: true });
+		frame = requestAnimationFrame(tick);
+	});
+	return () => cancelAnimationFrame(frame);
+});
+
 // The document's fullscreen element can change behind the button's back (Escape,
 // another element): the button's word and icon follow it.
 $effect(() => {
@@ -322,7 +351,6 @@ $effect(() => {
 // itself.
 $effect(() => {
 	return () => {
-		clearClickTimer();
 		videoEl?.pause();
 		releasePlayback(self);
 	};
@@ -364,11 +392,11 @@ const poster = $derived(
 		onplay={handlePlay}
 		onpause={handlePause}
 		onended={handleEnded}
-		onloadedmetadata={syncTime}
-		ondurationchange={syncTime}
-		ontimeupdate={syncTime}
-		onprogress={syncTime}
-		onseeked={syncTime}
+		onloadedmetadata={() => syncTime({ force: true })}
+		ondurationchange={() => syncTime()}
+		ontimeupdate={() => syncTime()}
+		onprogress={() => syncTime()}
+		onseeked={() => syncTime({ force: true })}
 		onclick={handleClick}
 		ondblclick={handleDoubleClick}
 	></video>
@@ -422,6 +450,36 @@ const poster = $derived(
 					<Pause size={16} strokeWidth={2} aria-hidden="true" />
 				{:else}
 					<Play size={16} strokeWidth={2} aria-hidden="true" />
+				{/if}
+			</button>
+			<button
+				type="button"
+				class="video-player-button"
+				class:is-on={loop}
+				data-testid="video-player-loop"
+				aria-label={$t('artifacts.video.player.loop')}
+				aria-pressed={loop}
+				onclick={() => toggleLoop()}
+			>
+				{#if loop}
+					<Repeat size={16} strokeWidth={2} aria-hidden="true" />
+				{:else}
+					<RepeatOff size={16} strokeWidth={2} aria-hidden="true" />
+				{/if}
+			</button>
+			<button
+				type="button"
+				class="video-player-button"
+				class:is-on={muted}
+				data-testid="video-player-mute"
+				aria-label={$t('artifacts.video.player.mute')}
+				aria-pressed={muted}
+				onclick={() => toggleMute()}
+			>
+				{#if muted}
+					<VolumeX size={16} strokeWidth={2} aria-hidden="true" />
+				{:else}
+					<Volume2 size={16} strokeWidth={2} aria-hidden="true" />
 				{/if}
 			</button>
 			<span class="video-player-grow"></span>
@@ -621,12 +679,31 @@ const poster = $derived(
 		opacity: 1;
 	}
 
+	/* A toggle that is on (loop, mute) wears the accent, like the app's other
+	   pressed toggles. */
+	.video-player-button.is-on {
+		border-color: color-mix(in srgb, var(--accent) 45%, var(--border-default));
+		color: var(--accent);
+		opacity: 1;
+	}
+
 	.video-player-button:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	@media (hover: none) and (pointer: coarse) {
+		/* Four 44 px buttons and the air between them have to fit the card's
+		   portrait player at 360 px. The buttons keep their full 44 px (no flex
+		   shrink) and the row gives up its horizontal padding instead. */
+		.video-player-controls {
+			padding: var(--space-xs) 0;
+		}
+
+		.video-player-buttons {
+			gap: var(--space-xs);
+		}
+
 		.video-player-button {
 			width: 44px;
 			height: 44px;

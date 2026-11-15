@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fireEvent, render, screen } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
 import VideoPlayer from "./VideoPlayer.svelte";
@@ -30,6 +31,9 @@ beforeEach(() => {
 		.mockImplementation(function (this: HTMLMediaElement) {
 			this.dispatchEvent(new Event("pause"));
 		});
+	// The player's clock frame loop is a no-op unless a test captures it.
+	vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+	vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
 	fullscreenElement = null;
 	requestFullscreen = vi.fn(function (this: HTMLElement) {
 		fullscreenElement = this;
@@ -247,36 +251,65 @@ describe("VideoPlayer", () => {
 		expect(button).toHaveAttribute("aria-label", "Enter fullscreen");
 	});
 
-	it("goes fullscreen with F, and from a double press that is not a play toggle", async () => {
-		vi.useFakeTimers();
-		try {
-			render(VideoPlayer, PROPS);
-			await fireEvent.keyDown(root(), { key: "f" });
-			expect(requestFullscreen).toHaveBeenCalledTimes(1);
-			// Leave fullscreen the way Escape does, then the double press enters again.
-			fullscreenElement = null;
-			await fireEvent(document, new Event("fullscreenchange"));
-			await fireEvent.click(media());
-			await fireEvent.click(media());
-			await fireEvent.dblClick(media());
-			vi.advanceTimersByTime(500);
-			expect(requestFullscreen).toHaveBeenCalledTimes(2);
-			expect(play).not.toHaveBeenCalled();
-		} finally {
-			vi.useRealTimers();
-		}
+	it("goes fullscreen with F, and a double press enters fullscreen too", async () => {
+		render(VideoPlayer, PROPS);
+		await fireEvent.keyDown(root(), { key: "f" });
+		expect(requestFullscreen).toHaveBeenCalledTimes(1);
+		// Leave fullscreen the way Escape does, then the double press enters again.
+		fullscreenElement = null;
+		await fireEvent(document, new Event("fullscreenchange"));
+		await fireEvent.click(media());
+		await fireEvent.click(media());
+		await fireEvent.dblClick(media());
+		expect(requestFullscreen).toHaveBeenCalledTimes(2);
 	});
 
-	it("toggles play from one press on the picture, not from two", async () => {
-		vi.useFakeTimers();
-		try {
-			render(VideoPlayer, PROPS);
-			await fireEvent.click(media());
-			vi.advanceTimersByTime(500);
-			expect(play).toHaveBeenCalledTimes(1);
-		} finally {
-			vi.useRealTimers();
-		}
+	it("toggles play at once, and a double click ends where it started", async () => {
+		render(VideoPlayer, PROPS);
+		// One press: play, with no timer in the way.
+		await fireEvent.click(media());
+		expect(play).toHaveBeenCalledTimes(1);
+		// A second press pauses at once.
+		await fireEvent.click(media());
+		expect(pause).toHaveBeenCalledTimes(1);
+		// And a third plays again.
+		await fireEvent.click(media());
+		expect(play).toHaveBeenCalledTimes(2);
+		// The two clicks of a double click toggle there and back; the dblclick
+		// itself only enters fullscreen.
+		await fireEvent.click(media());
+		await fireEvent.click(media());
+		await fireEvent.dblClick(media());
+		expect(play).toHaveBeenCalledTimes(3);
+		expect(pause).toHaveBeenCalledTimes(2);
+		expect(requestFullscreen).toHaveBeenCalledTimes(1);
+	});
+
+	it("loops and mutes from its own buttons, with the state on the control", async () => {
+		render(VideoPlayer, PROPS);
+		const loopButton = screen.getByTestId("video-player-loop");
+		expect(loopButton).toHaveAttribute("aria-label", "Loop");
+		expect(loopButton).toHaveAttribute("aria-pressed", "true");
+		expect(media()).toHaveAttribute("loop");
+		await fireEvent.click(loopButton);
+		expect(media()).not.toHaveAttribute("loop");
+		expect(loopButton).toHaveAttribute("aria-pressed", "false");
+		expect(screen.getByRole("status")).toHaveTextContent("Loop off");
+		await fireEvent.click(loopButton);
+		expect(media()).toHaveAttribute("loop");
+		expect(loopButton).toHaveAttribute("aria-pressed", "true");
+
+		const muteButton = screen.getByTestId("video-player-mute");
+		expect(muteButton).toHaveAttribute("aria-label", "Mute");
+		expect(muteButton).toHaveAttribute("aria-pressed", "false");
+		await fireEvent.click(muteButton);
+		expect(media().muted).toBe(true);
+		expect(muteButton).toHaveAttribute("aria-pressed", "true");
+		expect(screen.getByRole("status")).toHaveTextContent("Muted");
+		await fireEvent.click(muteButton);
+		expect(media().muted).toBe(false);
+		expect(muteButton).toHaveAttribute("aria-pressed", "false");
+		expect(screen.getByRole("status")).toHaveTextContent("Unmuted");
 	});
 
 	it("lets only one clip play at a time", async () => {
@@ -355,6 +388,76 @@ describe("VideoPlayer", () => {
 		expect(slider).toHaveAttribute("aria-valuetext", "2 of 5 seconds");
 	});
 
+	it("keeps the thumb forward through a transient duration and holds it on pause", async () => {
+		const frames: FrameRequestCallback[] = [];
+		vi.mocked(window.requestAnimationFrame).mockImplementation((callback) => {
+			frames.push(callback);
+			return frames.length;
+		});
+		const cancel = vi.mocked(window.cancelAnimationFrame);
+		render(VideoPlayer, PROPS);
+		const video = media();
+		withClock(video, 5, 5);
+		await fireEvent.loadedMetadata(video);
+		const row = screen.getByTestId("video-player-scrubber-row");
+		const played = () => row.style.getPropertyValue("--played");
+
+		await fireEvent.click(screen.getByRole("button", { name: "Play video" }));
+		expect(frames.length).toBeGreaterThan(0);
+
+		// The frame loop writes the media's own clock.
+		video.currentTime = 2;
+		frames.shift()?.(0);
+		await tick();
+		expect(played()).toBe("40%");
+
+		// A transient duration of 0/NaN never resets the known length.
+		Object.defineProperty(video, "duration", {
+			configurable: true,
+			get: () => Number.NaN,
+		});
+		await fireEvent.durationChange(video);
+		expect(played()).toBe("40%");
+		expect(screen.getByTestId("video-player-time")).toHaveTextContent(
+			"0:02 / 0:05",
+		);
+
+		// A `timeupdate` behind the last clock is ignored...
+		video.currentTime = 1;
+		await fireEvent.timeUpdate(video);
+		expect(played()).toBe("40%");
+		// ...but a real seek is honoured.
+		await fireEvent.seeked(video);
+		expect(played()).toBe("20%");
+
+		// Pause holds the thumb: the pause event cannot reset it.
+		video.currentTime = 3;
+		frames.shift()?.(0);
+		await tick();
+		expect(played()).toBe("60%");
+		await fireEvent.click(screen.getByRole("button", { name: "Pause video" }));
+		expect(cancel).toHaveBeenCalled();
+		const held = played();
+		video.currentTime = 1;
+		await fireEvent.timeUpdate(video);
+		expect(played()).toBe(held);
+	});
+
+	it("lets the thumb wrap only when the clip reaches its end", async () => {
+		render(VideoPlayer, PROPS);
+		const video = media();
+		withClock(video, 5, 5);
+		await fireEvent.loadedMetadata(video);
+		const row = screen.getByTestId("video-player-scrubber-row");
+		video.currentTime = 4.95;
+		await fireEvent.timeUpdate(video);
+		expect(row.style.getPropertyValue("--played")).toBe("99%");
+		// A loop wrap: the clock restarts while the bar was at the end.
+		video.currentTime = 0.1;
+		await fireEvent.timeUpdate(video);
+		expect(row.style.getPropertyValue("--played")).toBe("2%");
+	});
+
 	it("announces the loop and mute changes it makes, never silently", async () => {
 		render(VideoPlayer, PROPS);
 		const status = screen.getByRole("status");
@@ -410,6 +513,10 @@ describe("VideoPlayer", () => {
 			screen.getByRole("button", { name: "Belépés a teljes képernyőbe" }),
 		).toBeInTheDocument();
 		expect(screen.getByRole("slider")).toHaveAttribute("aria-label", "Pozíció");
+		expect(
+			screen.getByRole("button", { name: "Ismétlés" }),
+		).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Némítás" })).toBeInTheDocument();
 		expect(root()).toHaveAccessibleName("Harbour at dawn videólejátszó");
 	});
 });
