@@ -1144,13 +1144,14 @@ const chatDict = {
 		// file itself (FilesStrip.svelte).
 		"toolActivity.filesOpen": "Open in Nextcloud",
 		// The compact strip (FilesStrip.svelte): the quiet line a call of
-		// documents leaves, the count it and the chevron say, the name of a
-		// picture tile at the viewer, and the chevron's open state.
+		// documents leaves, its count, the name of a picture tile at the viewer,
+		// the count tile's own words, and the chevron's open and closed states.
 		"toolActivity.filesQuietLine": "Searched your files",
 		"toolActivity.filesCount":
 			"{count} {count, plural, one {file} other {files}}",
 		"toolActivity.filesShowAll": "Show all {count} files",
 		"toolActivity.filesOpenPicture": "Open {name}, picture {index} of {total}",
+		"toolActivity.filesShowList": "Show the file list",
 		"toolActivity.filesHideList": "Hide the file list",
 		"toolActivity.journey": "Journey",
 		"toolActivity.planningJourney": "Planning journey",
@@ -2400,6 +2401,7 @@ const chatDict = {
 		"toolActivity.filesShowAll": "Mind a(z) {count} fájl megjelenítése",
 		"toolActivity.filesOpenPicture":
 			"{name} megnyitása, {index}. kép ({total} közül)",
+		"toolActivity.filesShowList": "A fájllista megjelenítése",
 		"toolActivity.filesHideList": "Fájllista elrejtése",
 		"toolActivity.journey": "Útiterv",
 		"toolActivity.planningJourney": "Útiterv készítése",

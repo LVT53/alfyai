@@ -14,6 +14,7 @@
  * single card's picture button stands beside its link.
  */
 import { ChevronDown } from "@lucide/svelte";
+import { tick } from "svelte";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
 import type { ToolCallFileCard } from "$lib/server/services/messages-types";
@@ -144,7 +145,7 @@ const tileViews = $derived.by((): StripTileView[] =>
 const listLabel = $derived(
 	listOpen
 		? $t("toolActivity.filesHideList")
-		: $t("toolActivity.filesShowAll", { count: cards.length }),
+		: $t("toolActivity.filesShowList"),
 );
 
 const quietLine = $derived(
@@ -163,7 +164,16 @@ const viewerImages = $derived(
 let Viewer = $state.raw<ImageLightboxComponent | null>(null);
 let viewerIndex = $state<number | null>(null);
 
-function openViewerAt(index: number) {
+/**
+ * The control the viewer was opened from. Kept explicitly because the viewer's
+ * own focus trap restores whatever had focus when it installed, and Safari does
+ * not focus the button a click lands on — so on close the trap would hand focus
+ * back to <body> and the person would lose their place in the strip.
+ */
+let viewerOpener: HTMLElement | null = null;
+
+function openViewerAt(index: number, opener: HTMLElement) {
+	viewerOpener = opener;
 	viewerIndex = index;
 	if (Viewer) return;
 	loadImageLightbox().then(
@@ -175,6 +185,17 @@ function openViewerAt(index: number) {
 			viewerIndex = null;
 		},
 	);
+}
+
+async function closeViewer() {
+	viewerIndex = null;
+	const opener = viewerOpener;
+	viewerOpener = null;
+	// After the viewer is gone, so its trap's own focus restore cannot undo this.
+	await tick();
+	// A press in the same tick reopened the viewer: that open owns the focus.
+	if (viewerIndex !== null) return;
+	if (opener?.isConnected) opener.focus({ preventScroll: true });
 }
 </script>
 
@@ -196,7 +217,7 @@ function openViewerAt(index: number) {
 					index: 1,
 					total: 1,
 				})}
-				onclick={() => openViewerAt(0)}
+				onclick={(event) => openViewerAt(0, event.currentTarget)}
 			>
 				{#if singleCard.preview}
 					<img
@@ -239,7 +260,8 @@ function openViewerAt(index: number) {
 								class="fs-tile"
 								data-testid="files-strip-tile"
 								aria-label={tile.label}
-								onclick={() => openViewerAt(tile.pictureIndex)}
+								onclick={(event) =>
+									openViewerAt(tile.pictureIndex, event.currentTarget)}
 							>
 								{#if tile.preview}
 									<img
@@ -341,7 +363,7 @@ function openViewerAt(index: number) {
 	<Viewer
 		images={viewerImages}
 		index={viewerIndex}
-		onClose={() => (viewerIndex = null)}
+		onClose={closeViewer}
 		onNavigate={(next) => (viewerIndex = next)}
 	/>
 {/if}

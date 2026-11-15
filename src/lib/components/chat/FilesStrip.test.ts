@@ -126,7 +126,9 @@ describe("FilesStrip", () => {
 		expect(image).toHaveAttribute("src", only.previewUrl);
 		expect(image).toHaveAttribute("width", "56");
 		expect(image).toHaveAttribute("height", "56");
-		expect(screen.queryByRole("button", { name: /Show all/ })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: /Show (all|the file list)/ }),
+		).toBeNull();
 
 		// Its text is one link to Nextcloud, with the facts and the label.
 		const link = screen.getByRole("link", { name: /IMG_2043\.jpg/ });
@@ -167,9 +169,15 @@ describe("FilesStrip", () => {
 			expect(image).toHaveAttribute("height", "78");
 		}
 
-		// One chevron, naming the list it opens, and no list until it is pressed.
-		const chevrons = screen.getAllByRole("button", { name: /Show all/ });
+		// One chevron, naming the list it opens rather than sharing the count
+		// tile's words, and no list until it is pressed.
+		const chevrons = screen.getAllByRole("button", {
+			name: "Show the file list",
+		});
 		expect(chevrons).toHaveLength(1);
+		expect(
+			screen.queryByRole("button", { name: /Show all 3 files/ }),
+		).toBeNull();
 		expect(chevrons[0]).toHaveAttribute("aria-expanded", "false");
 		expect(screen.queryByRole("list")).toBeNull();
 	});
@@ -211,6 +219,25 @@ describe("FilesStrip", () => {
 		expect(screen.queryByTestId("fs-viewer")).toBeNull();
 	});
 
+	it("gives focus back to the pressed tile when the viewer closes", async () => {
+		render(FilesStrip, {
+			props: {
+				cards: [picture("IMG_1.jpg", 1), picture("IMG_2.jpg", 2)],
+			},
+		});
+
+		const tile = pictureTiles()[1];
+		// A click moves no focus here, as on Safari it does not move it onto the
+		// button either, so the strip must hand focus back itself: the viewer's
+		// own trap restores whatever had focus when it installed — <body>.
+		expect(tile).not.toBe(document.activeElement);
+		await fireEvent.click(tile);
+		await viewerLoaded();
+		await fireEvent.click(screen.getByRole("button", { name: "close" }));
+		expect(screen.queryByTestId("fs-viewer")).toBeNull();
+		await waitFor(() => expect(document.activeElement).toBe(tile));
+	});
+
 	it("opens the list from the chevron and closes it again", async () => {
 		render(FilesStrip, {
 			props: {
@@ -222,7 +249,7 @@ describe("FilesStrip", () => {
 			},
 		});
 
-		const chevron = screen.getByRole("button", { name: "Show all 3 files" });
+		const chevron = screen.getByRole("button", { name: "Show the file list" });
 		expect(chevron).toHaveAttribute("aria-expanded", "false");
 		expect(screen.queryByRole("list")).toBeNull();
 
@@ -256,7 +283,7 @@ describe("FilesStrip", () => {
 		expect(pictureTiles()).toHaveLength(0);
 
 		// The same chevron, and the list behind it.
-		const chevron = screen.getByRole("button", { name: "Show all 3 files" });
+		const chevron = screen.getByRole("button", { name: "Show the file list" });
 		await fireEvent.click(chevron);
 		expect(screen.getByRole("list")).toBeInTheDocument();
 		expect(screen.getAllByRole("link")).toHaveLength(3);
@@ -269,7 +296,8 @@ describe("FilesStrip", () => {
 		render(FilesStrip, { props: { cards: six } });
 
 		// Four slots: three pictures, then the count tile over the fourth. Its
-		// veil says +3, and its name is the same words the chevron uses.
+		// veil says +3, and its own name counts the files the list will show —
+		// the chevron names the list instead.
 		expect(pictureTiles()).toHaveLength(3);
 		const count = screen.getByText("+3").closest("button");
 		if (!count) throw new Error("the count tile is not a button");
@@ -295,13 +323,16 @@ describe("FilesStrip", () => {
 		media.set(true);
 		await tick();
 		// Narrow: three slots, so two pictures and the count tile over the two
-		// the strip leaves out — three tiles in all — and both it and the
-		// chevron say how many files the list will show.
+		// the strip leaves out — three tiles in all. The count tile says how
+		// many files the list will show; the chevron names the list itself.
 		expect(pictureTiles()).toHaveLength(2);
 		expect(screen.getByText("+2")).toBeInTheDocument();
 		expect(
 			screen.getAllByRole("button", { name: "Show all 4 files" }),
-		).toHaveLength(2);
+		).toHaveLength(1);
+		expect(
+			screen.getAllByRole("button", { name: "Show the file list" }),
+		).toHaveLength(1);
 
 		media.set(false);
 		await tick();
@@ -349,7 +380,7 @@ describe("FilesStrip", () => {
 			props: { cards: [documentCard(long, 9), documentCard("Short.pdf", 10)] },
 		});
 		await fireEvent.click(
-			screen.getByRole("button", { name: "Show all 2 files" }),
+			screen.getByRole("button", { name: "Show the file list" }),
 		);
 		const rowName = screen.getByText(long);
 		expect(rowName).toHaveAttribute("title", long);
@@ -366,7 +397,9 @@ describe("FilesStrip", () => {
 			props: { cards: [photo, documentCard("Report.pdf", 2)] },
 		});
 
-		await fireEvent.click(screen.getByRole("button", { name: /Show all/ }));
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Show the file list" }),
+		);
 		const row = screen.getByRole("link", { name: /IMG_1\.jpg/ });
 
 		expect(row).toHaveAttribute("href", photo.webUrl);
