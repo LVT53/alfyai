@@ -4,6 +4,7 @@ import {
 	createConversationFork,
 	deleteConversationMessages,
 	fetchConversationDetail,
+	fetchConversationImageCards,
 	fetchConversationMarkdownExport,
 	fetchOlderConversationMessages,
 	keepMessageAsDocument,
@@ -119,6 +120,51 @@ describe("fetchConversationDetail", () => {
 			"/api/conversations/conv-1?view=bootstrap",
 		);
 		expect(detail.bootstrap).toBe(true);
+	});
+});
+
+describe("fetchConversationImageCards", () => {
+	// The picture-card poll's cheap read: the conversation detail's `cards`
+	// view, not the full payload a tick used to fetch.
+	it("requests the cards view of the conversation detail endpoint", async () => {
+		const cards = {
+			conversationId: "conv-1",
+			imageCards: [{ id: "card-1", takes: [] }],
+		};
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(JSON.stringify(cards), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await fetchConversationImageCards("conv-1");
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/conversations/conv-1?view=cards",
+			expect.objectContaining({ cache: "no-store" }),
+		);
+		expect(result).toEqual(cards);
+	});
+
+	it("throws the server's error when the cards read is refused", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ error: "Conversation not found" }), {
+						status: 404,
+						headers: { "content-type": "application/json" },
+					}),
+			),
+		);
+
+		await expect(fetchConversationImageCards("conv-1")).rejects.toMatchObject({
+			message: "Conversation not found",
+			status: 404,
+		});
 	});
 });
 

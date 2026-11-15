@@ -10,7 +10,10 @@ import {
 	listContextCompressionSnapshots,
 	serializeContextCompressionSnapshot,
 } from "$lib/server/services/context-compression";
-import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
+import type {
+	ConversationCardsDetail,
+	ConversationDetail,
+} from "$lib/server/services/conversation-detail/types";
 import { getConversationDraft } from "$lib/server/services/conversation-drafts";
 import type { MessageSourceForks } from "$lib/server/services/conversation-forks";
 import {
@@ -275,6 +278,28 @@ export async function getConversationDetail({
 					totalTokens: costSummary.totalTokens,
 				}
 			: {}),
+	};
+}
+
+/**
+ * The `cards` view — the picture-card poll's light read. It is the same
+ * `listConversationImageCards` call the `full` view makes (one helper, one
+ * query), and none of the full view's assembly: no message window, no
+ * artifacts, no jobs, no cost, no compression markers. The conversation is
+ * still read first, so ownership, 404 and error behaviour match every view.
+ */
+export async function getConversationCards({
+	userId,
+	conversationId,
+}: {
+	userId: string;
+	conversationId: string;
+}): Promise<ConversationCardsDetail | null> {
+	const conversation = await getConversation(userId, conversationId);
+	if (!conversation) return null;
+	return {
+		conversationId: conversation.id,
+		imageCards: await listConversationImageCards(userId, conversationId),
 	};
 }
 

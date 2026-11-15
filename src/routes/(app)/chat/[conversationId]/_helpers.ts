@@ -443,10 +443,10 @@ export function hasActiveAtlasJobs(jobs: AtlasJobCard[]): boolean {
 }
 
 /**
- * Whether the chat page reads its detail again on its 2.5 s poll for the
- * picture cards (plan 2b T2, F4): a take is still being made, or a make_image
- * call of the reply being streamed runs before its card exists (the stream
- * carries no card; only the detail does).
+ * Whether the chat page keeps polling for its picture cards (plan 2b T2, F4):
+ * a take is still being made, or a make_image call of the reply being streamed
+ * runs before its card exists (the stream carries no card; only the cards read
+ * does).
  */
 export function shouldPollImageCards(
 	cards: readonly ImageCardView[],
@@ -461,17 +461,17 @@ export function shouldPollImageCards(
 	);
 }
 
-/** The chat detail poll while a take is being made: the card must show the picture the moment it lands. */
+/** The poll while a take is being made: the card must show the picture the moment it lands. */
 const IMAGE_CARDS_ACTIVE_POLL_MS = 750;
-/** The chat detail poll otherwise: file and Atlas jobs still need their reads, but no picture waits. */
+/** The poll otherwise: file and Atlas jobs still need their full detail reads, but no picture waits. */
 const IMAGE_CARDS_IDLE_POLL_MS = 2500;
 
 /**
- * How often the chat page reads its detail again while it polls for picture
- * cards (`shouldPollImageCards`): fast while a take is being made, so a picture
- * that lands between two reads waits at most ~0.75 s instead of ~2.5 s, and
- * the chat's ordinary 2.5 s otherwise (a held take, a streaming make_image
- * call before its card exists, or only file and Atlas jobs moving).
+ * How often the chat page polls while it watches the picture cards
+ * (`shouldPollImageCards`): fast while a take is being made, so a picture that
+ * lands between two reads waits at most ~0.75 s instead of ~2.5 s, and the
+ * chat's ordinary 2.5 s otherwise (a held take, a streaming make_image call
+ * before its card exists, or only file and Atlas jobs moving).
  */
 export function imageCardsPollIntervalMs(
 	cards: readonly ImageCardView[],

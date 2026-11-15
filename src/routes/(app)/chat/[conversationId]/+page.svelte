@@ -48,6 +48,7 @@ import {
 	persistConversationDraft,
 	deleteConversationMessages,
 	fetchConversationDetail,
+	fetchConversationImageCards,
 	fetchMessageEvidence,
 	fetchOlderConversationMessages,
 	generateConversationTitle,
@@ -984,6 +985,9 @@ let selectedPersonalityId = $state<string | null>(
 let bootstrapMode = initialBootstrapMode;
 let sidecarPending = initialSidecarPending;
 let hydratingConversation = false;
+// The poll's own cheap read has its own guard: a slow cards answer must not
+// stack ticks, and it must never hold up a full read (whose guard is above).
+let hydratingImageCards = false;
 let detailMetadataEpoch = 0;
 // Accounting can settle before a slower conversation-detail snapshot arrives.
 let usageMetadataEpoch = 0;
@@ -3382,6 +3386,15 @@ onDestroy(() => {
 	}
 });
 
+/**
+ * The one place a read of the chat's picture cards reaches the page's state: a
+ * full detail read and the picture-card poll's own `cards` read both write
+ * here, so the two can never disagree about where a card goes.
+ */
+function applyImageCards(cards: ImageCardView[] | undefined) {
+	imageCards = cards ?? imageCards;
+}
+
 async function hydrateConversationDetail(conversationId: string) {
 	if (hydratingConversation) return;
 	hydratingConversation = true;
@@ -3419,7 +3432,7 @@ async function hydrateConversationDetail(conversationId: string) {
 		// The picture cards too (plan 2b F4): a take's state only moves forward on
 		// the server, and a mid-turn poll is exactly what moves the boundary, so a
 		// card's first take would otherwise wait for the next poll.
-		imageCards = payload.imageCards ?? imageCards;
+		applyImageCards(payload.imageCards);
 		deletedArtifactIds = (payload.deletedArtifactIds ?? []).reduce(
 			markArtifactDeleted,
 			deletedArtifactIds,
@@ -3472,6 +3485,37 @@ async function hydrateConversationDetail(conversationId: string) {
 	// without a dedicated, parallel hydration path. The questions ride with it.
 	void refreshPendingWrites();
 	void refreshQuestions();
+}
+
+/**
+ * The picture-card poll's tick: reads the chat's cards alone (the detail's
+ * `cards` view — a few KB) and applies them exactly where a full read's
+ * `imageCards` go. It touches nothing else: the message window, artifacts,
+ * files, Atlas jobs, cost and compression markers keep what they have, since
+ * only the pictures are moving between two of these ticks. A failed read is no
+ * reason to leave a picture mid-shimmer, so it falls back to the full detail
+ * read once and the normal cadence carries on.
+ */
+async function hydrateConversationImageCards(conversationId: string) {
+	if (hydratingImageCards) return;
+	hydratingImageCards = true;
+	try {
+		const payload = await fetchConversationImageCards(conversationId);
+		// The person may have opened another chat while this was read: its
+		// answer belongs to the chat it was asked for (hydrateConversationDetail's
+		// rule).
+		if (
+			conversationId !== data.conversation.id ||
+			payload.conversationId !== data.conversation.id
+		) {
+			return;
+		}
+		applyImageCards(payload.imageCards);
+	} catch {
+		await hydrateConversationDetail(conversationId);
+	} finally {
+		hydratingImageCards = false;
+	}
 }
 
 /** The placeholder's time is the browser's and a job's is the server's: the room the two clocks may differ by. */
@@ -3642,16 +3686,24 @@ let imageCardsPollMs = $derived(imageCardsPollIntervalMs(imageCards));
 
 $effect(() => {
 	const conversationId = data.conversation?.id;
-	const shouldPollConversation =
+	// A file or Atlas job's state only arrives with the full read; while neither
+	// is moving, a tick is the picture cards' alone (the `cards` view), so a take
+	// being made costs a few KB, not the whole chat. The effect re-runs whenever
+	// either list changes, so this verdict is the one its interval acts on.
+	const needsFullDetailRead =
 		hasActiveFileProductionJobs(fileProductionJobs) ||
-		hasActiveAtlasJobs(atlasJobs) ||
-		pollForImageCards;
+		hasActiveAtlasJobs(atlasJobs);
+	const shouldPollConversation = needsFullDetailRead || pollForImageCards;
 	if (!browser || !conversationId || !shouldPollConversation) {
 		return;
 	}
 
 	const interval = setInterval(() => {
-		void hydrateConversationDetail(conversationId);
+		if (needsFullDetailRead) {
+			void hydrateConversationDetail(conversationId);
+			return;
+		}
+		void hydrateConversationImageCards(conversationId);
 	}, imageCardsPollMs);
 
 	return () => {

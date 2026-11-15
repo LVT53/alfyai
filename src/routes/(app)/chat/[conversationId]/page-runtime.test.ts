@@ -10,6 +10,10 @@ import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatTurnCheck } from "$lib/client/api/chat-turn";
 import { applyNormalChatOutputView } from "$lib/client/normal-chat-output-view";
+import {
+	card as imageCardFixture,
+	take as imageTakeFixture,
+} from "$lib/components/artifacts/image/image-card-fixtures.test-helpers";
 import type { ModelId } from "$lib/model-types";
 import type { AppShellData } from "$lib/server/services/app-shell";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
@@ -329,6 +333,10 @@ vi.mock("$lib/client/api/conversations", () => ({
 	deleteConversationMessages: vi.fn(),
 	persistConversationDraft: vi.fn(async () => undefined),
 	fetchConversationDetail: vi.fn(async () => conversationDetailFixture()),
+	fetchConversationImageCards: vi.fn(async () => ({
+		conversationId: "conv-1",
+		imageCards: [],
+	})),
 	fetchMessageEvidence: vi.fn(),
 	fetchMessageUsage: vi.fn(async () => ({ status: "untracked" })),
 	fetchOlderConversationMessages: vi.fn(),
@@ -537,6 +545,7 @@ import {
 	deleteConversationDraft,
 	deleteConversationMessages,
 	fetchConversationDetail,
+	fetchConversationImageCards,
 	fetchMessageEvidence,
 	fetchMessageUsage,
 	fetchOlderConversationMessages,
@@ -3459,6 +3468,92 @@ describe("chat page runtime integration", () => {
 			await vi.advanceTimersByTimeAsync(2500);
 
 			expect(fetchConversationDetail).toHaveBeenCalledWith("conv-1");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// The picture-card poll's tick is the conversation detail's `cards` view
+	// alone — a take being made used to re-read the whole chat (the message
+	// window and the sidecar) every 750 ms. Its answer reaches the same
+	// `imageCards` state a full read writes, so the gate closes the moment the
+	// cards hold no active take.
+	it("reads only the picture cards on a poll tick while a take is being made, and stops once none is", async () => {
+		vi.useFakeTimers();
+		try {
+			vi.mocked(fetchConversationImageCards).mockResolvedValueOnce({
+				conversationId: "conv-1",
+				imageCards: [imageCardFixture([imageTakeFixture()])],
+			});
+			renderPage(
+				pageData({
+					imageCards: [
+						imageCardFixture([
+							imageTakeFixture({ status: "running", phase: "rendering" }),
+						]),
+					],
+				}),
+			);
+			await tick();
+			vi.mocked(fetchConversationDetail).mockClear();
+			vi.mocked(fetchConversationImageCards).mockClear();
+
+			// The active take's fast tick: the cards, never the full detail.
+			await vi.advanceTimersByTimeAsync(750);
+
+			expect(fetchConversationImageCards).toHaveBeenCalledWith("conv-1");
+			expect(fetchConversationDetail).not.toHaveBeenCalled();
+
+			// The answer held a finished picture: applied to the page's cards, it
+			// clears `shouldPollImageCards`, so no later tick reads anything.
+			await vi.advanceTimersByTimeAsync(5000);
+			expect(fetchConversationImageCards).toHaveBeenCalledTimes(1);
+			expect(fetchConversationDetail).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("falls back to the full detail read when a cards tick fails, so a picture never stays mid-shimmer", async () => {
+		vi.useFakeTimers();
+		try {
+			vi.mocked(fetchConversationImageCards).mockRejectedValueOnce(
+				new Error("network"),
+			);
+			renderPage(
+				pageData({
+					imageCards: [
+						imageCardFixture([imageTakeFixture({ status: "queued" })]),
+					],
+				}),
+			);
+			await tick();
+			vi.mocked(fetchConversationDetail).mockClear();
+			vi.mocked(fetchConversationImageCards).mockClear();
+
+			await vi.advanceTimersByTimeAsync(750);
+
+			expect(fetchConversationImageCards).toHaveBeenCalledWith("conv-1");
+			expect(fetchConversationDetail).toHaveBeenCalledWith("conv-1");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not read anything on its own when no take, file or Atlas job is active", async () => {
+		vi.useFakeTimers();
+		try {
+			renderPage(
+				pageData({ imageCards: [imageCardFixture([imageTakeFixture()])] }),
+			);
+			await tick();
+			vi.mocked(fetchConversationDetail).mockClear();
+			vi.mocked(fetchConversationImageCards).mockClear();
+
+			await vi.advanceTimersByTimeAsync(5000);
+
+			expect(fetchConversationImageCards).not.toHaveBeenCalled();
+			expect(fetchConversationDetail).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
 		}

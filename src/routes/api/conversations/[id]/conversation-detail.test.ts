@@ -6,6 +6,7 @@ vi.mock("$lib/server/auth/hooks", () => ({
 }));
 
 vi.mock("$lib/server/services/conversation-detail/read-model", () => ({
+	getConversationCards: vi.fn(),
 	getConversationDetail: vi.fn(),
 }));
 
@@ -16,7 +17,10 @@ vi.mock("$lib/server/services/conversations", () => ({
 }));
 
 import { requireAuth } from "$lib/server/auth/hooks";
-import { getConversationDetail } from "$lib/server/services/conversation-detail/read-model";
+import {
+	getConversationCards,
+	getConversationDetail,
+} from "$lib/server/services/conversation-detail/read-model";
 import {
 	moveConversationToProject,
 	setConversationSidebarPinned,
@@ -26,6 +30,7 @@ import type { RequestEvent } from "./$types";
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockGetConversationDetail = vi.mocked(getConversationDetail);
+const mockGetConversationCards = vi.mocked(getConversationCards);
 const mockMoveConversationToProject = vi.mocked(moveConversationToProject);
 const mockSetConversationSidebarPinned = vi.mocked(
 	setConversationSidebarPinned,
@@ -225,6 +230,52 @@ describe("GET /api/conversations/[id]", () => {
 
 		expect(response.status).toBe(404);
 		expect(data).toEqual({ error: "Conversation not found" });
+	});
+
+	// The picture-card poll's view: while a take is being made a tick reads the
+	// cards alone, so the answer is that payload — no message window, no
+	// sidecar — and never the full read.
+	it("delegates the cards view and answers with the picture cards only", async () => {
+		const cards = {
+			conversationId: "conv-1",
+			imageCards: [{ id: "card-1", takes: [] }],
+		};
+		mockGetConversationCards.mockResolvedValue(cards as never);
+
+		const response = await GET(
+			makeEvent(
+				{ id: "user-1" },
+				"conv-1",
+				"http://localhost/api/conversations/conv-1?view=cards",
+			),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(mockGetConversationCards).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+		expect(mockGetConversationDetail).not.toHaveBeenCalled();
+		expect(data).toEqual(cards);
+		expect(data).not.toHaveProperty("messages");
+	});
+
+	it("answers the cards view of a missing conversation with the same 404", async () => {
+		mockGetConversationCards.mockResolvedValue(null);
+
+		const response = await GET(
+			makeEvent(
+				{ id: "user-1" },
+				"conv-1",
+				"http://localhost/api/conversations/conv-1?view=cards",
+			),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(404);
+		expect(data).toEqual({ error: "Conversation not found" });
+		expect(mockGetConversationDetail).not.toHaveBeenCalled();
 	});
 
 	it("logs and returns 500 when detail loading fails", async () => {

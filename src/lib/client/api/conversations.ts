@@ -1,7 +1,10 @@
 import type { MessageUsageState } from "$lib/server/services/analytics";
 import type { AtlasProfile } from "$lib/server/services/atlas/public-types";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
-import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
+import type {
+	ConversationCardsDetail,
+	ConversationDetail,
+} from "$lib/server/services/conversation-detail/types";
 import type { ConversationForkOrigin } from "$lib/server/services/conversation-forks";
 import type {
 	Conversation,
@@ -126,6 +129,26 @@ export async function fetchConversationDetail(
 		`/api/conversations/${id}${viewParam}`,
 		undefined,
 		"Failed to load conversation",
+	);
+}
+
+/**
+ * The chat's picture cards alone — the `cards` view of the same detail
+ * endpoint: what the chat page polls for while a take is being made, a few KB
+ * instead of the whole message window and sidecar. The arrays are the full
+ * read's own `imageCards`, so a caller applies them to the state that read
+ * writes. `no-store`: a poll must hear what the server has now, not a cached
+ * answer from the tick before.
+ */
+export async function fetchConversationImageCards(
+	conversationId: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<ConversationCardsDetail> {
+	return requestJson<ConversationCardsDetail>(
+		`/api/conversations/${conversationId}?view=cards`,
+		{ cache: "no-store" },
+		"Failed to load conversation",
+		fetchImpl,
 	);
 }
 
