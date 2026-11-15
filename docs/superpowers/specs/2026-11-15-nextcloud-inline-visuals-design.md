@@ -168,53 +168,19 @@ migration — this is a JSON field on an existing row.
 
 ### 4. The card
 
-- **What was built (and why it is not `files-card-view.ts`):** a `files` member
-  on `ToolActivityBody` — `{ kind: "files"; cards; total }` in
-  `$lib/utils/tool-activity.ts`, built by `buildToolActivityItem` and drawn by
-  `ToolActivityRow.svelte`'s body branch. The design asked for a separate pure
-  `files-card-view.ts` mapper in the shape `image-card-view.ts` and
-  `write-card-view.ts` use. The implementation used the app's existing
-  row-panel pattern instead, because a found-file row already is a
-  tool-activity row: its body carries the cards beside the sources, page, map
-  and image-card bodies, so there is one renderer, one collapse behaviour and
-  one place cards sit under the prose. A second card component would have
-  duplicated `ToolActivityRow`'s chrome for one body shape. The pure part that
-  did need its own module is the reply-level cap: `capFileCards` in
-  `$lib/utils/tool-calls.ts`.
-- The card draws the row: preview (or glyph) on the left, name and
-  `size · date` beside it, "Open in Nextcloud" underneath. The whole card is one
-  link to `webUrl`, `target="_blank"`, so the conversation stays put. Using the
-  card replaces the in-app lightbox for these images: the picture's job is to
-  confirm "that one", and the click's job is to get the person to the file.
-- Placement: **below the reply's prose**, in the `message-deliverables` area
-  `MessageBubble.svelte` already uses for artifact cards. The person asked for
-  the card *in the answer*; the two cheaper placements are both wrong —
-  `ToolActivityRow`'s expandable body hides it behind a chevron, and
-  `FileProductionCard`'s pinned row lives inside `ThinkingBlock`, above the
-  prose and only once the rail collapses. Below the prose also keeps F16
-  ("nothing inserted above prose while streaming") intact: the card arrives
-  under the text as it grows.
-- Source of truth: the turn's per-call `files` field (§3), so a reload draws
-  the same cards. The live turn reads the same field from the stream event.
-- **What becomes a card:** results that are not directories — directories are
-  filtered out (which is what the citation builder already does, and why
-  `webUrl` stays optional on the item). Images get the preview; every other
-  type gets the glyph and the link. A `list` of fifty entries draws the cap and
-  no more.
-- **Cap: six cards per reply**, not per call — a reply that searches and then
-  lists would otherwise draw twelve. Taken in result order across the reply's
-  `files` calls, so the cap is computed where the reply's cards are assembled:
-  `capFileCards` (`$lib/utils/tool-calls.ts`) walks the reply's `files` payloads,
-  keeps six cards in all, shows a repeated path once, and returns ONE remainder
-  (`sum(totals) - shown`, never negative). `MessageBubble.svelte` feeds each kept
-  row the cards and a matching `total`, so a row never draws a remainder of its
-  own; the reply draws the single line. The server's per-call slice stays only
-  as a bound on one call's stored JSON.
-- **OneDrive draws no cards.** `buildFilesCards` gates on the Nextcloud
-  provider (it returns `null`), so the label is always "Open in Nextcloud" and
-  nothing claims a preview OneDrive cannot serve.
-- A failed preview request hides the image and shows the glyph. It never shows
-  a broken-image icon and never removes the link.
+**Superseded on 2026-11-15 by
+[`2026-11-15-nextcloud-file-cards-compact-design.md`](./2026-11-15-nextcloud-file-cards-compact-design.md).**
+Implement that document, not this section. The card layout described here — a
+`files` body on `ToolActivityBody` drawn by `ToolActivityRow`, one card that is
+itself the link, a reply-level remainder, and no in-app viewer — is gone: the
+row's files branch and its `files` body were deleted, `capFileCards` returns no
+remainder, and a found file now draws the compact strip (or one 56px card for a
+single file), whose picture opens the app's viewer and whose list row is the
+Nextcloud link. What survives from this section and still holds: the cards live
+below the prose in `message-deliverables` (decision 2 of the compact design),
+they are capped at six per reply across the reply's `files` calls, they are
+built from the turn's per-call `files` field so a reload draws the same thing,
+OneDrive draws none, and a failed preview falls back to the file-type glyph.
 
 ### 5. Looking — the gated half
 

@@ -45,20 +45,22 @@ Found six — the June folder has them all.
 ```
 
 - **Tiles are 78px**, 7px apart, 10px corners.
-- **At most four tiles** on a wide screen. With more than four pictures the
+- **At most four tiles** on a wide screen. With more than four **pictures** the
   fourth is the count tile: the next picture, dimmed, with `+N` over it, where
-  `N = cards − 3`.
+  `N = pictures − 3` — the pictures the strip leaves out, not the cards.
 - **At most three tiles** at 480px and below; the count tile carries
-  `N = cards − 2`.
+  `N = pictures − 2`.
 - **Clicking a picture opens the viewer** — the app's existing `ImageLightbox`,
   lazily loaded, handed every picture of the call, opened at the one clicked, so
   the arrows move between them.
 - **The chevron opens the file list**, and the count tile does too. Closed by
-  default.
+  default. A count tile exists only when pictures overflow the slots, so the
+  picture it covers always exists — `cover: null` is unreachable — and its
+  `pictureIndex` names the first picture it hides.
 - **The list** is one line per file: a 40px picture (or file-type icon), the
   name, `size · date`, and "Open in Nextcloud". Every line links to its file.
 - **A call that found no pictures draws no strip.** It draws the quiet line —
-  `Searched your files · 6 found` — with the same chevron and the same list.
+  `Searched your files · 6 files` — with the same chevron and the same list.
 - **A call that found one file** keeps the single card (56px picture, name,
   `size · date`, "Open in Nextcloud"). Its picture opens the viewer; its link
   opens Nextcloud.
@@ -69,10 +71,16 @@ Found six — the June folder has them all.
 |---|---|---|
 | 1, a picture | 1 | card, picture opens the viewer |
 | 1, a document | 0 | card with the file-type icon |
-| 2–4 | any | strip of that many tiles, no count tile |
-| 5+ | ≥1 | strip of 3 pictures + count tile (`+N`), chevron |
+| 2+ | 1 or more, and they fit the slots | strip of one tile per picture, no count tile |
+| 2+ | more than the slots | `slots − 1` picture tiles + count tile (`+N` pictures), chevron |
 | 2+ | 0 | quiet line, chevron |
 | any, all previews failed | — | tiles fall back to the file-type icon; the strip stays |
+
+The number of results decides nothing here; the pictures do. Slots are four on a
+wide screen and three at 480px and below (decision 4). Six cards that hold three
+photos and three PDFs draw three picture tiles and no count tile, the documents
+being in the list with their icons. Five pictures draw three tiles and a count
+tile on a wide screen, and two tiles and a count tile on a phone.
 
 ## Edge cases, decided
 
@@ -85,15 +93,17 @@ Found six — the June folder has them all.
 - **A name with no extension, or a type the app does not know**, draws the
   generic file-type icon.
 - **An unknown size or date is omitted**, and no separator is left dangling.
-- **A refused or broken preview** draws the file-type icon in the same square.
-  A broken `<img>` is never shown.
+- **A refused or broken preview** draws the file-type icon in the same square,
+  except the count tile, which has no icon and keeps its number over the neutral
+  square. A broken `<img>` is never shown.
 - **Non-images never appear as tiles**, even when they are among the results;
   they are in the list, with their icon.
 - **A picture that is very tall or very wide** is cropped square in the tile
   (`object-fit: cover`) and fitted whole in the viewer.
-- **The cap stays six per reply**, deduplicated by path, with one remainder —
-  as the shipped version already does. The strip never shows more than four
-  tiles however many pictures there are.
+- **The cap stays six per reply**, deduplicated by path. The reply-level
+  remainder the first pass drew is gone (decision 1): the count tile is the only
+  place a remainder is said. The strip never shows more than four tiles however
+  many pictures there are.
 - **A `files` call whose cards are drawn nowhere in the rail**: unchanged from
   the shipped version — a card-drawing call stays out of the thinking rail, a
   cardless one stays in.
@@ -111,16 +121,17 @@ Found six — the June folder has them all.
 
 ## Plumbing
 
-- **A larger preview for the viewer.** The route accepts one more size, 1600,
-  used only by the viewer; the cards keep 96 and 192. Nextcloud renders that
-  size on demand and caps it at its own maximum, so the viewer shows the biggest
-  preview the server offers — not the original bytes.
+- **A larger preview for the viewer.** The route accepts three sizes, 96, 192
+  and 1600; the card picture and its tiles ask 192, the viewer asks 1600, and
+  nothing in the strip asks 96 any more. Nextcloud renders the size on demand
+  and caps it at its own maximum, so the viewer shows the biggest preview the
+  server offers — not the original bytes.
 - **The card data carries the viewer's address.** `ToolCallFileCard` gains
-  `viewUrl: string | null` (null for anything that is not a drawable image),
-  built on the server beside `previewUrl`. The client never assembles a preview
-  URL.
-- **The row hosts the viewer** through `image-lightbox-loader.ts`, so the chunk
-  stays out of first paint, exactly as messages and the Image card do.
+  `viewUrl?: string | null` (optional, because cards stored before it have none;
+  null for anything that is not a drawable image), built on the server beside
+  `previewUrl`. The client never assembles a preview URL.
+- **The block hosts the viewer** through `image-lightbox-loader.ts`, so the
+  chunk stays out of first paint, exactly as messages and the Image card do.
 
 ## What I decided, open to challenge
 
@@ -156,11 +167,11 @@ Found six — the June folder has them all.
 
 ## Settled after the builder's check
 
-The six things a builder could otherwise guess wrong.
+The seven things a builder could otherwise guess wrong.
 
 1. **The numbers mean what is drawn.** The card payload is already capped at six
    per reply; `capFileCards` rewrites each row's `total` to the number of cards
-   that row actually shows. So the quiet line says `6 found`, not the twelve the
+   that row actually shows. So the quiet line says `6 files`, not the twelve the
    call may have returned, and the `+N` on the count tile counts the pictures
    that row has but does not show. The reply-level "N more" line
    (`toolActivity.filesMore`, `fileCardsRemainder`) is **removed**: the count
@@ -185,16 +196,19 @@ The six things a builder could otherwise guess wrong.
    card has none, the tile opens the viewer at `previewUrl` — 192px, soft but
    working. No backfill, no read-path shim, nothing migrated.
 
-4. **A tile is a drawable picture; the count tile may have no picture behind it.**
+4. **A tile is a drawable picture, and the count tile always has one behind it.**
    Tiles are cards whose `previewUrl` is not null, in card order. Slots are 4 on
    a wide screen and 3 at 480px and below. If the pictures fit the slots, they
    are all drawn and there is no count tile. If they do not, the last slot is
-   the count tile with `N = pictures − (slots − 1)`; its background is the next
-   picture when one exists, otherwise a plain neutral tile carrying only the
-   number. An image with no preview (an SVG, which the server deliberately
-   refuses to preview) is not a tile: it appears in the list with its icon.
-   This resolves 3 photos + 3 PDFs: three tiles, no count tile, documents only
-   in the list.
+   the count tile with `N = pictures − (slots − 1)`, drawn over the next
+   picture (`pictures[slots − 1]`), which is always there because the pictures
+   overflow. Its `pictureIndex` is that picture's place in the call's picture
+   list, and pressing the tile opens the list. `cover: null` cannot happen:
+   only a cover that fails to load at runtime leaves the plain neutral tile
+   carrying the number, the count tile's own version of the glyph fallback. An
+   image with no preview (an SVG, which the server deliberately refuses to
+   preview) is not a tile: it appears in the list with its icon. This resolves
+   3 photos + 3 PDFs: three tiles, no count tile, documents only in the list.
 
 5. **Nextcloud preserves the aspect ratio, so 1600 is enough.** Verified in
    Nextcloud's own `PreviewController`: `getPreview(…, !$a, $mode)` — with the
@@ -210,3 +224,12 @@ The six things a builder could otherwise guess wrong.
    looking; the list is the place for going. A tile whose picture fails to load
    at runtime draws its file-type icon and stays a button: the 1600 request may
    still succeed, and if it does not, the viewer says so in its own words.
+
+7. **`ToolCallFilesData.total` is still produced, capped, and unread.** The
+   server fills it (`buildFilesCards`: the count of the call's non-directory
+   results, while only the stored cards are bounded), `capFileCards` rewrites it
+   to the number of cards that row keeps, and nothing draws it. The quiet line
+   counts `cards.length`, the count tile counts pictures, and the reply-level
+   remainder is gone (decision 1). This is the one place the design is silent:
+   the shipped state, not a rule to copy, and no later reader should build a
+   second count from it without deciding what it would mean.
