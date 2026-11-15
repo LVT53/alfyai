@@ -37,9 +37,8 @@ export function stripPictureCards(
 /**
  * The tiles for a call's cards: every picture when they fit `slots`, else the
  * first `slots - 1` pictures and one count tile for the rest. `slots` must be at
- * least 1. The count tile's `cover` is the first picture it hides — the one a press
- * on it opens the viewer at, `pictureIndex` — or null when there is no picture
- * there.
+ * least 1. The count tile's `cover` is the first picture it hides, and
+ * `pictureIndex` is that picture's place in the call's picture list.
  */
 export function filesStripTiles(
 	cards: ToolCallFileCard[],

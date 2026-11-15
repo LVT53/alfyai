@@ -1145,6 +1145,15 @@ const chatDict = {
 		"toolActivity.filesOpen": "Open in Nextcloud",
 		"toolActivity.filesMore": "{count} more",
 		"toolActivity.filesPreviewFailed": "Preview unavailable",
+		// The compact strip (FilesStrip.svelte): the quiet line a call of
+		// documents leaves, the count it and the chevron say, the name of a
+		// picture tile at the viewer, and the chevron's open state.
+		"toolActivity.filesQuietLine": "Searched your files",
+		"toolActivity.filesCount":
+			"{count} {count, plural, one {file} other {files}}",
+		"toolActivity.filesShowAll": "Show all {count} files",
+		"toolActivity.filesOpenPicture": "Open {name}, picture {index} of {total}",
+		"toolActivity.filesHideList": "Hide the file list",
 		"toolActivity.journey": "Journey",
 		"toolActivity.planningJourney": "Planning journey",
 		// The photos row when the model was shown thumbnails of what it found
@@ -2388,6 +2397,14 @@ const chatDict = {
 		"toolActivity.filesOpen": "Megnyitás a Nextcloudban",
 		"toolActivity.filesMore": "további {count}",
 		"toolActivity.filesPreviewFailed": "Az előnézet nem érhető el",
+		// A kompakt sáv (FilesStrip.svelte). A magyar számnevek után egyes szám
+		// áll, ezért a fájlszámnak nincs többes alakja.
+		"toolActivity.filesQuietLine": "Keresés a fájljaid között",
+		"toolActivity.filesCount": "{count} fájl",
+		"toolActivity.filesShowAll": "Mind a(z) {count} fájl megjelenítése",
+		"toolActivity.filesOpenPicture":
+			"{name} megnyitása, {index}. kép ({total} közül)",
+		"toolActivity.filesHideList": "Fájllista elrejtése",
 		"toolActivity.journey": "Útiterv",
 		"toolActivity.planningJourney": "Útiterv készítése",
 		// A number takes the singular after it, so there is no plural to split.
