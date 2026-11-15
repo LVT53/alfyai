@@ -345,6 +345,31 @@ describe("the Video kind's strings", () => {
 		);
 	});
 
+	it("names the player's fullscreen toggle and its scrubber in both languages", () => {
+		expect(artifactsDict.en["artifacts.video.player.fullscreen"]).toBe(
+			"Enter fullscreen",
+		);
+		expect(artifactsDict.en["artifacts.video.player.exitFullscreen"]).toBe(
+			"Exit fullscreen",
+		);
+		expect(artifactsDict.hu["artifacts.video.player.fullscreen"]).toBe(
+			"Belépés a teljes képernyőbe",
+		);
+		expect(artifactsDict.hu["artifacts.video.player.exitFullscreen"]).toBe(
+			"Kilépés a teljes képernyőből",
+		);
+		expect(artifactsDict.en["artifacts.video.player.position"]).toBe(
+			"Position",
+		);
+		expect(artifactsDict.en["artifacts.video.player.positionAt"]).toBe(
+			"{current} of {duration} seconds",
+		);
+		expect(artifactsDict.hu["artifacts.video.player.position"]).toBe("Pozíció");
+		expect(artifactsDict.hu["artifacts.video.player.positionAt"]).toBe(
+			"{current} / {duration} másodperc",
+		);
+	});
+
 	it("says History is not shown for a clip yet, rather than that it has none", () => {
 		expect(artifactsDict.en["artifacts.video.card.historyUnavailable"]).toBe(
 			"History isn't shown for a clip yet.",

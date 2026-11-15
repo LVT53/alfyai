@@ -13,7 +13,9 @@ const PROPS = {
 
 let play: ReturnType<typeof vi.spyOn>;
 let pause: ReturnType<typeof vi.spyOn>;
-let fullscreen: ReturnType<typeof vi.fn>;
+let requestFullscreen: ReturnType<typeof vi.fn>;
+let exitFullscreen: ReturnType<typeof vi.fn>;
+let fullscreenElement: Element | null = null;
 
 beforeEach(() => {
 	uiLanguage.set("en");
@@ -28,15 +30,35 @@ beforeEach(() => {
 		.mockImplementation(function (this: HTMLMediaElement) {
 			this.dispatchEvent(new Event("pause"));
 		});
-	fullscreen = vi.fn().mockResolvedValue(undefined);
+	fullscreenElement = null;
+	requestFullscreen = vi.fn(function (this: HTMLElement) {
+		fullscreenElement = this;
+		document.dispatchEvent(new Event("fullscreenchange"));
+		return Promise.resolve();
+	});
+	exitFullscreen = vi.fn(async () => {
+		fullscreenElement = null;
+		document.dispatchEvent(new Event("fullscreenchange"));
+	});
 	Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
 		configurable: true,
-		value: fullscreen,
+		value: requestFullscreen,
+	});
+	Object.defineProperty(document, "fullscreenElement", {
+		configurable: true,
+		get: () => fullscreenElement,
+	});
+	Object.defineProperty(document, "exitFullscreen", {
+		configurable: true,
+		value: exitFullscreen,
 	});
 });
 
 afterEach(() => {
 	vi.restoreAllMocks();
+	delete (document as unknown as { fullscreenElement?: unknown })
+		.fullscreenElement;
+	delete (document as unknown as { exitFullscreen?: unknown }).exitFullscreen;
 	uiLanguage.set("en");
 });
 
@@ -46,6 +68,33 @@ function media(): HTMLVideoElement {
 
 function root(): HTMLElement {
 	return screen.getByTestId("video-player");
+}
+
+function fullscreenButton(): HTMLElement {
+	return screen.getByTestId("video-player-fullscreen");
+}
+
+function scrubber(): HTMLInputElement {
+	return screen.getByTestId("video-player-scrubber") as HTMLInputElement;
+}
+
+/** jsdom has no media clock: give this element the duration and buffered range a loaded clip would. */
+function withClock(
+	video: HTMLVideoElement,
+	durationSeconds: number,
+	bufferedEnd = 0,
+): void {
+	Object.defineProperty(video, "duration", {
+		configurable: true,
+		get: () => durationSeconds,
+	});
+	Object.defineProperty(video, "buffered", {
+		configurable: true,
+		get: () => ({
+			length: bufferedEnd > 0 ? 1 : 0,
+			end: () => bufferedEnd,
+		}),
+	});
 }
 
 describe("VideoPlayer", () => {
@@ -73,24 +122,28 @@ describe("VideoPlayer", () => {
 		expect(media()).toHaveAttribute("loop");
 	});
 
-	it("adds no Tab stop of its own, and shows a focus ring while a control has the keyboard", () => {
+	it("is one Tab stop, and a press on the clip takes the keyboard", async () => {
 		render(VideoPlayer, PROPS);
 		const player = root();
-		expect(player).not.toHaveAttribute("tabindex");
+		expect(player).toHaveAttribute("tabindex", "0");
 		expect(player).toHaveAttribute("role", "group");
 		expect(player).toHaveAccessibleName("Harbour at dawn video player");
 		expect(
 			screen.getByRole("button", { name: "Play video" }),
 		).toBeInTheDocument();
+
+		expect(player).not.toHaveFocus();
+		await fireEvent.pointerDown(media());
+		expect(player).toHaveFocus();
+
 		const source = readFileSync(
 			`${process.cwd()}/src/lib/components/artifacts/video/VideoPlayer.svelte`,
 			"utf-8",
 		);
 		expect(source).toMatch(/\.video-player:focus-within\s*\{[^}]*box-shadow/);
-		// No key handler eats Tab: the only focus move in the file is the
-		// browser's own, so the player can never trap it.
+		// No key handler eats Tab: the only focus moves in the file are the
+		// player's own and the browser's, so Tab can never be trapped.
 		expect(source).not.toMatch(/key === ["']Tab["']/);
-		expect(source).not.toMatch(/\.focus\(\)/);
 	});
 
 	it("plays and pauses from its button, with the space bar", async () => {
@@ -107,51 +160,33 @@ describe("VideoPlayer", () => {
 		).toBeInTheDocument();
 	});
 
-	it("leaves Space to a focused button, so the button's own activation runs", async () => {
+	it("plays and pauses from the keyboard after a press on the clip", async () => {
 		render(VideoPlayer, PROPS);
-		const fullscreenButton = screen.getByTestId("video-player-fullscreen");
-		fullscreenButton.focus();
-		const keydown = new KeyboardEvent("keydown", {
-			key: " ",
-			bubbles: true,
-			cancelable: true,
-		});
-		fullscreenButton.dispatchEvent(keydown);
-		// Space is not eaten: the browser can activate the button it was pressed on.
-		expect(keydown.defaultPrevented).toBe(false);
+		await fireEvent.pointerDown(media());
+		expect(root()).toHaveFocus();
+		await fireEvent.keyDown(root(), { key: " " });
+		expect(play).toHaveBeenCalledTimes(1);
+		await fireEvent.keyDown(root(), { key: " " });
+		expect(pause).toHaveBeenCalledTimes(1);
+	});
+
+	it("leaves Space and Enter to a focused button, so its own activation runs", async () => {
+		render(VideoPlayer, PROPS);
+		const button = fullscreenButton();
+		button.focus();
+		for (const key of [" ", "Enter"]) {
+			const keydown = new KeyboardEvent("keydown", {
+				key,
+				bubbles: true,
+				cancelable: true,
+			});
+			button.dispatchEvent(keydown);
+			expect(keydown.defaultPrevented, key).toBe(false);
+		}
 		expect(play).not.toHaveBeenCalled();
 		// What the browser's own activation does.
-		await fireEvent.click(fullscreenButton);
-		expect(fullscreen).toHaveBeenCalledTimes(1);
-	});
-
-	it("announces the loop and mute changes it makes, never silently", async () => {
-		render(VideoPlayer, PROPS);
-		const status = screen.getByRole("status");
-		expect(status).toHaveClass("sr-only");
-		expect(status).toHaveTextContent("");
-		await fireEvent.keyDown(root(), { key: "l" });
-		expect(status).toHaveTextContent("Loop off");
-		await fireEvent.keyDown(root(), { key: "L" });
-		expect(status).toHaveTextContent("Loop on");
-		await fireEvent.keyDown(root(), { key: "m" });
-		expect(status).toHaveTextContent("Muted");
-		await fireEvent.keyDown(root(), { key: "m" });
-		expect(status).toHaveTextContent("Unmuted");
-	});
-
-	it("announces the loop and mute changes in Hungarian too", async () => {
-		uiLanguage.set("hu");
-		render(VideoPlayer, PROPS);
-		const status = screen.getByRole("status");
-		await fireEvent.keyDown(root(), { key: "l" });
-		expect(status).toHaveTextContent("Ismétlés ki");
-		await fireEvent.keyDown(root(), { key: "l" });
-		expect(status).toHaveTextContent("Ismétlés be");
-		await fireEvent.keyDown(root(), { key: "m" });
-		expect(status).toHaveTextContent("Némítva");
-		await fireEvent.keyDown(root(), { key: "m" });
-		expect(status).toHaveTextContent("Némítás kikapcsolva");
+		await fireEvent.click(button);
+		expect(requestFullscreen).toHaveBeenCalledTimes(1);
 	});
 
 	it("seeks one second with the arrows and five with shift", async () => {
@@ -187,17 +222,45 @@ describe("VideoPlayer", () => {
 		expect(video.muted).toBe(false);
 	});
 
+	it("toggles fullscreen from its button, and the button says which way it will go", async () => {
+		render(VideoPlayer, PROPS);
+		const button = fullscreenButton();
+		expect(button).toHaveAttribute("aria-label", "Enter fullscreen");
+		await fireEvent.click(button);
+		expect(requestFullscreen).toHaveBeenCalledTimes(1);
+		expect(document.fullscreenElement).not.toBeNull();
+		expect(button).toHaveAttribute("aria-label", "Exit fullscreen");
+		await fireEvent.click(button);
+		expect(exitFullscreen).toHaveBeenCalledTimes(1);
+		expect(document.fullscreenElement).toBeNull();
+		expect(button).toHaveAttribute("aria-label", "Enter fullscreen");
+	});
+
+	it("follows a fullscreen exit the browser made, such as Escape", async () => {
+		render(VideoPlayer, PROPS);
+		const button = fullscreenButton();
+		await fireEvent.click(button);
+		expect(button).toHaveAttribute("aria-label", "Exit fullscreen");
+		// The browser takes the player out of fullscreen without our button.
+		fullscreenElement = null;
+		await fireEvent(document, new Event("fullscreenchange"));
+		expect(button).toHaveAttribute("aria-label", "Enter fullscreen");
+	});
+
 	it("goes fullscreen with F, and from a double press that is not a play toggle", async () => {
 		vi.useFakeTimers();
 		try {
 			render(VideoPlayer, PROPS);
 			await fireEvent.keyDown(root(), { key: "f" });
-			expect(fullscreen).toHaveBeenCalledTimes(1);
+			expect(requestFullscreen).toHaveBeenCalledTimes(1);
+			// Leave fullscreen the way Escape does, then the double press enters again.
+			fullscreenElement = null;
+			await fireEvent(document, new Event("fullscreenchange"));
 			await fireEvent.click(media());
 			await fireEvent.click(media());
 			await fireEvent.dblClick(media());
 			vi.advanceTimersByTime(500);
-			expect(fullscreen).toHaveBeenCalledTimes(2);
+			expect(requestFullscreen).toHaveBeenCalledTimes(2);
 			expect(play).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
@@ -240,6 +303,87 @@ describe("VideoPlayer", () => {
 		expect(media()).toHaveAttribute("poster");
 	});
 
+	it("shows the clip's length, position and buffered range in a scrubber", async () => {
+		render(VideoPlayer, PROPS);
+		const video = media();
+		withClock(video, 5, 2);
+		await fireEvent.loadedMetadata(video);
+
+		const slider = scrubber();
+		expect(slider).toHaveAttribute("aria-label", "Position");
+		expect(slider).toHaveAttribute("max", "5");
+		expect(slider).toHaveAttribute("aria-valuetext", "0 of 5 seconds");
+		expect(screen.getByTestId("video-player-time")).toHaveTextContent(
+			"0:00 / 0:05",
+		);
+		const row = screen.getByTestId("video-player-scrubber-row");
+		expect(row.style.getPropertyValue("--buffered")).toBe("40%");
+		expect(row.style.getPropertyValue("--played")).toBe("0%");
+
+		await fireEvent.input(slider, { target: { value: "2" } });
+		expect(video.currentTime).toBe(2);
+		expect(slider).toHaveAttribute("aria-valuetext", "2 of 5 seconds");
+		expect(screen.getByTestId("video-player-time")).toHaveTextContent(
+			"0:02 / 0:05",
+		);
+		expect(row.style.getPropertyValue("--played")).toBe("40%");
+
+		// The clock updates while it plays.
+		video.currentTime = 3;
+		await fireEvent.timeUpdate(video);
+		expect(slider.value).toBe("3");
+		expect(screen.getByTestId("video-player-time")).toHaveTextContent(
+			"0:03 / 0:05",
+		);
+
+		// And the buffered range catches up.
+		withClock(video, 5, 4.5);
+		await fireEvent.progress(video);
+		expect(row.style.getPropertyValue("--buffered")).toBe("90%");
+	});
+
+	it("seeks from the scrubber's own keyboard", async () => {
+		render(VideoPlayer, PROPS);
+		const video = media();
+		withClock(video, 5, 5);
+		await fireEvent.loadedMetadata(video);
+		video.currentTime = 1;
+		const slider = scrubber();
+		slider.focus();
+		await fireEvent.keyDown(slider, { key: "ArrowRight" });
+		expect(video.currentTime).toBe(2);
+		expect(slider).toHaveAttribute("aria-valuetext", "2 of 5 seconds");
+	});
+
+	it("announces the loop and mute changes it makes, never silently", async () => {
+		render(VideoPlayer, PROPS);
+		const status = screen.getByRole("status");
+		expect(status).toHaveClass("sr-only");
+		expect(status).toHaveTextContent("");
+		await fireEvent.keyDown(root(), { key: "l" });
+		expect(status).toHaveTextContent("Loop off");
+		await fireEvent.keyDown(root(), { key: "L" });
+		expect(status).toHaveTextContent("Loop on");
+		await fireEvent.keyDown(root(), { key: "m" });
+		expect(status).toHaveTextContent("Muted");
+		await fireEvent.keyDown(root(), { key: "m" });
+		expect(status).toHaveTextContent("Unmuted");
+	});
+
+	it("announces the loop and mute changes in Hungarian too", async () => {
+		uiLanguage.set("hu");
+		render(VideoPlayer, PROPS);
+		const status = screen.getByRole("status");
+		await fireEvent.keyDown(root(), { key: "l" });
+		expect(status).toHaveTextContent("Ismétlés ki");
+		await fireEvent.keyDown(root(), { key: "l" });
+		expect(status).toHaveTextContent("Ismétlés be");
+		await fireEvent.keyDown(root(), { key: "m" });
+		expect(status).toHaveTextContent("Némítva");
+		await fireEvent.keyDown(root(), { key: "m" });
+		expect(status).toHaveTextContent("Némítás kikapcsolva");
+	});
+
 	it("describes its keys for a screen reader, and needs no motion to work", () => {
 		render(VideoPlayer, PROPS);
 		const described = root().getAttribute("aria-describedby");
@@ -262,6 +406,10 @@ describe("VideoPlayer", () => {
 		expect(
 			screen.getByRole("button", { name: "Lejátszás" }),
 		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Belépés a teljes képernyőbe" }),
+		).toBeInTheDocument();
+		expect(screen.getByRole("slider")).toHaveAttribute("aria-label", "Pozíció");
 		expect(root()).toHaveAccessibleName("Harbour at dawn videólejátszó");
 	});
 });

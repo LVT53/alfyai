@@ -352,6 +352,14 @@ test("the card holds its box, and the player plays, seeks, loops and lets go of 
 		Math.abs((afterPoster?.height ?? 0) - (beforePoster?.height ?? 0)),
 	).toBeLessThanOrEqual(1);
 
+	// The scrubber is there before anything is pressed: its label, the clip's
+	// length and the playhead at 0:00.
+	const scrubber = page.getByTestId("video-player-scrubber");
+	await expect(scrubber).toBeVisible();
+	await expect(scrubber).toHaveAttribute("aria-label", "Position");
+	await expect(scrubber).toHaveAttribute("aria-valuetext", "0 of 5 seconds");
+	await expect(page.getByTestId("video-player-time")).toHaveText("0:00 / 0:05");
+
 	// A press on the clip's top-right — where the duration chip lies — is a press
 	// on the clip, not a dead spot.
 	const chip = await card.getByTestId("video-card-duration").boundingBox();
@@ -377,9 +385,11 @@ test("the card holds its box, and the player plays, seeks, loops and lets go of 
 			},
 		)
 		.toBe(false);
+	// A press on the clip makes the player the keyboard surface: the shortcuts
+	// below arrive with no button focused.
+	await expect(player(page)).toBeFocused();
 
-	// Space pauses from the player's own button: the button keeps its activation.
-	await page.getByTestId("video-player-toggle").focus();
+	// Space pauses from the player itself, now that it has the focus.
 	await page.keyboard.press("Space");
 	await expect
 		.poll(() => media(page).evaluate((video: HTMLVideoElement) => video.paused))
@@ -406,22 +416,123 @@ test("the card holds its box, and the player plays, seeks, loops and lets go of 
 		.toBe(false);
 	await expect(page.getByTestId("video-player-status")).toHaveText("Loop off");
 
-	// Tab reaches both player buttons, and leaves the player after them.
-	const toggle = page.getByTestId("video-player-toggle");
+	// A click on the scrubber seeks, and the visible clock follows.
+	const scrubberBox = await scrubber.boundingBox();
+	expect(scrubberBox).not.toBeNull();
+	await page.mouse.click(
+		(scrubberBox?.x ?? 0) + (scrubberBox?.width ?? 0) / 2,
+		(scrubberBox?.y ?? 0) + (scrubberBox?.height ?? 0) / 2,
+	);
+	await expect
+		.poll(() =>
+			media(page).evaluate((video: HTMLVideoElement) => video.currentTime),
+		)
+		.toBeGreaterThan(1.5);
+	await expect(scrubber).toHaveAttribute(
+		"aria-valuetext",
+		/^[23] of 5 seconds$/,
+	);
+
+	// A drag on the same bar seeks to where it is released.
+	await page.mouse.move(
+		(scrubberBox?.x ?? 0) + (scrubberBox?.width ?? 0) * 0.2,
+		(scrubberBox?.y ?? 0) + (scrubberBox?.height ?? 0) / 2,
+	);
+	await page.mouse.down();
+	await page.mouse.move(
+		(scrubberBox?.x ?? 0) + (scrubberBox?.width ?? 0) * 0.8,
+		(scrubberBox?.y ?? 0) + (scrubberBox?.height ?? 0) / 2,
+		{ steps: 5 },
+	);
+	await page.mouse.up();
+	await expect
+		.poll(() =>
+			media(page).evaluate((video: HTMLVideoElement) => video.currentTime),
+		)
+		.toBeGreaterThan(3.5);
+	await expect(page.getByTestId("video-player-time")).toHaveText(
+		/^0:0[45] \/ 0:05$/,
+	);
+
+	// It updates while the clip plays, too.
+	await page.mouse.click(
+		(scrubberBox?.x ?? 0) + (scrubberBox?.width ?? 0) * 0.2,
+		(scrubberBox?.y ?? 0) + (scrubberBox?.height ?? 0) / 2,
+	);
+	await page.keyboard.press(" ");
+	await expect
+		.poll(() =>
+			media(page).evaluate((video: HTMLVideoElement) => video.currentTime),
+		)
+		.toBeGreaterThan(1.4);
+	await expect
+		.poll(() =>
+			scrubber.evaluate((element) =>
+				Number((element as HTMLInputElement).value),
+			),
+		)
+		.toBeGreaterThan(1.4);
+	await page.keyboard.press(" ");
+	await expect
+		.poll(() => media(page).evaluate((video: HTMLVideoElement) => video.paused))
+		.toBe(true);
+
+	// Fullscreen is a toggle: `f` enters, Escape (the browser's own exit) leaves
+	// and the button's word follows, then the button enters and leaves again.
 	const fullscreen = page.getByTestId("video-player-fullscreen");
-	await toggle.focus();
+	const toggle = page.getByTestId("video-player-toggle");
+	await expect(fullscreen).toHaveAttribute("aria-label", "Enter fullscreen");
+	await player(page).focus();
+	await page.keyboard.press("f");
+	await expect
+		.poll(() =>
+			page.evaluate(
+				() => document.fullscreenElement?.getAttribute("data-testid") ?? null,
+			),
+		)
+		.toBe("video-card-player");
+	await expect(fullscreen).toHaveAttribute("aria-label", "Exit fullscreen");
+	// Headless Chromium does not run the browser's Escape accelerator; leave the
+	// document the way the browser does, which is the same `fullscreenchange`
+	// path the button's word follows.
+	await page.evaluate(() => document.exitFullscreen());
+	await expect
+		.poll(() => page.evaluate(() => document.fullscreenElement === null))
+		.toBe(true);
+	await expect(fullscreen).toHaveAttribute("aria-label", "Enter fullscreen");
+	await fullscreen.click();
+	await expect
+		.poll(() => page.evaluate(() => document.fullscreenElement !== null))
+		.toBe(true);
+	await fullscreen.click();
+	await expect
+		.poll(() => page.evaluate(() => document.fullscreenElement === null))
+		.toBe(true);
+
+	// Tab reaches the scrubber and both player buttons, and leaves the player
+	// after them: no trap.
+	await player(page).focus();
 	await page.keyboard.press("Tab");
+	await expect(scrubber).toBeFocused();
+	await page.keyboard.press("Tab");
+	await expect(toggle).toBeFocused();
+	await page.keyboard.press("Tab");
+	await expect(fullscreen).toBeFocused();
+	await page.keyboard.press("Tab");
+	await expect(fullscreen).not.toBeFocused();
+	await page.keyboard.press("Shift+Tab");
 	await expect(fullscreen).toBeFocused();
 	await page.keyboard.press("Shift+Tab");
 	await expect(toggle).toBeFocused();
-	await page.keyboard.press("Tab");
-	await page.keyboard.press("Tab");
-	await expect(fullscreen).not.toBeFocused();
 
 	// Leaving the chat pauses the clip: listen for the pause the unmount makes,
-	// then navigate away client-side.
-	await toggle.focus();
-	await page.keyboard.press("Space");
+	// then navigate away client-side. Start from the beginning so the pause can
+	// only be the teardown's.
+	await media(page).evaluate((video: HTMLVideoElement) => {
+		video.currentTime = 0.5;
+	});
+	await player(page).focus();
+	await page.keyboard.press(" ");
 	await expect
 		.poll(
 			() => media(page).evaluate((video: HTMLVideoElement) => video.paused),
@@ -559,7 +670,7 @@ test("the player's and the card's buttons are 44 px targets on a coarse pointer"
 }) => {
 	const context = await browser.newContext({
 		baseURL,
-		viewport: { width: 390, height: 844 },
+		viewport: { width: 360, height: 800 },
 		hasTouch: true,
 		isMobile: true,
 	});
@@ -572,9 +683,14 @@ test("the player's and the card's buttons are 44 px targets on a coarse pointer"
 		expect(language.ok(), `language -> ${language.status()}`).toBe(true);
 		await openChat(page);
 		await expect(player(page)).toBeVisible();
+		const scrubber = page.getByTestId("video-player-scrubber");
+		await expect(scrubber).toBeVisible();
+		await expect(scrubber).toHaveAttribute("aria-label", "Position");
+		await expect(page.getByTestId("video-player-time")).toBeVisible();
 		const targets = [
 			page.getByTestId("video-player-toggle"),
 			page.getByTestId("video-player-fullscreen"),
+			scrubber,
 			page.getByTestId(`video-card-more-${takeId}`),
 			page.getByTestId("video-card-another"),
 		];
@@ -584,6 +700,21 @@ test("the player's and the card's buttons are 44 px targets on a coarse pointer"
 			expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
 			expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
 		}
+		// At 360 px the scrubber and its clock stay inside the player, not off the
+		// side of it.
+		const playerBox = await player(page).boundingBox();
+		const scrubberBox = await scrubber.boundingBox();
+		const timeBox = await page.getByTestId("video-player-time").boundingBox();
+		expect(playerBox).not.toBeNull();
+		expect(scrubberBox).not.toBeNull();
+		expect(timeBox).not.toBeNull();
+		expect(scrubberBox?.x ?? 0).toBeGreaterThanOrEqual(playerBox?.x ?? 0);
+		expect(
+			(scrubberBox?.x ?? 0) + (scrubberBox?.width ?? 0),
+		).toBeLessThanOrEqual((playerBox?.x ?? 0) + (playerBox?.width ?? 0) + 1);
+		expect((timeBox?.x ?? 0) + (timeBox?.width ?? 0)).toBeLessThanOrEqual(
+			(playerBox?.x ?? 0) + (playerBox?.width ?? 0) + 1,
+		);
 	} finally {
 		await context.close();
 	}
