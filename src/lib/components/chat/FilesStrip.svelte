@@ -100,14 +100,6 @@ function fileFacts(card: ToolCallFileCard): string {
 		.join(" · ");
 }
 
-/** One file as the card and the list both draw it. */
-type FileRowView = {
-	card: ToolCallFileCard;
-	preview: string | null;
-	fileType: AttachmentFileType;
-	facts: string;
-};
-
 /** One tile of the strip, with the words and the glyph it needs to be drawn. */
 type StripTileView =
 	| {
@@ -204,7 +196,10 @@ function openViewerAt(index: number) {
 }
 </script>
 
-{#if singleCard}
+{#if cards.length === 0}
+	<!-- A call that found nothing draws nothing at all: the quiet line would
+	     read "Searched your files · 0 files" over an empty list. -->
+{:else if singleCard}
 	{@const card = singleCard.card}
 	<div class="fs-card">
 		{#if card.previewUrl}
@@ -441,6 +436,9 @@ function openViewerAt(index: number) {
 		font-size: var(--text-xs);
 		color: var(--text-muted);
 		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 0;
 	}
 
 	.fs-card-open {
@@ -518,10 +516,10 @@ function openViewerAt(index: number) {
 		cursor: pointer;
 	}
 
-	.fs-tile-count img {
-		filter: brightness(0.6) saturate(0.75);
-	}
-
+	/* The app's one dimming value, laid twice: 32% once leaves the small white
+	   +N at about 2:1 over a bright picture (and over the neutral square a
+	   failed cover leaves), while two layers give about 4.6:1 worst case, which
+	   is what small text needs. The dark theme's 55% is darker still. */
 	.fs-tile-more {
 		position: absolute;
 		inset: 0;
@@ -531,8 +529,9 @@ function openViewerAt(index: number) {
 		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--accent-contrast);
-		/* A dimming veil, not a colour of its own: no token names an overlay. */
-		background: color-mix(in srgb, #000 30%, transparent);
+		background:
+			linear-gradient(var(--scrim), var(--scrim)),
+			linear-gradient(var(--scrim), var(--scrim));
 	}
 
 	.fs-quiet {

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { tick } from "svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ToolCallFileCard } from "$lib/server/services/messages-types";
 import { uiLanguage } from "$lib/stores/settings";
 import FilesStrip from "./FilesStrip.svelte";
@@ -60,6 +60,43 @@ function legacyPicture(name: string, fileId: number): ToolCallFileCard {
 const pictureTiles = () =>
 	screen.queryAllByRole("button", { name: /^Open .+, picture \d+ of \d+$/ });
 
+/** Four pictures: exactly the wide strip's slots, one more than the narrow's. */
+const FOUR_PICTURES = [1, 2, 3, 4].map((fileId) =>
+	picture(`IMG_${fileId}.jpg`, fileId),
+);
+
+type NarrowListener = (event: MediaQueryListEvent) => void;
+
+/**
+ * jsdom has no `matchMedia` of its own, so the narrow measure is stubbed: the
+ * component reads `matches` once and follows `change`, and `set` plays both.
+ */
+function stubNarrow(matches: boolean) {
+	const listeners = new Set<NarrowListener>();
+	const query = {
+		matches,
+		media: "(max-width: 480px)",
+		addEventListener: (_type: string, listener: NarrowListener) => {
+			listeners.add(listener);
+		},
+		removeEventListener: (_type: string, listener: NarrowListener) => {
+			listeners.delete(listener);
+		},
+	};
+	vi.stubGlobal(
+		"matchMedia",
+		vi.fn(() => query),
+	);
+	return {
+		set(next: boolean) {
+			query.matches = next;
+			for (const listener of listeners) {
+				listener({ matches: next } as MediaQueryListEvent);
+			}
+		},
+	};
+}
+
 /** The lazy viewer's chunk lands in a promise the press does not await. */
 async function viewerLoaded() {
 	await vi.dynamicImportSettled();
@@ -73,6 +110,10 @@ describe("FilesStrip", () => {
 	beforeEach(() => {
 		uiLanguage.set("en");
 		loader.loadImageLightbox.mockClear();
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
 	});
 
 	it("draws one file as a card, not a strip", async () => {
@@ -162,6 +203,12 @@ describe("FilesStrip", () => {
 				.getAllByTestId("fs-viewer-image")
 				.map((image) => image.getAttribute("data-open")),
 		).toEqual(["false", "true", "false"]);
+
+		// The viewer's own two props are wired: next moves, close shuts it.
+		await fireEvent.click(screen.getByRole("button", { name: "next" }));
+		expect(screen.getByTestId("fs-viewer")).toHaveAttribute("data-index", "2");
+		await fireEvent.click(screen.getByRole("button", { name: "close" }));
+		expect(screen.queryByTestId("fs-viewer")).toBeNull();
 	});
 
 	it("opens the list from the chevron and closes it again", async () => {
@@ -235,6 +282,49 @@ describe("FilesStrip", () => {
 		expect(screen.getAllByRole("link")).toHaveLength(6);
 		// The count tile is a way into the list, never into the viewer.
 		expect(loader.loadImageLightbox).not.toHaveBeenCalled();
+	});
+
+	it("narrows to three slots at 480px and widens again when the chat grows", async () => {
+		const media = stubNarrow(false);
+		render(FilesStrip, { props: { cards: FOUR_PICTURES } });
+
+		// Wide: four pictures fit four slots, so there is no count tile.
+		expect(pictureTiles()).toHaveLength(4);
+		expect(screen.queryByText("+2")).toBeNull();
+
+		media.set(true);
+		await tick();
+		// Narrow: three slots, so two pictures and the count tile over the two
+		// the strip leaves out — three tiles in all — and both it and the
+		// chevron say how many files the list will show.
+		expect(pictureTiles()).toHaveLength(2);
+		expect(screen.getByText("+2")).toBeInTheDocument();
+		expect(
+			screen.getAllByRole("button", { name: "Show all 4 files" }),
+		).toHaveLength(2);
+
+		media.set(false);
+		await tick();
+		expect(pictureTiles()).toHaveLength(4);
+		expect(screen.queryByText("+2")).toBeNull();
+	});
+
+	it("stays wide when there is no matchMedia to measure with", () => {
+		vi.stubGlobal("matchMedia", undefined);
+		render(FilesStrip, { props: { cards: FOUR_PICTURES } });
+
+		expect(pictureTiles()).toHaveLength(4);
+		expect(screen.queryByText("+2")).toBeNull();
+	});
+
+	it("draws nothing at all when the call found nothing", () => {
+		render(FilesStrip, { props: { cards: [] } });
+
+		// Not the quiet line: "Searched your files · 0 files" over an empty list
+		// would be a lie about a call that returned no cards.
+		expect(screen.queryByText(/Searched your files/)).toBeNull();
+		expect(screen.queryByRole("button")).toBeNull();
+		expect(screen.queryByRole("list")).toBeNull();
 	});
 
 	it("keeps the whole name reachable when it is too long", async () => {
@@ -363,7 +453,11 @@ describe("FilesStrip's stylesheet", () => {
 	}
 
 	it("keeps a long name on one line, and lets its block shrink, in the card and in every row", () => {
-		for (const selector of [".fs-card-name", ".fs-row-name"]) {
+		for (const selector of [
+			".fs-card-name",
+			".fs-card-facts",
+			".fs-row-name",
+		]) {
 			const name = rule(source, selector);
 			expect(name, selector).toMatch(/white-space:\s*nowrap/);
 			expect(name, selector).toMatch(/overflow:\s*hidden/);
@@ -384,5 +478,18 @@ describe("FilesStrip's stylesheet", () => {
 		expect(rule(source, ".fs-card-picture")).toMatch(/width:\s*56px/);
 		expect(rule(source, ".fs-card-picture")).toMatch(/height:\s*56px/);
 		expect(rule(source, ".fs-row-picture")).toMatch(/width:\s*40px/);
+	});
+
+	it("dims the count tile with the app's one scrim, laid dark enough for small white text", () => {
+		const more = rule(source, ".fs-tile-more");
+		expect(more).toMatch(/color:\s*var\(--accent-contrast\)/);
+		// One 32% scrim leaves the +N at about 2:1 over a bright picture; two
+		// layers reach about 4.6:1, which is what small text needs.
+		expect(
+			more.match(/linear-gradient\(var\(--scrim\), var\(--scrim\)\)/g) ?? [],
+		).toHaveLength(2);
+		// The dimming is the token's, never a colour written here.
+		expect(more).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+		expect(more).not.toMatch(/rgba?\(/);
 	});
 });

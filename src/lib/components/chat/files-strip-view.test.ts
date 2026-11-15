@@ -74,8 +74,8 @@ describe("filesStripTiles", () => {
 			{ kind: "picture", card: cards[1], pictureIndex: 1 },
 			{ kind: "picture", card: cards[2], pictureIndex: 2 },
 		]);
-		// The count tile's picture is the first one it hides, so a viewer
-		// opened from it starts there.
+		// The count tile's picture is the first one it hides; a press on the tile
+		// opens the file list, so `pictureIndex` names that picture's place.
 		expect(tiles[3]).toEqual({
 			kind: "count",
 			hidden: 3,
