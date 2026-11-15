@@ -107,8 +107,9 @@ phone.
   many pictures there are.
 - **A `files` call in the thinking rail.** A call that found cards is not a rail
   row: its block in `message-deliverables` is the only copy, where before the
-  swap it was a pinned row inside the rail. A cardless call keeps the ordinary
-  rail row it always had.
+  swap it was a pinned `ToolActivityRow` deliverable in the same
+  `message-deliverables` list. A cardless call keeps the ordinary rail row it
+  always had.
 
 ## Accessibility
 

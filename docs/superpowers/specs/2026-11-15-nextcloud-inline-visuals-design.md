@@ -27,6 +27,8 @@ the reply surfaces it as a citation row rather than something to click in place.
 
 ## The decision, as the person made it
 
+_Superseded below where the delivered strip differs (§4 and the compact design)._
+
 1. **A small square preview beside the file's name, size and date, with the
    Nextcloud link underneath** — option C of the mockup
    (`.superpowers/brainstorm/71700-1794701779/content/01-image-size.html`).
@@ -227,9 +229,10 @@ Nothing in the system prompt changes.
 - Six cards per reply, automatic rather than model-chosen; directories are
   filtered out.
 - Cards below the prose, not inside the tool row and not pinned above it.
-- **Clicking (changed after this design):** the card's click opens Nextcloud
-  rather than a lightbox; the delivered strip's picture opens the app's viewer,
-  and the list row is the Nextcloud link.
+- **Clicking (changed after this design):** the first pass made the card's
+  click open Nextcloud and dropped the lightbox. Delivered, a picture opens the
+  app's viewer — the single card's picture and the strip's tiles — and Nextcloud
+  is the way from the card's text and from every list row.
 - `oc:fileid` on both PROPFIND bodies, so the link opens the file and the
   preview can use the id form; the path form is only a fallback.
 - OneDrive draws no cards at all: the card payload gates on the Nextcloud provider.
