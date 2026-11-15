@@ -152,6 +152,24 @@ Not `make_image` with a flag: a second tool, a second job kind and a video artif
 
 The card shows the poster, a play control, the duration and the still it came from.
 
+## Chaining two 5 s clips
+
+Measured: clip A (5 s, locked camera, seed 1001), its **last frame** extracted and fed as
+the guide for clip B (seed 1002). Each render was **19.0 s** with the model already
+warm, so a 10 s result costs ~38 s against 38.1 s for a single 10 s clip — no saving,
+but every clip stays inside the stable window.
+
+- **The seam is invisible.** Frames either side of the join (118-121 of the concatenated
+  file) continue the same pose and lighting; ffmpeg concat of two h264 clips is enough.
+- **Drift does not reset.** Clip B wandered anyway: by its last frame the model had
+  invented a satin robe and pushed the camera in, despite a "camera stays completely
+  still" caption. Two 5 s clips accumulate roughly the drift of one 10 s clip, just in
+  two steps.
+
+So chaining is mechanically sound but not yet a quality fix. The obvious next
+experiment is the shipped **FLF2V** graph, which pins both the first and the last frame
+of a segment, so the second half cannot wander off its endpoint.
+
 ## Open questions
 
 - Does the caption improvement hold across subjects? One still proved the mechanism,
