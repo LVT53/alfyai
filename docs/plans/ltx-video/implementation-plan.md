@@ -90,9 +90,54 @@ not restate them, and no mockup overrides them.
 | 4 | A video take runs: LTX graph, two-segment chain, store, settle | worker-runner (after 2) | `services/images/video/{job,request,runner}.ts`, `comfyui/ltx-templates.ts`, graph JSON, `comfyui/client.ts` (`readHistory` media), `idle-free.ts` | runner unit tests over the fake; chain test with two prompts |
 | 5 | The chat model can ask for a video: tool, config, caption | worker-tool (after 4) | `normal-chat-tools/make-video.ts`, `index.ts`, `shared.ts` (timeouts), `env.ts`, `config-store.ts`, `admin-config-registry.ts`, `IntegrationsPage.svelte`, `i18n/settings.ts` | tool tests; config tests; catalogue snapshot |
 | 6 | The explicit filter covers video | worker-filter (after 4) | `services/images/picture-check/{index,policy}.ts` (sampled frames), `image-runner` video branch | blocked/unchecked tests |
+| 7 | An adversarial review of the whole change, by sub-agents who wrote none of it, before anything is deployed | reviewers a-d (after 6) | read-only | findings report, then a re-review of every fix |
 
 Slices 1 and 2 are independent and start together. 3 and 4 both follow 2 and do not share
 files. 5 follows 4. 6 follows 4.
+
+
+## Slice 7: the adversarial review gate
+
+Deployment is blocked until this slice passes. It is not an implementation slice; it is the
+one that decides whether the other six are true.
+
+**Who.** Four independent sub-agents that wrote none of the code, run in parallel, each
+read-only (they report, they do not edit). They see the plan, the diff and the repository —
+not my conclusions, not each other's findings, and not the implementers' reports. A
+reviewer that finds nothing must say what it could not verify; a clean report from a
+reviewer who did not try to break the thing is a failed review.
+
+**Angles, disjoint so the four do not duplicate each other.**
+
+| Reviewer | Owns | Looks for |
+|---|---|---|
+| A — correctness and lifecycle | the job kind, the runner, the chain, checkpoint/resume, cancel/retry/Stop, SSE and the 750 ms poll | a take that can be submitted twice; a chain that loses its second segment on restart; a cancel that leaves the model rendering; a poll that reads a settled card as active forever; progress or ETA written after success |
+| B — security and data | ownership scoping on every new route and variant, `Range` parsing, path derivation and cleanup, the migration, the explicit filter | a video or poster readable by someone who could not read the picture; a byte range that over-reads or under-reports; a cleanup that leaves the mp4 or deletes the poster; a migration that is not expand-only or does not replay; a filter path that fails open |
+| C — UX, states and accessibility | the card and player, every state including failed/blocked/stopped/gone, keyboard operation, loop, focus, screen-reader announcements, EN and HU | a state with no way out; a player that traps focus or has no keyboard path; loop that keeps playing after the chat is left; a string in one language only; a control that reads differently from the picture card |
+| D — tests and gaps | what the suite now claims versus what it proves | behaviour with no test; a test that would pass with the feature removed; a flaky assertion (animation, polling, timing); a gate step that cannot fail; a spec that only exercises the fake in a way the real service would not |
+
+**What they exercise.** Beyond reading: reviewer B replays the migration on a copy of the
+production-shaped database and probes the route with hostile ranges and foreign ids;
+reviewer C drives the built app against the fake and uses the player with the keyboard
+only, then with reduced motion; reviewer A kills the process mid-take and restarts it, and
+stops a take at each phase. Findings need file:line, why it is wrong, how to reproduce, and
+a severity.
+
+**Finding levels and the bar.**
+
+- **blocker** — data loss, a security or ownership hole, a take that can hang or double-submit, a migration that cannot replay, the filter failing open.
+- **major** — a user-visible state with no exit, a wrong or missing announcement, a language gap, a chain that silently produces one segment, a test that does not test the thing.
+- **minor** — polish, wording, a comment that is now false.
+- **nit** — taste.
+
+Zero blockers, zero majors, every minor either fixed or recorded with a reason. Every fix is
+re-reviewed by the reviewer who raised it (or a fresh one for the same angle) — a fix is not
+accepted because it compiles.
+
+**Then, and only then.** `scripts/gates.sh agent …` green in full, the migration replay
+recorded, one end-to-end video take proven over the fake, and a staging smoke before
+production. Deployment stays a separate, explicit step: the gate says the change is ready,
+not that it should ship.
 
 ## Review gates
 
