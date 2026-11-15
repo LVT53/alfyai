@@ -19,6 +19,8 @@ import {
 } from "$lib/stores/session";
 import {
 	confirmSessionForDownload,
+	downloadAuthenticatedBlob,
+	downloadFilenameFromHeader,
 	downloadProducedFile,
 	handleDownloadAnchorClick,
 	isBrowserHandledClick,
@@ -499,4 +501,158 @@ it("a healthy download probe does not retire a sibling refusal without an auth t
 	release(jsonResponse(401, {}, { [SESSION_EXPIRED_HEADER]: "1" }));
 	await sibling;
 	expect(isSessionExpired()).toBe(true);
+});
+
+// A clip's GIF is made on request and can answer 503/500. The native anchor
+// path cannot read that, so this one fetches first and only saves an OK answer.
+describe("downloadAuthenticatedBlob", () => {
+	function stubObjectUrls() {
+		const originalCreate = URL.createObjectURL;
+		const originalRevoke = URL.revokeObjectURL;
+		const create = vi.fn(() => "blob:gif-1");
+		const revoke = vi.fn();
+		Object.defineProperty(URL, "createObjectURL", {
+			configurable: true,
+			writable: true,
+			value: create,
+		});
+		Object.defineProperty(URL, "revokeObjectURL", {
+			configurable: true,
+			writable: true,
+			value: revoke,
+		});
+		return {
+			create,
+			revoke,
+			restore() {
+				Object.defineProperty(URL, "createObjectURL", {
+					configurable: true,
+					writable: true,
+					value: originalCreate,
+				});
+				Object.defineProperty(URL, "revokeObjectURL", {
+					configurable: true,
+					writable: true,
+					value: originalRevoke,
+				});
+			},
+		};
+	}
+
+	function clicks() {
+		const seen: Array<{ href: string; filename: string | null }> = [];
+		const realClick = HTMLAnchorElement.prototype.click;
+		HTMLAnchorElement.prototype.click = function patched(
+			this: HTMLAnchorElement,
+		) {
+			seen.push({
+				href: this.getAttribute("href") ?? "",
+				filename: this.getAttribute("download"),
+			});
+		};
+		return {
+			seen,
+			restore() {
+				HTMLAnchorElement.prototype.click = realClick;
+			},
+		};
+	}
+
+	it("reads the filename a Content-Disposition header names", () => {
+		expect(
+			downloadFilenameFromHeader(
+				"attachment; filename=\"harbour.gif\"; filename*=UTF-8''harbour%20at%20dusk.gif",
+			),
+		).toBe("harbour at dusk.gif");
+		expect(
+			downloadFilenameFromHeader('attachment; filename="harbour.gif"'),
+		).toBe("harbour.gif");
+		expect(downloadFilenameFromHeader("attachment")).toBeUndefined();
+		expect(downloadFilenameFromHeader(null)).toBeUndefined();
+	});
+
+	it("fetches with credentials and saves the blob an OK answer carries", async () => {
+		const urls = stubObjectUrls();
+		const anchor = clicks();
+		try {
+			const fetchImpl = vi.fn(
+				async () =>
+					new Response("GIF89a", {
+						status: 200,
+						headers: {
+							"Content-Type": "image/gif",
+							"Content-Disposition": 'attachment; filename="harbour.gif"',
+						},
+					}),
+			);
+			const started = await downloadAuthenticatedBlob(
+				"/api/images/files/clip-1?download=1&format=gif",
+				{ fetchImpl },
+			);
+			expect(started).toBe(true);
+			expect(fetchImpl).toHaveBeenCalledWith(
+				"/api/images/files/clip-1?download=1&format=gif",
+				expect.objectContaining({ credentials: "include", method: "GET" }),
+			);
+			expect(urls.create).toHaveBeenCalledTimes(1);
+			expect(anchor.seen).toEqual([
+				{ href: "blob:gif-1", filename: "harbour.gif" },
+			]);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(urls.revoke).toHaveBeenCalledWith("blob:gif-1");
+		} finally {
+			anchor.restore();
+			urls.restore();
+		}
+	});
+
+	it("saves no junk file for a 503 or a 500, and says it failed", async () => {
+		for (const status of [503, 500]) {
+			const urls = stubObjectUrls();
+			const anchor = clicks();
+			try {
+				const started = await downloadAuthenticatedBlob(
+					"/api/images/files/clip-1?download=1&format=gif",
+					{
+						fetchImpl: vi.fn(
+							async () =>
+								new Response(
+									JSON.stringify({
+										error:
+											status === 503
+												? "video_media_unavailable"
+												: "video_media_failed",
+									}),
+									{ status, headers: { "Content-Type": "application/json" } },
+								),
+						),
+					},
+				);
+				expect(started).toBe(false);
+				expect(anchor.seen).toEqual([]);
+				expect(urls.create).not.toHaveBeenCalled();
+			} finally {
+				anchor.restore();
+				urls.restore();
+			}
+		}
+	});
+
+	it("says it failed when the request never arrived", async () => {
+		const anchor = clicks();
+		try {
+			const started = await downloadAuthenticatedBlob(
+				"/api/images/files/clip-1?download=1&format=gif",
+				{
+					fetchImpl: vi.fn(async () => {
+						throw new TypeError("Failed to fetch");
+					}),
+				},
+			);
+			expect(started).toBe(false);
+			expect(anchor.seen).toEqual([]);
+		} finally {
+			anchor.restore();
+		}
+	});
 });

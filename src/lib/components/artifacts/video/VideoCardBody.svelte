@@ -12,8 +12,8 @@
 // clock — is a chip laid over the stage (`aria-hidden`, so the live region
 // never re-announces it), the same rule the picture card follows.
 //
-// A clip has no versions: More offers Download and a History that is disabled
-// on purpose, and there is no takes strip. The whole card is worked out in
+// A clip's versions are real but History is not shown for one yet: More offers
+// Download and a disabled History that says so, and there is no takes strip. The whole card is worked out in
 // `video-card-view.ts`.
 import {
 	Download,
@@ -25,11 +25,17 @@ import {
 	TriangleAlert,
 	VideoOff,
 } from "@lucide/svelte";
+import { get } from "svelte/store";
 import { fade } from "svelte/transition";
-import { startAuthenticatedDownload } from "$lib/client/downloads";
+import {
+	downloadAuthenticatedBlob,
+	startAuthenticatedDownload,
+} from "$lib/client/downloads";
 import { t } from "$lib/i18n";
+import { showToast } from "$lib/stores/toast";
 import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
 import AnchoredPopover from "../AnchoredPopover.svelte";
+import { STARTING_SHOWN_AFTER_MS } from "../image/image-card-view";
 import {
 	type VideoCardAction,
 	type VideoCardActionHandler,
@@ -63,6 +69,8 @@ const crossfade = reducedMotionAware(fade);
 
 let now = $state(Date.now());
 let menuOpen = $state(false);
+/** The GIF is being made: the row wears the card's own disabled/busy look. */
+let gifBusy = $state(false);
 /** Anothers pressed whose take the card does not hold yet. */
 let pendingAnothers = $state(0);
 let takeBeforeAnother = $state<string | null>(null);
@@ -125,7 +133,7 @@ $effect(() => {
 	if (
 		running.phase === "starting" &&
 		running.phaseAt !== null &&
-		Date.now() - running.phaseAt >= 3_000
+		Date.now() - running.phaseAt >= STARTING_SHOWN_AFTER_MS
 	) {
 		return;
 	}
@@ -172,16 +180,32 @@ function pressDownload(): void {
 	);
 }
 
-function pressDownloadGif(): void {
-	menuOpen = false;
-	if (!clip) return;
-	void startAuthenticatedDownload(
-		videoFileUrl(clip.fileId, {
-			download: true,
-			format: "gif",
-			conversationId: scope,
-		}),
-	);
+async function pressDownloadGif(): Promise<void> {
+	if (!clip || gifBusy) return;
+	gifBusy = true;
+	try {
+		// Read the answer before saving: the server makes the GIF on request and a
+		// 503/500 is a sentence to say, not a file to save. The menu stays open
+		// while it runs, so the row's disabled state is the busy state the reader
+		// can see (the first GIF takes seconds of ffmpeg).
+		const started = await downloadAuthenticatedBlob(
+			videoFileUrl(clip.fileId, {
+				download: true,
+				format: "gif",
+				conversationId: scope,
+			}),
+			{ fallbackFilename: `${card.title || "clip"}.gif` },
+		);
+		if (!started) {
+			showToast({
+				type: "error",
+				message: get(t)("artifacts.image.card.actionFailed"),
+			});
+		}
+	} finally {
+		gifBusy = false;
+		menuOpen = false;
+	}
 }
 </script>
 
@@ -358,7 +382,7 @@ function pressDownloadGif(): void {
 				role="menuitem"
 				class="video-card-menu-row"
 				data-testid="video-card-download"
-				disabled={!ready || !clip}
+				disabled={!ready || !clip || gifBusy}
 				onclick={pressDownload}
 			>
 				<Download size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -371,8 +395,9 @@ function pressDownloadGif(): void {
 				role="menuitem"
 				class="video-card-menu-row"
 				data-testid="video-card-download-gif"
-				disabled={!ready || !clip}
-				onclick={pressDownloadGif}
+				disabled={!ready || !clip || gifBusy}
+				aria-busy={gifBusy ? 'true' : undefined}
+				onclick={() => void pressDownloadGif()}
 			>
 				<FileImage size={16} strokeWidth={1.75} aria-hidden="true" />
 				<span>{$t('artifacts.video.card.downloadGif')}</span>
@@ -518,12 +543,14 @@ function pressDownloadGif(): void {
 		color: var(--text-primary);
 		font-family: var(--font-sans);
 		font-size: 0.75rem;
+		/* The chips are labels over the player, never targets of their own: a
+		   press on top of one must reach the clip and toggle play. */
+		pointer-events: none;
 	}
 
 	.video-card-time {
 		left: 0.5rem;
 		max-width: calc(100% - 3.5rem);
-		pointer-events: none;
 	}
 
 	.video-card-duration {

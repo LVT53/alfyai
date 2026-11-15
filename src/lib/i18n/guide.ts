@@ -258,7 +258,7 @@ const guideDict = {
 			"Rajzolj születésnapi képeslapot egy partisapkás rókával.",
 		"guide.entry.videos.name": "Videók",
 		"guide.entry.videos.line":
-			"Változtass egy állóképet 5 vagy 10 másodperces klippé.",
+			"Készíts 5 vagy 10 másodperces klipet egy állóképből.",
 		"guide.entry.videos.example":
 			"Keltesd életre ezt a fotót: lassan begördülnek a hullámok.",
 		"guide.entry.files.name": "Fájlok",

@@ -1,7 +1,12 @@
+import { readFileSync } from "node:fs";
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { startAuthenticatedDownload } from "$lib/client/downloads";
+import {
+	downloadAuthenticatedBlob,
+	startAuthenticatedDownload,
+} from "$lib/client/downloads";
 import { uiLanguage } from "$lib/stores/settings";
+import { showToast } from "$lib/stores/toast";
 import VideoCardBody from "./VideoCardBody.svelte";
 import {
 	videoCard as card,
@@ -21,11 +26,16 @@ function clip(over: Parameters<typeof videoClip>[0] = {}) {
 
 vi.mock("$lib/client/downloads", () => ({
 	startAuthenticatedDownload: vi.fn(() => Promise.resolve()),
+	downloadAuthenticatedBlob: vi.fn(() => Promise.resolve(true)),
 }));
+vi.mock("$lib/stores/toast", () => ({ showToast: vi.fn() }));
 
 beforeEach(() => {
 	uiLanguage.set("en");
 	vi.mocked(startAuthenticatedDownload).mockClear();
+	vi.mocked(downloadAuthenticatedBlob).mockReset();
+	vi.mocked(downloadAuthenticatedBlob).mockResolvedValue(true);
+	vi.mocked(showToast).mockClear();
 });
 
 afterEach(() => {
@@ -174,13 +184,16 @@ describe("VideoCardBody, when the clip is ready", () => {
 		expect(screen.getByTestId("video-card-swap").children).toHaveLength(0);
 	});
 
-	it("downloads the clip itself from More, and has no History because a clip has no versions", async () => {
+	it("downloads the clip itself from More, and says History is not shown for a clip yet", async () => {
 		render(VideoCardBody, { card: card(take({ clip: clip() })) });
 		await fireEvent.click(screen.getByRole("button", { name: "More" }));
 		const menu = await screen.findByTestId("video-card-menu");
 		const history = within(menu).getByTestId("video-card-history");
 		expect(history).toBeDisabled();
-		expect(history).toHaveAttribute("title", "A clip keeps no versions.");
+		expect(history).toHaveAttribute(
+			"title",
+			"History isn't shown for a clip yet.",
+		);
 		expect(
 			within(menu).queryByTestId("video-card-attach"),
 		).not.toBeInTheDocument();
@@ -224,8 +237,51 @@ describe("VideoCardBody, when the clip is ready", () => {
 		await fireEvent.click(screen.getByRole("button", { name: "More" }));
 		const menu = await screen.findByTestId("video-card-menu");
 		await fireEvent.click(within(menu).getByTestId("video-card-download-gif"));
-		expect(startAuthenticatedDownload).toHaveBeenCalledWith(
+		expect(downloadAuthenticatedBlob).toHaveBeenCalledWith(
 			"/api/images/files/clip-1?download=1&format=gif&conversationId=conv-1",
+			{ fallbackFilename: "Harbour at dawn.gif" },
+		);
+		// The mp4 is still the native download; only the GIF is read first.
+		expect(startAuthenticatedDownload).not.toHaveBeenCalled();
+	});
+
+	it("keeps the GIF row disabled while the GIF is made, then says so when it failed", async () => {
+		let answer!: (started: boolean) => void;
+		vi.mocked(downloadAuthenticatedBlob).mockReturnValueOnce(
+			new Promise<boolean>((resolve) => {
+				answer = resolve;
+			}),
+		);
+		render(VideoCardBody, { card: card(take({ clip: clip() })) });
+		await fireEvent.click(screen.getByRole("button", { name: "More" }));
+		const menu = await screen.findByTestId("video-card-menu");
+		const gifRow = within(menu).getByTestId("video-card-download-gif");
+		const mp4Row = within(menu).getByTestId("video-card-download");
+		await fireEvent.click(gifRow);
+		// The card's own disabled treatment is the busy state; the menu stays open
+		// so the reader can see it.
+		expect(gifRow).toBeDisabled();
+		expect(mp4Row).toBeDisabled();
+		expect(screen.getByTestId("video-card-menu")).toBeInTheDocument();
+
+		answer(false);
+		await vi.waitFor(() =>
+			expect(screen.queryByTestId("video-card-menu")).toBeNull(),
+		);
+		expect(showToast).toHaveBeenCalledWith({
+			type: "error",
+			message: "That didn't work. Try again in a moment.",
+		});
+	});
+
+	it("reads the starting threshold from the picture card's constant, not a copy", () => {
+		const source = readFileSync(
+			`${process.cwd()}/src/lib/components/artifacts/video/VideoCardBody.svelte`,
+			"utf-8",
+		);
+		expect(source).not.toMatch(/\b3_000\b/);
+		expect(source).toMatch(
+			/import\s*\{[^}]*STARTING_SHOWN_AFTER_MS[^}]*\}\s*from\s*"\.\.\/image\/image-card-view"/,
 		);
 	});
 
@@ -256,6 +312,22 @@ describe("VideoCardBody, when the clip is ready", () => {
 		});
 		expect(screen.getByTestId("video-card-another")).toBeDisabled();
 		expect(screen.getByTestId("video-card-stop")).toBeDisabled();
+	});
+
+	it("lets a press through the duration chip, as the badge already does", () => {
+		const source = readFileSync(
+			`${process.cwd()}/src/lib/components/artifacts/video/VideoCardBody.svelte`,
+			"utf-8",
+		);
+		const sharedChipRule = source.match(
+			/\.video-card-time,\s*\n\s*\.video-card-duration\s*\{([^}]*)\}/,
+		)?.[1];
+		expect(sharedChipRule).toMatch(/pointer-events:\s*none/);
+		// And it is not set again on the time chip alone, which used to leave the
+		// duration chip a dead spot on top of the player.
+		expect(source).not.toMatch(
+			/\.video-card-time\s*\{[^}]*pointer-events:\s*none/,
+		);
 	});
 
 	it("keeps the play control where the picture card keeps its Enlarge", () => {
@@ -336,7 +408,7 @@ describe("VideoCardBody, when it cannot play", () => {
 	it("says a video out of this chat's reach opens where it was made", () => {
 		render(VideoCardBody, { card: card(), gone: "unreachable" });
 		expect(screen.getByTestId("video-card-gone")).toHaveTextContent(
-			"It opens in the chat it was made in.",
+			"Open it from the chat it was made in.",
 		);
 	});
 

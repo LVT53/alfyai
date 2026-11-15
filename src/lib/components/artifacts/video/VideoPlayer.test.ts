@@ -9,8 +9,6 @@ const PROPS = {
 	posterFileId: "poster-1",
 	title: "Harbour at dawn",
 	conversationId: "conv-1",
-	width: 1280,
-	height: 720,
 };
 
 let play: ReturnType<typeof vi.spyOn>;
@@ -109,13 +107,51 @@ describe("VideoPlayer", () => {
 		).toBeInTheDocument();
 	});
 
-	it("keeps Space for play/pause even over its own fullscreen control", async () => {
+	it("leaves Space to a focused button, so the button's own activation runs", async () => {
 		render(VideoPlayer, PROPS);
 		const fullscreenButton = screen.getByTestId("video-player-fullscreen");
 		fullscreenButton.focus();
-		await fireEvent.keyDown(fullscreenButton, { key: " " });
-		expect(play).toHaveBeenCalledTimes(1);
-		expect(fullscreen).not.toHaveBeenCalled();
+		const keydown = new KeyboardEvent("keydown", {
+			key: " ",
+			bubbles: true,
+			cancelable: true,
+		});
+		fullscreenButton.dispatchEvent(keydown);
+		// Space is not eaten: the browser can activate the button it was pressed on.
+		expect(keydown.defaultPrevented).toBe(false);
+		expect(play).not.toHaveBeenCalled();
+		// What the browser's own activation does.
+		await fireEvent.click(fullscreenButton);
+		expect(fullscreen).toHaveBeenCalledTimes(1);
+	});
+
+	it("announces the loop and mute changes it makes, never silently", async () => {
+		render(VideoPlayer, PROPS);
+		const status = screen.getByRole("status");
+		expect(status).toHaveClass("sr-only");
+		expect(status).toHaveTextContent("");
+		await fireEvent.keyDown(root(), { key: "l" });
+		expect(status).toHaveTextContent("Loop off");
+		await fireEvent.keyDown(root(), { key: "L" });
+		expect(status).toHaveTextContent("Loop on");
+		await fireEvent.keyDown(root(), { key: "m" });
+		expect(status).toHaveTextContent("Muted");
+		await fireEvent.keyDown(root(), { key: "m" });
+		expect(status).toHaveTextContent("Unmuted");
+	});
+
+	it("announces the loop and mute changes in Hungarian too", async () => {
+		uiLanguage.set("hu");
+		render(VideoPlayer, PROPS);
+		const status = screen.getByRole("status");
+		await fireEvent.keyDown(root(), { key: "l" });
+		expect(status).toHaveTextContent("Ismétlés ki");
+		await fireEvent.keyDown(root(), { key: "l" });
+		expect(status).toHaveTextContent("Ismétlés be");
+		await fireEvent.keyDown(root(), { key: "m" });
+		expect(status).toHaveTextContent("Némítva");
+		await fireEvent.keyDown(root(), { key: "m" });
+		expect(status).toHaveTextContent("Némítás kikapcsolva");
 	});
 
 	it("seeks one second with the arrows and five with shift", async () => {

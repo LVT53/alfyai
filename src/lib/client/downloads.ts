@@ -160,6 +160,77 @@ export async function startAuthenticatedDownload(
 }
 
 /**
+ * The filename a `Content-Disposition` header names: the RFC 5987 UTF-8 form
+ * when it is there, the ASCII fallback otherwise. Undefined when it names none.
+ */
+export function downloadFilenameFromHeader(
+	header: string | null,
+): string | undefined {
+	if (!header) return undefined;
+	const extended = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header)?.[1];
+	if (extended) {
+		try {
+			return decodeURIComponent(extended.trim());
+		} catch {
+			// A malformed escape is not a reason to lose the whole download.
+		}
+	}
+	const quoted = /filename\s*=\s*"([^"]*)"/i.exec(header)?.[1];
+	const bare = quoted ?? /filename\s*=\s*([^;]+)/i.exec(header)?.[1];
+	const name = bare?.trim();
+	return name ? name : undefined;
+}
+
+/**
+ * Downloads a response the browser has to READ before it can save it — a clip's
+ * GIF, which the server makes on request and may answer with 503
+ * (`video_media_unavailable`) or 500 (`video_media_failed`). The native anchor
+ * path above cannot see any of that: it saves whatever the response is, so a
+ * failed conversion would become a junk file. This fetches first, with
+ * credentials, and only starts the browser's save for an OK answer; any other
+ * answer (or a request that never arrived) is `false`, for the caller to say.
+ * The blob is small by contract (a GIF under a few MB), so buffering it costs
+ * no more than the save itself.
+ */
+export async function downloadAuthenticatedBlob(
+	url: string,
+	options: { fetchImpl?: FetchLike; fallbackFilename?: string } = {},
+): Promise<boolean> {
+	if (!url) return false;
+	const fetchImpl = options.fetchImpl ?? fetch;
+	try {
+		const response = await fetchImpl(url, {
+			method: "GET",
+			credentials: "include",
+			headers: { Accept: "image/gif" },
+		});
+		if (!response.ok) {
+			// The same signed-out reaction every centrally-routed call runs.
+			if (response.status === 401) {
+				await readErrorPayload(
+					response,
+					"Unauthorized",
+					captureSessionRequest(),
+				).catch(() => undefined);
+			}
+			return false;
+		}
+		const blob = await response.blob();
+		const filename =
+			downloadFilenameFromHeader(response.headers.get("content-disposition")) ??
+			options.fallbackFilename;
+		const objectUrl = URL.createObjectURL(blob);
+		triggerBrowserDownload(objectUrl, filename);
+		// The click above already started the save; free the URL on the next task
+		// so a long session does not keep every GIF it downloaded in memory.
+		setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
  * The `onclick` for an `<a href=… download>` affordance.
  *
  * The anchor keeps its `href`, so the status bar shows the destination and

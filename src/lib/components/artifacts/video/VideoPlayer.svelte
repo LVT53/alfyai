@@ -46,6 +46,11 @@ let videoEl = $state<HTMLVideoElement | null>(null);
 let playing = $state(false);
 let loop = $state(true);
 let muted = $state(false);
+/**
+ * The last loop/mute change, said once through the sr-only live region below:
+ * both keys change something a sighted reader sees and a screen reader cannot.
+ */
+let announcement = $state("");
 let clickTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** This player's own handle in the one-clip registry. */
@@ -147,22 +152,28 @@ function toggleMute(): void {
 	if (!el) return;
 	muted = !muted;
 	el.muted = muted;
+	announcement = muted
+		? $t("artifacts.video.player.muted")
+		: $t("artifacts.video.player.unmuted");
 }
 
 function toggleLoop(): void {
 	const el = videoEl;
 	loop = !loop;
 	if (el) el.loop = loop;
+	announcement = loop
+		? $t("artifacts.video.player.loopOn")
+		: $t("artifacts.video.player.loopOff");
 }
 
 function handleKeydown(event: KeyboardEvent): void {
-	// A focused control keeps its own Enter (a button's activation key); Space
-	// is the player's play/pause everywhere in it, exactly as the map says, so a
-	// focused control does not turn it into itself.
+	// A focused control keeps its own activation keys: Enter AND Space. Eating
+	// Space here used to press Fullscreen and play the clip at once, because
+	// `preventDefault()` stops the button's own activation but not ours.
 	if (
 		event.target instanceof HTMLElement &&
 		event.target.tagName === "BUTTON" &&
-		event.key === "Enter"
+		(event.key === "Enter" || event.key === " " || event.key === "Spacebar")
 	) {
 		return;
 	}
@@ -295,6 +306,9 @@ const poster = $derived(
 			<Maximize2 size={16} strokeWidth={2} aria-hidden="true" />
 		</button>
 	</div>
+	<span class="sr-only" role="status" aria-atomic="true" data-testid="video-player-status"
+		>{announcement}</span
+	>
 	<span class="sr-only" id={helpId}>{$t('artifacts.video.player.keys')}</span>
 </div>
 

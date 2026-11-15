@@ -35,8 +35,9 @@ export type VideoTakePhase =
  * the measured length. A take that has not landed has none.
  *
  * The runner slice's read model produces this shape; a video card has one take
- * at a time (a clip keeps no versions and no takes strip), so Another replaces
- * what the card shows rather than adding a tile.
+ * at a time and no takes strip; its versions exist, but History is not shown
+ * for a clip yet, so Another replaces what the card shows rather than adding a
+ * tile.
  */
 export type VideoTakeView = {
 	id: string;

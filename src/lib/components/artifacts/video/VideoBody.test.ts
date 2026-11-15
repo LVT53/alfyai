@@ -1,9 +1,14 @@
+import { readFileSync } from "node:fs";
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as artifactsApi from "$lib/client/api/artifacts";
-import { startAuthenticatedDownload } from "$lib/client/downloads";
+import {
+	downloadAuthenticatedBlob,
+	startAuthenticatedDownload,
+} from "$lib/client/downloads";
 import { serializeVideoVersionBody } from "$lib/shared/artifacts/video-body";
 import { uiLanguage } from "$lib/stores/settings";
+import { showToast } from "$lib/stores/toast";
 import {
 	ARTIFACT_BODIES,
 	type ArtifactPanelBodyActions,
@@ -16,7 +21,9 @@ vi.mock("$lib/client/api/artifacts", () => ({
 }));
 vi.mock("$lib/client/downloads", () => ({
 	startAuthenticatedDownload: vi.fn(() => Promise.resolve()),
+	downloadAuthenticatedBlob: vi.fn(() => Promise.resolve(true)),
 }));
+vi.mock("$lib/stores/toast", () => ({ showToast: vi.fn() }));
 
 const BODY = serializeVideoVersionBody({
 	v: 1,
@@ -43,6 +50,9 @@ function answer(body: string | null, versionNumber = 1) {
 beforeEach(() => {
 	uiLanguage.set("en");
 	vi.mocked(startAuthenticatedDownload).mockClear();
+	vi.mocked(downloadAuthenticatedBlob).mockReset();
+	vi.mocked(downloadAuthenticatedBlob).mockResolvedValue(true);
+	vi.mocked(showToast).mockClear();
 });
 
 afterEach(() => {
@@ -147,7 +157,7 @@ describe("VideoBody (the panel)", () => {
 				.slice(-2),
 		).toEqual(["video-download-mp4", "video-download-gif"]);
 		expect(within(sheet).getByTestId("video-download-mp4")).toHaveTextContent(
-			"Download video (MP4)",
+			"Download as MP4",
 		);
 		expect(within(sheet).getByTestId("video-download-gif")).toHaveTextContent(
 			"Download as GIF",
@@ -161,7 +171,7 @@ describe("VideoBody (the panel)", () => {
 		expect(screen.queryByTestId("video-download-popover")).toBeNull();
 	});
 
-	it("downloads the clip as a GIF from the panel's Download", async () => {
+	it("downloads the clip as a GIF from the panel's Download, reading the response first", async () => {
 		answer(BODY);
 		let actions: ArtifactPanelBodyActions | undefined;
 		render(VideoBody, {
@@ -177,10 +187,47 @@ describe("VideoBody (the panel)", () => {
 		actions?.openDownload?.();
 		await fireEvent.click(await screen.findByTestId("video-download-gif"));
 
-		expect(startAuthenticatedDownload).toHaveBeenCalledWith(
+		expect(downloadAuthenticatedBlob).toHaveBeenCalledWith(
 			"/api/images/files/clip-1?download=1&format=gif&conversationId=conv-1",
+			{ fallbackFilename: "Harbour at dawn.gif" },
 		);
+		expect(startAuthenticatedDownload).not.toHaveBeenCalled();
 		expect(screen.queryByTestId("video-download-popover")).toBeNull();
+	});
+
+	it("shows the GIF row busy while it is made, and says so when it failed", async () => {
+		answer(BODY);
+		let answerGif!: (started: boolean) => void;
+		vi.mocked(downloadAuthenticatedBlob).mockReturnValueOnce(
+			new Promise<boolean>((resolve) => {
+				answerGif = resolve;
+			}),
+		);
+		let actions: ArtifactPanelBodyActions | undefined;
+		render(VideoBody, {
+			artifactId: "video-1",
+			kind: "video",
+			title: "Harbour at dawn",
+			body: null,
+			conversationId: "conv-1",
+			registerPanelActions: (next) => (actions = next),
+		});
+		await screen.findByTestId("video-player-media");
+
+		actions?.openDownload?.();
+		const gifRow = await screen.findByTestId("video-download-gif");
+		await fireEvent.click(gifRow);
+		expect(gifRow).toBeDisabled();
+		expect(screen.getByTestId("video-download-popover")).toBeInTheDocument();
+
+		answerGif(false);
+		await vi.waitFor(() =>
+			expect(screen.queryByTestId("video-download-popover")).toBeNull(),
+		);
+		expect(showToast).toHaveBeenCalledWith({
+			type: "error",
+			message: "That didn't work. Try again in a moment.",
+		});
 	});
 
 	it("offers no Download while there is no clip", async () => {
@@ -212,7 +259,7 @@ describe("VideoBody (the panel)", () => {
 		actions?.openDownload?.();
 		const sheet = await screen.findByTestId("video-download-popover");
 		expect(within(sheet).getByTestId("video-download-mp4")).toHaveTextContent(
-			"Videó letöltése (MP4)",
+			"Letöltés MP4-ként",
 		);
 		expect(within(sheet).getByTestId("video-download-gif")).toHaveTextContent(
 			"Letöltés GIF-ként",
@@ -230,6 +277,32 @@ describe("VideoBody (the panel)", () => {
 		});
 		expect(await screen.findByRole("alert")).toHaveTextContent(
 			"Nem sikerült megnyitni a videót.",
+		);
+	});
+
+	it("fits the clip both ways in the panel, in a size container, and uses the panel's spacing token", async () => {
+		answer(BODY);
+		render(VideoBody, {
+			artifactId: "video-1",
+			kind: "video",
+			title: "Harbour at dawn",
+			body: null,
+			conversationId: "conv-1",
+		});
+		await screen.findByTestId("video-player-media");
+		const stage = screen.getByTestId("video-body-stage");
+		expect(stage.style.getPropertyValue("--ratio")).toBe(String(1280 / 720));
+		const source = readFileSync(
+			`${process.cwd()}/src/lib/components/artifacts/video/VideoBody.svelte`,
+			"utf-8",
+		);
+		expect(source).toMatch(/\.video-body\s*\{[^}]*container-type:\s*size/);
+		expect(source).toMatch(
+			/\.video-body-stage\s*\{[^}]*width:\s*min\(\s*100cqw,\s*calc\(\s*100cqh\s*\*\s*var\(--ratio\)\s*\)\s*\)/,
+		);
+		expect(source).toMatch(/\.video-body\s*\{[^}]*gap:\s*var\(--space-md\)/);
+		expect(source).toMatch(
+			/\.video-body\s*\{[^}]*padding:\s*var\(--space-md\)/,
 		);
 	});
 

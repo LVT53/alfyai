@@ -312,6 +312,65 @@ describe("the Video kind's strings", () => {
 			"Ez a videó törölve lett",
 		);
 	});
+
+	it("reads the panel's two downloads as a pair, in both languages", () => {
+		expect(artifactsDict.en["artifacts.video.panel.downloadMp4"]).toBe(
+			"Download as MP4",
+		);
+		expect(artifactsDict.en["artifacts.video.panel.downloadGif"]).toBe(
+			"Download as GIF",
+		);
+		expect(artifactsDict.hu["artifacts.video.panel.downloadMp4"]).toBe(
+			"Letöltés MP4-ként",
+		);
+		expect(artifactsDict.hu["artifacts.video.panel.downloadGif"]).toBe(
+			"Letöltés GIF-ként",
+		);
+	});
+
+	it("announces the player's loop and mute changes, in both languages", () => {
+		expect(artifactsDict.en["artifacts.video.player.loopOn"]).toBe("Loop on");
+		expect(artifactsDict.en["artifacts.video.player.loopOff"]).toBe("Loop off");
+		expect(artifactsDict.en["artifacts.video.player.muted"]).toBe("Muted");
+		expect(artifactsDict.en["artifacts.video.player.unmuted"]).toBe("Unmuted");
+		expect(artifactsDict.hu["artifacts.video.player.loopOn"]).toBe(
+			"Ismétlés be",
+		);
+		expect(artifactsDict.hu["artifacts.video.player.loopOff"]).toBe(
+			"Ismétlés ki",
+		);
+		expect(artifactsDict.hu["artifacts.video.player.muted"]).toBe("Némítva");
+		expect(artifactsDict.hu["artifacts.video.player.unmuted"]).toBe(
+			"Némítás kikapcsolva",
+		);
+	});
+
+	it("says History is not shown for a clip yet, rather than that it has none", () => {
+		expect(artifactsDict.en["artifacts.video.card.historyUnavailable"]).toBe(
+			"History isn't shown for a clip yet.",
+		);
+		expect(artifactsDict.hu["artifacts.video.card.historyUnavailable"]).toBe(
+			"A klip előzményei még nem jelennek meg.",
+		);
+	});
+
+	it("says where a clip out of reach opens, in the picture card's own words", () => {
+		expect(artifactsDict.en["artifacts.video.card.elsewhereDetail"]).toBe(
+			artifactsDict.en["artifacts.image.card.elsewhereDetail"],
+		);
+		expect(artifactsDict.hu["artifacts.video.card.elsewhereDetail"]).toBe(
+			artifactsDict.hu["artifacts.image.card.elsewhereDetail"],
+		);
+	});
+
+	it("says a deleted video can be regenerated from the chat, in both languages", () => {
+		expect(artifactsDict.en["artifacts.delete.bodyRegenerable.video"]).toBe(
+			"“{title}” will be deleted. You can regenerate it from the chat.",
+		);
+		expect(artifactsDict.hu["artifacts.delete.bodyRegenerable.video"]).toBe(
+			"„{title}” törlődik. A beszélgetésből újra létrehozhatod.",
+		);
+	});
 });
 
 describe("the Image kind's strings", () => {

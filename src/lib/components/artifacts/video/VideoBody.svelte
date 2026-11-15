@@ -4,18 +4,24 @@
 // draws the one player; the panel's open, dock, expand, Delete and History are
 // the shell's, never this file's.
 //
-// A clip has no versions, so there is no strip and no compare. The body
+// A clip's versions are real but History is not shown for one yet, so there is
+// no strip and no compare. The body
 // registers the header's Download for the clip's own file, and reloads when
 // the page hears of a newer version (a restore, or a late landing), the same
 // contract the picture body follows.
 import { untrack } from "svelte";
+import { get } from "svelte/store";
 import { fetchArtifact } from "$lib/client/api/artifacts";
-import { startAuthenticatedDownload } from "$lib/client/downloads";
+import {
+	downloadAuthenticatedBlob,
+	startAuthenticatedDownload,
+} from "$lib/client/downloads";
 import { t } from "$lib/i18n";
 import {
 	parseVideoVersionBody,
 	type VideoVersionBody,
 } from "$lib/shared/artifacts/video-body";
+import { showToast } from "$lib/stores/toast";
 import AnchoredPopover from "../AnchoredPopover.svelte";
 import type { ArtifactBodyProps } from "../artifact-bodies";
 import { videoDurationLabel, videoFileUrl } from "./video-card-view";
@@ -35,6 +41,8 @@ let clip = $state.raw<VideoVersionBody | null>(null);
 let loadedVersion = $state(0);
 /** The panel header's Download chooses the mp4 (the default) or a GIF here. */
 let downloadOpen = $state(false);
+/** The GIF is being made: the row wears the card's own disabled/busy look. */
+let gifBusy = $state(false);
 let loading = false;
 let loadAgain = false;
 
@@ -85,13 +93,36 @@ $effect(() => {
 	untrack(reload);
 });
 
-function choose(format: "mp4" | "gif"): void {
-	downloadOpen = false;
+async function choose(format: "mp4" | "gif"): Promise<void> {
 	const fileId = clip?.fileId;
 	if (!fileId) return;
-	void startAuthenticatedDownload(
-		videoFileUrl(fileId, { download: true, format, conversationId }),
-	);
+	if (format === "mp4") {
+		downloadOpen = false;
+		void startAuthenticatedDownload(
+			videoFileUrl(fileId, { download: true, format, conversationId }),
+		);
+		return;
+	}
+	if (gifBusy) return;
+	gifBusy = true;
+	try {
+		// The GIF is made on request and its 503/500 is a sentence to say, never a
+		// file to save; the popover stays open while it runs so the row's disabled
+		// state is the busy state (the first GIF takes seconds of ffmpeg).
+		const started = await downloadAuthenticatedBlob(
+			videoFileUrl(fileId, { download: true, format, conversationId }),
+			{ fallbackFilename: `${title || "clip"}.gif` },
+		);
+		if (!started) {
+			showToast({
+				type: "error",
+				message: get(t)("artifacts.image.card.actionFailed"),
+			});
+		}
+	} finally {
+		gifBusy = false;
+		downloadOpen = false;
+	}
 }
 
 $effect(() => {
@@ -128,6 +159,8 @@ let lengthLabel = $derived(
 	{:else if clip}
 		<div
 			class="video-body-stage"
+			data-testid="video-body-stage"
+			style:--ratio={clip.width / clip.height}
 			style:aspect-ratio="{clip.width} / {clip.height}"
 		>
 			<VideoPlayer
@@ -158,7 +191,8 @@ let lengthLabel = $derived(
 				type="button"
 				class="btn-secondary"
 				data-testid="video-download-mp4"
-				onclick={() => choose('mp4')}
+				disabled={gifBusy}
+				onclick={() => void choose('mp4')}
 			>
 				{$t('artifacts.video.panel.downloadMp4')}
 			</button>
@@ -166,9 +200,11 @@ let lengthLabel = $derived(
 				type="button"
 				class="btn-secondary"
 				data-testid="video-download-gif"
-				onclick={() => choose('gif')}
+				disabled={gifBusy}
+				aria-busy={gifBusy ? 'true' : undefined}
+				onclick={() => void choose('gif')}
 			>
-				{$t('artifacts.video.card.downloadGif')}
+				{$t('artifacts.video.panel.downloadGif')}
 			</button>
 		</div>
 	</AnchoredPopover>
@@ -179,19 +215,25 @@ let lengthLabel = $derived(
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.5rem;
+		/* The family's room, as the picture body keeps it. */
+		gap: var(--space-md);
 		width: 100%;
 		height: 100%;
 		min-height: 0;
-		padding: 0.5rem;
+		padding: var(--space-md);
+		box-sizing: border-box;
+		/* The stage's size is measured against this box, both ways: `100cqw` and
+		   `100cqh` are the panel's own width and height, never the viewport's. */
+		container-type: size;
 	}
 
-	/* The clip is fitted by CSS alone: an aspect-ratio box as wide as the stage
-	   allows, never wider than the clip itself. No ResizeObserver, so the dock's
+	/* The clip is fitted by CSS alone: its aspect-ratio box as large as the panel
+	   allows in BOTH directions (a wide panel around a tall clip letterboxes no
+	   more than a tall panel around a wide one). No ResizeObserver, so the dock's
 	   width animation never re-flows it. */
 	.video-body-stage {
 		position: relative;
-		width: min(100%, 100cqw);
+		width: min(100cqw, calc(100cqh * var(--ratio)));
 		max-width: 100%;
 		max-height: 100%;
 		margin-block: auto;

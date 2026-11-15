@@ -145,6 +145,8 @@ const artifactsDict = {
 			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.bodyRegenerable.file":
 			"“{title}” will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.video":
+			"“{title}” will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.busy": "Deleting…",
 		"artifacts.delete.failed": "Couldn't delete this. Try again.",
 		"artifacts.delete.done.document": "Document deleted",
@@ -1193,16 +1195,22 @@ const artifactsDict = {
 		"artifacts.video.card.downloadGif": "Download as GIF",
 		"artifacts.video.card.more": "More",
 		"artifacts.video.card.history": "History",
-		"artifacts.video.card.historyUnavailable": "A clip keeps no versions.",
+		"artifacts.video.card.historyUnavailable":
+			"History isn't shown for a clip yet.",
 		"artifacts.video.card.lengthA11y": "{count} seconds long",
 		"artifacts.video.card.goneDetail": "The video is no longer kept.",
 		"artifacts.video.card.elsewhereDetail":
-			"It opens in the chat it was made in.",
+			"Open it from the chat it was made in.",
 		"artifacts.video.panel.loading": "Opening the video…",
 		"artifacts.video.panel.loadFailed": "Couldn't open the video.",
 		"artifacts.video.panel.downloadTitle": "Download {title}",
-		"artifacts.video.panel.downloadMp4": "Download video (MP4)",
+		"artifacts.video.panel.downloadMp4": "Download as MP4",
+		"artifacts.video.panel.downloadGif": "Download as GIF",
 		"artifacts.video.player.label": "{title} video player",
+		"artifacts.video.player.loopOn": "Loop on",
+		"artifacts.video.player.loopOff": "Loop off",
+		"artifacts.video.player.muted": "Muted",
+		"artifacts.video.player.unmuted": "Unmuted",
 		"artifacts.video.player.play": "Play video",
 		"artifacts.video.player.pause": "Pause video",
 		"artifacts.video.player.fullscreen": "Fullscreen",
@@ -1289,6 +1297,8 @@ const artifactsDict = {
 		"artifacts.delete.bodyRegenerable.slides":
 			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.file":
+			"„{title}” törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.video":
 			"„{title}” törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.busy": "Törlés…",
 		"artifacts.delete.failed": "Nem sikerült törölni. Próbáld újra.",
@@ -2212,7 +2222,7 @@ const artifactsDict = {
 		"artifacts.video.card.more": "Továbbiak",
 		"artifacts.video.card.history": "Előzmények",
 		"artifacts.video.card.historyUnavailable":
-			"Egy klipnek nincsenek korábbi változatai.",
+			"A klip előzményei még nem jelennek meg.",
 		"artifacts.video.card.lengthA11y": "{count} másodperc hosszú",
 		"artifacts.video.card.goneDetail": "A videó már nincs meg.",
 		"artifacts.video.card.elsewhereDetail":
@@ -2220,8 +2230,13 @@ const artifactsDict = {
 		"artifacts.video.panel.loading": "Videó megnyitása…",
 		"artifacts.video.panel.loadFailed": "Nem sikerült megnyitni a videót.",
 		"artifacts.video.panel.downloadTitle": "{title} letöltése",
-		"artifacts.video.panel.downloadMp4": "Videó letöltése (MP4)",
+		"artifacts.video.panel.downloadMp4": "Letöltés MP4-ként",
+		"artifacts.video.panel.downloadGif": "Letöltés GIF-ként",
 		"artifacts.video.player.label": "{title} videólejátszó",
+		"artifacts.video.player.loopOn": "Ismétlés be",
+		"artifacts.video.player.loopOff": "Ismétlés ki",
+		"artifacts.video.player.muted": "Némítva",
+		"artifacts.video.player.unmuted": "Némítás kikapcsolva",
 		"artifacts.video.player.play": "Lejátszás",
 		"artifacts.video.player.pause": "Szüneteltetés",
 		"artifacts.video.player.fullscreen": "Teljes képernyő",
