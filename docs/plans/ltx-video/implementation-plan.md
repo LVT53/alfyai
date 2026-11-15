@@ -90,7 +90,7 @@ not restate them, and no mockup overrides them.
 | 3b | The card is reachable: its data and its buttons reach the chat | worker-wiring (after 3) | `conversation-detail/read-model.ts` + its page loader, `chat/[conversationId]/+page.svelte`, `_helpers.ts`, `MessageBubble.svelte` (props only), a video action client | read-model test; `_helpers` poll test; e2e that a video card appears and its Stop works |
 | 4 | A video take runs: LTX graph, two-segment chain, store, settle | worker-runner (after 2) | `services/images/video/{job,request,runner}.ts`, `comfyui/ltx-templates.ts`, graph JSON, `comfyui/client.ts` (`readHistory` media), `idle-free.ts` | runner unit tests over the fake; chain test with two prompts |
 | 5 | The chat model can ask for a video: tool, config, caption | worker-tool (after 4) | `normal-chat-tools/make-video.ts`, `index.ts`, `shared.ts` (timeouts), `env.ts`, `config-store.ts`, `admin-config-registry.ts`, `IntegrationsPage.svelte`, `i18n/settings.ts` | tool tests; config tests; catalogue snapshot |
-| 6 | ~~The explicit filter covers video~~ — absorbed into slice 4: the runner checks **every frame** before anything is stored, failing closed, because the owner ruled a sampled video filter weaker than the picture path is not acceptable (121 frames ≈ 18 s) | worker-runner | — | runner tests (`video_blocked`, `video_unchecked`, a frame between the old samples still blocked, nothing stored) |
+| 6 | ~~The explicit filter covers video~~ — absorbed into slice 4: the runner checks **every frame** before anything is stored, failing closed, because the owner ruled a sampled video filter weaker than the picture path is not acceptable. Framed by ffmpeg as raw 224x224 and batched 16 per inference run (8 runs for 121 frames), it measured **3.5–4.0 s for a 5 s clip and ≈7.0 s for a 10 s one** on the app host with the pinned fp32 model — single-digit seconds, not the rejected 18 s serial estimate | worker-runner | — | runner tests (`video_blocked`, `video_unchecked`, a frame between the old samples still blocked, nothing stored); a classifier test that counts 8 runs for 121 frames, not 121 |
 | 7 | An adversarial review of the whole change, by sub-agents who wrote none of it, before anything is deployed | reviewers a-d (after 6) | read-only | findings report, then a re-review of every fix |
 | 8 | A clip can be downloaded as a GIF as well as an mp4 | worker-gif (after 4) | `video-files.ts` (gif path + cache), `video/media.ts` (the conversion), the serving route's `?format=gif`, the card's More menu and the panel's download action, i18n | conversion unit test over a stub, route tests (content type, disposition, cache, cleanup), i18n parity |
 
@@ -201,6 +201,20 @@ dedicated image upscaler — a different model, not this pipeline.
 this region of a picture", and it is shipped. Video in-painting is the new thing, and its
 cost is the mask UI, not the model.
 
+### Waiver: one card shell, two bodies (owner, 2026-11-15)
+
+The plan's risk list said: if the video card starts forking `ImageCardBody`'s markup, stop and
+extract a shared piece. It did fork: `VideoCardBody.svelte` (about 670 lines) carries its own
+stage, shimmer, state box, actions row and CSS, and shares only the pure view helpers
+(`elapsedClock`, `makingDetail`, `waitingLine`, `STARTING_SHOWN_AFTER_MS`). Independent review
+confirmed the two are visually identical today — same tokens, same recipe, same button order —
+so the duplication is in maintenance, not in appearance.
+
+The owner accepted it for now rather than refactor the live picture card immediately before a
+cutover. This is recorded debt, not a decision that the rule was wrong: **the next change that
+touches either card's chrome extracts the shared shell first**, and until then a change to one
+card's stage, shimmer, state box or actions row is a change to both, checked in both.
+
 ## Review gates
 
 1. Each worker: TDD note, focused tests, `npm run check` if types moved.
@@ -230,6 +244,7 @@ cost is the mask UI, not the model.
 - **The video filter must not be weaker than the picture path.** The picture path classifies the whole image, so a clip classifies **every frame**, not a sample. A five-frame sample was in the plan and is now wrong; a moment between samples is exactly what a filter exists to catch. Coverage is complete and the cost is made small by design, not by skipping work: frames come out of ffmpeg as raw pixels scaled to the model's input, and the classifier takes them in batches of about 16 per inference run instead of one picture per run, so 121 frames cost about eight runs. The first serial estimate (about 150 ms a frame, so 18 s for 5 s of video) was rejected outright: **the target is single-digit seconds**, asserted in the code's comments with its arithmetic and in a test that counts inference runs rather than frames.
 - **`Another` on a video card is not capped.** The queue is the throttle: a person may queue as many takes as they like, and the picture path's eight-take cap is a property of its takes strip, which a clip does not have.
 - **The caption endpoint is always local**, so the admin screen carries no "the person's words leave this box" warning. If it is ever pointed at a cloud provider, that sentence and a decision belong with it.
+- **Accepted cost: GPU-side leftovers.** `SaveVideo` writes into ComfyUI's persistent `output/video/` and the uploaded guide stills stay in its input folder, so an abandoned take leaves an mp4 and its stills on the GPU host; nothing sweeps them. The fix, if it is worth it, is a per-take filename prefix plus a sweep on the box. Recorded in `src/lib/server/services/images/AGENTS.md` as a known cost.
 
 
 
