@@ -3339,6 +3339,20 @@ async function handleBulkDelete(): Promise<boolean> {
 		color: var(--text-secondary);
 	}
 
+	/* The date never reaches the actions column: a long day/date used to run
+	   into the first glyph (the "what the AI sees" eye) because the cell was
+	   nowrap and the actions row is only 4px away at its own gap. The date
+	   truncates inside its own cell and the actions cell keeps a real gutter. */
+	.documents-table td.col-date {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		padding-right: var(--space-sm);
+	}
+
+	.documents-table td.col-actions {
+		padding-left: var(--space-sm);
+	}
+
 	.action-buttons {
 		display: flex;
 		flex: none;

@@ -57,6 +57,13 @@ The idea, kept for later: packs a person installs and picks — "pinup photograp
 
 Not to be built until the owner asks. Nothing else is decided.
 
+## Owner note (2026-11-15): the Workspace Search needs an overhaul for the new artifact types
+Owner's words: *"Search workspace needs to be overhauled for the new Artifact types."* Status: **noted only** — not designed, not scoped.
+
+Workspace Search (the `/api/workspace-search` surface and its dialog) was built when the artifact family was Document, App, Canvas, Slides and File. It now also holds Image and Video, and the result shape, the snippets, the grouping and the ranking were never revisited for them: a clip has no text body to snippet, a picture's "snippet" is its title at best, and mixed results rank by rules written for documents.
+
+What it needs, at minimum, before it can be called an overhaul: decide what a picture and a clip contribute to a result (title, summary, version, who made it, when), how they group beside documents, whether a kind filter belongs in the dialog (the Knowledge documents list already has one, with a Videos chip from 2026-11-15), and how opening a result differs per kind — a document opens the panel, a clip opens the player.
+
 ## 1. Sidebar multi-select, with the chat actions that complete it
 Status: **SHIPPED (`efb23a553` is an ancestor of origin/main, checked 2026-11-10); built 2026-10-26. Older note: it was merged to local `dev` and not pushed at first.** Design (decisions D1-D7, copy table) and plan: `docs/plans/sidebar-multi-select/`. The owner asked for the build directly, so D1-D7 were decided without a brainstorm; any can be overturned. Built: Cmd/Ctrl-click, Shift ranges, "Select" in the row menu (touch); a sticky bar with Select all, Pin/Unpin, Move to project, Delete; `POST /api/conversations/batch` (50 ids, result per id); a delete now stops the chat's streaming reply and ends it as a Stop (single delete too). NOT built: running and unread dots (item 6 still needs them). Release gate green on the branch tip (e2e 1,298/0/0). Follow-ups found: the row menu has no keyboard navigation and Enter on a row's ⋮ also opens the chat (both pre-existing); `ensureSidebarExpanded` in tests/e2e/helpers.ts clicks while the sidebar still animates open (19 specs). Decided 2026-10-25: archive is dropped for now.
 Owner's words: "Multi-select in the sidebar and related actions to make it complete."
