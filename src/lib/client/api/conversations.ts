@@ -129,6 +129,60 @@ export async function fetchConversationDetail(
 	);
 }
 
+/**
+ * The page before the bounded window a chat opens with, for the thread's one
+ * "Load older messages" control. `offset` is how many messages are already
+ * loaded, counted from the newest end (the endpoint's own semantics, the same
+ * `listMessageWindow` offset): passing the loaded list's length asks for the
+ * messages immediately older than all of them. The answer's messages are in
+ * the conversation's chronological order, as the window's are, and
+ * `hasMoreBefore` says whether anything still waits above the new page.
+ */
+export interface OlderConversationMessagesPage {
+	messages: ChatMessage[];
+	hasMoreBefore: boolean;
+	/** Older tool calls' artifact cards need these exactly as the detail carries them. */
+	deletedArtifactIds: string[];
+	unreachableArtifactIds: string[];
+}
+
+export async function fetchOlderConversationMessages(
+	conversationId: string,
+	offset: number,
+	fetchImpl: FetchLike = fetch,
+): Promise<OlderConversationMessagesPage> {
+	const safeOffset = Number.isFinite(offset)
+		? Math.max(0, Math.trunc(offset))
+		: 0;
+	const payload = await requestJson<{
+		messages?: ChatMessage[];
+		hasMoreBefore?: boolean;
+		deletedArtifactIds?: string[];
+		unreachableArtifactIds?: string[];
+	}>(
+		`/api/conversations/${conversationId}/messages?offset=${safeOffset}`,
+		undefined,
+		"Failed to load older messages",
+		fetchImpl,
+	);
+	if (
+		!Array.isArray(payload?.messages) ||
+		typeof payload.hasMoreBefore !== "boolean"
+	) {
+		throw new Error("The server returned unexpected data. Please try again.");
+	}
+	return {
+		messages: payload.messages,
+		hasMoreBefore: payload.hasMoreBefore,
+		deletedArtifactIds: Array.isArray(payload.deletedArtifactIds)
+			? payload.deletedArtifactIds
+			: [],
+		unreachableArtifactIds: Array.isArray(payload.unreachableArtifactIds)
+			? payload.unreachableArtifactIds
+			: [],
+	};
+}
+
 export async function conversationExists(
 	id: string,
 	fetchImpl: FetchLike = fetch,

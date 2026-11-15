@@ -49,6 +49,7 @@ import {
 	deleteConversationMessages,
 	fetchConversationDetail,
 	fetchMessageEvidence,
+	fetchOlderConversationMessages,
 	generateConversationTitle,
 	createConversationFork,
 	keepMessageAsDocument,
@@ -339,6 +340,10 @@ function getAtlasAvailabilityValue(
 
 const initialMessages = getData().messages ?? [];
 const initialHasPersistedMessages = initialMessages.length > 0;
+// The chat opens on a bounded window of its history. The page's own state says
+// whether more waits above it, from here on (a page of older messages may end
+// at the start of the conversation, and then the thread's control goes away).
+const initialHasMoreMessages = getData().hasMoreMessages ?? false;
 const initialContextStatus = getData().contextStatus ?? null;
 const initialTotalCostUsdMicros = getData().totalCostUsdMicros ?? null;
 const initialTotalTokens = getData().totalTokens ?? null;
@@ -710,6 +715,15 @@ function prepareTurn(): Promise<boolean> {
 	);
 }
 let hasPersistedMessages = initialHasPersistedMessages;
+// The one history control's state: whether a page of older messages waits above
+// the loaded window, whether it is on its way, and whether the last try failed.
+// `olderMessagesPrependVersion` rises with every prepend so the thread's scroll
+// orchestrator can tell a page that grew above the reader from a new message
+// below them, and puts the view back by the height the page added.
+let hasMoreMessages = $state(initialHasMoreMessages);
+let loadingOlderMessages = $state(false);
+let olderMessagesFailed = $state(false);
+let olderMessagesPrependVersion = $state(0);
 let contextStatus = $state<ConversationContextStatus | null>(
 	initialContextStatus,
 );
@@ -2720,6 +2734,12 @@ function resetState() {
 	normalChatRuntime.reset();
 	messages.set(data.messages ?? []);
 	hasPersistedMessages = (data.messages?.length ?? 0) > 0;
+	// The bounded window of the chat now on screen, and no page of older
+	// messages left over from the one that was.
+	hasMoreMessages = data.hasMoreMessages ?? false;
+	loadingOlderMessages = false;
+	olderMessagesFailed = false;
+	olderMessagesPrependVersion = 0;
 	sendError = null;
 	isSending = false;
 	editingMessage = null;
@@ -3176,6 +3196,51 @@ async function pollForCompletion(
 	);
 }
 
+/**
+ * The thread's one way back into a bounded window's history. `offset` is how
+ * many messages are already loaded, counted from the newest end — the
+ * endpoint's own semantics — so the page it answers with sits immediately
+ * above the oldest message on screen. The answer is in chronological order,
+ * the list's own order, and is prepended whole; a message that arrived while
+ * the page was out (so the count moved) is dropped rather than drawn twice.
+ * The page's control state is the only source of truth: the thread reads it as
+ * props and its scroll owner puts the reader's view back by the height added.
+ */
+async function handleLoadOlderMessages() {
+	if (loadingOlderMessages || !hasMoreMessages) return;
+	const conversationId = data.conversation.id;
+	const offset = get(messages).length;
+	loadingOlderMessages = true;
+	olderMessagesFailed = false;
+	try {
+		const page = await fetchOlderConversationMessages(conversationId, offset);
+		// The person moved to another chat while the page was out: its answer
+		// belongs to the chat it was asked for, which is no longer on screen.
+		if (data.conversation.id !== conversationId) return;
+		const current = get(messages);
+		const loaded = new Set(current.map((message) => message.id));
+		const older = page.messages.filter((message) => !loaded.has(message.id));
+		messages.set([...older, ...current]);
+		// The endpoint answers for the window it returned: nothing above it means
+		// the thread's control has done its job.
+		hasMoreMessages = page.hasMoreBefore;
+		// Older tool calls carry the same artifact signal the detail carries for
+		// the loaded window (a card deleted since, or made in another chat).
+		deletedArtifactIds = page.deletedArtifactIds.reduce(
+			markArtifactDeleted,
+			deletedArtifactIds,
+		);
+		unreachableArtifactIds = [
+			...new Set([...unreachableArtifactIds, ...page.unreachableArtifactIds]),
+		];
+		olderMessagesPrependVersion += 1;
+	} catch {
+		if (data.conversation.id === conversationId) olderMessagesFailed = true;
+	} finally {
+		if (data.conversation.id === conversationId) loadingOlderMessages = false;
+	}
+}
+
 async function loadPersistedData() {
 	console.info("[CHAT] Loading persisted data after polling timeout");
 	// The chat this read is for. A switch to another chat while it is out makes its
@@ -3187,6 +3252,10 @@ async function loadPersistedData() {
 	const stillHere = data.conversation.id === conversationId;
 	if (detail && stillHere) {
 		messages.set([...(detail.messages ?? [])]);
+		// The read replaced the list with the server's window, so the window's
+		// own "more before it" answer is the true one again.
+		hasMoreMessages = detail.hasMoreMessages ?? false;
+		olderMessagesFailed = false;
 		applyConversationDetailMetadata(detail);
 		forkOrigin = detail.forkOrigin ?? forkOrigin;
 		conversationStatus = detail.conversation?.status ?? conversationStatus;
@@ -3388,6 +3457,7 @@ async function hydrateConversationDetail(conversationId: string) {
 			(payload.messages?.length ?? 0) > 0
 		) {
 			messages.set(payload.messages ?? []);
+			hasMoreMessages = payload.hasMoreMessages ?? false;
 			hasPersistedMessages = true;
 		}
 	} catch {
@@ -5397,6 +5467,11 @@ function handleDrop(event: DragEvent) {
 						{forkOpening}
 						{forkingMessageId}
 						showingLinkedMessage={linkedMessageConversationId === data.conversation.id}
+						{hasMoreMessages}
+						olderMessagesLoading={loadingOlderMessages}
+						olderMessagesFailed={olderMessagesFailed}
+						{olderMessagesPrependVersion}
+						onLoadOlderMessages={handleLoadOlderMessages}
 						readOnly={isConversationReadOnlyForChat || questionOpen}
 						{questions}
 						askActionState={askStateForCards}

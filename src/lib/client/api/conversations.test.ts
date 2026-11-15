@@ -5,6 +5,7 @@ import {
 	deleteConversationMessages,
 	fetchConversationDetail,
 	fetchConversationMarkdownExport,
+	fetchOlderConversationMessages,
 	keepMessageAsDocument,
 	persistConversationLinkedSources,
 	runConversationBatch,
@@ -801,5 +802,57 @@ describe("updateInstructionSuggestionStatus", () => {
 				fetchMock,
 			),
 		).rejects.toThrow(/cannot be reviewed/);
+	});
+});
+
+describe("fetchOlderConversationMessages", () => {
+	it("asks for the page before the messages already loaded", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						messages: [
+							{ id: "user-1", role: "user", content: "First", timestamp: 1 },
+							{
+								id: "assistant-1",
+								role: "assistant",
+								content: "Second",
+								timestamp: 2,
+							},
+						],
+						hasMoreBefore: true,
+						deletedArtifactIds: ["artifact-gone"],
+						unreachableArtifactIds: ["artifact-elsewhere"],
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+		);
+
+		const page = await fetchOlderConversationMessages("conv-1", 100, fetchMock);
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/conversations/conv-1/messages?offset=100",
+		);
+		expect(page.messages.map((message) => message.id)).toEqual([
+			"user-1",
+			"assistant-1",
+		]);
+		expect(page.hasMoreBefore).toBe(true);
+		expect(page.deletedArtifactIds).toEqual(["artifact-gone"]);
+		expect(page.unreachableArtifactIds).toEqual(["artifact-elsewhere"]);
+	});
+
+	it("throws when the page cannot be read", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ error: "Conversation not found" }), {
+					status: 404,
+					headers: { "content-type": "application/json" },
+				}),
+		);
+
+		await expect(
+			fetchOlderConversationMessages("conv-1", 100, fetchMock),
+		).rejects.toThrow(/not found/i);
 	});
 });

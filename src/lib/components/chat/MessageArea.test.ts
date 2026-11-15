@@ -3343,3 +3343,121 @@ describe("MessageArea", () => {
 		});
 	});
 });
+
+describe("MessageArea's older messages", () => {
+	const messages: ChatMessage[] = [
+		{ id: "user-2", role: "user", content: "Second question", timestamp: 2 },
+		{
+			id: "assistant-2",
+			role: "assistant",
+			content: "Second answer",
+			timestamp: 3,
+		},
+	];
+	const older: ChatMessage[] = [
+		{ id: "user-1", role: "user", content: "First question", timestamp: 0 },
+		{
+			id: "assistant-1",
+			role: "assistant",
+			content: "First answer",
+			timestamp: 1,
+		},
+	];
+
+	it("draws the load-older control only while the window has more before it", async () => {
+		const view = render(MessageArea, {
+			messages,
+			conversationId: "conv-older",
+			hasMoreMessages: true,
+		});
+
+		expect(
+			view.getByRole("button", { name: "Load older messages" }),
+		).toBeInTheDocument();
+
+		await view.rerender({
+			messages,
+			conversationId: "conv-older",
+			hasMoreMessages: false,
+		});
+
+		expect(
+			view.queryByRole("button", { name: "Load older messages" }),
+		).toBeNull();
+	});
+
+	it("turns the control off while the older page is on its way", () => {
+		const view = render(MessageArea, {
+			messages,
+			conversationId: "conv-older",
+			hasMoreMessages: true,
+			olderMessagesLoading: true,
+		});
+
+		expect(
+			view.getByRole("button", { name: "Load older messages" }),
+		).toBeDisabled();
+	});
+
+	it("says the older page failed and offers the control again", () => {
+		const view = render(MessageArea, {
+			messages,
+			conversationId: "conv-older",
+			hasMoreMessages: true,
+			olderMessagesFailed: true,
+		});
+
+		expect(view.getByRole("alert")).toHaveTextContent(
+			"Couldn't load older messages. Try again.",
+		);
+		expect(
+			view.getByRole("button", { name: "Load older messages" }),
+		).toBeEnabled();
+	});
+
+	it("keeps the reader's place when older messages are prepended", async () => {
+		// jsdom lays nothing out: the thread's height is what this test says it is.
+		let scrollHeight = 1000;
+		let view: ReturnType<typeof render> | undefined;
+		const onLoadOlderMessages = vi.fn(async () => {
+			// The page's answer arrives: the older page joins the top of the list,
+			// which grows the thread by its height.
+			scrollHeight = 1400;
+			await view?.rerender({
+				messages: [...older, ...messages],
+				conversationId: "conv-older",
+				hasMoreMessages: true,
+				olderMessagesPrependVersion: 1,
+				onLoadOlderMessages,
+			});
+		});
+
+		view = render(MessageArea, {
+			messages,
+			conversationId: "conv-older",
+			hasMoreMessages: true,
+			onLoadOlderMessages,
+		});
+		const scrollContainer = view.container.querySelector(
+			".scroll-container",
+		) as HTMLDivElement;
+		Object.defineProperty(scrollContainer, "clientHeight", {
+			configurable: true,
+			value: 500,
+		});
+		Object.defineProperty(scrollContainer, "scrollHeight", {
+			configurable: true,
+			get: () => scrollHeight,
+		});
+		// Reading the button at the top of the thread: the older page arrives above
+		// the message in view, so the view must move by the height it added.
+		scrollContainer.scrollTop = 0;
+		await fireEvent.scroll(scrollContainer);
+
+		await fireEvent.click(
+			view.getByRole("button", { name: "Load older messages" }),
+		);
+
+		await waitFor(() => expect(scrollContainer.scrollTop).toBe(400));
+	});
+});

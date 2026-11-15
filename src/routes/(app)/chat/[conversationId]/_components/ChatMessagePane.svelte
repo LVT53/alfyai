@@ -37,6 +37,11 @@ let {
 	forkOpening = false,
 	forkingMessageId = null,
 	showingLinkedMessage = false,
+	hasMoreMessages = false,
+	olderMessagesLoading = false,
+	olderMessagesFailed = false,
+	olderMessagesPrependVersion = 0,
+	onLoadOlderMessages = undefined,
 	readOnly = false,
 	onOpenDocument,
 	onRegenerate,
@@ -88,6 +93,12 @@ let {
 	forkingMessageId?: string | null;
 	/** See MessageArea's prop of the same name. */
 	showingLinkedMessage?: boolean;
+	/** See MessageArea's prop of the same name: the bounded window has more before it. */
+	hasMoreMessages?: boolean;
+	olderMessagesLoading?: boolean;
+	olderMessagesFailed?: boolean;
+	olderMessagesPrependVersion?: number;
+	onLoadOlderMessages?: (() => void | Promise<void>) | undefined;
 	readOnly?: boolean;
 	onOpenDocument: (document: DocumentWorkspaceItem) => void;
 	onRegenerate: (payload: MessageRegeneratePayload) => void;
@@ -181,6 +192,11 @@ let {
 		{forkOrigin}
 		{forkingMessageId}
 		{showingLinkedMessage}
+		{hasMoreMessages}
+		{olderMessagesLoading}
+		{olderMessagesFailed}
+		{olderMessagesPrependVersion}
+		{onLoadOlderMessages}
 		{readOnly}
 		{onOpenDocument}
 		{onRegenerate}

@@ -331,6 +331,7 @@ vi.mock("$lib/client/api/conversations", () => ({
 	fetchConversationDetail: vi.fn(async () => conversationDetailFixture()),
 	fetchMessageEvidence: vi.fn(),
 	fetchMessageUsage: vi.fn(async () => ({ status: "untracked" })),
+	fetchOlderConversationMessages: vi.fn(),
 	generateConversationTitle: vi.fn(),
 	renameConversation: vi.fn(async () => ({})),
 	runConversationContextCompression: vi.fn(),
@@ -538,6 +539,7 @@ import {
 	fetchConversationDetail,
 	fetchMessageEvidence,
 	fetchMessageUsage,
+	fetchOlderConversationMessages,
 	generateConversationTitle,
 	persistConversationDraft,
 } from "$lib/client/api/conversations";
@@ -563,6 +565,7 @@ afterEach(() => {
 	fetchServerHealthMock.mockResolvedValue({ state: "up" });
 	vi.mocked(fetchConversationQuestions).mockReset();
 	vi.mocked(fetchConversationQuestions).mockResolvedValue([]);
+	vi.mocked(fetchOlderConversationMessages).mockReset();
 	runtimeHarness.orphanedStreamId = null;
 });
 
@@ -11354,4 +11357,111 @@ it("shows unavailable accounting on a loaded chat instead of inventing zero cost
 		expect(screen.getByText(/Unavailable.*100/)).toBeInTheDocument(),
 	);
 	expect(screen.queryByText(/\$0\.0000.*100/)).not.toBeInTheDocument();
+});
+
+describe("the older messages before the loaded window", () => {
+	const loaded: ChatMessage[] = [
+		{
+			id: "user-2",
+			role: "user",
+			content: "The second question",
+			timestamp: 2,
+		},
+		{
+			id: "assistant-2",
+			role: "assistant",
+			content: "The second answer",
+			timestamp: 3,
+		},
+	];
+	const older: ChatMessage[] = [
+		{ id: "user-1", role: "user", content: "The first question", timestamp: 0 },
+		{
+			id: "assistant-1",
+			role: "assistant",
+			content: "The first answer",
+			timestamp: 1,
+		},
+	];
+	const olderPage = {
+		messages: older,
+		hasMoreBefore: true,
+		deletedArtifactIds: [] as string[],
+		unreachableArtifactIds: [] as string[],
+	};
+
+	function messageIdsInTheThread(container: HTMLElement): (string | null)[] {
+		return [...container.querySelectorAll("[data-message-id]")].map((element) =>
+			element.getAttribute("data-message-id"),
+		);
+	}
+
+	it("offers no control when the chat opened with its whole history", () => {
+		renderPage(pageData({ messages: loaded, hasMoreMessages: false }));
+
+		expect(
+			screen.queryByRole("button", { name: "Load older messages" }),
+		).toBeNull();
+	});
+
+	it("asks for the page before the loaded messages, and prepends it in order", async () => {
+		vi.mocked(fetchOlderConversationMessages).mockResolvedValue(olderPage);
+		const view = renderPage(
+			pageData({ messages: loaded, hasMoreMessages: true }),
+		);
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Load older messages" }),
+		);
+
+		await waitFor(() =>
+			expect(fetchOlderConversationMessages).toHaveBeenCalledWith("conv-1", 2),
+		);
+		await waitFor(() =>
+			expect(messageIdsInTheThread(view.container)).toEqual([
+				"user-1",
+				"assistant-1",
+				"user-2",
+				"assistant-2",
+			]),
+		);
+	});
+
+	it("hides the control once the page says the history starts there", async () => {
+		vi.mocked(fetchOlderConversationMessages).mockResolvedValue({
+			...olderPage,
+			hasMoreBefore: false,
+		});
+		renderPage(pageData({ messages: loaded, hasMoreMessages: true }));
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Load older messages" }),
+		);
+
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("button", { name: "Load older messages" }),
+			).toBeNull(),
+		);
+	});
+
+	it("says the page failed, and offers the control again", async () => {
+		vi.mocked(fetchOlderConversationMessages).mockRejectedValue(
+			new ApiError("Failed to load older messages", { status: 500 }),
+		);
+		renderPage(pageData({ messages: loaded, hasMoreMessages: true }));
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Load older messages" }),
+		);
+
+		await waitFor(() =>
+			expect(screen.getByRole("alert")).toHaveTextContent(
+				"Couldn't load older messages. Try again.",
+			),
+		);
+		expect(
+			screen.getByRole("button", { name: "Load older messages" }),
+		).toBeEnabled();
+	});
 });
