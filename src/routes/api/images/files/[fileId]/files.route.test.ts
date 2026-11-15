@@ -33,12 +33,15 @@ function event(params: {
 	fileId: string;
 	userId: string | null;
 	query?: string;
+	headers?: Record<string, string>;
 }) {
+	const url = new URL(
+		`http://localhost/api/images/files/${params.fileId}${params.query ?? ""}`,
+	);
 	return {
 		params: { fileId: params.fileId },
-		url: new URL(
-			`http://localhost/api/images/files/${params.fileId}${params.query ?? ""}`,
-		),
+		url,
+		request: new Request(url, { headers: params.headers ?? {} }),
 		locals: {
 			user: params.userId ? { id: params.userId, role: "user" } : undefined,
 		},
@@ -97,6 +100,15 @@ async function storeLargePicture() {
 	});
 }
 
+/** The tag the route gives the stored picture for a query, held to a strong ETag. */
+async function etagOf(query = ""): Promise<string> {
+	const res = (await GET(event({ fileId, userId: "u1", query }))) as Response;
+	expect(res.status).toBe(200);
+	const etag = res.headers.get("ETag") ?? "";
+	expect(etag).toMatch(/^"[^"]+"$/);
+	return etag;
+}
+
 describe("GET /api/images/files/[fileId]", () => {
 	it("serves the PNG to its owner", async () => {
 		const res = (await GET(event({ fileId, userId: "u1" }))) as Response;
@@ -107,6 +119,73 @@ describe("GET /api/images/files/[fileId]", () => {
 		expect(res.headers.get("Content-Disposition")).toBeNull();
 		const meta = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
 		expect(meta.width).toBe(40);
+	});
+
+	it("carries a strong ETag and answers 304 with no body to its own If-None-Match", async () => {
+		const first = (await GET(event({ fileId, userId: "u1" }))) as Response;
+		expect(first.status).toBe(200);
+		const etag = first.headers.get("ETag") ?? "";
+		expect(etag).toMatch(/^"[^"]+"$/);
+
+		const revalidated = (await GET(
+			event({ fileId, userId: "u1", headers: { "If-None-Match": etag } }),
+		)) as Response;
+		expect(revalidated.status).toBe(304);
+		expect(revalidated.headers.get("ETag")).toBe(etag);
+		expect(revalidated.headers.get("Cache-Control")).toBe(
+			"private, max-age=3600",
+		);
+		expect(revalidated.body).toBeNull();
+		// A 304 carries no representation, so no length for one.
+		expect(revalidated.headers.get("Content-Length")).toBeNull();
+	});
+
+	it("answers 200 to a tag that does not match, and 304 to a list, a weak tag or * that does", async () => {
+		const etag = await etagOf();
+		const stale = (await GET(
+			event({
+				fileId,
+				userId: "u1",
+				headers: { "If-None-Match": '"an-older-picture"' },
+			}),
+		)) as Response;
+		expect(stale.status).toBe(200);
+		expect(stale.headers.get("ETag")).toBe(etag);
+
+		for (const ifNoneMatch of [
+			`"an-older-picture", ${etag}`,
+			`W/${etag}`,
+			"*",
+		]) {
+			const res = (await GET(
+				event({
+					fileId,
+					userId: "u1",
+					headers: { "If-None-Match": ifNoneMatch },
+				}),
+			)) as Response;
+			expect(res.status, ifNoneMatch).toBe(304);
+		}
+	});
+
+	it("gives the full, thumb, display and download representations their own tags", async () => {
+		const queries = ["", "?variant=thumb", "?variant=display", "?download=1"];
+		const tags = await Promise.all(queries.map((query) => etagOf(query)));
+		expect(new Set(tags).size).toBe(queries.length);
+		// A download is the full original whatever variant is named: one tag.
+		expect(await etagOf("?download=1&variant=thumb")).toBe(tags[3]);
+
+		for (const [index, query] of queries.entries()) {
+			const res = (await GET(
+				event({
+					fileId,
+					userId: "u1",
+					query,
+					headers: { "If-None-Match": tags[index] },
+				}),
+			)) as Response;
+			expect(res.status, query).toBe(304);
+		}
 	});
 
 	it("serves the thumbnail", async () => {
@@ -221,6 +300,17 @@ describe("GET /api/images/files/[fileId]", () => {
 		).toBe(404);
 		expect(
 			((await GET(event({ fileId: "nope", userId: "u1" }))) as Response).status,
+		).toBe(404);
+	});
+
+	it("answers 404 before any 304 to a picture the caller cannot have", async () => {
+		const etag = await etagOf();
+		expect(
+			(
+				(await GET(
+					event({ fileId, userId: "u2", headers: { "If-None-Match": etag } }),
+				)) as Response
+			).status,
 		).toBe(404);
 	});
 
