@@ -311,6 +311,10 @@ const MAX_READ_BYTES = 25 * 1024 * 1024; // 25 MB — chat-context reads only.
 // MAX_READ_BYTES) as defense-in-depth against a malicious/misbehaving server
 // returning an unbounded multistatus body.
 const MAX_MULTISTATUS_BYTES = 10 * 1024 * 1024; // 10 MB
+// A preview is a thumbnail, not a file read: 2 MB is far more than any 192px
+// JPEG needs, and the cap keeps a misbehaving server from buffering an
+// unbounded body into the route's memory.
+const MAX_PREVIEW_BYTES = 2 * 1024 * 1024; // 2 MB
 
 // Normalizes a caller-supplied relative path against the user's Nextcloud
 // files root and rejects any attempt to escape it with `..`. This is the
@@ -675,6 +679,117 @@ export async function nextcloudReadFile(
 		contentType: response.headers.get("Content-Type"),
 		mtime: response.headers.get("Last-Modified"),
 	};
+}
+
+// Fetches a thumbnail from Nextcloud's core preview endpoint (GET). The id
+// form is preferred — there is no path to encode and get wrong, and the
+// endpoint scopes the id to the person's own files — with the path form as the
+// fallback for a server that reports no <oc:fileid>. The id form needs no path
+// at all; only the fallback does, and it still runs through
+// normalizeNextcloudPath like every other read.
+//
+// `redirect: "manual"` is load-bearing, not a safe default to drop: when no
+// preview exists Nextcloud answers 303 to a mime-type icon, and a followed
+// redirect would hand that file-type icon back as if it were the picture, to
+// be drawn as the thumbnail. So any 3xx is "no preview" here, never a hop.
+//
+// Returns null for every expected "there is no picture" answer (3xx, 400,
+// 403, 404, a non-image or SVG content type, an over-cap body) so the caller
+// falls back to the file-type glyph. Anything else that isn't a successful
+// image throws: a 401 as the typed needs_reauth error, and a network error or
+// 5xx as request_failed, so a route can answer 502.
+export async function nextcloudPreview(
+	conn: ConnectionPublic,
+	appPassword: string,
+	opts: { fileId?: number; path?: string; size: number },
+	fetchOpt?: FetchOpt,
+): Promise<{ bytes: ArrayBuffer; contentType: string } | null> {
+	const fetchImpl = fetchOpt?.fetch ?? fetch;
+	const { serverUrl, loginName } = nextcloudConfig(conn);
+	const size = String(opts.size);
+	const commonParams = {
+		x: size,
+		y: size,
+		a: "1",
+		mode: "fill",
+		forceIcon: "0",
+	};
+
+	let url: string;
+	if (opts.fileId !== undefined) {
+		const params = new URLSearchParams({
+			fileId: String(opts.fileId),
+			...commonParams,
+		});
+		url = `${serverUrl}/index.php/core/preview?${params.toString()}`;
+	} else {
+		const normalizedPath = normalizeNextcloudPath(opts.path ?? "");
+		if (!normalizedPath) {
+			throw new NextcloudFilesError(
+				"Cannot preview the files root",
+				"invalid_path",
+			);
+		}
+		const params = new URLSearchParams({
+			file: normalizedPath,
+			...commonParams,
+		});
+		url = `${serverUrl}/index.php/core/preview.png?${params.toString()}`;
+	}
+
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
+		method: "GET",
+		headers: {
+			Authorization: basicAuthHeader(loginName, appPassword),
+			"User-Agent": USER_AGENT,
+		},
+		// See the doc comment above: a followed 303 is a mime icon.
+		redirect: "manual",
+	});
+
+	// Any 3xx is Nextcloud saying "no preview, here is an icon instead".
+	if (response.status >= 300 && response.status < 400) return null;
+	assertNotAuthFailure(response);
+	// 400/403/404 all mean "this file has no preview I may have".
+	if (
+		response.status === 400 ||
+		response.status === 403 ||
+		response.status === 404
+	) {
+		return null;
+	}
+	if (!response.ok) {
+		throw new NextcloudFilesError(
+			`Nextcloud preview failed with status ${response.status}`,
+			"request_failed",
+		);
+	}
+
+	// Only a raster image is a picture the card can draw. SVG is excluded on
+	// purpose: it is a document, not a thumbnail, and handing it to an <img>
+	// is not what this endpoint is for.
+	const contentType = (response.headers.get("Content-Type") ?? "")
+		.split(";")[0]
+		.trim()
+		.toLowerCase();
+	if (!contentType.startsWith("image/") || contentType === "image/svg+xml") {
+		return null;
+	}
+
+	// Reject an over-cap body from its declared length before buffering it;
+	// the actual size is checked again below for a chunked response that
+	// declares no length at all.
+	const contentLengthHeader = response.headers.get("Content-Length");
+	if (contentLengthHeader) {
+		const declared = Number.parseInt(contentLengthHeader, 10);
+		if (Number.isFinite(declared) && declared > MAX_PREVIEW_BYTES) return null;
+	}
+
+	const bytes = await response.arrayBuffer();
+	if (bytes.byteLength > MAX_PREVIEW_BYTES) return null;
+	return { bytes, contentType };
 }
 
 function escapeXmlText(value: string): string {
