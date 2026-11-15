@@ -14,6 +14,7 @@ import { createImageFixture, type ImageFixture } from "./testing/fixture";
 let fixture: ImageFixture;
 let qwen: FakeComfyUi;
 let h3: FakeComfyUi;
+let ltx: FakeComfyUi;
 
 function freeCalls(fake: FakeComfyUi): number {
 	return fake.requests.filter((request) => request.path === "/free").length;
@@ -34,8 +35,10 @@ beforeEach(async () => {
 	process.env.DATABASE_PATH = fixture.dbPath;
 	qwen = await createFakeComfyUi();
 	h3 = await createFakeComfyUi();
+	ltx = await createFakeComfyUi();
 	process.env.COMFYUI_URL = qwen.baseUrl;
 	process.env.COMFYUI_H3_URL = h3.baseUrl;
+	process.env.COMFYUI_LTX_URL = ltx.baseUrl;
 	delete process.env.IMAGE_MODEL;
 	vi.resetModules();
 });
@@ -43,6 +46,7 @@ beforeEach(async () => {
 afterEach(async () => {
 	await qwen.close();
 	await h3.close();
+	await ltx.close();
 	try {
 		const { sqlite } = await import("$lib/server/db");
 		sqlite.close();
@@ -52,6 +56,7 @@ afterEach(async () => {
 	fixture.cleanup();
 	delete process.env.COMFYUI_URL;
 	delete process.env.COMFYUI_H3_URL;
+	delete process.env.COMFYUI_LTX_URL;
 	delete process.env.IMAGE_MODEL;
 	vi.restoreAllMocks();
 });
@@ -62,9 +67,12 @@ describe("the idle free", () => {
 		vi.resetModules();
 		const { scheduleIdleFree } = await import("./idle-free");
 		scheduleIdleFree({ delayMs: 5 });
-		await until(() => freeCalls(qwen) > 0 && freeCalls(h3) > 0);
+		await until(
+			() => freeCalls(qwen) > 0 && freeCalls(h3) > 0 && freeCalls(ltx) > 0,
+		);
 		expect(freeCalls(qwen)).toBe(1);
 		expect(freeCalls(h3)).toBe(1);
+		expect(freeCalls(ltx)).toBe(1);
 	});
 
 	it("does not free the same address twice when both models point at it", async () => {
@@ -80,6 +88,7 @@ describe("the idle free", () => {
 
 	it("frees only the configured services", async () => {
 		delete process.env.COMFYUI_H3_URL;
+		delete process.env.COMFYUI_LTX_URL;
 		vi.resetModules();
 		const { scheduleIdleFree } = await import("./idle-free");
 		scheduleIdleFree({ delayMs: 5 });
@@ -99,6 +108,8 @@ describe("the pre-take cross-model free", () => {
 		await freeOtherPictureModel("qwen");
 		expect(freeCalls(h3)).toBe(1);
 		expect(freeCalls(qwen)).toBe(1);
+		// The video engine is freed before BOTH picture takes.
+		expect(freeCalls(ltx)).toBe(2);
 	});
 
 	it("skips a service that shares the take's own address", async () => {
@@ -115,5 +126,40 @@ describe("the pre-take cross-model free", () => {
 		const { freeOtherPictureModel } = await import("./idle-free");
 		await expect(freeOtherPictureModel("h3")).resolves.toBeUndefined();
 		expect(freeCalls(h3)).toBe(0);
+	});
+});
+
+describe("every other engine", () => {
+	it("lists every engine except the take's own", async () => {
+		const { otherPictureModels } = await import("./idle-free");
+		expect(otherPictureModels("qwen")).toEqual(["h3", "ltx"]);
+		expect(otherPictureModels("h3")).toEqual(["qwen", "ltx"]);
+		expect(otherPictureModels("ltx")).toEqual(["qwen", "h3"]);
+		for (const engine of ["qwen", "h3", "ltx"] as const) {
+			expect(otherPictureModels(engine), engine).not.toContain(engine);
+		}
+	});
+
+	it("frees every other engine before a video take, never the LTX server", async () => {
+		const { freeOtherPictureModels } = await import("./idle-free");
+		await freeOtherPictureModels("ltx");
+		expect(freeCalls(qwen)).toBe(1);
+		expect(freeCalls(h3)).toBe(1);
+		expect(freeCalls(ltx)).toBe(0);
+	});
+
+	it("frees the video engine before a picture take too", async () => {
+		const { freeOtherPictureModels } = await import("./idle-free");
+		await freeOtherPictureModels("qwen");
+		expect(freeCalls(ltx)).toBe(1);
+		expect(freeCalls(qwen)).toBe(0);
+	});
+
+	it("skips an engine sharing the take's own address", async () => {
+		process.env.COMFYUI_LTX_URL = qwen.baseUrl;
+		vi.resetModules();
+		const { freeOtherPictureModels } = await import("./idle-free");
+		await freeOtherPictureModels("qwen");
+		expect(freeCalls(qwen)).toBe(0);
 	});
 });

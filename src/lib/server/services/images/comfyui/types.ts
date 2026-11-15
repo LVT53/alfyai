@@ -4,6 +4,12 @@ export type ComfyImageRef = {
 	type: "input" | "output" | "temp";
 };
 
+// A saved media output, an image or a clip, is one `ComfyImageRef`: ComfyUI
+// reports both with the same `{ filename, subfolder, type }` shape under
+// `/history` (a `SaveVideo` writes its mp4 under `images` with an `animated`
+// marker today, and custom nodes may use `videos` or `gifs`), so one ref shape
+// reads them all.
+
 export type ComfyGraph = Record<
 	string,
 	{ class_type: string; inputs: Record<string, unknown> }
@@ -13,7 +19,7 @@ export type ComfyEvent =
 	| { type: "queued"; ahead: number }
 	| { type: "started" }
 	| { type: "progress"; value: number; max: number }
-	| { type: "done"; images: ComfyImageRef[] };
+	| { type: "done"; images: ComfyImageRef[]; videos: ComfyImageRef[] };
 
 export type ComfyUiErrorCode =
 	| "unreachable"
@@ -65,6 +71,21 @@ export interface ComfyUiClient {
 			onEvent: (event: ComfyEvent) => void;
 		},
 	): Promise<ComfyImageRef[]>;
+	/**
+	 * The same follow, for a graph whose output is a clip (`SaveVideo`). It
+	 * answers the video outputs only, so a graph that saves both a preview and
+	 * an mp4 hands the clip to the video runner. `follow` stays the image-only
+	 * call the picture runner already uses.
+	 */
+	followVideo(
+		promptId: string,
+		options: {
+			signal: AbortSignal;
+			deadlineMs: number;
+			onEvent: (event: ComfyEvent) => void;
+		},
+	): Promise<ComfyImageRef[]>;
+	/** One saved media file's bytes, an image or a clip (`GET /view`). */
 	fetchImage(ref: ComfyImageRef): Promise<Uint8Array>;
 	cancel(
 		promptId: string,

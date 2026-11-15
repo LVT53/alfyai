@@ -1306,6 +1306,56 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
   {
     "type": "function",
     "function": {
+      "name": "make_video",
+      "description": "Make a short video from a still picture: animate ONE picture in this message (its number) or an Image from \"In this chat\" (its id). Use it only when the user wants a clip: a clip takes minutes and only one is made at a time. Write `prompt` in English as the motion idea: what moves, how the camera moves, and what stays as it is. Clips are 5 seconds by default, or 10 only when the user asks for ten. Do not use it for a still picture (make_image), for trimming or editing a video, or for adding sound. No explicit, sexual or nude videos: decline such a request in your reply, without calling make_video.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "The motion idea, in English: what moves in the clip, how the camera moves, and what stays as it is. This is the idea a caption is written from, not the final caption."
+          },
+          "picture": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "The still to animate: a picture number from this message (\"3\") or an Image id from \"In this chat\". When the user says \"it\", it is the picture open in the panel, else the newest Image in \"In this chat\"."
+          },
+          "title": {
+            "description": "A title, 2-5 words, in the conversation's language: name the clip's subject as a person would (\"Harbour at dawn\"), never restating the request or its verbs (make, animate). Title Case in English, normal capitalisation in Hungarian.",
+            "type": "string",
+            "maxLength": 80
+          },
+          "summary": {
+            "description": "What the clip shows, in the conversation's language: one short line with no subject and never in the first person; shown in History.",
+            "type": "string",
+            "maxLength": 200
+          },
+          "durationSeconds": {
+            "default": 5,
+            "description": "The clip's length: 5 seconds by default, 10 only when the user asks for ten. There is nothing longer.",
+            "anyOf": [
+              {
+                "type": "number",
+                "const": 5
+              },
+              {
+                "type": "number",
+                "const": 10
+              }
+            ]
+          }
+        },
+        "required": [
+          "prompt",
+          "picture"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "photos",
       "description": "Find the user's own photos/videos in their connected library (Immich). `search` is a natural-language SMART search matching visual/semantic CONTENT (what a photo depicts) — use it for 'a beach at sunset' or 'my dog in the snow'. For PRECISE filtering use `search_by_date`: a capture-date range (`from`/`to`, YYYY-MM-DD), place (`city`/`country`), media `type` (IMAGE/VIDEO), `favorites`, and/or a `personName` — this answers 'photos from June 2019', 'my favourites', or 'photos of a named person'. `list_albums` and `album` (by `albumId`) browse albums; `list_people` finds a recognized person's exact name. Do not use it for pictures from the web (image_search), for non-media documents (files), or for where the user was at a time (location). Each result includes an `imageUrl` — to SHOW a photo rather than list its filename, embed it as a markdown image `![short caption](imageUrl)`; prefer a few relevant photos over a filename table. Can also add photos to an 'AlfyAI' album (requires the user to have enabled writes) — this only PROPOSES a pending, confirm-required change and never deletes or modifies the originals. With several accounts connected, pass `account` (provider, label, or email).",
       "parameters": {

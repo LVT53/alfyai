@@ -137,6 +137,16 @@ interface Config {
 	// Empty means the H3 model cannot make pictures, even when selected. Only
 	// read while `imageModel` is "h3".
 	comfyuiH3Url: string;
+	// The LTX video server. Empty means video making is off; it is a third
+	// engine, separate from the two picture servers, because LTX and H3 cannot
+	// be resident on the card together.
+	comfyuiLtxUrl: string;
+	// The caption endpoint of the video take: an OpenAI-compatible chat server
+	// whose answer replaces the person's motion idea. Empty means no caption
+	// step (the idea is rendered unchanged). The key is env-only.
+	ltxCaptionUrl: string;
+	ltxCaptionModel: string;
+	ltxCaptionApiKey: string;
 	imageReferenceCap: number;
 	// The explicit-picture filter (request check and picture check). On unless
 	// the environment says "false"; an admin may turn it off at runtime.
@@ -840,6 +850,10 @@ function readConfig(): Config {
 		comfyuiUrl: (process.env.COMFYUI_URL || "").trim(),
 		imageModel: normalizeImageModel(process.env.IMAGE_MODEL),
 		comfyuiH3Url: (process.env.COMFYUI_H3_URL || "").trim(),
+		comfyuiLtxUrl: (process.env.COMFYUI_LTX_URL || "").trim(),
+		ltxCaptionUrl: (process.env.LTX_CAPTION_URL || "").trim(),
+		ltxCaptionModel: (process.env.LTX_CAPTION_MODEL || "").trim(),
+		ltxCaptionApiKey: (process.env.LTX_CAPTION_API_KEY || "").trim(),
 		imageReferenceCap: clampParsedInt(
 			process.env.IMAGE_REFERENCE_CAP,
 			4,

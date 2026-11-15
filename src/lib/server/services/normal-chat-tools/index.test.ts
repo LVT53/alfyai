@@ -139,6 +139,10 @@ vi.mock("$lib/server/config-store", async () => {
 		})),
 		isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
 			actual.isImageMakingConfigured({ comfyuiUrl: config.comfyuiUrl ?? "" }),
+		isVideoMakingConfigured: (config: { comfyuiLtxUrl?: string }) =>
+			actual.isVideoMakingConfigured({
+				comfyuiLtxUrl: config.comfyuiLtxUrl ?? "",
+			}),
 	};
 });
 vi.mock("$lib/server/services/connections/resolve", async () => {
@@ -5498,6 +5502,45 @@ describe("edit_artifact and create_artifact show the Canvas contract to the mode
 	});
 });
 
+describe("make_video is in the catalogue only when an LTX server is configured", () => {
+	function toolNames(config: Record<string, unknown>): string[] {
+		getConfigMock.mockReturnValueOnce({
+			parallelApiKey: "parallel-key",
+			parallelBaseUrl: "https://api.parallel.ai",
+			model1MaxModelContext: 64_000,
+			model2MaxModelContext: 200_000,
+			...config,
+		} as unknown as ReturnType<typeof getConfig>);
+		return Object.keys(
+			createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			}).tools,
+		);
+	}
+
+	it("has no make_video when no LTX server is set up", () => {
+		const names = toolNames({ comfyuiUrl: "http://127.0.0.1:8188" });
+		expect(names).toContain("make_image");
+		expect(names).not.toContain("make_video");
+	});
+
+	it("has make_video when the LTX server is set up", () => {
+		const names = toolNames({
+			comfyuiUrl: "http://127.0.0.1:8188",
+			comfyuiLtxUrl: "http://127.0.0.1:8190",
+		});
+		expect(names).toContain("make_video");
+	});
+
+	it("is absent, not refused: there is no tool to call without a server", () => {
+		const names = toolNames({});
+		expect(names).not.toContain("make_video");
+		expect(names).not.toContain("make_image");
+	});
+});
+
 describe("tool description hygiene", () => {
 	const ALL_CONNECTION_CAPABILITIES = [
 		"files",
@@ -5791,7 +5834,11 @@ describe("tool description hygiene", () => {
 	// 2026-11-15: the files tool says its results also appear as file cards and
 	// that the reply must not paste file URLs (nextcloud-file-cards, Task 5).
 	// Re-measured after merging origin/dev, so this number covers both changes.
-	const CATALOGUE_TOKEN_CEILING = 5490;
+	// 2026-11-15: make_video (docs/plans/ltx-video slice 5) brings its own tool
+	// description and the explicit-picture sentence it shares with make_image
+	// (604 characters, 151 estimated tokens). Re-measured: 5,490 before and
+	// 5,641 after, so the ceiling is raised by exactly that. No margin.
+	const CATALOGUE_TOKEN_CEILING = 5641;
 
 	function estimateTokens(text: string): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN);
@@ -5807,6 +5854,7 @@ describe("tool description hygiene", () => {
 			orsBaseUrl: "http://127.0.0.1:8080/ors",
 			geocoderBaseUrl: "http://127.0.0.1:2322",
 			comfyuiUrl: "http://127.0.0.1:8188",
+			comfyuiLtxUrl: "http://127.0.0.1:8190",
 			model1MaxModelContext: 64_000,
 			model2MaxModelContext: 200_000,
 		} as unknown as ReturnType<typeof getConfig>);
@@ -5914,6 +5962,7 @@ describe("tool description hygiene", () => {
 				"image_search",
 				"location",
 				"make_image",
+				"make_video",
 				"map_route",
 				"media",
 				"memory_context",
@@ -5956,6 +6005,26 @@ describe("tool description hygiene", () => {
 
 	it("make_image waits inside a 120 s envelope", () => {
 		expect(TOOL_TIMEOUTS_MS.make_image).toBe(120_000);
+	});
+
+	it("make_video says what it is for and what it is not for, within the per-tool ceiling", () => {
+		const entry = buildFullToolCatalogue().find(
+			(candidate) => candidate.name === "make_video",
+		);
+		expect(entry?.description).toContain(NEGATIVE_CASE_MARKER);
+		expect(entry?.description).toContain(
+			'an Image from "In this chat" (its id)',
+		);
+		expect(entry?.description).toContain("5 seconds by default");
+		expect(estimateTokens(entry?.description ?? "")).toBeLessThanOrEqual(
+			PER_TOOL_TOKEN_CEILING,
+		);
+	});
+
+	it("make_video waits inside a 270 s envelope", () => {
+		// VIDEO_TOOL_WAIT_MS (240 s) plus the room the picture tool's own
+		// envelope leaves for the work around the wait.
+		expect(TOOL_TIMEOUTS_MS.make_video).toBe(270_000);
 	});
 
 	it("ask_user says what it is for and what it is not for, within the per-tool ceiling", () => {

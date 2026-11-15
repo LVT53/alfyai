@@ -15,6 +15,21 @@ import type { Duplex } from "node:stream";
 import sharp from "sharp";
 import type { ComfyGraph } from "../types";
 
+/**
+ * A real 5 s 24 fps 64x64 h264 mp4, made once with
+ * `ffmpeg -f lavfi -i color=c=#336699:s=64x64:d=5:r=24 -c:v libx264
+ * -pix_fmt yuv420p -preset veryfast -crf 30 -movflags +faststart`.
+ * It is what a video graph answers by default, so the fake serves a clip the
+ * runner can decode, chain and sample with ffmpeg without a GPU. A spec or a
+ * test that needs another picture in the clip passes `videoBytes`.
+ */
+export const FAKE_VIDEO_BYTES = new Uint8Array(
+	Buffer.from(
+		"AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAjQbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAE4gAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAB/t0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAE4gAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAEAAAABAAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAABOIAAAEAAABAAAAAAdzbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAwAAAA8ABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAAHHm1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAABt5zdGJsAAAAvnN0c2QAAAAAAAAAAQAAAK5hdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAEAAQABIAAAASAAAAAAAAAABFExhdmM2My4xLjEwMiBsaWJ4MjY0AAAAAAAAAAAAAAAAGP//AAAANGF2Y0MBZAAK/+EAGGdkAAqs2UQmwEQAAAMABAAAAwDAPEiWWAEABWjvhHLA/fj4AAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAAA47AAAAAAAAABhzdHRzAAAAAAAAAAEAAAB4AAACAAAAABRzdHNzAAAAAAAAAAEAAAABAAADyGN0dHMAAAAAAAAAdwAAAAEAAAQAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAgAAAAAAgAAAgAAAAAcc3RzYwAAAAAAAAABAAAAAQAAAHgAAAABAAAB9HN0c3oAAAAAAAAAAAAAAHgAAALcAAAADQAAAAwAAAAMAAAADAAAAA4AAAAOAAAADAAAAAwAAAAOAAAADgAAAAwAAAAMAAAADgAAAA4AAAAMAAAADAAAAA4AAAAOAAAADAAAAAwAAAAOAAAADgAAAAwAAAAMAAAADgAAAA4A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",
+		"base64",
+	),
+);
+
 export type FakeRenderInput = {
 	graph: ComfyGraph;
 	images: Uint8Array[];
@@ -31,6 +46,16 @@ export type FakeComfyUiOptions = {
 	/** Answers `POST /prompt` with an id of its own, ignoring a caller's `prompt_id` (a ComfyUI from before caller-supplied ids). */
 	ignorePromptId?: boolean;
 	render?: (input: FakeRenderInput) => Promise<Uint8Array>;
+	/** The mp4 a video graph (`SaveVideo`) answers with; defaults to `FAKE_VIDEO_BYTES`. */
+	videoBytes?: Uint8Array;
+	/**
+	 * Which history key a video graph's saved clip lands under. ComfyUI's own
+	 * `SaveVideo` reports it under `images` with an `animated` marker; some
+	 * custom nodes use `videos` or `gifs`. Default `images`.
+	 */
+	videoOutputKey?: "images" | "videos" | "gifs";
+	/** Execution fails for every prompt after the first N (a chain's second segment). */
+	failAfterPromptCount?: number;
 };
 
 export type FakeRequest = {
@@ -65,6 +90,8 @@ type Prompt = {
 	clientId: string;
 	status: FakePromptStatus;
 	aborted: boolean;
+	/** This prompt was submitted over `failAfterPromptCount`. */
+	shouldFail: boolean;
 };
 
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -208,6 +235,7 @@ export async function createFakeComfyUi(
 	let options: FakeComfyUiOptions = { ...initial };
 	let held = false;
 	let counter = 0;
+	let submitted = 0;
 	let generation = 0;
 	let downUntil = 0;
 	let current: Prompt | null = null;
@@ -246,6 +274,9 @@ export async function createFakeComfyUi(
 	async function run(prompt: Prompt, gen: number) {
 		const alive = () => gen === generation && !prompt.aborted;
 		const steps = options.steps ?? 4;
+		const isVideo = Object.values(prompt.graph).some(
+			(node) => node.class_type === "SaveVideo",
+		);
 		await sleep(options.startDelayMs ?? 0);
 		let failed = false;
 		if (alive()) {
@@ -265,7 +296,7 @@ export async function createFakeComfyUi(
 		if (prompt.aborted) {
 			failed = true;
 			send(prompt.clientId, "execution_interrupted", { prompt_id: prompt.id });
-		} else if (options.fail === "execution") {
+		} else if (prompt.shouldFail || options.fail === "execution") {
 			failed = true;
 			send(prompt.clientId, "execution_error", {
 				prompt_id: prompt.id,
@@ -277,6 +308,26 @@ export async function createFakeComfyUi(
 				outputs: {},
 				status: { status_str: "error", completed: false, messages: [] },
 			});
+		} else if (isVideo) {
+			const bytes = options.videoBytes ?? FAKE_VIDEO_BYTES;
+			const filename = `fake_${prompt.id}.mp4`;
+			files.set(`output/${filename}`, bytes);
+			const outputKey = options.videoOutputKey ?? "images";
+			const outputId =
+				Object.entries(prompt.graph).find(
+					([, node]) => node.class_type === "SaveVideo",
+				)?.[0] ?? "33";
+			history.set(prompt.id, {
+				outputs: {
+					[outputId]: {
+						[outputKey]: [
+							{ filename, subfolder: "", type: "output", animated: [true] },
+						],
+					},
+				},
+				status: { status_str: "success", completed: true, messages: [] },
+			});
+			send(prompt.clientId, "execution_success", { prompt_id: prompt.id });
 		} else {
 			const inputs: Uint8Array[] = [];
 			for (const node of Object.values(prompt.graph)) {
@@ -385,6 +436,7 @@ export async function createFakeComfyUi(
 					json.prompt_id !== ""
 						? json.prompt_id
 						: randomUUID();
+				submitted += 1;
 				const prompt: Prompt = {
 					id,
 					number: counter++,
@@ -392,6 +444,9 @@ export async function createFakeComfyUi(
 					clientId: String(json.client_id ?? ""),
 					status: "pending",
 					aborted: false,
+					shouldFail:
+						options.failAfterPromptCount !== undefined &&
+						submitted > options.failAfterPromptCount,
 				};
 				records.set(id, prompt);
 				prompts.set(id, "pending");
@@ -437,12 +492,17 @@ export async function createFakeComfyUi(
 				return reply(res, 200, entry === undefined ? {} : { [id]: entry });
 			}
 			if (method === "GET" && path === "/view") {
+				await gate(path);
 				const type = url.searchParams.get("type") ?? "output";
 				const name = url.searchParams.get("filename") ?? "";
 				const bytes =
 					type === "input" ? uploads.get(name) : files.get(`${type}/${name}`);
 				if (!bytes) return reply(res, 404, { error: "not found" });
-				res.writeHead(200, { "content-type": "image/png" });
+				res.writeHead(200, {
+					"content-type": /\.(mp4|webm|mov|mkv|m4v)$/i.test(name)
+						? "video/mp4"
+						: "image/png",
+				});
 				return void res.end(Buffer.from(bytes));
 			}
 			reply(res, 404, { error: "no such route" });
@@ -504,6 +564,7 @@ export async function createFakeComfyUi(
 		},
 		restart() {
 			generation += 1;
+			submitted = 0;
 			current = null;
 			records.clear();
 			prompts.clear();
@@ -513,6 +574,7 @@ export async function createFakeComfyUi(
 		outage(ms) {
 			downUntil = Date.now() + ms;
 			generation += 1;
+			submitted = 0;
 			current = null;
 			records.clear();
 			prompts.clear();

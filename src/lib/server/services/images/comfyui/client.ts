@@ -8,7 +8,12 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { type ComfyImageRef, type ComfyUiClient, ComfyUiError } from "./types";
+import {
+	type ComfyEvent,
+	type ComfyImageRef,
+	type ComfyUiClient,
+	ComfyUiError,
+} from "./types";
 
 export {
 	type ComfyCancelResult,
@@ -218,7 +223,19 @@ export function createComfyUiClient(options: {
 	type HistoryState =
 		| { state: "unknown" }
 		| { state: "failed"; detail: unknown }
-		| { state: "done"; images: ComfyImageRef[] };
+		| {
+				state: "done";
+				images: ComfyImageRef[];
+				videos: ComfyImageRef[];
+		  };
+
+	/** The extensions ComfyUI's own video nodes save (`SaveVideo`'s mp4/webm/mov). */
+	const VIDEO_EXTENSIONS = [".mp4", ".webm", ".mov", ".mkv", ".m4v"];
+
+	function isVideoName(filename: string): boolean {
+		const lower = filename.toLowerCase();
+		return VIDEO_EXTENSIONS.some((extension) => lower.endsWith(extension));
+	}
 
 	async function readHistory(
 		promptId: string,
@@ -240,20 +257,193 @@ export function createComfyUiClient(options: {
 		}
 		if (!isRecord(entry.outputs)) return { state: "unknown" };
 		const images: ComfyImageRef[] = [];
+		const videos: ComfyImageRef[] = [];
 		for (const node of Object.values(entry.outputs)) {
-			if (isRecord(node) && Array.isArray(node.images)) {
-				for (const image of node.images) {
-					if (isImageRef(image)) {
-						images.push({
-							filename: image.filename,
-							subfolder: image.subfolder,
-							type: image.type,
-						});
+			if (!isRecord(node)) continue;
+			for (const key of ["images", "gifs", "videos"]) {
+				const entries = node[key];
+				if (!Array.isArray(entries)) continue;
+				for (const image of entries) {
+					if (!isImageRef(image)) continue;
+					const ref: ComfyImageRef = {
+						filename: image.filename,
+						subfolder: image.subfolder,
+						type: image.type,
+					};
+					// A `SaveVideo` writes its mp4 under `images` (its UI output is
+					// `PreviewVideo`), while some nodes use `videos`/`gifs`: the name
+					// and the key together decide, never the key alone.
+					if (key !== "images" || isVideoName(ref.filename)) {
+						videos.push(ref);
+					} else {
+						images.push(ref);
 					}
 				}
 			}
 		}
-		return { state: "done", images };
+		return { state: "done", images, videos };
+	}
+
+	/**
+	 * Follows a prompt and resolves with the media of the kind asked for. The
+	 * poll loop is one implementation for pictures and clips: only the output
+	 * list the caller reads, and therefore what "missing result" means, differ.
+	 */
+	async function followMedia(
+		promptId: string,
+		options: {
+			signal: AbortSignal;
+			deadlineMs: number;
+			onEvent: (event: ComfyEvent) => void;
+		},
+		wanted: "images" | "videos",
+	): Promise<ComfyImageRef[]> {
+		const { signal, deadlineMs, onEvent } = options;
+		const deadline = Date.now() + deadlineMs;
+		let queuedAhead: number | null = null;
+		let started = false;
+		let socketFailure: ComfyUiError | null = null;
+		// Ends the poll pause early. A finished or failed render says so on the
+		// socket, so the follower looks at the history at once instead of
+		// sitting out the rest of its poll interval.
+		let wakePoll: (() => void) | null = null;
+		// A wake that lands while the loop is reading the queue or history (no
+		// pause to end) is kept, so the next pause returns at once.
+		let woken = false;
+
+		const emitQueued = (ahead: number) => {
+			if (queuedAhead === ahead) return;
+			if (started) return;
+			queuedAhead = ahead;
+			onEvent({ type: "queued", ahead });
+		};
+		const emitStarted = () => {
+			if (started) return;
+			emitQueued(0);
+			started = true;
+			onEvent({ type: "started" });
+		};
+		const handle = (message: SocketMessage) => {
+			if (
+				message.type === "execution_success" ||
+				message.type === "execution_error" ||
+				message.type === "execution_interrupted" ||
+				(message.type === "executing" && message.data.node === null)
+			) {
+				woken = true;
+				wakePoll?.();
+			}
+			if (message.type === "execution_start") emitStarted();
+			else if (message.type === "progress") {
+				const { value, max } = message.data;
+				if (typeof value === "number" && typeof max === "number") {
+					emitStarted();
+					onEvent({ type: "progress", value, max });
+				}
+			} else if (
+				message.type === "execution_error" ||
+				message.type === "execution_interrupted"
+			) {
+				socketFailure = new ComfyUiError(
+					"execution_failed",
+					`ComfyUI reported ${message.type}`,
+					message.data,
+				);
+			}
+		};
+
+		// The first poll goes before any socket message so "queued" leads.
+		const wait = (ms: number) =>
+			new Promise<void>((resolve, reject) => {
+				if (woken) {
+					woken = false;
+					resolve();
+					return;
+				}
+				const finish = () => {
+					woken = false;
+					clearTimeout(timer);
+					wakePoll = null;
+					signal.removeEventListener("abort", onAbort);
+					resolve();
+				};
+				const onAbort = () => {
+					clearTimeout(timer);
+					wakePoll = null;
+					reject(signal.reason);
+				};
+				const timer = setTimeout(finish, ms);
+				wakePoll = finish;
+				signal.addEventListener("abort", onAbort, { once: true });
+			});
+
+		try {
+			let misses = 0;
+			let first = true;
+			while (true) {
+				signal.throwIfAborted();
+				if (Date.now() >= deadline) {
+					throw new ComfyUiError("timeout", "ComfyUI took too long");
+				}
+				const queue = await readQueue(signal);
+				const ahead = aheadOf(queue, promptId);
+				if (ahead !== null) {
+					misses = 0;
+					if (queue.running.some((e) => e.promptId === promptId)) {
+						emitQueued(0);
+						emitStarted();
+					} else {
+						emitQueued(ahead);
+					}
+				}
+				if (first) {
+					first = false;
+					listeners.set(promptId, handle);
+					for (const message of backlog.get(promptId) ?? []) handle(message);
+					backlog.delete(promptId);
+				}
+				if (socketFailure) throw socketFailure;
+				const history = await readHistory(promptId, signal);
+				if (history.state === "failed") {
+					throw new ComfyUiError(
+						"execution_failed",
+						"ComfyUI could not render the picture",
+						history.detail,
+					);
+				}
+				if (history.state === "done") {
+					const media = wanted === "videos" ? history.videos : history.images;
+					if (media.length === 0) {
+						throw new ComfyUiError(
+							"missing_result",
+							wanted === "videos"
+								? "ComfyUI finished without a clip"
+								: "ComfyUI finished without a picture",
+						);
+					}
+					emitStarted();
+					onEvent({
+						type: "done",
+						images: history.images,
+						videos: history.videos,
+					});
+					return media;
+				}
+				if (ahead === null) {
+					misses += 1;
+					if (misses >= 2) {
+						throw new ComfyUiError(
+							"missing_result",
+							"ComfyUI no longer knows this prompt",
+						);
+					}
+				}
+				await wait(Math.max(0, Math.min(pollMs, deadline - Date.now())));
+			}
+		} finally {
+			listeners.delete(promptId);
+			backlog.delete(promptId);
+		}
 	}
 
 	return {
@@ -317,145 +507,12 @@ export function createComfyUiClient(options: {
 			return { promptId: body.prompt_id };
 		},
 
-		async follow(promptId, { signal, deadlineMs, onEvent }) {
-			const deadline = Date.now() + deadlineMs;
-			let queuedAhead: number | null = null;
-			let started = false;
-			let socketFailure: ComfyUiError | null = null;
-			// Ends the poll pause early. A finished or failed render says so on the
-			// socket, so the follower looks at the history at once instead of
-			// sitting out the rest of its poll interval.
-			let wakePoll: (() => void) | null = null;
-			// A wake that lands while the loop is reading the queue or history (no
-			// pause to end) is kept, so the next pause returns at once.
-			let woken = false;
+		async follow(promptId, options) {
+			return followMedia(promptId, options, "images");
+		},
 
-			const emitQueued = (ahead: number) => {
-				if (queuedAhead === ahead) return;
-				if (started) return;
-				queuedAhead = ahead;
-				onEvent({ type: "queued", ahead });
-			};
-			const emitStarted = () => {
-				if (started) return;
-				emitQueued(0);
-				started = true;
-				onEvent({ type: "started" });
-			};
-			const handle = (message: SocketMessage) => {
-				if (
-					message.type === "execution_success" ||
-					message.type === "execution_error" ||
-					message.type === "execution_interrupted" ||
-					(message.type === "executing" && message.data.node === null)
-				) {
-					woken = true;
-					wakePoll?.();
-				}
-				if (message.type === "execution_start") emitStarted();
-				else if (message.type === "progress") {
-					const { value, max } = message.data;
-					if (typeof value === "number" && typeof max === "number") {
-						emitStarted();
-						onEvent({ type: "progress", value, max });
-					}
-				} else if (
-					message.type === "execution_error" ||
-					message.type === "execution_interrupted"
-				) {
-					socketFailure = new ComfyUiError(
-						"execution_failed",
-						`ComfyUI reported ${message.type}`,
-						message.data,
-					);
-				}
-			};
-
-			// The first poll goes before any socket message so "queued" leads.
-			const wait = (ms: number) =>
-				new Promise<void>((resolve, reject) => {
-					if (woken) {
-						woken = false;
-						resolve();
-						return;
-					}
-					const finish = () => {
-						woken = false;
-						clearTimeout(timer);
-						wakePoll = null;
-						signal.removeEventListener("abort", onAbort);
-						resolve();
-					};
-					const onAbort = () => {
-						clearTimeout(timer);
-						wakePoll = null;
-						reject(signal.reason);
-					};
-					const timer = setTimeout(finish, ms);
-					wakePoll = finish;
-					signal.addEventListener("abort", onAbort, { once: true });
-				});
-
-			try {
-				let misses = 0;
-				let first = true;
-				while (true) {
-					signal.throwIfAborted();
-					if (Date.now() >= deadline) {
-						throw new ComfyUiError("timeout", "ComfyUI took too long");
-					}
-					const queue = await readQueue(signal);
-					const ahead = aheadOf(queue, promptId);
-					if (ahead !== null) {
-						misses = 0;
-						if (queue.running.some((e) => e.promptId === promptId)) {
-							emitQueued(0);
-							emitStarted();
-						} else {
-							emitQueued(ahead);
-						}
-					}
-					if (first) {
-						first = false;
-						listeners.set(promptId, handle);
-						for (const message of backlog.get(promptId) ?? []) handle(message);
-						backlog.delete(promptId);
-					}
-					if (socketFailure) throw socketFailure;
-					const history = await readHistory(promptId, signal);
-					if (history.state === "failed") {
-						throw new ComfyUiError(
-							"execution_failed",
-							"ComfyUI could not render the picture",
-							history.detail,
-						);
-					}
-					if (history.state === "done") {
-						if (history.images.length === 0) {
-							throw new ComfyUiError(
-								"missing_result",
-								"ComfyUI finished without a picture",
-							);
-						}
-						emitStarted();
-						onEvent({ type: "done", images: history.images });
-						return history.images;
-					}
-					if (ahead === null) {
-						misses += 1;
-						if (misses >= 2) {
-							throw new ComfyUiError(
-								"missing_result",
-								"ComfyUI no longer knows this prompt",
-							);
-						}
-					}
-					await wait(Math.max(0, Math.min(pollMs, deadline - Date.now())));
-				}
-			} finally {
-				listeners.delete(promptId);
-				backlog.delete(promptId);
-			}
+		async followVideo(promptId, options) {
+			return followMedia(promptId, options, "videos");
 		},
 
 		async fetchImage(ref) {

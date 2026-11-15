@@ -20,6 +20,7 @@ import type {
 	FileProductionJob,
 } from "$lib/server/services/file-production/types";
 import type { ImageCardView } from "$lib/server/services/images/read-model";
+import type { VideoCardView } from "$lib/server/services/images/video/read-model";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
@@ -34,14 +35,16 @@ import type { TaskState } from "$lib/server/services/task-state/types";
  * used to read the whole `ConversationDetail` (the message window and the
  * sidecar included) every 750 ms; this is a few KB.
  *
- * `imageCards` is the very array the `full` view assembles (same read-model
- * helper), so the page applies it to the state a full read already writes.
- * `conversationId` is the answer's own name, so a read that answers after the
- * person moved to another chat is dropped rather than applied there.
+ * `imageCards` and `videoCards` are the very arrays the `full` view assembles
+ * (same read-model helpers), so the page applies them to the state a full read
+ * already writes. `conversationId` is the answer's own name, so a read that
+ * answers after the person moved to another chat is dropped rather than
+ * applied there.
  */
 export interface ConversationCardsDetail {
 	conversationId: string;
 	imageCards: ImageCardView[];
+	videoCards: VideoCardView[];
 }
 
 export interface ConversationDetail {
@@ -66,6 +69,8 @@ export interface ConversationDetail {
 	fileProductionJobs?: FileProductionJob[];
 	/** The picture cards (Image items' takes) of this conversation, oldest first. */
 	imageCards?: ImageCardView[];
+	/** The video cards (a Video item's take, or a make_video call's) of this conversation, oldest first. */
+	videoCards?: VideoCardView[];
 	/** The artifact family rows for this conversation: the panel list and the header count's source. */
 	artifacts?: ArtifactCardSummary[];
 	/**

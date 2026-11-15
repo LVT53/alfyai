@@ -3,7 +3,11 @@ import { type Tool, type ToolExecutionOptions, tool } from "ai";
 import { z } from "zod";
 import type { ModelId } from "$lib/model-types";
 
-import { getConfig, isImageMakingConfigured } from "$lib/server/config-store";
+import {
+	getConfig,
+	isImageMakingConfigured,
+	isVideoMakingConfigured,
+} from "$lib/server/config-store";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
@@ -123,6 +127,13 @@ import {
 	makeImageInputSchema,
 	runMakeImageTool,
 } from "./make-image";
+import {
+	type MakeVideoCallState,
+	type MakeVideoInput,
+	type MakeVideoPayload,
+	makeVideoInputSchema,
+	runMakeVideoTool,
+} from "./make-video";
 import {
 	mediaToolInputSchema,
 	runMediaTool,
@@ -330,6 +341,9 @@ export interface CreateNormalChatToolsContext {
 // to the person: the model's own judgement is the filter's first line.
 const MAKE_IMAGE_EXPLICIT_LINE =
 	"No explicit, sexual or nude pictures: decline such a request in your reply, without calling make_image.";
+// The same first line for a clip: the picture filter's request half covers both.
+const MAKE_VIDEO_EXPLICIT_LINE =
+	"No explicit, sexual or nude videos: decline such a request in your reply, without calling make_video.";
 
 // ── Tool text ──────────────────────────────────────────────────
 //
@@ -373,6 +387,11 @@ const TOOL_TEXT: ToolText = {
 		description:
 			'Make a new picture from words, or change one: a picture in this message (its number) or an Image from "In this chat" (its id). One picture per call. For several, count them first, then make every call in one step: different pictures, one call each (up to 8); options of one picture, the identical call repeated (up to 4). Write `prompt` in English: what changes and what stays. Do not use it to find, show or describe existing pictures.',
 		errorPrefix: "Making the picture failed",
+	},
+	make_video: {
+		description:
+			'Make a short video from a still picture: animate ONE picture in this message (its number) or an Image from "In this chat" (its id). Use it only when the user wants a clip: a clip takes minutes and only one is made at a time. Write `prompt` in English as the motion idea: what moves, how the camera moves, and what stays as it is. Clips are 5 seconds by default, or 10 only when the user asks for ten. Do not use it for a still picture (make_image), for trimming or editing a video, or for adding sound.',
+		errorPrefix: "Making the video failed",
 	},
 	read_generated_file: {
 		description:
@@ -726,6 +745,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// make_image exists only when an admin has pointed COMFYUI_URL at a picture
 	// server; without one the tool is not offered at all.
 	const includeMakeImageTool = isImageMakingConfigured(registrationConfig);
+	// make_video exists only when an admin has pointed COMFYUI_LTX_URL at an
+	// LTX server; without one the tool is absent, exactly as make_image is.
+	const includeMakeVideoTool = isVideoMakingConfigured(registrationConfig);
 	// What this turn has made with it: its cards, takes and call count.
 	const turnTakes = ctx.turnTakes ?? createTurnTakes();
 	const includeFilesTool = Boolean(
@@ -2349,6 +2371,97 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														turnTakes.hasTakeForCall(options.toolCallId)
 															? "image_tool_timeout"
 															: "image_error",
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
+		...(includeMakeVideoTool
+			? {
+					make_video: asExecutableTool(
+						tool({
+							description:
+								ctx.explicitPictureFilter === false
+									? i18n.make_video.description
+									: `${i18n.make_video.description} ${MAKE_VIDEO_EXPLICIT_LINE}`,
+							inputSchema: makeVideoInputSchema,
+							execute: async (
+								input: MakeVideoInput,
+								options: ToolExecutionOptions,
+							) => {
+								// What this call has queued, for a timeout that must still say
+								// the clip is on its way.
+								const state: MakeVideoCallState = { takeId: null };
+								return executeToolWithEnvelope<MakeVideoPayload>({
+									toolName: "make_video",
+									timeoutMs: TOOL_TIMEOUTS_MS.make_video,
+									options,
+									recorder,
+									run: async (abortSignal) => {
+										const result = await runMakeVideoTool({
+											userId: ctx.userId,
+											conversationId: ctx.conversationId,
+											toolCallId: options.toolCallId,
+											input,
+											turnPictures: ctx.turnPictures ?? null,
+											signal: abortSignal,
+											onTick: ctx.onToolActivity,
+											state,
+										});
+										const ok = result.modelPayload.ok;
+										return {
+											modelPayload: result.modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "make_video",
+												input,
+												status: "done",
+												outputSummary: !ok
+													? result.modelPayload.message
+													: result.modelPayload.status === "running"
+														? "Video still being made"
+														: "Video made",
+												sourceType: "tool",
+												metadata: result.metadata,
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.make_video.errorPrefix,
+										);
+										return {
+											modelPayload: {
+												ok: false,
+												errorCode: "video_error",
+												message,
+											},
+											entry: {
+												callId: options.toolCallId,
+												name: "make_video",
+												input,
+												status: "done",
+												outputSummary: message,
+												sourceType: "tool",
+												// The row is made from the code, never from the model's words;
+												// a timeout may still land its clip on the card.
+												metadata: {
+													ok: false,
+													// Only a call that already queued a take can say the
+													// clip is still coming; a timeout before that made nothing.
+													videoError:
+														isToolTimeoutError(error) && state.takeId
+															? "video_tool_timeout"
+															: "video_error",
+													...(state.takeId
+														? { videoTakeId: state.takeId }
+														: {}),
 												},
 											},
 										};

@@ -293,3 +293,74 @@ describe("ending the poll pause", () => {
 		}
 	});
 });
+
+describe("video outputs", () => {
+	const videoGraph: ComfyGraph = {
+		"32": {
+			class_type: "CreateVideo",
+			inputs: { images: ["30", 0], fps: 24 },
+		},
+		"33": {
+			class_type: "SaveVideo",
+			inputs: { video: ["32", 0], format: "mp4" },
+		},
+	};
+
+	it("reads SaveVideo's mp4 from the images key ComfyUI actually writes", async () => {
+		const client = makeClient();
+		const { promptId } = await client.submit(videoGraph);
+		const refs = await client.followVideo(promptId, {
+			signal: new AbortController().signal,
+			deadlineMs: 5000,
+			onEvent: () => undefined,
+		});
+		expect(refs).toHaveLength(1);
+		const ref = refs[0];
+		if (!ref) throw new Error("The fake stored no clip");
+		expect(ref.filename.endsWith(".mp4")).toBe(true);
+		const bytes = await client.fetchImage(ref);
+		// The real mp4 the fake serves: an ISO-BMFF ftyp box at offset 4.
+		expect(Array.from(bytes.slice(4, 8))).toEqual([0x66, 0x74, 0x79, 0x70]);
+	});
+
+	it("reads videos and gifs keys too", async () => {
+		for (const key of ["videos", "gifs"] as const) {
+			fake.setOptions({ videoOutputKey: key });
+			const client = makeClient();
+			const { promptId } = await client.submit(videoGraph);
+			const refs = await client.followVideo(promptId, {
+				signal: new AbortController().signal,
+				deadlineMs: 5000,
+				onEvent: () => undefined,
+			});
+			expect(refs, key).toHaveLength(1);
+			expect(refs[0]?.filename).toBe(`fake_${promptId}.mp4`);
+		}
+	});
+
+	it("follow still answers pictures only, and followVideo answers clips only", async () => {
+		const client = makeClient();
+		const { promptId } = await client.submit(videoGraph);
+		await expect(
+			client.follow(promptId, {
+				signal: new AbortController().signal,
+				deadlineMs: 5000,
+				onEvent: () => undefined,
+			}),
+		).rejects.toMatchObject({ code: "missing_result" });
+	});
+
+	it("keeps an image graph's picture on the picture path", async () => {
+		const client = makeClient();
+		const { promptId } = await client.submit(graph);
+		const { events, result } = follow(client, promptId, 5000);
+		const images = await result;
+		expect(images).toHaveLength(1);
+		expect(images[0]?.filename.endsWith(".png")).toBe(true);
+		const done = events.at(-1);
+		expect(done?.type).toBe("done");
+		if (done?.type === "done") {
+			expect(done.videos).toEqual([]);
+		}
+	});
+});

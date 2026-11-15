@@ -28,6 +28,7 @@ import { settleInterruptedImports } from "$lib/server/services/chatgpt-import/im
 import { extractionJob } from "$lib/server/services/extraction/extraction-job";
 import { fileProductionJob } from "$lib/server/services/file-production/production-job";
 import { imageJob } from "$lib/server/services/images/image-job";
+import { videoJob } from "$lib/server/services/images/video/video-job";
 import { startJobs, stopJobs } from "$lib/server/services/jobs";
 import {
 	ensureMemoryConsolidationScheduler,
@@ -269,7 +270,13 @@ export const init: ServerInit = async () => {
 	// the process starting and it answering a health check. Extraction's status
 	// words were rewritten to the engine's by `ensureRuntimeConfigReady`
 	// (db/compat.ts), which is awaited above, before any kind starts.
-	startJobs([atlasResearchJob, extractionJob, fileProductionJob, imageJob])
+	startJobs([
+		atlasResearchJob,
+		extractionJob,
+		fileProductionJob,
+		imageJob,
+		videoJob,
+	])
 		.then(async () => {
 			// A take that landed (held or not) while the process was down
 			// still becomes its card's version in use.

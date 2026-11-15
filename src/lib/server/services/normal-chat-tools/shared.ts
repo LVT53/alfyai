@@ -298,6 +298,11 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	// before the call has decided about it) and waits IMAGE_TOOL_WAIT_MS (100 s)
 	// for it; the envelope clears the wait with room for the card and the read.
 	make_image: 120_000,
+	// make_video waits VIDEO_TOOL_WAIT_MS (240 s, the video's own number in
+	// `images/video/request.ts`, not imported here so this leaf module never
+	// pulls in a graph) for a take that may be two renders; the envelope clears
+	// that wait with room for the caption, the still and the read.
+	make_video: 270_000,
 	// run_python executes synchronously in-turn (unlike produce_file, which
 	// submits a job and waits only a bounded time for it): the envelope timeout
 	// must clear the sandbox's own

@@ -18,6 +18,7 @@ import { cancelActiveDocumentExtractionForUser } from "../extraction";
 import { cancelActiveFileProductionForUser } from "../file-production";
 import { deleteImageFilesForUser } from "../images/files";
 import { cancelImageTakesForUser } from "../images/image-job";
+import { cancelVideoTakesForUser } from "../images/video/video-job";
 import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
@@ -102,6 +103,7 @@ export async function purgeUserData(userId: string): Promise<void> {
 	await cancelActiveAtlasJobsForUser(userId);
 	// Clear Workspace does not quiesce first: stop the takes before their files go.
 	await cancelImageTakesForUser(userId);
+	await cancelVideoTakesForUser(userId);
 	await deleteAllChatFilesForUser(userId);
 	await deleteImageFilesForUser(userId);
 	await deleteAtlasJobsForUser(userId);

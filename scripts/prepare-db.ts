@@ -47,6 +47,8 @@ const requiredExistingTables = [
 	"image_cards",
 	"image_jobs",
 	"image_job_attempts",
+	"video_jobs",
+	"video_job_attempts",
 	"artifact_versions",
 	"artifact_comments",
 	"artifact_kv",

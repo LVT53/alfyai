@@ -740,6 +740,64 @@ export const imageJobAttempts = sqliteTable(
 );
 
 /**
+ * A video take: one render of a clip (docs/plans/ltx-video, slice 4), a job of
+ * the `video` kind on the job engine (services/jobs). Its own table, not a
+ * flag on `image_jobs`: the video kind has its own engine, its own limits (one
+ * at a time, because LTX and H3 cannot be resident together) and its own
+ * deadline. The engine's lifecycle columns come from `jobColumns`; everything
+ * below is the video kind's own. `phase_at` is milliseconds (the take's own
+ * clock for display); every `mode: "timestamp"` column is unix seconds.
+ *
+ * There is no card here: a take makes a `video` artifact, or appends a version
+ * to the one `artifact_id` names. `checkpoint_json` holds the segment being
+ * rendered and every finished segment's saved clip, so a restart follows a
+ * prompt instead of rendering it again.
+ */
+export const videoJobs = sqliteTable(
+	"video_jobs",
+	{
+		...jobColumns({ userId: () => users.id }),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		artifactId: text("artifact_id").references(() => artifacts.id, {
+			onDelete: "set null",
+		}),
+		toolCallId: text("tool_call_id"),
+		// turn | retry | another
+		origin: text("origin").notNull(),
+		retryOf: text("retry_of"),
+		requestJson: text("request_json").notNull(),
+		seed: integer("seed").notNull(),
+		phaseAt: integer("phase_at"),
+		queueAhead: integer("queue_ahead"),
+		progressPercent: integer("progress_percent"),
+		etaSeconds: integer("eta_seconds"),
+		resultFileId: text("result_file_id").references(() => imageFiles.id, {
+			onDelete: "set null",
+		}),
+		// 1 = a cancel may interrupt our own running prompt (the card's Stop);
+		// 0 = it may only delete a pending one (the composer's Stop).
+		cancelInterrupt: integer("cancel_interrupt").notNull().default(1),
+	},
+	(table) => [
+		liveClaimIndex("video_jobs_live_claim_idx", table),
+		index("video_jobs_conversation_created_idx").on(
+			table.conversationId,
+			table.createdAt,
+		),
+	],
+);
+
+export const videoJobAttempts = sqliteTable(
+	"video_job_attempts",
+	{
+		...jobAttemptColumns({ jobId: () => videoJobs.id }),
+	},
+	(table) => ({ ...jobAttemptIndexes("video_job_attempts", table) }),
+);
+
+/**
  * One saved state of an artifact-family row (Feature 2, ADR-0066): the whole
  * serialised artifact at that point, who made it, and a one-line summary.
  * `versionNumber` is the ordering authority — `createdAt` is second-resolution,

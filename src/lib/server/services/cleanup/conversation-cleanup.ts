@@ -13,6 +13,7 @@ import {
 } from "../chat-turn/active-streams";
 import { deleteImageFilesForConversation } from "../images/files";
 import { cancelImageTakesForConversation } from "../images/image-job";
+import { cancelVideoTakesForConversation } from "../images/video/video-job";
 import {
 	artifactHasReferencesOutsideConversation,
 	getSourceArtifactIdForNormalizedArtifact,
@@ -57,9 +58,10 @@ export async function deleteConversationWithCleanup(
 	}
 
 	await cancelActiveAtlasJobsForConversation({ userId, conversationId });
-	// Takes stop before any picture file is removed below: a take that finishes
-	// after the files are gone would store its picture into a chat that is going.
+	// Takes stop before any file is removed below: a take that finishes after
+	// the files are gone would store its picture or clip into a chat that is going.
 	await cancelImageTakesForConversation(userId, conversationId);
+	await cancelVideoTakesForConversation(userId, conversationId);
 
 	const ownedArtifacts = await listConversationOwnedArtifacts(
 		userId,

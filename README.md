@@ -48,6 +48,17 @@ SQLite persistence — all in a single Node deployment.
   option, no 8 MP and no 16 MP; switch to Qwen when a transparent picture is wanted. Both URLs and
   the model are live settings in admin System > Integrations > Pictures, and a picture already
   queued keeps the model it was queued with. Leave `COMFYUI_H3_URL` empty and H3 pictures are off.
+- **Video** — `COMFYUI_LTX_URL` points Alfy at a ComfyUI server running LTX-2.5; leave it empty and
+  video making is off. A video take is its own job kind (one at a time, because LTX and H3 cannot
+  be resident on the card together). A 5 s clip is one render at 1280x704 (704x1280 for a portrait
+  still, both sides multiples of 32); a 10 s clip is two 5 s segments chained last-frame to
+  first-frame and joined, so the second segment starts exactly where the first ended. The clip is
+  stored as an mp4 with a poster and a thumbnail, and the explicit-picture filter checks the poster
+  plus four frames across it before anything is kept. The server needs `ffmpeg` and `ffprobe` on
+  PATH. The person's motion idea can be rewritten first by an OpenAI-compatible chat server
+  (`LTX_CAPTION_URL` + `LTX_CAPTION_MODEL`, optionally `LTX_CAPTION_API_KEY`) whose system message
+  is ComfyUI's own LTX-2.5 image-to-video instruction; with no endpoint the idea goes to LTX as it
+  is.
 - **Explicit picture filter** — on for everyone by default (`IMAGE_EXPLICIT_FILTER_ENABLED`, a live
   setting in admin System > Integrations > Pictures; an admin can also exempt one person in Users).
   Alfy declines explicit picture requests, the server refuses a make_image prompt that plainly asks

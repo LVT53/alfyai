@@ -76,6 +76,9 @@ export const ADMIN_CONFIG_KEYS = [
 	"COMFYUI_URL",
 	"IMAGE_MODEL",
 	"COMFYUI_H3_URL",
+	"COMFYUI_LTX_URL",
+	"LTX_CAPTION_URL",
+	"LTX_CAPTION_MODEL",
 	"IMAGE_REFERENCE_CAP",
 	"IMAGE_EXPLICIT_FILTER_ENABLED",
 	"MINERU_API_KEY",
@@ -281,6 +284,11 @@ export interface RuntimeConfig {
 	comfyuiUrl: string;
 	imageModel: ImageModel;
 	comfyuiH3Url: string;
+	comfyuiLtxUrl: string;
+	ltxCaptionUrl: string;
+	ltxCaptionModel: string;
+	// Env-only, never an admin override (a local caption server usually has no key).
+	ltxCaptionApiKey: string;
 	imageReferenceCap: number;
 	imageExplicitFilterEnabled: boolean;
 	mineruApiKey: string;
@@ -827,6 +835,15 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	COMFYUI_H3_URL: (config, value) => {
 		config.comfyuiH3Url = value.trim();
+	},
+	COMFYUI_LTX_URL: (config, value) => {
+		config.comfyuiLtxUrl = value.trim();
+	},
+	LTX_CAPTION_URL: (config, value) => {
+		config.ltxCaptionUrl = value.trim();
+	},
+	LTX_CAPTION_MODEL: (config, value) => {
+		config.ltxCaptionModel = value.trim();
 	},
 	IMAGE_REFERENCE_CAP: (config, value) => {
 		const parsed = parseIntOverride(value);
@@ -1428,6 +1445,50 @@ export function getComfyuiH3Url(): string {
 	return runtimeConfig.comfyuiH3Url.trim();
 }
 
+/** The LTX video server address, trimmed; empty means video making is off. */
+export function getComfyuiLtxUrl(): string {
+	return runtimeConfig.comfyuiLtxUrl.trim();
+}
+
+/**
+ * Video making is on only when the LTX server has an address. It is a third
+ * engine beside the picture servers (LTX and H3 cannot be resident on the card
+ * together), so it is never inferred from `COMFYUI_URL` or `COMFYUI_H3_URL`.
+ */
+export function isVideoMakingConfigured(
+	config: Pick<RuntimeConfig, "comfyuiLtxUrl"> = runtimeConfig,
+): boolean {
+	return config.comfyuiLtxUrl.trim() !== "";
+}
+
+/** The caption endpoint's OpenAI-compatible base URL, trimmed; empty means no caption step. */
+export function getLtxCaptionUrl(): string {
+	return runtimeConfig.ltxCaptionUrl.trim();
+}
+
+/** The model the caption endpoint is asked for, trimmed. */
+export function getLtxCaptionModel(): string {
+	return runtimeConfig.ltxCaptionModel.trim();
+}
+
+/** The caption endpoint's bearer key. Environment only: it has no admin override. */
+export function getLtxCaptionApiKey(): string {
+	return runtimeConfig.ltxCaptionApiKey.trim();
+}
+
+/**
+ * The caption step is on only when an admin pointed a URL and a model at one.
+ * Without it `make_video` renders the person's motion idea unchanged; the
+ * rewrite is an improvement, never a prerequisite.
+ */
+export function isVideoCaptionConfigured(
+	config: Pick<RuntimeConfig, "ltxCaptionUrl" | "ltxCaptionModel"> = runtimeConfig,
+): boolean {
+	return (
+		config.ltxCaptionUrl.trim() !== "" && config.ltxCaptionModel.trim() !== ""
+	);
+}
+
 /** The picture server address the given model uses. */
 export function getComfyuiUrlForModel(model: ImageModel): string {
 	return imageModelUrl(model, runtimeConfig).trim();
@@ -1717,6 +1778,9 @@ export function getResolvedAdminConfigValues(
 		COMFYUI_URL: config.comfyuiUrl,
 		IMAGE_MODEL: config.imageModel,
 		COMFYUI_H3_URL: config.comfyuiH3Url,
+		COMFYUI_LTX_URL: config.comfyuiLtxUrl,
+		LTX_CAPTION_URL: config.ltxCaptionUrl,
+		LTX_CAPTION_MODEL: config.ltxCaptionModel,
 		IMAGE_REFERENCE_CAP: String(config.imageReferenceCap),
 		IMAGE_EXPLICIT_FILTER_ENABLED: String(config.imageExplicitFilterEnabled),
 		// Masked from day one. The four older API-key rows above return their

@@ -27,6 +27,7 @@ import {
 } from "$lib/server/services/file-production/read-model";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { listConversationImageCards } from "$lib/server/services/images/read-model";
+import { listConversationVideoCards } from "$lib/server/services/images/video/read-model";
 import {
 	getConversationContextStatus,
 	getConversationWorkingSet,
@@ -172,6 +173,7 @@ export async function getConversationDetail({
 			draft,
 			fileProductionJobs: [],
 			imageCards: [],
+			videoCards: [],
 			atlasJobs: [],
 			atlasAvailability,
 			contextCompressionSnapshots: [],
@@ -197,6 +199,7 @@ export async function getConversationDetail({
 		generatedFiles,
 		fileProductionJobs,
 		imageCards,
+		videoCards,
 		atlasJobs,
 		contextCompressionSnapshots,
 		costSummary,
@@ -216,6 +219,7 @@ export async function getConversationDetail({
 			includeDismissed: false,
 		}),
 		listConversationImageCards(userId, conversationId),
+		listConversationVideoCards(userId, conversationId),
 		listConversationAtlasJobs(userId, conversationId),
 		listContextCompressionSnapshots(conversationId),
 		conversation.memoryIncognito
@@ -257,6 +261,7 @@ export async function getConversationDetail({
 		generatedFiles,
 		fileProductionJobs,
 		imageCards,
+		videoCards,
 		atlasJobs,
 		atlasAvailability,
 		contextCompressionSnapshots: contextCompressionSnapshots.map(
@@ -282,11 +287,12 @@ export async function getConversationDetail({
 }
 
 /**
- * The `cards` view — the picture-card poll's light read. It is the same
- * `listConversationImageCards` call the `full` view makes (one helper, one
- * query), and none of the full view's assembly: no message window, no
- * artifacts, no jobs, no cost, no compression markers. The conversation is
- * still read first, so ownership, 404 and error behaviour match every view.
+ * The `cards` view — the card poll's light read. It is the same
+ * `listConversationImageCards` and `listConversationVideoCards` calls the
+ * `full` view makes (one helper each, one query each), and none of the full
+ * view's assembly: no message window, no artifacts, no jobs, no cost, no
+ * compression markers. The conversation is still read first, so ownership, 404
+ * and error behaviour match every view.
  */
 export async function getConversationCards({
 	userId,
@@ -297,10 +303,11 @@ export async function getConversationCards({
 }): Promise<ConversationCardsDetail | null> {
 	const conversation = await getConversation(userId, conversationId);
 	if (!conversation) return null;
-	return {
-		conversationId: conversation.id,
-		imageCards: await listConversationImageCards(userId, conversationId),
-	};
+	const [imageCards, videoCards] = await Promise.all([
+		listConversationImageCards(userId, conversationId),
+		listConversationVideoCards(userId, conversationId),
+	]);
+	return { conversationId: conversation.id, imageCards, videoCards };
 }
 
 // O1 pagination — the initial window loaded by `getConversationDetail`

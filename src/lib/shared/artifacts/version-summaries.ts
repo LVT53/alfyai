@@ -51,6 +51,10 @@ export const VERSION_SUMMARY = {
 	alfyPicture: "Alfy made the picture",
 	/** A later picture version made by Alfy. */
 	alfyChangedPicture: "Alfy changed the picture",
+	/** A Video item made by Alfy. */
+	alfyVideo: "Alfy made the video",
+	/** A later video version made by Alfy. */
+	alfyChangedVideo: "Alfy changed the video",
 } as const;
 
 const MADE_APP_PREFIX = "Alfy made the app: ";

@@ -220,14 +220,23 @@ async function seedThatMade(fileId: string): Promise<number | null> {
 	return take?.seed ?? null;
 }
 
-async function sourcesNamed(params: {
+/**
+ * The pictures a call names, each resolved to its source: a number from the
+ * turn's index, or an Image id of this chat. Exported for `make_video`, which
+ * animates one still and must mean the same thing by "picture 2" that
+ * `make_image` does (the video tool never re-implements picture resolution).
+ */
+export async function sourcesNamed(params: {
 	userId: string;
 	conversationId: string;
 	names: readonly string[];
 	turnPictures: TurnPictureIndex | null;
+	/** The tool the message names, so its refusal sends the model to the right one. */
+	tool?: string;
 }): Promise<
 	{ ok: true; sources: TurnPictureSource[] } | { ok: false; message: string }
 > {
+	const tool = params.tool ?? "make_image";
 	const sources: TurnPictureSource[] = [];
 	const seen = new Set<string>();
 	for (const raw of params.names) {
@@ -255,7 +264,7 @@ async function sourcesNamed(params: {
 		if (!source) {
 			return {
 				ok: false,
-				message: `make_image has no picture ${JSON.stringify(name)}. Use a picture number from this message or an Image id from "In this chat".`,
+				message: `${tool} has no picture ${JSON.stringify(name)}. Use a picture number from this message or an Image id from "In this chat".`,
 			};
 		}
 		const identity = identityOf(source);

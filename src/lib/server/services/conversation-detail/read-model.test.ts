@@ -48,6 +48,10 @@ vi.mock("$lib/server/services/images/read-model", () => ({
 	listConversationImageCards: vi.fn(),
 }));
 
+vi.mock("$lib/server/services/images/video/read-model", () => ({
+	listConversationVideoCards: vi.fn(),
+}));
+
 vi.mock("$lib/server/services/atlas/read-model", () => ({
 	listConversationAtlasJobs: vi.fn(),
 }));
@@ -102,6 +106,7 @@ import {
 	listConversationGeneratedFiles,
 } from "$lib/server/services/file-production/read-model";
 import { listConversationImageCards } from "$lib/server/services/images/read-model";
+import { listConversationVideoCards } from "$lib/server/services/images/video/read-model";
 import {
 	getConversationContextStatus,
 	getConversationWorkingSet,
@@ -131,6 +136,7 @@ import {
 } from "./read-model";
 
 const mockListConversationImageCards = vi.mocked(listConversationImageCards);
+const mockListConversationVideoCards = vi.mocked(listConversationVideoCards);
 const mockGetConversation = vi.mocked(getConversation);
 const mockGetConversationDraft = vi.mocked(getConversationDraft);
 const mockGetConversationForkOrigin = vi.mocked(getConversationForkOrigin);
@@ -221,6 +227,7 @@ describe("Conversation Detail Read Model", () => {
 		mockListConversationFileProductionJobs.mockResolvedValue([]);
 		mockListConversationAtlasJobs.mockResolvedValue([]);
 		mockListConversationImageCards.mockResolvedValue([]);
+		mockListConversationVideoCards.mockResolvedValue([]);
 		mockListContextCompressionSnapshots.mockResolvedValue([]);
 		mockGetConversationCostSummary.mockResolvedValue({
 			totalCostUsdMicros: 0,
@@ -289,6 +296,7 @@ describe("Conversation Detail Read Model", () => {
 		expect(mockListConversationFileProductionJobs).not.toHaveBeenCalled();
 		expect(mockListConversationAtlasJobs).not.toHaveBeenCalled();
 		expect(mockListConversationImageCards).not.toHaveBeenCalled();
+		expect(mockListConversationVideoCards).not.toHaveBeenCalled();
 		expect(mockListContextCompressionSnapshots).not.toHaveBeenCalled();
 		expect(mockGetConversationCostSummary).not.toHaveBeenCalled();
 		expect(mockListArtifactsForConversation).not.toHaveBeenCalled();
@@ -305,6 +313,7 @@ describe("Conversation Detail Read Model", () => {
 			contextDebug: null,
 			fileProductionJobs: [],
 			imageCards: [],
+			videoCards: [],
 			atlasJobs: [],
 			contextCompressionSnapshots: [],
 			artifacts: [],
@@ -332,6 +341,44 @@ describe("Conversation Detail Read Model", () => {
 			"conv-1",
 		);
 		expect(detail?.imageCards).toEqual([{ id: "card-1", takes: [] }]);
+	});
+
+	it("carries the conversation's video cards", async () => {
+		mockListConversationVideoCards.mockResolvedValue([
+			{
+				id: "video-take-1",
+				conversationId: "conv-1",
+				artifactId: null,
+				title: "Harbour at dusk",
+				width: 1280,
+				height: 704,
+				durationMs: 5000,
+				take: {
+					id: "video-take-1",
+					status: "running",
+					phase: "rendering",
+					phaseAt: 1_700_000_500_000,
+					queueAhead: 1,
+					etaSeconds: 8,
+					errorCode: null,
+					retryable: false,
+					toolCallId: "call-video-1",
+					createdAt: 1_700_000_000_000,
+					clip: null,
+				},
+			},
+		]);
+		const detail = await getConversationDetail({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+		expect(mockListConversationVideoCards).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+		);
+		expect(detail?.videoCards).toEqual([
+			expect.objectContaining({ id: "video-take-1" }),
+		]);
 	});
 
 	it("returns full conversation detail payload pieces from read services", async () => {
@@ -1047,11 +1094,14 @@ describe("Conversation cards view (the picture-card poll's read)", () => {
 			updatedAt: 1_777_140_001,
 		});
 		mockListConversationImageCards.mockResolvedValue([]);
+		mockListConversationVideoCards.mockResolvedValue([]);
 	});
 
-	it("returns only the picture cards, none of the full view's assembly and no messages", async () => {
+	it("returns only the cards, none of the full view's assembly and no messages", async () => {
 		const cards = [{ id: "card-1", takes: [] }];
+		const videos = [{ id: "video-take-1", take: null }];
 		mockListConversationImageCards.mockResolvedValueOnce(cards as never);
+		mockListConversationVideoCards.mockResolvedValueOnce(videos as never);
 
 		const detail = await getConversationCards({
 			userId: "user-1",
@@ -1063,7 +1113,11 @@ describe("Conversation cards view (the picture-card poll's read)", () => {
 			"user-1",
 			"conv-1",
 		);
-		expect(detail).toEqual({ conversationId: "conv-1", imageCards: cards });
+		expect(detail).toEqual({
+			conversationId: "conv-1",
+			imageCards: cards,
+			videoCards: videos,
+		});
 		expect(detail).not.toHaveProperty("messages");
 		expect(mockListMessageWindow).not.toHaveBeenCalled();
 		expect(mockListConversationArtifacts).not.toHaveBeenCalled();

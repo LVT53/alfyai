@@ -245,7 +245,7 @@ task-state.ts (facade — 1,535 lines)
   - [`src/lib/server/services/conversation-detail/read-model.ts`](conversation-detail/read-model.ts)
     - Owns refreshable `/api/conversations/[id]` GET payload assembly for chat page load and browser hydration.
     - Assembles bootstrap and full detail payloads, including defaults, child-fork message decoration, task-state continuity attachment, draft/generated-file/File Production/context-compression/cost fields, and active Skill Session public serialization.
-    - Also serves the read model's one light view, `getConversationCards(...)`: `?view=cards` returns the chat's picture cards alone (the same `listConversationImageCards` query the full view uses), which is what the chat page's picture-card poll ticks read while a take is being made.
+    - Also serves the read model's one light view, `getConversationCards(...)`: `?view=cards` returns the chat's picture cards and video cards alone (the same `listConversationImageCards` and `listConversationVideoCards` queries the full view uses), which is what the chat page's card poll ticks read while a take is being made.
     - The route GET handler stays an auth/HTTP adapter that delegates to `getConversationDetail(...)` or `getConversationCards(...)`.
 - Upstream integrations:
   - [`src/lib/server/services/normal-chat-context.ts`](normal-chat-context.ts)
