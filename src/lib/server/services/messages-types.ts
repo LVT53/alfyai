@@ -212,6 +212,11 @@ export interface ToolCallFileCard {
 	// preview (not an image, or the provider cannot serve one) — the card then
 	// draws the file-type glyph.
 	previewUrl: string | null;
+	// The same picture at the preview route's viewer size, for the image the
+	// strip opens. Optional because it arrived with the viewer: cards stored
+	// before it have none, and every reader falls back to previewUrl. Null
+	// when the file has no preview at all.
+	viewUrl?: string | null;
 	// The Files-app (or OneDrive) link that opens the file itself.
 	webUrl: string;
 }

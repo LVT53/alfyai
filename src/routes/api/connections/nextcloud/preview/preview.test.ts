@@ -130,6 +130,26 @@ describe("GET /api/connections/nextcloud/preview", () => {
 		);
 	});
 
+	it("serves the viewer size (1600) with the same private headers", async () => {
+		const response = await GET(makeEvent({ fileId: "42", size: "1600" }));
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toBe("image/jpeg");
+		expect(response.headers.get("cache-control")).toBe("private, max-age=300");
+		expect(response.headers.get("content-length")).toBe(
+			String(jpegPreview().bytes.byteLength),
+		);
+		expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+			new Uint8Array(jpegPreview().bytes),
+		);
+		expect(mockPreview).toHaveBeenCalledWith(
+			nextcloudConnection,
+			"app-secret",
+			{ fileId: 42, size: 1600 },
+		);
+	});
+
 	it("serves the path form when the result has no file id, untouched", async () => {
 		const path = "/Photos/lake 1.jpg";
 		const response = await GET(makeEvent({ path, size: "96" }));
@@ -190,6 +210,7 @@ describe("GET /api/connections/nextcloud/preview", () => {
 
 	it.each([
 		"4000",
+		"800",
 		"96.0",
 		"096",
 		"48",

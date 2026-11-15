@@ -2134,6 +2134,8 @@ describe("runFilesTool — file cards and previews (Task 5)", () => {
 
 	const LAKE_PREVIEW =
 		"/api/connections/nextcloud/preview?connectionId=conn-1&fileId=42&size=192";
+	const LAKE_VIEW =
+		"/api/connections/nextcloud/preview?connectionId=conn-1&fileId=42&size=1600";
 
 	it("gives an image a preview and a link to the file", async () => {
 		const conn = makeConn();
@@ -2172,11 +2174,39 @@ describe("runFilesTool — file cards and previews (Task 5)", () => {
 					mtime: "2024-01-03T00:00:00Z",
 					contentType: "image/jpeg",
 					previewUrl: LAKE_PREVIEW,
+					viewUrl: LAKE_VIEW,
 					webUrl: expect.stringMatching(/&openfile=42$/),
 				},
 			],
 			total: 1,
 		});
+	});
+
+	it("gives an image a viewer-sized preview beside the card one", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		nextcloudSearchMock.mockResolvedValue([
+			{
+				name: "lake.jpg",
+				path: "Photos/lake.jpg",
+				isDir: false,
+				size: 2048,
+				mtime: "2024-01-03T00:00:00Z",
+				contentType: "image/jpeg",
+				etag: "etag-1",
+				fileId: 42,
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "lake" },
+			LOCAL_MODEL_ID,
+		);
+
+		const card = outcome.cards?.cards[0];
+		expect(card?.viewUrl).toBe(LAKE_VIEW);
+		expect(card?.previewUrl).toContain("size=192");
 	});
 
 	it("gives a document a link but no preview", async () => {
@@ -2206,6 +2236,31 @@ describe("runFilesTool — file cards and previews (Task 5)", () => {
 		expect(outcome.cards?.cards).toHaveLength(1);
 		expect(outcome.cards?.cards[0]?.previewUrl).toBeNull();
 		expect(outcome.cards?.cards[0]?.webUrl).toMatch(/&openfile=7$/);
+	});
+
+	it("gives a document no viewer", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		nextcloudSearchMock.mockResolvedValue([
+			{
+				name: "invoice.pdf",
+				path: "Invoices/invoice.pdf",
+				isDir: false,
+				size: 8192,
+				mtime: null,
+				contentType: "application/pdf",
+				etag: "etag-2",
+				fileId: 7,
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "invoice" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.cards?.cards[0]?.viewUrl).toBeNull();
 	});
 
 	// The card's "can I draw this?" answer must agree with the preview route:

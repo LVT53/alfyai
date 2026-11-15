@@ -160,10 +160,14 @@ const MAX_LIST_RESULTS = 50;
 // (`capFileCards`), because two calls that each found four must draw six cards
 // in all, not eight. `buildFilesCards` uses it only to bound ONE call's stored
 // JSON, so the two concerns share one number instead of drifting apart.
-// The larger of the two sizes the preview route accepts (96 is the card row,
-// 192 the card's own thumbnail). The card data names one size so the browser
-// never guesses; this is the one it draws.
+// The preview route serves three sizes: 96 for a card row, 192 for the card's
+// own picture, and 1600 for the viewer the strip opens. The card data names
+// the two it carries so the browser never guesses which size to draw or open.
 export const FILE_PREVIEW_SIZE = 192;
+// The viewer's copy of the same picture. 1600 is the route's largest size: the
+// whole image fitted in a 1600 box, since the adapter asks Nextcloud to keep
+// the aspect ratio rather than crop.
+export const FILE_VIEW_SIZE = 1600;
 // The Nextcloud read adapter already caps raw bytes at 25MB (chat-context
 // reads only); this is a second, much tighter cap on the *text* we inline
 // into the model's context so one large text file can't blow the prompt
@@ -343,17 +347,18 @@ function webUrlForConn(
 	return nextcloudWebUiUrl(conn, path, fileId);
 }
 
-// The app-relative URL the file card's <img> loads. Only a Nextcloud
-// connection can serve one (the preview route reads that user's app password
-// server-side), and only for an image the app can draw: asking Nextcloud to
-// render a PDF preview would spend an upstream render on bytes the card can
-// never show. The decision is shared, not a second extension list — see
-// isSeeableImage — but it is one answer narrower than the model's, because the
-// preview route serves only raster images and refuses `image/svg+xml` (an SVG
-// is a document, not a thumbnail). Advertising an SVG preview would store a URL
-// that is guaranteed to 404. The route takes a file id or, when the server
-// reported no id, the path, so a result whose server has no `oc:fileid` still
-// gets a preview instead of silently losing it.
+// The app-relative URL the file card's <img> loads, at one of the preview
+// route's sizes. Only a Nextcloud connection can serve one (the preview route
+// reads that user's app password server-side), and only for an image the app
+// can draw: asking Nextcloud to render a PDF preview would spend an upstream
+// render on bytes the card can never show. The decision is shared, not a
+// second extension list — see isSeeableImage — but it is one answer narrower
+// than the model's, because the preview route serves only raster images and
+// refuses `image/svg+xml` (an SVG is a document, not a thumbnail). Advertising
+// an SVG preview would store a URL that is guaranteed to 404. The route takes
+// a file id or, when the server reported no id, the path, so a result whose
+// server has no `oc:fileid` still gets a preview instead of silently losing
+// it.
 function previewUrlForConn(
 	conn: ConnectionPublic,
 	name: string,
@@ -361,6 +366,7 @@ function previewUrlForConn(
 	fileId: number | undefined,
 	contentType: string | null,
 	isDir: boolean,
+	size: number,
 ): string | undefined {
 	if (conn.provider !== "nextcloud" || isDir) return undefined;
 	if (!isSeeableImage(name, contentType)) return undefined;
@@ -369,7 +375,29 @@ function previewUrlForConn(
 		fileId !== undefined
 			? `fileId=${fileId}`
 			: `path=${encodeURIComponent(path)}`;
-	return `/api/connections/nextcloud/preview?connectionId=${encodeURIComponent(conn.id)}&${target}&size=${FILE_PREVIEW_SIZE}`;
+	return `/api/connections/nextcloud/preview?connectionId=${encodeURIComponent(conn.id)}&${target}&size=${size}`;
+}
+
+// The viewer's copy of the same picture: the same builder at the route's
+// largest size, so the card's two URLs cannot drift apart. undefined wherever
+// the card has no preview at all.
+function viewUrlForConn(
+	conn: ConnectionPublic,
+	name: string,
+	path: string,
+	fileId: number | undefined,
+	contentType: string | null,
+	isDir: boolean,
+): string | undefined {
+	return previewUrlForConn(
+		conn,
+		name,
+		path,
+		fileId,
+		contentType,
+		isDir,
+		FILE_VIEW_SIZE,
+	);
 }
 
 // The result items and their citations for one page of entries, built in one
@@ -391,6 +419,7 @@ function toResultItems(
 			file.fileId,
 			file.contentType,
 			file.isDir,
+			FILE_PREVIEW_SIZE,
 		);
 		const result: FilesToolResultItem = {
 			name: file.name,
@@ -427,15 +456,30 @@ export function buildFilesCards(
 	const files = results.filter((result) => !result.isDir);
 	return {
 		connectionId: conn.id,
-		cards: files.slice(0, FILE_CARD_LIMIT).map((result) => ({
-			name: result.name,
-			path: result.path,
-			size: result.size,
-			mtime: result.mtime,
-			contentType: result.contentType,
-			previewUrl: result.previewUrl ?? null,
-			webUrl: result.webUrl ?? webUrlForConn(conn, result.path, result.fileId),
-		})),
+		cards: files.slice(0, FILE_CARD_LIMIT).map((result) => {
+			// The viewer copy is asked for exactly where the card picture is:
+			// both come from the one builder, so a card can never carry a
+			// viewer for a file it has no preview for.
+			const viewUrl = viewUrlForConn(
+				conn,
+				result.name,
+				result.path,
+				result.fileId,
+				result.contentType,
+				result.isDir,
+			);
+			return {
+				name: result.name,
+				path: result.path,
+				size: result.size,
+				mtime: result.mtime,
+				contentType: result.contentType,
+				previewUrl: result.previewUrl ?? null,
+				viewUrl: viewUrl ?? null,
+				webUrl:
+					result.webUrl ?? webUrlForConn(conn, result.path, result.fileId),
+			};
+		}),
 		total: files.length,
 	};
 }
@@ -719,6 +763,7 @@ function readOutcome(
 		fileId,
 		file.contentType,
 		false,
+		FILE_PREVIEW_SIZE,
 	);
 	const citation: FilesCitation = {
 		label,

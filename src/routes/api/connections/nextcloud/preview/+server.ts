@@ -9,10 +9,11 @@ import {
 import { getConnectionSecret } from "$lib/server/services/connections/store";
 import type { RequestHandler } from "./$types";
 
-// The only two sizes the file card asks for: 96 for a card row, 192 for the
-// larger one. Anything else is a client bug, never a hint to Nextcloud to
-// render a 4000px image, so it is refused before any network call.
-const PREVIEW_SIZES = new Set(["96", "192"]);
+// The only three sizes the files strip asks for: 96 for a card row, 192 for
+// the card picture, and 1600 for the viewer a picture opens in. Anything else
+// is a client bug, never a hint to Nextcloud to render a 4000px image, so it
+// is refused before any network call.
+const PREVIEW_SIZES = new Set(["96", "192", "1600"]);
 
 const FILE_ID = /^\d+$/;
 
@@ -26,7 +27,7 @@ const ERROR_STATUS: Partial<Record<NextcloudFilesErrorCode, number>> = {
 	invalid_path: 400,
 };
 
-// GET /api/connections/nextcloud/preview?connectionId=<id>&fileId=<n>&size=96|192
+// GET /api/connections/nextcloud/preview?connectionId=<id>&fileId=<n>&size=96|192|1600
 // (&path=<file path> only when the result carries no file id) — the only
 // route that serves Nextcloud preview bytes to the file card's <img>. The
 // per-user app password never reaches the client: nextcloudPreview is given
