@@ -110,6 +110,14 @@ async function requestCaption(
 			],
 			temperature: 0,
 			stream: false,
+			// A reasoning model answers with its thinking and an empty `content`
+			// (measured: 2.8k tokens of reasoning, 0 characters of caption, and the
+			// token cap spent before the answer started), so the rewrite asks for
+			// the template without thinking. A server that does not know the field
+			// ignores it, and one that rejects it fails into the same fallback the
+			// person's own wording is.
+			chat_template_kwargs: { enable_thinking: false },
+			max_tokens: 1200,
 		}),
 		signal,
 	});

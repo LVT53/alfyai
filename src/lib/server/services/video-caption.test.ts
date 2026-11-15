@@ -86,6 +86,9 @@ describe("buildVideoPrompt", () => {
 		const body = JSON.parse(String(init.body));
 		expect(body.model).toBe("gemma-3-27b");
 		expect(body.stream).toBe(false);
+		// A reasoning model spends its answer on reasoning and returns no content.
+		expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
+		expect(body.max_tokens).toBeGreaterThan(0);
 		expect(body.messages[0]).toEqual({
 			role: "system",
 			content: LTX24_I2V_INSTRUCTION,
