@@ -97,8 +97,12 @@ export function buildLtxVideoGraph(input: LtxVideoGraphInput): ComfyGraph {
 	put(POSITIVE_PROMPT_NODE, "text", input.prompt);
 	put(LOAD_IMAGE_NODE, "image", input.image);
 	// The first pass runs at half the output size; the upscaler doubles it back.
-	put(EMPTY_LATENT_NODE, "width", Math.floor(input.width / 2));
-	put(EMPTY_LATENT_NODE, "height", Math.floor(input.height / 2));
+	// The latent's own `// 32` would silently floor a half like 176 to 160, so
+	// floor it here: both first-pass sides are multiples of 32, never an odd 16.
+	const half = (side: number) =>
+		Math.max(32, Math.floor(Math.floor(side / 2) / 32) * 32);
+	put(EMPTY_LATENT_NODE, "width", half(input.width));
+	put(EMPTY_LATENT_NODE, "height", half(input.height));
 	// One authority for the frame count and rate, written into both passes.
 	put(EMPTY_LATENT_NODE, "length", LTX_SEGMENT_FRAMES);
 	put(AUDIO_LATENT_NODE, "frames_number", LTX_SEGMENT_FRAMES);

@@ -6,19 +6,25 @@
 // fails here even on a machine with no ffmpeg. The conversion itself runs the
 // real ffmpeg the take's chain already uses, and skips cleanly without it.
 import { execFile, execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
+import { FAKE_VIDEO_BYTES } from "../comfyui/testing/fake-comfyui";
 import {
+	concatClips,
 	convertToGif,
+	decodeCheckFrames,
+	extractFrameAt,
+	stripClipMetadata,
 	VIDEO_GIF_FPS,
 	VIDEO_GIF_LONG_EDGE,
 	VideoMediaError,
 	videoGifArgs,
 } from "./media";
+import { probeTags, remuxWithMetadata } from "./testing/video-clip";
 
 const run = promisify(execFile);
 
@@ -163,5 +169,98 @@ describe.skipIf(!FFMPEG)("convertToGif with the real ffmpeg", () => {
 		);
 		expect(error).toBeInstanceOf(VideoMediaError);
 		expect(error).toMatchObject({ code: "failed" });
+	});
+});
+
+describe("the media calls' deadline", () => {
+	/** A PATH where `ffmpeg` never exits: the wedged child a stuck take must not wait on. */
+	async function hangingFfmpeg(): Promise<() => Promise<void>> {
+		const dir = await mkdtemp(join(tmpdir(), "alfyai-hanging-ffmpeg-"));
+		const script = join(dir, "ffmpeg");
+		await writeFile(script, "#!/bin/sh\nexec sleep 60\n");
+		await chmod(script, 0o755);
+		const before = process.env.PATH ?? "";
+		process.env.PATH = `${dir}:${before}`;
+		return async () => {
+			process.env.PATH = before;
+			await rm(dir, { recursive: true, force: true });
+		};
+	}
+
+	it("kills a wedged ffmpeg and answers failed instead of waiting on it", async () => {
+		if (!FFMPEG) return;
+		const restore = await hangingFfmpeg();
+		try {
+			const started = Date.now();
+			const error = await extractFrameAt(
+				FAKE_VIDEO_BYTES,
+				{ index: 0 },
+				{ timeoutMs: 200 },
+			).then(
+				() => null,
+				(thrown: unknown) => thrown,
+			);
+			expect(error).toBeInstanceOf(VideoMediaError);
+			expect(error).toMatchObject({ code: "failed" });
+			expect(Date.now() - started).toBeLessThan(5_000);
+		} finally {
+			await restore();
+		}
+	});
+
+	it("lets the take's stop win over the timeout", async () => {
+		if (!FFMPEG) return;
+		const restore = await hangingFfmpeg();
+		try {
+			const controller = new AbortController();
+			const running = extractFrameAt(
+				FAKE_VIDEO_BYTES,
+				{ index: 0 },
+				{ signal: controller.signal, timeoutMs: 60_000 },
+			).then(
+				() => null,
+				(thrown: unknown) => thrown,
+			);
+			setTimeout(() => controller.abort(new Error("cancelled")), 50);
+			const error = await running;
+			expect(controller.signal.aborted).toBe(true);
+			// The abort flows out as itself, never as a media failure the runner
+			// would retry.
+			expect(error).not.toBeInstanceOf(VideoMediaError);
+		} finally {
+			await restore();
+		}
+	});
+});
+
+describe("the whole clip's check stream", () => {
+	it("decodes every frame raw at the model's size, with the full-size poster, in one pass", async () => {
+		if (!FFMPEG) return;
+		const decoded = await decodeCheckFrames(FAKE_VIDEO_BYTES);
+		// The fake's clip is five seconds at 24 fps.
+		expect(decoded.frames).toHaveLength(120);
+		for (const frame of decoded.frames) {
+			expect(frame.byteLength).toBe(224 * 224 * 3);
+		}
+		const meta = await sharp(decoded.poster).metadata();
+		expect(meta).toMatchObject({ format: "png", width: 64, height: 64 });
+	});
+});
+
+describe("the container's metadata", () => {
+	it("does not let ComfyUI's prompt tags reach what we serve", async () => {
+		if (!FFMPEG) return;
+		const tagged = await remuxWithMetadata(
+			FAKE_VIDEO_BYTES,
+			"comment",
+			"the harbour at dusk, a slow tide",
+		);
+		expect(JSON.stringify(await probeTags(tagged))).toContain("harbour");
+
+		const stripped = await stripClipMetadata(tagged);
+		expect(JSON.stringify(await probeTags(stripped))).not.toContain("harbour");
+
+		const joined = await concatClips([tagged, tagged]);
+		expect(JSON.stringify(await probeTags(joined))).not.toContain("harbour");
 	});
 });

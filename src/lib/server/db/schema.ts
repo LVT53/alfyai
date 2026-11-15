@@ -763,6 +763,15 @@ export const videoJobs = sqliteTable(
 		artifactId: text("artifact_id").references(() => artifacts.id, {
 			onDelete: "set null",
 		}),
+		/**
+		 * The Video item this take CREATED, written in the engine's fenced write
+		 * as soon as the item exists and before the take settles. A worker lost
+		 * between creating the item and settling would otherwise make a second
+		 * item on its retry; the retry appends to this id instead. No foreign key
+		 * on purpose: an item the person deletes mid-take must read as gone
+		 * (`video_item_deleted`), not be recreated from a nulled reference.
+		 */
+		createdArtifactId: text("created_artifact_id"),
 		toolCallId: text("tool_call_id"),
 		// turn | retry | another
 		origin: text("origin").notNull(),

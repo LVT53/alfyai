@@ -94,6 +94,7 @@ export {
 	artifactIdInUse,
 	createArtifact,
 	deleteArtifact,
+	discardArtifactVersion,
 	getArtifact,
 	kindForArtifactRow,
 	parseArtifactMetadata,

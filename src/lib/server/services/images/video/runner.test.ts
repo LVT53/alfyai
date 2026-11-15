@@ -22,7 +22,10 @@ import {
 } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import { warmModules } from "$lib/server/testing/warm-modules";
-import { parseVideoVersionBody } from "$lib/shared/artifacts/video-body";
+import {
+	parseVideoVersionBody,
+	serializeVideoVersionBody,
+} from "$lib/shared/artifacts/video-body";
 import {
 	createFakeComfyUi,
 	FAKE_VIDEO_BYTES,
@@ -30,9 +33,18 @@ import {
 	type FakeComfyUiOptions,
 } from "../comfyui/testing/fake-comfyui";
 import { createImageFixture, type ImageFixture } from "../testing/fixture";
-import { extractLastFrame, probeDurationMs } from "./media";
+import {
+	extractLastFrame,
+	probeDurationMs,
+	setMediaTimeoutMsForTests,
+} from "./media";
 import { parseVideoCheckpoint, type VideoTakeRequest } from "./request";
-import { makeTestClip } from "./testing/video-clip";
+import {
+	makeTestClip,
+	makeTestClipWithFrameAt,
+	probeTags,
+	remuxWithMetadata,
+} from "./testing/video-clip";
 
 const userId = "user-1";
 const conversationId = "conv-1";
@@ -608,16 +620,49 @@ describe("the explicit-picture filter", () => {
 		expect(clipFilesAnyOnDisk()).toEqual([]);
 	});
 
-	it("checks five frames: the poster and four across the clip", async () => {
+	it("classifies every frame of the clip, not a sample", async () => {
 		await startLtx();
 		await queueTake();
 		const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
 		await drainVideoTakes();
+		// 120 frames in batches of 16 = 8 checks (and 8 inference runs), never 120.
 		expect(
 			info.mock.calls.filter(
 				([message]) => message === "[IMAGES] Picture check",
 			),
-		).toHaveLength(5);
+		).toHaveLength(8);
+	});
+
+	it("blocks an explicit frame at the old 50% sample point", async () => {
+		const clip = await makeTestClipWithFrameAt({
+			frameIndex: 60,
+			colour: "#ff00ff",
+		});
+		await startLtx({ videoBytes: clip });
+		const takeId = await queueTake();
+		await drainVideoTakes();
+		const take = await readTake(takeId);
+		expect(take.status).toBe("failed");
+		expect(take.errorCode).toBe("video_blocked");
+		expect(take.resultFileId).toBeNull();
+		await expect(storedClips()).resolves.toHaveLength(0);
+		expect(clipFilesAnyOnDisk()).toEqual([]);
+	});
+
+	it("blocks an explicit frame BETWEEN the old sample points (frame 37 of 121)", async () => {
+		const clip = await makeTestClipWithFrameAt({
+			frameIndex: 37,
+			colour: "#ff00ff",
+		});
+		await startLtx({ videoBytes: clip });
+		const takeId = await queueTake();
+		await drainVideoTakes();
+		const take = await readTake(takeId);
+		expect(take.status).toBe("failed");
+		expect(take.errorCode).toBe("video_blocked");
+		expect(take.resultFileId).toBeNull();
+		await expect(storedClips()).resolves.toHaveLength(0);
+		expect(clipFilesAnyOnDisk()).toEqual([]);
 	});
 });
 
@@ -636,5 +681,386 @@ describe("GPU memory ownership", () => {
 		expect(frees(qwen)).toBe(1);
 		expect(frees(h3)).toBe(1);
 		expect(frees(server)).toBe(0);
+	});
+});
+
+describe("an exempt person", () => {
+	it("never runs the classifier and never decodes the check stream", async () => {
+		const { db } = await import("$lib/server/db");
+		db.update(schema.users)
+			.set({ explicitPictureFilterExempt: true })
+			.where(eq(schema.users.id, userId))
+			.run();
+		await startLtx();
+		const classifier = await import("../picture-check/classifier");
+		const classify = vi.spyOn(classifier, "classifyPictureFrames");
+		const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+		const takeId = await queueTake();
+		await drainVideoTakes();
+		expect((await readTake(takeId)).status).toBe("succeeded");
+		// The decision is made once in the runner: no frames are decoded for the
+		// check and the classifier is never entered.
+		expect(classify).not.toHaveBeenCalled();
+		expect(
+			info.mock.calls.filter(
+				([message]) => message === "[IMAGES] Picture check",
+			),
+		).toHaveLength(0);
+		expect(await storedClips()).toHaveLength(1);
+	});
+
+	it("still runs the classifier in batches for a filtered person", async () => {
+		await startLtx();
+		const classifier = await import("../picture-check/classifier");
+		const classify = vi.spyOn(classifier, "classifyPictureFrames");
+		const takeId = await queueTake();
+		await drainVideoTakes();
+		expect((await readTake(takeId)).status).toBe("succeeded");
+		// 120 frames in batches of 16 = 8 runs.
+		expect(classify).toHaveBeenCalledTimes(8);
+	});
+});
+
+describe("the media phase's own deadline", () => {
+	it("fails a take whose ffmpeg wedges, and frees the one video slot", async () => {
+		const { chmod, writeFile } = await import("node:fs/promises");
+		const dir = await mkdtemp(join(tmpdir(), "video-hanging-ffmpeg-"));
+		const script = join(dir, "ffmpeg");
+		await writeFile(script, "#!/bin/sh\nexec sleep 60\n");
+		await chmod(script, 0o755);
+		const before = process.env.PATH ?? "";
+		process.env.PATH = `${dir}:${before}`;
+		setMediaTimeoutMsForTests(200);
+		try {
+			await startLtx();
+			const takeId = await queueTake();
+			const started = Date.now();
+			await drainVideoTakes();
+			const take = await readTake(takeId);
+			expect(take.status).toBe("failed");
+			expect(take.errorCode).toBe("video_media_failed");
+			expect(Date.now() - started).toBeLessThan(10_000);
+			expect(await storedClips()).toHaveLength(0);
+			expect(clipFilesAnyOnDisk()).toEqual([]);
+		} finally {
+			process.env.PATH = before;
+			setMediaTimeoutMsForTests(120_000);
+			await rm(dir, { recursive: true, force: true });
+		}
+
+		// The slot is free: the next take renders normally on the same server.
+		const next = await queueTake();
+		await drainVideoTakes();
+		const nextTake = await readTake(next);
+		expect(nextTake.status, nextTake.errorCode ?? "").toBe("succeeded");
+	});
+});
+
+describe("a restart mid-chain", () => {
+	it("keeps a readable checkpoint with segment 1's clip while segment 2 renders", async () => {
+		const server = await startLtx({ hangAfterPromptCount: 1 });
+		const takeId = await queueTake({ durationSeconds: 10 });
+		const draining = drainVideoTakes();
+		await until(
+			async () => promptRequests(server).length,
+			(count) => count === 2,
+		);
+		const raw = await until(
+			async () => (await readTake(takeId)).checkpoint,
+			(value) => value !== null,
+		);
+		const checkpoint = parseVideoCheckpoint(raw);
+		expect(checkpoint).not.toBeNull();
+		expect(checkpoint?.segment).toBe(2);
+		expect(checkpoint?.segments).toHaveLength(2);
+		expect(checkpoint?.segments[0]?.promptId).toBeTruthy();
+		expect(checkpoint?.segments[0]?.media).not.toBeNull();
+		expect(checkpoint?.segments[1]?.promptId).toBeTruthy();
+		expect(checkpoint?.segments[1]?.media).toBeNull();
+
+		const { videoJob } = await import("./video-job");
+		const { recover } = await import("$lib/server/services/jobs");
+		await recover(videoJob, {
+			staleBefore: new Date(Date.now() + 60_000),
+		});
+		server.releaseHanging();
+		await draining;
+		await drainVideoTakes();
+		await server.close();
+		fake = null;
+	});
+
+	it("resumes a mid-segment-2 take by following segment 2, never re-rendering segment 1", async () => {
+		const server = await startLtx({ hangAfterPromptCount: 1 });
+		const takeId = await queueTake({ durationSeconds: 10 });
+		const draining = drainVideoTakes();
+		await until(
+			async () => promptRequests(server).length,
+			(count) => count === 2,
+		);
+		await until(
+			async () => (await readTake(takeId)).checkpoint,
+			(value) => value !== null,
+		);
+		// The worker dies: the engine takes the attempt back (keeps the
+		// checkpoint) and aborts this run.
+		const { videoJob } = await import("./video-job");
+		const { recover } = await import("$lib/server/services/jobs");
+		await recover(videoJob, {
+			staleBefore: new Date(Date.now() + 60_000),
+		});
+		// ComfyUI kept rendering segment 2 after the app died; release it before
+		// the re-claimed job can follow it, so neither drain blocks on the hang.
+		server.releaseHanging();
+		await draining;
+
+		// `video_worker_lost` requeues with a 2 s delay: the retry is claimable then.
+		await new Promise((resolve) => setTimeout(resolve, 2_100));
+		await drainVideoTakes();
+
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		expect(take.resultFileId).not.toBeNull();
+		// Two prompts total: segment 1 was fetched from its recorded clip, never
+		// rendered again.
+		expect(promptRequests(server)).toHaveLength(2);
+		const clips = await storedClips();
+		expect(clips).toHaveLength(1);
+		expect(clips[0]?.durationMs).toBe(10000);
+	});
+});
+
+describe("the item a take was asked to append to", () => {
+	async function seedItem(): Promise<string> {
+		const { createArtifact } = await import("$lib/server/services/artifacts");
+		const created = await createArtifact({
+			userId,
+			conversationId,
+			kind: "video",
+			title: "An older clip",
+			body: serializeVideoVersionBody({
+				v: 1,
+				fileId: "older-file",
+				posterFileId: "older-file",
+				width: 64,
+				height: 64,
+				durationMs: 5000,
+				sourceFileId: null,
+			}),
+			author: "alfy",
+			versionSummary: "Alfy made the video",
+		});
+		if (!created.ok) throw new Error("could not seed the item");
+		return created.artifact.id;
+	}
+
+	async function queueAnother(artifactId: string): Promise<string> {
+		const stillId = await storeStill();
+		const { enqueueVideoTake } = await import("./video-job");
+		const { takeId } = await enqueueVideoTake({
+			userId,
+			conversationId,
+			artifactId,
+			toolCallId: "call-2",
+			origin: "another",
+			retryOf: null,
+			request: request({ sourceFileId: stillId, artifactId }),
+			seed: 2002,
+		});
+		return takeId;
+	}
+
+	it("fails video_item_deleted and leaves no clip when the item is deleted mid-take", async () => {
+		await startLtx();
+		const artifactId = await seedItem();
+		const takeId = await queueAnother(artifactId);
+		// The person deletes the item while the take is queued/rendering.
+		const { deleteArtifact } = await import("$lib/server/services/artifacts");
+		await deleteArtifact({ userId, artifactId });
+		await drainVideoTakes();
+		const take = await readTake(takeId);
+		expect(take.status).toBe("failed");
+		expect(take.errorCode).toBe("video_item_deleted");
+		await expect(storedClips()).resolves.toHaveLength(0);
+		expect(clipFilesAnyOnDisk()).toEqual([]);
+	});
+
+	it("appends to the item it made when a worker is lost before the settle", async () => {
+		await startLtx();
+		const takeId = await queueTake();
+		await drainVideoTakes();
+		const first = await readTake(takeId);
+		expect(first.status).toBe("succeeded");
+		const artifactId = first.createdArtifactId;
+		expect(artifactId).toBeTruthy();
+		if (!artifactId) throw new Error("the take recorded no item");
+
+		// The worker died before settling: the take is claimable again with the
+		// item id it already recorded.
+		const { db } = await import("$lib/server/db");
+		db.update(schema.videoJobs)
+			.set({
+				status: "queued",
+				checkpoint: null,
+				resultFileId: null,
+				completedAt: null,
+				errorCode: null,
+				errorMessage: null,
+				currentAttemptId: null,
+				startedAt: null,
+				runAfter: null,
+			})
+			.where(eq(schema.videoJobs.id, takeId))
+			.run();
+		await drainVideoTakes();
+
+		const artifacts = db
+			.select()
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.conversationId, conversationId))
+			.all();
+		expect(artifacts).toHaveLength(1);
+		const versions = db
+			.select()
+			.from(schema.artifactVersions)
+			.where(eq(schema.artifactVersions.artifactId, artifactId))
+			.all();
+		expect(versions).toHaveLength(2);
+		expect((await readTake(takeId)).artifactId).toBe(artifactId);
+	});
+
+	it("takes the appended version back when the take is stopped after the store", async () => {
+		await startLtx();
+		const artifactId = await seedItem();
+		const { db } = await import("$lib/server/db");
+		const before = db
+			.select()
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.id, artifactId))
+			.get();
+		const takeId = await queueAnother(artifactId);
+		vi.doMock("$lib/server/services/artifacts", async (importOriginal) => {
+			const actual =
+				await importOriginal<typeof import("$lib/server/services/artifacts")>();
+			return {
+				...actual,
+				updateArtifactBody: async (
+					params: Parameters<typeof actual.updateArtifactBody>[0],
+				) => {
+					const written = await actual.updateArtifactBody(params);
+					// The person's Stop lands in the store→settle window.
+					const { cancelVideoTake } = await import("./video-job");
+					await cancelVideoTake(userId, takeId, { interrupt: true });
+					return written;
+				},
+			};
+		});
+		try {
+			await drainVideoTakes();
+		} finally {
+			vi.doUnmock("$lib/server/services/artifacts");
+		}
+		const take = await readTake(takeId);
+		expect(take.status).toBe("cancelled");
+		await expect(storedClips()).resolves.toHaveLength(0);
+
+		const item = db
+			.select()
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.id, artifactId))
+			.get();
+		expect(item?.contentText).toBe(before?.contentText);
+		const versions = db
+			.select()
+			.from(schema.artifactVersions)
+			.where(eq(schema.artifactVersions.artifactId, artifactId))
+			.all();
+		expect(versions).toHaveLength(1);
+	});
+});
+
+describe("a re-rendered chain", () => {
+	it("drops the older segment 2 when segment 1 has to be rendered again", async () => {
+		const first = await startLtx();
+		await queueTake();
+		await drainVideoTakes();
+		const promptId = [...first.prompts.keys()][0];
+		if (!promptId) throw new Error("the first take recorded no prompt");
+		const staleSegment2 = {
+			promptId: "stale-segment-2",
+			media: {
+				filename: `fake_${promptId}.mp4`,
+				subfolder: "",
+				type: "output" as const,
+			},
+		};
+		const takeId = await queueTake({ durationSeconds: 10 });
+		const { db } = await import("$lib/server/db");
+		db.update(schema.videoJobs)
+			.set({
+				checkpoint: JSON.stringify({
+					promptId: "forgotten-segment-1",
+					segment: 2,
+					segments: [
+						{ promptId: "forgotten-segment-1", media: null },
+						staleSegment2,
+					],
+				}),
+			})
+			.where(eq(schema.videoJobs.id, takeId))
+			.run();
+		await drainVideoTakes();
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		// One POST for the first take, then BOTH segments rendered again: the
+		// stale segment 2 must not be joined to a fresh segment 1.
+		expect(promptRequests(first)).toHaveLength(3);
+		expect(
+			(await storedClips()).some((clip) => clip.durationMs === 10000),
+		).toBe(true);
+	});
+});
+
+describe("a letterboxed still", () => {
+	it("floors each first-pass half to a multiple of 32", async () => {
+		const server = await startLtx();
+		const stillId = await storeStill(2560, 720);
+		const { enqueueVideoTake } = await import("./video-job");
+		const { takeId } = await enqueueVideoTake({
+			userId,
+			conversationId,
+			artifactId: null,
+			toolCallId: "call-1",
+			origin: "turn",
+			retryOf: null,
+			request: request({ sourceFileId: stillId }),
+			seed: 1001,
+		});
+		await drainVideoTakes();
+		expect((await readTake(takeId)).status).toBe("succeeded");
+		// 1280 x 352 output; the template's half would be 176, whose latent
+		// floors to 160 silently. The builder floors it explicitly.
+		expect(
+			nodeOfType(graphOf(promptRequests(server)[0]), "EmptyLTXVLatentVideo")
+				.inputs,
+		).toMatchObject({ width: 640, height: 160 });
+	});
+});
+
+describe("the container's tags", () => {
+	it("stores a clip without ComfyUI's prompt metadata", async () => {
+		const tagged = await remuxWithMetadata(
+			FAKE_VIDEO_BYTES,
+			"comment",
+			"the harbour at dusk, a slow tide",
+		);
+		await startLtx({ videoBytes: tagged });
+		const takeId = await queueTake();
+		await drainVideoTakes();
+		expect((await readTake(takeId)).status).toBe("succeeded");
+		const clip = (await storedClips())[0];
+		if (!clip) throw new Error("No stored clip");
+		const tags = JSON.stringify(await probeTags(await clipBytes(clip.id)));
+		expect(tags).not.toContain("harbour");
 	});
 });

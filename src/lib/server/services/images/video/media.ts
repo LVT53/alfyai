@@ -1,8 +1,8 @@
 // The clip's bytes, decoded and joined by the ffmpeg the box already has.
 //
 // LTX hands back an mp4; the rest of the take needs frames out of it (the last
-// frame to chain a second segment, the poster, four samples for the explicit
-// filter) and, for a 10 s take, two clips joined into one. ffmpeg/ffprobe are
+// frame to chain a second segment, the poster, and the WHOLE clip as the
+// explicit filter's raw check stream) and, for a 10 s take, two clips joined. ffmpeg/ffprobe are
 // the deployment's own binaries (`ffmpeg`, `ffprobe` on PATH): the feasibility
 // trial used them for the concat, and no npm package decodes h264 here.
 //
@@ -15,6 +15,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { PICTURE_CHECK_SIDE } from "../picture-check/classifier";
 
 const run = promisify(execFile);
 /** A 1280x704 PNG frame is over execFile's 1 MB default; a probe is tiny. */
@@ -22,6 +23,39 @@ const MAX_BUFFER = 64 * 1024 * 1024;
 
 const FFMPEG_BINARY = "ffmpeg";
 const FFPROBE_BINARY = "ffprobe";
+
+/**
+ * The longest one media call may take. A frame extraction is seconds; the
+ * join, a whole-clip frame decode and a 10 s GIF are tens of seconds. 120 s is
+ * generous for all of them and short enough that a wedged child cannot hold the
+ * video kind's only slot: the render deadline (15 min) bounds the follow, this
+ * bounds the media phase inside the same attempt, and the runner passes
+ * whichever is smaller so the two never overlap.
+ */
+export const MEDIA_TIMEOUT_MS = 120_000;
+
+// Test seam: a spec that must see a wedged child fail in a moment, not in two
+// minutes. On `globalThis` so the test file's import and the app's own module
+// graph (reset and re-imported per test) read the same value.
+const TIMEOUT_KEY = Symbol.for("alfyai.video.mediaTimeoutMs");
+type TimeoutHolder = { [TIMEOUT_KEY]?: number };
+/** The effective per-call timeout: the constant, or a test's shorter one. */
+export function mediaTimeoutMs(): number {
+	return (globalThis as TimeoutHolder)[TIMEOUT_KEY] ?? MEDIA_TIMEOUT_MS;
+}
+export function setMediaTimeoutMsForTests(ms: number): void {
+	if (!process.env.VITEST) {
+		throw new Error("setMediaTimeoutMsForTests is for vitest only");
+	}
+	(globalThis as TimeoutHolder)[TIMEOUT_KEY] = Math.max(1, Math.trunc(ms));
+}
+
+/** What every media call accepts: the take's own signal and its share of the deadline. */
+export type MediaCallOptions = {
+	signal?: AbortSignal;
+	/** Capped by the caller's remaining attempt budget; defaults to MEDIA_TIMEOUT_MS. */
+	timeoutMs?: number;
+};
 
 /** Why the clip could not be worked on. */
 export type VideoMediaErrorCode = "unavailable" | "failed";
@@ -39,23 +73,36 @@ export class VideoMediaError extends Error {
 async function runBinary(
 	binary: string,
 	args: string[],
-	options: { encoding?: "buffer" } = {},
+	options: { encoding?: "buffer" } & MediaCallOptions = {},
 ): Promise<Buffer | string> {
 	try {
 		const result = await run(binary, args, {
 			maxBuffer: MAX_BUFFER,
 			encoding: options.encoding === "buffer" ? "buffer" : "utf8",
+			// A wedged child is killed; the caller's stop wins over the timeout.
+			timeout: options.timeoutMs ?? mediaTimeoutMs(),
+			signal: options.signal,
 		});
 		return result.stdout;
 	} catch (error) {
+		// The take was stopped (or its claim lost): let the abort flow as a stop,
+		// exactly as the follow does, rather than dressing it as a media failure.
+		if (options.signal?.aborted) throw error;
 		const failure = error as NodeJS.ErrnoException & {
 			stderr?: string | Buffer;
 			stdout?: string | Buffer;
+			killed?: boolean;
 		};
 		if (failure.code === "ENOENT") {
 			throw new VideoMediaError(
 				"unavailable",
 				`${binary} is not installed on this server.`,
+			);
+		}
+		if (failure.killed === true || failure.code === "ETIMEDOUT") {
+			throw new VideoMediaError(
+				"failed",
+				`${binary} did not finish within ${options.timeoutMs ?? mediaTimeoutMs()} ms.`,
 			);
 		}
 		const stderr = failure.stderr
@@ -93,6 +140,7 @@ async function writeClip(dir: string, name: string, bytes: Uint8Array) {
 export async function extractFrameAt(
 	mp4: Uint8Array,
 	at: { seconds: number } | { index: number },
+	options: MediaCallOptions = {},
 ): Promise<Uint8Array> {
 	return inTempDir(async (dir) => {
 		const input = await writeClip(dir, "clip.mp4", mp4);
@@ -117,7 +165,7 @@ export async function extractFrameAt(
 				"png",
 				"pipe:1",
 			],
-			{ encoding: "buffer" },
+			{ encoding: "buffer", ...options },
 		);
 		const png = Buffer.from(output);
 		if (png.length === 0) {
@@ -135,7 +183,10 @@ export async function extractFrameAt(
  * `-sseof` seeks from the end, so it does not depend on the frame count
  * ComfyUI happened to write.
  */
-export async function extractLastFrame(mp4: Uint8Array): Promise<Uint8Array> {
+export async function extractLastFrame(
+	mp4: Uint8Array,
+	options: MediaCallOptions = {},
+): Promise<Uint8Array> {
 	return inTempDir(async (dir) => {
 		const input = await writeClip(dir, "clip.mp4", mp4);
 		const output = await runBinary(
@@ -156,7 +207,7 @@ export async function extractLastFrame(mp4: Uint8Array): Promise<Uint8Array> {
 				"png",
 				"pipe:1",
 			],
-			{ encoding: "buffer" },
+			{ encoding: "buffer", ...options },
 		);
 		const png = Buffer.from(output);
 		if (png.length === 0) {
@@ -169,19 +220,136 @@ export async function extractLastFrame(mp4: Uint8Array): Promise<Uint8Array> {
 	});
 }
 
-/** The clip's length in whole milliseconds, from the container. */
-export async function probeDurationMs(mp4: Uint8Array): Promise<number> {
+/**
+ * Decodes the whole clip ONCE into the explicit-picture filter's check stream:
+ * raw rgb24 frames already scaled to the model's 224 x 224, plus the clip's
+ * full-size frame 0 as the poster. One ffmpeg invocation, two outputs.
+ *
+ * Nothing here decodes a PNG in Node: `sharp` used to do a decode and resize
+ * per frame (121 of them for a 5 s clip), which is where the filter's old cost
+ * sat. ffmpeg now writes the model's input directly, and the single loop in
+ * `picture-check/index.ts` batches it through the classifier.
+ */
+export async function decodeCheckFrames(
+	mp4: Uint8Array,
+	options: MediaCallOptions = {},
+): Promise<{ poster: Uint8Array; frames: Uint8Array[] }> {
 	return inTempDir(async (dir) => {
 		const input = await writeClip(dir, "clip.mp4", mp4);
-		const output = await runBinary(FFPROBE_BINARY, [
-			"-v",
-			"error",
-			"-show_entries",
-			"format=duration",
-			"-of",
-			"default=nw=1:nk=1",
-			input,
-		]);
+		const posterPath = join(dir, "poster.png");
+		const side = PICTURE_CHECK_SIDE;
+		const output = await runBinary(
+			FFMPEG_BINARY,
+			[
+				"-hide_banner",
+				"-loglevel",
+				"error",
+				"-i",
+				input,
+				// The poster: one full-size frame, the clip's own dimensions.
+				"-map",
+				"0:v:0",
+				"-frames:v",
+				"1",
+				"-y",
+				posterPath,
+				// The check stream: the classifier's input, produced by ffmpeg.
+				"-map",
+				"0:v:0",
+				"-vf",
+				`scale=${side}:${side}:flags=bilinear`,
+				"-f",
+				"rawvideo",
+				"-pix_fmt",
+				"rgb24",
+				"pipe:1",
+			],
+			{ encoding: "buffer", ...options },
+		);
+		const raw = Buffer.from(output);
+		const frameBytes = side * side * 3;
+		const frameCount = Math.floor(raw.byteLength / frameBytes);
+		if (frameCount === 0) {
+			throw new VideoMediaError(
+				"failed",
+				"ffmpeg decoded no frames from the clip.",
+			);
+		}
+		const frames = Array.from({ length: frameCount }, (_entry, index) =>
+			raw.subarray(index * frameBytes, (index + 1) * frameBytes),
+		);
+		return {
+			poster: new Uint8Array(await readFile(posterPath)),
+			frames,
+		};
+	});
+}
+
+/**
+ * The clip with its container metadata stripped. ComfyUI writes the whole
+ * prompt, node graph and encoder tags into the mp4; a 5 s take never touches
+ * ffmpeg otherwise, so this is the one pass that keeps that text from being
+ * served. A stream copy: no re-encode, no quality change.
+ */
+export async function stripClipMetadata(
+	mp4: Uint8Array,
+	options: MediaCallOptions = {},
+): Promise<Uint8Array> {
+	return inTempDir(async (dir) => {
+		const input = await writeClip(dir, "clip.mp4", mp4);
+		const output = join(dir, "stripped.mp4");
+		await runBinary(
+			FFMPEG_BINARY,
+			[
+				"-hide_banner",
+				"-loglevel",
+				"error",
+				"-i",
+				input,
+				"-map",
+				"0",
+				"-c",
+				"copy",
+				"-map_metadata",
+				"-1",
+				"-movflags",
+				"+faststart",
+				"-y",
+				output,
+			],
+			options,
+		);
+		const stripped = new Uint8Array(await readFile(output));
+		if (stripped.byteLength === 0) {
+			throw new VideoMediaError(
+				"failed",
+				"ffmpeg wrote no clip after stripping its metadata.",
+			);
+		}
+		return stripped;
+	});
+}
+
+/** The clip's length in whole milliseconds, from the container. */
+export async function probeDurationMs(
+	mp4: Uint8Array,
+	options: MediaCallOptions = {},
+): Promise<number> {
+	return inTempDir(async (dir) => {
+		const input = await writeClip(dir, "clip.mp4", mp4);
+		const output = await runBinary(
+			FFPROBE_BINARY,
+			[
+				"-v",
+				"error",
+				"-show_entries",
+				"format=duration",
+				"-of",
+				"default=nw=1:nk=1",
+				input,
+			],
+			options,
+		);
 		const seconds = Number(String(output).trim());
 		if (!Number.isFinite(seconds) || seconds <= 0) {
 			throw new VideoMediaError("failed", "ffprobe found no clip length.");
@@ -241,11 +409,14 @@ export function videoGifArgs(input: string, output: string): string[] {
  * seconds of GIF. A missing binary is `unavailable`; a decode that fails is
  * `failed`, exactly as the chain's own calls answer.
  */
-export async function convertToGif(mp4: Uint8Array): Promise<Uint8Array> {
+export async function convertToGif(
+	mp4: Uint8Array,
+	options: MediaCallOptions = {},
+): Promise<Uint8Array> {
 	return inTempDir(async (dir) => {
 		const input = await writeClip(dir, "clip.mp4", mp4);
 		const output = join(dir, "clip.gif");
-		await runBinary(FFMPEG_BINARY, videoGifArgs(input, output));
+		await runBinary(FFMPEG_BINARY, videoGifArgs(input, output), options);
 		const gif = new Uint8Array(await readFile(output));
 		if (gif.byteLength === 0) {
 			throw new VideoMediaError("failed", "ffmpeg wrote no GIF from the clip.");
@@ -254,18 +425,25 @@ export async function convertToGif(mp4: Uint8Array): Promise<Uint8Array> {
 	});
 }
 
-async function hasAudioStream(input: string): Promise<boolean> {
-	const output = await runBinary(FFPROBE_BINARY, [
-		"-v",
-		"error",
-		"-select_streams",
-		"a",
-		"-show_entries",
-		"stream=index",
-		"-of",
-		"csv=p=0",
-		input,
-	]);
+async function hasAudioStream(
+	input: string,
+	options: MediaCallOptions = {},
+): Promise<boolean> {
+	const output = await runBinary(
+		FFPROBE_BINARY,
+		[
+			"-v",
+			"error",
+			"-select_streams",
+			"a",
+			"-show_entries",
+			"stream=index",
+			"-of",
+			"csv=p=0",
+			input,
+		],
+		options,
+	);
 	return String(output).trim() !== "";
 }
 
@@ -277,11 +455,12 @@ async function hasAudioStream(input: string): Promise<boolean> {
  */
 export async function concatClips(
 	clips: readonly Uint8Array[],
+	options: MediaCallOptions = {},
 ): Promise<Uint8Array> {
+	if (clips.length === 1) return clips[0] as Uint8Array;
 	if (clips.length === 0) {
 		throw new VideoMediaError("failed", "There is no clip to join.");
 	}
-	if (clips.length === 1) return clips[0] as Uint8Array;
 	return inTempDir(async (dir) => {
 		const inputs: string[] = [];
 		for (const [index, clip] of clips.entries()) {
@@ -296,23 +475,31 @@ export async function concatClips(
 				.join("\n"),
 		);
 		try {
-			await runBinary(FFMPEG_BINARY, [
-				"-hide_banner",
-				"-loglevel",
-				"error",
-				"-f",
-				"concat",
-				"-safe",
-				"0",
-				"-i",
-				list,
-				"-c",
-				"copy",
-				"-movflags",
-				"+faststart",
-				"-y",
-				output,
-			]);
+			await runBinary(
+				FFMPEG_BINARY,
+				[
+					"-hide_banner",
+					"-loglevel",
+					"error",
+					"-f",
+					"concat",
+					"-safe",
+					"0",
+					"-i",
+					list,
+					"-c",
+					"copy",
+					// ComfyUI writes the whole prompt and node graph into the mp4's
+					// tags; the clip we serve must not carry them.
+					"-map_metadata",
+					"-1",
+					"-movflags",
+					"+faststart",
+					"-y",
+					output,
+				],
+				options,
+			);
 			return new Uint8Array(await readFile(output));
 		} catch {
 			// The segments do not share codec parameters (or one has no audio):
@@ -321,8 +508,8 @@ export async function concatClips(
 		// Both clips carry LTX's joint audio; a pair without a matching audio
 		// stream is joined as video only rather than failing the take.
 		const audio =
-			(await hasAudioStream(inputs[0] as string)) &&
-			(await hasAudioStream(inputs[1] as string));
+			(await hasAudioStream(inputs[0] as string, options)) &&
+			(await hasAudioStream(inputs[1] as string, options));
 		const filter = audio
 			? "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]"
 			: "[0:v][1:v]concat=n=2:v=1:a=0[v]";
@@ -347,12 +534,14 @@ export async function concatClips(
 			"veryfast",
 			"-crf",
 			"18",
+			"-map_metadata",
+			"-1",
 			"-movflags",
 			"+faststart",
 			"-y",
 			output,
 		];
-		await runBinary(FFMPEG_BINARY, args);
+		await runBinary(FFMPEG_BINARY, args, options);
 		return new Uint8Array(await readFile(output));
 	});
 }

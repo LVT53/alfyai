@@ -56,6 +56,12 @@ export type FakeComfyUiOptions = {
 	videoOutputKey?: "images" | "videos" | "gifs";
 	/** Execution fails for every prompt after the first N (a chain's second segment). */
 	failAfterPromptCount?: number;
+	/**
+	 * Prompts after the first N render their steps and then never finish, so a
+	 * test can read the state of a take that is mid-segment. `releaseHanging()`
+	 * lets them finish, like a ComfyUI that keeps rendering after the app died.
+	 */
+	hangAfterPromptCount?: number;
 };
 
 export type FakeRequest = {
@@ -77,6 +83,8 @@ export interface FakeComfyUi {
 	holdQueue(held: boolean): void;
 	/** Parks every request to `path` (`/upload/image`, `/prompt`) after it is recorded in `requests`, before it is acted on, until released. */
 	holdRequests(path: string, held: boolean): void;
+	/** Finishes every prompt parked by `hangAfterPromptCount`. */
+	releaseHanging(): void;
 	restart(): void;
 	/** Goes dark for `ms` (every connection is cut), then comes back having forgotten its prompts and results, like a real reload. */
 	outage(ms: number): void;
@@ -92,6 +100,8 @@ type Prompt = {
 	aborted: boolean;
 	/** This prompt was submitted over `failAfterPromptCount`. */
 	shouldFail: boolean;
+	/** This prompt was submitted over `hangAfterPromptCount` and parks before finishing. */
+	hangs: boolean;
 };
 
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -247,6 +257,11 @@ export async function createFakeComfyUi(
 	const files = new Map<string, Uint8Array>();
 	const sockets = new Map<Duplex, string>();
 	const parked = new Map<string, (() => void)[]>();
+	const hangResolvers = new Set<() => void>();
+	// Sticky: `releaseHanging()` may be called before a prompt reaches its park
+	// point (a test releases the moment the prompt is posted), and every later
+	// park must then go straight through.
+	let hangsReleased = false;
 
 	/** Resolves at once unless `path` is held, else when it is released. */
 	function gate(path: string): Promise<void> {
@@ -293,6 +308,12 @@ export async function createFakeComfyUi(
 			}
 		}
 		if (gen !== generation) return;
+		if (prompt.hangs && !hangsReleased) {
+			await new Promise<void>((resolve) => {
+				hangResolvers.add(resolve);
+			});
+			if (gen !== generation) return;
+		}
 		if (prompt.aborted) {
 			failed = true;
 			send(prompt.clientId, "execution_interrupted", { prompt_id: prompt.id });
@@ -361,6 +382,12 @@ export async function createFakeComfyUi(
 		records.delete(prompt.id);
 		current = null;
 		pump();
+	}
+
+	function releaseHanging() {
+		hangsReleased = true;
+		for (const resolve of hangResolvers) resolve();
+		hangResolvers.clear();
 	}
 
 	function pump() {
@@ -447,6 +474,9 @@ export async function createFakeComfyUi(
 					shouldFail:
 						options.failAfterPromptCount !== undefined &&
 						submitted > options.failAfterPromptCount,
+					hangs:
+						options.hangAfterPromptCount !== undefined &&
+						submitted > options.hangAfterPromptCount,
 				};
 				records.set(id, prompt);
 				prompts.set(id, "pending");
@@ -562,9 +592,13 @@ export async function createFakeComfyUi(
 			parked.delete(path);
 			for (const release of waiting) release();
 		},
+		releaseHanging() {
+			releaseHanging();
+		},
 		restart() {
 			generation += 1;
 			submitted = 0;
+			releaseHanging();
 			current = null;
 			records.clear();
 			prompts.clear();
@@ -575,6 +609,7 @@ export async function createFakeComfyUi(
 			downUntil = Date.now() + ms;
 			generation += 1;
 			submitted = 0;
+			releaseHanging();
 			current = null;
 			records.clear();
 			prompts.clear();
@@ -585,6 +620,7 @@ export async function createFakeComfyUi(
 		},
 		async close() {
 			generation += 1;
+			releaseHanging();
 			for (const socket of sockets.keys()) socket.destroy();
 			server.closeAllConnections();
 			await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -155,7 +155,10 @@ describe("the classifier's life cycle (an injected engine, no model)", () => {
 	});
 
 	function engine(
-		run: () => Promise<ArrayLike<number>> = async () => [3, -3],
+		run: (
+			input: Float32Array,
+			batch: number,
+		) => Promise<ArrayLike<number>> = async () => [3, -3],
 	): PictureCheckEngine & { release: ReturnType<typeof vi.fn> } {
 		return { run: vi.fn(run), release: vi.fn(async () => undefined) };
 	}
@@ -164,6 +167,46 @@ describe("the classifier's life cycle (an injected engine, no model)", () => {
 		const reads = vi.fn((path: string) => readFile(path));
 		return reads;
 	}
+
+	it("checks a clip's frames in batches, one run per batch on one session", async () => {
+		await setUp();
+		const run = vi.fn(async (_input: Float32Array, batch = 1) =>
+			Array.from({ length: batch * 2 }, (_value, index) =>
+				index % 2 === 0 ? 3 : -3,
+			),
+		);
+		const loadEngine = vi.fn(async () => engine(run));
+		const classifier = createOnnxPictureClassifier(file, {
+			sha256,
+			loadEngine,
+		});
+		const frames = Array.from(
+			{ length: 121 },
+			() => new Uint8Array(224 * 224 * 3),
+		);
+		const verdicts = await classifier.classifyRawFrames(frames);
+		expect(verdicts).toHaveLength(121);
+		expect(verdicts.every((verdict) => verdict.explicit === false)).toBe(true);
+		// 121 frames in batches of 16: 8 runs, not 121, on ONE loaded session.
+		expect(run).toHaveBeenCalledTimes(8);
+		expect(run.mock.calls[0]?.[1]).toBe(16);
+		expect(run.mock.calls.at(-1)?.[1]).toBe(9);
+		expect(loadEngine).toHaveBeenCalledTimes(1);
+	});
+
+	it("fails a clip closed when one of its batches throws", async () => {
+		await setUp();
+		const run = vi.fn(async () => {
+			throw new Error("the session died");
+		});
+		const classifier = createOnnxPictureClassifier(file, {
+			sha256,
+			loadEngine: async () => engine(run),
+		});
+		await expect(
+			classifier.classifyRawFrames([new Uint8Array(224 * 224 * 3)]),
+		).rejects.toBeInstanceOf(PictureCheckUnavailable);
+	});
 
 	it("ends a check that hangs as unavailable, and the next check runs on a fresh engine", async () => {
 		await setUp();

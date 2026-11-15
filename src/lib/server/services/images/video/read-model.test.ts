@@ -80,6 +80,7 @@ async function insertVideoTake(input: {
 	errorCode?: string | null;
 	retryable?: boolean;
 	toolCallId?: string | null;
+	artifactId?: string | null;
 	resultFileId?: string | null;
 	request?: VideoTakeRequest;
 }): Promise<string> {
@@ -92,7 +93,7 @@ async function insertVideoTake(input: {
 			id,
 			userId: input.userId ?? "u1",
 			conversationId: input.conversationId ?? "c1",
-			artifactId: null,
+			artifactId: input.artifactId ?? null,
 			toolCallId: input.toolCallId ?? null,
 			origin: "turn",
 			retryOf: null,
@@ -254,6 +255,65 @@ describe("listConversationVideoCards", () => {
 		expect(cards[0]?.id).toBe(first);
 		expect(cards[0]?.take?.id).toBe(another);
 		expect(cards[0]?.take?.status).toBe("running");
+	});
+
+	it("keeps a failed first take and the Another that lands as one card", async () => {
+		const { listConversationVideoCards } = await import("./read-model");
+		const failed = await insertVideoTake({
+			status: "failed",
+			errorCode: "video_render_failed",
+			retryable: true,
+			toolCallId: "call-1",
+		});
+		// The item the landed take made.
+		const { db } = await import("$lib/server/db");
+		const schema = await import("$lib/server/db/schema");
+		db.insert(schema.artifacts)
+			.values({
+				id: "video-1",
+				userId: "u1",
+				conversationId: "c1",
+				type: "artifact",
+				name: "Harbour at dusk",
+				metadataJson: JSON.stringify({ artifactType: "video" }),
+			})
+			.run();
+		await insertImageFile({
+			id: "clip-2",
+			width: 1280,
+			height: 704,
+			durationMs: 5000,
+		});
+		// "Another" queues its take with the first take's call and no item yet
+		// (there was no artifact to name); once it lands, its row records the
+		// item it made on its own.
+		const landed = await insertVideoTake({
+			status: "succeeded",
+			toolCallId: "call-1",
+			artifactId: "video-1",
+			resultFileId: "clip-2",
+		});
+
+		const cards = await listConversationVideoCards("u1", "c1");
+
+		// The message's row names the call's first take (`videoCardId`), so one
+		// card is what makes it resolve to the clip: that id, the landed take on
+		// it, and the clip attached.
+		expect(cards).toHaveLength(1);
+		expect(cards[0]).toMatchObject({
+			id: failed,
+			artifactId: "video-1",
+			title: "Harbour at dusk",
+			take: {
+				id: landed,
+				status: "succeeded",
+				clip: {
+					fileId: "clip-2",
+					posterFileId: "clip-2",
+					sourceFileId: "still-1",
+				},
+			},
+		});
 	});
 
 	it("keeps only this person's and this conversation's takes", async () => {

@@ -9,7 +9,7 @@
 // the key-value store reach their rows through the same function, which is
 // what makes a child row as private as the artifact it hangs off.
 import { randomUUID } from "node:crypto";
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, lt } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifactComments,
@@ -674,6 +674,66 @@ export async function updateArtifactBody(
 		}
 
 		return { ok: true as const, versionId, bodyHash, versionNumber };
+	});
+}
+
+/**
+ * Takes back a version a caller has just appended and nothing points at yet:
+ * the video runner writes the take's version before `ctx.succeed`, and a Stop
+ * in that window refuses the settle while the clip file is discarded. Leaving
+ * the version would make it the item's current body and the panel would show a
+ * dead clip. Only the NEWEST version may go (an older one is History a reader
+ * may be looking at), and the artifact row's own content goes back to the
+ * version before it. Scoped like every other artifact write.
+ */
+export async function discardArtifactVersion(
+	params: {
+		userId: string;
+		artifactId: string;
+		/** The `versionId` `updateArtifactBody` returned for the save to take back. */
+		versionId: string;
+	} & ArtifactScopeOptions,
+): Promise<boolean> {
+	const row = await readScopedArtifactRow(params);
+	if (!row || !isEditableArtifactRow(row)) return false;
+	return db.transaction((tx) => {
+		const target = tx
+			.select({
+				versionNumber: artifactVersions.versionNumber,
+			})
+			.from(artifactVersions)
+			.where(
+				and(
+					eq(artifactVersions.id, params.versionId),
+					eq(artifactVersions.artifactId, row.id),
+				),
+			)
+			.get();
+		if (!target) return false;
+		const newest = newestVersion(tx, row.id);
+		if (!newest || newest.versionNumber !== target.versionNumber) return false;
+		const previous = tx
+			.select({ body: artifactVersions.body })
+			.from(artifactVersions)
+			.where(
+				and(
+					eq(artifactVersions.artifactId, row.id),
+					lt(artifactVersions.versionNumber, target.versionNumber),
+				),
+			)
+			.orderBy(desc(artifactVersions.versionNumber))
+			.limit(1)
+			.get();
+		const removed = tx
+			.delete(artifactVersions)
+			.where(eq(artifactVersions.id, params.versionId))
+			.run().changes;
+		if (removed === 0) return false;
+		tx.update(artifacts)
+			.set({ contentText: previous?.body ?? null, updatedAt: new Date() })
+			.where(eq(artifacts.id, row.id))
+			.run();
+		return true;
 	});
 }
 

@@ -23,6 +23,7 @@ import { videoJobs } from "$lib/server/db/schema";
 import {
 	createArtifact,
 	deleteLibraryArtifact,
+	discardArtifactVersion,
 	updateArtifactBody,
 } from "$lib/server/services/artifacts";
 import type { JobFailure, JobRunContext } from "$lib/server/services/jobs";
@@ -40,13 +41,18 @@ import {
 	readImageFileBytes,
 } from "../files";
 import { freeOtherPictureModels, scheduleIdleFree } from "../idle-free";
-import { checkFinishedPicture } from "../picture-check";
+import { checkFinishedFrames } from "../picture-check";
+import { isExplicitFilterOnFor } from "../picture-check/policy";
 import { discardStoredVideoFile, storeVideoFile } from "../video-files";
 import { createVideoComfyClient } from "./comfy-client";
 import {
 	concatClips,
+	decodeCheckFrames,
 	extractFrameAt,
 	extractLastFrame,
+	type MediaCallOptions,
+	mediaTimeoutMs,
+	stripClipMetadata,
 	VideoMediaError,
 } from "./media";
 import {
@@ -54,6 +60,7 @@ import {
 	parseVideoTakeRequest,
 	VIDEO_RENDER_DEADLINE_MS,
 	type VideoCheckpoint,
+	type VideoSegmentRecord,
 	type VideoTakeRequest,
 	videoDurationMs,
 	videoSegmentCount,
@@ -66,9 +73,6 @@ const FOLLOW_RETRY_MS = 1000;
 const PROGRESS_WRITE_EVERY_MS = 1000;
 /** Added to the remaining-steps estimate for decoding, joining and storing. */
 const ETA_FINISH_SECONDS = 5;
-/** The explicit filter's sample: the poster and four across the clip. */
-const SAMPLE_FRACTIONS = [0, 0.25, 0.5, 0.75] as const;
-
 /** A failure the runner raises itself, with the code the take will carry. */
 class TakeError extends Error {
 	constructor(
@@ -380,9 +384,30 @@ async function fitStill(
 }
 
 /**
- * Renders one segment: frees the other engines once, writes the prompt id to
- * the checkpoint, posts under it, follows it and fetches the clip. Answers null
- * when the take was stopped before posting.
+ * The one budget every media call runs under: the attempt's remaining render
+ * deadline, capped by `MEDIA_TIMEOUT_MS`. A spent deadline throws instead of
+ * starting another call, and the signal carries the take's Stop into the child.
+ */
+function mediaOptions(ctx: Ctx, startedAt: number): MediaCallOptions {
+	const left = VIDEO_RENDER_DEADLINE_MS - (Date.now() - startedAt);
+	if (left <= 0) {
+		throw new TakeError(
+			"video_render_timeout",
+			"The video took too long to render.",
+			true,
+		);
+	}
+	return { signal: ctx.signal, timeoutMs: Math.min(mediaTimeoutMs(), left) };
+}
+
+/**
+ * Renders one segment: frees the other engines once, writes the prompt id and
+ * the dense segment list to the checkpoint, posts under it, follows it and
+ * fetches the clip. Answers null when the take was stopped before posting.
+ *
+ * `segments` holds every finished segment of THIS attempt, in order and with no
+ * hole: the checkpoint written for segment 2 is `[segment 1, segment 2]`, so a
+ * later attempt can read it back and fetch segment 1 instead of re-rendering it.
  */
 async function renderSegment(
 	ctx: Ctx,
@@ -392,12 +417,17 @@ async function renderSegment(
 		size: { width: number; height: number };
 		imageName: string;
 		segment: 1 | 2;
-		checkpoint: VideoCheckpoint | null;
+		/** The finished segments before this one; at segment n this is length n-1. */
+		segments: readonly VideoSegmentRecord[];
 		startedAt: number;
 		freedOthers: boolean;
 		setPromptId: (id: string) => void;
 	},
-): Promise<{ clip: Uint8Array; record: ComfyImageRef } | null> {
+): Promise<{
+	clip: Uint8Array;
+	record: VideoSegmentRecord;
+	checkpoint: VideoCheckpoint;
+} | null> {
 	const { signal } = ctx;
 	if (!input.freedOthers) {
 		// The card holds one engine: free the picture servers BEFORE LTX loads.
@@ -413,34 +443,38 @@ async function renderSegment(
 		image: input.imageName,
 	});
 	const promptId = randomUUID();
-	const segments = [...(input.checkpoint?.segments ?? [])];
-	segments[input.segment - 1] = { promptId, media: null };
-	const next: VideoCheckpoint = {
+	const record: VideoSegmentRecord = { promptId, media: null };
+	const segments = [...input.segments, record];
+	const checkpoint: VideoCheckpoint = {
 		promptId,
 		segment: input.segment,
 		segments,
 	};
-	const recorded = await ctx.progress({ checkpoint: next });
+	const recorded = await ctx.progress({ checkpoint });
 	if (!recorded || signal.aborted) return null;
 	input.setPromptId(promptId);
 	const answer = await client.submit(graph, { promptId });
-	const knownId = answer.promptId;
-	if (knownId !== promptId) {
+	if (answer.promptId !== promptId) {
 		// A ComfyUI that predates caller-supplied ids picks its own: follow that one.
 		console.warn("[VIDEO] ComfyUI answered with another prompt id", {
 			takeId: ctx.row.id,
 			sent: promptId,
 			answered: answer.promptId,
 		});
-		segments[input.segment - 1] = { promptId: knownId, media: null };
-		next.promptId = knownId;
-		input.setPromptId(knownId);
-		await ctx.progress({ checkpoint: next });
+		record.promptId = answer.promptId;
+		checkpoint.promptId = answer.promptId;
+		input.setPromptId(answer.promptId);
+		await ctx.progress({ checkpoint });
 	}
 	await enterPhase(ctx, "submitted");
 	if (signal.aborted) return null;
 
-	const refs = await followWithGrace(ctx, client, knownId, input.startedAt);
+	const refs = await followWithGrace(
+		ctx,
+		client,
+		record.promptId,
+		input.startedAt,
+	);
 	if (signal.aborted) return null;
 	await enterPhase(ctx, "finishing");
 	const ref = refs[0];
@@ -448,15 +482,9 @@ async function renderSegment(
 		throw new ComfyUiError("missing_result", "ComfyUI finished without a clip");
 	}
 	const clip = await client.fetchImage(ref);
-	segments[input.segment - 1] = { promptId: knownId, media: ref };
-	await ctx.progress({
-		checkpoint: {
-			promptId: knownId,
-			segment: input.segment,
-			segments,
-		} satisfies VideoCheckpoint,
-	});
-	return { clip, record: ref };
+	record.media = ref;
+	await ctx.progress({ checkpoint });
+	return { clip, record, checkpoint };
 }
 
 /** Whether a recorded prompt can still be followed, or ComfyUI forgot it. */
@@ -486,7 +514,12 @@ async function renderTake(
 	if (signal.aborted) return;
 
 	const segmentCount = videoSegmentCount(request.durationSeconds);
-	const checkpoint = parseVideoCheckpoint(row.checkpoint);
+	const saved = parseVideoCheckpoint(row.checkpoint);
+	// The checkpoint read once, then kept here and rewritten by every step: a
+	// segment list with no hole, so a restart at segment 2 can read it back.
+	let segments: VideoSegmentRecord[] = saved ? [...saved.segments] : [];
+	const resumedPromptId = saved?.promptId ?? null;
+	const resumedSegment = saved?.segment ?? 1;
 	const clips: Uint8Array[] = [];
 	let imageName = uploaded.filename;
 	// The card holds one engine: free the picture servers once, before the run's
@@ -496,7 +529,7 @@ async function renderTake(
 
 	for (let segment = 1; segment <= segmentCount; segment += 1) {
 		const segmentNumber = segment as 1 | 2;
-		const done = checkpoint?.segments[segmentNumber - 1];
+		const done = segments[segmentNumber - 1];
 		let clip: Uint8Array | null = null;
 
 		// A finished segment's saved clip can be fetched again (a restart at
@@ -505,15 +538,19 @@ async function renderTake(
 			try {
 				clip = await client.fetchImage(done.media);
 			} catch {
+				// The clip is gone too: drop this segment and everything after it.
 				clip = null;
+				segments = segments.slice(0, segmentNumber - 1);
 			}
 		}
 		// A prompt recorded for this segment can be followed (an app restart
-		// mid-render). ComfyUI forgetting it means one clean re-render.
+		// mid-render). ComfyUI forgetting it means one clean re-render, with every
+		// later record dropped first so an old segment cannot be joined to a new
+		// one.
 		if (!clip) {
 			const recordedPrompt =
 				done?.promptId ??
-				(checkpoint?.segment === segmentNumber ? checkpoint.promptId : null);
+				(resumedSegment === segmentNumber ? resumedPromptId : null);
 			if (recordedPrompt) {
 				try {
 					const refs = await followWithGrace(
@@ -532,14 +569,28 @@ async function renderTake(
 						);
 					}
 					clip = await client.fetchImage(ref);
+					segments[segmentNumber - 1] = {
+						promptId: recordedPrompt,
+						media: ref,
+					};
+					await ctx.progress({
+						checkpoint: {
+							promptId: recordedPrompt,
+							segment: segmentNumber,
+							segments: segments.slice(0, segmentNumber),
+						} satisfies VideoCheckpoint,
+					});
 				} catch (error) {
 					if (signal.aborted) return;
 					if (!isForgotten(error)) throw error;
-					// The server restarted and no longer knows the prompt.
+					// The server restarted and no longer knows the prompt; the chain
+					// from here is re-rendered.
+					segments = segments.slice(0, segmentNumber - 1);
 				}
 			}
 		}
 		if (!clip) {
+			mediaOptions(ctx, startedAt);
 			if (segmentNumber === 2) {
 				// The chain's guide: the FIRST clip's last decoded frame.
 				const first = clips[0];
@@ -550,7 +601,10 @@ async function renderTake(
 						true,
 					);
 				}
-				const lastFrame = await extractLastFrame(first);
+				const lastFrame = await extractLastFrame(
+					first,
+					mediaOptions(ctx, startedAt),
+				);
 				const guide = await client.uploadImage(lastFrame, `${row.id}-2.png`);
 				imageName = guide.filename;
 			}
@@ -559,33 +613,71 @@ async function renderTake(
 				size,
 				imageName,
 				segment: segmentNumber,
-				checkpoint,
+				segments: segments.slice(0, segmentNumber - 1),
 				startedAt,
 				freedOthers,
 				setPromptId: prompt.setPromptId,
 			});
 			if (!rendered) return;
 			freedOthers = true;
+			segments[segmentNumber - 1] = rendered.record;
 			clip = rendered.clip;
 		}
 		if (signal.aborted) return;
 		clips.push(clip);
 	}
+	// The attempt's own check before every media phase: a take that burned its
+	// deadline fails here instead of starting another decode or the join.
+	mediaOptions(ctx, startedAt);
 	if (signal.aborted || clips.length !== segmentCount) return;
 
 	const joined =
-		clips.length === 1 ? (clips[0] as Uint8Array) : await concatClips(clips);
-	if (signal.aborted) return;
-	const durationSeconds = request.durationSeconds;
-	const productMs = videoDurationMs(durationSeconds);
-	const poster = await extractFrameAt(joined, { seconds: 0 });
-	const samples = await sampleFrames(joined, durationSeconds, poster);
+		clips.length === 1
+			? (clips[0] as Uint8Array)
+			: await concatClips(clips, mediaOptions(ctx, startedAt));
 	if (signal.aborted) return;
 
-	// The explicit-picture filter, on the poster and four frames across the
-	// clip, before anything is stored: a blocked or unchecked clip is never
-	// stored, so there is no file to serve, thumbnail or download.
-	const verdict = await checkFrames(ctx, row.id, samples);
+	const durationSeconds = request.durationSeconds;
+	const productMs = videoDurationMs(durationSeconds);
+
+	// The explicit-picture filter, on EVERY frame of the clip, before anything is
+	// stored. A picture is classified whole; a clip is too, so an explicit moment
+	// between old sample points cannot pass. The decision is made ONCE here: an
+	// exempt person needs only the poster, so the check stream is never decoded
+	// (no frame files, no scaling, no temp directory); a filtered person gets one
+	// ffmpeg pass producing the model's 224 x 224 raw input and the full-size
+	// poster together, and the classifier runs it in batches of 16 on ONE session
+	// (8 inference runs for 121 frames). `checkFinishedFrames` is still the
+	// authority and answers `not_filtered` first for the empty list. Its clock is
+	// the take's: a batch that cannot start before the deadline makes the clip
+	// unchecked, and the take keeps nothing.
+	const filterOn = await isExplicitFilterOnFor(row.userId);
+	if (signal.aborted) return;
+	let poster: Uint8Array;
+	let checkFrames: Uint8Array[] = [];
+	if (filterOn) {
+		const decoded = await decodeCheckFrames(
+			joined,
+			mediaOptions(ctx, startedAt),
+		);
+		poster = decoded.poster;
+		checkFrames = decoded.frames;
+	} else {
+		poster = await extractFrameAt(
+			joined,
+			{ seconds: 0 },
+			mediaOptions(ctx, startedAt),
+		);
+	}
+	if (signal.aborted) return;
+	const verdict = await checkFinishedFrames({
+		userId: row.userId,
+		takeId: row.id,
+		frames: checkFrames,
+		signal,
+		deadlineAt: startedAt + VIDEO_RENDER_DEADLINE_MS,
+	});
+	if (signal.aborted) return;
 	if (verdict === "blocked") {
 		throw new TakeError(
 			"video_blocked",
@@ -600,13 +692,21 @@ async function renderTake(
 			true,
 		);
 	}
+
+	// ComfyUI writes its prompt and node graph into the mp4's tags; a 5 s take
+	// never touches ffmpeg otherwise, so every stored clip goes through this.
+	const storedBytes =
+		clips.length === 1
+			? await stripClipMetadata(joined, mediaOptions(ctx, startedAt))
+			: joined;
+	mediaOptions(ctx, startedAt);
 	if (signal.aborted) return;
 
 	const file = await storeVideoFile({
 		userId: row.userId,
 		conversationId: row.conversationId,
 		role: "take",
-		mp4: joined,
+		mp4: storedBytes,
 		poster,
 		durationMs: productMs,
 	});
@@ -625,13 +725,29 @@ async function renderTake(
 		durationMs: file.durationMs ?? productMs,
 		sourceFileId: request.sourceFileId,
 	});
-	const artifactId = await writeArtifact(ctx, request, serialized);
-	if (!artifactId) {
+	// A failed write (the item was deleted mid-take) must not leave the stored
+	// clip behind: nothing points at it once this throws.
+	let artifact: {
+		artifactId: string;
+		versionId: string | null;
+		created: boolean;
+	};
+	try {
+		artifact = await writeArtifact(ctx, request, serialized);
+	} catch (error) {
 		await discardStoredVideoFile(file).catch(() => undefined);
-		return;
+		throw error;
 	}
-	await attachImageFilesToArtifact([file.id], artifactId).catch(
-		() => undefined,
+	await attachImageFilesToArtifact([file.id], artifact.artifactId).catch(
+		(error) => {
+			// The clip is served by its file id and the item's body points at it,
+			// but the item's own delete cannot reach a row it does not own. Say so
+			// the way the artifact delete path does.
+			console.warn(
+				"[VIDEO] Stored a clip but could not attach it to its item",
+				{ takeId: row.id, artifactId: artifact.artifactId, error },
+			);
+		},
 	);
 
 	const settled = await ctx.succeed({
@@ -639,7 +755,7 @@ async function renderTake(
 			tx.update(videoJobs)
 				.set({
 					resultFileId: file.id,
-					artifactId,
+					artifactId: artifact.artifactId,
 					progressPercent: 100,
 					etaSeconds: null,
 				})
@@ -648,111 +764,88 @@ async function renderTake(
 		},
 	});
 	if (!settled) {
-		// Stopped while storing: nothing points at the clip. A new item this
-		// take made goes with it; an appended version keeps its file-less row,
-		// which reads as a take that never landed.
+		// Stopped between the store and the settle: nothing may point at the clip.
 		await discardStoredVideoFile(file).catch(() => undefined);
-		if (request.artifactId === null) {
-			await deleteLibraryArtifact(row.userId, artifactId).catch(
+		if (artifact.created) {
+			// The item exists only for this take; it goes with the clip.
+			await deleteLibraryArtifact(row.userId, artifact.artifactId).catch(
 				() => undefined,
 			);
+			await db
+				.update(videoJobs)
+				.set({ createdArtifactId: null })
+				.where(eq(videoJobs.id, row.id))
+				.run();
+		} else if (artifact.versionId) {
+			// The version was appended before the settle was refused; taking it
+			// back keeps the item's current body on the version that still has a
+			// file. Only the newest version is ever taken back.
+			await discardArtifactVersion({
+				userId: row.userId,
+				artifactId: artifact.artifactId,
+				versionId: artifact.versionId,
+				conversationId: row.conversationId,
+			}).catch(() => undefined);
 		}
 	}
 }
 
 /**
- * The poster and four more frames across the clip. The last sample sits just
- * inside the end, where `-ss` still finds a frame of a clip whose container
- * length and frame count disagree by a frame.
- */
-async function sampleFrames(
-	clip: Uint8Array,
-	durationSeconds: number,
-	poster: Uint8Array,
-): Promise<Uint8Array[]> {
-	const seconds = durationSeconds;
-	const frames = [poster];
-	for (const fraction of SAMPLE_FRACTIONS.slice(1)) {
-		frames.push(await extractFrameAt(clip, { seconds: seconds * fraction }));
-	}
-	frames.push(
-		await extractFrameAt(clip, { seconds: Math.max(0, seconds - 0.1) }),
-	);
-	return frames;
-}
-
-/**
- * Runs the explicit filter on every sample. One blocked frame blocks the clip;
- * a check that cannot run fails closed (`unchecked`), because a clip that
- * cannot be checked is not served.
- */
-async function checkFrames(
-	ctx: Ctx,
-	takeId: string,
-	frames: Uint8Array[],
-): Promise<"shown" | "not_filtered" | "blocked" | "unchecked"> {
-	let checkedAny = false;
-	for (const png of frames) {
-		const verdict = await checkFinishedPicture({
-			userId: ctx.row.userId,
-			takeId,
-			png,
-		});
-		if (verdict === "blocked") return "blocked";
-		if (verdict === "unchecked") return "unchecked";
-		if (verdict === "shown") checkedAny = true;
-		if (ctx.signal.aborted) return "not_filtered";
-	}
-	return checkedAny ? "shown" : "not_filtered";
-}
-
-/**
  * The `video` artifact version: a new item, or a version appended to the one
- * the take names. Answers the artifact id, or null when the item is gone (the
- * take then stores nothing).
+ * the take names. A worker lost after creating the item left its id on the take
+ * (`createdArtifactId`), so the retry appends to it instead of making a second
+ * item. Never answers null: a missing item throws `video_item_deleted`, and the
+ * caller discards the clip.
  */
 async function writeArtifact(
 	ctx: Ctx,
 	request: VideoTakeRequest,
 	serialized: string,
-): Promise<string | null> {
+): Promise<{ artifactId: string; versionId: string | null; created: boolean }> {
 	const { row } = ctx;
 	const summary = request.summary;
-	const failed = (error: unknown): never => {
-		if (error instanceof TakeError) throw error;
-		throw new TakeError(
-			"video_artifact_failed",
-			"The video could not be saved to its item.",
-			true,
-		);
-	};
-	if (request.artifactId) {
+	const target = request.artifactId ?? row.createdArtifactId ?? null;
+	if (target) {
+		let written: Awaited<ReturnType<typeof updateArtifactBody>>;
 		try {
-			const written = await updateArtifactBody({
+			written = await updateArtifactBody({
 				userId: row.userId,
-				artifactId: request.artifactId,
+				artifactId: target,
 				body: serialized,
 				author: "alfy",
 				summary: summary ?? VERSION_SUMMARY.alfyChangedVideo,
 				conversationId: row.conversationId,
 			});
-			if (!written.ok) {
-				if (written.reason === "not_found") {
-					throw new TakeError(
-						"video_item_deleted",
-						"The item this video belongs to is gone.",
-						false,
-					);
-				}
-				return failed(written.reason);
-			}
-			return request.artifactId;
-		} catch (error) {
-			return failed(error);
+		} catch {
+			throw new TakeError(
+				"video_artifact_failed",
+				"The video could not be saved to its item.",
+				true,
+			);
 		}
+		if (!written.ok) {
+			if (written.reason === "not_found") {
+				throw new TakeError(
+					"video_item_deleted",
+					"The item this video belongs to is gone.",
+					false,
+				);
+			}
+			throw new TakeError(
+				"video_artifact_failed",
+				"The video could not be saved to its item.",
+				true,
+			);
+		}
+		return {
+			artifactId: target,
+			versionId: written.versionId,
+			created: false,
+		};
 	}
+	let created: Awaited<ReturnType<typeof createArtifact>>;
 	try {
-		const created = await createArtifact({
+		created = await createArtifact({
 			userId: row.userId,
 			conversationId: row.conversationId,
 			kind: "video",
@@ -761,9 +854,37 @@ async function writeArtifact(
 			author: "alfy",
 			versionSummary: summary ?? VERSION_SUMMARY.alfyVideo,
 		});
-		if (!created.ok) return failed(created.reason);
-		return created.artifact.id;
-	} catch (error) {
-		return failed(error);
+	} catch {
+		throw new TakeError(
+			"video_artifact_failed",
+			"The video could not be saved to its item.",
+			true,
+		);
 	}
+	if (!created.ok) {
+		throw new TakeError(
+			"video_artifact_failed",
+			"The video could not be saved to its item.",
+			true,
+		);
+	}
+	const artifactId = created.artifact.id;
+	// The engine's fenced write records the item the take made BEFORE it settles,
+	// so a worker lost here leaves the id for its retry. A refused write means the
+	// take was stopped: the item goes with this run.
+	const recorded = await ctx.write((tx) => {
+		tx.update(videoJobs)
+			.set({ createdArtifactId: artifactId })
+			.where(eq(videoJobs.id, row.id))
+			.run();
+	});
+	if (!recorded) {
+		await deleteLibraryArtifact(row.userId, artifactId).catch(() => undefined);
+		throw new TakeError(
+			"video_artifact_failed",
+			"The take stopped before it could keep its item.",
+			false,
+		);
+	}
+	return { artifactId, versionId: null, created: true };
 }

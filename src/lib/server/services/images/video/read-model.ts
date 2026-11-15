@@ -6,9 +6,10 @@
 // take makes a `video` artifact or appends a version to the one it names), so
 // this read derives the card from the takes themselves. All the takes of one
 // item are one card, and the newest is what it shows: Another queues a take
-// for the same item and replaces what the card draws. While no item exists
-// yet, the takes of one `make_video` call are the card, so a first take that
-// failed and the one Another queued beside it are still one card.
+// for the same item and replaces what the card draws. A take's `make_video`
+// call names its card first (`videoCardKey`), so a first take that failed and
+// the one Another queued beside it stay one card after the second lands and
+// records the item it made.
 //
 // The card's id is its FIRST take's id, which never changes: the tool's
 // `videoCardId` metadata names it, and a read after the clip lands, another
@@ -54,19 +55,22 @@ function viewStatus(status: string): VideoTakeView["status"] {
 }
 
 /**
- * The key that says two takes are the same card: the item they append to
- * (`artifact_id`, or the item the request asked to append to before the take
- * has landed), else the `make_video` call that made them. A take with neither
- * is a card alone. Exported so the card's actions (Another) find the same
- * takes this read draws.
+ * The key that says two takes are the same card: the `make_video` call that
+ * made them whenever the take has one, so a take that later records the item
+ * it made (or appends to one) does not move to a card of its own; else the item
+ * the request asked to append to; a take with neither is a card alone. The
+ * call comes first on purpose: Another queues under the first take's call with
+ * no item named, so a card whose first take failed must keep the key its first
+ * take had once the next take lands with an artifact. Exported so the card's
+ * actions (Another) find the same takes this read draws.
  */
 export function videoCardKey(
 	take: { id: string; artifactId: string | null; toolCallId: string | null },
 	request: ReturnType<typeof parseVideoTakeRequest>,
 ): string {
+	if (take.toolCallId) return `call:${take.toolCallId}`;
 	const artifactId = take.artifactId ?? request?.artifactId ?? null;
 	if (artifactId) return `artifact:${artifactId}`;
-	if (take.toolCallId) return `call:${take.toolCallId}`;
 	return `take:${take.id}`;
 }
 

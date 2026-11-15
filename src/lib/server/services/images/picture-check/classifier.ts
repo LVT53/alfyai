@@ -36,6 +36,15 @@ import { PICTURE_CHECK_MODEL } from "./model";
 
 /** The model's input side and normalisation (its preprocessor_config.json). */
 const SIDE = 224;
+/** The side of one input frame, for the video path that feeds raw frames. */
+export const PICTURE_CHECK_SIDE = SIDE;
+/**
+ * Frames per inference run. A clip is checked in batches of this many frames:
+ * 121 frames cost 8 `session.run` calls, not 121, and the whole clip reuses
+ * one session. 16 x 3 x 224 x 224 float32 is ~9.6 MB of input, small beside
+ * the session itself.
+ */
+export const PICTURE_CHECK_BATCH_SIZE = 16;
 /** "nsfw" is label 1 (config.json id2label); at or above this probability a picture is blocked. */
 export const EXPLICIT_THRESHOLD = 0.5;
 /** Kept low so a check never crowds the app's own work. */
@@ -63,9 +72,12 @@ export class PictureCheckUnavailable extends Error {
 	}
 }
 
-/** What runs the model: logits for one 1x3x224x224 input. */
+/**
+ * What runs the model: logits for a `[batch, 3, 224, 224]` input, `batch * 2`
+ * numbers in row-major batch order. A picture passes batch 1.
+ */
 export interface PictureCheckEngine {
-	run(input: Float32Array): Promise<ArrayLike<number>>;
+	run(input: Float32Array, batch: number): Promise<ArrayLike<number>>;
 	release(): Promise<void>;
 }
 
@@ -73,6 +85,12 @@ export interface PictureClassifier {
 	/** For Tool Health: resolves when the pinned file is in place. Never loads the model. */
 	fileReady(): Promise<void>;
 	classify(png: Uint8Array): Promise<PictureVerdict>;
+	/**
+	 * A clip's whole check pass: raw rgb24 frames already scaled to 224 x 224 by
+	 * ffmpeg, classified `PICTURE_CHECK_BATCH_SIZE` at a time on ONE session.
+	 * Answers one verdict per frame, in order.
+	 */
+	classifyRawFrames(frames: readonly Uint8Array[]): Promise<PictureVerdict[]>;
 	/** Whether a session is held now. */
 	loaded(): boolean;
 }
@@ -100,19 +118,47 @@ async function toTensorData(png: Uint8Array): Promise<Float32Array> {
 		.resize(SIDE, SIDE, { fit: "fill", kernel: "linear" })
 		.raw()
 		.toBuffer({ resolveWithObject: true });
+	return rgbFramesToTensor([new Uint8Array(data)], 1);
+}
+
+/**
+ * Raw rgb24 frames (exactly 224 x 224, as ffmpeg writes them) into one
+ * `[batch, 3, 224, 224]` tensor, scaled to -1..1, channels first per frame.
+ * No decode and no resize: ffmpeg already produced the model's input.
+ */
+function rgbFramesToTensor(
+	frames: readonly Uint8Array[],
+	batch: number,
+): Float32Array {
 	const plane = SIDE * SIDE;
-	const out = new Float32Array(3 * plane);
-	for (let i = 0; i < plane; i++) {
-		for (let c = 0; c < 3; c++) {
-			out[c * plane + i] = (data[i * 3 + c] ?? 0) / 127.5 - 1;
+	const frameBytes = plane * 3;
+	if (frames.length !== batch) {
+		throw new PictureCheckUnavailable("The picture check batch is mis-sized.");
+	}
+	for (const frame of frames) {
+		if (frame.byteLength !== frameBytes) {
+			throw new PictureCheckUnavailable(
+				`A picture check frame must be ${frameBytes} bytes.`,
+			);
+		}
+	}
+	const out = new Float32Array(batch * 3 * plane);
+	for (let b = 0; b < batch; b++) {
+		const frame = frames[b] as Uint8Array;
+		const outAt = b * 3 * plane;
+		for (let i = 0; i < plane; i++) {
+			const pixel = i * 3;
+			for (let c = 0; c < 3; c++) {
+				out[outAt + c * plane + i] = (frame[pixel + c] ?? 0) / 127.5 - 1;
+			}
 		}
 	}
 	return out;
 }
 
-function softmaxExplicit(logits: ArrayLike<number>): number {
-	const normal = Number(logits[0]);
-	const nsfw = Number(logits[1]);
+function softmaxExplicitAt(logits: ArrayLike<number>, index: number): number {
+	const normal = Number(logits[index * 2]);
+	const nsfw = Number(logits[index * 2 + 1]);
 	const top = Math.max(normal, nsfw);
 	const a = Math.exp(normal - top);
 	const b = Math.exp(nsfw - top);
@@ -131,11 +177,11 @@ async function loadOnnxEngine(bytes: Uint8Array): Promise<PictureCheckEngine> {
 	const inputName = session.inputNames[0] ?? "pixel_values";
 	const outputName = session.outputNames[0] ?? "logits";
 	return {
-		run: async (input) => {
-			const tensor = new ort.Tensor("float32", input, [1, 3, SIDE, SIDE]);
+		run: async (input, batch) => {
+			const tensor = new ort.Tensor("float32", input, [batch, 3, SIDE, SIDE]);
 			const result = await session.run({ [inputName]: tensor });
 			const logits = result[outputName]?.data as ArrayLike<number> | undefined;
-			if (!logits || logits.length < 2) {
+			if (!logits || logits.length < batch * 2) {
 				throw new PictureCheckUnavailable("The picture check gave no answer.");
 			}
 			return logits;
@@ -283,26 +329,22 @@ export function createOnnxPictureClassifier(
 		idleTimer.unref?.();
 	};
 
-	const check = async (png: Uint8Array): Promise<PictureVerdict> => {
-		const started = performance.now();
+	/** One inference under the check's deadline, on the one session, busy-accounted. */
+	const runCheck = async <T>(
+		work: (engine: PictureCheckEngine) => Promise<T>,
+	): Promise<T> => {
 		busy += 1;
 		let usedEngine: PictureCheckEngine | null = null;
-		const work = (async () => {
+		const running = (async () => {
 			const ready = await load();
 			usedEngine = ready;
-			const logits = await ready.run(await toTensorData(png));
-			return softmaxExplicit(logits);
+			return work(ready);
 		})();
 		try {
-			const score = await deadline(work, timeoutMs);
-			return {
-				explicit: score >= EXPLICIT_THRESHOLD,
-				score,
-				ms: Math.round(performance.now() - started),
-			};
+			return await deadline(running, timeoutMs);
 		} catch (error) {
 			const failure = unavailable(error);
-			if (/timed out/.test(failure.message)) abandon(work, usedEngine);
+			if (/timed out/.test(failure.message)) abandon(running, usedEngine);
 			throw failure;
 		} finally {
 			busy -= 1;
@@ -310,7 +352,55 @@ export function createOnnxPictureClassifier(
 		}
 	};
 
+	const check = async (png: Uint8Array): Promise<PictureVerdict> => {
+		const started = performance.now();
+		const tensor = await toTensorData(png);
+		const score = await runCheck(async (ready) => {
+			const logits = await ready.run(tensor, 1);
+			return softmaxExplicitAt(logits, 0);
+		});
+		return {
+			explicit: score >= EXPLICIT_THRESHOLD,
+			score,
+			ms: Math.round(performance.now() - started),
+		};
+	};
+
+	/**
+	 * The clip's pass: `frames` are raw rgb24, already 224 x 224, and each batch
+	 * of `PICTURE_CHECK_BATCH_SIZE` is ONE `run` on the same session. A batch
+	 * that throws or misses the deadline is the same unavailable verdict a
+	 * single failed check is (the caller fails closed).
+	 */
+	const checkRawFrames = async (
+		frames: readonly Uint8Array[],
+	): Promise<PictureVerdict[]> => {
+		const started = performance.now();
+		const verdicts: PictureVerdict[] = [];
+		for (let at = 0; at < frames.length; at += PICTURE_CHECK_BATCH_SIZE) {
+			const batch = frames.slice(at, at + PICTURE_CHECK_BATCH_SIZE);
+			const tensor = rgbFramesToTensor(batch, batch.length);
+			const scores = await runCheck(async (ready) => {
+				const logits = await ready.run(tensor, batch.length);
+				return batch.map((_frame, index) => softmaxExplicitAt(logits, index));
+			});
+			for (const score of scores) {
+				verdicts.push({
+					explicit: score >= EXPLICIT_THRESHOLD,
+					score,
+					ms: Math.round(performance.now() - started),
+				});
+			}
+		}
+		return verdicts;
+	};
+
 	return {
+		classifyRawFrames: (frames) => {
+			const next = turn.then(() => checkRawFrames(frames));
+			turn = next.catch(() => undefined);
+			return next;
+		},
 		fileReady: async () => {
 			if (engine) return;
 			const signature = await fileSignature(modelPath);
@@ -371,6 +461,17 @@ async function isAll(png: Uint8Array, hex: string): Promise<boolean> {
 	});
 }
 
+/** True when every pixel of a raw rgb24 frame is exactly `hex`. */
+function isAllRaw(frame: Uint8Array, hex: string): boolean {
+	const [r, g, b] = hexToRgb(hex);
+	for (let at = 0; at < frame.byteLength; at += 3) {
+		if (frame[at] !== r || frame[at + 1] !== g || frame[at + 2] !== b) {
+			return false;
+		}
+	}
+	return true;
+}
+
 const stubClassifier: PictureClassifier = {
 	fileReady: async () => undefined,
 	loaded: () => false,
@@ -380,6 +481,15 @@ const stubClassifier: PictureClassifier = {
 		}
 		const explicit = await isAll(png, STUB_EXPLICIT_COLOUR);
 		return { explicit, score: explicit ? 1 : 0, ms: 0 };
+	},
+	classifyRawFrames: async (frames) => {
+		if (frames.some((frame) => isAllRaw(frame, STUB_UNAVAILABLE_COLOUR))) {
+			throw new PictureCheckUnavailable("The stub cannot check this picture.");
+		}
+		return frames.map((frame) => {
+			const explicit = isAllRaw(frame, STUB_EXPLICIT_COLOUR);
+			return { explicit, score: explicit ? 1 : 0, ms: 0 };
+		});
 	},
 };
 
@@ -398,6 +508,16 @@ function activeClassifier(): PictureClassifier {
 /** Checks one finished picture. Rejects with PictureCheckUnavailable when the check cannot run. */
 export function classifyPicture(png: Uint8Array): Promise<PictureVerdict> {
 	return activeClassifier().classify(png);
+}
+
+/**
+ * Checks a clip's raw rgb24 frames through the active classifier: the batch
+ * entry point the video filter uses, and the stub under a test run.
+ */
+export function classifyPictureFrames(
+	frames: readonly Uint8Array[],
+): Promise<PictureVerdict[]> {
+	return activeClassifier().classifyRawFrames(frames);
 }
 
 /** For Tool Health: resolves when the pinned model file is in place, without loading it. */

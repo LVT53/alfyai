@@ -13,7 +13,6 @@ import { eq } from "drizzle-orm";
 import { getImageModel, getImageReferenceCap } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { imageJobs } from "$lib/server/db/schema";
-import { oneLineName } from "$lib/server/services/vision/turn-images";
 import {
 	type CanvasSize,
 	canvasForEdit,
@@ -29,6 +28,7 @@ import {
 import { getImageItem } from "./files";
 import { loadPicture, prepareTakeInputs } from "./inputs";
 import type { MadeFrom, TakeRequest } from "./take-request";
+import { titleFor } from "./title-for";
 import type { TurnPictureIndex, TurnPictureSource } from "./turn-pictures";
 import { MAX_TAKES_PER_CARD_PER_TURN, type TurnTakes } from "./turn-takes";
 
@@ -76,79 +76,10 @@ type Resolution =
 	| { ok: true; plan: TakePlan }
 	| { ok: false; refusal: MakeImageRefusal; message: string };
 
-const TITLE_MAX_CHARS = 80;
-const TITLE_FALLBACK_WORDS = 8;
 const TITLE_FALLBACK = "Picture";
 
 function refuse(refusal: MakeImageRefusal, message: string): Resolution {
 	return { ok: false, refusal, message };
-}
-
-/**
- * The model's own title (the tool asks for one on every call that starts an
- * Image). Without one, the first words of the person's message, which are in
- * their language: at most eight, never past the first sentence's end, and
- * without its closing punctuation, so a sentence never becomes "room." (and its
- * download "room..png").
- */
-function titleFor(given: string | undefined, requestText: string): string {
-	const own = oneLineName(given ?? "", TITLE_MAX_CHARS);
-	if (own) return own;
-	return (
-		oneLineName(
-			firstSentenceWords(requestText, TITLE_FALLBACK_WORDS)
-				.join(" ")
-				.replace(/[\s.!?…,;:]+$/u, ""),
-			TITLE_MAX_CHARS,
-		) || TITLE_FALLBACK
-	);
-}
-
-/** Short words whose dot is an abbreviation's, not a sentence's end (English and Hungarian). */
-const ABBREVIATIONS = new Set([
-	"dr",
-	"mr",
-	"mrs",
-	"ms",
-	"prof",
-	"st",
-	"no",
-	"vs",
-	"etc",
-	"e.g",
-	"i.e",
-	"pl",
-	"kb",
-	"ld",
-	"stb",
-	"ill",
-	"ún",
-	"id",
-	"ifj",
-	"özv",
-	"sz",
-	"u",
-]);
-
-/**
- * The first words of a message, at most `max`, ending with its first sentence: a
- * word ending in ! ? … ends it, and so does a dot unless the word is an
- * initial ("J.") or a known abbreviation ("Dr.", "pl."), so "Dr. Kovács's
- * office" is not cut to "Dr" (fix round 1).
- */
-function firstSentenceWords(text: string, max: number): string[] {
-	const words: string[] = [];
-	for (const word of text.trim().split(/\s+/).filter(Boolean)) {
-		words.push(word);
-		if (words.length >= max) break;
-		if (/[!?…]$/u.test(word)) break;
-		if (word.endsWith(".")) {
-			const bare = word.slice(0, -1).toLowerCase();
-			const initial = /^\p{L}$/u.test(bare);
-			if (!initial && !ABBREVIATIONS.has(bare)) break;
-		}
-	}
-	return words;
 }
 
 function newCardKey(input: MakeImageRequestInput): string {
@@ -429,7 +360,7 @@ export async function resolveMakeImageRequest(params: {
 	const title =
 		inPlace && itemHere
 			? itemHere.title
-			: titleFor(input.title, params.requestText);
+			: titleFor(input.title, params.requestText, TITLE_FALLBACK);
 	const summary = input.summary?.trim() ? input.summary.trim() : null;
 	const transparent = Boolean(input.transparent);
 	const print = Boolean(input.print);
