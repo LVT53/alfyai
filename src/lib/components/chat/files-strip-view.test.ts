@@ -101,11 +101,49 @@ describe("filesStripTiles", () => {
 		]);
 	});
 
-	it("draws a count tile with no cover when there is no next picture", () => {
-		// The settled decisions leave no such case: a count tile exists only past
-		// the slots, so its first hidden picture is always there and covers it.
-		// The brief's body asks for that picture (5 pictures over 3 slots → the
-		// 3rd); the module keeps `cover: null` only as its fallback.
+	it("counts only pictures when documents overflow with them", () => {
+		// Five pictures and three PDFs over four slots: the count tile hides two
+		// pictures, not cards, and the documents do not shift the picture indices.
+		const cards = [
+			picture("a"),
+			pdf("contract"),
+			picture("b"),
+			pdf("invoice"),
+			picture("c"),
+			pdf("letter"),
+			picture("d"),
+			picture("e"),
+		];
+
+		expect(filesStripTiles(cards, STRIP_SLOTS_WIDE)).toEqual([
+			{ kind: "picture", card: cards[0], pictureIndex: 0 },
+			{ kind: "picture", card: cards[2], pictureIndex: 1 },
+			{ kind: "picture", card: cards[4], pictureIndex: 2 },
+			{
+				kind: "count",
+				hidden: 2,
+				cover: cards[6].previewUrl,
+				pictureIndex: 3,
+			},
+		]);
+	});
+
+	it("draws nothing when the call found no pictures", () => {
+		expect(filesStripTiles([], STRIP_SLOTS_WIDE)).toEqual([]);
+		expect(filesStripTiles([pdf("contract")], STRIP_SLOTS_WIDE)).toEqual([]);
+	});
+
+	it("draws one picture as one tile", () => {
+		const card = picture("lake");
+
+		expect(filesStripTiles([card], STRIP_SLOTS_WIDE)).toEqual([
+			{ kind: "picture", card, pictureIndex: 0 },
+		]);
+	});
+
+	it("covers the count tile with the first picture it hides", () => {
+		// A count tile exists only past the slots, so its first hidden picture is
+		// always there and covers it; `cover: null` stays the module's fallback.
 		const cards = ["a", "b", "c", "d", "e"].map(picture);
 
 		expect(filesStripTiles(cards, STRIP_SLOTS_NARROW)).toEqual([

@@ -36,9 +36,10 @@ export function stripPictureCards(
 
 /**
  * The tiles for a call's cards: every picture when they fit `slots`, else the
- * first `slots - 1` pictures and one count tile for the rest. The count tile's
- * `cover` is the first picture it hides — the one a press on it opens the viewer
- * at, `pictureIndex` — or null when there is no picture there.
+ * first `slots - 1` pictures and one count tile for the rest. `slots` must be at
+ * least 1. The count tile's `cover` is the first picture it hides — the one a press
+ * on it opens the viewer at, `pictureIndex` — or null when there is no picture
+ * there.
  */
 export function filesStripTiles(
 	cards: ToolCallFileCard[],
@@ -53,9 +54,7 @@ export function filesStripTiles(
 		}));
 	}
 
-	// Never negative: a caller that passes fewer than one slot still gets the
-	// count tile, never a picture there is no room for.
-	const drawn = Math.max(slots - 1, 0);
+	const drawn = slots - 1;
 	const tiles: FilesStripTile[] = pictures
 		.slice(0, drawn)
 		.map((card, pictureIndex) => ({ kind: "picture", card, pictureIndex }));
