@@ -22,6 +22,7 @@ import { resolveDeletablePath } from "$lib/server/storage-containment";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	IMAGE_DISPLAY_LONG_EDGE,
+	IMAGE_LARGE_LONG_EDGE,
 	IMAGE_THUMB_LONG_EDGE,
 	type ImageVersionBody,
 	parseImageVersionBody,
@@ -46,7 +47,11 @@ export type ImageFile = {
 	createdAt: number;
 };
 
-export { IMAGE_DISPLAY_LONG_EDGE, IMAGE_THUMB_LONG_EDGE };
+export {
+	IMAGE_DISPLAY_LONG_EDGE,
+	IMAGE_LARGE_LONG_EDGE,
+	IMAGE_THUMB_LONG_EDGE,
+};
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const RIFF_SIGNATURE = [0x52, 0x49, 0x46, 0x46]; // "RIFF"
@@ -81,9 +86,31 @@ function thumbPathOf(storagePath: string): string {
 	return storagePath.replace(/\.png$/, ".thumb.png");
 }
 
-/** The display copy's path: derived from `storage_path` like the thumbnail, so the DB stores nothing new. */
+/** A downscaled WebP copy of a picture: the card's display copy or the panel's large one. */
+type PictureCopyKind = "display" | "large";
+
+/** The long edge each WebP copy is fit inside. */
+const COPY_LONG_EDGE: Record<PictureCopyKind, number> = {
+	display: IMAGE_DISPLAY_LONG_EDGE,
+	large: IMAGE_LARGE_LONG_EDGE,
+};
+
+/**
+ * A copy's path: derived from `storage_path` exactly like the thumbnail, so the
+ * DB stores nothing new. `<id>.display.webp` and `<id>.large.webp`.
+ */
+function copyPathOf(kind: PictureCopyKind, storagePath: string): string {
+	return storagePath.replace(/\.png$/, `.${kind}.webp`);
+}
+
+/** The display copy's path: the card's 1600 px WebP. */
 function displayPathOf(storagePath: string): string {
-	return storagePath.replace(/\.png$/, ".display.webp");
+	return copyPathOf("display", storagePath);
+}
+
+/** The large copy's path: the panel's 2560 px WebP. */
+function largePathOf(storagePath: string): string {
+	return copyPathOf("large", storagePath);
 }
 
 /**
@@ -92,40 +119,52 @@ function displayPathOf(storagePath: string): string {
  * The serving route names no MIME of its own.
  */
 export function imageFileContentType(
-	variant: "full" | "thumb" | "display",
+	variant: "full" | "thumb" | "display" | "large",
 ): string {
 	const name =
 		variant === "thumb"
 			? thumbPathOf(PICTURE_FILE_NAME)
 			: variant === "display"
 				? displayPathOf(PICTURE_FILE_NAME)
-				: PICTURE_FILE_NAME;
+				: variant === "large"
+					? largePathOf(PICTURE_FILE_NAME)
+					: PICTURE_FILE_NAME;
 	return getContentTypeForFile(name, null);
 }
 
 /**
- * Whether a picture gets a display copy at all: one whose long edge is already
- * within `IMAGE_DISPLAY_LONG_EDGE` is its own display copy (the original is
- * served, so "visibly identical" is trivially true).
+ * Whether a picture gets a copy of this kind at all: one whose long edge is
+ * already within the copy's edge is its own copy (the original is served, so
+ * "visibly identical" is trivially true).
  */
-function hasDisplayCopy(file: Pick<ImageFile, "width" | "height">): boolean {
-	return Math.max(file.width, file.height) > IMAGE_DISPLAY_LONG_EDGE;
+function hasCopy(
+	file: Pick<ImageFile, "width" | "height">,
+	kind: PictureCopyKind,
+): boolean {
+	return Math.max(file.width, file.height) > COPY_LONG_EDGE[kind];
 }
 
-/** The display copy of a picture: a lossless WebP fit inside `IMAGE_DISPLAY_LONG_EDGE`, alpha kept. */
-async function makeDisplayCopy(png: Uint8Array): Promise<Uint8Array> {
+/**
+ * A copy of a picture: a lossless WebP fit inside its long edge, alpha kept.
+ * Lossless on purpose: the copy must be the original's own pixels at a smaller
+ * edge, not a second generation of them, so a copy shows the master's picture
+ * and never a re-encoded one. Alpha is kept (sharp zeroes the RGB under a fully
+ * transparent pixel before encoding, which is invisible and changes nothing on
+ * screen).
+ */
+async function makeCopy(
+	kind: PictureCopyKind,
+	png: Uint8Array,
+): Promise<Uint8Array> {
+	const longEdge = COPY_LONG_EDGE[kind];
 	return new Uint8Array(
 		await sharp(png)
 			.resize({
-				width: IMAGE_DISPLAY_LONG_EDGE,
-				height: IMAGE_DISPLAY_LONG_EDGE,
+				width: longEdge,
+				height: longEdge,
 				fit: "inside",
 				withoutEnlargement: true,
 			})
-			// Lossless: the display copy must be the original's own pixels at a
-			// smaller edge, not a second generation of them. Alpha is kept (sharp
-			// zeroes the RGB under a fully transparent pixel before encoding, which
-			// is invisible and changes nothing on screen).
 			.webp({ lossless: true, exact: true })
 			.toBuffer(),
 	);
@@ -179,12 +218,12 @@ function hasSignature(
 }
 
 /**
- * Whether a display copy is whole: a non-empty WebP, and its RIFF chunk length
+ * Whether a WebP copy is whole: a non-empty WebP, and its RIFF chunk length
  * agrees with the bytes on disk. The signature alone would pass a write cut
  * after its first twelve bytes, which is exactly how a truncated copy reads;
  * the length field catches it.
  */
-function isWholeDisplayCopy(bytes: Uint8Array): boolean {
+function isWholeWebpCopy(bytes: Uint8Array): boolean {
 	if (bytes.byteLength < 12) return false;
 	if (!hasSignature(bytes, 0, RIFF_SIGNATURE)) return false;
 	if (!hasSignature(bytes, 8, WEBP_SIGNATURE)) return false;
@@ -198,8 +237,8 @@ function isWholeDisplayCopy(bytes: Uint8Array): boolean {
 
 /**
  * Writes beside the target and renames it into place, so no request can read a
- * half-written display copy: a temporary name in the same directory is the
- * cheapest atomicity the filesystem gives us.
+ * half-written copy: a temporary name in the same directory is the cheapest
+ * atomicity the filesystem gives us.
  */
 async function writeAtomically(
 	absolute: string,
@@ -254,13 +293,15 @@ export async function storeImageFile(params: {
 		.png()
 		.toBuffer();
 	// The card's display copy (lossless, alpha kept): written beside the PNG so
-	// a card that is wider than the thumbnail never downloads the original. A
-	// copy that cannot be made costs the optimisation, never the store: the
-	// original is always the display of last resort.
+	// a card that is wider than the thumbnail never downloads the original. The
+	// panel's large copy is made on demand instead (`readImageFileBytes`' `large`): only
+	// the panel asks for it, and a candidate take that is never picked never
+	// pays for it. A copy that cannot be made costs the optimisation, never the
+	// store: the original is always the display of last resort.
 	let display: Uint8Array | null = null;
 	if (Math.max(meta.width, meta.height) > IMAGE_DISPLAY_LONG_EDGE) {
 		try {
-			display = await makeDisplayCopy(png);
+			display = await makeCopy("display", png);
 		} catch (error) {
 			console.warn(
 				"[IMAGES] Could not make the display copy; storing the picture without one",
@@ -349,10 +390,23 @@ async function storagePathOf(fileId: string): Promise<string> {
 	return row.storagePath;
 }
 
+/**
+ * The stored bytes of one representation. `large` is the panel's 2560 px copy:
+ * made from the full PNG on the first request and kept beside the picture after
+ * that. A picture whose long edge is within `IMAGE_LARGE_LONG_EDGE` has none, so
+ * its original is returned; a caller that must know which bytes it got asks
+ * `hasImageLargeCopy` first, as the serving route does for its Content-Type.
+ * `full` is still what miners and edits receive.
+ */
 export async function readImageFileBytes(
 	file: ImageFile,
-	variant: "full" | "thumb",
+	variant: "full" | "thumb" | "large",
 ): Promise<Uint8Array> {
+	if (variant === "large") {
+		const copy = await readImageCopyBytes(file, "large");
+		if (copy) return copy;
+		return readImageFileBytes(file, "full");
+	}
 	const storagePath = await storagePathOf(file.id);
 	const wanted = variant === "thumb" ? thumbPathOf(storagePath) : storagePath;
 	const absolute = await resolveDeletablePath(wanted);
@@ -361,38 +415,40 @@ export async function readImageFileBytes(
 }
 
 /**
- * One in-flight display copy per picture: two requests for the same file (a
- * card and its strip, two tabs) share one generation instead of racing to
- * write the same bytes.
+ * One in-flight copy generation per picture and kind: two requests for the same
+ * file (a card and its strip, two tabs, the panel twice) share one generation
+ * instead of racing to write the same bytes.
  */
-const displayCopiesInFlight = new Map<string, Promise<Uint8Array>>();
+const copiesInFlight = new Map<string, Promise<Uint8Array>>();
 
 /**
- * The display copy's bytes, or `null` when the picture is its own display copy
- * (its long edge is within `IMAGE_DISPLAY_LONG_EDGE`; the original is served).
+ * A copy's bytes, or `null` when the picture is its own copy (its long edge is
+ * within the copy's edge; the original is served).
  *
- * The copy is written at store time. A picture stored before display copies
- * existed has none: it is made from the full PNG on this first request,
- * persisted, and served like any other. A copy that is not a whole WebP (a
- * truncated write, a damaged file) is removed and made again once; if making
- * it fails, the caller falls back to the original. Every caller of one file
- * shares one promise, so a concurrent second request waits on the same
- * generation.
+ * The display copy is written at store time; the large copy is made on first
+ * request (only the panel asks for it). A picture stored before a copy existed
+ * has none: it is made from the full PNG on this first request, persisted, and
+ * served like any other. A copy that is not a whole WebP (a truncated write, a
+ * damaged file) is removed and made again once; if making it fails, the caller
+ * falls back to the original. Every caller of one file and kind shares one
+ * promise, so a concurrent second request waits on the same generation.
  */
-export async function readImageDisplayBytes(
+async function readImageCopyBytes(
 	file: ImageFile,
+	kind: PictureCopyKind,
 ): Promise<Uint8Array | null> {
-	if (!hasDisplayCopy(file)) return null;
-	const pending = displayCopiesInFlight.get(file.id);
+	if (!hasCopy(file, kind)) return null;
+	const key = `${kind}:${file.id}`;
+	const pending = copiesInFlight.get(key);
 	if (pending) return pending;
 	const task = (async () => {
 		const storagePath = await storagePathOf(file.id);
-		const absolute = await resolveDeletablePath(displayPathOf(storagePath));
+		const absolute = await resolveDeletablePath(copyPathOf(kind, storagePath));
 		if (!absolute) {
 			throw new Error("Picture file is outside the storage roots.");
 		}
 		const existing = await readFile(absolute).catch(() => null);
-		if (existing && isWholeDisplayCopy(existing)) {
+		if (existing && isWholeWebpCopy(existing)) {
 			return new Uint8Array(existing);
 		}
 		if (existing) {
@@ -404,17 +460,35 @@ export async function readImageDisplayBytes(
 		if (!source) {
 			throw new Error("Picture file is outside the storage roots.");
 		}
-		const bytes = await makeDisplayCopy(new Uint8Array(await readFile(source)));
-		if (!isWholeDisplayCopy(bytes)) {
-			throw new Error("The display copy is not a whole WebP.");
+		const bytes = await makeCopy(kind, new Uint8Array(await readFile(source)));
+		if (!isWholeWebpCopy(bytes)) {
+			throw new Error(`The ${kind} copy is not a whole WebP.`);
 		}
 		await writeAtomically(absolute, bytes);
 		return bytes;
 	})().finally(() => {
-		displayCopiesInFlight.delete(file.id);
+		copiesInFlight.delete(key);
 	});
-	displayCopiesInFlight.set(file.id, task);
+	copiesInFlight.set(key, task);
 	return task;
+}
+
+/** The display copy's bytes for a card, or `null` when the picture is its own display copy. */
+export async function readImageDisplayBytes(
+	file: ImageFile,
+): Promise<Uint8Array | null> {
+	return readImageCopyBytes(file, "display");
+}
+
+/**
+ * Whether a picture gets a large copy at all: the panel's 2560 px one. A picture
+ * whose long edge is already within `IMAGE_LARGE_LONG_EDGE` is its own large
+ * copy, and `readImageFileBytes(file, "large")` returns its original.
+ */
+export function hasImageLargeCopy(
+	file: Pick<ImageFile, "width" | "height">,
+): boolean {
+	return hasCopy(file, "large");
 }
 
 /**
@@ -466,16 +540,17 @@ async function takeRows(rows: Row[]): Promise<number> {
 			row.storagePath,
 			thumbPathOf(row.storagePath),
 			displayPathOf(row.storagePath),
+			largePathOf(row.storagePath),
 		]),
 	);
 	return rows.length;
 }
 
 /**
- * Removes a stored picture's PNG and thumbnail by the path `storeImageFile`
- * gave them, and its row if it still has one. For a store that finished after
- * its chat's cleanup ran: the row may already be gone (the cascade took it),
- * and the files still must not stay.
+ * Removes a stored picture's PNG, thumbnail and copies by the path
+ * `storeImageFile` gave them, and its row if it still has one. For a store that
+ * finished after its chat's cleanup ran: the row may already be gone (the
+ * cascade took it), and the files still must not stay.
  */
 export async function discardStoredImageFile(
 	file: Pick<ImageFile, "id" | "conversationId">,
@@ -490,6 +565,7 @@ export async function discardStoredImageFile(
 		storagePath,
 		thumbPathOf(storagePath),
 		displayPathOf(storagePath),
+		largePathOf(storagePath),
 	]);
 }
 

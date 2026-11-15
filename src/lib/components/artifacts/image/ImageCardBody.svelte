@@ -450,6 +450,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 						{conversationId}
 						beforeFileId={shown.baseFileId}
 						{showing}
+						variant="display"
 						sizes={pictureSizes}
 					/>
 				</button>

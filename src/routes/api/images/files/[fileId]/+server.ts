@@ -3,6 +3,7 @@ import { requireApiUser } from "$lib/server/api/auth";
 import { buildContentDisposition } from "$lib/server/services/file-serving-response-policy";
 import {
 	getImageFile,
+	hasImageLargeCopy,
 	type ImageFile,
 	imageFileContentType,
 	imageFileDownloadName,
@@ -282,7 +283,9 @@ export const GET: RequestHandler = async (event) => {
 			? "thumb"
 			: variant === "display"
 				? "display"
-				: "full";
+				: variant === "large"
+					? "large"
+					: "full";
 	const etag = `"${event.params.fileId}:${representation}"`;
 	let bytes: Uint8Array;
 	let contentType = imageFileContentType("full");
@@ -296,6 +299,15 @@ export const GET: RequestHandler = async (event) => {
 				// Small enough to be its own display copy: the original is served.
 				bytes = await readImageFileBytes(file, "full");
 			}
+		} else if (!download && variant === "large") {
+			// The panel's large copy is made on this first request and kept; a
+			// picture within its edge has none, and the original is served. Ask
+			// first which bytes the read will give, so the Content-Type agrees.
+			const hasLargeCopy = hasImageLargeCopy(file);
+			bytes = await readImageFileBytes(file, "large");
+			contentType = hasLargeCopy
+				? imageFileContentType("large")
+				: imageFileContentType("full");
 		} else if (!download && variant === "thumb") {
 			bytes = await readImageFileBytes(file, "thumb");
 			contentType = imageFileContentType("thumb");
@@ -303,10 +315,10 @@ export const GET: RequestHandler = async (event) => {
 			bytes = await readImageFileBytes(file, "full");
 		}
 	} catch {
-		// A display copy that cannot be made must not cost the picture: the
-		// original is still a correct answer, only a larger one. Every other
-		// variant is the answer or a 404, as before.
-		if (download || variant !== "display") {
+		// A copy that cannot be made must not cost the picture: the original is
+		// still a correct answer, only a larger one. Every other variant is the
+		// answer or a 404, as before.
+		if (download || (variant !== "display" && variant !== "large")) {
 			return json({ error: "Not found" }, { status: 404 });
 		}
 		try {

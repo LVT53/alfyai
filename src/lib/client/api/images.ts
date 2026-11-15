@@ -8,13 +8,17 @@ import { type FetchLike, requestJson, requestVoid } from "./http";
 export function imageFileUrl(
 	fileId: string,
 	options: {
-		variant?: "full" | "thumb" | "display";
+		variant?: "full" | "thumb" | "display" | "large";
 		download?: boolean;
 		conversationId?: string | null;
 	} = {},
 ): string {
 	const query = new URLSearchParams();
-	if (options.variant === "thumb" || options.variant === "display") {
+	if (
+		options.variant === "thumb" ||
+		options.variant === "display" ||
+		options.variant === "large"
+	) {
 		query.set("variant", options.variant);
 	}
 	if (options.download) query.set("download", "1");

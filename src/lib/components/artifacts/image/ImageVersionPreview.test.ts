@@ -280,10 +280,13 @@ describe("ImageVersionPreview", () => {
 		renderPreview();
 		const before = await screen.findByTestId("compare-wipe-before");
 		expect(before.getAttribute("src")).toContain("/api/images/files/file-1");
+		expect(before.getAttribute("src")).toContain("variant=display");
 		expect(before.getAttribute("src")).toContain("conversationId=conv-1");
-		expect(
-			screen.getByTestId("compare-wipe-after").getAttribute("src"),
-		).toContain("/api/images/files/file-2");
+		const after = screen.getByTestId("compare-wipe-after");
+		expect(after.getAttribute("src")).toContain("/api/images/files/file-2");
+		// Both sides are the display copy: the wipe's box is ~400 px, so neither
+		// side may be the master.
+		expect(after.getAttribute("src")).toContain("variant=display");
 		const range = screen.getByRole("slider", {
 			name: "Drag to compare",
 		}) as HTMLInputElement;

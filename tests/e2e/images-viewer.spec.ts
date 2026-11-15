@@ -384,8 +384,9 @@ test.describe("enlarging a picture (Task 22)", () => {
 		await page.setViewportSize(DESKTOP);
 		const { conversationId, fileId } = await seededChat(page);
 		await reopenChat(page, conversationId);
-		// Hold the full-size file from the start (a big PNG on a slow line): the
-		// panel's own copy waits too, so the viewer cannot find it in the cache.
+		// Hold the full-size file from the start (a big PNG on a slow line). The
+		// panel itself loads the large copy, so the viewer gets no cache hit and
+		// waits on this held request.
 		const held: Array<() => Promise<void>> = [];
 		await page.route(
 			(url) =>

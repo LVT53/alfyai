@@ -100,6 +100,21 @@ async function storeLargePicture() {
 	});
 }
 
+/** A picture past the large edge: its `?variant=large` is a real 2560 px WebP. */
+async function storeHugePicture() {
+	const png = await sharp({
+		create: { width: 3000, height: 2000, channels: 3, background: "#336699" },
+	})
+		.png()
+		.toBuffer();
+	return storeImageFile({
+		userId: "u1",
+		conversationId: "c1",
+		role: "take",
+		png: new Uint8Array(png),
+	});
+}
+
 /** The tag the route gives the stored picture for a query, held to a strong ETag. */
 async function etagOf(query = ""): Promise<string> {
 	const res = (await GET(event({ fileId, userId: "u1", query }))) as Response;
@@ -168,12 +183,19 @@ describe("GET /api/images/files/[fileId]", () => {
 		}
 	});
 
-	it("gives the full, thumb, display and download representations their own tags", async () => {
-		const queries = ["", "?variant=thumb", "?variant=display", "?download=1"];
+	it("gives the full, thumb, display, large and download representations their own tags", async () => {
+		const queries = [
+			"",
+			"?variant=thumb",
+			"?variant=display",
+			"?variant=large",
+			"?download=1",
+		];
 		const tags = await Promise.all(queries.map((query) => etagOf(query)));
 		expect(new Set(tags).size).toBe(queries.length);
 		// A download is the full original whatever variant is named: one tag.
-		expect(await etagOf("?download=1&variant=thumb")).toBe(tags[3]);
+		expect(await etagOf("?download=1&variant=thumb")).toBe(tags[4]);
+		expect(await etagOf("?download=1&variant=large")).toBe(tags[4]);
 
 		for (const [index, query] of queries.entries()) {
 			const res = (await GET(
@@ -274,11 +296,122 @@ describe("GET /api/images/files/[fileId]", () => {
 		expect(existsSync(displayPath)).toBe(false);
 	});
 
+	it("serves the large copy as WebP, on the picture route's own cache and ETag rules", async () => {
+		const huge = await storeHugePicture();
+		const res = (await GET(
+			event({ fileId: huge.id, userId: "u1", query: "?variant=large" }),
+		)) as Response;
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("image/webp");
+		// Every representation is immutable for its file id, so a second view
+		// inside the hour is a cache hit, not a refetch.
+		expect(res.headers.get("Cache-Control")).toBe("private, max-age=3600");
+		expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+		const etag = res.headers.get("ETag") ?? "";
+		expect(etag).toMatch(/^"[^"]+"$/);
+		const meta = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
+		expect(meta.format).toBe("webp");
+		expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(2560);
+
+		const revalidated = (await GET(
+			event({
+				fileId: huge.id,
+				userId: "u1",
+				query: "?variant=large",
+				headers: { "If-None-Match": etag },
+			}),
+		)) as Response;
+		expect(revalidated.status).toBe(304);
+		expect(revalidated.headers.get("ETag")).toBe(etag);
+		expect(revalidated.headers.get("Cache-Control")).toBe(
+			"private, max-age=3600",
+		);
+		expect(revalidated.body).toBeNull();
+	}, 30_000);
+
+	it("serves the original as the large copy of a picture within the large edge", async () => {
+		const large = await storeLargePicture();
+		const res = (await GET(
+			event({ fileId: large.id, userId: "u1", query: "?variant=large" }),
+		)) as Response;
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("image/png");
+		const meta = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
+		expect(meta.width).toBe(2048);
+	});
+
+	it("makes the large copy on first request for a picture stored before it existed", async () => {
+		const huge = await storeHugePicture();
+		const largePath = join(
+			workdir,
+			"data",
+			"image-files",
+			"c1",
+			`${huge.id}.large.webp`,
+		);
+		expect(existsSync(largePath)).toBe(false);
+		const res = (await GET(
+			event({ fileId: huge.id, userId: "u1", query: "?variant=large" }),
+		)) as Response;
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("image/webp");
+		expect(existsSync(largePath)).toBe(true);
+		// The second request is answered from beside the picture.
+		const again = (await GET(
+			event({ fileId: huge.id, userId: "u1", query: "?variant=large" }),
+		)) as Response;
+		expect(again.status).toBe(200);
+		expect(again.headers.get("ETag")).toBe(res.headers.get("ETag"));
+	}, 30_000);
+
+	it("serves the original when a broken large copy cannot be regenerated", async () => {
+		const huge = await storeHugePicture();
+		const directory = join(workdir, "data", "image-files", "c1");
+		const largePath = join(directory, `${huge.id}.large.webp`);
+		const originalPath = join(directory, `${huge.id}.png`);
+		await writeFile(largePath, "not a webp");
+		// The large copy cannot be made from the original, but its bytes are
+		// still readable: the route's answer is the original, only larger.
+		await writeFile(originalPath, "not a png");
+		const res = (await GET(
+			event({ fileId: huge.id, userId: "u1", query: "?variant=large" }),
+		)) as Response;
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("image/png");
+		expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("not a png");
+		expect(existsSync(largePath)).toBe(false);
+	}, 30_000);
+
+	it("keeps the large copy to the picture's owner and its chat's scope", async () => {
+		const huge = await storeHugePicture();
+		expect(
+			(
+				(await GET(
+					event({ fileId: huge.id, userId: "u2", query: "?variant=large" }),
+				)) as Response
+			).status,
+		).toBe(404);
+		const etag = `"${huge.id}:large"`;
+		expect(
+			(
+				(await GET(
+					event({
+						fileId: huge.id,
+						userId: "u2",
+						query: "?variant=large",
+						headers: { "If-None-Match": etag },
+					}),
+				)) as Response
+			).status,
+		).toBe(404);
+	});
+
 	it("downloads the full original whatever variant is named", async () => {
 		const large = await storeLargePicture();
 		for (const query of [
 			"?download=1",
 			"?download=1&variant=display",
+			"?download=1&variant=large",
 			"?download=1&variant=thumb",
 		]) {
 			const res = (await GET(

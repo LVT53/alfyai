@@ -10,7 +10,9 @@
 // wider than the picture itself. No ResizeObserver re-fit, so the dock's width
 // animation never re-flows it, and T6's marks can be drawn in the picture's own
 // rectangle (no `object-fit: contain` box around it, F15). The panel loads the
-// full picture; the strip loads thumbnails.
+// large copy (a 2560 px WebP made on demand, never the 12 MP master); the strip
+// loads thumbnails. Only Download and Enlarge (the full-screen viewer) reach the
+// original.
 //
 // A version can land while the panel is open without a stream to follow (a late
 // take, Use this, a restore): the page's latest moment for the item rises, and the
@@ -68,6 +70,15 @@ let {
 
 /** History's first page is enough for the strip: a picture is rarely changed fifty times. */
 const STRIP_PAGE_SIZE = 50;
+
+/**
+ * What the browser should assume the panel's picture box is: the docked panel's
+ * default 950 px content width, and 92vw on a phone's sheet. The frame is
+ * `min(100cqw, 100cqh * ratio, natural width)` inside it, so this is the
+ * truthful upper bound for the default shape; a wider expanded panel is still
+ * served the 2560 px large copy, the largest representation there is.
+ */
+const PICTURE_SIZES = "(max-width: 767px) 92vw, 950px";
 
 let status = $state<"loading" | "ready" | "error">("loading");
 let picture = $state.raw<ImageVersionBody | null>(null);
@@ -304,7 +315,8 @@ let markNote = $derived(
 						{conversationId}
 						beforeFileId={picture.baseFileId}
 						{showing}
-						variant="original"
+						variant="large"
+						sizes={PICTURE_SIZES}
 					/>
 				</div>
 				{#if onMarksChange}

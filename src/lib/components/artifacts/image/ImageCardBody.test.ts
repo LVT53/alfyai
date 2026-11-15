@@ -270,6 +270,9 @@ describe("ImageCardBody", () => {
 
 		const img = screen.getByRole("img", { name: "Cosy room" });
 		expect(img.getAttribute("src")).toContain("/api/images/files/file-a");
+		// The card asks for the display copy: its box is 352 * ratio, never a
+		// master's worth of pixels.
+		expect(img.getAttribute("src")).toContain("variant=display");
 		expect(img).toHaveAttribute("width", "1248");
 		expect(img).toHaveAttribute("height", "832");
 		// The stage's desktop cap is 22rem (352 px) times the picture's ratio,

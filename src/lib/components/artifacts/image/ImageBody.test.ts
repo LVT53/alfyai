@@ -123,7 +123,7 @@ describe("ImageBody", () => {
 		api.fetchArtifactHistory.mockResolvedValue(history(2));
 	});
 
-	it("shows the version's picture, full size, in a box of its width and height", async () => {
+	it("shows the version's picture at its large size, in a box of its width and height", async () => {
 		api.fetchArtifact.mockResolvedValue(detail(body(), 2));
 		renderBody();
 		const picture = await screen.findByTestId("image-body-picture");
@@ -131,15 +131,35 @@ describe("ImageBody", () => {
 			'[data-testid="image-picture-after"]',
 		);
 		expect(img?.getAttribute("src")).toBe(
-			"/api/images/files/file-2?conversationId=conv-1",
+			"/api/images/files/file-2?variant=large&conversationId=conv-1",
 		);
-		expect(img?.getAttribute("srcset")).toBeNull();
+		expect(img?.getAttribute("sizes")).toBe("(max-width: 767px) 92vw, 950px");
 		expect(img).toHaveAttribute("width", "1248");
 		expect(img).toHaveAttribute("height", "832");
 		expect(
 			screen.getByTestId("image-body-frame").style.getPropertyValue("--ratio"),
 		).toBe("1.5");
 		expect(api.fetchArtifact).toHaveBeenCalledWith("img-1", "conv-1");
+	});
+
+	it("asks for the large copy of a 12 MP picture, never its master", async () => {
+		api.fetchArtifact.mockResolvedValue(
+			detail(body({ width: 4224, height: 2816 }), 2),
+		);
+		renderBody();
+		const picture = await screen.findByTestId("image-body-picture");
+		const img = picture.querySelector<HTMLImageElement>(
+			'[data-testid="image-picture-after"]',
+		);
+		expect(img?.getAttribute("src")).toContain("variant=large");
+		const candidates = (img?.getAttribute("srcset") ?? "").split(", ");
+		expect(candidates).toHaveLength(2);
+		expect(candidates[0]).toContain("variant=display");
+		expect(candidates[0]).toMatch(/ 1600w$/);
+		expect(candidates[1]).toContain("variant=large");
+		expect(candidates[1]).toMatch(/ 2560w$/);
+		// The master is only Download's and the full-screen viewer's.
+		expect(img?.getAttribute("srcset")).not.toContain(" 4224w");
 	});
 
 	it("shows the base under Before when the version was made from one", async () => {
@@ -151,7 +171,7 @@ describe("ImageBody", () => {
 		await fireEvent.click(before);
 		const shown = await screen.findByTestId("image-picture-before");
 		expect(shown.getAttribute("src")).toBe(
-			"/api/images/files/file-1?conversationId=conv-1",
+			"/api/images/files/file-1?variant=large&conversationId=conv-1",
 		);
 		// After stays until Before has loaded.
 		await fireEvent.load(shown);
@@ -212,7 +232,7 @@ describe("ImageBody", () => {
 					.getByTestId("image-body-picture")
 					.querySelector('[data-testid="image-picture-after"]')
 					?.getAttribute("src"),
-			).toBe("/api/images/files/file-3?conversationId=conv-1"),
+			).toBe("/api/images/files/file-3?variant=large&conversationId=conv-1"),
 		);
 		await waitFor(() =>
 			expect(screen.getAllByTestId("image-version-frame")).toHaveLength(3),
@@ -279,7 +299,7 @@ describe("ImageBody", () => {
 					.getByTestId("image-body-picture")
 					.querySelector('[data-testid="image-picture-after"]')
 					?.getAttribute("src"),
-			).toBe("/api/images/files/file-3?conversationId=conv-1"),
+			).toBe("/api/images/files/file-3?variant=large&conversationId=conv-1"),
 		);
 		expect(api.fetchArtifact).toHaveBeenCalledTimes(2);
 	});

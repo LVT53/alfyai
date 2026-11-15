@@ -608,6 +608,182 @@ describe("the display copy", () => {
 	});
 });
 
+/**
+ * A picture just past the large edge with real pixels: big enough that its
+ * large copy is 2560 px on its long edge, small enough to keep the suite quick.
+ */
+function largePhoto(alpha = false): Promise<Uint8Array> {
+	return photoPng(2561, 800, alpha);
+}
+
+describe("the large copy", () => {
+	it("is not written at store time; the first request makes it once, beside the picture", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await largePhoto(),
+		});
+		const dir = join(workdir, "data", "image-files", "c1");
+		// The store pays for the card's display copy only; the panel's large copy
+		// is the first request's cost.
+		expect((await readdir(dir)).sort()).toEqual(
+			[
+				`${file.id}.png`,
+				`${file.id}.thumb.png`,
+				`${file.id}.display.webp`,
+			].sort(),
+		);
+		const large = await files.readImageFileBytes(file, "large");
+		expect(large).not.toBeNull();
+		const largePath = join(dir, `${file.id}.large.webp`);
+		expect(existsSync(largePath)).toBe(true);
+		const meta = await sharp(large as Uint8Array).metadata();
+		expect(meta.format).toBe("webp");
+		expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(
+			files.IMAGE_LARGE_LONG_EDGE,
+		);
+		expect(meta.hasAlpha).toBe(false);
+		// The 12 MP master is a PNG; its large copy is the smaller WebP a panel
+		// downloads instead.
+		expect((large as Uint8Array).byteLength).toBeGreaterThan(64);
+		expect(await readFile(largePath)).toEqual(Buffer.from(large as Uint8Array));
+	}, 30_000);
+
+	it("is read from the cache on a second request", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await largePhoto(),
+		});
+		const dir = join(workdir, "data", "image-files", "c1");
+		const first = await files.readImageFileBytes(file, "large");
+		// The cached copy is the answer on its own: remove the master, and a
+		// second generation would fail outright instead of serving it.
+		await unlink(join(dir, `${file.id}.png`));
+		const second = await files.readImageFileBytes(file, "large");
+		expect(second).not.toBeNull();
+		expect(second).toEqual(first);
+	}, 30_000);
+
+	it("regenerates a truncated copy instead of handing it back", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await largePhoto(),
+		});
+		const largePath = join(
+			workdir,
+			"data",
+			"image-files",
+			"c1",
+			`${file.id}.large.webp`,
+		);
+		const whole = await files.readImageFileBytes(file, "large");
+		await writeFile(
+			largePath,
+			Buffer.from((whole as Uint8Array).subarray(0, 64)),
+		);
+		const rebuilt = await files.readImageFileBytes(file, "large");
+		expect(rebuilt).not.toBeNull();
+		expect((rebuilt as Uint8Array).byteLength).toBe(
+			(whole as Uint8Array).byteLength,
+		);
+		expect((await sharp(rebuilt as Uint8Array).metadata()).format).toBe("webp");
+		// Rebuilt once, atomically: no temporary file is left beside it.
+		expect(
+			(await readdir(join(workdir, "data", "image-files", "c1"))).sort(),
+		).toEqual(
+			[
+				`${file.id}.png`,
+				`${file.id}.thumb.png`,
+				`${file.id}.display.webp`,
+				`${file.id}.large.webp`,
+			].sort(),
+		);
+	}, 30_000);
+
+	it("removes a large copy that is not a WebP before regenerating it", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await largePhoto(),
+		});
+		await writeFile(
+			join(workdir, "data", "image-files", "c1", `${file.id}.large.webp`),
+			"not a webp",
+		);
+		const large = await files.readImageFileBytes(file, "large");
+		expect((large as Uint8Array).byteLength).toBeGreaterThan(64);
+		expect((await sharp(large as Uint8Array).metadata()).format).toBe("webp");
+	}, 30_000);
+
+	it("is made without enlargement for a picture within its edge, which has none", async () => {
+		// Long edge 2048, within 2560: the picture is its own large copy, so no
+		// file is written and the route serves the original instead.
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await photoPng(2048, 1536),
+		});
+		expect(files.hasImageLargeCopy(file)).toBe(false);
+		expect(await files.readImageFileBytes(file, "large")).toEqual(
+			await files.readImageFileBytes(file, "full"),
+		);
+		expect(
+			(await readdir(join(workdir, "data", "image-files", "c1"))).some((name) =>
+				name.endsWith(".large.webp"),
+			),
+		).toBe(false);
+	}, 30_000);
+
+	it("keeps the alpha of a see-through picture", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await largePhoto(true),
+			mayBeSeeThrough: true,
+		});
+		expect(file.hasAlpha).toBe(true);
+		const large = await files.readImageFileBytes(file, "large");
+		expect(large).not.toBeNull();
+		expect((await sharp(large as Uint8Array).metadata()).hasAlpha).toBe(true);
+	}, 30_000);
+
+	it("goes with the picture when the picture is discarded", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await largePhoto(),
+		});
+		expect(await files.readImageFileBytes(file, "large")).not.toBeNull();
+		const dir = join(workdir, "data", "image-files", "c1");
+		expect((await readdir(dir)).length).toBe(4);
+		await files.discardStoredImageFile(file);
+		expect(await readdir(dir)).toEqual([]);
+	}, 30_000);
+
+	it("goes with the picture when its files are deleted", async () => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await largePhoto(),
+		});
+		expect(await files.readImageFileBytes(file, "large")).not.toBeNull();
+		const dir = join(workdir, "data", "image-files", "c1");
+		expect((await readdir(dir)).length).toBe(4);
+		expect(await files.deleteImageFilesById([file.id])).toBe(1);
+		expect(await readdir(dir)).toEqual([]);
+	}, 30_000);
+});
+
 describe("getImageFile", () => {
 	it("gives null to another user", async () => {
 		const file = await files.storeImageFile({
@@ -890,9 +1066,10 @@ describe("imageFileDownloadName", () => {
 // this store for, each read from the shared file-type registry through the
 // path helper that wrote the representation.
 describe("imageFileContentType", () => {
-	it("serves the picture and its thumbnail as PNG, and only the display copy as WebP", () => {
+	it("serves the picture and its thumbnail as PNG, and only the WebP copies as WebP", () => {
 		expect(files.imageFileContentType("full")).toBe("image/png");
 		expect(files.imageFileContentType("thumb")).toBe("image/png");
 		expect(files.imageFileContentType("display")).toBe("image/webp");
+		expect(files.imageFileContentType("large")).toBe("image/webp");
 	});
 });

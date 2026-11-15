@@ -18,9 +18,18 @@ export const IMAGE_THUMB_LONG_EDGE = 320;
  * The long edge of a picture's display copy (`?variant=display`), in pixels: a
  * lossless WebP downscale the server makes at store time so a card at 800 CSS
  * px on a DPR-2 screen (1600 device px) downloads this instead of the original
- * PNG, while the panel and a deeper zoom still reach the full picture.
+ * PNG. The panel and a deeper zoom reach the large copy or the full picture.
  */
 export const IMAGE_DISPLAY_LONG_EDGE = 1600;
+
+/**
+ * The long edge of a picture's large copy (`?variant=large`), in pixels: a
+ * lossless WebP the server makes on the first request and keeps beside the
+ * picture, so the panel at its 950 px default on a DPR-2 screen (1900 device
+ * px) gets a true 1.35x copy instead of a 12 MP master. A picture whose long
+ * edge is already within this has no large copy and is served its original.
+ */
+export const IMAGE_LARGE_LONG_EDGE = 2560;
 
 /** Most takes a picture card shows at once; the server refuses Another beyond it, and the card's Another is off there. */
 export const MAX_VISIBLE_TAKES_PER_CARD = 8;
@@ -41,6 +50,17 @@ export function displayWidth(width: number, height: number): number {
 	const longEdge = Math.max(width, height);
 	if (longEdge <= IMAGE_DISPLAY_LONG_EDGE) return width;
 	return Math.max(1, Math.round((width * IMAGE_DISPLAY_LONG_EDGE) / longEdge));
+}
+
+/**
+ * The width of a picture's large copy: never wider than the picture itself. A
+ * picture whose long edge is already within the large edge has no large copy
+ * (the server serves its original), so its own width is the honest descriptor.
+ */
+export function largeWidth(width: number, height: number): number {
+	const longEdge = Math.max(width, height);
+	if (longEdge <= IMAGE_LARGE_LONG_EDGE) return width;
+	return Math.max(1, Math.round((width * IMAGE_LARGE_LONG_EDGE) / longEdge));
 }
 
 export const MARK_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;

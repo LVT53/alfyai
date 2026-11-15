@@ -8,7 +8,7 @@ import ImagePicture from "./ImagePicture.svelte";
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 describe("ImagePicture", () => {
-	it("draws the picture from its file route in a box of its own shape, with its size set", () => {
+	it("draws the picture from its display copy in a box of its own shape, with its size set", () => {
 		render(ImagePicture, {
 			fileId: "file-7",
 			width: 1248,
@@ -19,6 +19,7 @@ describe("ImagePicture", () => {
 
 		const img = screen.getByRole("img", { name: "Cosy room" });
 		expect(img.getAttribute("src")).toContain("/api/images/files/file-7");
+		expect(img.getAttribute("src")).toContain("variant=display");
 		expect(img.getAttribute("src")).toContain("conversationId=conv-1");
 		expect(img).toHaveAttribute("width", "1248");
 		expect(img).toHaveAttribute("height", "832");
@@ -27,21 +28,50 @@ describe("ImagePicture", () => {
 		expect(box.style.aspectRatio).toBe("1248 / 832");
 	});
 
-	it("loads only the full picture for the panel's main view", () => {
+	it("loads the large copy for the panel's main view, never the master", () => {
 		render(ImagePicture, {
 			fileId: "file-9",
-			width: 1248,
-			height: 832,
+			width: 4224,
+			height: 2816,
 			alt: "Panel",
 			conversationId: "conv-1",
-			variant: "original",
+			variant: "large",
+			sizes: "(max-width: 767px) 92vw, 950px",
 		});
 		const img = screen.getByRole("img", { name: "Panel" });
 		expect(img.getAttribute("src")).toBe(
-			"/api/images/files/file-9?conversationId=conv-1",
+			"/api/images/files/file-9?variant=large&conversationId=conv-1",
 		);
-		expect(img.getAttribute("srcset")).toBeNull();
-		expect(img.getAttribute("sizes")).toBeNull();
+		expect(img.getAttribute("sizes")).toBe("(max-width: 767px) 92vw, 950px");
+		const candidates = (img.getAttribute("srcset") ?? "").split(", ");
+		expect(candidates).toHaveLength(2);
+		expect(candidates[0]).toContain("variant=display");
+		expect(candidates[0]).toMatch(/ 1600w$/);
+		expect(candidates[1]).toContain("variant=large");
+		expect(candidates[1]).toMatch(/ 2560w$/);
+		// The 12 MP master is not a candidate: the panel cannot use it.
+		expect(img.getAttribute("srcset")).not.toContain(" 4224w");
+	});
+
+	it("serves the original through the large variant for a picture within the large edge", () => {
+		render(ImagePicture, {
+			fileId: "file-mid",
+			width: 2048,
+			height: 2048,
+			alt: "Mid",
+			conversationId: "conv-1",
+			variant: "large",
+		});
+		const img = screen.getByRole("img", { name: "Mid" });
+		// No large copy exists: the large URL is the original, and says so by
+		// keeping the picture's own width as its descriptor.
+		expect(img.getAttribute("src")).toContain("variant=large");
+		const candidates = (img.getAttribute("srcset") ?? "").split(", ");
+		expect(candidates).toHaveLength(2);
+		expect(candidates[0]).toContain("variant=display");
+		expect(candidates[0]).toMatch(/ 1600w$/);
+		expect(candidates[1]).toContain("variant=large");
+		expect(candidates[1]).toMatch(/ 2048w$/);
 	});
 
 	it("starts from the display copy for a box that can load before it is laid out", () => {
@@ -75,6 +105,7 @@ describe("ImagePicture", () => {
 		const srcset = screen.getByRole("img").getAttribute("srcset") ?? "";
 		expect(srcset).toContain("variant=thumb");
 		expect(srcset).toContain(" 213w");
+		// Within the display edge: its original is its display copy.
 		expect(srcset).toContain(" 832w");
 
 		render(ImagePicture, {
@@ -89,24 +120,26 @@ describe("ImagePicture", () => {
 		expect(thumb.hasAttribute("srcset")).toBe(false);
 	});
 
-	it("puts the 1600 px display copy between the thumbnail and the original, so a DPR-2 card takes it", () => {
+	it("keeps the master out of the card's srcset, even for a 12 MP picture", () => {
 		render(ImagePicture, {
-			fileId: "file-big",
-			width: 2048,
-			height: 2048,
-			alt: "Big",
+			fileId: "file-huge",
+			width: 4224,
+			height: 2816,
+			alt: "Huge",
 			conversationId: "conv-1",
 		});
-		const srcset = screen.getByRole("img").getAttribute("srcset") ?? "";
-		const candidates = srcset.split(", ");
-		expect(candidates).toHaveLength(3);
+		const candidates = (
+			screen.getByRole("img").getAttribute("srcset") ?? ""
+		).split(", ");
+		expect(candidates).toHaveLength(2);
 		expect(candidates[0]).toContain("variant=thumb");
 		expect(candidates[0]).toMatch(/ 320w$/);
 		expect(candidates[1]).toContain("variant=display");
 		expect(candidates[1]).toMatch(/ 1600w$/);
 		expect(candidates[1]).toContain("conversationId=conv-1");
-		expect(candidates[2]).not.toContain("variant=");
-		expect(candidates[2]).toMatch(/ 2048w$/);
+		expect(candidates.some((candidate) => / 4224w$/.test(candidate))).toBe(
+			false,
+		);
 	});
 
 	it("keeps two candidates for a picture within the display edge, whose original is its display copy", () => {

@@ -195,7 +195,13 @@ $effect(() => {
 	void load(versionId, baseVersionId);
 });
 
-const url = (fileId: string) => imageFileUrl(fileId, { conversationId });
+/**
+ * A wipe side's picture: the 1600 px display copy, in the ~400 px box the
+ * preview draws. History's preview is a main view like the panel's, but its box
+ * is far smaller; the master is never downloaded for it.
+ */
+const url = (fileId: string) =>
+	imageFileUrl(fileId, { variant: "display", conversationId });
 
 /** The marks were drawn on the picture this version was made from: shown only when that is the picture underneath. */
 const versionMarks = $derived(
