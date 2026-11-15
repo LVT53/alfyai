@@ -146,6 +146,13 @@ export const GUIDE_ENTRIES: readonly GuideEntry[] = [
 		added: BEFORE_THE_GUIDE,
 	},
 	{
+		id: "videos",
+		section: "make",
+		drawingSpot: null,
+		action: { kind: "tryIt" },
+		added: "2026-11-15",
+	},
+	{
 		id: "files",
 		section: "make",
 		drawingSpot: "download",

@@ -8,6 +8,7 @@ import type { Snippet } from "svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type { ImageCardActionHandler } from "$lib/components/artifacts/image/image-card-view";
+import type { VideoCardActionHandler } from "$lib/components/artifacts/video/video-card-view";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ToolActivityItem } from "$lib/utils/tool-activity";
@@ -32,6 +33,7 @@ let {
 	activeArtifactId = null,
 	deletedArtifacts = undefined,
 	onImageAction = undefined,
+	onVideoAction = undefined,
 }: {
 	items: ToolActivityItem[];
 	openKeys: Set<string>;
@@ -56,6 +58,8 @@ let {
 	deletedArtifacts?: DeletedArtifacts | undefined;
 	/** Forwarded to each make_image row's picture card. See ToolActivityRow's own prop doc. */
 	onImageAction?: ImageCardActionHandler | undefined;
+	/** Forwarded to each make_video row's video card. See ToolActivityRow's own prop doc. */
+	onVideoAction?: VideoCardActionHandler | undefined;
 } = $props();
 </script>
 
@@ -76,6 +80,7 @@ let {
 			{activeArtifactId}
 			{deletedArtifacts}
 			{onImageAction}
+			{onVideoAction}
 		/>
 		{@render afterItem?.(item)}
 	{/each}

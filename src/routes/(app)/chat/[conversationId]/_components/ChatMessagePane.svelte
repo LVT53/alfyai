@@ -4,7 +4,9 @@ import WriteConfirmSheet from "$lib/components/chat/WriteConfirmSheet.svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type { ImageCardActionHandler } from "$lib/components/artifacts/image/image-card-view";
+import type { VideoCardActionHandler } from "$lib/components/artifacts/video/video-card-view";
 import type { ImageCardView } from "$lib/server/services/images/read-model";
+import type { VideoCardView } from "$lib/server/services/images/video/read-model";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type {
 	AtlasAction,
@@ -71,6 +73,8 @@ let {
 	deletedArtifacts = undefined,
 	imageCards = [],
 	onImageAction = undefined,
+	videoCards = [],
+	onVideoAction = undefined,
 	questions = [],
 	askActionState = {},
 	onAnswerQuestion = undefined,
@@ -161,6 +165,9 @@ let {
 	/** The chat's picture cards, for each reply's make_image cards (plan 2b T2). */
 	imageCards?: ImageCardView[];
 	onImageAction?: ImageCardActionHandler | undefined;
+	/** The chat's video cards, for each reply's make_video cards (video plan, slice 3b). */
+	videoCards?: VideoCardView[];
+	onVideoAction?: VideoCardActionHandler | undefined;
 	/** The chat's questions ("Ask me first"); MessageArea draws those of its own `conversationId`. */
 	questions?: AskQuestionDto[];
 	/** The page's state for each question, by id: an answer is going out (`busy`), or did not go through (`failed`). */
@@ -226,6 +233,8 @@ let {
 		{deletedArtifacts}
 		{imageCards}
 		{onImageAction}
+		{videoCards}
+		{onVideoAction}
 		{questions}
 		{askActionState}
 		{onAnswerQuestion}

@@ -280,6 +280,7 @@ export function getHumanReadableToolNameKey(name: string): I18nKey {
 	}
 	if (isFileProductionToolName(name)) return "toolCalls.createFile";
 	if (normalized === "make_image") return "toolCalls.makeImage";
+	if (normalized === "make_video") return "toolCalls.makeVideo";
 	const connectionKey = CONNECTION_TOOL_LABEL_KEYS[normalized];
 	if (connectionKey) return connectionKey;
 	return "toolCalls.generic";
@@ -312,9 +313,12 @@ export type ToolCallIconType =
 	| "run-python"
 	| "map-route"
 	| "use-skill"
-	// The in-chat artifact card (Feature 2, cross-kind task) — create_artifact
-	// and edit_artifact share this one icon type; ArtifactCard's own per-kind
-	// glyph (Document/App/Canvas/Slides) lives in the card body, not the row.
+	// The in-chat artifact card (Feature 2, cross-kind task) — create_artifact,
+	// edit_artifact and the picture/video makers share this one icon type;
+	// ArtifactCard's own per-kind glyph (Document/App/Canvas/Slides/Image/Video)
+	// lives in the card body, not the row. A make_image/make_video row is a
+	// deliverable for the same reason a create_artifact call is: its card is
+	// what the turn made, drawn under the reply's words instead of in the rail.
 	| "artifact"
 	// The folded line of a question Alfy asked ("Ask me first"): the mockup draws
 	// it with no tool glyph, only the tick (or X) and the words, so
@@ -357,7 +361,8 @@ export function getToolCallIconType(name: string): ToolCallIconType {
 	if (
 		normalized === "create_artifact" ||
 		normalized === "edit_artifact" ||
-		normalized === "make_image"
+		normalized === "make_image" ||
+		normalized === "make_video"
 	) {
 		return "artifact";
 	}

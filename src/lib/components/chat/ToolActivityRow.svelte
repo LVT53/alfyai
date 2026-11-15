@@ -41,6 +41,11 @@ import {
 	cardSubtitle,
 	type ImageCardActionHandler,
 } from "$lib/components/artifacts/image/image-card-view";
+import {
+	type VideoCardActionHandler,
+	type VideoCardView,
+	videoCardSubtitle,
+} from "$lib/components/artifacts/video/video-card-view";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { APP_VERIFY_LINE_KEYS } from "$lib/shared/artifacts/app-verify-labels";
@@ -74,6 +79,7 @@ let {
 	activeArtifactId = null,
 	deletedArtifacts = undefined,
 	onImageAction = undefined,
+	onVideoAction = undefined,
 }: {
 	item: ToolActivityItem;
 	open?: boolean;
@@ -133,6 +139,8 @@ let {
 	deletedArtifacts?: DeletedArtifacts | undefined;
 	/** A make_image row's picture card: what its buttons ask the chat page for (plan 2b T2). */
 	onImageAction?: ImageCardActionHandler | undefined;
+	/** A make_video row's clip card: what its buttons ask the chat page for (video plan, slice 3). */
+	onVideoAction?: VideoCardActionHandler | undefined;
 } = $props();
 
 type ArtifactActivityBody = Extract<ToolActivityBody, { kind: "artifact" }>;
@@ -329,6 +337,54 @@ function imageCardView(
 	};
 }
 
+type VideoCardActivityBody = Extract<ToolActivityBody, { kind: "video-card" }>;
+
+/**
+ * A video card's head (video plan, slice 3): the Video kind's tile, the card's
+ * title, the kind's own second line, and Open › once the clip is an item. A clip
+ * has no versions, so no History and no "edited … ago" line.
+ */
+function videoCardView(
+	body: VideoCardActivityBody & {
+		card: NonNullable<VideoCardActivityBody["card"]>;
+	},
+): ArtifactCardView {
+	const card: VideoCardView = body.card;
+	const gone = goneState(card.artifactId);
+	return {
+		id: card.artifactId ?? `video-card:${card.id}`,
+		kind: "video",
+		title: card.title || body.title,
+		subtitle:
+			gone === "unreachable"
+				? $t("artifacts.madeInOriginalChat")
+				: gone === "deleted"
+					? $t("artifacts.deleted.video")
+					: videoCardSubtitle(card, $t),
+		openTargetId: gone ? null : card.artifactId,
+		current:
+			!gone && activeArtifactId != null && activeArtifactId === card.artifactId,
+		deleted: gone === "deleted",
+		unreachable: gone === "unreachable",
+		editedLabel: null,
+	};
+}
+
+/** The item the clip's head opens: the artifact id the chat's own cards open by. */
+function openVideo(body: VideoCardActivityBody, card: VideoCardView): void {
+	if (!card.artifactId) return;
+	onOpenDocument?.({
+		id: `artifact:${card.artifactId}`,
+		source: "knowledge_artifact",
+		filename: card.title || body.title,
+		title: card.title || body.title,
+		mimeType: null,
+		artifactId: card.artifactId,
+		conversationId: card.conversationId,
+		kind: "video",
+	});
+}
+
 /** Wave 2.5 Step 12: the running create_artifact skeleton card — see the `"artifact-creating"` body's own doc comment in tool-activity.ts. */
 function artifactCreatingCardView(
 	body: ArtifactCreatingBody,
@@ -414,7 +470,8 @@ const isStandaloneCard = $derived(
 	item.body?.kind === "artifact" ||
 		item.body?.kind === "artifact-creating" ||
 		item.body?.kind === "artifact-failed" ||
-		item.body?.kind === "image-card",
+		item.body?.kind === "image-card" ||
+		item.body?.kind === "video-card",
 );
 const isJoinedOpen = $derived(isOpen && !isStandaloneCard);
 // What a screen reader hears for a row that is a button (the label stands in for
@@ -707,7 +764,24 @@ function handleToggle() {
 		</div>
 	{/if}
 
-	{#if isOpen && item.body && item.body.kind !== 'artifact' && item.body.kind !== 'artifact-creating' && item.body.kind !== 'artifact-failed' && item.body.kind !== 'image-card'}
+	{#if isOpen && item.body?.kind === 'video-card' && item.body.card}
+		{@const body = item.body}
+		{@const card = item.body.card}
+		<!-- The video card (video plan, slice 3): the same standalone card as an
+		     item's, drawn once the chat's cards hold it; until then the row stands
+		     alone. -->
+		<div class="act-standalone-card" data-testid="tool-activity-standalone-card">
+			<ArtifactCard
+				view={videoCardView({ ...body, card })}
+				chrome="full"
+				videoCard={card}
+				{onVideoAction}
+				onOpen={() => openVideo(body, card)}
+			/>
+		</div>
+	{/if}
+
+	{#if isOpen && item.body && item.body.kind !== 'artifact' && item.body.kind !== 'artifact-creating' && item.body.kind !== 'artifact-failed' && item.body.kind !== 'image-card' && item.body.kind !== 'video-card'}
 		{@const body = item.body}
 		<div class="act-body" data-testid="tool-activity-body" transition:slideTransition={{ duration: 200 }}>
 			{#if showsSummary}

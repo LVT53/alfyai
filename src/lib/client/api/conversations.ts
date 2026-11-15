@@ -133,12 +133,13 @@ export async function fetchConversationDetail(
 }
 
 /**
- * The chat's picture cards alone — the `cards` view of the same detail
- * endpoint: what the chat page polls for while a take is being made, a few KB
- * instead of the whole message window and sidecar. The arrays are the full
- * read's own `imageCards`, so a caller applies them to the state that read
- * writes. `no-store`: a poll must hear what the server has now, not a cached
- * answer from the tick before.
+ * The chat's cards alone — the `cards` view of the same detail endpoint: what
+ * the chat page polls for while a picture or video take is being made, a few
+ * KB instead of the whole message window and sidecar. The arrays are the full
+ * read's own `imageCards` and `videoCards` (the name is kept for the picture
+ * card's callers), so a caller applies them to the state that read writes.
+ * `no-store`: a poll must hear what the server has now, not a cached answer
+ * from the tick before.
  */
 export async function fetchConversationImageCards(
 	conversationId: string,

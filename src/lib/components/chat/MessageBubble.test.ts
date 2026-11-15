@@ -35,6 +35,10 @@ import {
 	card as imageCard,
 	take as imageTake,
 } from "../artifacts/image/image-card-fixtures.test-helpers";
+import {
+	videoCard,
+	videoTake,
+} from "../artifacts/video/video-card-fixtures.test-helpers";
 import MessageBubble from "./MessageBubble.svelte";
 import type { ReplyPlace } from "./reply-segments";
 
@@ -4402,6 +4406,51 @@ describe("MessageBubble", () => {
 					container.querySelector('[data-testid="image-card-body"]'),
 				).toHaveAttribute("data-state", "ready"),
 			);
+		});
+
+		it("finds a running make_video call's card by the take made for it, and its Stop reaches the page", async () => {
+			const running = videoTake({
+				id: "video-take-live",
+				toolCallId: "call-video-run",
+				status: "running",
+				phase: "rendering",
+				phaseAt: Date.now(),
+				clip: null,
+			});
+			const onVideoAction = vi.fn(async () => undefined);
+			const { container } = render(MessageBubble, {
+				message: buildArtifactMessage({
+					isStreaming: true,
+					content: "",
+					thinkingSegments: [
+						{
+							type: "tool_call",
+							callId: "call-video-run",
+							name: "make_video",
+							input: { title: "Harbour at dusk" },
+							status: "running",
+						},
+					],
+				}),
+				conversationId: "conv-1",
+				// The body names no card: the call's own take is the only way to the
+				// card, exactly as a picture row finds its card.
+				videoCards: [videoCard(running, { id: "video-card-live" })],
+				onVideoAction,
+			});
+
+			await waitFor(() =>
+				expect(
+					container.querySelector(
+						'[data-testid="message-deliverables"] [data-testid="video-card-body"]',
+					),
+				).not.toBeNull(),
+			);
+			await fireEvent.click(screen.getByTestId("video-card-stop"));
+			expect(onVideoAction).toHaveBeenCalledWith({
+				type: "stop",
+				takeId: "video-take-live",
+			});
 		});
 
 		it("has no block for a message that made nothing", () => {

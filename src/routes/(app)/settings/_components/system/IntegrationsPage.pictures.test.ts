@@ -82,3 +82,40 @@ describe("the Pictures section of Integrations", () => {
 		expect(screen.getByDisplayValue("http://comfy:8188")).toBeInTheDocument();
 	});
 });
+
+describe("the Video section of Integrations", () => {
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it("shows the LTX server and the caption endpoint, and edits them", async () => {
+		const { setValue } = renderPage({
+			adminConfig: {
+				COMFYUI_LTX_URL: "http://ltx:8190",
+				LTX_CAPTION_MODEL: "gemma-3-27b",
+			},
+		});
+		expect(screen.getByDisplayValue("http://ltx:8190")).toBeInTheDocument();
+		expect(screen.getByDisplayValue("gemma-3-27b")).toBeInTheDocument();
+		const captionUrl = screen.getByRole("textbox", {
+			name: "Caption endpoint",
+		});
+		await fireEvent.input(captionUrl, {
+			target: { value: "http://127.0.0.1:11434" },
+		});
+		expect(setValue).toHaveBeenCalledWith(
+			"LTX_CAPTION_URL",
+			"http://127.0.0.1:11434",
+		);
+	});
+
+	it("says a video needs the server, and names the caption rewrite", () => {
+		renderPage();
+		expect(
+			screen.getByText(/LTX server makes a short clip from a still picture/),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(/rewrites the motion idea into the caption style/),
+		).toBeInTheDocument();
+	});
+});

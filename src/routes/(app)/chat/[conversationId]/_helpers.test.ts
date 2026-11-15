@@ -3,6 +3,10 @@ import {
 	card as imageCard,
 	take as imageTake,
 } from "$lib/components/artifacts/image/image-card-fixtures.test-helpers";
+import {
+	videoCard,
+	videoTake,
+} from "$lib/components/artifacts/video/video-card-fixtures.test-helpers";
 import type { ComposerMarks } from "$lib/components/chat/composer-pictures";
 import type { I18nKey } from "$lib/i18n";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
@@ -58,7 +62,9 @@ import {
 	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
 	shouldPollImageCards,
+	shouldPollVideoCards,
 	toFriendlySendError,
+	videoCardsPollIntervalMs,
 	waitingQuestionsWithoutRow,
 	withinOrNull,
 	withQuestionAnswering,
@@ -2547,6 +2553,57 @@ describe("imageCardsPollIntervalMs", () => {
 		).toBe(2500);
 		expect(
 			imageCardsPollIntervalMs([imageCard([imageTake({ status: "failed" })])]),
+		).toBe(2500);
+	});
+});
+
+describe("shouldPollVideoCards", () => {
+	it("polls while a take is queued or running", () => {
+		expect(
+			shouldPollVideoCards([videoCard(videoTake({ status: "queued" }))], []),
+		).toBe(true);
+		expect(
+			shouldPollVideoCards([videoCard(videoTake({ status: "running" }))], []),
+		).toBe(true);
+	});
+
+	it("polls for a make_video call still running in the streaming reply before its card exists", () => {
+		expect(
+			shouldPollVideoCards([], [{ name: "make_video", status: "running" }]),
+		).toBe(true);
+	});
+
+	it("stops once every take has settled and no video call runs", () => {
+		expect(
+			shouldPollVideoCards(
+				[videoCard(videoTake({ status: "succeeded" }))],
+				[
+					{ name: "make_video", status: "done" },
+					{ name: "make_image", status: "running" },
+				],
+			),
+		).toBe(false);
+		expect(shouldPollVideoCards([], [])).toBe(false);
+	});
+});
+
+describe("videoCardsPollIntervalMs", () => {
+	it("reads the chat fast while a take is queued or running", () => {
+		expect(videoCardsPollIntervalMs([])).toBe(2500);
+		expect(
+			videoCardsPollIntervalMs([videoCard(videoTake({ status: "queued" }))]),
+		).toBe(750);
+		expect(
+			videoCardsPollIntervalMs([videoCard(videoTake({ status: "running" }))]),
+		).toBe(750);
+	});
+
+	it("keeps the ordinary 2.5 s poll when nothing is being made", () => {
+		expect(
+			videoCardsPollIntervalMs([videoCard(videoTake({ status: "succeeded" }))]),
+		).toBe(2500);
+		expect(
+			videoCardsPollIntervalMs([videoCard(videoTake({ status: "failed" }))]),
 		).toBe(2500);
 	});
 });

@@ -33,10 +33,10 @@ describe("the feature guide's content", () => {
 		]);
 	});
 
-	it("has thirty entries with unique ids, 7/6/4/4/5/4 per section", () => {
-		expect(new Set(GUIDE_ENTRIES.map((e) => e.id)).size).toBe(30);
+	it("has thirty-one entries with unique ids, 7/7/4/4/5/4 per section", () => {
+		expect(new Set(GUIDE_ENTRIES.map((e) => e.id)).size).toBe(31);
 		expect(GUIDE_SECTION_IDS.map((s) => guideEntriesFor(s).length)).toEqual([
-			7, 6, 4, 4, 5, 4,
+			7, 7, 4, 4, 5, 4,
 		]);
 	});
 
@@ -147,12 +147,12 @@ describe("the feature guide's content", () => {
 		}
 	});
 
-	it("dates only Alfy asks first after the guide's baseline", () => {
+	it("dates only the entries that landed after the guide's baseline", () => {
 		expect(
 			GUIDE_ENTRIES.filter((e) => e.added !== BEFORE_THE_GUIDE).map(
 				(e) => e.id,
 			),
-		).toEqual(["asksFirst"]);
+		).toEqual(["asksFirst", "videos"]);
 	});
 
 	it("shows NEW for thirty days from the added date", () => {

@@ -408,6 +408,74 @@ function allowanceFieldValue(): string {
 	</div>
 
 	<hr class="sys-hr" />
+	<span class="sys-eyebrow">{$t('admin.system.integrations.video')}</span>
+	<p class="sys-help">{$t('admin.system.integrations.videoHelp')}</p>
+	<div class="sys-rows">
+		<SettingRow
+			label={$t('admin.system.keys.COMFYUI_LTX_URL.label')}
+			meaning={$t('admin.system.keys.COMFYUI_LTX_URL.meaning')}
+			configKey="COMFYUI_LTX_URL"
+			controlId="COMFYUI_LTX_URL"
+			dirty={isDirty('COMFYUI_LTX_URL')}
+			highlighted={highlightKey === 'COMFYUI_LTX_URL'}
+			onReset={() => resetValue('COMFYUI_LTX_URL')}
+			canReset={canResetKey('COMFYUI_LTX_URL')}
+		>
+			{#snippet control()}
+				<ValueField
+					id="COMFYUI_LTX_URL"
+					mono
+					value={adminConfig.COMFYUI_LTX_URL ?? ''}
+					placeholder={envDefaults.COMFYUI_LTX_URL ?? ''}
+					onchange={(next) => setValue('COMFYUI_LTX_URL', next)}
+				/>
+			{/snippet}
+		</SettingRow>
+
+		<SettingRow
+			label={$t('admin.system.keys.LTX_CAPTION_URL.label')}
+			meaning={$t('admin.system.keys.LTX_CAPTION_URL.meaning')}
+			configKey="LTX_CAPTION_URL"
+			controlId="LTX_CAPTION_URL"
+			dirty={isDirty('LTX_CAPTION_URL')}
+			highlighted={highlightKey === 'LTX_CAPTION_URL'}
+			onReset={() => resetValue('LTX_CAPTION_URL')}
+			canReset={canResetKey('LTX_CAPTION_URL')}
+		>
+			{#snippet control()}
+				<ValueField
+					id="LTX_CAPTION_URL"
+					mono
+					value={adminConfig.LTX_CAPTION_URL ?? ''}
+					placeholder={envDefaults.LTX_CAPTION_URL ?? ''}
+					onchange={(next) => setValue('LTX_CAPTION_URL', next)}
+				/>
+			{/snippet}
+		</SettingRow>
+
+		<SettingRow
+			label={$t('admin.system.keys.LTX_CAPTION_MODEL.label')}
+			meaning={$t('admin.system.keys.LTX_CAPTION_MODEL.meaning')}
+			configKey="LTX_CAPTION_MODEL"
+			controlId="LTX_CAPTION_MODEL"
+			dirty={isDirty('LTX_CAPTION_MODEL')}
+			highlighted={highlightKey === 'LTX_CAPTION_MODEL'}
+			onReset={() => resetValue('LTX_CAPTION_MODEL')}
+			canReset={canResetKey('LTX_CAPTION_MODEL')}
+		>
+			{#snippet control()}
+				<ValueField
+					id="LTX_CAPTION_MODEL"
+					mono
+					value={adminConfig.LTX_CAPTION_MODEL ?? ''}
+					placeholder={envDefaults.LTX_CAPTION_MODEL ?? ''}
+					onchange={(next) => setValue('LTX_CAPTION_MODEL', next)}
+				/>
+			{/snippet}
+		</SettingRow>
+	</div>
+
+	<hr class="sys-hr" />
 	<span class="sys-eyebrow">{$t('admin.system.integrations.webPush')}</span>
 	<p class="sys-help">{$t('admin.atlasWebPushDescription')}</p>
 	<div class="sys-rows">

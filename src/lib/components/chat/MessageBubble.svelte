@@ -55,6 +55,10 @@ import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/al
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type { ImageCardActionHandler } from "$lib/components/artifacts/image/image-card-view";
 import type { ImageCardView } from "$lib/server/services/images/read-model";
+import type {
+	VideoCardActionHandler,
+	VideoCardView,
+} from "$lib/components/artifacts/video/video-card-view";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { DepthAppliedProfile } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
@@ -151,7 +155,9 @@ let {
 	activeArtifactId = null,
 	deletedArtifacts = undefined,
 	imageCards = [],
+	videoCards = [],
 	onImageAction = undefined,
+	onVideoAction = undefined,
 	replyPlace = undefined,
 	joinedAbove = false,
 	joinedBelow = false,
@@ -246,8 +252,12 @@ let {
 	deletedArtifacts?: DeletedArtifacts | undefined;
 	/** The chat's picture cards (`ConversationDetail.imageCards`): a make_image row draws its own. */
 	imageCards?: ImageCardView[];
+	/** The chat's video cards (`ConversationDetail.videoCards`, the runner slice): a make_video row draws its own. */
+	videoCards?: VideoCardView[];
 	/** What a picture card's buttons ask the chat page for. */
 	onImageAction?: ImageCardActionHandler | undefined;
+	/** What a video card's buttons ask the chat page for. */
+	onVideoAction?: VideoCardActionHandler | undefined;
 	/**
 	 * Where this row sits in its reply (`placeReplySegments`): a reply that paused to
 	 * ask is several rows drawn as one. A segment the reply goes on from has no
@@ -489,12 +499,15 @@ let foldedDeliverables = $derived(
 	foldArtifactDeliverables(
 		deliverableSegments.map((segment, index) => ({
 			segment,
-			item: withResolvedImageCard(
-				buildToolActivityItem(
-					segment,
-					segment.callId ??
-						`${segment.name + JSON.stringify(segment.input)}-${index}`,
-					$t,
+			item: withResolvedVideoCard(
+				withResolvedImageCard(
+					buildToolActivityItem(
+						segment,
+						segment.callId ??
+							`${segment.name + JSON.stringify(segment.input)}-${index}`,
+						$t,
+					),
+					segment.callId,
 				),
 				segment.callId,
 			),
@@ -514,6 +527,22 @@ function withResolvedImageCard(
 	if (body?.kind !== "image-card" || body.cardId || !callId) return item;
 	const card = imageCards.find((candidate) =>
 		candidate.takes.some((take) => take.toolCallId === callId),
+	);
+	return card ? { ...item, body: { ...body, cardId: card.id } } : item;
+}
+/**
+ * A make_video row whose call has not named its card yet finds it by the take
+ * made for the call, exactly as a picture row does: the card can be drawn, and
+ * folded with the other calls of the same card, before the call ends.
+ */
+function withResolvedVideoCard(
+	item: ToolActivityItem,
+	callId: string | undefined,
+): ToolActivityItem {
+	const body = item.body;
+	if (body?.kind !== "video-card" || body.cardId || !callId) return item;
+	const card = videoCards.find(
+		(candidate) => candidate.take?.toolCallId === callId,
 	);
 	return card ? { ...item, body: { ...body, cardId: card.id } } : item;
 }
@@ -541,6 +570,12 @@ let deliverableItems = $derived([
 		if (body?.kind === "image-card") {
 			const card = body.cardId
 				? (imageCards.find((candidate) => candidate.id === body.cardId) ?? null)
+				: null;
+			return card ? { ...item, body: { ...body, card } } : item;
+		}
+		if (body?.kind === "video-card") {
+			const card = body.cardId
+				? (videoCards.find((candidate) => candidate.id === body.cardId) ?? null)
 				: null;
 			return card ? { ...item, body: { ...body, card } } : item;
 		}
@@ -672,7 +707,9 @@ let hasFileProductionCards = $derived(
 // sources for it only when it drew on some, and they arrive with the poll, so
 // no "Evidence is loading…" under the card (Task 17).
 let madePicture = $derived(
-	deliverableSegments.some((segment) => segment.name === "make_image"),
+	deliverableSegments.some(
+		(segment) => segment.name === "make_image" || segment.name === "make_video",
+	),
 );
 let showEvidencePending = $derived(
 	Boolean(message.evidencePending) && isDone && !hasAtlasCards && !madePicture,
@@ -1413,6 +1450,7 @@ function sendFollowUp(question: string) {
 						{activeArtifactId}
 						{deletedArtifacts}
 						{onImageAction}
+						{onVideoAction}
 					/>
 					<!-- One strip per `files` call that still has a card to draw, in
 					     segment order: the pictures, the count tile and the list. -->

@@ -10,6 +10,7 @@ import {
 	awaitImageTakeSettled,
 	imageFileUrl,
 	retryImageTake,
+	sendVideoCardAction,
 	stopImageTake,
 	useImageTake,
 } from "$lib/client/api/images";
@@ -18,7 +19,12 @@ import type {
 	ImageCardAction,
 	ImageCardActionResult,
 } from "$lib/components/artifacts/image/image-card-view";
+import type {
+	VideoCardAction,
+	VideoCardActionResult,
+} from "$lib/components/artifacts/video/video-card-view";
 import type { ImageCardView } from "$lib/server/services/images/read-model";
+import type { VideoCardView } from "$lib/server/services/images/video/read-model";
 import {
 	type ComposerMarks,
 	type ComposerPictureRef,
@@ -292,7 +298,9 @@ import {
 	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
 	shouldPollImageCards,
+	shouldPollVideoCards,
 	imageCardsPollIntervalMs,
+	videoCardsPollIntervalMs,
 	type DraftChangePayload,
 	type MessageEditPayload,
 	type MessageRegeneratePayload,
@@ -372,6 +380,7 @@ const initialDeletedArtifactIds = getData().deletedArtifactIds ?? [];
 const initialUnreachableArtifactIds = getData().unreachableArtifactIds ?? [];
 const initialAtlasJobs = getData().atlasJobs ?? [];
 const initialImageCards = getData().imageCards ?? [];
+const initialVideoCards = getData().videoCards ?? [];
 const initialPendingWrites = getData().pendingWrites ?? [];
 const initialQuestions = getData().questions ?? [];
 const initialContextCompressionSnapshots =
@@ -779,6 +788,10 @@ let artifacts = $state<ArtifactCardSummary[]>(initialArtifacts);
 // The chat's picture cards (plan 2b T2): the detail's `imageCards`, kept from
 // the load and every read of the detail; the stream carries none.
 let imageCards = $state<ImageCardView[]>(initialImageCards);
+// The chat's video cards (video plan, slice 3b): the detail's `videoCards`,
+// kept from the load and every read of the detail, exactly as the picture
+// cards are; the stream carries no card.
+let videoCards = $state<VideoCardView[]>(initialVideoCards);
 // Ruling 76, amendment A1 (one latest moment everywhere): the newest version
 // the server has told this browser about, per artifact, with its time, author
 // and kind — fed by every save, fetch, restore and History read
@@ -2285,6 +2298,34 @@ async function handleImageAction(
 }
 
 /**
+ * What a video card's buttons ask for (video plan, slice 3b). Each goes
+ * through `client/api/images.ts` and reads the chat back, so the card shows
+ * what the server did; a failure says so in a toast and rejects, so the card
+ * can take back what it showed at once (Another's pressed state). Download and
+ * Open belong to the card itself and never come here.
+ */
+async function handleVideoAction(
+	action: VideoCardAction,
+): Promise<VideoCardActionResult> {
+	const conversationId = data.conversation.id;
+	try {
+		const result = await sendVideoCardAction(action, conversationId);
+		// Read back whatever the poll is doing: Stop and Try again change a take
+		// the server owns, and Another queues one with no turn to hear it.
+		void refreshConversationFiles();
+		return result;
+	} catch (error) {
+		// The same shared "that didn't work" sentence the picture card's actions
+		// use; it names neither kind.
+		showToast({
+			type: "error",
+			message: get(t)("artifacts.image.card.actionFailed"),
+		});
+		throw error;
+	}
+}
+
+/**
  * A chat card's or file row's Open: find out first that the item is still
  * there. If the server has no such item any more (deleted in another tab) the
  * card flips to its deleted state — an artifact by its own 404, a produced
@@ -2849,6 +2890,7 @@ function resetState() {
 	fileProductionJobs = data.fileProductionJobs ?? [];
 	artifacts = data.artifacts ?? [];
 	imageCards = data.imageCards ?? [];
+	videoCards = data.videoCards ?? [];
 	deletedArtifactIds = data.deletedArtifactIds ?? [];
 	unreachableArtifactIds = data.unreachableArtifactIds ?? [];
 	atlasJobs = data.atlasJobs ?? [];
@@ -3003,6 +3045,9 @@ function applyConversationDetailMetadata(
 	}
 	if (detail.imageCards) {
 		imageCards = [...detail.imageCards];
+	}
+	if (detail.videoCards) {
+		videoCards = [...detail.videoCards];
 	}
 	if (detail.deletedArtifactIds) {
 		deletedArtifactIds = [...detail.deletedArtifactIds];
@@ -3454,6 +3499,15 @@ function applyImageCards(cards: ImageCardView[] | undefined) {
 	imageCards = cards ?? imageCards;
 }
 
+/**
+ * The same one place for the chat's video cards: a full detail read and the
+ * card poll's own `cards` read both write here, so the two can never disagree
+ * about which take a card shows.
+ */
+function applyVideoCards(cards: VideoCardView[] | undefined) {
+	videoCards = cards ?? videoCards;
+}
+
 async function hydrateConversationDetail(conversationId: string) {
 	if (hydratingConversation) return;
 	hydratingConversation = true;
@@ -3492,6 +3546,7 @@ async function hydrateConversationDetail(conversationId: string) {
 		// the server, and a mid-turn poll is exactly what moves the boundary, so a
 		// card's first take would otherwise wait for the next poll.
 		applyImageCards(payload.imageCards);
+		applyVideoCards(payload.videoCards);
 		deletedArtifactIds = (payload.deletedArtifactIds ?? []).reduce(
 			markArtifactDeleted,
 			deletedArtifactIds,
@@ -3547,9 +3602,9 @@ async function hydrateConversationDetail(conversationId: string) {
 }
 
 /**
- * The picture-card poll's tick: reads the chat's cards alone (the detail's
- * `cards` view — a few KB) and applies them exactly where a full read's
- * `imageCards` go. It touches nothing else: the message window, artifacts,
+ * The card poll's tick: reads the chat's cards alone (the detail's `cards`
+ * view — a few KB) and applies them exactly where a full read's `imageCards`
+ * and `videoCards` go. It touches nothing else: the message window, artifacts,
  * files, Atlas jobs, cost and compression markers keep what they have, since
  * only the pictures are moving between two of these ticks. A failed read is no
  * reason to leave a picture mid-shimmer, so it falls back to the full detail
@@ -3570,6 +3625,7 @@ async function hydrateConversationImageCards(conversationId: string) {
 			return;
 		}
 		applyImageCards(payload.imageCards);
+		applyVideoCards(payload.videoCards);
 	} catch {
 		await hydrateConversationDetail(conversationId);
 	} finally {
@@ -3739,9 +3795,18 @@ let streamingToolCalls = $derived.by(() => {
 let pollForImageCards = $derived(
 	shouldPollImageCards(imageCards, streamingToolCalls),
 );
+let pollForVideoCards = $derived(
+	shouldPollVideoCards(videoCards, streamingToolCalls),
+);
 // A take being made re-reads the chat four times faster than the ordinary
-// poll, so a picture that lands between two reads waits ~0.75 s, not ~2.5 s.
-let imageCardsPollMs = $derived(imageCardsPollIntervalMs(imageCards));
+// poll, so a clip or a picture that lands between two reads waits ~0.75 s, not
+// ~2.5 s. One tick reads both kinds, so the faster of the two rules wins.
+let cardsPollMs = $derived(
+	Math.min(
+		imageCardsPollIntervalMs(imageCards),
+		videoCardsPollIntervalMs(videoCards),
+	),
+);
 
 $effect(() => {
 	const conversationId = data.conversation?.id;
@@ -3752,7 +3817,8 @@ $effect(() => {
 	const needsFullDetailRead =
 		hasActiveFileProductionJobs(fileProductionJobs) ||
 		hasActiveAtlasJobs(atlasJobs);
-	const shouldPollConversation = needsFullDetailRead || pollForImageCards;
+	const shouldPollConversation =
+		needsFullDetailRead || pollForImageCards || pollForVideoCards;
 	if (!browser || !conversationId || !shouldPollConversation) {
 		return;
 	}
@@ -3763,7 +3829,7 @@ $effect(() => {
 			return;
 		}
 		void hydrateConversationImageCards(conversationId);
-	}, imageCardsPollMs);
+	}, cardsPollMs);
 
 	return () => {
 		clearInterval(interval);
@@ -5595,6 +5661,8 @@ function handleDrop(event: DragEvent) {
 						deletedArtifacts={deletedArtifactsForCards}
 						{imageCards}
 						onImageAction={handleImageAction}
+						{videoCards}
+						onVideoAction={handleVideoAction}
 						onRegenerate={handleRegenerate}
 						onSendFollowUp={handleSendFollowUp}
 						onStartEdit={handleStartEdit}

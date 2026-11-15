@@ -13,6 +13,7 @@
 // `tool-evidence-presentation.ts` already does, so every branch here is
 // directly unit-testable with a fake translator.
 
+import type { VideoCardView } from "$lib/components/artifacts/video/video-card-view";
 import type { I18nKey } from "$lib/i18n";
 // Type-only: erased at build time, so this pure browser module never carries
 // the artifacts service's own server code (client/api/artifacts.ts already
@@ -156,6 +157,17 @@ export type ToolActivityBody =
 			title: string;
 			/** The card, attached by the message from the chat's image cards (never computed here). */
 			card?: ImageCardView | null;
+	  }
+	// A make_video call's clip card (video plan, slice 3): the card is found by
+	// the chat page's video cards, by `cardId`, or while the call still runs by
+	// the take whose tool call this is (`cardId` null until the call names it).
+	| {
+			kind: "video-card";
+			cardId: string | null;
+			takeId: string | null;
+			title: string;
+			/** The card, attached by the message from the chat's video cards (never computed here). */
+			card?: VideoCardView | null;
 	  };
 
 export type ToolActivityItem = {
@@ -641,8 +653,10 @@ export function buildToolActivityItem(
 	// A failed create/edit names what it tried and keeps the model's words behind
 	// "Details" (its own item below); nothing else is added to it.
 	if (segment.status !== "failed" || item.artifact?.failed) return item;
-	// make_image words its own failure from a code, in the person's language.
-	if (segment.name === "make_image") return item;
+	// make_image and make_video word their own failure from a code, in the
+	// person's language.
+	if (segment.name === "make_image" || segment.name === "make_video")
+		return item;
 	const failedMeta = translate("toolCalls.failed");
 	const reason = toolFailureReason(segment);
 	return {
@@ -812,6 +826,144 @@ function withImageCard(
 		pinned: true,
 		alwaysOpen: true,
 		body: { kind: "image-card", cardId, takeId, title: item.object || title },
+	};
+}
+
+type VideoErrorMetadata = Record<string, unknown> | undefined;
+
+/** The person's words for a video take's failure code; null when there is no code. */
+function videoReasonKey(metadata: VideoErrorMetadata): I18nKey | null {
+	const code =
+		typeof metadata?.videoError === "string" ? metadata.videoError : null;
+	if (!code) return null;
+	if (code === "video_blocked") return "artifacts.video.card.blockedDetail";
+	if (code === "video_unchecked") return "artifacts.video.card.uncheckedDetail";
+	if (
+		code === "video_server_unreachable" ||
+		code === "video_server_not_configured"
+	) {
+		return "artifacts.video.card.unavailable";
+	}
+	return "artifacts.video.card.failed";
+}
+
+/** A make_video call's row: its verb, title and failure words, in the video's own language. */
+function makeVideoRow(
+	segment: ToolCallSegment,
+	base: RowBase,
+	translate: Translate,
+): ToolActivityItem {
+	const status = segment.status;
+	const metadata = segment.metadata;
+	const inputTitle =
+		typeof segment.input?.title === "string" ? segment.input.title : "";
+	const title =
+		typeof metadata?.videoTitle === "string" && metadata.videoTitle
+			? metadata.videoTitle
+			: inputTitle;
+	const clipIsStillComing =
+		status === "running" || metadata?.videoStatus === "running";
+	if (clipIsStillComing) {
+		const makingVerb = translate("artifacts.video.row.making");
+		return {
+			...base,
+			verb: makingVerb,
+			object: title,
+			meta: "",
+			summaryLabel: makingVerb,
+			title: title || makingVerb,
+			body: null,
+		};
+	}
+	// A Stop is not a failure: the person asked for it.
+	if (metadata?.videoStopped === true) {
+		const stoppedVerb = translate("artifacts.video.row.stopped");
+		return {
+			...base,
+			status: "done",
+			verb: stoppedVerb,
+			object: title,
+			meta: "",
+			summaryLabel: stoppedVerb,
+			title: title ? `${stoppedVerb}: ${title}` : stoppedVerb,
+			body: null,
+		};
+	}
+	// The tool's envelope gave up waiting, but the take is still rendering and
+	// lands on its card: that is not a failure.
+	if (metadata?.videoError === "video_tool_timeout") {
+		const stillVerb = translate("artifacts.video.row.stillMaking");
+		return {
+			...base,
+			status: "done",
+			verb: stillVerb,
+			object: title,
+			meta: "",
+			summaryLabel: stillVerb,
+			title: title ? `${stillVerb}: ${title}` : stillVerb,
+			body: null,
+		};
+	}
+	if (status === "failed" || metadata?.ok === false) {
+		const blocked =
+			typeof metadata?.videoError === "string" &&
+			(metadata.videoError === "video_blocked" ||
+				metadata.videoError === "video_unchecked");
+		const failedVerb = translate(
+			blocked ? "artifacts.video.row.blocked" : "artifacts.video.row.failed",
+		);
+		const reasonKey = videoReasonKey(metadata);
+		const reason = reasonKey ? translate(reasonKey) : "";
+		return {
+			...base,
+			status: "failed",
+			verb: failedVerb,
+			object: title,
+			meta: reason ? translate("toolActivity.failureDetails") : "",
+			summaryLabel: failedVerb,
+			title: title ? `${failedVerb}: ${title}` : failedVerb,
+			body: reason ? { kind: "error", reason } : null,
+		};
+	}
+	const doneVerb = translate("artifacts.video.row.made");
+	return {
+		...base,
+		verb: doneVerb,
+		object: title,
+		meta: "",
+		summaryLabel: `${doneVerb} ${title}`.trim(),
+		title,
+		body: null,
+	};
+}
+
+/**
+ * A make_video row carries the clip's card under it, as a make_image row does:
+ * when the call names its card, or while it still runs (the card is then found
+ * by the take made for this call). A refusal names no card and keeps its own
+ * body.
+ */
+function withVideoCard(
+	item: ToolActivityItem,
+	segment: ToolCallSegment,
+): ToolActivityItem {
+	const metadata = segment.metadata;
+	const cardId =
+		typeof metadata?.videoCardId === "string" && metadata.videoCardId
+			? metadata.videoCardId
+			: null;
+	if (!cardId && segment.status !== "running") return item;
+	const takeId =
+		typeof metadata?.videoTakeId === "string" && metadata.videoTakeId
+			? metadata.videoTakeId
+			: null;
+	const title =
+		typeof segment.input?.title === "string" ? segment.input.title : "";
+	return {
+		...item,
+		pinned: true,
+		alwaysOpen: true,
+		body: { kind: "video-card", cardId, takeId, title: item.object || title },
 	};
 }
 
@@ -1004,6 +1156,11 @@ function buildSettledToolActivityItem(
 	// the row; the row says what the call did, and for how many tries.
 	if (segment.name === "make_image") {
 		return withImageCard(makeImageRow(segment, base, translate), segment);
+	}
+
+	// make_video: the clip is drawn by its own card, the same way.
+	if (segment.name === "make_video") {
+		return withVideoCard(makeVideoRow(segment, base, translate), segment);
 	}
 
 	if (iconType === "artifact") {

@@ -651,6 +651,30 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 	{
+		// The LTX video server. Empty turns video making off: `make_video` is
+		// then absent from the catalogue, exactly as make_image is without a
+		// picture server, so there is no refusal for a tool that is not there.
+		key: "COMFYUI_LTX_URL",
+		group: "integrations",
+		control: { kind: "url" },
+		effect: "live",
+	},
+	{
+		// The caption endpoint a video take's motion idea is rewritten by,
+		// before LTX renders it. Live because every make_video call reads the
+		// configuration when it plans its take.
+		key: "LTX_CAPTION_URL",
+		group: "integrations",
+		control: { kind: "url" },
+		effect: "live",
+	},
+	{
+		key: "LTX_CAPTION_MODEL",
+		group: "integrations",
+		control: { kind: "text" },
+		effect: "live",
+	},
+	{
 		key: "IMAGE_REFERENCE_CAP",
 		group: "limits",
 		control: int(1, 10, "count"),

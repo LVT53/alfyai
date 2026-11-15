@@ -114,11 +114,13 @@ const artifactsDict = {
 		"artifacts.delete.button.canvas": "Delete canvas",
 		"artifacts.delete.button.slides": "Delete slides",
 		"artifacts.delete.button.file": "Delete file",
+		"artifacts.delete.button.video": "Delete video",
 		"artifacts.delete.title.document": "Delete this document?",
 		"artifacts.delete.title.app": "Delete this app?",
 		"artifacts.delete.title.canvas": "Delete this canvas?",
 		"artifacts.delete.title.slides": "Delete these slides?",
 		"artifacts.delete.title.file": "Delete this file?",
+		"artifacts.delete.title.video": "Delete this video?",
 		"artifacts.delete.body.document":
 			"“{title}” and its versions and comments will be deleted. This can't be undone.",
 		"artifacts.delete.body.app":
@@ -128,6 +130,8 @@ const artifactsDict = {
 		"artifacts.delete.body.slides":
 			"“{title}” and its versions and comments will be deleted. This can't be undone.",
 		"artifacts.delete.body.file":
+			"“{title}” will be deleted. This can't be undone.",
+		"artifacts.delete.body.video":
 			"“{title}” will be deleted. This can't be undone.",
 		// The same confirm for an item the chat can make again (the security
 		// review's L2): "can't be undone" is not true of it, so it says the way back.
@@ -148,6 +152,7 @@ const artifactsDict = {
 		"artifacts.delete.done.canvas": "Canvas deleted",
 		"artifacts.delete.done.slides": "Slides deleted",
 		"artifacts.delete.done.file": "File deleted",
+		"artifacts.delete.done.video": "Video deleted",
 		"artifacts.delete.rowMenu": "More actions for {title}",
 		// What a chat card or file row says once its item is gone (polish G2-A),
 		// per kind, and its Regenerate.
@@ -1161,6 +1166,51 @@ const artifactsDict = {
 		"artifacts.image.history.prompt": "Prompt Alfy sent",
 		"artifacts.image.history.marks": "With marks {letters}",
 		"artifacts.image.history.then": "Then",
+
+		// The Video kind (LTX video plan, slice 3): a short clip's card, player
+		// and panel. It is the picture card's sibling — same states, same words
+		// where the meaning is the same — with a clip's own things added: a
+		// VIDEO badge on the stage, the clip's length, and a player.
+		"artifacts.video.badge": "VIDEO",
+		"artifacts.video.card.making": "Making the video…",
+		"artifacts.video.card.starting": "Starting the video maker…",
+		"artifacts.video.card.startingDetail":
+			"After a pause the model loads first, so this takes longer.",
+		"artifacts.video.card.failed": "Couldn't make this one.",
+		"artifacts.video.card.nothingSaved": "Nothing was saved.",
+		"artifacts.video.card.unavailable": "Videos can't be made right now.",
+		"artifacts.video.card.blocked": "This video was blocked.",
+		"artifacts.video.card.blockedDetail":
+			"It looked explicit, so it isn't shown and wasn't kept.",
+		"artifacts.video.card.unchecked": "This video couldn't be checked.",
+		"artifacts.video.card.uncheckedDetail":
+			"Videos are checked before they appear, so it wasn't kept.",
+		"artifacts.video.card.stopped": "Stopped.",
+		"artifacts.video.card.stop": "Stop",
+		"artifacts.video.card.tryAgain": "Try again",
+		"artifacts.video.card.another": "Another",
+		"artifacts.video.card.download": "Download",
+		"artifacts.video.card.more": "More",
+		"artifacts.video.card.history": "History",
+		"artifacts.video.card.historyUnavailable": "A clip keeps no versions.",
+		"artifacts.video.card.lengthA11y": "{count} seconds long",
+		"artifacts.video.card.goneDetail": "The video is no longer kept.",
+		"artifacts.video.card.elsewhereDetail":
+			"It opens in the chat it was made in.",
+		"artifacts.video.panel.loading": "Opening the video…",
+		"artifacts.video.panel.loadFailed": "Couldn't open the video.",
+		"artifacts.video.player.label": "{title} video player",
+		"artifacts.video.player.play": "Play video",
+		"artifacts.video.player.pause": "Pause video",
+		"artifacts.video.player.fullscreen": "Fullscreen",
+		"artifacts.video.player.keys":
+			"Space plays or pauses. Left and right seek. Up and down change the volume. M mutes, L loops, F goes fullscreen.",
+		"artifacts.video.row.making": "Making a video",
+		"artifacts.video.row.made": "Made",
+		"artifacts.video.row.stopped": "Stopped the video",
+		"artifacts.video.row.stillMaking": "The video is still being made",
+		"artifacts.video.row.failed": "Couldn't make the video",
+		"artifacts.video.row.blocked": "The video was blocked",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1210,11 +1260,13 @@ const artifactsDict = {
 		"artifacts.delete.button.canvas": "Tábla törlése",
 		"artifacts.delete.button.slides": "Diasor törlése",
 		"artifacts.delete.button.file": "Fájl törlése",
+		"artifacts.delete.button.video": "Videó törlése",
 		"artifacts.delete.title.document": "Törlöd ezt a dokumentumot?",
 		"artifacts.delete.title.app": "Törlöd ezt az alkalmazást?",
 		"artifacts.delete.title.canvas": "Törlöd ezt a táblát?",
 		"artifacts.delete.title.slides": "Törlöd ezt a diasort?",
 		"artifacts.delete.title.file": "Törlöd ezt a fájlt?",
+		"artifacts.delete.title.video": "Törlöd ezt a videót?",
 		"artifacts.delete.body.document":
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.app":
@@ -1224,6 +1276,7 @@ const artifactsDict = {
 		"artifacts.delete.body.slides":
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.file": "„{title}” törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.body.video": "„{title}” törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.bodyRegenerable.document":
 			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.app":
@@ -1241,6 +1294,7 @@ const artifactsDict = {
 		"artifacts.delete.done.canvas": "Tábla törölve",
 		"artifacts.delete.done.slides": "Diasor törölve",
 		"artifacts.delete.done.file": "Fájl törölve",
+		"artifacts.delete.done.video": "Videó törölve",
 		"artifacts.delete.rowMenu": "További műveletek: {title}",
 		"artifacts.deleted.document": "Ez a dokumentum törölve lett",
 		"artifacts.deleted.app": "Ez az alkalmazás törölve lett",
@@ -2129,6 +2183,50 @@ const artifactsDict = {
 		"artifacts.image.history.prompt": "Alfy utasítása",
 		"artifacts.image.history.marks": "{letters} jelöléssel",
 		"artifacts.image.history.then": "Akkor",
+
+		// A videó (LTX videó terv, 3. szelet): a képkártya testvére, a klip saját
+		// dolgaival: VIDEO jelvény a színpadon, a klip hossza és egy lejátszó.
+		"artifacts.video.badge": "VIDEÓ",
+		"artifacts.video.card.making": "Készül a videó…",
+		"artifacts.video.card.starting": "Indul a videókészítő…",
+		"artifacts.video.card.startingDetail":
+			"Szünet után előbb betöltődik a modell, ezért ez tovább tart.",
+		"artifacts.video.card.failed": "Ezt nem sikerült elkészíteni.",
+		"artifacts.video.card.nothingSaved": "Nem lett elmentve semmi.",
+		"artifacts.video.card.unavailable": "Most nem lehet videót készíteni.",
+		"artifacts.video.card.blocked": "Ezt a videót a szűrő visszatartotta.",
+		"artifacts.video.card.blockedDetail":
+			"Szexuális tartalmúnak tűnt, ezért nem jelenik meg, és nem maradt meg.",
+		"artifacts.video.card.unchecked": "Ezt a videót nem sikerült ellenőrizni.",
+		"artifacts.video.card.uncheckedDetail":
+			"A videókat megjelenés előtt ellenőrizzük, ezért ez nem maradt meg.",
+		"artifacts.video.card.stopped": "Leállítva.",
+		"artifacts.video.card.stop": "Leállítás",
+		"artifacts.video.card.tryAgain": "Újrapróbálom",
+		"artifacts.video.card.another": "Másik",
+		"artifacts.video.card.download": "Letöltés",
+		"artifacts.video.card.more": "Továbbiak",
+		"artifacts.video.card.history": "Előzmények",
+		"artifacts.video.card.historyUnavailable":
+			"Egy klipnek nincsenek korábbi változatai.",
+		"artifacts.video.card.lengthA11y": "{count} másodperc hosszú",
+		"artifacts.video.card.goneDetail": "A videó már nincs meg.",
+		"artifacts.video.card.elsewhereDetail":
+			"Abban a beszélgetésben nyitható meg, ahol készült.",
+		"artifacts.video.panel.loading": "Videó megnyitása…",
+		"artifacts.video.panel.loadFailed": "Nem sikerült megnyitni a videót.",
+		"artifacts.video.player.label": "{title} videólejátszó",
+		"artifacts.video.player.play": "Lejátszás",
+		"artifacts.video.player.pause": "Szüneteltetés",
+		"artifacts.video.player.fullscreen": "Teljes képernyő",
+		"artifacts.video.player.keys":
+			"Szóköz: lejátszás vagy szünet. Balra és jobbra: tekerés. Fel és le: hangerő. M: némítás, L: ismétlés, F: teljes képernyő.",
+		"artifacts.video.row.making": "Videó készül",
+		"artifacts.video.row.made": "Elkészült:",
+		"artifacts.video.row.stopped": "Videó leállítva",
+		"artifacts.video.row.stillMaking": "A videó még készül",
+		"artifacts.video.row.failed": "Nem sikerült a videó",
+		"artifacts.video.row.blocked": "A videót visszatartotta a szűrő",
 	},
 } as const;
 

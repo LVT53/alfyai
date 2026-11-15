@@ -14,6 +14,7 @@ import {
 	hasActiveImageTakes,
 	hasHeldImageTakes,
 } from "$lib/components/artifacts/image/image-card-view";
+import { isVideoTakeActive } from "$lib/components/artifacts/video/video-card-view";
 import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
 import {
 	type ComposerMarks,
@@ -35,6 +36,7 @@ import type { PendingWrite } from "$lib/server/services/connections/pending-writ
 import type { ConversationDraft } from "$lib/server/services/conversations";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { ImageCardView } from "$lib/server/services/images/read-model";
+import type { VideoCardView } from "$lib/server/services/images/video/read-model";
 import type {
 	ArtifactSummary,
 	PendingAttachment,
@@ -461,6 +463,25 @@ export function shouldPollImageCards(
 	);
 }
 
+/**
+ * Whether the chat page keeps polling for its video cards (video plan, slice
+ * 3b): a take is still being made, or a make_video call of the reply being
+ * streamed runs before its card exists (the stream carries no card; only the
+ * cards read does). The same rule as `shouldPollImageCards` — a video take has
+ * no held takes, because a clip has no takes strip to settle.
+ */
+export function shouldPollVideoCards(
+	cards: readonly VideoCardView[],
+	streamingToolCalls: readonly { name: string; status: string }[],
+): boolean {
+	return (
+		cards.some((card) => isVideoTakeActive(card.take)) ||
+		streamingToolCalls.some(
+			(call) => call.name === "make_video" && call.status === "running",
+		)
+	);
+}
+
 /** The poll while a take is being made: the card must show the picture the moment it lands. */
 const IMAGE_CARDS_ACTIVE_POLL_MS = 750;
 /** The poll otherwise: file and Atlas jobs still need their full detail reads, but no picture waits. */
@@ -477,6 +498,21 @@ export function imageCardsPollIntervalMs(
 	cards: readonly ImageCardView[],
 ): number {
 	return hasActiveImageTakes(cards)
+		? IMAGE_CARDS_ACTIVE_POLL_MS
+		: IMAGE_CARDS_IDLE_POLL_MS;
+}
+
+/**
+ * How often the chat page polls while it watches the video cards
+ * (`shouldPollVideoCards`): fast while a take is being made, so a clip that
+ * lands between two reads waits at most ~0.75 s, and the chat's ordinary 2.5 s
+ * otherwise. The same two numbers as the picture cards', since one tick reads
+ * both.
+ */
+export function videoCardsPollIntervalMs(
+	cards: readonly VideoCardView[],
+): number {
+	return cards.some((card) => isVideoTakeActive(card.take))
 		? IMAGE_CARDS_ACTIVE_POLL_MS
 		: IMAGE_CARDS_IDLE_POLL_MS;
 }

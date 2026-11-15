@@ -83,19 +83,19 @@ function stubReducedMotion(reduce: boolean) {
 }
 
 describe("the guide page", () => {
-	it("shows six sections and thirty rows", () => {
+	it("shows six sections and thirty-one rows", () => {
 		render(GuidePage);
 
 		const sections = screen.getAllByTestId("guide-section");
 		expect(sections.map((section) => section.id)).toEqual(
 			GUIDE_SECTION_IDS.map((id) => `guide-section-${id}`),
 		);
-		expect(screen.getAllByTestId("guide-row")).toHaveLength(30);
+		expect(screen.getAllByTestId("guide-row")).toHaveLength(31);
 		expect(
 			sections.map(
 				(section) => within(section).getAllByTestId("guide-row").length,
 			),
-		).toEqual([7, 6, 4, 4, 5, 4]);
+		).toEqual([7, 7, 4, 4, 5, 4]);
 		for (const entry of GUIDE_ENTRIES) {
 			expect(rowOf(entry.id).closest("section")?.id).toBe(
 				`guide-section-${entry.section}`,
@@ -162,7 +162,9 @@ describe("NEW", () => {
 	});
 
 	it("is gone after the thirty days, and nothing else ever wore it", () => {
-		vi.setSystemTime(new Date("2026-12-05T00:00:00Z"));
+		// Past both entries' windows: "Alfy asks first" (2026-11-05) and
+		// Videos (2026-11-15).
+		vi.setSystemTime(new Date("2026-12-16T00:00:00Z"));
 		render(GuidePage);
 
 		expect(screen.queryByText("NEW")).not.toBeInTheDocument();
@@ -234,15 +236,15 @@ describe("a row's buttons", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("has eight Try its, eighteen Show mes and four rows with neither", () => {
+	it("has nine Try its, eighteen Show mes and four rows with neither", () => {
 		render(GuidePage);
 
 		const kinds = GUIDE_ENTRIES.map((entry) => entry.action.kind);
-		expect(kinds.filter((kind) => kind === "tryIt")).toHaveLength(8);
+		expect(kinds.filter((kind) => kind === "tryIt")).toHaveLength(9);
 		expect(kinds.filter((kind) => kind === "showMe")).toHaveLength(18);
 		expect(kinds.filter((kind) => kind === "none")).toHaveLength(4);
 		expect(screen.getAllByRole("button", { name: /^Try it: / })).toHaveLength(
-			8,
+			9,
 		);
 		expect(screen.getAllByRole("button", { name: /^Show me: / })).toHaveLength(
 			18,
@@ -289,8 +291,8 @@ describe("Try it and Show me", () => {
 			examples.push(consumeHomeComposerSeed() ?? "");
 			unmount();
 		}
-		expect(examples).toHaveLength(8);
-		expect(new Set(examples).size).toBe(8);
+		expect(examples).toHaveLength(9);
+		expect(new Set(examples).size).toBe(9);
 		expect(examples).not.toContain("");
 	});
 

@@ -29,7 +29,9 @@ import type {
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type { ImageCardActionHandler } from "$lib/components/artifacts/image/image-card-view";
+import type { VideoCardActionHandler } from "$lib/components/artifacts/video/video-card-view";
 import type { ImageCardView } from "$lib/server/services/images/read-model";
+import type { VideoCardView } from "$lib/server/services/images/video/read-model";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
@@ -97,6 +99,8 @@ let {
 	deletedArtifacts = undefined,
 	imageCards = [],
 	onImageAction = undefined,
+	videoCards = [],
+	onVideoAction = undefined,
 	questions = [],
 	askActionState = {},
 	onAnswerQuestion = undefined,
@@ -235,6 +239,9 @@ let {
 	/** The chat's picture cards, for each reply's make_image cards (plan 2b T2). */
 	imageCards?: ImageCardView[];
 	onImageAction?: ImageCardActionHandler | undefined;
+	/** The chat's video cards, for each reply's make_video cards (video plan, slice 3b). */
+	videoCards?: VideoCardView[];
+	onVideoAction?: VideoCardActionHandler | undefined;
 	/**
 	 * The chat's questions ("Ask me first"): Alfy stopped a reply to ask the person.
 	 * Each is drawn in the segment that asked it, as a card while it waits and then as
@@ -272,6 +279,7 @@ let distanceToBottomPx = $state(0);
 let lastMessageCount = 0;
 let lastFileProductionJobCount = 0;
 let lastImageCardCount = 0;
+let lastVideoCardCount = 0;
 let lastAtlasJobUpdateKey = "";
 let lastContextCompressionMarkerCount = 0;
 let lastConversationId: string | null = null;
@@ -612,6 +620,7 @@ $effect.pre(() => {
 	isThinkingActive;
 	fileProductionJobs.length;
 	imageCards.length;
+	videoCards.length;
 	atlasJobs;
 	contextCompressionMarkers.length;
 
@@ -639,6 +648,7 @@ $effect.pre(() => {
 		lastMessageCount = 0;
 		lastFileProductionJobCount = 0;
 		lastImageCardCount = 0;
+		lastVideoCardCount = 0;
 		lastAtlasJobUpdateKey = "";
 		lastContextCompressionMarkerCount = 0;
 		lastOlderMessagesPrependVersion = olderMessagesPrependVersion;
@@ -688,6 +698,7 @@ $effect.pre(() => {
 		lastMessageCount = dedupedMessages.length;
 		lastFileProductionJobCount = fileProductionJobs.length;
 		lastImageCardCount = imageCards.length;
+		lastVideoCardCount = videoCards.length;
 		lastContextCompressionMarkerCount = contextCompressionMarkers.length;
 		return;
 	}
@@ -700,6 +711,7 @@ $effect.pre(() => {
 		lastMessageCount = 0;
 		lastFileProductionJobCount = fileProductionJobs.length;
 		lastImageCardCount = imageCards.length;
+		lastVideoCardCount = videoCards.length;
 		lastContextCompressionMarkerCount = contextCompressionMarkers.length;
 		return;
 	}
@@ -708,8 +720,10 @@ $effect.pre(() => {
 		hasNewMessage(dedupedMessages) && !prependedOlderMessages;
 	const hasNewFileProductionJobs =
 		fileProductionJobs.length > lastFileProductionJobCount;
-	// A picture card arrives under the reply it belongs to, like a file card.
-	const hasNewImageCards = imageCards.length > lastImageCardCount;
+	// A picture or video card arrives under the reply it belongs to, like a file card.
+	const hasNewImageCards =
+		imageCards.length > lastImageCardCount ||
+		videoCards.length > lastVideoCardCount;
 	const currentAtlasJobUpdateKey = atlasJobs
 		.map((job) => `${job.id}:${job.status}:${job.updatedAt}`)
 		.join("|");
@@ -767,6 +781,7 @@ $effect.pre(() => {
 	lastMessageCount = dedupedMessages.length;
 	lastFileProductionJobCount = fileProductionJobs.length;
 	lastImageCardCount = imageCards.length;
+	lastVideoCardCount = videoCards.length;
 	lastAtlasJobUpdateKey = currentAtlasJobUpdateKey;
 	lastContextCompressionMarkerCount = contextCompressionMarkers.length;
 });
@@ -792,6 +807,23 @@ $effect(() => {
 	if (!wanted) return;
 	imageCardBodyWarmed = true;
 	void import("$lib/components/artifacts/image/ImageCardBody.svelte");
+});
+
+/** The same for the video card's body: fetched once the chat has a clip card or a make_video call starts. */
+let videoCardBodyWarmed = false;
+$effect(() => {
+	if (videoCardBodyWarmed) return;
+	const wanted =
+		videoCards.length > 0 ||
+		messages.some((message) =>
+			message.thinkingSegments?.some(
+				(segment) =>
+					segment.type === "tool_call" && segment.name === "make_video",
+			),
+		);
+	if (!wanted) return;
+	videoCardBodyWarmed = true;
+	void import("$lib/components/artifacts/video/VideoCardBody.svelte");
 });
 
 /**
@@ -1500,6 +1532,8 @@ async function scrollToMessage(messageId: string) {
 					{deletedArtifacts}
 					{imageCards}
 					{onImageAction}
+					{videoCards}
+					{onVideoAction}
 					replyPlace={place}
 					joinedAbove={i > 0 && joinedToNext.has(dedupedMessages[i - 1].id)}
 					joinedBelow={joinedToNext.has(message.id)}

@@ -1368,6 +1368,9 @@ const settingsDict = {
 		"admin.system.integrations.webResearch": "Web research",
 		"admin.system.integrations.documentExtraction": "Document extraction",
 		"admin.system.integrations.pictures": "Pictures",
+		"admin.system.integrations.video": "Video",
+		"admin.system.integrations.videoHelp":
+			"An LTX server makes a short clip from a still picture. Without its address Alfy cannot make videos at all.",
 		"admin.system.integrations.webPush": "Web push notifications",
 		"admin.mineruStatus.title": "MinerU status",
 		"admin.mineruStatus.description":
@@ -1789,6 +1792,15 @@ const settingsDict = {
 		"admin.system.keys.COMFYUI_H3_URL.label": "H3 picture server",
 		"admin.system.keys.COMFYUI_H3_URL.meaning":
 			"The separate ComfyUI server for the H3 picture model. Used only when the picture model is H3; leave it empty and H3 pictures are off.",
+		"admin.system.keys.COMFYUI_LTX_URL.label": "Video server",
+		"admin.system.keys.COMFYUI_LTX_URL.meaning":
+			"The ComfyUI server that runs LTX and makes short videos. Leave it empty to turn video making off.",
+		"admin.system.keys.LTX_CAPTION_URL.label": "Caption endpoint",
+		"admin.system.keys.LTX_CAPTION_URL.meaning":
+			"An OpenAI-compatible chat server that rewrites the motion idea into the caption style LTX reads. Leave it empty and the motion idea is used as it is.",
+		"admin.system.keys.LTX_CAPTION_MODEL.label": "Caption model",
+		"admin.system.keys.LTX_CAPTION_MODEL.meaning":
+			"The model the caption endpoint is asked for. Both this and the endpoint are needed for the rewrite.",
 		"admin.system.keys.IMAGE_REFERENCE_CAP.label": "Source pictures per image",
 		"admin.system.keys.IMAGE_REFERENCE_CAP.meaning":
 			"How many pictures Alfy may use to make or change one image, from 1 to 10. Each extra picture costs the picture server about 2 GiB. A message itself may hold more.",
@@ -3499,6 +3511,9 @@ const settingsDict = {
 		"admin.system.integrations.webResearch": "Webes kutatás",
 		"admin.system.integrations.documentExtraction": "Dokumentumkivonatolás",
 		"admin.system.integrations.pictures": "Képek",
+		"admin.system.integrations.video": "Videó",
+		"admin.system.integrations.videoHelp":
+			"Az LTX-szerver készít rövid klipet egy állóképből. A címe nélkül Alfy egyáltalán nem tud videót készíteni.",
 		"admin.system.integrations.webPush": "Webes push-értesítések",
 		"admin.mineruStatus.title": "MinerU állapota",
 		"admin.mineruStatus.description":
@@ -3936,6 +3951,15 @@ const settingsDict = {
 		"admin.system.keys.COMFYUI_H3_URL.label": "H3-as képszerver",
 		"admin.system.keys.COMFYUI_H3_URL.meaning":
 			"A H3-as képmodell külön ComfyUI-szervere. Csak akkor használja, ha a képmodell H3; üresen hagyva nincs H3-as képkészítés.",
+		"admin.system.keys.COMFYUI_LTX_URL.label": "Videószerver",
+		"admin.system.keys.COMFYUI_LTX_URL.meaning":
+			"A ComfyUI-szerver, amely az LTX-et futtatja és rövid videókat készít. Üresen hagyva nincs videókészítés.",
+		"admin.system.keys.LTX_CAPTION_URL.label": "Képaláírás-végpont",
+		"admin.system.keys.LTX_CAPTION_URL.meaning":
+			"OpenAI-kompatibilis csevegőszerver, amely a mozgásötletet az LTX által olvasott képaláírás-stílusra írja át. Üresen hagyva a mozgásötlet változatlanul kerül a videóhoz.",
+		"admin.system.keys.LTX_CAPTION_MODEL.label": "Képaláírás-modell",
+		"admin.system.keys.LTX_CAPTION_MODEL.meaning":
+			"A modell, amelyet a képaláírás-végponttól kér. Az átíráshoz erre és a végpontra is szükség van.",
 		"admin.system.keys.IMAGE_REFERENCE_CAP.label": "Forrásképek egy képhez",
 		"admin.system.keys.IMAGE_REFERENCE_CAP.meaning":
 			"Egy kép elkészítéséhez vagy módosításához legfeljebb ennyi képet használhat Alfy (1–10). Minden további kép kb. 2 GiB-ot kér a képszervertől. Egy üzenetben ennél több kép is lehet.",

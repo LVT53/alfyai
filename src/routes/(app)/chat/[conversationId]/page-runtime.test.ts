@@ -14,6 +14,10 @@ import {
 	card as imageCardFixture,
 	take as imageTakeFixture,
 } from "$lib/components/artifacts/image/image-card-fixtures.test-helpers";
+import {
+	videoCard as videoCardFixture,
+	videoTake as videoTakeFixture,
+} from "$lib/components/artifacts/video/video-card-fixtures.test-helpers";
 import type { ModelId } from "$lib/model-types";
 import type { AppShellData } from "$lib/server/services/app-shell";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
@@ -119,6 +123,7 @@ const imageTakeChannelMock = vi.hoisted(() => ({
 	),
 	anotherImageTake: vi.fn(async () => ({ takeId: "take-another" })),
 	retryImageTake: vi.fn(async () => undefined),
+	sendVideoCardAction: vi.fn(async () => undefined),
 }));
 
 function conversationFixture(
@@ -350,6 +355,7 @@ vi.mock("$lib/client/api/conversations", () => ({
 	fetchConversationImageCards: vi.fn(async () => ({
 		conversationId: "conv-1",
 		imageCards: [],
+		videoCards: [],
 	})),
 	fetchMessageEvidence: vi.fn(),
 	fetchMessageUsage: vi.fn(async () => ({ status: "untracked" })),
@@ -364,6 +370,7 @@ vi.mock("$lib/client/api/images", async (importOriginal) => ({
 	anotherImageTake: imageTakeChannelMock.anotherImageTake,
 	awaitImageTakeSettled: imageTakeChannelMock.awaitImageTakeSettled,
 	retryImageTake: imageTakeChannelMock.retryImageTake,
+	sendVideoCardAction: imageTakeChannelMock.sendVideoCardAction,
 }));
 
 vi.mock("$lib/client/api/file-production", async (importOriginal) => ({
@@ -607,6 +614,8 @@ afterEach(() => {
 	vi.mocked(anotherImageTake).mockResolvedValue({ takeId: "take-another" });
 	vi.mocked(retryImageTake).mockReset();
 	vi.mocked(retryImageTake).mockResolvedValue(undefined);
+	imageTakeChannelMock.sendVideoCardAction.mockReset();
+	imageTakeChannelMock.sendVideoCardAction.mockResolvedValue(undefined);
 	runtimeHarness.orphanedStreamId = null;
 });
 
@@ -633,6 +642,7 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		fileProductionJobs: [],
 		artifacts: [],
 		imageCards: [],
+		videoCards: [],
 		deletedArtifactIds: [] as string[],
 		unreachableArtifactIds: [] as string[],
 		pendingWrites: [],
@@ -3516,6 +3526,7 @@ describe("chat page runtime integration", () => {
 			vi.mocked(fetchConversationImageCards).mockResolvedValueOnce({
 				conversationId: "conv-1",
 				imageCards: [imageCardFixture([imageTakeFixture()])],
+				videoCards: [],
 			});
 			renderPage(
 				pageData({
@@ -3544,6 +3555,67 @@ describe("chat page runtime integration", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	// The same tick carries the video cards, and a running video take arms it
+	// exactly as a picture take does — the interval shortens while it renders.
+	it("reads the cards while a video take is being made, and stops once it settles", async () => {
+		vi.useFakeTimers();
+		try {
+			vi.mocked(fetchConversationImageCards).mockResolvedValueOnce({
+				conversationId: "conv-1",
+				imageCards: [],
+				videoCards: [
+					videoCardFixture(videoTakeFixture({ status: "succeeded" })),
+				],
+			});
+			renderPage(
+				pageData({
+					videoCards: [
+						videoCardFixture(
+							videoTakeFixture({
+								status: "running",
+								phase: "rendering",
+								clip: null,
+							}),
+						),
+					],
+				}),
+			);
+			await tick();
+			vi.mocked(fetchConversationDetail).mockClear();
+			vi.mocked(fetchConversationImageCards).mockClear();
+
+			await vi.advanceTimersByTimeAsync(750);
+
+			expect(fetchConversationImageCards).toHaveBeenCalledWith("conv-1");
+			expect(fetchConversationDetail).not.toHaveBeenCalled();
+
+			await vi.advanceTimersByTimeAsync(5000);
+			expect(fetchConversationImageCards).toHaveBeenCalledTimes(1);
+			expect(fetchConversationDetail).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("passes a video card's buttons to the client sender", async () => {
+		renderPage(
+			pageData({
+				videoCards: [videoCardFixture(videoTakeFixture())],
+			}),
+		);
+		await tick();
+
+		const onVideoAction = pageChildren.pane?.onVideoAction as
+			| ((...args: unknown[]) => unknown)
+			| undefined;
+		await onVideoAction?.({ type: "stop", takeId: "video-take-1" });
+
+		expect(imageTakeChannelMock.sendVideoCardAction).toHaveBeenCalledWith(
+			{ type: "stop", takeId: "video-take-1" },
+			"conv-1",
+		);
 	});
 
 	// A take that settles outside a turn (Another, Try again) hears its end on

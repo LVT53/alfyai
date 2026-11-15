@@ -94,6 +94,11 @@ const guideDict = {
 		"guide.entry.pictures.line": "Make a picture from words, or change one.",
 		"guide.entry.pictures.example":
 			"Draw a birthday card with a fox in a party hat.",
+		"guide.entry.videos.name": "Videos",
+		"guide.entry.videos.line":
+			"Turn a still picture into a 5 or 10 second clip.",
+		"guide.entry.videos.example":
+			"Animate this photo: the waves roll in slowly.",
 		"guide.entry.files.name": "Files",
 		"guide.entry.files.line":
 			"PDF, Word, Excel or PowerPoint, ready to download.",
@@ -251,6 +256,11 @@ const guideDict = {
 			"Készíts képet szavakból, vagy alakíts át egyet.",
 		"guide.entry.pictures.example":
 			"Rajzolj születésnapi képeslapot egy partisapkás rókával.",
+		"guide.entry.videos.name": "Videók",
+		"guide.entry.videos.line":
+			"Változtass egy állóképet 5 vagy 10 másodperces klippé.",
+		"guide.entry.videos.example":
+			"Keltesd életre ezt a fotót: lassan begördülnek a hullámok.",
 		"guide.entry.files.name": "Fájlok",
 		"guide.entry.files.line":
 			"PDF, Word, Excel vagy PowerPoint, letöltésre készen.",

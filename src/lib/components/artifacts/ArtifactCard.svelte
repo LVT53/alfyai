@@ -41,6 +41,10 @@ import type { FileProductionJob } from "$lib/server/services/file-production/typ
 import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ImageCardActionHandler } from "./image/image-card-view";
+import type {
+	VideoCardActionHandler,
+	VideoCardView,
+} from "./video/video-card-view";
 import PictureThumb from "./image/PictureThumb.svelte";
 import { ARTIFACT_KIND_ICONS } from "./kind-icons";
 
@@ -216,6 +220,8 @@ let {
 	rowMenu = undefined,
 	imageCard = null,
 	onImageAction = undefined,
+	videoCard = null,
+	onVideoAction = undefined,
 }: {
 	view: ArtifactCardView;
 	/** Live job state for the File kind in the chat. */
@@ -257,6 +263,14 @@ let {
 	imageCard?: ImageCardView | null;
 	/** What the picture card's buttons ask for; the chat page answers. */
 	onImageAction?: ImageCardActionHandler | undefined;
+	/**
+	 * `kind: "video"`, `chrome="full"` (video plan, slice 3): the video card the
+	 * head is for, drawn under it by the lazily loaded `VideoCardBody`, head and
+	 * body together.
+	 */
+	videoCard?: VideoCardView | null;
+	/** What the video card's buttons ask for; the chat page answers. */
+	onVideoAction?: VideoCardActionHandler | undefined;
 } = $props();
 
 const TICKABLE_VISIBLE_LIMIT = 5;
@@ -373,6 +387,28 @@ let waitingForImageBody = $derived(
 		!ImageCardBody,
 );
 
+// The video card's body is lazy for the same reason: a chat with no clip never
+// loads it, and none of it is in the chat route's first load.
+let VideoCardBody = $state<
+	typeof import("./video/VideoCardBody.svelte").default | null
+>(null);
+$effect(() => {
+	if (view.kind !== "video" || !videoCard || VideoCardBody) return;
+	let cancelled = false;
+	void import("./video/VideoCardBody.svelte").then((module) => {
+		if (!cancelled) VideoCardBody = module.default;
+	});
+	return () => {
+		cancelled = true;
+	};
+});
+let waitingForVideoBody = $derived(
+	chrome === "full" &&
+		view.kind === "video" &&
+		videoCard != null &&
+		!VideoCardBody,
+);
+
 function handleOpen(): void {
 	if (view.openTargetId) onOpen?.(view.openTargetId);
 }
@@ -384,6 +420,8 @@ function handleOpen(): void {
 	{/if}
 {:else if waitingForImageBody}
 	<!-- The picture card's body is on its way: the card is drawn whole once it is here. -->
+{:else if waitingForVideoBody}
+	<!-- The video card's body is on its way: the card is drawn whole once it is here. -->
 {:else if chrome === 'row'}
 	<div class="artifact-row-wrap" class:artifact-row-has-menu={Boolean(rowMenu)}>
 	<button
@@ -504,7 +542,7 @@ function handleOpen(): void {
 				? 'deleted'
 				: undefined}
 	>
-		{#if chrome === 'full' && (view.deleted || view.unreachable) && !(view.kind === 'image' && imageCard)}
+		{#if chrome === 'full' && (view.deleted || view.unreachable) && !(view.kind === 'image' && imageCard) && !(view.kind === 'video' && videoCard)}
 			<!-- Polish G2-A: the item is gone. Not a button — there is nothing to
 			     open — but a plain head: the kind tile, the title, what happened
 			     and, where it can be made again, Regenerate. The security review's
@@ -609,7 +647,7 @@ function handleOpen(): void {
 						{/if}
 					</span>
 				</span>
-				{#if view.openTargetId || (view.kind === 'image' && imageCard)}
+				{#if view.openTargetId || (view.kind === 'image' && imageCard) || (view.kind === 'video' && videoCard)}
 					<!-- A picture card holds the place of its Open › while the picture is
 					     still being made (it becomes an item when it lands): on a narrow
 					     card the action is a row of its own, and drawing it late would
@@ -646,6 +684,15 @@ function handleOpen(): void {
 					<p class="artifact-card-failed-title">{$t('artifacts.card.failedTitle')}</p>
 					<p class="artifact-card-failed-reason">{view.failedReason}</p>
 				</div>
+			{:else if view.kind === 'video' && videoCard && VideoCardBody}
+				<!-- A clip keeps the picture card's shell for a deleted Video too:
+				     the head says so and the box says so, with no height change. -->
+				<VideoCardBody
+					card={videoCard}
+					conversationId={videoCard.conversationId}
+					onAction={onVideoAction}
+					gone={view.unreachable ? 'unreachable' : view.deleted ? 'deleted' : null}
+				/>
 			{:else if view.kind === 'image' && imageCard && ImageCardBody}
 				<!-- A picture card whose Image is gone keeps its head and box (no
 				     height change, F9): the head says so, the body says so in the box. -->

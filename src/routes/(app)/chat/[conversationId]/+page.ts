@@ -118,6 +118,7 @@ export const load: PageLoad = async ({
 		fileProductionJobs: detail.fileProductionJobs ?? [],
 		artifacts: detail.artifacts ?? [],
 		imageCards: detail.imageCards ?? [],
+		videoCards: detail.videoCards ?? [],
 		deletedArtifactIds: detail.deletedArtifactIds ?? [],
 		unreachableArtifactIds: detail.unreachableArtifactIds ?? [],
 		atlasJobs: detail.atlasJobs ?? [],

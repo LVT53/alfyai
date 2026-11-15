@@ -1,3 +1,7 @@
+import type {
+	VideoCardAction,
+	VideoCardActionResult,
+} from "$lib/components/artifacts/video/video-card-view";
 import { type FetchLike, requestJson, requestVoid } from "./http";
 
 /** The URL of a picture file. An incognito chat's pictures need the chat named. */
@@ -169,4 +173,74 @@ export function awaitImageTakeSettled(
 		listen("error", () => finish(false));
 		signal?.addEventListener("abort", onAbort, { once: true });
 	});
+}
+
+const videoTake = (takeId: string) =>
+	`/api/images/video/takes/${encodeURIComponent(takeId)}`;
+
+/** Asks for another take of the video card. */
+export function anotherVideoTake(
+	cardId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<{ takeId: string }> {
+	return requestJson(
+		actionUrl(
+			`/api/images/video/cards/${encodeURIComponent(cardId)}/another`,
+			conversationId,
+		),
+		{ method: "POST" },
+		"Could not make another video",
+		fetchImpl,
+	);
+}
+
+/** The video card's Stop. */
+export function stopVideoTake(
+	takeId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<void> {
+	return requestVoid(
+		actionUrl(`${videoTake(takeId)}/stop`, conversationId),
+		{ method: "POST" },
+		"Could not stop this video",
+		fetchImpl,
+	);
+}
+
+/** Try again, for a video take that failed or was stopped. */
+export function retryVideoTake(
+	takeId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<void> {
+	return requestVoid(
+		actionUrl(`${videoTake(takeId)}/retry`, conversationId),
+		{ method: "POST" },
+		"Could not try this video again",
+		fetchImpl,
+	);
+}
+
+/**
+ * Sends one video card's button press, mirroring the picture card's handler:
+ * Another names the take it queued, Stop and Try again answer nothing. A
+ * rejected promise means the server did not take it.
+ */
+export async function sendVideoCardAction(
+	action: VideoCardAction,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<VideoCardActionResult> {
+	switch (action.type) {
+		case "another":
+			return anotherVideoTake(action.cardId, conversationId, fetchImpl);
+		case "stop":
+			await stopVideoTake(action.takeId, conversationId, fetchImpl);
+			return undefined;
+		case "retry":
+			await retryVideoTake(action.takeId, conversationId, fetchImpl);
+			return undefined;
+	}
 }

@@ -24,9 +24,11 @@ export type FoldedDeliverables<Segment> = {
 	retried: Segment[];
 };
 
-/** Whether the row is a card of an item (a call that made or changed one, or a picture card). */
+/** Whether the row is a card of an item (a call that made or changed one, or a picture/video card). */
 function isCard(item: ToolActivityItem): boolean {
-	if (item.body?.kind === "image-card") return item.body.cardId !== null;
+	if (item.body?.kind === "image-card" || item.body?.kind === "video-card") {
+		return item.body.cardId !== null;
+	}
 	return (
 		item.body?.kind === "artifact" &&
 		item.artifact !== undefined &&
@@ -40,8 +42,9 @@ function isCard(item: ToolActivityItem): boolean {
  * a retry the model asks for) is one card in the reply (plan 2b preflight F5).
  */
 function cardKey(item: ToolActivityItem): string | undefined {
-	if (item.body?.kind === "image-card") {
-		return item.body.cardId ? `image-card:${item.body.cardId}` : undefined;
+	if (item.body?.kind === "image-card" || item.body?.kind === "video-card") {
+		const kind = item.body.kind === "image-card" ? "image-card" : "video-card";
+		return item.body.cardId ? `${kind}:${item.body.cardId}` : undefined;
 	}
 	return item.artifact?.id ?? undefined;
 }
