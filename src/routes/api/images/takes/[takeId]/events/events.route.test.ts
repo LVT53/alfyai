@@ -75,7 +75,9 @@ function event(takeId: string, userId: string | null, query = "") {
 }
 
 /** The route's answer, or the status of the refusal it threw. */
-async function call(run: () => Promise<Response>): Promise<Response> {
+async function call(
+	run: () => Response | Promise<Response>,
+): Promise<Response> {
 	try {
 		return await run();
 	} catch (error) {

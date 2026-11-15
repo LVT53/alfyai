@@ -3418,12 +3418,11 @@ describe("MessageArea's older messages", () => {
 	it("keeps the reader's place when older messages are prepended", async () => {
 		// jsdom lays nothing out: the thread's height is what this test says it is.
 		let scrollHeight = 1000;
-		let view: ReturnType<typeof render> | undefined;
 		const onLoadOlderMessages = vi.fn(async () => {
 			// The page's answer arrives: the older page joins the top of the list,
 			// which grows the thread by its height.
 			scrollHeight = 1400;
-			await view?.rerender({
+			await view.rerender({
 				messages: [...older, ...messages],
 				conversationId: "conv-older",
 				hasMoreMessages: true,
@@ -3432,13 +3431,16 @@ describe("MessageArea's older messages", () => {
 			});
 		});
 
-		view = render(MessageArea, {
+		// The queries come from `render` itself: its concrete query types make
+		// `getByRole` a `HTMLElement`, not the bare `Query` union.
+		const view = render(MessageArea, {
 			messages,
 			conversationId: "conv-older",
 			hasMoreMessages: true,
 			onLoadOlderMessages,
 		});
-		const scrollContainer = view.container.querySelector(
+		const { container, getByRole } = view;
+		const scrollContainer = container.querySelector(
 			".scroll-container",
 		) as HTMLDivElement;
 		Object.defineProperty(scrollContainer, "clientHeight", {
@@ -3454,9 +3456,7 @@ describe("MessageArea's older messages", () => {
 		scrollContainer.scrollTop = 0;
 		await fireEvent.scroll(scrollContainer);
 
-		await fireEvent.click(
-			view.getByRole("button", { name: "Load older messages" }),
-		);
+		await fireEvent.click(getByRole("button", { name: "Load older messages" }));
 
 		await waitFor(() => expect(scrollContainer.scrollTop).toBe(400));
 	});

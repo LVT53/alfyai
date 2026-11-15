@@ -107,9 +107,13 @@ class FakeEventSource {
 
 	emit(type: string, data?: unknown) {
 		for (const listener of [...(this.listeners.get(type) ?? [])]) {
-			listener({
-				data: data === undefined ? undefined : JSON.stringify(data),
-			} as Event);
+			// An EventSource delivers its named events as MessageEvents: the name
+			// is the signal and `data` carries the JSON payload.
+			listener(
+				new MessageEvent(type, {
+					data: data === undefined ? undefined : JSON.stringify(data),
+				}),
+			);
 		}
 	}
 }
