@@ -16,6 +16,7 @@ Low-level utilities consumed across server services. Pure functions, no side eff
 | `conversation-boundary-filter.ts` | Detects conversation boundaries for context splitting |
 | `extractive-compression.ts` | Text summarization without LLM |
 | `topic-shift-detector.ts` | Detects topic changes for memory management |
+| `tool-refusal.ts` | The error a tool throws to turn a call down before it dispatched anything; the tool envelope records it as proven not executed |
 
 ## Usage by Service
 
@@ -28,6 +29,7 @@ Low-level utilities consumed across server services. Pure functions, no side eff
 | `artifact-decay.ts` | `computeDecayScore`: the working set's message match only, never a sum of signals (`working-set.ts`); `computeCrossConversationDecay`: evidence ranking (`task-state.ts`) |
 | `conversation-boundary-filter.ts` | Chat context assembly |
 | `topic-shift-detector.ts` | Memory event emission |
+| `tool-refusal.ts` | `normal-chat-tools/` (the envelope in `shared.ts`, `fetch-url.ts`), `memory-context/history.ts` |
 
 ## Conventions
 

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
+
 export const fetchUrlInputSchema = z.object({
 	urls: z.array(z.string().url()).min(1).max(5),
 	objective: z.string().min(1).optional(),
@@ -12,9 +14,11 @@ export type FetchUrlInput = z.infer<typeof fetchUrlInputSchema>;
  * a tool (docs/plans/exfil-channels), so nothing may be fetched. The message is
  * what the model is told: model-safe, in the turn's language and without the
  * refused addresses, which are the model's own words. `refusedCount` is for the
- * recorded call's metadata.
+ * recorded call's metadata. It is a `ToolCallRefusedError`: the check runs before
+ * anything is fetched, so the call is a proven non-execution and the turn goes on,
+ * with the model reading this message.
  */
-export class FetchUrlRefusedError extends Error {
+export class FetchUrlRefusedError extends ToolCallRefusedError {
 	constructor(
 		message: string,
 		readonly refusedCount: number,

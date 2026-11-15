@@ -2,6 +2,8 @@
 
 Status: approved; amended by the owner's 2026-11-11 ruling that a returned failed file job is a known outcome and the working loop continues. Helmholtz's 2026-11-10 SPEC PASS remains historical evidence in `.superpowers/sdd/implementation-plan/produce-file-refusal-certainty-judge.md`.
 
+Amended 2026-11-15, after five production turns of 13 and 14 Nov ended with an empty reply: the fact is no longer produce_file's alone. A tool that turns a call down before it dispatches anything throws `ToolCallRefusedError` (`src/lib/server/utils/tool-refusal.ts`), and `executeToolWithEnvelope` records that call `definitely_not_executed`: `fetch_url` when no address came from the user or a tool, `memory_context` for a history id outside its scope. Thrown, aborted, timed-out and unknown errors stay uncertain, and there is still no semantic registry. The rule is in `src/lib/server/services/chat-turn/AGENTS.md`.
+
 ## Trusted fact in the existing recorder
 
 Only produce_file's existing pre-submission refuse() closure may mark its own fresh failed result as definitely_not_executed. Every call site must remain before submitFileProductionIntake for that invocation. This fact says nothing about previous invocations/jobs or unrelated server reads.

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import {
 	compactModelPayload,
 	compactToolInputSchema,
@@ -586,6 +587,43 @@ it.each([
 	expect(
 		createToolCallRecorder().getExecutionCertainty?.(output),
 	).toBeUndefined();
+});
+
+it("treats an error a tool threw to refuse a call before dispatching anything as a proven non-execution", async () => {
+	// A refusal subclass, as FetchUrlRefusedError is: the envelope asks the class.
+	class AddressRefusedError extends ToolCallRefusedError {}
+	const recorder = createToolCallRecorder();
+	const output = await executeToolWithEnvelope<{
+		success: boolean;
+		error: string;
+	}>({
+		toolName: "fetch_url",
+		timeoutMs: 1000,
+		options: { toolCallId: "refused", abortSignal: undefined },
+		recorder,
+		run: async () => {
+			throw new AddressRefusedError("Nothing was fetched.");
+		},
+		onError: () => ({
+			modelPayload: { success: false, error: "Nothing was fetched." },
+			entry: {
+				name: "fetch_url",
+				callId: "refused",
+				input: {},
+				status: "done" as const,
+			},
+		}),
+	});
+
+	expect(recorder.getExecutionCertainty?.(output)).toBe(
+		"definitely_not_executed",
+	);
+	// The fact is bound to this exact result, as for produce_file's own refusal.
+	expect(recorder.getExecutionCertainty?.({ ...output })).toBeUndefined();
+	// It is not a field of the recorded row either.
+	expect(JSON.stringify(recorder.getEntries())).not.toContain(
+		"definitely_not_executed",
+	);
 });
 
 it("keeps trusted non-execution certainty private and bound to the original result", () => {
