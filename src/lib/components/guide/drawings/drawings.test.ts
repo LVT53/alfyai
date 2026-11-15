@@ -157,6 +157,7 @@ describe("the guide's drawings", () => {
 			"knowledge.documents.filter.canvas",
 			"knowledge.documents.filter.app",
 			"knowledge.documents.filter.image",
+			"knowledge.documents.filter.video",
 			"knowledge.documents.filter.uploaded",
 			"settingsProfile",
 			"settingsConnections",

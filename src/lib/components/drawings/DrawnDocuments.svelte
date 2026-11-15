@@ -2,12 +2,14 @@
 /**
  * The Knowledge Base's Documents tab (`DocumentsList.svelte`): the row of kind
  * chips, in the order of its filter (All, Documents, Canvas, Apps, Images,
- * Files), and the first rows of the list, each a kind's icon, a name and a
- * date as grey lines. The chips carry the icons the list's own Name column
- * uses, which are not all the artifact cards' (a canvas is a dashboard here).
+ * Videos, Files), and the first rows of the list, each a kind's icon, a name
+ * and a date as grey lines. The chips carry the icons the list's own Name
+ * column uses, which are not all the artifact cards' (a canvas is a dashboard
+ * here).
  */
 import {
 	AppWindow,
+	Film,
 	Image,
 	LayoutDashboard,
 	Paperclip,
@@ -24,6 +26,7 @@ const CHIPS: readonly { word: I18nKey; icon?: Component }[] = [
 	{ word: "knowledge.documents.filter.canvas", icon: LayoutDashboard },
 	{ word: "knowledge.documents.filter.app", icon: AppWindow },
 	{ word: "knowledge.documents.filter.image", icon: Image },
+	{ word: "knowledge.documents.filter.video", icon: Film },
 	{ word: "knowledge.documents.filter.uploaded", icon: Paperclip },
 ];
 

@@ -57,11 +57,15 @@ let { lit = null }: { lit?: string | null } = $props();
 <style>
 	/* The top row is two pages, as the other drawings set theirs side by side;
 	   the bottom row is two pieces of the chat. Every cell is its own box, split
-	   by a line at the middle and one under the pages. */
+	   by one line down the frame and one under the pages. The split is 58/42
+	   rather than half: the Knowledge Base's seven kind chips need the extra
+	   width to stay on two lines in English (three in Hungarian), and the
+	   bottom row shares it so the divider stays one line. */
 	.knowledge,
 	.settings,
 	.menu-chat,
 	.card-chat {
+		--split: 58%;
 		position: absolute;
 		box-sizing: border-box;
 		background: var(--surface-page);
@@ -80,14 +84,14 @@ let { lit = null }: { lit?: string | null } = $props();
 	.knowledge,
 	.menu-chat {
 		left: 0;
-		width: 50%;
+		width: var(--split);
 		border-right: 1px solid var(--border-default);
 	}
 
 	.settings,
 	.card-chat {
 		right: 0;
-		left: 50%;
+		left: var(--split);
 	}
 
 	.menu-chat,

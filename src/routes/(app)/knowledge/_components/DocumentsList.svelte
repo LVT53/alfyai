@@ -294,9 +294,10 @@ function linkedProjectNames(displayArtifactId: string): string[] {
 
 // ── The chip row and summary line (Feature 2, ADR-0066) ──────────────────
 //
-// Six chips, the mockup's own order: All · Documents · Canvas · Apps ·
-// Slides · Uploaded (orchestrator amendment to ruling 46, 2026-09-25) — no
-// "file" chip; a produced file groups under Uploaded with its format pill.
+// Seven chips in the mockup's own order: All · Documents · Canvas · Apps ·
+// Images · Videos · Files (Slides is shelved, ruling 69; the orchestrator
+// amendment to ruling 46, 2026-09-25, set the family). No "file" chip; a
+// produced file groups under Files with its format pill.
 // Chip labels are the mockup's category NOUNS (`knowledge.documents.filter.*`),
 // never the singular `artifacts.type.*` word a row's own Type pill uses.
 
@@ -1574,7 +1575,7 @@ async function handleBulkDelete(): Promise<boolean> {
 				onclick={(e) => toggleDownloadMenu(e, artifactId)}
 			>
 				{#if preparing}
-					<Spinner size={14} />
+					<Spinner size={16} />
 				{:else}
 					<Download size={16} strokeWidth={2} aria-hidden="true" />
 				{/if}
@@ -1624,7 +1625,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			onclick={(e) => void chooseDownloadFormat(e, document, 'html')}
 		>
 			{#if preparing}
-				<Spinner size={14} />
+				<Spinner size={16} />
 			{:else}
 				<Download size={16} strokeWidth={2} aria-hidden="true" />
 			{/if}
@@ -3340,23 +3341,47 @@ async function handleBulkDelete(): Promise<boolean> {
 
 	.action-buttons {
 		display: flex;
+		flex: none;
 		gap: var(--space-xs);
 		justify-content: flex-end;
 	}
 
+	/* One control family: every row action is the same square, at every
+	   width, and only colour changes between variants (`-ai`, `-danger`,
+	   `is-open`, disabled). The size is a pointer-class fact, not a
+	   width-class one, so the phone card layout draws the same boxes as the
+	   desktop table: 32px for a fine pointer, a 44px touch target for a
+	   coarse one. The gap is the same spacing token in both. */
 	.action-btn {
-		display: flex;
+		--action-btn-size: 32px;
+		box-sizing: border-box;
+		display: inline-flex;
+		flex: none;
 		align-items: center;
 		justify-content: center;
-		width: 32px;
-		height: 32px;
+		width: var(--action-btn-size);
+		height: var(--action-btn-size);
+		min-width: var(--action-btn-size);
+		min-height: var(--action-btn-size);
 		padding: 0;
-		border: none;
+		border: 1px solid transparent;
 		border-radius: var(--radius-md);
 		background: transparent;
 		color: var(--icon-muted);
+		line-height: 0;
+		overflow: hidden;
 		cursor: pointer;
 		transition: all var(--duration-standard) var(--ease-out);
+	}
+
+	/* A coarse pointer's visible box is the touch target, and it is drawn on
+	   every button of the row, not only on some variants. */
+	@media (pointer: coarse) {
+		.action-btn {
+			--action-btn-size: 44px;
+			border-color: var(--border-subtle);
+			background: var(--surface-page);
+		}
 	}
 
 	.action-btn:hover {
@@ -3389,6 +3414,9 @@ async function handleBulkDelete(): Promise<boolean> {
 	.reextract-wrap {
 		position: relative;
 		display: flex;
+		flex: none;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.action-btn.is-open {
@@ -4059,20 +4087,8 @@ async function handleBulkDelete(): Promise<boolean> {
 			overflow: visible;
 		}
 
-		.action-buttons {
-			display: grid;
-			grid-template-columns: repeat(3, 44px);
-			gap: var(--space-sm);
-			justify-content: flex-end;
-			padding-top: 0.1rem;
-		}
-
-		.action-btn {
-			width: 44px;
-			min-height: 44px;
-			background: var(--surface-page);
-			border: 1px solid var(--border-subtle);
-		}
+		/* The action buttons are the same control family here as in the table:
+		   same square, same gap. Only their container changes. */
 
 		.page-size-select,
 		.pagination-btn,

@@ -710,16 +710,17 @@ describe("parseKnowledgeKindFilter", () => {
 });
 
 describe("DOCUMENT_TYPE_FILTER_ORDER", () => {
-	// Ruling 69 (Slides is shelved): the mockup's six chips lose one. Production
-	// shows no filter for a kind it cannot make; the day Slides ships it is one
-	// entry back, between Apps and Files.
-	it("is All · Documents · Canvas · Apps · Images · Files while no Slides can exist", () => {
+	// Ruling 69 (Slides is shelved): the mockup's seven chips lose one.
+	// Production shows no filter for a kind it cannot make; the day Slides
+	// ships it is one entry back, in the mockup's reading order.
+	it("is All · Documents · Canvas · Apps · Images · Videos · Files while no Slides can exist", () => {
 		expect(DOCUMENT_TYPE_FILTER_ORDER).toEqual([
 			"all",
 			"document",
 			"canvas",
 			"app",
 			"image",
+			"video",
 			"uploaded",
 		]);
 	});
@@ -780,6 +781,16 @@ describe("documentTypeFilterFor", () => {
 				doc({ id: "7", name: "Trip recap", kind: "slides" }),
 			),
 		).toBe("slides");
+	});
+
+	// A clip is its own bucket: the Videos chip, never Files. Files is for
+	// uploads and produced files; a video artifact is neither.
+	it("buckets a Video into 'video', never into 'uploaded'", () => {
+		expect(
+			documentTypeFilterFor(
+				doc({ id: "8", name: "Sunset clip.mp4", kind: "video" }),
+			),
+		).toBe("video");
 	});
 });
 

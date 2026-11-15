@@ -221,9 +221,9 @@ export type DocumentKind =
 
 /**
  * The chip-filter vocabulary (orchestrator amendment to ruling 46,
- * 2026-09-25): "all" plus the five buckets `KnowledgeDocumentKindFilter`
- * already names server-side. There is no "file" chip — a produced file
- * groups under "uploaded" with its own format pill.
+ * 2026-09-25): "all" plus every bucket `KnowledgeDocumentKindFilter` names
+ * server-side. There is no "file" chip — a produced file groups under
+ * "uploaded" with its own format pill.
  */
 export type DocumentTypeFilter = "all" | KnowledgeDocumentKindFilter;
 
@@ -231,10 +231,9 @@ export type DocumentTypeFilter = "all" | KnowledgeDocumentKindFilter;
  * Every `?type=` value the Knowledge page accepts — the ONE list, read by the
  * page's server load and by the page itself. Two hand-kept copies drifted
  * (the page's lacked "image", so `?type=image` silently fell back to All).
- * Slides stays accepted though its chip is shelved (ruling 69, see below), and
- * Video is accepted though its chip is not in the row yet: the kind, its card
- * and make_video have shipped, so a kept link narrows to the Video rows
- * instead of silently widening to All.
+ * Slides stays accepted though its chip is shelved (ruling 69, see below).
+ * Video's chip sits between Images and Files, and its kept links narrow to the
+ * Video rows rather than widening to All.
  */
 const KNOWLEDGE_KIND_FILTERS: ReadonlySet<string> =
 	new Set<KnowledgeDocumentKindFilter>([
@@ -268,29 +267,33 @@ export function parseFileFamilyFilter(value: string | null): FileFamily | null {
 }
 
 /** Chip order, the mockup's left-to-right reading order less Slides:
- *  All · Documents · Canvas · Apps · Images · Uploaded (shown as Files).
+ *  All · Documents · Canvas · Apps · Images · Videos · Files.
  *
  *  Ruling 69: Slides is shelved, so production shows no filter for a kind it
  *  cannot make. Only the chip row hides: `DocumentTypeFilter`, the server's
  *  kind filter and the summary line still know "slides", so bringing it back is
- *  one entry here, between Apps and Uploaded, in the commit that ships Slides. */
+ *  one entry here, in the mockup's reading order, in the commit that ships
+ *  Slides. */
 export const DOCUMENT_TYPE_FILTER_ORDER: readonly DocumentTypeFilter[] = [
 	"all",
 	"document",
 	"canvas",
 	"app",
 	"image",
+	"video",
 	"uploaded",
 ];
 
 /**
- * Which chip a row belongs under. Skill Notes fold into "uploaded" for this
- * purpose — ruling 46 is about "all five kinds" plus what predates them, and
- * a sixth chip for an internal, rare kind is scope the mockup doesn't show.
- * A produced file folds into "uploaded" too (corrected ruling 46: it groups
- * with its own format pill, exactly like an upload — there is no "file"
- * chip). The Type COLUMN still renders "Skill note"/"Generated" distinctly
- * (`getDocumentKind`, unchanged) — only the chip grouping coarsens it.
+ * Which chip a row belongs under. An artifact-family row keeps its own kind,
+ * so a Video maps to the Videos chip (never to Files). Skill Notes fold into
+ * "uploaded" for this purpose — ruling 46 is about the kinds the mockup names
+ * plus what predates them, and a separate chip for an internal, rare kind is
+ * scope the mockup doesn't show. A produced file folds into "uploaded" too
+ * (corrected ruling 46: it groups with its own format pill, exactly like an
+ * upload — there is no "file" chip). The Type COLUMN still renders "Skill
+ * note"/"Generated" distinctly (`getDocumentKind`, unchanged) — only the chip
+ * grouping coarsens it.
  */
 export function documentTypeFilterFor(
 	document: KnowledgeDocumentItem,

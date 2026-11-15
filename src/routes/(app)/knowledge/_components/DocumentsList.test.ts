@@ -1861,7 +1861,7 @@ describe("DocumentsList", () => {
 						canvas: 3,
 						slides: 1,
 						image: 0,
-						video: 0,
+						video: 2,
 						uploaded: 12,
 					},
 				},
@@ -1869,7 +1869,7 @@ describe("DocumentsList", () => {
 
 			expect(
 				screen.getByTestId("documents-filter-chip-all").textContent?.trim(),
-			).toBe("All 24");
+			).toBe("All 26");
 			expect(
 				screen
 					.getByTestId("documents-filter-chip-document")
@@ -1886,6 +1886,11 @@ describe("DocumentsList", () => {
 			// counts toward All, as the sum above shows, but gets no chip.
 			expect(screen.queryByTestId("documents-filter-chip-slides")).toBeNull();
 			expect(screen.queryByText(/Slides/)).toBeNull();
+			// Videos is its own chip, between Images and Files (the mockup's
+			// reading order), with its own live count.
+			expect(
+				screen.getByTestId("documents-filter-chip-video").textContent?.trim(),
+			).toBe("Videos 2");
 			// Ruling 60: "Uploaded" became "Files" — the chip still covers the
 			// same bucket, only its label changed.
 			expect(
@@ -1918,7 +1923,14 @@ describe("DocumentsList", () => {
 				screen.getByTestId("documents-filter-chip-all").querySelector("svg"),
 			).toBeNull();
 			// Every chip there is (ruling 69: no Slides chip while Slides is shelved).
-			for (const filter of ["document", "canvas", "app", "uploaded"]) {
+			for (const filter of [
+				"document",
+				"canvas",
+				"app",
+				"image",
+				"video",
+				"uploaded",
+			]) {
 				expect(
 					screen
 						.getByTestId(`documents-filter-chip-${filter}`)
@@ -1951,6 +1963,17 @@ describe("DocumentsList", () => {
 			expect(describedBy).toBeTruthy();
 			expect(document.getElementById(describedBy as string)?.textContent).toBe(
 				"No apps yet",
+			);
+
+			// Videos has a reason of its own, in both languages, and it is read
+			// through the same zero-count path as every other chip.
+			const videoChip = screen.getByTestId("documents-filter-chip-video");
+			expect(videoChip).toBeDisabled();
+			expect(videoChip).toHaveAttribute("title", "No videos yet");
+			const videoReason = videoChip.getAttribute("aria-describedby");
+			expect(videoReason).toBeTruthy();
+			expect(document.getElementById(videoReason as string)?.textContent).toBe(
+				"No videos yet",
 			);
 
 			// A non-zero chip stays enabled, with no reason attached.

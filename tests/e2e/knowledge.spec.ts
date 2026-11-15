@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
 	type APIRequestContext,
 	expect,
+	type Locator,
 	type Page,
 	test,
 } from "@playwright/test";
@@ -32,7 +33,12 @@ import {
 	seedSucceededAppJob,
 	TITLE,
 } from "./artifact-download-helpers";
-import { login, TEST_EMAIL, waitForHydration } from "./helpers";
+import {
+	login,
+	TEST_EMAIL,
+	waitForHydration,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 /**
  * The page opens on Documents (friction audit F23, ruling 77); the Memory
@@ -435,6 +441,7 @@ test.describe("Knowledge page", () => {
 			/^\s*Canvas/,
 			/^\s*Apps/,
 			/^\s*Images/,
+			/^\s*Videos/,
 			/^\s*Files/,
 		]);
 		await expect(page.getByTestId("documents-filter-chip-slides")).toHaveCount(
@@ -461,6 +468,84 @@ test.describe("Knowledge page", () => {
 			).toHaveAttribute("aria-pressed", "true");
 		});
 	}
+
+	// The kind shipped (`make_video` makes clips) but the chip row never grew a
+	// Videos chip, so a person could not filter to their clips. It sits between
+	// Images and Files, counts its own rows, and a clip is never also a File.
+	test("the Videos chip carries its live count, filters to clips only, and says why it is empty", async ({
+		page,
+	}) => {
+		const [user] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, TEST_EMAIL));
+		const documentTitle = `Paperwork zzdoc${Date.now()}`;
+		const { conversationId } = await seedDocument({ title: documentTitle });
+		// A token no other row on this worker carries: the query below must
+		// match this clip alone, or the counts would count someone else's rows.
+		const videoName = `Videofile zzvideo${Date.now()}`;
+		const now = new Date();
+		await db.insert(artifacts).values({
+			id: `e2e-video-${Date.now()}`,
+			userId: user.id,
+			conversationId,
+			type: "artifact",
+			retrievalClass: "durable",
+			name: videoName,
+			metadataJson: JSON.stringify({
+				artifactType: "video",
+				title: videoName,
+			}),
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		try {
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+
+			// A query narrows the counts to this clip alone, so the numbers are
+			// the chip's own and not another spec's leftovers on this worker.
+			const search = page.getByRole("searchbox", {
+				name: "Search documents",
+			});
+			await search.fill(videoName);
+			await expect(page).toHaveURL(/[?&]q=/);
+
+			const videosChip = page.getByTestId("documents-filter-chip-video");
+			await expect(videosChip).toHaveText(/Videos\s+1/);
+			// A clip is its own bucket: it must not also land in Files.
+			await expect(
+				page.getByTestId("documents-filter-chip-uploaded"),
+			).toHaveText(/Files\s+0/);
+			await expect(page.getByTestId("documents-filter-chip-all")).toHaveText(
+				/All\s+1/,
+			);
+
+			await videosChip.click();
+			await expect(page).toHaveURL(/[?&]type=video/);
+			const videoRow = page.locator("tbody tr", { hasText: videoName });
+			await expect(videoRow).toBeVisible();
+			await expect(videoRow.locator(".col-type")).toHaveText("Video");
+
+			// With the query gone the kind filter alone still hides the Document.
+			await search.fill("");
+			await expect(page).not.toHaveURL(/[?&]q=/);
+			await expect(videoRow).toBeVisible();
+			await expect(
+				page.locator("tbody tr", { hasText: documentTitle }),
+			).toHaveCount(0);
+
+			// A zero-count Videos chip says its own reason, in the reader's words.
+			await search.fill(`zzzznosuch${Date.now()}`);
+			await expect(videosChip).toHaveAttribute("title", "No videos yet");
+			await expect(
+				page.getByText("No documents match your search"),
+			).toBeVisible();
+		} finally {
+			await cleanUpConversation(conversationId);
+		}
+	});
 
 	// Slice 7 (Feature 2, ADR-0066): the artifact family (Document/App/Canvas/
 	// Slides) joins the Documents tab. Neither this spec nor any other seeded
@@ -1109,5 +1194,83 @@ test.describe("Knowledge page", () => {
 				.delete(conversations)
 				.where(eq(conversations.id, conversationId));
 		}
+	});
+
+	// Friction audit: the Owner saw "some of them have larger touch surfaces
+	// and the gap between the icons is not equal". Open, Download and Delete
+	// are one control family: one square, one gap, at every width.
+	test.describe("the row action buttons are one control family", () => {
+		// A phone is a coarse pointer, not a narrow desktop. The touch target is
+		// a pointer fact, so the 44px square must hold above 720px too — where
+		// this spec used to measure 32px boxes with 4px gaps beside them.
+		test.use({
+			viewport: { width: 390, height: 844 },
+			hasTouch: true,
+			isMobile: true,
+		});
+
+		async function expectOneControlFamily(row: Locator) {
+			const actions = row.locator(".col-actions .action-btn");
+			await expect(actions).toHaveCount(3);
+			await waitForStableBoundingBox(actions.first());
+
+			const boxes = await actions.evaluateAll((nodes) =>
+				nodes.map((node) => {
+					const box = node.getBoundingClientRect();
+					return {
+						x: box.x,
+						y: box.y,
+						width: box.width,
+						height: box.height,
+					};
+				}),
+			);
+			expect(boxes).toHaveLength(3);
+
+			const [first] = boxes;
+			for (const box of boxes) {
+				// Equal squares: same width and height as the first, ±1px.
+				expect(Math.abs(box.width - first.width)).toBeLessThanOrEqual(1);
+				expect(Math.abs(box.height - first.height)).toBeLessThanOrEqual(1);
+				// A coarse pointer's hit area is 44px on every one of them.
+				expect(Math.round(box.width)).toBe(44);
+				expect(Math.round(box.height)).toBe(44);
+			}
+
+			// One gap between every pair, from one spacing token, ±1px.
+			const gaps = boxes
+				.slice(1)
+				.map((box, index) => box.x - (boxes[index].x + boxes[index].width));
+			for (const gap of gaps) {
+				expect(Math.abs(gap - gaps[0])).toBeLessThanOrEqual(1);
+			}
+		}
+
+		test("measures equal 44px squares and equal gaps in the phone card and the table", async ({
+			page,
+		}) => {
+			const { conversationId, title } = await seedDocument({
+				title: `${TITLE} actions ${Date.now()}`,
+			});
+			try {
+				await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+				await waitForHydration(page);
+				const row = page
+					.locator("tbody tr", { hasText: title })
+					.filter({ has: page.locator(".col-type .type-artifact") });
+				await expect(row).toHaveCount(1);
+
+				// Below 720px the same actions are drawn in the card layout.
+				await expectOneControlFamily(row);
+
+				// Above it they are the table's Actions column; the touch target
+				// must not shrink just because the window grew.
+				await page.setViewportSize({ width: 1024, height: 900 });
+				await expect(row).toHaveCount(1);
+				await expectOneControlFamily(row);
+			} finally {
+				await cleanUpConversation(conversationId);
+			}
+		});
 	});
 });
