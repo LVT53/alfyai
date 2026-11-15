@@ -3,6 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <!--
+      The two faces the cold landing paints above the fold: Nimbus Sans L
+      Regular (body/UI) and Libre Baskerville Regular (the serif greeting).
+      Preloading them starts the request with the document instead of leaving
+      it behind app.css parsing. `crossorigin` is required for fonts even
+      same-origin, or the preload and the @font-face fetch do not match and the
+      file is downloaded twice. Nimbus Sans L Bold is deliberately absent: the
+      bold UI text it serves is not first paint, so preloading it would be a
+      request the landing does not need yet. Keep this list matched to what the
+      first paint uses; see the @font-face blocks in src/app.css.
+    -->
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/NimbusSanL-Regular.woff2" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/LibreBaskerville-Regular.woff2" />
     <script nonce="%sveltekit.nonce%">
       // Disable browser scroll restoration. The app manages its own scroll
       // via the MessageArea overflow container — the browser restoring
