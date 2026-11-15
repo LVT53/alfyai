@@ -1,1000 +1,1007 @@
 {
-  "version": "7",
-  "dialect": "sqlite",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "6",
-      "when": 1773694529817,
-      "tag": "0000_flowery_red_skull",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1773842394708,
-      "tag": "0001_useful_millenium_guard",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1773842394709,
-      "tag": "0002_persist_message_thinking",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1773842394710,
-      "tag": "0003_settings_and_analytics",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1774233600000,
-      "tag": "0004_profile_picture",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1774567460032,
-      "tag": "0005_flaky_famine",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1774799100000,
-      "tag": "0006_memory_overview_cache",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1775141732384,
-      "tag": "0007_thankful_inertia",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1775157367422,
-      "tag": "1775157367422_chat_generated_files",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1775240400000,
-      "tag": "1775240400000_chat_generated_files_assistant_message",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1775326800000,
-      "tag": "1775326800000_memory_events",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1775413200000,
-      "tag": "1775413200000_semantic_embeddings",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "7",
-      "when": 1775416800000,
-      "tag": "1775416800000_users_honcho_peer_version",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "7",
-      "when": 1777140000000,
-      "tag": "1777140000000_inference_providers",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "7",
-      "when": 1777140000001,
-      "tag": "1777140000001_inference_provider_reasoning_options",
-      "breakpoints": true
-    },
-    {
-      "idx": 15,
-      "version": "7",
-      "when": 1777140000002,
-      "tag": "1777140000002_inference_provider_context_limits",
-      "breakpoints": true
-    },
-    {
-      "idx": 16,
-      "version": "7",
-      "when": 1777140000003,
-      "tag": "1777140000003_users_title_language",
-      "breakpoints": true
-    },
-    {
-      "idx": 17,
-      "version": "7",
-      "when": 1777140000004,
-      "tag": "1777140000004_inference_provider_max_tokens",
-      "breakpoints": true
-    },
-    {
-      "idx": 18,
-      "version": "7",
-      "when": 1777140000005,
-      "tag": "1777140000005_users_ui_language",
-      "breakpoints": true
-    },
-    {
-      "idx": 19,
-      "version": "7",
-      "when": 1777140000006,
-      "tag": "1777140000006_immutable_usage_analytics",
-      "breakpoints": true
-    },
-    {
-      "idx": 20,
-      "version": "7",
-      "when": 1777140000007,
-      "tag": "1777140000007_personality_profiles",
-      "breakpoints": true
-    },
-    {
-      "idx": 21,
-      "version": "7",
-      "when": 1777140000008,
-      "tag": "1777140000008_users_preferred_personality",
-      "breakpoints": true
-    },
-    {
-      "idx": 22,
-      "version": "7",
-      "when": 1777140000009,
-      "tag": "1777140000009_file_production_jobs",
-      "breakpoints": true
-    },
-    {
-      "idx": 23,
-      "version": "7",
-      "when": 1777140000010,
-      "tag": "1777140000010_file_production_job_attempts",
-      "breakpoints": true
-    },
-    {
-      "idx": 24,
-      "version": "7",
-      "when": 1777140000011,
-      "tag": "1777140000011_file_production_requests",
-      "breakpoints": true
-    },
-    {
-      "idx": 25,
-      "version": "7",
-      "when": 1777140000012,
-      "tag": "1777140000012_deep_research_jobs",
-      "breakpoints": true
-    },
-    {
-      "idx": 26,
-      "version": "7",
-      "when": 1777140000013,
-      "tag": "1777140000013_deep_research_plan_versions",
-      "breakpoints": true
-    },
-    {
-      "idx": 27,
-      "version": "7",
-      "when": 1777140000014,
-      "tag": "1777140000014_deep_research_timeline_usage",
-      "breakpoints": true
-    },
-    {
-      "idx": 28,
-      "version": "7",
-      "when": 1777140000015,
-      "tag": "1777140000015_deep_research_report_artifact",
-      "breakpoints": true
-    },
-    {
-      "idx": 29,
-      "version": "7",
-      "when": 1777140000016,
-      "tag": "1777140000016_deep_research_sources",
-      "breakpoints": true
-    },
-    {
-      "idx": 30,
-      "version": "7",
-      "when": 1777140000017,
-      "tag": "1777140000017_deep_research_tasks",
-      "breakpoints": true
-    },
-    {
-      "idx": 31,
-      "version": "7",
-      "when": 1777140000018,
-      "tag": "1777140000018_deep_research_quality_metadata",
-      "breakpoints": true
-    },
-    {
-      "idx": 32,
-      "version": "7",
-      "when": 1777140000019,
-      "tag": "1777140000019_deep_research_topic_relevance",
-      "breakpoints": true
-    },
-    {
-      "idx": 33,
-      "version": "7",
-      "when": 1777140000020,
-      "tag": "1777140000020_deep_research_pass_state",
-      "breakpoints": true
-    },
-    {
-      "idx": 34,
-      "version": "7",
-      "when": 1777140000021,
-      "tag": "1777140000021_deep_research_resume_points",
-      "breakpoints": true
-    },
-    {
-      "idx": 35,
-      "version": "7",
-      "when": 1777140000022,
-      "tag": "1777140000022_deep_research_evidence_notes",
-      "breakpoints": true
-    },
-    {
-      "idx": 36,
-      "version": "7",
-      "when": 1777140000023,
-      "tag": "1777140000023_deep_research_source_quality_signals",
-      "breakpoints": true
-    },
-    {
-      "idx": 37,
-      "version": "7",
-      "when": 1777140000024,
-      "tag": "1777140000024_deep_research_synthesis_claims",
-      "breakpoints": true
-    },
-    {
-      "idx": 38,
-      "version": "7",
-      "when": 1777140000025,
-      "tag": "1777140000025_deep_research_citation_audit_verdicts",
-      "breakpoints": true
-    },
-    {
-      "idx": 39,
-      "version": "7",
-      "when": 1777140000026,
-      "tag": "1777140000026_deep_research_comparison_axes",
-      "breakpoints": true
-    },
-    {
-      "idx": 40,
-      "version": "7",
-      "when": 1777140000027,
-      "tag": "1777140000027_deep_research_drop_active_conversation_unique",
-      "breakpoints": true
-    },
-    {
-      "idx": 41,
-      "version": "7",
-      "when": 1777140000028,
-      "tag": "1777140000028_project_folder_canonical_memory",
-      "breakpoints": true
-    },
-    {
-      "idx": 42,
-      "version": "7",
-      "when": 1777140000029,
-      "tag": "1777140000029_conversation_summaries",
-      "breakpoints": true
-    },
-    {
-      "idx": 43,
-      "version": "7",
-      "when": 1777140000030,
-      "tag": "1777140000030_user_skill_definitions",
-      "breakpoints": true
-    },
-    {
-      "idx": 44,
-      "version": "7",
-      "when": 1777140000031,
-      "tag": "1777140000031_conversation_draft_linked_sources",
-      "breakpoints": true
-    },
-    {
-      "idx": 45,
-      "version": "7",
-      "when": 1777140000032,
-      "tag": "1777140000032_system_skill_published",
-      "breakpoints": true
-    },
-    {
-      "idx": 46,
-      "version": "7",
-      "when": 1777140000033,
-      "tag": "1777140000033_conversation_draft_pending_skill",
-      "breakpoints": true
-    },
-    {
-      "idx": 47,
-      "version": "7",
-      "when": 1777140000034,
-      "tag": "1777140000034_skill_sessions",
-      "breakpoints": true
-    },
-    {
-      "idx": 48,
-      "version": "7",
-      "when": 1777140000035,
-      "tag": "1777140000035_skill_notes",
-      "breakpoints": true
-    },
-    {
-      "idx": 49,
-      "version": "7",
-      "when": 1777140000036,
-      "tag": "1777140000036_inference_provider_rate_limit_fallback",
-      "breakpoints": true
-    },
-    {
-      "idx": 50,
-      "version": "7",
-      "when": 1777140000037,
-      "tag": "1777140000037_conversation_forks",
-      "breakpoints": true
-    },
-    {
-      "idx": 51,
-      "version": "7",
-      "when": 1777140000038,
-      "tag": "1777140000038_conversation_forks_sequence_unique",
-      "breakpoints": true
-    },
-    {
-      "idx": 52,
-      "version": "7",
-      "when": 1777140000039,
-      "tag": "1777140000039_campaign_assets",
-      "breakpoints": true
-    },
-    {
-      "idx": 53,
-      "version": "7",
-      "when": 1777140000040,
-      "tag": "1777140000040_user_model_preference_inheritance",
-      "breakpoints": true
-    },
-    {
-      "idx": 54,
-      "version": "7",
-      "when": 1777140000041,
-      "tag": "1777140000041_announcement_campaigns",
-      "breakpoints": true
-    },
-    {
-      "idx": 55,
-      "version": "7",
-      "when": 1777140000042,
-      "tag": "1777140000042_message_sequence",
-      "breakpoints": true
-    },
-    {
-      "idx": 56,
-      "version": "7",
-      "when": 1777140000043,
-      "tag": "1777140000043_skill_packs_variants",
-      "breakpoints": true
-    },
-    {
-      "idx": 57,
-      "version": "7",
-      "when": 1777140000044,
-      "tag": "1777140000044_sidebar_pin_order",
-      "breakpoints": true
-    },
-    {
-      "idx": 58,
-      "version": "7",
-      "when": 1777140000045,
-      "tag": "1777140000045_model_icons_optional_campaign_images",
-      "breakpoints": true
-    },
-    {
-      "idx": 59,
-      "version": "7",
-      "when": 1777140000046,
-      "tag": "1777140000046_context_compression_snapshots",
-      "breakpoints": true
-    },
-    {
-      "idx": 60,
-      "version": "7",
-      "when": 1777140000047,
-      "tag": "1777140000047_retire_langflow_admin_config",
-      "breakpoints": true
-    },
-    {
-      "idx": 61,
-      "version": "7",
-      "when": 1777140000048,
-      "tag": "1777140000048_provider_capabilities",
-      "breakpoints": true
-    },
-    {
-      "idx": 62,
-      "version": "7",
-      "when": 1777140000049,
-      "tag": "1777140000049_messages_import_source_import_jobs",
-      "breakpoints": true
-    },
-    {
-      "idx": 63,
-      "version": "7",
-      "when": 1777140000050,
-      "tag": "1777140000050_providers",
-      "breakpoints": true
-    },
-    {
-      "idx": 64,
-      "version": "7",
-      "when": 1777140000051,
-      "tag": "1777140000051_provider_models",
-      "breakpoints": true
-    },
-    {
-      "idx": 65,
-      "version": "7",
-      "when": 1777140000052,
-      "tag": "1777140000052_drop_inference_providers_and_model_price_rules",
-      "breakpoints": true
-    },
-    {
-      "idx": 66,
-      "version": "7",
-      "when": 1777140000053,
-      "tag": "1777140000053_provider_models_icon_asset_id",
-      "breakpoints": true
-    },
-    {
-      "idx": 67,
-      "version": "7",
-      "when": 1777140000054,
-      "tag": "1777140000054_users_sidebar_sections_expanded",
-      "breakpoints": true
-    },
-    {
-      "idx": 68,
-      "version": "7",
-      "when": 1777140000055,
-      "tag": "1777140000055_users_sidebar_chats_expanded",
-      "breakpoints": true
-    },
-    {
-      "idx": 69,
-      "version": "7",
-      "when": 1777140000056,
-      "tag": "1777140000056_provider_models_fallback_provider_model_id",
-      "breakpoints": true
-    },
-    {
-      "idx": 70,
-      "version": "7",
-      "when": 1777140000057,
-      "tag": "1777140000057_model_selection_guide_metadata",
-      "breakpoints": true
-    },
-    {
-      "idx": 71,
-      "version": "7",
-      "when": 1777140000058,
-      "tag": "1777140000058_provider_model_guide_no_cost",
-      "breakpoints": true
-    },
-    {
-      "idx": 72,
-      "version": "7",
-      "when": 1777140000059,
-      "tag": "1777140000059_provider_model_speed_metadata",
-      "breakpoints": true
-    },
-    {
-      "idx": 73,
-      "version": "7",
-      "when": 1777140000060,
-      "tag": "1777140000060_memory_reset_generations",
-      "breakpoints": true
-    },
-    {
-      "idx": 74,
-      "version": "7",
-      "when": 1777140000061,
-      "tag": "1777140000061_memory_rework_foundation",
-      "breakpoints": true
-    },
-    {
-      "idx": 75,
-      "version": "7",
-      "when": 1777140000062,
-      "tag": "1777140000062_remove_deep_research",
-      "breakpoints": true
-    },
-    {
-      "idx": 76,
-      "version": "7",
-      "when": 1777140000063,
-      "tag": "1777140000063_atlas_persistence_foundation",
-      "breakpoints": true
-    },
-    {
-      "idx": 77,
-      "version": "7",
-      "when": 1777140000064,
-      "tag": "1777140000064_browser_push_subscriptions",
-      "breakpoints": true
-    },
-    {
-      "idx": 78,
-      "version": "7",
-      "when": 1777140000065,
-      "tag": "1777140000065_conversation_draft_atlas_state",
-      "breakpoints": true
-    },
-    {
-      "idx": 79,
-      "version": "7",
-      "when": 1777140000066,
-      "tag": "1777140000066_conversation_draft_atlas_turn_id",
-      "breakpoints": true
-    },
-    {
-      "idx": 80,
-      "version": "7",
-      "when": 1777140000067,
-      "tag": "1777140000067_atlas_progress_details",
-      "breakpoints": true
-    },
-    {
-      "idx": 81,
-      "version": "7",
-      "when": 1777140000068,
-      "tag": "1777140000068_provider_model_aliases",
-      "breakpoints": true
-    },
-    {
-      "idx": 82,
-      "version": "7",
-      "when": 1777140000069,
-      "tag": "1777140000069_file_production_jobs_dismissed",
-      "breakpoints": true
-    },
-    {
-      "idx": 83,
-      "version": "7",
-      "when": 1777140000070,
-      "tag": "1777140000070_memory_watermarks_reports_persona_summary",
-      "breakpoints": true
-    },
-    {
-      "idx": 84,
-      "version": "7",
-      "when": 1777140000071,
-      "tag": "1777140000071_memory_controls",
-      "breakpoints": true
-    },
-    {
-      "idx": 85,
-      "version": "7",
-      "when": 1777140000072,
-      "tag": "1777140000072_price_windows",
-      "breakpoints": true
-    },
-    {
-      "idx": 86,
-      "version": "7",
-      "when": 1777140000073,
-      "tag": "1777140000073_user_connections",
-      "breakpoints": true
-    },
-    {
-      "idx": 87,
-      "version": "7",
-      "when": 1777140000074,
-      "tag": "1777140000074_user_connections_config",
-      "breakpoints": true
-    },
-    {
-      "idx": 88,
-      "version": "7",
-      "when": 1777140000075,
-      "tag": "1777140000075_users_connection_cloud_ack",
-      "breakpoints": true
-    },
-    {
-      "idx": 89,
-      "version": "7",
-      "when": 1777140000076,
-      "tag": "1777140000076_users_connection_local_distill",
-      "breakpoints": true
-    },
-    {
-      "idx": 90,
-      "version": "7",
-      "when": 1777140000077,
-      "tag": "1777140000077_connection_pending_writes",
-      "breakpoints": true
-    },
-    {
-      "idx": 91,
-      "version": "7",
-      "when": 1777140000078,
-      "tag": "1777140000078_connection_pending_writes_etag",
-      "breakpoints": true
-    },
-    {
-      "idx": 92,
-      "version": "7",
-      "when": 1777140000079,
-      "tag": "1777140000079_user_connections_write_secret",
-      "breakpoints": true
-    },
-    {
-      "idx": 93,
-      "version": "7",
-      "when": 1777140000080,
-      "tag": "1777140000080_connection_pending_writes_message_link",
-      "breakpoints": true
-    },
-    {
-      "idx": 94,
-      "version": "7",
-      "when": 1777140000081,
-      "tag": "1777140000081_connection_pending_writes_expires_at",
-      "breakpoints": true
-    },
-    {
-      "idx": 95,
-      "version": "7",
-      "when": 1777140000082,
-      "tag": "1777140000082_retire_inferred_memory_projects",
-      "breakpoints": true
-    },
-    {
-      "idx": 96,
-      "version": "7",
-      "when": 1777140000083,
-      "tag": "1777140000083_drop_analytics_identity_denormalization",
-      "breakpoints": true
-    },
-    {
-      "idx": 97,
-      "version": "7",
-      "when": 1777140000084,
-      "tag": "1777140000084_retire_todoist",
-      "breakpoints": true
-    },
-    {
-      "idx": 98,
-      "version": "7",
-      "when": 1777140000085,
-      "tag": "1777140000085_message_analytics_timing_marks",
-      "breakpoints": true
-    },
-    {
-      "idx": 99,
-      "version": "7",
-      "when": 1777140000086,
-      "tag": "1777140000086_context_status_prompt_usage",
-      "breakpoints": true
-    },
-    {
-      "idx": 100,
-      "version": "7",
-      "when": 1777140000087,
-      "tag": "1777140000087_routing_regions",
-      "breakpoints": true
-    },
-    {
-      "idx": 101,
-      "version": "7",
-      "when": 1777140000088,
-      "tag": "1777140000088_drop_skill_sessions_and_notes",
-      "breakpoints": true
-    },
-    {
-      "idx": 102,
-      "version": "7",
-      "when": 1777140000089,
-      "tag": "1777140000089_activity_events",
-      "breakpoints": true
-    },
-    {
-      "idx": 103,
-      "version": "7",
-      "when": 1777140000090,
-      "tag": "1777140000090_routing_region_retries",
-      "breakpoints": true
-    },
-    {
-      "idx": 104,
-      "version": "7",
-      "when": 1777140000091,
-      "tag": "1777140000091_routing_region_transit",
-      "breakpoints": true
-    },
-    {
-      "idx": 105,
-      "version": "7",
-      "when": 1777140000092,
-      "tag": "1777140000092_routing_region_gtfs_feeds",
-      "breakpoints": true
-    },
-    {
-      "idx": 106,
-      "version": "7",
-      "when": 1777140000093,
-      "tag": "1777140000093_atlas_jobs_pipeline_version",
-      "breakpoints": true
-    },
-    {
-      "idx": 107,
-      "version": "7",
-      "when": 1777140000094,
-      "tag": "1777140000094_user_connections_usage_marks",
-      "breakpoints": true
-    },
-    {
-      "idx": 108,
-      "version": "7",
-      "when": 1777140000095,
-      "tag": "1777140000095_home_suggestion_events",
-      "breakpoints": true
-    },
-    {
-      "idx": 109,
-      "version": "7",
-      "when": 1777140000096,
-      "tag": "1777140000096_messages_role_created_idx",
-      "breakpoints": true
-    },
-    {
-      "idx": 110,
-      "version": "7",
-      "when": 1777140000097,
-      "tag": "1777140000097_document_extraction_ledger",
-      "breakpoints": true
-    },
-    {
-      "idx": 111,
-      "version": "7",
-      "when": 1777140000098,
-      "tag": "1777140000098_mineru4_extraction",
-      "breakpoints": true
-    },
-    {
-      "idx": 112,
-      "version": "7",
-      "when": 1777140000099,
-      "tag": "1777140000099_file_production_jobs_live_claim_idx",
-      "breakpoints": true
-    },
-    {
-      "idx": 113,
-      "version": "7",
-      "when": 1777140000100,
-      "tag": "1777140000100_document_extraction_jobs_requested_by",
-      "breakpoints": true
-    },
-    {
-      "idx": 114,
-      "version": "7",
-      "when": 1777140000101,
-      "tag": "1777140000101_retire_legacy_review_backlog",
-      "breakpoints": true
-    },
-    {
-      "idx": 115,
-      "version": "7",
-      "when": 1777140000102,
-      "tag": "1777140000102_home_memory_review_dismissed_at",
-      "breakpoints": true
-    },
-    {
-      "idx": 116,
-      "version": "7",
-      "when": 1777140000103,
-      "tag": "1777140000103_atlas_retired_admin_config",
-      "breakpoints": true
-    },
-    {
-      "idx": 117,
-      "version": "7",
-      "when": 1777140000104,
-      "tag": "1777140000104_reset_legacy_admin_prompt_snapshots",
-      "breakpoints": true
-    },
-    {
-      "idx": 118,
-      "version": "7",
-      "when": 1777140000105,
-      "tag": "1777140000105_recency_backfill_last_message_time",
-      "breakpoints": true
-    },
-    {
-      "idx": 119,
-      "version": "7",
-      "when": 1777140000106,
-      "tag": "1777140000106_retire_user_evidence_preferences",
-      "breakpoints": true
-    },
-    {
-      "idx": 120,
-      "version": "7",
-      "when": 1777140000107,
-      "tag": "1777140000107_users_personal_instructions",
-      "breakpoints": true
-    },
-    {
-      "idx": 121,
-      "version": "7",
-      "when": 1777140000108,
-      "tag": "1777140000108_projects_instructions",
-      "breakpoints": true
-    },
-    {
-      "idx": 122,
-      "version": "7",
-      "when": 1777140000109,
-      "tag": "1777140000109_project_knowledge_links",
-      "breakpoints": true
-    },
-    {
-      "idx": 123,
-      "version": "7",
-      "when": 1777140000110,
-      "tag": "1777140000110_drop_home_suggestion_events",
-      "breakpoints": true
-    },
-    {
-      "idx": 124,
-      "version": "7",
-      "when": 1777140000111,
-      "tag": "1777140000111_artifacts_spine",
-      "breakpoints": true
-    },
-    {
-      "idx": 125,
-      "version": "7",
-      "when": 1777140000112,
-      "tag": "1777140000112_artifact_tour_states",
-      "breakpoints": true
-    },
-    {
-      "idx": 126,
-      "version": "7",
-      "when": 1777140000113,
-      "tag": "1777140000113_artifact_version_moments",
-      "breakpoints": true
-    },
-    {
-      "idx": 127,
-      "version": "7",
-      "when": 1777140000114,
-      "tag": "1777140000114_atlas_jobs_on_engine",
-      "breakpoints": true
-    },
-    {
-      "idx": 128,
-      "version": "7",
-      "when": 1777140000115,
-      "tag": "1777140000115_extraction_jobs_on_engine",
-      "breakpoints": true
-    },
-    {
-      "idx": 129,
-      "version": "7",
-      "when": 1777140000116,
-      "tag": "1777140000116_file_production_jobs_on_engine",
-      "breakpoints": true
-    },
-    {
-      "idx": 130,
-      "version": "7",
-      "when": 1777140000117,
-      "tag": "1777140000117_clear_sessions_for_hashed_tokens",
-      "breakpoints": true
-    },
-    {
-      "idx": 131,
-      "version": "7",
-      "when": 1777140000118,
-      "tag": "1777140000118_two_step_sign_in",
-      "breakpoints": true
-    },
-    {
-      "idx": 132,
-      "version": "7",
-      "when": 1777140000119,
-      "tag": "1777140000119_image_descriptions",
-      "breakpoints": true
-    },
-    {
-      "idx": 133,
-      "version": "7",
-      "when": 1777140000120,
-      "tag": "1777140000120_image_files",
-      "breakpoints": true
-    },
-    {
-      "idx": 134,
-      "version": "7",
-      "when": 1777140000121,
-      "tag": "1777140000121_image_jobs",
-      "breakpoints": true
-    },
-    {
-      "idx": 135,
-      "version": "7",
-      "when": 1777140000122,
-      "tag": "1777140000122_explicit_picture_filter_exempt",
-      "breakpoints": true
-    },
-    {
-      "idx": 136,
-      "version": "7",
-      "when": 1777140000123,
-      "tag": "1777140000123_ask_questions",
-      "breakpoints": true
-    },
-    {
-      "idx": 137,
-      "version": "7",
-      "when": 1777140000124,
-      "tag": "1777140000124_users_time_zone",
-      "breakpoints": true
-    },
-    {
-      "idx": 138,
-      "version": "7",
-      "when": 1777140000125,
-      "tag": "1777140000125_normal_chat_ledger",
-      "breakpoints": true
-    },
-    {
-      "idx": 139,
-      "version": "7",
-      "when": 1777140000126,
-      "tag": "1777140000126_normal_chat_run_log",
-      "breakpoints": true
-    },
-    {
-      "idx": 140,
-      "version": "7",
-      "when": 1777140000127,
-      "tag": "1777140000127_image_files_duration",
-      "breakpoints": true
-    },
-    {
-      "idx": 141,
-      "version": "7",
-      "when": 1777140000128,
-      "tag": "1777140000128_video_jobs",
-      "breakpoints": true
-    }
-  ]
+	"version": "7",
+	"dialect": "sqlite",
+	"entries": [
+		{
+			"idx": 0,
+			"version": "6",
+			"when": 1773694529817,
+			"tag": "0000_flowery_red_skull",
+			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "6",
+			"when": 1773842394708,
+			"tag": "0001_useful_millenium_guard",
+			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "6",
+			"when": 1773842394709,
+			"tag": "0002_persist_message_thinking",
+			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "6",
+			"when": 1773842394710,
+			"tag": "0003_settings_and_analytics",
+			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "6",
+			"when": 1774233600000,
+			"tag": "0004_profile_picture",
+			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "6",
+			"when": 1774567460032,
+			"tag": "0005_flaky_famine",
+			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "7",
+			"when": 1774799100000,
+			"tag": "0006_memory_overview_cache",
+			"breakpoints": true
+		},
+		{
+			"idx": 7,
+			"version": "6",
+			"when": 1775141732384,
+			"tag": "0007_thankful_inertia",
+			"breakpoints": true
+		},
+		{
+			"idx": 8,
+			"version": "6",
+			"when": 1775157367422,
+			"tag": "1775157367422_chat_generated_files",
+			"breakpoints": true
+		},
+		{
+			"idx": 9,
+			"version": "7",
+			"when": 1775240400000,
+			"tag": "1775240400000_chat_generated_files_assistant_message",
+			"breakpoints": true
+		},
+		{
+			"idx": 10,
+			"version": "7",
+			"when": 1775326800000,
+			"tag": "1775326800000_memory_events",
+			"breakpoints": true
+		},
+		{
+			"idx": 11,
+			"version": "7",
+			"when": 1775413200000,
+			"tag": "1775413200000_semantic_embeddings",
+			"breakpoints": true
+		},
+		{
+			"idx": 12,
+			"version": "7",
+			"when": 1775416800000,
+			"tag": "1775416800000_users_honcho_peer_version",
+			"breakpoints": true
+		},
+		{
+			"idx": 13,
+			"version": "7",
+			"when": 1777140000000,
+			"tag": "1777140000000_inference_providers",
+			"breakpoints": true
+		},
+		{
+			"idx": 14,
+			"version": "7",
+			"when": 1777140000001,
+			"tag": "1777140000001_inference_provider_reasoning_options",
+			"breakpoints": true
+		},
+		{
+			"idx": 15,
+			"version": "7",
+			"when": 1777140000002,
+			"tag": "1777140000002_inference_provider_context_limits",
+			"breakpoints": true
+		},
+		{
+			"idx": 16,
+			"version": "7",
+			"when": 1777140000003,
+			"tag": "1777140000003_users_title_language",
+			"breakpoints": true
+		},
+		{
+			"idx": 17,
+			"version": "7",
+			"when": 1777140000004,
+			"tag": "1777140000004_inference_provider_max_tokens",
+			"breakpoints": true
+		},
+		{
+			"idx": 18,
+			"version": "7",
+			"when": 1777140000005,
+			"tag": "1777140000005_users_ui_language",
+			"breakpoints": true
+		},
+		{
+			"idx": 19,
+			"version": "7",
+			"when": 1777140000006,
+			"tag": "1777140000006_immutable_usage_analytics",
+			"breakpoints": true
+		},
+		{
+			"idx": 20,
+			"version": "7",
+			"when": 1777140000007,
+			"tag": "1777140000007_personality_profiles",
+			"breakpoints": true
+		},
+		{
+			"idx": 21,
+			"version": "7",
+			"when": 1777140000008,
+			"tag": "1777140000008_users_preferred_personality",
+			"breakpoints": true
+		},
+		{
+			"idx": 22,
+			"version": "7",
+			"when": 1777140000009,
+			"tag": "1777140000009_file_production_jobs",
+			"breakpoints": true
+		},
+		{
+			"idx": 23,
+			"version": "7",
+			"when": 1777140000010,
+			"tag": "1777140000010_file_production_job_attempts",
+			"breakpoints": true
+		},
+		{
+			"idx": 24,
+			"version": "7",
+			"when": 1777140000011,
+			"tag": "1777140000011_file_production_requests",
+			"breakpoints": true
+		},
+		{
+			"idx": 25,
+			"version": "7",
+			"when": 1777140000012,
+			"tag": "1777140000012_deep_research_jobs",
+			"breakpoints": true
+		},
+		{
+			"idx": 26,
+			"version": "7",
+			"when": 1777140000013,
+			"tag": "1777140000013_deep_research_plan_versions",
+			"breakpoints": true
+		},
+		{
+			"idx": 27,
+			"version": "7",
+			"when": 1777140000014,
+			"tag": "1777140000014_deep_research_timeline_usage",
+			"breakpoints": true
+		},
+		{
+			"idx": 28,
+			"version": "7",
+			"when": 1777140000015,
+			"tag": "1777140000015_deep_research_report_artifact",
+			"breakpoints": true
+		},
+		{
+			"idx": 29,
+			"version": "7",
+			"when": 1777140000016,
+			"tag": "1777140000016_deep_research_sources",
+			"breakpoints": true
+		},
+		{
+			"idx": 30,
+			"version": "7",
+			"when": 1777140000017,
+			"tag": "1777140000017_deep_research_tasks",
+			"breakpoints": true
+		},
+		{
+			"idx": 31,
+			"version": "7",
+			"when": 1777140000018,
+			"tag": "1777140000018_deep_research_quality_metadata",
+			"breakpoints": true
+		},
+		{
+			"idx": 32,
+			"version": "7",
+			"when": 1777140000019,
+			"tag": "1777140000019_deep_research_topic_relevance",
+			"breakpoints": true
+		},
+		{
+			"idx": 33,
+			"version": "7",
+			"when": 1777140000020,
+			"tag": "1777140000020_deep_research_pass_state",
+			"breakpoints": true
+		},
+		{
+			"idx": 34,
+			"version": "7",
+			"when": 1777140000021,
+			"tag": "1777140000021_deep_research_resume_points",
+			"breakpoints": true
+		},
+		{
+			"idx": 35,
+			"version": "7",
+			"when": 1777140000022,
+			"tag": "1777140000022_deep_research_evidence_notes",
+			"breakpoints": true
+		},
+		{
+			"idx": 36,
+			"version": "7",
+			"when": 1777140000023,
+			"tag": "1777140000023_deep_research_source_quality_signals",
+			"breakpoints": true
+		},
+		{
+			"idx": 37,
+			"version": "7",
+			"when": 1777140000024,
+			"tag": "1777140000024_deep_research_synthesis_claims",
+			"breakpoints": true
+		},
+		{
+			"idx": 38,
+			"version": "7",
+			"when": 1777140000025,
+			"tag": "1777140000025_deep_research_citation_audit_verdicts",
+			"breakpoints": true
+		},
+		{
+			"idx": 39,
+			"version": "7",
+			"when": 1777140000026,
+			"tag": "1777140000026_deep_research_comparison_axes",
+			"breakpoints": true
+		},
+		{
+			"idx": 40,
+			"version": "7",
+			"when": 1777140000027,
+			"tag": "1777140000027_deep_research_drop_active_conversation_unique",
+			"breakpoints": true
+		},
+		{
+			"idx": 41,
+			"version": "7",
+			"when": 1777140000028,
+			"tag": "1777140000028_project_folder_canonical_memory",
+			"breakpoints": true
+		},
+		{
+			"idx": 42,
+			"version": "7",
+			"when": 1777140000029,
+			"tag": "1777140000029_conversation_summaries",
+			"breakpoints": true
+		},
+		{
+			"idx": 43,
+			"version": "7",
+			"when": 1777140000030,
+			"tag": "1777140000030_user_skill_definitions",
+			"breakpoints": true
+		},
+		{
+			"idx": 44,
+			"version": "7",
+			"when": 1777140000031,
+			"tag": "1777140000031_conversation_draft_linked_sources",
+			"breakpoints": true
+		},
+		{
+			"idx": 45,
+			"version": "7",
+			"when": 1777140000032,
+			"tag": "1777140000032_system_skill_published",
+			"breakpoints": true
+		},
+		{
+			"idx": 46,
+			"version": "7",
+			"when": 1777140000033,
+			"tag": "1777140000033_conversation_draft_pending_skill",
+			"breakpoints": true
+		},
+		{
+			"idx": 47,
+			"version": "7",
+			"when": 1777140000034,
+			"tag": "1777140000034_skill_sessions",
+			"breakpoints": true
+		},
+		{
+			"idx": 48,
+			"version": "7",
+			"when": 1777140000035,
+			"tag": "1777140000035_skill_notes",
+			"breakpoints": true
+		},
+		{
+			"idx": 49,
+			"version": "7",
+			"when": 1777140000036,
+			"tag": "1777140000036_inference_provider_rate_limit_fallback",
+			"breakpoints": true
+		},
+		{
+			"idx": 50,
+			"version": "7",
+			"when": 1777140000037,
+			"tag": "1777140000037_conversation_forks",
+			"breakpoints": true
+		},
+		{
+			"idx": 51,
+			"version": "7",
+			"when": 1777140000038,
+			"tag": "1777140000038_conversation_forks_sequence_unique",
+			"breakpoints": true
+		},
+		{
+			"idx": 52,
+			"version": "7",
+			"when": 1777140000039,
+			"tag": "1777140000039_campaign_assets",
+			"breakpoints": true
+		},
+		{
+			"idx": 53,
+			"version": "7",
+			"when": 1777140000040,
+			"tag": "1777140000040_user_model_preference_inheritance",
+			"breakpoints": true
+		},
+		{
+			"idx": 54,
+			"version": "7",
+			"when": 1777140000041,
+			"tag": "1777140000041_announcement_campaigns",
+			"breakpoints": true
+		},
+		{
+			"idx": 55,
+			"version": "7",
+			"when": 1777140000042,
+			"tag": "1777140000042_message_sequence",
+			"breakpoints": true
+		},
+		{
+			"idx": 56,
+			"version": "7",
+			"when": 1777140000043,
+			"tag": "1777140000043_skill_packs_variants",
+			"breakpoints": true
+		},
+		{
+			"idx": 57,
+			"version": "7",
+			"when": 1777140000044,
+			"tag": "1777140000044_sidebar_pin_order",
+			"breakpoints": true
+		},
+		{
+			"idx": 58,
+			"version": "7",
+			"when": 1777140000045,
+			"tag": "1777140000045_model_icons_optional_campaign_images",
+			"breakpoints": true
+		},
+		{
+			"idx": 59,
+			"version": "7",
+			"when": 1777140000046,
+			"tag": "1777140000046_context_compression_snapshots",
+			"breakpoints": true
+		},
+		{
+			"idx": 60,
+			"version": "7",
+			"when": 1777140000047,
+			"tag": "1777140000047_retire_langflow_admin_config",
+			"breakpoints": true
+		},
+		{
+			"idx": 61,
+			"version": "7",
+			"when": 1777140000048,
+			"tag": "1777140000048_provider_capabilities",
+			"breakpoints": true
+		},
+		{
+			"idx": 62,
+			"version": "7",
+			"when": 1777140000049,
+			"tag": "1777140000049_messages_import_source_import_jobs",
+			"breakpoints": true
+		},
+		{
+			"idx": 63,
+			"version": "7",
+			"when": 1777140000050,
+			"tag": "1777140000050_providers",
+			"breakpoints": true
+		},
+		{
+			"idx": 64,
+			"version": "7",
+			"when": 1777140000051,
+			"tag": "1777140000051_provider_models",
+			"breakpoints": true
+		},
+		{
+			"idx": 65,
+			"version": "7",
+			"when": 1777140000052,
+			"tag": "1777140000052_drop_inference_providers_and_model_price_rules",
+			"breakpoints": true
+		},
+		{
+			"idx": 66,
+			"version": "7",
+			"when": 1777140000053,
+			"tag": "1777140000053_provider_models_icon_asset_id",
+			"breakpoints": true
+		},
+		{
+			"idx": 67,
+			"version": "7",
+			"when": 1777140000054,
+			"tag": "1777140000054_users_sidebar_sections_expanded",
+			"breakpoints": true
+		},
+		{
+			"idx": 68,
+			"version": "7",
+			"when": 1777140000055,
+			"tag": "1777140000055_users_sidebar_chats_expanded",
+			"breakpoints": true
+		},
+		{
+			"idx": 69,
+			"version": "7",
+			"when": 1777140000056,
+			"tag": "1777140000056_provider_models_fallback_provider_model_id",
+			"breakpoints": true
+		},
+		{
+			"idx": 70,
+			"version": "7",
+			"when": 1777140000057,
+			"tag": "1777140000057_model_selection_guide_metadata",
+			"breakpoints": true
+		},
+		{
+			"idx": 71,
+			"version": "7",
+			"when": 1777140000058,
+			"tag": "1777140000058_provider_model_guide_no_cost",
+			"breakpoints": true
+		},
+		{
+			"idx": 72,
+			"version": "7",
+			"when": 1777140000059,
+			"tag": "1777140000059_provider_model_speed_metadata",
+			"breakpoints": true
+		},
+		{
+			"idx": 73,
+			"version": "7",
+			"when": 1777140000060,
+			"tag": "1777140000060_memory_reset_generations",
+			"breakpoints": true
+		},
+		{
+			"idx": 74,
+			"version": "7",
+			"when": 1777140000061,
+			"tag": "1777140000061_memory_rework_foundation",
+			"breakpoints": true
+		},
+		{
+			"idx": 75,
+			"version": "7",
+			"when": 1777140000062,
+			"tag": "1777140000062_remove_deep_research",
+			"breakpoints": true
+		},
+		{
+			"idx": 76,
+			"version": "7",
+			"when": 1777140000063,
+			"tag": "1777140000063_atlas_persistence_foundation",
+			"breakpoints": true
+		},
+		{
+			"idx": 77,
+			"version": "7",
+			"when": 1777140000064,
+			"tag": "1777140000064_browser_push_subscriptions",
+			"breakpoints": true
+		},
+		{
+			"idx": 78,
+			"version": "7",
+			"when": 1777140000065,
+			"tag": "1777140000065_conversation_draft_atlas_state",
+			"breakpoints": true
+		},
+		{
+			"idx": 79,
+			"version": "7",
+			"when": 1777140000066,
+			"tag": "1777140000066_conversation_draft_atlas_turn_id",
+			"breakpoints": true
+		},
+		{
+			"idx": 80,
+			"version": "7",
+			"when": 1777140000067,
+			"tag": "1777140000067_atlas_progress_details",
+			"breakpoints": true
+		},
+		{
+			"idx": 81,
+			"version": "7",
+			"when": 1777140000068,
+			"tag": "1777140000068_provider_model_aliases",
+			"breakpoints": true
+		},
+		{
+			"idx": 82,
+			"version": "7",
+			"when": 1777140000069,
+			"tag": "1777140000069_file_production_jobs_dismissed",
+			"breakpoints": true
+		},
+		{
+			"idx": 83,
+			"version": "7",
+			"when": 1777140000070,
+			"tag": "1777140000070_memory_watermarks_reports_persona_summary",
+			"breakpoints": true
+		},
+		{
+			"idx": 84,
+			"version": "7",
+			"when": 1777140000071,
+			"tag": "1777140000071_memory_controls",
+			"breakpoints": true
+		},
+		{
+			"idx": 85,
+			"version": "7",
+			"when": 1777140000072,
+			"tag": "1777140000072_price_windows",
+			"breakpoints": true
+		},
+		{
+			"idx": 86,
+			"version": "7",
+			"when": 1777140000073,
+			"tag": "1777140000073_user_connections",
+			"breakpoints": true
+		},
+		{
+			"idx": 87,
+			"version": "7",
+			"when": 1777140000074,
+			"tag": "1777140000074_user_connections_config",
+			"breakpoints": true
+		},
+		{
+			"idx": 88,
+			"version": "7",
+			"when": 1777140000075,
+			"tag": "1777140000075_users_connection_cloud_ack",
+			"breakpoints": true
+		},
+		{
+			"idx": 89,
+			"version": "7",
+			"when": 1777140000076,
+			"tag": "1777140000076_users_connection_local_distill",
+			"breakpoints": true
+		},
+		{
+			"idx": 90,
+			"version": "7",
+			"when": 1777140000077,
+			"tag": "1777140000077_connection_pending_writes",
+			"breakpoints": true
+		},
+		{
+			"idx": 91,
+			"version": "7",
+			"when": 1777140000078,
+			"tag": "1777140000078_connection_pending_writes_etag",
+			"breakpoints": true
+		},
+		{
+			"idx": 92,
+			"version": "7",
+			"when": 1777140000079,
+			"tag": "1777140000079_user_connections_write_secret",
+			"breakpoints": true
+		},
+		{
+			"idx": 93,
+			"version": "7",
+			"when": 1777140000080,
+			"tag": "1777140000080_connection_pending_writes_message_link",
+			"breakpoints": true
+		},
+		{
+			"idx": 94,
+			"version": "7",
+			"when": 1777140000081,
+			"tag": "1777140000081_connection_pending_writes_expires_at",
+			"breakpoints": true
+		},
+		{
+			"idx": 95,
+			"version": "7",
+			"when": 1777140000082,
+			"tag": "1777140000082_retire_inferred_memory_projects",
+			"breakpoints": true
+		},
+		{
+			"idx": 96,
+			"version": "7",
+			"when": 1777140000083,
+			"tag": "1777140000083_drop_analytics_identity_denormalization",
+			"breakpoints": true
+		},
+		{
+			"idx": 97,
+			"version": "7",
+			"when": 1777140000084,
+			"tag": "1777140000084_retire_todoist",
+			"breakpoints": true
+		},
+		{
+			"idx": 98,
+			"version": "7",
+			"when": 1777140000085,
+			"tag": "1777140000085_message_analytics_timing_marks",
+			"breakpoints": true
+		},
+		{
+			"idx": 99,
+			"version": "7",
+			"when": 1777140000086,
+			"tag": "1777140000086_context_status_prompt_usage",
+			"breakpoints": true
+		},
+		{
+			"idx": 100,
+			"version": "7",
+			"when": 1777140000087,
+			"tag": "1777140000087_routing_regions",
+			"breakpoints": true
+		},
+		{
+			"idx": 101,
+			"version": "7",
+			"when": 1777140000088,
+			"tag": "1777140000088_drop_skill_sessions_and_notes",
+			"breakpoints": true
+		},
+		{
+			"idx": 102,
+			"version": "7",
+			"when": 1777140000089,
+			"tag": "1777140000089_activity_events",
+			"breakpoints": true
+		},
+		{
+			"idx": 103,
+			"version": "7",
+			"when": 1777140000090,
+			"tag": "1777140000090_routing_region_retries",
+			"breakpoints": true
+		},
+		{
+			"idx": 104,
+			"version": "7",
+			"when": 1777140000091,
+			"tag": "1777140000091_routing_region_transit",
+			"breakpoints": true
+		},
+		{
+			"idx": 105,
+			"version": "7",
+			"when": 1777140000092,
+			"tag": "1777140000092_routing_region_gtfs_feeds",
+			"breakpoints": true
+		},
+		{
+			"idx": 106,
+			"version": "7",
+			"when": 1777140000093,
+			"tag": "1777140000093_atlas_jobs_pipeline_version",
+			"breakpoints": true
+		},
+		{
+			"idx": 107,
+			"version": "7",
+			"when": 1777140000094,
+			"tag": "1777140000094_user_connections_usage_marks",
+			"breakpoints": true
+		},
+		{
+			"idx": 108,
+			"version": "7",
+			"when": 1777140000095,
+			"tag": "1777140000095_home_suggestion_events",
+			"breakpoints": true
+		},
+		{
+			"idx": 109,
+			"version": "7",
+			"when": 1777140000096,
+			"tag": "1777140000096_messages_role_created_idx",
+			"breakpoints": true
+		},
+		{
+			"idx": 110,
+			"version": "7",
+			"when": 1777140000097,
+			"tag": "1777140000097_document_extraction_ledger",
+			"breakpoints": true
+		},
+		{
+			"idx": 111,
+			"version": "7",
+			"when": 1777140000098,
+			"tag": "1777140000098_mineru4_extraction",
+			"breakpoints": true
+		},
+		{
+			"idx": 112,
+			"version": "7",
+			"when": 1777140000099,
+			"tag": "1777140000099_file_production_jobs_live_claim_idx",
+			"breakpoints": true
+		},
+		{
+			"idx": 113,
+			"version": "7",
+			"when": 1777140000100,
+			"tag": "1777140000100_document_extraction_jobs_requested_by",
+			"breakpoints": true
+		},
+		{
+			"idx": 114,
+			"version": "7",
+			"when": 1777140000101,
+			"tag": "1777140000101_retire_legacy_review_backlog",
+			"breakpoints": true
+		},
+		{
+			"idx": 115,
+			"version": "7",
+			"when": 1777140000102,
+			"tag": "1777140000102_home_memory_review_dismissed_at",
+			"breakpoints": true
+		},
+		{
+			"idx": 116,
+			"version": "7",
+			"when": 1777140000103,
+			"tag": "1777140000103_atlas_retired_admin_config",
+			"breakpoints": true
+		},
+		{
+			"idx": 117,
+			"version": "7",
+			"when": 1777140000104,
+			"tag": "1777140000104_reset_legacy_admin_prompt_snapshots",
+			"breakpoints": true
+		},
+		{
+			"idx": 118,
+			"version": "7",
+			"when": 1777140000105,
+			"tag": "1777140000105_recency_backfill_last_message_time",
+			"breakpoints": true
+		},
+		{
+			"idx": 119,
+			"version": "7",
+			"when": 1777140000106,
+			"tag": "1777140000106_retire_user_evidence_preferences",
+			"breakpoints": true
+		},
+		{
+			"idx": 120,
+			"version": "7",
+			"when": 1777140000107,
+			"tag": "1777140000107_users_personal_instructions",
+			"breakpoints": true
+		},
+		{
+			"idx": 121,
+			"version": "7",
+			"when": 1777140000108,
+			"tag": "1777140000108_projects_instructions",
+			"breakpoints": true
+		},
+		{
+			"idx": 122,
+			"version": "7",
+			"when": 1777140000109,
+			"tag": "1777140000109_project_knowledge_links",
+			"breakpoints": true
+		},
+		{
+			"idx": 123,
+			"version": "7",
+			"when": 1777140000110,
+			"tag": "1777140000110_drop_home_suggestion_events",
+			"breakpoints": true
+		},
+		{
+			"idx": 124,
+			"version": "7",
+			"when": 1777140000111,
+			"tag": "1777140000111_artifacts_spine",
+			"breakpoints": true
+		},
+		{
+			"idx": 125,
+			"version": "7",
+			"when": 1777140000112,
+			"tag": "1777140000112_artifact_tour_states",
+			"breakpoints": true
+		},
+		{
+			"idx": 126,
+			"version": "7",
+			"when": 1777140000113,
+			"tag": "1777140000113_artifact_version_moments",
+			"breakpoints": true
+		},
+		{
+			"idx": 127,
+			"version": "7",
+			"when": 1777140000114,
+			"tag": "1777140000114_atlas_jobs_on_engine",
+			"breakpoints": true
+		},
+		{
+			"idx": 128,
+			"version": "7",
+			"when": 1777140000115,
+			"tag": "1777140000115_extraction_jobs_on_engine",
+			"breakpoints": true
+		},
+		{
+			"idx": 129,
+			"version": "7",
+			"when": 1777140000116,
+			"tag": "1777140000116_file_production_jobs_on_engine",
+			"breakpoints": true
+		},
+		{
+			"idx": 130,
+			"version": "7",
+			"when": 1777140000117,
+			"tag": "1777140000117_clear_sessions_for_hashed_tokens",
+			"breakpoints": true
+		},
+		{
+			"idx": 131,
+			"version": "7",
+			"when": 1777140000118,
+			"tag": "1777140000118_two_step_sign_in",
+			"breakpoints": true
+		},
+		{
+			"idx": 132,
+			"version": "7",
+			"when": 1777140000119,
+			"tag": "1777140000119_image_descriptions",
+			"breakpoints": true
+		},
+		{
+			"idx": 133,
+			"version": "7",
+			"when": 1777140000120,
+			"tag": "1777140000120_image_files",
+			"breakpoints": true
+		},
+		{
+			"idx": 134,
+			"version": "7",
+			"when": 1777140000121,
+			"tag": "1777140000121_image_jobs",
+			"breakpoints": true
+		},
+		{
+			"idx": 135,
+			"version": "7",
+			"when": 1777140000122,
+			"tag": "1777140000122_explicit_picture_filter_exempt",
+			"breakpoints": true
+		},
+		{
+			"idx": 136,
+			"version": "7",
+			"when": 1777140000123,
+			"tag": "1777140000123_ask_questions",
+			"breakpoints": true
+		},
+		{
+			"idx": 137,
+			"version": "7",
+			"when": 1777140000124,
+			"tag": "1777140000124_users_time_zone",
+			"breakpoints": true
+		},
+		{
+			"idx": 138,
+			"version": "7",
+			"when": 1777140000125,
+			"tag": "1777140000125_normal_chat_ledger",
+			"breakpoints": true
+		},
+		{
+			"idx": 139,
+			"version": "7",
+			"when": 1777140000126,
+			"tag": "1777140000126_normal_chat_run_log",
+			"breakpoints": true
+		},
+		{
+			"idx": 140,
+			"version": "7",
+			"when": 1777140000127,
+			"tag": "1777140000127_image_files_duration",
+			"breakpoints": true
+		},
+		{
+			"idx": 141,
+			"version": "7",
+			"when": 1777140000128,
+			"tag": "1777140000128_video_jobs",
+			"breakpoints": true
+		},
+		{
+			"idx": 142,
+			"version": "6",
+			"when": 1777140000129,
+			"tag": "1777140000129_video_jobs_created_artifact",
+			"breakpoints": true
+		}
+	]
 }

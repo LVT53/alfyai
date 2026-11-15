@@ -30,7 +30,6 @@ CREATE TABLE `video_jobs` (
 	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
 	`conversation_id` text NOT NULL,
 	`artifact_id` text,
-	`created_artifact_id` text,
 	`tool_call_id` text,
 	`origin` text NOT NULL,
 	`retry_of` text,
