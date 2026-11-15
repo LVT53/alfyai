@@ -216,20 +216,18 @@ export const FILE_CARD_LIMIT = 6;
  * `rows` are the `files` payloads of the reply's calls, in result order. The
  * answer holds one row per input row, in the same order (a row whose cards were
  * all repeats, or fell past the cap, is empty), so a caller can pair it back
- * with the call that produced it. Each kept row says `total === cards.length`:
- * a row never draws an "N more" line of its own, because the reply has ONE
- * `remainder` to report under the last strip — `sum(totals) - shown`, never
- * negative, and never counting a repeated path twice among the shown.
+ * with the call that produced it and draw one strip per call. Each kept row says
+ * `total === cards.length`: a row never draws an "N more" line of its own,
+ * because the strip's count tile is what says how many of that call's pictures
+ * it leaves out. There is no reply-level remainder line either.
  */
 export function capFileCards(
 	rows: readonly ToolCallFilesData[],
 	limit: number = FILE_CARD_LIMIT,
-): { rows: ToolCallFilesData[]; remainder: number } {
+): ToolCallFilesData[] {
 	const seen = new Set<string>();
 	let shown = 0;
-	let found = 0;
-	const capped = rows.map((row) => {
-		found += Math.max(0, row.total);
+	return rows.map((row) => {
 		const cards: ToolCallFileCard[] = [];
 		for (const card of row.cards) {
 			// A repeated path is one card: the same file found by two calls is
@@ -241,7 +239,6 @@ export function capFileCards(
 		}
 		return { ...row, cards, total: cards.length };
 	});
-	return { rows: capped, remainder: Math.max(0, found - shown) };
 }
 
 /**

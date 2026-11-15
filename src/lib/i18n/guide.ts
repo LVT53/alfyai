@@ -125,7 +125,7 @@ const guideDict = {
 			"Pick a file from your Library and ask about it.",
 		"guide.entry.connectedAccounts.name": "Connected accounts",
 		"guide.entry.connectedAccounts.line":
-			"Calendar, email, files, photos and more, for Alfy to read. A found Nextcloud file comes back as a card, and the file opens in Nextcloud.",
+			"Calendar, email, files, photos and more, for Alfy to read. A found Nextcloud file comes back as a picture you can open, and its list opens the file in Nextcloud.",
 		"guide.entry.yourOk.name": "Nothing changes without your OK",
 		"guide.entry.yourOk.line":
 			"Alfy asks before it changes anything in your accounts.",
@@ -283,7 +283,7 @@ const guideDict = {
 			"Válassz egy fájlt a Könyvtáradból, és kérdezz róla.",
 		"guide.entry.connectedAccounts.name": "Csatlakoztatott fiókok",
 		"guide.entry.connectedAccounts.line":
-			"Naptár, e-mail, fájlok, fotók és más, amit Alfy elolvashat. A megtalált Nextcloud-fájl kártyaként jön vissza, és a Nextcloudban nyílik meg.",
+			"Naptár, e-mail, fájlok, fotók és más, amit Alfy elolvashat. A megtalált Nextcloud-fájl képként jön vissza, amit megnyithatsz, a listája pedig a Nextcloudban nyitja meg a fájlt.",
 		"guide.entry.yourOk.name": "Jóváhagyásod nélkül semmi sem változik",
 		"guide.entry.yourOk.line":
 			"Alfy megkérdezi, mielőtt bármit módosít a fiókjaidban.",

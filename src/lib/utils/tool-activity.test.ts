@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { t } from "$lib/i18n";
 import chatDict from "$lib/i18n/chat";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
-import type { ToolCallFilesData } from "$lib/server/services/messages-types";
 import {
 	type AtlasActivityJob,
 	atlasPlanProgress,
@@ -2245,108 +2244,5 @@ describe("make_image rows", () => {
 		}
 		expect(chatDict.hu["toolActivity.pictureStopped"]).toBe("Kép leállítva");
 		expect(chatDict.hu["toolActivity.pictureStillMaking"]).toBeTruthy();
-	});
-});
-
-// The files a `files` call found are what the person asked for, so its row is a
-// deliverable drawn under the reply (docs/plans/2026-11-15-nextcloud-file-cards):
-// pinned, always open, its cards in the body — and no timing on the right, since
-// the cards are the fact. A call that found nothing stays an ordinary step.
-describe("files rows — the files a call found", () => {
-	const filesData: ToolCallFilesData = {
-		connectionId: "conn-1",
-		cards: [
-			{
-				name: "Q3 report.pdf",
-				path: "/Documents/Q3 report.pdf",
-				size: 24_576,
-				mtime: "Wed, 21 Oct 2015 07:28:00 GMT",
-				contentType: "application/pdf",
-				previewUrl: null,
-				webUrl: "https://cloud.example/apps/files/?dir=/Documents&openfile=42",
-			},
-			{
-				name: "site plan.png",
-				path: "/Photos/site plan.png",
-				size: 2_097_152,
-				mtime: null,
-				contentType: "image/png",
-				previewUrl: "/api/connections/nextcloud/preview/43",
-				webUrl: "https://cloud.example/apps/files/?dir=/Photos&openfile=43",
-			},
-		],
-		total: 9,
-	};
-
-	function filesCall(
-		overrides: Partial<ToolCallSegment> = {},
-	): ToolCallSegment {
-		return toolCall({
-			name: "files",
-			input: { action: "search", query: "report" },
-			files: filesData,
-			...overrides,
-		});
-	}
-
-	it("pins a files call that found something to show", () => {
-		const item = buildToolActivityItem(filesCall(), "k-files", translate);
-
-		expect(item.pinned).toBe(true);
-		expect(item.alwaysOpen).toBe(true);
-		expect(item.body).toEqual({
-			kind: "files",
-			cards: filesData.cards,
-			total: 9,
-		});
-		// A card needs no timing: the right-hand fact would only be a stopwatch.
-		expect(item.meta).toBe("");
-		expect(item.iconType).toBe("files");
-	});
-
-	it("leaves a files call with no cards unpinned, and with no card body", () => {
-		const item = buildToolActivityItem(
-			filesCall({ files: { connectionId: "conn-1", cards: [], total: 0 } }),
-			"k-files-empty",
-			translate,
-		);
-
-		// The call keeps whatever row it would otherwise have: it is not a
-		// deliverable, and there is no card strip to open — only the details a
-		// generic row already carries (what it searched for).
-		expect(item.pinned).toBe(false);
-		expect(item.alwaysOpen).toBe(false);
-		expect(item.body?.kind).not.toBe("files");
-	});
-
-	it("says what it searched for, or which file it read", () => {
-		const searched = buildToolActivityItem(
-			filesCall(),
-			"k-files-search",
-			translate,
-		);
-		expect(searched.verb).toBe("Searched");
-		expect(searched.object).toBe("report");
-
-		const read = buildToolActivityItem(
-			filesCall({
-				input: { action: "read", path: "/Documents/Q3 report.pdf" },
-			}),
-			"k-files-read",
-			translate,
-		);
-		expect(read.verb).toBe("Read");
-		expect(read.object).toBe("/Documents/Q3 report.pdf");
-	});
-
-	it("has the card's own words in both dictionaries", () => {
-		for (const key of [
-			"toolActivity.filesOpen",
-			"toolActivity.filesMore",
-			"toolActivity.filesPreviewFailed",
-		] as const) {
-			expect(chatDict.en[key]).toBeTruthy();
-			expect(chatDict.hu[key]).toBeTruthy();
-		}
 	});
 });

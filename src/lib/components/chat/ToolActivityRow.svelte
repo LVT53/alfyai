@@ -30,9 +30,6 @@ import {
 } from "@lucide/svelte";
 import type { Snippet } from "svelte";
 import { t, type I18nKey } from "$lib/i18n";
-import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
-import type { ToolCallFileCard } from "$lib/server/services/messages-types";
-import { formatByteSize } from "$lib/utils/format";
 import { formatRelativeTime } from "$lib/utils/time";
 import ArtifactCard, {
 	type ArtifactCardView,
@@ -57,7 +54,6 @@ import type {
 	ToolActivityItem,
 	ToolActivityStatus,
 } from "$lib/utils/tool-activity";
-import { getFileType } from "./attachment-file-type";
 import RouteItinerary from "./RouteItinerary.svelte";
 import ToolActivityIcon from "./ToolActivityIcon.svelte";
 import { describeToolCall, type ToolSummaryOutcome } from "./tool-call-summary";
@@ -361,48 +357,6 @@ function artifactFailedCardView(body: ArtifactFailedBody): ArtifactCardView {
 		title: body.title,
 		failedReason: body.reason || $t("artifacts.error.load"),
 	};
-}
-
-type FilesActivityBody = Extract<ToolActivityBody, { kind: "files" }>;
-
-/**
- * A `files` call's card: its size and, when the provider reported one, how long
- * ago it changed — the app's own formatters, said the way every other surface
- * says them. The date carries its year when it is not the current one, so a
- * 2015 report and a 2025 one cannot read alike (the precedent is
- * `write-card-view.ts`'s `formatEventWhen`). A file with no mtime shows its
- * size alone, never a dangling dot.
- */
-function fileCardFacts(card: ToolCallFileCard): string {
-	const when = card.mtime ? Date.parse(card.mtime) : Number.NaN;
-	const dated = Number.isFinite(when)
-		? formatRelativeTime(when, { t: $t, yearWhenNotCurrent: true })
-		: null;
-	return [formatByteSize(card.size, { trimWholeUnits: true }), dated]
-		.filter((part): part is string => Boolean(part))
-		.join(" · ");
-}
-
-/**
- * Which cards' previews failed to load, by path. A failed preview swaps in the
- * file-type glyph — never a broken-image icon — and keeps its link, so the card
- * is still the way to the file.
- */
-let failedPreviews = $state.raw<ReadonlySet<string>>(new Set());
-
-function markPreviewFailed(path: string) {
-	failedPreviews = new Set([...failedPreviews, path]);
-}
-
-/** A card's preview picture, unless it has none or its own failed to load. */
-function previewImageFor(card: ToolCallFileCard): string | null {
-	if (!card.previewUrl || failedPreviews.has(card.path)) return null;
-	return card.previewUrl;
-}
-
-/** How many files the results page held beyond the cards actually drawn. */
-function moreFilesThanShown(body: FilesActivityBody): number {
-	return Math.max(0, body.total - body.cards.length);
 }
 
 /**
@@ -831,60 +785,6 @@ function handleToggle() {
 						</div>
 					{/each}
 				</dl>
-			{:else if body.kind === 'files'}
-				<!-- The files a `files` call found: one link per file to its own web
-				     app, a 96px preview (or the file-type glyph when there is none, or
-				     when the preview fails to load — never a broken image), its name,
-				     the size and date, and what the link opens. -->
-				<ul class="act-files">
-					{#each body.cards as card (card.path)}
-						{@const preview = previewImageFor(card)}
-						<li class="act-file-item">
-							<a
-								class="act-file"
-								href={card.webUrl}
-								target="_blank"
-								rel="noopener noreferrer external"
-								title={card.path}
-							>
-								<span class="act-file-preview" aria-hidden="true">
-									{#if preview}
-										<img
-											src={preview}
-											width="96"
-											height="96"
-											loading="lazy"
-											alt=""
-											onerror={() => markPreviewFailed(card.path)}
-										/>
-									{:else}
-										<span class="act-file-glyph">
-											<FileTypeIcon
-												type={getFileType(card.contentType, card.name)}
-												size={32}
-											/>
-										</span>
-									{/if}
-								</span>
-								<span class="act-file-text">
-									<span class="act-file-name">{card.name}</span>
-									<span class="act-file-facts">{fileCardFacts(card)}</span>
-									<span class="act-file-open">{$t('toolActivity.filesOpen')}</span>
-								</span>
-								{#if failedPreviews.has(card.path)}
-									<span class="sr-only">{$t('toolActivity.filesPreviewFailed')}</span>
-								{/if}
-							</a>
-						</li>
-					{/each}
-				</ul>
-				{#if moreFilesThanShown(body) > 0}
-					<!-- The count reflects the results page this call drew, not every
-					     match on the server, so it says "more" and never a total. -->
-					<div class="act-files-more">
-						{$t('toolActivity.filesMore', { count: moreFilesThanShown(body) })}
-					</div>
-				{/if}
 			{:else if body.kind === 'text'}
 				<div class="act-excerpt">{body.text}</div>
 			{:else if body.kind === 'bullets'}
@@ -1452,107 +1352,6 @@ function handleToggle() {
 		color: var(--text-primary);
 	}
 
-	/* The files a call found: a quiet column of links, each a 96px preview (or the
-	   file-type glyph) beside its name, its size and date, and the way to open it
-	   in the file's own app. The card is the target, so only the link reacts. */
-	.act-files {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
-		margin: 0;
-		padding: 0;
-		list-style: none;
-	}
-
-	.act-file-item {
-		min-width: 0;
-	}
-
-	.act-file {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		min-width: 0;
-		margin: 0 -6px;
-		padding: 4px 6px;
-		border-radius: 6px;
-		color: inherit;
-		text-decoration: none;
-		transition: background-color var(--duration-standard) var(--ease-out);
-	}
-
-	.act-file:hover,
-	.act-file:focus-visible {
-		background: var(--surface-overlay);
-	}
-
-	.act-file:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	.act-file-preview {
-		flex: 0 0 96px;
-		width: 96px;
-		height: 96px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 6px;
-		overflow: hidden;
-		background: var(--surface-page);
-		box-shadow: 0 0 0 1px var(--border-subtle);
-		color: var(--icon-muted);
-	}
-
-	.act-file-preview img {
-		width: 96px;
-		height: 96px;
-		object-fit: cover;
-	}
-
-	.act-file-glyph {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.act-file-text {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
-		overflow: hidden;
-	}
-
-	.act-file-name {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		/* The name is what the person is reading: the row's own size, not the
-		   body's smaller one. */
-		font-size: var(--text-sm);
-		color: var(--text-primary);
-	}
-
-	.act-file-facts,
-	.act-file-open {
-		font-size: var(--text-xs);
-		color: var(--text-muted);
-	}
-
-	.act-file-open {
-		color: var(--accent-text);
-	}
-
-	.act-files-more {
-		padding-left: 2px;
-		font-size: var(--text-xs);
-		color: var(--text-muted);
-	}
-
-
 	@media (prefers-reduced-motion: reduce) {
 		.act-status.running :global(svg) {
 			animation: none;
@@ -1566,10 +1365,6 @@ function handleToggle() {
 		}
 
 		:global(.act-chevron) {
-			transition: none;
-		}
-
-		.act-file {
 			transition: none;
 		}
 

@@ -1,11 +1,17 @@
+import { get } from "svelte/store";
 import { describe, expect, it } from "vitest";
+import { t } from "$lib/i18n";
 import type { ToolCallFileCard } from "$lib/server/services/messages-types";
 import {
+	fileCardFacts,
 	filesStripTiles,
 	STRIP_SLOTS_NARROW,
 	STRIP_SLOTS_WIDE,
 	stripPictureCards,
 } from "./files-strip-view";
+
+// The real English dictionary, so the facts read as the person sees them.
+const translate = get(t);
 
 // The card the server builds for a Nextcloud picture: a preview URL, with the
 // viewer-sized copy beside it.
@@ -181,5 +187,26 @@ describe("filesStripTiles", () => {
 			{ kind: "picture", card: cards[0], pictureIndex: 0 },
 			{ kind: "picture", card: cards[2], pictureIndex: 1 },
 		]);
+	});
+});
+
+// The one copy of a card's size-and-date line: the strip's card, its list rows
+// and the old file-card row (before the strip replaced it) all read this, so the
+// two surfaces cannot word the same file differently.
+describe("fileCardFacts", () => {
+	it("says the size and, when there is one, the date with its year", () => {
+		const card: ToolCallFileCard = {
+			...pdf("Q3 report.pdf"),
+			size: 24_576,
+			mtime: "Wed, 21 Oct 2015 07:28:00 GMT",
+		};
+
+		expect(fileCardFacts(card, translate)).toMatch(/^24 KB · .+ 2015$/);
+	});
+
+	it("shows the size alone when the provider reported no mtime", () => {
+		expect(
+			fileCardFacts({ ...pdf("contract.pdf"), mtime: null }, translate),
+		).toBe("2 KB");
 	});
 });

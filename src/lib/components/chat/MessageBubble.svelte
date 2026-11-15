@@ -72,6 +72,7 @@ import type {
 import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
 import { getClipboardText } from "$lib/shared/reply-text";
 import AskQuestionCard from "./AskQuestionCard.svelte";
+import FilesStrip from "./FilesStrip.svelte";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 import ThinkingBlock from "./ThinkingBlock.svelte";
 import ToolActivityList from "./ToolActivityList.svelte";
@@ -460,49 +461,25 @@ let renderResources = $derived(
 let deliverableSegments = $derived(
 	rawThinkingSegments.filter(isArtifactToolCall),
 );
-// The files a `files` call found are a deliverable too (docs/plans/
-// 2026-11-15-nextcloud-file-cards): its row and cards are what the person asked
-// for. They are their own list, NOT fed through `foldArtifactDeliverables` —
-// that helper folds calls by artifact identity, and a files call has no item to
-// fold: its cards are the result itself.
-let fileDeliverableSegments = $derived(
-	rawThinkingSegments.filter(isFileCardsToolCall),
-);
-// The cap is per REPLY, not per call (spec §4): a reply that searches and then
-// lists must draw six cards in all, each file once, with ONE remainder under
-// the strip. So the cap is applied here, where the reply's cards are
-// assembled, across its `files` calls in result order. Every kept row is fed
-// the cards it shows and a `total` that equals them, so the row draws no "N
-// more" of its own (the reply owns that one line).
-let cappedFileCards = $derived(
-	capFileCards(fileDeliverableSegments.map((segment) => segment.files)),
-);
-let fileDeliverableItems = $derived(
-	fileDeliverableSegments.flatMap((segment, index) => {
-		const capped = cappedFileCards.rows[index];
-		if (!capped || capped.cards.length === 0) return [];
-		const item = buildToolActivityItem(
-			segment,
-			segment.callId ?? `files-${index}`,
-			$t,
-		);
-		const body = item.body;
-		if (body?.kind !== "files") return [item];
-		return [
-			{
-				...item,
-				body: {
-					...body,
-					cards: capped.cards,
-					total: capped.cards.length,
-				},
-			},
-		];
-	}),
-);
-let fileCardsRemainder = $derived(cappedFileCards.remainder);
+// The files a `files` call found are a deliverable too: they are drawn as the
+// compact strip (FilesStrip.svelte) in the same block as the artifact cards,
+// one strip per call, in segment order. A cardless call keeps its ordinary rail
+// row (thinkingSegmentsForDisplay below). The cap is per REPLY, not per call,
+// so the cap is applied here, where the reply's cards are assembled, across its
+// `files` calls in result order: a reply that searches and then lists draws six
+// cards in all, each file once.
+let fileStripCalls = $derived.by(() => {
+	const segments = rawThinkingSegments.filter(isFileCardsToolCall);
+	const capped = capFileCards(segments.map((segment) => segment.files));
+	return segments.flatMap((segment, index) => {
+		const cards = capped[index]?.cards ?? [];
+		return cards.length > 0
+			? [{ key: segment.callId ?? `files-${index}`, cards }]
+			: [];
+	});
+});
 let hasDeliverables = $derived(
-	deliverableSegments.length > 0 || fileDeliverableItems.length > 0,
+	deliverableSegments.length > 0 || fileStripCalls.length > 0,
 );
 // One row per call, then what the reply shows of them: one card per item however
 // many calls worked on it, and a failed attempt only when it is what the turn
@@ -573,9 +550,6 @@ let deliverableItems = $derived([
 		);
 		return preview ? { ...item, body: { ...body, preview } } : item;
 	}),
-	// The files rows close the block: they arrived last in the turn, after the
-	// call that asked for them.
-	...fileDeliverableItems,
 ]);
 // A card is always open; a failed row is folded until the reader presses it.
 let openedDeliverableKeys = $state.raw<Set<string>>(new Set());
@@ -1439,13 +1413,11 @@ function sendFollowUp(question: string) {
 						{deletedArtifacts}
 						{onImageAction}
 					/>
-					{#if fileCardsRemainder > 0}
-						<!-- The reply's file-card cap, said once: how many files the
-						     reply's `files` calls found beyond the six cards drawn. -->
-						<p class="files-remainder" data-testid="files-remainder">
-							{$t('toolActivity.filesMore', { count: fileCardsRemainder })}
-						</p>
-					{/if}
+					<!-- One strip per `files` call that still has a card to draw, in
+					     segment order: the pictures, the count tile and the list. -->
+					{#each fileStripCalls as call (call.key)}
+						<FilesStrip cards={call.cards} />
+					{/each}
 				</div>
 			{/if}
 			{#if completionWarningCodes.length > 0}
@@ -2194,13 +2166,6 @@ function sendFollowUp(question: string) {
 	/* The reply's one "N more" line for the file cards: the cap is per reply, so
 	   it counts every file the reply's calls found beyond the six cards drawn,
 	   and sits under the last strip rather than under each call. */
-	.files-remainder {
-		margin: 2px 0 0;
-		padding-left: 2px;
-		font-size: var(--text-xs);
-		color: var(--text-muted);
-	}
-
 	/* The action row and the chips below it: one block under the message with
 	   the old spacing (a margin, then a small gap between the two rows). */
 	.message-actions {

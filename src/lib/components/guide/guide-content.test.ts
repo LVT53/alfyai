@@ -54,20 +54,26 @@ describe("the feature guide's content", () => {
 
 	it("has the connected-files entry say the same three facts in both languages", () => {
 		// The connected accounts are still there for Alfy to read; a file it
-		// finds in Nextcloud comes back as a card; the card opens the file in
-		// Nextcloud. Both languages must carry all three — an earlier English
-		// line dropped the purpose clause the Hungarian kept, which a
-		// whole-sentence assertion would have passed. Keywords, not sentences,
-		// so a later rewording stays free.
+		// finds in Nextcloud comes back as a picture the person can open, and the
+		// strip's list opens that file in Nextcloud. Both languages must carry all
+		// three — an earlier English line dropped the purpose clause the Hungarian
+		// kept, which a whole-sentence assertion would have passed. Keywords, not
+		// sentences, so a later rewording stays free.
 		const facts = [
-			{ fact: "a card", en: /card/i, hu: /kártya/i },
-			{
-				fact: "the file opens in Nextcloud",
-				en: /opens in Nextcloud/i,
-				hu: /a Nextcloudban nyílik meg/i,
-			},
 			{ fact: "for Alfy to read", en: /Alfy to read/i, hu: /Alfy elolvashat/i },
+			{
+				fact: "a picture the person can open",
+				en: /picture you can open/i,
+				hu: /képként jön vissza.*megnyithat/i,
+			},
+			{
+				fact: "the list opens the file in Nextcloud",
+				en: /list opens the file in Nextcloud/i,
+				hu: /listája.*a Nextcloudban nyitja meg/i,
+			},
 		] as const;
+		// The parity check: every language names every fact, in the same order,
+		// and the filter can only keep a fact its own language's line carries.
 		for (const lang of LANGUAGES) {
 			const line = words[lang][guideEntryKey("connectedAccounts", "line")];
 			expect(

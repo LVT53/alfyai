@@ -1140,11 +1140,9 @@ const chatDict = {
 		"toolActivity.program": "Program",
 		"toolActivity.output": "Output",
 		"toolActivity.expandActivity": "Show what was done",
-		// The files a `files` call found, drawn as cards under the reply
-		// (docs/plans/2026-11-15-nextcloud-file-cards).
+		// The way from the compact strip's single card and its list rows to the
+		// file itself (FilesStrip.svelte).
 		"toolActivity.filesOpen": "Open in Nextcloud",
-		"toolActivity.filesMore": "{count} more",
-		"toolActivity.filesPreviewFailed": "Preview unavailable",
 		// The compact strip (FilesStrip.svelte): the quiet line a call of
 		// documents leaves, the count it and the chevron say, the name of a
 		// picture tile at the viewer, and the chevron's open state.
@@ -2393,10 +2391,8 @@ const chatDict = {
 		"toolActivity.program": "Program",
 		"toolActivity.output": "Kimenet",
 		"toolActivity.expandActivity": "Mutasd, mi történt",
-		// A `files` hívás találatai kártyákként a válasz alatt.
+		// A kompakt sáv kártyájáról és listasorairól a fájlra magára.
 		"toolActivity.filesOpen": "Megnyitás a Nextcloudban",
-		"toolActivity.filesMore": "további {count}",
-		"toolActivity.filesPreviewFailed": "Az előnézet nem érhető el",
 		// A kompakt sáv (FilesStrip.svelte). A magyar számnevek után egyes szám
 		// áll, ezért a fájlszámnak nincs többes alakja.
 		"toolActivity.filesQuietLine": "Keresés a fájljaid között",

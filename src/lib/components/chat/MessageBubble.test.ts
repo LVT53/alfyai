@@ -20,7 +20,10 @@ import type { InterimThoughtStep } from "$lib/response-activity-types";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
-import type { ChatMessage } from "$lib/server/services/messages-types";
+import type {
+	ChatMessage,
+	ToolCallFileCard,
+} from "$lib/server/services/messages-types";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
 import type { AskQuestion, AskQuestionDto } from "$lib/shared/ask-user";
 import { createNormalChatOutputAccumulator } from "$lib/shared/normal-chat-output";
@@ -4451,13 +4454,40 @@ describe("MessageBubble", () => {
 		});
 	});
 
-	// Task 7 — a `files` call that found something: its row and cards are what the
-	// reply produced, so they are drawn under the text with the other deliverables
-	// rather than being lost in the rail's steps. `deliverableSegments` selects
-	// artifact calls only, so the files rows are their own list in the same block.
-	describe("the files a files call found (rows and cards)", () => {
+	// Task 4 — a `files` call that found something is drawn as the compact strip
+	// (FilesStrip.svelte) under the reply's prose, not as a tool-activity row:
+	// one strip per call, in segment order, inside the same deliverables block as
+	// the artifact cards. The strip's own list and viewer are covered by
+	// FilesStrip.test.ts; here the message's assembly is the subject.
+	describe("the files a files call found (the strip)", () => {
+		function pictureCard(name: string, fileId: number) {
+			return {
+				name,
+				path: `/Photos/${name}`,
+				size: 2_400_000,
+				mtime: "2025-06-01T09:00:00Z",
+				contentType: "image/jpeg",
+				previewUrl: `/api/connections/nextcloud/preview?fileId=${fileId}&size=192`,
+				viewUrl: `/api/connections/nextcloud/preview?fileId=${fileId}&size=1600`,
+				webUrl: `https://cloud.example.com/apps/files/?fileid=${fileId}`,
+			};
+		}
+
+		function documentCard(name: string, fileId: number) {
+			return {
+				name,
+				path: `/Documents/${name}`,
+				size: 48_000,
+				mtime: null,
+				contentType: "application/pdf",
+				previewUrl: null,
+				viewUrl: null,
+				webUrl: `https://cloud.example.com/apps/files/?fileid=${fileId}`,
+			};
+		}
+
 		function buildFilesMessage(
-			overrides: Partial<ChatMessage> = {},
+			segments: NonNullable<ChatMessage["thinkingSegments"]>,
 		): ChatMessage {
 			return {
 				id: "assistant-found-files",
@@ -4466,38 +4496,33 @@ describe("MessageBubble", () => {
 				content: "Megtaláltam a negyedéves jelentéseket.",
 				timestamp: Date.now(),
 				isStreaming: false,
-				thinkingSegments: [
-					{
-						type: "tool_call",
-						callId: "call-files",
-						name: "files",
-						input: { action: "search", query: "Q3 report" },
-						status: "done",
-						files: {
-							connectionId: "conn-1",
-							cards: [
-								{
-									name: "Q3 report.pdf",
-									path: "/Documents/Q3 report.pdf",
-									size: 24_576,
-									mtime: "Wed, 21 Oct 2015 07:28:00 GMT",
-									contentType: "application/pdf",
-									previewUrl: null,
-									webUrl:
-										"https://cloud.example/apps/files/?dir=/Documents&openfile=42",
-								},
-							],
-							total: 3,
-						},
-					},
-				],
-				...overrides,
+				thinkingSegments: segments,
 			};
 		}
 
-		it("draws the row and its cards after the text, in the deliverables block", () => {
+		function filesCall(
+			callId: string,
+			cards: ToolCallFileCard[],
+			total: number = cards.length,
+		): NonNullable<ChatMessage["thinkingSegments"]>[number] {
+			return {
+				type: "tool_call",
+				callId,
+				name: "files",
+				input: { action: "search", query: "Q3 report" },
+				status: "done",
+				files: { connectionId: "conn-1", cards, total },
+			};
+		}
+
+		it("draws a files call as a strip below the prose, not as a row", () => {
 			const { container } = render(MessageBubble, {
-				message: buildFilesMessage(),
+				message: buildFilesMessage([
+					filesCall("call-files", [
+						pictureCard("IMG_2043.jpg", 42),
+						documentCard("Q3 report.pdf", 43),
+					]),
+				]),
 				conversationId: "conv-1",
 			});
 
@@ -4511,177 +4536,81 @@ describe("MessageBubble", () => {
 				(prose?.compareDocumentPosition(made as Node) ?? 0) &
 					Node.DOCUMENT_POSITION_FOLLOWING,
 			).toBeTruthy();
-
-			const rows = made?.querySelectorAll(
-				'[data-testid="tool-activity-row"][data-icon-type="files"]',
-			);
-			expect(rows).toHaveLength(1);
-			// The card itself, reachable without a click: the row is always open.
-			const link = made?.querySelector<HTMLAnchorElement>("a.act-file");
-			expect(link?.getAttribute("href")).toBe(
-				"https://cloud.example/apps/files/?dir=/Documents&openfile=42",
-			);
-			expect(made?.textContent).toContain("Q3 report.pdf");
-		});
-
-		it("has no block when the call found nothing to show", () => {
-			const message = buildFilesMessage();
-			message.thinkingSegments = [
-				{
-					type: "tool_call",
-					callId: "call-files",
-					name: "files",
-					input: { action: "search", query: "Q3 report" },
-					status: "done",
-					files: { connectionId: "conn-1", cards: [], total: 0 },
-				},
-			];
-			const { container } = render(MessageBubble, { message });
-
+			// The strip, with its one picture: the call's picture is what it draws.
+			expect(made?.querySelector(".fs-block")).not.toBeNull();
 			expect(
-				container.querySelector('[data-testid="message-deliverables"]'),
-			).toBeNull();
-		});
-
-		it("keeps a files call with cards out of the rail, and a cardless one in it", () => {
-			const withCards = render(MessageBubble, {
-				message: buildFilesMessage(),
-				conversationId: "conv-1",
-			});
-			// The cards show the result under the reply…
+				within(made as HTMLElement).getByRole("button", {
+					name: /^Open IMG_2043\.jpg, picture 1 of 1$/,
+				}),
+			).toBeInTheDocument();
+			// …and the old file-card row is gone: no activity row for the call and
+			// no card panel repeating the strip underneath it.
 			expect(
-				withCards.container.querySelector(
-					'[data-testid="message-deliverables"] a.act-file',
-				),
-			).not.toBeNull();
-			// …so the rail does not list the same call again: its generic Details
-			// panel would be a second, worse copy right under the card
-			// (create_artifact/edit_artifact are kept out of the rail for this).
-			expect(
-				withCards.container.querySelector(
-					'[data-testid="tool-activity-summary"]',
+				container.querySelector(
+					'[data-testid="tool-activity-row"][data-icon-type="files"]',
 				),
 			).toBeNull();
-			expect(withCards.container.textContent).not.toContain("Files 1 action");
-			withCards.unmount();
-
-			// A call that found nothing has nothing else showing it, so the rail keeps
-			// its row — the step still happened.
-			const cardless = buildFilesMessage();
-			cardless.thinkingSegments = [
-				{
-					type: "tool_call",
-					callId: "call-files",
-					name: "files",
-					input: { action: "search", query: "Q3 report" },
-					status: "done",
-					files: { connectionId: "conn-1", cards: [], total: 0 },
-				},
-			];
-			const inRail = render(MessageBubble, {
-				message: cardless,
-				conversationId: "conv-1",
-			});
+			expect(made?.querySelector("a.act-file")).toBeNull();
 			expect(
-				inRail.container.querySelector('[data-testid="tool-activity-summary"]')
-					?.textContent,
-			).toContain("Files");
-			expect(
-				inRail.container.querySelector('[data-testid="message-deliverables"]'),
+				container.querySelector('[data-testid="files-remainder"]'),
 			).toBeNull();
 		});
 
-		// The cap is per REPLY (spec §4): two files calls of four cards each draw
-		// six anchors in all, a path two calls both found is drawn once, and the
-		// reply says its remainder once rather than once per call.
-		it("caps two files calls at six cards for the reply, with one remainder", () => {
-			const cardsNamed = (prefix: string, count: number) =>
-				Array.from({ length: count }, (_, index) => ({
-					name: `${prefix}-${index}.pdf`,
-					path: `/Documents/${prefix}-${index}.pdf`,
-					size: 1024,
-					mtime: null,
-					contentType: "application/pdf",
-					previewUrl: null,
-					webUrl: `https://cloud.example/apps/files/?dir=%2FDocuments&openfile=${prefix}-${index}`,
-				}));
-			const search = cardsNamed("search", 4);
-			const message = buildFilesMessage({
-				thinkingSegments: [
-					{
-						type: "tool_call",
-						callId: "call-search",
-						name: "files",
-						input: { action: "search", query: "Q3 report" },
-						status: "done",
-						files: { connectionId: "conn-1", cards: search, total: 4 },
-					},
-					{
-						type: "tool_call",
-						callId: "call-list",
-						name: "files",
-						input: { action: "list", path: "/Documents" },
-						status: "done",
-						files: {
-							connectionId: "conn-1",
-							// The same first file, found again, plus three new ones.
-							cards: [search[0], ...cardsNamed("list", 3)],
-							total: 4,
-						},
-					},
-				],
-			});
+		it("still caps two files calls at six cards, and draws one strip per call", () => {
+			const first = [1, 2, 3, 4].map((id) => pictureCard(`IMG_${id}.jpg`, id));
+			// The second call found the same first picture again, plus three new ones.
+			const second = [
+				first[0],
+				...[5, 6, 7].map((id) => pictureCard(`IMG_${id}.jpg`, id)),
+			];
 			const { container } = render(MessageBubble, {
-				message,
+				message: buildFilesMessage([
+					filesCall("call-search", first, 4),
+					filesCall("call-list", second, 4),
+				]),
 				conversationId: "conv-1",
 			});
 
 			const made = container.querySelector(
 				'[data-testid="message-deliverables"]',
-			);
-			const links = [
-				...(made?.querySelectorAll<HTMLAnchorElement>("a.act-file") ?? []),
+			) as HTMLElement;
+			// One strip per call, in segment order.
+			const strips = made.querySelectorAll(".fs-block");
+			expect(strips).toHaveLength(2);
+			// Six tiles at most across both strips, each picture once: two calls
+			// must not draw the same file twice or grow past the reply's cap.
+			const pictures = [
+				...made.querySelectorAll<HTMLImageElement>(".fs-tile img"),
 			];
-			expect(links).toHaveLength(6);
-			expect(new Set(links.map((link) => link.getAttribute("href"))).size).toBe(
+			expect(pictures).toHaveLength(6);
+			expect(new Set(pictures.map((img) => img.getAttribute("src"))).size).toBe(
 				6,
 			);
-			expect(links.map((link) => link.title)).toEqual([
-				"/Documents/search-0.pdf",
-				"/Documents/search-1.pdf",
-				"/Documents/search-2.pdf",
-				"/Documents/search-3.pdf",
-				"/Documents/list-0.pdf",
-				"/Documents/list-1.pdf",
-			]);
-			// One line for the whole reply: its calls found eight files in all,
-			// six are drawn, so two are counted. No row draws its own "N more".
-			expect(made?.querySelectorAll(".act-files-more")).toHaveLength(0);
-			const remainder = made?.querySelectorAll<HTMLElement>(
-				'[data-testid="files-remainder"]',
-			);
-			expect(remainder).toHaveLength(1);
-			expect(remainder?.[0]?.textContent?.trim()).toBe("2 more");
+			expect(strips[0].querySelectorAll(".fs-tile")).toHaveLength(4);
+			expect(strips[1].querySelectorAll(".fs-tile")).toHaveLength(2);
+			// The count tile tells the story; there is no reply-level remainder line.
+			expect(
+				container.querySelector('[data-testid="files-remainder"]'),
+			).toBeNull();
+			expect(made.querySelector(".act-files-more")).toBeNull();
 		});
 
-		it("draws no remainder line when the caps show every card", () => {
-			const message = buildFilesMessage();
-			const segment = message.thinkingSegments?.[0];
-			if (segment?.type !== "tool_call" || !segment.files) {
-				throw new Error("expected the fixture's files call");
-			}
-			// One card found, one card drawn: nothing is left to count.
-			message.thinkingSegments = [
-				{ ...segment, files: { ...segment.files, total: 1 } },
-			];
+		it("keeps a cardless files call in the thinking rail", () => {
 			const { container } = render(MessageBubble, {
-				message,
+				message: buildFilesMessage([filesCall("call-files", [], 0)]),
 				conversationId: "conv-1",
 			});
 
-			expect(container.querySelector('[data-testid="files-remainder"]')).toBe(
-				null,
-			);
+			expect(
+				container.querySelector('[data-testid="message-deliverables"]'),
+			).toBeNull();
+			expect(container.querySelector(".fs-block")).toBeNull();
+			expect(container.querySelector(".fs-card")).toBeNull();
+			// The step still happened, and the rail still says so.
+			expect(
+				container.querySelector('[data-testid="tool-activity-summary"]')
+					?.textContent,
+			).toContain("Files");
 		});
 	});
 

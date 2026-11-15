@@ -2,6 +2,9 @@
 // for the rest. Pure, like reply-segments.ts and ask-card-view.ts: no Svelte, no
 // DOM, tested without a browser. FilesStrip draws exactly what this returns.
 import type { ToolCallFileCard } from "$lib/server/services/messages-types";
+import { formatByteSize } from "$lib/utils/format";
+import { formatRelativeTime } from "$lib/utils/time";
+import type { Translate } from "$lib/utils/tool-evidence-presentation";
 
 /** Four 78px tiles fit a wide chat. */
 export const STRIP_SLOTS_WIDE = 4;
@@ -64,4 +67,27 @@ export function filesStripTiles(
 		pictureIndex: drawn,
 	});
 	return tiles;
+}
+
+/**
+ * A card's size and, when the provider reported one, how long ago it changed —
+ * the app's own formatters, said the way every other surface says them. The date
+ * carries its year when it is not the current one, so a 2015 report and a 2025
+ * one cannot read alike, and a file with no mtime shows its size alone, never a
+ * dangling dot.
+ *
+ * This is the ONE copy of those facts: the strip's card, the strip's list rows
+ * and (before the strip replaced it) the old file-card row all read it.
+ */
+export function fileCardFacts(
+	card: ToolCallFileCard,
+	translate: Translate,
+): string {
+	const when = card.mtime ? Date.parse(card.mtime) : Number.NaN;
+	const dated = Number.isFinite(when)
+		? formatRelativeTime(when, { t: translate, yearWhenNotCurrent: true })
+		: null;
+	return [formatByteSize(card.size, { trimWholeUnits: true }), dated]
+		.filter((part): part is string => Boolean(part))
+		.join(" · ");
 }

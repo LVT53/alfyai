@@ -21,10 +21,7 @@ import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
-import type {
-	ToolCallFileCard,
-	ToolCallMapData,
-} from "$lib/server/services/messages-types";
+import type { ToolCallMapData } from "$lib/server/services/messages-types";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { formatByteSize } from "$lib/utils/format";
 import {
@@ -87,12 +84,6 @@ export type ToolActivityBody =
 	| { kind: "page"; sources: ToolWebSource[]; excerpt: string | null }
 	| { kind: "python"; program: string; output: string | null }
 	| { kind: "map"; map: ToolCallMapData; summary: string }
-	// The files a `files` call found (docs/plans/2026-11-15-nextcloud-file-cards):
-	// each card is one link to the file's own web app, with its size, its date
-	// and its preview (or the file-type glyph). `total` is how many files the
-	// call's results page held, not every match on the server — the card strip is
-	// capped, so the body says "N more" and never claims a total.
-	| { kind: "files"; cards: ToolCallFileCard[]; total: number }
 	| { kind: "text"; text: string }
 	| { kind: "bullets"; items: string[] }
 	| {
@@ -334,10 +325,6 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	"toolActivity.program",
 	"toolActivity.output",
 	"toolActivity.expandActivity",
-	// The files card strip (a `files` call that found something to show).
-	"toolActivity.filesOpen",
-	"toolActivity.filesMore",
-	"toolActivity.filesPreviewFailed",
 	"toolActivity.failureDetails",
 	"toolActivity.retriedOnce",
 	// The route card's step-by-step body (RouteItinerary.svelte) draws these;
@@ -522,21 +509,6 @@ export function runPythonObject(
 		if (trimmed.length > 0) break;
 	}
 	return translate("toolActivity.scratchProgram");
-}
-
-/**
- * The object a `files` row names: what it searched for, or the path it read or
- * listed. The call's `action` is never the object — "Searched search" would be
- * nonsense.
- */
-function filesObject(segment: ToolCallSegment): string {
-	for (const key of ["query", "path"] as const) {
-		const value = segment.input?.[key];
-		if (typeof value === "string" && value.trim()) {
-			return value.trim().slice(0, 200);
-		}
-	}
-	return "";
 }
 
 export function formatMapDistance(meters: number | undefined): string {
@@ -1210,41 +1182,6 @@ function buildSettledToolActivityItem(
 		// A settled call whose success metadata came back malformed: never
 		// fabricate a card for something that did not, in fact, happen. Falls
 		// through to the generic identity/body below.
-	}
-
-	// A `files` call that found something: the cards ARE the answer the person
-	// asked for, so this is a deliverable row — pinned, always open, drawn under
-	// the reply with the other things a turn made (MessageBubble's
-	// `message-deliverables`). Its right-hand fact stays empty: a card needs no
-	// stopwatch. A call that found nothing keeps the ordinary row it always had
-	// (the connector group's actions body), because there is nothing to show.
-	const filesFound = segment.name === "files" ? segment.files : null;
-	if (filesFound && filesFound.cards.length > 0) {
-		const reading = segment.input?.action === "read";
-		const filesVerb = verb(
-			translate,
-			reading ? "reading" : "searching",
-			reading ? "read" : "searched",
-			status,
-		);
-		const object = filesObject(segment);
-		return {
-			...base,
-			verb: filesVerb,
-			object,
-			meta: "",
-			summaryLabel: `${filesVerb} ${object}`.trim(),
-			title: object || filesVerb,
-			pinned: true,
-			alwaysOpen: true,
-			body: {
-				kind: "files",
-				cards: filesFound.cards,
-				// A payload with no `total` (never written today) cannot say "more":
-				// the cards it holds are all it knows about.
-				total: Math.max(filesFound.total ?? 0, filesFound.cards.length),
-			},
-		};
 	}
 
 	if (iconType === "memory") {

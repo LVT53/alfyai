@@ -17,10 +17,9 @@ import { ChevronDown } from "@lucide/svelte";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
 import type { ToolCallFileCard } from "$lib/server/services/messages-types";
-import { formatByteSize } from "$lib/utils/format";
-import { formatRelativeTime } from "$lib/utils/time";
 import { type AttachmentFileType, getFileType } from "./attachment-file-type";
 import {
+	fileCardFacts,
 	filesStripTiles,
 	STRIP_SLOTS_NARROW,
 	STRIP_SLOTS_WIDE,
@@ -83,23 +82,6 @@ function previewFor(url: string | null): string | null {
 	return url;
 }
 
-/**
- * A card's size and, when the provider reported one, how long ago it changed —
- * the app's own formatters, said the way every other surface says them. The
- * date carries its year when it is not the current one, so a 2015 report and a
- * 2025 one cannot read alike, and a file with no mtime shows its size alone,
- * never a dangling dot.
- */
-function fileFacts(card: ToolCallFileCard): string {
-	const when = card.mtime ? Date.parse(card.mtime) : Number.NaN;
-	const dated = Number.isFinite(when)
-		? formatRelativeTime(when, { t: $t, yearWhenNotCurrent: true })
-		: null;
-	return [formatByteSize(card.size, { trimWholeUnits: true }), dated]
-		.filter((part): part is string => Boolean(part))
-		.join(" · ");
-}
-
 /** One tile of the strip, with the words and the glyph it needs to be drawn. */
 type StripTileView =
 	| {
@@ -126,7 +108,7 @@ const rowViews = $derived(
 		card,
 		preview: previewFor(card.previewUrl),
 		fileType: getFileType(card.contentType, card.name),
-		facts: fileFacts(card),
+		facts: fileCardFacts(card, $t),
 	})),
 );
 
@@ -246,7 +228,7 @@ function openViewerAt(index: number) {
 		</a>
 	</div>
 {:else}
-	<div class="fs-block">
+	<div class="fs-block" data-testid="files-strip">
 		<div class="fs-head">
 			{#if tileViews.length > 0}
 				<div class="fs-strip">
@@ -255,6 +237,7 @@ function openViewerAt(index: number) {
 							<button
 								type="button"
 								class="fs-tile"
+								data-testid="files-strip-tile"
 								aria-label={tile.label}
 								onclick={() => openViewerAt(tile.pictureIndex)}
 							>
@@ -275,6 +258,7 @@ function openViewerAt(index: number) {
 							<button
 								type="button"
 								class="fs-tile fs-tile-count"
+								data-testid="files-strip-count"
 								aria-label={tile.label}
 								onclick={() => (listOpen = true)}
 							>
@@ -301,6 +285,7 @@ function openViewerAt(index: number) {
 			<button
 				type="button"
 				class="fs-chevron"
+				data-testid="files-strip-chevron"
 				aria-expanded={listOpen}
 				aria-controls={listId}
 				aria-label={listLabel}
@@ -312,7 +297,7 @@ function openViewerAt(index: number) {
 			</button>
 		</div>
 		{#if listOpen}
-			<ul id={listId} class="fs-list">
+			<ul id={listId} class="fs-list" data-testid="files-strip-list">
 				{#each rowViews as row (row.card.path)}
 					<li class="fs-list-item">
 						<a
@@ -336,8 +321,10 @@ function openViewerAt(index: number) {
 								{/if}
 							</span>
 							<span class="fs-row-text">
-								<span class="fs-row-name" title={row.card.name}
-									>{row.card.name}</span
+								<span
+									class="fs-row-name"
+									data-testid="files-strip-name"
+									title={row.card.name}>{row.card.name}</span
 								>
 								<span class="fs-row-facts">{row.facts}</span>
 							</span>
