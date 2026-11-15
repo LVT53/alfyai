@@ -50,6 +50,13 @@ Three capabilities Lightricks ships as IC-LoRAs on the same 22B transformer, all
 
 **Two answers the owner should keep:** for a **still image**, LTX is the wrong tool — it is a video model, a still becomes a one-frame clip with nothing for its temporal conditioning to do, so an image upscaler or H3's own edit path is the right answer. For **picture in-painting we already have it** (H3's edit graph with marks, shipped); video in-painting is new, and its cost is a mask editor over time, not the model. Full reasoning: `docs/plans/ltx-video/implementation-plan.md`, "Beyond generation".
 
+## Owner add-on idea (2026-11-15): style skill packs
+Owner's words, after asking for the two prompting packs: *"you can note down the style packs, but I don't want them currently."* Status: **noted only, explicitly not wanted yet** — no design, no schedule.
+
+The idea, kept for later: packs a person installs and picks — "pinup photography", "cinematic stills", "product shots", "documentary portrait" — each carrying its own prompt style and constraints, so a look is chosen rather than described every time. They would sit on top of the two base prompting packs (still image, video), which are being written now from published sources and added by the owner in the admin Skills UI.
+
+Not to be built until the owner asks. Nothing else is decided.
+
 ## 1. Sidebar multi-select, with the chat actions that complete it
 Status: **SHIPPED (`efb23a553` is an ancestor of origin/main, checked 2026-11-10); built 2026-10-26. Older note: it was merged to local `dev` and not pushed at first.** Design (decisions D1-D7, copy table) and plan: `docs/plans/sidebar-multi-select/`. The owner asked for the build directly, so D1-D7 were decided without a brainstorm; any can be overturned. Built: Cmd/Ctrl-click, Shift ranges, "Select" in the row menu (touch); a sticky bar with Select all, Pin/Unpin, Move to project, Delete; `POST /api/conversations/batch` (50 ids, result per id); a delete now stops the chat's streaming reply and ends it as a Stop (single delete too). NOT built: running and unread dots (item 6 still needs them). Release gate green on the branch tip (e2e 1,298/0/0). Follow-ups found: the row menu has no keyboard navigation and Enter on a row's ⋮ also opens the chat (both pre-existing); `ensureSidebarExpanded` in tests/e2e/helpers.ts clicks while the sidebar still animates open (19 specs). Decided 2026-10-25: archive is dropped for now.
 Owner's words: "Multi-select in the sidebar and related actions to make it complete."
