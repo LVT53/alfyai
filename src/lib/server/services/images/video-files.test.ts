@@ -405,6 +405,66 @@ describe("the GIF beside a clip", () => {
 		expect(await listFiles("c1")).toHaveLength(4);
 	});
 
+	it("does not write a GIF back beside a clip whose item was deleted while it was made", async () => {
+		const stored = await storeClip();
+		let release!: (gif: Uint8Array) => void;
+		media.convertToGif.mockReturnValue(
+			new Promise<Uint8Array>((resolve) => {
+				release = resolve;
+			}),
+		);
+
+		const making = videoFiles.readVideoGifBytes(stored);
+		await vi.waitFor(() => expect(media.convertToGif).toHaveBeenCalledTimes(1));
+		// The item delete lands while ffmpeg is still converting: its row and
+		// files go, and nothing may put a GIF back afterwards.
+		await videoFiles.deleteVideoFilesById([stored.id]);
+		release(WHOLE_GIF);
+
+		// The request already in flight still gets the bytes it asked for...
+		expect(await making).toEqual(WHOLE_GIF);
+		// ...but nothing is cached beside a clip that no longer exists.
+		expect(await listFiles("c1")).toEqual([]);
+		expect(media.convertToGif).toHaveBeenCalledTimes(1);
+	});
+
+	it("gives the conversion the request's signal, and stores nothing when it aborts", async () => {
+		const stored = await storeClip();
+		const controller = new AbortController();
+		media.convertToGif.mockImplementation(
+			(_mp4: Uint8Array, options?: { signal?: AbortSignal }) => {
+				if (!options?.signal) {
+					throw new Error(
+						"convertToGif was called without the request's signal",
+					);
+				}
+				return new Promise<Uint8Array>((_resolve, reject) => {
+					options.signal?.addEventListener("abort", () =>
+						reject(
+							new DOMException("The download was abandoned.", "AbortError"),
+						),
+					);
+				});
+			},
+		);
+
+		const making = videoFiles.readVideoGifBytes(stored, {
+			signal: controller.signal,
+		});
+		await vi.waitFor(() => expect(media.convertToGif).toHaveBeenCalledTimes(1));
+		expect(media.convertToGif.mock.calls[0]?.[1]).toMatchObject({
+			signal: controller.signal,
+		});
+		controller.abort();
+
+		await expect(making).rejects.toMatchObject({ name: "AbortError" });
+		expect(await listFiles("c1")).toEqual([
+			`${stored.id}.mp4`,
+			`${stored.id}.poster.webp`,
+			`${stored.id}.thumb.webp`,
+		]);
+	});
+
 	it("answers a missing ffmpeg as unavailable, and stores nothing", async () => {
 		const stored = await storeClip();
 		media.convertToGif.mockRejectedValue(

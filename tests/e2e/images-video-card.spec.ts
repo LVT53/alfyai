@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
@@ -18,7 +20,12 @@ import {
 import { storeImageFile } from "../../src/lib/server/services/images/files";
 import { enqueueVideoTake } from "../../src/lib/server/services/images/video/video-job";
 import { e2eBaseUrl, e2eSlot } from "./e2e-env";
-import { clearAdminConfig, login, waitForStableBoundingBox } from "./helpers";
+import {
+	clearAdminConfig,
+	login,
+	waitForMotionToSettle,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // The video card in the chat, its player and its two downloads (video plan,
 // slice 3): the browser half the pipeline spec does not touch.
@@ -170,7 +177,40 @@ test.beforeAll(async ({ browser }) => {
 	try {
 		await login(page);
 		userId = await adminId();
-		fake = await createFakeComfyUi();
+		// A portrait clip, so the panel's box proves it fits BOTH directions: a
+		// 64x64 square clip could not show the old height-budget letterbox.
+		const portraitPath = join(
+			tmpdir(),
+			`alfyai-e2e-portrait-${process.pid}.mp4`,
+		);
+		execFileSync(
+			"ffmpeg",
+			[
+				"-hide_banner",
+				"-loglevel",
+				"error",
+				"-y",
+				"-f",
+				"lavfi",
+				"-i",
+				"color=c=#336699:s=720x1280:d=5:r=24",
+				"-c:v",
+				"libx264",
+				"-pix_fmt",
+				"yuv420p",
+				"-preset",
+				"veryfast",
+				"-crf",
+				"30",
+				"-movflags",
+				"+faststart",
+				portraitPath,
+			],
+			{ stdio: "ignore" },
+		);
+		const portraitBytes = new Uint8Array(await readFile(portraitPath));
+		await rm(portraitPath, { force: true });
+		fake = await createFakeComfyUi({ videoBytes: portraitBytes });
 		const saved = await page.request.put("/api/admin/config", {
 			data: { COMFYUI_LTX_URL: fake.baseUrl },
 		});
@@ -457,6 +497,60 @@ test("a failed GIF says so, and its row is busy while the GIF is made", async ({
 		"That didn't work. Try again in a moment.",
 	);
 	await expect(page.getByTestId("video-card-menu")).toBeHidden();
+});
+
+test("a portrait clip fits the panel's box, not its sides", async ({
+	page,
+}) => {
+	await openChat(page);
+	// The card's head opens the item in the panel; the panel's Video body loads
+	// its own player.
+	await page.getByTestId("artifact-card-head").first().click();
+	await expect(page.getByTestId("video-body-stage")).toBeVisible({
+		timeout: 20_000,
+	});
+	await expect(page.getByTestId("video-body-frame")).toBeVisible();
+	await waitForMotionToSettle(page);
+
+	const frame = page.getByTestId("video-body-frame");
+	const video = page
+		.getByTestId("video-body-player")
+		.getByTestId("video-player-media");
+	const frameBox = await frame.boundingBox();
+	const videoBox = await video.boundingBox();
+	const stageBox = await page.getByTestId("video-body-stage").boundingBox();
+	const bodyBox = await page.getByTestId("video-body").boundingBox();
+	expect(frameBox).not.toBeNull();
+	expect(videoBox).not.toBeNull();
+	expect(stageBox).not.toBeNull();
+	expect(bodyBox).not.toBeNull();
+
+	// 720 x 1280: the rendered box IS the clip's shape, within a pixel or two
+	// whatever the panel's width or height is.
+	const ratio = 720 / 1280;
+	for (const box of [frameBox, videoBox]) {
+		expect(
+			Math.abs((box?.width ?? 0) - (box?.height ?? 0) * ratio),
+			JSON.stringify(box),
+		).toBeLessThanOrEqual(2);
+	}
+	// The player fills the frame exactly, and the frame uses the stage's whole
+	// height: no horizontal strip left over by the height budget.
+	expect(
+		Math.abs((frameBox?.width ?? 0) - (videoBox?.width ?? 0)),
+	).toBeLessThanOrEqual(1);
+	expect(
+		Math.abs((frameBox?.height ?? 0) - (videoBox?.height ?? 0)),
+	).toBeLessThanOrEqual(1);
+	expect(
+		Math.abs((frameBox?.height ?? 0) - (stageBox?.height ?? 0)),
+	).toBeLessThanOrEqual(2);
+	// Portrait inside a wide panel: real air on both sides, never touching the
+	// panel's edges (which the old body-wide `100cqh` could shrink it into).
+	expect(frameBox?.x ?? 0).toBeGreaterThan((bodyBox?.x ?? 0) + 1);
+	expect((frameBox?.x ?? 0) + (frameBox?.width ?? 0)).toBeLessThan(
+		(bodyBox?.x ?? 0) + (bodyBox?.width ?? 0) - 1,
+	);
 });
 
 test("the player's and the card's buttons are 44 px targets on a coarse pointer", async ({

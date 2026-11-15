@@ -6,12 +6,13 @@
 // fails here even on a machine with no ffmpeg. The conversion itself runs the
 // real ffmpeg the take's chain already uses, and skips cleanly without it.
 import { execFile, execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FAKE_VIDEO_BYTES } from "../comfyui/testing/fake-comfyui";
 import {
 	concatClips,
@@ -229,6 +230,91 @@ describe("the media calls' deadline", () => {
 			expect(error).not.toBeInstanceOf(VideoMediaError);
 		} finally {
 			await restore();
+		}
+	});
+});
+
+describe("joining two clips", () => {
+	/**
+	 * A PATH where `ffmpeg` records the arguments it was given and then hangs:
+	 * the stream copy that times out, and the re-encode that must never start.
+	 */
+	async function recordingHangingFfmpeg(): Promise<{
+		calls: () => Promise<string[]>;
+		restore: () => Promise<void>;
+	}> {
+		const dir = await mkdtemp(join(tmpdir(), "alfyai-recording-ffmpeg-"));
+		const log = join(dir, "calls.log");
+		const script = join(dir, "ffmpeg");
+		await writeFile(
+			script,
+			`#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec sleep 60\n`,
+		);
+		await chmod(script, 0o755);
+		const before = process.env.PATH ?? "";
+		process.env.PATH = `${dir}:${before}`;
+		return {
+			calls: async () =>
+				existsSync(log)
+					? (await readFile(log, "utf8"))
+							.split("\n")
+							.map((line) => line.trim())
+							.filter(Boolean)
+					: [],
+			restore: async () => {
+				process.env.PATH = before;
+				await rm(dir, { recursive: true, force: true });
+			},
+		};
+	}
+
+	it("rethrows a timed-out stream copy instead of starting the re-encode", async () => {
+		if (!FFMPEG) return;
+		const shim = await recordingHangingFfmpeg();
+		try {
+			const error = await concatClips([FAKE_VIDEO_BYTES, FAKE_VIDEO_BYTES], {
+				timeoutMs: 250,
+			}).then(
+				() => null,
+				(thrown: unknown) => thrown,
+			);
+			expect(error).toBeInstanceOf(VideoMediaError);
+			expect(error).toMatchObject({ code: "failed" });
+
+			const calls = await shim.calls();
+			// One child: the copy. A second would be the re-encode the timeout
+			// must never start.
+			expect(calls).toHaveLength(1);
+			expect(calls[0]).toContain("-f concat");
+			expect(calls.join("\n")).not.toContain("-filter_complex");
+		} finally {
+			await shim.restore();
+		}
+	});
+
+	it("rethrows the take's stop instead of starting the re-encode", async () => {
+		if (!FFMPEG) return;
+		const shim = await recordingHangingFfmpeg();
+		const controller = new AbortController();
+		try {
+			const running = concatClips([FAKE_VIDEO_BYTES, FAKE_VIDEO_BYTES], {
+				signal: controller.signal,
+				timeoutMs: 60_000,
+			}).then(
+				() => null,
+				(thrown: unknown) => thrown,
+			);
+			// Abort once the copy is really running, so this is a stop mid-child
+			// and not a pre-aborted call that never spawns.
+			await vi.waitFor(async () => expect(await shim.calls()).toHaveLength(1));
+			controller.abort(new Error("cancelled"));
+			const error = await running;
+			// The abort flows out as itself, never as a media failure a fallback
+			// could act on.
+			expect(error).not.toBeInstanceOf(VideoMediaError);
+			expect(await shim.calls()).toHaveLength(1);
+		} finally {
+			await shim.restore();
 		}
 	});
 });

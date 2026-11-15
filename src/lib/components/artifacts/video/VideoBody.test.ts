@@ -291,14 +291,23 @@ describe("VideoBody (the panel)", () => {
 		});
 		await screen.findByTestId("video-player-media");
 		const stage = screen.getByTestId("video-body-stage");
-		expect(stage.style.getPropertyValue("--ratio")).toBe(String(1280 / 720));
+		const frame = screen.getByTestId("video-body-frame");
+		expect(frame.style.getPropertyValue("--ratio")).toBe(String(1280 / 720));
+		// The length row is a sibling of the container, never inside its height
+		// budget.
+		expect(stage.contains(screen.getByTestId("video-body-length"))).toBe(false);
 		const source = readFileSync(
 			`${process.cwd()}/src/lib/components/artifacts/video/VideoBody.svelte`,
 			"utf-8",
 		);
-		expect(source).toMatch(/\.video-body\s*\{[^}]*container-type:\s*size/);
+		// The STAGE is the size container, as the picture body's is; the body is
+		// not, or `100cqh` would count the gap and the length row too.
 		expect(source).toMatch(
-			/\.video-body-stage\s*\{[^}]*width:\s*min\(\s*100cqw,\s*calc\(\s*100cqh\s*\*\s*var\(--ratio\)\s*\)\s*\)/,
+			/\.video-body-stage\s*\{[^}]*container-type:\s*size/,
+		);
+		expect(source).not.toMatch(/\.video-body\s*\{[^}]*container-type:\s*size/);
+		expect(source).toMatch(
+			/\.video-body-frame\s*\{[^}]*width:\s*min\(\s*100cqw,\s*calc\(\s*100cqh\s*\*\s*var\(--ratio\)\s*\)\s*\)/,
 		);
 		expect(source).toMatch(/\.video-body\s*\{[^}]*gap:\s*var\(--space-md\)/);
 		expect(source).toMatch(

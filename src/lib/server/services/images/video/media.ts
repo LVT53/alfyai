@@ -70,6 +70,19 @@ export class VideoMediaError extends Error {
 	}
 }
 
+/**
+ * A call ffmpeg/ffprobe did not finish inside its own timeout. It is still a
+ * `VideoMediaError` (`failed`, retryable) for the runner and the route, but it
+ * is NOT a codec failure: a caller that has a second way to do the same work
+ * must not start it after a timeout, and this is how it tells the two apart.
+ */
+export class VideoMediaTimeoutError extends VideoMediaError {
+	constructor(message: string) {
+		super("failed", message);
+		this.name = "VideoMediaTimeoutError";
+	}
+}
+
 async function runBinary(
 	binary: string,
 	args: string[],
@@ -100,8 +113,7 @@ async function runBinary(
 			);
 		}
 		if (failure.killed === true || failure.code === "ETIMEDOUT") {
-			throw new VideoMediaError(
-				"failed",
+			throw new VideoMediaTimeoutError(
 				`${binary} did not finish within ${options.timeoutMs ?? mediaTimeoutMs()} ms.`,
 			);
 		}
@@ -501,9 +513,16 @@ export async function concatClips(
 				options,
 			);
 			return new Uint8Array(await readFile(output));
-		} catch {
-			// The segments do not share codec parameters (or one has no audio):
-			// join them through the filter graph instead of failing the take.
+		} catch (error) {
+			// Only a genuine codec/parameter mismatch falls back: the segments do
+			// not share codec parameters, or one has no audio. A stop, a timeout or
+			// a missing binary is not a mismatch, and starting the re-encode after
+			// one would double the work and delay the end of the take.
+			const mismatch =
+				error instanceof VideoMediaError &&
+				error.code === "failed" &&
+				!(error instanceof VideoMediaTimeoutError);
+			if (!mismatch) throw error;
 		}
 		// Both clips carry LTX's joint audio; a pair without a matching audio
 		// stream is joined as video only rather than failing the take.

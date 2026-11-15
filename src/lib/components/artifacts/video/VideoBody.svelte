@@ -157,21 +157,28 @@ let lengthLabel = $derived(
 			{$t('artifacts.video.panel.loadFailed')}
 		</p>
 	{:else if clip}
-		<div
-			class="video-body-stage"
-			data-testid="video-body-stage"
-			style:--ratio={clip.width / clip.height}
-			style:aspect-ratio="{clip.width} / {clip.height}"
-		>
-			<VideoPlayer
-				fileId={clip.fileId}
-				posterFileId={clip.posterFileId}
-				{title}
-				{conversationId}
-				testId="video-body-player"
-			/>
+		<!-- The stage is the size container (the picture body's shape): its box is
+		     what `100cqw`/`100cqh` mean, and the length row below is outside it, so
+		     the clip's height budget never has to pay for the gap and the row. -->
+		<div class="video-body-stage" data-testid="video-body-stage">
+			<div
+				class="video-body-frame"
+				data-testid="video-body-frame"
+				style:--ratio={clip.width / clip.height}
+				style:aspect-ratio="{clip.width} / {clip.height}"
+			>
+				<VideoPlayer
+					fileId={clip.fileId}
+					posterFileId={clip.posterFileId}
+					{title}
+					{conversationId}
+					testId="video-body-player"
+				/>
+			</div>
 		</div>
-		<span class="video-body-length">{lengthLabel}</span>
+		<span class="video-body-length" data-testid="video-body-length"
+			>{lengthLabel}</span
+		>
 	{/if}
 </div>
 
@@ -222,27 +229,36 @@ let lengthLabel = $derived(
 		min-height: 0;
 		padding: var(--space-md);
 		box-sizing: border-box;
-		/* The stage's size is measured against this box, both ways: `100cqw` and
-		   `100cqh` are the panel's own width and height, never the viewport's. */
+	}
+
+	/* The stage is the space the clip may take AND the container its box is
+	   measured against, as the picture body's stage is. It takes the height the
+	   length row and the gap leave, so those can never be counted twice. */
+	.video-body-stage {
+		position: relative;
+		display: grid;
+		place-items: center;
+		flex: 1 1 auto;
+		width: 100%;
+		min-height: 0;
+		overflow: hidden;
 		container-type: size;
 	}
 
-	/* The clip is fitted by CSS alone: its aspect-ratio box as large as the panel
-	   allows in BOTH directions (a wide panel around a tall clip letterboxes no
-	   more than a tall panel around a wide one). No ResizeObserver, so the dock's
-	   width animation never re-flows it. */
-	.video-body-stage {
+	/* The clip's own rectangle: its aspect ratio, as large as the stage allows
+	   both ways, worked out in the stage's container units. No ResizeObserver, so
+	   the dock's width animation never re-flows it. */
+	.video-body-frame {
 		position: relative;
 		width: min(100cqw, calc(100cqh * var(--ratio)));
 		max-width: 100%;
 		max-height: 100%;
-		margin-block: auto;
 		overflow: hidden;
 		border-radius: var(--radius-md);
 		background: var(--surface-elevated);
 	}
 
-	.video-body-stage :global(.video-player) {
+	.video-body-frame :global(.video-player) {
 		width: 100%;
 		height: 100%;
 	}

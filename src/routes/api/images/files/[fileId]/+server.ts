@@ -102,7 +102,11 @@ async function serveGif(
 
 	let bytes: Uint8Array;
 	try {
-		bytes = await readVideoGifBytes(video);
+		// The request's own signal: a download the browser abandons must not keep
+		// ffmpeg converting a clip nobody is waiting for.
+		bytes = await readVideoGifBytes(video, {
+			signal: event.request.signal,
+		});
 	} catch (error) {
 		// A box without ffmpeg answers the take's own media-unavailable
 		// meaning; a clip ffmpeg cannot decode is its failed conversion.

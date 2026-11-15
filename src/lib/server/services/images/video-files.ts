@@ -28,7 +28,11 @@ import {
 	imageFileDownloadName,
 } from "./files";
 import type { FinishedPictureCheck } from "./picture-check";
-import { convertToGif, VideoMediaError } from "./video/media";
+import {
+	convertToGif,
+	type MediaCallOptions,
+	VideoMediaError,
+} from "./video/media";
 
 /**
  * The long edge of a clip's poster frame (`?variant=poster`), in pixels: the
@@ -365,17 +369,34 @@ async function readWholeGif(absolute: string): Promise<Uint8Array | null> {
  * Makes the GIF beside the clip, atomically: ffmpeg writes into a temp file in
  * the same directory and one `rename` puts the whole thing in place, so a
  * reader never sees a partial GIF and a failure leaves no file behind.
+ *
+ * The clip's row is read again after the conversion: an item delete (or a chat
+ * cleanup) that lands while ffmpeg runs has already taken the clip's files, and
+ * writing the GIF back then would leave one nothing ever removes. The request
+ * that is already in flight still gets the bytes it asked for; nothing is
+ * cached for a clip that is gone.
  */
 async function generateGif(
+	fileId: string,
 	storagePath: string,
 	gifPath: string,
+	options: MediaCallOptions,
 ): Promise<Uint8Array> {
 	const clipPath = await resolveDeletablePath(storagePath);
 	if (!clipPath) throw new Error("Video file is outside the storage roots.");
-	const gif = await convertToGif(new Uint8Array(await readFile(clipPath)));
+	const gif = await convertToGif(
+		new Uint8Array(await readFile(clipPath)),
+		options,
+	);
 	if (!isWholeGif(gif)) {
 		throw new VideoMediaError("failed", "ffmpeg wrote no whole GIF.");
 	}
+	const [row] = await db
+		.select({ id: imageFiles.id })
+		.from(imageFiles)
+		.where(eq(imageFiles.id, fileId))
+		.limit(1);
+	if (!row) return gif;
 	const temp = `${gifPath}.${randomUUID()}.tmp`;
 	try {
 		await writeFile(temp, gif);
@@ -395,6 +416,7 @@ async function generateGif(
  */
 export async function readVideoGifBytes(
 	file: Pick<VideoFile, "id">,
+	options: MediaCallOptions = {},
 ): Promise<Uint8Array> {
 	const storagePath = await storagePathOf(file.id);
 	const gifPath = await resolveDeletablePath(gifPathOf(storagePath));
@@ -406,7 +428,12 @@ export async function readVideoGifBytes(
 	if (running) return running;
 	// No await between the map's read and its set, so two requests arriving
 	// together cannot both start a generation.
-	const generation = generateGif(storagePath, gifPath).finally(() => {
+	const generation = generateGif(
+		file.id,
+		storagePath,
+		gifPath,
+		options,
+	).finally(() => {
 		gifGenerations.delete(file.id);
 	});
 	gifGenerations.set(file.id, generation);
