@@ -311,10 +311,11 @@ const MAX_READ_BYTES = 25 * 1024 * 1024; // 25 MB — chat-context reads only.
 // MAX_READ_BYTES) as defense-in-depth against a malicious/misbehaving server
 // returning an unbounded multistatus body.
 const MAX_MULTISTATUS_BYTES = 10 * 1024 * 1024; // 10 MB
-// A preview is a thumbnail, not a file read: 2 MB is far more than any 192px
-// JPEG needs, and the cap keeps a misbehaving server from buffering an
-// unbounded body into the route's memory.
-const MAX_PREVIEW_BYTES = 2 * 1024 * 1024; // 2 MB
+// A preview is a picture, not a file read: 6 MB covers the largest one the
+// files strip asks for — the 1600px viewer copy, where a detailed photo can
+// exceed the 2 MB a 192px card thumbnail needs — and the cap keeps a
+// misbehaving server from buffering an unbounded body into the route's memory.
+const MAX_PREVIEW_BYTES = 6 * 1024 * 1024; // 6 MB
 
 // Normalizes a caller-supplied relative path against the user's Nextcloud
 // files root and rejects any attempt to escape it with `..`. This is the

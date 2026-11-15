@@ -171,7 +171,7 @@ describe("nextcloudPreview", () => {
 					status: 200,
 					headers: {
 						"Content-Type": "image/jpeg",
-						"Content-Length": String(2 * 1024 * 1024 + 1),
+						"Content-Length": String(6 * 1024 * 1024 + 1),
 					},
 				}),
 		);
@@ -184,6 +184,28 @@ describe("nextcloudPreview", () => {
 				{ fetch: fetchMock as unknown as typeof fetch },
 			),
 		).resolves.toBeNull();
+	});
+
+	// The viewer asks for 1600px, where a detailed photo can pass the 2 MB a
+	// card thumbnail needed; the cap now bounds that picture too.
+	it("serves a viewer picture larger than the old 2 MB thumbnail cap", async () => {
+		const viewerBytes = new Uint8Array(3 * 1024 * 1024);
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(viewerBytes, {
+					status: 200,
+					headers: { "Content-Type": "image/jpeg" },
+				}),
+		);
+
+		const preview = await nextcloudPreview(
+			CONN,
+			SECRET,
+			{ fileId: 42, size: 1600 },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(preview?.bytes.byteLength).toBe(viewerBytes.byteLength);
 	});
 
 	it("throws needs_reauth on a 401, like the other reads", async () => {

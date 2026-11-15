@@ -378,28 +378,6 @@ function previewUrlForConn(
 	return `/api/connections/nextcloud/preview?connectionId=${encodeURIComponent(conn.id)}&${target}&size=${size}`;
 }
 
-// The viewer's copy of the same picture: the same builder at the route's
-// largest size, so the card's two URLs cannot drift apart. undefined wherever
-// the card has no preview at all.
-function viewUrlForConn(
-	conn: ConnectionPublic,
-	name: string,
-	path: string,
-	fileId: number | undefined,
-	contentType: string | null,
-	isDir: boolean,
-): string | undefined {
-	return previewUrlForConn(
-		conn,
-		name,
-		path,
-		fileId,
-		contentType,
-		isDir,
-		FILE_VIEW_SIZE,
-	);
-}
-
 // The result items and their citations for one page of entries, built in one
 // pass so the Files-app link is computed ONCE per entry and shared by both
 // (a citation is not a reason to call webUrlForConn a second time). A folder
@@ -457,25 +435,31 @@ export function buildFilesCards(
 	return {
 		connectionId: conn.id,
 		cards: files.slice(0, FILE_CARD_LIMIT).map((result) => {
-			// The viewer copy is asked for exactly where the card picture is:
-			// both come from the one builder, so a card can never carry a
-			// viewer for a file it has no preview for.
-			const viewUrl = viewUrlForConn(
-				conn,
-				result.name,
-				result.path,
-				result.fileId,
-				result.contentType,
-				result.isDir,
-			);
+			// The preview URL is the card's answer to "can this be drawn"; the
+			// viewer copy exists exactly when that answer is a URL, so the two
+			// can never disagree. It is the same builder, at the route's
+			// largest size.
+			const previewUrl = result.previewUrl ?? null;
+			const viewUrl =
+				previewUrl === null
+					? null
+					: (previewUrlForConn(
+							conn,
+							result.name,
+							result.path,
+							result.fileId,
+							result.contentType,
+							result.isDir,
+							FILE_VIEW_SIZE,
+						) ?? null);
 			return {
 				name: result.name,
 				path: result.path,
 				size: result.size,
 				mtime: result.mtime,
 				contentType: result.contentType,
-				previewUrl: result.previewUrl ?? null,
-				viewUrl: viewUrl ?? null,
+				previewUrl,
+				viewUrl,
 				webUrl:
 					result.webUrl ?? webUrlForConn(conn, result.path, result.fileId),
 			};

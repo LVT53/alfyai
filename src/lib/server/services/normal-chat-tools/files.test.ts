@@ -2207,6 +2207,8 @@ describe("runFilesTool — file cards and previews (Task 5)", () => {
 		const card = outcome.cards?.cards[0];
 		expect(card?.viewUrl).toBe(LAKE_VIEW);
 		expect(card?.previewUrl).toContain("size=192");
+		// The viewer address is card data, not something the model is sent.
+		expect(outcome.modelPayload.results[0]).not.toHaveProperty("viewUrl");
 	});
 
 	it("gives a document a link but no preview", async () => {
@@ -2292,6 +2294,7 @@ describe("runFilesTool — file cards and previews (Task 5)", () => {
 
 		expect(outcome.modelPayload.results[0]?.previewUrl).toBeUndefined();
 		expect(outcome.cards?.cards[0]?.previewUrl).toBeNull();
+		expect(outcome.cards?.cards[0]?.viewUrl).toBeNull();
 		expect(outcome.cards?.cards[0]?.webUrl).toMatch(/&openfile=99$/);
 	});
 
@@ -2409,6 +2412,9 @@ describe("runFilesTool — file cards and previews (Task 5)", () => {
 
 		expect(outcome.modelPayload.results[0]?.previewUrl).toBe(
 			"/api/connections/nextcloud/preview?connectionId=conn-1&path=Photos%2Flake.jpg&size=192",
+		);
+		expect(outcome.cards?.cards[0]?.viewUrl).toBe(
+			"/api/connections/nextcloud/preview?connectionId=conn-1&path=Photos%2Flake.jpg&size=1600",
 		);
 	});
 });
