@@ -192,6 +192,48 @@ describe("runReadArtifactTool", () => {
 		expect(text).not.toContain("private prompt");
 	});
 
+	it("answers a video with its length and version count, never the JSON body", async () => {
+		const body = JSON.stringify({
+			v: 1,
+			fileId: "clip-file-id",
+			posterFileId: "poster-file-id",
+			width: 1280,
+			height: 720,
+			durationMs: 5000,
+			sourceFileId: "source-file-id",
+		});
+		getArtifactMock.mockResolvedValue(
+			detail({
+				id: "vid-1",
+				kind: "video",
+				title: "Harbour at dusk",
+				versionNumber: 2,
+				body,
+			}),
+		);
+
+		const result = await runReadArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "vid-1",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.modelPayload).toMatchObject({
+			success: true,
+			artifactType: "video",
+			title: "Harbour at dusk",
+		});
+		const text = JSON.stringify(result.modelPayload);
+		expect(text).toContain("5 s");
+		expect(text).toContain("2 versions");
+		expect(text).toContain("no text to read");
+		expect(text).toContain("made by asking for one");
+		expect(text).not.toContain("clip-file-id");
+		expect(text).not.toContain("poster-file-id");
+		expect(text).not.toContain("source-file-id");
+	});
+
 	it("reads an App through the same generic fallback — no dedicated reader is registered for it (Task A7)", async () => {
 		// An App has no addressable "blocks" (it is not edited in place — see
 		// edit.ts's App refusal), so there is nothing a per-kind reader would

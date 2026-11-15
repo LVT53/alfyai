@@ -350,6 +350,20 @@ describe("listLogicalDocumentsPage totals", () => {
 					createdAt: NOW,
 					updatedAt: NOW,
 				},
+				{
+					id: "owned-video",
+					userId: "owner",
+					type: "artifact",
+					retrievalClass: "durable",
+					name: "Harbour at dusk",
+					conversationId: "conv-owner",
+					metadataJson: JSON.stringify({
+						artifactType: "video",
+						title: "Harbour at dusk",
+					}),
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
 			])
 			.run();
 		sqlite.close();
@@ -371,6 +385,7 @@ describe("listLogicalDocumentsPage totals", () => {
 			app: 0,
 			slides: 0,
 			image: 0,
+			video: 1,
 		});
 
 		const canvasOnly = await listLogicalDocumentsPage("owner", {
@@ -385,6 +400,20 @@ describe("listLogicalDocumentsPage totals", () => {
 		expect(canvasOnly.totalItems).toBe(1);
 		// The chip's own click must never move the OTHER chips' numbers.
 		expect(canvasOnly.countsByKind).toEqual(unfiltered.countsByKind);
+
+		// A Video row is its own bucket, never folded into Image and never a
+		// missing key that counts as NaN.
+		const videoOnly = await listLogicalDocumentsPage("owner", {
+			includeGeneratedOutputs: true,
+			offset: 0,
+			limit: 20,
+			kindFilter: "video",
+		});
+		expect(videoOnly.documents.map((document) => document.id)).toEqual([
+			"owned-video",
+		]);
+		expect(videoOnly.totalItems).toBe(1);
+		expect(videoOnly.countsByKind.video).toBe(1);
 	});
 
 	it("narrows an artifact-family row by name, and a query never matches by its kind alone", async () => {

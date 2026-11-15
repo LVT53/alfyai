@@ -53,6 +53,7 @@ import {
 	Eye,
 	File as FileIcon,
 	FileText,
+	Film,
 	Folder,
 	Image,
 	LayoutDashboard,
@@ -134,6 +135,7 @@ const ARTIFACT_KIND_ICONS: Partial<Record<ArtifactKind, Component>> = {
 	canvas: LayoutDashboard,
 	slides: Presentation,
 	image: Image,
+	video: Film,
 };
 
 /** The top-row filter chip's own icon (redesign §6.2, Wave 2.5 review F2):
@@ -373,6 +375,7 @@ const SUMMARY_BUCKET_ORDER: readonly KnowledgeDocumentKindFilter[] = [
 	"canvas",
 	"app",
 	"image",
+	"video",
 	"slides",
 ];
 

@@ -1465,6 +1465,30 @@ describe("DocumentsList", () => {
 			);
 		});
 
+		it("lists a video row with the Video icon and the kind label Video", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeArtifactDocument({
+							id: "art-vid-1",
+							displayArtifactId: "art-vid-1",
+							name: "Harbour at dusk",
+							kind: "video",
+						}),
+					],
+				},
+			});
+
+			const typeCell = document.querySelector(
+				".documents-table tbody .col-type",
+			);
+			expect(typeCell?.textContent?.trim()).toBe("Video");
+			const row = screen.getByText("Harbour at dusk").closest("tr");
+			expect(row?.querySelector("svg")?.getAttribute("class")).toContain(
+				"lucide-film",
+			);
+		});
+
 		it("offers an Images chip with its count", () => {
 			render(DocumentsList, {
 				props: {
@@ -1475,6 +1499,7 @@ describe("DocumentsList", () => {
 						canvas: 0,
 						slides: 0,
 						image: 4,
+						video: 0,
 						uploaded: 0,
 					},
 				},
@@ -1836,6 +1861,7 @@ describe("DocumentsList", () => {
 						canvas: 3,
 						slides: 1,
 						image: 0,
+						video: 0,
 						uploaded: 12,
 					},
 				},
@@ -1882,6 +1908,7 @@ describe("DocumentsList", () => {
 						canvas: 3,
 						slides: 1,
 						image: 0,
+						video: 0,
 						uploaded: 12,
 					},
 				},
@@ -1910,6 +1937,7 @@ describe("DocumentsList", () => {
 						canvas: 0,
 						slides: 0,
 						image: 0,
+						video: 0,
 						uploaded: 0,
 					},
 				},
@@ -1942,6 +1970,7 @@ describe("DocumentsList", () => {
 						canvas: 0,
 						slides: 0,
 						image: 0,
+						video: 0,
 						uploaded: 0,
 					},
 					onTypeFilterChange,
@@ -1967,6 +1996,7 @@ describe("DocumentsList", () => {
 						canvas: 2,
 						slides: 0,
 						image: 0,
+						video: 0,
 						uploaded: 1,
 					},
 					onTypeFilterChange,
@@ -2007,6 +2037,7 @@ describe("DocumentsList", () => {
 			canvas: 0,
 			slides: 0,
 			image: 0,
+			video: 0,
 			uploaded: 13,
 		};
 
@@ -2279,6 +2310,7 @@ describe("DocumentsList", () => {
 						canvas: 3,
 						slides: 1,
 						image: 0,
+						video: 0,
 						uploaded: 12,
 					},
 				},
@@ -2299,6 +2331,7 @@ describe("DocumentsList", () => {
 						canvas: 1,
 						slides: 0,
 						image: 0,
+						video: 0,
 						uploaded: 5,
 					},
 				},
@@ -2324,6 +2357,7 @@ describe("DocumentsList", () => {
 						canvas: 0,
 						slides: 0,
 						image: 0,
+						video: 0,
 						uploaded: 1,
 					},
 				},
@@ -2349,6 +2383,7 @@ describe("DocumentsList", () => {
 						canvas: 3,
 						slides: 1,
 						image: 0,
+						video: 0,
 						uploaded: 12,
 					},
 					countsByFileFamily: {

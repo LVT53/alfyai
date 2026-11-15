@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { VideoVersionBody } from "$lib/shared/artifacts/video-body";
 import { type FileArtifactDescriptor, getArtifactSerializer } from "./index";
 
 describe("the artifact serializer registry", () => {
@@ -8,6 +9,10 @@ describe("the artifact serializer registry", () => {
 
 	it("resolves the document serializer by kind (Slice 1)", () => {
 		expect(getArtifactSerializer("document")?.kind).toBe("document");
+	});
+
+	it("resolves the video serializer by kind (slice 2)", () => {
+		expect(getArtifactSerializer("video")?.kind).toBe("video");
 	});
 
 	it("answers null — not a throw — for a kind whose slice has not landed", () => {
@@ -69,6 +74,54 @@ describe("the file serializer", () => {
 			JSON.stringify({ files: "file-1" }),
 			JSON.stringify({ files: [{ chatFileId: "", filename: "x" }] }),
 			JSON.stringify({ files: [{ chatFileId: "f", filename: 3 }] }),
+		]) {
+			expect(serializer.parse(stored)).toBeNull();
+		}
+	});
+});
+
+describe("the video serializer", () => {
+	const body: VideoVersionBody = {
+		v: 1,
+		fileId: "video-file-1",
+		posterFileId: "video-file-1",
+		width: 1280,
+		height: 704,
+		durationMs: 5000,
+		sourceFileId: "still-file-1",
+	};
+
+	it("round-trips a video body through the registry", () => {
+		const serializer = getArtifactSerializer("video");
+		if (!serializer) throw new Error("video serializer missing");
+		expect(serializer.parse(serializer.serialize(body))).toEqual(body);
+	});
+
+	it("serialises deterministically, whatever key order it was handed", () => {
+		const serializer = getArtifactSerializer("video");
+		if (!serializer) throw new Error("video serializer missing");
+		const reordered = {
+			sourceFileId: body.sourceFileId,
+			durationMs: body.durationMs,
+			height: body.height,
+			width: body.width,
+			posterFileId: body.posterFileId,
+			fileId: body.fileId,
+			v: 1,
+		} as VideoVersionBody;
+		expect(serializer.serialize(reordered)).toBe(serializer.serialize(body));
+	});
+
+	it("parses anything that is not a video body to null instead of throwing", () => {
+		const serializer = getArtifactSerializer("video");
+		if (!serializer) throw new Error("video serializer missing");
+		for (const stored of [
+			"",
+			"{not json",
+			"null",
+			"[]",
+			JSON.stringify({ ...body, fileId: "" }),
+			JSON.stringify({ ...body, durationMs: 0 }),
 		]) {
 			expect(serializer.parse(stored)).toBeNull();
 		}

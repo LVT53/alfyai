@@ -1,15 +1,17 @@
 /**
- * The six kinds of artifact (ADR-0066). The UI names them Document, App,
- * Canvas, Slides, File and Image — never "artifact" — through `artifacts.type.*`.
+ * The seven kinds of artifact (ADR-0066). The UI names them Document, App,
+ * Canvas, Slides, File, Image and Video — never "artifact" — through
+ * `artifacts.type.*` (the Video entry lands with its card slice; this slice
+ * only makes the kind real on the server).
  *
  * The union and the list of kinds that ship, with no imports: the panel, the
  * card and the body registry are browser components, and importing the union
  * from a `$lib/server/services/**` module would pull a server path into the
- * client graph for five strings. Server code imports it through
+ * client graph for six strings. Server code imports it through
  * `$lib/server/services/artifacts/types`, which re-exports it.
  *
  * `file` is today's `produce_file` output, read from the existing
- * `generated_output` rows (ruling 18); the other four are `type: "artifact"`
+ * `generated_output` rows (ruling 18); the other five are `type: "artifact"`
  * rows carrying their kind in `metadata_json.artifactType`.
  */
 export type ArtifactKind =
@@ -18,12 +20,13 @@ export type ArtifactKind =
 	| "canvas"
 	| "slides"
 	| "file"
-	| "image";
+	| "image"
+	| "video";
 
 /**
  * The kinds of the family that ship, made by the artifact tools or by
- * `make_image` — the ONE list of them (ruling 69: Slides is shelved, so four
- * kinds ship until it comes back). What a
+ * `make_image` / `make_video` — the ONE list of them (ruling 69: Slides is
+ * shelved, so five kinds ship until it comes back). What a
  * surface may name, draw or open as an item of the family reads THIS list, not
  * a list that happens to have the same members today: the evidence panel's
  * "Made in this chat" rows (`finalize-steps.ts` writes them, the Sources row
@@ -33,7 +36,9 @@ export type ArtifactKind =
  * File is not on it: it is the produced-file kind (ruling 18), made by
  * `produce_file` and never by `create_artifact` / `edit_artifact`, so no item
  * of the family names it. Image is: an item every surface draws, made by
- * `make_image`; it is never regenerable (Regenerate cannot remake a picture). A kind's tour is a separate fact —
+ * `make_image`; it is never regenerable (Regenerate cannot remake a picture).
+ * Video is: a short clip, made by `make_video` when its slice lands, and never
+ * regenerable either. A kind's tour is a separate fact —
  * `SHIPPED_ARTIFACT_TOUR_TYPES` (`./tours`) is checked against this list, so a
  * tour cannot exist for a kind that does not ship, and a kind may ship with
  * none.
@@ -45,6 +50,7 @@ export const SHIPPED_ARTIFACT_KINDS = [
 	"app",
 	"canvas",
 	"image",
+	"video",
 ] as const satisfies readonly ArtifactKind[];
 
 export type ShippedArtifactKind = (typeof SHIPPED_ARTIFACT_KINDS)[number];

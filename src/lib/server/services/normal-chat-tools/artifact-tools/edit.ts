@@ -764,6 +764,28 @@ export async function runEditArtifactTool(params: {
 		};
 	}
 
+	if (record.kind === "video") {
+		// A video is a rendered clip, not text: there is no body an edit could
+		// address, and no way to re-render one from here. The model is told what
+		// the person can actually do instead of being left to retry.
+		const error =
+			"Videos are not edited as text. A video is made by asking for one.";
+		const refusal: ArtifactRefusal = {
+			target: record.id,
+			reason: "unsupported_kind",
+		};
+		return {
+			modelPayload: { success: false, error, refused: [refusal] },
+			outputSummary: truncateText(error, 200),
+			metadata: {
+				ok: false,
+				artifactId: record.id,
+				artifactKind: "video",
+				artifactTitle: record.title,
+			},
+		};
+	}
+
 	if (params.instruction && record.kind !== "app") {
 		const field = record.kind === "canvas" ? "ops" : "patches";
 		const error = `instruction is for Apps only. This item is a ${record.kind}: send ${field}.`;

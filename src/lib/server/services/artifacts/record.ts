@@ -80,6 +80,7 @@ const KNOWN_KINDS: Record<ArtifactKind, true> = {
 	slides: true,
 	file: true,
 	image: true,
+	video: true,
 };
 
 function isArtifactKind(value: unknown): value is ArtifactKind {
@@ -92,6 +93,7 @@ const ROW_KINDS: Record<RowArtifactKind, true> = {
 	canvas: true,
 	slides: true,
 	image: true,
+	video: true,
 };
 
 /**

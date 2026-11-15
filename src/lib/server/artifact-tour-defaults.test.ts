@@ -15,6 +15,7 @@ const KINDS: ArtifactTourType[] = [
 	"canvas",
 	"slides",
 	"image",
+	"video",
 ];
 
 /** The Image tour as shipped (plan 2b T16): the picture and its versions, Before / After and Mark, then History and Attach. */
@@ -55,6 +56,42 @@ const IMAGE_TOUR = {
 	],
 };
 
+/** The Video tour: the clip, its length, and how to ask for one. Its copy waits
+ *  for the card that can open a Video — the kind ships without a tour. */
+const VIDEO_TOUR = {
+	artifactType: "video",
+	summary: {
+		en: "A short clip Alfy made. Ask for one in the chat.",
+		hu: "Egy rövid videó, amit Alfy készített. Kérj egyet a chatben.",
+	},
+	slides: [
+		{
+			title: {
+				en: "A short clip from a sentence",
+				hu: "Rövid videó egy mondatból",
+			},
+			body: {
+				en: "Ask for a few seconds of movement — the sea at dusk, a slow pan over a map — and Alfy makes the clip.",
+				hu: "Kérj pár másodpercnyi mozgást — tenger alkonyatkor, lassú képúszás egy térkép felett —, és Alfy elkészíti a videót.",
+			},
+		},
+		{
+			title: { en: "Five or ten seconds", hu: "Öt vagy tíz másodperc" },
+			body: {
+				en: "A clip is five seconds by default, or ten when you ask for a longer one. It has no sound.",
+				hu: "A videó alapból öt másodperc, vagy tíz, ha hosszabbat kérsz. Nincs hangja.",
+			},
+		},
+		{
+			title: { en: "How to ask for one", hu: "Hogyan kérj ilyet" },
+			body: {
+				en: 'Say what should move and for how long: "a five-second clip of rain on a window". The clip is kept with the chat that made it.',
+				hu: "Mondd el, mi mozogjon és mennyi ideig: „öt másodperces videó az ablakon kopogó esőről”. A videó megmarad a chat mellett, amiben készült.",
+			},
+		},
+	],
+};
+
 describe("ARTIFACT_TOUR_DEFAULTS", () => {
 	it("has a default for every tour type, and file is not one of them", () => {
 		expect(Object.keys(ARTIFACT_TOUR_DEFAULTS).sort()).toEqual(
@@ -63,7 +100,7 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 		expect(Object.keys(ARTIFACT_TOUR_DEFAULTS)).not.toContain("file");
 	});
 
-	it("keeps the derived union honest: ArtifactTourType has exactly five members", () => {
+	it("keeps the derived union honest: ArtifactTourType has exactly six members", () => {
 		// A compile-time exhaustiveness check: if `ArtifactKind` grows a seventh
 		// kind, `ArtifactTourType` widens and this object literal stops
 		// type-checking until the new kind gets copy in ARTIFACT_TOUR_DEFAULTS.
@@ -73,8 +110,9 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 			canvas: true,
 			slides: true,
 			image: true,
+			video: true,
 		};
-		expect(Object.keys(exhaustive)).toHaveLength(5);
+		expect(Object.keys(exhaustive)).toHaveLength(6);
 	});
 
 	it("gives every default exactly three slides", () => {
@@ -141,6 +179,7 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 			canvas: "tábla",
 			slides: "diasor",
 			image: "kép",
+			video: "videó",
 		} as const;
 		for (const kind of KINDS) {
 			// The ratified name is the artifacts.type.* row, which is the source…
@@ -312,6 +351,14 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 
 	it("uses the Image tour's shipped copy verbatim (plan 2b T16)", () => {
 		expect(ARTIFACT_TOUR_DEFAULTS.image).toEqual(IMAGE_TOUR);
+	});
+
+	it("keeps the Video tour's copy for the card slice, and ships it to nobody yet", () => {
+		// The kind ships (SHIPPED_ARTIFACT_KINDS); its tour is a separate fact,
+		// and the card that opens a Video is slice 3's. The copy waits in the
+		// table, unreachable, exactly as Slides' waits for its return.
+		expect(ARTIFACT_TOUR_DEFAULTS.video).toEqual(VIDEO_TOUR);
+		expect(SHIPPED_ARTIFACT_TOUR_TYPES).not.toContain("video");
 	});
 
 	// The Image tour sends the reader to the panel's controls by name, so it

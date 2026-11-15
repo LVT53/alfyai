@@ -6,6 +6,7 @@
 import {
 	AppWindow,
 	FileText,
+	Film,
 	Image,
 	Presentation,
 	Shapes,
@@ -21,4 +22,5 @@ export const ARTIFACT_KIND_ICONS: Record<ArtifactKind, Component> = {
 	canvas: Shapes,
 	slides: Presentation,
 	image: Image,
+	video: Film,
 };

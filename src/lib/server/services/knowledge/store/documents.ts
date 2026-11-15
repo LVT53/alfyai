@@ -102,10 +102,10 @@ export type LogicalDocumentSortKey = "name" | "size" | "type" | "date";
 export type LogicalDocumentSortDirection = "asc" | "desc";
 
 /**
- * The five buckets the Documents tab can filter by (orchestrator amendment to
- * ruling 46, 2026-09-25: six chips total with "All", no "file" chip — a
- * produced file groups under "uploaded" with its own format pill, exactly
- * like an uploaded document). "all" is a client-only concept
+ * The kind buckets the Documents tab can filter by (orchestrator amendment to
+ * ruling 46, 2026-09-25: one chip per kind it shows plus "All", no "file"
+ * chip — a produced file groups under "uploaded" with its own format pill,
+ * exactly like an uploaded document). "all" is a client-only concept
  * (`documents-table.ts`'s `DocumentTypeFilter`) — passing it here is a bug,
  * not a no-op.
  */
@@ -347,10 +347,16 @@ function compareLogicalDocumentText(left: string, right: string): number {
 
 /**
  * Reads `metadata_json.artifactType` for a `type: "artifact"` row, validated
- * against the four family kinds. Never throws, and deliberately never
- * returns "file": that kind exists only for `generated_output` rows on the
- * pre-existing path above (`getLogicalDocumentKind`) — a `type: "artifact"`
- * row is always one of the four family kinds, or unrecognised.
+ * against the family kinds this store lists: Document, App, Canvas, Slides
+ * and Image (Slides stays accepted for a row stored before it was shelved),
+ * plus Video. Never throws, and deliberately never returns "file": that kind
+ * exists only for `generated_output` rows on the pre-existing path above
+ * (`getLogicalDocumentKind`) — a `type: "artifact"` row is always one of
+ * these family kinds, or unrecognised.
+ *
+ * A kind missing from this list is not harmless: `mapArtifactFamilyRow`'s
+ * fallback files the row under Document instead, so a Video row would be
+ * listed and counted as a document.
  *
  * Not imported from `$lib/server/services/artifacts`: that facade's
  * `kindForArtifactRow` exists, but it defaults an unparseable row to `"file"`
@@ -368,7 +374,8 @@ function parseArtifactFamilyKind(
 		value === "app" ||
 		value === "canvas" ||
 		value === "slides" ||
-		value === "image"
+		value === "image" ||
+		value === "video"
 		? value
 		: null;
 }
@@ -491,7 +498,7 @@ export async function getArtifactVersionNumbers(
 }
 
 /**
- * Which of the six chips (five plus "all", client-side) a row belongs under.
+ * Which kind chip a row belongs under (or "uploaded").
  * Skill Notes fold into "uploaded" here too, and — per the orchestrator
  * amendment correcting ruling 46 — so does every legacy row regardless of
  * `documentOrigin`: a produced file is a file row like an upload, grouped
@@ -517,6 +524,7 @@ function tallyCountsByKind(
 		canvas: 0,
 		slides: 0,
 		image: 0,
+		video: 0,
 		uploaded: 0,
 	};
 	for (const item of items) {

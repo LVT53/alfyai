@@ -1,8 +1,9 @@
 // How each kind's body travels between the stored string and its structured
 // form. One registry, one entry per kind: slice 1 adds `document` (Markdown ⇄
 // blocks, with ids minted immediately after parse), slice 3 `canvas` (board ⇄
-// JSON with stable key order), slice 4 `slides`. Slice 0 ships the `file`
-// entry only.
+// JSON with stable key order), slice 4 `slides`; the image slice adds `image`
+// and the video slice `video` (a clip's file, poster and length in a small JSON
+// body). Slice 0 ships the `file` entry only.
 //
 // A kind with no entry resolves to `null`, never a throw, so a caller that
 // meets a kind whose slice has not landed can say so instead of crashing.
@@ -10,6 +11,7 @@ import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { canvasSerializer } from "./canvas";
 import { documentSerializer } from "./document";
 import { imageSerializer } from "./image";
+import { videoSerializer } from "./video";
 
 export interface ArtifactSerializer<TBody> {
 	readonly kind: ArtifactKind;
@@ -88,6 +90,7 @@ const SERIALIZERS: Partial<Record<ArtifactKind, ArtifactSerializer<unknown>>> =
 		document: documentSerializer as ArtifactSerializer<unknown>,
 		canvas: canvasSerializer as ArtifactSerializer<unknown>,
 		image: imageSerializer as ArtifactSerializer<unknown>,
+		video: videoSerializer as ArtifactSerializer<unknown>,
 	};
 
 export function getArtifactSerializer(

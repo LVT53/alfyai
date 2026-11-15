@@ -8,13 +8,18 @@ import { SHIPPED_ARTIFACT_TOUR_TYPES } from "./tours";
 // "Made in this chat" rows without a word. The kinds have their own list; the
 // tours' list is checked against it.
 describe("SHIPPED_ARTIFACT_KINDS", () => {
-	it("is Document, App, Canvas and Image — the kinds of the family that ship", () => {
+	it("is Document, App, Canvas, Image and Video — the kinds of the family that ship", () => {
 		expect([...SHIPPED_ARTIFACT_KINDS]).toEqual([
 			"document",
 			"app",
 			"canvas",
 			"image",
+			"video",
 		]);
+	});
+
+	it("includes Video, which ships with its server slice before its card does", () => {
+		expect(isShippedArtifactKind("video")).toBe(true);
 	});
 
 	it("includes Image, and gives it a tour like the other kinds (plan 2b T16)", () => {

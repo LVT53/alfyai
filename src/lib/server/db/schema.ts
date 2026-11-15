@@ -597,11 +597,15 @@ export const imageDescriptions = sqliteTable(
  * the uploaded picture a change started from, a take a render produced, or a
  * marked copy the person drew on. One PNG per row on disk under
  * `data/image-files/<conversation_id>/`, with a thumbnail beside it.
+ * A video take (docs/plans/ltx-video, slice 2) is one row in the same table: an
+ * `<id>.mp4` with a `.poster.webp` and a `.thumb.webp` beside it, and its
+ * length in `duration_ms`; a picture's `duration_ms` is null.
  * `created_at` is unix seconds, like every table. `artifact_id` is the Image
  * item the file belongs to once a take is kept, and clears (not deletes) when
  * that item goes; the file then goes with its chat. The rows leave with the
  * chat and with the person; the files on disk are removed by
- * `services/images/files.ts`.
+ * `services/images/files.ts` (a picture) or `services/images/video-files.ts`
+ * (a clip).
  */
 export const imageFiles = sqliteTable(
 	"image_files",
@@ -621,6 +625,12 @@ export const imageFiles = sqliteTable(
 		height: integer("height").notNull(),
 		hasAlpha: integer("has_alpha").notNull().default(0),
 		sizeBytes: integer("size_bytes").notNull(),
+		/**
+		 * A video's length in milliseconds; null for a picture. The clip's row is
+		 * the only one that carries it, and the poster and thumbnail are derived
+		 * paths beside `<id>.mp4`, so the table stores nothing else new.
+		 */
+		durationMs: integer("duration_ms"),
 		storagePath: text("storage_path").notNull(),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()

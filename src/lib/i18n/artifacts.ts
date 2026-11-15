@@ -157,6 +157,7 @@ const artifactsDict = {
 		"artifacts.deleted.slides": "These slides were deleted",
 		"artifacts.deleted.file": "The file has been deleted",
 		"artifacts.deleted.image": "This picture was deleted",
+		"artifacts.deleted.video": "This video was deleted",
 		"artifacts.deleted.regenerate": "Regenerate",
 		"artifacts.deleted.regenerateA11y": "Regenerate {title}",
 		"artifacts.deleted.regenerating": "Regenerating…",
@@ -175,6 +176,7 @@ const artifactsDict = {
 		"artifacts.type.canvas": "Canvas",
 		"artifacts.type.slides": "Slides",
 		"artifacts.type.image": "Image",
+		"artifacts.type.video": "Video",
 		// Failure states the panel and the later slices' writers report.
 		"artifacts.error.load": "Could not open this item.",
 		"artifacts.error.list": "Could not load what this chat made.",
@@ -1246,6 +1248,7 @@ const artifactsDict = {
 		"artifacts.deleted.slides": "Ez a diasor törölve lett",
 		"artifacts.deleted.file": "A fájl törölve lett",
 		"artifacts.deleted.image": "Ez a kép törölve lett",
+		"artifacts.deleted.video": "Ez a videó törölve lett",
 		"artifacts.deleted.regenerate": "Újragenerálás",
 		"artifacts.deleted.regenerateA11y": "{title} újragenerálása",
 		"artifacts.deleted.regenerating": "Újragenerálás…",
@@ -1261,6 +1264,7 @@ const artifactsDict = {
 		"artifacts.type.canvas": "Tábla",
 		"artifacts.type.slides": "Diasor",
 		"artifacts.type.image": "Kép",
+		"artifacts.type.video": "Videó",
 		"artifacts.error.load": "Nem sikerült megnyitni ezt az elemet.",
 		"artifacts.error.list":
 			"Nem sikerült betölteni, amit ez a beszélgetés készített.",

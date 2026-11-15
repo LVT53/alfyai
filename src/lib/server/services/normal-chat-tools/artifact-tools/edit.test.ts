@@ -307,6 +307,35 @@ describe("runEditArtifactTool — no kind registered yet (Slice 5a)", () => {
 		}
 	});
 
+	it("refuses a video edit and says a video is made by asking for one", async () => {
+		getArtifactMock.mockResolvedValue(
+			detail({ id: "vid-1", kind: "video", title: "Harbour at dusk" }),
+		);
+
+		const result = await runEditArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			artifactId: "vid-1",
+			patches: [{ op: "replace" }],
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.modelPayload.success).toBe(false);
+		if (!result.modelPayload.success) {
+			expect(result.modelPayload.error).toBe(
+				"Videos are not edited as text. A video is made by asking for one.",
+			);
+			expect(result.modelPayload.refused).toEqual([
+				{ target: "vid-1", reason: "unsupported_kind" },
+			]);
+		}
+		expect(result.metadata).toMatchObject({
+			ok: false,
+			artifactKind: "video",
+		});
+	});
+
 	it("refuses a File edit — files are produced, not edited", async () => {
 		getArtifactMock.mockResolvedValue(
 			detail({ kind: "file", title: "Trip.pdf" }),

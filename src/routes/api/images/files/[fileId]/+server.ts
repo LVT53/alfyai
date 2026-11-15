@@ -3,10 +3,17 @@ import { requireApiUser } from "$lib/server/api/auth";
 import { buildContentDisposition } from "$lib/server/services/file-serving-response-policy";
 import {
 	getImageFile,
+	type ImageFile,
 	imageFileDownloadName,
 	readImageDisplayBytes,
 	readImageFileBytes,
 } from "$lib/server/services/images/files";
+import {
+	getVideoFile,
+	readVideoFileBytes,
+	type VideoFile,
+	videoFileDownloadName,
+} from "$lib/server/services/images/video-files";
 import type { RequestHandler } from "./$types";
 
 /**
@@ -24,6 +31,146 @@ function matchesIfNoneMatch(header: string | null, etag: string): boolean {
 	return false;
 }
 
+type ByteRange = { start: number; end: number };
+
+/**
+ * One `Range` header as a byte range of the clip, `"unsatisfiable"` when its
+ * first byte is at or past the end (RFC 9110 14.1.1), or `null` when the header
+ * is not one this route honours: malformed, several ranges, an empty specifier,
+ * or an end before its start. An unhonoured header is ignored and the whole
+ * representation is served, as the RFC allows — only a well-formed range gets
+ * a partial answer.
+ */
+function parseByteRange(
+	header: string,
+	size: number,
+): ByteRange | "unsatisfiable" | null {
+	const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+	if (!match) return null;
+	const [, first, last] = match;
+	if (first === "" && last === "") return null;
+	if (first === "") {
+		// A suffix range: the last `last` bytes, `-0` asks for nothing.
+		const suffix = Number(last);
+		if (!Number.isSafeInteger(suffix) || suffix <= 0) return "unsatisfiable";
+		return { start: Math.max(0, size - suffix), end: size - 1 };
+	}
+	const start = Number(first);
+	const end = last === "" ? size - 1 : Number(last);
+	if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)) return null;
+	// A first byte at or past the end is unsatisfiable whatever the last one
+	// says; only then is "end before start" just a malformed spec to ignore.
+	if (start >= size) return "unsatisfiable";
+	if (end < start) return null;
+	return { start, end: Math.min(end, size - 1) };
+}
+
+/**
+ * A stored clip's GET: the mp4 with `Range` (Safari will not play without it),
+ * `?variant=poster`/`?variant=thumb` as WebP, and `?download=1` the whole
+ * original. The caller has already read the row through `getImageFile`, so the
+ * ownership scope and the 404 are the picture path's own.
+ */
+async function serveVideo(
+	event: Parameters<RequestHandler>[0],
+	file: ImageFile,
+	video: VideoFile,
+): Promise<Response> {
+	const variant = event.url.searchParams.get("variant");
+	// A download is always the original clip, whatever variant the caller named.
+	const download = event.url.searchParams.get("download") === "1";
+	const representation = download
+		? "download"
+		: variant === "poster"
+			? "poster"
+			: variant === "thumb"
+				? "thumb"
+				: "video";
+	// Every representation of a clip is immutable for its file id, so a strong
+	// tag from the id and the representation is a validator that never lies.
+	const etag = `"${video.id}:${representation}"`;
+
+	let bytes: Uint8Array;
+	try {
+		bytes = await readVideoFileBytes(
+			video,
+			representation === "poster"
+				? "poster"
+				: representation === "thumb"
+					? "thumb"
+					: "video",
+		);
+	} catch {
+		return json({ error: "Not found" }, { status: 404 });
+	}
+	const isPictureVariant =
+		representation === "poster" || representation === "thumb";
+	const contentType = isPictureVariant ? "image/webp" : "video/mp4";
+	const cacheControl = "private, max-age=3600";
+	const headers: Record<string, string> = {
+		"Content-Type": contentType,
+		"Cache-Control": cacheControl,
+		"X-Content-Type-Options": "nosniff",
+		ETag: etag,
+	};
+	// Only the player's own representation honours a range; a download is the
+	// whole original, whatever header it arrives with.
+	if (representation === "video") headers["Accept-Ranges"] = "bytes";
+	if (download) {
+		headers["Content-Disposition"] = buildContentDisposition(
+			"attachment",
+			await videoFileDownloadName(file),
+		);
+	}
+
+	if (matchesIfNoneMatch(event.request.headers.get("if-none-match"), etag)) {
+		return new Response(null, {
+			status: 304,
+			headers: {
+				ETag: etag,
+				"Cache-Control": cacheControl,
+				"Content-Type": contentType,
+				"X-Content-Type-Options": headers["X-Content-Type-Options"],
+			},
+		});
+	}
+
+	// A download is the whole file; a range is a player's request for the clip.
+	if (!download) {
+		const header = event.request.headers.get("range");
+		if (header) {
+			const range = parseByteRange(header, bytes.byteLength);
+			if (range === "unsatisfiable") {
+				return new Response(null, {
+					status: 416,
+					headers: {
+						"Content-Range": `bytes */${bytes.byteLength}`,
+						"Accept-Ranges": "bytes",
+						"Content-Length": "0",
+						"Cache-Control": cacheControl,
+						"X-Content-Type-Options": headers["X-Content-Type-Options"],
+						ETag: etag,
+					},
+				});
+			}
+			if (range) {
+				const body = bytes.slice(range.start, range.end + 1);
+				return new Response(body, {
+					status: 206,
+					headers: {
+						...headers,
+						"Content-Length": String(body.byteLength),
+						"Content-Range": `bytes ${range.start}-${range.end}/${bytes.byteLength}`,
+					},
+				});
+			}
+		}
+	}
+
+	headers["Content-Length"] = String(bytes.byteLength);
+	return new Response(bytes.slice(), { status: 200, headers });
+}
+
 export const GET: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
 	const conversationId = event.url.searchParams.get("conversationId");
@@ -33,6 +180,11 @@ export const GET: RequestHandler = async (event) => {
 		conversationId,
 	});
 	if (!file) return json({ error: "Not found" }, { status: 404 });
+
+	// A clip is a row of the same table: the picture read above owns the scope,
+	// and the row's own path says which of the two it is.
+	const video = await getVideoFile(file);
+	if (video) return serveVideo(event, file, video);
 
 	const variant = event.url.searchParams.get("variant");
 	// A download is always the original, whatever variant the caller named.

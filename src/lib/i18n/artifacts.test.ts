@@ -301,6 +301,19 @@ describe("the Canvas's wording after the review (RV-3 Minor 8, I2, Minor 9)", ()
 	});
 });
 
+describe("the Video kind's strings", () => {
+	it("names the kind Video / Videó, and says a deleted one was deleted", () => {
+		expect(artifactsDict.en["artifacts.type.video"]).toBe("Video");
+		expect(artifactsDict.hu["artifacts.type.video"]).toBe("Videó");
+		expect(artifactsDict.en["artifacts.deleted.video"]).toBe(
+			"This video was deleted",
+		);
+		expect(artifactsDict.hu["artifacts.deleted.video"]).toBe(
+			"Ez a videó törölve lett",
+		);
+	});
+});
+
 describe("the Image kind's strings", () => {
 	it("names the kind Image / Kep, never Artifact", () => {
 		uiLanguage.set("en");

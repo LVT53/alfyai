@@ -188,6 +188,44 @@ export const ARTIFACT_TOUR_DEFAULTS: Record<
 			},
 		],
 	},
+	// The Video kind ships with its server slice (Slice 2 of the LTX plan), but
+	// the card that can open one is slice 3's and no tool makes one until
+	// slice 5's. So its copy waits here, unreachable, exactly as Slides'
+	// waits: `SHIPPED_ARTIFACT_TOUR_TYPES` does not name it, and nothing
+	// serves a tour for a kind no reader can open yet.
+	video: {
+		artifactType: "video",
+		summary: {
+			en: "A short clip Alfy made. Ask for one in the chat.",
+			hu: "Egy rövid videó, amit Alfy készített. Kérj egyet a chatben.",
+		},
+		slides: [
+			{
+				title: {
+					en: "A short clip from a sentence",
+					hu: "Rövid videó egy mondatból",
+				},
+				body: {
+					en: "Ask for a few seconds of movement — the sea at dusk, a slow pan over a map — and Alfy makes the clip.",
+					hu: "Kérj pár másodpercnyi mozgást — tenger alkonyatkor, lassú képúszás egy térkép felett —, és Alfy elkészíti a videót.",
+				},
+			},
+			{
+				title: { en: "Five or ten seconds", hu: "Öt vagy tíz másodperc" },
+				body: {
+					en: "A clip is five seconds by default, or ten when you ask for a longer one. It has no sound.",
+					hu: "A videó alapból öt másodperc, vagy tíz, ha hosszabbat kérsz. Nincs hangja.",
+				},
+			},
+			{
+				title: { en: "How to ask for one", hu: "Hogyan kérj ilyet" },
+				body: {
+					en: 'Say what should move and for how long: "a five-second clip of rain on a window". The clip is kept with the chat that made it.',
+					hu: "Mondd el, mi mozogjon és mennyi ideig: „öt másodperces videó az ablakon kopogó esőről”. A videó megmarad a chat mellett, amiben készült.",
+				},
+			},
+		],
+	},
 	slides: {
 		artifactType: "slides",
 		summary: {

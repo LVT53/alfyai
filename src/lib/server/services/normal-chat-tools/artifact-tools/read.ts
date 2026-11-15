@@ -16,6 +16,7 @@ import {
 } from "$lib/shared/artifacts/canvas-body";
 import { parseImageVersionBody } from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import { parseVideoVersionBody } from "$lib/shared/artifacts/video-body";
 import { MAX_INLINE_TEXT_CHARS } from "../files";
 import { truncateText } from "../shared";
 import { canvasReadBlocks, type KnownBoards } from "./canvas-model";
@@ -363,6 +364,36 @@ export async function runReadArtifactTool(params: {
 				found: true,
 				artifactId: record.id,
 				artifactKind: "image",
+				artifactTitle: record.title,
+			},
+		};
+	}
+
+	if (record.kind === "video") {
+		// A video's body is JSON that points at its files (the clip, its poster,
+		// the still it came from): the model is told what the item is, never the
+		// JSON. There is no text to read and nothing to edit — asking for a
+		// video is what makes one.
+		const video = parseVideoVersionBody(record.body);
+		const length = video
+			? `${Math.round(video.durationMs / 1000)} s`
+			: "unknown length";
+		const versions = Math.max(1, record.versionNumber);
+		const note = `Video "${record.title}", ${length}, ${versions} ${versions === 1 ? "version" : "versions"}. It has no text to read, and a video is not edited: it is made by asking for one.`;
+		return {
+			modelPayload: {
+				success: true,
+				artifactId: record.id,
+				artifactType: "video",
+				title: record.title,
+				body: note,
+			},
+			outputSummary: `Read video "${record.title}"`,
+			metadata: {
+				ok: true,
+				found: true,
+				artifactId: record.id,
+				artifactKind: "video",
 				artifactTitle: record.title,
 			},
 		};

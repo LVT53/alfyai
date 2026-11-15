@@ -40,6 +40,7 @@ const ARTIFACT_KIND_LABELS: Record<ArtifactKind, string> = {
 	slides: "Slides",
 	file: "File",
 	image: "Image",
+	video: "Video",
 };
 
 export interface ArtifactCatalogueEntry {
