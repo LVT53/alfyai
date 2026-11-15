@@ -16,6 +16,7 @@ import { t, type I18nKey } from "$lib/i18n";
 import {
 	isArtifactToolCall,
 	isAskToolCall,
+	isFileCardsToolCall,
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
 } from "$lib/utils/tool-calls";
@@ -458,7 +459,22 @@ let renderResources = $derived(
 let deliverableSegments = $derived(
 	rawThinkingSegments.filter(isArtifactToolCall),
 );
-let hasDeliverables = $derived(deliverableSegments.length > 0);
+// The files a `files` call found are a deliverable too (docs/plans/
+// 2026-11-15-nextcloud-file-cards): its row and cards are what the person asked
+// for. They are their own list, NOT fed through `foldArtifactDeliverables` —
+// that helper folds calls by artifact identity, and a files call has no item to
+// fold: its cards are the result itself.
+let fileDeliverableSegments = $derived(
+	rawThinkingSegments.filter(isFileCardsToolCall),
+);
+let fileDeliverableItems = $derived(
+	fileDeliverableSegments.map((segment, index) =>
+		buildToolActivityItem(segment, segment.callId ?? `files-${index}`, $t),
+	),
+);
+let hasDeliverables = $derived(
+	deliverableSegments.length > 0 || fileDeliverableItems.length > 0,
+);
 // One row per call, then what the reply shows of them: one card per item however
 // many calls worked on it, and a failed attempt only when it is what the turn
 // ended on for that item (RC-A #2, the owner's call on F16). The attempts a later
@@ -508,8 +524,8 @@ let thinkingSegmentsForDisplay = $derived(
 );
 // The same item a rail row would be, plus the preview the conversation's own
 // artifact list holds for it (once a reload or a later refresh has it).
-let deliverableItems = $derived(
-	foldedDeliverables.shown.map((item) => {
+let deliverableItems = $derived([
+	...foldedDeliverables.shown.map((item) => {
 		const body = item.body;
 		if (body?.kind === "image-card") {
 			const card = body.cardId
@@ -523,7 +539,10 @@ let deliverableItems = $derived(
 		);
 		return preview ? { ...item, body: { ...body, preview } } : item;
 	}),
-);
+	// The files rows close the block: they arrived last in the turn, after the
+	// call that asked for them.
+	...fileDeliverableItems,
+]);
 // A card is always open; a failed row is folded until the reader presses it.
 let openedDeliverableKeys = $state.raw<Set<string>>(new Set());
 function toggleDeliverable(key: string) {

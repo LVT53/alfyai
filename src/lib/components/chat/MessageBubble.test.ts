@@ -4451,6 +4451,99 @@ describe("MessageBubble", () => {
 		});
 	});
 
+	// Task 7 — a `files` call that found something: its row and cards are what the
+	// reply produced, so they are drawn under the text with the other deliverables
+	// rather than being lost in the rail's steps. `deliverableSegments` selects
+	// artifact calls only, so the files rows are their own list in the same block.
+	describe("the files a files call found (rows and cards)", () => {
+		function buildFilesMessage(
+			overrides: Partial<ChatMessage> = {},
+		): ChatMessage {
+			return {
+				id: "assistant-found-files",
+				renderKey: "assistant-found-files",
+				role: "assistant",
+				content: "Megtaláltam a negyedéves jelentéseket.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				thinkingSegments: [
+					{
+						type: "tool_call",
+						callId: "call-files",
+						name: "files",
+						input: { action: "search", query: "Q3 report" },
+						status: "done",
+						files: {
+							connectionId: "conn-1",
+							cards: [
+								{
+									name: "Q3 report.pdf",
+									path: "/Documents/Q3 report.pdf",
+									size: 24_576,
+									mtime: "Wed, 21 Oct 2015 07:28:00 GMT",
+									contentType: "application/pdf",
+									previewUrl: null,
+									webUrl:
+										"https://cloud.example/apps/files/?dir=/Documents&openfile=42",
+								},
+							],
+							total: 3,
+						},
+					},
+				],
+				...overrides,
+			};
+		}
+
+		it("draws the row and its cards after the text, in the deliverables block", () => {
+			const { container } = render(MessageBubble, {
+				message: buildFilesMessage(),
+				conversationId: "conv-1",
+			});
+
+			const prose = container.querySelector(".prose-container");
+			const made = container.querySelector(
+				'[data-testid="message-deliverables"]',
+			);
+			expect(prose).not.toBeNull();
+			expect(made).not.toBeNull();
+			expect(
+				(prose?.compareDocumentPosition(made as Node) ?? 0) &
+					Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+
+			const rows = made?.querySelectorAll(
+				'[data-testid="tool-activity-row"][data-icon-type="files"]',
+			);
+			expect(rows).toHaveLength(1);
+			// The card itself, reachable without a click: the row is always open.
+			const link = made?.querySelector<HTMLAnchorElement>("a.act-file");
+			expect(link?.getAttribute("href")).toBe(
+				"https://cloud.example/apps/files/?dir=/Documents&openfile=42",
+			);
+			expect(made?.textContent).toContain("Q3 report.pdf");
+		});
+
+		it("has no block when the call found nothing to show", () => {
+			const message = buildFilesMessage();
+			message.thinkingSegments = [
+				{
+					type: "tool_call",
+					callId: "call-files",
+					name: "files",
+					input: { action: "search", query: "Q3 report" },
+					status: "done",
+					files: { connectionId: "conn-1", cards: [], total: 0 },
+				},
+			];
+			const { container } = render(MessageBubble, { message });
+
+			expect(
+				container.querySelector('[data-testid="message-deliverables"]'),
+			).toBeNull();
+		});
+	});
+
 	describe("Follow-up suggestion chips (owner idea, variant A)", () => {
 		function buildFollowUpMessage(
 			overrides: Partial<ChatMessage> = {},

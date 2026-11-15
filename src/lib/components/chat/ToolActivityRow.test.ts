@@ -3,6 +3,7 @@ import { fireEvent, render, within } from "@testing-library/svelte";
 import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "$lib/i18n";
+import type { ToolCallFilesData } from "$lib/server/services/messages-types";
 import { uiLanguage } from "$lib/stores/settings";
 import {
 	buildConnectorActivityItem,
@@ -1199,5 +1200,120 @@ describe("ToolActivityRow, a question's folded line (Ask me first)", () => {
 				name: "Which way should we take it? A party at home · left to Alfy",
 			}),
 		).toBeInTheDocument();
+	});
+});
+
+// Task 7 — the files a `files` call found, drawn as cards under the reply. Each
+// card is ONE link to the file's own web app; the preview is 96px, and a file
+// with no preview — or one whose preview fails to load — draws the file-type
+// glyph instead, never a broken image. The link survives every case.
+describe("ToolActivityRow — the files a call found", () => {
+	const filesData: ToolCallFilesData = {
+		connectionId: "conn-1",
+		cards: [
+			{
+				name: "Q3 report.pdf",
+				path: "/Documents/Q3 report.pdf",
+				size: 24_576,
+				mtime: "Wed, 21 Oct 2015 07:28:00 GMT",
+				contentType: "application/pdf",
+				previewUrl: null,
+				webUrl: "https://cloud.example/apps/files/?dir=/Documents&openfile=42",
+			},
+			{
+				name: "site plan.png",
+				path: "/Photos/site plan.png",
+				size: 2_097_152,
+				mtime: null,
+				contentType: "image/png",
+				previewUrl: "/api/connections/nextcloud/preview/43",
+				webUrl: "https://cloud.example/apps/files/?dir=/Photos&openfile=43",
+			},
+		],
+		total: 4,
+	};
+
+	function filesItem(overrides: Partial<ToolCallSegment> = {}) {
+		return item({
+			name: "files",
+			input: { action: "search", query: "report" },
+			files: filesData,
+			...overrides,
+		});
+	}
+
+	it("draws one link per card, with its size and date, and says how many more there were", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: filesItem(),
+			open: true,
+		});
+
+		const body = getByTestId("tool-activity-body");
+		const links = body.querySelectorAll<HTMLAnchorElement>("a.act-file");
+		expect(links).toHaveLength(2);
+		expect(links[0].getAttribute("href")).toBe(filesData.cards[0].webUrl);
+		expect(links[0].getAttribute("target")).toBe("_blank");
+		expect(links[0].getAttribute("rel")).toBe("noopener noreferrer external");
+		expect(links[0].textContent).toContain("Q3 report.pdf");
+		// "size · date", from the app's own formatters — the date's wording is
+		// the relative one every other surface uses, so only its presence is
+		// pinned here.
+		expect(links[0].querySelector(".act-file-facts")?.textContent).toMatch(
+			/^24 KB · .+/,
+		);
+		expect(links[0].textContent).toContain("Open in Nextcloud");
+		// A card with no mtime still carries its size, with no dangling dot.
+		expect(links[1].querySelector(".act-file-facts")?.textContent).toBe("2 MB");
+		// 4 found, 2 cards: the count line reflects the results page, not every
+		// match on the server, so it says "more", never a total.
+		expect(body.querySelector(".act-files-more")?.textContent).toBe("2 more");
+	});
+
+	it("draws the preview it has, and keeps the link when the preview fails to load", async () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: filesItem(),
+			open: true,
+		});
+		const body = getByTestId("tool-activity-body");
+		const preview = body.querySelector<HTMLImageElement>(
+			"a.act-file .act-file-preview img",
+		);
+		expect(preview?.getAttribute("src")).toBe(filesData.cards[1].previewUrl);
+		expect(preview?.getAttribute("width")).toBe("96");
+		expect(preview?.getAttribute("height")).toBe("96");
+		expect(preview?.getAttribute("loading")).toBe("lazy");
+		expect(preview?.getAttribute("alt")).toBe("");
+
+		await fireEvent.error(preview as HTMLImageElement);
+
+		const link = body.querySelectorAll<HTMLAnchorElement>("a.act-file")[1];
+		expect(link?.getAttribute("href")).toBe(filesData.cards[1].webUrl);
+		expect(link?.querySelector("img")).toBeNull();
+		expect(link?.querySelector(".act-file-glyph svg")).not.toBeNull();
+	});
+
+	it("falls back to the file-type glyph for a card with no preview, and still opens the file", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: filesItem(),
+			open: true,
+		});
+
+		const body = getByTestId("tool-activity-body");
+		const link = body.querySelector<HTMLAnchorElement>("a.act-file");
+		expect(link?.getAttribute("href")).toBe(filesData.cards[0].webUrl);
+		expect(link?.querySelector("img")).toBeNull();
+		expect(link?.querySelector(".act-file-glyph svg")).not.toBeNull();
+		expect(body.innerHTML).not.toContain("broken");
+	});
+
+	it("keeps the row closed to a chevron and open on its own, since a card is a deliverable", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: filesItem(),
+		});
+
+		const row = getByTestId("tool-activity-row");
+		expect(row.tagName.toLowerCase()).toBe("div");
+		expect(row.classList.contains("is-open")).toBe(true);
+		expect(getByTestId("tool-activity-body")).toBeInTheDocument();
 	});
 });

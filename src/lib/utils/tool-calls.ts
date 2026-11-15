@@ -175,6 +175,23 @@ export function isArtifactToolCall(
 }
 
 /**
+ * A `files` call that found something to show. Its row and cards are what the
+ * reply produced for the person, not a step of how it got there, so they are
+ * drawn after the text with the other deliverables (docs/plans/
+ * 2026-11-15-nextcloud-file-cards). A call that found nothing is an ordinary
+ * step and stays in the rail.
+ */
+export function isFileCardsToolCall(
+	segment: ThinkingSegment,
+): segment is ThinkingSegment & { type: "tool_call" } {
+	return (
+		segment.type === "tool_call" &&
+		getToolCallIconType(segment.name) === "files" &&
+		(segment.files?.cards.length ?? 0) > 0
+	);
+}
+
+/**
  * An ask_user call, whatever became of it: it paused the reply, the tool refused
  * it, or it never finished (Ruling 15). The question is drawn from its question
  * row, as a card and then as a folded line below the words that asked it, so the

@@ -1125,6 +1125,11 @@ const chatDict = {
 		"toolActivity.program": "Program",
 		"toolActivity.output": "Output",
 		"toolActivity.expandActivity": "Show what was done",
+		// The files a `files` call found, drawn as cards under the reply
+		// (docs/plans/2026-11-15-nextcloud-file-cards).
+		"toolActivity.filesOpen": "Open in Nextcloud",
+		"toolActivity.filesMore": "{count} more",
+		"toolActivity.filesPreviewFailed": "Preview unavailable",
 		"toolActivity.journey": "Journey",
 		"toolActivity.planningJourney": "Planning journey",
 		// The photos row when the model was shown thumbnails of what it found
@@ -2353,6 +2358,10 @@ const chatDict = {
 		"toolActivity.program": "Program",
 		"toolActivity.output": "Kimenet",
 		"toolActivity.expandActivity": "Mutasd, mi történt",
+		// A `files` hívás találatai kártyákként a válasz alatt.
+		"toolActivity.filesOpen": "Megnyitás a Nextcloudban",
+		"toolActivity.filesMore": "további {count}",
+		"toolActivity.filesPreviewFailed": "Az előnézet nem érhető el",
 		"toolActivity.journey": "Útiterv",
 		"toolActivity.planningJourney": "Útiterv készítése",
 		// A number takes the singular after it, so there is no plural to split.

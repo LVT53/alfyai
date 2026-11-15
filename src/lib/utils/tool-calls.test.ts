@@ -10,6 +10,7 @@ import {
 	isConnectionToolName,
 	isConnectionWriteToolName,
 	isDeliveringToolName,
+	isFileCardsToolCall,
 	isFileProductionToolName,
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
@@ -190,6 +191,42 @@ describe("tool-calls utils", () => {
 		expect(
 			isArtifactToolCall({ type: "text", content: "create_artifact" }),
 		).toBe(false);
+	});
+
+	// Task 7: a files call that found something is a deliverable too (its cards are
+	// what the person asked for), while a call that found nothing stays a step.
+	it("names the files call that found something to draw", () => {
+		const files = (cardCount: number): ThinkingSegment => ({
+			type: "tool_call",
+			input: { action: "search", query: "report" },
+			name: "files",
+			status: "done",
+			files: {
+				connectionId: "conn-1",
+				cards: Array.from({ length: cardCount }, (_, index) => ({
+					name: `report-${index}.pdf`,
+					path: `/Documents/report-${index}.pdf`,
+					size: 1024,
+					mtime: null,
+					contentType: "application/pdf",
+					previewUrl: null,
+					webUrl: "https://cloud.example/apps/files/?openfile=1",
+				})),
+				total: cardCount,
+			},
+		});
+
+		expect(isFileCardsToolCall(files(1))).toBe(true);
+		expect(isFileCardsToolCall(files(0))).toBe(false);
+		// Another connection tool keeps its own row.
+		const photos: ThinkingSegment = {
+			type: "tool_call",
+			input: {},
+			name: "photos",
+			status: "done",
+		};
+		expect(isFileCardsToolCall(photos)).toBe(false);
+		expect(isFileCardsToolCall({ type: "text", content: "files" })).toBe(false);
 	});
 
 	// "Ask me first": the question is drawn from its question row, as a card and then a
