@@ -222,6 +222,8 @@ before.
 browser side: at 390x844 DPR 2 with the same 2048 px fake, the card's
 `currentSrc` is `?variant=display`, its `srcset` carries the `1600w`
 descriptor, and no request for the full PNG is made. The card now also names
-its real box (`sizes` 92vw under 768, 352 px above), so a tall picture at a
-1280x900 DPR-2 desktop takes its 900w display copy instead of the master
-(`"a DPR-2 desktop and a tall picture"`).
+its real, ratio-aware box (`sizes` `min(92vw, W)` under 767 px and `W` above,
+where `W` is 22rem × the box's ratio), so a tall picture at a 1280x900 DPR-2
+desktop, and at a 390x844 DPR-3 phone, takes its 900w display copy instead of
+the master (`tests/e2e/images.spec.ts`, `"a DPR-2 desktop and a tall picture"`,
+`"a DPR-3 phone and a tall picture"`).
