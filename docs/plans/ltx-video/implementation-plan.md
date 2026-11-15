@@ -116,8 +116,14 @@ files. 5 follows 4. 6 follows 4.
 - **Two engines, one card shell.** If the video card starts forking `ImageCardBody`'s
   markup, stop and bring it back to a shared piece rather than two copies.
 
-## Open for the owner
+## Decisions taken
 
-- Whether the guide entry (Feature Guide) ships in slice 3 or a separate change.
-- Whether `make_video` is offered when the LTX URL is empty (it must not appear, like
-  `make_image` when no picture service is configured).
+- **`make_video` is hidden when `COMFYUI_LTX_URL` is empty**, exactly as `make_image` is
+  absent when no picture service is configured. Tool registration gates on
+  `isVideoMakingConfigured`, and no refusal path is needed for a tool that is not there.
+- **The Feature Guide entry ships with slice 5**, the slice that makes video reachable
+  from chat, not with the card in slice 3. The repository rule is that a user-facing
+  feature updates its guide entry in the same change; before `make_video` exists there is
+  nothing a person can do, and a guide entry for an unreachable feature is a lie. Slice 5
+  therefore owns `guide-content.ts`, `i18n/guide.ts` and the drawing if it shows a
+  control that changes.
