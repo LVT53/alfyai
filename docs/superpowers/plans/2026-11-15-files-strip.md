@@ -256,7 +256,7 @@ The entry `guide.entry.connectedAccounts.line` currently says a found file "come
 - [ ] **Step 3c: The browser spec**
 
 Create `tests/e2e/files-strip.spec.ts`. No fake Nextcloud exists, so reach the component through stored data: create a conversation in the UI (the harness's usual helper), then seed or stub one assistant message whose thinking segment carries a `files` payload with six cards (four pictures with `previewUrl` pointing at a 1×1 data or app route, two documents), reload the chat, and assert in a real browser:
-  - four tiles at a wide viewport, three and a count tile at 360px;
+  - four picture tiles at a wide viewport; two picture tiles and the count tile (`+2`) at 360px;
   - no horizontal overflow of the reply column;
   - a long Hungarian name is ellipsised and its `title` holds the whole name (compare `scrollWidth > clientWidth` on the name node);
   - the count tile and the chevron open the list; a second press closes it;
@@ -265,12 +265,14 @@ Choose the seam that the harness actually supports (a seeded row against the wor
 
 - [ ] **Step 4: Run the affected suites and `npm run check`**
 
-`npx vitest run src/lib/components/chat src/lib/utils && npm run check`
+`npx vitest run src/lib/components/chat src/lib/utils src/lib/components/guide src/lib/i18n && npm run check`
+
+The new browser spec needs a production build: `npm run build`, then `E2E_PORT=<a free port> E2E_WORKERS=1 npx playwright test tests/e2e/files-strip.spec.ts`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A src/lib/components/chat src/lib/utils src/lib/i18n/chat.ts
+git add -A src/lib/components/chat src/lib/components/guide src/lib/utils src/lib/i18n tests/e2e/files-strip.spec.ts
 git commit -m "feat(files): the strip replaces the file-card row"
 ```
 
@@ -280,7 +282,7 @@ git commit -m "feat(files): the strip replaces the file-card row"
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-11-15-nextcloud-file-cards-compact-design.md`
-- Modify: `docs/superpowers/specs/2026-11-15-nextcloud-inline-visuals-design.md` (§4)
+- Modify: `docs/superpowers/specs/2026-11-15-nextcloud-inline-visuals-design.md` (a superseded banner, §2's sizes, §4, and the "Calls I made" / "Done means" bullets that still named the deleted card)
 - Modify: `docs/superpowers/plans/2026-11-15-files-strip.md` (an Outcome section)
 
 **Interfaces:** none; prose only. The Feature Guide was already corrected in Task 4 — do not touch it again.
@@ -291,7 +293,7 @@ git commit -m "feat(files): the strip replaces the file-card row"
   - Say plainly that the count tile's cover is always a picture (a count tile exists only when pictures overflow, so `cover: null` is unreachable), and that the count tile opens the list while `pictureIndex` names the first picture it hides.
   - Record the one place the design is silent: `ToolCallFilesData.total` is still produced and capped but nothing renders it.
 
-- [ ] **Step 2: Point the first-pass spec at this one.** In `2026-11-15-nextcloud-inline-visuals-design.md` §4, replace the card layout description with a line saying the compact design supersedes it (date + filename), so a later reader does not implement the deleted layout.
+- [ ] **Step 2: Point the first-pass spec at this one.** Replace `2026-11-15-nextcloud-inline-visuals-design.md` §4's card layout description with a line saying the compact design supersedes it (date + filename), and put the same pointer in a banner at the top of the document, so its §2 sizes and its "Calls I made" / "Done means" bullets stop reading as current instructions. A later reader must not implement the deleted layout.
 
 - [ ] **Step 3: Outcome section in the plan.** The commit list, the two plan amendments (Task 4 gained the guide and the browser spec; Task 5 became docs-only), and what could not be verified here: a real Nextcloud preview through the production route (the browser spec uses 1×1 data URLs), 78px rendering against real photographs, and the count tile's legibility against a real bright photo.
 
@@ -320,14 +322,15 @@ Expected: every step 0, Fallow at its four known cycles with `new_vs_baseline=0`
 
 ## Outcome
 
-The strip shipped on `h3-deploy` in the commits below. Task 6 above is the gate
-run that closes the plan: it names the new browser spec beside the specs around
-it, and those are where the strip is proved. This section records what was
-built, what the plan changed on the way, and what nothing here could check.
+The strip is committed on `h3-deploy` in the eight commits `0f151ef83` to
+`2a3744e77` below, on top of `51498e0b7` (the design and this plan). Task 6
+above is the gate run that closes the plan: it names the new browser spec beside
+the specs around it, and those are where the strip is proved. This section
+records what was built, what the plan changed on the way, and what nothing here
+could check.
 
 ### The commits
 
-- `51498e0b7` docs: design and plan for the files strip
 - `0f151ef83` feat(files): carry a viewer-sized preview on the card
 - `5b577f51c` fix(files): gate the viewer off the card picture and widen the preview cap
 - `bf9053b85` feat(files): decide a call's tiles without a browser
@@ -336,7 +339,6 @@ built, what the plan changed on the way, and what nothing here could check.
 - `6a6a939be` fix(files): hold the strip's viewer, width and count tile to their contracts
 - `cf78fbd98` feat(files): the strip replaces the file-card row
 - `2a3744e77` fix(files): tell the truth about every strip shape, and prove the pictures decode
-- the commit that carries this section: `docs: reconcile the strip design with what shipped`
 
 ### The two amendments to the plan
 
@@ -373,6 +375,14 @@ compact design, and records here what could not be seen from a test.
   app's scrim token laid twice, which the unit test pins, and the component's
   own note puts its worst case at about 4.6:1; nothing here laid it over an
   actual bright photograph and looked.
+- **The viewer's Tab trap and its own error line.** The browser spec asserts
+  that the viewer takes the focus, closes on Escape, returns the focus to the
+  tile and shows a decoded picture; the modal's Tab trap and the words it shows
+  when its picture fails were neither read nor exercised here.
+- **Nextcloud's aspect-ratio behaviour behind decision 5.** `getPreview(…, !$a,
+  $mode)` and the 1600-request-fitted-in-a-box result are carried from the
+  earlier task; Nextcloud's `PreviewController` was not re-read for this
+  reconciliation.
 
 No automated check ever loaded a picture from a Nextcloud server. The unit tests
 hand the strip the route's own URLs and never load them, the browser spec loads

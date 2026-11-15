@@ -1,7 +1,14 @@
 # Nextcloud files in the reply: a picture card and a working link
 
 Date: 2026-11-15
-Status: design, awaiting implementation plan
+Status: partly superseded on 2026-11-15 — see the banner below
+
+> **Partly superseded on 2026-11-15.** What shipped is
+> [`2026-11-15-nextcloud-file-cards-compact-design.md`](./2026-11-15-nextcloud-file-cards-compact-design.md):
+> a 78px strip of pictures with a count tile, a list and the app's viewer, and
+> one 56px card for a single file. §4's card layout is deleted. Read the compact
+> design before implementing anything below; where this document and that one
+> disagree, the compact design is what the code does.
 
 ## Why
 
@@ -133,8 +140,8 @@ explicit: opening the folder is not enough.
   — an unknown id and another user's id both 404 identically.
 - `fileId` must be a positive integer; `path`, when used, goes through the
   adapter's normaliser and never reaches a URL raw.
-- `size` clamped to the two values the UI asks for (96 and 192); anything else
-  is 400, not a hint to Nextcloud for a 4000px image.
+- `size` clamped to the route's three sizes, 96, 192 and 1600 (the viewer's);
+  anything else is 400, not a hint to Nextcloud for a 4000px image.
 - Answers bytes with `content-type`, `private, max-age=300`,
   `x-content-type-options: nosniff`, `content-length` — the Immich route's
   headers, for the Immich route's reasons.
@@ -180,7 +187,8 @@ Nextcloud link. What survives from this section and still holds: the cards live
 below the prose in `message-deliverables` (decision 2 of the compact design),
 they are capped at six per reply across the reply's `files` calls, they are
 built from the turn's per-call `files` field so a reload draws the same thing,
-OneDrive draws none, and a failed preview falls back to the file-type glyph.
+OneDrive draws none, and a failed preview falls back to the file-type glyph
+(the count tile keeps its number instead).
 
 ### 5. Looking — the gated half
 
@@ -212,12 +220,16 @@ Nothing in the system prompt changes.
 
 ## Calls I made, open to challenge
 
-- 96px square in the reply, 192px requested (2× displays).
+- **Picture size (changed after this design):** the 96px square in the reply
+  with a 192px preview became 78px tiles (56px for a single file) with a 192px
+  preview and a 1600px viewer copy.
 - Images get a preview; every other type gets a glyph, in v1.
 - Six cards per reply, automatic rather than model-chosen; directories are
   filtered out.
 - Cards below the prose, not inside the tool row and not pinned above it.
-- Clicking the card opens Nextcloud rather than a lightbox.
+- **Clicking (changed after this design):** the card's click opens Nextcloud
+  rather than a lightbox; the delivered strip's picture opens the app's viewer,
+  and the list row is the Nextcloud link.
 - `oc:fileid` on both PROPFIND bodies, so the link opens the file and the
   preview can use the id form; the path form is only a fallback.
 - OneDrive draws no cards at all: the card payload gates on the Nextcloud provider.
@@ -239,14 +251,15 @@ Nothing in the system prompt changes.
 
 ## Done means
 
-- A reply that found one image shows one card; one that found several shows a
-  short row.
+- A reply that found one file shows one 56px card; one that found several draws
+  the strip of 78px pictures, or the quiet line when none of them is a picture.
 - A reply that found a PDF shows the glyph and a link that opens that file in
   Nextcloud, not its folder.
 - Existing files citations open the file too, and the tests that asserted the
   old folder URL were updated with a reason, not deleted.
 - Nothing in the browser can reach the app password.
 - Localised in English and Hungarian; the Feature Guide entry for connected
-  files describes the preview card and the link.
+  files says found files arrive as pictures you can open, and every file opens
+  in Nextcloud.
 - `npm run check` clean, `npm test` green, the Fallow step unchanged from its
   baseline, and the named e2e specs for chatting and images run in full.

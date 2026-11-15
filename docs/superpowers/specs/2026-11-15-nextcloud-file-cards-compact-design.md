@@ -26,8 +26,8 @@ compact version that hides every picture would miss the point.
 
 ## What was rejected
 
-- **One quiet line** ("Searched your files · 6 found"). Compact, but it puts the
-  picture back behind a click, which is where this started.
+- **One quiet line** ("Searched your files · 6 files"). Compact, but it puts
+  the picture back behind a click, which is where this started.
 - **First match as a hero card, rest folded.** Still a card, so a search of six
   keeps a large block, and the choice of "first" is arbitrary.
 - **The full-width bar with the count and chevron floating in it.** Ugly: a
@@ -76,11 +76,12 @@ Found six — the June folder has them all.
 | 2+ | 0 | quiet line, chevron |
 | any, all previews failed | — | tiles fall back to the file-type icon; the strip stays |
 
-The number of results decides nothing here; the pictures do. Slots are four on a
-wide screen and three at 480px and below (decision 4). Six cards that hold three
-photos and three PDFs draw three picture tiles and no count tile, the documents
-being in the list with their icons. Five pictures draw three tiles and a count
-tile on a wide screen, and two tiles and a count tile on a phone.
+Above one result, the number of results decides nothing: the pictures do. Slots
+are four on a wide screen and three at 480px and below (decision 4). Six cards
+that hold three photos and three PDFs draw three picture tiles and no count
+tile, the documents being in the list with their icons. Five pictures draw three
+tiles and a count tile on a wide screen, and two tiles and a count tile on a
+phone.
 
 ## Edge cases, decided
 
@@ -104,14 +105,15 @@ tile on a wide screen, and two tiles and a count tile on a phone.
   remainder the first pass drew is gone (decision 1): the count tile is the only
   place a remainder is said. The strip never shows more than four tiles however
   many pictures there are.
-- **A `files` call whose cards are drawn nowhere in the rail**: unchanged from
-  the shipped version — a card-drawing call stays out of the thinking rail, a
-  cardless one stays in.
+- **A `files` call in the thinking rail.** A call that found cards is not a rail
+  row: its block in `message-deliverables` is the only copy, where before the
+  swap it was a pinned row inside the rail. A cardless call keeps the ordinary
+  rail row it always had.
 
 ## Accessibility
 
 - Each tile is a `<button>` whose accessible name says what it opens:
-  "Open IMG_2043.jpg, 1 of 6".
+  "Open IMG_2043.jpg, picture 1 of 6".
 - The count tile's name says "Show all 6 files".
 - The chevron is a button with `aria-expanded` and `aria-controls` naming the
   list; the list is a `<ul>` of links.
@@ -188,8 +190,9 @@ The seven things a builder could otherwise guess wrong.
    `pinned`/`alwaysOpen`/row-as-button contract is exactly what made the first
    pass unfoldable) and becomes its own block in the `message-deliverables`
    area, beside the artifact list. A cardless `files` call keeps today's
-   ordinary rail row, unchanged — that is where a failed or empty search still
-   reads "Searched your files".
+   ordinary rail row, unchanged, but that row does not say "Searched your
+   files": `filesQuietLine` is the strip's own line and needs two or more cards,
+   none of them a picture. A call that found no cards draws no block at all.
 
 3. **Old messages lose only the viewer's size, not the feature.** `viewUrl` is
    optional on the card type and read defensively (`?? null`). When a stored
