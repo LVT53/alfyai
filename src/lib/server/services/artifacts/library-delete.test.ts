@@ -6,6 +6,7 @@ import {
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
 import { posterFileName } from "$lib/shared/artifacts/poster-file";
+import { serializeVideoVersionBody } from "$lib/shared/artifacts/video-body";
 import { NOW, seedConversation, seedUser } from "./artifacts.test-helpers";
 
 // Knowledge -> Documents' Delete of a board (FU-1). The library keeps the
@@ -273,5 +274,102 @@ describe("deleteLibraryArtifact: a board deleted from Knowledge -> Documents", (
 		// Its poster is in a chat the row no longer names, so this delete cannot say
 		// whose it is; the chat's own cleanup takes it.
 		expect(fileIds()).toEqual(["poster-app"]);
+	});
+});
+
+// The same proof for the library's Delete: a Video item's clip is not a file
+// the knowledge store knows, so the delete that takes the row must take the
+// clip's own files too — the mp4, poster, thumbnail and any GIF made beside it.
+describe("deleteLibraryArtifact: a Video deleted from Knowledge -> Documents", () => {
+	it("takes its clip, poster, thumbnail and GIF, and leaves the chat's other clip", async () => {
+		const { mkdtemp, rm, readdir } = await import("node:fs/promises");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const sharp = (await import("sharp")).default;
+		const { attachImageFilesToArtifact } = await import(
+			"$lib/server/services/images/files"
+		);
+		const { readVideoGifBytes, storeVideoFile } = await import(
+			"$lib/server/services/images/video-files"
+		);
+		const { makeTestClip } = await import(
+			"$lib/server/services/images/video/testing/video-clip"
+		);
+		const workdir = await mkdtemp(join(tmpdir(), "library-videos-"));
+		vi.spyOn(process, "cwd").mockReturnValue(workdir);
+		try {
+			const poster = new Uint8Array(
+				await sharp({
+					create: { width: 64, height: 36, channels: 3, background: "#336699" },
+				})
+					.png()
+					.toBuffer(),
+			);
+			const clip = await storeVideoFile({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				role: "take",
+				mp4: await makeTestClip({ size: 64, seconds: 1 }),
+				poster,
+				durationMs: 1000,
+			});
+			const rest = await storeVideoFile({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				role: "take",
+				mp4: await makeTestClip({ size: 64, seconds: 1 }),
+				poster,
+				durationMs: 1000,
+			});
+			const created = await createArtifact({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				kind: "video",
+				title: "Harbour at dawn",
+				body: serializeVideoVersionBody({
+					v: 1,
+					fileId: clip.id,
+					posterFileId: clip.id,
+					width: clip.width,
+					height: clip.height,
+					durationMs: 1000,
+					sourceFileId: null,
+				}),
+				author: "alfy",
+				versionSummary: "Alfy made the video",
+			});
+			if (!created.ok) throw new Error(created.reason);
+			await attachImageFilesToArtifact([clip.id], created.artifact.id);
+			await readVideoGifBytes(clip);
+
+			await expect(
+				deleteLibraryArtifact(OWNER, created.artifact.id),
+			).resolves.toMatchObject({
+				deletedArtifactIds: [created.artifact.id],
+			});
+
+			expect(boardRow(created.artifact.id)).toBeUndefined();
+			expect(
+				memory.db
+					.select()
+					.from(schema.imageFiles)
+					.all()
+					.map((row) => row.id),
+			).toEqual([rest.id]);
+			expect(
+				(
+					await readdir(join(workdir, "data", "image-files", CONVERSATION))
+				).sort(),
+			).toEqual(
+				[
+					`${rest.id}.mp4`,
+					`${rest.id}.poster.webp`,
+					`${rest.id}.thumb.webp`,
+				].sort(),
+			);
+		} finally {
+			vi.restoreAllMocks();
+			await rm(workdir, { recursive: true, force: true });
+		}
 	});
 });

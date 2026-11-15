@@ -23,6 +23,7 @@ import {
 import {
 	deleteFilesOfDeletedBoard,
 	deletePicturesOfDeletedImage,
+	deleteVideoFilesOfDeletedVideo,
 	FAMILY_ROW_TYPES,
 	kindForArtifactRow,
 } from "./record";
@@ -58,10 +59,17 @@ export async function deleteLibraryArtifact(
 		row && kindForArtifactRow(row) === "image"
 			? await listImageFileIdsForArtifact(row.id)
 			: [];
+	// A Video item's clip is a row of the same `image_files` table, and is
+	// named the same way before the store clears its `artifact_id`.
+	const videoFileIds =
+		row && kindForArtifactRow(row) === "video"
+			? await listImageFileIdsForArtifact(row.id)
+			: [];
 	const result = await deleteArtifactForUser(userId, artifactId);
 	if (row && result?.deletedArtifactIds.includes(row.id)) {
 		await deleteFilesOfDeletedBoard(row);
 		await deletePicturesOfDeletedImage(row, pictureIds);
+		await deleteVideoFilesOfDeletedVideo(row, videoFileIds);
 	}
 	return result;
 }

@@ -23,6 +23,7 @@ import {
 	deleteImageFilesById,
 	listImageFileIdsForArtifact,
 } from "$lib/server/services/images/files";
+import { deleteVideoFilesById } from "$lib/server/services/images/video-files";
 import {
 	buildArtifactCanonicalOwnershipCondition,
 	getArtifactOwnershipScope,
@@ -750,6 +751,28 @@ export async function deletePicturesOfDeletedImage(
 	}
 }
 
+/**
+ * A deleted Video item's clip leaves the disk with it — its mp4, its poster,
+ * its thumbnail and any GIF made beside it by a download (the clip's own store
+ * owns those derived paths); the other clips of its chat stay. Like the
+ * pictures and the poster files, never allowed to undo the delete: a failure
+ * leaves files that go with the chat.
+ */
+export async function deleteVideoFilesOfDeletedVideo(
+	row: ArtifactRow,
+	videoFileIds: readonly string[],
+): Promise<void> {
+	if (videoFileIds.length === 0) return;
+	try {
+		await deleteVideoFilesById(videoFileIds);
+	} catch (error) {
+		console.warn("[ARTIFACTS] Deleted a video item but not its clip files", {
+			artifactId: row.id,
+			error,
+		});
+	}
+}
+
 type DeleteArtifactResult =
 	| { ok: true }
 	| {
@@ -802,6 +825,12 @@ export async function deleteArtifact(
 		kindForArtifactRow(row) === "image"
 			? await listImageFileIdsForArtifact(row.id)
 			: [];
+	// A Video item's clip is a row of the same `image_files` table, linked the
+	// same way; its own store knows the mp4, poster, thumbnail and GIF paths.
+	const videoFileIds =
+		kindForArtifactRow(row) === "video"
+			? await listImageFileIdsForArtifact(row.id)
+			: [];
 	const removed = db.transaction(
 		(tx) =>
 			tx.delete(artifacts).where(eq(artifacts.id, row.id)).run().changes > 0,
@@ -809,6 +838,7 @@ export async function deleteArtifact(
 	if (!removed) return { ok: false, reason: "not_found" };
 	await deleteFilesOfDeletedBoard(row);
 	await deletePicturesOfDeletedImage(row, pictureIds);
+	await deleteVideoFilesOfDeletedVideo(row, videoFileIds);
 	try {
 		await deleteSemanticEmbeddingsForSubjects({
 			userId: row.userId,
