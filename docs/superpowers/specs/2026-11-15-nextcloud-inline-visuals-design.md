@@ -168,11 +168,20 @@ migration — this is a JSON field on an existing row.
 
 ### 4. The card
 
-- `files-card-view.ts` — a pure mapper from a stored `files` tool result to card
-  rows: `{ name, meta, previewUrl | null, glyph, webUrl }`. Pure, tested without
-  a browser, in the shape `image-card-view.ts` and `write-card-view.ts` already
-  use.
-- A card component drawing the row: preview (or glyph) on the left, name and
+- **What was built (and why it is not `files-card-view.ts`):** a `files` member
+  on `ToolActivityBody` — `{ kind: "files"; cards; total }` in
+  `$lib/utils/tool-activity.ts`, built by `buildToolActivityItem` and drawn by
+  `ToolActivityRow.svelte`'s body branch. The design asked for a separate pure
+  `files-card-view.ts` mapper in the shape `image-card-view.ts` and
+  `write-card-view.ts` use. The implementation used the app's existing
+  row-panel pattern instead, because a found-file row already is a
+  tool-activity row: its body carries the cards beside the sources, page, map
+  and image-card bodies, so there is one renderer, one collapse behaviour and
+  one place cards sit under the prose. A second card component would have
+  duplicated `ToolActivityRow`'s chrome for one body shape. The pure part that
+  did need its own module is the reply-level cap: `capFileCards` in
+  `$lib/utils/tool-calls.ts`.
+- The card draws the row: preview (or glyph) on the left, name and
   `size · date` beside it, "Open in Nextcloud" underneath. The whole card is one
   link to `webUrl`, `target="_blank"`, so the conversation stays put. Using the
   card replaces the in-app lightbox for these images: the picture's job is to
@@ -194,10 +203,16 @@ migration — this is a JSON field on an existing row.
   no more.
 - **Cap: six cards per reply**, not per call — a reply that searches and then
   lists would otherwise draw twelve. Taken in result order across the reply's
-  `files` calls, so the cap is computed where the reply's cards are assembled.
-- **OneDrive draws no cards.** The mapper gates on the Nextcloud provider, so
-  the label is always "Open in Nextcloud" and nothing claims a preview OneDrive
-  cannot serve.
+  `files` calls, so the cap is computed where the reply's cards are assembled:
+  `capFileCards` (`$lib/utils/tool-calls.ts`) walks the reply's `files` payloads,
+  keeps six cards in all, shows a repeated path once, and returns ONE remainder
+  (`sum(totals) - shown`, never negative). `MessageBubble.svelte` feeds each kept
+  row the cards and a matching `total`, so a row never draws a remainder of its
+  own; the reply draws the single line. The server's per-call slice stays only
+  as a bound on one call's stored JSON.
+- **OneDrive draws no cards.** `buildFilesCards` gates on the Nextcloud
+  provider (it returns `null`), so the label is always "Open in Nextcloud" and
+  nothing claims a preview OneDrive cannot serve.
 - A failed preview request hides the image and shows the glyph. It never shows
   a broken-image icon and never removes the link.
 
@@ -239,7 +254,7 @@ Nothing in the system prompt changes.
 - Clicking the card opens Nextcloud rather than a lightbox.
 - `oc:fileid` on both PROPFIND bodies, so the link opens the file and the
   preview can use the id form; the path form is only a fallback.
-- OneDrive draws no cards at all: the mapper gates on the Nextcloud provider.
+- OneDrive draws no cards at all: the card payload gates on the Nextcloud provider.
 
 ## Left to the builder
 

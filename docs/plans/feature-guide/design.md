@@ -136,7 +136,7 @@ The entries. "Example" is the Try it text; examples are drafts the builder may i
 | It knows you | Skills | Ready-made helpers like Study Coach, and your own. | Show me: Settings, Skills | skills |
 | Your things | Knowledge Base | Your documents in one place, with everything your chats made. | Show me: Knowledge Base, Documents | library |
 | Your things | Use a document in a chat | Pick a file from your Library and ask about it. | Show me: Home, "+" menu with From your Library | from-library |
-| Your things | Connected accounts | Calendar, email, files, photos and more, for Alfy to read. | Show me: Settings, Connections | connections |
+| Your things | Connected accounts | Calendar, email, files, photos and more, for Alfy to read. A found Nextcloud file comes back as a card, and the file opens in Nextcloud. | Show me: Settings, Connections | connections |
 | Your things | Nothing changes without your OK | Alfy asks before it changes anything in your accounts. | none | ok-card |
 | Stay organized | Projects | Folders with their own instructions and files. | Show me: the sidebar's Projects | projects |
 | Stay organized | Search | Find any chat or document; Ctrl/⌘+K on a keyboard. | Show me: the sidebar's Search | search |
