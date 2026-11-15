@@ -171,23 +171,33 @@ function sameParent(a: string, b: string): boolean {
 // Best-effort deep link into the Nextcloud Files web UI so citations are
 // clickable. Verified against Nextcloud server source/issue history: the
 // long-standing, documented form is `/index.php/apps/files/?dir=<dir>&scrollto=<name>`
-// (see e.g. nextcloud/server#7874, #27100). A newer `openfile=<fileId>` form
-// exists (nextcloud/server, NC19+) and is preferred by current versions, but
-// it requires the file's *numeric* internal fileId, which our WebDAV
-// PROPFIND (list/search) does not currently request or expose (see
-// `NcFile` — no `fileid` field) — adding it is an adapter change (2.2),
-// out of scope here. `scrollto` is reported to no-op (no highlight/scroll)
+// (see e.g. nextcloud/server#7874, #27100), and it stays the fallback for a
+// result whose server did not report an id. The newer `openfile=<fileId>` form
+// (nextcloud/server, NC19+) opens the file itself and is what current versions
+// prefer, so it is used whenever the adapter reported the file's *numeric*
+// internal id (`NcFile.fileId`, read from the `oc:fileid` PROPFIND property by
+// nextcloud-files.ts). `scrollto` is reported to no-op (no highlight/scroll)
 // on some newer server versions per nextcloud/server#46113, but it never
 // produces an invalid URL: worst case the link still opens the Files app at
-// the file's parent directory, which satisfies the "safe, correct link"
-// bar for a v1 citation.
-function nextcloudWebUiUrl(conn: ConnectionPublic, path: string): string {
+// the file's parent directory, which satisfies the "safe, correct link" bar.
+export function nextcloudWebUiUrl(
+	conn: ConnectionPublic,
+	path: string,
+	fileId?: number,
+): string {
 	const serverUrl =
 		typeof conn.config.serverUrl === "string" ? conn.config.serverUrl : "";
-	const lastSlash = path.lastIndexOf("/");
-	const dir = lastSlash === -1 ? "" : path.slice(0, lastSlash);
-	const name = lastSlash === -1 ? path : path.slice(lastSlash + 1);
+	// Paths the adapter reports have no leading slash; trimming one keeps the
+	// `dir` parameter well-formed if a caller passes one anyway.
+	const normalizedPath = path.replace(/^\/+/, "");
+	const lastSlash = normalizedPath.lastIndexOf("/");
+	const dir = lastSlash === -1 ? "" : normalizedPath.slice(0, lastSlash);
+	const name =
+		lastSlash === -1 ? normalizedPath : normalizedPath.slice(lastSlash + 1);
 	const dirParam = encodeURIComponent(`/${dir}`);
+	if (fileId !== undefined && fileId > 0) {
+		return `${serverUrl}/index.php/apps/files/?dir=${dirParam}&openfile=${fileId}`;
+	}
 	return `${serverUrl}/index.php/apps/files/?dir=${dirParam}&scrollto=${encodeURIComponent(name)}`;
 }
 
@@ -206,10 +216,12 @@ function nextcloudWebUiUrl(conn: ConnectionPublic, path: string): string {
 // any of the Nextcloud write-outcome functions ever run (see the
 // `onedrive` guard near the top of runFilesTool below).
 //
-// FileEntry is a superset of nextcloud-files.ts's NcFile shape (adds an
+// FileEntry is a superset of nextcloud-files.ts's NcFile shape (it adds an
 // optional `webUrl`, populated only by OneDrive) — NcFile is structurally
 // assignable to it since the extra field is optional, so nothing in
-// nextcloud-files.ts needs to change.
+// nextcloud-files.ts needs to change. `fileId` is Nextcloud's own numeric id
+// and stays optional because an older/misbehaving server may not report one;
+// OneDrive leaves it absent.
 export type FileEntry = {
 	name: string;
 	path: string;
@@ -218,6 +230,7 @@ export type FileEntry = {
 	mtime: string | null;
 	contentType: string | null;
 	etag: string | null;
+	fileId?: number;
 	webUrl?: string | null;
 };
 
@@ -254,7 +267,7 @@ function searchFilesForConn(
 // `accessToken` is an already-resolved OneDrive access token (ignored for
 // Nextcloud, which doesn't do this per-call refresh dance) — see the `read`
 // action in runFilesTool below, which resolves ONE token up front and passes
-// it to both statForConn (the isDirectory guard) and readFileForConn so a
+// it to both statForConn (the read's stat guard) and readFileForConn so a
 // single logical read never triggers two OAuth refreshes. Microsoft ROTATES
 // refresh tokens on every use, so two refreshes per read would otherwise
 // double vault writes and race two concurrent reads into invalidating each
@@ -286,18 +299,19 @@ function statForConn(
 
 // Citation web URL for a file entry/read result. OneDrive items carry their
 // own `webUrl` (from Microsoft Graph, see onedriveWebUrl's doc comment);
-// Nextcloud has no such field in its WebDAV PROPFIND/GET response, so it
-// keeps building one from the connection's serverUrl + path exactly as
-// before.
+// Nextcloud's WebDAV GET response carries no URL, so it keeps building one
+// from the connection's serverUrl + path, using Nextcloud's own file id (when
+// the adapter reported it) so the link opens the file itself.
 function webUrlForConn(
 	conn: ConnectionPublic,
 	path: string,
+	fileId?: number,
 	webUrl?: string | null,
 ): string {
 	if (conn.provider === "onedrive") {
 		return onedriveWebUrl({ webUrl: webUrl ?? null });
 	}
-	return nextcloudWebUiUrl(conn, path);
+	return nextcloudWebUiUrl(conn, path, fileId);
 }
 
 function toCandidate(citation: FilesCitation): ToolEvidenceCandidate {
@@ -419,7 +433,7 @@ function searchOutcome(
 		.map((file) => ({
 			label: file.name,
 			path: file.path,
-			url: webUrlForConn(conn, file.path, file.webUrl),
+			url: webUrlForConn(conn, file.path, file.fileId, file.webUrl),
 		}));
 	const baseMessage =
 		files.length === 0
@@ -518,7 +532,7 @@ function listOutcome(
 		.map((file) => ({
 			label: file.name,
 			path: file.path,
-			url: webUrlForConn(conn, file.path, file.webUrl),
+			url: webUrlForConn(conn, file.path, file.fileId, file.webUrl),
 		}));
 	const folderLabel = path?.trim() ? path.trim() : "your Files root";
 	const total = files.length;
@@ -550,25 +564,25 @@ function listOutcome(
 	};
 }
 
-// Best-effort check for whether `path` is a folder. A GET on a folder
-// (WebDAV collection for Nextcloud; a driveItem with a `folder` facet for
-// OneDrive) returns a misleading 2xx (the read path would report a bogus
-// "Read X." success for a folder), so the read action uses this to redirect
-// the model to the `list` action instead. Never throws and never *blocks* a
-// read: an inconclusive stat (null / thrown) falls through to
-// readFileForConn, which has its own not_found handling — only a POSITIVE
-// "this is a directory" short-circuits.
-async function isDirectory(
+// Best-effort stat of the entry a `read` targets. It answers two questions at
+// once: whether `path` is a folder (a GET on a folder — WebDAV collection for
+// Nextcloud; a driveItem with a `folder` facet for OneDrive — returns a
+// misleading 2xx, and the read path would report a bogus "Read X." success),
+// and what Nextcloud's own file id is, since the citation links with it and
+// the GET response does not carry it. Never throws and never *blocks* a read:
+// an inconclusive stat (null / thrown) falls through to readFileForConn, which
+// has its own not_found handling — only a POSITIVE "this is a directory"
+// short-circuits.
+async function statForRead(
 	conn: ConnectionPublic,
 	secret: string,
 	path: string,
 	accessToken?: string,
-): Promise<boolean> {
+): Promise<FileEntry | null> {
 	try {
-		const existing = await statForConn(conn, secret, path, accessToken);
-		return existing?.isDir ?? false;
+		return await statForConn(conn, secret, path, accessToken);
 	} catch {
-		return false;
+		return null;
 	}
 }
 
@@ -576,6 +590,7 @@ function readOutcome(
 	conn: ConnectionPublic,
 	path: string,
 	file: FileContent,
+	fileId: number | undefined,
 	ambiguous: boolean,
 	connections: ConnectionPublic[],
 ): FilesToolOutcome {
@@ -583,7 +598,7 @@ function readOutcome(
 	const citation: FilesCitation = {
 		label,
 		path,
-		url: webUrlForConn(conn, path, file.webUrl),
+		url: webUrlForConn(conn, path, fileId, file.webUrl),
 	};
 
 	let result: FilesToolResultItem;
@@ -1334,7 +1349,7 @@ export async function runFilesTool(
 						message: "A file path is required to read a file.",
 					});
 				}
-				// A `read` fans out into a stat (the isDirectory guard just below) and
+				// A `read` fans out into a stat (the folder guard just below) and
 				// then the actual download — for OneDrive that's two Graph calls, each
 				// of which would otherwise mint its own fresh access token. Resolve ONE
 				// token here and thread it through both so Microsoft's refresh-token
@@ -1346,7 +1361,10 @@ export async function runFilesTool(
 						: undefined;
 				// A folder path can't be read as a file — a raw GET on a folder
 				// otherwise returns a misleading success. Redirect the model to `list`.
-				if (await isDirectory(conn, secret, input.path, accessToken)) {
+				// This one stat also reports the id the citation links with, so
+				// opening the file needs no second request.
+				const stat = await statForRead(conn, secret, input.path, accessToken);
+				if (stat?.isDir) {
 					return buildPayload({
 						success: false,
 						action: "read",
@@ -1363,6 +1381,7 @@ export async function runFilesTool(
 					conn,
 					input.path,
 					file,
+					stat?.fileId,
 					ambiguous,
 					connections,
 				);

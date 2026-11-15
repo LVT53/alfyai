@@ -30,7 +30,12 @@ import {
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import { getConnectionSecret } from "$lib/server/services/connections/store";
 
-import { type FileEntry, runFilesTool, sanitizeFilesToolInput } from "./files";
+import {
+	type FileEntry,
+	nextcloudWebUiUrl,
+	runFilesTool,
+	sanitizeFilesToolInput,
+} from "./files";
 
 // These tests drive the tool's core directly, outside the envelope a real call
 // runs in, to look at what a summary does to the payload. The mark the envelope
@@ -345,6 +350,34 @@ describe("runFilesTool", () => {
 		]);
 	});
 
+	it("search citations link to the file itself when the adapter reports an id", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		nextcloudSearchMock.mockResolvedValue([
+			{
+				name: "report.pdf",
+				path: "Documents/report.pdf",
+				isDir: false,
+				size: 4096,
+				mtime: null,
+				contentType: "application/pdf",
+				etag: "etag-1",
+				fileId: 42,
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "report" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.citations[0]?.url).toBe(
+			"https://cloud.example.com/index.php/apps/files/?dir=%2FDocuments&openfile=42",
+		);
+	});
+
 	it("list enumerates a folder's children and reports file/folder counts", async () => {
 		const conn = makeConn();
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
@@ -518,6 +551,41 @@ describe("runFilesTool", () => {
 				url: expect.stringContaining("cloud.example.com"),
 			},
 		]);
+	});
+
+	it("read citations open the file using the id from the stat it already makes", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		nextcloudStatMock.mockResolvedValue({
+			name: "todo.txt",
+			path: "notes/todo.txt",
+			isDir: false,
+			size: 11,
+			mtime: null,
+			contentType: "text/plain",
+			etag: "etag-1",
+			fileId: 77,
+		});
+		nextcloudReadFileMock.mockResolvedValue({
+			bytes: new TextEncoder().encode("hello world"),
+			etag: "etag-1",
+			contentType: "text/plain",
+			mtime: null,
+		});
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "read", path: "notes/todo.txt" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.citations[0]?.url).toBe(
+			"https://cloud.example.com/index.php/apps/files/?dir=%2Fnotes&openfile=77",
+		);
+		// The id comes from the stat that already guards the read, so opening
+		// the file costs no extra Nextcloud request.
+		expect(nextcloudStatMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("read notes binary files instead of inlining raw bytes", async () => {
@@ -2035,5 +2103,22 @@ describe("runFilesTool — share_link action (explicit-confirm write flow, GAP B
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("path is required");
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+	});
+});
+
+// The Files-app deep link. A result with Nextcloud's own numeric id opens the
+// file itself (`openfile`); one whose server did not report an id falls back
+// to the folder + `scrollto` form, which is still a safe link.
+describe("nextcloudWebUiUrl", () => {
+	it("links to the file itself when the result has an id", () => {
+		expect(nextcloudWebUiUrl(makeConn(), "/Photos/lake.jpg", 42)).toBe(
+			"https://cloud.example.com/index.php/apps/files/?dir=%2FPhotos&openfile=42",
+		);
+	});
+
+	it("falls back to the folder link when it has none", () => {
+		expect(nextcloudWebUiUrl(makeConn(), "/Photos/lake.jpg")).toBe(
+			"https://cloud.example.com/index.php/apps/files/?dir=%2FPhotos&scrollto=lake.jpg",
+		);
 	});
 });
