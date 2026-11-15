@@ -207,6 +207,21 @@ describe("videoFileUrl", () => {
 		);
 		expect(videoFileUrl("a/b", {})).toBe("/api/images/files/a%2Fb");
 	});
+
+	it("asks for the GIF by name, and leaves the mp4 URL exactly as it was", () => {
+		expect(
+			videoFileUrl("file-1", {
+				download: true,
+				format: "gif",
+				conversationId: "conv-1",
+			}),
+		).toBe(
+			"/api/images/files/file-1?download=1&format=gif&conversationId=conv-1",
+		);
+		expect(videoFileUrl("file-1", { download: true, format: "mp4" })).toBe(
+			"/api/images/files/file-1?download=1",
+		);
+	});
 });
 
 describe("the card's own helpers", () => {
@@ -243,6 +258,9 @@ describe("the video dictionary", () => {
 		"artifacts.video.card.tryAgain",
 		"artifacts.video.card.another",
 		"artifacts.video.card.download",
+		"artifacts.video.card.downloadGif",
+		"artifacts.video.panel.downloadMp4",
+		"artifacts.video.panel.downloadTitle",
 		"artifacts.video.card.more",
 		"artifacts.video.card.history",
 		"artifacts.video.card.historyUnavailable",

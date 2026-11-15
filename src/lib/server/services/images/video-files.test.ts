@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
@@ -25,8 +25,26 @@ vi.mock("$lib/server/db", () => ({
 	},
 }));
 
+// The conversion itself is `media.test.ts`'s, over the real ffmpeg; here it is
+// counted, so the cache, the single flight and the failures are the subject.
+const media = vi.hoisted(() => ({ convertToGif: vi.fn() }));
+
+vi.mock("./video/media", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./video/media")>();
+	return { ...actual, convertToGif: media.convertToGif };
+});
+
 const videoFiles = await import("./video-files");
 const pictures = await import("./files");
+const { VideoMediaError } = await import("./video/media");
+
+/** A whole one-pixel GIF89a: a finished conversion without ffmpeg in the test. */
+const WHOLE_GIF = new Uint8Array(
+	Buffer.from(
+		"R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+		"base64",
+	),
+);
 
 /** A minimal but real ISO-BMFF header: box length, `ftyp`, a brand, then payload. */
 function mp4(byteLength = 4096): Uint8Array {
@@ -78,6 +96,29 @@ async function listFiles(conversationId: string): Promise<string[]> {
 	return existsSync(dir) ? (await readdir(dir)).sort() : [];
 }
 
+/** The cached GIF's derived path, beside the clip's own files. */
+function gifPath(file: { id: string }, conversationId = "c1"): string {
+	return join(directory(conversationId), `${file.id}.gif`);
+}
+
+/** Stores one clip with a picture's poster, the way the runner does. */
+async function storeClip(conversationId = "c1") {
+	return videoFiles.storeVideoFile({
+		userId: "u1",
+		conversationId,
+		role: "take",
+		mp4: mp4(),
+		poster: await frame(),
+		durationMs: 5000,
+	});
+}
+
+/** Makes the GIF the cache would serve, so a deletion path has one to remove. */
+async function makeGifFor(file: { id: string }): Promise<void> {
+	media.convertToGif.mockResolvedValue(WHOLE_GIF);
+	await videoFiles.readVideoGifBytes(file);
+}
+
 beforeEach(async () => {
 	memory = createInMemoryDatabase();
 	workdir = await mkdtemp(join(tmpdir(), "video-files-"));
@@ -87,6 +128,7 @@ beforeEach(async () => {
 	seedConversation(memory, { id: "c1", userId: "u1" });
 	seedConversation(memory, { id: "c2", userId: "u1" });
 	seedConversation(memory, { id: "inc", userId: "u1", memoryIncognito: true });
+	media.convertToGif.mockReset();
 });
 
 afterEach(async () => {
@@ -293,16 +335,134 @@ describe("getVideoFile and picture rows", () => {
 	});
 });
 
-describe("video file cleanup", () => {
-	it("discards the clip, poster, thumbnail and row even when the row is already gone", async () => {
-		const stored = await videoFiles.storeVideoFile({
+describe("the GIF beside a clip", () => {
+	it("makes the GIF once, beside the clip, and serves the cached copy after that", async () => {
+		const stored = await storeClip();
+		media.convertToGif.mockResolvedValue(WHOLE_GIF);
+
+		const first = await videoFiles.readVideoGifBytes(stored);
+		expect(first).toEqual(WHOLE_GIF);
+		expect(await listFiles("c1")).toEqual([
+			`${stored.id}.gif`,
+			`${stored.id}.mp4`,
+			`${stored.id}.poster.webp`,
+			`${stored.id}.thumb.webp`,
+		]);
+		expect(media.convertToGif).toHaveBeenCalledTimes(1);
+
+		const second = await videoFiles.readVideoGifBytes(stored);
+		expect(second).toEqual(WHOLE_GIF);
+		expect(media.convertToGif).toHaveBeenCalledTimes(1);
+	});
+
+	it("removes a file that is not a whole GIF and makes it again once", async () => {
+		for (const broken of [
+			WHOLE_GIF.slice(0, 20),
+			new Uint8Array(Buffer.from("not a gif at all", "latin1")),
+		]) {
+			const stored = await storeClip();
+			await writeFile(gifPath(stored), broken);
+			media.convertToGif.mockReset();
+			media.convertToGif.mockResolvedValue(WHOLE_GIF);
+
+			const gif = await videoFiles.readVideoGifBytes(stored);
+
+			expect(gif).toEqual(WHOLE_GIF);
+			expect(media.convertToGif).toHaveBeenCalledTimes(1);
+			expect(await listFiles("c1")).toEqual([
+				`${stored.id}.gif`,
+				`${stored.id}.mp4`,
+				`${stored.id}.poster.webp`,
+				`${stored.id}.thumb.webp`,
+			]);
+			// The temp file was renamed into place, never left behind.
+			expect(
+				(await listFiles("c1")).some((name) => name.endsWith(".tmp")),
+			).toBe(false);
+			await videoFiles.discardStoredVideoFile(stored);
+		}
+	});
+
+	it("runs one generation at a time for a file, however many ask together", async () => {
+		const stored = await storeClip();
+		let release!: (gif: Uint8Array) => void;
+		media.convertToGif.mockReturnValue(
+			new Promise<Uint8Array>((resolve) => {
+				release = resolve;
+			}),
+		);
+
+		const reads = Promise.all([
+			videoFiles.readVideoGifBytes(stored),
+			videoFiles.readVideoGifBytes(stored),
+			videoFiles.readVideoGifBytes(stored),
+		]);
+		await vi.waitFor(() => expect(media.convertToGif).toHaveBeenCalledTimes(1));
+		release(WHOLE_GIF);
+
+		expect(await reads).toEqual([WHOLE_GIF, WHOLE_GIF, WHOLE_GIF]);
+		expect(media.convertToGif).toHaveBeenCalledTimes(1);
+		expect(await listFiles("c1")).toHaveLength(4);
+	});
+
+	it("answers a missing ffmpeg as unavailable, and stores nothing", async () => {
+		const stored = await storeClip();
+		media.convertToGif.mockRejectedValue(
+			new VideoMediaError(
+				"unavailable",
+				"ffmpeg is not installed on this server.",
+			),
+		);
+
+		const error = await videoFiles.readVideoGifBytes(stored).then(
+			() => null,
+			(thrown: unknown) => thrown,
+		);
+		expect(error).toBeInstanceOf(VideoMediaError);
+		expect(error).toMatchObject({ code: "unavailable" });
+		expect(await listFiles("c1")).toEqual([
+			`${stored.id}.mp4`,
+			`${stored.id}.poster.webp`,
+			`${stored.id}.thumb.webp`,
+		]);
+	});
+
+	it("answers a failed conversion as failed, and stores nothing", async () => {
+		const stored = await storeClip();
+		media.convertToGif.mockRejectedValue(
+			new VideoMediaError("failed", "ffmpeg failed: no stream."),
+		);
+
+		const error = await videoFiles.readVideoGifBytes(stored).then(
+			() => null,
+			(thrown: unknown) => thrown,
+		);
+		expect(error).toBeInstanceOf(VideoMediaError);
+		expect(error).toMatchObject({ code: "failed" });
+		expect(await listFiles("c1")).toEqual([
+			`${stored.id}.mp4`,
+			`${stored.id}.poster.webp`,
+			`${stored.id}.thumb.webp`,
+		]);
+	});
+
+	it("names a GIF download after the item, with a .gif extension", async () => {
+		const stored = await storeClip();
+		const file = await pictures.getImageFile({
 			userId: "u1",
-			conversationId: "c1",
-			role: "take",
-			mp4: mp4(),
-			poster: await frame(),
-			durationMs: 5000,
+			fileId: stored.id,
 		});
+		expect(await videoFiles.videoGifDownloadName(file as never)).toMatch(
+			/\.gif$/,
+		);
+	});
+});
+
+describe("video file cleanup", () => {
+	it("discards the clip, poster, thumbnail, GIF and row even when the row is already gone", async () => {
+		const stored = await storeClip();
+		await makeGifFor(stored);
+		expect(await listFiles("c1")).toHaveLength(4);
 		memory.db
 			.delete(schema.imageFiles)
 			.where(eq(schema.imageFiles.id, stored.id))
@@ -311,36 +471,19 @@ describe("video file cleanup", () => {
 		expect(await listFiles("c1")).toEqual([]);
 	});
 
-	it("deletes every video of a chat by id and leaves the other chat's files alone", async () => {
-		const kept = await videoFiles.storeVideoFile({
-			userId: "u1",
-			conversationId: "c2",
-			role: "take",
-			mp4: mp4(),
-			poster: await frame(),
-			durationMs: 5000,
-		});
-		const first = await videoFiles.storeVideoFile({
-			userId: "u1",
-			conversationId: "c1",
-			role: "take",
-			mp4: mp4(),
-			poster: await frame(),
-			durationMs: 5000,
-		});
-		const second = await videoFiles.storeVideoFile({
-			userId: "u1",
-			conversationId: "c1",
-			role: "take",
-			mp4: mp4(),
-			poster: await frame(),
-			durationMs: 5000,
-		});
+	it("deletes every video of a chat by id with its GIF, and leaves the other chat's files alone", async () => {
+		const kept = await storeClip("c2");
+		const first = await storeClip();
+		const second = await storeClip();
+		await makeGifFor(kept);
+		await makeGifFor(first);
+		await makeGifFor(second);
 
 		await videoFiles.deleteVideoFilesById([first.id, second.id]);
 
 		expect(await listFiles("c1")).toEqual([]);
 		expect(await listFiles("c2")).toEqual([
+			`${kept.id}.gif`,
 			`${kept.id}.mp4`,
 			`${kept.id}.poster.webp`,
 			`${kept.id}.thumb.webp`,
@@ -354,7 +497,7 @@ describe("video file cleanup", () => {
 		).toHaveLength(0);
 	});
 
-	it("deletes a chat's videos with their side files, and no picture row it does not own", async () => {
+	it("deletes a chat's videos with their side files and GIF, and no picture row it does not own", async () => {
 		const png = await sharp({
 			create: { width: 20, height: 10, channels: 3, background: "#123456" },
 		})
@@ -366,14 +509,8 @@ describe("video file cleanup", () => {
 			role: "take",
 			png: new Uint8Array(png),
 		});
-		const video = await videoFiles.storeVideoFile({
-			userId: "u1",
-			conversationId: "c1",
-			role: "take",
-			mp4: mp4(),
-			poster: await frame(),
-			durationMs: 5000,
-		});
+		const video = await storeClip();
+		await makeGifFor(video);
 
 		const deleted = await videoFiles.deleteVideoFilesForConversation("c1");
 

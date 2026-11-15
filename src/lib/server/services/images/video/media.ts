@@ -190,6 +190,70 @@ export async function probeDurationMs(mp4: Uint8Array): Promise<number> {
 	});
 }
 
+/**
+ * The GIF a clip downloads as (video plan, slice 8): 12 fps, a long edge of 480
+ * pixels and never an enlargement. The constants live here, beside the
+ * conversion, not in the serving route.
+ */
+export const VIDEO_GIF_FPS = 12;
+export const VIDEO_GIF_LONG_EDGE = 480;
+
+/**
+ * The filter graph one GIF is made through: the clip scaled to the long edge
+ * (`min()` keeps a smaller clip its own size), split into the palette pass and
+ * the frames that will use it. `stats_mode=diff` measures only what changes
+ * between frames, and the bayer dither across rectangles is what keeps the
+ * small palette from banding the sky.
+ */
+export function videoGifFilter(): string {
+	const edge = VIDEO_GIF_LONG_EDGE;
+	return [
+		`fps=${VIDEO_GIF_FPS}`,
+		`scale='if(gt(a,1),min(${edge},iw),-2)':'if(gt(a,1),-2,min(${edge},ih))':flags=lanczos`,
+		"split[s0][s1]",
+		"[s0]palettegen=stats_mode=diff[p]",
+		"[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
+	].join(",");
+}
+
+/** The ffmpeg arguments that turn a clip into its GIF: looped, and with no audio. */
+export function videoGifArgs(input: string, output: string): string[] {
+	return [
+		"-hide_banner",
+		"-loglevel",
+		"error",
+		"-i",
+		input,
+		"-filter_complex",
+		videoGifFilter(),
+		// A GIF has no sound, whatever the clip carried.
+		"-an",
+		"-loop",
+		"0",
+		"-y",
+		output,
+	];
+}
+
+/**
+ * The clip as a GIF. The whole clip is converted: unlike a segment's guide,
+ * nothing here stops at five seconds, so a ten-second take lands as ten
+ * seconds of GIF. A missing binary is `unavailable`; a decode that fails is
+ * `failed`, exactly as the chain's own calls answer.
+ */
+export async function convertToGif(mp4: Uint8Array): Promise<Uint8Array> {
+	return inTempDir(async (dir) => {
+		const input = await writeClip(dir, "clip.mp4", mp4);
+		const output = join(dir, "clip.gif");
+		await runBinary(FFMPEG_BINARY, videoGifArgs(input, output));
+		const gif = new Uint8Array(await readFile(output));
+		if (gif.byteLength === 0) {
+			throw new VideoMediaError("failed", "ffmpeg wrote no GIF from the clip.");
+		}
+		return gif;
+	});
+}
+
 async function hasAudioStream(input: string): Promise<boolean> {
 	const output = await runBinary(FFPROBE_BINARY, [
 		"-v",

@@ -19,6 +19,7 @@ import {
 	Download,
 	Ellipsis,
 	EyeOff,
+	FileImage,
 	History,
 	RefreshCw,
 	TriangleAlert,
@@ -168,6 +169,18 @@ function pressDownload(): void {
 	if (!clip) return;
 	void startAuthenticatedDownload(
 		videoFileUrl(clip.fileId, { download: true, conversationId: scope }),
+	);
+}
+
+function pressDownloadGif(): void {
+	menuOpen = false;
+	if (!clip) return;
+	void startAuthenticatedDownload(
+		videoFileUrl(clip.fileId, {
+			download: true,
+			format: "gif",
+			conversationId: scope,
+		}),
 	);
 }
 </script>
@@ -350,6 +363,19 @@ function pressDownload(): void {
 			>
 				<Download size={16} strokeWidth={1.75} aria-hidden="true" />
 				<span>{$t('artifacts.video.card.download')}</span>
+			</button>
+			<!-- The clip as a GIF: the same download row, under the mp4 that stays
+			     the default, and disabled with it while there is no file. -->
+			<button
+				type="button"
+				role="menuitem"
+				class="video-card-menu-row"
+				data-testid="video-card-download-gif"
+				disabled={!ready || !clip}
+				onclick={pressDownloadGif}
+			>
+				<FileImage size={16} strokeWidth={1.75} aria-hidden="true" />
+				<span>{$t('artifacts.video.card.downloadGif')}</span>
 			</button>
 			<button
 				type="button"

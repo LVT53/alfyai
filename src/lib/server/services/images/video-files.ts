@@ -5,10 +5,14 @@
 // artifact family and the serving route treat a video as a first-class item:
 // `?variant=poster` serves the poster and `?variant=thumb` the thumbnail.
 //
+// A GIF is the one file made on demand rather than at store time: the first
+// `?download=1&format=gif` makes `<id>.gif` beside the clip, atomically, and
+// later requests serve it. It is deleted with the clip's own files.
+//
 // This file mirrors `images/files.ts` (the picture store) and imports only the
 // picture download-naming rule from it; it never imports the artifacts facade.
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { eq, inArray } from "drizzle-orm";
 import sharp from "sharp";
@@ -23,6 +27,7 @@ import {
 	imageFileDownloadName,
 } from "./files";
 import type { FinishedPictureCheck } from "./picture-check";
+import { convertToGif, VideoMediaError } from "./video/media";
 
 /**
  * The long edge of a clip's poster frame (`?variant=poster`), in pixels: the
@@ -78,6 +83,10 @@ export class VideoPosterRefusedError extends Error {
 const IMAGE_FILES_DIR = join("data", "image-files");
 const MP4_BOX_TYPE = [0x66, 0x74, 0x79, 0x70]; // "ftyp"
 const VIDEO_EXTENSION = ".mp4";
+const GIF_EXTENSION = ".gif";
+/** "GIF8", then the version's "7a" or "9a", then the trailer byte. */
+const GIF_MAGIC = [0x47, 0x49, 0x46, 0x38];
+const GIF_TRAILER = 0x3b;
 
 type Row = typeof imageFiles.$inferSelect;
 
@@ -105,6 +114,15 @@ function posterPathOf(storagePath: string): string {
 /** The thumbnail's path: derived from `storage_path`, beside the poster. */
 function thumbPathOf(storagePath: string): string {
 	return storagePath.replace(/\.mp4$/, ".thumb.webp");
+}
+
+/**
+ * The GIF's path: derived from `storage_path` like the poster and the
+ * thumbnail, so the DB stores nothing new. It exists only once a person has
+ * asked for a GIF; nothing is made at store time.
+ */
+function gifPathOf(storagePath: string): string {
+	return storagePath.replace(/\.mp4$/, GIF_EXTENSION);
 }
 
 /**
@@ -298,6 +316,104 @@ export async function readVideoFileBytes(
 }
 
 /**
+ * Whether the bytes are a whole GIF: the signature and the trailer a finished
+ * file ends with. A crash mid-write (or a disk that filled) leaves a file that
+ * opens like a GIF and stops early; only the trailer tells it from a whole one.
+ */
+function isWholeGif(bytes: Uint8Array): boolean {
+	return (
+		bytes.byteLength >= 14 &&
+		GIF_MAGIC.every((byte, index) => bytes[index] === byte) &&
+		(bytes[4] === 0x37 || bytes[4] === 0x39) &&
+		bytes[5] === 0x61 &&
+		bytes[bytes.byteLength - 1] === GIF_TRAILER
+	);
+}
+
+/**
+ * One generation in flight per clip, in this process (the same rule the
+ * display copy follows). A second request for a GIF being made waits for the
+ * first rather than starting a second ffmpeg beside it.
+ */
+const gifGenerations = new Map<string, Promise<Uint8Array>>();
+
+/** The cached GIF, or `null` when there is none and none can be trusted. */
+async function readWholeGif(absolute: string): Promise<Uint8Array | null> {
+	let bytes: Uint8Array;
+	try {
+		bytes = new Uint8Array(await readFile(absolute));
+	} catch {
+		return null;
+	}
+	if (isWholeGif(bytes)) return bytes;
+	// A file that is not a whole GIF is removed, so the next attempt starts
+	// from nothing rather than appending to a half-written copy.
+	await unlink(absolute).catch(() => undefined);
+	return null;
+}
+
+/**
+ * Makes the GIF beside the clip, atomically: ffmpeg writes into a temp file in
+ * the same directory and one `rename` puts the whole thing in place, so a
+ * reader never sees a partial GIF and a failure leaves no file behind.
+ */
+async function generateGif(
+	storagePath: string,
+	gifPath: string,
+): Promise<Uint8Array> {
+	const clipPath = await resolveDeletablePath(storagePath);
+	if (!clipPath) throw new Error("Video file is outside the storage roots.");
+	const gif = await convertToGif(new Uint8Array(await readFile(clipPath)));
+	if (!isWholeGif(gif)) {
+		throw new VideoMediaError("failed", "ffmpeg wrote no whole GIF.");
+	}
+	const temp = `${gifPath}.${randomUUID()}.tmp`;
+	try {
+		await writeFile(temp, gif);
+		await rename(temp, gifPath);
+	} catch (error) {
+		await unlink(temp).catch(() => undefined);
+		throw error;
+	}
+	return gif;
+}
+
+/**
+ * The clip as a GIF, made on the first request and served from beside the clip
+ * after that. A missing ffmpeg throws the take's own `VideoMediaError`
+ * (`unavailable`), a failed conversion `failed`; neither answers a different
+ * format, and neither stores anything.
+ */
+export async function readVideoGifBytes(
+	file: Pick<VideoFile, "id">,
+): Promise<Uint8Array> {
+	const storagePath = await storagePathOf(file.id);
+	const gifPath = await resolveDeletablePath(gifPathOf(storagePath));
+	if (!gifPath) throw new Error("Video file is outside the storage roots.");
+	const cached = await readWholeGif(gifPath);
+	if (cached) return cached;
+
+	const running = gifGenerations.get(file.id);
+	if (running) return running;
+	// No await between the map's read and its set, so two requests arriving
+	// together cannot both start a generation.
+	const generation = generateGif(storagePath, gifPath).finally(() => {
+		gifGenerations.delete(file.id);
+	});
+	gifGenerations.set(file.id, generation);
+	return generation;
+}
+
+/**
+ * The name a clip's GIF download carries: the item's title with a `.gif`
+ * extension, the same title rule the mp4 and the picture use.
+ */
+export async function videoGifDownloadName(file: ImageFile): Promise<string> {
+	const pictureName = await imageFileDownloadName(file);
+	return pictureName.replace(/\.png$/u, GIF_EXTENSION);
+}
+
+/**
  * The name a clip's download carries: the item's title with an mp4 extension.
  * The picture rule (`imageFileDownloadName`) owns the title lookup, the
  * format-character strip and the shared extension rule; this only swaps the
@@ -308,9 +424,14 @@ export async function videoFileDownloadName(file: ImageFile): Promise<string> {
 	return pictureName.replace(/\.png$/u, ".mp4");
 }
 
-/** The three paths a row's files live at, in deletion order. */
+/** The four paths a row's files live at, in deletion order. */
 function pathsOf(storagePath: string): string[] {
-	return [storagePath, posterPathOf(storagePath), thumbPathOf(storagePath)];
+	return [
+		storagePath,
+		posterPathOf(storagePath),
+		thumbPathOf(storagePath),
+		gifPathOf(storagePath),
+	];
 }
 
 async function removeVideoRows(rows: Row[]): Promise<number> {
@@ -329,10 +450,10 @@ async function removeVideoRows(rows: Row[]): Promise<number> {
 }
 
 /**
- * Removes a stored clip's mp4, poster and thumbnail by the paths
- * `storeVideoFile` gave them, and its row if it still has one. For a store that
- * finished after its chat's cleanup ran: the row may already be gone (the
- * cascade took it), and the files still must not stay.
+ * Removes a stored clip's mp4, poster, thumbnail and any GIF made beside it,
+ * by the paths `storeVideoFile` gave them, and its row if it still has one. For
+ * a store that finished after its chat's cleanup ran: the row may already be
+ * gone (the cascade took it), and the files still must not stay.
  */
 export async function discardStoredVideoFile(
 	file: Pick<VideoFile, "id" | "conversationId">,
@@ -346,7 +467,7 @@ export async function discardStoredVideoFile(
 	await removeFiles(pathsOf(storagePath));
 }
 
-/** Every clip of one chat, with its poster and thumbnail. Pictures in the same table are left alone. */
+/** Every clip of one chat, with its poster, thumbnail and GIF. Pictures in the same table are left alone. */
 export async function deleteVideoFilesForConversation(
 	conversationId: string,
 ): Promise<number> {

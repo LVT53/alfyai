@@ -16,6 +16,7 @@ import {
 	parseVideoVersionBody,
 	type VideoVersionBody,
 } from "$lib/shared/artifacts/video-body";
+import AnchoredPopover from "../AnchoredPopover.svelte";
 import type { ArtifactBodyProps } from "../artifact-bodies";
 import { videoDurationLabel, videoFileUrl } from "./video-card-view";
 import VideoPlayer from "./VideoPlayer.svelte";
@@ -32,6 +33,8 @@ let status = $state<"loading" | "ready" | "error">("loading");
 let clip = $state.raw<VideoVersionBody | null>(null);
 /** The version `clip` is: the page's own number rising past it reads the item again. */
 let loadedVersion = $state(0);
+/** The panel header's Download chooses the mp4 (the default) or a GIF here. */
+let downloadOpen = $state(false);
 let loading = false;
 let loadAgain = false;
 
@@ -82,16 +85,20 @@ $effect(() => {
 	untrack(reload);
 });
 
-function download(fileId: string): void {
+function choose(format: "mp4" | "gif"): void {
+	downloadOpen = false;
+	const fileId = clip?.fileId;
+	if (!fileId) return;
 	void startAuthenticatedDownload(
-		videoFileUrl(fileId, { download: true, conversationId }),
+		videoFileUrl(fileId, { download: true, format, conversationId }),
 	);
 }
 
 $effect(() => {
-	const fileId = clip?.fileId ?? null;
 	registerPanelActions?.({
-		openDownload: fileId ? () => download(fileId) : undefined,
+		// With no clip there is nothing to download, so the panel offers no
+		// Download at all (the button is not drawn without this function).
+		openDownload: clip ? () => (downloadOpen = true) : undefined,
 		reload,
 	});
 });
@@ -135,6 +142,38 @@ let lengthLabel = $derived(
 	{/if}
 </div>
 
+{#if downloadOpen && clip}
+	<!-- The panel header's Download offers the two files a clip has: the mp4,
+	     which stays the default, and the GIF made on request. -->
+	<AnchoredPopover
+		title={$t('artifacts.video.panel.downloadTitle', { title })}
+		anchorTestId="artifact-download-button"
+		popoverTestId="video-download-popover"
+		closeLabel={$t('common.close')}
+		width={300}
+		onClose={() => (downloadOpen = false)}
+	>
+		<div class="video-download-options">
+			<button
+				type="button"
+				class="btn-secondary"
+				data-testid="video-download-mp4"
+				onclick={() => choose('mp4')}
+			>
+				{$t('artifacts.video.panel.downloadMp4')}
+			</button>
+			<button
+				type="button"
+				class="btn-secondary"
+				data-testid="video-download-gif"
+				onclick={() => choose('gif')}
+			>
+				{$t('artifacts.video.card.downloadGif')}
+			</button>
+		</div>
+	</AnchoredPopover>
+{/if}
+
 <style>
 	.video-body {
 		display: flex;
@@ -170,6 +209,14 @@ let lengthLabel = $derived(
 		font-family: var(--font-sans);
 		font-size: 0.75rem;
 		color: var(--text-muted);
+	}
+
+	.video-download-options {
+		display: flex;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.5rem;
+		padding: 0 0.875rem 0.875rem;
 	}
 
 	.video-body-error {

@@ -1,7 +1,9 @@
 // @vitest-environment node
-import { mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -26,8 +28,11 @@ vi.mock("$lib/server/db", () => ({
 const { storeVideoFile } = await import(
 	"$lib/server/services/images/video-files"
 );
-const { attachImageFilesToArtifact } = await import(
+const { attachImageFilesToArtifact, storeImageFile } = await import(
 	"$lib/server/services/images/files"
+);
+const { makeTestClip } = await import(
+	"$lib/server/services/images/video/testing/video-clip"
 );
 const { GET } = await import("./+server");
 
@@ -83,6 +88,51 @@ async function status(call: Promise<Response>): Promise<Response | number> {
 	} catch (error) {
 		return (error as { status: number }).status;
 	}
+}
+
+/** The files in a chat's image directory, sorted: the clip, its poster, thumb and GIF. */
+async function filesOf(conversationId = "c1"): Promise<string[]> {
+	const dir = join(workdir, "data", "image-files", conversationId);
+	return existsSync(dir) ? (await readdir(dir)).sort() : [];
+}
+
+/** Runs `work` with no binaries on PATH: the way a box without ffmpeg answers. */
+async function withoutPath<T>(work: () => Promise<T>): Promise<T> {
+	const original = process.env.PATH;
+	process.env.PATH = "";
+	try {
+		return await work();
+	} finally {
+		if (original === undefined) delete process.env.PATH;
+		else process.env.PATH = original;
+	}
+}
+
+/** A clip ffmpeg can really decode, so the GIF conversion runs for real. */
+async function storeRealClip(seconds = 1): Promise<{
+	id: string;
+	bytes: Uint8Array;
+}> {
+	const bytes = await makeTestClip({ size: 64, seconds });
+	const file = await storeVideoFile({
+		userId: "u1",
+		conversationId: "c1",
+		role: "take",
+		mp4: bytes,
+		poster: await frame(64, 36),
+		durationMs: seconds * 1000,
+	});
+	return { id: file.id, bytes };
+}
+
+function gifRequest(fileId: string): Promise<Response> {
+	return GET(
+		event({
+			fileId,
+			userId: "u1",
+			query: "?download=1&format=gif",
+		}),
+	) as Promise<Response>;
 }
 
 const SIZE = 4096;
@@ -295,5 +345,226 @@ describe("GET /api/images/files/[fileId] for a video", () => {
 				)
 			).status,
 		).toBe(200);
+	});
+});
+
+describe("GET /api/images/files/[fileId] as a GIF", () => {
+	it("answers ?download=1&format=gif as an image/gif attachment, and ignores Range", async () => {
+		const real = await storeRealClip();
+		const res = (await GET(
+			event({
+				fileId: real.id,
+				userId: "u1",
+				query: "?download=1&format=gif",
+				headers: { Range: "bytes=0-99" },
+			}),
+		)) as Response;
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("image/gif");
+		expect(res.headers.get("Content-Disposition")).toMatch(
+			/^attachment; filename=".+\.gif"/,
+		);
+		expect(res.headers.get("Accept-Ranges")).toBeNull();
+		expect(res.headers.get("Content-Range")).toBeNull();
+		const body = new Uint8Array(await res.arrayBuffer());
+		expect(Buffer.from(body.subarray(0, 6)).toString("latin1")).toMatch(
+			/^GIF8[79]a$/,
+		);
+		expect(res.headers.get("Content-Length")).toBe(String(body.byteLength));
+		expect(await filesOf()).toContain(`${real.id}.gif`);
+	});
+
+	it("serves the GIF it already made, without needing ffmpeg again", async () => {
+		const real = await storeRealClip();
+		const first = await gifRequest(real.id);
+		expect(first.status).toBe(200);
+		const bytes = new Uint8Array(await first.arrayBuffer());
+
+		const second = await withoutPath(() => gifRequest(real.id));
+		expect(second.status).toBe(200);
+		expect(second.headers.get("Content-Type")).toBe("image/gif");
+		expect(new Uint8Array(await second.arrayBuffer())).toEqual(bytes);
+	});
+
+	it("gives the GIF its own strong ETag and answers 304", async () => {
+		const real = await storeRealClip();
+		const first = await gifRequest(real.id);
+		const tag = first.headers.get("ETag") ?? "";
+		expect(tag).toMatch(/^"[^"]+"$/);
+		const clipResponse = (await GET(
+			event({ fileId: real.id, userId: "u1" }),
+		)) as Response;
+		expect(tag).not.toBe(clipResponse.headers.get("ETag"));
+		const revalidated = (await GET(
+			event({
+				fileId: real.id,
+				userId: "u1",
+				query: "?download=1&format=gif",
+				headers: { "If-None-Match": tag },
+			}),
+		)) as Response;
+		expect(revalidated.status).toBe(304);
+		expect(revalidated.body).toBeNull();
+	});
+
+	it("removes a cached file that is not a whole GIF and makes it again once", async () => {
+		const real = await storeRealClip();
+		await writeFile(
+			join(workdir, "data", "image-files", "c1", `${real.id}.gif`),
+			"half",
+		);
+		const res = await gifRequest(real.id);
+		expect(res.status).toBe(200);
+		const body = new Uint8Array(await res.arrayBuffer());
+		expect(Buffer.from(body.subarray(0, 6)).toString("latin1")).toMatch(
+			/^GIF8[79]a$/,
+		);
+		const files = await filesOf();
+		expect(files).toContain(`${real.id}.gif`);
+		expect(files.some((name) => name.endsWith(".tmp"))).toBe(false);
+	});
+
+	it("answers a missing ffmpeg as the take's media-unavailable meaning, and stores nothing", async () => {
+		const real = await storeRealClip();
+		const res = await withoutPath(() => gifRequest(real.id));
+		expect(res.status).toBe(503);
+		expect(await res.json()).toMatchObject({
+			error: "video_media_unavailable",
+		});
+		const files = await filesOf();
+		expect(files).not.toContain(`${real.id}.gif`);
+		expect(files.some((name) => name.endsWith(".tmp"))).toBe(false);
+	});
+
+	it("answers a failed conversion as an error, never as another format", async () => {
+		// The beforeEach clip is a signature and noise: ffmpeg cannot decode it.
+		const res = await gifRequest(fileId);
+		expect(res.status).toBe(500);
+		expect(res.headers.get("Content-Type")).toBe("application/json");
+		expect(await res.json()).toMatchObject({ error: "video_media_failed" });
+		const files = await filesOf();
+		expect(files).not.toContain(`${fileId}.gif`);
+		expect(files.some((name) => name.endsWith(".tmp"))).toBe(false);
+	});
+
+	it("never answers a GIF for a picture row, whatever was asked for", async () => {
+		const png = new Uint8Array(
+			await sharp({
+				create: { width: 20, height: 10, channels: 3, background: "#123456" },
+			})
+				.png()
+				.toBuffer(),
+		);
+		const picture = await storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png,
+		});
+		const res = (await GET(
+			event({
+				fileId: picture.id,
+				userId: "u1",
+				query: "?download=1&format=gif",
+			}),
+		)) as Response;
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("image/png");
+		expect(res.headers.get("Content-Disposition")).toMatch(
+			/^attachment; filename=".+\.png"/,
+		);
+		expect(await filesOf()).not.toContain(`${picture.id}.gif`);
+	});
+
+	it("never answers a GIF for a row that is not a clip (no duration)", async () => {
+		const real = await storeRealClip();
+		memory.db
+			.update(schema.imageFiles)
+			.set({ durationMs: null })
+			.where(eq(schema.imageFiles.id, real.id))
+			.run();
+		const res = await gifRequest(real.id);
+		expect(res.status).toBe(404);
+		expect(res.headers.get("Content-Type")).not.toBe("image/gif");
+		expect(await filesOf()).not.toContain(`${real.id}.gif`);
+	});
+
+	it("keeps the picture path's ownership scoping for the GIF", async () => {
+		const real = await storeRealClip();
+		expect(
+			(
+				await GET(
+					event({
+						fileId: real.id,
+						userId: "u2",
+						query: "?download=1&format=gif",
+					}),
+				)
+			).status,
+		).toBe(404);
+		expect(
+			(
+				await GET(
+					event({
+						fileId: "nope",
+						userId: "u1",
+						query: "?download=1&format=gif",
+					}),
+				)
+			).status,
+		).toBe(404);
+		expect(
+			await status(
+				Promise.resolve(
+					GET(
+						event({
+							fileId: real.id,
+							userId: null,
+							query: "?download=1&format=gif",
+						}),
+					),
+				),
+			),
+		).toBe(401);
+		expect(await filesOf()).not.toContain(`${real.id}.gif`);
+	});
+
+	it("leaves a player's request alone when format=gif is not a download", async () => {
+		const real = await storeRealClip();
+		const whole = (await GET(
+			event({ fileId: real.id, userId: "u1", query: "?format=gif" }),
+		)) as Response;
+		expect(whole.status).toBe(200);
+		expect(whole.headers.get("Content-Type")).toBe("video/mp4");
+		expect(whole.headers.get("Accept-Ranges")).toBe("bytes");
+
+		const ranged = (await GET(
+			event({
+				fileId: real.id,
+				userId: "u1",
+				query: "?format=gif",
+				headers: { Range: "bytes=0-99" },
+			}),
+		)) as Response;
+		expect(ranged.status).toBe(206);
+		expect(ranged.headers.get("Content-Type")).toBe("video/mp4");
+		expect(await filesOf()).not.toContain(`${real.id}.gif`);
+	});
+
+	it("keeps the mp4 download byte for byte, format=mp4 or absent", async () => {
+		const real = await storeRealClip();
+		for (const query of ["?download=1", "?download=1&format=mp4"]) {
+			const res = (await GET(
+				event({ fileId: real.id, userId: "u1", query }),
+			)) as Response;
+			expect(res.status, query).toBe(200);
+			expect(res.headers.get("Content-Type"), query).toBe("video/mp4");
+			expect(res.headers.get("Content-Disposition"), query).toMatch(
+				/^attachment; filename=".+\.mp4"/,
+			);
+			expect(new Uint8Array(await res.arrayBuffer()), query).toEqual(
+				real.bytes,
+			);
+		}
 	});
 });

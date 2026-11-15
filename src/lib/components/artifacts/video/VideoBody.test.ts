@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as artifactsApi from "$lib/client/api/artifacts";
 import { startAuthenticatedDownload } from "$lib/client/downloads";
@@ -120,7 +120,7 @@ describe("VideoBody (the panel)", () => {
 		);
 	});
 
-	it("registers the panel's Download for the clip's own file", async () => {
+	it("opens the panel's Download as a choice, with the mp4 first and the GIF under it", async () => {
 		answer(BODY);
 		let actions: ArtifactPanelBodyActions | undefined;
 		render(VideoBody, {
@@ -132,10 +132,90 @@ describe("VideoBody (the panel)", () => {
 			registerPanelActions: (next) => (actions = next),
 		});
 		await screen.findByTestId("video-player-media");
+		expect(screen.queryByTestId("video-download-popover")).toBeNull();
 		expect(actions?.openDownload).toBeTypeOf("function");
+
 		actions?.openDownload?.();
+
+		const sheet = await screen.findByRole("dialog", {
+			name: "Download Harbour at dawn",
+		});
+		expect(
+			within(sheet)
+				.getAllByRole("button")
+				.map((row) => row.getAttribute("data-testid"))
+				.slice(-2),
+		).toEqual(["video-download-mp4", "video-download-gif"]);
+		expect(within(sheet).getByTestId("video-download-mp4")).toHaveTextContent(
+			"Download video (MP4)",
+		);
+		expect(within(sheet).getByTestId("video-download-gif")).toHaveTextContent(
+			"Download as GIF",
+		);
+
+		// The mp4 is still the default choice.
+		await fireEvent.click(within(sheet).getByTestId("video-download-mp4"));
 		expect(startAuthenticatedDownload).toHaveBeenCalledWith(
 			"/api/images/files/clip-1?download=1&conversationId=conv-1",
+		);
+		expect(screen.queryByTestId("video-download-popover")).toBeNull();
+	});
+
+	it("downloads the clip as a GIF from the panel's Download", async () => {
+		answer(BODY);
+		let actions: ArtifactPanelBodyActions | undefined;
+		render(VideoBody, {
+			artifactId: "video-1",
+			kind: "video",
+			title: "Harbour at dawn",
+			body: null,
+			conversationId: "conv-1",
+			registerPanelActions: (next) => (actions = next),
+		});
+		await screen.findByTestId("video-player-media");
+
+		actions?.openDownload?.();
+		await fireEvent.click(await screen.findByTestId("video-download-gif"));
+
+		expect(startAuthenticatedDownload).toHaveBeenCalledWith(
+			"/api/images/files/clip-1?download=1&format=gif&conversationId=conv-1",
+		);
+		expect(screen.queryByTestId("video-download-popover")).toBeNull();
+	});
+
+	it("offers no Download while there is no clip", async () => {
+		answer("not a clip");
+		let actions: ArtifactPanelBodyActions | undefined;
+		render(VideoBody, {
+			artifactId: "video-1",
+			kind: "video",
+			title: "Harbour at dawn",
+			body: null,
+			registerPanelActions: (next) => (actions = next),
+		});
+		await screen.findByRole("alert");
+		expect(actions?.openDownload).toBeUndefined();
+	});
+
+	it("speaks Hungarian for the GIF choice", async () => {
+		uiLanguage.set("hu");
+		answer(BODY);
+		let actions: ArtifactPanelBodyActions | undefined;
+		render(VideoBody, {
+			artifactId: "video-1",
+			kind: "video",
+			title: "Harbour at dawn",
+			body: null,
+			registerPanelActions: (next) => (actions = next),
+		});
+		await screen.findByTestId("video-player-media");
+		actions?.openDownload?.();
+		const sheet = await screen.findByTestId("video-download-popover");
+		expect(within(sheet).getByTestId("video-download-mp4")).toHaveTextContent(
+			"Videó letöltése (MP4)",
+		);
+		expect(within(sheet).getByTestId("video-download-gif")).toHaveTextContent(
+			"Letöltés GIF-ként",
 		);
 	});
 

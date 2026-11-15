@@ -8,11 +8,14 @@ import {
 	readImageDisplayBytes,
 	readImageFileBytes,
 } from "$lib/server/services/images/files";
+import { VideoMediaError } from "$lib/server/services/images/video/media";
 import {
 	getVideoFile,
 	readVideoFileBytes,
+	readVideoGifBytes,
 	type VideoFile,
 	videoFileDownloadName,
+	videoGifDownloadName,
 } from "$lib/server/services/images/video-files";
 import type { RequestHandler } from "./$types";
 
@@ -66,10 +69,67 @@ function parseByteRange(
 }
 
 /**
+ * A clip's GIF download (`?download=1&format=gif`): made once beside the clip
+ * on the first request and served from the cache after that. A GIF is small
+ * and whole, so it ignores `Range`. A conversion that fails answers an error —
+ * never the mp4 under another name, and never a stored half-file.
+ */
+async function serveGif(
+	event: Parameters<RequestHandler>[0],
+	file: ImageFile,
+	video: VideoFile,
+): Promise<Response> {
+	// The GIF is immutable for its file id, so the id and the format make a
+	// validator that never lies.
+	const etag = `"${video.id}:gif"`;
+	const cacheControl = "private, max-age=3600";
+	if (matchesIfNoneMatch(event.request.headers.get("if-none-match"), etag)) {
+		return new Response(null, {
+			status: 304,
+			headers: {
+				ETag: etag,
+				"Cache-Control": cacheControl,
+				"Content-Type": "image/gif",
+				"X-Content-Type-Options": "nosniff",
+			},
+		});
+	}
+
+	let bytes: Uint8Array;
+	try {
+		bytes = await readVideoGifBytes(video);
+	} catch (error) {
+		// A box without ffmpeg answers the take's own media-unavailable
+		// meaning; a clip ffmpeg cannot decode is its failed conversion.
+		const unavailable =
+			error instanceof VideoMediaError && error.code === "unavailable";
+		return json(
+			{ error: unavailable ? "video_media_unavailable" : "video_media_failed" },
+			{ status: unavailable ? 503 : 500 },
+		);
+	}
+	return new Response(bytes.slice(), {
+		status: 200,
+		headers: {
+			"Content-Type": "image/gif",
+			"Content-Length": String(bytes.byteLength),
+			"Cache-Control": cacheControl,
+			"X-Content-Type-Options": "nosniff",
+			"Content-Disposition": buildContentDisposition(
+				"attachment",
+				await videoGifDownloadName(file),
+			),
+			ETag: etag,
+		},
+	});
+}
+
+/**
  * A stored clip's GET: the mp4 with `Range` (Safari will not play without it),
- * `?variant=poster`/`?variant=thumb` as WebP, and `?download=1` the whole
- * original. The caller has already read the row through `getImageFile`, so the
- * ownership scope and the 404 are the picture path's own.
+ * `?variant=poster`/`?variant=thumb` as WebP, `?download=1` the whole original,
+ * and `?download=1&format=gif` the GIF made beside it. The caller has already
+ * read the row through `getImageFile`, so the ownership scope and the 404 are
+ * the picture path's own.
  */
 async function serveVideo(
 	event: Parameters<RequestHandler>[0],
@@ -77,8 +137,18 @@ async function serveVideo(
 	video: VideoFile,
 ): Promise<Response> {
 	const variant = event.url.searchParams.get("variant");
+	const format = event.url.searchParams.get("format");
 	// A download is always the original clip, whatever variant the caller named.
 	const download = event.url.searchParams.get("download") === "1";
+	// A GIF is asked for by name, and only as a download: the player asks for
+	// the clip itself, with ranges. A row without a length is not a clip (it is
+	// a picture), and is never turned into a GIF.
+	if (download && format === "gif") {
+		if (video.durationMs === null) {
+			return json({ error: "Not found" }, { status: 404 });
+		}
+		return serveGif(event, file, video);
+	}
 	const representation = download
 		? "download"
 		: variant === "poster"

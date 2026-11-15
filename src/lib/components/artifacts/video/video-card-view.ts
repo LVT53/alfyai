@@ -205,20 +205,23 @@ export function videoDurationLabel(durationMs: number): string {
 /**
  * The serving route's URL for a clip's file: `?variant=poster`/`?variant=thumb`
  * for its poster frame, `?download=1` for the whole original, `conversationId`
- * for a chat's own scope. The picture path's helper (`imageFileUrl`) has no
- * poster variant, so the video body owns this one URL builder.
+ * for a chat's own scope, and `format=gif` for the GIF download. The picture
+ * path's helper (`imageFileUrl`) has no poster variant, so the video body owns
+ * this one URL builder. The mp4 is the default: its URL is unchanged.
  */
 export function videoFileUrl(
 	fileId: string,
 	options: {
 		variant?: "poster" | "thumb";
 		download?: boolean;
+		format?: "mp4" | "gif";
 		conversationId?: string | null;
 	} = {},
 ): string {
 	const query = new URLSearchParams();
 	if (options.variant) query.set("variant", options.variant);
 	if (options.download) query.set("download", "1");
+	if (options.format === "gif") query.set("format", "gif");
 	if (options.conversationId) {
 		query.set("conversationId", options.conversationId);
 	}

@@ -190,6 +190,45 @@ describe("VideoCardBody, when the clip is ready", () => {
 		);
 	});
 
+	it("offers Download as GIF under Download, disabled while there is no clip", async () => {
+		const making = take({
+			status: "running",
+			phase: "rendering",
+			phaseAt: Date.now(),
+			clip: null,
+		});
+		const { rerender } = render(VideoCardBody, { card: card(making) });
+		await fireEvent.click(screen.getByRole("button", { name: "More" }));
+		const menu = await screen.findByTestId("video-card-menu");
+		const gifRow = within(menu).getByTestId("video-card-download-gif");
+		expect(gifRow).toHaveTextContent("Download as GIF");
+		expect(gifRow).toBeDisabled();
+		expect(within(menu).getByTestId("video-card-download")).toBeDisabled();
+		// The mp4 stays the first, default row; the GIF sits under it.
+		expect(
+			within(menu)
+				.getAllByRole("menuitem")
+				.map((row) => row.getAttribute("data-testid")),
+		).toEqual([
+			"video-card-download",
+			"video-card-download-gif",
+			"video-card-history",
+		]);
+
+		await rerender({ card: card(take({ clip: clip() })) });
+		expect(screen.getByTestId("video-card-download-gif")).toBeEnabled();
+	});
+
+	it("downloads the clip as a GIF from More, with the item's own scope", async () => {
+		render(VideoCardBody, { card: card(take({ clip: clip() })) });
+		await fireEvent.click(screen.getByRole("button", { name: "More" }));
+		const menu = await screen.findByTestId("video-card-menu");
+		await fireEvent.click(within(menu).getByTestId("video-card-download-gif"));
+		expect(startAuthenticatedDownload).toHaveBeenCalledWith(
+			"/api/images/files/clip-1?download=1&format=gif&conversationId=conv-1",
+		);
+	});
+
 	it("asks for another take, and holds Another while one is on its way", async () => {
 		const onAction = vi.fn(async () => ({ takeId: "next" }));
 		const { rerender } = render(VideoCardBody, { card: card(), onAction });
@@ -311,5 +350,15 @@ describe("VideoCardBody, when it cannot play", () => {
 		);
 		expect(screen.getByTestId("video-card-badge")).toHaveTextContent("VIDEÓ");
 		expect(screen.getByTestId("video-card-another")).toHaveTextContent("Másik");
+	});
+
+	it("speaks Hungarian for the GIF row", async () => {
+		uiLanguage.set("hu");
+		render(VideoCardBody, { card: card(take({ clip: clip() })) });
+		await fireEvent.click(screen.getByRole("button", { name: "Továbbiak" }));
+		const menu = await screen.findByTestId("video-card-menu");
+		expect(
+			within(menu).getByTestId("video-card-download-gif"),
+		).toHaveTextContent("Letöltés GIF-ként");
 	});
 });
