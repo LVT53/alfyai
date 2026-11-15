@@ -76,8 +76,8 @@ export function filesStripTiles(
  * one cannot read alike, and a file with no mtime shows its size alone, never a
  * dangling dot.
  *
- * This is the ONE copy of those facts: the strip's card, the strip's list rows
- * and (before the strip replaced it) the old file-card row all read it.
+ * This is the ONE copy of those facts: both the strip's single card and its
+ * list rows read it, so the two cannot word the same file differently.
  */
 export function fileCardFacts(
 	card: ToolCallFileCard,

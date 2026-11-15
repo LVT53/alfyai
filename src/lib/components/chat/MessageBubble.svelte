@@ -1396,9 +1396,10 @@ function sendFollowUp(question: string) {
 			</div>
 			{#if hasDeliverables}
 				<!-- What the turn made, after what it said: the words above never move
-				     when this arrives (F16). Same rows and cards as the rail draws for
-				     any other tool; these two kinds are always open, so there is
-				     nothing to toggle. -->
+				     when this arrives (F16). The artifact rows and cards the rail
+				     would otherwise draw, then one files strip per call that found
+				     cards; the artifact kinds are always open, so there is nothing
+				     to toggle, and the strip owns its own list and viewer. -->
 				<div class="message-deliverables" data-testid="message-deliverables">
 					<ToolActivityList
 						items={deliverableItems}
@@ -2155,17 +2156,15 @@ function sendFollowUp(question: string) {
 		color: var(--text-muted);
 	}
 
-	/* What the turn made (the rows and cards of create_artifact / edit_artifact),
-	   after the text. The same quiet gap the rail keeps above the text. */
+	/* What the turn made (the rows and cards of create_artifact / edit_artifact,
+	   and the files strip's pictures), after the text. The same quiet gap the
+	   rail keeps above the text. */
 	.message-deliverables {
 		width: 100%;
 		min-width: 0;
 		margin-top: var(--space-md);
 	}
 
-	/* The reply's one "N more" line for the file cards: the cap is per reply, so
-	   it counts every file the reply's calls found beyond the six cards drawn,
-	   and sits under the last strip rather than under each call. */
 	/* The action row and the chips below it: one block under the message with
 	   the old spacing (a margin, then a small gap between the two rows). */
 	.message-actions {

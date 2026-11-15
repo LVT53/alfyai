@@ -179,11 +179,11 @@ export function isArtifactToolCall(
 }
 
 /**
- * A `files` call that found something to show. Its row and cards are what the
- * reply produced for the person, not a step of how it got there, so they are
- * drawn after the text with the other deliverables (docs/plans/
- * 2026-11-15-nextcloud-file-cards). A call that found nothing is an ordinary
- * step and stays in the rail.
+ * A `files` call that found something to show. Its cards are what the reply
+ * produced for the person, not a step of how it got there, so they are drawn
+ * after the text as the compact strip (FilesStrip.svelte) with the other
+ * deliverables (docs/superpowers/specs/2026-11-15-nextcloud-file-cards-compact-design.md).
+ * A call that found nothing is an ordinary step and stays in the rail.
  */
 export function isFileCardsToolCall(
 	segment: ThinkingSegment,

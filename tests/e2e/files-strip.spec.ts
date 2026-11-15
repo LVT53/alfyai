@@ -138,6 +138,23 @@ test.describe("the files strip", () => {
 		await expect(strip.getByTestId("files-strip-tile")).toHaveCount(4);
 		await expect(strip.getByTestId("files-strip-count")).toHaveCount(0);
 		await expect(strip.locator(".fs-tile")).toHaveCount(4);
+		// The pictures really decoded. A broken preview falls back to the
+		// file-type glyph, so a tile count alone would stay green while every
+		// picture was gone: at least one tile <img> must have painted pixels.
+		await expect
+			.poll(
+				async () =>
+					(
+						await strip
+							.getByTestId("files-strip-tile")
+							.locator("img")
+							.evaluateAll((images) =>
+								images.map((image) => (image as HTMLImageElement).naturalWidth),
+							)
+					).some((width) => width > 0),
+				{ message: "at least one tile picture decodes" },
+			)
+			.toBe(true);
 
 		// The reply column does not scroll sideways at either width.
 		let overflow = await replyOverflow(message);
@@ -200,7 +217,18 @@ test.describe("the files strip", () => {
 		await expect(page.getByTestId("image-lightbox")).toBeVisible({
 			timeout: 15_000,
 		});
-		await expect(page.getByTestId("image-lightbox-image")).toBeVisible();
+		const viewed = page.getByTestId("image-lightbox-image");
+		await expect(viewed).toBeVisible();
+		// The viewer's own photo decoded, and it shows no load error: the tile's
+		// picture and the bigger copy are the same file.
+		await expect(page.getByTestId("image-lightbox-error")).toHaveCount(0);
+		await expect
+			.poll(
+				() =>
+					viewed.evaluate((image) => (image as HTMLImageElement).naturalWidth),
+				{ message: "the viewer's picture decodes" },
+			)
+			.toBeGreaterThan(0);
 		// The modal took the focus; Escape gives it back to the tile.
 		await expect(page.getByTestId("image-lightbox")).toBeFocused();
 		await page.keyboard.press("Escape");
