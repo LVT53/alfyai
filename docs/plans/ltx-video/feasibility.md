@@ -170,6 +170,33 @@ So chaining is mechanically sound but not yet a quality fix. The obvious next
 experiment is the shipped **FLF2V** graph, which pins both the first and the last frame
 of a segment, so the second half cannot wander off its endpoint.
 
+## The tool surface: 5 s by default, 10 s on request
+
+`make_video` takes a duration the chat model can choose: **5 s (default)** or **10 s**,
+where 10 s is two 5 s segments chained last-frame to first-frame and concatenated. A
+10 s clip costs about twice a 5 s one (2 x 19 s warm), so the default stays 5 s and
+the model only asks for 10 s when the request implies a longer beat. The card says
+which it is; the person can also ask for "another take" at either length.
+
+Three 10 s chains were rendered to judge this (harbour, cabin in snow, close-up
+portrait): all three held framing across the seam, and the visible seam was
+invisible. The clips that fall apart are the ones with a moving subject or a camera
+move — the calmer the motion, the better the chain holds.
+
+## What the progress UI can actually show
+
+Measured against the running app, not the source: the picture card's `making` state
+and its "About N s left" line are real, but in the normal flow the card is only on
+screen **after** the take has landed — while a take renders, the person is looking at
+the tool row ("Making a picture"), which carries no time. So today there is no
+estimate on screen at all, and any video progress UI has to live where it is visible:
+
+- the tool row while the turn is live, or
+- a provisional card rendered from the in-flight take.
+
+Whichever is chosen has to be chosen **once** and used by pictures and video alike, or
+the two flows will disagree about what "making" looks like.
+
 ## Open questions
 
 - Does the caption improvement hold across subjects? One still proved the mechanism,
