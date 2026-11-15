@@ -3908,7 +3908,8 @@ describe("createNormalChatTools", () => {
 					},
 				],
 			});
-			expect(withoutResultDigest(getToolCalls())).toEqual([
+			const entries = withoutResultDigest(getToolCalls());
+			expect(entries).toEqual([
 				expect.objectContaining({
 					callId: "call-files-search",
 					name: "files",
@@ -3921,6 +3922,12 @@ describe("createNormalChatTools", () => {
 					],
 				}),
 			]);
+			// The producer half of the card data (plan Task 5): the entry the
+			// call is recorded as carries the cards, so the reply — and a reload
+			// — draws the same file and link without the browser building either.
+			expect(entries[0]?.files?.cards[0]?.webUrl).toBe(
+				"https://cloud.example.com/index.php/apps/files/?dir=%2FDocuments&scrollto=report.pdf",
+			);
 		});
 
 		it("degrades gracefully with a note when there is no Files connection, without throwing", async () => {

@@ -30,8 +30,9 @@ import {
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ToolCallFilesData } from "$lib/server/services/messages-types";
-import { getEntryByMimeType } from "$lib/shared/file-types";
+import { getEntryByMimeType, resolveEntry } from "$lib/shared/file-types";
 import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
+import { FILE_CARD_LIMIT } from "$lib/utils/tool-calls";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage, truncateText } from "./shared";
@@ -154,10 +155,11 @@ const MAX_SEARCH_RESULTS = 20;
 // 237k-token result and a provider 400). "list" returns the newest
 // MAX_LIST_RESULTS entries plus a summary of the folder instead.
 const MAX_LIST_RESULTS = 50;
-// How many file cards the reply draws under the answer. The rest are counted
-// by the card's "N more" line rather than shown, so a broad search cannot
-// push the answer off the screen.
-export const FILE_CARD_LIMIT = 6;
+// The card cap itself (`FILE_CARD_LIMIT`) is imported from `$lib/utils/tool-calls`:
+// it is six per REPLY, applied where the reply's cards are assembled
+// (`capFileCards`), because two calls that each found four must draw six cards
+// in all, not eight. `buildFilesCards` uses it only to bound ONE call's stored
+// JSON, so the two concerns share one number instead of drifting apart.
 // The larger of the two sizes the preview route accepts (96 is the card row,
 // 192 the card's own thumbnail). The card data names one size so the browser
 // never guesses; this is the one it draws.
@@ -346,9 +348,12 @@ function webUrlForConn(
 // server-side), and only for an image the app can draw: asking Nextcloud to
 // render a PDF preview would spend an upstream render on bytes the card can
 // never show. The decision is shared, not a second extension list — see
-// isSeeableImage. The route takes a file id or, when the server reported no
-// id, the path, so a result whose server has no `oc:fileid` still gets a
-// preview instead of silently losing it.
+// isSeeableImage — but it is one answer narrower than the model's, because the
+// preview route serves only raster images and refuses `image/svg+xml` (an SVG
+// is a document, not a thumbnail). Advertising an SVG preview would store a URL
+// that is guaranteed to 404. The route takes a file id or, when the server
+// reported no id, the path, so a result whose server has no `oc:fileid` still
+// gets a preview instead of silently losing it.
 function previewUrlForConn(
 	conn: ConnectionPublic,
 	name: string,
@@ -359,6 +364,7 @@ function previewUrlForConn(
 ): string | undefined {
 	if (conn.provider !== "nextcloud" || isDir) return undefined;
 	if (!isSeeableImage(name, contentType)) return undefined;
+	if (resolveEntry(name, contentType)?.id === "svg") return undefined;
 	const target =
 		fileId !== undefined
 			? `fileId=${fileId}`

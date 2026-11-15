@@ -367,12 +367,15 @@ type FilesActivityBody = Extract<ToolActivityBody, { kind: "files" }>;
 /**
  * A `files` call's card: its size and, when the provider reported one, how long
  * ago it changed — the app's own formatters, said the way every other surface
- * says them. A file with no mtime shows its size alone, never a dangling dot.
+ * says them. The date carries its year when it is not the current one, so a
+ * 2015 report and a 2025 one cannot read alike (the precedent is
+ * `write-card-view.ts`'s `formatEventWhen`). A file with no mtime shows its
+ * size alone, never a dangling dot.
  */
 function fileCardFacts(card: ToolCallFileCard): string {
 	const when = card.mtime ? Date.parse(card.mtime) : Number.NaN;
 	const dated = Number.isFinite(when)
-		? formatRelativeTime(when, { t: $t })
+		? formatRelativeTime(when, { t: $t, yearWhenNotCurrent: true })
 		: null;
 	return [formatByteSize(card.size, { trimWholeUnits: true }), dated]
 		.filter((part): part is string => Boolean(part))
@@ -1384,7 +1387,7 @@ function handleToggle() {
 	}
 
 	.act-file-open {
-		color: var(--accent);
+		color: var(--accent-text);
 	}
 
 	.act-files-more {

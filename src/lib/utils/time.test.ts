@@ -47,6 +47,24 @@ describe("formatRelativeTime", () => {
 		expect(formatRelativeTime(timestamp, { locale: "en-US" })).toBe("Mar 12");
 	});
 
+	it("prints the year of an older date only when it is not the current year", () => {
+		const older = new Date("2015-10-21T12:00:00.000Z").getTime();
+		expect(
+			formatRelativeTime(older, {
+				locale: "en-US",
+				yearWhenNotCurrent: true,
+			}),
+		).toBe("Oct 21, 2015");
+		// A date in the current year keeps the short form the card already had.
+		const sameYear = new Date("2024-03-12T12:00:00.000Z").getTime();
+		expect(
+			formatRelativeTime(sameYear, {
+				locale: "en-US",
+				yearWhenNotCurrent: true,
+			}),
+		).toBe("Mar 12");
+	});
+
 	it("handles unix timestamp in seconds", () => {
 		const timestamp = Math.floor(
 			new Date("2024-03-15T11:55:00.000Z").getTime() / 1000,

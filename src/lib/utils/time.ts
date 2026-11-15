@@ -12,6 +12,13 @@ export interface FormatRelativeTimeOptions {
 	t?: RelativeTimeTranslate;
 	/** BCP 47 tag for the date fallback; defaults to the browser's locale. */
 	locale?: string;
+	/**
+	 * The date fallback (anything older than 48 hours) prints its year when the
+	 * date is not in the current year. A card row of dated files asks for it so
+	 * a 2015 report and a 2025 one cannot read the same; the relative wordings
+	 * above the fallback are unaffected.
+	 */
+	yearWhenNotCurrent?: boolean;
 }
 
 const ENGLISH_FALLBACK: RelativeTimeTranslate = (key, params) => {
@@ -62,9 +69,13 @@ export function formatRelativeTime(
 	}
 
 	const date = new Date(timestampMs);
+	const thisYear = options.yearWhenNotCurrent
+		? date.getFullYear() === new Date(now).getFullYear()
+		: true;
 	return new Intl.DateTimeFormat(options.locale ?? undefined, {
 		month: "short",
 		day: "numeric",
+		...(thisYear ? {} : { year: "numeric" }),
 	}).format(date);
 }
 

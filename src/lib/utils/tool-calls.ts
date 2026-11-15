@@ -1,5 +1,9 @@
 import type { I18nKey } from "$lib/i18n";
-import type { ThinkingSegment } from "$lib/server/services/messages-types";
+import type {
+	ThinkingSegment,
+	ToolCallFileCard,
+	ToolCallFilesData,
+} from "$lib/server/services/messages-types";
 import { isAskToolName } from "$lib/shared/ask-user";
 
 const FILE_PRODUCTION_TOOL_IDENTIFIERS = [
@@ -183,12 +187,61 @@ export function isArtifactToolCall(
  */
 export function isFileCardsToolCall(
 	segment: ThinkingSegment,
-): segment is ThinkingSegment & { type: "tool_call" } {
+): segment is ThinkingSegment & {
+	type: "tool_call";
+	files: ToolCallFilesData;
+} {
 	return (
 		segment.type === "tool_call" &&
 		getToolCallIconType(segment.name) === "files" &&
 		(segment.files?.cards.length ?? 0) > 0
 	);
+}
+
+/**
+ * How many file cards one REPLY draws. A reply that searches and then lists
+ * would otherwise draw one card strip per call (up to twelve for two full
+ * calls), fire a preview request for every one, and repeat a file that both
+ * calls found. The cap is taken in result order across the reply's `files`
+ * calls, where the reply's cards are assembled (`capFileCards`), never inside
+ * one call. The server also bounds a single call's stored payload to this same
+ * number (`buildFilesCards` in `normal-chat-tools/files.ts`), so one call can
+ * never carry more cards than a whole reply may draw.
+ */
+export const FILE_CARD_LIMIT = 6;
+
+/**
+ * The reply's file cards, capped and deduplicated at assembly time.
+ *
+ * `rows` are the `files` payloads of the reply's calls, in result order. The
+ * answer holds one row per input row, in the same order (a row whose cards were
+ * all repeats, or fell past the cap, is empty), so a caller can pair it back
+ * with the call that produced it. Each kept row says `total === cards.length`:
+ * a row never draws an "N more" line of its own, because the reply has ONE
+ * `remainder` to report under the last strip — `sum(totals) - shown`, never
+ * negative, and never counting a repeated path twice among the shown.
+ */
+export function capFileCards(
+	rows: readonly ToolCallFilesData[],
+	limit: number = FILE_CARD_LIMIT,
+): { rows: ToolCallFilesData[]; remainder: number } {
+	const seen = new Set<string>();
+	let shown = 0;
+	let found = 0;
+	const capped = rows.map((row) => {
+		found += Math.max(0, row.total);
+		const cards: ToolCallFileCard[] = [];
+		for (const card of row.cards) {
+			// A repeated path is one card: the same file found by two calls is
+			// still that one file.
+			if (shown >= limit || seen.has(card.path)) continue;
+			seen.add(card.path);
+			cards.push(card);
+			shown += 1;
+		}
+		return { ...row, cards, total: cards.length };
+	});
+	return { rows: capped, remainder: Math.max(0, found - shown) };
 }
 
 /**

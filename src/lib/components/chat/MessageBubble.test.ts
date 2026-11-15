@@ -4590,6 +4590,99 @@ describe("MessageBubble", () => {
 				inRail.container.querySelector('[data-testid="message-deliverables"]'),
 			).toBeNull();
 		});
+
+		// The cap is per REPLY (spec §4): two files calls of four cards each draw
+		// six anchors in all, a path two calls both found is drawn once, and the
+		// reply says its remainder once rather than once per call.
+		it("caps two files calls at six cards for the reply, with one remainder", () => {
+			const cardsNamed = (prefix: string, count: number) =>
+				Array.from({ length: count }, (_, index) => ({
+					name: `${prefix}-${index}.pdf`,
+					path: `/Documents/${prefix}-${index}.pdf`,
+					size: 1024,
+					mtime: null,
+					contentType: "application/pdf",
+					previewUrl: null,
+					webUrl: `https://cloud.example/apps/files/?dir=%2FDocuments&openfile=${prefix}-${index}`,
+				}));
+			const search = cardsNamed("search", 4);
+			const message = buildFilesMessage({
+				thinkingSegments: [
+					{
+						type: "tool_call",
+						callId: "call-search",
+						name: "files",
+						input: { action: "search", query: "Q3 report" },
+						status: "done",
+						files: { connectionId: "conn-1", cards: search, total: 4 },
+					},
+					{
+						type: "tool_call",
+						callId: "call-list",
+						name: "files",
+						input: { action: "list", path: "/Documents" },
+						status: "done",
+						files: {
+							connectionId: "conn-1",
+							// The same first file, found again, plus three new ones.
+							cards: [search[0], ...cardsNamed("list", 3)],
+							total: 4,
+						},
+					},
+				],
+			});
+			const { container } = render(MessageBubble, {
+				message,
+				conversationId: "conv-1",
+			});
+
+			const made = container.querySelector(
+				'[data-testid="message-deliverables"]',
+			);
+			const links = [
+				...(made?.querySelectorAll<HTMLAnchorElement>("a.act-file") ?? []),
+			];
+			expect(links).toHaveLength(6);
+			expect(new Set(links.map((link) => link.getAttribute("href"))).size).toBe(
+				6,
+			);
+			expect(links.map((link) => link.title)).toEqual([
+				"/Documents/search-0.pdf",
+				"/Documents/search-1.pdf",
+				"/Documents/search-2.pdf",
+				"/Documents/search-3.pdf",
+				"/Documents/list-0.pdf",
+				"/Documents/list-1.pdf",
+			]);
+			// One line for the whole reply: its calls found eight files in all,
+			// six are drawn, so two are counted. No row draws its own "N more".
+			expect(made?.querySelectorAll(".act-files-more")).toHaveLength(0);
+			const remainder = made?.querySelectorAll<HTMLElement>(
+				'[data-testid="files-remainder"]',
+			);
+			expect(remainder).toHaveLength(1);
+			expect(remainder?.[0]?.textContent?.trim()).toBe("2 more");
+		});
+
+		it("draws no remainder line when the caps show every card", () => {
+			const message = buildFilesMessage();
+			const segment = message.thinkingSegments?.[0];
+			if (segment?.type !== "tool_call" || !segment.files) {
+				throw new Error("expected the fixture's files call");
+			}
+			// One card found, one card drawn: nothing is left to count.
+			message.thinkingSegments = [
+				{ ...segment, files: { ...segment.files, total: 1 } },
+			];
+			const { container } = render(MessageBubble, {
+				message,
+				conversationId: "conv-1",
+			});
+
+			expect(container.querySelector('[data-testid="files-remainder"]')).toBe(
+				null,
+			);
+		});
 	});
 
 	describe("Follow-up suggestion chips (owner idea, variant A)", () => {

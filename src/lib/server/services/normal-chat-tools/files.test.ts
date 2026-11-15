@@ -2208,6 +2208,38 @@ describe("runFilesTool — file cards and previews (Task 5)", () => {
 		expect(outcome.cards?.cards[0]?.webUrl).toMatch(/&openfile=7$/);
 	});
 
+	// The card's "can I draw this?" answer must agree with the preview route:
+	// the adapter refuses `image/svg+xml` (an SVG is a document, not a
+	// thumbnail), so a card for one would store a previewUrl that always 404s.
+	// isSeeableImage still says yes for SVG — the model can be shown one — which
+	// is why the card asks its own, narrower question.
+	it("never advertises a preview for an SVG the preview route refuses", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		nextcloudSearchMock.mockResolvedValue([
+			{
+				name: "logo.svg",
+				path: "Design/logo.svg",
+				isDir: false,
+				size: 512,
+				mtime: null,
+				contentType: "image/svg+xml",
+				etag: "etag-svg",
+				fileId: 99,
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "logo" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.results[0]?.previewUrl).toBeUndefined();
+		expect(outcome.cards?.cards[0]?.previewUrl).toBeNull();
+		expect(outcome.cards?.cards[0]?.webUrl).toMatch(/&openfile=99$/);
+	});
+
 	it("never asks for a OneDrive preview", async () => {
 		const conn = makeOneDriveConn();
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);

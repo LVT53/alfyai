@@ -14,6 +14,7 @@ import { isDark } from "$lib/stores/theme";
 import { showToast } from "$lib/stores/toast";
 import { t, type I18nKey } from "$lib/i18n";
 import {
+	capFileCards,
 	isArtifactToolCall,
 	isAskToolCall,
 	isFileCardsToolCall,
@@ -467,11 +468,39 @@ let deliverableSegments = $derived(
 let fileDeliverableSegments = $derived(
 	rawThinkingSegments.filter(isFileCardsToolCall),
 );
-let fileDeliverableItems = $derived(
-	fileDeliverableSegments.map((segment, index) =>
-		buildToolActivityItem(segment, segment.callId ?? `files-${index}`, $t),
-	),
+// The cap is per REPLY, not per call (spec §4): a reply that searches and then
+// lists must draw six cards in all, each file once, with ONE remainder under
+// the strip. So the cap is applied here, where the reply's cards are
+// assembled, across its `files` calls in result order. Every kept row is fed
+// the cards it shows and a `total` that equals them, so the row draws no "N
+// more" of its own (the reply owns that one line).
+let cappedFileCards = $derived(
+	capFileCards(fileDeliverableSegments.map((segment) => segment.files)),
 );
+let fileDeliverableItems = $derived(
+	fileDeliverableSegments.flatMap((segment, index) => {
+		const capped = cappedFileCards.rows[index];
+		if (!capped || capped.cards.length === 0) return [];
+		const item = buildToolActivityItem(
+			segment,
+			segment.callId ?? `files-${index}`,
+			$t,
+		);
+		const body = item.body;
+		if (body?.kind !== "files") return [item];
+		return [
+			{
+				...item,
+				body: {
+					...body,
+					cards: capped.cards,
+					total: capped.cards.length,
+				},
+			},
+		];
+	}),
+);
+let fileCardsRemainder = $derived(cappedFileCards.remainder);
 let hasDeliverables = $derived(
 	deliverableSegments.length > 0 || fileDeliverableItems.length > 0,
 );
@@ -1410,6 +1439,13 @@ function sendFollowUp(question: string) {
 						{deletedArtifacts}
 						{onImageAction}
 					/>
+					{#if fileCardsRemainder > 0}
+						<!-- The reply's file-card cap, said once: how many files the
+						     reply's `files` calls found beyond the six cards drawn. -->
+						<p class="files-remainder" data-testid="files-remainder">
+							{$t('toolActivity.filesMore', { count: fileCardsRemainder })}
+						</p>
+					{/if}
 				</div>
 			{/if}
 			{#if completionWarningCodes.length > 0}
@@ -2153,6 +2189,16 @@ function sendFollowUp(question: string) {
 		width: 100%;
 		min-width: 0;
 		margin-top: var(--space-md);
+	}
+
+	/* The reply's one "N more" line for the file cards: the cap is per reply, so
+	   it counts every file the reply's calls found beyond the six cards drawn,
+	   and sits under the last strip rather than under each call. */
+	.files-remainder {
+		margin: 2px 0 0;
+		padding-left: 2px;
+		font-size: var(--text-xs);
+		color: var(--text-muted);
 	}
 
 	/* The action row and the chips below it: one block under the message with

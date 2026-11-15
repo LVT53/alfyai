@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { ThinkingSegment } from "$lib/server/services/messages-types";
+import type {
+	ThinkingSegment,
+	ToolCallFileCard,
+	ToolCallFilesData,
+} from "$lib/server/services/messages-types";
 import {
+	capFileCards,
+	FILE_CARD_LIMIT,
 	formatConnectionToolAction,
 	getHumanReadableToolNameKey,
 	getToolCallIconType,
@@ -227,6 +233,101 @@ describe("tool-calls utils", () => {
 		};
 		expect(isFileCardsToolCall(photos)).toBe(false);
 		expect(isFileCardsToolCall({ type: "text", content: "files" })).toBe(false);
+	});
+
+	// The six-card cap is per REPLY, not per call (spec §4): a reply that
+	// searches and then lists must draw six cards in all, each path once, with
+	// one remainder — never a "N more" line per call.
+	describe("capFileCards", () => {
+		const card = (name: string): ToolCallFileCard => ({
+			name,
+			path: `/Documents/${name}`,
+			size: 1024,
+			mtime: null,
+			contentType: "application/pdf",
+			previewUrl: null,
+			webUrl: `https://cloud.example/apps/files/?openfile=${name}`,
+		});
+		const row = (
+			names: string[],
+			total: number = names.length,
+		): ToolCallFilesData => ({
+			connectionId: "conn-1",
+			cards: names.map(card),
+			total,
+		});
+
+		it("keeps six cards across a reply's calls, in result order, with one remainder", () => {
+			const capped = capFileCards([
+				row(["a", "b", "c", "d"]),
+				row(["e", "f", "g", "h"]),
+			]);
+
+			expect(capped.rows.map((cappedRow) => cappedRow.cards.length)).toEqual([
+				4, 2,
+			]);
+			expect(
+				capped.rows.flatMap((cappedRow) =>
+					cappedRow.cards.map((fileCard) => fileCard.path),
+				),
+			).toEqual([
+				"/Documents/a",
+				"/Documents/b",
+				"/Documents/c",
+				"/Documents/d",
+				"/Documents/e",
+				"/Documents/f",
+			]);
+			expect(capped.remainder).toBe(2);
+			// Every kept row claims exactly the cards it holds, so no row draws its
+			// own "N more": the reply has the one line.
+			expect(
+				capped.rows.every(
+					(cappedRow) => cappedRow.total === cappedRow.cards.length,
+				),
+			).toBe(true);
+		});
+
+		it("shows a repeated path once across two calls", () => {
+			const capped = capFileCards([
+				row(["same", "first"]),
+				row(["same", "second"]),
+			]);
+
+			expect(
+				capped.rows.flatMap((cappedRow) =>
+					cappedRow.cards.map((fileCard) => fileCard.path),
+				),
+			).toEqual(["/Documents/same", "/Documents/first", "/Documents/second"]);
+			expect(capped.rows[1].cards.map((fileCard) => fileCard.path)).toEqual([
+				"/Documents/second",
+			]);
+			expect(capped.remainder).toBe(1);
+		});
+
+		it("has no remainder when the reply's totals equal the cards it shows", () => {
+			const capped = capFileCards([row(["a", "b"]), row(["c"])]);
+
+			expect(capped.remainder).toBe(0);
+			expect(capped.rows.map((cappedRow) => cappedRow.cards.length)).toEqual([
+				2, 1,
+			]);
+		});
+
+		it("never reports a negative remainder", () => {
+			// A row whose total undercounts its cards cannot make the line negative.
+			expect(capFileCards([row(["a", "b"], 1)]).remainder).toBe(0);
+		});
+
+		it("uses the shared per-reply limit", () => {
+			const names = Array.from({ length: FILE_CARD_LIMIT + 2 }, (_, i) =>
+				String(i),
+			);
+			const capped = capFileCards([row(names)]);
+
+			expect(capped.rows[0].cards).toHaveLength(FILE_CARD_LIMIT);
+			expect(capped.remainder).toBe(2);
+		});
 	});
 
 	// "Ask me first": the question is drawn from its question row, as a card and then a

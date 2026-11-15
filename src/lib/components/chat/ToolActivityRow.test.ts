@@ -1256,10 +1256,10 @@ describe("ToolActivityRow — the files a call found", () => {
 		expect(links[0].getAttribute("rel")).toBe("noopener noreferrer external");
 		expect(links[0].textContent).toContain("Q3 report.pdf");
 		// "size · date", from the app's own formatters — the date's wording is
-		// the relative one every other surface uses, so only its presence is
-		// pinned here.
+		// the relative one every other surface uses. A date outside the current
+		// year carries its year, so a 2015 report and a 2025 one read apart.
 		expect(links[0].querySelector(".act-file-facts")?.textContent).toMatch(
-			/^24 KB · .+/,
+			/^24 KB · .+ 2015$/,
 		);
 		expect(links[0].textContent).toContain("Open in Nextcloud");
 		// A card with no mtime still carries its size, with no dangling dot.
