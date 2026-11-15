@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { registerConnectionAdapter } from "../adapters";
 import { DAV_NS, firstNs, okPropOf, parseXml, textOf } from "../dav";
+import { OC_NS } from "../dav/xml";
 import { assertPublicHttpsUrl } from "../host-locality";
 import {
 	basicAuthHeader,
@@ -271,6 +272,10 @@ export type NcFile = {
 	mtime: string | null;
 	contentType: string | null;
 	etag: string | null;
+	// Nextcloud's own id for the file (<oc:fileid>), present only when the
+	// server reports one — older/misbehaving servers may omit it, and callers
+	// fall back to the path then.
+	fileId?: number;
 };
 
 export type NextcloudFilesErrorCode =
@@ -402,7 +407,7 @@ function assertMultistatusSizeWithinLimit(response: Response): void {
 }
 
 const PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
-<d:propfind xmlns:d="DAV:">
+<d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
 	<d:prop>
 		<d:displayname/>
 		<d:getcontentlength/>
@@ -410,6 +415,7 @@ const PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
 		<d:getcontenttype/>
 		<d:getetag/>
 		<d:resourcetype/>
+		<oc:fileid/>
 	</d:prop>
 </d:propfind>`;
 
@@ -459,6 +465,14 @@ function parseResponseElement(
 		? textOf(firstNs(prop, DAV_NS, "getcontenttype"))
 		: null;
 	const etag = prop ? textOf(firstNs(prop, DAV_NS, "getetag")) : null;
+	// <oc:fileid> is Nextcloud-specific and optional: a server that does not
+	// answer the property (or answers something non-numeric) leaves fileId
+	// absent rather than guessing an id.
+	const fileIdText = prop ? textOf(firstNs(prop, OC_NS, "fileid")) : null;
+	const fileId =
+		fileIdText && /^\d+$/.test(fileIdText)
+			? Number.parseInt(fileIdText, 10)
+			: undefined;
 
 	const segments = relPath.split("/").filter(Boolean);
 	const name = displayName ?? segments[segments.length - 1] ?? "";
@@ -471,6 +485,7 @@ function parseResponseElement(
 		mtime,
 		contentType,
 		etag,
+		...(fileId !== undefined ? { fileId } : {}),
 	};
 }
 
@@ -685,7 +700,7 @@ function searchRequestBody(loginName: string, query: string): string {
 	const scopeHref = `/files/${encodeURIComponent(loginName)}/`;
 	const literal = `%${escapeXmlText(escapeLikeWildcards(query))}%`;
 	return `<?xml version="1.0" encoding="UTF-8"?>
-<d:searchrequest xmlns:d="DAV:">
+<d:searchrequest xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
 	<d:basicsearch>
 		<d:select>
 			<d:prop>
@@ -695,6 +710,7 @@ function searchRequestBody(loginName: string, query: string): string {
 				<d:getcontenttype/>
 				<d:getetag/>
 				<d:resourcetype/>
+				<oc:fileid/>
 			</d:prop>
 		</d:select>
 		<d:from>

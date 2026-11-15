@@ -121,6 +121,24 @@ const SEARCH_MULTISTATUS = `<?xml version="1.0" encoding="UTF-8"?>
 	</d:response>
 </d:multistatus>`;
 
+const SEARCH_MULTISTATUS_WITH_FILEID = `<?xml version="1.0" encoding="UTF-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+	<d:response>
+		<d:href>/remote.php/dav/files/alice/Photos/lake.jpg</d:href>
+		<d:propstat>
+			<d:prop>
+				<d:displayname>lake.jpg</d:displayname>
+				<d:getcontentlength>2048</d:getcontentlength>
+				<d:getcontenttype>image/jpeg</d:getcontenttype>
+				<d:resourcetype/>
+				<d:getetag>&quot;lake-etag&quot;</d:getetag>
+				<oc:fileid>42</oc:fileid>
+			</d:prop>
+			<d:status>HTTP/1.1 200 OK</d:status>
+		</d:propstat>
+	</d:response>
+</d:multistatus>`;
+
 function xmlResponse(status: number, body: string): Response {
 	return new Response(body, {
 		status,
@@ -342,6 +360,52 @@ describe("nextcloudSearch", () => {
 			"budget.xlsx",
 			"old-budget.xlsx",
 		]);
+	});
+
+	it("reports the Nextcloud file id from oc:fileid", async () => {
+		const { nextcloudSearch } = await import("./nextcloud-files");
+		const conn = makeConn(CONN_CONFIG);
+
+		const fetchMock = vi.fn(async () =>
+			xmlResponse(207, SEARCH_MULTISTATUS_WITH_FILEID),
+		);
+
+		const files = await nextcloudSearch(conn, "app-password-xyz", "lake", {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(files[0]?.fileId).toBe(42);
+	});
+
+	it("leaves fileId undefined when the server reports no oc:fileid", async () => {
+		const { nextcloudSearch } = await import("./nextcloud-files");
+		const conn = makeConn(CONN_CONFIG);
+
+		const fetchMock = vi.fn(async () => xmlResponse(207, SEARCH_MULTISTATUS));
+
+		const files = await nextcloudSearch(conn, "app-password-xyz", "budget", {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(files[0]?.fileId).toBeUndefined();
+	});
+
+	it("leaves fileId undefined when oc:fileid is not a plain integer", async () => {
+		const { nextcloudSearch } = await import("./nextcloud-files");
+		const conn = makeConn(CONN_CONFIG);
+
+		const fetchMock = vi.fn(async () =>
+			xmlResponse(
+				207,
+				SEARCH_MULTISTATUS_WITH_FILEID.replace(">42<", ">not-a-number<"),
+			),
+		);
+
+		const files = await nextcloudSearch(conn, "app-password-xyz", "lake", {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(files[0]?.fileId).toBeUndefined();
 	});
 
 	it("refuses a multistatus body whose Content-Length exceeds the 10MB cap", async () => {

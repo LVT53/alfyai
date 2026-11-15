@@ -23,6 +23,10 @@ const { JSDOM } = require("jsdom") as {
 export const DAV_NS = "DAV:";
 export const CALDAV_NS = "urn:ietf:params:xml:ns:caldav";
 export const CARDDAV_NS = "urn:ietf:params:xml:ns:carddav";
+// Nextcloud's own namespace for WebDAV properties it adds on top of DAV: —
+// in particular <oc:fileid>, the Files-app id the file card and the preview
+// endpoint address a file by.
+export const OC_NS = "http://owncloud.org/ns";
 
 export function parseXml(xml: string): Document {
 	const dom = new JSDOM(xml, { contentType: "application/xml" });
