@@ -225,6 +225,9 @@ describe("nextcloudListFolder", () => {
 				expect(headers.get("Authorization")).toBe(
 					`Basic ${Buffer.from("alice:app-password-xyz").toString("base64")}`,
 				);
+				const body = String(init?.body);
+				expect(body).toContain('xmlns:oc="http://owncloud.org/ns"');
+				expect(body).toContain("<oc:fileid/>");
 				return xmlResponse(207, LIST_FOLDER_MULTISTATUS);
 			},
 		);
@@ -346,7 +349,10 @@ describe("nextcloudSearch", () => {
 			async (input: RequestInfo | URL, init?: RequestInit) => {
 				expect(String(input)).toBe("https://cloud.example.com/remote.php/dav/");
 				expect(init?.method).toBe("SEARCH");
-				expect(String(init?.body)).toContain("budget");
+				const body = String(init?.body);
+				expect(body).toContain("budget");
+				expect(body).toContain('xmlns:oc="http://owncloud.org/ns"');
+				expect(body).toContain("<oc:fileid/>");
 				return xmlResponse(207, SEARCH_MULTISTATUS);
 			},
 		);
