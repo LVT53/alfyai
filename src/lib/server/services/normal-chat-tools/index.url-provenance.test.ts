@@ -92,6 +92,10 @@ vi.mock("$lib/server/config-store", async () => {
 		})),
 		isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
 			actual.isImageMakingConfigured({ comfyuiUrl: config.comfyuiUrl ?? "" }),
+		isVideoMakingConfigured: (config: { comfyuiLtxUrl?: string }) =>
+			actual.isVideoMakingConfigured({
+				comfyuiLtxUrl: config.comfyuiLtxUrl ?? "",
+			}),
 	};
 });
 // The connector tools run for real down to their providers: the user's

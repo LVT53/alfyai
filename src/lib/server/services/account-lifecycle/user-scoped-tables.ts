@@ -55,6 +55,7 @@ import {
 	userConnections,
 	userSecondFactors,
 	userSkillDefinitions,
+	videoJobs,
 } from "$lib/server/db/schema";
 
 /**
@@ -365,6 +366,18 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "image_jobs",
 		table: imageJobs,
 		userColumn: imageJobs.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	// A video take (the video job kind's rows). It belongs to a chat and
+	// cascades with it and with the person; the takes still running are
+	// cancelled by `cancelVideoTakesForUser`, and the clip's files go with
+	// `deleteImageFilesForUser`, which removes the chat's image-files directory
+	// (the clip, its poster, its thumbnail and a generated GIF all live there).
+	{
+		name: "video_jobs",
+		table: videoJobs,
+		userColumn: videoJobs.userId,
 		erasure: "cascade",
 		resets: [],
 	},

@@ -1482,7 +1482,10 @@ export function getLtxCaptionApiKey(): string {
  * rewrite is an improvement, never a prerequisite.
  */
 export function isVideoCaptionConfigured(
-	config: Pick<RuntimeConfig, "ltxCaptionUrl" | "ltxCaptionModel"> = runtimeConfig,
+	config: Pick<
+		RuntimeConfig,
+		"ltxCaptionUrl" | "ltxCaptionModel"
+	> = runtimeConfig,
 ): boolean {
 	return (
 		config.ltxCaptionUrl.trim() !== "" && config.ltxCaptionModel.trim() !== ""

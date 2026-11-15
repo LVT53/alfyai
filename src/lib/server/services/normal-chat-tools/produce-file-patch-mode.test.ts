@@ -59,6 +59,10 @@ vi.mock("$lib/server/config-store", async () => {
 		getConfig: vi.fn(() => ({})),
 		isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
 			actual.isImageMakingConfigured({ comfyuiUrl: config.comfyuiUrl ?? "" }),
+		isVideoMakingConfigured: (config: { comfyuiLtxUrl?: string }) =>
+			actual.isVideoMakingConfigured({
+				comfyuiLtxUrl: config.comfyuiLtxUrl ?? "",
+			}),
 	};
 });
 

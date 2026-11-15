@@ -152,6 +152,8 @@ vi.mock("$lib/server/services/task-state", () => ({
 vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 	getCurrentMemoryResetGeneration: vi.fn(async () => 0),
 	isCurrentMemoryResetGeneration: vi.fn(async () => true),
+	// The real no-op: with no expected generation it just reads the current one.
+	assertExpectedMemoryResetGeneration: vi.fn(async () => 0),
 }));
 
 vi.mock("$lib/server/env", async (importOriginal) => ({

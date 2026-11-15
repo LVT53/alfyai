@@ -92,14 +92,26 @@ vi.mock("$lib/server/services/images/image-job", () => ({
 	imageJob: { name: "image" },
 }));
 
+vi.mock("$lib/server/services/images/video/video-job", () => ({
+	videoJob: { name: "video" },
+}));
+
 vi.mock("$lib/server/services/images/cards", () => ({
 	settleHeldCards: vi.fn(async () => undefined),
 }));
 
-vi.mock("$lib/server/services/jobs", () => ({
-	startJobs: vi.fn(async () => undefined),
-	stopJobs: vi.fn(),
-}));
+vi.mock("$lib/server/services/jobs", async (importOriginal) => {
+	// `defineJobKind` is the real one: hooks.server now imports the video job
+	// kind, which builds itself with it at module load. Only the start/stop
+	// boundary is stubbed, so these tests never start a worker.
+	const { defineJobKind } =
+		await importOriginal<typeof import("$lib/server/services/jobs")>();
+	return {
+		defineJobKind,
+		startJobs: vi.fn(async () => undefined),
+		stopJobs: vi.fn(),
+	};
+});
 
 vi.mock("$lib/server/services/chatgpt-import/import-row", () => ({
 	settleInterruptedImports: vi.fn(() => 0),

@@ -624,6 +624,20 @@ function seedEveryUserScopedTable(userId: string) {
 			updatedAt: now,
 		})
 		.run();
+	// A video take: no card of its own (a clip makes or appends to an artifact),
+	// so the conversation and the person are its only parents.
+	db.insert(schema.videoJobs)
+		.values({
+			id: p("video-take"),
+			userId,
+			conversationId: p("conv"),
+			origin: "turn",
+			requestJson: "{}",
+			seed: 11,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
 	db.insert(schema.fileProductionJobs)
 		.values({
 			id: p("file-job"),
@@ -898,6 +912,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"user_connections",
 				"user_second_factors",
 				"user_skill_definitions",
+				"video_jobs",
 			].sort(),
 		);
 	});

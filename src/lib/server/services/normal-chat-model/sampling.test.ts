@@ -113,6 +113,11 @@ describe("every model call takes its sampling from the one route", () => {
 		expect(handBuilt).toEqual([
 			// The provider key check: a one-token liveness ping nobody reads.
 			"lib/server/services/providers.ts",
+			// The LTX caption rewrite (video-caption.ts): a fixed temperature-0
+			// machine rewrite of the person's own motion idea, sent to the
+			// admin-config-set caption endpoint — no streaming, no tools, and the
+			// person never reads the request or the answer as prose.
+			"lib/server/services/video-caption.ts",
 		]);
 	});
 
@@ -187,6 +192,11 @@ describe("every model call takes its sampling from the one route", () => {
 		"lib/server/services/task-state/control-model.ts": {
 			count: 1,
 			reason: "the persona-fact JSON classifier",
+		},
+		"lib/server/services/video-caption.ts": {
+			count: 1,
+			reason:
+				"the LTX caption rewrite: a fixed temperature-0 machine rewrite of the person's own motion idea, an admin-config-set endpoint, no streaming, no tools",
 		},
 	};
 

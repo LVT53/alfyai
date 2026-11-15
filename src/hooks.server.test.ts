@@ -14,6 +14,7 @@ const mockSettleInterruptedImports = vi.fn(() => 0);
 const atlasResearchJobStub = { name: "atlas", logPrefix: "[ATLAS]" };
 const extractionJobStub = { name: "extraction", logPrefix: "[EXTRACTION]" };
 const imageJobStub = { name: "image", logPrefix: "[IMAGES]" };
+const videoJobStub = { name: "video", logPrefix: "[VIDEO]" };
 const mockSettleHeldCards = vi.fn(async () => undefined);
 const mockClearTakeHolds = vi.fn();
 const fileProductionJobStub = {
@@ -98,15 +99,27 @@ vi.mock("$lib/server/services/images/image-job", () => ({
 	imageJob: imageJobStub,
 }));
 
+vi.mock("$lib/server/services/images/video/video-job", () => ({
+	videoJob: videoJobStub,
+}));
+
 vi.mock("$lib/server/services/images/cards", () => ({
 	settleCardsAfterRestart: mockSettleHeldCards,
 	clearTakeHolds: mockClearTakeHolds,
 }));
 
-vi.mock("$lib/server/services/jobs", () => ({
-	startJobs: mockStartJobs,
-	stopJobs: mockStopJobs,
-}));
+vi.mock("$lib/server/services/jobs", async (importOriginal) => {
+	// `defineJobKind` is the real one: hooks.server now imports the video job
+	// kind, which builds itself with it at module load. Only the start/stop
+	// boundary is stubbed, so these tests never start a worker.
+	const { defineJobKind } =
+		await importOriginal<typeof import("$lib/server/services/jobs")>();
+	return {
+		defineJobKind,
+		startJobs: mockStartJobs,
+		stopJobs: mockStopJobs,
+	};
+});
 
 vi.mock("$lib/server/services/chatgpt-import/import-row", () => ({
 	settleInterruptedImports: mockSettleInterruptedImports,
@@ -245,6 +258,7 @@ describe("hooks.server.ts", () => {
 			extractionJobStub,
 			fileProductionJobStub,
 			imageJobStub,
+			videoJobStub,
 		]);
 		// Once the engine is up, a take that landed while the process was down
 		// becomes its card's version in use.
