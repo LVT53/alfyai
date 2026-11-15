@@ -1535,16 +1535,25 @@ describe("memory context service", () => {
 		sqlite.close();
 
 		const { getMemoryContext } = await import("./memory-context");
-		await expect(
-			getMemoryContext({
-				userId: "user-1",
-				conversationId: "conv-current",
-				mode: "history",
-				query: "bike",
-				historyConversationId: "unrelated-detail",
-			}),
-		).rejects.toThrow(
+		// From the same module registry as `getMemoryContext`: this suite resets it
+		// before every test, so a class imported at the top would be another copy.
+		const { ToolCallRefusedError } = await import(
+			"$lib/server/utils/tool-refusal"
+		);
+		const refusal = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "history",
+			query: "bike",
+			historyConversationId: "unrelated-detail",
+		}).catch((error: unknown) => error);
+
+		expect(refusal).toBeInstanceOf(Error);
+		expect((refusal as Error).message).toBe(
 			"historyConversationId is outside memory_context history scope",
 		);
+		// A refusal made before anything was read, so the tool envelope can tell it
+		// from a failure that may have run, and the model gets to correct the call.
+		expect(refusal).toBeInstanceOf(ToolCallRefusedError);
 	});
 });

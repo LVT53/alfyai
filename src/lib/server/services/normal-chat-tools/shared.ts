@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { capModelPayload } from "./model-payload-budget";
 import { stableStringify } from "./stable-stringify";
 import { deriveToolResultDigest } from "./tool-result-digest";
@@ -520,10 +521,22 @@ export async function executeToolWithEnvelope<
 			failure.entry.metadata,
 			startedAt,
 		);
+		// A thrown error cannot prove that nothing ran, so it is `uncertain` and the
+		// engine stops the turn at that call. The one exception is an error a tool
+		// threw to turn the call down before it dispatched anything
+		// (`ToolCallRefusedError`): nothing ran, so the model reads the refusal,
+		// which is written for it, and the turn goes on. A timeout or an abort is
+		// an ordinary Error here, so it stays uncertain.
 		params.recorder.record(
 			failure.entry,
 			failure.modelPayload !== null && typeof failure.modelPayload === "object"
-				? { state: "uncertain", result: failure.modelPayload }
+				? {
+						state:
+							error instanceof ToolCallRefusedError
+								? "definitely_not_executed"
+								: "uncertain",
+						result: failure.modelPayload,
+					}
 				: undefined,
 		);
 		return failure.modelPayload;

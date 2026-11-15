@@ -14,6 +14,7 @@ import {
 } from "$lib/server/services/message-ordering";
 import type { ChatAttachment } from "$lib/server/services/messages-types";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
+import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import {
 	buildHistoryPolicyContent,
 	listProjectionPolicyBlockedStatements,
@@ -302,7 +303,8 @@ async function loadHistoryConversationDetail(params: {
 		)
 		.limit(1);
 	if (!conversation) {
-		throw new Error(
+		// Turned down before the dialogue is read: a refusal the turn goes on from.
+		throw new ToolCallRefusedError(
 			"historyConversationId is outside memory_context history scope",
 		);
 	}
@@ -497,7 +499,9 @@ export async function getHistoryMemoryContext(
 			)
 		: null;
 	if (historyConversationId && !selectedHistoryCandidate) {
-		throw new Error(
+		// An id the model took from nowhere: turned down before anything of it is
+		// read, so the model is told and the turn goes on.
+		throw new ToolCallRefusedError(
 			"historyConversationId is outside memory_context history scope",
 		);
 	}

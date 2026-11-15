@@ -41,6 +41,7 @@ import {
 } from "$lib/server/services/url-provenance";
 import { IMAGE_SEARCH_TOOL } from "$lib/shared/url-provenance";
 import { createNormalChatTools } from "./index";
+import { createToolCallRecorder } from "./shared";
 import { resetToolResultCacheForTests } from "./tool-result-cache";
 
 // What the tool set does with the provenance rule of docs/plans/exfil-channels:
@@ -489,6 +490,56 @@ describe("fetch_url opens only an address the user typed or a tool returned", ()
 		expect(logged).not.toContain("PRIVATE");
 		info.mockRestore();
 		warn.mockRestore();
+	});
+
+	it("tells the recorder a call whose every address was refused ran nothing, so the turn goes on", async () => {
+		const recorder = createToolCallRecorder();
+		const set = tools({ recorder });
+
+		const result = await fetchUrl(set, [EXFIL]);
+
+		expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
+		// What the engine asks before it decides whether the turn may go on: a
+		// refusal made before anything was dispatched is a proven non-execution, so
+		// the model reads it (it says to use research_web) and the turn is not ended.
+		expect(recorder.getExecutionCertainty?.(result)).toBe(
+			"definitely_not_executed",
+		);
+	});
+
+	it("does not call a fetch that was dispatched and then failed a proven non-execution", async () => {
+		const recorder = createToolCallRecorder();
+		const set = tools({
+			recorder,
+			requestText: "Read https://example.com/page",
+		});
+		fetchUrlViaParallelMock.mockRejectedValueOnce(new Error("upstream 502"));
+
+		const result = await fetchUrl(set, ["https://example.com/page"]);
+
+		expect(fetchUrlViaParallelMock).toHaveBeenCalledTimes(1);
+		expect(result.success).toBe(false);
+		// Only a refusal made before the dispatch is certain: a fetch that went out
+		// may have run, so this one never claims otherwise.
+		expect(recorder.getExecutionCertainty?.(result)).not.toBe(
+			"definitely_not_executed",
+		);
+	});
+
+	it("leaves a partly refused call an ordinary success with no fact of its own", async () => {
+		const recorder = createToolCallRecorder();
+		const set = tools({
+			recorder,
+			requestText: "Read https://example.com/post?id=7",
+		});
+
+		const result = await fetchUrl(set, [
+			"https://example.com/post?id=7",
+			EXFIL,
+		]);
+
+		expect(result.success).toBe(true);
+		expect(recorder.getExecutionCertainty?.(result)).toBeUndefined();
 	});
 
 	it("opens an address the user gave in the current message, a bare domain included", async () => {
