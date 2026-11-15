@@ -52,19 +52,28 @@ describe("the feature guide's content", () => {
 		}
 	});
 
-	it("says a found file shows a preview card, and the card opens the file in Nextcloud", () => {
-		// The card the chat draws under a reply: a preview, and a link that
-		// leaves the conversation and opens the file itself (the Nextcloud
-		// file-cards change). OneDrive connections still show none.
-		const previewCard = { en: /preview card/i, hu: /előnézeti kártyá/i };
-		const opensTheFile = {
-			en: /opens the file in Nextcloud/i,
-			hu: /a Nextcloudban nyitja meg a fájlt/i,
-		};
+	it("has the connected-files entry say the same three facts in both languages", () => {
+		// The connected accounts are still there for Alfy to read; a file it
+		// finds in Nextcloud comes back as a card; the card opens the file in
+		// Nextcloud. Both languages must carry all three — an earlier English
+		// line dropped the purpose clause the Hungarian kept, which a
+		// whole-sentence assertion would have passed. Keywords, not sentences,
+		// so a later rewording stays free.
+		const facts = [
+			{ fact: "a card", en: /card/i, hu: /kártya/i },
+			{
+				fact: "the file opens in Nextcloud",
+				en: /opens in Nextcloud/i,
+				hu: /a Nextcloudban nyílik meg/i,
+			},
+			{ fact: "for Alfy to read", en: /Alfy to read/i, hu: /Alfy elolvashat/i },
+		] as const;
 		for (const lang of LANGUAGES) {
 			const line = words[lang][guideEntryKey("connectedAccounts", "line")];
-			expect(line, `${lang} preview card`).toMatch(previewCard[lang]);
-			expect(line, `${lang} opens the file`).toMatch(opensTheFile[lang]);
+			expect(
+				facts.filter((f) => f[lang].test(line)).map((f) => f.fact),
+				`${lang} says`,
+			).toEqual(facts.map((f) => f.fact));
 		}
 	});
 
