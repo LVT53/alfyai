@@ -439,6 +439,7 @@ describe("the fingerprints", () => {
 			"perfect-freehand",
 			"prosemirror-model",
 			"prosemirror-view",
+			"tinyld",
 		]);
 		expect(PACKAGE_FINGERPRINTS["@xyflow"]).toContain("svelte-flow__pane");
 		// Mermaid's core keeps its own error for a source it cannot place (a diagram block loads it on demand).

@@ -72,6 +72,7 @@ Server:
 Browser and shared:
 
 - `src/lib/client/` — reusable browser `fetch` calls and the landing-to-chat handoff; `src/lib/stores/` — browser state; `src/lib/services/` — the stream protocol and browser stream transport.
+- `src/lib/client/read-aloud/` — read aloud in the browser: the speech script, marks, the reading machine and controller, its language detector.
 - `src/lib/shared/artifacts/` — shared artifact types, and where the board's rules live.
 - `src/lib/components/` — design tokens, fonts, icons, scroll ownership, component contracts.
 - `src/lib/components/chat/` — composer, message list, Mermaid (an untrusted source), what a turn made.
