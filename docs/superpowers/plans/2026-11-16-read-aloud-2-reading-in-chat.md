@@ -73,20 +73,21 @@
     - For each word of the request, the route finds its letters in the reply's text after the previous word's. A skipped formula, emoji, hash or citation inside a sentence then leaves only a gap.
     - It recomputes every word's tokens with the shared dictionary, so nothing outside the reply, or outside the dictionary's reading of it, can be spoken. Spec §6.1's "letters occur in that message's text in order" holds word by word.
     - List numbers are not searched: the renderer numbers a list, and Markdown may write "1." for every item.
-11. **The Hungarian spoken forms are the plan's spelling.**
-    - The spec gives English forms for the code words, acronyms and shortcuts. Its Hungarian forms cover only "." ("pont"), the prose symbols and the abbreviations.
-    - The plan writes the rest the way a Hungarian teacher says them, spelled for the Hungarian voice ("print lájn", "dzséjszon", "á pé í", "kontrol C"), or as Hungarian words where Hungarians use them ("függvény", "hossz", "csillag"). They want the owner's ear once (Task 16, Step 5).
-    - The spec reads `WriteLine` as "print line". The plan pins that, though "write line" may be what was meant.
+11. **The Hungarian spoken forms are the plan's spelling** (owner, 2026-11-16: the plan's call until the owner hears them in Task 16, Step 5).
+    - The spec gives English forms for the code words, operators, acronyms and shortcuts. Its Hungarian forms cover only "." ("pont"), the prose symbols and the abbreviations.
+    - The plan writes the rest the way a Hungarian teacher says them, spelled for the Hungarian voice ("print lájn", "dzséjszon", "á pé í", "kontrol C"), or as Hungarian words where Hungarians use them ("függvény", "hossz", "csillag", "kisebb mint", "modulo").
     - An acronym written in capitals is read the same way in prose ("JSON" is "Jason"). Lower-case prose words are left alone (the Hungarian word "api").
 12. **Numbers stay with the speech service, except two kinds.**
-    - A word that starts with a digit ("20%", "20°C", "3×4"), a unit with a superscript ("m²") and a version's digits ("v2.3.1" is sent as "version 2.3.1") go as written, for the service's text clean-up (§4.4).
+    - A word that starts with a digit ("20%", "20°C", "3×4"), a unit with a superscript ("m²"), a version's digits ("v2.3.1" is sent as "version 2.3.1") and a date in code ("2026-11-16") go as written, for the service's text clean-up (§4.4).
     - List numbers are written as words ("One.", "Egy."), because a Hungarian "1." is an ordinal.
-    - Whole numbers up to 99 in code are written as words ("x equals two"), because the service's Hungarian "két" rule would turn `2 * 3` into "két csillag három".
-13. **A heading's pause is the paragraph gap.**
-    - A heading ends with a full stop, and the text after it starts a paragraph, so 0.60 s follows it: twice the gap between sentences.
-    - A short heading joined to the next sentence (Decision 7) pauses at its full stop instead.
-    - A longer pause than between paragraphs would need a per-sentence pause in Plan 1's contract. It is not asked for unless the owner wants it.
-14. **Comparison and arithmetic symbols stay silent,** as the spec says ("any other symbol is dropped"), so `if x < 10` reads "if x 10". Each of `<`, `>`, `<=`, `>=`, `+`, `-` and `!` would be one row of the dictionary ("less than", "kisebb mint", …) if the owner wants them read.
+    - Whole numbers up to 99 in code are written as words ("x equals two"), because the service's Hungarian "két" rule would turn `2 * 3` into "két csillag három". Larger numbers keep their digits, so `102 * 3` may still be read "százkét csillag"; that is rare enough to leave.
+13. **A heading pauses like a new paragraph, 0.6 s,** as spec §4.4 now says, so Plan 1's contract does not change.
+    - A heading ends with a full stop, and the text after it starts a paragraph, so the 0.60 s paragraph gap follows it.
+    - A heading of one or two words joins the sentence after it, as every short sentence does (Decision 7). It pauses at its full stop inside that clip instead.
+14. **Operators are read in code,** as spec §4.4 now lists them, so `if x < 10` reads "if x less than ten" ("if x kisebb mint tíz"). Three readings are the plan's own:
+    - `!` straight after a name is silent, so the spec's `println!` stays "print line";
+    - `%` straight after a number is "percent" (`width: 50%`), not "mod";
+    - a shell flag reads "minus" like any other minus: `ls -la` is "ls minus la" (Hungarian "ls mínusz la").
 
 ## Review Focus
 
@@ -234,17 +235,24 @@ Spec §4.4, as the owner refined it on 2026-11-16: how code, addresses, abbrevia
 | `->`, `=>` | arrow | nyíl |
 | `=`, `==`, `===` | equals, double equals, triple equals | egyenlő, dupla egyenlő, tripla egyenlő |
 | `!=` | not equals | nem egyenlő |
+| `<`, `>` | less than, greater than | kisebb mint, nagyobb mint |
+| `<=`, `>=` | less than or equal, greater than or equal | kisebb vagy egyenlő, nagyobb vagy egyenlő |
+| `+`, `-` (`-` is silent inside a hyphenated name like `my-class`) | plus, minus | plusz, mínusz |
+| `++`, `--` | plus plus, minus minus | plusz plusz, mínusz mínusz |
+| `+=`, `-=` | plus equals, minus equals | plusz egyenlő, mínusz egyenlő |
+| `!` | not | nem |
+| `%` | mod; percent straight after a number | modulo; százalék straight after a number |
 | `&&`, `\|\|` | and, or | és, vagy |
 | `\|`, only in `shell` | pipe | pájp |
 | `*` | star | csillag |
 | `/`, only in a path | slash | per |
 | `~`, in `shell` or at a path's start | home | hóm |
-| `<T>`, as in `List<T>` | of T: "List of T" | T típusú: "List T típusú" |
+| `<T>`: a `<…>` straight after a name, as in `List<T>` | of T: "List of T" | T típusú: "List T típusú" |
 | `<div>`, `</div>` | div tag, closing div tag | div tag, záró div tag |
 
 | Code word (a whole name, any case) | English | Hungarian |
 |---|---|---|
-| `println`, `WriteLine` | print line | print lájn |
+| `println` | print line | print lájn |
 | `printf` | print f | print ef |
 | `def` | define | definiál |
 | `elif` | else if | elsz if |
@@ -301,7 +309,7 @@ Spec §4.4, as the owner refined it on 2026-11-16: how code, addresses, abbrevia
 3. **Code** (`code`, `shell`): the first of these that fits.
    1. An address or an email address: as in prose.
    2. **An opaque id** gives `[]`: only letters, digits, `-` and `_`, with at least 12 letters and digits, at least 3 of them digits, and at least 4 switches between a letter and a digit (a hash, a UUID, a key).
-   3. **A version:** `v` and digits joined by dots, as in prose; digits with two or more dots stay as written.
+   3. **A version or a date:** `v` and digits joined by dots, as in prose; digits with two or more dots, and a date like `2026-11-16`, stay as written.
    4. **Otherwise** it is read left to right, longest match first:
       - `std::`;
       - a code symbol;
@@ -319,8 +327,12 @@ Spec §4.4, as the owner refined it on 2026-11-16: how code, addresses, abbrevia
    - `.` inside a number belongs to the number.
    - `/` is "slash" only next to a name, a number, `.` or `~` (a path), and is dropped elsewhere.
    - `|` is "pipe" only in `shell`. `~` is "home" in `shell`, or straight before `/`.
-   - `<`, a name and `>` are a type parameter: English says "of" before the name, and Hungarian says "típusú" after it.
-   - `<name>` and `</name>` at the word's start, with a lower-case name, are HTML tags. They are matched before type parameters.
+   - `-` between two letters is silent: `my-class` reads "my class". Elsewhere it is "minus", shell flags included (`ls -la`).
+   - `!` straight after a name is silent (`println!`); elsewhere it is "not".
+   - `%` straight after a number, with no name or number after it, is "percent" (`width: 50%`); elsewhere it is "mod".
+   - `<name>` and `</name>` at the word's start, with a lower-case name, are HTML tags, and so are `<name` and `</name` that open one. They are matched first.
+   - `<…>` straight after a name, or as the whole word (`<T>`), is a type parameter: English says "of" before the name, and Hungarian says "típusú" after it.
+   - Otherwise `<`, `>`, `<=` and `>=` are comparisons when they stand alone or between two operands (a name or a number on each side), and are dropped elsewhere (`class="x">`).
 4. **List numbers** (`listNumber`, `shown` like `3.` or `3)`): 1–99 give the number word, capitalised, with a full stop ("Three.", "Három."). 100 and above give the digits and a comma ("120,").
 
 - [ ] **Step 1: Write the failing tests.** First the spec's examples, in both languages:
@@ -339,6 +351,19 @@ const SPEC: Array<[shown: string, kind: WordKind, en: string, hu: string]> = [
 	["==", "code", "double equals", "dupla egyenlő"],
 	["===", "code", "triple equals", "tripla egyenlő"],
 	["!=", "code", "not equals", "nem egyenlő"],
+	["<", "code", "less than", "kisebb mint"],
+	[">", "code", "greater than", "nagyobb mint"],
+	["<=", "code", "less than or equal", "kisebb vagy egyenlő"],
+	[">=", "code", "greater than or equal", "nagyobb vagy egyenlő"],
+	["+", "code", "plus", "plusz"],
+	["-", "code", "minus", "mínusz"],
+	["my-class", "code", "my class", "my class"],
+	["++", "code", "plus plus", "plusz plusz"],
+	["--", "code", "minus minus", "mínusz mínusz"],
+	["+=", "code", "plus equals", "plusz egyenlő"],
+	["-=", "code", "minus equals", "mínusz egyenlő"],
+	["!", "code", "not", "nem"],
+	["%", "code", "mod", "modulo"],
 	["&&", "code", "and", "és"],
 	["||", "code", "or", "vagy"],
 	["|", "shell", "pipe", "pájp"],
@@ -348,7 +373,8 @@ const SPEC: Array<[shown: string, kind: WordKind, en: string, hu: string]> = [
 	["List<T>", "code", "List of T", "List T típusú"],
 	["foo();", "code", "foo", "foo"],
 	["println", "code", "print line", "print lájn"],
-	["WriteLine", "code", "print line", "print lájn"],
+	// The spec writes "console dot write line"; a name keeps its case, as "Array List" does.
+	["Console.WriteLine", "code", "console dot Write Line", "konzol pont Write Line"],
 	["def", "code", "define", "definiál"],
 	["elif", "code", "else if", "elsz if"],
 	["__init__", "code", "dunder init", "dander init"],
@@ -426,8 +452,11 @@ it.each(ABBREVIATIONS)("reads %s in %s as the spec says", (shown, language, spok
   - `keeps the marks around an address`: `"(https://example.com/x)."` gives `["example", "dot", "com)."]`.
   - `leaves numbers and units in prose to the speech service`: `"20%"`, `"20°C"`, `"3×4"`, `"12"` and `"m²"` each give themselves.
   - `skips long hashes, ids and keys, and reads a name that holds a digit`: `"a3f9c2b18e7d4b2a"` and `"550e8400-e29b-41d4-a716-446655440000"` give `[]`, and `"getUserName2"` gives `["get", "User", "Name", "two"]`.
-  - `writes whole numbers up to 99 in code as words`: `"x=2"` (hu) gives `["x", "egyenlő", "kettő"]`, `"1.5"` gives `["1.5"]` and `"1_000"` gives `["1000"]`.
+  - `writes whole numbers up to 99 in code as words`: `"x=2"` (hu) gives `["x", "egyenlő", "kettő"]`, `"1.5"` gives `["1.5"]`, `"1_000"` gives `["1000"]` and `"2026-11-16"` gives `["2026-11-16"]`.
   - `reads list numbers as words`: `"1."` gives `["One."]` and `["Egy."]`; `"12."` (hu) gives `["Tizenkettő."]`, `"21)"` (en) gives `["Twenty-one."]`, and `"120."` gives `["120,"]`.
+  - `reads an if test the way a teacher says it`: the words `if`, `x`, `<` and `10`, read as code, give "if x less than ten", and in Hungarian "if x kisebb mint tíz".
+  - `tells a comparison from a generic and a tag`: `"i<10"` gives `["i", "less", "than", "ten"]`, `"<div"` gives `["div", "tag"]`, and `'class="x">'` gives `["class", "equals", "x"]`.
+  - `reads % as mod, and as percent after a number`: `"a%b"` gives `["a", "mod", "b"]`, and `"50%;"` gives `["fifty", "percent"]` (Hungarian `["ötven", "százalék"]`).
   - `says a pipe and home only where the shell is`: `codeKindOf("", "ls")` is `"shell"`, `codeKindOf("python", "ls")` is `"code"` and `codeKindOf("bash", "x")` is `"shell"`. `speakWord("|", "code", "en")` and `speakWord("~", "code", "en")` give `[]`, and `speakWord("~/projects", "code", "en")` gives `["home", "slash", "projects"]`.
   - `never ends a sentence after a number or a listed abbreviation`: `keepsSentenceOpen` is true for `"A vásár 2026. november 16."` (hu), `"Ehhez pl."` (hu) and `"Fruit, e.g."` (en), and false for `"It costs five dollars."` (en) and `"Ehhez pl."` (en).
   - `knows the separators between items`: `→`, `->`, `·` and `•` are separators, and `-` is not.
@@ -1399,16 +1428,14 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
   3. Read the app's log for the number of audio GETs per session; Safari's range probe should be served by the replay.
   4. Repeat the press-and-listen check once in desktop Firefox, for Gecko's handling of the progressive MP3 (the family's Android Firefox).
   5. If Plan 1's real service runs on the Mac (`127.0.0.1:1920`), repeat the check against it once.
-  6. With the real service, listen once to Task 0's Hungarian forms, a numbered list, a heading, a range like "7–12 fok" and a number with a suffix ("2026-ban"), as spec §4.4 asks. List for the owner any that sound wrong (Decisions 11 and 13).
+  6. With the real service, listen once to Task 0's Hungarian forms, a numbered list, a heading, a range like "7–12 fok" and a number with a suffix ("2026-ban"), as spec §4.4 asks. List for the owner any that sound wrong (Decision 11).
 - [ ] **Step 6: Commit.** `git commit -m "test(read-aloud): end-to-end specs on the fake speech service"`
 
 ---
 
 ## Hand-over to Plans 1, 3 and 4
 
-- **Plan 1,** while it is being finalised (the owner decides):
-  - Its Hungarian "két" rule counts the word after a number unless that word is on its list, so "2 ≤ x" would be read "két kisebb vagy egyenlő x". Adding "kisebb", "nagyobb" and "körülbelül" to the list fixes it. Code is not affected: Plan 2 writes numbers up to 99 in code as words.
-  - A pause after headings longer than the paragraph gap would need a per-sentence pause in its contract (Decision 13).
+- **Plan 1** (the design session passed it this ask on 2026-11-16): its Hungarian "két" rule counts the word after a number unless that word is on its list, so "2 ≤ x" would be read "két kisebb vagy egyenlő x". Adding "kisebb", "nagyobb" and "körülbelül" to the list fixes it. Numbers up to 99 in code are safe, since Plan 2 writes them as words. Its contract does not change for headings (Decision 13).
 - **Plan 3:**
   - The person's voice choice replaces `defaultVoiceFor` in the session route.
   - Their Default speed fills `defaultSpeed`.
@@ -1417,4 +1444,4 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
   - **Voices.** Replace Berta's and Imre's placeholder ids in `voices.ts` (`PENDING_SPEAKER_ID_PREFIX` must be gone), and measure `charsPerSecond` on the box.
   - **Apache.** In both vhosts, add `^/api/read-aloud/sessions/[^/]+/(audio|events)` to the unbuffered streaming routes: a `ProxyPass … flushpackets=on` line before the catch-all, and the `LocationMatch` alternative. The project memory note `alfyroot-apache-alfyai-vhosts` explains how; mirror the change in `deploy/apache-site.conf`.
   - **Paperwork.** The Feature Guide entry, with its drawing and a Show me marker on the speaker; ADR-0070; and the owner's checks on staging.
-  - **Listening.** On staging the owner hears the dictionary's Hungarian forms, the list numbers and the headings' pause, and the table changes where they sound wrong (Decisions 11 and 13).
+  - **Listening.** On staging the owner hears the dictionary's Hungarian forms, the list numbers and the operators, and the table changes where they sound wrong (Decision 11).
