@@ -348,6 +348,36 @@ describe("the reading controller", () => {
 		expect(t.last().status).toBe("seeking");
 	});
 
+	it("marks words inside code with highlights, above the code's own background", async () => {
+		const registry = new Map<string, { ranges: Range[] }>();
+		class FakeHighlight {
+			priority = 0;
+			readonly ranges: Range[];
+			constructor(...ranges: Range[]) {
+				this.ranges = ranges;
+			}
+		}
+		vi.stubGlobal("CSS", { highlights: registry });
+		vi.stubGlobal("Highlight", FakeHighlight);
+		try {
+			const t = setup();
+			mountReply(
+				"m1",
+				"<p>Then call <code>getUserName()</code> to read it.</p>",
+			);
+			await playing(t);
+			expect(
+				registry
+					.get("read-aloud-code-sentence")
+					?.ranges.map((r) => r.toString()),
+			).toEqual(["getUserName()"]);
+			t.controller.stop();
+			expect(registry.size).toBe(0);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
 	it("reports the position when the sentence changes", async () => {
 		const t = setup();
 		mountReply();

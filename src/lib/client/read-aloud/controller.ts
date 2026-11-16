@@ -33,6 +33,7 @@ import { type ReadAloudView, setReadAloudView } from "$lib/stores/read-aloud";
 import { reportServerUpdateSign } from "$lib/stores/server-update";
 import { uiLanguage } from "$lib/stores/settings";
 import { requestThreadFocus } from "$lib/stores/thread-focus";
+import { paintCodeMarks } from "./code-marks";
 import { type Detect, loadDetector } from "./language";
 import {
 	type BreakKind,
@@ -817,6 +818,8 @@ export function createReadAloudController(
 		lastViewKey = key;
 		lastMarksAnchor = view.marks?.sentence[0];
 		deps.setView(view);
+		// The overlay cannot show through code's background: code is marked by highlights.
+		paintCodeMarks(view);
 	}
 	let lastMarksAnchor: Range | undefined;
 

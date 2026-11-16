@@ -136,6 +136,28 @@ test("no syntax reaches the voice, and code is read the way a teacher says it", 
 	expect(spoken).toContain("link to the guide");
 });
 
+test("a code name is marked while it is read, above the code's own background", async ({
+	page,
+}) => {
+	const [reply] = await openChat(page, [SYNTAX_REPLY]);
+	await startReading(page, reply as string);
+	// The inline code's sentence is the second: its code is drawn by a highlight, which
+	// paints above the code's background (the overlay behind the prose cannot).
+	await expect
+		.poll(
+			() =>
+				page.evaluate(() =>
+					[
+						...((
+							CSS as unknown as { highlights?: Map<string, Iterable<Range>> }
+						).highlights?.get("read-aloud-code-sentence") ?? []),
+					].map((range) => range.toString()),
+				),
+			{ timeout: 15_000 },
+		)
+		.toContain("getUserName()");
+});
+
 test("✕ stops, and the end shows Finished", async ({ page }) => {
 	const [five, again] = await openChat(page, [
 		FIVE_SENTENCE_REPLY,
