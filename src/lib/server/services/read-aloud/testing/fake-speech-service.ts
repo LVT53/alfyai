@@ -42,6 +42,8 @@ export type FakeSpeechOptions = {
 	firstAudioDelayMs?: number;
 	/** `POST /v1/sessions` answers 503. */
 	refuseSessions?: boolean;
+	/** Wait this long before an error or a cut, so the sentences before it have started playing (a real failure comes after audio began). Default 0. */
+	errorDelayMs?: number;
 	/** Send `error {id, code: "synthesis_failed"}` at this sentence and end both streams. */
 	failAtSentence?: number;
 	/** Destroy both connections at this sentence, with no event. */
@@ -88,6 +90,7 @@ const MAX_SEED = 4_294_967_295;
 const DEFAULT_OPTIONS = {
 	secondsPerChar: 0.02,
 	firstAudioDelayMs: 0,
+	errorDelayMs: 0,
 	refuseSessions: false,
 	wordTimes: "even",
 } as const;
@@ -95,6 +98,7 @@ const DEFAULT_OPTIONS = {
 type ResolvedOptions = FakeSpeechOptions & {
 	secondsPerChar: number;
 	firstAudioDelayMs: number;
+	errorDelayMs: number;
 	refuseSessions: boolean;
 	wordTimes: "even" | "null";
 };
@@ -362,8 +366,16 @@ class SessionState {
 		for (let i = 0; i < sentences.length; i++) {
 			if (!(await this.waitForWindow(i))) return;
 			const sentence = sentences[i] as FakeSentence;
-			if (i === this.options.cutAtSentence) return this.cut();
-			if (i === this.options.failAtSentence) return this.fail(sentence.id);
+			if (
+				i === this.options.cutAtSentence ||
+				i === this.options.failAtSentence
+			) {
+				await this.pause(this.options.errorDelayMs);
+				if (this.outcome !== "running") return;
+				return i === this.options.cutAtSentence
+					? this.cut()
+					: this.fail(sentence.id);
+			}
 
 			const gapFrames =
 				i === 0
