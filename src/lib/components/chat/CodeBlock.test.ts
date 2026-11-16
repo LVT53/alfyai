@@ -33,6 +33,21 @@ describe("CodeBlock", () => {
 		expect(screen.getByRole("button", { name: "Copy code" })).toBeTruthy();
 	});
 
+	it("puts its language on the block, so read aloud can tell a shell block", () => {
+		const { container } = render(CodeBlock, {
+			props: { code: "ls -la", language: "bash" },
+		});
+		expect(
+			container.querySelector(".code-block")?.getAttribute("data-language"),
+		).toBe("bash");
+		const bare = render(CodeBlock, { props: { code: "ls -la" } });
+		expect(
+			bare.container
+				.querySelector(".code-block")
+				?.getAttribute("data-language"),
+		).toBe("");
+	});
+
 	it("renders without language", () => {
 		render(CodeBlock, {
 			props: {
