@@ -435,7 +435,10 @@ class ReadingSession:
     # Telling the readers.
 
     def _emit(self, name: str, data: dict) -> None:
-        if not self._events_closed:
+        # Nothing is queued for a reader that has gone: nobody would read it, and a long reading
+        # would pile it up for as long as the audio is read. (The audio does the same, in
+        # `_forward_audio`.)
+        if not self._events_closed and not self._events_finished:
             self._events.put_nowait((name, data))
 
     def _fail(self, code: str) -> None:
@@ -446,7 +449,8 @@ class ReadingSession:
     def _close_events(self) -> None:
         if not self._events_closed:
             self._events_closed = True
-            self._events.put_nowait(None)
+            if not self._events_finished:  # a reader that has gone needs no end to wait for
+                self._events.put_nowait(None)
 
     def _close_audio(self, drop: bool = False) -> None:
         """End the audio stream, once. With `drop`, whatever MP3 is still unread is thrown away."""

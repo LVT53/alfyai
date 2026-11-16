@@ -1018,6 +1018,24 @@ async def test_session_ends_when_reader_leaves(new_session):
     assert_nothing_left_running()
 
 
+async def test_nothing_is_queued_for_an_events_reader_that_has_left(new_session, monkeypatch):
+    session, _ = new_session(make_sentences(6), prefetch=6)
+    session.start()
+    events = session.events()
+    async with asyncio.timeout(10):
+        await anext(events)
+    await events.aclose()  # the timeline reader goes, and the audio reader stays
+
+    queued: list = []
+    real_put = session._events.put_nowait  # (the one place a test needs the timeline's queue)
+    monkeypatch.setattr(
+        session._events, "put_nowait", lambda item: (queued.append(item), real_put(item))
+    )
+    await drain(session.audio())
+    assert session.ended
+    assert queued == []  # not the rest of the timeline, which nobody reads, and not its end
+
+
 async def test_an_attached_audio_reader_keeps_the_session_alive_until_it_leaves(new_session):
     session, requests = new_session(make_sentences(6), idle_seconds=0.3)
     loop = asyncio.get_running_loop()
