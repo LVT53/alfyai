@@ -3,6 +3,7 @@ import type { ScriptSentence, SpeechScript } from "./speech-script";
 import {
 	estimateSeconds,
 	formatClock,
+	notchAtShare,
 	notches,
 	PARAGRAPH_GAP_SECONDS,
 	SENTENCE_GAP_SECONDS,
@@ -149,6 +150,9 @@ describe("text shares", () => {
 		expect(sentenceAtShare(script, 1)).toBe(2);
 		expect(sentenceAtShare(script, 1.5)).toBe(2);
 		expect(sentenceAtShare(script, -1)).toBe(0);
+		expect(notchAtShare([0, 0.3, 0.7], 0.5)).toBe(1);
+		expect(notchAtShare([0, 0.3, 0.7], 0.7)).toBe(2);
+		expect(notchAtShare([], 0.5)).toBe(0);
 		expect(shareAt(script, 1, 0)).toBe(second);
 		expect(shareAt(script, 2, 1)).toBe(1);
 		expect(shareAt(script, 0, 0.5)).toBeCloseTo(
