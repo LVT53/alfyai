@@ -47,6 +47,8 @@ logger = logging.getLogger(__name__)
 MAX_SENTENCES = 2000
 MAX_PREVIEW_CHARS = 300
 MAX_SEED = 2**32 - 1  # Zonos's own bound (servers/api/openapi.json)
+# The most a request body may hold: a reading of 2000 sentences of 400 characters, with their JSON.
+MAX_BODY_BYTES = 4 * 1024 * 1024
 
 # How often the registry looks for sessions that have ended. It is also how exactly "idle_seconds
 # after it ended" is counted.
@@ -71,7 +73,7 @@ def create_app(settings: Settings, zonos: ZonosClient, aligner: Aligner) -> Star
             Route("/v1/preview", api.preview, methods=["POST"]),
             Route("/health", api.health, methods=["GET"]),
         ],
-        exception_handlers={_Invalid: _refuse},
+        exception_handlers={_Invalid: _refuse, _TooLarge: _refuse_too_large},
         lifespan=api.lifespan,
     )
 
@@ -377,14 +379,43 @@ async def _refuse(request: Request, error: Exception) -> Response:
     return JSONResponse({"error": "invalid", "field": error.field}, status_code=422)
 
 
+class _TooLarge(Exception):
+    """A request body is over `MAX_BODY_BYTES`."""
+
+
+async def _refuse_too_large(request: Request, error: Exception) -> Response:
+    logger.info("request refused: the body is over %d bytes", MAX_BODY_BYTES)
+    return JSONResponse({"error": "too_large"}, status_code=413)
+
+
 # What a request may hold.
 
 
 async def _json_body(request: Request) -> object:
+    """The request's body as JSON. `_TooLarge` for one over `MAX_BODY_BYTES`, `_Invalid` for one
+    that is not JSON."""
+    body = await _read_body(request)
     try:
-        return json.loads(await request.body())
+        return json.loads(body)
     except (ValueError, RecursionError):  # not JSON, not UTF-8, or nested past what is parsed
         raise _Invalid("body") from None
+
+
+async def _read_body(request: Request) -> bytes:
+    """The body, or `_TooLarge` as soon as it is known to be over `MAX_BODY_BYTES`: from its
+    declared length before any of it is read, otherwise as it comes in."""
+    try:
+        declared = int(request.headers.get("content-length", ""))
+    except ValueError:  # none, or not a number: the pieces are counted instead
+        declared = 0
+    if declared > MAX_BODY_BYTES:
+        raise _TooLarge
+    body = bytearray()
+    async for piece in request.stream():
+        body += piece
+        if len(body) > MAX_BODY_BYTES:
+            raise _TooLarge
+    return bytes(body)
 
 
 def _parse_session(body: object, settings: Settings) -> tuple[list[Sentence], int | None]:

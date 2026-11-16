@@ -10,6 +10,7 @@ it never says `http.disconnect` before a response is done, which is what uvicorn
 
 import asyncio
 import contextlib
+import itertools
 import json
 import logging
 import os
@@ -501,6 +502,103 @@ def test_a_body_that_is_not_a_request_422(serve, content, field):
     assert reply.status_code == 422
     assert reply.json() == {"error": "invalid", "field": field}
     assert not any(marker in reply.text.lower() for marker in MARKERS)
+
+
+# The size of a body. The service is on loopback and its client is trusted, but a client with a bug
+# must not be able to take the service's memory by sending one huge body.
+
+MAX_BODY_BYTES = 4 * 1024 * 1024  # what the README says: about 2000 sentences of 400 characters
+
+
+def reading_of_size(size: int) -> bytes:
+    """A valid session request of exactly `size` bytes: an unknown field (which is ignored) takes up
+    what the one sentence does not."""
+    body = {**reading(1), "padding": ""}
+    empty = len(json.dumps(body, separators=(",", ":")))
+    body["padding"] = "x" * (size - empty)
+    encoded = json.dumps(body, separators=(",", ":")).encode()
+    assert len(encoded) == size
+    return encoded
+
+
+def test_a_body_of_4_mib_is_read_and_one_byte_more_is_refused_with_413(serve, sessions_made):
+    client, _ = serve()
+    fits = client.post("/v1/sessions", content=reading_of_size(MAX_BODY_BYTES), headers=JSON)
+    assert fits.status_code == 201
+    over = client.post("/v1/sessions", content=reading_of_size(MAX_BODY_BYTES + 1), headers=JSON)
+    assert over.status_code == 413
+    assert over.json() == {"error": "too_large"}
+    assert len(sessions_made) == 1  # nothing was started for the one that was refused
+
+
+@pytest.mark.parametrize("route", ["sessions", "position", "preview"])
+def test_every_route_that_reads_a_body_refuses_one_over_4_mib(serve, route):
+    client, requests = serve()
+    session_id = create(client, reading(6))
+    path = {
+        "sessions": "/v1/sessions",
+        "position": f"/v1/sessions/{session_id}/position",
+        "preview": "/v1/preview",
+    }[route]
+    refused = client.post(path, content=b" " * (MAX_BODY_BYTES + 1), headers=JSON)
+    assert refused.status_code == 413
+    assert refused.json() == {"error": "too_large"}
+    assert known(client, session_id)  # and the session it was about is as it was
+
+
+async def call_with_chunks(app, chunks, *, headers=(), path="/v1/sessions"):
+    """Run one POST through `app` as a server does, with a body that arrives in `chunks` (an
+    iterator). Returns the status of the answer and how many pieces of the body were taken."""
+    taken = 0
+    answered: list[dict] = []
+
+    async def receive():
+        nonlocal taken
+        taken += 1
+        chunk = next(chunks, None)
+        return {"type": "http.request", "body": chunk or b"", "more_body": chunk is not None}
+
+    async def send(message):
+        answered.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"host", b"127.0.0.1:1920"), *headers],
+        "client": ("127.0.0.1", 50000),
+        "server": ("127.0.0.1", 1920),
+        "state": {},
+    }
+    await app(scope, receive, send)
+    return answered[0]["status"], taken
+
+
+async def test_a_body_with_no_length_is_refused_once_it_has_grown_past_the_cap(harness):
+    web = await harness()
+    megabyte = b"x" * 1024 * 1024
+    status, taken = await call_with_chunks(web.app, itertools.repeat(megabyte, 200))
+    assert status == 413
+    assert taken <= 6  # the fifth megabyte crossed the cap: the other 195 were never asked for
+
+
+async def test_a_declared_length_over_the_cap_is_refused_before_the_body_is_read(harness):
+    web = await harness()
+
+    def never_read():
+        raise AssertionError("the body was read although its length was over the cap")
+        yield  # makes this a generator, which is what `chunks` is
+
+    declared = [(b"content-length", str(MAX_BODY_BYTES + 1).encode())]
+    status, taken = await call_with_chunks(web.app, never_read(), headers=declared)
+    assert status == 413
+    assert taken == 0
 
 
 @pytest.mark.parametrize("seed", [0, 1, 1234, 4294967295])
