@@ -6312,6 +6312,45 @@ describe("MessageBubble: read aloud", () => {
 		start.mockRestore();
 	});
 
+	it("names its reply's segments on the row, for Read from here, once the reply is finished", () => {
+		const finished = render(MessageBubble, {
+			message: reply({ id: "seg-2", renderKey: "seg-2" }),
+			conversationId: "c1",
+			replyPlace: {
+				firstMessageId: "seg-1",
+				segmentIds: ["seg-1", "seg-2"],
+				continuesAbove: true,
+				continuedBelow: false,
+				question: null,
+				copyText: null,
+				userIntent: null,
+				drawsSources: true,
+				sources: null,
+			},
+		});
+		expect(
+			finished.container
+				.querySelector("[data-message-id='seg-2']")
+				?.getAttribute("data-read-aloud-segments"),
+		).toBe("seg-1 seg-2");
+		finished.unmount();
+		const streaming = render(MessageBubble, {
+			message: reply({ isStreaming: true }),
+			conversationId: "c1",
+		});
+		expect(
+			streaming.container.querySelector("[data-read-aloud-segments]"),
+		).toBeNull();
+		streaming.unmount();
+		const person = render(MessageBubble, {
+			message: reply({ id: "user-2", renderKey: "user-2", role: "user" }),
+			conversationId: "c1",
+		});
+		expect(
+			person.container.querySelector("[data-read-aloud-segments]"),
+		).toBeNull();
+	});
+
 	it("keeps the action row shown while its reply is read", async () => {
 		setReadAloudAvailable(true);
 		const { container } = render(MessageBubble, {

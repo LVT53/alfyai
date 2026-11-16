@@ -1303,6 +1303,9 @@ function sendFollowUp(question: string) {
 	<div
 		id={`message-${message.id}`}
 		data-message-id={message.id}
+		data-read-aloud-segments={!isUser && !message.isStreaming
+			? (replyPlace?.segmentIds ?? [message.id]).join(' ')
+			: undefined}
 		data-testid={isUser ? 'user-message' : 'assistant-message'}
 		class="message-body relative flex min-w-0 flex-col font-sans
 		{isUser

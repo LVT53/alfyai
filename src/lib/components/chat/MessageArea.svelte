@@ -43,6 +43,7 @@ import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
 import InstructionSuggestionRow from "./InstructionSuggestionRow.svelte";
 import MessageBubble from "./MessageBubble.svelte";
+import ReadFromHere from "$lib/components/read-aloud/ReadFromHere.svelte";
 import LogoMark from "./LogoMark.svelte";
 import ConversationJumpRail from "./ConversationJumpRail.svelte";
 import { buildJumpRailTurns } from "./jump-rail";
@@ -1770,6 +1771,8 @@ async function scrollToMessage(messageId: string) {
 			<ChevronDown size={18} strokeWidth={2} aria-hidden="true" />
 		</button>
 	{/if}
+	<!-- Read from here: one pill for the thread, on the body, over a selection in a reply. -->
+	<ReadFromHere {conversationId} {composerHeight} />
 </div>
 
 <style>
