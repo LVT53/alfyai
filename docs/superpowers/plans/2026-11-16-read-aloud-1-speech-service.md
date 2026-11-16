@@ -66,7 +66,8 @@ Plans 2–4 are written in detail when their turn comes, so they build on what t
 | `deploy/speech-service/speech_service/aligner.py` | `Aligner` protocol, the Python and native FuseAlign backends, mapping times to tokens |
 | `deploy/speech-service/speech_service/session.py` | `ReadingSession`: the worker, prefetch, events, cancel, idle end |
 | `deploy/speech-service/speech_service/app.py` | Starlette routes and the session registry |
-| `deploy/speech-service/tests/fakes.py` | `FakeZonos`, `FakeAligner` |
+| `deploy/speech-service/tests/fakes_aligner.py` | `FakeAligner` (Task 3) |
+| `deploy/speech-service/tests/fakes_zonos.py` | `fake_zonos`, `refusing_transport` (Task 4); a file of its own so Tasks 3 and 4 never touch the same file |
 | `deploy/speech-service/tests/helpers.py` | `SR`, `tone`, `rms_db`, `peak_db`, `decoded_seconds`, `VOICE` |
 | `deploy/speech-service/tests/test_*.py` | One file per module |
 | `deploy/speech-service/speech-service.service` | systemd unit for the box |
@@ -185,7 +186,7 @@ def test_unspeakable_tokens_get_null_spans():
 ### Task 3: Aligner — word times mapped to written tokens
 
 **Files:**
-- Create: `speech_service/aligner.py`, `tests/fakes.py` (the `FakeAligner` part), `tests/test_aligner.py`
+- Create: `speech_service/aligner.py`, `tests/fakes_aligner.py`, `tests/test_aligner.py`
 
 **Interfaces:**
 - Consumes: `Spoken` (Task 2).
@@ -196,7 +197,7 @@ def test_unspeakable_tokens_get_null_spans():
   - `NoAligner` returns all `None`.
   - `token_times(spoken: Spoken, word_times) -> list[tuple[float, float] | None]` gives each written token the start of its span's first placed word and the end of its last.
   - `make_aligner(settings) -> Aligner`.
-  - `FakeAligner(fail: bool = False)` (in `tests/fakes.py`) spreads the audio's duration evenly over the words, or raises `RuntimeError` when `fail`.
+  - `FakeAligner(fail: bool = False)` (in `tests/fakes_aligner.py`) spreads the audio's duration evenly over the words, or raises `RuntimeError` when `fail`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -222,7 +223,7 @@ def test_unplaced_words_give_null():
 ### Task 4: Audio and the Zonos client
 
 **Files:**
-- Create: `speech_service/models.py`, `speech_service/audio.py`, `speech_service/zonos.py`, `tests/fakes.py` (the `FakeZonos` part), `tests/helpers.py`, `tests/test_audio.py`, `tests/test_zonos.py`
+- Create: `speech_service/models.py`, `speech_service/audio.py`, `speech_service/zonos.py`, `tests/fakes_zonos.py`, `tests/helpers.py`, `tests/test_audio.py`, `tests/test_zonos.py`
 
 **Interfaces:**
 - Produces:
@@ -241,7 +242,7 @@ def test_unplaced_words_give_null():
   - `class ZonosClient(base_url, http: httpx.AsyncClient)`:
     - `async synthesize(text: str, language: str, voice: Voice, seed: int) -> tuple[np.ndarray, int]` posts to `/v2/generate` with `format: "wav", stream: false` and the global request fields, and raises `ZonosUnavailable` or `SynthesisFailed`;
     - `async healthy() -> bool`.
-  - In `tests/fakes.py`:
+  - In `tests/fakes_zonos.py`:
     - `fake_zonos(fail_on: int | None = None, concurrency: int = 2) -> tuple[httpx.AsyncClient, list[dict]]` is an `httpx.AsyncClient` on a `MockTransport`. It answers `/v2/generate` with a 44.1 kHz WAV of 0.06 s per character plus 0.3 s, fails the `fail_on`-th call with a 500, serves at most `concurrency` calls at once, and appends every request body to the returned list.
     - `refusing_transport() -> httpx.AsyncClient` raises `httpx.ConnectError` on every call.
 
@@ -369,6 +370,8 @@ async def test_mp3_round_trip_keeps_duration():
 - [ ] **Step 4: Commit the script.** `git commit -m "chore(speech): live check against a local Zonos"`
 
 ### Task 8: The box — measure, choose the aligner, install (owner's OK required before each SSH command)
+
+> Steps 1–2 (measuring the box, building the native aligner, choosing the backend) run in a separate session, "read-aloud-box-prep", which hands its measurements and decision to the session running this plan; Steps 3–6 stay with that session, each still behind the owner's OK.
 
 **Files:**
 - Create: `deploy/speech-service/speech-service.service`; README "Deploy" section.
