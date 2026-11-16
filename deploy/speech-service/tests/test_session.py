@@ -539,10 +539,12 @@ async def test_alignment_is_one_sentence_deep(new_session):
     session.start()
     try:
         await until(entered.is_set)
-        await asyncio.sleep(0.3)
         # One sentence is being aligned and the next one is synthesized and written; the worker
-        # then waits, so the audio held for alignment is one sentence's however slow FuseAlign is.
-        assert len(requests) == 2
+        # then waits, so the audio held for alignment is one sentence's however slow FuseAlign is
+        # (for the few seconds before the words of the first are given up on).
+        await until(lambda: len(requests) >= 2)  # that it gets there is what is waited for...
+        await asyncio.sleep(0.3)
+        assert len(requests) == 2  # ...and that it goes no further, what the sleep is for
     finally:
         release.set()
     assert (await drain(session.events()))[-1] == ("done", {})
