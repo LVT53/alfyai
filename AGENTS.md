@@ -65,6 +65,7 @@ Server:
 - `src/lib/server/services/knowledge/` — the knowledge store, uploads, retrieval, the library's rules.
 - `src/lib/server/services/memory-profile/` — all profile memory (every `memory-*/` folder and `memory*.ts`): the intake judge, consolidation, recall, user-protected facts.
 - `src/lib/server/services/task-state/` — task continuity.
+- `src/lib/server/services/read-aloud/` — read aloud's sessions: who may read a reply, the containment check, one reading per person, the replay, the idle end.
 - `src/lib/server/services/url-provenance/` — ADR-0068: which addresses the app may fetch without a click.
 - `src/lib/server/services/vision/` — what the chat model sees of an image: preparation, pixel budgets, who may receive pixels.
 - `src/lib/server/db/` — connection bootstrap, schema, migrations; `src/lib/server/sandbox/` — the sandbox's security model; `src/lib/server/utils/` — shared server helpers.
