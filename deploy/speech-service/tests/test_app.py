@@ -1423,6 +1423,55 @@ async def test_a_client_that_leaves_a_stream_that_cannot_send_ends_it_quietly(
     await until(lambda: sessions_made[0].ended, timeout=5)
 
 
+async def run_stream(body, send):
+    """Run a `_Stream` of `body` the way a server does, for a client that never says anything.
+    Returns what the stream's `__call__` raised, if it did."""
+
+    async def receive():
+        await asyncio.Event().wait()  # no message from the client: it neither sends nor leaves
+
+    stream = app_module._Stream(body, media_type="audio/mpeg")
+    try:
+        async with asyncio.timeout(5):
+            await stream({"type": "http", "asgi": {"spec_version": "2.5"}}, receive, send)
+    except Exception as error:
+        return error
+    return None
+
+
+async def test_an_oserror_from_send_is_the_client_leaving_and_ends_the_stream_quietly():
+    closed: list[bool] = []
+
+    async def body():
+        try:
+            yield b"a piece"
+            yield b"another piece"
+        finally:
+            closed.append(True)
+
+    async def send(message):
+        if message["type"] == "http.response.body":
+            raise OSError("the client has left")  # what a server of ASGI 2.4 or later does
+
+    assert await run_stream(body(), send) is None
+    assert closed == [True]  # and the generator was closed, not left to the garbage collector
+
+
+async def test_an_oserror_of_the_body_itself_is_a_failure_and_not_the_client_leaving():
+    sent: list[dict] = []
+
+    async def body():
+        yield b"a piece"
+        raise OSError("the generator itself failed")  # nothing to do with the client
+
+    async def send(message):
+        sent.append(message)
+
+    failure = await run_stream(body(), send)
+    assert isinstance(failure, OSError) and "the generator itself" in str(failure)
+    assert sent[0]["type"] == "http.response.start"  # the response had begun
+
+
 @pytest.fixture
 def watched_streams(monkeypatch):
     """The streams a session hands out, wrapped so that each says when it is closed: the list of

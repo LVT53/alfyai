@@ -32,7 +32,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
-from starlette.types import Receive, Scope, Send
+from starlette.types import Message, Receive, Scope, Send
 
 from speech_service.aligner import Aligner, NoAligner
 from speech_service.audio import SAMPLE_RATE, Mp3Encoder, match_loudness, trim_silence
@@ -303,6 +303,10 @@ class _Sessions:
 # Streams.
 
 
+class _ClientGone(Exception):
+    """`send` failed with an OSError: the client has left."""
+
+
 class _Stream(StreamingResponse):
     """A streaming response that stops when its client leaves and closes its generator however it
     ends.
@@ -324,13 +328,19 @@ class _Stream(StreamingResponse):
             await self.listen_for_disconnect(receive)
             group.cancel_scope.cancel()
 
+        async def send_to_the_client(message: Message) -> None:
+            try:
+                await send(message)
+            except OSError:  # a server of ASGI 2.4 or later says the client is gone from `send`
+                raise _ClientGone from None
+
         try:
             async with anyio.create_task_group() as group:
                 group.start_soon(watch)
                 try:
-                    await self.stream_response(send)
-                except OSError:
-                    pass  # the client is gone: a server of ASGI 2.4 or later says so from `send`
+                    await self.stream_response(send_to_the_client)
+                except _ClientGone:
+                    pass  # an OSError of the body itself is no such thing: it is a failure
                 except Exception as error:  # not collected into the group's own error
                     failure = error
                 group.cancel_scope.cancel()  # the stream is over: stop watching the client
