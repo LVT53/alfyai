@@ -626,6 +626,116 @@ it("treats an error a tool threw to refuse a call before dispatching anything as
 	);
 });
 
+describe("a tool that says it only reads", () => {
+	const failure = () => ({
+		modelPayload: { success: false, error: "research_web failed" },
+		entry: {
+			name: "research_web",
+			callId: "reads",
+			input: {},
+			status: "done" as const,
+		},
+	});
+
+	it.each([
+		"thrown",
+		"timeout",
+	] as const)("records what it threw as a settled failure, not an uncertain one: %s", async (mode) => {
+		const recorder = createToolCallRecorder();
+		const output = await executeToolWithEnvelope<{
+			success: boolean;
+			error: string;
+		}>({
+			toolName: "research_web",
+			timeoutMs: mode === "timeout" ? 1 : 1000,
+			options: { toolCallId: "reads", abortSignal: undefined },
+			recorder,
+			readOnly: true,
+			run: async () => {
+				if (mode === "timeout") await new Promise(() => {});
+				throw new Error("upstream 502");
+			},
+			onError: failure,
+		});
+
+		// Running it again changes nothing, so the call is settled: the engine goes
+		// on and the model reads the error. It is not a refusal, the call did go out.
+		expect(recorder.getExecutionCertainty?.(output)).toBe("failed");
+		expect(recorder.getExecutionCertainty?.({ ...output })).toBeUndefined();
+	});
+
+	it("still records a refusal it threw before reading anything as a proven non-execution", async () => {
+		const recorder = createToolCallRecorder();
+		const output = await executeToolWithEnvelope<{
+			success: boolean;
+			error: string;
+		}>({
+			toolName: "fetch_url",
+			timeoutMs: 1000,
+			options: { toolCallId: "refused", abortSignal: undefined },
+			recorder,
+			readOnly: true,
+			run: async () => {
+				throw new ToolCallRefusedError("Nothing was fetched.");
+			},
+			onError: failure,
+		});
+
+		expect(recorder.getExecutionCertainty?.(output)).toBe(
+			"definitely_not_executed",
+		);
+	});
+
+	it("keeps what the turn's own stop cut off uncertain, as it always was", async () => {
+		const controller = new AbortController();
+		const recorder = createToolCallRecorder();
+		const pending = executeToolWithEnvelope<{
+			success: boolean;
+			error: string;
+		}>({
+			toolName: "research_web",
+			timeoutMs: 1000,
+			options: { toolCallId: "stopped", abortSignal: controller.signal },
+			recorder,
+			readOnly: true,
+			run: async () => {
+				await new Promise(() => {});
+				throw new Error("unreachable");
+			},
+			onError: failure,
+		});
+		controller.abort(new Error("user stop"));
+
+		// The wrapper in normal-chat-model/completion-tools.ts marks a call a stop cut
+		// off uncertain, and its settle step runs after that and writes whatever fact
+		// the recorder holds over it: a stop must not turn into a settled failure.
+		expect(recorder.getExecutionCertainty?.(await pending)).toBe("uncertain");
+	});
+
+	it("does not mark what it returned: a call that went well has no fact of its own", async () => {
+		const recorder = createToolCallRecorder();
+		const output = await executeToolWithEnvelope<{ success: boolean }>({
+			toolName: "research_web",
+			timeoutMs: 1000,
+			options: { toolCallId: "fine", abortSignal: undefined },
+			recorder,
+			readOnly: true,
+			run: async () => ({
+				modelPayload: { success: true },
+				entry: {
+					name: "research_web",
+					callId: "fine",
+					input: {},
+					status: "done" as const,
+				},
+			}),
+			onError: failure,
+		});
+
+		expect(recorder.getExecutionCertainty?.(output)).toBeUndefined();
+	});
+});
+
 it("keeps trusted non-execution certainty private and bound to the original result", () => {
 	const recorder = createToolCallRecorder();
 	const result = { status: "failed", code: "invalid_tool_input" };

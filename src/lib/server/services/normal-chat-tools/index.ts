@@ -822,6 +822,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								return executeToolWithEnvelope({
 									toolName: "fetch_url",
 									timeoutMs: TOOL_TIMEOUTS_MS.fetch_url,
+									readOnly: true,
 									options,
 									recorder,
 									run: async (abortSignal) => {
@@ -1007,6 +1008,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					return executeToolWithEnvelope({
 						toolName: "memory_context",
 						timeoutMs: TOOL_TIMEOUTS_MS.memory_context,
+						readOnly: true,
 						options,
 						recorder,
 						run: async () => {
@@ -1080,6 +1082,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					return executeToolWithEnvelope({
 						toolName: "image_search",
 						timeoutMs: TOOL_TIMEOUTS_MS.image_search,
+						readOnly: true,
 						options,
 						recorder,
 						run: async () => {
@@ -1712,6 +1715,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					return executeToolWithEnvelope({
 						toolName: "read_generated_file",
 						timeoutMs: TOOL_TIMEOUTS_MS.read_generated_file,
+						readOnly: true,
 						options,
 						recorder,
 						run: async () => {

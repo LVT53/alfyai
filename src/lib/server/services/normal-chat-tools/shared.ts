@@ -434,6 +434,18 @@ export async function executeToolWithEnvelope<
 	timeoutMs: number;
 	options: Pick<ToolExecutionOptions, "toolCallId" | "abortSignal">;
 	recorder: ToolCallRecorder;
+	/**
+	 * The tool only reads, searches or fetches: running it again changes nothing
+	 * a person could lose (at most it fills a cache or counts a call), so what it
+	 * throws (a timeout, an upstream error) is a settled failure, `failed`, that
+	 * the model reads and answers from. The default is `uncertain`, which ends the
+	 * turn, because a tool that can write anything may have written before it
+	 * threw; so is an error the turn's own abort caused (a stop, the deadline, a
+	 * storage failure, the first-output timer), for every tool. Say so only for a
+	 * tool that cannot change anything by running; the ones that do are listed in
+	 * `read-only-tools.test.ts`, and a new one is a decision made there.
+	 */
+	readOnly?: boolean;
 	run: (abortSignal: AbortSignal) => Promise<{
 		modelPayload: TModelPayload;
 		entry: ToolCallEntry;
@@ -527,21 +539,28 @@ export async function executeToolWithEnvelope<
 			startedAt,
 		);
 		// A thrown error cannot prove that nothing ran, so it is `uncertain` and the
-		// engine stops the turn at that call. The one exception is an error a tool
-		// threw to turn the call down before it dispatched anything
-		// (`ToolCallRefusedError`): nothing ran, so the model reads the refusal,
-		// which is written for it, and the turn goes on. A timeout or an abort is
-		// an ordinary Error here, so it stays uncertain.
+		// engine stops the turn at that call. Two exceptions, and in both the model
+		// reads the error, which is written for it, and the turn goes on: an error
+		// a tool threw to turn the call down before it dispatched anything
+		// (`ToolCallRefusedError`) is a proven non-execution, and an error of a
+		// tool that says it only reads (`readOnly`) is a settled failure, since
+		// running it again changes nothing a person could lose. A timeout is an
+		// ordinary Error here: uncertain for every tool that has not said it only
+		// reads. An error the turn's own abort caused (a stop, the deadline, a
+		// storage failure, the first-output timer) stays uncertain for every tool:
+		// the wrapper in `normal-chat-model/completion-tools.ts` marks such a call
+		// uncertain, and its settle step runs after it and writes whatever fact is
+		// recorded here over that state.
+		const state =
+			error instanceof ToolCallRefusedError
+				? "definitely_not_executed"
+				: params.readOnly && !params.options.abortSignal?.aborted
+					? "failed"
+					: "uncertain";
 		params.recorder.record(
 			failure.entry,
 			failure.modelPayload !== null && typeof failure.modelPayload === "object"
-				? {
-						state:
-							error instanceof ToolCallRefusedError
-								? "definitely_not_executed"
-								: "uncertain",
-						result: failure.modelPayload,
-					}
+				? { state, result: failure.modelPayload }
 				: undefined,
 		);
 		return failure.modelPayload;

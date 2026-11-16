@@ -108,6 +108,7 @@ export function createResearchWebTool(params: CreateResearchWebToolParams) {
 				return executeToolWithEnvelope({
 					toolName: "research_web",
 					timeoutMs: TOOL_TIMEOUTS_MS.research_web,
+					readOnly: true,
 					options,
 					recorder,
 					run: async (abortSignal) => {

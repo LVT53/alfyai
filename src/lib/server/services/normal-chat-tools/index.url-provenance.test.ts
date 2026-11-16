@@ -511,7 +511,7 @@ describe("fetch_url opens only an address the user typed or a tool returned", ()
 		);
 	});
 
-	it("does not call a fetch that was dispatched and then failed a proven non-execution", async () => {
+	it("records a fetch that was dispatched and then failed as a settled failure, never a proven non-execution", async () => {
 		const recorder = createToolCallRecorder();
 		const set = tools({
 			recorder,
@@ -523,11 +523,10 @@ describe("fetch_url opens only an address the user typed or a tool returned", ()
 
 		expect(fetchUrlViaParallelMock).toHaveBeenCalledTimes(1);
 		expect(result.success).toBe(false);
-		// Only a refusal made before the dispatch is certain: a fetch that went out
-		// may have run, so this one never claims otherwise.
-		expect(recorder.getExecutionCertainty?.(result)).not.toBe(
-			"definitely_not_executed",
-		);
+		// The fetch went out, so it never claims it did not run. It only reads, so
+		// running it again changes nothing: it is settled, and the model reads the
+		// error and answers instead of the turn ending.
+		expect(recorder.getExecutionCertainty?.(result)).toBe("failed");
 	});
 
 	it("leaves a partly refused call an ordinary success with no fact of its own", async () => {
