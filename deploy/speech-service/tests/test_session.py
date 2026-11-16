@@ -30,7 +30,7 @@ from speech_service.audio import Mp3Encoder
 from speech_service.config import Settings
 from speech_service.models import Sentence, Voice
 from speech_service.session import ReaderTaken, ReadingSession
-from speech_service.text import normalize
+from speech_service.text import Spoken, normalize
 from speech_service.zonos import ZonosClient
 from tests.fakes_zonos import fake_zonos, refusing_transport
 from tests.helpers import SR, VOICE, decode_mp3, decoded_seconds, rms_db, tone
@@ -1381,6 +1381,53 @@ async def test_no_word_times_for_no_fault_of_the_aligner_is_not_counted(new_sess
     assert all(None in data["times"] for data in of(events, "words"))
     assert warnings_of(caplog) == []
     assert ending_of(caplog).endswith(", 0 without word times")
+
+
+# A sentence that speaks long. The 400 characters a sentence may have are the written ones, and
+# digits spell themselves out ("1" x 300 is 1199 spoken characters), while Zonos stops a request at
+# about 100 s, which is more than 1200 spoken characters, and cuts the rest off without a word.
+
+
+def speaking(characters: int) -> Spoken:
+    """What a sentence of one token is spoken as: words that join, with single spaces, to exactly
+    `characters` characters."""
+    full = (characters - 1) // 10  # words of 9 characters and the space after each
+    words = ["a" * 9] * full + ["b" * (characters - 10 * full)]
+    assert len(" ".join(words)) == characters
+    return Spoken(words, [(0, len(words)), (0, len(words))])
+
+
+@pytest.mark.parametrize(
+    ("characters", "warned"), [(400, False), (1200, False), (1201, True), (3000, True)]
+)
+async def test_a_sentence_that_speaks_over_1200_characters_is_warned_about(
+    new_session, caplog, monkeypatch, characters, warned
+):
+    caplog.set_level(logging.DEBUG, logger="speech_service")
+    spoken_as = iter([speaking(characters)])  # the first sentence is the long one
+
+    def normalize_first_long(tokens, language):
+        return next(spoken_as, None) or Spoken(["short"], [(0, 1), (0, 1)])
+
+    monkeypatch.setattr(session_module, "normalize", normalize_first_long)
+    zonos = zonos_answering(lambda: wav_response(tone(0.3, 1.0)))
+    session, requests = new_session(make_sentences(2, tokens=tuple(SECRET)), zonos=zonos)
+    events, mp3 = await play(session)
+
+    # Whatever the warning, the reading itself is as it was: the whole text goes to Zonos.
+    assert events[-1] == ("done", {})
+    assert [len(request["text"]) for request in requests] == [characters, len("short")]
+    assert mp3
+    if not warned:
+        assert warnings_of(caplog) == []
+        return
+    [warning] = warnings_of(caplog)
+    written = len(" ".join(SECRET))
+    assert "session test-session" in warning
+    assert "sentence 0" in warning  # the first one, not the second
+    assert f"{characters} characters" in warning and f"{written} written" in warning
+    for line in _logged(caplog):  # counts only
+        assert "Zebrafish" not in line and "Quokka" not in line and "aaaaaaaaa" not in line
 
 
 # What a session may be made of.

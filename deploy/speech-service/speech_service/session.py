@@ -60,6 +60,12 @@ Event = tuple[str, dict]
 _GAP_SECONDS = 0.30
 _PARAGRAPH_GAP_SECONDS = 0.60
 
+# A sentence that speaks as more characters than this is warned about. Zonos stops a request at
+# 1500 frames, about 100 s, and cuts the rest off without a word; at about 15 spoken characters a
+# second that is some 1500 characters, and this leaves what a faster or slower voice needs. The
+# 400 characters a sentence may have are the written ones: digits spell themselves out.
+_LONG_SPOKEN_CHARS = 1200
+
 # How long a sentence's word times may take, from its alignment being queued to its `words` event.
 # After that the sentence has none and the reading goes on: the audio never waits on the aligner for
 # longer (the native one gives up by itself after 30 s, the Python one never does).
@@ -317,6 +323,7 @@ class ReadingSession:
             self._announced += 1
             return
 
+        self._warn_if_long(sentence, spoken)
         clip = await self._synthesize(sentence, spoken)
         if self._encoder.samples_written:  # a gap goes between sentences, not before the first
             new_paragraph = sentence.paragraph_start or self._paragraph_pending
@@ -349,6 +356,21 @@ class ReadingSession:
             self._align(self._current, sentence, spoken, audio_16k, start),
             name=f"reading-{self.id}-words",
         )
+
+    def _warn_if_long(self, sentence: Sentence, spoken: Spoken) -> None:
+        """Warn when the sentence speaks as more than `_LONG_SPOKEN_CHARS` characters: Zonos may cut
+        the end off, silently. Counts only, never the text. The sentence is read as it is."""
+        spoken_chars = len(" ".join(spoken.words))
+        if spoken_chars > _LONG_SPOKEN_CHARS:
+            logger.warning(
+                "session %s: sentence %d speaks %d characters (%d written), over %d: Zonos stops "
+                "at about 100 s and may cut it off",
+                self.id,
+                self._current,
+                spoken_chars,
+                len(" ".join(sentence.tokens)),
+                _LONG_SPOKEN_CHARS,
+            )
 
     async def _synthesize(self, sentence: Sentence, spoken: Spoken) -> np.ndarray:
         """The sentence as Zonos says it, trimmed and matched in loudness, ready to be written."""

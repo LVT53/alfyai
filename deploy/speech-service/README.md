@@ -77,11 +77,13 @@ Each `sentence` event comes before the audio it describes. The `words` event for
 | `sentences[i].language` | `"en"` or `"hu"` |
 | `sentences[i].voice.speaker_id` | a non-empty string (a Zonos speaker id) |
 | `sentences[i].voice.controls` | an object of strings to numbers (finite; not `true`/`false`); absent means `{}`. Names and ranges are Zonos's: the controls go to it unchanged. A bad control is reported as `…voice.controls`, never by its name |
-| `sentences[i].tokens` | a non-empty list of strings that, joined by single spaces, are at most 400 characters |
+| `sentences[i].tokens` | a non-empty list of strings that, joined by single spaces, are at most 400 characters: the *written* ones (see Long sentences below) |
 | `sentences[i].paragraph_start` | `true` or `false` |
 | `seed` | optional: an integer from 0 to 4294967295 (Zonos's own range). Without it the service's seed (`SPEECH_SEED`, 1234) is used |
 | preview `text` | a non-empty string of at most 300 characters. It is split at whitespace and normalized as a sentence's tokens are; if nothing in it is speakable (a lone symbol), 422 `text` |
 | preview `language`, `voice` | as above |
+
+**Long sentences.** The 400 characters are what is written. What Zonos is sent is what is spoken, and digits spell themselves out (a token of 300 digits is 1,199 to 1,799 spoken characters in English; `3,14159265358979323846` is 22 written and 191 spoken in Hungarian). Zonos stops a request at about 100 s of speech, which is some 1,500 spoken characters, and **cuts the rest off without any error**. The service does not refuse a sentence for it. It sends the sentence as it is and logs one warning (the session, the sentence's position, its spoken and its written length: counts only, never the text) when a sentence speaks as more than 1,200 characters. A client that can have such sentences (long numbers) should split them itself before it sends them.
 
 **Preview.** `POST /v1/preview` speaks one sentence (normalized, trimmed, matched in loudness) and answers one whole MP3. It is not aligned and makes no session.
 
