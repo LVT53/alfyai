@@ -168,8 +168,8 @@ const FILE_PART = /^[\p{L}\p{Nd}_-]+$/u;
 const SHORTCUT_KEY = /^[\p{L}\p{Nd}]{1,12}$/u;
 const SHORTCUT_GLYPHS = /^([⌃⌘⇧⌥]+)([\p{L}\p{Nd}]{1,12})$/u;
 const SUPERSCRIPT_UNIT = /^(?:m|dm|cm|mm|km)[²³]$/u;
-/** A Hungarian suffix after an acronym: "API-t", "JSON-ban". */
-const HUNGARIAN_SUFFIX = /^[a-záéíóöőúüű]{1,8}$/u;
+/** A suffix after an acronym, in Hungarian: "API-t", "JSON-ban" (lower-case letters, so no accent is listed here). */
+const HUNGARIAN_SUFFIX = /^\p{Ll}{1,8}$/u;
 
 const hasProseSymbol = (text: string): boolean =>
 	PROSE_SYMBOLS.some(([symbol]) => text.includes(symbol));

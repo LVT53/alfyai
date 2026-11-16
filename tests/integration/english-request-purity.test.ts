@@ -774,6 +774,10 @@ const HUNGARIAN_BY_DESIGN: Record<string, string> = {
 	"lib/server/services/atlas-v3/verify.ts": "atlas placeholders",
 	"lib/server/services/atlas-v3/workspace.ts": "atlas hu set",
 	"lib/server/services/atlas-v3/writer.ts": "atlas hu set",
+	// read aloud: how the voice says code, symbols and abbreviations in
+	// Hungarian; spoken by the speech service, never sent to a model
+	"lib/shared/read-aloud/reading-dictionary.ts":
+		"the Hungarian spoken forms of read aloud",
 	// proper nouns of the places the routing tools cover
 	"lib/server/services/routing/gtfs-catalogue.ts":
 		"operator names (MAV, Bus Eireann) in the coverage label",
