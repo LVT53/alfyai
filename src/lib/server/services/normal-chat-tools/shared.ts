@@ -9,6 +9,7 @@ import { z } from "zod";
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
+import { abortedByTurnDeadline } from "$lib/server/utils/turn-deadline-reason";
 import { capModelPayload } from "./model-payload-budget";
 import { stableStringify } from "./stable-stringify";
 import { deriveToolResultDigest } from "./tool-result-digest";
@@ -440,10 +441,12 @@ export async function executeToolWithEnvelope<
 	 * throws (a timeout, an upstream error) is a settled failure, `failed`, that
 	 * the model reads and answers from. The default is `uncertain`, which ends the
 	 * turn, because a tool that can write anything may have written before it
-	 * threw; so is an error the turn's own abort caused (a stop, the deadline, a
-	 * storage failure, the first-output timer), for every tool. Say so only for a
-	 * tool that cannot change anything by running; the ones that do are listed in
-	 * `read-only-tools.test.ts`, and a new one is a decision made there.
+	 * threw; so is an error the turn's own abort caused (a stop, the watchdog, a
+	 * storage failure, the first-output timer), for every tool. The exception is
+	 * the engine's own deadline: a call that only reads and was still running
+	 * when the time for working ran out is a settled failure too. Say so only for
+	 * a tool that cannot change anything by running; the ones that do are listed
+	 * in `read-only-tools.test.ts`, and a new one is a decision made there.
 	 */
 	readOnly?: boolean;
 	run: (abortSignal: AbortSignal) => Promise<{
@@ -546,15 +549,21 @@ export async function executeToolWithEnvelope<
 		// tool that says it only reads (`readOnly`) is a settled failure, since
 		// running it again changes nothing a person could lose. A timeout is an
 		// ordinary Error here: uncertain for every tool that has not said it only
-		// reads. An error the turn's own abort caused (a stop, the deadline, a
+		// reads. An error the turn's own abort caused (a stop, the watchdog, a
 		// storage failure, the first-output timer) stays uncertain for every tool:
 		// the wrapper in `normal-chat-model/completion-tools.ts` marks such a call
 		// uncertain, and its settle step runs after it and writes whatever fact is
-		// recorded here over that state.
+		// recorded here over that state. The one abort that does not is the
+		// engine's own deadline timer, recognised by the reason it aborts with
+		// (`abortedByTurnDeadline`): a call that only reads and was still running
+		// when the time for working ran out is a settled failure too, so the engine
+		// can close the turn with what it has instead of ending it empty.
 		const state =
 			error instanceof ToolCallRefusedError
 				? "definitely_not_executed"
-				: params.readOnly && !params.options.abortSignal?.aborted
+				: params.readOnly &&
+						(!params.options.abortSignal?.aborted ||
+							abortedByTurnDeadline(params.options.abortSignal))
 					? "failed"
 					: "uncertain";
 		params.recorder.record(

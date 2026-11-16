@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
+import { TurnDeadlineReason } from "$lib/server/utils/turn-deadline-reason";
 import {
 	compactModelPayload,
 	compactToolInputSchema,
@@ -709,6 +710,103 @@ describe("a tool that says it only reads", () => {
 		// The wrapper in normal-chat-model/completion-tools.ts marks a call a stop cut
 		// off uncertain, and its settle step runs after that and writes whatever fact
 		// the recorder holds over it: a stop must not turn into a settled failure.
+		expect(recorder.getExecutionCertainty?.(await pending)).toBe("uncertain");
+	});
+
+	/** A call that never answers, aborted with `reason`, as the engine's signal aborts one. */
+	async function certaintyWhenAbortedWith(
+		reason: unknown,
+		options: { readOnly?: boolean } = { readOnly: true },
+	) {
+		const controller = new AbortController();
+		const recorder = createToolCallRecorder();
+		const pending = executeToolWithEnvelope<{
+			success: boolean;
+			error: string;
+		}>({
+			toolName: "research_web",
+			timeoutMs: 60_000,
+			options: { toolCallId: "cut", abortSignal: controller.signal },
+			recorder,
+			readOnly: options.readOnly,
+			run: async () => {
+				await new Promise(() => {});
+				throw new Error("unreachable");
+			},
+			onError: failure,
+		});
+		controller.abort(reason);
+		return recorder.getExecutionCertainty?.(await pending);
+	}
+
+	it("records what the engine's working deadline cut off as a settled failure", async () => {
+		// The engine's own clock ran out while the search was still running. The
+		// search only reads, so running it again changes nothing a person could lose:
+		// the call is settled, and the engine can close the turn with what it has.
+		expect(await certaintyWhenAbortedWith(new TurnDeadlineReason())).toBe(
+			"failed",
+		);
+	});
+
+	it("keeps what the engine's deadline cut off uncertain for a tool that did not say it only reads", async () => {
+		// It may have written before it was cut off, so nothing is known about it.
+		expect(await certaintyWhenAbortedWith(new TurnDeadlineReason(), {})).toBe(
+			"uncertain",
+		);
+		expect(
+			await certaintyWhenAbortedWith(new TurnDeadlineReason(), {
+				readOnly: false,
+			}),
+		).toBe("uncertain");
+	});
+
+	it.each([
+		[
+			"the person's Stop",
+			Object.assign(new Error("The user stopped the turn"), {
+				name: "UserStopReason",
+			}),
+		],
+		[
+			"the watchdog or a storage failure",
+			new Error("The turn's lifetime ended"),
+		],
+		[
+			"the first-output timer",
+			new Error("Timed out waiting for first upstream output"),
+		],
+		["a signal aborted with no reason of its own", undefined],
+		["a reason that is not an error", "deadline"],
+	])("keeps what %s cut off uncertain: only the engine's own deadline settles it", async (_who, reason) => {
+		expect(await certaintyWhenAbortedWith(reason)).toBe("uncertain");
+	});
+
+	it("keeps a call uncertain when something else aborted the signal before the deadline did", async () => {
+		const stop = new AbortController();
+		const deadline = new AbortController();
+		const recorder = createToolCallRecorder();
+		const pending = executeToolWithEnvelope<{
+			success: boolean;
+			error: string;
+		}>({
+			toolName: "research_web",
+			timeoutMs: 60_000,
+			options: {
+				toolCallId: "cut",
+				abortSignal: AbortSignal.any([stop.signal, deadline.signal]),
+			},
+			recorder,
+			readOnly: true,
+			run: async () => {
+				await new Promise(() => {});
+				throw new Error("unreachable");
+			},
+			onError: failure,
+		});
+		stop.abort(new Error("The user stopped the turn"));
+		deadline.abort(new TurnDeadlineReason());
+
+		// A combined signal carries the reason of the source that aborted first.
 		expect(recorder.getExecutionCertainty?.(await pending)).toBe("uncertain");
 	});
 
