@@ -1234,16 +1234,16 @@ async def test_two_sessions_progress_together(new_session):
 
 
 def _logged(caplog: pytest.LogCaptureFixture) -> list[str]:
-    """Everything the speech service logged, message and exception text and all."""
+    """Everything that was logged, message and exception text and all: by the speech service, and
+    by asyncio and the rest, which log "exception never retrieved" and quote the exception."""
     formatter = logging.Formatter()
     lines = []
     for record in caplog.records:
-        if record.name.startswith("speech_service"):
-            lines.append(record.getMessage())
-            if record.exc_info:
-                lines.append(formatter.formatException(record.exc_info))
-            if record.exc_text:
-                lines.append(record.exc_text)
+        lines.append(record.getMessage())
+        if record.exc_info:
+            lines.append(formatter.formatException(record.exc_info))
+        if record.exc_text:
+            lines.append(record.exc_text)
     return lines
 
 
