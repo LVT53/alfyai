@@ -11,8 +11,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal, cast, get_args
 
-Aligner = Literal["python", "native", "none"]
-_ALIGNERS = get_args(Aligner)
+AlignerKind = Literal["python", "native", "none"]
+_ALIGNERS = get_args(AlignerKind)
 
 
 def _is_loopback(host: str) -> bool:
@@ -42,7 +42,7 @@ class Settings:
     port: int = 1920
     prefetch: int = 2
     seed: int = 1234
-    aligner: Aligner = "python"
+    aligner: AlignerKind = "python"
     aligner_model: str | None = None
     # The native FuseAlign backend runs `aligner_cli` on `aligner_threads` threads.
     aligner_cli: str = "fusealign-cli"
@@ -73,7 +73,7 @@ class Settings:
             prefetch=_read(env, "SPEECH_PREFETCH", defaults.prefetch, int),
             seed=_read(env, "SPEECH_SEED", defaults.seed, int),
             # Checked in __post_init__.
-            aligner=cast(Aligner, env.get("SPEECH_ALIGNER", defaults.aligner)),
+            aligner=cast(AlignerKind, env.get("SPEECH_ALIGNER", defaults.aligner)),
             aligner_model=env.get("SPEECH_ALIGNER_MODEL", defaults.aligner_model),
             aligner_cli=env.get("SPEECH_ALIGNER_CLI", defaults.aligner_cli),
             aligner_threads=_read(env, "SPEECH_ALIGNER_THREADS", defaults.aligner_threads, int),
