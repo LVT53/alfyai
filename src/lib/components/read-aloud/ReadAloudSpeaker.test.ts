@@ -184,6 +184,23 @@ describe("ReadAloudSpeaker", () => {
 		);
 	});
 
+	it("asks again while the reply has not rendered yet", async () => {
+		const controller = fakeController();
+		let calls = 0;
+		controller.assessReadability = vi.fn(async (): Promise<Readability> => {
+			calls += 1;
+			return calls < 3
+				? { kind: "unknown" }
+				: { kind: "noVoice", language: "de" };
+		});
+		const t = speaker(controller);
+		await vi.waitFor(
+			() => expect(t.button().getAttribute("aria-disabled")).toBe("true"),
+			{ timeout: 3000 },
+		);
+		expect(controller.assessReadability).toHaveBeenCalledTimes(3);
+	});
+
 	it("asks again when the reply's words change", async () => {
 		const controller = fakeController();
 		const t = speaker(controller);

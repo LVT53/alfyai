@@ -400,9 +400,14 @@ describe("the reading controller", () => {
 			code: "synthesis_failed",
 		});
 		await settle();
+		expect(voice.sources[0]?.closed).toBe(true);
+		// The audio made before the failure plays out first.
+		expect(voice.last().status).toBe("playing");
+		voice.audio.ended = true;
+		voice.audio.emit("ended");
+		await settle();
 		expect(voice.fetchHealth).not.toHaveBeenCalled();
 		expect(voice.last()).toMatchObject({ status: "stopped", failure: "voice" });
-		expect(voice.sources[0]?.closed).toBe(true);
 		voice.controller.stop();
 		document.body.innerHTML = "";
 
@@ -428,7 +433,35 @@ describe("the reading controller", () => {
 		expect(t.last().status).toBe("playing");
 		(t.sources[0] as FakeEventSource).fail(2);
 		await settle();
+		// What was made still plays; the stop lands when the audio ends.
+		expect(t.last().status).toBe("playing");
+		t.audio.ended = true;
+		t.audio.emit("ended");
+		await settle();
 		expect(t.last()).toMatchObject({ status: "stopped", failure: "voice" });
+	});
+
+	it("plays out the audio made before a failure, then stops at the failing sentence", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		const events = t.sources[0] as FakeEventSource;
+		events.send("sentence", { id: "s0", start: 0.025, end: 1.0 });
+		events.send("error", { id: "s1", code: "synthesis_failed" });
+		t.audio.currentTime = 0.5;
+		t.runFrame();
+		expect(t.last()).toMatchObject({ status: "playing", sentence: 0 });
+		t.audio.ended = true;
+		t.audio.emit("ended");
+		await settle();
+		expect(t.last()).toMatchObject({
+			status: "stopped",
+			failure: "voice",
+			sentence: 1,
+		});
+		t.controller.retry();
+		await settle();
+		expect(t.body(1)?.sentences[0]?.id).toBe("s1");
 	});
 
 	it("fails to start when the service refuses, and while opening an error event fails the start", async () => {
@@ -449,7 +482,11 @@ describe("the reading controller", () => {
 			id: "s0",
 			code: "zonos_unavailable",
 		});
+		// No audio was made: the empty stream fails to play, and the start fails.
+		t.audio.emit("error");
+		await settle();
 		expect(t.last().status).toBe("startFailed");
+		expect(t.fetchHealth).not.toHaveBeenCalled();
 	});
 
 	it("resumes by itself when the browser is back online", async () => {

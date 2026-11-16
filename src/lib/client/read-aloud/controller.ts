@@ -182,6 +182,8 @@ type Session = {
 	from: number;
 	timeline: SessionTimeline;
 	events: EventSourceLike | null;
+	/** How the stream said it failed, held until the audio made before it has played. */
+	failure: { serviceError: boolean; sentenceId: string | null } | null;
 };
 
 function quoteId(id: string): string {
@@ -469,6 +471,7 @@ export function createReadAloudController(
 			from,
 			timeline: new SessionTimeline(script, from),
 			events: null,
+			failure: null,
 		};
 		if (defaultSpeedPending) {
 			defaultSpeedPending = false;
@@ -545,15 +548,47 @@ export function createReadAloudController(
 		});
 		events.addEventListener("error", (event) => {
 			if (!mine()) return;
-			if (parseData(event) !== null) {
-				// The service's own `error` event: the voice failed. It is the stream's last event.
+			const data = parseData(event);
+			if (data !== null) {
+				// The service's own `error` event, the stream's last: the voice failed at that
+				// sentence. The audio made before it still reaches the player whole.
 				events.close();
-				fail("voice");
+				owner.failure = {
+					serviceError: true,
+					sentenceId: typeof data.id === "string" ? data.id : null,
+				};
 				return;
 			}
-			if (events.readyState === EVENTSOURCE_CLOSED) void streamBroke();
+			// A stream that ended without `done` or `error` (an EventSource that gave up
+			// reconnecting) is a stop. What was made still plays out first.
+			if (events.readyState === EVENTSOURCE_CLOSED) {
+				owner.failure ??= { serviceError: false, sentenceId: null };
+			}
 		});
 		return events;
+	}
+
+	/**
+	 * The audio ended (or could not play) before `done`: the reading broke. A failure the
+	 * stream named lands here, after the audio made before it has played, at the sentence
+	 * that failed; any other is asked of the browser and the server's health.
+	 */
+	async function landBreak() {
+		const owner = session;
+		if (!owner) return;
+		const failure = owner.failure ?? { serviceError: false, sentenceId: null };
+		const kind = await classify(failure.serviceError);
+		if (session !== owner) return;
+		const failed =
+			failure.sentenceId === null
+				? undefined
+				: reading?.script?.sentences.find(
+						(sentence) => sentence.id === failure.sentenceId,
+					);
+		if (failed && state.status === "playing" && failed.index > state.sentence) {
+			dispatch({ type: "progress", sentence: failed.index, word: null });
+		}
+		fail(kind);
 	}
 
 	/** Before the first audio a failure is a failed start; after it, a break. */
@@ -563,12 +598,6 @@ export function createReadAloudController(
 				? { type: "sessionFailed", kind }
 				: { type: "broke", kind },
 		);
-	}
-
-	async function streamBroke() {
-		const owner = session;
-		const kind = await classify(false);
-		if (session === owner) fail(kind);
 	}
 
 	async function classify(serviceError: boolean): Promise<BreakKind> {
@@ -692,11 +721,11 @@ export function createReadAloudController(
 	});
 	audio.addEventListener("ended", () => {
 		if (!hasSessionAudio()) return;
-		if (state.doneReceived) dispatch({ type: "ended" });
-		else void streamBroke();
+		if (state.doneReceived && !session?.failure) dispatch({ type: "ended" });
+		else void landBreak();
 	});
 	audio.addEventListener("error", () => {
-		if (hasSessionAudio()) void streamBroke();
+		if (hasSessionAudio()) void landBreak();
 	});
 
 	// -------------------------------------------------------------------
@@ -914,13 +943,6 @@ let singleton: ReadAloudController | null = null;
 export function getReadAloud(): ReadAloudController {
 	singleton ??= createReadAloudController(browserDeps());
 	return singleton;
-}
-
-/** Whether a reply can be read before anyone presses: the speaker is dimmed only when this says so. */
-export function assessReadability(
-	segmentIds: readonly string[],
-): Promise<Readability> {
-	return getReadAloud().assessReadability(segmentIds);
 }
 
 function browserDeps(): ReadAloudDeps {
