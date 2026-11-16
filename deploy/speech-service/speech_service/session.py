@@ -7,6 +7,12 @@ ahead of the one the reader has reported as playing, it
   3. writes a gap and the audio to the session's one MP3 encoder, announcing the sentence first,
   4. and has FuseAlign find the words in that audio, while the next sentence is being synthesized.
 
+The word times are an extra: without them the reader still has the sentence tint. So nothing waits
+for the aligner for long. A sentence's `words` come within `_ALIGNMENT_PATIENCE_SECONDS` of its
+alignment being queued, or say no time for any token; the aligner keeps the job it was given, and
+while one of those is still in its thread nothing more is queued behind it, and the sentences that
+come meanwhile get no word times either.
+
 Two readers follow it, each taken once: `events()` for the timeline (what the SSE route sends) and
 `audio()` for the MP3 (what the audio response sends).
 
@@ -54,15 +60,43 @@ Event = tuple[str, dict]
 _GAP_SECONDS = 0.30
 _PARAGRAPH_GAP_SECONDS = 0.60
 
+# How long a sentence's word times may take, from its alignment being queued to its `words` event.
+# After that the sentence has none and the reading goes on: the audio never waits on the aligner for
+# longer (the native one gives up by itself after 30 s, the Python one never does).
+_ALIGNMENT_PATIENCE_SECONDS = 5.0
+
 # Every alignment of every session runs on this one thread. FuseAlign blocks, and two of them at
-# once would double its memory against the service's budget of 1.5 GB. A job that has not started
-# when its session ends is cancelled; one that is running cannot be interrupted, so it finishes
-# (within a sentence's alignment time) and its result is dropped.
+# once would double its memory against the service's budget of 1.5 GB. A job nobody waits for any
+# more (its session ended, or it took too long) is skipped if the thread has not begun it; one that
+# is running cannot be interrupted, so it finishes (within a sentence's alignment time, or when a
+# stuck aligner lets go) and its result is dropped.
 _ALIGNER_THREAD = ThreadPoolExecutor(max_workers=1, thread_name_prefix="speech-align")
 
 
 class ReaderTaken(Exception):
     """`events()` or `audio()` was called a second time: each can be taken once per session."""
+
+
+class _AlignmentJob:
+    """One sentence's alignment, as the aligner's thread runs it.
+
+    `drop()` is for whoever stops waiting for its answer: the job lets go of the audio at once (the
+    thread's queue could hold it for a long time otherwise) and, if the thread has not begun it, it
+    does nothing when its turn comes. If the thread has begun it already, it finishes as it was.
+    """
+
+    def __init__(self, aligner: Aligner, audio_16k: np.ndarray, words: list[str]) -> None:
+        self._aligner = aligner
+        self._audio: np.ndarray | None = audio_16k
+        self._words = words
+
+    def run(self) -> list[Interval | None] | None:
+        """What the thread does: the aligner's answer, or None for a job that was dropped."""
+        audio, self._audio = self._audio, None
+        return None if audio is None else self._aligner.align(audio, self._words)
+
+    def drop(self) -> None:
+        self._audio = None
 
 
 class ReadingSession:
@@ -116,6 +150,8 @@ class ReadingSession:
         self._worker: asyncio.Task[None] | None = None
         self._forwarder: asyncio.Task[None] | None = None
         self._aligning: asyncio.Task[None] | None = None
+        # The job of an alignment that was given up on, until the aligner's thread is done with it.
+        self._stuck: asyncio.Future[list[Interval | None] | None] | None = None
         self._teardown: asyncio.Task[None] | None = None
         self._idle_clock: asyncio.TimerHandle | None = None
 
@@ -298,6 +334,18 @@ class ReadingSession:
         # One alignment at a time: the words of the sentence before come out first, and the memory
         # held for alignment is one sentence's. The next sentence is synthesized meanwhile.
         await self._flush_alignment()
+        if self._aligner_is_stuck():
+            # A job this session gave up on is still in the aligner's thread, running or waiting
+            # for its turn behind another session's. Queuing more behind it would only make this
+            # sentence wait its few seconds too, and hold its audio until the thread comes to it.
+            logger.warning(
+                "session %s: no word times for sentence %d: the aligner is still busy with an "
+                "earlier one",
+                self.id,
+                self._current,
+            )
+            self._emit("words", {"id": sentence.id, "times": [None] * len(sentence.tokens)})
+            return
         self._aligning = asyncio.create_task(
             self._align(self._current, sentence, spoken, audio_16k, start),
             name=f"reading-{self.id}-words",
@@ -318,12 +366,34 @@ class ReadingSession:
     async def _align(
         self, index: int, sentence: Sentence, spoken: Spoken, audio_16k: np.ndarray, start: float
     ) -> None:
-        """Find the sentence's words in its audio and announce them on the stream's clock."""
+        """Find the sentence's words in its audio and announce them on the stream's clock: within
+        `_ALIGNMENT_PATIENCE_SECONDS`, or as no times at all. Says `words` once, however it ends."""
+        job = _AlignmentJob(self._aligner, audio_16k, spoken.words)
+        del audio_16k  # the job holds it now, and lets it go if nobody waits for the answer
+        times: list[list[float] | None] = [None] * len(sentence.tokens)
+        future: asyncio.Future[list[Interval | None] | None] | None = None
         try:
-            word_times = await asyncio.get_running_loop().run_in_executor(
-                _ALIGNER_THREAD, self._aligner.align, audio_16k, spoken.words
-            )
-            times = [_on_stream_clock(t, start) for t in token_times(spoken, word_times)]
+            future = asyncio.get_running_loop().run_in_executor(_ALIGNER_THREAD, job.run)
+            future.add_done_callback(_retrieve_outcome)
+            done, _ = await asyncio.wait({future}, timeout=_ALIGNMENT_PATIENCE_SECONDS)
+            if future in done:
+                times = [_on_stream_clock(t, start) for t in token_times(spoken, future.result())]
+            else:
+                # Nothing more is waited for. The thread keeps the job (it cannot be interrupted),
+                # and until it is through with it nothing is queued behind it.
+                logger.warning(
+                    "session %s: no word times for sentence %d: the aligner took more than %g s",
+                    self.id,
+                    index,
+                    _ALIGNMENT_PATIENCE_SECONDS,
+                )
+                job.drop()
+                self._stuck = future
+        except asyncio.CancelledError:
+            job.drop()
+            if future is not None:
+                future.cancel()
+            raise
         except Exception as error:
             # The reader then gets the sentence tint without the word mark, and no error.
             logger.warning(
@@ -332,8 +402,15 @@ class ReadingSession:
             times = [None] * len(sentence.tokens)
         self._emit("words", {"id": sentence.id, "times": times})
 
+    def _aligner_is_stuck(self) -> bool:
+        """Whether a job this session gave up waiting for is still with the aligner's thread."""
+        if self._stuck is not None and self._stuck.done():
+            self._stuck = None
+        return self._stuck is not None
+
     async def _flush_alignment(self) -> None:
-        """Wait until the `words` of the sentence written last are out."""
+        """Wait until the `words` of the sentence written last are out: `_align` sees to it that
+        they come within `_ALIGNMENT_PATIENCE_SECONDS`."""
         pending, self._aligning = self._aligning, None
         if pending is not None:
             await pending
@@ -462,6 +539,14 @@ class ReadingSession:
 
 def _ms(seconds: float) -> float:
     return round(seconds, 3)
+
+
+def _retrieve_outcome(future: asyncio.Future) -> None:
+    """Read the outcome of an alignment job, whoever else does. One that was given up on, or whose
+    task was cancelled, is read by nobody, and asyncio reports an exception nobody read when the
+    future is collected, in a log line that quotes it."""
+    if not future.cancelled():
+        future.exception()
 
 
 def _on_stream_clock(interval: Interval | None, start: float) -> list[float] | None:

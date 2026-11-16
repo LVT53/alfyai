@@ -6,6 +6,7 @@ HTTP routes will read it: the events by one reader and the audio by another.
 """
 
 import asyncio
+import gc
 import io
 import json
 import logging
@@ -623,6 +624,157 @@ async def test_a_queued_alignment_never_runs_once_its_session_is_cancelled(
     finally:
         release.set()
         executor.shutdown(wait=True)
+
+
+# An aligner that does not answer. Alignment only adds the word marks, so the audio and the
+# timeline never wait for it for long: after a few seconds (shortened here) the sentence gets no
+# word times and the reading goes on, and nothing more is queued behind the job that is stuck.
+
+
+class _StuckOnTheFirst(FakeAligner):
+    """An aligner whose first call blocks, in the aligner's thread, until `release` is set. Then it
+    answers, or raises with `raises`."""
+
+    def __init__(self, raises: bool = False) -> None:
+        super().__init__()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.calls = 0
+        self.raises = raises
+
+    def align(self, audio_16k, words):
+        self.calls += 1
+        if self.calls == 1:
+            self.entered.set()
+            assert self.release.wait(timeout=10)
+            if self.raises:  # quoting the words, which no aligner may: the logs must not show it
+                raise RuntimeError(f"cannot time {words}")
+        return super().align(audio_16k, words)
+
+
+@pytest.fixture
+def impatient(monkeypatch):
+    """Sessions that give up on an alignment after 0.3 s, on an aligner thread of their own."""
+    monkeypatch.setattr(session_module, "_ALIGNMENT_PATIENCE_SECONDS", 0.3)
+    executor = _RecordingExecutor()
+    monkeypatch.setattr(session_module, "_ALIGNER_THREAD", executor)
+    yield executor
+    executor.shutdown(wait=True)
+
+
+async def aligner_thread_is_free(executor: ThreadPoolExecutor) -> None:
+    """Wait until everything sent to the aligner's thread so far has run, and what the loop was
+    told of it has been dealt with."""
+    await asyncio.get_running_loop().run_in_executor(executor, lambda: None)
+    await asyncio.sleep(0)
+
+
+async def test_a_stuck_aligner_holds_up_neither_the_audio_nor_the_timeline(new_session, impatient):
+    aligner = _StuckOnTheFirst()
+    session, requests = new_session(make_sentences(6), aligner=aligner, prefetch=6)
+    try:
+        events, mp3 = await play(session, timeout=5)  # with the aligner stuck all the while
+        assert aligner.entered.is_set() and not aligner.release.is_set()
+        queued = impatient.submitted
+    finally:
+        aligner.release.set()
+    await aligner_thread_is_free(impatient)
+
+    ids = [f"s{i}" for i in range(6)]
+    announced = of(events, "sentence")
+    assert [data["id"] for data in announced] == ids
+    assert len(requests) == 6
+    assert decoded_seconds(mp3) == pytest.approx(announced[-1]["end"], abs=0.15)
+    assert events[-1] == ("done", {})
+    # The sentence that was stuck and the ones behind it have no word times, each once, in order.
+    assert of(events, "words") == [{"id": id, "times": [None, None]} for id in ids]
+    # Nothing was queued behind the stuck job, and its answer came to nothing.
+    assert queued == 1
+    assert aligner.calls == 1
+    assert_nothing_left_running()
+
+
+async def test_a_job_given_up_on_that_fails_is_not_reported_by_asyncio(impatient, caplog):
+    # When a future is collected with an exception nobody read, asyncio logs that exception, and
+    # an aligner's error that quoted the words would put them in the log. Not a session left to the
+    # fixture, which keeps it alive: here the session goes away as soon as it has ended.
+    aligner = _StuckOnTheFirst(raises=True)
+    http, _ = fake_zonos()
+    session = ReadingSession(
+        "test-session",
+        make_sentences(3, tokens=tuple(SECRET)),
+        ZonosClient("http://zonos.test", http),
+        aligner,
+        Settings(),
+    )
+    try:
+        await play(session, timeout=5)
+    finally:
+        aligner.release.set()
+    await aligner_thread_is_free(impatient)
+    await http.aclose()
+    del session
+    gc.collect()
+
+    assert aligner.calls == 1
+    for record in caplog.records:
+        assert "Zebrafish" not in record.getMessage() and "Quokka" not in record.getMessage()
+        assert "Zebrafish" not in (record.exc_text or "") and not record.exc_info
+
+
+async def test_alignment_goes_on_once_the_stuck_job_has_finished(new_session, impatient):
+    aligner = _StuckOnTheFirst()
+    session, _ = new_session(make_sentences(8), aligner=aligner)  # prefetch 2: three sentences
+    collected: list[tuple[str, dict]] = []
+
+    async def collect() -> None:
+        async for event in session.events():
+            collected.append(event)
+
+    session.start()
+    readers = [asyncio.create_task(collect()), asyncio.create_task(drain(session.audio(), None))]
+    try:
+        await until(lambda: len(of(collected, "words")) == 3, timeout=5)
+        # The reading did not wait: three sentences are out, and the aligner is stuck on the first.
+        assert len(of(collected, "sentence")) == 3
+        assert aligner.calls == 1
+    finally:
+        aligner.release.set()
+    await aligner_thread_is_free(impatient)
+    session.report_position("s7")  # the reader moves on: the rest may be read
+    async with asyncio.timeout(10):
+        await asyncio.gather(*readers)
+
+    words = of(collected, "words")
+    assert [data["id"] for data in words] == [f"s{i}" for i in range(8)]
+    assert [data["times"] for data in words[:3]] == [[None, None]] * 3
+    assert all(None not in data["times"] for data in words[3:])
+    assert aligner.calls == 1 + 5
+    assert collected[-1] == ("done", {})
+
+
+async def test_a_stuck_aligner_does_not_stall_another_session(new_session, impatient):
+    aligner = _StuckOnTheFirst()  # one aligner, as the service has: the first session sticks it
+    zonos = fake_zonos(concurrency=2)
+    first, _ = new_session(make_sentences(2), zonos=zonos, aligner=aligner, session_id="a")
+    second, _ = new_session(
+        make_sentences(4), zonos=zonos, aligner=aligner, session_id="b", prefetch=4
+    )
+    first.start()
+    try:
+        await until(aligner.entered.is_set)
+        # The second session's alignment waits behind the stuck one for its few seconds, and goes
+        # on without it.
+        events, mp3 = await play(second, timeout=5)
+        assert not aligner.release.is_set()
+    finally:
+        aligner.release.set()
+    await aligner_thread_is_free(impatient)
+
+    assert events[-1] == ("done", {}) and mp3
+    assert of(events, "words") == [{"id": f"s{i}", "times": [None, None]} for i in range(4)]
+    # What it queued behind the stuck job was dropped, and never ran when the thread was free.
+    assert aligner.calls == 1
 
 
 async def test_normalization_does_not_queue_behind_another_sessions_alignment(new_session):
