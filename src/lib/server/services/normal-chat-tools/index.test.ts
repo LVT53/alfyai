@@ -3752,6 +3752,42 @@ describe("createNormalChatTools", () => {
 		]);
 	});
 
+	it("tells the recorder that a failure of a tool that only reads is settled, so the turn goes on", async () => {
+		researchWebViaParallelMock.mockRejectedValueOnce(
+			new Error("research unavailable"),
+		);
+		getMemoryContextMock.mockRejectedValueOnce(new Error("memory unavailable"));
+		searchImagesMock.mockRejectedValueOnce(
+			new Error("image search unavailable"),
+		);
+		const recorder = createToolCallRecorder();
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			recorder,
+		});
+
+		const research = await requireTool(tools.research_web).execute(
+			{ query: "current docs" },
+			{ toolCallId: "call-research-failed", messages: [] },
+		);
+		const memory = await tools.memory_context.execute(
+			{ mode: "history", query: "old decision" },
+			{ toolCallId: "call-memory-failed", messages: [] },
+		);
+		const images = await tools.image_search.execute(
+			{ query: "reference image" },
+			{ toolCallId: "call-image-failed", messages: [] },
+		);
+
+		// A search, a memory read and a picture search change nothing when they run
+		// again, so an error from any of them is a settled failure the model reads,
+		// not the "may have run" that ends the turn with no answer.
+		for (const result of [research, memory, images])
+			expect(recorder.getExecutionCertainty?.(result)).toBe("failed");
+	});
+
 	it("records timed out tool executions through the shared envelope", async () => {
 		vi.useFakeTimers();
 		try {
@@ -3788,6 +3824,36 @@ describe("createNormalChatTools", () => {
 					},
 				}),
 			]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("records a timeout of a tool that only reads as a settled failure too", async () => {
+		vi.useFakeTimers();
+		try {
+			researchWebViaParallelMock.mockReturnValueOnce(
+				new Promise(() => undefined),
+			);
+			const recorder = createToolCallRecorder();
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				recorder,
+			});
+
+			const resultPromise = requireTool(tools.research_web).execute(
+				{ query: "slow current docs" },
+				{ toolCallId: "call-research-timeout", messages: [] },
+			);
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			// The search timed out after 60 s: nothing was changed by it, so the model
+			// is told and goes on without it.
+			expect(recorder.getExecutionCertainty?.(await resultPromise)).toBe(
+				"failed",
+			);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -6150,6 +6216,26 @@ describe("read_generated_file tool — what a call records it read", () => {
 		const [entry] = getToolCalls();
 		expect(entry.metadata).toMatchObject({ ok: false, found: false });
 		expect(entry.metadata).not.toHaveProperty("readArtifactIds");
+	});
+
+	it("records a failed read as a settled failure, so the model reads the error", async () => {
+		readGeneratedFileForToolMock.mockRejectedValue(
+			new Error("database is locked"),
+		);
+		const recorder = createToolCallRecorder();
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			recorder,
+		});
+
+		const result = await tools.read_generated_file.execute(
+			{ filename: "Wien itinerary.pdf" },
+			{ toolCallId: "call-error", messages: [] },
+		);
+
+		expect(recorder.getExecutionCertainty?.(result)).toBe("failed");
 	});
 
 	it("records nothing when the read fails", async () => {

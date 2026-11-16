@@ -6,10 +6,12 @@
  * `definitely_not_executed` and the turn goes on: the model reads the refusal,
  * which is written for it, and can correct itself.
  *
- * Every other thrown error stays `uncertain`: a throw alone cannot prove that
- * nothing ran, and the engine stops the turn at an uncertain call. So throw this
- * only from a check that runs before the work starts, never from code that may
- * already have dispatched it. Pure: no I/O, no state.
+ * A thrown error of any other kind is `uncertain` (a throw alone cannot prove
+ * that nothing ran, and the engine stops the turn at an uncertain call), unless
+ * it comes from a tool that says it only reads (`readOnly` on its envelope call),
+ * where it is a settled failure. So throw this only from a check that runs
+ * before the work starts, never from code that may already have dispatched it.
+ * Pure: no I/O, no state.
  */
 export class ToolCallRefusedError extends Error {
 	constructor(message: string) {
