@@ -555,7 +555,8 @@ def _retrieve_outcome(future: asyncio.Future) -> None:
 
 def _on_stream_clock(interval: Interval | None, start: float) -> list[float] | None:
     """A token's `(start, end)` in its sentence's audio as `[start, end]` on the stream's clock, in
-    milliseconds; None for a token with no time, or one that is not a finite number."""
+    seconds (the contract's unit), rounded to the millisecond; None for a token with no time, or
+    one that is not a finite number."""
     if interval is None:
         return None
     begin, end = start + interval[0], start + interval[1]
