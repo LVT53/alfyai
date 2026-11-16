@@ -135,6 +135,58 @@ describe("the containment check", () => {
 			).toBeNull();
 	});
 
+	it("steps over the tags, comments and link destinations that sit inside a word", () => {
+		const cases: Array<[markdown: string, written: string[], language?: "hu"]> =
+			[
+				[
+					"Press <kbd>Ctrl</kbd>+<kbd>C</kbd> now.",
+					["Press", "Ctrl+C", "now."],
+				],
+				["Water is H<sub>2</sub>O.", ["Water", "is", "H2O."]],
+				["It is x<sup>2</sup> here.", ["It", "is", "x2", "here."]],
+				["A foo<!-- hidden -->bar word.", ["A", "foobar", "word."]],
+				[
+					"See the [README](docs/README.md)-ben.",
+					["See", "the", "README-ben."],
+					"hu",
+				],
+				[
+					"See [the docs](https://example.com/a_(b))s now.",
+					["See", "the", "docss", "now."],
+				],
+			];
+		for (const [markdown, written, language] of cases)
+			expect(
+				wordsFitReply(markdown, [
+					{
+						language: language ?? "en",
+						words: written.map((w) => said(w, "prose", language ?? "en")),
+					},
+				]),
+				markdown,
+			).toBeNull();
+	});
+
+	it("keeps the tags that code shows as written, and the ones an entity makes text", () => {
+		// Inline code and a fenced block show `<div>` as it is.
+		expect(
+			wordsFitReply("Use `<div>` here.", [
+				en(said("Use"), said("<div>", "code"), said("here.")),
+			]),
+		).toBeNull();
+		expect(
+			wordsFitReply('Text.\n\n```html\n<div class="x">\n```\n', [
+				en(said("<div", "code")),
+			]),
+		).toBeNull();
+		// "&lt;kbd&gt;" is the letters kbd on the screen, not a tag.
+		expect(
+			wordsFitReply("Write &lt;kbd&gt; for a key.", [
+				en(said("Write"), said("<kbd>"), said("for")),
+			]),
+		).toBeNull();
+	});
+
 	it("counts a word with no letters as found", () =>
 		expect(
 			wordsFitReply("Alpha beta", [en(said("Alpha"), said("—"), said("beta"))]),

@@ -23,16 +23,76 @@ export function letterKey(text: string): string {
 		.replace(/[^\p{L}\p{N}]/gu, "");
 }
 
+const FENCE = /^ {0,3}(`{3,}|~{3,})/u;
+
+/**
+ * Text outside code with what the renderer never shows taken out: HTML comments,
+ * HTML tags and link destinations. They sit between the words, but also inside
+ * one (`Ctrl+<kbd>C</kbd>`, `H<sub>2</sub>O`, `[README](docs/README.md)-ben`),
+ * where their letters would split the word the screen shows. Inline code keeps
+ * its tags, as the screen does: `<div>` in ticks is the letters "div".
+ */
+function stripInline(text: string): string {
+	const strip = (part: string): string =>
+		part
+			.replace(/<!--[\s\S]*?-->/gu, "")
+			.replace(/<\/?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?\/?>/gu, "")
+			.replace(/\]\([^)]*\)/gu, "]");
+	let out = "";
+	let from = 0;
+	while (from < text.length) {
+		const tick = text.indexOf("`", from);
+		if (tick === -1) return out + strip(text.slice(from));
+		out += strip(text.slice(from, tick));
+		let end = tick;
+		while (text[end] === "`") end += 1;
+		const run = text.slice(tick, end);
+		const close = text.indexOf(run, end);
+		// A run of ticks with no match is text.
+		const stop = close === -1 ? end : close + run.length;
+		out += text.slice(tick, stop);
+		from = stop;
+	}
+	return out;
+}
+
+/** The Markdown with `stripInline` applied outside fenced code, which is kept as it is. */
+function stripMarkup(markdown: string): string {
+	let out = "";
+	let plain = "";
+	let fence: string | null = null;
+	for (const line of markdown.split("\n")) {
+		const mark = FENCE.exec(line)?.[1];
+		if (fence !== null) {
+			out += `${line}\n`;
+			// The closing fence: the same character, at least as many, nothing after.
+			if (
+				mark &&
+				mark[0] === fence[0] &&
+				mark.length >= fence.length &&
+				line.trim() === mark
+			)
+				fence = null;
+		} else if (mark) {
+			out += `${stripInline(plain)}${line}\n`;
+			plain = "";
+			fence = mark;
+		} else plain += `${line}\n`;
+	}
+	return out + stripInline(plain);
+}
+
 /**
  * The letter key of the reply's Markdown, after its entities are decoded the way
  * the browser decodes them: `decodeHTMLStrict` knows the whole HTML5 table, the
  * Windows-1252 rule for 128 to 159 and that an entity needs its semicolon. The
  * renderer passes an entity through, so the screen shows what it decodes to.
- * Nothing else is cleaned away: link destinations, image syntax and tags only
- * put letters between the words, and the search steps over them.
+ * The markup that sits inside a word is taken out first (`stripMarkup`); what is
+ * left between words only puts letters there, and the search steps over them.
  */
 export function replyKey(markdown: string): string {
-	return letterKey(decodeHTMLStrict(markdown));
+	// Strip first: "&lt;kbd&gt;" decodes to text that is shown, not to a tag.
+	return letterKey(decodeHTMLStrict(stripMarkup(markdown)));
 }
 
 /**
