@@ -130,6 +130,9 @@ class ReadingSession:
         self._current = 0  # the index of the sentence being read
         self._announced = 0
         self._began = 0.0
+        # A paragraph opened at a sentence that said nothing, and no sentence read since: the gap
+        # before the next sentence read is the paragraph's.
+        self._paragraph_pending = False
 
     @property
     def ended(self) -> bool:
@@ -264,7 +267,9 @@ class ReadingSession:
         # must not wait for that. The default executor, not the aligner's thread, which can be busy.
         spoken = await asyncio.to_thread(normalize, sentence.tokens, sentence.language)
         if not spoken.words:
-            # Nothing to say (a lone symbol, an emoji): no call to Zonos, no time, no gap.
+            # Nothing to say (a lone symbol, an emoji): no call to Zonos, no time, no gap. A
+            # paragraph that opens here still opens: the next sentence read gets its gap.
+            self._paragraph_pending |= sentence.paragraph_start
             await self._flush_alignment()
             now = self._clock()
             self._emit("sentence", {"id": sentence.id, "start": _ms(now), "end": _ms(now)})
@@ -274,8 +279,10 @@ class ReadingSession:
 
         clip = await self._synthesize(sentence, spoken)
         if self._encoder.samples_written:  # a gap goes between sentences, not before the first
-            gap = _PARAGRAPH_GAP_SECONDS if sentence.paragraph_start else _GAP_SECONDS
+            new_paragraph = sentence.paragraph_start or self._paragraph_pending
+            gap = _PARAGRAPH_GAP_SECONDS if new_paragraph else _GAP_SECONDS
             await self._encoder.write(silence(gap, SAMPLE_RATE))
+        self._paragraph_pending = False
         start = self._clock()
         end = start + len(clip) / SAMPLE_RATE
         self._emit("sentence", {"id": sentence.id, "start": _ms(start), "end": _ms(end)})

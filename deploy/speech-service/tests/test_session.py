@@ -282,10 +282,42 @@ async def test_a_sentence_that_speaks_as_nothing_makes_no_zonos_call(new_session
     assert silent["id"] == "s1"
     assert silent["start"] == silent["end"] == pytest.approx(first["end"], abs=0.0011)
     assert of(events, "words")[1] == {"id": "s1", "times": [None, None]}
-    # The silent sentence adds no gap of its own, and the gap before the next one is one gap.
-    assert last["start"] - first["end"] == pytest.approx(0.30, abs=0.05)
+    # The silent sentence adds no gap of its own, and the gap before the next one is one gap: the
+    # paragraph it opens is not lost, so that gap is the paragraph's.
+    assert last["start"] - first["end"] == pytest.approx(0.60, abs=0.05)
     assert events[-1] == ("done", {})
     assert [name for name, _ in events].count("sentence") == 3
+
+
+def sentences_of(kinds: str) -> list[Sentence]:
+    """One sentence per letter: "a" is read, "s" says nothing, and a capital opens a paragraph."""
+    read_out, says_nothing = ["Hello", "there."], ["🙂"]
+    return [
+        Sentence(f"s{i}", "en", VOICE, says_nothing if kind in "sS" else read_out, kind in "AS")
+        for i, kind in enumerate(kinds)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("kinds", "gaps"),
+    [
+        ("aSa", [0.60]),  # a paragraph opens with a sentence that says nothing: the gap is its own
+        ("asa", [0.30]),  # one that opens none leaves the ordinary gap
+        ("aSsa", [0.60]),  # the paragraph is kept across more silent sentences
+        ("asSsa", [0.60]),
+        ("aSA", [0.60]),  # and is the one gap when the sentence read opens a paragraph too
+        ("aSaa", [0.60, 0.30]),  # it is used once
+        ("Saa", [0.30]),  # nothing is written before the first sentence read, so no gap, and
+        ("SSaAa", [0.60, 0.30]),  # the paragraph waiting does not carry into the sentences after it
+    ],
+)
+async def test_a_paragraph_that_opens_with_nothing_to_say_keeps_its_gap(new_session, kinds, gaps):
+    session, _ = new_session(sentences_of(kinds), prefetch=len(kinds))  # no reader to wait for
+    events, _ = await play(session)
+    announced = of(events, "sentence")
+    read = [announced[i] for i, kind in enumerate(kinds) if kind in "aA"]
+    assert [b["start"] - a["end"] for a, b in pairwise(read)] == pytest.approx(gaps, abs=0.05)
+    assert events[-1] == ("done", {})
 
 
 async def test_a_session_of_nothing_but_unspeakable_sentences_still_ends_with_done(new_session):
