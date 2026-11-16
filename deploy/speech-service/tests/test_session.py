@@ -1000,12 +1000,14 @@ async def test_cancelling_twice_is_fine(new_session):
 
 async def test_session_ends_when_reader_leaves(new_session):
     # Sentences enough that the worker is mid-reading when the idle clock runs out.
-    session, requests = new_session(make_sentences(200), prefetch=200, idle_seconds=0.5)
+    idle = 0.2
+    session, requests = new_session(make_sentences(200), prefetch=200, idle_seconds=idle)
     loop = asyncio.get_running_loop()
     started = loop.time()
     session.start()
     await until(lambda: session.ended, timeout=5)
-    assert loop.time() - started >= 0.5 - 0.01  # not before the idle time is up
+    # Not before the idle time is up, and soon after it: ffmpeg is killed and the worker gone.
+    assert idle - 0.01 <= loop.time() - started <= idle + 0.3
     count = len(requests)
     assert 1 <= count < 200
     await asyncio.sleep(0.3)
