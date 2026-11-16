@@ -108,14 +108,25 @@ Read once at start-up, from the environment, by `speech_service/config.py` (whic
 
 The Mac runs Zonos MLX in place of the box's ggml build. The commands are `sh`; in fish, put `env` in front of the variables. Nothing here writes into the `zonos3` checkout.
 
-1. **A voices folder outside the checkout**, with the English default voices and the two Hungarian voices (`berta.npy`, `imre.npy`, kept local in the git-ignored `.superpowers/hu-voices/` of the main checkout) as default voices too, as on the box. A voice's id is `default_` and a hash of its path in this folder, so keep the `English` folder's name:
+1. **A voices folder outside the checkout**, laid out as on the box (`gguf/voices`): the English default voices in `English/`, and the two Hungarian voices (`berta.npy`, `imre.npy`, kept local in the git-ignored `.superpowers/hu-voices/` of the main checkout) as default voices too, in `Hungarian/`. A voice's id is `default_` and the first 16 hex digits of the SHA-1 of its path inside this folder, so the two folders' names matter: with them the ids are the box's. Without them the ids differ, and a client that sends the box's ids gets `synthesis_failed` for every Hungarian sentence (Zonos does not know the speaker).
 
    ```sh
    VOICES=~/Downloads/speech-voices
-   mkdir -p "$VOICES"
+   mkdir -p "$VOICES/Hungarian"
    cp -R ~/Downloads/zonos3/assets/default_voices/English "$VOICES/"
-   cp /Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/.superpowers/hu-voices/{berta,imre}.npy "$VOICES/"
+   cp /Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/.superpowers/hu-voices/{berta,imre}.npy "$VOICES/Hungarian/"
    ```
+
+   The voices and their ids, which are the same on the Mac and on the box:
+
+   | Voice | File in the folder | `speaker_id` |
+   |---|---|---|
+   | Berta (Hungarian) | `Hungarian/berta.npy` | `default_bf7632822e6b4dc0` |
+   | Imre (Hungarian) | `Hungarian/imre.npy` | `default_fde02d0881bd267d` |
+   | Imogen | `English/Imogen_en-British_F_1.wav` | `default_b78b28baf5c31a1d` |
+   | Rupert | `English/Rupert_en-British_M_1.wav` | `default_3765f0d1140c05c0` |
+   | Savannah | `English/Savannah_en-American_F_1.mp3` | `default_de4d191ca7574982` |
+   | Wyatt | `English/Wyatt_en-American_M_1.ogg` | `default_34370fd91e3484ef` |
 
 2. **Zonos MLX on port 1921**, which leaves 1919 and this service's 1920 free:
 
