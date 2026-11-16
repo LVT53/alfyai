@@ -14,7 +14,10 @@ vi.mock("$lib/server/services/app-version", () => ({
 	),
 }));
 
+const mockGetReadAloudUrl = vi.fn(() => "");
+
 vi.mock("$lib/server/config-store", () => ({
+	getReadAloudUrl: () => mockGetReadAloudUrl(),
 	getConfig: vi.fn(() => ({
 		maxMessageLength: 12000,
 		maxFileUploadSize: 104857600,
@@ -120,6 +123,22 @@ describe("getAuthenticatedAppShellData — disabledFileTypeIds", () => {
 		const data = await getAuthenticatedAppShellData(user);
 
 		expect(Array.isArray(data.disabledFileTypeIds)).toBe(true);
+	});
+});
+
+describe("getAuthenticatedAppShellData — readAloudEnabled", () => {
+	it("says read aloud is on only when it is enabled and has an address", async () => {
+		mockGetUploadFormatGate.mockResolvedValueOnce(openGate());
+		mockGetReadAloudUrl.mockReturnValueOnce("");
+		expect((await getAuthenticatedAppShellData(user)).readAloudEnabled).toBe(
+			false,
+		);
+
+		mockGetUploadFormatGate.mockResolvedValueOnce(openGate());
+		mockGetReadAloudUrl.mockReturnValueOnce("http://127.0.0.1:1920");
+		expect((await getAuthenticatedAppShellData(user)).readAloudEnabled).toBe(
+			true,
+		);
 	});
 });
 
