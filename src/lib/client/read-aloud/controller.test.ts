@@ -324,6 +324,30 @@ describe("the reading controller", () => {
 		).toContain("secret");
 	});
 
+	it("a speaker press resumes a reading begun by Read from here in a long code block where it was", async () => {
+		const t = setup();
+		const row = mountReply(
+			"m1",
+			`${REPLY}${codeBlock(["const one = 1;", "const two = 2;", "const three = 3;", "const four = 4;", "const five = 5;"])}<p>And the text after the code goes on here.</p>`,
+		);
+		const third = row.querySelectorAll("pre span.line span")[2]
+			?.firstChild as Text;
+		start(t, "m1", { node: third, offset: 0 });
+		await settle();
+		const first = t.body(0)?.sentences[0]?.id;
+		expect(t.body(0)?.sentences[0]?.words[0]?.kind).toBe("code");
+		t.audio.emit("playing");
+		t.controller.toggle();
+		vi.advanceTimersByTime(30_000);
+		expect(t.last()).toMatchObject({ status: "paused" });
+		// The reply's own speaker resumes it: the same script, at the same sentence.
+		start(t);
+		await settle();
+		expect(t.api.createReadingSession).toHaveBeenCalledTimes(2);
+		expect(t.body(1)?.sentences[0]?.id).toBe(first);
+		expect(t.last().status).toBe("seeking");
+	});
+
 	it("reports the position when the sentence changes", async () => {
 		const t = setup();
 		mountReply();

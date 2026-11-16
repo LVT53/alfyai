@@ -416,10 +416,9 @@ export function createReadAloudController(
 			reading.messageId === messageId &&
 			!NO_READING.has(previous.status);
 		if (starting && pending && pending.messageId === messageId) {
-			const changed =
-				!sameReading ||
-				reading?.readBlockIndex !== pending.readBlockIndex ||
-				pending.script !== null;
+			// A selection (Read from here) brings its own script; a speaker press on the
+			// reply being read resumes it as it is, with the script its sentences index.
+			const changed = !sameReading || pending.script !== null;
 			if (changed) {
 				if (!sameReading) defaultSpeedPending = true;
 				reading = {
