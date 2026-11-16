@@ -231,6 +231,29 @@ describe("the containment check", () => {
 		).toBe(0);
 	});
 
+	it("does not let a code word speak what the reply does not say beside its address", () => {
+		// A code word speaks the names around its address too: "Free Speech Here
+		// example dot com". Only a prose word is spoken as its host alone.
+		const reply = "Open https://example.com in your browser.";
+		for (const [shown, kind] of [
+			["FreeSpeechHere(https://example.com)", "code"],
+			["Nothing_in_the_reply.https://example.com/x", "code"],
+			["FreeSpeechHere(https://example.com)", "shell"],
+		] as const)
+			expect(
+				wordsFitReply(reply, [
+					en({ shown, kind, tokens: speakWord(shown, kind, "en") }),
+				]),
+				`${kind}: ${shown}`,
+			).toBe(0);
+		// A code word that is only the address shows it whole on the screen: accepted.
+		expect(
+			wordsFitReply("Call `https://example.com/api` now.", [
+				en(said("Call"), said("https://example.com/api", "code"), said("now.")),
+			]),
+		).toBeNull();
+	});
+
 	it("counts a word with no letters as found", () =>
 		expect(
 			wordsFitReply("Alpha beta", [en(said("Alpha"), said("—"), said("beta"))]),

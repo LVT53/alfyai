@@ -125,8 +125,11 @@ export function wordsFitReply(
 			if (word.kind === "listNumber") {
 				if (!LIST_NUMBER.test(word.shown)) return index;
 			} else {
-				// An address is spoken as its host, and the page may show it only so.
-				const key = letterKey(addressHost(word.shown) ?? word.shown);
+				// A prose word that is an address is spoken as its host alone, and the
+				// page may show it only so (a source chip). A code word also speaks
+				// the names around its address, so it is searched whole.
+				const host = word.kind === "prose" ? addressHost(word.shown) : null;
+				const key = letterKey(host ?? word.shown);
 				if (key !== "") {
 					const at = reply.indexOf(key, cursor);
 					if (at === -1) return index;

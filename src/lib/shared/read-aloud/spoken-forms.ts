@@ -140,7 +140,9 @@ function findAddress(
 	text: string,
 	language: ReadingLanguage,
 ): { before: string; host: string; tokens: string[]; after: string } | null {
-	const url = URL_SPAN.exec(text);
+	// Only a word that holds "://" can hold a URL: the scan would otherwise try
+	// every letter of a long word.
+	const url = text.includes("://") ? URL_SPAN.exec(text) : null;
 	const www = url ? null : WWW_SPAN.exec(text);
 	const found = url ?? www;
 	if (!found) return null;
@@ -695,17 +697,18 @@ export function speakWord(
 /**
  * The site name a word is spoken as when it is an address ("bbc.com" for
  * "https://www.bbc.com/news/x"): no scheme, credentials, port, path or `www.`.
- * Null when the word is no address. The session route searches the reply for
- * this and not for the whole address, because the page may show the address
- * only by its host, as a source chip does.
+ * Null when the word is no address. This is how a PROSE word is read (an
+ * address there is spoken as its host alone), and the session route searches the
+ * reply for it, and not for the whole address, because the page may show the
+ * address only by its host, as a source chip does. A code word also speaks the
+ * names around its address, so it is searched whole.
  */
 export function addressHost(shown: string): string | null {
 	const lead = LEADING_MARKS.exec(shown)?.[0] ?? "";
 	const rest = shown.slice(lead.length);
 	const trail = TRAILING_MARKS.exec(rest)?.[0] ?? "";
 	const core = rest.slice(0, rest.length - trail.length);
-	const found = findAddress(core, "en") ?? findAddress(shown, "en");
-	return found?.host || null;
+	return findAddress(core, "en")?.host || null;
 }
 
 /** An arrow or a separator dot between items in prose. */
