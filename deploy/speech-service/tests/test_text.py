@@ -123,6 +123,11 @@ def test_inflected_and_ordinal_number_words_say_két(text, said):
         ("Ez 2 vagyis 3 tojás.", "Ez kettő vagyis három tojás."),
         ("Ez 2 ugyanis 3 tojás.", "Ez kettő ugyanis három tojás."),
         ("Ez 2 szintén 3 tojás.", "Ez kettő szintén három tojás."),
+        # Comparisons, and "about": "2 kisebb mint 3", "2 körülbelül elég".
+        ("Ez 2 kisebb mint 3.", "Ez kettő kisebb mint három."),
+        ("Ez 2 nagyobb mint 1.", "Ez kettő nagyobb mint egy."),
+        ("Ebből 2 körülbelül elég.", "Ebből kettő körülbelül elég."),
+        ("A 2 mint szám prím.", "A kettő mint szám prím."),
     ],
 )
 def test_a_number_that_counts_nothing_stays_kettő(text, said):
@@ -143,6 +148,9 @@ def test_a_number_that_counts_nothing_stays_kettő(text, said):
         ("Számolj: 1 2 3.", "Számolj: egy kettő három."),
         # ...also when the second number has a symbol in front of it: "$5" is a number, not a word.
         ("Ez 2 $5 értékű.", "Ez kettő öt dollár értékű."),
+        # A comparison sign is not spoken either (the second one has a word that would be counted).
+        ("2 ≤ x", "kettő x"),
+        ("Ez 2 ≤ alma.", "Ez kettő alma."),
     ],
 )
 def test_a_number_before_a_symbol_or_another_number_stays_kettő(text, said):
@@ -187,6 +195,7 @@ NOT_COUNTED = [
     "is", "sem", "nem", "de", "pedig", "viszont", "lehet", "legyen", "már", "még", "csak", "azaz",
     "stb.", "s",
     "valamint", "továbbá", "vagyis", "ugyanis", "szintén",
+    "kisebb", "nagyobb", "körülbelül", "mint",
 ]  # fmt: skip
 
 

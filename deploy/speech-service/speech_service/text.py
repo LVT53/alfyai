@@ -52,6 +52,8 @@ _NOT_COUNTED = frozenset(
         "azaz", "stb", "s",
         # ... and the connectives and adverbs that join or comment: "2 valamint 3", "2 vagyis"
         "valamint", "továbbá", "vagyis", "ugyanis", "szintén",
+        # ... and comparisons and "about": "2 kisebb mint 3", "2 nagyobb", "2 körülbelül elég"
+        "kisebb", "nagyobb", "körülbelül", "mint",
     }
 )  # fmt: skip
 # Where a "kettő" inside one token counts nothing: the decimal point, the dot of 1.2.3, a month.
@@ -148,8 +150,8 @@ def _fix_hungarian(
     and "két" is only said when that is sure; otherwise the normalizer's "kettő" stays:
     - inside a number word: kettőezer-huszonhat, kettőezres, kettőmilliomodik;
     - at the end of a plain number (digits only, no year) written straight before a word it counts,
-      a lowercase spoken word that is no postposition, conjunction, adverb, operator, copula or
-      particle: két tojás;
+      a lowercase spoken word that is no postposition, conjunction, adverb, comparison, operator,
+      copula or particle: két tojás;
     - inside one token that starts with a number and reads as several words, before the word it
       counts: 2% is két százalék.
     """
