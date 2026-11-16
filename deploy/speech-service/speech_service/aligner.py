@@ -13,7 +13,9 @@ times. The message never quotes the words: the service logs no reply text.
 from __future__ import annotations
 
 import json
+import logging
 import math
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -25,6 +27,8 @@ import soundfile as sf
 
 from speech_service.config import Settings
 from speech_service.text import Spoken
+
+logger = logging.getLogger(__name__)
 
 # FuseAlign wants mono audio at 16 kHz.
 ALIGN_SAMPLE_RATE = 16_000
@@ -245,24 +249,73 @@ class NoAligner:
 
 
 def make_aligner(settings: Settings) -> Aligner:
-    """The backend `settings.aligner` names. The Python one loads FuseAlign now (a few seconds)."""
+    """The backend `settings.aligner` names, set up. The Python one loads FuseAlign now (a few
+    seconds).
+
+    Word times are an extra, so a backend that cannot be set up here does not stop the service: this
+    answers with `NoAligner` instead, readings carry sentence marks only and `/health` says
+    `aligner: false`. That is ONE error line in the log, naming the backend and what is missing, or
+    the type of what went wrong, and never an exception's message. A backend cannot be set up when
+    the native CLI is not a command or file that runs, or its model is not set or not a file, or
+    when the Python backend's libraries do not import or its model does not load.
+    """
+    try:
+        return _set_up(settings)
+    except _Missing as missing:
+        why = str(missing)
+    except Exception as error:  # an import, a checkpoint: whatever the backend's own set-up raised
+        why = _kind_of(error)
+    logger.error(
+        "the %s aligner cannot be set up (%s): readings will carry sentence marks only, "
+        "without word times",
+        settings.aligner,
+        why,
+    )
+    return NoAligner()
+
+
+class _Missing(Exception):
+    """What the configured backend needs and cannot find: a setting, a file, a command. The message
+    names the setting and the path, which are the operator's own words and no reply's."""
+
+
+def _set_up(settings: Settings) -> Aligner:
     match settings.aligner:
         case "python":
             return PythonFuseAligner(
                 device="cpu", threads=settings.aligner_threads, checkpoint=settings.aligner_model
             )
         case "native":
-            if not settings.aligner_model:
-                raise ValueError(
-                    "SPEECH_ALIGNER=native needs SPEECH_ALIGNER_MODEL, the path of a fusealign GGUF"
-                )
-            return NativeFuseAligner(
-                settings.aligner_cli, settings.aligner_model, settings.aligner_threads
-            )
+            return _set_up_native(settings)
         case "none":
             return NoAligner()
         case _:
             assert_never(settings.aligner)
+
+
+def _set_up_native(settings: Settings) -> NativeFuseAligner:
+    """The native backend, once its CLI is a command or file that runs (`which` takes an absolute
+    path as it is, and a bare name from PATH, as `subprocess` does) and its model is a file. Raises
+    `_Missing`, naming every one of the two that is not."""
+    cli, model = settings.aligner_cli, settings.aligner_model
+    missing = []
+    if shutil.which(cli) is None:
+        missing.append(f"SPEECH_ALIGNER_CLI {cli!r} is not an executable file or a command on PATH")
+    if not model:
+        missing.append("SPEECH_ALIGNER_MODEL is not set")
+    elif not Path(model).is_file():
+        missing.append(f"SPEECH_ALIGNER_MODEL {model!r} is not a file")
+    if missing or not model:  # `not model` is in `missing` too: it is here for the type checker
+        raise _Missing("; ".join(missing))
+    return NativeFuseAligner(cli, model, settings.aligner_threads)
+
+
+def _kind_of(error: Exception) -> str:
+    """What to log of a backend's own failure to set up: the type of the exception, and the module
+    a failed import was after. Never its message."""
+    if isinstance(error, ImportError) and error.name:
+        return f"{type(error).__name__}: {error.name}"
+    return type(error).__name__
 
 
 def token_times(spoken: Spoken, word_times: list[Interval | None]) -> list[Interval | None]:

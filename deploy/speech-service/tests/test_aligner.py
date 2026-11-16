@@ -1,8 +1,10 @@
 """Aligner: word times for the spoken words, mapped back to the written tokens a reader sees."""
 
 import errno
+import logging
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -476,25 +478,41 @@ def test_the_no_aligner_and_the_fake_answer_no_words_with_no_times():
 # make_aligner: the Settings pick the backend.
 
 
+def model_file(tmp_path: Path) -> str:
+    """A file where the GGUF model would be: the fake CLI never reads it, the set-up checks it."""
+    path = tmp_path / "fusealign.gguf"
+    path.write_bytes(b"GGUF")
+    return str(path)
+
+
+def problems(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """What was logged at WARNING or above, whoever logged it."""
+    caplog.set_level(logging.DEBUG)
+    return [record for record in caplog.records if record.levelno >= logging.WARNING]
+
+
 def test_make_aligner_none():
     assert isinstance(make_aligner(Settings(aligner="none")), NoAligner)
 
 
 def test_make_aligner_native_passes_the_cli_the_model_and_the_threads(tmp_path, scratch):
     cli = make_fake_cli(tmp_path)
+    model = model_file(tmp_path)
     settings = Settings(
-        aligner="native", aligner_model=MODEL, aligner_cli=cli.path, aligner_threads=6
+        aligner="native", aligner_model=model, aligner_cli=cli.path, aligner_threads=6
     )
     aligner = make_aligner(settings)
     assert isinstance(aligner, NativeFuseAligner)
     aligner.align(sine(220, 16000), ["a"])
     [call] = cli.calls()
-    assert call["argv"][:6] == ["-m", MODEL, "-d", "cpu", "-t", "6"]
+    assert call["argv"][:6] == ["-m", model, "-d", "cpu", "-t", "6"]
 
 
-def test_make_aligner_native_needs_a_model():
-    with pytest.raises(ValueError, match="SPEECH_ALIGNER_MODEL"):
-        make_aligner(Settings(aligner="native"))
+def test_make_aligner_native_finds_a_bare_cli_name_on_the_path(tmp_path, scratch, monkeypatch):
+    make_fake_cli(tmp_path)  # tmp_path/fusealign-cli
+    monkeypatch.setenv("PATH", str(tmp_path))
+    settings = Settings(aligner="native", aligner_model=model_file(tmp_path))  # the default name
+    assert isinstance(make_aligner(settings), NativeFuseAligner)
 
 
 def test_make_aligner_python_passes_the_checkpoint_and_the_threads(monkeypatch):
@@ -511,6 +529,113 @@ def test_make_aligner_python_without_a_model_uses_the_default_checkpoint(monkeyp
     fake = install_fake_fusealign(monkeypatch)
     make_aligner(Settings(aligner="python"))
     assert fake.loads[0]["checkpoint"] is None
+
+
+def test_a_backend_that_is_set_up_says_nothing(tmp_path, scratch, monkeypatch, caplog):
+    install_fake_fusealign(monkeypatch)
+    cli = make_fake_cli(tmp_path)
+    native = Settings(aligner="native", aligner_model=model_file(tmp_path), aligner_cli=cli.path)
+    for settings in (native, Settings(aligner="python"), Settings(aligner="none")):
+        make_aligner(settings)
+    assert problems(caplog) == []
+
+
+# A backend that cannot be set up here does not stop the service: word times are an extra, and a
+# reading without them still carries the sentence marks. `make_aligner` then answers with
+# NoAligner (which is what `/health` reports as `aligner: false`) and says why in ONE error line:
+# the backend, what is missing, an exception's type, and never an exception's message.
+
+
+def one_error(caplog: pytest.LogCaptureFixture) -> str:
+    """The text of the single error line the set-up logged."""
+    [record] = problems(caplog)
+    assert record.levelno == logging.ERROR
+    assert record.exc_info is None  # no traceback: it would quote the exception
+    return record.getMessage()
+
+
+def test_native_whose_cli_is_not_a_file_that_runs_is_no_aligner(tmp_path, monkeypatch, caplog):
+    model = model_file(tmp_path)
+    missing = str(tmp_path / "no-such-cli")
+    aligner = make_aligner(Settings(aligner="native", aligner_model=model, aligner_cli=missing))
+    assert isinstance(aligner, NoAligner)
+    line = one_error(caplog)
+    assert "native" in line and "SPEECH_ALIGNER_CLI" in line and missing in line
+
+
+def test_native_whose_cli_name_is_not_on_the_path_is_no_aligner(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("PATH", str(tmp_path))  # nothing called fusealign-cli in it
+    aligner = make_aligner(Settings(aligner="native", aligner_model=model_file(tmp_path)))
+    assert isinstance(aligner, NoAligner)
+    assert "fusealign-cli" in one_error(caplog)
+
+
+def test_native_whose_cli_is_not_executable_is_no_aligner(tmp_path, caplog):
+    not_executable = tmp_path / "fusealign-cli"
+    not_executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    not_executable.chmod(0o644)
+    settings = Settings(
+        aligner="native", aligner_model=model_file(tmp_path), aligner_cli=str(not_executable)
+    )
+    assert isinstance(make_aligner(settings), NoAligner)
+    assert str(not_executable) in one_error(caplog)
+
+
+def test_native_whose_cli_is_a_directory_is_no_aligner(tmp_path, caplog):
+    settings = Settings(
+        aligner="native", aligner_model=model_file(tmp_path), aligner_cli=str(tmp_path)
+    )
+    assert isinstance(make_aligner(settings), NoAligner)
+    assert "SPEECH_ALIGNER_CLI" in one_error(caplog)
+
+
+@pytest.mark.parametrize("kind", ["missing", "directory"])
+def test_native_whose_model_is_not_a_file_is_no_aligner(tmp_path, scratch, caplog, kind):
+    cli = make_fake_cli(tmp_path)
+    model = tmp_path / "fusealign.gguf"
+    if kind == "directory":
+        model.mkdir()
+    settings = Settings(aligner="native", aligner_model=str(model), aligner_cli=cli.path)
+    assert isinstance(make_aligner(settings), NoAligner)
+    line = one_error(caplog)
+    assert "native" in line and "SPEECH_ALIGNER_MODEL" in line and str(model) in line
+
+
+def test_native_without_a_model_setting_is_no_aligner(tmp_path, scratch, caplog):
+    cli = make_fake_cli(tmp_path)
+    assert isinstance(make_aligner(Settings(aligner="native", aligner_cli=cli.path)), NoAligner)
+    line = one_error(caplog)
+    assert "native" in line and "SPEECH_ALIGNER_MODEL is not set" in line
+
+
+def test_python_that_cannot_import_torch_is_no_aligner(monkeypatch, caplog):
+    monkeypatch.setitem(sys.modules, "torch", None)  # `import torch` fails, whatever is installed
+    assert isinstance(make_aligner(Settings(aligner="python")), NoAligner)
+    line = one_error(caplog)
+    assert "python" in line and "ModuleNotFoundError" in line and "torch" in line
+
+
+def test_python_that_cannot_import_fusealign_is_no_aligner(monkeypatch, caplog):
+    install_fake_fusealign(monkeypatch)
+    monkeypatch.setitem(sys.modules, "fusealign_hub", None)
+    assert isinstance(make_aligner(Settings(aligner="python")), NoAligner)
+    assert "fusealign_hub" in one_error(caplog)
+
+
+def test_python_whose_model_does_not_load_is_no_aligner_and_its_message_is_not_logged(
+    monkeypatch, caplog
+):
+    install_fake_fusealign(monkeypatch)
+
+    def cannot_load(checkpoint=None, device=None, compile_model=False, batch_size=64):
+        raise RuntimeError("the weights of Zebrafish are broken")
+
+    monkeypatch.setattr(sys.modules["fusealign_hub"], "load_aligner", cannot_load)
+    settings = Settings(aligner="python", aligner_model="/models/fusealign.safetensors")
+    assert isinstance(make_aligner(settings), NoAligner)
+    line = one_error(caplog)
+    assert "python" in line and "RuntimeError" in line
+    assert "Zebrafish" not in line
 
 
 # The live check: the real FuseAlign on a real clip. Not part of CI; needs the owner's Mac.

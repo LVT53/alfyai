@@ -83,7 +83,7 @@ Each `sentence` event comes before the audio it describes. The `words` event for
 
 **Preview.** `POST /v1/preview` speaks one sentence (normalized, trimmed, matched in loudness) and answers one whole MP3. It is not aligned and makes no session.
 
-**Health.** `GET /health` always answers 200. `zonos` is whether Zonos answers its own health check. `ok` is whether readings can be served: it is the same as `zonos` today. `aligner` is whether words get times: `false` means readings carry sentence marks only.
+**Health.** `GET /health` always answers 200 with exactly `ok`, `zonos` and `aligner` (it can take up to 5 s, when Zonos hangs: that is its health check's time limit). `zonos` is whether Zonos answers its own health check. `ok` is whether readings can be served: it is the same as `zonos` today. `aligner` is whether the aligner was set up when the service started. `false` means readings carry sentence marks only (every `words` event is all `null`): either `SPEECH_ALIGNER=none`, or the configured backend could not be set up and the service went on without it (see Settings). `aligner` does not notice a later failure: an aligner that breaks while the service runs gives `null` times and a warning in the log, and `aligner` stays `true`.
 
 **Stopping.** On SIGTERM the service stops taking requests and waits 5 s for the open responses (a reading's streams stay open for as long as it is read). It then cuts the ones still open, cancels every session, which kills its ffmpeg, and exits.
 
@@ -99,10 +99,12 @@ Read once at start-up, from the environment, by `speech_service/config.py` (whic
 | `SPEECH_PREFETCH` | `2` | Sentences synthesized beyond the reader's position |
 | `SPEECH_SEED` | `1234` | The seed of a reading that brings none |
 | `SPEECH_ALIGNER` | `python` | `python` (FuseAlign in this process), `native` (the `fusealign-cli` binary) or `none` (sentence marks only) |
-| `SPEECH_ALIGNER_MODEL` | none | The FuseAlign checkpoint (`python`), or the GGUF file (`native`, required) |
-| `SPEECH_ALIGNER_CLI` | `fusealign-cli` | The native binary |
+| `SPEECH_ALIGNER_MODEL` | none | The FuseAlign checkpoint (`python`), or the GGUF file (`native`: required, and it must be a file) |
+| `SPEECH_ALIGNER_CLI` | `fusealign-cli` | The native binary: an absolute path, or a name found on `PATH`. It must be an executable file |
 | `SPEECH_ALIGNER_THREADS` | `4` | Threads of the aligner |
 | `SPEECH_IDLE_SECONDS` | `30` | How long a session lives without an audio reader, and how long one that has ended is kept for a reader that comes late |
+
+**An aligner that cannot be set up does not stop the service.** Word times are an extra, so if the configured aligner cannot be set up at start-up (`native`: the CLI is not an executable file or a command on `PATH`, or the model is not set or not a file; `python`: FuseAlign or torch does not import, or the model does not load), the service logs one `ERROR` line (the backend, what is missing or the exception's type, never its message), runs with `SPEECH_ALIGNER=none` and says `"aligner": false` on `/health`. A setting that is wrong (a port that is not a number, a host beyond loopback, an unknown `SPEECH_ALIGNER`) stops it at start-up with one line instead.
 
 ## Running it on the Mac
 

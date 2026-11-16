@@ -23,7 +23,7 @@ import uvicorn
 
 from speech_service import __main__ as entry_point
 from speech_service import app as app_module
-from speech_service.aligner import NoAligner
+from speech_service.aligner import NoAligner, make_aligner
 from speech_service.app import create_app
 from speech_service.audio import Mp3Encoder
 from speech_service.config import Settings
@@ -856,6 +856,22 @@ def test_health_with_neither_up(serve):
     assert client.get("/health").json() == {"ok": False, "zonos": False, "aligner": False}
 
 
+def test_health_says_so_when_the_configured_aligner_could_not_be_set_up(serve, tmp_path):
+    # A native backend whose CLI and model are not there: `make_aligner` answers with NoAligner,
+    # and health must not claim word times that cannot come.
+    settings = Settings(
+        aligner="native",
+        aligner_cli=str(tmp_path / "no-such-cli"),
+        aligner_model=str(tmp_path / "no-such-model"),
+    )
+    client, _ = serve(aligner=make_aligner(settings))
+    assert client.get("/health").json() == {"ok": True, "zonos": True, "aligner": False}
+    # Readings go on, with sentence marks only.
+    timeline = parse_sse(client.get(f"/v1/sessions/{create(client, reading(2))}/events").text)
+    assert all(data["times"] == [None, None] for data in of(timeline, "words"))
+    assert timeline[-1] == ("done", {})
+
+
 def test_a_session_runs_without_an_aligner_and_says_so_in_its_events(serve):
     client, _ = serve(aligner=NoAligner())
     timeline = parse_sse(client.get(f"/v1/sessions/{create(client, reading(2))}/events").text)
@@ -1477,6 +1493,19 @@ def test_the_entry_point_serves_where_the_settings_say(served):
     assert options["port"] == 1999
     assert options["loop"] == "asyncio"  # the loop the tests exercise, not uvloop
     with TestClient(app) as client:  # nothing listens on port 9; and SPEECH_ALIGNER=none
+        assert client.get("/health").json() == {"ok": False, "zonos": False, "aligner": False}
+
+
+def test_the_entry_point_starts_without_an_aligner_that_cannot_be_set_up(served, tmp_path):
+    # Word times are an extra: a CLI and a model that are not there must not take reading down.
+    app, options = served(
+        SPEECH_ALIGNER="native",
+        SPEECH_ALIGNER_CLI=str(tmp_path / "no-such-cli"),
+        SPEECH_ALIGNER_MODEL=str(tmp_path / "no-such-model"),
+        SPEECH_ZONOS_URL="http://127.0.0.1:9",
+    )
+    assert options["port"] == 1920  # it went on to serve
+    with TestClient(app) as client:
         assert client.get("/health").json() == {"ok": False, "zonos": False, "aligner": False}
 
 
