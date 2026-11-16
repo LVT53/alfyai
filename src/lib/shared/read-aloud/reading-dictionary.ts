@@ -25,6 +25,7 @@ export const CODE_SYMBOLS: Readonly<Record<string, SpokenForm>> = {
 	"==": { en: "double equals", hu: "dupla egyenlő" },
 	"===": { en: "triple equals", hu: "tripla egyenlő" },
 	"!=": { en: "not equals", hu: "nem egyenlő" },
+	"!==": { en: "not double equals", hu: "nem dupla egyenlő" },
 	"<": { en: "less than", hu: "kisebb mint" },
 	">": { en: "greater than", hu: "nagyobb mint" },
 	"<=": { en: "less than or equal", hu: "kisebb vagy egyenlő" },

@@ -334,6 +334,9 @@ function speakProse(shown: string, language: ReadingLanguage): string[] {
 // Code
 // ---------------------------------------------------------------------------
 
+const CLOSING_TAG = /^<\/([a-z][a-z0-9-]*)>/u;
+const OPENING_TAG = /^<([a-z][a-z0-9-]*)\/?>/u;
+const HEX = /^0[xX][0-9A-Fa-f_]+/u;
 const TAG = /^<(\/?)([a-z][a-z0-9-]*)(?:\/?>|$)/u;
 const NUMBER = /^[0-9][0-9_]*(?:\.[0-9]+)?/u;
 const NAME = /^[\p{L}\p{Nd}_$]+/u;
@@ -443,6 +446,37 @@ function readName(raw: string, language: ReadingLanguage): string[] {
 	return out;
 }
 
+/**
+ * A tag that `lexCode` does not take at the word's start: a closing tag
+ * anywhere (`<b>x</b>`), and an opening tag straight after another tag. After a
+ * name `<…>` is a type parameter, so an opening tag there is not one.
+ */
+function lexTag(
+	word: string,
+	start: number,
+	language: ReadingLanguage,
+): Lexeme | null {
+	const rest = word.slice(start);
+	const closing = CLOSING_TAG.exec(rest);
+	if (closing)
+		return {
+			tokens: [
+				...words(CODE_CONTEXT_WORDS.closing, language),
+				closing[1] ?? "",
+				...words(CODE_CONTEXT_WORDS.tag, language),
+			],
+			length: closing[0].length,
+		};
+	if (at(word, start - 1) !== ">") return null;
+	const opening = OPENING_TAG.exec(rest);
+	return opening
+		? {
+				tokens: [opening[1] ?? "", ...words(CODE_CONTEXT_WORDS.tag, language)],
+				length: opening[0].length,
+			}
+		: null;
+}
+
 /** `<…>` straight after a name, or as the whole word: a type parameter. */
 function lexGeneric(
 	word: string,
@@ -546,6 +580,10 @@ function lexAt(
 	const c = word.charAt(start);
 	if (word.startsWith("std::", start) && !isNameChar(at(word, start - 1)))
 		return { tokens: words(CODE_WORDS.std as SpokenForm, language), length: 5 };
+	if (c === "<") {
+		const tag = lexTag(word, start, language);
+		if (tag) return tag;
+	}
 	if (c === "<" && at(word, start + 1) !== "=") {
 		const generic = lexGeneric(word, start, shell, language);
 		if (generic) return generic;
@@ -559,6 +597,10 @@ function lexAt(
 	const context = contextSymbolTokens(c, word, start, shell, language);
 	if (context) return { tokens: context, length: 1 };
 	if (isAsciiDigit(c)) {
+		// A hexadecimal literal is one token as written, not "zero x one F".
+		const hex = HEX.exec(word.slice(start));
+		if (hex)
+			return { tokens: [hex[0].replace(/_/gu, "")], length: hex[0].length };
 		const number = NUMBER.exec(word.slice(start));
 		if (number)
 			return {

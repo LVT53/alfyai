@@ -374,3 +374,45 @@ describe("spoken forms: the host an address is spoken as", () => {
 			expect(addressHost(word), word).toBeNull();
 	});
 });
+
+// The early review's R6: code the dictionary read wrongly.
+describe("spoken forms: code the early review found misread", () => {
+	it("reads !== as one operator", () => {
+		expect(speakWord("!==", "code", "en")).toEqual(["not", "double", "equals"]);
+		expect(speakWord("!==", "code", "hu")).toEqual(["nem", "dupla", "egyenlő"]);
+	});
+
+	it("reads a hexadecimal literal as written", () => {
+		expect(speakWord("0x1F", "code", "en")).toEqual(["0x1F"]);
+		expect(speakWord("0xFF_AA;", "code", "hu")).toEqual(["0xFFAA"]);
+		// A plain number after a name is still a number.
+		expect(speakWord("x=0", "code", "en")).toEqual(["x", "equals", "zero"]);
+	});
+
+	it("reads a tag that follows another tag, or a closing tag, wherever it stands", () => {
+		expect(speakWord("<b>x</b>", "code", "en")).toEqual([
+			"b",
+			"tag",
+			"x",
+			"closing",
+			"b",
+			"tag",
+		]);
+		expect(speakWord("<p>Hi</p>", "code", "en")).toEqual([
+			"p",
+			"tag",
+			"Hi",
+			"closing",
+			"p",
+			"tag",
+		]);
+		expect(speakWord("<div><span>", "code", "hu")).toEqual([
+			"div",
+			"tag",
+			"span",
+			"tag",
+		]);
+		// A generic after a name is still a generic.
+		expect(speakWord("List<T>", "code", "en")).toEqual(["List", "of", "T"]);
+	});
+});
