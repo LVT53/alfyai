@@ -43,15 +43,20 @@ class Aligner(Protocol):
     def align(self, audio_16k: np.ndarray, words: list[str]) -> list[Interval | None]:
         """The `(start, end)` of each of `words` in the audio, or None for a word it did not place.
 
-        `audio_16k` is the sentence's audio as `resample_16k` makes it, and `words` are
-        `Spoken.words`. The answer has one entry per word, and `[]` for no words, which no model is
-        run for. Raises RuntimeError when the sentence cannot be timed at all.
+        `audio_16k` is the sentence's audio as `resample_16k` makes it (mono, float32, samples in
+        [-1, 1]), and `words` are `Spoken.words`. The answer has one entry per word, and `[]` for no
+        words, which no model is run for. Raises RuntimeError when the sentence cannot be timed at
+        all.
         """
         ...
 
 
 def resample_16k(audio: np.ndarray, sr: int) -> np.ndarray:
     """`audio` (mono, sampled at `sr`) at 16 kHz as float32, which is what `Aligner.align` takes.
+
+    The samples must be floats in [-1, 1], as `sf.read(..., dtype="float32")` gives them: whole
+    numbers (`dtype="int16"`) would pass through unscaled, a thousand times too loud, so any other
+    dtype is a ValueError.
 
     Band-limited, with numpy alone: the clip's spectrum is cut at 8 kHz (the new Nyquist
     frequency: the bins below it are kept, the rest dropped) and transformed back at the new
@@ -62,6 +67,8 @@ def resample_16k(audio: np.ndarray, sr: int) -> np.ndarray:
         raise ValueError(f"sample rate must be positive, got {sr}")
     if audio.ndim != 1:
         raise ValueError(f"expected mono audio (one dimension), got shape {audio.shape}")
+    if not np.issubdtype(audio.dtype, np.floating):
+        raise ValueError(f"expected float samples in [-1, 1], got dtype {audio.dtype}")
     if sr == ALIGN_SAMPLE_RATE:
         return np.asarray(audio, dtype=np.float32)
     n = len(audio)

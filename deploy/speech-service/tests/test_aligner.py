@@ -196,6 +196,22 @@ def test_resample_refuses_what_is_not_mono_audio_at_a_rate():
         resample_16k(np.zeros(10, dtype=np.float32), 0)
 
 
+@pytest.mark.parametrize("dtype", [np.int16, np.int32, np.uint8, np.bool_, np.complex64])
+@pytest.mark.parametrize("sr", [44100, 16000], ids=["resampled", "already-16-khz"])
+def test_resample_refuses_samples_that_are_not_floats(dtype, sr):
+    # `sf.read(dtype="int16")` gives whole numbers up to 32767, not floats in [-1, 1]: passed on
+    # unscaled they would reach the aligner as a clip a thousand times too loud.
+    with pytest.raises(ValueError, match="float"):
+        resample_16k(np.zeros(100, dtype=dtype), sr)
+
+
+@pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
+def test_resample_takes_floats_of_any_width(dtype):
+    y = resample_16k(sine(1000, 44100).astype(dtype), 44100)
+    assert y.dtype == np.float32
+    assert np.max(np.abs(y)) == pytest.approx(0.5, abs=1e-2)
+
+
 # NoAligner and FakeAligner.
 
 
