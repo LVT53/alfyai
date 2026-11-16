@@ -3013,12 +3013,19 @@ async function handleBulkDelete(): Promise<boolean> {
 	/* Wide enough for "Sep 11, 2026, 7:25 PM" on ONE line at the narrowest
 	   width the table is drawn at. It used to be overridden to 140px further
 	   down, which broke the date over two lines on every row. */
+	/* "Nov 16, 2026, 12:08 AM" measures about 181px; at 17% the column gave 176
+	   and the ellipsis clipped the AM/PM at 1280. 20% fits it at 1280 and 1024,
+	   and the cell truncates only in the narrow band where the card layout has
+	   not taken over yet. */
 	.col-date {
-		width: 17%;
+		width: 20%;
 	}
 
+	/* Three 32px squares and two 4px gaps need 104px of content; at 11% the
+	   column gave 82px, so the flex row shrank every button to about 26px (the
+	   "uneven touch surfaces") and its overflow went left into the date. */
 	.col-actions {
-		width: 11%;
+		width: 13%;
 	}
 
 	.documents-table th.col-actions {
@@ -3339,21 +3346,30 @@ async function handleBulkDelete(): Promise<boolean> {
 		color: var(--text-secondary);
 	}
 
-	/* The date never reaches the actions column. The cell is nowrap and was
-	   only 11% wide, so the three action squares did not fit and, because the
-	   row is `justify-content: flex-end`, the overflow went LEFT - the first
-	   glyph (the "what the AI sees" eye) landed on the timestamp. The actions
-	   column now sizes to its own content and cannot overflow; the date takes
-	   what is left and truncates there. Padding is the row's own 16px, not a
-	   narrower value: overriding it made the collision worse. */
+	/* The actions cell's own 16px gutter on each side came out of the buttons'
+	   width; 4px each side keeps the group intact and still separates it from
+	   the date column's 16px. */
 	.documents-table .col-actions {
-		width: 1%;
-		white-space: nowrap;
+		padding-left: var(--space-xs);
+		padding-right: var(--space-xs);
 	}
 
+	/* Below about 1100px the date column is narrower than "Nov 16, 2026,
+	   12:07 AM", and a nowrap cell that overflows runs under the first action
+	   icon. It truncates inside its own cell instead; at 1280 it still fits in
+	   full. */
 	.documents-table td.col-date {
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	/* Below 1100 the full date and a readable name do not both fit: the date
+	   gives the width back to the name and truncates instead. The name column
+	   is the one a person reads. */
+	@media (max-width: 1100px) {
+		.col-date {
+			width: 17%;
+		}
 	}
 
 	.action-buttons {
@@ -3361,9 +3377,12 @@ async function handleBulkDelete(): Promise<boolean> {
 		flex: none;
 		gap: var(--space-xs);
 		justify-content: flex-end;
-		/* The row can never squeeze the buttons under the date: the group keeps
-		   its own width and the column takes it (`.col-actions` is 1%). */
-		min-width: max-content;
+	}
+
+	/* A button keeps its square: without this the flex row shrank each one by
+	   a fraction of a pixel and the row read as uneven. */
+	.action-btn {
+		flex: none;
 	}
 
 	/* One control family: every row action is the same square, at every
