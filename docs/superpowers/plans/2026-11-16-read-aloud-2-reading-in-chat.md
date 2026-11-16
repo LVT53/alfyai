@@ -322,9 +322,13 @@ it("gives the English voices their ids and the Hungarian ones studio by default"
   - a 0.30 s gap goes before each sentence, or 0.60 s when `paragraph_start` is set, and none before the first;
   - every duration and gap is rounded up to whole frames (`Math.ceil(seconds / MP3_FRAME_SECONDS)`), and the events report those frame-exact times;
   - each `sentence` event (start and end on the stream's clock) is written before that sentence's audio, then its `words` event (an even split, or all `null`), and `done` comes at the end;
-  - a second audio `GET` answers 409, and an unknown session 404;
+  - **prefetch:** sentence i is written only once `i ≤ position + 2`. The position is the first sentence until `POST …/position {"sentence_id"}` names another; an unknown `sentence_id` answers 422;
+  - **one reader of each stream:** a second `GET …/audio` or `GET …/events` answers 409, even after the first reader left; an unknown session answers 404;
+  - a body that fails validation answers 422 `{"error": "invalid", "field": "<path>"}`, never echoing a value;
   - `DELETE` ends the streams;
   - `/health` answers `{ok: true, zonos: true, aligner: true}`.
+
+  These follow the Plan 1 session's message of 2026-11-16, which its Task 6 README states as the contract.
 - Produces, in `scripts/run-fake-speech-service.ts`: `npx tsx scripts/run-fake-speech-service.ts [--port 1929]` prints the base address and runs until Ctrl-C.
 
 - [ ] **Step 1: Write the failing tests**
@@ -334,7 +338,9 @@ it("gives the English voices their ids and the Hungarian ones studio by default"
     - the events come in the order sentence, words, sentence, words, done;
     - `start[0] === 0`, and `start[1] - end[0]` is 12 frames (0.30 s rounded up to whole frames: 0.313 s);
     - the audio is `silentMp3` frames whose count matches the events' end time.
-  - `answers 409 to a second audio reader`.
+  - `answers 409 to a second audio or events reader, even after the first left`.
+  - `holds a sentence until a position report lets it through`: with four sentences and no report, only three are written; `POST …/position {"sentence_id": "s1"}` releases the fourth.
+  - `answers 422 to a position for an unknown sentence`.
   - `fails at the asked sentence with an error event`.
   - `cuts both streams at the asked sentence`.
   - `refuses sessions when asked`.
@@ -376,6 +382,7 @@ it("gives the English voices their ids and the Hungarian ones studio by default"
   - **Replay.** Every browser reader receives everything so far, then the live tail.
   - **Releasing the audio replay.** Once the audio passes `AUDIO_REPLAY_MAX_BYTES`, the replay is released: readers already attached keep the live tail, and `attachAudio` returns `null`.
   - **Detaching.** A reader detaches in the returned stream's `cancel()`. Do not rely on `request.signal`.
+  - **Never reopened.** The service allows one reader of each stream per session, for the session's whole life: a second `GET`, even after the first ended, is 409. So an upstream stream that ends or fails early is never reopened. The reading ends its browser readers, and the browser starts a new session from that sentence.
   - **Idle end.** The reading closes when no audio reader has been attached for `READING_IDLE_MS`, counted from creation too. It also closes when the upstream audio ends and every reader has drained.
   - **Closing** aborts both upstream fetches, sends `DELETE` to the session, ends every reader and forgets the reading.
   - **Heartbeat.** Events readers get `: hb\n\n` every `EVENTS_HEARTBEAT_MS`.
@@ -425,7 +432,7 @@ it("gives the English voices their ids and the Hungarian ones studio by default"
   5. No reply (or not an assistant message) → 404 `not_found`.
   6. `sentencesFitReply` not null → 422 `not_in_reply`. Log only that index and the sentence count.
   7. Map each sentence to a `SpeechSentence` with `defaultVoiceFor(language)`.
-  8. `openReading`. `SpeechUnavailable` → 503 `voice_unavailable`.
+  8. `openReading`. `SpeechUnavailable`, or any other failure (a 422 from the service would mean this schema let through something the service refuses), → 503 `voice_unavailable`. Log only the service's status and its `field`.
   9. 201 `{ sessionId, defaultSpeed: 1, charsPerSecond: { en, hu } }`, with each rate taken from that language's default voice.
 - `{sessionId}` routes:
   - all of them: `requireApiUser`, then `currentReading(user.id, sessionId)` or 404 `not_found`.
@@ -1056,7 +1063,7 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
   - `stopFakeSpeechForSpec(page, fake)`: `clearAdminConfig(page, ["TTS_ENABLED", "TTS_URL"])`, then `fake.close()`.
   - `seedReadAloudChat(id, replies: string[]): Promise<void>`: inserts a conversation for `admin@local`, with a user message before each assistant reply, through `db`, as `context-ring-helpers.ts` does.
   - The fixture replies:
-    - a three-sentence English reply;
+    - a five-sentence English reply, so that reading to the end needs the position reports (the fake holds sentence i until `i ≤ position + 2`);
     - a two-sentence English reply;
     - a German reply;
     - a "syntax" reply with a heading, bold, a link, inline code, a fenced code block holding `const secretCode = 42;`, a table holding `TABLECELL`, a checklist, a quote, an emoji and a bare URL.
@@ -1064,7 +1071,7 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
 - [ ] **Step 1: Write `read-aloud.spec.ts`,** with `secondsPerChar: 0.02`:
   - `@smoke the speaker reads a reply: the player rises and the tint moves`: wait until the second sentence's tint shows.
   - `no syntax reaches the voice`: no recorded token contains any of `*`, `` ` ``, `#`, `|`, `[`, `]`, `http` or `www.`, and none is `secretCode` or `TABLECELL`.
-  - `✕ stops, and the end shows Finished`.
+  - `✕ stops, and the end shows Finished`: the five-sentence reply is read to its end, which proves the position reports reach the service.
   - `a slash command hushes the player, and reading goes on`.
   - `another reply's speaker switches without the player leaving`.
   - `the scrubber jumps to a sentence, and the arrows step`: check the fake's recorded session starts at the expected `s<n>`.
