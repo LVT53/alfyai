@@ -14,6 +14,7 @@ The read-aloud speech service (Python 3.12, Starlette on uvicorn) runs on the GP
 - **The whole service stays within about 1.5 GB resident** (spec §6.4), so a session keeps no sentence's audio once it is written.
 - **Never restart or reconfigure vLLM or `zonos3.service`.** Any change on the box needs the owner's OK first (`alfyroot` for systemd, `alfyws` for files).
 - **The Hungarian voices' reference audio is never committed or published.** Their datasets' terms forbid identifying the speakers: no clip, no fixture made from one, nothing public.
+- **Dependencies are locked.** `requirements.lock` holds the exact versions of the runtime dependencies (CPython 3.12, Linux x86_64) that the tests ran on, and the box installs from it: `app.py`'s `_Stream` relies on Starlette's internals, so a version nobody tested must never be pulled in. A change to the dependencies in `pyproject.toml`, or to the versions the dev venv runs on, regenerates the lock in the same change (the commands are under Tests).
 
 ## Tests
 
@@ -25,6 +26,14 @@ The service and its tests need ffmpeg with libmp3lame on `PATH` (the Mac: Homebr
 UV_CACHE_DIR=/Users/lvt53/Downloads/.uv-cache /Users/lvt53/Downloads/.tools/uv venv --python /opt/homebrew/bin/python3.12 .venv
 UV_CACHE_DIR=/Users/lvt53/Downloads/.uv-cache /Users/lvt53/Downloads/.tools/uv pip install --python .venv/bin/python -e '.[dev]'
 .venv/bin/python -m pytest -q
+```
+
+To regenerate `requirements.lock` after the dev venv's versions or `pyproject.toml`'s dependencies changed (and the tests passed on them), freeze the dev venv and compile `pyproject.toml` against the freeze. The lock then equals the tested versions, for the box's platform, and holds no dev tools. `dev-freeze.txt` is git-ignored: delete it afterwards.
+
+```bash
+UV_CACHE_DIR=/Users/lvt53/Downloads/.uv-cache /Users/lvt53/Downloads/.tools/uv pip freeze --python .venv/bin/python --exclude-editable > dev-freeze.txt
+UV_CACHE_DIR=/Users/lvt53/Downloads/.uv-cache /Users/lvt53/Downloads/.tools/uv pip compile pyproject.toml --python-version 3.12 --python-platform x86_64-unknown-linux-gnu -c dev-freeze.txt -o requirements.lock
+rm dev-freeze.txt
 ```
 
 Live tests (marked `live`; they need FuseAlign weights and local audio) run read only under the zonos3 checkout's Python, which has torch and FuseAlign. Never write anything into `~/Downloads/zonos3`. That Python has no pytest-asyncio, so never pass `--strict-config` (the `asyncio_*` options would fail it).

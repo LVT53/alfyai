@@ -8,7 +8,8 @@ version = "0.1.0"
 description = "AlfyAI read-aloud speech service: Zonos voice and FuseAlign word timing behind a loopback HTTP API"
 requires-python = ">=3.12"
 dependencies = [
-    "starlette",
+    # app.py's `_Stream` relies on StreamingResponse internals: check it before allowing Starlette 2.
+    "starlette<2",
     # speech_service/app.py imports it directly (its task group and cancel scope).
     "anyio",
     "uvicorn[standard]",

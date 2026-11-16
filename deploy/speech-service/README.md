@@ -168,6 +168,16 @@ From this folder, with the dev environment (see [AGENTS.md](./AGENTS.md) for mak
 
 `scripts/gates.sh` does not run these. They need ffmpeg with libmp3lame on `PATH`.
 
+## Dependencies
+
+`requirements.lock` pins every runtime dependency, and everything each one brings, to the exact version the tests ran on (CPython 3.12, Linux x86_64: the box). **The box installs from it and from nothing else.** `_Stream` in `app.py` relies on Starlette's internals, so a reinstall that pulled a Starlette, uvicorn or anyio nobody tested could silently stop the service from noticing that a client has left; `pyproject.toml` bounds `starlette<2` for the same reason.
+
+```sh
+uv pip install --python <venv>/bin/python -r requirements.lock
+```
+
+The service is run from its source folder, which is not installed: `cd <source folder> && <venv>/bin/python -m speech_service`. The lock has no FuseAlign (`SPEECH_ALIGNER=python`, the Mac's choice, runs under the `zonos3` Python): the box runs the native aligner. A change of dependencies regenerates the lock; the commands are in [AGENTS.md](./AGENTS.md).
+
 ## Deploy
 
 Task 8 of the plan fills this in: the systemd unit, the install on the box and the rollback.
