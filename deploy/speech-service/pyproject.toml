@@ -38,3 +38,9 @@ pythonpath = ["."]
 markers = [
     "live: needs the owner's Mac: FuseAlign weights and local audio; run with SPEECH_LIVE=1",
 ]
+# The live tests run under a Python without pytest-asyncio, where the two asyncio_* options above are
+# unknown to pytest. This hides exactly those two warnings and no other unknown key (a new asyncio_*
+# option must be added here too). The `.` matches the colon: the filter syntax splits on colons.
+filterwarnings = [
+    "ignore:Unknown config option. asyncio_(mode|default_fixture_loop_scope)$:pytest.PytestConfigWarning",
+]
