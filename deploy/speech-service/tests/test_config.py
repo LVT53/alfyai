@@ -63,6 +63,20 @@ def test_reads_every_variable():
     )
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "SPEECH_ZONOS_URL",
+        "SPEECH_HOST",
+        "SPEECH_ALIGNER",
+        "SPEECH_ALIGNER_MODEL",
+        "SPEECH_ALIGNER_CLI",
+    ],
+)
+def test_a_blank_string_setting_counts_as_unset(name):
+    assert Settings.from_env({name: ""}) == Settings()
+
+
 @pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2", "127.255.255.254", "::1", "localhost"])
 def test_accepts_loopback_hosts(host):
     assert Settings.from_env({"SPEECH_HOST": host}).host == host
@@ -73,7 +87,6 @@ def test_accepts_loopback_hosts(host):
     [
         "0.0.0.0",
         "::",
-        pytest.param("", id="empty"),
         "192.168.1.20",
         "100.64.0.7",
         "8.8.8.8",
@@ -91,6 +104,8 @@ def test_refuses_every_other_host(host):
 def test_a_settings_built_by_hand_is_checked_too():
     with pytest.raises(ValueError):
         Settings(host="0.0.0.0")
+    with pytest.raises(ValueError):
+        Settings(host="")  # uvicorn would bind every interface
     with pytest.raises(ValueError):
         Settings(aligner="gpu")  # type: ignore
 

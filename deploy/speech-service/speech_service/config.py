@@ -64,18 +64,21 @@ class Settings:
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> Settings:
-        """The settings `env` sets through SPEECH_* variables; the rest keep their defaults."""
+        """The settings `env` sets through SPEECH_* variables; the rest keep their defaults.
+
+        A string setting that is blank counts as unset.
+        """
         defaults = cls()
         return cls(
-            zonos_url=env.get("SPEECH_ZONOS_URL", defaults.zonos_url),
-            host=env.get("SPEECH_HOST", defaults.host),
+            zonos_url=env.get("SPEECH_ZONOS_URL") or defaults.zonos_url,
+            host=env.get("SPEECH_HOST") or defaults.host,
             port=_read(env, "SPEECH_PORT", defaults.port, int),
             prefetch=_read(env, "SPEECH_PREFETCH", defaults.prefetch, int),
             seed=_read(env, "SPEECH_SEED", defaults.seed, int),
             # Checked in __post_init__.
-            aligner=cast(AlignerKind, env.get("SPEECH_ALIGNER", defaults.aligner)),
-            aligner_model=env.get("SPEECH_ALIGNER_MODEL", defaults.aligner_model),
-            aligner_cli=env.get("SPEECH_ALIGNER_CLI", defaults.aligner_cli),
+            aligner=cast(AlignerKind, env.get("SPEECH_ALIGNER") or defaults.aligner),
+            aligner_model=env.get("SPEECH_ALIGNER_MODEL") or defaults.aligner_model,
+            aligner_cli=env.get("SPEECH_ALIGNER_CLI") or defaults.aligner_cli,
             aligner_threads=_read(env, "SPEECH_ALIGNER_THREADS", defaults.aligner_threads, int),
             idle_seconds=_read(env, "SPEECH_IDLE_SECONDS", defaults.idle_seconds, float),
         )
