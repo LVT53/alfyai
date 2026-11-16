@@ -71,6 +71,7 @@ import {
 import { initTheme, setThemeAndSync, type Theme } from "$lib/stores/theme";
 import { initAvatar } from "$lib/stores/avatar";
 import { setMaxFileUploadSize } from "$lib/stores/upload-limits";
+import { setReadAloudAvailable } from "$lib/stores/read-aloud";
 import {
 	readShellDisabledFileTypeIds,
 	setDisabledFileTypeIds,
@@ -875,6 +876,10 @@ onMount(() => {
 	// batch happens without ever asking the server. Set on the client only —
 	// a module-level store written during SSR is shared by every request.
 	setMaxFileUploadSize(data.maxFileUploadSize);
+	// Read aloud's switch, seeded on the client for the same reason: the speaker
+	// shows after hydration, and a store written during SSR is shared by every
+	// request.
+	setReadAloudAvailable(data.readAloudEnabled);
 	// The MinerU-4 gate, same reasoning and same one-frame cost: both file
 	// pickers build their `accept` before any request is made. Read through
 	// the store's tolerant reader because P5-B owns `AppShellData` and adds

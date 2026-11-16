@@ -54,6 +54,7 @@ function appShellDataFixture(
 		maxFileUploadSize: 104_857_600,
 		disabledFileTypeIds: [],
 		composerCommandRegistryEnabled: false,
+		readAloudEnabled: false,
 		atlasAvailability: {
 			enabled: true,
 			configured: true,

@@ -1795,6 +1795,12 @@ const settingsDict = {
 		"admin.system.keys.COMFYUI_LTX_URL.label": "Video server",
 		"admin.system.keys.COMFYUI_LTX_URL.meaning":
 			"The ComfyUI server that runs LTX and makes short videos. Leave it empty to turn video making off.",
+		"admin.system.keys.TTS_ENABLED.label": "Read aloud",
+		"admin.system.keys.TTS_ENABLED.meaning":
+			"Puts a speaker on every finished reply that reads it aloud through the speech service.",
+		"admin.system.keys.TTS_URL.label": "Speech service",
+		"admin.system.keys.TTS_URL.meaning":
+			"Where the read-aloud speech service listens on this machine (http://127.0.0.1:1920). Read aloud stays off while it is empty.",
 		"admin.system.keys.LTX_CAPTION_URL.label": "Caption endpoint",
 		"admin.system.keys.LTX_CAPTION_URL.meaning":
 			"An OpenAI-compatible chat server that rewrites the motion idea into the caption style LTX reads. Leave it empty and the motion idea is used as it is.",
@@ -3954,6 +3960,12 @@ const settingsDict = {
 		"admin.system.keys.COMFYUI_LTX_URL.label": "Videószerver",
 		"admin.system.keys.COMFYUI_LTX_URL.meaning":
 			"A ComfyUI-szerver, amely az LTX-et futtatja és rövid videókat készít. Üresen hagyva nincs videókészítés.",
+		"admin.system.keys.TTS_ENABLED.label": "Felolvasás",
+		"admin.system.keys.TTS_ENABLED.meaning":
+			"Minden kész válaszra hangszórót tesz, amely a beszédszolgáltatással felolvassa.",
+		"admin.system.keys.TTS_URL.label": "Beszédszolgáltatás",
+		"admin.system.keys.TTS_URL.meaning":
+			"A felolvasó beszédszolgáltatás címe ezen a gépen (http://127.0.0.1:1920). Amíg üres, a felolvasás ki van kapcsolva.",
 		"admin.system.keys.LTX_CAPTION_URL.label": "Képaláírás-végpont",
 		"admin.system.keys.LTX_CAPTION_URL.meaning":
 			"OpenAI-kompatibilis csevegőszerver, amely a mozgásötletet az LTX által olvasott képaláírás-stílusra írja át. Üresen hagyva a mozgásötlet változatlanul kerül a videóhoz.",

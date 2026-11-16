@@ -61,6 +61,9 @@ SQLite persistence — all in a single Node deployment.
   (`LTX_CAPTION_URL` + `LTX_CAPTION_MODEL`, optionally `LTX_CAPTION_API_KEY`) whose system message
   is ComfyUI's own LTX-2.5 image-to-video instruction; with no endpoint the idea goes to LTX as it
   is.
+- **Read aloud** — `TTS_ENABLED` (default `false`) and `TTS_URL`, the speech service in
+  `deploy/speech-service/` on loopback (`http://127.0.0.1:1920`). With either unset, no speaker
+  appears. Both are live settings in admin System > Integrations.
 - **Explicit picture filter** — on for everyone by default (`IMAGE_EXPLICIT_FILTER_ENABLED`, a live
   setting in admin System > Integrations > Pictures; an admin can also exempt one person in Users).
   Alfy declines explicit picture requests, the server refuses a make_image prompt that plainly asks
