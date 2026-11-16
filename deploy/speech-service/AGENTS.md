@@ -19,6 +19,8 @@ The read-aloud speech service (Python 3.12, Starlette on uvicorn) runs on the GP
 
 `scripts/gates.sh` does not run these; run them yourself from `deploy/speech-service` when you change this folder. The dev venv is `.venv` (git-ignored), made with uv on the owner's Mac. Never `pip install` into any other environment.
 
+The service and its tests need ffmpeg with libmp3lame on `PATH` (the Mac: Homebrew's; the box has ffmpeg 7.1.5 with libmp3lame installed). The service stops at start-up without it.
+
 ```bash
 UV_CACHE_DIR=/Users/lvt53/Downloads/.uv-cache /Users/lvt53/Downloads/.tools/uv venv --python /opt/homebrew/bin/python3.12 .venv
 UV_CACHE_DIR=/Users/lvt53/Downloads/.uv-cache /Users/lvt53/Downloads/.tools/uv pip install --python .venv/bin/python -e '.[dev]'
