@@ -158,22 +158,74 @@ The breakpoint is the one the chat already uses for narrow layouts (builder).
 
 ### 4.4 What gets read (owner)
 
-The spoken text is built from the reply **as rendered on screen**, never from its Markdown source, so no syntax can reach the voice. Read:
-- paragraphs, headings, list items (checklist items included) and quotes;
-- the text of links;
-- inline emphasis as plain words;
-- inline code only as its words, with symbols removed, and skipped if nothing pronounceable remains (my call).
+The spoken text is built from the reply **as rendered on screen**, never from its Markdown source, so no Markdown syntax reaches the voice. Anything awkward or meaningless to hear either gets a spoken form or is left out (owner, 2026-11-16; refined so code lessons can be listened to).
+- **Where it happens:** in the browser, while building the speech script (Plan 2). The speech service is unaffected.
+- **Marks follow along:** every spoken form maps back to its place on screen, so the word mark covers, for example, a whole code name while its words are said.
 
-Left out silently (owner: no spoken note):
-- code blocks, tables (Markdown tables and CSV blocks), charts, Mermaid diagrams and any formulas;
-- images, artifact cards, file cards, tool and thinking rows, the Sources panel, follow-up chips and any button;
-- emoji, bare URLs and citation markers.
+**Read as written:**
+- paragraphs and quotes, with text in brackets read normally;
+- headings, followed by the same 0.6 s pause as a new paragraph;
+- list items and checklist items: a numbered list reads its numbers ("One. Mix the flour…"), bullets are silent;
+- the text of links, and inline emphasis as plain words.
 
-The text is split into sentences with `Intl.Segmenter` in the reply's language:
-- a sentence of one or two words joins the next one, because Zonos misfires on them;
-- a very long sentence is split at a comma or semicolon (the threshold is the builder's; about 300 characters).
+**Code, read the way a teacher says it out loud** (one shared code-reading dictionary, in English and Hungarian):
+- **Inline code** (in ticks inside a sentence) is always read.
+  - **Names** are split into words: `ArrayList` "Array List", `getUserName` "get User Name", `user_id` "user id", `MAX_SIZE` "max size".
+  - **Symbols:**
+    - `.` "dot" / "pont"
+    - `::` "double colon"
+    - `->` and `=>` "arrow"
+    - `=` "equals", `==` "double equals", `===` "triple equals", `!=` "not equals"
+    - `&&` "and", `||` "or"
+    - `|` "pipe" (in shell commands)
+    - `*` "star"
+    - `/` "slash" (in paths)
+    - `<T>` "of T": a `<…>` straight after a name is a generic
+    - `<` "less than", `>` "greater than", `<=` "less than or equal", `>=` "greater than or equal"
+    - `+` "plus", `-` "minus" (silent inside a hyphenated name like `my-class`), `++` "plus plus", `--` "minus minus", `+=` "plus equals", `-=` "minus equals"
+    - `!` "not", `%` "mod"
+    - brackets are silent, and any other symbol is dropped. So `if x < 10` reads "if x less than ten", in Hungarian with the dictionary's Hungarian words.
+  - **Abbreviations, per language.** The starting list:
+    - Java: `println` "print line"; C#: `Console.WriteLine` "console dot write line"
+    - Python: `def` "define", `elif` "else if", `__init__` "dunder init", `kwargs` "keyword args", `len` "length"
+    - JavaScript / TypeScript: `console.log` "console dot log", `NaN` "not a number"
+    - C / C++: `printf` "print f", `std::cout` "standard c out", `#include` "include"
+    - Go: `fmt.Println` "format dot print line", `:=` "colon equals"
+    - Rust: `fn` "function", `mut` "mutable", `println!` "print line"
+    - Kotlin / Swift: `fun`, `func` "function"
+    - PHP: `$name` "name"
+    - SQL: `SELECT *` "select star"
+    - shell: `chmod` "change mode", `~` "home"
+    - HTML / CSS: `<div>` "div tag", `.class` "dot class"
+  - **Acronyms** as people say them: SQL, JSON "Jason", API, URL, HTML, CSS, npm, YAML, GUI "gooey".
+  - **Long hashes, IDs and keys** (12 or more characters of random letters and digits) are skipped.
+- **Code blocks:** up to three lines are read in the same style, and longer blocks are skipped silently. Selecting text inside any code block and pressing Read from here reads it, however long, because the person asked for it explicitly.
 
-The same sentence boundaries drive the notches, the tint and Read from here.
+**Given a spoken form:**
+- **Addresses:** a bare URL reads only its site name ("example dot com"); an email address reads as "name at site dot com"; a file name as "report dot pdf".
+- **Abbreviations:**
+  - Hungarian: "pl." "például", "kb." "körülbelül", "stb." "és a többi", "ún." "úgynevezett", "ill." "illetve", "db" "darab".
+  - English: "e.g." "for example", "i.e." "that is", "etc." "et cetera".
+- **Symbols in prose:** × "times" / "szorozva", ÷ "divided by" / "osztva", ± "plus or minus" / "plusz-mínusz", ≤ ≥ ≠ ≈ by their names, ² "squared" / "négyzet", ³ "cubed" / "köb", ½ "half" / "fél", ° "degrees" / "fok", % "percent" / "százalék".
+- **Keyboard shortcuts:** "Ctrl+C" "Control C", "⌘K" "Command K", "Shift+Enter" "Shift Enter".
+- **Versions:** "v2.3.1" "version two point three point one".
+- **Arrows and separator dots between items:** a short pause.
+
+**Left out silently:**
+- tables (Markdown and CSV), charts, Mermaid diagrams and formulas;
+- images; document, app, canvas, picture and file cards; map routes;
+- tool and thinking rows, Sources, follow-up chips, the "Ask me first" card and any button;
+- emoji, and citation and footnote markers.
+
+**Numbers, dates, money and units** go to the speech service's text clean-up (zyphra-textnorm with the Hungarian "két" fix). Ranges like "7–12 fok" and Hungarian suffixes get a listening check during the build.
+
+**English terms inside a Hungarian paragraph** are read by the Hungarian voice, because voices switch per paragraph, not per word. Accepted (owner).
+
+**Sentences:**
+- **Splitting:** with `Intl.Segmenter` in the paragraph's language. A period after a number ("2026. november 16.", "3. fejezet") or after an abbreviation from the lists above never ends a sentence.
+- **Short sentences:** a sentence of one or two words joins the next one, because Zonos misfires on them.
+- **Long sentences:** a sentence over 240 characters is split at a comma or semicolon. Measured on the box, that keeps every clip under 30 s even at the slowest Pace.
+- **One set of boundaries** drives the notches, the tint and Read from here.
 
 ### 4.5 Voices (owner)
 
