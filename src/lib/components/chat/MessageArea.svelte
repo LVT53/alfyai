@@ -47,6 +47,11 @@ import LogoMark from "./LogoMark.svelte";
 import ConversationJumpRail from "./ConversationJumpRail.svelte";
 import { buildJumpRailTurns } from "./jump-rail";
 import { placeReplySegments } from "./reply-segments";
+import {
+	threadFocusRequest,
+	type ThreadFocusRequest,
+} from "$lib/stores/thread-focus";
+import { createDampedFollow } from "$lib/utils/damped-follow";
 import { MESSAGE_JUMP_GAP_PX, jumpOffset } from "./message-jump-offset";
 import { threadEndScrollTop, transformShiftYPx } from "./thread-end-target";
 
@@ -433,7 +438,10 @@ $effect(() => {
 	container.addEventListener("keydown", releaseHeldPosition);
 	container.addEventListener("wheel", releaseCardTopHold, { passive: true });
 	// The reader's own move ends a glide where it is.
-	const readerTakesOver = () => stopGlide();
+	const readerTakesOver = () => {
+		stopGlide();
+		focusFollow.stop();
+	};
 	container.addEventListener("pointerdown", readerTakesOver);
 	container.addEventListener("keydown", readerTakesOver);
 	container.addEventListener("wheel", readerTakesOver, { passive: true });
@@ -941,6 +949,73 @@ function followToBottom() {
 	if (distance > GLIDE_FROM_PX && !prefersReducedMotion()) glideToBottom();
 	else instantScrollToBottom();
 }
+
+/**
+ * Read aloud's requests to bring a sentence into view (⌖, and a scrubber drag): one
+ * damped scroll that each request retargets, never a stack of smooth scrolls. The
+ * area that counts is the part of the thread above the composer layer.
+ */
+const focusFollow = createDampedFollow({
+	read: () => scrollContainer?.scrollTop ?? 0,
+	write: (top) => {
+		if (!scrollContainer) return;
+		scrollContainer.scrollTop = top;
+		lastKnownScrollTop = scrollContainer.scrollTop;
+	},
+	reducedMotion: prefersReducedMotion,
+});
+
+let handledFocusSeq = 0;
+
+function focusThread(request: ThreadFocusRequest) {
+	const container = scrollContainer;
+	const rect = request.rect();
+	if (!container || !rect) return;
+	const box = container.getBoundingClientRect();
+	const area = Math.max(1, container.clientHeight - composerHeight);
+	const top = rect.top - box.top;
+	const bottom = rect.bottom - box.top;
+	if (request.mode === "reveal" && top >= 0 && bottom <= area) return;
+	releaseHeldPosition();
+	stopGlide();
+	shouldAutoScroll = false;
+	const target = container.scrollTop + (top + bottom) / 2 - area / 2;
+	const max = Math.max(0, container.scrollHeight - container.clientHeight);
+	focusFollow.aim(Math.min(max, Math.max(0, target)));
+}
+
+$effect(() => {
+	const request = $threadFocusRequest;
+	if (!request || request.seq === handledFocusSeq) return;
+	handledFocusSeq = request.seq;
+	untrack(() => focusThread(request));
+});
+
+/**
+ * A reader at the bottom follows the composer layer as it grows (read aloud's player
+ * opening, a longer draft): the thread makes room as it grows, frame by frame, and
+ * nothing hides behind it. A reader scrolled up stays where they are.
+ */
+let composerHeightBefore = untrack(() => composerHeight);
+let distanceBeforeComposerChange = 0;
+$effect.pre(() => {
+	composerHeight;
+	const container = untrack(() => scrollContainer);
+	if (!container) return;
+	distanceBeforeComposerChange =
+		container.scrollHeight - container.scrollTop - container.clientHeight;
+});
+$effect(() => {
+	const height = composerHeight;
+	const growth = height - composerHeightBefore;
+	composerHeightBefore = height;
+	const container = untrack(() => scrollContainer);
+	if (!container || growth <= 0) return;
+	if (distanceBeforeComposerChange < AUTO_SCROLL_EDGE_PX) {
+		container.scrollTop += growth;
+		lastKnownScrollTop = container.scrollTop;
+	}
+});
 
 function isNearLiveEdge(): boolean {
 	if (!scrollContainer) return false;

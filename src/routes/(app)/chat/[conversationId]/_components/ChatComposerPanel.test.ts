@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fireEvent, render, waitFor } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	idleReadAloudView,
+	setReadAloudAvailable,
+	setReadAloudView,
+} from "$lib/stores/read-aloud";
 import ChatComposerPanel from "./ChatComposerPanel.svelte";
 
 beforeEach(() => {
@@ -288,5 +293,62 @@ describe("ChatComposerPanel", () => {
 		});
 
 		expect(onSend).not.toHaveBeenCalled();
+	});
+});
+
+describe("ChatComposerPanel: the read-aloud player", () => {
+	afterEach(() => {
+		setReadAloudAvailable(false);
+		setReadAloudView(idleReadAloudView);
+	});
+
+	const reading = {
+		...idleReadAloudView,
+		status: "playing" as const,
+		messageId: "m1",
+		segmentIds: ["m1"],
+		count: 2,
+		notches: [0, 0.5],
+	};
+
+	it("hushes the player while the command tray is open", async () => {
+		setReadAloudAvailable(true);
+		setReadAloudView(reading);
+		const view = renderComposerPanel({ composerCommandRegistryEnabled: true });
+		const slot = () =>
+			view.container.querySelector(".read-aloud-slot") as HTMLElement;
+		await waitFor(() => expect(slot().hasAttribute("data-open")).toBe(true));
+		expect(slot().hasAttribute("data-hushed")).toBe(false);
+		// The slot sits between the snippet above the box and the box.
+		expect(
+			slot().compareDocumentPosition(view.getByTestId("composer-box")) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		const input = view.getByPlaceholderText("Type a message...");
+		await fireEvent.input(input, { target: { value: "/" } });
+		await waitFor(() => expect(slot().hasAttribute("data-hushed")).toBe(true));
+		await fireEvent.input(input, { target: { value: "" } });
+		await waitFor(() => expect(slot().hasAttribute("data-hushed")).toBe(false));
+	});
+
+	it("draws the backdrop only while reading", async () => {
+		setReadAloudAvailable(true);
+		const view = renderComposerPanel();
+		const shell = view.container.querySelector(
+			".composer-shell",
+		) as HTMLElement;
+		expect(shell.hasAttribute("data-reading")).toBe(false);
+		setReadAloudView(reading);
+		await waitFor(() => expect(shell.hasAttribute("data-reading")).toBe(true));
+		setReadAloudView(idleReadAloudView);
+		await waitFor(() => expect(shell.hasAttribute("data-reading")).toBe(false));
+		expect(stylesheet).toMatch(
+			/\.composer-shell\[data-reading\]::before\s*\{[^}]*opacity:\s*1/,
+		);
+	});
+
+	it("has no player while read aloud is off", () => {
+		const view = renderComposerPanel();
+		expect(view.container.querySelector(".read-aloud-slot")).toBeNull();
 	});
 });
