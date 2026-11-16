@@ -11,8 +11,8 @@ Two readers follow it, each taken once: `events()` for the timeline (what the SS
 `audio()` for the MP3 (what the audio response sends).
 
 The session ends in one of these ways, and no task of it and no ffmpeg is left running (a job
-queued for a thread is cancelled; one already running in a thread, a normalization or an alignment,
-cannot be interrupted and finishes by itself, its result dropped):
+queued for a thread is cancelled; one already running in a thread, a normalization, a resampling or
+an alignment, cannot be interrupted and finishes by itself, its result dropped):
   - `cancel()`, or the idle end (no audio reader for `idle_seconds`): the worker is stopped at once,
     ffmpeg is killed, whatever MP3 is still unread is dropped, and both streams finish;
   - it fails (Zonos could not be reached or made no usable audio, ffmpeg died, a bug): the `error`
@@ -282,8 +282,11 @@ class ReadingSession:
         self._announced += 1
         await self._encoder.write(clip)
 
-        # What is aligned is exactly what was written. Keep only that, at 16 kHz.
-        audio_16k = resample_16k(clip, SAMPLE_RATE)
+        # What is aligned is exactly what was written. Keep only that, at 16 kHz. Off the event
+        # loop: a clip of nearly 30 s takes 25 ms, 130 at worst (a length with a large prime factor
+        # falls back to a slower transform), and another session's events must not wait for that.
+        # The default executor again, not the aligner's thread.
+        audio_16k = await asyncio.to_thread(resample_16k, clip, SAMPLE_RATE)
         del clip
         # One alignment at a time: the words of the sentence before come out first, and the memory
         # held for alignment is one sentence's. The next sentence is synthesized meanwhile.

@@ -646,6 +646,26 @@ async def test_normalization_runs_off_the_event_loop(new_session, monkeypatch):
     assert threads == [threads[0]] and threads[0] != threading.get_ident()
 
 
+async def test_resampling_runs_off_the_event_loop(new_session, monkeypatch):
+    real = session_module.resample_16k
+    threads: list[threading.Thread] = []
+
+    def noting_resample(audio, sr):
+        threads.append(threading.current_thread())
+        return real(audio, sr)
+
+    monkeypatch.setattr(session_module, "resample_16k", noting_resample)
+    session, _ = new_session(make_sentences(3))
+    events, _ = await play(session)
+    assert events[-1] == ("done", {})
+    assert len(threads) == 3
+    # A clip of nearly 30 s takes 25 ms to resample, 95 ms in one case in ten and 130 at worst, and
+    # every other session's events would wait for it on the loop. The default executor, then: not
+    # the aligner's thread, which can be busy.
+    assert all(thread is not threading.current_thread() for thread in threads)
+    assert not any(thread.name.startswith("speech-align") for thread in threads)
+
+
 # Prefetch: how far ahead of the reader the worker goes.
 
 
