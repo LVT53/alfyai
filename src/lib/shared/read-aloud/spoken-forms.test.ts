@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	addressHost,
 	codeKindOf,
 	isSeparator,
 	keepsSentenceOpen,
@@ -348,5 +349,28 @@ describe("spoken forms: a word cannot take the thread", () => {
 		expect(performance.now() - started).toBeLessThan(20);
 		// A prose word of that length is not a code word: its token is too long to say.
 		expect(speakWord("a".repeat(600), "prose", "en")).toEqual([]);
+	});
+});
+
+describe("spoken forms: the host an address is spoken as", () => {
+	it("names the site, without its scheme, its credentials, its port or www", () => {
+		expect(addressHost("https://www.bbc.com/news/x")).toBe("bbc.com");
+		expect(addressHost("http://user:pw@example.com:8080/x?y=1")).toBe(
+			"example.com",
+		);
+		expect(addressHost("(www.example.com),")).toBe("example.com");
+		expect(addressHost('fetch("https://x.org/a")')).toBe("x.org");
+		expect(addressHost("http://192.168.0.1:8080/x")).toBe("192.168.0.1");
+	});
+
+	it("is null for a word that is no address", () => {
+		for (const word of [
+			"hello",
+			"anna@example.com",
+			"report.pdf",
+			"Ctrl+C",
+			"x.org",
+		])
+			expect(addressHost(word), word).toBeNull();
 	});
 });

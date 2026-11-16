@@ -187,6 +187,50 @@ describe("the containment check", () => {
 		).toBeNull();
 	});
 
+	it("looks for an address by the host it is spoken as, wherever the reply names it", () => {
+		// "(bbc.com)" becomes a source chip whose address is the one given before.
+		const chip = {
+			shown: "https://www.bbc.com",
+			kind: "prose" as const,
+			tokens: speakWord("https://www.bbc.com", "prose", "en"),
+		};
+		expect(
+			wordsFitReply(
+				"Source: https://www.bbc.com/news/x is good. As reported (bbc.com) it holds.",
+				[
+					en(
+						said("Source:"),
+						said("https://www.bbc.com/news/x"),
+						said("is"),
+						said("good."),
+						said("As"),
+						said("reported"),
+						chip,
+						said("it"),
+						said("holds."),
+					),
+				],
+			),
+		).toBeNull();
+		// Credentials and a port in the address are not spoken, so are not searched.
+		expect(
+			wordsFitReply("Go to https://user:pw@example.com/x now.", [
+				en(
+					said("Go"),
+					said("to"),
+					said("https://user:pw@example.com/x"),
+					said("now."),
+				),
+			]),
+		).toBeNull();
+		// An address whose host the reply never names is still refused.
+		expect(
+			wordsFitReply("Go to example.org now.", [
+				en(said("Go"), said("to"), said("https://evil.test/")),
+			]),
+		).toBe(0);
+	});
+
 	it("counts a word with no letters as found", () =>
 		expect(
 			wordsFitReply("Alpha beta", [en(said("Alpha"), said("—"), said("beta"))]),

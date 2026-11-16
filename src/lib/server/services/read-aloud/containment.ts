@@ -4,7 +4,11 @@
 // tokens must be the shared dictionary's reading of it.
 
 import { decodeHTMLStrict } from "entities";
-import { speakWord, type WordKind } from "$lib/shared/read-aloud/spoken-forms";
+import {
+	addressHost,
+	speakWord,
+	type WordKind,
+} from "$lib/shared/read-aloud/spoken-forms";
 
 /** A word as the browser sends it. */
 export type CheckedWord = {
@@ -121,7 +125,8 @@ export function wordsFitReply(
 			if (word.kind === "listNumber") {
 				if (!LIST_NUMBER.test(word.shown)) return index;
 			} else {
-				const key = letterKey(word.shown);
+				// An address is spoken as its host, and the page may show it only so.
+				const key = letterKey(addressHost(word.shown) ?? word.shown);
 				if (key !== "") {
 					const at = reply.indexOf(key, cursor);
 					if (at === -1) return index;

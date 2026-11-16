@@ -117,16 +117,20 @@ function joinWithDots(
 	return out;
 }
 
-/** The site name of an address, every dot said; an IPv4 host stays as written. */
-function hostTokens(address: string, language: ReadingLanguage): string[] {
+/** The host of an address: no scheme, credentials, port, path or `www.`. */
+function hostOf(address: string): string {
 	const afterScheme = address.includes("://")
 		? address.slice(address.indexOf("://") + 3)
 		: address;
 	const authority = afterScheme.split(/[/?#]/u, 1)[0] ?? "";
-	const host = authority
+	return authority
 		.slice(authority.lastIndexOf("@") + 1)
 		.replace(/:\d*$/u, "")
 		.replace(/^www\./iu, "");
+}
+
+/** The site name of an address, every dot said; an IPv4 host stays as written. */
+function hostTokens(host: string, language: ReadingLanguage): string[] {
 	if (host === "") return [];
 	return IPV4.test(host) ? [host] : joinWithDots(host.split("."), language);
 }
@@ -135,16 +139,18 @@ function hostTokens(address: string, language: ReadingLanguage): string[] {
 function findAddress(
 	text: string,
 	language: ReadingLanguage,
-): { before: string; tokens: string[]; after: string } | null {
+): { before: string; host: string; tokens: string[]; after: string } | null {
 	const url = URL_SPAN.exec(text);
 	const www = url ? null : WWW_SPAN.exec(text);
 	const found = url ?? www;
 	if (!found) return null;
 	const start = found.index;
 	const end = start + found[0].length;
+	const host = hostOf(found[0]);
 	return {
 		before: text.slice(0, start),
-		tokens: hostTokens(found[0], language),
+		host,
+		tokens: hostTokens(host, language),
 		after: text.slice(end),
 	};
 }
@@ -642,6 +648,22 @@ export function speakWord(
 	// never read, so no word can take the thread (both sides run this function).
 	if (shown.length > MAX_CODE_WORD_CHARS) return [];
 	return limit(speakCode(shown, kind === "shell", language));
+}
+
+/**
+ * The site name a word is spoken as when it is an address ("bbc.com" for
+ * "https://www.bbc.com/news/x"): no scheme, credentials, port, path or `www.`.
+ * Null when the word is no address. The session route searches the reply for
+ * this and not for the whole address, because the page may show the address
+ * only by its host, as a source chip does.
+ */
+export function addressHost(shown: string): string | null {
+	const lead = LEADING_MARKS.exec(shown)?.[0] ?? "";
+	const rest = shown.slice(lead.length);
+	const trail = TRAILING_MARKS.exec(rest)?.[0] ?? "";
+	const core = rest.slice(0, rest.length - trail.length);
+	const found = findAddress(core, "en") ?? findAddress(shown, "en");
+	return found?.host || null;
 }
 
 /** An arrow or a separator dot between items in prose. */
