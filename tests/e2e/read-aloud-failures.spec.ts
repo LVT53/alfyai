@@ -122,9 +122,9 @@ test("it stops while reading: an amber player, and Try again resumes", async ({
 	fake?.setOptions({ secondsPerChar: 0.02 });
 	await ui.note.getByRole("button", { name: "Try again" }).click();
 	await expect.poll(() => fake?.sessions.length).toBe(2);
-	// It restarts at the start of the sentence the reading was on when it stopped
-	// (the first one was playing; the second never got made).
-	expect(fake?.sessions[1]?.body.sentences[0]?.id).toBe("s0");
+	// The first sentence's audio played out, then the reading stopped at the
+	// second, the one that was never made: Try again restarts there.
+	expect(fake?.sessions[1]?.body.sentences[0]?.id).toBe("s1");
 	await expect(ui.note).toHaveCount(0, { timeout: 10_000 });
 	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
 });
