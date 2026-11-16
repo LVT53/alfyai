@@ -248,6 +248,7 @@ type DraftPayload = {
 };
 
 let {
+	onCommandTrayChange = undefined,
 	disabled = false,
 	maxLength = 10000,
 	showSlashHintProp = true,
@@ -319,6 +320,11 @@ let {
 	 * The landing hero composer hides it.
 	 */
 	showSlashHintProp?: boolean;
+	/**
+	 * Told when the command tray opens or starts to close (read aloud's player hushes
+	 * itself while it is open, keeping its room).
+	 */
+	onCommandTrayChange?: ((open: boolean) => void) | undefined;
 	/**
 	 * The empty box's text. Unset means the ordinary chat placeholder; the
 	 * project page names the project it will start a chat in, which is the
@@ -951,6 +957,10 @@ let commandTrayCanOpen = $derived(
 		(commandTrayRows.length > 0 || commandToken?.prefix === "$"),
 );
 let showCommandTray = $derived(commandTrayMounted);
+$effect(() => {
+	const open = showCommandTray && !commandTrayClosing;
+	untrack(() => onCommandTrayChange?.(open));
+});
 let commandTrayInteractive = $derived(
 	commandTrayMounted && !commandTrayClosing && commandTrayCanOpen,
 );
