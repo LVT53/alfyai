@@ -110,9 +110,34 @@ def test_inflected_and_ordinal_number_words_say_két(text, said):
         ("Az iPhone 12 Pro drága.", "Az iPhone tizenkettő Pro drága."),
         ("A CO2 kibocsátás nő.", "A C O kettő kibocsátás nő."),
         ("A2 szintű nyelvvizsga.", "A kettő szintű nyelvvizsga."),
+        # A list marker is no count either.
+        ("A lista: 1) alma, 2) körte.", "A lista: egy) alma, kettő) körte."),
+        # Particles, adverbs and more copulas; "stb." is read "s a többi".
+        ("Ebből 2 is elég.", "Ebből kettő is elég."),
+        ("Ebből 2 nem elég.", "Ebből kettő nem elég."),
+        ("A válasz 2 lehet.", "A válasz kettő lehet."),
+        ("Ez 2 stb. kell.", "Ez kettő s a többi kell."),
     ],
 )
 def test_a_number_that_counts_nothing_stays_kettő(text, said):
+    assert spoken(text) == said
+
+
+@pytest.mark.parametrize(
+    "text, said",
+    [
+        # A symbol is not spoken: the word after it is not what the number stands before.
+        ("Ez 2 – 3 tojás.", "Ez kettő három tojás."),
+        ("A válasz 2 — nem 3.", "A válasz kettő nem három."),
+        ("Mivel 2 > 1, igaz.", "Mivel kettő egy, igaz."),
+        ("Ez 2 → 3 lépés.", "Ez kettő három lépés."),
+        ("Ez 2 • alma.", "Ez kettő alma."),
+        # A number written before a number is a list.
+        ("Nyerőszámok: 2 7 12 23.", "Nyerőszámok: kettő hét tizenkettő huszonhárom."),
+        ("Számolj: 1 2 3.", "Számolj: egy kettő három."),
+    ],
+)
+def test_a_number_before_a_symbol_or_another_number_stays_kettő(text, said):
     assert spoken(text) == said
 
 
@@ -125,6 +150,9 @@ def test_a_number_that_counts_nothing_stays_kettő(text, said):
         ("Az ára 12 002 Ft.", "Az ára tizenkétezer-két forint."),
         ("2 hét múlva jövök.", "két hét múlva jövök."),
         ("Ez 2 % kedvezmény.", "Ez két százalék kedvezmény."),
+        # A number word that follows is no reason: it is a count of thousands and millions.
+        ("Ez 2 ezer Ft.", "Ez két ezer forint."),
+        ("Ez 2 millió Ft.", "Ez két millió forint."),
         # Just outside the year range: 1892 and 2102 are counts.
         ("Vettem 1892 almát.", "Vettem ezernyolcszázkilencvenkét almát."),
         ("Vettem 2102 almát.", "Vettem kétezer-százkét almát."),
@@ -132,6 +160,46 @@ def test_a_number_that_counts_nothing_stays_kettő(text, said):
 )
 def test_a_number_that_counts_the_next_word_says_két(text, said):
     assert spoken(text) == said
+
+
+def say_the_two(text, language):
+    """A stand-in normalizer: "2" is "kettő" and every other word stays as typed."""
+    return text.replace("2", "kettő")
+
+
+# What no number counts, as typed: the review's stop list and what the later rounds added.
+NOT_COUNTED = [
+    "után", "előtt", "óta", "körül", "felé", "között", "közül", "alatt", "fölött", "felett",
+    "mellett", "múlva", "helyett", "nélkül", "szerint", "miatt", "által", "ellen", "iránt",
+    "mögött",
+    "és", "vagy", "meg", "illetve", "plusz", "mínusz", "szor", "szorozva", "x", "osztva",
+    "egyenlő",
+    "van", "vannak", "volt", "voltak", "lesz", "lesznek", "lett", "lettek", "marad", "maradt",
+    "kell",
+    "is", "sem", "nem", "de", "pedig", "viszont", "lehet", "legyen", "már", "még", "csak", "azaz",
+    "stb.", "s",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("word", NOT_COUNTED)
+def test_a_number_does_not_count_a_stop_word(word, monkeypatch):
+    monkeypatch.setattr(zyphra_textnorm, "normalize", say_the_two)
+    sp = normalize(["Ebből", "2", word, "elég."], "hu")
+    assert sp.words == ["Ebből", "kettő", word, "elég."]
+
+
+def test_a_number_counts_a_word_that_is_no_stop_word(monkeypatch):
+    # The same stand-in with a counted word: the stop-word test above is not vacuous.
+    monkeypatch.setattr(zyphra_textnorm, "normalize", say_the_two)
+    sp = normalize(["Ebből", "2", "alma", "elég."], "hu")
+    assert sp.words == ["Ebből", "két", "alma", "elég."]
+
+
+def test_a_number_whose_next_token_the_normalizer_dropped_is_left_alone(monkeypatch):
+    # "xx" is written after the "2" but no word is said after it: there is nothing to count.
+    said = {"Ebből 2 xx": "Ebből kettő", "Ebből 2": "Ebből kettő"}
+    monkeypatch.setattr(zyphra_textnorm, "normalize", lambda text, language: said.get(text, text))
+    assert normalize(["Ebből", "2", "xx"], "hu").words == ["Ebből", "kettő"]
 
 
 # One written token read as several words ("2%" is "kettő százalék") counts its own next word.
@@ -149,9 +217,29 @@ def test_a_number_that_counts_the_next_word_says_két(text, said):
         ("A 2/3 rész kész.", "A két harmad rész kész."),
         # "Kb." shares its run with "2%": the token's own words are still found.
         ("Kb. 2% emelkedés.", "körülbelül két százalék emelkedés."),
+        # Leading punctuation does not hide the number.
+        ("Ez (2%) kedvezmény.", "Ez (két százalék) kedvezmény."),
     ],
 )
 def test_a_number_read_as_several_words_says_két_before_its_own_next_word(text, said):
+    assert spoken(text) == said
+
+
+@pytest.mark.parametrize(
+    "text, said",
+    [
+        # A name that holds a number, with a hyphenated word after it: the number names, not counts.
+        ("A CO2-kibocsátás nő.", "A C O kettő kibocsátás nő."),
+        ("A B12-vitamin fontos.", "A B tizenkettő vitamin fontos."),
+        ("A SO2-kibocsátás nő.", "A S O kettő kibocsátás nő."),
+        ("A NO2-szint magas.", "A N O kettő szint magas."),
+        ("Ez CO2-mentes.", "Ez C O kettő mentes."),
+        ("Az F2-billentyű kell.", "Az F kettő billentyű kell."),
+        ("A K2-csúcs magas.", "A K kettő csúcs magas."),
+        ("A B2-vitamin fontos.", "A B kettő vitamin fontos."),
+    ],
+)
+def test_a_number_inside_a_name_stays_kettő(text, said):
     assert spoken(text) == said
 
 

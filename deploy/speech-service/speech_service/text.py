@@ -23,6 +23,8 @@ _LANGUAGES = get_args(Language)
 _NOT_IN_KEY = re.compile(r"[^\w%]|_")
 _HAS_DIGIT = re.compile(r"\d")
 _ONLY_DIGITS = re.compile(r"\d+")
+# A token that starts with a digit, not counting the punctuation before it: "(2%)", but not "CO2".
+_STARTS_WITH_DIGIT = re.compile(r"\W*\d")
 # "kettő" is "két" inside a number word, however it is inflected: before ezer, ezr- (kettőezres,
 # kettőezredik), száz and milli- (millió, milliárd, kettőmilliomodik).
 _KETTO_IN_NUMBER = re.compile(r"kettő(?=ezer|ezr|száz|milli)")
@@ -31,7 +33,7 @@ _KETTO_IN_NUMBER = re.compile(r"kettő(?=ezer|ezr|száz|milli)")
 _KETTO_AT_END = re.compile(r"kettő$")
 # Four-digit numbers that read as a year ("2022 óta"), not as a count.
 _LIKELY_YEARS = range(1900, 2100)
-# Words a number before them does not count: postpositions, conjunctions, operators, copulas.
+# Words a number before them does not count: postpositions, conjunctions, operators, copulas, ...
 _NOT_COUNTED = frozenset(
     {
         # "2 után", "2 körül", "2 között"
@@ -44,6 +46,10 @@ _NOT_COUNTED = frozenset(
         # "a válasz 2 lett"
         "van", "vannak", "volt", "voltak", "lesz", "lesznek", "lett", "lettek", "marad", "maradt",
         "kell",
+        # ... and particles: "Ebből 2 is elég", "2 nem elég", "a válasz 2 lehet", "2 stb." (which
+        # the normalizer reads "s a többi")
+        "is", "sem", "nem", "de", "pedig", "viszont", "lehet", "legyen", "már", "még", "csak",
+        "azaz", "stb", "s",
     }
 )  # fmt: skip
 # Where a "kettő" inside one token counts nothing: the decimal point, the dot of 1.2.3, a month.
@@ -139,9 +145,11 @@ def _fix_hungarian(
     Only the words of a written token with a digit are touched (a "kettő" the writer typed stays),
     and "két" is only said when that is sure; otherwise the normalizer's "kettő" stays:
     - inside a number word: kettőezer-huszonhat, kettőezres, kettőmilliomodik;
-    - at the end of a plain number (digits only, no year) that counts the next spoken word, a
-      lowercase word that is no postposition, conjunction, operator or copula: két tojás;
-    - inside one token that reads as several words, before the word it counts: 2% is két százalék.
+    - at the end of a plain number (digits only, no year) written straight before a word it counts,
+      a lowercase spoken word that is no postposition, conjunction, operator, copula or particle:
+      két tojás;
+    - inside one token that starts with a number and reads as several words, before the word it
+      counts: 2% is két százalék.
     """
     fixed = list(words)
     keys = [_key(word) for word in words]
@@ -156,9 +164,17 @@ def _fix_hungarian(
         # agree, nothing says which words are the token's: leave them as the normalizer said.
         if end is None or not span[0] < end <= span[1]:
             continue
-        if _is_counting_number(token) and _is_counted(words, end):
+        if (
+            _is_counting_number(token)
+            and _is_followed_by_a_word(tokens, i)
+            and _is_counted(words, end)
+        ):
             fixed[end - 1] = _KETTO_AT_END.sub("két", fixed[end - 1])
-        # The token's own words are start..end; the last of them has no own word after it.
+        # Inside one token that starts with a number and reads as several words, the token's own
+        # words are start..end, and the last of them has no own word after it. In a name that holds
+        # a number (CO2-kibocsátás, B12-vitamin) the number names something, it counts nothing.
+        if not _STARTS_WITH_DIGIT.match(token):
+            continue
         start = _words_through(tokens, i - 1, keys)
         if start is not None and span[0] <= start:
             for j in range(start, end - 1):
@@ -172,6 +188,19 @@ def _is_counting_number(token: str) -> bool:
     if not _ONLY_DIGITS.fullmatch(token):
         return False
     return not (len(token) == 4 and int(token) in _LIKELY_YEARS)
+
+
+def _is_followed_by_a_word(tokens: list[str], i: int) -> bool:
+    """Whether the next written token after token `i` is a word that is said straight after it.
+
+    It must exist, hold a word and not a lone symbol (a symbol is not spoken, so the spoken word
+    after it would be read past it: "2 – 3 tojás", "2 > 1"), and not start with a digit (a list of
+    numbers: "2 7 12 23"). So "2 € kell" stays "kettő euró": nothing tells that "euró" is counted.
+    """
+    if i + 1 >= len(tokens):
+        return False
+    following = tokens[i + 1]
+    return bool(_key(following)) and not _STARTS_WITH_DIGIT.match(following)
 
 
 def _can_be_counted(word: str) -> bool:
