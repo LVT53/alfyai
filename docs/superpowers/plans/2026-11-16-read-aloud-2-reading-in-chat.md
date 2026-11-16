@@ -64,9 +64,10 @@
    - It is all dropped when the reading ends.
 4. **A pause longer than 30 s ends the session.** Play then restarts at the start of that sentence, as after a hidden page.
 5. **Player times are listening times** (divided by the speed), as in the prototype.
-6. **Speaking rates for the estimate:** English 15 and Hungarian 14 characters per second, until Plan 4 measures them on the box.
+6. **Speaking rates for the estimate:** 15 characters per second in both languages, until Plan 4 measures each voice. The box measured 14.5–16 for Hungarian text at the default Pace.
 7. **Short sentences across paragraphs.** When a one- or two-word sentence joins one in the next paragraph, its last token gets "." after a heading and "," after anything else, so headings and lists keep their pause.
 8. **A reading replaced by one in another tab ends quietly,** with no error note.
+9. **Long sentences split at 240 characters,** not the spec's "about 300". This follows the box measurements of 2026-11-16 (the project memory note `alfyai-read-aloud-aligner-on-box-2026-11-16`): every clip then stays under 30 s at any Pace, and the aligner stays out of its long-form mode.
 
 ## Review Focus
 
@@ -242,8 +243,8 @@ Use whatever override helper the existing `config-store.test.ts` cases use; `app
     | `rupert` | Rupert | `default_3765f0d1140c05c0` | `{}` | 15 |
     | `savannah` | Savannah | `default_de4d191ca7574982` | `{}` | 15 |
     | `wyatt` | Wyatt | `default_34370fd91e3484ef` | `{}` | 15 |
-    | `berta` | Berta | `PENDING_FROM_BOX_berta` | `{ "room.clean": 2 }` | 14 |
-    | `imre` | Imre | `PENDING_FROM_BOX_imre` | `{ "room.clean": 2 }` | 14 |
+    | `berta` | Berta | `PENDING_FROM_BOX_berta` | `{ "room.clean": 2 }` | 15 |
+    | `imre` | Imre | `PENDING_FROM_BOX_imre` | `{ "room.clean": 2 }` | 15 |
 
   - Berta's and Imre's ids sit under a comment: `// PLACEHOLDER: Plan 1 Task 8 records these ids from the box's GET /v2/speakers in deploy/speech-service/README.md ("Deploy"). Plan 4 puts them here before TTS_ENABLED goes on.`
   - `PENDING_SPEAKER_ID_PREFIX = "PENDING_FROM_BOX_"`.
@@ -514,7 +515,7 @@ it("gives the English voices their ids and the Hungarian ones studio by default"
   - `sentenceAtPoint(script: SpeechScript, node: Node, offset: number): number | null`: the sentence holding the point, else the first one after it.
   - `SKIPPED_SELECTOR = ".code-block, pre, .markdown-diagram-block, .markdown-table-wrap, table, .markdown-frontmatter, .markdown-image-frame, img, svg, figure, button, input, a.source-link-chip, [aria-hidden='true'], script, style"`.
   - `PARAGRAPH_TAGS = ["P", "LI", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE", "SUMMARY", "DT", "DD", "DIV", "ASIDE"]`.
-  - `LONG_SENTENCE_CHARS = 300` and `MAX_TOKEN_CHARS = 80`.
+  - `LONG_SENTENCE_CHARS = 240` and `MAX_TOKEN_CHARS = 80`. The spec says "about 300", but the box measurements of 2026-11-16 found that 240 keeps every clip under 30 s even at the slowest Pace (300 gives 33 s at Pace −2), so the aligner never enters its long-form mode.
 - **Rules** (what the tests below do not fully determine):
   1. **Walking the DOM.** Walk text nodes in document order with a `TreeWalker`.
      - Skip any node inside `SKIPPED_SELECTOR`, and any node inside a `<details>` without `open`, except its `<summary>`.
@@ -539,7 +540,7 @@ it("gives the English voices their ids and the Hungarian ones studio by default"
      - When the join crosses a paragraph and the last token does not already end in one of `. ! ? , ; : …`, that token gets "." if it came from a heading and "," otherwise.
      - A sentence with no next sentence to join joins the previous one of the same language.
      - A sentence with neither stays as it is.
-  7. **Long sentences.** A sentence over 300 characters splits after the last token ending in "," or ";" that keeps the first part within 300. Failing that, it splits after the last token that does. Repeat until every part fits.
+  7. **Long sentences.** A sentence over 240 characters splits after the last token ending in "," or ";" that keeps the first part within 240. Failing that, it splits after the last token that does. Repeat until every part fits.
   8. **Ids and flags.** Ids are `s0, s1, …` in order. `paragraphStart` is true for a sentence that begins a paragraph; a merged sentence keeps its first part's flag.
 
 - [ ] **Step 1: Write the failing tests** (jsdom, the real `Intl.Segmenter`, and a stub `detect` keyed by paragraph text). Build DOMs shaped like `MarkdownRenderer`'s output.
@@ -551,7 +552,7 @@ it("gives the English voices their ids and the Hungarian ones studio by default"
   - `keeps each token's range on its own characters`: for `<strong>bo</strong>ld`, `ranges[i].toString() === "bold"`.
   - `splits sentences with Intl.Segmenter in the paragraph's language`.
   - `merges short sentences across paragraphs with a pause mark`: a heading "Ingredients" and list items "Flour", "Water", "Salt" give one sentence with tokens `["Ingredients.", "Flour,", "Water,", "Salt"]` and `paragraphStart: true`.
-  - `splits a sentence over 300 characters at a comma`: every part is at most 300 characters.
+  - `splits a sentence over 240 characters at a comma`: every part is at most 240 characters.
   - `skips a German paragraph, and names German when nothing is voiced`.
   - `finds the sentence holding a selection's start`.
 - [ ] **Step 2: Run them and see them fail.** Run `npx vitest run src/lib/client/read-aloud/speech-script.test.ts`.
