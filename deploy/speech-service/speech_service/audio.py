@@ -100,8 +100,13 @@ def click_at(seconds: float, sr: int = SAMPLE_RATE) -> np.ndarray:
 
 # ffmpeg reads float32 little-endian mono PCM on stdin and writes MP3 on stdout. `-flush_packets 1`
 # makes it flush after each MP3 frame, so the stream is progressive rather than arriving in blocks.
+# `-probesize 32 -analyzeduration 0` stop it reading ahead before it encodes: the box's ffmpeg 7.1.5
+# otherwise holds every byte of MP3 until about 5 s of input have arrived (measured: first audio
+# 4.4 s after the request instead of half a second). Homebrew's ffmpeg 9 streams either way, so the
+# Mac's tests cannot catch their absence; `test_the_encoder_never_reads_ahead` pins them.
 _FFMPEG_ENCODE = (
     "ffmpeg", "-hide_banner", "-loglevel", "error",
+    "-probesize", "32", "-analyzeduration", "0",
     "-f", "f32le", "-ar", str(SAMPLE_RATE), "-ac", "1", "-i", "-",
     "-c:a", "libmp3lame", "-b:a", "128k", "-flush_packets", "1", "-f", "mp3", "-",
 )

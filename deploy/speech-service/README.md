@@ -204,4 +204,93 @@ The service is run from its source folder, which is not installed: `cd <source f
 
 ## Deploy
 
-Task 8 of the plan fills this in: the systemd unit, the install on the box and the rollback.
+The service runs on the GPU box beside Zonos (`zonos3.service`, ggml, 127.0.0.1:1919) and vLLM, as `alfyws`, under systemd. It was installed there on 2026-11-16. Every change on the box needs the owner's OK first (`alfyws` for files, `alfyroot` for systemd), and **`vllm-flashnext` and `zonos3` are never restarted or reconfigured** for it: the steps below leave both alone.
+
+### Where things are on the box
+
+| What | Where |
+|---|---|
+| Source (run in place, not installed) | `/home/alfyws/opt/speech-service` |
+| Python environment (CPython 3.12.15) | `/home/alfyws/venvs/speech-service`, from `requirements.lock` |
+| Unit | `/etc/systemd/system/speech-service.service` (a copy of `speech-service.service` here), enabled |
+| Word timing: native FuseAlign CLI (CPU build; keep it in its build tree, it loads `libggml*.so.0` from `ggml/build/ggml/src`) | `/home/alfyws/opt/fusealign/fusealign-multilingual/ggml/build/fusealign-cli` (repo `fc17172c1`, ggml `a05c9922`) |
+| Its model (514,803,776 bytes, sha256 `183b4247afe5de7c0d163eea4a41057fa8dd0da27f6a898632b1aba53db77a3f`) | `/home/alfyws/opt/fusealign/models/fusealign-multilingual-cjkft-step2500-q8_0.gguf` |
+| The Hungarian voices (embeddings only, never the reference audio) | `/home/alfyws/opt/zonos3/servers/ggml/gguf/voices/Hungarian/{berta,imre}.npy` |
+
+Zonos rescans its voices folder on every lookup, so adding or removing a voice there needs no restart. A voice's id hashes its path inside that folder, so the same layout gives the same ids everywhere:
+
+| Voice | Zonos id (on the box) |
+|---|---|
+| Imogen | `default_b78b28baf5c31a1d` |
+| Rupert | `default_3765f0d1140c05c0` |
+| Savannah | `default_de4d191ca7574982` |
+| Wyatt | `default_34370fd91e3484ef` |
+| Berta | `default_bf7632822e6b4dc0` (default control `room.clean: 2`) |
+| Imre | `default_fde02d0881bd267d` (default control `room.clean: 2`) |
+
+### Install or update
+
+From the repository root on the owner's Mac:
+
+```sh
+# 1. The code (as alfyws); tests and the Mac's venv stay behind.
+rsync -a --exclude .venv --exclude tests --exclude __pycache__ --exclude .pytest_cache --exclude '*.egg-info' \
+  deploy/speech-service/ alfyws:/home/alfyws/opt/speech-service/
+# 2. The environment, exactly the lock (as alfyws).
+ssh alfyws '/usr/local/bin/uv venv --python /usr/bin/python3.12 ~/venvs/speech-service'   # first install only
+ssh alfyws '/usr/local/bin/uv pip sync --python ~/venvs/speech-service/bin/python ~/opt/speech-service/requirements.lock'
+# 3. The Hungarian voices (as alfyws), first install only.
+ssh alfyws 'mkdir -p /home/alfyws/opt/zonos3/servers/ggml/gguf/voices/Hungarian'
+rsync -a .superpowers/hu-voices/berta.npy .superpowers/hu-voices/imre.npy \
+  alfyws:/home/alfyws/opt/zonos3/servers/ggml/gguf/voices/Hungarian/
+# 4. The unit (as root), first install or when the unit changed.
+ssh alfyroot 'install -m 0644 -o root -g root /home/alfyws/opt/speech-service/speech-service.service /etc/systemd/system/speech-service.service && systemctl daemon-reload && systemctl enable --now speech-service'
+# An update of the code only: step 1 (and 2 if the lock changed), then
+ssh alfyroot 'systemctl restart speech-service'
+```
+
+Then check it: `GET /health` must say `{"ok":true,"zonos":true,"aligner":true}` (an `aligner` of `false` means the CLI or the model was not found: the journal says which), it must listen on `127.0.0.1:1920` only, and the live check must pass:
+
+```sh
+ssh alfyws 'curl -s http://127.0.0.1:1920/health; ss -ltn | grep ":1920 "'
+ssh alfyws 'cd ~/opt/speech-service && ~/venvs/speech-service/bin/python -I -B scripts/live_check.py --service http://127.0.0.1:1920 --zonos http://127.0.0.1:1919 --out /home/alfyws/opt/speech-service-live'
+ssh alfyws 'rm -rf /home/alfyws/opt/speech-service-live'   # its output is a test artifact
+```
+
+Logs: `journalctl -u speech-service` (as root): ids, counts and timings, never reply text.
+
+### Measured on the box (2026-11-16)
+
+| What | Measured |
+|---|---|
+| Box | AMD Ryzen 9 9950X, 16 cores / 32 threads; 190,202 MB RAM (about 55 GB available), swap 24 of 32 GB in use; GPU0 653 MiB free of 97,887 (vLLM and Zonos), GPU1 about 26 GB free; Python 3.12.15; ffmpeg 7.1.5 with libmp3lame |
+| Word timing | native CLI (the plan's rule: under 1.5 GB with the service, a 5 s sentence in under 2 s): 0.20-0.53 s per sentence of 2.9-9.5 s at `-t 16` including start and model load, 0.35 s at `-t 8` for 4.3 s; 528-593 MiB peak (813-890 MiB for a 32-38 s clip, which the CLI aligns in its own long-form mode as accurately); all words placed |
+| Service memory | about 80 MB idle; 695 MB peak (the cgroup, aligner runs included) against the 2 GB cap and the 1.5 GB budget |
+| First audio, short first sentence (46 characters) | 0.50 s from the POST |
+| First audio, first sentence of about 186 characters | 1.44 s (English, Imogen), 1.71 s (Hungarian, Berta): it grows with the first sentence's length, because a sentence is synthesized whole before it is loudness-matched |
+| Live check | all 6 checks pass: 36.6 s of audio made in 6.0 s, 77 of 78 tokens timed (the lone `→` has none, as meant), gaps 0.30 / 0.60 s, timeline and audio length equal |
+| Cancel and the Zonos slot | a cancel frees it: two long requests together took 2.43 s, and 2.56-2.59 s right after a reading was cancelled in mid-synthesis (a kept slot would have made one wait about 4 s) |
+| vLLM while a reading is made | single-stream decode speed 157 tok/s idle and 141 tok/s while a reading's sentences are being synthesized (−10%, four alternating rounds, no other vLLM traffic); unchanged while no reading is made. Zonos shares GPU0 with vLLM and works in bursts (about a seventh of a reading's length), so a reading costs vLLM about 1-2% on average |
+
+ffmpeg 7.1.5 (the box) reads ahead about 5 s of input before it encodes unless told not to; the encoder passes `-probesize 32 -analyzeduration 0` for that reason (see `audio.py`).
+
+### Known, accepted cost: vLLM decodes slower while a reading is being made
+
+Accepted by the owner on 2026-11-16, and written down so it can be looked into later.
+
+- **What was measured.** vLLM's single-stream decode speed (a fixed 200-token completion at temperature 0) was 157.3 tokens/s with the speech service idle. While a reading's sentences were being synthesized it was 140.8 tokens/s: **−10.5%**. That held over four alternating rounds, and vLLM's own gauge showed no other requests. With no reading running, the speed is unchanged. Zonos makes speech about 7× faster than real time, so during a reading it works in bursts, for about a seventh of the reading's length. Averaged over a reading, that costs vLLM about **1-2%**.
+- **The likely cause** is Zonos's backbone sharing GPU0 with vLLM, which is the layout the design approved. This work leaves both services exactly as they were. A first attempt to attribute the cost was too noisy to prove it (Zonos alone, then the aligner alone, three runs each). The aligner and the MP3 encoder run on the CPU, not the GPU.
+- **What could be tried later:**
+  - Attribute it properly under real load: longer runs, comparing Zonos alone, the aligner alone (`SPEECH_ALIGNER_THREADS=4`, or `SPEECH_ALIGNER=none` for a test) and the whole service.
+  - `SPEECH_PREFETCH=1` spreads the bursts thinner. The total GPU work stays the same, and there is less lookahead for the reader.
+  - On Zonos's side, each needing the owner's OK because they reconfigure `zonos3.service`:
+    - `--batch 1`, so readings never run two syntheses at once (a second reading would wait longer);
+    - or moving Zonos's backbone to GPU1, which had about 26 GB free on 2026-11-16, so it stops sharing GPU0 with vLLM. Check what else uses GPU1 first.
+
+### Rollback
+
+```sh
+ssh alfyroot 'systemctl disable --now speech-service && rm /etc/systemd/system/speech-service.service && systemctl daemon-reload'
+```
+
+That stops the service and nothing else. The source folder, its environment and the voices can stay (Zonos ignores voices nobody asks for), or go with `rm -rf /home/alfyws/opt/speech-service /home/alfyws/venvs/speech-service` and the `Hungarian/` folder above. FuseAlign's build under `/home/alfyws/opt/fusealign` is independent of the service.

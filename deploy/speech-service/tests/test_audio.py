@@ -554,3 +554,13 @@ def test_the_delay_is_not_known_before_the_encoder_starts(monkeypatch):
     monkeypatch.setattr(Mp3Encoder, "_delay", None)
     with pytest.raises(RuntimeError, match="warm_up"):
         _ = Mp3Encoder().delay_seconds
+
+
+def test_the_encoder_never_reads_ahead():
+    # The box's ffmpeg 7.1.5 holds all of its MP3 until about 5 s of input have arrived unless the
+    # read-ahead is switched off; Homebrew's ffmpeg 9 streams either way, so no behaviour test on the
+    # Mac can see this. The input options must come before `-i`.
+    command = audio._FFMPEG_ENCODE
+    before_input = command[: command.index("-i")]
+    assert before_input[before_input.index("-probesize") + 1] == "32"
+    assert before_input[before_input.index("-analyzeduration") + 1] == "0"
