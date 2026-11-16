@@ -920,6 +920,45 @@ def test_preview_when_the_encoder_is_gone_502(serve, monkeypatch):
     assert reply.json() == {"code": "synthesis_failed"}
 
 
+@pytest.mark.parametrize("breaks", ["normalize", "match_loudness", "_encode"])
+def test_an_unexpected_failure_of_a_preview_is_a_500_that_says_nothing_of_the_text(
+    serve, monkeypatch, caplog, breaks
+):
+    # A bug somewhere in the preview, with a message that quotes the text it was given. Left to
+    # Starlette it is a 500 whose exception the server logs with its message and traceback.
+    caplog.set_level(logging.DEBUG)
+
+    def bug(*args, **kwargs):
+        raise ValueError("cannot handle " + " ".join(SECRET))
+
+    async def async_bug(*args, **kwargs):
+        raise ValueError("cannot handle " + " ".join(SECRET))
+
+    monkeypatch.setattr(app_module, breaks, async_bug if breaks == "_encode" else bug)
+    client, _ = serve()
+    reply = client.post("/v1/preview", json=preview_request(text="Zebrafish Quokka."))
+    assert reply.status_code == 500
+    assert reply.json() == {"code": "synthesis_failed"}  # fixed: the same for every bug
+    assert not any(marker in reply.text.lower() for marker in MARKERS)
+    lines = _logged(caplog)
+    assert any("ValueError at test_app.py:" in line for line in lines)  # its type and its place
+    for line in lines:
+        assert not any(marker in line.lower() for marker in MARKERS), line
+
+
+def test_a_failed_preview_does_not_stop_the_next_one(serve, monkeypatch):
+    client, _ = serve()
+    real = app_module.normalize
+
+    def bug_once(tokens, language):
+        monkeypatch.setattr(app_module, "normalize", real)
+        raise ValueError("a bug")
+
+    monkeypatch.setattr(app_module, "normalize", bug_once)
+    assert client.post("/v1/preview", json=preview_request()).status_code == 500
+    assert client.post("/v1/preview", json=preview_request()).status_code == 200
+
+
 def test_preview_works_after_a_failed_one(serve):
     client, _ = serve(zonos=fake_zonos(fail_on=1))
     assert client.post("/v1/preview", json=preview_request()).status_code == 502

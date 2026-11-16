@@ -63,8 +63,9 @@ Each `sentence` event comes before the audio it describes. The `words` event for
 | 409 | `{"error": "reader_taken"}` | a second `GET …/audio` or `GET …/events` |
 | 413 | `{"error": "too_large"}` | a request body of more than 4 MiB (4,194,304 bytes), on any route that reads one. It is refused as soon as its declared length, or the part of it that has arrived, is over that, and nothing is started |
 | 422 | `{"error": "invalid", "field": "sentences[3].tokens"}` | a body the service refuses. The field path only, never a value, so none of the request comes back |
-| 503 | `{"code": "zonos_unavailable"}` | `preview`: Zonos could not be reached |
+| 500 | `{"code": "synthesis_failed"}` | `preview`: something nobody expected went wrong (a bug). The body is the same for every cause; the log has the error's type and place, never its message |
 | 502 | `{"code": "synthesis_failed"}` | `preview`: Zonos failed or sent nothing usable, or the encoder failed |
+| 503 | `{"code": "zonos_unavailable"}` | `preview`: Zonos could not be reached |
 
 **What a request may hold.** Anything else is 422 with that field's path. Unknown fields are ignored.
 

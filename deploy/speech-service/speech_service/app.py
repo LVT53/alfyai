@@ -37,6 +37,7 @@ from starlette.types import Receive, Scope, Send
 from speech_service.aligner import Aligner, NoAligner
 from speech_service.audio import SAMPLE_RATE, Mp3Encoder, match_loudness, trim_silence
 from speech_service.config import Settings
+from speech_service.logs import describe
 from speech_service.models import Sentence, Voice
 from speech_service.session import Event, ReaderTaken, ReadingSession
 from speech_service.text import Language, normalize
@@ -168,8 +169,21 @@ class _Api:
 
     async def preview(self, request: Request) -> Response:
         """One sentence spoken in a voice: normalized, trimmed, matched in loudness and encoded to
-        one whole MP3. Not aligned: a preview has no word times."""
+        one whole MP3. Not aligned: a preview has no word times.
+
+        Whatever goes wrong that nobody expected is a 500 with a fixed body, and the log has the
+        error's type and place and no message (a message can quote the text, and an error left to
+        the server is logged with its message and its traceback)."""
         text, language, voice = _parse_preview(await _json_body(request))
+        try:
+            return await self._speak(text, language, voice)
+        except _Invalid:  # nothing speakable: the client's to be told, not a failure
+            raise
+        except Exception as error:
+            logger.error("preview: failed unexpectedly: %s", describe(error))
+            return JSONResponse({"code": "synthesis_failed"}, status_code=500)
+
+    async def _speak(self, text: str, language: Language, voice: Voice) -> Response:
         spoken = await asyncio.to_thread(normalize, text.split(), language)
         if not spoken.words:  # nothing the voice would say: no call to Zonos
             raise _Invalid("text")
