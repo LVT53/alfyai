@@ -85,6 +85,10 @@ Routes and tests:
 - `src/routes/` — API routes; `src/routes/(app)/` — the app shell, page boundaries, announcements.
 - `tests/` — the e2e harness and spec conventions.
 
+Deploy:
+
+- `deploy/speech-service/` — the read-aloud speech service on the GPU box: loopback only, nothing on disk, no reply text in logs; how to run its tests.
+
 ## Config And Environment
 
 - Environment parsing:
