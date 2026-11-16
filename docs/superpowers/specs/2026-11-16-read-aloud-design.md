@@ -164,7 +164,7 @@ The spoken text is built from the reply **as rendered on screen**, never from it
 
 **Read as written:**
 - paragraphs and quotes, with text in brackets read normally;
-- headings, with a longer pause after each;
+- headings, followed by the same 0.6 s pause as a new paragraph;
 - list items and checklist items: a numbered list reads its numbers ("One. Mix the flour…"), bullets are silent;
 - the text of links, and inline emphasis as plain words.
 
@@ -180,10 +180,13 @@ The spoken text is built from the reply **as rendered on screen**, never from it
     - `|` "pipe" (in shell commands)
     - `*` "star"
     - `/` "slash" (in paths)
-    - `<T>` "of T"
-    - brackets are silent, and any other symbol is dropped.
+    - `<T>` "of T": a `<…>` straight after a name is a generic
+    - `<` "less than", `>` "greater than", `<=` "less than or equal", `>=` "greater than or equal"
+    - `+` "plus", `-` "minus" (silent inside a hyphenated name like `my-class`), `++` "plus plus", `--` "minus minus", `+=` "plus equals", `-=` "minus equals"
+    - `!` "not", `%` "mod"
+    - brackets are silent, and any other symbol is dropped. So `if x < 10` reads "if x less than ten", in Hungarian with the dictionary's Hungarian words.
   - **Abbreviations, per language.** The starting list:
-    - Java / C#: `println`, `WriteLine` "print line"
+    - Java: `println` "print line"; C#: `Console.WriteLine` "console dot write line"
     - Python: `def` "define", `elif` "else if", `__init__` "dunder init", `kwargs` "keyword args", `len` "length"
     - JavaScript / TypeScript: `console.log` "console dot log", `NaN` "not a number"
     - C / C++: `printf` "print f", `std::cout` "standard c out", `#include` "include"
