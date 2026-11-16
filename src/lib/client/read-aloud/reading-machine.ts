@@ -359,9 +359,16 @@ export function reduce(state: ReadingState, event: ReadingEvent): ReadingStep {
 				return brk(state, event.kind);
 			return stay(state);
 		case "broke":
-			return status === "seeking" || status === "playing"
-				? brk(state, event.kind)
-				: stay(state);
+			if (status === "seeking" || status === "playing")
+				return brk(state, event.kind);
+			// The update watch gave up (8 min): the voice is not coming back by itself.
+			if (status === "waiting" && event.kind === "voice") {
+				return {
+					state: { ...state, status: "stopped", failure: "voice" },
+					commands: [],
+				};
+			}
+			return stay(state);
 		case "startFailedTimeout":
 			return status === "startFailed" ? toIdle(state, []) : stay(state);
 		case "longPause":

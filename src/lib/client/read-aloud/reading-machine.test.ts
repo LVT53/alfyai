@@ -289,6 +289,22 @@ describe("the reading machine", () => {
 		]);
 	});
 
+	it("an update that never ends stops the reading when the watch gives up", () => {
+		const waiting = reduce(playingAt(2), {
+			type: "broke",
+			kind: "updating",
+		}).state;
+		const given = reduce(waiting, { type: "broke", kind: "voice" });
+		// Nothing is open while waiting, so there is nothing to close.
+		expect(given).toEqual({
+			state: { ...waiting, status: "stopped", failure: "voice" },
+			commands: [],
+		});
+		expect(reduce(waiting, { type: "broke", kind: "offline" }).state).toBe(
+			waiting,
+		);
+	});
+
 	it("another reply switches without closing the player", () => {
 		for (const state of [
 			playingAt(3),
