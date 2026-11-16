@@ -94,17 +94,17 @@ Read once at start-up, from the environment, by `speech_service/config.py` (whic
 | Variable | Default | Meaning |
 |---|---|---|
 | `SPEECH_HOST` | `127.0.0.1` | Where to bind. `localhost`, `127.0.0.0/8` and `::1` only: anything else stops the service |
-| `SPEECH_PORT` | `1920` | |
+| `SPEECH_PORT` | `1920` | From 1 to 65535 |
 | `SPEECH_ZONOS_URL` | `http://127.0.0.1:1919` | Where Zonos is |
-| `SPEECH_PREFETCH` | `2` | Sentences synthesized beyond the reader's position |
+| `SPEECH_PREFETCH` | `2` | Sentences synthesized beyond the reader's position: 0 or more |
 | `SPEECH_SEED` | `1234` | The seed of a reading that brings none |
 | `SPEECH_ALIGNER` | `python` | `python` (FuseAlign in this process), `native` (the `fusealign-cli` binary) or `none` (sentence marks only) |
 | `SPEECH_ALIGNER_MODEL` | none | The FuseAlign checkpoint (`python`), or the GGUF file (`native`: required, and it must be a file) |
 | `SPEECH_ALIGNER_CLI` | `fusealign-cli` | The native binary: an absolute path, or a name found on `PATH`. It must be an executable file |
-| `SPEECH_ALIGNER_THREADS` | `4` | Threads of the aligner |
-| `SPEECH_IDLE_SECONDS` | `30` | How long a session lives without an audio reader, and how long one that has ended is kept for a reader that comes late |
+| `SPEECH_ALIGNER_THREADS` | `4` | Threads of the aligner: 1 or more |
+| `SPEECH_IDLE_SECONDS` | `30` | How long a session lives without an audio reader, and how long one that has ended is kept for a reader that comes late: a finite number above 0 |
 
-**An aligner that cannot be set up does not stop the service.** Word times are an extra, so if the configured aligner cannot be set up at start-up (`native`: the CLI is not an executable file or a command on `PATH`, or the model is not set or not a file; `python`: FuseAlign or torch does not import, or the model does not load), the service logs one `ERROR` line (the backend, what is missing or the exception's type, never its message), runs with `SPEECH_ALIGNER=none` and says `"aligner": false` on `/health`. A setting that is wrong (a port that is not a number, a host beyond loopback, an unknown `SPEECH_ALIGNER`) stops it at start-up with one line instead.
+**An aligner that cannot be set up does not stop the service.** Word times are an extra, so if the configured aligner cannot be set up at start-up (`native`: the CLI is not an executable file or a command on `PATH`, or the model is not set or not a file; `python`: FuseAlign or torch does not import, or the model does not load), the service logs one `ERROR` line (the backend, what is missing or the exception's type, never its message), runs with `SPEECH_ALIGNER=none` and says `"aligner": false` on `/health`. A setting that is wrong (a number that is not one or is out of its range, a host beyond loopback, an unknown `SPEECH_ALIGNER`) stops it at start-up with one line instead.
 
 ## Running it on the Mac
 

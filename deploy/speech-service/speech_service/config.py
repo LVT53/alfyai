@@ -7,6 +7,7 @@ built, so a mistyped SPEECH_HOST stops the service instead of exposing it.
 from __future__ import annotations
 
 import ipaddress
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal, cast, get_args
@@ -61,12 +62,21 @@ class Settings:
             raise ValueError(
                 f"SPEECH_ALIGNER must be one of {', '.join(_ALIGNERS)}, got {self.aligner!r}"
             )
+        if not 1 <= self.port <= 65535:
+            raise ValueError(f"SPEECH_PORT must be from 1 to 65535, got {self.port}")
         # A negative prefetch parks every session at its gate before the first sentence, and an idle
-        # time of nothing ends every session as it starts.
+        # time of nothing ends every session as it starts. An endless one (inf) is as bad the other
+        # way: a session nobody reads never ends, and an ended one is never forgotten.
         if self.prefetch < 0:
             raise ValueError(f"SPEECH_PREFETCH must be 0 or more, got {self.prefetch}")
-        if not self.idle_seconds > 0:  # written this way so that nan is refused too
-            raise ValueError(f"SPEECH_IDLE_SECONDS must be more than 0, got {self.idle_seconds}")
+        if not (math.isfinite(self.idle_seconds) and self.idle_seconds > 0):  # nan is neither
+            raise ValueError(
+                f"SPEECH_IDLE_SECONDS must be a finite number above 0, got {self.idle_seconds}"
+            )
+        if self.aligner_threads < 1:
+            raise ValueError(
+                f"SPEECH_ALIGNER_THREADS must be 1 or more, got {self.aligner_threads}"
+            )
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> Settings:

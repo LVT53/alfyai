@@ -125,9 +125,12 @@ def test_a_prefetch_of_zero_is_fine():
     assert Settings(prefetch=0).prefetch == 0
 
 
-@pytest.mark.parametrize("seconds", ["0", "0.0", "-1", "-0.5", "nan"])
-def test_refuses_an_idle_time_that_is_not_more_than_zero(seconds):
-    # Every session would end the moment it started (nan: nobody can say when).
+@pytest.mark.parametrize(
+    "seconds", ["0", "0.0", "-1", "-0.5", "nan", "inf", "Infinity", "-inf"]
+)
+def test_refuses_an_idle_time_that_is_not_a_finite_number_above_zero(seconds):
+    # Every session would end the moment it started (nan: nobody can say when; inf: a session
+    # nobody reads never ends, and an ended one is never forgotten).
     with pytest.raises(ValueError, match="SPEECH_IDLE_SECONDS"):
         Settings.from_env({"SPEECH_IDLE_SECONDS": seconds})
     with pytest.raises(ValueError, match="SPEECH_IDLE_SECONDS"):
@@ -137,6 +140,33 @@ def test_refuses_an_idle_time_that_is_not_more_than_zero(seconds):
 def test_a_short_idle_time_is_fine():
     assert Settings.from_env({"SPEECH_IDLE_SECONDS": "0.001"}).idle_seconds == 0.001
     assert Settings(idle_seconds=0.2).idle_seconds == 0.2
+
+
+@pytest.mark.parametrize("threads", ["0", "-1", "-8"])
+def test_refuses_fewer_than_one_aligner_thread(threads):
+    with pytest.raises(ValueError, match="SPEECH_ALIGNER_THREADS"):
+        Settings.from_env({"SPEECH_ALIGNER_THREADS": threads})
+    with pytest.raises(ValueError, match="SPEECH_ALIGNER_THREADS"):
+        Settings(aligner_threads=int(threads))
+
+
+def test_one_aligner_thread_is_fine():
+    assert Settings.from_env({"SPEECH_ALIGNER_THREADS": "1"}).aligner_threads == 1
+    assert Settings(aligner_threads=1).aligner_threads == 1
+
+
+@pytest.mark.parametrize("port", ["0", "-1", "65536", "70000"])
+def test_refuses_a_port_outside_1_to_65535(port):
+    with pytest.raises(ValueError, match="SPEECH_PORT"):
+        Settings.from_env({"SPEECH_PORT": port})
+    with pytest.raises(ValueError, match="SPEECH_PORT"):
+        Settings(port=int(port))
+
+
+@pytest.mark.parametrize("port", ["1", "1920", "65535"])
+def test_a_port_from_1_to_65535_is_fine(port):
+    assert Settings.from_env({"SPEECH_PORT": port}).port == int(port)
+    assert Settings(port=int(port)).port == int(port)
 
 
 @pytest.mark.parametrize("aligner", ["python", "native", "none"])
