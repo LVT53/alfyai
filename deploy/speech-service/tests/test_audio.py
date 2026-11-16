@@ -2,6 +2,8 @@
 
 import asyncio
 import signal
+import sys
+import textwrap
 
 import numpy as np
 import pytest
@@ -382,6 +384,128 @@ def test_a_stream_ffmpeg_did_not_finish_is_an_error_not_a_clean_end(run, close_i
 
     with pytest.raises(RuntimeError, match="ffmpeg exited with status"):
         run(scenario())
+
+
+# What ffmpeg says when it fails. At -loglevel error that is codec and format errors, never the
+# words being spoken, so the end of it goes into the error: a box without libmp3lame says so.
+
+
+def stand_in_for_ffmpeg(monkeypatch, script: str) -> None:
+    """Make the encoder's command a Python script that plays ffmpeg (stdin in, stderr out)."""
+    monkeypatch.setattr(audio, "_FFMPEG_ENCODE", (sys.executable, "-c", textwrap.dedent(script)))
+
+
+def delay_not_measured(monkeypatch) -> None:
+    """Make the next `warm_up()` measure the delay, as a service that has just started does."""
+    monkeypatch.setattr(Mp3Encoder, "_delay", None)
+    monkeypatch.setattr(Mp3Encoder, "_delay_lock", asyncio.Lock())
+
+
+def test_the_warm_up_error_says_what_ffmpeg_said(run, monkeypatch):
+    # A box without libmp3lame: the real ffmpeg, asked for an encoder it has not got.
+    missing = tuple("libnotthere" if arg == "libmp3lame" else arg for arg in audio._FFMPEG_ENCODE)
+    assert missing != audio._FFMPEG_ENCODE
+    monkeypatch.setattr(audio, "_FFMPEG_ENCODE", missing)
+    delay_not_measured(monkeypatch)
+
+    async def scenario() -> None:
+        await Mp3Encoder.warm_up()
+
+    with pytest.raises(RuntimeError, match=r"ffmpeg exited with status \d+: .*Unknown encoder"):
+        run(scenario())
+
+
+def test_the_warm_up_error_is_the_end_of_stderr_on_one_line(run, monkeypatch):
+    stand_in_for_ffmpeg(
+        monkeypatch,
+        """
+        import sys
+        sys.stderr.write("first thing wrong\\n\\n  second thing wrong  \\n")
+        sys.exit(1)
+        """,
+    )
+    delay_not_measured(monkeypatch)
+
+    async def scenario() -> None:
+        await Mp3Encoder.warm_up()
+
+    with pytest.raises(RuntimeError) as failure:
+        run(scenario())
+    said = "first thing wrong | second thing wrong"
+    assert str(failure.value) == f"ffmpeg exited with status 1: {said}"
+
+
+def test_an_ffmpeg_that_says_nothing_leaves_just_its_status(run, monkeypatch):
+    stand_in_for_ffmpeg(monkeypatch, "import sys; sys.exit(4)")
+    delay_not_measured(monkeypatch)
+
+    async def scenario() -> None:
+        await Mp3Encoder.warm_up()
+
+    with pytest.raises(RuntimeError) as failure:
+        run(scenario())
+    assert str(failure.value) == "ffmpeg exited with status 4"
+
+
+@pytest.mark.parametrize("close_it", [True, False], ids=["close", "leave-the-block"])
+def test_an_encoder_that_failed_says_what_ffmpeg_said(run, monkeypatch, close_it):
+    stand_in_for_ffmpeg(
+        monkeypatch,
+        """
+        import sys
+        sys.stdin.buffer.read()
+        sys.stderr.write("codec exploded\\n")
+        sys.exit(3)
+        """,
+    )
+    monkeypatch.setattr(Mp3Encoder, "_delay", 0.025)  # the stand-in encodes nothing to measure
+
+    async def scenario() -> None:
+        async with Mp3Encoder() as enc:
+            await enc.write(tone(0.1, seconds=0.2))
+            if close_it:
+                await enc.close()
+
+    with pytest.raises(RuntimeError, match="ffmpeg exited with status 3: codec exploded"):
+        run(scenario())
+
+
+def test_a_flood_on_stderr_neither_blocks_ffmpeg_nor_floods_the_error(run, monkeypatch):
+    stand_in_for_ffmpeg(
+        monkeypatch,
+        """
+        import sys
+        sys.stderr.write("x" * 1_000_000 + "\\n")  # far more than a pipe holds
+        sys.stdin.buffer.read()
+        sys.stderr.write("the end\\n")
+        sys.exit(3)
+        """,
+    )
+    monkeypatch.setattr(Mp3Encoder, "_delay", 0.025)  # the stand-in encodes nothing to measure
+
+    async def encode() -> None:
+        async with Mp3Encoder() as enc:
+            await enc.write(tone(0.1, seconds=1.0))  # more than the pipe to ffmpeg holds
+            await enc.close()
+
+    async def scenario() -> None:
+        work = asyncio.ensure_future(encode())
+        done, _ = await asyncio.wait({work}, timeout=10)
+        if not done:
+            # An ffmpeg stuck on a full stderr never reads its input, so the write never ends. Once
+            # it is killed the encoder waits for its pipes to be read to the end, and that does not
+            # end either: stop waiting here, for a failure and not a hung run.
+            work.cancel()
+            await asyncio.wait({work}, timeout=5)
+            pytest.fail("ffmpeg was blocked by what it wrote on stderr")
+        await work
+
+    with pytest.raises(RuntimeError) as failure:
+        run(scenario())
+    message = str(failure.value)
+    assert message.endswith("the end")
+    assert len(message) < 300
+    assert message.count("x") <= 200
 
 
 # The delay is measured once per process.

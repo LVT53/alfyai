@@ -111,6 +111,29 @@ _FFMPEG_DECODE = (
 )
 _CLICK_SECONDS = 0.5
 _READ_BYTES = 65536
+# What ffmpeg says on stderr (at -loglevel error: codec and format errors, never the words being
+# spoken) ends up in the error that says why it did not finish, as its last 200 characters. A UTF-8
+# character is at most 4 bytes, so 4 times that many bytes of it are always enough to keep.
+_STDERR_TAIL_CHARS = 200
+_STDERR_KEEP_BYTES = 4 * _STDERR_TAIL_CHARS
+
+
+def _ffmpeg_failure(returncode: int | None, stderr: bytes) -> str:
+    """The error for an ffmpeg that did not exit cleanly: its status, and the end of what it said
+    (its last lines on one line, at most `_STDERR_TAIL_CHARS` characters of them)."""
+    lines = (line.strip() for line in stderr.decode(errors="replace").splitlines())
+    said = " | ".join(line for line in lines if line)[-_STDERR_TAIL_CHARS:]
+    status = f"ffmpeg exited with status {returncode}"
+    return f"{status}: {said}" if said else status
+
+
+async def _read_tail(stream: asyncio.StreamReader) -> bytes:
+    """Read `stream` to its end and keep the last `_STDERR_KEEP_BYTES` bytes of it. Reading it at
+    all is what keeps ffmpeg from blocking on a full pipe."""
+    tail = b""
+    while chunk := await stream.read(_READ_BYTES):
+        tail = (tail + chunk)[-_STDERR_KEEP_BYTES:]
+    return tail
 
 
 async def _run_ffmpeg(command: tuple[str, ...], data: bytes) -> bytes:
@@ -119,16 +142,17 @@ async def _run_ffmpeg(command: tuple[str, ...], data: bytes) -> bytes:
         *command,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
     )
     try:
-        out, _ = await proc.communicate(data)
+        # Reads stdout and stderr together, so neither can fill up and block ffmpeg.
+        out, err = await proc.communicate(data)
     except BaseException:
         if proc.returncode is None:
             proc.kill()
         raise
     if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg exited with status {proc.returncode}")
+        raise RuntimeError(_ffmpeg_failure(proc.returncode, err[-_STDERR_KEEP_BYTES:]))
     return out
 
 
@@ -163,6 +187,7 @@ class Mp3Encoder:
         self._chunks: asyncio.Queue[bytes | None] = asyncio.Queue()  # None ends the stream
         self._proc: asyncio.subprocess.Process | None = None
         self._pump: asyncio.Task[None] | None = None
+        self._stderr: asyncio.Task[bytes] | None = None  # the end of what ffmpeg says
         self._closed = False
 
     @classmethod
@@ -194,11 +219,12 @@ class Mp3Encoder:
             *_FFMPEG_ENCODE,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
-        assert proc.stdout is not None  # a pipe
+        assert proc.stdout is not None and proc.stderr is not None  # pipes
         self._proc = proc
         self._pump = asyncio.create_task(self._pump_output(proc.stdout))
+        self._stderr = asyncio.create_task(_read_tail(proc.stderr))
         return self
 
     async def __aexit__(self, exc_type, exc, traceback) -> None:
@@ -216,7 +242,7 @@ class Mp3Encoder:
             if self._proc.returncode is None:
                 self._proc.kill()
             await self._proc.wait()
-            await asyncio.gather(self._pump, return_exceptions=True)
+            await asyncio.gather(self._pump, self._stderr, return_exceptions=True)
 
     async def write(self, pcm: np.ndarray) -> None:
         """Encode `pcm` (float32 mono, 44.1 kHz). Waits for ffmpeg to take it, not for a reader.
@@ -247,8 +273,8 @@ class Mp3Encoder:
         if self._closed:
             return
         stdin = self._open_stdin()
-        proc, pump = self._proc, self._pump
-        assert proc is not None and pump is not None
+        proc, pump, stderr = self._proc, self._pump, self._stderr
+        assert proc is not None and pump is not None and stderr is not None
         self._closed = True
         try:
             stdin.close()
@@ -257,8 +283,9 @@ class Mp3Encoder:
             pass  # ffmpeg is already gone; its exit status is checked below
         await proc.wait()
         await pump
+        said = await stderr
         if proc.returncode != 0:
-            raise RuntimeError(f"ffmpeg exited with status {proc.returncode}")
+            raise RuntimeError(_ffmpeg_failure(proc.returncode, said))
 
     def _open_stdin(self) -> asyncio.StreamWriter:
         if self._proc is None:
