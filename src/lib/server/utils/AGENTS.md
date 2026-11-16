@@ -17,6 +17,7 @@ Low-level utilities consumed across server services. Pure functions, no side eff
 | `extractive-compression.ts` | Text summarization without LLM |
 | `topic-shift-detector.ts` | Detects topic changes for memory management |
 | `tool-refusal.ts` | The error a tool throws to turn a call down before it dispatched anything; the tool envelope records it as proven not executed |
+| `turn-deadline-reason.ts` | The reason the completion engine's own timer aborts a model call with when the time for the model's work runs out, and `abortedByTurnDeadline`, which the tool envelope reads to tell that clock from a stop; a tool that only reads and was cut off by it has failed, any other abort leaves the call uncertain |
 
 ## Usage by Service
 
@@ -30,6 +31,7 @@ Low-level utilities consumed across server services. Pure functions, no side eff
 | `conversation-boundary-filter.ts` | Chat context assembly |
 | `topic-shift-detector.ts` | Memory event emission |
 | `tool-refusal.ts` | `normal-chat-tools/` (the envelope in `shared.ts`, `fetch-url.ts`), `memory-context/history.ts` |
+| `turn-deadline-reason.ts` | `normal-chat-model/completion.ts` (the timer's abort reason), `normal-chat-tools/shared.ts` (the envelope reads it) |
 
 ## Conventions
 

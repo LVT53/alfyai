@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeConfig } from "$lib/server/config-store";
+import { TurnDeadlineReason } from "$lib/server/utils/turn-deadline-reason";
 import {
 	isModelTimeoutError,
 	isRetryableNormalChatFallbackError,
@@ -570,6 +571,17 @@ describe("isRetryableNormalChatFallbackError", () => {
 				{ provider },
 			),
 		).toBe(false);
+	});
+
+	it("does not retry the engine's own deadline: that is not a provider failing", () => {
+		// The engine aborts a call with this reason when the time for the model's
+		// work runs out, and a read-only tool it cut off is closed with what the turn
+		// has. A fallback provider (possibly a cloud one) is for a provider that
+		// failed: its words must never read as a timeout or an upstream error.
+		const reason = new TurnDeadlineReason();
+
+		expect(isModelTimeoutError(reason)).toBe(false);
+		expect(isRetryableNormalChatFallbackError(reason)).toBe(false);
 	});
 
 	it("does not retry permanent unavailable phrasing", () => {

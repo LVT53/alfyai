@@ -10,6 +10,7 @@ import {
 	type ToolResultPart,
 	type ToolSet,
 } from "ai";
+import { TurnDeadlineReason } from "$lib/server/utils/turn-deadline-reason";
 import { hasVisibleCharacter } from "$lib/services/stream-protocol";
 import { ASK_USER_TOOL_NAME, isAskPauseOutput } from "$lib/shared/ask-user";
 import type {
@@ -857,8 +858,11 @@ export async function* runNormalChatCompletion(
 		const deadline =
 			phase === "working" ? snapshot.deadlineAt - reserve : snapshot.deadlineAt;
 		const timerController = new AbortController();
+		// The engine's own clock aborts with a reason of its own, so a tool that is
+		// running when it fires can tell it from a stop or the watchdog
+		// (`abortedByTurnDeadline`, read by the tool envelope).
 		const timer = setTimeout(
-			() => timerController.abort(new CompletionExit("deadline")),
+			() => timerController.abort(new TurnDeadlineReason()),
 			Math.max(1, deadline - Date.now()),
 		);
 		timer.unref?.();
@@ -868,6 +872,13 @@ export async function* runNormalChatCompletion(
 			...(params.abortSignal ? [params.abortSignal] : []),
 		]);
 		let cumulativeMessageCount = 0;
+		// The tool events this attempt has told the consumer about, by tool and call
+		// id: a call it announced and never closed is one whose result part the SDK
+		// did not deliver (see the end of the attempt).
+		const announcedCalls = new Set<string>();
+		const closedCalls = new Set<string>();
+		const callKey = (toolName: string, callId: string) =>
+			`${toolName}\u0000${callId}`;
 		const blocks = new Map<string, { id: string; index: number }>();
 		let blockOrdinal = 0;
 		type NativeMetadata = Extract<
@@ -1207,13 +1218,15 @@ export async function* runNormalChatCompletion(
 							entry.state = "definitely_not_executed";
 						if (tools && !Object.hasOwn(tools, part.toolName))
 							droppedToolCalls++;
-						else
+						else {
+							announcedCalls.add(callKey(part.toolName, part.toolCallId));
 							yield {
 								type: "tool_call",
 								callId: part.toolCallId,
 								toolName: part.toolName,
 								input: part.input,
 							};
+						}
 					}
 					if (part.type === "tool-result") {
 						const entry = ledger(
@@ -1242,13 +1255,15 @@ export async function* runNormalChatCompletion(
 							responseResult(entry);
 							notify();
 						}
-						if (!tools || Object.hasOwn(tools, part.toolName))
+						if (!tools || Object.hasOwn(tools, part.toolName)) {
+							closedCalls.add(callKey(part.toolName, part.toolCallId));
 							yield {
 								type: "tool_result",
 								callId: part.toolCallId,
 								toolName: part.toolName,
 								output: part.output,
 							};
+						}
 					}
 					if (part.type === "tool-error") {
 						const entry = ledger(
@@ -1259,13 +1274,15 @@ export async function* runNormalChatCompletion(
 							sourceStep(),
 						);
 						if (entry.state === "dispatched") entry.state = "uncertain";
-						if (!tools || Object.hasOwn(tools, part.toolName))
+						if (!tools || Object.hasOwn(tools, part.toolName)) {
+							closedCalls.add(callKey(part.toolName, part.toolCallId));
 							yield {
 								type: "tool_error",
 								callId: part.toolCallId,
 								toolName: part.toolName,
 								error: String(part.error),
 							};
+						}
 					}
 					if (part.type === "error") {
 						attemptError = true;
@@ -1320,6 +1337,31 @@ export async function* runNormalChatCompletion(
 			attemptCause = "transport_error";
 			rawError = new Error("Timed out waiting for first upstream output");
 		}
+		// The SDK closes its stream the moment the signal aborts and drops what was
+		// still on its way, the result part of a call it cut off among it, while the
+		// call settled after that as a failure (a read-only call the working deadline
+		// cut off). The consumer's row for the call is "running" until an event says
+		// how it ended, and a reply saved with a row still running gets no follow-up
+		// chips, so the engine closes the call itself: only for a call it announced,
+		// that settled as failed, and whose result the SDK did not deliver.
+		if (streaming)
+			for (const entry of snapshot.executions) {
+				const key = callKey(entry.toolName, entry.callId);
+				if (
+					entry.attemptId !== attemptId ||
+					entry.state !== "failed" ||
+					!announcedCalls.has(key) ||
+					closedCalls.has(key)
+				)
+					continue;
+				closedCalls.add(key);
+				yield {
+					type: "tool_result",
+					callId: entry.callId,
+					toolName: entry.toolName,
+					output: entry.output,
+				};
+			}
 		// A callback can finish a step before its stream parts are consumed. Keep its ID stable.
 		const finalStep = snapshot.steps
 			.filter((s) => s.attemptId === attemptId)
