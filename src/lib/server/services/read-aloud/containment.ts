@@ -3,6 +3,7 @@
 // written word of a request must occur in the reply's text, in order, and its
 // tokens must be the shared dictionary's reading of it.
 
+import { decodeHTMLStrict } from "entities";
 import { speakWord, type WordKind } from "$lib/shared/read-aloud/spoken-forms";
 
 /** A word as the browser sends it. */
@@ -13,14 +14,6 @@ export type CheckedWord = {
 };
 
 const LIST_NUMBER = /^\d{1,4}[.)]$/u;
-const NAMED_ENTITIES: Readonly<Record<string, string>> = {
-	amp: "&",
-	lt: "<",
-	gt: ">",
-	quot: '"',
-	apos: "'",
-	nbsp: " ",
-};
 
 /** The letters and digits of a text, NFKC-normalised and lower-cased, and nothing else. */
 export function letterKey(text: string): string {
@@ -30,37 +23,16 @@ export function letterKey(text: string): string {
 		.replace(/[^\p{L}\p{N}]/gu, "");
 }
 
-function isCodePoint(code: number): boolean {
-	return (
-		Number.isInteger(code) &&
-		code >= 0 &&
-		code <= 0x10ffff &&
-		!(code >= 0xd800 && code <= 0xdfff)
-	);
-}
-
-function decodeEntities(text: string): string {
-	return text.replace(
-		/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|(amp|lt|gt|quot|apos|nbsp));/gu,
-		(match, decimal?: string, hex?: string, name?: string) => {
-			if (name) return NAMED_ENTITIES[name] ?? match;
-			const code =
-				decimal !== undefined
-					? Number(decimal)
-					: Number.parseInt(hex ?? "", 16);
-			return isCodePoint(code) ? String.fromCodePoint(code) : match;
-		},
-	);
-}
-
 /**
- * The letter key of the reply's Markdown, after its numeric entities and the
- * six named ones are decoded. Nothing else is cleaned away: link destinations,
- * image syntax and tags only put letters between the words, and the search
- * steps over them.
+ * The letter key of the reply's Markdown, after its entities are decoded the way
+ * the browser decodes them: `decodeHTMLStrict` knows the whole HTML5 table, the
+ * Windows-1252 rule for 128 to 159 and that an entity needs its semicolon. The
+ * renderer passes an entity through, so the screen shows what it decodes to.
+ * Nothing else is cleaned away: link destinations, image syntax and tags only
+ * put letters between the words, and the search steps over them.
  */
 export function replyKey(markdown: string): string {
-	return letterKey(decodeEntities(markdown));
+	return letterKey(decodeHTMLStrict(markdown));
 }
 
 /**

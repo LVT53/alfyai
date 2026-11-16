@@ -119,6 +119,22 @@ describe("the containment check", () => {
 			]),
 		).toBeNull());
 
+	it("reads every named entity the browser draws, not only the common few", () => {
+		const cases: Array<[markdown: string, written: string[]]> = [
+			["Ten 10&ndash;20 now", ["Ten", "10–20", "now"]],
+			["A caf&eacute; here", ["A", "café", "here"]],
+			["word&mdash;word", ["word—word"]],
+			["3&times;4 and 20&deg;C", ["3×4", "and", "20°C"]],
+			// 128 to 159 are Windows-1252 in a browser: 156 is "œ".
+			["c&#156;ur", ["cœur"]],
+		];
+		for (const [markdown, written] of cases)
+			expect(
+				wordsFitReply(markdown, [en(...written.map((w) => said(w)))]),
+				markdown,
+			).toBeNull();
+	});
+
 	it("counts a word with no letters as found", () =>
 		expect(
 			wordsFitReply("Alpha beta", [en(said("Alpha"), said("—"), said("beta"))]),
@@ -145,8 +161,10 @@ describe("letter keys", () => {
 		expect(letterKey("  — … ")).toBe("");
 	});
 
-	it("decodes entities before it keys the reply", () => {
+	it("decodes entities before it keys the reply, as the browser does", () => {
 		expect(replyKey("Salt &amp; pepper &#33; &nbsp;")).toBe("saltpepper");
-		expect(replyKey("&unknown; &#99999999;")).toBe("unknown99999999");
+		// An entity the browser does not know stays as text; a number that is no
+		// character becomes the replacement character, which is no letter.
+		expect(replyKey("&unknown; &#99999999;")).toBe("unknown");
 	});
 });
