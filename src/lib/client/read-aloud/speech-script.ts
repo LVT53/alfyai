@@ -738,7 +738,7 @@ const textLength = (words: readonly DraftWord[]) => {
 /**
  * A sentence over {@link LONG_SENTENCE_CHARS} splits after the last word that ends in "," or ";" and
  * keeps the first part within the limit, else after the last word that keeps it within; a word is
- * never split. A cut that would leave fewer than three tokens after it is taken only when no other fits.
+ * never split. A cut that would leave a part of fewer than three tokens is taken only when no other fits.
  */
 function splitLong(drafts: readonly Draft[]): Draft[] {
 	const out: Draft[] = [];
@@ -780,7 +780,11 @@ function chooseCut(words: readonly DraftWord[]): number {
 		const pauses = /[,;]$/u.test(lastToken(word));
 		fitsAny = k;
 		if (pauses) pauseAny = k;
-		if (total - before >= SHORT_SENTENCE_TOKENS) {
+		// Both parts keep at least three tokens: the voice misfires on one or two words.
+		if (
+			before >= SHORT_SENTENCE_TOKENS &&
+			total - before >= SHORT_SENTENCE_TOKENS
+		) {
 			fits = k;
 			if (pauses) pause = k;
 		}

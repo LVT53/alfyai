@@ -414,6 +414,16 @@ describe("buildSpeechScript", () => {
 		}
 	});
 
+	it("never splits off a part of fewer than three tokens", () => {
+		const long = Array.from({ length: 50 }, (_, i) => `word${i}`).join(" ");
+		const script = build(reply(`<p>Well, ${long} end.</p>`));
+		expect(script.sentences.length).toBeGreaterThan(1);
+		for (const sentence of script.sentences) {
+			expect(sentence.tokens.length).toBeGreaterThanOrEqual(3);
+			expect(sentence.text.length).toBeLessThanOrEqual(240);
+		}
+	});
+
 	it("skips a German paragraph, and names German when nothing is voiced", () => {
 		const mixed = build(
 			reply(
