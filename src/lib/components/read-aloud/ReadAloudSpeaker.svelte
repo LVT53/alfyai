@@ -37,6 +37,8 @@ let {
 
 const RING_LENGTH = 72.26;
 const CANT_START_NOTE_MS = 8000;
+const UNKNOWN_RETRY_MS = 300;
+const UNKNOWN_RETRIES = 20;
 
 const reader = () => controller ?? getReadAloud();
 
@@ -113,11 +115,20 @@ $effect(() => {
 	contentKey;
 	const ids = [...segmentIds];
 	let cancelled = false;
+	let retry: number | null = null;
+	let attempts = 0;
+	// The reply's Markdown renders asynchronously: while it has not, the answer is
+	// "unknown", so ask again a little later (for about six seconds).
 	const assess = () => {
 		void reader()
 			.assessReadability(ids)
 			.then((result) => {
-				if (!cancelled) readability = result;
+				if (cancelled) return;
+				readability = result;
+				attempts += 1;
+				if (result.kind === "unknown" && attempts < UNKNOWN_RETRIES) {
+					retry = window.setTimeout(assess, UNKNOWN_RETRY_MS);
+				}
 			});
 	};
 	const idle = typeof requestIdleCallback === "function";
@@ -128,6 +139,7 @@ $effect(() => {
 		cancelled = true;
 		if (idle) cancelIdleCallback(handle);
 		else window.clearTimeout(handle);
+		if (retry !== null) window.clearTimeout(retry);
 	};
 });
 
