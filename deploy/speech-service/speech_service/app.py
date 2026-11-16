@@ -5,7 +5,9 @@ finds it again by id and hands its two streams, the timeline and the MP3, to the
 reading runs is the session's. What belongs here:
   - what a request may hold (`_parse_*`): a refusal names the field and never a value, so none of
     a reply's text is ever in an answer or in a log line;
-  - a session that has ended is gone: every route answers 404 for it;
+  - a session that has ended is kept until its events have been read to their end, or until
+    `idle_seconds` after it ended (a reader that comes late still gets what it said), and then
+    forgotten: every route answers 404 for it;
   - a client that leaves a stream detaches its reader (`_Stream`), and the app ending cancels every
     session, so none is left running;
   - preview: one sentence, spoken, matched in loudness and encoded whole, with no word times.
@@ -46,12 +48,17 @@ MAX_SENTENCES = 2000
 MAX_PREVIEW_CHARS = 300
 MAX_SEED = 2**32 - 1  # Zonos's own bound (servers/api/openapi.json)
 
+# How often the registry looks for sessions that have ended. It is also how exactly "idle_seconds
+# after it ended" is counted.
+_LOOK_SECONDS = 0.05
+
 
 def create_app(settings: Settings, zonos: ZonosClient, aligner: Aligner) -> Starlette:
     """The app that serves the HTTP contract (README.md) on `zonos` and `aligner`.
 
     Its lifespan measures the MP3 encoder's delay before the first request is served (it raises if
-    ffmpeg cannot run), and cancels every session still live when the app ends.
+    ffmpeg cannot run), keeps the registry looking for sessions that have ended, and cancels every
+    session still live when the app ends.
     """
     api = _Api(settings, zonos, aligner)
     return Starlette(
@@ -76,15 +83,18 @@ class _Api:
         self._settings = settings
         self._zonos = zonos
         self._aligner = aligner
-        self._sessions = _Sessions()
+        self._sessions = _Sessions(keep_seconds=settings.idle_seconds)
 
     @contextlib.asynccontextmanager
     async def lifespan(self, app: Starlette) -> AsyncIterator[None]:
         # The first reading would pay for this (two ffmpeg runs): start-up does.
         await Mp3Encoder.warm_up()
+        looking = asyncio.create_task(self._sessions.keep_looking(), name="speech-sessions")
         try:
             yield
         finally:
+            looking.cancel()
+            await asyncio.gather(looking, return_exceptions=True)
             await self._sessions.cancel_all()
 
     # Sessions.
@@ -103,7 +113,7 @@ class _Api:
         return self._take_reader(
             request,
             lambda session: _Stream(
-                _server_sent(session.events()),
+                _server_sent(session.events(), lambda: self._sessions.events_read(session.id)),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache"},
             ),
@@ -204,41 +214,74 @@ class _Api:
         )
 
 
-class _Sessions:
-    """The live sessions by id. A session that has ended is not in it.
+@dataclasses.dataclass
+class _Entry:
+    session: ReadingSession
+    ended_at: float | None = None  # when the registry saw that it had ended
+    events_read: bool = False  # its events were read to their end
 
-    A session cannot say when it ends, so the registry looks whenever it is used, and drops every
-    one that has.
+
+class _Sessions:
+    """The sessions that can be asked about, by id.
+
+    A session that has ended is kept for a while, because what it said can be waiting for a reader
+    that comes late: a session that fails (Zonos is down) is over within milliseconds, and a
+    player's streams connect a round trip after it was made. It is kept until its events have been
+    read to their end, or until `keep_seconds` after it ended, whichever comes first, and then
+    forgotten: every route answers 404 for it.
+
+    A session cannot say when it ends, so the registry looks: `keep_looking` often (so that the
+    time is counted from the end, not from whenever somebody next asks), and every use.
     """
 
-    def __init__(self) -> None:
-        self._by_id: dict[str, ReadingSession] = {}
+    def __init__(self, keep_seconds: float) -> None:
+        self._entries: dict[str, _Entry] = {}
+        self._keep_seconds = keep_seconds
 
     def add(self, session: ReadingSession) -> None:
-        self._sweep()
-        self._by_id[session.id] = session
+        self._look()
+        self._entries[session.id] = _Entry(session)
 
     def get(self, session_id: str) -> ReadingSession | None:
-        self._sweep()
-        return self._by_id.get(session_id)
+        self._look()
+        entry = self._entries.get(session_id)
+        return None if entry is None else entry.session
 
     def pop(self, session_id: str) -> ReadingSession | None:
-        self._sweep()
-        return self._by_id.pop(session_id, None)
+        """Forget the session now, and return it (None if it is not known)."""
+        self._look()
+        entry = self._entries.pop(session_id, None)
+        return None if entry is None else entry.session
+
+    def events_read(self, session_id: str) -> None:
+        """Its events have been read to their end: nothing is left to keep it for."""
+        if (entry := self._entries.get(session_id)) is not None:
+            entry.events_read = True
+
+    async def keep_looking(self) -> None:
+        while True:
+            await asyncio.sleep(_LOOK_SECONDS)
+            self._look()
 
     async def cancel_all(self) -> None:
         """End every session still live and forget them all."""
-        live = [session for session in self._by_id.values() if not session.ended]
-        self._by_id.clear()
+        live = [entry.session for entry in self._entries.values() if not entry.session.ended]
+        self._entries.clear()
         logger.info("cancelling %d live session(s)", len(live))
         results = await asyncio.gather(*(s.cancel() for s in live), return_exceptions=True)
         for session, result in zip(live, results):
             if isinstance(result, BaseException):
                 logger.warning("session %s: not cancelled (%s)", session.id, type(result).__name__)
 
-    def _sweep(self) -> None:
-        for session_id in [i for i, session in self._by_id.items() if session.ended]:
-            del self._by_id[session_id]
+    def _look(self) -> None:
+        now = time.monotonic()
+        for session_id, entry in list(self._entries.items()):
+            if not entry.session.ended:
+                continue
+            if entry.ended_at is None:
+                entry.ended_at = now
+            if entry.events_read or now - entry.ended_at >= self._keep_seconds:
+                del self._entries[session_id]
 
 
 # Streams.
@@ -283,14 +326,18 @@ class _Stream(StreamingResponse):
             raise failure
 
 
-async def _server_sent(events: AsyncGenerator[Event, None]) -> AsyncGenerator[bytes, None]:
+async def _server_sent(
+    events: AsyncGenerator[Event, None], read_to_end: Callable[[], None]
+) -> AsyncGenerator[bytes, None]:
     """The session's timeline as a server-sent event stream: `event: <name>\\ndata: <json>\\n\\n`
     for each event, the JSON compact on one line (a line break in an id is escaped, so nothing a
-    client sent can start another event). `events` is closed when this is."""
+    client sent can start another event). `events` is closed when this is; `read_to_end` is called
+    when the last event has been handed on, and not when the client leaves before it."""
     async with contextlib.aclosing(events):
         async for name, data in events:
             payload = json.dumps(data, separators=(",", ":"), allow_nan=False)
             yield f"event: {name}\ndata: {payload}\n\n".encode()
+        read_to_end()
 
 
 async def _encode(clip: np.ndarray) -> bytes:

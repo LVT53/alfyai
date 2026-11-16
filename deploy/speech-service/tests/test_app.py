@@ -15,7 +15,6 @@ import logging
 import os
 import subprocess
 import time
-import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -23,6 +22,7 @@ import pytest
 import uvicorn
 
 from speech_service import __main__ as entry_point
+from speech_service import app as app_module
 from speech_service.aligner import NoAligner
 from speech_service.app import create_app
 from speech_service.audio import Mp3Encoder
@@ -35,11 +35,7 @@ from tests.helpers import SR, decode_mp3, decoded_seconds, rms_db
 # Like tests/test_aligner.py: the bare module name, which both Pythons that run these tests find.
 from fakes_aligner import FakeAligner
 
-with warnings.catch_warnings():
-    # Starlette 1.x's TestClient wants `httpx2` and warns when it finds only `httpx`, which is what
-    # the dev extras install. This hides that one warning until `httpx2` is in pyproject.toml.
-    warnings.filterwarnings("ignore", message="Using `httpx` with `starlette.testclient`")
-    from starlette.testclient import TestClient
+from starlette.testclient import TestClient
 
 # Words that must never come back in an answer or a log line: they are in every body below.
 SECRET = ("Zebrafish", "Quokka.")
@@ -139,6 +135,13 @@ def ffmpeg_children() -> list[int]:
     return [int(pid) for pid in found.stdout.split()]
 
 
+async def until(condition: Callable[[], bool], timeout: float = 10.0) -> None:
+    """Wait for `condition`: for what a session shows only through its state."""
+    async with asyncio.timeout(timeout):
+        while not condition():
+            await asyncio.sleep(0.01)
+
+
 def wait_for(condition: Callable[[], bool], timeout: float = 10.0) -> bool:
     deadline = time.monotonic() + timeout
     while not condition():
@@ -176,12 +179,27 @@ def serve():
         yield start
 
 
-def alive(client: TestClient, session_id: str) -> bool:
-    """Whether the session is known: a position that names no sentence is refused (422) by a
-    session and not found (404) otherwise, and moves nobody."""
+def known(client: TestClient, session_id: str) -> bool:
+    """Whether the registry knows the session: a position that names no sentence is refused (422)
+    by a session it knows and not found (404) otherwise, and it moves nobody."""
     reply = client.post(f"/v1/sessions/{session_id}/position", json={"sentence_id": "no-such-id"})
     assert reply.status_code in (404, 422)
     return reply.status_code == 422
+
+
+@pytest.fixture
+def sessions_made(monkeypatch):
+    """The ReadingSessions the app makes, in order. The HTTP layer cannot show whether a session
+    has ended (an ended session stays known for a while), so a test asks the session."""
+    made: list[ReadingSession] = []
+
+    class Recorded(ReadingSession):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            made.append(self)
+
+    monkeypatch.setattr(app_module, "ReadingSession", Recorded)
+    return made
 
 
 def create(client: TestClient, body: dict | None = None) -> str:
@@ -222,8 +240,8 @@ def test_session_round_trip(serve):
     # The sentences and the gaps between them: the last `end` is where the speech stops.
     assert decoded_seconds(audio.content) == pytest.approx(announced[-1]["end"], abs=0.15)
 
-    # Both readers have drained: the session is over and forgotten.
-    assert not alive(client, session_id)
+    # Both readers have drained and the events were read to their end: over, and forgotten.
+    assert not known(client, session_id)
 
 
 def test_a_zonos_failure_comes_as_an_error_event_that_ends_the_stream(serve):
@@ -233,7 +251,7 @@ def test_a_zonos_failure_comes_as_an_error_event_that_ends_the_stream(serve):
     assert timeline[-1] == ("error", {"id": "s1", "code": "synthesis_failed"})
     assert "done" not in [name for name, _ in timeline]
     assert [data["id"] for data in of(timeline, "sentence")] == ["s0"]
-    assert not alive(client, session_id)  # a failed session is over
+    assert not known(client, session_id)  # a failed session is over; its events were read
 
 
 def test_zonos_unreachable_comes_as_its_own_code(serve):
@@ -305,7 +323,7 @@ def test_a_cancelled_session_is_gone_for_every_route(serve):
     assert client.delete(f"/v1/sessions/{session_id}").status_code == 404
     for route in ("events", "audio"):
         assert client.get(f"/v1/sessions/{session_id}/{route}").status_code == 404
-    assert not alive(client, session_id)
+    assert not known(client, session_id)
 
 
 def test_delete_ends_a_session_that_nobody_reads_and_stops_its_ffmpeg(serve):
@@ -362,7 +380,7 @@ def test_the_routes_take_the_methods_of_the_contract(serve):
     assert client.post(base).status_code == 405
     assert client.get("/v1/preview").status_code == 405
     assert client.post("/health").status_code == 405
-    assert alive(client, session_id)  # and none of it touched the session
+    assert known(client, session_id)  # and none of it touched the session
 
 
 # Validation.
@@ -586,17 +604,84 @@ def test_position_of_an_unknown_sentence_422(serve, content, field):
     assert "quokka" not in reply.text.lower()
 
 
-# A session that has ended is not in the registry.
+# An ended session stays known for a while.
+#
+# A failure comes within milliseconds, and a player's streams connect one round trip after the
+# session was made: it is over by then, but what it said is still waiting for its readers. So an
+# ended session is kept until its events have been read to their end, or until idle_seconds after
+# it ended, whichever comes first.
 
 
-def test_the_registry_forgets_ended_sessions(serve):
+def test_a_failure_before_the_readers_come_still_gives_them_its_error(serve, sessions_made):
+    client, _ = serve(zonos=(refusing_transport(), []))
+    session_id = create(client, reading(2))
+    assert wait_for(lambda: sessions_made[0].ended)  # Zonos is down: over within milliseconds
+    assert known(client, session_id)  # and still known
+
+    late = client.get(f"/v1/sessions/{session_id}/events")  # the events reader comes late
+    assert late.status_code == 200
+    assert parse_sse(late.text) == [("error", {"id": "s0", "code": "zonos_unavailable"})]
+    assert not known(client, session_id)  # read to their end: forgotten at once
+
+
+def test_a_late_audio_reader_of_an_ended_session_gets_an_ended_stream(serve, sessions_made):
+    client, _ = serve(zonos=(refusing_transport(), []))
+    session_id = create(client, reading(2))
+    assert wait_for(lambda: sessions_made[0].ended)
+    audio = client.get(f"/v1/sessions/{session_id}/audio")
+    assert (audio.status_code, audio.headers["content-type"]) == (200, "audio/mpeg")
+    assert audio.content == b""  # nothing was said, and the stream is over
+    # That reader is taken for good (409, not 404), and the events are still there for theirs.
+    assert client.get(f"/v1/sessions/{session_id}/audio").status_code == 409
+    events = client.get(f"/v1/sessions/{session_id}/events")
+    assert parse_sse(events.text) == [("error", {"id": "s0", "code": "zonos_unavailable"})]
+
+
+def test_an_ended_session_is_forgotten_idle_seconds_after_it_ended(serve, sessions_made):
+    client, _ = serve(zonos=(refusing_transport(), []), idle_seconds=0.6)
+    session_id = create(client, reading(2))
+    assert wait_for(lambda: sessions_made[0].ended)
+    ended = time.monotonic()
+    time.sleep(0.25)
+    assert known(client, session_id)  # inside the time: a late reader still has it
+    assert wait_for(lambda: not known(client, session_id), timeout=5)
+    assert time.monotonic() - ended >= 0.5  # not before idle_seconds were up
+    assert client.get(f"/v1/sessions/{session_id}/events").status_code == 404
+
+
+def test_the_time_is_counted_from_the_end_even_when_nobody_asks(serve, sessions_made):
+    client, _ = serve(zonos=(refusing_transport(), []), idle_seconds=0.5)
+    session_id = create(client, reading(2))
+    assert wait_for(lambda: sessions_made[0].ended)
+    time.sleep(1.0)  # no request at all meanwhile: the registry looks by itself
+    # The first request is after the time was up. Had the registry first looked now, the session
+    # would seem to have ended just now and would still be here.
+    assert client.get(f"/v1/sessions/{session_id}/events").status_code == 404
+
+
+def test_a_session_nobody_reads_ends_by_idle_and_is_forgotten_as_long_after(serve, sessions_made):
     client, _ = serve(idle_seconds=0.6)
     session_id = create(client, reading(6))
-    assert alive(client, session_id)
-    # Nobody reads the audio: the session ends by itself, and no route knows it any more.
-    assert wait_for(lambda: not alive(client, session_id), timeout=5)
-    assert client.get(f"/v1/sessions/{session_id}/events").status_code == 404
+    assert known(client, session_id)
+    assert wait_for(lambda: sessions_made[0].ended, timeout=5)  # nobody reads the audio: idle
+    ended = time.monotonic()
+    time.sleep(0.25)
+    assert known(client, session_id)  # its events were not read: kept for as long again
+    assert wait_for(lambda: not known(client, session_id), timeout=5)
+    assert time.monotonic() - ended >= 0.5
     assert client.delete(f"/v1/sessions/{session_id}").status_code == 404
+
+
+def test_position_and_delete_are_accepted_for_an_ended_session_that_is_still_known(
+    serve, sessions_made
+):
+    client, _ = serve(zonos=(refusing_transport(), []))
+    session_id = create(client, reading(2))
+    assert wait_for(lambda: sessions_made[0].ended)
+    position = client.post(f"/v1/sessions/{session_id}/position", json={"sentence_id": "s1"})
+    assert position.status_code == 204  # nothing to move, and no complaint
+    assert client.delete(f"/v1/sessions/{session_id}").status_code == 204
+    assert client.get(f"/v1/sessions/{session_id}/events").status_code == 404  # DELETE forgets it
 
 
 def test_every_session_has_its_own_id(serve):
@@ -723,8 +808,6 @@ def test_preview_when_synthesis_fails_502(serve):
 
 
 def test_preview_when_the_encoder_is_gone_502(serve, monkeypatch):
-    from speech_service import app as app_module
-
     class Broken:
         async def __aenter__(self):
             raise FileNotFoundError("ffmpeg")
@@ -1016,17 +1099,17 @@ class Harness:
         assert reply.status == 201, reply.body
         return reply.json()["session_id"]
 
-    async def alive(self, session_id: str) -> bool:
-        """See `alive` above: a position that names no sentence moves nobody."""
+    async def known(self, session_id: str) -> bool:
+        """See `known` above: a position that names no sentence moves nobody."""
         reply = await self.call(
             "POST", f"/v1/sessions/{session_id}/position", json_body={"sentence_id": "no-such-id"}
         )
         assert reply.status in (404, 422)
         return reply.status == 422
 
-    async def until_gone(self, session_id: str, timeout: float = 5.0) -> None:
+    async def until_forgotten(self, session_id: str, timeout: float = 5.0) -> None:
         async with asyncio.timeout(timeout):
-            while await self.alive(session_id):
+            while await self.known(session_id):
                 await asyncio.sleep(0.02)
 
     async def shut_down(self) -> None:
@@ -1078,7 +1161,7 @@ async def test_an_error_ends_both_streams_and_the_audio_before_it_is_delivered_w
     assert decoded_seconds(mp3) == pytest.approx(of(timeline, "sentence")[-1]["end"], abs=0.15)
     await events.finished()
     await audio.finished()
-    await web.until_gone(session_id, timeout=2)
+    await web.until_forgotten(session_id, timeout=2)  # events read to their end: not idle_seconds
 
 
 @SPEC_VERSIONS
@@ -1094,7 +1177,9 @@ async def test_an_exchange_is_a_reading_over_asgi(harness, spec_version):
     assert (events.status, audio.status) == (200, 200)
     assert timeline[-1] == ("done", {})
     assert decoded_seconds(mp3) == pytest.approx(of(timeline, "sentence")[-1]["end"], abs=0.15)
-    await web.until_gone(session_id, timeout=2)  # both readers drained: ended at once, not idle
+    # Both readers drained and the events were read to their end: forgotten at once, not after the
+    # 30 s that a session nobody read from would be kept.
+    await web.until_forgotten(session_id, timeout=2)
 
 
 # A client that leaves.
@@ -1102,7 +1187,7 @@ async def test_an_exchange_is_a_reading_over_asgi(harness, spec_version):
 
 @SPEC_VERSIONS
 async def test_a_client_that_leaves_the_audio_while_it_waits_detaches_its_reader(
-    harness, spec_version
+    harness, sessions_made, spec_version
 ):
     web = await harness(idle_seconds=0.5)
     session_id = await web.create(reading(6))  # three sentences, then the worker waits
@@ -1111,18 +1196,22 @@ async def test_a_client_that_leaves_the_audio_while_it_waits_detaches_its_reader
 
     # While the reader is there the idle clock does not run...
     await asyncio.sleep(1.2)  # more than two idle periods
-    assert await web.alive(session_id)
+    assert await web.known(session_id)
+    assert not sessions_made[0].ended
     assert not audio.task.done()
 
     # ...and when it leaves, the response ends and the clock starts: the session ends by itself.
+    left = time.monotonic()
     audio.leave()
     await audio.finished(timeout=3)
-    await web.until_gone(session_id, timeout=5)
+    await until(lambda: sessions_made[0].ended, timeout=5)
+    assert time.monotonic() - left >= 0.4  # a full idle period after the reader left
+    await web.until_forgotten(session_id, timeout=5)  # and forgotten idle_seconds later
 
 
 @SPEC_VERSIONS
 async def test_a_client_that_leaves_the_events_while_they_wait_detaches_its_reader(
-    harness, spec_version
+    harness, sessions_made, spec_version
 ):
     web = await harness()  # the idle time is 30 s: only the readers can end the session before it
     session_id = await web.create(reading(6))
@@ -1141,32 +1230,34 @@ async def test_a_client_that_leaves_the_events_while_they_wait_detaches_its_read
     assert reply.status == 204
     await audio.body()
     await audio.finished()
-    await web.until_gone(session_id, timeout=3)
+    await until(lambda: sessions_made[0].ended, timeout=3)  # not after the idle time of 30 s
 
 
-async def test_a_client_that_leaves_before_it_reads_anything_is_handled(harness):
+async def test_a_client_that_leaves_before_it_reads_anything_is_handled(harness, sessions_made):
     web = await harness(idle_seconds=0.3)
     session_id = await web.create(reading(6))
     for route in ("audio", "events"):
         exchange = web.open("GET", f"/v1/sessions/{session_id}/{route}")
         exchange.leave()
         await exchange.finished(timeout=3)
-    await web.until_gone(session_id, timeout=5)  # the session never had a reader: idle
+    await until(lambda: sessions_made[0].ended, timeout=5)  # the session never had a reader: idle
 
 
-async def test_the_app_does_not_fail_when_a_client_leaves_under_a_busy_stream(harness):
+async def test_the_app_does_not_fail_when_a_client_leaves_under_a_busy_stream(
+    harness, sessions_made
+):
     web = await harness(idle_seconds=0.3)
     session_id = await web.create(reading(3))
     audio = web.open("GET", f"/v1/sessions/{session_id}/audio", spec_version="2.5")
     assert await audio.chunk()  # the stream is running and has data to send
     audio.leave()  # what is sent after this is refused with OSError
     await audio.finished(timeout=3)  # and the app takes it as the client leaving
-    await web.until_gone(session_id, timeout=5)
+    await until(lambda: sessions_made[0].ended, timeout=5)
 
 
 @SPEC_VERSIONS
 async def test_a_client_that_leaves_a_stream_that_cannot_send_ends_it_quietly(
-    harness, spec_version
+    harness, sessions_made, spec_version
 ):
     web = await harness(idle_seconds=0.3)
     session_id = await web.create(reading(3))
@@ -1176,7 +1267,7 @@ async def test_a_client_that_leaves_a_stream_that_cannot_send_ends_it_quietly(
     await asyncio.wait_for(audio.stalled.wait(), 5)  # the client reads nothing: `send` waits
     audio.leave()  # from ASGI 2.4 on, the `send` that waits now raises OSError
     await audio.finished(timeout=3)  # which is the client leaving, not a failure of the app
-    await web.until_gone(session_id, timeout=5)
+    await until(lambda: sessions_made[0].ended, timeout=5)
 
 
 @pytest.fixture
@@ -1238,6 +1329,22 @@ async def test_a_stream_that_ends_by_itself_is_closed_too(harness, watched_strea
     await exchange.body()
     await exchange.finished()
     assert route in watched_streams
+
+
+async def test_a_second_reader_of_an_ended_session_is_still_refused(harness, sessions_made):
+    web = await harness(idle_seconds=1.0)
+    session_id = await web.create(reading(6))  # three sentences, then the worker waits
+    events = web.open("GET", f"/v1/sessions/{session_id}/events", spec_version="2.5")
+    await events.events(1)
+    events.leave()  # the one events reader leaves before the end
+    await events.finished(timeout=3)
+    await until(lambda: sessions_made[0].ended, timeout=5)  # nobody reads the audio: idle
+
+    refused = await web.call("GET", f"/v1/sessions/{session_id}/events")
+    assert (refused.status, refused.json()) == (409, {"error": "reader_taken"})  # not 404
+    late = await web.call("GET", f"/v1/sessions/{session_id}/audio")
+    assert (late.status, late.body) == (200, b"")  # the audio reader is free: an ended stream
+    await web.until_forgotten(session_id, timeout=3)  # idle_seconds after it ended
 
 
 # Readers, once each.
@@ -1318,7 +1425,7 @@ async def test_delete_cancels_the_session_under_its_open_streams(harness):
     await events.finished()
     await audio.finished()
     assert ffmpeg_children() == []
-    assert not await web.alive(session_id)
+    assert not await web.known(session_id)
 
 
 # The app ends under open streams.

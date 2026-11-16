@@ -44,7 +44,9 @@ Each `sentence` event comes before the audio it describes. The `words` event for
 
 **Position.** `sentence_id` is the sentence now playing, not the one just finished. An id that is not one of the session's sentences answers 422.
 
-**One reader of each kind.** A session has one audio reader and one events reader. A second `GET …/audio` or `GET …/events` answers 409, also after the first reader has left. Open both as soon as the session exists and read them at the same time. A session that fails (the `error` event) is over at once, without waiting for its readers. The audio made so far goes, whole, to a reader that is attached; a reader that comes after gets 404, so a failure that comes before the readers have connected (Zonos is down: a few milliseconds) is a 404 on both streams and not an `error` event.
+**One reader of each kind.** A session has one audio reader and one events reader. A second `GET …/audio` or `GET …/events` answers 409, also after the first reader has left. Open both as soon as the session exists and read them at the same time.
+
+**An ended session is kept for a while.** A session that fails (the `error` event) is over at once, without waiting for its readers, and a failure can come within milliseconds (Zonos is down), before the player's streams have connected. So an ended session stays known until its events have been read to their end, or until `SPEECH_IDLE_SECONDS` after it ended, whichever comes first, and only then is it forgotten (404). Meanwhile a late `GET …/events` gets what was said, `sentence` and `error` events included, and a late `GET …/audio` gets an empty, finished MP3 response (the audio made before a failure goes whole to a reader that was attached; it is dropped for one that was not). A reader already taken is still 409, and once the events have been read to their end there is nothing left to keep: a `GET …/audio` after that is a 404. `POST …/position` and `DELETE` are accepted for it and change nothing (`DELETE` forgets it at once).
 
 **Times.** `start`, `end` and the `words` times are seconds on the stream's clock, as a browser decodes the MP3: the encoder's start delay is already in them. They are rounded to the millisecond. `times` has one entry per token, `null` for a token that was not said or not timed. A sentence that speaks as nothing (a lone symbol, an emoji) has `start` equal to `end`, no audio and `null` for each token. With `SPEECH_ALIGNER=none`, or when alignment fails for a sentence, every entry is `null`: the reader then marks sentences only.
 
@@ -56,7 +58,7 @@ Each `sentence` event comes before the audio it describes. The `words` event for
 |---|---|---|
 | 201 | `{"session_id": "…"}` | `POST /v1/sessions` |
 | 204 | none | `position` taken; `DELETE` done (the session is cancelled and forgotten) |
-| 404 | `{"error": "not_found"}` | every session route, for a session that is unknown **or has ended**. A session ends when both readers have drained it, after an `error`, on `DELETE`, or when idle |
+| 404 | `{"error": "not_found"}` | every session route, for a session that is unknown **or has been forgotten**: an ended session is forgotten once its events have been read to their end, or `SPEECH_IDLE_SECONDS` after it ended (see above). A session ends when both readers have drained it, after an `error`, on `DELETE`, or when idle |
 | 405 | none | any other method; `HEAD` on `audio` and `events` too, so a probe cannot take the one reader |
 | 409 | `{"error": "reader_taken"}` | a second `GET …/audio` or `GET …/events` |
 | 422 | `{"error": "invalid", "field": "sentences[3].tokens"}` | a body the service refuses. The field path only, never a value, so none of the request comes back |
@@ -100,7 +102,7 @@ Read once at start-up, from the environment, by `speech_service/config.py` (whic
 | `SPEECH_ALIGNER_MODEL` | none | The FuseAlign checkpoint (`python`), or the GGUF file (`native`, required) |
 | `SPEECH_ALIGNER_CLI` | `fusealign-cli` | The native binary |
 | `SPEECH_ALIGNER_THREADS` | `4` | Threads of the aligner |
-| `SPEECH_IDLE_SECONDS` | `30` | How long a session lives without an audio reader |
+| `SPEECH_IDLE_SECONDS` | `30` | How long a session lives without an audio reader, and how long one that has ended is kept for a reader that comes late |
 
 ## Running it on the Mac
 

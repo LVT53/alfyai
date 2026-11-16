@@ -9,6 +9,8 @@ description = "AlfyAI read-aloud speech service: Zonos voice and FuseAlign word 
 requires-python = ">=3.12"
 dependencies = [
     "starlette",
+    # speech_service/app.py imports it directly (its task group and cancel scope).
+    "anyio",
     "uvicorn[standard]",
     "httpx",
     "numpy",
@@ -24,6 +26,8 @@ aligner-python = [
 dev = [
     "pytest",
     "pytest-asyncio",
+    # Starlette 1.x's TestClient wants it, and warns when it finds only httpx.
+    "httpx2",
 ]
 
 [tool.setuptools.packages.find]
