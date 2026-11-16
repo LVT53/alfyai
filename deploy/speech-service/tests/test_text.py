@@ -117,6 +117,12 @@ def test_inflected_and_ordinal_number_words_say_két(text, said):
         ("Ebből 2 nem elég.", "Ebből kettő nem elég."),
         ("A válasz 2 lehet.", "A válasz kettő lehet."),
         ("Ez 2 stb. kell.", "Ez kettő s a többi kell."),
+        # Connectives and adverbs that join or comment on what came before.
+        ("Ez 2 valamint 3 tojás.", "Ez kettő valamint három tojás."),
+        ("Ez 2 továbbá 3 tojás.", "Ez kettő továbbá három tojás."),
+        ("Ez 2 vagyis 3 tojás.", "Ez kettő vagyis három tojás."),
+        ("Ez 2 ugyanis 3 tojás.", "Ez kettő ugyanis három tojás."),
+        ("Ez 2 szintén 3 tojás.", "Ez kettő szintén három tojás."),
     ],
 )
 def test_a_number_that_counts_nothing_stays_kettő(text, said):
@@ -180,6 +186,7 @@ NOT_COUNTED = [
     "kell",
     "is", "sem", "nem", "de", "pedig", "viszont", "lehet", "legyen", "már", "még", "csak", "azaz",
     "stb.", "s",
+    "valamint", "továbbá", "vagyis", "ugyanis", "szintén",
 ]  # fmt: skip
 
 
