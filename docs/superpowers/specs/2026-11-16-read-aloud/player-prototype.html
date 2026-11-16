@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Read aloud prototype v4: when things go wrong</title>
+<style>
+  :root {
+    --page:#fafaf8; --elev:#f4f3ee; --text:#1a1a1a; --muted:#6b6b6b; --faint:rgba(0,0,0,.14);
+    --border:rgba(0,0,0,.08); --accent:#c15f3c; --tint:rgba(193,95,60,.12); --target:rgba(193,95,60,.22); --mark:rgba(193,95,60,.30);
+    --soft-accent:color-mix(in srgb, var(--accent) 14%, #fff); --warn:#9a5b13; --warn-bg:#fdf3e4;
+    --ease-out:cubic-bezier(.4,0,.2,1); --ease-emphasis:cubic-bezier(.2,0,0,1); --ease-in:cubic-bezier(.4,0,1,1);
+    --d-micro:100ms; --d-standard:150ms; --d-emphasis:250ms;
+    color-scheme:light;
+  }
+  :root.reduce { --d-micro:0.01ms; --d-standard:0.01ms; --d-emphasis:0.01ms; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#ecebe6; font-family:"Nimbus Sans L","Helvetica Neue",Helvetica,Arial,sans-serif; color:var(--text); }
+  body.dragging { user-select:none; -webkit-user-select:none; cursor:grabbing; }
+  .wrap { display:grid; grid-template-columns:minmax(0,760px) 320px; gap:18px; padding:18px; justify-content:center; align-items:start; }
+  @media (max-width:1120px) { .wrap { grid-template-columns:minmax(0,1fr); } }
+  .frame { position:relative; height:min(740px, calc(100vh - 36px)); background:var(--page); border:1px solid var(--border); border-radius:14px; overflow:hidden; margin:0 auto; width:100%; }
+  .frame.phone { width:390px; border-radius:28px; }
+  .scroller { position:absolute; inset:0; z-index:0; overflow-y:auto; padding:22px 26px 0; }
+  .phone .scroller { padding:18px 16px 0; }
+  .msg { position:relative; font-size:14px; line-height:1.6; margin:0 0 6px; }
+  .phone .msg, .phone .user { font-size:15px; }
+  .msg p { margin:0 0 10px; }
+  .user { margin:18px 0 18px auto; max-width:75%; background:var(--elev); border-radius:14px; padding:9px 13px; font-size:14px; line-height:1.6; width:fit-content; }
+  .s { border-radius:3px; transition:background-color var(--d-standard) var(--ease-out), box-shadow var(--d-standard) var(--ease-out); }
+  .s.reading { background:var(--tint); box-shadow:0 0 0 2px var(--tint); }
+  .s.stopped { background:var(--tint); box-shadow:0 0 0 2px var(--tint); }
+  .s.target { background:var(--target); box-shadow:0 0 0 2px var(--target), 0 0 0 3px rgba(193,95,60,.45); }
+  .marker { position:absolute; left:0; top:0; width:0; height:0; border-radius:3px; background:var(--mark); pointer-events:none; opacity:0; z-index:0;
+            transition:transform 90ms linear, width 90ms linear, opacity var(--d-standard) var(--ease-out); }
+  .marker.jump { transition:opacity var(--d-standard) var(--ease-out); }
+  .msg .w { position:relative; z-index:1; }
+  .row { position:relative; display:flex; gap:2px; color:var(--muted); margin:2px 0 26px; opacity:0; transition:opacity var(--d-standard) var(--ease-out); }
+  .phone .row, .reply:hover .row, .reply.active .row, .reply:focus-within .row, .row.pinned { opacity:1; }
+  .btn { width:28px; height:28px; border:0; border-radius:8px; background:transparent; display:inline-flex; align-items:center; justify-content:center; color:var(--muted); position:relative; cursor:pointer; padding:0; flex:none; }
+  .btn:hover { background:var(--elev); color:var(--text); }
+  .btn svg.i { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .rb .face { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity var(--d-micro) var(--ease-out); }
+  .rb[data-state="idle"] .f-idle, .rb[data-state="loading"] .f-load, .rb[data-state="playing"] .f-pause, .rb[data-state="paused"] .f-play, .rb[data-state="failed"] .f-fail, .rb[data-state="off"] .f-idle { opacity:1; }
+  .rb[data-state="off"] { opacity:.38; cursor:default; } .rb[data-state="off"]:hover { background:transparent; color:var(--muted); }
+  .rb[data-state="failed"] { color:var(--warn); }
+  .rb svg.ring { position:absolute; inset:1px; width:26px; height:26px; transform:rotate(-90deg); opacity:0; transition:opacity var(--d-standard) var(--ease-out); }
+  .rb[data-state="playing"] svg.ring, .rb[data-state="paused"] svg.ring { opacity:1; }
+  .rb .f-pause svg, .rb .f-play svg { width:12px; height:12px; }
+  .spin { animation:spin .9s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* A note anchored to a reply's speaker button: why it can't read, or that it's waiting. */
+  .note { position:absolute; left:20px; bottom:calc(100% + 8px); z-index:4; display:flex; align-items:flex-start; gap:8px; width:max-content; max-width:min(330px, calc(100vw - 60px));
+          background:#fff; border:1px solid var(--border); border-radius:12px; padding:9px 10px 9px 12px; box-shadow:0 8px 24px rgba(0,0,0,.12); font-size:12.5px; line-height:1.45; color:var(--text);
+          opacity:0; transform:translateY(4px); pointer-events:none; transition:opacity var(--d-standard) var(--ease-out), transform var(--d-standard) var(--ease-out); }
+  .note.show { opacity:1; transform:none; pointer-events:auto; }
+  .note .ico { color:var(--warn); flex:none; margin-top:1px; } .note .ico svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .note.calm .ico { color:var(--muted); }
+  .note .acts { display:flex; gap:10px; margin-top:4px; }
+  .note .link { border:0; background:none; padding:0; font:inherit; font-weight:600; color:var(--accent); cursor:pointer; }
+  .note .x { border:0; background:none; color:var(--muted); cursor:pointer; padding:0 0 0 4px; font-size:14px; line-height:1; }
+
+  .layer { position:absolute; left:0; right:0; bottom:0; z-index:2; padding:0 14px 12px; pointer-events:none; }
+  .shell { position:relative; isolation:isolate; pointer-events:auto; }
+  .shell::before { content:""; position:absolute; left:0; right:0; top:-20px; bottom:-12px; z-index:-1; pointer-events:none;
+                   background:linear-gradient(to bottom, rgba(250,250,248,0) 0, var(--page) 20px); opacity:0; transition:opacity var(--d-emphasis) var(--ease-emphasis); }
+  .layer.reading .shell::before { opacity:1; }
+  .pillslot { display:grid; grid-template-rows:0fr; transition:grid-template-rows var(--d-emphasis) var(--ease-emphasis); }
+  .pillslot.open { grid-template-rows:1fr; }
+  .pillslot > .inner { overflow:hidden; display:flex; justify-content:center; padding:0 2px; }
+  .pillslot.settled > .inner { overflow:visible; }
+  .pill { position:relative; width:min(620px, 100%); margin:8px 0 10px; background:#fff; border:1px solid var(--border); border-radius:28px; padding:6px 10px;
+          box-shadow:0 3px 16px rgba(0,0,0,.08); opacity:0; transform:translateY(8px); display:flex; align-items:center; gap:6px;
+          transition:opacity var(--d-emphasis) var(--ease-emphasis), transform var(--d-emphasis) var(--ease-emphasis), border-color var(--d-standard) var(--ease-out); }
+  .pillslot.open .pill { opacity:1; transform:none; }
+  .pillslot.leaving .pill { opacity:0; transform:translateY(6px); transition:opacity var(--d-standard) var(--ease-in), transform var(--d-standard) var(--ease-in); }
+  .pillslot.hush .pill { opacity:0; transform:none; pointer-events:none; transition:opacity var(--d-micro) var(--ease-out); }
+  .pill .ctrls, .pill .g { display:contents; }
+  .pill .btn { width:40px; height:40px; border-radius:12px; }
+  .pill .btn svg.i { width:17px; height:17px; }
+  .pill .btn.primary { border-radius:50%; background:var(--soft-accent); color:var(--accent); }
+  .pill .btn.primary:hover { background:color-mix(in srgb, var(--accent) 22%, #fff); }
+  .pill .chip { font:inherit; font-size:12.5px; font-weight:600; border:1px solid var(--border); background:#fff; border-radius:999px; height:34px; min-width:54px; padding:0 10px; cursor:pointer; color:var(--text); flex:none; }
+  .o1 { order:1; } .o2 { order:2; } .o3 { order:3; } .o5 { order:5; } .o6 { order:6; } .o7 { order:7; }
+  .scrubrow { order:4; flex:1; min-width:0; display:flex; align-items:center; gap:10px; padding:0 6px; }
+  .scrubrow .t { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .phone .pill { display:grid; grid-template-columns:1fr; row-gap:4px; border-radius:24px; padding:8px 12px 8px; }
+  .phone .scrubrow { padding:0 2px; order:0; }
+  .phone .pill .ctrls { order:1; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; }
+  .phone .pill .g { display:flex; gap:4px; align-items:center; }
+  .phone .pill .g.a { justify-self:start; } .phone .pill .g.b { justify-self:center; gap:8px; } .phone .pill .g.c { justify-self:end; }
+  .phone .pill .btn { width:44px; height:44px; }
+  .phone .pill .btn.primary { width:52px; height:52px; }
+  .phone .pill .btn.primary svg.i { width:20px; height:20px; }
+  .pill .done { position:absolute; inset:0; pointer-events:none; display:flex; align-items:center; justify-content:center; background:#fff; border-radius:inherit; font-size:13px; color:var(--muted); opacity:0; transition:opacity var(--d-standard) var(--ease-out); z-index:3; }
+  .pill.finished .done { opacity:1; }
+  /* A reading that stopped: a note above the player, and the play button becomes "try again" (or a spinner while it waits to resume). */
+  .pill.failed { border-color:color-mix(in srgb, var(--warn) 35%, var(--border)); }
+  .pill.failed .btn.primary { background:var(--warn-bg); color:var(--warn); }
+  .pnote { position:absolute; left:50%; bottom:calc(100% + 8px); transform:translate(-50%, 4px); z-index:4; display:flex; align-items:center; gap:8px; white-space:nowrap;
+           background:#fff; border:1px solid var(--border); border-radius:999px; padding:6px 8px 6px 11px; box-shadow:0 6px 18px rgba(0,0,0,.10); font-size:12.5px;
+           opacity:0; pointer-events:none; transition:opacity var(--d-standard) var(--ease-out), transform var(--d-standard) var(--ease-out); }
+  .pill.failed .pnote, .pill.waiting .pnote { opacity:1; transform:translate(-50%, 0); pointer-events:auto; }
+  .pnote .ico { color:var(--warn); display:inline-flex; } .pill.waiting .pnote .ico { color:var(--muted); }
+  .pnote .ico svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .pnote .link { border:0; background:none; padding:2px 4px; font:inherit; font-weight:600; color:var(--accent); cursor:pointer; }
+  .phone .pnote { white-space:normal; width:calc(100% - 8px); border-radius:14px; }
+
+  .scrub { position:relative; flex:1; height:40px; cursor:grab; touch-action:none; outline:none; }
+  .phone .scrub { height:34px; }
+  .scrub .track { position:absolute; left:0; right:0; top:50%; height:4px; margin-top:-2px; background:var(--faint); border-radius:4px; }
+  .scrub .fill { position:absolute; left:0; top:0; bottom:0; width:0; background:var(--accent); border-radius:4px; }
+  .pill.failed .scrub .fill { background:color-mix(in srgb, var(--accent) 45%, #fff); }
+  .scrub .tick { position:absolute; top:-3px; width:2px; height:10px; margin-left:-1px; background:#fff; box-shadow:0 0 0 .5px rgba(0,0,0,.2); border-radius:1px;
+                 transition:height var(--d-micro) var(--ease-out), top var(--d-micro) var(--ease-out), background-color var(--d-micro) var(--ease-out); }
+  .scrub .tick.on { top:-6px; height:16px; background:var(--accent); box-shadow:none; }
+  .scrub .thumb { position:absolute; top:50%; left:0; width:16px; height:16px; margin:-8px 0 0 -8px; border-radius:50%; background:#fff; border:2px solid var(--accent); box-shadow:0 1px 4px rgba(0,0,0,.18); transition:transform var(--d-micro) var(--ease-out); }
+  .scrub.drag .thumb { transform:scale(1.3); }
+  .scrub.settling .thumb { transition:left var(--d-emphasis) var(--ease-emphasis), transform var(--d-micro) var(--ease-out); }
+  .scrub.settling .fill { transition:width var(--d-emphasis) var(--ease-emphasis); }
+  .scrub .bubble { position:absolute; bottom:calc(100% + 8px); left:0; background:#1a1a1a; color:#fff; font-size:12px; line-height:1.25; padding:6px 9px; border-radius:8px; z-index:5;
+                   white-space:nowrap; max-width:240px; overflow:hidden; text-overflow:ellipsis; opacity:0; pointer-events:none; transform:translateY(3px); transition:opacity var(--d-micro) var(--ease-out), transform var(--d-micro) var(--ease-out); }
+  .scrub.drag .bubble { opacity:1; transform:none; }
+
+  .composer { position:relative; background:#fff; border:1px solid var(--border); border-radius:18px; padding:10px 12px; }
+  .composer textarea { width:100%; border:0; outline:0; resize:none; font:inherit; font-size:14px; line-height:1.5; min-height:42px; max-height:120px; background:transparent; }
+  .phone .composer textarea { font-size:16px; }
+  .side { font-size:13.5px; line-height:1.5; }
+  .side h1 { font-size:17px; margin:0 0 6px; } .side p { color:var(--muted); margin:0 0 10px; }
+  .side h2 { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:16px 0 6px; font-weight:600; }
+  .side label { display:flex; gap:8px; align-items:center; margin:6px 0; }
+  .side .sim { display:flex; flex-direction:column; gap:6px; }
+  .side button.s-btn { font:inherit; font-size:12.5px; border:1px solid var(--border); background:#fff; border-radius:10px; padding:7px 10px; cursor:pointer; text-align:left; }
+  .side button.s-btn:disabled { opacity:.45; cursor:default; }
+  .side .hint { font-size:12px; color:var(--muted); }
+  .mini { background:#fff; border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin:6px 0; font-size:12.5px; }
+  .mini .row2 { display:flex; align-items:center; gap:8px; }
+  .mini .play { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; border:0; background:var(--accent); color:#fff; border-radius:999px; padding:5px 11px; }
+  .mini .err { color:var(--warn); font-size:12px; }
+  .mini .foot { display:flex; justify-content:flex-end; gap:8px; align-items:center; }
+  .mini .primary { font-size:12px; font-weight:600; border:0; background:var(--accent); color:#fff; border-radius:999px; padding:6px 12px; }
+  .mini .warnline { display:flex; gap:6px; align-items:center; color:var(--warn); font-size:12px; margin-top:4px; }
+  .log { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--muted); background:#fff; border:1px solid var(--border); border-radius:8px; padding:8px; height:110px; overflow:auto; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="frame" id="frame">
+    <div class="scroller" id="scroller">
+      <div class="reply" data-lang="en">
+        <div class="msg"><p>A sourdough starter needs three things: flour, water and time. Mix equal weights of flour and water in a clean jar, cover it loosely, and leave it somewhere warm. For the first few days nothing much seems to happen, and that is normal.</p><p>Feed it once a day at room temperature, or once a week if it lives in the fridge. Each feed means discarding about half and adding fresh flour and water. When it doubles within six hours of a feed, it is ready to bake with.</p></div>
+        <div class="row" data-row></div>
+      </div>
+      <div class="user">Wie sagt man das auf Deutsch?</div>
+      <div class="reply" data-lang="de" data-langname="German">
+        <div class="msg"><p>Ein Sauerteigansatz braucht drei Dinge: Mehl, Wasser und Zeit. Füttere ihn einmal am Tag, dann ist er nach etwa einer Woche bereit.</p></div>
+        <div class="row" data-row></div>
+      </div>
+      <div class="user">And how do I know it has gone bad?</div>
+      <div class="reply" data-lang="en">
+        <div class="msg"><p>Pink, orange or fuzzy spots mean mould, and then it is time to start again. A sharp smell like nail polish only means it is very hungry. Feed it twice in a day and the smell goes away.</p></div>
+        <div class="row" data-row></div>
+      </div>
+      <div class="spacer" id="spacer"></div>
+    </div>
+    <div class="layer" id="layer">
+      <div class="shell">
+        <div class="pillslot" id="pillslot"><div class="inner">
+          <div class="pill" id="pill">
+            <div class="pnote" id="pnote" role="status"><span class="ico" id="pnoteIco"></span><span id="pnoteText"></span><button class="link" id="pnoteAct" data-act="retry">Try again</button></div>
+            <div class="scrubrow">
+              <span class="t" id="t0">0:00</span>
+              <div class="scrub" id="scrub" role="slider" tabindex="0" aria-label="Sentence">
+                <div class="track"><div class="fill" id="sfill"></div><div id="ticks"></div></div>
+                <div class="thumb" id="sthumb"></div>
+                <div class="bubble" id="sbubble"></div>
+              </div>
+              <span class="t" id="t1">0:00</span>
+            </div>
+            <div class="ctrls">
+              <div class="g a"><button class="chip o6" data-act="speed" id="pspeed">1×</button></div>
+              <div class="g b">
+                <button class="btn o1" data-act="prev" title="Previous sentence"><svg class="i" viewBox="0 0 24 24"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" x2="5" y1="19" y2="5"/></svg></button>
+                <button class="btn primary o2" data-act="toggle" title="Pause" id="ptoggle"></button>
+                <button class="btn o3" data-act="next" title="Next sentence"><svg class="i" viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/></svg></button>
+              </div>
+              <div class="g c">
+                <button class="btn o5" data-act="locate" title="Go to where it's reading"><svg class="i" viewBox="0 0 24 24"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg></button>
+                <button class="btn o7" data-act="close" title="Stop"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+              </div>
+            </div>
+            <span class="done">Finished</span>
+          </div>
+        </div></div>
+        <div class="composer"><textarea id="input" rows="1" placeholder="Message AlfyAI…"></textarea></div>
+      </div>
+    </div>
+  </div>
+  <div class="side">
+    <h1>When things go wrong</h1>
+    <p>Pick what the voice should do next, then press a speaker. The voice is silent and its timings are made up.</p>
+    <h2>Starting a reading</h2>
+    <div class="sim">
+      <label><input type="radio" name="start" value="ok" checked> Starts normally</label>
+      <label><input type="radio" name="start" value="busy"> The voice is busy (starts after 4 s)</label>
+      <label><input type="radio" name="start" value="down"> The voice service is down</label>
+      <div class="hint">The German reply has no voice: hover or tap its speaker.</div>
+    </div>
+    <h2>While it reads</h2>
+    <div class="sim">
+      <button class="s-btn" id="breakIt">The voice stops answering</button>
+      <button class="s-btn" id="offline">The connection drops</button>
+      <button class="s-btn" id="online" disabled>The connection is back</button>
+      <button class="s-btn" id="update">AlfyAI updates (back after 4 s)</button>
+      <div class="hint">Word timing failing has no message: the word marker just isn't there and the sentence is still tinted.</div>
+    </div>
+    <h2>In the voice editor (static)</h2>
+    <div class="mini"><div class="row2"><button class="play">▶ Play</button><span class="err">Couldn't play the sample. Try again.</span></div></div>
+    <div class="mini"><div class="foot"><span class="err">Couldn't save this voice. Try again.</span><button class="primary">Save voice</button></div></div>
+    <div class="mini"><b>Bedtime Imogen</b><div class="warnline">⚠ Imogen isn't available any more, so this voice reads as your English voice for now.</div></div>
+    <label style="margin-top:12px"><input type="checkbox" id="phone"> Phone width (390 px)</label>
+    <label><input type="checkbox" id="reduce"> Reduced motion</label>
+    <p style="margin:10px 0 4px">What just happened:</p>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const log = (t) => { const l = $('#log'); l.textContent = `${new Date().toLocaleTimeString()}  ${t}\n` + l.textContent; };
+  const ICON = {
+    speaker: '<svg class="i" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>',
+    mute: '<svg class="i" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></svg>',
+    spin: '<svg class="i spin" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>',
+    pause: '<svg class="i" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></svg>',
+    play: '<svg class="i" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg>',
+    retry: '<svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
+    alert: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>',
+    wifi: '<svg viewBox="0 0 24 24"><path d="M12 20h.01"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/><path d="M2 2l20 20"/><path d="M5 12.86a10 10 0 0 1 5.17-2.69"/><path d="M19 12.86a10 10 0 0 0-2-1.29"/></svg>',
+    clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    copy: '<svg class="i" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>',
+  };
+  const RING_LEN = 72.26;
+  const frame = $('#frame'), scroller = $('#scroller'), layer = $('#layer'), spacer = $('#spacer'), slot = $('#pillslot'), pill = $('#pill');
+  const reduced = () => document.documentElement.classList.contains('reduce');
+  const simStart = () => document.querySelector('input[name=start]:checked').value;
+
+  let pinned = true;
+  scroller.addEventListener('scroll', () => { pinned = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 8; });
+  new ResizeObserver(() => { spacer.style.height = layer.offsetHeight + 'px'; if (pinned) scroller.scrollTop = scroller.scrollHeight; }).observe(layer);
+
+  // ---- Replies: sentences and words, a speaker button, and a note anchored to it. ----
+  const replies = [];
+  function prepare(reply) {
+    const msg = $('.msg', reply);
+    const marker = document.createElement('div'); marker.className = 'marker'; msg.prepend(marker);
+    const sentences = [];
+    for (const p of msg.querySelectorAll('p')) {
+      const parts = p.textContent.match(/[^.!?]+[.!?]+\s*/g) || [p.textContent];
+      p.textContent = '';
+      for (const part of parts) {
+        const s = document.createElement('span'); s.className = 's'; const words = [];
+        part.trim().split(/\s+/).forEach((w, i, arr) => {
+          const ws = document.createElement('span'); ws.className = 'w'; ws.textContent = w; s.appendChild(ws);
+          if (i < arr.length - 1) s.appendChild(document.createTextNode(' '));
+          words.push({ el: ws, dur: 0.16 + w.replace(/[^\p{L}\p{N}]/gu, '').length * 0.06 + (/[,;:]$/.test(w) ? 0.25 : 0) });
+        });
+        p.appendChild(s); p.appendChild(document.createTextNode(' '));
+        sentences.push({ el: s, words, text: part.trim(), dur: words.reduce((a, w) => a + w.dur, 0) + 0.35 });
+      }
+    }
+    let acc = 0; sentences.forEach((s) => { s.start = acc; acc += s.dur; });
+    const row = $('[data-row]', reply);
+    const off = reply.dataset.lang !== 'en';
+    row.innerHTML = `<button class="btn" title="Copy">${ICON.copy}</button>
+      <button class="btn rb" data-state="${off ? 'off' : 'idle'}" aria-label="Read aloud"${off ? ' aria-disabled="true"' : ''}>
+        <svg class="ring" viewBox="0 0 26 26"><circle cx="13" cy="13" r="11.5" fill="none" stroke="rgba(0,0,0,.14)" stroke-width="1.6"/><circle class="prog" cx="13" cy="13" r="11.5" fill="none" stroke="#c15f3c" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="${RING_LEN}" stroke-dashoffset="${RING_LEN}"/></svg>
+        <span class="face f-idle">${ICON.speaker}</span><span class="face f-load">${ICON.spin}</span><span class="face f-pause">${ICON.pause}</span><span class="face f-play">${ICON.play}</span><span class="face f-fail">${ICON.mute}</span>
+      </button>
+      <div class="note" role="status"><span class="ico"></span><div><div class="ntext"></div><div class="acts"></div></div><button class="x" aria-label="Dismiss">✕</button></div>`;
+    const r = { reply, row, msg, marker, sentences, total: acc, rb: $('.rb', row), note: $('.note', row), off, langName: reply.dataset.langname };
+    r.rb.addEventListener('click', () => onRowButton(r));
+    if (off) {
+      r.rb.addEventListener('mouseenter', () => showNote(r, 'calm', ICON.alert, `Read aloud isn't available in ${r.langName} yet.`));
+      r.rb.addEventListener('mouseleave', () => hideNote(r));
+    }
+    r.note.querySelector('.x').addEventListener('click', () => hideNote(r));
+    replies.push(r);
+  }
+  document.querySelectorAll('.reply').forEach(prepare);
+
+  let noteTimer = 0;
+  function showNote(r, kind, icon, text, actions = []) {
+    clearTimeout(noteTimer);
+    replies.forEach((o) => o !== r && hideNote(o));
+    r.note.classList.toggle('calm', kind === 'calm');
+    r.note.querySelector('.ico').innerHTML = icon; r.note.querySelector('.ntext').textContent = text;
+    const acts = r.note.querySelector('.acts'); acts.innerHTML = '';
+    actions.forEach(([label, fn]) => { const b = document.createElement('button'); b.className = 'link'; b.textContent = label; b.onclick = fn; acts.appendChild(b); });
+    acts.style.display = actions.length ? 'flex' : 'none';
+    r.note.querySelector('.x').style.display = kind === 'calm' && !actions.length ? 'none' : '';
+    r.note.classList.add('show'); r.row.classList.add('pinned');
+    if (kind === 'error') noteTimer = setTimeout(() => hideNote(r), 8000);
+  }
+  function hideNote(r) { r.note.classList.remove('show'); if (!r.reply.classList.contains('active')) r.row.classList.remove('pinned'); }
+
+  // ---- Playback (simulated). ----
+  const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
+  let speedIdx = 0, cur = null, raf = 0, last = 0, loadingTimer = 0, busyTimer = 0, finishTimer = 0, dragging = null, waitingFor = null;
+  const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const sentenceAt = (r, t) => { for (let i = r.sentences.length - 1; i >= 0; i--) if (t >= r.sentences[i].start) return i; return 0; };
+  const setRow = (r, state) => { r.rb.dataset.state = state; };
+  const setToggle = () => { $('#ptoggle').innerHTML = waitingFor ? ICON.spin : pill.classList.contains('failed') ? ICON.retry : cur && cur.playing ? ICON.pause : ICON.play;
+    $('#ptoggle').title = pill.classList.contains('failed') ? 'Try again' : cur && cur.playing ? 'Pause' : 'Play'; };
+
+  function buildTicks(r) { $('#ticks').innerHTML = r.sentences.map((s, i) => `<span class="tick" data-i="${i}" style="left:${(s.start / r.total) * 100}%"></span>`).join(''); }
+  function onRowButton(r) {
+    if (r.off) { showNote(r, 'calm', ICON.alert, `Read aloud isn't available in ${r.langName} yet.`); return; }
+    if (cur && cur.r === r && !pill.classList.contains('failed')) { cur.playing ? pause() : resume(); return; }
+    start(r, 0);
+  }
+  function start(r, si) {
+    clearTimeout(finishTimer); clearTimeout(loadingTimer); clearTimeout(busyTimer); pill.classList.remove('finished');
+    if (cur && cur.r !== r) { clearMarks(cur.r); setRow(cur.r, 'idle'); cur.r.reply.classList.remove('active'); cur.r.row.classList.remove('pinned'); }
+    hideNote(r); clearFailure();
+    cur = { r, t: r.sentences[si].start, playing: false };
+    r.reply.classList.add('active'); r.row.classList.add('pinned'); setRow(r, 'loading'); buildTicks(r);
+    const mode = simStart();
+    if (mode === 'down') {
+      loadingTimer = setTimeout(() => {
+        setRow(r, 'failed'); cur = null; r.reply.classList.remove('active');
+        showNote(r, 'error', ICON.alert, "Couldn't start reading. The voice isn't answering right now.", [['Try again', () => { hideNote(r); start(r, si); }]]);
+        log('start failed: the speaker shows a muted icon and a note with Try again');
+        setTimeout(() => { if (r.rb.dataset.state === 'failed') setRow(r, 'idle'); }, 3000);
+      }, 1400);
+      return;
+    }
+    const wait = mode === 'busy' ? 4000 : 650;
+    if (mode === 'busy') busyTimer = setTimeout(() => { if (cur && cur.r === r) { showNote(r, 'calm', ICON.clock, 'The voice is busy with another reading. Yours starts in a moment.'); log('busy: a calm note after 2.5 s of waiting'); } }, 2500);
+    loadingTimer = setTimeout(() => { if (cur && cur.r === r) { hideNote(r); cur.playing = true; setRow(r, 'playing'); showPill(); paint(); tick(true); } }, wait);
+  }
+  function pause() { if (!cur) return; cur.playing = false; setRow(cur.r, 'paused'); setToggle(); }
+  function resume() { if (!cur) return; cur.playing = true; setRow(cur.r, 'playing'); setToggle(); tick(true); }
+  function stop(reason) { if (!cur) return; const r = cur.r; cur = null; cancelAnimationFrame(raf); clearMarks(r); setRow(r, 'idle'); r.reply.classList.remove('active'); r.row.classList.remove('pinned'); clearFailure(); hidePill(); log(reason); }
+  function clearMarks(r) { r.sentences.forEach((s) => s.el.classList.remove('reading', 'target', 'stopped')); r.marker.style.opacity = '0'; $('.prog', r.rb).setAttribute('stroke-dashoffset', RING_LEN); }
+
+  function wordAt(r, t) { const si = sentenceAt(r, t), s = r.sentences[si]; let acc = s.start; for (let wi = 0; wi < s.words.length; wi++) { if (t < acc + s.words[wi].dur) return { si, wi }; acc += s.words[wi].dur; } return { si, wi: s.words.length - 1 }; }
+  let lastWordEl = null, lastTop = null;
+  function paint() {
+    if (!cur) return;
+    const { r, t } = cur, frac = Math.min(t / r.total, 1), sp = SPEEDS[speedIdx];
+    if (!dragging) {
+      const pos = wordAt(r, t), failed = pill.classList.contains('failed');
+      r.sentences.forEach((s, i) => { s.el.classList.toggle('reading', i === pos.si && !failed); s.el.classList.toggle('stopped', i === pos.si && failed); });
+      const w = r.sentences[pos.si].words[pos.wi].el;
+      if (failed) r.marker.style.opacity = '0';
+      else if (w !== lastWordEl) {
+        const box = r.msg.getBoundingClientRect(), wb = w.getBoundingClientRect(), top = wb.top - box.top;
+        r.marker.classList.toggle('jump', lastTop !== null && Math.abs(top - lastTop) > 2);
+        r.marker.style.transform = `translate(${wb.left - box.left - 2}px, ${top}px)`;
+        r.marker.style.width = wb.width + 4 + 'px'; r.marker.style.height = wb.height + 'px'; r.marker.style.opacity = '1';
+        lastWordEl = w; lastTop = top;
+      }
+      $('#sthumb').style.left = frac * 100 + '%'; $('#sfill').style.width = frac * 100 + '%';
+    }
+    $('.prog', r.rb).setAttribute('stroke-dashoffset', RING_LEN * (1 - frac));
+    $('#t0').textContent = fmt(t / sp); $('#t1').textContent = fmt(r.total / sp);
+  }
+  function tick(reset) {
+    cancelAnimationFrame(raf); if (reset) last = performance.now();
+    const step = (now) => { if (!cur || !cur.playing) return; cur.t += ((now - last) / 1000) * SPEEDS[speedIdx]; last = now;
+      if (cur.t >= cur.r.total) { cur.t = cur.r.total; paint(); finish(); return; } paint(); raf = requestAnimationFrame(step); };
+    raf = requestAnimationFrame(step);
+  }
+  function finish() {
+    const r = cur.r; cur.playing = false; r.sentences.forEach((s) => s.el.classList.remove('reading')); r.marker.style.opacity = '0';
+    pill.classList.add('finished');
+    finishTimer = setTimeout(() => { pill.classList.remove('finished'); if (cur && cur.r === r) stop('finished'); }, 1100);
+  }
+  function settle() { const sc = $('#scrub'); sc.classList.add('settling'); setTimeout(() => sc.classList.remove('settling'), reduced() ? 0 : 280); }
+  function jumpTo(si) { const r = cur.r; si = Math.max(0, Math.min(r.sentences.length - 1, si)); settle(); cur.t = r.sentences[si].start + 0.001; lastWordEl = null; paint(); }
+
+  // ---- Failures while reading ----
+  function fail(kind) {
+    if (!cur || !slot.classList.contains('open')) { log('start a reading first'); return; }
+    cur.playing = false; cancelAnimationFrame(raf);
+    // Back to the start of the sentence it stopped in: that's where Try again (or the automatic resume) picks up.
+    cur.t = cur.r.sentences[sentenceAt(cur.r, cur.t)].start + 0.001; lastWordEl = null;
+    setRow(cur.r, 'paused');
+    const texts = {
+      broken: [ICON.alert, 'Reading stopped. The voice stopped answering.', true],
+      offline: [ICON.wifi, "You're offline. Reading continues when you're back.", false],
+      update: [ICON.clock, 'AlfyAI is updating. Reading continues when it is back.', false],
+    };
+    const [icon, text, canRetry] = texts[kind];
+    $('#pnoteIco').innerHTML = icon; $('#pnoteText').textContent = text; $('#pnoteAct').style.display = canRetry ? '' : 'none';
+    pill.classList.toggle('failed', canRetry); pill.classList.toggle('waiting', !canRetry);
+    waitingFor = canRetry ? null : kind; setToggle(); paint();
+    log(kind === 'broken' ? 'stopped: a note above the player, play turns into Try again, the sentence stays tinted' : `waiting (${kind}): it resumes on its own`);
+  }
+  function clearFailure() { pill.classList.remove('failed', 'waiting'); waitingFor = null; setToggle(); }
+  function retry() { if (!cur) return; clearFailure(); log('try again: picks up at the start of the sentence it stopped in'); resume(); paint(); }
+  $('#breakIt').onclick = () => fail('broken');
+  $('#offline').onclick = () => { fail('offline'); $('#online').disabled = false; };
+  $('#online').onclick = () => { $('#online').disabled = true; if (waitingFor === 'offline') { clearFailure(); resume(); log('back online: reading resumes by itself'); } };
+  $('#update').onclick = () => { fail('update'); setTimeout(() => { if (waitingFor === 'update') { clearFailure(); resume(); log('update finished: reading resumes by itself'); } }, 4000); };
+  $('#pnoteAct').onclick = (e) => { e.stopPropagation(); retry(); };
+
+  function showPill() {
+    slot.classList.remove('leaving'); setToggle(); slot.classList.add('open'); layer.classList.add('reading');
+    setTimeout(() => { if (slot.classList.contains('open') && !slot.classList.contains('leaving')) slot.classList.add('settled'); }, reduced() ? 0 : 260);
+  }
+  function hidePill() { slot.classList.remove('settled'); slot.classList.add('leaving'); layer.classList.remove('reading'); setTimeout(() => { if (!cur) slot.classList.remove('open', 'leaving'); }, reduced() ? 0 : 150); }
+  pill.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]'); if (!b || !cur) return;
+    const act = b.dataset.act, r = cur.r, si = sentenceAt(r, cur.t);
+    if (act === 'toggle') { if (waitingFor) return; if (pill.classList.contains('failed')) retry(); else cur.playing ? pause() : resume(); }
+    if (act === 'close') stop('stopped with ✕');
+    if (act === 'prev') { jumpTo(si - 1); }
+    if (act === 'next') { jumpTo(si + 1); }
+    if (act === 'locate') r.sentences[si].el.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' });
+    if (act === 'speed') { speedIdx = (speedIdx + 1) % SPEEDS.length; b.textContent = SPEEDS[speedIdx] + '×'; paint(); }
+  });
+
+  // ---- Scrubber (as v3) ----
+  const scrub = $('#scrub'), thumb = $('#sthumb'), fill = $('#sfill'), bubble = $('#sbubble'); let pendingX = null, moveRaf = 0;
+  function placeBubble(x) { const w = bubble.offsetWidth, pr = pill.getBoundingClientRect(), sr = scrub.getBoundingClientRect(); bubble.style.left = Math.max(pr.left - sr.left + 6, Math.min(pr.right - sr.left - w - 6, x - w / 2)) + 'px'; }
+  function dragTo(clientX) {
+    const r = cur.r, rect = scrub.getBoundingClientRect(), frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    thumb.style.left = frac * 100 + '%'; fill.style.width = frac * 100 + '%';
+    const si = sentenceAt(r, frac * r.total);
+    if (si !== dragging.si) {
+      dragging.si = si; r.sentences.forEach((s, i) => { s.el.classList.toggle('target', i === si); s.el.classList.remove('reading', 'stopped'); }); r.marker.style.opacity = '0';
+      document.querySelectorAll('#ticks .tick').forEach((t) => t.classList.toggle('on', Number(t.dataset.i) === si));
+      const words = r.sentences[si].text.split(/\s+/); bubble.textContent = `${si + 1}/${r.sentences.length} · ${words.slice(0, 5).join(' ')}${words.length > 5 ? '…' : ''}`;
+    }
+    placeBubble(frac * rect.width);
+  }
+  scrub.addEventListener('pointerdown', (e) => { if (!cur || waitingFor) return; e.preventDefault(); scrub.setPointerCapture(e.pointerId); scrub.classList.add('drag'); document.body.classList.add('dragging'); dragging = { wasPlaying: cur.playing, si: -1 }; cur.playing = false; dragTo(e.clientX); });
+  scrub.addEventListener('pointermove', (e) => { if (!dragging) return; pendingX = e.clientX; if (!moveRaf) moveRaf = requestAnimationFrame(() => { moveRaf = 0; if (dragging) dragTo(pendingX); }); });
+  const endDrag = () => { if (!dragging) return; const { si, wasPlaying } = dragging; dragging = null; scrub.classList.remove('drag'); document.body.classList.remove('dragging');
+    cur.r.sentences.forEach((s) => s.el.classList.remove('target')); document.querySelectorAll('#ticks .tick').forEach((t) => t.classList.remove('on'));
+    jumpTo(si); if (pill.classList.contains('failed')) { retry(); } else if (wasPlaying) resume(); else setRow(cur.r, 'paused'); };
+  scrub.addEventListener('pointerup', endDrag); scrub.addEventListener('pointercancel', endDrag);
+
+  document.addEventListener('click', (e) => { replies.forEach((r) => { if (r.note.classList.contains('show') && !r.row.contains(e.target)) hideNote(r); }); });
+  $('#phone').addEventListener('change', (e) => { frame.classList.toggle('phone', e.target.checked); if (cur) paint(); });
+  $('#reduce').addEventListener('change', (e) => document.documentElement.classList.toggle('reduce', e.target.checked));
+  scroller.scrollTop = scroller.scrollHeight;
+})();
+</script>
+</body>
+</html>
