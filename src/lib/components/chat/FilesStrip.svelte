@@ -1,24 +1,33 @@
 <script lang="ts">
 /**
- * A `files` call's results, drawn the compact way the second pass decided
+ * A reply's found files, drawn the compact way the second pass decided
  * (docs/superpowers/specs/2026-11-15-nextcloud-file-cards-compact-design.md):
- * one file as the single card, two or more with pictures as a strip of 78px
- * tiles and a chevron, and two or more with no picture as the quiet line and
- * the same chevron. A tile and the single card's picture open the app's
- * viewer; the chevron and the count tile open the compact file list. The
- * viewer is loaded on the first press (`image-lightbox-loader.ts`) and never
- * in the chat's first paint.
+ * one file as the single card, two or more as a strip of 78px tiles and a
+ * chevron. A tile is a FILE: a picture draws its picture, a document draws its
+ * type. A picture tile and the single card's picture open the app's viewer; a
+ * document tile opens that file in Nextcloud; the chevron and the count tile
+ * open the compact file list. The viewer is loaded on the first press
+ * (`image-lightbox-loader.ts`) and never in the chat's first paint.
  *
- * Everything is a sibling, never nested: a tile is a `<button>`, a list row is
- * one `<a>` to the file in Nextcloud (its 40px picture included), and the
- * single card's picture button stands beside its link.
+ * The reply draws ONE block, however many `files` calls it made: the caller
+ * merges them before handing `cards` here, so a reply that searched twice does
+ * not stack two strips.
+ *
+ * Everything is a sibling, never nested: a tile is a `<button>` (or an `<a>` for
+ * a document), a list row is one `<a>` to the file in Nextcloud (its 40px
+ * picture included), and the single card's picture button stands beside its
+ * link.
  */
 import { ChevronDown } from "@lucide/svelte";
 import { tick } from "svelte";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
 import type { ToolCallFileCard } from "$lib/server/services/messages-types";
-import { type AttachmentFileType, getFileType } from "./attachment-file-type";
+import {
+	type AttachmentFileType,
+	fileExtension,
+	getFileType,
+} from "./attachment-file-type";
 import {
 	fileCardFacts,
 	filesStripTiles,
@@ -94,6 +103,14 @@ type StripTileView =
 			fileType: AttachmentFileType;
 	  }
 	| {
+			kind: "document";
+			key: string;
+			label: string;
+			fileType: AttachmentFileType;
+			webUrl: string;
+			ext: string;
+	  }
+	| {
 			kind: "count";
 			key: string;
 			label: string;
@@ -118,7 +135,18 @@ const singleCard = $derived(rowViews.length === 1 ? rowViews[0] : null);
 
 const tileViews = $derived.by((): StripTileView[] =>
 	filesStripTiles(cards, slots).map((tile) => {
-		if (tile.kind === "picture") {
+		if (tile.kind === "file") {
+			const fileType = getFileType(tile.card.contentType, tile.card.name);
+			if (tile.pictureIndex === null) {
+				return {
+					kind: "document",
+					key: tile.card.path,
+					label: $t("toolActivity.filesOpenFile", { name: tile.card.name }),
+					fileType,
+					webUrl: tile.card.webUrl,
+					ext: fileExtension(tile.card.name),
+				};
+			}
 			return {
 				kind: "picture",
 				key: tile.card.path,
@@ -129,12 +157,12 @@ const tileViews = $derived.by((): StripTileView[] =>
 					total: pictures.length,
 				}),
 				preview: previewFor(tile.card.previewUrl),
-				fileType: getFileType(tile.card.contentType, tile.card.name),
+				fileType,
 			};
 		}
 		return {
 			kind: "count",
-			key: `count-${tile.pictureIndex}`,
+			key: `count-${tile.hidden}`,
 			label: $t("toolActivity.filesShowAll", { count: cards.length }),
 			cover: previewFor(tile.cover),
 			hidden: tile.hidden,
@@ -146,10 +174,6 @@ const listLabel = $derived(
 	listOpen
 		? $t("toolActivity.filesHideList")
 		: $t("toolActivity.filesShowList"),
-);
-
-const quietLine = $derived(
-	`${$t("toolActivity.filesQuietLine")} · ${$t("toolActivity.filesCount", { count: cards.length })}`,
 );
 
 /** The viewer's pictures: the call's pictures, at the viewer's size when known. */
@@ -258,10 +282,9 @@ async function closeViewer() {
 {:else}
 	<div class="fs-block" data-testid="files-strip">
 		<div class="fs-head">
-			{#if tileViews.length > 0}
-				<div class="fs-strip">
-					{#each tileViews as tile (tile.key)}
-						{#if tile.kind === "picture"}
+			<div class="fs-strip">
+				{#each tileViews as tile (tile.key)}
+					{#if tile.kind === "picture"}
 							<button
 								type="button"
 								class="fs-tile"
@@ -283,6 +306,20 @@ async function closeViewer() {
 									<FileTypeIcon type={tile.fileType} size={30} />
 								{/if}
 							</button>
+						{:else if tile.kind === "document"}
+							<a
+								class="fs-tile fs-tile-doc"
+								data-testid="files-strip-tile"
+								href={tile.webUrl}
+								target="_blank"
+								rel="noopener noreferrer external"
+								aria-label={tile.label}
+							>
+								<FileTypeIcon type={tile.fileType} size={28} />
+								{#if tile.ext}
+									<span class="fs-tile-ext" aria-hidden="true">{tile.ext}</span>
+								{/if}
+							</a>
 						{:else}
 							<button
 								type="button"
@@ -307,10 +344,7 @@ async function closeViewer() {
 							</button>
 						{/if}
 					{/each}
-				</div>
-			{:else}
-				<span class="fs-quiet">{quietLine}</span>
-			{/if}
+			</div>
 			<button
 				type="button"
 				class="fs-chevron"
@@ -476,7 +510,7 @@ async function closeViewer() {
 	/* The strip and its chevron: exactly as wide as the pictures. */
 	.fs-block {
 		min-width: 0;
-		margin: 2px 0 0;
+		margin: 12px 0 0;
 	}
 
 	.fs-head {
@@ -536,6 +570,20 @@ async function closeViewer() {
 	   +N at about 2:1 over a bright picture (and over the neutral square a
 	   failed cover leaves), while two layers give about 4.6:1 worst case, which
 	   is what small text needs. The dark theme's 55% is darker still. */
+	.fs-tile-doc {
+		flex-direction: column;
+		gap: 3px;
+		cursor: pointer;
+		background: var(--surface-elevated);
+	}
+
+	.fs-tile-ext {
+		font-size: 10px;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--text-muted);
+	}
+
 	.fs-tile-more {
 		position: absolute;
 		inset: 0;
@@ -548,15 +596,6 @@ async function closeViewer() {
 		background:
 			linear-gradient(var(--scrim), var(--scrim)),
 			linear-gradient(var(--scrim), var(--scrim));
-	}
-
-	.fs-quiet {
-		font-size: var(--text-sm);
-		color: var(--text-muted);
-		min-width: 0;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
 	}
 
 	.fs-chevron {
@@ -602,8 +641,8 @@ async function closeViewer() {
 	.fs-list {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
-		margin: 6px 0 0;
+		gap: 4px;
+		margin: 10px 0 0;
 		padding: 0;
 		list-style: none;
 		min-width: 0;

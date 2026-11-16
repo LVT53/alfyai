@@ -1,5 +1,11 @@
 import { readFileSync } from "node:fs";
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ToolCallFileCard } from "$lib/server/services/messages-types";
@@ -36,7 +42,7 @@ function picture(name: string, fileId: number): ToolCallFileCard {
 	};
 }
 
-/** A document: no preview, so never a tile — only a row in the list. */
+/** A document: no preview, so its tile draws its type and opens in Nextcloud. */
 function documentCard(name: string, fileId: number): ToolCallFileCard {
 	return {
 		name,
@@ -266,7 +272,7 @@ describe("FilesStrip", () => {
 		expect(loader.loadImageLightbox).not.toHaveBeenCalled();
 	});
 
-	it("draws the quiet line and no strip when nothing is a picture", async () => {
+	it("draws a tile for a document, with its type, and opens the list too", async () => {
 		render(FilesStrip, {
 			props: {
 				cards: [
@@ -277,16 +283,26 @@ describe("FilesStrip", () => {
 			},
 		});
 
-		expect(
-			screen.getByText("Searched your files · 3 files"),
-		).toBeInTheDocument();
-		expect(pictureTiles()).toHaveLength(0);
+		// Three documents are three tiles now, each a link to its file, and no
+		// quiet line: the strip IS the answer.
+		const tiles = screen.getAllByTestId("files-strip-tile");
+		expect(tiles).toHaveLength(3);
+		expect(tiles[0]).toHaveAccessibleName("Open Report.pdf in Nextcloud");
+		expect(tiles[0]).toHaveAttribute(
+			"href",
+			"https://cloud.example.com/apps/files/?fileid=1",
+		);
+		expect(tiles[0].tagName).toBe("A");
+		expect(screen.queryByText(/Searched your files/)).toBeNull();
 
 		// The same chevron, and the list behind it.
 		const chevron = screen.getByRole("button", { name: "Show the file list" });
 		await fireEvent.click(chevron);
 		expect(screen.getByRole("list")).toBeInTheDocument();
-		expect(screen.getAllByRole("link")).toHaveLength(3);
+		// Three list rows, beside the three tiles: six links in all.
+		expect(within(screen.getByRole("list")).getAllByRole("link")).toHaveLength(
+			3,
+		);
 	});
 
 	it("draws the count tile for the pictures it leaves out, and it opens the list", async () => {
@@ -369,11 +385,11 @@ describe("FilesStrip", () => {
 		const cardName = screen.getByText(long);
 		expect(cardName).toHaveAttribute("title", long);
 		expect(cardName).toHaveTextContent(long);
-		expect(
-			screen.getByRole("link", {
-				name: (accessible) => accessible.includes(long),
-			}),
-		).toBeInTheDocument();
+		// The whole name is the card link's text, and the card keeps its link.
+		expect(cardName.closest("a")).toHaveAttribute(
+			"href",
+			"https://cloud.example.com/apps/files/?fileid=9",
+		);
 		single.unmount();
 
 		render(FilesStrip, {
@@ -382,13 +398,18 @@ describe("FilesStrip", () => {
 		await fireEvent.click(
 			screen.getByRole("button", { name: "Show the file list" }),
 		);
-		const rowName = screen.getByText(long);
+		const list = screen.getByRole("list");
+		const rowName = within(list).getByText(long);
 		expect(rowName).toHaveAttribute("title", long);
 		expect(
-			screen.getByRole("link", {
+			within(list).getByRole("link", {
 				name: (accessible) => accessible.includes(long),
 			}),
 		).toBeInTheDocument();
+		// The tile beside the list carries the whole name too.
+		expect(
+			screen.getAllByTestId("files-strip-tile")[0].getAttribute("aria-label"),
+		).toContain(long);
 	});
 
 	it("gives a document row one link to Nextcloud", async () => {
@@ -400,7 +421,9 @@ describe("FilesStrip", () => {
 		await fireEvent.click(
 			screen.getByRole("button", { name: "Show the file list" }),
 		);
-		const row = screen.getByRole("link", { name: /IMG_1\.jpg/ });
+		const row = within(screen.getByRole("list")).getByRole("link", {
+			name: /IMG_1\.jpg/,
+		});
 
 		expect(row).toHaveAttribute("href", photo.webUrl);
 		expect(row).toHaveAttribute("target", "_blank");
@@ -415,7 +438,9 @@ describe("FilesStrip", () => {
 		expect(row.querySelector("a")).toBeNull();
 
 		// A document with no preview keeps its row and its link, with the glyph.
-		const documentRow = screen.getByRole("link", { name: /Report\.pdf/ });
+		const documentRow = within(screen.getByRole("list")).getByRole("link", {
+			name: /Report\.pdf/,
+		});
 		expect(documentRow).toHaveAttribute(
 			"href",
 			documentCard("Report.pdf", 2).webUrl,
@@ -511,6 +536,14 @@ describe("FilesStrip's stylesheet", () => {
 		expect(rule(source, ".fs-card-picture")).toMatch(/width:\s*56px/);
 		expect(rule(source, ".fs-card-picture")).toMatch(/height:\s*56px/);
 		expect(rule(source, ".fs-row-picture")).toMatch(/width:\s*40px/);
+	});
+
+	it("gives the block the spacing the owner settled on", () => {
+		// 12px from the reply's words to the pictures, 10px down to the list, and
+		// 4px between the list's rows: two rows used to read as one slab.
+		expect(rule(source, ".fs-block")).toMatch(/margin:\s*12px 0 0/);
+		expect(rule(source, ".fs-list")).toMatch(/margin:\s*10px 0 0/);
+		expect(rule(source, ".fs-list")).toMatch(/gap:\s*4px/);
 	});
 
 	it("dims the count tile with the app's one scrim, laid dark enough for small white text", () => {

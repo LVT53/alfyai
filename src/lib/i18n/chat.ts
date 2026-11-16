@@ -1146,12 +1146,10 @@ const chatDict = {
 		// The way from the compact strip's single card and its list rows to the
 		// file itself (FilesStrip.svelte).
 		"toolActivity.filesOpen": "Open in Nextcloud",
-		// The compact strip (FilesStrip.svelte): the quiet line a call of
-		// documents leaves, its count, the name of a picture tile at the viewer,
-		// the count tile's own words, and the chevron's open and closed states.
-		"toolActivity.filesQuietLine": "Searched your files",
-		"toolActivity.filesCount":
-			"{count} {count, plural, one {file} other {files}}",
+		// The compact strip (FilesStrip.svelte): a picture tile's name at the
+		// viewer, a document tile's name at the file, the count tile's own words,
+		// and the chevron's open and closed states.
+		"toolActivity.filesOpenFile": "Open {name} in Nextcloud",
 		"toolActivity.filesShowAll": "Show all {count} files",
 		"toolActivity.filesOpenPicture": "Open {name}, picture {index} of {total}",
 		"toolActivity.filesShowList": "Show the file list",
@@ -2401,10 +2399,8 @@ const chatDict = {
 		"toolActivity.expandActivity": "Mutasd, mi történt",
 		// A kompakt sáv kártyájáról és listasorairól a fájlra magára.
 		"toolActivity.filesOpen": "Megnyitás a Nextcloudban",
-		// A kompakt sáv (FilesStrip.svelte). A magyar számnevek után egyes szám
-		// áll, ezért a fájlszámnak nincs többes alakja.
-		"toolActivity.filesQuietLine": "Keresés a fájljaid között",
-		"toolActivity.filesCount": "{count} fájl",
+		// A kompakt sáv (FilesStrip.svelte).
+		"toolActivity.filesOpenFile": "{name} megnyitása a Nextcloudban",
 		"toolActivity.filesShowAll": "Mind a(z) {count} fájl megjelenítése",
 		"toolActivity.filesOpenPicture":
 			"{name} megnyitása, {index}. kép ({total} közül)",

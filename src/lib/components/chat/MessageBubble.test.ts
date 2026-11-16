@@ -4612,7 +4612,7 @@ describe("MessageBubble", () => {
 			expect(container.textContent).not.toContain("Files 1 action");
 		});
 
-		it("still caps two files calls at six cards, and draws one strip per call", () => {
+		it("merges two files calls into one strip, capped at six files", () => {
 			const first = [1, 2, 3, 4].map((id) => pictureCard(`IMG_${id}.jpg`, id));
 			// The second call found the same first picture again, plus three new ones.
 			const second = [
@@ -4630,20 +4630,25 @@ describe("MessageBubble", () => {
 			const made = container.querySelector(
 				'[data-testid="message-deliverables"]',
 			) as HTMLElement;
-			// One strip per call, in segment order.
+			// ONE strip for the whole reply: a reply that searched twice must not
+			// stack two rows two pixels apart.
 			const strips = made.querySelectorAll(".fs-block");
-			expect(strips).toHaveLength(2);
-			// Six tiles at most across both strips, each picture once: two calls
-			// must not draw the same file twice or grow past the reply's cap.
+			expect(strips).toHaveLength(1);
+			// Six files at most across both calls, each file once: three picture
+			// tiles and the count tile that covers the three it leaves out.
+			const tiles = made.querySelectorAll(".fs-tile");
+			expect(tiles).toHaveLength(4);
+			expect(
+				made.querySelector('[data-testid="files-strip-count"]'),
+			).toHaveTextContent("+3");
 			const pictures = [
 				...made.querySelectorAll<HTMLImageElement>(".fs-tile img"),
 			];
-			expect(pictures).toHaveLength(6);
+			// Three picture tiles plus the count tile's cover.
+			expect(pictures).toHaveLength(4);
 			expect(new Set(pictures.map((img) => img.getAttribute("src"))).size).toBe(
-				6,
+				4,
 			);
-			expect(strips[0].querySelectorAll(".fs-tile")).toHaveLength(4);
-			expect(strips[1].querySelectorAll(".fs-tile")).toHaveLength(2);
 			// The count tile tells the story; there is no reply-level remainder line.
 			expect(
 				container.querySelector('[data-testid="files-remainder"]'),

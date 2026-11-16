@@ -471,25 +471,22 @@ let renderResources = $derived(
 let deliverableSegments = $derived(
 	rawThinkingSegments.filter(isArtifactToolCall),
 );
-// The files a `files` call found are a deliverable too: they are drawn as the
-// compact strip (FilesStrip.svelte) in the same block as the artifact cards,
-// one strip per call, in segment order. A cardless call keeps its ordinary rail
-// row (thinkingSegmentsForDisplay below). The cap is per REPLY, not per call,
-// so the cap is applied here, where the reply's cards are assembled, across its
-// `files` calls in result order: a reply that searches and then lists draws six
-// cards in all, each file once.
-let fileStripCalls = $derived.by(() => {
+// The files a reply found are a deliverable too: they are drawn as ONE compact
+// strip (FilesStrip.svelte) in the same block as the artifact cards. A cardless
+// call keeps its ordinary rail row (thinkingSegmentsForDisplay below). The cap
+// is per REPLY, not per call, so it is applied here, where the reply's cards are
+// assembled, across its `files` calls in result order: a reply that searches and
+// then lists draws six files in all, each file once — and one strip, not one per
+// call, because stacking a strip per call is what a reply that searched twice
+// used to look like.
+let fileStripCards = $derived.by(() => {
 	const segments = rawThinkingSegments.filter(isFileCardsToolCall);
-	const capped = capFileCards(segments.map((segment) => segment.files));
-	return segments.flatMap((segment, index) => {
-		const cards = capped[index]?.cards ?? [];
-		return cards.length > 0
-			? [{ key: segment.callId ?? `files-${index}`, cards }]
-			: [];
-	});
+	return capFileCards(segments.map((segment) => segment.files)).flatMap(
+		(row) => row.cards,
+	);
 });
 let hasDeliverables = $derived(
-	deliverableSegments.length > 0 || fileStripCalls.length > 0,
+	deliverableSegments.length > 0 || fileStripCards.length > 0,
 );
 // One row per call, then what the reply shows of them: one card per item however
 // many calls worked on it, and a failed attempt only when it is what the turn
@@ -1452,11 +1449,9 @@ function sendFollowUp(question: string) {
 						{onImageAction}
 						{onVideoAction}
 					/>
-					<!-- One strip per `files` call that still has a card to draw, in
-					     segment order: the pictures, the count tile and the list. -->
-					{#each fileStripCalls as call (call.key)}
-						<FilesStrip cards={call.cards} />
-					{/each}
+					<!-- One strip for every file the reply found, however many `files`
+					     calls found them: the tiles, the count tile and the list. -->
+					<FilesStrip cards={fileStripCards} />
 				</div>
 			{/if}
 			{#if completionWarningCodes.length > 0}
