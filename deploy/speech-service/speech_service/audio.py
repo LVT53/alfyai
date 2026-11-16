@@ -20,6 +20,10 @@ SAMPLE_RATE = 44100
 # design spike). What is quieter is pause, room tone or a fading tail.
 _FRAME_SECONDS = 0.02
 _SPEECH_FRACTION = 1 / 30
+# A clip whose loudest frame is under this has no speech at all, however it compares with itself:
+# it is the hiss of a model that said nothing, and the rule above would turn it up to speech level.
+_SILENCE_FLOOR_DB = -60.0
+_SILENCE_FLOOR_RMS = 10 ** (_SILENCE_FLOOR_DB / 20)
 
 
 def _hop(sr: int) -> int:
@@ -34,9 +38,11 @@ def _frame_energy(x: np.ndarray, hop: int) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _speech_frames(energy: np.ndarray, sizes: np.ndarray) -> np.ndarray:
-    """Which frames are speech: none, when the clip is silent or empty."""
+    """Which frames are speech: none, when the clip is empty, silent or too quiet to be speech."""
     rms = np.sqrt(energy / sizes)
-    return rms > (rms.max() * _SPEECH_FRACTION if rms.size else 0.0)
+    if not rms.size or rms.max() < _SILENCE_FLOOR_RMS:
+        return np.zeros(rms.shape, dtype=bool)
+    return rms > rms.max() * _SPEECH_FRACTION
 
 
 def match_loudness(
@@ -45,7 +51,8 @@ def match_loudness(
     """`x` with one gain applied: the speech frames' RMS lands on `target_db` (dBFS).
 
     If that would put a peak above `peak_db`, the gain is lowered until the peak is exactly there.
-    A silent clip comes back as it is. The result is a new array.
+    A silent clip, one with nothing louder than -60 dBFS (RMS of a 20 ms frame) included, comes
+    back as it is. The result is a new array.
     """
     energy, sizes = _frame_energy(x, _hop(sr))
     speech = _speech_frames(energy, sizes)
@@ -62,7 +69,8 @@ def match_loudness(
 def trim_silence(x: np.ndarray, sr: int, keep_s: float = 0.05) -> np.ndarray:
     """`x` from `keep_s` before its first speech frame to `keep_s` after its last, kept within `x`.
 
-    A silent clip gives an empty array. The result is a new array.
+    A silent clip, one with nothing louder than -60 dBFS (RMS of a 20 ms frame) included, gives an
+    empty array. The result is a new array.
     """
     hop = _hop(sr)
     energy, sizes = _frame_energy(x, hop)

@@ -10,6 +10,13 @@ from speech_service import audio
 from speech_service.audio import Mp3Encoder, match_loudness, silence, trim_silence
 from tests.helpers import SR, click_at, decode_mp3, decoded_seconds, peak_db, rms_db, tone
 
+
+def noise(level_db: float, seconds: float = 1.0) -> np.ndarray:
+    """Gaussian noise at an RMS of `level_db` dBFS: float32, mono, at SR, the same every time."""
+    samples = np.random.default_rng(0).normal(0.0, 10 ** (level_db / 20), round(seconds * SR))
+    return samples.astype(np.float32)
+
+
 # Loudness matching.
 
 
@@ -89,6 +96,45 @@ def test_loudness_returns_a_new_float32_array():
     assert out.dtype == np.float32
     assert not np.shares_memory(out, x)
     assert np.array_equal(x, before)
+
+
+# What is too quiet to be speech at all: a model that said nothing leaves hiss, and the hiss must
+# not be turned up to the level of speech.
+
+
+def test_a_clip_quieter_than_the_floor_is_silence_to_both():
+    hiss = noise(-70.4)  # the loudest 20 ms of it is about -70 dBFS
+    assert trim_silence(hiss, SR).size == 0
+    out = match_loudness(hiss, SR)
+    assert np.array_equal(out, hiss)
+    assert out is not hiss
+
+
+@pytest.mark.parametrize(
+    ("amplitude", "level_db"),
+    [
+        (0.002, -57.0),  # 3 dB above the floor of -60 dBFS (RMS of the loudest 20 ms)
+        (0.001, -63.0),  # 3 dB below it
+    ],
+)
+def test_the_floor_is_60_dbfs_for_the_loudest_20_ms(amplitude, level_db):
+    x = tone(amplitude)
+    assert rms_db(x) == pytest.approx(level_db, abs=0.2)
+    kept, matched = trim_silence(x, SR), match_loudness(x, SR)
+    if level_db > -60.0:
+        assert kept.size > 0
+        assert rms_db(matched) == pytest.approx(-20.0, abs=0.01)
+    else:
+        assert kept.size == 0
+        assert np.array_equal(matched, x)
+
+
+def test_hiss_around_speech_is_still_cut_and_does_not_count():
+    # The floor is on the loudest frame only: with speech in the clip, the ordinary rule (a
+    # thirtieth of the loudest frame) still decides which frames around it are speech.
+    x = np.concatenate([noise(-80.0), tone(0.05), noise(-80.0)])
+    assert len(trim_silence(x, SR)) == round(1.1 * SR)
+    assert rms_db(match_loudness(x, SR)[SR : 2 * SR]) == pytest.approx(-20.0, abs=0.01)
 
 
 # Trimming and gaps.
