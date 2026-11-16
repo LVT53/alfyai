@@ -2,6 +2,7 @@
 
 import errno
 import os
+import subprocess
 import tempfile
 import threading
 import time
@@ -300,14 +301,25 @@ def test_native_aligner_failures_raise_runtime_error_and_leave_nothing(
 
 def test_native_aligner_gives_up_on_a_cli_that_hangs(tmp_path, scratch, monkeypatch):
     monkeypatch.setattr(aligner_module, "_CLI_TIMEOUT_SECONDS", 0.5)
+    # The id of the process is noted when it is spawned, and not read from what the fake CLI logs:
+    # a freshly written launcher takes the machine 150 ms or more to run for the first time, and a
+    # CLI killed before it had logged would leave nothing to read.
+    spawned: list[int] = []
+
+    class NotingPopen(subprocess.Popen):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            spawned.append(self.pid)
+
+    monkeypatch.setattr(subprocess, "Popen", NotingPopen)
     cli = make_fake_cli(tmp_path, "hang")
     with pytest.raises(RuntimeError, match="did not finish"):
         NativeFuseAligner(cli.path, MODEL, 2).align(sine(220, 16000), WORDS)
     assert list(scratch.iterdir()) == []
     # The stuck process is killed, not left holding its memory.
-    [call] = cli.calls()
+    assert len(spawned) == 1
     with pytest.raises(ProcessLookupError):
-        os.kill(call["pid"], 0)
+        os.kill(spawned[0], 0)
 
 
 def test_native_aligner_without_a_cli_raises_runtime_error(tmp_path, scratch):
