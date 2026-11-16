@@ -18,17 +18,49 @@ import zyphra_textnorm
 Language = Literal["en", "hu"]
 _LANGUAGES = get_args(Language)
 
-# A word's match key: lowercase, with only word characters and "%" (the design spike's key()).
-_NOT_IN_KEY = re.compile(r"[^\w%]")
+# A word's match key: lowercase, with only word characters and "%" (the design spike's key()),
+# except that an underscore is none: "___" is a blank to fill in, not a word to say.
+_NOT_IN_KEY = re.compile(r"[^\w%]|_")
 _HAS_DIGIT = re.compile(r"\d")
-# "kettő" is "két" inside a number word ("kettőezer-huszonhat" is "kétezer-huszonhat")...
-_KETTO_IN_NUMBER = re.compile(r"kettő(?=ezer|száz|millió|milliárd)")
-# ...and at the end of the number that counts the next word ("kettő tojás" is "két tojás"),
-# whatever punctuation clings to the word.
-_KETTO_AT_END = re.compile(r"kettő(?=\W*$)")
-# A number written with one of these last is not counting the next word: "2022. december" is a
-# year, "van 2, abból 3" is a list.
-_CLAUSE_END = ".,;:!?"
+_ONLY_DIGITS = re.compile(r"\d+")
+# "kettő" is "két" inside a number word, however it is inflected: before ezer, ezr- (kettőezres,
+# kettőezredik), száz and milli- (millió, milliárd, kettőmilliomodik).
+_KETTO_IN_NUMBER = re.compile(r"kettő(?=ezer|ezr|száz|milli)")
+# ...and at the end of a number that counts what follows ("kettő tojás" is "két tojás"); a word
+# with punctuation after "kettő" ("kettő,") ends its clause and stays.
+_KETTO_AT_END = re.compile(r"kettő$")
+# Four-digit numbers that read as a year ("2022 óta"), not as a count.
+_LIKELY_YEARS = range(1900, 2100)
+# Words a number before them does not count: postpositions, conjunctions, operators, copulas.
+_NOT_COUNTED = frozenset(
+    {
+        # "2 után", "2 körül", "2 között"
+        "után", "előtt", "óta", "körül", "felé", "között", "közül", "alatt", "fölött", "felett",
+        "mellett", "múlva", "helyett", "nélkül", "szerint", "miatt", "által", "ellen", "iránt",
+        "mögött",
+        # "2 és 3", "2 plusz 2": the normalizer reads "*" and "×" as "szorozva"; "x" is as typed
+        "és", "vagy", "meg", "illetve", "plusz", "mínusz", "szor", "szorozva", "x", "osztva",
+        "egyenlő",
+        # "a válasz 2 lett"
+        "van", "vannak", "volt", "voltak", "lesz", "lesznek", "lett", "lettek", "marad", "maradt",
+        "kell",
+    }
+)  # fmt: skip
+# Where a "kettő" inside one token counts nothing: the decimal point, the dot of 1.2.3, a month.
+_NOT_COUNTED_IN_A_TOKEN = frozenset(
+    {
+        "egész", "pont", "január", "február", "március", "április", "május", "június", "július",
+        "augusztus", "szeptember", "október", "november", "december",
+    }
+)  # fmt: skip
+# What number words begin with: a "kettő" that a number word follows is part of a longer number.
+_NUMBER_WORDS = (
+    "egy", "kettő", "két", "három", "négy", "öt", "hat", "hét", "nyolc", "kilenc", "tíz", "tizen",
+    "húsz", "huszon", "harminc", "negyven", "ötven", "hatvan", "hetven", "nyolcvan", "kilencven",
+    "száz", "ezer", "millió", "milliárd", "nulla",
+)  # fmt: skip
+# Words that begin like a number word and are none: "2%" is "kettő százalék", not "kettő száz...".
+_NOT_NUMBER_WORDS = ("százalék",)
 
 
 @dataclass
@@ -41,7 +73,7 @@ class Spoken:
 
     `token_spans[i]` is the half-open range `(start, end)` of `words` that written token `i`
     became, or `None` when it speaks as nothing. Tokens that became words together ("12", "990"
-    and "Ft." became "tizenkettőezer-kilencszázkilencven forint.") all have the whole range. A
+    and "Ft." became "tizenkétezer-kilencszázkilencven forint.") all have the whole range. A
     word the normalizer added that no token owns stays in `words` and is in no span.
     """
 
@@ -105,7 +137,11 @@ def _fix_hungarian(
     """`words` with "kettő" made "két" where Hungarian says so; no word is added or removed.
 
     Only the words of a written token with a digit are touched (a "kettő" the writer typed stays),
-    inside a number word and at the end of a number written straight before a word.
+    and "két" is only said when that is sure; otherwise the normalizer's "kettő" stays:
+    - inside a number word: kettőezer-huszonhat, kettőezres, kettőmilliomodik;
+    - at the end of a plain number (digits only, no year) that counts the next spoken word, a
+      lowercase word that is no postposition, conjunction, operator or copula: két tojás;
+    - inside one token that reads as several words, before the word it counts: 2% is két százalék.
     """
     fixed = list(words)
     keys = [_key(word) for word in words]
@@ -115,33 +151,57 @@ def _fix_hungarian(
             continue
         for j in range(*span):
             fixed[j] = _KETTO_IN_NUMBER.sub("két", fixed[j])
-        if _stands_before_a_word(tokens, i):
-            last = _last_word_of(tokens, i, keys)
-            # The match and the sentence's prefix find the token's words independently: if they
-            # disagree, leave the word be.
-            if last is not None and span[0] <= last < span[1]:
-                fixed[last] = _KETTO_AT_END.sub("két", fixed[last])
+        end = _words_through(tokens, i, keys)
+        # The match and the sentence's prefix find the token's words independently. If they do not
+        # agree, nothing says which words are the token's: leave them as the normalizer said.
+        if end is None or not span[0] < end <= span[1]:
+            continue
+        if _is_counting_number(token) and _is_counted(words, end):
+            fixed[end - 1] = _KETTO_AT_END.sub("két", fixed[end - 1])
+        # The token's own words are start..end; the last of them has no own word after it.
+        start = _words_through(tokens, i - 1, keys)
+        if start is not None and span[0] <= start:
+            for j in range(start, end - 1):
+                if _is_counted_in_the_token(words[j + 1]):
+                    fixed[j] = _KETTO_AT_END.sub("két", fixed[j])
     return fixed
 
 
-def _stands_before_a_word(tokens: list[str], i: int) -> bool:
-    """Whether token `i` is written straight before a word: "2 tojás", but not "2." or "2,"."""
-    return (
-        i + 1 < len(tokens)
-        and tokens[i + 1][:1].isalpha()
-        and tokens[i][-1] not in _CLAUSE_END
-    )
+def _is_counting_number(token: str) -> bool:
+    """Whether the written token is a plain number: digits only, and not a likely year."""
+    if not _ONLY_DIGITS.fullmatch(token):
+        return False
+    return not (len(token) == 4 and int(token) in _LIKELY_YEARS)
 
 
-def _last_word_of(tokens: list[str], i: int, keys: list[str]) -> int | None:
-    """The index in the sentence's words of the last word token `i` became, or None if unsure.
+def _can_be_counted(word: str) -> bool:
+    """Whether `word` is a lowercase word that a number before it can count."""
+    return word[:1].islower() and _key(word) not in _NOT_COUNTED
 
-    The token's span cannot say: tokens that became words together share their whole range ("2"
-    and "kg" both have "kettő kilogramm"), so the span's last word may belong to a later token.
-    The sentence up to and including the token can: its words end where the token's do. They count
-    only if they are also the words the whole sentence starts with, because a number can read
-    differently once what follows it is cut off ("2022." before a month is a year, at the end of
-    the text it is the 2022nd).
+
+def _is_counted(words: list[str], end: int) -> bool:
+    """Whether the spoken word just after a number (at index `end`) is one that it counts."""
+    return end < len(words) and _can_be_counted(words[end])
+
+
+def _is_counted_in_the_token(word: str) -> bool:
+    """Whether `word`, after a "kettő" in the same written token, is one that the "kettő" counts:
+    not a decimal point, a dot, a month or another number word.
+    """
+    key = _key(word)
+    is_number_word = key.startswith(_NUMBER_WORDS) and not key.startswith(_NOT_NUMBER_WORDS)
+    return _can_be_counted(word) and key not in _NOT_COUNTED_IN_A_TOKEN and not is_number_word
+
+
+def _words_through(tokens: list[str], i: int, keys: list[str]) -> int | None:
+    """How many of the sentence's words tokens `0..i` became, or None if that cannot be told.
+
+    A token's span cannot say where its own words end: tokens that became words together share
+    their whole range ("2" and "kg" both have "kettő kilogramm"). The sentence up to and including
+    the token can: its words end where the token's do. They count only if they are also the words
+    the whole sentence starts with, because a number can read differently once what follows it is
+    cut off ("2022." before a month is a year, at the end of the text it is the 2022nd). `i = -1`
+    is the empty start of the sentence: no word.
     """
     prefix = [_key(word) for word in _speak(" ".join(tokens[: i + 1]), "hu")]
-    return len(prefix) - 1 if prefix and prefix == keys[: len(prefix)] else None
+    return len(prefix) if prefix == keys[: len(prefix)] else None

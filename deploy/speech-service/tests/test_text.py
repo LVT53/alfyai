@@ -67,12 +67,161 @@ def test_a_written_kettő_beside_a_number_is_kept():
     assert spoken("A kettő és a 2 tojás.") == "A kettő és a két tojás."
 
 
+# Inside a number word "két" is the only way, however the word is inflected or made ordinal.
+
+
+@pytest.mark.parametrize(
+    "text, said",
+    [
+        ("A 2000-es években.", "A kétezres években."),
+        ("2000-et fizettem.", "kétezret fizettem."),
+        ("A 2000. évben.", "A kétezredik évben."),
+        ("A 2000000. látogató volt.", "A kétmilliomodik látogató volt."),
+    ],
+)
+def test_inflected_and_ordinal_number_words_say_két(text, said):
+    assert "kettőezr" not in spoken(text) and "kettőmill" not in spoken(text)
+    assert spoken(text) == said
+
+
+# A number says "két" only when it counts the word after it, and only when that is sure.
+
+
+@pytest.mark.parametrize(
+    "text, said",
+    [
+        ("12 után jövök.", "tizenkettő után jövök."),
+        ("Délután 2 körül jövök.", "Délután kettő körül jövök."),
+        ("Csak 2 közül választhatsz.", "Csak kettő közül választhatsz."),
+        ("A válasz 2 lett.", "A válasz kettő lett."),
+        ("Ebből 2 van raktáron.", "Ebből kettő van raktáron."),
+        ("2 és 3 között.", "kettő és három között."),
+        # Nothing follows the number, or only a stray comma, which clings to "kettő" and ends it.
+        ("Ebből van 2", "Ebből van kettő"),
+        ("Ebből van 2 , abból sok.", "Ebből van kettő, abból sok."),
+        # A likely year is not a count, but the inside of it is still fixed.
+        ("2022 óta itt élek.", "kétezer-huszonkettő óta itt élek."),
+        ("2012 végén költöztünk.", "kétezer-tizenkettő végén költöztünk."),
+        ("2022 januárjában.", "kétezer-huszonkettő januárjában."),
+        # The edges of the year range: 1902 and 2092 are in it (1900 and 2099 end in no "kettő").
+        ("Vettem 1902 almát.", "Vettem ezerkilencszázkettő almát."),
+        ("Vettem 2092 almát.", "Vettem kétezer-kilencvenkettő almát."),
+        # The next spoken word is no lowercase word; the written token is no plain number.
+        ("Az iPhone 12 Pro drága.", "Az iPhone tizenkettő Pro drága."),
+        ("A CO2 kibocsátás nő.", "A C O kettő kibocsátás nő."),
+        ("A2 szintű nyelvvizsga.", "A kettő szintű nyelvvizsga."),
+    ],
+)
+def test_a_number_that_counts_nothing_stays_kettő(text, said):
+    assert spoken(text) == said
+
+
+@pytest.mark.parametrize(
+    "text, said",
+    [
+        ("A jegy ára 2 Ft.", "A jegy ára két forint."),
+        ("22 alma kell.", "huszonkét alma kell."),
+        ("A 102 éves néni 2 macskája.", "A százkét éves néni két macskája."),
+        ("Az ára 12 002 Ft.", "Az ára tizenkétezer-két forint."),
+        ("2 hét múlva jövök.", "két hét múlva jövök."),
+        ("Ez 2 % kedvezmény.", "Ez két százalék kedvezmény."),
+        # Just outside the year range: 1892 and 2102 are counts.
+        ("Vettem 1892 almát.", "Vettem ezernyolcszázkilencvenkét almát."),
+        ("Vettem 2102 almát.", "Vettem kétezer-százkét almát."),
+    ],
+)
+def test_a_number_that_counts_the_next_word_says_két(text, said):
+    assert spoken(text) == said
+
+
+# One written token read as several words ("2%" is "kettő százalék") counts its own next word.
+
+
+@pytest.mark.parametrize(
+    "text, said",
+    [
+        ("Ez 2% kedvezmény.", "Ez két százalék kedvezmény."),
+        ("Ez 12% kedvezmény.", "Ez tizenkét százalék kedvezmény."),
+        ("Ez 2-féle sajt.", "Ez két féle sajt."),
+        ("Ez 2-szobás lakás.", "Ez két szobás lakás."),
+        ("A találkozó 2:30-kor lesz.", "A találkozó két óra harminc perckor lesz."),
+        ("Pontosan 12:02 van.", "Pontosan tizenkét óra két perc van."),
+        ("A 2/3 rész kész.", "A két harmad rész kész."),
+        # "Kb." shares its run with "2%": the token's own words are still found.
+        ("Kb. 2% emelkedés.", "körülbelül két százalék emelkedés."),
+    ],
+)
+def test_a_number_read_as_several_words_says_két_before_its_own_next_word(text, said):
+    assert spoken(text) == said
+
+
+@pytest.mark.parametrize(
+    "text, said",
+    [
+        # "egész" is the decimal point.
+        ("Ez 2,5% kedvezmény.", "Ez kettő egész öt tized százalék kedvezmény."),
+        # A score: the colon clings to "kettő", which ends its clause.
+        ("Az eredmény 2:1 lett.", "Az eredmény kettő: egy lett."),
+        # A number word follows: "·" is not spoken, so "kettő" meets "három"; "egyed" begins "egy".
+        ("Ez 2·3 volt.", "Ez kettő három volt."),
+        ("Ez 2/1 volt.", "Ez kettő egyed volt."),
+        # The normalizer capitalizes "Celsius-fok": no lowercase word follows.
+        ("Ez 2°C hideg.", "Ez kettő Celsius-fok hideg."),
+    ],
+)
+def test_a_decimal_or_a_capitalized_word_in_one_token_keeps_kettő(text, said):
+    assert spoken(text) == said
+
+
+@pytest.mark.parametrize(
+    "text, said",
+    [
+        # An operation, as one token or as several: the normalizer says "szorozva" for * and ×.
+        ("Ez 2+2=4 igaz.", "Ez kettő plusz kettő egyenlő négy igaz."),
+        ("Ez 2*2=4 igaz.", "Ez kettő szorozva kettő egyenlő négy igaz."),
+        ("Ez 2 * 2 = 4 igaz.", "Ez kettő szorozva kettő egyenlő négy igaz."),
+        ("Ez 2 x 2 = 4 igaz.", "Ez kettő x kettő egyenlő négy igaz."),
+        ("Ez 2 szor 3 igaz.", "Ez kettő szor három igaz."),
+        # A version or an address: every "kettő" is followed by "pont".
+        ("A 12.2.3 verzió.", "A tizenkettő pont kettő pont három verzió."),
+        (
+            "Az IP 192.168.2.2 cím.",
+            "Az IP százkilencvenkettő pont százhatvannyolc pont kettő pont kettő cím.",
+        ),
+        # A date in one token: the year is followed by the month, and only its inside changes.
+        ("Ekkor 2022-02-02 volt.", "Ekkor kétezer-huszonkettő február másodika volt."),
+    ],
+)
+def test_an_operation_a_version_or_a_date_in_one_token_counts_nothing(text, said):
+    assert spoken(text) == said
+
+
+# When the match and the sentence's own prefix do not agree on the token's words, nothing changes.
+
+
 def test_a_number_the_normalizer_reads_two_ways_is_left_as_spoken(monkeypatch):
     # With the rest of the sentence cut off, "2" is read as "kettedik": the normalizer disagrees
     # with itself about where "2" ends, so "kettő" stays.
     said = {"A 2 tojás": "A kettő tojás", "A 2": "A kettedik"}
     monkeypatch.setattr(zyphra_textnorm, "normalize", lambda text, language: said[text])
     assert normalize(["A", "2", "tojás"], "hu").words == ["A", "kettő", "tojás"]
+
+
+def test_a_prefix_that_reaches_past_the_match_leaves_the_words_alone(monkeypatch):
+    # The match puts "2" on word 1; the sentence up to "2" claims words 0 to 4. Not even the
+    # unowned "kettő" there (word 4) may change.
+    said = {"A 2 alma B tojás": "A kettő alma B kettő tojás", "A 2": "A kettő alma B kettő"}
+    monkeypatch.setattr(zyphra_textnorm, "normalize", lambda text, language: said.get(text, text))
+    sp = normalize(["A", "2", "alma", "B", "tojás"], "hu")
+    assert sp.words == ["A", "kettő", "alma", "B", "kettő", "tojás"]
+
+
+def test_a_prefix_that_starts_before_the_match_leaves_the_words_alone(monkeypatch):
+    # The match puts "2%" on words 1 and 2; the sentence says "A" is nothing, so "2%" starts at 0.
+    said = {"A 2% x": "A kettő százalék x", "A 2%": "A kettő százalék", "A": ""}
+    monkeypatch.setattr(zyphra_textnorm, "normalize", lambda text, language: said.get(text, text))
+    sp = normalize(["A", "2%", "x"], "hu")
+    assert sp.words == ["A", "kettő", "százalék", "x"]
 
 
 # Which written token became which spoken words.
@@ -102,6 +251,12 @@ def test_a_symbol_inside_an_unmatched_run_gets_no_span():
     assert sp.token_spans[3] == sp.token_spans[5] == sp.token_spans[6]
 
 
+def test_an_underscore_run_is_not_spoken():
+    sp = normalize("Töltsd ki: ___ a válasz.".split(), "hu")
+    assert sp.words == ["Töltsd", "ki:", "a", "válasz."]
+    assert sp.token_spans == [(0, 1), (1, 2), None, (2, 3), (3, 4)]
+
+
 def test_an_unmatched_token_gets_null_and_an_added_word_has_no_owner(monkeypatch):
     monkeypatch.setattr(zyphra_textnorm, "normalize", lambda text, language: "a b extra c")
     sp = normalize(["a", "gone", "b", "c"], "en")
@@ -118,6 +273,9 @@ def test_an_unmatched_token_gets_null_and_an_added_word_has_no_owner(monkeypatch
         ("hu", "Ez 2 kg és 2,5 l."),
         ("hu", "Kb. 12000 fő és 2 millió Ft."),
         ("hu", "Az ára 12 002 Ft."),
+        ("hu", "Kb. 2% emelkedés."),
+        ("hu", "A találkozó 2:30-kor lesz."),
+        ("hu", "A 2000. évben nyert."),
         ("en", "It needs 2 eggs, 250 grams and 1.5 dl on December 3, 2026 at 4 p.m."),
     ],
 )
