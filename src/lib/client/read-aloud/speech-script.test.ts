@@ -189,6 +189,24 @@ describe("buildSpeechScript", () => {
 		]);
 	});
 
+	it("drops HTML entities the chat shows as written", () => {
+		const script = build(
+			reply(
+				"<p>Salt &amp;amp; pepper, then &amp;lt;div&amp;gt; and <code>a &amp;amp; b</code> &amp;#169; done.</p>",
+			),
+		);
+		expect(tokensOf(script)).toEqual([
+			"Salt",
+			"pepper,",
+			"then",
+			"div",
+			"and",
+			"a",
+			"b",
+			"done.",
+		]);
+	});
+
 	it("reads a link's text from its chip, and a bare address's chip by its site name", () => {
 		const script = build(
 			reply(

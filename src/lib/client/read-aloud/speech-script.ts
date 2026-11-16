@@ -107,6 +107,11 @@ const EMOJI = /\p{Extended_Pictographic}|[\u{1F1E6}-\u{1F1FF}]|\u200D|\uFE0F/gu;
 const TEX_DOLLARS = /\$\$[^$]+?\$\$|\$[^$\n]+?\$/gu;
 const TEX_SPECIAL = /[\\^_{}=]/u;
 const TEX_BRACKETS = /\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]/gu;
+/**
+ * An HTML entity the chat shows as written (`&amp;`, `&#169;`: it does for some replies): markup,
+ * never said, and decoded away by the containment check, so its letters must not be sent.
+ */
+const ENTITY = /&(?:[a-z][a-z0-9]{1,31}|#\d{1,7}|#x[0-9a-f]{1,6});/giu;
 /** Citation and footnote marks: `[1]`, `[2, 3]`, `[4–6]`, `[^1]`, `[^note]`. */
 const CITATION = /\[(?:\^[^\]\s]+|\d+(?:\s*[,–-]\s*\d+)*)\]/gu;
 
@@ -386,8 +391,10 @@ function spokenView(paragraph: Paragraph): string {
 			if (paragraph.atoms[i]?.tagName === "CODE") return true;
 		return false;
 	};
-	for (const match of text.matchAll(EMOJI))
-		blank(match.index, match.index + match[0].length);
+	for (const pattern of [EMOJI, ENTITY]) {
+		for (const match of text.matchAll(pattern))
+			blank(match.index, match.index + match[0].length);
+	}
 	if (paragraph.code === null) {
 		for (const match of text.matchAll(TEX_DOLLARS)) {
 			if (
