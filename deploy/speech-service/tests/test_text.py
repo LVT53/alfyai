@@ -135,6 +135,8 @@ def test_a_number_that_counts_nothing_stays_kettő(text, said):
         # A number written before a number is a list.
         ("Nyerőszámok: 2 7 12 23.", "Nyerőszámok: kettő hét tizenkettő huszonhárom."),
         ("Számolj: 1 2 3.", "Számolj: egy kettő három."),
+        # ...also when the second number has a symbol in front of it: "$5" is a number, not a word.
+        ("Ez 2 $5 értékű.", "Ez kettő öt dollár értékű."),
     ],
 )
 def test_a_number_before_a_symbol_or_another_number_stays_kettő(text, said):
