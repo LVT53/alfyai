@@ -29,7 +29,8 @@ an alignment, cannot be interrupted and finishes by itself, its result dropped):
 
 Nothing a sentence's audio was made of is kept once it has been written and aligned, so a reply of
 any length runs in bounded memory. Logs carry the session id, counts, timings and the type of an
-error, never reply text.
+error, never reply text. A broken or stuck aligner is one warning for the session, and the line
+that says it ended counts the sentences that went without word times.
 """
 
 from __future__ import annotations
@@ -168,6 +169,10 @@ class ReadingSession:
         # A paragraph opened at a sentence that said nothing, and no sentence read since: the gap
         # before the next sentence read is the paragraph's.
         self._paragraph_pending = False
+        # Sentences that went without word times because of the aligner (it failed, was too slow, or
+        # was still stuck on an earlier job). The first is warned about; the end of the session
+        # says how many there were.
+        self._without_word_times = 0
 
     @property
     def ended(self) -> bool:
@@ -337,12 +342,7 @@ class ReadingSession:
             # A job this session gave up on is still in the aligner's thread, running or waiting
             # for its turn behind another session's. Queuing more behind it would only make this
             # sentence wait its few seconds too, and hold its audio until the thread comes to it.
-            logger.warning(
-                "session %s: no word times for sentence %d: the aligner is still busy with an "
-                "earlier one",
-                self.id,
-                self._current,
-            )
+            self._no_word_times(self._current, "the aligner is still busy with an earlier one")
             self._emit("words", {"id": sentence.id, "times": [None] * len(sentence.tokens)})
             return
         self._aligning = asyncio.create_task(
@@ -380,11 +380,8 @@ class ReadingSession:
             else:
                 # Nothing more is waited for. The thread keeps the job (it cannot be interrupted),
                 # and until it is through with it nothing is queued behind it.
-                logger.warning(
-                    "session %s: no word times for sentence %d: the aligner took more than %g s",
-                    self.id,
-                    index,
-                    _ALIGNMENT_PATIENCE_SECONDS,
+                self._no_word_times(
+                    index, f"the aligner took more than {_ALIGNMENT_PATIENCE_SECONDS:g} s"
                 )
                 job.drop()
                 self._stuck = future
@@ -395,9 +392,7 @@ class ReadingSession:
             raise
         except Exception as error:
             # The reader then gets the sentence tint without the word mark, and no error.
-            logger.warning(
-                "session %s: no word times for sentence %d: %s", self.id, index, describe(error)
-            )
+            self._no_word_times(index, describe(error))
             times = [None] * len(sentence.tokens)
         self._emit("words", {"id": sentence.id, "times": times})
 
@@ -406,6 +401,21 @@ class ReadingSession:
         if self._stuck is not None and self._stuck.done():
             self._stuck = None
         return self._stuck is not None
+
+    def _no_word_times(self, index: int, why: str) -> None:
+        """Note that sentence `index` goes without word times because of the aligner. The first of a
+        session is warned about, with its reason; the others only add to the count that the end of
+        the session logs: a long reading on a broken aligner would write a line for each sentence
+        otherwise."""
+        self._without_word_times += 1
+        if self._without_word_times == 1:
+            logger.warning(
+                "session %s: no word times for sentence %d: %s (the rest are counted when the "
+                "session ends)",
+                self.id,
+                index,
+                why,
+            )
 
     async def _flush_alignment(self) -> None:
         """Wait until the `words` of the sentence written last are out: `_align` sees to it that
@@ -531,12 +541,13 @@ class ReadingSession:
         self._ended = True
         self._disarm_idle_clock()
         logger.info(
-            "session %s: ended (%s), %d of %d sentences announced in %.1f s",
+            "session %s: ended (%s), %d of %d sentences announced in %.1f s, %d without word times",
             self.id,
             reason,
             self._announced,
             len(self._sentences),
             time.monotonic() - self._began,
+            self._without_word_times,
         )
 
 

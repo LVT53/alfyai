@@ -25,6 +25,7 @@ import pytest
 import soundfile as sf
 
 from speech_service import session as session_module
+from speech_service.aligner import NoAligner
 from speech_service.audio import Mp3Encoder
 from speech_service.config import Settings
 from speech_service.models import Sentence, Voice
@@ -1297,6 +1298,89 @@ async def test_no_reply_text_is_logged(new_session, caplog, monkeypatch, scenari
     assert any("test-session" in line for line in lines)  # it logs, and says whose session it is
     for line in lines:
         assert "Zebrafish" not in line and "Quokka" not in line, line
+
+
+# One warning about word times for a session, and a count of the rest. A reading of 2000 sentences
+# on a broken aligner would write 2000 lines otherwise.
+
+
+def warnings_of(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """What the session logged at WARNING or above."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "speech_service.session" and record.levelno >= logging.WARNING
+    ]
+
+
+def ending_of(caplog: pytest.LogCaptureFixture) -> str:
+    """The line a session logs when it ends."""
+    [line] = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "speech_service.session" and "ended (" in record.getMessage()
+    ]
+    return line
+
+
+async def test_a_broken_aligner_is_one_warning_a_session_and_the_rest_are_counted(
+    new_session, caplog
+):
+    caplog.set_level(logging.DEBUG, logger="speech_service")
+    session, _ = new_session(make_sentences(6), aligner=FakeAligner(fail=True), prefetch=6)
+    events, _ = await play(session)
+    assert [data["times"] for data in of(events, "words")] == [[None, None]] * 6
+    [warning] = warnings_of(caplog)  # not six
+    assert "session test-session" in warning and "no word times for sentence 0" in warning
+    assert ending_of(caplog).endswith(", 6 without word times")
+
+
+async def test_a_stuck_aligner_is_one_warning_a_session_too(new_session, impatient, caplog):
+    caplog.set_level(logging.DEBUG, logger="speech_service")
+    aligner = _StuckOnTheFirst()
+    session, _ = new_session(make_sentences(6), aligner=aligner, prefetch=6)
+    try:
+        events, _ = await play(session, timeout=5)  # the first sentence waits its few seconds
+    finally:
+        aligner.release.set()
+    await aligner_thread_is_free(impatient)
+    assert of(events, "words") == [{"id": f"s{i}", "times": [None, None]} for i in range(6)]
+    [warning] = warnings_of(caplog)  # the one that took too long; the five behind it are counted
+    assert "no word times for sentence 0" in warning and "took more than 0.3 s" in warning
+    assert ending_of(caplog).endswith(", 6 without word times")
+
+
+async def test_each_session_warns_once_for_itself(new_session, caplog):
+    caplog.set_level(logging.DEBUG, logger="speech_service")
+    aligner, zonos = FakeAligner(fail=True), fake_zonos(concurrency=2)
+    first, _ = new_session(
+        make_sentences(3), zonos=zonos, aligner=aligner, session_id="a", prefetch=3
+    )
+    second, _ = new_session(
+        make_sentences(3), zonos=zonos, aligner=aligner, session_id="b", prefetch=3
+    )
+    await asyncio.gather(play(first), play(second))
+    warnings = sorted(warnings_of(caplog))
+    assert len(warnings) == 2
+    assert "session a:" in warnings[0] and "session b:" in warnings[1]
+
+
+async def test_a_session_whose_words_were_all_timed_has_nothing_to_count(new_session, caplog):
+    caplog.set_level(logging.DEBUG, logger="speech_service")
+    session, _ = new_session(make_sentences(3))
+    await play(session)
+    assert warnings_of(caplog) == []
+    assert ending_of(caplog).endswith(", 0 without word times")
+
+
+async def test_no_word_times_for_no_fault_of_the_aligner_is_not_counted(new_session, caplog):
+    # No aligner at all, and a sentence that says nothing: null times, and nothing broken.
+    caplog.set_level(logging.DEBUG, logger="speech_service")
+    session, _ = new_session(sentences_of("asa"), aligner=NoAligner())
+    events, _ = await play(session)
+    assert all(None in data["times"] for data in of(events, "words"))
+    assert warnings_of(caplog) == []
+    assert ending_of(caplog).endswith(", 0 without word times")
 
 
 # What a session may be made of.
