@@ -78,6 +78,8 @@ import { getClipboardText } from "$lib/shared/reply-text";
 import AskQuestionCard from "./AskQuestionCard.svelte";
 import FilesStrip from "./FilesStrip.svelte";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
+import ReadAloudMarks from "$lib/components/read-aloud/ReadAloudMarks.svelte";
+import { readAloudAvailable } from "$lib/stores/read-aloud";
 import ThinkingBlock from "./ThinkingBlock.svelte";
 import ToolActivityList from "./ToolActivityList.svelte";
 import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
@@ -294,6 +296,9 @@ let {
 } = $props();
 
 let copied = $state(false);
+/** The prose the read-aloud marks are drawn in, and whether they are: it is isolated only then. */
+let proseContainer = $state<HTMLElement | null>(null);
+let readAloudMarked = $state(false);
 let copyTimeout: ReturnType<typeof setTimeout> | undefined;
 let showTimestampTooltip = $state(false);
 let showForkDetails = $state(false);
@@ -1419,7 +1424,11 @@ function sendFollowUp(question: string) {
 				{/if}
 			</div>
 		{:else}
-			<div class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.6]">
+			<div
+				class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.6]"
+				bind:this={proseContainer}
+				data-read-aloud-marked={readAloudMarked ? "" : undefined}
+			>
 			<!-- An Atlas turn is no longer a dead end: the v2 pipeline posts the
 			     report's executive summary as the assistant message, so it renders
 			     here like any other answer (the row below carries the document). -->
@@ -1430,6 +1439,13 @@ function sendFollowUp(question: string) {
 				compactExternalLinks
 				toolResults={renderResources}
 			/>
+			{#if $readAloudAvailable}
+				<ReadAloudMarks
+					replyLastId={message.id}
+					container={proseContainer}
+					onMarkedChange={(marked) => (readAloudMarked = marked)}
+				/>
+			{/if}
 			</div>
 			{#if hasDeliverables}
 				<!-- What the turn made, after what it said: the words above never move
@@ -1906,6 +1922,14 @@ function sendFollowUp(question: string) {
 
 <style lang="postcss">
 	/* Override Tailwind prose base font size to match reduced chat text size */
+	/* Read aloud's marks are an overlay behind the text (z-index: -1): the prose becomes its own
+	   stacking context only while it is marked, so they paint behind the words, inside the message,
+	   and never over the composer layer. */
+	.prose-container[data-read-aloud-marked] {
+		position: relative;
+		isolation: isolate;
+	}
+
 	.prose-container {
 		min-width: 0;
 		width: 100%;
