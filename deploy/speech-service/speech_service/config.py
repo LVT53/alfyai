@@ -61,6 +61,12 @@ class Settings:
             raise ValueError(
                 f"SPEECH_ALIGNER must be one of {', '.join(_ALIGNERS)}, got {self.aligner!r}"
             )
+        # A negative prefetch parks every session at its gate before the first sentence, and an idle
+        # time of nothing ends every session as it starts.
+        if self.prefetch < 0:
+            raise ValueError(f"SPEECH_PREFETCH must be 0 or more, got {self.prefetch}")
+        if not self.idle_seconds > 0:  # written this way so that nan is refused too
+            raise ValueError(f"SPEECH_IDLE_SECONDS must be more than 0, got {self.idle_seconds}")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> Settings:
