@@ -81,6 +81,10 @@ const AUDITED_PREFIXES = [
 	// naming a project to the user, and a key that landed in EN and not in HU
 	// would show a Hungarian reader the raw key.
 	"projects.",
+	// Read aloud: the speaker, its notes, the player, the scrubber and Read
+	// from here. Its own namespace, so every one of its labels is watched: the
+	// player shows no text, and these strings are all that names its controls.
+	"readAloud.",
 	"skillsPicker.",
 	"connections.writeConfirm.",
 	"linkedSources.",

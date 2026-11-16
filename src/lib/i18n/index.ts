@@ -9,6 +9,7 @@ import instructionsDict from "./instructions";
 import knowledgeDict from "./knowledge";
 import legalDict from "./legal";
 import projectsDict from "./projects";
+import readAloudDict from "./read-aloud";
 import settingsDict from "./settings";
 import skillsDict from "./skills";
 
@@ -54,6 +55,7 @@ const dictionary = {
 		...knowledgeDict.en,
 		...legalDict.en,
 		...projectsDict.en,
+		...readAloudDict.en,
 		...settingsDict.en,
 		...skillsDict.en,
 	},
@@ -67,6 +69,7 @@ const dictionary = {
 		...knowledgeDict.hu,
 		...legalDict.hu,
 		...projectsDict.hu,
+		...readAloudDict.hu,
 		...settingsDict.hu,
 		...skillsDict.hu,
 	},
