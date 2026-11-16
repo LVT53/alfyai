@@ -3339,18 +3339,21 @@ async function handleBulkDelete(): Promise<boolean> {
 		color: var(--text-secondary);
 	}
 
-	/* The date never reaches the actions column: a long day/date used to run
-	   into the first glyph (the "what the AI sees" eye) because the cell was
-	   nowrap and the actions row is only 4px away at its own gap. The date
-	   truncates inside its own cell and the actions cell keeps a real gutter. */
+	/* The date never reaches the actions column. The cell is nowrap and was
+	   only 11% wide, so the three action squares did not fit and, because the
+	   row is `justify-content: flex-end`, the overflow went LEFT - the first
+	   glyph (the "what the AI sees" eye) landed on the timestamp. The actions
+	   column now sizes to its own content and cannot overflow; the date takes
+	   what is left and truncates there. Padding is the row's own 16px, not a
+	   narrower value: overriding it made the collision worse. */
+	.documents-table .col-actions {
+		width: 1%;
+		white-space: nowrap;
+	}
+
 	.documents-table td.col-date {
 		overflow: hidden;
 		text-overflow: ellipsis;
-		padding-right: var(--space-sm);
-	}
-
-	.documents-table td.col-actions {
-		padding-left: var(--space-sm);
 	}
 
 	.action-buttons {
@@ -3358,6 +3361,9 @@ async function handleBulkDelete(): Promise<boolean> {
 		flex: none;
 		gap: var(--space-xs);
 		justify-content: flex-end;
+		/* The row can never squeeze the buttons under the date: the group keeps
+		   its own width and the column takes it (`.col-actions` is 1%). */
+		min-width: max-content;
 	}
 
 	/* One control family: every row action is the same square, at every
