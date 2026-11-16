@@ -9,9 +9,11 @@ import { getReplyForDocumentKeep } from "$lib/server/services/messages";
 import {
 	charsPerSecondByLanguage,
 	openReading,
+	ReadingSuperseded,
 	readingRequestSchema,
 	SpeechRefused,
 	speechSentencesFor,
+	takeOpenTicket,
 	wordsFitReply,
 } from "$lib/server/services/read-aloud";
 import type { RequestHandler } from "./$types";
@@ -24,6 +26,9 @@ import type { RequestHandler } from "./$types";
  */
 export const POST: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
+	// The person's place in line, before anything is awaited: presses open in the
+	// order they arrived, however long each one's checks take.
+	const ticket = takeOpenTicket(user.id);
 	const baseUrl = getReadAloudUrl();
 	if (baseUrl === "") return createJsonErrorResponse("read_aloud_off", 404);
 
@@ -59,6 +64,7 @@ export const POST: RequestHandler = async (event) => {
 			userId: user.id,
 			baseUrl,
 			sentences: speechSentencesFor(parsed.data),
+			ticket,
 		});
 		return createJsonResponse(
 			{
@@ -69,6 +75,10 @@ export const POST: RequestHandler = async (event) => {
 			201,
 		);
 	} catch (error) {
+		// A press that came after this one has opened: this one is stale, and the
+		// browser has dropped it already.
+		if (error instanceof ReadingSuperseded)
+			return createJsonErrorResponse("superseded", 409);
 		// A 422 from the service would mean this schema let through something it
 		// refuses: say its status and the field, never the text.
 		console.warn("[READ_ALOUD] the speech service did not start a reading", {

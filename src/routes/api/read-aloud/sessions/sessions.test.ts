@@ -17,12 +17,14 @@ vi.mock("$lib/server/services/read-aloud/readings", () => ({
 	attachEvents: vi.fn(),
 	reportPosition: vi.fn(),
 	closeReading: vi.fn(),
+	takeOpenTicket: vi.fn(() => 7),
 }));
 
 import { getReadAloudUrl } from "$lib/server/config-store";
 import { getConversation } from "$lib/server/services/conversations";
 import { getReplyForDocumentKeep } from "$lib/server/services/messages";
 import {
+	ReadingSuperseded,
 	SpeechRefused,
 	SpeechUnavailable,
 } from "$lib/server/services/read-aloud";
@@ -33,6 +35,7 @@ import {
 	currentReading,
 	openReading,
 	reportPosition,
+	takeOpenTicket,
 } from "$lib/server/services/read-aloud/readings";
 import { speakWord, type WordKind } from "$lib/shared/read-aloud/spoken-forms";
 import { POST } from "./+server";
@@ -51,6 +54,7 @@ const mocks = {
 	events: attachEvents as ReturnType<typeof vi.fn>,
 	position: reportPosition as ReturnType<typeof vi.fn>,
 	close: closeReading as ReturnType<typeof vi.fn>,
+	ticket: takeOpenTicket as ReturnType<typeof vi.fn>,
 };
 
 const SESSION = "a".repeat(32);
@@ -290,6 +294,25 @@ describe("POST /api/read-aloud/sessions", () => {
 			"Name,",
 			"now.",
 		]);
+	});
+
+	it("takes its place in line before it reads or checks anything", async () => {
+		await POST(eventFor(body()));
+		expect(mocks.ticket).toHaveBeenCalledWith("user-1");
+		// Before the body, the conversation and the reply: the order of the
+		// presses is the order the requests arrived in, not the order they finished.
+		const ticketOrder = mocks.ticket.mock.invocationCallOrder[0] as number;
+		expect(ticketOrder).toBeLessThan(
+			mocks.conversation.mock.invocationCallOrder[0] as number,
+		);
+		expect(mocks.open.mock.calls[0]?.[0].ticket).toBe(7);
+	});
+
+	it("409 superseded when a later press has opened already", async () => {
+		mocks.open.mockRejectedValue(new ReadingSuperseded());
+		const response = await POST(eventFor(body()));
+		expect(response.status).toBe(409);
+		expect(await response.json()).toEqual({ error: "superseded" });
 	});
 
 	it("503 voice_unavailable when the service is down", async () => {

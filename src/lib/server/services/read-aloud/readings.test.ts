@@ -11,8 +11,9 @@ import {
 	type Reading,
 	reportPosition,
 	resetReadingsForTests,
+	takeOpenTicket,
 } from "./readings";
-import { SpeechUnavailable } from "./speech-client";
+import { ReadingSuperseded, SpeechUnavailable } from "./speech-client";
 import {
 	createFakeSpeechService,
 	type FakeSpeechOptions,
@@ -243,6 +244,42 @@ describe("readings: one per person", () => {
 		await until(
 			() => fake.sessions.length === 2 && fake.sessions[0]?.deleted === true,
 		);
+	});
+
+	it("keeps the later press when the earlier one finishes opening last", async () => {
+		// Two presses: the first took a ticket first, but the later one finished
+		// its checks first and opens first. The earlier one must not replace it.
+		const early = takeOpenTicket("user-a");
+		const late = takeOpenTicket("user-a");
+		expect(late).toBeGreaterThan(early);
+		const kept = await openReading({
+			userId: "user-a",
+			baseUrl: fake.baseUrl,
+			sentences: FOUR,
+			ticket: late,
+		});
+		await expect(
+			openReading({
+				userId: "user-a",
+				baseUrl: fake.baseUrl,
+				sentences: FOUR,
+				ticket: early,
+			}),
+		).rejects.toBeInstanceOf(ReadingSuperseded);
+		expect(currentReading("user-a", kept.sessionId)).not.toBeNull();
+		// The refused press made no session at all.
+		expect(fake.sessions).toHaveLength(1);
+		// A press after both replaces the reading as usual.
+		const next = await openReading({
+			userId: "user-a",
+			baseUrl: fake.baseUrl,
+			sentences: FOUR,
+			ticket: takeOpenTicket("user-a"),
+		});
+		expect(currentReading("user-a", next.sessionId)).not.toBeNull();
+		expect(currentReading("user-a", kept.sessionId)).toBeNull();
+		// Tickets are each person's own.
+		expect(takeOpenTicket("user-b")).toBe(1);
 	});
 
 	it("closing a reading deletes the session and ends its readers", async () => {

@@ -21,6 +21,7 @@ import {
 	deleteSpeechSession,
 	openSpeechStream,
 	postSpeechPosition,
+	ReadingSuperseded,
 	type SpeechSentence,
 } from "./speech-client";
 
@@ -188,6 +189,21 @@ class ReadingState {
 const readings = new Map<string, ReadingState>();
 /** The last opening of each person, so two quick presses run one after the other. */
 const openings = new Map<string, Promise<unknown>>();
+/** The last place in line a person's press took, and the newest place that has opened. */
+const tickets = new Map<string, number>();
+const openedTickets = new Map<string, number>();
+
+/**
+ * A person's place in line for a press, taken the moment its request arrives,
+ * before anything is awaited. Two quick presses finish their checks in any
+ * order (the earlier may have the larger body); the registry opens them by place
+ * in line, so the later press is never replaced by the earlier one.
+ */
+export function takeOpenTicket(userId: string): number {
+	const next = (tickets.get(userId) ?? 0) + 1;
+	tickets.set(userId, next);
+	return next;
+}
 
 function lookup(reading: Reading): ReadingState | null {
 	const state = readings.get(reading.userId);
@@ -277,7 +293,15 @@ async function open(p: {
 	userId: string;
 	baseUrl: string;
 	sentences: SpeechSentence[];
+	ticket?: number;
 }): Promise<Reading> {
+	// A press whose place in line is older than one that has opened is stale:
+	// it opens nothing, and closes nothing.
+	if (p.ticket !== undefined) {
+		if (p.ticket < (openedTickets.get(p.userId) ?? 0))
+			throw new ReadingSuperseded();
+		openedTickets.set(p.userId, p.ticket);
+	}
 	const previous = readings.get(p.userId);
 	if (previous) await closeState(previous, "replaced");
 
@@ -324,12 +348,15 @@ async function open(p: {
 /**
  * Opens a reading for a person. Their current reading is closed first, and its
  * events readers are told (`event: replaced`). Throws `SpeechUnavailable` when
- * the service cannot be reached or answers with a server error.
+ * the service cannot be reached or answers with a server error, and
+ * `ReadingSuperseded` when a press that came later has opened already.
  */
 export function openReading(p: {
 	userId: string;
 	baseUrl: string;
 	sentences: SpeechSentence[];
+	/** From `takeOpenTicket`, taken when the press arrived. Without one the press opens in the order it is called. */
+	ticket?: number;
 }): Promise<Reading> {
 	const before = openings.get(p.userId) ?? Promise.resolve();
 	const next = before.catch(() => undefined).then(() => open(p));
@@ -438,6 +465,8 @@ export function resetReadingsForTests(): void {
 	}
 	readings.clear();
 	openings.clear();
+	tickets.clear();
+	openedTickets.clear();
 	idleMs = READING_IDLE_MS;
 	replayMaxBytes = AUDIO_REPLAY_MAX_BYTES;
 	heartbeatMs = EVENTS_HEARTBEAT_MS;

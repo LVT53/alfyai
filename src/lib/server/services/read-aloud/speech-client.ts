@@ -45,6 +45,15 @@ export class SpeechRefused extends Error {
 	}
 }
 
+/** A later press of the same person has opened already: this one is stale and opens nothing. */
+export class ReadingSuperseded extends Error {
+	override name = "ReadingSuperseded";
+
+	constructor() {
+		super("a later reading has opened");
+	}
+}
+
 /** How long the short calls may take. The two streams have no limit. */
 const SHORT_CALL_TIMEOUT_MS = 10_000;
 const SESSION_ID = /^[0-9a-f]{32}$/u;
