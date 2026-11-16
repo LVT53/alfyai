@@ -28,6 +28,11 @@ type RowEvidence = NonNullable<ChatMessage["evidenceSummary"]>;
 export type ReplyPlace = {
 	/** The id of the reply's first row; the row's own id when it starts the reply. */
 	firstMessageId: string;
+	/**
+	 * Every row of the reply, first to last, on every row: read aloud reads them as one
+	 * reply from its last row, and each row's marks know whose reading it is.
+	 */
+	segmentIds: string[];
 	/** The row carries on from the row right above it. */
 	continuesAbove: boolean;
 	/**
@@ -247,10 +252,12 @@ export function placeReplySegments(
 		const copyText = reply.length > 1 ? joinReplyText(reply) : null;
 		const userIntent = reply.length > 1 ? (reply[0].userIntent ?? null) : null;
 		const sources = reply.length > 1 ? mergeReplyEvidence(reply) : null;
+		const segmentIds = reply.map((row) => row.id);
 		for (const [position, row] of reply.entries()) {
 			const question = questionOf.get(row.id) ?? null;
 			places.set(row.id, {
 				firstMessageId: reply[0].id,
+				segmentIds,
 				continuesAbove: position > 0,
 				continuedBelow: position < last || holdsTheReplyOpen(question),
 				question,

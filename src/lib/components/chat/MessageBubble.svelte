@@ -79,6 +79,7 @@ import AskQuestionCard from "./AskQuestionCard.svelte";
 import FilesStrip from "./FilesStrip.svelte";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 import ReadAloudMarks from "$lib/components/read-aloud/ReadAloudMarks.svelte";
+import ReadAloudSpeaker from "$lib/components/read-aloud/ReadAloudSpeaker.svelte";
 import { readAloudAvailable } from "$lib/stores/read-aloud";
 import ThinkingBlock from "./ThinkingBlock.svelte";
 import ToolActivityList from "./ToolActivityList.svelte";
@@ -299,6 +300,8 @@ let copied = $state(false);
 /** The prose the read-aloud marks are drawn in, and whether they are: it is isolated only then. */
 let proseContainer = $state<HTMLElement | null>(null);
 let readAloudMarked = $state(false);
+/** The speaker reports its reply being read, or one of its notes open: the action row stays shown. */
+let readAloudPinned = $state(false);
 let copyTimeout: ReturnType<typeof setTimeout> | undefined;
 let showTimestampTooltip = $state(false);
 let showForkDetails = $state(false);
@@ -1441,7 +1444,7 @@ function sendFollowUp(question: string) {
 			/>
 			{#if $readAloudAvailable}
 				<ReadAloudMarks
-					replyLastId={message.id}
+					replyLastId={replyPlace?.segmentIds.at(-1) ?? message.id}
 					container={proseContainer}
 					onMarkedChange={(marked) => (readAloudMarked = marked)}
 				/>
@@ -1699,7 +1702,7 @@ function sendFollowUp(question: string) {
 		     touch screen of any width (a phone, an iPad in landscape) shows both
 		     at rest. Opacity only, so the rows keep their space and the reveal
 		     moves nothing. Reduced motion: the app's global rule. -->
-		<div class="message-actions">
+		<div class="message-actions" data-pinned={readAloudPinned ? "" : undefined}>
 			<div
 				class="copy-action-row flex w-full items-center gap-0.5"
 				class:justify-end={isUser}
@@ -1895,6 +1898,16 @@ function sendFollowUp(question: string) {
 						</div>
 					</div>
 				</div>
+
+				{#if !isUser && $readAloudAvailable && conversationId}
+					<ReadAloudSpeaker
+						{conversationId}
+						messageId={message.id}
+						segmentIds={replyPlace?.segmentIds ?? [message.id]}
+						contentKey={replyText}
+						onPinnedChange={(pinned) => (readAloudPinned = pinned)}
+					/>
+				{/if}
 
 			</div>
 			{#if followUpChips.length > 0}
@@ -2243,6 +2256,11 @@ function sendFollowUp(question: string) {
 			opacity: 0;
 		}
 
+		/* While its reply is read, or a read-aloud note is open, the row stays shown. */
+		.message-actions[data-pinned] {
+			opacity: 1;
+		}
+
 		:global(.group:hover) .message-actions,
 		.message-actions:focus-within {
 			opacity: 1;
@@ -2282,15 +2300,6 @@ function sendFollowUp(question: string) {
 			width: 44px;
 			height: 44px;
 		}
-	}
-
-	.mini-spinner {
-		width: 1rem;
-		height: 1rem;
-		border: 2px solid currentColor;
-		border-right-color: transparent;
-		border-radius: 999px;
-		animation: spin 700ms linear infinite;
 	}
 
 	.file-production-inline {
@@ -2466,10 +2475,6 @@ function sendFollowUp(question: string) {
 	@keyframes fadeIn {
 		from { opacity: 0; }
 		to { opacity: 1; }
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
 	}
 
 	.info-container {

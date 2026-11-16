@@ -1,155 +1,111 @@
 <script lang="ts">
 /**
- * The speed chip of read aloud's player and its menu (spec §4.3): six speeds,
- * changed at once without making the audio again (the player's `playbackRate`
- * keeps the pitch). The chip shows the speed in the UI language ("1,25×" in
- * Hungarian). The menu opens above it; ↑ and ↓ move between the speeds, Enter
- * picks one, and Esc or a click outside closes it and gives the focus back to
- * the chip.
+ * The player's speed chip and its menu (spec §4.3): six speeds, applied at once
+ * with the pitch kept. The chip writes the speed in the UI language ("1,25×").
  */
-import { Check } from "@lucide/svelte";
 import { tick } from "svelte";
 import { t } from "$lib/i18n";
 import { uiLanguage } from "$lib/stores/settings";
-import { intlLocale } from "$lib/utils/locale";
 
-let {
-	speed,
-	onSelect,
-}: {
-	speed: number;
-	onSelect: (value: number) => void;
-} = $props();
+let { speed, onSelect }: { speed: number; onSelect: (v: number) => void } =
+	$props();
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2] as const;
 
 let open = $state(false);
-let root = $state<HTMLElement | null>(null);
+let wrapper = $state<HTMLDivElement | null>(null);
 let chip = $state<HTMLButtonElement | null>(null);
-let items = $state<Array<HTMLButtonElement | null>>([]);
+let items = $state<HTMLButtonElement[]>([]);
 
-/** "1,25×": the number in the UI language, then ×. */
-function format(value: number): string {
-	return `${new Intl.NumberFormat(intlLocale($uiLanguage), {
-		maximumFractionDigits: 2,
-	}).format(value)}×`;
-}
+const format = $derived(
+	(value: number) => `${new Intl.NumberFormat($uiLanguage).format(value)}×`,
+);
 
-async function openMenu(): Promise<void> {
+async function show() {
 	open = true;
 	await tick();
-	const checked = (SPEEDS as readonly number[]).indexOf(speed);
-	items[checked >= 0 ? checked : 1]?.focus();
+	const current = (SPEEDS as readonly number[]).indexOf(speed);
+	items[current >= 0 ? current : 1]?.focus();
 }
 
-function close(giveFocusBack: boolean): void {
-	if (!open) return;
+function close(refocus: boolean) {
 	open = false;
-	if (giveFocusBack) chip?.focus();
+	if (refocus) chip?.focus();
 }
 
-function toggle(): void {
-	if (open) close(false);
-	else void openMenu();
-}
-
-function pick(value: number): void {
+function pick(value: number) {
 	onSelect(value);
 	close(true);
 }
 
-function move(to: number): void {
-	const length = SPEEDS.length;
-	items[((to % length) + length) % length]?.focus();
-}
-
-function onItemKeydown(
-	event: KeyboardEvent,
-	index: number,
-	value: number,
-): void {
-	switch (event.key) {
-		case "ArrowDown":
-			event.preventDefault();
-			move(index + 1);
-			break;
-		case "ArrowUp":
-			event.preventDefault();
-			move(index - 1);
-			break;
-		case "Home":
-			event.preventDefault();
-			move(0);
-			break;
-		case "End":
-			event.preventDefault();
-			move(SPEEDS.length - 1);
-			break;
-		case "Enter":
-		case " ":
-			// A button would click on its own; the menu is gone by then.
-			event.preventDefault();
-			pick(value);
-			break;
-		case "Escape":
-			event.preventDefault();
-			close(true);
-			break;
-		case "Tab":
-			close(false);
-			break;
-	}
-}
-
-function onWindowClick(event: MouseEvent): void {
-	if (open && root && !root.contains(event.target as Node)) close(false);
-}
-
-function onWindowKeydown(event: KeyboardEvent): void {
-	// Esc with the focus on the chip, or anywhere else outside the items.
-	if (open && event.key === "Escape") {
+function onItemKeydown(event: KeyboardEvent, index: number) {
+	if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+		event.preventDefault();
+		const step = event.key === "ArrowDown" ? 1 : -1;
+		items[(index + step + SPEEDS.length) % SPEEDS.length]?.focus();
+	} else if (event.key === "Enter" || event.key === " ") {
+		event.preventDefault();
+		pick(SPEEDS[index] as number);
+	} else if (event.key === "Escape") {
 		event.preventDefault();
 		close(true);
+	} else if (event.key === "Tab") {
+		close(false);
 	}
 }
+
+$effect(() => {
+	if (!open) return;
+	const onPointerDown = (event: PointerEvent) => {
+		if (
+			wrapper &&
+			event.target instanceof Node &&
+			wrapper.contains(event.target)
+		)
+			return;
+		close(false);
+	};
+	document.addEventListener("pointerdown", onPointerDown, true);
+	return () => document.removeEventListener("pointerdown", onPointerDown, true);
+});
 </script>
 
-<svelte:window onclick={onWindowClick} onkeydown={onWindowKeydown} />
-
-<div bind:this={root} class="speed">
+<div class="read-aloud-speed" bind:this={wrapper}>
 	<button
 		bind:this={chip}
 		type="button"
-		class="chip"
-		data-testid="read-aloud-speed"
+		class="read-aloud-speed-chip"
 		aria-haspopup="menu"
 		aria-expanded={open}
 		aria-label="{$t('readAloud.player.speed')}: {format(speed)}"
-		onclick={toggle}
+		onclick={() => (open ? close(false) : void show())}
 	>
 		{format(speed)}
 	</button>
 	{#if open}
+		<!-- svelte-ignore a11y_interactive_supports_focus -->
 		<div
-			class="menu"
+			class="read-aloud-speed-menu"
 			role="menu"
+			tabindex="-1"
 			aria-label={$t("readAloud.player.speed")}
-			data-testid="read-aloud-speed-menu"
+			onkeydown={(event) => {
+				if (event.key === "Escape") {
+					event.preventDefault();
+					close(true);
+				}
+			}}
 		>
 			{#each SPEEDS as value, index (value)}
 				<button
 					bind:this={items[index]}
 					type="button"
-					class="item"
 					role="menuitemradio"
-					aria-checked={value === speed}
-					tabindex={value === speed ? 0 : -1}
+					class="read-aloud-speed-item"
+					aria-checked={value === speed ? "true" : "false"}
 					onclick={() => pick(value)}
-					onkeydown={(event) => onItemKeydown(event, index, value)}
+					onkeydown={(event) => onItemKeydown(event, index)}
 				>
-					<span class="mark" aria-hidden="true">
-						{#if value === speed}<Check size={14} strokeWidth={2.2} />{/if}
-					</span>
 					{format(value)}
 				</button>
 			{/each}
@@ -158,90 +114,73 @@ function onWindowKeydown(event: KeyboardEvent): void {
 </div>
 
 <style>
-	.speed {
+	.read-aloud-speed {
 		position: relative;
+		display: inline-flex;
 		flex: none;
 	}
 
-	.chip {
-		min-width: 44px;
-		height: 32px;
+	.read-aloud-speed-chip {
+		height: 34px;
+		min-width: 54px;
 		padding: 0 10px;
-		border: 0;
-		border-radius: 16px;
-		background: transparent;
-		color: var(--text-secondary);
-		font: inherit;
-		font-size: 13px;
+		border: 1px solid var(--border-default);
+		border-radius: 999px;
+		background: var(--surface-page);
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: 12.5px;
+		font-weight: 600;
 		font-variant-numeric: tabular-nums;
 		cursor: pointer;
-		transition: background-color var(--duration-micro) var(--ease-out);
+		transition: background-color var(--duration-standard) var(--ease-out);
 	}
 
-	.chip:hover,
-	.chip[aria-expanded='true'] {
-		background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+	.read-aloud-speed-chip:hover {
+		background: var(--surface-elevated);
 	}
 
-	.chip:focus-visible,
-	.item:focus-visible {
-		outline: 2px solid var(--accent);
-		outline-offset: 1px;
+	.read-aloud-speed-chip:focus-visible,
+	.read-aloud-speed-item:focus-visible {
+		outline: 2px solid var(--border-focus);
+		outline-offset: 2px;
 	}
 
-	.menu {
+	.read-aloud-speed-menu {
 		position: absolute;
-		right: 0;
 		bottom: calc(100% + 8px);
+		left: 50%;
 		z-index: 30;
 		display: flex;
 		flex-direction: column;
-		min-width: 104px;
+		min-width: 84px;
 		padding: 4px;
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--border-default);
 		border-radius: 12px;
-		background: var(--surface-elevated);
-		box-shadow: var(--shadow-md);
+		background: var(--surface-page);
+		box-shadow: var(--shadow-lg);
+		transform: translateX(-50%);
 	}
 
-	.item {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		min-height: 36px;
-		padding: 0 12px 0 8px;
+	.read-aloud-speed-item {
+		padding: 7px 12px;
 		border: 0;
 		border-radius: 8px;
 		background: transparent;
 		color: var(--text-primary);
-		font: inherit;
-		font-size: 14px;
+		font-family: var(--font-sans);
+		font-size: 13px;
 		font-variant-numeric: tabular-nums;
-		text-align: left;
+		text-align: center;
 		cursor: pointer;
 	}
 
-	.item:hover {
-		background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+	.read-aloud-speed-item:hover {
+		background: var(--surface-elevated);
 	}
 
-	.item[aria-checked='true'] {
+	.read-aloud-speed-item[aria-checked="true"] {
 		color: var(--accent);
-	}
-
-	.mark {
-		display: inline-flex;
-		width: 14px;
-		height: 14px;
-	}
-
-	@media (max-width: 767px) {
-		.chip {
-			height: 44px;
-		}
-
-		.item {
-			min-height: 44px;
-		}
+		font-weight: 600;
 	}
 </style>

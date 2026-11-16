@@ -840,6 +840,24 @@ body {
 		min-width: 44px;
 		padding: 0.5rem;
 	}
+
+	/* The small spinner of an icon button at work: the action row's fork and keep,
+	   and read aloud's speaker and player while a reading starts. */
+	.mini-spinner {
+		display: inline-block;
+		width: 1rem;
+		height: 1rem;
+		border: 2px solid currentColor;
+		border-right-color: transparent;
+		border-radius: 999px;
+		animation: mini-spinner-spin 700ms linear infinite;
+	}
+}
+
+@keyframes mini-spinner-spin {
+	to {
+		transform: rotate(360deg);
+	}
 }
 
 @layer utilities {

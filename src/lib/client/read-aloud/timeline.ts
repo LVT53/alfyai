@@ -107,10 +107,16 @@ export function notches(script: SpeechScript): number[] {
 
 /** The sentence a share of the text falls in, clamped to the first and the last. */
 export function sentenceAtShare(script: SpeechScript, share: number): number {
-	const at = Math.min(1, Math.max(0, share)) * script.totalChars;
+	return notchAtShare(notches(script), share);
+}
+
+/** The same from the notches alone (what the scrubber holds): the last notch at or before the share. */
+export function notchAtShare(marks: readonly number[], share: number): number {
+	const at = Math.min(1, Math.max(0, share));
 	let found = 0;
-	for (const sentence of script.sentences)
-		if (sentence.charStart <= at) found = sentence.index;
+	marks.forEach((mark, index) => {
+		if (mark <= at) found = index;
+	});
 	return found;
 }
 
