@@ -38,16 +38,15 @@ import asyncio
 import logging
 import math
 import time
-import traceback
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import PurePath
 
 import numpy as np
 
 from speech_service.aligner import Aligner, Interval, resample_16k, token_times
 from speech_service.audio import SAMPLE_RATE, Mp3Encoder, match_loudness, silence, trim_silence
 from speech_service.config import Settings
+from speech_service.logs import describe
 from speech_service.models import Sentence
 from speech_service.text import Spoken, normalize
 from speech_service.zonos import SynthesisFailed, ZonosClient, ZonosUnavailable
@@ -261,7 +260,7 @@ class ReadingSession:
             await self._forwarder
         except Exception as error:
             # The encoder could not start or could not finish (ffmpeg is missing, or died).
-            logger.warning("session %s: the encoder failed: %s", self.id, _describe(error))
+            logger.warning("session %s: the encoder failed: %s", self.id, describe(error))
             if self._outcome is None:
                 self._fail("synthesis_failed")
         finally:
@@ -285,7 +284,7 @@ class ReadingSession:
             self._emit("done", {})
         except Exception as error:
             logger.warning(
-                "session %s: sentence %d failed: %s", self.id, self._current, _describe(error)
+                "session %s: sentence %d failed: %s", self.id, self._current, describe(error)
             )
             # The words of the sentence before still come first, then the error ends the timeline.
             await self._flush_alignment()
@@ -397,7 +396,7 @@ class ReadingSession:
         except Exception as error:
             # The reader then gets the sentence tint without the word mark, and no error.
             logger.warning(
-                "session %s: no word times for sentence %d: %s", self.id, index, _describe(error)
+                "session %s: no word times for sentence %d: %s", self.id, index, describe(error)
             )
             times = [None] * len(sentence.tokens)
         self._emit("words", {"id": sentence.id, "times": times})
@@ -507,7 +506,7 @@ class ReadingSession:
     def _worker_stopped(self, worker: asyncio.Task[None]) -> None:
         if not worker.cancelled() and (error := worker.exception()) is not None:
             # Not expected: the worker reports its own failures. Do not leave the readers waiting.
-            logger.error("session %s: the worker crashed: %s", self.id, _describe(error))
+            logger.error("session %s: the worker crashed: %s", self.id, describe(error))
             self._outcome = "failed"
             self._close_events()
             self._close_audio()
@@ -568,11 +567,3 @@ def _on_stream_clock(interval: Interval | None, start: float) -> list[float] | N
 def _error_code(error: Exception) -> str:
     """The `error` event's code: Zonos not answering at all, or anything else gone wrong."""
     return "zonos_unavailable" if isinstance(error, ZonosUnavailable) else "synthesis_failed"
-
-
-def _describe(error: BaseException) -> str:
-    """What to log of an error: its type and where it was raised. Never its message, which may
-    quote the reply, nor its traceback."""
-    frames = traceback.extract_tb(error.__traceback__)
-    where = f" at {PurePath(frames[-1].filename).name}:{frames[-1].lineno}" if frames else ""
-    return f"{type(error).__name__}{where}"
