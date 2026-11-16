@@ -514,6 +514,26 @@ class _Slow(FakeAligner):
         return super().align(audio_16k, words)
 
 
+@pytest.mark.parametrize(
+    "aligner", [FakeAligner(), _Slow(0.2)], ids=["quick", "slower-than-synthesis"]
+)
+async def test_a_sentences_words_come_after_its_sentence_and_before_the_one_after_next(
+    new_session, aligner
+):
+    # What the README promises a client: match them by id, not by place. With a quick aligner the
+    # words follow their sentence at once, with a slow one they come after the next sentence's.
+    count = 6
+    session, _ = new_session(make_sentences(count), aligner=aligner, prefetch=count)
+    events, _ = await play(session)
+    at = {(name, data["id"]): i for i, (name, data) in enumerate(events) if "id" in data}
+    for i in range(count):
+        words = at[("words", f"s{i}")]
+        assert at[("sentence", f"s{i}")] < words
+        assert words < at.get(("sentence", f"s{i + 2}"), len(events))
+    assert [data["id"] for data in of(events, "sentence")] == [f"s{i}" for i in range(count)]
+    assert [data["id"] for data in of(events, "words")] == [f"s{i}" for i in range(count)]
+
+
 async def test_done_comes_after_the_last_words_even_when_alignment_is_slow(new_session):
     session, _ = new_session(make_sentences(3), aligner=_Slow())
     events, _ = await play(session)

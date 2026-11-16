@@ -14,6 +14,7 @@ import itertools
 import json
 import logging
 import os
+import re
 import subprocess
 import time
 from collections.abc import Callable
@@ -243,6 +244,7 @@ def test_session_round_trip(serve):
 
     # Both readers have drained and the events were read to their end: over, and forgotten.
     assert not known(client, session_id)
+    assert client.delete(f"/v1/sessions/{session_id}").status_code == 404  # "take a 404 as done"
 
 
 def test_a_zonos_failure_comes_as_an_error_event_that_ends_the_stream(serve):
@@ -382,6 +384,73 @@ def test_the_routes_take_the_methods_of_the_contract(serve):
     assert client.get("/v1/preview").status_code == 405
     assert client.post("/health").status_code == 405
     assert known(client, session_id)  # and none of it touched the session
+
+
+# What the README says of the wire, for a client that has to be built around it.
+
+
+def test_an_unknown_path_is_starlettes_text_plain_404_and_not_the_json_one(serve):
+    client, _ = serve()
+    reply = client.get("/v1/nothing-here")
+    assert reply.status_code == 404
+    assert reply.headers["content-type"].startswith("text/plain")
+    assert reply.text == "Not Found"
+
+
+def test_a_trailing_slash_is_a_307_to_the_path_without_it(serve):
+    client, _ = serve()
+    session_id = create(client)
+    reply = client.get(f"/v1/sessions/{session_id}/events/", follow_redirects=False)
+    assert reply.status_code == 307
+    assert reply.headers["location"].endswith(f"/v1/sessions/{session_id}/events")
+    assert client.get("/health/", follow_redirects=False).status_code == 307
+    # It took no reader: the events are still there to be read.
+    assert client.get(f"/v1/sessions/{session_id}/events").status_code == 200
+
+
+def test_a_wrong_method_is_a_text_plain_405_with_an_allow_header(serve):
+    client, _ = serve()
+    session_id = create(client)
+    reply = client.get("/v1/sessions")
+    assert reply.status_code == 405
+    assert reply.headers["content-type"].startswith("text/plain")
+    assert reply.text == "Method Not Allowed"
+    assert reply.headers["allow"] == "POST"
+    # HEAD on the two streams is the exception: no body, and it must not take their one reader.
+    for route in ("audio", "events"):
+        head = client.head(f"/v1/sessions/{session_id}/{route}")
+        assert (head.status_code, head.content, head.headers["allow"]) == (405, b"", "GET")
+
+
+def test_a_session_id_is_32_lowercase_hex_characters(serve):
+    client, _ = serve()
+    assert re.fullmatch(r"[0-9a-f]{32}", create(client))
+
+
+@pytest.mark.parametrize("content_type", ["text/plain", "application/x-www-form-urlencoded", None])
+def test_the_content_type_of_a_request_is_not_checked(serve, content_type):
+    client, _ = serve()
+    headers = {} if content_type is None else {"content-type": content_type}
+    body = json.dumps(reading(1)).encode()
+    assert client.post("/v1/sessions", content=body, headers=headers).status_code == 201
+
+
+def test_a_range_header_changes_nothing_and_the_mp3_has_no_xing_header(serve):
+    client, _ = serve()
+    session_id = create(client, reading(2))
+    reply = client.get(f"/v1/sessions/{session_id}/audio", headers={"range": "bytes=0-1"})
+    assert reply.status_code == 200  # not 206, and not 2 bytes
+    for header in ("content-range", "accept-ranges", "content-length"):
+        assert header not in reply.headers
+    mp3 = reply.content
+    assert mp3.startswith(b"ID3") and len(mp3) > 1000  # the whole stream, from byte 0
+    # The tag is 10 bytes and its syncsafe size; the first frame after it is audio, with no Xing
+    # or Info header frame in front (so no length, and no encoder delay to read from it).
+    tag_size = 10 + ((mp3[6] << 21) | (mp3[7] << 14) | (mp3[8] << 7) | mp3[9])
+    assert mp3[tag_size] == 0xFF  # an MPEG frame's sync
+    assert b"Xing" not in mp3[tag_size : tag_size + 200]
+    assert b"Info" not in mp3[tag_size : tag_size + 200]
+    assert client.get(f"/v1/sessions/{session_id}/audio").status_code == 409  # the reader is taken
 
 
 # Validation.
