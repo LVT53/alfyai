@@ -58,6 +58,17 @@ describe("the read-aloud language detector", () => {
 		).toEqual(["hu", "hu", "hu", "hu"]);
 	});
 
+	it("reads a reply of only short paragraphs as English or Hungarian, never as a language it guessed", () => {
+		// tinyld alone names these French, German, Irish, Berber and Dutch.
+		expect(assignLanguages(["Rendben."], detect)).toEqual(["hu"]);
+		expect(assignLanguages(["Igen, pontosan."], detect)).toEqual(["hu"]);
+		expect(assignLanguages(["Great question."], detect)).toEqual(["en"]);
+		expect(assignLanguages(["Yes."], detect)).toEqual(["en"]);
+		expect(
+			assignLanguages(["Ingredients", "Flour", "Water", "Salt"], detect),
+		).toEqual(["en", "en", "en", "en"]);
+	});
+
 	it("a reply with nothing to name gives no language", () => {
 		expect(assignLanguages(["12", ""], detect)).toEqual(["", ""]);
 		expect(assignLanguages([], detect)).toEqual([]);

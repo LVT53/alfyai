@@ -13,7 +13,11 @@
 /** A paragraph with fewer letters than this is not detected on its own: tinyld misreads single words. */
 export const SHORT_PARAGRAPH_LETTERS = 40;
 
-export type Detect = (text: string) => string;
+/** The detector: an ISO 639-1 code, or "" when it cannot tell; `only` limits it to those languages. */
+export type Detect = (text: string, only?: readonly string[]) => string;
+
+/** The languages that have voices. */
+const VOICED: readonly string[] = ["en", "hu"];
 
 let detector: Promise<Detect> | null = null;
 
@@ -21,8 +25,8 @@ let detector: Promise<Detect> | null = null;
 export function loadDetector(): Promise<Detect> {
 	detector ??= import("tinyld").then(
 		({ detect }) =>
-			(text: string) =>
-				detect(text),
+			(text: string, only?: readonly string[]) =>
+				detect(text, only ? { only: [...only] } : undefined),
 		(error: unknown) => {
 			detector = null;
 			throw error;
@@ -41,7 +45,7 @@ function letterCount(text: string): number {
  * One language code per paragraph, in order:
  * - a paragraph of at least {@link SHORT_PARAGRAPH_LETTERS} letters gets the code the detector names;
  * - any other paragraph takes the previous paragraph's code, and short paragraphs that open the reply take the first named code after them;
- * - when no paragraph is named, every paragraph gets the code of the whole reply ("" when that is not named either).
+ * - when no paragraph is named, every paragraph gets the whole reply's language, English or Hungarian only ("" when neither).
  */
 export function assignLanguages(
 	paragraphs: readonly string[],
@@ -53,7 +57,10 @@ export function assignLanguages(
 	const firstNamed = named.find((code) => code !== "");
 	if (firstNamed === undefined) {
 		if (paragraphs.length === 0) return [];
-		const whole = detect(paragraphs.join("\n"));
+		// Too little text to tell 62 languages apart ("Rendben." reads as French): a short
+		// reply is only asked whether it is English or Hungarian. A language with no voice
+		// is named only by a paragraph long enough to say so.
+		const whole = detect(paragraphs.join("\n"), VOICED);
 		return paragraphs.map(() => whole);
 	}
 	let previous = firstNamed;
