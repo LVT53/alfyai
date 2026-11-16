@@ -103,6 +103,30 @@ test("it can't start: the crossed speaker and Try again", async ({ page }) => {
 	await expect(failed).toHaveCount(0);
 });
 
+test("on a phone the can't-start note stays on the screen", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 390, height: 844 });
+	await startFake(page, { refuseSessions: true });
+	const reply = await openChat(page);
+	await speaker(page, reply).click();
+	const failed = note(
+		page,
+		"Couldn't start reading. The voice isn't answering right now.",
+	);
+	await expect(failed).toBeVisible({ timeout: 15_000 });
+	for (const part of [
+		failed,
+		failed.getByRole("button", { name: "Try again" }),
+		failed.getByRole("button", { name: "Dismiss" }),
+	]) {
+		const box = await part.boundingBox();
+		expect(box, "the note and its buttons are laid out").toBeTruthy();
+		expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
+		expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(390);
+	}
+});
+
 test("it stops while reading: an amber player, and Try again resumes", async ({
 	page,
 }) => {

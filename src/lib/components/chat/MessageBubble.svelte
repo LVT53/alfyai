@@ -2271,6 +2271,8 @@ function sendFollowUp(question: string) {
 	}
 
 	.copy-action-row {
+		/* Read aloud's notes anchor here, at the row's start, so a phone shows them whole. */
+		position: relative;
 		flex-wrap: wrap;
 		row-gap: var(--space-xs);
 	}

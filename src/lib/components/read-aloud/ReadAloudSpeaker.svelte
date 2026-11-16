@@ -254,8 +254,10 @@ function tryAgain() {
 </div>
 
 <style>
+	/* Not positioned: the speaker's notes anchor to the action row around it, whose left
+	   edge keeps them on a phone's screen (the speaker is the row's last button). */
 	.read-aloud-speaker-wrap {
-		position: relative;
+		display: inline-flex;
 	}
 
 	.read-aloud-speaker {
