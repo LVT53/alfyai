@@ -5,8 +5,8 @@
 **Goal:** A speaker on every finished reply reads it aloud through Plan 1's speech service, with sentence and word marks, a floating player with a sentence scrubber, every failure state of spec §4.8, and Read from here, all built and tested against a fake of Plan 1's HTTP contract.
 
 **Architecture:**
-- **The browser** builds a *speech script* from the rendered reply: paragraphs, then sentences, then tokens, each token with its DOM `Range`. A lazily loaded tinyld detector names each paragraph's language.
-- **A new session route** checks that the person owns the conversation and that every sentence's letters occur in the reply's text in order. It resolves the built-in voices, opens a session on the speech service, and becomes that session's only reader. It keeps a bounded in-memory replay of the session's MP3 and timeline, so any number of browser requests can attach.
+- **The browser** builds a *speech script* from the rendered reply: paragraphs, then sentences, then written words, each word with its DOM `Range` and the tokens it is spoken as. A shared reading dictionary gives those tokens (code read the way a teacher says it; spoken forms for addresses, abbreviations, symbols, shortcuts and versions), and a lazily loaded tinyld detector names each paragraph's language.
+- **A new session route** checks that the person owns the conversation, that every written word occurs in the reply's text in order, and that its tokens are the shared dictionary's reading of it. It resolves the built-in voices, opens a session on the speech service, and becomes that session's only reader. It keeps a bounded in-memory replay of the session's MP3 and timeline, so any number of browser requests can attach.
 - **Playback:** the browser plays the MP3 in one `<audio>` element and maps `currentTime` through the timeline to the sentence and word.
 - **Marks** are drawn on an overlay behind the text.
 - **State:** a pure reducer owns every reading state and failure, and an impure controller carries out the reducer's commands.
@@ -35,6 +35,7 @@
   - Icons come from Lucide only: `Volume2`, `VolumeX`, `Pause`, `Play`, `SkipBack`, `SkipForward`, `LocateFixed`, `X`, `RotateCcw`, `CircleAlert`, `WifiOff` and `Clock`.
   - The speaker's progress ring is an inline SVG data visualisation, which `src/lib/components/AGENTS.md` allows, as it does for `ContextUsageRing`.
 - **Strings:** every new string exists in English and Hungarian. The words are fixed in "Copy" below.
+- **Spoken forms** come only from `src/lib/shared/read-aloud/spoken-forms.ts` and its data module `reading-dictionary.ts` (Task 0). The browser builds every token with them, and the session route checks every token with them, so the two cannot disagree.
 - **Addresses:** the speech service is reached only through `config-store.ts` (`TTS_URL`). The browser loads only same-origin `/api/read-aloud/…` addresses, so ADR-0068 is unaffected.
 - **Privacy:** no audio and no reply text is written to disk or to a log. Log lines carry ids, counts and timings only.
 - **Motion** uses the tokens: `--duration-micro` (100 ms), `--duration-standard` (150 ms), `--duration-emphasis` (250 ms), `--ease-out`, `--ease-emphasis` and `--ease-in`. The word marker's glide is 90 ms linear. Under reduced motion, `app.css` already collapses every transition.
@@ -57,7 +58,7 @@
 1. **The detector.** tinyld's normal build (62 languages, among them hu, en, de, fr, es, it, nl, pt and pl) is lazily loaded in the browser.
    - A paragraph under 40 letters takes the language of the paragraph before it.
    - A short paragraph that opens the reply takes the language of the first named paragraph after it.
-2. **A reply with nothing readable** (only code, a table or a chart): the speaker is dimmed with the note "Nothing in this reply can be read aloud."
+2. **A reply with nothing readable** (only long code blocks, a table or a chart): the speaker is dimmed with the note "Nothing in this reply can be read aloud." Read from here inside a code block still reads it (spec §4.4).
 3. **The app server is the speech service's only reader.**
    - It keeps up to 8 MB of a session's MP3 (about 8.7 min), and the session's whole timeline, in memory.
    - So a browser that asks twice still hears the stream from its first byte. Safari probes media with a range request before its real one.
@@ -65,14 +66,32 @@
 4. **A pause longer than 30 s ends the session.** Play then restarts at the start of that sentence, as after a hidden page.
 5. **Player times are listening times** (divided by the speed), as in the prototype.
 6. **Speaking rates for the estimate:** 15 characters per second in both languages, until Plan 4 measures each voice. The box measured 14.5–16 for Hungarian text at the default Pace.
-7. **Short sentences across paragraphs.** When a one- or two-word sentence joins one in the next paragraph, its last token gets "." after a heading and "," after anything else, so headings and lists keep their pause.
+7. **Short sentences across paragraphs.** When a one- or two-word sentence joins one in the next paragraph or code line, its last token gets "." after a heading and "," after anything else, so headings, lists and code lines keep their pause.
 8. **A reading replaced by one in another tab ends quietly,** with no error note.
-9. **Long sentences split at 240 characters,** not the spec's "about 300". This follows the box measurements of 2026-11-16 (the project memory note `alfyai-read-aloud-aligner-on-box-2026-11-16`): every clip then stays under 30 s at any Pace, and the aligner stays out of its long-form mode.
+9. **Long sentences split at 240 characters,** as the refined spec now says too. The box measurements of 2026-11-16 (the project memory note `alfyai-read-aloud-aligner-on-box-2026-11-16`) found that every clip then stays under 30 s at any Pace, and the aligner stays out of its long-form mode.
+10. **The containment check matches written words in order, not whole sentences.**
+    - For each word of the request, the route finds its letters in the reply's text after the previous word's. A skipped formula, emoji, hash or citation inside a sentence then leaves only a gap.
+    - It recomputes every word's tokens with the shared dictionary, so nothing outside the reply, or outside the dictionary's reading of it, can be spoken. Spec §6.1's "letters occur in that message's text in order" holds word by word.
+    - List numbers are not searched: the renderer numbers a list, and Markdown may write "1." for every item.
+11. **The Hungarian spoken forms are the plan's spelling.**
+    - The spec gives English forms for the code words, acronyms and shortcuts. Its Hungarian forms cover only "." ("pont"), the prose symbols and the abbreviations.
+    - The plan writes the rest the way a Hungarian teacher says them, spelled for the Hungarian voice ("print lájn", "dzséjszon", "á pé í", "kontrol C"), or as Hungarian words where Hungarians use them ("függvény", "hossz", "csillag"). They want the owner's ear once (Task 16, Step 5).
+    - The spec reads `WriteLine` as "print line". The plan pins that, though "write line" may be what was meant.
+    - An acronym written in capitals is read the same way in prose ("JSON" is "Jason"). Lower-case prose words are left alone (the Hungarian word "api").
+12. **Numbers stay with the speech service, except two kinds.**
+    - A word that starts with a digit ("20%", "20°C", "3×4"), a unit with a superscript ("m²") and a version's digits ("v2.3.1" is sent as "version 2.3.1") go as written, for the service's text clean-up (§4.4).
+    - List numbers are written as words ("One.", "Egy."), because a Hungarian "1." is an ordinal.
+    - Whole numbers up to 99 in code are written as words ("x equals two"), because the service's Hungarian "két" rule would turn `2 * 3` into "két csillag három".
+13. **A heading's pause is the paragraph gap.**
+    - A heading ends with a full stop, and the text after it starts a paragraph, so 0.60 s follows it: twice the gap between sentences.
+    - A short heading joined to the next sentence (Decision 7) pauses at its full stop instead.
+    - A longer pause than between paragraphs would need a per-sentence pause in Plan 1's contract. It is not asked for unless the owner wants it.
+14. **Comparison and arithmetic symbols stay silent,** as the spec says ("any other symbol is dropped"), so `if x < 10` reads "if x 10". Each of `<`, `>`, `<=`, `>=`, `+`, `-` and `!` would be one row of the dictionary ("less than", "kisebb mint", …) if the owner wants them read.
 
 ## Review Focus
 
 1. **A harmless re-render of the reply being read** (evidence loading, a theme switch) replaces the script's text nodes. The reading must go on, not stop. Test: `rebuilds the script when its nodes are replaced but the text is the same` (Task 10).
-2. **A reply with links, images, HTML entities, inline code and "Ask me first" segments:** the containment check must accept every sentence the browser builds from it. Test: `accepts what the browser reads from a reply with links, images, entities and inline code` (Task 2).
+2. **A reply with links, images, HTML entities, inline code, a bare address and "Ask me first" segments:** the containment check must accept every word and spoken form the browser builds from it, or the reading never starts. Test: `accepts what the browser reads from a reply with links, images, entities, inline code and a bare address` (Task 2).
 3. **Safari asks for the audio twice:** both requests hear the stream from its first byte. Test: `a second reader of the audio hears it from the first byte` (Task 4).
 4. **The person closes the tab mid-reading:** the app server ends the session within 30 s and stops calling the speech service. Test: `ends a reading 30 s after its last browser reader leaves` (Task 4).
 5. **A one-word heading followed by one-word list items** ("Ingredients", "Flour", "Water", "Salt"): no sentence of fewer than three words reaches the voice, and the pauses survive. Test: `merges short sentences across paragraphs with a pause mark` (Task 7).
@@ -87,18 +106,20 @@
 | `src/lib/server/services/app-shell.ts` | `readAloudEnabled` in the shell data |
 | `src/lib/server/services/read-aloud/AGENTS.md` | Server rules: access, containment, one reading per person, replay, idle end, privacy |
 | `…/read-aloud/voices.ts` | The six built-in voices in code; `defaultVoiceFor` |
-| `…/read-aloud/containment.ts` | The reply-text containment check |
+| `…/read-aloud/containment.ts` | The containment check: the request's written words in the reply's text in order, their tokens recomputed with the dictionary |
 | `…/read-aloud/request.ts` | The zod schema of a session request |
 | `…/read-aloud/speech-client.ts` | HTTP calls to the speech service (Plan 1's contract) |
 | `…/read-aloud/readings.ts` | The registry: one reading per person, replay of audio and events, idle end |
 | `…/read-aloud/index.ts` | The service's public surface for routes |
 | `…/read-aloud/testing/fake-speech-service.ts` | A loopback fake of Plan 1's contract (Node built-ins only) |
 | `src/lib/shared/read-aloud/silent-mp3.ts` | Silent MP3 frames: the fake's audio and the browser's iOS unlock clip |
+| `src/lib/shared/read-aloud/reading-dictionary.ts` | The reading dictionary, data only: code symbols and words, acronyms, prose abbreviations and symbols, shortcut keys and number words, in English and Hungarian |
+| `src/lib/shared/read-aloud/spoken-forms.ts` | `speakWord` and the rules that apply the dictionary: the speech script builds tokens with it, and the containment check verifies them with it |
 | `scripts/run-fake-speech-service.ts` | Runs the fake on a port, for manual checks |
 | `src/routes/api/read-aloud/sessions/**` | The five session routes |
-| `src/lib/client/read-aloud/AGENTS.md` | Browser rules: DOM-only script, marks never reflow, the controller owns audio, the detector exception |
+| `src/lib/client/read-aloud/AGENTS.md` | Browser rules: DOM-only script, marks never reflow, the controller owns audio, the detector exception, spoken forms only from the dictionary |
 | `src/lib/client/read-aloud/language.ts` | The read-aloud language detector (tinyld) and language names |
-| `src/lib/client/read-aloud/speech-script.ts` | DOM to sentences and tokens with ranges, with every §4.4 exclusion |
+| `src/lib/client/read-aloud/speech-script.ts` | DOM to sentences, written words and their tokens, each word with its range, under every §4.4 rule |
 | `src/lib/client/read-aloud/timeline.ts` | `currentTime` to sentence and word; shares, notches, estimates, clock text |
 | `src/lib/client/read-aloud/reading-machine.ts` | The pure reducer: states, events, commands |
 | `src/lib/client/read-aloud/controller.ts` | Performs commands: audio, EventSource, timers, visibility, online state, health |
@@ -118,7 +139,7 @@
 | `tests/e2e/read-aloud-helpers.ts`, `tests/e2e/read-aloud.spec.ts`, `tests/e2e/read-aloud-failures.spec.ts` | End-to-end on the fake |
 
 These existing files are modified:
-- `MessageBubble.svelte`, `reply-segments.ts`, `MessageArea.svelte`, `MessageInput.svelte` and `ChatComposerPanel.svelte`;
+- `MessageBubble.svelte`, `reply-segments.ts`, `MessageArea.svelte`, `MessageInput.svelte`, `ChatComposerPanel.svelte` and `CodeBlock.svelte`;
 - `(app)/+layout.svelte` and `app.css`;
 - `i18n/index.ts` and `i18n/settings.ts`;
 - `package.json` and `.fallowrc.json`;
@@ -129,7 +150,8 @@ These existing files are modified:
 
 ```
 POST   /api/read-aloud/sessions
-       body {conversationId, messageId, sentences: [{id: "s<n>", language: "en"|"hu", tokens: [str], paragraphStart: bool}]}
+       body {conversationId, messageId, sentences: [{id: "s<n>", language: "en"|"hu", paragraphStart: bool,
+             words: [{shown: str, kind: "prose"|"code"|"shell"|"listNumber", tokens: [str]}]}]}
        → 201 {sessionId, defaultSpeed: 1, charsPerSecond: {en, hu}}
        → 400 invalid_request · 404 not_found | read_aloud_off · 422 not_in_reply · 503 voice_unavailable
 GET    /api/read-aloud/sessions/{id}/audio     → 200 audio/mpeg: from the first byte, then live · 409 already_read once the replay is released
@@ -179,6 +201,241 @@ Every {id} route answers 404 unless {id} is the caller's current reading.
 - An estimated total starts with "≈".
 
 ---
+
+### Task 0: The reading dictionary
+
+Spec §4.4, as the owner refined it on 2026-11-16: how code, addresses, abbreviations, symbols, shortcuts, versions and list numbers are spoken. It comes first because the containment check (Task 2) and the speech script (Task 7) both use it.
+
+**Files:**
+- Create in `src/lib/shared/read-aloud/`: `reading-dictionary.ts` (data only), `spoken-forms.ts` and `spoken-forms.test.ts`.
+
+**Interfaces:**
+- Produces, in `spoken-forms.ts` (no DOM or Node APIs, since the browser and the server both import it):
+  - `type WordKind = "prose" | "code" | "shell" | "listNumber"`, and an internal `type ReadingLanguage = "en" | "hu"`.
+  - `speakWord(shown: string, kind: WordKind, language: ReadingLanguage): string[]`: the tokens one written word (a run with no whitespace) is spoken as, or `[]` when it is not spoken.
+    - Every token is 1–80 characters with no whitespace.
+    - A word whose reading would pass 40 tokens or 160 characters gives `[]`.
+  - `isSeparator(shown: string): boolean`: an arrow or a separator dot between items in prose: `→`, `⇒`, `⟶`, `->`, `=>`, `·`, `•` or `∙`.
+  - `keepsSentenceOpen(before: string, language: ReadingLanguage): boolean`: true when `before` ends in a digit and a period ("16.") or in one of that language's abbreviations below, as a whole word, written as listed or with a capital first letter ("pl.", "Pl.", "e.g."). `before` is the text up to a sentence boundary, its trailing spaces ignored.
+  - `codeKindOf(blockLanguage: string, firstWord: string): "code" | "shell"`. It answers `shell`:
+    - for a block in `sh`, `bash`, `zsh`, `shell`, `console`, `fish`, `powershell` or `ps1`;
+    - when `blockLanguage` is `""` (inline code, or a block with no language) and `firstWord` is one of the dictionary's shell commands: `ls cd cat grep echo sudo git npm npx curl ssh mkdir rm cp mv find chmod chown tail head docker systemctl export source sed awk tar pip`.
+- Produces, in `reading-dictionary.ts`: the tables below as plain data, every spoken form as `{ en: string; hu: string }`. Only `spoken-forms.ts` imports it.
+
+**The dictionary.**
+- The English forms are the spec's. The Hungarian ones the spec does not give are the plan's (Decision 11).
+- A form of several words becomes several tokens.
+
+| Code symbol (longest match first) | English | Hungarian |
+|---|---|---|
+| `.` | dot | pont |
+| `::` | double colon | dupla kettőspont |
+| `:=` | colon equals | kettőspont egyenlő |
+| `->`, `=>` | arrow | nyíl |
+| `=`, `==`, `===` | equals, double equals, triple equals | egyenlő, dupla egyenlő, tripla egyenlő |
+| `!=` | not equals | nem egyenlő |
+| `&&`, `\|\|` | and, or | és, vagy |
+| `\|`, only in `shell` | pipe | pájp |
+| `*` | star | csillag |
+| `/`, only in a path | slash | per |
+| `~`, in `shell` or at a path's start | home | hóm |
+| `<T>`, as in `List<T>` | of T: "List of T" | T típusú: "List T típusú" |
+| `<div>`, `</div>` | div tag, closing div tag | div tag, záró div tag |
+
+| Code word (a whole name, any case) | English | Hungarian |
+|---|---|---|
+| `println`, `WriteLine` | print line | print lájn |
+| `printf` | print f | print ef |
+| `def` | define | definiál |
+| `elif` | else if | elsz if |
+| `__init__`, and any `__name__` | dunder init | dander init |
+| `kwargs` | keyword args | kulcsszavas argumentumok |
+| `len` | length | hossz |
+| `NaN` | not a number | nem szám |
+| `console` | console | konzol |
+| `std` (`std::` swallows its `::`) | standard | standard |
+| `cout` | c out | szí aut |
+| `include` | include | inklúd |
+| `fmt` | format | format |
+| `fn`, `fun`, `func` | function | függvény |
+| `mut` | mutable | módosítható |
+| `select` | select | szelekt |
+| `chmod` | change mode | cséndzs mód |
+
+| Acronym (in code in any case; in prose only as written here) | English | Hungarian |
+|---|---|---|
+| SQL, API, URL | S Q L, A P I, U R L | esz kú el, á pé í, ú er el |
+| HTML, CSS, npm | H T M L, C S S, N P M | há té em el, cé esz esz, en pé em |
+| JSON, YAML, GUI | Jason, yamel, gooey | dzséjszon, jemel, gúi |
+
+| In prose | English | Hungarian |
+|---|---|---|
+| abbreviations, only in a paragraph of their language | e.g.: for example; i.e.: that is; etc.: et cetera | pl.: például; kb.: körülbelül; stb.: és a többi; ún.: úgynevezett; ill.: illetve; db: darab |
+| `×`, `÷`, `±` | times, divided by, plus or minus | szorozva, osztva, plusz mínusz |
+| `≤`, `≥` | less than or equal to, greater than or equal to | kisebb vagy egyenlő, nagyobb vagy egyenlő |
+| `≠`, `≈` | not equal to, approximately | nem egyenlő, körülbelül |
+| `²` and `³` after a letter; `½` | squared, cubed; half | négyzet, köb; fél |
+| `°`, `°C`, `°F`, `%` | degrees, degrees Celsius, degrees Fahrenheit, percent | fok, Celsius-fok, Fahrenheit-fok, százalék |
+| shortcut modifiers | Ctrl, Control, ⌃: Control; Cmd, Command, ⌘: Command; Shift, ⇧: Shift; Alt: Alt; Option, Opt, ⌥: Option | kontrol; kommand; sift; alt; opsön |
+| linking words | version; at; dot | verzió; kukac; pont |
+
+- **Number words:** 0–19 and the tens; English "twenty-one", Hungarian "huszonegy", "tizenkettő", "harminc".
+- **File extensions:** `pdf doc docx xls xlsx ppt pptx odt txt md csv json yaml yml xml html css js ts tsx jsx py java c cpp h cs go rs kt swift php sql sh zip gz tar png jpg jpeg gif svg webp mp3 mp4 wav mov`.
+- "plusz mínusz" is two words, not the spec's "plusz-mínusz", so the speech service's "két" rule sees "plusz" and keeps "kettő" before it.
+
+**Rules** (what the tables and the tests leave open):
+1. **Around a prose word.**
+   - Matching ignores a leading `(`, `"`, `'`, `„` or `“`, and trailing `. , ; : ! ? ) " ' ”`, except a period an abbreviation ends in.
+   - When a spoken form replaces the word, the leading marks are dropped and the trailing ones go back on its last token. A word kept as written keeps them all.
+   - In code these marks are code like any other, and are dropped.
+2. **Prose** (`prose`): the first of these that fits.
+   1. A word with no letter, no digit and no listed symbol gives `[]`.
+   2. **An address.** A word holding `://` or starting with `www.` gives its host without `www.`, every dot said ("example dot com"); an IPv4 host stays as written. An email address gives its local part, "at", then its host, every dot said.
+   3. **A file name:** parts joined by dots, ending in a listed extension: "report dot pdf".
+   4. **A shortcut:** listed modifiers joined by `+`, or modifier glyphs written straight before the key. It gives the modifiers' names, then the key as written.
+   5. **A version:** `v` or `V`, then digits joined by dots. It gives "version" and the digits as written.
+   6. **An abbreviation** of the paragraph's language, as written or with a capital first letter: its words, the capital kept ("Például").
+   7. **An acronym** written as in the table, alone or with a hyphenated Hungarian suffix ("API-t"): its words, the suffix glued to the last one ("á pé ít").
+   8. **For the speech service:** a word that starts with a digit, or a unit with a superscript (`m`, `dm`, `cm`, `mm` or `km`, then `²` or `³`), stays as written; the service reads numbers and units.
+   9. **Otherwise** the word as written, with each listed prose symbol replaced by its words as separate tokens (a lone "%" gives "percent").
+3. **Code** (`code`, `shell`): the first of these that fits.
+   1. An address or an email address: as in prose.
+   2. **An opaque id** gives `[]`: only letters, digits, `-` and `_`, with at least 12 letters and digits, at least 3 of them digits, and at least 4 switches between a letter and a digit (a hash, a UUID, a key).
+   3. **A version:** `v` and digits joined by dots, as in prose; digits with two or more dots stay as written.
+   4. **Otherwise** it is read left to right, longest match first:
+      - `std::`;
+      - a code symbol;
+      - a number, `\d[\d_]*(\.\d+)?`: whole numbers 0–99 as number words, others as written without `_`;
+      - a name: letters, digits, `_` and `$`;
+      - anything else, brackets included, is dropped.
+
+   **A name:**
+   - A code word or an acronym that is the whole name gives its words. `__x__` gives "dunder" (Hungarian "dander") and x.
+   - Otherwise it splits at `_`, between a lower-case letter or digit and a capital, before the last capital of a run followed by a lower-case letter ("XML Http Request"), and between letters and digits.
+   - A piece that is an acronym gives its words, and a piece of digits is a number. When a name of two or more letters has only capitals, its other pieces are lower-cased ("max size"); a one-letter name stays ("T").
+   - A leading `$` is silent.
+
+   **In context:**
+   - `.` inside a number belongs to the number.
+   - `/` is "slash" only next to a name, a number, `.` or `~` (a path), and is dropped elsewhere.
+   - `|` is "pipe" only in `shell`. `~` is "home" in `shell`, or straight before `/`.
+   - `<`, a name and `>` are a type parameter: English says "of" before the name, and Hungarian says "típusú" after it.
+   - `<name>` and `</name>` at the word's start, with a lower-case name, are HTML tags. They are matched before type parameters.
+4. **List numbers** (`listNumber`, `shown` like `3.` or `3)`): 1–99 give the number word, capitalised, with a full stop ("Three.", "Három."). 100 and above give the digits and a comma ("120,").
+
+- [ ] **Step 1: Write the failing tests.** First the spec's examples, in both languages:
+
+```ts
+const SPEC: Array<[shown: string, kind: WordKind, en: string, hu: string]> = [
+	["ArrayList", "code", "Array List", "Array List"],
+	["getUserName", "code", "get User Name", "get User Name"],
+	["user_id", "code", "user id", "user id"],
+	["MAX_SIZE", "code", "max size", "max size"],
+	["a.b", "code", "a dot b", "a pont b"],
+	["A::B", "code", "A double colon B", "A dupla kettőspont B"],
+	["->", "code", "arrow", "nyíl"],
+	["=>", "code", "arrow", "nyíl"],
+	["=", "code", "equals", "egyenlő"],
+	["==", "code", "double equals", "dupla egyenlő"],
+	["===", "code", "triple equals", "tripla egyenlő"],
+	["!=", "code", "not equals", "nem egyenlő"],
+	["&&", "code", "and", "és"],
+	["||", "code", "or", "vagy"],
+	["|", "shell", "pipe", "pájp"],
+	["*", "code", "star", "csillag"],
+	["src/lib", "code", "src slash lib", "src per lib"],
+	["<T>", "code", "of T", "T típusú"],
+	["List<T>", "code", "List of T", "List T típusú"],
+	["foo();", "code", "foo", "foo"],
+	["println", "code", "print line", "print lájn"],
+	["WriteLine", "code", "print line", "print lájn"],
+	["def", "code", "define", "definiál"],
+	["elif", "code", "else if", "elsz if"],
+	["__init__", "code", "dunder init", "dander init"],
+	["kwargs", "code", "keyword args", "kulcsszavas argumentumok"],
+	["len", "code", "length", "hossz"],
+	["console.log", "code", "console dot log", "konzol pont log"],
+	["NaN", "code", "not a number", "nem szám"],
+	["printf", "code", "print f", "print ef"],
+	["std::cout", "code", "standard c out", "standard szí aut"],
+	["#include", "code", "include", "inklúd"],
+	["fmt.Println", "code", "format dot print line", "format pont print lájn"],
+	[":=", "code", "colon equals", "kettőspont egyenlő"],
+	["fn", "code", "function", "függvény"],
+	["mut", "code", "mutable", "módosítható"],
+	["println!", "code", "print line", "print lájn"],
+	["fun", "code", "function", "függvény"],
+	["func", "code", "function", "függvény"],
+	["$name", "code", "name", "name"],
+	["SELECT", "code", "select", "szelekt"],
+	["chmod", "shell", "change mode", "cséndzs mód"],
+	["~", "shell", "home", "hóm"],
+	["<div>", "code", "div tag", "div tag"],
+	[".class", "code", "dot class", "pont class"],
+	["SQL", "code", "S Q L", "esz kú el"],
+	["JSON", "code", "Jason", "dzséjszon"],
+	["API", "code", "A P I", "á pé í"],
+	["URL", "code", "U R L", "ú er el"],
+	["HTML", "code", "H T M L", "há té em el"],
+	["CSS", "code", "C S S", "cé esz esz"],
+	["npm", "code", "N P M", "en pé em"],
+	["YAML", "code", "yamel", "jemel"],
+	["GUI", "code", "gooey", "gúi"],
+	["https://www.example.com/a?b=1", "prose", "example dot com", "example pont com"],
+	["anna@example.com", "prose", "anna at example dot com", "anna kukac example pont com"],
+	["report.pdf", "prose", "report dot pdf", "report pont pdf"],
+	["×", "prose", "times", "szorozva"],
+	["÷", "prose", "divided by", "osztva"],
+	["±", "prose", "plus or minus", "plusz mínusz"],
+	["≤", "prose", "less than or equal to", "kisebb vagy egyenlő"],
+	["≥", "prose", "greater than or equal to", "nagyobb vagy egyenlő"],
+	["≠", "prose", "not equal to", "nem egyenlő"],
+	["≈", "prose", "approximately", "körülbelül"],
+	["x²", "prose", "x squared", "x négyzet"],
+	["x³", "prose", "x cubed", "x köb"],
+	["½", "prose", "half", "fél"],
+	["°", "prose", "degrees", "fok"],
+	["%", "prose", "percent", "százalék"],
+	["Ctrl+C", "prose", "Control C", "kontrol C"],
+	["⌘K", "prose", "Command K", "kommand K"],
+	["Shift+Enter", "prose", "Shift Enter", "sift Enter"],
+	["v2.3.1", "prose", "version 2.3.1", "verzió 2.3.1"],
+];
+it.each(SPEC)("reads %s as the spec says", (shown, kind, en, hu) => {
+	expect(speakWord(shown, kind, "en").join(" ")).toBe(en);
+	expect(speakWord(shown, kind, "hu").join(" ")).toBe(hu);
+});
+const ABBREVIATIONS: Array<[shown: string, language: "en" | "hu", spoken: string]> = [
+	["pl.", "hu", "például"],
+	["kb.", "hu", "körülbelül"],
+	["stb.", "hu", "és a többi"],
+	["ún.", "hu", "úgynevezett"],
+	["ill.", "hu", "illetve"],
+	["db", "hu", "darab"],
+	["e.g.", "en", "for example"],
+	["i.e.", "en", "that is"],
+	["etc.", "en", "et cetera"],
+];
+it.each(ABBREVIATIONS)("reads %s in %s as the spec says", (shown, language, spoken) =>
+	expect(speakWord(shown, "prose", language).join(" ")).toBe(spoken));
+```
+
+  Then:
+  - `reads an abbreviation only in its own language, keeping a capital and the marks after it`: `speakWord("Pl.", "prose", "hu")` is `["Például"]`, `speakWord("stb.,", "prose", "hu")` is `["és", "a", "többi,"]`, and `speakWord("pl.", "prose", "en")` is `["pl."]`.
+  - `reads an acronym with a Hungarian suffix, and leaves lower-case prose alone`: `"API-t"` (hu) gives `["á", "pé", "ít"]`, `"api"` (hu) gives `["api"]`, and `"JSON"` (en, prose) gives `["Jason"]`.
+  - `keeps the marks around an address`: `"(https://example.com/x)."` gives `["example", "dot", "com)."]`.
+  - `leaves numbers and units in prose to the speech service`: `"20%"`, `"20°C"`, `"3×4"`, `"12"` and `"m²"` each give themselves.
+  - `skips long hashes, ids and keys, and reads a name that holds a digit`: `"a3f9c2b18e7d4b2a"` and `"550e8400-e29b-41d4-a716-446655440000"` give `[]`, and `"getUserName2"` gives `["get", "User", "Name", "two"]`.
+  - `writes whole numbers up to 99 in code as words`: `"x=2"` (hu) gives `["x", "egyenlő", "kettő"]`, `"1.5"` gives `["1.5"]` and `"1_000"` gives `["1000"]`.
+  - `reads list numbers as words`: `"1."` gives `["One."]` and `["Egy."]`; `"12."` (hu) gives `["Tizenkettő."]`, `"21)"` (en) gives `["Twenty-one."]`, and `"120."` gives `["120,"]`.
+  - `says a pipe and home only where the shell is`: `codeKindOf("", "ls")` is `"shell"`, `codeKindOf("python", "ls")` is `"code"` and `codeKindOf("bash", "x")` is `"shell"`. `speakWord("|", "code", "en")` and `speakWord("~", "code", "en")` give `[]`, and `speakWord("~/projects", "code", "en")` gives `["home", "slash", "projects"]`.
+  - `never ends a sentence after a number or a listed abbreviation`: `keepsSentenceOpen` is true for `"A vásár 2026. november 16."` (hu), `"Ehhez pl."` (hu) and `"Fruit, e.g."` (en), and false for `"It costs five dollars."` (en) and `"Ehhez pl."` (en).
+  - `knows the separators between items`: `→`, `->`, `·` and `•` are separators, and `-` is not.
+  - `keeps every token short and free of whitespace`: every token of every `SPEC` row, in both languages, matches `/^\S{1,80}$/`, and a prose word of 100 letters gives `[]`.
+- [ ] **Step 2: Run them and see them fail.** Run `npx vitest run src/lib/shared/read-aloud/spoken-forms.test.ts`.
+- [ ] **Step 3: Implement** both modules.
+- [ ] **Step 4: Run them and see them pass.**
+- [ ] **Step 5: Commit.** `git commit -m "feat(read-aloud): the reading dictionary and spoken forms, in English and Hungarian"`
 
 ### Task 1: Config — `TTS_ENABLED` and `TTS_URL`
 
@@ -232,6 +489,7 @@ Use whatever override helper the existing `config-store.test.ts` cases use; `app
 - Create: `src/lib/server/services/read-aloud/voices.ts`, `containment.ts`, `voices.test.ts` and `containment.test.ts`.
 
 **Interfaces:**
+- Consumes: `speakWord` and `WordKind` (Task 0).
 - Produces, in `voices.ts`:
   - `type VoiceLanguage = "en" | "hu"`.
   - `type BuiltInVoice = { key: string; name: string; language: VoiceLanguage; speakerId: string; controls: Record<string, number>; charsPerSecond: number }`.
@@ -251,35 +509,46 @@ Use whatever override helper the existing `config-store.test.ts` cases use; `app
   - `defaultVoiceFor(language: VoiceLanguage): BuiltInVoice`: `en` gives Imogen and `hu` gives Berta, until Plan 3 adds a choice.
 - Produces, in `containment.ts`:
   - `letterKey(text: string): string`: NFKC-normalised, lower-cased, keeping only `\p{L}` and `\p{N}`.
-  - `readableReplyText(markdown: string): string`: replaces with a space everything that puts letters in the source but not on screen, in this order (images before links, so an image's alt text cannot survive as a link's text):
-    - image syntax `![…](…)`;
-    - link destinations `](…)` (one level of nested parentheses), keeping `]`;
-    - reference definitions `[x]: url` (whole lines);
-    - autolinks `<https://…>` and `<mailto:…>`;
-    - bare `https?://…` and `www.…` runs;
-    - HTML tags;
-    - entities `&name;` and `&#n;`.
-  - `sentencesFitReply(replyMarkdown: string, sentences: ReadonlyArray<{ tokens: readonly string[] }>): number | null`:
-    - returns `null` when every sentence's `letterKey(tokens.join(" "))` is found in `letterKey(readableReplyText(markdown))`, each searched for from where the one before it ended;
-    - otherwise returns the index of the first sentence that is not;
-    - an empty key counts as found.
+  - `replyKey(markdown: string): string`: `letterKey` of the Markdown after decoding numeric entities and `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;` and `&nbsp;`. Nothing else is cleaned away: link destinations, image syntax and tags only put letters between the words, and the search steps over them.
+  - `type CheckedWord = { shown: string; kind: WordKind; tokens: readonly string[] }`.
+  - `wordsFitReply(replyMarkdown: string, sentences: ReadonlyArray<{ language: "en" | "hu"; words: readonly CheckedWord[] }>): number | null` walks the words of all the sentences in order:
+    - a word that is not a `listNumber` must have its `letterKey(shown)` found in `replyKey(markdown)` at or after the end of the previous word's match; an empty key counts as found;
+    - a `listNumber` word is not searched (the renderer numbers lists, and Markdown may write "1." for every item), but its `shown` must match `^\d{1,4}[.)]$`;
+    - every word's `letterKey(tokens.join(" "))` must equal `letterKey(speakWord(shown, kind, language).join(" "))`. So a token is the reply's own letters or the dictionary's reading of them, and the comparison ignores the pause marks the script adds;
+    - it returns `null` when every word passes, and otherwise the index of the first sentence that holds a word that does not.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
-it("accepts what the browser reads from a reply with links, images, entities and inline code", () => {
-	const md = "See [the docs](https://example.com/a_(b)) now. ![a cat](cat.png) Salt &amp; pepper, `npm_install()` and **bold**.";
-	expect(sentencesFitReply(md, [
-		{ tokens: ["See", "the", "docs", "now."] },
-		{ tokens: ["Salt", "&", "pepper,", "npm", "install", "and", "bold."] },
+const said = (shown: string, kind: WordKind = "prose", language: "en" | "hu" = "en"): CheckedWord =>
+	({ shown, kind, tokens: speakWord(shown, kind, language) });
+const en = (...words: CheckedWord[]) => ({ language: "en" as const, words });
+it("accepts what the browser reads from a reply with links, images, entities, inline code and a bare address", () => {
+	const md = "See [the docs](https://example.com/a_(b)) now. ![a cat](cat.png) Salt &amp; pepper, `getUserName()` and **bold**. Visit https://www.example.com/x today.";
+	expect(wordsFitReply(md, [
+		en(said("See"), said("the"), said("docs"), said("now.")),
+		en(said("Salt"), said("pepper,"), said("getUserName()", "code"), said("and"), said("bold.")),
+		en(said("Visit"), said("https://www.example.com/x"), said("today.")),
 	])).toBeNull();
 });
-it("ignores spacing in numbers and emoji", () =>
-	expect(sentencesFitReply("A jegy ára 12 990 Ft 🎟️.", [{ tokens: ["A", "jegy", "ára", "12", "990", "Ft."] }])).toBeNull());
+it("steps over a formula, emoji or spaced number inside a sentence", () => {
+	expect(wordsFitReply("The area is $\\pi r^2$ for a circle.", [
+		en(said("The"), said("area"), said("is"), said("for"), said("a"), said("circle.")),
+	])).toBeNull();
+	const hu = ["A", "jegy", "ára", "12", "990", "Ft."].map((w) => said(w, "prose", "hu"));
+	expect(wordsFitReply("A jegy ára 12 990 Ft 🎟️.", [{ language: "hu", words: hu }])).toBeNull();
+});
+it("accepts list numbers that the Markdown writes differently", () =>
+	expect(wordsFitReply("1. Flour\n1. Water", [
+		en(said("1.", "listNumber"), said("Flour")),
+		en(said("2.", "listNumber"), said("Water")),
+	])).toBeNull());
+it("refuses tokens the dictionary does not make", () =>
+	expect(wordsFitReply("Use `a.b` here.", [en({ shown: "a.b", kind: "code", tokens: ["free", "speech"] })])).toBe(0));
 it("names the first sentence that is not in the reply", () =>
-	expect(sentencesFitReply("One two three.", [{ tokens: ["One", "two"] }, { tokens: ["Free", "speech"] }])).toBe(1));
-it("refuses sentences out of order", () =>
-	expect(sentencesFitReply("Alpha beta. Gamma delta.", [{ tokens: ["Gamma", "delta."] }, { tokens: ["Alpha", "beta."] }])).toBe(1));
+	expect(wordsFitReply("One two three.", [en(said("One"), said("two")), en(said("Free"), said("speech"))])).toBe(1));
+it("refuses words out of order", () =>
+	expect(wordsFitReply("Alpha beta. Gamma delta.", [en(said("Gamma"), said("delta.")), en(said("Alpha"), said("beta."))])).toBe(1));
 it("gives the English voices their ids and the Hungarian ones studio by default", () => {
 	expect(defaultVoiceFor("en").speakerId).toBe("default_b78b28baf5c31a1d");
 	expect(defaultVoiceFor("hu").controls).toEqual({ "room.clean": 2 });
@@ -415,14 +684,15 @@ it("gives the English voices their ids and the Hungarian ones studio by default"
 
 **Interfaces:**
 - Consumes:
-  - `getReadAloudUrl` (Task 1), `defaultVoiceFor` and `sentencesFitReply` (Task 2), and the registry (Task 4);
+  - `getReadAloudUrl` (Task 1), `defaultVoiceFor` and `wordsFitReply` (Task 2), and the registry (Task 4);
   - `getConversation(userId, conversationId)` from `$lib/server/services/conversations`;
   - `getReplyForDocumentKeep({ conversationId, messageId })` from `$lib/server/services/messages`. It walks "Ask me first" segments back from the last one and returns the whole reply's `content`.
 - Produces:
   - `readingRequestSchema`, a zod object:
     - `conversationId` and `messageId`: strings of 1–100 characters;
-    - `sentences`: 1–2000 items, each `{ id: /^s\d{1,5}$/, language: "en" | "hu", tokens: 1–120 strings of 1–80 characters, paragraphStart: boolean }`;
-    - a refinement: `tokens.join(" ").length ≤ 400` for every sentence.
+    - `sentences`: 1–2000 items, each `{ id: /^s\d{1,5}$/, language: "en" | "hu", paragraphStart: boolean, words }`;
+    - `words`: 1–200 items, each `{ shown: 1–2048 characters, kind: "prose" | "code" | "shell" | "listNumber", tokens: 1–40 strings of 1–80 characters with no whitespace }`;
+    - refinements, for every sentence: at most 120 tokens in all, and its tokens joined with spaces ≤ 400 characters.
   - `type ReadingRequest = z.infer<typeof readingRequestSchema>`.
 - POST, in order:
   1. `requireApiUser`.
@@ -430,8 +700,8 @@ it("gives the English voices their ids and the Hungarian ones studio by default"
   3. Parse the body → 400 `invalid_request`.
   4. Conversation not the caller's → 404 `not_found`.
   5. No reply (or not an assistant message) → 404 `not_found`.
-  6. `sentencesFitReply` not null → 422 `not_in_reply`. Log only that index and the sentence count.
-  7. Map each sentence to a `SpeechSentence` with `defaultVoiceFor(language)`.
+  6. `wordsFitReply` not null → 422 `not_in_reply`. Log only that index and the sentence count.
+  7. Map each sentence to a `SpeechSentence` with `defaultVoiceFor(language)` and `tokens: words.flatMap((w) => w.tokens)`.
   8. `openReading`. `SpeechUnavailable`, or any other failure (a 422 from the service would mean this schema let through something the service refuses), → 503 `voice_unavailable`. Log only the service's status and its `field`.
   9. 201 `{ sessionId, defaultSpeed: 1, charsPerSecond: { en, hu } }`, with each rate taken from that language's default voice.
 - `{sessionId}` routes:
@@ -484,12 +754,13 @@ it("gives the English voices their ids and the Hungarian ones studio by default"
 
 > - **Read aloud's detector is the one exception to "no second reader"** (owner, 2026-11-16). `src/lib/client/read-aloud/language.ts` (tinyld, in the browser) names each paragraph's language only to pick a read-aloud voice and the speech service's text rules, and to name a language that has no voice ("Read aloud isn't available in German yet"). It never feeds anything the chat decides: no model request, title, chip, record or route reads it, and nothing in `chat-turn/` imports it. The chat's readers stay `readReplyLanguage` and `readShortTextLanguage`.
 
-**The folder's `AGENTS.md`** states five rules:
+**The folder's `AGENTS.md`** states six rules:
 1. The script is built from the rendered DOM only, never from Markdown.
 2. Marks never change the reply's DOM or layout: they are an overlay behind the text, and the prose is isolated only while it is marked.
 3. Only the controller touches the `<audio>` element and the session routes; components read `readAloudView` and call the controller.
 4. The iOS unlock happens synchronously in the press handler.
 5. The detector exception above.
+6. Spoken forms come only from `src/lib/shared/read-aloud/spoken-forms.ts`, the code the session route checks them with. Nothing else makes up a spoken word.
 
 - [ ] **Step 1: Write the failing tests** with the real tinyld:
   - `names English and Hungarian paragraphs`: two paragraphs of 2–3 sentences each.
@@ -508,59 +779,82 @@ it("gives the English voices their ids and the Hungarian ones studio by default"
 
 **Files:**
 - Create: `src/lib/client/read-aloud/speech-script.ts` and `speech-script.test.ts`.
+- Modify: `src/lib/components/chat/CodeBlock.svelte`: put `data-language={language ?? ""}` on `.code-block`, so the script can tell a shell block.
 
 **Interfaces:**
-- Consumes: `assignLanguages` and `isVoiced` (Task 6).
+- Consumes: `assignLanguages` and `isVoiced` (Task 6); `speakWord`, `isSeparator`, `keepsSentenceOpen`, `codeKindOf` and `WordKind` (Task 0).
 - Produces:
-  - `type ScriptSentence = { id: string; index: number; language: "en" | "hu"; paragraphStart: boolean; tokens: string[]; ranges: Range[]; text: string; charStart: number; chars: number }`:
+  - `type ScriptWord = { shown: string; kind: WordKind; tokens: string[]; range: Range }`: a written word as it stands on screen, how it is read, and its `Range`, which may span several text nodes.
+  - `type ScriptSentence = { id: string; index: number; language: "en" | "hu"; paragraphStart: boolean; words: ScriptWord[]; tokens: string[]; ranges: Range[]; text: string; charStart: number; chars: number }`:
+    - `tokens` are the words' tokens in order, pause marks included;
+    - `ranges[i]` is the range of token i's word, so a word read as several tokens stays marked whole while they are said;
     - `text` is `tokens.join(" ")`;
     - `chars` is `text.length + 1`;
-    - `charStart` is the running sum of `chars`;
-    - `ranges` holds one `Range` per token.
+    - `charStart` is the running sum of `chars`.
   - `type SpeechScript = { sentences: ScriptSentence[]; totalChars: number; missingLanguage: string | null; nothingToRead: boolean }`.
-  - `buildSpeechScript(roots: readonly Element[], detect: (t: string) => string): SpeechScript`. The roots are each segment's `.markdown-container`.
+  - `buildSpeechScript(roots: readonly Element[], detect: (t: string) => string, options: { fallbackLanguage: "en" | "hu"; readBlock?: Element | null }): SpeechScript`.
+    - The roots are each segment's `.markdown-container`.
+    - `readBlock` is a code block that Read from here starts in. It is read whatever its length.
   - `sentenceAtPoint(script: SpeechScript, node: Node, offset: number): number | null`: the sentence holding the point, else the first one after it.
-  - `SKIPPED_SELECTOR = ".code-block, pre, .markdown-diagram-block, .markdown-table-wrap, table, .markdown-frontmatter, .markdown-image-frame, img, svg, figure, button, input, a.source-link-chip, [aria-hidden='true'], script, style"`.
+  - `SKIPPED_SELECTOR = ".markdown-diagram-block, .markdown-table-wrap, table, .markdown-frontmatter, .markdown-image-frame, img, svg, figure, button, input, a.source-link-chip, [aria-hidden='true'], script, style"`. Code blocks are no longer skipped whole: their language label and buttons fall under `button`, and their fade under `[aria-hidden='true']`.
   - `PARAGRAPH_TAGS = ["P", "LI", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE", "SUMMARY", "DT", "DD", "DIV", "ASIDE"]`.
-  - `LONG_SENTENCE_CHARS = 240` and `MAX_TOKEN_CHARS = 80`. The spec says "about 300", but the box measurements of 2026-11-16 found that 240 keeps every clip under 30 s even at the slowest Pace (300 gives 33 s at Pace −2), so the aligner never enters its long-form mode.
+  - `CODE_BLOCK_MAX_LINES = 3` and `LONG_SENTENCE_CHARS = 240`.
+    - The spec's 240 follows the box measurements of 2026-11-16: it keeps every clip under 30 s even at the slowest Pace (300 gives 33 s at Pace −2), so the aligner never enters its long-form mode.
+    - The 80-character limit on a token is `speakWord`'s.
 - **Rules** (what the tests below do not fully determine):
   1. **Walking the DOM.** Walk text nodes in document order with a `TreeWalker`.
      - Skip any node inside `SKIPPED_SELECTOR`, and any node inside a `<details>` without `open`, except its `<summary>`.
      - A text node's paragraph is its nearest ancestor in `PARAGRAPH_TAGS`, within the root.
      - A skipped element or a `<br>` between two nodes of one paragraph counts as a space.
-  2. **The spoken view keeps every offset.** Characters are replaced by spaces, never removed:
-     - inside a `code` element that is not inside `pre`, every character that is not a letter or a digit;
+  2. **Code blocks** (`.code-block`, or a bare `pre`) are paragraphs of their own, and only the text inside `pre` is read.
+     - A block of at most 3 non-blank lines is read. A longer one is skipped, unless it is `options.readBlock`.
+     - Each non-blank line is one sentence before the short and long rules (rules 7 and 8).
+     - Its words take the kind `codeKindOf(block.dataset.language ?? "", the line's first word)`.
+  3. **The spoken view keeps every offset.** Characters are replaced by spaces, never removed:
      - emoji: `\p{Extended_Pictographic}`, regional indicators, U+200D and U+FE0F;
-     - TeX runs: `$…$` holding one of `\ ^ _ { } =`, `\(…\)` and `\[…\]`.
-  3. **Tokens** are the whitespace-separated runs of a paragraph's spoken view. Drop a token that:
-     - has no letter or digit;
-     - contains `://` or starts with `www.`;
-     - matches `^\[\d+(?:\s*[,–-]\s*\d+)*\]$` (a citation marker);
-     - is longer than 80 characters.
-
-     Each kept token gets a `Range` over its own characters; it may span several text nodes.
-  4. **Languages.** Run `assignLanguages` on the paragraph texts and keep only `en` and `hu` paragraphs. When none is voiced:
-     - `nothingToRead` is set when no paragraph had a token;
-     - otherwise `missingLanguage` is the language with the most letters.
-  5. **Sentences** come from `new Intl.Segmenter(language, { granularity: "sentence" })` over the paragraph's spoken view. A token belongs to the segment that holds its first character.
-  6. **Short sentences.** While a sentence has fewer than 3 tokens, it joins the next sentence of the same language, across paragraphs too.
-     - When the join crosses a paragraph and the last token does not already end in one of `. ! ? , ; : …`, that token gets "." if it came from a heading and "," otherwise.
+     - TeX runs: `$…$` holding one of `\ ^ _ { } =`, `\(…\)` and `\[…\]`;
+     - citation and footnote marks: `[1]`, `[2, 3]`, `[4–6]`, `[^1]` and `[^note]`.
+  4. **Words** are the whitespace-separated runs of a paragraph's spoken view. Each gets a `Range` over its own characters.
+     - **Kind.** A word whose first character is inside a `code` element is `code` or `shell`: `codeKindOf("", that element's first word)` for inline code, and the block's kind in a code block. Every other word is `prose`.
+     - **Tokens:** `speakWord(shown, kind, the paragraph's language)`. A word with no tokens is left out.
+     - **Separators.** A prose word for which `isSeparator` holds is left out. The kept word before it in the paragraph gets "," on its last token, unless that token ends in `. ! ? , ; : …`.
+     - **Stray marks.** A word of punctuation only (left behind by a blanked mark, as in "now [1].") hands its marks to the last token of the kept word before it.
+     - **Numbered lists.** An `<li>` whose parent is an `<ol>` starts with a `listNumber` word `"<n>."`, where n is the list's `start` (1 by default) plus the item's index. It has no characters on screen, so it takes the `Range` of the item's first word.
+     - **Headings.** The last token of an `H1`–`H6` ends in "." unless it already ends in `. ! ? … :`.
+     - **A written full stop is kept.** When a sentence's last written word ends in "." and its last token does not ("etc." read as "et cetera"), that token gets ".".
+  5. **Languages.**
+     - Run `assignLanguages` on the paragraph texts. A code block counts as empty text, so it takes the language around it.
+     - A paragraph left with `""` takes `options.fallbackLanguage`, so a reply of only code is read in the UI language.
+     - Keep only `en` and `hu` paragraphs. When none is voiced, `nothingToRead` is set if no paragraph had a word; otherwise `missingLanguage` is the language with the most letters.
+  6. **Sentences** come from `new Intl.Segmenter(language, { granularity: "sentence" })` over a prose paragraph's spoken view.
+     - A boundary where `keepsSentenceOpen(the text before it, language)` holds is no boundary.
+     - A word belongs to the segment that holds its first character.
+  7. **Short sentences.** While a sentence has fewer than 3 tokens, it joins the next sentence of the same language, across paragraphs and code lines too.
+     - When the join crosses a paragraph or a code line and the last token does not already end in one of `. ! ? , ; : …`, that token gets "." if it came from a heading and "," otherwise.
      - A sentence with no next sentence to join joins the previous one of the same language.
      - A sentence with neither stays as it is.
-  7. **Long sentences.** A sentence over 240 characters splits after the last token ending in "," or ";" that keeps the first part within 240. Failing that, it splits after the last token that does. Repeat until every part fits.
-  8. **Ids and flags.** Ids are `s0, s1, …` in order. `paragraphStart` is true for a sentence that begins a paragraph; a merged sentence keeps its first part's flag.
+  8. **Long sentences.** A sentence whose `text` is over 240 characters splits after the last word whose last token ends in "," or ";" and keeps the first part within 240. Failing that, it splits after the last word that keeps it within 240. A word is never split. Repeat until every part fits.
+  9. **Ids and flags.** Ids are `s0, s1, …` in order. `paragraphStart` is true for a sentence that begins a paragraph, a code block's first line included. A merged sentence keeps its first part's flag.
 
-- [ ] **Step 1: Write the failing tests** (jsdom, the real `Intl.Segmenter`, and a stub `detect` keyed by paragraph text). Build DOMs shaped like `MarkdownRenderer`'s output.
+- [ ] **Step 1: Write the failing tests** (jsdom, the real `Intl.Segmenter`, and a stub `detect` keyed by paragraph text). Build DOMs shaped like `MarkdownRenderer`'s output, with code blocks shaped like `CodeBlock.svelte`'s: `.code-block[data-language]`, a header `button`, and Shiki's `pre code > span.line`.
   - `reads paragraphs, headings, list items, checklist items and quotes in order`.
-  - `leaves out code blocks, tables, CSV, charts, Mermaid, images, front matter and source chips`.
-  - `reads inline code as words and drops what is left unpronounceable`: `` `foo_bar()` `` gives `foo` and `bar`, and `` `=>` `` gives nothing.
-  - `drops emoji, bare addresses, citation markers and formulas`.
+  - `reads a code block of up to three lines the way a teacher says it`: a `python` block of `total = price * 2` and `print(total)` gives the tokens `total equals price star two print total`, compared without punctuation.
+  - `leaves out a longer code block, tables, CSV, charts, Mermaid, images, front matter and source chips`: a five-line block holding `secretCode` gives no token `secret`.
+  - `reads a long code block that Read from here starts in`: with `readBlock` set to that block, its lines are sentences.
+  - `reads inline code the way a teacher says it, and marks the whole name`: `` `getUserName()` `` gives `get`, `User` and `Name`, whose three ranges are one range with `toString() === "getUserName()"`. `` `=>` `` gives `arrow`, and `` `{}` `` gives nothing.
+  - `says the pipe of an inline shell command`: `` `ls | grep x` `` gives `pipe`.
+  - `reads a bare address by its site name, and drops emoji, formulas and citation and footnote marks`: "See https://www.example.com/docs now [1]." gives `["See", "example", "dot", "com", "now."]`.
+  - `reads a numbered list's numbers`: in `<ol start="3"><li>Mix the flour well</li>…`, the first sentence's tokens start `["Three.", "Mix"]`, and `ranges[0] === ranges[1]`.
+  - `ends a heading with a full stop`.
+  - `never ends a sentence after a number or a listed abbreviation`: the Hungarian paragraph "A vásár 2026. november 16. Hétfőn nyit. Pl. Kenyér is lesz." gives two sentences, and the second starts with `Például`.
+  - `pauses after a word before an arrow between items`: "Home → Settings → Profile" gives `["Home,", "Settings,", "Profile"]`.
   - `no syntax reaches the tokens`: no token is any of ``* _ # | ` [ ] ( ) < >`` and no token contains a backtick.
   - `keeps each token's range on its own characters`: for `<strong>bo</strong>ld`, `ranges[i].toString() === "bold"`.
   - `splits sentences with Intl.Segmenter in the paragraph's language`.
   - `merges short sentences across paragraphs with a pause mark`: a heading "Ingredients" and list items "Flour", "Water", "Salt" give one sentence with tokens `["Ingredients.", "Flour,", "Water,", "Salt"]` and `paragraphStart: true`.
   - `splits a sentence over 240 characters at a comma`: every part is at most 240 characters.
   - `skips a German paragraph, and names German when nothing is voiced`.
+  - `reads a reply of only code in the fallback language`.
   - `finds the sentence holding a selection's start`.
 - [ ] **Step 2: Run them and see them fail.** Run `npx vitest run src/lib/client/read-aloud/speech-script.test.ts`.
 - [ ] **Step 3: Implement.**
@@ -716,10 +1010,10 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
   - `src/lib/client/AGENTS.md` and `src/lib/stores/AGENTS.md`: list the new files.
 
 **Interfaces:**
-- Consumes: Tasks 3 (`silentMp3DataUri`), 6, 7, 8 and 9; `fetchServerHealth`; `reportServerUpdateSign`; and `SERVER_UPDATE_WATCH_POLL_MS` and `SERVER_UPDATE_WATCH_MAX_MS`.
+- Consumes: Tasks 0 (`WordKind`), 3 (`silentMp3DataUri`), 6, 7, 8 and 9; `fetchServerHealth`; `reportServerUpdateSign`; and `SERVER_UPDATE_WATCH_POLL_MS` and `SERVER_UPDATE_WATCH_MAX_MS`.
 - Produces, in `client/api/read-aloud.ts` (through `requestJson` and `requestVoid` in `api/http.ts`):
   - `type ReadingStart = { sessionId: string; defaultSpeed: number; charsPerSecond: Record<"en" | "hu", number> }`.
-  - `createReadingSession(body: { conversationId: string; messageId: string; sentences: Array<{ id: string; language: "en" | "hu"; tokens: string[]; paragraphStart: boolean }> }): Promise<ReadingStart>`.
+  - `createReadingSession(body: { conversationId: string; messageId: string; sentences: Array<{ id: string; language: "en" | "hu"; paragraphStart: boolean; words: Array<{ shown: string; kind: WordKind; tokens: string[] }> }> }): Promise<ReadingStart>`.
   - `cancelReadingSession(id: string): void`: a `DELETE` with `keepalive`, errors ignored.
   - `reportReadingPosition(id: string, sentenceId: string): void`, errors ignored.
   - `readingAudioUrl(id)` and `readingEventsUrl(id)`, which give `/api/read-aloud/sessions/<id>/audio` and `/events`.
@@ -735,16 +1029,16 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
     - `start(r: StartRequest): void`, `toggle(): void`, `seek(i: number): void` and `retry(): void`;
     - `beginDrag(): void`, `dragTo(i: number): void` and `endDrag(i: number): void`;
     - `setSpeed(v: number): void`, `stop(): void` and `locate(): void`;
-    - `sentencePreview(i: number): string`, which returns `"4/9 · <first five tokens>…"`.
+    - `sentencePreview(i: number): string`, which returns `"4/9 · <first five written words>…"`.
   - `type Readability = { kind: "ready" } | { kind: "noVoice"; language: string | null } | { kind: "nothing" } | { kind: "unknown" }`.
   - `createReadAloudController(deps: ReadAloudDeps): ReadAloudController`.
   - `getReadAloud(): ReadAloudController`: the browser singleton, made on first use.
-  - `assessReadability(segmentIds: readonly string[]): Promise<Readability>`: `unknown` while a segment's `.markdown-container` is missing or holds no text yet (Markdown renders asynchronously), so the speaker is never dimmed by mistake.
+  - `assessReadability(segmentIds: readonly string[]): Promise<Readability>`: `unknown` while a segment's `.markdown-container` is missing or holds no text yet (Markdown renders asynchronously), so the speaker is never dimmed by mistake. It builds the script as `open` does, without `readBlock`.
   - `ReadAloudDeps` injects the audio element, `createEventSource`, the API above, the detector loader, `document`, `window`, `fetchHealth`, timers and `now`, so the tests use fakes.
 - **Controller rules:**
   - **Unlocking iOS.** `start` runs synchronously in the click handler. On the page's first press only, before anything is awaited, it sets `audio.src = silentMp3DataUri()` and calls `play()`, ignoring a refused play. Once the element has played, iOS allows its later plays. Media events are ignored while that clip plays.
   - **The `open` command:**
-    - rebuild the script when it is missing or stale; the roots are each `segmentIds` id's `[data-message-id="…"] .markdown-container`;
+    - rebuild the script when it is missing or stale; the roots are each `segmentIds` id's `[data-message-id="…"] .markdown-container`, `fallbackLanguage` is the UI language, and `readBlock` is the `.code-block` holding `from`, if any;
     - send `POST` with the sentences from `from` on;
     - then set `audio.src`, `playbackRate = speed` and `preservesPitch = true`, call `play()`, create the `EventSource`, and start a new `SessionTimeline`.
   - **The default speed.** When the session of a new reading answers (one begun by `press` from `opening`, or a switch to another reply), dispatch `speed {value: answer.defaultSpeed}`. A jump inside a reading keeps its speed.
@@ -777,7 +1071,7 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
 - [ ] **Step 1: Write the failing tests.** Use a fake audio element (an `EventTarget` with `src`, `currentTime`, `play`, `pause`, `load` and `playbackRate`), a fake `EventSource`, fake timers, a stubbed API, and a jsdom reply built with `data-message-id` and `.markdown-container`.
   - `unlocks the audio element before it waits for anything`.
   - `opens a session from the pressed sentence and plays its audio`.
-  - `starts from the sentence holding a selection's start`.
+  - `starts from the sentence holding a selection's start, inside a long code block too`.
   - `reports the position when the sentence changes`.
   - `classifies a broken stream as offline, an update or the voice`.
   - `resumes by itself when the browser is back online`.
@@ -887,7 +1181,7 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
   - `shows the ring and pause while reading`.
   - `dims with a note naming the language`: with readability stubbed to `noVoice("de")` and the UI in English, the note reads "Read aloud isn't available in German yet."
   - `the Hungarian note names the language`: "Német nyelvű felolvasás még nem érhető el."
-  - `dims a reply with nothing to read`.
+  - `dims a reply with nothing to read`: a reply of only a five-line code block.
   - `shows the busy note`.
   - `shows the can't-start note with Try again, which closes after 8 s`.
   - `a reply drawn in segments reads from its last segment with every segment's id`: write this case in `reply-segments.test.ts` and `MessageBubble.test.ts`.
@@ -1030,7 +1324,7 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
 - Produces: `ReadFromHere` props: `{ conversationId: string | null; composerHeight: number; controller?: ReadAloudController }`.
 - **Behaviour:**
   - **When it exists.** It renders only while `$readAloudAvailable`.
-  - **Watching the selection.** On `selectionchange` (coalesced per animation frame), a selection that is not collapsed and starts inside a `.markdown-container` of an element with `data-read-aloud-segments`, in a reply whose readability is `ready`, shows the pill.
+  - **Watching the selection.** On `selectionchange` (coalesced per animation frame), a selection that is not collapsed and starts inside a `.markdown-container` of an element with `data-read-aloud-segments`, in a reply whose readability is `ready`, shows the pill. So does a selection inside a code block of a reply whose readability is `nothing` (a reply of only long code).
   - **The pill** is portaled to the body with `portalToBody`, `position: fixed`, and never moves a word.
     - It sits 8 px above the selection's first rect; with a coarse pointer it sits 8 px below its last rect.
     - It is clamped 16 px inside the viewport, and above `window.innerHeight − composerHeight`.
@@ -1042,6 +1336,7 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
   - `shows nothing for a selection outside replies`.
   - `sits above on a fine pointer and below on a coarse one`.
   - `starts reading at the selection's sentence`.
+  - `shows the pill inside a long code block, and starts there`.
 - [ ] **Step 2: Run them and see them fail.**
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run them and see them pass.**
@@ -1066,11 +1361,14 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
     - a five-sentence English reply, so that reading to the end needs the position reports (the fake holds sentence i until `i ≤ position + 2`);
     - a two-sentence English reply;
     - a German reply;
-    - a "syntax" reply with a heading, bold, a link, inline code, a fenced code block holding `const secretCode = 42;`, a table holding `TABLECELL`, a checklist, a quote, an emoji and a bare URL.
+    - a "syntax" reply with a heading, bold, a link, the inline code `getUserName()`, a two-line block `total = price * 2` / `print(total)`, a five-line block holding `const secretCode = 42;`, a table holding `TABLECELL`, a numbered list, a checklist, a quote, an emoji and the bare URL `https://www.example.com/docs`.
 
 - [ ] **Step 1: Write `read-aloud.spec.ts`,** with `secondsPerChar: 0.02`:
   - `@smoke the speaker reads a reply: the player rises and the tint moves`: wait until the second sentence's tint shows.
-  - `no syntax reaches the voice`: no recorded token contains any of `*`, `` ` ``, `#`, `|`, `[`, `]`, `http` or `www.`, and none is `secretCode` or `TABLECELL`.
+  - `no syntax reaches the voice, and code is read the way a teacher says it`:
+    - no recorded token contains any of `*`, `` ` ``, `#`, `|`, `[`, `]`, `http` or `www.`;
+    - none is `secret`, `secretCode` or `TABLECELL`;
+    - the tokens hold `get User Name`, `total equals price star two`, `One.` and `example dot com`.
   - `✕ stops, and the end shows Finished`: the five-sentence reply is read to its end, which proves the position reports reach the service.
   - `a slash command hushes the player, and reading goes on`.
   - `another reply's speaker switches without the player leaving`.
@@ -1078,6 +1376,7 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
   - `marks never move the text and never cover the player`: a word's bounding box is the same before and while reading, and `expectTopmost(player, { probe: "center" })` passes.
   - `a German reply's speaker is dimmed with a note`.
   - `Read from here starts at the selected sentence`.
+  - `Read from here inside the long code block reads it`: the fake records a session whose tokens hold `secret Code equals forty-two`.
   - `the phone layout`: at 390 × 844 the player has two rows, buttons are 44 px and play is 52 px.
   - `reduced motion: the player appears without moving`: under `emulateMedia({ reducedMotion: "reduce" })`, the pill's computed transitions are ≤ 0.01 ms.
 - [ ] **Step 2: Write `read-aloud-failures.spec.ts`:**
@@ -1100,12 +1399,16 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
   3. Read the app's log for the number of audio GETs per session; Safari's range probe should be served by the replay.
   4. Repeat the press-and-listen check once in desktop Firefox, for Gecko's handling of the progressive MP3 (the family's Android Firefox).
   5. If Plan 1's real service runs on the Mac (`127.0.0.1:1920`), repeat the check against it once.
+  6. With the real service, listen once to Task 0's Hungarian forms, a numbered list, a heading, a range like "7–12 fok" and a number with a suffix ("2026-ban"), as spec §4.4 asks. List for the owner any that sound wrong (Decisions 11 and 13).
 - [ ] **Step 6: Commit.** `git commit -m "test(read-aloud): end-to-end specs on the fake speech service"`
 
 ---
 
-## Hand-over to Plans 3 and 4
+## Hand-over to Plans 1, 3 and 4
 
+- **Plan 1,** while it is being finalised (the owner decides):
+  - Its Hungarian "két" rule counts the word after a number unless that word is on its list, so "2 ≤ x" would be read "két kisebb vagy egyenlő x". Adding "kisebb", "nagyobb" and "körülbelül" to the list fixes it. Code is not affected: Plan 2 writes numbers up to 99 in code as words.
+  - A pause after headings longer than the paragraph gap would need a per-sentence pause in its contract (Decision 13).
 - **Plan 3:**
   - The person's voice choice replaces `defaultVoiceFor` in the session route.
   - Their Default speed fills `defaultSpeed`.
@@ -1114,3 +1417,4 @@ The controller sends `ended` only when `doneReceived` is true; an early end of t
   - **Voices.** Replace Berta's and Imre's placeholder ids in `voices.ts` (`PENDING_SPEAKER_ID_PREFIX` must be gone), and measure `charsPerSecond` on the box.
   - **Apache.** In both vhosts, add `^/api/read-aloud/sessions/[^/]+/(audio|events)` to the unbuffered streaming routes: a `ProxyPass … flushpackets=on` line before the catch-all, and the `LocationMatch` alternative. The project memory note `alfyroot-apache-alfyai-vhosts` explains how; mirror the change in `deploy/apache-site.conf`.
   - **Paperwork.** The Feature Guide entry, with its drawing and a Show me marker on the speaker; ADR-0070; and the owner's checks on staging.
+  - **Listening.** On staging the owner hears the dictionary's Hungarian forms, the list numbers and the headings' pause, and the table changes where they sound wrong (Decisions 11 and 13).
