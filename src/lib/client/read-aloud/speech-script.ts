@@ -59,10 +59,10 @@ export type SpeechScript = {
  * under `button`, and their fade under `[aria-hidden='true']`. A link chip is read by its label
  * (its favicon and icon are hidden); a picture's chip stands where a picture was not loaded.
  */
-export const SKIPPED_SELECTOR =
+const SKIPPED_SELECTOR =
 	".markdown-diagram-block, .markdown-table-wrap, table, .markdown-frontmatter, .markdown-image-frame, img, svg, figure, button, input, a.source-link-chip--image, [aria-hidden='true'], script, style";
 
-export const PARAGRAPH_TAGS = [
+const PARAGRAPH_TAGS = [
 	"P",
 	"LI",
 	"H1",

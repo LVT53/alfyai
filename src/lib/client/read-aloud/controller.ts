@@ -945,13 +945,6 @@ export function getReadAloud(): ReadAloudController {
 	return singleton;
 }
 
-/** Whether a reply can be read before anyone presses: the speaker is dimmed only when this says so. */
-export function assessReadability(
-	segmentIds: readonly string[],
-): Promise<Readability> {
-	return getReadAloud().assessReadability(segmentIds);
-}
-
 function browserDeps(): ReadAloudDeps {
 	const audio = document.createElement("audio");
 	audio.preload = "auto";
