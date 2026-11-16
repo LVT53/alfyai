@@ -33,6 +33,8 @@ type ReadingLanguage = "en" | "hu";
 const MAX_TOKEN_CHARS = 80;
 const MAX_TOKENS = 40;
 const MAX_JOINED_CHARS = 160;
+/** The longest code word that is read at all. */
+const MAX_CODE_WORD_CHARS = 512;
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -451,7 +453,9 @@ function lexGeneric(
 			depth -= 1;
 			if (depth === 0) {
 				const inner = lexCode(word.slice(start + 1, j), shell, language);
-				if (inner.length === 0) return null;
+				// What reads as nothing is skipped whole: reading it again from
+				// the outside doubled the work with every level of nesting.
+				if (inner.length === 0) return { tokens: [], length: j + 1 - start };
 				const of = words(CODE_CONTEXT_WORDS.ofType, language);
 				return {
 					tokens: language === "en" ? [...of, ...inner] : [...inner, ...of],
@@ -634,6 +638,9 @@ export function speakWord(
 ): string[] {
 	if (kind === "listNumber") return limit(speakListNumber(shown, language));
 	if (kind === "prose") return limit(speakProse(shown, language));
+	// A code word this long is not a name or an expression: it is never said, and
+	// never read, so no word can take the thread (both sides run this function).
+	if (shown.length > MAX_CODE_WORD_CHARS) return [];
 	return limit(speakCode(shown, kind === "shell", language));
 }
 
