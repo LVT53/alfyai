@@ -1,5 +1,6 @@
 """Aligner: word times for the spoken words, mapped back to the written tokens a reader sees."""
 
+import errno
 import os
 import tempfile
 import threading
@@ -314,6 +315,35 @@ def test_native_aligner_without_a_cli_raises_runtime_error(tmp_path, scratch):
         NativeFuseAligner(str(tmp_path / "no-such-cli"), MODEL, 2).align(
             sine(220, 16000), WORDS
         )
+    assert list(scratch.iterdir()) == []
+
+
+@pytest.mark.parametrize("failing_step", ["writing the wav", "cleaning up"])
+def test_native_aligner_does_not_blame_the_cli_for_a_disk_error(
+    tmp_path, scratch, monkeypatch, failing_step
+):
+    # A full disk while the files are written or deleted is the disk's error, not a CLI that could
+    # not be run: the OSError itself comes out, whose type and place the session logs.
+    disk_full = OSError(errno.ENOSPC, "No space left on device")
+    if failing_step == "writing the wav":
+
+        def write_nothing(*args, **kwargs):
+            raise disk_full
+
+        monkeypatch.setattr(aligner_module.sf, "write", write_nothing)
+    else:
+        delete_for_real = tempfile.TemporaryDirectory.cleanup
+
+        def delete_then_fail(self):
+            delete_for_real(self)
+            raise disk_full
+
+        monkeypatch.setattr(tempfile.TemporaryDirectory, "cleanup", delete_then_fail)
+    cli = make_fake_cli(tmp_path)
+    with pytest.raises(OSError) as failure:
+        NativeFuseAligner(cli.path, MODEL, 2).align(sine(220, 16000), WORDS)
+    assert failure.value is disk_full
+    assert not isinstance(failure.value, RuntimeError)
     assert list(scratch.iterdir()) == []
 
 

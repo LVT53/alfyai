@@ -135,7 +135,9 @@ class NativeFuseAligner:
     voice stay there for the length of one call, and nothing else reads them.
 
     Never reads or logs what the CLI prints: its answer is the output file, and a failure is a
-    RuntimeError with its exit status.
+    RuntimeError with its exit status. A CLI that cannot be run at all is a RuntimeError too; an
+    error of the disk under its files (a full disk) is the OSError itself, with no text in it
+    beyond the name of a path in the temporary directory.
     """
 
     # One CLI at a time, whichever aligner runs it: measured on the box, a clip of 32 to 38 s
@@ -153,19 +155,15 @@ class NativeFuseAligner:
     def align(self, audio_16k: np.ndarray, words: list[str]) -> list[Interval | None]:
         if not words:
             return []
-        try:
-            with self._slot, tempfile.TemporaryDirectory(prefix="fusealign-") as directory:
-                work = Path(directory)
-                wav, batch, out = work / "clip.wav", work / "in.jsonl", work / "out.jsonl"
-                sf.write(wav, audio_16k, ALIGN_SAMPLE_RATE, subtype="PCM_16")
-                # The words never hold whitespace, so "text" gives one result per word.
-                row = {"clip_id": "s1", "audio": str(wav), "text": " ".join(words)}
-                batch.write_text(json.dumps(row) + "\n", encoding="utf-8")
-                self._run(batch, out)
-                return _read_times(out, len(words))
-        except OSError as error:
-            # A CLI that is missing or cannot be run, a full disk: no text in what is raised.
-            raise RuntimeError(f"fusealign-cli could not be run ({type(error).__name__})") from None
+        with self._slot, tempfile.TemporaryDirectory(prefix="fusealign-") as directory:
+            work = Path(directory)
+            wav, batch, out = work / "clip.wav", work / "in.jsonl", work / "out.jsonl"
+            sf.write(wav, audio_16k, ALIGN_SAMPLE_RATE, subtype="PCM_16")
+            # The words never hold whitespace, so "text" gives one result per word.
+            row = {"clip_id": "s1", "audio": str(wav), "text": " ".join(words)}
+            batch.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            self._run(batch, out)
+            return _read_times(out, len(words))
 
     def _run(self, batch: Path, out: Path) -> None:
         """Run the CLI on the one-row `batch`, which writes its answer to `out`."""
@@ -191,6 +189,10 @@ class NativeFuseAligner:
             raise RuntimeError(
                 f"fusealign-cli did not finish within {_CLI_TIMEOUT_SECONDS:g} s"
             ) from None
+        except OSError as error:
+            # A CLI that is missing or cannot be run: no text in what is raised. Only this call is
+            # blamed on the CLI; an error of the disk under the files is raised as it is.
+            raise RuntimeError(f"fusealign-cli could not be run ({type(error).__name__})") from None
         if done.returncode != 0:  # a row that failed is a status of 1
             raise RuntimeError(f"fusealign-cli exited with status {done.returncode}")
 
