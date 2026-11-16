@@ -6,8 +6,10 @@ the reader can follow the voice on the written text. FuseAlign, a forced aligner
 in this process (`PythonFuseAligner`, the Mac's choice), through its native `fusealign-cli`
 (`NativeFuseAligner`, the GPU box's), or not at all (`NoAligner`).
 
-A backend raises RuntimeError when it cannot time a sentence, and the caller goes on without word
-times. The message never quotes the words: the service logs no reply text.
+A backend raises when it cannot time a sentence, and the caller goes on without word times, whatever
+it raised. A backend's own failures are RuntimeErrors whose message never quotes the words (the
+service logs no reply text); an error of the disk under the native backend's files comes out as the
+OSError it is.
 """
 
 from __future__ import annotations
@@ -49,8 +51,12 @@ class Aligner(Protocol):
 
         `audio_16k` is the sentence's audio as `resample_16k` makes it (mono, float32, samples in
         [-1, 1]), and `words` are `Spoken.words`. The answer has one entry per word, and `[]` for no
-        words, which no model is run for. Raises RuntimeError when the sentence cannot be timed at
-        all.
+        words, which no model is run for.
+
+        Raises when the sentence cannot be timed at all. Any exception may come out: a backend's own
+        failures are RuntimeErrors (whose message never quotes the words), the native backend lets
+        an error of the disk (an OSError) through, and the caller, a session, treats every one of
+        them as no word times for that sentence.
         """
         ...
 

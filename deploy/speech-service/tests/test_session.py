@@ -395,8 +395,12 @@ async def test_aligner_failure_gives_null_words(new_session):
 
 @pytest.mark.parametrize(
     "aligner",
-    [_FailsWith(ValueError("not a RuntimeError")), _WrongCount()],
-    ids=["another-exception", "wrong-count"],
+    [
+        _FailsWith(ValueError("not a RuntimeError")),
+        _FailsWith(OSError(28, "No space left on device")),  # the native backend lets this through
+        _WrongCount(),
+    ],
+    ids=["another-exception", "oserror", "wrong-count"],
 )
 async def test_any_aligner_failure_is_null_words_and_no_error(new_session, aligner):
     session, _ = new_session(make_sentences(2), aligner=aligner)
