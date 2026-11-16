@@ -274,6 +274,19 @@ Logs: `journalctl -u speech-service` (as root): ids, counts and timings, never r
 
 ffmpeg 7.1.5 (the box) reads ahead about 5 s of input before it encodes unless told not to; the encoder passes `-probesize 32 -analyzeduration 0` for that reason (see `audio.py`).
 
+### Known, accepted cost: vLLM decodes slower while a reading is being made
+
+Accepted by the owner on 2026-11-16, and written down so it can be looked into later.
+
+- **What was measured.** vLLM's single-stream decode speed (a fixed 200-token completion at temperature 0) was 157.3 tokens/s with the speech service idle. While a reading's sentences were being synthesized it was 140.8 tokens/s: **−10.5%**. That held over four alternating rounds, and vLLM's own gauge showed no other requests. With no reading running, the speed is unchanged. Zonos makes speech about 7× faster than real time, so during a reading it works in bursts, for about a seventh of the reading's length. Averaged over a reading, that costs vLLM about **1-2%**.
+- **The likely cause** is Zonos's backbone sharing GPU0 with vLLM, which is the layout the design approved. This work leaves both services exactly as they were. A first attempt to attribute the cost was too noisy to prove it (Zonos alone, then the aligner alone, three runs each). The aligner and the MP3 encoder run on the CPU, not the GPU.
+- **What could be tried later:**
+  - Attribute it properly under real load: longer runs, comparing Zonos alone, the aligner alone (`SPEECH_ALIGNER_THREADS=4`, or `SPEECH_ALIGNER=none` for a test) and the whole service.
+  - `SPEECH_PREFETCH=1` spreads the bursts thinner. The total GPU work stays the same, and there is less lookahead for the reader.
+  - On Zonos's side, each needing the owner's OK because they reconfigure `zonos3.service`:
+    - `--batch 1`, so readings never run two syntheses at once (a second reading would wait longer);
+    - or moving Zonos's backbone to GPU1, which had about 26 GB free on 2026-11-16, so it stops sharing GPU0 with vLLM. Check what else uses GPU1 first.
+
 ### Rollback
 
 ```sh
