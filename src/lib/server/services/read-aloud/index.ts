@@ -11,5 +11,11 @@ export {
 	type Reading,
 	reportPosition,
 } from "./readings";
+export {
+	charsPerSecondByLanguage,
+	positionRequestSchema,
+	type ReadingRequest,
+	readingRequestSchema,
+	speechSentencesFor,
+} from "./request";
 export { SpeechRefused, SpeechUnavailable } from "./speech-client";
-export { defaultVoiceFor } from "./voices";
