@@ -364,10 +364,11 @@ describe("buildSpeechScript", () => {
 				"<h3>Why the dough rises</h3><p>Yeast makes gas in the dough.</p><h4>What you need:</h4><p>Only flour, water and time.</p>",
 			),
 		);
+		// A colon at the end of a unit is the stop's place too: see "the closing stop".
 		expect(script.sentences.map((s) => s.tokens.at(-1))).toEqual([
 			"rises.",
 			"dough.",
-			"need:",
+			"need.",
 			"time.",
 		]);
 	});
@@ -387,11 +388,11 @@ describe("buildSpeechScript", () => {
 		expect(tokensOf(build(reply("<p>Home → Settings → Profile</p>")))).toEqual([
 			"Home,",
 			"Settings,",
-			"Profile",
+			"Profile.",
 		]);
 		expect(
 			tokensOf(build(reply("<p>Open the menu · then pick a theme</p>"))),
-		).toEqual(["Open", "the", "menu,", "then", "pick", "a", "theme"]);
+		).toEqual(["Open", "the", "menu,", "then", "pick", "a", "theme."]);
 	});
 
 	it("turns a dash between words into a pause after the word before it", () => {
@@ -532,7 +533,7 @@ describe("buildSpeechScript", () => {
 	it("ends a paragraph that closes on a bracket without a comma", () => {
 		expect(
 			tokensOf(build(reply("<p>Add the eggs (one at a time)</p>"))),
-		).toEqual(["Add", "the", "eggs,", "one", "at", "a", "time"]);
+		).toEqual(["Add", "the", "eggs,", "one", "at", "a", "time."]);
 	});
 
 	it("sets off a parenthetical inside a parenthetical, and one that closes after a quote", () => {
@@ -697,7 +698,7 @@ describe("buildSpeechScript", () => {
 		);
 		const script = build(root);
 		expect(script.sentences.map((s) => s.text)).toEqual([
-			"Eggs and milk. Butter and flour. Sugar and salt",
+			"Eggs and milk. Butter and flour. Sugar and salt.",
 		]);
 		const [sentence] = script.sentences;
 		expect(sentence?.paragraphStart).toBe(true);
@@ -725,7 +726,7 @@ describe("buildSpeechScript", () => {
 			),
 		);
 		expect(script.sentences.map((s) => s.text)).toEqual([
-			"One. Mix the flour well. Two. Add the water slowly",
+			"One. Mix the flour well. Two. Add the water slowly.",
 		]);
 	});
 
@@ -738,7 +739,7 @@ describe("buildSpeechScript", () => {
 			),
 		);
 		expect(script.sentences.map((s) => s.text)).toEqual([
-			"Eggs, Milk and flour. Butter and sugar",
+			"Eggs, Milk and flour. Butter and sugar.",
 		]);
 		// The unit stays an item of its list, not a paragraph of one sentence: it does not take
 		// the paragraph after the list.
@@ -748,7 +749,7 @@ describe("buildSpeechScript", () => {
 			),
 		);
 		expect(alone.sentences.map((s) => s.text)).toEqual([
-			"Eggs, Milk and flour",
+			"Eggs, Milk and flour.",
 			"This paragraph is long enough to be a sentence of its own, really.",
 			"And this second sentence is long enough to stand on its own, too.",
 		]);
@@ -761,8 +762,8 @@ describe("buildSpeechScript", () => {
 			),
 		);
 		expect(two.sentences.map((s) => s.text)).toEqual([
-			"Eggs and milk",
-			"Butter and flour",
+			"Eggs and milk.",
+			"Butter and flour.",
 		]);
 		const headed = build(
 			reply(
@@ -770,9 +771,9 @@ describe("buildSpeechScript", () => {
 			),
 		);
 		expect(headed.sentences.map((s) => s.text)).toEqual([
-			"Eggs and milk",
+			"Eggs and milk.",
 			"What comes next.",
-			"Butter and flour",
+			"Butter and flour.",
 		]);
 	});
 
@@ -783,7 +784,7 @@ describe("buildSpeechScript", () => {
 			),
 		);
 		expect(script.sentences.map((s) => s.text)).toEqual([
-			"You will need: Eggs and milk. Butter and flour",
+			"You will need: Eggs and milk. Butter and flour.",
 		]);
 	});
 
@@ -823,7 +824,7 @@ describe("buildSpeechScript", () => {
 			),
 		);
 		expect(script.sentences).toHaveLength(2);
-		expect(script.sentences[0]?.text).toBe("Here is the sum in Python:");
+		expect(script.sentences[0]?.text).toBe("Here is the sum in Python.");
 	});
 
 	it("never joins into a unit the script would have to split again", () => {
@@ -844,7 +845,7 @@ describe("buildSpeechScript", () => {
 		);
 		expect(script.sentences).toHaveLength(1);
 		expect(script.sentences[0]).toMatchObject({
-			tokens: ["Ingredients.", "Flour,", "Water,", "Salt"],
+			tokens: ["Ingredients.", "Flour,", "Water,", "Salt."],
 			paragraphStart: true,
 		});
 		// A short last sentence joins the one before it.
@@ -870,11 +871,15 @@ describe("buildSpeechScript", () => {
 		expect(script.sentences.length).toBeGreaterThan(1);
 		for (const sentence of script.sentences)
 			expect(sentence.text.length).toBeLessThanOrEqual(240);
-		expect(script.sentences[0]?.text.endsWith(",")).toBe(true);
+		// The part ends where the comma was, and the unit ends in a stop in its place.
+		expect(script.sentences[0]?.text.endsWith(".")).toBe(true);
 		expect(script.sentences.map((s) => s.paragraphStart)).toEqual(
 			script.sentences.map((_, i) => i === 0),
 		);
-		expect(script.sentences.flatMap((s) => s.tokens).join(" ")).toBe(text);
+		const unmarked = (value: string) => value.replace(/[.,]/g, "");
+		expect(unmarked(script.sentences.flatMap((s) => s.tokens).join(" "))).toBe(
+			unmarked(text),
+		);
 		// With no comma, it splits at the last word that keeps a part within 240.
 		const long = Array.from(
 			{ length: 60 },
@@ -958,9 +963,176 @@ describe("buildSpeechScript", () => {
 		);
 		expect(tokensOf(script).join(" ")).not.toContain("HIDDENTEXT");
 		expect(script.sentences.map((s) => s.text)).toEqual([
-			"Show the full recipe with all the steps and amounts",
+			"Show the full recipe with all the steps and amounts.",
 			"And this is outside, so it is read after the summary.",
 		]);
+	});
+});
+
+describe("the closing stop", () => {
+	// The walk's Final 1 (2026-11-17): Zonos can end a clip before the last words of a text that
+	// ends in no mark ("Egy csipet só" after a list was never said; the same text ending in a
+	// full stop is read in full). So every unit the voice is sent ends in a mark that ends a
+	// sentence, after the joins and the splits; only punctuation changes.
+	const stops = (script: SpeechScript) => script.sentences.map((s) => s.text);
+
+	it("gives the last item of a list, which ends in no mark, a full stop", () => {
+		const script = build(
+			reply(
+				"<ul><li>Eggs and milk</li><li>Butter and flour</li><li>A pinch of salt</li></ul>",
+			),
+		);
+		expect(stops(script)).toEqual([
+			"Eggs and milk. Butter and flour. A pinch of salt.",
+		]);
+	});
+
+	it("ends the walk's Hungarian list in a stop, so its last item is said", () => {
+		const script = build(
+			reply(
+				"<p>Persze, segítek ebben.</p><p>Ezekre lesz szükséged:</p><ul><li>Tojás</li><li>Túró</li><li>Sütőpor</li><li>Egy csipet só</li></ul>",
+			),
+		);
+		expect(stops(script)).toEqual([
+			"Persze, segítek ebben. Ezekre lesz szükséged: Tojás, Túró, Sütőpor. Egy csipet só.",
+		]);
+		expect(script.sentences[0]?.language).toBe("hu");
+	});
+
+	it("gives a paragraph with no final mark, and a one-word one after it, a stop", () => {
+		const bare = build(
+			reply(
+				"<p>This paragraph has no final mark but it is long enough to stand alone</p>",
+			),
+		);
+		expect(stops(bare)).toEqual([
+			"This paragraph has no final mark but it is long enough to stand alone.",
+		]);
+		const tail = build(
+			reply(
+				"<p>This paragraph is long enough to stand alone in the script, as it should.</p><p>Thanks</p>",
+			),
+		);
+		expect(stops(tail)).toEqual([
+			"This paragraph is long enough to stand alone in the script, as it should. Thanks.",
+		]);
+	});
+
+	it("gives a line of code a stop too", () => {
+		const script = build(
+			reply(
+				`<p>Here is a long enough line to tell what follows.</p>${codeBlock("python", ["total = price * 2", "print(total)"])}`,
+			),
+		);
+		for (const sentence of script.sentences)
+			expect(sentence.tokens.at(-1)).toMatch(/[.!?…]$/u);
+	});
+
+	it("puts the stop where a comma, a semicolon or a colon ended the unit", () => {
+		const colon = build(
+			reply(
+				"<p>Here is the sum in Python:</p>" +
+					codeBlock("python", ["total = price * 2", "print(total)"]),
+			),
+		);
+		expect(colon.sentences[0]?.text).toBe("Here is the sum in Python.");
+		const heading = build(reply("<h4>What you need:</h4>"));
+		expect(stops(heading)).toEqual(["What you need."]);
+		// The first part of a sentence that is split at a comma, or at a semicolon.
+		const clause =
+			"the dough rests in a warm bowl under a clean towel for about an hour";
+		const split = build(
+			reply(
+				`<p>First ${clause}; then ${clause}; and after that ${clause}; until ${clause} at last.</p>`,
+			),
+		);
+		expect(split.sentences.length).toBeGreaterThan(1);
+		for (const sentence of split.sentences)
+			expect(sentence.tokens.at(-1)).toMatch(/[.!?…]$/u);
+		expect(split.sentences[0]?.text.endsWith("hour.")).toBe(true);
+	});
+
+	it("leaves a unit that ends in a full stop, a question mark, an exclamation mark or an ellipsis as it is", () => {
+		for (const mark of [".", "?", "!", "…"]) {
+			const script = build(
+				reply(
+					`<p>This sentence is long enough to stand alone in the script${mark}</p>`,
+				),
+			);
+			expect(stops(script)).toEqual([
+				`This sentence is long enough to stand alone in the script${mark}`,
+			]);
+		}
+	});
+
+	it("does not double a stop that a closing quote or bracket follows", () => {
+		const lead = "The teacher looked at the whole class and then she";
+		const cases: Array<[string, string]> = [
+			[`${lead} said "stop it now."`, 'now."'],
+			[`${lead} asked “why did you do it?”`, "it?”"],
+			[`${lead} left (as she should have.)`, "have."],
+			[`${lead} said "stop it now".`, 'now".'],
+		];
+		for (const [text, last] of cases) {
+			const script = build(reply(`<p>${text}</p>`));
+			expect(script.sentences.at(-1)?.tokens.at(-1)).toBe(last);
+		}
+		// A closing quote that follows no mark has the stop after it.
+		const bare = build(reply(`<p>${lead} said "stop it now"</p>`));
+		expect(bare.sentences.at(-1)?.tokens.at(-1)).toBe('now".');
+	});
+
+	it("leaves room for the stop: a unit is never joined to 240 characters that its stop would make 241", () => {
+		// A capital after the full stop, or Intl.Segmenter finds no sentence boundary there. The long
+		// sentence ends in no mark: 17 + 1 + 222 = 240 characters joined, 241 closed, which the script
+		// would have to split again; so the short one stays apart and the long one has its stop.
+		const long = `Word ${"word ".repeat(42)}${"e".repeat(7)}`;
+		expect(long).toHaveLength(222);
+		const script = build(reply(`<p>A short one here. ${long}</p>`));
+		expect(stops(script)).toEqual(["A short one here.", `${long}.`]);
+		for (const sentence of script.sentences)
+			expect(sentence.text.length).toBeLessThanOrEqual(240);
+	});
+
+	it("counts the stop towards the length a unit is split at, and only when it adds one", () => {
+		// 47 words of four letters and one of five: 240 characters, which is within the limit, but
+		// with its stop 241, so it is split.
+		const bare = `${"word ".repeat(47)}eeeee`;
+		expect(bare).toHaveLength(240);
+		const split = build(reply(`<p>${bare}</p>`));
+		expect(split.sentences.length).toBeGreaterThan(1);
+		for (const sentence of split.sentences)
+			expect(sentence.text.length).toBeLessThanOrEqual(240);
+		// The same length ending in a stop, or in a token that cannot take one, is not split.
+		const stopped = build(reply(`<p>${"word ".repeat(47)}eeee.</p>`));
+		expect(stopped.sentences).toHaveLength(1);
+		const full = "a".repeat(80);
+		const edge = build(reply(`<p>${"word ".repeat(32)}${full}</p>`));
+		expect(edge.sentences).toHaveLength(1);
+		expect(edge.sentences[0]?.text).toHaveLength(240);
+		expect(edge.sentences[0]?.tokens.at(-1)).toBe(full);
+	});
+
+	it("never makes a token longer than the session route takes", () => {
+		const long = "a".repeat(80);
+		const script = build(
+			reply(`<p>This is a paragraph that ends in a very long word ${long}</p>`),
+		);
+		for (const token of tokensOf(script))
+			expect(token.length).toBeLessThanOrEqual(80);
+		expect(script.sentences[0]?.tokens.at(-1)).toBe(long);
+	});
+
+	it("keeps the count of tokens, so every token keeps its range", () => {
+		const script = build(
+			reply(
+				"<ul><li>Eggs and milk</li><li>Butter and flour</li><li>A pinch of salt</li></ul>",
+			),
+		);
+		const [sentence] = script.sentences;
+		expect(sentence?.ranges).toHaveLength(sentence?.tokens.length ?? -1);
+		expect(sentence?.ranges.at(-1)?.toString()).toBe("salt");
+		expect(sentence?.chars).toBe((sentence?.text.length ?? 0) + 1);
 	});
 });
 

@@ -26,6 +26,13 @@ sentences.ts` joins a sentence, a list item or a one-line paragraph under 50 cha
 neighbour). A sentence of 50 characters or more stalls in about one clip in a hundred, one of 40 to
 49 in about one in fourteen.
 
+Nor can it see the opposite: a clip that leaves out the last words of a text that ends in no mark
+(the walk's "Egy csipet só", the last item of a list, was never said; the same text ending in a full
+stop is read in full) is not longer than its text needs. On the Mac, at the service's own seed, 1 of
+20 Hungarian list tails dropped its last item with no stop and none of 20 with one. So the speech
+script ends every unit in a stop (`speech-script.ts`, `closeSentences`), and the service is sent
+nothing else.
+
 The seeds are the caller's seed and then steps of `SEED_STEP` from it, so a reading is as repeatable
 as one with no guard: the same sentence in the same voice stalls or not, and is mended, the same way
 every time. A clip with no trouble costs one attempt, which is nearly every clip of a long sentence.

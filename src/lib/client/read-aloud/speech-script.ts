@@ -85,8 +85,9 @@ const PARAGRAPH_TAGS = [
 export const CODE_BLOCK_MAX_LINES = 3;
 
 /**
- * A sentence longer than this is split. Measured on the box (2026-11-16): it keeps every clip under
- * 30 s even at the slowest Pace, so the aligner never enters its long-form mode.
+ * A sentence longer than this, as it is sent (with the stop that closes it), is split. Measured on
+ * the box (2026-11-16): it keeps every clip under 30 s even at the slowest Pace, so the aligner
+ * never enters its long-form mode.
  */
 export const LONG_SENTENCE_CHARS = 240;
 
@@ -197,7 +198,13 @@ export function buildSpeechScript(
 	});
 
 	const sentences = finish(
-		splitLong(joinShortSentences(mergeShort(drafts), LONG_SENTENCE_CHARS)),
+		closeSentences(
+			// One character of room is left for the stop that closes a unit, so `splitLong` never
+			// has to cut a unit the join has made.
+			splitLong(
+				joinShortSentences(mergeShort(drafts), LONG_SENTENCE_CHARS - 1),
+			),
+		),
 	);
 	const totalChars = sentences.reduce((sum, s) => sum + s.chars, 0);
 	if (sentences.length > 0)
@@ -837,6 +844,18 @@ function mergeShort(drafts: readonly Draft[]): Draft[] {
 	return out;
 }
 
+/** What ends a sentence for the voice, a closing quote or bracket after it allowed ("now."). An ellipsis trails off: it ends one too. */
+const ENDS_A_SENTENCE = /[.!?…][)\]}"'”’»]*$/u;
+/** A mark that pauses and does not end a sentence: the closing stop takes its place. */
+const OPEN_MARK = /[,;:]$/u;
+
+/** The token as `closeSentences` leaves it at the end of a unit, or null when it needs no stop or cannot take one. */
+function withClosingStop(token: string): string | null {
+	if (ENDS_A_SENTENCE.test(token)) return null;
+	const closed = `${token.replace(OPEN_MARK, "")}.`;
+	return closed.length <= MAX_TOKEN_CHARS ? closed : null;
+}
+
 const textLength = (words: readonly DraftWord[]) => {
 	const tokens = words.flatMap((word) => word.tokens);
 	return (
@@ -845,17 +864,30 @@ const textLength = (words: readonly DraftWord[]) => {
 	);
 };
 
+/** The characters the closing stop adds to a unit that ends in `word`: one where it ends in no mark, none where the stop replaces a mark or is left off. */
+function stopCost(word: DraftWord | undefined): number {
+	if (!word) return 0;
+	const token = lastToken(word);
+	const closed = withClosingStop(token);
+	return closed === null ? 0 : closed.length - token.length;
+}
+
+/** The characters a unit is sent as: its text, and the stop that closes it. */
+const sentLength = (words: readonly DraftWord[]) =>
+	textLength(words) + stopCost(words[words.length - 1]);
+
 /**
- * A sentence over {@link LONG_SENTENCE_CHARS} splits after the last word that ends in "," or ";" and
- * keeps the first part within the limit, else after the last word that keeps it within; a word is
- * never split. A cut that would leave a part of fewer than three tokens is taken only when no other fits.
+ * A sentence over {@link LONG_SENTENCE_CHARS} (as it is sent, with its closing stop) splits after
+ * the last word that ends in "," or ";" and keeps the first part within the limit, else after the
+ * last word that keeps it within; a word is never split. A cut that would leave a part of fewer
+ * than three tokens is taken only when no other fits.
  */
 function splitLong(drafts: readonly Draft[]): Draft[] {
 	const out: Draft[] = [];
 	for (const draft of drafts) {
 		let words = draft.words;
 		let first = true;
-		while (textLength(words) > LONG_SENTENCE_CHARS && words.length > 1) {
+		while (sentLength(words) > LONG_SENTENCE_CHARS && words.length > 1) {
 			const cut = chooseCut(words);
 			out.push({
 				...draft,
@@ -887,6 +919,8 @@ function chooseCut(words: readonly DraftWord[]): number {
 		length += 1 + word.tokens.join(" ").length;
 		before += word.tokens.length;
 		if (length > LONG_SENTENCE_CHARS) break;
+		// The part is sent with the stop that closes it, one character more where it ends in no mark.
+		if (length + stopCost(word) > LONG_SENTENCE_CHARS) continue;
 		const pauses = /[,;]$/u.test(lastToken(word));
 		fitsAny = k;
 		if (pauses) pauseAny = k;
@@ -901,6 +935,27 @@ function chooseCut(words: readonly DraftWord[]): number {
 	}
 	for (const cut of [pause, fits, pauseAny, fitsAny]) if (cut >= 0) return cut;
 	return 0;
+}
+
+/**
+ * Every sentence the voice is sent ends in a mark that ends a sentence (the walk's Final 1,
+ * 2026-11-17). Zonos can end a clip before the last words of a text that ends in no mark: "Egy
+ * csipet só", the last item of a joined list, was never said, and the same text ending in a full
+ * stop is. A unit that ends in no mark gets a full stop; one that ends in a comma, a semicolon
+ * or a colon (the first part of a split sentence, a line that introduces what follows) has that
+ * mark replaced by one. It runs last, after the joins and the splits, so every unit it is given is
+ * the one that is sent. Only punctuation changes: the containment check compares letters, and the
+ * token count, so every token's range, stays. A stop that would take a token past the session
+ * route's limit is left off.
+ */
+function closeSentences(drafts: readonly Draft[]): Draft[] {
+	for (const draft of drafts) {
+		const last = draft.words[draft.words.length - 1];
+		if (!last) continue;
+		const closed = withClosingStop(lastToken(last));
+		if (closed !== null) setLastToken(last, closed);
+	}
+	return [...drafts];
 }
 
 function finish(drafts: readonly Draft[]): ScriptSentence[] {

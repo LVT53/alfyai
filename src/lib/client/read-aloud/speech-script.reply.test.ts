@@ -88,6 +88,25 @@ describe("the speech script against the containment check", () => {
 		expect(wordsFitReply(SYNTAX_REPLY, checked(script))).toBeNull();
 	}, 30_000);
 
+	it("ends every sentence in a stop, and the session route accepts every word of it", async () => {
+		// The walk's Final 1: a list's last item, a heading that ends in a colon and a line with no
+		// final mark have no stop of their own. The script gives each one; only punctuation
+		// changes, so the route's check, which compares letters, is as satisfied as before.
+		const content = `${SYNTAX_REPLY}\n\n- Eggs and milk\n- Butter and flour\n- A pinch of salt\n\n## What you need:\n\nThanks a lot`;
+		const root = await renderReply(content);
+		const script = buildSpeechScript([root], await loadDetector(), {
+			fallbackLanguage: "en",
+		});
+		expect(script.sentences.length).toBeGreaterThan(3);
+		for (const sentence of script.sentences)
+			expect(sentence.tokens.at(-1)).toMatch(/[.!?…][)\]}"'”’»]*$/u);
+		const spoken = script.sentences.map((s) => s.text);
+		expect(spoken.join(" ")).toContain("Butter and flour. A pinch of salt.");
+		expect(spoken).toContain("What you need.");
+		expect(spoken.at(-1)).toBe("Thanks a lot.");
+		expect(wordsFitReply(content, checked(script))).toBeNull();
+	}, 30_000);
+
 	it("accepts the addresses the early review saw refused: a Unicode host, a login, a host in brackets (R4)", async () => {
 		const content = `${SYNTAX_REPLY}\n\nBuy at https://bücher.de/x or https://user:pw@example.org/x today. Source: https://www.bbc.com/news/x is good. As reported (bbc.com) it holds.`;
 		const root = await renderReply(content);
