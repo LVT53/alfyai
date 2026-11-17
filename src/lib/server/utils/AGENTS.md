@@ -17,6 +17,7 @@ Low-level utilities consumed across server services. Pure functions, no side eff
 | `extractive-compression.ts` | Text summarization without LLM |
 | `topic-shift-detector.ts` | Detects topic changes for memory management |
 | `tool-refusal.ts` | The error a tool throws to turn a call down before it dispatched anything; the tool envelope records it as proven not executed |
+| `request-abort-signal.ts` | `createRequestAbortSignal`: a request's own signal and a timeout, whichever fires first; a leaf, so the short control calls (`chat-turn/short-local-text.ts`) need not import chat-turn's model-run helpers, which closed an import cycle through the tool set |
 | `turn-deadline-reason.ts` | The reason the completion engine's own timer aborts a model call with when the time for the model's work runs out, and `abortedByTurnDeadline`, which the tool envelope reads to tell that clock from a stop; a tool that only reads and was cut off by it has failed, any other abort leaves the call uncertain |
 
 ## Usage by Service

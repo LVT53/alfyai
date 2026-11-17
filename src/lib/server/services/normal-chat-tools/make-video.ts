@@ -133,6 +133,7 @@ export type MakeVideoPayload =
 
 type RefusalCode =
 	| "not_configured"
+	| "not_asked_for"
 	| "explicit_request"
 	| "unknown_picture"
 	| "video_error"
@@ -211,6 +212,10 @@ const TITLE_FALLBACK = "Video";
 
 type Metadata = Record<string, string | number | boolean | null>;
 type Outcome = { modelPayload: MakeVideoPayload; metadata: Metadata };
+
+/** What the model is told when the person did not ask for a video: ask first. */
+const NOT_ASKED_FOR_VIDEO_MESSAGE =
+	"The user did not ask for a video in so many words, so none was started. Ask with ask_user whether they want a short video of the picture, offering a changed still picture as the other choice, and make the video only once they choose it.";
 
 function refusal(errorCode: RefusalCode, message: string): Outcome {
 	return {
@@ -403,6 +408,8 @@ async function planTake(params: {
 	turnPictures: TurnPictureIndex | null;
 	turnTakes: TurnTakes;
 	signal: AbortSignal;
+	/** Whether the person asked for a video (video-request.ts); omitted, nothing is asked. */
+	askedForVideo?: () => Promise<boolean | null>;
 }): Promise<Planned> {
 	const { userId, conversationId, input, turnPictures, turnTakes } = params;
 	if (params.signal.aborted) return { ok: false, refused: stoppedRefusal() };
@@ -422,6 +429,15 @@ async function planTake(params: {
 		return {
 			ok: false,
 			refused: refusal("explicit_request", EXPLICIT_REQUEST_MESSAGE),
+		};
+	}
+	// A video starts only on a clear request for one (video-request.ts): a "no"
+	// stops the call here, before a still, a caption or a take, and sends the
+	// model to ask. No answer is the model's own call, which goes on.
+	if (params.askedForVideo && (await params.askedForVideo()) === false) {
+		return {
+			ok: false,
+			refused: refusal("not_asked_for", NOT_ASKED_FOR_VIDEO_MESSAGE),
 		};
 	}
 
@@ -555,6 +571,8 @@ export async function runMakeVideoTool(params: {
 	waitBudgetMs?: number;
 	/** The wait itself; tests replace it, production reads the video kind. */
 	waitForTake?: WaitForVideoTake;
+	/** Whether the person asked for a video (video-request.ts); omitted, nothing is asked. */
+	askedForVideo?: () => Promise<boolean | null>;
 }): Promise<Outcome> {
 	const planned = await planTake(params);
 	if (!planned.ok) return planned.refused;
