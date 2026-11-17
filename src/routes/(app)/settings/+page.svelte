@@ -106,6 +106,7 @@ interface SettingsPageData {
 			uiLanguage: "en" | "hu";
 			timeZone?: string | null;
 			memoryEnabled?: boolean;
+			picturesAndVideosEnabled?: boolean;
 		};
 		profilePicture: string | null;
 	};
@@ -265,6 +266,11 @@ let selectedMemoryEnabled = $state<boolean>(
 	initialPreferences.memoryEnabled ?? true,
 );
 let memorySaving = $state(false);
+// The person's own "Pictures and videos" switch (on unless they turned it off).
+let selectedPicturesAndVideos = $state<boolean>(
+	initialPreferences.picturesAndVideosEnabled ?? true,
+);
+let picturesAndVideosSaving = $state(false);
 
 // Personal instructions (Workspaces feature 1, slice C). The page owns the
 // write; the shared dialog owns the editing, so Slice D's project scope and
@@ -791,6 +797,21 @@ async function changeMemoryEnabled(enabled: boolean) {
 	}
 }
 
+// Optimistic like changeMemoryEnabled: the switch moves at once and goes back
+// if the save fails.
+async function changePicturesAndVideos(enabled: boolean) {
+	const previous = selectedPicturesAndVideos;
+	selectedPicturesAndVideos = enabled;
+	picturesAndVideosSaving = true;
+	try {
+		await updateUserPreferences({ picturesAndVideosEnabled: enabled });
+	} catch {
+		selectedPicturesAndVideos = previous;
+	} finally {
+		picturesAndVideosSaving = false;
+	}
+}
+
 // Optimistic like changeMemoryEnabled, but it answers the dialog instead of
 // swallowing: the dialog stays open with the text intact when the write fails,
 // because closing would throw away what the user just wrote.
@@ -1304,6 +1325,9 @@ $effect(() => {
 				memoryEnabled={selectedMemoryEnabled}
 				{memorySaving}
 				onChangeMemoryEnabled={changeMemoryEnabled}
+				picturesAndVideosEnabled={selectedPicturesAndVideos}
+				{picturesAndVideosSaving}
+				onChangePicturesAndVideos={changePicturesAndVideos}
 				{personalInstructions}
 				onOpenPersonalInstructions={() => (instructionsDialogOpen = true)}
 				{personalityProfiles}

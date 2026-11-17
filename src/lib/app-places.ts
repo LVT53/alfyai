@@ -74,6 +74,7 @@ export const SPOTLIGHT_IDS = [
 	"settings.style",
 	"settings.language",
 	"settings.skills",
+	"settings.pictures",
 	"settings.twoStep",
 	"settings.data",
 	"settings.activity",

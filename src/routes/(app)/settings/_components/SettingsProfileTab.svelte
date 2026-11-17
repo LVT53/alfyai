@@ -139,6 +139,9 @@ let {
 	memoryEnabled = true,
 	memorySaving = false,
 	onChangeMemoryEnabled = undefined,
+	picturesAndVideosEnabled = true,
+	picturesAndVideosSaving = false,
+	onChangePicturesAndVideos = undefined,
 	personalInstructions = null,
 	onOpenPersonalInstructions = undefined,
 	personalityProfiles = [],
@@ -212,6 +215,12 @@ let {
 	memoryEnabled?: boolean;
 	memorySaving?: boolean;
 	onChangeMemoryEnabled?:
+		| ((enabled: boolean) => void | Promise<void>)
+		| undefined;
+	/** "Pictures and videos": whether Alfy may make them in this person's chats. */
+	picturesAndVideosEnabled?: boolean;
+	picturesAndVideosSaving?: boolean;
+	onChangePicturesAndVideos?:
 		| ((enabled: boolean) => void | Promise<void>)
 		| undefined;
 	/** The saved text, or null when nothing has been set. */
@@ -885,6 +894,30 @@ function handlePersonalitySelect(event: Event) {
 						/>
 						<span class="settings-row-hint">
 							{memoryEnabled ? $t('profileTab.memoryOn') : $t('profileTab.memoryOff')}
+						</span>
+					</div>
+				</div>
+
+				<!-- The person's own Pictures and videos switch. Off, their chats are
+				     not offered make_image or make_video (images/picture-making.ts);
+				     what was made stays, and sending photos is not affected. The
+				     guide's Show me rings this row (settings.pictures). -->
+				<div class="settings-row" use:spotlightTarget={"settings.pictures"}>
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('profileTab.picturesAndVideos')}</p>
+						<p class="settings-row-help">{$t('profileTab.picturesAndVideosHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<Toggle
+							checked={picturesAndVideosEnabled}
+							disabled={picturesAndVideosSaving}
+							ariaLabel={$t('profileTab.picturesAndVideos')}
+							onChange={(next) => onChangePicturesAndVideos?.(next)}
+						/>
+						<span class="settings-row-hint">
+							{picturesAndVideosEnabled
+								? $t('profileTab.picturesAndVideosOn')
+								: $t('profileTab.picturesAndVideosOff')}
 						</span>
 					</div>
 				</div>

@@ -607,19 +607,78 @@ describe("SettingsProfileTab — assistant behaviour", () => {
 
 		const toggle = screen.getByRole("switch", { name: "Memory" });
 		expect(toggle).toHaveAttribute("aria-checked", "true");
-		expect(screen.getByText("On")).toBeInTheDocument();
+		const memoryRow = toggle.closest(".settings-row") as HTMLElement;
+		expect(within(memoryRow).getByText("On")).toBeInTheDocument();
 
 		await fireEvent.click(toggle);
 		expect(onChangeMemoryEnabled).toHaveBeenCalledWith(false);
 		unmount();
 
 		renderTab({ memoryEnabled: false });
-		expect(screen.getByRole("switch", { name: "Memory" })).toHaveAttribute(
-			"aria-checked",
-			"false",
-		);
-		expect(screen.getByText("Off")).toBeInTheDocument();
+		const off = screen.getByRole("switch", { name: "Memory" });
+		expect(off).toHaveAttribute("aria-checked", "false");
+		expect(
+			within(off.closest(".settings-row") as HTMLElement).getByText("Off"),
+		).toBeInTheDocument();
 		expect(screen.getByText(/pause all learning/i)).toBeInTheDocument();
+	});
+
+	// "Pictures and videos": the person's own switch for whether Alfy may make
+	// pictures and videos in their chats. On by default; off, it makes none and
+	// what was made stays.
+	it("reflects the Pictures and videos switch, names it in words and toggles it", async () => {
+		const onChangePicturesAndVideos = vi.fn();
+		const { unmount } = renderTab({
+			picturesAndVideosEnabled: true,
+			onChangePicturesAndVideos,
+		});
+
+		const toggle = screen.getByRole("switch", { name: "Pictures and videos" });
+		expect(toggle).toHaveAttribute("aria-checked", "true");
+		const row = toggle.closest(".settings-row") as HTMLElement;
+		expect(within(row).getByText("On")).toBeInTheDocument();
+		expect(within(row).getByText(/when you ask/i)).toBeInTheDocument();
+
+		await fireEvent.click(toggle);
+		expect(onChangePicturesAndVideos).toHaveBeenCalledWith(false);
+		unmount();
+
+		renderTab({ picturesAndVideosEnabled: false });
+		const off = screen.getByRole("switch", { name: "Pictures and videos" });
+		expect(off).toHaveAttribute("aria-checked", "false");
+		expect(
+			within(off.closest(".settings-row") as HTMLElement).getByText("Off"),
+		).toBeInTheDocument();
+	});
+
+	it("draws the Pictures and videos switch on when the page says nothing, and holds it still while it saves", () => {
+		const { unmount } = renderTab();
+		expect(
+			screen.getByRole("switch", { name: "Pictures and videos" }),
+		).toHaveAttribute("aria-checked", "true");
+		unmount();
+
+		renderTab({ picturesAndVideosSaving: true });
+		expect(
+			screen.getByRole("switch", { name: "Pictures and videos" }),
+		).toBeDisabled();
+	});
+
+	it("puts the Pictures and videos switch in the Assistant card, right after Memory", () => {
+		const { container } = renderTab();
+
+		const rows = [
+			...container.querySelectorAll(
+				"#settings-section-assistant .settings-row",
+			),
+		];
+		const memoryAt = rows.findIndex((row) => row.id === "settings-memory-card");
+		expect(memoryAt).toBeGreaterThanOrEqual(0);
+		expect(
+			within(rows[memoryAt + 1] as HTMLElement).getByRole("switch", {
+				name: "Pictures and videos",
+			}),
+		).toBeInTheDocument();
 	});
 
 	// /settings?section=memory (linked from the Knowledge memory empty state)
@@ -968,6 +1027,13 @@ describe("SettingsProfileTab — the guide's Show me", () => {
 		[
 			"settings.skills",
 			() => screen.getByTestId("skills-summary-card").closest(".settings-row"),
+		],
+		[
+			"settings.pictures",
+			() =>
+				screen
+					.getByRole("switch", { name: "Pictures and videos" })
+					.closest(".settings-row"),
 		],
 		[
 			"settings.data",
