@@ -309,6 +309,20 @@ async def test_a_sentence_zonos_stalled_on_is_made_again_and_the_steady_clip_is_
     assert requests[0]["text"] == requests[1]["text"] == "Hello there."
 
 
+async def test_speech_made_up_for_a_few_words_is_made_again(new_session, caplog):
+    # A selection of a few words: Zonos answers with seconds of fluent speech the text never held.
+    caplog.set_level(logging.DEBUG, logger="speech_service")
+    made_up = tone(0.3, 5.0)
+    sentences = [Sentence("s0", "en", VOICE, list(SECRET), True)]  # "Zebrafish Quokka."
+    session, requests = new_session(sentences, zonos=scripted_zonos(made_up, STEADY))
+    events, _ = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(1.2, abs=0.05)]
+    assert len(requests) == 2
+    lines = _logged(caplog)
+    assert any("made again" in line for line in lines)
+    assert not any("Zebrafish" in line or "Quokka" in line for line in lines)
+
+
 async def test_a_sentence_that_stalls_every_time_is_still_spoken_from_the_least_bad_clip(new_session):
     worst = np.concatenate([tone(0.3, 0.5), np.zeros(round(3.0 * SR), dtype=np.float32), tone(0.3, 0.5)])
     session, requests = new_session(
@@ -1392,6 +1406,7 @@ class _QuotesTheWords(FakeAligner):
         "zonos-500",
         "normalizer-quotes",
         "stalled",
+        "made-up",
         "cancelled",
         "idle",
     ],
@@ -1408,6 +1423,8 @@ async def test_no_reply_text_is_logged(new_session, caplog, monkeypatch, scenari
         options["fail_on"] = 2
     elif scenario == "stalled":
         options["zonos"] = scripted_zonos(STALLED, STEADY, STALLED, STALLED, STEADY)
+    elif scenario == "made-up":
+        options["zonos"] = scripted_zonos(tone(0.3, 6.0), STEADY, tone(0.3, 6.0), STEADY, STEADY)
     elif scenario == "normalizer-quotes":
         def quoting(tokens, language):
             raise ValueError(f"cannot normalize {tokens}")

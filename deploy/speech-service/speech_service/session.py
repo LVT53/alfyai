@@ -397,18 +397,19 @@ class ReadingSession:
         return lengthen_pauses(clip, rate, self._settings.breath_seconds)
 
     def _made_again_because_it_stalled(
-        self, attempt: int, attempts: int, seconds: float, pause: float
+        self, attempt: int, attempts: int, seconds: float, pause: float, expected: float
     ) -> None:
         """Zonos stalled on the sentence being read, and it is made again. Counted for the line that
         says how the session ended, and logged as numbers only, at the level a retry deserves: it
         happens to a good share of short sentences, so it is not news."""
         self._made_again += 1
         logger.debug(
-            "session %s: sentence %d: a clip of %.1f s with a pause of %.1f s was made again "
-            "(attempt %d of %d)",
+            "session %s: sentence %d: a clip of %.1f s (its text needs about %.1f s) with a pause of "
+            "%.1f s was made again (attempt %d of %d)",
             self.id,
             self._current,
             seconds,
+            expected,
             pause,
             attempt,
             attempts,

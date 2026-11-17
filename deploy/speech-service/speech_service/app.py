@@ -244,11 +244,15 @@ class _Api:
         )
 
 
-def _preview_made_again(attempt: int, attempts: int, seconds: float, pause: float) -> None:
+def _preview_made_again(
+    attempt: int, attempts: int, seconds: float, pause: float, expected: float
+) -> None:
     """Zonos stalled on a preview's sentence and it is made again: numbers only, never the text."""
     logger.info(
-        "preview: a clip of %.1f s with a pause of %.1f s was made again (attempt %d of %d)",
+        "preview: a clip of %.1f s (its text needs about %.1f s) with a pause of %.1f s was made "
+        "again (attempt %d of %d)",
         seconds,
+        expected,
         pause,
         attempt,
         attempts,

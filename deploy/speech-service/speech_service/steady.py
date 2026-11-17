@@ -14,6 +14,16 @@ is made again under the next seed, up to a few times; the clip least in trouble 
 spoken. The same 204 clips, made through this module with four attempts allowed, stalled 5 times
 (2.5%), at 1.7 attempts a clip.
 
+A text of a word or two is the worst case. On the Mac's build 85 to 90% of the clips of fragments
+of three to sixteen characters in Berta's and Imre's voices came out far longer than their words
+(the median clip of "Igen." is 4.6 s, of "Rendben." 6.9 s, the longest 28 s), 82% in Wyatt's and
+42% in Imogen's: the voice goes on speaking after the text is done, and on staging a selection of a
+few words was read with a sentence the text never held after it. The guard sees that by the length
+alone, so an addition inside a long sentence passes it (only a speech recognizer would hear that
+one). The retries mend what they can, but at those rates most chains of four fail too: the cure is
+not to send so little text. A sentence of 50 characters or more stalls in about one clip in a
+hundred, one of 40 to 49 in about one in fourteen.
+
 The seeds are the caller's seed and then steps of `SEED_STEP` from it, so a reading is as repeatable
 as one with no guard: the same sentence in the same voice stalls or not, and is mended, the same way
 every time. A clip with no trouble costs one attempt, which is nearly every clip of a long sentence.
@@ -49,8 +59,10 @@ LENGTH_RATIO = 1.4
 GAP_SECONDS = 0.8
 
 # What a sentence takes: a start-up, and a time for each character (the slowest clean rate seen in
-# each language). A voice's tempo control stretches or squeezes all of it, pauses included.
+# each language), and never less than a word takes with the silence round it (a clean clip of "Yes."
+# is a second or more). A voice's tempo control stretches or squeezes all of it, pauses included.
 _START_SECONDS = 0.4
+_LEAST_SECONDS = 1.3
 _SECONDS_PER_CHARACTER = {"en": 0.080, "hu": 0.090}
 _TEMPO_SLOPE = 0.16
 _TEMPO_CONTROL = "delivery.tempo"
@@ -78,7 +90,7 @@ def expected_seconds(chars: int, language: str, tempo: float = 0.0) -> float:
     (the voice's `delivery.tempo`, 0 when it has none). A generous figure: clean clips come in
     under it."""
     per_character = _SECONDS_PER_CHARACTER.get(language, max(_SECONDS_PER_CHARACTER.values()))
-    return (_START_SECONDS + per_character * chars) * _tempo_factor(tempo)
+    return max(_LEAST_SECONDS, _START_SECONDS + per_character * chars) * _tempo_factor(tempo)
 
 
 def trouble(audio: np.ndarray, rate: int, chars: int, language: str, tempo: float = 0.0) -> float:
@@ -98,15 +110,16 @@ async def synthesize_steady(
     voice: Voice,
     seed: int,
     attempts: int,
-    on_retry: Callable[[int, int, float, float], None] | None = None,
+    on_retry: Callable[[int, int, float, float, float], None] | None = None,
 ) -> tuple[np.ndarray, int]:
     """`text` spoken in `voice`, made again under the next seed while the clip is in trouble.
 
     Up to `attempts` clips are made (1 is no retry at all). The first steady clip is the answer;
     when none is, the clip least in trouble. A failure of the first attempt is the caller's, as it
     is without a guard. A failure of a later attempt is not: a stalled clip is better than none, so
-    it stays the answer. `on_retry(attempt, attempts, seconds, pause)` is called, with numbers only,
-    each time a clip is given up on and another is about to be made.
+    it stays the answer. `on_retry(attempt, attempts, seconds, pause, expected)` is called, with
+    numbers only (the clip's length, its longest silence and the length its text needs), each time a
+    clip is given up on and another is about to be made.
     """
     chars = len(text)
     tempo = float(voice.controls.get(_TEMPO_CONTROL, 0.0))
@@ -124,6 +137,12 @@ async def synthesize_steady(
         if score == 0.0:
             break
         if attempt + 1 < attempts and on_retry is not None:
-            on_retry(attempt + 1, attempts, len(audio) / rate, longest_pause(audio, rate))
+            on_retry(
+                attempt + 1,
+                attempts,
+                len(audio) / rate,
+                longest_pause(audio, rate),
+                expected_seconds(chars, language, tempo),
+            )
     assert best is not None  # the loop runs at least once, and the first failure was raised
     return best[1], best[2]
