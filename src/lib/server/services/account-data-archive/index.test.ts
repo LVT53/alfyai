@@ -1453,6 +1453,186 @@ describe("createAccountDataArchive", () => {
 		});
 	});
 
+	describe("read-aloud voices", () => {
+		async function archiveOf(userId: string): Promise<JSZip> {
+			const result = await createAccountDataArchive(userId, {
+				password: "correct-password",
+				db,
+				rootDir: tempDir,
+				now: new Date("2026-06-15T08:00:00Z"),
+			});
+			expect(result.status).toBe("ok");
+			if (result.status !== "ok") throw new Error("no archive");
+			return JSZip.loadAsync(
+				Buffer.from(await new Response(result.zipStream).arrayBuffer()),
+			);
+		}
+
+		function seedVoices() {
+			const made = new Date("2026-03-01T09:00:00Z");
+			db.insert(schema.readAloudVoices)
+				.values([
+					{
+						id: "voice-mine",
+						userId: "user-1",
+						name: "Test Voice",
+						baseVoice: "berta",
+						language: "hu",
+						pace: -1,
+						pitch: 0,
+						depth: 1,
+						energy: -2.5,
+						projection: -0.6,
+						createdAt: made,
+						updatedAt: new Date("2026-03-02T09:00:00Z"),
+					},
+					{
+						id: "voice-second",
+						userId: "user-1",
+						name: "<script>alert(1)</script> Rupert",
+						baseVoice: "rupert",
+						language: "en",
+						pace: 0.5,
+						pitch: 0.25,
+						depth: 0,
+						energy: 1.5,
+						projection: 0.75,
+						createdAt: made,
+						updatedAt: made,
+					},
+					{
+						id: "voice-of-user-2",
+						userId: "user-2",
+						name: "Secret Voice",
+						baseVoice: "imogen",
+						language: "en",
+						pace: 1.75,
+						createdAt: made,
+						updatedAt: made,
+					},
+				])
+				.run();
+		}
+
+		it("holds the person's read-aloud voices and choice, and no one else's", async () => {
+			await seedArchiveUser();
+			seedVoices();
+			db.update(schema.users)
+				.set({
+					readAloudEnVoice: "wyatt",
+					readAloudHuVoice: "voice-mine",
+					readAloudSpeed: 1.5,
+				})
+				.where(eq(schema.users.id, "user-1"))
+				.run();
+			// A third person, with no voices of their own and a choice left pointing at
+			// two voices that are other people's.
+			await db.insert(schema.users).values({
+				id: "user-3",
+				email: "third@example.com",
+				passwordHash: await bcrypt.hash("correct-password", 4),
+				name: "Third User",
+				readAloudEnVoice: "voice-mine",
+				readAloudHuVoice: "voice-of-user-2",
+			});
+
+			const zip = await archiveOf("user-1");
+			const page = await zip
+				.file("Read aloud/Read aloud.html")
+				?.async("string");
+			expect(page).toBeTruthy();
+			expect(page).toContain("Read aloud");
+			// The choices as the person sees them: a built-in voice by name, their own voice with its base.
+			expect(page).toMatch(/English voice<\/td><td>Wyatt</);
+			expect(page).toMatch(
+				/Hungarian voice<\/td><td>Test Voice \(made from Berta\)</,
+			);
+			expect(page).toMatch(/Default speed<\/td><td>1\.5×</);
+			// Each voice: its name, its base voice and its five values.
+			expect(page).toContain("Test Voice");
+			for (const row of [
+				["Based on", "Berta"],
+				["Pace", "-1"],
+				["Pitch", "0"],
+				["Depth", "1"],
+				["Energy", "-2.5"],
+				["Projection", "-0.6"],
+			] as const) {
+				expect(page).toContain(`${row[0]}</td><td>${row[1]}</td>`);
+			}
+			expect(page).toContain("Rupert");
+			expect(page).toContain("0.25");
+			// A name is inert text.
+			expect(page).toContain("&lt;script&gt;alert(1)&lt;/script&gt; Rupert");
+			expect(page).not.toContain("<script>alert(1)");
+			// Nothing of the other person, whose voice id is not even a choice here.
+			expect(page).not.toContain("Secret Voice");
+			expect(page).not.toContain("voice-of-user-2");
+			expect(page).not.toContain("1.75");
+
+			const entry = await zip
+				.file("Open AlfyAI Data Archive.html")
+				?.async("string");
+			expect(entry).toContain('href="Read aloud/Read aloud.html"');
+			expect(entry).toContain("read-aloud voices");
+			expect(entry).toContain("2 voices of your own");
+
+			// The third person's archive has their own page and none of the others': a
+			// stored choice that is another person's voice reads as the default.
+			const other = await (await archiveOf("user-3"))
+				.file("Read aloud/Read aloud.html")
+				?.async("string");
+			expect(other).toContain("No voices of your own were found.");
+			expect(other).not.toContain("Test Voice");
+			expect(other).not.toContain("Secret Voice");
+			expect(other).not.toContain("voice-mine");
+			expect(other).toMatch(/English voice<\/td><td>Imogen</);
+			expect(other).toMatch(/Hungarian voice<\/td><td>Berta</);
+		});
+
+		it("shows a person who never chose anything the defaults, at 1×", async () => {
+			await seedArchiveUser();
+			const zip = await archiveOf("user-1");
+			const page = await zip
+				.file("Read aloud/Read aloud.html")
+				?.async("string");
+			expect(page).toMatch(/English voice<\/td><td>Imogen</);
+			expect(page).toMatch(/Hungarian voice<\/td><td>Berta</);
+			expect(page).toMatch(/Default speed<\/td><td>1×</);
+			expect(page).toContain("No voices of your own were found.");
+			const entry = await zip
+				.file("Open AlfyAI Data Archive.html")
+				?.async("string");
+			expect(entry).toContain("0 voices of your own");
+		});
+
+		it("says a voice whose base voice is gone, and reads a stored speed that is not one of the six as 1×", async () => {
+			await seedArchiveUser();
+			db.insert(schema.readAloudVoices)
+				.values({
+					id: "voice-orphan",
+					userId: "user-1",
+					name: "Old Voice",
+					baseVoice: "gone",
+					language: "en",
+				})
+				.run();
+			db.update(schema.users)
+				.set({ readAloudEnVoice: "voice-orphan", readAloudSpeed: 1.3 })
+				.where(eq(schema.users.id, "user-1"))
+				.run();
+			const page = await (await archiveOf("user-1"))
+				.file("Read aloud/Read aloud.html")
+				?.async("string");
+			expect(page).toContain("Old Voice");
+			expect(page).toContain("Based on</td><td>Gone");
+			expect(page).toMatch(
+				/English voice<\/td><td>Old Voice \(made from Gone\)</,
+			);
+			expect(page).toMatch(/Default speed<\/td><td>1×</);
+		});
+	});
+
 	it("fails the whole archive when an in-scope original file cannot be read", async () => {
 		await seedArchiveUser();
 		await rm(join(tempDir, "data", "knowledge", "user-1", "roadmap-notes.txt"));

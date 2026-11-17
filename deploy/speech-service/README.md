@@ -272,6 +272,14 @@ Logs: `journalctl -u speech-service` (as root): ids, counts and timings, never r
 | Cancel and the Zonos slot | a cancel frees it: two long requests together took 2.43 s, and 2.56-2.59 s right after a reading was cancelled in mid-synthesis (a kept slot would have made one wait about 4 s) |
 | vLLM while a reading is made | single-stream decode speed 157 tok/s idle and 141 tok/s while a reading's sentences are being synthesized (−10%, four alternating rounds, no other vLLM traffic); unchanged while no reading is made. Zonos shares GPU0 with vLLM and works in bursts (about a seventh of a reading's length), so a reading costs vLLM about 1-2% on average |
 
+**Knob ranges.** The voice editor's five knobs make six Zonos controls, each with a range that was measured on the owner's Mac (spec §4.6, §9.4). `scripts/measure_knobs.py` measures them again on the box's own Zonos. For each language it renders the language's two sample sentences at growing doses of one control at a time, for every voice and three seeds, and finds the last dose before one goes wrong: a word the aligner does not place, more clipping than the voice's baseline (5 seeds, no control), a silence inside the clip longer than 1.5 × the baseline's longest (and at least 0.8 s), or a length outside 0.5-2 × the baseline's median (the tempo: 0.4-2.5 ×). It stops a series at its first unsafe dose, and never reports a range wider than the spec's. The clips are made as a preview is, through the service's own normalizer and Zonos request. It costs about 15 minutes of Zonos beside vLLM (which decodes about 10% slower meanwhile) and restarts nothing. Run it as `alfyws`, with the service's Python and its aligner, into a folder outside the repository:
+
+```sh
+ssh alfyws 'cd ~/opt/speech-service && ~/venvs/speech-service/bin/python -I -B scripts/measure_knobs.py --out /home/alfyws/knob-ranges-<date> --aligner-cli /home/alfyws/opt/fusealign/fusealign-multilingual/ggml/build/fusealign-cli --aligner-model /home/alfyws/opt/fusealign/models/fusealign-multilingual-cjkft-step2500-q8_0.gguf --aligner-threads 8'
+```
+
+It writes `knob-ranges.json` (every clip's numbers: no audio, no text) and prints the `SAFE_CONTROL_RANGES` object to paste into `src/lib/shared/read-aloud/voice-knobs.ts`. Copy the report off the box and delete its folder. Exit status 0 means the sweep ran, whatever it found; 1 that it could not (Zonos or the aligner cannot be reached, or Zonos makes no baseline clip); 2 a bad argument. `--voices` and `--seeds` shorten a run. Without the aligner flags the words are not checked, and the report says so. The ranges measured on the box are not in yet.
+
 ffmpeg 7.1.5 (the box) reads ahead about 5 s of input before it encodes unless told not to; the encoder passes `-probesize 32 -analyzeduration 0` for that reason (see `audio.py`).
 
 ### Known, accepted cost: vLLM decodes slower while a reading is being made
