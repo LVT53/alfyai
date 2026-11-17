@@ -8,7 +8,7 @@
  * It shows no text of the reply. While the command tray is open it is hushed:
  * invisible, keeping its room, and the reading goes on.
  */
-import { onDestroy, untrack } from "svelte";
+import { onDestroy, tick, untrack } from "svelte";
 import {
 	getReadAloud,
 	type ReadAloudController,
@@ -45,7 +45,25 @@ const SHOWN: ReadonlySet<ReadingStatus> = new Set([
 const view = $derived($readAloudView);
 const shown = $derived(SHOWN.has(view.status));
 
-/** The slot is open (its room is there); `leaving` while the pill sinks before the room closes. */
+/**
+ * What the pill shows: the reading's view, and while it leaves, the last view
+ * it showed, so its controls never reset under its fade (the end keeps
+ * "Finished" over the end's time; ✕ keeps the sentence it stopped at).
+ */
+let lastShown = untrack(() => $readAloudView);
+const pillView = $derived.by(() => {
+	if (shown) lastShown = view;
+	return shown ? view : lastShown;
+});
+
+/**
+ * `mounted`: the pill is in the page, from one drawn frame before its room
+ * opens (so it rises and fades in from its own start) until its room has
+ * closed (so the room closes around it and the thread follows it down).
+ * `open`: its room is there. `leaving`: it sinks and fades before the room closes.
+ */
+let slot = $state<HTMLDivElement | null>(null);
+let mounted = $state(false);
 let open = $state(false);
 let leaving = $state(false);
 let settled = $state(false);
@@ -64,24 +82,51 @@ function later(ms: number, then: () => void) {
 	}, ms);
 }
 
+function openRoom() {
+	open = true;
+	settled = false;
+	later(MOTION_DURATION.emphasis, () => (settled = true));
+}
+
 $effect(() => {
 	if (shown) {
 		untrack(() => {
 			leaving = false;
-			if (open) return;
-			open = true;
-			settled = false;
-			later(MOTION_DURATION.emphasis, () => (settled = true));
+			if (open) {
+				// Shown again while it sank: it rises back where it is.
+				if (!settled) later(MOTION_DURATION.emphasis, () => (settled = true));
+				return;
+			}
+			if (mounted || prefersReducedMotion()) {
+				// Its room was closing (or nothing moves): it opens again at once.
+				mounted = true;
+				openRoom();
+				return;
+			}
+			mounted = true;
+			// Its first frame is drawn closed (faded out, 8 px down): the style is
+			// worked out here, so opening the room next is a change it animates.
+			void tick().then(() => {
+				if (!shown || open || !mounted) return;
+				void slot?.offsetHeight;
+				openRoom();
+			});
 		});
 		return;
 	}
 	untrack(() => {
-		if (!open || leaving) return;
+		if (!mounted || leaving) return;
+		if (!open) {
+			// Gone before its room opened: nothing was seen.
+			if (!timer) mounted = false;
+			return;
+		}
 		leaving = true;
 		settled = false;
 		later(MOTION_DURATION.standard, () => {
 			leaving = false;
 			open = false;
+			later(MOTION_DURATION.emphasis, () => (mounted = false));
 		});
 	});
 });
@@ -105,6 +150,7 @@ const stopped = $derived(view.status === "stopped");
 </script>
 
 <div
+	bind:this={slot}
 	class="read-aloud-slot"
 	data-open={open ? "" : undefined}
 	data-settled={settled ? "" : undefined}
@@ -112,8 +158,8 @@ const stopped = $derived(view.status === "stopped");
 	data-hushed={hushed && open ? "" : undefined}
 >
 	<div class="read-aloud-inner">
-		{#if open}
-			<div class="read-aloud-stage">
+		{#if mounted}
+			<div class="read-aloud-stage" inert={!open}>
 				{#if stopped}
 					<ReadAloudNote
 						tone="warn"
@@ -128,19 +174,22 @@ const stopped = $derived(view.status === "stopped");
 				{:else if waiting}
 					<ReadAloudNote tone="calm" icon="clock" text={$t("readAloud.note.updating")} placement="player" />
 				{/if}
-				<ReadAloudPlayerPill variant="floating" {view} actions={reader()} />
+				<ReadAloudPlayerPill variant="floating" view={pillView} actions={reader()} />
 			</div>
 		{/if}
 	</div>
 </div>
 
 <style>
-	/* The slot: a closed one takes no room (the negative margin cancels the shell's gap). */
+	/* The slot: a closed one takes no room (the negative margin cancels the shell's gap).
+	   The margin moves with the room, so nothing above it jumps as it opens or closes. */
 	.read-aloud-slot {
 		display: grid;
 		grid-template-rows: 0fr;
 		margin-top: -0.75rem;
-		transition: grid-template-rows var(--duration-emphasis) var(--ease-emphasis);
+		transition:
+			grid-template-rows var(--duration-emphasis) var(--ease-emphasis),
+			margin-top var(--duration-emphasis) var(--ease-emphasis);
 		pointer-events: none;
 	}
 

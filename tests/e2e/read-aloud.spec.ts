@@ -146,6 +146,134 @@ test("✕ stops, and the end shows Finished", async ({ page }) => {
 	await expect(ui.speaker()).toHaveAttribute("aria-label", "Read aloud");
 });
 
+/** What the floating player looked like in one animation frame. */
+type PlayerFrame = {
+	/** The slot's height: the player's room. */
+	room: number;
+	pill: boolean;
+	/** A CSS transition ran on the pill's opacity (it faded). */
+	fading: boolean;
+	/** A CSS transition ran on the slot's margin (the room's edge moved, not jumped). */
+	edge: boolean;
+	finished: boolean;
+	time: string | null;
+	value: string | null;
+	/** ✕ had been pressed. */
+	stopped: boolean;
+};
+
+/** Starts writing down, once per animation frame, what the floating player shows. */
+async function recordPlayer(page: import("@playwright/test").Page) {
+	await page.evaluate(() => {
+		const w = window as unknown as {
+			__playerFrames: PlayerFrame[];
+			__stopPressed: boolean;
+		};
+		w.__playerFrames = [];
+		w.__stopPressed = false;
+		document.addEventListener(
+			"pointerdown",
+			(event) => {
+				if (
+					(event.target as Element | null)?.closest?.(
+						'[aria-label="Stop reading"]',
+					)
+				)
+					w.__stopPressed = true;
+			},
+			true,
+		);
+		const slot = document.querySelector(".read-aloud-slot") as HTMLElement;
+		const running = (element: Element | null, property: string) =>
+			(element?.getAnimations() ?? []).some(
+				(animation) =>
+					(animation as CSSTransition).transitionProperty === property,
+			);
+		const step = () => {
+			const pill = document.querySelector(
+				".read-aloud-pill[data-variant='floating']",
+			);
+			w.__playerFrames.push({
+				room: slot.getBoundingClientRect().height,
+				pill: pill !== null,
+				fading: running(pill, "opacity"),
+				edge: running(slot, "margin-top"),
+				finished: pill?.hasAttribute("data-finished") ?? false,
+				time: pill?.querySelector(".read-aloud-time")?.textContent ?? null,
+				value:
+					pill
+						?.querySelector('[role="slider"]')
+						?.getAttribute("aria-valuetext") ?? null,
+				stopped: w.__stopPressed,
+			});
+			requestAnimationFrame(step);
+		};
+		requestAnimationFrame(step);
+	});
+	return () =>
+		page.evaluate(
+			() =>
+				(window as unknown as { __playerFrames: PlayerFrame[] }).__playerFrames,
+		);
+}
+
+test("the player fades in as it rises; on ✕ it leaves as it was while its room closes", async ({
+	page,
+}) => {
+	const ui = await open(page, [FIVE_SENTENCE_REPLY]);
+	const frames = await recordPlayer(page);
+	await ui.speaker().click();
+	await expect(ui.player).toHaveCSS("opacity", "1");
+	await waitForMotionToSettle(page);
+	const opening = await frames();
+	// It faded in from its own start, and the room's edge moved with the room.
+	expect(opening.some((frame) => frame.fading)).toBe(true);
+	expect(opening.some((frame) => frame.edge)).toBe(true);
+	const room = Math.max(...opening.map((frame) => frame.room));
+
+	// Let the reading move on, so its controls are not at their start.
+	await expect(ui.slider).not.toHaveAttribute(
+		"aria-valuetext",
+		"Sentence 1 of 5",
+		{ timeout: 15_000 },
+	);
+	await ui.button("Stop reading").click();
+	await expect(ui.player).toBeHidden();
+	const leaving = (await frames()).filter(
+		(frame) => frame.stopped && frame.pill,
+	);
+	// Its controls stay as they were while it sinks and its room closes.
+	expect(new Set(leaving.map((frame) => frame.value)).size).toBe(1);
+	expect(new Set(leaving.map((frame) => frame.time)).size).toBe(1);
+	expect(leaving[0]?.value).not.toBe("Sentence 1 of 5");
+	// The room closes around it over several frames: the thread follows, never jumps.
+	expect(
+		leaving.filter((frame) => frame.room > 0.5 && frame.room < room - 0.5)
+			.length,
+	).toBeGreaterThanOrEqual(2);
+	expect(leaving.some((frame) => frame.edge)).toBe(true);
+});
+
+test("the end keeps Finished over its controls until the player has gone", async ({
+	page,
+}) => {
+	const ui = await open(page, [TWO_SENTENCE_REPLY]);
+	const frames = await recordPlayer(page);
+	await ui.speaker().click();
+	await expect(ui.player).toHaveAttribute("data-finished", "", {
+		timeout: 30_000,
+	});
+	await expect(ui.player).toBeHidden();
+	const all = await frames();
+	const end = all.slice(all.findIndex((frame) => frame.finished));
+	const shown = end.filter((frame) => frame.pill);
+	expect(shown.length).toBeGreaterThan(0);
+	// "Finished" stays over the end's controls: no 0:00, no handle back at the start.
+	expect(shown.every((frame) => frame.finished)).toBe(true);
+	expect(new Set(shown.map((frame) => frame.time)).size).toBe(1);
+	expect(shown[0]?.time).not.toBe("0:00");
+});
+
 test("a slash command hushes the player, and reading goes on", async ({
 	page,
 }) => {

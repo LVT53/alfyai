@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
-import { tick } from "svelte";
+import { flushSync, tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReadAloudController } from "$lib/client/read-aloud/controller";
 import {
@@ -8,6 +8,7 @@ import {
 	setReadAloudView,
 } from "$lib/stores/read-aloud";
 import { uiLanguage } from "$lib/stores/settings";
+import { MOTION_DURATION } from "$lib/utils/motion";
 import ReadAloudPlayer from "./ReadAloudPlayer.svelte";
 
 function fakeController(): ReadAloudController {
@@ -214,6 +215,74 @@ describe("ReadAloudPlayer", () => {
 		expect(t.controller.stop).toHaveBeenCalledTimes(1);
 		t.unmount();
 		expect(t.controller.stop).toHaveBeenCalledTimes(2);
+	});
+
+	describe("with motion", () => {
+		beforeEach(() => {
+			vi.stubGlobal("matchMedia", (query: string) => ({
+				matches: false,
+				media: query,
+			}));
+		});
+
+		const opened = async (t: ReturnType<typeof player>) =>
+			vi.waitFor(() => expect(t.slot().hasAttribute("data-open")).toBe(true));
+
+		it("draws the pill closed before its room opens, so it can rise and fade in", async () => {
+			const t = player();
+			setReadAloudView(reading());
+			flushSync();
+			// The pill's first frame is its own start (faded out, 8 px down), not the open one.
+			expect(t.pill()).toBeTruthy();
+			expect(t.slot().hasAttribute("data-open")).toBe(false);
+			await opened(t);
+		});
+
+		it("keeps the pill while its room closes, so the thread follows it down", async () => {
+			const t = player();
+			setReadAloudView(reading());
+			await opened(t);
+			vi.useFakeTimers();
+			setReadAloudView(idleReadAloudView);
+			await tick();
+			expect(t.slot().hasAttribute("data-leaving")).toBe(true);
+			vi.advanceTimersByTime(MOTION_DURATION.standard);
+			await tick();
+			// Its room is closing, with the faded pill still in it.
+			expect(t.slot().hasAttribute("data-open")).toBe(false);
+			expect(t.pill()).toBeTruthy();
+			vi.advanceTimersByTime(MOTION_DURATION.emphasis);
+			await tick();
+			expect(t.pill()).toBeNull();
+		});
+
+		it("keeps its last controls while it leaves", async () => {
+			const t = player();
+			setReadAloudView(reading({ sentence: 2, elapsed: "0:15" }));
+			await opened(t);
+			setReadAloudView(idleReadAloudView);
+			await tick();
+			expect(t.slot().hasAttribute("data-leaving")).toBe(true);
+			const pill = within(t.pill());
+			expect(t.pill().textContent).toContain("0:15");
+			expect(pill.getByRole("slider").getAttribute("aria-valuetext")).toBe(
+				"Sentence 3 of 3",
+			);
+			expect(pill.getByRole("button", { name: "Pause" })).toBeTruthy();
+		});
+
+		it("keeps Finished over the end's controls while it leaves", async () => {
+			const t = player();
+			setReadAloudView(
+				reading({ status: "finished", progress: 1, elapsed: "0:24" }),
+			);
+			await opened(t);
+			setReadAloudView(idleReadAloudView);
+			await tick();
+			expect(t.slot().hasAttribute("data-leaving")).toBe(true);
+			expect(t.pill().hasAttribute("data-finished")).toBe(true);
+			expect(t.pill().textContent).toContain("0:24");
+		});
 	});
 
 	it("changes the speed from its chip", async () => {
