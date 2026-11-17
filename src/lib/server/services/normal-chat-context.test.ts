@@ -1495,6 +1495,53 @@ describe("prepareOutboundChatContext", () => {
 		expect(appendTurnGuidance("Hello", "")).toBe("Hello");
 	});
 
+	// Quick turns thinking off (ADR-0061), so the model decides on its first
+	// tokens, and the Quick line limits tools to facts, the person's data, a link
+	// or a file: asking was left out. A Hungarian message then often opened with
+	// a sentence leading into its questions and wrote them as text, or stopped
+	// mid-word where the card belonged. The line now sends such a question to
+	// ask_user, before any text (real model, chat-turn/AGENTS.md, "The Tool").
+	describe("the Quick-mode line", () => {
+		const ASK_ON_QUICK =
+			"When the choice is truly the user's, ask with ask_user instead of putting questions in your text, and call it before writing anything.";
+		const guidanceFor = (appliedProfile: "off" | "standard") =>
+			buildTurnGuidance({
+				reasoningDepthEffort: {
+					depthMetadata: {
+						requested: appliedProfile === "off" ? "quick" : "thorough",
+						appliedProfile,
+						fallback: false,
+					},
+					webSourceBudget: { maxSources: 6, sourceExpansion: false },
+					maxToolSteps: 16,
+					grounding: {
+						guidance: "standard",
+						externalEvidence: "none",
+						forceWebSearch: false,
+					},
+				} as never,
+			});
+
+		it("sends a question whose choice is the person's to the card, before any text", () => {
+			const guidance = guidanceFor("off");
+			expect(guidance).toContain(
+				"Use a tool only when the answer needs current or verifiable facts, the user's own data or connections, a pasted link, or a file the user asked for.",
+			);
+			expect(guidance).toContain(ASK_ON_QUICK);
+		});
+
+		it("is ASCII English that names no language (ruling 79, I1 and I3)", () => {
+			expect(ASK_ON_QUICK).toMatch(/^[\x20-\x7e]+$/);
+			expect(ASK_ON_QUICK).not.toMatch(/language|English|Hungarian|Magyar/i);
+		});
+
+		it("leaves a Thorough turn's guidance as it was", () => {
+			const guidance = guidanceFor("standard");
+			expect(guidance).not.toContain("Quick mode");
+			expect(guidance).not.toContain(ASK_ON_QUICK);
+		});
+	});
+
 	// The clock the model reads. It is a fact about this minute, so it rides
 	// the turn guidance and never the cached system prompt, and it says what it
 	// is: the current time in the person's zone, so nothing points at a tool.

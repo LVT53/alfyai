@@ -319,10 +319,17 @@ function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 		// Quick mode: without private reasoning the model reaches for tools it
 		// would otherwise have decided it did not need (a research_web call to
 		// look up "typical October weather" before a packing list), which
-		// costs the seconds the mode exists to save.
+		// costs the seconds the mode exists to save. That limit left asking out,
+		// and the model decides on its first tokens: a Hungarian message often
+		// opened with a sentence leading into its questions and then wrote them
+		// as text, or stopped mid-word, where the card belonged. The last
+		// sentence sends such a question to ask_user, before any text
+		// (chat-turn/AGENTS.md, "The Tool": measured on the real model, both
+		// languages). Change its words only against a run like that one.
 		return [
 			"Quick mode: thinking is off for this turn. Answer directly from what you know when that is enough.",
 			"Use a tool only when the answer needs current or verifiable facts, the user's own data or connections, a pasted link, or a file the user asked for.",
+			"When the choice is truly the user's, ask with ask_user instead of putting questions in your text, and call it before writing anything.",
 		].join(" ");
 	}
 	const grounding = effort.grounding.guidance;
