@@ -462,7 +462,7 @@ test.describe("the Feature Guide: the ways in", () => {
 		await expect(
 			page.getByTestId("guide-section").getByRole("heading", { level: 2 }),
 		).toHaveText(SECTION_NAMES);
-		await expect(page.getByTestId("guide-row")).toHaveCount(33);
+		await expect(page.getByTestId("guide-row")).toHaveCount(34);
 	});
 
 	test("the collapsed rail and the phone menu open it too", async ({
