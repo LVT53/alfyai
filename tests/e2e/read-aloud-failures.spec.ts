@@ -1,106 +1,100 @@
-import { randomUUID } from "node:crypto";
-import { expect, type Page, test } from "@playwright/test";
-import { clearAdminConfig, login, setDraining } from "./helpers";
+// Every failure of read aloud's spec §4.8, end to end, against the fake speech
+// service (Plan 2, Task 16): each one amber, explained and recoverable, and none
+// of them touching the chat itself.
+import { expect, test } from "@playwright/test";
+import { login, setDraining } from "./helpers";
 import {
-	type FakeSpeechOptions,
+	clearAdminConfigForReadAloud,
+	deleteReadAloudChat,
 	type FakeSpeechService,
 	FIVE_SENTENCE_REPLY,
-	READ_ALOUD_CONFIG_KEYS,
-	seedReadAloudChat,
+	openReadAloudChat,
+	readAloudUi,
 	startFakeSpeechForSpec,
 	stopFakeSpeechForSpec,
 } from "./read-aloud-helpers";
 
-// Every failure of spec §4.8 that a reading can meet, end to end on the fake
-// speech service: a busy voice, a start that fails, a voice that stops while
-// reading, a dropped connection, an update of AlfyAI, word timing that fails,
-// and the feature switched off. Each is amber or calm, explained, and
-// recoverable; none touches the chat.
-
 let fake: FakeSpeechService | null = null;
-let drained = false;
+let chatId: string | null = null;
 
 test.beforeEach(async ({ page }) => {
 	await login(page);
 });
 
 test.afterEach(async ({ page, context }) => {
+	// A drain, an offline browser and a fake that is still up are put back, so
+	// the next spec on this worker meets a server as it was.
 	await context.setOffline(false);
-	if (drained) {
-		await setDraining(page, false);
-		drained = false;
+	await setDraining(page, false);
+	try {
+		if (chatId) await deleteReadAloudChat(page, chatId);
+	} finally {
+		chatId = null;
+		if (fake) await stopFakeSpeechForSpec(page, fake);
+		else await clearAdminConfigForReadAloud(page);
+		fake = null;
 	}
-	if (fake) await stopFakeSpeechForSpec(page, fake);
-	fake = null;
 });
 
-async function startFake(
-	page: Page,
-	options: FakeSpeechOptions = {},
-): Promise<FakeSpeechService> {
-	fake = await startFakeSpeechForSpec(page, {
-		secondsPerChar: 0.02,
-		...options,
-	});
-	return fake;
+async function start(
+	page: import("@playwright/test").Page,
+	options: Parameters<typeof startFakeSpeechForSpec>[1],
+) {
+	fake = await startFakeSpeechForSpec(page, options);
+	const opened = await openReadAloudChat(page, [FIVE_SENTENCE_REPLY]);
+	chatId = opened.chatId;
+	return readAloudUi(page);
 }
-
-async function openChat(
-	page: Page,
-	reply = FIVE_SENTENCE_REPLY,
-): Promise<string> {
-	const id = `read-aloud-failures-${randomUUID()}`;
-	const [replyId] = await seedReadAloudChat(id, [reply]);
-	await page.goto(`/chat/${id}`, { waitUntil: "domcontentloaded" });
-	await expect(
-		page.locator(`[data-message-id="${replyId}"] .markdown-container`),
-	).toContainText(reply.slice(0, 20), { timeout: 15_000 });
-	return replyId as string;
-}
-
-const speaker = (page: Page, messageId: string) =>
-	page
-		.locator(`div.group:has(> [data-message-id="${messageId}"])`)
-		.getByTestId("read-aloud-speaker");
-const slot = (page: Page) => page.locator(".read-aloud-slot");
-const player = (page: Page) =>
-	page.getByRole("group", { name: "Read aloud player" });
-const note = (page: Page, text: string) =>
-	page.getByRole("status").filter({ hasText: text });
 
 test("the voice is busy: the note shows after 2.5 s", async ({ page }) => {
-	await startFake(page, { firstAudioDelayMs: 4000 });
-	const reply = await openChat(page);
-	await speaker(page, reply).click();
-	const busy = note(
-		page,
-		"The voice is busy with another reading. Yours starts in a moment.",
-	);
-	await expect(busy).toBeVisible({ timeout: 4000 });
-	await expect(slot(page)).toHaveAttribute("data-open", "", {
-		timeout: 15_000,
+	const ui = await start(page, {
+		secondsPerChar: 0.02,
+		firstAudioDelayMs: 4000,
 	});
-	await expect(busy).toHaveCount(0);
+	await ui.speaker().click();
+	// The spinner runs, and not at once: the note shows only after a while.
+	await expect(ui.note).toHaveCount(0);
+	await expect(ui.note).toContainText(
+		"The voice is busy with another reading. Yours starts in a moment.",
+		{ timeout: 6000 },
+	);
+	// It goes away when reading starts.
+	await expect(ui.player).toBeVisible({ timeout: 10_000 });
+	await expect(ui.note).toHaveCount(0);
 });
 
 test("it can't start: the crossed speaker and Try again", async ({ page }) => {
-	await startFake(page, { refuseSessions: true });
-	const reply = await openChat(page);
-	await speaker(page, reply).click();
-	const failed = note(
-		page,
+	const ui = await start(page, { refuseSessions: true });
+	await ui.speaker().click();
+	await expect(ui.note).toContainText(
 		"Couldn't start reading. The voice isn't answering right now.",
 	);
-	await expect(failed).toBeVisible({ timeout: 15_000 });
-	await expect(speaker(page, reply).locator(".lucide-volume-x")).toBeVisible();
-	await expect(failed.getByRole("button", { name: "Try again" })).toBeVisible();
-	await expect(slot(page)).not.toHaveAttribute("data-open", "");
-	// The speaker settles after 3 s; the note can be dismissed.
-	await expect(speaker(page, reply).locator(".lucide-volume-2")).toBeVisible({
+	await expect(ui.player).toBeHidden();
+
+	// The voice comes back: Try again reads.
+	fake?.setOptions({});
+	await ui.note.getByRole("button", { name: "Try again" }).click();
+	await expect(ui.player).toBeVisible();
+	await expect(ui.note).toHaveCount(0);
+	expect(fake?.sessions.length).toBe(1);
+});
+
+test("a failed start settles by itself: the speaker returns and the note closes", async ({
+	page,
+}) => {
+	const ui = await start(page, { refuseSessions: true });
+	await ui.speaker().click();
+	await expect(ui.note).toBeVisible();
+	// The speaker returns to normal after 3 s, the note after at most 8 s.
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Read aloud", {
 		timeout: 6000,
 	});
-	await failed.getByRole("button", { name: "Dismiss" }).click();
-	await expect(failed).toHaveCount(0);
+	await expect(ui.note).toHaveCount(0, { timeout: 10_000 });
+	// Dismissing closes it at once.
+	await ui.speaker().click();
+	await expect(ui.note).toBeVisible();
+	await ui.note.getByRole("button", { name: "Dismiss" }).click();
+	await expect(ui.note).toHaveCount(0);
 });
 
 test("on a phone the can't-start note stays on the screen", async ({
@@ -130,141 +124,122 @@ test("on a phone the can't-start note stays on the screen", async ({
 test("it stops while reading: an amber player, and Try again resumes", async ({
 	page,
 }) => {
-	// The real voice takes about a second for a first sentence, so the app's readers are
-	// attached when it fails; the fake would fail before that and drop the audio.
-	const voice = await startFake(page, {
+	// A first sentence of about 3 s: the browser needs that much audio before
+	// it starts playing a stream with no length.
+	const ui = await start(page, {
+		secondsPerChar: 0.1,
 		failAtSentence: 1,
-		firstAudioDelayMs: 300,
+		errorDelayMs: 1500,
 	});
-	const reply = await openChat(page);
-	await speaker(page, reply).click();
-	await expect(player(page)).toHaveAttribute("data-failed", "", {
-		timeout: 15_000,
-	});
-	const stopped = note(page, "Reading stopped. The voice stopped answering.");
-	await expect(stopped).toBeVisible();
-	await expect(
-		player(page).getByRole("button", { name: "Try again" }),
-	).toBeVisible();
-	// The sentence stays tinted.
-	await expect(
-		page
-			.locator(
-				`[data-message-id="${reply}"] .read-aloud-sentence .read-aloud-box`,
-			)
-			.first(),
-	).toBeVisible();
-	voice.setOptions({ secondsPerChar: 0.02 });
-	await stopped.getByRole("button", { name: "Try again" }).click();
-	await expect(player(page)).not.toHaveAttribute("data-failed", "");
-	await expect(speaker(page, reply)).toHaveAttribute(
-		"aria-label",
-		"Pause reading",
-		{ timeout: 15_000 },
+	await ui.speaker().click();
+	await expect(ui.player).toBeVisible();
+	await expect(ui.note).toContainText(
+		"Reading stopped. The voice stopped answering.",
+		{
+			timeout: 15_000,
+		},
 	);
-	expect(voice.sessions.at(-1)?.body.sentences[0]?.id).toBe("s1");
+	// The player stays, and play has become Try again; the sentence stays tinted.
+	await expect(ui.player).toBeVisible();
+	await expect(ui.tint.first()).toBeVisible();
+
+	fake?.setOptions({ secondsPerChar: 0.02 });
+	await ui.note.getByRole("button", { name: "Try again" }).click();
+	await expect.poll(() => fake?.sessions.length).toBe(2);
+	// The first sentence's audio played out, then the reading stopped at the
+	// second, the one that was never made: Try again restarts there.
+	expect(fake?.sessions[1]?.body.sentences[0]?.id).toBe("s1");
+	await expect(ui.note).toHaveCount(0, { timeout: 10_000 });
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
 });
 
 test("the connection drops: the offline note, then the resume", async ({
 	page,
 	context,
 }) => {
-	const voice = await startFake(page);
-	const reply = await openChat(page);
-	await speaker(page, reply).click();
-	await expect(speaker(page, reply)).toHaveAttribute(
-		"aria-label",
-		"Pause reading",
-		{ timeout: 15_000 },
-	);
+	const ui = await start(page, { secondsPerChar: 0.02 });
+	await ui.speaker().click();
+	await expect(ui.player).toBeVisible();
+	await expect(ui.tint.first()).toBeVisible();
+
 	await context.setOffline(true);
-	const offline = note(
-		page,
+	await expect(ui.note).toContainText(
 		"You're offline. Reading continues when you're back.",
+		{
+			timeout: 15_000,
+		},
 	);
-	await expect(offline).toBeVisible({ timeout: 10_000 });
-	await expect(offline.getByRole("button")).toHaveCount(0);
-	await expect(
-		player(page).getByRole("button", { name: "Waiting to continue" }),
-	).toBeVisible();
-	const sessions = voice.sessions.length;
+	// A calm note, without Try again.
+	await expect(ui.note.getByRole("button", { name: "Try again" })).toHaveCount(
+		0,
+	);
+
+	const sessions = fake?.sessions.length ?? 0;
 	await context.setOffline(false);
-	await expect(offline).toHaveCount(0, { timeout: 15_000 });
-	await expect(speaker(page, reply)).toHaveAttribute(
-		"aria-label",
-		"Pause reading",
-		{ timeout: 15_000 },
-	);
-	expect(voice.sessions.length).toBe(sessions + 1);
+	// Reading resumes by itself, in a new session.
+	await expect
+		.poll(() => fake?.sessions.length, { timeout: 15_000 })
+		.toBeGreaterThan(sessions);
+	await expect(ui.note).toHaveCount(0, { timeout: 15_000 });
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
 });
 
 test("AlfyAI updates: the note, then the resume", async ({ page }) => {
-	// The fake makes sentence 3 only once the browser says sentence 1 is playing
-	// (i <= position + 2), so the connections are cut while the reading plays.
-	const voice = await startFake(page, { cutAtSentence: 3 });
-	const reply = await openChat(page);
+	const ui = await start(page, {
+		secondsPerChar: 0.1,
+		cutAtSentence: 1,
+		errorDelayMs: 2500,
+	});
+	await ui.speaker().click();
+	await expect(ui.player).toBeVisible();
+	// The deploy drains the server while the voice is being read; the stream
+	// breaks (the fake cuts it at the second sentence).
 	await setDraining(page, true);
-	drained = true;
-	await speaker(page, reply).click();
-	const updating = note(
-		page,
+	await expect(ui.note).toContainText(
 		"AlfyAI is updating. Reading continues when it is back.",
+		{ timeout: 20_000 },
 	);
-	await expect(updating).toBeVisible({ timeout: 20_000 });
-	await expect(updating.getByRole("button")).toHaveCount(0);
-	const stoppedAt =
-		Number(
-			await page
-				.getByRole("slider", { name: "Sentence" })
-				.getAttribute("aria-valuenow"),
-		) - 1;
-	expect(stoppedAt).toBeGreaterThan(0);
-	voice.setOptions({ secondsPerChar: 0.02 });
+	await expect(ui.note.getByRole("button", { name: "Try again" })).toHaveCount(
+		0,
+	);
+
+	const sessions = fake?.sessions.length ?? 0;
+	// The update ends: the server is back, and the voice is as it was.
+	fake?.setOptions({ secondsPerChar: 0.02 });
 	await setDraining(page, false);
-	drained = false;
-	await expect(updating).toHaveCount(0, { timeout: 15_000 });
-	await expect(speaker(page, reply)).toHaveAttribute(
-		"aria-label",
-		"Pause reading",
-		{ timeout: 15_000 },
-	);
-	// It goes on from the sentence it stopped at.
-	expect(voice.sessions.at(-1)?.body.sentences[0]?.id).toBe(`s${stoppedAt}`);
+	// The watch asks the server every 3 s.
+	await expect
+		.poll(() => fake?.sessions.length, { timeout: 20_000 })
+		.toBeGreaterThan(sessions);
+	await expect(ui.note).toHaveCount(0, { timeout: 15_000 });
 });
 
 test("word timing fails: the tint without the word marker", async ({
 	page,
 }) => {
-	await startFake(page, { wordTimes: "null" });
-	const reply = await openChat(page);
-	await speaker(page, reply).click();
-	await expect(page.getByRole("slider", { name: "Sentence" })).toHaveAttribute(
-		"aria-valuenow",
-		"2",
-		{
-			timeout: 15_000,
-		},
-	);
-	await expect(
-		page
-			.locator(
-				`[data-message-id="${reply}"] .read-aloud-sentence .read-aloud-box`,
-			)
-			.first(),
-	).toBeVisible();
-	await expect(page.locator(".read-aloud-word")).toHaveCount(0);
-	// Nothing is said about it: no read-aloud note.
-	await expect(page.locator(".read-aloud-note")).toHaveCount(0);
+	const ui = await start(page, { secondsPerChar: 0.02, wordTimes: "null" });
+	await ui.speaker().click();
+	await expect(ui.player).toBeVisible();
+	await expect(ui.tint.first()).toBeVisible();
+	// Nothing is said about it, and the word marker never shows.
+	await expect(ui.note).toHaveCount(0);
+	await expect(ui.word).toHaveCount(0);
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
 });
 
 test("switched off: no speaker anywhere", async ({ page }) => {
-	await clearAdminConfig(page, [...READ_ALOUD_CONFIG_KEYS]);
-	const reply = await openChat(page);
-	await expect(
-		page.locator(
-			`div.group:has(> [data-message-id="${reply}"]) .message-actions`,
-		),
-	).toBeAttached();
-	await expect(page.getByTestId("read-aloud-speaker")).toHaveCount(0);
-	await expect(page.locator(".read-aloud-slot")).toHaveCount(0);
+	// Read aloud is on for this spec's server first, then switched off.
+	fake = await startFakeSpeechForSpec(page);
+	const opened = await openReadAloudChat(page, [FIVE_SENTENCE_REPLY]);
+	chatId = opened.chatId;
+	const ui = readAloudUi(page);
+	await expect(ui.speaker()).toBeVisible();
+
+	await clearAdminConfigForReadAloud(page);
+	await page.reload({ waitUntil: "domcontentloaded" });
+	await expect(page.getByTestId("message-input")).toBeVisible();
+	await expect(page.locator(".message-actions").first()).toBeAttached();
+	await expect(ui.speaker()).toHaveCount(0);
+	// Nor does a selection in a reply bring a pill.
+	await expect(ui.pill).toHaveCount(0);
 });

@@ -119,6 +119,141 @@ describe("the containment check", () => {
 			]),
 		).toBeNull());
 
+	it("reads every named entity the browser draws, not only the common few", () => {
+		const cases: Array<[markdown: string, written: string[]]> = [
+			["Ten 10&ndash;20 now", ["Ten", "10–20", "now"]],
+			["A caf&eacute; here", ["A", "café", "here"]],
+			["word&mdash;word", ["word—word"]],
+			["3&times;4 and 20&deg;C", ["3×4", "and", "20°C"]],
+			// 128 to 159 are Windows-1252 in a browser: 156 is "œ".
+			["c&#156;ur", ["cœur"]],
+		];
+		for (const [markdown, written] of cases)
+			expect(
+				wordsFitReply(markdown, [en(...written.map((w) => said(w)))]),
+				markdown,
+			).toBeNull();
+	});
+
+	it("steps over the tags, comments and link destinations that sit inside a word", () => {
+		const cases: Array<[markdown: string, written: string[], language?: "hu"]> =
+			[
+				[
+					"Press <kbd>Ctrl</kbd>+<kbd>C</kbd> now.",
+					["Press", "Ctrl+C", "now."],
+				],
+				["Water is H<sub>2</sub>O.", ["Water", "is", "H2O."]],
+				["It is x<sup>2</sup> here.", ["It", "is", "x2", "here."]],
+				["A foo<!-- hidden -->bar word.", ["A", "foobar", "word."]],
+				[
+					"See the [README](docs/README.md)-ben.",
+					["See", "the", "README-ben."],
+					"hu",
+				],
+				[
+					"See [the docs](https://example.com/a_(b))s now.",
+					["See", "the", "docss", "now."],
+				],
+			];
+		for (const [markdown, written, language] of cases)
+			expect(
+				wordsFitReply(markdown, [
+					{
+						language: language ?? "en",
+						words: written.map((w) => said(w, "prose", language ?? "en")),
+					},
+				]),
+				markdown,
+			).toBeNull();
+	});
+
+	it("keeps the tags that code shows as written, and the ones an entity makes text", () => {
+		// Inline code and a fenced block show `<div>` as it is.
+		expect(
+			wordsFitReply("Use `<div>` here.", [
+				en(said("Use"), said("<div>", "code"), said("here.")),
+			]),
+		).toBeNull();
+		expect(
+			wordsFitReply('Text.\n\n```html\n<div class="x">\n```\n', [
+				en(said("<div", "code")),
+			]),
+		).toBeNull();
+		// "&lt;kbd&gt;" is the letters kbd on the screen, not a tag.
+		expect(
+			wordsFitReply("Write &lt;kbd&gt; for a key.", [
+				en(said("Write"), said("<kbd>"), said("for")),
+			]),
+		).toBeNull();
+	});
+
+	it("looks for an address by the host it is spoken as, wherever the reply names it", () => {
+		// "(bbc.com)" becomes a source chip whose address is the one given before.
+		const chip = {
+			shown: "https://www.bbc.com",
+			kind: "prose" as const,
+			tokens: speakWord("https://www.bbc.com", "prose", "en"),
+		};
+		expect(
+			wordsFitReply(
+				"Source: https://www.bbc.com/news/x is good. As reported (bbc.com) it holds.",
+				[
+					en(
+						said("Source:"),
+						said("https://www.bbc.com/news/x"),
+						said("is"),
+						said("good."),
+						said("As"),
+						said("reported"),
+						chip,
+						said("it"),
+						said("holds."),
+					),
+				],
+			),
+		).toBeNull();
+		// Credentials and a port in the address are not spoken, so are not searched.
+		expect(
+			wordsFitReply("Go to https://user:pw@example.com/x now.", [
+				en(
+					said("Go"),
+					said("to"),
+					said("https://user:pw@example.com/x"),
+					said("now."),
+				),
+			]),
+		).toBeNull();
+		// An address whose host the reply never names is still refused.
+		expect(
+			wordsFitReply("Go to example.org now.", [
+				en(said("Go"), said("to"), said("https://evil.test/")),
+			]),
+		).toBe(0);
+	});
+
+	it("does not let a code word speak what the reply does not say beside its address", () => {
+		// A code word speaks the names around its address too: "Free Speech Here
+		// example dot com". Only a prose word is spoken as its host alone.
+		const reply = "Open https://example.com in your browser.";
+		for (const [shown, kind] of [
+			["FreeSpeechHere(https://example.com)", "code"],
+			["Nothing_in_the_reply.https://example.com/x", "code"],
+			["FreeSpeechHere(https://example.com)", "shell"],
+		] as const)
+			expect(
+				wordsFitReply(reply, [
+					en({ shown, kind, tokens: speakWord(shown, kind, "en") }),
+				]),
+				`${kind}: ${shown}`,
+			).toBe(0);
+		// A code word that is only the address shows it whole on the screen: accepted.
+		expect(
+			wordsFitReply("Call `https://example.com/api` now.", [
+				en(said("Call"), said("https://example.com/api", "code"), said("now.")),
+			]),
+		).toBeNull();
+	});
+
 	it("counts a word with no letters as found", () =>
 		expect(
 			wordsFitReply("Alpha beta", [en(said("Alpha"), said("—"), said("beta"))]),
@@ -145,8 +280,10 @@ describe("letter keys", () => {
 		expect(letterKey("  — … ")).toBe("");
 	});
 
-	it("decodes entities before it keys the reply", () => {
+	it("decodes entities before it keys the reply, as the browser does", () => {
 		expect(replyKey("Salt &amp; pepper &#33; &nbsp;")).toBe("saltpepper");
-		expect(replyKey("&unknown; &#99999999;")).toBe("unknown99999999");
+		// An entity the browser does not know stays as text; a number that is no
+		// character becomes the replacement character, which is no letter.
+		expect(replyKey("&unknown; &#99999999;")).toBe("unknown");
 	});
 });

@@ -33,6 +33,8 @@ type ReadingLanguage = "en" | "hu";
 const MAX_TOKEN_CHARS = 80;
 const MAX_TOKENS = 40;
 const MAX_JOINED_CHARS = 160;
+/** The longest code word that is read at all. */
+const MAX_CODE_WORD_CHARS = 512;
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -115,16 +117,20 @@ function joinWithDots(
 	return out;
 }
 
-/** The site name of an address, every dot said; an IPv4 host stays as written. */
-function hostTokens(address: string, language: ReadingLanguage): string[] {
+/** The host of an address: no scheme, credentials, port, path or `www.`. */
+function hostOf(address: string): string {
 	const afterScheme = address.includes("://")
 		? address.slice(address.indexOf("://") + 3)
 		: address;
 	const authority = afterScheme.split(/[/?#]/u, 1)[0] ?? "";
-	const host = authority
+	return authority
 		.slice(authority.lastIndexOf("@") + 1)
 		.replace(/:\d*$/u, "")
 		.replace(/^www\./iu, "");
+}
+
+/** The site name of an address, every dot said; an IPv4 host stays as written. */
+function hostTokens(host: string, language: ReadingLanguage): string[] {
 	if (host === "") return [];
 	return IPV4.test(host) ? [host] : joinWithDots(host.split("."), language);
 }
@@ -133,16 +139,20 @@ function hostTokens(address: string, language: ReadingLanguage): string[] {
 function findAddress(
 	text: string,
 	language: ReadingLanguage,
-): { before: string; tokens: string[]; after: string } | null {
-	const url = URL_SPAN.exec(text);
+): { before: string; host: string; tokens: string[]; after: string } | null {
+	// Only a word that holds "://" can hold a URL: the scan would otherwise try
+	// every letter of a long word.
+	const url = text.includes("://") ? URL_SPAN.exec(text) : null;
 	const www = url ? null : WWW_SPAN.exec(text);
 	const found = url ?? www;
 	if (!found) return null;
 	const start = found.index;
 	const end = start + found[0].length;
+	const host = hostOf(found[0]);
 	return {
 		before: text.slice(0, start),
-		tokens: hostTokens(found[0], language),
+		host,
+		tokens: hostTokens(host, language),
 		after: text.slice(end),
 	};
 }
@@ -326,6 +336,9 @@ function speakProse(shown: string, language: ReadingLanguage): string[] {
 // Code
 // ---------------------------------------------------------------------------
 
+const CLOSING_TAG = /^<\/([a-z][a-z0-9-]*)>/u;
+const OPENING_TAG = /^<([a-z][a-z0-9-]*)\/?>/u;
+const HEX = /^0[xX][0-9A-Fa-f_]+/u;
 const TAG = /^<(\/?)([a-z][a-z0-9-]*)(?:\/?>|$)/u;
 const NUMBER = /^[0-9][0-9_]*(?:\.[0-9]+)?/u;
 const NAME = /^[\p{L}\p{Nd}_$]+/u;
@@ -435,6 +448,37 @@ function readName(raw: string, language: ReadingLanguage): string[] {
 	return out;
 }
 
+/**
+ * A tag that `lexCode` does not take at the word's start: a closing tag
+ * anywhere (`<b>x</b>`), and an opening tag straight after another tag. After a
+ * name `<…>` is a type parameter, so an opening tag there is not one.
+ */
+function lexTag(
+	word: string,
+	start: number,
+	language: ReadingLanguage,
+): Lexeme | null {
+	const rest = word.slice(start);
+	const closing = CLOSING_TAG.exec(rest);
+	if (closing)
+		return {
+			tokens: [
+				...words(CODE_CONTEXT_WORDS.closing, language),
+				closing[1] ?? "",
+				...words(CODE_CONTEXT_WORDS.tag, language),
+			],
+			length: closing[0].length,
+		};
+	if (at(word, start - 1) !== ">") return null;
+	const opening = OPENING_TAG.exec(rest);
+	return opening
+		? {
+				tokens: [opening[1] ?? "", ...words(CODE_CONTEXT_WORDS.tag, language)],
+				length: opening[0].length,
+			}
+		: null;
+}
+
 /** `<…>` straight after a name, or as the whole word: a type parameter. */
 function lexGeneric(
 	word: string,
@@ -451,7 +495,9 @@ function lexGeneric(
 			depth -= 1;
 			if (depth === 0) {
 				const inner = lexCode(word.slice(start + 1, j), shell, language);
-				if (inner.length === 0) return null;
+				// What reads as nothing is skipped whole: reading it again from
+				// the outside doubled the work with every level of nesting.
+				if (inner.length === 0) return { tokens: [], length: j + 1 - start };
 				const of = words(CODE_CONTEXT_WORDS.ofType, language);
 				return {
 					tokens: language === "en" ? [...of, ...inner] : [...inner, ...of],
@@ -536,6 +582,10 @@ function lexAt(
 	const c = word.charAt(start);
 	if (word.startsWith("std::", start) && !isNameChar(at(word, start - 1)))
 		return { tokens: words(CODE_WORDS.std as SpokenForm, language), length: 5 };
+	if (c === "<") {
+		const tag = lexTag(word, start, language);
+		if (tag) return tag;
+	}
 	if (c === "<" && at(word, start + 1) !== "=") {
 		const generic = lexGeneric(word, start, shell, language);
 		if (generic) return generic;
@@ -549,6 +599,10 @@ function lexAt(
 	const context = contextSymbolTokens(c, word, start, shell, language);
 	if (context) return { tokens: context, length: 1 };
 	if (isAsciiDigit(c)) {
+		// A hexadecimal literal is one token as written, not "zero x one F".
+		const hex = HEX.exec(word.slice(start));
+		if (hex)
+			return { tokens: [hex[0].replace(/_/gu, "")], length: hex[0].length };
 		const number = NUMBER.exec(word.slice(start));
 		if (number)
 			return {
@@ -634,7 +688,27 @@ export function speakWord(
 ): string[] {
 	if (kind === "listNumber") return limit(speakListNumber(shown, language));
 	if (kind === "prose") return limit(speakProse(shown, language));
+	// A code word this long is not a name or an expression: it is never said, and
+	// never read, so no word can take the thread (both sides run this function).
+	if (shown.length > MAX_CODE_WORD_CHARS) return [];
 	return limit(speakCode(shown, kind === "shell", language));
+}
+
+/**
+ * The site name a word is spoken as when it is an address ("bbc.com" for
+ * "https://www.bbc.com/news/x"): no scheme, credentials, port, path or `www.`.
+ * Null when the word is no address. This is how a PROSE word is read (an
+ * address there is spoken as its host alone), and the session route searches the
+ * reply for it, and not for the whole address, because the page may show the
+ * address only by its host, as a source chip does. A code word also speaks the
+ * names around its address, so it is searched whole.
+ */
+export function addressHost(shown: string): string | null {
+	const lead = LEADING_MARKS.exec(shown)?.[0] ?? "";
+	const rest = shown.slice(lead.length);
+	const trail = TRAILING_MARKS.exec(rest)?.[0] ?? "";
+	const core = rest.slice(0, rest.length - trail.length);
+	return findAddress(core, "en")?.host || null;
 }
 
 /** An arrow or a separator dot between items in prose. */

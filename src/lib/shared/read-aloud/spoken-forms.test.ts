@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	addressHost,
 	codeKindOf,
 	isSeparator,
 	keepsSentenceOpen,
@@ -322,5 +323,96 @@ describe("spoken forms: rulings of the build", () => {
 			"sift",
 			"P",
 		]);
+	});
+});
+
+// The early review's R1: one crafted word froze the server (the request's
+// words are read by `wordsFitReply` on Node's one thread, and the browser reads
+// every word of a rendered reply with the same function).
+describe("spoken forms: a word cannot take the thread", () => {
+	it("reads nested brackets in linear time", () => {
+		const nested = "_<(".repeat(22) + ")>".repeat(22);
+		const started = performance.now();
+		speakWord(nested, "code", "en");
+		expect(performance.now() - started).toBeLessThan(50);
+		// Brackets that read as nothing are consumed, not read again from inside.
+		expect(speakWord("a<()>b", "code", "en")).toEqual(["a", "b"]);
+		expect(speakWord("a<>b", "code", "en")).toEqual(["a", "b"]);
+	});
+
+	it("says nothing for a code word of more than 512 characters, and does it at once", () => {
+		const long = "_<(".repeat(171); // 513 characters
+		expect(long.length).toBeGreaterThan(512);
+		const started = performance.now();
+		expect(speakWord(long, "code", "en")).toEqual([]);
+		expect(speakWord(long, "shell", "hu")).toEqual([]);
+		expect(performance.now() - started).toBeLessThan(20);
+		// A prose word of that length is not a code word: its token is too long to say.
+		expect(speakWord("a".repeat(600), "prose", "en")).toEqual([]);
+	});
+});
+
+describe("spoken forms: the host an address is spoken as", () => {
+	it("names the site, without its scheme, its credentials, its port or www", () => {
+		expect(addressHost("https://www.bbc.com/news/x")).toBe("bbc.com");
+		expect(addressHost("http://user:pw@example.com:8080/x?y=1")).toBe(
+			"example.com",
+		);
+		expect(addressHost("(www.example.com),")).toBe("example.com");
+		expect(addressHost('fetch("https://x.org/a")')).toBe("x.org");
+		expect(addressHost("http://192.168.0.1:8080/x")).toBe("192.168.0.1");
+	});
+
+	it("is null for a word that is no address", () => {
+		for (const word of [
+			"hello",
+			"anna@example.com",
+			"report.pdf",
+			"Ctrl+C",
+			"x.org",
+		])
+			expect(addressHost(word), word).toBeNull();
+	});
+});
+
+// The early review's R6: code the dictionary read wrongly.
+describe("spoken forms: code the early review found misread", () => {
+	it("reads !== as one operator", () => {
+		expect(speakWord("!==", "code", "en")).toEqual(["not", "double", "equals"]);
+		expect(speakWord("!==", "code", "hu")).toEqual(["nem", "dupla", "egyenlő"]);
+	});
+
+	it("reads a hexadecimal literal as written", () => {
+		expect(speakWord("0x1F", "code", "en")).toEqual(["0x1F"]);
+		expect(speakWord("0xFF_AA;", "code", "hu")).toEqual(["0xFFAA"]);
+		// A plain number after a name is still a number.
+		expect(speakWord("x=0", "code", "en")).toEqual(["x", "equals", "zero"]);
+	});
+
+	it("reads a tag that follows another tag, or a closing tag, wherever it stands", () => {
+		expect(speakWord("<b>x</b>", "code", "en")).toEqual([
+			"b",
+			"tag",
+			"x",
+			"closing",
+			"b",
+			"tag",
+		]);
+		expect(speakWord("<p>Hi</p>", "code", "en")).toEqual([
+			"p",
+			"tag",
+			"Hi",
+			"closing",
+			"p",
+			"tag",
+		]);
+		expect(speakWord("<div><span>", "code", "hu")).toEqual([
+			"div",
+			"tag",
+			"span",
+			"tag",
+		]);
+		// A generic after a name is still a generic.
+		expect(speakWord("List<T>", "code", "en")).toEqual(["List", "of", "T"]);
 	});
 });

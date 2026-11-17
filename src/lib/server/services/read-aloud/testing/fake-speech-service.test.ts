@@ -401,6 +401,24 @@ describe("fake speech service: failures on demand", () => {
 		expect(after.status).toBe(404);
 	});
 
+	it("waits errorDelayMs before the error, so the sentences before it have started", async () => {
+		await fake.close();
+		await start({ failAtSentence: 1, errorDelayMs: 250 });
+		const id = await openSession([
+			sentence("s0", "Hello there world."),
+			sentence("s1", "This one fails."),
+		]);
+		const began = Date.now();
+		const events = followEvents(
+			await fetch(`${fake.baseUrl}/v1/sessions/${id}/events`),
+		);
+		await events.until((all) => all.some((e) => e.event === "words"));
+		// The first sentence is out at once, and the error only after the delay.
+		expect(events.events().some((e) => e.event === "error")).toBe(false);
+		await events.until((all) => all.some((e) => e.event === "error"));
+		expect(Date.now() - began).toBeGreaterThanOrEqual(200);
+	});
+
 	it("cuts both streams at the asked sentence, with no event", async () => {
 		await fake.close();
 		await start({ cutAtSentence: 1 });

@@ -10,6 +10,7 @@ export {
 	openReading,
 	type Reading,
 	reportPosition,
+	takeOpenTicket,
 } from "./readings";
 export {
 	charsPerSecondByLanguage,
@@ -18,4 +19,8 @@ export {
 	readingRequestSchema,
 	speechSentencesFor,
 } from "./request";
-export { SpeechRefused, SpeechUnavailable } from "./speech-client";
+export {
+	ReadingSuperseded,
+	SpeechRefused,
+	SpeechUnavailable,
+} from "./speech-client";

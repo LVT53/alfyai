@@ -6,6 +6,7 @@
 // stream, sentences made only while `i <= position + 2`, errors and cuts on
 // demand), so a spec drives the real routes, the registry and the browser
 // against the service's contract without the GPU box.
+import { randomUUID } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
@@ -15,7 +16,7 @@ import {
 	type FakeSpeechOptions,
 	type FakeSpeechService,
 } from "../../src/lib/server/services/read-aloud/testing/fake-speech-service";
-import { clearAdminConfig } from "./helpers";
+import { clearAdminConfig, waitForHydration } from "./helpers";
 
 export type { FakeSpeechOptions, FakeSpeechService };
 
@@ -48,13 +49,18 @@ export async function startFakeSpeechForSpec(
 	return fake;
 }
 
+/** Puts both keys back: read aloud is off again, as a worker's server meets the next spec. */
+export async function clearAdminConfigForReadAloud(page: Page): Promise<void> {
+	await clearAdminConfig(page, [...READ_ALOUD_CONFIG_KEYS]);
+}
+
 /** Puts both keys back (read aloud is off again), then closes the fake. */
 export async function stopFakeSpeechForSpec(
 	page: Page,
 	fake: FakeSpeechService,
 ): Promise<void> {
 	try {
-		await clearAdminConfig(page, [...READ_ALOUD_CONFIG_KEYS]);
+		await clearAdminConfigForReadAloud(page);
 	} finally {
 		await fake.close();
 	}
@@ -164,3 +170,115 @@ export const SYNTAX_REPLY = [
 	"",
 	"Smile 😀 and visit https://www.example.com/docs for more.",
 ].join("\n");
+
+/**
+ * A chat of the e2e admin with `replies` as its assistant replies, opened in
+ * the page. The id is new each time, so a spec never meets another's rows.
+ */
+export async function openReadAloudChat(
+	page: Page,
+	replies: string[],
+): Promise<{ chatId: string; messageIds: string[] }> {
+	const chatId = `read-aloud-${randomUUID()}`;
+	const messageIds = await seedReadAloudChat(chatId, replies);
+	await page.goto(`/chat/${chatId}`, { waitUntil: "domcontentloaded" });
+	await waitForHydration(page);
+	// The Markdown renders after hydration, and a code block after the
+	// highlighter has loaded: a spec that acts before has no text to select or read.
+	for (const id of messageIds)
+		await expect(
+			page.locator(`[data-message-id="${id}"] .markdown-container`),
+		).toContainText(/\S/, { timeout: 15_000 });
+	const fences = replies.join("\n").split("```").length - 1;
+	if (fences >= 2)
+		await expect(page.locator(".message-body .code-block")).toHaveCount(
+			Math.floor(fences / 2),
+			{ timeout: 15_000 },
+		);
+	return { chatId, messageIds };
+}
+
+/** Takes a chat made by `openReadAloudChat` away again: a worker keeps its database from one spec to the next. */
+export async function deleteReadAloudChat(
+	page: Page,
+	chatId: string,
+): Promise<void> {
+	await page.request.delete(`/api/conversations/${chatId}`);
+}
+
+/**
+ * Where read aloud's parts are on the page, by what a person (or a screen
+ * reader) calls them: the speaker's and the player's accessible names are the
+ * English words of `src/lib/i18n/read-aloud.ts`.
+ */
+export function readAloudUi(page: Page) {
+	const player = page.getByLabel("Read aloud player");
+	return {
+		/** The speaker of the `reply`-th reply of the chat, counting from 0. */
+		speaker: (reply = 0) => page.getByTestId("read-aloud-speaker").nth(reply),
+		player,
+		/** The player's slot (it keeps its room while hushed) and the stage inside it that fades. */
+		slot: page.locator(".read-aloud-slot"),
+		stage: page.locator(".read-aloud-stage"),
+		/** A button of the player, by its name ("Next sentence", "Stop reading"…). */
+		button: (name: string) => player.getByRole("button", { name, exact: true }),
+		slider: page.getByRole("slider", { name: "Sentence" }),
+		speed: page.getByTestId("read-aloud-speed"),
+		note: page.locator(".read-aloud-note"),
+		/** The tint of the sentence being read. */
+		tint: page.locator(".read-aloud-sentence .read-aloud-box"),
+		/** The marker of the word being spoken. */
+		word: page.locator(".read-aloud-word"),
+		pill: page.getByRole("button", { name: "Read from here" }),
+	};
+}
+
+/**
+ * Selects `length` characters of the first text node of the page's replies that
+ * holds `needle`, from where it starts: what a person does with a mouse, made
+ * exactly. Fires the page's own `selectionchange`.
+ */
+export async function selectInReply(
+	page: Page,
+	needle: string,
+	length = needle.length,
+): Promise<void> {
+	await page.evaluate(
+		({ needle: text, length: count }) => {
+			const roots = document.querySelectorAll(
+				".message-body .markdown-container",
+			);
+			for (const root of roots) {
+				const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+				for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+					const at = node.textContent?.indexOf(text) ?? -1;
+					if (at < 0) continue;
+					const range = document.createRange();
+					range.setStart(node, at);
+					range.setEnd(node, at + count);
+					const selection = document.getSelection();
+					selection?.removeAllRanges();
+					selection?.addRange(range);
+					return;
+				}
+			}
+			throw new Error(`no text "${text}" in a reply`);
+		},
+		{ needle, length },
+	);
+}
+
+/** The tokens the fake was asked to speak, in order, over every session it has had. */
+export function spokenTokens(fake: FakeSpeechService): string[] {
+	return fake.sessions.flatMap((session) =>
+		session.body.sentences.flatMap((sentence) => sentence.tokens),
+	);
+}
+
+/** Whether `words` come one after another in `tokens`, ignoring the pause marks at a token's end. */
+export function hasRun(tokens: string[], words: string[]): boolean {
+	const bare = tokens.map((token) => token.replace(/[.,;:!?…]+$/u, ""));
+	return bare.some((_, start) =>
+		words.every((word, offset) => bare[start + offset] === word),
+	);
+}
