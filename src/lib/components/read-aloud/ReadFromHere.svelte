@@ -47,6 +47,21 @@ type Target = {
 let target = $state<Target | null>(null);
 let pill = $state<HTMLButtonElement | null>(null);
 let place = $state({ top: 0, left: 0 });
+/**
+ * Where the pointer last went up (a selection ends there). The pill never appears
+ * under it, so a press is always deliberate; when neither side of the selection is
+ * free, the pill takes no press until the pointer has left it once (`armed`).
+ */
+let pointerAt: { x: number; y: number } | null = null;
+let armed = $state(true);
+
+$effect(() => {
+	const record = (event: PointerEvent) => {
+		pointerAt = { x: event.clientX, y: event.clientY };
+	};
+	document.addEventListener("pointerup", record, true);
+	return () => document.removeEventListener("pointerup", record, true);
+});
 let pressing = false;
 const readability = new Map<string, Readability>();
 
@@ -151,19 +166,33 @@ $effect(() => {
 	const below = current.last.bottom + GAP_PX;
 	const roomAbove = above >= minTop;
 	const roomBelow = below <= maxTop;
-	const top = coarse
-		? roomBelow || !roomAbove
-			? below
-			: above
-		: roomAbove || !roomBelow
-			? above
-			: below;
 	const left = coarse ? current.last.left : current.first.left;
 	const maxLeft = window.innerWidth - EDGE_PX - width;
-	place = {
-		top: Math.max(minTop, Math.min(top, maxTop)),
-		left: Math.max(EDGE_PX, Math.min(left, maxLeft)),
-	};
+	const x = Math.max(EDGE_PX, Math.min(left, maxLeft));
+	const at = (y: number) => Math.max(minTop, Math.min(y, maxTop));
+	const underPointer = (y: number) =>
+		pointerAt !== null &&
+		pointerAt.x >= x &&
+		pointerAt.x <= x + width &&
+		pointerAt.y >= at(y) &&
+		pointerAt.y <= at(y) + height;
+	const first = coarse ? below : above;
+	const second = coarse ? above : below;
+	const firstFits = coarse ? roomBelow : roomAbove;
+	const secondFits = coarse ? roomAbove : roomBelow;
+	let top = firstFits || !secondFits ? first : second;
+	// Never under the pointer: the other side, when it is free.
+	if (underPointer(top) && top === first && secondFits && !underPointer(second))
+		top = second;
+	else if (
+		underPointer(top) &&
+		top === second &&
+		firstFits &&
+		!underPointer(first)
+	)
+		top = first;
+	armed = !underPointer(top);
+	place = { top: at(top), left: x };
 });
 
 function press() {
@@ -194,7 +223,12 @@ function press() {
 			event.preventDefault();
 			pressing = true;
 		}}
-		onclick={press}
+		onpointerleave={() => (armed = true)}
+		onclick={(event) => {
+			// A keyboard's click (detail 0) is always deliberate.
+			if (!armed && event.detail !== 0) return;
+			press();
+		}}
 	>
 		<Play size={13} strokeWidth={2.5} aria-hidden="true" />
 		<span>{$t("readAloud.readFromHere")}</span>
