@@ -238,6 +238,20 @@ describe("the voice preview", () => {
 		expect(t.render).toHaveBeenCalledTimes(1);
 	});
 
+	it("a press of the playing button pauses it, even after its sound changed", async () => {
+		// The review's I2: the editor's pill passes the sound built from the knobs now; a
+		// knob moved while it played (Play after each change off) must not make ⏸ render.
+		const t = setup();
+		await played(t, sound("listen"));
+		t.preview.toggle(sound("listen", { pace: -1 }));
+		expect(t.render).toHaveBeenCalledTimes(1);
+		expect(t.audio.paused).toBe(true);
+		expect(t.last().status).toBe("paused");
+		// From paused, the changed sound is a new one: it renders and plays.
+		t.preview.toggle(sound("listen", { pace: -1 }));
+		expect(t.render).toHaveBeenCalledTimes(2);
+	});
+
 	it("drops a render that a later press overtook", async () => {
 		const t = setup();
 		t.preview.toggle(sound("base:imogen"));

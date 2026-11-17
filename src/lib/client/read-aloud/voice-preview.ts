@@ -332,17 +332,19 @@ export function createVoicePreview(deps: VoicePreviewDeps): VoicePreview {
 
 		toggle(next) {
 			const key = renderKey(next.request);
+			// The button that owns the playing sound pauses it, even when the sound it would
+			// now make has changed (a knob moved while it played): its icon says Pause.
+			if (sound && sound.owner === next.owner && status === "playing") {
+				status = "paused";
+				pauseElement();
+				stopFrames();
+				publish();
+				return;
+			}
 			if (sound && sound.owner === next.owner && soundKey === key) {
 				if (status === "loading") return;
 				if (status === "failed") {
 					preview.retry();
-					return;
-				}
-				if (status === "playing") {
-					status = "paused";
-					pauseElement();
-					stopFrames();
-					publish();
 					return;
 				}
 				if (status === "paused" && current) {
