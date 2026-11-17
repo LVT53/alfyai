@@ -61,8 +61,9 @@ const idSchema = z.string().min(1).max(100);
  * the version the panel shows (the words are checked against that version's
  * text), and the chat the panel is in, which an incognito chat's own Document
  * needs to be reached at all (`ArtifactScopeOptions.conversationId`); or of a
- * standard report: the chat file the panel's preview shows, whose words are
- * checked against the report as the preview serves it to the same person.
+ * standard report: the chat file or the library item the panel's preview shows,
+ * whose words are checked against the report as that preview serves it to the
+ * same person.
  */
 export const readingRequestSchema = z.union([
 	z.object({
@@ -79,7 +80,12 @@ export const readingRequestSchema = z.union([
 		sentences: sentencesSchema,
 	}),
 	z.object({
-		report: z.object({ fileId: idSchema }),
+		// A report by its chat file (opened from a chat), or by its library item
+		// (opened from the Knowledge library): `report-html.ts`.
+		report: z.union([
+			z.object({ fileId: idSchema }),
+			z.object({ artifactId: idSchema }),
+		]),
 		sentences: sentencesSchema,
 	}),
 ]);

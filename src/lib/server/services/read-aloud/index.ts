@@ -27,6 +27,7 @@ export {
 	reportPosition,
 	takeOpenTicket,
 } from "./readings";
+export { readReportHtml } from "./report-html";
 export {
 	charsPerSecondByLanguage,
 	positionRequestSchema,

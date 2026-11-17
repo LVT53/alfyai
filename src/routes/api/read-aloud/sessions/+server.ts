@@ -6,13 +6,13 @@ import {
 import { getReadAloudUrl } from "$lib/server/config-store";
 import { getDocumentVersionBody } from "$lib/server/services/artifacts";
 import { getConversation } from "$lib/server/services/conversations";
-import { readStandardReportHtml } from "$lib/server/services/generated-file-serving";
 import { getReplyForDocumentKeep } from "$lib/server/services/messages";
 import {
 	charsPerSecondByLanguage,
 	openReading,
 	ReadingSuperseded,
 	readingRequestSchema,
+	readReportHtml,
 	resolveReadingVoices,
 	SpeechRefused,
 	speechSentencesFor,
@@ -25,7 +25,8 @@ import type { RequestHandler } from "./$types";
 /**
  * Starts a reading of a reply, a Document or a standard report: checks that the
  * person may read it (they own the reply's conversation; the Document passes the
- * panel's own scoped read; the report, the preview's own read of the chat file),
+ * panel's own scoped read; the report, the own read of the preview the panel showed
+ * it by: its chat file's, or its library item's),
  * that every written word occurs in its text in order (the reply's, the Document
  * version's the panel shows, or what the report's markup shows) and that its
  * tokens are the shared dictionary's reading of it, then opens a session on the
@@ -51,12 +52,13 @@ export const POST: RequestHandler = async (event) => {
 	const { sentences } = request;
 
 	if ("report" in request) {
-		// The report as the panel's preview serves it to this person, by the preview's
-		// own rules: another person's file, and a file the preview does not serve as a
-		// standard report, answer as one that does not exist.
-		const html = await readStandardReportHtml({
+		// The report as the panel's preview serves it to this person, by that preview's
+		// own rules (a chat file's, or a library item's): another person's report, and
+		// anything the preview does not serve as a standard report, answer as one that
+		// does not exist.
+		const html = await readReportHtml({
 			userId: user.id,
-			fileId: request.report.fileId,
+			report: request.report,
 		});
 		if (html === null) return createJsonErrorResponse("not_found", 404);
 		const outside = wordsFitReport(html, sentences);
