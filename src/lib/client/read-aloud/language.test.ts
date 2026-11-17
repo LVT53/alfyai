@@ -110,6 +110,22 @@ describe("the read-aloud language detector", () => {
 		).toEqual(["fr"]);
 	});
 
+	it("leaves a paragraph in a language with no voice to tinyld, even with acute vowels or 'of'", () => {
+		// The fix verification's P1: the acute vowels made Spanish and French Hungarian, and
+		// "of", "for" and "at" made Dutch and Danish English. Each must stay skipped and noted.
+		const cases: [string, string][] = [
+			["El médico está aquí y la música también suena muy bonita hoy.", "es"],
+			["Le résumé de cette réunion a été envoyé par le président hier.", "fr"],
+			[
+				"Het is vandaag mooi weer en we gaan naar het strand of het park.",
+				"nl",
+			],
+			["Det er godt vejr i dag, og vi skal til stranden for at bade.", "da"],
+		];
+		for (const [paragraph, code] of cases)
+			expect(assignLanguages([paragraph], detect), paragraph).toEqual([code]);
+	});
+
 	it("a reply with nothing to name gives no language", () => {
 		expect(assignLanguages(["12", ""], detect)).toEqual(["", ""]);
 		expect(assignLanguages([], detect)).toEqual([]);

@@ -112,6 +112,88 @@ const HUNGARIAN_WORDS = new Set([
 	"ott",
 ]);
 
+/**
+ * Function words of languages with no voice that English and Hungarian never write
+ * (the fix verification's P1). Left out on purpose: "de", "a", "el", "le", "van", "est",
+ * "por", "les" and "para", which Hungarian writes, and "los", "las", "pour", "par", "et",
+ * "del", "du", "die", "mit", "aux", "jest", "todo" and "hay", which English writes.
+ */
+const FOREIGN_WORDS = new Set([
+	// Spanish and Portuguese
+	"que",
+	"una",
+	"uma",
+	"muy",
+	"pero",
+	"como",
+	"está",
+	"están",
+	"más",
+	"también",
+	"porque",
+	"esto",
+	"esta",
+	"não",
+	"você",
+	// French
+	"des",
+	"une",
+	"dans",
+	"qui",
+	"cette",
+	"avec",
+	"sont",
+	"mais",
+	"nous",
+	"vous",
+	"été",
+	"très",
+	"être",
+	// Italian
+	"della",
+	"sono",
+	"questo",
+	"anche",
+	"molto",
+	"perché",
+	// Dutch
+	"het",
+	"een",
+	"niet",
+	"zijn",
+	"naar",
+	"maar",
+	"voor",
+	"wordt",
+	"ook",
+	// Danish, Norwegian and Swedish
+	"det",
+	"og",
+	"ikke",
+	"jeg",
+	"eller",
+	"også",
+	"och",
+	"inte",
+	"är",
+	// German
+	"und",
+	"ist",
+	"nicht",
+	"der",
+	"das",
+	"ein",
+	"eine",
+	"auch",
+	// Czech and Polish
+	"je",
+	"jsou",
+	"není",
+	"který",
+	"nie",
+	"się",
+]);
+
 /** Letters only Hungarian writes. */
 const HUNGARIAN_LETTERS = /[őű]/giu;
 /** Acute vowels: Hungarian writes about one in ten letters so; English and German almost never. */
@@ -144,6 +226,10 @@ function nameParagraph(
 	detect: Detect,
 	only?: readonly string[],
 ): string {
+	// A function word of a language with no voice hands the paragraph to tinyld whole:
+	// French and Spanish write acute vowels too, and Dutch and Danish write "of" and "for".
+	const words = text.toLowerCase().match(/\p{L}+/gu) ?? [];
+	if (words.some((word) => FOREIGN_WORDS.has(word))) return detect(text);
 	const { en, hu } = evidence(text);
 	if (en > hu) return "en";
 	if (hu > en) return "hu";
