@@ -348,7 +348,7 @@ describe("the reading controller", () => {
 		expect(t.last().status).toBe("seeking");
 	});
 
-	it("marks words inside code with highlights, above the code's own background", async () => {
+	it("marks inline code above the code's own background, and clears it after a stop", async () => {
 		const registry = new Map<string, { ranges: Range[] }>();
 		class FakeHighlight {
 			priority = 0;
@@ -366,13 +366,14 @@ describe("the reading controller", () => {
 				"<p>Then call <code>getUserName()</code> to read it.</p>",
 			);
 			await playing(t);
-			expect(
-				registry
-					.get("read-aloud-code-sentence")
-					?.ranges.map((r) => r.toString()),
-			).toEqual(["getUserName()"]);
-			t.controller.stop();
+			// Inline code is tinted whole by an attribute (code-marks.ts), not a highlight.
+			const code = document.querySelector("code") as HTMLElement;
+			expect(code.getAttribute("data-read-aloud-code-mark")).toBe("sentence");
 			expect(registry.size).toBe(0);
+			t.controller.stop();
+			await vi.waitFor(() =>
+				expect(code.hasAttribute("data-read-aloud-code-mark")).toBe(false),
+			);
 		} finally {
 			vi.unstubAllGlobals();
 		}
