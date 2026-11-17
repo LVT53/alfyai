@@ -124,8 +124,11 @@ Why each of the loose ones is loose:
   else), never the page's. Its own scripts (the section menu, the source tooltips) and read
   aloud's bridge, which the server adds to that response, run whatever `CSP_MODE` is, and its
   pictures are `data:` ones (spec §4.13 of `docs/superpowers/specs/2026-11-16-read-aloud-design.md`).
-  Until 2026-11-17 the preview drew the report as a `srcdoc`, which inherits this policy, so under
-  `enforce` the report's own scripts were refused.
+  No nonce of the page's is written into any frame or attribute for it. The frame asks by the
+  preview's address plus the bridge's version (`?rb=1`, `reportFrameAddress`), which the routes
+  ignore, so a copy a browser cached for its hour (`private, max-age=3600`) from before the bridge
+  is not framed. Until 2026-11-17 the preview drew the report as a `srcdoc`, which inherits this
+  policy, so under `enforce` the report's own scripts were refused.
 - **`worker-src blob:`** for Sentry's replay compression worker. pdf.js and MapLibre workers are
   same-origin.
 - **`connect-src`** is same-origin only: the browser never talks to a model provider, a tile server
