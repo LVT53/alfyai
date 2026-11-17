@@ -9,7 +9,10 @@ import {
 	type ReadAloudVoiceSettings,
 	saveReadAloudChoice,
 } from "$lib/client/api/read-aloud-voices";
-import type { VoicePreview } from "$lib/client/read-aloud/voice-preview";
+import {
+	disposeVoicePreview,
+	type VoicePreview,
+} from "$lib/client/read-aloud/voice-preview";
 import { STYLES, ZERO_KNOBS } from "$lib/shared/read-aloud/voice-knobs";
 import {
 	idleVoicePreviewView,
@@ -31,6 +34,29 @@ vi.mock("$lib/client/api/read-aloud-voices", async (importOriginal) => {
 		deleteReadAloudVoice: vi.fn(),
 	};
 });
+
+// The app's own preview, for a card mounted as the Settings page mounts it (no prop).
+const shared = vi.hoisted(() => ({
+	unlock: vi.fn(),
+	toggle: vi.fn(),
+	play: vi.fn(),
+	retry: vi.fn(),
+	seek: vi.fn(),
+	beginDrag: vi.fn(),
+	dragTo: vi.fn(),
+	endDrag: vi.fn(),
+	sentencePreview: vi.fn(() => ""),
+	stop: vi.fn(),
+	dispose: vi.fn(),
+}));
+
+vi.mock("$lib/client/read-aloud/voice-preview", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("$lib/client/read-aloud/voice-preview")
+	>()),
+	getVoicePreview: () => shared,
+	disposeVoicePreview: vi.fn(),
+}));
 
 function fakePreview(): VoicePreview {
 	return {
@@ -137,6 +163,22 @@ afterEach(() => {
 });
 
 describe("ReadAloudSettingsCard", () => {
+	it("leaving Settings frees the app's preview, even when only a saved voice's ▶ used it", async () => {
+		// The review's I1: a ▶ goes through VoicePlayButton, not the card, so the card must
+		// free the preview whatever made it.
+		vi.mocked(fetchReadAloudVoices).mockResolvedValue(
+			settings({ voices: [BEDTIME_SAVANNAH] }),
+		);
+		vi.mocked(disposeVoicePreview).mockClear();
+		const { unmount } = render(ReadAloudSettingsCard, { props: {} });
+		await fireEvent.click(
+			await screen.findByRole("button", { name: "Play Bedtime Savannah" }),
+		);
+		expect(shared.toggle).toHaveBeenCalledTimes(1);
+		unmount();
+		expect(disposeVoicePreview).toHaveBeenCalledTimes(1);
+	});
+
 	it("is not there while read aloud is off", () => {
 		setReadAloudAvailable(false);
 		const { container } = render(ReadAloudSettingsCard, {

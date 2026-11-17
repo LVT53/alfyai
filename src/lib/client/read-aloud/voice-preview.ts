@@ -476,6 +476,11 @@ export function createVoicePreview(deps: VoicePreviewDeps): VoicePreview {
 
 let shared: VoicePreview | null = null;
 
+/** Stops the app's voice preview and frees its renders, if it was ever made (Settings went). */
+export function disposeVoicePreview(): void {
+	shared?.dispose();
+}
+
 /** The app's one voice preview, made on first use with its own `<audio preload="auto">`. */
 export function getVoicePreview(): VoicePreview {
 	if (shared) return shared;

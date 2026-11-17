@@ -16,6 +16,7 @@ import {
 	type VoiceChoice,
 } from "$lib/client/api/read-aloud-voices";
 import {
+	disposeVoicePreview,
 	getVoicePreview,
 	type PreviewSound,
 	type VoicePreview,
@@ -52,10 +53,7 @@ let editor = $state<{
 	voice: PersonalVoiceInfo | null;
 	startFrom: string;
 } | null>(null);
-let usedPreview = false;
-
 function player(): VoicePreview {
-	usedPreview = true;
 	return preview ?? getVoicePreview();
 }
 
@@ -79,8 +77,11 @@ $effect(() => {
 	});
 });
 
+// Leaving Settings stops whatever ▶ started (a voice's row, the editor) and frees the
+// kept renders. The app's preview is freed only if something made it.
 onDestroy(() => {
-	if (usedPreview || preview) (preview ?? getVoicePreview()).dispose();
+	if (preview) preview.dispose();
+	else disposeVoicePreview();
 });
 
 const builtInOf = (language: Language) =>
