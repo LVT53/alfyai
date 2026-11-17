@@ -274,6 +274,66 @@ test("the end keeps Finished over its controls until the player has gone", async
 	expect(shown[0]?.time).not.toBe("0:00");
 });
 
+test("a switch spins the new reply's speaker, and the player never counts no sentences", async ({
+	page,
+}) => {
+	const ui = await open(page, [FIVE_SENTENCE_REPLY, TWO_SENTENCE_REPLY]);
+	await ui.speaker(0).click();
+	await expect(ui.speaker(0)).toHaveAttribute("aria-label", "Pause reading");
+	await waitForMotionToSettle(page);
+	// The second reply's voice takes a while, as a real one does.
+	fake.setOptions({ secondsPerChar: 0.02, firstAudioDelayMs: 700 });
+	await page.evaluate(() => {
+		const w = window as unknown as {
+			__switchFrames: Array<{
+				label: string | null;
+				spinning: boolean;
+				value: string | null;
+			}>;
+		};
+		w.__switchFrames = [];
+		const step = () => {
+			const speaker = document.querySelectorAll(
+				'[data-testid="read-aloud-speaker"]',
+			)[1];
+			w.__switchFrames.push({
+				label: speaker?.getAttribute("aria-label") ?? null,
+				spinning: speaker?.querySelector(".mini-spinner") != null,
+				value:
+					document
+						.querySelector(
+							".read-aloud-pill[data-variant='floating'] [role='slider']",
+						)
+						?.getAttribute("aria-valuetext") ?? null,
+			});
+			requestAnimationFrame(step);
+		};
+		requestAnimationFrame(step);
+	});
+	await ui.speaker(1).click();
+	await expect(ui.speaker(1)).toHaveAttribute("aria-label", "Pause reading", {
+		timeout: 15_000,
+	});
+	const frames = await page.evaluate(
+		() =>
+			(
+				window as unknown as {
+					__switchFrames: Array<{
+						label: string | null;
+						spinning: boolean;
+						value: string | null;
+					}>;
+				}
+			).__switchFrames,
+	);
+	// While it gets the voice it spins, and never says "Resume" for a reply that has not played.
+	expect(frames.some((frame) => frame.spinning)).toBe(true);
+	expect(frames.map((frame) => frame.label)).not.toContain("Resume reading");
+	expect(frames.filter((frame) => /of 0$/.test(frame.value ?? "")).length).toBe(
+		0,
+	);
+});
+
 test("a slash command hushes the player, and reading goes on", async ({
 	page,
 }) => {

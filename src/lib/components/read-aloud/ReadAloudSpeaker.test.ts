@@ -130,7 +130,7 @@ describe("ReadAloudSpeaker", () => {
 		expect(Number(progress?.getAttribute("stroke-dashoffset"))).toBeCloseTo(
 			72.26 * 0.75,
 		);
-		for (const status of ["paused", "seeking", "waiting", "stopped"] as const) {
+		for (const status of ["paused", "waiting", "stopped"] as const) {
 			setReadAloudView(view({ status, progress: 0.5 }));
 			await tick();
 			expect(t.button().getAttribute("aria-label")).toBe("Resume reading");
@@ -143,6 +143,37 @@ describe("ReadAloudSpeaker", () => {
 		expect(
 			t.button().querySelector("circle.read-aloud-ring-progress"),
 		).toBeNull();
+	});
+
+	it("spins while it gets the voice for a switch or a jump, and never says Resume", async () => {
+		const t = speaker();
+		const ring = () =>
+			t.button().querySelector("circle.read-aloud-ring-progress");
+		// A switch from another reply: this one has not played, so it spins with no ring.
+		setReadAloudView(view({ status: "seeking", progress: 0 }));
+		await tick();
+		expect(t.button().querySelector(".mini-spinner")).toBeTruthy();
+		expect(t.button().querySelector(".lucide-play")).toBeNull();
+		expect(t.button().getAttribute("aria-label")).toBe("Read aloud");
+		expect(t.button().getAttribute("aria-busy")).toBe("true");
+		expect(ring()).toBeNull();
+		// Its first audio: the ring appears.
+		setReadAloudView(view({ status: "playing", progress: 0.2 }));
+		await tick();
+		expect(ring()).toBeTruthy();
+		expect(t.button().getAttribute("aria-busy")).toBeNull();
+		// A jump inside the reading spins too, and keeps the ring.
+		setReadAloudView(view({ status: "seeking", progress: 0.6 }));
+		await tick();
+		expect(t.button().querySelector(".mini-spinner")).toBeTruthy();
+		expect(t.button().getAttribute("aria-label")).toBe("Read aloud");
+		expect(ring()).toBeTruthy();
+		// The reading ends: the next switch to this reply spins without a ring again.
+		setReadAloudView(idleReadAloudView);
+		await tick();
+		setReadAloudView(view({ status: "seeking", progress: 0 }));
+		await tick();
+		expect(ring()).toBeNull();
 	});
 
 	it("dims with a note naming the language", async () => {

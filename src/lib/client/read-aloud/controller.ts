@@ -387,6 +387,13 @@ export function createReadAloudController(
 			: [];
 	}
 
+	/** Builds a reading's script once its detector is there; a reading that has one keeps it. */
+	function buildScriptOnce(target: Reading) {
+		if (target.script || !detect) return;
+		setScript(target, buildFor(target));
+		target.known = new Map();
+	}
+
 	async function ensureDetector(): Promise<Detect> {
 		detect ??= await deps.loadDetector();
 		return detect;
@@ -450,12 +457,13 @@ export function createReadAloudController(
 			dispatch({ type: "stop" });
 			return;
 		}
+		// After the first reading the detector is there, so the script is built before
+		// this press's view is published: a switch inside the open player shows the
+		// new reply's sentences at once, never "Sentence 0 of 0".
+		buildScriptOnce(target);
 		await ensureDetector();
 		if (token !== openToken) return;
-		if (!target.script) {
-			setScript(target, buildFor(target));
-			target.known = new Map();
-		}
+		buildScriptOnce(target);
 		const script = target.script;
 		const sentences = script?.sentences.slice(from) ?? [];
 		if (!script || sentences.length === 0) {

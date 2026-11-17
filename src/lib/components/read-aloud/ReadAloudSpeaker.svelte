@@ -57,17 +57,27 @@ const status = $derived(mine ? view.status : "idle");
 const dimmed = $derived(
 	!mine && (readability.kind === "noVoice" || readability.kind === "nothing"),
 );
-const ringed = $derived(
-	status === "playing" ||
+/** Getting the voice (spec §4.1): a first start, a switch to this reply or a jump inside its reading. */
+const spinning = $derived(status === "opening" || status === "seeking");
+/**
+ * The ring shows once this reply's audio has come. A jump inside its reading
+ * keeps the ring while it spins; a switch to it spins without one, as a start
+ * does. `ringBefore` is what the ring was before the voice was asked for.
+ */
+let ringBefore = false;
+const ringed = $derived.by(() => {
+	if (status === "seeking") return ringBefore;
+	ringBefore =
+		status === "playing" ||
 		status === "paused" ||
-		status === "seeking" ||
 		status === "waiting" ||
-		status === "stopped",
-);
+		status === "stopped";
+	return ringBefore;
+});
 const label = $derived(
 	status === "playing"
 		? $t("readAloud.speaker.pause")
-		: ringed
+		: ringed && !spinning
 			? $t("readAloud.speaker.resume")
 			: $t("readAloud.speaker.read"),
 );
@@ -200,6 +210,7 @@ function tryAgain() {
 		class:dimmed
 		class:failed={status === "startFailed"}
 		aria-label={label}
+		aria-busy={spinning ? "true" : undefined}
 		aria-disabled={dimmed ? "true" : undefined}
 		data-testid="read-aloud-speaker"
 		onclick={press}
@@ -224,7 +235,7 @@ function tryAgain() {
 				/>
 			</svg>
 		{/if}
-		{#if status === "opening"}
+		{#if spinning}
 			<span class="mini-spinner" aria-hidden="true"></span>
 		{:else if status === "playing"}
 			<Pause size={12} strokeWidth={2.5} aria-hidden="true" />

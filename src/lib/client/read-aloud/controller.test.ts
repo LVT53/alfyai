@@ -734,6 +734,25 @@ describe("the reading controller", () => {
 		);
 	});
 
+	it("a switch shows the new reply's sentences from its first view", async () => {
+		const t = setup();
+		mountReply("m1");
+		mountReply(
+			"m2",
+			"<p>Another reply is read from here on now. It has a second sentence too.</p>",
+		);
+		await playing(t);
+		const before = t.views.length;
+		start(t, "m2");
+		await settle();
+		const switched = t.views
+			.slice(before)
+			.filter((view) => view.messageId === "m2");
+		expect(switched.length).toBeGreaterThan(0);
+		// Never "Sentence 0 of 0" in the player while the new reply's voice comes.
+		expect(switched.map((view) => view.count)).not.toContain(0);
+	});
+
 	it("says where a sentence starts, for the scrubber's bubble", async () => {
 		const t = setup();
 		mountReply();
