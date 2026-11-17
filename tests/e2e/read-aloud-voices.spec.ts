@@ -495,6 +495,74 @@ for (const language of ["en", "hu"] as const)
 		}
 	});
 
+test("the Listen switches show the app's focus ring", async ({ page }) => {
+	const { editor } = await newVoice(page);
+	await editor
+		.getByRole("group", { name: "Compare" })
+		.getByRole("button", { name: "Original" })
+		.focus();
+	await page.keyboard.press("Tab");
+	const toggle = editor.getByRole("switch", { name: "Play after each change" });
+	await expect(toggle).toBeFocused();
+	await expect(toggle).toHaveCSS("outline-style", "solid");
+	await expect(toggle).toHaveCSS("outline-width", "2px");
+});
+
+test("after Delete, focus lands on New voice", async ({ page }) => {
+	await makeVoice(page, "imogen");
+	const card = await openReadAloudSettings(page);
+	await card.getByRole("button", { name: "Edit" }).first().click();
+	const editor = page.getByRole("dialog", { name: "Edit voice" });
+	await expect(editor).toBeVisible();
+	await editor.getByRole("button", { name: "Delete", exact: true }).click();
+	const confirm = page.getByRole("dialog", { name: "Delete this voice?" });
+	await confirm.getByRole("button", { name: "Delete", exact: true }).click();
+	await expect(editor).toBeHidden();
+	await expect(card.getByRole("button", { name: "New voice" })).toBeFocused();
+});
+
+test("the card keeps its size while its voices load, and the voice labels sit level with their pickers", async ({
+	page,
+}) => {
+	let release: () => void = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await page.route("**/api/read-aloud/voices", async (route) => {
+		if (route.request().method() === "GET") await held;
+		await route.continue();
+	});
+	try {
+		await page.goto("/settings", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		const card = page.locator("#settings-section-read-aloud");
+		await expect(card).toBeVisible({ timeout: 15_000 });
+		await card.scrollIntoViewIfNeeded();
+		const english = card.getByRole("combobox", { name: "English voice" });
+		await expect(english).toBeDisabled();
+		const loading = {
+			card: (await card.boundingBox())?.height ?? 0,
+			picker: (await english.boundingBox())?.width ?? 0,
+		};
+		release();
+		await expect(english).toBeEnabled({ timeout: 15_000 });
+		await waitForMotionToSettle(page);
+		expect((await card.boundingBox())?.height).toBeCloseTo(loading.card, 0);
+		expect((await english.boundingBox())?.width).toBeCloseTo(loading.picker, 0);
+		const label = await card
+			.getByText("English voice", { exact: true })
+			.boundingBox();
+		const picker = await english.boundingBox();
+		if (!label || !picker) throw new Error("the row has no box");
+		expect(
+			Math.abs(label.y + label.height / 2 - (picker.y + picker.height / 2)),
+		).toBeLessThan(1.5);
+	} finally {
+		release();
+		await page.unroute("**/api/read-aloud/voices");
+	}
+});
+
 test("on a phone the editor is a full sheet without Cancel", async ({
 	page,
 }) => {

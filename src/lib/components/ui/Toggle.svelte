@@ -45,6 +45,12 @@ let {
 		background: var(--accent);
 	}
 
+	/* The app's focus ring, not the browser's thin default. */
+	.toggle-btn:focus-visible {
+		outline: 2px solid var(--border-focus);
+		outline-offset: 2px;
+	}
+
 	.toggle-btn:disabled {
 		opacity: 0.55;
 		cursor: not-allowed;

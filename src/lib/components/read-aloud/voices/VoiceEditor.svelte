@@ -359,6 +359,7 @@ onMount(() => {
 				type="text"
 				maxlength={VOICE_NAME_MAX}
 				value={shownName}
+				placeholder={suggested}
 				oninput={(event) => {
 					name = event.currentTarget.value;
 					nameTouched = true;

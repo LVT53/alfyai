@@ -250,6 +250,15 @@ describe("VoiceEditor", () => {
 		expect(t.nameField().value).toBe("Night voice");
 	});
 
+	it("a cleared name shows the name it will be saved under", async () => {
+		reducedMotion(true);
+		const t = editor();
+		await fireEvent.click(t.chip("Bedtime"));
+		await fireEvent.input(t.nameField(), { target: { value: "" } });
+		expect(t.nameField().value).toBe("");
+		expect(t.nameField().placeholder).toBe("Bedtime Imogen");
+	});
+
 	it("saves a new voice, and keeps everything with a note when saving fails", async () => {
 		reducedMotion(true);
 		const t = editor();
