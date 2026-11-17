@@ -42,6 +42,8 @@ export type ScriptSentence = {
 	 * at one (`sentenceAtPoint`): the voice makes words up from a short fragment.
 	 */
 	continues: boolean;
+	/** It begins with a heading's words: a long Document's scrubber marks these. */
+	heading: boolean;
 	words: ScriptWord[];
 	/** The words' tokens in order, pause marks included. */
 	tokens: string[];
@@ -198,10 +200,15 @@ type Draft = {
 export function buildSpeechScript(
 	roots: readonly Element[],
 	detect: Detect,
-	options: { fallbackLanguage: Voiced; readBlock?: Element | null },
+	options: {
+		fallbackLanguage: Voiced;
+		readBlock?: Element | null;
+		/** What else the page draws that is not its text (a Document's chips and Alfy's pill): never read. */
+		skip?: string;
+	},
 ): SpeechScript {
 	const paragraphs = roots.flatMap((root) =>
-		collectParagraphs(root, options.readBlock ?? null),
+		collectParagraphs(root, options.readBlock ?? null, options.skip ?? null),
 	);
 	const spoken = paragraphs.map(spokenView);
 	// The language is told from the words: a formula read as math is left out of it.
@@ -366,9 +373,18 @@ function atomOf(text: Text, paragraph: Element): Element | null {
 	return atom && paragraph.contains(atom) ? atom : null;
 }
 
+/** Not drawn at all: hidden, or set to `display: none` on the element itself (a Document's tab hides its other sections so). */
+function isUndrawn(element: Element): boolean {
+	return (
+		element.hasAttribute("hidden") ||
+		(element as HTMLElement).style?.display === "none"
+	);
+}
+
 function collectParagraphs(
 	root: Element,
 	readBlock: Element | null,
+	skip: string | null,
 ): Paragraph[] {
 	const paragraphs: Paragraph[] = [];
 	let current: Paragraph | null = null;
@@ -458,7 +474,11 @@ function collectParagraphs(
 				gap = "\n";
 				continue;
 			}
-			if (element.matches(SKIPPED_SELECTOR)) {
+			if (
+				element.matches(SKIPPED_SELECTOR) ||
+				isUndrawn(element) ||
+				(skip !== null && element.matches(skip))
+			) {
 				gap ??= " ";
 				continue;
 			}
@@ -1059,7 +1079,14 @@ function join(a: Draft, b: Draft): Draft {
 	};
 }
 
-/** A sentence of fewer than three tokens joins the next one of its language, or else the one before. */
+/** A draft that begins with a heading's words: a section starts there. */
+const beginsHeading = (draft: Draft) => draft.words[0]?.heading === true;
+
+/**
+ * A sentence of fewer than three tokens joins the next one of its language, or else the one before.
+ * It never joins forward into a heading, which then begins its section's first unit (Read from here
+ * on a heading starts that section, and a long Document's scrubber marks it there).
+ */
 function mergeShort(drafts: readonly Draft[]): Draft[] {
 	const out: Draft[] = [];
 	for (const draft of drafts) {
@@ -1067,7 +1094,8 @@ function mergeShort(drafts: readonly Draft[]): Draft[] {
 		if (
 			previous &&
 			tokenCount(previous) < SHORT_SENTENCE_TOKENS &&
-			previous.language === draft.language
+			previous.language === draft.language &&
+			!beginsHeading(draft)
 		) {
 			out[out.length - 1] = join(previous, draft);
 		} else {
@@ -1224,6 +1252,7 @@ function finish(drafts: readonly Draft[]): ScriptSentence[] {
 			language: draft.language,
 			paragraphStart: draft.paragraphStart,
 			continues: draft.continues === true,
+			heading: draft.continues !== true && draft.words[0]?.heading === true,
 			words,
 			tokens,
 			ranges,

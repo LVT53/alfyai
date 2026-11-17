@@ -18,6 +18,7 @@ function scriptOf(
 		tokens: string[];
 		language?: "en" | "hu";
 		paragraphStart?: boolean;
+		heading?: boolean;
 	}>,
 ): SpeechScript {
 	let charStart = 0;
@@ -29,6 +30,7 @@ function scriptOf(
 			language: part.language ?? "en",
 			paragraphStart: part.paragraphStart ?? index === 0,
 			continues: false,
+			heading: part.heading ?? false,
 			words: [],
 			tokens: part.tokens,
 			ranges: [],
