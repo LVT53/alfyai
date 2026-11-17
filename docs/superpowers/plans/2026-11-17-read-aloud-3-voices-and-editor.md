@@ -109,8 +109,14 @@
     - Deleting the account deletes it, through the cascade.
 
 **Only the owner can decide:**
-- **Running Task 15 on the box:** about 15 minutes of Zonos on GPU0 beside vLLM, which decodes about 10% slower while it runs (Plan 1's measurement). Nothing restarts. Nothing else waits on it: until it runs, the editor works within the spec's ranges.
-- **Only if Task 15 puts a style's value outside a measured range:** whether that style changes in that language. Until then the range stays at the spec's for that control.
+- **Running Task 15 on the box:** about 15 minutes of Zonos on GPU0 beside vLLM, which decodes about 10% slower while it runs (Plan 1's measurement). Nothing restarts, and nothing else waits on it: until it runs, the editor works within the spec's ranges.
+  - The overnight runbook (`overnight-runbook-2026-11-17.md` in the shared notes folder) quotes the owner pre-approving, at about 02:00 GMT on 2026-11-17, the box steps of Plans 3 and 4, the knob-range measurements included.
+  - The orchestrating session confirms that before Task 15 runs. Whoever runs it states each command first, as the runbook asks.
+- **Only if Task 15 puts a style's value outside a measured range:** whether that style changes in that language.
+  - The reversible default: that control keeps the spec's range, and the finding goes into the owner's morning review.
+  - It blocks nothing.
+
+**Not an owner decision:** the database layout. Spec §6.5 leaves the schema to the builder, and the migration only adds a table and three columns, so undoing it is a drop.
 
 ## Review Focus
 
@@ -1129,9 +1135,9 @@ Each track reads that file at the start of every task and does what is under its
 
 ### Task 15: The knobs' safe ranges, measured on the box (the owner's OK)
 
-This task is on neither track. It runs only after the owner says yes, through the design session. It is about 15 minutes of Zonos on GPU0 beside vLLM, and nothing restarts.
+This task is on neither track. It runs after Task 7 is merged, with the owner's OK as the orchestrating session confirms it (see **Only the owner can decide**). Best done together with Plan 4's other box step, the speaking-rate measurement. It is about 15 minutes of Zonos on GPU0 beside vLLM, and nothing restarts. State each command on the box before it runs.
 
-- [ ] **Step 1: Update the box's copy of the code,** with the owner's OK, as the README's "Install or update" step 1 says (as `alfyws`), so that `scripts/measure_knobs.py` is there.
+- [ ] **Step 1: Update the box's copy of the code,** as the README's "Install or update" step 1 says (as `alfyws`), so that `scripts/measure_knobs.py` is there.
 - [ ] **Step 2: Run it on the box,** as `alfyws`, with the service's Python and its aligner (the paths are in the README's "Where things are on the box"):
   `cd /home/alfyws/opt/speech-service && /home/alfyws/venvs/speech-service/bin/python -I scripts/measure_knobs.py --out /home/alfyws/knob-ranges-<date> --aligner-cli <its CLI> --aligner-model <its model> --aligner-threads 8`
 - [ ] **Step 3: Copy `knob-ranges.json`** to the shared notes folder, then delete the box folder.
@@ -1148,6 +1154,7 @@ This task is on neither track. It runs only after the owner says yes, through th
   - whether a knob needs a dose of its own in Hungarian (spec §4.6, "Calibration"), which would be a per-language factor in `knobsToControls`;
   - the editor's Hungarian words (Decision 17).
 - **The Feature Guide:** one entry for reading aloud, the Read aloud card and the editor, with its drawing and Show me markers on the English voice picker and on "New voice" (spec §4.11).
-- **Task 15** runs before `TTS_ENABLED` goes on in production, if it has not run yet (spec §8).
+- **Task 15** runs before `TTS_ENABLED` goes on in production, if it has not run yet (spec §8). It fits beside Plan 4's speaking-rate measurement on the box, so Plan 4 needs no re-measure task of its own.
+- **The UI walk** (the runbook's stage 6) covers the Read aloud card and the editor too: phone and desktop, both themes, English and Hungarian, against `voice-editor-prototype.html`.
 - **Apache:** the preview route needs no streaming rule, because it answers a whole clip with a length.
 - **The migration number:** if `main` holds a migration numbered 1777140000130 when this branch merges, renumber this one (the file name and its journal entry).
