@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReadAloudPlayerActions } from "$lib/client/read-aloud/controller";
 import { idleReadAloudView, type ReadAloudView } from "$lib/stores/read-aloud";
@@ -106,6 +107,81 @@ describe("the floating pill's Tab order follows its layout", () => {
 			"Play",
 			"Next sentence",
 		]);
+	});
+});
+
+// Beside a docked Document panel the chat's column can be 340 to 620 px wide on a wide
+// screen, and one row left the scrubber no room: the pill follows its own width too.
+describe("a pill in a narrow column on a wide screen", () => {
+	let measured: (() => void) | null = null;
+
+	beforeEach(() => {
+		viewport(false);
+		vi.stubGlobal(
+			"ResizeObserver",
+			class {
+				constructor(callback: () => void) {
+					measured = callback;
+				}
+				observe() {}
+				unobserve() {}
+				disconnect() {}
+			},
+		);
+	});
+
+	afterEach(() => {
+		measured = null;
+		vi.unstubAllGlobals();
+	});
+
+	async function sized(variant: "floating" | "inline", width: number) {
+		const result = render(ReadAloudPlayerPill, {
+			props: { view: view(), actions: actions(), variant },
+		});
+		const pill = result.container.querySelector(
+			".read-aloud-pill",
+		) as HTMLElement;
+		vi.spyOn(pill, "getBoundingClientRect").mockReturnValue(
+			new DOMRect(0, 0, width, 54),
+		);
+		measured?.();
+		await tick();
+		return { ...result, pill };
+	}
+
+	it("a floating pill under 560 px takes the two rows, the scrubber on top", async () => {
+		const { container, pill } = await sized("floating", 420);
+		expect(pill.hasAttribute("data-narrow")).toBe(true);
+		expect(pill.hasAttribute("data-tight")).toBe(false);
+		expect(tabOrder(container)).toEqual([
+			"Sentence",
+			"Speed: 1×",
+			"Previous sentence",
+			"Play",
+			"Next sentence",
+			"Go to where it's reading",
+			"Stop reading",
+		]);
+	});
+
+	it("a floating pill of 560 px or more keeps its one row", async () => {
+		const { pill } = await sized("floating", 560);
+		expect(pill.hasAttribute("data-narrow")).toBe(false);
+	});
+
+	// The narrowest chat column beside a docked panel holds a 340 px pill, where the
+	// phone's 44 px row fits; the smaller buttons stay the rule of a phone under 360 px,
+	// whose pill is narrower than its screen (a 390 px phone's is about 358 px).
+	it("at the narrowest column a wide screen has, it keeps the phone's 44 px buttons", async () => {
+		const { pill } = await sized("floating", 340);
+		expect(pill.hasAttribute("data-narrow")).toBe(true);
+		expect(pill.hasAttribute("data-tight")).toBe(false);
+	});
+
+	it("the voice editor's inline pill keeps its one row in a dialog on a wide screen", async () => {
+		const { pill } = await sized("inline", 420);
+		expect(pill.hasAttribute("data-narrow")).toBe(false);
 	});
 });
 

@@ -229,12 +229,7 @@ function onkeydown(event: KeyboardEvent) {
 		cursor: grabbing;
 	}
 
-	/* The phone's top row is 34 px, so the player is about 108 px tall (spec §4.3). */
-	@media (max-width: 767px) {
-		.read-aloud-scrubber {
-			height: 34px;
-		}
-	}
+	/* In the pill's two rows (a phone, a narrow column) its row is 34 px: the pill sets it. */
 
 	.read-aloud-scrubber.disabled {
 		cursor: default;
