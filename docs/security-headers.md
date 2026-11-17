@@ -119,7 +119,17 @@ Why each of the loose ones is loose:
   a plain link. Two consequences to know about when `CSP_MODE=enforce`: a generated HTML report
   opened in the in-app preview (a `srcdoc` frame, which inherits this policy) shows no remote
   pictures, only `data:` ones (the file you download is unaffected), and the markdown renderer
-  must not emit a remote `<img>` (it shows a link instead).
+  must not emit a remote `<img>` (it shows a link instead). The same inheritance means the
+  report's own inline scripts (its section menu, its tooltips) do not run in the preview under
+  `enforce`: they carry no nonce. Read aloud's report bridge does: the one inline script of the
+  app's own that the preview adds to a trusted report's srcdoc carries the page's nonce
+  (`reportBridgeScript`, `pageScriptNonce`), so it runs under both policies with neither changed
+  (spec §4.13 of `docs/superpowers/specs/2026-11-16-read-aloud-design.md`). The nonce is then
+  readable inside that opaque frame. The frame cannot touch the page and fetches nothing
+  (`default-src 'none'`), but a popup it opens (`allow-popups`, for the report's links) could
+  carry it in an address, so nothing but the app's own code may ever run there: the report's
+  renderer escapes everything the model wrote, and the bridge is the app's. A nonce is good
+  for one page load.
 - **`worker-src blob:`** for Sentry's replay compression worker. pdf.js and MapLibre workers are
   same-origin.
 - **`connect-src`** is same-origin only: the browser never talks to a model provider, a tile server
