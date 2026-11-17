@@ -399,11 +399,33 @@ describe("readings: a reading replaced after the service said done (early review
 		);
 	});
 
-	it("a finished reading nobody listens to any more still closes", async () => {
-		// No events reader at all (a browser that never opened the stream): the
-		// drain closes it as it always did.
+	it("does not close a drained reading before its events reader has come", async () => {
+		// The browser asks for the audio and, a moment later, for the events. On a busy machine
+		// the audio can be read to its end before the second request arrives: closing the
+		// reading then answered the events request 404, and the page ended its reading with
+		// "the voice stopped answering".
 		const reading = await open("user-a", TWO);
 		await readAll(attachAudio(reading) as ReadableStream<Uint8Array>);
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(currentReading("user-a", reading.sessionId)).not.toBeNull();
+
+		// The events reader comes late, hears the whole timeline, and leaves: now it is drained.
+		const late = attachEvents(reading).getReader();
+		await readEventsUntil(late, DONE);
+		await late.cancel();
+		await until(
+			() => currentReading("user-a", reading.sessionId) === null,
+			1000,
+		);
+	});
+
+	it("a finished reading whose events nobody ever read ends as idle", async () => {
+		// A client that never opens the events stream: with no stream to wait for, the idle end
+		// closes it.
+		configureReadingsForTests({ idleMs: 150 });
+		const reading = await open("user-a", TWO);
+		await readAll(attachAudio(reading) as ReadableStream<Uint8Array>);
+		expect(currentReading("user-a", reading.sessionId)).not.toBeNull();
 		await until(
 			() => currentReading("user-a", reading.sessionId) === null,
 			1000,
@@ -451,9 +473,12 @@ describe("readings: when readers leave", () => {
 		await audio.cancel();
 	});
 
-	it("closes once the audio has ended and a reader has drained it", async () => {
+	it("closes once the audio has ended, a reader has drained it and the events reader has left", async () => {
 		const reading = await open("user-a", TWO);
+		const events = attachEvents(reading).getReader();
+		await readEventsUntil(events, DONE);
 		await readAll(attachAudio(reading) as ReadableStream<Uint8Array>);
+		await events.cancel();
 		await until(
 			() => currentReading("user-a", reading.sessionId) === null,
 			1000,

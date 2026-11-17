@@ -181,6 +181,8 @@ class ReadingState {
 	audioCompleted = 0;
 	/** Events readers attached that have not left. */
 	eventsReaders = 0;
+	/** An events reader has come at least once: the browser asks for the audio first and the events a moment later. */
+	eventsSeen = false;
 	/** The service's timeline is complete (it ended, or was cut); the browser's stream goes on regardless. */
 	timelineEnded = false;
 	closed = false;
@@ -248,8 +250,12 @@ function armIdleWhenAlone(state: ReadingState): void {
  * audio and no reader of either stream is left: nothing is left to serve. (A
  * reader that left early, as Safari's probe does, is not a reader that was
  * given it all; the timeline is waited for, so closing never cuts it short;
- * and while the browser keeps its events stream open it is still playing what
- * it has and a replacing press must find the reading to tell it.)
+ * while the browser keeps its events stream open it is still playing what it
+ * has and a replacing press must find the reading to tell it; and the events
+ * stream is waited for until it has come once, because the browser asks for it
+ * a moment after the audio, and on a busy machine the audio can be read to its
+ * end first: closing then answered the events request 404. A client that never
+ * opens it is left to the idle end.)
  */
 function closeWhenDrained(state: ReadingState): void {
 	if (
@@ -258,6 +264,7 @@ function closeWhenDrained(state: ReadingState): void {
 		state.timelineEnded &&
 		state.audioCompleted > 0 &&
 		state.audioReaders === 0 &&
+		state.eventsSeen &&
 		state.eventsReaders === 0
 	)
 		void closeState(state, "drained");
@@ -450,6 +457,7 @@ export function attachEvents(reading: Reading): ReadableStream<Uint8Array> {
 		});
 	}
 	state.eventsReaders += 1;
+	state.eventsSeen = true;
 	disarmIdle(state);
 	let left = false;
 	const leave = () => {
