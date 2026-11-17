@@ -91,6 +91,19 @@ export const RETIRED_BUILT_IN_VOICES: Readonly<
 	Record<string, { name: string; language: VoiceLanguage }>
 > = {};
 
+/** The built-in voices as a picker lists them: no speaker ids. */
+export function listBuiltInVoices(): Array<{
+	key: string;
+	name: string;
+	language: VoiceLanguage;
+}> {
+	return BUILT_IN_VOICES.map(({ key, name, language }) => ({
+		key,
+		name,
+		language,
+	}));
+}
+
 /** The built-in voice with this key, or null. The key is looked up, never read off an object. */
 export function builtInVoice(key: string): BuiltInVoice | null {
 	return BUILT_IN_VOICES.find((voice) => voice.key === key) ?? null;

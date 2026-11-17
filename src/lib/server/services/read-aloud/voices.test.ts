@@ -4,6 +4,7 @@ import {
 	BUILT_IN_VOICES,
 	builtInVoice,
 	defaultVoiceFor,
+	listBuiltInVoices,
 	RETIRED_BUILT_IN_VOICES,
 	resolvedVoice,
 } from "./voices";
@@ -64,6 +65,17 @@ describe("finding and resolving a voice", () => {
 		expect(builtInVoice("constructor")).toBeNull();
 		expect(builtInVoice("__proto__")).toBeNull();
 		expect(builtInVoice("")).toBeNull();
+	});
+
+	it("lists the built-in voices as a picker shows them, without their speaker ids", () => {
+		expect(listBuiltInVoices()).toEqual([
+			{ key: "imogen", name: "Imogen", language: "en" },
+			{ key: "rupert", name: "Rupert", language: "en" },
+			{ key: "savannah", name: "Savannah", language: "en" },
+			{ key: "wyatt", name: "Wyatt", language: "en" },
+			{ key: "berta", name: "Berta", language: "hu" },
+			{ key: "imre", name: "Imre", language: "hu" },
+		]);
 	});
 
 	it("has no retired voice today", () => {
