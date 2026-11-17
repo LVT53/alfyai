@@ -43,26 +43,6 @@ export const REPORT_BRIDGE_KIND = "alfy.readAloud";
 /** At most this many spans in a message: a sentence's words, or a drag's target. */
 export const REPORT_BRIDGE_MAX_SPANS = 400;
 
-/**
- * The bridge's version, in the address the panel frames a report by
- * (`reportFrameAddress`). A preview is cached for an hour (`private, max-age=3600`),
- * so a browser could frame a copy it kept from before the bridge, or from before it
- * changed. Bump it with any change to what the bridge says or takes.
- */
-export const REPORT_BRIDGE_VERSION = 1;
-
-/**
- * The address the panel frames a standard report by: its preview's own address with
- * the bridge's version (`rb`), which the preview routes ignore, so no copy cached
- * under another address is used. A relative address stays relative.
- */
-export function reportFrameAddress(previewAddress: string): string {
-	const absolute = /^[a-z][a-z0-9+.-]*:/iu.test(previewAddress);
-	const url = new URL(previewAddress, "http://preview.invalid");
-	url.searchParams.set("rb", String(REPORT_BRIDGE_VERSION));
-	return absolute ? url.href : `${url.pathname}${url.search}${url.hash}`;
-}
-
 /** A place in the report: its block, and the start and end of a run of its characters. */
 export type ReportSpan = [block: number, start: number, end: number];
 

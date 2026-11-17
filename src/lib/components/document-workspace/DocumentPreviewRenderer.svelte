@@ -3,7 +3,7 @@ import UploadPictureMarks from "$lib/components/artifacts/image/UploadPictureMar
 import ReportReadAloud from "$lib/components/read-aloud/ReportReadAloud.svelte";
 import type { ReportReadingSource } from "$lib/client/read-aloud/controller";
 import { frameLoadTripwire } from "$lib/utils/frame-load-tripwire";
-import { reportFrameAddress } from "$lib/shared/read-aloud/report-bridge";
+import { reportFrameAddress } from "$lib/shared/read-aloud/report-frame-address";
 import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { isGenericMimeType } from "$lib/shared/file-types";
 import { ensureFilenameExtension } from "$lib/shared/file-types/download-name";
