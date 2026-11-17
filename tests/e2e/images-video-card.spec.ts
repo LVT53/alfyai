@@ -4,7 +4,7 @@ import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import sharp from "sharp";
 import { db } from "../../src/lib/server/db";
 import {
@@ -910,28 +910,13 @@ test("while a clip is made, the head counts down beside the kind and the box hol
 	// A slow render, so the take stays on its way long enough to be read: the
 	// fake's steps come 1.5 s apart (it reads the delay at every step).
 	fake?.setOptions({ startDelayMs: 200, stepDelayMs: 1_500, steps: 8 });
-	const stillId = await storeStill();
-	const another = await enqueueVideoTake({
-		userId,
-		conversationId,
-		artifactId: null,
-		toolCallId: TOOL_CALL_ID,
-		origin: "another",
-		retryOf: null,
-		request: {
-			v: 1,
-			prompt: "the harbour at dusk, a slow tide",
-			durationSeconds: 5,
-			sourceFileId: stillId,
-			title: "Harbour at dusk",
-			summary: null,
-			artifactId: null,
-		},
-		seed: 1002,
-	});
 	try {
 		await openChat(page);
 		const card = page.getByTestId("artifact-card").first();
+		// Another, as the person presses it: the server queues the take and
+		// wakes its engine at once (a take queued from this process would wait
+		// for the engine's idle tick, 30 s for the video kind).
+		await card.getByTestId("video-card-another").click();
 		const head = card.getByTestId("artifact-card-head");
 		const time = head.getByTestId("artifact-card-take-time");
 		await expect(time).toHaveText(/^About \d+ s left$/, { timeout: 20_000 });
@@ -946,7 +931,16 @@ test("while a clip is made, the head counts down beside the kind and the box hol
 		await expect(time).not.toHaveText(/\d:\d\d/);
 	} finally {
 		fake?.setOptions({ startDelayMs: 0, stepDelayMs: 5, steps: 4 });
-		const settled = await waitForTake(another.takeId);
-		expect(settled.status, settled.errorMessage ?? "").toBe("succeeded");
+		// The take Another queued settles before the file's cleanup.
+		const [newest] = await db
+			.select({ id: videoJobs.id })
+			.from(videoJobs)
+			.where(eq(videoJobs.conversationId, conversationId))
+			.orderBy(desc(videoJobs.createdAt), desc(sql`rowid`))
+			.limit(1);
+		if (newest && newest.id !== takeId) {
+			const settled = await waitForTake(newest.id);
+			expect(settled.status, settled.errorMessage ?? "").toBe("succeeded");
+		}
 	}
 });
