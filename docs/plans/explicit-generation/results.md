@@ -1,6 +1,6 @@
 # Pictures and videos on a clear request: measured, changed, measured again
 
-**Bottom line:** on Thorough, the default, an ambiguous request now gets a card first 75% of the time instead of 6%, and makes a picture on a guess 8% of the time instead of 42%. With a picture already in the chat, a video no longer starts without a clear request for one (0 of 40, from 13 of 40). Clear requests still go straight through: pictures 39 of 40, changes to a picture 16 of 16, videos 24 of 24, and plain questions neither make nor ask anything (24 of 24). On Quick (thinking off) the cards rose too (10% to 41%), but the videos did not stop (28% to 25%): see "What is left".
+**Bottom line:** on Thorough, the default, an ambiguous request now gets a card first 75% of the time instead of 6%, and makes a picture on a guess 8% of the time instead of 42%. With a picture already in the chat, a video no longer starts without a clear request for one (0 of 40, from 13 of 40). Clear requests still go straight through: pictures 39 of 40, changes to a picture 16 of 16, videos 24 of 24, and plain questions neither make nor ask anything (24 of 24). On Quick (thinking off) the guidance raised the cards (10% to 41%) but did not stop the videos (28% to 25%); a check of the app's own when make_video is called ("The app's video check" below) took them to none, with clear videos still 24 of 24.
 
 Measured 2026-11-17 against the production model (`qwen3-6-27b`, inference.alfycomms.com). Before: the release code, `read-aloud-release` at `6cb4fb106`. After: this branch (`claude/gen-toggle-explicit-202be2`). Made-up prompts only, on an empty test account.
 
@@ -109,10 +109,51 @@ The turn guidance did most of the work; the descriptions alone far less. The shi
 
 make_image 135 -> 168 estimated tokens, make_video 149 -> 179 (make_video's "Only for a clip" made way for the new sentence). The catalogue goes from 5,639 to 5,702, and `CATALOGUE_TOKEN_CEILING` (`normal-chat-tools/index.test.ts`) is raised to exactly that, with the reason above it: nothing else in the catalogue says it, so no words could pay for it. The turn guidance line is 496 characters (about 124 tokens), on every turn that can make a picture or a video, after the message.
 
+## The app's video check (the Quick gap)
+
+A second pass, the same evening, at the one rule Quick did not keep: a video only on a clear request for one, even with a picture in the chat.
+
+**Wording first.** Two Quick lines, screened on the shipped code by rewriting the request (the motion cases, the clear videos, two clear pictures and two plain questions; Quick):
+
+| Quick line | Video without a clear request | Asked first, picture in the chat | Clear videos made |
+|---|---|---|---|
+| Shipped | 10/40 | 2/40 | 24/24 |
+| QL1: "Call make_video only when the user's words ask for a video, a clip or an animation; if they only wish something in a picture would move, call ask_user to offer one." before the ask sentence | 4/40 | 13/40 | 18/18 |
+| QL2: "Never call make_video unless the user's own words ask for a video, a clip or an animation; when they only wish something would move, call ask_user instead." | 4/26 at the stop | 6/26 | 12/12 |
+
+Neither reached none, so the Quick line stays as it was measured for Ask me first.
+
+**The check.** When make_video is called, the app asks the control model one yes/no question about the person's own message (`normal-chat-tools/video-request.ts`): a video, a clip, a movie, a GIF or an animation, or asking to animate something, is a request; a wish that something in a picture would move, or a change to a picture, is not. A "no" stops the call before a still, a caption or a take, with a refusal that sends the model to ask_user first; no answer lets the call go on. The probe let make_video run for this, forwarded the check's question to the production model as the app sends it, and counted a video as started only when the check let it through (or had no answer).
+
+| With the check, both languages | Quick | Thorough |
+|---|---|---|
+| Picture in the chat: a video started without a clear request | **0/40** (10/40 shipped) | 0/40 (0/40 shipped) |
+| "Could the sea move a little?": asked first | 8/8 (0/8 shipped) | 8/8 |
+| "It would be nice if the clouds drifted" (held out): asked first | English 4/4; Hungarian changed the still picture 4/4, no video | 8/8 |
+| Clear video: made at once | 24/24 | 24/24 |
+| The check's verdicts | yes 24, no 12, no answer 0 | yes 24, no 0 |
+| Clear picture: made at once | 30/30 | 8/8 |
+| Clear change, picture in the chat: made at once | 8/8 | 8/8 |
+| Plain question: neither made nor asked | 16/16 | not run (the check is only asked on make_video) |
+| Ambiguous, no picture: asked first / made on a guess | 25/64 / 14/64 (as shipped: 39/96 / 29/96) | not run |
+
+Every "no" of the check fell on a wish that something would move, and every one became a card. On Thorough the model never called make_video for one, so the check never said no and nothing moved.
+
+**Ask me first on Quick.** The method and prompts of `docs/plans/ask-me-first/results-quick-hungarian.md` (nine prompt pairs where asking fits, six samples each; four plain questions and four requests with a plain default, three each), with the picture and video servers configured as on production, so the catalogue and the turn guidance hold what ships:
+
+| Quick, card shown (9 prompts x 6) | English | Hungarian | Plain questions asked | Plain-default asked |
+|---|---|---|---|---|
+| fix-chat-two, after its fix (no picture tools in the catalogue) | 52/54 = 96% [87-99] | 45/54 = 83% [71-91] | 0/12 per language | 0/12 per language |
+| The release base `6cb4fb106` (Ask me first's fix, none of this work), picture tools configured | 49/54 = 91% [80-96] | 42/54 = 78% [65-87] | 0/12, 0/12 | 0/12, 0/12 |
+| This branch: shipped line + the check | 45/54 = 83% [71-91] | 43/54 = 80% [67-88] | 0/12, 0/12 | 0/12, 0/12 |
+
+Against the base measured the same way, English shows 4 cards fewer (49 to 45 of 54) and Hungarian 1 more (42 to 43): both within noise (English z about 1.1; the intervals overlap), and no plain question or plain-default request asked in either. The check itself cannot move these prompts: none of them calls make_video. With the picture tools in the catalogue both runs sit a little under fix-chat-two's numbers, which were measured without them. Per prompt, this branch (English / Hungarian): trip 6/6, 5/6; laptop 6/6, 5/6; interview 5/6, 6/6; language 6/6, 4/6; party 6/6, 6/6; workout 6/6, 6/6; dog 1/6, 2/6; slides 3/6, 5/6; dinner 6/6, 4/6.
+
 ## What is left
 
-- **Quick.** With thinking off, the line is followed much less: the cards rose from 10% to 41%, but with a picture in the chat a wish that something would move still starts a video (10 of 40, from 11). Two Quick-only wordings did no better. A fix probably needs the Quick line itself, measured together with the Ask me first prompts that line was tuned on.
-- **"Now show a surfer riding the big wave"** still changes the picture straight away, 8 of 8: the model reads it as a clear change, which is a fair reading.
-- **"I'd love to see a red fox in a snowy forest"** makes a picture half the time (6 of 12): close to a clear request.
+- **Quick, ambiguous without a picture:** the cards rose from 10% to 39-41%, against 75% on Thorough; a picture is still made on a guess 22-30% of the time.
+- **Quick, Hungarian "it would be nice if the clouds drifted":** changes the still picture straight away (4 of 4). No video starts, but it is a guess.
+- **"Now show a surfer riding the big wave"** changes the picture straight away, 8 of 8 on Thorough: the model reads it as a clear change, a fair reading.
+- **"I'd love to see a red fox in a snowy forest"** makes a picture half the time on Thorough (6 of 12): close to a clear request.
 
 The probe kit (the throwaway test as `.txt`, `prompts.json`, `analyze.mjs`, `table.mjs`, every runner and every result file) is in the shared notes folder of the read-aloud release sessions, `gen-explicit-probe/`; it reads the key from `~/.dsh/.env` and never prints it.
