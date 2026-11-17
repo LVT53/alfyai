@@ -146,6 +146,8 @@ describe("the guide's drawings", () => {
 			"profileTab.personalInstructionsEdit",
 			"settings_memory",
 			"profileTab.memoryOn",
+			"profileTab.picturesAndVideos",
+			"profileTab.picturesAndVideosOn",
 			"settings_skillsManagerSummaryLabel",
 			"profileTab.manageSkills",
 		],
@@ -249,6 +251,52 @@ describe("the guide's drawings", () => {
 		const speaker = bubble.indexOf("<ReadAloudSpeaker");
 		expect(copy).toBeGreaterThan(0);
 		expect(speaker).toBeGreaterThan(copy);
+	});
+
+	// Settings > Profile's Assistant behaviour card, as `SettingsProfileTab`
+	// draws it: Personal instructions, the Memory switch, the Pictures and
+	// videos switch, Skills. The Knows-you drawing draws that slice in that order.
+	it("draws the Assistant card's rows in the order Settings draws them", () => {
+		const { container } = render(SectionDrawing, {
+			props: { section: "knowsYou", lit: null },
+		});
+		const card = container
+			.querySelector('[data-drawing-spot="instructions"]')
+			?.closest(".drawn-settings-card");
+		expect(card).toBeTruthy();
+		expect(
+			[
+				...(card?.querySelectorAll<HTMLElement>("[data-drawing-spot]") ?? []),
+			].map((n) => n.dataset.drawingSpot),
+		).toEqual(["instructions", "memory", "pictures", "skills"]);
+
+		const tab = readFileSync(
+			join(
+				HERE,
+				"..",
+				"..",
+				"..",
+				"..",
+				"routes",
+				"(app)",
+				"settings",
+				"_components",
+				"SettingsProfileTab.svelte",
+			),
+			"utf8",
+		);
+		const at = (needle: string) => {
+			const index = tab.indexOf(needle);
+			expect(index, needle).toBeGreaterThan(0);
+			return index;
+		};
+		const order = [
+			at("$t('profileTab.personalInstructions')"),
+			at("$t('settings_memory')"),
+			at("$t('profileTab.picturesAndVideos')"),
+			at("$t('settings_skillsManagerSummaryLabel')"),
+		];
+		expect(order).toEqual([...order].sort((a, b) => a - b));
 	});
 
 	it("is hidden from screen readers", () => {

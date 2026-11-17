@@ -4,14 +4,21 @@
  * beside a slice of Settings > Profile. The Memory Profile is its portrait
  * card and the Needs Review card; the slice is the Preferences card's Default
  * model and Conversation style and the Assistant behaviour card's Personal
- * instructions, Memory switch and Skills, in the order Settings draws them.
+ * instructions, Memory switch, Pictures and videos switch and Skills, in the
+ * order Settings draws them.
  *
  * The spot ids are the guide's `drawingSpot`s for this section
  * (`section-drawing-spots.ts`): `memory` is the portrait card and the Memory
  * switch (the row is about seeing what Alfy remembers and about switching it
  * off, so it rings both), `style` the two rows of the model and the style (one
- * row of the guide is about both), `instructions` and `skills` their rows. Show
- * me rings the Memory Profile's tab; the drawing lights the card the tab opens.
+ * row of the guide is about both), `instructions`, `pictures` and `skills`
+ * their rows. Show me rings the Memory Profile's tab; the drawing lights the
+ * card the tab opens.
+ *
+ * The frame is 222 design pixels tall and the Settings pane is full. The
+ * Assistant card's rows are drawn without their grey help lines (the Memory
+ * row never had one), and both panes keep 8 pixels above and below, so the
+ * Pictures and videos row fits and every ring stays 7 or more from the edge.
  */
 import { Pencil } from "@lucide/svelte";
 import DrawingFrame from "$lib/components/drawings/DrawingFrame.svelte";
@@ -47,7 +54,7 @@ let { lit = null }: { lit?: string | null } = $props();
 		</DrawnSettingsCard>
 		<DrawnSettingsCard>
 			<DrawnSpot spot="instructions" {lit} bleed={4}>
-				<DrawnSettingsRow label="profileTab.personalInstructions" help={['86%']} stacked>
+				<DrawnSettingsRow label="profileTab.personalInstructions" stacked>
 					<div class="instructions">
 						<span class="preview"><DrawnBar width="54%" tone="soft" /></span>
 						<DrawnButton word="profileTab.personalInstructionsEdit" icon={Pencil} />
@@ -58,6 +65,12 @@ let { lit = null }: { lit?: string | null } = $props();
 				<DrawnSettingsRow label="settings_memory" divider>
 					<DrawnSwitch />
 					<span class="state">{$t('profileTab.memoryOn')}</span>
+				</DrawnSettingsRow>
+			</DrawnSpot>
+			<DrawnSpot spot="pictures" {lit} bleed={4}>
+				<DrawnSettingsRow label="profileTab.picturesAndVideos" divider>
+					<DrawnSwitch />
+					<span class="state">{$t('profileTab.picturesAndVideosOn')}</span>
 				</DrawnSettingsRow>
 			</DrawnSpot>
 			<DrawnSpot spot="skills" {lit} bleed={4}>
@@ -80,7 +93,7 @@ let { lit = null }: { lit?: string | null } = $props();
 		flex-direction: column;
 		gap: calc(var(--u) * 5);
 		box-sizing: border-box;
-		padding: calc(var(--u) * 10) calc(var(--u) * 9);
+		padding: calc(var(--u) * 8) calc(var(--u) * 9);
 		background: var(--surface-page);
 	}
 

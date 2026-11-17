@@ -254,6 +254,15 @@ const SHOW_ME: readonly ShowMeRow[] = [
 		control: (page) => settingsRowWith(page, "skills-summary-card"),
 	},
 	{
+		entry: "picturesAndVideos",
+		name: "Pictures and videos",
+		spotlight: "settings.pictures",
+		control: (page) =>
+			page.locator(".settings-row").filter({
+				has: page.getByRole("switch", { name: "Pictures and videos" }),
+			}),
+	},
+	{
 		entry: "yourVoices",
 		name: "Voices that read to you",
 		spotlight: "settings.readAloud",
