@@ -63,7 +63,12 @@ SQLite persistence — all in a single Node deployment.
   is.
 - **Read aloud** — `TTS_ENABLED` (default `false`) and `TTS_URL`, the speech service in
   `deploy/speech-service/` on loopback (`http://127.0.0.1:1920`). With either unset, no speaker
-  appears. Both are live settings in admin System > Integrations.
+  appears and Settings has no Read aloud card. Both are live settings in admin System >
+  Integrations. When it is on, every finished reply has a speaker, and Settings → Read aloud picks
+  each language's voice and the default speed, makes personal voices (a built-in voice with five
+  knobs and seven styles) and plays a short preview of each voice. Why it is built this way:
+  [ADR-0070](docs/adr/0070-read-aloud-runs-beside-the-model.md). Deploying it (the box, the Apache
+  streaming routes, switching it on and off): [deploy/README.md](deploy/README.md#read-aloud).
 - **Explicit picture filter** — on for everyone by default (`IMAGE_EXPLICIT_FILTER_ENABLED`, a live
   setting in admin System > Integrations > Pictures; an admin can also exempt one person in Users).
   Alfy declines explicit picture requests, the server refuses a make_image prompt that plainly asks
