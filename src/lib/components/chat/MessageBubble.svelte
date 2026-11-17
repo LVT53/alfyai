@@ -1899,9 +1899,12 @@ function sendFollowUp(question: string) {
 
 				{#if !isUser && $readAloudAvailable && conversationId}
 					<ReadAloudSpeaker
-						{conversationId}
-						messageId={message.id}
-						segmentIds={replyPlace?.segmentIds ?? [message.id]}
+						target={{
+							kind: "reply",
+							conversationId,
+							messageId: message.id,
+							segmentIds: replyPlace?.segmentIds ?? [message.id],
+						}}
 						contentKey={replyText}
 						onPinnedChange={(pinned) => (readAloudPinned = pinned)}
 					/>

@@ -3,6 +3,8 @@ import type { ScriptSentence, SpeechScript } from "./speech-script";
 import {
 	estimateSeconds,
 	formatClock,
+	HEADING_NOTCHES_PAST,
+	headingNotches,
 	notchAtShare,
 	notches,
 	PARAGRAPH_GAP_SECONDS,
@@ -250,5 +252,34 @@ describe("estimates and clocks", () => {
 		expect(formatClock(59.9)).toBe("0:59");
 		expect(formatClock(-3)).toBe("0:00");
 		expect(formatClock(Number.NaN)).toBe("0:00");
+	});
+});
+
+describe("a long Document's notches", () => {
+	/** `count` sentences of five words, those at `headings` beginning a heading. */
+	const longScript = (count: number, headings: number[]) =>
+		scriptOf(
+			Array.from({ length: count }, (_, index) => ({
+				tokens: ["One", "two", "three", "four", "five."],
+				heading: headings.includes(index),
+				paragraphStart: headings.includes(index),
+			})),
+		);
+
+	it("past 40 sentences, only the sentences that begin a heading are notched", () => {
+		expect(HEADING_NOTCHES_PAST).toBe(40);
+		expect(headingNotches(longScript(41, [0, 12, 30]))).toEqual([0, 12, 30]);
+		expect(headingNotches(longScript(300, [5, 120, 299]))).toEqual([
+			5, 120, 299,
+		]);
+	});
+
+	it("up to 40 sentences, every sentence keeps its notch", () => {
+		expect(headingNotches(longScript(40, [0, 12, 30]))).toBeNull();
+		expect(headingNotches(longScript(3, [0]))).toBeNull();
+	});
+
+	it("a long Document with no heading draws no notch, rather than a ruler of them", () => {
+		expect(headingNotches(longScript(80, []))).toEqual([]);
 	});
 });

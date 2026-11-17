@@ -196,10 +196,7 @@ describe("ReadAloudMarks", () => {
 		expect(onB).not.toHaveBeenCalledWith(true);
 		// Another reply's reading marks nothing here.
 		setReadAloudView(
-			reading(
-				{ sentence: a.ranges, word: null, target: [] },
-				{ key: "m9" },
-			),
+			reading({ sentence: a.ranges, word: null, target: [] }, { key: "m9" }),
 		);
 		await tick();
 		expect(first.container.querySelector(".read-aloud-marks")).toBeNull();

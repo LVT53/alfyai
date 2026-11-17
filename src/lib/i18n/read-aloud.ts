@@ -32,6 +32,8 @@ const readAloudDict = {
 		"readAloud.note.noVoiceUnknown":
 			"Read aloud isn't available in this language yet.",
 		"readAloud.note.nothing": "Nothing in this reply can be read aloud.",
+		"readAloud.note.nothingDocument":
+			"Nothing in this document can be read aloud.",
 		"readAloud.note.busy":
 			"The voice is busy with another reading. Yours starts in a moment.",
 		"readAloud.note.cantStart":
@@ -196,6 +198,8 @@ const readAloudDict = {
 		"readAloud.note.noVoiceUnknown":
 			"Ezen a nyelven még nem érhető el felolvasás.",
 		"readAloud.note.nothing": "Ebben a válaszban nincs felolvasható szöveg.",
+		"readAloud.note.nothingDocument":
+			"Ebben a dokumentumban nincs felolvasható szöveg.",
 		"readAloud.note.busy":
 			"A hang most egy másik felolvasással foglalt. A tiéd mindjárt indul.",
 		"readAloud.note.cantStart":

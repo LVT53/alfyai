@@ -6310,6 +6310,7 @@ describe("MessageBubble: read aloud", () => {
 			) as HTMLElement,
 		);
 		expect(start).toHaveBeenCalledWith({
+			kind: "reply",
 			conversationId: "c1",
 			messageId: "seg-2",
 			segmentIds: ["seg-1", "seg-2"],

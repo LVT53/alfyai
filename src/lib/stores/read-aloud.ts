@@ -33,12 +33,20 @@ export type ReadAloudView = {
 	status: ReadingStatus;
 	/** What is being read: a reply's message id, or a Document's key (`readingKey` in `controller.ts`). */
 	key: string | null;
+	/** Whether a reply or a Document is being read; null when nothing is. */
+	target: "reply" | "document" | null;
+	/** A reply's segments ("Ask me first"); none for a Document. */
 	segmentIds: readonly string[];
 	/** Index of the sentence being read, or chosen. */
 	sentence: number;
 	count: number;
 	/** Each sentence's share of the text: where its notch sits. */
 	notches: number[];
+	/**
+	 * A long Document's notches: the sentences that begin a heading, the only notches its scrubber
+	 * draws (`headingNotches` in `timeline.ts`). Null draws every sentence's.
+	 */
+	headingNotches: number[] | null;
 	/** The share of the text read: the sentence and the word within it (1 when finished). */
 	progress: number;
 	/** Listening time so far, `m:ss`. */
@@ -63,10 +71,12 @@ export type ReadAloudView = {
 export const idleReadAloudView: ReadAloudView = {
 	status: "idle",
 	key: null,
+	target: null,
 	segmentIds: [],
 	sentence: 0,
 	count: 0,
 	notches: [],
+	headingNotches: null,
 	progress: 0,
 	elapsed: "0:00",
 	total: "0:00",

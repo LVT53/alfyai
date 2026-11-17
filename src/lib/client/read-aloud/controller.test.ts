@@ -6,9 +6,11 @@ import type { ReadAloudView } from "$lib/stores/read-aloud";
 import {
 	type AudioLike,
 	createReadAloudController,
+	type DocumentReadingSource,
 	type EventSourceLike,
 	type ReadAloudController,
 	type ReadAloudDeps,
+	type ReplyTarget,
 } from "./controller";
 
 class FakeAudio extends EventTarget implements AudioLike {
@@ -211,11 +213,20 @@ const start = (
 	from?: { node: Node; offset: number },
 ) =>
 	t.controller.start({
+		kind: "reply",
 		conversationId: "c1",
 		messageId,
 		segmentIds: [messageId],
 		from,
 	});
+
+/** A reply as a speaker or a selection names it. */
+const reply = (messageId: string): ReplyTarget => ({
+	kind: "reply",
+	conversationId: "c1",
+	messageId,
+	segmentIds: [messageId],
+});
 
 async function playing(t: Setup) {
 	start(t);
@@ -1038,27 +1049,27 @@ describe("the reading controller", () => {
 describe("assessReadability", () => {
 	it("says whether a reply can be read before anyone presses", async () => {
 		const t = setup();
-		expect(await t.controller.assessReadability(["missing"])).toEqual({
+		expect(await t.controller.assessReadability(reply("missing"))).toEqual({
 			kind: "unknown",
 		});
 		mountReply("empty", "");
-		expect(await t.controller.assessReadability(["empty"])).toEqual({
+		expect(await t.controller.assessReadability(reply("empty"))).toEqual({
 			kind: "unknown",
 		});
 		mountReply("m1");
-		expect(await t.controller.assessReadability(["m1"])).toEqual({
+		expect(await t.controller.assessReadability(reply("m1"))).toEqual({
 			kind: "ready",
 		});
 		mountReply(
 			"de",
 			"<p>Das ist ein deutscher Absatz und die Stimme liest ihn nicht vor.</p>",
 		);
-		expect(await t.controller.assessReadability(["de"])).toEqual({
+		expect(await t.controller.assessReadability(reply("de"))).toEqual({
 			kind: "noVoice",
 			language: "de",
 		});
 		mountReply("code", codeBlock(["a();", "b();", "c();", "d();", "e();"]));
-		expect(await t.controller.assessReadability(["code"])).toEqual({
+		expect(await t.controller.assessReadability(reply("code"))).toEqual({
 			kind: "nothing",
 		});
 	});
@@ -1108,7 +1119,7 @@ describe("a detector that does not load (early review R16)", () => {
 			.mockRejectedValue(gone());
 		const t = setup({ loadDetector });
 		mountReply();
-		await expect(t.controller.assessReadability(["m1"])).resolves.toEqual({
+		await expect(t.controller.assessReadability(reply("m1"))).resolves.toEqual({
 			kind: "unknown",
 		});
 	});
@@ -1221,5 +1232,283 @@ describe("the marks (early review R22)", () => {
 		t.runFrame();
 		expect(t.last().sentence).toBe(1);
 		expect(t.last().marks).not.toBe(word);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// A Document (the panel's Document body hands the controller a source)
+// ---------------------------------------------------------------------------
+
+/** What `DocumentBody.svelte` hands the controller, with the parts a test moves by hand. */
+class FakeDocumentSource implements DocumentReadingSource {
+	readonly skip = ".tracker-chip";
+	versionNumber: number | null = 3;
+	text = 0;
+	settle = vi.fn(async () => {});
+	focus = vi.fn();
+	constructor(public element: HTMLElement | null) {}
+	root() {
+		return this.element?.isConnected ? this.element : null;
+	}
+	version() {
+		return this.versionNumber;
+	}
+	revision() {
+		return this.text;
+	}
+}
+
+const DOCUMENT_PAGE =
+	'<h1>Weekend plan</h1><p>Book the hotel by Friday, and ask for a quiet room at the back.</p><p>Pay the deposit <span class="tracker-chip">Foglalt</span> before the end of the week, by card or in cash.</p><p>Pack the warm coats, because the nights are cold up in the hills.</p>';
+
+/** A Document's page as the panel draws it: the editor host around ProseMirror's element. */
+function mountDocument(html = DOCUMENT_PAGE): FakeDocumentSource {
+	const host = document.createElement("div");
+	host.className = "document-editor-host";
+	host.innerHTML = `<div class="document-content ProseMirror" contenteditable="true">${html}</div>`;
+	document.body.append(host);
+	return new FakeDocumentSource(host);
+}
+
+const startDocument = (
+	t: Setup,
+	source: FakeDocumentSource,
+	from?: { node: Node; offset: number },
+) =>
+	t.controller.start({
+		kind: "document",
+		artifactId: "doc-1",
+		conversationId: "c1",
+		source,
+		from,
+	});
+
+type DocumentBody = {
+	document?: { artifactId: string; version: number };
+	conversationId?: string | null;
+	messageId?: string;
+	sentences: Array<{
+		id: string;
+		words: Array<{ shown: string }>;
+	}>;
+};
+const documentBody = (t: Setup, call = 0) =>
+	t.body(call) as unknown as DocumentBody;
+
+describe("reading a Document", () => {
+	it("opens a session that names the Document and the version it shows, once what it shows is saved", async () => {
+		const t = setup();
+		const source = mountDocument();
+		let saved!: () => void;
+		source.settle.mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					saved = resolve;
+				}),
+		);
+		startDocument(t, source);
+		expect(t.last()).toMatchObject({
+			status: "opening",
+			key: "document:doc-1",
+			target: "document",
+			segmentIds: [],
+		});
+		await settle();
+		// The words read must be in a stored version: nothing is asked of the voice
+		// until the save of what the panel shows has been answered.
+		expect(source.settle).toHaveBeenCalledTimes(1);
+		expect(t.api.createReadingSession).not.toHaveBeenCalled();
+		source.versionNumber = 4;
+		saved();
+		await settle();
+		const body = documentBody(t);
+		expect(body.document).toEqual({ artifactId: "doc-1", version: 4 });
+		expect(body.conversationId).toBe("c1");
+		expect(body.messageId).toBeUndefined();
+		expect(
+			body.sentences.map((sentence) =>
+				sentence.words.map((word) => word.shown).join(" "),
+			),
+		).toEqual([
+			"Weekend plan Book the hotel by Friday, and ask for a quiet room at the back.",
+			"Pay the deposit before the end of the week, by card or in cash.",
+			"Pack the warm coats, because the nights are cold up in the hills.",
+		]);
+		expect(t.audio.src).toBe("/audio/x1");
+		t.audio.emit("playing");
+		expect(t.last()).toMatchObject({ status: "playing", count: 3 });
+	});
+
+	it("stops when the text the Document shows changes, as a redrawn reply does", async () => {
+		const t = setup();
+		const source = mountDocument();
+		startDocument(t, source);
+		await settle();
+		t.audio.emit("playing");
+		t.runFrame();
+		expect(t.last().status).toBe("playing");
+		source.text += 1;
+		t.runFrame();
+		expect(t.last().status).toBe("idle");
+		expect(t.api.cancelReadingSession).toHaveBeenCalledWith("x1");
+	});
+
+	it("stops when the Document is gone: the panel closed, or another item opened", async () => {
+		const t = setup();
+		const source = mountDocument();
+		startDocument(t, source);
+		await settle();
+		t.audio.emit("playing");
+		source.element?.remove();
+		t.runFrame();
+		expect(t.last().status).toBe("idle");
+	});
+
+	it("⌖ and a drag bring the sentence into view in the Document, never in the chat", async () => {
+		const t = setup();
+		const source = mountDocument();
+		startDocument(t, source);
+		await settle();
+		t.audio.emit("playing");
+		t.controller.locate();
+		expect(source.focus).toHaveBeenCalledWith(expect.any(Function), "center");
+		t.controller.beginDrag();
+		t.controller.dragTo(2);
+		expect(source.focus).toHaveBeenLastCalledWith(
+			expect.any(Function),
+			"reveal",
+		);
+		expect(t.deps.requestFocus).not.toHaveBeenCalled();
+	});
+
+	it("Read from here reads from the sentence the selection starts in", async () => {
+		const t = setup();
+		const source = mountDocument();
+		const third = source.element?.querySelectorAll("p")[2]?.firstChild as Text;
+		startDocument(t, source, { node: third, offset: 5 });
+		await settle();
+		expect(t.last()).toMatchObject({ key: "document:doc-1", sentence: 2 });
+		expect(documentBody(t).sentences[0]?.id).toBe("s2");
+		expect(documentBody(t).document?.version).toBe(3);
+	});
+
+	it("a press on its own speaker while it reads pauses it, and a second press resumes", async () => {
+		const t = setup();
+		const source = mountDocument();
+		startDocument(t, source);
+		await settle();
+		t.audio.emit("playing");
+		startDocument(t, source);
+		expect(t.last().status).toBe("paused");
+		startDocument(t, source);
+		expect(t.last().status).toBe("playing");
+		expect(t.api.createReadingSession).toHaveBeenCalledTimes(1);
+	});
+
+	it("starts nothing for a Document whose version is not known yet", async () => {
+		const t = setup();
+		const source = mountDocument();
+		source.versionNumber = null;
+		startDocument(t, source);
+		await settle();
+		expect(t.api.createReadingSession).not.toHaveBeenCalled();
+		expect(t.last().status).toBe("idle");
+	});
+
+	it("a long Document notches its headings; a reply notches every sentence", async () => {
+		const section = (title: string, count: number) =>
+			`<h2>${title}</h2>${Array.from(
+				{ length: count },
+				(_, i) =>
+					`<p>Paragraph ${i} of ${title} is written here, and it is long enough to stand alone.</p>`,
+			).join("")}`;
+		const t = setup();
+		const source = mountDocument(
+			section("Getting there", 15) +
+				section("Where to stay", 15) +
+				section("What to pack", 15),
+		);
+		startDocument(t, source);
+		await settle();
+		t.audio.emit("playing");
+		// "Getting there" is two words and joins its first paragraph; a heading of three
+		// words stands alone, so the sections start at sentences 0, 15 and 31 of 47.
+		expect(t.last().count).toBe(47);
+		expect(t.last().headingNotches).toEqual([0, 15, 31]);
+
+		const r = setup();
+		mountReply(
+			"m9",
+			Array.from(
+				{ length: 45 },
+				(_, i) =>
+					`<p>Sentence ${i} of the reply is written here, and it is long enough to stand alone.</p>`,
+			).join(""),
+		);
+		start(r, "m9");
+		await settle();
+		expect(r.last().count).toBe(45);
+		expect(r.last().headingNotches).toBeNull();
+	});
+
+	it("a Document of more than 2,000 sentences goes on in a follow-on session, the same version named", async () => {
+		const t = setup();
+		const source = mountDocument(
+			Array.from(
+				{ length: 2001 },
+				(_, i) =>
+					`<p>Sentence number ${i} is written here, and it is long enough to stand alone.</p>`,
+			).join(""),
+		);
+		startDocument(t, source);
+		await settle();
+		expect(documentBody(t, 0).sentences).toHaveLength(2000);
+		t.audio.emit("playing");
+		(t.sources[0] as FakeEventSource).send("done", {});
+		t.audio.ended = true;
+		t.audio.emit("pause");
+		t.audio.emit("ended");
+		await settle();
+		// One reading: the player stays, spinning while the next session comes.
+		expect(t.last()).toMatchObject({ status: "seeking", sentence: 2000 });
+		expect(t.api.cancelReadingSession).not.toHaveBeenCalled();
+		const next = documentBody(t, 1);
+		expect(next.document).toEqual({ artifactId: "doc-1", version: 3 });
+		expect(next.sentences.map((sentence) => sentence.id)).toEqual(["s2000"]);
+		t.audio.ended = false;
+		t.audio.emit("playing");
+		expect(t.last()).toMatchObject({ status: "playing", sentence: 2000 });
+	}, 30_000);
+
+	it("says whether a Document can be read before anyone presses", async () => {
+		const t = setup();
+		const target = (source: FakeDocumentSource) => ({
+			kind: "document" as const,
+			artifactId: "doc-1",
+			conversationId: null,
+			source,
+		});
+		// Not drawn yet (the editor is still loading): ask again later.
+		expect(
+			await t.controller.assessReadability(
+				target(new FakeDocumentSource(null)),
+			),
+		).toEqual({ kind: "unknown" });
+		expect(
+			await t.controller.assessReadability(target(mountDocument())),
+		).toEqual({ kind: "ready" });
+		// An empty page is drawn, and has nothing to read.
+		expect(
+			await t.controller.assessReadability(target(mountDocument("<p></p>"))),
+		).toEqual({ kind: "nothing" });
+		expect(
+			await t.controller.assessReadability(
+				target(
+					mountDocument(
+						"<p>Das ist ein deutscher Absatz und die Stimme liest ihn nicht vor.</p>",
+					),
+				),
+			),
+		).toEqual({ kind: "noVoice", language: "de" });
 	});
 });

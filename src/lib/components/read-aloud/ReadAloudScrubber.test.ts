@@ -73,6 +73,27 @@ describe("ReadAloudScrubber", () => {
 		).toBe("40%");
 	});
 
+	it("draws only the notches it is given, and a drag still lands on any sentence", async () => {
+		// A long Document notches its headings: here sentences 0 and 2 of three.
+		const { container, slider, props } = scrubber({ drawn: [0, 2] });
+		const drawn = [
+			...container.querySelectorAll(".read-aloud-notch"),
+		] as HTMLElement[];
+		expect(drawn.map((notch) => notch.style.left)).toEqual(["0%", "70%"]);
+		await fireEvent.pointerDown(slider, { clientX: 100, pointerId: 1 });
+		await fireEvent.pointerUp(slider, { clientX: 100, pointerId: 1 });
+		expect(props.onDragEnd).toHaveBeenCalledWith(1);
+		await fireEvent.pointerDown(slider, { clientX: 150, pointerId: 1 });
+		await fireEvent.pointerMove(slider, { clientX: 150, pointerId: 1 });
+		await frame();
+		await tick();
+		expect(
+			[...container.querySelectorAll(".read-aloud-notch")].map((n) =>
+				n.classList.contains("on"),
+			),
+		).toEqual([false, true]);
+	});
+
 	it("steps with the arrows and jumps with Home and End", async () => {
 		const { slider, props } = scrubber();
 		await fireEvent.keyDown(slider, { key: "ArrowLeft" });

@@ -1,10 +1,13 @@
 <script lang="ts">
 /**
- * The speaker in a finished reply's action row (spec §4.1, §4.8): it starts and
- * pauses the reading of its reply, shows its progress as a ring, and says why it
- * cannot read (a language with no voice, nothing readable) or that the voice is
- * busy or did not answer. It reads `readAloudView` and calls the controller; the
- * press calls `start` synchronously, so the iOS unlock stays in the gesture.
+ * The speaker in a finished reply's action row, or in a Document panel's header
+ * (spec §4.1, §4.8): it starts and pauses the reading of its reply or Document,
+ * shows its progress as a ring, and says why it cannot read (a language with no
+ * voice, nothing readable) or that the voice is busy or did not answer. It reads
+ * `readAloudView` and calls the controller; the press calls `start`
+ * synchronously, so the iOS unlock stays in the gesture. In a header its notes
+ * open below it (there is no room above) and it names itself with a title, as
+ * the header's other buttons do.
  */
 import { untrack } from "svelte";
 import { Pause, Play, Volume2, VolumeX } from "@lucide/svelte";
@@ -12,6 +15,8 @@ import {
 	getReadAloud,
 	type ReadAloudController,
 	type Readability,
+	type ReadingTarget,
+	readingKey,
 } from "$lib/client/read-aloud/controller";
 import { languageDisplayName } from "$lib/client/read-aloud/language";
 import { t } from "$lib/i18n";
@@ -20,18 +25,20 @@ import { uiLanguage } from "$lib/stores/settings";
 import ReadAloudNote from "./ReadAloudNote.svelte";
 
 let {
-	conversationId,
-	messageId,
-	segmentIds,
+	target,
 	contentKey,
-	onPinnedChange,
+	onPinnedChange = undefined,
+	placement = "reply",
 	controller = undefined,
 }: {
-	conversationId: string;
-	messageId: string;
-	segmentIds: readonly string[];
-	contentKey: string;
-	onPinnedChange: (pinned: boolean) => void;
+	/** The reply or the Document this speaker reads. */
+	target: ReadingTarget;
+	/** Changes when the words change: readability is asked again. */
+	contentKey: string | number;
+	/** The reply's action row stays shown while this says so. */
+	onPinnedChange?: (pinned: boolean) => void;
+	/** A reply's action row (notes above, the row's tooltip), or a panel's header (notes below, a title). */
+	placement?: "reply" | "header";
 	controller?: ReadAloudController;
 } = $props();
 
@@ -52,7 +59,10 @@ let tapped = $state(false);
 let cantStartOpen = $state(false);
 
 const view = $derived($readAloudView);
-const mine = $derived(view.key === messageId && view.status !== "idle");
+const header = $derived(placement === "header");
+const mine = $derived(
+	view.key === readingKey(target) && view.status !== "idle",
+);
 const status = $derived(mine ? view.status : "idle");
 const dimmed = $derived(
 	!mine && (readability.kind === "noVoice" || readability.kind === "nothing"),
@@ -84,7 +94,10 @@ const label = $derived(
 );
 const busyNote = $derived(mine && status === "opening" && view.busy);
 const dimNoteText = $derived.by(() => {
-	if (readability.kind === "nothing") return $t("readAloud.note.nothing");
+	if (readability.kind === "nothing")
+		return target.kind === "document"
+			? $t("readAloud.note.nothingDocument")
+			: $t("readAloud.note.nothing");
 	if (readability.kind !== "noVoice") return "";
 	const name = readability.language
 		? languageDisplayName(readability.language, $uiLanguage)
@@ -96,11 +109,12 @@ const dimNoteText = $derived.by(() => {
 const dimNote = $derived(dimmed && (hovered || focused || tapped));
 const pinned = $derived(mine || busyNote || cantStartOpen || dimNote);
 /** Its label as a tooltip, as its neighbours in the row have, while no note says more. */
-const tooltip = $derived(!busyNote && !cantStartOpen && !dimNote);
+const tooltip = $derived(!header && !busyNote && !cantStartOpen && !dimNote);
+const notePlacement = $derived(header ? "header" : "speaker");
 
 $effect(() => {
 	const value = pinned;
-	untrack(() => onPinnedChange(value));
+	untrack(() => onPinnedChange?.(value));
 });
 
 // Readability is asked once the speaker is first seen, in an idle moment, and again
@@ -126,7 +140,7 @@ $effect(() => {
 $effect(() => {
 	if (!seen) return;
 	contentKey;
-	const ids = [...segmentIds];
+	const current = target;
 	let cancelled = false;
 	let retry: number | null = null;
 	let attempts = 0;
@@ -134,7 +148,7 @@ $effect(() => {
 	// "unknown", so ask again a little later (for about six seconds).
 	const assess = () => {
 		void reader()
-			.assessReadability(ids)
+			.assessReadability(current)
 			.then((result) => {
 				if (cancelled) return;
 				readability = result;
@@ -196,29 +210,31 @@ function press() {
 		return;
 	}
 	cantStartOpen = false;
-	reader().start({ conversationId, messageId, segmentIds: [...segmentIds] });
+	reader().start(target);
 }
 
 function tryAgain() {
 	cantStartOpen = false;
-	reader().start({ conversationId, messageId, segmentIds: [...segmentIds] });
+	reader().start(target);
 }
 </script>
 
-<div class="read-aloud-speaker-wrap" bind:this={wrapper}>
+<div class="read-aloud-speaker-wrap" data-placement={placement} bind:this={wrapper}>
 	<!-- The button and its tooltip, which sits outside it: the row's hover fades the
 	     button (opacity 0.78), and a child cannot undo its parent's opacity. -->
 	<span class="read-aloud-speaker-anchor">
 	<button
 		bind:this={button}
 		type="button"
-		class="btn-icon-bare action-icon-btn read-aloud-speaker"
+		class="btn-icon-bare read-aloud-speaker"
+		class:action-icon-btn={!header}
 		class:dimmed
 		class:failed={status === "startFailed"}
 		aria-label={label}
+		title={header ? label : undefined}
 		aria-busy={spinning ? "true" : undefined}
 		aria-disabled={dimmed ? "true" : undefined}
-		data-testid="read-aloud-speaker"
+		data-testid={header ? "read-aloud-speaker-header" : "read-aloud-speaker"}
 		onclick={press}
 		onpointerenter={() => (hovered = true)}
 		onpointerleave={() => (hovered = false)}
@@ -244,13 +260,13 @@ function tryAgain() {
 		{#if spinning}
 			<span class="mini-spinner" aria-hidden="true"></span>
 		{:else if status === "playing"}
-			<Pause size={12} strokeWidth={2.5} aria-hidden="true" />
+			<Pause size={header ? 14 : 12} strokeWidth={2.5} aria-hidden="true" />
 		{:else if resumable}
-			<Play size={12} strokeWidth={2.5} aria-hidden="true" />
+			<Play size={header ? 14 : 12} strokeWidth={2.5} aria-hidden="true" />
 		{:else if status === "startFailed"}
-			<VolumeX size={15} strokeWidth={2} aria-hidden="true" />
+			<VolumeX size={header ? 18 : 15} strokeWidth={2} aria-hidden="true" />
 		{:else}
-			<Volume2 size={15} strokeWidth={2} aria-hidden="true" />
+			<Volume2 size={header ? 18 : 15} strokeWidth={2} aria-hidden="true" />
 		{/if}
 	</button>
 	{#if tooltip}
@@ -259,7 +275,7 @@ function tryAgain() {
 	{/if}
 	</span>
 	{#if busyNote}
-		<ReadAloudNote tone="calm" icon="clock" text={$t("readAloud.note.busy")} placement="speaker" />
+		<ReadAloudNote tone="calm" icon="clock" text={$t("readAloud.note.busy")} placement={notePlacement} />
 	{:else if cantStartOpen}
 		<ReadAloudNote
 			tone="warn"
@@ -268,10 +284,10 @@ function tryAgain() {
 			actionLabel={$t("readAloud.tryAgain")}
 			onAction={tryAgain}
 			onDismiss={() => (cantStartOpen = false)}
-			placement="speaker"
+			placement={notePlacement}
 		/>
 	{:else if dimNote}
-		<ReadAloudNote tone="calm" icon="alert" text={dimNoteText} placement="speaker" />
+		<ReadAloudNote tone="calm" icon="alert" text={dimNoteText} placement={notePlacement} />
 	{/if}
 </div>
 
@@ -280,6 +296,18 @@ function tryAgain() {
 	   edge keeps them on a phone's screen (the speaker is the row's last button). */
 	.read-aloud-speaker-wrap {
 		display: inline-flex;
+	}
+
+	/* In a header the notes open below the speaker, from its right edge: it is positioned. */
+	.read-aloud-speaker-wrap[data-placement="header"] {
+		position: relative;
+	}
+
+	/* A header's button is the size of its neighbours: the ring grows with it. */
+	.read-aloud-speaker-wrap[data-placement="header"] .read-aloud-ring {
+		width: 30px;
+		height: 30px;
+		margin: -15px 0 0 -15px;
 	}
 
 	.read-aloud-speaker {

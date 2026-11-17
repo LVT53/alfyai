@@ -13,6 +13,9 @@
  * - an events stream that ends without `done` or `error` is a stop (after `done`, its
  *   end is not: everything was made, and the audio plays out);
  * - a jump, a resume after a long pause and a retry are new sessions.
+ *
+ * It reads a reply (found by its message ids) or a Document (the panel's Document body hands it a
+ * `DocumentReadingSource`): what it reads is a `ReadingTarget`, named in the machine by its key.
  */
 
 import { get } from "svelte/store";
@@ -60,18 +63,82 @@ import {
 import {
 	estimateSeconds,
 	formatClock,
+	headingNotches,
 	notches,
 	SessionTimeline,
 	shareAt,
 } from "./timeline";
 
-export type StartRequest = {
+/** A finished reply: the conversation, the message, and the segments it is drawn in ("Ask me first"). */
+export type ReplyTarget = {
+	kind: "reply";
 	conversationId: string;
 	messageId: string;
 	segmentIds: readonly string[];
+};
+
+/**
+ * What the panel's Document body hands the controller to read the Document it shows
+ * (`DocumentBody.svelte`): the controller finds, checks and scrolls the Document only through it.
+ */
+export type DocumentReadingSource = {
+	/** The element the Document's text is drawn in, or null when it is not (still loading, the panel closed, another item opened). */
+	root(): Element | null;
+	/** What the page draws that is not the Document's text (its chips, Alfy's pill): never read. */
+	readonly skip?: string;
+	/** The version the panel shows: the session route checks the words read against its text. Null until it has loaded. */
+	version(): number | null;
+	/** Changes whenever the text the panel shows changes (an edit, Alfy's change, a restore, another tab): the reading then stops. */
+	revision(): unknown;
+	/** Saves what the panel shows and has not stored yet, so its version holds every word read. Never rejects. */
+	settle(): Promise<void>;
+	/** Brings a place of the Document into view: the sentence being read (⌖, "center") or a drag's target ("reveal"). */
+	focus(rect: () => DOMRect | null, mode: "center" | "reveal"): void;
+};
+
+/** A Document open in the panel. */
+export type DocumentTarget = {
+	kind: "document";
+	artifactId: string;
+	/** The chat the panel is in, or null outside one: an incognito chat's own Document is reached only through it. */
+	conversationId: string | null;
+	source: DocumentReadingSource;
+};
+
+export type ReadingTarget = ReplyTarget | DocumentTarget;
+
+export type StartRequest = ReadingTarget & {
 	/** Read from here: the selection's start. */
 	from?: { node: Node; offset: number };
 };
+
+/** A Document's reading key: what the machine and the view name its reading by. */
+export function documentReadingKey(artifactId: string): string {
+	return `document:${artifactId}`;
+}
+
+/** What the machine and the view name a reading by: a reply's message id, or a Document's key. */
+export function readingKey(target: ReadingTarget): string {
+	return target.kind === "document"
+		? documentReadingKey(target.artifactId)
+		: target.messageId;
+}
+
+function targetOf(r: StartRequest): ReadingTarget {
+	return r.kind === "document"
+		? {
+				kind: "document",
+				artifactId: r.artifactId,
+				conversationId: r.conversationId,
+				source: r.source,
+			}
+		: {
+				kind: "reply",
+				conversationId: r.conversationId,
+				messageId: r.messageId,
+				segmentIds: [...r.segmentIds],
+			};
+}
 
 export type Readability =
 	| { kind: "ready" }
@@ -108,7 +175,7 @@ export interface ReadAloudController {
 	locate(): void;
 	/** `"4/9 · Feed it once a day…"`: the sentence's number and its first written words. */
 	sentencePreview(i: number): string;
-	assessReadability(segmentIds: readonly string[]): Promise<Readability>;
+	assessReadability(target: ReadingTarget): Promise<Readability>;
 }
 
 /** What the controller needs of an `<audio>` element. */
@@ -195,14 +262,15 @@ const NO_READING: ReadonlySet<ReadingStatus> = new Set([
 	"startFailed",
 ]);
 
-/** One reply being read: what it is, its script, and what its sessions have measured. */
+/** One reply or Document being read: what it is, its script, and what its sessions have measured. */
 type Reading = {
-	conversationId: string;
-	messageId: string;
-	segmentIds: readonly string[];
+	target: ReadingTarget;
+	key: string;
 	/** Which `.code-block` of the reply Read from here started in, by its place (the element may be redrawn). */
 	readBlockIndex: number | null;
 	script: SpeechScript | null;
+	/** A Document's revision when its script was built: another one means its text changed. */
+	revision: unknown;
 	/**
 	 * Each sentence's first text node, kept when the script was built. Word ranges are live: when a
 	 * re-render removes their node they collapse onto its parent and still look connected, so a
@@ -432,9 +500,13 @@ export function createReadAloudController(
 		return deps.document.querySelector(`[data-message-id="${quoteId(id)}"]`);
 	}
 
-	function rootsOf(segmentIds: readonly string[]): Element[] | null {
+	function rootsOf(target: ReadingTarget): Element[] | null {
+		if (target.kind === "document") {
+			const root = target.source.root();
+			return root ? [root] : null;
+		}
 		const roots: Element[] = [];
-		for (const id of segmentIds) {
+		for (const id of target.segmentIds) {
 			const root = messageElement(id)?.querySelector(".markdown-container");
 			if (!root) return null;
 			roots.push(root);
@@ -442,26 +514,34 @@ export function createReadAloudController(
 		return roots;
 	}
 
+	const skipOf = (target: ReadingTarget) =>
+		target.kind === "document" ? target.source.skip : undefined;
+
 	const codeBlocksOf = (roots: readonly Element[]) =>
 		roots.flatMap((root) => [...root.querySelectorAll(".code-block, pre")]);
 
 	function buildFor(
-		target: Pick<Reading, "segmentIds" | "readBlockIndex">,
+		reading: Pick<Reading, "target" | "readBlockIndex">,
 	): SpeechScript | null {
-		const roots = rootsOf(target.segmentIds);
+		const roots = rootsOf(reading.target);
 		if (!roots || !detect) return null;
 		const readBlock =
-			target.readBlockIndex === null
+			reading.readBlockIndex === null
 				? null
-				: (codeBlocksOf(roots)[target.readBlockIndex] ?? null);
+				: (codeBlocksOf(roots)[reading.readBlockIndex] ?? null);
 		return buildSpeechScript(roots, detect, {
 			fallbackLanguage: deps.uiLanguage(),
 			readBlock,
+			skip: skipOf(reading.target),
 		});
 	}
 
 	function setScript(target: Reading, script: SpeechScript | null) {
 		target.script = script;
+		target.revision =
+			target.target.kind === "document"
+				? target.target.source.revision()
+				: null;
 		target.anchors = script
 			? script.sentences.flatMap((sentence) => {
 					const node = sentence.ranges[0]?.startContainer;
@@ -482,13 +562,30 @@ export function createReadAloudController(
 		return detect;
 	}
 
-	/** A harmless re-render (evidence loading, a theme switch) replaces the text nodes: rebuild and go on, or stop if the words changed. */
+	/**
+	 * A harmless re-render (evidence loading, a theme switch) replaces the text nodes: rebuild and
+	 * go on, or stop if the words changed. A reply that is gone, a Document that is not drawn any
+	 * more, and a Document whose text changed (an editor changes its text nodes in place, so its own
+	 * revision says so) stop the reading.
+	 */
 	function checkStale() {
 		if (!reading || state.status === "idle") return;
-		for (const id of reading.segmentIds) {
-			if (!messageElement(id)) {
+		const target = reading.target;
+		if (target.kind === "document") {
+			if (
+				!target.source.root() ||
+				(reading.script !== null &&
+					target.source.revision() !== reading.revision)
+			) {
 				dispatch({ type: "stop" });
 				return;
+			}
+		} else {
+			for (const id of target.segmentIds) {
+				if (!messageElement(id)) {
+					dispatch({ type: "stop" });
+					return;
+				}
 			}
 		}
 		const script = reading.script;
@@ -512,7 +609,7 @@ export function createReadAloudController(
 	// -------------------------------------------------------------------
 
 	async function openSession(
-		messageId: string,
+		key: string,
 		from: number,
 		previous: ReadingState,
 	) {
@@ -520,9 +617,9 @@ export function createReadAloudController(
 		closeSession();
 		const sameReading =
 			reading !== null &&
-			reading.messageId === messageId &&
+			reading.key === key &&
 			!NO_READING.has(previous.status);
-		if (starting && pending && pending.messageId === messageId) {
+		if (starting && pending && pending.key === key) {
 			// A selection (Read from here) brings its own script; a speaker press on the
 			// reply being read resumes it as it is, with the script its sentences index.
 			const changed = !sameReading || pending.script !== null;
@@ -536,7 +633,7 @@ export function createReadAloudController(
 			pending = null;
 		}
 		const target = reading;
-		if (!target || target.messageId !== messageId) {
+		if (!target || target.key !== key) {
 			dispatch({ type: "stop" });
 			return;
 		}
@@ -566,13 +663,15 @@ export function createReadAloudController(
 			dispatch({ type: "stop" });
 			return;
 		}
+		const body = await requestBody(target.target, sentences);
+		if (token !== openToken) return;
+		if (body === null) {
+			dispatch({ type: "stop" });
+			return;
+		}
 		let answer: ReadingStart;
 		try {
-			answer = await api.createReadingSession({
-				conversationId: target.conversationId,
-				messageId,
-				sentences: sentences.map(toRequestSentence),
-			});
+			answer = await api.createReadingSession(body);
 		} catch (error) {
 			if (token !== openToken) return;
 			// A later press of this person's, here or in another tab, overtook this one on
@@ -615,6 +714,32 @@ export function createReadAloudController(
 		void audio.play().catch(() => {});
 		session.events = openEvents(session);
 		publish();
+	}
+
+	/**
+	 * What the session route is asked for: the reply, or the Document and the version it shows.
+	 * A Document's unsaved words are saved first (its version must hold every word read); null when
+	 * it has no version yet.
+	 */
+	async function requestBody(
+		target: ReadingTarget,
+		sentences: readonly ScriptSentence[],
+	): Promise<ReadingRequestBody | null> {
+		const words = sentences.map(toRequestSentence);
+		if (target.kind === "reply")
+			return {
+				conversationId: target.conversationId,
+				messageId: target.messageId,
+				sentences: words,
+			};
+		await target.source.settle();
+		const version = target.source.version();
+		if (version === null) return null;
+		return {
+			document: { artifactId: target.artifactId, version },
+			conversationId: target.conversationId,
+			sentences: words,
+		};
 	}
 
 	function toRequestSentence(
@@ -987,13 +1112,17 @@ export function createReadAloudController(
 		const target = state.drag
 			? script?.sentences[state.drag.target]
 			: undefined;
+		const reads = state.status === "idle" ? null : (reading?.target ?? null);
 		const view: ReadAloudView = {
 			status: state.status,
 			key: state.key,
-			segmentIds: state.status === "idle" ? [] : (reading?.segmentIds ?? []),
+			target: reads?.kind ?? null,
+			segmentIds: reads?.kind === "reply" ? reads.segmentIds : [],
 			sentence: state.sentence,
 			count: script?.sentences.length ?? 0,
 			notches: script ? notches(script) : [],
+			headingNotches:
+				script && reads?.kind === "document" ? headingNotches(script) : null,
 			progress,
 			elapsed: formatClock(elapsed / speed),
 			total: formatClock(total.seconds / speed),
@@ -1012,6 +1141,7 @@ export function createReadAloudController(
 		const key = JSON.stringify([
 			view.status,
 			view.key,
+			view.target,
 			view.segmentIds,
 			view.sentence,
 			view.count,
@@ -1063,20 +1193,26 @@ export function createReadAloudController(
 
 	function focusSentence(index: number, mode: "center" | "reveal") {
 		const sentence = reading?.script?.sentences[index];
-		if (!sentence) return;
+		if (!reading || !sentence) return;
 		const ranges = uniqueRanges(sentence.ranges);
-		deps.requestFocus(() => unionRect(ranges), mode);
+		const rect = () => unionRect(ranges);
+		// A Document scrolls in its panel; a reply, in the thread.
+		if (reading.target.kind === "document")
+			reading.target.source.focus(rect, mode);
+		else deps.requestFocus(rect, mode);
 	}
 
 	return {
 		start(r) {
 			unlock();
+			const target = targetOf(r);
+			const key = readingKey(target);
 			const base: Reading = {
-				conversationId: r.conversationId,
-				messageId: r.messageId,
-				segmentIds: [...r.segmentIds],
+				target,
+				key,
 				readBlockIndex: null,
 				script: null,
+				revision: null,
 				anchors: [],
 				known: new Map(),
 				charsPerSecond: DEFAULT_CHARS_PER_SECOND,
@@ -1084,7 +1220,7 @@ export function createReadAloudController(
 			const from = r.from;
 			if (!from) {
 				pending = base;
-				startWith({ type: "press", key: r.messageId, from: 0 });
+				startWith({ type: "press", key, from: 0 });
 				return;
 			}
 			void (async () => {
@@ -1095,7 +1231,7 @@ export function createReadAloudController(
 					deps.reportUpdateSign();
 					return;
 				}
-				const roots = rootsOf(base.segmentIds);
+				const roots = rootsOf(base.target);
 				if (!roots) return;
 				const element =
 					from.node instanceof Element ? from.node : from.node.parentElement;
@@ -1114,7 +1250,7 @@ export function createReadAloudController(
 				);
 				if (sentence === null) return;
 				pending = candidate;
-				startWith({ type: "readFrom", key: r.messageId, from: sentence });
+				startWith({ type: "readFrom", key, from: sentence });
 			})();
 		},
 		toggle: () => dispatch({ type: "toggle" }),
@@ -1141,13 +1277,18 @@ export function createReadAloudController(
 			const head = words.slice(0, 5).join(" ");
 			return `${i + 1}/${script.sentences.length} · ${head}${words.length > 5 ? "…" : ""}`;
 		},
-		async assessReadability(segmentIds) {
-			const roots = rootsOf(segmentIds);
-			if (
-				!roots ||
-				roots.some((root) => (root.textContent ?? "").trim() === "")
-			)
-				return { kind: "unknown" };
+		async assessReadability(target) {
+			const roots = rootsOf(target);
+			if (!roots) return { kind: "unknown" };
+			// A reply with no text has not been drawn yet; a Document's page that is drawn and empty
+			// has nothing to read.
+			const empty = roots.some(
+				(root) => (root.textContent ?? "").trim() === "",
+			);
+			if (empty)
+				return target.kind === "document"
+					? { kind: "nothing" }
+					: { kind: "unknown" };
 			let detector: Detect;
 			try {
 				detector = await ensureDetector();
@@ -1157,6 +1298,7 @@ export function createReadAloudController(
 			}
 			const script = buildSpeechScript(roots, detector, {
 				fallbackLanguage: deps.uiLanguage(),
+				skip: skipOf(target),
 			});
 			if (script.sentences.length > 0) return { kind: "ready" };
 			if (script.missingLanguage !== null)

@@ -1,7 +1,9 @@
 <script lang="ts">
 /**
  * The sentence scrubber (spec §4.3): a slider whose value is a sentence. Its
- * notches sit at each sentence's share of the text and never move. A drag
+ * notches sit at each sentence's share of the text and never move; a long
+ * Document draws only its headings' (`drawn`), and every sentence is still a
+ * place to land. A drag
  * follows the pointer exactly (one update per frame), lights the notch it
  * will land on and shows that sentence's start in a dark bubble; the release
  * (or a tap) jumps there, and the handle glides onto the notch.
@@ -11,6 +13,7 @@ import { t } from "$lib/i18n";
 
 let {
 	notches,
+	drawn = null,
 	progress,
 	sentence,
 	count,
@@ -22,6 +25,8 @@ let {
 	onStep,
 }: {
 	notches: number[];
+	/** The sentences whose notch is drawn; null draws every sentence's. */
+	drawn?: readonly number[] | null;
 	progress: number;
 	sentence: number;
 	count: number;
@@ -53,6 +58,7 @@ const clampShare = (share: number) => Math.min(1, Math.max(0, share));
 const shown = $derived(dragShare ?? clampShare(progress));
 const lit = $derived(dragShare === null ? null : target);
 const percent = (share: number) => `${Math.round(share * 10000) / 100}%`;
+const drawnNotches = $derived(drawn ?? notches.map((_, index) => index));
 
 function shareAt(clientX: number): number {
 	const rect = root?.getBoundingClientRect();
@@ -189,8 +195,8 @@ function onkeydown(event: KeyboardEvent) {
 >
 	<div class="read-aloud-track">
 		<div class="read-aloud-fill" style:width={percent(shown)}></div>
-		{#each notches as notch, index (index)}
-			<div class="read-aloud-notch" class:on={lit === index} style:left={percent(notch)}></div>
+		{#each drawnNotches as index (index)}
+			<div class="read-aloud-notch" class:on={lit === index} style:left={percent(notches[index] ?? 0)}></div>
 		{/each}
 	</div>
 	<div class="read-aloud-handle" style:left={percent(shown)}></div>

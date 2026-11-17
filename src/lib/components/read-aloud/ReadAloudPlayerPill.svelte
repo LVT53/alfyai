@@ -121,6 +121,7 @@ $effect(() => {
 		<span class="read-aloud-time">{view.elapsed}</span>
 		<ReadAloudScrubber
 			notches={view.notches}
+			drawn={view.headingNotches}
 			progress={view.progress}
 			sentence={view.sentence}
 			count={view.count}
