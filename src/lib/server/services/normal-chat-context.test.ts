@@ -77,6 +77,7 @@ import {
 	estimateOutboundPromptTokenTotal,
 	extractPastedUrls,
 	NORMAL_CHAT_TOOL_SCHEMA_OVERHEAD_TOKENS_PER_TOOL,
+	PICTURE_REQUEST_GUIDANCE,
 	PICTURES_AND_VIDEOS_OFF_GUIDANCE,
 	prepareOutboundChatContext,
 	REPLY_LANGUAGE_RULE,
@@ -1549,14 +1550,15 @@ describe("prepareOutboundChatContext", () => {
 	// rides the turn guidance and never the cached system prompt.
 	describe("the Pictures and videos switch", () => {
 		it("tells the model it is off, and where the person switches it on, only when it is off", () => {
-			const off = buildTurnGuidance({ picturesAndVideosOff: true });
+			const off = buildTurnGuidance({ pictureMaking: "switched_off" });
 			expect(off).toContain(PICTURES_AND_VIDEOS_OFF_GUIDANCE);
+			expect(off).not.toContain(PICTURE_REQUEST_GUIDANCE);
 			expect(PICTURES_AND_VIDEOS_OFF_GUIDANCE).toContain(
 				"Settings > Profile > Pictures and videos",
 			);
 			for (const on of [
 				buildTurnGuidance({}),
-				buildTurnGuidance({ picturesAndVideosOff: false }),
+				buildTurnGuidance({ pictureMaking: "offered" }),
 			]) {
 				expect(on).not.toContain(PICTURES_AND_VIDEOS_OFF_GUIDANCE);
 				expect(on).not.toMatch(/switched off/i);
@@ -1566,6 +1568,40 @@ describe("prepareOutboundChatContext", () => {
 		it("is ASCII English that names no language and says nothing of the reply's (ruling 79, I1 and I3)", () => {
 			expect(PICTURES_AND_VIDEOS_OFF_GUIDANCE).toMatch(/^[ -~]+$/);
 			expect(PICTURES_AND_VIDEOS_OFF_GUIDANCE).not.toMatch(
+				/\b(?:English|Hungarian|Magyar|languages?|repl(?:y|ies)|respon(?:d|ds|se|ses)|answers?)\b/i,
+			);
+		});
+	});
+
+	// A turn that can make pictures or videos makes one only on a clear request,
+	// a video only when the person asks for one in so many words, and asks first
+	// otherwise (owner, 2026-11-17). Measured on the production model with the
+	// app's own run, made-up prompts in both languages: the rule stays in the
+	// turn guidance after the message, where it was measured to be followed
+	// (docs/plans/explicit-generation/results.md).
+	describe("making pictures and videos only on a clear request", () => {
+		it("tells a turn that can make them, and no other", () => {
+			expect(buildTurnGuidance({ pictureMaking: "offered" })).toContain(
+				PICTURE_REQUEST_GUIDANCE,
+			);
+			for (const guidance of [
+				buildTurnGuidance({}),
+				buildTurnGuidance({ pictureMaking: "switched_off" }),
+			]) {
+				expect(guidance).not.toContain(PICTURE_REQUEST_GUIDANCE);
+			}
+		});
+
+		it("sends what is unclear to ask_user, and starts a video only on a request for one", () => {
+			expect(PICTURE_REQUEST_GUIDANCE).toContain("ask with ask_user first");
+			expect(PICTURE_REQUEST_GUIDANCE).toMatch(
+				/Start a video only when they ask for a video/,
+			);
+		});
+
+		it("is ASCII English that names no language and says nothing of the reply's (ruling 79, I1 and I3)", () => {
+			expect(PICTURE_REQUEST_GUIDANCE).toMatch(/^[ -~]+$/);
+			expect(PICTURE_REQUEST_GUIDANCE).not.toMatch(
 				/\b(?:English|Hungarian|Magyar|languages?|repl(?:y|ies)|respon(?:d|ds|se|ses)|answers?)\b/i,
 			);
 		});
@@ -3442,7 +3478,10 @@ describe("prepareOutboundChatContext", () => {
 					);
 
 					const prepared = await prepareOutboundChatContext(
-						turn({ collectImages: true, picturesAndVideosOff: off }),
+						turn({
+							collectImages: true,
+							pictureMaking: off ? "switched_off" : "offered",
+						}),
 					);
 
 					if (off) {

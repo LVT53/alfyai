@@ -650,6 +650,26 @@ const TURN_GUIDANCE_HEADING = "## Turn Guidance";
 const FORCED_WEB_SEARCH_GUIDANCE =
 	"Web research was requested for this turn: call research_web first (set readPages when page-level detail is needed), then answer from its results with citations.";
 
+// What a turn can do about pictures and videos, resolved by the caller from
+// the install's picture and video servers and the person's own "Pictures and
+// videos" switch (chat-turn/shared-normal-chat-model-run-helpers.ts): "offered"
+// when it has make_image or make_video, "switched_off" when the person switched
+// them off. Absent when the install makes neither, and then the guidance says
+// nothing about them.
+export type TurnPictureMaking = "offered" | "switched_off";
+
+// A turn that can make pictures or videos makes one only on a clear request, a
+// video only when the person asks for one in so many words, and asks first
+// otherwise (owner, 2026-11-17). Before it, "show me a lighthouse" was a guess
+// (photos searched, or a picture made) and a wish that something in a picture
+// would move started a video. It rides the turn guidance after the message,
+// where it was measured to be followed: production model, the app's own run,
+// made-up prompts in both languages (docs/plans/explicit-generation/results.md).
+// Change its words only against a run like that one. ASCII English that names
+// no language (ruling 79).
+export const PICTURE_REQUEST_GUIDANCE =
+	'Pictures and videos: make or change a picture only when the user clearly asks for one. Start a video only when they ask for a video, a clip or an animation in so many words; a wish that something in a picture would move (a flag waving, a person walking) is not one, so ask first. When it is unclear whether they want a picture made, photos found online or just a description ("show me ...", "what would ... look like"), or a picture or a video, ask with ask_user first, with those as the options.';
+
 // The person switched "Pictures and videos" off (Settings > Profile; the read
 // is images/picture-making.ts), so this turn has no make_image or make_video.
 // Said only to that person's turns, and only when the install could otherwise
@@ -736,10 +756,11 @@ export function buildTurnGuidance(params: {
 	// (vision/turn-images.ts's buildTurnImageGuidance). A fact about this
 	// message, so it rides here and not in the cached system prompt.
 	imageGuidance?: readonly string[];
-	// The person switched "Pictures and videos" off (Settings > Profile), so the
-	// turn has no make_image or make_video: PICTURES_AND_VIDEOS_OFF_GUIDANCE says
-	// why. A fact about this person, never in the cached system prompt.
-	picturesAndVideosOff?: boolean;
+	// What this turn can do about pictures and videos (TurnPictureMaking):
+	// offered, it gets PICTURE_REQUEST_GUIDANCE; switched off by the person,
+	// PICTURES_AND_VIDEOS_OFF_GUIDANCE. A fact about this person and install,
+	// never in the cached system prompt.
+	pictureMaking?: TurnPictureMaking;
 }): string {
 	if (params.skipDefaultRuntimeGuidance) return "";
 	const sections = [
@@ -753,7 +774,11 @@ export function buildTurnGuidance(params: {
 			: []),
 		...(params.forceWebSearch ? [FORCED_WEB_SEARCH_GUIDANCE] : []),
 		...(params.imageGuidance ?? []),
-		...(params.picturesAndVideosOff ? [PICTURES_AND_VIDEOS_OFF_GUIDANCE] : []),
+		...(params.pictureMaking === "offered"
+			? [PICTURE_REQUEST_GUIDANCE]
+			: params.pictureMaking === "switched_off"
+				? [PICTURES_AND_VIDEOS_OFF_GUIDANCE]
+				: []),
 		...(params.artifactCatalogueBlock?.trim()
 			? [params.artifactCatalogueBlock.trim()]
 			: []),
@@ -1999,11 +2024,10 @@ type PrepareOutboundChatContextParams = {
 	// runtime does not know gives the guidance the server's date and the words
 	// "time zone is unknown" (buildTimeContextLine).
 	timeZone?: string | null;
-	// The person switched "Pictures and videos" off and the install could
-	// otherwise make them, resolved by the caller (images/picture-making.ts):
-	// the turn guidance says so (PICTURES_AND_VIDEOS_OFF_GUIDANCE) and says
-	// nothing about make_image.
-	picturesAndVideosOff?: boolean;
+	// What this turn can do about pictures and videos, resolved by the caller
+	// (TurnPictureMaking): the turn guidance follows it, and a person who
+	// switched them off is told nothing about make_image.
+	pictureMaking?: TurnPictureMaking;
 	forceWebSearch?: boolean;
 	skipDefaultRuntimeGuidance?: boolean;
 	systemPromptOverride?: string;
@@ -2426,7 +2450,7 @@ export async function prepareOutboundChatContext(
 			skillDraftGuidance: params.skillDraftGuidance,
 			pendingSkillInstructions: params.pendingSkillInstructions,
 			artifactCatalogueBlock: params.artifactCatalogueBlock,
-			picturesAndVideosOff: params.picturesAndVideosOff,
+			pictureMaking: params.pictureMaking,
 			imageGuidance: buildTurnImageGuidance({
 				canSee: params.collectImages === true,
 				turnImages,
@@ -2435,7 +2459,7 @@ export async function prepareOutboundChatContext(
 				// message that has pictures.
 				referenceCap:
 					turnImages.pictures.length > 0 &&
-					params.picturesAndVideosOff !== true &&
+					params.pictureMaking !== "switched_off" &&
 					isImageMakingConfigured(getConfig())
 						? getImageReferenceCap()
 						: null,

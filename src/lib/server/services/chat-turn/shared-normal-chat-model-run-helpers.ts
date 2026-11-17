@@ -31,6 +31,7 @@ import {
 	type PromptContextLimits,
 	prepareOutboundChatContext,
 	resolvePromptContextLimits,
+	type TurnPictureMaking,
 } from "$lib/server/services/normal-chat-context";
 import { createNormalChatContextPreparationActivityHandler } from "$lib/server/services/normal-chat-context-preparation";
 import {
@@ -423,19 +424,23 @@ const sendCompressionControlMessage: ContextCompressionControlSender = async (
 };
 
 /**
- * Whether this person switched "Pictures and videos" off (Settings > Profile)
- * while the install could otherwise make a picture or a video. Read once by
- * context preparation (the guidance says it is off) and once by the tool pack
- * (the catalogue leaves make_image and make_video out), from the person's own
- * row. With neither server configured the switch changes nothing, so there is
- * nothing to tell the model: pointed at it, a person would be sent on a hunt.
+ * What this turn can do about pictures and videos: "offered" when the install
+ * can make a picture or a video and the person has "Pictures and videos" on
+ * (Settings > Profile), "switched_off" when they switched it off, and nothing
+ * when the install makes neither (the switch then changes nothing, and a person
+ * pointed at it would be sent on a hunt). Read once by context preparation (the
+ * guidance follows it) and once by the tool pack (the catalogue leaves
+ * make_image and make_video out when it is switched off), from the person's own
+ * row.
  */
-async function picturesAndVideosSwitchedOff(userId: string): Promise<boolean> {
+async function resolveTurnPictureMaking(
+	userId: string,
+): Promise<TurnPictureMaking | undefined> {
 	const config = getConfig();
 	if (!isImageMakingConfigured(config) && !isVideoMakingConfigured(config)) {
-		return false;
+		return undefined;
 	}
-	return !(await isPictureMakingOnFor(userId));
+	return (await isPictureMakingOnFor(userId)) ? "offered" : "switched_off";
 }
 
 export async function prepareOutboundContext(
@@ -488,11 +493,13 @@ export async function prepareOutboundContext(
 	// clock then says the zone is unknown).
 	const timeZone = await resolveTurnTimeZone(params.userId);
 	params.signal?.throwIfAborted();
-	// The person's own "Pictures and videos" switch: off, the guidance says so
-	// (the tool pack reads it again and withholds the tools, createToolPack).
-	const picturesAndVideosOff = await picturesAndVideosSwitchedOff(
-		params.userId,
-	);
+	// What the turn can do about pictures and videos: the guidance follows it
+	// (the tool pack reads it again and withholds the tools, createToolPack). A
+	// turn with no tools at all can neither make one nor ask, so it is told
+	// nothing.
+	const pictureMaking = params.disableTools
+		? undefined
+		: await resolveTurnPictureMaking(params.userId);
 	params.signal?.throwIfAborted();
 	// Only a turn with a known output cap has a room to ask about.
 	const cap = runtime.modelConfig.maxTokens;
@@ -521,7 +528,7 @@ export async function prepareOutboundContext(
 		personalityPrompt: params.personalityPrompt,
 		instructions,
 		timeZone,
-		picturesAndVideosOff,
+		pictureMaking,
 		forceWebSearch: params.forceWebSearch,
 		modelId: runtime.modelId,
 		contextLimits: runtime.baseContextLimits,
@@ -622,7 +629,7 @@ export async function createToolPack(
 	// make_image and make_video out (selectNormalChatToolsForRequest).
 	const picturesAndVideosOff = params.disableTools
 		? false
-		: await picturesAndVideosSwitchedOff(params.userId);
+		: (await resolveTurnPictureMaking(params.userId)) === "switched_off";
 	// Whether make_image's description tells the model to decline explicit
 	// pictures; only read when there is a make_image to describe.
 	const explicitPictureFilter =

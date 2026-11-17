@@ -889,21 +889,34 @@ describe("prepareOutboundContext and the Pictures and videos switch", () => {
 		const sent = await preparedWith(false);
 		expect(mocks.isPictureMakingOnFor).toHaveBeenCalledTimes(1);
 		expect(mocks.isPictureMakingOnFor).toHaveBeenCalledWith("user-1");
-		expect(sent.picturesAndVideosOff).toBe(true);
+		expect(sent.pictureMaking).toBe("switched_off");
 	});
 
 	it("says so with only a video server too", async () => {
 		configState.comfyuiLtxUrl = "http://ltx.example";
-		expect((await preparedWith(false)).picturesAndVideosOff).toBe(true);
+		expect((await preparedWith(false)).pictureMaking).toBe("switched_off");
 	});
 
-	it("tells it nothing while the switch is on", async () => {
+	it("tells it the turn can make them while the switch is on", async () => {
 		configState.comfyuiUrl = "http://comfy.example";
-		expect((await preparedWith(true)).picturesAndVideosOff).toBe(false);
+		expect((await preparedWith(true)).pictureMaking).toBe("offered");
+	});
+
+	it("tells a turn that has no tools at all nothing, and reads no switch for it", async () => {
+		configState.comfyuiUrl = "http://comfy.example";
+		mocks.isPictureMakingOnFor.mockResolvedValue(false);
+		const toolless = { ...params, disableTools: true };
+		const runtime = await resolveProviderRuntime(toolless);
+		await prepareOutboundContext(toolless, runtime, null, new Set());
+		expect(
+			mocks.prepareOutboundChatContext.mock.lastCall?.[0].pictureMaking,
+		).toBeUndefined();
+		expect(mocks.isPictureMakingOnFor).not.toHaveBeenCalled();
 	});
 
 	it("tells it nothing when the install makes neither pictures nor videos", async () => {
-		expect((await preparedWith(false)).picturesAndVideosOff).toBe(false);
+		expect((await preparedWith(false)).pictureMaking).toBeUndefined();
+		expect((await preparedWith(true)).pictureMaking).toBeUndefined();
 	});
 });
 
