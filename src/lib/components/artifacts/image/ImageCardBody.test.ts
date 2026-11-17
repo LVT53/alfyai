@@ -566,12 +566,13 @@ describe("ImageCardBody", () => {
 			screen.getByTestId("image-card-swap"),
 		);
 
+		// The one card shell's stylesheet stacks the slot's buttons in one cell.
 		const source = readFileSync(
-			`${process.cwd()}/src/lib/components/artifacts/image/ImageCardBody.svelte`,
+			`${process.cwd()}/src/lib/components/artifacts/takes/take-card.css`,
 			"utf-8",
 		);
 		expect(source).toMatch(
-			/\.image-card-swap > :global\(\*\)\s*\{[^}]*grid-area:\s*1\s*\/\s*1/,
+			/\.take-card-swap > \*\s*\{[^}]*grid-area:\s*1\s*\/\s*1/,
 		);
 	});
 

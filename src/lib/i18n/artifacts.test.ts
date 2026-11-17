@@ -101,7 +101,7 @@ describe("the artifacts dictionary", () => {
 describe("the retry buttons", () => {
 	const RETRY_BUTTONS = [
 		"artifacts.action.retry",
-		"artifacts.image.card.tryAgain",
+		"artifacts.take.tryAgain",
 		"artifacts.document.export.tryAgain",
 		"artifacts.canvas.retry",
 		"artifacts.canvas.chat.retry",
@@ -383,12 +383,12 @@ describe("the Video kind's strings", () => {
 		);
 	});
 
-	it("says where a clip out of reach opens, in the picture card's own words", () => {
-		expect(artifactsDict.en["artifacts.video.card.elsewhereDetail"]).toBe(
-			artifactsDict.en["artifacts.image.card.elsewhereDetail"],
+	it("says where a clip or a picture out of reach opens, in one sentence", () => {
+		expect(artifactsDict.en["artifacts.take.elsewhereDetail"]).toBe(
+			"Open it from the chat it was made in.",
 		);
-		expect(artifactsDict.hu["artifacts.video.card.elsewhereDetail"]).toBe(
-			artifactsDict.hu["artifacts.image.card.elsewhereDetail"],
+		expect(artifactsDict.hu["artifacts.take.elsewhereDetail"]).toBe(
+			"Abban a beszélgetésben nyitható meg, ahol készült.",
 		);
 	});
 

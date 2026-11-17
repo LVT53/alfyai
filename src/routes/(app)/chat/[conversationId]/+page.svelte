@@ -297,10 +297,8 @@ import {
 	markPendingSkillUnavailable,
 	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
-	shouldPollImageCards,
-	shouldPollVideoCards,
-	imageCardsPollIntervalMs,
-	videoCardsPollIntervalMs,
+	shouldPollTakeCards,
+	takeCardsPollIntervalMs,
 	type DraftChangePayload,
 	type MessageEditPayload,
 	type MessageRegeneratePayload,
@@ -2291,7 +2289,7 @@ async function handleImageAction(
 	} catch (error) {
 		showToast({
 			type: "error",
-			message: get(t)("artifacts.image.card.actionFailed"),
+			message: get(t)("artifacts.take.actionFailed"),
 		});
 		throw error;
 	}
@@ -2319,7 +2317,7 @@ async function handleVideoAction(
 		// use; it names neither kind.
 		showToast({
 			type: "error",
-			message: get(t)("artifacts.image.card.actionFailed"),
+			message: get(t)("artifacts.take.actionFailed"),
 		});
 		throw error;
 	}
@@ -3792,21 +3790,13 @@ let streamingToolCalls = $derived.by(() => {
 	}
 	return calls;
 });
-let pollForImageCards = $derived(
-	shouldPollImageCards(imageCards, streamingToolCalls),
-);
-let pollForVideoCards = $derived(
-	shouldPollVideoCards(videoCards, streamingToolCalls),
+let pollForTakeCards = $derived(
+	shouldPollTakeCards(imageCards, videoCards, streamingToolCalls),
 );
 // A take being made re-reads the chat four times faster than the ordinary
 // poll, so a clip or a picture that lands between two reads waits ~0.75 s, not
-// ~2.5 s. One tick reads both kinds, so the faster of the two rules wins.
-let cardsPollMs = $derived(
-	Math.min(
-		imageCardsPollIntervalMs(imageCards),
-		videoCardsPollIntervalMs(videoCards),
-	),
-);
+// ~2.5 s. One tick reads both kinds.
+let cardsPollMs = $derived(takeCardsPollIntervalMs(imageCards, videoCards));
 
 $effect(() => {
 	const conversationId = data.conversation?.id;
@@ -3817,8 +3807,7 @@ $effect(() => {
 	const needsFullDetailRead =
 		hasActiveFileProductionJobs(fileProductionJobs) ||
 		hasActiveAtlasJobs(atlasJobs);
-	const shouldPollConversation =
-		needsFullDetailRead || pollForImageCards || pollForVideoCards;
+	const shouldPollConversation = needsFullDetailRead || pollForTakeCards;
 	if (!browser || !conversationId || !shouldPollConversation) {
 		return;
 	}

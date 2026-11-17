@@ -25,7 +25,7 @@ let { menu = true }: { menu?: boolean } = $props();
 	<div class="actions">
 		<span class="button">
 			<span class="drawn-ic" style:--ic="7"><RefreshCw size="100%" strokeWidth={2} aria-hidden="true" /></span>
-			{$t('artifacts.video.card.another')}
+			{$t('artifacts.take.another')}
 		</span>
 		<span class="button more" class:open={menu}>
 			<span class="drawn-ic" style:--ic="8"><Ellipsis size="100%" strokeWidth={2} aria-hidden="true" /></span>
@@ -34,7 +34,7 @@ let { menu = true }: { menu?: boolean } = $props();
 			<span class="menu">
 				<span class="menu-row">
 					<span class="drawn-ic" style:--ic="8"><Download size="100%" strokeWidth={1.75} aria-hidden="true" /></span>
-					{$t('artifacts.video.card.download')}
+					{$t('artifacts.take.download')}
 				</span>
 				<span class="menu-row hover">
 					<span class="drawn-ic" style:--ic="8"><FileImage size="100%" strokeWidth={1.75} aria-hidden="true" /></span>

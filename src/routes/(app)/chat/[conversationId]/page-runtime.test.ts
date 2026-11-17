@@ -3549,7 +3549,7 @@ describe("chat page runtime integration", () => {
 			expect(fetchConversationDetail).not.toHaveBeenCalled();
 
 			// The answer held a finished picture: applied to the page's cards, it
-			// clears `shouldPollImageCards`, so no later tick reads anything.
+			// clears `shouldPollTakeCards`, so no later tick reads anything.
 			await vi.advanceTimersByTimeAsync(5000);
 			expect(fetchConversationImageCards).toHaveBeenCalledTimes(1);
 			expect(fetchConversationDetail).not.toHaveBeenCalled();
