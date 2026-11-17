@@ -705,6 +705,43 @@ describe("Stop after a restart", () => {
 	});
 });
 
+describe("a take that fails while its prompt is on the GPU", () => {
+	it("stops the prompt when the render deadline runs out", async () => {
+		// A wedged render: ComfyUI keeps the prompt running past the take's time.
+		const server = await startLtx({ hangAfterPromptCount: 0 });
+		const { setVideoRenderDeadlineMsForTests } = await import("./request");
+		setVideoRenderDeadlineMsForTests(1_500);
+		try {
+			const takeId = await queueTake();
+			await drainVideoTakes();
+
+			const take = await readTake(takeId);
+			expect([take.status, take.errorCode]).toEqual([
+				"failed",
+				"video_render_timeout",
+			]);
+			// The ledger says the GPU is free, so the GPU must be: the prompt the
+			// take posted is interrupted rather than left rendering for nobody.
+			const posted = promptRequests(server)[0]?.json as
+				| { prompt_id?: string }
+				| undefined;
+			expect(posted?.prompt_id).toBeTruthy();
+			expect(
+				server.requests.some(
+					(request) =>
+						request.method === "POST" &&
+						request.path === "/interrupt" &&
+						(request.json as { prompt_id?: string } | undefined)
+							?.prompt_id === posted?.prompt_id,
+				),
+			).toBe(true);
+		} finally {
+			setVideoRenderDeadlineMsForTests(undefined);
+			server.releaseHanging();
+		}
+	});
+});
+
 describe("the explicit-picture filter", () => {
 	it("blocks a clip whose sampled frames are explicit and stores nothing", async () => {
 		const explicit = await makeTestClip({ colour: "#ff00ff", seconds: 5 });

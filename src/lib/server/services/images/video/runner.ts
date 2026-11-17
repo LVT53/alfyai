@@ -66,11 +66,11 @@ import {
 import {
 	parseVideoCheckpoint,
 	parseVideoTakeRequest,
-	VIDEO_RENDER_DEADLINE_MS,
 	type VideoCheckpoint,
 	type VideoSegmentRecord,
 	type VideoTakeRequest,
 	videoDurationMs,
+	videoRenderDeadlineMs,
 	videoSegmentCount,
 	videoSizeForSource,
 } from "./request";
@@ -203,6 +203,17 @@ export async function runVideoTake(ctx: Ctx): Promise<void> {
 	const onAbort = () => {
 		if (signal.reason === "cancelled") stopping = stopPrompt();
 	};
+	// A failed take's prompt, whatever a Stop would have asked: nothing will
+	// read its result. Never throws.
+	const releasePrompt = async (): Promise<void> => {
+		try {
+			if (currentPromptId) {
+				await client.cancel(currentPromptId, { interrupt: true });
+			}
+		} catch {
+			// The server is down or refusing; it drops the prompt on its own.
+		}
+	};
 	signal.addEventListener("abort", onAbort, { once: true });
 
 	try {
@@ -218,6 +229,12 @@ export async function runVideoTake(ctx: Ctx): Promise<void> {
 			if (signal.reason === "cancelled") await stopPrompt();
 			return;
 		}
+		// The take fails, but a prompt it posted may still be on the GPU: the
+		// deadline ran out mid-render, or the POST's answer was lost after
+		// ComfyUI took it. Once the take is failed the ledger says the GPU is
+		// free, so the GPU must be: the prompt is deleted or interrupted (the
+		// client interrupts only a prompt `/queue` shows as ours and running).
+		await releasePrompt();
 		await ctx.fail(failureOf(error));
 	} finally {
 		signal.removeEventListener("abort", onAbort);
@@ -274,7 +291,7 @@ async function followWithGrace(
 ) {
 	let downSince = 0;
 	for (;;) {
-		const left = VIDEO_RENDER_DEADLINE_MS - (Date.now() - startedAt);
+		const left = videoRenderDeadlineMs() - (Date.now() - startedAt);
 		if (left <= 0) throw new ComfyUiError("timeout", "ComfyUI took too long");
 		try {
 			return await followSegment(ctx, client, promptId, left, eta);
@@ -413,7 +430,7 @@ async function fitStill(
  * starting another call, and the signal carries the take's Stop into the child.
  */
 function mediaOptions(ctx: Ctx, startedAt: number): MediaCallOptions {
-	const left = VIDEO_RENDER_DEADLINE_MS - (Date.now() - startedAt);
+	const left = videoRenderDeadlineMs() - (Date.now() - startedAt);
 	if (left <= 0) {
 		throw new TakeError(
 			"video_render_timeout",
@@ -538,7 +555,7 @@ async function renderTake(
 	// (`video-job.ts` `onTransition`), the one every other take reads too.
 	const waited = await waitForOtherEnginesIdle("ltx", {
 		signal,
-		deadlineMs: VIDEO_RENDER_DEADLINE_MS - (Date.now() - startedAt),
+		deadlineMs: videoRenderDeadlineMs() - (Date.now() - startedAt),
 		claim: { id: row.id, phaseAt: row.phaseAt ?? Date.now() },
 	});
 	if (waited === "cancelled") return;
@@ -731,7 +748,7 @@ async function renderTake(
 		takeId: row.id,
 		frames: checkFrames,
 		signal,
-		deadlineAt: startedAt + VIDEO_RENDER_DEADLINE_MS,
+		deadlineAt: startedAt + videoRenderDeadlineMs(),
 	});
 	if (signal.aborted) return;
 	if (verdict === "blocked") {

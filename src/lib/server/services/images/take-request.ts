@@ -47,6 +47,27 @@ export type TakeRequest = {
 /** Longest a render may take once submitted. A print-size edit measured ~70 s on the real box; this also covers waiting in ComfyUI's queue. Lives here so the kind and its handler share it without importing each other. */
 export const IMAGE_RENDER_DEADLINE_MS = 600_000;
 
+// Test seam: a spec that must see a render run out of time in a moment, not in
+// ten minutes. On `globalThis` so the test file's import and the app's own
+// module graph (reset and re-imported per test) read the same value.
+const DEADLINE_KEY = Symbol.for("alfyai.images.renderDeadlineMs");
+type DeadlineHolder = { [DEADLINE_KEY]?: number };
+/** The effective render deadline: the constant, or a test's shorter one. */
+export function imageRenderDeadlineMs(): number {
+	return (globalThis as DeadlineHolder)[DEADLINE_KEY] ?? IMAGE_RENDER_DEADLINE_MS;
+}
+/** Vitest only; `undefined` puts the constant back. */
+export function setImageRenderDeadlineMsForTests(ms: number | undefined): void {
+	if (!process.env.VITEST) {
+		throw new Error("setImageRenderDeadlineMsForTests is for vitest only");
+	}
+	if (ms === undefined) {
+		delete (globalThis as DeadlineHolder)[DEADLINE_KEY];
+		return;
+	}
+	(globalThis as DeadlineHolder)[DEADLINE_KEY] = Math.max(1, Math.trunc(ms));
+}
+
 /** A quiet spell after which held models are let go: ComfyUI's (idle-free.ts) and the picture check's session. Measured in plan 2c Task 4. Lives here so the picture check reads it without loading idle-free's database and config. */
 export const IMAGE_IDLE_FREE_MS = 15 * 60_000;
 

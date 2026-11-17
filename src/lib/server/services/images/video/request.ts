@@ -40,6 +40,27 @@ export type VideoTakeRequest = {
  */
 export const VIDEO_RENDER_DEADLINE_MS = 900_000;
 
+// Test seam: a spec that must see a render run out of time in a moment, not in
+// fifteen minutes. On `globalThis` so the test file's import and the app's own
+// module graph (reset and re-imported per test) read the same value.
+const DEADLINE_KEY = Symbol.for("alfyai.video.renderDeadlineMs");
+type DeadlineHolder = { [DEADLINE_KEY]?: number };
+/** The effective render deadline: the constant, or a test's shorter one. */
+export function videoRenderDeadlineMs(): number {
+	return (globalThis as DeadlineHolder)[DEADLINE_KEY] ?? VIDEO_RENDER_DEADLINE_MS;
+}
+/** Vitest only; `undefined` puts the constant back. */
+export function setVideoRenderDeadlineMsForTests(ms: number | undefined): void {
+	if (!process.env.VITEST) {
+		throw new Error("setVideoRenderDeadlineMsForTests is for vitest only");
+	}
+	if (ms === undefined) {
+		delete (globalThis as DeadlineHolder)[DEADLINE_KEY];
+		return;
+	}
+	(globalThis as DeadlineHolder)[DEADLINE_KEY] = Math.max(1, Math.trunc(ms));
+}
+
 /**
  * How long a `make_video` call waits inside the turn before leaving the take
  * on its card. Longer than the picture's 100 s because a 10 s take is two
