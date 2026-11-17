@@ -16,6 +16,7 @@ export {
 	type VoiceChoice,
 	type VoiceDraft,
 } from "./personal-voices";
+export { PreviewSuperseded, renderPreview } from "./preview";
 export {
 	attachAudio,
 	attachEvents,
@@ -46,4 +47,4 @@ export {
 	voiceDraftSchema,
 	voicePatchSchema,
 } from "./voice-requests";
-export { listBuiltInVoices } from "./voices";
+export { builtInVoice, listBuiltInVoices, resolvedVoice } from "./voices";

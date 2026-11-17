@@ -620,3 +620,158 @@ describe("fake speech service: the rest", () => {
 		expect(wrong.status).toBe(405);
 	});
 });
+
+describe("fake speech service: a preview", () => {
+	const voice = {
+		speaker_id: "default_b78b28baf5c31a1d",
+		controls: { "delivery.tempo": 0.5 },
+	};
+	const preview = (text: string, language = "en") => ({
+		text,
+		language,
+		voice,
+	});
+
+	it("answers a preview with an ID3 tag and silent frames as long as its text", async () => {
+		const response = await post("/v1/preview", preview("Hello there world"));
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toBe("audio/mpeg");
+		const bytes = new Uint8Array(await response.arrayBuffer());
+		expect(response.headers.get("content-length")).toBe(String(bytes.length));
+		// The tag is ten bytes (ID3v2.4, no frames), then silent frames.
+		expect([...bytes.slice(0, 10)]).toEqual([
+			0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0,
+		]);
+		// 17 characters at 0.02 s each.
+		const frames = Math.ceil((17 * 0.02) / MP3_FRAME_SECONDS);
+		expect(bytes.length).toBe(10 + frames * FRAME_BYTES);
+		expect([...bytes.slice(10, 14)]).toEqual([0xff, 0xfb, 0x90, 0xc0]);
+		expect(fake.previews).toEqual([preview("Hello there world")]);
+	});
+
+	it("makes a longer clip for a longer text, and a Hungarian one too", async () => {
+		await fake.close();
+		await start({ secondsPerChar: 0.05 });
+		const short = await post("/v1/preview", preview("Hi there", "hu"));
+		const long = await post("/v1/preview", preview("Hi there ".repeat(10)));
+		expect(short.status).toBe(200);
+		expect(long.status).toBe(200);
+		expect((await long.arrayBuffer()).byteLength).toBeGreaterThan(
+			(await short.arrayBuffer()).byteLength,
+		);
+		expect(fake.previews.map((made) => made.language)).toEqual(["hu", "en"]);
+	});
+
+	it("refuses a preview body the way the service does", async () => {
+		const secret = "SECRET-TEXT-MUST-NOT-COME-BACK";
+		const cases: Array<[string, unknown, string]> = [
+			["a list", [secret], "body"],
+			["no text", { language: "en", voice }, "text"],
+			["an empty text", preview(""), "text"],
+			["a text that is not a string", { ...preview(secret), text: 7 }, "text"],
+			["a text of 301 characters", preview("a".repeat(301)), "text"],
+			["no language", { text: secret, voice }, "language"],
+			["another language", preview(secret, "de"), "language"],
+			["no voice", { text: secret, language: "en" }, "voice"],
+			["a voice that is a string", { ...preview(secret), voice: "x" }, "voice"],
+			[
+				"an empty speaker id",
+				{ ...preview(secret), voice: { speaker_id: "" } },
+				"voice.speaker_id",
+			],
+			[
+				"controls with a boolean",
+				{
+					...preview(secret),
+					voice: { speaker_id: "x", controls: { "room.clean": true } },
+				},
+				"voice.controls",
+			],
+			["nothing speakable", preview("★ … →"), "text"],
+		];
+		for (const [name, body, field] of cases) {
+			const response = await post("/v1/preview", body);
+			expect(response.status, name).toBe(422);
+			const text = await response.text();
+			expect(JSON.parse(text), name).toEqual({ error: "invalid", field });
+			expect(text).not.toContain(secret);
+		}
+		expect((await post("/v1/preview", "{not json")).status).toBe(422);
+		expect(fake.previews).toEqual([]);
+		// 300 characters are fine, and so is a voice with no controls.
+		expect((await post("/v1/preview", preview("a".repeat(300)))).status).toBe(
+			200,
+		);
+		const bare = await post("/v1/preview", {
+			text: "Hello",
+			language: "en",
+			voice: { speaker_id: "x" },
+		});
+		expect(bare.status).toBe(200);
+		expect(fake.previews.at(-1)?.voice).toEqual({
+			speaker_id: "x",
+			controls: {},
+		});
+	});
+
+	it("answers 413 to a body of more than 4 MiB and 405 to a wrong method", async () => {
+		const large = await post(
+			"/v1/preview",
+			`{"text":"x","pad":"${"a".repeat(4 * 1024 * 1024)}"}`,
+		);
+		expect(large.status).toBe(413);
+		const wrong = await fetch(`${fake.baseUrl}/v1/preview`);
+		expect(wrong.status).toBe(405);
+		expect(wrong.headers.get("allow")).toBe("POST");
+	});
+
+	it("fails a preview on demand", async () => {
+		await fake.close();
+		await start({ failPreview: "unavailable" });
+		const down = await post("/v1/preview", preview("Hello there"));
+		expect(down.status).toBe(503);
+		expect(await down.json()).toEqual({ code: "zonos_unavailable" });
+		fake.setOptions({ failPreview: "failed" });
+		const failed = await post("/v1/preview", preview("Hello there"));
+		expect(failed.status).toBe(502);
+		expect(await failed.json()).toEqual({ code: "synthesis_failed" });
+		fake.setOptions({});
+		expect((await post("/v1/preview", preview("Hello there"))).status).toBe(
+			200,
+		);
+	});
+
+	it("waits previewDelayMs, and notes a caller that went away before the answer", async () => {
+		await fake.close();
+		await start({ previewDelayMs: 400 });
+		const began = Date.now();
+		const kept = await post("/v1/preview", preview("Hello there"));
+		expect(kept.status).toBe(200);
+		expect(Date.now() - began).toBeGreaterThanOrEqual(300);
+		expect(fake.abortedPreviews).toEqual([]);
+
+		const controller = new AbortController();
+		const gone = fetch(`${fake.baseUrl}/v1/preview`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(preview("Never heard")),
+			signal: controller.signal,
+		}).catch(() => "aborted");
+		await sleep(80);
+		controller.abort();
+		expect(await gone).toBe("aborted");
+		for (
+			let waited = 0;
+			fake.abortedPreviews.length === 0 && waited < 1000;
+			waited += 10
+		)
+			await sleep(10);
+		expect(fake.abortedPreviews.map((made) => made.text)).toEqual([
+			"Never heard",
+		]);
+		expect(fake.previews.map((made) => made.text)).toEqual([
+			"Hello there",
+			"Never heard",
+		]);
+	});
+});
