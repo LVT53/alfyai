@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { MAX_SHOWN_CHARS } from "$lib/shared/read-aloud/session-limits";
 import {
 	buildSpeechScript,
 	CODE_BLOCK_MAX_LINES,
@@ -231,6 +232,32 @@ describe("buildSpeechScript", () => {
 			"Ready",
 			"twice.",
 		]);
+	});
+
+	it("sends no word the session route would refuse for its length, whatever its reading is (early review R20)", () => {
+		// An address of any scheme is read as its host alone, but the request carries the word as
+		// written: over `MAX_SHOWN_CHARS` the whole request would be a 400. Such a word is left
+		// out, and the rest of the sentence is read.
+		const long = `ftp://example.com/${"a".repeat(2100)}`;
+		const script = build(
+			reply(
+				`<p>The mirror at ${long} is down, so please use the other one for now.</p>`,
+			),
+		);
+		const words = script.sentences.flatMap((s) => s.words);
+		expect(words.every((w) => w.shown.length <= MAX_SHOWN_CHARS)).toBe(true);
+		expect(bare(tokensOf(script))).toBe(
+			"The mirror at is down so please use the other one for now",
+		);
+		// A code word that long is left out as before, in inline code and in a short block.
+		const code = build(
+			reply(
+				`<p>Fetch <code>${long}</code> now.</p>${codeBlock("sh", [`curl ${long}`])}`,
+			),
+		);
+		expect(
+			code.sentences.flatMap((s) => s.words).every((w) => w.shown.length <= MAX_SHOWN_CHARS),
+		).toBe(true);
 	});
 
 	it("says the pipe of an inline shell command", () => {

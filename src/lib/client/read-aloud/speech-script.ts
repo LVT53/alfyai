@@ -7,6 +7,7 @@
  * session route checks them with.
  */
 
+import { MAX_SHOWN_CHARS } from "$lib/shared/read-aloud/session-limits";
 import {
 	codeKindOf,
 	isSeparator,
@@ -857,6 +858,9 @@ function proseWords(
 			continue;
 		}
 		if (atom && !inCode) shown = chipAddress(atom) ?? shown;
+		// The route refuses a request with a word written longer than this, whatever the word is read
+		// as (a long address is read as its host alone): such a word is left out (early review R20).
+		if (shown.length > MAX_SHOWN_CHARS) continue;
 		const tokens = speakWord(shown, kind, language);
 		if (tokens.length === 0) {
 			if (kind === "prose" && !LETTER_OR_DIGIT.test(shown))
@@ -1018,6 +1022,7 @@ function codeDrafts(
 			false,
 		)) {
 			const shown = view.slice(start, end);
+			if (shown.length > MAX_SHOWN_CHARS) continue;
 			const tokens = speakWord(shown, kind, language);
 			const range = tokens.length > 0 ? makeRange(paragraph, start, end) : null;
 			if (range)

@@ -6,7 +6,10 @@
 // passes it is one the service takes.
 
 import { z } from "zod";
-import { MAX_SENTENCES_PER_SESSION } from "$lib/shared/read-aloud/session-limits";
+import {
+	MAX_SENTENCES_PER_SESSION,
+	MAX_SHOWN_CHARS,
+} from "$lib/shared/read-aloud/session-limits";
 import type { SpeechSentence } from "./speech-client";
 import type { ResolvedVoice, VoiceLanguage } from "./voices";
 
@@ -14,7 +17,7 @@ const MAX_TOKENS_PER_SENTENCE = 120;
 const MAX_SENTENCE_CHARS = 400;
 
 const wordSchema = z.object({
-	shown: z.string().min(1).max(2048),
+	shown: z.string().min(1).max(MAX_SHOWN_CHARS),
 	kind: z.enum(["prose", "code", "shell", "listNumber", "math"]),
 	tokens: z.array(z.string().min(1).max(80).regex(/^\S+$/u)).min(1).max(40),
 });
