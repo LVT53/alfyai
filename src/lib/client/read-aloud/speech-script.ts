@@ -133,11 +133,12 @@ const TEX_PLAIN_BRACKETS =
  * "(12 − 5 = 7)", "€10 + €5 = €15", "1,5 + 2,25 = 3,75", "x + 2 = 7"). A number may
  * group its thousands, carry a decimal comma or point, and have a € or £ before or
  * after it or a % after it. It is read as simple math only when it holds an operator
- * other than "-" and "/" (`ARITHMETIC_SIGN`): between two numbers alone, those are a
- * range or a date ("2026 - 2027").
+ * other than "-", "–" and "/" (`ARITHMETIC_SIGN`): between two numbers alone, those are a
+ * range or a date ("2026 - 2027"), and an en dash there is the dash's pause. In a sum an
+ * en dash is a minus ("12 – 5 = 7"), never the dash's pause (Track A's dashes, merged).
  */
 const ARITHMETIC_OPERAND = String.raw`(?:[-\u2212]?[€£]?\d+(?:[.,]\d+)*(?:[ \u00a0\u202f]?[%€£])?|[A-Za-z])`;
-const ARITHMETIC_RUN = String.raw`${ARITHMETIC_OPERAND}(?:\s+[-\u2212+×·÷/=≈≠*]\s+${ARITHMETIC_OPERAND})+`;
+const ARITHMETIC_RUN = String.raw`${ARITHMETIC_OPERAND}(?:\s+[-\u2212\u2013+×·÷/=≈≠*]\s+${ARITHMETIC_OPERAND})+`;
 const ARITHMETIC = new RegExp(
 	String.raw`(?<![\p{L}\p{N}_.,€£])(?:\(${ARITHMETIC_RUN}\)|${ARITHMETIC_RUN})(?![\p{L}\p{N}_€£%])`,
 	"gu",
@@ -146,13 +147,13 @@ const ARITHMETIC_SIGN = /\s[+×·÷=≈≠*\u2212]\s/u;
 /**
  * A sum that touches another spaced operator goes on past what can be read ("total =
  * 3 + 4", "2x - 3 = 7"): the whole of it is left to the prose's reading, as before,
- * never its tail alone. A "-" or "/" counts only beside a word with a digit in it: beside
- * a plain word it is a dash ("3 + 4 = 7 - that is all").
+ * never its tail alone. A "-", "–" or "/" counts only beside a word with a digit in it:
+ * beside a plain word it is a dash ("3 + 4 = 7 - that is all").
  */
 const ARITHMETIC_GOES_ON_BEFORE =
-	/(?:[+×·÷=≈≠*\u2212]|(?:^|\s)\S*\p{N}\S*\s+[-/])\s+$/u;
+	/(?:[+×·÷=≈≠*\u2212]|(?:^|\s)\S*\p{N}\S*\s+[-\u2013/])\s+$/u;
 const ARITHMETIC_GOES_ON_AFTER =
-	/^\s+(?:[+×·÷=≈≠*\u2212](?:\s|$)|[-/]\s+\S*\p{N})/u;
+	/^\s+(?:[+×·÷=≈≠*\u2212](?:\s|$)|[-\u2013/]\s+\S*\p{N})/u;
 /** How far around a sum `ARITHMETIC_GOES_ON_*` look. */
 const ARITHMETIC_REACH = 24;
 /**

@@ -1085,6 +1085,25 @@ describe("simple math (the owner's staging find, 2026-11-17)", () => {
 		expect(mathWords("<p>Call +36 1 234 5678 today.</p>", "en")).toEqual([]);
 	});
 
+	it("never makes an operator a dash's pause: a minus in a sum is said (Track A's dashes, merged)", () => {
+		const said = (html: string) =>
+			tokensOf(build(reply(html), { fallbackLanguage: "en" })).join(" ");
+		// "−" is an operator, never a dash.
+		expect(said("<p>So 12 − 5 = 7 now.</p>")).toContain("12 minus 5 equals 7");
+		expect(said("<p>So 12 − 5 = 7 now.</p>")).not.toContain(",");
+		expect(said("<p>So 12 − 5 now.</p>")).toContain("12 minus 5");
+		expect(said("<p>So 12 − 5 now.</p>")).not.toContain(",");
+		// Left to the prose reading, a minus is still unsaid, never a pause.
+		expect(said("<p>Let total − 5 = 7 now.</p>")).not.toContain(",");
+		// An en dash in a sum is a minus too; alone between two numbers it is a
+		// range, and the dash's pause.
+		expect(said("<p>So 12 – 5 = 7 now.</p>")).toContain("12 minus 5 equals 7");
+		expect(said("<p>So 12 – 5 = 7 now.</p>")).not.toContain(",");
+		expect(said("<p>The years 2026 – 2027 were busy.</p>")).toContain(
+			"2026, 2027",
+		);
+	});
+
 	it("still skips a formula it cannot read", () => {
 		const script = build(
 			reply("<p>The area is (\\sum_{i=1}^{n} i) here today.</p>"),

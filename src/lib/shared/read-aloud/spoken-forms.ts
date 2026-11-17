@@ -714,6 +714,8 @@ const MATH_OPERATOR_CHARS: Readonly<Record<string, MathWord>> = {
 	"+": "plus",
 	"-": "minus",
 	"\u2212": "minus",
+	// An en dash between numbers in a sum (`ARITHMETIC` in the speech script).
+	"\u2013": "minus",
 	"×": "times",
 	"·": "times",
 	"*": "times",
