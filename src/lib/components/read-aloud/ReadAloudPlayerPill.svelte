@@ -38,8 +38,9 @@ let {
 const floating = $derived(variant === "floating");
 const waiting = $derived(view.status === "waiting");
 const stopped = $derived(view.status === "stopped");
+/** Getting the voice: a jump, a wait to go on, or the voice falling behind mid-reading. */
 const spinning = $derived(
-	view.status === "seeking" || view.status === "waiting",
+	view.status === "seeking" || view.status === "waiting" || view.buffering,
 );
 /** Nothing to step through: a reading waiting to continue, or a pill with no sentences. */
 const stepless = $derived(waiting || view.count === 0);

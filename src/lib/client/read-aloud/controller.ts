@@ -614,6 +614,7 @@ export function createReadAloudController(
 
 	/** `cancel`: tell the server to close it too (not when the reading came to its end). */
 	function closeSession({ cancel = true }: { cancel?: boolean } = {}) {
+		endBuffering();
 		const closing = session;
 		session = null;
 		lastLocate = null;
@@ -819,6 +820,30 @@ export function createReadAloudController(
 		if (active) frame = deps.requestFrame(tick);
 	}
 
+	// The voice falls behind (owner, 2026-11-17: "Yes, spin it"): the audio waits for
+	// data while the reading plays. Shown after a wait of over half a second, so it
+	// never flickers, and gone the moment playback goes on.
+	const BUFFERING_SHOWS_AFTER_MS = 500;
+	let buffering = false;
+	let bufferingTimer: unknown = null;
+	function endBuffering() {
+		if (bufferingTimer !== null) deps.clearTimeout(bufferingTimer);
+		bufferingTimer = null;
+		if (!buffering) return;
+		buffering = false;
+		publish();
+	}
+	audio.addEventListener("waiting", () => {
+		if (!hasSessionAudio() || state.status !== "playing") return;
+		if (bufferingTimer !== null || buffering) return;
+		bufferingTimer = deps.setTimeout(() => {
+			bufferingTimer = null;
+			if (state.status !== "playing" || !hasSessionAudio()) return;
+			buffering = true;
+			publish();
+		}, BUFFERING_SHOWS_AFTER_MS);
+	});
+
 	// Nothing plays that the reading did not ask for: the OS's media keys, Now
 	// Playing or headphones may resume a paused or finished reading by themselves.
 	audio.addEventListener("play", () => {
@@ -827,12 +852,14 @@ export function createReadAloudController(
 		audio.pause();
 	});
 	audio.addEventListener("playing", () => {
+		endBuffering();
 		if (!hasSessionAudio()) return;
 		expectPause = false;
 		if (state.status === "opening" || state.status === "seeking")
 			dispatch({ type: "firstAudio" });
 	});
 	audio.addEventListener("pause", () => {
+		endBuffering();
 		if (!hasSessionAudio() || audio.ended) return;
 		if (expectPause) {
 			expectPause = false;
@@ -904,6 +931,7 @@ export function createReadAloudController(
 			speed: state.speed,
 			failure: state.failure,
 			busy: state.busy,
+			buffering: buffering && state.status === "playing",
 			drag: state.drag?.target ?? null,
 			// The end's marks fade while "Finished" shows (spec §4.2).
 			marks:
@@ -931,6 +959,7 @@ export function createReadAloudController(
 			view.speed,
 			view.failure,
 			view.busy,
+			view.buffering,
 			view.drag,
 			state.word,
 			script !== null && script === reading?.script ? script.totalChars : null,

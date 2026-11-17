@@ -138,6 +138,7 @@ The breakpoint is the one the chat already uses for narrow layouts (builder).
 | Moment | What happens |
 |---|---|
 | Start | The speaker spins until the first audio arrives, then the ring appears and the player rises 8 px while fading in (250 ms) as the thread makes room. |
+| The voice falls behind mid-reading | The audio waits for data while reading: after about 500 ms the play button shows the start's spinner (so it never flickers), and it stops the moment playback goes on. The speaker's ring keeps its progress. (Owner, 2026-11-17: "Yes, spin it".) |
 | ✕ | Reading stops; the player sinks 6 px and fades (150 ms, ease-in); its room closes; the marks fade; the speaker returns. |
 | The end | The ring fills, "Finished" shows in the player for about 1.1 s, then it leaves as on ✕. |
 | A slash command (`/` opens the command tray) | The player fades out in 100 ms and keeps its room; reading continues and the reply's marks keep showing where it is; the player fades back when the tray closes. |

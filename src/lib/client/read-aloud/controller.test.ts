@@ -835,6 +835,37 @@ describe("the reading controller", () => {
 		});
 	});
 
+	it('spins the play button when the voice falls behind for over half a second (owner: "Yes, spin it")', async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		expect(t.last().buffering).toBe(false);
+		// The audio waits for data mid-reading.
+		t.audio.emit("waiting");
+		vi.advanceTimersByTime(400);
+		expect(t.last().buffering).toBe(false);
+		vi.advanceTimersByTime(200);
+		expect(t.last()).toMatchObject({ status: "playing", buffering: true });
+		// The moment playback goes on, it stops.
+		t.audio.emit("playing");
+		expect(t.last().buffering).toBe(false);
+		// A short wait never shows: no flicker.
+		const seen = t.views.length;
+		t.audio.emit("waiting");
+		vi.advanceTimersByTime(300);
+		t.audio.emit("playing");
+		vi.advanceTimersByTime(1000);
+		expect(t.views.slice(seen).some((view) => view.buffering)).toBe(false);
+		// A stop ends it too.
+		t.audio.emit("waiting");
+		vi.advanceTimersByTime(600);
+		expect(t.last().buffering).toBe(true);
+		t.controller.stop();
+		expect(t.last().buffering).toBe(false);
+		vi.advanceTimersByTime(600);
+		expect(t.last().buffering).toBe(false);
+	});
+
 	it("switches to another reply without leaving the player", async () => {
 		const t = setup();
 		mountReply("m1");

@@ -110,6 +110,40 @@ describe("the floating pill's Tab order follows its layout", () => {
 });
 
 describe("ReadAloudPlayerPill", () => {
+	it("spins its play button while the voice falls behind, with the waiting words", () => {
+		render(ReadAloudPlayerPill, {
+			props: {
+				view: view({ status: "playing", buffering: true }),
+				actions: actions(),
+				variant: "floating",
+			},
+		});
+		const play = screen.getByRole("button", { name: "Waiting to continue" });
+		expect(play.querySelector(".mini-spinner")).toBeTruthy();
+		// The steps and the scrubber still work: only play spins.
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Next sentence",
+				}) as HTMLButtonElement
+			).disabled,
+		).toBe(false);
+	});
+
+	it("says the waiting words in Hungarian too", () => {
+		uiLanguage.set("hu");
+		render(ReadAloudPlayerPill, {
+			props: {
+				view: view({ status: "playing", buffering: true }),
+				actions: actions(),
+				variant: "floating",
+			},
+		});
+		expect(
+			screen.getByRole("button", { name: "Folytatásra vár" }),
+		).toBeTruthy();
+	});
+
 	it("the inline pill draws the transport and the scrubber, and no locate, speed or stop", () => {
 		const { container } = render(ReadAloudPlayerPill, {
 			props: {
