@@ -147,11 +147,12 @@
 			"file": "src/lib/stores/ui.ts",
 			"exports": ["*"]
 		},
-		// Read aloud's view and the thread's focus request are read only as `$readAloudView` and
+		// Read aloud's views (the reading's and the voice preview's) and the thread's focus
+		// request are read only as `$readAloudView`, `$voicePreviewView` and
 		// `$threadFocusRequest` inside components' <script> blocks, a use Fallow does not follow.
 		{
 			"file": "src/lib/stores/read-aloud.ts",
-			"exports": ["readAloudView"]
+			"exports": ["readAloudView", "voicePreviewView"]
 		},
 		{
 			"file": "src/lib/stores/thread-focus.ts",
