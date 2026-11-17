@@ -135,6 +135,41 @@ describe("SessionTimeline", () => {
 });
 
 describe("text shares", () => {
+	it("every notch, and the share a sentence starts at, maps back to that sentence (early review R17)", () => {
+		// The review swept sentence lengths of 100, 151 and 337 characters (and others) and found
+		// about 1,600 of 42,000 notches landing one sentence early: a share that is a float
+		// away from `charStart / totalChars`. A sweep of mixed lengths now finds none.
+		const lengths = [100, 151, 337, 7, 64, 240, 13, 999, 58, 31, 202, 87];
+		let misses = 0;
+		let checked = 0;
+		for (let a = 0; a < lengths.length; a++) {
+			for (let b = 0; b < lengths.length; b++) {
+				for (let c = 0; c < lengths.length; c++) {
+					const sweep = scriptOf(
+						[lengths[a], lengths[b], lengths[c], lengths[(a + b + c) % 12]].map(
+							(length) => ({ tokens: ["x".repeat(Math.max(1, length - 1))] }),
+						),
+					);
+					const marks = notches(sweep);
+					sweep.sentences.forEach((sentence, index) => {
+						checked += 1;
+						if (sentenceAtShare(sweep, marks[index] ?? 0) !== index) misses += 1;
+						if (
+							sentenceAtShare(
+								sweep,
+								shareAt(sweep, index, 0),
+							) !== index
+						)
+							misses += 1;
+						if (notchAtShare(marks, marks[index] ?? 0) !== index) misses += 1;
+					});
+				}
+			}
+		}
+		expect(checked).toBeGreaterThan(5000);
+		expect(misses).toBe(0);
+	});
+
 	it("notches are text shares and never move", () => {
 		expect(notches(script)[0]).toBe(0);
 		expect(notches(script)).toEqual(
