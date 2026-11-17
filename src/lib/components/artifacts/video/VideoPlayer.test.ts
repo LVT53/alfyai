@@ -18,18 +18,40 @@ let requestFullscreen: ReturnType<typeof vi.fn>;
 let exitFullscreen: ReturnType<typeof vi.fn>;
 let fullscreenElement: Element | null = null;
 
+/**
+ * Each element's `paused`, kept the way a browser keeps it: play() clears it
+ * and pause() sets it at once, and each fires its event only when it changed
+ * something. jsdom's own `paused` is always true.
+ */
+const pausedOf = new WeakMap<HTMLMediaElement, boolean>();
+
+function isPaused(element: HTMLMediaElement): boolean {
+	return pausedOf.get(element) ?? true;
+}
+
 beforeEach(() => {
 	uiLanguage.set("en");
+	vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(
+		function (this: HTMLMediaElement) {
+			return isPaused(this);
+		},
+	);
 	play = vi
 		.spyOn(HTMLMediaElement.prototype, "play")
 		.mockImplementation(function (this: HTMLMediaElement) {
-			this.dispatchEvent(new Event("play"));
+			if (isPaused(this)) {
+				pausedOf.set(this, false);
+				this.dispatchEvent(new Event("play"));
+			}
 			return Promise.resolve();
 		});
 	pause = vi
 		.spyOn(HTMLMediaElement.prototype, "pause")
 		.mockImplementation(function (this: HTMLMediaElement) {
-			this.dispatchEvent(new Event("pause"));
+			if (!isPaused(this)) {
+				pausedOf.set(this, true);
+				this.dispatchEvent(new Event("pause"));
+			}
 		});
 	// The player's clock frame loop is a no-op unless a test captures it.
 	vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
@@ -283,6 +305,47 @@ describe("VideoPlayer", () => {
 		expect(play).toHaveBeenCalledTimes(3);
 		expect(pause).toHaveBeenCalledTimes(2);
 		expect(requestFullscreen).toHaveBeenCalledTimes(1);
+	});
+
+	it("plays on the next press though the press before's play news lands after its pause", async () => {
+		// A busy browser runs a press before the media tasks of the press before
+		// it: the `play` event and the play() answer of one press can land after
+		// the next press has paused the clip. The press after that must still
+		// play (images-video-card.spec.ts, six workers, the fourth press).
+		const later: Array<() => void> = [];
+		play.mockImplementation(function (this: HTMLMediaElement) {
+			if (isPaused(this)) {
+				pausedOf.set(this, false);
+				later.push(() => this.dispatchEvent(new Event("play")));
+			}
+			return new Promise<void>((resolve) => later.push(resolve));
+		});
+		pause.mockImplementation(function (this: HTMLMediaElement) {
+			if (!isPaused(this)) {
+				pausedOf.set(this, true);
+				later.push(() => this.dispatchEvent(new Event("pause")));
+			}
+		});
+		render(VideoPlayer, PROPS);
+		await fireEvent.click(media());
+		await fireEvent.click(media());
+		expect(media().paused).toBe(true);
+		// The first press's `play` event and play() answer land now; the second
+		// press's `pause` event is still on its way.
+		later.shift()?.();
+		later.shift()?.();
+		await tick();
+
+		await fireEvent.click(media());
+		expect(play).toHaveBeenCalledTimes(2);
+		expect(media().paused).toBe(false);
+		// Once everything late has landed, the player says what the clip does.
+		for (const task of later.splice(0)) task();
+		await tick();
+		expect(
+			screen.getByRole("button", { name: "Pause video" }),
+		).toBeInTheDocument();
+		expect(root()).toHaveClass("is-playing");
 	});
 
 	it("loops and mutes from its own buttons, with the state on the control", async () => {
