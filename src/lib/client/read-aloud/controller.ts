@@ -294,7 +294,7 @@ export function createReadAloudController(
 				return;
 			case "close":
 				openToken += 1;
-				closeSession();
+				closeSession({ cancel: command.ended !== true });
 				return;
 			case "play":
 				expectPause = false;
@@ -387,6 +387,13 @@ export function createReadAloudController(
 			: [];
 	}
 
+	/** Builds a reading's script once its detector is there; a reading that has one keeps it. */
+	function buildScriptOnce(target: Reading) {
+		if (target.script || !detect) return;
+		setScript(target, buildFor(target));
+		target.known = new Map();
+	}
+
 	async function ensureDetector(): Promise<Detect> {
 		detect ??= await deps.loadDetector();
 		return detect;
@@ -450,12 +457,13 @@ export function createReadAloudController(
 			dispatch({ type: "stop" });
 			return;
 		}
+		// After the first reading the detector is there, so the script is built before
+		// this press's view is published: a switch inside the open player shows the
+		// new reply's sentences at once, never "Sentence 0 of 0".
+		buildScriptOnce(target);
 		await ensureDetector();
 		if (token !== openToken) return;
-		if (!target.script) {
-			setScript(target, buildFor(target));
-			target.known = new Map();
-		}
+		buildScriptOnce(target);
 		const script = target.script;
 		const sentences = script?.sentences.slice(from) ?? [];
 		if (!script || sentences.length === 0) {
@@ -527,7 +535,8 @@ export function createReadAloudController(
 		};
 	}
 
-	function closeSession() {
+	/** `cancel`: tell the server to close it too (not when the reading came to its end). */
+	function closeSession({ cancel = true }: { cancel?: boolean } = {}) {
 		const closing = session;
 		session = null;
 		lastLocate = null;
@@ -537,7 +546,7 @@ export function createReadAloudController(
 			audio.removeAttribute("src");
 			audio.load();
 		}
-		if (closing) api.cancelReadingSession(closing.id);
+		if (closing && cancel) api.cancelReadingSession(closing.id);
 	}
 
 	function openEvents(owner: Session): EventSourceLike {
@@ -810,8 +819,9 @@ export function createReadAloudController(
 			failure: state.failure,
 			busy: state.busy,
 			drag: state.drag?.target ?? null,
+			// The end's marks fade while "Finished" shows (spec §4.2).
 			marks:
-				state.status === "idle" || !current
+				state.status === "idle" || state.status === "finished" || !current
 					? null
 					: {
 							sentence: uniqueRanges(current.ranges),

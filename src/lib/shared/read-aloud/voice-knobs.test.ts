@@ -7,6 +7,7 @@ import {
 	KNOBS,
 	type KnobKey,
 	type Knobs,
+	keyStepKnob,
 	knobsToControls,
 	knobWordIndex,
 	matchingStyle,
@@ -306,6 +307,35 @@ describe("snapping a knob", () => {
 				expect(snapped, `${knob.key} ${value}`).toBe(near ? 0 : value);
 			}
 		}
+	});
+});
+
+describe("a key step on a knob", () => {
+	it("leaves normal in one press: a step that would snap back goes to the first value outside", () => {
+		expect(keyStepKnob("pace", 0, 0.05)).toBe(0.2);
+		expect(keyStepKnob("pace", 0, -0.05)).toBe(-0.2);
+		expect(keyStepKnob("energy", 0, 0.05)).toBe(0.35);
+		expect(keyStepKnob("projection", 0, -0.05)).toBe(-0.15);
+		expect(keyStepKnob("depth", 0, 0.05)).toBe(0.2);
+		// Depth has no lower side: a step down from normal stays there.
+		expect(keyStepKnob("depth", 0, -0.05)).toBe(0);
+		for (const knob of KNOBS)
+			for (const sign of [1, -1]) {
+				if (sign < 0 && knob.min >= 0) continue;
+				const next = keyStepKnob(knob.key, 0, sign * KNOB_STEP);
+				expect(Math.sign(next), `${knob.key} ${sign}`).toBe(sign);
+				// The first value on the grid that does not snap: one step less would.
+				expect(snapKnob(knob.key, next - sign * KNOB_STEP)).toBe(0);
+			}
+	});
+
+	it("steps back into normal, and is a plain step everywhere else", () => {
+		expect(keyStepKnob("pace", 0.2, 0.15)).toBe(0);
+		expect(keyStepKnob("pace", 0.2, 0.25)).toBe(0.25);
+		expect(keyStepKnob("energy", -1, -1.05)).toBe(-1.05);
+		// A larger step (Page Up) that is outside already is kept.
+		expect(keyStepKnob("pace", 0, 0.4)).toBe(0.4);
+		expect(keyStepKnob("pace", 0, Number.NaN)).toBe(0);
 	});
 });
 

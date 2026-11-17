@@ -149,6 +149,46 @@ describe("ReadFromHere", () => {
 		await vi.waitFor(() => expect(pill()?.style.top).toBe("328px"));
 	});
 
+	it("flips to the selection's other side when its own side has no room", async () => {
+		// The pill is 36 px tall; the thread's scroller starts under a 56 px title bar.
+		const realBox = HTMLElement.prototype.getBoundingClientRect;
+		vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+			function (this: HTMLElement) {
+				if (this.classList.contains("read-from-here"))
+					return rect(0, 0, 36, 120);
+				if (this.id === "scroller") return rect(56, 0, 600, 800);
+				return realBox.call(this);
+			},
+		);
+		const scroller = document.createElement("div");
+		scroller.id = "scroller";
+		document.body.appendChild(scroller);
+		render(ReadFromHere, {
+			props: {
+				conversationId: "c1",
+				composerHeight: 100,
+				controller: fakeController(() => ({ kind: "ready" })),
+				scroller,
+			},
+		});
+		const text = document.getElementById("reply")?.firstChild as Text;
+		const lineAt = (top: number) =>
+			Object.defineProperty(Range.prototype, "getClientRects", {
+				configurable: true,
+				value: () => [rect(top)],
+			});
+
+		// A fine pointer, a line just under the title bar: no room above, so below it.
+		lineAt(70);
+		select(text, 4, 9);
+		await vi.waitFor(() => expect(pill()?.style.top).toBe("98px"));
+		// A touch screen, a line just above the composer (window 768, composer 100): above it.
+		coarse = true;
+		lineAt(630);
+		select(text, 4, 10);
+		await vi.waitFor(() => expect(pill()?.style.top).toBe("586px"));
+	});
+
 	it("starts reading at the selection's sentence", async () => {
 		const controller = readFromHere();
 		const text = document.getElementById("reply")?.firstChild as Text;

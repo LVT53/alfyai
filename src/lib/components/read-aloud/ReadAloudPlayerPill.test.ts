@@ -41,6 +41,74 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
+/** Stubs the viewport as a phone (the pill's two rows) or not. */
+function viewport(phone: boolean) {
+	vi.stubGlobal("matchMedia", (query: string) => ({
+		matches: phone && query.includes("max-width: 767px"),
+		media: query,
+		addEventListener: () => {},
+		removeEventListener: () => {},
+	}));
+}
+
+/** The pill's controls, in the order Tab reaches them. */
+function tabOrder(container: HTMLElement): string[] {
+	return [...container.querySelectorAll("button, [role='slider']")].map(
+		(control) => control.getAttribute("aria-label") ?? "",
+	);
+}
+
+describe("the floating pill's Tab order follows its layout", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("on a desktop: ⏮ ▶ ⏭, the scrubber, ⌖, the speed, ✕", () => {
+		viewport(false);
+		const { container } = render(ReadAloudPlayerPill, {
+			props: { view: view(), actions: actions(), variant: "floating" },
+		});
+		expect(tabOrder(container)).toEqual([
+			"Previous sentence",
+			"Play",
+			"Next sentence",
+			"Sentence",
+			"Go to where it's reading",
+			"Speed: 1×",
+			"Stop reading",
+		]);
+	});
+
+	it("on a phone: the scrubber, then the speed, ⏮ ▶ ⏭, ⌖, ✕ (its two rows)", () => {
+		viewport(true);
+		const { container } = render(ReadAloudPlayerPill, {
+			props: { view: view(), actions: actions(), variant: "floating" },
+		});
+		expect(tabOrder(container)).toEqual([
+			"Sentence",
+			"Speed: 1×",
+			"Previous sentence",
+			"Play",
+			"Next sentence",
+			"Go to where it's reading",
+			"Stop reading",
+		]);
+	});
+
+	it("the inline pill on a phone: the scrubber, then ⏮ ▶ ⏭", () => {
+		viewport(true);
+		const { container } = render(ReadAloudPlayerPill, {
+			props: { view: view(), actions: actions(), variant: "inline" },
+		});
+		expect(tabOrder(container)).toEqual([
+			"Sentence",
+			"Previous sentence",
+			"Play",
+			"Next sentence",
+		]);
+	});
+});
+
 describe("ReadAloudPlayerPill", () => {
 	it("the inline pill draws the transport and the scrubber, and no locate, speed or stop", () => {
 		const { container } = render(ReadAloudPlayerPill, {

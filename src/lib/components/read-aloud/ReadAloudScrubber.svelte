@@ -42,6 +42,9 @@ let dragShare = $state<number | null>(null);
 let target = $state<number | null>(null);
 let settling = $state(false);
 let bubbleShift = $state(0);
+/** The bubble's words and place: kept after a release, so it fades out as it was. */
+let bubbleWords = $state("");
+let bubbleShare = $state(0);
 let pendingX: number | null = null;
 let frame: number | null = null;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -73,31 +76,40 @@ function cancelFrame() {
 function moveTo(clientX: number) {
 	const share = shareAt(clientX);
 	dragShare = share;
+	bubbleShare = share;
 	const next = notchAtShare(notches, share);
 	if (next !== target) {
 		target = next;
+		bubbleWords = preview(next);
 		onDragMove(next);
 	}
 }
 
-/** Keeps the bubble inside the player: measured after it shows its new words. */
+/**
+ * Keeps the bubble inside the player, measured after it shows its new words.
+ * The shift comes from where the handle is and how wide the bubble is, never
+ * from the bubble's own box: that box holds the shift (or, while the transform
+ * moves, part of it), so reading it back would feed the shift on itself.
+ */
 $effect(() => {
-	dragShare;
+	const share = dragShare;
 	target;
-	const box = bubble?.getBoundingClientRect();
+	if (share === null || !bubble || !root) return;
+	const track = root.getBoundingClientRect();
 	const player = root
-		?.closest("[data-read-aloud-player]")
+		.closest("[data-read-aloud-player]")
 		?.getBoundingClientRect();
-	if (!box || !player || box.width === 0) {
+	const width = bubble.offsetWidth;
+	if (!player || width === 0) {
 		bubbleShift = 0;
 		return;
 	}
-	const left = box.left - bubbleShift;
-	const right = left + box.width;
-	if (left < player.left + BUBBLE_INSET_PX)
-		bubbleShift = player.left + BUBBLE_INSET_PX - left;
-	else if (right > player.right - BUBBLE_INSET_PX)
-		bubbleShift = player.right - BUBBLE_INSET_PX - right;
+	const left = track.left + share * track.width - width / 2;
+	const right = left + width;
+	const min = player.left + BUBBLE_INSET_PX;
+	const max = player.right - BUBBLE_INSET_PX;
+	if (left < min) bubbleShift = min - left;
+	else if (right > max) bubbleShift = Math.max(min - left, max - right);
 	else bubbleShift = 0;
 });
 
@@ -186,11 +198,11 @@ function onkeydown(event: KeyboardEvent) {
 		bind:this={bubble}
 		class="read-aloud-bubble"
 		class:visible={dragShare !== null && target !== null}
-		style:left={percent(shown)}
+		style:left={percent(bubbleShare)}
 		style:--bubble-shift="{bubbleShift}px"
 		aria-hidden="true"
 	>
-		{#if dragShare !== null && target !== null}{preview(target)}{/if}
+		{bubbleWords}
 	</div>
 </div>
 
@@ -209,6 +221,13 @@ function onkeydown(event: KeyboardEvent) {
 
 	.read-aloud-scrubber.dragging {
 		cursor: grabbing;
+	}
+
+	/* The phone's top row is 34 px, so the player is about 108 px tall (spec §4.3). */
+	@media (max-width: 767px) {
+		.read-aloud-scrubber {
+			height: 34px;
+		}
 	}
 
 	.read-aloud-scrubber.disabled {

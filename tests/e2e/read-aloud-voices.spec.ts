@@ -5,7 +5,12 @@
 // voice called "Test Voice".
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { login, waitForMotionToSettle } from "./helpers";
+import {
+	expectTopmost,
+	login,
+	waitForHydration,
+	waitForMotionToSettle,
+} from "./helpers";
 import {
 	deleteReadAloudChat,
 	type FakeSpeechService,
@@ -167,6 +172,52 @@ test("the editor renders a style through the fake and saves the voice", async ({
 	).toBeVisible();
 });
 
+test("dragging the editor's player to either end keeps its bubble inside it", async ({
+	page,
+}) => {
+	const errors: string[] = [];
+	page.on("pageerror", (error) => errors.push(error.message));
+	const { editor } = await newVoice(page);
+	await editor
+		.getByRole("group", { name: "A style to start with" })
+		.getByRole("button", { name: "Bedtime" })
+		.click();
+	const player = editor.getByRole("group", { name: "Read aloud player" });
+	await expect(player.getByRole("button", { name: "Pause" })).toBeVisible({
+		timeout: 15_000,
+	});
+	// The pointer presses where the player is drawn, so it must be in view first.
+	await player.scrollIntoViewIfNeeded();
+	await waitForMotionToSettle(page);
+	const line = await player
+		.getByRole("slider", { name: "Sentence" })
+		.boundingBox();
+	const pill = await player.boundingBox();
+	if (!line || !pill) throw new Error("the editor's player has no box");
+	const y = line.y + line.height / 2;
+	const bubble = player.locator(".read-aloud-bubble");
+	/** How far the bubble's edges are inside the player's, at least (negative: outside). */
+	const room = async () => {
+		const box = await bubble.boundingBox();
+		if (!box) return -1;
+		return Math.round(
+			Math.min(box.x - pill.x, pill.x + pill.width - (box.x + box.width)),
+		);
+	};
+
+	await page.mouse.move(line.x + 1, y);
+	await page.mouse.down();
+	await expect(bubble).toHaveCSS("opacity", "1");
+	await expect.poll(room).toBeGreaterThanOrEqual(5);
+	await page.mouse.move(line.x + line.width - 1, y, { steps: 8 });
+	await expect.poll(room).toBeGreaterThanOrEqual(5);
+	await page.mouse.up();
+	await expect(
+		player.getByRole("slider", { name: "Sentence" }),
+	).toHaveAttribute("aria-valuetext", "Sentence 2 of 2");
+	expect(errors).toEqual([]);
+});
+
 test("Yours / Original plays the base voice", async ({ page }) => {
 	const { editor } = await newVoice(page);
 	await editor
@@ -268,6 +319,248 @@ test("a Default speed starts every reading at it", async ({ page }) => {
 	const { ui } = await readReply(page);
 	await expect(ui.player).toBeVisible({ timeout: 15_000 });
 	await expect(ui.player.locator(".read-aloud-speed-chip")).toHaveText("1.5×");
+});
+
+test("the arrow keys move a knob off Normal in one press, and back", async ({
+	page,
+}) => {
+	const { editor } = await newVoice(page);
+	const pace = editor.getByRole("slider", { name: "Pace" });
+	await pace.focus();
+	// Normal snaps within 4% of the range; a key step leaves it at the first value outside.
+	await page.keyboard.press("ArrowRight");
+	await expect(pace).toHaveAttribute("aria-valuetext", "A little faster");
+	await page.keyboard.press("ArrowLeft");
+	await expect(pace).toHaveAttribute("aria-valuetext", "Normal");
+	await page.keyboard.press("ArrowLeft");
+	await expect(pace).toHaveAttribute("aria-valuetext", "A little slower");
+});
+
+test("↺ gives focus to its slider", async ({ page }) => {
+	const { editor } = await newVoice(page);
+	const pace = editor.getByRole("slider", { name: "Pace" });
+	await pace.focus();
+	await page.keyboard.press("PageUp");
+	await expect(pace).not.toHaveAttribute("aria-valuetext", "Normal");
+	await page.keyboard.press("Shift+Tab");
+	await expect(
+		editor.getByRole("button", { name: "Pace back to normal" }),
+	).toBeFocused();
+	await page.keyboard.press("Enter");
+	await expect(pace).toHaveAttribute("aria-valuetext", "Normal");
+	await expect(pace).toBeFocused();
+});
+
+/** Puts the signed-in person's interface in a language: the next page load shows it. */
+async function setUiLanguage(page: Page, language: "en" | "hu") {
+	const response = await page.request.patch("/api/settings/preferences", {
+		data: { uiLanguage: language },
+	});
+	expect(response.ok(), `language -> ${response.status()}`).toBe(true);
+}
+
+/** Opens Settings in whatever language the interface is in, and returns its Read aloud card. */
+async function readAloudCard(page: Page) {
+	await page.goto("/settings", { waitUntil: "domcontentloaded" });
+	await waitForHydration(page);
+	const card = page.locator("#settings-section-read-aloud");
+	await expect(card.getByRole("combobox").first()).toBeEnabled({
+		timeout: 15_000,
+	});
+	await card.scrollIntoViewIfNeeded();
+	return card;
+}
+
+test("in Hungarian every knob's ↺ is clear of its slider and resets it", async ({
+	page,
+}) => {
+	await setUiLanguage(page, "hu");
+	try {
+		const card = await readAloudCard(page);
+		await card.getByRole("button", { name: "Új hang" }).click();
+		const editor = page.getByRole("dialog", { name: "Új hang" });
+		await expect(editor).toBeVisible();
+		await waitForMotionToSettle(page);
+		await editor
+			.getByRole("group", { name: "Egy stílus kezdésnek" })
+			.getByRole("button", { name: "Vidám" })
+			.click();
+		// Cheerful moves Pace, Pitch, Energy and Projection.
+		for (const name of ["Tempó", "Hangmagasság", "Energia", "Hangerő"]) {
+			const reset = editor.getByRole("button", {
+				name: `${name} vissza normálra`,
+			});
+			const slider = editor.getByRole("slider", { name, exact: true });
+			await reset.scrollIntoViewIfNeeded();
+			await expectTopmost(reset, {
+				message: `${name}'s ↺ must not sit under its slider`,
+				probe: "center",
+			});
+			const a = await reset.boundingBox();
+			const b = await slider.boundingBox();
+			if (!a || !b) throw new Error(`${name} has no box`);
+			expect(
+				a.x + a.width <= b.x || b.x + b.width <= a.x,
+				`${name}'s ↺ overlaps its slider`,
+			).toBe(true);
+		}
+		await editor
+			.getByRole("button", { name: "Hangmagasság vissza normálra" })
+			.click();
+		await expect(
+			editor.getByRole("slider", { name: "Hangmagasság", exact: true }),
+		).toHaveAttribute("aria-valuetext", "Normál");
+		// The longest words ("Kicsit nyugodtabb", Newsreader's Energy) fit their column.
+		await editor
+			.getByRole("group", { name: "Egy stílus kezdésnek" })
+			.getByRole("button", { name: "Hírolvasó" })
+			.click();
+		await expect(
+			editor.getByRole("slider", { name: "Energia", exact: true }),
+		).toHaveAttribute("aria-valuetext", "Kicsit nyugodtabb");
+		const spilled = await editor
+			.locator(".voice-knob-word")
+			.evaluateAll((words) =>
+				words
+					.filter((word) => word.scrollWidth > word.clientWidth + 1)
+					.map((word) => word.textContent),
+			);
+		expect(spilled).toEqual([]);
+	} finally {
+		await setUiLanguage(page, "en");
+	}
+});
+
+for (const language of ["en", "hu"] as const)
+	test(`on a 375 px phone the edit footer's buttons never overlap (${language})`, async ({
+		page,
+	}) => {
+		await makeVoice(page, "imogen");
+		await setUiLanguage(page, language);
+		try {
+			await page.setViewportSize({ width: 375, height: 812 });
+			const card = await readAloudCard(page);
+			await card
+				.getByRole("button", {
+					name: language === "hu" ? "Szerkesztés" : "Edit",
+				})
+				.first()
+				.click();
+			const editor = page.getByRole("dialog", {
+				name: language === "hu" ? "Hang szerkesztése" : "Edit voice",
+			});
+			await expect(editor).toBeVisible();
+			await waitForMotionToSettle(page);
+			const names =
+				language === "hu"
+					? ["Törlés", "Mentés újként", "Módosítások mentése"]
+					: ["Delete", "Save as new", "Save changes"];
+			const boxes = [];
+			for (const name of names) {
+				const button = editor.getByRole("button", { name, exact: true });
+				await expectTopmost(button, {
+					message: `${name} must not be covered`,
+					probe: "center",
+				});
+				boxes.push(await button.boundingBox());
+			}
+			for (let i = 0; i < boxes.length; i++) {
+				const box = boxes[i];
+				if (!box) throw new Error(`${names[i]} has no box`);
+				expect(
+					box.height,
+					`${names[i]} is a 44 px target`,
+				).toBeGreaterThanOrEqual(44);
+				expect(box.x).toBeGreaterThanOrEqual(0);
+				expect(box.x + box.width).toBeLessThanOrEqual(375);
+				const previous = boxes[i - 1];
+				if (previous)
+					expect(
+						previous.x + previous.width,
+						`${names[i - 1]} overlaps ${names[i]}`,
+					).toBeLessThanOrEqual(box.x + 0.5);
+			}
+			// The labels are whole: none is cut or spills out of its button.
+			for (const name of names)
+				expect(
+					await editor
+						.getByRole("button", { name, exact: true })
+						.evaluate(
+							(element) => element.scrollWidth <= element.clientWidth + 1,
+						),
+					`${name}'s label fits`,
+				).toBe(true);
+		} finally {
+			await setUiLanguage(page, "en");
+		}
+	});
+
+test("the Listen switches show the app's focus ring", async ({ page }) => {
+	const { editor } = await newVoice(page);
+	await editor
+		.getByRole("group", { name: "Compare" })
+		.getByRole("button", { name: "Original" })
+		.focus();
+	await page.keyboard.press("Tab");
+	const toggle = editor.getByRole("switch", { name: "Play after each change" });
+	await expect(toggle).toBeFocused();
+	await expect(toggle).toHaveCSS("outline-style", "solid");
+	await expect(toggle).toHaveCSS("outline-width", "2px");
+});
+
+test("after Delete, focus lands on New voice", async ({ page }) => {
+	await makeVoice(page, "imogen");
+	const card = await openReadAloudSettings(page);
+	await card.getByRole("button", { name: "Edit" }).first().click();
+	const editor = page.getByRole("dialog", { name: "Edit voice" });
+	await expect(editor).toBeVisible();
+	await editor.getByRole("button", { name: "Delete", exact: true }).click();
+	const confirm = page.getByRole("dialog", { name: "Delete this voice?" });
+	await confirm.getByRole("button", { name: "Delete", exact: true }).click();
+	await expect(editor).toBeHidden();
+	await expect(card.getByRole("button", { name: "New voice" })).toBeFocused();
+});
+
+test("the card keeps its size while its voices load, and the voice labels sit level with their pickers", async ({
+	page,
+}) => {
+	let release: () => void = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await page.route("**/api/read-aloud/voices", async (route) => {
+		if (route.request().method() === "GET") await held;
+		await route.continue();
+	});
+	try {
+		await page.goto("/settings", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		const card = page.locator("#settings-section-read-aloud");
+		await expect(card).toBeVisible({ timeout: 15_000 });
+		await card.scrollIntoViewIfNeeded();
+		const english = card.getByRole("combobox", { name: "English voice" });
+		await expect(english).toBeDisabled();
+		const loading = {
+			card: (await card.boundingBox())?.height ?? 0,
+			picker: (await english.boundingBox())?.width ?? 0,
+		};
+		release();
+		await expect(english).toBeEnabled({ timeout: 15_000 });
+		await waitForMotionToSettle(page);
+		expect((await card.boundingBox())?.height).toBeCloseTo(loading.card, 0);
+		expect((await english.boundingBox())?.width).toBeCloseTo(loading.picker, 0);
+		const label = await card
+			.getByText("English voice", { exact: true })
+			.boundingBox();
+		const picker = await english.boundingBox();
+		if (!label || !picker) throw new Error("the row has no box");
+		expect(
+			Math.abs(label.y + label.height / 2 - (picker.y + picker.height / 2)),
+		).toBeLessThan(1.5);
+	} finally {
+		release();
+		await page.unroute("**/api/read-aloud/voices");
+	}
 });
 
 test("on a phone the editor is a full sheet without Cancel", async ({

@@ -7,6 +7,7 @@
  * shows that sound. A failed render of this sound, or of a "Start from" card's,
  * says so here with Try again.
  */
+import { tick } from "svelte";
 import type { BuiltInVoiceInfo } from "$lib/client/api/read-aloud-voices";
 import type { ReadAloudPlayerActions } from "$lib/client/read-aloud/controller";
 import { formatClock } from "$lib/client/read-aloud/timeline";
@@ -132,6 +133,16 @@ const actions: ReadAloudPlayerActions = {
 	sentencePreview: (i) => sentenceBubble(sound.sentences, i),
 };
 
+let wordsField = $state<HTMLInputElement | null>(null);
+
+/** Turned on, the field appears above the switch: focus goes to it, as in the prototype. */
+async function setOwnWords(on: boolean) {
+	onUseOwnWords(on);
+	if (!on) return;
+	await tick();
+	wordsField?.focus();
+}
+
 function onWordsKey(event: KeyboardEvent) {
 	if (event.key !== "Enter") return;
 	event.preventDefault();
@@ -153,6 +164,7 @@ function onWordsKey(event: KeyboardEvent) {
 	</div>
 	{#if useOwnWords}
 		<input
+			bind:this={wordsField}
 			class="voice-listen-words"
 			type="text"
 			maxlength={OWN_WORDS_MAX}
@@ -180,7 +192,7 @@ function onWordsKey(event: KeyboardEvent) {
 			<Toggle
 				checked={useOwnWords}
 				ariaLabel={$t("readAloud.editor.ownWords")}
-				onChange={onUseOwnWords}
+				onChange={setOwnWords}
 			/>
 			<span>{$t("readAloud.editor.ownWords")}</span>
 		</label>

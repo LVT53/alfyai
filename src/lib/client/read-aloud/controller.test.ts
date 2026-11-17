@@ -348,7 +348,7 @@ describe("the reading controller", () => {
 		expect(t.last().status).toBe("seeking");
 	});
 
-	it("marks words inside code with highlights, above the code's own background", async () => {
+	it("marks inline code above the code's own background, and clears it after a stop", async () => {
 		const registry = new Map<string, { ranges: Range[] }>();
 		class FakeHighlight {
 			priority = 0;
@@ -366,13 +366,14 @@ describe("the reading controller", () => {
 				"<p>Then call <code>getUserName()</code> to read it.</p>",
 			);
 			await playing(t);
-			expect(
-				registry
-					.get("read-aloud-code-sentence")
-					?.ranges.map((r) => r.toString()),
-			).toEqual(["getUserName()"]);
-			t.controller.stop();
+			// Inline code is tinted whole by an attribute (code-marks.ts), not a highlight.
+			const code = document.querySelector("code") as HTMLElement;
+			expect(code.getAttribute("data-read-aloud-code-mark")).toBe("sentence");
 			expect(registry.size).toBe(0);
+			t.controller.stop();
+			await vi.waitFor(() =>
+				expect(code.hasAttribute("data-read-aloud-code-mark")).toBe(false),
+			);
 		} finally {
 			vi.unstubAllGlobals();
 		}
@@ -702,7 +703,21 @@ describe("the reading controller", () => {
 		expect(t.last()).toMatchObject({ status: "finished", progress: 1 });
 		vi.advanceTimersByTime(1100);
 		expect(t.last().status).toBe("idle");
-		expect(t.api.cancelReadingSession).toHaveBeenCalledWith("x1");
+		// The server closed it when this browser had all its audio: a DELETE is a 404.
+		expect(t.api.cancelReadingSession).not.toHaveBeenCalled();
+		expect(t.audio.src).toBe("");
+	});
+
+	it("the end takes the marks away while Finished shows (they fade)", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		expect(t.last().marks).not.toBeNull();
+		(t.sources[0] as FakeEventSource).send("done", {});
+		t.audio.ended = true;
+		t.audio.emit("pause");
+		t.audio.emit("ended");
+		expect(t.last()).toMatchObject({ status: "finished", marks: null });
 	});
 
 	it("a new reading starts at the default speed, and a jump keeps the person's speed", async () => {
@@ -732,6 +747,25 @@ describe("the reading controller", () => {
 		expect((t.body(1) as unknown as { messageId: string }).messageId).toBe(
 			"m2",
 		);
+	});
+
+	it("a switch shows the new reply's sentences from its first view", async () => {
+		const t = setup();
+		mountReply("m1");
+		mountReply(
+			"m2",
+			"<p>Another reply is read from here on now. It has a second sentence too.</p>",
+		);
+		await playing(t);
+		const before = t.views.length;
+		start(t, "m2");
+		await settle();
+		const switched = t.views
+			.slice(before)
+			.filter((view) => view.messageId === "m2");
+		expect(switched.length).toBeGreaterThan(0);
+		// Never "Sentence 0 of 0" in the player while the new reply's voice comes.
+		expect(switched.map((view) => view.count)).not.toContain(0);
 	});
 
 	it("says where a sentence starts, for the scrubber's bubble", async () => {

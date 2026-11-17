@@ -4,7 +4,8 @@
  * reads from the start of the sentence the selection starts in, to the end of
  * the reply. It floats (fixed, on the body) and never moves a word: above the
  * selection, or below it on a touch screen, whose own menu takes the space
- * above. A long code block is read when the selection starts in it.
+ * above; on the other side when its own has no room, so it never covers the
+ * selection. A long code block is read when the selection starts in it.
  */
 import { Play } from "@lucide/svelte";
 import {
@@ -19,10 +20,13 @@ import { portalToBody } from "$lib/utils/portal";
 let {
 	conversationId,
 	composerHeight,
+	scroller = null,
 	controller = undefined,
 }: {
 	conversationId: string | null;
 	composerHeight: number;
+	/** The thread's scroll container: its top is the top of what can be seen (under the title bar). */
+	scroller?: HTMLElement | null;
 	controller?: ReadAloudController;
 } = $props();
 
@@ -126,7 +130,11 @@ $effect(() => {
 	};
 });
 
-/** Above the selection's first line, or below its last on a touch screen; inside the viewport, above the composer. */
+/**
+ * Above the selection's first line, or below its last on a touch screen; on the
+ * other side when its own has no room (the title bar above, the composer below);
+ * inside what can be seen, above the composer.
+ */
 $effect(() => {
 	const current = target;
 	if (!current) return;
@@ -134,14 +142,26 @@ $effect(() => {
 	const width = box?.width ?? 0;
 	const height = box?.height ?? 0;
 	const coarse = window.matchMedia?.("(pointer: coarse)").matches ?? false;
-	const top = coarse
-		? current.last.bottom + GAP_PX
-		: current.first.top - GAP_PX - height;
-	const left = coarse ? current.last.left : current.first.left;
+	const minTop = Math.max(
+		EDGE_PX,
+		(scroller?.getBoundingClientRect().top ?? 0) + GAP_PX,
+	);
 	const maxTop = window.innerHeight - composerHeight - height - GAP_PX;
+	const above = current.first.top - GAP_PX - height;
+	const below = current.last.bottom + GAP_PX;
+	const roomAbove = above >= minTop;
+	const roomBelow = below <= maxTop;
+	const top = coarse
+		? roomBelow || !roomAbove
+			? below
+			: above
+		: roomAbove || !roomBelow
+			? above
+			: below;
+	const left = coarse ? current.last.left : current.first.left;
 	const maxLeft = window.innerWidth - EDGE_PX - width;
 	place = {
-		top: Math.max(EDGE_PX, Math.min(top, maxTop)),
+		top: Math.max(minTop, Math.min(top, maxTop)),
 		left: Math.max(EDGE_PX, Math.min(left, maxLeft)),
 	};
 });

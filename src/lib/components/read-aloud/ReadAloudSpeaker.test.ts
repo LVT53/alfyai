@@ -130,7 +130,7 @@ describe("ReadAloudSpeaker", () => {
 		expect(Number(progress?.getAttribute("stroke-dashoffset"))).toBeCloseTo(
 			72.26 * 0.75,
 		);
-		for (const status of ["paused", "seeking", "waiting", "stopped"] as const) {
+		for (const status of ["paused", "waiting", "stopped"] as const) {
 			setReadAloudView(view({ status, progress: 0.5 }));
 			await tick();
 			expect(t.button().getAttribute("aria-label")).toBe("Resume reading");
@@ -143,6 +143,73 @@ describe("ReadAloudSpeaker", () => {
 		expect(
 			t.button().querySelector("circle.read-aloud-ring-progress"),
 		).toBeNull();
+	});
+
+	it("spins while it gets the voice for a switch or a jump, and never says Resume", async () => {
+		const t = speaker();
+		const ring = () =>
+			t.button().querySelector("circle.read-aloud-ring-progress");
+		// A switch from another reply: this one has not played, so it spins with no ring.
+		setReadAloudView(view({ status: "seeking", progress: 0 }));
+		await tick();
+		expect(t.button().querySelector(".mini-spinner")).toBeTruthy();
+		expect(t.button().querySelector(".lucide-play")).toBeNull();
+		expect(t.button().getAttribute("aria-label")).toBe("Read aloud");
+		expect(t.button().getAttribute("aria-busy")).toBe("true");
+		expect(ring()).toBeNull();
+		// Its first audio: the ring appears.
+		setReadAloudView(view({ status: "playing", progress: 0.2 }));
+		await tick();
+		expect(ring()).toBeTruthy();
+		expect(t.button().getAttribute("aria-busy")).toBeNull();
+		// A jump inside the reading spins too, and keeps the ring.
+		setReadAloudView(view({ status: "seeking", progress: 0.6 }));
+		await tick();
+		expect(t.button().querySelector(".mini-spinner")).toBeTruthy();
+		expect(t.button().getAttribute("aria-label")).toBe("Read aloud");
+		expect(ring()).toBeTruthy();
+		// The reading ends: the next switch to this reply spins without a ring again.
+		setReadAloudView(idleReadAloudView);
+		await tick();
+		setReadAloudView(view({ status: "seeking", progress: 0 }));
+		await tick();
+		expect(ring()).toBeNull();
+	});
+
+	it("the end fills the ring and shows the speaker again", async () => {
+		const t = speaker();
+		setReadAloudView(view({ status: "playing", progress: 0.9 }));
+		await tick();
+		setReadAloudView(view({ status: "finished", progress: 1 }));
+		await tick();
+		const progress = t
+			.button()
+			.querySelector("circle.read-aloud-ring-progress");
+		expect(Number(progress?.getAttribute("stroke-dashoffset"))).toBe(0);
+		expect(t.button().querySelector(".lucide-volume-2")).toBeTruthy();
+		expect(t.button().getAttribute("aria-label")).toBe("Read aloud");
+		// Its room closes after "Finished": the ring goes with it.
+		setReadAloudView(idleReadAloudView);
+		await tick();
+		expect(
+			t.button().querySelector("circle.read-aloud-ring-progress"),
+		).toBeNull();
+	});
+
+	it("has a tooltip with its label, as its neighbours do, unless a note shows", async () => {
+		const t = speaker();
+		const tooltip = () =>
+			t.container.querySelector(".read-aloud-speaker-tooltip");
+		expect(tooltip()?.textContent?.trim()).toBe("Read aloud");
+		// The button's name says it already: the tooltip is for the eye.
+		expect(tooltip()?.getAttribute("aria-hidden")).toBe("true");
+		setReadAloudView(view({ status: "playing" }));
+		await tick();
+		expect(tooltip()?.textContent?.trim()).toBe("Pause reading");
+		setReadAloudView(view({ status: "opening", busy: true }));
+		await tick();
+		expect(screen.getByRole("status").textContent).toContain("busy");
+		expect(tooltip()).toBeNull();
 	});
 
 	it("dims with a note naming the language", async () => {
