@@ -373,6 +373,43 @@ async function renderSegmentOne(
 	}
 }
 
+/** Posts segment 1 the way an earlier attempt did, without following it. */
+async function submitSegmentOne(
+	server: FakeComfyUi,
+	takeId: string,
+	promptId: string,
+): Promise<void> {
+	const { createComfyUiClient } = await import("../comfyui/client");
+	const { buildLtxVideoGraph } = await import("../comfyui/ltx-templates");
+	const sharp = (await import("sharp")).default;
+	const png = await sharp({
+		create: {
+			width: 1280,
+			height: 704,
+			channels: 3,
+			background: { r: 40, g: 90, b: 140 },
+		},
+	})
+		.png()
+		.toBuffer();
+	const client = createComfyUiClient({ baseUrl: server.baseUrl, pollMs: 20 });
+	try {
+		const ref = await client.uploadImage(png, `${takeId}-1.png`);
+		await client.submit(
+			buildLtxVideoGraph({
+				prompt: "the harbour at dusk, a slow tide",
+				seed: 1001,
+				width: 1280,
+				height: 704,
+				image: ref.filename,
+			}),
+			{ promptId },
+		);
+	} finally {
+		client.close();
+	}
+}
+
 async function writeCheckpoint(takeId: string, checkpoint: unknown) {
 	const { db } = await import("$lib/server/db");
 	db.update(schema.videoJobs)
@@ -623,6 +660,48 @@ describe("Stop", () => {
 		expect(take.resultFileId).toBeNull();
 		expect(clipFilesAnyOnDisk()).toEqual([]);
 		expect(await storedClips()).toHaveLength(0);
+	});
+});
+
+describe("Stop after a restart", () => {
+	it("interrupts the prompt a resumed take follows", async () => {
+		// The prompt an earlier attempt posted is still rendering on the GPU
+		// when the app comes back: the new attempt follows it from the checkpoint.
+		const server = await startLtx({ hangAfterPromptCount: 0 });
+		const takeId = await queueTake();
+		await submitSegmentOne(server, takeId, "posted-before-the-restart");
+		await writeCheckpoint(takeId, {
+			promptId: "posted-before-the-restart",
+			segment: 1,
+			segments: [{ promptId: "posted-before-the-restart", media: null }],
+		});
+		const draining = drainVideoTakes();
+		await until(
+			async () => (await readTake(takeId)).status,
+			(status) => status === "running",
+		);
+
+		const { cancelVideoTake } = await import("./video-job");
+		expect(await cancelVideoTake(userId, takeId)).toBe(true);
+		await draining;
+
+		expect((await readTake(takeId)).status).toBe("cancelled");
+		// The prompt on the GPU was interrupted, and nothing was posted again.
+		expect(
+			server.requests.some(
+				(request) =>
+					request.method === "POST" &&
+					request.path === "/interrupt" &&
+					(request.json as { prompt_id?: string } | undefined)?.prompt_id ===
+						"posted-before-the-restart",
+			),
+		).toBe(true);
+		expect(promptRequests(server)).toHaveLength(1);
+		server.releaseHanging();
+		await until(
+			() => server.prompts.get("posted-before-the-restart"),
+			(status) => status === "failed",
+		);
 	});
 });
 

@@ -49,6 +49,7 @@ import {
 import { checkFinishedFrames } from "../picture-check";
 import { isExplicitFilterOnFor } from "../picture-check/policy";
 import { createTakeEta, type TakeEta } from "../take-eta";
+import { promptIdOf } from "../take-request";
 import { discardStoredVideoFile, storeVideoFile } from "../video-files";
 import { createVideoComfyClient } from "./comfy-client";
 import { videoPlan } from "./eta";
@@ -175,7 +176,9 @@ export async function runVideoTake(ctx: Ctx): Promise<void> {
 		return;
 	}
 
-	let currentPromptId: string | null = null;
+	// A take resumed after a restart follows the prompt its checkpoint names
+	// before anything here submits: a Stop must reach that one too.
+	let currentPromptId: string | null = promptIdOf(row.checkpoint);
 	let stopping: Promise<void> = Promise.resolve();
 
 	// What a Stop asked for was written on the take before the engine cancelled
@@ -602,6 +605,7 @@ async function renderTake(
 				done?.promptId ??
 				(resumedSegment === segmentNumber ? resumedPromptId : null);
 			if (recordedPrompt) {
+				prompt.setPromptId(recordedPrompt);
 				try {
 					const refs = await followWithGrace(
 						ctx,
