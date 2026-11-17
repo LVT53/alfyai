@@ -123,6 +123,19 @@ const TEX_BRACKETS = /\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]/gu;
 const TEX_PLAIN_BRACKETS =
 	/\((?=[^()\n]*(?:[\\^{}]|_[\d{]))[^()\n]*\)|\[(?=[^[\]]*(?:[\\^{}]|_[\d{]))[^[\]]*\]/gu;
 /**
+ * Plain arithmetic in a sentence (the second re-walk's New 4): numbers joined by
+ * spaced operators, bracketed or not ("3 + 4 = 7", "(12 − 5 = 7)"). It is read as
+ * simple math only when it holds an operator other than "-" and "/" (`ARITHMETIC_SIGN`):
+ * between two numbers alone, those are a range or a date ("2026 - 2027").
+ */
+const ARITHMETIC_NUMBER = String.raw`[-\u2212]?\d+(?:\.\d+)?`;
+const ARITHMETIC_RUN = String.raw`${ARITHMETIC_NUMBER}(?:\s+[-\u2212+×·÷/=≈≠*]\s+${ARITHMETIC_NUMBER})+`;
+const ARITHMETIC = new RegExp(
+	String.raw`(?<![\p{L}\p{N}_.,])(?:\(${ARITHMETIC_RUN}\)|${ARITHMETIC_RUN})(?![\p{L}\p{N}_])`,
+	"gu",
+);
+const ARITHMETIC_SIGN = /\s[+×·÷=≈≠*\u2212]\s/u;
+/**
  * An HTML entity the chat shows as written (`&amp;`, `&#169;`: it does for some replies): markup,
  * never said, and decoded away by the containment check, so its letters must not be sent.
  */
@@ -485,6 +498,17 @@ function spokenView(paragraph: Paragraph): {
 				if (!touchesCode(match.index, end) && !taken(match.index, end))
 					formula(match.index, end);
 			}
+		}
+		// Plain arithmetic: read as math when it is, else left to the prose's own reading.
+		for (const match of text.matchAll(ARITHMETIC)) {
+			const end = match.index + match[0].length;
+			if (
+				ARITHMETIC_SIGN.test(match[0]) &&
+				!touchesCode(match.index, end) &&
+				!taken(match.index, end) &&
+				isSimpleMath(match[0])
+			)
+				math.push({ start: match.index, end });
 		}
 	}
 	math.sort((a, b) => a.start - b.start);

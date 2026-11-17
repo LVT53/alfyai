@@ -99,6 +99,17 @@ test("no syntax reaches the voice, and code is read the way a teacher says it", 
 	expect(tokens.join(" ")).not.toContain("forty-two");
 });
 
+test("plain arithmetic in a sentence is read with its operators", async ({
+	page,
+}) => {
+	const ui = await open(page, ["We know that 3 + 4 = 7 and 12 - 5 = 7 here."]);
+	await ui.speaker().click();
+	await expect.poll(() => fake.sessions.length, { timeout: 15_000 }).toBe(1);
+	const tokens = spokenTokens(fake);
+	expect(hasRun(tokens, ["3", "plus", "4", "equals", "7"])).toBe(true);
+	expect(hasRun(tokens, ["12", "minus", "5", "equals", "7"])).toBe(true);
+});
+
 /** Records every media element `play()` is called on, so a spec can reach the reading's audio (it is not in the page). */
 async function recordMediaElements(page: import("@playwright/test").Page) {
 	await page.addInitScript(() => {

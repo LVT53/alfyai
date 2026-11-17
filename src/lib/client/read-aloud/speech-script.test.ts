@@ -563,6 +563,36 @@ describe("simple math (the owner's staging find, 2026-11-17)", () => {
 		);
 	});
 
+	it("reads plain arithmetic in a sentence, its operators too (the second re-walk's New 4)", () => {
+		const said = (html: string, language: "en" | "hu" = "en") =>
+			bare(tokensOf(build(reply(html), { fallbackLanguage: language })));
+		expect(said("<p>We know that 3 + 4 = 7 here.</p>")).toBe(
+			"We know that 3 plus 4 equals 7 here",
+		);
+		expect(said("<p>So 12 − 5 = 7 now.</p>")).toBe(
+			"So 12 minus 5 equals 7 now",
+		);
+		expect(said("<p>So 12 - 5 = 7 now.</p>")).toBe(
+			"So 12 minus 5 equals 7 now",
+		);
+		expect(said("<p>Then 10 / 2 = 5 again.</p>")).toBe(
+			"Then 10 over 2 equals 5 again",
+		);
+		expect(said("<p>And 7 × 8 = 56 too.</p>")).toBe(
+			"And 7 times 8 equals 56 too",
+		);
+		expect(said("<p>It holds (3 + 4 = 7) today.</p>")).toBe(
+			"It holds 3 plus 4 equals 7 today",
+		);
+		expect(said("<p>Ez igaz: 3 + 4 = 7 és kész.</p>", "hu")).toBe(
+			"Ez igaz 3 plusz 4 egyenlő 7 és kész",
+		);
+		// A spaced hyphen or slash between numbers alone is a range or a date, not math.
+		expect(said("<p>The years 2026 - 2027 were busy.</p>")).toBe(
+			"The years 2026 2027 were busy",
+		);
+	});
+
 	it("still skips a formula it cannot read", () => {
 		const script = build(
 			reply("<p>The area is (\\sum_{i=1}^{n} i) here today.</p>"),
