@@ -168,9 +168,10 @@ let {
 	covered = false,
 	// Opt-in: the centred panel scrolls inside itself, its footer stuck to its foot,
 	// and focus never lands under that footer. For a dialog taller than any window
-	// (the voice editor). Off by default: the centred panels of the other dialogs keep
-	// what they have always drawn, because their popups (the Nextcloud folder list,
-	// InfoTooltip) paint past the panel's edge, which a scrolling panel would clip.
+	// whose footer must stay in view (the voice editor). Off by default: a taller
+	// panel grows and the layer behind it scrolls, which cuts off none of the popups
+	// that paint past a panel's edge (the Nextcloud folder list, InfoTooltip); a
+	// scrolling panel would clip them.
 	scrollPanel = false,
 }: {
 	title: string;
@@ -332,80 +333,103 @@ function closeFromScrim(event: MouseEvent) {
 }
 </script>
 
+<!-- A centred dialog taller than the window scrolls the layer it sits on, not
+     itself: the stage is at least the window's height, centres a panel that
+     fits, and grows with one that does not (see `.dialog-shell__scroller`). -->
 <div
-  class={`fixed inset-0 ${zIndexClass} flex justify-center ${isSheet ? 'items-end p-0' : 'items-center'} ${isSheet ? '' : fullScreen ? 'p-0 sm:p-lg' : 'p-md'}`}
+  class={`fixed inset-0 ${zIndexClass}`}
+  class:dialog-shell__scroller={!isSheet}
   data-presentation={presentation}
   use:portalToBody
   transition:backdropFade={{ duration: MOTION_DURATION.standard }}
-  style={isSheet
-    ? 'padding: 0;'
-    : `padding-top: max(1rem, env(safe-area-inset-top)); padding-bottom: max(1rem, env(safe-area-inset-bottom)); padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right));`}
 >
-  <!-- A sheet gets the system scrim (the one --scrim token every other sheet
-       reads); a centred dialog keeps the frosted page it has always had. The
-       two presentations are different objects, but the SHEETS now all agree
-       with each other, which is what they did not do before. -->
-  <button
-    type="button"
-    class={isSheet
-      ? 'dialog-sheet__scrim absolute inset-0'
-      : 'absolute inset-0 bg-surface-page opacity-80 backdrop-blur-sm'}
-    aria-label={$t('common.close')}
-    onpointerdowncapture={notePress}
-    onmousedown={keepFocus}
-    onclick={closeFromScrim}
-  ></button>
-
   <div
-    {@attach dialogFocusTrap}
-    role="dialog"
-    aria-modal={covered ? 'false' : 'true'}
-    aria-labelledby={titleId}
-    aria-describedby={description ? 'dialog-shell-description' : undefined}
-    tabindex="-1"
-    class={`relative w-full ${dialogSizeClass} border-border bg-surface-page shadow-lg ${isSheet ? '' : scrollPanel ? 'p-lg dialog-shell__panel' : 'p-lg'}`}
-    in:panelTransition={panelTransitionInParams}
-    out:panelTransition={panelTransitionOutParams}
-    style={isSheet ? '' : scrollPanel ? (fullScreen ? 'max-height: 100dvh;' : 'max-height: 85dvh;') : fullScreen ? 'max-height: 100dvh; overflow-y: auto;' : 'max-height: 85dvh; overflow-y: auto;'}
+    class={`relative flex min-h-full justify-center ${isSheet ? 'items-end p-0' : 'items-center'} ${isSheet ? '' : fullScreen ? 'h-full p-0 sm:p-lg' : 'p-md'}`}
+    style={isSheet
+      ? 'padding: 0;'
+      : `padding-top: max(1rem, env(safe-area-inset-top)); padding-bottom: max(1rem, env(safe-area-inset-bottom)); padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right));`}
   >
-    {#if isSheet}
-      <!-- Dismissal #1 of three. Drawn as the 36x4 bar the board specifies,
-           inside a 44px strip so the thing you actually aim at is a real
-           touch target rather than a 4px line. -->
-      <button
-        type="button"
-        class="dialog-sheet__grabber"
-        data-testid="dialog-sheet-grabber"
-        aria-label={$t('common.close')}
-        onclick={() => onClose?.()}
-      ><span class="dialog-sheet__grabber-bar"></span></button>
-    {/if}
-    <div class={isSheet ? 'dialog-sheet__body' : ''}>
-      <h2
-        id={titleId}
-        class={titleVisuallyHidden ? 'sr-only' : 'mb-sm text-xl font-semibold text-text-primary'}
-      >{title}</h2>
-      {#if description}
-        <p id="dialog-shell-description" class="mb-lg text-text-muted">{description}</p>
+    <!-- A sheet gets the system scrim (the one --scrim token every other sheet
+         reads); a centred dialog keeps the frosted page it has always had. The
+         two presentations are different objects, but the SHEETS now all agree
+         with each other, which is what they did not do before. The scrim covers
+         the whole stage, so a press beside a tall panel scrolled to its foot is
+         still a press on it. -->
+    <button
+      type="button"
+      class={isSheet
+        ? 'dialog-sheet__scrim absolute inset-0'
+        : 'absolute inset-0 bg-surface-page opacity-80 backdrop-blur-sm'}
+      aria-label={$t('common.close')}
+      onpointerdowncapture={notePress}
+      onmousedown={keepFocus}
+      onclick={closeFromScrim}
+    ></button>
+
+    <div
+      {@attach dialogFocusTrap}
+      role="dialog"
+      aria-modal={covered ? 'false' : 'true'}
+      aria-labelledby={titleId}
+      aria-describedby={description ? 'dialog-shell-description' : undefined}
+      tabindex="-1"
+      class={`relative w-full ${dialogSizeClass} border-border bg-surface-page shadow-lg ${isSheet ? '' : scrollPanel ? 'p-lg dialog-shell__panel' : 'p-lg'}`}
+      in:panelTransition={panelTransitionInParams}
+      out:panelTransition={panelTransitionOutParams}
+      style={isSheet ? '' : scrollPanel ? (fullScreen ? 'max-height: 100dvh;' : 'max-height: 85dvh;') : fullScreen ? 'max-height: 100dvh; overflow-y: auto;' : undefined}
+    >
+      {#if isSheet}
+        <!-- Dismissal #1 of three. Drawn as the 36x4 bar the board specifies,
+             inside a 44px strip so the thing you actually aim at is a real
+             touch target rather than a 4px line. -->
+        <button
+          type="button"
+          class="dialog-sheet__grabber"
+          data-testid="dialog-sheet-grabber"
+          aria-label={$t('common.close')}
+          onclick={() => onClose?.()}
+        ><span class="dialog-sheet__grabber-bar"></span></button>
       {/if}
-      {@render children()}
-    </div>
-    {#if footer}
-      <div class="dialog-shell__footer" data-testid="dialog-shell-footer">
-        {@render footer()}
+      <div class={isSheet ? 'dialog-sheet__body' : ''}>
+        <h2
+          id={titleId}
+          class={titleVisuallyHidden ? 'sr-only' : 'mb-sm text-xl font-semibold text-text-primary'}
+        >{title}</h2>
+        {#if description}
+          <p id="dialog-shell-description" class="mb-lg text-text-muted">{description}</p>
+        {/if}
+        {@render children()}
       </div>
-    {/if}
+      {#if footer}
+        <div class="dialog-shell__footer" data-testid="dialog-shell-footer">
+          {@render footer()}
+        </div>
+      {/if}
+    </div>
   </div>
 </div>
 
 <style>
-  /* `scrollPanel`: the centred panel scrolls inside itself. Not in the style
-     attribute: Svelte's transition saves the element's inline `overflow` before
-     that attribute is set and writes the empty value back when the intro ends,
-     and clearing the shorthand also drops an inline `overflow-y`. (That is why a
-     panel without `scrollPanel` spills over the page once its intro is done; its
-     popups rely on it.) A class the transition cannot touch. The sideways overflow
-     is hidden, so a long unbroken word cannot add a horizontal scrollbar. */
+  /* A centred dialog taller than the window. The panel grows with what it holds
+     and the layer it sits on scrolls, the way a page would: the panel itself is
+     no scroll box, so a popup that paints past its edge (the Nextcloud folder
+     list, InfoTooltip) is not cut off, focus is never under a sticky footer, and
+     the window's own edge is the only one that clips. Sideways it never scrolls.
+     A class, not the style attribute: Svelte's transition saves an element's
+     inline `overflow` before that attribute is set and writes the empty value
+     back when the intro ends, which clears an inline `overflow-y` too (that is
+     how a tall panel used to stop scrolling and spill past the window). A sheet
+     keeps its own scrolling body. */
+  .dialog-shell__scroller {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  /* `scrollPanel`: the centred panel scrolls inside itself, under a footer stuck
+     to its foot (the voice editor, which is taller than any window). A class for
+     the same reason as above. Its sideways overflow is hidden, so a long unbroken
+     word cannot add a horizontal scrollbar. */
   .dialog-shell__panel {
     overflow-x: hidden;
     overflow-y: auto;

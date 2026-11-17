@@ -722,8 +722,11 @@ const reviewOverflowFocusTrap = focusTrap({
 
 {#if removeTarget}
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<!-- A panel taller than the window (a phone on its side) is scrolled to,
+	     never cut off: the layer scrolls, and the panel's auto margins centre it
+	     only while it fits. -->
 	<div
-		class="fixed inset-0 z-[140] flex items-center justify-center bg-surface-overlay/65 p-4 backdrop-blur-sm"
+		class="fixed inset-0 z-[140] flex items-center justify-center overflow-y-auto overflow-x-hidden overscroll-contain bg-surface-overlay/65 p-4 backdrop-blur-sm"
 		role="presentation"
 		onclick={closeRemove}
 		transition:backdropFade={{ duration: 150 }}
@@ -734,7 +737,7 @@ const reviewOverflowFocusTrap = focusTrap({
 			aria-modal="true"
 			aria-labelledby="memory-remove-title"
 			tabindex={-1}
-			class="w-full max-w-[420px] overflow-hidden rounded-[1rem] border border-border bg-surface-elevated shadow-2xl"
+			class="my-auto w-full max-w-[420px] overflow-hidden rounded-[1rem] border border-border bg-surface-elevated shadow-2xl"
 			onclick={(event) => event.stopPropagation()}
 			transition:panelScale={{ duration: 150, start: 0.96 }}
 		>
@@ -1282,7 +1285,7 @@ const reviewOverflowFocusTrap = focusTrap({
 {#if editingReviewItem && profile}
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 	<div
-		class="fixed inset-0 z-[130] flex items-center justify-center bg-surface-overlay/65 p-4 backdrop-blur-sm"
+		class="fixed inset-0 z-[130] flex items-center justify-center overflow-y-auto overflow-x-hidden overscroll-contain bg-surface-overlay/65 p-4 backdrop-blur-sm"
 		role="presentation"
 		onclick={closeReviewEditor}
 	>
@@ -1292,7 +1295,7 @@ const reviewOverflowFocusTrap = focusTrap({
 			aria-modal="true"
 			aria-labelledby="memory-review-edit-title"
 			tabindex={-1}
-			class="w-full max-w-[560px] rounded-[1rem] border border-border bg-surface-elevated shadow-2xl"
+			class="my-auto w-full max-w-[560px] rounded-[1rem] border border-border bg-surface-elevated shadow-2xl"
 			onclick={(event) => event.stopPropagation()}
 		>
 			<div class="border-b border-border px-5 py-4">
