@@ -5,6 +5,7 @@ import type { ReadAloudController } from "$lib/client/read-aloud/controller";
 import {
 	idleReadAloudView,
 	type ReadAloudView,
+	setReadAloudPlayerInPanel,
 	setReadAloudView,
 } from "$lib/stores/read-aloud";
 import { uiLanguage } from "$lib/stores/settings";
@@ -44,7 +45,12 @@ const reading = (extra: Partial<ReadAloudView> = {}): ReadAloudView => ({
 });
 
 function player(
-	props: Partial<{ conversationId: string; hushed: boolean }> = {},
+	props: Partial<{
+		conversationId: string;
+		hushed: boolean;
+		placement: "composer" | "panel";
+		readingKey: string;
+	}> = {},
 ) {
 	const controller = fakeController();
 	const result = render(ReadAloudPlayer, {
@@ -71,6 +77,7 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.useRealTimers();
 	setReadAloudView(idleReadAloudView);
+	setReadAloudPlayerInPanel(false);
 });
 
 describe("ReadAloudPlayer", () => {
@@ -296,5 +303,55 @@ describe("ReadAloudPlayer", () => {
 			within(t.pill()).getByRole("menuitemradio", { name: "1.5×" }),
 		);
 		expect(t.controller.setSpeed).toHaveBeenCalledWith(1.5);
+	});
+
+	describe("a Document's reading", () => {
+		const documentReading = (extra: Partial<ReadAloudView> = {}) =>
+			reading({
+				key: "document:doc-1",
+				target: "document",
+				segmentIds: [],
+				...extra,
+			});
+
+		it("in a Document panel, shows that Document's reading and no other", async () => {
+			const t = player({ placement: "panel", readingKey: "document:doc-1" });
+			setReadAloudView(documentReading());
+			await tick();
+			expect(t.slot().hasAttribute("data-open")).toBe(true);
+			expect(t.slot().getAttribute("data-placement")).toBe("panel");
+			setReadAloudView(reading());
+			await vi.waitFor(() =>
+				expect(t.slot().hasAttribute("data-open")).toBe(false),
+			);
+			setReadAloudView(documentReading({ key: "document:doc-2" }));
+			await tick();
+			expect(t.slot().hasAttribute("data-open")).toBe(false);
+		});
+
+		it("in a Document panel, going does not stop the reading: the panel's Document going does", async () => {
+			const t = player({ placement: "panel", readingKey: "document:doc-1" });
+			setReadAloudView(documentReading());
+			await tick();
+			t.unmount();
+			expect(t.controller.stop).not.toHaveBeenCalled();
+		});
+
+		it("above the composer, leaves a Document's reading to the panel that shows its own player", async () => {
+			const t = player();
+			setReadAloudPlayerInPanel(true);
+			setReadAloudView(documentReading());
+			await tick();
+			expect(t.slot().hasAttribute("data-open")).toBe(false);
+			// A reply's reading is still the composer's.
+			setReadAloudView(reading());
+			await tick();
+			expect(t.slot().hasAttribute("data-open")).toBe(true);
+			// A docked panel beside the chat leaves the Document's reading here.
+			setReadAloudPlayerInPanel(false);
+			setReadAloudView(documentReading());
+			await tick();
+			expect(t.slot().hasAttribute("data-open")).toBe(true);
+		});
 	});
 });

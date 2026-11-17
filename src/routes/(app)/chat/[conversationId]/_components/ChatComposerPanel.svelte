@@ -24,7 +24,11 @@ import type {
 } from "$lib/server/services/knowledge/types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
-import { readAloudAvailable, readAloudView } from "$lib/stores/read-aloud";
+import {
+	readAloudAvailable,
+	readAloudPlayerInPanel,
+	readAloudView,
+} from "$lib/stores/read-aloud";
 import type { DraftChangePayload, SendPayload } from "../_helpers";
 
 let {
@@ -251,10 +255,14 @@ $effect(() => {
 });
 
 // Read aloud's player lives in this layer, so the measured height includes it. It hushes
-// while the command tray is open; the composer column gets a backdrop while it reads.
+// while the command tray is open; the composer column gets a backdrop while it reads. A
+// Document's reading whose panel draws the player itself (a phone, an expanded panel) is
+// not this layer's.
 let commandTrayOpen = $state(false);
 const reading = $derived(
-	$readAloudAvailable && $readAloudView.status !== "idle",
+	$readAloudAvailable &&
+		$readAloudView.status !== "idle" &&
+		!($readAloudView.target === "document" && $readAloudPlayerInPanel),
 );
 </script>
 

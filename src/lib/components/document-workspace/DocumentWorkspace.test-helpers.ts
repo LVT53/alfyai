@@ -57,6 +57,7 @@ type WorkspaceRenderOptions = {
 	onFlushReady?: (flush: (() => Promise<void>) | null) => void;
 	marks?: ImageMarksRequest | null;
 	onMarksChange?: (marks: ImageMarksRequest | null) => void;
+	readAloudComposer?: boolean;
 };
 
 export function makeWorkspaceDocument(

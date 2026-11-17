@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { ImageMark } from "$lib/shared/artifacts/image-body";
-import { type Component, tick, untrack } from "svelte";
+import { type Component, onDestroy, tick, untrack } from "svelte";
 import { browser } from "$app/environment";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
 import {
@@ -51,6 +51,13 @@ import {
 } from "$lib/utils/list-view-preference";
 import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopover.svelte";
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
+import { documentReadingKey } from "$lib/client/read-aloud/controller";
+import ReadAloudPlayer from "$lib/components/read-aloud/ReadAloudPlayer.svelte";
+import ReadAloudSpeaker from "$lib/components/read-aloud/ReadAloudSpeaker.svelte";
+import {
+	readAloudAvailable,
+	setReadAloudPlayerInPanel,
+} from "$lib/stores/read-aloud";
 import { kindHasHistory } from "$lib/components/artifacts/history/history-previews";
 import {
 	type ArtifactTourCard,
@@ -121,6 +128,7 @@ let {
 	returnToDockedOnExpandedClose = true,
 	showPresentationToggle = true,
 	reserveDock = false,
+	readAloudComposer = false,
 	onDockPreferredChange = undefined,
 	documents = [],
 	availableDocuments = [],
@@ -162,6 +170,13 @@ let {
 	 * floats over it, and goes back to it when the panel docks again (FB-3, F26).
 	 */
 	reserveDock?: boolean;
+	/**
+	 * The host shows read aloud's player above a composer beside the docked panel
+	 * (the chat page): a Document's reading shows it there while the panel is
+	 * docked. Without one, on a phone and when expanded, the panel draws the player
+	 * at its own foot.
+	 */
+	readAloudComposer?: boolean;
 	/** The width the docked panel asks for, whenever it changes (the reader drags its edge, a stored width is read): the host decides from it whether the chat beside it still has its room. */
 	onDockPreferredChange?: ((width: number) => void) | undefined;
 	documents?: DocumentWorkspaceItem[];
@@ -651,6 +666,8 @@ type BodyPanelReport = {
 	actions: ArtifactPanelBodyActions | null;
 	commentCount: number;
 	commentsShown: boolean;
+	/** What the header's read-aloud speaker asks its readability again on (`onReadAloudChange`, Document only). */
+	readAloudKey: string | null;
 };
 let bodyPanelReport = $state.raw<BodyPanelReport | null>(null);
 // The ITEM, never the object: `activeDocument` is a new object whenever its
@@ -691,7 +708,13 @@ function reportFromBody(patch: Partial<Omit<BodyPanelReport, "key">>): void {
 		const current: BodyPanelReport =
 			bodyPanelReport?.key === key
 				? bodyPanelReport
-				: { key, actions: null, commentCount: 0, commentsShown: false };
+				: {
+						key,
+						actions: null,
+						commentCount: 0,
+						commentsShown: false,
+						readAloudKey: null,
+					};
 		bodyPanelReport = { ...current, ...patch };
 	});
 }
@@ -896,6 +919,35 @@ let previewRendererSurface: "desktop" | "mobile" = $state(
 );
 let shouldRenderMobilePreview = $derived(previewRendererSurface === "mobile");
 let shouldRenderDesktopPreview = $derived(previewRendererSurface === "desktop");
+
+// Read aloud on the open Document (read-aloud-documents): the header's speaker
+// reads what its body hands the panel, and the player shows above the chat's
+// composer beside a docked panel, or at the panel's own foot where no composer
+// shows it: on a phone, where the panel covers the chat, when expanded over the
+// chat, and on a page with no chat beside it (the Knowledge page). The panel
+// says when it draws the player, so the composer's player leaves that reading to it.
+let readAloudSource = $derived(
+	activeArtifactKind === "document"
+		? (bodyPanelActions?.readAloud ?? null)
+		: null,
+);
+let readAloudDocumentKey = $derived(
+	activeArtifactKind === "document" && activeBodyKey !== null
+		? documentReadingKey(activeBodyKey)
+		: null,
+);
+let panelShowsReadAloudPlayer = $derived(
+	readAloudDocumentKey !== null &&
+		shouldShowWorkspaceShell &&
+		(!readAloudComposer ||
+			presentation === "expanded" ||
+			shouldRenderMobilePreview),
+);
+$effect(() => {
+	const on = panelShowsReadAloudPlayer;
+	untrack(() => setReadAloudPlayerInPanel(on));
+});
+onDestroy(() => setReadAloudPlayerInPanel(false));
 
 // ---- First-open tours (Feature 2 · Slice 6; rulings 4, 32, 33, 69) ----
 //
@@ -2658,6 +2710,14 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		shell or the desktop pane) draws it; on a phone its mode is a sheet of its
 		own (`DialogShell`), so the slot holds nothing visible there.
 	-->
+	{#snippet readAloudPanelPlayer()}
+		{#if $readAloudAvailable && panelShowsReadAloudPlayer && readAloudDocumentKey}
+			<div class="workspace-read-aloud-player" data-testid="workspace-read-aloud-player">
+				<ReadAloudPlayer placement="panel" readingKey={readAloudDocumentKey} />
+			</div>
+		{/if}
+	{/snippet}
+
 	{#snippet historySlot()}
 		{#if historyOpen && HistoryModeComponent && activeDocument}
 			{@const HistoryView = HistoryModeComponent}
@@ -2691,7 +2751,28 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		{/if}
 	{/snippet}
 
-	{#snippet artifactHeaderActionsSnippet()}
+	<!-- Each shell's header draws the actions; only the shell whose body is mounted
+	     (`live`) draws read aloud's speaker, so one speaker reads the one page. -->
+	{#snippet mobileHeaderActions()}
+		{@render artifactHeaderActionsSnippet(shouldRenderMobilePreview)}
+	{/snippet}
+	{#snippet desktopHeaderActions()}
+		{@render artifactHeaderActionsSnippet(shouldRenderDesktopPreview)}
+	{/snippet}
+
+	{#snippet artifactHeaderActionsSnippet(live: boolean)}
+		{#if live && !historyOpen && $readAloudAvailable && readAloudSource && activeBodyKey}
+			<ReadAloudSpeaker
+				target={{
+					kind: "document",
+					artifactId: activeBodyKey,
+					conversationId: conversationId ?? null,
+					source: readAloudSource,
+				}}
+				contentKey={openBodyPanel?.readAloudKey ?? ""}
+				placement="header"
+			/>
+		{/if}
 		{#if historyOpen}
 			<!-- Comments and Download step aside while History is open (versioning.md §5.1). -->
 		{:else if bodyPanelActions?.toggleComments}
@@ -2812,7 +2893,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					onHistory={kindHasHistory(activeArtifactKind) ? toggleHistory : undefined}
 					{historyOpen}
 					onBack={list ? handleBackToList : undefined}
-					actions={artifactHeaderActionsSnippet}
+					actions={mobileHeaderActions}
 				/>
 			{:else}
 				<div class="workspace-header">
@@ -2979,6 +3060,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								registerPanelActions={(actions) => reportFromBody({ actions })}
 								onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 								onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
+								onReadAloudChange={(contentKey) => reportFromBody({ readAloudKey: contentKey })}
 								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 								onOpenHistory={(versionId) => void openHistory(versionId)}
 								{onAttachPicture}
@@ -3082,6 +3164,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				{/if}
 			</div>
 			{#if shouldRenderMobilePreview}
+				{@render readAloudPanelPlayer()}
 				{@render historySlot()}
 			{/if}
 			</div>
@@ -3152,7 +3235,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				onHistory={kindHasHistory(activeArtifactKind) ? toggleHistory : undefined}
 				{historyOpen}
 				onBack={list ? handleBackToList : undefined}
-				actions={artifactHeaderActionsSnippet}
+				actions={desktopHeaderActions}
 			/>
 		{:else}
 			<div class="workspace-header">
@@ -3337,6 +3420,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						registerPanelActions={(actions) => reportFromBody({ actions })}
 						onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 						onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
+						onReadAloudChange={(contentKey) => reportFromBody({ readAloudKey: contentKey })}
 						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 						onOpenHistory={(versionId) => void openHistory(versionId)}
 						{onAttachPicture}
@@ -3437,6 +3521,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			{/if}
 	</div>
 	{#if shouldRenderDesktopPreview}
+		{@render readAloudPanelPlayer()}
 		{@render historySlot()}
 	{/if}
 	</div>
@@ -3831,6 +3916,13 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 
 	.workspace-body-covered {
 		visibility: hidden;
+	}
+
+	/* Read aloud's player at the panel's foot: a row of the stage under the body,
+	   which makes room for it as its slot opens. */
+	.workspace-read-aloud-player {
+		flex: 0 0 auto;
+		min-width: 0;
 	}
 
 	/* The first-open tour card is a row of the stage's own column, ahead of the body:

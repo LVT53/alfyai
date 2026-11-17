@@ -100,6 +100,23 @@ export function setReadAloudView(next: ReadAloudView): void {
 	view.set(next);
 }
 
+// Where a Document's reading shows its player. The composer's player shows it
+// beside a docked panel in a chat; where the panel covers the chat (a phone, an
+// expanded panel) or has none beside it (the Knowledge page), the panel draws
+// the player for its own Document's reading, and says so here so the composer's
+// player leaves that reading to it.
+const playerInPanel = writable(false);
+
+/** The open Document panel draws the player for its Document's reading. */
+export const readAloudPlayerInPanel: Readable<boolean> = {
+	subscribe: playerInPanel.subscribe,
+};
+
+/** Only the Document panel (`DocumentWorkspace.svelte`) calls it. */
+export function setReadAloudPlayerInPanel(on: boolean): void {
+	playerInPanel.set(on);
+}
+
 // The voice preview as Settings and the editor draw it. Only the voice preview
 // (`src/lib/client/read-aloud/voice-preview.ts`) sets it; every ▶ there and the
 // editor's player read it and call the preview.

@@ -7,6 +7,13 @@
  * rises 8 px and fades in; it sinks 6 px and fades out before its room closes.
  * It shows no text of the reply. While the command tray is open it is hushed:
  * invisible, keeping its room, and the reading goes on.
+ *
+ * A Document panel draws one too, at its foot (`placement="panel"`), for its own
+ * Document's reading where no composer shows it: on a phone, where the panel
+ * covers the chat, in an expanded panel, and on a page with no chat. It then
+ * says so (`readAloudPlayerInPanel`) and the composer's player leaves that
+ * reading to it. Leaving the chat stops a reading; a panel's player going does
+ * not (the reading stops when the Document it reads is no longer drawn).
  */
 import { onDestroy, tick, untrack } from "svelte";
 import {
@@ -15,18 +22,25 @@ import {
 } from "$lib/client/read-aloud/controller";
 import type { ReadingStatus } from "$lib/client/read-aloud/reading-machine";
 import { t } from "$lib/i18n";
-import { readAloudView } from "$lib/stores/read-aloud";
+import { readAloudPlayerInPanel, readAloudView } from "$lib/stores/read-aloud";
 import { MOTION_DURATION, prefersReducedMotion } from "$lib/utils/motion";
 import ReadAloudNote from "./ReadAloudNote.svelte";
 import ReadAloudPlayerPill from "./ReadAloudPlayerPill.svelte";
 
 let {
-	conversationId,
-	hushed,
+	conversationId = null,
+	hushed = false,
+	placement = "composer",
+	readingKey = null,
 	controller = undefined,
 }: {
-	conversationId: string;
-	hushed: boolean;
+	/** The chat above whose composer it sits: leaving it stops the reading. */
+	conversationId?: string | null;
+	hushed?: boolean;
+	/** Above the chat's composer, or at a Document panel's foot. */
+	placement?: "composer" | "panel";
+	/** A panel's player: the key of the Document whose reading it shows. */
+	readingKey?: string | null;
 	controller?: ReadAloudController;
 } = $props();
 
@@ -43,7 +57,14 @@ const SHOWN: ReadonlySet<ReadingStatus> = new Set([
 ]);
 
 const view = $derived($readAloudView);
-const shown = $derived(SHOWN.has(view.status));
+const inPanel = $derived(placement === "panel");
+/** Whose reading this player shows: a panel, its Document's; the composer, any but a Document's its panel shows. */
+const ours = $derived(
+	inPanel
+		? view.key !== null && view.key === readingKey
+		: !(view.target === "document" && $readAloudPlayerInPanel),
+);
+const shown = $derived(SHOWN.has(view.status) && ours);
 
 /**
  * What the pill shows: the reading's view, and while it leaves, the last view
@@ -131,18 +152,18 @@ $effect(() => {
 	});
 });
 
-// Leaving the chat, or the player going, stops the reading.
+// Leaving the chat, or the composer's player going, stops the reading.
 let previousConversation = untrack(() => conversationId);
 $effect(() => {
 	const current = conversationId;
-	if (current === previousConversation) return;
+	if (inPanel || current === previousConversation) return;
 	previousConversation = current;
 	untrack(() => reader().stop());
 });
 
 onDestroy(() => {
 	if (timer) clearTimeout(timer);
-	reader().stop();
+	if (!inPanel) reader().stop();
 });
 
 const waiting = $derived(view.status === "waiting");
@@ -152,6 +173,7 @@ const stopped = $derived(view.status === "stopped");
 <div
 	bind:this={slot}
 	class="read-aloud-slot"
+	data-placement={placement}
 	data-open={open ? "" : undefined}
 	data-settled={settled ? "" : undefined}
 	data-leaving={leaving ? "" : undefined}
@@ -197,6 +219,16 @@ const stopped = $derived(view.status === "stopped");
 		grid-template-rows: 1fr;
 		margin-top: 0;
 		pointer-events: auto;
+	}
+
+	/* At a Document panel's foot: no composer shell's gap to cancel, and the pill
+	   keeps the panel's edges and the phone's home bar clear while it is open. */
+	.read-aloud-slot[data-placement="panel"] {
+		margin-top: 0;
+	}
+
+	.read-aloud-slot[data-placement="panel"][data-open] .read-aloud-inner {
+		padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
 	}
 
 	.read-aloud-slot[data-leaving] {
