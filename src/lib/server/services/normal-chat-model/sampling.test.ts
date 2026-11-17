@@ -165,6 +165,11 @@ describe("every model call takes its sampling from the one route", () => {
 			reason:
 				"profileless fallback only: a family with no profile keeps the 0 it always sent",
 		},
+		"lib/server/services/normal-chat-tools/video-request.ts": {
+			count: 1,
+			reason:
+				"a two-value JSON verdict (asked for a video or not) when make_video is called: machine-read, deterministic",
+		},
 		"lib/server/services/chat-turn/turn-acknowledgment.ts": {
 			count: 1,
 			reason:

@@ -689,6 +689,8 @@ const MODEL_CALLERS: Record<string, string> = {
 		"exempt: the connector distill prompt is English-only, held by layer 4",
 	"lib/server/services/vision/describe.ts":
 		"exempt: the one image-description prompt is English-only, held by layer 4",
+	"lib/server/services/normal-chat-tools/video-request.ts":
+		"exempt: one English yes/no question about the person's own message, asked when make_video is called; the message is their own text, held by layer 4 and video-request.test.ts",
 	"lib/server/services/video-caption.ts":
 		"exempt: the LTX caption instruction is ComfyUI's own, English-only, held by layer 4 and video-caption.test.ts",
 	"lib/server/services/chatgpt-import/summarizer.ts":

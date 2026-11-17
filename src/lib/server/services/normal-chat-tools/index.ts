@@ -245,6 +245,7 @@ import {
 	setCachedToolResult,
 } from "./tool-result-cache";
 import { dropUnsourcedImages, withUrlProvenance } from "./url-provenance";
+import { askedForVideo } from "./video-request";
 
 const useSkillInputSchema = z.object({
 	name: z
@@ -2418,6 +2419,20 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											signal: abortSignal,
 											onTick: ctx.onToolActivity,
 											state,
+											// A video only on a clear request for one: the person's own
+											// words are judged here (video-request.ts). A turn that
+											// carries on a reply that asked them goes on their answer.
+											...(ctx.resumeProvenance
+												? {}
+												: {
+														askedForVideo: () =>
+															askedForVideo({
+																userId: ctx.userId,
+																conversationId: ctx.conversationId,
+																requestText: ctx.requestText ?? "",
+																signal: abortSignal,
+															}),
+													}),
 										});
 										const ok = result.modelPayload.ok;
 										return {

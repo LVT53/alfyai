@@ -141,6 +141,7 @@ type RunOptions = {
 	state?: { takeId: string | null };
 	turnPictures?: TurnPictureIndex | null;
 	turnTakes?: import("$lib/server/services/images/turn-takes").TurnTakes;
+	askedForVideo?: () => Promise<boolean | null>;
 };
 
 async function run(options: RunOptions = {}) {
@@ -168,6 +169,7 @@ async function run(options: RunOptions = {}) {
 		signal: options.signal ?? new AbortController().signal,
 		waitForTake,
 		state,
+		...(options.askedForVideo ? { askedForVideo: options.askedForVideo } : {}),
 	});
 	return { outcome, state, waitForTake };
 }
@@ -316,6 +318,49 @@ describe("make_video's refusals", () => {
 			errorCode: "not_configured",
 		});
 		expect(queued.enqueue).not.toHaveBeenCalled();
+	});
+});
+
+// A video starts only on a clear request for one (owner, 2026-11-17): the
+// person's words are judged once, when make_video is called (video-request.ts),
+// and a "no" stops the call before it costs anything, with the model sent to ask.
+describe("make_video and a request that was not for a video", () => {
+	it("refuses before any still, caption or take when the person did not ask for a video, and sends the model to ask first", async () => {
+		const askedForVideo = vi.fn(async () => false);
+		const { outcome } = await run({ askedForVideo });
+
+		expect(askedForVideo).toHaveBeenCalledTimes(1);
+		expect(outcome.modelPayload).toMatchObject({
+			ok: false,
+			errorCode: "not_asked_for",
+		});
+		const message = (outcome.modelPayload as { message: string }).message;
+		expect(message).toContain("ask_user");
+		expect(message).toMatch(/^[ -~]+$/);
+		expect(queued.named).not.toHaveBeenCalled();
+		expect(queued.loaded).not.toHaveBeenCalled();
+		expect(queued.caption).not.toHaveBeenCalled();
+		expect(queued.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("starts the take when the person asked for a video", async () => {
+		const { outcome } = await run({ askedForVideo: async () => true });
+		expect(outcome.modelPayload.ok).toBe(true);
+		expect(queued.enqueue).toHaveBeenCalledTimes(1);
+	});
+
+	it("starts the take when the check has no answer: the model's own call stands", async () => {
+		const { outcome } = await run({ askedForVideo: async () => null });
+		expect(outcome.modelPayload.ok).toBe(true);
+		expect(queued.enqueue).toHaveBeenCalledTimes(1);
+	});
+
+	it("asks nothing for a server with no video model, and refuses as before", async () => {
+		config.video = false;
+		const askedForVideo = vi.fn(async () => false);
+		const { outcome } = await run({ askedForVideo });
+		expect(outcome.modelPayload).toMatchObject({ errorCode: "not_configured" });
+		expect(askedForVideo).not.toHaveBeenCalled();
 	});
 });
 
