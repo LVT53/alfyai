@@ -118,6 +118,31 @@ export async function getVersionBody(
 }
 
 /**
+ * A Document version's stored body, named by its number: what the panel shows
+ * and read aloud checks a reading's words against (the panel knows a version by
+ * its number, not by its row's id). Null for anything the reader's scope does
+ * not reach, a number the Document has no row for, and any kind but a Document.
+ */
+export async function getDocumentVersionBody(
+	params: VersionTarget & { versionNumber: number },
+): Promise<string | null> {
+	const artifact = await readScopedArtifactRow(params);
+	if (!artifact || kindForArtifactRow(artifact) !== "document") return null;
+	const [row] = await db
+		.select({ body: artifactVersions.body })
+		.from(artifactVersions)
+		.where(
+			and(
+				eq(artifactVersions.artifactId, artifact.id),
+				eq(artifactVersions.userId, params.userId),
+				eq(artifactVersions.versionNumber, params.versionNumber),
+			),
+		)
+		.limit(1);
+	return row?.body ?? null;
+}
+
+/**
  * Writes an earlier version's body back as a NEW version (author `user`,
  * summary `Restored v<n>` naming the version it came from), numbered after the
  * newest — so the version being replaced stays in the history too.

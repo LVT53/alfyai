@@ -17,6 +17,7 @@ vi.mock("$lib/server/db", () => ({
 
 const {
 	createArtifact,
+	getDocumentVersionBody,
 	getVersionBody,
 	hashArtifactBody,
 	listVersions,
@@ -218,6 +219,86 @@ describe("getVersionBody", () => {
 				userId: STRANGER,
 				artifactId: artifact.id,
 				versionId: version.id,
+			}),
+		).resolves.toBeNull();
+	});
+});
+
+// Read aloud checks the words of a Document's reading against the version the panel shows,
+// named by its number (the panel knows the number, not the row's id).
+describe("getDocumentVersionBody", () => {
+	it("returns a Document version's stored body by its number", async () => {
+		const artifact = await createDocument();
+		await edit(artifact.id, "v2 body", "Second");
+
+		await expect(
+			getDocumentVersionBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				versionNumber: 1,
+			}),
+		).resolves.toBe("v1 body");
+		await expect(
+			getDocumentVersionBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				versionNumber: 2,
+			}),
+		).resolves.toBe("v2 body");
+	});
+
+	it("is null for another person, a number the Document does not have, and an incognito Document outside its chat", async () => {
+		const artifact = await createDocument();
+		const hidden = await createDocument(INCOGNITO);
+
+		await expect(
+			getDocumentVersionBody({
+				userId: STRANGER,
+				artifactId: artifact.id,
+				versionNumber: 1,
+			}),
+		).resolves.toBeNull();
+		await expect(
+			getDocumentVersionBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				versionNumber: 2,
+			}),
+		).resolves.toBeNull();
+		await expect(
+			getDocumentVersionBody({
+				userId: OWNER,
+				artifactId: hidden.id,
+				versionNumber: 1,
+			}),
+		).resolves.toBeNull();
+		await expect(
+			getDocumentVersionBody({
+				userId: OWNER,
+				artifactId: hidden.id,
+				versionNumber: 1,
+				conversationId: INCOGNITO,
+			}),
+		).resolves.toBe("v1 body");
+	});
+
+	it("is null for a kind that is not a Document", async () => {
+		const created = await createArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			kind: "app",
+			title: "Trip budget",
+			body: "<!doctype html><html><body><p>Trip budget</p></body></html>",
+			author: "alfy",
+			versionSummary: "Alfy built the app: a trip budget",
+		});
+		if (!created.ok) throw new Error(created.reason);
+
+		await expect(
+			getDocumentVersionBody({
+				userId: OWNER,
+				artifactId: created.artifact.id,
+				versionNumber: 1,
 			}),
 		).resolves.toBeNull();
 	});
