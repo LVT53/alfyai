@@ -3153,9 +3153,9 @@ export async function getMessageReadUsageProjections(
 /**
  * The time a message's own analytics row recorded when its reply was saved
  * (request start to save, context preparation included), or null when the row
- * is not there yet or recorded none. The last row wins, as in the dashboard's
- * map: schema.ts declares a unique index on message_id that no migration ever
- * created, so a replayed save can leave two.
+ * is not there yet or recorded none. A message has one row
+ * (`message_analytics_message_unique_idx`, migration 132, which kept the last of
+ * the duplicates a replayed save used to leave).
  */
 async function readRecordedGenerationTimeMs(
 	userId: string,
@@ -3170,7 +3170,6 @@ async function readRecordedGenerationTimeMs(
 				eq(messageAnalytics.userId, userId),
 			),
 		)
-		.orderBy(sql`${messageAnalytics}.rowid desc`)
 		.limit(1);
 	return row?.generationTimeMs ?? null;
 }

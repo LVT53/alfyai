@@ -247,32 +247,29 @@ it("shows a reloaded ledger turn the message's recorded time, and none when ther
 	).toEqual([2600, null, null]);
 });
 
-// schema.ts declares a unique index on message_analytics.message_id that no
-// migration ever created, so a message can have two rows (a replayed save). The
-// recorded time is then the last row's, as the dashboard's map reads it, and the
-// accounting beside it is untouched.
-it("reads the last of two analytics rows for a message", async () => {
+// A message has one analytics row (message_analytics_message_unique_idx, made by
+// migration 132; before it a replayed save left two). A save that comes again
+// is ignored: the recorded time stays the first save's, and the accounting
+// beside it is untouched.
+it("keeps one analytics row for a message whose save comes again", async () => {
 	await segment("twice", { generationTimeMs: 700 }, 2);
-	database.db
-		.insert(schema.messageAnalytics)
-		.values([
-			{
-				id: "ma-first",
-				messageId: "twice",
-				userId: "u",
-				model: "m",
-				generationTimeMs: 5000,
-			},
-			{
-				id: "ma-second",
-				messageId: "twice",
-				userId: "u",
-				model: "m",
-				generationTimeMs: 2600,
-			},
-		])
-		.run();
 	const analytics = await import("./analytics");
+	for (const generationTimeMs of [2600, 5000])
+		await analytics.recordMessageAnalytics({
+			turnSegmentId: "segment-twice",
+			messageId: "twice",
+			conversationId: "c",
+			userId: "u",
+			model: "provider:p1:m1",
+			generationTimeMs,
+		});
+	expect(
+		database.db
+			.select({ generationTimeMs: schema.messageAnalytics.generationTimeMs })
+			.from(schema.messageAnalytics)
+			.where(eq(schema.messageAnalytics.messageId, "twice"))
+			.all(),
+	).toEqual([{ generationTimeMs: 2600 }]);
 	expect(await analytics.getMessageUsageState("u", "c", "twice")).toMatchObject(
 		{ status: "ready", costUsd: 0.00028, generationDurationMs: 2600 },
 	);
