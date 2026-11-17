@@ -53,7 +53,10 @@ import {
 	videoJob,
 } from "$lib/server/services/images/video/video-job";
 import { waitForVerdict } from "$lib/server/services/jobs";
-import { buildVideoPrompt } from "$lib/server/services/video-caption";
+import {
+	buildVideoContinuationPrompt,
+	buildVideoPrompt,
+} from "$lib/server/services/video-caption";
 
 export const makeVideoInputSchema = z.object({
 	prompt: z
@@ -480,6 +483,14 @@ async function planTake(params: {
 	const prompt = await buildVideoPrompt(input.prompt.trim(), {
 		signal: params.signal,
 	});
+	// A 10 s take's second segment starts on the first one's last frame: its
+	// caption goes on from there, never the first one's again (review C-2).
+	const continuationPrompt =
+		durationSeconds === 10 && !params.signal.aborted
+			? await buildVideoContinuationPrompt(input.prompt.trim(), prompt, {
+					signal: params.signal,
+				})
+			: null;
 	// Stopped while the caption was written: no still is kept and nothing is
 	// queued, because a render started here would run for minutes for nothing.
 	if (params.signal.aborted) return { ok: false, refused: stoppedRefusal() };
@@ -516,6 +527,7 @@ async function planTake(params: {
 			request: {
 				v: 1,
 				prompt,
+				...(continuationPrompt ? { continuationPrompt } : {}),
 				durationSeconds,
 				sourceFileId,
 				title,

@@ -22,6 +22,7 @@ const queued = vi.hoisted(() => ({
 	stored: vi.fn(),
 	explicit: vi.fn(),
 	caption: vi.fn(),
+	continuation: vi.fn(),
 }));
 
 vi.mock("$lib/server/config-store", () => ({
@@ -54,6 +55,7 @@ vi.mock("$lib/server/services/images/picture-check/policy", () => ({
 
 vi.mock("$lib/server/services/video-caption", () => ({
 	buildVideoPrompt: queued.caption,
+	buildVideoContinuationPrompt: queued.continuation,
 }));
 
 vi.mock("$lib/server/services/chat-turn/active-streams", () => ({
@@ -109,6 +111,7 @@ beforeEach(() => {
 	queued.stored.mockReset();
 	queued.explicit.mockReset();
 	queued.caption.mockReset();
+	queued.continuation.mockReset();
 
 	queued.named.mockResolvedValue({ ok: true, sources: [still()] });
 	// The real read echoes the source's own file; a source of another chat is null.
@@ -123,6 +126,9 @@ beforeEach(() => {
 	queued.stored.mockResolvedValue({ id: "stored-1" });
 	queued.explicit.mockResolvedValue(true);
 	queued.caption.mockImplementation(async (idea: string) => `caption: ${idea}`);
+	queued.continuation.mockImplementation(
+		async (idea: string, first: string) => `next after "${first}": ${idea}`,
+	);
 	queued.enqueue.mockResolvedValue({ takeId: "take-1" });
 	queued.cancel.mockResolvedValue(true);
 });
@@ -341,6 +347,9 @@ describe("make_video's take request", () => {
 				request: {
 					v: 1,
 					prompt: "caption: the tide comes in slowly",
+					// Segment 2 goes on from where segment 1 ends (review C-2).
+					continuationPrompt:
+						'next after "caption: the tide comes in slowly": the tide comes in slowly',
 					durationSeconds: 10,
 					sourceFileId: "file-1",
 					title: "Harbour at dawn",
@@ -351,9 +360,13 @@ describe("make_video's take request", () => {
 		);
 	});
 
-	it("defaults the take to 5 seconds", async () => {
+	it("defaults the take to 5 seconds, which has one segment and one caption", async () => {
 		await run();
 		expect(queued.enqueue.mock.calls[0][0].request.durationSeconds).toBe(5);
+		expect(queued.continuation).not.toHaveBeenCalled();
+		expect(queued.enqueue.mock.calls[0][0].request).not.toHaveProperty(
+			"continuationPrompt",
+		);
 	});
 
 	it("titles a clip from a Hungarian message when the model gives no title", async () => {

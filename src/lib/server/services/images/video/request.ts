@@ -16,6 +16,12 @@ export type VideoTakeRequest = {
 	v: 1;
 	/** The motion caption, in the LTX caption style the tool wrote. */
 	prompt: string;
+	/**
+	 * A 10 s take's second segment's caption: what happens next, from where the
+	 * first five seconds end (review C-2). Absent when no caption endpoint wrote
+	 * one, and on rows from before it: segment 2 then renders `prompt` again.
+	 */
+	continuationPrompt?: string;
 	/** 5 s by default; 10 s is two 5 s segments chained. */
 	durationSeconds: VideoDurationSeconds;
 	/** The still the clip is made from (an `image_files` id of the person). */
@@ -171,8 +177,15 @@ export function parseVideoTakeRequest(json: string): VideoTakeRequest | null {
 		return null;
 	}
 	if (!isRecord(value) || value.v !== 1) return null;
-	const { prompt, durationSeconds, sourceFileId, title, summary, artifactId } =
-		value;
+	const {
+		prompt,
+		continuationPrompt,
+		durationSeconds,
+		sourceFileId,
+		title,
+		summary,
+		artifactId,
+	} = value;
 	if (typeof prompt !== "string" || prompt.trim() === "") return null;
 	if (!isDurationSeconds(durationSeconds)) return null;
 	if (!isNonEmptyString(sourceFileId)) return null;
@@ -182,6 +195,10 @@ export function parseVideoTakeRequest(json: string): VideoTakeRequest | null {
 	return {
 		v: 1,
 		prompt,
+		...(typeof continuationPrompt === "string" &&
+		continuationPrompt.trim() !== ""
+			? { continuationPrompt }
+			: {}),
 		durationSeconds,
 		sourceFileId,
 		title,

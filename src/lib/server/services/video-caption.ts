@@ -78,6 +78,20 @@ House rules for these clips, over the instruction above:
 - The caption covers five seconds of action.`;
 
 /**
+ * The note that makes a caption the SECOND five seconds of a ten-second clip
+ * (review C-2): segment 2 starts on segment 1's last frame, so its caption goes
+ * on from there. Sent the same caption, it replayed the action from its start
+ * and spoke the same dialogue twice. `first` is segment 1's caption, data.
+ */
+export function videoContinuationNote(first: string): string {
+	return `This caption is for the SECOND five seconds of a ten-second clip. Its first frame is the last frame of the first five seconds, which were captioned as follows:
+
+${first}
+
+Continue from that last moment: describe only what happens in the next five seconds, as the action goes on. Do not start the action over, do not repeat what already happened, and do not repeat any dialogue already spoken.`;
+}
+
+/**
  * A caption that speaks of an image it was not shown answered the request, not
  * the clip ("I can't see the image, but…"): sent to LTX it would be rendered as
  * if it were the scene, so the person's own words are used instead.
@@ -118,10 +132,38 @@ export async function buildVideoPrompt(
 	}
 }
 
+/**
+ * A 10 s take's second segment's caption: what happens next, from where the
+ * first five seconds (`first`) end. Null when there is no caption endpoint or
+ * it gives nothing usable: the segment then renders the first prompt again.
+ */
+export async function buildVideoContinuationPrompt(
+	idea: string,
+	first: string,
+	options: { signal?: AbortSignal; fetchImpl?: typeof fetch } = {},
+): Promise<string | null> {
+	if (!isVideoCaptionConfigured()) return null;
+	try {
+		const caption = await requestCaption(
+			idea.trim(),
+			options,
+			videoContinuationNote(first),
+		);
+		if (!caption || UNSEEN_IMAGE.test(caption)) return null;
+		return caption;
+	} catch (error) {
+		console.warn("[VIDEO] The second segment's caption failed", {
+			reason: error instanceof Error ? error.message : String(error),
+		});
+		return null;
+	}
+}
+
 /** One OpenAI-compatible chat completion; the caption, or null for nothing usable. */
 async function requestCaption(
 	motion: string,
 	options: { signal?: AbortSignal; fetchImpl?: typeof fetch },
+	note?: string,
 ): Promise<string | null> {
 	const url = buildOpenAICompatibleUrl(
 		getLtxCaptionUrl(),
@@ -144,6 +186,7 @@ async function requestCaption(
 			messages: [
 				{ role: "system", content: LTX24_I2V_INSTRUCTION },
 				{ role: "system", content: VIDEO_CAPTION_HOUSE_RULES },
+				...(note ? [{ role: "system", content: note }] : []),
 				{ role: "user", content: `User Raw Input Prompt: ${motion}.` },
 			],
 			temperature: 0,

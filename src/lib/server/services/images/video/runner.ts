@@ -478,7 +478,12 @@ async function renderSegment(
 	}
 	if (signal.aborted) return null;
 	const graph = buildLtxVideoGraph({
-		prompt: input.request.prompt,
+		// Segment 2 goes on from where segment 1 ends: its own caption when the
+		// tool wrote one (review C-2), else the take's one prompt again.
+		prompt:
+			input.segment === 2
+				? (input.request.continuationPrompt ?? input.request.prompt)
+				: input.request.prompt,
 		// Segment 2 uses the next seed, so the chain does not repeat the noise.
 		seed: ctx.row.seed + (input.segment - 1),
 		width: input.size.width,

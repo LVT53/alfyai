@@ -544,6 +544,25 @@ describe("a 10 second take", () => {
 		).toBe(10000);
 	});
 
+	it("renders segment 2 from its own caption, never segment 1's again", async () => {
+		const server = await startLtx();
+		const takeId = await queueTake({
+			durationSeconds: 10,
+			continuationPrompt: "The tide pulls back across the sand.",
+		});
+		await drainVideoTakes();
+
+		expect((await readTake(takeId)).status).toBe("succeeded");
+		const posts = promptRequests(server);
+		expect(posts).toHaveLength(2);
+		expect(nodeOfType(graphOf(posts[0]), "CLIPTextEncode").inputs.text).toBe(
+			"the harbour at dusk, a slow tide",
+		);
+		expect(nodeOfType(graphOf(posts[1]), "CLIPTextEncode").inputs.text).toBe(
+			"The tide pulls back across the sand.",
+		);
+	});
+
 	it("fails the whole take when the second segment fails, never a one-segment clip", async () => {
 		const server = await startLtx({ failAfterPromptCount: 1 });
 		const takeId = await queueTake({ durationSeconds: 10 });

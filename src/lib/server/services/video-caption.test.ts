@@ -23,10 +23,12 @@ vi.mock("$lib/server/config-store", () => ({
 }));
 
 import {
+	buildVideoContinuationPrompt,
 	buildVideoPrompt,
 	LTX24_I2V_INSTRUCTION,
 	VIDEO_CAPTION_HOUSE_RULES,
 	VIDEO_CAPTION_MAX_CHARS,
+	videoContinuationNote,
 } from "$lib/server/services/video-caption";
 
 beforeEach(() => {
@@ -221,5 +223,77 @@ describe("buildVideoPrompt", () => {
 		expect(body.messages[2].content).toBe(
 			"User Raw Input Prompt: the tide comes in.",
 		);
+	});
+});
+
+describe("buildVideoContinuationPrompt: a 10 s clip's second five seconds", () => {
+	const first = "Initially a grey cat walks across a rug toward a closed door.";
+
+	it("asks what happens next, from where the first five seconds end", async () => {
+		const fetchImpl = vi.fn(async () =>
+			jsonResponse("The cat reaches the door and paws at its edge."),
+		);
+		const caption = await buildVideoContinuationPrompt(
+			"the cat walks to the door",
+			first,
+			{ fetchImpl: fetchImpl as unknown as typeof fetch },
+		);
+		expect(caption).toBe("The cat reaches the door and paws at its edge.");
+		const body = JSON.parse(
+			String(
+				(fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body,
+			),
+		);
+		expect(body.messages).toEqual([
+			{ role: "system", content: LTX24_I2V_INSTRUCTION },
+			{ role: "system", content: VIDEO_CAPTION_HOUSE_RULES },
+			{ role: "system", content: videoContinuationNote(first) },
+			{
+				role: "user",
+				content: "User Raw Input Prompt: the cat walks to the door.",
+			},
+		]);
+		const note = videoContinuationNote(first);
+		expect(note).toContain(first);
+		// Segment 2 starts on segment 1's last frame: its caption goes on from
+		// there (review C-2: the same caption replayed the action from its start
+		// and spoke its dialogue twice).
+		expect(note).toMatch(/second five seconds/i);
+		expect(note).toMatch(/do not start the action over/i);
+		expect(note).toMatch(/do not repeat any dialogue/i);
+		expect(note.replace(first, "")).toMatch(/^[\x20-\x7E\n]+$/);
+	});
+
+	it("has none without a caption endpoint, or when the endpoint gives nothing usable", async () => {
+		config.url = "";
+		const unused = vi.fn();
+		expect(
+			await buildVideoContinuationPrompt("idea", first, {
+				fetchImpl: unused as unknown as typeof fetch,
+			}),
+		).toBeNull();
+		expect(unused).not.toHaveBeenCalled();
+
+		config.url = "http://127.0.0.1:11434";
+		for (const answer of [
+			new Response("nope", { status: 500 }),
+			jsonResponse("   "),
+			jsonResponse("I cannot see the image, so here is a guess."),
+		]) {
+			const fetchImpl = vi.fn(async () => answer);
+			expect(
+				await buildVideoContinuationPrompt("idea", first, {
+					fetchImpl: fetchImpl as unknown as typeof fetch,
+				}),
+			).toBeNull();
+		}
+		const down = vi.fn(async () => {
+			throw new TypeError("fetch failed");
+		});
+		expect(
+			await buildVideoContinuationPrompt("idea", first, {
+				fetchImpl: down as unknown as typeof fetch,
+			}),
+		).toBeNull();
 	});
 });
