@@ -128,6 +128,7 @@ ui/
 - Historical document badges are informational, not disabling state. Components should still allow explicit open/jump/version navigation for historical families even though server-side ranking now soft-deprioritizes them on weak generic turns.
 - Knowledge-memory UI should render server-derived persona classes and historical temporal phrasing as-is. Do not re-derive deadline freshness or topic lifecycle rules in Svelte components.
 - `MarkdownRenderer.svelte` uses Shiki with 25+ language grammars — init is async; check `initHighlighter()`
+- **A picture the server draws still hears its load or error.** The boxes enforce the CSP (no inline handlers), which refuses the inline `onload`/`onerror` Svelte writes to replay an early event, so a picture that finished before the page's code ran was never heard: the Knowledge list's pictures stayed invisible, a failed picture kept the broken glyph where its fallback belongs. An `<img>` (or another element Svelte replays) that the server can draw and that waits for its load or error carries `use:replayEarlyImageEvent` (`src/lib/utils/early-image-event.ts`), and its handler must not mind hearing the same outcome twice. `tests/integration/server-drawn-image-events.test.ts` holds it, with the elements only the browser draws listed by reason.
 - `ContextUsageRing.svelte` (656 lines) is large because it contains SVG rendering logic, not business logic
 
 ## Route-Local Components Convention

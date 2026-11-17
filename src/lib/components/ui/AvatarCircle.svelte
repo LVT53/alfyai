@@ -1,5 +1,6 @@
 <script lang="ts">
 import { getAvatarColor } from "$lib/utils/avatar";
+import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
 
 let {
 	userId,
@@ -40,6 +41,7 @@ $effect(() => {
 		class="avatar-circle flex-shrink-0 select-none rounded-full object-cover"
 		style="width: {size}px; height: {size}px;"
 		aria-hidden="true"
+		use:replayEarlyImageEvent
 		onerror={() => { imgFailed = true; }}
 	/>
 {:else}

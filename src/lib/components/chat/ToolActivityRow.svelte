@@ -62,6 +62,7 @@ import type {
 import RouteItinerary from "./RouteItinerary.svelte";
 import ToolActivityIcon from "./ToolActivityIcon.svelte";
 import { describeToolCall, type ToolSummaryOutcome } from "./tool-call-summary";
+import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
 
 let {
 	item,
@@ -653,6 +654,7 @@ function handleToggle() {
 					loading="lazy"
 					decoding="async"
 					referrerpolicy="no-referrer"
+					use:replayEarlyImageEvent
 					onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
 				/>
 			{:else}
