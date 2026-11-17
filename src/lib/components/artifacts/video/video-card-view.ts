@@ -1,31 +1,19 @@
-// What a video card shows, worked out from its one take. Pure: the component
-// threads its own clock and `$t` in, so every state is testable here.
-//
-// The picture card's `image-card-view.ts` is the model this one mirrors: the
-// same states, the same countdown in the card's head (`createEtaCountdown`,
-// `takeTimeLine`), and the same "Next up / N ahead" line for a take that has
-// not started. The parts that are genuinely shared are imported from there
-// rather than copied (`elapsedClock`, `waitingLine`, `STARTING_SHOWN_AFTER_MS`).
+// What a video card shows, worked out from its one take. Pure. The take's own
+// state, its words and the countdown are every take card's
+// (`../takes/take-card-view.ts`, drawn by `TakeCardShell.svelte`); what is here
+// is the clip's own: its card and take shapes, its length, its file URLs and
+// the actions its card asks the page for.
 import type { VideoVersionBody } from "$lib/shared/artifacts/video-body";
 import type { Translate } from "$lib/utils/tool-evidence-presentation";
 import {
 	elapsedClock,
-	STARTING_SHOWN_AFTER_MS,
-	waitingLine,
-} from "../image/image-card-view";
+	type TakePhase,
+	type TakeStatus,
+} from "../takes/take-card-view";
 
-export type VideoTakeStatus =
-	| "queued"
-	| "running"
-	| "succeeded"
-	| "failed"
-	| "cancelled";
+export type VideoTakeStatus = TakeStatus;
 
-export type VideoTakePhase =
-	| "submitted"
-	| "starting"
-	| "rendering"
-	| "finishing";
+export type VideoTakePhase = TakePhase;
 
 /**
  * One video take as the card draws it. `clip` is the landed version body (the
@@ -71,122 +59,8 @@ export type VideoCardView = {
 	take: VideoTakeView | null;
 };
 
-export type VideoCardState =
-	| { kind: "waiting"; ahead: number | null }
-	| { kind: "starting" }
-	/** `finishing`: ComfyUI is done; the decode, the check and the store are left. */
-	| { kind: "making"; finishing: boolean }
-	| { kind: "failed"; unavailable: boolean; retryable: boolean }
-	| { kind: "blocked"; unchecked: boolean }
-	| { kind: "stopped" }
-	| { kind: "ready" };
-
-/** Every way of not reaching the video server (not only an unreachable one). */
-const UNAVAILABLE_CODES: readonly string[] = [
-	"video_server_unreachable",
-	"video_server_not_configured",
-];
-
-export function isVideoTakeActive(take: VideoTakeView | null): boolean {
-	return take?.status === "queued" || take?.status === "running";
-}
-
-/**
- * The take's state. A succeeded take whose clip cannot be read is a failure,
- * never a player with nothing behind it: there is no way to play an unreadable
- * body, and saying so is a state with a way out (Try again).
- */
-export function videoTakeState(
-	take: VideoTakeView | null,
-	now: number,
-): VideoCardState {
-	if (!take) return { kind: "waiting", ahead: null };
-	switch (take.status) {
-		case "queued":
-			return { kind: "waiting", ahead: null };
-		case "running": {
-			// Submitted and never started: it waits its turn. A take that already
-			// has an estimate is past that (a 10 s clip's second segment).
-			if (take.phase === "submitted" && take.etaSeconds === null) {
-				return { kind: "waiting", ahead: take.queueAhead || null };
-			}
-			if (
-				take.phase === "starting" &&
-				take.phaseAt !== null &&
-				now - take.phaseAt >= STARTING_SHOWN_AFTER_MS
-			) {
-				return { kind: "starting" };
-			}
-			return { kind: "making", finishing: take.phase === "finishing" };
-		}
-		case "succeeded":
-			return take.clip
-				? { kind: "ready" }
-				: { kind: "failed", unavailable: false, retryable: true };
-		case "cancelled":
-			return { kind: "stopped" };
-		case "failed": {
-			if (take.errorCode === "video_blocked") {
-				return { kind: "blocked", unchecked: false };
-			}
-			if (take.errorCode === "video_unchecked") {
-				return { kind: "blocked", unchecked: true };
-			}
-			return {
-				kind: "failed",
-				unavailable:
-					take.errorCode !== null && UNAVAILABLE_CODES.includes(take.errorCode),
-				retryable: take.retryable,
-			};
-		}
-	}
-}
-
-/**
- * The card's one status line and its detail, in the reader's language. While
- * the clip is being made the detail is the countdown, which the card keeps
- * (`takeTimeLine`): it is the card's own clock, not the state's.
- */
-export function videoStateWords(
-	state: VideoCardState,
-	t: Translate,
-): { line: string; detail: string | null } {
-	switch (state.kind) {
-		case "waiting":
-			return { line: waitingLine(state.ahead, t), detail: null };
-		case "starting":
-			return {
-				line: t("artifacts.video.card.starting"),
-				detail: t("artifacts.video.card.startingDetail"),
-			};
-		case "making":
-			return { line: t("artifacts.video.card.making"), detail: null };
-		case "failed":
-			return {
-				line: state.unavailable
-					? t("artifacts.video.card.unavailable")
-					: t("artifacts.video.card.failed"),
-				detail: t("artifacts.video.card.nothingSaved"),
-			};
-		case "blocked":
-			return state.unchecked
-				? {
-						line: t("artifacts.video.card.unchecked"),
-						detail: t("artifacts.video.card.uncheckedDetail"),
-					}
-				: {
-						line: t("artifacts.video.card.blocked"),
-						detail: t("artifacts.video.card.blockedDetail"),
-					};
-		case "stopped":
-			return { line: t("artifacts.video.card.stopped"), detail: null };
-		case "ready":
-			return { line: "", detail: null };
-	}
-}
-
 /** The card's second line: the kind, as the picture card names its own kind. */
-export function videoCardSubtitle(_card: VideoCardView, t: Translate): string {
+export function videoCardSubtitle(t: Translate): string {
 	return t("artifacts.type.video");
 }
 

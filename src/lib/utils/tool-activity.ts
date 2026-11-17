@@ -846,7 +846,7 @@ function videoReasonKey(metadata: VideoErrorMetadata): I18nKey | null {
 	) {
 		return "artifacts.video.card.unavailable";
 	}
-	return "artifacts.video.card.failed";
+	return "artifacts.take.failed";
 }
 
 /** A make_video call's row: its verb, title and failure words, in the video's own language. */

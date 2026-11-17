@@ -82,7 +82,7 @@ describe("VideoCardBody, while the clip is made", () => {
 
 		const stop = screen.getByTestId("video-card-stop");
 		expect(stop.parentElement).toBe(screen.getByTestId("video-card-swap"));
-		expect(stop.closest(".video-card-actions")).not.toBeNull();
+		expect(stop.closest('[data-testid="video-card-actions"]')).not.toBeNull();
 		expect(screen.getByTestId("video-card-another")).toBeDisabled();
 	});
 
@@ -298,7 +298,7 @@ describe("VideoCardBody, when the clip is ready", () => {
 		});
 	});
 
-	it("reads the starting threshold and the countdown from the picture card's view, not copies", () => {
+	it("stands on the one card shell: no state, threshold or countdown of its own", () => {
 		const read = (file: string) =>
 			readFileSync(
 				`${process.cwd()}/src/lib/components/artifacts/video/${file}`,
@@ -308,12 +308,11 @@ describe("VideoCardBody, when the clip is ready", () => {
 		const view = read("video-card-view.ts");
 		expect(body).not.toMatch(/\b3_000\b/);
 		expect(view).not.toMatch(/\b3_000\b/);
-		expect(view).toMatch(
-			/import\s*\{[^}]*STARTING_SHOWN_AFTER_MS[^}]*\}\s*from\s*"\.\.\/image\/image-card-view"/,
-		);
 		expect(body).toMatch(
-			/import\s*\{[^}]*createEtaCountdown[^}]*\}\s*from\s*"\.\.\/image\/image-card-view"/,
+			/import\s+TakeCardShell\s+from\s*"\.\.\/takes\/TakeCardShell\.svelte"/,
 		);
+		expect(body).not.toMatch(/createEtaCountdown|takeCardState|takeTimeLine/);
+		expect(view).not.toMatch(/function\s+\w*[Ss]tate\w*\s*\(/);
 	});
 
 	it("asks for another take, and holds Another while one is on its way", async () => {
@@ -346,14 +345,18 @@ describe("VideoCardBody, when the clip is ready", () => {
 	});
 
 	it("lets a press through the duration chip, as the badge already does", () => {
+		render(VideoCardBody, { card: card(take({ clip: clip() })) });
+		// The duration is the card's chip, which the shell's stylesheet keeps out
+		// of the way of the clip under it.
+		expect(screen.getByTestId("video-card-duration")).toHaveClass(
+			"take-card-chip",
+		);
 		const source = readFileSync(
-			`${process.cwd()}/src/lib/components/artifacts/video/VideoCardBody.svelte`,
+			`${process.cwd()}/src/lib/components/artifacts/takes/take-card.css`,
 			"utf-8",
 		);
-		const durationRule = source.match(
-			/\.video-card-duration\s*\{([^}]*)\}/,
-		)?.[1];
-		expect(durationRule).toMatch(/pointer-events:\s*none/);
+		const chipRule = source.match(/\.take-card-chip\s*\{([^}]*)\}/)?.[1];
+		expect(chipRule).toMatch(/pointer-events:\s*none/);
 	});
 
 	it("keeps the play control where the picture card keeps its Enlarge", () => {

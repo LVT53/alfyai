@@ -1,0 +1,270 @@
+/*
+ * The one look of a picture or video card (`TakeCardShell.svelte`): its
+ * reserved stage and the layers stacked in it, the state box, the shimmer, the
+ * actions row and the More menu. Global, as `image/picture-tile.css` is,
+ * because the kind's body draws its own buttons, chips and menu rows inside
+ * the shell's slots, and the menu opens in a popover outside the card. Every
+ * class is `take-card-*` or `take-shimmer*`.
+ *
+ * Motion: only transform and opacity move (MOTION-PARITY); hover feedback is
+ * instant, never a colour transition.
+ */
+
+.take-card-body {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	padding: 0 0.75rem 0.75rem;
+}
+
+/* The reserved box: the take's shape from its first paint, never taller than
+   22rem or 45% of the window, centred when that narrows it. */
+.take-card-stage {
+	position: relative;
+	display: grid;
+	width: min(100%, calc(min(22rem, 45vh) * var(--box-ratio)));
+	margin-inline: auto;
+	overflow: hidden;
+	border-radius: var(--radius-md);
+	background: var(--surface-elevated);
+}
+
+/* Every layer fills the box: the state and the result are stacked in one grid
+   cell and crossfade, so a state change never changes the box. */
+.take-card-layer {
+	grid-area: 1 / 1;
+	position: relative;
+	min-width: 0;
+	min-height: 0;
+}
+
+.take-card-state {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 0.375rem;
+	padding: 0.75rem;
+	color: var(--text-muted);
+	font-family: var(--font-sans);
+	font-size: 0.8125rem;
+	text-align: center;
+}
+
+.take-card-state-line {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	color: var(--text-primary);
+	font-weight: 600;
+}
+
+.take-card-state-detail {
+	min-height: 1.2em;
+	max-width: 22rem;
+	font-size: 0.75rem;
+}
+
+/* Kept back by the explicit-picture filter: calmer than a failure. A quiet
+   surface, a muted eye-off and regular weight, no warning colour. */
+.take-card-blocked {
+	background: var(--surface-elevated);
+}
+
+.take-card-blocked .take-card-state-line {
+	font-weight: 400;
+}
+
+.take-card-blocked .take-card-state-line svg {
+	color: var(--icon-muted);
+}
+
+/* A quiet chip laid over the stage (no height of its own): never a target, so
+   a press on top of one reaches what is under it. Its corner is its own. */
+.take-card-chip {
+	position: absolute;
+	z-index: 1;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	padding: 0.25rem 0.625rem;
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-full);
+	background: var(--surface-overlay);
+	box-shadow: var(--shadow-sm);
+	color: var(--text-primary);
+	font-family: var(--font-sans);
+	font-size: 0.75rem;
+	pointer-events: none;
+}
+
+/* Waiting, starting up, being made: a soft tint with a lighter band sweeping
+   slowly left to right. Only `transform` moves; the loop is --duration-shimmer
+   on the ease-out curve. Under reduced motion the band is gone and the tint
+   stays still. The stage's layer, a takes strip's tile on its way and the
+   panel's read before a clip arrives all wear it. */
+.take-shimmer {
+	overflow: hidden;
+	background: color-mix(in srgb, var(--text-muted) 8%, var(--surface-elevated));
+}
+
+.take-shimmer-band {
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(
+		90deg,
+		transparent 0%,
+		var(--shimmer-highlight) 50%,
+		transparent 100%
+	);
+	transform: translateX(-100%);
+	animation: take-shimmer var(--duration-shimmer) var(--ease-out) infinite;
+	will-change: transform;
+}
+
+@keyframes take-shimmer {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(100%);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.take-shimmer-band {
+		animation: none;
+		visibility: hidden;
+	}
+}
+
+.take-card-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-width: 0;
+}
+
+/* Stop and the kind's own button (Use this) share one grid cell: when a take
+   lands the one fades in where the other fades out, and never jumps. */
+.take-card-swap {
+	display: grid;
+	align-items: center;
+	justify-items: start;
+}
+
+.take-card-swap > * {
+	grid-area: 1 / 1;
+}
+
+.take-card-grow {
+	flex: 1 1 auto;
+}
+
+.take-card-button {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 0.375rem;
+	min-height: 2rem;
+	padding: 0 0.625rem;
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-md);
+	background: var(--surface-page);
+	color: var(--text-primary);
+	font-family: var(--font-sans);
+	font-size: 0.78rem;
+	font-weight: 600;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.take-card-button:hover:not(:disabled) {
+	background: var(--surface-elevated);
+}
+
+.take-card-button:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+.take-card-button:focus-visible,
+.take-card-icon-button:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.take-card-button-accent {
+	border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+	background: var(--accent-tint);
+	color: var(--accent-text);
+}
+
+.take-card-button-accent:hover:not(:disabled) {
+	background: var(--accent-tint);
+}
+
+.take-card-icon-button {
+	display: grid;
+	place-items: center;
+	width: 2rem;
+	height: 2rem;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--icon-muted);
+	cursor: pointer;
+}
+
+.take-card-icon-button:hover:not(:disabled) {
+	background: var(--surface-elevated);
+}
+
+.take-card-icon-button:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+.take-card-menu {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 0 6px 6px;
+}
+
+.take-card-menu-row {
+	display: flex;
+	align-items: center;
+	gap: 0.625rem;
+	min-height: 2.25rem;
+	padding: 0 0.625rem;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--text-primary);
+	font-family: var(--font-sans);
+	font-size: 0.84rem;
+	text-align: left;
+	cursor: pointer;
+}
+
+.take-card-menu-row:hover:not(:disabled) {
+	background: var(--surface-elevated);
+}
+
+.take-card-menu-row:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+@media (hover: none) and (pointer: coarse) {
+	.take-card-button,
+	.take-card-icon-button,
+	.take-card-menu-row {
+		min-height: 44px;
+	}
+
+	.take-card-icon-button {
+		width: 44px;
+	}
+}

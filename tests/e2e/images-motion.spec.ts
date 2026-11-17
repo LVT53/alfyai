@@ -436,7 +436,7 @@ async function shimmerState(page: Page, options: { tag?: boolean } = {}) {
 			// The node seen at waiting is tagged, so making can say whether it is still
 			// the same one (a remount would restart the sweep: Task 11 fix round 1).
 			if (shimmer && tag) shimmer.dataset.probeSeenAtWaiting = "1";
-			const band = shimmer?.querySelector(".image-card-shimmer-band") ?? null;
+			const band = shimmer?.querySelector(".take-shimmer-band") ?? null;
 			const propertiesOf = (animation: Animation) => [
 				...new Set(
 					(
@@ -628,9 +628,8 @@ async function letShimmerRun(page: Page, loops: number): Promise<void> {
 			() =>
 				page.evaluate((cardSelector) => {
 					const cards = document.querySelectorAll(cardSelector);
-					const band = cards[cards.length - 1]?.querySelector(
-						".image-card-shimmer-band",
-					);
+					const band =
+						cards[cards.length - 1]?.querySelector(".take-shimmer-band");
 					const [sweep] = band?.getAnimations() ?? [];
 					// Reduced motion: nothing runs, nothing to wait for.
 					if (!sweep) return Number.POSITIVE_INFINITY;

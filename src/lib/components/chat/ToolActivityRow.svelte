@@ -360,7 +360,7 @@ function videoCardView(
 				? $t("artifacts.madeInOriginalChat")
 				: gone === "deleted"
 					? $t("artifacts.deleted.video")
-					: videoCardSubtitle(card, $t),
+					: videoCardSubtitle($t),
 		openTargetId: gone ? null : card.artifactId,
 		current:
 			!gone && activeArtifactId != null && activeArtifactId === card.artifactId,

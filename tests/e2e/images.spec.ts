@@ -954,7 +954,7 @@ test.describe("Pictures end to end", () => {
 					[
 						"the card's actions",
 						document.querySelector(
-							'[data-testid="message-deliverables"] .image-card-actions',
+							'[data-testid="message-deliverables"] [data-testid="image-card-actions"]',
 						),
 					],
 					[

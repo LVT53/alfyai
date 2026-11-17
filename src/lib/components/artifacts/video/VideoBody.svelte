@@ -1,30 +1,23 @@
 <script lang="ts">
 // The Video kind's body in the family's panel (video plan, slice 3). It reads
-// the stored item, parses its version body (the shared `VideoVersionBody`) and
-// draws the one player; the panel's open, dock, expand, Delete and History are
-// the shell's, never this file's.
+// the stored item through the take bodies' one reader (`takes/item-reader`:
+// the first read, and again whenever the page hears of a newer version, the
+// picture body's F23 contract), parses its version body (the shared
+// `VideoVersionBody`) and draws the one player; the panel's open, dock,
+// expand, Delete and History are the shell's, never this file's.
 //
 // A clip's versions are real but History is not shown for one yet, so there is
-// no strip and no compare. The body
-// registers the header's Download for the clip's own file, and reloads when
-// the page hears of a newer version (a restore, or a late landing), the same
-// contract the picture body follows.
-import { untrack } from "svelte";
-import { get } from "svelte/store";
-import { fetchArtifact } from "$lib/client/api/artifacts";
-import {
-	downloadAuthenticatedBlob,
-	startAuthenticatedDownload,
-} from "$lib/client/downloads";
+// no strip and no compare. The body registers the header's Download for the
+// clip's own file: the mp4, or the GIF made on request.
+import { startAuthenticatedDownload } from "$lib/client/downloads";
 import { t } from "$lib/i18n";
-import {
-	parseVideoVersionBody,
-	type VideoVersionBody,
-} from "$lib/shared/artifacts/video-body";
-import { showToast } from "$lib/stores/toast";
+import { parseVideoVersionBody } from "$lib/shared/artifacts/video-body";
 import AnchoredPopover from "../AnchoredPopover.svelte";
 import type { ArtifactBodyProps } from "../artifact-bodies";
-import { videoDurationLabel, videoFileUrl } from "./video-card-view";
+import { createItemReader } from "../takes/item-reader.svelte";
+import "../takes/take-card.css";
+import { downloadClipAsGif } from "./clip-downloads";
+import { videoFileUrl } from "./video-card-view";
 import VideoPlayer from "./VideoPlayer.svelte";
 
 let {
@@ -35,63 +28,18 @@ let {
 	registerPanelActions,
 }: ArtifactBodyProps = $props();
 
-let status = $state<"loading" | "ready" | "error">("loading");
-let clip = $state.raw<VideoVersionBody | null>(null);
-/** The version `clip` is: the page's own number rising past it reads the item again. */
-let loadedVersion = $state(0);
+const reader = createItemReader({
+	artifactId: () => artifactId,
+	conversationId: () => conversationId,
+	versionNumber: () => versionNumber,
+	parse: parseVideoVersionBody,
+});
+let status = $derived(reader.status);
+let clip = $derived(reader.item);
 /** The panel header's Download chooses the mp4 (the default) or a GIF here. */
 let downloadOpen = $state(false);
 /** The GIF is being made: the row wears the card's own disabled/busy look. */
 let gifBusy = $state(false);
-let loading = false;
-let loadAgain = false;
-
-async function readOnce(): Promise<void> {
-	try {
-		const detail = await fetchArtifact(artifactId, conversationId);
-		const parsed = parseVideoVersionBody(detail.artifact.body ?? null);
-		if (!parsed) {
-			if (!untrack(() => clip)) status = "error";
-			return;
-		}
-		clip = parsed;
-		loadedVersion = detail.artifact.versionNumber;
-		status = "ready";
-	} catch {
-		if (!untrack(() => clip)) status = "error";
-	}
-}
-
-/** One read at a time; a read asked for while one is out runs once it answers. */
-async function load(): Promise<void> {
-	if (loading) {
-		loadAgain = true;
-		return;
-	}
-	loading = true;
-	do {
-		loadAgain = false;
-		await readOnce();
-	} while (loadAgain);
-	loading = false;
-}
-
-function reload(): void {
-	void load();
-}
-
-// The body is mounted per item (`DocumentWorkspace` keys it), so this runs once.
-$effect(() => {
-	untrack(reload);
-});
-
-// A newer version the page heard of is read here too (the picture body's F23
-// contract); before the first load there is nothing to be behind.
-$effect(() => {
-	const heard = versionNumber;
-	if (status !== "ready" || heard === null || heard <= loadedVersion) return;
-	untrack(reload);
-});
 
 async function choose(format: "mp4" | "gif"): Promise<void> {
 	const fileId = clip?.fileId;
@@ -104,21 +52,11 @@ async function choose(format: "mp4" | "gif"): Promise<void> {
 		return;
 	}
 	if (gifBusy) return;
+	// The popover stays open while the GIF is made, so the row's disabled state
+	// is the busy state the reader can see.
 	gifBusy = true;
 	try {
-		// The GIF is made on request and its 503/500 is a sentence to say, never a
-		// file to save; the popover stays open while it runs so the row's disabled
-		// state is the busy state (the first GIF takes seconds of ffmpeg).
-		const started = await downloadAuthenticatedBlob(
-			videoFileUrl(fileId, { download: true, format, conversationId }),
-			{ fallbackFilename: `${title || "clip"}.gif` },
-		);
-		if (!started) {
-			showToast({
-				type: "error",
-				message: get(t)("artifacts.image.card.actionFailed"),
-			});
-		}
+		await downloadClipAsGif(fileId, { conversationId, title });
 	} finally {
 		gifBusy = false;
 		downloadOpen = false;
@@ -130,7 +68,7 @@ $effect(() => {
 		// With no clip there is nothing to download, so the panel offers no
 		// Download at all (the button is not drawn without this function).
 		openDownload: clip ? () => (downloadOpen = true) : undefined,
-		reload,
+		reload: reader.reload,
 	});
 });
 
@@ -146,8 +84,8 @@ let lengthLabel = $derived(
 
 <div class="video-body" data-testid="video-body" data-state={status}>
 	{#if status === 'loading'}
-		<div class="video-body-shimmer" aria-hidden="true">
-			<span class="video-body-shimmer-band"></span>
+		<div class="video-body-shimmer take-shimmer" aria-hidden="true">
+			<span class="take-shimmer-band"></span>
 		</div>
 		<span class="sr-only" role="status" data-testid="video-body-loading"
 			>{$t('artifacts.video.panel.loading')}</span
@@ -286,45 +224,13 @@ let lengthLabel = $derived(
 		text-align: center;
 	}
 
-	/* The read before the clip arrives: the card's own calm shimmer, and gone
-	   under reduced motion. */
+	/* The read before the clip arrives: the card's own calm shimmer
+	   (`take-shimmer`, gone under reduced motion), in a 16:9 box of its own. */
 	.video-body-shimmer {
 		position: relative;
 		width: min(100%, 60cqw);
 		aspect-ratio: 16 / 9;
 		margin: auto;
-		overflow: hidden;
 		border-radius: var(--radius-md);
-		background: color-mix(in srgb, var(--text-muted) 8%, var(--surface-elevated));
-	}
-
-	.video-body-shimmer-band {
-		position: absolute;
-		inset: 0;
-		background: linear-gradient(
-			90deg,
-			transparent 0%,
-			var(--shimmer-highlight) 50%,
-			transparent 100%
-		);
-		transform: translateX(-100%);
-		animation: video-body-shimmer var(--duration-shimmer) var(--ease-out) infinite;
-		will-change: transform;
-	}
-
-	@keyframes video-body-shimmer {
-		from {
-			transform: translateX(-100%);
-		}
-		to {
-			transform: translateX(100%);
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.video-body-shimmer-band {
-			animation: none;
-			visibility: hidden;
-		}
 	}
 </style>

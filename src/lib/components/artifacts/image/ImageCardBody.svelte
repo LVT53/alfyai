@@ -1,38 +1,27 @@
 <script lang="ts">
 // The picture card's body under `ArtifactCard`'s head (plan 2b T2, design
-// 5.3, wireframe frames 1, 2 and 7). Top to bottom: the shown take in a box
-// reserved from its known size (or the take's state drawn in the same box),
-// the takes strip when there is more than one take, "Made from" for a card
-// made from pictures, and the actions (Another, Use this, "…").
-//
-// Motion (MOTION-PARITY): nothing here changes height when a take changes
-// state. The picture box keeps the take's aspect ratio from the first paint;
-// the state and the picture are two layers stacked in it that crossfade
-// (opacity only). While a take waits, starts or is made the box shows only a
-// calm light sweeping left to right (`transform` only; a still tint under
-// reduced motion); the words for it are read out from an sr-only status
-// (Task 11, the owner's call), and the time is the card's head's to show,
-// beside the kind (`onTime`, the owner's call of 17 Nov). Before / After
-// floats over the picture, so it takes no row.
-// Everything the card shows is worked out in `image-card-view.ts`.
+// 5.3, wireframe frames 1, 2 and 7), on the one card shell every take card
+// shares (`takes/TakeCardShell.svelte`: the stage, its states and shimmer, the
+// actions row, the More menu, the countdown handed to the head). What is the
+// picture's own is here: the picture in the stage, with Enlarge, Before / After
+// and the "trying once more" note over it; the takes strip when there is more
+// than one take; "Made from" for a card made from pictures; Use this in Stop's
+// slot; and Attach, Download and History in the menu.
 //
 // The picture opens the item in the panel; an Enlarge button on its corner
 // opens the full-screen viewer (`PictureViewer`, Task 22) on the shown take's
 // full-size file.
 import {
 	Check,
-	Ellipsis,
+	Download,
 	EyeOff,
 	History,
-	Download,
 	ImageOff,
 	LoaderCircle,
 	Maximize2,
 	Paperclip,
-	RefreshCw,
 	TriangleAlert,
 } from "@lucide/svelte";
-import { untrack } from "svelte";
 import { fade } from "svelte/transition";
 import { t } from "$lib/i18n";
 import { oneLineName } from "$lib/shared/one-line-name";
@@ -42,20 +31,15 @@ import type {
 	ImageTakeView,
 } from "$lib/server/services/images/read-model";
 import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
-import AnchoredPopover from "../AnchoredPopover.svelte";
+import TakeCardShell from "../takes/TakeCardShell.svelte";
+import { takeCardState } from "../takes/take-card-view";
 import {
-	COUNTDOWN_TICK_MS,
-	createEtaCountdown,
 	type ImageCardAction,
 	type ImageCardActionHandler,
-	type ImageCardState,
 	hasActiveImageTakes,
 	isCheckingAgain,
 	shownTake,
-	takeState,
-	takeTimeLine,
 	visibleTakes,
-	waitingLine,
 } from "./image-card-view";
 import BeforeAfterSwitch from "./BeforeAfterSwitch.svelte";
 import ImagePicture from "./ImagePicture.svelte";
@@ -81,7 +65,7 @@ let {
 	/**
 	 * The words the card's head shows beside the kind while the shown take is
 	 * on its way ("Next up", "About 24 s left", "Almost done…"), null once it
-	 * is not: the head is `ArtifactCard`'s, the countdown is this body's.
+	 * is not: the head is `ArtifactCard`'s, the countdown is the shell's.
 	 */
 	onTime?: ((words: string | null) => void) | undefined;
 } = $props();
@@ -110,17 +94,10 @@ const crossfade = reducedMotionAware(fade);
 /** The take the reader chose in the strip, or the Another that is on its way. */
 let selectedTakeId = $state<string | null>(null);
 let showing = $state<"after" | "before">("after");
-let menuOpen = $state(false);
 /** Anothers pressed whose take the card does not hold yet. */
 let pendingAnothers = $state(0);
 /** The takes the card held when the first of them was pressed. */
 let takesBeforeAnother = $state.raw<ReadonlySet<string>>(new Set());
-/** The card's clock: the countdown and the "starting up" line read it. */
-let now = $state(Date.now());
-/** The shown take's countdown, on this browser's clock (`createEtaCountdown`). */
-const countdown = createEtaCountdown();
-/** Bumped by every reading, so the countdown is read again once it is re-aimed. */
-let readings = $state(0);
 
 let takes = $derived(visibleTakes(card));
 /**
@@ -157,34 +134,12 @@ let shown = $derived(
 		? null
 		: shownTake(card, selectedTakeId === PLACEHOLDER ? null : selectedTakeId),
 );
-let cardState: ImageCardState = $derived(
-	waitingForAnother
-		? { kind: "waiting", ahead: null }
-		: shown
-			? takeState(shown, now)
-			: { kind: "waiting", ahead: null },
-);
 let box = $derived(
 	shown?.box ?? takes.at(-1)?.box ?? card.takes.at(-1)?.box ?? FALLBACK_BOX,
 );
 /** The box's own width, for the browser's `srcset` choice. */
 let pictureSizes = $derived(pictureSizesOf(box));
-let ready = $derived(
-	!gone && cardState.kind === "ready" && Boolean(shown?.fileId),
-);
-let checkingAgain = $derived(ready && isCheckingAgain(card, shown));
-let canFlip = $derived(Boolean(ready && shown?.baseFileId));
 let stripCount = $derived(takes.length + placeholders);
-let canUse = $derived(
-	Boolean(
-		shown &&
-			ready &&
-			!gone &&
-			!shown.held &&
-			shown.id !== card.pickedTakeId &&
-			shown.status === "succeeded",
-	),
-);
 /**
  * The request's own cap: the picture graphs have ten picture slots, so a take
  * is never made from more. A row written around a cap change still clips to
@@ -222,31 +177,6 @@ $effect(() => {
 	showing = "after";
 });
 
-// Each reading of the shown take's estimate (every poll) re-aims the countdown.
-$effect(() => {
-	const take = shown;
-	if (!take) return;
-	countdown.read(
-		take.id,
-		take.status === "running" ? take.etaSeconds : null,
-		Date.now(),
-	);
-	now = Date.now();
-	// The countdown is not reactive itself: a reading that lands in the same
-	// millisecond as the last tick must still be shown.
-	untrack(() => (readings += 1));
-});
-
-// The card's clock ticks while the shown take is running, so the countdown
-// moves on its own between polls. Keyed by the take, not its object: every
-// poll brings a new object, and the timer must outlive it.
-let ticking = $derived(!gone && shown?.status === "running" ? shown.id : null);
-$effect(() => {
-	if (!ticking) return;
-	const timer = setInterval(() => (now = Date.now()), COUNTDOWN_TICK_MS);
-	return () => clearInterval(timer);
-});
-
 function send(action: ImageCardAction) {
 	return onAction?.(action);
 }
@@ -282,8 +212,19 @@ async function pressAnother(): Promise<void> {
 	}
 }
 
+/** Use this: the shown take is a landed one the card does not use yet. */
+function canUse(ready: boolean): boolean {
+	return Boolean(
+		shown &&
+			ready &&
+			!shown.held &&
+			shown.id !== card.pickedTakeId &&
+			shown.status === "succeeded",
+	);
+}
+
 function pressUse(): void {
-	if (shown && canUse) fire({ type: "use", takeId: shown.id });
+	if (shown) fire({ type: "use", takeId: shown.id });
 }
 
 function pressStop(): void {
@@ -321,16 +262,16 @@ function pressOpen(): void {
 	if (card.artifactId) fire({ type: "open", artifactId: card.artifactId });
 }
 
-function pressDownload(): void {
-	menuOpen = false;
+function pressDownload(close: () => void): void {
+	close();
 	if (shown?.fileId) {
 		fire({ type: "download", fileId: shown.fileId, title: card.title });
 	}
 }
 
 /** Puts the shown picture in the composer, named after the card (plan 2b T5). */
-function pressAttach(): void {
-	menuOpen = false;
+function pressAttach(close: () => void): void {
+	close();
 	if (shown?.fileId) {
 		fire({
 			type: "attach",
@@ -341,8 +282,8 @@ function pressAttach(): void {
 	}
 }
 
-function pressHistory(): void {
-	menuOpen = false;
+function pressHistory(close: () => void): void {
+	close();
 	if (card.artifactId) {
 		fire({ type: "history", artifactId: card.artifactId });
 	}
@@ -351,384 +292,211 @@ function pressHistory(): void {
 function takeNumber(take: ImageTakeView): number {
 	return takes.indexOf(take) + 1;
 }
-
-function stateWords(current: ImageCardState): {
-	line: string;
-	detail: string | null;
-} {
-	switch (current.kind) {
-		case "waiting":
-			return { line: waitingLine(current.ahead, $t), detail: null };
-		case "starting":
-			return {
-				line: $t("artifacts.image.card.starting"),
-				detail: $t("artifacts.image.card.startingDetail"),
-			};
-		case "making":
-			// The time is the countdown's (`timeLine`), not the state's.
-			return { line: $t("artifacts.image.card.making"), detail: null };
-		case "failed":
-			return {
-				line: current.unavailable
-					? $t("artifacts.image.card.unavailable")
-					: $t("artifacts.image.card.failed"),
-				detail: $t("artifacts.image.card.nothingSaved"),
-			};
-		case "blocked":
-			return current.unchecked
-				? {
-						line: $t("artifacts.image.card.unchecked"),
-						detail: $t("artifacts.image.card.uncheckedDetail"),
-					}
-				: {
-						line: $t("artifacts.image.card.blocked"),
-						detail: $t("artifacts.image.card.blockedDetail"),
-					};
-		case "stopped":
-			return { line: $t("artifacts.image.card.stopped"), detail: null };
-		case "ready":
-			return { line: "", detail: null };
-	}
-}
-
-let words = $derived(stateWords(cardState));
-/**
- * Waiting, starting up and being made are one look: the shimmer, kept as one
- * layer from the first state to the last, so it never restarts between them.
- */
-let busy = $derived(
-	!gone &&
-		(cardState.kind === "waiting" ||
-			cardState.kind === "starting" ||
-			cardState.kind === "making"),
-);
-/** Where the countdown stands: the finish time it counts to, or null. */
-let deadline = $derived.by(() => {
-	void readings;
-	return countdown.at(now);
-});
-/** The head's words while the take is on its way (`takeTimeLine`). */
-let timeLine = $derived(
-	busy ? takeTimeLine(cardState, deadline, now, $t) : null,
-);
-$effect(() => {
-	onTime?.(timeLine);
-});
-/**
- * What the shimmer means, for screen readers. The live region says the state
- * ("Next up", "Making the picture…") and is read out when it changes; the time
- * left, which moves every second, sits beside it outside the live region, so
- * it is there to read but never re-announced (Task 11 fix round 1). It is the
- * head's own words, which are hidden from screen readers there.
- */
-let statusText = $derived(busy ? words.line : "");
-let statusDetail = $derived(
-	!busy || cardState.kind === "waiting" ? "" : (timeLine ?? words.detail ?? ""),
-);
-let menuAnchorId = $derived(`image-card-more-${card.id}`);
 </script>
 
-<div class="image-card-body" data-testid="image-card-body" data-state={cardState.kind}>
-	<div
-		class="image-card-stage"
-		style:--box-ratio={box.width / box.height}
-		style:aspect-ratio="{box.width} / {box.height}"
-		data-testid="image-card-stage"
-	>
-		{#if gone}
-			<!-- The Image is gone, or lives in another chat: the box keeps its
-			     shape and says so; nothing in the card can be pressed. -->
-			<div
-				class="image-card-layer image-card-state image-card-gone"
-				data-testid="image-card-gone"
-				transition:crossfade={{ duration: MOTION_DURATION.standard }}
-			>
-				<ImageOff size={20} strokeWidth={1.75} aria-hidden="true" />
-				<span class="image-card-state-detail">
-					{gone === 'unreachable'
-						? $t('artifacts.image.card.elsewhereDetail')
-						: $t('artifacts.image.card.goneDetail')}
-				</span>
-			</div>
-		{:else if ready && shown?.fileId}
-			<div class="image-card-layer" transition:crossfade={{ duration: MOTION_DURATION.standard }}>
-				<button
-					type="button"
-					class="image-card-picture"
-					disabled={!card.artifactId || Boolean(gone)}
-					aria-label={card.title}
-					data-testid="image-card-picture"
-					onclick={pressOpen}
-				>
-					<ImagePicture
-						fileId={shown.fileId}
-						width={shown.width ?? box.width}
-						height={shown.height ?? box.height}
-						hasAlpha={shown.hasAlpha}
-						alt={card.title}
-						{conversationId}
-						beforeFileId={shown.baseFileId}
-						{showing}
-						variant="display"
-						sizes={pictureSizes}
-					/>
-				</button>
-				{#if checkingAgain}
-					<!-- The server's one automatic retry of this take is under way: the
-					     take stays, a quiet note says so, and the better one takes its
-					     place when the server decides (opacity only). -->
-					<span
-						class="image-card-checking"
-						data-testid="image-card-checking"
-						role="status"
-						transition:crossfade={{ duration: MOTION_DURATION.standard }}
-					>
-						<LoaderCircle class="image-card-spin" size={13} strokeWidth={2} aria-hidden="true" />
-						{$t('artifacts.image.card.checkingAgain')}
-					</span>
-				{/if}
-				<button
-					type="button"
-					class="image-card-enlarge"
-					aria-label={$t('artifacts.image.enlarge')}
-					title={$t('artifacts.image.enlarge')}
-					data-testid="image-card-enlarge"
-					onclick={pressEnlarge}
-				>
-					<Maximize2 size={15} strokeWidth={2} aria-hidden="true" />
-				</button>
-				{#if canFlip}
-					<div class="image-card-flip">
-						<BeforeAfterSwitch
-							{showing}
-							onChange={(next) => (showing = next)}
-							label={card.title}
-							testIdPrefix="image-card"
-						/>
-					</div>
-				{/if}
-			</div>
-		{:else if busy}
-			<!-- Waiting, starting up, being made: only a calm light sweeping across
-			     the whole box. The words are the sr-only status below. -->
-			<div
-				class="image-card-layer image-card-shimmer"
-				data-testid="image-card-shimmer"
-				aria-hidden="true"
-				transition:crossfade={{ duration: MOTION_DURATION.standard }}
-			>
-				<span class="image-card-shimmer-band"></span>
-			</div>
-		{:else}
-			{#key cardState.kind}
-				<!-- A picture the explicit-picture filter kept back is not a failure: a
-				     quiet eye-off and two calm lines; Try again only when the check
-				     could not run (the same seed would make a blocked picture again,
-				     and Another is still there for a new one). -->
-				<div
-					class="image-card-layer image-card-state"
-					class:image-card-blocked={cardState.kind === 'blocked'}
-					data-testid={cardState.kind === 'blocked' ? 'image-card-blocked' : 'image-card-state'}
-					transition:crossfade={{ duration: MOTION_DURATION.standard }}
-				>
-					<span class="image-card-state-line">
-						{#if cardState.kind === 'failed'}
-							<TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
-						{:else if cardState.kind === 'blocked'}
-							<EyeOff size={16} strokeWidth={1.75} aria-hidden="true" />
-						{/if}
-						<span>{words.line}</span>
-					</span>
-					<span class="image-card-state-detail">{words.detail ?? ''}</span>
-					{#if shown && (cardState.kind === 'failed' || cardState.kind === 'stopped' || (cardState.kind === 'blocked' && cardState.unchecked))}
-						<button type="button" class="image-card-button" data-testid="image-card-retry" onclick={pressRetry}>
-							{$t('artifacts.image.card.tryAgain')}
-						</button>
-					{/if}
-				</div>
-			{/key}
-		{/if}
-	</div>
-	<span class="sr-only" role="status" data-testid="image-card-status">{statusText}</span>
-	<span class="sr-only" data-testid="image-card-status-detail">{statusDetail}</span>
-
-	{#if stripCount > 1}
-		<div class="image-card-strip" role="group" aria-label={$t('artifacts.image.subtitle.takes', { count: stripCount })} data-testid="image-card-strip">
-			{#each takes as take (take.id)}
-				{@const isShown = shown?.id === take.id && !waitingForAnother}
-				{@const tileState = takeState(take, now)}
-				<button
-					type="button"
-					class="image-card-tile picture-tile"
-					class:is-chosen={isShown}
-					style:--tile-ratio={take.box.width / take.box.height}
-					aria-pressed={isShown}
-					aria-label={$t('artifacts.image.card.takeAlt', { title: card.title, number: takeNumber(take) })}
-					data-testid="image-card-tile"
-					data-take-id={take.id}
-					disabled={Boolean(gone)}
-					onclick={() => chooseTake(take.id)}
-				>
-					{#if gone}
-						<span class="image-card-tile-state"><ImageOff size={14} strokeWidth={2} aria-hidden="true" /></span>
-					{:else if tileState.kind === 'ready' && take.fileId}
-						<ImagePicture
-							fileId={take.fileId}
-							width={take.width ?? take.box.width}
-							height={take.height ?? take.box.height}
-							hasAlpha={take.hasAlpha}
-							alt=""
-							{conversationId}
-							variant="thumb"
-						/>
-					{:else if tileState.kind === 'blocked'}
-						<span class="image-card-tile-state"><EyeOff size={14} strokeWidth={1.75} aria-hidden="true" /></span>
-					{:else if tileState.kind === 'failed' || tileState.kind === 'stopped'}
-						<span class="image-card-tile-state"><TriangleAlert size={14} strokeWidth={2} aria-hidden="true" /></span>
-					{:else}
-						<span class="image-card-tile-shimmer image-card-shimmer" aria-hidden="true"><span class="image-card-shimmer-band"></span></span>
-					{/if}
-					{#if take.id === card.pickedTakeId}
-						<span class="image-card-badge" title={$t('artifacts.image.card.inUse')} data-testid="image-card-in-use">
-							<Check size={11} strokeWidth={2.6} aria-hidden="true" />
-							<span class="sr-only">{$t('artifacts.image.card.inUse')}</span>
-						</span>
-					{/if}
-				</button>
-			{/each}
-			{#each Array.from({ length: placeholders }, (_, index) => index) as index (index)}
-				<button
-					type="button"
-					class="image-card-tile picture-tile"
-					class:is-chosen={waitingForAnother && index === placeholders - 1}
-					style:--tile-ratio={box.width / box.height}
-					aria-pressed={waitingForAnother && index === placeholders - 1}
-					aria-label={$t('artifacts.image.card.waiting')}
-					data-testid="image-card-tile-placeholder"
-					onclick={() => (selectedTakeId = PLACEHOLDER)}
-				>
-					<span class="image-card-tile-shimmer image-card-shimmer" aria-hidden="true"><span class="image-card-shimmer-band"></span></span>
-				</button>
-			{/each}
-		</div>
-	{/if}
-
-	{#if madeFromIds.length > 0}
-		<div class="image-card-sources" data-testid="image-card-made-from">
-			<span>{$t('artifacts.image.card.madeFrom')}</span>
-			{#each madeFromIds as sourceId, index (sourceId)}
-				<span class="image-card-source">
-					<span class="image-card-source-pic">
-						<ImagePicture fileId={sourceId} width={1} height={1} alt="" {conversationId} variant="thumb" />
-					</span>
-					<span class="image-card-number" aria-hidden="true">{index + 1}</span>
-				</span>
-			{/each}
-		</div>
-	{/if}
-
-	<div class="image-card-actions">
-		<button
-			type="button"
-			class="image-card-button"
-			data-testid="image-card-another"
-			disabled={anotherDisabled}
-			onclick={pressAnother}
-		>
-			<RefreshCw size={14} strokeWidth={2} aria-hidden="true" />
-			{$t('artifacts.image.card.another')}
-		</button>
-		<!-- Stop and Use this share one slot (one grid cell): when a take lands,
-		     Use this fades in where Stop fades out, and never jumps sideways once
-		     Stop has gone (Task 11 fix round 1). -->
-		<span class="image-card-swap" data-testid="image-card-swap">
-			{#if shown && busy}
-				<!-- Stop sits where Use this will: the box holds nothing but the shimmer. -->
-				<button
-					type="button"
-					class="image-card-button"
-					data-testid="image-card-stop"
-					transition:crossfade={{ duration: MOTION_DURATION.standard }}
-					onclick={pressStop}
-				>
-					{$t('artifacts.image.card.stop')}
-				</button>
-			{/if}
-			{#if canUse}
-				<button
-					type="button"
-					class="image-card-button image-card-button-accent"
-					data-testid="image-card-use"
-					transition:crossfade={{ duration: MOTION_DURATION.standard }}
-					onclick={pressUse}
-				>
-					<Check size={14} strokeWidth={2} aria-hidden="true" />
-					{$t('artifacts.image.card.useThis')}
-				</button>
-			{/if}
-		</span>
-		<span class="image-card-grow"></span>
-		<button
-			type="button"
-			class="image-card-icon-button"
-			aria-label={$t('artifacts.image.card.more')}
-			aria-haspopup="dialog"
-			disabled={Boolean(gone)}
-			data-testid={menuAnchorId}
-			onclick={() => (menuOpen = !menuOpen)}
-		>
-			<Ellipsis size={16} strokeWidth={2} aria-hidden="true" />
-		</button>
-	</div>
-</div>
-
-{#if menuOpen}
-	<AnchoredPopover
-		title={card.title}
-		anchorTestId={menuAnchorId}
-		popoverTestId="image-card-menu"
-		closeLabel={$t('common.close')}
-		width={220}
-		boundarySelector=".chat-main"
-		onClose={() => (menuOpen = false)}
-	>
-		<div class="image-card-menu" role="menu" aria-label={$t('artifacts.image.card.more')}>
+<TakeCardShell
+	kind="image"
+	take={shown}
+	landed={Boolean(shown?.fileId)}
+	{box}
+	cardId={card.id}
+	title={card.title}
+	{gone}
+	canAct={Boolean(onAction)}
+	{anotherDisabled}
+	onAnother={pressAnother}
+	onStop={pressStop}
+	onRetry={pressRetry}
+	{onTime}
+>
+	{#snippet result()}
+		{#if shown?.fileId}
 			<button
 				type="button"
-				role="menuitem"
-				class="image-card-menu-row"
-				data-testid="image-card-attach"
-				disabled={!ready || !shown?.fileId}
-				onclick={pressAttach}
-			>
-				<Paperclip size={16} strokeWidth={1.75} aria-hidden="true" />
-				<span>{$t('artifacts.image.card.attach')}</span>
-			</button>
-			<button
-				type="button"
-				role="menuitem"
-				class="image-card-menu-row"
-				data-testid="image-card-download"
-				disabled={!ready || !shown?.fileId}
-				onclick={pressDownload}
-			>
-				<Download size={16} strokeWidth={1.75} aria-hidden="true" />
-				<span>{$t('artifacts.image.card.download')}</span>
-			</button>
-			<button
-				type="button"
-				role="menuitem"
-				class="image-card-menu-row"
-				data-testid="image-card-history"
+				class="image-card-picture"
 				disabled={!card.artifactId}
-				onclick={pressHistory}
+				aria-label={card.title}
+				data-testid="image-card-picture"
+				onclick={pressOpen}
 			>
-				<History size={16} strokeWidth={1.75} aria-hidden="true" />
-				<span>{$t('artifacts.image.card.history')}</span>
+				<ImagePicture
+					fileId={shown.fileId}
+					width={shown.width ?? box.width}
+					height={shown.height ?? box.height}
+					hasAlpha={shown.hasAlpha}
+					alt={card.title}
+					{conversationId}
+					beforeFileId={shown.baseFileId}
+					{showing}
+					variant="display"
+					sizes={pictureSizes}
+				/>
 			</button>
-		</div>
-	</AnchoredPopover>
-{/if}
+			{#if isCheckingAgain(card, shown)}
+				<!-- The server's one automatic retry of this take is under way: the
+				     take stays, a quiet note says so, and the better one takes its
+				     place when the server decides (opacity only). -->
+				<span
+					class="take-card-chip image-card-checking"
+					data-testid="image-card-checking"
+					role="status"
+					transition:crossfade={{ duration: MOTION_DURATION.standard }}
+				>
+					<LoaderCircle class="image-card-spin" size={13} strokeWidth={2} aria-hidden="true" />
+					{$t('artifacts.image.card.checkingAgain')}
+				</span>
+			{/if}
+			<button
+				type="button"
+				class="image-card-enlarge"
+				aria-label={$t('artifacts.image.enlarge')}
+				title={$t('artifacts.image.enlarge')}
+				data-testid="image-card-enlarge"
+				onclick={pressEnlarge}
+			>
+				<Maximize2 size={15} strokeWidth={2} aria-hidden="true" />
+			</button>
+			{#if shown.baseFileId}
+				<div class="image-card-flip">
+					<BeforeAfterSwitch
+						{showing}
+						onChange={(next) => (showing = next)}
+						label={card.title}
+						testIdPrefix="image-card"
+					/>
+				</div>
+			{/if}
+		{/if}
+	{/snippet}
+
+	{#snippet below({ now })}
+		{#if stripCount > 1}
+			<div class="image-card-strip" role="group" aria-label={$t('artifacts.image.subtitle.takes', { count: stripCount })} data-testid="image-card-strip">
+				{#each takes as take (take.id)}
+					{@const isShown = shown?.id === take.id && !waitingForAnother}
+					{@const tileState = takeCardState(take, now, 'image', Boolean(take.fileId))}
+					<button
+						type="button"
+						class="image-card-tile picture-tile"
+						class:is-chosen={isShown}
+						style:--tile-ratio={take.box.width / take.box.height}
+						aria-pressed={isShown}
+						aria-label={$t('artifacts.image.card.takeAlt', { title: card.title, number: takeNumber(take) })}
+						data-testid="image-card-tile"
+						data-take-id={take.id}
+						disabled={Boolean(gone)}
+						onclick={() => chooseTake(take.id)}
+					>
+						{#if gone}
+							<span class="image-card-tile-state"><ImageOff size={14} strokeWidth={2} aria-hidden="true" /></span>
+						{:else if tileState.kind === 'ready' && take.fileId}
+							<ImagePicture
+								fileId={take.fileId}
+								width={take.width ?? take.box.width}
+								height={take.height ?? take.box.height}
+								hasAlpha={take.hasAlpha}
+								alt=""
+								{conversationId}
+								variant="thumb"
+							/>
+						{:else if tileState.kind === 'blocked'}
+							<span class="image-card-tile-state"><EyeOff size={14} strokeWidth={1.75} aria-hidden="true" /></span>
+						{:else if tileState.kind === 'failed' || tileState.kind === 'stopped'}
+							<span class="image-card-tile-state"><TriangleAlert size={14} strokeWidth={2} aria-hidden="true" /></span>
+						{:else}
+							<span class="image-card-tile-shimmer take-shimmer" aria-hidden="true"><span class="take-shimmer-band"></span></span>
+						{/if}
+						{#if take.id === card.pickedTakeId}
+							<span class="image-card-badge" title={$t('artifacts.image.card.inUse')} data-testid="image-card-in-use">
+								<Check size={11} strokeWidth={2.6} aria-hidden="true" />
+								<span class="sr-only">{$t('artifacts.image.card.inUse')}</span>
+							</span>
+						{/if}
+					</button>
+				{/each}
+				{#each Array.from({ length: placeholders }, (_, index) => index) as index (index)}
+					<button
+						type="button"
+						class="image-card-tile picture-tile"
+						class:is-chosen={waitingForAnother && index === placeholders - 1}
+						style:--tile-ratio={box.width / box.height}
+						aria-pressed={waitingForAnother && index === placeholders - 1}
+						aria-label={$t('artifacts.image.card.waiting')}
+						data-testid="image-card-tile-placeholder"
+						onclick={() => (selectedTakeId = PLACEHOLDER)}
+					>
+						<span class="image-card-tile-shimmer take-shimmer" aria-hidden="true"><span class="take-shimmer-band"></span></span>
+					</button>
+				{/each}
+			</div>
+		{/if}
+
+		{#if madeFromIds.length > 0}
+			<div class="image-card-sources" data-testid="image-card-made-from">
+				<span>{$t('artifacts.image.card.madeFrom')}</span>
+				{#each madeFromIds as sourceId, index (sourceId)}
+					<span class="image-card-source">
+						<span class="image-card-source-pic">
+							<ImagePicture fileId={sourceId} width={1} height={1} alt="" {conversationId} variant="thumb" />
+						</span>
+						<span class="image-card-number" aria-hidden="true">{index + 1}</span>
+					</span>
+				{/each}
+			</div>
+		{/if}
+	{/snippet}
+
+	{#snippet swap({ ready })}
+		{#if canUse(ready)}
+			<button
+				type="button"
+				class="take-card-button take-card-button-accent"
+				data-testid="image-card-use"
+				transition:crossfade={{ duration: MOTION_DURATION.standard }}
+				onclick={pressUse}
+			>
+				<Check size={14} strokeWidth={2} aria-hidden="true" />
+				{$t('artifacts.image.card.useThis')}
+			</button>
+		{/if}
+	{/snippet}
+
+	{#snippet menu({ close, ready })}
+		<button
+			type="button"
+			role="menuitem"
+			class="take-card-menu-row"
+			data-testid="image-card-attach"
+			disabled={!ready || !shown?.fileId}
+			onclick={() => pressAttach(close)}
+		>
+			<Paperclip size={16} strokeWidth={1.75} aria-hidden="true" />
+			<span>{$t('artifacts.image.card.attach')}</span>
+		</button>
+		<button
+			type="button"
+			role="menuitem"
+			class="take-card-menu-row"
+			data-testid="image-card-download"
+			disabled={!ready || !shown?.fileId}
+			onclick={() => pressDownload(close)}
+		>
+			<Download size={16} strokeWidth={1.75} aria-hidden="true" />
+			<span>{$t('artifacts.take.download')}</span>
+		</button>
+		<button
+			type="button"
+			role="menuitem"
+			class="take-card-menu-row"
+			data-testid="image-card-history"
+			disabled={!card.artifactId}
+			onclick={() => pressHistory(close)}
+		>
+			<History size={16} strokeWidth={1.75} aria-hidden="true" />
+			<span>{$t('artifacts.take.history')}</span>
+		</button>
+	{/snippet}
+</TakeCardShell>
 
 <PictureViewer
 	picture={enlarged}
@@ -738,34 +506,6 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 />
 
 <style>
-	.image-card-body {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		padding: 0 0.75rem 0.75rem;
-	}
-
-	/* The reserved box: the shown take's shape from its first paint, never
-	   taller than 22rem or 45% of the window, centred when that narrows it. */
-	.image-card-stage {
-		position: relative;
-		display: grid;
-		width: min(100%, calc(min(22rem, 45vh) * var(--box-ratio)));
-		margin-inline: auto;
-		overflow: hidden;
-		border-radius: var(--radius-md);
-		background: var(--surface-elevated);
-	}
-
-	/* Every layer fills the box: the state and the picture are stacked in one
-	   grid cell and crossfade, so a state change never changes the box. */
-	.image-card-layer {
-		grid-area: 1 / 1;
-		position: relative;
-		min-width: 0;
-		min-height: 0;
-	}
-
 	.image-card-picture {
 		display: block;
 		width: 100%;
@@ -825,112 +565,15 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		right: 0.5rem;
 	}
 
-	/* "Alfy is trying once more…": a quiet chip over the picture, never a row. */
+	/* "Alfy is trying once more…": the card's chip (`take-card-chip`) on the
+	   picture's bottom-left corner, clear of Enlarge in the opposite one. */
 	.image-card-checking {
-		position: absolute;
 		left: 0.5rem;
 		bottom: 0.5rem;
-		display: inline-flex;
-		align-items: center;
-		gap: 0.375rem;
-		/* Clear of Enlarge in the opposite corner. */
 		max-width: calc(100% - 3.5rem);
-		padding: 0.25rem 0.625rem;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-full);
-		background: var(--surface-overlay);
-		box-shadow: var(--shadow-sm);
-		color: var(--text-primary);
-		font-family: var(--font-sans);
-		font-size: 0.75rem;
-		pointer-events: none;
 	}
 
-	.image-card-gone {
-		color: var(--icon-muted);
-	}
-
-	.image-card-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 0.375rem;
-		padding: 0.75rem;
-		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: 0.8125rem;
-		text-align: center;
-	}
-
-	.image-card-state-line {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.375rem;
-		color: var(--text-primary);
-		font-weight: 600;
-	}
-
-	.image-card-state-detail {
-		min-height: 1.2em;
-		max-width: 22rem;
-		font-size: 0.75rem;
-	}
-
-	/* Kept back by the explicit-picture filter: calmer than a failure. A quiet
-	   surface, a muted eye-off and regular weight, no warning colour. */
-	.image-card-blocked {
-		background: var(--surface-elevated);
-	}
-
-	.image-card-blocked .image-card-state-line {
-		font-weight: 400;
-	}
-
-	.image-card-blocked .image-card-state-line :global(svg) {
-		color: var(--icon-muted);
-	}
-
-	/* Waiting, starting up, being made (Task 11): a soft tint over the whole
-	   box with a lighter band sweeping slowly left to right. Only `transform`
-	   moves; the loop is --duration-shimmer on the ease-out curve. Under reduced
-	   motion the band is gone and the tint stays still. */
-	.image-card-shimmer {
-		overflow: hidden;
-		background: color-mix(in srgb, var(--text-muted) 8%, var(--surface-elevated));
-	}
-
-	.image-card-shimmer-band {
-		position: absolute;
-		inset: 0;
-		background: linear-gradient(
-			90deg,
-			transparent 0%,
-			var(--shimmer-highlight) 50%,
-			transparent 100%
-		);
-		transform: translateX(-100%);
-		animation: image-card-shimmer var(--duration-shimmer) var(--ease-out) infinite;
-		will-change: transform;
-	}
-
-	@keyframes image-card-shimmer {
-		from {
-			transform: translateX(-100%);
-		}
-		to {
-			transform: translateX(100%);
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.image-card-shimmer-band {
-			animation: none;
-			visibility: hidden;
-		}
-	}
-
-	.image-card-body :global(.image-card-spin) {
+	:global(.image-card-spin) {
 		animation: image-card-spin 1s linear infinite;
 	}
 
@@ -941,7 +584,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.image-card-body :global(.image-card-spin) {
+		:global(.image-card-spin) {
 			animation: none;
 		}
 	}
@@ -965,12 +608,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		cursor: default;
 	}
 
-	.image-card-icon-button:disabled {
-		cursor: not-allowed;
-		opacity: 0.55;
-	}
-
-	/* A take still on its way, in the strip: the same shimmer, tile-sized. */
+	/* A take still on its way, in the strip: the card's shimmer, tile-sized. */
 	.image-card-tile-shimmer {
 		position: absolute;
 		inset: 0;
@@ -1039,129 +677,5 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		color: var(--surface-page);
 		font-size: 9px;
 		font-weight: 700;
-	}
-
-	.image-card-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		min-width: 0;
-	}
-
-	.image-card-swap {
-		display: grid;
-		align-items: center;
-		justify-items: start;
-	}
-
-	.image-card-swap > :global(*) {
-		grid-area: 1 / 1;
-	}
-
-	.image-card-grow {
-		flex: 1 1 auto;
-	}
-
-	.image-card-button {
-		display: inline-flex;
-		flex: 0 0 auto;
-		align-items: center;
-		gap: 0.375rem;
-		min-height: 2rem;
-		padding: 0 0.625rem;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		background: var(--surface-page);
-		color: var(--text-primary);
-		font-family: var(--font-sans);
-		font-size: 0.78rem;
-		font-weight: 600;
-		white-space: nowrap;
-		cursor: pointer;
-	}
-
-	.image-card-button:hover:not(:disabled) {
-		background: var(--surface-elevated);
-	}
-
-	.image-card-button:disabled {
-		cursor: not-allowed;
-		opacity: 0.55;
-	}
-
-	.image-card-button:focus-visible,
-	.image-card-icon-button:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	.image-card-button-accent {
-		border-color: color-mix(in srgb, var(--accent) 38%, transparent);
-		background: var(--accent-tint);
-		color: var(--accent-text);
-	}
-
-	.image-card-button-accent:hover:not(:disabled) {
-		background: var(--accent-tint);
-	}
-
-	.image-card-icon-button {
-		display: grid;
-		place-items: center;
-		width: 2rem;
-		height: 2rem;
-		border: 0;
-		border-radius: var(--radius-md);
-		background: transparent;
-		color: var(--icon-muted);
-		cursor: pointer;
-	}
-
-	.image-card-icon-button:hover {
-		background: var(--surface-elevated);
-	}
-
-	.image-card-menu {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		padding: 0 6px 6px;
-	}
-
-	.image-card-menu-row {
-		display: flex;
-		align-items: center;
-		gap: 0.625rem;
-		min-height: 2.25rem;
-		padding: 0 0.625rem;
-		border: 0;
-		border-radius: var(--radius-md);
-		background: transparent;
-		color: var(--text-primary);
-		font-family: var(--font-sans);
-		font-size: 0.84rem;
-		text-align: left;
-		cursor: pointer;
-	}
-
-	.image-card-menu-row:hover:not(:disabled) {
-		background: var(--surface-elevated);
-	}
-
-	.image-card-menu-row:disabled {
-		cursor: not-allowed;
-		opacity: 0.55;
-	}
-
-	@media (hover: none) and (pointer: coarse) {
-		.image-card-button,
-		.image-card-icon-button,
-		.image-card-menu-row {
-			min-height: 44px;
-		}
-
-		.image-card-icon-button {
-			width: 44px;
-		}
 	}
 </style>
