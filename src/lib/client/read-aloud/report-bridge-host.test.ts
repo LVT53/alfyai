@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	REPORT_BRIDGE_KIND,
+	REPORT_BRIDGE_MAX_SPANS,
+} from "$lib/shared/read-aloud/report-bridge";
 import { idleReadAloudView, type ReadAloudView } from "$lib/stores/read-aloud";
-import { REPORT_BRIDGE_KIND, REPORT_BRIDGE_MAX_SPANS } from "./report-bridge";
 import {
 	makeReportCopy,
 	marksMessage,
-	pageScriptNonce,
 	postToFrame,
 	type ReportCopy,
 	readFrameMessage,
@@ -198,17 +200,6 @@ describe("what the page tells the frame", () => {
 
 	it("posts nothing when the frame is gone", () => {
 		expect(() => postToFrame(null, { type: "clear" })).not.toThrow();
-	});
-});
-
-describe("the page's nonce", () => {
-	it("is the one its own scripts carry, which the bridge's script must carry too", () => {
-		expect(pageScriptNonce()).toBeNull();
-		const script = document.createElement("script");
-		script.setAttribute("nonce", "r4nd0m");
-		document.head.append(script);
-		expect(pageScriptNonce()).toBe("r4nd0m");
-		script.remove();
 	});
 });
 

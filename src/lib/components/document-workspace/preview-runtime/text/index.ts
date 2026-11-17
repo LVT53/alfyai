@@ -15,40 +15,36 @@ export type TextPreviewRenderResult =
 			kind: TextPreviewKind;
 			html: string;
 	  }
+	/** HTML that runs no script: its sanitized markup, shown in a srcdoc frame with an empty sandbox. */
 	| {
 			kind: "html";
+			trustedRuntime: false;
 			srcdoc: string;
-			trustedRuntime: boolean;
+	  }
+	/**
+	 * A standard report, whose response carries the report's own policy
+	 * (`STANDARD_REPORT_PREVIEW_CSP`): the panel frames it by that same address, so it
+	 * runs under that policy and nothing of it is written into the page.
+	 */
+	| {
+			kind: "html";
+			trustedRuntime: true;
 	  };
 
-// The report's own policy as a meta tag (ADR-0068): pictures from itself only,
-// like the header `file-serving-response-policy.ts` serves it with.
-const TRUSTED_HTML_RUNTIME_CSP =
-	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'";
-
-export type TextPreviewOptions = {
-	isDark?: boolean;
-	/**
-	 * Read aloud's bridge (`reportBridgeScript` in `$lib/client/read-aloud/report-bridge.ts`):
-	 * the one script of the app's own a report's frame runs, added to a trusted
-	 * report's srcdoc and never to a static one.
-	 */
-	readAloudBridge?: string;
-};
+export type TextPreviewOptions = { isDark?: boolean };
 
 export async function renderTextPreview(
 	adapter: TextRuntimeAdapter | HtmlRuntimeAdapter,
 	options: TextPreviewOptions = {},
 ): Promise<TextPreviewRenderResult> {
 	if (adapter.kind === "html") {
-		const trustedRuntime = adapter.trustedRuntime === true;
-		return {
-			kind: "html",
-			srcdoc: trustedRuntime
-				? buildTrustedHtmlPreviewSrcdoc(adapter.text, options.readAloudBridge)
-				: buildStaticHtmlPreviewSrcdoc(adapter.text),
-			trustedRuntime,
-		};
+		return adapter.trustedRuntime === true
+			? { kind: "html", trustedRuntime: true }
+			: {
+					kind: "html",
+					trustedRuntime: false,
+					srcdoc: buildStaticHtmlPreviewSrcdoc(adapter.text),
+				};
 	}
 
 	if (adapter.textKind === "csv") {
@@ -160,45 +156,6 @@ export function buildStaticHtmlPreviewSrcdoc(content: string): string {
 	const safeHtmlWithSafeInlineStyles = sanitizeInlineStyleAttributes(safeHtml);
 	const styleBlock = safeCss ? `<style>${safeCss}</style>` : "";
 	return `<!doctype html><html><head><base target="_blank"><meta charset="utf-8">${styleBlock}</head><body>${safeHtmlWithSafeInlineStyles}</body></html>`;
-}
-
-/**
- * A trusted report as its frame's srcdoc: its own policy as a meta tag in its
- * head and, when one is given, read aloud's bridge as the last thing in its body.
- * Only this srcdoc ever carries the bridge (`buildStaticHtmlPreviewSrcdoc` takes
- * none, and its frame runs no script).
- */
-export function buildTrustedHtmlPreviewSrcdoc(
-	content: string,
-	bridge = "",
-): string {
-	const meta = `<meta http-equiv="Content-Security-Policy" content="${TRUSTED_HTML_RUNTIME_CSP}" />`;
-	let srcdoc: string;
-	if (/<\/head\s*>/i.test(content)) {
-		srcdoc = content.replace(/<\/head\s*>/i, `${meta}</head>`);
-	} else if (/<html\b/i.test(content)) {
-		srcdoc = content.replace(
-			/<html\b([^>]*)>/i,
-			`<html$1><head>${meta}</head>`,
-		);
-	} else {
-		srcdoc = `<!doctype html><html><head>${meta}</head><body>${content}</body></html>`;
-	}
-	return bridge === "" ? srcdoc : insertBeforeLastClose(srcdoc, bridge);
-}
-
-/**
- * `insert` put before the document's last `</body>`, else its last `</html>`,
- * else at its end. By slicing, never by `String.replace`, whose `$&`, `$1` and
- * `` $` `` patterns would change what is inserted.
- */
-function insertBeforeLastClose(html: string, insert: string): string {
-	for (const close of [/<\/body\s*>/gi, /<\/html\s*>/gi]) {
-		let at = -1;
-		for (const match of html.matchAll(close)) at = match.index;
-		if (at !== -1) return html.slice(0, at) + insert + html.slice(at);
-	}
-	return html + insert;
 }
 
 function extractLocalStyleBlocks(content: string): {

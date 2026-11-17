@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DocumentPreviewRenderer from "./DocumentPreviewRenderer.svelte";
 
@@ -543,38 +544,86 @@ describe("DocumentPreviewRenderer", () => {
 		).toBe("hidden");
 	});
 
-	it("renders generated report HTML with its trusted runtime sandbox", async () => {
-		mockFetchBlob(
-			new Blob(
-				[
-					"<!doctype html><html><head><title>Atlas Report</title></head><body><div id=\"report-viewer\"><main>Report</main></div><script>document.body.dataset.reportRuntime = 'ready'</script></body></html>",
-				],
-				{ type: "text/html" },
-			),
-			{
-				headers: {
-					"Content-Security-Policy": STANDARD_REPORT_CSP,
+	describe("a generated standard report", () => {
+		const REPORT =
+			'<!doctype html><html><head><title>Atlas Report</title></head><body><div id="report-viewer"><article id="report-content"><h1>Report</h1><p>The train leaves at nine.</p></article></div><script>document.body.dataset.reportRuntime = \'ready\'</script></body></html>';
+		const ADDRESS = "/api/chat/files/file-9/preview";
+		const openReport = (
+			readAloudReport: {
+				fileId: string;
+				onSource: (source: unknown) => void;
+			} | null = null,
+		) => {
+			mockFetchBlob(new Blob([REPORT], { type: "text/html" }), {
+				headers: { "Content-Security-Policy": STANDARD_REPORT_CSP },
+			});
+			return render(DocumentPreviewRenderer, {
+				props: {
+					open: true,
+					artifactId: null,
+					previewUrl: ADDRESS,
+					filename: "atlas-report.html",
+					mimeType: "text/html",
+					readAloudReport,
 				},
-			},
-		);
+			});
+		};
 
-		openPreview({
-			filename: "atlas-report.html",
-			mimeType: "text/html",
+		it("is framed by its own preview address, in the report's sandbox, so it runs under its own response's policy", async () => {
+			openReport();
+			const frame = await screen.findByTitle("atlas-report.html preview");
+			expect(frame).toHaveAttribute(
+				"sandbox",
+				"allow-scripts allow-popups allow-popups-to-escape-sandbox",
+			);
+			expect(frame).toHaveAttribute("src", ADDRESS);
+			expect(frame.hasAttribute("srcdoc")).toBe(false);
+			expect(document.body.dataset.reportRuntime).toBeUndefined();
 		});
 
-		const frame = await screen.findByTitle("atlas-report.html preview");
-		expect(frame).toHaveAttribute(
-			"sandbox",
-			"allow-scripts allow-popups allow-popups-to-escape-sandbox",
-		);
-		const srcdoc = frame.getAttribute("srcdoc") ?? "";
-		expect(srcdoc).toContain("report-viewer");
-		expect(srcdoc).toContain(
-			"<script>document.body.dataset.reportRuntime = 'ready'</script>",
-		);
-		expect(srcdoc).toContain('http-equiv="Content-Security-Policy"');
-		expect(srcdoc).toContain("script-src 'unsafe-inline'");
+		it("is torn down when it navigates itself, and Reload frames it again", async () => {
+			openReport();
+			const frame = await screen.findByTitle("atlas-report.html preview");
+			frame.dispatchEvent(new Event("load")); // the page's own load
+			frame.dispatchEvent(new Event("load")); // the report navigating itself
+			await tick();
+			expect(screen.queryByTitle("atlas-report.html preview")).toBeNull();
+			expect(screen.getByRole("alert")).toHaveTextContent(
+				"This report tried to open another page in the panel, so Alfy stopped it.",
+			);
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Reload the report" }),
+			);
+			const again = await screen.findByTitle("atlas-report.html preview");
+			expect(again === frame).toBe(false);
+			expect(again).toHaveAttribute("src", ADDRESS);
+			again.dispatchEvent(new Event("load"));
+			await tick();
+			expect(screen.queryByRole("alert")).toBeNull();
+		});
+
+		it("hands the panel read aloud's source over the report only when the panel asks", async () => {
+			const onSource = vi.fn();
+			openReport({ fileId: "file-9", onSource });
+			await screen.findByTitle("atlas-report.html preview");
+			await vi.waitFor(() =>
+				expect(onSource).toHaveBeenCalledWith(expect.any(Object)),
+			);
+			const source = onSource.mock.calls.at(-1)?.[0] as {
+				root(): Element | null;
+			};
+			// The page's own inert copy of what the address answered with.
+			expect(source.root()?.id).toBe("report-content");
+			expect(source.root()?.ownerDocument).not.toBe(document);
+		});
+
+		it("offers nothing to read aloud when the panel does not ask", async () => {
+			openReport(null);
+			await screen.findByTitle("atlas-report.html preview");
+			expect(
+				document.querySelector('[data-testid="report-read-from-here"]'),
+			).toBeNull();
+		});
 	});
 
 	it("renders DOCX through the office adapter surface", async () => {

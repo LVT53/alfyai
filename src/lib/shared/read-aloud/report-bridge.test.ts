@@ -5,6 +5,7 @@ import {
 	reportBridge,
 	reportBridgeConfig,
 	reportBridgeScript,
+	withReportBridge,
 } from "./report-bridge";
 import { pointInBlocks, positionInBlocks, reportBlocks } from "./report-units";
 
@@ -264,36 +265,72 @@ describe("the report bridge", () => {
 });
 
 describe("the bridge's script", () => {
-	it("is one inline script with the page's nonce, its origin written in", () => {
-		const script = reportBridgeScript({ origin: ORIGIN, nonce: "abc123" });
-		expect(script.startsWith('<script nonce="abc123">')).toBe(true);
+	it("is one inline script, its origin written in, and nothing it loads", () => {
+		const script = reportBridgeScript(ORIGIN);
+		expect(script.startsWith("<script>")).toBe(true);
 		expect(script.endsWith("</script>")).toBe(true);
 		expect(script.match(/<\/script/gi)).toHaveLength(1);
 		expect(script).toContain(JSON.stringify(ORIGIN));
 		expect(script).not.toContain(" src=");
-		expect(reportBridgeScript({ origin: ORIGIN, nonce: null })).toMatch(
-			/^<script>/,
-		);
+		expect(script).not.toContain("nonce");
 	});
 
-	it("refuses an origin that is not one, and a nonce that is not a token", () => {
-		expect(reportBridgeScript({ origin: "*", nonce: null })).toBe("");
-		expect(
-			reportBridgeScript({ origin: "https://a.example/x", nonce: null }),
-		).toBe("");
-		expect(reportBridgeScript({ origin: ORIGIN, nonce: 'a" onload="x' })).toBe(
-			"",
-		);
+	it("refuses an origin that is not one", () => {
+		for (const origin of [
+			"*",
+			"null",
+			"https://a.example/x",
+			'https://a.example"><img src=x>',
+			"javascript:alert(1)",
+		])
+			expect(reportBridgeScript(origin), origin).toBe("");
 	});
 
 	it("runs on its own: its source carries everything it needs", () => {
 		const fresh = makeFrame();
-		const script = reportBridgeScript({ origin: ORIGIN, nonce: null });
-		const code = script.replace(/^<script>/, "").replace(/<\/script>$/, "");
+		const code = reportBridgeScript(ORIGIN)
+			.replace(/^<script>/, "")
+			.replace(/<\/script>$/, "");
 		new Function("window", code)(fresh.win);
 		expect(fresh.posted.at(-1)).toEqual({
 			data: message("ready", { blocks: 3, chars: 74 }),
 			origin: ORIGIN,
 		});
+	});
+});
+
+// What the server does to a standard report's preview response
+// (`generated-file-serving.ts`): the bridge goes last in its body.
+describe("a report with the bridge", () => {
+	const BODY =
+		"<!doctype html><html><head><title>Report</title></head><body><main>Report</main><script>window.ready=true</script></body></html>";
+
+	it("has the bridge last in its body, its own scripts and markup untouched", () => {
+		const html = withReportBridge(BODY, ORIGIN);
+		const script = reportBridgeScript(ORIGIN);
+		expect(html).toBe(BODY.replace("</body>", () => `${script}</body>`));
+	});
+
+	it("keeps the bridge's source exactly, whatever `$` patterns it holds", () => {
+		const html = withReportBridge(BODY, ORIGIN);
+		expect(html).toContain(reportBridgeScript(ORIGIN));
+	});
+
+	it("goes before the last closing tag there is, or at the end", () => {
+		const script = reportBridgeScript(ORIGIN);
+		expect(withReportBridge("<html><p>Report</p></html>", ORIGIN)).toBe(
+			`<html><p>Report</p>${script}</html>`,
+		);
+		expect(withReportBridge("<p>Report</p>", ORIGIN)).toBe(
+			`<p>Report</p>${script}`,
+		);
+		// A `</body>` in the report's text is escaped: the last real one is the page's.
+		expect(
+			withReportBridge("<body><p>a &lt;/body&gt; b</p></body >", ORIGIN),
+		).toBe(`<body><p>a &lt;/body&gt; b</p>${script}</body >`);
+	});
+
+	it("is the report unchanged for an origin that is not one", () => {
+		expect(withReportBridge(BODY, "*")).toBe(BODY);
 	});
 });

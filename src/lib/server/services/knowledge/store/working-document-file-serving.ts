@@ -47,6 +47,8 @@ export async function resolveWorkingDocumentFileServing(params: {
 	artifactId: string;
 	mode: WorkingDocumentFileServingMode;
 	rangeHeader?: string | null;
+	/** The app's origin, for read aloud's bridge in a generated standard report (`resolveGeneratedFileServing`). */
+	bridgeOrigin?: string | null;
 }): Promise<WorkingDocumentFileServingResolution> {
 	let artifact = await getArtifactForUser(params.userId, params.artifactId);
 	if (!artifact) {
@@ -75,6 +77,7 @@ export async function resolveWorkingDocumentFileServing(params: {
 		artifact,
 		mode: params.mode,
 		rangeHeader: params.rangeHeader,
+		bridgeOrigin: params.bridgeOrigin,
 	});
 	if (generatedSource) {
 		return generatedSource;
@@ -140,6 +143,7 @@ async function resolveGeneratedOutputSource(params: {
 	artifact: Artifact;
 	mode: WorkingDocumentFileServingMode;
 	rangeHeader?: string | null;
+	bridgeOrigin?: string | null;
 }): Promise<WorkingDocumentFileServingResolution | null> {
 	if (
 		params.artifact.type !== "generated_output" ||
@@ -159,6 +163,7 @@ async function resolveGeneratedOutputSource(params: {
 		mode: params.mode,
 		displayFilename: params.artifact.name || null,
 		rangeHeader: params.rangeHeader,
+		bridgeOrigin: params.bridgeOrigin,
 	});
 }
 

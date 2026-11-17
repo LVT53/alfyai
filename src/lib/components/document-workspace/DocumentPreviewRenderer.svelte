@@ -2,8 +2,7 @@
 import UploadPictureMarks from "$lib/components/artifacts/image/UploadPictureMarks.svelte";
 import ReportReadAloud from "$lib/components/read-aloud/ReportReadAloud.svelte";
 import type { ReportReadingSource } from "$lib/client/read-aloud/controller";
-import { reportBridgeScript } from "$lib/client/read-aloud/report-bridge";
-import { pageScriptNonce } from "$lib/client/read-aloud/report-bridge-host";
+import { frameLoadTripwire } from "$lib/utils/frame-load-tripwire";
 import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { isGenericMimeType } from "$lib/shared/file-types";
 import { ensureFilenameExtension } from "$lib/shared/file-types/download-name";
@@ -57,9 +56,9 @@ let {
 	onMarksContinue?: (() => void) | undefined;
 	/**
 	 * Read aloud on a standard report (`ReportReadAloud.svelte`): the chat file the
-	 * preview shows, and where the panel takes the reading source from. A report the
-	 * preview trusts to run its scripts then also carries read aloud's bridge; a static
-	 * preview never does.
+	 * preview shows, and where the panel takes the reading source from. The report's
+	 * own response carries read aloud's bridge (the server adds it); this only
+	 * mounts the page's half over the frame.
 	 */
 	readAloudReport?: {
 		fileId: string;
@@ -80,9 +79,16 @@ let PdfPreviewComponent = $state<PdfPreviewComponentType | null>(null);
 let ImagePreviewComponent = $state<ImagePreviewComponentType | null>(null);
 let previewLoadToken = 0;
 let htmlFrame = $state<HTMLIFrameElement | null>(null);
-/** A trusted report's HTML, when its srcdoc carries read aloud's bridge. */
-let bridgedReportHtml = $state<string | null>(null);
-let previewSourceForMarks = $derived(
+/**
+ * A standard report's HTML, as its address answered: the page's own copy of what
+ * the frame shows (read aloud reads it, never the frame).
+ */
+let trustedReportHtml = $state<string | null>(null);
+/** The report navigated itself (`frameLoadTripwire`): its frame is gone until Reload. */
+let reportFrameTripped = $state(false);
+/** Bumped by Reload: a new frame element, with its own first load. */
+let reportFrameGeneration = $state(0);
+let previewSource = $derived(
 	resolvePreviewSourceUrl({ artifactId, previewUrl }),
 );
 
@@ -136,7 +142,8 @@ function resetPreviewState() {
 	content = null;
 	adapter = null;
 	textPreview = null;
-	bridgedReportHtml = null;
+	trustedReportHtml = null;
+	reportFrameTripped = false;
 	officePreview = null;
 	error = null;
 	fileType = "unsupported";
@@ -183,26 +190,15 @@ async function fetchFile(loadToken: number) {
 		fileType = result.fileType;
 
 		if (result.adapter.kind === "text" || result.adapter.kind === "html") {
-			// Read aloud's bridge, for a report trusted to run its scripts and only then:
-			// one inline script of the app's own, the page's nonce on it, written at
-			// preview time, so a report made before read aloud gets it too.
-			const bridge =
-				result.adapter.kind === "html" &&
-				result.adapter.trustedRuntime &&
-				readAloudReport
-					? reportBridgeScript({
-							origin: window.location.origin,
-							nonce: pageScriptNonce(),
-						})
-					: "";
 			const renderedText = await renderPreviewTextAdapter(result.adapter, {
 				isDark: isDarkTheme(),
-				readAloudBridge: bridge,
 			});
 			if (isStalePreviewLoad(loadToken)) return;
 			textPreview = renderedText;
-			bridgedReportHtml =
-				bridge !== "" && result.adapter.kind === "html"
+			// A standard report is framed by its own address (below); the page keeps what
+			// that address answered with.
+			trustedReportHtml =
+				result.adapter.kind === "html" && result.adapter.trustedRuntime
 					? result.adapter.text
 					: null;
 			return;
@@ -242,6 +238,15 @@ async function fetchFile(loadToken: number) {
 			isLoading = false;
 		}
 	}
+}
+
+function tripReportFrame(): void {
+	reportFrameTripped = true;
+}
+
+function reloadReportFrame(): void {
+	reportFrameGeneration += 1;
+	reportFrameTripped = false;
 }
 
 function isDarkTheme(): boolean {
@@ -335,9 +340,9 @@ function downloadFile() {
 					{/if}
 				{:else if fileType === "image"}
 					{#if content && adapter?.kind === "image" && ImagePreviewComponent}
-						{#if onMarksChange && previewSourceForMarks}
+						{#if onMarksChange && previewSource}
 							<UploadPictureMarks
-								url={previewSourceForMarks}
+								url={previewSource}
 								{filename}
 								{marks}
 								onChange={onMarksChange}
@@ -377,21 +382,47 @@ function downloadFile() {
 							class="html-preview-shell"
 							style="height: 100%; padding: 0; background: rgba(0, 0, 0, 0);"
 						>
-							<iframe
-								bind:this={htmlFrame}
-								class="html-preview-frame"
-								title={$t('documentWorkspace.htmlPreviewLabel', { filename })}
-								sandbox={htmlPreviewSandbox(textPreview?.kind === "html" && textPreview.trustedRuntime)}
-								style="height: 100%; flex-grow: 1; border: 0; border-radius: 0; background: rgba(0, 0, 0, 0);"
-								srcdoc={textPreview.srcdoc}
-							></iframe>
-							{#if bridgedReportHtml !== null && readAloudReport && htmlFrame}
-								<ReportReadAloud
-									frame={htmlFrame}
-									html={bridgedReportHtml}
-									fileId={readAloudReport.fileId}
-									onSource={readAloudReport.onSource}
-								/>
+							{#if textPreview.trustedRuntime}
+								<!-- A standard report, framed by its own preview address: it runs under the
+								     policy its response carries, never the page's, in an opaque origin.
+								     A load the page did not ask for means it navigated itself: the frame
+								     goes, and Reload frames it again as a new element. -->
+								{#if reportFrameTripped}
+									<div class="html-preview-tripwire" role="alert">
+										<p>{$t('documentWorkspace.reportFrame.tripwire')}</p>
+										<button type="button" class="btn-secondary" onclick={reloadReportFrame}>
+											{$t('documentWorkspace.reportFrame.reload')}
+										</button>
+									</div>
+								{:else if previewSource}
+									{#key `${previewSource}#${reportFrameGeneration}`}
+										<iframe
+											bind:this={htmlFrame}
+											use:frameLoadTripwire={tripReportFrame}
+											class="html-preview-frame"
+											title={$t('documentWorkspace.htmlPreviewLabel', { filename })}
+											sandbox={htmlPreviewSandbox(true)}
+											style="height: 100%; flex-grow: 1; border: 0; border-radius: 0; background: rgba(0, 0, 0, 0);"
+											src={previewSource}
+										></iframe>
+									{/key}
+									{#if trustedReportHtml !== null && readAloudReport && htmlFrame}
+										<ReportReadAloud
+											frame={htmlFrame}
+											html={trustedReportHtml}
+											fileId={readAloudReport.fileId}
+											onSource={readAloudReport.onSource}
+										/>
+									{/if}
+								{/if}
+							{:else}
+								<iframe
+									class="html-preview-frame"
+									title={$t('documentWorkspace.htmlPreviewLabel', { filename })}
+									sandbox={htmlPreviewSandbox(false)}
+									style="height: 100%; flex-grow: 1; border: 0; border-radius: 0; background: rgba(0, 0, 0, 0);"
+									srcdoc={textPreview.srcdoc}
+								></iframe>
 							{/if}
 						</div>
 					{/if}
@@ -840,6 +871,19 @@ function downloadFile() {
 		flex: 1 1 auto;
 		padding: 0;
 		background: transparent;
+	}
+
+	.html-preview-tripwire {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-md);
+		flex: 1 1 auto;
+		padding: var(--space-lg);
+		text-align: center;
+		color: var(--text-secondary);
+		font-size: 0.9rem;
 	}
 
 	.html-preview-frame {

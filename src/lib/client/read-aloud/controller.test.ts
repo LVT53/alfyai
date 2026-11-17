@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ServerHealth } from "$lib/client/api/health";
 import { ApiError } from "$lib/client/api/http";
 import type { ReadingStart } from "$lib/client/api/read-aloud";
+import { REPORT_CHROME } from "$lib/shared/read-aloud/report-units";
 import type { ReadAloudView } from "$lib/stores/read-aloud";
 import {
 	type AudioLike,
@@ -14,7 +15,6 @@ import {
 	type ReportReadingSource,
 } from "./controller";
 import { makeReportCopy, type ReportCopy } from "./report-bridge-host";
-import { REPORT_CHROME } from "./report-units";
 
 class FakeAudio extends EventTarget implements AudioLike {
 	src = "";

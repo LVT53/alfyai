@@ -95,6 +95,7 @@ describe("GET /api/chat/files/[id]/preview", () => {
 			userId: "user-1",
 			fileId: "file-1",
 			mode: "preview",
+			bridgeOrigin: "http://localhost",
 		});
 	});
 
@@ -114,6 +115,7 @@ describe("GET /api/chat/files/[id]/preview", () => {
 			userId: "user-1",
 			fileId: "staged-file",
 			mode: "preview",
+			bridgeOrigin: "http://localhost",
 		});
 	});
 
@@ -165,6 +167,7 @@ describe("GET /api/chat/files/[id]/preview", () => {
 			fileId: "file-1",
 			mode: "preview",
 			rangeHeader: "bytes=6-10",
+			bridgeOrigin: "http://localhost",
 		});
 	});
 
@@ -179,6 +182,7 @@ describe("GET /api/chat/files/[id]/preview", () => {
 			userId: "user-1",
 			fileId: "legacy-file",
 			mode: "preview",
+			bridgeOrigin: "http://localhost",
 		});
 	});
 

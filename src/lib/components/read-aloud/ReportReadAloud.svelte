@@ -32,7 +32,7 @@ import {
 import {
 	pointInBlocks,
 	REPORT_CHROME,
-} from "$lib/client/read-aloud/report-units";
+} from "$lib/shared/read-aloud/report-units";
 import { t } from "$lib/i18n";
 import { type ReadAloudView, readAloudView } from "$lib/stores/read-aloud";
 
@@ -43,7 +43,7 @@ let {
 	onSource,
 	controller = undefined,
 }: {
-	/** The report's frame: an opaque srcdoc frame that carries the bridge. */
+	/** The report's frame: opaque, framed by the report's own preview address, whose response carries the bridge. */
 	frame: HTMLIFrameElement;
 	/** The report's HTML, as the preview was given it: the page's copy is made from it. */
 	html: string;

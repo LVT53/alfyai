@@ -1,8 +1,12 @@
 /**
  * Read aloud's bridge into a standard report's frame: the one inline script of the
- * app's own that the preview adds to a report's trusted srcdoc (never to the static
- * one), so the page can mark the reading inside the report and hear where the
- * reader selected text. The frame stays opaque (`html-sandbox.ts`: never
+ * app's own that the server adds to a standard report's preview response
+ * (`generated-file-serving.ts`, `withReportBridge`; never to a download, never to
+ * any other file), so a report made before read aloud gets it too, and the page
+ * can mark the reading inside the report and hear where the reader selected text.
+ * The panel frames the report by that preview address, so it runs under the
+ * report's own policy (`STANDARD_REPORT_PREVIEW_CSP`, which allows inline
+ * scripts), not the page's. The frame stays opaque (`html-sandbox.ts`: never
  * `allow-same-origin`), so the two talk by `postMessage` alone, and only of places:
  *
  * - the page sends marks (spans: a block, a start and an end), a focus (spans and a
@@ -21,7 +25,7 @@
  * from this frame's window (`report-bridge-host.ts`).
  *
  * `reportBridge` is self-contained: `reportBridgeScript` writes its own source into
- * the srcdoc, with the walk's. It draws the marks as CSS highlights, which change no
+ * the report, with the walk's. It draws the marks as CSS highlights, which change no
  * node of the report, in the Document marks' tints written out for light and dark
  * (the app's tokens do not exist in the frame).
  */
@@ -348,21 +352,15 @@ export function reportBridge(
 }
 
 const ORIGIN = /^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/u;
-const NONCE = /^[A-Za-z0-9+/=_-]{1,200}$/u;
 
 /**
  * The bridge as one inline `<script>`: its source and the walk's, with the app's
- * origin and the rules written in, and the page's CSP nonce, without which the
- * policy the srcdoc inherits from the page refuses it. Empty for an origin that is
- * not a plain `http(s)://host[:port]` or a nonce that is not a plain token.
+ * origin and the rules written in. Empty for an origin that is not a plain
+ * `http(s)://host[:port]`.
  */
-export function reportBridgeScript(options: {
-	origin: string;
-	nonce: string | null;
-}): string {
-	if (!ORIGIN.test(options.origin)) return "";
-	if (options.nonce !== null && !NONCE.test(options.nonce)) return "";
-	const config = JSON.stringify(reportBridgeConfig(options.origin)).replace(
+export function reportBridgeScript(origin: string): string {
+	if (!ORIGIN.test(origin)) return "";
+	const config = JSON.stringify(reportBridgeConfig(origin)).replace(
 		/</g,
 		"\\u003c",
 	);
@@ -371,6 +369,23 @@ export function reportBridgeScript(options: {
 		/<\/(script)/gi,
 		"<\\/$1",
 	);
-	const nonce = options.nonce === null ? "" : ` nonce="${options.nonce}"`;
-	return `<script${nonce}>${code}</script>`;
+	return `<script>${code}</script>`;
+}
+
+/**
+ * A standard report with the bridge as the last thing in its body: before its
+ * last `</body>`, else its last `</html>`, else at its end. The report's renderer
+ * escapes every `<` of its text, so the last closing tag is the document's own.
+ * By slicing, never by `String.replace`, whose `$` patterns would change the
+ * script. The report unchanged for an origin that is not one.
+ */
+export function withReportBridge(html: string, origin: string): string {
+	const script = reportBridgeScript(origin);
+	if (script === "") return html;
+	for (const close of [/<\/body\s*>/gi, /<\/html\s*>/gi]) {
+		let at = -1;
+		for (const match of html.matchAll(close)) at = match.index;
+		if (at !== -1) return html.slice(0, at) + script + html.slice(at);
+	}
+	return html + script;
 }

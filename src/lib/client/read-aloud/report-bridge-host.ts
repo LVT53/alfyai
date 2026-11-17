@@ -21,13 +21,18 @@
  * A selection never starts a reading: it only shows the page's own Read from here,
  * which a press in the page starts (`ReportReadAloud.svelte`).
  */
-import type { ReadAloudView } from "$lib/stores/read-aloud";
+
 import {
 	REPORT_BRIDGE_KIND,
 	REPORT_BRIDGE_MAX_SPANS,
 	type ReportSpan,
-} from "./report-bridge";
-import { REPORT_UNIT_RULES, reportBlocks, reportRoot } from "./report-units";
+} from "$lib/shared/read-aloud/report-bridge";
+import {
+	REPORT_UNIT_RULES,
+	reportBlocks,
+	reportRoot,
+} from "$lib/shared/read-aloud/report-units";
+import type { ReadAloudView } from "$lib/stores/read-aloud";
 
 /** The page's inert copy of a report and its units, the same the bridge finds in the frame. */
 export type ReportCopy = {
@@ -88,17 +93,6 @@ export function makeReportCopy(html: string): ReportCopy {
 		breaks,
 		places,
 	};
-}
-
-/**
- * The page's own CSP nonce (`%sveltekit.nonce%` on `app.html`'s scripts), which the
- * bridge's script carries: a srcdoc frame inherits the page's policy, which refuses
- * an inline script without it. Read from the `nonce` property (a browser empties the
- * attribute once the page has loaded); null on a page that has none.
- */
-export function pageScriptNonce(doc: Document = document): string | null {
-	const script = doc.querySelector<HTMLScriptElement>("script[nonce]");
-	return script?.nonce || script?.getAttribute("nonce") || null;
 }
 
 /** What the page takes from the frame, checked. */

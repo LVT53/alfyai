@@ -19,6 +19,7 @@ import {
 } from "$lib/server/services/file-serving-response-policy";
 import { isPosterFileName } from "$lib/shared/artifacts/poster-file";
 import { requiresFullContentValidation } from "$lib/shared/file-types/production";
+import { withReportBridge } from "$lib/shared/read-aloud/report-bridge";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 
 export type GeneratedFileServingMode = "preview" | "download";
@@ -49,6 +50,12 @@ export async function resolveGeneratedFileServing(params: {
 	mode: GeneratedFileServingMode;
 	displayFilename?: string | null;
 	rangeHeader?: string | null;
+	/**
+	 * The app's origin (the request's), for read aloud's bridge: a standard report's
+	 * preview gets the bridge, written to post to this origin alone, as the last
+	 * thing in its body. Never a download, never another file; none without it.
+	 */
+	bridgeOrigin?: string | null;
 }): Promise<GeneratedFileServingResult> {
 	const chatFile =
 		(await getChatFileByUser(params.fileId, params.userId)) ??
@@ -138,12 +145,24 @@ export async function resolveGeneratedFileServing(params: {
 		contentType,
 		resolveSucceededFileProductionJob,
 	});
+	// Read aloud's bridge, added to a standard report's preview at preview time (so a
+	// report made before read aloud gets it too), after the report's own bytes were
+	// checked. The panel frames the report by this address, so the bridge runs under
+	// the report's own policy, which allows inline scripts. HTML is always served
+	// whole (no range path), and the length counts what was added.
+	const body =
+		previewProfile === "standard-report" && params.bridgeOrigin
+			? Buffer.from(
+					withReportBridge(fileContent.toString("utf8"), params.bridgeOrigin),
+					"utf8",
+				)
+			: fileContent;
 	const rangedResponse = applyFileServingRange({
-		body: fileContent,
+		body,
 		rangeHeader: params.rangeHeader,
 		headers: buildFileServingResponseHeaders({
 			mode: params.mode,
-			contentLength: fileContent.length,
+			contentLength: body.length,
 			contentType,
 			filename,
 			safetyFilenames: [chatFile.filename],

@@ -5,7 +5,7 @@ import type {
 	ReadAloudController,
 	ReportReadingSource,
 } from "$lib/client/read-aloud/controller";
-import { REPORT_BRIDGE_KIND } from "$lib/client/read-aloud/report-bridge";
+import { REPORT_BRIDGE_KIND } from "$lib/shared/read-aloud/report-bridge";
 import {
 	idleReadAloudView,
 	setReadAloudAvailable,

@@ -21,7 +21,7 @@ describe("htmlPreviewSandbox", () => {
 		);
 	});
 
-	it("is the one sandbox the preview's frame is drawn with", () => {
+	it("is the only sandbox the preview's frames are drawn with: the report's, framed by its address, and the static file's", () => {
 		const renderer = readFileSync(
 			"src/lib/components/document-workspace/DocumentPreviewRenderer.svelte",
 			"utf8",
@@ -29,8 +29,10 @@ describe("htmlPreviewSandbox", () => {
 		const sandboxes =
 			renderer.match(/sandbox=\{[^}]*\}|sandbox="[^"]*"/g) ?? [];
 		expect(sandboxes).toEqual([
-			'sandbox={htmlPreviewSandbox(textPreview?.kind === "html" && textPreview.trustedRuntime)}',
+			"sandbox={htmlPreviewSandbox(true)}",
+			"sandbox={htmlPreviewSandbox(false)}",
 		]);
+		expect(renderer.match(/<iframe\b/g)).toHaveLength(2);
 		expect(renderer).not.toMatch(/allow-same-origin/i);
 	});
 });
