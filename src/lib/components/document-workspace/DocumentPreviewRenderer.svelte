@@ -24,6 +24,7 @@ import {
 	type PdfPreviewComponent as PdfPreviewComponentType,
 	type PreviewRuntimeAdapter,
 } from "./preview-runtime";
+import { htmlPreviewSandbox } from "./preview-runtime/html-sandbox";
 import type { TextPreviewRenderResult } from "./preview-runtime/text";
 
 let {
@@ -213,12 +214,6 @@ function isDarkTheme(): boolean {
 		: false;
 }
 
-function htmlPreviewSandbox(preview: TextPreviewRenderResult | null): string {
-	return preview?.kind === "html" && preview.trustedRuntime
-		? "allow-scripts allow-popups allow-popups-to-escape-sandbox"
-		: "";
-}
-
 function reportAdapterError(message: string) {
 	error = message;
 }
@@ -349,7 +344,7 @@ function downloadFile() {
 							<iframe
 								class="html-preview-frame"
 								title={$t('documentWorkspace.htmlPreviewLabel', { filename })}
-								sandbox={htmlPreviewSandbox(textPreview)}
+								sandbox={htmlPreviewSandbox(textPreview?.kind === "html" && textPreview.trustedRuntime)}
 								style="height: 100%; flex-grow: 1; border: 0; border-radius: 0; background: rgba(0, 0, 0, 0);"
 								srcdoc={textPreview.srcdoc}
 							></iframe>
