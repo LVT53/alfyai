@@ -29,6 +29,11 @@ export interface UserPreferences {
 	sidebarChatsExpanded: boolean;
 	memoryEnabled: boolean;
 	/**
+	 * "Pictures and videos" (Settings > Profile): whether Alfy may make pictures
+	 * and videos in this person's chats. On by default.
+	 */
+	picturesAndVideosEnabled: boolean;
+	/**
 	 * Standing guidance the user typed, followed in every chat. `null` when
 	 * unset or cleared — the API stores both as NULL (see
 	 * src/lib/shared/instructions.ts).

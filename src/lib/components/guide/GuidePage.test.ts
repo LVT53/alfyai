@@ -83,19 +83,19 @@ function stubReducedMotion(reduce: boolean) {
 }
 
 describe("the guide page", () => {
-	it("shows six sections and thirty-three rows", () => {
+	it("shows six sections and thirty-four rows", () => {
 		render(GuidePage);
 
 		const sections = screen.getAllByTestId("guide-section");
 		expect(sections.map((section) => section.id)).toEqual(
 			GUIDE_SECTION_IDS.map((id) => `guide-section-${id}`),
 		);
-		expect(screen.getAllByTestId("guide-row")).toHaveLength(33);
+		expect(screen.getAllByTestId("guide-row")).toHaveLength(34);
 		expect(
 			sections.map(
 				(section) => within(section).getAllByTestId("guide-row").length,
 			),
-		).toEqual([8, 7, 5, 4, 5, 4]);
+		).toEqual([8, 7, 6, 4, 5, 4]);
 		for (const entry of GUIDE_ENTRIES) {
 			expect(rowOf(entry.id).closest("section")?.id).toBe(
 				`guide-section-${entry.section}`,
@@ -249,18 +249,18 @@ describe("a row's buttons", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("has ten Try its, nineteen Show mes and four rows with neither", () => {
+	it("has ten Try its, twenty Show mes and four rows with neither", () => {
 		render(GuidePage);
 
 		const kinds = GUIDE_ENTRIES.map((entry) => entry.action.kind);
 		expect(kinds.filter((kind) => kind === "tryIt")).toHaveLength(10);
-		expect(kinds.filter((kind) => kind === "showMe")).toHaveLength(19);
+		expect(kinds.filter((kind) => kind === "showMe")).toHaveLength(20);
 		expect(kinds.filter((kind) => kind === "none")).toHaveLength(4);
 		expect(screen.getAllByRole("button", { name: /^Try it: / })).toHaveLength(
 			10,
 		);
 		expect(screen.getAllByRole("button", { name: /^Show me: / })).toHaveLength(
-			19,
+			20,
 		);
 	});
 });

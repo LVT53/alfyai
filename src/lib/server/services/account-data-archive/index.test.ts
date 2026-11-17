@@ -380,6 +380,11 @@ describe("createAccountDataArchive", () => {
 			.file("Profile/Profile.html")
 			?.async("string");
 		expect(profileIndex).toContain("Feature introductions seen");
+		// The person's own settings travel with the archive, the Pictures and
+		// videos switch among them (on: nobody switched it off).
+		expect(profileIndex).toContain(
+			"<tr><td>Pictures and videos</td><td>On</td></tr>",
+		);
 		expect(profileIndex).toContain("Canvas");
 		expect(profileIndex).toContain("completed");
 		expect(profileIndex).not.toContain("default:1");

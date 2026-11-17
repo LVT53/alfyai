@@ -125,6 +125,9 @@ const guideDict = {
 		"guide.entry.skills.name": "Skills",
 		"guide.entry.skills.line":
 			"Ready-made helpers like Study Coach, and your own.",
+		"guide.entry.picturesAndVideos.name": "Pictures and videos",
+		"guide.entry.picturesAndVideos.line":
+			"Alfy makes them only when you ask, and you can switch them off.",
 		"guide.entry.yourVoices.name": "Voices that read to you",
 		"guide.entry.yourVoices.line":
 			"Choose a voice for each language and the speed it starts at, or make a voice of your own.",
@@ -296,6 +299,9 @@ const guideDict = {
 		"guide.entry.skills.name": "Készségek",
 		"guide.entry.skills.line":
 			"Beépített segítők, például a Tanulási coach, és a sajátjaid.",
+		"guide.entry.picturesAndVideos.name": "Képek és videók",
+		"guide.entry.picturesAndVideos.line":
+			"Alfy csak kérésre készít ilyet, és ki is kapcsolhatod.",
 		"guide.entry.yourVoices.name": "Felolvasó hangok",
 		"guide.entry.yourVoices.line":
 			"Válassz hangot minden nyelvhez és kezdősebességet, vagy készíts saját hangot.",

@@ -38,7 +38,7 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
 
 **Config Tables:**
 - `runtime_config` - Admin UI overrides for env vars
-- Account-level settings are columns on `users` (theme, language, time zone, the read-aloud voice choice and speed); there is no `user_preferences` table
+- Account-level settings are columns on `users` (theme, language, time zone, the read-aloud voice choice and speed, the Pictures and videos switch `pictures_and_videos_enabled`); there is no `user_preferences` table
 
 ## Conventions
 

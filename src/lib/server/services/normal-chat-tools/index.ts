@@ -385,12 +385,12 @@ const TOOL_TEXT: ToolText = {
 	},
 	make_image: {
 		description:
-			'Make a new picture from words, or change one: a picture in this message (its number) or an Image from "In this chat" (its id). One picture per call. For several, count them first, then make every call in one step: different pictures, one call each (up to 8); options of one picture, the identical call repeated (up to 4). Write `prompt` in English: what changes and what stays. Do not use it to find, show or describe existing pictures.',
+			'Make a new picture from words, or change one: a picture in this message (its number) or an Image from "In this chat" (its id). Only on a clear request to make or change a picture; when they might want photos found or a description, ask with ask_user first. One picture per call. For several, count them first, then make every call in one step: different pictures, one call each (up to 8); options of one picture, the identical call repeated (up to 4). Write `prompt` in English: what changes and what stays. Do not use it to find, show or describe existing pictures.',
 		errorPrefix: "Making the picture failed",
 	},
 	make_video: {
 		description:
-			'Make a short video from a still picture. With no `picture` it animates the newest picture this turn made, else the open one; `picture` may name a message picture number, an Image id from "In this chat", or a make_image takeId. Only for a clip: one at a time, minutes each. Write `prompt` in English: what moves, how the camera moves, and what stays. 5 seconds by default, 10 only when asked. Do not use it for a still picture (make_image), for trimming or editing a video, or for adding sound.',
+			'Make a short video from a still picture. With no `picture` it animates the newest picture this turn made, else the open one; `picture` may name a message picture number, an Image id from "In this chat", or a make_image takeId. Only when the user asks for a video, clip or animation in so many words; if they only wish something would move, ask with ask_user first. One at a time, minutes each. Write `prompt` in English: what moves, how the camera moves, and what stays. 5 seconds by default, 10 only when asked. Do not use it for a still picture (make_image), for trimming or editing a video, or for adding sound.',
 		errorPrefix: "Making the video failed",
 	},
 	read_generated_file: {

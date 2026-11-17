@@ -250,3 +250,87 @@ describe("PATCH /api/settings/preferences personalInstructions", () => {
 		);
 	});
 });
+
+// "Pictures and videos" (Settings > Profile): the person's own switch, on by
+// default, saved on their own row and nobody else's.
+describe("Pictures and videos", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		userRow.row = { ...CLEARED_ROW };
+	});
+
+	async function readSwitch() {
+		const response = await GET(makeGetEvent());
+		const body = (await response.json()) as {
+			preferences: { picturesAndVideosEnabled: boolean };
+		};
+		return body.preferences.picturesAndVideosEnabled;
+	}
+
+	it("reads it on for a row that has it on, or has nothing stored", async () => {
+		userRow.row = { ...CLEARED_ROW, picturesAndVideosEnabled: true };
+		expect(await readSwitch()).toBe(true);
+		userRow.row = { ...CLEARED_ROW };
+		expect(await readSwitch()).toBe(true);
+	});
+
+	it("reads it off for a person who switched it off", async () => {
+		userRow.row = { ...CLEARED_ROW, picturesAndVideosEnabled: false };
+		expect(await readSwitch()).toBe(false);
+	});
+
+	it("saves it off and on, on the signed-in person's own row", async () => {
+		const { eq } = await import("drizzle-orm");
+		for (const value of [false, true]) {
+			vi.clearAllMocks();
+			const response = await PATCH(
+				makePatchEvent({ picturesAndVideosEnabled: value }),
+			);
+
+			expect(response.status).toBe(200);
+			expect(updateSet).toHaveBeenCalledWith(
+				expect.objectContaining({ picturesAndVideosEnabled: value }),
+			);
+			expect(eq).toHaveBeenCalledWith("id", "user-1");
+		}
+	});
+
+	it("never takes a person from the body: another person's id there changes nothing about whose row is written", async () => {
+		const { eq } = await import("drizzle-orm");
+		const response = await PATCH(
+			makePatchEvent({ picturesAndVideosEnabled: false, userId: "user-2" }),
+		);
+
+		expect(response.status).toBe(200);
+		expect(eq).toHaveBeenCalledTimes(1);
+		expect(eq).toHaveBeenCalledWith("id", "user-1");
+		expect(updateSet).toHaveBeenCalledWith(
+			expect.not.objectContaining({ userId: expect.anything() }),
+		);
+	});
+
+	it("refuses anything but true or false, and writes nothing", async () => {
+		for (const value of ["false", 0, null, "off"]) {
+			vi.clearAllMocks();
+			const response = await PATCH(
+				makePatchEvent({ picturesAndVideosEnabled: value }),
+			);
+
+			expect(response.status).toBe(400);
+			await expect(response.json()).resolves.toEqual({
+				error: "Invalid picturesAndVideosEnabled",
+			});
+			expect(updateSet).not.toHaveBeenCalled();
+		}
+	});
+
+	it("leaves the column untouched when the field is absent", async () => {
+		await PATCH(makePatchEvent({ theme: "dark" }));
+
+		expect(updateSet).toHaveBeenCalledWith(
+			expect.not.objectContaining({
+				picturesAndVideosEnabled: expect.anything(),
+			}),
+		);
+	});
+});

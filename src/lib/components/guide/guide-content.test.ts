@@ -33,11 +33,49 @@ describe("the feature guide's content", () => {
 		]);
 	});
 
-	it("has thirty-three entries with unique ids, 8/7/5/4/5/4 per section", () => {
-		expect(new Set(GUIDE_ENTRIES.map((e) => e.id)).size).toBe(33);
+	it("has thirty-four entries with unique ids, 8/7/6/4/5/4 per section", () => {
+		expect(new Set(GUIDE_ENTRIES.map((e) => e.id)).size).toBe(34);
 		expect(GUIDE_SECTION_IDS.map((s) => guideEntriesFor(s).length)).toEqual([
-			8, 7, 5, 4, 5, 4,
+			8, 7, 6, 4, 5, 4,
 		]);
+	});
+
+	// The person's own Pictures and videos switch (Settings > Profile, the
+	// Assistant card): Show me rings its row, and the row lights the switch the
+	// Knows-you drawing draws after Memory.
+	it("lists Pictures and videos in It knows you, before Voices, with Show me on its Settings row", () => {
+		const knowsYou = guideEntriesFor("knowsYou");
+		expect(knowsYou.at(-2)).toEqual({
+			id: "picturesAndVideos",
+			section: "knowsYou",
+			drawingSpot: "pictures",
+			action: {
+				kind: "showMe",
+				place: "settings",
+				spotlight: "settings.pictures",
+			},
+			added: "2026-11-17",
+		});
+		const expected = {
+			en: {
+				"guide.entry.picturesAndVideos.name": "Pictures and videos",
+				"guide.entry.picturesAndVideos.line":
+					"Alfy makes them only when you ask, and you can switch them off.",
+			},
+			hu: {
+				"guide.entry.picturesAndVideos.name": "Képek és videók",
+				"guide.entry.picturesAndVideos.line":
+					"Alfy csak kérésre készít ilyet, és ki is kapcsolhatod.",
+			},
+		} as const;
+		for (const lang of LANGUAGES) {
+			for (const [key, value] of Object.entries(expected[lang])) {
+				expect(words[lang][key], `${lang} ${key}`).toBe(value);
+			}
+			expect(
+				words[lang]["guide.entry.picturesAndVideos.example"],
+			).toBeUndefined();
+		}
 	});
 
 	// Read aloud (Plan 4, Task 1). The speaker needs a finished reply, so its
@@ -212,7 +250,13 @@ describe("the feature guide's content", () => {
 			GUIDE_ENTRIES.filter((e) => e.added !== BEFORE_THE_GUIDE).map(
 				(e) => e.id,
 			),
-		).toEqual(["asksFirst", "listenToAReply", "videos", "yourVoices"]);
+		).toEqual([
+			"asksFirst",
+			"listenToAReply",
+			"videos",
+			"picturesAndVideos",
+			"yourVoices",
+		]);
 	});
 
 	it("shows NEW for thirty days from the added date", () => {

@@ -54,6 +54,16 @@ export const users = sqliteTable("users", {
 	memoryEnabled: integer("memory_enabled", { mode: "boolean" })
 		.notNull()
 		.default(true),
+	// "Pictures and videos" (Settings > Profile), the person's own switch. When
+	// false, that person's turns are not offered make_image or make_video, and
+	// the turn guidance tells the model it is switched off and where to switch
+	// it on (images/picture-making.ts). Pictures and videos already made stay
+	// viewable; attaching photos and the model seeing them are separate.
+	picturesAndVideosEnabled: integer("pictures_and_videos_enabled", {
+		mode: "boolean",
+	})
+		.notNull()
+		.default(true),
 	// True once the user has acknowledged the "connector data is sent to a
 	// third-party cloud model" warning at least once (Option C in the
 	// connections locality guard). Sticky — never reset back to false.

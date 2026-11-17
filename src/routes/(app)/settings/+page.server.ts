@@ -52,6 +52,7 @@ export const load: ServerLoad = async (event) => {
 			sidebarProjectsExpanded: userRow.sidebarProjectsExpanded ?? true,
 			sidebarChatsExpanded: userRow.sidebarChatsExpanded ?? true,
 			memoryEnabled: userRow.memoryEnabled ?? true,
+			picturesAndVideosEnabled: userRow.picturesAndVideosEnabled ?? true,
 			personalInstructions: userRow.personalInstructions ?? null,
 		},
 		profilePicture: userRow.profilePicture ?? null,

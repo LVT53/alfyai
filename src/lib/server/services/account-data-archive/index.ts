@@ -325,6 +325,10 @@ async function addProfileSection(
 			params.user.sidebarProjectsExpanded ? "Yes" : "No",
 		],
 		["Sidebar chats expanded", params.user.sidebarChatsExpanded ? "Yes" : "No"],
+		[
+			"Pictures and videos",
+			params.user.picturesAndVideosEnabled === false ? "Off" : "On",
+		],
 		["Created", formatDateTime(params.user.createdAt)],
 		["Updated", formatDateTime(params.user.updatedAt)],
 	];

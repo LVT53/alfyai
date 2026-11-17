@@ -2059,6 +2059,14 @@ const settingsDict = {
 		"profileTab.personalInstructionsEmpty": "Not set",
 		"profileTab.memoryOn": "On",
 		"profileTab.memoryOff": "Off",
+		// Pictures and videos: the person's own switch for whether Alfy makes
+		// pictures and videos in their chats. Off, it makes none; what was made
+		// stays, and sending photos is not affected.
+		"profileTab.picturesAndVideos": "Pictures and videos",
+		"profileTab.picturesAndVideosHelp":
+			"Alfy makes pictures and short videos when you ask. Off, it makes none; the ones you have stay.",
+		"profileTab.picturesAndVideosOn": "On",
+		"profileTab.picturesAndVideosOff": "Off",
 		"profileTab.skillsHelp":
 			"Short instructions AlfyAI follows for a kind of task. Opens the full manager.",
 		"profileTab.manageSkills": "Manage skills",
@@ -4213,6 +4221,11 @@ const settingsDict = {
 		"profileTab.personalInstructionsEmpty": "Nincs beállítva",
 		"profileTab.memoryOn": "Be",
 		"profileTab.memoryOff": "Ki",
+		"profileTab.picturesAndVideos": "Képek és videók",
+		"profileTab.picturesAndVideosHelp":
+			"Alfy képeket és rövid videókat készít, ha kéred. Kikapcsolva nem készít, a meglévők megmaradnak.",
+		"profileTab.picturesAndVideosOn": "Be",
+		"profileTab.picturesAndVideosOff": "Ki",
 		"profileTab.skillsHelp":
 			"Rövid utasítások, amelyeket az AlfyAI egy-egy feladattípusnál követ. A teljes kezelőt nyitja meg.",
 		"profileTab.manageSkills": "Készségek kezelése",
