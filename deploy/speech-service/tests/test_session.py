@@ -40,6 +40,8 @@ from tests.helpers import SR, VOICE, decode_mp3, decoded_seconds, rms_db, tone
 from fakes_aligner import FakeAligner
 
 SECRET = ["Zebrafish", "Quokka."]  # tokens whose text must never reach a log
+GAP = Settings().gap_seconds  # the silence between two sentences, and
+PARAGRAPH_GAP = Settings().paragraph_gap_seconds  # before the first sentence of a paragraph
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -203,12 +205,49 @@ async def test_there_is_no_gap_before_the_first_sentence(new_session):
     assert of(events, "sentence")[0]["start"] == pytest.approx(delay, abs=0.002)
 
 
-@pytest.mark.parametrize(("paragraph_start", "gap"), [(True, 0.60), (False, 0.30)])
+@pytest.mark.parametrize(("paragraph_start", "gap"), [(True, PARAGRAPH_GAP), (False, GAP)])
 async def test_paragraph_gap_is_longer(new_session, paragraph_start, gap):
     session, _ = new_session(make_sentences(2, paragraph_starts={1} if paragraph_start else set()))
     events, _ = await play(session)
     first, second = of(events, "sentence")
     assert second["start"] - first["end"] == pytest.approx(gap, abs=0.05)
+
+
+async def test_the_gaps_are_the_ones_the_settings_name(new_session):
+    session, _ = new_session(
+        make_sentences(3, paragraph_starts={2}), gap_seconds=0.2, paragraph_gap_seconds=0.7
+    )
+    events, _ = await play(session)
+    first, second, third = of(events, "sentence")
+    assert second["start"] - first["end"] == pytest.approx(0.2, abs=0.05)
+    assert third["start"] - second["end"] == pytest.approx(0.7, abs=0.05)
+
+
+# Pauses inside a sentence are lengthened (audio.lengthen_pauses): Zonos pauses at a comma for a
+# tenth of a second or two, which runs a sentence's clauses together.
+PAUSED = np.concatenate([tone(0.3, 0.6), np.zeros(round(0.30 * SR), dtype=np.float32), tone(0.3, 0.6)])
+
+
+async def test_a_pause_inside_a_sentence_is_lengthened_by_the_breath(new_session):
+    session, _ = new_session(make_sentences(1), zonos=scripted_zonos(PAUSED), breath_seconds=0.15)
+    events, mp3 = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(1.5 + 0.15, abs=0.05)]
+    assert decoded_seconds(mp3) == pytest.approx(1.65, abs=0.15)  # the timeline and the audio agree
+
+
+async def test_without_a_breath_a_sentence_is_as_long_as_zonos_made_it(new_session):
+    session, _ = new_session(make_sentences(1), zonos=scripted_zonos(PAUSED), breath_seconds=0.0)
+    events, _ = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(1.5, abs=0.05)]
+
+
+async def test_a_sentence_with_no_pause_in_it_is_the_same_with_or_without_the_breath(new_session):
+    lengths = []
+    for breath in (0.0, 0.15):
+        session, _ = new_session(make_sentences(1), zonos=scripted_zonos(STEADY), breath_seconds=breath)
+        events, _ = await play(session)
+        lengths.append(spoken_seconds(events)[0])
+    assert lengths[0] == lengths[1]
 
 
 async def test_the_timeline_matches_the_decoded_audio(new_session):
@@ -331,7 +370,7 @@ async def test_language_switch_mid_session(new_session):
     assert [r.get("controls") for r in requests] == [{"room.clean": 2.0}, None, {"room.clean": 2.0}]
     # The stream goes on across the switch with the ordinary gap, and no longer one.
     for before, after in pairwise(of(events, "sentence")):
-        assert after["start"] - before["end"] == pytest.approx(0.30, abs=0.05)
+        assert after["start"] - before["end"] == pytest.approx(GAP, abs=0.05)
     assert events[-1] == ("done", {})
 
 
@@ -351,7 +390,7 @@ async def test_a_sentence_that_speaks_as_nothing_makes_no_zonos_call(new_session
     assert of(events, "words")[1] == {"id": "s1", "times": [None, None]}
     # The silent sentence adds no gap of its own, and the gap before the next one is one gap: the
     # paragraph it opens is not lost, so that gap is the paragraph's.
-    assert last["start"] - first["end"] == pytest.approx(0.60, abs=0.05)
+    assert last["start"] - first["end"] == pytest.approx(PARAGRAPH_GAP, abs=0.05)
     assert events[-1] == ("done", {})
     assert [name for name, _ in events].count("sentence") == 3
 
@@ -368,14 +407,14 @@ def sentences_of(kinds: str) -> list[Sentence]:
 @pytest.mark.parametrize(
     ("kinds", "gaps"),
     [
-        ("aSa", [0.60]),  # a paragraph opens with a sentence that says nothing: the gap is its own
-        ("asa", [0.30]),  # one that opens none leaves the ordinary gap
-        ("aSsa", [0.60]),  # the paragraph is kept across more silent sentences
-        ("asSsa", [0.60]),
-        ("aSA", [0.60]),  # and is the one gap when the sentence read opens a paragraph too
-        ("aSaa", [0.60, 0.30]),  # it is used once
-        ("Saa", [0.30]),  # nothing is written before the first sentence read, so no gap, and
-        ("SSaAa", [0.60, 0.30]),  # the paragraph waiting does not carry into the sentences after it
+        ("aSa", [PARAGRAPH_GAP]),  # a paragraph opens with a sentence that says nothing: the gap is its own
+        ("asa", [GAP]),  # one that opens none leaves the ordinary gap
+        ("aSsa", [PARAGRAPH_GAP]),  # the paragraph is kept across more silent sentences
+        ("asSsa", [PARAGRAPH_GAP]),
+        ("aSA", [PARAGRAPH_GAP]),  # and is the one gap when the sentence read opens a paragraph too
+        ("aSaa", [PARAGRAPH_GAP, GAP]),  # it is used once
+        ("Saa", [GAP]),  # nothing is written before the first sentence read, so no gap, and
+        ("SSaAa", [PARAGRAPH_GAP, GAP]),  # the paragraph waiting does not carry into the sentences after it
     ],
 )
 async def test_a_paragraph_that_opens_with_nothing_to_say_keeps_its_gap(new_session, kinds, gaps):

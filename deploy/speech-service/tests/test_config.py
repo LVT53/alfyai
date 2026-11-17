@@ -33,6 +33,7 @@ def test_the_other_defaults():
     )
     assert (s.idle_seconds, s.max_sentence_chars) == (30.0, 400)
     assert s.steady_attempts == 4
+    assert (s.gap_seconds, s.paragraph_gap_seconds, s.breath_seconds) == (0.5, 0.9, 0.15)
 
 
 def test_reads_every_variable():
@@ -49,6 +50,9 @@ def test_reads_every_variable():
             "SPEECH_ALIGNER_THREADS": "8",
             "SPEECH_IDLE_SECONDS": "12.5",
             "SPEECH_STEADY_ATTEMPTS": "2",
+            "SPEECH_GAP_SECONDS": "0.3",
+            "SPEECH_PARAGRAPH_GAP_SECONDS": "0.6",
+            "SPEECH_BREATH_SECONDS": "0",
         }
     )
     assert s == Settings(
@@ -63,6 +67,9 @@ def test_reads_every_variable():
         aligner_threads=8,
         idle_seconds=12.5,
         steady_attempts=2,
+        gap_seconds=0.3,
+        paragraph_gap_seconds=0.6,
+        breath_seconds=0.0,
     )
 
 
@@ -158,6 +165,36 @@ def test_one_aligner_thread_is_fine():
     assert Settings(aligner_threads=1).aligner_threads == 1
 
 
+@pytest.mark.parametrize(
+    ("name", "field"),
+    [
+        ("SPEECH_GAP_SECONDS", "gap_seconds"),
+        ("SPEECH_PARAGRAPH_GAP_SECONDS", "paragraph_gap_seconds"),
+        ("SPEECH_BREATH_SECONDS", "breath_seconds"),
+    ],
+)
+@pytest.mark.parametrize("seconds", ["-0.1", "nan", "inf", "-inf", "9"])
+def test_refuses_a_gap_or_a_breath_that_is_not_a_short_non_negative_time(name, field, seconds):
+    # A negative or endless silence would cut speech or stop a reading; nine seconds is a typo.
+    with pytest.raises(ValueError, match=name):
+        Settings.from_env({name: seconds})
+    with pytest.raises(ValueError, match=name):
+        Settings(**{field: float(seconds)})
+
+
+@pytest.mark.parametrize(
+    ("name", "field"),
+    [
+        ("SPEECH_GAP_SECONDS", "gap_seconds"),
+        ("SPEECH_PARAGRAPH_GAP_SECONDS", "paragraph_gap_seconds"),
+        ("SPEECH_BREATH_SECONDS", "breath_seconds"),
+    ],
+)
+def test_no_gap_and_no_breath_at_all_is_fine(name, field):
+    assert getattr(Settings.from_env({name: "0"}), field) == 0.0
+    assert getattr(Settings(**{field: 0.0}), field) == 0.0
+
+
 @pytest.mark.parametrize("attempts", ["0", "-1", "-4"])
 def test_refuses_fewer_than_one_steady_attempt(attempts):
     # A reading needs a clip: with no attempt at all there would never be one.
@@ -205,6 +242,9 @@ def test_refuses_an_unknown_aligner():
         "SPEECH_ALIGNER_THREADS",
         "SPEECH_IDLE_SECONDS",
         "SPEECH_STEADY_ATTEMPTS",
+        "SPEECH_GAP_SECONDS",
+        "SPEECH_PARAGRAPH_GAP_SECONDS",
+        "SPEECH_BREATH_SECONDS",
     ],
 )
 def test_an_unparsable_number_names_its_variable(name):

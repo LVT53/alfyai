@@ -35,7 +35,13 @@ from starlette.routing import Route
 from starlette.types import Message, Receive, Scope, Send
 
 from speech_service.aligner import Aligner, NoAligner
-from speech_service.audio import SAMPLE_RATE, Mp3Encoder, match_loudness, trim_silence
+from speech_service.audio import (
+    SAMPLE_RATE,
+    Mp3Encoder,
+    lengthen_pauses,
+    match_loudness,
+    trim_silence,
+)
 from speech_service.config import Settings
 from speech_service.logs import describe
 from speech_service.models import Sentence, Voice
@@ -204,6 +210,7 @@ class _Api:
             clip = match_loudness(trim_silence(audio, rate), rate)
             if clip.size == 0:
                 raise SynthesisFailed("Zonos sent nothing but silence")
+            clip = lengthen_pauses(clip, rate, self._settings.breath_seconds)
         except ZonosUnavailable:
             logger.warning("preview: Zonos could not be reached")
             return JSONResponse({"code": "zonos_unavailable"}, status_code=503)

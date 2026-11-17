@@ -893,6 +893,16 @@ STALLED = np.concatenate([tone(0.3, 0.5), np.zeros(round(1.5 * SR), dtype=np.flo
 STEADY = tone(0.3, 1.2)
 
 
+PAUSED = np.concatenate([tone(0.3, 0.6), np.zeros(round(0.30 * SR), dtype=np.float32), tone(0.3, 0.6)])
+
+
+def test_a_preview_has_its_pauses_lengthened_by_the_breath(serve):
+    for breath, seconds in ((0.15, 1.65), (0.0, 1.5)):
+        client, _ = serve(zonos=scripted_zonos(PAUSED), breath_seconds=breath)
+        reply = client.post("/v1/preview", json=preview_request())
+        assert decoded_seconds(reply.content) == pytest.approx(seconds, abs=0.15)
+
+
 def test_a_preview_zonos_stalled_on_is_made_again_and_the_steady_clip_is_answered(serve):
     client, requests = serve(zonos=scripted_zonos(STALLED, STEADY))
     reply = client.post("/v1/preview", json=preview_request())

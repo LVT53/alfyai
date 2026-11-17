@@ -36,6 +36,7 @@ from typing import Protocol
 
 import numpy as np
 
+from speech_service.audio import inner_silences
 from speech_service.models import Voice
 from speech_service.zonos import ZonosError
 
@@ -54,9 +55,6 @@ _SECONDS_PER_CHARACTER = {"en": 0.080, "hu": 0.090}
 _TEMPO_SLOPE = 0.16
 _TEMPO_CONTROL = "delivery.tempo"
 
-# A silence is a run of 20 ms frames more than 40 dB under the clip's 90th-percentile frame level.
-_FRAME_SECONDS = 0.02
-_QUIET_BELOW_P90_DB = 40.0
 
 
 class _Synthesizer(Protocol):
@@ -65,30 +63,10 @@ class _Synthesizer(Protocol):
     ) -> tuple[np.ndarray, int]: ...
 
 
-def _longest_run(flags: np.ndarray) -> int:
-    """The longest run of True in `flags`."""
-    if not flags.any():
-        return 0
-    padded = np.concatenate(([False], flags, [False]))
-    edges = np.flatnonzero(padded[1:] != padded[:-1])
-    return int((edges[1::2] - edges[0::2]).max())
-
-
 def longest_pause(audio: np.ndarray, rate: int) -> float:
     """The longest silence inside `audio`, in seconds: between its first and its last speech, so the
     silence at its ends does not count. 0 for a clip too short or too silent to measure."""
-    frame = max(1, round(_FRAME_SECONDS * rate))
-    count = len(audio) // frame
-    if count < 3:
-        return 0.0
-    frames = audio[: count * frame].astype(np.float64).reshape(count, frame)
-    rms = np.sqrt(np.mean(frames * frames, axis=1))
-    level = 20.0 * np.log10(np.maximum(rms, 1e-9))
-    quiet = level < np.percentile(level, 90) - _QUIET_BELOW_P90_DB
-    speech = np.flatnonzero(~quiet)
-    if speech.size == 0:
-        return 0.0
-    return _longest_run(quiet[speech[0] : speech[-1] + 1]) * frame / rate
+    return max((end - start for start, end in inner_silences(audio, rate)), default=0) / rate
 
 
 def _tempo_factor(tempo: float) -> float:
