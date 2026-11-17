@@ -107,6 +107,60 @@ export async function createSpeechSession(
 	return id;
 }
 
+/** A preview is one sentence made whole (the README); the service is given this long to answer. */
+export const PREVIEW_TIMEOUT_MS = 30_000;
+
+/**
+ * One sentence spoken in a voice, as one whole MP3 (`POST /v1/preview`): the
+ * clip's bytes. A 500, 502 or 503, a call that fails, and no answer within the
+ * time limit are `SpeechUnavailable`; any other answer is `SpeechRefused` with
+ * its status and the field it names (a 422 would mean the text has nothing
+ * speakable). A call that `signal` aborts rejects with the signal's reason.
+ * Nothing of `body` is logged or put in an error.
+ */
+export async function previewSpeech(
+	baseUrl: string,
+	body: {
+		text: string;
+		language: VoiceLanguage;
+		voice: { speaker_id: string; controls: Record<string, number> };
+	},
+	signal?: AbortSignal,
+	options: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<Uint8Array> {
+	if (signal?.aborted) throw signal.reason;
+	const limit = AbortSignal.timeout(options.timeoutMs ?? PREVIEW_TIMEOUT_MS);
+	const guarded = signal ? AbortSignal.any([signal, limit]) : limit;
+	const fetchImpl = options.fetchImpl ?? fetch;
+	let response: Response;
+	try {
+		response = await fetchImpl(`${baseUrl}/v1/preview`, {
+			method: "POST",
+			headers: JSON_HEADERS,
+			body: JSON.stringify(body),
+			signal: guarded,
+		});
+	} catch {
+		if (signal?.aborted) throw signal.reason;
+		throw new SpeechUnavailable("the speech service did not answer a preview");
+	}
+	if (response.status >= 500) {
+		await response.body?.cancel().catch(() => undefined);
+		throw new SpeechUnavailable(
+			`the speech service answered ${response.status}`,
+		);
+	}
+	if (response.status !== 200) {
+		throw new SpeechRefused(response.status, await fieldOf(response));
+	}
+	try {
+		return new Uint8Array(await response.arrayBuffer());
+	} catch {
+		if (signal?.aborted) throw signal.reason;
+		throw new SpeechUnavailable("the speech service did not send the preview");
+	}
+}
+
 /** One GET with no timeout of any kind: the body may stay silent for as long as playback is paused. */
 function getStream(
 	url: string,

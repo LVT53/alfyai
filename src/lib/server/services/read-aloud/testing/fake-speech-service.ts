@@ -17,7 +17,9 @@
 //     30 s: a late events reader gets what was said, a late audio reader an
 //     empty 200; after that 404;
 //   - a body is checked the way the service checks it (422 with a field path
-//     and never a value, 413 over 4 MiB).
+//     and never a value, 413 over 4 MiB);
+//   - `POST /v1/preview` answers one whole MP3 with a length: an ID3v2 tag and
+//     silent frames as long as its text (Plan 3, Task 5).
 //
 // Node built-ins and relative imports only, so Playwright can import it. It
 // writes nothing to disk and speaks no text: the audio is silent MP3 frames.
@@ -50,6 +52,17 @@ export type FakeSpeechOptions = {
 	cutAtSentence?: number;
 	/** `"even"` splits a sentence's time over its tokens; `"null"` gives every token no time. */
 	wordTimes?: "even" | "null";
+	/** `POST /v1/preview` answers 503 `zonos_unavailable` (`"unavailable"`) or 502 `synthesis_failed` (`"failed"`), at once. */
+	failPreview?: "unavailable" | "failed";
+	/** Wait this long before a preview is answered. Default 0. */
+	previewDelayMs?: number;
+};
+
+/** A preview body the fake accepted. */
+export type FakePreview = {
+	text: string;
+	language: string;
+	voice: { speaker_id: string; controls: Record<string, number> };
 };
 
 type FakeSentence = {
@@ -72,6 +85,10 @@ export interface FakeSpeechService {
 	baseUrl: string;
 	/** Every session ever made, the forgotten ones too. */
 	sessions: FakeSpeechSession[];
+	/** Every preview body accepted, in arrival order. */
+	previews: FakePreview[];
+	/** The accepted previews whose caller went away before they were answered (an aborted preview). */
+	abortedPreviews: FakePreview[];
 	/** Replaces the options as a whole: `setOptions({})` clears a failure. A session keeps the options it was made with. */
 	setOptions(next: FakeSpeechOptions): void;
 	close(): Promise<void>;
@@ -86,6 +103,9 @@ const KEEP_ENDED_MS = 30_000;
 const MAX_SENTENCES = 2000;
 const MAX_JOINED_CHARS = 400;
 const MAX_SEED = 4_294_967_295;
+const MAX_PREVIEW_CHARS = 300;
+/** A preview's tag: ID3v2.4, no flags, no frames (size 0). */
+const PREVIEW_ID3 = Uint8Array.of(0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0);
 
 const DEFAULT_OPTIONS = {
 	secondsPerChar: 0.02,
@@ -93,6 +113,7 @@ const DEFAULT_OPTIONS = {
 	errorDelayMs: 0,
 	refuseSessions: false,
 	wordTimes: "even",
+	previewDelayMs: 0,
 } as const;
 
 type ResolvedOptions = FakeSpeechOptions & {
@@ -101,6 +122,7 @@ type ResolvedOptions = FakeSpeechOptions & {
 	errorDelayMs: number;
 	refuseSessions: boolean;
 	wordTimes: "even" | "null";
+	previewDelayMs: number;
 };
 
 const round3 = (value: number): number => Math.round(value * 1000) / 1000;
@@ -122,6 +144,52 @@ type Checked =
 const isObject = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
+type CheckedVoice =
+	| { ok: true; voice: FakeSentence["voice"] }
+	| { ok: false; field: string };
+
+/** The service's rules for a voice (a session's sentence and a preview share them). `at` is the path of the voice. */
+function checkVoice(raw: unknown, at: string): CheckedVoice {
+	if (!isObject(raw)) return { ok: false, field: at };
+	const speakerId = raw.speaker_id;
+	if (typeof speakerId !== "string" || speakerId === "")
+		return { ok: false, field: `${at}.speaker_id` };
+	const rawControls = "controls" in raw ? raw.controls : {};
+	if (!isObject(rawControls)) return { ok: false, field: `${at}.controls` };
+	const controls: Record<string, number> = {};
+	for (const [name, value] of Object.entries(rawControls)) {
+		if (typeof value !== "number" || !Number.isFinite(value))
+			return { ok: false, field: `${at}.controls` };
+		controls[name] = value;
+	}
+	return { ok: true, voice: { speaker_id: speakerId, controls } };
+}
+
+type CheckedPreview =
+	| { ok: true; preview: FakePreview }
+	| { ok: false; field: string };
+
+/** The service's rules for a preview request: text, then language, then voice; a text with nothing speakable is 422 `text` too. */
+function checkPreviewBody(raw: unknown): CheckedPreview {
+	if (!isObject(raw)) return { ok: false, field: "body" };
+	const text = raw.text;
+	if (
+		typeof text !== "string" ||
+		text === "" ||
+		Array.from(text).length > MAX_PREVIEW_CHARS
+	)
+		return { ok: false, field: "text" };
+	if (raw.language !== "en" && raw.language !== "hu")
+		return { ok: false, field: "language" };
+	const voice = checkVoice(raw.voice, "voice");
+	if (!voice.ok) return { ok: false, field: voice.field };
+	if (!/[\p{L}\p{N}]/u.test(text)) return { ok: false, field: "text" };
+	return {
+		ok: true,
+		preview: { text, language: raw.language, voice: voice.voice },
+	};
+}
+
 /** The service's rules for a session request; the first field that fails is named. */
 function checkSessionBody(raw: unknown): Checked {
 	if (!isObject(raw)) return { ok: false, field: "body" };
@@ -139,19 +207,8 @@ function checkSessionBody(raw: unknown): Checked {
 		ids.add(item.id);
 		if (item.language !== "en" && item.language !== "hu")
 			return { ok: false, field: `${at}.language` };
-		if (!isObject(item.voice)) return { ok: false, field: `${at}.voice` };
-		const speakerId = item.voice.speaker_id;
-		if (typeof speakerId !== "string" || speakerId === "")
-			return { ok: false, field: `${at}.voice.speaker_id` };
-		const rawControls = "controls" in item.voice ? item.voice.controls : {};
-		if (!isObject(rawControls))
-			return { ok: false, field: `${at}.voice.controls` };
-		const controls: Record<string, number> = {};
-		for (const [name, value] of Object.entries(rawControls)) {
-			if (typeof value !== "number" || !Number.isFinite(value))
-				return { ok: false, field: `${at}.voice.controls` };
-			controls[name] = value;
-		}
+		const voice = checkVoice(item.voice, `${at}.voice`);
+		if (!voice.ok) return { ok: false, field: voice.field };
 		const tokens = item.tokens;
 		if (
 			!Array.isArray(tokens) ||
@@ -165,7 +222,7 @@ function checkSessionBody(raw: unknown): Checked {
 		sentences.push({
 			id: item.id,
 			language: item.language,
-			voice: { speaker_id: speakerId, controls },
+			voice: voice.voice,
 			tokens: tokens as string[],
 			paragraph_start: item.paragraph_start,
 		});
@@ -512,6 +569,8 @@ export async function createFakeSpeechService(
 	let current: FakeSpeechOptions = { ...options };
 	const resolve = (): ResolvedOptions => ({ ...DEFAULT_OPTIONS, ...current });
 	const sessions: FakeSpeechSession[] = [];
+	const previews: FakePreview[] = [];
+	const abortedPreviews: FakePreview[] = [];
 	const live = new Map<string, SessionState>();
 
 	const forget = (id: string): void => {
@@ -547,6 +606,57 @@ export async function createFakeSpeechService(
 		live.set(record.id, state);
 		void state.run();
 		sendJson(res, 201, { session_id: record.id });
+	}
+
+	async function makePreview(
+		req: IncomingMessage,
+		res: ServerResponse,
+	): Promise<void> {
+		const optionsNow = resolve();
+		const body = await readBody(req);
+		if (body.tooLarge) return sendJson(res, 413, { error: "too_large" });
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(body.text);
+		} catch {
+			return sendJson(res, 422, { error: "invalid", field: "body" });
+		}
+		const checked = checkPreviewBody(parsed);
+		if (!checked.ok)
+			return sendJson(res, 422, { error: "invalid", field: checked.field });
+		const preview = checked.preview;
+		previews.push(preview);
+		if (optionsNow.failPreview === "unavailable")
+			return sendJson(res, 503, { code: "zonos_unavailable" });
+		if (optionsNow.failPreview === "failed")
+			return sendJson(res, 502, { code: "synthesis_failed" });
+		// A caller that goes away while the preview is "being made" is recorded, and
+		// the wait ends with it, as the real service stops caring about a closed call.
+		let answered = false;
+		await new Promise<void>((done) => {
+			const timer = setTimeout(done, optionsNow.previewDelayMs);
+			res.on("close", () => {
+				clearTimeout(timer);
+				if (!answered) abortedPreviews.push(preview);
+				done();
+			});
+		});
+		if (res.destroyed) return;
+		const frames = silentMp3Frames(
+			Math.max(
+				1,
+				framesFor(Array.from(preview.text).length * optionsNow.secondsPerChar),
+			),
+		);
+		const mp3 = new Uint8Array(PREVIEW_ID3.length + frames.length);
+		mp3.set(PREVIEW_ID3);
+		mp3.set(frames, PREVIEW_ID3.length);
+		answered = true;
+		res.writeHead(200, {
+			"Content-Type": "audio/mpeg",
+			"Content-Length": String(mp3.length),
+		});
+		res.end(mp3);
 	}
 
 	async function takePosition(
@@ -613,6 +723,11 @@ export async function createFakeSpeechService(
 				return sendText(res, 405, "Method Not Allowed", { Allow: "POST" });
 			return createSession(req, res);
 		}
+		if (pathname === "/v1/preview") {
+			if (method !== "POST")
+				return sendText(res, 405, "Method Not Allowed", { Allow: "POST" });
+			return makePreview(req, res);
+		}
 		const match =
 			/^\/v1\/sessions\/([^/]+)(?:\/(audio|events|position))?$/u.exec(pathname);
 		if (!match) return sendText(res, 404, "Not Found");
@@ -647,6 +762,8 @@ export async function createFakeSpeechService(
 	return {
 		baseUrl: `http://127.0.0.1:${port}`,
 		sessions,
+		previews,
+		abortedPreviews,
 		setOptions(next) {
 			current = { ...next };
 		},
