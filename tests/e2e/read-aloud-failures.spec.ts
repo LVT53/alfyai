@@ -183,15 +183,18 @@ test("the connection drops: the offline note, then the resume", async ({
 });
 
 test("AlfyAI updates: the note, then the resume", async ({ page }) => {
+	// The fake makes sentence 3 only once the browser says sentence 1 plays
+	// (i <= position + 2), so the cut lands past the first sentence, and the
+	// resume can show it goes on from where it stopped, not from the start.
 	const ui = await start(page, {
-		secondsPerChar: 0.1,
-		cutAtSentence: 1,
-		errorDelayMs: 2500,
+		secondsPerChar: 0.05,
+		cutAtSentence: 3,
+		errorDelayMs: 500,
 	});
 	await ui.speaker().click();
 	await expect(ui.player).toBeVisible();
 	// The deploy drains the server while the voice is being read; the stream
-	// breaks (the fake cuts it at the second sentence).
+	// breaks (the fake cuts it at the fourth sentence).
 	await setDraining(page, true);
 	await expect(ui.note).toContainText(
 		"AlfyAI is updating. Reading continues when it is back.",
@@ -200,6 +203,9 @@ test("AlfyAI updates: the note, then the resume", async ({ page }) => {
 	await expect(ui.note.getByRole("button", { name: "Try again" })).toHaveCount(
 		0,
 	);
+	// Where it stopped: the scrubber shows that sentence, counted from 1.
+	const stoppedAt = Number(await ui.slider.getAttribute("aria-valuenow")) - 1;
+	expect(stoppedAt).toBeGreaterThan(0);
 
 	const sessions = fake?.sessions.length ?? 0;
 	// The update ends: the server is back, and the voice is as it was.
@@ -210,6 +216,8 @@ test("AlfyAI updates: the note, then the resume", async ({ page }) => {
 		.poll(() => fake?.sessions.length, { timeout: 20_000 })
 		.toBeGreaterThan(sessions);
 	await expect(ui.note).toHaveCount(0, { timeout: 15_000 });
+	// It goes on from the sentence it stopped at.
+	expect(fake?.sessions.at(-1)?.body.sentences[0]?.id).toBe(`s${stoppedAt}`);
 });
 
 test("word timing fails: the tint without the word marker", async ({

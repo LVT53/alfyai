@@ -251,6 +251,9 @@ test("marks never move the text and never cover the player", async ({
 			return { x: box.x, y: box.y, width: box.width, height: box.height };
 		});
 
+	// Before the reading: marking itself must not reflow the line. Its x, width and
+	// height stay; its y may move, as the thread makes room for the player.
+	const before = await word();
 	await ui.speaker().click();
 	await expect(ui.player).toBeVisible();
 	await expect(ui.tint.first()).toBeVisible();
@@ -258,6 +261,9 @@ test("marks never move the text and never cover the player", async ({
 	// is settled: from here on only the marks change.
 	await waitForMotionToSettle(page);
 	const first = await word();
+	expect(first.x).toBeCloseTo(before.x, 1);
+	expect(first.width).toBeCloseTo(before.width, 1);
+	expect(first.height).toBeCloseTo(before.height, 1);
 	const place = await tintPlace(ui);
 	await expect.poll(() => tintPlace(ui), { timeout: 15_000 }).not.toBe(place);
 	const second = await word();
