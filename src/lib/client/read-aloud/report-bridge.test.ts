@@ -152,6 +152,28 @@ describe("the report bridge", () => {
 		expect(frame.highlights.size).toBe(1);
 	});
 
+	it("ignores an oversized message", () => {
+		const good = { sentence: [[2, 0, 9]], word: null, target: [] };
+		for (const bad of [
+			{ ...message("marks", good), pad: "x".repeat(1_000_000) },
+			message("x".repeat(1_000_000)),
+			// A hello it took would be answered: nothing but the first ready is posted.
+			{
+				...message("hello"),
+				...Object.fromEntries(
+					Array.from({ length: 5000 }, (_, i) => [`k${i}`, i]),
+				),
+			},
+			message("marks", {
+				...good,
+				target: Array.from({ length: 100_000 }, () => [2, 0, 9]),
+			}),
+		])
+			send(bad);
+		expect(frame.highlights.size).toBe(0);
+		expect(frame.posted).toHaveLength(1);
+	});
+
 	it("ignores a message of any other shape", () => {
 		const good = { sentence: [[2, 0, 9]], word: null, target: [] };
 		for (const bad of [
