@@ -103,7 +103,8 @@ function baseNameOf(key: string): string {
 	return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
-function toPersonalVoice(row: VoiceFields): PersonalVoice {
+/** A stored voice as the person sees it (exported for the account's data archive). */
+export function toPersonalVoice(row: VoiceFields): PersonalVoice {
 	const language = languageOf(row.language);
 	const base = builtInVoice(row.baseVoice);
 	return {
@@ -149,8 +150,26 @@ function validChoice(
 		: null;
 }
 
-function speedOf(stored: number | null | undefined): number {
+/** The Default speed a stored value stands for: one of the six, else 1. */
+export function readingSpeedOf(stored: number | null | undefined): number {
 	return isReadingSpeed(stored) ? stored : 1;
+}
+
+/**
+ * The voice each language reads with, from what is stored on the person's row
+ * and the voices that are theirs: an unset choice, another person's id, a
+ * deleted id and a voice of the other language all stand for the language's
+ * default. The one place that rule is written (the data archive reads the
+ * choice through it too).
+ */
+export function resolveChoice(
+	stored: { en: string | null | undefined; hu: string | null | undefined },
+	voices: readonly PersonalVoice[],
+): VoiceChoice {
+	return {
+		en: validChoice("en", stored.en, voices) ?? defaultVoiceFor("en").key,
+		hu: validChoice("hu", stored.hu, voices) ?? defaultVoiceFor("hu").key,
+	};
 }
 
 /** The person's voices (oldest first), choice and Default speed, read from `reader`. */
@@ -174,11 +193,8 @@ function loadSettings(reader: Reader, userId: string): ReadAloudSettings {
 	const voices = rows.map(toPersonalVoice);
 	return {
 		voices,
-		choice: {
-			en: validChoice("en", user?.en, voices) ?? defaultVoiceFor("en").key,
-			hu: validChoice("hu", user?.hu, voices) ?? defaultVoiceFor("hu").key,
-		},
-		defaultSpeed: speedOf(user?.speed),
+		choice: resolveChoice({ en: user?.en, hu: user?.hu }, voices),
+		defaultSpeed: readingSpeedOf(user?.speed),
 	};
 }
 
