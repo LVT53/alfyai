@@ -25,6 +25,7 @@ import pytest
 import soundfile as sf
 
 from speech_service import session as session_module
+from speech_service import steady
 from speech_service.aligner import NoAligner
 from speech_service.audio import Mp3Encoder
 from speech_service.config import Settings
@@ -32,13 +33,15 @@ from speech_service.models import Sentence, Voice
 from speech_service.session import ReaderTaken, ReadingSession
 from speech_service.text import Spoken, normalize
 from speech_service.zonos import ZonosClient
-from tests.fakes_zonos import fake_zonos, refusing_transport
+from tests.fakes_zonos import fake_zonos, refusing_transport, scripted_zonos
 from tests.helpers import SR, VOICE, decode_mp3, decoded_seconds, rms_db, tone
 
 # Like tests/test_aligner.py: the bare module name, which both Pythons that run these tests find.
 from fakes_aligner import FakeAligner
 
 SECRET = ["Zebrafish", "Quokka."]  # tokens whose text must never reach a log
+GAP = Settings().gap_seconds  # the silence between two sentences, and
+PARAGRAPH_GAP = Settings().paragraph_gap_seconds  # before the first sentence of a paragraph
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -202,12 +205,49 @@ async def test_there_is_no_gap_before_the_first_sentence(new_session):
     assert of(events, "sentence")[0]["start"] == pytest.approx(delay, abs=0.002)
 
 
-@pytest.mark.parametrize(("paragraph_start", "gap"), [(True, 0.60), (False, 0.30)])
+@pytest.mark.parametrize(("paragraph_start", "gap"), [(True, PARAGRAPH_GAP), (False, GAP)])
 async def test_paragraph_gap_is_longer(new_session, paragraph_start, gap):
     session, _ = new_session(make_sentences(2, paragraph_starts={1} if paragraph_start else set()))
     events, _ = await play(session)
     first, second = of(events, "sentence")
     assert second["start"] - first["end"] == pytest.approx(gap, abs=0.05)
+
+
+async def test_the_gaps_are_the_ones_the_settings_name(new_session):
+    session, _ = new_session(
+        make_sentences(3, paragraph_starts={2}), gap_seconds=0.2, paragraph_gap_seconds=0.7
+    )
+    events, _ = await play(session)
+    first, second, third = of(events, "sentence")
+    assert second["start"] - first["end"] == pytest.approx(0.2, abs=0.05)
+    assert third["start"] - second["end"] == pytest.approx(0.7, abs=0.05)
+
+
+# Pauses inside a sentence are lengthened (audio.lengthen_pauses): Zonos pauses at a comma for a
+# tenth of a second or two, which runs a sentence's clauses together.
+PAUSED = np.concatenate([tone(0.3, 0.6), np.zeros(round(0.30 * SR), dtype=np.float32), tone(0.3, 0.6)])
+
+
+async def test_a_pause_inside_a_sentence_is_lengthened_by_the_breath(new_session):
+    session, _ = new_session(make_sentences(1), zonos=scripted_zonos(PAUSED), breath_seconds=0.15)
+    events, mp3 = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(1.5 + 0.15, abs=0.05)]
+    assert decoded_seconds(mp3) == pytest.approx(1.65, abs=0.15)  # the timeline and the audio agree
+
+
+async def test_without_a_breath_a_sentence_is_as_long_as_zonos_made_it(new_session):
+    session, _ = new_session(make_sentences(1), zonos=scripted_zonos(PAUSED), breath_seconds=0.0)
+    events, _ = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(1.5, abs=0.05)]
+
+
+async def test_a_sentence_with_no_pause_in_it_is_the_same_with_or_without_the_breath(new_session):
+    lengths = []
+    for breath in (0.0, 0.15):
+        session, _ = new_session(make_sentences(1), zonos=scripted_zonos(STEADY), breath_seconds=breath)
+        events, _ = await play(session)
+        lengths.append(spoken_seconds(events)[0])
+    assert lengths[0] == lengths[1]
 
 
 async def test_the_timeline_matches_the_decoded_audio(new_session):
@@ -249,6 +289,84 @@ async def test_zonos_hears_the_normalized_words_in_the_voice_and_seed(new_sessio
     }
 
 
+# A sentence Zonos stalls on is made again (speech_service/steady.py): "Hello there." is expected to
+# take 1.4 s or so, and a clip with a silence in it, or one far longer, is in trouble.
+STALLED = np.concatenate([tone(0.3, 0.5), np.zeros(round(1.5 * SR), dtype=np.float32), tone(0.3, 0.5)])
+STEADY = tone(0.3, 1.2)
+
+
+def spoken_seconds(events: list[tuple[str, dict]]) -> list[float]:
+    """How long each announced sentence plays, from the timeline."""
+    return [(data["end"] - data["start"]) for data in of(events, "sentence")]
+
+
+async def test_a_sentence_zonos_stalled_on_is_made_again_and_the_steady_clip_is_spoken(new_session):
+    session, requests = new_session(make_sentences(1), zonos=scripted_zonos(STALLED, STEADY))
+    events, mp3 = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(1.2, abs=0.05)]
+    assert decoded_seconds(mp3) == pytest.approx(1.2, abs=0.15)
+    assert [request["seed"] for request in requests] == [1234, 1234 + steady.SEED_STEP]
+    assert requests[0]["text"] == requests[1]["text"] == "Hello there."
+
+
+async def test_speech_made_up_for_a_few_words_is_made_again(new_session, caplog):
+    # A selection of a few words: Zonos answers with seconds of fluent speech the text never held.
+    caplog.set_level(logging.DEBUG, logger="speech_service")
+    made_up = tone(0.3, 5.0)
+    sentences = [Sentence("s0", "en", VOICE, list(SECRET), True)]  # "Zebrafish Quokka."
+    session, requests = new_session(sentences, zonos=scripted_zonos(made_up, STEADY))
+    events, _ = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(1.2, abs=0.05)]
+    assert len(requests) == 2
+    lines = _logged(caplog)
+    assert any("made again" in line for line in lines)
+    assert not any("Zebrafish" in line or "Quokka" in line for line in lines)
+
+
+async def test_a_sentence_that_stalls_every_time_is_still_spoken_from_the_least_bad_clip(new_session):
+    worst = np.concatenate([tone(0.3, 0.5), np.zeros(round(3.0 * SR), dtype=np.float32), tone(0.3, 0.5)])
+    session, requests = new_session(
+        make_sentences(1), zonos=scripted_zonos(worst, STALLED, worst, worst), steady_attempts=4
+    )
+    events, _ = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(2.5, abs=0.05)]  # STALLED, the least bad
+    assert len(requests) == 4
+    assert of(events, "done") == [{}]
+
+
+async def test_with_one_attempt_a_stalled_clip_is_spoken_as_it_is(new_session):
+    session, requests = new_session(
+        make_sentences(1), zonos=scripted_zonos(STALLED, STEADY), steady_attempts=1
+    )
+    events, _ = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(2.5, abs=0.05)]
+    assert len(requests) == 1
+
+
+async def test_a_retry_that_fails_leaves_the_stalled_clip_to_be_spoken_and_no_error(new_session):
+    session, requests = new_session(make_sentences(1), zonos=scripted_zonos(STALLED, 500))
+    events, _ = await play(session)
+    assert of(events, "error") == []
+    assert spoken_seconds(events) == [pytest.approx(2.5, abs=0.05)]
+    assert len(requests) == 2
+
+
+async def test_only_the_stalled_sentences_are_made_again(new_session):
+    session, requests = new_session(
+        make_sentences(3), zonos=scripted_zonos(STEADY, STALLED, STEADY, STEADY), prefetch=3
+    )
+    events, _ = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(1.2, abs=0.05)] * 3
+    assert len(requests) == 4  # the second sentence took two attempts, the others one
+
+
+async def test_the_end_line_counts_the_clips_that_were_made_again(new_session, caplog):
+    caplog.set_level(logging.DEBUG, logger="speech_service")
+    session, _ = new_session(make_sentences(2), zonos=scripted_zonos(STALLED, STEADY, STEADY))
+    await play(session)
+    assert ", 1 made again, 0 without word times" in ending_of(caplog)
+
+
 async def test_language_switch_mid_session(new_session):
     hungarian = Voice("hu_voice", {"room.clean": 2.0})
     english = Voice("en_voice", {})
@@ -266,7 +384,7 @@ async def test_language_switch_mid_session(new_session):
     assert [r.get("controls") for r in requests] == [{"room.clean": 2.0}, None, {"room.clean": 2.0}]
     # The stream goes on across the switch with the ordinary gap, and no longer one.
     for before, after in pairwise(of(events, "sentence")):
-        assert after["start"] - before["end"] == pytest.approx(0.30, abs=0.05)
+        assert after["start"] - before["end"] == pytest.approx(GAP, abs=0.05)
     assert events[-1] == ("done", {})
 
 
@@ -286,7 +404,7 @@ async def test_a_sentence_that_speaks_as_nothing_makes_no_zonos_call(new_session
     assert of(events, "words")[1] == {"id": "s1", "times": [None, None]}
     # The silent sentence adds no gap of its own, and the gap before the next one is one gap: the
     # paragraph it opens is not lost, so that gap is the paragraph's.
-    assert last["start"] - first["end"] == pytest.approx(0.60, abs=0.05)
+    assert last["start"] - first["end"] == pytest.approx(PARAGRAPH_GAP, abs=0.05)
     assert events[-1] == ("done", {})
     assert [name for name, _ in events].count("sentence") == 3
 
@@ -303,14 +421,14 @@ def sentences_of(kinds: str) -> list[Sentence]:
 @pytest.mark.parametrize(
     ("kinds", "gaps"),
     [
-        ("aSa", [0.60]),  # a paragraph opens with a sentence that says nothing: the gap is its own
-        ("asa", [0.30]),  # one that opens none leaves the ordinary gap
-        ("aSsa", [0.60]),  # the paragraph is kept across more silent sentences
-        ("asSsa", [0.60]),
-        ("aSA", [0.60]),  # and is the one gap when the sentence read opens a paragraph too
-        ("aSaa", [0.60, 0.30]),  # it is used once
-        ("Saa", [0.30]),  # nothing is written before the first sentence read, so no gap, and
-        ("SSaAa", [0.60, 0.30]),  # the paragraph waiting does not carry into the sentences after it
+        ("aSa", [PARAGRAPH_GAP]),  # a paragraph opens with a sentence that says nothing: the gap is its own
+        ("asa", [GAP]),  # one that opens none leaves the ordinary gap
+        ("aSsa", [PARAGRAPH_GAP]),  # the paragraph is kept across more silent sentences
+        ("asSsa", [PARAGRAPH_GAP]),
+        ("aSA", [PARAGRAPH_GAP]),  # and is the one gap when the sentence read opens a paragraph too
+        ("aSaa", [PARAGRAPH_GAP, GAP]),  # it is used once
+        ("Saa", [GAP]),  # nothing is written before the first sentence read, so no gap, and
+        ("SSaAa", [PARAGRAPH_GAP, GAP]),  # the paragraph waiting does not carry into the sentences after it
     ],
 )
 async def test_a_paragraph_that_opens_with_nothing_to_say_keeps_its_gap(new_session, kinds, gaps):
@@ -1141,7 +1259,9 @@ async def test_zonos_unavailable_has_its_own_code(new_session):
 @pytest.mark.parametrize("rate", [22050, 48000])
 async def test_a_sample_rate_other_than_44100_is_a_failed_synthesis(new_session, rate):
     zonos = zonos_answering(lambda: wav_response(tone(0.3, 1.0), rate))
-    session, requests = new_session(make_sentences(2), zonos=zonos)
+    # One attempt: at 22050 Hz these samples play for twice as long as Zonos's 44100 Hz would, which
+    # looks like a stall to steady.py, and it would make the sentence again before the rate is judged.
+    session, requests = new_session(make_sentences(2), zonos=zonos, steady_attempts=1)
     events, _ = await play(session)
     assert events == [("error", {"id": "s0", "code": "synthesis_failed"})]
     assert len(requests) == 1
@@ -1285,6 +1405,8 @@ class _QuotesTheWords(FakeAligner):
         "zonos-refuses",
         "zonos-500",
         "normalizer-quotes",
+        "stalled",
+        "made-up",
         "cancelled",
         "idle",
     ],
@@ -1299,6 +1421,10 @@ async def test_no_reply_text_is_logged(new_session, caplog, monkeypatch, scenari
         options["zonos"] = (refusing_transport(), [])
     elif scenario == "zonos-500":
         options["fail_on"] = 2
+    elif scenario == "stalled":
+        options["zonos"] = scripted_zonos(STALLED, STEADY, STALLED, STALLED, STEADY)
+    elif scenario == "made-up":
+        options["zonos"] = scripted_zonos(tone(0.3, 6.0), STEADY, tone(0.3, 6.0), STEADY, STEADY)
     elif scenario == "normalizer-quotes":
         def quoting(tokens, language):
             raise ValueError(f"cannot normalize {tokens}")

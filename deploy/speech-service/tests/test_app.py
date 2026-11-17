@@ -20,19 +20,21 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+import numpy as np
 import pytest
 import uvicorn
 
 from speech_service import __main__ as entry_point
 from speech_service import app as app_module
+from speech_service import steady
 from speech_service.aligner import NoAligner, make_aligner
 from speech_service.app import create_app
 from speech_service.audio import Mp3Encoder
 from speech_service.config import Settings
 from speech_service.session import ReadingSession
 from speech_service.zonos import ZonosClient
-from tests.fakes_zonos import fake_zonos, refusing_transport
-from tests.helpers import SR, decode_mp3, decoded_seconds, rms_db
+from tests.fakes_zonos import fake_zonos, refusing_transport, scripted_zonos
+from tests.helpers import SR, decode_mp3, decoded_seconds, rms_db, tone
 
 # Like tests/test_aligner.py: the bare module name, which both Pythons that run these tests find.
 from fakes_aligner import FakeAligner
@@ -884,6 +886,62 @@ def test_preview_returns_mp3(serve):
     assert decoded_seconds(reply.content) == pytest.approx(seconds, abs=0.15)
     pcm = decode_mp3(reply.content)
     assert rms_db(pcm[round(0.2 * SR) : round(0.9 * SR)]) == pytest.approx(-20.0, abs=1.5)
+
+
+# A sentence Zonos stalls on is made again (speech_service/steady.py).
+STALLED = np.concatenate([tone(0.3, 0.5), np.zeros(round(1.5 * SR), dtype=np.float32), tone(0.3, 0.5)])
+STEADY = tone(0.3, 1.2)
+
+
+PAUSED = np.concatenate([tone(0.3, 0.6), np.zeros(round(0.30 * SR), dtype=np.float32), tone(0.3, 0.6)])
+
+
+def test_a_preview_has_its_pauses_lengthened_by_the_breath(serve):
+    for breath, seconds in ((0.15, 1.65), (0.0, 1.5)):
+        client, _ = serve(zonos=scripted_zonos(PAUSED), breath_seconds=breath)
+        reply = client.post("/v1/preview", json=preview_request())
+        assert decoded_seconds(reply.content) == pytest.approx(seconds, abs=0.15)
+
+
+def test_a_preview_zonos_stalled_on_is_made_again_and_the_steady_clip_is_answered(serve):
+    client, requests = serve(zonos=scripted_zonos(STALLED, STEADY))
+    reply = client.post("/v1/preview", json=preview_request())
+    assert reply.status_code == 200
+    assert decoded_seconds(reply.content) == pytest.approx(1.2, abs=0.15)
+    assert [request["seed"] for request in requests] == [1234, 1234 + steady.SEED_STEP]
+
+
+def test_a_preview_that_stalls_every_time_still_answers_with_the_least_bad_clip(serve):
+    worst = np.concatenate([tone(0.3, 0.5), np.zeros(round(3.0 * SR), dtype=np.float32), tone(0.3, 0.5)])
+    client, requests = serve(zonos=scripted_zonos(worst, STALLED, worst, worst))
+    reply = client.post("/v1/preview", json=preview_request())
+    assert reply.status_code == 200
+    assert decoded_seconds(reply.content) == pytest.approx(2.5, abs=0.15)
+    assert len(requests) == 4
+
+
+def test_a_preview_with_one_attempt_is_not_made_again(serve):
+    client, requests = serve(zonos=scripted_zonos(STALLED, STEADY), steady_attempts=1)
+    reply = client.post("/v1/preview", json=preview_request())
+    assert decoded_seconds(reply.content) == pytest.approx(2.5, abs=0.15)
+    assert len(requests) == 1
+
+
+def test_a_preview_whose_retry_fails_answers_with_the_stalled_clip(serve):
+    client, requests = serve(zonos=scripted_zonos(STALLED, 500))
+    reply = client.post("/v1/preview", json=preview_request())
+    assert reply.status_code == 200
+    assert decoded_seconds(reply.content) == pytest.approx(2.5, abs=0.15)
+    assert len(requests) == 2
+
+
+def test_a_preview_made_again_logs_numbers_and_never_the_text(serve, caplog):
+    caplog.set_level(logging.DEBUG, logger="speech_service")
+    client, _ = serve(zonos=scripted_zonos(STALLED, STEADY))
+    client.post("/v1/preview", json=preview_request(text="Zebrafish Quokka."))
+    lines = [record.getMessage() for record in caplog.records]
+    assert any("made again" in line for line in lines)
+    assert not any(word in line.lower() for line in lines for word in MARKERS)
 
 
 def test_preview_is_not_aligned(serve):

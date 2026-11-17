@@ -33,6 +33,41 @@ describe("the containment check", () => {
 		).toBeNull();
 	});
 
+	it("accepts the pauses the script makes of dashes and brackets, which are marks and no letters", () => {
+		const md =
+			"Then \u2014 and this is key \u2014 fold in the eggs (one at a time) and stir\u2014gently.";
+		// What the script sends: a comma after the word before each dash, the brackets not said, a
+		// comma after the one that closes them, and the word an em dash is inside split in two.
+		const sent = (shown: string, ...tokens: string[]): CheckedWord => ({
+			shown,
+			kind: "prose",
+			tokens,
+		});
+		expect(
+			wordsFitReply(md, [
+				en(
+					sent("Then", "Then,"),
+					sent("and", "and"),
+					sent("this", "this"),
+					sent("is", "is"),
+					sent("key", "key,"),
+					sent("fold", "fold"),
+					sent("in", "in"),
+					sent("the", "the"),
+					sent("eggs", "eggs,"),
+					sent("(one", "one"),
+					sent("at", "at"),
+					sent("a", "a"),
+					sent("time)", "time,"),
+					sent("and", "and"),
+					sent("stir\u2014gently.", "stir,", "gently."),
+				),
+			]),
+		).toBeNull();
+		// A word that is not in the reply still fails, whatever marks come with it.
+		expect(wordsFitReply(md, [en(sent("village,", "village,"))])).toBe(0);
+	});
+
 	it("steps over a formula, emoji or spaced number inside a sentence", () => {
 		expect(
 			wordsFitReply("The area is $\\pi r^2$ for a circle.", [

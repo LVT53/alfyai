@@ -35,11 +35,18 @@ from starlette.routing import Route
 from starlette.types import Message, Receive, Scope, Send
 
 from speech_service.aligner import Aligner, NoAligner
-from speech_service.audio import SAMPLE_RATE, Mp3Encoder, match_loudness, trim_silence
+from speech_service.audio import (
+    SAMPLE_RATE,
+    Mp3Encoder,
+    lengthen_pauses,
+    match_loudness,
+    trim_silence,
+)
 from speech_service.config import Settings
 from speech_service.logs import describe
 from speech_service.models import Sentence, Voice
 from speech_service.session import Event, ReaderTaken, ReadingSession
+from speech_service.steady import synthesize_steady
 from speech_service.text import Language, normalize
 from speech_service.zonos import SynthesisFailed, ZonosClient, ZonosError, ZonosUnavailable
 
@@ -189,14 +196,21 @@ class _Api:
             raise _Invalid("text")
         started = time.monotonic()
         try:
-            audio, rate = await self._zonos.synthesize(
-                " ".join(spoken.words), language, voice, self._settings.seed
+            audio, rate = await synthesize_steady(
+                self._zonos,
+                " ".join(spoken.words),
+                language,
+                voice,
+                self._settings.seed,
+                self._settings.steady_attempts,
+                on_retry=_preview_made_again,
             )
             if rate != SAMPLE_RATE:
                 raise SynthesisFailed(f"Zonos sent audio at {rate} Hz, not {SAMPLE_RATE} Hz")
             clip = match_loudness(trim_silence(audio, rate), rate)
             if clip.size == 0:
                 raise SynthesisFailed("Zonos sent nothing but silence")
+            clip = lengthen_pauses(clip, rate, self._settings.breath_seconds)
         except ZonosUnavailable:
             logger.warning("preview: Zonos could not be reached")
             return JSONResponse({"code": "zonos_unavailable"}, status_code=503)
@@ -228,6 +242,21 @@ class _Api:
                 "aligner": not isinstance(self._aligner, NoAligner),
             }
         )
+
+
+def _preview_made_again(
+    attempt: int, attempts: int, seconds: float, pause: float, expected: float
+) -> None:
+    """Zonos stalled on a preview's sentence and it is made again: numbers only, never the text."""
+    logger.info(
+        "preview: a clip of %.1f s (its text needs about %.1f s) with a pause of %.1f s was made "
+        "again (attempt %d of %d)",
+        seconds,
+        expected,
+        pause,
+        attempt,
+        attempts,
+    )
 
 
 @dataclasses.dataclass

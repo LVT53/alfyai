@@ -83,6 +83,80 @@ def trim_silence(x: np.ndarray, sr: int, keep_s: float = 0.05) -> np.ndarray:
     return x[start:end].copy()
 
 
+# A silence inside a clip is a run of 20 ms frames more than 40 dB under the clip's 90th-percentile
+# frame level, between its first and its last speech. The same rule sets the limits in steady.py and
+# the knob sweep's gaps, so the three read a clip alike (a test holds the first and the last equal).
+_QUIET_BELOW_P90_DB = 40.0
+
+
+def inner_silences(x: np.ndarray, sr: int) -> list[tuple[int, int]]:
+    """The silences inside `x` as `(start, end)` sample positions, in order. Silence before the first
+    speech and after the last is not inside it. A clip too short or too silent to measure has none."""
+    hop = _hop(sr)
+    count = len(x) // hop
+    if count < 3:
+        return []
+    frames = x[: count * hop].astype(np.float64).reshape(count, hop)
+    rms = np.sqrt(np.mean(frames * frames, axis=1))
+    level = 20.0 * np.log10(np.maximum(rms, 1e-9))
+    quiet = level < np.percentile(level, 90) - _QUIET_BELOW_P90_DB
+    speech = np.flatnonzero(~quiet)
+    if speech.size == 0:
+        return []
+    inner = quiet[speech[0] : speech[-1] + 1]
+    padded = np.concatenate(([False], inner, [False]))
+    edges = np.flatnonzero(padded[1:] != padded[:-1])
+    first = int(speech[0])
+    return [
+        ((first + int(a)) * hop, (first + int(b)) * hop) for a, b in zip(edges[0::2], edges[1::2])
+    ]
+
+
+# The faint hiss of the room in a pause is cut and joined over this long, so the join does not click.
+_JOIN_FADE_SECONDS = 0.005
+
+
+def lengthen_pauses(
+    x: np.ndarray,
+    sr: int,
+    extra_seconds: float,
+    shortest_seconds: float = 0.12,
+    longest_seconds: float = 0.8,
+) -> np.ndarray:
+    """`x` with each silence inside it that is `shortest_seconds` to `longest_seconds` long made
+    `extra_seconds` longer: the breath a reader takes at a comma, which Zonos takes for a tenth of a
+    second or two. Shorter silences are the closing of a consonant, and longer ones a stall, which
+    steady.py makes again rather than stretches. The speech is not touched; silence is added at the
+    middle of the pause, with a few milliseconds of fade either side. The result is a new array."""
+    if extra_seconds <= 0:
+        return x.copy()
+    pauses = [
+        (a, b)
+        for a, b in inner_silences(x, sr)
+        if shortest_seconds <= (b - a) / sr <= longest_seconds
+    ]
+    if not pauses:
+        return x.copy()
+    cuts = [(a + b) // 2 for a, b in pauses]
+    fade = round(_JOIN_FADE_SECONDS * sr)
+    extra = np.zeros(round(extra_seconds * sr), dtype=x.dtype)
+    pieces: list[np.ndarray] = []
+    for i, start in enumerate([0, *cuts]):
+        end = cuts[i] if i < len(cuts) else len(x)
+        piece = x[start:end].copy()
+        if i > 0:  # follows an added silence: fade in
+            n = min(fade, len(piece))
+            piece[:n] *= np.linspace(0.0, 1.0, n, dtype=x.dtype)
+        if i < len(cuts):  # is followed by one: fade out
+            n = min(fade, len(piece))
+            if n:
+                piece[-n:] *= np.linspace(1.0, 0.0, n, dtype=x.dtype)
+        pieces.append(piece)
+        if i < len(cuts):
+            pieces.append(extra)
+    return np.concatenate(pieces)
+
+
 def silence(seconds: float, sr: int) -> np.ndarray:
     """`seconds` of silence: the gap between sentences."""
     return np.zeros(round(seconds * sr), dtype=np.float32)

@@ -255,6 +255,34 @@ describe("spoken forms: the rules around the examples", () => {
 		expect(isSeparator("-")).toBe(false);
 	});
 
+	it("knows a dash between words as a separator, however it is typed", () => {
+		for (const mark of ["—", "–", "―", "--", "---"])
+			expect(isSeparator(mark)).toBe(true);
+		// A lone hyphen may be a minus: the script decides it from its neighbours.
+		expect(isSeparator("-")).toBe(false);
+	});
+
+	it("says two words an em dash joins as two words with a comma between them", () => {
+		expect(speakWord("eggs—one", "prose", "en")).toEqual(["eggs,", "one"]);
+		expect(speakWord("eggs—one,", "prose", "en")).toEqual(["eggs,", "one,"]);
+		expect(speakWord("tojás—egyesével.", "prose", "hu")).toEqual([
+			"tojás,",
+			"egyesével.",
+		]);
+		expect(speakWord("(eggs—one)", "prose", "en")).toEqual(["(eggs,", "one)"]);
+		expect(speakWord("a—b—c", "prose", "en")).toEqual(["a,", "b,", "c"]);
+	});
+
+	it("leaves a dash that joins nothing alone", () => {
+		// An en dash is a range or a pair ("2018–2020", "magyar–angol"), not a pause.
+		expect(speakWord("2018–2020", "prose", "en")).toEqual(["2018–2020"]);
+		expect(speakWord("magyar–angol", "prose", "hu")).toEqual(["magyar–angol"]);
+		// A flag, a number with a sign and a lone dash have no word on one side.
+		expect(speakWord("--force", "prose", "en")).toEqual(["--force"]);
+		expect(speakWord("5—", "prose", "en")).toEqual(["5—"]);
+		expect(speakWord("1990—2000", "prose", "en")).toEqual(["1990—2000"]);
+	});
+
 	it("keeps every token short and free of whitespace", () => {
 		for (const [shown, kind] of SPEC)
 			for (const language of ["en", "hu"] as const)

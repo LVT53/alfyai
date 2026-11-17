@@ -55,8 +55,10 @@ BERTA_CONTROLS = {"room.clean": 2}  # "studio", the setting the owner approved h
 
 # What a run is expected to show.
 FIRST_AUDIO_LIMIT = 1.5  # seconds from the POST to the first MP3 audio byte
-GAP_SECONDS = 0.30  # silence before a sentence
-PARAGRAPH_GAP_SECONDS = 0.60  # silence before the first sentence of a paragraph
+# The service's own defaults (SPEECH_GAP_SECONDS and SPEECH_PARAGRAPH_GAP_SECONDS; they were 0.30 and
+# 0.60 until 2026-11-17). A service run with others is checked with --gap and --paragraph-gap.
+GAP_SECONDS = 0.45  # silence before a sentence
+PARAGRAPH_GAP_SECONDS = 0.82  # silence before the first sentence of a paragraph
 GAP_TOLERANCE = 0.05
 SPAN_TOLERANCE = 0.05  # a word may lie this far outside its sentence (alignment frames, rounding)
 LENGTH_TOLERANCE = 0.15  # between the timeline's end and the audio's length
@@ -637,7 +639,11 @@ def check_order(rows: list[Row]) -> Check:
     )
 
 
-def check_gaps(rows: list[Row]) -> Check:
+def check_gaps(
+    rows: list[Row],
+    gap_seconds: float = GAP_SECONDS,
+    paragraph_gap_seconds: float = PARAGRAPH_GAP_SECONDS,
+) -> Check:
     problems: list[str] = []
     gaps: list[float] = []
     for before, row in pairwise(rows):
@@ -645,7 +651,7 @@ def check_gaps(rows: list[Row]) -> Check:
             continue
         gap = row.start - before.end
         gaps.append(gap)
-        wanted = PARAGRAPH_GAP_SECONDS if row.sentence["paragraph_start"] else GAP_SECONDS
+        wanted = paragraph_gap_seconds if row.sentence["paragraph_start"] else gap_seconds
         if abs(gap - wanted) > GAP_TOLERANCE:
             problems.append(f"{gap:.2f} s before {row.id}, expected {wanted:.2f} s")
     if problems:
@@ -654,7 +660,7 @@ def check_gaps(rows: list[Row]) -> Check:
     return Check(
         "gaps",
         True,
-        f"{shown} s ({GAP_SECONDS:.2f} s; {PARAGRAPH_GAP_SECONDS:.2f} s before a paragraph start)",
+        f"{shown} s ({gap_seconds:.2f} s; {paragraph_gap_seconds:.2f} s before a paragraph start)",
     )
 
 
@@ -672,13 +678,18 @@ def check_length(rows: list[Row], audio: AudioLog) -> Check:
     )
 
 
-def run_checks(rows: list[Row], run: Run) -> list[Check]:
+def run_checks(
+    rows: list[Row],
+    run: Run,
+    gap_seconds: float = GAP_SECONDS,
+    paragraph_gap_seconds: float = PARAGRAPH_GAP_SECONDS,
+) -> list[Check]:
     return [
         check_events(run.request["sentences"], run.events),
         check_first_audio(run.audio),
         check_placement(rows),
         check_order(rows),
-        check_gaps(rows),
+        check_gaps(rows, gap_seconds, paragraph_gap_seconds),
         check_length(rows, run.audio),
     ]
 
@@ -798,7 +809,7 @@ async def check(args: argparse.Namespace) -> int:
             run.failure = f"the reading did not end within {args.timeout:g} s"
 
     rows = build_rows(request["sentences"], run.events)
-    checks = run_checks(rows, run)
+    checks = run_checks(rows, run, args.gap, args.paragraph_gap)
     try:
         write_events_file(out / EVENTS_NAME, run, checks)
     except OSError as error:
@@ -880,6 +891,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"where {MP3_NAME} and {EVENTS_NAME} go: a directory outside the repository",
     )
     parser.add_argument(
+        "--gap",
+        type=float,
+        default=GAP_SECONDS,
+        metavar="SECONDS",
+        help="the silence the service puts between sentences (SPEECH_GAP_SECONDS; default: %(default)s)",
+    )
+    parser.add_argument(
+        "--paragraph-gap",
+        type=float,
+        default=PARAGRAPH_GAP_SECONDS,
+        metavar="SECONDS",
+        help="the silence before a paragraph's first sentence (SPEECH_PARAGRAPH_GAP_SECONDS; default: %(default)s)",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=180.0,
@@ -891,6 +916,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args.zonos = _url(parser, "--zonos", args.zonos)
     if not args.timeout > 0:
         parser.error("--timeout must be more than 0")
+    for flag, value in (("--gap", args.gap), ("--paragraph-gap", args.paragraph_gap)):
+        if not (math.isfinite(value) and value >= 0):
+            parser.error(f"{flag} must be a number of seconds from 0, got {value}")
     args.out = args.out.expanduser().resolve()
     root = _repository_root()
     if root is not None and args.out.is_relative_to(root):

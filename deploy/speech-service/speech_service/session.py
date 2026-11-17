@@ -45,20 +45,24 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 from speech_service.aligner import Aligner, Interval, resample_16k, token_times
-from speech_service.audio import SAMPLE_RATE, Mp3Encoder, match_loudness, silence, trim_silence
+from speech_service.audio import (
+    SAMPLE_RATE,
+    Mp3Encoder,
+    lengthen_pauses,
+    match_loudness,
+    silence,
+    trim_silence,
+)
 from speech_service.config import Settings
 from speech_service.logs import describe
 from speech_service.models import Sentence
+from speech_service.steady import synthesize_steady
 from speech_service.text import Spoken, normalize
 from speech_service.zonos import SynthesisFailed, ZonosClient, ZonosUnavailable
 
 logger = logging.getLogger(__name__)
 
 Event = tuple[str, dict]
-
-# The gap before a sentence, and before the first sentence of a paragraph.
-_GAP_SECONDS = 0.30
-_PARAGRAPH_GAP_SECONDS = 0.60
 
 # A sentence that speaks as more characters than this is warned about. Zonos stops a request at
 # 1500 frames, about 100 s, and cuts the rest off without a word; at about 15 spoken characters a
@@ -179,6 +183,7 @@ class ReadingSession:
         # was still stuck on an earlier job). The first is warned about; the end of the session
         # says how many there were.
         self._without_word_times = 0
+        self._made_again = 0  # clips Zonos stalled on, which were made again (steady.py)
 
     @property
     def ended(self) -> bool:
@@ -327,7 +332,8 @@ class ReadingSession:
         clip = await self._synthesize(sentence, spoken)
         if self._encoder.samples_written:  # a gap goes between sentences, not before the first
             new_paragraph = sentence.paragraph_start or self._paragraph_pending
-            gap = _PARAGRAPH_GAP_SECONDS if new_paragraph else _GAP_SECONDS
+            settings = self._settings
+            gap = settings.paragraph_gap_seconds if new_paragraph else settings.gap_seconds
             await self._encoder.write(silence(gap, SAMPLE_RATE))
         self._paragraph_pending = False
         start = self._clock()
@@ -374,15 +380,40 @@ class ReadingSession:
 
     async def _synthesize(self, sentence: Sentence, spoken: Spoken) -> np.ndarray:
         """The sentence as Zonos says it, trimmed and matched in loudness, ready to be written."""
-        audio, rate = await self._zonos.synthesize(
-            " ".join(spoken.words), sentence.language, sentence.voice, self._settings.seed
+        audio, rate = await synthesize_steady(
+            self._zonos,
+            " ".join(spoken.words),
+            sentence.language,
+            sentence.voice,
+            self._settings.seed,
+            self._settings.steady_attempts,
+            on_retry=self._made_again_because_it_stalled,
         )
         if rate != SAMPLE_RATE:  # Zonos's output is documented, and measured, as 44.1 kHz
             raise SynthesisFailed(f"Zonos sent audio at {rate} Hz, not {SAMPLE_RATE} Hz")
         clip = match_loudness(trim_silence(audio, rate), rate)
         if clip.size == 0:
             raise SynthesisFailed("Zonos sent nothing but silence")
-        return clip
+        return lengthen_pauses(clip, rate, self._settings.breath_seconds)
+
+    def _made_again_because_it_stalled(
+        self, attempt: int, attempts: int, seconds: float, pause: float, expected: float
+    ) -> None:
+        """Zonos stalled on the sentence being read, and it is made again. Counted for the line that
+        says how the session ended, and logged as numbers only, at the level a retry deserves: it
+        happens to a good share of short sentences, so it is not news."""
+        self._made_again += 1
+        logger.debug(
+            "session %s: sentence %d: a clip of %.1f s (its text needs about %.1f s) with a pause of "
+            "%.1f s was made again (attempt %d of %d)",
+            self.id,
+            self._current,
+            seconds,
+            expected,
+            pause,
+            attempt,
+            attempts,
+        )
 
     async def _align(
         self, index: int, sentence: Sentence, spoken: Spoken, audio_16k: np.ndarray, start: float
@@ -563,12 +594,14 @@ class ReadingSession:
         self._ended = True
         self._disarm_idle_clock()
         logger.info(
-            "session %s: ended (%s), %d of %d sentences announced in %.1f s, %d without word times",
+            "session %s: ended (%s), %d of %d sentences announced in %.1f s, %d made again, "
+            "%d without word times",
             self.id,
             reason,
             self._announced,
             len(self._sentences),
             time.monotonic() - self._began,
+            self._made_again,
             self._without_word_times,
         )
 

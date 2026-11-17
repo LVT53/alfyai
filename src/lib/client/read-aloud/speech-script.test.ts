@@ -62,15 +62,15 @@ describe("buildSpeechScript", () => {
 	it("reads paragraphs, headings, list items, checklist items and quotes in order", () => {
 		const script = build(
 			reply(
-				'<h2>Making bread at home</h2><p>Bread needs flour, water and salt.</p><ul><li>Use strong white flour for a good rise.</li></ul><blockquote><p>Patience is the secret ingredient.</p></blockquote></div><div class="markdown-checklist-block"><ul class="markdown-checklist"><li class="markdown-checklist__row markdown-checklist__row--task"><input type="checkbox" class="markdown-checklist__box" disabled><div class="markdown-checklist__text">Preheat the oven to a high heat.</div></li></ul></div><div>',
+				'<h2>Making bread at home</h2><p>Bread needs flour, water, salt and a little patience.</p><ul><li>Use strong white flour for a good rise and a chewy crumb.</li></ul><blockquote><p>Patience is the secret ingredient in every good loaf of bread.</p></blockquote></div><div class="markdown-checklist-block"><ul class="markdown-checklist"><li class="markdown-checklist__row markdown-checklist__row--task"><input type="checkbox" class="markdown-checklist__box" disabled><div class="markdown-checklist__text">Preheat the oven to a high heat before the dough goes in.</div></li></ul></div><div>',
 			),
 		);
 		expect(script.sentences.map((s) => s.text)).toEqual([
 			"Making bread at home.",
-			"Bread needs flour, water and salt.",
-			"Use strong white flour for a good rise.",
-			"Patience is the secret ingredient.",
-			"Preheat the oven to a high heat.",
+			"Bread needs flour, water, salt and a little patience.",
+			"Use strong white flour for a good rise and a chewy crumb.",
+			"Patience is the secret ingredient in every good loaf of bread.",
+			"Preheat the oven to a high heat before the dough goes in.",
 		]);
 		expect(
 			script.sentences.map((s) => [
@@ -151,9 +151,9 @@ describe("buildSpeechScript", () => {
 				"<p>Call <code>getUserName()</code>. Then use <code>=&gt;</code> and <code>{}</code> here.</p>",
 			),
 		);
+		// Two short sentences of one paragraph are one unit (short-sentences.ts).
 		expect(script.sentences.map((s) => s.tokens)).toEqual([
-			["Call", "get", "User", "Name."],
-			["Then", "use", "arrow", "and", "here."],
+			["Call", "get", "User", "Name.", "Then", "use", "arrow", "and", "here."],
 		]);
 		const first = script.sentences[0];
 		expect(first?.ranges[1]).toBe(first?.ranges[2]);
@@ -179,13 +179,53 @@ describe("buildSpeechScript", () => {
 	it("reads a bare address by its site name, and drops emoji, formulas and citation and footnote marks", () => {
 		const script = build(
 			reply(
-				"<p>See https://www.example.com/docs now [1].</p><p>The area is $\\pi r^2$ for a circle 🎉.</p><p>It costs $5 and $10 at most [^note], by [2, 3] two.</p>",
+				"<p>See https://www.example.com/docs now, for the full guide and the examples [1].</p><p>The area is $\\pi r^2$ for a circle, a round shape with no corners 🎉.</p><p>It costs $5 and $10 at most [^note], by [2, 3] two people sharing the bill.</p>",
 			),
 		);
 		expect(script.sentences.map((s) => s.tokens)).toEqual([
-			["See", "example", "dot", "com", "now."],
-			["The", "area", "is", "for", "a", "circle."],
-			["It", "costs", "$5", "and", "$10", "at", "most,", "by", "two."],
+			[
+				"See",
+				"example",
+				"dot",
+				"com",
+				"now,",
+				"for",
+				"the",
+				"full",
+				"guide",
+				"and",
+				"the",
+				"examples.",
+			],
+			[
+				"The",
+				"area",
+				"is",
+				"for",
+				"a",
+				"circle,",
+				"a",
+				"round",
+				"shape",
+				"with",
+				"no",
+				"corners.",
+			],
+			[
+				"It",
+				"costs",
+				"$5",
+				"and",
+				"$10",
+				"at",
+				"most,",
+				"by",
+				"two",
+				"people",
+				"sharing",
+				"the",
+				"bill.",
+			],
 		]);
 	});
 
@@ -238,22 +278,41 @@ describe("buildSpeechScript", () => {
 	it("reads a link's text from its chip, and a bare address's chip by its site name", () => {
 		const script = build(
 			reply(
-				`<p>Read ${chip("https://example.com/a_(b)", "the docs")} and visit ${chip("https://www.example.com/docs", "example.com")} today.</p><p>Or go to ${chip("http://www.example.org", "example.org")} first.</p>`,
+				`<p>Please read ${chip("https://example.com/a_(b)", "the docs")} and then visit ${chip("https://www.example.com/docs", "example.com")} again today.</p><p>Or go to ${chip("http://www.example.org", "example.org")} first, and then come back to the main page.</p>`,
 			),
 		);
 		expect(script.sentences.map((s) => s.tokens)).toEqual([
 			[
-				"Read",
+				"Please",
+				"read",
 				"the",
 				"docs",
 				"and",
+				"then",
 				"visit",
 				"example",
 				"dot",
 				"com",
+				"again",
 				"today.",
 			],
-			["Or", "go", "to", "example", "dot", "org", "first."],
+			[
+				"Or",
+				"go",
+				"to",
+				"example",
+				"dot",
+				"org",
+				"first,",
+				"and",
+				"then",
+				"come",
+				"back",
+				"to",
+				"the",
+				"main",
+				"page.",
+			],
 		]);
 		const address = script.sentences[0]?.words.find(
 			(w) => w.tokens[0] === "example",
@@ -286,7 +345,7 @@ describe("buildSpeechScript", () => {
 	it("reads a numbered list's numbers", () => {
 		const script = build(
 			reply(
-				'<ol start="3"><li>Mix the flour well</li><li>Add the water slowly</li></ol>',
+				'<ol start="3"><li>Mix the flour, the salt and the yeast well in a large bowl</li><li>Add the water slowly while you keep stirring the dough</li></ol>',
 			),
 		);
 		const [first, second] = script.sentences;
@@ -294,7 +353,11 @@ describe("buildSpeechScript", () => {
 		expect(first?.ranges[0]).toBe(first?.ranges[1]);
 		expect(first?.words[0]).toMatchObject({ shown: "3.", kind: "listNumber" });
 		expect(second?.tokens.slice(0, 2)).toEqual(["Four.", "Add"]);
-		const bullets = build(reply("<ul><li>Mix the flour well</li></ul>"));
+		const bullets = build(
+			reply(
+				"<ul><li>Mix the flour, the salt and the yeast well in a large bowl</li></ul>",
+			),
+		);
 		expect(bullets.sentences[0]?.tokens[0]).toBe("Mix");
 	});
 
@@ -315,7 +378,7 @@ describe("buildSpeechScript", () => {
 	it("never ends a sentence after a number or a listed abbreviation", () => {
 		const script = build(
 			reply(
-				"<p>A vásár 2026. november 16. Hétfőn nyit. Pl. Kenyér is lesz.</p>",
+				"<p>A vásár 2026. november 16. hétfőn nyit a főtéren, és egész nap tart. Pl. kenyér, sajt és friss gyümölcs is lesz a standokon.</p>",
 			),
 		);
 		expect(script.sentences).toHaveLength(2);
@@ -332,6 +395,185 @@ describe("buildSpeechScript", () => {
 		expect(
 			tokensOf(build(reply("<p>Open the menu · then pick a theme</p>"))),
 		).toEqual(["Open", "the", "menu,", "then", "pick", "a", "theme"]);
+	});
+
+	it("turns a dash between words into a pause after the word before it", () => {
+		expect(
+			tokensOf(
+				build(reply("<p>Then — and this is the key — fold in the eggs.</p>")),
+			),
+		).toEqual([
+			"Then,",
+			"and",
+			"this",
+			"is",
+			"the",
+			"key,",
+			"fold",
+			"in",
+			"the",
+			"eggs.",
+		]);
+		expect(
+			tokensOf(
+				build(reply("<p>Ezután – és ez a lényeg – add hozzá a tojást.</p>")),
+			),
+		).toEqual([
+			"Ezután,",
+			"és",
+			"ez",
+			"a",
+			"lényeg,",
+			"add",
+			"hozzá",
+			"a",
+			"tojást.",
+		]);
+		expect(
+			tokensOf(build(reply("<p>It works -- mostly -- on Tuesdays.</p>"))),
+		).toEqual(["It", "works,", "mostly,", "on", "Tuesdays."]);
+	});
+
+	it("reads a spaced hyphen between words as a dash, and between numbers as nothing", () => {
+		expect(
+			tokensOf(build(reply("<p>Add the eggs - one at a time - and stir.</p>"))),
+		).toEqual([
+			"Add",
+			"the",
+			"eggs,",
+			"one",
+			"at",
+			"a",
+			"time,",
+			"and",
+			"stir.",
+		]);
+		expect(tokensOf(build(reply("<p>It costs 5 - 3 euros.</p>")))).toEqual([
+			"It",
+			"costs",
+			"5",
+			"3",
+			"euros.",
+		]);
+	});
+
+	it("keeps the pause a dash makes from doubling one that is already there", () => {
+		expect(tokensOf(build(reply("<p>Well, — he said — fine.</p>")))).toEqual([
+			"Well,",
+			"he",
+			"said,",
+			"fine.",
+		]);
+		// A dash with no word before it has nothing to pause after.
+		expect(tokensOf(build(reply("<p>— Hello — said Ann.</p>")))).toEqual([
+			"Hello,",
+			"said",
+			"Ann.",
+		]);
+	});
+
+	it("turns an em dash inside a run of words into a pause", () => {
+		expect(
+			tokensOf(
+				build(reply("<p>Fold in the eggs—one at a time—then stir.</p>")),
+			),
+		).toEqual([
+			"Fold",
+			"in",
+			"the",
+			"eggs,",
+			"one",
+			"at",
+			"a",
+			"time,",
+			"then",
+			"stir.",
+		]);
+	});
+
+	it("says a parenthetical as words set off by pauses", () => {
+		expect(
+			tokensOf(
+				build(reply("<p>Fold in the eggs (one at a time) and stir.</p>")),
+			),
+		).toEqual([
+			"Fold",
+			"in",
+			"the",
+			"eggs,",
+			"one",
+			"at",
+			"a",
+			"time,",
+			"and",
+			"stir.",
+		]);
+		expect(
+			tokensOf(build(reply("<p>Add the eggs (one at a time).</p>"))),
+		).toEqual(["Add", "the", "eggs,", "one", "at", "a", "time."]);
+		expect(
+			tokensOf(build(reply("<p>Add the eggs (slowly), then stir.</p>"))),
+		).toEqual(["Add", "the", "eggs,", "slowly,", "then", "stir."]);
+		expect(
+			tokensOf(build(reply("<p>Tedd bele a tojásokat (egyesével).</p>"))),
+		).toEqual(["Tedd", "bele", "a", "tojásokat,", "egyesével."]);
+		expect(
+			tokensOf(build(reply("<p>Add the eggs [one at a time] and stir.</p>"))),
+		).toEqual([
+			"Add",
+			"the",
+			"eggs,",
+			"one",
+			"at",
+			"a",
+			"time,",
+			"and",
+			"stir.",
+		]);
+	});
+
+	it("ends a paragraph that closes on a bracket without a comma", () => {
+		expect(
+			tokensOf(build(reply("<p>Add the eggs (one at a time)</p>"))),
+		).toEqual(["Add", "the", "eggs,", "one", "at", "a", "time"]);
+	});
+
+	it("sets off a parenthetical inside a parenthetical, and one that closes after a quote", () => {
+		expect(
+			tokensOf(build(reply("<p>Mix it (the flour (sifted) first) well.</p>"))),
+		).toEqual(["Mix", "it,", "the", "flour,", "sifted,", "first,", "well."]);
+		expect(tokensOf(build(reply('<p>He said ("fine") and left.</p>')))).toEqual(
+			["He", "said,", '"fine",', "and", "left."],
+		);
+	});
+
+	it("leaves a bracket that opens nothing, and the brackets of a code word, alone", () => {
+		expect(tokensOf(build(reply("<p>1) Mix the flour well.</p>")))).toEqual([
+			"1)",
+			"Mix",
+			"the",
+			"flour",
+			"well.",
+		]);
+		expect(
+			tokensOf(build(reply("<p>Call <code>run()</code> now.</p>"))),
+		).toEqual(["Call", "run", "now."]);
+	});
+
+	it("keeps each token's range on its own characters when a bracket goes", () => {
+		const root = reply("<p>Add the eggs (one at a time) now.</p>");
+		const script = build(root);
+		const [sentence] = script.sentences;
+		expect(sentence?.ranges.map((range) => range.toString())).toEqual([
+			"Add",
+			"the",
+			"eggs",
+			"(one",
+			"at",
+			"a",
+			"time)",
+			"now.",
+		]);
 	});
 
 	it("no syntax reaches the tokens", () => {
@@ -390,18 +632,210 @@ describe("buildSpeechScript", () => {
 	it("splits sentences with Intl.Segmenter in the paragraph's language", () => {
 		const script = build(
 			reply(
-				"<p>It rises in an hour. Then it bakes for forty minutes! Is it done yet?</p>",
+				"<p>It rises in an hour when the kitchen is warm enough for the yeast. Then it bakes for forty minutes, and the whole house smells of bread! Is it done yet, or should we give it another few minutes in the oven?</p>",
 			),
 		);
 		expect(script.sentences.map((s) => s.text)).toEqual([
-			"It rises in an hour.",
-			"Then it bakes for forty minutes!",
-			"Is it done yet?",
+			"It rises in an hour when the kitchen is warm enough for the yeast.",
+			"Then it bakes for forty minutes, and the whole house smells of bread!",
+			"Is it done yet, or should we give it another few minutes in the oven?",
 		]);
 		expect(script.sentences.map((s) => s.paragraphStart)).toEqual([
 			true,
 			false,
 			false,
+		]);
+	});
+
+	it("joins a sentence under fifty characters to the next one of its paragraph, each word keeping its range", () => {
+		const root = reply(
+			"<p>Sure. Here is the file you asked for, with every change we talked about.</p>",
+		);
+		const script = build(root);
+		expect(script.sentences).toHaveLength(1);
+		const [sentence] = script.sentences;
+		expect(sentence?.text).toBe(
+			"Sure. Here is the file you asked for, with every change we talked about.",
+		);
+		expect(sentence?.paragraphStart).toBe(true);
+		expect(sentence?.ranges[0]?.toString()).toBe("Sure.");
+		expect(sentence?.ranges[1]?.toString()).toBe("Here");
+		// A point in the second part is in the one unit: Read from here starts at its start.
+		const text = root.querySelector("p")?.firstChild as Text;
+		expect(sentenceAtPoint(script, text, text.data.indexOf("Here"))).toBe(0);
+	});
+
+	it("joins the last sentence of a paragraph, if it is short, to the one before it", () => {
+		const script = build(
+			reply(
+				"<p>This sentence is long enough to stand alone in the script on its own. Thanks a lot.</p>",
+			),
+		);
+		expect(script.sentences).toHaveLength(1);
+		expect(script.sentences[0]?.text.endsWith(" Thanks a lot.")).toBe(true);
+	});
+
+	it("joins a paragraph of one short sentence to the paragraph after it, and keeps a heading apart", () => {
+		const script = build(
+			reply(
+				"<h2>A short title here</h2><p>Right, that works.</p><p>This paragraph is long enough to be a sentence of its own, really.</p><p>And this one is long enough to stand on its own as well, too.</p>",
+			),
+		);
+		expect(script.sentences.map((s) => s.text)).toEqual([
+			"A short title here.",
+			"Right, that works. This paragraph is long enough to be a sentence of its own, really.",
+			"And this one is long enough to stand on its own as well, too.",
+		]);
+		// The unit starts a paragraph, as the paragraph of one sentence did; the one after does too.
+		expect(script.sentences.map((s) => s.paragraphStart)).toEqual([
+			true,
+			true,
+			true,
+		]);
+	});
+
+	it("joins the short items of a list into one sentence, each item ended by its own stop", () => {
+		const root = reply(
+			"<ul><li>Eggs and milk</li><li>Butter and flour</li><li>Sugar and salt</li></ul>",
+		);
+		const script = build(root);
+		expect(script.sentences.map((s) => s.text)).toEqual([
+			"Eggs and milk. Butter and flour. Sugar and salt",
+		]);
+		const [sentence] = script.sentences;
+		expect(sentence?.paragraphStart).toBe(true);
+		// Every word keeps the range of its own characters, in whichever item it is.
+		expect(sentence?.ranges.map((r) => r.toString())).toEqual([
+			"Eggs",
+			"and",
+			"milk",
+			"Butter",
+			"and",
+			"flour",
+			"Sugar",
+			"and",
+			"salt",
+		]);
+		// A point in the second item is in the one unit: Read from here starts at its start.
+		const second = root.querySelectorAll("li")[1]?.firstChild as Text;
+		expect(sentenceAtPoint(script, second, 3)).toBe(0);
+	});
+
+	it("keeps the numbers of a numbered list when its items join", () => {
+		const script = build(
+			reply(
+				"<ol><li>Mix the flour well</li><li>Add the water slowly</li></ol>",
+			),
+		);
+		expect(script.sentences.map((s) => s.text)).toEqual([
+			"One. Mix the flour well. Two. Add the water slowly",
+		]);
+	});
+
+	it("keeps the list of an item the script has already merged with the one after it", () => {
+		// "Eggs" is one word: the script merges it into the next item (with a comma), and the unit
+		// that makes still belongs to the list, so the item after joins it.
+		const script = build(
+			reply(
+				"<ul><li>Eggs</li><li>Milk and flour</li><li>Butter and sugar</li></ul>",
+			),
+		);
+		expect(script.sentences.map((s) => s.text)).toEqual([
+			"Eggs, Milk and flour. Butter and sugar",
+		]);
+		// The unit stays an item of its list, not a paragraph of one sentence: it does not take
+		// the paragraph after the list.
+		const alone = build(
+			reply(
+				"<ul><li>Eggs</li><li>Milk and flour</li></ul><p>This paragraph is long enough to be a sentence of its own, really. And this second sentence is long enough to stand on its own, too.</p>",
+			),
+		);
+		expect(alone.sentences.map((s) => s.text)).toEqual([
+			"Eggs, Milk and flour",
+			"This paragraph is long enough to be a sentence of its own, really.",
+			"And this second sentence is long enough to stand on its own, too.",
+		]);
+	});
+
+	it("joins the items of one list only: two lists, and a heading between, stay apart", () => {
+		const two = build(
+			reply(
+				"<ul><li>Eggs and milk</li></ul><ul><li>Butter and flour</li></ul>",
+			),
+		);
+		expect(two.sentences.map((s) => s.text)).toEqual([
+			"Eggs and milk",
+			"Butter and flour",
+		]);
+		const headed = build(
+			reply(
+				"<ul><li>Eggs and milk</li></ul><h2>What comes next</h2><ul><li>Butter and flour</li></ul>",
+			),
+		);
+		expect(headed.sentences.map((s) => s.text)).toEqual([
+			"Eggs and milk",
+			"What comes next.",
+			"Butter and flour",
+		]);
+	});
+
+	it("takes the first item of a list into a short line that introduces it", () => {
+		const script = build(
+			reply(
+				"<p>You will need:</p><ul><li>Eggs and milk</li><li>Butter and flour</li></ul>",
+			),
+		);
+		expect(script.sentences.map((s) => s.text)).toEqual([
+			"You will need: Eggs and milk. Butter and flour",
+		]);
+	});
+
+	it("joins a one-line paragraph to the first sentence of the paragraph after it", () => {
+		const script = build(
+			reply(
+				"<p>Sure, I can do that.</p><p>Here is the file you asked for, with every change we talked about. It also has the notes you wanted, in a separate file at the end.</p>",
+			),
+		);
+		expect(script.sentences.map((s) => s.text)).toEqual([
+			"Sure, I can do that. Here is the file you asked for, with every change we talked about.",
+			"It also has the notes you wanted, in a separate file at the end.",
+		]);
+		// The unit starts a paragraph; the sentence after it is no paragraph's start now.
+		expect(script.sentences.map((s) => s.paragraphStart)).toEqual([
+			true,
+			false,
+		]);
+	});
+
+	it("joins a one-line paragraph that ends the reply to the paragraph before it", () => {
+		const script = build(
+			reply(
+				"<p>This paragraph is long enough to stand alone in the script, as it should.</p><p>Hope this helps you.</p>",
+			),
+		);
+		expect(script.sentences.map((s) => s.text)).toEqual([
+			"This paragraph is long enough to stand alone in the script, as it should. Hope this helps you.",
+		]);
+		expect(script.sentences[0]?.paragraphStart).toBe(true);
+	});
+
+	it("never joins a one-line paragraph to a code block", () => {
+		const script = build(
+			reply(
+				`<p>Here is the sum in Python:</p>${codeBlock("python", ["total = price * 2", "print(total)"])}`,
+			),
+		);
+		expect(script.sentences).toHaveLength(2);
+		expect(script.sentences[0]?.text).toBe("Here is the sum in Python:");
+	});
+
+	it("never joins into a unit the script would have to split again", () => {
+		// A capital after the full stop, or Intl.Segmenter finds no sentence boundary there.
+		const long = `Word ${"word ".repeat(43)}end.`; // 224 characters
+		const script = build(reply(`<p>A short one here. ${long}</p>`));
+		expect(script.sentences.map((s) => s.text.length)).toEqual([
+			"A short one here.".length,
+			long.length,
 		]);
 	});
 
@@ -510,25 +944,25 @@ describe("buildSpeechScript", () => {
 
 	it("reads a segmented reply's roots in order", () => {
 		reply("");
-		document.body.innerHTML = `<div data-message-id="a"><div class="markdown-container"><p>The first part is here.</p></div></div><div data-message-id="b"><div class="markdown-container"><p>The last part is here.</p></div></div>`;
+		document.body.innerHTML = `<div data-message-id="a"><div class="markdown-container"><p>The first part is here, and it is long enough to stand alone.</p></div></div><div data-message-id="b"><div class="markdown-container"><p>The last part is here, and it is long enough to stand alone too.</p></div></div>`;
 		const roots = [...document.querySelectorAll(".markdown-container")];
 		const script = buildSpeechScript(roots, detect, { fallbackLanguage: "en" });
 		expect(script.sentences.map((s) => s.text)).toEqual([
-			"The first part is here.",
-			"The last part is here.",
+			"The first part is here, and it is long enough to stand alone.",
+			"The last part is here, and it is long enough to stand alone too.",
 		]);
 	});
 
 	it("skips closed details but reads their summary", () => {
 		const script = build(
 			reply(
-				"<details><summary>Show the full recipe</summary><p>HIDDENTEXT is inside.</p></details><p>And this is outside.</p>",
+				"<details><summary>Show the full recipe with all the steps and amounts</summary><p>HIDDENTEXT is inside.</p></details><p>And this is outside, so it is read after the summary.</p>",
 			),
 		);
 		expect(tokensOf(script).join(" ")).not.toContain("HIDDENTEXT");
 		expect(script.sentences.map((s) => s.text)).toEqual([
-			"Show the full recipe",
-			"And this is outside.",
+			"Show the full recipe with all the steps and amounts",
+			"And this is outside, so it is read after the summary.",
 		]);
 	});
 });
@@ -639,9 +1073,10 @@ describe("simple math (the owner's staging find, 2026-11-17)", () => {
 		expect(mathWords("<p>Let total = 3 + 4 now.</p>", "en")).toEqual([]);
 		expect(mathWords("<p>Solve 2x - 3 = 7 now.</p>", "en")).toEqual([]);
 		expect(mathWords("<p>Then 3 + 4 = 2x today.</p>", "en")).toEqual([]);
-		// A spaced hyphen beside a plain word is a dash, not a minus.
+		// A spaced hyphen beside a plain word is a dash, not a minus: the sum is read
+		// whole, and the dash after it is a pause.
 		expect(mathWords("<p>So 3 + 4 = 7 - that is all.</p>", "en")).toEqual([
-			"3 plus 4 equals 7",
+			"3 plus 4 equals 7,",
 		]);
 		// Ranges and signs read as before.
 		expect(mathWords("<p>From 1,000 - 2,000 people came.</p>", "en")).toEqual(
@@ -664,7 +1099,7 @@ describe("simple math (the owner's staging find, 2026-11-17)", () => {
 describe("sentenceAtPoint", () => {
 	it("finds the sentence holding a selection's start", () => {
 		const root = reply(
-			"<p>The first sentence is here. The second one is here.</p><table><tbody><tr><td>cell</td></tr></tbody></table><p>The third one ends it.</p>",
+			"<p>The first sentence is here, and it is long enough to stand alone. The second one is here too, and it is just as long as the first one.</p><table><tbody><tr><td>cell</td></tr></tbody></table><p>The third one ends it, and it is the last sentence of the reply.</p>",
 		);
 		const script = build(root);
 		const [p1, , p2] = [...root.querySelectorAll("p, table")];

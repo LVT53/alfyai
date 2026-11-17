@@ -9,7 +9,14 @@ import numpy as np
 import pytest
 
 from speech_service import audio
-from speech_service.audio import Mp3Encoder, match_loudness, silence, trim_silence
+from speech_service.audio import (
+    Mp3Encoder,
+    inner_silences,
+    lengthen_pauses,
+    match_loudness,
+    silence,
+    trim_silence,
+)
 from tests.helpers import SR, click_at, decode_mp3, decoded_seconds, peak_db, rms_db, tone
 
 
@@ -137,6 +144,89 @@ def test_hiss_around_speech_is_still_cut_and_does_not_count():
     x = np.concatenate([noise(-80.0), tone(0.05), noise(-80.0)])
     assert len(trim_silence(x, SR)) == round(1.1 * SR)
     assert rms_db(match_loudness(x, SR)[SR : 2 * SR]) == pytest.approx(-20.0, abs=0.01)
+
+
+# The silences inside a clip, and lengthening them.
+
+
+def speech_pause_speech(pause: float, before: float = 0.6, after: float = 0.6) -> np.ndarray:
+    return np.concatenate([tone(0.3, before), silence(pause, SR), tone(0.3, after)])
+
+
+def test_a_silence_inside_a_clip_is_found_with_its_place_and_length():
+    runs = inner_silences(speech_pause_speech(0.30), SR)
+    assert len(runs) == 1
+    start, end = runs[0]
+    assert start / SR == pytest.approx(0.6, abs=0.03)
+    assert (end - start) / SR == pytest.approx(0.30, abs=0.04)
+
+
+def test_the_silence_before_and_after_the_speech_is_not_inside_it():
+    clip = np.concatenate([silence(1.0, SR), tone(0.3, 0.5), silence(1.0, SR)])
+    assert inner_silences(clip, SR) == []
+
+
+@pytest.mark.parametrize("clip", [np.zeros(0, dtype=np.float32), silence(1.0, SR), tone(0.3, 0.02)])
+def test_a_clip_with_nothing_to_measure_has_no_silences(clip):
+    assert inner_silences(clip, SR) == []
+
+
+def test_a_pause_inside_a_clip_is_lengthened_by_what_is_asked():
+    clip = speech_pause_speech(0.30)
+    longer = lengthen_pauses(clip, SR, 0.15)
+    assert len(longer) - len(clip) == round(0.15 * SR)
+
+
+def test_the_speech_either_side_of_a_lengthened_pause_is_untouched():
+    clip = speech_pause_speech(0.30)
+    longer = lengthen_pauses(clip, SR, 0.15)
+    (start, end), = inner_silences(clip, SR)
+    middle = (start + end) // 2
+    fade = round(0.005 * SR)
+    # Up to a few milliseconds around the join (the fades), the samples are the clip's own.
+    assert np.array_equal(longer[: middle - fade], clip[: middle - fade])
+    assert np.array_equal(longer[len(longer) - (len(clip) - middle - fade) :], clip[middle + fade :])
+
+
+def test_every_pause_of_a_clip_is_lengthened():
+    clip = np.concatenate([tone(0.3, 0.5), silence(0.2, SR), tone(0.3, 0.5), silence(0.3, SR), tone(0.3, 0.5)])
+    assert len(lengthen_pauses(clip, SR, 0.1)) - len(clip) == 2 * round(0.1 * SR)
+
+
+def test_a_silence_shorter_than_a_pause_is_left_alone():
+    # The closure of a consonant, not a comma.
+    clip = speech_pause_speech(0.06)
+    assert np.array_equal(lengthen_pauses(clip, SR, 0.15), clip)
+
+
+def test_a_silence_as_long_as_a_stall_is_left_alone():
+    # What steady.py is for: a pause that long is a clip to be made again, not one to stretch.
+    clip = speech_pause_speech(1.2)
+    assert np.array_equal(lengthen_pauses(clip, SR, 0.15), clip)
+
+
+def test_silence_at_the_ends_of_a_clip_is_left_alone():
+    clip = np.concatenate([silence(0.5, SR), tone(0.3, 0.5), silence(0.5, SR)])
+    assert np.array_equal(lengthen_pauses(clip, SR, 0.15), clip)
+
+
+def test_lengthening_by_nothing_changes_nothing_and_gives_a_copy():
+    clip = speech_pause_speech(0.30)
+    same = lengthen_pauses(clip, SR, 0.0)
+    assert np.array_equal(same, clip) and same is not clip
+
+
+def test_the_join_of_a_lengthened_pause_makes_no_click():
+    # A pause with a faint hiss in it (the room, 50 dB down): no sample at the join may jump by
+    # more than the hiss itself.
+    hiss = noise(-50.0, 0.30)
+    clip = np.concatenate([tone(0.3, 0.6), hiss, tone(0.3, 0.6)])
+    longer = lengthen_pauses(clip, SR, 0.2)
+    assert np.max(np.abs(np.diff(longer[round(0.58 * SR) : round(1.2 * SR)]))) < 0.03
+
+
+def test_a_lengthened_clip_has_the_dtype_it_came_with():
+    assert lengthen_pauses(speech_pause_speech(0.30), SR, 0.15).dtype == np.float32
 
 
 # Trimming and gaps.

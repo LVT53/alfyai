@@ -71,7 +71,7 @@ class FakeEventSource extends EventTarget implements EventSourceLike {
 }
 
 const REPLY =
-	"<p>The first sentence is here. The second one is here. The third one is the longest of them all by far.</p>";
+	"<p>The first sentence is here, and it is long enough to stand alone. The second one is here as well, and it is just as long as the first. The third one is the longest of them all by far, so it ends the reply.</p>";
 
 function codeBlock(lines: string[]): string {
 	const body = lines
@@ -289,12 +289,20 @@ describe("the reading controller", () => {
 			language: "en",
 			paragraphStart: true,
 			words: [
-				{ shown: "The", kind: "prose", tokens: ["The"] },
-				{ shown: "first", kind: "prose", tokens: ["first"] },
-				{ shown: "sentence", kind: "prose", tokens: ["sentence"] },
-				{ shown: "is", kind: "prose", tokens: ["is"] },
-				{ shown: "here.", kind: "prose", tokens: ["here."] },
-			],
+				"The",
+				"first",
+				"sentence",
+				"is",
+				"here,",
+				"and",
+				"it",
+				"is",
+				"long",
+				"enough",
+				"to",
+				"stand",
+				"alone.",
+			].map((word) => ({ shown: word, kind: "prose", tokens: [word] })),
 		});
 		expect(t.audio).toMatchObject({
 			src: "/audio/x1",
@@ -315,7 +323,7 @@ describe("the reading controller", () => {
 				.last()
 				.marks?.sentence.map((range) => range.toString())
 				.join(" "),
-		).toBe("The first sentence is here.");
+		).toBe("The first sentence is here, and it is long enough to stand alone.");
 		expect(t.last().notches[0]).toBe(0);
 	});
 
@@ -904,7 +912,7 @@ describe("the reading controller", () => {
 		mountReply();
 		await playing(t);
 		expect(t.controller.sentencePreview(1)).toBe(
-			"2/3 · The second one is here.",
+			"2/3 · The second one is here…",
 		);
 		expect(t.controller.sentencePreview(2)).toBe("3/3 · The third one is the…");
 	});

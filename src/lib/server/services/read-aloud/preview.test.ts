@@ -1,6 +1,6 @@
 // @vitest-environment node
 // The preview service (Plan 3, Task 5) against the fake speech service: one
-// call per sentence, joined with the 0.30 s gap, one preview per person.
+// call per sentence, joined with the 0.45 s gap, one preview per person.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MP3_FRAME_SECONDS } from "$lib/shared/read-aloud/silent-mp3";
@@ -67,7 +67,7 @@ describe("renderPreview", () => {
 		const [first, second] = VOICE_SAMPLES.en.map((text) => framesOf(text));
 		if (first === undefined || second === undefined)
 			throw new Error("no samples");
-		const gap = 12; // 0.30 s in whole frames
+		const gap = 18; // 0.45 s in whole frames (17.2, rounded up)
 		expect(result.sentences).toEqual([
 			[0, round(first * MP3_FRAME_SECONDS)],
 			[
