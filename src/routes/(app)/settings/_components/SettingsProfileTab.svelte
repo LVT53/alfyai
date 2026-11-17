@@ -40,7 +40,7 @@ import {
 import { spotlightTarget } from "$lib/actions/spotlight";
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
-import { t } from "$lib/i18n";
+import { type I18nKey, t } from "$lib/i18n";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import { describeLocalMoment, timeZoneChoices } from "$lib/shared/time-zone";
 import { prefersReducedMotion } from "$lib/utils/motion";
@@ -57,6 +57,8 @@ import {
 import { formatCompactCount, isEmailChanged } from "./account-form";
 import PasswordField from "./PasswordField.svelte";
 import UserSkillsSettingsSurface from "./UserSkillsSettingsSurface.svelte";
+import ReadAloudSettingsCard from "$lib/components/read-aloud/voices/ReadAloudSettingsCard.svelte";
+import { readAloudAvailable } from "$lib/stores/read-aloud";
 import SettingsDataImport from "./SettingsDataImport.svelte";
 import TwoStepSettingsRow from "./TwoStepSettingsRow.svelte";
 import SettingsPersonalAnalytics from "./SettingsPersonalAnalytics.svelte";
@@ -313,18 +315,31 @@ const favoriteModelName = $derived(
 // One chevron chip per card below, in card order. It scrolls the page to
 // that card and does nothing else: nothing is hidden behind it, so ignoring
 // it costs a swipe, not a screen.
-const jumpTargets = [
+type JumpTarget = { id: string; labelKey: I18nKey };
+const JUMPS_BEFORE_READ_ALOUD: readonly JumpTarget[] = [
 	{ id: "settings-section-account", labelKey: "settings_sectionAccount" },
 	{
 		id: "settings-section-preferences",
 		labelKey: "settings_sectionPreferences",
 	},
+];
+const READ_ALOUD_JUMP: JumpTarget = {
+	id: "settings-section-read-aloud",
+	labelKey: "readAloud.settings.title",
+};
+const JUMPS_AFTER_READ_ALOUD: readonly JumpTarget[] = [
 	{ id: "settings-section-assistant", labelKey: "settings_sectionAssistant" },
 	{
 		id: "settings-section-data-privacy",
 		labelKey: "settings_sectionDataPrivacy",
 	},
-] as const;
+];
+// The Read aloud card, and its chip, are there only while read aloud is on.
+const jumpTargets = $derived<readonly JumpTarget[]>([
+	...JUMPS_BEFORE_READ_ALOUD,
+	...($readAloudAvailable ? [READ_ALOUD_JUMP] : []),
+	...JUMPS_AFTER_READ_ALOUD,
+]);
 
 function scrollToSection(event: MouseEvent, id: string) {
 	const target = document.getElementById(id);
@@ -797,6 +812,9 @@ function handlePersonalitySelect(event: Event) {
 				</div>
 			</div>
 		</section>
+
+		<!-- ═══ Read aloud (only while it is on) ═══ -->
+		<ReadAloudSettingsCard />
 
 		<!-- ═══ Assistant behaviour ═══ -->
 		<section class="settings-card" id="settings-section-assistant">

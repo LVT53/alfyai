@@ -15,12 +15,29 @@ import type { SpotlightId } from "$lib/app-places";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
 import type { ModelId } from "$lib/model-types";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
+import { setReadAloudAvailable } from "$lib/stores/read-aloud";
 import {
 	pendingSpotlight,
 	requestSpotlight,
 	spotlightRequest,
 } from "$lib/stores/spotlight";
 import SettingsProfileTab from "./SettingsProfileTab.svelte";
+
+// The Read aloud card loads its own data once read aloud is on.
+vi.mock("$lib/client/api/read-aloud-voices", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("$lib/client/api/read-aloud-voices")
+	>()),
+	fetchReadAloudVoices: vi.fn(async () => ({
+		builtIn: [
+			{ key: "imogen", name: "Imogen", language: "en" },
+			{ key: "berta", name: "Berta", language: "hu" },
+		],
+		voices: [],
+		choice: { en: "imogen", hu: "berta" },
+		defaultSpeed: 1,
+	})),
+}));
 
 vi.mock("chart.js/auto", () => {
 	class Chart {
@@ -1275,5 +1292,40 @@ describe("SettingsProfileTab — the time zone row", () => {
 		} finally {
 			uiLanguage.set("en");
 		}
+	});
+});
+
+describe("SettingsProfileTab — the Read aloud card", () => {
+	afterEach(() => {
+		setReadAloudAvailable(false);
+	});
+
+	it("shows the Read aloud card after Preferences only when read aloud is on, and the same for the jump chip", async () => {
+		renderTab();
+		const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+		expect(document.getElementById("settings-section-read-aloud")).toBeNull();
+		expect(within(nav).queryByRole("link", { name: /Read aloud/ })).toBeNull();
+		setReadAloudAvailable(true);
+		await waitFor(() =>
+			expect(
+				document.getElementById("settings-section-read-aloud"),
+			).not.toBeNull(),
+		);
+		const card = document.getElementById("settings-section-read-aloud");
+		expect(card?.previousElementSibling?.id).toBe(
+			"settings-section-preferences",
+		);
+		expect(
+			within(nav)
+				.getAllByRole("link")
+				.map((chip) => chip.getAttribute("href")),
+		).toEqual([
+			"#settings-section-account",
+			"#settings-section-preferences",
+			"#settings-section-read-aloud",
+			"#settings-section-assistant",
+			"#settings-section-data-privacy",
+		]);
+		expect(within(nav).getByRole("link", { name: /Read aloud/ })).toBeTruthy();
 	});
 });
