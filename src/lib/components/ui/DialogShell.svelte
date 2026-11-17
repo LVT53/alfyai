@@ -356,10 +356,10 @@ function closeFromScrim(event: MouseEvent) {
     aria-labelledby={titleId}
     aria-describedby={description ? 'dialog-shell-description' : undefined}
     tabindex="-1"
-    class={`relative w-full ${dialogSizeClass} border-border bg-surface-page shadow-lg ${isSheet ? '' : 'p-lg'}`}
+    class={`relative w-full ${dialogSizeClass} border-border bg-surface-page shadow-lg ${isSheet ? '' : 'p-lg dialog-shell__panel'}`}
     in:panelTransition={panelTransitionInParams}
     out:panelTransition={panelTransitionOutParams}
-    style={isSheet ? '' : fullScreen ? 'max-height: 100dvh; overflow-y: auto;' : 'max-height: 85dvh; overflow-y: auto;'}
+    style={isSheet ? '' : fullScreen ? 'max-height: 100dvh;' : 'max-height: 85dvh;'}
   >
     {#if isSheet}
       <!-- Dismissal #1 of three. Drawn as the 36x4 bar the board specifies,
@@ -392,6 +392,15 @@ function closeFromScrim(event: MouseEvent) {
 </div>
 
 <style>
+  /* A centred panel scrolls inside itself. Not in the style attribute: Svelte's
+     transition saves the element's inline `overflow` before that attribute is
+     set and writes the empty value back when the intro ends, and clearing the
+     shorthand also drops an inline `overflow-y`, so a panel taller than
+     85dvh spilled over the page instead of scrolling. A class it cannot touch. */
+  .dialog-shell__panel {
+    overflow-y: auto;
+  }
+
   /* ── The phone sheet ──────────────────────────────────────────────
      Radius on the top corners only (Consistency board: "bottom sheet —
      radius 16px top corners only"), flush to the bottom edge, and the page
