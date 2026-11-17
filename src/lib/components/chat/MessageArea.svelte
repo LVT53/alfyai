@@ -1772,7 +1772,7 @@ async function scrollToMessage(messageId: string) {
 		</button>
 	{/if}
 	<!-- Read from here: one pill for the thread, on the body, over a selection in a reply. -->
-	<ReadFromHere {conversationId} {composerHeight} />
+	<ReadFromHere {conversationId} {composerHeight} scroller={scrollContainer} />
 </div>
 
 <style>
