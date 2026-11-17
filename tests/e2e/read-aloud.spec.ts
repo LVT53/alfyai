@@ -100,8 +100,9 @@ test("no syntax reaches the voice, and code is read the way a teacher says it", 
 test("a code name is marked while it is read, above the code's own background", async ({
 	page,
 }) => {
-	const [reply] = await openChat(page, [SYNTAX_REPLY]);
-	await startReading(page, reply as string);
+	const ui = await open(page, [SYNTAX_REPLY]);
+	await ui.speaker().click();
+	await expect(ui.player).toBeVisible();
 	// The inline code's sentence is the second: its code is drawn by a highlight, which
 	// paints above the code's background (the overlay behind the prose cannot).
 	await expect

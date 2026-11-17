@@ -101,18 +101,16 @@ test("on a phone the can't-start note stays on the screen", async ({
 	page,
 }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
-	await startFake(page, { refuseSessions: true });
-	const reply = await openChat(page);
-	await speaker(page, reply).click();
-	const failed = note(
-		page,
+	const ui = await start(page, { refuseSessions: true });
+	await ui.speaker().click();
+	await expect(ui.note).toContainText(
 		"Couldn't start reading. The voice isn't answering right now.",
+		{ timeout: 15_000 },
 	);
-	await expect(failed).toBeVisible({ timeout: 15_000 });
 	for (const part of [
-		failed,
-		failed.getByRole("button", { name: "Try again" }),
-		failed.getByRole("button", { name: "Dismiss" }),
+		ui.note,
+		ui.note.getByRole("button", { name: "Try again" }),
+		ui.note.getByRole("button", { name: "Dismiss" }),
 	]) {
 		const box = await part.boundingBox();
 		expect(box, "the note and its buttons are laid out").toBeTruthy();
