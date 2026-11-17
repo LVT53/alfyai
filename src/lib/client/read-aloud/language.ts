@@ -41,9 +41,119 @@ function letterCount(text: string): number {
 	return text.match(LETTER)?.length ?? 0;
 }
 
+/** Words of English that German, French and Hungarian do not write ("in", "an", "was" and "or" they do). */
+const ENGLISH_WORDS = new Set([
+	"the",
+	"and",
+	"of",
+	"to",
+	"with",
+	"for",
+	"that",
+	"this",
+	"are",
+	"were",
+	"from",
+	"which",
+	"what",
+	"when",
+	"how",
+	"into",
+	"than",
+	"then",
+	"you",
+	"your",
+	"have",
+	"its",
+	"not",
+	"at",
+	"if",
+	"it",
+]);
+
+/** Words of Hungarian that other languages do not write ("de", "van", "nem" and "sem" they do). */
+const HUNGARIAN_WORDS = new Set([
+	"az",
+	"és",
+	"hogy",
+	"egy",
+	"ez",
+	"azt",
+	"ezt",
+	"csak",
+	"már",
+	"még",
+	"kell",
+	"lehet",
+	"vagy",
+	"volt",
+	"lesz",
+	"mert",
+	"pedig",
+	"akkor",
+	"nincs",
+	"szerint",
+	"nagyon",
+	"amely",
+	"ami",
+	"amit",
+	"amikor",
+	"ahol",
+	"hanem",
+	"illetve",
+	"valamint",
+	"ezért",
+	"így",
+	"úgy",
+	"olyan",
+	"mivel",
+	"tehát",
+	"itt",
+	"ott",
+]);
+
+/** Letters only Hungarian writes. */
+const HUNGARIAN_LETTERS = /[őű]/giu;
+/** Acute vowels: Hungarian writes about one in ten letters so; English and German almost never. */
+const ACUTE_VOWELS = /[áéíóú]/giu;
+/** Letters of the other languages that write acute vowels too (Spanish, Portuguese, Czech, French…). */
+const OTHER_LETTERS = /[ñãõçàèêëîïôûěščřžýůäßåøæ]/iu;
+
+/** How much a paragraph reads as English and as Hungarian, counting only what one of the two alone writes. */
+function evidence(text: string): { en: number; hu: number } {
+	let en = 0;
+	let hu = 0;
+	for (const word of text.toLowerCase().match(/\p{L}+/gu) ?? []) {
+		if (ENGLISH_WORDS.has(word)) en++;
+		else if (HUNGARIAN_WORDS.has(word)) hu++;
+	}
+	hu += text.match(HUNGARIAN_LETTERS)?.length ?? 0;
+	if (!OTHER_LETTERS.test(text))
+		hu += Math.floor((text.match(ACUTE_VOWELS)?.length ?? 0) / 2);
+	return { en, hu };
+}
+
+/**
+ * English or Hungarian by what only one of them writes; tinyld settles a tie between
+ * the two, and names a paragraph on its own only when it shows neither, as a German
+ * or French one does. tinyld alone misnames short technical paragraphs, sure of itself:
+ * "The Python script reads the CSV file and prints the total." is Hungarian to it.
+ */
+function nameParagraph(
+	text: string,
+	detect: Detect,
+	only?: readonly string[],
+): string {
+	const { en, hu } = evidence(text);
+	if (en > hu) return "en";
+	if (hu > en) return "hu";
+	if (en > 0 || only) return detect(text, VOICED);
+	return detect(text);
+}
+
 /**
  * One language code per paragraph, in order:
- * - a paragraph of at least {@link SHORT_PARAGRAPH_LETTERS} letters gets the code the detector names;
+ * - a paragraph of at least {@link SHORT_PARAGRAPH_LETTERS} letters is English or Hungarian by what only one of them writes, else the code the detector names;
  * - any other paragraph takes the previous paragraph's code, and short paragraphs that open the reply take the first named code after them;
  * - when no paragraph is named, every paragraph gets the whole reply's language, English or Hungarian only ("" when neither).
  */
@@ -52,7 +162,9 @@ export function assignLanguages(
 	detect: Detect,
 ): string[] {
 	const named = paragraphs.map((text) =>
-		letterCount(text) >= SHORT_PARAGRAPH_LETTERS ? detect(text) : "",
+		letterCount(text) >= SHORT_PARAGRAPH_LETTERS
+			? nameParagraph(text, detect)
+			: "",
 	);
 	const firstNamed = named.find((code) => code !== "");
 	if (firstNamed === undefined) {
@@ -60,7 +172,7 @@ export function assignLanguages(
 		// Too little text to tell 62 languages apart ("Rendben." reads as French): a short
 		// reply is only asked whether it is English or Hungarian. A language with no voice
 		// is named only by a paragraph long enough to say so.
-		const whole = detect(paragraphs.join("\n"), VOICED);
+		const whole = nameParagraph(paragraphs.join("\n"), detect, VOICED);
 		return paragraphs.map(() => whole);
 	}
 	let previous = firstNamed;

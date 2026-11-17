@@ -48,8 +48,11 @@ describe("the read-aloud language detector", () => {
 	});
 
 	it("a paragraph the detector cannot name takes the language before it", () => {
-		const unsure = (text: string) => (text === HUNGARIAN ? "" : detect(text));
-		expect(assignLanguages([ENGLISH, HUNGARIAN], unsure)).toEqual(["en", "en"]);
+		// Latin shows nothing only English or only Hungarian writes, so the detector decides.
+		const LATIN =
+			"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor.";
+		const unsure = (text: string) => (text === LATIN ? "" : detect(text));
+		expect(assignLanguages([ENGLISH, LATIN], unsure)).toEqual(["en", "en"]);
 	});
 
 	it("a reply of only short paragraphs is detected as a whole", () => {
@@ -67,6 +70,44 @@ describe("the read-aloud language detector", () => {
 		expect(
 			assignLanguages(["Ingredients", "Flour", "Water", "Salt"], detect),
 		).toEqual(["en", "en", "en", "en"]);
+	});
+
+	it("names ordinary English and Hungarian paragraphs right where tinyld alone misnames them", () => {
+		// tinyld alone: German, Czech, Czech and Hungarian (early review R12); then Hungarian
+		// and English (the final review's minor 15). An English voice never reads Hungarian,
+		// and a Hungarian or English paragraph is never skipped as another language.
+		const cases: [string, string][] = [
+			["A fájlt a beállítások menüben tudod feltölteni.", "hu"],
+			["Az API-t a JSON formátumú válasz miatt érdemes használni.", "hu"],
+			["The API returns JSON with an id, a name and an array of tags.", "en"],
+			["The Python script reads the CSV file and prints the total.", "en"],
+			["Budapest, Debrecen, Szeged, Pécs and Győr are large cities.", "en"],
+			[
+				"Futtasd az npm install parancsot, majd az npm run dev parancsot a szerver indításához.",
+				"hu",
+			],
+		];
+		for (const [paragraph, code] of cases)
+			expect(assignLanguages([paragraph], detect), paragraph).toEqual([code]);
+	});
+
+	it("still names a paragraph in a language with no voice", () => {
+		expect(
+			assignLanguages(
+				[
+					"Der Hund läuft schnell durch den großen Garten. Die Kinder spielen draußen mit dem Ball und lachen laut.",
+				],
+				detect,
+			),
+		).toEqual(["de"]);
+		expect(
+			assignLanguages(
+				[
+					"Le chien court chaque matin dans le parc et aboie très fort, parce qu'il est content de respirer l'air frais.",
+				],
+				detect,
+			),
+		).toEqual(["fr"]);
 	});
 
 	it("a reply with nothing to name gives no language", () => {
