@@ -63,6 +63,8 @@ test("@smoke the speaker reads a reply: the player rises and the tint moves", as
 	await ui.speaker().click();
 
 	await expect(ui.player).toBeVisible();
+	// Playwright counts an element at opacity 0 as visible: the pill must have risen.
+	await expect(ui.player).toHaveCSS("opacity", "1");
 	await expect(ui.tint.first()).toBeVisible();
 	const first = await tintPlace(ui);
 	expect(first).not.toBe("none");

@@ -3,7 +3,8 @@
  * A read-aloud note (spec §4.8): calm for something that is not wrong (a
  * language with no voice, a busy voice, offline), amber when the voice failed.
  * Amber, never red: red is for actions where the person loses something.
- * Anchored above the speaker, or centred above the player.
+ * Anchored above the speaker, or centred above the player; in the voice editor it
+ * sits in the flow at full width (`inline`).
  */
 import { CircleAlert, Clock, WifiOff, X } from "@lucide/svelte";
 import { t } from "$lib/i18n";
@@ -23,7 +24,7 @@ let {
 	actionLabel?: string;
 	onAction?: () => void;
 	onDismiss?: () => void;
-	placement: "speaker" | "player";
+	placement: "speaker" | "player" | "inline";
 } = $props();
 </script>
 
@@ -76,6 +77,16 @@ let {
 		line-height: 1.45;
 		text-align: left;
 		white-space: normal;
+	}
+
+	/* In a dialog's flow (the voice editor's Listen section): full width, no lift. */
+	.read-aloud-note[data-placement="inline"] {
+		position: relative;
+		bottom: auto;
+		z-index: auto;
+		width: 100%;
+		max-width: none;
+		box-shadow: none;
 	}
 
 	.read-aloud-note[data-placement="speaker"] {

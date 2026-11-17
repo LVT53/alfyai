@@ -75,6 +75,22 @@ export type Readability =
 	| { kind: "nothing" }
 	| { kind: "unknown" };
 
+/**
+ * What a player's pill calls (`ReadAloudPlayerPill.svelte`): the reply controller, or the
+ * voice preview in Settings and the editor, which has no locate, speed or stop of its own.
+ */
+export type ReadAloudPlayerActions = Pick<
+	ReadAloudController,
+	| "toggle"
+	| "retry"
+	| "seek"
+	| "beginDrag"
+	| "dragTo"
+	| "endDrag"
+	| "sentencePreview"
+> &
+	Partial<Pick<ReadAloudController, "setSpeed" | "locate" | "stop">>;
+
 export interface ReadAloudController {
 	start(r: StartRequest): void;
 	toggle(): void;
