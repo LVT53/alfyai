@@ -561,6 +561,102 @@ Post-deploy checks:
 - When TEI reranking is configured and confident, `sourceReranked` and `reranked` should usually be
   `true`.
 
+## Read aloud
+
+Read aloud puts a speaker on every finished reply. AlfyAI's server asks a speech service for the
+voice, and nothing else reaches that service. Why it is built this way is
+[ADR-0070](../docs/adr/0070-read-aloud-runs-beside-the-model.md); the service's contract, install
+steps, measurements and rollback are in [speech-service/README.md](./speech-service/README.md).
+
+### What runs where
+
+| What | Where |
+|---|---|
+| The reading, preview and voice routes | each site's own AlfyAI process (production `:3001`, staging `:3002`) |
+| The speech service | the GPU box: `speech-service.service`, run as `alfyws`, on `127.0.0.1:1920` only |
+| The voice (Zonos) | the same box: `zonos3.service`, on `127.0.0.1:1919` |
+| Word timing (FuseAlign) | a native command the speech service starts, on the CPU |
+
+Both sites run on that box, so both use `TTS_URL=http://127.0.0.1:1920`. The service listens on
+loopback and has no sign-in of its own, so never add a bind or a proxy rule that reaches past the
+box. `vllm-flashnext` and `zonos3` are never restarted or reconfigured for read aloud. Stopping
+`speech-service` is safe for everything else: readings then fail calmly ("Couldn't start reading")
+and the chat is untouched.
+
+### The two keys
+
+`TTS_ENABLED` (default `false`) and `TTS_URL`. Read aloud is on only when the switch is `true` and the
+address is not empty. Otherwise there is no speaker and no Read aloud card in Settings, and nothing
+else changes. (The Feature Guide still lists it, and its Show me rings nothing.)
+
+- **Live:** Settings → Administration → System → Integrations & keys ("Read aloud" and "Speech
+  service"), or `PUT /api/admin/config`. A change applies on the next request, with no restart.
+- **In `shared/.env`:** read at startup, so a change needs a restart (a deploy's own restart does
+  it). A value saved in the System pane wins over `.env`.
+
+To turn it on, set both. To turn it off, the System pane's Read aloud switch is the quickest way and
+needs no restart. Without an admin session, set `TTS_ENABLED=false` in the site's `shared/.env`,
+drain the site (`/api/admin/drain`, see [Health Check](#health-check)) and restart it.
+
+### The Apache routes
+
+Two routes stream and need unbuffered proxying: `GET /api/read-aloud/sessions/{id}/audio` (the MP3,
+sent as it is made) and `GET /api/read-aloud/sessions/{id}/events` (the timeline).
+`deploy/apache-site.conf` has the pattern, the same one the chat's streaming routes use:
+
+- a `ProxyPassMatch … flushpackets=on` line for them, before the catch-all `ProxyPass /` (the first
+  rule that matches wins);
+- one more alternative in the streaming `LocationMatch`, which sets `no-gzip` and the headers
+  `Cache-Control: no-cache, no-transform` and `X-Accel-Buffering: no`.
+
+The live vhosts are Virtualmin's, so the same two lines go into each site's block by hand: back up
+`/etc/httpd/conf/httpd.conf`, write the change to a new file with a script that stops unless each
+anchor matches exactly once, run `httpd -t -f` on it, `diff` it against the live file (only those
+two lines may differ), move it into place, then `apachectl configtest` and `systemctl reload httpd`.
+The deploy scripts never touch Apache. Every other read-aloud route (starting a reading, its
+position, the preview, the voices and the settings) is a plain request and needs nothing.
+
+Check a site without signing in; the refusal carries the headers:
+
+```bash
+curl -sI https://<site>/api/read-aloud/sessions/x/audio
+curl -sI https://<site>/api/read-aloud/sessions/x/events
+```
+
+Each answers `401` with `Cache-Control: no-cache, no-transform` and `X-Accel-Buffering: no`. A site
+that lacks them can hold the stream back, so readings start late or stall.
+
+### Scripts on the box
+
+`deploy/speech-service/scripts/` holds three checks that are run by hand, as `alfyws`, with the
+service's own Python. Each writes only into the `--out` folder it is given (outside the repository),
+and none has reply text anywhere. Their commands are in the speech service's README.
+
+| Script | What it does | What it costs |
+|---|---|---|
+| `live_check.py` | The end-to-end check after an install or an update: six checks of a real reading. | seconds |
+| `measure_knobs.py` | Measures each voice-editor knob's safe range on the box's own Zonos. | about 15 minutes of Zonos |
+| `measure_rates.py` | Measures each voice's speaking rate, which the estimate of a reading's length uses. | about a minute of Zonos |
+
+They restart nothing. While Zonos works, vLLM decodes about 10% slower, whether for a script or for
+a reading (the README's "Known, accepted cost").
+
+### Rollback
+
+From the smallest step to the largest. The full list is in Plan 4's **Rollback**
+([docs/superpowers/plans/2026-11-17-read-aloud-4-guide-and-rollout.md](../docs/superpowers/plans/2026-11-17-read-aloud-4-guide-and-rollout.md)).
+
+1. **Read aloud misbehaves and the rest of the app is fine:** switch it off, as above.
+2. **Readings stall or start late behind Apache:** copy the backup of `httpd.conf` back, run
+   `apachectl configtest` and `systemctl reload httpd`, and check both sites' health.
+3. **The speech service hurts the box:** `systemctl stop speech-service` as root, and switch read
+   aloud off too, so nobody meets a speaker that cannot start. The service's own rollback is in its
+   README.
+4. **The release is bad beyond read aloud:** roll back the code as in "Release layout". The
+   migration only added a table and three columns, which the previous release ignores, so leave the
+   database alone. Restoring a database backup loses every write since the deploy, and is the
+   owner's call.
+
 ## Document extraction service (MinerU)
 
 Uploaded documents are parsed by a MinerU service that the app reaches through `MINERU_API_URL`, a

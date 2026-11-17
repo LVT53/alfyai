@@ -78,6 +78,7 @@ export const SPOTLIGHT_IDS = [
 	"settings.data",
 	"settings.activity",
 	"settings.connections",
+	"settings.readAloud",
 ] as const;
 
 export type SpotlightId = (typeof SPOTLIGHT_IDS)[number];

@@ -8,6 +8,7 @@
  */
 import { onDestroy, untrack } from "svelte";
 import { Plus, TriangleAlert } from "@lucide/svelte";
+import { spotlightTarget } from "$lib/actions/spotlight";
 import {
 	fetchReadAloudVoices,
 	type PersonalVoiceInfo,
@@ -223,6 +224,16 @@ function onDeleted(id: string, choice: VoiceChoice) {
 			/>
 		{:else}
 			<div class="settings-rows">
+				<!-- The two voice pickers are one wrapper, so that the feature guide's
+				     Show me can ring both ("Voices that read to you"); see
+				     `.settings-row-group` below for how it keeps looking like the rows
+				     it holds. Its class is static: the ring is a class the action adds,
+				     and an attribute Svelte wrote again while it was on would drop it. -->
+				<div
+					class="settings-row-group"
+					data-testid="read-aloud-voice-rows"
+					use:spotlightTarget={"settings.readAloud"}
+				>
 				{#each LANGUAGES as language (language)}
 					{@const label = $t(
 						language === "en" ? "readAloud.settings.englishVoice" : "readAloud.settings.hungarianVoice",
@@ -259,6 +270,7 @@ function onDeleted(id: string, choice: VoiceChoice) {
 						</div>
 					</div>
 				{/each}
+				</div>
 				<div class="settings-row settings-row--stack">
 					<div class="settings-row-text">
 						<p class="settings-row-label">{$t("readAloud.settings.defaultSpeed")}</p>
@@ -363,6 +375,25 @@ function onDeleted(id: string, choice: VoiceChoice) {
 {/if}
 
 <style>
+	/* The two voice pickers the guide's Show me rings together. They sit in one
+	   wrapper where they sat in the list directly, so it has to read as the rows
+	   it holds (the Preferences card's "Style and model" group does the same):
+	   - the row's own bleed (`margin: 0 -0.5rem`) and side padding, so the ring
+	     is drawn around what a row's hover is, and the rows inside keep their
+	     bleed to the wrapper's edge;
+	   - the row's radius, or the ring is a square;
+	   - the rule above the next row, which the list draws as
+	     `.settings-row + .settings-row` and a wrapper in between breaks. */
+	.settings-row-group {
+		margin: 0 -0.5rem;
+		padding: 0 0.5rem;
+		border-radius: var(--radius-md);
+	}
+
+	.settings-row-group + .settings-row {
+		border-top: 1px solid var(--border-default);
+	}
+
 	.read-aloud-voices {
 		display: flex;
 		flex-direction: column;

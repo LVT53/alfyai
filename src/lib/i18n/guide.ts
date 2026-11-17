@@ -76,6 +76,11 @@ const guideDict = {
 		"guide.entry.asksFirst.line":
 			"When a request could go two ways, Alfy asks with answers to click.",
 		"guide.entry.asksFirst.example": "Help me choose a laptop.",
+		"guide.entry.listenToAReply.name": "Listen to a reply",
+		"guide.entry.listenToAReply.line":
+			"Press the speaker under a reply to hear it, and follow the words as they are read.",
+		"guide.entry.listenToAReply.example":
+			"Tell me a short story about a lighthouse keeper.",
 
 		// ── Make ───────────────────────────────────────────────────────────
 		"guide.entry.documents.name": "Documents",
@@ -120,6 +125,9 @@ const guideDict = {
 		"guide.entry.skills.name": "Skills",
 		"guide.entry.skills.line":
 			"Ready-made helpers like Study Coach, and your own.",
+		"guide.entry.yourVoices.name": "Voices that read to you",
+		"guide.entry.yourVoices.line":
+			"Choose a voice for each language and the speed it starts at, or make a voice of your own.",
 
 		// ── Your things ────────────────────────────────────────────────────
 		"guide.entry.knowledgeBase.name": "Knowledge Base",
@@ -234,6 +242,11 @@ const guideDict = {
 		"guide.entry.asksFirst.line":
 			"Ha egy kérés félreérthető, Alfy kattintható válaszokkal kérdez vissza.",
 		"guide.entry.asksFirst.example": "Segíts laptopot választani.",
+		"guide.entry.listenToAReply.name": "Hallgasd meg a választ",
+		"guide.entry.listenToAReply.line":
+			"Nyomd meg a válasz alatti hangszórót, és kövesd a szavakat, ahogy elhangzanak.",
+		"guide.entry.listenToAReply.example":
+			"Mesélj egy rövid történetet egy világítótorony-őrről.",
 
 		// ── Make ───────────────────────────────────────────────────────────
 		"guide.entry.documents.name": "Dokumentumok",
@@ -283,6 +296,9 @@ const guideDict = {
 		"guide.entry.skills.name": "Készségek",
 		"guide.entry.skills.line":
 			"Beépített segítők, például a Tanulási coach, és a sajátjaid.",
+		"guide.entry.yourVoices.name": "Felolvasó hangok",
+		"guide.entry.yourVoices.line":
+			"Válassz hangot minden nyelvhez és kezdősebességet, vagy készíts saját hangot.",
 
 		// ── Your things ────────────────────────────────────────────────────
 		"guide.entry.knowledgeBase.name": "Tudásbázis",

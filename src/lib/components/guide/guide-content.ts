@@ -2,7 +2,7 @@ import type { AppPlaceId, SpotlightId } from "$lib/app-places";
 import type { I18nKey } from "$lib/i18n";
 
 /**
- * What the Feature Guide lists: six sections and thirty entries, as data.
+ * What the Feature Guide lists: six sections and thirty-three entries, as data.
  *
  * Every word is a `guide.*` key in `src/lib/i18n/guide.ts`; this file holds
  * only the ids, the order and what each entry can do. A change that adds,
@@ -116,6 +116,16 @@ export const GUIDE_ENTRIES: readonly GuideEntry[] = [
 		action: { kind: "tryIt" },
 		added: "2026-11-05",
 	},
+	{
+		// Try it, not Show me: the speaker needs a finished reply, and Show me
+		// exists only where its control is always there. Its row lights the
+		// speaker in the chat drawing.
+		id: "listenToAReply",
+		section: "ask",
+		drawingSpot: "readAloud",
+		action: { kind: "tryIt" },
+		added: "2026-11-17",
+	},
 	// ── Make ─────────────────────────────────────────────────────────────
 	{
 		id: "documents",
@@ -202,6 +212,24 @@ export const GUIDE_ENTRIES: readonly GuideEntry[] = [
 		drawingSpot: "skills",
 		action: { kind: "showMe", place: "settings", spotlight: "settings.skills" },
 		added: BEFORE_THE_GUIDE,
+	},
+	{
+		// Show me rings the Read aloud card's two voice pickers. The guide does
+		// not filter by configuration, so with read aloud off the row stays and
+		// Show me rings nothing, quietly. The row lights no part of its section's
+		// drawing: the Knows-you drawing is full (measured at 330 x 222: its right
+		// pane ends at 204 and a Read aloud card, row and button, would end at
+		// 269, and even the row alone would end at 255, past the frame), so the
+		// card is not drawn until that drawing is composed again.
+		id: "yourVoices",
+		section: "knowsYou",
+		drawingSpot: null,
+		action: {
+			kind: "showMe",
+			place: "settings",
+			spotlight: "settings.readAloud",
+		},
+		added: "2026-11-17",
 	},
 	// ── Your things ──────────────────────────────────────────────────────
 	{

@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
 import {
 	type BuiltInVoiceInfo,
 	createReadAloudVoice,
@@ -20,6 +22,7 @@ import {
 	setVoicePreviewView,
 } from "$lib/stores/read-aloud";
 import { uiLanguage } from "$lib/stores/settings";
+import { requestSpotlight, spotlightRequest } from "$lib/stores/spotlight";
 import ReadAloudSettingsCard from "./ReadAloudSettingsCard.svelte";
 
 vi.mock("$lib/client/api/read-aloud-voices", async (importOriginal) => {
@@ -406,5 +409,63 @@ describe("ReadAloudSettingsCard", () => {
 			),
 		).toBeTruthy();
 		expect(container.querySelector(".lucide-triangle-alert")).toBeTruthy();
+	});
+});
+
+// The guide's Show me asks for the voice pickers by name ("settings.readAloud")
+// and the control that carries the name rings itself (`spotlightTarget`). The
+// card is drawn only while read aloud is on, so the guide's own end-to-end row
+// switches it on for itself.
+describe("ReadAloudSettingsCard and the guide's Show me", () => {
+	let restoreLayout: () => void = () => undefined;
+
+	beforeEach(() => {
+		// The ring waits one animation frame; the test steps it by hand.
+		vi.useFakeTimers({
+			toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+		});
+		restoreLayout = stubLayoutForSpotlight();
+		spotlightRequest.set(null);
+	});
+
+	afterEach(() => {
+		restoreLayout();
+		vi.useRealTimers();
+		spotlightRequest.set(null);
+	});
+
+	it("marks its voice pickers for Show me", async () => {
+		requestSpotlight("settings.readAloud");
+		const { select } = await card();
+		vi.advanceTimersToNextFrame();
+
+		const group = screen.getByTestId("read-aloud-voice-rows");
+		// The two pickers, and not the Default speed under them, are what rings; the
+		// request was taken, and the group's own class is still on it.
+		expect(group).toHaveClass("settings-row-group", "spotlight-ring");
+		expect(get(spotlightRequest)).toBeNull();
+		expect(within(group).getByRole("combobox", { name: "English voice" })).toBe(
+			select("English voice"),
+		);
+		expect(
+			within(group).getByRole("combobox", { name: "Hungarian voice" }),
+		).toBe(select("Hungarian voice"));
+		expect(
+			within(group).queryByRole("combobox", { name: "Default speed" }),
+		).toBeNull();
+		expect(
+			screen.getByRole("combobox", { name: "Default speed" }),
+		).toBeTruthy();
+	});
+
+	it("rings nothing for another control's request", async () => {
+		requestSpotlight("settings.style");
+		await card();
+		vi.advanceTimersToNextFrame();
+
+		expect(screen.getByTestId("read-aloud-voice-rows")).not.toHaveClass(
+			"spotlight-ring",
+		);
+		expect(get(spotlightRequest)).not.toBeNull();
 	});
 });

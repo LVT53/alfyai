@@ -12,7 +12,7 @@ import type { GuideSectionId } from "../guide-content";
 export const SECTION_DRAWING_SPOTS: Readonly<
 	Record<GuideSectionId, readonly string[]>
 > = {
-	ask: ["thinking", "sources", "attach", "atlas", "replyActions"],
+	ask: ["thinking", "sources", "attach", "atlas", "replyActions", "readAloud"],
 	make: ["document", "picture", "download", "history"],
 	knowsYou: ["memory", "instructions", "style", "skills"],
 	yourThings: ["library", "fromLibrary", "connections", "okCard"],

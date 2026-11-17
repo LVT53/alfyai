@@ -33,11 +33,71 @@ describe("the feature guide's content", () => {
 		]);
 	});
 
-	it("has thirty-one entries with unique ids, 7/7/4/4/5/4 per section", () => {
-		expect(new Set(GUIDE_ENTRIES.map((e) => e.id)).size).toBe(31);
+	it("has thirty-three entries with unique ids, 8/7/5/4/5/4 per section", () => {
+		expect(new Set(GUIDE_ENTRIES.map((e) => e.id)).size).toBe(33);
 		expect(GUIDE_SECTION_IDS.map((s) => guideEntriesFor(s).length)).toEqual([
-			7, 7, 4, 4, 5, 4,
+			8, 7, 5, 4, 5, 4,
 		]);
+	});
+
+	// Read aloud (Plan 4, Task 1). The speaker needs a finished reply, so its
+	// entry has Try it and its row lights the speaker in the chat drawing; Show me
+	// goes to the Read aloud card in Settings, which is always there when the
+	// feature is on (the guide's rule: Show me only where the control is).
+	it("lists Listen to a reply last in Ask, with Try it, and Voices that read to you last in It knows you, with Show me on the Read aloud card", () => {
+		expect(guideEntriesFor("ask").at(-1)).toEqual({
+			id: "listenToAReply",
+			section: "ask",
+			drawingSpot: "readAloud",
+			action: { kind: "tryIt" },
+			added: "2026-11-17",
+		});
+		expect(guideEntriesFor("knowsYou").at(-1)).toEqual({
+			id: "yourVoices",
+			section: "knowsYou",
+			// The Knows-you drawing has no room for the Read aloud card (see the entry).
+			drawingSpot: null,
+			action: {
+				kind: "showMe",
+				place: "settings",
+				spotlight: "settings.readAloud",
+			},
+			added: "2026-11-17",
+		});
+	});
+
+	it("words the two read-aloud entries in English and Hungarian", () => {
+		const expected = {
+			en: {
+				"guide.entry.listenToAReply.name": "Listen to a reply",
+				"guide.entry.listenToAReply.line":
+					"Press the speaker under a reply to hear it, and follow the words as they are read.",
+				"guide.entry.listenToAReply.example":
+					"Tell me a short story about a lighthouse keeper.",
+				"guide.entry.yourVoices.name": "Voices that read to you",
+				"guide.entry.yourVoices.line":
+					"Choose a voice for each language and the speed it starts at, or make a voice of your own.",
+			},
+			hu: {
+				"guide.entry.listenToAReply.name": "Hallgasd meg a választ",
+				"guide.entry.listenToAReply.line":
+					"Nyomd meg a válasz alatti hangszórót, és kövesd a szavakat, ahogy elhangzanak.",
+				"guide.entry.listenToAReply.example":
+					"Mesélj egy rövid történetet egy világítótorony-őrről.",
+				"guide.entry.yourVoices.name": "Felolvasó hangok",
+				"guide.entry.yourVoices.line":
+					"Válassz hangot minden nyelvhez és kezdősebességet, vagy készíts saját hangot.",
+			},
+		} as const;
+		for (const lang of LANGUAGES) {
+			for (const [key, value] of Object.entries(expected[lang])) {
+				expect(words[lang][key], `${lang} ${key}`).toBe(value);
+			}
+		}
+		// A Show me has no example: only Try it has one.
+		for (const lang of LANGUAGES) {
+			expect(words[lang]["guide.entry.yourVoices.example"]).toBeUndefined();
+		}
 	});
 
 	it("gives every entry a name and a line, and every Try it an example, in both languages", () => {
@@ -152,7 +212,7 @@ describe("the feature guide's content", () => {
 			GUIDE_ENTRIES.filter((e) => e.added !== BEFORE_THE_GUIDE).map(
 				(e) => e.id,
 			),
-		).toEqual(["asksFirst", "videos"]);
+		).toEqual(["asksFirst", "listenToAReply", "videos", "yourVoices"]);
 	});
 
 	it("shows NEW for thirty days from the added date", () => {

@@ -83,19 +83,19 @@ function stubReducedMotion(reduce: boolean) {
 }
 
 describe("the guide page", () => {
-	it("shows six sections and thirty-one rows", () => {
+	it("shows six sections and thirty-three rows", () => {
 		render(GuidePage);
 
 		const sections = screen.getAllByTestId("guide-section");
 		expect(sections.map((section) => section.id)).toEqual(
 			GUIDE_SECTION_IDS.map((id) => `guide-section-${id}`),
 		);
-		expect(screen.getAllByTestId("guide-row")).toHaveLength(31);
+		expect(screen.getAllByTestId("guide-row")).toHaveLength(33);
 		expect(
 			sections.map(
 				(section) => within(section).getAllByTestId("guide-row").length,
 			),
-		).toEqual([7, 7, 4, 4, 5, 4]);
+		).toEqual([8, 7, 5, 4, 5, 4]);
 		for (const entry of GUIDE_ENTRIES) {
 			expect(rowOf(entry.id).closest("section")?.id).toBe(
 				`guide-section-${entry.section}`,
@@ -161,10 +161,23 @@ describe("NEW", () => {
 		);
 	});
 
+	it("marks the two read-aloud entries NEW from the day they were added", () => {
+		vi.setSystemTime(new Date("2026-11-17T12:00:00Z"));
+		render(GuidePage);
+
+		const rows = screen
+			.getAllByText("NEW")
+			.map((mark) => mark.closest('[data-testid="guide-row"]'));
+		expect(rows).toContain(rowOf("listenToAReply"));
+		expect(rows).toContain(rowOf("yourVoices"));
+		expect(rows).not.toContain(rowOf("memory"));
+	});
+
 	it("is gone after the thirty days, and nothing else ever wore it", () => {
-		// Past both entries' windows: "Alfy asks first" (2026-11-05) and
-		// Videos (2026-11-15).
-		vi.setSystemTime(new Date("2026-12-16T00:00:00Z"));
+		// Past all the windows: "Alfy asks first" (2026-11-05), Videos
+		// (2026-11-15), and Listen to a reply and Voices that read to you
+		// (2026-11-17, NEW up to but not including 2026-12-17).
+		vi.setSystemTime(new Date("2026-12-17T00:00:00Z"));
 		render(GuidePage);
 
 		expect(screen.queryByText("NEW")).not.toBeInTheDocument();
@@ -236,18 +249,18 @@ describe("a row's buttons", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("has nine Try its, eighteen Show mes and four rows with neither", () => {
+	it("has ten Try its, nineteen Show mes and four rows with neither", () => {
 		render(GuidePage);
 
 		const kinds = GUIDE_ENTRIES.map((entry) => entry.action.kind);
-		expect(kinds.filter((kind) => kind === "tryIt")).toHaveLength(9);
-		expect(kinds.filter((kind) => kind === "showMe")).toHaveLength(18);
+		expect(kinds.filter((kind) => kind === "tryIt")).toHaveLength(10);
+		expect(kinds.filter((kind) => kind === "showMe")).toHaveLength(19);
 		expect(kinds.filter((kind) => kind === "none")).toHaveLength(4);
 		expect(screen.getAllByRole("button", { name: /^Try it: / })).toHaveLength(
-			9,
+			10,
 		);
 		expect(screen.getAllByRole("button", { name: /^Show me: / })).toHaveLength(
-			18,
+			19,
 		);
 	});
 });
@@ -291,8 +304,8 @@ describe("Try it and Show me", () => {
 			examples.push(consumeHomeComposerSeed() ?? "");
 			unmount();
 		}
-		expect(examples).toHaveLength(9);
-		expect(new Set(examples).size).toBe(9);
+		expect(examples).toHaveLength(10);
+		expect(new Set(examples).size).toBe(10);
 		expect(examples).not.toContain("");
 	});
 
@@ -316,6 +329,30 @@ describe("Try it and Show me", () => {
 
 		expect(get(spotlightRequest)?.spotlight).toBe("sidebar.search");
 		expect(goto).not.toHaveBeenCalled();
+	});
+
+	it("Show me for the voices opens Settings and asks for the Read aloud card's pickers", async () => {
+		render(GuidePage);
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Show me: Voices that read to you" }),
+		);
+
+		expect(get(spotlightRequest)?.spotlight).toBe("settings.readAloud");
+		expect(goto).toHaveBeenCalledWith("/settings");
+	});
+
+	it("Try it for Listen to a reply hands Home its example", async () => {
+		render(GuidePage);
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Try it: Listen to a reply" }),
+		);
+
+		expect(consumeHomeComposerSeed()).toBe(
+			"Tell me a short story about a lighthouse keeper.",
+		);
+		expect(goto).toHaveBeenCalledWith("/");
 	});
 
 	it("Show me for Memory opens Knowledge on its Memory tab", async () => {

@@ -210,6 +210,47 @@ describe("the guide's drawings", () => {
 		}
 	});
 
+	// The reply's row of actions in `MessageBubble.svelte`: regenerate, fork,
+	// copy, and then, while read aloud is on, the speaker (spec 4.1). The speaker
+	// is a spot of its own (the guide's Listen to a reply lights it), inside the
+	// row's, which Steer a reply lights.
+	it("the reply's row of actions draws the speaker after Copy", () => {
+		const { container } = render(SectionDrawing, {
+			props: { section: "ask", lit: null },
+		});
+		const actions = container.querySelector<HTMLElement>(
+			'[data-drawing-spot="replyActions"]',
+		);
+		expect(actions).not.toBeNull();
+		const iconNames = [...(actions?.querySelectorAll("svg") ?? [])].map((svg) =>
+			[...svg.classList].find(
+				(name) => name.startsWith("lucide-") && name !== "lucide-icon",
+			),
+		);
+		expect(iconNames).toEqual([
+			"lucide-refresh-cw",
+			"lucide-git-branch",
+			"lucide-copy",
+			"lucide-volume-2",
+		]);
+		const speaker = actions?.querySelector<HTMLElement>(
+			'[data-drawing-spot="readAloud"]',
+		);
+		expect(speaker).not.toBeNull();
+		expect(speaker?.querySelector("svg")).toHaveClass("lucide-volume-2");
+	});
+
+	it("follows the real row: the speaker comes after Copy in the message's action row", () => {
+		const bubble = readFileSync(
+			join(HERE, "..", "..", "chat", "MessageBubble.svelte"),
+			"utf8",
+		);
+		const copy = bubble.indexOf("onclick={copyToClipboard}");
+		const speaker = bubble.indexOf("<ReadAloudSpeaker");
+		expect(copy).toBeGreaterThan(0);
+		expect(speaker).toBeGreaterThan(copy);
+	});
+
 	it("is hidden from screen readers", () => {
 		const { container } = render(SectionDrawing, {
 			props: { section: "make", lit: null },

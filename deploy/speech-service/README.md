@@ -280,6 +280,14 @@ ssh alfyws 'cd ~/opt/speech-service && ~/venvs/speech-service/bin/python -I -B s
 
 It writes `knob-ranges.json` (every clip's numbers: no audio, no text) and prints the `SAFE_CONTROL_RANGES` object to paste into `src/lib/shared/read-aloud/voice-knobs.ts`. Copy the report off the box and delete its folder. Exit status 0 means the sweep ran, whatever it found; 1 that it could not (Zonos or the aligner cannot be reached, or Zonos makes no baseline clip); 2 a bad argument. `--voices` and `--seeds` shorten a run. Without the aligner flags the words are not checked, and the report says so. The ranges measured on the box are not in yet.
 
+**Speaking rates.** The browser estimates how long a reading will be, before its sentences are made, from each voice's `charsPerSecond` in `src/lib/server/services/read-aloud/voices.ts` (15 for every voice until it is measured; readings correct the estimate as sentences arrive). `scripts/measure_rates.py` asks the running service for a preview of each sentence in each voice, one after the other (the language's two samples and four plain sentences with no digit or symbol, which a voice would expand into more words than are written), reads each clip's length from its MP3 frames, and prints each voice's rate (the characters of all its sentences over the seconds of all its clips, to 0.1) as the line to put into `voices.ts`. It costs about a minute of Zonos beside vLLM and restarts nothing. Run it as `alfyws`, with the service's Python, into a folder outside the repository:
+
+```sh
+ssh alfyws 'cd ~/opt/speech-service && ~/venvs/speech-service/bin/python -I -B scripts/measure_rates.py --service http://127.0.0.1:1920 --out /home/alfyws/opt/speech-service-rates'
+```
+
+It writes `rates.json` (each sentence's length and its clip's seconds, per voice) and nothing else. Copy the report off the box and delete its folder. Exit status 0 means it ran; 1 that the service did not answer or refused (a 4xx or 5xx); 2 a bad argument. The rates measured on the box are not in yet.
+
 ffmpeg 7.1.5 (the box) reads ahead about 5 s of input before it encodes unless told not to; the encoder passes `-probesize 32 -analyzeduration 0` for that reason (see `audio.py`).
 
 ### Known, accepted cost: vLLM decodes slower while a reading is being made

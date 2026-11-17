@@ -4,9 +4,18 @@
  *
  * The Sources row is `MessageEvidenceDetails.svelte`'s toggle (the book, its
  * word, the chevron). The actions are the icons of `MessageBubble.svelte`'s
- * action row, in its order: regenerate, fork, copy.
+ * action row, in its order: regenerate, fork, copy, and the speaker that reads
+ * the reply aloud (`ReadAloudSpeaker.svelte`, drawn while read aloud is on).
+ * The speaker is a spot of its own, inside the row's.
  */
-import { Book, ChevronDown, Copy, GitBranch, RefreshCw } from "@lucide/svelte";
+import {
+	Book,
+	ChevronDown,
+	Copy,
+	GitBranch,
+	RefreshCw,
+	Volume2,
+} from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import DrawnBar from "./DrawnBar.svelte";
 import { isLit } from "./drawing-spot";
@@ -16,8 +25,8 @@ let {
 	spots = {},
 }: {
 	lit?: string | null;
-	/** The spot ids this reply carries: its Sources row and its row of actions. */
-	spots?: { sources?: string; actions?: string };
+	/** The spot ids this reply carries: its Sources row, its row of actions and the speaker in it. */
+	spots?: { sources?: string; actions?: string; speaker?: string };
 } = $props();
 </script>
 
@@ -48,6 +57,11 @@ let {
 			<span class="drawn-ic"><RefreshCw size="100%" strokeWidth={2} aria-hidden="true" /></span>
 			<span class="drawn-ic"><GitBranch size="100%" strokeWidth={2} aria-hidden="true" /></span>
 			<span class="drawn-ic"><Copy size="100%" strokeWidth={2} aria-hidden="true" /></span>
+			<span
+				class="drawn-ic"
+				data-drawing-spot={spots.speaker}
+				class:drawing-spot-lit={isLit(spots.speaker, lit)}
+			><Volume2 size="100%" strokeWidth={2} aria-hidden="true" /></span>
 		</span>
 	</div>
 </div>
