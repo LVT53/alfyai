@@ -16,6 +16,12 @@ export type VideoTakeRequest = {
 	v: 1;
 	/** The motion caption, in the LTX caption style the tool wrote. */
 	prompt: string;
+	/**
+	 * A 10 s take's second segment's caption: what happens next, from where the
+	 * first five seconds end (review C-2). Absent when no caption endpoint wrote
+	 * one, and on rows from before it: segment 2 then renders `prompt` again.
+	 */
+	continuationPrompt?: string;
 	/** 5 s by default; 10 s is two 5 s segments chained. */
 	durationSeconds: VideoDurationSeconds;
 	/** The still the clip is made from (an `image_files` id of the person). */
@@ -39,6 +45,29 @@ export type VideoTakeRequest = {
  * picture's 10 minutes.
  */
 export const VIDEO_RENDER_DEADLINE_MS = 900_000;
+
+// Test seam: a spec that must see a render run out of time in a moment, not in
+// fifteen minutes. On `globalThis` so the test file's import and the app's own
+// module graph (reset and re-imported per test) read the same value.
+const DEADLINE_KEY = Symbol.for("alfyai.video.renderDeadlineMs");
+type DeadlineHolder = { [DEADLINE_KEY]?: number };
+/** The effective render deadline: the constant, or a test's shorter one. */
+export function videoRenderDeadlineMs(): number {
+	return (
+		(globalThis as DeadlineHolder)[DEADLINE_KEY] ?? VIDEO_RENDER_DEADLINE_MS
+	);
+}
+/** Vitest only; `undefined` puts the constant back. */
+export function setVideoRenderDeadlineMsForTests(ms: number | undefined): void {
+	if (!process.env.VITEST) {
+		throw new Error("setVideoRenderDeadlineMsForTests is for vitest only");
+	}
+	if (ms === undefined) {
+		delete (globalThis as DeadlineHolder)[DEADLINE_KEY];
+		return;
+	}
+	(globalThis as DeadlineHolder)[DEADLINE_KEY] = Math.max(1, Math.trunc(ms));
+}
 
 /**
  * How long a `make_video` call waits inside the turn before leaving the take
@@ -148,8 +177,15 @@ export function parseVideoTakeRequest(json: string): VideoTakeRequest | null {
 		return null;
 	}
 	if (!isRecord(value) || value.v !== 1) return null;
-	const { prompt, durationSeconds, sourceFileId, title, summary, artifactId } =
-		value;
+	const {
+		prompt,
+		continuationPrompt,
+		durationSeconds,
+		sourceFileId,
+		title,
+		summary,
+		artifactId,
+	} = value;
 	if (typeof prompt !== "string" || prompt.trim() === "") return null;
 	if (!isDurationSeconds(durationSeconds)) return null;
 	if (!isNonEmptyString(sourceFileId)) return null;
@@ -159,6 +195,10 @@ export function parseVideoTakeRequest(json: string): VideoTakeRequest | null {
 	return {
 		v: 1,
 		prompt,
+		...(typeof continuationPrompt === "string" &&
+		continuationPrompt.trim() !== ""
+			? { continuationPrompt }
+			: {}),
 		durationSeconds,
 		sourceFileId,
 		title,

@@ -1,0 +1,11 @@
+# Starts comfyui-ltx-clean.service once a day, and on boot after a day the box
+# was off (Persistent), as comfyui-clean.timer and comfyui-h3-clean.timer do.
+[Unit]
+Description=Daily clean-up of ComfyUI LTX inputs, outputs and temp files (review I-5)
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

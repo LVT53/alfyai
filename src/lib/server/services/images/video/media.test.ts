@@ -19,13 +19,21 @@ import {
 	convertToGif,
 	decodeCheckFrames,
 	extractFrameAt,
+	extractLastFrame,
 	stripClipMetadata,
 	VIDEO_GIF_FPS,
 	VIDEO_GIF_LONG_EDGE,
 	VideoMediaError,
 	videoGifArgs,
 } from "./media";
-import { probeTags, remuxWithMetadata } from "./testing/video-clip";
+import {
+	frameLevel,
+	makeNumberedClip,
+	pngLevel,
+	probeClip,
+	probeTags,
+	remuxWithMetadata,
+} from "./testing/video-clip";
 
 const run = promisify(execFile);
 
@@ -237,7 +245,7 @@ describe("the media calls' deadline", () => {
 describe("joining two clips", () => {
 	/**
 	 * A PATH where `ffmpeg` records the arguments it was given and then hangs:
-	 * the stream copy that times out, and the re-encode that must never start.
+	 * the join that times out or is stopped, and anything that must never follow.
 	 */
 	async function recordingHangingFfmpeg(): Promise<{
 		calls: () => Promise<string[]>;
@@ -268,7 +276,7 @@ describe("joining two clips", () => {
 		};
 	}
 
-	it("rethrows a timed-out stream copy instead of starting the re-encode", async () => {
+	it("fails a timed-out join as a media failure and starts nothing after it", async () => {
 		if (!FFMPEG) return;
 		const shim = await recordingHangingFfmpeg();
 		try {
@@ -282,17 +290,16 @@ describe("joining two clips", () => {
 			expect(error).toMatchObject({ code: "failed" });
 
 			const calls = await shim.calls();
-			// One child: the copy. A second would be the re-encode the timeout
-			// must never start.
+			// One child: the join's one encode. Nothing retries it after a timeout.
 			expect(calls).toHaveLength(1);
-			expect(calls[0]).toContain("-f concat");
-			expect(calls.join("\n")).not.toContain("-filter_complex");
+			expect(calls[0]).toContain("-filter_complex");
+			expect(calls[0]).not.toContain("-f concat");
 		} finally {
 			await shim.restore();
 		}
 	});
 
-	it("rethrows the take's stop instead of starting the re-encode", async () => {
+	it("lets the take's stop flow out of the join as itself", async () => {
 		if (!FFMPEG) return;
 		const shim = await recordingHangingFfmpeg();
 		const controller = new AbortController();
@@ -304,7 +311,7 @@ describe("joining two clips", () => {
 				() => null,
 				(thrown: unknown) => thrown,
 			);
-			// Abort once the copy is really running, so this is a stop mid-child
+			// Abort once the join is really running, so this is a stop mid-child
 			// and not a pre-aborted call that never spawns.
 			await vi.waitFor(async () => expect(await shim.calls()).toHaveLength(1));
 			controller.abort(new Error("cancelled"));
@@ -318,6 +325,58 @@ describe("joining two clips", () => {
 		}
 	});
 });
+
+describe.skipIf(!FFMPEG)(
+	"the chain's seam (a 10 s take's two segments)",
+	() => {
+		// Segment 1's frame n is grey 2n (0..240), so a frame can be told from the
+		// one before it. Segment 2's frame 0 is LTX's copy of its guide (pass 2 pins
+		// the first latent frame to it), drawn here as grey 250; its frames after
+		// that are grey 100.
+		const segmentOne = (audio = false) =>
+			makeNumberedClip({ level: (index) => 2 * index, audio });
+		const segmentTwo = (audio = false) =>
+			makeNumberedClip({
+				level: (index) => (index === 0 ? 250 : 100),
+				audio,
+			});
+
+		it("guides segment 2 with segment 1's very last frame, never the one before it", async () => {
+			const last = await extractLastFrame(await segmentOne());
+			// Frame 120 is grey 240; frame 119, the one -sseof -0.1 used to give, is 238.
+			expect(await pngLevel(last)).toBe(240);
+		});
+
+		it("drops segment 2's copy of its guide, so the join neither holds nor steps back a frame", async () => {
+			const joined = await concatClips([
+				await segmentOne(),
+				await segmentTwo(),
+			]);
+			const probe = await probeClip(joined);
+			// 121 + 120 frames: one continuous 8n+1 clip.
+			expect(probe.frames).toBe(241);
+			expect(await frameLevel(joined, 120)).toBeCloseTo(240, -0.5);
+			expect(await frameLevel(joined, 121)).toBeCloseTo(100, -0.5);
+			expect(probe.audioSeconds).toBeNull();
+		});
+
+		it("keeps the two soundtracks in step with the picture across the join", async () => {
+			const joined = await concatClips([
+				await segmentOne(true),
+				await segmentTwo(true),
+			]);
+			const probe = await probeClip(joined);
+			expect(probe.frames).toBe(241);
+			expect(probe.audioSeconds).not.toBeNull();
+			// No priming or extra frame of sound left in the middle: the sound ends
+			// with the picture, within one AAC frame.
+			expect(
+				Math.abs((probe.audioSeconds ?? 0) - probe.videoSeconds),
+			).toBeLessThan(0.025);
+			expect(probe.videoSeconds).toBeCloseTo(241 / 24, 1);
+		});
+	},
+);
 
 describe("the whole clip's check stream", () => {
 	it("decodes every frame raw at the model's size, with the full-size poster, in one pass", async () => {

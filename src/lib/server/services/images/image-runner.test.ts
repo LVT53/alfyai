@@ -352,6 +352,45 @@ describe("a new picture", () => {
 	});
 });
 
+describe("a take that fails while its prompt is on the GPU", () => {
+	it("stops the prompt when the render deadline runs out", async () => {
+		// A wedged render: ComfyUI keeps the prompt running past the take's time.
+		const server = await startFake({ steps: 2, hangAfterPromptCount: 0 });
+		const { setImageRenderDeadlineMsForTests } = await import("./take-request");
+		setImageRenderDeadlineMsForTests(1_000);
+		try {
+			const takeId = await queueTake(
+				request({ canvas: { width: 256, height: 192 } }),
+			);
+			await drainImageTakes();
+
+			const take = await readTake(takeId);
+			expect([take.status, take.errorCode]).toEqual([
+				"failed",
+				"image_render_timeout",
+			]);
+			// The ledger says the GPU is free, so the GPU must be: the prompt the
+			// take posted is interrupted rather than left rendering for nobody.
+			const posted = server.requests.find(
+				(entry) => entry.method === "POST" && entry.path === "/prompt",
+			)?.json as { prompt_id?: string } | undefined;
+			expect(posted?.prompt_id).toBeTruthy();
+			expect(
+				server.requests.some(
+					(entry) =>
+						entry.method === "POST" &&
+						entry.path === "/interrupt" &&
+						(entry.json as { prompt_id?: string } | undefined)?.prompt_id ===
+							posted?.prompt_id,
+				),
+			).toBe(true);
+		} finally {
+			setImageRenderDeadlineMsForTests(undefined);
+			server.releaseHanging();
+		}
+	});
+});
+
 /**
  * An opaque picture whose alpha is mostly 255 but a few pixels sit at `low`
  * (ai.dev, Task 17: a plain generate came back from ComfyUI with 5 pixels at

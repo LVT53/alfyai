@@ -373,6 +373,43 @@ async function renderSegmentOne(
 	}
 }
 
+/** Posts segment 1 the way an earlier attempt did, without following it. */
+async function submitSegmentOne(
+	server: FakeComfyUi,
+	takeId: string,
+	promptId: string,
+): Promise<void> {
+	const { createComfyUiClient } = await import("../comfyui/client");
+	const { buildLtxVideoGraph } = await import("../comfyui/ltx-templates");
+	const sharp = (await import("sharp")).default;
+	const png = await sharp({
+		create: {
+			width: 1280,
+			height: 704,
+			channels: 3,
+			background: { r: 40, g: 90, b: 140 },
+		},
+	})
+		.png()
+		.toBuffer();
+	const client = createComfyUiClient({ baseUrl: server.baseUrl, pollMs: 20 });
+	try {
+		const ref = await client.uploadImage(png, `${takeId}-1.png`);
+		await client.submit(
+			buildLtxVideoGraph({
+				prompt: "the harbour at dusk, a slow tide",
+				seed: 1001,
+				width: 1280,
+				height: 704,
+				image: ref.filename,
+			}),
+			{ promptId },
+		);
+	} finally {
+		client.close();
+	}
+}
+
 async function writeCheckpoint(takeId: string, checkpoint: unknown) {
 	const { db } = await import("$lib/server/db");
 	db.update(schema.videoJobs)
@@ -507,6 +544,25 @@ describe("a 10 second take", () => {
 		).toBe(10000);
 	});
 
+	it("renders segment 2 from its own caption, never segment 1's again", async () => {
+		const server = await startLtx();
+		const takeId = await queueTake({
+			durationSeconds: 10,
+			continuationPrompt: "The tide pulls back across the sand.",
+		});
+		await drainVideoTakes();
+
+		expect((await readTake(takeId)).status).toBe("succeeded");
+		const posts = promptRequests(server);
+		expect(posts).toHaveLength(2);
+		expect(nodeOfType(graphOf(posts[0]), "CLIPTextEncode").inputs.text).toBe(
+			"the harbour at dusk, a slow tide",
+		);
+		expect(nodeOfType(graphOf(posts[1]), "CLIPTextEncode").inputs.text).toBe(
+			"The tide pulls back across the sand.",
+		);
+	});
+
 	it("fails the whole take when the second segment fails, never a one-segment clip", async () => {
 		const server = await startLtx({ failAfterPromptCount: 1 });
 		const takeId = await queueTake({ durationSeconds: 10 });
@@ -623,6 +679,106 @@ describe("Stop", () => {
 		expect(take.resultFileId).toBeNull();
 		expect(clipFilesAnyOnDisk()).toEqual([]);
 		expect(await storedClips()).toHaveLength(0);
+	});
+});
+
+describe("Stop after a restart", () => {
+	it("interrupts the prompt a resumed take follows", async () => {
+		// The prompt an earlier attempt posted is still rendering on the GPU
+		// when the app comes back: the new attempt follows it from the checkpoint.
+		const server = await startLtx({ hangAfterPromptCount: 0 });
+		const takeId = await queueTake();
+		await submitSegmentOne(server, takeId, "posted-before-the-restart");
+		await writeCheckpoint(takeId, {
+			promptId: "posted-before-the-restart",
+			segment: 1,
+			segments: [{ promptId: "posted-before-the-restart", media: null }],
+		});
+		const draining = drainVideoTakes();
+		await until(
+			async () => (await readTake(takeId)).status,
+			(status) => status === "running",
+		);
+
+		const { cancelVideoTake } = await import("./video-job");
+		expect(await cancelVideoTake(userId, takeId)).toBe(true);
+		await draining;
+
+		expect((await readTake(takeId)).status).toBe("cancelled");
+		// The prompt on the GPU was interrupted, and nothing was posted again.
+		expect(
+			server.requests.some(
+				(request) =>
+					request.method === "POST" &&
+					request.path === "/interrupt" &&
+					(request.json as { prompt_id?: string } | undefined)?.prompt_id ===
+						"posted-before-the-restart",
+			),
+		).toBe(true);
+		expect(promptRequests(server)).toHaveLength(1);
+		server.releaseHanging();
+		await until(
+			() => server.prompts.get("posted-before-the-restart"),
+			(status) => status === "failed",
+		);
+	});
+});
+
+describe("a ComfyUI that restarts mid-render", () => {
+	it("renders the segment once more and still lands the clip", async () => {
+		// A reload: the server goes dark, then comes back having forgotten the
+		// prompt it was rendering (its own restart, a deploy on the GPU box).
+		const server = await startLtx({ steps: 30, stepDelayMs: 40 });
+		const takeId = await queueTake();
+		const draining = drainVideoTakes();
+		await until(
+			async () => (await readTake(takeId)).phase,
+			(phase) => phase === "rendering",
+		);
+		server.outage(300);
+		await draining;
+
+		const take = await readTake(takeId);
+		expect([take.status, take.errorCode]).toEqual(["succeeded", null]);
+		expect(promptRequests(server)).toHaveLength(2);
+		expect((await storedClips())[0]?.durationMs).toBe(5000);
+	});
+});
+
+describe("a take that fails while its prompt is on the GPU", () => {
+	it("stops the prompt when the render deadline runs out", async () => {
+		// A wedged render: ComfyUI keeps the prompt running past the take's time.
+		const server = await startLtx({ hangAfterPromptCount: 0 });
+		const { setVideoRenderDeadlineMsForTests } = await import("./request");
+		setVideoRenderDeadlineMsForTests(1_500);
+		try {
+			const takeId = await queueTake();
+			await drainVideoTakes();
+
+			const take = await readTake(takeId);
+			expect([take.status, take.errorCode]).toEqual([
+				"failed",
+				"video_render_timeout",
+			]);
+			// The ledger says the GPU is free, so the GPU must be: the prompt the
+			// take posted is interrupted rather than left rendering for nobody.
+			const posted = promptRequests(server)[0]?.json as
+				| { prompt_id?: string }
+				| undefined;
+			expect(posted?.prompt_id).toBeTruthy();
+			expect(
+				server.requests.some(
+					(request) =>
+						request.method === "POST" &&
+						request.path === "/interrupt" &&
+						(request.json as { prompt_id?: string } | undefined)?.prompt_id ===
+							posted?.prompt_id,
+				),
+			).toBe(true);
+		} finally {
+			setVideoRenderDeadlineMsForTests(undefined);
+			server.releaseHanging();
+		}
 	});
 });
 
@@ -1020,13 +1176,16 @@ describe("a re-rendered chain", () => {
 		const first = await startLtx();
 		await queueTake();
 		await drainVideoTakes();
-		const promptId = [...first.prompts.keys()][0];
-		if (!promptId) throw new Error("the first take recorded no prompt");
+		if (first.prompts.size === 0) {
+			throw new Error("the first take recorded no prompt");
+		}
+		// The first take's own clip, where ComfyUI's SaveVideo saved it: still
+		// fetchable, so a runner that joined it would succeed.
 		const staleSegment2 = {
 			promptId: "stale-segment-2",
 			media: {
-				filename: `fake_${promptId}.mp4`,
-				subfolder: "",
+				filename: "alfyai_00001_.mp4",
+				subfolder: "video",
 				type: "output" as const,
 			},
 		};

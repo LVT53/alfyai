@@ -4,7 +4,9 @@
 // `LTX24_I2V_SYSTEM_PROMPT`), vendored here and pinned by a test rather than
 // read from a ComfyUI checkout at runtime: the take is rendered on a server
 // that may hold no ComfyUI source at all, and the wording is part of the
-// model's contract, not something this app may drift.
+// model's contract, not something this app may drift. What the app adds goes
+// in a message of its own after it (`VIDEO_CAPTION_HOUSE_RULES`): the endpoint
+// is never shown the still, and the feasibility study's house rules.
 //
 // The endpoint is configuration (ADR-0068): an address the app calls without a
 // click comes from the admin's settings, never from anything a model wrote.
@@ -54,6 +56,49 @@ If the user wrote in another language, produce the English caption of the same c
 
 AESTHETIC QUALITY (in addition to the above, without breaking the objective caption style or contradicting the reference image): render the described scene with strong visual production value — cinematic, film-grade color and contrast, beautiful natural lighting, crisp fine detail and texture, pleasing composition and depth. Weave these quality descriptors naturally into the same observable prose (e.g. "warm cinematic lighting", "richly saturated film-grade color", "crisp high-resolution detail") — describe how the exact requested scene, starting from this frame, LOOKS at its most visually striking, never adding new objects or actions and never contradicting the first frame. Keep everything else (first-frame grounding, framing triple, soundscape, chronological single paragraph, faithfulness) exactly as specified.`;
 
+/**
+ * The app's own words, sent after the vendored instruction and never inside
+ * it (review C-1). The instruction expects the reference image beside the
+ * request, but this endpoint is sent words only: told so, the model writes the
+ * motion the person asked for instead of describing a picture it would have
+ * to make up, which LTX would then follow away from the person's own picture
+ * (the I2V guidance is the same: do not re-describe what is already visible).
+ * The house rules are the feasibility study's (`docs/plans/ltx-video/
+ * feasibility.md`, "Limits observed"): a push-in overshoots into a dark crop,
+ * a second person is cropped out of frame, and text drifts out of it.
+ * ASCII English, like everything the app writes into a model request
+ * (ruling 79).
+ */
+export const VIDEO_CAPTION_HOUSE_RULES = `No image is attached to this request: you are not shown the reference image. Never invent how the subject, any person, their clothing, the setting, the colors or the lighting look; name them only as the user's request does, and otherwise refer to them plainly (the subject, the person, the room). The video model is given the image itself and keeps its look. Spend the caption on what moves and how: the requested action, the camera and the sound.
+
+House rules for these clips, over the instruction above:
+- The camera stays static, as on a tripod, unless the user asks for a camera move; it never pushes in or crops.
+- Everyone and everything in the first frame stays in frame.
+- No on-screen text, titles, captions or logos.
+- The caption covers five seconds of action.`;
+
+/**
+ * The note that makes a caption the SECOND five seconds of a ten-second clip
+ * (review C-2): segment 2 starts on segment 1's last frame, so its caption goes
+ * on from there. Sent the same caption, it replayed the action from its start
+ * and spoke the same dialogue twice. `first` is segment 1's caption, data.
+ */
+export function videoContinuationNote(first: string): string {
+	return `This caption is for the SECOND five seconds of a ten-second clip. Its first frame is the last frame of the first five seconds, which were captioned as follows:
+
+${first}
+
+Continue from that last moment: describe only what happens in the next five seconds, as the action goes on. Do not start the action over, do not repeat what already happened, and do not repeat any dialogue already spoken.`;
+}
+
+/**
+ * A caption that speaks of an image it was not shown answered the request, not
+ * the clip ("I can't see the image, but…"): sent to LTX it would be rendered as
+ * if it were the scene, so the person's own words are used instead.
+ */
+const UNSEEN_IMAGE =
+	/\b(?:can(?:no|')t|cannot|unable to|could not|couldn't)\s+(?:see|view|access)\b[^.]{0,40}\b(?:image|picture|photo)\b|\bno (?:reference )?(?:image|picture|photo) (?:was |is )?(?:provided|attached|given|shown)\b|\b(?:image|picture|photo) (?:was |is )?not (?:provided|attached|given|shown)\b/i;
+
 /** A caption longer than this is cut: the take's prompt is not a place for a runaway model. */
 export const VIDEO_CAPTION_MAX_CHARS = 4000;
 /** The rewrite is one short generation; past this the idea is used unchanged. */
@@ -72,6 +117,12 @@ export async function buildVideoPrompt(
 	if (!isVideoCaptionConfigured()) return motion;
 	try {
 		const caption = await requestCaption(motion, options);
+		if (caption && UNSEEN_IMAGE.test(caption)) {
+			console.warn(
+				"[VIDEO] The caption spoke of an image it was not shown; using the motion idea",
+			);
+			return motion;
+		}
 		return caption ?? motion;
 	} catch (error) {
 		console.warn("[VIDEO] The caption step failed; using the motion idea", {
@@ -81,10 +132,38 @@ export async function buildVideoPrompt(
 	}
 }
 
+/**
+ * A 10 s take's second segment's caption: what happens next, from where the
+ * first five seconds (`first`) end. Null when there is no caption endpoint or
+ * it gives nothing usable: the segment then renders the first prompt again.
+ */
+export async function buildVideoContinuationPrompt(
+	idea: string,
+	first: string,
+	options: { signal?: AbortSignal; fetchImpl?: typeof fetch } = {},
+): Promise<string | null> {
+	if (!isVideoCaptionConfigured()) return null;
+	try {
+		const caption = await requestCaption(
+			idea.trim(),
+			options,
+			videoContinuationNote(first),
+		);
+		if (!caption || UNSEEN_IMAGE.test(caption)) return null;
+		return caption;
+	} catch (error) {
+		console.warn("[VIDEO] The second segment's caption failed", {
+			reason: error instanceof Error ? error.message : String(error),
+		});
+		return null;
+	}
+}
+
 /** One OpenAI-compatible chat completion; the caption, or null for nothing usable. */
 async function requestCaption(
 	motion: string,
 	options: { signal?: AbortSignal; fetchImpl?: typeof fetch },
+	note?: string,
 ): Promise<string | null> {
 	const url = buildOpenAICompatibleUrl(
 		getLtxCaptionUrl(),
@@ -106,6 +185,8 @@ async function requestCaption(
 			model: getLtxCaptionModel(),
 			messages: [
 				{ role: "system", content: LTX24_I2V_INSTRUCTION },
+				{ role: "system", content: VIDEO_CAPTION_HOUSE_RULES },
+				...(note ? [{ role: "system", content: note }] : []),
 				{ role: "user", content: `User Raw Input Prompt: ${motion}.` },
 			],
 			temperature: 0,

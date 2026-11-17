@@ -191,7 +191,8 @@ async function makeWebp(
  * The caller's explicit-picture check, if passed, runs on the poster exactly as
  * it will be stored, before anything is written: a `blocked` or `unchecked`
  * verdict throws `VideoPosterRefusedError` and stores nothing. The video
- * runner's own five-frame sample is the full gate; this is the poster's.
+ * runner passes none: it checks every frame of the clip before it calls this
+ * (the full gate), so this poster-only check is unused there.
  */
 export async function storeVideoFile(params: {
 	userId: string;

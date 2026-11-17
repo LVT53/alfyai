@@ -46,7 +46,7 @@ import { promptWithMarks } from "./marks";
 import { checkFinishedPicture } from "./picture-check";
 import { createTakeEta, picturePlan, type TakeEta } from "./take-eta";
 import {
-	IMAGE_RENDER_DEADLINE_MS,
+	imageRenderDeadlineMs,
 	parseTakeRequest,
 	promptIdOf,
 	type StoredTakeMeasures,
@@ -169,6 +169,15 @@ export async function runImageTake(ctx: Ctx): Promise<void> {
 	const onAbort = () => {
 		if (signal.reason === "cancelled") stopping = stopPrompt();
 	};
+	// A failed take's prompt, whatever a Stop would have asked: nothing will
+	// read its result. Never throws.
+	const releasePrompt = async (): Promise<void> => {
+		try {
+			if (promptId) await client.cancel(promptId, { interrupt: true });
+		} catch {
+			// The server is down or refusing; it drops the prompt on its own.
+		}
+	};
 	signal.addEventListener("abort", onAbort, { once: true });
 
 	try {
@@ -176,8 +185,13 @@ export async function runImageTake(ctx: Ctx): Promise<void> {
 		// video, or the other picture model) is done before touching this one.
 		const waited = await waitForOtherEnginesIdle(request.model, {
 			signal,
-			deadlineMs: IMAGE_RENDER_DEADLINE_MS - (Date.now() - startedAt),
-			claim: { id: row.id, phaseAt: row.phaseAt ?? Date.now() },
+			deadlineMs: imageRenderDeadlineMs() - (Date.now() - startedAt),
+			claim: {
+				id: row.id,
+				phaseAt: row.phaseAt ?? Date.now(),
+				// Resumed after a restart: its prompt is already on the GPU.
+				onGpu: promptId !== null,
+			},
 		});
 		if (waited === "cancelled") return;
 		if (waited === "timeout") {
@@ -207,6 +221,12 @@ export async function runImageTake(ctx: Ctx): Promise<void> {
 			if (signal.reason === "cancelled") await stopPrompt();
 			return;
 		}
+		// The take fails, but a prompt it posted may still be on the GPU: the
+		// deadline ran out mid-render, or the POST's answer was lost after
+		// ComfyUI took it. Once the take is failed the ledger says the GPU is
+		// free, so the GPU must be: the prompt is deleted or interrupted (the
+		// client interrupts only a prompt `/queue` shows as ours and running).
+		await releasePrompt();
 		await ctx.fail(failureOf(error));
 	} finally {
 		signal.removeEventListener("abort", onAbort);
@@ -465,7 +485,7 @@ async function followWithGrace(
 ) {
 	let downSince = 0;
 	for (;;) {
-		const left = IMAGE_RENDER_DEADLINE_MS - (Date.now() - startedAt);
+		const left = imageRenderDeadlineMs() - (Date.now() - startedAt);
 		if (left <= 0) {
 			throw new ComfyUiError("timeout", "ComfyUI took too long");
 		}

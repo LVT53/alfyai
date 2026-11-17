@@ -23,9 +23,12 @@ vi.mock("$lib/server/config-store", () => ({
 }));
 
 import {
+	buildVideoContinuationPrompt,
 	buildVideoPrompt,
 	LTX24_I2V_INSTRUCTION,
+	VIDEO_CAPTION_HOUSE_RULES,
 	VIDEO_CAPTION_MAX_CHARS,
+	videoContinuationNote,
 } from "$lib/server/services/video-caption";
 
 beforeEach(() => {
@@ -93,10 +96,58 @@ describe("buildVideoPrompt", () => {
 			role: "system",
 			content: LTX24_I2V_INSTRUCTION,
 		});
+		// The app's own words follow the vendored instruction, never inside it.
 		expect(body.messages[1]).toEqual({
+			role: "system",
+			content: VIDEO_CAPTION_HOUSE_RULES,
+		});
+		expect(body.messages[2]).toEqual({
 			role: "user",
 			content: "User Raw Input Prompt: the tide comes in slowly.",
 		});
+		expect(body.messages).toHaveLength(3);
+	});
+
+	it("tells the caption model it is not shown the still, and keeps the house rules", () => {
+		// The vendored instruction expects the reference image beside the request;
+		// this endpoint is sent words only, and a model asked to describe a
+		// picture it cannot see makes one up, which LTX then follows away from
+		// the person's own picture (review C-1).
+		expect(VIDEO_CAPTION_HOUSE_RULES).toMatch(/no image is attached/i);
+		expect(VIDEO_CAPTION_HOUSE_RULES).toMatch(/never invent/i);
+		// docs/plans/ltx-video/feasibility.md: a static camera unless asked (a
+		// push-in overshoots into a dark crop), everyone kept in frame (two
+		// people: the model crops one out), and no on-screen text.
+		expect(VIDEO_CAPTION_HOUSE_RULES).toMatch(/camera stays static/i);
+		expect(VIDEO_CAPTION_HOUSE_RULES).toMatch(/in frame/i);
+		expect(VIDEO_CAPTION_HOUSE_RULES).toMatch(/on-screen text/i);
+		// Ruling 79: what the app writes into a model request is ASCII English.
+		expect(VIDEO_CAPTION_HOUSE_RULES).toMatch(/^[\x20-\x7E\n]+$/);
+	});
+
+	it("falls back to the idea when the caption speaks of an image it was not shown", async () => {
+		for (const answer of [
+			"I can't see the reference image, but here is a caption: a cat walks.",
+			"Since no image was provided, a medium shot frames a cat as it walks.",
+			"Unable to view the image. A cat walks slowly across the room.",
+		]) {
+			const fetchImpl = vi.fn(async () => jsonResponse(answer));
+			expect(
+				await buildVideoPrompt("the cat walks to the door", {
+					fetchImpl: fetchImpl as unknown as typeof fetch,
+				}),
+				answer,
+			).toBe("the cat walks to the door");
+		}
+		// A caption that names a picture in the scene is still a caption.
+		const fetchImpl = vi.fn(async () =>
+			jsonResponse("A framed image hangs on the wall as the cat walks past."),
+		);
+		expect(
+			await buildVideoPrompt("the cat walks", {
+				fetchImpl: fetchImpl as unknown as typeof fetch,
+			}),
+		).toBe("A framed image hangs on the wall as the cat walks past.");
 	});
 
 	it("sends the configured key as a bearer token, and nothing when none is set", async () => {
@@ -169,8 +220,80 @@ describe("buildVideoPrompt", () => {
 				(fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body,
 			),
 		);
-		expect(body.messages[1].content).toBe(
+		expect(body.messages[2].content).toBe(
 			"User Raw Input Prompt: the tide comes in.",
 		);
+	});
+});
+
+describe("buildVideoContinuationPrompt: a 10 s clip's second five seconds", () => {
+	const first = "Initially a grey cat walks across a rug toward a closed door.";
+
+	it("asks what happens next, from where the first five seconds end", async () => {
+		const fetchImpl = vi.fn(async () =>
+			jsonResponse("The cat reaches the door and paws at its edge."),
+		);
+		const caption = await buildVideoContinuationPrompt(
+			"the cat walks to the door",
+			first,
+			{ fetchImpl: fetchImpl as unknown as typeof fetch },
+		);
+		expect(caption).toBe("The cat reaches the door and paws at its edge.");
+		const body = JSON.parse(
+			String(
+				(fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body,
+			),
+		);
+		expect(body.messages).toEqual([
+			{ role: "system", content: LTX24_I2V_INSTRUCTION },
+			{ role: "system", content: VIDEO_CAPTION_HOUSE_RULES },
+			{ role: "system", content: videoContinuationNote(first) },
+			{
+				role: "user",
+				content: "User Raw Input Prompt: the cat walks to the door.",
+			},
+		]);
+		const note = videoContinuationNote(first);
+		expect(note).toContain(first);
+		// Segment 2 starts on segment 1's last frame: its caption goes on from
+		// there (review C-2: the same caption replayed the action from its start
+		// and spoke its dialogue twice).
+		expect(note).toMatch(/second five seconds/i);
+		expect(note).toMatch(/do not start the action over/i);
+		expect(note).toMatch(/do not repeat any dialogue/i);
+		expect(note.replace(first, "")).toMatch(/^[\x20-\x7E\n]+$/);
+	});
+
+	it("has none without a caption endpoint, or when the endpoint gives nothing usable", async () => {
+		config.url = "";
+		const unused = vi.fn();
+		expect(
+			await buildVideoContinuationPrompt("idea", first, {
+				fetchImpl: unused as unknown as typeof fetch,
+			}),
+		).toBeNull();
+		expect(unused).not.toHaveBeenCalled();
+
+		config.url = "http://127.0.0.1:11434";
+		for (const answer of [
+			new Response("nope", { status: 500 }),
+			jsonResponse("   "),
+			jsonResponse("I cannot see the image, so here is a guess."),
+		]) {
+			const fetchImpl = vi.fn(async () => answer);
+			expect(
+				await buildVideoContinuationPrompt("idea", first, {
+					fetchImpl: fetchImpl as unknown as typeof fetch,
+				}),
+			).toBeNull();
+		}
+		const down = vi.fn(async () => {
+			throw new TypeError("fetch failed");
+		});
+		expect(
+			await buildVideoContinuationPrompt("idea", first, {
+				fetchImpl: down as unknown as typeof fetch,
+			}),
+		).toBeNull();
 	});
 });

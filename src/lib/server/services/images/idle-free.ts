@@ -7,7 +7,7 @@
 // hold. The take's own service is never freed — a list, not a pair, because a
 // third engine makes "the other one" wrong.
 
-import { and, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, or } from "drizzle-orm";
 import {
 	getComfyuiLtxUrl,
 	getComfyuiUrlForModel,
@@ -201,7 +201,17 @@ async function hasLiveTakeOnEngine(engine: PictureEngine): Promise<boolean> {
 }
 
 /** The take the gate is deciding for: its claim time (ms) and id (a same-ms tie-break). */
-export type EngineClaim = { id: string; phaseAt: number };
+export type EngineClaim = {
+	id: string;
+	phaseAt: number;
+	/**
+	 * The take already holds a prompt it posted before (a run resumed after a
+	 * restart, `promptIdOf(checkpoint)`). Its checkpoint has held the GPU all
+	 * along, queued or running, so every other take is waiting for it: waiting
+	 * here would only stand it against takes that wait for it (review M-1).
+	 */
+	onGpu?: boolean;
+};
 
 /**
  * Whether another engine holds the card:
@@ -211,9 +221,11 @@ export type EngineClaim = { id: string; phaseAt: number };
  *    earlier (`phase_at` is milliseconds), so two takes that start together
  *    have a deterministic order and cannot wait on each other until both
  *    deadlines.
- * A queued take does not block: it is not on the GPU, and when it claims it
- * will see this take running and wait itself. Its own engine's takes never
- * block (ComfyUI's queue orders those).
+ * A queued take does not block (it is not on the GPU, and when it claims it
+ * will see this take running and wait itself), unless it carries a checkpoint:
+ * a take an app restart put back in the queue, whose prompt may still be
+ * rendering, holds the GPU until it resumes (review M-1). Its own engine's
+ * takes never block (ComfyUI's queue orders those).
  */
 async function hasLiveTakeOnOtherEngine(
 	engine: PictureEngine,
@@ -226,7 +238,9 @@ async function hasLiveTakeOnOtherEngine(
 		phaseAt: number | null;
 	}): boolean => {
 		if (row.phase !== "submitted" || row.checkpoint !== null) return true;
-		if (row.phaseAt === null) return false;
+		// The claim stamps `phase_at` (each kind's `onTransition`), so a running
+		// take without one is one this code cannot place: it holds the GPU.
+		if (row.phaseAt === null) return true;
 		return (
 			row.phaseAt < claim.phaseAt ||
 			(row.phaseAt === claim.phaseAt && row.id < claim.id)
@@ -241,7 +255,12 @@ async function hasLiveTakeOnOtherEngine(
 			requestJson: imageJobs.requestJson,
 		})
 		.from(imageJobs)
-		.where(eq(imageJobs.status, "running"));
+		.where(
+			or(
+				eq(imageJobs.status, "running"),
+				and(eq(imageJobs.status, "queued"), isNotNull(imageJobs.checkpoint)),
+			),
+		);
 	for (const picture of pictures) {
 		const model = parseTakeRequest(picture.requestJson)?.model ?? null;
 		// An unreadable request cannot be placed on our engine: it counts as another.
@@ -258,7 +277,12 @@ async function hasLiveTakeOnOtherEngine(
 			phaseAt: videoJobs.phaseAt,
 		})
 		.from(videoJobs)
-		.where(eq(videoJobs.status, "running"));
+		.where(
+			or(
+				eq(videoJobs.status, "running"),
+				and(eq(videoJobs.status, "queued"), isNotNull(videoJobs.checkpoint)),
+			),
+		);
 	return videos.some(occupies);
 }
 
@@ -293,6 +317,11 @@ export async function waitForOtherEnginesIdle(
 		claim: EngineClaim;
 	},
 ): Promise<OtherEngineWaitResult> {
+	// A take whose own prompt is already on the GPU is the one the others wait
+	// for: it goes on (`EngineClaim.onGpu`).
+	if (options.claim.onGpu) {
+		return options.signal.aborted ? "cancelled" : "idle";
+	}
 	const override = waitTestOverride();
 	const intervalMs = override.intervalMs ?? OTHER_ENGINE_POLL_MS;
 	const startedAt = Date.now();

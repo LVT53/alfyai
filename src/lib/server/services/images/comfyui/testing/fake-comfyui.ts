@@ -261,6 +261,8 @@ export async function createFakeComfyUi(
 	const uploads = new Map<string, Uint8Array>();
 	const history = new Map<string, unknown>();
 	const files = new Map<string, Uint8Array>();
+	/** SaveVideo's counter: each saved clip takes the next number, as ComfyUI's does. */
+	let savedClips = 0;
 	const sockets = new Map<Duplex, string>();
 	const parked = new Map<string, (() => void)[]>();
 	const hangResolvers = new Set<() => void>();
@@ -352,20 +354,34 @@ export async function createFakeComfyUi(
 			});
 		} else if (isVideo) {
 			const bytes = options.videoBytes ?? FAKE_VIDEO_BYTES;
-			const filename = `fake_${prompt.id}.mp4`;
-			files.set(`output/${filename}`, bytes);
+			// As ComfyUI's SaveVideo names it (`comfy_extras/nodes_video.py`): its
+			// `filename_prefix` is a subfolder of `output/` and a counted name (the
+			// take graph's prefix gives the subfolder `video` and
+			// `alfyai_00001_.mp4`), and its UI output (`PreviewVideo.as_dict()`)
+			// marks the list animated
+			// beside it, not inside each entry. `/view` finds it in that subfolder
+			// only, so a client that dropped the subfolder would fail here too.
+			const saveNode = Object.entries(prompt.graph).find(
+				([, node]) => node.class_type === "SaveVideo",
+			);
+			const outputId = saveNode?.[0] ?? "33";
+			const prefix = String(
+				saveNode?.[1].inputs?.filename_prefix ?? "video/ComfyUI",
+			);
+			const slash = prefix.lastIndexOf("/");
+			const subfolder = slash < 0 ? "" : prefix.slice(0, slash);
+			const base = slash < 0 ? prefix : prefix.slice(slash + 1);
+			savedClips += 1;
+			const filename = `${base}_${String(savedClips).padStart(5, "0")}_.mp4`;
+			files.set(`output/${subfolder ? `${subfolder}/` : ""}${filename}`, bytes);
 			const outputKey = options.videoOutputKey ?? "images";
-			const outputId =
-				Object.entries(prompt.graph).find(
-					([, node]) => node.class_type === "SaveVideo",
-				)?.[0] ?? "33";
+			const ref = { filename, subfolder, type: "output" };
 			history.set(prompt.id, {
 				outputs: {
-					[outputId]: {
-						[outputKey]: [
-							{ filename, subfolder: "", type: "output", animated: [true] },
-						],
-					},
+					[outputId]:
+						outputKey === "images"
+							? { images: [ref], animated: [true] }
+							: { [outputKey]: [ref] },
 				},
 				status: { status_str: "success", completed: true, messages: [] },
 			});
@@ -546,8 +562,11 @@ export async function createFakeComfyUi(
 				await gate(path);
 				const type = url.searchParams.get("type") ?? "output";
 				const name = url.searchParams.get("filename") ?? "";
+				const subfolder = url.searchParams.get("subfolder") ?? "";
 				const bytes =
-					type === "input" ? uploads.get(name) : files.get(`${type}/${name}`);
+					type === "input"
+						? uploads.get(name)
+						: files.get(`${type}/${subfolder ? `${subfolder}/` : ""}${name}`);
 				if (!bytes) return reply(res, 404, { error: "not found" });
 				res.writeHead(200, {
 					"content-type": /\.(mp4|webm|mov|mkv|m4v)$/i.test(name)

@@ -31,6 +31,31 @@ function request(overrides: Partial<VideoTakeRequest> = {}): VideoTakeRequest {
 }
 
 describe("a video take request", () => {
+	it("keeps a 10 s request's caption for its second segment, and an older row has none", () => {
+		const tenSeconds = request({
+			durationSeconds: 10,
+			continuationPrompt: "The tide pulls back across the sand.",
+		});
+		expect(parseVideoTakeRequest(JSON.stringify(tenSeconds))).toEqual(
+			tenSeconds,
+		);
+		// A row written before segment 2 had a caption of its own.
+		expect(
+			parseVideoTakeRequest(JSON.stringify(request({ durationSeconds: 10 }))),
+		).toEqual(request({ durationSeconds: 10 }));
+		// A blank or wrong one is no caption: segment 2 falls back to the prompt.
+		for (const continuationPrompt of ["   ", 3, null]) {
+			expect(
+				parseVideoTakeRequest(
+					JSON.stringify({
+						...request({ durationSeconds: 10 }),
+						continuationPrompt,
+					}),
+				),
+			).toEqual(request({ durationSeconds: 10 }));
+		}
+	});
+
 	it("round-trips a 5 s request and a 10 s request", () => {
 		expect(parseVideoTakeRequest(JSON.stringify(request()))).toEqual(request());
 		expect(
