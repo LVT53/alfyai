@@ -576,7 +576,8 @@ describe("DocumentPreviewRenderer", () => {
 				"sandbox",
 				"allow-scripts allow-popups allow-popups-to-escape-sandbox",
 			);
-			expect(frame).toHaveAttribute("src", ADDRESS);
+			// Its own address: a copy the browser cached before the bridge is not used.
+			expect(frame).toHaveAttribute("src", `${ADDRESS}?rb=1`);
 			expect(frame.hasAttribute("srcdoc")).toBe(false);
 			expect(document.body.dataset.reportRuntime).toBeUndefined();
 		});
@@ -596,7 +597,7 @@ describe("DocumentPreviewRenderer", () => {
 			);
 			const again = await screen.findByTitle("atlas-report.html preview");
 			expect(again === frame).toBe(false);
-			expect(again).toHaveAttribute("src", ADDRESS);
+			expect(again).toHaveAttribute("src", `${ADDRESS}?rb=1`);
 			again.dispatchEvent(new Event("load"));
 			await tick();
 			expect(screen.queryByRole("alert")).toBeNull();

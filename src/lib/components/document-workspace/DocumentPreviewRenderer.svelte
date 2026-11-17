@@ -3,6 +3,7 @@ import UploadPictureMarks from "$lib/components/artifacts/image/UploadPictureMar
 import ReportReadAloud from "$lib/components/read-aloud/ReportReadAloud.svelte";
 import type { ReportReadingSource } from "$lib/client/read-aloud/controller";
 import { frameLoadTripwire } from "$lib/utils/frame-load-tripwire";
+import { reportFrameAddress } from "$lib/shared/read-aloud/report-bridge";
 import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { isGenericMimeType } from "$lib/shared/file-types";
 import { ensureFilenameExtension } from "$lib/shared/file-types/download-name";
@@ -395,7 +396,8 @@ function downloadFile() {
 										</button>
 									</div>
 								{:else if previewSource}
-									{#key `${previewSource}#${reportFrameGeneration}`}
+									{@const frameAddress = reportFrameAddress(previewSource)}
+									{#key `${frameAddress}#${reportFrameGeneration}`}
 										<iframe
 											bind:this={htmlFrame}
 											use:frameLoadTripwire={tripReportFrame}
@@ -403,7 +405,7 @@ function downloadFile() {
 											title={$t('documentWorkspace.htmlPreviewLabel', { filename })}
 											sandbox={htmlPreviewSandbox(true)}
 											style="height: 100%; flex-grow: 1; border: 0; border-radius: 0; background: rgba(0, 0, 0, 0);"
-											src={previewSource}
+											src={frameAddress}
 										></iframe>
 									{/key}
 									{#if trustedReportHtml !== null && readAloudReport && htmlFrame}

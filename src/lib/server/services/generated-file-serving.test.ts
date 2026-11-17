@@ -722,6 +722,31 @@ describe("read aloud's bridge in a standard report's preview", () => {
 		);
 	});
 
+	it("is counted by a range: the range is of the report with the bridge in it", async () => {
+		const full = Buffer.from(withReportBridge(REPORT_HTML, ORIGIN), "utf8");
+		const ranged = (rangeHeader: string) =>
+			resolveGeneratedFileServing({
+				userId: "user-1",
+				fileId: "file-1",
+				mode: "preview",
+				bridgeOrigin: ORIGIN,
+				rangeHeader,
+			});
+		const head = await ranged("bytes=0-9");
+		expect(head.ok && head.status).toBe(206);
+		if (!head.ok) return;
+		expect(head.headers["Content-Range"]).toBe(`bytes 0-9/${full.length}`);
+		expect(text(head.body)).toBe(full.subarray(0, 10).toString("utf8"));
+		const end = full.length - 1;
+		const tail = await ranged(`bytes=${end - 19}-${end}`);
+		expect(tail.ok && text(tail.body)).toBe(
+			full.subarray(end - 19).toString("utf8"),
+		);
+		expect(tail.ok && tail.headers["Content-Range"]).toBe(
+			`bytes ${end - 19}-${end}/${full.length}`,
+		);
+	});
+
 	it("is never in a download", async () => {
 		const result = await serve("download");
 		expect(result.ok && text(result.body)).toBe(REPORT_HTML);
