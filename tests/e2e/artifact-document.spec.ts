@@ -19,6 +19,7 @@ import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/open
 import {
 	configureFakeNormalChatCapacity,
 	createEmptyConversation,
+	expectTopmost,
 	login,
 	sendMessage,
 	waitForStableBoundingBox,
@@ -685,7 +686,17 @@ test.describe("the Document mobile toolbar", () => {
 		await toolbar.getByRole("button", { name: "More" }).click();
 		const sheet = page.getByRole("dialog");
 		await expect(sheet).toBeVisible();
-		await expect(sheet.getByRole("button", { name: "Table" })).toBeVisible();
+		const table = sheet.getByRole("button", { name: "Table" });
+		await expect(table).toBeVisible();
+		// Painted above the mobile panel's own backdrop (z-index 95), not under it:
+		// a sheet at DialogShell's default z-50 passed every check above while it
+		// sat behind the panel, and only paint order tells (the sheet's layer is
+		// MobileToolbar's `zIndexClass`).
+		await waitForStableBoundingBox(sheet);
+		await expectTopmost(table, {
+			message: "the More sheet's actions are on top of the mobile panel",
+			probe: "center",
+		});
 	});
 
 	test("the More sheet opens without scrolling the document, and Escape returns focus to its trigger", async ({
