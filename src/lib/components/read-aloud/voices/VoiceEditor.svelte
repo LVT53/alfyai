@@ -140,7 +140,7 @@ function currentSound() {
 	});
 }
 
-/** Brings a note into view (above the sticky footer: its scroll-margin). */
+/** Brings a note into view, clear of the sticky footer (the panel's scroll-padding). */
 function intoView(node: HTMLElement) {
 	node.scrollIntoView?.({ block: "nearest" });
 }
@@ -289,6 +289,7 @@ onMount(() => {
 	title={opened.voice ? $t("readAloud.editor.editTitle") : $t("readAloud.editor.newTitle")}
 	onClose={close}
 	titleVisuallyHidden
+	scrollPanel
 	phonePresentation="fullSheet"
 	maxWidthClass="max-w-[600px]"
 >
@@ -460,6 +461,13 @@ onMount(() => {
 		background: var(--surface-page);
 	}
 
+	/* Focus never lands under the sticky head (WCAG 2.2 SC 2.4.11): its scroll box
+	   (the centred panel, or the sheet's body) keeps the head's height clear. */
+	:global(.dialog-shell__panel:has(.voice-editor-head)),
+	:global(.dialog-sheet__body:has(.voice-editor-head)) {
+		scroll-padding-top: 4.5rem;
+	}
+
 	:global(.dialog-shell__panel) .voice-editor-head {
 		top: calc(-1 * var(--space-lg));
 		margin-top: calc(-1 * var(--space-lg));
@@ -525,11 +533,6 @@ onMount(() => {
 	.voice-editor-delete:focus-visible {
 		outline: 2px solid var(--border-focus);
 		outline-offset: 2px;
-	}
-
-	/* Clear of the sticky footer when it is scrolled into view. */
-	.voice-editor-note {
-		scroll-margin-bottom: 96px;
 	}
 
 	.voice-editor-knobs {

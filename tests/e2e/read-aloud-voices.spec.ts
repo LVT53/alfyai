@@ -286,6 +286,68 @@ test("on a phone the editor is a full sheet without Cancel", async ({
 	).toBe(true);
 });
 
+for (const [where, size] of [
+	["a short desktop window", { width: 1280, height: 700 }],
+	["a phone", { width: 390, height: 700 }],
+] as const)
+	test(`Tab never puts focus behind the editor's head or its footer, on ${where}`, async ({
+		page,
+	}) => {
+		// WCAG 2.2 SC 2.4.11: the editor scrolls under a sticky head and footer, and a
+		// control the browser leaves under either is a hidden focus (Plan 3 fix
+		// verification, D2).
+		await page.setViewportSize(size);
+		const { editor } = await newVoice(page);
+		await expect(editor.locator(".voice-editor-head")).toBeVisible();
+		const hidden: string[] = [];
+		const check = async (key: string) => {
+			const result = await page.evaluate(() => {
+				const active = document.activeElement as HTMLElement | null;
+				const dialog = active?.closest('[role="dialog"]');
+				if (!active || !dialog) return null;
+				if (
+					active.closest(".dialog-shell__footer") ||
+					active.closest(".voice-editor-head")
+				)
+					return null;
+				const box = active.getBoundingClientRect();
+				const footer = dialog
+					.querySelector(".dialog-shell__footer")
+					?.getBoundingClientRect();
+				const head = dialog
+					.querySelector(".voice-editor-head")
+					?.getBoundingClientRect();
+				return {
+					name:
+						active.getAttribute("aria-label") ??
+						active.textContent?.trim() ??
+						active.tagName,
+					// Hidden: overlapped by the footer or the head, not merely above or below
+					// them (the sheet's grabber sits above the head).
+					under: footer
+						? box.bottom > footer.top + 1 && box.top < footer.bottom
+						: false,
+					over: head
+						? box.top < head.bottom - 1 && box.bottom > head.top
+						: false,
+				};
+			});
+			if (result && (result.under || result.over))
+				hidden.push(
+					`${key}: ${result.name}${result.under ? " (under the footer)" : " (under the head)"}`,
+				);
+		};
+		for (let i = 0; i < 32; i++) {
+			await page.keyboard.press("Tab");
+			await check("Tab");
+		}
+		for (let i = 0; i < 32; i++) {
+			await page.keyboard.press("Shift+Tab");
+			await check("Shift+Tab");
+		}
+		expect(hidden).toEqual([]);
+	});
+
 test("under reduced motion a style moves the sliders at once", async ({
 	page,
 }) => {
