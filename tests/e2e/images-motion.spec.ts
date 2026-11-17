@@ -492,11 +492,11 @@ async function shimmerState(page: Page, options: { tag?: boolean } = {}) {
 					Math.abs(box.width - stageBox.width) <= 0.5 &&
 					Math.abs(box.height - stageBox.height) <= 0.5,
 				textOnScreen: stage?.textContent?.trim() ?? null,
-				// The one visible line the box carries while a take is made
-				// (plan ltx-video slice 1): the estimate, or the phase's clock.
-				timeChip:
-					stage
-						?.querySelector('[data-testid="image-card-time"]')
+				// The time the take still needs is in the card's head, beside the
+				// kind (the owner's call of 17 Nov), never in the box.
+				headTime:
+					card
+						?.querySelector('[data-testid="artifact-card-take-time"]')
 						?.textContent?.trim() ?? null,
 				spinners: card?.querySelectorAll(".image-card-spin").length ?? 0,
 				progressBars:
@@ -550,11 +550,17 @@ async function shimmerWhen(
 type ShimmerState = Awaited<ReturnType<typeof shimmerState>>;
 
 /**
- * The box's one visible line while a take is made: the render's estimate when it
- * reports one (either language), otherwise the phase's own `m:ss` clock. The
- * waiting and starting states carry no time at all.
+ * The head's words while a take waits: its place in the queue (either language).
  */
-const TIME_CHIP = /^(?:About \d+ s left|Még kb\. \d+ mp|\d+:\d{2})$/;
+const WAITING_LINE =
+	/^(?:Next up|\d+ ahead of this one|Következik|\d+ van előtte)$/;
+/**
+ * The head's words while a take is made: the countdown, or once it has run
+ * past its time what it is still doing; never a clock counting up, never a
+ * number below zero.
+ */
+const TIME_LINE =
+	/^(?:About \d+ (?:s|min) left|Almost done…|Taking a little longer…|Még kb\. \d+ (?:mp|perc)|Mindjárt kész…|Kicsit tovább tart…)$/;
 
 function holdShimmer(
 	state: ShimmerState,
@@ -565,20 +571,12 @@ function holdShimmer(
 	expect(state.coversBox, `${label}: the shimmer covers the whole box`).toBe(
 		true,
 	);
-	// The box's own words stay sr-only. While a take is made it carries exactly
-	// one visible line, the time chip; waiting and starting carry none.
-	if (label === "making") {
-		expect(state.timeChip, `${label}: the time is in the box`).toMatch(
-			TIME_CHIP,
-		);
-		expect(
-			state.textOnScreen,
-			`${label}: the box holds the time and nothing else`,
-		).toBe(state.timeChip);
-	} else {
-		expect(state.timeChip, `${label}: no time in the box yet`).toBeNull();
-		expect(state.textOnScreen, `${label}: no words in the box`).toBe("");
-	}
+	// The box carries no words at all: its state is the sr-only status, and
+	// the time is the head's, beside the kind.
+	expect(state.textOnScreen, `${label}: no words in the box`).toBe("");
+	expect(state.headTime, `${label}: the head says where the take is`).toMatch(
+		label === "waiting" ? WAITING_LINE : TIME_LINE,
+	);
 	expect(state.spinners, `${label}: no spinner in the card`).toBe(0);
 	expect(state.progressBars, `${label}: no progress bar`).toBe(0);
 	expect(state.status, `${label}: the state is still read out`).not.toBe("");

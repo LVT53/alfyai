@@ -903,3 +903,50 @@ test("the player's and the card's buttons are 44 px targets on a coarse pointer"
 		await context.close();
 	}
 });
+
+test("while a clip is made, the head counts down beside the kind and the box holds no words", async ({
+	page,
+}) => {
+	// A slow render, so the take stays on its way long enough to be read: the
+	// fake's steps come 1.5 s apart (it reads the delay at every step).
+	fake?.setOptions({ startDelayMs: 200, stepDelayMs: 1_500, steps: 8 });
+	const stillId = await storeStill();
+	const another = await enqueueVideoTake({
+		userId,
+		conversationId,
+		artifactId: null,
+		toolCallId: TOOL_CALL_ID,
+		origin: "another",
+		retryOf: null,
+		request: {
+			v: 1,
+			prompt: "the harbour at dusk, a slow tide",
+			durationSeconds: 5,
+			sourceFileId: stillId,
+			title: "Harbour at dusk",
+			summary: null,
+			artifactId: null,
+		},
+		seed: 1002,
+	});
+	try {
+		await openChat(page);
+		const card = page.getByTestId("artifact-card").first();
+		const head = card.getByTestId("artifact-card-head");
+		const time = head.getByTestId("artifact-card-take-time");
+		await expect(time).toHaveText(/^About \d+ s left$/, { timeout: 20_000 });
+		await expect(head).toContainText("Video");
+		await expect(time).toHaveAttribute("aria-hidden", "true");
+		await expect(card.getByTestId("video-card-shimmer")).toHaveText("");
+		// It counts down by itself between polls, and never shows a clock.
+		const seconds = async () =>
+			Number((await time.textContent())?.match(/\d+/)?.[0] ?? Number.NaN);
+		const first = await seconds();
+		await expect.poll(seconds, { timeout: 5_000 }).toBeLessThan(first);
+		await expect(time).not.toHaveText(/\d:\d\d/);
+	} finally {
+		fake?.setOptions({ startDelayMs: 0, stepDelayMs: 5, steps: 4 });
+		const settled = await waitForTake(another.takeId);
+		expect(settled.status, settled.errorMessage ?? "").toBe("succeeded");
+	}
+});

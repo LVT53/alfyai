@@ -2,16 +2,14 @@
 // threads its own clock and `$t` in, so every state is testable here.
 //
 // The picture card's `image-card-view.ts` is the model this one mirrors: the
-// same states, the same time rule (an estimate when the render reports one,
-// the phase's `m:ss` clock otherwise), and the same "Next up / N ahead" line
-// for a take that has not started. The parts that are genuinely shared are
-// imported from there rather than copied (`elapsedClock`, `makingDetail`,
-// `waitingLine`, `STARTING_SHOWN_AFTER_MS`).
+// same states, the same countdown in the card's head (`createEtaCountdown`,
+// `takeTimeLine`), and the same "Next up / N ahead" line for a take that has
+// not started. The parts that are genuinely shared are imported from there
+// rather than copied (`elapsedClock`, `waitingLine`, `STARTING_SHOWN_AFTER_MS`).
 import type { VideoVersionBody } from "$lib/shared/artifacts/video-body";
 import type { Translate } from "$lib/utils/tool-evidence-presentation";
 import {
 	elapsedClock,
-	makingDetail,
 	STARTING_SHOWN_AFTER_MS,
 	waitingLine,
 } from "../image/image-card-view";
@@ -46,6 +44,10 @@ export type VideoTakeView = {
 	/** Milliseconds: when the take entered its phase. */
 	phaseAt: number | null;
 	queueAhead: number | null;
+	/**
+	 * Seconds left as of the read (to a tenth), 0 once the take runs past its
+	 * time, null with no estimate (`take-eta.ts` `etaSecondsAt`).
+	 */
 	etaSeconds: number | null;
 	errorCode: string | null;
 	retryable: boolean;
@@ -72,13 +74,8 @@ export type VideoCardView = {
 export type VideoCardState =
 	| { kind: "waiting"; ahead: number | null }
 	| { kind: "starting" }
-	| {
-			kind: "making";
-			etaSeconds: number | null;
-			/** When the take entered this phase, and when the take began. */
-			phaseAt: number | null;
-			createdAt: number;
-	  }
+	/** `finishing`: ComfyUI is done; the decode, the check and the store are left. */
+	| { kind: "making"; finishing: boolean }
 	| { kind: "failed"; unavailable: boolean; retryable: boolean }
 	| { kind: "blocked"; unchecked: boolean }
 	| { kind: "stopped" }
@@ -108,7 +105,9 @@ export function videoTakeState(
 		case "queued":
 			return { kind: "waiting", ahead: null };
 		case "running": {
-			if (take.phase === "submitted") {
+			// Submitted and never started: it waits its turn. A take that already
+			// has an estimate is past that (a 10 s clip's second segment).
+			if (take.phase === "submitted" && take.etaSeconds === null) {
 				return { kind: "waiting", ahead: take.queueAhead || null };
 			}
 			if (
@@ -118,12 +117,7 @@ export function videoTakeState(
 			) {
 				return { kind: "starting" };
 			}
-			return {
-				kind: "making",
-				etaSeconds: take.etaSeconds,
-				phaseAt: take.phaseAt,
-				createdAt: take.createdAt,
-			};
+			return { kind: "making", finishing: take.phase === "finishing" };
 		}
 		case "succeeded":
 			return take.clip
@@ -148,10 +142,13 @@ export function videoTakeState(
 	}
 }
 
-/** The card's one status line and its detail, in the reader's language. */
+/**
+ * The card's one status line and its detail, in the reader's language. While
+ * the clip is being made the detail is the countdown, which the card keeps
+ * (`takeTimeLine`): it is the card's own clock, not the state's.
+ */
 export function videoStateWords(
 	state: VideoCardState,
-	now: number,
 	t: Translate,
 ): { line: string; detail: string | null } {
 	switch (state.kind) {
@@ -163,12 +160,7 @@ export function videoStateWords(
 				detail: t("artifacts.video.card.startingDetail"),
 			};
 		case "making":
-			return {
-				line: t("artifacts.video.card.making"),
-				// The estimate when the render reports one, the time this phase has
-				// taken otherwise: never blank while a video is made.
-				detail: makingDetail(state, now, t),
-			};
+			return { line: t("artifacts.video.card.making"), detail: null };
 		case "failed":
 			return {
 				line: state.unavailable

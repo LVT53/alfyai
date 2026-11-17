@@ -9,13 +9,16 @@ import { uiLanguage } from "$lib/stores/settings";
 import {
 	canCompareBeforeAfter,
 	cardSubtitle,
+	createEtaCountdown,
+	ETA_RAISE_TOLERANCE_MS,
 	elapsedClock,
-	etaLabel,
 	hasActiveImageTakes,
 	isCheckingAgain,
-	makingDetail,
 	shownTake,
 	takeState,
+	takeTime,
+	takeTimeLine,
+	takeTimeWords,
 	visibleTakes,
 	waitingLine,
 } from "./image-card-view";
@@ -92,26 +95,27 @@ describe("takeState", () => {
 		expect(takeState(s, 12_000).kind).toBe("making");
 		expect(takeState(s, 13_000)).toEqual({ kind: "starting" });
 	});
-	it("rendering carries the eta, and the times the card's clock reads", () => {
+	it("rendering is making, and finishing is its last step", () => {
 		expect(
 			takeState(
-				take({
-					status: "running",
-					phase: "rendering",
-					phaseAt: 1_000,
-					createdAt: 500,
-					etaSeconds: 8,
-					progressPercent: 40,
-				}),
+				take({ status: "running", phase: "rendering", etaSeconds: 8 }),
 				0,
 			),
-		).toEqual({
-			kind: "making",
-			etaSeconds: 8,
-			progressPercent: 40,
-			phaseAt: 1_000,
-			createdAt: 500,
-		});
+		).toEqual({ kind: "making", finishing: false });
+		expect(
+			takeState(
+				take({ status: "running", phase: "finishing", etaSeconds: 1 }),
+				0,
+			),
+		).toEqual({ kind: "making", finishing: true });
+	});
+	it("a take posted again after it started is still on its way, not waiting", () => {
+		expect(
+			takeState(
+				take({ status: "running", phase: "submitted", etaSeconds: 30 }),
+				0,
+			),
+		).toEqual({ kind: "making", finishing: false });
 	});
 	it("succeeded is ready and cancelled is stopped", () => {
 		expect(takeState(take(), 0)).toEqual({ kind: "ready" });
@@ -292,13 +296,121 @@ describe("cardSubtitle", () => {
 	});
 });
 
-describe("etaLabel", () => {
-	it("rounds up and is null for nothing", () => {
-		expect(etaLabel(7.2, get(t))).toBe("About 8 s left");
+describe("the countdown", () => {
+	const T0 = 5_000_000;
+	/** The words the head shows for a take being made, at `now`. */
+	const words = (deadline: number | null, now: number, finishing = false) =>
+		takeTimeWords(takeTime(deadline, finishing, now), get(t));
+
+	it("counts down one second a second between polls, from one reading", () => {
+		const countdown = createEtaCountdown();
+		countdown.read("take-a", 24, T0);
+		const shown = [0, 1_000, 2_000, 3_000, 10_000].map((after) =>
+			words(countdown.at(T0 + after), T0 + after),
+		);
+		expect(shown).toEqual([
+			"About 24 s left",
+			"About 23 s left",
+			"About 22 s left",
+			"About 21 s left",
+			"About 14 s left",
+		]);
+	});
+
+	it("does not climb back when a poll's answer is a little late", () => {
+		const countdown = createEtaCountdown();
+		countdown.read("take-a", 24, T0);
+		// The next poll says 23.6 s at T0 + 750 ms: 350 ms later than the
+		// countdown, the network's delay, not the take's.
+		countdown.read("take-a", 23.6, T0 + 750);
+		expect(countdown.at(T0 + 750)).toBe(T0 + 24_000);
+		expect(words(countdown.at(T0 + 1_000), T0 + 1_000)).toBe("About 23 s left");
+	});
+
+	it("never moves later for a slow take: it runs past its time, then says so", () => {
+		const countdown = createEtaCountdown();
+		countdown.read("take-a", 5, T0);
+		// The server holds its finish time: each poll says less is left.
+		countdown.read("take-a", 2, T0 + 3_000);
+		countdown.read("take-a", 0, T0 + 6_000);
+		countdown.read("take-a", 0, T0 + 9_000);
+		const at = countdown.at(T0 + 9_000);
+		expect(at).toBe(T0 + 5_000);
+		expect(words(at, T0 + 9_000)).toBe("Taking a little longer…");
+		expect(words(at, T0 + 9_000, true)).toBe("Almost done…");
+		// Never a number below zero, however long it runs over.
+		expect(words(at, T0 + 600_000)).toBe("Taking a little longer…");
+	});
+
+	it("eases a faster take in at no more than one extra second a second", () => {
+		const countdown = createEtaCountdown();
+		countdown.read("take-a", 30, T0);
+		countdown.at(T0);
+		// The plan was pessimistic: at 2 s the sampler says 20 s are left.
+		countdown.read("take-a", 20, T0 + 2_000);
+		const left = (now: number) => ((countdown.at(now) ?? 0) - now) / 1000;
+		const seconds = [2_000, 3_000, 4_000, 5_000].map((after) =>
+			Math.round(left(T0 + after)),
+		);
+		// Two seconds a second, never a jump down to 20.
+		expect(seconds).toEqual([26, 24, 22, 20]);
+		// It meets the new time at 8 s, then counts one a second again.
+		expect(left(T0 + 8_000)).toBeCloseTo(14, 1);
+		expect(left(T0 + 10_000)).toBeCloseTo(12, 1);
+	});
+
+	it("shows more time only when the server starts over", () => {
+		const countdown = createEtaCountdown();
+		countdown.read("take-a", 4, T0);
+		countdown.read(
+			"take-a",
+			4 + (ETA_RAISE_TOLERANCE_MS + 25_000) / 1000,
+			T0 + 1_000,
+		);
+		expect(words(countdown.at(T0 + 1_000), T0 + 1_000)).toBe("About 34 s left");
+	});
+
+	it("starts afresh for another take, and has nothing without an estimate", () => {
+		const countdown = createEtaCountdown();
+		countdown.read("take-a", 4, T0);
+		countdown.read("take-b", 40, T0 + 1_000);
+		expect(words(countdown.at(T0 + 1_000), T0 + 1_000)).toBe("About 40 s left");
+		countdown.read("take-b", null, T0 + 2_000);
+		expect(countdown.at(T0 + 2_000)).toBeNull();
+		expect(words(null, T0 + 2_000)).toBeNull();
+	});
+
+	it("speaks in minutes from 100 s, in English and Hungarian", () => {
+		expect(words(T0 + 99_000, T0)).toBe("About 99 s left");
+		expect(words(T0 + 100_000, T0)).toBe("About 2 min left");
+		expect(words(T0 + 200_000, T0)).toBe("About 3 min left");
 		uiLanguage.set("hu");
-		expect(etaLabel(7.2, get(t))).toBe("Még kb. 8 mp");
-		expect(etaLabel(null, get(t))).toBeNull();
-		expect(etaLabel(0, get(t))).toBeNull();
+		expect(words(T0 + 24_000, T0)).toBe("Még kb. 24 mp");
+		expect(words(T0 + 200_000, T0)).toBe("Még kb. 3 perc");
+		expect(words(T0, T0 + 1_000, true)).toBe("Mindjárt kész…");
+		expect(words(T0, T0 + 1_000)).toBe("Kicsit tovább tart…");
+	});
+});
+
+describe("takeTimeLine", () => {
+	it("is the place in the queue while waiting, then the countdown, then nothing", () => {
+		const now = 1_000;
+		expect(takeTimeLine({ kind: "waiting", ahead: 2 }, null, now, get(t))).toBe(
+			"2 ahead of this one",
+		);
+		expect(
+			takeTimeLine({ kind: "waiting", ahead: null }, null, now, get(t)),
+		).toBe("Next up");
+		expect(takeTimeLine({ kind: "starting" }, 25_000, now, get(t))).toBe(
+			"About 24 s left",
+		);
+		expect(
+			takeTimeLine({ kind: "making", finishing: true }, 500, now, get(t)),
+		).toBe("Almost done…");
+		expect(
+			takeTimeLine({ kind: "making", finishing: false }, null, now, get(t)),
+		).toBeNull();
+		expect(takeTimeLine({ kind: "ready" }, 25_000, now, get(t))).toBeNull();
 	});
 });
 
@@ -315,52 +427,6 @@ describe("elapsedClock", () => {
 	});
 	it("never counts below zero", () => {
 		expect(elapsedClock(-2_000)).toBe("0:00");
-	});
-});
-
-describe("makingDetail", () => {
-	const making = (
-		over: Partial<{
-			etaSeconds: number | null;
-			phaseAt: number | null;
-			createdAt: number;
-		}> = {},
-	) => ({
-		etaSeconds: null as number | null,
-		phaseAt: 10_000 as number | null,
-		createdAt: 1_000,
-		...over,
-	});
-
-	it("is the estimate whenever the render reports one, exactly as before", () => {
-		expect(makingDetail(making({ etaSeconds: 7.2 }), 4_000, get(t))).toBe(
-			"About 8 s left",
-		);
-		uiLanguage.set("hu");
-		expect(makingDetail(making({ etaSeconds: 7.2 }), 4_000, get(t))).toBe(
-			"Még kb. 8 mp",
-		);
-	});
-	it("is the time this phase has taken when there is no estimate", () => {
-		expect(makingDetail(making(), 17_000, get(t))).toBe("0:07");
-	});
-	it("counts up as the card's clock advances", () => {
-		expect(makingDetail(making(), 17_000, get(t))).toBe("0:07");
-		expect(makingDetail(making(), 18_000, get(t))).toBe("0:08");
-		expect(makingDetail(making(), 79_999, get(t))).toBe("1:09");
-	});
-	it("counts from when the take was created when its phase has no stamp, never blank", () => {
-		expect(
-			makingDetail(
-				making({ phaseAt: null, createdAt: 10_000 }),
-				17_000,
-				get(t),
-			),
-		).toBe("0:07");
-	});
-	it("stays numeric in Hungarian too: the clock is no string", () => {
-		uiLanguage.set("hu");
-		expect(makingDetail(making(), 17_000, get(t))).toBe("0:07");
 	});
 });
 

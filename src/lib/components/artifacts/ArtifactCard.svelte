@@ -276,6 +276,13 @@ let {
 const TICKABLE_VISIBLE_LIMIT = 5;
 
 let KindIcon = $derived(ARTIFACT_KIND_ICONS[view.kind]);
+/**
+ * A picture or video card's take on its way: the words its body hands up for
+ * the head ("Next up", "About 24 s left", "Almost done…"), shown beside the
+ * kind in the accent colour, the way "Alfy is writing…" is (the owner's call
+ * of 17 Nov). The body keeps the countdown; null while nothing is on its way.
+ */
+let takeTime = $state<string | null>(null);
 /** The second line of the head and of a row: the caller's own, or — for a board — its kind and block count. */
 let subtitleLine = $derived(
 	view.subtitle ??
@@ -613,6 +620,18 @@ function handleOpen(): void {
 						<!-- The facts are ONE line (kind · facts · version) that ends in an
 						     ellipsis before it wraps; the review pills beside it drop to a
 						     row of their own when they do not fit. -->
+						{#if takeTime}
+							<!-- The time must stay whole on a narrow card: only the kind and
+							     its facts give way (an ellipsis), and the line never wraps,
+							     so the box under the head never moves. Hidden from screen
+							     readers, who read the body's sr-only detail instead, so the
+							     head's name does not change every second. -->
+							<span class="artifact-card-facts artifact-card-facts-timed">
+								<span class="artifact-card-facts-text">{subtitleLine ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
+								<span class="artifact-card-sep" aria-hidden="true">·</span>
+								<span class="artifact-card-take-time" data-testid="artifact-card-take-time" aria-hidden="true">{takeTime}</span>
+							</span>
+						{:else}
 						<span class="artifact-card-facts">
 							{#if view.creating}
 								<span class="artifact-card-sub-writing">{$t('artifacts.card.creatingSubtitle')}</span>
@@ -624,6 +643,7 @@ function handleOpen(): void {
 								{view.editedLabel}
 							{/if}
 						</span>
+						{/if}
 						{#if view.pendingReviewCount}
 							<span class="pill artifact-card-pending">
 								<Sparkles size={12} strokeWidth={2} aria-hidden="true" />
@@ -692,6 +712,7 @@ function handleOpen(): void {
 					conversationId={videoCard.conversationId}
 					onAction={onVideoAction}
 					gone={view.unreachable ? 'unreachable' : view.deleted ? 'deleted' : null}
+					onTime={(words) => (takeTime = words)}
 				/>
 			{:else if view.kind === 'image' && imageCard && ImageCardBody}
 				<!-- A picture card whose Image is gone keeps its head and box (no
@@ -701,6 +722,7 @@ function handleOpen(): void {
 					conversationId={imageCard.conversationId}
 					onAction={onImageAction}
 					gone={view.unreachable ? 'unreachable' : view.deleted ? 'deleted' : null}
+					onTime={(words) => (takeTime = words)}
 				/>
 			{:else}
 				{#if view.factCheckLine}
@@ -946,6 +968,29 @@ function handleOpen(): void {
 
 	.artifact-card-sep {
 		opacity: 0.6;
+	}
+
+	/* A picture or video take on its way: the time beside the kind. A flex row
+	   that never wraps: the kind gives way first (ellipsis), the time stays
+	   whole, and its digits keep one width so the line does not shuffle. */
+	.artifact-card-facts-timed {
+		display: inline-flex;
+		align-items: baseline;
+		gap: 0.3em;
+	}
+
+	.artifact-card-facts-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.artifact-card-take-time {
+		flex: none;
+		color: var(--accent-text);
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
 	}
 
 	/* Wave 2.5 Step 12: the mockup's `sub.innerHTML =
