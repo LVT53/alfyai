@@ -308,19 +308,24 @@ function sentenceHoldingPoint(
 	node: Node,
 	offset: number,
 ): number | null {
+	let measured = false;
 	for (const sentence of script.sentences) {
 		const first = sentence.ranges[0];
 		const last = sentence.ranges[sentence.ranges.length - 1];
 		if (!first || !last) continue;
 		const start = comparePoint(first, node, offset);
 		if (start === null) continue;
+		measured = true;
 		if (start < 0) return sentence.index;
 		const end = last.cloneRange();
 		end.collapse(false);
 		const after = comparePoint(end, node, offset);
 		if (after !== null && after < 0) return sentence.index;
 	}
-	return null;
+	// A point after the last word (a trailing emoji or space, the end of the reply): the
+	// nearest sentence to read from is the last one, not none (early review R23). A point
+	// that could not be placed against any sentence is not in this reply.
+	return measured ? (script.sentences.at(-1)?.index ?? null) : null;
 }
 
 function comparePoint(range: Range, node: Node, offset: number): number | null {

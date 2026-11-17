@@ -350,6 +350,16 @@ describe("the reading controller", () => {
 		).toContain("secret");
 	});
 
+	it("Read from here after the last word reads the last sentence, never nothing (early review R23)", async () => {
+		const t = setup();
+		const row = mountReply("m1", `${REPLY.replace("</p>", " 🙂</p>")}`);
+		const text = row.querySelector("p")?.firstChild as Text;
+		start(t, "m1", { node: text, offset: text.data.length });
+		await settle();
+		expect(t.body(0)?.sentences.map((s) => s.id)).toEqual(["s2"]);
+		expect(t.last()).toMatchObject({ status: "opening", sentence: 2 });
+	});
+
 	it("Read from here sends a whole written sentence first: mid-sentence, or a single word", async () => {
 		const t = setup();
 		const clause =

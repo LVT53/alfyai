@@ -1309,9 +1309,25 @@ describe("sentenceAtPoint", () => {
 		expect(sentenceAtPoint(script, cell, 1)).toBe(2);
 		const text2 = p2?.firstChild as Text;
 		expect(sentenceAtPoint(script, text2, text2.data.length - 1)).toBe(2);
-		// The end of the last word, and the end of the reply, are after every sentence.
-		expect(sentenceAtPoint(script, text2, text2.data.length)).toBeNull();
-		expect(sentenceAtPoint(script, root, root.childNodes.length)).toBeNull();
+		// The end of the last word, and the end of the reply, are after every sentence:
+		// the last sentence is the nearest one (early review R23), never nothing.
+		expect(sentenceAtPoint(script, text2, text2.data.length)).toBe(2);
+		expect(sentenceAtPoint(script, root, root.childNodes.length)).toBe(2);
+	});
+
+	it("a selection that starts after the last word, a trailing emoji's say, reads the last sentence (early review R23)", () => {
+		const root = reply(
+			"<p>The first sentence is here, and it is long enough to stand alone. The second one is here too, and it is just as long as the first one. 🙂</p>",
+		);
+		const script = build(root);
+		expect(script.sentences).toHaveLength(2);
+		const text = root.querySelector("p")?.firstChild as Text;
+		expect(sentenceAtPoint(script, text, text.data.indexOf("🙂"))).toBe(1);
+		expect(sentenceAtPoint(script, text, text.data.length)).toBe(1);
+		// A reply with nothing to read has no sentence to start in.
+		expect(
+			sentenceAtPoint(build(reply("<p>🙂</p>")), document.body, 0),
+		).toBeNull();
 	});
 
 	it("never starts in the middle of a written sentence that was split for the voice", () => {
