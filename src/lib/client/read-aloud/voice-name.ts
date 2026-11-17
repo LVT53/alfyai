@@ -6,6 +6,7 @@
  * "Imogen, nagyon nyugodt és lassabb".
  */
 
+import type { I18nKey } from "$lib/i18n";
 import {
 	clipVoiceName,
 	type Knobs,
@@ -13,7 +14,8 @@ import {
 	VOICE_NAME_MAX,
 } from "$lib/shared/read-aloud/voice-knobs";
 
-type Translate = (key: string, values?: Record<string, string>) => string;
+/** The app's `t` (`$lib/i18n`). */
+type Translate = (key: I18nKey, values?: Record<string, string>) => string;
 
 export function suggestVoiceName(input: {
 	voiceName: string;
@@ -33,7 +35,9 @@ export function suggestVoiceName(input: {
 	if (parts.kind === "mine")
 		return clipVoiceName(t("readAloud.editor.nameMine", { voice }));
 	const [first, second] = parts.changes.map((change) =>
-		t(`readAloud.knob.${change.key}.${change.word}`).toLocaleLowerCase(locale),
+		t(
+			`readAloud.knob.${change.key}.${change.word}` as I18nKey,
+		).toLocaleLowerCase(locale),
 	);
 	if (first === undefined)
 		return clipVoiceName(t("readAloud.editor.nameMine", { voice }));

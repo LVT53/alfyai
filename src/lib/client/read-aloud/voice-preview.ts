@@ -99,6 +99,18 @@ export interface VoicePreview {
 	dispose(): void;
 }
 
+/** `"2/2 · Shall I read you the…"`: a sentence's number and its first five words, for the scrubber's bubble. */
+export function sentenceBubble(
+	sentences: readonly string[],
+	i: number,
+): string {
+	const text = sentences[i];
+	if (text === undefined) return "";
+	const words = text.split(/\s+/u).filter((word) => word !== "");
+	const head = words.slice(0, 5).join(" ");
+	return `${i + 1}/${sentences.length} · ${head}${words.length > 5 ? "…" : ""}`;
+}
+
 /** How many renders are kept, so Yours / Original and a replay need no new render. */
 const KEPT_RENDERS = 12;
 /** The editor's estimate of a clip's length before it is rendered (Plan 3, Task 11). */
@@ -433,11 +445,7 @@ export function createVoicePreview(deps: VoicePreviewDeps): VoicePreview {
 		},
 
 		sentencePreview(i) {
-			const text = sound?.sentences[i];
-			if (!sound || text === undefined) return "";
-			const words = text.split(/\s+/u).filter((word) => word !== "");
-			const head = words.slice(0, 5).join(" ");
-			return `${i + 1}/${sound.sentences.length} · ${head}${words.length > 5 ? "…" : ""}`;
+			return sound ? sentenceBubble(sound.sentences, i) : "";
 		},
 
 		stop() {
