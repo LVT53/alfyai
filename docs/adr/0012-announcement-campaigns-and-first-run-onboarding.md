@@ -42,7 +42,7 @@ V1 supports only setup and standard slide layouts. Both layout types still requi
 
 Admins can preview draft campaigns in the real app-shell modal before publishing. Draft shell preview is admin-only, visibly marked as preview, and does not mutate per-user completion state or write campaign interaction analytics.
 
-Campaign screenshots are curated real captures of released AlfyAI features, not live user-state screenshots and not invented mock panels. Each slide requires desktop and mobile screenshot crops using stable aspect ratios. The admin upload flow may accept larger source images and produce the required crops inside AlfyAI so the admin does not need to prepare exact-ratio assets externally.
+Campaign screenshots are curated real captures of released AlfyAI features, not live user-state screenshots and not invented mock panels. **Amended 2026-11-17 (owner, decided 2026-11-06):** a campaign picture may instead be drawn with the drawing kit (`src/lib/components/drawings/`), the way the Feature Guide draws its sections: the real controls' words, icons and tokens, content as grey lines, in one language per picture. It is a drawing of the released screen, not a mock of one, and it holds no one's data. The 2.4 release campaign is the first (`scripts/campaign-2-4/`, deck in `docs/plans/campaign-2.4/`). Each slide requires desktop and mobile screenshot crops using stable aspect ratios. The admin upload flow may accept larger source images and produce the required crops inside AlfyAI so the admin does not need to prepare exact-ratio assets externally.
 
 The campaign crop ratios are 16:10 for desktop screenshots and 9:16 for mobile screenshots.
 
