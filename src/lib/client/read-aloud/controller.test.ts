@@ -37,6 +37,20 @@ class FakeAudio extends EventTarget implements AudioLike {
 	}
 }
 
+/** The browser's Media Session: what the OS's media keys and Now Playing talk to. */
+class FakeMediaSession {
+	playbackState: "none" | "paused" | "playing" = "none";
+	metadata: unknown = null;
+	readonly handlers = new Map<string, (() => void) | null>();
+	setActionHandler(action: string, handler: (() => void) | null) {
+		this.handlers.set(action, handler);
+	}
+	/** The handlers set now, by action. */
+	live(): string[] {
+		return [...this.handlers].filter(([, h]) => h !== null).map(([a]) => a);
+	}
+}
+
 class FakeEventSource extends EventTarget implements EventSourceLike {
 	readyState = 0;
 	closed = false;
@@ -95,6 +109,7 @@ function setup(
 	} = {},
 ) {
 	const audio = new FakeAudio();
+	const media = new FakeMediaSession();
 	const sources: FakeEventSource[] = [];
 	const views: ReadAloudView[] = [];
 	const frames: Array<() => void> = [];
@@ -145,6 +160,7 @@ function setup(
 		setView: (view) => views.push(view),
 		requestFocus: vi.fn(),
 		observe: () => () => {},
+		mediaSession: media,
 	};
 	const controller = createReadAloudController(deps);
 	controllers.push(controller);
@@ -155,6 +171,7 @@ function setup(
 	return {
 		controller,
 		audio,
+		media,
 		sources,
 		views,
 		api,
@@ -758,6 +775,64 @@ describe("the reading controller", () => {
 		expect(t.body(1)?.sentences[0]?.id).toBe("s2");
 		expect(t.audio.playbackRate).toBe(1.5);
 		expect(t.last().speed).toBe(1.5);
+	});
+
+	describe("nothing plays once a reading is over (the owner's replay on staging)", () => {
+		it("a stop, the end and a replacement each tear the audio down", async () => {
+			const t = setup();
+			mountReply();
+			await playing(t);
+			t.controller.stop();
+			expect(t.audio.src).toBe("");
+			expect(t.audio.paused).toBe(true);
+			expect(t.audio.load).toHaveBeenCalled();
+			await playing(t);
+			(t.sources.at(-1) as FakeEventSource).send("done", {});
+			t.audio.ended = true;
+			t.audio.emit("pause");
+			t.audio.emit("ended");
+			vi.advanceTimersByTime(1100);
+			expect(t.last().status).toBe("idle");
+			expect(t.audio.src).toBe("");
+		});
+
+		it("a play the reading did not ask for is stopped at once: paused, or over", async () => {
+			const t = setup();
+			mountReply();
+			await playing(t);
+			t.controller.toggle();
+			expect(t.last().status).toBe("paused");
+			// The browser resumes the element by itself: a media key, Now Playing, headphones.
+			t.audio.paused = false;
+			t.audio.emit("play");
+			expect(t.audio.paused).toBe(true);
+			expect(t.last().status).toBe("paused");
+			t.controller.stop();
+			t.audio.paused = false;
+			t.audio.emit("play");
+			expect(t.audio.paused).toBe(true);
+			expect(t.last().status).toBe("idle");
+		});
+
+		it("holds the Media Session while it reads, routes its keys to the reading, and lets it go at the end", async () => {
+			const t = setup();
+			mountReply();
+			expect(t.media.playbackState).toBe("none");
+			await playing(t);
+			expect(t.media.playbackState).toBe("playing");
+			expect(t.media.live().sort()).toEqual(["pause", "play", "stop"]);
+			t.media.handlers.get("pause")?.();
+			expect(t.last().status).toBe("paused");
+			expect(t.media.playbackState).toBe("paused");
+			t.media.handlers.get("play")?.();
+			expect(t.last().status).toBe("playing");
+			expect(t.media.playbackState).toBe("playing");
+			t.media.handlers.get("stop")?.();
+			expect(t.last().status).toBe("idle");
+			expect(t.media.playbackState).toBe("none");
+			expect(t.media.live()).toEqual([]);
+			expect(t.media.metadata).toBeNull();
+		});
 	});
 
 	it("switches to another reply without leaving the player", async () => {

@@ -99,6 +99,70 @@ test("no syntax reaches the voice, and code is read the way a teacher says it", 
 	expect(tokens.join(" ")).not.toContain("forty-two");
 });
 
+/** Records every media element `play()` is called on, so a spec can reach the reading's audio (it is not in the page). */
+async function recordMediaElements(page: import("@playwright/test").Page) {
+	await page.addInitScript(() => {
+		const played: HTMLMediaElement[] = [];
+		(window as unknown as { __played: HTMLMediaElement[] }).__played = played;
+		const play = HTMLMediaElement.prototype.play;
+		HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+			if (!played.includes(this)) played.push(this);
+			return play.call(this);
+		};
+	});
+}
+
+/** What a media key or Now Playing does: plays the reading's audio element again. Whether it sounded. */
+function wakeReadingAudio(page: import("@playwright/test").Page) {
+	return page.evaluate(async () => {
+		const audio = (window as unknown as { __played: HTMLMediaElement[] })
+			.__played[0];
+		if (!audio) return "no element";
+		const at = audio.currentTime;
+		await audio.play().catch(() => undefined);
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		return !audio.paused && audio.currentTime > at ? "sounded" : "silent";
+	});
+}
+
+test("after ✕ nothing wakes the reading: the Media Session is let go, and its old audio plays nothing", async ({
+	page,
+}) => {
+	await recordMediaElements(page);
+	const ui = await open(page, [FIVE_SENTENCE_REPLY]);
+	await ui.speaker().click();
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
+	expect(await page.evaluate(() => navigator.mediaSession.playbackState)).toBe(
+		"playing",
+	);
+	await ui.button("Stop reading").click();
+	await expect(ui.player).toBeHidden();
+	expect(await page.evaluate(() => navigator.mediaSession.playbackState)).toBe(
+		"none",
+	);
+	expect(await wakeReadingAudio(page)).toBe("silent");
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Read aloud");
+});
+
+test("a paused reading is not woken by the OS: a play it did not ask for is paused at once", async ({
+	page,
+}) => {
+	await recordMediaElements(page);
+	const ui = await open(page, [FIVE_SENTENCE_REPLY]);
+	await ui.speaker().click();
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
+	await ui.button("Pause").click();
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Resume reading");
+	expect(await page.evaluate(() => navigator.mediaSession.playbackState)).toBe(
+		"paused",
+	);
+	expect(await wakeReadingAudio(page)).toBe("silent");
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Resume reading");
+	// The person's own play still plays.
+	await ui.button("Play").click();
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
+});
+
 test("simple math is read, as the owner's sum showed on staging", async ({
 	page,
 }) => {

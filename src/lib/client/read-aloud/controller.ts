@@ -121,6 +121,20 @@ export type AudioLike = EventTarget & {
 	removeAttribute(name: string): void;
 };
 
+/**
+ * The browser's Media Session: what the OS's media keys, headphones and Now
+ * Playing talk to. Without handlers of its own, a page's paused audio is theirs to
+ * resume; the reading holds it while it reads and lets it go when it ends.
+ */
+export type MediaSessionLike = {
+	playbackState: "none" | "paused" | "playing";
+	metadata: unknown;
+	setActionHandler(
+		action: "play" | "pause" | "stop",
+		handler: (() => void) | null,
+	): void;
+};
+
 /** What the controller needs of an `EventSource`. */
 export type EventSourceLike = EventTarget & {
 	readonly readyState: number;
@@ -155,6 +169,8 @@ export type ReadAloudDeps = {
 	requestFocus: (rect: () => DOMRect | null, mode: "center" | "reveal") => void;
 	/** Calls `onChange` when the thread's DOM changes; returns the way to stop. */
 	observe: (target: Node, onChange: () => void) => () => void;
+	/** Absent (null) where the browser has none. */
+	mediaSession?: MediaSessionLike | null;
 };
 
 const EVENTSOURCE_CLOSED = 2;
@@ -284,7 +300,68 @@ export function createReadAloudController(
 			stopRecovery();
 		if (state.status === "idle") deactivate();
 		else activate();
+		holdMediaSession();
 		publish();
+	}
+
+	// -------------------------------------------------------------------
+	// The OS's media keys (the owner's replay on staging, 2026-11-17)
+	// -------------------------------------------------------------------
+
+	/** A reading that has, or is getting, sound to stop or resume. */
+	const reads = () =>
+		state.status !== "idle" &&
+		state.status !== "finished" &&
+		state.status !== "startFailed";
+	/** The reading asked for sound: a start, a jump, a resume, or the unlock clip. */
+	const wantsSound = () =>
+		isUnlockClip() ||
+		state.status === "opening" ||
+		state.status === "seeking" ||
+		state.status === "playing";
+
+	let mediaHeld = false;
+
+	function setMediaAction(
+		action: "play" | "pause" | "stop",
+		handler: (() => void) | null,
+	) {
+		try {
+			deps.mediaSession?.setActionHandler(action, handler);
+		} catch {
+			// An action this browser does not know: its keys do nothing here.
+		}
+	}
+
+	/**
+	 * While a reading reads, the Media Session is the reading's: play and pause go
+	 * to the machine and its state is published. When it ends the session is let
+	 * go ("none", no handlers), so no key can wake a reading that is over.
+	 */
+	function holdMediaSession() {
+		const media = deps.mediaSession;
+		if (!media) return;
+		if (!reads()) {
+			if (!mediaHeld) return;
+			mediaHeld = false;
+			for (const action of ["play", "pause", "stop"] as const)
+				setMediaAction(action, null);
+			media.playbackState = "none";
+			media.metadata = null;
+			return;
+		}
+		if (!mediaHeld) {
+			mediaHeld = true;
+			setMediaAction("play", () => {
+				if (state.status === "paused" || state.status === "stopped")
+					dispatch({ type: "toggle" });
+			});
+			setMediaAction("pause", () => {
+				if (state.status === "playing") dispatch({ type: "toggle" });
+			});
+			setMediaAction("stop", () => dispatch({ type: "stop" }));
+		}
+		media.playbackState = wantsSound() ? "playing" : "paused";
 	}
 
 	function run(command: ReadingCommand, previous: ReadingState) {
@@ -542,7 +619,9 @@ export function createReadAloudController(
 		lastLocate = null;
 		expectPause = false;
 		closing?.events?.close();
+		// Torn down, so nothing can resume it: paused, with no source left to play.
 		if (!isUnlockClip() && audio.src !== "") {
+			audio.pause();
 			audio.removeAttribute("src");
 			audio.load();
 		}
@@ -740,6 +819,13 @@ export function createReadAloudController(
 		if (active) frame = deps.requestFrame(tick);
 	}
 
+	// Nothing plays that the reading did not ask for: the OS's media keys, Now
+	// Playing or headphones may resume a paused or finished reading by themselves.
+	audio.addEventListener("play", () => {
+		if (wantsSound()) return;
+		if (hasSessionAudio()) expectPause = true;
+		audio.pause();
+	});
 	audio.addEventListener("playing", () => {
 		if (!hasSessionAudio()) return;
 		expectPause = false;
@@ -1020,5 +1106,9 @@ function browserDeps(): ReadAloudDeps {
 			});
 			return () => observer.disconnect();
 		},
+		mediaSession:
+			typeof navigator !== "undefined" && "mediaSession" in navigator
+				? navigator.mediaSession
+				: null,
 	};
 }
