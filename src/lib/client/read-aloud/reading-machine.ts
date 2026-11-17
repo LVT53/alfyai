@@ -110,8 +110,9 @@ export type ReadingCommand =
 	/** Tear down any session, then open one for `messageId` from sentence `from`. */
 	| { kind: "open"; messageId: string; from: number }
 	/**
-	 * Tear down the session. `ended`: the reading came to its end, and the server
-	 * closed the session once this browser had all its audio, so no DELETE.
+	 * Tear down the session. `ended`: the server has closed it already, so no DELETE
+	 * (it would be a 404): the reading came to its end and this browser had all its
+	 * audio, or another reading replaced it.
 	 */
 	| { kind: "close"; ended?: true }
 	| { kind: "play" }
@@ -474,6 +475,10 @@ export function reduce(state: ReadingState, event: ReadingEvent): ReadingStep {
 				commands: [{ kind: "speed", value: event.value }],
 			};
 		case "replaced":
+			// The server closed this session when the other reading took its place.
+			return status === "idle"
+				? stay(state)
+				: toIdle(state, [{ kind: "close", ended: true }]);
 		case "stop":
 			return status === "idle"
 				? stay(state)

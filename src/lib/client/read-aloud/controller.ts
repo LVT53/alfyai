@@ -7,8 +7,11 @@
  *
  * Built on the speech service's contract (`deploy/speech-service/README.md`):
  * - position is reported from playback time, so synthesis keeps two sentences ahead;
- * - `done` means synthesis finished, not playback: it never ends a reading;
- * - an events stream that ends without `done` or `error` is a stop;
+ * - `done` means synthesis finished, not playback: it never ends a reading, and the
+ *   events stream stays open after it (closed with the session), so a reading another
+ *   tab or device starts meanwhile still reaches this one as `replaced`;
+ * - an events stream that ends without `done` or `error` is a stop (after `done`, its
+ *   end is not: everything was made, and the audio plays out);
  * - a jump, a resume after a long pause and a retry are new sessions.
  */
 
@@ -655,7 +658,8 @@ export function createReadAloudController(
 		});
 		events.addEventListener("done", () => {
 			if (!mine()) return;
-			events.close();
+			// The stream stays: `done` is the voice finished, not the listening, and the
+			// server tells a replaced reading through it (closed with the session).
 			dispatch({ type: "done" });
 		});
 		events.addEventListener("replaced", () => {
@@ -675,8 +679,10 @@ export function createReadAloudController(
 				return;
 			}
 			// A stream that ended without `done` or `error` (an EventSource that gave up
-			// reconnecting) is a stop. What was made still plays out first.
-			if (events.readyState === EVENTSOURCE_CLOSED) {
+			// reconnecting) is a stop. What was made still plays out first. After `done`
+			// everything was made: the server closing the stream (it ended the reading, and
+			// a reconnect found nothing) is no break.
+			if (events.readyState === EVENTSOURCE_CLOSED && !state.doneReceived) {
 				owner.failure ??= { serviceError: false, sentenceId: null };
 			}
 		});

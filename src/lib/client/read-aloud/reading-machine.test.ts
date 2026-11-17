@@ -547,7 +547,11 @@ describe("the reading machine", () => {
 			const replaced = reduce(state, { type: "replaced" });
 			expect(replaced.state).toEqual(initialReadingState);
 			expect(replaced.state.failure).toBeNull();
-			expect(replaced.commands).toEqual([CLOSE, ...CLEAR_ALL]);
+			// The server closed the session when it replaced it: a DELETE would be a 404.
+			expect(replaced.commands).toEqual([
+				{ kind: "close", ended: true },
+				...CLEAR_ALL,
+			]);
 		}
 		expect(reduce(initialReadingState, { type: "replaced" })).toEqual({
 			state: initialReadingState,

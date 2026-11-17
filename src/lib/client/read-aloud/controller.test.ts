@@ -738,24 +738,66 @@ describe("the reading controller", () => {
 		expect(t.last().status).toBe("paused");
 	});
 
-	it("done closes the events and never cancels; the end shows Finished, then closes", async () => {
+	it("done keeps the events open and never cancels; the end shows Finished, then closes them", async () => {
 		const t = setup();
 		mountReply();
 		await playing(t);
 		const events = t.sources[0] as FakeEventSource;
 		events.send("done", {});
-		expect(events.closed).toBe(true);
+		// `done` is synthesis finished, not playback: the stream stays, so a reading another
+		// tab starts meanwhile still reaches this one (early review R7).
+		expect(events.closed).toBe(false);
 		expect(t.api.cancelReadingSession).not.toHaveBeenCalled();
 		expect(t.last().status).toBe("playing");
 		t.audio.ended = true;
 		t.audio.emit("pause");
 		t.audio.emit("ended");
 		expect(t.last()).toMatchObject({ status: "finished", progress: 1 });
+		expect(events.closed).toBe(false);
 		vi.advanceTimersByTime(1100);
 		expect(t.last().status).toBe("idle");
-		// The server closed it when this browser had all its audio: a DELETE is a 404.
+		// The reading is over: closing the stream is what lets the server close it, so
+		// there is nothing to cancel (a DELETE of it would be a 404).
+		expect(events.closed).toBe(true);
 		expect(t.api.cancelReadingSession).not.toHaveBeenCalled();
 		expect(t.audio.src).toBe("");
+	});
+
+	it("a reading another tab replaces after done ends quietly, and the server's closed session is not cancelled", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		const events = t.sources[0] as FakeEventSource;
+		events.send("done", {});
+		events.send("replaced", {});
+		expect(t.last()).toMatchObject({ status: "idle", failure: null });
+		expect(t.api.cancelReadingSession).not.toHaveBeenCalled();
+		expect(events.closed).toBe(true);
+		expect(t.audio.src).toBe("");
+		expect(t.audio.paused).toBe(true);
+		// Nothing wakes it again.
+		t.audio.paused = false;
+		t.audio.emit("play");
+		expect(t.audio.paused).toBe(true);
+	});
+
+	it("an events stream that ends after done is not a break: the reading finishes", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		const events = t.sources[0] as FakeEventSource;
+		events.send("done", {});
+		// The server closed the stream when it ended the reading (and a reconnect found nothing).
+		events.fail(0);
+		events.fail(2);
+		await settle();
+		expect(t.last().status).toBe("playing");
+		t.audio.ended = true;
+		t.audio.emit("pause");
+		t.audio.emit("ended");
+		await settle();
+		expect(t.last()).toMatchObject({ status: "finished", failure: null });
+		expect(t.fetchHealth).not.toHaveBeenCalled();
 	});
 
 	it("the end takes the marks away while Finished shows (they fade)", async () => {
