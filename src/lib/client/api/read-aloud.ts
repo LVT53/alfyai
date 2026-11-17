@@ -19,7 +19,10 @@ type RequestSentence = {
 	words: Array<{ shown: string; kind: WordKind; tokens: string[] }>;
 };
 
-/** A reading of a reply, or of a Document: its id, the version the panel shows and the panel's chat. */
+/**
+ * A reading of a reply; of a Document (its id, the version the panel shows and the panel's
+ * chat); or of a standard report (its chat file).
+ */
 export type ReadingRequestBody =
 	| {
 			conversationId: string;
@@ -29,6 +32,11 @@ export type ReadingRequestBody =
 	| {
 			document: { artifactId: string; version: number };
 			conversationId: string | null;
+			sentences: RequestSentence[];
+	  }
+	| {
+			/** A standard report: the chat file the panel's preview shows. */
+			report: { fileId: string };
 			sentences: RequestSentence[];
 	  };
 
