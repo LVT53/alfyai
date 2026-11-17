@@ -99,6 +99,28 @@ describe("GET /api/chat/files/[id]/preview", () => {
 		});
 	});
 
+	// The panel frames a report by its preview address plus the bridge's version
+	// (`reportFrameAddress`): the route reads the file from the path alone.
+	it("serves the same file whatever the address's query says", async () => {
+		mockResolveGeneratedFileServing.mockResolvedValue(serviceSuccess());
+		const marked = {
+			...makeEvent(),
+			request: new Request(
+				"http://localhost/api/chat/files/file-1/preview?rb=1",
+			),
+			url: new URL("http://localhost/api/chat/files/file-1/preview?rb=1"),
+		} as Parameters<typeof GET>[0];
+		const response = await GET(marked);
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe("hello world");
+		expect(mockResolveGeneratedFileServing).toHaveBeenCalledWith({
+			userId: "user-1",
+			fileId: "file-1",
+			mode: "preview",
+			bridgeOrigin: "http://localhost",
+		});
+	});
+
 	it("preserves unassigned generated-file quarantine errors", async () => {
 		mockResolveGeneratedFileServing.mockResolvedValue({
 			ok: false,

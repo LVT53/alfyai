@@ -636,6 +636,25 @@ describe("GET /api/knowledge/[id]/preview", () => {
 		expect(response.headers.get("Content-Length")).toBe(
 			String(Buffer.byteLength(body)),
 		);
+
+		// The address the panel frames it by carries the bridge's version
+		// (`reportFrameAddress`); the route reads the item from the path alone.
+		const marked = {
+			...makePreviewEvent("generated-report"),
+			request: new Request(
+				"http://localhost/api/knowledge/generated-report/preview?rb=1",
+			),
+			url: new URL(
+				"http://localhost/api/knowledge/generated-report/preview?rb=1",
+			),
+		} as unknown as PreviewRouteEvent;
+		const again = await GET(marked);
+		expect(again.status).toBe(200);
+		expect(await again.text()).toBe(body);
+		expect(mockGetArtifactForUser).toHaveBeenLastCalledWith(
+			"user-123",
+			"generated-report",
+		);
 	});
 
 	it("rejects invalid generated_output XLSX source chat files before preview", async () => {
