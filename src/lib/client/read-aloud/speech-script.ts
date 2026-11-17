@@ -11,11 +11,12 @@ import {
 	codeKindOf,
 	isSeparator,
 	keepsSentenceOpen,
+	MAX_TOKEN_CHARS,
 	speakWord,
 	type WordKind,
 } from "$lib/shared/read-aloud/spoken-forms";
 import { assignLanguages, type Detect, isVoiced } from "./language";
-import { joinShortSentences } from "./short-sentences";
+import { ENDS_IN_PAUSE, joinShortSentences } from "./short-sentences";
 
 type Voiced = "en" | "hu";
 
@@ -100,7 +101,6 @@ const LETTERS = /\p{L}/gu;
 const LETTER = /\p{L}/u;
 /** Marks a stray word hands to the word before it: what ends a clause or closes something. */
 const HANDED_MARKS = /[.,;:!?…)\]}"'”’»]/gu;
-const ENDS_IN_PAUSE = /[.!?,;:…]$/u;
 const ENDS_A_HEADING = /[.!?…:]$/u;
 /** The brackets that set a parenthetical off, at the start of its first word and at the end of its last. */
 const OPENING_BRACKETS = /^[([]+/u;
@@ -149,6 +149,10 @@ type Draft = {
 	words: DraftWord[];
 	/** The paragraph (or code line) the draft's last part came from: a join across two of them adds a pause mark. */
 	unit: string;
+	/** The list the draft's last part is an item of (the items of one list share the key), or null outside a list. */
+	list: string | null;
+	/** A line of a code block, or a draft that holds one: the short-sentence join leaves it alone. */
+	code: boolean;
 };
 
 export function buildSpeechScript(
@@ -168,6 +172,7 @@ export function buildSpeechScript(
 	const drafts: Draft[] = [];
 	const unvoicedLetters = new Map<string, number>();
 	const numbered = new Set<Element>();
+	const lists = new Map<Element, string>();
 	let anyWord = false;
 	paragraphs.forEach((paragraph, index) => {
 		const view = views[index] ?? "";
@@ -185,7 +190,7 @@ export function buildSpeechScript(
 		}
 		const made =
 			paragraph.code === null
-				? proseDrafts(paragraph, view, language, `${index}`, numbered)
+				? proseDrafts(paragraph, view, language, `${index}`, numbered, lists)
 				: codeDrafts(paragraph, view, paragraph.code, language, `${index}`);
 		if (made.length > 0) anyWord = true;
 		drafts.push(...made);
@@ -471,9 +476,7 @@ function makeRange(
 const lastToken = (word: DraftWord) =>
 	word.tokens[word.tokens.length - 1] ?? "";
 
-/** The session route refuses a token over 80 characters, so a mark that would pass it is left off. */
-const MAX_TOKEN_CHARS = 80;
-
+/** The session route refuses a token over `MAX_TOKEN_CHARS`, so a mark that would pass it is left off. */
 function setLastToken(word: DraftWord, token: string) {
 	if (token.length <= MAX_TOKEN_CHARS)
 		word.tokens[word.tokens.length - 1] = token;
@@ -695,15 +698,32 @@ function keepFullStop(words: DraftWord[]) {
 		setLastToken(last, `${lastToken(last)}.`);
 }
 
+/** The list a paragraph is an item of, as the key its items share (the first paragraph of a list makes it); null outside a list. */
+function listOf(
+	paragraph: Paragraph,
+	lists: Map<Element, string>,
+): string | null {
+	const list = paragraph.element.closest("li")?.parentElement;
+	if (!list) return null;
+	let key = lists.get(list);
+	if (key === undefined) {
+		key = `${lists.size}`;
+		lists.set(list, key);
+	}
+	return key;
+}
+
 function proseDrafts(
 	paragraph: Paragraph,
 	view: string,
 	language: Voiced,
 	unit: string,
 	numbered: Set<Element>,
+	lists: Map<Element, string>,
 ): Draft[] {
 	const words = proseWords(paragraph, view, language, numbered);
 	if (words.length === 0) return [];
+	const list = listOf(paragraph, lists);
 	const starts = sentenceStarts(view, language);
 	const groups = new Map<number, DraftWord[]>();
 	for (const word of words) {
@@ -721,6 +741,8 @@ function proseDrafts(
 			paragraphStart: drafts.length === 0,
 			words: group,
 			unit,
+			list,
+			code: false,
 		});
 	}
 	return drafts;
@@ -759,6 +781,8 @@ function codeDrafts(
 				paragraphStart: drafts.length === 0,
 				words,
 				unit: `${unit}:${lineIndex}`,
+				list: null,
+				code: true,
 			});
 	});
 	return drafts;
@@ -773,7 +797,13 @@ function join(a: Draft, b: Draft): Draft {
 		const last = a.words[a.words.length - 1];
 		addPause(last, last?.heading ? "." : ",");
 	}
-	return { ...a, words: [...a.words, ...b.words], unit: b.unit };
+	return {
+		...a,
+		words: [...a.words, ...b.words],
+		unit: b.unit,
+		list: b.list,
+		code: a.code || b.code,
+	};
 }
 
 /** A sentence of fewer than three tokens joins the next one of its language, or else the one before. */

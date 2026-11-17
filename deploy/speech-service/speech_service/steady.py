@@ -22,8 +22,9 @@ few words was read with a sentence the text never held after it. The guard sees 
 alone, so an addition inside a long sentence passes it (only a speech recognizer would hear that
 one). The retries mend what they can, but at those rates most chains of four fail too: the cure is
 not to send so little text, and the speech script no longer does (`src/lib/client/read-aloud/short-
-sentences.ts` joins a sentence under 50 characters to a neighbour). A sentence of 50 characters or
-more stalls in about one clip in a hundred, one of 40 to 49 in about one in fourteen.
+sentences.ts` joins a sentence, a list item or a one-line paragraph under 50 characters to a
+neighbour). A sentence of 50 characters or more stalls in about one clip in a hundred, one of 40 to
+49 in about one in fourteen.
 
 The seeds are the caller's seed and then steps of `SEED_STEP` from it, so a reading is as repeatable
 as one with no guard: the same sentence in the same voice stalls or not, and is mended, the same way

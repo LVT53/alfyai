@@ -30,7 +30,7 @@ export type WordKind = "prose" | "code" | "shell" | "listNumber";
 type ReadingLanguage = "en" | "hu";
 
 /** What the speech service takes: tokens of 1–80 characters, at most 40 and 160 characters a word. */
-const MAX_TOKEN_CHARS = 80;
+export const MAX_TOKEN_CHARS = 80;
 const MAX_TOKENS = 40;
 const MAX_JOINED_CHARS = 160;
 /** The longest code word that is read at all. */
