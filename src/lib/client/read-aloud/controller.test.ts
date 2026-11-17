@@ -106,6 +106,7 @@ function setup(
 	options: {
 		start?: Partial<ReadingStart>;
 		health?: ServerHealth["state"];
+		loadDetector?: ReadAloudDeps["loadDetector"];
 	} = {},
 ) {
 	const audio = new FakeAudio();
@@ -143,7 +144,7 @@ function setup(
 			return source;
 		},
 		api,
-		loadDetector: async () => detect,
+		loadDetector: options.loadDetector ?? (async () => detect),
 		document,
 		window: win,
 		isOnline: () => online,
@@ -1050,3 +1051,54 @@ describe("assessReadability", () => {
 		});
 	});
 });
+
+describe("a detector that does not load (early review R16)", () => {
+	const gone = () => new Error("Failed to fetch dynamically imported module");
+
+	it("a press ends as a failed start at once, and tells the app its code may be out of date", async () => {
+		const loadDetector = vi
+			.fn<ReadAloudDeps["loadDetector"]>()
+			.mockRejectedValueOnce(gone())
+			.mockResolvedValue(detect);
+		const t = setup({ loadDetector });
+		mountReply();
+		start(t);
+		await settle();
+		// No spinner for 20 s and no unhandled rejection: the start failed, now.
+		expect(t.last().status).toBe("startFailed");
+		expect(t.deps.reportUpdateSign).toHaveBeenCalledTimes(1);
+		expect(t.api.createReadingSession).not.toHaveBeenCalled();
+		// The load is tried again with the next press.
+		start(t);
+		await settle();
+		expect(t.api.createReadingSession).toHaveBeenCalledTimes(1);
+		t.audio.emit("playing");
+		expect(t.last().status).toBe("playing");
+	});
+
+	it("Read from here does nothing but tell the app its code may be out of date", async () => {
+		const loadDetector = vi
+			.fn<ReadAloudDeps["loadDetector"]>()
+			.mockRejectedValue(gone());
+		const t = setup({ loadDetector });
+		mountReply();
+		const text = document.querySelector("p")?.firstChild as Text;
+		start(t, "m1", { node: text, offset: 4 });
+		await settle();
+		expect(t.views.at(-1)?.status ?? "idle").toBe("idle");
+		expect(t.deps.reportUpdateSign).toHaveBeenCalledTimes(1);
+		expect(t.api.createReadingSession).not.toHaveBeenCalled();
+	});
+
+	it("a reply's readability is unknown, not a rejection, while the detector is missing", async () => {
+		const loadDetector = vi
+			.fn<ReadAloudDeps["loadDetector"]>()
+			.mockRejectedValue(gone());
+		const t = setup({ loadDetector });
+		mountReply();
+		await expect(t.controller.assessReadability(["m1"])).resolves.toEqual({
+			kind: "unknown",
+		});
+	});
+});
+

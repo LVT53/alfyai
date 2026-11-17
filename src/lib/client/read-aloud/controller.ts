@@ -541,7 +541,18 @@ export function createReadAloudController(
 		// this press's view is published: a switch inside the open player shows the
 		// new reply's sentences at once, never "Sentence 0 of 0".
 		buildScriptOnce(target);
-		await ensureDetector();
+		try {
+			await ensureDetector();
+		} catch {
+			if (token !== openToken) return;
+			// The page's own code did not load (a chunk gone after a deploy: an old tab asks for
+			// it until it is reloaded). No voice was asked for, so this is a failed start now, not
+			// a spinner for 20 s; and the app is told its code may be out of date, which is what
+			// makes its shell offer a reload.
+			deps.reportUpdateSign();
+			dispatch({ type: "sessionFailed", kind: "voice" });
+			return;
+		}
 		if (token !== openToken) return;
 		buildScriptOnce(target);
 		const script = target.script;
@@ -1031,7 +1042,13 @@ export function createReadAloudController(
 				return;
 			}
 			void (async () => {
-				await ensureDetector();
+				try {
+					await ensureDetector();
+				} catch {
+					// As in `openSession`: the code did not load; nothing was started.
+					deps.reportUpdateSign();
+					return;
+				}
 				const roots = rootsOf(base.segmentIds);
 				if (!roots) return;
 				const element =
@@ -1085,7 +1102,14 @@ export function createReadAloudController(
 				roots.some((root) => (root.textContent ?? "").trim() === "")
 			)
 				return { kind: "unknown" };
-			const script = buildSpeechScript(roots, await ensureDetector(), {
+			let detector: Detect;
+			try {
+				detector = await ensureDetector();
+			} catch {
+				// Not known yet: the speaker asks again a little later.
+				return { kind: "unknown" };
+			}
+			const script = buildSpeechScript(roots, detector, {
 				fallbackLanguage: deps.uiLanguage(),
 			});
 			if (script.sentences.length > 0) return { kind: "ready" };
