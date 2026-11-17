@@ -15,6 +15,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { LTX_VIDEO_FPS } from "../comfyui/ltx-spec";
 import { PICTURE_CHECK_SIDE } from "../picture-check/classifier";
 
 const run = promisify(execFile);
@@ -192,8 +193,11 @@ export async function extractFrameAt(
 
 /**
  * The clip's last decoded frame: what a 10 s take feeds the second segment.
- * `-sseof` seeks from the end, so it does not depend on the frame count
- * ComfyUI happened to write.
+ * ffmpeg decodes the clip's last second and writes every frame to ONE file
+ * (`-update 1`), so the file holds the very last frame whatever count ComfyUI
+ * wrote. A single frame read near the end (`-sseof -0.1 -frames:v 1`) lands one
+ * frame early: segment 2 then began on frame 119 of 121, a step back at 5 s of
+ * every 10 s clip (review C-3, measured on a numbered clip).
  */
 export async function extractLastFrame(
 	mp4: Uint8Array,
@@ -201,27 +205,27 @@ export async function extractLastFrame(
 ): Promise<Uint8Array> {
 	return inTempDir(async (dir) => {
 		const input = await writeClip(dir, "clip.mp4", mp4);
-		const output = await runBinary(
+		const output = join(dir, "last.png");
+		await runBinary(
 			FFMPEG_BINARY,
 			[
 				"-hide_banner",
 				"-loglevel",
 				"error",
 				"-sseof",
-				"-0.1",
+				"-1",
 				"-i",
 				input,
-				"-frames:v",
+				"-update",
 				"1",
 				"-f",
-				"image2pipe",
-				"-vcodec",
-				"png",
-				"pipe:1",
+				"image2",
+				"-y",
+				output,
 			],
-			{ encoding: "buffer", ...options },
+			options,
 		);
-		const png = Buffer.from(output);
+		const png = await readFile(output).catch(() => Buffer.alloc(0));
 		if (png.length === 0) {
 			throw new VideoMediaError(
 				"failed",
@@ -459,11 +463,26 @@ async function hasAudioStream(
 	return String(output).trim() !== "";
 }
 
+/** How long the sound dips at a join, so the cut between two soundtracks never clicks. */
+const JOIN_FADE_SECONDS = 0.04;
+
 /**
- * Two clips joined end to end, in order. The stream copy is what the trial
- * measured ("ffmpeg concat of two h264 clips is enough"): both segments come
- * from the same graph, so their codec parameters match. A copy ffmpeg refuses
- * falls back to a re-encode, which also handles a segment without audio.
+ * Two clips joined end to end, in order: a 10 s take's segments. Re-encoded
+ * once, because the join is not a plain concatenation (review C-3):
+ *
+ * - Segment 2 begins on its guide, segment 1's last frame (pass 2 pins its
+ *   first latent frame to it), so its frame 0 is a copy of the frame just
+ *   shown: it is dropped, and the clip runs 121 + 120 = 241 frames with
+ *   neither a held frame nor a step back at 5 s.
+ * - Its sound loses the same frame's length, so picture and sound stay in step,
+ *   and each soundtrack fades over `JOIN_FADE_SECONDS` at the cut: segment 2's
+ *   sound is a new soundtrack, and a hard cut between two clicks.
+ * - One encode leaves no AAC priming in the middle (a stream copy kept segment
+ *   2's, 21 ms of sound late by the end).
+ *
+ * A pair without a matching audio stream is joined as video only rather than
+ * failing the take. ComfyUI's tags (the whole prompt and node graph) are not
+ * carried into the clip we serve.
  */
 export async function concatClips(
 	clips: readonly Uint8Array[],
@@ -479,69 +498,50 @@ export async function concatClips(
 			inputs.push(await writeClip(dir, `clip-${index}.mp4`, clip));
 		}
 		const output = join(dir, "joined.mp4");
-		const list = join(dir, "clips.txt");
-		await writeFile(
-			list,
-			inputs
-				.map((input) => `file '${input.replace(/'/g, "'\\''")}'`)
-				.join("\n"),
-		);
-		try {
-			await runBinary(
-				FFMPEG_BINARY,
-				[
-					"-hide_banner",
-					"-loglevel",
-					"error",
-					"-f",
-					"concat",
-					"-safe",
-					"0",
-					"-i",
-					list,
-					"-c",
-					"copy",
-					// ComfyUI writes the whole prompt and node graph into the mp4's
-					// tags; the clip we serve must not carry them.
-					"-map_metadata",
-					"-1",
-					"-movflags",
-					"+faststart",
-					"-y",
-					output,
-				],
-				options,
-			);
-			return new Uint8Array(await readFile(output));
-		} catch (error) {
-			// Only a genuine codec/parameter mismatch falls back: the segments do
-			// not share codec parameters, or one has no audio. A stop, a timeout or
-			// a missing binary is not a mismatch, and starting the re-encode after
-			// one would double the work and delay the end of the take.
-			const mismatch =
-				error instanceof VideoMediaError &&
-				error.code === "failed" &&
-				!(error instanceof VideoMediaTimeoutError);
-			if (!mismatch) throw error;
+		let audio = true;
+		for (const input of inputs) {
+			audio = audio && (await hasAudioStream(input, options));
 		}
-		// Both clips carry LTX's joint audio; a pair without a matching audio
-		// stream is joined as video only rather than failing the take.
-		const audio =
-			(await hasAudioStream(inputs[0] as string, options)) &&
-			(await hasAudioStream(inputs[1] as string, options));
-		const filter = audio
-			? "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]"
-			: "[0:v][1:v]concat=n=2:v=1:a=0[v]";
+		const frameSeconds = (1 / LTX_VIDEO_FPS).toFixed(6);
+		const fade = JOIN_FADE_SECONDS.toFixed(3);
+		const last = inputs.length - 1;
+		const parts: string[] = [];
+		const joined: string[] = [];
+		for (let index = 0; index <= last; index += 1) {
+			// Every segment after the first starts on a copy of its guide.
+			parts.push(
+				index === 0
+					? `[0:v]setpts=PTS-STARTPTS[v0]`
+					: `[${index}:v]trim=start_frame=1,setpts=PTS-STARTPTS[v${index}]`,
+			);
+			joined.push(`[v${index}]`);
+			if (!audio) continue;
+			const steps: string[] = [];
+			if (index > 0) {
+				steps.push(
+					`atrim=start=${frameSeconds}`,
+					"asetpts=PTS-STARTPTS",
+					`afade=t=in:d=${fade}`,
+				);
+			}
+			if (index < last) {
+				// A fade at the end of a stream of unknown length: reversed, it is a
+				// fade in.
+				steps.push("areverse", `afade=t=in:d=${fade}`, "areverse");
+			}
+			parts.push(`[${index}:a]${steps.join(",")}[a${index}]`);
+			joined.push(`[a${index}]`);
+		}
+		parts.push(
+			`${joined.join("")}concat=n=${inputs.length}:v=1:a=${audio ? 1 : 0}[v]${audio ? "[a]" : ""}`,
+		);
 		const args = [
 			"-hide_banner",
 			"-loglevel",
 			"error",
-			"-i",
-			inputs[0] as string,
-			"-i",
-			inputs[1] as string,
+			...inputs.flatMap((input) => ["-i", input]),
 			"-filter_complex",
-			filter,
+			parts.join(";"),
 			"-map",
 			"[v]",
 			...(audio ? ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"] : []),
