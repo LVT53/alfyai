@@ -11,6 +11,7 @@
  * when it closes, and the sound stops.
  */
 import { onMount, untrack } from "svelte";
+import { X } from "@lucide/svelte";
 import {
 	type BuiltInVoiceInfo,
 	createReadAloudVoice,
@@ -282,9 +283,20 @@ onMount(() => {
 <DialogShell
 	title={opened.voice ? $t("readAloud.editor.editTitle") : $t("readAloud.editor.newTitle")}
 	onClose={close}
+	titleVisuallyHidden
 	phonePresentation="fullSheet"
 	maxWidthClass="max-w-[600px]"
 >
+	<!-- The prototype's head: the title and ✕. The shell's own <h2> keeps the
+	     accessible name; editing has no Cancel, so ✕ is how a mouse leaves. -->
+	<div class="voice-editor-head">
+		<span class="voice-editor-title" aria-hidden="true">
+			{opened.voice ? $t("readAloud.editor.editTitle") : $t("readAloud.editor.newTitle")}
+		</span>
+		<button type="button" class="btn-icon-bare voice-editor-close" aria-label={$t("common.close")} onclick={close}>
+			<X size={18} strokeWidth={2} aria-hidden="true" />
+		</button>
+	</div>
 	<div class="voice-editor">
 		<section class="voice-editor-section">
 			<h3 class="voice-editor-label">{$t("readAloud.editor.startFrom")}</h3>
@@ -419,6 +431,39 @@ onMount(() => {
 {/if}
 
 <style>
+	/* The head stays at the top while the editor scrolls (the prototype's sticky
+	   head): over the centred panel's top padding, or at the sheet body's top. */
+	.voice-editor-head {
+		position: sticky;
+		top: 0;
+		z-index: 2;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		margin: 0 -8px 10px 0;
+		padding: 6px 0 6px;
+		background: var(--surface-page);
+	}
+
+	:global(.dialog-shell__panel) .voice-editor-head {
+		top: calc(-1 * var(--space-lg));
+		margin-top: calc(-1 * var(--space-lg));
+		padding-top: calc(var(--space-lg) - 4px);
+	}
+
+	.voice-editor-title {
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: 1.25rem;
+		font-weight: 600;
+		line-height: 1.4;
+	}
+
+	.voice-editor-close {
+		flex: none;
+	}
+
 	.voice-editor {
 		display: flex;
 		flex-direction: column;

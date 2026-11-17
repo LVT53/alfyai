@@ -378,8 +378,12 @@ describe("VoiceEditor", () => {
 		expect(t.onClose).toHaveBeenCalledTimes(1);
 		t.unmount();
 		const again = editor();
+		// The ✕ in the editor's own head.
 		await fireEvent.click(
-			screen.getAllByRole("button", { name: "Close" })[0] as HTMLElement,
+			within(screen.getByRole("dialog", { name: "New voice" })).getByRole(
+				"button",
+				{ name: "Close" },
+			),
 		);
 		expect(again.preview.stop).toHaveBeenCalledTimes(1);
 		expect(again.onClose).toHaveBeenCalledTimes(1);
