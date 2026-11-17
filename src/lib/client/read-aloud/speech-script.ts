@@ -32,6 +32,12 @@ export type ScriptSentence = {
 	index: number;
 	language: Voiced;
 	paragraphStart: boolean;
+	/**
+	 * It goes on from the sentence before: a written sentence over
+	 * {@link LONG_SENTENCE_CHARS} split for the voice. Read from here never starts
+	 * at one (`sentenceAtPoint`): the voice makes words up from a short fragment.
+	 */
+	continues: boolean;
 	words: ScriptWord[];
 	/** The words' tokens in order, pause marks included. */
 	tokens: string[];
@@ -141,6 +147,8 @@ type DraftWord = ScriptWord & { start: number; heading: boolean };
 type Draft = {
 	language: Voiced;
 	paragraphStart: boolean;
+	/** A part after the first of a split sentence. */
+	continues?: boolean;
 	words: DraftWord[];
 	/** The paragraph (or code line) the draft's last part came from: a join across two of them adds a pause mark. */
 	unit: string;
@@ -212,10 +220,24 @@ export function buildSpeechScript(
 }
 
 /**
- * The sentence holding the point (from its first word's start up to its last word's end, which
- * belongs to what follows), else the first one after it; null when the point is after every sentence.
+ * Where Read from here starts: the sentence holding the point (from its first word's start up to
+ * its last word's end, which belongs to what follows), else the first one after it; null when the
+ * point is after every sentence. A part of a split sentence gives the sentence's first part, so a
+ * reading never starts with a fragment of one (the voice makes words up from a short one).
  */
 export function sentenceAtPoint(
+	script: SpeechScript,
+	node: Node,
+	offset: number,
+): number | null {
+	const found = sentenceHoldingPoint(script, node, offset);
+	if (found === null) return null;
+	let index = found;
+	while (index > 0 && script.sentences[index]?.continues) index -= 1;
+	return index;
+}
+
+function sentenceHoldingPoint(
 	script: SpeechScript,
 	node: Node,
 	offset: number,
@@ -771,6 +793,7 @@ function splitLong(drafts: readonly Draft[]): Draft[] {
 				...draft,
 				words: words.slice(0, cut + 1),
 				paragraphStart: first && draft.paragraphStart,
+				continues: !first,
 			});
 			words = words.slice(cut + 1);
 			first = false;
@@ -779,6 +802,7 @@ function splitLong(drafts: readonly Draft[]): Draft[] {
 			...draft,
 			words,
 			paragraphStart: first && draft.paragraphStart,
+			continues: !first,
 		});
 	}
 	return out;
@@ -830,6 +854,7 @@ function finish(drafts: readonly Draft[]): ScriptSentence[] {
 			index,
 			language: draft.language,
 			paragraphStart: draft.paragraphStart,
+			continues: draft.continues === true,
 			words,
 			tokens,
 			ranges,

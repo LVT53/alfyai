@@ -176,7 +176,7 @@ function setup(
 						{
 							sentences: Array<{
 								id: string;
-								words: Array<{ kind: string; tokens: string[] }>;
+								words: Array<{ shown: string; kind: string; tokens: string[] }>;
 							}>;
 						},
 					]
@@ -322,6 +322,31 @@ describe("the reading controller", () => {
 		expect(
 			body?.sentences.flatMap((s) => s.words.flatMap((w) => w.tokens)),
 		).toContain("secret");
+	});
+
+	it("Read from here sends a whole written sentence first: mid-sentence, or a single word", async () => {
+		const t = setup();
+		const clause =
+			"the dough rests in a warm bowl under a clean towel for about an hour";
+		const row = mountReply(
+			"m1",
+			`<p>A short opener comes first. First ${clause}, then ${clause}, and after that ${clause}, until it rises at last.</p>`,
+		);
+		const text = row.querySelector("p")?.firstChild as Text;
+		const firstWords = (index: number) =>
+			t
+				.body(index)
+				?.sentences[0]?.words.slice(0, 2)
+				.map((word) => word.shown);
+		// A selection that starts mid-sentence, in the part the voice would get last.
+		start(t, "m1", { node: text, offset: text.data.indexOf("until") });
+		await settle();
+		expect(firstWords(0)).toEqual(["First", "the"]);
+		t.controller.stop();
+		// A one-word selection in the same part.
+		start(t, "m1", { node: text, offset: text.data.indexOf("rises") });
+		await settle();
+		expect(firstWords(1)).toEqual(["First", "the"]);
 	});
 
 	it("a speaker press resumes a reading begun by Read from here in a long code block where it was", async () => {

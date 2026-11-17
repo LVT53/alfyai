@@ -555,4 +555,26 @@ describe("sentenceAtPoint", () => {
 		expect(sentenceAtPoint(script, text2, text2.data.length)).toBeNull();
 		expect(sentenceAtPoint(script, root, root.childNodes.length)).toBeNull();
 	});
+
+	it("never starts in the middle of a written sentence that was split for the voice", () => {
+		// The voice makes words up from a short fragment, so Read from here starts where the
+		// written sentence starts, even when it was split in parts over 240 characters.
+		const clause =
+			"the dough rests in a warm bowl under a clean towel for about an hour";
+		const root = reply(
+			`<p>A short opener comes first. First ${clause}, then ${clause}, and after that ${clause}, until it rises at last.</p>`,
+		);
+		const script = build(root);
+		expect(script.sentences.length).toBeGreaterThan(2);
+		expect(script.sentences.map((s) => s.continues)).toEqual(
+			script.sentences.map((_, i) => i > 1),
+		);
+		const text = root.querySelector("p")?.firstChild as Text;
+		// A selection that starts mid-sentence, in the split sentence's last part.
+		expect(sentenceAtPoint(script, text, text.data.indexOf("until"))).toBe(1);
+		// A one-word selection there too.
+		expect(sentenceAtPoint(script, text, text.data.indexOf("rises"))).toBe(1);
+		// The sentence before the split one is still its own.
+		expect(sentenceAtPoint(script, text, text.data.indexOf("opener"))).toBe(0);
+	});
 });
