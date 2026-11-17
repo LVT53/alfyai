@@ -518,6 +518,20 @@ describe("the reading controller", () => {
 		expect(t.body(1)?.sentences[0]?.id).toBe("s1");
 	});
 
+	it("a press a later press overtook on the server (409 superseded) ends quietly, with no note", async () => {
+		// Track A's R5: the session route answers the earlier of two quick presses of one
+		// person (here, or in another tab) with 409 superseded; the later one carries on.
+		const t = setup();
+		mountReply();
+		t.api.createReadingSession.mockRejectedValueOnce(
+			new ApiError("superseded", { status: 409 }),
+		);
+		start(t);
+		await settle();
+		expect(t.last().status).toBe("idle");
+		expect(t.fetchHealth).not.toHaveBeenCalled();
+	});
+
 	it("fails to start when the service refuses, and while opening an error event fails the start", async () => {
 		const t = setup();
 		mountReply();

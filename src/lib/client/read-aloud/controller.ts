@@ -455,6 +455,16 @@ export function createReadAloudController(
 			});
 		} catch (error) {
 			if (token !== openToken) return;
+			// A later press of this person's, here or in another tab, overtook this one on
+			// the server (409 superseded): that one carries on, and this one ends quietly.
+			if (
+				error instanceof ApiError &&
+				error.status === 409 &&
+				(error.message === "superseded" || error.code === "superseded")
+			) {
+				dispatch({ type: "stop" });
+				return;
+			}
 			const serviceError =
 				error instanceof ApiError && !error.serverUnavailable;
 			const kind = await classify(serviceError);
