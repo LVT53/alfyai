@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 import type { SpeechSentence } from "./speech-client";
-import { defaultVoiceFor } from "./voices";
+import type { ResolvedVoice, VoiceLanguage } from "./voices";
 
 const MAX_TOKENS_PER_SENTENCE = 120;
 const MAX_SENTENCE_CHARS = 400;
@@ -59,10 +59,17 @@ export const positionRequestSchema = z.object({
 	sentenceId: z.string().regex(/^s\d{1,5}$/u),
 });
 
-/** The request as the speech service takes it: the default voice of each sentence's language, its words' tokens in one list. */
-export function speechSentencesFor(request: ReadingRequest): SpeechSentence[] {
+/**
+ * The request as the speech service takes it: each sentence in the voice the
+ * person reads its language with (`resolveReadingVoices`), its words' tokens in
+ * one list. Every sentence gets a controls object of its own.
+ */
+export function speechSentencesFor(
+	request: ReadingRequest,
+	voices: Record<VoiceLanguage, ResolvedVoice>,
+): SpeechSentence[] {
 	return request.sentences.map((sentence) => {
-		const voice = defaultVoiceFor(sentence.language);
+		const voice = voices[sentence.language];
 		return {
 			id: sentence.id,
 			language: sentence.language,
@@ -73,10 +80,9 @@ export function speechSentencesFor(request: ReadingRequest): SpeechSentence[] {
 	});
 }
 
-/** The speaking rate of each language's default voice, for the browser's estimate of a reading's length. */
-export function charsPerSecondByLanguage(): { en: number; hu: number } {
-	return {
-		en: defaultVoiceFor("en").charsPerSecond,
-		hu: defaultVoiceFor("hu").charsPerSecond,
-	};
+/** The speaking rate of the voice each language reads with, for the browser's estimate of a reading's length. */
+export function charsPerSecondByLanguage(
+	voices: Record<VoiceLanguage, ResolvedVoice>,
+): { en: number; hu: number } {
+	return { en: voices.en.charsPerSecond, hu: voices.hu.charsPerSecond };
 }
