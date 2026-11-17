@@ -854,21 +854,6 @@ body {
 	}
 }
 
-/* Read aloud's marks on code (src/lib/client/read-aloud/code-marks.ts): highlights paint
-   above an element's background and below its text, so a code name is marked while it is
-   said; the overlay behind the prose cannot show through code's opaque background. */
-::highlight(read-aloud-code-sentence) {
-	background-color: var(--read-aloud-sentence);
-}
-
-::highlight(read-aloud-code-target) {
-	background-color: var(--read-aloud-target);
-}
-
-::highlight(read-aloud-code-word) {
-	background-color: var(--read-aloud-word);
-}
-
 @keyframes mini-spinner-spin {
 	to {
 		transform: rotate(360deg);

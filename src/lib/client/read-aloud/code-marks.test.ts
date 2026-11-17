@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { idleReadAloudView, type ReadAloudView } from "$lib/stores/read-aloud";
-import { CODE_MARK_NAMES, paintCodeMarks } from "./code-marks";
+import {
+	CODE_MARK_NAMES,
+	ensureCodeMarkStyle,
+	paintCodeMarks,
+} from "./code-marks";
 
 class FakeHighlight {
 	priority = 0;
@@ -119,6 +123,21 @@ describe("paintCodeMarks", () => {
 		);
 		expect(registry.get(CODE_MARK_NAMES.sentence)?.ranges).toEqual([label]);
 		expect(registry.get(CODE_MARK_NAMES.word)?.ranges).toEqual([label]);
+	});
+
+	it("brings its own highlight colours, once, outside the CSS build", () => {
+		// esbuild's CSS minifier does not know ::highlight() and warned on each rule in
+		// app.css; the build must print no warning (AGENTS.md).
+		ensureCodeMarkStyle(document);
+		ensureCodeMarkStyle(document);
+		const styles = document.head.querySelectorAll(
+			"style[data-read-aloud-code-marks]",
+		);
+		expect(styles).toHaveLength(1);
+		for (const [part, name] of Object.entries(CODE_MARK_NAMES))
+			expect(styles[0]?.textContent).toContain(
+				`::highlight(${name}) { background-color: var(--read-aloud-${part}); }`,
+			);
 	});
 
 	it("does nothing where the browser has no highlights", () => {

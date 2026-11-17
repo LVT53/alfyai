@@ -4,7 +4,8 @@
  * cannot show through code: inline code and a code block paint an opaque background
  * above it. So ranges inside code are drawn with the CSS Custom Highlight API, which
  * paints above element backgrounds and below the text and changes no DOM. The colours
- * are `::highlight(read-aloud-code-*)` in `app.css`, the same tokens as the overlay.
+ * are `::highlight(read-aloud-code-*)` rules this module adds to the page, with the same
+ * tokens as the overlay (`ensureCodeMarkStyle`).
  */
 
 import type { ReadAloudView } from "$lib/stores/read-aloud";
@@ -22,7 +23,27 @@ export type CodeMarkEnv = {
 		delete(name: string): unknown;
 	};
 	Highlight: new (...ranges: Range[]) => HighlightLike;
+	/** Adds the marks' colours to the page (`ensureCodeMarkStyle`); absent in tests. */
+	style?: () => void;
 };
+
+/**
+ * The marks' colours, added to the page once. They are not in `app.css`: the build's CSS
+ * minifier (esbuild) does not know the `::highlight()` pseudo-element and warned on each
+ * rule, and the build must print no warning (AGENTS.md). The CSP allows inline styles.
+ */
+export function ensureCodeMarkStyle(doc: Document): void {
+	if (doc.head.querySelector("style[data-read-aloud-code-marks]")) return;
+	const style = doc.createElement("style");
+	style.dataset.readAloudCodeMarks = "";
+	style.textContent = Object.entries(CODE_MARK_NAMES)
+		.map(
+			([part, name]) =>
+				`::highlight(${name}) { background-color: var(--read-aloud-${part}); }`,
+		)
+		.join("\n");
+	doc.head.append(style);
+}
 
 /** The browser's highlight registry, or null where there is none (SSR, older browsers, tests). */
 function browserEnv(): CodeMarkEnv | null {
@@ -35,6 +56,7 @@ function browserEnv(): CodeMarkEnv | null {
 	return {
 		registry: CSS.highlights as unknown as CodeMarkEnv["registry"],
 		Highlight,
+		style: () => ensureCodeMarkStyle(document),
 	};
 }
 
@@ -51,6 +73,7 @@ export function paintCodeMarks(
 	env: CodeMarkEnv | null = browserEnv(),
 ): void {
 	if (!env) return;
+	env.style?.();
 	const marks = view.status === "idle" ? null : view.marks;
 	const dragging = view.drag !== null;
 	const sentence = marks && !dragging ? marks.sentence.filter(inCode) : [];
