@@ -3294,7 +3294,7 @@ describe("MessageInput incognito indicator", () => {
 		expect(within(popover).getByText("Incognito is on")).toBeInTheDocument();
 		expect(
 			within(popover).getByText(
-				"Nothing in this chat is remembered or counted. It stays that way for the whole conversation.",
+				"Nothing in this chat is remembered. It stays that way for the whole conversation.",
 			),
 		).toBeInTheDocument();
 

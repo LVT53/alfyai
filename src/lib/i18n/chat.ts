@@ -220,7 +220,7 @@ const chatDict = {
 		"chat.incognitoPlaceholder": "Incognito · nothing here is remembered",
 		"chat.incognitoPlaceholderShort": "Incognito · not remembered",
 		"chat.incognitoPopoverBody":
-			"Nothing in this chat is remembered or counted. It stays that way for the whole conversation.",
+			"Nothing in this chat is remembered. It stays that way for the whole conversation.",
 		"chat.incognitoNewChat": "New chat",
 		"chat.incognitoNewChatHint": "To be remembered again",
 		"chat.thinkingToggleOn": "Thinking on",
@@ -1525,7 +1525,7 @@ const chatDict = {
 		"chat.incognitoPlaceholder": "Inkognitó · itt semmi nem marad meg",
 		"chat.incognitoPlaceholderShort": "Inkognitó · nem marad meg",
 		"chat.incognitoPopoverBody":
-			"Ebből a beszélgetésből semmi nem marad meg, és nem is számít bele semmibe. Ez az egész beszélgetésre így marad.",
+			"Ebből a beszélgetésből semmi nem kerül a memóriába. Ez végig így marad.",
 		"chat.incognitoNewChat": "Új beszélgetés",
 		"chat.incognitoNewChatHint": "Hogy újra megjegyezhető legyen",
 		"chat.thinkingToggleOn": "Gondolkodás bekapcsolva",
