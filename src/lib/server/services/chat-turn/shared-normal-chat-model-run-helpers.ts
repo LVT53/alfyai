@@ -67,6 +67,12 @@ import type {
 } from "$lib/shared/artifacts/image-body";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import type { RequestRoom } from "./context-budget";
+
+// Re-exported where it always lived: the thought-step classifier still imports it
+// from here, which keeps this module graph loading with it (the wire tests stub
+// fetch after their imports). The short control calls import the leaf itself.
+export { createRequestAbortSignal } from "$lib/server/utils/request-abort-signal";
+
 import { estimateHistoryMessagesTokens } from "./conversation-history";
 
 export function isEvidenceReadyToolCall(toolCall: ToolCallEntry): boolean {
