@@ -65,6 +65,7 @@ Server:
 - `src/lib/server/services/knowledge/` — the knowledge store, uploads, retrieval, the library's rules.
 - `src/lib/server/services/memory-profile/` — all profile memory (every `memory-*/` folder and `memory*.ts`): the intake judge, consolidation, recall, user-protected facts.
 - `src/lib/server/services/task-state/` — task continuity.
+- `src/lib/server/services/read-aloud/` — read aloud's sessions: who may read a reply, the containment check, one reading per person, the replay, the idle end.
 - `src/lib/server/services/url-provenance/` — ADR-0068: which addresses the app may fetch without a click.
 - `src/lib/server/services/vision/` — what the chat model sees of an image: preparation, pixel budgets, who may receive pixels.
 - `src/lib/server/db/` — connection bootstrap, schema, migrations; `src/lib/server/sandbox/` — the sandbox's security model; `src/lib/server/utils/` — shared server helpers.
@@ -72,6 +73,7 @@ Server:
 Browser and shared:
 
 - `src/lib/client/` — reusable browser `fetch` calls and the landing-to-chat handoff; `src/lib/stores/` — browser state; `src/lib/services/` — the stream protocol and browser stream transport.
+- `src/lib/client/read-aloud/` — read aloud in the browser: the speech script, marks, the reading machine and controller, its language detector.
 - `src/lib/shared/artifacts/` — shared artifact types, and where the board's rules live.
 - `src/lib/components/` — design tokens, fonts, icons, scroll ownership, component contracts.
 - `src/lib/components/chat/` — composer, message list, Mermaid (an untrusted source), what a turn made.
@@ -209,6 +211,7 @@ Name the specs that cover what you changed (they run in full; the `@smoke` set c
 - making pictures (the `make_image` tool, the picture job, the card and the Image item, against the fake ComfyUI): `tests/e2e/images-pipeline.spec.ts`
 - an Image (the picture card, the panel, History, Attach and marks in the composer, the Knowledge Base's Images chip): `tests/e2e/images*.spec.ts`
 - asking the person (`ask_user`, the card, the folded line, the resume): `tests/e2e/ask-me-first.spec.ts`
+- read aloud (the speaker, the player, Read from here, the session routes, the speech script): `tests/e2e/read-aloud.spec.ts tests/e2e/read-aloud-failures.spec.ts`
 
 Playwright runs against the **production build** (`npm run build` first, about 15 s alone; a build older than `src/` is refused before any server starts, and a build that does not hydrate stops the run in two seconds), with one server and one SQLite file per worker slot: slot N is Playwright's `TEST_PARALLEL_INDEX` N, served on `E2E_PORT + N` with `data/playwright-e2e-chat-wN.db` and its own seeded admin, so spec files run side by side without meeting each other's rows. `tests/e2e/e2e-env.ts` says what a slot is, `tests/e2e/global-setup.ts` makes the databases and starts the servers, `playwright.config.ts` points each worker at its slot. **Never run `npm run check` or `npm test` while `npm run build` runs** (both run `svelte-kit sync`, which rewrites `.svelte-kit/` under the build: it still exits 0 and the app it made does not hydrate); `scripts/gates.sh` orders them for you.
 

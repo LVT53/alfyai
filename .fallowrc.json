@@ -30,6 +30,7 @@
 		"scripts/sweep-orphan-generated-artifacts.ts",
 		"scripts/verify-live-extraction-types.ts",
 		"scripts/images/try-render.ts",
+		"scripts/run-fake-speech-service.ts",
 		"docs/plans/jobs-merge/verify-jobs.mjs",
 		"docs/plans/turn-completion/verify-turn-completion.mjs",
 		"docs/plans/document-ranking/lab/candidates/*.lab.ts",
@@ -145,6 +146,16 @@
 		{
 			"file": "src/lib/stores/ui.ts",
 			"exports": ["*"]
+		},
+		// Read aloud's view and the thread's focus request are read only as `$readAloudView` and
+		// `$threadFocusRequest` inside components' <script> blocks, a use Fallow does not follow.
+		{
+			"file": "src/lib/stores/read-aloud.ts",
+			"exports": ["readAloudView"]
+		},
+		{
+			"file": "src/lib/stores/thread-focus.ts",
+			"exports": ["threadFocusRequest"]
 		},
 		{
 			"file": "src/lib/actions/preserve-scroll.ts",

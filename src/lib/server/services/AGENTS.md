@@ -296,6 +296,7 @@ Other services in active use:
 - Memory, in every `memory-*/` folder and in `memory.ts`, `memory-maintenance.ts`, `memory-behavior-log.ts` and `memory-recuration.ts`: `memory-profile/AGENTS.md`.
 - `chat-files.ts` and produced files: `file-production/AGENTS.md`.
 - `images/` (the ComfyUI client and its fake, graphs, pixel guards, picture files, cards and takes, the image job): `images/AGENTS.md`.
+- Read aloud (`read-aloud/`: who may read a reply, the containment check, one reading per person, the replay of the speech service's audio and timeline, the idle end, the fake of the service): `read-aloud/AGENTS.md`.
 - Background jobs (the lifecycle of Atlas, extraction and file-production jobs: claim, lease, retry, cancel, recovery, scheduling, waiting for a verdict): `jobs/AGENTS.md` (ADR-0069). Nothing outside `jobs/` changes a job's lifecycle columns.
 - `normal-chat-tools/artifact-tools/` and anything else that writes an artifact: `artifacts/AGENTS.md`; a board's ops, placement and stale-read rules: `src/lib/components/artifacts/canvas/AGENTS.md`.
 - An address fetched or embedded without a click (tools, `web-grounding.ts`, favicons, thumbnails): `url-provenance/AGENTS.md` (ADR-0068).

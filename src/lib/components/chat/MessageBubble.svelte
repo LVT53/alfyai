@@ -78,6 +78,9 @@ import { getClipboardText } from "$lib/shared/reply-text";
 import AskQuestionCard from "./AskQuestionCard.svelte";
 import FilesStrip from "./FilesStrip.svelte";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
+import ReadAloudMarks from "$lib/components/read-aloud/ReadAloudMarks.svelte";
+import ReadAloudSpeaker from "$lib/components/read-aloud/ReadAloudSpeaker.svelte";
+import { readAloudAvailable } from "$lib/stores/read-aloud";
 import ThinkingBlock from "./ThinkingBlock.svelte";
 import ToolActivityList from "./ToolActivityList.svelte";
 import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
@@ -294,6 +297,11 @@ let {
 } = $props();
 
 let copied = $state(false);
+/** The prose the read-aloud marks are drawn in, and whether they are: it is isolated only then. */
+let proseContainer = $state<HTMLElement | null>(null);
+let readAloudMarked = $state(false);
+/** The speaker reports its reply being read, or one of its notes open: the action row stays shown. */
+let readAloudPinned = $state(false);
 let copyTimeout: ReturnType<typeof setTimeout> | undefined;
 let showTimestampTooltip = $state(false);
 let showForkDetails = $state(false);
@@ -1295,6 +1303,9 @@ function sendFollowUp(question: string) {
 	<div
 		id={`message-${message.id}`}
 		data-message-id={message.id}
+		data-read-aloud-segments={!isUser && !message.isStreaming
+			? (replyPlace?.segmentIds ?? [message.id]).join(' ')
+			: undefined}
 		data-testid={isUser ? 'user-message' : 'assistant-message'}
 		class="message-body relative flex min-w-0 flex-col font-sans
 		{isUser
@@ -1419,7 +1430,11 @@ function sendFollowUp(question: string) {
 				{/if}
 			</div>
 		{:else}
-			<div class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.6]">
+			<div
+				class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.6]"
+				bind:this={proseContainer}
+				data-read-aloud-marked={readAloudMarked ? "" : undefined}
+			>
 			<!-- An Atlas turn is no longer a dead end: the v2 pipeline posts the
 			     report's executive summary as the assistant message, so it renders
 			     here like any other answer (the row below carries the document). -->
@@ -1430,6 +1445,13 @@ function sendFollowUp(question: string) {
 				compactExternalLinks
 				toolResults={renderResources}
 			/>
+			{#if $readAloudAvailable}
+				<ReadAloudMarks
+					replyLastId={replyPlace?.segmentIds.at(-1) ?? message.id}
+					container={proseContainer}
+					onMarkedChange={(marked) => (readAloudMarked = marked)}
+				/>
+			{/if}
 			</div>
 			{#if hasDeliverables}
 				<!-- What the turn made, after what it said: the words above never move
@@ -1683,7 +1705,7 @@ function sendFollowUp(question: string) {
 		     touch screen of any width (a phone, an iPad in landscape) shows both
 		     at rest. Opacity only, so the rows keep their space and the reveal
 		     moves nothing. Reduced motion: the app's global rule. -->
-		<div class="message-actions">
+		<div class="message-actions" data-pinned={readAloudPinned ? "" : undefined}>
 			<div
 				class="copy-action-row flex w-full items-center gap-0.5"
 				class:justify-end={isUser}
@@ -1880,6 +1902,16 @@ function sendFollowUp(question: string) {
 					</div>
 				</div>
 
+				{#if !isUser && $readAloudAvailable && conversationId}
+					<ReadAloudSpeaker
+						{conversationId}
+						messageId={message.id}
+						segmentIds={replyPlace?.segmentIds ?? [message.id]}
+						contentKey={replyText}
+						onPinnedChange={(pinned) => (readAloudPinned = pinned)}
+					/>
+				{/if}
+
 			</div>
 			{#if followUpChips.length > 0}
 				<div class="follow-up-row" data-testid="follow-up-chips">
@@ -1906,6 +1938,14 @@ function sendFollowUp(question: string) {
 
 <style lang="postcss">
 	/* Override Tailwind prose base font size to match reduced chat text size */
+	/* Read aloud's marks are an overlay behind the text (z-index: -1): the prose becomes its own
+	   stacking context only while it is marked, so they paint behind the words, inside the message,
+	   and never over the composer layer. */
+	.prose-container[data-read-aloud-marked] {
+		position: relative;
+		isolation: isolate;
+	}
+
 	.prose-container {
 		min-width: 0;
 		width: 100%;
@@ -2219,6 +2259,11 @@ function sendFollowUp(question: string) {
 			opacity: 0;
 		}
 
+		/* While its reply is read, or a read-aloud note is open, the row stays shown. */
+		.message-actions[data-pinned] {
+			opacity: 1;
+		}
+
 		:global(.group:hover) .message-actions,
 		.message-actions:focus-within {
 			opacity: 1;
@@ -2226,6 +2271,8 @@ function sendFollowUp(question: string) {
 	}
 
 	.copy-action-row {
+		/* Read aloud's notes anchor here, at the row's start, so a phone shows them whole. */
+		position: relative;
 		flex-wrap: wrap;
 		row-gap: var(--space-xs);
 	}
@@ -2258,15 +2305,6 @@ function sendFollowUp(question: string) {
 			width: 44px;
 			height: 44px;
 		}
-	}
-
-	.mini-spinner {
-		width: 1rem;
-		height: 1rem;
-		border: 2px solid currentColor;
-		border-right-color: transparent;
-		border-radius: 999px;
-		animation: spin 700ms linear infinite;
 	}
 
 	.file-production-inline {
@@ -2442,10 +2480,6 @@ function sendFollowUp(question: string) {
 	@keyframes fadeIn {
 		from { opacity: 0; }
 		to { opacity: 1; }
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
 	}
 
 	.info-container {

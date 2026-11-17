@@ -222,6 +222,19 @@
 		--comment-rule: #a07a02;
 		--warning-text: #8a4b06;
 		--warning-tint: color-mix(in srgb, var(--warning) 11%, transparent);
+		/* Read aloud's marks (spec §4.2): the sentence's tint, the spoken word, the
+		   scrubber's target and its edge, and the dark chip of the scrubber's bubble
+		   and Read from here. */
+		--read-aloud-sentence: color-mix(in srgb, var(--accent) 12%, transparent);
+		--read-aloud-word: color-mix(in srgb, var(--accent) 30%, transparent);
+		--read-aloud-target: color-mix(in srgb, var(--accent) 22%, transparent);
+		--read-aloud-target-edge: color-mix(
+			in srgb,
+			var(--accent) 45%,
+			transparent
+		);
+		--read-aloud-chip-bg: #1a1a1a;
+		--read-aloud-chip-fg: #fff;
 		--success-text: #166534;
 		--success-tint: color-mix(in srgb, var(--success) 11%, transparent);
 
@@ -357,6 +370,17 @@
 		--comment-rule: #facc15;
 		--warning-text: #f5b04a;
 		--warning-tint: color-mix(in srgb, var(--warning) 15%, transparent);
+		/* Read aloud — dark pair. See the light root's own comment. */
+		--read-aloud-sentence: color-mix(in srgb, var(--accent) 18%, transparent);
+		--read-aloud-word: color-mix(in srgb, var(--accent) 36%, transparent);
+		--read-aloud-target: color-mix(in srgb, var(--accent) 28%, transparent);
+		--read-aloud-target-edge: color-mix(
+			in srgb,
+			var(--accent) 55%,
+			transparent
+		);
+		--read-aloud-chip-bg: #f2f2f0;
+		--read-aloud-chip-fg: #1a1a1a;
 		--success-text: #4ade80;
 		--success-tint: color-mix(in srgb, var(--success) 14%, transparent);
 
@@ -815,6 +839,39 @@ body {
 		min-height: 44px;
 		min-width: 44px;
 		padding: 0.5rem;
+	}
+
+	/* The small spinner of an icon button at work: the action row's fork and keep,
+	   and read aloud's speaker and player while a reading starts. */
+	.mini-spinner {
+		display: inline-block;
+		width: 1rem;
+		height: 1rem;
+		border: 2px solid currentColor;
+		border-right-color: transparent;
+		border-radius: 999px;
+		animation: mini-spinner-spin 700ms linear infinite;
+	}
+}
+
+/* Read aloud's marks on code (src/lib/client/read-aloud/code-marks.ts): highlights paint
+   above an element's background and below its text, so a code name is marked while it is
+   said; the overlay behind the prose cannot show through code's opaque background. */
+::highlight(read-aloud-code-sentence) {
+	background-color: var(--read-aloud-sentence);
+}
+
+::highlight(read-aloud-code-target) {
+	background-color: var(--read-aloud-target);
+}
+
+::highlight(read-aloud-code-word) {
+	background-color: var(--read-aloud-word);
+}
+
+@keyframes mini-spinner-spin {
+	to {
+		transform: rotate(360deg);
 	}
 }
 

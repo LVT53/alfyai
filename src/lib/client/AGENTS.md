@@ -20,8 +20,10 @@ api/
   workspace-search.ts - Global shell Workspace Search
   models.ts        - Model list fetching
   projects.ts      - Project CRUD
+  read-aloud.ts    - Read aloud's session routes: open a reading, cancel it, report the sentence playing, the two stream addresses
   settings.ts      - Settings, account, avatar, admin calls (re-exports from admin.ts)
 conversation-session.ts - Landing draft IDs, pending message replay
+read-aloud/      - Read aloud in the browser: the speech script, the timeline, the reading machine and controller, the language detector (rules in its own AGENTS.md)
 ```
 
 ## WHERE TO LOOK
@@ -39,6 +41,8 @@ conversation-session.ts - Landing draft IDs, pending message replay
 | Global shell Workspace Search | `api/workspace-search.ts` |
 | Model list | `api/models.ts` |
 | Projects | `api/projects.ts` |
+| Read aloud's session routes (only the reading controller calls them) | `api/read-aloud.ts` |
+| Read aloud in the browser | `read-aloud/` (its `AGENTS.md`) |
 | Settings, account, avatar | `api/settings.ts` |
 | Landing/chat handoff | `conversation-session.ts` |
 
@@ -112,3 +116,4 @@ Do not:
 - `workspace-dock.ts`, `document-workspace-state.ts`, `panel-history.ts`: `src/lib/components/document-workspace/AGENTS.md`.
 - `api/artifacts.ts`, `artifact-versions.ts`, `downloads.ts`: `src/lib/components/artifacts/AGENTS.md`. `api/artifact-tours.ts`: `src/lib/components/artifacts/tour/AGENTS.md`.
 - `campaign-replay.ts` and `normal-chat-client-turn-runtime.ts`: `src/routes/(app)/AGENTS.md`.
+- `read-aloud/` and `api/read-aloud.ts`: `read-aloud/AGENTS.md`.
