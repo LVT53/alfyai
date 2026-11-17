@@ -478,6 +478,14 @@ test.describe("The tours' reader, where the panel sits over the Files dialog", (
 		await openButton(dialog, seeded.names.canvas).click();
 		const card = tourCard(page).last();
 		await expect(card).toBeVisible({ timeout: 20_000 });
+		// Escape is Skip only while focus is in the card, and the card takes it a
+		// task after it mounts (tour/AGENTS.md): visible is not yet focused. An
+		// Escape sent in between lands on the item's title, where the panel's own
+		// Escape answers it, and nothing is dismissed. A busy main thread runs that
+		// task late while the key goes first, and the test failed under load; with
+		// the card's focus held back on purpose, waiting for the motion to settle
+		// still failed and waiting for the focus did not.
+		await expect(card).toBeFocused();
 		const panel = panelShell(page);
 
 		await page.keyboard.press("Escape");
