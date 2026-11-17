@@ -26,7 +26,8 @@ export type BreakKind = "offline" | "updating" | "voice";
 
 export type ReadingState = {
 	status: ReadingStatus;
-	messageId: string | null;
+	/** What is being read: a reply's message id, or a Document's key (`readingKey` in `controller.ts`). */
+	key: string | null;
 	/** Index of the sentence in the speech script: where the reading is, or starts. */
 	sentence: number;
 	word: number | null;
@@ -43,7 +44,7 @@ export type ReadingState = {
 
 export const initialReadingState: ReadingState = {
 	status: "idle",
-	messageId: null,
+	key: null,
 	sentence: 0,
 	word: null,
 	speed: 1,
@@ -78,10 +79,10 @@ const ALL_TIMERS: readonly ReadingTimer[] = [
 ];
 
 export type ReadingEvent =
-	/** A speaker: starts its reply, or pauses and resumes the reply being read. */
-	| { type: "press"; messageId: string; from: number }
-	/** Read from here: always reads from `from`, the reply being read included. */
-	| { type: "readFrom"; messageId: string; from: number }
+	/** A speaker: starts its reply or Document, or pauses and resumes the one being read. */
+	| { type: "press"; key: string; from: number }
+	/** Read from here: always reads from `from`, the reply or Document being read included. */
+	| { type: "readFrom"; key: string; from: number }
 	| { type: "toggle" }
 	| { type: "firstAudio" }
 	| { type: "busyTimeout" }
@@ -107,8 +108,8 @@ export type ReadingEvent =
 	| { type: "stop" };
 
 export type ReadingCommand =
-	/** Tear down any session, then open one for `messageId` from sentence `from`. */
-	| { kind: "open"; messageId: string; from: number }
+	/** Tear down any session, then open one for `key` from sentence `from`. */
+	| { kind: "open"; key: string; from: number }
 	/**
 	 * Tear down the session. `ended`: the server has closed it already, so no DELETE
 	 * (it would be a 404): the reading came to its end and this browser had all its
@@ -156,10 +157,10 @@ function toIdle(state: ReadingState, commands: ReadingCommand[]): ReadingStep {
 function open(
 	state: ReadingState,
 	status: "opening" | "seeking",
-	messageId: string,
+	key: string,
 	from: number,
 ): ReadingStep {
-	const commands: ReadingCommand[] = [{ kind: "open", messageId, from }];
+	const commands: ReadingCommand[] = [{ kind: "open", key, from }];
 	if (status === "opening")
 		commands.push({ kind: "startTimer", timer: "busy" });
 	commands.push({ kind: "startTimer", timer: "start" });
@@ -167,7 +168,7 @@ function open(
 		state: {
 			...state,
 			status,
-			messageId,
+			key,
 			sentence: from,
 			word: null,
 			busy: false,
@@ -180,11 +181,11 @@ function open(
 	};
 }
 
-/** Opens the reading's own message again, from `from`. */
+/** Opens what the reading reads again, from `from`. */
 function reopen(state: ReadingState, from: number): ReadingStep {
-	return state.messageId === null
+	return state.key === null
 		? stay(state)
-		: open(state, "seeking", state.messageId, from);
+		: open(state, "seeking", state.key, from);
 }
 
 function pause(state: ReadingState): ReadingStep {
@@ -225,38 +226,34 @@ function startFailed(state: ReadingState): ReadingStep {
 	};
 }
 
-function onPress(
-	state: ReadingState,
-	messageId: string,
-	from: number,
-): ReadingStep {
-	const same = state.messageId === messageId;
+function onPress(state: ReadingState, key: string, from: number): ReadingStep {
+	const same = state.key === key;
 	switch (state.status) {
 		case "idle":
 		case "finished":
 		case "startFailed":
-			return open(state, "opening", messageId, from);
+			return open(state, "opening", key, from);
 		case "opening":
 			return same
 				? toIdle(state, [{ kind: "close" }])
-				: open(state, "opening", messageId, from);
+				: open(state, "opening", key, from);
 		case "playing":
-			return same ? pause(state) : open(state, "seeking", messageId, from);
+			return same ? pause(state) : open(state, "seeking", key, from);
 		case "paused":
-			return same ? resume(state) : open(state, "seeking", messageId, from);
+			return same ? resume(state) : open(state, "seeking", key, from);
 		case "stopped":
 			return same
 				? reopen(state, state.sentence)
-				: open(state, "seeking", messageId, from);
+				: open(state, "seeking", key, from);
 		case "seeking":
 		case "waiting":
-			return same ? stay(state) : open(state, "seeking", messageId, from);
+			return same ? stay(state) : open(state, "seeking", key, from);
 	}
 }
 
 function onReadFrom(
 	state: ReadingState,
-	messageId: string,
+	key: string,
 	from: number,
 ): ReadingStep {
 	switch (state.status) {
@@ -264,9 +261,9 @@ function onReadFrom(
 		case "finished":
 		case "startFailed":
 		case "opening":
-			return open(state, "opening", messageId, from);
+			return open(state, "opening", key, from);
 		default:
-			return open(state, "seeking", messageId, from);
+			return open(state, "seeking", key, from);
 	}
 }
 
@@ -350,9 +347,9 @@ export function reduce(state: ReadingState, event: ReadingEvent): ReadingStep {
 	const { status } = state;
 	switch (event.type) {
 		case "press":
-			return onPress(state, event.messageId, event.from);
+			return onPress(state, event.key, event.from);
 		case "readFrom":
-			return onReadFrom(state, event.messageId, event.from);
+			return onReadFrom(state, event.key, event.from);
 		case "toggle":
 			return onToggle(state);
 		case "firstAudio":

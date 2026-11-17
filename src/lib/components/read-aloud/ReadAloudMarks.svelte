@@ -56,14 +56,14 @@ function boxesOf(ranges: readonly Range[]): Box[] {
 // the boxes are not measured again: each measure is a forced layout (early review R22). The
 // controller hands over the same `marks` object while what is marked is the same.
 const status = $derived($readAloudView.status);
-const messageId = $derived($readAloudView.messageId);
+const key = $derived($readAloudView.key);
 const marks = $derived($readAloudView.marks);
 const drag = $derived($readAloudView.drag);
 const sentenceIndex = $derived($readAloudView.sentence);
 
 const layout = $derived.by(() => {
 	layoutTick;
-	if (status === "idle" || messageId !== replyLastId || !marks) return null;
+	if (status === "idle" || key !== replyLastId || !marks) return null;
 	const dragging = drag !== null;
 	const sentence = dragging ? [] : boxesOf(marks.sentence);
 	const target = dragging ? boxesOf(marks.target) : [];

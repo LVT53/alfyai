@@ -272,7 +272,7 @@ describe("the reading controller", () => {
 		start(t);
 		expect(t.last()).toMatchObject({
 			status: "opening",
-			messageId: "m1",
+			key: "m1",
 			segmentIds: ["m1"],
 		});
 		await settle();
@@ -955,7 +955,7 @@ describe("the reading controller", () => {
 		mountReply("m2", "<p>Another reply is read from here on now.</p>");
 		await playing(t);
 		start(t, "m2");
-		expect(t.last()).toMatchObject({ status: "seeking", messageId: "m2" });
+		expect(t.last()).toMatchObject({ status: "seeking", key: "m2" });
 		expect(t.api.cancelReadingSession).toHaveBeenCalledWith("x1");
 		await settle();
 		expect((t.body(1) as unknown as { messageId: string }).messageId).toBe(
@@ -974,9 +974,7 @@ describe("the reading controller", () => {
 		const before = t.views.length;
 		start(t, "m2");
 		await settle();
-		const switched = t.views
-			.slice(before)
-			.filter((view) => view.messageId === "m2");
+		const switched = t.views.slice(before).filter((view) => view.key === "m2");
 		expect(switched.length).toBeGreaterThan(0);
 		// Never "Sentence 0 of 0" in the player while the new reply's voice comes.
 		expect(switched.map((view) => view.count)).not.toContain(0);

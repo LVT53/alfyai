@@ -52,7 +52,7 @@ let tapped = $state(false);
 let cantStartOpen = $state(false);
 
 const view = $derived($readAloudView);
-const mine = $derived(view.messageId === messageId && view.status !== "idle");
+const mine = $derived(view.key === messageId && view.status !== "idle");
 const status = $derived(mine ? view.status : "idle");
 const dimmed = $derived(
 	!mine && (readability.kind === "noVoice" || readability.kind === "nothing"),

@@ -56,7 +56,7 @@ function fakeController(
 function view(extra: Partial<ReadAloudView>): ReadAloudView {
 	return {
 		...idleReadAloudView,
-		messageId: "m1",
+		key: "m1",
 		segmentIds: ["m1"],
 		count: 3,
 		...extra,
@@ -137,7 +137,7 @@ describe("ReadAloudSpeaker", () => {
 			expect(t.button().querySelector(".lucide-play")).toBeTruthy();
 		}
 		// Another reply's reading leaves this speaker as it is.
-		setReadAloudView(view({ status: "playing", messageId: "m2" }));
+		setReadAloudView(view({ status: "playing", key: "m2" }));
 		await tick();
 		expect(t.button().getAttribute("aria-label")).toBe("Read aloud");
 		expect(

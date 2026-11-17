@@ -31,7 +31,8 @@ export function setReadAloudAvailable(on: boolean): void {
 /** What the speaker, the marks and the player draw: the reading's state, its place and its marks. */
 export type ReadAloudView = {
 	status: ReadingStatus;
-	messageId: string | null;
+	/** What is being read: a reply's message id, or a Document's key (`readingKey` in `controller.ts`). */
+	key: string | null;
 	segmentIds: readonly string[];
 	/** Index of the sentence being read, or chosen. */
 	sentence: number;
@@ -61,7 +62,7 @@ export type ReadAloudView = {
 
 export const idleReadAloudView: ReadAloudView = {
 	status: "idle",
-	messageId: null,
+	key: null,
 	segmentIds: [],
 	sentence: 0,
 	count: 0,

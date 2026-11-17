@@ -373,7 +373,7 @@ export function createReadAloudController(
 	function run(command: ReadingCommand, previous: ReadingState) {
 		switch (command.kind) {
 			case "open":
-				void openSession(command.messageId, command.from, previous);
+				void openSession(command.key, command.from, previous);
 				return;
 			case "close":
 				openToken += 1;
@@ -989,7 +989,7 @@ export function createReadAloudController(
 			: undefined;
 		const view: ReadAloudView = {
 			status: state.status,
-			messageId: state.messageId,
+			key: state.key,
 			segmentIds: state.status === "idle" ? [] : (reading?.segmentIds ?? []),
 			sentence: state.sentence,
 			count: script?.sentences.length ?? 0,
@@ -1011,7 +1011,7 @@ export function createReadAloudController(
 		};
 		const key = JSON.stringify([
 			view.status,
-			view.messageId,
+			view.key,
 			view.segmentIds,
 			view.sentence,
 			view.count,
@@ -1084,7 +1084,7 @@ export function createReadAloudController(
 			const from = r.from;
 			if (!from) {
 				pending = base;
-				startWith({ type: "press", messageId: r.messageId, from: 0 });
+				startWith({ type: "press", key: r.messageId, from: 0 });
 				return;
 			}
 			void (async () => {
@@ -1114,7 +1114,7 @@ export function createReadAloudController(
 				);
 				if (sentence === null) return;
 				pending = candidate;
-				startWith({ type: "readFrom", messageId: r.messageId, from: sentence });
+				startWith({ type: "readFrom", key: r.messageId, from: sentence });
 			})();
 		},
 		toggle: () => dispatch({ type: "toggle" }),

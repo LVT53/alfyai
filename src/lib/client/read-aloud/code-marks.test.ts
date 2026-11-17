@@ -46,7 +46,7 @@ function reply() {
 const view = (extra: Partial<ReadAloudView>): ReadAloudView => ({
 	...idleReadAloudView,
 	status: "playing",
-	messageId: "m1",
+	key: "m1",
 	...extra,
 });
 

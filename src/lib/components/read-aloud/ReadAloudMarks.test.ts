@@ -57,7 +57,7 @@ const reading = (
 ): ReadAloudView => ({
 	...idleReadAloudView,
 	status: "playing",
-	messageId: "m1",
+	key: "m1",
 	segmentIds: ["m1"],
 	count: 1,
 	marks,
@@ -198,7 +198,7 @@ describe("ReadAloudMarks", () => {
 		setReadAloudView(
 			reading(
 				{ sentence: a.ranges, word: null, target: [] },
-				{ messageId: "m9" },
+				{ key: "m9" },
 			),
 		);
 		await tick();

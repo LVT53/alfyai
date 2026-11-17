@@ -31,7 +31,7 @@ function fakeController(): ReadAloudController {
 const reading = (extra: Partial<ReadAloudView> = {}): ReadAloudView => ({
 	...idleReadAloudView,
 	status: "playing",
-	messageId: "m1",
+	key: "m1",
 	segmentIds: ["m1"],
 	sentence: 1,
 	count: 3,

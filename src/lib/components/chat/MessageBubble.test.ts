@@ -6367,7 +6367,7 @@ describe("MessageBubble: read aloud", () => {
 		setReadAloudView({
 			...idleReadAloudView,
 			status: "playing",
-			messageId: "assistant-read-1",
+			key: "assistant-read-1",
 			segmentIds: ["assistant-read-1"],
 		});
 		await waitFor(() => expect(actions.hasAttribute("data-pinned")).toBe(true));
