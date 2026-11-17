@@ -4,6 +4,7 @@ import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import {
 	getConfig,
 	isImageMakingConfigured,
+	isVideoMakingConfigured,
 	type RuntimeConfig,
 } from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
@@ -15,6 +16,7 @@ import { resolveTurnTimeZone } from "$lib/server/services/chat-turn/turn-time-zo
 import type { Capability } from "$lib/server/services/connections/registry";
 import type { ContextCompressionControlSender } from "$lib/server/services/context-compression";
 import { isExplicitFilterOnFor } from "$lib/server/services/images/picture-check/policy";
+import { isPictureMakingOnFor } from "$lib/server/services/images/picture-making";
 import type { TurnPictureIndex } from "$lib/server/services/images/turn-pictures";
 import type { TurnTakes } from "$lib/server/services/images/turn-takes";
 import { resolveTurnInstructions } from "$lib/server/services/instructions";
@@ -420,6 +422,22 @@ const sendCompressionControlMessage: ContextCompressionControlSender = async (
 	return sendJsonControlMessage(message, modelId, options);
 };
 
+/**
+ * Whether this person switched "Pictures and videos" off (Settings > Profile)
+ * while the install could otherwise make a picture or a video. Read once by
+ * context preparation (the guidance says it is off) and once by the tool pack
+ * (the catalogue leaves make_image and make_video out), from the person's own
+ * row. With neither server configured the switch changes nothing, so there is
+ * nothing to tell the model: pointed at it, a person would be sent on a hunt.
+ */
+async function picturesAndVideosSwitchedOff(userId: string): Promise<boolean> {
+	const config = getConfig();
+	if (!isImageMakingConfigured(config) && !isVideoMakingConfigured(config)) {
+		return false;
+	}
+	return !(await isPictureMakingOnFor(userId));
+}
+
 export async function prepareOutboundContext(
 	params: NormalChatSendModelBaseParams,
 	runtime: ProviderRuntime,
@@ -470,6 +488,12 @@ export async function prepareOutboundContext(
 	// clock then says the zone is unknown).
 	const timeZone = await resolveTurnTimeZone(params.userId);
 	params.signal?.throwIfAborted();
+	// The person's own "Pictures and videos" switch: off, the guidance says so
+	// (the tool pack reads it again and withholds the tools, createToolPack).
+	const picturesAndVideosOff = await picturesAndVideosSwitchedOff(
+		params.userId,
+	);
+	params.signal?.throwIfAborted();
 	// Only a turn with a known output cap has a room to ask about.
 	const cap = runtime.modelConfig.maxTokens;
 	const room =
@@ -497,6 +521,7 @@ export async function prepareOutboundContext(
 		personalityPrompt: params.personalityPrompt,
 		instructions,
 		timeZone,
+		picturesAndVideosOff,
 		forceWebSearch: params.forceWebSearch,
 		modelId: runtime.modelId,
 		contextLimits: runtime.baseContextLimits,
@@ -593,11 +618,17 @@ export async function createToolPack(
 	// One queue for the turn, shared by the tools that fill it and the model run
 	// that empties it (every attempt of the run, failover included).
 	const stepImages = sharedStepImages ?? createStepImageQueue();
+	// The person's own "Pictures and videos" switch: off, the catalogue leaves
+	// make_image and make_video out (selectNormalChatToolsForRequest).
+	const picturesAndVideosOff = params.disableTools
+		? false
+		: await picturesAndVideosSwitchedOff(params.userId);
 	// Whether make_image's description tells the model to decline explicit
 	// pictures; only read when there is a make_image to describe.
-	const explicitPictureFilter = isImageMakingConfigured(getConfig())
-		? await isExplicitFilterOnFor(params.userId)
-		: null;
+	const explicitPictureFilter =
+		isImageMakingConfigured(getConfig()) && !picturesAndVideosOff
+			? await isExplicitFilterOnFor(params.userId)
+			: null;
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -651,6 +682,7 @@ export async function createToolPack(
 					memoryActive,
 					skillsEnabled: getConfig().composerCommandRegistryEnabled,
 					incognito,
+					picturesAndVideos: !picturesAndVideosOff,
 				}),
 		recorder: normalChatTools.recorder ?? createToolCallRecorder(),
 		getToolCalls: normalChatTools.getToolCalls,

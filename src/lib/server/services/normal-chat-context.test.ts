@@ -77,6 +77,7 @@ import {
 	estimateOutboundPromptTokenTotal,
 	extractPastedUrls,
 	NORMAL_CHAT_TOOL_SCHEMA_OVERHEAD_TOKENS_PER_TOOL,
+	PICTURES_AND_VIDEOS_OFF_GUIDANCE,
 	prepareOutboundChatContext,
 	REPLY_LANGUAGE_RULE,
 	resolvePromptContextLimits,
@@ -1539,6 +1540,34 @@ describe("prepareOutboundChatContext", () => {
 			const guidance = guidanceFor("standard");
 			expect(guidance).not.toContain("Quick mode");
 			expect(guidance).not.toContain(ASK_ON_QUICK);
+		});
+	});
+
+	// "Pictures and videos" (Settings > Profile) switched off: the turn is not
+	// offered make_image or make_video, so the model is told why, and what to
+	// tell a person who asks for one anyway. A fact about this person, so it
+	// rides the turn guidance and never the cached system prompt.
+	describe("the Pictures and videos switch", () => {
+		it("tells the model it is off, and where the person switches it on, only when it is off", () => {
+			const off = buildTurnGuidance({ picturesAndVideosOff: true });
+			expect(off).toContain(PICTURES_AND_VIDEOS_OFF_GUIDANCE);
+			expect(PICTURES_AND_VIDEOS_OFF_GUIDANCE).toContain(
+				"Settings > Profile > Pictures and videos",
+			);
+			for (const on of [
+				buildTurnGuidance({}),
+				buildTurnGuidance({ picturesAndVideosOff: false }),
+			]) {
+				expect(on).not.toContain(PICTURES_AND_VIDEOS_OFF_GUIDANCE);
+				expect(on).not.toMatch(/switched off/i);
+			}
+		});
+
+		it("is ASCII English that names no language and says nothing of the reply's (ruling 79, I1 and I3)", () => {
+			expect(PICTURES_AND_VIDEOS_OFF_GUIDANCE).toMatch(/^[ -~]+$/);
+			expect(PICTURES_AND_VIDEOS_OFF_GUIDANCE).not.toMatch(
+				/\b(?:English|Hungarian|Magyar|languages?|repl(?:y|ies)|respon(?:d|ds|se|ses)|answers?)\b/i,
+			);
 		});
 	});
 
@@ -3396,6 +3425,45 @@ describe("prepareOutboundChatContext", () => {
 				);
 
 				expect(prepared.turnGuidance).toBe("");
+			});
+
+			// The person switched "Pictures and videos" off: no make_image is offered,
+			// so nothing about how many pictures it takes, and the line that says why.
+			it("that pictures and videos are switched off, and nothing about make_image, when the person switched them off", async () => {
+				mocks.getConfig.mockReturnValue({
+					contextDiagnosticsDebug: false,
+					parallelApiKey: "parallel-key",
+					comfyuiUrl: "http://comfy.example",
+				});
+				const five = [1, 2, 3, 4, 5].map((n) => pictureOf(`p${n}.jpg`, 100, n));
+				for (const off of [false, true]) {
+					mocks.buildConstructedContext.mockResolvedValueOnce(
+						withPictures({ images: five, hasImageAttachments: true }),
+					);
+
+					const prepared = await prepareOutboundChatContext(
+						turn({ collectImages: true, picturesAndVideosOff: off }),
+					);
+
+					if (off) {
+						expect(prepared.turnGuidance).toContain(
+							PICTURES_AND_VIDEOS_OFF_GUIDANCE,
+						);
+						expect(prepared.turnGuidance).not.toContain(
+							"make_image takes at most",
+						);
+						expect(prepared.systemPrompt).not.toContain(
+							PICTURES_AND_VIDEOS_OFF_GUIDANCE,
+						);
+					} else {
+						expect(prepared.turnGuidance).not.toContain(
+							PICTURES_AND_VIDEOS_OFF_GUIDANCE,
+						);
+						expect(prepared.turnGuidance).toContain(
+							"make_image takes at most 4 pictures per call",
+						);
+					}
+				}
 			});
 		});
 

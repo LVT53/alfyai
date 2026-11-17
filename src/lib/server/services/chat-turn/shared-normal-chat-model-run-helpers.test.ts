@@ -20,12 +20,16 @@ const mocks = vi.hoisted(() => ({
 	scheduleImageDescriptions: vi.fn(),
 	resolveTurnInstructions: vi.fn(),
 	resolveTurnTimeZone: vi.fn(),
+	isPictureMakingOnFor: vi.fn(async (_userId: string) => true),
 	skillDraftGuidance:
 		"## Drafting a skill\n<skill_control_v1></skill_control_v1>",
 }));
 
 const configState = vi.hoisted(() => ({
 	composerCommandRegistryEnabled: true,
+	// No picture or video server unless a test sets one.
+	comfyuiUrl: "",
+	comfyuiLtxUrl: "",
 }));
 
 vi.mock("$lib/server/config-store", async (importOriginal) => {
@@ -37,9 +41,20 @@ vi.mock("$lib/server/config-store", async (importOriginal) => {
 			...actual.getConfig(),
 			composerCommandRegistryEnabled:
 				configState.composerCommandRegistryEnabled,
+			comfyuiUrl: configState.comfyuiUrl,
+			comfyuiLtxUrl: configState.comfyuiLtxUrl,
 		}),
 	};
 });
+
+// The person's own switch is the database; its read is held in
+// images/picture-making.test.ts. So is the picture filter's.
+vi.mock("$lib/server/services/images/picture-making", () => ({
+	isPictureMakingOnFor: mocks.isPictureMakingOnFor,
+}));
+vi.mock("$lib/server/services/images/picture-check/policy", () => ({
+	isExplicitFilterOnFor: async () => true,
+}));
 
 vi.mock("$lib/server/services/instructions", () => ({
 	resolveTurnInstructions: mocks.resolveTurnInstructions,
@@ -826,6 +841,72 @@ describe("prepareOutboundContext standing instructions wiring", () => {
 	});
 });
 
+// "Pictures and videos" (Settings > Profile) is the person's own switch. The
+// guidance says it is off only when the install could otherwise make them: a
+// person pointed at a switch that changes nothing would be sent on a hunt.
+describe("prepareOutboundContext and the Pictures and videos switch", () => {
+	const params = {
+		userId: "user-1",
+		runtimeConfig,
+		message: "Draw a fox.",
+		conversationId: "conv-1",
+		modelId: "model1" as const,
+		user: { id: "user-1" },
+		overrideProvider: {
+			id: "provider-1",
+			name: "local",
+			displayName: "Local",
+			baseUrl: "http://local-model/v1",
+			modelName: "local-model",
+			apiKey: "local-key",
+		} as NormalChatModelRunProvider,
+	};
+
+	beforeEach(() => {
+		mocks.prepareOutboundChatContext.mockReset();
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+		});
+		mocks.resolveTurnInstructions.mockResolvedValue({
+			personal: null,
+			project: null,
+		});
+		mocks.isPictureMakingOnFor.mockReset();
+		configState.comfyuiUrl = "";
+		configState.comfyuiLtxUrl = "";
+	});
+
+	async function preparedWith(on: boolean) {
+		mocks.isPictureMakingOnFor.mockResolvedValue(on);
+		const runtime = await resolveProviderRuntime(params);
+		await prepareOutboundContext(params, runtime, null, new Set());
+		return mocks.prepareOutboundChatContext.mock.lastCall?.[0];
+	}
+
+	it("tells context preparation the person switched them off, reading that person's own switch", async () => {
+		configState.comfyuiUrl = "http://comfy.example";
+		const sent = await preparedWith(false);
+		expect(mocks.isPictureMakingOnFor).toHaveBeenCalledTimes(1);
+		expect(mocks.isPictureMakingOnFor).toHaveBeenCalledWith("user-1");
+		expect(sent.picturesAndVideosOff).toBe(true);
+	});
+
+	it("says so with only a video server too", async () => {
+		configState.comfyuiLtxUrl = "http://ltx.example";
+		expect((await preparedWith(false)).picturesAndVideosOff).toBe(true);
+	});
+
+	it("tells it nothing while the switch is on", async () => {
+		configState.comfyuiUrl = "http://comfy.example";
+		expect((await preparedWith(true)).picturesAndVideosOff).toBe(false);
+	});
+
+	it("tells it nothing when the install makes neither pictures nor videos", async () => {
+		expect((await preparedWith(false)).picturesAndVideosOff).toBe(false);
+	});
+});
+
 describe("prepareOutboundContext time zone wiring", () => {
 	const provider = {
 		id: "provider-1",
@@ -1020,6 +1101,50 @@ describe("createToolPack and the permission to pause", () => {
 			toolCallId: "call-2",
 			questions: ask.questions,
 		});
+	});
+});
+
+describe("createToolPack and the Pictures and videos switch", () => {
+	beforeEach(() => {
+		configState.comfyuiUrl = "http://comfy.example";
+		configState.comfyuiLtxUrl = "http://ltx.example";
+		mocks.isPictureMakingOnFor.mockReset();
+	});
+
+	function buildPackFor(userId: string) {
+		return createToolPack(
+			{
+				userId,
+				runtimeConfig,
+				message: "Draw a fox.",
+				conversationId: "conv-1",
+				modelId: "model1",
+			},
+			"turn-1",
+			null,
+			"model1",
+			new Set(),
+			emptyTurnPictureIndex(),
+		);
+	}
+
+	it("withholds make_image and make_video from a person who switched them off, and offers them to one who did not", async () => {
+		mocks.isPictureMakingOnFor.mockImplementation(
+			async (userId: string) => userId !== "switched-off",
+		);
+
+		const off = await buildPackFor("switched-off");
+		const on = await buildPackFor("keeps-it-on");
+
+		expect(mocks.isPictureMakingOnFor).toHaveBeenCalledWith("switched-off");
+		expect(mocks.isPictureMakingOnFor).toHaveBeenCalledWith("keeps-it-on");
+		expect(off.tools).not.toHaveProperty("make_image");
+		expect(off.tools).not.toHaveProperty("make_video");
+		// Finding pictures and asking are not making one.
+		expect(off.tools).toHaveProperty("image_search");
+		expect(off.tools).toHaveProperty("ask_user");
+		expect(on.tools).toHaveProperty("make_image");
+		expect(on.tools).toHaveProperty("make_video");
 	});
 });
 

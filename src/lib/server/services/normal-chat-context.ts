@@ -650,6 +650,15 @@ const TURN_GUIDANCE_HEADING = "## Turn Guidance";
 const FORCED_WEB_SEARCH_GUIDANCE =
 	"Web research was requested for this turn: call research_web first (set readPages when page-level detail is needed), then answer from its results with citations.";
 
+// The person switched "Pictures and videos" off (Settings > Profile; the read
+// is images/picture-making.ts), so this turn has no make_image or make_video.
+// Said only to that person's turns, and only when the install could otherwise
+// make them: pointed at a switch that changes nothing, a person would be sent
+// on a hunt. The path is the English UI's words; the model says it in the
+// person's language (ruling 79: ASCII English, no language named).
+export const PICTURES_AND_VIDEOS_OFF_GUIDANCE =
+	"The user has switched off making pictures and videos (Settings > Profile > Pictures and videos), so you cannot make or change a picture or a video. If they ask for one, say briefly that it is switched off and that they can switch it on there; do not make one another way. Finding pictures online and looking at pictures they send still work.";
+
 // What the model is told the time is. A fact about this minute, so it rides
 // the turn guidance and never the cached system prompt. The line IS the clock:
 // there is no date or time tool to call, and the sandbox's own clock is UTC,
@@ -727,6 +736,10 @@ export function buildTurnGuidance(params: {
 	// (vision/turn-images.ts's buildTurnImageGuidance). A fact about this
 	// message, so it rides here and not in the cached system prompt.
 	imageGuidance?: readonly string[];
+	// The person switched "Pictures and videos" off (Settings > Profile), so the
+	// turn has no make_image or make_video: PICTURES_AND_VIDEOS_OFF_GUIDANCE says
+	// why. A fact about this person, never in the cached system prompt.
+	picturesAndVideosOff?: boolean;
 }): string {
 	if (params.skipDefaultRuntimeGuidance) return "";
 	const sections = [
@@ -740,6 +753,7 @@ export function buildTurnGuidance(params: {
 			: []),
 		...(params.forceWebSearch ? [FORCED_WEB_SEARCH_GUIDANCE] : []),
 		...(params.imageGuidance ?? []),
+		...(params.picturesAndVideosOff ? [PICTURES_AND_VIDEOS_OFF_GUIDANCE] : []),
 		...(params.artifactCatalogueBlock?.trim()
 			? [params.artifactCatalogueBlock.trim()]
 			: []),
@@ -1985,6 +1999,11 @@ type PrepareOutboundChatContextParams = {
 	// runtime does not know gives the guidance the server's date and the words
 	// "time zone is unknown" (buildTimeContextLine).
 	timeZone?: string | null;
+	// The person switched "Pictures and videos" off and the install could
+	// otherwise make them, resolved by the caller (images/picture-making.ts):
+	// the turn guidance says so (PICTURES_AND_VIDEOS_OFF_GUIDANCE) and says
+	// nothing about make_image.
+	picturesAndVideosOff?: boolean;
 	forceWebSearch?: boolean;
 	skipDefaultRuntimeGuidance?: boolean;
 	systemPromptOverride?: string;
@@ -2407,13 +2426,17 @@ export async function prepareOutboundChatContext(
 			skillDraftGuidance: params.skillDraftGuidance,
 			pendingSkillInstructions: params.pendingSkillInstructions,
 			artifactCatalogueBlock: params.artifactCatalogueBlock,
+			picturesAndVideosOff: params.picturesAndVideosOff,
 			imageGuidance: buildTurnImageGuidance({
 				canSee: params.collectImages === true,
 				turnImages,
-				// With no picture server there is no make_image to limit; the config
-				// is only read for a message that has pictures.
+				// With no picture server, or the person's Pictures and videos switched
+				// off, there is no make_image to limit; the config is only read for a
+				// message that has pictures.
 				referenceCap:
-					turnImages.pictures.length > 0 && isImageMakingConfigured(getConfig())
+					turnImages.pictures.length > 0 &&
+					params.picturesAndVideosOff !== true &&
+					isImageMakingConfigured(getConfig())
 						? getImageReferenceCap()
 						: null,
 			}),
