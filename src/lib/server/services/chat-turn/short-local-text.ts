@@ -1,5 +1,6 @@
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
+import { createRequestAbortSignal } from "$lib/server/utils/request-abort-signal";
 import { readShortTextLanguage, type SupportedLanguage } from "../language";
 import type {
 	JsonControlMessageResult,
@@ -458,9 +459,6 @@ export async function callShortLocalControlModel(
 	try {
 		const { sendJsonControlMessage } = await import(
 			"../normal-chat-control-model"
-		);
-		const { createRequestAbortSignal } = await import(
-			"./shared-normal-chat-model-run-helpers"
 		);
 		const signal =
 			params.timeoutMs !== undefined

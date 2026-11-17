@@ -11,11 +11,11 @@ import {
 	type ThoughtStepClassifierActivityClass,
 	type ThoughtStepClassifierVerdict,
 } from "$lib/response-activity-types";
+import { createRequestAbortSignal } from "$lib/server/utils/request-abort-signal";
 import { recordControlModelUsage } from "../analytics";
 import type { SupportedLanguage } from "../language";
 import { parseJsonWithEnvelopeExtraction } from "../memory-judge/schema";
 import type { JsonControlResponseSchema } from "../normal-chat-control-model";
-import { createRequestAbortSignal } from "./shared-normal-chat-model-run-helpers";
 import { isRequestRestatement, leaksInternalNames } from "./short-local-text";
 import { resolveThoughtStepAnchorSpan } from "./thought-steps";
 import { extractVerbatimTopic } from "./turn-acknowledgment";

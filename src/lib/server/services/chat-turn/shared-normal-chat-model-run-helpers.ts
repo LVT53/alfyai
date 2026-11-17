@@ -77,22 +77,6 @@ export function isEvidenceReadyToolCall(toolCall: ToolCallEntry): boolean {
 	);
 }
 
-export function createRequestAbortSignal(
-	timeoutMs: number,
-	signal?: AbortSignal,
-): AbortSignal | undefined {
-	const timeoutSignal =
-		Number.isFinite(timeoutMs) && timeoutMs > 0
-			? AbortSignal.timeout(timeoutMs)
-			: undefined;
-	const signals = [signal, timeoutSignal].filter(
-		(value): value is AbortSignal => Boolean(value),
-	);
-	if (signals.length === 0) return undefined;
-	if (signals.length === 1) return signals[0];
-	return AbortSignal.any(signals);
-}
-
 export function resolvePromptModelConfig(params: {
 	modelId: ModelId;
 	provider: {
