@@ -348,7 +348,8 @@ test.describe("under the policy the production boxes enforce", () => {
 				refused.push(text);
 		});
 		const { shell, report } = await openReport(page, { enforce: true });
-		expect(report.url()).toMatch(/\/api\/chat\/files\/[^/]+\/preview$/);
+		// Framed by its own preview address, with the bridge's version on it.
+		expect(report.url()).toMatch(/\/api\/chat\/files\/[^/]+\/preview\?rb=\d+$/);
 		// The report's own section menu marks the section in view: its script ran.
 		await expect
 			.poll(
