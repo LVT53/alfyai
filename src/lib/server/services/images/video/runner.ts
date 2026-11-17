@@ -6,9 +6,9 @@
 // segment (one at 5 s, two at 10 s). A segment is submitted under a prompt id
 // written to the checkpoint BEFORE the POST, followed, and its mp4 fetched;
 // segment 2 is guided by the LAST DECODED FRAME of segment 1, which is what
-// makes the chain a chain. The clips are concatenated, the poster and four
-// more frames are sampled for the explicit-picture filter, and only then is
-// anything stored. A later attempt finds the checkpointed prompt (and every
+// makes the chain a chain. The clips are concatenated, every frame of the
+// clip passes the explicit-picture filter (never a sample: the owner's
+// ruling), and only then is anything stored. A later attempt finds the checkpointed prompt (and every
 // finished segment's saved clip) and resumes instead of rendering it twice; a
 // ComfyUI that forgot the prompt is resubmitted once per segment.
 //

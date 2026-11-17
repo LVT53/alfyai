@@ -1,0 +1,109 @@
+# The video generation pipeline: an independent review (2026-11-17)
+
+**Scope.** Everything a clip goes through, from the chat model's `make_video` call to the file a person downloads: the generation service and the job (`src/lib/server/services/images/video/`), the LTX graph and its parameters (`comfyui/ltx-*.ts`, `graphs/ltx-image-to-video.api.json`), the ComfyUI client and its fake, the cross-engine gate and the frees (`idle-free.ts`), the routes and who may see or make a clip, files, paths and their clean-up, the admin config, GPU contention with picture takes and with vLLM, failure handling, ADR-0068, the card and panel UI, and the tests.
+
+**Base.** `claude/video-review-unify-305f43` at `77158870c`: the read-aloud release (`125084bcf`) with the ETA-marker branch (`claude/eta-marker-10655c`, `8adc8766c`, the owner's option C) merged in, so the review covers the code that would ship. Every `file:line` below is at that commit; the fixes name their own commits.
+
+**Method.** Three independent reviewers that wrote none of the code, each read-only and given only the code, the plans and the AGENTS.md files, on disjoint angles: (A) the job's lifecycle and failure handling, (B) security, data, files and config, (C) the LTX graph against the model's documented use and the fake's faithfulness. I reviewed the card, panel and player myself (the UI this branch then merges). No finding is recorded on a reviewer's word: each was traced in the code again before it went in, and every Important one was reproduced by a failing test before it was fixed. Reviewer B replayed the migrations on a fresh and a populated synthetic database and probed the file route with hostile ranges and foreign ids; reviewer A measured the chain's guide frame with a real ffmpeg on a made-up clip. Made-up data only; nothing touched the GPU box or production.
+
+**Severity.** Critical: data loss, a security or ownership hole, a take that can hang forever or be submitted twice, the explicit filter failing open, a migration that cannot replay. Important: a normal-path wrong outcome a person sees, a state with no exit, a leak that grows, a test that would pass with the feature removed. Minor: a rare path, polish, a stale comment. Nit: taste.
+
+## Summary
+
+| | Count | Fixed here |
+|---|---|---|
+| Critical | 0 | — |
+| Important | 5 | 4 (the fifth lives on the GPU box: the owner's call) |
+| Minor | 18 | 0 (recorded with their fixes) |
+| Nit | 9 | 0 |
+
+The pipeline is sound where it matters most: no take can be submitted twice on a normal path, every wait has a deadline that settles the card, the explicit filter fails closed and classifies every frame, ownership is checked before every file representation, `Range` never over-reads, nothing the model writes becomes an address, and the migrations are expand-only and replay. The Important findings are all one shape: **the GPU and the ledger disagreeing.** The cross-engine gate trusts the ledger, so wherever a prompt kept rendering after the ledger said it was gone (a Stop on a resumed take, a failed take), or a take held the GPU before the ledger said so (between its claim and its prompt id), a picture and a video could land on one 48 GB card together, where either alone peaks at its edge.
+
+## Important
+
+### I-1. A picture take is invisible to the gate between its claim and its prompt id — FIXED (`da9a34207`)
+
+- **Where:** `src/lib/server/services/images/idle-free.ts:229`, `image-runner.ts:180, 317, 321`, `video/runner.ts:533, 545`.
+- **What goes wrong for a person:** someone asks for a picture and, a moment later, someone (or the same reply) asks for a video. The picture take is claimed and passes its own gate, then uploads its inputs and frees the LTX server before it writes its prompt id. The video claimed in that window reads the picture as "still in its own gate and claimed later" (`phase` submitted, no checkpoint, `phase_at` null → `occupies` false at :229), passes, and both takes skip freeing each other's engine because each is live. Both submit to one GPU; H3 at 12 MP and LTX each peak at 48.4 of 48.9 GB, so one or both fail ("Couldn't make this one").
+- **Also:** the video runner restamped `phase_at` after its claim (:533) but compared itself by the claim value (:545), so a picture claimed between the two could pass both gates.
+- **Fix:** the claim stamps `phase_at` in its own transaction (each kind's `onTransition(…, "running")`), the runners order themselves by that one stamp, the video runner's restamp is gone, and a running take with no stamp holds the GPU. Test: `cross-engine.test.ts` "makes a video wait for a picture that is past its gate but has not posted yet" (the picture parked on the LTX fake's `/free`; the video posted once before the fix).
+
+### I-2. Stop never reaches the prompt a resumed take follows — FIXED (`2b74189e5`)
+
+- **Where:** `video/runner.ts:178, 187, 610-612`.
+- **What goes wrong for a person:** a deploy restarts the app while a clip renders; the take is requeued and follows its checkpointed prompt. The person presses Stop (or deletes the chat, or clears the workspace): the card says Stopped, but `stopPrompt` returns at :187 because the runner only learned prompt ids it submitted itself. LTX renders on for up to a minute while the ledger shows no video, so the gate lets a picture take onto the same GPU.
+- **Fix:** the runner starts from the checkpoint's prompt id and names the recorded prompt before following it, as the picture runner does (`image-runner.ts:147`). Test: `video/runner.test.ts` "interrupts the prompt a resumed take follows".
+
+### I-3. A take that fails leaves its prompt rendering on the GPU — FIXED (`51d505b55`)
+
+- **Where:** `video/runner.ts:218`, `image-runner.ts:210` (both catch paths), `comfyui/client.ts:385` (the follow's timeout).
+- **What goes wrong for a person:** a render that wedges past its deadline fails `video_render_timeout` (or `image_render_timeout`), and a POST whose answer is lost after ComfyUI took it fails `…_server_unreachable`; in both the prompt keeps running. The gate trusts the ledger, so the next take of the other engine loads beside it, and a wedged prompt makes every later take of its own engine queue behind it until its own deadline (15 minutes for a clip).
+- **Fix:** on any failure after the prompt id is known, both runners ask ComfyUI to delete or interrupt it before failing the take (the client still interrupts only a prompt `/queue` shows as ours and running). Both render deadlines got a vitest-only seam, like the media timeout's. Tests: "stops the prompt when the render deadline runs out" in `video/runner.test.ts` and `image-runner.test.ts`.
+
+### I-4. A ComfyUI reload mid-render fails a fresh segment — FIXED (`f8aab9f02`)
+
+- **Where:** `video/runner.ts:494-505` (the fresh path), against `:640-646` (the resume path) and `image-runner.ts:526-533`.
+- **What goes wrong for a person:** the LTX server reloads (about 26 s) while a segment renders. The follow waits out the outage, then finds the prompt forgotten (a reload always forgets it) and fails `video_result_missing` after up to a minute: "Couldn't make this one", and Try again starts from nothing. The picture path has always resubmitted once; only a take resumed from its checkpoint did so for video.
+- **Fix:** a fresh segment whose prompt ComfyUI no longer knows is submitted once more under a new prompt id with a cold estimate; a second miss fails the take. The old prompt is deleted or interrupted first, so a server that still knew it (its `/history` answered garbage for the whole grace window) never renders the segment twice. Test: "renders the segment once more and still lands the clip" (the fake's `outage(300)` mid-render).
+
+### I-5. Every take's clip stays on the GPU box, with its prompt in the tags — NOT FIXED HERE: the box and the owner
+
+- **Where:** `comfyui/graphs/ltx-image-to-video.api.json:247-250` (`SaveVideo`, `filename_prefix: "video/alfyai"`), against `src/lib/server/services/images/AGENTS.md:72` and `docs/plans/ltx-video/implementation-plan.md` ("Accepted cost: GPU-side leftovers").
+- **What goes wrong for a person:** the picture graphs end in `PreviewImage`, so their results are `temp` and gone on a ComfyUI restart. `SaveVideo` writes every take's mp4 into ComfyUI's persistent `output/video/`, including clips the explicit filter blocked (`video_blocked`) and clips made in incognito chats, and each file carries the caption and the API graph in its container tags (the reason `media.ts:300-305` strips them before the app stores a clip). ComfyUI has no authentication: `/view?type=output` serves the file to anyone who can reach the port. Nothing removes them: one mp4 per 5 s take, two per 10 s take, plus the `<takeId>-1/-2.png` guide stills in `input/`. The accepted cost on record says "an abandoned take leaves an mp4"; in fact every take does, so the owner accepted a smaller cost than the real one.
+- **Fix (needs the box and the owner, neither in this session's reach):** run the LTX ComfyUI with `--disable-metadata`; sweep `output/video/alfyai_*` and the guide stills once they are older than `VIDEO_RENDER_DEADLINE_MS` plus a margin (not sooner: a resumed take fetches its finished segments from there); confirm who can reach the port. The record in `images/AGENTS.md` is corrected in this branch so the owner decides on the true cost.
+
+## Minor
+
+| # | Where | What goes wrong | Fix |
+|---|---|---|---|
+| M-1 | `idle-free.ts:244, 261`; `video-job.ts:47` (`delayMs: 2_000`) | After a restart a requeued take sits `queued` with its checkpoint for at least 2 s while its prompt still renders; the gate reads only `running` rows, so a picture claimed then passes and submits beside it. Counting queued rows with a checkpoint is not enough on its own: a resumed take also waits at the gate today, and a resumed take and a fresh one can then wait on each other until both deadlines. Needs a deploy mid-render, so rare. | The gate stands before every POST, not at the start of a run: a take only following its own posted prompt never waits; a queued row with a checkpoint holds the GPU; a take clears its stale prompt id before waiting to post again (the picture path already writes `checkpoint: null`). |
+| M-2 | `jobs/ledger.ts:845`; `video/runner.ts:668` | A 10 s take that fails in segment 2, or after the render (`video_media_failed`, `video_unchecked`, `video_artifact_failed`), has its checkpoint cleared, so Try again renders segment 1 again although its clip is still in ComfyUI's `output/`: about a minute of GPU for nothing. | Keep finished segments' records in a domain column the engine does not clear, and fetch them on a person's Retry (falls back to rendering when the fetch fails, as the resume path already does). |
+| M-3 | `video-job.ts:44, 167`; `VideoCardBody.svelte:135-140` | Try again is offered and accepted for failures that cannot succeed: `video_graph_rejected`, `video_input_missing` (the still is gone), `video_media_unavailable` (renders on the GPU, then fails the same way), `video_item_deleted`. The picture kind does the same. | `userRetry.allow: row => row.status === "cancelled" \|\| row.retryable` (not `requireRetryable`, which would refuse a cancelled take), and the card shows Try again only for a retryable failure. |
+| M-4 | `video/media.ts:210-211` | Segment 2's guide is frame 119 of 121, not the last frame: `-sseof -0.1 … -frames:v 1` lands one frame early (measured with ffmpeg 9.0.2 on a made-up 121-frame clip, with and without audio). Every 10 s clip steps back one frame at 5 s. | `-sseof -1 -i clip -update 1` (keeps overwriting until the true last frame). See also reviewer C's chain findings below. |
+| M-5 | `video/runner.ts:502`; `jobs/ledger.ts:657` | After segment 1 the take is `finishing`, and phases never move back, so segment 2 can never show waiting or starting, and once its countdown runs over it reads "Almost done…" for a whole segment. | Enter `finishing` only after the last segment (keep the estimate's per-segment `enter("finish")`). |
+| M-6 | `video/runner.ts:607-609` | When segment 1's clip cannot be fetched again and is re-rendered, the runner can still follow the old segment-2 prompt, which was guided by the old clip: the joint the chain exists to hide. | Once a segment is re-rendered, ignore `resumedPromptId` for every later segment. |
+| M-7 | `video/runner.ts:514-518, 642` | The resume path treats `bad_response` (a `/history` answering 5xx or HTML for the whole grace window) as a forgotten prompt and submits a second prompt behind one that may still be live. (The fresh path now releases the old prompt first, I-4.) | Release the old prompt there too, or re-check `/queue` before resubmitting. |
+| M-8 | `comfyui/client.ts:518-531`; `video/media.ts:253-279, 321-322` | The clip from ComfyUI reaches ffmpeg with no size cap, no type check and no format or protocol whitelist, and the filter checks `-map 0:v:0` at the default frame-rate mode while the 5 s strip stores `-map 0 -c copy`. On crafted input (a second video stream, variable frame rate) the stored clip holds frames the filter never saw. Needs a hostile or broken GPU box; LTX writes one constant-rate stream. | Refuse a clip without an `ftyp` header or over a byte cap; `-format_whitelist mov,mp4,m4a,3gp,3g2,mj2 -protocol_whitelist file` before each `-i`; store exactly what was checked (`-map 0:v:0 -map 0:a:0?`); `-fps_mode passthrough` on the check, compared with ffprobe's frame count. |
+| M-9 | `make-video.ts:416, 480`; `video-caption.ts:47` | The filter checks the person's motion idea and title, never the caption LTX actually renders, and never the soundtrack: the caption instruction quotes dialogue exactly, LTX makes audio, the audio is stored, and the player starts unmuted. Explicit speech over innocent frames passes. The owner's call. | Run `findExplicitRequestTerm` on the caption, and/or drop the audio (`-an`) for a filtered person. |
+| M-10 | `video-files.ts:394-404`; `runner.ts:811`; `files.ts:612-622` | Three clean-up edges leave clip files: an item delete landing between the GIF's row check and its rename leaves `<id>.gif` (a crash leaves `<id>.gif.<uuid>.tmp`, which `pathsOf` never names); an `apply` write that throws inside `ctx.succeed` (the item deleted after `writeArtifact`, so the foreign key fails) skips the `!settled` discard; account erasure removes only the folders of chats that still have rows. | Re-check the row after the rename; discard the clip when `succeed` throws; remove the folder of every one of the person's conversations. |
+| M-11 | `routes/api/images/files/[fileId]/+server.ts:175, 209, 240, 253-254` | Every video request (each Range, each 304, each HEAD) reads the whole mp4 into memory, and the 200 path copies it again; SvelteKit answers HEAD with GET, so `HEAD …&format=gif` makes and caches a GIF. | `stat` plus `createReadStream({ start, end })`; check `If-None-Match` before reading; a HEAD that never converts. |
+| M-12 | `video-files.ts:427-440`; route `:108-110` | Two people (or two tabs) asking for the same clip's first GIF share one generation that runs under the first request's signal: when the first browser goes away, the second gets a 500. | Run the generation under its own timeout and let each waiter race its own signal. |
+| M-13 | `video/runner.ts:9-11`; `video-files.ts:191-194` | Comments still say the filter samples "the poster and four more frames" and that "the video runner's own five-frame sample is the full gate"; the owner ruled sampling out and the runner checks every frame. `checkPoster` and `VideoPosterRefusedError` are unused. | Correct the comments; remove the unused poster gate or mark it as such. |
+| M-14 | `VideoCardBody.svelte:425-435` | More → History is a disabled row whose only explanation is a `title` tooltip: a keyboard or screen-reader person cannot reach a disabled button, so the reason ("History is not shown for a clip yet") is unreadable to them. | Leave the row out until a clip has History, or make it a focusable row that says why. |
+| M-15 | `video-card-view.ts:125`; `video-job.ts:44` | A succeeded take whose clip row cannot be read reads as a retryable failure and offers Try again, which the server refuses (a succeeded take cannot be retried), so the only button says "That didn't work". | Make it an unavailable state without Try again (Another stays), or say the clip is gone. |
+| M-16 | `video/read-model.ts:144-145`; `VideoCardBody.svelte` | The card shows only its newest take: after Another fails, the good clip from before is no longer on the card (the item still has it, and the panel shows it), so the card reads as if the clip was lost. The picture card keeps every take in its strip. | The takes strip for clips (the merged card can carry it), or show the item's current clip under a failed Another with its failure as a note. |
+| M-17 | `idle-free.ts`; `docs/plans/ltx-video/feasibility.md` | The chat model's vLLM is on GPU0, which LTX does not use; GPU1 also holds MinerU's vLLM, the embedder and the reranker (19.9 GiB), and LTX peaks at 48.4 of 48.9 GiB. Nothing in the app guards those neighbours, and no AGENTS.md says so. | State the budget and the risk in `images/AGENTS.md` (done in this branch); a guard is the owner's call. |
+| M-18 | `cross-engine.test.ts:316`; `idle-free.test.ts:195` | "Does not deadlock … the older goes first" only checks that both takes succeed, so it passes with the gate deleted; `markRunning` gives a picture a `phase_at` the runner never wrote, which hid I-1. | Assert the order of the two POSTs; build test rows the way the runner writes them. |
+
+## Nits
+
+- `video-job.ts:95` says a take whose segment started "stops at its next boundary" after the composer's Stop; nothing makes it do that (it renders to the end, the picture rule).
+- `concatClips`' fallback runs up to four child processes, each with the full media timeout: the media phase can overrun the attempt's deadline by about 3 × 120 s (still bounded).
+- The joined clip's duration and frame count are never checked before it is stored labelled 5000 or 10000 ms; `probeDurationMs` exists and is unused.
+- Range parsing (`+server.ts:52-74`) is safe but uneven: `bytes=-99999999999999999999` answers 416 while `bytes=-150` answers the whole file; values past 2^53 are ignored while smaller ones are clamped; `Bytes=` is not recognised; `bytes=150-10` on a 100-byte file answers 416 instead of being ignored; ranges are honoured on the poster and thumbnail against the comment at `:199`.
+- `resolveDeletablePath` accepts all three storage roots; the picture and clip stores could pass `data/image-files` alone.
+- A picture ref may name a clip's file id: `loadPicture` (`inputs.ts:64-76`) hands the mp4 bytes on as a PNG and sharp fails. Only the person's own data, ending in an error.
+- `VideoBody.svelte:293` sizes its loading shimmer with `60cqw`, but nothing around it is a size container.
+- The video card's Download goes straight to the file while the picture card's goes through the page's handler (`+page.svelte`, `handleImageAction`): two paths for one action.
+- `videoCardSubtitle` takes a card it never reads.
+
+## Checked and found sound
+
+- **No double submit** on a normal path: one attempt per kind per process, the prompt id is checkpointed before the POST, a restart between the two follows the prompt, misses it twice and renders once; writes after an abort are fenced.
+- **Stop on a fresh run** settles as cancelled and stores nothing at every phase (queued, the gate, uploads, frees, the POST in flight, each segment, between segments, ffmpeg, the classifier, the store, the item write).
+- **Every await is bounded:** 10 s HTTP, the 15-minute follow and gate deadline, 120 s media calls, 15 s per classifier batch; a deadline settles the card as a retryable failure.
+- **The filter** fails closed (`video_unchecked`), classifies every frame of the stored LTX clip, and an exempt person never decodes the check stream.
+- **Ownership:** `getImageFile` (the person and the chat's scope) runs before every branch, poster, thumbnail and GIF included; another person's id, a missing id and an incognito file without its chat all answer 404; Stop, Try again and Another check the person and the scope.
+- **Range:** 206, 416, `Content-Range`, an ETag per representation, `If-None-Match` before `Range`; no over-read.
+- **Paths:** server-built UUID paths only; every read and unlink goes through `resolveDeletablePath`; chat delete cancels takes before removing the folder; item and library delete take the GIF too; a Stop after the store and a failed item write both discard the clip.
+- **Metadata:** planted `prompt` and `workflow` tags are gone after the 5 s strip, the 10 s concat and the poster.
+- **Config:** the LTX and caption addresses are admin-only and must be http(s); the caption key is env-only; neither address is logged or sent to anyone else.
+- **ADR-0068:** no model text becomes an address: media URLs are `/api/images/files/<server id>`, and the still is read only through scoped reads.
+- **Migrations** `…127`, `…128`, `…129` and `…131` (renumbered from `…130` in the merge, which the read-aloud release already uses) are expand-only and replay on a fresh and a populated database.
+
+## Not verified
+
+- The production ffmpeg build, a real LTX clip's stream layout and frame-rate mode, and how browsers treat two video tracks.
+- Whether the LTX ComfyUI runs with `--disable-metadata`, and who can reach its port (I-5).
+- A replay of the migrations on a copy of production.
+- Nothing measured the GPU; every finding about GPU memory rests on `feasibility.md`'s numbers.
