@@ -614,11 +614,21 @@ test("the speaker shows its label as a tooltip on hover, as its neighbours do", 
 	page,
 }) => {
 	const ui = await open(page, [TWO_SENTENCE_REPLY]);
-	const tooltip = ui.speaker().locator(".read-aloud-speaker-tooltip");
+	const tooltip = page.locator(".read-aloud-speaker-tooltip").first();
 	await expect(tooltip).toHaveCSS("opacity", "0");
 	await ui.speaker().hover();
 	await expect(tooltip).toHaveCSS("opacity", "1");
 	await expect(tooltip).toHaveText("Read aloud");
+	// Whole, as Copy's is: not inside the button, whose hover fades it to 0.78.
+	await waitForMotionToSettle(page);
+	expect(
+		await tooltip.evaluate((node) => {
+			let opacity = 1;
+			for (let at: Element | null = node; at; at = at.parentElement)
+				opacity *= Number(getComputedStyle(at).opacity);
+			return opacity;
+		}),
+	).toBeCloseTo(1, 2);
 });
 
 test("a German reply's speaker is dimmed with a note", async ({ page }) => {
@@ -731,7 +741,7 @@ test("the speed chip keeps its width at every speed, so the notches never move",
 	expect([...widths]).toHaveLength(1);
 });
 
-test("on a 375 or 360 px phone no two of the player's buttons overlap", async ({
+test("on a 375, 360 or 320 px phone the player fits its column, and no two of its buttons overlap", async ({
 	page,
 }) => {
 	await page.setViewportSize({ width: 375, height: 812 });
@@ -740,9 +750,20 @@ test("on a 375 or 360 px phone no two of the player's buttons overlap", async ({
 	await expect(ui.player).toBeVisible();
 	// Paused, so the player stays while it is measured at both widths.
 	await ui.button("Pause").click();
-	for (const width of [375, 360]) {
+	for (const width of [375, 360, 320]) {
 		await page.setViewportSize({ width, height: 812 });
 		await waitForMotionToSettle(page);
+		// Inside the composer's column, as the composer is.
+		const column = await page.getByTestId("composer-box").boundingBox();
+		const player = await ui.player.boundingBox();
+		if (!column || !player) throw new Error("no column or player box");
+		expect(player.x, `${width} px: the player's left`).toBeGreaterThanOrEqual(
+			column.x - 0.5,
+		);
+		expect(
+			player.x + player.width,
+			`${width} px: the player's right`,
+		).toBeLessThanOrEqual(column.x + column.width + 0.5);
 		// The bottom row, left to right: the speed chip, ⏮ ▶ ⏭, then ⌖ ✕.
 		const row = [
 			ui.speed,

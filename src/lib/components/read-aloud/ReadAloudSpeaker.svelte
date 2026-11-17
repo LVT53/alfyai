@@ -206,6 +206,9 @@ function tryAgain() {
 </script>
 
 <div class="read-aloud-speaker-wrap" bind:this={wrapper}>
+	<!-- The button and its tooltip, which sits outside it: the row's hover fades the
+	     button (opacity 0.78), and a child cannot undo its parent's opacity. -->
+	<span class="read-aloud-speaker-anchor">
 	<button
 		bind:this={button}
 		type="button"
@@ -249,11 +252,12 @@ function tryAgain() {
 		{:else}
 			<Volume2 size={15} strokeWidth={2} aria-hidden="true" />
 		{/if}
-		{#if tooltip}
-			<!-- The button's name says it already: this is for the eye. -->
-			<span class="read-aloud-speaker-tooltip" aria-hidden="true">{label}</span>
-		{/if}
 	</button>
+	{#if tooltip}
+		<!-- The button's name says it already: this is for the eye. -->
+		<span class="read-aloud-speaker-tooltip" aria-hidden="true">{label}</span>
+	{/if}
+	</span>
 	{#if busyNote}
 		<ReadAloudNote tone="calm" icon="clock" text={$t("readAloud.note.busy")} placement="speaker" />
 	{:else if cantStartOpen}
@@ -326,8 +330,13 @@ function tryAgain() {
 			visibility var(--duration-standard);
 	}
 
-	.read-aloud-speaker:hover .read-aloud-speaker-tooltip,
-	.read-aloud-speaker:focus-visible .read-aloud-speaker-tooltip {
+	.read-aloud-speaker-anchor {
+		position: relative;
+		display: inline-flex;
+	}
+
+	.read-aloud-speaker:hover + .read-aloud-speaker-tooltip,
+	.read-aloud-speaker:focus-visible + .read-aloud-speaker-tooltip {
 		opacity: 1;
 		visibility: visible;
 		transform: translateX(-50%) translateY(0);
