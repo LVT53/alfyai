@@ -705,6 +705,18 @@ describe("the reading controller", () => {
 		expect(t.api.cancelReadingSession).toHaveBeenCalledWith("x1");
 	});
 
+	it("the end takes the marks away while Finished shows (they fade)", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		expect(t.last().marks).not.toBeNull();
+		(t.sources[0] as FakeEventSource).send("done", {});
+		t.audio.ended = true;
+		t.audio.emit("pause");
+		t.audio.emit("ended");
+		expect(t.last()).toMatchObject({ status: "finished", marks: null });
+	});
+
 	it("a new reading starts at the default speed, and a jump keeps the person's speed", async () => {
 		const t = setup({ start: { defaultSpeed: 1.25 } });
 		mountReply();

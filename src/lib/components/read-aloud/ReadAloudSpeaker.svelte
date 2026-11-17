@@ -59,25 +59,26 @@ const dimmed = $derived(
 );
 /** Getting the voice (spec §4.1): a first start, a switch to this reply or a jump inside its reading. */
 const spinning = $derived(status === "opening" || status === "seeking");
+/** Paused, or waiting to go on by itself, or stopped: ▶ resumes it. */
+const resumable = $derived(
+	status === "paused" || status === "waiting" || status === "stopped",
+);
 /**
- * The ring shows once this reply's audio has come. A jump inside its reading
- * keeps the ring while it spins; a switch to it spins without one, as a start
- * does. `ringBefore` is what the ring was before the voice was asked for.
+ * The ring shows once this reply's audio has come, and fills at the end while
+ * "Finished" shows (spec §4.3). A jump inside its reading keeps the ring while
+ * it spins; a switch to it spins without one, as a start does. `ringBefore` is
+ * what the ring was before the voice was asked for.
  */
 let ringBefore = false;
 const ringed = $derived.by(() => {
 	if (status === "seeking") return ringBefore;
-	ringBefore =
-		status === "playing" ||
-		status === "paused" ||
-		status === "waiting" ||
-		status === "stopped";
+	ringBefore = status === "playing" || status === "finished" || resumable;
 	return ringBefore;
 });
 const label = $derived(
 	status === "playing"
 		? $t("readAloud.speaker.pause")
-		: ringed && !spinning
+		: resumable
 			? $t("readAloud.speaker.resume")
 			: $t("readAloud.speaker.read"),
 );
@@ -94,6 +95,8 @@ const dimNoteText = $derived.by(() => {
 });
 const dimNote = $derived(dimmed && (hovered || focused || tapped));
 const pinned = $derived(mine || busyNote || cantStartOpen || dimNote);
+/** Its label as a tooltip, as its neighbours in the row have, while no note says more. */
+const tooltip = $derived(!busyNote && !cantStartOpen && !dimNote);
 
 $effect(() => {
 	const value = pinned;
@@ -239,12 +242,16 @@ function tryAgain() {
 			<span class="mini-spinner" aria-hidden="true"></span>
 		{:else if status === "playing"}
 			<Pause size={12} strokeWidth={2.5} aria-hidden="true" />
-		{:else if ringed}
+		{:else if resumable}
 			<Play size={12} strokeWidth={2.5} aria-hidden="true" />
 		{:else if status === "startFailed"}
 			<VolumeX size={15} strokeWidth={2} aria-hidden="true" />
 		{:else}
 			<Volume2 size={15} strokeWidth={2} aria-hidden="true" />
+		{/if}
+		{#if tooltip}
+			<!-- The button's name says it already: this is for the eye. -->
+			<span class="read-aloud-speaker-tooltip" aria-hidden="true">{label}</span>
 		{/if}
 	</button>
 	{#if busyNote}
@@ -280,13 +287,50 @@ function tryAgain() {
 		cursor: default;
 	}
 
-	.read-aloud-speaker.dimmed:hover {
+	/* Dimmed, it takes no hover or tap fill. Through its wrapper, so it outweighs the
+	   row's own hover rule (`.copy-action-row .action-icon-btn:hover`, as specific
+	   as `.read-aloud-speaker.dimmed:hover` and later in the page). */
+	.read-aloud-speaker-wrap .read-aloud-speaker.dimmed:hover {
 		background-color: transparent;
 		color: var(--icon-muted);
 	}
 
 	.read-aloud-speaker.failed {
 		color: var(--warning-text);
+	}
+
+	/* The row's tooltips (MessageBubble's `.action-tooltip`), drawn here. */
+	.read-aloud-speaker-tooltip {
+		position: absolute;
+		bottom: calc(100% + 8px);
+		left: 50%;
+		z-index: 50;
+		padding: var(--space-sm) var(--space-md);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-overlay);
+		box-shadow: var(--shadow-lg);
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		font-weight: 500;
+		line-height: 1.4;
+		white-space: nowrap;
+		pointer-events: none;
+		opacity: 0;
+		visibility: hidden;
+		transform: translateX(-50%) translateY(4px);
+		transition:
+			opacity var(--duration-standard) var(--ease-out),
+			transform var(--duration-standard) var(--ease-out),
+			visibility var(--duration-standard);
+	}
+
+	.read-aloud-speaker:hover .read-aloud-speaker-tooltip,
+	.read-aloud-speaker:focus-visible .read-aloud-speaker-tooltip {
+		opacity: 1;
+		visibility: visible;
+		transform: translateX(-50%) translateY(0);
 	}
 
 	.read-aloud-ring {

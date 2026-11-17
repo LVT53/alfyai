@@ -176,6 +176,42 @@ describe("ReadAloudSpeaker", () => {
 		expect(ring()).toBeNull();
 	});
 
+	it("the end fills the ring and shows the speaker again", async () => {
+		const t = speaker();
+		setReadAloudView(view({ status: "playing", progress: 0.9 }));
+		await tick();
+		setReadAloudView(view({ status: "finished", progress: 1 }));
+		await tick();
+		const progress = t
+			.button()
+			.querySelector("circle.read-aloud-ring-progress");
+		expect(Number(progress?.getAttribute("stroke-dashoffset"))).toBe(0);
+		expect(t.button().querySelector(".lucide-volume-2")).toBeTruthy();
+		expect(t.button().getAttribute("aria-label")).toBe("Read aloud");
+		// Its room closes after "Finished": the ring goes with it.
+		setReadAloudView(idleReadAloudView);
+		await tick();
+		expect(
+			t.button().querySelector("circle.read-aloud-ring-progress"),
+		).toBeNull();
+	});
+
+	it("has a tooltip with its label, as its neighbours do, unless a note shows", async () => {
+		const t = speaker();
+		const tooltip = () =>
+			t.container.querySelector(".read-aloud-speaker-tooltip");
+		expect(tooltip()?.textContent?.trim()).toBe("Read aloud");
+		// The button's name says it already: the tooltip is for the eye.
+		expect(tooltip()?.getAttribute("aria-hidden")).toBe("true");
+		setReadAloudView(view({ status: "playing" }));
+		await tick();
+		expect(tooltip()?.textContent?.trim()).toBe("Pause reading");
+		setReadAloudView(view({ status: "opening", busy: true }));
+		await tick();
+		expect(screen.getByRole("status").textContent).toContain("busy");
+		expect(tooltip()).toBeNull();
+	});
+
 	it("dims with a note naming the language", async () => {
 		const t = speaker(fakeController({ kind: "noVoice", language: "de" }));
 		await vi.waitFor(() =>

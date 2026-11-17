@@ -69,7 +69,9 @@ let {
 		padding: 9px 10px 9px 12px;
 		border: 1px solid var(--border-default);
 		border-radius: 12px;
-		background: var(--surface-page);
+		/* The raised surface of the row's tooltips: in the dark theme the page's own
+		   surface melts into the thread. */
+		background: var(--surface-overlay);
 		box-shadow: var(--shadow-lg);
 		color: var(--text-primary);
 		font-family: var(--font-sans);

@@ -818,8 +818,9 @@ export function createReadAloudController(
 			failure: state.failure,
 			busy: state.busy,
 			drag: state.drag?.target ?? null,
+			// The end's marks fade while "Finished" shows (spec §4.2).
 			marks:
-				state.status === "idle" || !current
+				state.status === "idle" || state.status === "finished" || !current
 					? null
 					: {
 							sentence: uniqueRanges(current.ranges),

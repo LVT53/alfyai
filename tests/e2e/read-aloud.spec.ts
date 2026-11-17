@@ -467,6 +467,17 @@ test("marks never move the text and never cover the player", async ({
 	});
 });
 
+test("the speaker shows its label as a tooltip on hover, as its neighbours do", async ({
+	page,
+}) => {
+	const ui = await open(page, [TWO_SENTENCE_REPLY]);
+	const tooltip = ui.speaker().locator(".read-aloud-speaker-tooltip");
+	await expect(tooltip).toHaveCSS("opacity", "0");
+	await ui.speaker().hover();
+	await expect(tooltip).toHaveCSS("opacity", "1");
+	await expect(tooltip).toHaveText("Read aloud");
+});
+
 test("a German reply's speaker is dimmed with a note", async ({ page }) => {
 	const ui = await open(page, [GERMAN_REPLY]);
 	const speaker = ui.speaker();
@@ -477,6 +488,15 @@ test("a German reply's speaker is dimmed with a note", async ({ page }) => {
 	await expect(ui.note).toContainText(
 		"Read aloud isn't available in German yet.",
 	);
+	// Dimmed, it takes no hover fill: the row's hover rule must not win.
+	await expect(speaker).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+	// The note sits on the raised surface of the row's tooltips, not the page's.
+	const surface = await page.evaluate(() => {
+		const tip = document.querySelector(".action-tooltip .tooltip-content");
+		return tip ? getComputedStyle(tip).backgroundColor : null;
+	});
+	expect(surface).not.toBeNull();
+	await expect(ui.note).toHaveCSS("background-color", surface ?? "");
 	// Pressing it starts nothing (it is dimmed, not disabled, so a tap shows its note).
 	await speaker.click({ force: true });
 	expect(fake.sessions).toHaveLength(0);
