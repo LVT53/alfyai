@@ -2,15 +2,17 @@
 
 A stall is a clip with a long silence inside it, or one far longer than its words need (a runaway
 one runs on to the 100 s at which the model stops). It comes from the model's sampling, not from the
-text or the voice's controls: the same sentence stalls under one seed and not under the next, with
-no control at all. It is a short sentence's trouble. On Zonos MLX (the Mac's build), a third of 204
-clips of sentences under 45 characters stalled, more than half of Imre's, and 90 s of speech came
-out of one sentence of 22 characters; of 156 clips of sentences of 77 characters or more, two did.
-The box's build was not measured when this was written (the service logs how many clips it made
-again, so its journal says how often that is there). The service therefore measures each clip, and
-one in trouble is made again under the next seed, up to a few times; the clip least in trouble is
-the one that is spoken. The same 204 clips, made through this module with four attempts allowed,
-stalled 5 times (2.5%), at 1.7 attempts a clip.
+text or from any style: the same sentence stalls under one seed and not under the next, with no
+control at all, and no style's doses raise the rate. (A voice's default control can: the studio
+`room.clean` 2 of Imre and Berta took short clips from 32% to 55% and from 29% to 38%, in 84 clips
+each.) It is a short sentence's trouble. On Zonos MLX (the Mac's build), a third of 204 clips of
+sentences under 45 characters stalled, more than half of Imre's, and 90 s of speech came out of one
+sentence of 22 characters; of 156 clips of sentences of 77 characters or more, two did. The box's
+build was not measured when this was written (the service logs how many clips it made again, so its
+journal says how often that is there). The service therefore measures each clip, and one in trouble
+is made again under the next seed, up to a few times; the clip least in trouble is the one that is
+spoken. The same 204 clips, made through this module with four attempts allowed, stalled 5 times
+(2.5%), at 1.7 attempts a clip.
 
 The seeds are the caller's seed and then steps of `SEED_STEP` from it, so a reading is as repeatable
 as one with no guard: the same sentence in the same voice stalls or not, and is mended, the same way
