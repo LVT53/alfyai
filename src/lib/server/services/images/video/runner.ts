@@ -221,6 +221,7 @@ export async function runVideoTake(ctx: Ctx): Promise<void> {
 			setPromptId: (id) => {
 				currentPromptId = id;
 			},
+			releasePrompt,
 		});
 		// A cancel that landed while the submit was in flight found no prompt.
 		if (signal.aborted && signal.reason === "cancelled") await stopPrompt();
@@ -542,7 +543,7 @@ async function renderTake(
 	ctx: Ctx,
 	request: VideoTakeRequest,
 	client: ComfyUiClient,
-	prompt: { setPromptId(id: string): void },
+	prompt: { setPromptId(id: string): void; releasePrompt(): Promise<void> },
 ): Promise<void> {
 	const { row, signal } = ctx;
 	const startedAt = Date.now();
@@ -569,7 +570,7 @@ async function renderTake(
 	if (signal.aborted) return;
 	// The estimate's plan: LTX's staging (short while it is still warm from a
 	// clip a moment ago), both passes and the decode, segment by segment.
-	const eta = createTakeEta(
+	let eta = createTakeEta(
 		videoPlan(request.durationSeconds, await engineLooksWarm("ltx", row.id)),
 	);
 
@@ -680,17 +681,34 @@ async function renderTake(
 				const guide = await client.uploadImage(lastFrame, `${row.id}-2.png`);
 				imageName = guide.filename;
 			}
-			const rendered = await renderSegment(ctx, client, {
-				request,
-				size,
-				imageName,
-				segment: segmentNumber,
-				segments: segments.slice(0, segmentNumber - 1),
-				startedAt,
-				eta,
-				freedOthers,
-				setPromptId: prompt.setPromptId,
-			});
+			let rendered: Awaited<ReturnType<typeof renderSegment>> = null;
+			for (let resubmitted = false; ; resubmitted = true) {
+				try {
+					rendered = await renderSegment(ctx, client, {
+						request,
+						size,
+						imageName,
+						segment: segmentNumber,
+						segments: segments.slice(0, segmentNumber - 1),
+						startedAt,
+						eta,
+						freedOthers,
+						setPromptId: prompt.setPromptId,
+					});
+					break;
+				} catch (error) {
+					if (signal.aborted || resubmitted || !isForgotten(error)) throw error;
+					// ComfyUI restarted mid-render and no longer knows the prompt:
+					// this segment once more, under a fresh prompt id, with a fresh
+					// estimate from a cold load (the one real reason the time left may
+					// go up), as the picture path does. A server that does still know
+					// the old prompt (its history answered garbage) has it deleted or
+					// interrupted first, so the GPU never renders the segment twice. A
+					// second miss fails the take.
+					await prompt.releasePrompt();
+					eta = createTakeEta(videoPlan(request.durationSeconds, false));
+				}
+			}
 			if (!rendered) return;
 			freedOthers = true;
 			segments[segmentNumber - 1] = rendered.record;

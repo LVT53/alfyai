@@ -705,6 +705,27 @@ describe("Stop after a restart", () => {
 	});
 });
 
+describe("a ComfyUI that restarts mid-render", () => {
+	it("renders the segment once more and still lands the clip", async () => {
+		// A reload: the server goes dark, then comes back having forgotten the
+		// prompt it was rendering (its own restart, a deploy on the GPU box).
+		const server = await startLtx({ steps: 30, stepDelayMs: 40 });
+		const takeId = await queueTake();
+		const draining = drainVideoTakes();
+		await until(
+			async () => (await readTake(takeId)).phase,
+			(phase) => phase === "rendering",
+		);
+		server.outage(300);
+		await draining;
+
+		const take = await readTake(takeId);
+		expect([take.status, take.errorCode]).toEqual(["succeeded", null]);
+		expect(promptRequests(server)).toHaveLength(2);
+		expect((await storedClips())[0]?.durationMs).toBe(5000);
+	});
+});
+
 describe("a take that fails while its prompt is on the GPU", () => {
 	it("stops the prompt when the render deadline runs out", async () => {
 		// A wedged render: ComfyUI keeps the prompt running past the take's time.
