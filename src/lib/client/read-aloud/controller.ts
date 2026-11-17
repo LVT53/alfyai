@@ -915,6 +915,41 @@ export function createReadAloudController(
 	// The view
 	// -------------------------------------------------------------------
 
+	type Marks = NonNullable<ReadAloudView["marks"]>;
+	let lastMarks: {
+		current: ScriptSentence;
+		target: ScriptSentence | undefined;
+		word: number | null;
+		marks: Marks;
+	} | null = null;
+
+	/**
+	 * The marks of a view, the same object while the sentence, the word and the drag's target
+	 * are the same: a reading with no word times moves its progress every frame, and the marks'
+	 * boxes (a forced layout each) are measured again only when what they mark changes (early
+	 * review R22).
+	 */
+	function marksFor(
+		current: ScriptSentence,
+		target: ScriptSentence | undefined,
+		word: number | null,
+	): Marks {
+		if (
+			lastMarks &&
+			lastMarks.current === current &&
+			lastMarks.target === target &&
+			lastMarks.word === word
+		)
+			return lastMarks.marks;
+		const marks: Marks = {
+			sentence: uniqueRanges(current.ranges),
+			word: word === null ? null : (current.ranges[word] ?? null),
+			target: target ? uniqueRanges(target.ranges) : [],
+		};
+		lastMarks = { current, target, word, marks };
+		return marks;
+	}
+
 	function publish() {
 		const script = reading?.script ?? null;
 		if (session)
@@ -972,14 +1007,7 @@ export function createReadAloudController(
 			marks:
 				state.status === "idle" || state.status === "finished" || !current
 					? null
-					: {
-							sentence: uniqueRanges(current.ranges),
-							word:
-								state.word === null
-									? null
-									: (current.ranges[state.word] ?? null),
-							target: target ? uniqueRanges(target.ranges) : [],
-						},
+					: marksFor(current, target, state.word),
 		};
 		const key = JSON.stringify([
 			view.status,

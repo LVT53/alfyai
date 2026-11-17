@@ -1174,3 +1174,50 @@ describe("a reply of more than 2,000 sentences (early review R21)", () => {
 	}, 30_000);
 });
 
+describe("the marks (early review R22)", () => {
+	it("are the same object while only the progress moves, and new when the sentence or the word does", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		const events = t.sources[0] as FakeEventSource;
+		events.send("sentence", { id: "s0", start: 0.025, end: 2.0 });
+		events.send("sentence", { id: "s1", start: 2.3, end: 4.0 });
+		t.audio.currentTime = 0.4;
+		t.runFrame();
+		const first = t.last().marks;
+		expect(first).not.toBeNull();
+		const progress = t.last().progress;
+
+		// No word times: the progress moves every frame, and the marks do not.
+		t.audio.currentTime = 1.2;
+		t.runFrame();
+		expect(t.last().progress).toBeGreaterThan(progress);
+		expect(t.last().marks).toBe(first);
+
+		// A word is a new mark; the same word again is not.
+		events.send("words", {
+			id: "s0",
+			times: [
+				[0.025, 0.3],
+				[0.35, 0.7],
+				[0.75, 1.2],
+				[1.25, 1.5],
+				[1.55, 2.0],
+			],
+		});
+		t.audio.currentTime = 0.5;
+		t.runFrame();
+		const word = t.last().marks;
+		expect(word).not.toBe(first);
+		expect(word?.word?.toString()).toBe("first");
+		t.audio.currentTime = 0.6;
+		t.runFrame();
+		expect(t.last().marks).toBe(word);
+
+		// A new sentence is new marks.
+		t.audio.currentTime = 2.6;
+		t.runFrame();
+		expect(t.last().sentence).toBe(1);
+		expect(t.last().marks).not.toBe(word);
+	});
+});

@@ -205,6 +205,41 @@ describe("ReadAloudMarks", () => {
 		expect(first.container.querySelector(".read-aloud-marks")).toBeNull();
 	});
 
+	it("measures its boxes again only when what is marked changes, never as the progress moves (early review R22)", async () => {
+		// Without word times the view changes every frame (its progress does); each
+		// measure is a forced layout, so a frame that marks the same ranges asks for none.
+		let measured = 0;
+		Object.defineProperty(Range.prototype, "getClientRects", {
+			configurable: true,
+			value(this: Range) {
+				measured += 1;
+				const found = LAYOUT[this.toString()];
+				return found ? [found] : [];
+			},
+		});
+		const { container, ranges } = segment("The first sentence here.");
+		render(ReadAloudMarks, {
+			props: { replyLastId: "m1", container, onMarkedChange: vi.fn() },
+		});
+		const marks = { sentence: ranges, word: null, target: [] };
+		setReadAloudView(reading(marks, { progress: 0.1 }));
+		await tick();
+		const first = measured;
+		expect(first).toBeGreaterThan(0);
+		for (const progress of [0.2, 0.3, 0.4]) {
+			setReadAloudView(reading(marks, { progress }));
+			await tick();
+		}
+		expect(measured).toBe(first);
+
+		// A word to mark, a drag and a new sentence each measure again.
+		setReadAloudView(
+			reading({ ...marks, word: ranges[1] ?? null }, { progress: 0.5 }),
+		);
+		await tick();
+		expect(measured).toBeGreaterThan(first);
+	});
+
 	it("isolates the prose only while it is marked", async () => {
 		const { container, ranges } = segment("The first sentence here.");
 		const onMarkedChange = vi.fn();
