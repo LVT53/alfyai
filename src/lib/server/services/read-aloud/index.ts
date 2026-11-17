@@ -2,6 +2,7 @@
 // never from the files behind it.
 
 export { wordsFitReply } from "./containment";
+export { resolveReadingVoices } from "./personal-voices";
 export {
 	attachAudio,
 	attachEvents,

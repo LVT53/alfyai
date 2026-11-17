@@ -19,6 +19,9 @@ vi.mock("$lib/server/services/read-aloud/readings", () => ({
 	closeReading: vi.fn(),
 	takeOpenTicket: vi.fn(() => 7),
 }));
+vi.mock("$lib/server/services/read-aloud/personal-voices", () => ({
+	resolveReadingVoices: vi.fn(),
+}));
 
 import { getReadAloudUrl } from "$lib/server/config-store";
 import { getConversation } from "$lib/server/services/conversations";
@@ -28,6 +31,7 @@ import {
 	SpeechRefused,
 	SpeechUnavailable,
 } from "$lib/server/services/read-aloud";
+import { resolveReadingVoices } from "$lib/server/services/read-aloud/personal-voices";
 import {
 	attachAudio,
 	attachEvents,
@@ -37,7 +41,13 @@ import {
 	reportPosition,
 	takeOpenTicket,
 } from "$lib/server/services/read-aloud/readings";
+import {
+	builtInVoice,
+	defaultVoiceFor,
+	resolvedVoice,
+} from "$lib/server/services/read-aloud/voices";
 import { speakWord, type WordKind } from "$lib/shared/read-aloud/spoken-forms";
+import { STYLES } from "$lib/shared/read-aloud/voice-knobs";
 import { POST } from "./+server";
 import { DELETE } from "./[sessionId]/+server";
 import { GET as GET_AUDIO } from "./[sessionId]/audio/+server";
@@ -55,7 +65,21 @@ const mocks = {
 	position: reportPosition as ReturnType<typeof vi.fn>,
 	close: closeReading as ReturnType<typeof vi.fn>,
 	ticket: takeOpenTicket as ReturnType<typeof vi.fn>,
+	voices: resolveReadingVoices as ReturnType<typeof vi.fn>,
 };
+
+/** What `resolveReadingVoices` answers for a person who chose these built-in voices. */
+function readingWith(choice: { en: string; hu: string }, defaultSpeed = 1) {
+	const voiceOf = (key: string) => {
+		const voice = builtInVoice(key);
+		if (!voice) throw new Error(`no voice ${key}`);
+		return resolvedVoice(voice);
+	};
+	return {
+		voices: { en: voiceOf(choice.en), hu: voiceOf(choice.hu) },
+		defaultSpeed,
+	};
+}
 
 const SESSION = "a".repeat(32);
 
@@ -118,6 +142,7 @@ beforeEach(() => {
 	mocks.reply.mockResolvedValue({ content: REPLY, documentArtifactId: null });
 	mocks.open.mockResolvedValue({ sessionId: SESSION, userId: "user-1" });
 	mocks.current.mockReturnValue({ sessionId: SESSION, userId: "user-1" });
+	mocks.voices.mockResolvedValue(readingWith({ en: "imogen", hu: "berta" }));
 });
 
 afterEach(() => {
@@ -257,6 +282,88 @@ describe("POST /api/read-aloud/sessions", () => {
 				paragraph_start: false,
 			},
 		]);
+	});
+
+	it("reads each language with the person's chosen voice", async () => {
+		mocks.voices.mockResolvedValue(readingWith({ en: "rupert", hu: "imre" }));
+		const response = await POST(eventFor(body()));
+		expect(response.status).toBe(201);
+		expect(mocks.voices).toHaveBeenCalledWith("user-1");
+		const sentences = mocks.open.mock.calls[0]?.[0].sentences;
+		expect(
+			sentences.map((sentence: { voice: unknown }) => sentence.voice),
+		).toEqual([
+			{ speaker_id: "default_3765f0d1140c05c0", controls: {} },
+			{
+				speaker_id: "default_fde02d0881bd267d",
+				controls: { "room.clean": 2 },
+			},
+		]);
+	});
+
+	it("a personal voice sends its base's speaker and its knobs' controls", async () => {
+		const berta = builtInVoice("berta");
+		const bedtime = STYLES.find((style) => style.key === "bedtime");
+		if (!berta || !bedtime) throw new Error("no berta or bedtime");
+		mocks.voices.mockResolvedValue({
+			voices: {
+				en: resolvedVoice(defaultVoiceFor("en")),
+				hu: resolvedVoice(berta, bedtime.knobs),
+			},
+			defaultSpeed: 1,
+		});
+		const response = await POST(eventFor(body()));
+		expect(response.status).toBe(201);
+		const sentences = mocks.open.mock.calls[0]?.[0].sentences;
+		expect(sentences[1].voice).toEqual({
+			speaker_id: "default_bf7632822e6b4dc0",
+			controls: {
+				"room.clean": 2,
+				"delivery.tempo": -1,
+				"texture.deep": 1,
+				"mood.arousal": -2.5,
+				"delivery.whisper": 0.6,
+			},
+		});
+		// English was not touched, and the two sentences do not share a controls object.
+		expect(sentences[0].voice).toEqual({
+			speaker_id: "default_b78b28baf5c31a1d",
+			controls: {},
+		});
+	});
+
+	it("answers the person's Default speed and their voices' speaking rates", async () => {
+		mocks.voices.mockResolvedValue({
+			voices: {
+				en: { ...resolvedVoice(defaultVoiceFor("en")), charsPerSecond: 12 },
+				hu: { ...resolvedVoice(defaultVoiceFor("hu")), charsPerSecond: 18 },
+			},
+			defaultSpeed: 1.5,
+		});
+		const response = await POST(eventFor(body()));
+		expect(response.status).toBe(201);
+		expect(await response.json()).toEqual({
+			sessionId: SESSION,
+			defaultSpeed: 1.5,
+			charsPerSecond: { en: 12, hu: 18 },
+		});
+	});
+
+	it("looks up the person's voices only for a request it has accepted", async () => {
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		mocks.reply.mockResolvedValue(null);
+		await POST(eventFor(body()));
+		mocks.reply.mockResolvedValue({
+			content: "Nothing like the request.",
+			documentArtifactId: null,
+		});
+		await POST(eventFor(body()));
+		await POST(eventFor(body({ sentences: [] })));
+		expect(mocks.voices).not.toHaveBeenCalled();
+		// The same request, accepted: now the lookup happens, once.
+		mocks.reply.mockResolvedValue({ content: REPLY, documentArtifactId: null });
+		await POST(eventFor(body()));
+		expect(mocks.voices).toHaveBeenCalledTimes(1);
 	});
 
 	it("flattens a word's tokens, the pause marks included", async () => {

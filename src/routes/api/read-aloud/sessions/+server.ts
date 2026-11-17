@@ -11,6 +11,7 @@ import {
 	openReading,
 	ReadingSuperseded,
 	readingRequestSchema,
+	resolveReadingVoices,
 	SpeechRefused,
 	speechSentencesFor,
 	takeOpenTicket,
@@ -59,18 +60,22 @@ export const POST: RequestHandler = async (event) => {
 		return createJsonErrorResponse("not_in_reply", 422);
 	}
 
+	// The voice each language reads with, and the speed a reading starts at, are
+	// the person's own choices; anything that is not theirs reads as the default.
+	const { voices, defaultSpeed } = await resolveReadingVoices(user.id);
+
 	try {
 		const reading = await openReading({
 			userId: user.id,
 			baseUrl,
-			sentences: speechSentencesFor(parsed.data),
+			sentences: speechSentencesFor(parsed.data, voices),
 			ticket,
 		});
 		return createJsonResponse(
 			{
 				sessionId: reading.sessionId,
-				defaultSpeed: 1,
-				charsPerSecond: charsPerSecondByLanguage(),
+				defaultSpeed,
+				charsPerSecond: charsPerSecondByLanguage(voices),
 			},
 			201,
 		);
