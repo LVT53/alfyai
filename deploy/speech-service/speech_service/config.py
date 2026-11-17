@@ -12,6 +12,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal, cast, get_args
 
+# The longest silence a setting may name, in seconds.
+_LONGEST_GAP = 5.0
+_LONGEST_BREATH = 1.0
+
 AlignerKind = Literal["python", "native", "none"]
 _ALIGNERS = get_args(AlignerKind)
 
@@ -52,6 +56,16 @@ class Settings:
     # How many clips of a sentence are made at most when Zonos stalls on it (`steady.py`): the first
     # attempt and the retries under the next seeds. 1 turns the retries off.
     steady_attempts: int = 4
+    # The silence between two sentences, and before the first sentence of a paragraph: a reader's
+    # pause at a full stop is about half a second, and a new paragraph a good deal longer. (Until
+    # 2026-11-17 they were 0.30 s and 0.60 s, which ran sentences together.) The owner chose these
+    # three by ear on 2026-11-17, halfway between two of five versions; a preview's join in AlfyAI's
+    # server (`preview.ts`) keeps the sentence gap by hand.
+    gap_seconds: float = 0.45
+    paragraph_gap_seconds: float = 0.82
+    # What each pause of 0.12 s or more inside a sentence is lengthened by (`audio.lengthen_pauses`):
+    # Zonos pauses at a comma for a tenth of a second or two. 0 leaves the pauses as Zonos made them.
+    breath_seconds: float = 0.12
     # Zonos caps a request at 1500 frames (about 100 s). Not an environment setting.
     max_sentence_chars: int = 400
 
@@ -80,6 +94,15 @@ class Settings:
             raise ValueError(
                 f"SPEECH_ALIGNER_THREADS must be 1 or more, got {self.aligner_threads}"
             )
+        # A silence is a short, finite, non-negative time: a negative one would cut speech, an endless
+        # one stops a reading, and nine seconds is a typo (nan is neither finite nor in range).
+        for name, seconds, longest in (
+            ("SPEECH_GAP_SECONDS", self.gap_seconds, _LONGEST_GAP),
+            ("SPEECH_PARAGRAPH_GAP_SECONDS", self.paragraph_gap_seconds, _LONGEST_GAP),
+            ("SPEECH_BREATH_SECONDS", self.breath_seconds, _LONGEST_BREATH),
+        ):
+            if not (math.isfinite(seconds) and 0 <= seconds <= longest):
+                raise ValueError(f"{name} must be a number from 0 to {longest:g}, got {seconds}")
         # No attempt at all would be no clip, ever.
         if self.steady_attempts < 1:
             raise ValueError(
@@ -108,4 +131,9 @@ class Settings:
             steady_attempts=_read(
                 env, "SPEECH_STEADY_ATTEMPTS", defaults.steady_attempts, int
             ),
+            gap_seconds=_read(env, "SPEECH_GAP_SECONDS", defaults.gap_seconds, float),
+            paragraph_gap_seconds=_read(
+                env, "SPEECH_PARAGRAPH_GAP_SECONDS", defaults.paragraph_gap_seconds, float
+            ),
+            breath_seconds=_read(env, "SPEECH_BREATH_SECONDS", defaults.breath_seconds, float),
         )

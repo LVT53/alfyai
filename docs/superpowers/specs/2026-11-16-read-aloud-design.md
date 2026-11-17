@@ -164,7 +164,7 @@ The spoken text is built from the reply **as rendered on screen**, never from it
 
 **Read as written:**
 - paragraphs and quotes, with text in brackets read normally;
-- headings, followed by the same 0.6 s pause as a new paragraph;
+- headings, followed by the same pause as a new paragraph;
 - list items and checklist items: a numbered list reads its numbers ("One. Mix the flour…"), bullets are silent;
 - the text of links, and inline emphasis as plain words.
 
@@ -223,7 +223,7 @@ The spoken text is built from the reply **as rendered on screen**, never from it
 
 **Sentences:**
 - **Splitting:** with `Intl.Segmenter` in the paragraph's language. A period after a number ("2026. november 16.", "3. fejezet") or after an abbreviation from the lists above never ends a sentence.
-- **Short sentences:** a sentence of one or two words joins the next one, because Zonos misfires on them.
+- **Short sentences:** a sentence of one or two words joins the next one, because Zonos misfires on them. Since 2026-11-17 (the owner's call, after measuring: Zonos stalls or goes on speaking past a short text) a unit under about 50 written characters joins a neighbour: a sentence the next one of its paragraph, a list item the next item of its list, a paragraph of one sentence ("Sure!") the first sentence of the next paragraph, or the one before when it has no next to take; never across a heading, a code line or a language, and never into a unit over the 240-character split. Where the first part ends in no pause mark the join gives it a full stop; the pause between the parts is then the stop's, not the longer gap before a paragraph or an item. The tint covers the joined unit; word marks stay per word.
 - **Long sentences:** a sentence over 240 characters is split at a comma or semicolon. Measured on the box, that keeps every clip under 30 s even at the slowest Pace.
 - **One set of boundaries** drives the notches, the tint and Read from here.
 

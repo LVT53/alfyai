@@ -67,6 +67,24 @@ def test_a_sentence_takes_longer_the_more_it_says():
     assert steady.expected_seconds(1, "hu") > 0
 
 
+def test_even_one_word_is_expected_to_take_a_breath_and_a_half():
+    # Zonos's clip of "Yes." is a second or more with the silence round it: a clean one must not look long.
+    assert steady.expected_seconds(4, "en") >= 1.2
+    assert steady.expected_seconds(1, "hu") == steady.expected_seconds(4, "hu")
+
+
+def test_a_clean_clip_of_one_word_is_no_trouble():
+    assert steady.trouble(speech(1.5), SR, len("Yes."), "en") == 0.0
+
+
+def test_speech_made_up_after_a_few_words_is_trouble():
+    # What the owner heard on a selection of a few words: a clip of seconds of fluent speech, with
+    # no pause in it, for a text that takes a second. Nothing is silent in it, and it is too long.
+    clip = speech(5.0)
+    assert steady.longest_pause(clip, SR) == 0.0
+    assert steady.trouble(clip, SR, len("this village."), "en") > 1.0
+
+
 def test_hungarian_is_expected_to_take_longer_than_english_for_the_same_length():
     assert steady.expected_seconds(80, "hu") > steady.expected_seconds(80, "en")
 
@@ -270,10 +288,11 @@ async def test_each_retry_is_reported_with_numbers_and_no_text():
     await run(zonos, on_retry=lambda *args: told.append(args))
     assert [attempt for attempt, *_ in told] == [1, 2]
     for args in told:
-        attempt, attempts, seconds, pause = args
+        attempt, attempts, seconds, pause, expected = args
         assert attempts == 3
         assert seconds == pytest.approx(len(STALL) / SR)
         assert pause == pytest.approx(2.5, abs=0.05)
+        assert expected == pytest.approx(steady.expected_seconds(len(TEXT), "hu"))
         assert all(isinstance(value, int | float) for value in args)  # numbers: never the text
 
 

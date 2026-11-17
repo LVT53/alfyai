@@ -30,7 +30,7 @@ export type WordKind = "prose" | "code" | "shell" | "listNumber";
 type ReadingLanguage = "en" | "hu";
 
 /** What the speech service takes: tokens of 1–80 characters, at most 40 and 160 characters a word. */
-const MAX_TOKEN_CHARS = 80;
+export const MAX_TOKEN_CHARS = 80;
 const MAX_TOKENS = 40;
 const MAX_JOINED_CHARS = 160;
 /** The longest code word that is read at all. */
@@ -172,6 +172,8 @@ function emailTokens(text: string, language: ReadingLanguage): string[] | null {
 // Prose
 // ---------------------------------------------------------------------------
 
+/** An em dash (or two hyphens) with a letter on each side: the dash of "eggs—one", not a range or a flag. */
+const JOINING_DASH = /(?<=\p{L})(?:[\u2014\u2015]|--)(?=\p{L})/u;
 const LEADING_MARKS = /^[("'„“]+/u;
 const TRAILING_MARKS = /[.,;:!?)"'”]+$/u;
 const FILE_PART = /^[\p{L}\p{Nd}_-]+$/u;
@@ -327,7 +329,16 @@ function speakProse(shown: string, language: ReadingLanguage): string[] {
 	if (acronym) return withTrailing(acronym, trail);
 	// 8. For the speech service: it reads numbers and units.
 	if (/^\p{Nd}/u.test(rest) || SUPERSCRIPT_UNIT.test(core)) return [shown];
-	// 9. Otherwise the word as written, a listed symbol said as its words.
+	// 9. Words an em dash joins ("eggs—one at a time—then") are said with a pause between them.
+	const dashed = core.split(JOINING_DASH);
+	if (dashed.length > 1) {
+		const parts = dashed.map((part, i) =>
+			i < dashed.length - 1 ? `${part},` : part,
+		);
+		parts[0] = `${lead}${parts[0]}`;
+		return withTrailing(parts, trail);
+	}
+	// 10. Otherwise the word as written, a listed symbol said as its words.
 	const { tokens, replaced } = replaceProseSymbols(core, language);
 	return replaced ? withTrailing(tokens, trail) : [shown];
 }

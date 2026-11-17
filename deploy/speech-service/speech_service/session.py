@@ -45,7 +45,14 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 from speech_service.aligner import Aligner, Interval, resample_16k, token_times
-from speech_service.audio import SAMPLE_RATE, Mp3Encoder, match_loudness, silence, trim_silence
+from speech_service.audio import (
+    SAMPLE_RATE,
+    Mp3Encoder,
+    lengthen_pauses,
+    match_loudness,
+    silence,
+    trim_silence,
+)
 from speech_service.config import Settings
 from speech_service.logs import describe
 from speech_service.models import Sentence
@@ -56,10 +63,6 @@ from speech_service.zonos import SynthesisFailed, ZonosClient, ZonosUnavailable
 logger = logging.getLogger(__name__)
 
 Event = tuple[str, dict]
-
-# The gap before a sentence, and before the first sentence of a paragraph.
-_GAP_SECONDS = 0.30
-_PARAGRAPH_GAP_SECONDS = 0.60
 
 # A sentence that speaks as more characters than this is warned about. Zonos stops a request at
 # 1500 frames, about 100 s, and cuts the rest off without a word; at about 15 spoken characters a
@@ -329,7 +332,8 @@ class ReadingSession:
         clip = await self._synthesize(sentence, spoken)
         if self._encoder.samples_written:  # a gap goes between sentences, not before the first
             new_paragraph = sentence.paragraph_start or self._paragraph_pending
-            gap = _PARAGRAPH_GAP_SECONDS if new_paragraph else _GAP_SECONDS
+            settings = self._settings
+            gap = settings.paragraph_gap_seconds if new_paragraph else settings.gap_seconds
             await self._encoder.write(silence(gap, SAMPLE_RATE))
         self._paragraph_pending = False
         start = self._clock()
@@ -390,21 +394,22 @@ class ReadingSession:
         clip = match_loudness(trim_silence(audio, rate), rate)
         if clip.size == 0:
             raise SynthesisFailed("Zonos sent nothing but silence")
-        return clip
+        return lengthen_pauses(clip, rate, self._settings.breath_seconds)
 
     def _made_again_because_it_stalled(
-        self, attempt: int, attempts: int, seconds: float, pause: float
+        self, attempt: int, attempts: int, seconds: float, pause: float, expected: float
     ) -> None:
         """Zonos stalled on the sentence being read, and it is made again. Counted for the line that
         says how the session ended, and logged as numbers only, at the level a retry deserves: it
         happens to a good share of short sentences, so it is not news."""
         self._made_again += 1
         logger.debug(
-            "session %s: sentence %d: a clip of %.1f s with a pause of %.1f s was made again "
-            "(attempt %d of %d)",
+            "session %s: sentence %d: a clip of %.1f s (its text needs about %.1f s) with a pause of "
+            "%.1f s was made again (attempt %d of %d)",
             self.id,
             self._current,
             seconds,
+            expected,
             pause,
             attempt,
             attempts,

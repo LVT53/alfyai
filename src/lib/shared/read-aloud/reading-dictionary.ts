@@ -293,7 +293,11 @@ export const SHELL_LANGUAGES: ReadonlySet<string> = new Set([
 	"ps1",
 ]);
 
-/** An arrow or a separator dot between items in prose. */
+/**
+ * An arrow, a separator dot or a dash between items or words in prose: said as a pause after the
+ * word before it. A lone hyphen is not here: between numbers it may be a minus, so the script
+ * decides it from its neighbours.
+ */
 export const SEPARATORS: ReadonlySet<string> = new Set([
 	"→",
 	"⇒",
@@ -303,4 +307,9 @@ export const SEPARATORS: ReadonlySet<string> = new Set([
 	"·",
 	"•",
 	"∙",
+	"–",
+	"—",
+	"―",
+	"--",
+	"---",
 ]);
