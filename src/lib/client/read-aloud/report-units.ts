@@ -125,14 +125,18 @@ export function positionInBlocks(
 }
 
 /**
- * The text node and offset a block's character offset falls at: the end of a
- * block is the end of its last node. Null for a block or an offset that does not
- * exist. Self-contained, as `reportBlocks` is.
+ * The text node and offset a block's character offset falls at. Where it is the
+ * end of one node and the start of the next, a start is the next node's start, and
+ * an end (`isEnd`) the first node's end: a range must not take in what lies between
+ * them (a basis marker's tooltip). The end of a block is the end of its last node.
+ * Null for a block or an offset that does not exist. Self-contained, as
+ * `reportBlocks` is.
  */
 export function pointInBlocks(
 	blocks: Text[][],
 	block: number,
 	offset: number,
+	isEnd = false,
 ): { node: Text; offset: number } | null {
 	const nodes = blocks[block];
 	if (!nodes || !Number.isInteger(offset) || offset < 0) return null;
@@ -140,7 +144,7 @@ export function pointInBlocks(
 	for (let i = 0; i < nodes.length; i++) {
 		const text = nodes[i] as Text;
 		const end = start + text.data.length;
-		if (offset < end || (offset === end && i === nodes.length - 1))
+		if (offset < end || (offset === end && (isEnd || i === nodes.length - 1)))
 			return { node: text, offset: offset - start };
 		start = end;
 	}

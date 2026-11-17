@@ -186,6 +186,25 @@ describe("positions", () => {
 		});
 	});
 
+	// A span's end belongs to the node it ends in: at a node's end, the start of the
+	// next node would take in what lies between (a basis marker's tooltip).
+	it("puts an end at the end of the node it ends in, and a start at the start of the next", () => {
+		const copy = inertCopy(
+			'<article id="report-content"><p>The train leaves at nine<button class="basis-marker">Supported claim</button> from the station.</p></article>',
+		);
+		const blocks = reportBlocks(reportRoot(copy), REPORT_UNIT_RULES);
+		const [first, second] = blocks[0] ?? [];
+		expect(pointInBlocks(blocks, 0, 24)).toEqual({ node: second, offset: 0 });
+		expect(pointInBlocks(blocks, 0, 24, true)).toEqual({
+			node: first,
+			offset: 24,
+		});
+		expect(pointInBlocks(blocks, 0, 0, true)).toEqual({
+			node: first,
+			offset: 0,
+		});
+	});
+
 	it("knows nothing outside the blocks, and nothing past a block's end", () => {
 		const copy = inertCopy(reportHtml());
 		const blocks = reportBlocks(reportRoot(copy), REPORT_UNIT_RULES);
