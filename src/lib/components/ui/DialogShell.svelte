@@ -479,6 +479,19 @@ function closeFromScrim(event: MouseEvent) {
     border-top: 1px solid var(--border-subtle);
   }
 
+  /* A centred panel that scrolls keeps its footer in view: it sticks to the
+     panel's foot and covers the panel's bottom padding, so content scrolls
+     under it. A panel that does not scroll looks as it did. (A sheet's footer
+     is already outside its scrolling body.) */
+  .dialog-shell__panel .dialog-shell__footer {
+    position: sticky;
+    bottom: calc(-1 * var(--space-lg));
+    z-index: 2;
+    margin-bottom: calc(-1 * var(--space-lg));
+    padding-bottom: var(--space-lg);
+    background: var(--surface-page);
+  }
+
   .dialog-sheet .dialog-shell__footer {
     margin-top: 0;
     padding: var(--space-md, 0.75rem) var(--space-lg, 1rem);
