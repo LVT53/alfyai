@@ -331,6 +331,185 @@ describe("buildSpeechScript", () => {
 		).toEqual(["Open", "the", "menu,", "then", "pick", "a", "theme"]);
 	});
 
+	it("turns a dash between words into a pause after the word before it", () => {
+		expect(
+			tokensOf(
+				build(reply("<p>Then — and this is the key — fold in the eggs.</p>")),
+			),
+		).toEqual([
+			"Then,",
+			"and",
+			"this",
+			"is",
+			"the",
+			"key,",
+			"fold",
+			"in",
+			"the",
+			"eggs.",
+		]);
+		expect(
+			tokensOf(
+				build(reply("<p>Ezután – és ez a lényeg – add hozzá a tojást.</p>")),
+			),
+		).toEqual([
+			"Ezután,",
+			"és",
+			"ez",
+			"a",
+			"lényeg,",
+			"add",
+			"hozzá",
+			"a",
+			"tojást.",
+		]);
+		expect(
+			tokensOf(build(reply("<p>It works -- mostly -- on Tuesdays.</p>"))),
+		).toEqual(["It", "works,", "mostly,", "on", "Tuesdays."]);
+	});
+
+	it("reads a spaced hyphen between words as a dash, and between numbers as nothing", () => {
+		expect(
+			tokensOf(build(reply("<p>Add the eggs - one at a time - and stir.</p>"))),
+		).toEqual([
+			"Add",
+			"the",
+			"eggs,",
+			"one",
+			"at",
+			"a",
+			"time,",
+			"and",
+			"stir.",
+		]);
+		expect(tokensOf(build(reply("<p>It costs 5 - 3 euros.</p>")))).toEqual([
+			"It",
+			"costs",
+			"5",
+			"3",
+			"euros.",
+		]);
+	});
+
+	it("keeps the pause a dash makes from doubling one that is already there", () => {
+		expect(tokensOf(build(reply("<p>Well, — he said — fine.</p>")))).toEqual([
+			"Well,",
+			"he",
+			"said,",
+			"fine.",
+		]);
+		// A dash with no word before it has nothing to pause after.
+		expect(tokensOf(build(reply("<p>— Hello — said Ann.</p>")))).toEqual([
+			"Hello,",
+			"said",
+			"Ann.",
+		]);
+	});
+
+	it("turns an em dash inside a run of words into a pause", () => {
+		expect(
+			tokensOf(
+				build(reply("<p>Fold in the eggs—one at a time—then stir.</p>")),
+			),
+		).toEqual([
+			"Fold",
+			"in",
+			"the",
+			"eggs,",
+			"one",
+			"at",
+			"a",
+			"time,",
+			"then",
+			"stir.",
+		]);
+	});
+
+	it("says a parenthetical as words set off by pauses", () => {
+		expect(
+			tokensOf(
+				build(reply("<p>Fold in the eggs (one at a time) and stir.</p>")),
+			),
+		).toEqual([
+			"Fold",
+			"in",
+			"the",
+			"eggs,",
+			"one",
+			"at",
+			"a",
+			"time,",
+			"and",
+			"stir.",
+		]);
+		expect(
+			tokensOf(build(reply("<p>Add the eggs (one at a time).</p>"))),
+		).toEqual(["Add", "the", "eggs,", "one", "at", "a", "time."]);
+		expect(
+			tokensOf(build(reply("<p>Add the eggs (slowly), then stir.</p>"))),
+		).toEqual(["Add", "the", "eggs,", "slowly,", "then", "stir."]);
+		expect(
+			tokensOf(build(reply("<p>Tedd bele a tojásokat (egyesével).</p>"))),
+		).toEqual(["Tedd", "bele", "a", "tojásokat,", "egyesével."]);
+		expect(
+			tokensOf(build(reply("<p>Add the eggs [one at a time] and stir.</p>"))),
+		).toEqual([
+			"Add",
+			"the",
+			"eggs,",
+			"one",
+			"at",
+			"a",
+			"time,",
+			"and",
+			"stir.",
+		]);
+	});
+
+	it("ends a paragraph that closes on a bracket without a comma", () => {
+		expect(
+			tokensOf(build(reply("<p>Add the eggs (one at a time)</p>"))),
+		).toEqual(["Add", "the", "eggs,", "one", "at", "a", "time"]);
+	});
+
+	it("sets off a parenthetical inside a parenthetical, and one that closes after a quote", () => {
+		expect(
+			tokensOf(build(reply("<p>Mix it (the flour (sifted) first) well.</p>"))),
+		).toEqual(["Mix", "it,", "the", "flour,", "sifted,", "first,", "well."]);
+		expect(tokensOf(build(reply('<p>He said ("fine") and left.</p>')))).toEqual(
+			["He", "said,", '"fine",', "and", "left."],
+		);
+	});
+
+	it("leaves a bracket that opens nothing, and the brackets of a code word, alone", () => {
+		expect(tokensOf(build(reply("<p>1) Mix the flour well.</p>")))).toEqual([
+			"1)",
+			"Mix",
+			"the",
+			"flour",
+			"well.",
+		]);
+		expect(
+			tokensOf(build(reply("<p>Call <code>run()</code> now.</p>"))),
+		).toEqual(["Call", "run", "now."]);
+	});
+
+	it("keeps each token's range on its own characters when a bracket goes", () => {
+		const root = reply("<p>Add the eggs (one at a time) now.</p>");
+		const script = build(root);
+		const [sentence] = script.sentences;
+		expect(sentence?.ranges.map((range) => range.toString())).toEqual([
+			"Add",
+			"the",
+			"eggs",
+			"(one",
+			"at",
+			"a",
+			"time)",
+			"now.",
+		]);
+	});
+
 	it("no syntax reaches the tokens", () => {
 		const script = build(
 			reply(

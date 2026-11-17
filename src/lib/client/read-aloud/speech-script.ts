@@ -96,10 +96,14 @@ const HEADING = /^H[1-6]$/;
 const WHITESPACE = /\s/u;
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 const LETTERS = /\p{L}/gu;
+const LETTER = /\p{L}/u;
 /** Marks a stray word hands to the word before it: what ends a clause or closes something. */
 const HANDED_MARKS = /[.,;:!?…)\]}"'”’»]/gu;
 const ENDS_IN_PAUSE = /[.!?,;:…]$/u;
 const ENDS_A_HEADING = /[.!?…:]$/u;
+/** The brackets that set a parenthetical off, at the start of its first word and at the end of its last. */
+const OPENING_BRACKETS = /^[([]+/u;
+const CLOSING_BRACKETS = /([)\]]+)([.,;:!?…"'”’»]*)$/u;
 
 /** Emoji, regional indicators, the zero-width joiner and the emoji variation selector, one code point at a time. */
 const EMOJI = /\p{Extended_Pictographic}|[\u{1F1E6}-\u{1F1FF}]|\u200D|\uFE0F/gu;
@@ -491,6 +495,59 @@ function handMarks(word: DraftWord | undefined, shown: string) {
 }
 
 /**
+ * A lone hyphen between words is a dash ("eggs - one at a time - and"), said as a pause; between
+ * two numbers it may be a minus, and stays unsaid.
+ */
+function isSpacedHyphen(
+	shown: string,
+	view: string,
+	spans: ReadonlyArray<{ start: number; end: number }>,
+	index: number,
+): boolean {
+	if (shown !== "-") return false;
+	const before = spans[index - 1];
+	const after = spans[index + 1];
+	return (
+		(before !== undefined && LETTER.test(view.charAt(before.end - 1))) ||
+		(after !== undefined && LETTER.test(view.charAt(after.start)))
+	);
+}
+
+/**
+ * A parenthetical is said as words set off by pauses, as a reader says it: "the eggs (one at a
+ * time) and" is "the eggs, one at a time, and". The word before the opening bracket takes a comma,
+ * the brackets themselves are not said, and the word that closes it takes a comma unless a mark
+ * ends it already or nothing follows. A bracket that opens nothing ("1)"), and the brackets inside
+ * a word ("run()") stay as written, as do those of code.
+ */
+function setOffBrackets(words: DraftWord[]) {
+	let depth = 0;
+	words.forEach((word, index) => {
+		if (word.kind !== "prose") return;
+		const first = word.tokens[0] ?? "";
+		const opens = OPENING_BRACKETS.exec(first)?.[0].length ?? 0;
+		if (opens > 0) {
+			depth += opens;
+			word.tokens[0] = first.slice(opens);
+			addPause(words[index - 1], ",");
+		}
+		const lastIndex = word.tokens.length - 1;
+		const last = word.tokens[lastIndex] ?? "";
+		const closing = CLOSING_BRACKETS.exec(last);
+		if (!closing || depth === 0) return;
+		const brackets = closing[1] ?? "";
+		const marks = closing[2] ?? "";
+		const closed = Math.min(brackets.length, depth);
+		depth -= closed;
+		word.tokens[lastIndex] =
+			last.slice(0, last.length - closing[0].length) +
+			brackets.slice(0, brackets.length - closed) +
+			marks;
+		if (marks === "" && index < words.length - 1) addPause(word, ",");
+	});
+}
+
+/**
  * A bare address shows in a chat reply as a chip labelled with its host; it is read by its site
  * name, from the address the reply wrote (scheme and host, whose letters the containment check finds).
  */
@@ -553,12 +610,8 @@ function proseWords(
 	numbered: Set<Element>,
 ): DraftWord[] {
 	const words: DraftWord[] = [];
-	for (const { start, end } of wordSpans(
-		view,
-		paragraph.atoms,
-		0,
-		view.length,
-	)) {
+	const spans = wordSpans(view, paragraph.atoms, 0, view.length);
+	for (const [index, { start, end }] of spans.entries()) {
 		const atom = paragraph.atoms[start] ?? null;
 		const inCode = atom?.tagName === "CODE";
 		const kind: WordKind =
@@ -566,7 +619,10 @@ function proseWords(
 				? codeKindOf("", firstWordOf(atom.textContent ?? ""))
 				: "prose";
 		let shown = view.slice(start, end);
-		if (kind === "prose" && isSeparator(shown)) {
+		if (
+			kind === "prose" &&
+			(isSeparator(shown) || isSpacedHyphen(shown, view, spans, index))
+		) {
 			addPause(words[words.length - 1], ",");
 			continue;
 		}
@@ -588,6 +644,7 @@ function proseWords(
 			heading: paragraph.heading,
 		});
 	}
+	setOffBrackets(words);
 	const first = words[0];
 	const number = first ? listNumberOf(paragraph, numbered) : null;
 	if (first && number) {
