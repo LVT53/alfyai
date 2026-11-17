@@ -236,11 +236,10 @@ async function enterPhase(
 	await ctx.progress({ phase });
 	await ctx.write((tx) => {
 		tx.update(videoJobs)
-			.set(
-				etaAt === undefined
-					? { phaseAt: Date.now() }
-					: { phaseAt: Date.now(), etaAt },
-			)
+			.set({
+				phaseAt: Date.now(),
+				...(etaAt === undefined ? {} : { etaAt }),
+			})
 			.where(eq(videoJobs.id, ctx.row.id))
 			.run();
 	});
