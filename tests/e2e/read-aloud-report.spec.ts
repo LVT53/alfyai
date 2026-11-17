@@ -21,6 +21,13 @@ import {
 	type Page,
 	test,
 } from "@playwright/test";
+import { eq } from "drizzle-orm";
+import { db } from "../../src/lib/server/db";
+import {
+	artifacts,
+	chatGeneratedFiles,
+	fileProductionJobs,
+} from "../../src/lib/server/db/schema";
 import {
 	expectTopmost,
 	login,
@@ -50,7 +57,19 @@ test.beforeEach(async ({ page }) => {
 
 test.afterEach(async ({ page }) => {
 	try {
-		if (chatId) await deleteReadAloudChat(page, chatId);
+		if (chatId) {
+			// What the produce route made goes with the chat: its job, its file and the
+			// library item that stands for it, so no spec meets this report in the library.
+			const id = chatId;
+			await db
+				.delete(fileProductionJobs)
+				.where(eq(fileProductionJobs.conversationId, id));
+			await db
+				.delete(chatGeneratedFiles)
+				.where(eq(chatGeneratedFiles.conversationId, id));
+			await db.delete(artifacts).where(eq(artifacts.conversationId, id));
+			await deleteReadAloudChat(page, id);
+		}
 	} finally {
 		chatId = null;
 		await stopFakeSpeechForSpec(page, fake);
@@ -151,9 +170,9 @@ function longReportSource() {
  * `images-viewer.spec.ts` does. These are the real headers `security-headers.ts`
  * made, nonce and all; only their name changes.
  */
-async function enforceWholePolicy(page: Page, conversationId: string) {
+async function enforceWholePolicy(page: Page, path: string) {
 	await page.route(
-		new RegExp(`/chat/${conversationId}(?:\\?.*)?$`),
+		new RegExp(`${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\?.*)?$`),
 		async (route) => {
 			const response = await route.fetch();
 			const headers = { ...response.headers() };
@@ -170,15 +189,14 @@ async function enforceWholePolicy(page: Page, conversationId: string) {
 
 /**
  * A chat of the e2e admin whose reply made the report (the produce route, a
- * `document_source` job with an HTML output), opened, and the report opened in
- * the side panel from the reply's card. Resolves with the panel, the report's
- * frame and that frame's page.
+ * `document_source` job with an HTML output, which the library lists too).
+ * Resolves with the chat's id once the job has succeeded.
  */
-async function openReport(
+async function produceReport(
 	page: Page,
-	options: { enforce: boolean; source?: object; title?: string },
-): Promise<{ shell: Locator; frame: Locator; report: Frame }> {
-	const title = options.title ?? TITLE;
+	options: { source?: object; title: string },
+): Promise<string> {
+	const title = options.title;
 	const id = `read-aloud-report-${randomUUID()}`;
 	chatId = id;
 	const [replyId] = await seedReadAloudChat(id, [
@@ -207,8 +225,20 @@ async function openReport(
 			{ timeout: 30_000 },
 		)
 		.toBe("succeeded");
+	return id;
+}
 
-	if (options.enforce) await enforceWholePolicy(page, id);
+/**
+ * The report `produceReport` made, opened in the side panel from the reply's card
+ * in its chat. Resolves with the panel, the report's frame and that frame's page.
+ */
+async function openReport(
+	page: Page,
+	options: { enforce: boolean; source?: object; title?: string },
+): Promise<{ shell: Locator; frame: Locator; report: Frame }> {
+	const title = options.title ?? TITLE;
+	const id = await produceReport(page, { source: options.source, title });
+	if (options.enforce) await enforceWholePolicy(page, `/chat/${id}`);
 	await page.goto(`/chat/${id}`, { waitUntil: "domcontentloaded" });
 	await waitForHydration(page);
 	await page
@@ -624,5 +654,62 @@ test.describe("under the policy the production boxes enforce", () => {
 
 		await ui.button("Stop reading").click();
 		await expect(player).toBeHidden();
+	});
+
+	// The Knowledge page: the same report, opened from the library, is shown by its
+	// library item's preview and read by it, with no chat to pass.
+	test("a report opened from the Knowledge library is read the same, named by its library item", async ({
+		page,
+	}) => {
+		const title = `Library report ${randomUUID().slice(0, 8)}`;
+		await produceReport(page, { title });
+		await enforceWholePolicy(page, "/knowledge");
+		await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		const row = page
+			.locator("tbody tr", { hasText: title })
+			.filter({ has: page.locator(".col-type .type-generated") });
+		await expect(row).toHaveCount(1, { timeout: 15_000 });
+		await row.getByText(title).first().click();
+
+		const shell = workspacePanel(page);
+		const frame = shell.locator("iframe.html-preview-frame");
+		await expect(frame).toHaveAttribute(
+			"src",
+			/^\/api\/knowledge\/[^/]+\/preview\?rb=\d+$/,
+		);
+		await expect(
+			page
+				.frameLocator("iframe.html-preview-frame")
+				.getByRole("heading", { level: 1, name: title }),
+		).toBeVisible({ timeout: 30_000 });
+		const report = await (await frame.elementHandle())?.contentFrame();
+		if (!report) throw new Error("the report's frame has no page");
+
+		const asked = page.waitForRequest(
+			(request) =>
+				request.url().endsWith("/api/read-aloud/sessions") &&
+				request.method() === "POST",
+		);
+		await shell.getByTestId("read-aloud-speaker-header").click();
+		const body = (await asked).postDataJSON() as {
+			report?: { artifactId?: string; fileId?: string };
+			conversationId?: unknown;
+		};
+		expect(body.report?.artifactId).toMatch(/\S/);
+		expect(body.report?.fileId).toBeUndefined();
+		expect(body.conversationId).toBeUndefined();
+		// The panel draws the player itself: no composer beside it.
+		await expect(
+			shell
+				.getByTestId("workspace-read-aloud-player")
+				.getByLabel("Read aloud player"),
+		).toBeVisible();
+		await expect
+			.poll(() => marked(report, "alfy-read-aloud-sentence"), {
+				timeout: 15_000,
+			})
+			.not.toBe("");
+		expect(hasRun(spokenTokens(fake), ["The", "train", "leaves"])).toBe(true);
 	});
 });
