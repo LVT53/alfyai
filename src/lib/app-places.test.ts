@@ -30,8 +30,8 @@ describe("app places", () => {
 		expect(appPlacePath("guide")).toBe("/guide");
 	});
 
-	it("names eighteen distinct spotlight ids as area.control", () => {
-		expect(new Set(SPOTLIGHT_IDS).size).toBe(18);
+	it("names nineteen distinct spotlight ids as area.control", () => {
+		expect(new Set(SPOTLIGHT_IDS).size).toBe(19);
 		for (const id of SPOTLIGHT_IDS) {
 			expect(id).toMatch(/^[a-z]+\.[a-zA-Z]+$/);
 		}

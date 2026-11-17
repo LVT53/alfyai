@@ -5,7 +5,8 @@
  * Attach file, From your Library, Skills and Atlas report.
  *
  * The spot ids are the guide's `drawingSpot`s for this section
- * (`section-drawing-spots.ts`). The composer's other faces, the menu's Library
+ * (`section-drawing-spots.ts`): the speaker is the reply's last action, a spot
+ * inside the row of actions. The composer's other faces, the menu's Library
  * and Skills rows, are drawn but no row of Ask points at them.
  */
 import DrawingFrame from "$lib/components/drawings/DrawingFrame.svelte";
@@ -21,7 +22,10 @@ let { lit = null }: { lit?: string | null } = $props();
 	<div class="chat">
 		<div class="you"><DrawnUserMessage /></div>
 		<div class="reply">
-			<DrawnReply {lit} spots={{ sources: 'sources', actions: 'replyActions' }} />
+			<DrawnReply
+				{lit}
+				spots={{ sources: 'sources', actions: 'replyActions', speaker: 'readAloud' }}
+			/>
 		</div>
 		<div class="menu">
 			<DrawnMenu {lit} spots={{ attach: 'attach', atlas: 'atlas' }} />
