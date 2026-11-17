@@ -66,7 +66,7 @@ const readAloudDict = {
 		// The Read aloud card in Settings (Plan 3).
 		"readAloud.settings.title": "Read aloud",
 		"readAloud.settings.desc":
-			"The voices AlfyAI uses when you press the speaker on a reply or a document.",
+			"The voices AlfyAI uses when you press the speaker on a reply, a document or a report.",
 		"readAloud.settings.englishVoice": "English voice",
 		"readAloud.settings.hungarianVoice": "Hungarian voice",
 		"readAloud.settings.builtIn": "Built in",
@@ -229,7 +229,7 @@ const readAloudDict = {
 		"readAloud.readFromHere": "Felolvasás innen",
 		"readAloud.settings.title": "Felolvasás",
 		"readAloud.settings.desc":
-			"Ezekkel a hangokkal olvas fel az AlfyAI, amikor egy válasznál vagy dokumentumnál megnyomod a hangszórót.",
+			"Ezekkel a hangokkal olvas fel az AlfyAI, amikor egy válasznál, dokumentumnál vagy jelentésnél megnyomod a hangszórót.",
 		"readAloud.settings.englishVoice": "Angol hang",
 		"readAloud.settings.hungarianVoice": "Magyar hang",
 		"readAloud.settings.builtIn": "Beépített",

@@ -78,7 +78,7 @@ const guideDict = {
 		"guide.entry.asksFirst.example": "Help me choose a laptop.",
 		"guide.entry.listenToAReply.name": "Listen to a reply or a document",
 		"guide.entry.listenToAReply.line":
-			"Press the speaker under a reply, or at the top of a document, to hear it, and follow the words as they are read.",
+			"Press the speaker under a reply, or at the top of a document or a report, to hear it, and follow the words as they are read.",
 		"guide.entry.listenToAReply.example":
 			"Tell me a short story about a lighthouse keeper.",
 
@@ -245,7 +245,7 @@ const guideDict = {
 		"guide.entry.listenToAReply.name":
 			"Hallgasd meg a választ vagy a dokumentumot",
 		"guide.entry.listenToAReply.line":
-			"Nyomd meg a hangszórót a válasz alatt vagy a dokumentum tetején, és kövesd a szavakat, ahogy elhangzanak.",
+			"Nyomd meg a hangszórót a válasz alatt, vagy egy dokumentum vagy jelentés tetején, és kövesd a szavakat, ahogy elhangzanak.",
 		"guide.entry.listenToAReply.example":
 			"Mesélj egy rövid történetet egy világítótorony-őrről.",
 
