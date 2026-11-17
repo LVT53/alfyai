@@ -12,15 +12,38 @@
  * nothing jumps after hydration; where the frame's inside is 330 px wide, `--u`
  * is 1px.
  *
+ * A campaign picture is drawn the same way at the size of its crop: 352 by 220
+ * for the desktop's 16:10, 198 by 352 for the phone's 9:16. It is `bare`, with
+ * no border and no rounded corners, because the campaign window frames it.
+ *
  * It is decorative (`aria-hidden`): everything a drawing shows is also said in
  * the words around it, and nothing inside it may take focus.
  */
 import type { Snippet } from "svelte";
 
-let { children = undefined }: { children?: Snippet | undefined } = $props();
+let {
+	children = undefined,
+	width = 330,
+	height = 222,
+	bare = false,
+}: {
+	children?: Snippet | undefined;
+	/** The drawing's size in design pixels. */
+	width?: number;
+	height?: number;
+	/** No border and no rounded corners: the picture's own frame draws them. */
+	bare?: boolean;
+} = $props();
 </script>
 
-<div class="drawing-frame" data-testid="drawing-frame" aria-hidden="true">
+<div
+	class="drawing-frame"
+	class:bare
+	data-testid="drawing-frame"
+	aria-hidden="true"
+	style:--design-width={width}
+	style:--design-height={height}
+>
 	<div class="drawing-stage">
 		{@render children?.()}
 	</div>
@@ -32,7 +55,7 @@ let { children = undefined }: { children?: Snippet | undefined } = $props();
 		position: relative;
 		box-sizing: border-box;
 		width: 100%;
-		aspect-ratio: 330 / 222;
+		aspect-ratio: var(--design-width) / var(--design-height);
 		overflow: hidden;
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-lg);
@@ -46,11 +69,16 @@ let { children = undefined }: { children?: Snippet | undefined } = $props();
 		user-select: none;
 	}
 
+	.drawing-frame.bare {
+		border: 0;
+		border-radius: 0;
+	}
+
 	/* The frame cannot size itself in its own container's units, so the parts
 	   live in a stage inside it. `cqw` is read where `--u` is used: by a part
 	   in the stage, whose container is the frame. */
 	.drawing-stage {
-		--u: calc(100cqw / 330);
+		--u: calc(100cqw / var(--design-width));
 		position: absolute;
 		inset: 0;
 		font-size: calc(var(--u) * 9);
