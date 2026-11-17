@@ -7,7 +7,12 @@
 // the production build. The failures of spec §4.8 are in
 // `read-aloud-failures.spec.ts`.
 import { expect, test } from "@playwright/test";
-import { expectTopmost, login, waitForMotionToSettle } from "./helpers";
+import {
+	expectTopmost,
+	login,
+	waitForHydration,
+	waitForMotionToSettle,
+} from "./helpers";
 import {
 	deleteReadAloudChat,
 	type FakeSpeechService,
@@ -160,6 +165,86 @@ function wakeReadingAudio(page: import("@playwright/test").Page) {
 		return !audio.paused && audio.currentTime > at ? "sounded" : "silent";
 	});
 }
+
+test("a reading another tab starts after the voice has finished ends this one quietly (early review R7)", async ({
+	page,
+	context,
+}) => {
+	// Two sentences: the fake makes both at once, so the service's `done` is in long before
+	// this tab has played them. The browser keeps its events stream open after `done`, so the
+	// second tab's press still reaches it.
+	const opened = await openReadAloudChat(page, [TWO_SENTENCE_REPLY]);
+	chatId = opened.chatId;
+	const ui = readAloudUi(page);
+	const failed: string[] = [];
+	page.on("response", (response) => {
+		if (response.status() >= 400 && response.url().includes("/api/read-aloud/"))
+			failed.push(
+				`${response.request().method()} ${response.url()} -> ${response.status()}`,
+			);
+	});
+	const eventsRequest = page.waitForRequest(
+		/\/api\/read-aloud\/sessions\/[^/]+\/events$/,
+	);
+	await ui.speaker().click();
+	await expect(ui.player).toBeVisible();
+	const eventsUrl = (await eventsRequest).url();
+
+	// The service has said `done`: asked again, the server's replay of the timeline ends in it.
+	await expect
+		.poll(
+			() =>
+				page.evaluate(async (url) => {
+					const abort = new AbortController();
+					const timer = setTimeout(() => abort.abort(), 4000);
+					try {
+						const reply = await fetch(url, { signal: abort.signal });
+						const reader = (reply.body as ReadableStream<Uint8Array>).getReader();
+						let seen = "";
+						while (!seen.includes("event: done")) {
+							const { done, value } = await reader.read();
+							if (done) break;
+							seen += new TextDecoder().decode(value);
+						}
+						abort.abort();
+						return seen.includes("event: done");
+					} catch {
+						return false;
+					} finally {
+						clearTimeout(timer);
+					}
+				}, eventsUrl),
+			{
+				message:
+					"the server still holds the finished reading, and its timeline ends in done",
+				timeout: 15_000,
+			},
+		)
+		.toBe(true);
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
+
+	// The same person starts a reading in another tab.
+	const other = await context.newPage();
+	try {
+		await other.goto(`/chat/${opened.chatId}`, { waitUntil: "domcontentloaded" });
+		await waitForHydration(other);
+		const otherUi = readAloudUi(other);
+		await expect(
+			other.locator(`[data-message-id="${opened.messageIds[0]}"] .markdown-container`),
+		).toContainText(/\S/, { timeout: 15_000 });
+		await otherUi.speaker().click();
+		await expect(otherUi.player).toBeVisible();
+		await expect(otherUi.speaker()).toHaveAttribute("aria-label", "Pause reading");
+
+		// This tab's reading ended with nothing said, and nothing failed on the way.
+		await expect(ui.player).toHaveCount(0);
+		await expect(ui.speaker()).toHaveAttribute("aria-label", "Read aloud");
+		await expect(ui.note).toHaveCount(0);
+		expect(failed).toEqual([]);
+	} finally {
+		await other.close();
+	}
+});
 
 test("after ✕ nothing wakes the reading: the Media Session is let go, and its old audio plays nothing", async ({
 	page,
