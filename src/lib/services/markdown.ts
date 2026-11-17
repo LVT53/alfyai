@@ -140,6 +140,33 @@ function isRenderedClass(name: string): boolean {
 	return RENDERED_CLASSES.has(name) || CALLOUT_TYPE_CLASS.test(name);
 }
 
+// marked 17 hands its renderers the Markdown as written. A character reference in it
+// (`&amp;`, `&#39;`, `&nbsp;`: a reply copies them from the pages it read) stands for its
+// character, and marked keeps the reference when it escapes text, so the browser shows the
+// character once (CommonMark). `escapeHtml` also encodes the reference's own `&`, and the
+// chat showed "&amp;" as written. This is marked's own rule (its escape without encoding).
+const MARKDOWN_TEXT_ESCAPE =
+	/[<>"']|&(?!#\d{1,7};|#[Xx][\dA-Fa-f]{1,6};|\w+;)/g;
+const HTML_ESCAPES: Readonly<Record<string, string>> = {
+	"&": "&amp;",
+	"<": "&lt;",
+	">": "&gt;",
+	'"': "&quot;",
+	"'": "&#39;",
+};
+
+/**
+ * Text taken from the Markdown (a token's words, a link's address or title, a picture's
+ * words) as HTML, escaped as marked escapes a paragraph's text. What the app writes itself
+ * (a route, a host it parsed) goes through `escapeHtml`.
+ */
+function escapeMarkdownText(text: string): string {
+	return text.replace(
+		MARKDOWN_TEXT_ESCAPE,
+		(character) => HTML_ESCAPES[character] ?? character,
+	);
+}
+
 /** What model markdown is sanitized with: in-flow content, and only our own classes. */
 const INERT_MARKUP = { allowClass: isRenderedClass };
 
@@ -619,7 +646,9 @@ function transformCalloutHtml(html: string): string {
 		) => {
 			const type = rawType.toLowerCase();
 			const fallbackTitle = type.charAt(0).toUpperCase() + type.slice(1);
-			const title = escapeHtml(rawTitle.trim() || fallbackTitle);
+			// The title is marked's HTML already: its text escaped, and no tag in it (the
+			// pattern stops at `<`). Escaped again, a "&" showed as "&amp;".
+			const title = rawTitle.trim() || fallbackTitle;
 			const body = `${firstParagraphBody.trim() ? `<p>${firstParagraphBody}</p>` : ""}${remainingBody}`;
 			return `<aside class="markdown-callout markdown-callout-${escapeHtml(type)}"><div class="markdown-callout-title">${title}</div><div class="markdown-callout-body">${body}</div></aside>`;
 		},
@@ -808,10 +837,10 @@ function renderSourceLinkChip(
 	params: { href: string; sourceName: string },
 	toolSourceHosts: ReadonlySet<string> | undefined,
 ) {
-	const sourceName = escapeHtml(params.sourceName);
-	const href = escapeHtml(params.href);
+	const sourceName = escapeMarkdownText(params.sourceName);
+	const href = escapeMarkdownText(params.href);
 	const faviconUrl = sourceFaviconUrl(params.href, toolSourceHosts);
-	const ariaLabel = escapeHtml(
+	const ariaLabel = escapeMarkdownText(
 		`Open source: ${params.sourceName} - ${params.href}`,
 	);
 
@@ -844,11 +873,11 @@ function renderBlockedImage(params: {
 }): string {
 	const host = sourceHostOf(params.href) ?? "";
 	const words = compactWhitespace(params.alt) || host;
-	const notice = escapeHtml(params.imageNotLoadedLabel(words));
+	const notice = escapeMarkdownText(params.imageNotLoadedLabel(words));
 	return [
-		`<a href="${escapeHtml(params.href)}" class="source-link-chip source-link-chip--image" target="_blank" rel="noopener noreferrer external" title="${notice}" aria-label="${notice}">`,
+		`<a href="${escapeMarkdownText(params.href)}" class="source-link-chip source-link-chip--image" target="_blank" rel="noopener noreferrer external" title="${notice}" aria-label="${notice}">`,
 		'<span class="source-link-chip__image-icon" aria-hidden="true"></span>',
-		`<span class="source-link-chip__label">${escapeHtml(words)}</span>`,
+		`<span class="source-link-chip__label">${escapeMarkdownText(words)}</span>`,
 		// A space between the two keeps them two words where no stylesheet lays them out.
 		words === host
 			? ""
@@ -876,7 +905,7 @@ function createInlineSourceReferencePattern(
 }
 
 function renderTextSegment(value: string, escaped: boolean): string {
-	return escaped ? value : escapeHtml(value);
+	return escaped ? value : escapeMarkdownText(value);
 }
 
 function renderInlineSourceReferencesInText(params: {
@@ -961,10 +990,10 @@ function createMarkdownRenderer(
 	// through the app's route). Any other web address is a link chip that is never
 	// fetched, and anything that is not a web address is only its words.
 	const imageFrame = (src: string, alt: string, title: string | undefined) => {
-		const titleAttribute = title ? ` title="${escapeHtml(title)}"` : "";
+		const titleAttribute = title ? ` title="${escapeMarkdownText(title)}"` : "";
 		return [
 			'<span class="markdown-image-frame markdown-image-frame--loading">',
-			`<img class="markdown-image" src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${titleAttribute} loading="lazy" decoding="async">`,
+			`<img class="markdown-image" src="${escapeHtml(src)}" alt="${escapeMarkdownText(alt)}"${titleAttribute} loading="lazy" decoding="async">`,
 			"</span>",
 		].join("");
 	};
@@ -976,7 +1005,7 @@ function createMarkdownRenderer(
 			return imageFrame(href, alt, title ?? undefined);
 		}
 		const key = provenanceKey(href);
-		if (key === null) return escapeHtml(alt);
+		if (key === null) return escapeMarkdownText(alt);
 		const result = policy.images.get(key);
 		if (result?.thumbnail) {
 			return imageFrame(
@@ -988,7 +1017,9 @@ function createMarkdownRenderer(
 		// Inside a link the link is the way to the address; a chip there would be a link
 		// inside a link.
 		if (linkTextDepth > 0) {
-			return escapeHtml(compactWhitespace(alt) || (sourceHostOf(href) ?? ""));
+			return escapeMarkdownText(
+				compactWhitespace(alt) || (sourceHostOf(href) ?? ""),
+			);
 		}
 		return renderBlockedImage({ href, alt, imageNotLoadedLabel });
 	};
@@ -1008,8 +1039,8 @@ function createMarkdownRenderer(
 			return renderSourceLinkChip({ href, sourceName }, policy.sourceHosts);
 		}
 
-		const titleAttribute = title ? ` title="${escapeHtml(title)}"` : "";
-		return `<a href="${escapeHtml(href)}"${titleAttribute} target="_blank" rel="noopener noreferrer external">${text}</a>`;
+		const titleAttribute = title ? ` title="${escapeMarkdownText(title)}"` : "";
+		return `<a href="${escapeMarkdownText(href)}"${titleAttribute} target="_blank" rel="noopener noreferrer external">${text}</a>`;
 	};
 	renderer.text = (token) => {
 		if (
