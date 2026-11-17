@@ -49,6 +49,12 @@ const LANGUAGES = ["en", "hu"] as const;
 type Language = (typeof LANGUAGES)[number];
 
 let settings = $state<ReadAloudVoiceSettings | null>(untrack(() => initial));
+/**
+ * Read aloud is on: the app says so once its layout has mounted, and the page's
+ * voices say so already in the server's page, so the card is drawn there and does
+ * not appear later, pushing everything below it down (the second re-walk's New 5).
+ */
+const available = $derived($readAloudAvailable || initial !== null);
 let loading = $state(false);
 let loadFailed = $state(false);
 /** The save that failed, to send again from Try again. */
@@ -219,7 +225,7 @@ function onDeleted(id: string, choice: VoiceChoice) {
 }
 </script>
 
-{#if $readAloudAvailable}
+{#if available}
 	<section class="settings-card read-aloud-card" id="settings-section-read-aloud">
 		<div class="settings-card-head">
 			<div class="settings-card-head-text">

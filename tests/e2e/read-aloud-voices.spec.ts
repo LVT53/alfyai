@@ -509,6 +509,14 @@ test("on a phone the voice rows' labels start where every other row's does", asy
 	expect(english?.x).toBeCloseTo(speed?.x ?? 0, 0);
 });
 
+test("the Read aloud card is in the server's page, so it never appears late and pushes Settings down", async ({
+	page,
+}) => {
+	const response = await page.request.get("/settings");
+	expect(response.ok()).toBe(true);
+	expect(await response.text()).toContain('id="settings-section-read-aloud"');
+});
+
 test("Settings brings the saved voices with the page: the card draws them at once and does not grow", async ({
 	page,
 }) => {

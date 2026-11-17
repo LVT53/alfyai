@@ -363,6 +363,17 @@ describe("ReadAloudSettingsCard", () => {
 		expect(vi.mocked(t.preview.stop).mock.calls.length).toBe(stops + 1);
 	});
 
+	it("is drawn from the page's voices before the app says read aloud is on (the server's page)", () => {
+		setReadAloudAvailable(false);
+		const { container } = render(ReadAloudSettingsCard, {
+			props: { preview: fakePreview(), initial: settings() },
+		});
+		expect(
+			container.querySelector("#settings-section-read-aloud"),
+		).toBeTruthy();
+		expect(fetchReadAloudVoices).not.toHaveBeenCalled();
+	});
+
 	it("draws the voices the page brought in its first paint, with no load to wait for", () => {
 		const preview = fakePreview();
 		render(ReadAloudSettingsCard, {
