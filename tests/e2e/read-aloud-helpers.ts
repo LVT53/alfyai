@@ -119,14 +119,15 @@ export async function seedReadAloudChat(
 /**
  * Five sentences of English, so that reading to the end needs the position
  * reports: the fake holds sentence i until `i <= position + 2`, so the fourth
- * and the fifth only come once the browser says where it is.
+ * and the fifth only come once the browser says where it is. Each is over fifty
+ * characters, or the script would join it to its neighbour (short-sentences.ts).
  */
 export const FIVE_SENTENCE_REPLY =
-	"The garden gate opens at dawn. Small birds gather on the old stone wall. A cat watches them quietly from the porch. Later the sun climbs above the tall trees. The whole street smells of fresh bread.";
+	"The garden gate opens at dawn, and the first light touches the grass. Small birds gather on the old stone wall, and they sing until the sun is up. A cat watches them quietly from the porch, but she never moves from her place. Later the sun climbs above the tall trees, and the whole garden turns warm and gold. The whole street smells of fresh bread, and the baker waves from his open door.";
 
-/** Two sentences of English. */
+/** Two sentences of English, each over fifty characters. */
 export const TWO_SENTENCE_REPLY =
-	"The kettle is on the stove. Tea will be ready very soon.";
+	"The kettle is on the stove, and the water inside it is nearly boiling. Tea will be ready very soon, so please put the cups out on the table.";
 
 /** A language that has no voice: the speaker is dimmed with a note. */
 export const GERMAN_REPLY =

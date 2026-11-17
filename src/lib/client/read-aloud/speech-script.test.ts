@@ -151,9 +151,9 @@ describe("buildSpeechScript", () => {
 				"<p>Call <code>getUserName()</code>. Then use <code>=&gt;</code> and <code>{}</code> here.</p>",
 			),
 		);
+		// Two short sentences of one paragraph are one unit (short-sentences.ts).
 		expect(script.sentences.map((s) => s.tokens)).toEqual([
-			["Call", "get", "User", "Name."],
-			["Then", "use", "arrow", "and", "here."],
+			["Call", "get", "User", "Name.", "Then", "use", "arrow", "and", "here."],
 		]);
 		const first = script.sentences[0];
 		expect(first?.ranges[1]).toBe(first?.ranges[2]);
@@ -312,7 +312,7 @@ describe("buildSpeechScript", () => {
 	it("never ends a sentence after a number or a listed abbreviation", () => {
 		const script = build(
 			reply(
-				"<p>A vásár 2026. november 16. Hétfőn nyit. Pl. Kenyér is lesz.</p>",
+				"<p>A vásár 2026. november 16. hétfőn nyit a főtéren, és egész nap tart. Pl. kenyér, sajt és friss gyümölcs is lesz a standokon.</p>",
 			),
 		);
 		expect(script.sentences).toHaveLength(2);
@@ -566,18 +566,69 @@ describe("buildSpeechScript", () => {
 	it("splits sentences with Intl.Segmenter in the paragraph's language", () => {
 		const script = build(
 			reply(
-				"<p>It rises in an hour. Then it bakes for forty minutes! Is it done yet?</p>",
+				"<p>It rises in an hour when the kitchen is warm enough for the yeast. Then it bakes for forty minutes, and the whole house smells of bread! Is it done yet, or should we give it another few minutes in the oven?</p>",
 			),
 		);
 		expect(script.sentences.map((s) => s.text)).toEqual([
-			"It rises in an hour.",
-			"Then it bakes for forty minutes!",
-			"Is it done yet?",
+			"It rises in an hour when the kitchen is warm enough for the yeast.",
+			"Then it bakes for forty minutes, and the whole house smells of bread!",
+			"Is it done yet, or should we give it another few minutes in the oven?",
 		]);
 		expect(script.sentences.map((s) => s.paragraphStart)).toEqual([
 			true,
 			false,
 			false,
+		]);
+	});
+
+	it("joins a sentence under fifty characters to the next one of its paragraph, each word keeping its range", () => {
+		const root = reply(
+			"<p>Sure. Here is the file you asked for, with every change we talked about.</p>",
+		);
+		const script = build(root);
+		expect(script.sentences).toHaveLength(1);
+		const [sentence] = script.sentences;
+		expect(sentence?.text).toBe(
+			"Sure. Here is the file you asked for, with every change we talked about.",
+		);
+		expect(sentence?.paragraphStart).toBe(true);
+		expect(sentence?.ranges[0]?.toString()).toBe("Sure.");
+		expect(sentence?.ranges[1]?.toString()).toBe("Here");
+		// A point in the second part is in the one unit: Read from here starts at its start.
+		const text = root.querySelector("p")?.firstChild as Text;
+		expect(sentenceAtPoint(script, text, text.data.indexOf("Here"))).toBe(0);
+	});
+
+	it("joins the last sentence of a paragraph, if it is short, to the one before it", () => {
+		const script = build(
+			reply(
+				"<p>This sentence is long enough to stand alone in the script on its own. Thanks a lot.</p>",
+			),
+		);
+		expect(script.sentences).toHaveLength(1);
+		expect(script.sentences[0]?.text.endsWith(" Thanks a lot.")).toBe(true);
+	});
+
+	it("keeps a short sentence of its own paragraph, a heading and a long neighbour apart", () => {
+		const script = build(
+			reply(
+				"<h2>A short title here</h2><p>Right, that works.</p><p>This paragraph is long enough to be a sentence of its own, really.</p>",
+			),
+		);
+		expect(script.sentences.map((s) => s.text)).toEqual([
+			"A short title here.",
+			"Right, that works.",
+			"This paragraph is long enough to be a sentence of its own, really.",
+		]);
+	});
+
+	it("never joins into a unit the script would have to split again", () => {
+		// A capital after the full stop, or Intl.Segmenter finds no sentence boundary there.
+		const long = `Word ${"word ".repeat(43)}end.`; // 224 characters
+		const script = build(reply(`<p>A short one here. ${long}</p>`));
+		expect(script.sentences.map((s) => s.text.length)).toEqual([
+			"A short one here.".length,
+			long.length,
 		]);
 	});
 
@@ -712,7 +763,7 @@ describe("buildSpeechScript", () => {
 describe("sentenceAtPoint", () => {
 	it("finds the sentence holding a selection's start", () => {
 		const root = reply(
-			"<p>The first sentence is here. The second one is here.</p><table><tbody><tr><td>cell</td></tr></tbody></table><p>The third one ends it.</p>",
+			"<p>The first sentence is here, and it is long enough to stand alone. The second one is here too, and it is just as long as the first one.</p><table><tbody><tr><td>cell</td></tr></tbody></table><p>The third one ends it, and it is the last sentence of the reply.</p>",
 		);
 		const script = build(root);
 		const [p1, , p2] = [...root.querySelectorAll("p, table")];

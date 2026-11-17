@@ -223,7 +223,7 @@ The spoken text is built from the reply **as rendered on screen**, never from it
 
 **Sentences:**
 - **Splitting:** with `Intl.Segmenter` in the paragraph's language. A period after a number ("2026. november 16.", "3. fejezet") or after an abbreviation from the lists above never ends a sentence.
-- **Short sentences:** a sentence of one or two words joins the next one, because Zonos misfires on them.
+- **Short sentences:** a sentence of one or two words joins the next one, because Zonos misfires on them. Since 2026-11-17 (the owner's call, after measuring: Zonos stalls or goes on speaking past a short text) a sentence under about 50 written characters joins the next one of its paragraph, or the one before when it is the paragraph's last; never across a paragraph, a heading or a language, and never into a unit over the 240-character split. The tint covers the joined unit; word marks stay per word.
 - **Long sentences:** a sentence over 240 characters is split at a comma or semicolon. Measured on the box, that keeps every clip under 30 s even at the slowest Pace.
 - **One set of boundaries** drives the notches, the tint and Read from here.
 

@@ -15,6 +15,7 @@ import {
 	type WordKind,
 } from "$lib/shared/read-aloud/spoken-forms";
 import { assignLanguages, type Detect, isVoiced } from "./language";
+import { joinShortSentences } from "./short-sentences";
 
 type Voiced = "en" | "hu";
 
@@ -190,7 +191,9 @@ export function buildSpeechScript(
 		drafts.push(...made);
 	});
 
-	const sentences = finish(splitLong(mergeShort(drafts)));
+	const sentences = finish(
+		splitLong(joinShortSentences(mergeShort(drafts), LONG_SENTENCE_CHARS)),
+	);
 	const totalChars = sentences.reduce((sum, s) => sum + s.chars, 0);
 	if (sentences.length > 0)
 		return {

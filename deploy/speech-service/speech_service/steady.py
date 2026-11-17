@@ -21,8 +21,9 @@ of three to sixteen characters in Berta's and Imre's voices came out far longer 
 few words was read with a sentence the text never held after it. The guard sees that by the length
 alone, so an addition inside a long sentence passes it (only a speech recognizer would hear that
 one). The retries mend what they can, but at those rates most chains of four fail too: the cure is
-not to send so little text. A sentence of 50 characters or more stalls in about one clip in a
-hundred, one of 40 to 49 in about one in fourteen.
+not to send so little text, and the speech script no longer does (`src/lib/client/read-aloud/short-
+sentences.ts` joins a sentence under 50 characters to a neighbour). A sentence of 50 characters or
+more stalls in about one clip in a hundred, one of 40 to 49 in about one in fourteen.
 
 The seeds are the caller's seed and then steps of `SEED_STEP` from it, so a reading is as repeatable
 as one with no guard: the same sentence in the same voice stalls or not, and is mended, the same way
