@@ -201,6 +201,19 @@ describe("buildSpeechScript", () => {
 		expect(spoken).toContain("The formula holds and too as noted");
 	});
 
+	it("reads a snake_case name in brackets, which is no formula", () => {
+		// The fix verification's P2: "_" marks a formula only before a digit or "{".
+		const script = build(
+			reply(
+				"<p>Open the file (config_file.json) and set (MAX_SIZE) to ten, as (a_1 + a_{n}) says.</p>",
+			),
+		);
+		const spoken = bare(tokensOf(script)).toLowerCase();
+		expect(spoken).toContain("config");
+		expect(spoken).toContain("max");
+		expect(spoken).not.toMatch(/a_1|a_\{n\}/);
+	});
+
 	it("drops HTML entities the chat shows as written", () => {
 		const script = build(
 			reply(

@@ -110,10 +110,11 @@ const TEX_BRACKETS = /\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]/gu;
 /**
  * `\(…\)` and `\[…\]` as the chat shows them: marked reads `\(` and `\[` as escapes, so
  * the page holds "(x^2 + y^2)" in plain brackets. A bracketed run with a TeX mark in it
- * (`\ ^ _ { }`) is a formula (early review R13); "(a = b)" in prose is still read.
+ * (`\ ^ { }`, or "_" before a digit or "{") is a formula (early review R13); "(a = b)"
+ * and "(config_file.json)" in prose are still read (the fix verification's P2).
  */
 const TEX_PLAIN_BRACKETS =
-	/\((?=[^()\n]*[\\^_{}])[^()\n]*\)|\[(?=[^[\]]*[\\^_{}])[^[\]]*\]/gu;
+	/\((?=[^()\n]*(?:[\\^{}]|_[\d{]))[^()\n]*\)|\[(?=[^[\]]*(?:[\\^{}]|_[\d{]))[^[\]]*\]/gu;
 /**
  * An HTML entity the chat shows as written (`&amp;`, `&#169;`: it does for some replies): markup,
  * never said, and decoded away by the containment check, so its letters must not be sent.
