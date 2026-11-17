@@ -189,6 +189,55 @@ describe("ReadFromHere", () => {
 		await vi.waitFor(() => expect(pill()?.style.top).toBe("586px"));
 	});
 
+	it("never appears under the pointer, so its press is deliberate", async () => {
+		// The pill is 36 px tall and 120 wide; the window is 768 tall, the composer 100.
+		const realBox = HTMLElement.prototype.getBoundingClientRect;
+		vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+			function (this: HTMLElement) {
+				if (this.classList.contains("read-from-here"))
+					return rect(0, 0, 36, 120);
+				return realBox.call(this);
+			},
+		);
+		const controller = fakeController(() => ({ kind: "ready" }));
+		render(ReadFromHere, {
+			props: { conversationId: "c1", composerHeight: 100, controller },
+		});
+		const text = document.getElementById("reply")?.firstChild as Text;
+		const lineAt = (top: number) =>
+			Object.defineProperty(Range.prototype, "getClientRects", {
+				configurable: true,
+				value: () => [rect(top)],
+			});
+		const pointerUp = (x: number, y: number) =>
+			document.dispatchEvent(
+				new PointerEvent("pointerup", {
+					clientX: x,
+					clientY: y,
+					bubbles: true,
+				}),
+			);
+
+		// The selection ends with the pointer where the pill would sit above it: it goes below.
+		lineAt(300);
+		pointerUp(100, 270);
+		select(text, 4, 9);
+		await vi.waitFor(() => expect(pill()?.style.top).toBe("328px"));
+
+		// No room below (the composer), so it stays above, under the pointer: it takes no
+		// press until the pointer has left it.
+		lineAt(600);
+		pointerUp(100, 570);
+		select(text, 4, 10);
+		await vi.waitFor(() => expect(pill()?.style.top).toBe("556px"));
+		// A mouse's click (detail 1); a keyboard's (detail 0) is always deliberate.
+		await fireEvent.click(pill() as HTMLButtonElement, { detail: 1 });
+		expect(controller.start).not.toHaveBeenCalled();
+		await fireEvent.pointerLeave(pill() as HTMLButtonElement);
+		await fireEvent.click(pill() as HTMLButtonElement, { detail: 1 });
+		expect(controller.start).toHaveBeenCalledTimes(1);
+	});
+
 	it("starts reading at the selection's sentence", async () => {
 		const controller = readFromHere();
 		const text = document.getElementById("reply")?.firstChild as Text;

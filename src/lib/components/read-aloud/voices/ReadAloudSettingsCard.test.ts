@@ -344,6 +344,60 @@ describe("ReadAloudSettingsCard", () => {
 		expect(screen.getByRole("dialog", { name: "Edit voice" })).toBeTruthy();
 	});
 
+	it("opening the editor stops a sample playing from the card: one sound at a time", async () => {
+		const t = await card(
+			settings({
+				voices: [BEDTIME_SAVANNAH],
+				choice: { en: "v1", hu: "berta" },
+			}),
+		);
+		await fireEvent.click(screen.getByRole("button", { name: "New voice" }));
+		expect(t.preview.stop).toHaveBeenCalledTimes(1);
+		await fireEvent.click(
+			screen.getAllByRole("button", { name: "Close" })[0] as HTMLElement,
+		);
+		const stops = vi.mocked(t.preview.stop).mock.calls.length;
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Edit Bedtime Savannah" }),
+		);
+		expect(vi.mocked(t.preview.stop).mock.calls.length).toBe(stops + 1);
+	});
+
+	it("is drawn from the page's voices before the app says read aloud is on (the server's page)", () => {
+		setReadAloudAvailable(false);
+		const { container } = render(ReadAloudSettingsCard, {
+			props: { preview: fakePreview(), initial: settings() },
+		});
+		expect(
+			container.querySelector("#settings-section-read-aloud"),
+		).toBeTruthy();
+		expect(fetchReadAloudVoices).not.toHaveBeenCalled();
+	});
+
+	it("draws the voices the page brought in its first paint, with no load to wait for", () => {
+		const preview = fakePreview();
+		render(ReadAloudSettingsCard, {
+			props: {
+				preview,
+				initial: settings({
+					voices: [BEDTIME_SAVANNAH],
+					choice: { en: "v1", hu: "berta" },
+				}),
+			},
+		});
+		expect(fetchReadAloudVoices).not.toHaveBeenCalled();
+		expect(
+			within(screen.getByRole("list")).getByText("Bedtime Savannah"),
+		).toBeTruthy();
+		expect(
+			(
+				screen.getByRole("combobox", {
+					name: "English voice",
+				}) as HTMLSelectElement
+			).value,
+		).toBe("v1");
+	});
+
 	it("a saved voice joins the list and its picker group", async () => {
 		const t = await card();
 		await fireEvent.click(screen.getByRole("button", { name: "New voice" }));

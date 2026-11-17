@@ -444,3 +444,108 @@ describe("spoken forms: code the early review found misread", () => {
 		expect(speakWord("List<T>", "code", "en")).toEqual(["List", "of", "T"]);
 	});
 });
+
+describe("spoken forms: simple math (the owner's staging find, 2026-11-17)", () => {
+	const math = (shown: string, language: "en" | "hu") =>
+		speakWord(shown, "math", language);
+
+	it("reads the owner's sum: its numbers whole, € as their currency, in each language's way", () => {
+		const sum = "(€4{,}341.0505 \\times 0.88 = €3{,}820.12444)";
+		// "{,}" is a thousands separator; each number goes to the speech service's
+		// normalizer whole, written the way its language's normalizer reads it.
+		expect(math(sum, "en")).toEqual([
+			"€4341.0505",
+			"times",
+			"0.88",
+			"equals",
+			"€3820.12444",
+		]);
+		expect(math(sum, "hu")).toEqual([
+			"4341,0505",
+			"€",
+			"szorozva",
+			"0,88",
+			"egyenlő",
+			"3820,12444",
+			"€",
+		]);
+	});
+
+	it("reads the common operators, fractions, powers and roots", () => {
+		const cases: Array<[tex: string, en: string, hu: string]> = [
+			["a \\cdot b", "a times b", "a szorozva b"],
+			["a \\div b", "a divided by b", "a osztva b"],
+			["a + b - c", "a plus b minus c", "a plusz b mínusz c"],
+			["\\frac{a}{b}", "a over b", "a per b"],
+			["x^2", "x squared", "x négyzet"],
+			["x^{3}", "x cubed", "x köb"],
+			["x^{n}", "x to the power of n", "x az n-edik hatványon"],
+			["2^{10}", "2 to the power of 10", "2 a 10. hatványon"],
+			["5^{5}", "5 to the power of 5", "5 az 5. hatványon"],
+			["\\sqrt{x}", "the square root of x", "négyzetgyök x"],
+			["50\\%", "50%", "50%"],
+			["\\pi \\approx 3.14", "", ""],
+			["x \\approx 3.14", "x approximately 3.14", "x körülbelül 3,14"],
+			["E = mc^2", "E equals m c squared", "E egyenlő m c négyzet"],
+		];
+		for (const [tex, en, hu] of cases) {
+			expect(math(tex, "en").join(" "), tex).toBe(en);
+			expect(math(tex, "hu").join(" "), tex).toBe(hu);
+		}
+	});
+
+	it("reads plain arithmetic's money, thousands, decimal commas and letters the way each language's normalizer reads them (the third re-walk's New 4)", () => {
+		// A "," before three digits groups thousands, as "{,}" does in TeX: the Hungarian
+		// normalizer reads "1,000" as a decimal. A single "," before other than three
+		// digits is a decimal comma, which the English normalizer reads as "one,five".
+		const cases: Array<[shown: string, en: string, hu: string]> = [
+			[
+				"€10 + €5 = €15",
+				"€10 plus €5 equals €15",
+				"10 € plusz 5 € egyenlő 15 €",
+			],
+			[
+				"1,000 + 2,000 = 3,000",
+				"1000 plus 2000 equals 3000",
+				"1000 plusz 2000 egyenlő 3000",
+			],
+			[
+				"1,5 + 2,25 = 3,75",
+				"1.5 plus 2.25 equals 3.75",
+				"1,5 plusz 2,25 egyenlő 3,75",
+			],
+			["x = 5", "x equals 5", "x egyenlő 5"],
+			["x + 2 = 7", "x plus 2 equals 7", "x plusz 2 egyenlő 7"],
+		];
+		for (const [shown, en, hu] of cases) {
+			expect(math(shown, "en").join(" "), shown).toBe(en);
+			expect(math(shown, "hu").join(" "), shown).toBe(hu);
+		}
+		// A "." stays as written: each normalizer reads it its own way (in
+		// Hungarian "1.000" is a thousand and "3.75" a decimal).
+		expect(math("1.000 + 2.000 = 3.000", "hu").join(" ")).toBe(
+			"1.000 plusz 2.000 egyenlő 3.000",
+		);
+		expect(math("3.75 + 1.25 = 5", "en").join(" ")).toBe(
+			"3.75 plus 1.25 equals 5",
+		);
+		// In TeX, "{,}" still groups and a bare "," still only pauses.
+		expect(math("$f(1,2) = 3$", "en").join(" ")).toBe("f 1, 2 equals 3");
+	});
+
+	it("reads nothing it does not know: the formula stays skipped", () => {
+		for (const tex of [
+			"\\int_0^1 f(x)\\,dx",
+			"\\sum_{i=1}^{n} i",
+			"\\sqrt[3]{x}",
+			"x_1 + x_2",
+			"\\frac{a}{b",
+		])
+			expect(math(tex, "en"), tex).toEqual([]);
+	});
+
+	it("takes off the delimiters the page may show: $…$, \\(…\\) and plain brackets", () => {
+		for (const shown of ["$x^2$", "\\(x^2\\)", "(x^2)", "$$x^2$$", "\\[x^2\\]"])
+			expect(math(shown, "en"), shown).toEqual(["x", "squared"]);
+	});
+});

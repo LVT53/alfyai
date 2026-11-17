@@ -10,6 +10,7 @@
 import {
 	codeKindOf,
 	isSeparator,
+	isSimpleMath,
 	keepsSentenceOpen,
 	MAX_TOKEN_CHARS,
 	speakWord,
@@ -34,6 +35,12 @@ export type ScriptSentence = {
 	index: number;
 	language: Voiced;
 	paragraphStart: boolean;
+	/**
+	 * It goes on from the sentence before: a written sentence over
+	 * {@link LONG_SENTENCE_CHARS} split for the voice. Read from here never starts
+	 * at one (`sentenceAtPoint`): the voice makes words up from a short fragment.
+	 */
+	continues: boolean;
 	words: ScriptWord[];
 	/** The words' tokens in order, pause marks included. */
 	tokens: string[];
@@ -121,6 +128,35 @@ const TEX_BRACKETS = /\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]/gu;
 const TEX_PLAIN_BRACKETS =
 	/\((?=[^()\n]*(?:[\\^{}]|_[\d{]))[^()\n]*\)|\[(?=[^[\]]*(?:[\\^{}]|_[\d{]))[^[\]]*\]/gu;
 /**
+ * Plain arithmetic in a sentence (the second and third re-walks' New 4): numbers or
+ * single letters joined by spaced operators, bracketed or not ("3 + 4 = 7",
+ * "(12 − 5 = 7)", "€10 + €5 = €15", "1,5 + 2,25 = 3,75", "x + 2 = 7"). A number may
+ * group its thousands, carry a decimal comma or point, and have a € or £ before or
+ * after it or a % after it. It is read as simple math only when it holds an operator
+ * other than "-", "–" and "/" (`ARITHMETIC_SIGN`): between two numbers alone, those are a
+ * range or a date ("2026 - 2027"), and an en dash there is the dash's pause. In a sum an
+ * en dash is a minus ("12 – 5 = 7"), never the dash's pause (Track A's dashes, merged).
+ */
+const ARITHMETIC_OPERAND = String.raw`(?:[-\u2212]?[€£]?\d+(?:[.,]\d+)*(?:[ \u00a0\u202f]?[%€£])?|[A-Za-z])`;
+const ARITHMETIC_RUN = String.raw`${ARITHMETIC_OPERAND}(?:\s+[-\u2212\u2013+×·÷/=≈≠*]\s+${ARITHMETIC_OPERAND})+`;
+const ARITHMETIC = new RegExp(
+	String.raw`(?<![\p{L}\p{N}_.,€£])(?:\(${ARITHMETIC_RUN}\)|${ARITHMETIC_RUN})(?![\p{L}\p{N}_€£%])`,
+	"gu",
+);
+const ARITHMETIC_SIGN = /\s[+×·÷=≈≠*\u2212]\s/u;
+/**
+ * A sum that touches another spaced operator goes on past what can be read ("total =
+ * 3 + 4", "2x - 3 = 7"): the whole of it is left to the prose's reading, as before,
+ * never its tail alone. A "-", "–" or "/" counts only beside a word with a digit in it:
+ * beside a plain word it is a dash ("3 + 4 = 7 - that is all").
+ */
+const ARITHMETIC_GOES_ON_BEFORE =
+	/(?:[+×·÷=≈≠*\u2212]|(?:^|\s)\S*\p{N}\S*\s+[-\u2013/])\s+$/u;
+const ARITHMETIC_GOES_ON_AFTER =
+	/^\s+(?:[+×·÷=≈≠*\u2212](?:\s|$)|[-\u2013/]\s+\S*\p{N})/u;
+/** How far around a sum `ARITHMETIC_GOES_ON_*` look. */
+const ARITHMETIC_REACH = 24;
+/**
  * An HTML entity the chat shows as written (`&amp;`, `&#169;`: it does for some replies): markup,
  * never said, and decoded away by the containment check, so its letters must not be sent.
  */
@@ -146,6 +182,8 @@ type DraftWord = ScriptWord & { start: number; heading: boolean };
 type Draft = {
 	language: Voiced;
 	paragraphStart: boolean;
+	/** A part after the first of a split sentence. */
+	continues?: boolean;
 	words: DraftWord[];
 	/** The paragraph (or code line) the draft's last part came from: a join across two of them adds a pause mark. */
 	unit: string;
@@ -163,7 +201,9 @@ export function buildSpeechScript(
 	const paragraphs = roots.flatMap((root) =>
 		collectParagraphs(root, options.readBlock ?? null),
 	);
-	const views = paragraphs.map(spokenView);
+	const spoken = paragraphs.map(spokenView);
+	// The language is told from the words: a formula read as math is left out of it.
+	const views = spoken.map((part) => part.detect);
 	const codes = assignLanguages(
 		paragraphs.map((p, i) => (p.code === null ? (views[i] ?? "") : "")),
 		detect,
@@ -188,10 +228,25 @@ export function buildSpeechScript(
 			}
 			return;
 		}
+		const said = spoken[index] ?? { view, math: [] };
 		const made =
 			paragraph.code === null
-				? proseDrafts(paragraph, view, language, `${index}`, numbered, lists)
-				: codeDrafts(paragraph, view, paragraph.code, language, `${index}`);
+				? proseDrafts(
+						paragraph,
+						said.view,
+						said.math,
+						language,
+						`${index}`,
+						numbered,
+						lists,
+					)
+				: codeDrafts(
+						paragraph,
+						said.view,
+						paragraph.code,
+						language,
+						`${index}`,
+					);
 		if (made.length > 0) anyWord = true;
 		drafts.push(...made);
 	});
@@ -224,10 +279,24 @@ export function buildSpeechScript(
 }
 
 /**
- * The sentence holding the point (from its first word's start up to its last word's end, which
- * belongs to what follows), else the first one after it; null when the point is after every sentence.
+ * Where Read from here starts: the sentence holding the point (from its first word's start up to
+ * its last word's end, which belongs to what follows), else the first one after it; null when the
+ * point is after every sentence. A part of a split sentence gives the sentence's first part, so a
+ * reading never starts with a fragment of one (the voice makes words up from a short one).
  */
 export function sentenceAtPoint(
+	script: SpeechScript,
+	node: Node,
+	offset: number,
+): number | null {
+	const found = sentenceHoldingPoint(script, node, offset);
+	if (found === null) return null;
+	let index = found;
+	while (index > 0 && script.sentences[index]?.continues) index -= 1;
+	return index;
+}
+
+function sentenceHoldingPoint(
 	script: SpeechScript,
 	node: Node,
 	offset: number,
@@ -400,11 +469,28 @@ function collectParagraphs(
 // The spoken view: characters replaced by spaces, never removed, so every offset holds
 // ---------------------------------------------------------------------------
 
-function spokenView(paragraph: Paragraph): string {
+/** Where a formula read as simple math sits in a paragraph: one `math` word, its spaces and all. */
+type MathSpan = { start: number; end: number };
+
+/**
+ * What is said of a paragraph (`view`), the formulas in it read as simple math
+ * (`math`), and the view with those formulas blanked too, to tell its language by
+ * (`detect`). A formula that is not simple math is blanked in both, as it always was.
+ */
+function spokenView(paragraph: Paragraph): {
+	view: string;
+	detect: string;
+	math: MathSpan[];
+} {
 	const chars = [...paragraph.chars];
 	const text = chars.join("");
+	const math: MathSpan[] = [];
 	const blank = (from: number, to: number) => {
 		for (let i = from; i < to; i++) chars[i] = " ";
+	};
+	const formula = (from: number, to: number) => {
+		if (isSimpleMath(text.slice(from, to))) math.push({ start: from, end: to });
+		else blank(from, to);
 	};
 	const touchesCode = (from: number, to: number) => {
 		for (let i = from; i < to; i++)
@@ -416,22 +502,77 @@ function spokenView(paragraph: Paragraph): string {
 			blank(match.index, match.index + match[0].length);
 	}
 	if (paragraph.code === null) {
+		// Citation and footnote marks first: "[^note]" is never a formula.
+		const marks: MathSpan[] = [];
+		for (const match of text.matchAll(CITATION)) {
+			const end = match.index + match[0].length;
+			if (touchesCode(match.index, end)) continue;
+			blank(match.index, end);
+			marks.push({ start: match.index, end });
+		}
+		const taken = (start: number, end: number) =>
+			[...marks, ...math].some((span) => span.start < end && start < span.end);
 		for (const match of text.matchAll(TEX_DOLLARS)) {
+			const end = match.index + match[0].length;
 			if (
 				TEX_SPECIAL.test(match[0]) &&
-				!touchesCode(match.index, match.index + match[0].length)
-			) {
-				blank(match.index, match.index + match[0].length);
+				!touchesCode(match.index, end) &&
+				!taken(match.index, end)
+			)
+				formula(match.index, end);
+		}
+		for (const pattern of [TEX_BRACKETS, TEX_PLAIN_BRACKETS]) {
+			for (const match of text.matchAll(pattern)) {
+				const end = match.index + match[0].length;
+				if (!touchesCode(match.index, end) && !taken(match.index, end))
+					formula(match.index, end);
 			}
 		}
-		for (const pattern of [TEX_BRACKETS, TEX_PLAIN_BRACKETS, CITATION]) {
-			for (const match of text.matchAll(pattern)) {
-				if (!touchesCode(match.index, match.index + match[0].length))
-					blank(match.index, match.index + match[0].length);
-			}
+		// Plain arithmetic: read as math when it is, else left to the prose's own reading.
+		for (const match of text.matchAll(ARITHMETIC)) {
+			const end = match.index + match[0].length;
+			const before = text.slice(
+				Math.max(0, match.index - ARITHMETIC_REACH),
+				match.index,
+			);
+			const after = text.slice(end, end + ARITHMETIC_REACH);
+			if (
+				ARITHMETIC_SIGN.test(match[0]) &&
+				!ARITHMETIC_GOES_ON_BEFORE.test(before) &&
+				!ARITHMETIC_GOES_ON_AFTER.test(after) &&
+				!touchesCode(match.index, end) &&
+				!taken(match.index, end) &&
+				isSimpleMath(match[0])
+			)
+				math.push({ start: match.index, end });
 		}
 	}
-	return chars.join("");
+	math.sort((a, b) => a.start - b.start);
+	const view = chars.join("");
+	const detect = [...chars];
+	for (const span of math)
+		for (let i = span.start; i < span.end; i++) detect[i] = " ";
+	return { view, detect: detect.join(""), math };
+}
+
+/** The word spans of [from, to), each formula in `math` one span, its spaces and all. */
+function spansWithMath(
+	view: string,
+	atoms: ReadonlyArray<Element | null>,
+	math: readonly MathSpan[],
+): Array<{ start: number; end: number; math: boolean }> {
+	const spans: Array<{ start: number; end: number; math: boolean }> = [];
+	let from = 0;
+	for (const span of math) {
+		if (span.start < from) continue;
+		for (const word of wordSpans(view, atoms, from, span.start))
+			spans.push({ ...word, math: false });
+		spans.push({ start: span.start, end: span.end, math: true });
+		from = span.end;
+	}
+	for (const word of wordSpans(view, atoms, from, view.length))
+		spans.push({ ...word, math: false });
+	return spans;
 }
 
 // ---------------------------------------------------------------------------
@@ -612,16 +753,19 @@ function listNumberOf(
 function proseWords(
 	paragraph: Paragraph,
 	view: string,
+	math: readonly MathSpan[],
 	language: Voiced,
 	numbered: Set<Element>,
 ): DraftWord[] {
 	const words: DraftWord[] = [];
-	const spans = wordSpans(view, paragraph.atoms, 0, view.length);
-	for (const [index, { start, end }] of spans.entries()) {
-		const atom = paragraph.atoms[start] ?? null;
+	const spans = spansWithMath(view, paragraph.atoms, math);
+	for (const [index, span] of spans.entries()) {
+		const { start, end } = span;
+		const atom = span.math ? null : (paragraph.atoms[start] ?? null);
 		const inCode = atom?.tagName === "CODE";
-		const kind: WordKind =
-			inCode && atom
+		const kind: WordKind = span.math
+			? "math"
+			: inCode && atom
 				? codeKindOf("", firstWordOf(atom.textContent ?? ""))
 				: "prose";
 		let shown = view.slice(start, end);
@@ -716,12 +860,13 @@ function listOf(
 function proseDrafts(
 	paragraph: Paragraph,
 	view: string,
+	math: readonly MathSpan[],
 	language: Voiced,
 	unit: string,
 	numbered: Set<Element>,
 	lists: Map<Element, string>,
 ): Draft[] {
-	const words = proseWords(paragraph, view, language, numbered);
+	const words = proseWords(paragraph, view, math, language, numbered);
 	if (words.length === 0) return [];
 	const list = listOf(paragraph, lists);
 	const starts = sentenceStarts(view, language);
@@ -861,6 +1006,7 @@ function splitLong(drafts: readonly Draft[]): Draft[] {
 				...draft,
 				words: words.slice(0, cut + 1),
 				paragraphStart: first && draft.paragraphStart,
+				continues: !first,
 			});
 			words = words.slice(cut + 1);
 			first = false;
@@ -869,6 +1015,7 @@ function splitLong(drafts: readonly Draft[]): Draft[] {
 			...draft,
 			words,
 			paragraphStart: first && draft.paragraphStart,
+			continues: !first,
 		});
 	}
 	return out;
@@ -920,6 +1067,7 @@ function finish(drafts: readonly Draft[]): ScriptSentence[] {
 			index,
 			language: draft.language,
 			paragraphStart: draft.paragraphStart,
+			continues: draft.continues === true,
 			words,
 			tokens,
 			ranges,

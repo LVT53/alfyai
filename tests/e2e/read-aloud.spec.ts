@@ -99,6 +99,182 @@ test("no syntax reaches the voice, and code is read the way a teacher says it", 
 	expect(tokens.join(" ")).not.toContain("forty-two");
 });
 
+test("plain arithmetic in a sentence is read with its operators", async ({
+	page,
+}) => {
+	const ui = await open(page, [
+		"We know that 3 + 4 = 7 and 12 - 5 = 7 here. So €10 + €5 = €15 and 1,000 + 2,000 = 3,000, and x + 2 = 7 for x.",
+	]);
+	await ui.speaker().click();
+	await expect.poll(() => fake.sessions.length, { timeout: 15_000 }).toBe(1);
+	const tokens = spokenTokens(fake);
+	expect(hasRun(tokens, ["3", "plus", "4", "equals", "7"])).toBe(true);
+	expect(hasRun(tokens, ["12", "minus", "5", "equals", "7"])).toBe(true);
+	// Money, thousands and a letter (the third re-walk's New 4); the session route
+	// checks every one of these tokens, so the reading starts only if they fit.
+	expect(hasRun(tokens, ["€10", "plus", "€5", "equals", "€15"])).toBe(true);
+	expect(hasRun(tokens, ["1000", "plus", "2000", "equals", "3000"])).toBe(true);
+	expect(hasRun(tokens, ["x", "plus", "2", "equals", "7"])).toBe(true);
+});
+
+test("a Hungarian sum is read in Hungarian, its money and decimal commas too", async ({
+	page,
+}) => {
+	const ui = await open(page, [
+		"Tehát €10 + €5 = €15 összesen, és 1,5 + 2,25 = 3,75 is igaz, valamint az x + 2 = 7 egyenlet megoldása könnyű.",
+	]);
+	await ui.speaker().click();
+	await expect.poll(() => fake.sessions.length, { timeout: 15_000 }).toBe(1);
+	const tokens = spokenTokens(fake);
+	expect(
+		hasRun(tokens, ["10", "€", "plusz", "5", "€", "egyenlő", "15", "€"]),
+	).toBe(true);
+	expect(hasRun(tokens, ["1,5", "plusz", "2,25", "egyenlő", "3,75"])).toBe(
+		true,
+	);
+	expect(hasRun(tokens, ["x", "plusz", "2", "egyenlő", "7"])).toBe(true);
+});
+
+/** Records every media element `play()` is called on, so a spec can reach the reading's audio (it is not in the page). */
+async function recordMediaElements(page: import("@playwright/test").Page) {
+	await page.addInitScript(() => {
+		const played: HTMLMediaElement[] = [];
+		(window as unknown as { __played: HTMLMediaElement[] }).__played = played;
+		const play = HTMLMediaElement.prototype.play;
+		HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+			if (!played.includes(this)) played.push(this);
+			return play.call(this);
+		};
+	});
+}
+
+/** What a media key or Now Playing does: plays the reading's audio element again. Whether it sounded. */
+function wakeReadingAudio(page: import("@playwright/test").Page) {
+	return page.evaluate(async () => {
+		const audio = (window as unknown as { __played: HTMLMediaElement[] })
+			.__played[0];
+		if (!audio) return "no element";
+		const at = audio.currentTime;
+		await audio.play().catch(() => undefined);
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		return !audio.paused && audio.currentTime > at ? "sounded" : "silent";
+	});
+}
+
+test("after ✕ nothing wakes the reading: the Media Session is let go, and its old audio plays nothing", async ({
+	page,
+}) => {
+	await recordMediaElements(page);
+	const ui = await open(page, [FIVE_SENTENCE_REPLY]);
+	await ui.speaker().click();
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
+	expect(await page.evaluate(() => navigator.mediaSession.playbackState)).toBe(
+		"playing",
+	);
+	await ui.button("Stop reading").click();
+	await expect(ui.player).toBeHidden();
+	expect(await page.evaluate(() => navigator.mediaSession.playbackState)).toBe(
+		"none",
+	);
+	expect(await wakeReadingAudio(page)).toBe("silent");
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Read aloud");
+});
+
+test("a paused reading is not woken by the OS: a play it did not ask for is paused at once", async ({
+	page,
+}) => {
+	await recordMediaElements(page);
+	const ui = await open(page, [FIVE_SENTENCE_REPLY]);
+	await ui.speaker().click();
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
+	await ui.button("Pause").click();
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Resume reading");
+	expect(await page.evaluate(() => navigator.mediaSession.playbackState)).toBe(
+		"paused",
+	);
+	expect(await wakeReadingAudio(page)).toBe("silent");
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Resume reading");
+	// The person's own play still plays.
+	await ui.button("Play").click();
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
+});
+
+/** Where the reading's audio is: paused or not, its position and its source. */
+function readingAudioState(page: import("@playwright/test").Page) {
+	return page.evaluate(() => {
+		const audio = (window as unknown as { __played: HTMLMediaElement[] })
+			.__played[0];
+		return {
+			paused: audio.paused,
+			at: audio.currentTime,
+			src: audio.currentSrc,
+		};
+	});
+}
+
+test('while the voice catches up a press on the spinning play button pauses, and a second press resumes where it was (owner: "Yes, press pauses")', async ({
+	page,
+}) => {
+	await recordMediaElements(page);
+	const ui = await open(page, [FIVE_SENTENCE_REPLY]);
+	await ui.speaker().click();
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
+	// The voice falls behind: the reading's audio says it waits for data. (The fake
+	// keeps its stream ahead of the reading, so the spec says it for the audio.)
+	await page.evaluate(() =>
+		(
+			window as unknown as { __played: HTMLMediaElement[] }
+		).__played[0].dispatchEvent(new Event("waiting")),
+	);
+	const spinner = ui.play.locator(".mini-spinner");
+	await expect(spinner).toBeVisible();
+	const nameWhileSpinning = await ui.play.getAttribute("aria-label");
+
+	// A press pauses, exactly as at any other moment: the spinner stops and the button shows play.
+	await ui.play.click();
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Resume reading");
+	await expect(spinner).toHaveCount(0);
+	await expect(ui.play).toHaveAttribute("aria-label", "Play");
+	expect(await page.evaluate(() => navigator.mediaSession.playbackState)).toBe(
+		"paused",
+	);
+	const paused = await readingAudioState(page);
+	expect(paused.paused).toBe(true);
+	expect(paused.at).toBeGreaterThan(0);
+
+	// A second press resumes where the reading was: the same audio, on from there.
+	await ui.play.click();
+	expect((await readingAudioState(page)).at).toBeGreaterThanOrEqual(paused.at);
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
+	await expect
+		.poll(async () => {
+			const now = await readingAudioState(page);
+			return now.src === paused.src && !now.paused && now.at > paused.at;
+		})
+		.toBe(true);
+	expect(fake.sessions.length).toBe(1);
+	// While it spun, its name said what a press does.
+	expect(nameWhileSpinning).toBe("Pause");
+});
+
+test("simple math is read, as the owner's sum showed on staging", async ({
+	page,
+}) => {
+	// The Markdown as the model writes it: marked shows "\\(" as a plain bracket.
+	const ui = await open(page, [
+		"It wouldn't read this at all: \\(€4{,}341.0505 \\times 0.88 = €3{,}820.12444\\)",
+	]);
+	await expect(page.locator(".message-body .markdown-container")).toContainText(
+		"(€4{,}341.0505 \\times 0.88 = €3{,}820.12444)",
+	);
+	await ui.speaker().click();
+	await expect.poll(() => fake.sessions.length, { timeout: 15_000 }).toBe(1);
+	const tokens = spokenTokens(fake);
+	expect(
+		hasRun(tokens, ["€4341.0505", "times", "0.88", "equals", "€3820.12444"]),
+	).toBe(true);
+});
+
 test("a code name is marked while it is read, above the code's own background", async ({
 	page,
 }) => {
@@ -532,11 +708,21 @@ test("the speaker shows its label as a tooltip on hover, as its neighbours do", 
 	page,
 }) => {
 	const ui = await open(page, [TWO_SENTENCE_REPLY]);
-	const tooltip = ui.speaker().locator(".read-aloud-speaker-tooltip");
+	const tooltip = page.locator(".read-aloud-speaker-tooltip").first();
 	await expect(tooltip).toHaveCSS("opacity", "0");
 	await ui.speaker().hover();
 	await expect(tooltip).toHaveCSS("opacity", "1");
 	await expect(tooltip).toHaveText("Read aloud");
+	// Whole, as Copy's is: not inside the button, whose hover fades it to 0.78.
+	await waitForMotionToSettle(page);
+	expect(
+		await tooltip.evaluate((node) => {
+			let opacity = 1;
+			for (let at: Element | null = node; at; at = at.parentElement)
+				opacity *= Number(getComputedStyle(at).opacity);
+			return opacity;
+		}),
+	).toBeCloseTo(1, 2);
 });
 
 test("a German reply's speaker is dimmed with a note", async ({ page }) => {
@@ -649,7 +835,7 @@ test("the speed chip keeps its width at every speed, so the notches never move",
 	expect([...widths]).toHaveLength(1);
 });
 
-test("on a 375 or 360 px phone no two of the player's buttons overlap", async ({
+test("on a 375, 360 or 320 px phone the player fits its column, and no two of its buttons overlap", async ({
 	page,
 }) => {
 	await page.setViewportSize({ width: 375, height: 812 });
@@ -658,9 +844,20 @@ test("on a 375 or 360 px phone no two of the player's buttons overlap", async ({
 	await expect(ui.player).toBeVisible();
 	// Paused, so the player stays while it is measured at both widths.
 	await ui.button("Pause").click();
-	for (const width of [375, 360]) {
+	for (const width of [375, 360, 320]) {
 		await page.setViewportSize({ width, height: 812 });
 		await waitForMotionToSettle(page);
+		// Inside the composer's column, as the composer is.
+		const column = await page.getByTestId("composer-box").boundingBox();
+		const player = await ui.player.boundingBox();
+		if (!column || !player) throw new Error("no column or player box");
+		expect(player.x, `${width} px: the player's left`).toBeGreaterThanOrEqual(
+			column.x - 0.5,
+		);
+		expect(
+			player.x + player.width,
+			`${width} px: the player's right`,
+		).toBeLessThanOrEqual(column.x + column.width + 0.5);
 		// The bottom row, left to right: the speed chip, ⏮ ▶ ⏭, then ⌖ ✕.
 		const row = [
 			ui.speed,

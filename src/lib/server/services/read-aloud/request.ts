@@ -14,7 +14,7 @@ const MAX_SENTENCE_CHARS = 400;
 
 const wordSchema = z.object({
 	shown: z.string().min(1).max(2048),
-	kind: z.enum(["prose", "code", "shell", "listNumber"]),
+	kind: z.enum(["prose", "code", "shell", "listNumber", "math"]),
 	tokens: z.array(z.string().min(1).max(80).regex(/^\S+$/u)).min(1).max(40),
 });
 

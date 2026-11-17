@@ -232,7 +232,15 @@ export function createVoicePreview(deps: VoicePreviewDeps): VoicePreview {
 		frame = null;
 	}
 
+	/**
+	 * The preview asked for sound. Nothing else may play it: the OS's media keys,
+	 * Now Playing or headphones resume a paused page's audio by themselves (the
+	 * owner's replay on staging, 2026-11-17).
+	 */
+	let wantSound = false;
+
 	function playElement() {
+		wantSound = true;
 		audio.playbackRate = 1;
 		void audio.play().catch((error: unknown) => {
 			// A pause or a newer start interrupts play() with an AbortError; only a
@@ -250,6 +258,7 @@ export function createVoicePreview(deps: VoicePreviewDeps): VoicePreview {
 	}
 
 	function pauseElement() {
+		wantSound = false;
 		if (!audio.paused) audio.pause();
 	}
 
@@ -285,6 +294,10 @@ export function createVoicePreview(deps: VoicePreviewDeps): VoicePreview {
 		current = null;
 	}
 
+	audio.addEventListener("play", () => {
+		if (wantSound || audio.src.startsWith("data:")) return;
+		audio.pause();
+	});
 	audio.addEventListener("playing", () => {
 		if (!ours() || !sound) return;
 		status = "playing";
@@ -293,12 +306,15 @@ export function createVoicePreview(deps: VoicePreviewDeps): VoicePreview {
 		publish();
 	});
 	audio.addEventListener("pause", () => {
+		// Paused by anything: a play only the preview asks for is heard again.
+		wantSound = false;
 		if (!ours() || status !== "playing" || audio.ended) return;
 		status = "paused";
 		stopFrames();
 		publish();
 	});
 	audio.addEventListener("ended", () => {
+		wantSound = false;
 		if (!ours() || !sound) return;
 		status = "paused";
 		finished = true;
@@ -461,6 +477,11 @@ export function createVoicePreview(deps: VoicePreviewDeps): VoicePreview {
 			drag = null;
 			stopFrames();
 			pauseElement();
+			// Torn down, so nothing can resume it: a kept render plays again from a press.
+			if (audio.src !== "" && !audio.src.startsWith("data:")) {
+				audio.removeAttribute("src");
+				audio.load();
+			}
 			publish();
 		},
 

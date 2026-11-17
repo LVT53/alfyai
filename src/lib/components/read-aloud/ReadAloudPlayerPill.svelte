@@ -38,24 +38,29 @@ let {
 const floating = $derived(variant === "floating");
 const waiting = $derived(view.status === "waiting");
 const stopped = $derived(view.status === "stopped");
+/** The voice fell behind mid-reading: play spins, and a press still pauses, as the speaker does. */
+const catchingUp = $derived(view.buffering && view.status === "playing");
+/** Getting the voice: a jump, a wait to go on, or the voice falling behind mid-reading. */
 const spinning = $derived(
-	view.status === "seeking" || view.status === "waiting",
+	view.status === "seeking" || view.status === "waiting" || catchingUp,
 );
 /** Nothing to step through: a reading waiting to continue, or a pill with no sentences. */
 const stepless = $derived(waiting || view.count === 0);
 const playLabel = $derived(
 	stopped
 		? $t("readAloud.tryAgain")
-		: spinning
-			? $t("readAloud.player.waiting")
-			: view.status === "playing"
-				? $t("readAloud.player.pause")
-				: $t("readAloud.player.play"),
+		: catchingUp
+			? $t("readAloud.player.pause")
+			: spinning
+				? $t("readAloud.player.waiting")
+				: view.status === "playing"
+					? $t("readAloud.player.pause")
+					: $t("readAloud.player.play"),
 );
 
 function onPlay() {
 	if (stopped) actions.retry();
-	else if (!spinning) actions.toggle();
+	else if (!spinning || catchingUp) actions.toggle();
 }
 
 /** The phone's two rows: the breakpoint of the CSS below. */
@@ -334,6 +339,8 @@ $effect(() => {
 		.read-aloud-pill {
 			display: grid;
 			grid-template-columns: 1fr auto 1fr;
+			/* No gaps between the columns, as in the prototype: at 360 px the row fits. */
+			column-gap: 0;
 			row-gap: 4px;
 			padding: 8px 12px;
 			border-radius: 24px;
@@ -383,6 +390,37 @@ $effect(() => {
 		.read-aloud-play :global(svg) {
 			width: 20px;
 			height: 20px;
+		}
+	}
+
+	/* Below 360 px the row would not fit at 44 px: 40 px buttons, a 48 px play and
+	   tighter gaps, so ✕ stays on the screen at 320 px. */
+	@media (max-width: 359px) {
+		.read-aloud-pill {
+			padding: 8px;
+		}
+
+		.read-aloud-transport {
+			gap: 4px;
+		}
+
+		.read-aloud-button {
+			width: 40px;
+			height: 40px;
+		}
+
+		.read-aloud-play {
+			width: 48px;
+			height: 48px;
+		}
+
+		.read-aloud-locate {
+			margin-right: 42px;
+		}
+
+		.read-aloud-speed-slot :global(.read-aloud-speed-chip) {
+			min-width: 48px;
+			padding: 0 8px;
 		}
 	}
 </style>

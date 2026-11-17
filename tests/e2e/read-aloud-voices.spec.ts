@@ -495,6 +495,60 @@ for (const language of ["en", "hu"] as const)
 		}
 	});
 
+test("on a phone the voice rows' labels start where every other row's does", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 375, height: 812 });
+	const card = await openReadAloudSettings(page);
+	const english = await card
+		.getByText("English voice", { exact: true })
+		.boundingBox();
+	const speed = await card
+		.getByText("Default speed", { exact: true })
+		.boundingBox();
+	expect(english?.x).toBeCloseTo(speed?.x ?? 0, 0);
+});
+
+test("the Read aloud card is in the server's page, so it never appears late and pushes Settings down", async ({
+	page,
+}) => {
+	const response = await page.request.get("/settings");
+	expect(response.ok()).toBe(true);
+	expect(await response.text()).toContain('id="settings-section-read-aloud"');
+});
+
+test("Settings brings the saved voices with the page: the card draws them at once and does not grow", async ({
+	page,
+}) => {
+	await makeVoice(page, "imogen");
+	let release: () => void = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await page.route("**/api/read-aloud/voices", async (route) => {
+		if (route.request().method() === "GET") await held;
+		await route.continue();
+	});
+	try {
+		await page.goto("/settings", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		const card = page.locator("#settings-section-read-aloud");
+		// Its voice is there while any request for the voices is still held.
+		await expect(card.getByRole("list").getByText("Test Voice")).toBeVisible({
+			timeout: 15_000,
+		});
+		await card.scrollIntoViewIfNeeded();
+		const first = (await card.boundingBox())?.height ?? 0;
+		release();
+		await page.waitForTimeout(400);
+		await waitForMotionToSettle(page);
+		expect((await card.boundingBox())?.height).toBeCloseTo(first, 0);
+	} finally {
+		release();
+		await page.unroute("**/api/read-aloud/voices");
+	}
+});
+
 test("the Listen switches show the app's focus ring", async ({ page }) => {
 	const { editor } = await newVoice(page);
 	await editor
@@ -539,7 +593,8 @@ test("the card keeps its size while its voices load, and the voice labels sit le
 		await expect(card).toBeVisible({ timeout: 15_000 });
 		await card.scrollIntoViewIfNeeded();
 		const english = card.getByRole("combobox", { name: "English voice" });
-		await expect(english).toBeDisabled();
+		// The page brought the voices: there is no load to wait for.
+		await expect(english).toBeEnabled();
 		const loading = {
 			card: (await card.boundingBox())?.height ?? 0,
 			picker: (await english.boundingBox())?.width ?? 0,

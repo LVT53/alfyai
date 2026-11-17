@@ -89,6 +89,28 @@ describe("the containment check", () => {
 		).toBeNull();
 	});
 
+	it("accepts simple math read from the reply's TeX, and refuses math it does not say", () => {
+		const markdown =
+			"It wouldn't read this at all: \\(€4{,}341.0505 \\times 0.88 = €3{,}820.12444\\)";
+		const sum = "(€4{,}341.0505 \\times 0.88 = €3{,}820.12444)";
+		const words = ["It", "wouldn't", "read", "this", "at", "all:"].map((w) =>
+			said(w),
+		);
+		expect(
+			wordsFitReply(markdown, [en(...words, said(sum, "math"))]),
+		).toBeNull();
+		// Its tokens must be the dictionary's reading of it.
+		expect(
+			wordsFitReply(markdown, [
+				en(...words, { shown: sum, kind: "math", tokens: ["one", "million"] }),
+			]),
+		).toBe(0);
+		// And its letters must be in the reply.
+		expect(
+			wordsFitReply("No sums here.", [en(said("(2 \\times 3 = 6)", "math"))]),
+		).toBe(0);
+	});
+
 	it("accepts list numbers that the Markdown writes differently", () =>
 		expect(
 			wordsFitReply("1. Flour\n1. Water", [

@@ -138,6 +138,7 @@ The breakpoint is the one the chat already uses for narrow layouts (builder).
 | Moment | What happens |
 |---|---|
 | Start | The speaker spins until the first audio arrives, then the ring appears and the player rises 8 px while fading in (250 ms) as the thread makes room. |
+| The voice falls behind mid-reading | The audio waits for data while reading: after about 500 ms the play button shows the start's spinner (so it never flickers), and it stops the moment playback goes on. The speaker's ring keeps its progress. A press on the spinning button pauses the reading, exactly as a press at any other moment does: the spinner stops, the button shows play, and a second press resumes where the reading was. So while it spins, its name stays "Pause". A jump and an offline wait still take no press. (Owner, 2026-11-17: "Yes, spin it", and on the press: "Yes, press pauses".) |
 | ✕ | Reading stops; the player sinks 6 px and fades (150 ms, ease-in); its room closes; the marks fade; the speaker returns. |
 | The end | The ring fills, "Finished" shows in the player for about 1.1 s, then it leaves as on ✕. |
 | A slash command (`/` opens the command tray) | The player fades out in 100 ms and keeps its room; reading continues and the reply's marks keep showing where it is; the player fades back when the tray closes. |
@@ -209,10 +210,12 @@ The spoken text is built from the reply **as rendered on screen**, never from it
 - **Symbols in prose:** × "times" / "szorozva", ÷ "divided by" / "osztva", ± "plus or minus" / "plusz-mínusz", ≤ ≥ ≠ ≈ by their names, ² "squared" / "négyzet", ³ "cubed" / "köb", ½ "half" / "fél", ° "degrees" / "fok", % "percent" / "százalék".
 - **Keyboard shortcuts:** "Ctrl+C" "Control C", "⌘K" "Command K", "Shift+Enter" "Shift Enter".
 - **Versions:** "v2.3.1" "version two point three point one".
+- **Simple math** (owner, after trying staging on 2026-11-17): a formula the reply shows as TeX is read when it holds only numbers, letters and these: `\times` `\cdot` "times" / "szorozva", `\div` "divided by" / "osztva", `=` "equals" / "egyenlő", `+` `-`, `\frac{a}{b}` "a over b" / "a per b", `^2` "squared" / "négyzet", `^{n}` "to the power of n" / "az n-edik hatványon" ("a 10. hatványon"), `\sqrt{x}` "the square root of x" / "négyzetgyök x", `\%` and `\approx`. `{,}` groups thousands, and each number goes to the speech service whole, with its currency ("€4{,}341.0505" reads "four thousand three hundred and forty one point zero five zero five euros"). The formula is one written word, marked whole while it is said. Any other formula is left out, as before.
+- **A sum written in a sentence** (the UI walk's New 4): numbers or single letters joined by spaced operators are read as simple math too: "3 + 4 = 7", "€10 + €5 = €15" ("ten euros plus five euros equals fifteen euros"), "1,000 + 2,000 = 3,000", "1,5 + 2,25 = 3,75", "x + 2 = 7". This holds only when the sum has an operator other than "-" and "/", because between two numbers those alone are a range or a date ("2026 - 2027"). A "," before three digits groups thousands, and a single "," before other digits is a decimal comma, as `{,}` does in TeX. A "." stays as written. A sum that goes on past what can be read ("total = 3 + 4", "2x - 3 = 7") is left whole to the prose reading, as before.
 - **Arrows and separator dots between items:** a short pause.
 
 **Left out silently:**
-- tables (Markdown and CSV), charts, Mermaid diagrams and formulas;
+- tables (Markdown and CSV), charts, Mermaid diagrams and formulas other than simple math;
 - images; document, app, canvas, picture and file cards; map routes;
 - tool and thinking rows, Sources, follow-up chips, the "Ask me first" card and any button;
 - emoji, and citation and footnote markers.

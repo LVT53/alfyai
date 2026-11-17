@@ -357,6 +357,37 @@ describe("the voice preview", () => {
 		expect(t.last().status).toBe("paused");
 	});
 
+	it("plays nothing it did not ask for: a paused or stopped sample is not woken by the OS", async () => {
+		const t = setup();
+		const imogen = sound("base:imogen");
+		await played(t, imogen);
+		t.preview.toggle(imogen);
+		expect(t.last().status).toBe("paused");
+		// A media key, Now Playing or headphones resume the element by themselves.
+		t.audio.paused = false;
+		t.audio.emit("play");
+		expect(t.audio.paused).toBe(true);
+		expect(t.last().status).toBe("paused");
+		// Its own resume still plays.
+		t.preview.toggle(imogen);
+		t.audio.emit("play");
+		expect(t.audio.paused).toBe(false);
+		t.audio.emit("playing");
+		expect(t.last().status).toBe("playing");
+		// Stopped, it is torn down, and a woken element is paused at once.
+		t.preview.stop();
+		expect(t.audio.src).toBe("");
+		expect(t.audio.load).toHaveBeenCalled();
+		t.audio.paused = false;
+		t.audio.emit("play");
+		expect(t.audio.paused).toBe(true);
+		// A kept render still plays again from a press.
+		t.preview.play(imogen);
+		t.audio.emit("play");
+		expect(t.audio.paused).toBe(false);
+		expect(t.audio.src).toBe("blob:preview-1");
+	});
+
 	it("stop forgets the sound, and dispose revokes every address", async () => {
 		const t = setup();
 		for (let i = 0; i < 3; i++)

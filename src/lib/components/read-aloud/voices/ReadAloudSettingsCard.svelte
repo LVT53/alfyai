@@ -36,12 +36,25 @@ import ReadAloudNote from "../ReadAloudNote.svelte";
 import VoiceEditor from "./VoiceEditor.svelte";
 import VoicePlayButton from "./VoicePlayButton.svelte";
 
-let { preview = undefined }: { preview?: VoicePreview } = $props();
+let {
+	preview = undefined,
+	initial = null,
+}: {
+	preview?: VoicePreview;
+	/** The voices the Settings page brought: the card draws them in its first paint, so nothing below it moves. */
+	initial?: ReadAloudVoiceSettings | null;
+} = $props();
 
 const LANGUAGES = ["en", "hu"] as const;
 type Language = (typeof LANGUAGES)[number];
 
-let settings = $state<ReadAloudVoiceSettings | null>(null);
+let settings = $state<ReadAloudVoiceSettings | null>(untrack(() => initial));
+/**
+ * Read aloud is on: the app says so once its layout has mounted, and the page's
+ * voices say so already in the server's page, so the card is drawn there and does
+ * not appear later, pushing everything below it down (the second re-walk's New 5).
+ */
+const available = $derived($readAloudAvailable || initial !== null);
 let loading = $state(false);
 let loadFailed = $state(false);
 /** The save that failed, to send again from Try again. */
@@ -174,12 +187,15 @@ function newVoiceBase(): string {
 	return defaultBase(language);
 }
 
+/** One sound at a time (spec §4.6): a sample playing from the card stops as the editor opens. */
 function openNew() {
+	player().stop();
 	player().unlock();
 	editor = { voice: null, startFrom: newVoiceBase() };
 }
 
 function openEdit(voice: PersonalVoiceInfo) {
+	player().stop();
 	player().unlock();
 	editor = { voice, startFrom: voice.base };
 }
@@ -209,7 +225,7 @@ function onDeleted(id: string, choice: VoiceChoice) {
 }
 </script>
 
-{#if $readAloudAvailable}
+{#if available}
 	<section class="settings-card read-aloud-card" id="settings-section-read-aloud">
 		<div class="settings-card-head">
 			<div class="settings-card-head-text">
@@ -410,9 +426,12 @@ function onDeleted(id: string, choice: VoiceChoice) {
 		border-top: 1px solid var(--border-default);
 	}
 
-	/* The voice rows have no help line: their label sits level with the picker. */
-	.settings-row-group .settings-row {
-		align-items: center;
+	/* The voice rows have no help line: their label sits level with the picker,
+	   side by side. A phone stacks them, where the label starts at the left. */
+	@media (min-width: 641px) {
+		.settings-row-group .settings-row {
+			align-items: center;
+		}
 	}
 
 	/* A picker keeps its width while its voices load (an empty one is 46 px): the

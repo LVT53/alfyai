@@ -37,6 +37,20 @@ class FakeAudio extends EventTarget implements AudioLike {
 	}
 }
 
+/** The browser's Media Session: what the OS's media keys and Now Playing talk to. */
+class FakeMediaSession {
+	playbackState: "none" | "paused" | "playing" = "none";
+	metadata: unknown = null;
+	readonly handlers = new Map<string, (() => void) | null>();
+	setActionHandler(action: string, handler: (() => void) | null) {
+		this.handlers.set(action, handler);
+	}
+	/** The handlers set now, by action. */
+	live(): string[] {
+		return [...this.handlers].filter(([, h]) => h !== null).map(([a]) => a);
+	}
+}
+
 class FakeEventSource extends EventTarget implements EventSourceLike {
 	readyState = 0;
 	closed = false;
@@ -95,6 +109,7 @@ function setup(
 	} = {},
 ) {
 	const audio = new FakeAudio();
+	const media = new FakeMediaSession();
 	const sources: FakeEventSource[] = [];
 	const views: ReadAloudView[] = [];
 	const frames: Array<() => void> = [];
@@ -145,6 +160,7 @@ function setup(
 		setView: (view) => views.push(view),
 		requestFocus: vi.fn(),
 		observe: () => () => {},
+		mediaSession: media,
 	};
 	const controller = createReadAloudController(deps);
 	controllers.push(controller);
@@ -155,6 +171,7 @@ function setup(
 	return {
 		controller,
 		audio,
+		media,
 		sources,
 		views,
 		api,
@@ -176,7 +193,7 @@ function setup(
 						{
 							sentences: Array<{
 								id: string;
-								words: Array<{ kind: string; tokens: string[] }>;
+								words: Array<{ shown: string; kind: string; tokens: string[] }>;
 							}>;
 						},
 					]
@@ -330,6 +347,31 @@ describe("the reading controller", () => {
 		expect(
 			body?.sentences.flatMap((s) => s.words.flatMap((w) => w.tokens)),
 		).toContain("secret");
+	});
+
+	it("Read from here sends a whole written sentence first: mid-sentence, or a single word", async () => {
+		const t = setup();
+		const clause =
+			"the dough rests in a warm bowl under a clean towel for about an hour";
+		const row = mountReply(
+			"m1",
+			`<p>A short opener comes first. First ${clause}, then ${clause}, and after that ${clause}, until it rises at last.</p>`,
+		);
+		const text = row.querySelector("p")?.firstChild as Text;
+		const firstWords = (index: number) =>
+			t
+				.body(index)
+				?.sentences[0]?.words.slice(0, 2)
+				.map((word) => word.shown);
+		// A selection that starts mid-sentence, in the part the voice would get last.
+		start(t, "m1", { node: text, offset: text.data.indexOf("until") });
+		await settle();
+		expect(firstWords(0)).toEqual(["First", "the"]);
+		t.controller.stop();
+		// A one-word selection in the same part.
+		start(t, "m1", { node: text, offset: text.data.indexOf("rises") });
+		await settle();
+		expect(firstWords(1)).toEqual(["First", "the"]);
 	});
 
 	it("a speaker press resumes a reading begun by Read from here in a long code block where it was", async () => {
@@ -741,6 +783,95 @@ describe("the reading controller", () => {
 		expect(t.body(1)?.sentences[0]?.id).toBe("s2");
 		expect(t.audio.playbackRate).toBe(1.5);
 		expect(t.last().speed).toBe(1.5);
+	});
+
+	describe("nothing plays once a reading is over (the owner's replay on staging)", () => {
+		it("a stop, the end and a replacement each tear the audio down", async () => {
+			const t = setup();
+			mountReply();
+			await playing(t);
+			t.controller.stop();
+			expect(t.audio.src).toBe("");
+			expect(t.audio.paused).toBe(true);
+			expect(t.audio.load).toHaveBeenCalled();
+			await playing(t);
+			(t.sources.at(-1) as FakeEventSource).send("done", {});
+			t.audio.ended = true;
+			t.audio.emit("pause");
+			t.audio.emit("ended");
+			vi.advanceTimersByTime(1100);
+			expect(t.last().status).toBe("idle");
+			expect(t.audio.src).toBe("");
+		});
+
+		it("a play the reading did not ask for is stopped at once: paused, or over", async () => {
+			const t = setup();
+			mountReply();
+			await playing(t);
+			t.controller.toggle();
+			expect(t.last().status).toBe("paused");
+			// The browser resumes the element by itself: a media key, Now Playing, headphones.
+			t.audio.paused = false;
+			t.audio.emit("play");
+			expect(t.audio.paused).toBe(true);
+			expect(t.last().status).toBe("paused");
+			t.controller.stop();
+			t.audio.paused = false;
+			t.audio.emit("play");
+			expect(t.audio.paused).toBe(true);
+			expect(t.last().status).toBe("idle");
+		});
+
+		it("holds the Media Session while it reads, routes its keys to the reading, and lets it go at the end", async () => {
+			const t = setup();
+			mountReply();
+			expect(t.media.playbackState).toBe("none");
+			await playing(t);
+			expect(t.media.playbackState).toBe("playing");
+			expect(t.media.live().sort()).toEqual(["pause", "play", "stop"]);
+			t.media.handlers.get("pause")?.();
+			expect(t.last().status).toBe("paused");
+			expect(t.media.playbackState).toBe("paused");
+			t.media.handlers.get("play")?.();
+			expect(t.last().status).toBe("playing");
+			expect(t.media.playbackState).toBe("playing");
+			t.media.handlers.get("stop")?.();
+			expect(t.last().status).toBe("idle");
+			expect(t.media.playbackState).toBe("none");
+			expect(t.media.live()).toEqual([]);
+			expect(t.media.metadata).toBeNull();
+		});
+	});
+
+	it('spins the play button when the voice falls behind for over half a second (owner: "Yes, spin it")', async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		expect(t.last().buffering).toBe(false);
+		// The audio waits for data mid-reading.
+		t.audio.emit("waiting");
+		vi.advanceTimersByTime(400);
+		expect(t.last().buffering).toBe(false);
+		vi.advanceTimersByTime(200);
+		expect(t.last()).toMatchObject({ status: "playing", buffering: true });
+		// The moment playback goes on, it stops.
+		t.audio.emit("playing");
+		expect(t.last().buffering).toBe(false);
+		// A short wait never shows: no flicker.
+		const seen = t.views.length;
+		t.audio.emit("waiting");
+		vi.advanceTimersByTime(300);
+		t.audio.emit("playing");
+		vi.advanceTimersByTime(1000);
+		expect(t.views.slice(seen).some((view) => view.buffering)).toBe(false);
+		// A stop ends it too.
+		t.audio.emit("waiting");
+		vi.advanceTimersByTime(600);
+		expect(t.last().buffering).toBe(true);
+		t.controller.stop();
+		expect(t.last().buffering).toBe(false);
+		vi.advanceTimersByTime(600);
+		expect(t.last().buffering).toBe(false);
 	});
 
 	it("switches to another reply without leaving the player", async () => {
