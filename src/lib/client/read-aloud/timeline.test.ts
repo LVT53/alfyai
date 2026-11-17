@@ -151,15 +151,11 @@ describe("text shares", () => {
 						),
 					);
 					const marks = notches(sweep);
-					sweep.sentences.forEach((sentence, index) => {
+					sweep.sentences.forEach((_sentence, index) => {
 						checked += 1;
-						if (sentenceAtShare(sweep, marks[index] ?? 0) !== index) misses += 1;
-						if (
-							sentenceAtShare(
-								sweep,
-								shareAt(sweep, index, 0),
-							) !== index
-						)
+						if (sentenceAtShare(sweep, marks[index] ?? 0) !== index)
+							misses += 1;
+						if (sentenceAtShare(sweep, shareAt(sweep, index, 0)) !== index)
 							misses += 1;
 						if (notchAtShare(marks, marks[index] ?? 0) !== index) misses += 1;
 					});

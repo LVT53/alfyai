@@ -194,7 +194,9 @@ describe("buildSpeechScript", () => {
 		).toBeGreaterThanOrEqual(3);
 		// A comparison without arguments to close is not a generic.
 		const compare = build(
-			reply("<p>Check that <code>a &lt; b, c &gt; d</code> holds for every pair here.</p>"),
+			reply(
+				"<p>Check that <code>a &lt; b, c &gt; d</code> holds for every pair here.</p>",
+			),
 		);
 		expect(
 			compare.sentences[0]?.words.some((w) => w.shown.includes("a < b, c")),
@@ -256,7 +258,9 @@ describe("buildSpeechScript", () => {
 			),
 		);
 		expect(
-			code.sentences.flatMap((s) => s.words).every((w) => w.shown.length <= MAX_SHOWN_CHARS),
+			code.sentences
+				.flatMap((s) => s.words)
+				.every((w) => w.shown.length <= MAX_SHOWN_CHARS),
 		).toBe(true);
 	});
 
@@ -507,7 +511,12 @@ describe("buildSpeechScript", () => {
 			),
 		);
 		expect(short.sentences).toHaveLength(1);
-		expect(tokensOf(short).slice(4, 8)).toEqual(["salt", "et", "cetera.", "Then"]);
+		expect(tokensOf(short).slice(4, 8)).toEqual([
+			"salt",
+			"et",
+			"cetera.",
+			"Then",
+		]);
 		// The abbreviation inside a sentence leaves it whole, and without a stop.
 		const inside = build(
 			reply(
@@ -544,7 +553,9 @@ describe("buildSpeechScript", () => {
 		expect(lines.sentences[0]?.tokens.at(-1)).toBe("own.");
 		expect(lines.sentences[1]?.tokens[0]).toBe("The");
 		// Short lines join into one unit, each ended by the pause mark a join across units makes.
-		const short = build(reply("<p>Name: John<br>Age: 42<br>City: Budapest</p>"));
+		const short = build(
+			reply("<p>Name: John<br>Age: 42<br>City: Budapest</p>"),
+		);
 		expect(tokensOf(short)).toEqual([
 			"Name:",
 			"John,",

@@ -230,10 +230,7 @@ describe("the reading machine", () => {
 			state: hidden.state,
 			commands: [],
 		});
-		const parked = run(
-			[{ type: "seek", sentence: 4 }],
-			pausedAt(1),
-		);
+		const parked = run([{ type: "seek", sentence: 4 }], pausedAt(1));
 		expect(reduce(parked, { type: "hidden" }).commands).toEqual([]);
 	});
 

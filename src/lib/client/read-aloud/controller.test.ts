@@ -1007,7 +1007,11 @@ describe("the reading controller", () => {
 		expect(t.last().drag).toBe(2);
 		t.controller.endDrag(2);
 		await settle();
-		expect(t.last()).toMatchObject({ status: "seeking", drag: null, sentence: 2 });
+		expect(t.last()).toMatchObject({
+			status: "seeking",
+			drag: null,
+			sentence: 2,
+		});
 		expect(t.body(2)?.sentences[0]?.id).toBe("s2");
 	});
 

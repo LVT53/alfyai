@@ -319,7 +319,10 @@ function onHidden(state: ReadingState): ReadingStep {
 				? stay(state)
 				: {
 						state: { ...state, restartOnResume: true, drag: null },
-						commands: [{ kind: "close" }, { kind: "clearTimer", timer: "longPause" }],
+						commands: [
+							{ kind: "close" },
+							{ kind: "clearTimer", timer: "longPause" },
+						],
 					};
 		default:
 			return stay(state);

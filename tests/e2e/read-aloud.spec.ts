@@ -199,7 +199,9 @@ test("a reading another tab starts after the voice has finished ends this one qu
 					const timer = setTimeout(() => abort.abort(), 4000);
 					try {
 						const reply = await fetch(url, { signal: abort.signal });
-						const reader = (reply.body as ReadableStream<Uint8Array>).getReader();
+						const reader = (
+							reply.body as ReadableStream<Uint8Array>
+						).getReader();
 						let seen = "";
 						while (!seen.includes("event: done")) {
 							const { done, value } = await reader.read();
@@ -226,15 +228,22 @@ test("a reading another tab starts after the voice has finished ends this one qu
 	// The same person starts a reading in another tab.
 	const other = await context.newPage();
 	try {
-		await other.goto(`/chat/${opened.chatId}`, { waitUntil: "domcontentloaded" });
+		await other.goto(`/chat/${opened.chatId}`, {
+			waitUntil: "domcontentloaded",
+		});
 		await waitForHydration(other);
 		const otherUi = readAloudUi(other);
 		await expect(
-			other.locator(`[data-message-id="${opened.messageIds[0]}"] .markdown-container`),
+			other.locator(
+				`[data-message-id="${opened.messageIds[0]}"] .markdown-container`,
+			),
 		).toContainText(/\S/, { timeout: 15_000 });
 		await otherUi.speaker().click();
 		await expect(otherUi.player).toBeVisible();
-		await expect(otherUi.speaker()).toHaveAttribute("aria-label", "Pause reading");
+		await expect(otherUi.speaker()).toHaveAttribute(
+			"aria-label",
+			"Pause reading",
+		);
 
 		// This tab's reading ended with nothing said, and nothing failed on the way.
 		await expect(ui.player).toHaveCount(0);
