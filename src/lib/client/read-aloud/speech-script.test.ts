@@ -387,6 +387,59 @@ describe("buildSpeechScript", () => {
 		expect(script.sentences[1]?.tokens[0]).toBe("Például");
 	});
 
+	it("ends the sentence at an etc. or stb. that a capital letter follows, and keeps its full stop (early review R19)", () => {
+		// Each part is over fifty characters, so the script keeps them as two sentences.
+		const en = build(
+			reply(
+				"<p>We need eggs, flour, sugar, butter, milk, vanilla, salt etc. Then we bake it for an hour in a hot oven until it is done.</p>",
+			),
+		);
+		expect(en.sentences).toHaveLength(2);
+		expect(en.sentences[0]?.tokens.slice(-2)).toEqual(["et", "cetera."]);
+		expect(en.sentences[1]?.tokens[0]).toBe("Then");
+		const hu = build(
+			reply(
+				"<p>Kell hozzá tojás, liszt, cukor, vaj, tej, vanília, só stb. Utána megsütjük a kenyeret egy óráig a forró sütőben.</p>",
+			),
+			{ fallbackLanguage: "hu" },
+		);
+		expect(hu.sentences).toHaveLength(2);
+		expect(hu.sentences[0]?.tokens.slice(-3)).toEqual(["és", "a", "többi."]);
+		expect(hu.sentences[1]?.tokens[0]).toBe("Utána");
+		// A short sentence still joins the next, with the stop the abbreviation now keeps.
+		const short = build(
+			reply(
+				"<p>We need eggs, flour, salt etc. Then we bake it for an hour in a hot oven until it is done.</p>",
+			),
+		);
+		expect(short.sentences).toHaveLength(1);
+		expect(tokensOf(short).slice(4, 8)).toEqual(["salt", "et", "cetera.", "Then"]);
+		// The abbreviation inside a sentence leaves it whole, and without a stop.
+		const inside = build(
+			reply(
+				"<p>We need eggs, flour, salt etc. and a little patience, and then we bake it for an hour.</p>",
+			),
+		);
+		expect(inside.sentences).toHaveLength(1);
+		expect(tokensOf(inside)).toContain("cetera");
+		expect(tokensOf(inside)).not.toContain("cetera.");
+		// A capital after an abbreviation that cannot end a sentence is a name, not a new sentence.
+		const names = build(
+			reply(
+				"<p>Many cities, e.g. Budapest and Vienna, are old, and they keep their markets open all year long.</p>",
+			),
+		);
+		expect(names.sentences).toHaveLength(1);
+		expect(tokensOf(names).slice(2, 5)).toEqual(["for", "example", "Budapest"]);
+		const pl = build(
+			reply(
+				"<p>Sok város, pl. Budapest és Bécs, régi, és egész évben nyitva tartják a piacaikat a főtéren.</p>",
+			),
+			{ fallbackLanguage: "hu" },
+		);
+		expect(pl.sentences).toHaveLength(1);
+	});
+
 	it("says each line of a paragraph broken by single newlines as its own sentence, so it gets its own pause (early review R18)", () => {
 		const lines = build(
 			reply(

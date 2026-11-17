@@ -848,7 +848,13 @@ function sentenceStarts(view: string, language: Voiced): number[] {
 		granularity: "sentence",
 	}).segment(view)) {
 		if (segment.index === 0) continue;
-		if (!keepsSentenceOpen(view.slice(0, segment.index), language))
+		if (
+			!keepsSentenceOpen(
+				view.slice(0, segment.index),
+				language,
+				view.slice(segment.index),
+			)
+		)
 			starts.push(segment.index);
 	}
 	return starts;

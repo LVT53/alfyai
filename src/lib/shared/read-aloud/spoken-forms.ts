@@ -19,6 +19,7 @@ import {
 	MATH_WORDS,
 	NUMBER_WORDS,
 	PROSE_ABBREVIATIONS,
+	SENTENCE_FINAL_ABBREVIATIONS,
 	PROSE_SYMBOLS,
 	SEPARATORS,
 	SHELL_COMMANDS,
@@ -1121,11 +1122,15 @@ export function isSeparator(shown: string): boolean {
 /**
  * True when `before` (the text up to a sentence boundary) ends in a number and
  * a period ("16.") or in one of the language's abbreviations, as a whole word,
- * written as listed or with a capital first letter ("pl.", "Pl.", "e.g.").
+ * written as listed or with a capital first letter ("pl.", "Pl.", "e.g."). `after`
+ * is what follows the boundary: a capital letter there ends the sentence at an
+ * "etc." or a "stb.", which close sentences as often as they sit inside them (early
+ * review R19); after any other abbreviation it is a name, and the sentence goes on.
  */
 export function keepsSentenceOpen(
 	before: string,
 	language: ReadingLanguage,
+	after = "",
 ): boolean {
 	const text = before.trimEnd();
 	if (/[0-9]\.$/u.test(text)) return true;
@@ -1134,8 +1139,14 @@ export function keepsSentenceOpen(
 		for (const form of [written, capitalize(written)]) {
 			if (!text.endsWith(form)) continue;
 			const beforeForm = at(text, text.length - form.length - 1);
-			if (beforeForm === undefined || !/[\p{L}\p{Nd}]/u.test(beforeForm))
+			if (beforeForm === undefined || !/[\p{L}\p{Nd}]/u.test(beforeForm)) {
+				if (
+					SENTENCE_FINAL_ABBREVIATIONS[language].has(written) &&
+					/^\s*\p{Lu}/u.test(after)
+				)
+					return false;
 				return true;
+			}
 		}
 	}
 	return false;
