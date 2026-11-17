@@ -116,20 +116,16 @@ Why each of the loose ones is loose:
   components, the CSS and `src/app.html` for any other remote image found none; what is left is
   what the model writes into a reply, which reaches the page as one of the search tool's Brave
   thumbnails fetched by the server and served from `/api/image-search/thumbnail`, and otherwise as
-  a plain link. Two consequences to know about when `CSP_MODE=enforce`: a generated HTML report
-  opened in the in-app preview (a `srcdoc` frame, which inherits this policy) shows no remote
-  pictures, only `data:` ones (the file you download is unaffected), and the markdown renderer
-  must not emit a remote `<img>` (it shows a link instead). The same inheritance means the
-  report's own inline scripts (its section menu, its tooltips) do not run in the preview under
-  `enforce`: they carry no nonce. Read aloud's report bridge does: the one inline script of the
-  app's own that the preview adds to a trusted report's srcdoc carries the page's nonce
-  (`reportBridgeScript`, `pageScriptNonce`), so it runs under both policies with neither changed
-  (spec §4.13 of `docs/superpowers/specs/2026-11-16-read-aloud-design.md`). The nonce is then
-  readable inside that opaque frame. The frame cannot touch the page and fetches nothing
-  (`default-src 'none'`), but a popup it opens (`allow-popups`, for the report's links) could
-  carry it in an address, so nothing but the app's own code may ever run there: the report's
-  renderer escapes everything the model wrote, and the bridge is the app's. A nonce is good
-  for one page load.
+  a plain link. When `CSP_MODE=enforce`, the markdown renderer must not emit a remote `<img>`
+  (it shows a link instead). A generated HTML report is not drawn under this policy: the in-app
+  preview frames it by its own address (`/api/chat/files/[id]/preview`, or
+  `/api/knowledge/[id]/preview` for one in the library), so it runs under the policy its own
+  response carries (`STANDARD_REPORT_PREVIEW_CSP`: `img-src data:`, inline scripts, nothing
+  else), never the page's. Its own scripts (the section menu, the source tooltips) and read
+  aloud's bridge, which the server adds to that response, run whatever `CSP_MODE` is, and its
+  pictures are `data:` ones (spec §4.13 of `docs/superpowers/specs/2026-11-16-read-aloud-design.md`).
+  Until 2026-11-17 the preview drew the report as a `srcdoc`, which inherits this policy, so under
+  `enforce` the report's own scripts were refused.
 - **`worker-src blob:`** for Sentry's replay compression worker. pdf.js and MapLibre workers are
   same-origin.
 - **`connect-src`** is same-origin only: the browser never talks to a model provider, a tile server
@@ -167,10 +163,15 @@ content-security-policy-report-only: <the full policy, as above>
   included: it is the documented escape hatch and stays one.
 - Only SvelteKit **pages** get it. The App's own response (`/api/artifacts/[id]/app`), the file
   previews and every other route that sets its own CSP are untouched, as before.
-- `'self'` means a frame of these pages can only be pointed at this app, so an App that leaves for
-  one of our own pages (`location = "/login"`) is still stopped by ruling 58's tripwire in
-  `AppFrame.svelte`, not by the CSP. The `srcdoc` document previews are not affected (they are not
-  loaded from a URL), and nothing else in the app frames a URL.
+- `'self'` means a frame of these pages can only be pointed at this app, so a framed document that
+  leaves for one of our own pages (`location = "/login"`) is stopped by ruling 58's tripwire
+  (`src/lib/utils/frame-load-tripwire.ts`), not by the CSP. Two things in the app frame a URL, both
+  sandboxed with no same origin and both watched by that tripwire: an App (`AppFrame.svelte`) and a
+  generated standard report's preview (`DocumentPreviewRenderer.svelte`: scripts and popups, its
+  links open new tabs). Every other document preview is a `srcdoc` with an empty sandbox, not
+  loaded from a URL. `tests/e2e/read-aloud-report.spec.ts` holds the report's case: a link opens a
+  new tab, a page of this app opened in place takes the frame down until Reload, and an address
+  outside the app is refused before a request leaves.
 - Never widen it. `tests/integration/svelte-config-security.test.ts` fails if `frame-src` is
   anything but `['self']`.
 
