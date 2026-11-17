@@ -316,6 +316,21 @@ test("a Default speed starts every reading at it", async ({ page }) => {
 	await expect(ui.player.locator(".read-aloud-speed-chip")).toHaveText("1.5×");
 });
 
+test("the arrow keys move a knob off Normal in one press, and back", async ({
+	page,
+}) => {
+	const { editor } = await newVoice(page);
+	const pace = editor.getByRole("slider", { name: "Pace" });
+	await pace.focus();
+	// Normal snaps within 4% of the range; a key step leaves it at the first value outside.
+	await page.keyboard.press("ArrowRight");
+	await expect(pace).toHaveAttribute("aria-valuetext", "A little faster");
+	await page.keyboard.press("ArrowLeft");
+	await expect(pace).toHaveAttribute("aria-valuetext", "Normal");
+	await page.keyboard.press("ArrowLeft");
+	await expect(pace).toHaveAttribute("aria-valuetext", "A little slower");
+});
+
 test("on a phone the editor is a full sheet without Cancel", async ({
 	page,
 }) => {

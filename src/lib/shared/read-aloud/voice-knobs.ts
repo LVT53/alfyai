@@ -187,6 +187,29 @@ export function snapKnob(key: KnobKey, value: number): number {
 }
 
 /**
+ * A knob value set by a key step (an arrow, Page Up, an assistive increment)
+ * from `previous`. A step of 0.05 from normal lands inside the snap, so a key
+ * could never leave normal: a step that would snap back from normal goes on to
+ * the first value outside the snap instead. Any other step is `snapKnob`'s, so
+ * a step back into the snap is normal again. A drag keeps the soft snap.
+ */
+export function keyStepKnob(
+	key: KnobKey,
+	previous: number,
+	value: number,
+): number {
+	const snapped = snapKnob(key, value);
+	if (snapped !== 0 || previous !== 0 || !(Math.abs(value) > 0)) return snapped;
+	const spec = specOf(key);
+	const direction = Math.sign(value);
+	for (let step = 1; step * KNOB_STEP <= spec.max - spec.min; step++) {
+		const next = snapKnob(key, direction * step * KNOB_STEP);
+		if (next !== 0) return next;
+	}
+	return 0;
+}
+
+/**
  * The Zonos controls of a set of knobs, for a language. Each knob is snapped
  * first, and a knob at normal sends nothing. Each control is clamped to the
  * language's safe range and rounded to three decimals.

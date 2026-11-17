@@ -49,6 +49,7 @@ describe("VoiceKnobSlider", () => {
 		const input = screen.getByRole("slider", {
 			name: "Pace",
 		}) as HTMLInputElement;
+		await fireEvent.pointerDown(input);
 		await fireEvent.input(input, { target: { value: "0.1" } });
 		expect(onInput).toHaveBeenLastCalledWith(0);
 		expect(input.value).toBe("0");
@@ -80,6 +81,22 @@ describe("VoiceKnobSlider", () => {
 			moved.getByRole("button", { name: "Depth back to normal" }),
 		);
 		expect(moved.onReset).toHaveBeenCalledTimes(1);
+	});
+
+	it("a key step leaves normal in one press, and steps back to it", async () => {
+		const { onInput, rerender } = slider("pace", 0);
+		const input = screen.getByRole("slider", {
+			name: "Pace",
+		}) as HTMLInputElement;
+		await fireEvent.keyDown(input, { key: "ArrowRight" });
+		await fireEvent.input(input, { target: { value: "0.05" } });
+		// Pace snaps within ±0.16: the step goes on to the first value outside.
+		expect(onInput).toHaveBeenLastCalledWith(0.2);
+		expect(input.value).toBe("0.2");
+		await rerender({ value: 0.2 });
+		await fireEvent.keyDown(input, { key: "ArrowLeft" });
+		await fireEvent.input(input, { target: { value: "0.15" } });
+		expect(onInput).toHaveBeenLastCalledWith(0);
 	});
 
 	it("has a word for every band of its knob", () => {
