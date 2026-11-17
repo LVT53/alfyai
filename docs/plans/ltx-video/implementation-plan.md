@@ -215,6 +215,12 @@ cutover. This is recorded debt, not a decision that the rule was wrong: **the ne
 touches either card's chrome extracts the shared shell first**, and until then a change to one
 card's stage, shimmer, state box or actions row is a change to both, checked in both.
 
+**Paid, 17 Nov 2026** (`claude/video-review-unify-305f43`): the shell is
+`src/lib/components/artifacts/takes/TakeCardShell.svelte` with one view model
+(`take-card-view.ts`), one stylesheet (`take-card.css`) and one panel reader
+(`item-reader.svelte.ts`); both bodies stand on it and draw only their own parts. Its rules are
+in `src/lib/components/artifacts/takes/AGENTS.md`.
+
 ## Review gates
 
 1. Each worker: TDD note, focused tests, `npm run check` if types moved.
