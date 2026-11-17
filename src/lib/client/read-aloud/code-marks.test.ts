@@ -101,6 +101,26 @@ describe("paintCodeMarks", () => {
 		expect(registry.size).toBe(0);
 	});
 
+	it("marks a link chip's words too: a chip paints its own background as code does", () => {
+		// Early review R8: the overlay behind the prose is hidden under the chip's background.
+		document.body.innerHTML =
+			'<div class="markdown-container"><p id="p">Read <a class="source-link-chip" href="https://example.com"><span class="source-link-chip__label" id="l">the guide</span></a> now.</p></div>';
+		const label = rangeOf(
+			document.getElementById("l")?.firstChild as Node,
+			"guide",
+		);
+		const read = rangeOf(
+			document.getElementById("p")?.firstChild as Node,
+			"Read",
+		);
+		paintCodeMarks(
+			view({ marks: { sentence: [read, label], word: label, target: [] } }),
+			env(),
+		);
+		expect(registry.get(CODE_MARK_NAMES.sentence)?.ranges).toEqual([label]);
+		expect(registry.get(CODE_MARK_NAMES.word)?.ranges).toEqual([label]);
+	});
+
 	it("does nothing where the browser has no highlights", () => {
 		const { code } = reply();
 		expect(() =>

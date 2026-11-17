@@ -41,7 +41,8 @@ function browserEnv(): CodeMarkEnv | null {
 function inCode(range: Range): boolean {
 	const node = range.commonAncestorContainer;
 	const element = node instanceof Element ? node : node.parentElement;
-	return element?.closest("code, pre") != null;
+	// A link chip paints its own background too, above the overlay (early review R8).
+	return element?.closest("code, pre, .source-link-chip") != null;
 }
 
 /** Draws the view's marks that fall inside code, and clears the rest. Called on every change of the view. */
