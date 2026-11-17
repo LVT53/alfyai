@@ -81,3 +81,35 @@ export const readAloudView: Readable<ReadAloudView> = {
 export function setReadAloudView(next: ReadAloudView): void {
 	view.set(next);
 }
+
+// The voice preview as Settings and the editor draw it. Only the voice preview
+// (`src/lib/client/read-aloud/voice-preview.ts`) sets it; every ▶ there and the
+// editor's player read it and call the preview.
+
+/**
+ * Which button's sound it is (`"listen"`, `"base:<key>"`, `"voice:<id>"`), what
+ * it is doing, and the pill's view of it: a loading render is the pill's
+ * spinner (`"seeking"`), the end is `"finished"`, a failed render `"stopped"`.
+ */
+export type VoicePreviewView = {
+	owner: string | null;
+	status: "idle" | "loading" | "playing" | "paused" | "failed";
+	player: ReadAloudView;
+};
+
+export const idleVoicePreviewView: VoicePreviewView = {
+	owner: null,
+	status: "idle",
+	player: idleReadAloudView,
+};
+
+const previewView = writable<VoicePreviewView>(idleVoicePreviewView);
+
+export const voicePreviewView: Readable<VoicePreviewView> = {
+	subscribe: previewView.subscribe,
+};
+
+/** Only the voice preview calls it. */
+export function setVoicePreviewView(next: VoicePreviewView): void {
+	previewView.set(next);
+}
