@@ -140,6 +140,78 @@ describe("ReadAloudScrubber", () => {
 		).toContain("3/3 · Sentence number 3…");
 	});
 
+	it("keeps the bubble inside the player at both ends, from the handle's place and the bubble's width (C1)", async () => {
+		// A 375 px phone: the player runs from x = 8 to 367 and its scrubber from 60 to
+		// 315; the bubble's words are 200 px wide.
+		const box = (left: number, width: number) =>
+			({
+				left,
+				width,
+				right: left + width,
+				top: 0,
+				bottom: 40,
+				height: 40,
+				x: left,
+				y: 0,
+				toJSON: () => ({}),
+			}) as DOMRect;
+		const player = document.createElement("div");
+		player.setAttribute("data-read-aloud-player", "");
+		document.body.appendChild(player);
+		vi.spyOn(player, "getBoundingClientRect").mockReturnValue(box(8, 359));
+		const result = render(ReadAloudScrubber, {
+			target: player,
+			props: {
+				notches: NOTCHES,
+				progress: 0.4,
+				sentence: 1,
+				count: 3,
+				disabled: false,
+				preview: (i: number) => `${i + 1}/3 · Sentence number ${i + 1}…`,
+				onDragStart: vi.fn(),
+				onDragMove: vi.fn(),
+				onDragEnd: vi.fn(),
+				onStep: vi.fn(),
+			},
+		});
+		const slider = within(result.container).getByRole("slider");
+		vi.spyOn(slider, "getBoundingClientRect").mockReturnValue(box(60, 255));
+		const bubble = result.container.querySelector(
+			".read-aloud-bubble",
+		) as HTMLElement;
+		Object.defineProperty(bubble, "offsetWidth", {
+			configurable: true,
+			get: () => 200,
+		});
+		// What a browser measures while the bubble's transform is still moving: the
+		// bubble where its handle is, without the shift that was just asked for.
+		vi.spyOn(bubble, "getBoundingClientRect").mockImplementation(() =>
+			box(60 + (Number.parseFloat(bubble.style.left) / 100) * 255 - 100, 200),
+		);
+		const shift = () => bubble.style.getPropertyValue("--bubble-shift");
+
+		// At the start: the handle is at 60, so the bubble would begin at -40; it
+		// moves right to begin 6 px inside the player, at 14.
+		await fireEvent.pointerDown(slider, { clientX: 60, pointerId: 1 });
+		await tick();
+		await frame();
+		expect(shift()).toBe("54px");
+
+		// In the middle it needs no shift.
+		await fireEvent.pointerMove(slider, { clientX: 187, pointerId: 1 });
+		await frame();
+		await tick();
+		expect(shift()).toBe("0px");
+
+		// At the end: the bubble would end at 415; it moves left to end at 361.
+		await fireEvent.pointerMove(slider, { clientX: 315, pointerId: 1 });
+		await frame();
+		await tick();
+		expect(shift()).toBe("-54px");
+		await fireEvent.pointerUp(slider, { clientX: 315, pointerId: 1 });
+		player.remove();
+	});
+
 	it("does nothing while disabled", async () => {
 		const { slider, props } = scrubber({ disabled: true });
 		expect(slider.getAttribute("aria-disabled")).toBe("true");

@@ -80,24 +80,31 @@ function moveTo(clientX: number) {
 	}
 }
 
-/** Keeps the bubble inside the player: measured after it shows its new words. */
+/**
+ * Keeps the bubble inside the player, measured after it shows its new words.
+ * The shift comes from where the handle is and how wide the bubble is, never
+ * from the bubble's own box: that box holds the shift (or, while the transform
+ * moves, part of it), so reading it back would feed the shift on itself.
+ */
 $effect(() => {
-	dragShare;
+	const share = dragShare;
 	target;
-	const box = bubble?.getBoundingClientRect();
+	if (share === null || !bubble || !root) return;
+	const track = root.getBoundingClientRect();
 	const player = root
-		?.closest("[data-read-aloud-player]")
+		.closest("[data-read-aloud-player]")
 		?.getBoundingClientRect();
-	if (!box || !player || box.width === 0) {
+	const width = bubble.offsetWidth;
+	if (!player || width === 0) {
 		bubbleShift = 0;
 		return;
 	}
-	const left = box.left - bubbleShift;
-	const right = left + box.width;
-	if (left < player.left + BUBBLE_INSET_PX)
-		bubbleShift = player.left + BUBBLE_INSET_PX - left;
-	else if (right > player.right - BUBBLE_INSET_PX)
-		bubbleShift = player.right - BUBBLE_INSET_PX - right;
+	const left = track.left + share * track.width - width / 2;
+	const right = left + width;
+	const min = player.left + BUBBLE_INSET_PX;
+	const max = player.right - BUBBLE_INSET_PX;
+	if (left < min) bubbleShift = min - left;
+	else if (right > max) bubbleShift = Math.max(min - left, max - right);
 	else bubbleShift = 0;
 });
 

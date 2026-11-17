@@ -348,6 +348,47 @@ test("the phone layout: two rows, 44 px buttons and a 52 px play", async ({
 	expect((pill?.x ?? 0) + (pill?.width ?? 999)).toBeLessThanOrEqual(390);
 });
 
+test("a drag to either end on a phone keeps the bubble inside the player, and the page goes on working", async ({
+	page,
+}) => {
+	const errors: string[] = [];
+	page.on("pageerror", (error) => errors.push(error.message));
+	await page.setViewportSize({ width: 375, height: 812 });
+	const ui = await open(page, [FIVE_SENTENCE_REPLY]);
+	await ui.speaker().click();
+	await expect(ui.player).toBeVisible();
+	await waitForMotionToSettle(page);
+	const line = await ui.slider.boundingBox();
+	const pill = await ui.player.boundingBox();
+	if (!line || !pill) throw new Error("the player has no box");
+	const y = line.y + line.height / 2;
+	const bubble = page.locator(".read-aloud-bubble");
+	/** How far the bubble's edges are inside the player's, at least (negative: outside). */
+	const room = async () => {
+		const box = await bubble.boundingBox();
+		if (!box) return -1;
+		return Math.round(
+			Math.min(box.x - pill.x, pill.x + pill.width - (box.x + box.width)),
+		);
+	};
+
+	// A touch at the very start, held: the bubble moves right to stay inside.
+	await page.mouse.move(line.x + 1, y);
+	await page.mouse.down();
+	await expect(bubble).toHaveCSS("opacity", "1");
+	await expect.poll(room).toBeGreaterThanOrEqual(5);
+	// Dragged to the very end and held: it moves left to stay inside.
+	await page.mouse.move(line.x + line.width - 1, y, { steps: 8 });
+	await expect.poll(room).toBeGreaterThanOrEqual(5);
+	await page.mouse.up();
+
+	// The page goes on working: the drag lands on the last sentence, and ✕ ends it.
+	await expect(ui.slider).toHaveAttribute("aria-valuetext", "Sentence 5 of 5");
+	await ui.button("Stop reading").click();
+	await expect(ui.player).toBeHidden();
+	expect(errors).toEqual([]);
+});
+
 test("reduced motion: the player appears without moving", async ({ page }) => {
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	const ui = await open(page, [FIVE_SENTENCE_REPLY]);

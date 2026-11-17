@@ -167,6 +167,52 @@ test("the editor renders a style through the fake and saves the voice", async ({
 	).toBeVisible();
 });
 
+test("dragging the editor's player to either end keeps its bubble inside it", async ({
+	page,
+}) => {
+	const errors: string[] = [];
+	page.on("pageerror", (error) => errors.push(error.message));
+	const { editor } = await newVoice(page);
+	await editor
+		.getByRole("group", { name: "A style to start with" })
+		.getByRole("button", { name: "Bedtime" })
+		.click();
+	const player = editor.getByRole("group", { name: "Read aloud player" });
+	await expect(player.getByRole("button", { name: "Pause" })).toBeVisible({
+		timeout: 15_000,
+	});
+	// The pointer presses where the player is drawn, so it must be in view first.
+	await player.scrollIntoViewIfNeeded();
+	await waitForMotionToSettle(page);
+	const line = await player
+		.getByRole("slider", { name: "Sentence" })
+		.boundingBox();
+	const pill = await player.boundingBox();
+	if (!line || !pill) throw new Error("the editor's player has no box");
+	const y = line.y + line.height / 2;
+	const bubble = player.locator(".read-aloud-bubble");
+	/** How far the bubble's edges are inside the player's, at least (negative: outside). */
+	const room = async () => {
+		const box = await bubble.boundingBox();
+		if (!box) return -1;
+		return Math.round(
+			Math.min(box.x - pill.x, pill.x + pill.width - (box.x + box.width)),
+		);
+	};
+
+	await page.mouse.move(line.x + 1, y);
+	await page.mouse.down();
+	await expect(bubble).toHaveCSS("opacity", "1");
+	await expect.poll(room).toBeGreaterThanOrEqual(5);
+	await page.mouse.move(line.x + line.width - 1, y, { steps: 8 });
+	await expect.poll(room).toBeGreaterThanOrEqual(5);
+	await page.mouse.up();
+	await expect(
+		player.getByRole("slider", { name: "Sentence" }),
+	).toHaveAttribute("aria-valuetext", "Sentence 2 of 2");
+	expect(errors).toEqual([]);
+});
+
 test("Yours / Original plays the base voice", async ({ page }) => {
 	const { editor } = await newVoice(page);
 	await editor
