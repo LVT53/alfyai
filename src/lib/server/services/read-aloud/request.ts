@@ -6,6 +6,7 @@
 // passes it is one the service takes.
 
 import { z } from "zod";
+import { MAX_SENTENCES_PER_SESSION } from "$lib/shared/read-aloud/session-limits";
 import type { SpeechSentence } from "./speech-client";
 import type { ResolvedVoice, VoiceLanguage } from "./voices";
 
@@ -43,7 +44,7 @@ export const readingRequestSchema = z
 	.object({
 		conversationId: z.string().min(1).max(100),
 		messageId: z.string().min(1).max(100),
-		sentences: z.array(sentenceSchema).min(1).max(2000),
+		sentences: z.array(sentenceSchema).min(1).max(MAX_SENTENCES_PER_SESSION),
 	})
 	.refine(
 		(request) =>

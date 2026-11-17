@@ -1112,3 +1112,65 @@ describe("a detector that does not load (early review R16)", () => {
 	});
 });
 
+describe("a reply of more than 2,000 sentences (early review R21)", () => {
+	const paragraphs = (count: number) =>
+		Array.from(
+			{ length: count },
+			(_, i) =>
+				`<p>Sentence number ${i} is written here, and it is long enough to stand alone.</p>`,
+		).join("");
+
+	it("is read in sessions of at most 2,000 sentences, the next one opening when one ends", async () => {
+		const t = setup();
+		mountReply("m1", paragraphs(2001));
+		start(t);
+		await settle();
+		const first = t.body(0)?.sentences ?? [];
+		expect(first).toHaveLength(2000);
+		expect(first[0]?.id).toBe("s0");
+		expect(first.at(-1)?.id).toBe("s1999");
+		t.audio.emit("playing");
+		expect(t.last()).toMatchObject({ status: "playing", count: 2001 });
+
+		// The first session's audio ends after its last sentence: this is not the end.
+		(t.sources[0] as FakeEventSource).send("done", {});
+		t.audio.ended = true;
+		t.audio.emit("pause");
+		t.audio.emit("ended");
+		await settle();
+		expect(t.last().status).toBe("seeking");
+		expect(t.api.createReadingSession).toHaveBeenCalledTimes(2);
+		expect(t.body(1)?.sentences.map((sentence) => sentence.id)).toEqual([
+			"s2000",
+		]);
+		// The player says where it is: the last sentence of the reply.
+		expect(t.last().sentence).toBe(2000);
+
+		t.audio.ended = false;
+		t.audio.emit("playing");
+		(t.sources[1] as FakeEventSource).send("done", {});
+		t.audio.ended = true;
+		t.audio.emit("pause");
+		t.audio.emit("ended");
+		await settle();
+		expect(t.last()).toMatchObject({ status: "finished", progress: 1 });
+		expect(t.api.createReadingSession).toHaveBeenCalledTimes(2);
+	}, 30_000);
+
+	it("a reply of exactly 2,000 sentences needs one session", async () => {
+		const t = setup();
+		mountReply("m1", paragraphs(2000));
+		start(t);
+		await settle();
+		expect(t.body(0)?.sentences).toHaveLength(2000);
+		t.audio.emit("playing");
+		(t.sources[0] as FakeEventSource).send("done", {});
+		t.audio.ended = true;
+		t.audio.emit("pause");
+		t.audio.emit("ended");
+		await settle();
+		expect(t.last().status).toBe("finished");
+		expect(t.api.createReadingSession).toHaveBeenCalledTimes(1);
+	}, 30_000);
+});
+

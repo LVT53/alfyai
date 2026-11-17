@@ -31,6 +31,7 @@ import {
 	SERVER_UPDATE_WATCH_MAX_MS,
 	SERVER_UPDATE_WATCH_POLL_MS,
 } from "$lib/client/server-update-watch";
+import { MAX_SENTENCES_PER_SESSION } from "$lib/shared/read-aloud/session-limits";
 import { silentMp3DataUri } from "$lib/shared/read-aloud/silent-mp3";
 import { type ReadAloudView, setReadAloudView } from "$lib/stores/read-aloud";
 import { reportServerUpdateSign } from "$lib/stores/server-update";
@@ -212,10 +213,12 @@ type Reading = {
 	charsPerSecond: Record<"en" | "hu", number>;
 };
 
-/** One session of the speech service: a reading from sentence `from` on. */
+/** One session of the speech service: a reading from sentence `from` on, up to (not including) `to`. */
 type Session = {
 	id: string;
 	from: number;
+	/** The first sentence this session does not carry: the reply goes on from here when it ends. */
+	to: number;
 	timeline: SessionTimeline;
 	events: EventSourceLike | null;
 	/** How the stream said it failed, held until the audio made before it has played. */
@@ -556,7 +559,9 @@ export function createReadAloudController(
 		if (token !== openToken) return;
 		buildScriptOnce(target);
 		const script = target.script;
-		const sentences = script?.sentences.slice(from) ?? [];
+		// A reply of more than 2,000 sentences is read in sessions of that size (early review R21).
+		const sentences =
+			script?.sentences.slice(from, from + MAX_SENTENCES_PER_SESSION) ?? [];
 		if (!script || sentences.length === 0) {
 			dispatch({ type: "stop" });
 			return;
@@ -594,6 +599,7 @@ export function createReadAloudController(
 		session = {
 			id: answer.sessionId,
 			from,
+			to: from + sentences.length,
 			timeline: new SessionTimeline(script, from),
 			events: null,
 			failure: null,
@@ -886,8 +892,20 @@ export function createReadAloudController(
 	});
 	audio.addEventListener("ended", () => {
 		if (!hasSessionAudio()) return;
-		if (state.doneReceived && !session?.failure) dispatch({ type: "ended" });
-		else void landBreak();
+		if (!state.doneReceived || session?.failure) {
+			void landBreak();
+			return;
+		}
+		const next = session?.to ?? count();
+		if (next < count() && state.status === "playing") {
+			// Every sentence this session carried is read and the reply goes on: the next session
+			// opens where this one stopped. This one ended with all its audio read, so the server
+			// closes it when its stream closes, and there is nothing to cancel.
+			closeSession({ cancel: false });
+			dispatch({ type: "seek", sentence: next });
+			return;
+		}
+		dispatch({ type: "ended" });
 	});
 	audio.addEventListener("error", () => {
 		if (hasSessionAudio()) void landBreak();
