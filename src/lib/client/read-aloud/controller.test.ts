@@ -981,6 +981,25 @@ describe("the reading controller", () => {
 		expect(t.controller.sentencePreview(2)).toBe("3/3 · The third one is the…");
 	});
 
+	it("a drag that starts while a jump loads still lands where it is let go (early review R15)", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		t.controller.seek(1);
+		await settle();
+		expect(t.last().status).toBe("seeking");
+		expect(t.body(1)?.sentences[0]?.id).toBe("s1");
+		// The finger goes down again before the jump's audio has come.
+		t.controller.beginDrag();
+		expect(t.audio.pause).toHaveBeenCalled();
+		t.controller.dragTo(2);
+		expect(t.last().drag).toBe(2);
+		t.controller.endDrag(2);
+		await settle();
+		expect(t.last()).toMatchObject({ status: "seeking", drag: null, sentence: 2 });
+		expect(t.body(2)?.sentences[0]?.id).toBe("s2");
+	});
+
 	it("asks the thread to bring the sentence into view", async () => {
 		const t = setup();
 		mountReply();

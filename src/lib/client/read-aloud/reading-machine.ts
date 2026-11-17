@@ -447,6 +447,26 @@ export function reduce(state: ReadingState, event: ReadingEvent): ReadingStep {
 					commands: [{ kind: "pause" }],
 				};
 			}
+			if (status === "seeking") {
+				// A tap's jump is still loading when the finger goes down again: the drag is the
+				// person's latest word, and the jump's own audio is held while it lasts.
+				return {
+					state: {
+						...state,
+						drag: { target: state.sentence, wasPlaying: true },
+					},
+					commands: [{ kind: "pause" }],
+				};
+			}
+			if (status === "waiting") {
+				return {
+					state: {
+						...state,
+						drag: { target: state.sentence, wasPlaying: true },
+					},
+					commands: [],
+				};
+			}
 			return status === "paused" || status === "stopped"
 				? {
 						state: {

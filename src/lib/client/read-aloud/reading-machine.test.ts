@@ -549,6 +549,31 @@ describe("the reading machine", () => {
 		);
 	});
 
+	it("a drag that starts while a jump loads, or while the reading waits, still lands where it is let go (early review R15)", () => {
+		for (const state of [seekingAt(1), waitingAt(1)]) {
+			const started = reduce(state, { type: "dragStart" });
+			expect(started.state.drag).toEqual({ target: 1, wasPlaying: true });
+			const moved = reduce(started.state, { type: "dragMove", sentence: 4 });
+			expect(moved.state.drag).toEqual({ target: 4, wasPlaying: true });
+			const released = reduce(moved.state, { type: "dragEnd", sentence: 4 });
+			expect(released.state).toMatchObject({
+				status: "seeking",
+				sentence: 4,
+				drag: null,
+			});
+			expect(released.commands).toEqual([
+				{ kind: "open", messageId: "m1", from: 4 },
+				{ kind: "startTimer", timer: "start" },
+			]);
+		}
+		// The jump's own audio is held while the finger is down, as a playing one is.
+		expect(reduce(seekingAt(1), { type: "dragStart" }).commands).toEqual([
+			{ kind: "pause" },
+		]);
+		// Nothing plays while waiting: nothing to hold.
+		expect(reduce(waitingAt(1), { type: "dragStart" }).commands).toEqual([]);
+	});
+
 	it("the end shows Finished for 1.1 s", () => {
 		expect(READING_TIMER_MS.finished).toBe(1100);
 		const done = reduce(playingAt(4), { type: "done" });
@@ -647,7 +672,7 @@ describe("the reading machine", () => {
 			[playingAt(1), { type: "longPause" }],
 			[seekingAt(1), press("m1", 0)],
 			[waitingAt(1), { type: "toggle" }],
-			[seekingAt(1), { type: "dragStart" }],
+			[opening(), { type: "dragStart" }],
 			[finished(), { type: "done" }],
 			[opening(), { type: "broke", kind: "voice" }],
 		];
