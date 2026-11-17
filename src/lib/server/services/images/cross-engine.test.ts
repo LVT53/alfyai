@@ -290,6 +290,41 @@ describe("the cross-engine gate", () => {
 		expect(posts(video as FakeComfyUi)).toBe(1);
 	}, 30_000);
 
+	it("makes a video wait for a picture that is past its gate but has not posted yet", async () => {
+		await startEngines({}, {});
+		await setWait({ intervalMs: 20 });
+		// The picture is claimed and through its own gate, and is freeing the LTX
+		// server before it writes its checkpoint: held right there.
+		(video as FakeComfyUi).holdRequests("/free", true);
+		const pictureId = await queuePicture();
+		const pictureDrain = drainPictures();
+		await until(
+			async () =>
+				(video as FakeComfyUi).requests.some(
+					(request) => request.path === "/free",
+				),
+			(freeing) => freeing,
+		);
+		expect((await readPicture(pictureId)).checkpoint).toBeNull();
+
+		const videoId = await queueVideo();
+		const videoDrain = drainVideos();
+		await until(
+			async () => (await readVideo(videoId)).status,
+			(status) => status === "running",
+		);
+		await sleep(300);
+		// The picture holds the GPU from its claim: the video posts nothing yet.
+		expect(posts(video as FakeComfyUi)).toBe(0);
+
+		(video as FakeComfyUi).holdRequests("/free", false);
+		await pictureDrain;
+		await videoDrain;
+		expect((await readPicture(pictureId)).status).toBe("succeeded");
+		expect((await readVideo(videoId)).status).toBe("succeeded");
+		expect(posts(video as FakeComfyUi)).toBe(1);
+	}, 30_000);
+
 	it("cancels a waiting take without posting it", async () => {
 		await startEngines({}, { hangAfterPromptCount: 0 });
 		await setWait({ intervalMs: 20 });

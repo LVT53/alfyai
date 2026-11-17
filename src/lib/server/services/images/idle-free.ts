@@ -226,7 +226,9 @@ async function hasLiveTakeOnOtherEngine(
 		phaseAt: number | null;
 	}): boolean => {
 		if (row.phase !== "submitted" || row.checkpoint !== null) return true;
-		if (row.phaseAt === null) return false;
+		// The claim stamps `phase_at` (each kind's `onTransition`), so a running
+		// take without one is one this code cannot place: it holds the GPU.
+		if (row.phaseAt === null) return true;
 		return (
 			row.phaseAt < claim.phaseAt ||
 			(row.phaseAt === claim.phaseAt && row.id < claim.id)

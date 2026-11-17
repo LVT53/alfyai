@@ -526,19 +526,13 @@ async function renderTake(
 ): Promise<void> {
 	const { row, signal } = ctx;
 	const startedAt = Date.now();
-	// The take's own clock starts now: the cross-engine gate orders takes still
-	// inside it by this stamp.
-	const stamped = await ctx.write((tx) => {
-		tx.update(videoJobs)
-			.set({ phaseAt: Date.now() })
-			.where(eq(videoJobs.id, row.id))
-			.run();
-	});
-	if (!stamped || signal.aborted) return;
+	if (signal.aborted) return;
 
 	// One GPU, one engine's models: wait until no picture take is queued or
 	// running before touching the LTX server. The card shows the take as
-	// waiting; its countdown starts when ComfyUI starts the prompt.
+	// waiting; its countdown starts when ComfyUI starts the prompt. The gate
+	// orders takes still inside it by the stamp their claim wrote
+	// (`video-job.ts` `onTransition`), the one every other take reads too.
 	const waited = await waitForOtherEnginesIdle("ltx", {
 		signal,
 		deadlineMs: VIDEO_RENDER_DEADLINE_MS - (Date.now() - startedAt),
