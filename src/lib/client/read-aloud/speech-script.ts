@@ -371,7 +371,10 @@ function collectParagraphs(
 ): Paragraph[] {
 	const paragraphs: Paragraph[] = [];
 	let current: Paragraph | null = null;
-	let gap = false;
+	// What separates the words on either side of a tag that is not read: a space, or a line
+	// feed for a `<br>`, which the chat draws as a line break (`breaks: true`), so that
+	// "Name: John<br>Age: 42" is two sentences and each line gets its own pause (early review R18).
+	let gap: " " | "\n" | null = null;
 
 	const addText = (text: Text) => {
 		if (text.data.length === 0) return;
@@ -392,11 +395,11 @@ function collectParagraphs(
 			};
 			paragraphs.push(current);
 		} else if (gap) {
-			current.chars.push(" ");
+			current.chars.push(gap);
 			current.map.push(null);
 			current.atoms.push(null);
 		}
-		gap = false;
+		gap = null;
 		const atom = atomOf(text, element);
 		for (let offset = 0; offset < text.data.length; offset++) {
 			current.chars.push(text.data.charAt(offset));
@@ -450,8 +453,12 @@ function collectParagraphs(
 			}
 			if (child.nodeType !== Node.ELEMENT_NODE) continue;
 			const element = child as Element;
-			if (element.tagName === "BR" || element.matches(SKIPPED_SELECTOR)) {
-				gap = true;
+			if (element.tagName === "BR") {
+				gap = "\n";
+				continue;
+			}
+			if (element.matches(SKIPPED_SELECTOR)) {
+				gap ??= " ";
 				continue;
 			}
 			if (isCodeBlock(element)) {
@@ -465,7 +472,7 @@ function collectParagraphs(
 						(part as Element).tagName === "SUMMARY"
 					)
 						walk(part);
-					else gap = true;
+					else gap ??= " ";
 				}
 				continue;
 			}
@@ -890,14 +897,20 @@ function proseDrafts(
 		if (group) group.push(word);
 		else groups.set(segment, [word]);
 	}
+	// Each line of a paragraph a `<br>` breaks is a unit of its own, as a line of code is: the
+	// short ones that join then get the pause mark a join across units makes (early review R18).
+	const lineBreaks = [...view.matchAll(/\n/gu)].map((match) => match.index);
+	const lineOf = (offset: number) =>
+		lineBreaks.filter((at) => at < offset).length;
 	const drafts: Draft[] = [];
 	for (const group of groups.values()) {
 		keepFullStop(group);
+		const line = lineOf(group[0]?.start ?? 0);
 		drafts.push({
 			language,
 			paragraphStart: drafts.length === 0,
 			words: group,
-			unit,
+			unit: line === 0 ? unit : `${unit}:${line}`,
 			list,
 			code: false,
 		});

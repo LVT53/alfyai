@@ -387,6 +387,46 @@ describe("buildSpeechScript", () => {
 		expect(script.sentences[1]?.tokens[0]).toBe("Például");
 	});
 
+	it("says each line of a paragraph broken by single newlines as its own sentence, so it gets its own pause (early review R18)", () => {
+		const lines = build(
+			reply(
+				"<p>The first line is long enough to stand alone as a unit of its own<br>The second line is long enough to stand alone as another unit</p>",
+			),
+		);
+		expect(lines.sentences).toHaveLength(2);
+		expect(lines.sentences[0]?.tokens.at(-1)).toBe("own.");
+		expect(lines.sentences[1]?.tokens[0]).toBe("The");
+		// Short lines join into one unit, each ended by the pause mark a join across units makes.
+		const short = build(reply("<p>Name: John<br>Age: 42<br>City: Budapest</p>"));
+		expect(tokensOf(short)).toEqual([
+			"Name:",
+			"John,",
+			"Age:",
+			"42,",
+			"City:",
+			"Budapest.",
+		]);
+		// A break that ends a paragraph, or opens one, says nothing.
+		expect(tokensOf(build(reply("<p>Trailing break here<br></p>")))).toEqual([
+			"Trailing",
+			"break",
+			"here.",
+		]);
+		// A picture between two words stays the space it was, and a break beside one is still a break.
+		expect(
+			tokensOf(build(reply('<p>before <img src="x.png" alt="ALT"> after</p>'))),
+		).toEqual(["before", "after."]);
+		expect(
+			tokensOf(
+				build(
+					reply(
+						'<p>The first line is long enough to stand alone as a unit<img src="x.png" alt="ALT"><br>The second line is long enough to stand alone as another unit</p>',
+					),
+				),
+			),
+		).not.toContain("ALT");
+	});
+
 	it("pauses after a word before an arrow between items", () => {
 		expect(tokensOf(build(reply("<p>Home → Settings → Profile</p>")))).toEqual([
 			"Home,",
