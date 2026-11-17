@@ -174,6 +174,64 @@ test("a paused reading is not woken by the OS: a play it did not ask for is paus
 	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
 });
 
+/** Where the reading's audio is: paused or not, its position and its source. */
+function readingAudioState(page: import("@playwright/test").Page) {
+	return page.evaluate(() => {
+		const audio = (window as unknown as { __played: HTMLMediaElement[] })
+			.__played[0];
+		return {
+			paused: audio.paused,
+			at: audio.currentTime,
+			src: audio.currentSrc,
+		};
+	});
+}
+
+test('while the voice catches up a press on the spinning play button pauses, and a second press resumes where it was (owner: "Yes, press pauses")', async ({
+	page,
+}) => {
+	await recordMediaElements(page);
+	const ui = await open(page, [FIVE_SENTENCE_REPLY]);
+	await ui.speaker().click();
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
+	// The voice falls behind: the reading's audio says it waits for data. (The fake
+	// keeps its stream ahead of the reading, so the spec says it for the audio.)
+	await page.evaluate(() =>
+		(
+			window as unknown as { __played: HTMLMediaElement[] }
+		).__played[0].dispatchEvent(new Event("waiting")),
+	);
+	const spinner = ui.play.locator(".mini-spinner");
+	await expect(spinner).toBeVisible();
+	const nameWhileSpinning = await ui.play.getAttribute("aria-label");
+
+	// A press pauses, exactly as at any other moment: the spinner stops and the button shows play.
+	await ui.play.click();
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Resume reading");
+	await expect(spinner).toHaveCount(0);
+	await expect(ui.play).toHaveAttribute("aria-label", "Play");
+	expect(await page.evaluate(() => navigator.mediaSession.playbackState)).toBe(
+		"paused",
+	);
+	const paused = await readingAudioState(page);
+	expect(paused.paused).toBe(true);
+	expect(paused.at).toBeGreaterThan(0);
+
+	// A second press resumes where the reading was: the same audio, on from there.
+	await ui.play.click();
+	expect((await readingAudioState(page)).at).toBeGreaterThanOrEqual(paused.at);
+	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
+	await expect
+		.poll(async () => {
+			const now = await readingAudioState(page);
+			return now.src === paused.src && !now.paused && now.at > paused.at;
+		})
+		.toBe(true);
+	expect(fake.sessions.length).toBe(1);
+	// While it spun, its name said what a press does.
+	expect(nameWhileSpinning).toBe("Pause");
+});
+
 test("simple math is read, as the owner's sum showed on staging", async ({
 	page,
 }) => {
