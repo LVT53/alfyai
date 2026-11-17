@@ -140,6 +140,11 @@ function currentSound() {
 	});
 }
 
+/** Brings a note into view (above the sticky footer: its scroll-margin). */
+function intoView(node: HTMLElement) {
+	node.scrollIntoView?.({ block: "nearest" });
+}
+
 /** A change: back to Yours, and the voice plays when the person asked for that. */
 function changed() {
 	compare = "yours";
@@ -360,26 +365,35 @@ onMount(() => {
 			/>
 		</section>
 
-		{#if note === "saveFailed"}
-			<ReadAloudNote
-				tone="warn"
-				icon="alert"
-				text={$t("readAloud.editor.saveFailed")}
-				actionLabel={$t("readAloud.tryAgain")}
-				onAction={() => save(lastSave)}
-				placement="inline"
-			/>
-		{:else if note === "deleteFailed"}
-			<ReadAloudNote
-				tone="warn"
-				icon="alert"
-				text={$t("readAloud.editor.deleteFailed")}
-				actionLabel={$t("readAloud.tryAgain")}
-				onAction={remove}
-				placement="inline"
-			/>
-		{:else if note === "tooMany"}
-			<ReadAloudNote tone="calm" icon="alert" text={$t("readAloud.editor.tooMany")} placement="inline" />
+		{#if note}
+			<!-- Save is in the sticky footer, reachable from anywhere: its note comes into
+			     view above the footer (the review's M3; spec §4.8, "next to Save"). A new
+			     note remounts, so it comes into view too. -->
+			{#key note}
+				<div class="voice-editor-note" {@attach intoView}>
+					{#if note === "saveFailed"}
+						<ReadAloudNote
+							tone="warn"
+							icon="alert"
+							text={$t("readAloud.editor.saveFailed")}
+							actionLabel={$t("readAloud.tryAgain")}
+							onAction={() => save(lastSave)}
+							placement="inline"
+						/>
+					{:else if note === "deleteFailed"}
+						<ReadAloudNote
+							tone="warn"
+							icon="alert"
+							text={$t("readAloud.editor.deleteFailed")}
+							actionLabel={$t("readAloud.tryAgain")}
+							onAction={remove}
+							placement="inline"
+						/>
+					{:else}
+						<ReadAloudNote tone="calm" icon="alert" text={$t("readAloud.editor.tooMany")} placement="inline" />
+					{/if}
+				</div>
+			{/key}
 		{/if}
 	</div>
 
@@ -511,6 +525,11 @@ onMount(() => {
 	.voice-editor-delete:focus-visible {
 		outline: 2px solid var(--border-focus);
 		outline-offset: 2px;
+	}
+
+	/* Clear of the sticky footer when it is scrolled into view. */
+	.voice-editor-note {
+		scroll-margin-bottom: 96px;
 	}
 
 	.voice-editor-knobs {

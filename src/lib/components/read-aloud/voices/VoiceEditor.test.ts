@@ -346,6 +346,32 @@ describe("VoiceEditor", () => {
 		expect(t.knob("Pace").value).toBe("-1");
 	});
 
+	it("brings a failed save's note into view, above the footer", async () => {
+		// The review's M3: Save is in the sticky footer, reachable from anywhere in the
+		// editor, so its note must not stay below the fold.
+		const scrolled = vi.fn();
+		Object.defineProperty(Element.prototype, "scrollIntoView", {
+			configurable: true,
+			value: scrolled,
+		});
+		try {
+			editor();
+			vi.mocked(createReadAloudVoice).mockRejectedValueOnce(
+				new ApiError("too_many", { status: 409 }),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Save voice" }));
+			const note = await screen.findByText(
+				"You have 50 voices, the most you can keep. Delete one to make another.",
+			);
+			expect(scrolled).toHaveBeenCalledWith({ block: "nearest" });
+			expect(scrolled.mock.contexts[0]).toBe(
+				note.closest(".voice-editor-note"),
+			);
+		} finally {
+			Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+		}
+	});
+
 	it("says when the person has 50 voices", async () => {
 		const t = editor();
 		vi.mocked(createReadAloudVoice).mockRejectedValueOnce(
