@@ -58,12 +58,14 @@ class Settings:
     steady_attempts: int = 4
     # The silence between two sentences, and before the first sentence of a paragraph: a reader's
     # pause at a full stop is about half a second, and a new paragraph a good deal longer. (Until
-    # 2026-11-17 they were 0.30 s and 0.60 s, which ran sentences together.)
-    gap_seconds: float = 0.5
-    paragraph_gap_seconds: float = 0.9
+    # 2026-11-17 they were 0.30 s and 0.60 s, which ran sentences together.) The owner chose these
+    # three by ear on 2026-11-17, halfway between two of five versions; a preview's join in AlfyAI's
+    # server (`preview.ts`) keeps the sentence gap by hand.
+    gap_seconds: float = 0.45
+    paragraph_gap_seconds: float = 0.82
     # What each pause of 0.12 s or more inside a sentence is lengthened by (`audio.lengthen_pauses`):
     # Zonos pauses at a comma for a tenth of a second or two. 0 leaves the pauses as Zonos made them.
-    breath_seconds: float = 0.15
+    breath_seconds: float = 0.12
     # Zonos caps a request at 1500 frames (about 100 s). Not an environment setting.
     max_sentence_chars: int = 400
 

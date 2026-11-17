@@ -164,7 +164,7 @@ The spoken text is built from the reply **as rendered on screen**, never from it
 
 **Read as written:**
 - paragraphs and quotes, with text in brackets read normally;
-- headings, followed by the same 0.6 s pause as a new paragraph;
+- headings, followed by the same pause as a new paragraph;
 - list items and checklist items: a numbered list reads its numbers ("One. Mix the flour…"), bullets are silent;
 - the text of links, and inline emphasis as plain words.
 

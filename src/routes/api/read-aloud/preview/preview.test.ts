@@ -141,8 +141,8 @@ describe("POST /api/read-aloud/preview", () => {
 		expect(times).toHaveLength(2);
 		const [first, second] = times;
 		expect(first?.[0]).toBe(0);
-		// The second sentence starts after the first and the 0.30 s gap, and the clip ends with it.
-		expect((second?.[0] ?? 0) - (first?.[1] ?? 0)).toBeCloseTo(0.313, 2);
+		// The second sentence starts after the first and the 0.45 s gap (18 whole frames), and the clip ends with it.
+		expect((second?.[0] ?? 0) - (first?.[1] ?? 0)).toBeCloseTo(0.47, 2);
 		expect(readMp3(bytes).seconds).toBeCloseTo(second?.[1] ?? -1, 2);
 		// It spoke the English sample, in the base's voice.
 		expect(fake.previews.map((made) => made.text).sort()).toEqual(

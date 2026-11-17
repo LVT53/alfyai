@@ -15,8 +15,12 @@ import { joinMp3, readMp3 } from "./mp3-join";
 import { previewSpeech } from "./speech-client";
 import type { ResolvedVoice, VoiceLanguage } from "./voices";
 
-/** The silence between a preview's sentences: Plan 1's gap between sentences. */
-const PREVIEW_GAP_SECONDS = 0.3;
+/**
+ * The silence between a preview's sentences: the speech service's gap between sentences
+ * (`SPEECH_GAP_SECONDS`, 0.45 s), kept equal to it by hand, so the editor's Listen sounds as a
+ * reading does.
+ */
+const PREVIEW_GAP_SECONDS = 0.45;
 
 /** A newer preview of the same person began before this one ended. */
 export class PreviewSuperseded extends Error {

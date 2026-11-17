@@ -33,7 +33,7 @@ def test_the_other_defaults():
     )
     assert (s.idle_seconds, s.max_sentence_chars) == (30.0, 400)
     assert s.steady_attempts == 4
-    assert (s.gap_seconds, s.paragraph_gap_seconds, s.breath_seconds) == (0.5, 0.9, 0.15)
+    assert (s.gap_seconds, s.paragraph_gap_seconds, s.breath_seconds) == (0.45, 0.82, 0.12)
 
 
 def test_reads_every_variable():

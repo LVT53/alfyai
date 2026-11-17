@@ -57,8 +57,8 @@ BERTA_CONTROLS = {"room.clean": 2}  # "studio", the setting the owner approved h
 FIRST_AUDIO_LIMIT = 1.5  # seconds from the POST to the first MP3 audio byte
 # The service's own defaults (SPEECH_GAP_SECONDS and SPEECH_PARAGRAPH_GAP_SECONDS; they were 0.30 and
 # 0.60 until 2026-11-17). A service run with others is checked with --gap and --paragraph-gap.
-GAP_SECONDS = 0.50  # silence before a sentence
-PARAGRAPH_GAP_SECONDS = 0.90  # silence before the first sentence of a paragraph
+GAP_SECONDS = 0.45  # silence before a sentence
+PARAGRAPH_GAP_SECONDS = 0.82  # silence before the first sentence of a paragraph
 GAP_TOLERANCE = 0.05
 SPAN_TOLERANCE = 0.05  # a word may lie this far outside its sentence (alignment frames, rounding)
 LENGTH_TOLERANCE = 0.15  # between the timeline's end and the audio's length

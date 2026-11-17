@@ -18,7 +18,7 @@ Four facts about AlfyAI constrain the answer. The box's memory is tight (swap ha
 
 **4. One progressive MP3 per reading, with the timeline over server-sent events.** The browser plays one response in one `<audio>` element while the service is still making it, and a second response says where each sentence and word falls on that audio's clock. Speed is the browser's `playbackRate`. A stop or a jump ends the session, which frees Zonos's slot.
 
-**5. The preview is joined per sentence.** The voice editor's and Settings' ▶ speak a short sample with a voice that may not be saved yet: one service call per sentence, all at once, joined with a 0.30 s gap into one whole MP3, with the sentences' times in a response header. Nothing is cached.
+**5. The preview is joined per sentence.** The voice editor's and Settings' ▶ speak a short sample with a voice that may not be saved yet: one service call per sentence, all at once, joined with the gap between sentences (0.45 s) into one whole MP3, with the sentences' times in a response header. Nothing is cached.
 
 **6. Nothing is stored, and no log carries text.** No audio is written to disk anywhere. What is held is held in memory and goes with its reading: the server's replay when the reading closes, the browser's copy when the page does. No reply text reaches a log: ids, counts, timings and field paths only. The one file is the aligner's temporary clip, for the length of one call. An incognito chat can be read aloud and leaves nothing behind. The database keeps only a person's choice of voices, their default speed and their personal voices (a name, a built-in voice to start from and five knob values).
 
