@@ -4,9 +4,11 @@
 // `LTX24_I2V_SYSTEM_PROMPT`), vendored here and pinned by a test rather than
 // read from a ComfyUI checkout at runtime: the take is rendered on a server
 // that may hold no ComfyUI source at all, and the wording is part of the
-// model's contract, not something this app may drift. What the app adds goes
-// in a message of its own after it (`VIDEO_CAPTION_HOUSE_RULES`): the endpoint
-// is never shown the still, and the feasibility study's house rules.
+// model's contract, not something this app may drift. What the app adds follows
+// it after a blank line, in the same system message (`VIDEO_CAPTION_HOUSE_RULES`:
+// the endpoint is never shown the still, and the feasibility study's house
+// rules). One system message, first: a chat template may refuse a system message
+// anywhere else (`captionSystemMessage`).
 //
 // The endpoint is configuration (ADR-0068): an address the app calls without a
 // click comes from the admin's settings, never from anything a model wrote.
@@ -89,6 +91,22 @@ export function videoContinuationNote(first: string): string {
 ${first}
 
 Continue from that last moment: describe only what happens in the next five seconds, as the action goes on. Do not start the action over, do not repeat what already happened, and do not repeat any dialogue already spoken.`;
+}
+
+/**
+ * The caption request's one system message: the vendored instruction first and
+ * unchanged, then the app's own words, each after a blank line. Never several
+ * system messages: Qwen's chat template refuses a system message anywhere but
+ * first, and the endpoint answers 400 ("System message must be at the
+ * beginning."). Measured on the box on 2026-11-17, when the house rules went in
+ * a second message: every caption failed and fell back to the person's words.
+ */
+function captionSystemMessage(note?: string): string {
+	return [
+		LTX24_I2V_INSTRUCTION,
+		VIDEO_CAPTION_HOUSE_RULES,
+		...(note ? [note] : []),
+	].join("\n\n");
 }
 
 /**
@@ -184,9 +202,7 @@ async function requestCaption(
 		body: JSON.stringify({
 			model: getLtxCaptionModel(),
 			messages: [
-				{ role: "system", content: LTX24_I2V_INSTRUCTION },
-				{ role: "system", content: VIDEO_CAPTION_HOUSE_RULES },
-				...(note ? [{ role: "system", content: note }] : []),
+				{ role: "system", content: captionSystemMessage(note) },
 				{ role: "user", content: `User Raw Input Prompt: ${motion}.` },
 			],
 			temperature: 0,

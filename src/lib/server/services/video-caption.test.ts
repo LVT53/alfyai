@@ -92,20 +92,53 @@ describe("buildVideoPrompt", () => {
 		// A reasoning model spends its answer on reasoning and returns no content.
 		expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
 		expect(body.max_tokens).toBeGreaterThan(0);
-		expect(body.messages[0]).toEqual({
-			role: "system",
-			content: LTX24_I2V_INSTRUCTION,
+		// One system message: the vendored instruction first and unchanged, the
+		// app's own words after it, never inside it.
+		expect(body.messages).toEqual([
+			{
+				role: "system",
+				content: `${LTX24_I2V_INSTRUCTION}\n\n${VIDEO_CAPTION_HOUSE_RULES}`,
+			},
+			{
+				role: "user",
+				content: "User Raw Input Prompt: the tide comes in slowly.",
+			},
+		]);
+	});
+
+	it("gets its caption from an endpoint that refuses a system message anywhere but first", async () => {
+		// Qwen's chat template answers 400 "System message must be at the
+		// beginning." (measured on the box on 2026-11-17, when the house rules
+		// went in a second system message and every caption fell back to the
+		// person's words). This fake keeps that rule, for both builders.
+		const strictTemplate = vi.fn(async (_url: string, init?: RequestInit) => {
+			const body = JSON.parse(String(init?.body)) as {
+				messages: { role: string }[];
+			};
+			const misplaced = body.messages.some(
+				(message, index) => message.role === "system" && index > 0,
+			);
+			return misplaced
+				? new Response(
+						JSON.stringify({
+							error: { message: "System message must be at the beginning." },
+						}),
+						{ status: 400 },
+					)
+				: jsonResponse("A slow tide fills the frame.");
 		});
-		// The app's own words follow the vendored instruction, never inside it.
-		expect(body.messages[1]).toEqual({
-			role: "system",
-			content: VIDEO_CAPTION_HOUSE_RULES,
-		});
-		expect(body.messages[2]).toEqual({
-			role: "user",
-			content: "User Raw Input Prompt: the tide comes in slowly.",
-		});
-		expect(body.messages).toHaveLength(3);
+		const fetchImpl = strictTemplate as unknown as typeof fetch;
+		expect(await buildVideoPrompt("the tide comes in", { fetchImpl })).toBe(
+			"A slow tide fills the frame.",
+		);
+		expect(
+			await buildVideoContinuationPrompt(
+				"the tide comes in",
+				"Initially the tide comes in.",
+				{ fetchImpl },
+			),
+		).toBe("A slow tide fills the frame.");
+		expect(strictTemplate).toHaveBeenCalledTimes(2);
 	});
 
 	it("tells the caption model it is not shown the still, and keeps the house rules", () => {
@@ -220,9 +253,10 @@ describe("buildVideoPrompt", () => {
 				(fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body,
 			),
 		);
-		expect(body.messages[2].content).toBe(
-			"User Raw Input Prompt: the tide comes in.",
-		);
+		expect(body.messages.at(-1)).toEqual({
+			role: "user",
+			content: "User Raw Input Prompt: the tide comes in.",
+		});
 	});
 });
 
@@ -245,9 +279,14 @@ describe("buildVideoContinuationPrompt: a 10 s clip's second five seconds", () =
 			),
 		);
 		expect(body.messages).toEqual([
-			{ role: "system", content: LTX24_I2V_INSTRUCTION },
-			{ role: "system", content: VIDEO_CAPTION_HOUSE_RULES },
-			{ role: "system", content: videoContinuationNote(first) },
+			{
+				role: "system",
+				content: [
+					LTX24_I2V_INSTRUCTION,
+					VIDEO_CAPTION_HOUSE_RULES,
+					videoContinuationNote(first),
+				].join("\n\n"),
+			},
 			{
 				role: "user",
 				content: "User Raw Input Prompt: the cat walks to the door.",
