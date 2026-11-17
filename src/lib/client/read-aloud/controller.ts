@@ -294,7 +294,7 @@ export function createReadAloudController(
 				return;
 			case "close":
 				openToken += 1;
-				closeSession();
+				closeSession({ cancel: command.ended !== true });
 				return;
 			case "play":
 				expectPause = false;
@@ -535,7 +535,8 @@ export function createReadAloudController(
 		};
 	}
 
-	function closeSession() {
+	/** `cancel`: tell the server to close it too (not when the reading came to its end). */
+	function closeSession({ cancel = true }: { cancel?: boolean } = {}) {
 		const closing = session;
 		session = null;
 		lastLocate = null;
@@ -545,7 +546,7 @@ export function createReadAloudController(
 			audio.removeAttribute("src");
 			audio.load();
 		}
-		if (closing) api.cancelReadingSession(closing.id);
+		if (closing && cancel) api.cancelReadingSession(closing.id);
 	}
 
 	function openEvents(owner: Session): EventSourceLike {

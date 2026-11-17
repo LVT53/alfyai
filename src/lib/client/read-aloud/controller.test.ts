@@ -702,7 +702,9 @@ describe("the reading controller", () => {
 		expect(t.last()).toMatchObject({ status: "finished", progress: 1 });
 		vi.advanceTimersByTime(1100);
 		expect(t.last().status).toBe("idle");
-		expect(t.api.cancelReadingSession).toHaveBeenCalledWith("x1");
+		// The server closed it when this browser had all its audio: a DELETE is a 404.
+		expect(t.api.cancelReadingSession).not.toHaveBeenCalled();
+		expect(t.audio.src).toBe("");
 	});
 
 	it("the end takes the marks away while Finished shows (they fade)", async () => {

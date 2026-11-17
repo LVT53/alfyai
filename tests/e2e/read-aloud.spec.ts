@@ -258,12 +258,25 @@ test("the end keeps Finished over its controls until the player has gone", async
 	page,
 }) => {
 	const ui = await open(page, [TWO_SENTENCE_REPLY]);
+	// Nothing asks for a session the server has already closed (it closes one once
+	// the browser has all its audio): no position report or DELETE answers 404.
+	const missing: string[] = [];
+	page.on("response", (response) => {
+		if (
+			response.url().includes("/api/read-aloud/sessions/") &&
+			response.status() === 404
+		)
+			missing.push(
+				`${response.request().method()} ${new URL(response.url()).pathname}`,
+			);
+	});
 	const frames = await recordPlayer(page);
 	await ui.speaker().click();
 	await expect(ui.player).toHaveAttribute("data-finished", "", {
 		timeout: 30_000,
 	});
 	await expect(ui.player).toBeHidden();
+	expect(missing).toEqual([]);
 	const all = await frames();
 	const end = all.slice(all.findIndex((frame) => frame.finished));
 	const shown = end.filter((frame) => frame.pill);

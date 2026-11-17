@@ -109,7 +109,11 @@ export type ReadingEvent =
 export type ReadingCommand =
 	/** Tear down any session, then open one for `messageId` from sentence `from`. */
 	| { kind: "open"; messageId: string; from: number }
-	| { kind: "close" }
+	/**
+	 * Tear down the session. `ended`: the reading came to its end, and the server
+	 * closed the session once this browser had all its audio, so no DELETE.
+	 */
+	| { kind: "close"; ended?: true }
 	| { kind: "play" }
 	| { kind: "pause" }
 	| { kind: "report"; sentence: number }
@@ -391,10 +395,11 @@ export function reduce(state: ReadingState, event: ReadingEvent): ReadingStep {
 			if (status !== "playing") return stay(state);
 			if (event.sentence === state.sentence && event.word === state.word)
 				return stay(state);
-			const changed = event.sentence !== state.sentence;
+			// After `done` every sentence is made: a report has nothing to ask for.
+			const report = event.sentence !== state.sentence && !state.doneReceived;
 			return {
 				state: { ...state, sentence: event.sentence, word: event.word },
-				commands: changed ? [{ kind: "report", sentence: event.sentence }] : [],
+				commands: report ? [{ kind: "report", sentence: event.sentence }] : [],
 			};
 		}
 		case "recovered":
@@ -461,7 +466,7 @@ export function reduce(state: ReadingState, event: ReadingEvent): ReadingStep {
 				: stay(state);
 		case "finishedTimeout":
 			return status === "finished"
-				? toIdle(state, [{ kind: "close" }])
+				? toIdle(state, [{ kind: "close", ended: true }])
 				: stay(state);
 		case "speed":
 			return {
