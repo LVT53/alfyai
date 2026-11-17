@@ -7,7 +7,7 @@
 // hold. The take's own service is never freed — a list, not a pair, because a
 // third engine makes "the other one" wrong.
 
-import { eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import {
 	getComfyuiLtxUrl,
 	getComfyuiUrlForModel,
@@ -45,6 +45,88 @@ async function anyLiveTake(): Promise<boolean> {
 		.where(inArray(videoJobs.status, ["queued", "running"]))
 		.limit(1);
 	return videos.length > 0;
+}
+
+/** The phases of a take that reached the GPU: its engine's models were loaded for it. */
+const ON_THE_GPU = ["starting", "rendering", "finishing"];
+
+/**
+ * Whether `engine` most likely still holds its models, for the estimate's load
+ * time (`take-eta.ts`): another take of it is on the GPU now, or the take that
+ * last reached the GPU (on any engine) was on it and ended within
+ * IMAGE_IDLE_FREE_MS. A take on another engine frees this one before it
+ * submits, and the idle timer frees every engine after that long. A guess: a
+ * wrong one only makes the countdown run faster or run over, nothing else.
+ */
+export async function engineLooksWarm(
+	engine: PictureEngine,
+	takeId: string,
+	now = Date.now(),
+): Promise<boolean> {
+	if (engine === "ltx") {
+		const [busy] = await db
+			.select({ id: videoJobs.id })
+			.from(videoJobs)
+			.where(
+				and(
+					eq(videoJobs.status, "running"),
+					ne(videoJobs.id, takeId),
+					inArray(videoJobs.phase, ON_THE_GPU),
+				),
+			)
+			.limit(1);
+		if (busy) return true;
+	} else {
+		const busy = await db
+			.select({ requestJson: imageJobs.requestJson })
+			.from(imageJobs)
+			.where(
+				and(
+					eq(imageJobs.status, "running"),
+					ne(imageJobs.id, takeId),
+					inArray(imageJobs.phase, ON_THE_GPU),
+				),
+			);
+		if (
+			busy.some((take) => parseTakeRequest(take.requestJson)?.model === engine)
+		) {
+			return true;
+		}
+	}
+	const [picture] = await db
+		.select({
+			completedAt: imageJobs.completedAt,
+			requestJson: imageJobs.requestJson,
+		})
+		.from(imageJobs)
+		.where(
+			and(
+				isNotNull(imageJobs.completedAt),
+				inArray(imageJobs.phase, ON_THE_GPU),
+			),
+		)
+		.orderBy(desc(imageJobs.completedAt))
+		.limit(1);
+	const [video] = await db
+		.select({ completedAt: videoJobs.completedAt })
+		.from(videoJobs)
+		.where(
+			and(
+				isNotNull(videoJobs.completedAt),
+				inArray(videoJobs.phase, ON_THE_GPU),
+			),
+		)
+		.orderBy(desc(videoJobs.completedAt))
+		.limit(1);
+	const pictureAt = picture?.completedAt?.getTime() ?? 0;
+	const videoAt = video?.completedAt?.getTime() ?? 0;
+	const lastAt = Math.max(pictureAt, videoAt);
+	if (lastAt === 0 || now - lastAt >= IMAGE_IDLE_FREE_MS) return false;
+	const lastEngine: PictureEngine | null =
+		videoAt >= pictureAt
+			? "ltx"
+			: (parseTakeRequest(picture?.requestJson ?? "")?.model ?? null);
+	return lastEngine === engine;
 }
 
 /** Frees ComfyUI when the app has no live take and ComfyUI's queue is empty. True when /free was sent. */
@@ -209,8 +291,6 @@ export async function waitForOtherEnginesIdle(
 		deadlineMs: number;
 		/** The waiting take; only takes older than it block (oldest wins). */
 		claim: EngineClaim;
-		/** Called once per poll while waiting: the take's own clock keeps ticking. */
-		onTick?: () => Promise<void> | void;
 	},
 ): Promise<OtherEngineWaitResult> {
 	const override = waitTestOverride();
@@ -225,8 +305,6 @@ export async function waitForOtherEnginesIdle(
 		if (!(await hasLiveTakeOnOtherEngine(engine, options.claim))) return "idle";
 		const elapsed = Date.now() - startedAt;
 		if (elapsed >= deadlineMs) return "timeout";
-		await options.onTick?.();
-		if (options.signal.aborted) return "cancelled";
 		await waitPause(
 			Math.max(1, Math.min(intervalMs, deadlineMs - elapsed)),
 			options.signal,

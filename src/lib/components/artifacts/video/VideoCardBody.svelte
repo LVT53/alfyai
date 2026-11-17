@@ -8,9 +8,9 @@
 // clip's shape from the first paint (720p before a clip exists), and the state
 // and the player are stacked layers that crossfade on opacity. While a take
 // waits, starts or is made the stage shows only the shimmer (one layer) and
-// the words are the sr-only status; the estimate — or the phase's `m:ss`
-// clock — is a chip laid over the stage (`aria-hidden`, so the live region
-// never re-announces it), the same rule the picture card follows.
+// the words are the sr-only status; the time is the card's head's to show,
+// beside the kind (`onTime`), from this body's own countdown — the same rule
+// the picture card follows.
 //
 // A clip's versions are real but History is not shown for one yet: More offers
 // Download and a disabled History that says so, and there is no takes strip. The whole card is worked out in
@@ -26,6 +26,7 @@ import {
 	VideoOff,
 } from "@lucide/svelte";
 import { get } from "svelte/store";
+import { untrack } from "svelte";
 import { fade } from "svelte/transition";
 import {
 	downloadAuthenticatedBlob,
@@ -35,7 +36,11 @@ import { t } from "$lib/i18n";
 import { showToast } from "$lib/stores/toast";
 import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
 import AnchoredPopover from "../AnchoredPopover.svelte";
-import { STARTING_SHOWN_AFTER_MS } from "../image/image-card-view";
+import {
+	COUNTDOWN_TICK_MS,
+	createEtaCountdown,
+	takeTimeLine,
+} from "../image/image-card-view";
 import {
 	type VideoCardAction,
 	type VideoCardActionHandler,
@@ -53,6 +58,7 @@ let {
 	conversationId = null,
 	onAction = undefined,
 	gone = null,
+	onTime = undefined,
 }: {
 	card: VideoCardView;
 	conversationId?: string | null;
@@ -63,11 +69,20 @@ let {
 	 * rows, says so in the box, and offers nothing to press.
 	 */
 	gone?: "deleted" | "unreachable" | null;
+	/**
+	 * The words the card's head shows beside the kind while the take is on its
+	 * way ("Next up", "About 38 s left", "Almost done…"), null once it is not.
+	 */
+	onTime?: ((words: string | null) => void) | undefined;
 } = $props();
 
 const crossfade = reducedMotionAware(fade);
 
 let now = $state(Date.now());
+/** The take's countdown, on this browser's clock (`createEtaCountdown`). */
+const countdown = createEtaCountdown();
+/** Bumped by every reading, so the countdown is read again once it is re-aimed. */
+let readings = $state(0);
 let menuOpen = $state(false);
 /** The GIF is being made: the row wears the card's own disabled/busy look. */
 let gifBusy = $state(false);
@@ -79,7 +94,7 @@ let takeBeforeAnother = $state<string | null>(null);
 let scope = $derived(conversationId ?? card.conversationId);
 let take = $derived(card.take);
 let cardState = $derived(videoTakeState(take, now));
-let words = $derived(videoStateWords(cardState, now, $t));
+let words = $derived(videoStateWords(cardState, $t));
 let box = $derived(
 	take?.clip
 		? { width: take.clip.width, height: take.clip.height }
@@ -97,8 +112,23 @@ let busy = $derived(
 			cardState.kind === "starting" ||
 			cardState.kind === "making"),
 );
+/** Where the countdown stands: the finish time it counts to, or null. */
+let deadline = $derived.by(() => {
+	void readings;
+	return countdown.at(now);
+});
+/** The head's words while the take is on its way (`takeTimeLine`). */
+let timeLine = $derived(
+	busy ? takeTimeLine(cardState, deadline, now, $t) : null,
+);
+$effect(() => {
+	onTime?.(timeLine);
+});
 let statusText = $derived(busy ? words.line : "");
-let statusDetail = $derived(busy ? (words.detail ?? "") : "");
+/** The head's words for screen readers (hidden there), never re-announced. */
+let statusDetail = $derived(
+	!busy || cardState.kind === "waiting" ? "" : (timeLine ?? words.detail ?? ""),
+);
 let durationLabel = $derived(
 	videoDurationLabel(clip?.durationMs ?? card.durationMs),
 );
@@ -116,28 +146,28 @@ let anotherDisabled = $derived(
 );
 let menuAnchorId = $derived(`video-card-more-${card.id}`);
 
-// The card's clock: it ticks once a second only while the take is making and
-// the render reports no estimate of its own.
+// Each reading of the take's estimate (every poll) re-aims the countdown.
 $effect(() => {
-	const running = take;
-	if (
-		gone ||
-		!running ||
-		running.status !== "running" ||
-		running.phase === "submitted"
-	) {
-		return;
-	}
+	const current = take;
+	if (!current) return;
+	countdown.read(
+		current.id,
+		current.status === "running" ? current.etaSeconds : null,
+		Date.now(),
+	);
 	now = Date.now();
-	if (running.etaSeconds !== null && running.etaSeconds > 0) return;
-	if (
-		running.phase === "starting" &&
-		running.phaseAt !== null &&
-		Date.now() - running.phaseAt >= STARTING_SHOWN_AFTER_MS
-	) {
-		return;
-	}
-	const timer = setInterval(() => (now = Date.now()), 1_000);
+	// The countdown is not reactive itself: a reading that lands in the same
+	// millisecond as the last tick must still be shown.
+	untrack(() => (readings += 1));
+});
+
+// The card's clock ticks while the take is running, so the countdown moves on
+// its own between polls. Keyed by the take, not its object: every poll brings
+// a new object, and the timer must outlive it.
+let ticking = $derived(!gone && take?.status === "running" ? take.id : null);
+$effect(() => {
+	if (!ticking) return;
+	const timer = setInterval(() => (now = Date.now()), COUNTDOWN_TICK_MS);
 	return () => clearInterval(timer);
 });
 
@@ -255,16 +285,6 @@ async function pressDownloadGif(): Promise<void> {
 				transition:crossfade={{ duration: MOTION_DURATION.standard }}
 			>
 				<span class="video-card-shimmer-band"></span>
-				{#if cardState.kind === 'making'}
-					<!-- The estimate, or the time this phase has taken: the same string
-					     the sr-only detail carries, laid over the box so it adds no
-					     height and hidden from screen readers. -->
-					<span
-						class="video-card-time"
-						data-testid="video-card-time"
-						aria-hidden="true">{statusDetail}</span
-					>
-				{/if}
 			</div>
 		{:else}
 			{#key cardState.kind}
@@ -525,13 +545,12 @@ async function pressDownloadGif(): Promise<void> {
 		}
 	}
 
-	/* The estimate/time chip and the clip's length: quiet chips laid over the
-	   box (no height of their own), clear of each other and of the player's
-	   controls. */
-	.video-card-time,
+	/* The clip's length: a quiet chip laid over the box (no height of its own),
+	   clear of the player's controls. */
 	.video-card-duration {
 		position: absolute;
-		bottom: 0.5rem;
+		top: 0.5rem;
+		right: 0.5rem;
 		z-index: 1;
 		display: inline-flex;
 		align-items: center;
@@ -546,17 +565,6 @@ async function pressDownloadGif(): Promise<void> {
 		/* The chips are labels over the player, never targets of their own: a
 		   press on top of one must reach the clip and toggle play. */
 		pointer-events: none;
-	}
-
-	.video-card-time {
-		left: 0.5rem;
-		max-width: calc(100% - 3.5rem);
-	}
-
-	.video-card-duration {
-		top: 0.5rem;
-		right: 0.5rem;
-		bottom: auto;
 	}
 
 	/* The kind's own word on the stage (the picture card carries none: its

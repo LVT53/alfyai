@@ -52,7 +52,7 @@ export const imageJob = defineJobKind({
 			.set({
 				queueAhead: null,
 				progressPercent: null,
-				etaSeconds: null,
+				etaAt: null,
 				phaseAt: null,
 				cancelInterrupt: 1,
 			})

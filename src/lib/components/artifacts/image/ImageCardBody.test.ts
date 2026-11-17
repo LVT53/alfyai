@@ -41,16 +41,17 @@ describe("ImageCardBody", () => {
 
 		const shimmer = screen.getByTestId("image-card-shimmer");
 		expect(shimmer).toHaveAttribute("aria-hidden", "true");
-		// The box draws no state words (they are screen-reader-only): its one
-		// visible line is the time chip, held by the tests below.
-		expect(within(shimmer).queryByText(/^Making the picture…$/)).toBeNull();
+		// The box draws no words at all: the state is for screen readers and
+		// the time is the card head's to show (the owner's call of 17 Nov).
+		expect(shimmer.textContent?.trim()).toBe("");
+		expect(screen.queryByTestId("image-card-time")).toBeNull();
 		expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("image-card-state")).not.toBeInTheDocument();
 		const status = screen.getByTestId("image-card-status");
 		expect(status).toHaveAttribute("role", "status");
 		expect(status).toHaveClass("sr-only");
 		// The live region says the state; the time left is beside it, read on
-		// demand, never re-announced on every poll (Task 11 fix round 1).
+		// demand, never re-announced as it moves (Task 11 fix round 1).
 		expect(status).toHaveTextContent(/^Making the picture…$/);
 		const detail = screen.getByTestId("image-card-status-detail");
 		expect(detail).toHaveClass("sr-only");
@@ -61,91 +62,159 @@ describe("ImageCardBody", () => {
 		expect(onAction).toHaveBeenCalledWith({ type: "stop", takeId: making.id });
 	});
 
-	it("does not re-announce the time left on every poll: the live region changes with the state only", async () => {
-		const making = (etaSeconds: number) =>
+	describe("the time it hands to the card's head", () => {
+		const making = (over: Parameters<typeof take>[0] = {}) =>
 			take({
+				id: "take-making",
 				status: "running",
 				phase: "rendering",
-				phaseAt: Date.now(),
-				etaSeconds,
-				fileId: null,
-			});
-		const { rerender } = render(ImageCardBody, { card: card([making(12)]) });
-		const status = screen.getByTestId("image-card-status");
-		const before = status.textContent;
-		await rerender({ card: card([making(9)]) });
-		await rerender({ card: card([making(6)]) });
-		expect(status.textContent).toBe(before);
-		expect(screen.getByTestId("image-card-status-detail")).toHaveTextContent(
-			"About 6 s left",
-		);
-	});
-
-	it("puts the render's estimate in the image box while a take is made, and only the state line in the live region", () => {
-		const making = take({
-			status: "running",
-			phase: "rendering",
-			phaseAt: Date.now(),
-			etaSeconds: 8,
-			progressPercent: 40,
-			fileId: null,
-			width: null,
-			height: null,
-		});
-		render(ImageCardBody, { card: card([making]) });
-
-		const time = screen.getByTestId("image-card-time");
-		expect(time).toHaveTextContent("About 8 s left");
-		// Hidden from screen readers: the time is beside the live region instead,
-		// so it is there to read but never announced on the tick.
-		expect(time).toHaveAttribute("aria-hidden", "true");
-		// Inside the one layer the box shows while a take is made (a sibling of
-		// the band), so it adds no height to the reserved box.
-		expect(time.parentElement).toBe(screen.getByTestId("image-card-shimmer"));
-		expect(screen.getByTestId("image-card-status")).toHaveTextContent(
-			/^Making the picture…$/,
-		);
-		expect(screen.getByTestId("image-card-status-detail")).toHaveTextContent(
-			"About 8 s left",
-		);
-		expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
-	});
-
-	it("shows the time this phase has taken in the box when the render reports no estimate, and counts it up", async () => {
-		vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
-		try {
-			vi.setSystemTime(100_000);
-			const making = take({
-				status: "running",
-				phase: "rendering",
-				phaseAt: 93_000,
-				etaSeconds: null,
+				phaseAt: 100_000,
 				fileId: null,
 				width: null,
 				height: null,
+				...over,
 			});
-			render(ImageCardBody, { card: card([making]) });
+
+		beforeEach(() => {
+			vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+			vi.setSystemTime(100_000);
+		});
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		/** The last words the body handed up. */
+		const lastTime = (onTime: ReturnType<typeof vi.fn>) =>
+			onTime.mock.calls.at(-1)?.[0];
+
+		it("counts down on its own between polls, one second a second", async () => {
+			const onTime = vi.fn();
+			render(ImageCardBody, {
+				card: card([making({ etaSeconds: 24 })]),
+				onTime,
+			});
 			await tick();
+			expect(lastTime(onTime)).toBe("About 24 s left");
+			const seen = [];
+			for (let second = 1; second <= 5; second += 1) {
+				await vi.advanceTimersByTimeAsync(1_000);
+				await tick();
+				seen.push(lastTime(onTime));
+			}
+			expect(seen).toEqual([
+				"About 23 s left",
+				"About 22 s left",
+				"About 21 s left",
+				"About 20 s left",
+				"About 19 s left",
+			]);
+			// The screen reader's copy is the same words.
+			expect(screen.getByTestId("image-card-status-detail")).toHaveTextContent(
+				"About 19 s left",
+			);
+		});
 
-			const time = screen.getByTestId("image-card-time");
-			expect(time).toHaveTextContent(/^0:07$/);
-			expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
-
+		it("does not climb back when a poll's answer arrives a little late", async () => {
+			const onTime = vi.fn();
+			const { rerender } = render(ImageCardBody, {
+				card: card([making({ etaSeconds: 24 })]),
+				onTime,
+			});
+			await tick();
+			await vi.advanceTimersByTimeAsync(1_000);
+			// The poll says 23.6 s at 1 s: 600 ms later than the countdown, the
+			// answer's own delay. The card keeps counting from where it was.
+			await rerender({ card: card([making({ etaSeconds: 23.6 })]), onTime });
+			await tick();
+			expect(lastTime(onTime)).toBe("About 23 s left");
 			await vi.advanceTimersByTimeAsync(1_000);
 			await tick();
-			expect(screen.getByTestId("image-card-time")).toHaveTextContent(/^0:08$/);
-		} finally {
-			vi.useRealTimers();
-		}
+			expect(lastTime(onTime)).toBe("About 22 s left");
+		});
+
+		it("does not re-announce the time on any poll: the live region changes with the state only", async () => {
+			const { rerender } = render(ImageCardBody, {
+				card: card([making({ etaSeconds: 12 })]),
+			});
+			const status = screen.getByTestId("image-card-status");
+			const before = status.textContent;
+			for (const etaSeconds of [9, 6]) {
+				await vi.advanceTimersByTimeAsync(3_000);
+				await rerender({ card: card([making({ etaSeconds })]) });
+			}
+			expect(status.textContent).toBe(before);
+			expect(screen.getByTestId("image-card-status-detail")).toHaveTextContent(
+				"About 6 s left",
+			);
+		});
+
+		it("says it is taking a little longer once its time is up, never a number below zero", async () => {
+			const onTime = vi.fn();
+			const { rerender } = render(ImageCardBody, {
+				card: card([making({ etaSeconds: 2 })]),
+				onTime,
+			});
+			await tick();
+			await vi.advanceTimersByTimeAsync(3_000);
+			await rerender({ card: card([making({ etaSeconds: 0 })]), onTime });
+			await tick();
+			expect(lastTime(onTime)).toBe("Taking a little longer…");
+			await vi.advanceTimersByTimeAsync(60_000);
+			await tick();
+			expect(lastTime(onTime)).toBe("Taking a little longer…");
+			// In its last step (ComfyUI done, the picture being stored).
+			await rerender({
+				card: card([making({ phase: "finishing", etaSeconds: 0 })]),
+				onTime,
+			});
+			await tick();
+			expect(lastTime(onTime)).toBe("Almost done…");
+			expect(
+				onTime.mock.calls.some(([words]) => /-|\b0 s\b/.test(String(words))),
+			).toBe(false);
+		});
+
+		it("says where a waiting take is, and hands nothing up once the picture lands", async () => {
+			const onTime = vi.fn();
+			const waiting = take({
+				id: "take-making",
+				status: "running",
+				phase: "submitted",
+				queueAhead: 2,
+				fileId: null,
+			});
+			const { rerender } = render(ImageCardBody, {
+				card: card([waiting]),
+				onTime,
+			});
+			await tick();
+			expect(lastTime(onTime)).toBe("2 ahead of this one");
+			await rerender({
+				card: card([take({ id: "take-making", status: "succeeded" })]),
+				onTime,
+			});
+			await tick();
+			expect(lastTime(onTime)).toBeNull();
+		});
+
+		it("speaks Hungarian", async () => {
+			uiLanguage.set("hu");
+			const onTime = vi.fn();
+			render(ImageCardBody, {
+				card: card([making({ etaSeconds: 24 })]),
+				onTime,
+			});
+			await tick();
+			expect(lastTime(onTime)).toBe("Még kb. 24 mp");
+		});
 	});
 
-	it("adds the time without moving the box: same stage, same aspect, same shimmer", async () => {
+	it("keeps the box as it was when the take starts: same stage, same aspect, same shimmer, no words", async () => {
 		const queued = take({ status: "queued", fileId: null });
 		const { rerender } = render(ImageCardBody, { card: card([queued]) });
 		const stage = screen.getByTestId("image-card-stage");
 		const shimmer = screen.getByTestId("image-card-shimmer");
 		expect(stage.style.aspectRatio).toBe("1248 / 832");
-		expect(screen.queryByTestId("image-card-time")).toBeNull();
 
 		await rerender({
 			card: card([
@@ -153,16 +222,15 @@ describe("ImageCardBody", () => {
 					...queued,
 					status: "running",
 					phase: "rendering",
-					// 7.4 s ago: still 0:07 if a second of the test slips by.
-					phaseAt: Date.now() - 7_400,
-					etaSeconds: null,
+					phaseAt: Date.now(),
+					etaSeconds: 20,
 				},
 			]),
 		});
 		expect(screen.getByTestId("image-card-stage")).toBe(stage);
 		expect(stage.style.aspectRatio).toBe("1248 / 832");
 		expect(screen.getByTestId("image-card-shimmer")).toBe(shimmer);
-		expect(screen.getByTestId("image-card-time")).toHaveTextContent("0:07");
+		expect(shimmer.textContent?.trim()).toBe("");
 		expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
 	});
 
