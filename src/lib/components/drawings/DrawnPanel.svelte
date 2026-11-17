@@ -4,10 +4,11 @@
  *
  * The header is one row. It holds the way back of `ArtifactPanelHeader.svelte`
  * (`artifacts.panel.crumb`), the title as a grey line, History's clock (that
- * header's button) and the Download and Close of `DocumentWorkspace.svelte`'s
- * header actions. The body is whatever the drawing puts in it.
+ * header's button) and read aloud's speaker, the Download and the Close of
+ * `DocumentWorkspace.svelte`'s header actions. The body is whatever the drawing
+ * puts in it.
  */
-import { ChevronLeft, Clock, Download, X } from "@lucide/svelte";
+import { ChevronLeft, Clock, Download, Volume2, X } from "@lucide/svelte";
 import type { Snippet } from "svelte";
 import { t } from "$lib/i18n";
 import DrawnBar from "./DrawnBar.svelte";
@@ -39,6 +40,9 @@ let {
 			class:drawing-spot-lit={isLit(spots.history, lit)}
 		>
 			<span class="drawn-ic"><Clock size="100%" strokeWidth={2.1} aria-hidden="true" /></span>
+		</span>
+		<span class="action">
+			<span class="drawn-ic"><Volume2 size="100%" strokeWidth={2} aria-hidden="true" /></span>
 		</span>
 		<span
 			class="action"

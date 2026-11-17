@@ -251,6 +251,40 @@ describe("the guide's drawings", () => {
 		expect(speaker).toBeGreaterThan(copy);
 	});
 
+	// Read aloud on Documents: the Document panel's header has the speaker, first of its
+	// actions, so the Make drawing's panel draws it before Download.
+	it("the side panel's header draws the speaker before Download", () => {
+		const { container } = render(SectionDrawing, {
+			props: { section: "make", lit: null },
+		});
+		const head = container.querySelector<HTMLElement>(".drawn-panel .head");
+		const iconNames = [...(head?.querySelectorAll("svg") ?? [])].map((svg) =>
+			[...svg.classList].find(
+				(name) => name.startsWith("lucide-") && name !== "lucide-icon",
+			),
+		);
+		expect(iconNames).toEqual([
+			"lucide-chevron-left",
+			"lucide-clock",
+			"lucide-volume-2",
+			"lucide-download",
+			"lucide-x",
+		]);
+	});
+
+	it("follows the real header: the speaker comes before Download in the panel's actions", () => {
+		const workspace = readFileSync(
+			join(HERE, "..", "..", "document-workspace", "DocumentWorkspace.svelte"),
+			"utf8",
+		);
+		const speaker = workspace.indexOf("<ReadAloudSpeaker");
+		const download = workspace.indexOf(
+			'data-testid="artifact-download-button"',
+		);
+		expect(speaker).toBeGreaterThan(0);
+		expect(download).toBeGreaterThan(speaker);
+	});
+
 	it("is hidden from screen readers", () => {
 		const { container } = render(SectionDrawing, {
 			props: { section: "make", lit: null },

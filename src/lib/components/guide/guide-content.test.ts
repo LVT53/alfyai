@@ -66,12 +66,14 @@ describe("the feature guide's content", () => {
 		});
 	});
 
+	// Read aloud on Documents (read-aloud-documents): the same entry says a
+	// document can be read too.
 	it("words the two read-aloud entries in English and Hungarian", () => {
 		const expected = {
 			en: {
-				"guide.entry.listenToAReply.name": "Listen to a reply",
+				"guide.entry.listenToAReply.name": "Listen to a reply or a document",
 				"guide.entry.listenToAReply.line":
-					"Press the speaker under a reply to hear it, and follow the words as they are read.",
+					"Press the speaker under a reply, or at the top of a document, to hear it, and follow the words as they are read.",
 				"guide.entry.listenToAReply.example":
 					"Tell me a short story about a lighthouse keeper.",
 				"guide.entry.yourVoices.name": "Voices that read to you",
@@ -79,9 +81,10 @@ describe("the feature guide's content", () => {
 					"Choose a voice for each language and the speed it starts at, or make a voice of your own.",
 			},
 			hu: {
-				"guide.entry.listenToAReply.name": "Hallgasd meg a választ",
+				"guide.entry.listenToAReply.name":
+					"Hallgasd meg a választ vagy a dokumentumot",
 				"guide.entry.listenToAReply.line":
-					"Nyomd meg a válasz alatti hangszórót, és kövesd a szavakat, ahogy elhangzanak.",
+					"Nyomd meg a hangszórót a válasz alatt vagy a dokumentum tetején, és kövesd a szavakat, ahogy elhangzanak.",
 				"guide.entry.listenToAReply.example":
 					"Mesélj egy rövid történetet egy világítótorony-őrről.",
 				"guide.entry.yourVoices.name": "Felolvasó hangok",
