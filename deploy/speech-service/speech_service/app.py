@@ -40,6 +40,7 @@ from speech_service.config import Settings
 from speech_service.logs import describe
 from speech_service.models import Sentence, Voice
 from speech_service.session import Event, ReaderTaken, ReadingSession
+from speech_service.steady import synthesize_steady
 from speech_service.text import Language, normalize
 from speech_service.zonos import SynthesisFailed, ZonosClient, ZonosError, ZonosUnavailable
 
@@ -189,8 +190,14 @@ class _Api:
             raise _Invalid("text")
         started = time.monotonic()
         try:
-            audio, rate = await self._zonos.synthesize(
-                " ".join(spoken.words), language, voice, self._settings.seed
+            audio, rate = await synthesize_steady(
+                self._zonos,
+                " ".join(spoken.words),
+                language,
+                voice,
+                self._settings.seed,
+                self._settings.steady_attempts,
+                on_retry=_preview_made_again,
             )
             if rate != SAMPLE_RATE:
                 raise SynthesisFailed(f"Zonos sent audio at {rate} Hz, not {SAMPLE_RATE} Hz")
@@ -228,6 +235,17 @@ class _Api:
                 "aligner": not isinstance(self._aligner, NoAligner),
             }
         )
+
+
+def _preview_made_again(attempt: int, attempts: int, seconds: float, pause: float) -> None:
+    """Zonos stalled on a preview's sentence and it is made again: numbers only, never the text."""
+    logger.info(
+        "preview: a clip of %.1f s with a pause of %.1f s was made again (attempt %d of %d)",
+        seconds,
+        pause,
+        attempt,
+        attempts,
+    )
 
 
 @dataclasses.dataclass

@@ -25,6 +25,7 @@ import pytest
 import soundfile as sf
 
 from speech_service import session as session_module
+from speech_service import steady
 from speech_service.aligner import NoAligner
 from speech_service.audio import Mp3Encoder
 from speech_service.config import Settings
@@ -32,7 +33,7 @@ from speech_service.models import Sentence, Voice
 from speech_service.session import ReaderTaken, ReadingSession
 from speech_service.text import Spoken, normalize
 from speech_service.zonos import ZonosClient
-from tests.fakes_zonos import fake_zonos, refusing_transport
+from tests.fakes_zonos import fake_zonos, refusing_transport, scripted_zonos
 from tests.helpers import SR, VOICE, decode_mp3, decoded_seconds, rms_db, tone
 
 # Like tests/test_aligner.py: the bare module name, which both Pythons that run these tests find.
@@ -247,6 +248,70 @@ async def test_zonos_hears_the_normalized_words_in_the_voice_and_seed(new_sessio
         "text_normalization": False,
         "controls": {"room.clean": 2.0},
     }
+
+
+# A sentence Zonos stalls on is made again (speech_service/steady.py): "Hello there." is expected to
+# take 1.4 s or so, and a clip with a silence in it, or one far longer, is in trouble.
+STALLED = np.concatenate([tone(0.3, 0.5), np.zeros(round(1.5 * SR), dtype=np.float32), tone(0.3, 0.5)])
+STEADY = tone(0.3, 1.2)
+
+
+def spoken_seconds(events: list[tuple[str, dict]]) -> list[float]:
+    """How long each announced sentence plays, from the timeline."""
+    return [(data["end"] - data["start"]) for data in of(events, "sentence")]
+
+
+async def test_a_sentence_zonos_stalled_on_is_made_again_and_the_steady_clip_is_spoken(new_session):
+    session, requests = new_session(make_sentences(1), zonos=scripted_zonos(STALLED, STEADY))
+    events, mp3 = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(1.2, abs=0.05)]
+    assert decoded_seconds(mp3) == pytest.approx(1.2, abs=0.15)
+    assert [request["seed"] for request in requests] == [1234, 1234 + steady.SEED_STEP]
+    assert requests[0]["text"] == requests[1]["text"] == "Hello there."
+
+
+async def test_a_sentence_that_stalls_every_time_is_still_spoken_from_the_least_bad_clip(new_session):
+    worst = np.concatenate([tone(0.3, 0.5), np.zeros(round(3.0 * SR), dtype=np.float32), tone(0.3, 0.5)])
+    session, requests = new_session(
+        make_sentences(1), zonos=scripted_zonos(worst, STALLED, worst, worst), steady_attempts=4
+    )
+    events, _ = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(2.5, abs=0.05)]  # STALLED, the least bad
+    assert len(requests) == 4
+    assert of(events, "done") == [{}]
+
+
+async def test_with_one_attempt_a_stalled_clip_is_spoken_as_it_is(new_session):
+    session, requests = new_session(
+        make_sentences(1), zonos=scripted_zonos(STALLED, STEADY), steady_attempts=1
+    )
+    events, _ = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(2.5, abs=0.05)]
+    assert len(requests) == 1
+
+
+async def test_a_retry_that_fails_leaves_the_stalled_clip_to_be_spoken_and_no_error(new_session):
+    session, requests = new_session(make_sentences(1), zonos=scripted_zonos(STALLED, 500))
+    events, _ = await play(session)
+    assert of(events, "error") == []
+    assert spoken_seconds(events) == [pytest.approx(2.5, abs=0.05)]
+    assert len(requests) == 2
+
+
+async def test_only_the_stalled_sentences_are_made_again(new_session):
+    session, requests = new_session(
+        make_sentences(3), zonos=scripted_zonos(STEADY, STALLED, STEADY, STEADY), prefetch=3
+    )
+    events, _ = await play(session)
+    assert spoken_seconds(events) == [pytest.approx(1.2, abs=0.05)] * 3
+    assert len(requests) == 4  # the second sentence took two attempts, the others one
+
+
+async def test_the_end_line_counts_the_clips_that_were_made_again(new_session, caplog):
+    caplog.set_level(logging.DEBUG, logger="speech_service")
+    session, _ = new_session(make_sentences(2), zonos=scripted_zonos(STALLED, STEADY, STEADY))
+    await play(session)
+    assert ", 1 made again, 0 without word times" in ending_of(caplog)
 
 
 async def test_language_switch_mid_session(new_session):
@@ -1141,7 +1206,9 @@ async def test_zonos_unavailable_has_its_own_code(new_session):
 @pytest.mark.parametrize("rate", [22050, 48000])
 async def test_a_sample_rate_other_than_44100_is_a_failed_synthesis(new_session, rate):
     zonos = zonos_answering(lambda: wav_response(tone(0.3, 1.0), rate))
-    session, requests = new_session(make_sentences(2), zonos=zonos)
+    # One attempt: at 22050 Hz these samples play for twice as long as Zonos's 44100 Hz would, which
+    # looks like a stall to steady.py, and it would make the sentence again before the rate is judged.
+    session, requests = new_session(make_sentences(2), zonos=zonos, steady_attempts=1)
     events, _ = await play(session)
     assert events == [("error", {"id": "s0", "code": "synthesis_failed"})]
     assert len(requests) == 1
@@ -1285,6 +1352,7 @@ class _QuotesTheWords(FakeAligner):
         "zonos-refuses",
         "zonos-500",
         "normalizer-quotes",
+        "stalled",
         "cancelled",
         "idle",
     ],
@@ -1299,6 +1367,8 @@ async def test_no_reply_text_is_logged(new_session, caplog, monkeypatch, scenari
         options["zonos"] = (refusing_transport(), [])
     elif scenario == "zonos-500":
         options["fail_on"] = 2
+    elif scenario == "stalled":
+        options["zonos"] = scripted_zonos(STALLED, STEADY, STALLED, STALLED, STEADY)
     elif scenario == "normalizer-quotes":
         def quoting(tokens, language):
             raise ValueError(f"cannot normalize {tokens}")

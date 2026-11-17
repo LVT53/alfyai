@@ -49,6 +49,7 @@ from speech_service.audio import SAMPLE_RATE, Mp3Encoder, match_loudness, silenc
 from speech_service.config import Settings
 from speech_service.logs import describe
 from speech_service.models import Sentence
+from speech_service.steady import synthesize_steady
 from speech_service.text import Spoken, normalize
 from speech_service.zonos import SynthesisFailed, ZonosClient, ZonosUnavailable
 
@@ -179,6 +180,7 @@ class ReadingSession:
         # was still stuck on an earlier job). The first is warned about; the end of the session
         # says how many there were.
         self._without_word_times = 0
+        self._made_again = 0  # clips Zonos stalled on, which were made again (steady.py)
 
     @property
     def ended(self) -> bool:
@@ -374,8 +376,14 @@ class ReadingSession:
 
     async def _synthesize(self, sentence: Sentence, spoken: Spoken) -> np.ndarray:
         """The sentence as Zonos says it, trimmed and matched in loudness, ready to be written."""
-        audio, rate = await self._zonos.synthesize(
-            " ".join(spoken.words), sentence.language, sentence.voice, self._settings.seed
+        audio, rate = await synthesize_steady(
+            self._zonos,
+            " ".join(spoken.words),
+            sentence.language,
+            sentence.voice,
+            self._settings.seed,
+            self._settings.steady_attempts,
+            on_retry=self._made_again_because_it_stalled,
         )
         if rate != SAMPLE_RATE:  # Zonos's output is documented, and measured, as 44.1 kHz
             raise SynthesisFailed(f"Zonos sent audio at {rate} Hz, not {SAMPLE_RATE} Hz")
@@ -383,6 +391,24 @@ class ReadingSession:
         if clip.size == 0:
             raise SynthesisFailed("Zonos sent nothing but silence")
         return clip
+
+    def _made_again_because_it_stalled(
+        self, attempt: int, attempts: int, seconds: float, pause: float
+    ) -> None:
+        """Zonos stalled on the sentence being read, and it is made again. Counted for the line that
+        says how the session ended, and logged as numbers only, at the level a retry deserves: it
+        happens to a good share of short sentences, so it is not news."""
+        self._made_again += 1
+        logger.debug(
+            "session %s: sentence %d: a clip of %.1f s with a pause of %.1f s was made again "
+            "(attempt %d of %d)",
+            self.id,
+            self._current,
+            seconds,
+            pause,
+            attempt,
+            attempts,
+        )
 
     async def _align(
         self, index: int, sentence: Sentence, spoken: Spoken, audio_16k: np.ndarray, start: float
@@ -563,12 +589,14 @@ class ReadingSession:
         self._ended = True
         self._disarm_idle_clock()
         logger.info(
-            "session %s: ended (%s), %d of %d sentences announced in %.1f s, %d without word times",
+            "session %s: ended (%s), %d of %d sentences announced in %.1f s, %d made again, "
+            "%d without word times",
             self.id,
             reason,
             self._announced,
             len(self._sentences),
             time.monotonic() - self._began,
+            self._made_again,
             self._without_word_times,
         )
 

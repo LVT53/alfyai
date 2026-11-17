@@ -5,6 +5,7 @@ import io
 import json
 
 import httpx
+import numpy as np
 import soundfile as sf
 
 from tests.helpers import SR, tone
@@ -63,6 +64,32 @@ def fake_zonos(
         if number == fail_on:
             return httpx.Response(500, json={"detail": "synthesis failed"})
         return httpx.Response(200, content=_wav(body["text"]), headers={"content-type": "audio/wav"})
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler)), requests
+
+
+def scripted_zonos(*script: np.ndarray | int) -> tuple[httpx.AsyncClient, Requests]:
+    """A client for a Zonos that answers the n-th /v2/generate call with the n-th item of `script`
+    (the last one again once the script is used up) and /v2/health with 200.
+
+    An item that is a clip of audio is answered as a WAV; an item that is an int is answered as that
+    HTTP status with no audio. So a test can make Zonos stall on a sentence (a clip with a long
+    silence in it), and then answer it well, or not at all.
+    """
+    requests = Requests()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/v2/health":
+            return httpx.Response(200, json={"status": "ok"})
+        if request.method != "POST" or request.url.path != "/v2/generate":
+            return httpx.Response(404, json={"detail": "Not Found"})
+        requests.append(json.loads(request.content))
+        item = script[min(len(requests), len(script)) - 1]
+        if isinstance(item, int):
+            return httpx.Response(item, json={"detail": "scripted"})
+        buffer = io.BytesIO()
+        sf.write(buffer, item, SR, format="WAV", subtype="PCM_16")
+        return httpx.Response(200, content=buffer.getvalue(), headers={"content-type": "audio/wav"})
 
     return httpx.AsyncClient(transport=httpx.MockTransport(handler)), requests
 

@@ -49,6 +49,9 @@ class Settings:
     aligner_cli: str = "fusealign-cli"
     aligner_threads: int = 4
     idle_seconds: float = 30.0
+    # How many clips of a sentence are made at most when Zonos stalls on it (`steady.py`): the first
+    # attempt and the retries under the next seeds. 1 turns the retries off.
+    steady_attempts: int = 4
     # Zonos caps a request at 1500 frames (about 100 s). Not an environment setting.
     max_sentence_chars: int = 400
 
@@ -77,6 +80,11 @@ class Settings:
             raise ValueError(
                 f"SPEECH_ALIGNER_THREADS must be 1 or more, got {self.aligner_threads}"
             )
+        # No attempt at all would be no clip, ever.
+        if self.steady_attempts < 1:
+            raise ValueError(
+                f"SPEECH_STEADY_ATTEMPTS must be 1 or more, got {self.steady_attempts}"
+            )
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> Settings:
@@ -97,4 +105,7 @@ class Settings:
             aligner_cli=env.get("SPEECH_ALIGNER_CLI") or defaults.aligner_cli,
             aligner_threads=_read(env, "SPEECH_ALIGNER_THREADS", defaults.aligner_threads, int),
             idle_seconds=_read(env, "SPEECH_IDLE_SECONDS", defaults.idle_seconds, float),
+            steady_attempts=_read(
+                env, "SPEECH_STEADY_ATTEMPTS", defaults.steady_attempts, int
+            ),
         )
