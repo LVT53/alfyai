@@ -38,7 +38,7 @@ export const BUILT_IN_VOICES: readonly BuiltInVoice[] = [
 		language: "en",
 		speakerId: "default_b78b28baf5c31a1d",
 		controls: {},
-		charsPerSecond: 15,
+		charsPerSecond: 16.7,
 	},
 	{
 		key: "rupert",
@@ -46,7 +46,7 @@ export const BUILT_IN_VOICES: readonly BuiltInVoice[] = [
 		language: "en",
 		speakerId: "default_3765f0d1140c05c0",
 		controls: {},
-		charsPerSecond: 15,
+		charsPerSecond: 16.3,
 	},
 	{
 		key: "savannah",
@@ -54,7 +54,7 @@ export const BUILT_IN_VOICES: readonly BuiltInVoice[] = [
 		language: "en",
 		speakerId: "default_de4d191ca7574982",
 		controls: {},
-		charsPerSecond: 15,
+		charsPerSecond: 18.4,
 	},
 	{
 		key: "wyatt",
@@ -62,7 +62,7 @@ export const BUILT_IN_VOICES: readonly BuiltInVoice[] = [
 		language: "en",
 		speakerId: "default_34370fd91e3484ef",
 		controls: {},
-		charsPerSecond: 15,
+		charsPerSecond: 12.8,
 	},
 	{
 		key: "berta",
@@ -70,7 +70,7 @@ export const BUILT_IN_VOICES: readonly BuiltInVoice[] = [
 		language: "hu",
 		speakerId: "default_bf7632822e6b4dc0",
 		controls: { "room.clean": 2 },
-		charsPerSecond: 15,
+		charsPerSecond: 14.7,
 	},
 	{
 		key: "imre",
@@ -78,7 +78,7 @@ export const BUILT_IN_VOICES: readonly BuiltInVoice[] = [
 		language: "hu",
 		speakerId: "default_fde02d0881bd267d",
 		controls: { "room.clean": 2 },
-		charsPerSecond: 15,
+		charsPerSecond: 13.6,
 	},
 ];
 

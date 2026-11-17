@@ -47,8 +47,18 @@ describe("built-in voices", () => {
 		expect(ids.imre).toBe("default_fde02d0881bd267d");
 	});
 
-	it("gives every voice a speaking rate for the estimate", () => {
-		for (const voice of BUILT_IN_VOICES) expect(voice.charsPerSecond).toBe(15);
+	it("gives every voice the speaking rate measured on the box (2026-11-17, measure_rates.py)", () => {
+		const rates = Object.fromEntries(
+			BUILT_IN_VOICES.map((voice) => [voice.key, voice.charsPerSecond]),
+		);
+		expect(rates).toEqual({
+			imogen: 16.7,
+			rupert: 16.3,
+			savannah: 18.4,
+			wyatt: 12.8,
+			berta: 14.7,
+			imre: 13.6,
+		});
 	});
 });
 
@@ -96,7 +106,7 @@ describe("finding and resolving a voice", () => {
 				"mood.arousal": -2.5,
 				"delivery.whisper": 0.6,
 			},
-			charsPerSecond: 15,
+			charsPerSecond: 14.7,
 		});
 		// Without knobs it is the voice as it is.
 		expect(resolvedVoice(berta).controls).toEqual({ "room.clean": 2 });

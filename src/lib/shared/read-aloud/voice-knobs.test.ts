@@ -167,20 +167,33 @@ describe("making Zonos controls from knobs", () => {
 	});
 
 	it("sends Projection below normal as whisper and above it as loud", () => {
-		expect(knobsToControls(only({ projection: -1.5 }), "en")).toEqual({
+		expect(knobsToControls(only({ projection: -1.5 }), "hu")).toEqual({
 			"delivery.whisper": 1.5,
 		});
 		expect(knobsToControls(only({ projection: 2 }), "en")).toEqual({
 			"delivery.loud": 2,
 		});
 		expect(knobsToControls(ZERO_KNOBS, "en")).toEqual({});
+		// Measured on the box (2026-11-17): English breathiness stops at 1.
+		expect(knobsToControls(only({ projection: -1.5 }), "en")).toEqual({
+			"delivery.whisper": 1,
+		});
 	});
 
 	it("clamps each control to a narrower safe range of its language", () => {
+		// The spec's ranges, so this test pins the clamping and not the measured values.
+		const spec: SafeRanges["en"] = {
+			"delivery.tempo": { min: -2, max: 2 },
+			"pitch.pitch": { min: -2, max: 2 },
+			"texture.deep": { min: 0, max: 4 },
+			"mood.arousal": { min: -4, max: 4 },
+			"delivery.whisper": { min: 0, max: 1.5 },
+			"delivery.loud": { min: 0, max: 2 },
+		};
 		const narrower: SafeRanges = {
-			en: SAFE_CONTROL_RANGES.en,
+			en: spec,
 			hu: {
-				...SAFE_CONTROL_RANGES.hu,
+				...spec,
 				"delivery.tempo": { min: -1.5, max: 1 },
 				"delivery.whisper": { min: 0, max: 1 },
 			},

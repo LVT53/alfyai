@@ -284,7 +284,7 @@ describe("POST /api/read-aloud/sessions", () => {
 		expect(await response.json()).toEqual({
 			sessionId: SESSION,
 			defaultSpeed: 1,
-			charsPerSecond: { en: 15, hu: 15 },
+			charsPerSecond: { en: 16.7, hu: 14.7 },
 		});
 		expect(mocks.open).toHaveBeenCalledTimes(1);
 		const args = mocks.open.mock.calls[0]?.[0];

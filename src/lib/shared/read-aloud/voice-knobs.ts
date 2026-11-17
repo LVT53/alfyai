@@ -153,20 +153,25 @@ export type SafeRanges = Record<
  * service measures them on the box; a range that is measured narrower goes
  * here (Plan 3, Task 15) and clamps the control without moving the slider.
  */
+// Measured on the box on 2026-11-17 by scripts/measure_knobs.py (six voices, seeds 1234, 9153
+// and 17072). English delivery.tempo (measured -2..0) and mood.arousal (measured -2..4) keep
+// the spec's range: the owner approved Brisk, Cheerful and Newsreader (faster) and Bedtime
+// (energy -2.5) by ear on the box, so Plan 3's default holds the spec there and the finding
+// waits for the owner's review. Every other narrower range applies.
 export const SAFE_CONTROL_RANGES: SafeRanges = {
 	en: {
 		"delivery.tempo": { min: -2, max: 2 },
-		"pitch.pitch": { min: -2, max: 2 },
+		"pitch.pitch": { min: 0, max: 2 },
 		"texture.deep": { min: 0, max: 4 },
 		"mood.arousal": { min: -4, max: 4 },
-		"delivery.whisper": { min: 0, max: 1.5 },
+		"delivery.whisper": { min: 0, max: 1 },
 		"delivery.loud": { min: 0, max: 2 },
 	},
 	hu: {
-		"delivery.tempo": { min: -2, max: 2 },
-		"pitch.pitch": { min: -2, max: 2 },
+		"delivery.tempo": { min: -1.5, max: 2 },
+		"pitch.pitch": { min: -1, max: 2 },
 		"texture.deep": { min: 0, max: 4 },
-		"mood.arousal": { min: -4, max: 4 },
+		"mood.arousal": { min: -3, max: 4 },
 		"delivery.whisper": { min: 0, max: 1.5 },
 		"delivery.loud": { min: 0, max: 2 },
 	},
