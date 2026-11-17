@@ -43,6 +43,7 @@ export async function insertTake(input: {
 	origin?: "turn" | "retry" | "auto_retry" | "another";
 	retryOf?: string | null;
 	heldUntil?: number | null;
+	completedAt?: Date | null;
 }): Promise<string> {
 	const { db } = await import("$lib/server/db");
 	const schema = await import("$lib/server/db/schema");
@@ -68,6 +69,7 @@ export async function insertTake(input: {
 			progressPercent: input.progressPercent ?? null,
 			errorCode: input.errorCode ?? null,
 			retryable: input.retryable ?? false,
+			completedAt: input.completedAt ?? null,
 			createdAt: new Date(tick * 1000),
 		})
 		.run();

@@ -229,16 +229,21 @@ function nodeOfType(
 }
 
 /**
- * Polls the take's display columns while it runs, keeping each distinct
- * (ETA, percent) pair. The chip reads these from the row, so this is the
- * sequence the person sees.
+ * Polls the take's finish time while it runs, keeping each distinct value with
+ * the phase and the phase's stamp it was read with. The card counts down to
+ * this, so it is the sequence the person's countdown follows.
  */
 async function recordEta(
 	takeId: string,
 	run: () => Promise<void>,
-): Promise<Array<{ eta: number; percent: number; phase: string | null }>> {
-	const samples: Array<{ eta: number; percent: number; phase: string | null }> =
-		[];
+): Promise<
+	Array<{ etaAt: number; phase: string | null; phaseAt: number | null }>
+> {
+	const samples: Array<{
+		etaAt: number;
+		phase: string | null;
+		phaseAt: number | null;
+	}> = [];
 	const finished = run();
 	let done = false;
 	const settled = finished.finally(() => {
@@ -246,12 +251,12 @@ async function recordEta(
 	});
 	while (!done) {
 		const row = await readTake(takeId);
-		if (row.etaSeconds !== null) {
-			const last = samples.at(-1);
-			const percent = row.progressPercent ?? 0;
-			if (last?.eta !== row.etaSeconds || last.percent !== percent) {
-				samples.push({ eta: row.etaSeconds, percent, phase: row.phase });
-			}
+		if (row.etaAt !== null && samples.at(-1)?.etaAt !== row.etaAt) {
+			samples.push({
+				etaAt: row.etaAt,
+				phase: row.phase,
+				phaseAt: row.phaseAt,
+			});
 		}
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
@@ -1096,23 +1101,26 @@ describe("the container's tags", () => {
 	});
 });
 
-describe("the chip's ETA", () => {
-	it("writes a plausible baseline before any progress event", async () => {
+describe("the estimate", () => {
+	it("starts when ComfyUI starts the prompt, from the plan of a cold take", async () => {
 		await startLtx({ startDelayMs: 500, stepDelayMs: 20, steps: 4 });
 		const takeId = await queueTake();
 		const samples = await recordEta(takeId, drainVideoTakes);
 		expect(samples.length).toBeGreaterThanOrEqual(1);
-		// 40 s is the 5 s take's cold-ish baseline (measured 30-45 s; 53 s was
-		// the first cold staging).
-		expect(samples[0]?.eta).toBe(40);
-		expect(samples[0]?.percent).toBe(0);
-		// Progress did arrive later (the fake's four steps).
-		expect(samples.some((sample) => sample.percent > 0)).toBe(true);
+		// Written with the "starting" stamp: the whole plan of a cold 5 s clip
+		// (`videoPlan(5, false)`, 41 s) is ahead of it.
+		const first = samples[0];
+		expect(first?.phase).toBe("starting");
+		const ahead = ((first?.etaAt ?? 0) - (first?.phaseAt ?? 0)) / 1000;
+		expect(ahead).toBeGreaterThan(40);
+		expect(ahead).toBeLessThan(42);
+		// The take is done: the row no longer claims a time.
+		expect((await readTake(takeId)).etaAt).toBeNull();
 	}, 20_000);
 
 	it.each([
 		5, 10,
-	] as const)("only ever falls across a %i s take, even at a node reset", async (durationSeconds) => {
+	] as const)("only ever moves earlier across a %i s take, even at a node reset", async (durationSeconds) => {
 		await startLtx({
 			startDelayMs: 50,
 			stepDelayMs: durationSeconds === 5 ? 250 : 150,
@@ -1131,22 +1139,16 @@ describe("the chip's ETA", () => {
 		});
 		const takeId = await queueTake({ durationSeconds });
 		const samples = await recordEta(takeId, drainVideoTakes);
-		const baseline = durationSeconds === 5 ? 40 : 80;
-		expect(samples[0]?.eta).toBe(baseline);
+		expect(samples.length).toBeGreaterThanOrEqual(2);
 		for (let index = 1; index < samples.length; index += 1) {
 			const previous = samples[index - 1];
 			const current = samples[index];
 			expect(
-				current?.eta,
-				`ETA rose at sample ${index}: ${samples.map((sample) => sample.eta).join(", ")}`,
-			).toBeLessThanOrEqual(previous?.eta ?? 0);
-			expect(
-				current?.percent,
-				`percent fell at sample ${index}`,
-			).toBeGreaterThanOrEqual(previous?.percent ?? 0);
+				current?.etaAt,
+				`the finish time moved later at sample ${index}: ${samples.map((sample) => sample.etaAt).join(", ")}`,
+			).toBeLessThanOrEqual(previous?.etaAt ?? 0);
 		}
-		// It comes down from the baseline, and a pass reached the sampling cap.
-		expect(samples.at(-1)?.eta).toBeLessThan(baseline);
-		expect(samples.some((sample) => sample.percent >= 95)).toBe(true);
+		// The fake is far faster than the plan: the finish time came down.
+		expect(samples.at(-1)?.etaAt).toBeLessThan(samples[0]?.etaAt ?? 0);
 	}, 30_000);
 });

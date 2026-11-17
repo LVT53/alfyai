@@ -714,7 +714,9 @@ export const imageJobs = sqliteTable(
 		phaseAt: integer("phase_at"),
 		queueAhead: integer("queue_ahead"),
 		progressPercent: integer("progress_percent"),
-		etaSeconds: integer("eta_seconds"),
+		// Milliseconds: when the take is expected to be done (`take-eta.ts`); it
+		// only ever moves earlier. The older `eta_seconds` column is unused.
+		etaAt: integer("eta_at"),
 		resultFileId: text("result_file_id").references(() => imageFiles.id, {
 			onDelete: "set null",
 		}),
@@ -781,7 +783,9 @@ export const videoJobs = sqliteTable(
 		phaseAt: integer("phase_at"),
 		queueAhead: integer("queue_ahead"),
 		progressPercent: integer("progress_percent"),
-		etaSeconds: integer("eta_seconds"),
+		// Milliseconds: when the take is expected to be done (`take-eta.ts`); it
+		// only ever moves earlier. The older `eta_seconds` column is unused.
+		etaAt: integer("eta_at"),
 		resultFileId: text("result_file_id").references(() => imageFiles.id, {
 			onDelete: "set null",
 		}),

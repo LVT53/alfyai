@@ -7,6 +7,7 @@ import { db } from "$lib/server/db";
 import { imageCards, imageFiles, imageJobs } from "$lib/server/db/schema";
 import { MAX_VISIBLE_TAKES_PER_CARD } from "$lib/shared/artifacts/image-body";
 import { NEW_PICTURE_CANVAS } from "./canvas";
+import { etaSecondsAt } from "./take-eta";
 import { type MadeFrom, parseTakeRequest } from "./take-request";
 
 export type ImageTakePhase =
@@ -30,6 +31,10 @@ export type ImageTakeView = {
 	phaseAt: number | null;
 	queueAhead: number | null;
 	progressPercent: number | null;
+	/**
+	 * Seconds left as of the read (to a tenth), 0 once the take runs past its
+	 * time, null with no estimate (`take-eta.ts` `etaSecondsAt`).
+	 */
 	etaSeconds: number | null;
 	/** The request's canvas. */
 	canvas: { width: number; height: number };
@@ -188,7 +193,7 @@ export async function listConversationImageCards(
 			phaseAt: take.phaseAt,
 			queueAhead: take.queueAhead,
 			progressPercent: take.progressPercent,
-			etaSeconds: take.etaSeconds,
+			etaSeconds: etaSecondsAt(take, now),
 			canvas,
 			box: baseFile
 				? { width: baseFile.width, height: baseFile.height }

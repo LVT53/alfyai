@@ -76,7 +76,7 @@ async function insertVideoTake(input: {
 	phase?: string | null;
 	phaseAt?: number | null;
 	queueAhead?: number | null;
-	etaSeconds?: number | null;
+	etaAt?: number | null;
 	errorCode?: string | null;
 	retryable?: boolean;
 	toolCallId?: string | null;
@@ -103,7 +103,7 @@ async function insertVideoTake(input: {
 			phase: input.phase ?? null,
 			phaseAt: input.phaseAt ?? null,
 			queueAhead: input.queueAhead ?? null,
-			etaSeconds: input.etaSeconds ?? null,
+			etaAt: input.etaAt ?? null,
 			errorCode: input.errorCode ?? null,
 			retryable: input.retryable ?? false,
 			resultFileId: input.resultFileId ?? null,
@@ -159,12 +159,16 @@ describe("listConversationVideoCards", () => {
 			height: 1280,
 			durationMs: 10_000,
 		});
+		// The take is expected 8 s after the read: the card is sent the seconds
+		// left as of the read, not the finish time (no clock is shared).
+		const readAt = 1_700_000_600_000;
+		vi.spyOn(Date, "now").mockReturnValue(readAt);
 		const running = await insertVideoTake({
 			status: "running",
 			phase: "rendering",
 			phaseAt: 1_700_000_500_000,
 			queueAhead: 2,
-			etaSeconds: 8,
+			etaAt: readAt + 8_000,
 			toolCallId: "call-running",
 		});
 		const settled = await insertVideoTake({
