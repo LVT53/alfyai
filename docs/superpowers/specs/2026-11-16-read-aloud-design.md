@@ -209,10 +209,11 @@ The spoken text is built from the reply **as rendered on screen**, never from it
 - **Symbols in prose:** × "times" / "szorozva", ÷ "divided by" / "osztva", ± "plus or minus" / "plusz-mínusz", ≤ ≥ ≠ ≈ by their names, ² "squared" / "négyzet", ³ "cubed" / "köb", ½ "half" / "fél", ° "degrees" / "fok", % "percent" / "százalék".
 - **Keyboard shortcuts:** "Ctrl+C" "Control C", "⌘K" "Command K", "Shift+Enter" "Shift Enter".
 - **Versions:** "v2.3.1" "version two point three point one".
+- **Simple math** (owner, after trying staging on 2026-11-17): a formula the reply shows as TeX is read when it holds only numbers, letters and these: `\times` `\cdot` "times" / "szorozva", `\div` "divided by" / "osztva", `=` "equals" / "egyenlő", `+` `-`, `\frac{a}{b}` "a over b" / "a per b", `^2` "squared" / "négyzet", `^{n}` "to the power of n" / "az n-edik hatványon" ("a 10. hatványon"), `\sqrt{x}` "the square root of x" / "négyzetgyök x", `\%` and `\approx`. `{,}` groups thousands, and each number goes to the speech service whole, with its currency ("€4{,}341.0505" reads "four thousand three hundred and forty one point zero five zero five euros"). The formula is one written word, marked whole while it is said. Any other formula is left out, as before.
 - **Arrows and separator dots between items:** a short pause.
 
 **Left out silently:**
-- tables (Markdown and CSV), charts, Mermaid diagrams and formulas;
+- tables (Markdown and CSV), charts, Mermaid diagrams and formulas other than simple math;
 - images; document, app, canvas, picture and file cards; map routes;
 - tool and thinking rows, Sources, follow-up chips, the "Ask me first" card and any button;
 - emoji, and citation and footnote markers.

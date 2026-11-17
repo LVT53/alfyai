@@ -416,3 +416,69 @@ describe("spoken forms: code the early review found misread", () => {
 		expect(speakWord("List<T>", "code", "en")).toEqual(["List", "of", "T"]);
 	});
 });
+
+describe("spoken forms: simple math (the owner's staging find, 2026-11-17)", () => {
+	const math = (shown: string, language: "en" | "hu") =>
+		speakWord(shown, "math", language);
+
+	it("reads the owner's sum: its numbers whole, € as their currency, in each language's way", () => {
+		const sum = "(€4{,}341.0505 \\times 0.88 = €3{,}820.12444)";
+		// "{,}" is a thousands separator; each number goes to the speech service's
+		// normalizer whole, written the way its language's normalizer reads it.
+		expect(math(sum, "en")).toEqual([
+			"€4341.0505",
+			"times",
+			"0.88",
+			"equals",
+			"€3820.12444",
+		]);
+		expect(math(sum, "hu")).toEqual([
+			"4341,0505",
+			"€",
+			"szorozva",
+			"0,88",
+			"egyenlő",
+			"3820,12444",
+			"€",
+		]);
+	});
+
+	it("reads the common operators, fractions, powers and roots", () => {
+		const cases: Array<[tex: string, en: string, hu: string]> = [
+			["a \\cdot b", "a times b", "a szorozva b"],
+			["a \\div b", "a divided by b", "a osztva b"],
+			["a + b - c", "a plus b minus c", "a plusz b mínusz c"],
+			["\\frac{a}{b}", "a over b", "a per b"],
+			["x^2", "x squared", "x négyzet"],
+			["x^{3}", "x cubed", "x köb"],
+			["x^{n}", "x to the power of n", "x az n-edik hatványon"],
+			["2^{10}", "2 to the power of 10", "2 a 10. hatványon"],
+			["5^{5}", "5 to the power of 5", "5 az 5. hatványon"],
+			["\\sqrt{x}", "the square root of x", "négyzetgyök x"],
+			["50\\%", "50%", "50%"],
+			["\\pi \\approx 3.14", "", ""],
+			["x \\approx 3.14", "x approximately 3.14", "x körülbelül 3,14"],
+			["E = mc^2", "E equals m c squared", "E egyenlő m c négyzet"],
+		];
+		for (const [tex, en, hu] of cases) {
+			expect(math(tex, "en").join(" "), tex).toBe(en);
+			expect(math(tex, "hu").join(" "), tex).toBe(hu);
+		}
+	});
+
+	it("reads nothing it does not know: the formula stays skipped", () => {
+		for (const tex of [
+			"\\int_0^1 f(x)\\,dx",
+			"\\sum_{i=1}^{n} i",
+			"\\sqrt[3]{x}",
+			"x_1 + x_2",
+			"\\frac{a}{b",
+		])
+			expect(math(tex, "en"), tex).toEqual([]);
+	});
+
+	it("takes off the delimiters the page may show: $…$, \\(…\\) and plain brackets", () => {
+		for (const shown of ["$x^2$", "\\(x^2\\)", "(x^2)", "$$x^2$$", "\\[x^2\\]"])
+			expect(math(shown, "en"), shown).toEqual(["x", "squared"]);
+	});
+});

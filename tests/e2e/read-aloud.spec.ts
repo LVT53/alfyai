@@ -99,6 +99,24 @@ test("no syntax reaches the voice, and code is read the way a teacher says it", 
 	expect(tokens.join(" ")).not.toContain("forty-two");
 });
 
+test("simple math is read, as the owner's sum showed on staging", async ({
+	page,
+}) => {
+	// The Markdown as the model writes it: marked shows "\\(" as a plain bracket.
+	const ui = await open(page, [
+		"It wouldn't read this at all: \\(€4{,}341.0505 \\times 0.88 = €3{,}820.12444\\)",
+	]);
+	await expect(page.locator(".message-body .markdown-container")).toContainText(
+		"(€4{,}341.0505 \\times 0.88 = €3{,}820.12444)",
+	);
+	await ui.speaker().click();
+	await expect.poll(() => fake.sessions.length, { timeout: 15_000 }).toBe(1);
+	const tokens = spokenTokens(fake);
+	expect(
+		hasRun(tokens, ["€4341.0505", "times", "0.88", "equals", "€3820.12444"]),
+	).toBe(true);
+});
+
 test("a code name is marked while it is read, above the code's own background", async ({
 	page,
 }) => {

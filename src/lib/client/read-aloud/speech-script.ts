@@ -10,6 +10,7 @@
 import {
 	codeKindOf,
 	isSeparator,
+	isSimpleMath,
 	keepsSentenceOpen,
 	speakWord,
 	type WordKind,
@@ -162,7 +163,9 @@ export function buildSpeechScript(
 	const paragraphs = roots.flatMap((root) =>
 		collectParagraphs(root, options.readBlock ?? null),
 	);
-	const views = paragraphs.map(spokenView);
+	const spoken = paragraphs.map(spokenView);
+	// The language is told from the words: a formula read as math is left out of it.
+	const views = spoken.map((part) => part.detect);
 	const codes = assignLanguages(
 		paragraphs.map((p, i) => (p.code === null ? (views[i] ?? "") : "")),
 		detect,
@@ -186,10 +189,24 @@ export function buildSpeechScript(
 			}
 			return;
 		}
+		const said = spoken[index] ?? { view, math: [] };
 		const made =
 			paragraph.code === null
-				? proseDrafts(paragraph, view, language, `${index}`, numbered)
-				: codeDrafts(paragraph, view, paragraph.code, language, `${index}`);
+				? proseDrafts(
+						paragraph,
+						said.view,
+						said.math,
+						language,
+						`${index}`,
+						numbered,
+					)
+				: codeDrafts(
+						paragraph,
+						said.view,
+						paragraph.code,
+						language,
+						`${index}`,
+					);
 		if (made.length > 0) anyWord = true;
 		drafts.push(...made);
 	});
@@ -410,11 +427,28 @@ function collectParagraphs(
 // The spoken view: characters replaced by spaces, never removed, so every offset holds
 // ---------------------------------------------------------------------------
 
-function spokenView(paragraph: Paragraph): string {
+/** Where a formula read as simple math sits in a paragraph: one `math` word, its spaces and all. */
+type MathSpan = { start: number; end: number };
+
+/**
+ * What is said of a paragraph (`view`), the formulas in it read as simple math
+ * (`math`), and the view with those formulas blanked too, to tell its language by
+ * (`detect`). A formula that is not simple math is blanked in both, as it always was.
+ */
+function spokenView(paragraph: Paragraph): {
+	view: string;
+	detect: string;
+	math: MathSpan[];
+} {
 	const chars = [...paragraph.chars];
 	const text = chars.join("");
+	const math: MathSpan[] = [];
 	const blank = (from: number, to: number) => {
 		for (let i = from; i < to; i++) chars[i] = " ";
+	};
+	const formula = (from: number, to: number) => {
+		if (isSimpleMath(text.slice(from, to))) math.push({ start: from, end: to });
+		else blank(from, to);
 	};
 	const touchesCode = (from: number, to: number) => {
 		for (let i = from; i < to; i++)
@@ -426,22 +460,59 @@ function spokenView(paragraph: Paragraph): string {
 			blank(match.index, match.index + match[0].length);
 	}
 	if (paragraph.code === null) {
+		// Citation and footnote marks first: "[^note]" is never a formula.
+		const marks: MathSpan[] = [];
+		for (const match of text.matchAll(CITATION)) {
+			const end = match.index + match[0].length;
+			if (touchesCode(match.index, end)) continue;
+			blank(match.index, end);
+			marks.push({ start: match.index, end });
+		}
+		const taken = (start: number, end: number) =>
+			[...marks, ...math].some((span) => span.start < end && start < span.end);
 		for (const match of text.matchAll(TEX_DOLLARS)) {
+			const end = match.index + match[0].length;
 			if (
 				TEX_SPECIAL.test(match[0]) &&
-				!touchesCode(match.index, match.index + match[0].length)
-			) {
-				blank(match.index, match.index + match[0].length);
-			}
+				!touchesCode(match.index, end) &&
+				!taken(match.index, end)
+			)
+				formula(match.index, end);
 		}
-		for (const pattern of [TEX_BRACKETS, TEX_PLAIN_BRACKETS, CITATION]) {
+		for (const pattern of [TEX_BRACKETS, TEX_PLAIN_BRACKETS]) {
 			for (const match of text.matchAll(pattern)) {
-				if (!touchesCode(match.index, match.index + match[0].length))
-					blank(match.index, match.index + match[0].length);
+				const end = match.index + match[0].length;
+				if (!touchesCode(match.index, end) && !taken(match.index, end))
+					formula(match.index, end);
 			}
 		}
 	}
-	return chars.join("");
+	math.sort((a, b) => a.start - b.start);
+	const view = chars.join("");
+	const detect = [...chars];
+	for (const span of math)
+		for (let i = span.start; i < span.end; i++) detect[i] = " ";
+	return { view, detect: detect.join(""), math };
+}
+
+/** The word spans of [from, to), each formula in `math` one span, its spaces and all. */
+function spansWithMath(
+	view: string,
+	atoms: ReadonlyArray<Element | null>,
+	math: readonly MathSpan[],
+): Array<{ start: number; end: number; math: boolean }> {
+	const spans: Array<{ start: number; end: number; math: boolean }> = [];
+	let from = 0;
+	for (const span of math) {
+		if (span.start < from) continue;
+		for (const word of wordSpans(view, atoms, from, span.start))
+			spans.push({ ...word, math: false });
+		spans.push({ start: span.start, end: span.end, math: true });
+		from = span.end;
+	}
+	for (const word of wordSpans(view, atoms, from, view.length))
+		spans.push({ ...word, math: false });
+	return spans;
 }
 
 // ---------------------------------------------------------------------------
@@ -571,20 +642,18 @@ function listNumberOf(
 function proseWords(
 	paragraph: Paragraph,
 	view: string,
+	math: readonly MathSpan[],
 	language: Voiced,
 	numbered: Set<Element>,
 ): DraftWord[] {
 	const words: DraftWord[] = [];
-	for (const { start, end } of wordSpans(
-		view,
-		paragraph.atoms,
-		0,
-		view.length,
-	)) {
-		const atom = paragraph.atoms[start] ?? null;
+	for (const span of spansWithMath(view, paragraph.atoms, math)) {
+		const { start, end } = span;
+		const atom = span.math ? null : (paragraph.atoms[start] ?? null);
 		const inCode = atom?.tagName === "CODE";
-		const kind: WordKind =
-			inCode && atom
+		const kind: WordKind = span.math
+			? "math"
+			: inCode && atom
 				? codeKindOf("", firstWordOf(atom.textContent ?? ""))
 				: "prose";
 		let shown = view.slice(start, end);
@@ -660,11 +729,12 @@ function keepFullStop(words: DraftWord[]) {
 function proseDrafts(
 	paragraph: Paragraph,
 	view: string,
+	math: readonly MathSpan[],
 	language: Voiced,
 	unit: string,
 	numbered: Set<Element>,
 ): Draft[] {
-	const words = proseWords(paragraph, view, language, numbered);
+	const words = proseWords(paragraph, view, math, language, numbered);
 	if (words.length === 0) return [];
 	const starts = sentenceStarts(view, language);
 	const groups = new Map<number, DraftWord[]>();

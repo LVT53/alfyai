@@ -189,16 +189,19 @@ describe("buildSpeechScript", () => {
 		]);
 	});
 
-	it("drops formulas written in \\(…\\) and \\[…\\], which the chat shows in plain brackets", () => {
+	it("reads simple formulas written in \\(…\\) and \\[…\\], which the chat shows in plain brackets, and drops the rest", () => {
 		// marked reads \( and \[ as escapes, so the reply shows "(x^2 + y^2 = z^2)" (early review R13).
+		// Simple math is read as words (the owner's staging find); no TeX reaches the voice.
 		const script = build(
 			reply(
-				"<p>The formula (x^2 + y^2 = z^2) holds, and [\\frac{a}{b} = c] too (as noted).</p>",
+				"<p>The formula (x^2 + y^2 = z^2) holds, and [\\frac{a}{b} = c] too, unlike (\\sum_{i=1}^{n} i) (as noted).</p>",
 			),
 		);
 		const spoken = bare(tokensOf(script)).replace(/[()]/g, "");
-		expect(spoken).not.toMatch(/\^|\\|frac|x2|y2|z2/);
-		expect(spoken).toContain("The formula holds and too as noted");
+		expect(spoken).not.toMatch(/\^|\\|frac|sum|x2|y2|z2/);
+		expect(spoken).toBe(
+			"The formula x squared plus y squared equals z squared holds and a over b equals c too unlike as noted",
+		);
 	});
 
 	it("reads a snake_case name in brackets, which is no formula", () => {
@@ -527,6 +530,47 @@ describe("buildSpeechScript", () => {
 			"Show the full recipe",
 			"And this is outside.",
 		]);
+	});
+});
+
+describe("simple math (the owner's staging find, 2026-11-17)", () => {
+	const SUM = "(€4{,}341.0505 \\times 0.88 = €3{,}820.12444)";
+
+	it("reads the owner's sum, as one word marked whole while it is said", () => {
+		const root = reply(`<p>It wouldn't read this at all: ${SUM}</p>`);
+		const script = build(root);
+		const words = script.sentences.flatMap((s) => s.words);
+		const sum = words.find((word) => word.kind === "math");
+		expect(sum?.shown).toBe(SUM);
+		expect(sum?.tokens).toEqual([
+			"€4341.0505",
+			"times",
+			"0.88",
+			"equals",
+			"€3820.12444",
+		]);
+		expect(sum?.range.toString()).toBe(SUM);
+		expect(tokensOf(script).join(" ")).toBe(
+			"It wouldn't read this at all: €4341.0505 times 0.88 equals €3820.12444",
+		);
+	});
+
+	it("reads it in Hungarian, with the dictionary's words", () => {
+		const script = build(reply(`<p>Így számolj: ${SUM} és kész.</p>`));
+		expect(script.sentences[0]?.language).toBe("hu");
+		expect(tokensOf(script).join(" ")).toBe(
+			"Így számolj: 4341,0505 € szorozva 0,88 egyenlő 3820,12444 € és kész.",
+		);
+	});
+
+	it("still skips a formula it cannot read", () => {
+		const script = build(
+			reply("<p>The area is (\\sum_{i=1}^{n} i) here today.</p>"),
+		);
+		expect(bare(tokensOf(script))).toBe("The area is here today");
+		expect(
+			script.sentences.flatMap((s) => s.words).some((w) => w.kind === "math"),
+		).toBe(false);
 	});
 });
 

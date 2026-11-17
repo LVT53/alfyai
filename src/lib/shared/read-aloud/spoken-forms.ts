@@ -14,7 +14,9 @@ import {
 	CODE_SYMBOLS,
 	CODE_WORDS,
 	FILE_EXTENSIONS,
+	HUNGARIAN_LETTER_POWERS,
 	LINKING_WORDS,
+	MATH_WORDS,
 	NUMBER_WORDS,
 	PROSE_ABBREVIATIONS,
 	PROSE_SYMBOLS,
@@ -25,7 +27,8 @@ import {
 	type SpokenForm,
 } from "./reading-dictionary";
 
-export type WordKind = "prose" | "code" | "shell" | "listNumber";
+/** `math`: a formula the page shows as TeX, read as simple math (`speakMath`), whole as one word. */
+export type WordKind = "prose" | "code" | "shell" | "listNumber" | "math";
 
 type ReadingLanguage = "en" | "hu";
 
@@ -676,6 +679,349 @@ function speakListNumber(shown: string, language: ReadingLanguage): string[] {
 // The public surface
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Simple math (the owner's staging find, 2026-11-17)
+// ---------------------------------------------------------------------------
+
+/**
+ * The delimiters the page may show around TeX: `$$…$$`, `$…$`, `\(…\)` and `\[…\]`,
+ * or the plain brackets marked leaves of `\(…\)` and `\[…\]`.
+ */
+const MATH_DELIMITERS: ReadonlyArray<readonly [string, string]> = [
+	["$$", "$$"],
+	["$", "$"],
+	["\\(", "\\)"],
+	["\\[", "\\]"],
+	["(", ")"],
+	["[", "]"],
+];
+
+type MathWord = keyof typeof MATH_WORDS;
+
+const MATH_OPERATOR_CHARS: Readonly<Record<string, MathWord>> = {
+	"=": "equals",
+	"+": "plus",
+	"-": "minus",
+	"\u2212": "minus",
+	"×": "times",
+	"·": "times",
+	"*": "times",
+	"÷": "dividedBy",
+	"/": "over",
+	"±": "plusOrMinus",
+	"≈": "approximately",
+	"≠": "notEqual",
+	"<": "lessThan",
+	">": "greaterThan",
+	"≤": "atMost",
+	"≥": "atLeast",
+};
+
+const MATH_OPERATOR_COMMANDS: Readonly<Record<string, MathWord>> = {
+	times: "times",
+	cdot: "times",
+	ast: "times",
+	div: "dividedBy",
+	pm: "plusOrMinus",
+	approx: "approximately",
+	neq: "notEqual",
+	ne: "notEqual",
+	leq: "atMost",
+	le: "atMost",
+	geq: "atLeast",
+	ge: "atLeast",
+	lt: "lessThan",
+	gt: "greaterThan",
+};
+
+/** Commands that only space the formula or size the bracket after them. */
+const MATH_SILENT_COMMANDS: ReadonlySet<string> = new Set([
+	"left",
+	"right",
+	"quad",
+	"qquad",
+	",",
+	";",
+	":",
+	"!",
+	" ",
+]);
+const MATH_FRACTIONS: ReadonlySet<string> = new Set(["frac", "dfrac", "tfrac"]);
+const MATH_TEXT_COMMANDS: ReadonlySet<string> = new Set([
+	"text",
+	"textrm",
+	"textit",
+	"mathrm",
+	"mathit",
+	"operatorname",
+]);
+const MATH_CURRENCIES: ReadonlySet<string> = new Set(["€", "£", "$"]);
+const ASCII_LETTER = /^[A-Za-z]$/u;
+
+/**
+ * Reads one formula: numbers, letters, the operators of `MATH_WORDS`, `\frac{a}{b}`,
+ * powers and `\sqrt{x}`. Every method answers null at anything else, and then the
+ * whole formula is left unsaid, as every formula was before.
+ */
+class MathReader {
+	private i = 0;
+
+	constructor(
+		private readonly text: string,
+		private readonly language: ReadingLanguage,
+	) {}
+
+	private say(word: MathWord): string[] {
+		return words(MATH_WORDS[word], this.language);
+	}
+
+	private skipSpaces() {
+		while (this.i < this.text.length && /[\s~]/u.test(this.text.charAt(this.i)))
+			this.i += 1;
+	}
+
+	/** Up to the end, or up to the "}" that closes a group (`inGroup`). */
+	expression(inGroup: boolean): string[] | null {
+		const out: string[] = [];
+		while (this.i < this.text.length) {
+			const c = this.text.charAt(this.i);
+			if (/[\s~]/u.test(c) || "()[].".includes(c)) {
+				this.i += 1;
+				continue;
+			}
+			if (c === "}") {
+				if (!inGroup) return null;
+				this.i += 1;
+				return out;
+			}
+			const tokens = this.item(c, out);
+			if (tokens === null) return null;
+			out.push(...tokens);
+		}
+		return inGroup ? null : out;
+	}
+
+	/** One item at `c`; `out` is what came before, for a percent sign or a comma. */
+	private item(c: string, out: string[]): string[] | null {
+		if (c === "{") {
+			this.i += 1;
+			return this.expression(true);
+		}
+		if (c === ",") {
+			this.i += 1;
+			const last = out[out.length - 1];
+			if (last !== undefined && !/[,.;:]$/u.test(last))
+				out[out.length - 1] = `${last},`;
+			return [];
+		}
+		if (c === "%") {
+			this.i += 1;
+			return this.percent(out);
+		}
+		if (c === "^") {
+			// A power needs something to raise: "^note" alone is a footnote, not math.
+			if (out.length === 0) return null;
+			this.i += 1;
+			return this.power();
+		}
+		if (isAsciiDigit(c)) return this.number(null);
+		if (MATH_CURRENCIES.has(c)) {
+			this.i += 1;
+			return this.currency(c);
+		}
+		if (ASCII_LETTER.test(c)) {
+			this.i += 1;
+			return [c];
+		}
+		const operator = MATH_OPERATOR_CHARS[c];
+		if (operator) {
+			this.i += 1;
+			return this.say(operator);
+		}
+		if (c === "\\") return this.command(out);
+		return null;
+	}
+
+	private command(out: string[]): string[] | null {
+		this.i += 1;
+		const first = this.text.charAt(this.i);
+		if (!ASCII_LETTER.test(first)) {
+			this.i += 1;
+			if (first === "%") return this.percent(out);
+			if (first === "$") return this.currency("$");
+			return MATH_SILENT_COMMANDS.has(first) ? [] : null;
+		}
+		let name = "";
+		while (ASCII_LETTER.test(this.text.charAt(this.i))) {
+			name += this.text.charAt(this.i);
+			this.i += 1;
+		}
+		if (MATH_SILENT_COMMANDS.has(name)) return [];
+		const operator = MATH_OPERATOR_COMMANDS[name];
+		if (operator) return this.say(operator);
+		if (MATH_FRACTIONS.has(name)) {
+			const top = this.group();
+			const bottom = top && this.group();
+			return top && bottom ? [...top, ...this.say("over"), ...bottom] : null;
+		}
+		if (name === "sqrt") {
+			this.skipSpaces();
+			if (this.text.charAt(this.i) === "[") return null;
+			const under = this.group();
+			return under ? [...this.say("squareRootOf"), ...under] : null;
+		}
+		if (MATH_TEXT_COMMANDS.has(name)) return this.textGroup();
+		return null;
+	}
+
+	/** `{…}`, or the one digit or letter TeX takes as a group (`\frac12`). */
+	private group(): string[] | null {
+		this.skipSpaces();
+		const c = this.text.charAt(this.i);
+		if (c === "{") {
+			this.i += 1;
+			return this.expression(true);
+		}
+		if (isAsciiDigit(c) || ASCII_LETTER.test(c)) {
+			this.i += 1;
+			return [c];
+		}
+		return null;
+	}
+
+	/** `\text{…}`: its words, letters and digits only. */
+	private textGroup(): string[] | null {
+		this.skipSpaces();
+		if (this.text.charAt(this.i) !== "{") return null;
+		const end = this.text.indexOf("}", this.i);
+		if (end === -1) return null;
+		const inner = this.text.slice(this.i + 1, end).trim();
+		this.i = end + 1;
+		const parts = inner === "" ? [] : inner.split(/\s+/u);
+		return parts.every((part) => /^[\p{L}\p{Nd}]+$/u.test(part)) ? parts : null;
+	}
+
+	/** "x squared", "x to the power of n"; in Hungarian "x a 10. hatványon", "x az n-edik hatványon". */
+	private power(): string[] | null {
+		const exponent = this.group();
+		if (!exponent || exponent.length === 0) return null;
+		const only = exponent.length === 1 ? exponent[0] : undefined;
+		if (only === "2") return this.say("squared");
+		if (only === "3") return this.say("cubed");
+		if (this.language === "en")
+			return [...this.say("toThePowerOf"), ...exponent];
+		if (only === undefined) return null;
+		const power = this.say("toThePowerOf");
+		if (/^[0-9]{1,4}$/u.test(only)) {
+			// The article goes by the ordinal's first sound: "az első", "az ötödik", "az ezredik".
+			const vowel =
+				only === "1" ||
+				only.startsWith("5") ||
+				(only.length === 4 && only.startsWith("1"));
+			return [vowel ? "az" : "a", `${only}.`, ...power];
+		}
+		const letter = HUNGARIAN_LETTER_POWERS[only];
+		return letter ? [...letter.split(" "), ...power] : null;
+	}
+
+	/** After a number "50%", which the speech service reads; else the word. */
+	private percent(out: string[]): string[] {
+		const last = out[out.length - 1];
+		if (last !== undefined && /[0-9]$/u.test(last)) {
+			out[out.length - 1] = `${last}%`;
+			return [];
+		}
+		return this.say("percent");
+	}
+
+	private currency(symbol: string): string[] | null {
+		this.skipSpaces();
+		return isAsciiDigit(this.text.charAt(this.i)) ? this.number(symbol) : null;
+	}
+
+	private digits(): string {
+		let run = "";
+		while (isAsciiDigit(this.text.charAt(this.i))) {
+			run += this.text.charAt(this.i);
+			this.i += 1;
+		}
+		return run;
+	}
+
+	/**
+	 * A number goes to the speech service whole, written the way its language's
+	 * normalizer reads it ("4341.0505"; "4341,0505" in Hungarian, whose comma is the
+	 * decimal mark). TeX's `{,}` groups thousands; a single `{,}` before other than
+	 * three digits is a decimal comma ("3{,}14"). A currency goes before it in English
+	 * ("€4341.0505") and after it in Hungarian ("4341,0505 €").
+	 */
+	private number(before: string | null): string[] | null {
+		const groups = [this.digits()];
+		while (
+			this.text.startsWith("{,}", this.i) &&
+			isAsciiDigit(this.text.charAt(this.i + 3))
+		) {
+			this.i += 3;
+			groups.push(this.digits());
+		}
+		let fraction: string | null = null;
+		if (
+			this.text.charAt(this.i) === "." &&
+			isAsciiDigit(this.text.charAt(this.i + 1))
+		) {
+			this.i += 1;
+			fraction = this.digits();
+		}
+		let whole = groups.join("");
+		if (fraction === null && groups.slice(1).some((g) => g.length !== 3)) {
+			if (groups.length !== 2) return null;
+			whole = groups[0] ?? "";
+			fraction = groups[1] ?? "";
+		}
+		const value =
+			fraction === null
+				? whole
+				: `${whole}${this.language === "hu" ? "," : "."}${fraction}`;
+		let symbol = before;
+		if (symbol === null) {
+			const save = this.i;
+			this.skipSpaces();
+			const next = this.text.charAt(this.i);
+			if (next === "€" || next === "£") {
+				symbol = next;
+				this.i += 1;
+			} else this.i = save;
+		}
+		if (symbol === null) return [value];
+		return this.language === "en" ? [`${symbol}${value}`] : [value, symbol];
+	}
+}
+
+/** A formula the page shows as TeX, read as simple math; null when any part of it is not. */
+function readMath(shown: string, language: ReadingLanguage): string[] | null {
+	let text = shown.trim();
+	for (const [open, close] of MATH_DELIMITERS) {
+		if (
+			text.length >= open.length + close.length &&
+			text.startsWith(open) &&
+			text.endsWith(close)
+		) {
+			text = text.slice(open.length, text.length - close.length);
+			break;
+		}
+	}
+	const tokens = new MathReader(text, language).expression(false);
+	return tokens && tokens.length > 0 ? tokens : null;
+}
+
+/**
+ * Whether a formula the page shows as TeX is simple math, read aloud as a `math`
+ * word in at least one language; else it is left unsaid, as before.
+ */
+export function isSimpleMath(shown: string): boolean {
+	return readMath(shown, "en") !== null || readMath(shown, "hu") !== null;
+}
+
 /**
  * The tokens one written word (a run with no whitespace) is spoken as, or `[]`
  * when it is not spoken. Every token is 1–80 characters with no whitespace, and
@@ -688,6 +1034,7 @@ export function speakWord(
 ): string[] {
 	if (kind === "listNumber") return limit(speakListNumber(shown, language));
 	if (kind === "prose") return limit(speakProse(shown, language));
+	if (kind === "math") return limit(readMath(shown, language) ?? []);
 	// A code word this long is not a name or an expression: it is never said, and
 	// never read, so no word can take the thread (both sides run this function).
 	if (shown.length > MAX_CODE_WORD_CHARS) return [];

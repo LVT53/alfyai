@@ -293,6 +293,52 @@ export const SHELL_LANGUAGES: ReadonlySet<string> = new Set([
 	"ps1",
 ]);
 
+/**
+ * Simple math, as `speakMath` reads the TeX a reply shows (the owner's staging find,
+ * 2026-11-17): the operators' words. A Hungarian power is "x a 10. hatványon" and
+ * "x az n-edik hatványon"; the speech service says the ordinal ("tizedik").
+ */
+export const MATH_WORDS = {
+	times: { en: "times", hu: "szorozva" },
+	dividedBy: { en: "divided by", hu: "osztva" },
+	over: { en: "over", hu: "per" },
+	equals: { en: "equals", hu: "egyenlő" },
+	notEqual: { en: "not equal to", hu: "nem egyenlő" },
+	plus: { en: "plus", hu: "plusz" },
+	minus: { en: "minus", hu: "mínusz" },
+	plusOrMinus: { en: "plus or minus", hu: "plusz mínusz" },
+	approximately: { en: "approximately", hu: "körülbelül" },
+	lessThan: { en: "less than", hu: "kisebb mint" },
+	greaterThan: { en: "greater than", hu: "nagyobb mint" },
+	atMost: { en: "less than or equal to", hu: "kisebb vagy egyenlő" },
+	atLeast: { en: "greater than or equal to", hu: "nagyobb vagy egyenlő" },
+	squared: { en: "squared", hu: "négyzet" },
+	cubed: { en: "cubed", hu: "köb" },
+	squareRootOf: { en: "the square root of", hu: "négyzetgyök" },
+	percent: { en: "percent", hu: "százalék" },
+	/** English: "x to the power of n". Hungarian: "x a 10. hatványon". */
+	toThePowerOf: { en: "to the power of", hu: "hatványon" },
+} as const satisfies Record<string, SpokenForm>;
+
+/**
+ * A letter as a Hungarian power, with its article ("x az n-edik hatványon"): the
+ * letters whose spoken name takes a known ending. Another letter is not read.
+ */
+export const HUNGARIAN_LETTER_POWERS: Readonly<Record<string, string>> = {
+	a: "az a-adik",
+	b: "a b-edik",
+	c: "a c-edik",
+	d: "a d-edik",
+	i: "az i-edik",
+	j: "a j-edik",
+	k: "a k-adik",
+	m: "az m-edik",
+	n: "az n-edik",
+	p: "a p-edik",
+	t: "a t-edik",
+	x: "az x-edik",
+};
+
 /** An arrow or a separator dot between items in prose. */
 export const SEPARATORS: ReadonlySet<string> = new Set([
 	"→",
