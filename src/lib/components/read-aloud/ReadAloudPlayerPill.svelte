@@ -38,25 +38,29 @@ let {
 const floating = $derived(variant === "floating");
 const waiting = $derived(view.status === "waiting");
 const stopped = $derived(view.status === "stopped");
+/** The voice fell behind mid-reading: play spins, and a press still pauses, as the speaker does. */
+const catchingUp = $derived(view.buffering && view.status === "playing");
 /** Getting the voice: a jump, a wait to go on, or the voice falling behind mid-reading. */
 const spinning = $derived(
-	view.status === "seeking" || view.status === "waiting" || view.buffering,
+	view.status === "seeking" || view.status === "waiting" || catchingUp,
 );
 /** Nothing to step through: a reading waiting to continue, or a pill with no sentences. */
 const stepless = $derived(waiting || view.count === 0);
 const playLabel = $derived(
 	stopped
 		? $t("readAloud.tryAgain")
-		: spinning
-			? $t("readAloud.player.waiting")
-			: view.status === "playing"
-				? $t("readAloud.player.pause")
-				: $t("readAloud.player.play"),
+		: catchingUp
+			? $t("readAloud.player.pause")
+			: spinning
+				? $t("readAloud.player.waiting")
+				: view.status === "playing"
+					? $t("readAloud.player.pause")
+					: $t("readAloud.player.play"),
 );
 
 function onPlay() {
 	if (stopped) actions.retry();
-	else if (!spinning) actions.toggle();
+	else if (!spinning || catchingUp) actions.toggle();
 }
 
 /** The phone's two rows: the breakpoint of the CSS below. */

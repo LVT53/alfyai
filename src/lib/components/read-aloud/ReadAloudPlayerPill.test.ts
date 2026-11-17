@@ -110,16 +110,20 @@ describe("the floating pill's Tab order follows its layout", () => {
 });
 
 describe("ReadAloudPlayerPill", () => {
-	it("spins its play button while the voice falls behind, with the waiting words", () => {
+	it("spins its play button while the voice falls behind, and a press there pauses (the second re-walk's New 6)", async () => {
+		const acts = actions();
 		render(ReadAloudPlayerPill, {
 			props: {
 				view: view({ status: "playing", buffering: true }),
-				actions: actions(),
+				actions: acts,
 				variant: "floating",
 			},
 		});
-		const play = screen.getByRole("button", { name: "Waiting to continue" });
+		// It spins, and it is still what it does: a press pauses, as the speaker does.
+		const play = screen.getByRole("button", { name: "Pause" });
 		expect(play.querySelector(".mini-spinner")).toBeTruthy();
+		await fireEvent.click(play);
+		expect(acts.toggle).toHaveBeenCalledTimes(1);
 		// The steps and the scrubber still work: only play spins.
 		expect(
 			(
@@ -130,7 +134,7 @@ describe("ReadAloudPlayerPill", () => {
 		).toBe(false);
 	});
 
-	it("says the waiting words in Hungarian too", () => {
+	it("says what a press does in Hungarian too, while it spins", () => {
 		uiLanguage.set("hu");
 		render(ReadAloudPlayerPill, {
 			props: {
@@ -139,9 +143,7 @@ describe("ReadAloudPlayerPill", () => {
 				variant: "floating",
 			},
 		});
-		expect(
-			screen.getByRole("button", { name: "Folytatásra vár" }),
-		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Szünet" })).toBeTruthy();
 	});
 
 	it("the inline pill draws the transport and the scrubber, and no locate, speed or stop", () => {
