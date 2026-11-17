@@ -1157,13 +1157,16 @@ describe("a re-rendered chain", () => {
 		const first = await startLtx();
 		await queueTake();
 		await drainVideoTakes();
-		const promptId = [...first.prompts.keys()][0];
-		if (!promptId) throw new Error("the first take recorded no prompt");
+		if (first.prompts.size === 0) {
+			throw new Error("the first take recorded no prompt");
+		}
+		// The first take's own clip, where ComfyUI's SaveVideo saved it: still
+		// fetchable, so a runner that joined it would succeed.
 		const staleSegment2 = {
 			promptId: "stale-segment-2",
 			media: {
-				filename: `fake_${promptId}.mp4`,
-				subfolder: "",
+				filename: "alfyai_00001_.mp4",
+				subfolder: "video",
 				type: "output" as const,
 			},
 		};
