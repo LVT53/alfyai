@@ -189,6 +189,18 @@ describe("buildSpeechScript", () => {
 		]);
 	});
 
+	it("drops formulas written in \\(…\\) and \\[…\\], which the chat shows in plain brackets", () => {
+		// marked reads \( and \[ as escapes, so the reply shows "(x^2 + y^2 = z^2)" (early review R13).
+		const script = build(
+			reply(
+				"<p>The formula (x^2 + y^2 = z^2) holds, and [\\frac{a}{b} = c] too (as noted).</p>",
+			),
+		);
+		const spoken = bare(tokensOf(script)).replace(/[()]/g, "");
+		expect(spoken).not.toMatch(/\^|\\|frac|x2|y2|z2/);
+		expect(spoken).toContain("The formula holds and too as noted");
+	});
+
 	it("drops HTML entities the chat shows as written", () => {
 		const script = build(
 			reply(

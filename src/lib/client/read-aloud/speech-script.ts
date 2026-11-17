@@ -108,6 +108,13 @@ const TEX_DOLLARS = /\$\$[^$]+?\$\$|\$[^$\n]+?\$/gu;
 const TEX_SPECIAL = /[\\^_{}=]/u;
 const TEX_BRACKETS = /\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]/gu;
 /**
+ * `\(…\)` and `\[…\]` as the chat shows them: marked reads `\(` and `\[` as escapes, so
+ * the page holds "(x^2 + y^2)" in plain brackets. A bracketed run with a TeX mark in it
+ * (`\ ^ _ { }`) is a formula (early review R13); "(a = b)" in prose is still read.
+ */
+const TEX_PLAIN_BRACKETS =
+	/\((?=[^()\n]*[\\^_{}])[^()\n]*\)|\[(?=[^[\]]*[\\^_{}])[^[\]]*\]/gu;
+/**
  * An HTML entity the chat shows as written (`&amp;`, `&#169;`: it does for some replies): markup,
  * never said, and decoded away by the containment check, so its letters must not be sent.
  */
@@ -404,7 +411,7 @@ function spokenView(paragraph: Paragraph): string {
 				blank(match.index, match.index + match[0].length);
 			}
 		}
-		for (const pattern of [TEX_BRACKETS, CITATION]) {
+		for (const pattern of [TEX_BRACKETS, TEX_PLAIN_BRACKETS, CITATION]) {
 			for (const match of text.matchAll(pattern)) {
 				if (!touchesCode(match.index, match.index + match[0].length))
 					blank(match.index, match.index + match[0].length);
