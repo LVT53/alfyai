@@ -2,8 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+	DocumentReadingSource,
 	ReadAloudController,
 	Readability,
+	ReadingTarget,
 } from "$lib/client/read-aloud/controller";
 import {
 	idleReadAloudView,
@@ -56,22 +58,47 @@ function fakeController(
 function view(extra: Partial<ReadAloudView>): ReadAloudView {
 	return {
 		...idleReadAloudView,
-		messageId: "m1",
+		key: "m1",
 		segmentIds: ["m1"],
 		count: 3,
 		...extra,
 	};
 }
 
-function speaker(controller = fakeController(), onPinnedChange = vi.fn()) {
+const REPLY: ReadingTarget = {
+	kind: "reply",
+	conversationId: "c1",
+	messageId: "m1",
+	segmentIds: ["m1"],
+};
+
+const SOURCE: DocumentReadingSource = {
+	root: () => null,
+	version: () => 3,
+	revision: () => 0,
+	settle: async () => {},
+	focus: () => {},
+};
+
+const DOCUMENT: ReadingTarget = {
+	kind: "document",
+	artifactId: "doc-1",
+	conversationId: "c1",
+	source: SOURCE,
+};
+
+function speaker(
+	controller = fakeController(),
+	onPinnedChange = vi.fn(),
+	extra: Record<string, unknown> = {},
+) {
 	const result = render(ReadAloudSpeaker, {
 		props: {
-			conversationId: "c1",
-			messageId: "m1",
-			segmentIds: ["m1"],
+			target: REPLY,
 			contentKey: "Hello there.",
 			onPinnedChange,
 			controller,
+			...extra,
 		},
 	});
 	const button = () =>
@@ -105,11 +132,7 @@ describe("ReadAloudSpeaker", () => {
 		expect(t.button().getAttribute("aria-label")).toBe("Read aloud");
 		expect(t.button().querySelector(".lucide-volume-2")).toBeTruthy();
 		await fireEvent.click(t.button());
-		expect(t.controller.start).toHaveBeenCalledWith({
-			conversationId: "c1",
-			messageId: "m1",
-			segmentIds: ["m1"],
-		});
+		expect(t.controller.start).toHaveBeenCalledWith(REPLY);
 		setReadAloudView(view({ status: "opening" }));
 		await tick();
 		expect(t.button().querySelector(".mini-spinner")).toBeTruthy();
@@ -137,7 +160,7 @@ describe("ReadAloudSpeaker", () => {
 			expect(t.button().querySelector(".lucide-play")).toBeTruthy();
 		}
 		// Another reply's reading leaves this speaker as it is.
-		setReadAloudView(view({ status: "playing", messageId: "m2" }));
+		setReadAloudView(view({ status: "playing", key: "m2" }));
 		await tick();
 		expect(t.button().getAttribute("aria-label")).toBe("Read aloud");
 		expect(
@@ -275,9 +298,7 @@ describe("ReadAloudSpeaker", () => {
 			expect(controller.assessReadability).toHaveBeenCalledTimes(1),
 		);
 		await t.rerender({
-			conversationId: "c1",
-			messageId: "m1",
-			segmentIds: ["m1"],
+			target: REPLY,
 			contentKey: "New words.",
 			onPinnedChange: vi.fn(),
 			controller,
@@ -339,5 +360,55 @@ describe("ReadAloudSpeaker", () => {
 		expect(screen.getByRole("status")).toBeTruthy();
 		await fireEvent.pointerDown(document.body);
 		expect(screen.queryByRole("status")).toBeNull();
+	});
+});
+
+describe("ReadAloudSpeaker in a Document's header", () => {
+	const header = (controller = fakeController()) =>
+		speaker(controller, vi.fn(), {
+			target: DOCUMENT,
+			contentKey: 1,
+			placement: "header",
+		});
+
+	it("starts the Document's reading and follows it by the Document's key", async () => {
+		const t = header();
+		expect(t.button().getAttribute("aria-label")).toBe("Read aloud");
+		await fireEvent.click(t.button());
+		expect(t.controller.start).toHaveBeenCalledWith(DOCUMENT);
+		setReadAloudView(
+			view({ status: "playing", key: "document:doc-1", progress: 0.5 }),
+		);
+		await tick();
+		expect(t.button().getAttribute("aria-label")).toBe("Pause reading");
+		expect(
+			t.button().querySelector("circle.read-aloud-ring-progress"),
+		).toBeTruthy();
+		// A reply's reading is not this Document's.
+		setReadAloudView(view({ status: "playing", key: "m1" }));
+		await tick();
+		expect(t.button().getAttribute("aria-label")).toBe("Read aloud");
+	});
+
+	it("says a Document with nothing to read is a document, with its note below it", async () => {
+		const t = header(fakeController({ kind: "nothing" }));
+		await vi.waitFor(() =>
+			expect(t.button().getAttribute("aria-disabled")).toBe("true"),
+		);
+		await fireEvent.focus(t.button());
+		const note = screen.getByRole("status");
+		expect(note.textContent).toContain(
+			"Nothing in this document can be read aloud.",
+		);
+		expect(note.getAttribute("data-placement")).toBe("header");
+	});
+
+	it("names itself with a title, as the header's other buttons do, and draws no row tooltip", () => {
+		const t = header();
+		expect(t.button().getAttribute("title")).toBe("Read aloud");
+		expect(t.container.querySelector(".read-aloud-speaker-tooltip")).toBeNull();
+		expect(t.button().getAttribute("data-testid")).toBe(
+			"read-aloud-speaker-header",
+		);
 	});
 });

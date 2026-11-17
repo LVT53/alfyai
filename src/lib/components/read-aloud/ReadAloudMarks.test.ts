@@ -57,7 +57,7 @@ const reading = (
 ): ReadAloudView => ({
 	...idleReadAloudView,
 	status: "playing",
-	messageId: "m1",
+	key: "m1",
 	segmentIds: ["m1"],
 	count: 1,
 	marks,
@@ -103,7 +103,7 @@ describe("ReadAloudMarks", () => {
 	it("draws the sentence in boxes behind the text", async () => {
 		const { container, ranges } = segment("The first sentence here.");
 		const view = render(ReadAloudMarks, {
-			props: { replyLastId: "m1", container, onMarkedChange: vi.fn() },
+			props: { readingKey: "m1", container, onMarkedChange: vi.fn() },
 		});
 		setReadAloudView(reading({ sentence: ranges, word: null, target: [] }));
 		await tick();
@@ -129,7 +129,7 @@ describe("ReadAloudMarks", () => {
 		const { container, ranges } = segment("The first sentence here.");
 		const [, first, sentence, here] = ranges as [Range, Range, Range, Range];
 		const view = render(ReadAloudMarks, {
-			props: { replyLastId: "m1", container, onMarkedChange: vi.fn() },
+			props: { readingKey: "m1", container, onMarkedChange: vi.fn() },
 		});
 		setReadAloudView(reading({ sentence: ranges, word: first, target: [] }));
 		await tick();
@@ -150,7 +150,7 @@ describe("ReadAloudMarks", () => {
 	it("hides the word in a stopped reading, and shows the drag target instead of the reading", async () => {
 		const { container, ranges } = segment("The first sentence here.");
 		const view = render(ReadAloudMarks, {
-			props: { replyLastId: "m1", container, onMarkedChange: vi.fn() },
+			props: { readingKey: "m1", container, onMarkedChange: vi.fn() },
 		});
 		setReadAloudView(
 			reading(
@@ -183,10 +183,10 @@ describe("ReadAloudMarks", () => {
 		const onA = vi.fn();
 		const onB = vi.fn();
 		const first = render(ReadAloudMarks, {
-			props: { replyLastId: "m1", container: a.container, onMarkedChange: onA },
+			props: { readingKey: "m1", container: a.container, onMarkedChange: onA },
 		});
 		const second = render(ReadAloudMarks, {
-			props: { replyLastId: "m1", container: b.container, onMarkedChange: onB },
+			props: { readingKey: "m1", container: b.container, onMarkedChange: onB },
 		});
 		setReadAloudView(reading({ sentence: a.ranges, word: null, target: [] }));
 		await tick();
@@ -196,10 +196,7 @@ describe("ReadAloudMarks", () => {
 		expect(onB).not.toHaveBeenCalledWith(true);
 		// Another reply's reading marks nothing here.
 		setReadAloudView(
-			reading(
-				{ sentence: a.ranges, word: null, target: [] },
-				{ messageId: "m9" },
-			),
+			reading({ sentence: a.ranges, word: null, target: [] }, { key: "m9" }),
 		);
 		await tick();
 		expect(first.container.querySelector(".read-aloud-marks")).toBeNull();
@@ -219,7 +216,7 @@ describe("ReadAloudMarks", () => {
 		});
 		const { container, ranges } = segment("The first sentence here.");
 		render(ReadAloudMarks, {
-			props: { replyLastId: "m1", container, onMarkedChange: vi.fn() },
+			props: { readingKey: "m1", container, onMarkedChange: vi.fn() },
 		});
 		const marks = { sentence: ranges, word: null, target: [] };
 		setReadAloudView(reading(marks, { progress: 0.1 }));
@@ -244,7 +241,7 @@ describe("ReadAloudMarks", () => {
 		const { container, ranges } = segment("The first sentence here.");
 		const onMarkedChange = vi.fn();
 		render(ReadAloudMarks, {
-			props: { replyLastId: "m1", container, onMarkedChange },
+			props: { readingKey: "m1", container, onMarkedChange },
 		});
 		await tick();
 		expect(onMarkedChange).not.toHaveBeenCalled();

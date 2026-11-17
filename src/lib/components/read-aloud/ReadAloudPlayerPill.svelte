@@ -63,23 +63,55 @@ function onPlay() {
 	else if (!spinning || catchingUp) actions.toggle();
 }
 
-/** The phone's two rows: the breakpoint of the CSS below. */
+/**
+ * The phone's two rows (`data-narrow`): on a phone's screen, and wherever the
+ * floating pill itself is narrow. Beside a docked Document panel the chat's column
+ * is 340 to 620 px wide on a wide screen, and one row there left the scrubber no
+ * room: a floating pill under {@link ONE_ROW_MIN_PX} takes the two rows. The voice
+ * editor's inline pill has no ⌖, speed or ✕, so its one row fits any dialog: only a
+ * phone's screen gives it two. The smaller buttons (`data-tight`) stay a phone's
+ * under 360 px: the 44 px row needs a pill of about 330 px, which every column of a
+ * wide screen has (the narrowest is 340), and a phone's pill is narrower than its
+ * screen, so a width rule would shrink them on a 390 px phone too.
+ */
 const NARROW_QUERY = "(max-width: 767px)";
-const narrowQuery = () =>
+const TIGHT_QUERY = "(max-width: 359px)";
+const ONE_ROW_MIN_PX = 560;
+const mediaQuery = (query: string) =>
 	typeof window !== "undefined" && typeof window.matchMedia === "function"
-		? window.matchMedia(NARROW_QUERY)
+		? window.matchMedia(query)
 		: null;
-let narrow = $state(narrowQuery()?.matches === true);
-$effect(() => {
-	const query = narrowQuery();
-	if (!query || typeof query.addEventListener !== "function") return;
-	const update = () => {
-		narrow = query.matches;
-	};
+function watchMedia(query: string, set: (matches: boolean) => void) {
+	const media = mediaQuery(query);
+	if (!media || typeof media.addEventListener !== "function") return;
+	const update = () => set(media.matches);
 	update();
-	query.addEventListener("change", update);
-	return () => query.removeEventListener("change", update);
+	media.addEventListener("change", update);
+	return () => media.removeEventListener("change", update);
+}
+let phone = $state(mediaQuery(NARROW_QUERY)?.matches === true);
+let tinyPhone = $state(mediaQuery(TIGHT_QUERY)?.matches === true);
+$effect(() => watchMedia(NARROW_QUERY, (matches) => (phone = matches)));
+$effect(() => watchMedia(TIGHT_QUERY, (matches) => (tinyPhone = matches)));
+
+/** The pill's own width, once laid out: its layout never changes it (it is the column's). */
+let root = $state<HTMLDivElement | null>(null);
+let width = $state<number | null>(null);
+$effect(() => {
+	const element = root;
+	if (!element || typeof ResizeObserver === "undefined") return;
+	const measure = () => {
+		width = element.getBoundingClientRect().width;
+	};
+	const observer = new ResizeObserver(measure);
+	observer.observe(element);
+	measure();
+	return () => observer.disconnect();
 });
+const narrow = $derived(
+	phone || (floating && width !== null && width < ONE_ROW_MIN_PX),
+);
+const tight = $derived(narrow && tinyPhone);
 </script>
 
 {#snippet transport()}
@@ -121,6 +153,7 @@ $effect(() => {
 		<span class="read-aloud-time">{view.elapsed}</span>
 		<ReadAloudScrubber
 			notches={view.notches}
+			drawn={view.headingNotches}
 			progress={view.progress}
 			sentence={view.sentence}
 			count={view.count}
@@ -169,11 +202,14 @@ $effect(() => {
 {/snippet}
 
 <div
+	bind:this={root}
 	class="read-aloud-pill"
 	role="group"
 	aria-label={$t("readAloud.player.label")}
 	data-read-aloud-player
 	data-variant={variant}
+	data-narrow={narrow ? "" : undefined}
+	data-tight={tight ? "" : undefined}
 	data-failed={stopped ? "" : undefined}
 	data-finished={floating && view.status === "finished" ? "" : undefined}
 >
@@ -332,95 +368,97 @@ $effect(() => {
 		opacity: 1;
 	}
 
-	/* The phone: the scrubber row on top, then the speed chip, ⏮ ▶ ⏭ in the middle, ⌖ ✕.
-	   A side column is never narrower than its buttons (⌖'s margin is ✕'s room), so on
-	   a narrow phone ⏮ ▶ ⏭ moves off the middle instead of under ⌖. */
-	@media (max-width: 767px) {
-		.read-aloud-pill {
-			display: grid;
-			grid-template-columns: 1fr auto 1fr;
-			/* No gaps between the columns, as in the prototype: at 360 px the row fits. */
-			column-gap: 0;
-			row-gap: 4px;
-			padding: 8px 12px;
-			border-radius: 24px;
-		}
+	/* The phone's two rows (on a phone, and in any narrow column: the script's
+	   `narrow`): the scrubber row on top, then the speed chip, ⏮ ▶ ⏭ in the middle,
+	   ⌖ ✕. A side column is never narrower than its buttons (⌖'s margin is ✕'s
+	   room), so in a narrow pill ⏮ ▶ ⏭ moves off the middle instead of under ⌖. */
+	.read-aloud-pill[data-narrow] {
+		display: grid;
+		grid-template-columns: 1fr auto 1fr;
+		/* No gaps between the columns, as in the prototype: at 360 px the row fits. */
+		column-gap: 0;
+		row-gap: 4px;
+		padding: 8px 12px;
+		border-radius: 24px;
+	}
 
-		.read-aloud-timeline {
-			grid-column: 1 / -1;
-			grid-row: 1;
-			padding: 0 2px;
-		}
+	.read-aloud-pill[data-narrow] .read-aloud-timeline {
+		grid-column: 1 / -1;
+		grid-row: 1;
+		padding: 0 2px;
+	}
 
-		.read-aloud-speed-slot {
-			grid-column: 1;
-			grid-row: 2;
-			justify-self: start;
-		}
+	/* The top row is 34 px, so the player is about 108 px tall (spec §4.3). */
+	.read-aloud-pill[data-narrow] :global(.read-aloud-scrubber) {
+		height: 34px;
+	}
 
-		.read-aloud-transport {
-			grid-column: 2;
-			grid-row: 2;
-			gap: 8px;
-		}
+	.read-aloud-pill[data-narrow] .read-aloud-speed-slot {
+		grid-column: 1;
+		grid-row: 2;
+		justify-self: start;
+	}
 
-		.read-aloud-locate {
-			grid-column: 3;
-			grid-row: 2;
-			justify-self: end;
-			margin-right: 48px;
-		}
+	.read-aloud-pill[data-narrow] .read-aloud-transport {
+		grid-column: 2;
+		grid-row: 2;
+		gap: 8px;
+	}
 
-		.read-aloud-stop {
-			grid-column: 3;
-			grid-row: 2;
-			justify-self: end;
-		}
+	.read-aloud-pill[data-narrow] .read-aloud-locate {
+		grid-column: 3;
+		grid-row: 2;
+		justify-self: end;
+		margin-right: 48px;
+	}
 
-		.read-aloud-button {
-			width: 44px;
-			height: 44px;
-		}
+	.read-aloud-pill[data-narrow] .read-aloud-stop {
+		grid-column: 3;
+		grid-row: 2;
+		justify-self: end;
+	}
 
-		.read-aloud-play {
-			width: 52px;
-			height: 52px;
-		}
+	.read-aloud-pill[data-narrow] .read-aloud-button {
+		width: 44px;
+		height: 44px;
+	}
 
-		.read-aloud-play :global(svg) {
-			width: 20px;
-			height: 20px;
-		}
+	.read-aloud-pill[data-narrow] .read-aloud-play {
+		width: 52px;
+		height: 52px;
+	}
+
+	.read-aloud-pill[data-narrow] .read-aloud-play :global(svg) {
+		width: 20px;
+		height: 20px;
 	}
 
 	/* Below 360 px the row would not fit at 44 px: 40 px buttons, a 48 px play and
-	   tighter gaps, so ✕ stays on the screen at 320 px. */
-	@media (max-width: 359px) {
-		.read-aloud-pill {
-			padding: 8px;
-		}
+	   tighter gaps, so ✕ stays inside at 320 px. */
+	.read-aloud-pill[data-tight] {
+		padding: 8px;
+	}
 
-		.read-aloud-transport {
-			gap: 4px;
-		}
+	.read-aloud-pill[data-tight] .read-aloud-transport {
+		gap: 4px;
+	}
 
-		.read-aloud-button {
-			width: 40px;
-			height: 40px;
-		}
+	.read-aloud-pill[data-tight] .read-aloud-button {
+		width: 40px;
+		height: 40px;
+	}
 
-		.read-aloud-play {
-			width: 48px;
-			height: 48px;
-		}
+	.read-aloud-pill[data-tight] .read-aloud-play {
+		width: 48px;
+		height: 48px;
+	}
 
-		.read-aloud-locate {
-			margin-right: 42px;
-		}
+	.read-aloud-pill[data-tight] .read-aloud-locate {
+		margin-right: 42px;
+	}
 
-		.read-aloud-speed-slot :global(.read-aloud-speed-chip) {
-			min-width: 48px;
-			padding: 0 8px;
-		}
+	.read-aloud-pill[data-tight] .read-aloud-speed-slot :global(.read-aloud-speed-chip) {
+		min-width: 48px;
+		padding: 0 8px;
 	}
 </style>

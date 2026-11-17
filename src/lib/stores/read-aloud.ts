@@ -31,13 +31,22 @@ export function setReadAloudAvailable(on: boolean): void {
 /** What the speaker, the marks and the player draw: the reading's state, its place and its marks. */
 export type ReadAloudView = {
 	status: ReadingStatus;
-	messageId: string | null;
+	/** What is being read: a reply's message id, or a Document's key (`readingKey` in `controller.ts`). */
+	key: string | null;
+	/** Whether a reply or a Document is being read; null when nothing is. */
+	target: "reply" | "document" | null;
+	/** A reply's segments ("Ask me first"); none for a Document. */
 	segmentIds: readonly string[];
 	/** Index of the sentence being read, or chosen. */
 	sentence: number;
 	count: number;
 	/** Each sentence's share of the text: where its notch sits. */
 	notches: number[];
+	/**
+	 * A long Document's notches: the sentences that begin a heading, the only notches its scrubber
+	 * draws (`headingNotches` in `timeline.ts`). Null draws every sentence's.
+	 */
+	headingNotches: number[] | null;
 	/** The share of the text read: the sentence and the word within it (1 when finished). */
 	progress: number;
 	/** Listening time so far, `m:ss`. */
@@ -61,11 +70,13 @@ export type ReadAloudView = {
 
 export const idleReadAloudView: ReadAloudView = {
 	status: "idle",
-	messageId: null,
+	key: null,
+	target: null,
 	segmentIds: [],
 	sentence: 0,
 	count: 0,
 	notches: [],
+	headingNotches: null,
 	progress: 0,
 	elapsed: "0:00",
 	total: "0:00",
@@ -87,6 +98,23 @@ export const readAloudView: Readable<ReadAloudView> = {
 /** Only the reading controller calls it. */
 export function setReadAloudView(next: ReadAloudView): void {
 	view.set(next);
+}
+
+// Where a Document's reading shows its player. The composer's player shows it
+// beside a docked panel in a chat; where the panel covers the chat (a phone, an
+// expanded panel) or has none beside it (the Knowledge page), the panel draws
+// the player for its own Document's reading, and says so here so the composer's
+// player leaves that reading to it.
+const playerInPanel = writable(false);
+
+/** The open Document panel draws the player for its Document's reading. */
+export const readAloudPlayerInPanel: Readable<boolean> = {
+	subscribe: playerInPanel.subscribe,
+};
+
+/** Only the Document panel (`DocumentWorkspace.svelte`) calls it. */
+export function setReadAloudPlayerInPanel(on: boolean): void {
+	playerInPanel.set(on);
 }
 
 // The voice preview as Settings and the editor draw it. Only the voice preview

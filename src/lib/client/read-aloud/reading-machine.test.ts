@@ -18,9 +18,9 @@ const CLEAR_ALL: ReadingCommand[] = [
 ];
 const CLOSE: ReadingCommand = { kind: "close" };
 
-const press = (messageId = "m1", from = 0): ReadingEvent => ({
+const press = (key = "m1", from = 0): ReadingEvent => ({
 	type: "press",
-	messageId,
+	key,
 	from,
 });
 
@@ -33,7 +33,7 @@ function run(
 	return next;
 }
 
-const opening = (messageId = "m1", from = 0) => run([press(messageId, from)]);
+const opening = (key = "m1", from = 0) => run([press(key, from)]);
 const playingAt = (sentence = 0) =>
 	run([press("m1", sentence), { type: "firstAudio" }]);
 const pausedAt = (sentence = 0) =>
@@ -53,18 +53,18 @@ describe("the reading machine", () => {
 		expect(opened.state).toEqual({
 			...initialReadingState,
 			status: "opening",
-			messageId: "m1",
+			key: "m1",
 			sentence: 2,
 		});
 		expect(opened.commands).toEqual([
-			{ kind: "open", messageId: "m1", from: 2 },
+			{ kind: "open", key: "m1", from: 2 },
 			{ kind: "startTimer", timer: "busy" },
 			{ kind: "startTimer", timer: "start" },
 		]);
 		const first = reduce(opened.state, { type: "firstAudio" });
 		expect(first.state).toMatchObject({
 			status: "playing",
-			messageId: "m1",
+			key: "m1",
 			sentence: 2,
 			busy: false,
 		});
@@ -164,7 +164,7 @@ describe("the reading machine", () => {
 			restartOnResume: false,
 		});
 		expect(resumed.commands).toEqual([
-			{ kind: "open", messageId: "m1", from: 3 },
+			{ kind: "open", key: "m1", from: 3 },
 			{ kind: "startTimer", timer: "start" },
 		]);
 	});
@@ -179,7 +179,7 @@ describe("the reading machine", () => {
 			});
 			expect(hidden.commands).toEqual([CLOSE]);
 			expect(reduce(hidden.state, press("m1", 0)).commands).toEqual([
-				{ kind: "open", messageId: "m1", from: 2 },
+				{ kind: "open", key: "m1", from: 2 },
 				{ kind: "startTimer", timer: "start" },
 			]);
 		}
@@ -216,7 +216,7 @@ describe("the reading machine", () => {
 			{ kind: "clearTimer", timer: "longPause" },
 		]);
 		expect(reduce(hidden.state, { type: "toggle" }).commands).toEqual([
-			{ kind: "open", messageId: "m1", from: 2 },
+			{ kind: "open", key: "m1", from: 2 },
 			{ kind: "startTimer", timer: "start" },
 		]);
 		// A pause the person made is the same: the page left, and the stream with it.
@@ -243,7 +243,7 @@ describe("the reading machine", () => {
 		});
 		expect(broke.commands).toEqual([CLOSE]);
 		const reopen = [
-			{ kind: "open", messageId: "m1", from: 4 },
+			{ kind: "open", key: "m1", from: 4 },
 			{ kind: "startTimer", timer: "start" },
 		];
 		for (const event of [
@@ -292,7 +292,7 @@ describe("the reading machine", () => {
 			word: null,
 		});
 		expect(back.commands).toEqual([
-			{ kind: "open", messageId: "m1", from: 1 },
+			{ kind: "open", key: "m1", from: 1 },
 			{ kind: "startTimer", timer: "start" },
 		]);
 		expect(reduce(back.state, { type: "firstAudio" }).state.status).toBe(
@@ -354,7 +354,7 @@ describe("the reading machine", () => {
 			const switched = reduce(state, press("m2", 0));
 			expect(switched.state).toMatchObject({
 				status: "seeking",
-				messageId: "m2",
+				key: "m2",
 				sentence: 0,
 				word: null,
 				failure: null,
@@ -362,7 +362,7 @@ describe("the reading machine", () => {
 				doneReceived: false,
 			});
 			expect(switched.commands).toEqual([
-				{ kind: "open", messageId: "m2", from: 0 },
+				{ kind: "open", key: "m2", from: 0 },
 				{ kind: "startTimer", timer: "start" },
 			]);
 		}
@@ -373,11 +373,11 @@ describe("the reading machine", () => {
 		);
 		expect(moved.state).toMatchObject({
 			status: "opening",
-			messageId: "m2",
+			key: "m2",
 			busy: false,
 		});
 		expect(moved.commands).toEqual([
-			{ kind: "open", messageId: "m2", from: 0 },
+			{ kind: "open", key: "m2", from: 0 },
 			{ kind: "startTimer", timer: "busy" },
 			{ kind: "startTimer", timer: "start" },
 		]);
@@ -395,7 +395,7 @@ describe("the reading machine", () => {
 	it("Read from here jumps within the reply being read, whatever its state", () => {
 		const readFrom: ReadingEvent = {
 			type: "readFrom",
-			messageId: "m1",
+			key: "m1",
 			from: 5,
 		};
 		for (const state of [
@@ -408,12 +408,12 @@ describe("the reading machine", () => {
 			const jumped = reduce(state, readFrom);
 			expect(jumped.state).toMatchObject({
 				status: "seeking",
-				messageId: "m1",
+				key: "m1",
 				sentence: 5,
 				failure: null,
 			});
 			expect(jumped.commands).toEqual([
-				{ kind: "open", messageId: "m1", from: 5 },
+				{ kind: "open", key: "m1", from: 5 },
 				{ kind: "startTimer", timer: "start" },
 			]);
 		}
@@ -426,11 +426,11 @@ describe("the reading machine", () => {
 			const opened = reduce(state, readFrom);
 			expect(opened.state).toMatchObject({
 				status: "opening",
-				messageId: "m1",
+				key: "m1",
 				sentence: 5,
 			});
 			expect(opened.commands).toEqual([
-				{ kind: "open", messageId: "m1", from: 5 },
+				{ kind: "open", key: "m1", from: 5 },
 				{ kind: "startTimer", timer: "busy" },
 				{ kind: "startTimer", timer: "start" },
 			]);
@@ -476,7 +476,7 @@ describe("the reading machine", () => {
 			word: null,
 		});
 		expect(jumped.commands).toEqual([
-			{ kind: "open", messageId: "m1", from: 6 },
+			{ kind: "open", key: "m1", from: 6 },
 			{ kind: "startTimer", timer: "start" },
 		]);
 		const parked = reduce(pausedAt(0), { type: "seek", sentence: 6 });
@@ -489,7 +489,7 @@ describe("the reading machine", () => {
 		expect(parked.commands).toEqual([CLOSE]);
 		expect(reduce(parked.state, { type: "toggle" }).commands[0]).toEqual({
 			kind: "open",
-			messageId: "m1",
+			key: "m1",
 			from: 6,
 		});
 	});
@@ -512,7 +512,7 @@ describe("the reading machine", () => {
 			drag: null,
 		});
 		expect(released.commands).toEqual([
-			{ kind: "open", messageId: "m1", from: 5 },
+			{ kind: "open", key: "m1", from: 5 },
 			{ kind: "startTimer", timer: "start" },
 		]);
 		// From a pause the release lands paused at the chosen sentence.
@@ -559,7 +559,7 @@ describe("the reading machine", () => {
 				drag: null,
 			});
 			expect(released.commands).toEqual([
-				{ kind: "open", messageId: "m1", from: 4 },
+				{ kind: "open", key: "m1", from: 4 },
 				{ kind: "startTimer", timer: "start" },
 			]);
 		}

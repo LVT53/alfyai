@@ -12,16 +12,25 @@ export type ReadingStart = {
 	charsPerSecond: Record<"en" | "hu", number>;
 };
 
-export type ReadingRequestBody = {
-	conversationId: string;
-	messageId: string;
-	sentences: Array<{
-		id: string;
-		language: "en" | "hu";
-		paragraphStart: boolean;
-		words: Array<{ shown: string; kind: WordKind; tokens: string[] }>;
-	}>;
+type RequestSentence = {
+	id: string;
+	language: "en" | "hu";
+	paragraphStart: boolean;
+	words: Array<{ shown: string; kind: WordKind; tokens: string[] }>;
 };
+
+/** A reading of a reply, or of a Document: its id, the version the panel shows and the panel's chat. */
+export type ReadingRequestBody =
+	| {
+			conversationId: string;
+			messageId: string;
+			sentences: RequestSentence[];
+	  }
+	| {
+			document: { artifactId: string; version: number };
+			conversationId: string | null;
+			sentences: RequestSentence[];
+	  };
 
 const SESSIONS = "/api/read-aloud/sessions";
 const session = (id: string) => `${SESSIONS}/${encodeURIComponent(id)}`;

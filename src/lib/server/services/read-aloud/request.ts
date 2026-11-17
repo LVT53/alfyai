@@ -43,18 +43,40 @@ const sentenceSchema = z
 		},
 	);
 
-export const readingRequestSchema = z
-	.object({
-		conversationId: z.string().min(1).max(100),
-		messageId: z.string().min(1).max(100),
-		sentences: z.array(sentenceSchema).min(1).max(MAX_SENTENCES_PER_SESSION),
-	})
+const sentencesSchema = z
+	.array(sentenceSchema)
+	.min(1)
+	.max(MAX_SENTENCES_PER_SESSION)
 	.refine(
-		(request) =>
-			new Set(request.sentences.map((sentence) => sentence.id)).size ===
-			request.sentences.length,
-		{ message: "a sentence id is used once", path: ["sentences"] },
+		(sentences) =>
+			new Set(sentences.map((sentence) => sentence.id)).size ===
+			sentences.length,
+		{ message: "a sentence id is used once" },
 	);
+
+const idSchema = z.string().min(1).max(100);
+
+/**
+ * A reading of a reply (its conversation and message), or of a Document: its id,
+ * the version the panel shows (the words are checked against that version's
+ * text), and the chat the panel is in, which an incognito chat's own Document
+ * needs to be reached at all (`ArtifactScopeOptions.conversationId`).
+ */
+export const readingRequestSchema = z.union([
+	z.object({
+		conversationId: idSchema,
+		messageId: idSchema,
+		sentences: sentencesSchema,
+	}),
+	z.object({
+		document: z.object({
+			artifactId: idSchema,
+			version: z.number().int().min(1).max(1_000_000_000),
+		}),
+		conversationId: idSchema.nullish(),
+		sentences: sentencesSchema,
+	}),
+]);
 
 export type ReadingRequest = z.infer<typeof readingRequestSchema>;
 

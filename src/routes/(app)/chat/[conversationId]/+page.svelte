@@ -5762,6 +5762,7 @@ function handleDrop(event: DragEvent) {
 			presentation={workspacePresentation}
 			{returnToDockedOnExpandedClose}
 			reserveDock
+			readAloudComposer
 			onDockPreferredChange={(width) => (dockPreferredWidth = width)}
 			documents={liveWorkspaceDocuments}
 			availableDocuments={availableWorkspaceDocumentsWithArtifacts}

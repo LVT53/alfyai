@@ -342,11 +342,13 @@ describe("Try it and Show me", () => {
 		expect(goto).toHaveBeenCalledWith("/settings");
 	});
 
-	it("Try it for Listen to a reply hands Home its example", async () => {
+	it("Try it for Listen to a reply or a document hands Home its example", async () => {
 		render(GuidePage);
 
 		await fireEvent.click(
-			screen.getByRole("button", { name: "Try it: Listen to a reply" }),
+			screen.getByRole("button", {
+				name: "Try it: Listen to a reply or a document",
+			}),
 		);
 
 		expect(consumeHomeComposerSeed()).toBe(

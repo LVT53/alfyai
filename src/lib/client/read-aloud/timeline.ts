@@ -105,6 +105,27 @@ export function notches(script: SpeechScript): number[] {
 	);
 }
 
+/**
+ * How many sentences a reading may have before a Document's scrubber stops notching every one.
+ * A notch is 2 px wide, and a phone's scrubber is about 240 px: 40 sentences put the notches 6 px
+ * apart on average (closer where sentences are short), about the least gap at which they still
+ * read as separate marks. Past that they merge into a ruler that says nothing, while a long
+ * Document's headings stay few and say where each section starts.
+ */
+export const HEADING_NOTCHES_PAST = 40;
+
+/**
+ * The sentences a long Document's scrubber notches: those that begin a heading, or none when it
+ * has no heading. Null up to {@link HEADING_NOTCHES_PAST} sentences, when every sentence keeps its
+ * notch. It changes only what is drawn: a drag or a tap still lands on any sentence.
+ */
+export function headingNotches(script: SpeechScript): number[] | null {
+	if (script.sentences.length <= HEADING_NOTCHES_PAST) return null;
+	return script.sentences
+		.filter((sentence) => sentence.heading)
+		.map((sentence) => sentence.index);
+}
+
 /** The sentence a share of the text falls in, clamped to the first and the last. */
 export function sentenceAtShare(script: SpeechScript, share: number): number {
 	return notchAtShare(notches(script), share);

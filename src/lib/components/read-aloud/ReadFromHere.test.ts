@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	ReadAloudController,
 	Readability,
+	ReadingTarget,
 } from "$lib/client/read-aloud/controller";
 import { setReadAloudAvailable } from "$lib/stores/read-aloud";
 import ReadFromHere from "./ReadFromHere.svelte";
@@ -35,8 +36,8 @@ function fakeController(
 		stop: vi.fn(),
 		locate: vi.fn(),
 		sentencePreview: vi.fn(() => ""),
-		assessReadability: vi.fn(async (ids: readonly string[]) =>
-			readability(ids),
+		assessReadability: vi.fn(async (target: ReadingTarget) =>
+			readability(target.kind === "reply" ? target.segmentIds : []),
 		),
 	};
 }
@@ -247,6 +248,7 @@ describe("ReadFromHere", () => {
 		await fireEvent.pointerDown(pill() as HTMLButtonElement);
 		await fireEvent.click(pill() as HTMLButtonElement);
 		expect(controller.start).toHaveBeenCalledWith({
+			kind: "reply",
 			conversationId: "c1",
 			messageId: "m1",
 			segmentIds: ["m1"],
@@ -266,6 +268,7 @@ describe("ReadFromHere", () => {
 			screen.getByRole("button", { name: /Read from here/ }),
 		);
 		expect(controller.start).toHaveBeenCalledWith({
+			kind: "reply",
 			conversationId: "c1",
 			messageId: "m2",
 			segmentIds: ["m2a", "m2"],

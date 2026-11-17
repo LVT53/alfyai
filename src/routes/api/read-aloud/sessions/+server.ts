@@ -4,6 +4,7 @@ import {
 	createJsonResponse,
 } from "$lib/server/api/responses";
 import { getReadAloudUrl } from "$lib/server/config-store";
+import { getDocumentVersionBody } from "$lib/server/services/artifacts";
 import { getConversation } from "$lib/server/services/conversations";
 import { getReplyForDocumentKeep } from "$lib/server/services/messages";
 import {
@@ -20,10 +21,12 @@ import {
 import type { RequestHandler } from "./$types";
 
 /**
- * Starts a reading of a reply: checks that the person owns the conversation,
- * that every written word occurs in the reply's text in order and that its
- * tokens are the shared dictionary's reading of it, then opens a session on the
- * speech service. The answers are in the plan's browser-to-app contract.
+ * Starts a reading of a reply or a Document: checks that the person may read it
+ * (they own the reply's conversation; the Document passes the panel's own scoped
+ * read), that every written word occurs in its text in order (the reply's, or the
+ * Document version's the panel shows) and that its tokens are the shared
+ * dictionary's reading of it, then opens a session on the speech service. The
+ * answers are in the plan's browser-to-app contract.
  */
 export const POST: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
@@ -41,23 +44,47 @@ export const POST: RequestHandler = async (event) => {
 	}
 	const parsed = readingRequestSchema.safeParse(body);
 	if (!parsed.success) return createJsonErrorResponse("invalid_request", 400);
-	const { conversationId, messageId, sentences } = parsed.data;
+	const request = parsed.data;
+	const { sentences } = request;
 
-	if (!(await getConversation(user.id, conversationId)))
-		return createJsonErrorResponse("not_found", 404);
-	// A reply as the person reads it: its "Ask me first" segments walked back
-	// from the last one, the way Copy takes them.
-	const reply = await getReplyForDocumentKeep({ conversationId, messageId });
-	if (!reply) return createJsonErrorResponse("not_found", 404);
-
-	const outside = wordsFitReply(reply.content, sentences);
-	if (outside !== null) {
-		// The index and the count only: never a word of the request or the reply.
-		console.warn("[READ_ALOUD] a request is not in its reply", {
-			sentence: outside,
-			sentences: sentences.length,
+	if ("document" in request) {
+		// The version the panel shows, through the panel's own access rules: another
+		// person's Document, an incognito chat's from outside it and a version it
+		// does not have all answer as one that does not exist.
+		const text = await getDocumentVersionBody({
+			userId: user.id,
+			artifactId: request.document.artifactId,
+			versionNumber: request.document.version,
+			conversationId: request.conversationId ?? null,
 		});
-		return createJsonErrorResponse("not_in_reply", 422);
+		if (text === null) return createJsonErrorResponse("not_found", 404);
+		const outside = wordsFitReply(text, sentences);
+		if (outside !== null) {
+			// The index and the count only: never a word of the request or the Document.
+			console.warn("[READ_ALOUD] a request is not in its document", {
+				sentence: outside,
+				sentences: sentences.length,
+			});
+			return createJsonErrorResponse("not_in_document", 422);
+		}
+	} else {
+		const { conversationId, messageId } = request;
+		if (!(await getConversation(user.id, conversationId)))
+			return createJsonErrorResponse("not_found", 404);
+		// A reply as the person reads it: its "Ask me first" segments walked back
+		// from the last one, the way Copy takes them.
+		const reply = await getReplyForDocumentKeep({ conversationId, messageId });
+		if (!reply) return createJsonErrorResponse("not_found", 404);
+
+		const outside = wordsFitReply(reply.content, sentences);
+		if (outside !== null) {
+			// The index and the count only: never a word of the request or the reply.
+			console.warn("[READ_ALOUD] a request is not in its reply", {
+				sentence: outside,
+				sentences: sentences.length,
+			});
+			return createJsonErrorResponse("not_in_reply", 422);
+		}
 	}
 
 	// The voice each language reads with, and the speed a reading starts at, are

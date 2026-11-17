@@ -13,6 +13,9 @@
  *   element backgrounds and below the text: one range per run of a sentence on a line,
  *   so the spaces between its words are tinted too, and not the next line's indentation.
  *   They fade at the end through a page-wide strength the highlights' colours use.
+ * - **Inside an editor** (a Document's page) nothing is ever set on an element: its
+ *   editor reads a change to its own DOM as an edit. Inline code there is drawn by a
+ *   highlight, as a code block is.
  *
  * The colours are rules this module adds to the page (`ensureCodeMarkStyle`), with the
  * same tokens as the overlay.
@@ -104,7 +107,11 @@ function placeOf(range: Range): CodePlace | null {
 	if (pre) return { kind: "block", pre };
 	// A link chip paints its own background too, above the overlay (early review R8).
 	const pill = element.closest(".source-link-chip, code");
-	return pill ? { kind: "element", element: pill } : null;
+	if (!pill) return null;
+	// An editor's own DOM is painted over, never changed: a highlight, as for a block.
+	return pill.closest("[contenteditable]")
+		? { kind: "block", pre: pill }
+		: { kind: "element", element: pill };
 }
 
 /** True when nothing but spaces on one line lies between the end of `run` and the start of `next`. */

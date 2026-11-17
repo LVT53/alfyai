@@ -99,7 +99,12 @@ async function inspect() {
 	const key = segmentIds.join(" ");
 	let known = readability.get(key);
 	if (!known || known.kind === "unknown") {
-		known = await reader().assessReadability(segmentIds);
+		known = await reader().assessReadability({
+			kind: "reply",
+			conversationId: conversationId ?? "",
+			messageId: segmentIds[segmentIds.length - 1] as string,
+			segmentIds,
+		});
 		readability.set(key, known);
 	}
 	const now = document.getSelection();
@@ -200,6 +205,7 @@ function press() {
 	const current = target;
 	if (!current || !conversationId) return;
 	reader().start({
+		kind: "reply",
 		conversationId,
 		messageId: current.segmentIds[current.segmentIds.length - 1] as string,
 		segmentIds: current.segmentIds,

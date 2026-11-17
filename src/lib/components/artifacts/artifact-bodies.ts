@@ -13,6 +13,7 @@
  * matter how many times its body is shown.
  */
 import type { Component } from "svelte";
+import type { DocumentReadingSource } from "$lib/client/read-aloud/controller";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ImageMarksRequest } from "$lib/shared/artifacts/image-body";
@@ -108,6 +109,14 @@ export interface ArtifactBodyProps {
 	 * review workflow (App, File) simply never calls it.
 	 */
 	onPendingReviewCountChange?: (count: number) => void;
+	/**
+	 * What read aloud's speaker in the panel header asks its readability again on
+	 * (Document only): a key that changes when the page is drawn, its tab changes,
+	 * it turns empty or not, or another version is shown. Same reactive-report shape
+	 * as `onCommentCountChange`; the reading itself goes through
+	 * `ArtifactPanelBodyActions.readAloud`.
+	 */
+	onReadAloudChange?: (contentKey: string) => void;
 	/**
 	 * Opens History on this item (ruling 76): where a body that tells the reader to
 	 * go back to an earlier version points ("Alfy's change can't be undone here
@@ -208,6 +217,13 @@ export interface ArtifactPanelBodyActions {
 	 * Canvas is the one that does today.
 	 */
 	flush?: () => Promise<void>;
+	/**
+	 * Read aloud's way into the page (Document only): where its text is drawn, the
+	 * version shown, the revision a reading stops on, the save before a session and
+	 * the scroll that brings a sentence into view. The header's speaker and the
+	 * page's Read from here hand it to the read-aloud controller.
+	 */
+	readAloud?: DocumentReadingSource;
 }
 
 export type ArtifactBodyLoader = () => Promise<{

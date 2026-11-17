@@ -1444,7 +1444,7 @@ function sendFollowUp(question: string) {
 			/>
 			{#if $readAloudAvailable}
 				<ReadAloudMarks
-					replyLastId={replyPlace?.segmentIds.at(-1) ?? message.id}
+					readingKey={replyPlace?.segmentIds.at(-1) ?? message.id}
 					container={proseContainer}
 					onMarkedChange={(marked) => (readAloudMarked = marked)}
 				/>
@@ -1899,9 +1899,12 @@ function sendFollowUp(question: string) {
 
 				{#if !isUser && $readAloudAvailable && conversationId}
 					<ReadAloudSpeaker
-						{conversationId}
-						messageId={message.id}
-						segmentIds={replyPlace?.segmentIds ?? [message.id]}
+						target={{
+							kind: "reply",
+							conversationId,
+							messageId: message.id,
+							segmentIds: replyPlace?.segmentIds ?? [message.id],
+						}}
 						contentKey={replyText}
 						onPinnedChange={(pinned) => (readAloudPinned = pinned)}
 					/>

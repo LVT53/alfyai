@@ -46,7 +46,7 @@ function reply() {
 const view = (extra: Partial<ReadAloudView>): ReadAloudView => ({
 	...idleReadAloudView,
 	status: "playing",
-	messageId: "m1",
+	key: "m1",
 	...extra,
 });
 
@@ -108,6 +108,25 @@ describe("paintCodeMarks", () => {
 		);
 		expect(markOf("c")).toBe("word");
 		expect(registry.has(CODE_MARK_NAMES.word)).toBe(false);
+	});
+
+	it("never sets an attribute inside an editor's page: a Document's inline code is drawn by a highlight", () => {
+		// ProseMirror reads a change to its own DOM as an edit, so a Document's page is only ever
+		// painted over, never changed.
+		document.body.innerHTML =
+			'<div class="document-editor-host"><div class="ProseMirror" contenteditable="true"><p id="p">Call <code id="c">getUserName()</code> now.</p></div></div>';
+		const call = rangeOf(textOf("p"), "Call");
+		const code = rangeOf(textOf("c"), "getUserName()");
+		paintCodeMarks(
+			view({
+				key: "document:doc-1",
+				marks: { sentence: [call, code], word: code, target: [] },
+			}),
+			env(),
+		);
+		expect(markOf("c")).toBeNull();
+		expect(strings(CODE_MARK_NAMES.sentence)).toEqual(["getUserName()"]);
+		expect(strings(CODE_MARK_NAMES.word)).toEqual(["getUserName()"]);
 	});
 
 	it("tints a link chip whole, as it paints its own background as code does", () => {

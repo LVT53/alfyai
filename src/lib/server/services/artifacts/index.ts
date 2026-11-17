@@ -139,6 +139,7 @@ export type {
 	RowArtifactKind,
 } from "./types";
 export {
+	getDocumentVersionBody,
 	getVersionBody,
 	listVersions,
 	nameVersion,

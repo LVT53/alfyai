@@ -1550,3 +1550,69 @@ describe("sentenceAtPoint", () => {
 		expect(sentenceAtPoint(script, text, text.data.indexOf("opener"))).toBe(0);
 	});
 });
+
+/** A Document's page as its editor draws it: the ProseMirror element inside the panel's editor host. */
+function page(html: string): HTMLElement {
+	document.body.innerHTML = `<div class="document-editor-host"><div class="document-content ProseMirror" contenteditable="true">${html}</div></div>`;
+	return document.querySelector(".document-editor-host") as HTMLElement;
+}
+
+/** What a Document draws that is not its text: its tracker chips, Alfy's pill and tag. */
+const DOCUMENT_SKIP = ".tracker-chip, .change-pill-mount, .alfy-writing-tag";
+
+describe("a Document's page", () => {
+	it("leaves out a block a tab hides and an element marked hidden: only what is drawn is read", () => {
+		const root = page(
+			'<h1>Weekend plan</h1><p>Book the hotel by Friday, and ask for a quiet room.</p><p style="display:none">This paragraph belongs to another tab and is never read.</p><p hidden>A hidden paragraph that the page does not draw either.</p><p>Pack the warm coats, because the nights are cold up there.</p>',
+		);
+		expect(build(root).sentences.map((s) => s.text)).toEqual([
+			"Weekend plan. Book the hotel by Friday, and ask for a quiet room.",
+			"Pack the warm coats, because the nights are cold up there.",
+		]);
+	});
+
+	it("leaves out what the reader's skip selector names: a tracker chip and Alfy's pill", () => {
+		const root = page(
+			'<p>Book the hotel by Friday and pay the deposit <span class="tracker-chip" data-chip-kind="status" data-chip-value="Booked">Foglalt</span> before the end of the week.</p><p>Pack the warm coats, because the nights are cold up there.<span class="change-pill-mount"><span class="alfy-change-bar">Alfy changed this <button type="button">Keep</button><button type="button">Undo</button></span></span></p><p>The train leaves at nine in the morning from the main station.<span class="alfy-writing-tag"><span aria-hidden="true">✦</span> Alfy is writing</span></p>',
+		);
+		const script = buildSpeechScript([root], detect, {
+			fallbackLanguage: "en",
+			skip: DOCUMENT_SKIP,
+		});
+		expect(script.sentences.map((s) => s.text)).toEqual([
+			"Book the hotel by Friday and pay the deposit before the end of the week.",
+			"Pack the warm coats, because the nights are cold up there.",
+			"The train leaves at nine in the morning from the main station.",
+		]);
+	});
+
+	it("says which sentences begin a heading", () => {
+		const root = page(
+			"<h1>Weekend plan</h1><p>Book the hotel by Friday, and ask for a quiet room at the back.</p><h2>What to pack for the cold nights</h2><p>Pack the warm coats, because the nights are cold up there.</p><p>Take the long scarves as well, and the thick woollen socks.</p>",
+		);
+		const script = build(root);
+		expect(script.sentences.map((s) => [s.text, s.heading])).toEqual([
+			[
+				"Weekend plan. Book the hotel by Friday, and ask for a quiet room at the back.",
+				true,
+			],
+			["What to pack for the cold nights.", true],
+			["Pack the warm coats, because the nights are cold up there.", false],
+			["Take the long scarves as well, and the thick woollen socks.", false],
+		]);
+	});
+
+	it("a short sentence before a heading joins the one before it, so the heading begins its section", () => {
+		const root = page(
+			"<p>The first section ends with a sentence that is long enough to stand alone.</p><p>Thanks!</p><h2>Results</h2><p>The results section starts here, with a sentence long enough to stand alone.</p>",
+		);
+		const script = build(root);
+		expect(script.sentences.map((s) => s.text)).toEqual([
+			"The first section ends with a sentence that is long enough to stand alone. Thanks!",
+			"Results. The results section starts here, with a sentence long enough to stand alone.",
+		]);
+		expect(script.sentences.map((s) => s.heading)).toEqual([false, true]);
+		const heading = root.querySelector("h2")?.firstChild as Text;
+		expect(sentenceAtPoint(script, heading, 0)).toBe(1);
+	});
+});

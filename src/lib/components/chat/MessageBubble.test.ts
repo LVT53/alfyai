@@ -6310,6 +6310,7 @@ describe("MessageBubble: read aloud", () => {
 			) as HTMLElement,
 		);
 		expect(start).toHaveBeenCalledWith({
+			kind: "reply",
 			conversationId: "c1",
 			messageId: "seg-2",
 			segmentIds: ["seg-1", "seg-2"],
@@ -6367,7 +6368,7 @@ describe("MessageBubble: read aloud", () => {
 		setReadAloudView({
 			...idleReadAloudView,
 			status: "playing",
-			messageId: "assistant-read-1",
+			key: "assistant-read-1",
 			segmentIds: ["assistant-read-1"],
 		});
 		await waitFor(() => expect(actions.hasAttribute("data-pinned")).toBe(true));
