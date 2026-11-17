@@ -290,8 +290,6 @@ let selectionBubble = $state<
 			anchor: Anchor;
 			/** The raw selected text (`readSelectionAnchorContext`'s own `quote`) — `SelectionBubble.svelte` truncates it for display. */
 			quote: string;
-			/** Where the selection starts in the page's DOM: Read from here reads from its sentence. */
-			start: { node: Node; offset: number } | null;
 	  }
 	| null
 >(null);
@@ -598,12 +596,7 @@ function updateSelectionBubble(): void {
 		clearSelectionBubble();
 		return;
 	}
-	selectionBubble = {
-		...placement,
-		anchor,
-		quote: context.quote,
-		start: selectionStartInPage(),
-	};
+	selectionBubble = { ...placement, anchor, quote: context.quote };
 	// Redesign §4.2 item 2: "the selection keeps a dashed amber 'pending'
 	// highlight so you still see what you are asking about" — the live
 	// selection's own raw positions, captured now rather than resolved later
@@ -615,15 +608,28 @@ function updateSelectionBubble(): void {
 	});
 }
 
-/** Where the page's live selection starts, as a DOM point inside the editor; null when the selection is elsewhere. */
+/**
+ * Where the reader's selection starts in the page's DOM, found at the press: the
+ * editor redraws the selected text when the bubble rises (its pending highlight),
+ * so a node kept from then is gone. The live DOM selection, else the editor's own
+ * selection mapped to the DOM; null when neither is in the page.
+ */
 function selectionStartInPage(): { node: Node; offset: number } | null {
 	const selection =
 		typeof window === "undefined" ? null : window.getSelection();
-	if (!selection || selection.rangeCount === 0) return null;
-	const range = selection.getRangeAt(0);
-	return editorEl?.contains(range.startContainer)
-		? { node: range.startContainer, offset: range.startOffset }
-		: null;
+	const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+	if (range && editorEl?.contains(range.startContainer))
+		return { node: range.startContainer, offset: range.startOffset };
+	const from = editor?.state.selection.from;
+	if (from === undefined) return null;
+	try {
+		const at = editor?.view.domAtPos(from);
+		return at && editorEl?.contains(at.node)
+			? { node: at.node, offset: at.offset }
+			: null;
+	} catch {
+		return null;
+	}
 }
 
 /** Clears the bubble/composer AND its own pending highlight together — the one exit path every "nothing to show" branch above and `dismissSelectionBubble` below share, so the two states can never drift apart. */
@@ -1987,7 +1993,7 @@ $effect(() => {
 
 /** Read from here: reads the Document from the sentence the selection starts in. */
 function readFromSelection(): void {
-	const start = selectionBubble?.start ?? null;
+	const start = selectionStartInPage();
 	if (!start) return;
 	getReadAloud().start({
 		kind: "document",
@@ -2774,9 +2780,7 @@ function saveNoticeText(notice: SaveNotice): string {
 							<SelectionBubble
 								position={selectionBubble}
 								quote={selectionBubble.quote}
-								onReadFromHere={$readAloudAvailable && selectionBubble.start
-									? readFromSelection
-									: undefined}
+								onReadFromHere={$readAloudAvailable ? readFromSelection : undefined}
 								onSubmit={async (body, sourceRect) => {
 									if (!selectionBubble) return;
 									await handleSelectionSubmit(

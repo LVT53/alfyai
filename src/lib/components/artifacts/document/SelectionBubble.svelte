@@ -331,6 +331,7 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 		bind:this={rootEl}
 		class="selection-bubble"
 		class:selection-bubble-composing={mode !== 'pill'}
+		class:selection-bubble-wide={Boolean(onReadFromHere)}
 		data-testid="selection-bubble"
 		style="left: {position.x}px; top: {position.y}px; transform: {anchorTransform};"
 	>
@@ -376,6 +377,12 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 
 	.selection-bubble-composing {
 		width: 21.25rem; /* 340px — redesign §4.2 item 2. */
+	}
+
+	/* With read aloud on the pill has a third action, Read from here: it is as wide
+	   as the composer it grows into from the start, so growing adds only height. */
+	.selection-bubble-wide {
+		width: 21.25rem;
 	}
 
 	.selection-bubble-toolbar {

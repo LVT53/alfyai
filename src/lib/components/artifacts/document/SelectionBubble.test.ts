@@ -47,6 +47,42 @@ describe("SelectionBubble", () => {
 		expect(screen.getByRole("button", { name: "Comment" })).toBeInTheDocument();
 	});
 
+	// Read aloud on Documents: with read aloud on, the pill also reads from the
+	// selection, and is as wide as the composer it grows into, so its third button fits.
+	it("offers Read from here when it is given one, and is wide enough for it", async () => {
+		stubViewport(false);
+		const onReadFromHere = vi.fn();
+		const { container } = render(SelectionBubble, {
+			position: { x: 10, y: 20 },
+			quote: "Two adults; museums in the morning.",
+			onSubmit: vi.fn(),
+			onDismiss: vi.fn(),
+			onReadFromHere,
+		});
+		const bubble = container.querySelector(".selection-bubble") as HTMLElement;
+		expect(bubble.classList.contains("selection-bubble-wide")).toBe(true);
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Read from here" }),
+		);
+		expect(onReadFromHere).toHaveBeenCalledTimes(1);
+	});
+
+	it("without one, it has no Read from here and keeps its two-button width", () => {
+		stubViewport(false);
+		const { container } = render(SelectionBubble, {
+			position: { x: 10, y: 20 },
+			quote: "Two adults; museums in the morning.",
+			onSubmit: vi.fn(),
+			onDismiss: vi.fn(),
+		});
+		expect(screen.queryByRole("button", { name: "Read from here" })).toBeNull();
+		expect(
+			container
+				.querySelector(".selection-bubble")
+				?.classList.contains("selection-bubble-wide"),
+		).toBe(false);
+	});
+
 	it("the pill is a toolbar named Selection", () => {
 		stubViewport(false);
 		render(SelectionBubble, {

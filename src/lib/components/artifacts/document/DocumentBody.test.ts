@@ -4948,6 +4948,54 @@ describe("DocumentBody", () => {
 			);
 		});
 
+		// The editor redraws the selected text when the bubble rises (its "pending"
+		// highlight is a decoration over it), so the press reads the selection as it is
+		// then, never a text node the editor has since replaced.
+		it("reads from the selection as it is at the press, after the editor has redrawn it", async () => {
+			const { setReadAloudAvailable } = await import("$lib/stores/read-aloud");
+			const controller = await import("$lib/client/read-aloud/controller");
+			const start = vi
+				.spyOn(controller.getReadAloud(), "start")
+				.mockImplementation(() => {});
+			setReadAloudAvailable(true);
+			await mountForReading();
+			const host = document.querySelector(
+				".document-editor-host",
+			) as HTMLElement;
+			const select = (from: number, to: number) => {
+				const text = host.querySelector("p")?.firstChild as Text;
+				const range = document.createRange();
+				range.setStart(text, from);
+				range.setEnd(text, to);
+				const selection = window.getSelection();
+				selection?.removeAllRanges();
+				selection?.addRange(range);
+				return text;
+			};
+			host.innerHTML = "<p>Hello there, and welcome.</p>";
+			select(6, 11);
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "there",
+				prefix: "Hello ",
+				suffix: ", and",
+				rect: { top: 10, left: 20, right: 40, bottom: 30 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			const button = await screen.findByRole("button", {
+				name: "Read from here",
+			});
+			// The editor draws the paragraph again, and puts the selection back on it.
+			host.innerHTML = "<p>Hello there, and welcome.</p>";
+			const redrawn = select(6, 11);
+			await fireEvent.click(button);
+			expect(start).toHaveBeenCalledTimes(1);
+			const from = start.mock.calls[0]?.[0].from;
+			expect(from?.node).toBe(redrawn);
+			expect(from?.node.isConnected).toBe(true);
+			expect(from?.offset).toBe(6);
+		});
+
 		it("offers no Read from here while read aloud is off", async () => {
 			await mountForReading();
 			mockReadSelectionAnchorContext.mockReturnValue({
