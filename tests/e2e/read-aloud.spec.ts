@@ -576,6 +576,27 @@ test("on a 375 or 360 px phone no two of the player's buttons overlap", async ({
 	}
 });
 
+test("the total dropping its ≈ moves nothing: the scrubber keeps its width", async ({
+	page,
+}) => {
+	const ui = await open(page, [FIVE_SENTENCE_REPLY]);
+	await ui.speaker().click();
+	await expect(ui.player).toBeVisible();
+	await waitForMotionToSettle(page);
+	const total = ui.player.locator(".read-aloud-time").last();
+	await expect(total).toHaveText(/^≈/);
+	const before = await ui.slider.boundingBox();
+	// The total is corrected as the sentences are made, and loses its ≈.
+	await expect
+		.poll(() => total.evaluate((node) => (node as HTMLElement).innerText), {
+			timeout: 15_000,
+		})
+		.toMatch(/^\d/);
+	const after = await ui.slider.boundingBox();
+	expect(after?.width).toBeCloseTo(before?.width ?? 0, 1);
+	expect(after?.x).toBeCloseTo(before?.x ?? 0, 1);
+});
+
 test("a drag to either end on a phone keeps the bubble inside the player, and the page goes on working", async ({
 	page,
 }) => {

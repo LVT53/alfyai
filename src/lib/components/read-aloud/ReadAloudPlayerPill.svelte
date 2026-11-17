@@ -113,7 +113,12 @@ function onPlay() {
 			onDragEnd={(i) => actions.endDrag(i)}
 			onStep={(i) => actions.seek(i)}
 		/>
-		<span class="read-aloud-time">{view.totalIsEstimate ? "≈" : ""}{view.total}</span>
+		<!-- The "≈" keeps its place once the total is exact, so nothing moves when it goes. -->
+		<span class="read-aloud-time"
+			><span class="read-aloud-approx" class:exact={!view.totalIsEstimate} aria-hidden={view.totalIsEstimate ? undefined : "true"}
+				>≈</span
+			>{view.total}</span
+		>
 	</div>
 	{#if floating}
 		<button
@@ -196,6 +201,10 @@ function onPlay() {
 		font-size: 11.5px;
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
+	}
+
+	.read-aloud-approx.exact {
+		visibility: hidden;
 	}
 
 	.read-aloud-speed-slot {
