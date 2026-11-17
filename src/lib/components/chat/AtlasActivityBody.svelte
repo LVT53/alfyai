@@ -49,6 +49,7 @@ import {
 import { fade, fly } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { portalToBody } from "$lib/utils/portal";
+import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
 
 // The action sheet slides up AND back down, and collapses to an instant
 // appearance under prefers-reduced-motion — which the app-wide CSS override
@@ -720,6 +721,7 @@ function handleTabKeydown(event: KeyboardEvent) {
 										decoding="async"
 										referrerpolicy="no-referrer"
 										data-testid="atlas-evidence-favicon"
+										use:replayEarlyImageEvent
 										onerror={(e) => {
 											(e.currentTarget as HTMLImageElement).style.display = 'none';
 										}}

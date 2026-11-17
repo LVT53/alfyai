@@ -354,6 +354,38 @@ describe("KnowledgeMemoryView", () => {
 		).toBeDisabled();
 	});
 
+	it("lets a dialog taller than the window be scrolled to its foot", async () => {
+		// The Remove and review-edit dialogs centre a panel with no height of its
+		// own in a layer that did not scroll: on a phone on its side the top and the
+		// foot of a taller panel were out of reach. The layer scrolls, and the panel's
+		// auto margins centre it only while it fits, so it never overflows its top.
+		renderMemoryView({ onRetire: vi.fn() });
+		const reviewSection = screen
+			.getByRole("heading", { name: "Needs Review" })
+			.closest("section") as HTMLElement;
+
+		await fireEvent.click(
+			within(reviewSection).getAllByRole("button", {
+				name: "Remove this memory",
+			})[0],
+		);
+		const remove = screen.getByRole("dialog", { name: "Remove this memory?" });
+		expect(remove.parentElement).toHaveClass("overflow-y-auto");
+		expect(remove).toHaveClass("my-auto");
+		await fireEvent.click(
+			within(remove).getByRole("button", { name: "Close" }),
+		);
+
+		await fireEvent.click(
+			within(reviewSection).getAllByRole("button", {
+				name: "Edit review item",
+			})[0],
+		);
+		const edit = screen.getByRole("dialog", { name: "Edit review item" });
+		expect(edit.parentElement).toHaveClass("overflow-y-auto");
+		expect(edit).toHaveClass("my-auto");
+	});
+
 	it("does not offer Retire without an onRetire handler or for review items", async () => {
 		const onRetire = vi.fn();
 		renderMemoryView({ onRetire });

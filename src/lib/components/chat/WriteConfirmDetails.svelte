@@ -7,6 +7,7 @@
 import { AlertTriangle } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import WriteConfirmFacts from "./WriteConfirmFacts.svelte";
+import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
 import type { WriteCardView } from "./write-card-view";
 
 let {
@@ -55,7 +56,14 @@ function hideBrokenPhoto(event: Event): void {
 	{#if view.thumbnails.length > 0}
 		<div class="write-details__photos" data-testid="write-confirm-photos">
 			{#each view.thumbnails as src}
-				<img {src} alt="" loading="lazy" decoding="async" onerror={hideBrokenPhoto} />
+				<img
+					{src}
+					alt=""
+					loading="lazy"
+					decoding="async"
+					use:replayEarlyImageEvent
+					onerror={hideBrokenPhoto}
+				/>
 			{/each}
 		</div>
 	{/if}

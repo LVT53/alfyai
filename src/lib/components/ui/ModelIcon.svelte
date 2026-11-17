@@ -1,4 +1,6 @@
 <script lang="ts">
+import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
+
 let {
 	iconUrl = null,
 	displayName = "",
@@ -16,7 +18,12 @@ let sizeValue = $derived(`${size}px`);
 
 <span class="model-icon" style={`--model-icon-size: ${sizeValue};`} aria-hidden="true">
 	{#if iconUrl && !failed}
-		<img src={iconUrl} alt="" onerror={() => (failed = true)} />
+		<img
+			src={iconUrl}
+			alt=""
+			use:replayEarlyImageEvent
+			onerror={() => (failed = true)}
+		/>
 	{:else}
 		<span class="model-icon-fallback">{initial}</span>
 	{/if}
