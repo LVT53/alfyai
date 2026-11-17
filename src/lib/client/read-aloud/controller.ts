@@ -35,6 +35,7 @@ import {
 	SERVER_UPDATE_WATCH_MAX_MS,
 	SERVER_UPDATE_WATCH_POLL_MS,
 } from "$lib/client/server-update-watch";
+import type { ReportAddress } from "$lib/shared/read-aloud/report-address";
 import { MAX_SENTENCES_PER_SESSION } from "$lib/shared/read-aloud/session-limits";
 import { silentMp3DataUri } from "$lib/shared/read-aloud/silent-mp3";
 import { type ReadAloudView, setReadAloudView } from "$lib/stores/read-aloud";
@@ -126,10 +127,13 @@ export type ReportReadingSource = {
 	focus(ranges: readonly Range[], mode: "center" | "reveal"): void;
 };
 
-/** A standard report open in the panel: the chat file it is. */
+/**
+ * A standard report open in the panel, named by the preview that showed it: its chat
+ * file (opened from a chat) or its library item (opened from the Knowledge library).
+ */
 export type ReportTarget = {
 	kind: "report";
-	fileId: string;
+	report: ReportAddress;
 	source: ReportReadingSource;
 };
 
@@ -146,15 +150,24 @@ export function documentReadingKey(artifactId: string): string {
 }
 
 /** A report's reading key: what the machine and the view name its reading by. */
-export function reportReadingKey(fileId: string): string {
-	return `report:${fileId}`;
+export function reportReadingKey(report: ReportAddress): string {
+	return "fileId" in report
+		? `report:${report.fileId}`
+		: `report:library:${report.artifactId}`;
 }
 
 /** What the machine and the view name a reading by: a reply's message id, or a Document's or a report's key. */
 export function readingKey(target: ReadingTarget): string {
 	if (target.kind === "document") return documentReadingKey(target.artifactId);
-	if (target.kind === "report") return reportReadingKey(target.fileId);
+	if (target.kind === "report") return reportReadingKey(target.report);
 	return target.messageId;
+}
+
+/** A report's address, its one key alone. */
+function addressOf(report: ReportAddress): ReportAddress {
+	return "fileId" in report
+		? { fileId: report.fileId }
+		: { artifactId: report.artifactId };
 }
 
 function targetOf(r: StartRequest): ReadingTarget {
@@ -166,7 +179,7 @@ function targetOf(r: StartRequest): ReadingTarget {
 			source: r.source,
 		};
 	if (r.kind === "report")
-		return { kind: "report", fileId: r.fileId, source: r.source };
+		return { kind: "report", report: addressOf(r.report), source: r.source };
 	return {
 		kind: "reply",
 		conversationId: r.conversationId,
@@ -765,9 +778,9 @@ export function createReadAloudController(
 				messageId: target.messageId,
 				sentences: words,
 			};
-		// A report is the chat file the panel shows: the server reads it as the preview does.
+		// A report is named by the preview that showed it: the server reads it as that preview does.
 		if (target.kind === "report")
-			return { report: { fileId: target.fileId }, sentences: words };
+			return { report: addressOf(target.report), sentences: words };
 		await target.source.settle();
 		const version = target.source.version();
 		if (version === null) return null;

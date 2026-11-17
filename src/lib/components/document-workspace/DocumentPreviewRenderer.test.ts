@@ -549,10 +549,11 @@ describe("DocumentPreviewRenderer", () => {
 			'<!doctype html><html><head><title>Atlas Report</title></head><body><div id="report-viewer"><article id="report-content"><h1>Report</h1><p>The train leaves at nine.</p></article></div><script>document.body.dataset.reportRuntime = \'ready\'</script></body></html>';
 		const ADDRESS = "/api/chat/files/file-9/preview";
 		const openReport = (
-			readAloudReport: {
-				fileId: string;
-				onSource: (source: unknown) => void;
-			} | null = null,
+			readAloudReport: { onSource: (reading: unknown) => void } | null = null,
+			where: { artifactId: string | null; previewUrl: string | null } = {
+				artifactId: null,
+				previewUrl: ADDRESS,
+			},
 		) => {
 			mockFetchBlob(new Blob([REPORT], { type: "text/html" }), {
 				headers: { "Content-Security-Policy": STANDARD_REPORT_CSP },
@@ -560,8 +561,7 @@ describe("DocumentPreviewRenderer", () => {
 			return render(DocumentPreviewRenderer, {
 				props: {
 					open: true,
-					artifactId: null,
-					previewUrl: ADDRESS,
+					...where,
 					filename: "atlas-report.html",
 					mimeType: "text/html",
 					readAloudReport,
@@ -603,19 +603,35 @@ describe("DocumentPreviewRenderer", () => {
 			expect(screen.queryByRole("alert")).toBeNull();
 		});
 
-		it("hands the panel read aloud's source over the report only when the panel asks", async () => {
+		it("hands the panel read aloud's source over the report, named by the address that showed it, only when the panel asks", async () => {
 			const onSource = vi.fn();
-			openReport({ fileId: "file-9", onSource });
+			openReport({ onSource });
 			await screen.findByTitle("atlas-report.html preview");
 			await vi.waitFor(() =>
-				expect(onSource).toHaveBeenCalledWith(expect.any(Object)),
+				expect(onSource).toHaveBeenCalledWith({
+					report: { fileId: "file-9" },
+					source: expect.any(Object),
+				}),
 			);
-			const source = onSource.mock.calls.at(-1)?.[0] as {
-				root(): Element | null;
+			const { source } = onSource.mock.calls.at(-1)?.[0] as {
+				source: { root(): Element | null };
 			};
 			// The page's own inert copy of what the address answered with.
 			expect(source.root()?.id).toBe("report-content");
 			expect(source.root()?.ownerDocument).not.toBe(document);
+		});
+
+		it("names a report opened from the Knowledge library by its library item", async () => {
+			const onSource = vi.fn();
+			openReport({ onSource }, { artifactId: "lib-1", previewUrl: null });
+			const frame = await screen.findByTitle("atlas-report.html preview");
+			expect(frame).toHaveAttribute("src", "/api/knowledge/lib-1/preview?rb=1");
+			await vi.waitFor(() =>
+				expect(onSource).toHaveBeenCalledWith({
+					report: { artifactId: "lib-1" },
+					source: expect.any(Object),
+				}),
+			);
 		});
 
 		it("offers nothing to read aloud when the panel does not ask", async () => {

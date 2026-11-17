@@ -38,9 +38,16 @@ let other: HTMLIFrameElement;
 let posted: unknown[];
 let controller: ReadAloudController;
 let source: ReportReadingSource | null;
-const onSource = vi.fn((next: ReportReadingSource | null) => {
-	source = next;
-});
+const onSource = vi.fn(
+	(
+		next: {
+			report: { fileId: string } | { artifactId: string };
+			source: ReportReadingSource;
+		} | null,
+	) => {
+		source = next?.source ?? null;
+	},
+);
 
 const message = (type: string, extra: Record<string, unknown> = {}) => ({
 	v: 1,
@@ -90,7 +97,13 @@ function mount() {
 	}) as typeof window.postMessage);
 	return render(ReportReadAloud, {
 		target: shell,
-		props: { frame, html: REPORT, fileId: "file-1", onSource, controller },
+		props: {
+			frame,
+			html: REPORT,
+			report: { fileId: "file-1" },
+			onSource,
+			controller,
+		},
 	});
 }
 
@@ -109,9 +122,13 @@ afterEach(() => {
 });
 
 describe("read aloud on a report", () => {
-	it("says hello to the frame, and hands the panel a source over the page's own inert copy", async () => {
+	it("says hello to the frame, and hands the panel a source over the page's own inert copy, with the report it names", async () => {
 		mount();
 		await tick();
+		expect(onSource).toHaveBeenCalledWith({
+			report: { fileId: "file-1" },
+			source: expect.any(Object),
+		});
 		expect(posted).toContainEqual(message("hello"));
 		expect(source?.root()?.id).toBe("report-content");
 		expect(source?.root()?.ownerDocument).not.toBe(document);
@@ -129,7 +146,10 @@ describe("read aloud on a report", () => {
 		await fireEvent.click(button as HTMLElement, { detail: 1 });
 		expect(controller.start).toHaveBeenCalledTimes(1);
 		const request = vi.mocked(controller.start).mock.calls[0]?.[0];
-		expect(request).toMatchObject({ kind: "report", fileId: "file-1" });
+		expect(request).toMatchObject({
+			kind: "report",
+			report: { fileId: "file-1" },
+		});
 		const from = request && "from" in request ? request.from : undefined;
 		expect((from?.node as Text).data).toBe("The train leaves at nine");
 		expect(from?.offset).toBe(4);

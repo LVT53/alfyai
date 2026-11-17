@@ -4,6 +4,10 @@ import ReportReadAloud from "$lib/components/read-aloud/ReportReadAloud.svelte";
 import type { ReportReadingSource } from "$lib/client/read-aloud/controller";
 import { frameLoadTripwire } from "$lib/utils/frame-load-tripwire";
 import { reportFrameAddress } from "$lib/shared/read-aloud/report-frame-address";
+import {
+	type ReportAddress,
+	reportAddressOf,
+} from "$lib/shared/read-aloud/report-address";
 import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { isGenericMimeType } from "$lib/shared/file-types";
 import { ensureFilenameExtension } from "$lib/shared/file-types/download-name";
@@ -56,14 +60,16 @@ let {
 	onMarksChange?: ((marks: ImageMark[]) => void) | undefined;
 	onMarksContinue?: (() => void) | undefined;
 	/**
-	 * Read aloud on a standard report (`ReportReadAloud.svelte`): the chat file the
-	 * preview shows, and where the panel takes the reading source from. The report's
-	 * own response carries read aloud's bridge (the server adds it); this only
-	 * mounts the page's half over the frame.
+	 * Read aloud on a standard report (`ReportReadAloud.svelte`): where the panel
+	 * takes the reading source from, with the report named by the address the
+	 * preview showed it by (`reportAddressOf`: a chat file, or a library item). The
+	 * report's own response carries read aloud's bridge (the server adds it); this
+	 * only mounts the page's half over the frame.
 	 */
 	readAloudReport?: {
-		fileId: string;
-		onSource: (source: ReportReadingSource | null) => void;
+		onSource: (
+			reading: { report: ReportAddress; source: ReportReadingSource } | null,
+		) => void;
 	} | null;
 } = $props();
 
@@ -92,6 +98,8 @@ let reportFrameGeneration = $state(0);
 let previewSource = $derived(
 	resolvePreviewSourceUrl({ artifactId, previewUrl }),
 );
+/** The report this preview shows, for read aloud: by its chat file or its library item. */
+let reportAddress = $derived(reportAddressOf(previewSource));
 
 $effect(() => {
 	const previewSourceUrl = resolvePreviewSourceUrl({ artifactId, previewUrl });
@@ -408,11 +416,11 @@ function downloadFile() {
 											src={frameAddress}
 										></iframe>
 									{/key}
-									{#if trustedReportHtml !== null && readAloudReport && htmlFrame}
+									{#if trustedReportHtml !== null && readAloudReport && reportAddress && htmlFrame}
 										<ReportReadAloud
 											frame={htmlFrame}
 											html={trustedReportHtml}
-											fileId={readAloudReport.fileId}
+											report={reportAddress}
 											onSource={readAloudReport.onSource}
 										/>
 									{/if}

@@ -56,6 +56,7 @@ import {
 	type ReportReadingSource,
 	reportReadingKey,
 } from "$lib/client/read-aloud/controller";
+import type { ReportAddress } from "$lib/shared/read-aloud/report-address";
 import ReadAloudPlayer from "$lib/components/read-aloud/ReadAloudPlayer.svelte";
 import ReadAloudSpeaker from "$lib/components/read-aloud/ReadAloudSpeaker.svelte";
 import {
@@ -941,45 +942,28 @@ let readAloudDocumentKey = $derived(
 		: null,
 );
 
-// Read aloud on a standard report (an Atlas report): the preview hands the panel a
-// source once it shows the report with read aloud's bridge (`ReportReadAloud.svelte`).
-// Which file it is comes from the preview's own address, so the session route reads
-// the very file the preview showed, by the preview's own rules.
-let reportReadAloudSource = $state<ReportReadingSource | null>(null);
-function handleReportReadAloudSource(source: ReportReadingSource | null) {
-	reportReadAloudSource = source;
+// Read aloud on a standard report (an Atlas report, opened from a chat or from the
+// Knowledge library): once the preview shows the report with read aloud's bridge,
+// it hands the panel the report, named by the address it showed it by (a chat file
+// or a library item), and the source to read it through (`ReportReadAloud.svelte`).
+// The session route reads that very report back by the same preview's own rules.
+let reportReading = $state<{
+	report: ReportAddress;
+	source: ReportReadingSource;
+} | null>(null);
+function handleReportReading(
+	reading: { report: ReportAddress; source: ReportReadingSource } | null,
+) {
+	reportReading = reading;
 }
-let readAloudReportFileId = $derived(
-	chatFilePreviewId(activeDocument?.previewUrl ?? null),
-);
 let readAloudReport = $derived(
-	$readAloudAvailable && readAloudReportFileId !== null
-		? {
-				fileId: readAloudReportFileId,
-				onSource: handleReportReadAloudSource,
-			}
-		: null,
+	$readAloudAvailable ? { onSource: handleReportReading } : null,
 );
 let readAloudReportKey = $derived(
-	readAloudReportFileId !== null && reportReadAloudSource !== null
-		? reportReadingKey(readAloudReportFileId)
-		: null,
+	reportReading ? reportReadingKey(reportReading.report) : null,
 );
 /** The reading the panel's own player shows: its Document's, or its report's. */
 let readAloudPanelKey = $derived(readAloudDocumentKey ?? readAloudReportKey);
-
-/** The chat file a preview address names (`/api/chat/files/<id>/preview`), or null. */
-function chatFilePreviewId(previewUrl: string | null): string | null {
-	const match = /^\/api\/chat\/files\/([^/?#]+)\/preview$/u.exec(
-		previewUrl ?? "",
-	);
-	if (!match?.[1]) return null;
-	try {
-		return decodeURIComponent(match[1]);
-	} catch {
-		return null;
-	}
-}
 
 let panelShowsReadAloudPlayer = $derived(
 	readAloudPanelKey !== null &&
@@ -2766,14 +2750,14 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	<!-- A standard report's speaker: in the header of the shell whose preview is mounted
 	     (`live`), once the preview hands the panel the report's source. -->
 	{#snippet readAloudReportSpeaker(live: boolean)}
-		{#if live && !historyOpen && $readAloudAvailable && reportReadAloudSource && readAloudReportFileId}
+		{#if live && !historyOpen && $readAloudAvailable && reportReading && readAloudReportKey}
 			<ReadAloudSpeaker
 				target={{
 					kind: "report",
-					fileId: readAloudReportFileId,
-					source: reportReadAloudSource,
+					report: reportReading.report,
+					source: reportReading.source,
 				}}
-				contentKey={readAloudReportFileId}
+				contentKey={readAloudReportKey}
 				placement="header"
 			/>
 		{/if}

@@ -194,19 +194,56 @@ describe("DocumentWorkspace: read aloud on a report", () => {
 			conversationId: "c1",
 		});
 		const preview = await screen.findByTestId("fake-report-preview");
-		expect(preview.dataset.report).toBe("file-9");
+		expect(preview.dataset.report).toBe(JSON.stringify({ fileId: "file-9" }));
 		const speaker = await screen.findByTestId("read-aloud-speaker-header");
 		await fireEvent.click(speaker);
 		expect(start).toHaveBeenCalledWith({
 			kind: "report",
-			fileId: "file-9",
+			report: { fileId: "file-9" },
 			source: fakeReportSource,
 		});
 	});
 
-	it("offers no reading of a file the preview does not show from a chat file, nor while read aloud is off", async () => {
+	// The Knowledge page: a library item's report is shown by its library preview,
+	// and read by it, with no chat to pass.
+	it("reads a report opened from the Knowledge library by its library item", async () => {
+		const start = vi
+			.spyOn(getReadAloud(), "start")
+			.mockImplementation(() => {});
+		render(DocumentWorkspace, {
+			props: {
+				open: true,
+				documents: [
+					makeWorkspaceDocument({
+						id: "artifact:lib-1",
+						source: "knowledge_artifact",
+						title: "Weekend report",
+						filename: "weekend-report.html",
+						mimeType: "text/html",
+						artifactId: "lib-1",
+					}),
+				],
+				availableDocuments: [],
+				activeDocumentId: "artifact:lib-1",
+				onSelectDocument: vi.fn(),
+				onCloseDocument: vi.fn(),
+				onCloseWorkspace: vi.fn(),
+			},
+		});
+		const speaker = await screen.findByTestId("read-aloud-speaker-header");
+		// No composer beside it: the panel draws the reading's player itself.
+		expect(get(readAloudPlayerInPanel)).toBe(true);
+		await fireEvent.click(speaker);
+		expect(start).toHaveBeenCalledWith({
+			kind: "report",
+			report: { artifactId: "lib-1" },
+			source: fakeReportSource,
+		});
+	});
+
+	it("offers no reading of a preview whose address names no report", async () => {
 		renderWorkspace({
-			documents: [reportItem("/api/knowledge/file-9/preview")],
+			documents: [reportItem("/api/artifacts/app-1/app")],
 			activeDocumentId: "file-9",
 		});
 		const preview = await screen.findByTestId("fake-report-preview");

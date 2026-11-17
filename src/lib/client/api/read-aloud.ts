@@ -1,3 +1,4 @@
+import type { ReportAddress } from "$lib/shared/read-aloud/report-address";
 import type { WordKind } from "$lib/shared/read-aloud/spoken-forms";
 import { type FetchLike, requestJson, requestVoid } from "./http";
 
@@ -21,7 +22,7 @@ type RequestSentence = {
 
 /**
  * A reading of a reply; of a Document (its id, the version the panel shows and the panel's
- * chat); or of a standard report (its chat file).
+ * chat); or of a standard report (its chat file, or its library item).
  */
 export type ReadingRequestBody =
 	| {
@@ -35,8 +36,8 @@ export type ReadingRequestBody =
 			sentences: RequestSentence[];
 	  }
 	| {
-			/** A standard report: the chat file the panel's preview shows. */
-			report: { fileId: string };
+			/** A standard report: the chat file or the library item the panel's preview shows. */
+			report: ReportAddress;
 			sentences: RequestSentence[];
 	  };
 

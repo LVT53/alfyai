@@ -34,12 +34,13 @@ import {
 	REPORT_CHROME,
 } from "$lib/shared/read-aloud/report-units";
 import { t } from "$lib/i18n";
+import type { ReportAddress } from "$lib/shared/read-aloud/report-address";
 import { type ReadAloudView, readAloudView } from "$lib/stores/read-aloud";
 
 let {
 	frame,
 	html,
-	fileId,
+	report,
 	onSource,
 	controller = undefined,
 }: {
@@ -47,10 +48,12 @@ let {
 	frame: HTMLIFrameElement;
 	/** The report's HTML, as the preview was given it: the page's copy is made from it. */
 	html: string;
-	/** The chat file the report is: what the session route is asked for. */
-	fileId: string;
-	/** Hands the panel the source its speaker reads, and null once it is gone. */
-	onSource: (source: ReportReadingSource | null) => void;
+	/** The report, by the preview that showed it: what the session route is asked for. */
+	report: ReportAddress;
+	/** Hands the panel the source its speaker reads, with the report, and null once it is gone. */
+	onSource: (
+		reading: { report: ReportAddress; source: ReportReadingSource } | null,
+	) => void;
 	controller?: ReadAloudController;
 } = $props();
 
@@ -61,7 +64,7 @@ const GAP_PX = 8;
 const EDGE_PX = 8;
 
 const copy = $derived(makeReportCopy(html));
-const key = $derived(reportReadingKey(fileId));
+const key = $derived(reportReadingKey(report));
 
 /** The frame said it found the units the page's copy has: until then nothing it says is taken. */
 let agreed = $state(false);
@@ -97,7 +100,7 @@ const source: ReportReadingSource = {
 
 $effect(() => {
 	const hand = onSource;
-	hand(source);
+	hand({ report, source });
 	return () => hand(null);
 });
 
@@ -216,7 +219,7 @@ function press(event: MouseEvent) {
 	selected = null;
 	reader().start({
 		kind: "report",
-		fileId,
+		report,
 		source,
 		from: { node: from.node, offset: from.offset },
 	});

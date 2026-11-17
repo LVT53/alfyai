@@ -1543,10 +1543,16 @@ const startReport = (
 	t: Setup,
 	source: FakeReportSource,
 	from?: { node: Node; offset: number },
-) => t.controller.start({ kind: "report", fileId: "file-1", source, from });
+) =>
+	t.controller.start({
+		kind: "report",
+		report: { fileId: "file-1" },
+		source,
+		from,
+	});
 
 type ReportBody = {
-	report?: { fileId: string };
+	report?: { fileId: string } | { artifactId: string };
 	document?: unknown;
 	conversationId?: unknown;
 	messageId?: unknown;
@@ -1583,6 +1589,22 @@ describe("reading a report", () => {
 		expect(read).not.toContain("Sections");
 		t.audio.emit("playing");
 		expect(t.last()).toMatchObject({ status: "playing", target: "report" });
+	});
+
+	it("asks for a report opened from the Knowledge library by its library item, under a key of its own", async () => {
+		const t = setup();
+		const source = new FakeReportSource(makeReportCopy(REPORT_PAGE));
+		t.controller.start({
+			kind: "report",
+			report: { artifactId: "lib-1" },
+			source,
+		});
+		expect(t.last()).toMatchObject({
+			key: "report:library:lib-1",
+			target: "report",
+		});
+		await settle();
+		expect(reportBody(t).report).toEqual({ artifactId: "lib-1" });
 	});
 
 	it("⌖ and a drag bring the sentence into view in the frame, by its ranges over the copy", async () => {
@@ -1680,7 +1702,7 @@ describe("reading a report", () => {
 		const t = setup();
 		const target = (source: FakeReportSource) => ({
 			kind: "report" as const,
-			fileId: "file-1",
+			report: { fileId: "file-1" },
 			source,
 		});
 		const gone = new FakeReportSource(makeReportCopy(REPORT_PAGE));
