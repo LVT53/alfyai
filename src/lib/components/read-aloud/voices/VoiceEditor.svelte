@@ -400,14 +400,16 @@ onMount(() => {
 
 	{#snippet footer()}
 		{#if opened.voice}
-			<button
-				type="button"
-				class="voice-editor-delete"
-				disabled={saving}
-				onclick={() => (confirmingDelete = true)}
-			>
-				{$t("readAloud.editor.delete")}
-			</button>
+			<span class="voice-editor-start">
+				<button
+					type="button"
+					class="voice-editor-delete"
+					disabled={saving}
+					onclick={() => (confirmingDelete = true)}
+				>
+					{$t("readAloud.editor.delete")}
+				</button>
+			</span>
 			<span class="voice-editor-actions">
 				<button type="button" class="btn-secondary" disabled={saving} onclick={() => save("create")}>
 					{$t("readAloud.editor.saveAsNew")}
@@ -581,6 +583,10 @@ onMount(() => {
 		gap: var(--space-sm, 0.5rem);
 	}
 
+	.voice-editor-start {
+		display: flex;
+	}
+
 	@media (max-width: 639px) {
 		.voice-editor-name {
 			font-size: 16px;
@@ -590,9 +596,29 @@ onMount(() => {
 			grid-template-columns: minmax(0, 1fr);
 		}
 
+		/* Delete keeps its own width on the left and the two saves share the rest,
+		   their words wrapping onto a second line when a language needs it: three
+		   44 px targets that never overlap. Delete sits in a span, so the sheet's
+		   equal-width rule for the footer's own buttons leaves it alone. */
+		.voice-editor-start {
+			flex: none;
+		}
+
+		.voice-editor-delete {
+			min-height: 44px;
+		}
+
 		.voice-editor-actions {
 			flex: 1;
-			justify-content: flex-end;
+			min-width: 0;
+		}
+
+		.voice-editor-actions > button {
+			flex: 1 1 0;
+			min-width: 0;
+			min-height: 44px;
+			white-space: normal;
+			text-align: center;
 		}
 	}
 </style>

@@ -431,6 +431,70 @@ test("in Hungarian every knob's ↺ is clear of its slider and resets it", async
 	}
 });
 
+for (const language of ["en", "hu"] as const)
+	test(`on a 375 px phone the edit footer's buttons never overlap (${language})`, async ({
+		page,
+	}) => {
+		await makeVoice(page, "imogen");
+		await setUiLanguage(page, language);
+		try {
+			await page.setViewportSize({ width: 375, height: 812 });
+			const card = await readAloudCard(page);
+			await card
+				.getByRole("button", {
+					name: language === "hu" ? "Szerkesztés" : "Edit",
+				})
+				.first()
+				.click();
+			const editor = page.getByRole("dialog", {
+				name: language === "hu" ? "Hang szerkesztése" : "Edit voice",
+			});
+			await expect(editor).toBeVisible();
+			await waitForMotionToSettle(page);
+			const names =
+				language === "hu"
+					? ["Törlés", "Mentés újként", "Módosítások mentése"]
+					: ["Delete", "Save as new", "Save changes"];
+			const boxes = [];
+			for (const name of names) {
+				const button = editor.getByRole("button", { name, exact: true });
+				await expectTopmost(button, {
+					message: `${name} must not be covered`,
+					probe: "center",
+				});
+				boxes.push(await button.boundingBox());
+			}
+			for (let i = 0; i < boxes.length; i++) {
+				const box = boxes[i];
+				if (!box) throw new Error(`${names[i]} has no box`);
+				expect(
+					box.height,
+					`${names[i]} is a 44 px target`,
+				).toBeGreaterThanOrEqual(44);
+				expect(box.x).toBeGreaterThanOrEqual(0);
+				expect(box.x + box.width).toBeLessThanOrEqual(375);
+				const previous = boxes[i - 1];
+				if (previous)
+					expect(
+						previous.x + previous.width,
+						`${names[i - 1]} overlaps ${names[i]}`,
+					).toBeLessThanOrEqual(box.x + 0.5);
+			}
+			// The labels are whole: none is cut or spills out of its button.
+			for (const name of names)
+				expect(
+					await editor
+						.getByRole("button", { name, exact: true })
+						.evaluate(
+							(element) => element.scrollWidth <= element.clientWidth + 1,
+						),
+					`${name}'s label fits`,
+				).toBe(true);
+		} finally {
+			await setUiLanguage(page, "en");
+		}
+	});
+
 test("on a phone the editor is a full sheet without Cancel", async ({
 	page,
 }) => {
