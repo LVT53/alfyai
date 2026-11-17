@@ -577,7 +577,10 @@ steps, measurements and rollback are in [speech-service/README.md](./speech-serv
 | The voice (Zonos) | the same box: `zonos3.service`, on `127.0.0.1:1919` |
 | Word timing (FuseAlign) | a native command the speech service starts, on the CPU |
 
-Both sites run on that box, so both use `TTS_URL=http://127.0.0.1:1920`. The service listens on
+Both sites run on that box, so both use `TTS_URL=http://127.0.0.1:1920`. When Zonos stalls on a
+sentence (a long silence in it, or a clip far longer than its words need: short sentences, mostly),
+the service makes the sentence again under another seed, up to `SPEECH_STEADY_ATTEMPTS` (4) clips.
+Each reading's end line in `journalctl -u speech-service` says how many it made again. The service listens on
 loopback and has no sign-in of its own, so never add a bind or a proxy rule that reaches past the
 box. `vllm-flashnext` and `zonos3` are never restarted or reconfigured for read aloud. Stopping
 `speech-service` is safe for everything else: readings then fail calmly ("Couldn't start reading")

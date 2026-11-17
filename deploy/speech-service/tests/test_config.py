@@ -32,6 +32,7 @@ def test_the_other_defaults():
         4,
     )
     assert (s.idle_seconds, s.max_sentence_chars) == (30.0, 400)
+    assert s.steady_attempts == 4
 
 
 def test_reads_every_variable():
@@ -47,6 +48,7 @@ def test_reads_every_variable():
             "SPEECH_ALIGNER_CLI": "/usr/local/bin/fusealign-cli",
             "SPEECH_ALIGNER_THREADS": "8",
             "SPEECH_IDLE_SECONDS": "12.5",
+            "SPEECH_STEADY_ATTEMPTS": "2",
         }
     )
     assert s == Settings(
@@ -60,6 +62,7 @@ def test_reads_every_variable():
         aligner_cli="/usr/local/bin/fusealign-cli",
         aligner_threads=8,
         idle_seconds=12.5,
+        steady_attempts=2,
     )
 
 
@@ -155,6 +158,20 @@ def test_one_aligner_thread_is_fine():
     assert Settings(aligner_threads=1).aligner_threads == 1
 
 
+@pytest.mark.parametrize("attempts", ["0", "-1", "-4"])
+def test_refuses_fewer_than_one_steady_attempt(attempts):
+    # A reading needs a clip: with no attempt at all there would never be one.
+    with pytest.raises(ValueError, match="SPEECH_STEADY_ATTEMPTS"):
+        Settings.from_env({"SPEECH_STEADY_ATTEMPTS": attempts})
+    with pytest.raises(ValueError, match="SPEECH_STEADY_ATTEMPTS"):
+        Settings(steady_attempts=int(attempts))
+
+
+def test_one_steady_attempt_is_fine_and_means_no_retry():
+    assert Settings.from_env({"SPEECH_STEADY_ATTEMPTS": "1"}).steady_attempts == 1
+    assert Settings(steady_attempts=1).steady_attempts == 1
+
+
 @pytest.mark.parametrize("port", ["0", "-1", "65536", "70000"])
 def test_refuses_a_port_outside_1_to_65535(port):
     with pytest.raises(ValueError, match="SPEECH_PORT"):
@@ -187,6 +204,7 @@ def test_refuses_an_unknown_aligner():
         "SPEECH_SEED",
         "SPEECH_ALIGNER_THREADS",
         "SPEECH_IDLE_SECONDS",
+        "SPEECH_STEADY_ATTEMPTS",
     ],
 )
 def test_an_unparsable_number_names_its_variable(name):
