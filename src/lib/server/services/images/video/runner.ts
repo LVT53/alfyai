@@ -41,15 +41,17 @@ import {
 	readImageFileBytes,
 } from "../files";
 import {
+	engineLooksWarm,
 	freeOtherPictureModels,
 	scheduleIdleFree,
 	waitForOtherEnginesIdle,
 } from "../idle-free";
 import { checkFinishedFrames } from "../picture-check";
 import { isExplicitFilterOnFor } from "../picture-check/policy";
+import { createTakeEta, type TakeEta } from "../take-eta";
 import { discardStoredVideoFile, storeVideoFile } from "../video-files";
 import { createVideoComfyClient } from "./comfy-client";
-import { createVideoEtaTracker, type VideoEtaTracker } from "./eta";
+import { videoPlan } from "./eta";
 import {
 	concatClips,
 	decodeCheckFrames,
@@ -222,12 +224,22 @@ export async function runVideoTake(ctx: Ctx): Promise<void> {
 	}
 }
 
-/** Moves the phase and stamps when (ms), for the card's "how long has it been here". */
-async function enterPhase(ctx: Ctx, phase: string): Promise<void> {
+/**
+ * Moves the phase and stamps when (ms), for the card's "how long has it been
+ * here", with the estimate's finish time when the phase moves it.
+ */
+async function enterPhase(
+	ctx: Ctx,
+	phase: string,
+	etaAt?: number,
+): Promise<void> {
 	await ctx.progress({ phase });
 	await ctx.write((tx) => {
 		tx.update(videoJobs)
-			.set({ phaseAt: Date.now() })
+			.set({
+				phaseAt: Date.now(),
+				...(etaAt === undefined ? {} : { etaAt }),
+			})
 			.where(eq(videoJobs.id, ctx.row.id))
 			.run();
 	});
@@ -245,17 +257,6 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 	});
 }
 
-/** Writes the chip's remaining baseline time for a phase that emits no progress. */
-async function writeEtaTick(ctx: Ctx, eta: VideoEtaTracker): Promise<void> {
-	const etaSeconds = eta.tick();
-	await ctx.write((tx) => {
-		tx.update(videoJobs)
-			.set({ etaSeconds })
-			.where(eq(videoJobs.id, ctx.row.id))
-			.run();
-	});
-}
-
 /**
  * Follows a submitted prompt. A server that stops answering (or answers with
  * an error) after the checkpoint is written is most likely reloading, so the
@@ -266,7 +267,7 @@ async function followWithGrace(
 	client: ComfyUiClient,
 	promptId: string,
 	startedAt: number,
-	eta: VideoEtaTracker,
+	eta: TakeEta,
 ) {
 	let downSince = 0;
 	for (;;) {
@@ -291,7 +292,7 @@ async function followSegment(
 	client: ComfyUiClient,
 	promptId: string,
 	deadlineMs: number,
-	eta: VideoEtaTracker,
+	eta: TakeEta,
 ): Promise<ComfyImageRef[]> {
 	let chain: Promise<unknown> = Promise.resolve();
 	const queue = (work: () => Promise<unknown>) => {
@@ -319,23 +320,23 @@ async function followSegment(
 		} else if (event.type === "started") {
 			if (started) return;
 			started = true;
-			queue(async () => {
-				await enterPhase(ctx, "starting");
-				await writeEtaTick(ctx, eta);
-			});
+			// The segment's prompt is on the GPU: the first one starts the
+			// countdown with the whole plan, a later one its own segment's load.
+			const etaAt = eta.start(Date.now());
+			queue(() => enterPhase(ctx, "starting", etaAt));
 		} else if (event.type === "progress") {
 			const now = Date.now();
 			if (!rendering) {
 				rendering = true;
 				queue(() => enterPhase(ctx, "rendering"));
 			}
-			// The tracker sees every event (so a node reset re-bases the rate),
-			// but the row is written at most once a second.
+			// The estimate sees every event (so a node reset starts the next
+			// pass), but the row is written at most once a second.
 			const value = event.value ?? 0;
 			const max = event.max ?? 0;
-			const sample = eta.onProgress({ value, max }, now);
+			const etaAt = eta.progress({ value, max }, now);
 			// A node that just finished is worth a write even inside the throttle:
-			// it is where a pass's percent lands (and the second pass begins).
+			// it is where a pass ends (and the second pass begins).
 			const passFinished = max > 0 && value >= max;
 			if (
 				!passFinished &&
@@ -348,10 +349,7 @@ async function followSegment(
 			queue(() =>
 				ctx.write((tx) => {
 					tx.update(videoJobs)
-						.set({
-							progressPercent: sample.progressPercent,
-							etaSeconds: sample.etaSeconds,
-						})
+						.set({ etaAt })
 						.where(eq(videoJobs.id, ctx.row.id))
 						.run();
 				}),
@@ -443,7 +441,7 @@ async function renderSegment(
 		/** The finished segments before this one; at segment n this is length n-1. */
 		segments: readonly VideoSegmentRecord[];
 		startedAt: number;
-		eta: VideoEtaTracker;
+		eta: TakeEta;
 		freedOthers: boolean;
 		setPromptId: (id: string) => void;
 	},
@@ -491,7 +489,6 @@ async function renderSegment(
 		await ctx.progress({ checkpoint });
 	}
 	await enterPhase(ctx, "submitted");
-	await writeEtaTick(ctx, input.eta);
 	if (signal.aborted) return null;
 
 	const refs = await followWithGrace(
@@ -502,8 +499,7 @@ async function renderSegment(
 		input.eta,
 	);
 	if (signal.aborted) return null;
-	await enterPhase(ctx, "finishing");
-	await writeEtaTick(ctx, input.eta);
+	await enterPhase(ctx, "finishing", input.eta.enter("finish"));
 	const ref = refs[0];
 	if (!ref) {
 		throw new ComfyUiError("missing_result", "ComfyUI finished without a clip");
@@ -530,34 +526,23 @@ async function renderTake(
 ): Promise<void> {
 	const { row, signal } = ctx;
 	const startedAt = Date.now();
-	const eta = createVideoEtaTracker({
-		durationSeconds: request.durationSeconds,
-		startedAt,
-	});
-	// The chip's first value, before any progress can arrive: a plausible
-	// baseline for the take's length, counting down while ComfyUI stages the
-	// models (a phase that emits nothing).
-	const baseline = eta.baseline(startedAt);
-	const baselineWritten = await ctx.write((tx) => {
+	// The take's own clock starts now: the cross-engine gate orders takes still
+	// inside it by this stamp.
+	const stamped = await ctx.write((tx) => {
 		tx.update(videoJobs)
-			.set({
-				etaSeconds: baseline,
-				progressPercent: 0,
-				phaseAt: Date.now(),
-			})
+			.set({ phaseAt: Date.now() })
 			.where(eq(videoJobs.id, row.id))
 			.run();
 	});
-	if (!baselineWritten || signal.aborted) return;
+	if (!stamped || signal.aborted) return;
 
 	// One GPU, one engine's models: wait until no picture take is queued or
-	// running before touching the LTX server. The baseline keeps counting down
-	// while the take waits, so the chip shows waiting, not an error.
+	// running before touching the LTX server. The card shows the take as
+	// waiting; its countdown starts when ComfyUI starts the prompt.
 	const waited = await waitForOtherEnginesIdle("ltx", {
 		signal,
 		deadlineMs: VIDEO_RENDER_DEADLINE_MS - (Date.now() - startedAt),
 		claim: { id: row.id, phaseAt: row.phaseAt ?? Date.now() },
-		onTick: () => writeEtaTick(ctx, eta),
 	});
 	if (waited === "cancelled") return;
 	if (waited === "timeout") {
@@ -568,6 +553,11 @@ async function renderTake(
 		);
 	}
 	if (signal.aborted) return;
+	// The estimate's plan: LTX's staging (short while it is still warm from a
+	// clip a moment ago), both passes and the decode, segment by segment.
+	const eta = createTakeEta(
+		videoPlan(request.durationSeconds, await engineLooksWarm("ltx", row.id)),
+	);
 
 	const still = await readStill(ctx, request.sourceFileId);
 	const size = videoSizeForSource({
@@ -627,8 +617,7 @@ async function renderTake(
 						eta,
 					);
 					if (signal.aborted) return;
-					await enterPhase(ctx, "finishing");
-					await writeEtaTick(ctx, eta);
+					await enterPhase(ctx, "finishing", eta.enter("finish"));
 					const ref = refs[0];
 					if (!ref) {
 						throw new ComfyUiError(
@@ -826,7 +815,7 @@ async function renderTake(
 					resultFileId: file.id,
 					artifactId: artifact.artifactId,
 					progressPercent: 100,
-					etaSeconds: null,
+					etaAt: null,
 				})
 				.where(eq(videoJobs.id, row.id))
 				.run();

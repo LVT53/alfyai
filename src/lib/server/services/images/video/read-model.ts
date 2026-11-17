@@ -23,6 +23,7 @@ import type {
 import { db } from "$lib/server/db";
 import { imageFiles, videoJobs } from "$lib/server/db/schema";
 import type { VideoVersionBody } from "$lib/shared/artifacts/video-body";
+import { etaSecondsAt } from "../take-eta";
 import {
 	parseVideoTakeRequest,
 	videoDurationMs,
@@ -136,6 +137,7 @@ export async function listConversationVideoCards(
 		groups.set(key, list);
 	}
 
+	const now = Date.now();
 	const cards: VideoCardView[] = [];
 	for (const group of groups.values()) {
 		const first = group[0];
@@ -165,7 +167,7 @@ export async function listConversationVideoCards(
 						: null,
 				phaseAt: shown.phaseAt,
 				queueAhead: shown.queueAhead,
-				etaSeconds: shown.etaSeconds,
+				etaSeconds: etaSecondsAt(shown, now),
 				errorCode: shown.errorCode,
 				retryable: shown.retryable,
 				toolCallId: shown.toolCallId,

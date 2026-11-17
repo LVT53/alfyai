@@ -10,17 +10,8 @@ import type { Translate } from "$lib/utils/tool-evidence-presentation";
 export type ImageCardState =
 	| { kind: "waiting"; ahead: number | null }
 	| { kind: "starting" }
-	| {
-			kind: "making";
-			etaSeconds: number | null;
-			progressPercent: number | null;
-			/**
-			 * When the take entered this phase, and when the take began: the
-			 * clock's own times (the take's, for a phase with no stamp yet).
-			 */
-			phaseAt: number | null;
-			createdAt: number;
-	  }
+	/** `finishing`: ComfyUI is done; the decode and the app's own work are left. */
+	| { kind: "making"; finishing: boolean }
 	| { kind: "failed"; unavailable: boolean; retryable: boolean }
 	/** The explicit-picture filter kept the picture back: it looked explicit, or (unchecked) the check could not run. */
 	| { kind: "blocked"; unchecked: boolean }
@@ -101,7 +92,9 @@ export function takeState(take: ImageTakeView, now: number): ImageCardState {
 		case "queued":
 			return { kind: "waiting", ahead: null };
 		case "running": {
-			if (take.phase === "submitted") {
+			// Submitted and never started: it waits its turn. A take that already
+			// has an estimate is past that (a prompt posted again), still on its way.
+			if (take.phase === "submitted" && take.etaSeconds === null) {
 				return { kind: "waiting", ahead: take.queueAhead || null };
 			}
 			if (
@@ -111,13 +104,7 @@ export function takeState(take: ImageTakeView, now: number): ImageCardState {
 			) {
 				return { kind: "starting" };
 			}
-			return {
-				kind: "making",
-				etaSeconds: take.etaSeconds,
-				progressPercent: take.progressPercent,
-				phaseAt: take.phaseAt,
-				createdAt: take.createdAt,
-			};
+			return { kind: "making", finishing: take.phase === "finishing" };
 		}
 		case "succeeded":
 			return { kind: "ready" };
@@ -164,15 +151,10 @@ export function waitingLine(ahead: number | null, t: Translate): string {
 		: t("artifacts.image.card.nextUp");
 }
 
-export function etaLabel(seconds: number | null, t: Translate): string | null {
-	if (seconds === null || seconds <= 0) return null;
-	return t("artifacts.image.card.eta", { count: Math.ceil(seconds) });
-}
-
 /**
- * How long something being made has taken, as `m:ss` (`0:07`) and `h:mm:ss`
- * past an hour. Numeric and locale-neutral on purpose: no dictionary entry, and
- * nothing to translate. Never negative.
+ * A length as `m:ss` (`0:05`), and `h:mm:ss` past an hour: a clip's duration.
+ * Numeric and locale-neutral on purpose: no dictionary entry, and nothing to
+ * translate. Never negative.
  */
 export function elapsedClock(elapsedMs: number): string {
 	const total = Math.max(0, Math.floor(elapsedMs / 1000));
@@ -185,25 +167,143 @@ export function elapsedClock(elapsedMs: number): string {
 		: `${minutes}:${two(seconds)}`;
 }
 
+// ---- The countdown --------------------------------------------------------
+//
+// The server sends a take's seconds left as of each read (`take-eta.ts`): a
+// finish time that only ever moves earlier. The card anchors each reading on
+// its own clock and counts down by itself, so the number moves every second
+// whatever the poll does, and no clock is shared with the server.
+
+/** How often a card being made reads its countdown: each second shows on time. */
+export const COUNTDOWN_TICK_MS = 250;
+
 /**
- * The detail slot while a take is being made: the render's estimate when it
- * reports one ("About 8 s left"), otherwise how long the current phase has
- * taken ("0:07"). Never null, so a picture being made always has a time beside
- * its words. A phase with no stamp yet counts from when the take was created,
- * the earliest moment known to be running; that is an elapsed time that really
- * happened, not a claim about a phase the card has no time for.
+ * A reading later than the countdown by more than this is the server starting
+ * the render over (the one real reason to show more time), not a slow answer.
  */
-export function makingDetail(
-	making: Pick<
-		Extract<ImageCardState, { kind: "making" }>,
-		"etaSeconds" | "phaseAt" | "createdAt"
-	>,
+export const ETA_RAISE_TOLERANCE_MS = 5_000;
+
+/** From this many seconds left the countdown speaks in minutes. */
+const MINUTES_FROM_SECONDS = 100;
+
+export type EtaCountdown = {
+	/** A poll's reading: the server's seconds left for take `takeId`, at `now`. */
+	read(takeId: string, etaSeconds: number | null, now: number): void;
+	/** The finish time the card counts to at `now`, on this clock; null with no estimate. */
+	at(now: number): number | null;
+};
+
+/**
+ * One card's countdown. It never moves later, except when a reading is later
+ * by more than `ETA_RAISE_TOLERANCE_MS` (the server started over); an earlier
+ * reading is eased in at no more than one extra second per second, so a take
+ * that turns out faster counts down quicker for a while, never by a jump.
+ */
+export function createEtaCountdown(): EtaCountdown {
+	let takeId: string | null = null;
+	let target: number | null = null;
+	let shown: number | null = null;
+	let movedAt = 0;
+	return {
+		read(id, etaSeconds, now) {
+			if (etaSeconds === null) {
+				takeId = id;
+				target = null;
+				shown = null;
+				return;
+			}
+			const candidate = now + etaSeconds * 1000;
+			if (id !== takeId || target === null || shown === null) {
+				takeId = id;
+				target = candidate;
+				shown = candidate;
+				movedAt = now;
+				return;
+			}
+			// A reading a little later than the target is the answer's own delay.
+			if (candidate < target || candidate > target + ETA_RAISE_TOLERANCE_MS) {
+				target = candidate;
+			}
+			if (target > shown + ETA_RAISE_TOLERANCE_MS) {
+				shown = target;
+				movedAt = now;
+			}
+		},
+		at(now) {
+			if (shown === null || target === null) return null;
+			if (target < shown) {
+				shown = Math.max(target, shown - Math.max(0, now - movedAt));
+			}
+			movedAt = now;
+			return shown;
+		},
+	};
+}
+
+/** Where a take stands against its countdown: whole seconds left, or past its time. */
+export type TakeTime =
+	| { kind: "left"; seconds: number }
+	| { kind: "over"; finishing: boolean };
+
+export function takeTime(
+	deadline: number | null,
+	finishing: boolean,
+	now: number,
+): TakeTime | null {
+	if (deadline === null) return null;
+	const seconds = Math.ceil((deadline - now) / 1000);
+	return seconds > 0 ? { kind: "left", seconds } : { kind: "over", finishing };
+}
+
+/**
+ * The countdown in words: "About 24 s left", minutes from 100 s; past its time
+ * never a number, but what the take is still doing: "Almost done…" in its last
+ * step, "Taking a little longer…" before it.
+ */
+export function takeTimeWords(
+	time: TakeTime | null,
+	t: Translate,
+): string | null {
+	if (time === null) return null;
+	if (time.kind === "over") {
+		return t(
+			time.finishing
+				? "artifacts.image.card.almostDone"
+				: "artifacts.image.card.longer",
+		);
+	}
+	return time.seconds >= MINUTES_FROM_SECONDS
+		? t("artifacts.image.card.etaMinutes", {
+				count: Math.max(2, Math.round(time.seconds / 60)),
+			})
+		: t("artifacts.image.card.eta", { count: time.seconds });
+}
+
+/**
+ * The words beside the kind in the card's head while its take is on its way:
+ * its place in the queue while it waits, then the countdown. Null when the
+ * take is not on its way, or has no estimate yet.
+ */
+export function takeTimeLine(
+	state:
+		| { kind: "waiting"; ahead: number | null }
+		| { kind: "starting" }
+		| { kind: "making"; finishing: boolean }
+		| { kind: "failed" | "blocked" | "stopped" | "ready" },
+	deadline: number | null,
 	now: number,
 	t: Translate,
-): string {
-	const estimate = etaLabel(making.etaSeconds, t);
-	if (estimate !== null) return estimate;
-	return elapsedClock(now - (making.phaseAt ?? making.createdAt));
+): string | null {
+	switch (state.kind) {
+		case "waiting":
+			return waitingLine(state.ahead, t);
+		case "starting":
+			return takeTimeWords(takeTime(deadline, false, now), t);
+		case "making":
+			return takeTimeWords(takeTime(deadline, state.finishing, now), t);
+		default:
+			return null;
+	}
 }
 
 export function canCompareBeforeAfter(take: ImageTakeView | null): boolean {

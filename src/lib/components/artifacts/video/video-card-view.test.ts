@@ -71,14 +71,22 @@ describe("videoTakeState", () => {
 		expect(videoTakeState(loading, NOW)).toEqual({ kind: "starting" });
 	});
 
-	it("carries the estimate and the phase clock while making", () => {
-		const running = making({ etaSeconds: 8 });
-		expect(videoTakeState(running, NOW)).toEqual({
+	it("is making while it renders, and in its last step once ComfyUI is done", () => {
+		expect(videoTakeState(making({ etaSeconds: 8 }), NOW)).toEqual({
 			kind: "making",
-			etaSeconds: 8,
-			phaseAt: NOW - 2_000,
-			createdAt: running.createdAt,
+			finishing: false,
 		});
+		expect(
+			videoTakeState(making({ phase: "finishing", etaSeconds: 2 }), NOW),
+		).toEqual({ kind: "making", finishing: true });
+	});
+
+	it("keeps a 10 s clip's second segment on its way, not waiting", () => {
+		// The second segment's prompt is posted after the first one finished:
+		// the take already has an estimate.
+		expect(
+			videoTakeState(making({ phase: "submitted", etaSeconds: 30 }), NOW),
+		).toEqual({ kind: "making", finishing: false });
 	});
 
 	it("is ready only when its clip can actually be played", () => {
@@ -125,25 +133,19 @@ describe("videoStateWords", () => {
 	});
 
 	it("says Next up for a video waiting to start", () => {
-		expect(
-			videoStateWords({ kind: "waiting", ahead: null }, NOW, get(t)),
-		).toEqual({ line: "Next up", detail: null });
+		expect(videoStateWords({ kind: "waiting", ahead: null }, get(t))).toEqual({
+			line: "Next up",
+			detail: null,
+		});
 	});
 
-	it("puts the estimate, then the phase clock, beside the making line", () => {
+	it("says it is making the video, and leaves the time to the countdown", () => {
 		const words = videoStateWords(
 			videoTakeState(making({ etaSeconds: 8 }), NOW),
-			NOW,
 			get(t),
 		);
-		expect(words.line).toBe("Making the video…");
-		expect(words.detail).toBe("About 8 s left");
-		const clocked = videoStateWords(
-			videoTakeState(making({ phaseAt: NOW - 7_000 }), NOW),
-			NOW,
-			get(t),
-		);
-		expect(clocked.detail).toBe("0:07");
+		// Never a clock counting up: the time is the head's countdown.
+		expect(words).toEqual({ line: "Making the video…", detail: null });
 	});
 
 	it("words failure, blocked and stopped with video words", () => {
@@ -151,7 +153,6 @@ describe("videoStateWords", () => {
 		expect(
 			videoStateWords(
 				{ kind: "failed", unavailable: true, retryable: true },
-				NOW,
 				translate,
 			),
 		).toEqual({
@@ -159,14 +160,12 @@ describe("videoStateWords", () => {
 			detail: "Nothing was saved.",
 		});
 		expect(
-			videoStateWords({ kind: "blocked", unchecked: false }, NOW, translate)
-				.line,
+			videoStateWords({ kind: "blocked", unchecked: false }, translate).line,
 		).toBe("This video was blocked.");
 		expect(
-			videoStateWords({ kind: "blocked", unchecked: true }, NOW, translate)
-				.line,
+			videoStateWords({ kind: "blocked", unchecked: true }, translate).line,
 		).toBe("This video couldn't be checked.");
-		expect(videoStateWords({ kind: "stopped" }, NOW, translate).line).toBe(
+		expect(videoStateWords({ kind: "stopped" }, translate).line).toBe(
 			"Stopped.",
 		);
 	});
@@ -175,12 +174,10 @@ describe("videoStateWords", () => {
 		uiLanguage.set("hu");
 		const words = videoStateWords(
 			videoTakeState(making({ etaSeconds: 8 }), NOW),
-			NOW,
 			get(t),
 		);
 		expect(words.line).toBe("Készül a videó…");
-		expect(words.detail).toBe("Még kb. 8 mp");
-		expect(videoStateWords({ kind: "stopped" }, NOW, get(t)).line).toBe(
+		expect(videoStateWords({ kind: "stopped" }, get(t)).line).toBe(
 			"Leállítva.",
 		);
 	});

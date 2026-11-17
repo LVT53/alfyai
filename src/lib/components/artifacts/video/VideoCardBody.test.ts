@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	downloadAuthenticatedBlob,
@@ -72,8 +73,11 @@ describe("VideoCardBody, while the clip is made", () => {
 		expect(detail).not.toHaveAttribute("role");
 		expect(detail).toHaveTextContent("About 8 s left");
 
-		// One status line, and no visible words in the box.
+		// One status line, and no visible words in the box: the time is the
+		// card head's to show (the owner's call of 17 Nov).
 		expect(within(shimmer).queryByText(/^Making the video…$/)).toBeNull();
+		expect(shimmer.textContent?.trim()).toBe("");
+		expect(screen.queryByTestId("video-card-time")).toBeNull();
 		expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
 
 		const stop = screen.getByTestId("video-card-stop");
@@ -82,53 +86,73 @@ describe("VideoCardBody, while the clip is made", () => {
 		expect(screen.getByTestId("video-card-another")).toBeDisabled();
 	});
 
-	it("shows the estimate in the box, aria-hidden and laid over it, and never re-announces it", async () => {
-		const making = (etaSeconds: number) =>
+	describe("the time it hands to the card's head", () => {
+		const making = (over: Parameters<typeof take>[0] = {}) =>
 			take({
+				id: "video-take-making",
 				status: "running",
 				phase: "rendering",
-				phaseAt: Date.now(),
-				etaSeconds,
+				phaseAt: 100_000,
 				clip: null,
+				...over,
 			});
-		const { rerender } = render(VideoCardBody, { card: card(making(12)) });
-		const time = screen.getByTestId("video-card-time");
-		expect(time).toHaveTextContent("About 12 s left");
-		expect(time).toHaveAttribute("aria-hidden", "true");
-		expect(time.parentElement).toBe(screen.getByTestId("video-card-shimmer"));
-		const status = screen.getByTestId("video-card-status");
-		const before = status.textContent;
-		await rerender({ card: card(making(9)) });
-		await rerender({ card: card(making(6)) });
-		expect(status.textContent).toBe(before);
-		expect(screen.getByTestId("video-card-status-detail")).toHaveTextContent(
-			"About 6 s left",
-		);
-	});
+		const lastTime = (onTime: ReturnType<typeof vi.fn>) =>
+			onTime.mock.calls.at(-1)?.[0];
 
-	it("shows a clock when the render reports no estimate", async () => {
-		vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
-		try {
+		beforeEach(() => {
+			vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
 			vi.setSystemTime(100_000);
-			render(VideoCardBody, {
-				card: card(
-					take({
-						status: "running",
-						phase: "rendering",
-						phaseAt: 93_000,
-						clip: null,
-					}),
-				),
-			});
-			expect(screen.getByTestId("video-card-time")).toHaveTextContent("0:07");
-			vi.advanceTimersByTime(2_000);
-			await Promise.resolve();
-			expect(screen.getByTestId("video-card-status-detail")).toHaveTextContent(
-				"0:09",
-			);
-		} finally {
+		});
+		afterEach(() => {
 			vi.useRealTimers();
-		}
+		});
+
+		it("counts down between polls and never re-announces the time", async () => {
+			const onTime = vi.fn();
+			const { rerender } = render(VideoCardBody, {
+				card: card(making({ etaSeconds: 12 })),
+				onTime,
+			});
+			await tick();
+			expect(lastTime(onTime)).toBe("About 12 s left");
+			const status = screen.getByTestId("video-card-status");
+			const before = status.textContent;
+			for (const etaSeconds of [9, 6]) {
+				await vi.advanceTimersByTimeAsync(3_000);
+				await rerender({ card: card(making({ etaSeconds })), onTime });
+				await tick();
+			}
+			expect(status.textContent).toBe(before);
+			expect(lastTime(onTime)).toBe("About 6 s left");
+			expect(screen.getByTestId("video-card-status-detail")).toHaveTextContent(
+				"About 6 s left",
+			);
+		});
+
+		it("says what it is still doing once its time is up, never a clock counting up", async () => {
+			const onTime = vi.fn();
+			const { rerender } = render(VideoCardBody, {
+				card: card(making({ etaSeconds: 3 })),
+				onTime,
+			});
+			await tick();
+			await vi.advanceTimersByTimeAsync(1_000);
+			await tick();
+			expect(lastTime(onTime)).toBe("About 2 s left");
+			await vi.advanceTimersByTimeAsync(3_000);
+			await rerender({ card: card(making({ etaSeconds: 0 })), onTime });
+			await tick();
+			expect(lastTime(onTime)).toBe("Taking a little longer…");
+			await rerender({
+				card: card(making({ phase: "finishing", etaSeconds: 0 })),
+				onTime,
+			});
+			await tick();
+			expect(lastTime(onTime)).toBe("Almost done…");
+			expect(
+				onTime.mock.calls.some(([words]) => /\d:\d\d/.test(String(words))),
+			).toBe(false);
+		});
 	});
 
 	it("does not change the box's shape between states", async () => {
@@ -274,14 +298,21 @@ describe("VideoCardBody, when the clip is ready", () => {
 		});
 	});
 
-	it("reads the starting threshold from the picture card's constant, not a copy", () => {
-		const source = readFileSync(
-			`${process.cwd()}/src/lib/components/artifacts/video/VideoCardBody.svelte`,
-			"utf-8",
-		);
-		expect(source).not.toMatch(/\b3_000\b/);
-		expect(source).toMatch(
+	it("reads the starting threshold and the countdown from the picture card's view, not copies", () => {
+		const read = (file: string) =>
+			readFileSync(
+				`${process.cwd()}/src/lib/components/artifacts/video/${file}`,
+				"utf-8",
+			);
+		const body = read("VideoCardBody.svelte");
+		const view = read("video-card-view.ts");
+		expect(body).not.toMatch(/\b3_000\b/);
+		expect(view).not.toMatch(/\b3_000\b/);
+		expect(view).toMatch(
 			/import\s*\{[^}]*STARTING_SHOWN_AFTER_MS[^}]*\}\s*from\s*"\.\.\/image\/image-card-view"/,
+		);
+		expect(body).toMatch(
+			/import\s*\{[^}]*createEtaCountdown[^}]*\}\s*from\s*"\.\.\/image\/image-card-view"/,
 		);
 	});
 
@@ -319,15 +350,10 @@ describe("VideoCardBody, when the clip is ready", () => {
 			`${process.cwd()}/src/lib/components/artifacts/video/VideoCardBody.svelte`,
 			"utf-8",
 		);
-		const sharedChipRule = source.match(
-			/\.video-card-time,\s*\n\s*\.video-card-duration\s*\{([^}]*)\}/,
+		const durationRule = source.match(
+			/\.video-card-duration\s*\{([^}]*)\}/,
 		)?.[1];
-		expect(sharedChipRule).toMatch(/pointer-events:\s*none/);
-		// And it is not set again on the time chip alone, which used to leave the
-		// duration chip a dead spot on top of the player.
-		expect(source).not.toMatch(
-			/\.video-card-time\s*\{[^}]*pointer-events:\s*none/,
-		);
+		expect(durationRule).toMatch(/pointer-events:\s*none/);
 	});
 
 	it("keeps the play control where the picture card keeps its Enlarge", () => {

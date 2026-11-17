@@ -1108,6 +1108,10 @@ const artifactsDict = {
 		"artifacts.image.subtitle.takes": "Image · {count} takes",
 		"artifacts.image.card.making": "Making the picture…",
 		"artifacts.image.card.eta": "About {count} s left",
+		"artifacts.image.card.etaMinutes": "About {count} min left",
+		// The take has run past its estimate: in its last step, and before it.
+		"artifacts.image.card.almostDone": "Almost done…",
+		"artifacts.image.card.longer": "Taking a little longer…",
 		"artifacts.image.card.waiting": "Another picture is being made",
 		"artifacts.image.card.ahead": "{count} ahead of this one",
 		"artifacts.image.card.nextUp": "Next up",
@@ -2142,6 +2146,10 @@ const artifactsDict = {
 		"artifacts.image.subtitle.takes": "Kép · {count} változat",
 		"artifacts.image.card.making": "Készül a kép…",
 		"artifacts.image.card.eta": "Még kb. {count} mp",
+		"artifacts.image.card.etaMinutes": "Még kb. {count} perc",
+		// A kép vagy videó túlfutott a becslésén: az utolsó lépésben, és előtte.
+		"artifacts.image.card.almostDone": "Mindjárt kész…",
+		"artifacts.image.card.longer": "Kicsit tovább tart…",
 		"artifacts.image.card.waiting": "Egy másik kép készül",
 		"artifacts.image.card.ahead": "{count} van előtte",
 		"artifacts.image.card.nextUp": "Következik",

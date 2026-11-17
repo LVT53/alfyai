@@ -251,6 +251,66 @@ function recordPhases(
 			.all(takeId) as string[];
 }
 
+/**
+ * Every finish time the runner writes, in order, with the phase it was written
+ * in, recorded by the database itself (a poll could miss one).
+ */
+function recordEtaWrites(
+	sqlite: ImageFixture["sqlite"],
+): (takeId: string) => Array<{ etaAt: number | null; phase: string | null }> {
+	sqlite.exec(`
+		CREATE TABLE eta_log (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			take_id TEXT NOT NULL,
+			eta_at INTEGER,
+			phase TEXT
+		);
+		CREATE TRIGGER eta_log_write AFTER UPDATE OF eta_at ON image_jobs
+		WHEN NEW.eta_at IS NOT OLD.eta_at
+		BEGIN
+			INSERT INTO eta_log (take_id, eta_at, phase) VALUES (NEW.id, NEW.eta_at, NEW.phase);
+		END;
+	`);
+	return (takeId) =>
+		(
+			sqlite
+				.prepare(
+					"SELECT eta_at, phase FROM eta_log WHERE take_id = ? ORDER BY id",
+				)
+				.all(takeId) as Array<{ eta_at: number | null; phase: string | null }>
+		).map((row) => ({ etaAt: row.eta_at, phase: row.phase }));
+}
+
+describe("the estimate", () => {
+	it("starts with the prompt, only ever moves earlier, and is cleared when the take lands", async () => {
+		const etaOf = recordEtaWrites(fixture.sqlite);
+		await startFake({ startDelayMs: 60, steps: 6, stepDelayMs: 60 });
+		const takeId = await queueTake(
+			request({ canvas: { width: 256, height: 192 } }),
+		);
+		await drainImageTakes();
+
+		const writes = etaOf(takeId);
+		const times = writes.flatMap((write) =>
+			write.etaAt === null ? [] : [write.etaAt],
+		);
+		// The first time is written as ComfyUI starts the prompt, not at the
+		// first step (the old "about 3 s left" came from there).
+		expect(writes[0]?.phase).toBe("starting");
+		expect(times.length).toBeGreaterThanOrEqual(2);
+		for (let index = 1; index < times.length; index += 1) {
+			expect(
+				times[index],
+				`the finish time moved later: ${times.join(", ")}`,
+			).toBeLessThanOrEqual(times[index - 1] ?? 0);
+		}
+		// The fake is far faster than a real engine: the time came down.
+		expect(times.at(-1)).toBeLessThan(times[0] ?? 0);
+		const take = await readTake(takeId);
+		expect([take.status, take.etaAt]).toEqual(["succeeded", null]);
+	});
+});
+
 describe("a new picture", () => {
 	it("renders to a stored PNG and passes every phase", async () => {
 		// A small canvas: the fake paints, and the runner decodes, guards and

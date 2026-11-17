@@ -429,14 +429,23 @@ test.describe("Pictures end to end", () => {
 		).toBe(true);
 
 		comfy.holdQueue(false);
-		// Being made: the box shows the shimmer and the time the phase has taken
-		// (an estimate, or the clock); the state's own words are for screen readers.
+		// Being made: the box shows only the shimmer; the state's own words are
+		// for screen readers, and the card's head says how long is left, beside
+		// the kind, counting down (the owner's call of 17 Nov).
 		await expect(
 			card.locator('[data-testid="image-card-body"][data-state="making"]'),
 		).toBeVisible({ timeout: 30_000 });
 		await expect(card.getByTestId("image-card-shimmer")).toBeVisible();
+		await expect(card.getByTestId("image-card-shimmer")).toHaveText("");
 		await expect(card.getByTestId("image-card-status")).toHaveText(
 			/^Making the picture…/,
+		);
+		await expect(
+			card
+				.getByTestId("artifact-card-head")
+				.getByTestId("artifact-card-take-time"),
+		).toHaveText(
+			/^(?:About \d+ (?:s|min) left|Almost done…|Taking a little longer…)$/,
 		);
 		await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
 		await expect(

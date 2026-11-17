@@ -11,8 +11,9 @@
 // (opacity only). While a take waits, starts or is made the box shows only a
 // calm light sweeping left to right (`transform` only; a still tint under
 // reduced motion); the words for it are read out from an sr-only status
-// (Task 11, the owner's call). Before / After floats over the picture, so it
-// takes no row.
+// (Task 11, the owner's call), and the time is the card's head's to show,
+// beside the kind (`onTime`, the owner's call of 17 Nov). Before / After
+// floats over the picture, so it takes no row.
 // Everything the card shows is worked out in `image-card-view.ts`.
 //
 // The picture opens the item in the panel; an Enlarge button on its corner
@@ -31,6 +32,7 @@ import {
 	RefreshCw,
 	TriangleAlert,
 } from "@lucide/svelte";
+import { untrack } from "svelte";
 import { fade } from "svelte/transition";
 import { t } from "$lib/i18n";
 import { oneLineName } from "$lib/shared/one-line-name";
@@ -42,15 +44,16 @@ import type {
 import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
 import AnchoredPopover from "../AnchoredPopover.svelte";
 import {
+	COUNTDOWN_TICK_MS,
+	createEtaCountdown,
 	type ImageCardAction,
 	type ImageCardActionHandler,
 	type ImageCardState,
 	hasActiveImageTakes,
 	isCheckingAgain,
-	makingDetail,
-	STARTING_SHOWN_AFTER_MS,
 	shownTake,
 	takeState,
+	takeTimeLine,
 	visibleTakes,
 	waitingLine,
 } from "./image-card-view";
@@ -64,6 +67,7 @@ let {
 	conversationId = null,
 	onAction = undefined,
 	gone = null,
+	onTime = undefined,
 }: {
 	card: ImageCardView;
 	conversationId?: string | null;
@@ -74,6 +78,12 @@ let {
 	 * rows, says so in the box, and offers nothing to press.
 	 */
 	gone?: "deleted" | "unreachable" | null;
+	/**
+	 * The words the card's head shows beside the kind while the shown take is
+	 * on its way ("Next up", "About 24 s left", "Almost done…"), null once it
+	 * is not: the head is `ArtifactCard`'s, the countdown is this body's.
+	 */
+	onTime?: ((words: string | null) => void) | undefined;
 } = $props();
 /** A new picture's size, for a card that has no take to read one from. */
 const FALLBACK_BOX = { width: 1248, height: 832 };
@@ -105,8 +115,12 @@ let menuOpen = $state(false);
 let pendingAnothers = $state(0);
 /** The takes the card held when the first of them was pressed. */
 let takesBeforeAnother = $state.raw<ReadonlySet<string>>(new Set());
-/** The clock the "starting up" line reads; ticks only while it can change. */
+/** The card's clock: the countdown and the "starting up" line read it. */
 let now = $state(Date.now());
+/** The shown take's countdown, on this browser's clock (`createEtaCountdown`). */
+const countdown = createEtaCountdown();
+/** Bumped by every reading, so the countdown is read again once it is re-aimed. */
+let readings = $state(0);
 
 let takes = $derived(visibleTakes(card));
 /**
@@ -208,31 +222,28 @@ $effect(() => {
 	showing = "after";
 });
 
-// The clock the card's words read while a take is being made. It ticks once a
-// second while the render reports no estimate (the time this phase has taken is
-// then on the card); an estimate is the server's own number to move, and
-// "Starting up" is a settled sentence once the phase has lasted a while.
+// Each reading of the shown take's estimate (every poll) re-aims the countdown.
 $effect(() => {
 	const take = shown;
-	// Only a take past the queue has a clock: a submitted one counts those ahead.
-	if (
-		gone ||
-		!take ||
-		take.status !== "running" ||
-		take.phase === "submitted"
-	) {
-		return;
-	}
+	if (!take) return;
+	countdown.read(
+		take.id,
+		take.status === "running" ? take.etaSeconds : null,
+		Date.now(),
+	);
 	now = Date.now();
-	if (take.etaSeconds !== null && take.etaSeconds > 0) return;
-	const startingAt = take.phase === "starting" ? take.phaseAt : null;
-	const startingShown = () =>
-		startingAt !== null && Date.now() - startingAt >= STARTING_SHOWN_AFTER_MS;
-	if (startingShown()) return;
-	const timer = setInterval(() => {
-		now = Date.now();
-		if (startingShown()) clearInterval(timer);
-	}, 1000);
+	// The countdown is not reactive itself: a reading that lands in the same
+	// millisecond as the last tick must still be shown.
+	untrack(() => (readings += 1));
+});
+
+// The card's clock ticks while the shown take is running, so the countdown
+// moves on its own between polls. Keyed by the take, not its object: every
+// poll brings a new object, and the timer must outlive it.
+let ticking = $derived(!gone && shown?.status === "running" ? shown.id : null);
+$effect(() => {
+	if (!ticking) return;
+	const timer = setInterval(() => (now = Date.now()), COUNTDOWN_TICK_MS);
 	return () => clearInterval(timer);
 });
 
@@ -341,10 +352,7 @@ function takeNumber(take: ImageTakeView): number {
 	return takes.indexOf(take) + 1;
 }
 
-function stateWords(
-	current: ImageCardState,
-	now: number,
-): {
+function stateWords(current: ImageCardState): {
 	line: string;
 	detail: string | null;
 } {
@@ -357,12 +365,8 @@ function stateWords(
 				detail: $t("artifacts.image.card.startingDetail"),
 			};
 		case "making":
-			return {
-				line: $t("artifacts.image.card.making"),
-				// The estimate when the render reports one, the time this phase
-				// has taken otherwise: never blank while a picture is made.
-				detail: makingDetail(current, now, $t),
-			};
+			// The time is the countdown's (`timeLine`), not the state's.
+			return { line: $t("artifacts.image.card.making"), detail: null };
 		case "failed":
 			return {
 				line: current.unavailable
@@ -387,7 +391,7 @@ function stateWords(
 	}
 }
 
-let words = $derived(stateWords(cardState, now));
+let words = $derived(stateWords(cardState));
 /**
  * Waiting, starting up and being made are one look: the shimmer, kept as one
  * layer from the first state to the last, so it never restarts between them.
@@ -398,14 +402,29 @@ let busy = $derived(
 			cardState.kind === "starting" ||
 			cardState.kind === "making"),
 );
+/** Where the countdown stands: the finish time it counts to, or null. */
+let deadline = $derived.by(() => {
+	void readings;
+	return countdown.at(now);
+});
+/** The head's words while the take is on its way (`takeTimeLine`). */
+let timeLine = $derived(
+	busy ? takeTimeLine(cardState, deadline, now, $t) : null,
+);
+$effect(() => {
+	onTime?.(timeLine);
+});
 /**
  * What the shimmer means, for screen readers. The live region says the state
  * ("Next up", "Making the picture…") and is read out when it changes; the time
- * left, which moves on every poll, sits beside it outside the live region, so
- * it is there to read but never re-announced (Task 11 fix round 1).
+ * left, which moves every second, sits beside it outside the live region, so
+ * it is there to read but never re-announced (Task 11 fix round 1). It is the
+ * head's own words, which are hidden from screen readers there.
  */
 let statusText = $derived(busy ? words.line : "");
-let statusDetail = $derived(busy ? (words.detail ?? "") : "");
+let statusDetail = $derived(
+	!busy || cardState.kind === "waiting" ? "" : (timeLine ?? words.detail ?? ""),
+);
 let menuAnchorId = $derived(`image-card-more-${card.id}`);
 </script>
 
@@ -499,13 +518,6 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 				transition:crossfade={{ duration: MOTION_DURATION.standard }}
 			>
 				<span class="image-card-shimmer-band"></span>
-				{#if cardState.kind === 'making'}
-					<!-- The estimate, or the time this phase has taken: the same string
-					     the sr-only detail carries, shown over the shimmer. It is laid
-					     over the box (no height of its own) and hidden from screen
-					     readers, who read the adjacent, non-live detail instead. -->
-					<span class="image-card-time" data-testid="image-card-time" aria-hidden="true">{statusDetail}</span>
-				{/if}
 			</div>
 		{:else}
 			{#key cardState.kind}
@@ -813,11 +825,8 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		right: 0.5rem;
 	}
 
-	/* "Alfy is trying once more…" over a picture, and the time a take being made
-	   has taken: one quiet chip over the box (both absolutely positioned, so
-	   neither adds a row or a height). */
-	.image-card-checking,
-	.image-card-time {
+	/* "Alfy is trying once more…": a quiet chip over the picture, never a row. */
+	.image-card-checking {
 		position: absolute;
 		left: 0.5rem;
 		bottom: 0.5rem;
