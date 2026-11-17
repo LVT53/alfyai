@@ -87,6 +87,42 @@ async function readAll(
 
 const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
+/** The service's last word on a good reading: its timeline is complete. */
+const DONE = /event: done\ndata: [^\n]*\n\n/;
+
+/**
+ * Reads an events stream until `marker` has come, and returns what it said.
+ * The browser's stream stays open after the service's last event (a reading
+ * replaced from another tab must still hear `replaced`, early review R7), so a
+ * test cannot read it to its end.
+ */
+async function readEventsUntil(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	marker: RegExp,
+): Promise<string> {
+	const decoder = new TextDecoder();
+	let seen = "";
+	while (!marker.test(seen)) {
+		const { done, value } = await reader.read();
+		if (done) throw new Error(`ended before ${marker}: ${seen}`);
+		seen += decoder.decode(value, { stream: true });
+	}
+	return seen;
+}
+
+/** What is left of a stream once it has ended. */
+async function readRest(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<string> {
+	const decoder = new TextDecoder();
+	let seen = "";
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) return seen;
+		seen += decoder.decode(value, { stream: true });
+	}
+}
+
 type SseEvent = {
 	event: string;
 	data: { id?: string; end?: number; code?: string };
@@ -115,13 +151,13 @@ async function until(condition: () => boolean, timeoutMs = 3000) {
 describe("readings: what a browser hears", () => {
 	it("a browser reader hears the session from its first byte", async () => {
 		const reading = await open("user-a");
+		const eventsReader = attachEvents(reading).getReader();
 		const [audio, events] = await Promise.all([
 			readAll(attachAudio(reading) as ReadableStream<Uint8Array>),
-			readAll(attachEvents(reading)),
+			readEventsUntil(eventsReader, DONE),
 		]);
-		const sentences = parseSse(text(events)).filter(
-			(e) => e.event === "sentence",
-		);
+		await eventsReader.cancel();
+		const sentences = parseSse(events).filter((e) => e.event === "sentence");
 		const lastEnd = sentences.at(-1)?.data.end as number;
 		// Every byte of the fake's silent frames: as many as the last end time says.
 		expect(audio.length % FRAME_BYTES).toBe(0);
@@ -150,7 +186,8 @@ describe("readings: what a browser hears", () => {
 
 	it("replays the timeline to a late events reader", async () => {
 		const reading = await open("user-a");
-		const live = parseSse(text(await readAll(attachEvents(reading))));
+		const first = attachEvents(reading).getReader();
+		const live = parseSse(await readEventsUntil(first, DONE));
 		expect(live.map((e) => e.event)).toEqual([
 			"sentence",
 			"words",
@@ -160,8 +197,11 @@ describe("readings: what a browser hears", () => {
 		]);
 		// The reading is still held (the audio has not been read): a late reader
 		// gets the whole timeline again, from its first event.
-		const late = parseSse(text(await readAll(attachEvents(reading))));
+		const second = attachEvents(reading).getReader();
+		const late = parseSse(await readEventsUntil(second, DONE));
 		expect(late).toEqual(live);
+		await first.cancel();
+		await second.cancel();
 	});
 
 	it("reports the sentence now playing, which releases the next sentences", async () => {
@@ -297,6 +337,102 @@ describe("readings: one per person", () => {
 	});
 });
 
+describe("readings: a reading replaced after the service said done (early review R7)", () => {
+	it("tells the events reader of a reading whose synthesis has finished that it was replaced", async () => {
+		// Two sentences: the fake makes both at once, so `done` comes before anything
+		// is played. The first tab still plays them, so the second tab's press must
+		// reach it (decision 8: it ends quietly).
+		const first = await open("user-a", TWO);
+		const reader = attachEvents(first).getReader();
+		await readEventsUntil(reader, DONE);
+
+		const second = await open("user-a", TWO);
+
+		expect(await readRest(reader)).toBe("event: replaced\ndata: {}\n\n");
+		expect(currentReading("user-a", first.sessionId)).toBeNull();
+		expect(currentReading("user-a", second.sessionId)).not.toBeNull();
+	});
+
+	it("keeps sending the heartbeat after done, so the stream is not cut", async () => {
+		configureReadingsForTests({ heartbeatMs: 30 });
+		const reading = await open("user-a", TWO);
+		const reader = attachEvents(reading).getReader();
+		await readEventsUntil(reader, DONE);
+		await readEventsUntil(reader, /: hb\n\n/);
+		await reader.cancel();
+	});
+
+	it("keeps a drained reading while its events reader is attached, and closes it when that reader leaves", async () => {
+		const reading = await open("user-a", TWO);
+		const reader = attachEvents(reading).getReader();
+		await readEventsUntil(reader, DONE);
+		await readAll(attachAudio(reading) as ReadableStream<Uint8Array>);
+		// All of it has been served, and the browser is still playing it: the
+		// reading stays, because it is what a replacing press tells.
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(currentReading("user-a", reading.sessionId)).not.toBeNull();
+
+		// The browser closes its stream when the reading ends: nothing is left to serve.
+		await reader.cancel();
+		await until(
+			() => currentReading("user-a", reading.sessionId) === null,
+			1000,
+		);
+	});
+
+	it("does not end a reading as idle while its events reader is attached", async () => {
+		configureReadingsForTests({ idleMs: 100 });
+		const reading = await open("user-a", FOUR);
+		const events = attachEvents(reading).getReader();
+		const audio = (
+			attachAudio(reading) as ReadableStream<Uint8Array>
+		).getReader();
+		await audio.read();
+		await audio.cancel();
+		await new Promise((resolve) => setTimeout(resolve, 350));
+		expect(currentReading("user-a", reading.sessionId)).not.toBeNull();
+
+		await events.cancel();
+		await until(
+			() => currentReading("user-a", reading.sessionId) === null,
+			1000,
+		);
+	});
+
+	it("does not close a drained reading before its events reader has come", async () => {
+		// The browser asks for the audio and, a moment later, for the events. On a busy machine
+		// the audio can be read to its end before the second request arrives: closing the
+		// reading then answered the events request 404, and the page ended its reading with
+		// "the voice stopped answering".
+		const reading = await open("user-a", TWO);
+		await readAll(attachAudio(reading) as ReadableStream<Uint8Array>);
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(currentReading("user-a", reading.sessionId)).not.toBeNull();
+
+		// The events reader comes late, hears the whole timeline, and leaves: now it is drained.
+		const late = attachEvents(reading).getReader();
+		await readEventsUntil(late, DONE);
+		await late.cancel();
+		await until(
+			() => currentReading("user-a", reading.sessionId) === null,
+			1000,
+		);
+	});
+
+	it("a finished reading whose events nobody ever read ends as idle", async () => {
+		// A client that never opens the events stream: with no stream to wait for, the idle end
+		// closes it.
+		configureReadingsForTests({ idleMs: 150 });
+		const reading = await open("user-a", TWO);
+		await readAll(attachAudio(reading) as ReadableStream<Uint8Array>);
+		expect(currentReading("user-a", reading.sessionId)).not.toBeNull();
+		await until(
+			() => currentReading("user-a", reading.sessionId) === null,
+			1000,
+		);
+	});
+});
+
 describe("readings: when readers leave", () => {
 	it("ends a reading 30 s after its last browser reader leaves", async () => {
 		configureReadingsForTests({ idleMs: 200 });
@@ -337,9 +473,12 @@ describe("readings: when readers leave", () => {
 		await audio.cancel();
 	});
 
-	it("closes once the audio has ended and a reader has drained it", async () => {
+	it("closes once the audio has ended, a reader has drained it and the events reader has left", async () => {
 		const reading = await open("user-a", TWO);
+		const events = attachEvents(reading).getReader();
+		await readEventsUntil(events, DONE);
 		await readAll(attachAudio(reading) as ReadableStream<Uint8Array>);
+		await events.cancel();
 		await until(
 			() => currentReading("user-a", reading.sessionId) === null,
 			1000,
@@ -419,10 +558,14 @@ describe("readings: when the service breaks", () => {
 		await fake.close();
 		await startFake({ failAtSentence: 1 });
 		const reading = await open("user-a", TWO);
-		const events = parseSse(text(await readAll(attachEvents(reading))));
+		const reader = attachEvents(reading).getReader();
+		const events = parseSse(
+			await readEventsUntil(reader, /event: error\ndata: [^\n]*\n\n/),
+		);
 		expect(events.at(-1)).toEqual({
 			event: "error",
 			data: { id: "s1", code: "synthesis_failed" },
 		});
+		await reader.cancel();
 	});
 });

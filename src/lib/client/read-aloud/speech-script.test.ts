@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { MAX_SHOWN_CHARS } from "$lib/shared/read-aloud/session-limits";
 import {
 	buildSpeechScript,
 	CODE_BLOCK_MAX_LINES,
@@ -164,6 +165,103 @@ describe("buildSpeechScript", () => {
 			kind: "code",
 			tokens: ["get", "User", "Name."],
 		});
+	});
+
+	it("reads a generic's arguments the page splits at a space as one code name, marked whole (early review R6)", () => {
+		const script = build(
+			reply(
+				"<p>Keep each entry in a <code>Map&lt;K, V&gt;</code> and read it back by its key.</p>",
+			),
+		);
+		expect(bare(tokensOf(script))).toBe(
+			"Keep each entry in a Map of K V and read it back by its key",
+		);
+		const word = script.sentences[0]?.words.find(
+			(w) => w.shown === "Map<K, V>",
+		);
+		expect(word).toMatchObject({
+			kind: "code",
+			tokens: ["Map", "of", "K", "V"],
+		});
+		// One range, from the M to the >, so the word marker covers the whole name.
+		expect(word?.range.toString()).toBe("Map<K, V>");
+		// Names that merely follow each other in one code span are still read word by word.
+		const apart = build(
+			reply("<p>Run <code>ls -la</code> and then <code>cd src</code> now.</p>"),
+		);
+		expect(
+			apart.sentences[0]?.words.filter((w) => w.kind === "shell").length,
+		).toBeGreaterThanOrEqual(3);
+		// A comparison without arguments to close is not a generic.
+		const compare = build(
+			reply(
+				"<p>Check that <code>a &lt; b, c &gt; d</code> holds for every pair here.</p>",
+			),
+		);
+		expect(
+			compare.sentences[0]?.words.some((w) => w.shown.includes("a < b, c")),
+		).toBe(false);
+	});
+
+	it("never ends a sentence inside inline code: the bang of `!important` or a negation is no full stop (early review R6)", () => {
+		const script = build(
+			reply(
+				"<p>Set <code>color: red !important;</code> and start the page with <code>&lt;!DOCTYPE html&gt;</code> as always, then check <code>!isReady</code> twice.</p>",
+			),
+		);
+		expect(script.sentences).toHaveLength(1);
+		expect(tokensOf(script)).toEqual([
+			"Set",
+			"color",
+			"red",
+			"important",
+			"and",
+			"start",
+			"the",
+			"page",
+			"with",
+			"doctype",
+			"H",
+			"T",
+			"M",
+			"L",
+			"as",
+			"always,",
+			"then",
+			"check",
+			"not",
+			"is",
+			"Ready",
+			"twice.",
+		]);
+	});
+
+	it("sends no word the session route would refuse for its length, whatever its reading is (early review R20)", () => {
+		// An address of any scheme is read as its host alone, but the request carries the word as
+		// written: over `MAX_SHOWN_CHARS` the whole request would be a 400. Such a word is left
+		// out, and the rest of the sentence is read.
+		const long = `ftp://example.com/${"a".repeat(2100)}`;
+		const script = build(
+			reply(
+				`<p>The mirror at ${long} is down, so please use the other one for now.</p>`,
+			),
+		);
+		const words = script.sentences.flatMap((s) => s.words);
+		expect(words.every((w) => w.shown.length <= MAX_SHOWN_CHARS)).toBe(true);
+		expect(bare(tokensOf(script))).toBe(
+			"The mirror at is down so please use the other one for now",
+		);
+		// A code word that long is left out as before, in inline code and in a short block.
+		const code = build(
+			reply(
+				`<p>Fetch <code>${long}</code> now.</p>${codeBlock("sh", [`curl ${long}`])}`,
+			),
+		);
+		expect(
+			code.sentences
+				.flatMap((s) => s.words)
+				.every((w) => w.shown.length <= MAX_SHOWN_CHARS),
+		).toBe(true);
 	});
 
 	it("says the pipe of an inline shell command", () => {
@@ -385,6 +483,106 @@ describe("buildSpeechScript", () => {
 		expect(script.sentences).toHaveLength(2);
 		expect(script.sentences.every((s) => s.language === "hu")).toBe(true);
 		expect(script.sentences[1]?.tokens[0]).toBe("Például");
+	});
+
+	it("ends the sentence at an etc. or stb. that a capital letter follows, and keeps its full stop (early review R19)", () => {
+		// Each part is over fifty characters, so the script keeps them as two sentences.
+		const en = build(
+			reply(
+				"<p>We need eggs, flour, sugar, butter, milk, vanilla, salt etc. Then we bake it for an hour in a hot oven until it is done.</p>",
+			),
+		);
+		expect(en.sentences).toHaveLength(2);
+		expect(en.sentences[0]?.tokens.slice(-2)).toEqual(["et", "cetera."]);
+		expect(en.sentences[1]?.tokens[0]).toBe("Then");
+		const hu = build(
+			reply(
+				"<p>Kell hozzá tojás, liszt, cukor, vaj, tej, vanília, só stb. Utána megsütjük a kenyeret egy óráig a forró sütőben.</p>",
+			),
+			{ fallbackLanguage: "hu" },
+		);
+		expect(hu.sentences).toHaveLength(2);
+		expect(hu.sentences[0]?.tokens.slice(-3)).toEqual(["és", "a", "többi."]);
+		expect(hu.sentences[1]?.tokens[0]).toBe("Utána");
+		// A short sentence still joins the next, with the stop the abbreviation now keeps.
+		const short = build(
+			reply(
+				"<p>We need eggs, flour, salt etc. Then we bake it for an hour in a hot oven until it is done.</p>",
+			),
+		);
+		expect(short.sentences).toHaveLength(1);
+		expect(tokensOf(short).slice(4, 8)).toEqual([
+			"salt",
+			"et",
+			"cetera.",
+			"Then",
+		]);
+		// The abbreviation inside a sentence leaves it whole, and without a stop.
+		const inside = build(
+			reply(
+				"<p>We need eggs, flour, salt etc. and a little patience, and then we bake it for an hour.</p>",
+			),
+		);
+		expect(inside.sentences).toHaveLength(1);
+		expect(tokensOf(inside)).toContain("cetera");
+		expect(tokensOf(inside)).not.toContain("cetera.");
+		// A capital after an abbreviation that cannot end a sentence is a name, not a new sentence.
+		const names = build(
+			reply(
+				"<p>Many cities, e.g. Budapest and Vienna, are old, and they keep their markets open all year long.</p>",
+			),
+		);
+		expect(names.sentences).toHaveLength(1);
+		expect(tokensOf(names).slice(2, 5)).toEqual(["for", "example", "Budapest"]);
+		const pl = build(
+			reply(
+				"<p>Sok város, pl. Budapest és Bécs, régi, és egész évben nyitva tartják a piacaikat a főtéren.</p>",
+			),
+			{ fallbackLanguage: "hu" },
+		);
+		expect(pl.sentences).toHaveLength(1);
+	});
+
+	it("says each line of a paragraph broken by single newlines as its own sentence, so it gets its own pause (early review R18)", () => {
+		const lines = build(
+			reply(
+				"<p>The first line is long enough to stand alone as a unit of its own<br>The second line is long enough to stand alone as another unit</p>",
+			),
+		);
+		expect(lines.sentences).toHaveLength(2);
+		expect(lines.sentences[0]?.tokens.at(-1)).toBe("own.");
+		expect(lines.sentences[1]?.tokens[0]).toBe("The");
+		// Short lines join into one unit, each ended by the pause mark a join across units makes.
+		const short = build(
+			reply("<p>Name: John<br>Age: 42<br>City: Budapest</p>"),
+		);
+		expect(tokensOf(short)).toEqual([
+			"Name:",
+			"John,",
+			"Age:",
+			"42,",
+			"City:",
+			"Budapest.",
+		]);
+		// A break that ends a paragraph, or opens one, says nothing.
+		expect(tokensOf(build(reply("<p>Trailing break here<br></p>")))).toEqual([
+			"Trailing",
+			"break",
+			"here.",
+		]);
+		// A picture between two words stays the space it was, and a break beside one is still a break.
+		expect(
+			tokensOf(build(reply('<p>before <img src="x.png" alt="ALT"> after</p>'))),
+		).toEqual(["before", "after."]);
+		expect(
+			tokensOf(
+				build(
+					reply(
+						'<p>The first line is long enough to stand alone as a unit<img src="x.png" alt="ALT"><br>The second line is long enough to stand alone as another unit</p>',
+					),
+				),
+			),
+		).not.toContain("ALT");
 	});
 
 	it("pauses after a word before an arrow between items", () => {
@@ -1309,9 +1507,25 @@ describe("sentenceAtPoint", () => {
 		expect(sentenceAtPoint(script, cell, 1)).toBe(2);
 		const text2 = p2?.firstChild as Text;
 		expect(sentenceAtPoint(script, text2, text2.data.length - 1)).toBe(2);
-		// The end of the last word, and the end of the reply, are after every sentence.
-		expect(sentenceAtPoint(script, text2, text2.data.length)).toBeNull();
-		expect(sentenceAtPoint(script, root, root.childNodes.length)).toBeNull();
+		// The end of the last word, and the end of the reply, are after every sentence:
+		// the last sentence is the nearest one (early review R23), never nothing.
+		expect(sentenceAtPoint(script, text2, text2.data.length)).toBe(2);
+		expect(sentenceAtPoint(script, root, root.childNodes.length)).toBe(2);
+	});
+
+	it("a selection that starts after the last word, a trailing emoji's say, reads the last sentence (early review R23)", () => {
+		const root = reply(
+			"<p>The first sentence is here, and it is long enough to stand alone. The second one is here too, and it is just as long as the first one. 🙂</p>",
+		);
+		const script = build(root);
+		expect(script.sentences).toHaveLength(2);
+		const text = root.querySelector("p")?.firstChild as Text;
+		expect(sentenceAtPoint(script, text, text.data.indexOf("🙂"))).toBe(1);
+		expect(sentenceAtPoint(script, text, text.data.length)).toBe(1);
+		// A reply with nothing to read has no sentence to start in.
+		expect(
+			sentenceAtPoint(build(reply("<p>🙂</p>")), document.body, 0),
+		).toBeNull();
 	});
 
 	it("never starts in the middle of a written sentence that was split for the voice", () => {

@@ -106,6 +106,7 @@ function setup(
 	options: {
 		start?: Partial<ReadingStart>;
 		health?: ServerHealth["state"];
+		loadDetector?: ReadAloudDeps["loadDetector"];
 	} = {},
 ) {
 	const audio = new FakeAudio();
@@ -143,7 +144,7 @@ function setup(
 			return source;
 		},
 		api,
-		loadDetector: async () => detect,
+		loadDetector: options.loadDetector ?? (async () => detect),
 		document,
 		window: win,
 		isOnline: () => online,
@@ -347,6 +348,16 @@ describe("the reading controller", () => {
 		expect(
 			body?.sentences.flatMap((s) => s.words.flatMap((w) => w.tokens)),
 		).toContain("secret");
+	});
+
+	it("Read from here after the last word reads the last sentence, never nothing (early review R23)", async () => {
+		const t = setup();
+		const row = mountReply("m1", `${REPLY.replace("</p>", " 🙂</p>")}`);
+		const text = row.querySelector("p")?.firstChild as Text;
+		start(t, "m1", { node: text, offset: text.data.length });
+		await settle();
+		expect(t.body(0)?.sentences.map((s) => s.id)).toEqual(["s2"]);
+		expect(t.last()).toMatchObject({ status: "opening", sentence: 2 });
 	});
 
 	it("Read from here sends a whole written sentence first: mid-sentence, or a single word", async () => {
@@ -722,6 +733,28 @@ describe("the reading controller", () => {
 		expect(t.body(1)?.sentences[0]?.id).toBe("s0");
 	});
 
+	it("a hidden page that follows an interruption gives the session up, and play restarts at the sentence (early review R14)", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		t.audio.paused = true;
+		t.audio.emit("pause");
+		expect(t.last().status).toBe("paused");
+		expect(t.api.cancelReadingSession).not.toHaveBeenCalled();
+		t.setHidden(true);
+		document.dispatchEvent(new Event("visibilitychange"));
+		expect(t.last().status).toBe("paused");
+		expect(t.api.cancelReadingSession).toHaveBeenCalledWith("x1");
+		// The long-pause timer has nothing left to do.
+		vi.advanceTimersByTime(31_000);
+		expect(t.api.cancelReadingSession).toHaveBeenCalledTimes(1);
+		t.setHidden(false);
+		t.controller.toggle();
+		await settle();
+		expect(t.last().status).toBe("seeking");
+		expect(t.body(1)?.sentences[0]?.id).toBe("s0");
+	});
+
 	it("an interruption pauses, and play resumes the same audio", async () => {
 		const t = setup();
 		mountReply();
@@ -738,24 +771,66 @@ describe("the reading controller", () => {
 		expect(t.last().status).toBe("paused");
 	});
 
-	it("done closes the events and never cancels; the end shows Finished, then closes", async () => {
+	it("done keeps the events open and never cancels; the end shows Finished, then closes them", async () => {
 		const t = setup();
 		mountReply();
 		await playing(t);
 		const events = t.sources[0] as FakeEventSource;
 		events.send("done", {});
-		expect(events.closed).toBe(true);
+		// `done` is synthesis finished, not playback: the stream stays, so a reading another
+		// tab starts meanwhile still reaches this one (early review R7).
+		expect(events.closed).toBe(false);
 		expect(t.api.cancelReadingSession).not.toHaveBeenCalled();
 		expect(t.last().status).toBe("playing");
 		t.audio.ended = true;
 		t.audio.emit("pause");
 		t.audio.emit("ended");
 		expect(t.last()).toMatchObject({ status: "finished", progress: 1 });
+		expect(events.closed).toBe(false);
 		vi.advanceTimersByTime(1100);
 		expect(t.last().status).toBe("idle");
-		// The server closed it when this browser had all its audio: a DELETE is a 404.
+		// The reading is over: closing the stream is what lets the server close it, so
+		// there is nothing to cancel (a DELETE of it would be a 404).
+		expect(events.closed).toBe(true);
 		expect(t.api.cancelReadingSession).not.toHaveBeenCalled();
 		expect(t.audio.src).toBe("");
+	});
+
+	it("a reading another tab replaces after done ends quietly, and the server's closed session is not cancelled", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		const events = t.sources[0] as FakeEventSource;
+		events.send("done", {});
+		events.send("replaced", {});
+		expect(t.last()).toMatchObject({ status: "idle", failure: null });
+		expect(t.api.cancelReadingSession).not.toHaveBeenCalled();
+		expect(events.closed).toBe(true);
+		expect(t.audio.src).toBe("");
+		expect(t.audio.paused).toBe(true);
+		// Nothing wakes it again.
+		t.audio.paused = false;
+		t.audio.emit("play");
+		expect(t.audio.paused).toBe(true);
+	});
+
+	it("an events stream that ends after done is not a break: the reading finishes", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		const events = t.sources[0] as FakeEventSource;
+		events.send("done", {});
+		// The server closed the stream when it ended the reading (and a reconnect found nothing).
+		events.fail(0);
+		events.fail(2);
+		await settle();
+		expect(t.last().status).toBe("playing");
+		t.audio.ended = true;
+		t.audio.emit("pause");
+		t.audio.emit("ended");
+		await settle();
+		expect(t.last()).toMatchObject({ status: "finished", failure: null });
+		expect(t.fetchHealth).not.toHaveBeenCalled();
 	});
 
 	it("the end takes the marks away while Finished shows (they fade)", async () => {
@@ -917,6 +992,29 @@ describe("the reading controller", () => {
 		expect(t.controller.sentencePreview(2)).toBe("3/3 · The third one is the…");
 	});
 
+	it("a drag that starts while a jump loads still lands where it is let go (early review R15)", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		t.controller.seek(1);
+		await settle();
+		expect(t.last().status).toBe("seeking");
+		expect(t.body(1)?.sentences[0]?.id).toBe("s1");
+		// The finger goes down again before the jump's audio has come.
+		t.controller.beginDrag();
+		expect(t.audio.pause).toHaveBeenCalled();
+		t.controller.dragTo(2);
+		expect(t.last().drag).toBe(2);
+		t.controller.endDrag(2);
+		await settle();
+		expect(t.last()).toMatchObject({
+			status: "seeking",
+			drag: null,
+			sentence: 2,
+		});
+		expect(t.body(2)?.sentences[0]?.id).toBe("s2");
+	});
+
 	it("asks the thread to bring the sentence into view", async () => {
 		const t = setup();
 		mountReply();
@@ -965,5 +1063,165 @@ describe("assessReadability", () => {
 		expect(await t.controller.assessReadability(["code"])).toEqual({
 			kind: "nothing",
 		});
+	});
+});
+
+describe("a detector that does not load (early review R16)", () => {
+	const gone = () => new Error("Failed to fetch dynamically imported module");
+
+	it("a press ends as a failed start at once, and tells the app its code may be out of date", async () => {
+		const loadDetector = vi
+			.fn<ReadAloudDeps["loadDetector"]>()
+			.mockRejectedValueOnce(gone())
+			.mockResolvedValue(detect);
+		const t = setup({ loadDetector });
+		mountReply();
+		start(t);
+		await settle();
+		// No spinner for 20 s and no unhandled rejection: the start failed, now.
+		expect(t.last().status).toBe("startFailed");
+		expect(t.deps.reportUpdateSign).toHaveBeenCalledTimes(1);
+		expect(t.api.createReadingSession).not.toHaveBeenCalled();
+		// The load is tried again with the next press.
+		start(t);
+		await settle();
+		expect(t.api.createReadingSession).toHaveBeenCalledTimes(1);
+		t.audio.emit("playing");
+		expect(t.last().status).toBe("playing");
+	});
+
+	it("Read from here does nothing but tell the app its code may be out of date", async () => {
+		const loadDetector = vi
+			.fn<ReadAloudDeps["loadDetector"]>()
+			.mockRejectedValue(gone());
+		const t = setup({ loadDetector });
+		mountReply();
+		const text = document.querySelector("p")?.firstChild as Text;
+		start(t, "m1", { node: text, offset: 4 });
+		await settle();
+		expect(t.views.at(-1)?.status ?? "idle").toBe("idle");
+		expect(t.deps.reportUpdateSign).toHaveBeenCalledTimes(1);
+		expect(t.api.createReadingSession).not.toHaveBeenCalled();
+	});
+
+	it("a reply's readability is unknown, not a rejection, while the detector is missing", async () => {
+		const loadDetector = vi
+			.fn<ReadAloudDeps["loadDetector"]>()
+			.mockRejectedValue(gone());
+		const t = setup({ loadDetector });
+		mountReply();
+		await expect(t.controller.assessReadability(["m1"])).resolves.toEqual({
+			kind: "unknown",
+		});
+	});
+});
+
+describe("a reply of more than 2,000 sentences (early review R21)", () => {
+	const paragraphs = (count: number) =>
+		Array.from(
+			{ length: count },
+			(_, i) =>
+				`<p>Sentence number ${i} is written here, and it is long enough to stand alone.</p>`,
+		).join("");
+
+	it("is read in sessions of at most 2,000 sentences, the next one opening when one ends", async () => {
+		const t = setup();
+		mountReply("m1", paragraphs(2001));
+		start(t);
+		await settle();
+		const first = t.body(0)?.sentences ?? [];
+		expect(first).toHaveLength(2000);
+		expect(first[0]?.id).toBe("s0");
+		expect(first.at(-1)?.id).toBe("s1999");
+		t.audio.emit("playing");
+		expect(t.last()).toMatchObject({ status: "playing", count: 2001 });
+
+		// The first session's audio ends after its last sentence: this is not the end.
+		(t.sources[0] as FakeEventSource).send("done", {});
+		t.audio.ended = true;
+		t.audio.emit("pause");
+		t.audio.emit("ended");
+		await settle();
+		expect(t.last().status).toBe("seeking");
+		expect(t.api.createReadingSession).toHaveBeenCalledTimes(2);
+		expect(t.body(1)?.sentences.map((sentence) => sentence.id)).toEqual([
+			"s2000",
+		]);
+		// The player says where it is: the last sentence of the reply.
+		expect(t.last().sentence).toBe(2000);
+
+		t.audio.ended = false;
+		t.audio.emit("playing");
+		(t.sources[1] as FakeEventSource).send("done", {});
+		t.audio.ended = true;
+		t.audio.emit("pause");
+		t.audio.emit("ended");
+		await settle();
+		expect(t.last()).toMatchObject({ status: "finished", progress: 1 });
+		expect(t.api.createReadingSession).toHaveBeenCalledTimes(2);
+	}, 30_000);
+
+	it("a reply of exactly 2,000 sentences needs one session", async () => {
+		const t = setup();
+		mountReply("m1", paragraphs(2000));
+		start(t);
+		await settle();
+		expect(t.body(0)?.sentences).toHaveLength(2000);
+		t.audio.emit("playing");
+		(t.sources[0] as FakeEventSource).send("done", {});
+		t.audio.ended = true;
+		t.audio.emit("pause");
+		t.audio.emit("ended");
+		await settle();
+		expect(t.last().status).toBe("finished");
+		expect(t.api.createReadingSession).toHaveBeenCalledTimes(1);
+	}, 30_000);
+});
+
+describe("the marks (early review R22)", () => {
+	it("are the same object while only the progress moves, and new when the sentence or the word does", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		const events = t.sources[0] as FakeEventSource;
+		events.send("sentence", { id: "s0", start: 0.025, end: 2.0 });
+		events.send("sentence", { id: "s1", start: 2.3, end: 4.0 });
+		t.audio.currentTime = 0.4;
+		t.runFrame();
+		const first = t.last().marks;
+		expect(first).not.toBeNull();
+		const progress = t.last().progress;
+
+		// No word times: the progress moves every frame, and the marks do not.
+		t.audio.currentTime = 1.2;
+		t.runFrame();
+		expect(t.last().progress).toBeGreaterThan(progress);
+		expect(t.last().marks).toBe(first);
+
+		// A word is a new mark; the same word again is not.
+		events.send("words", {
+			id: "s0",
+			times: [
+				[0.025, 0.3],
+				[0.35, 0.7],
+				[0.75, 1.2],
+				[1.25, 1.5],
+				[1.55, 2.0],
+			],
+		});
+		t.audio.currentTime = 0.5;
+		t.runFrame();
+		const word = t.last().marks;
+		expect(word).not.toBe(first);
+		expect(word?.word?.toString()).toBe("first");
+		t.audio.currentTime = 0.6;
+		t.runFrame();
+		expect(t.last().marks).toBe(word);
+
+		// A new sentence is new marks.
+		t.audio.currentTime = 2.6;
+		t.runFrame();
+		expect(t.last().sentence).toBe(1);
+		expect(t.last().marks).not.toBe(word);
 	});
 });

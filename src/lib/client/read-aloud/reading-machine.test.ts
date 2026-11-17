@@ -196,6 +196,44 @@ describe("the reading machine", () => {
 		});
 	});
 
+	it("a paused reading whose page is hidden restarts at its sentence when play comes (early review R14)", () => {
+		// A call or unplugged headphones pause and keep the session; then the phone locks.
+		const interrupted = run([{ type: "interrupted" }], playingAt(2));
+		expect(interrupted).toMatchObject({
+			status: "paused",
+			restartOnResume: false,
+		});
+		const hidden = reduce(interrupted, { type: "hidden" });
+		expect(hidden.state).toMatchObject({
+			status: "paused",
+			restartOnResume: true,
+			sentence: 2,
+			drag: null,
+		});
+		// The session goes with the page, and the long-pause timer has nothing left to close.
+		expect(hidden.commands).toEqual([
+			CLOSE,
+			{ kind: "clearTimer", timer: "longPause" },
+		]);
+		expect(reduce(hidden.state, { type: "toggle" }).commands).toEqual([
+			{ kind: "open", messageId: "m1", from: 2 },
+			{ kind: "startTimer", timer: "start" },
+		]);
+		// A pause the person made is the same: the page left, and the stream with it.
+		expect(reduce(pausedAt(3), { type: "hidden" }).state).toMatchObject({
+			status: "paused",
+			restartOnResume: true,
+			sentence: 3,
+		});
+		// Already restarting on play (a long pause, an earlier hidden page): nothing to close again.
+		expect(reduce(hidden.state, { type: "hidden" })).toEqual({
+			state: hidden.state,
+			commands: [],
+		});
+		const parked = run([{ type: "seek", sentence: 4 }], pausedAt(1));
+		expect(reduce(parked, { type: "hidden" }).commands).toEqual([]);
+	});
+
 	it("the voice stopping shows Try again, which restarts at that sentence", () => {
 		const broke = reduce(playingAt(4), { type: "broke", kind: "voice" });
 		expect(broke.state).toMatchObject({
@@ -508,6 +546,31 @@ describe("the reading machine", () => {
 		);
 	});
 
+	it("a drag that starts while a jump loads, or while the reading waits, still lands where it is let go (early review R15)", () => {
+		for (const state of [seekingAt(1), waitingAt(1)]) {
+			const started = reduce(state, { type: "dragStart" });
+			expect(started.state.drag).toEqual({ target: 1, wasPlaying: true });
+			const moved = reduce(started.state, { type: "dragMove", sentence: 4 });
+			expect(moved.state.drag).toEqual({ target: 4, wasPlaying: true });
+			const released = reduce(moved.state, { type: "dragEnd", sentence: 4 });
+			expect(released.state).toMatchObject({
+				status: "seeking",
+				sentence: 4,
+				drag: null,
+			});
+			expect(released.commands).toEqual([
+				{ kind: "open", messageId: "m1", from: 4 },
+				{ kind: "startTimer", timer: "start" },
+			]);
+		}
+		// The jump's own audio is held while the finger is down, as a playing one is.
+		expect(reduce(seekingAt(1), { type: "dragStart" }).commands).toEqual([
+			{ kind: "pause" },
+		]);
+		// Nothing plays while waiting: nothing to hold.
+		expect(reduce(waitingAt(1), { type: "dragStart" }).commands).toEqual([]);
+	});
+
 	it("the end shows Finished for 1.1 s", () => {
 		expect(READING_TIMER_MS.finished).toBe(1100);
 		const done = reduce(playingAt(4), { type: "done" });
@@ -547,7 +610,11 @@ describe("the reading machine", () => {
 			const replaced = reduce(state, { type: "replaced" });
 			expect(replaced.state).toEqual(initialReadingState);
 			expect(replaced.state.failure).toBeNull();
-			expect(replaced.commands).toEqual([CLOSE, ...CLEAR_ALL]);
+			// The server closed the session when it replaced it: a DELETE would be a 404.
+			expect(replaced.commands).toEqual([
+				{ kind: "close", ended: true },
+				...CLEAR_ALL,
+			]);
 		}
 		expect(reduce(initialReadingState, { type: "replaced" })).toEqual({
 			state: initialReadingState,
@@ -602,7 +669,7 @@ describe("the reading machine", () => {
 			[playingAt(1), { type: "longPause" }],
 			[seekingAt(1), press("m1", 0)],
 			[waitingAt(1), { type: "toggle" }],
-			[seekingAt(1), { type: "dragStart" }],
+			[opening(), { type: "dragStart" }],
 			[finished(), { type: "done" }],
 			[opening(), { type: "broke", kind: "voice" }],
 		];

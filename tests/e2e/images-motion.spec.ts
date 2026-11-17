@@ -3046,10 +3046,30 @@ function holdHistoryMotion(metrics: HistoryMetrics, reduced: boolean) {
 	}
 }
 
+/**
+ * Opens History once, unrecorded, and leaves it the reader's way, so that the open a flow
+ * then records is the page's second. History's code is one lazy chunk, loaded the first time
+ * History opens (`ensureHistoryMode` in `DocumentWorkspace.svelte`), and that first press also
+ * evaluates the module and its styles in the frame that mounts it: a few milliseconds on a
+ * quiet machine, over 50 ms on a busy one (the release gate once failed on a 61 ms frame 32 ms
+ * after the tap; with the page's CPU slowed six times it fails one run in three). That is the
+ * page loading its code, not History's motion, which is what these flows hold to a frame budget.
+ */
+async function warmHistory(page: Page, kind: "image" | "document") {
+	const phone = (page.viewportSize()?.width ?? 1440) < 768;
+	await historyButton(page).click();
+	await expectHistoryShown(page, kind);
+	if (phone) await page.keyboard.press("Escape");
+	else await historyButton(page).click();
+	await expect(page.getByTestId("artifact-history")).toHaveCount(0);
+	await settle(page);
+}
+
 /** Opens History from the header (recorded), and leaves it the reader's way (recorded). */
 async function historyOpenClose(flow: SeededFlow, kind: "image" | "document") {
 	const { page } = flow;
 	const phone = (page.viewportSize()?.width ?? 1440) < 768;
+	await warmHistory(page, kind);
 	await startRecording(page, HISTORY_TRACK);
 	mark(flow, `history-open-${kind}`);
 	await historyButton(page).click();
@@ -3765,6 +3785,8 @@ test.describe("History for pictures on a phone (T4)", () => {
 			);
 			await expect(frames).toHaveCount(3);
 			const versionId = await frames.nth(1).getAttribute("data-version-id");
+			// The strip frame's press opens History for the page's second time: see `warmHistory`.
+			await warmHistory(page, "image");
 			await startRecording(page, HISTORY_TRACK);
 			mark(flow, "phone-frame");
 			await frames.nth(1).tap();

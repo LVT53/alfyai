@@ -51,26 +51,32 @@ function boxesOf(ranges: readonly Range[]): Box[] {
 		: lineBoxes(rects, container.getBoundingClientRect());
 }
 
+// Each part of the view the layout reads is a derived of its own, so a view that changes only
+// its progress (every frame, when a reading has no word times) leaves them as they were and
+// the boxes are not measured again: each measure is a forced layout (early review R22). The
+// controller hands over the same `marks` object while what is marked is the same.
+const status = $derived($readAloudView.status);
+const messageId = $derived($readAloudView.messageId);
+const marks = $derived($readAloudView.marks);
+const drag = $derived($readAloudView.drag);
+const sentenceIndex = $derived($readAloudView.sentence);
+
 const layout = $derived.by(() => {
 	layoutTick;
-	const view = $readAloudView;
-	if (view.status === "idle" || view.messageId !== replyLastId || !view.marks)
-		return null;
-	const dragging = view.drag !== null;
-	const sentence = dragging ? [] : boxesOf(view.marks.sentence);
-	const target = dragging ? boxesOf(view.marks.target) : [];
+	if (status === "idle" || messageId !== replyLastId || !marks) return null;
+	const dragging = drag !== null;
+	const sentence = dragging ? [] : boxesOf(marks.sentence);
+	const target = dragging ? boxesOf(marks.target) : [];
 	const showWord =
 		!dragging &&
-		view.status !== "stopped" &&
-		view.status !== "waiting" &&
-		view.marks.word !== null;
+		status !== "stopped" &&
+		status !== "waiting" &&
+		marks.word !== null;
 	const word =
-		showWord && view.marks.word
-			? (boxesOf([view.marks.word])[0] ?? null)
-			: null;
+		showWord && marks.word ? (boxesOf([marks.word])[0] ?? null) : null;
 	if (sentence.length === 0 && target.length === 0 && word === null)
 		return null;
-	return { sentence, target, word, key: view.sentence };
+	return { sentence, target, word, key: sentenceIndex };
 });
 
 const marked = $derived(layout !== null);

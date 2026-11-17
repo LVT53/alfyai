@@ -15,6 +15,14 @@
 // service said `done` (that drops audio nobody has read yet; here only a stop,
 // a jump, a replacement or the idle end cancels), or reopen a stream that ended
 // (the service refuses a second GET; the browser starts a new session).
+//
+// The browser's events stream outlives the service's: `done` means the voice has
+// finished making sentences, not that anyone has finished listening, and a reading
+// another tab or device starts meanwhile must still reach this one as `replaced`
+// (decision 8; early review R7). So a clean end of the service's timeline is
+// recorded but never ends the browser's stream (it goes on with its heartbeat);
+// the reading closes when its readers have left, a press replaces it, or the
+// browser says stop.
 
 import {
 	createSpeechSession,
@@ -171,6 +179,12 @@ class ReadingState {
 	audioReaders = 0;
 	/** Audio readers that were given the whole audio. */
 	audioCompleted = 0;
+	/** Events readers attached that have not left. */
+	eventsReaders = 0;
+	/** An events reader has come at least once: the browser asks for the audio first and the events a moment later. */
+	eventsSeen = false;
+	/** The service's timeline is complete (it ended, or was cut); the browser's stream goes on regardless. */
+	timelineEnded = false;
 	closed = false;
 	idleTimer: Timer | null = null;
 	heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -226,19 +240,32 @@ function armIdle(state: ReadingState): void {
 	state.idleTimer.unref();
 }
 
+/** Nobody reads either stream: the idle clock runs (from creation, and from the last reader's leaving). */
+function armIdleWhenAlone(state: ReadingState): void {
+	if (state.audioReaders === 0 && state.eventsReaders === 0) armIdle(state);
+}
+
 /**
- * The audio and the timeline have both ended and a reader was given all of the
- * audio: nothing is left to serve. (A reader that left early, as Safari's
- * probe does, is not a reader that was given it all; and the timeline is
- * waited for, so closing never cuts it short.)
+ * The audio and the timeline have both ended, a reader was given all of the
+ * audio and no reader of either stream is left: nothing is left to serve. (A
+ * reader that left early, as Safari's probe does, is not a reader that was
+ * given it all; the timeline is waited for, so closing never cuts it short;
+ * while the browser keeps its events stream open it is still playing what it
+ * has and a replacing press must find the reading to tell it; and the events
+ * stream is waited for until it has come once, because the browser asks for it
+ * a moment after the audio, and on a busy machine the audio can be read to its
+ * end first: closing then answered the events request 404. A client that never
+ * opens it is left to the idle end.)
  */
 function closeWhenDrained(state: ReadingState): void {
 	if (
 		!state.closed &&
 		state.audio.ended &&
-		state.events.ended &&
+		state.timelineEnded &&
 		state.audioCompleted > 0 &&
-		state.audioReaders === 0
+		state.audioReaders === 0 &&
+		state.eventsSeen &&
+		state.eventsReaders === 0
 	)
 		void closeState(state, "drained");
 }
@@ -266,24 +293,30 @@ async function closeState(
 	await deleteSpeechSession(state.baseUrl, state.sessionId);
 }
 
-/** Reads one upstream stream to its end into its replay. */
+/**
+ * Reads one upstream stream to its end into its replay. `keepOpen` (the
+ * timeline): a clean end is only recorded, because the browser's stream stays
+ * open for a replacement to reach it; a cut stream still fails its readers.
+ */
 async function pump(
 	state: ReadingState,
 	stream: ReadableStream<Uint8Array>,
 	replay: Replay,
-	capBytes?: number,
+	options: { capBytes?: number; keepOpen?: boolean } = {},
 ): Promise<void> {
 	const reader = stream.getReader();
 	try {
 		for (;;) {
 			const { done, value } = await reader.read();
 			if (done) break;
-			replay.push(value, capBytes);
+			replay.push(value, options.capBytes);
 		}
-		replay.end(false);
+		if (options.keepOpen) state.timelineEnded = true;
+		else replay.end(false);
 	} catch {
 		// A stream the service cut: its readers see an error, once, and it is
 		// never reopened (the service refuses a second reader).
+		if (options.keepOpen) state.timelineEnded = true;
 		replay.end(!state.closed);
 	}
 	closeWhenDrained(state);
@@ -332,8 +365,8 @@ async function open(p: {
 	armIdle(state);
 	state.heartbeatTimer = setInterval(() => state.events.beat(), heartbeatMs);
 	state.heartbeatTimer.unref();
-	void pump(state, audioStream, state.audio, replayMaxBytes);
-	void pump(state, eventsStream, state.events);
+	void pump(state, audioStream, state.audio, { capBytes: replayMaxBytes });
+	void pump(state, eventsStream, state.events, { keepOpen: true });
 	console.info("[READ_ALOUD] reading opened", {
 		sessionId,
 		sentences: p.sentences.length,
@@ -396,7 +429,7 @@ export function attachAudio(
 		if (left) return;
 		left = true;
 		state.audioReaders -= 1;
-		if (state.audioReaders === 0) armIdle(state);
+		armIdleWhenAlone(state);
 	};
 	return replayStream(state.audio, from, {
 		onCancel: leave,
@@ -408,7 +441,11 @@ export function attachAudio(
 	});
 }
 
-/** The timeline from its first event, then live, with a comment line every 15 s. */
+/**
+ * The timeline from its first event, then live, with a comment line every 15 s.
+ * It stays open after the service's `done` until the reading closes (`replaced`
+ * arrives on it, then it ends), and a reader of it holds the reading open.
+ */
 export function attachEvents(reading: Reading): ReadableStream<Uint8Array> {
 	const state = lookup(reading);
 	const from = state?.events.start();
@@ -419,9 +456,20 @@ export function attachEvents(reading: Reading): ReadableStream<Uint8Array> {
 			},
 		});
 	}
+	state.eventsReaders += 1;
+	state.eventsSeen = true;
+	disarmIdle(state);
+	let left = false;
+	const leave = () => {
+		if (left) return;
+		left = true;
+		state.eventsReaders -= 1;
+		armIdleWhenAlone(state);
+		closeWhenDrained(state);
+	};
 	return replayStream(state.events, from, {
-		onCancel: () => undefined,
-		onComplete: () => undefined,
+		onCancel: leave,
+		onComplete: leave,
 		heartbeat: HEARTBEAT,
 	});
 }

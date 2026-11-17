@@ -20,6 +20,7 @@ import {
 	NUMBER_WORDS,
 	PROSE_ABBREVIATIONS,
 	PROSE_SYMBOLS,
+	SENTENCE_FINAL_ABBREVIATIONS,
 	SEPARATORS,
 	SHELL_COMMANDS,
 	SHELL_LANGUAGES,
@@ -350,6 +351,10 @@ function speakProse(shown: string, language: ReadingLanguage): string[] {
 // Code
 // ---------------------------------------------------------------------------
 
+/** A CSS `!important` at a word's start: the keyword, not a negation of a name. */
+const IMPORTANT = /^!important(?![\p{L}\p{Nd}_$])/u;
+/** `<!DOCTYPE`, in any case: the declaration's keyword. */
+const DOCTYPE = /^<!doctype(?![\p{L}\p{Nd}_$])/iu;
 const CLOSING_TAG = /^<\/([a-z][a-z0-9-]*)>/u;
 const OPENING_TAG = /^<([a-z][a-z0-9-]*)\/?>/u;
 const HEX = /^0[xX][0-9A-Fa-f_]+/u;
@@ -596,6 +601,11 @@ function lexAt(
 	const c = word.charAt(start);
 	if (word.startsWith("std::", start) && !isNameChar(at(word, start - 1)))
 		return { tokens: words(CODE_WORDS.std as SpokenForm, language), length: 5 };
+	// CSS's `!important` is the word "important" (said as a code name next), never "not important".
+	if (c === "!" && start === 0 && IMPORTANT.test(word))
+		return { tokens: [], length: 1 };
+	if (c === "<" && DOCTYPE.test(word.slice(start)))
+		return { tokens: ["doctype"], length: "<!doctype".length };
 	if (c === "<") {
 		const tag = lexTag(word, start, language);
 		if (tag) return tag;
@@ -1121,11 +1131,15 @@ export function isSeparator(shown: string): boolean {
 /**
  * True when `before` (the text up to a sentence boundary) ends in a number and
  * a period ("16.") or in one of the language's abbreviations, as a whole word,
- * written as listed or with a capital first letter ("pl.", "Pl.", "e.g.").
+ * written as listed or with a capital first letter ("pl.", "Pl.", "e.g."). `after`
+ * is what follows the boundary: a capital letter there ends the sentence at an
+ * "etc." or a "stb.", which close sentences as often as they sit inside them (early
+ * review R19); after any other abbreviation it is a name, and the sentence goes on.
  */
 export function keepsSentenceOpen(
 	before: string,
 	language: ReadingLanguage,
+	after = "",
 ): boolean {
 	const text = before.trimEnd();
 	if (/[0-9]\.$/u.test(text)) return true;
@@ -1134,8 +1148,14 @@ export function keepsSentenceOpen(
 		for (const form of [written, capitalize(written)]) {
 			if (!text.endsWith(form)) continue;
 			const beforeForm = at(text, text.length - form.length - 1);
-			if (beforeForm === undefined || !/[\p{L}\p{Nd}]/u.test(beforeForm))
+			if (beforeForm === undefined || !/[\p{L}\p{Nd}]/u.test(beforeForm)) {
+				if (
+					SENTENCE_FINAL_ABBREVIATIONS[language].has(written) &&
+					/^\s*\p{Lu}/u.test(after)
+				)
+					return false;
 				return true;
+			}
 		}
 	}
 	return false;

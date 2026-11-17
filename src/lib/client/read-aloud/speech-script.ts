@@ -7,6 +7,7 @@
  * session route checks them with.
  */
 
+import { MAX_SHOWN_CHARS } from "$lib/shared/read-aloud/session-limits";
 import {
 	codeKindOf,
 	isSeparator,
@@ -308,19 +309,24 @@ function sentenceHoldingPoint(
 	node: Node,
 	offset: number,
 ): number | null {
+	let measured = false;
 	for (const sentence of script.sentences) {
 		const first = sentence.ranges[0];
 		const last = sentence.ranges[sentence.ranges.length - 1];
 		if (!first || !last) continue;
 		const start = comparePoint(first, node, offset);
 		if (start === null) continue;
+		measured = true;
 		if (start < 0) return sentence.index;
 		const end = last.cloneRange();
 		end.collapse(false);
 		const after = comparePoint(end, node, offset);
 		if (after !== null && after < 0) return sentence.index;
 	}
-	return null;
+	// A point after the last word (a trailing emoji or space, the end of the reply): the
+	// nearest sentence to read from is the last one, not none (early review R23). A point
+	// that could not be placed against any sentence is not in this reply.
+	return measured ? (script.sentences.at(-1)?.index ?? null) : null;
 }
 
 function comparePoint(range: Range, node: Node, offset: number): number | null {
@@ -366,7 +372,10 @@ function collectParagraphs(
 ): Paragraph[] {
 	const paragraphs: Paragraph[] = [];
 	let current: Paragraph | null = null;
-	let gap = false;
+	// What separates the words on either side of a tag that is not read: a space, or a line
+	// feed for a `<br>`, which the chat draws as a line break (`breaks: true`), so that
+	// "Name: John<br>Age: 42" is two sentences and each line gets its own pause (early review R18).
+	let gap: " " | "\n" | null = null;
 
 	const addText = (text: Text) => {
 		if (text.data.length === 0) return;
@@ -387,11 +396,11 @@ function collectParagraphs(
 			};
 			paragraphs.push(current);
 		} else if (gap) {
-			current.chars.push(" ");
+			current.chars.push(gap);
 			current.map.push(null);
 			current.atoms.push(null);
 		}
-		gap = false;
+		gap = null;
 		const atom = atomOf(text, element);
 		for (let offset = 0; offset < text.data.length; offset++) {
 			current.chars.push(text.data.charAt(offset));
@@ -445,8 +454,12 @@ function collectParagraphs(
 			}
 			if (child.nodeType !== Node.ELEMENT_NODE) continue;
 			const element = child as Element;
-			if (element.tagName === "BR" || element.matches(SKIPPED_SELECTOR)) {
-				gap = true;
+			if (element.tagName === "BR") {
+				gap = "\n";
+				continue;
+			}
+			if (element.matches(SKIPPED_SELECTOR)) {
+				gap ??= " ";
 				continue;
 			}
 			if (isCodeBlock(element)) {
@@ -460,7 +473,7 @@ function collectParagraphs(
 						(part as Element).tagName === "SUMMARY"
 					)
 						walk(part);
-					else gap = true;
+					else gap ??= " ";
 				}
 				continue;
 			}
@@ -605,6 +618,62 @@ function wordSpans(
 	}
 	if (start >= 0) spans.push({ start, end: to });
 	return spans;
+}
+
+/** How many generic brackets `text` leaves open: a `<` straight after a name opens one, a `>` closes one. */
+function openGenerics(text: string): number {
+	let depth = 0;
+	for (let i = 0; i < text.length; i++) {
+		const c = text.charAt(i);
+		if (c === "<" && i > 0 && /[\p{L}\p{Nd}_$]/u.test(text.charAt(i - 1)))
+			depth += 1;
+		else if (c === ">" && depth > 0) depth -= 1;
+	}
+	return depth;
+}
+
+/** A merged generic never grows past this many characters. */
+const MAX_GENERIC_CHARS = 200;
+
+/**
+ * The spans with a generic's arguments the page splits at a space made one: `Map<K,` and `V>` are
+ * one code name, so the dictionary reads `Map of K V` (and the marker covers `Map<K, V>`). A span
+ * that leaves a generic open and ends in a comma takes the span after it, while both are the
+ * same code (an inline code element, or a code block's line) and the brackets stay open; a
+ * comparison ("a < b, c > d") opens none (early review R6).
+ */
+function joinGenerics<S extends { start: number; end: number }>(
+	spans: readonly S[],
+	view: string,
+	atoms: ReadonlyArray<Element | null>,
+	inlineCodeOnly: boolean,
+): S[] {
+	const out: S[] = [];
+	for (let i = 0; i < spans.length; i++) {
+		let span = spans[i] as S;
+		const code = atoms[span.start];
+		if (inlineCodeOnly && code?.tagName !== "CODE") {
+			out.push(span);
+			continue;
+		}
+		for (;;) {
+			const next = spans[i + 1];
+			const text = view.slice(span.start, span.end);
+			if (
+				!next ||
+				!text.endsWith(",") ||
+				("math" in next && next.math === true) ||
+				atoms[next.start] !== code ||
+				next.end - span.start > MAX_GENERIC_CHARS ||
+				openGenerics(text) === 0
+			)
+				break;
+			span = { ...span, end: next.end };
+			i += 1;
+		}
+		out.push(span);
+	}
+	return out;
 }
 
 function makeRange(
@@ -765,7 +834,12 @@ function proseWords(
 	numbered: Set<Element>,
 ): DraftWord[] {
 	const words: DraftWord[] = [];
-	const spans = spansWithMath(view, paragraph.atoms, math);
+	const spans = joinGenerics(
+		spansWithMath(view, paragraph.atoms, math),
+		view,
+		paragraph.atoms,
+		true,
+	);
 	for (const [index, span] of spans.entries()) {
 		const { start, end } = span;
 		const atom = span.math ? null : (paragraph.atoms[start] ?? null);
@@ -784,6 +858,9 @@ function proseWords(
 			continue;
 		}
 		if (atom && !inCode) shown = chipAddress(atom) ?? shown;
+		// The route refuses a request with a word written longer than this, whatever the word is read
+		// as (a long address is read as its host alone): such a word is left out (early review R20).
+		if (shown.length > MAX_SHOWN_CHARS) continue;
 		const tokens = speakWord(shown, kind, language);
 		if (tokens.length === 0) {
 			if (kind === "prose" && !LETTER_OR_DIGIT.test(shown))
@@ -836,7 +913,13 @@ function sentenceStarts(view: string, language: Voiced): number[] {
 		granularity: "sentence",
 	}).segment(view)) {
 		if (segment.index === 0) continue;
-		if (!keepsSentenceOpen(view.slice(0, segment.index), language))
+		if (
+			!keepsSentenceOpen(
+				view.slice(0, segment.index),
+				language,
+				view.slice(segment.index),
+			)
+		)
 			starts.push(segment.index);
 	}
 	return starts;
@@ -876,7 +959,18 @@ function proseDrafts(
 	const words = proseWords(paragraph, view, math, language, numbered);
 	if (words.length === 0) return [];
 	const list = listOf(paragraph, lists);
-	const starts = sentenceStarts(view, language);
+	// A boundary the splitter finds inside one inline code element (the "!" of `!important`, the
+	// "?" of a ternary) is no sentence end: the code word is read whole (early review R6).
+	const starts = sentenceStarts(view, language).filter((start) => {
+		const before = paragraph.atoms[start - 1];
+		return !(
+			start > 0 &&
+			before !== null &&
+			before !== undefined &&
+			before === paragraph.atoms[start] &&
+			before.tagName === "CODE"
+		);
+	});
 	const groups = new Map<number, DraftWord[]>();
 	for (const word of words) {
 		let segment = 0;
@@ -885,14 +979,20 @@ function proseDrafts(
 		if (group) group.push(word);
 		else groups.set(segment, [word]);
 	}
+	// Each line of a paragraph a `<br>` breaks is a unit of its own, as a line of code is: the
+	// short ones that join then get the pause mark a join across units makes (early review R18).
+	const lineBreaks = [...view.matchAll(/\n/gu)].map((match) => match.index);
+	const lineOf = (offset: number) =>
+		lineBreaks.filter((at) => at < offset).length;
 	const drafts: Draft[] = [];
 	for (const group of groups.values()) {
 		keepFullStop(group);
+		const line = lineOf(group[0]?.start ?? 0);
 		drafts.push({
 			language,
 			paragraphStart: drafts.length === 0,
 			words: group,
-			unit,
+			unit: line === 0 ? unit : `${unit}:${line}`,
 			list,
 			code: false,
 		});
@@ -915,13 +1015,14 @@ function codeDrafts(
 		if (line.trim() === "") return;
 		const kind = codeKindOf(blockLanguage, firstWordOf(line));
 		const words: DraftWord[] = [];
-		for (const { start, end } of wordSpans(
+		for (const { start, end } of joinGenerics(
+			wordSpans(view, paragraph.atoms, from, from + line.length),
 			view,
 			paragraph.atoms,
-			from,
-			from + line.length,
+			false,
 		)) {
 			const shown = view.slice(start, end);
+			if (shown.length > MAX_SHOWN_CHARS) continue;
 			const tokens = speakWord(shown, kind, language);
 			const range = tokens.length > 0 ? makeRange(paragraph, start, end) : null;
 			if (range)

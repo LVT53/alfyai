@@ -7,8 +7,11 @@
  *
  * Built on the speech service's contract (`deploy/speech-service/README.md`):
  * - position is reported from playback time, so synthesis keeps two sentences ahead;
- * - `done` means synthesis finished, not playback: it never ends a reading;
- * - an events stream that ends without `done` or `error` is a stop;
+ * - `done` means synthesis finished, not playback: it never ends a reading, and the
+ *   events stream stays open after it (closed with the session), so a reading another
+ *   tab or device starts meanwhile still reaches this one as `replaced`;
+ * - an events stream that ends without `done` or `error` is a stop (after `done`, its
+ *   end is not: everything was made, and the audio plays out);
  * - a jump, a resume after a long pause and a retry are new sessions.
  */
 
@@ -28,6 +31,7 @@ import {
 	SERVER_UPDATE_WATCH_MAX_MS,
 	SERVER_UPDATE_WATCH_POLL_MS,
 } from "$lib/client/server-update-watch";
+import { MAX_SENTENCES_PER_SESSION } from "$lib/shared/read-aloud/session-limits";
 import { silentMp3DataUri } from "$lib/shared/read-aloud/silent-mp3";
 import { type ReadAloudView, setReadAloudView } from "$lib/stores/read-aloud";
 import { reportServerUpdateSign } from "$lib/stores/server-update";
@@ -209,10 +213,12 @@ type Reading = {
 	charsPerSecond: Record<"en" | "hu", number>;
 };
 
-/** One session of the speech service: a reading from sentence `from` on. */
+/** One session of the speech service: a reading from sentence `from` on, up to (not including) `to`. */
 type Session = {
 	id: string;
 	from: number;
+	/** The first sentence this session does not carry: the reply goes on from here when it ends. */
+	to: number;
 	timeline: SessionTimeline;
 	events: EventSourceLike | null;
 	/** How the stream said it failed, held until the audio made before it has played. */
@@ -538,11 +544,24 @@ export function createReadAloudController(
 		// this press's view is published: a switch inside the open player shows the
 		// new reply's sentences at once, never "Sentence 0 of 0".
 		buildScriptOnce(target);
-		await ensureDetector();
+		try {
+			await ensureDetector();
+		} catch {
+			if (token !== openToken) return;
+			// The page's own code did not load (a chunk gone after a deploy: an old tab asks for
+			// it until it is reloaded). No voice was asked for, so this is a failed start now, not
+			// a spinner for 20 s; and the app is told its code may be out of date, which is what
+			// makes its shell offer a reload.
+			deps.reportUpdateSign();
+			dispatch({ type: "sessionFailed", kind: "voice" });
+			return;
+		}
 		if (token !== openToken) return;
 		buildScriptOnce(target);
 		const script = target.script;
-		const sentences = script?.sentences.slice(from) ?? [];
+		// A reply of more than 2,000 sentences is read in sessions of that size (early review R21).
+		const sentences =
+			script?.sentences.slice(from, from + MAX_SENTENCES_PER_SESSION) ?? [];
 		if (!script || sentences.length === 0) {
 			dispatch({ type: "stop" });
 			return;
@@ -580,6 +599,7 @@ export function createReadAloudController(
 		session = {
 			id: answer.sessionId,
 			from,
+			to: from + sentences.length,
 			timeline: new SessionTimeline(script, from),
 			events: null,
 			failure: null,
@@ -655,7 +675,8 @@ export function createReadAloudController(
 		});
 		events.addEventListener("done", () => {
 			if (!mine()) return;
-			events.close();
+			// The stream stays: `done` is the voice finished, not the listening, and the
+			// server tells a replaced reading through it (closed with the session).
 			dispatch({ type: "done" });
 		});
 		events.addEventListener("replaced", () => {
@@ -675,8 +696,10 @@ export function createReadAloudController(
 				return;
 			}
 			// A stream that ended without `done` or `error` (an EventSource that gave up
-			// reconnecting) is a stop. What was made still plays out first.
-			if (events.readyState === EVENTSOURCE_CLOSED) {
+			// reconnecting) is a stop. What was made still plays out first. After `done`
+			// everything was made: the server closing the stream (it ended the reading, and
+			// a reconnect found nothing) is no break.
+			if (events.readyState === EVENTSOURCE_CLOSED && !state.doneReceived) {
 				owner.failure ??= { serviceError: false, sentenceId: null };
 			}
 		});
@@ -869,8 +892,20 @@ export function createReadAloudController(
 	});
 	audio.addEventListener("ended", () => {
 		if (!hasSessionAudio()) return;
-		if (state.doneReceived && !session?.failure) dispatch({ type: "ended" });
-		else void landBreak();
+		if (!state.doneReceived || session?.failure) {
+			void landBreak();
+			return;
+		}
+		const next = session?.to ?? count();
+		if (next < count() && state.status === "playing") {
+			// Every sentence this session carried is read and the reply goes on: the next session
+			// opens where this one stopped. This one ended with all its audio read, so the server
+			// closes it when its stream closes, and there is nothing to cancel.
+			closeSession({ cancel: false });
+			dispatch({ type: "seek", sentence: next });
+			return;
+		}
+		dispatch({ type: "ended" });
 	});
 	audio.addEventListener("error", () => {
 		if (hasSessionAudio()) void landBreak();
@@ -879,6 +914,41 @@ export function createReadAloudController(
 	// -------------------------------------------------------------------
 	// The view
 	// -------------------------------------------------------------------
+
+	type Marks = NonNullable<ReadAloudView["marks"]>;
+	let lastMarks: {
+		current: ScriptSentence;
+		target: ScriptSentence | undefined;
+		word: number | null;
+		marks: Marks;
+	} | null = null;
+
+	/**
+	 * The marks of a view, the same object while the sentence, the word and the drag's target
+	 * are the same: a reading with no word times moves its progress every frame, and the marks'
+	 * boxes (a forced layout each) are measured again only when what they mark changes (early
+	 * review R22).
+	 */
+	function marksFor(
+		current: ScriptSentence,
+		target: ScriptSentence | undefined,
+		word: number | null,
+	): Marks {
+		if (
+			lastMarks &&
+			lastMarks.current === current &&
+			lastMarks.target === target &&
+			lastMarks.word === word
+		)
+			return lastMarks.marks;
+		const marks: Marks = {
+			sentence: uniqueRanges(current.ranges),
+			word: word === null ? null : (current.ranges[word] ?? null),
+			target: target ? uniqueRanges(target.ranges) : [],
+		};
+		lastMarks = { current, target, word, marks };
+		return marks;
+	}
 
 	function publish() {
 		const script = reading?.script ?? null;
@@ -937,14 +1007,7 @@ export function createReadAloudController(
 			marks:
 				state.status === "idle" || state.status === "finished" || !current
 					? null
-					: {
-							sentence: uniqueRanges(current.ranges),
-							word:
-								state.word === null
-									? null
-									: (current.ranges[state.word] ?? null),
-							target: target ? uniqueRanges(target.ranges) : [],
-						},
+					: marksFor(current, target, state.word),
 		};
 		const key = JSON.stringify([
 			view.status,
@@ -1025,7 +1088,13 @@ export function createReadAloudController(
 				return;
 			}
 			void (async () => {
-				await ensureDetector();
+				try {
+					await ensureDetector();
+				} catch {
+					// As in `openSession`: the code did not load; nothing was started.
+					deps.reportUpdateSign();
+					return;
+				}
 				const roots = rootsOf(base.segmentIds);
 				if (!roots) return;
 				const element =
@@ -1079,7 +1148,14 @@ export function createReadAloudController(
 				roots.some((root) => (root.textContent ?? "").trim() === "")
 			)
 				return { kind: "unknown" };
-			const script = buildSpeechScript(roots, await ensureDetector(), {
+			let detector: Detect;
+			try {
+				detector = await ensureDetector();
+			} catch {
+				// Not known yet: the speaker asks again a little later.
+				return { kind: "unknown" };
+			}
+			const script = buildSpeechScript(roots, detector, {
 				fallbackLanguage: deps.uiLanguage(),
 			});
 			if (script.sentences.length > 0) return { kind: "ready" };

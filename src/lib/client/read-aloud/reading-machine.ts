@@ -110,8 +110,9 @@ export type ReadingCommand =
 	/** Tear down any session, then open one for `messageId` from sentence `from`. */
 	| { kind: "open"; messageId: string; from: number }
 	/**
-	 * Tear down the session. `ended`: the reading came to its end, and the server
-	 * closed the session once this browser had all its audio, so no DELETE.
+	 * Tear down the session. `ended`: the server has closed it already, so no DELETE
+	 * (it would be a 404): the reading came to its end and this browser had all its
+	 * audio, or another reading replaced it.
 	 */
 	| { kind: "close"; ended?: true }
 	| { kind: "play" }
@@ -309,6 +310,20 @@ function onHidden(state: ReadingState): ReadingStep {
 				},
 				commands: [],
 			};
+		case "paused":
+			// An interruption (a call, headphones unplugged) or the person's own pause keeps
+			// the session; a page that is then hidden gives it up, as a playing one does, and
+			// play restarts at the sentence (spec §4.9). One that restarts already has nothing
+			// to close.
+			return state.restartOnResume
+				? stay(state)
+				: {
+						state: { ...state, restartOnResume: true, drag: null },
+						commands: [
+							{ kind: "close" },
+							{ kind: "clearTimer", timer: "longPause" },
+						],
+					};
 		default:
 			return stay(state);
 	}
@@ -435,6 +450,26 @@ export function reduce(state: ReadingState, event: ReadingEvent): ReadingStep {
 					commands: [{ kind: "pause" }],
 				};
 			}
+			if (status === "seeking") {
+				// A tap's jump is still loading when the finger goes down again: the drag is the
+				// person's latest word, and the jump's own audio is held while it lasts.
+				return {
+					state: {
+						...state,
+						drag: { target: state.sentence, wasPlaying: true },
+					},
+					commands: [{ kind: "pause" }],
+				};
+			}
+			if (status === "waiting") {
+				return {
+					state: {
+						...state,
+						drag: { target: state.sentence, wasPlaying: true },
+					},
+					commands: [],
+				};
+			}
 			return status === "paused" || status === "stopped"
 				? {
 						state: {
@@ -474,6 +509,10 @@ export function reduce(state: ReadingState, event: ReadingEvent): ReadingStep {
 				commands: [{ kind: "speed", value: event.value }],
 			};
 		case "replaced":
+			// The server closed this session when the other reading took its place.
+			return status === "idle"
+				? stay(state)
+				: toIdle(state, [{ kind: "close", ended: true }]);
 		case "stop":
 			return status === "idle"
 				? stay(state)

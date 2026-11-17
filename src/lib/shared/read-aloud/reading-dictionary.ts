@@ -120,6 +120,18 @@ export const PROSE_ABBREVIATIONS: Readonly<
 	],
 };
 
+/**
+ * The abbreviations of prose that end a sentence as often as they sit inside one ("salt etc.
+ * Then we bake it."): a capital letter after them starts the next sentence. The others ("e.g.",
+ * "pl.") are always followed by what they introduce, a name included.
+ */
+export const SENTENCE_FINAL_ABBREVIATIONS: Readonly<
+	Record<"en" | "hu", ReadonlySet<string>>
+> = {
+	en: new Set(["etc."]),
+	hu: new Set(["stb."]),
+};
+
 /** Symbols in prose. Longest first: `°C` and `°F` come before `°`. */
 export const PROSE_SYMBOLS: ReadonlyArray<readonly [string, SpokenForm]> = [
 	["°C", { en: "degrees Celsius", hu: "Celsius-fok" }],

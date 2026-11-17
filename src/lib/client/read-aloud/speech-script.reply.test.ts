@@ -118,6 +118,36 @@ describe("the speech script against the containment check", () => {
 		expect(wordsFitReply(content, checked(script))).toBeNull();
 	}, 30_000);
 
+	it("accepts what the leftover review findings read differently: a generic split at a space, !important, a doctype, broken lines, etc. before a capital (R6, R18, R19)", async () => {
+		const content = [
+			SYNTAX_REPLY,
+			"",
+			"Keep each entry in a `Map<K, V>` and read it back by its key, then count with `Record<string, number>` for every word.",
+			"",
+			"Set `color: red !important;` and start the page with `<!DOCTYPE html>` as always.",
+			"",
+			"Name: John",
+			"Age: 42",
+			"City: Budapest",
+			"",
+			"We need eggs, flour, sugar, butter, milk, vanilla, salt etc. Then we bake it for an hour in a hot oven.",
+		].join("\n");
+		const root = await renderReply(content);
+		const script = buildSpeechScript([root], await loadDetector(), {
+			fallbackLanguage: "en",
+		});
+		const spoken = script.sentences.map((s) => s.text).join(" ");
+		expect(spoken).toContain("Map of K V");
+		expect(spoken).toContain("Record of string number");
+		expect(spoken).toContain("red important and start");
+		expect(spoken).not.toContain("not important");
+		expect(spoken).toContain("doctype H T M L as always");
+		// Each broken line ends in a pause mark of its own (a comma, or a stop where units join).
+		expect(spoken).toMatch(/Name: John[,.] Age: 42[,.] City: Budapest[,.]/);
+		expect(spoken).toContain("et cetera. Then");
+		expect(wordsFitReply(content, checked(script))).toBeNull();
+	}, 30_000);
+
 	it("accepts a long code block that Read from here starts in", async () => {
 		const root = await renderReply(SYNTAX_REPLY);
 		const block =
