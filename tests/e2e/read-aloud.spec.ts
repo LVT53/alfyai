@@ -175,6 +175,9 @@ test("a reading another tab starts after the voice has finished ends this one qu
 	// second tab's press still reaches it.
 	const opened = await openReadAloudChat(page, [TWO_SENTENCE_REPLY]);
 	chatId = opened.chatId;
+	// Slow speech, so that this tab is still playing, many seconds on, however long the second
+	// tab takes to load on a busy machine (at 0.02 s a character the whole reply is over in 3 s).
+	fake.setOptions({ secondsPerChar: 0.3 });
 	const ui = readAloudUi(page);
 	const failed: string[] = [];
 	page.on("response", (response) => {
@@ -199,6 +202,7 @@ test("a reading another tab starts after the voice has finished ends this one qu
 					const timer = setTimeout(() => abort.abort(), 4000);
 					try {
 						const reply = await fetch(url, { signal: abort.signal });
+						if (!reply.ok) return `answered ${reply.status}`;
 						const reader = (
 							reply.body as ReadableStream<Uint8Array>
 						).getReader();
@@ -209,9 +213,11 @@ test("a reading another tab starts after the voice has finished ends this one qu
 							seen += new TextDecoder().decode(value);
 						}
 						abort.abort();
-						return seen.includes("event: done");
-					} catch {
-						return false;
+						return seen.includes("event: done")
+							? "done"
+							: `no done in ${JSON.stringify(seen.slice(-160))}`;
+					} catch (error) {
+						return `threw ${String(error)}`;
 					} finally {
 						clearTimeout(timer);
 					}
@@ -222,7 +228,7 @@ test("a reading another tab starts after the voice has finished ends this one qu
 				timeout: 15_000,
 			},
 		)
-		.toBe(true);
+		.toBe("done");
 	await expect(ui.speaker()).toHaveAttribute("aria-label", "Pause reading");
 
 	// The same person starts a reading in another tab.
