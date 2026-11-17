@@ -1,5 +1,9 @@
 <script lang="ts">
 import UploadPictureMarks from "$lib/components/artifacts/image/UploadPictureMarks.svelte";
+import ReportReadAloud from "$lib/components/read-aloud/ReportReadAloud.svelte";
+import type { ReportReadingSource } from "$lib/client/read-aloud/controller";
+import { reportBridgeScript } from "$lib/client/read-aloud/report-bridge";
+import { pageScriptNonce } from "$lib/client/read-aloud/report-bridge-host";
 import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { isGenericMimeType } from "$lib/shared/file-types";
 import { ensureFilenameExtension } from "$lib/shared/file-types/download-name";
@@ -38,6 +42,7 @@ let {
 	marks = [],
 	onMarksChange,
 	onMarksContinue,
+	readAloudReport = null,
 }: {
 	open: boolean;
 	artifactId: string | null;
@@ -50,6 +55,16 @@ let {
 	marks?: ImageMark[];
 	onMarksChange?: ((marks: ImageMark[]) => void) | undefined;
 	onMarksContinue?: (() => void) | undefined;
+	/**
+	 * Read aloud on a standard report (`ReportReadAloud.svelte`): the chat file the
+	 * preview shows, and where the panel takes the reading source from. A report the
+	 * preview trusts to run its scripts then also carries read aloud's bridge; a static
+	 * preview never does.
+	 */
+	readAloudReport?: {
+		fileId: string;
+		onSource: (source: ReportReadingSource | null) => void;
+	} | null;
 } = $props();
 
 let content = $state<Blob | null>(null);
@@ -64,6 +79,9 @@ let missingPreviewSource = $state(false);
 let PdfPreviewComponent = $state<PdfPreviewComponentType | null>(null);
 let ImagePreviewComponent = $state<ImagePreviewComponentType | null>(null);
 let previewLoadToken = 0;
+let htmlFrame = $state<HTMLIFrameElement | null>(null);
+/** A trusted report's HTML, when its srcdoc carries read aloud's bridge. */
+let bridgedReportHtml = $state<string | null>(null);
 let previewSourceForMarks = $derived(
 	resolvePreviewSourceUrl({ artifactId, previewUrl }),
 );
@@ -118,6 +136,7 @@ function resetPreviewState() {
 	content = null;
 	adapter = null;
 	textPreview = null;
+	bridgedReportHtml = null;
 	officePreview = null;
 	error = null;
 	fileType = "unsupported";
@@ -164,11 +183,28 @@ async function fetchFile(loadToken: number) {
 		fileType = result.fileType;
 
 		if (result.adapter.kind === "text" || result.adapter.kind === "html") {
+			// Read aloud's bridge, for a report trusted to run its scripts and only then:
+			// one inline script of the app's own, the page's nonce on it, written at
+			// preview time, so a report made before read aloud gets it too.
+			const bridge =
+				result.adapter.kind === "html" &&
+				result.adapter.trustedRuntime &&
+				readAloudReport
+					? reportBridgeScript({
+							origin: window.location.origin,
+							nonce: pageScriptNonce(),
+						})
+					: "";
 			const renderedText = await renderPreviewTextAdapter(result.adapter, {
 				isDark: isDarkTheme(),
+				readAloudBridge: bridge,
 			});
 			if (isStalePreviewLoad(loadToken)) return;
 			textPreview = renderedText;
+			bridgedReportHtml =
+				bridge !== "" && result.adapter.kind === "html"
+					? result.adapter.text
+					: null;
 			return;
 		}
 
@@ -342,12 +378,21 @@ function downloadFile() {
 							style="height: 100%; padding: 0; background: rgba(0, 0, 0, 0);"
 						>
 							<iframe
+								bind:this={htmlFrame}
 								class="html-preview-frame"
 								title={$t('documentWorkspace.htmlPreviewLabel', { filename })}
 								sandbox={htmlPreviewSandbox(textPreview?.kind === "html" && textPreview.trustedRuntime)}
 								style="height: 100%; flex-grow: 1; border: 0; border-radius: 0; background: rgba(0, 0, 0, 0);"
 								srcdoc={textPreview.srcdoc}
 							></iframe>
+							{#if bridgedReportHtml !== null && readAloudReport && htmlFrame}
+								<ReportReadAloud
+									frame={htmlFrame}
+									html={bridgedReportHtml}
+									fileId={readAloudReport.fileId}
+									onSource={readAloudReport.onSource}
+								/>
+							{/if}
 						</div>
 					{/if}
 				{:else if isOfficePreviewKind(fileType)}
@@ -787,6 +832,8 @@ function downloadFile() {
 	}
 
 	.html-preview-shell {
+		/* Read aloud's Read from here over a report is placed in it (`ReportReadAloud.svelte`). */
+		position: relative;
 		display: flex;
 		min-height: 0;
 		height: 100%;

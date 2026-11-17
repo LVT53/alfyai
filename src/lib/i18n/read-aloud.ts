@@ -34,6 +34,7 @@ const readAloudDict = {
 		"readAloud.note.nothing": "Nothing in this reply can be read aloud.",
 		"readAloud.note.nothingDocument":
 			"Nothing in this document can be read aloud.",
+		"readAloud.note.nothingReport": "Nothing in this report can be read aloud.",
 		"readAloud.note.busy":
 			"The voice is busy with another reading. Yours starts in a moment.",
 		"readAloud.note.cantStart":
@@ -200,6 +201,8 @@ const readAloudDict = {
 		"readAloud.note.nothing": "Ebben a válaszban nincs felolvasható szöveg.",
 		"readAloud.note.nothingDocument":
 			"Ebben a dokumentumban nincs felolvasható szöveg.",
+		"readAloud.note.nothingReport":
+			"Ebben a jelentésben nincs felolvasható szöveg.",
 		"readAloud.note.busy":
 			"A hang most egy másik felolvasással foglalt. A tiéd mindjárt indul.",
 		"readAloud.note.cantStart":

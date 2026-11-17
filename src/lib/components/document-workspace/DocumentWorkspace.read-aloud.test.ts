@@ -10,7 +10,10 @@ import {
 	setReadAloudAvailable,
 	setReadAloudView,
 } from "$lib/stores/read-aloud";
-import { fakeReadAloudSource } from "./__fixtures__/fake-read-aloud";
+import {
+	fakeReadAloudSource,
+	fakeReportSource,
+} from "./__fixtures__/fake-read-aloud";
 import DocumentWorkspace from "./DocumentWorkspace.svelte";
 import {
 	makeWorkspaceDocument,
@@ -20,6 +23,12 @@ import {
 // Read aloud on a Document (read-aloud-documents): the speaker in the panel's
 // header reads the Document its body hands the panel, and the panel draws the
 // player for that reading wherever no composer beside it shows one.
+
+// The preview renderer, for a report: a stand-in that hands the panel a report's source.
+vi.mock(
+	"$lib/components/document-workspace/DocumentPreviewRenderer.svelte",
+	() => import("./__fixtures__/FakeReportPreview.svelte"),
+);
 
 vi.mock("$lib/services/markdown", () => ({
 	renderHighlightedText: vi.fn(
@@ -142,6 +151,91 @@ describe("DocumentWorkspace: read aloud on a Document", () => {
 		await screen.findByTestId("fake-read-aloud-body");
 		expect(get(readAloudPlayerInPanel)).toBe(true);
 		setReadAloudView(reading());
+		await tick();
+		expect(
+			await screen.findByTestId("workspace-read-aloud-player"),
+		).toBeInTheDocument();
+	});
+});
+
+// Read aloud on a standard report (an Atlas report): the same speaker and player,
+// for the report the preview shows from a chat file.
+const reportItem = (previewUrl = "/api/chat/files/file-9/preview") =>
+	makeWorkspaceDocument({
+		id: "file-9",
+		source: "chat_generated_file",
+		title: "Weekend report",
+		filename: "weekend-report.html",
+		mimeType: "text/html",
+		previewUrl,
+	});
+
+describe("DocumentWorkspace: read aloud on a report", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		global.fetch = vi.fn();
+		setReadAloudAvailable(true);
+	});
+
+	afterEach(() => {
+		setReadAloudAvailable(false);
+		setReadAloudView(idleReadAloudView);
+		vi.restoreAllMocks();
+	});
+
+	it("puts the speaker in the report's header once its preview hands the panel the report", async () => {
+		const start = vi
+			.spyOn(getReadAloud(), "start")
+			.mockImplementation(() => {});
+		renderWorkspace({
+			documents: [reportItem()],
+			activeDocumentId: "file-9",
+			conversationId: "c1",
+		});
+		const preview = await screen.findByTestId("fake-report-preview");
+		expect(preview.dataset.report).toBe("file-9");
+		const speaker = await screen.findByTestId("read-aloud-speaker-header");
+		await fireEvent.click(speaker);
+		expect(start).toHaveBeenCalledWith({
+			kind: "report",
+			fileId: "file-9",
+			source: fakeReportSource,
+		});
+	});
+
+	it("offers no reading of a file the preview does not show from a chat file, nor while read aloud is off", async () => {
+		renderWorkspace({
+			documents: [reportItem("/api/knowledge/file-9/preview")],
+			activeDocumentId: "file-9",
+		});
+		const preview = await screen.findByTestId("fake-report-preview");
+		expect(preview.dataset.report).toBe("");
+		expect(screen.queryByTestId("read-aloud-speaker-header")).toBeNull();
+	});
+
+	it("draws no speaker for a report while read aloud is off", async () => {
+		setReadAloudAvailable(false);
+		renderWorkspace({ documents: [reportItem()], activeDocumentId: "file-9" });
+		const preview = await screen.findByTestId("fake-report-preview");
+		expect(preview.dataset.report).toBe("");
+		expect(screen.queryByTestId("read-aloud-speaker-header")).toBeNull();
+	});
+
+	it("draws the player for the report's reading when expanded over the chat", async () => {
+		renderWorkspace({
+			documents: [reportItem()],
+			activeDocumentId: "file-9",
+			conversationId: "c1",
+			readAloudComposer: true,
+			presentation: "expanded",
+		});
+		await screen.findByTestId("read-aloud-speaker-header");
+		expect(get(readAloudPlayerInPanel)).toBe(true);
+		setReadAloudView({
+			...reading("report:file-9"),
+			target: "report",
+		});
 		await tick();
 		expect(
 			await screen.findByTestId("workspace-read-aloud-player"),
