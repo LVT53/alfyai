@@ -282,3 +282,38 @@ export function hasRun(tokens: string[], words: string[]): boolean {
 		words.every((word, offset) => bare[start + offset] === word),
 	);
 }
+
+/**
+ * Deletes the signed-in person's voices and puts back English Imogen,
+ * Hungarian Berta and a Default speed of 1 (Plan 3). A worker keeps its
+ * database from one spec file to the next, so every voices spec calls it in its
+ * cleanup, while read aloud is still on: the routes answer 404 when it is off.
+ */
+export async function resetReadAloudVoices(page: Page): Promise<void> {
+	const listed = await page.request.get("/api/read-aloud/voices");
+	expect(listed.ok(), `voices read -> ${listed.status()}`).toBe(true);
+	const { voices } = (await listed.json()) as { voices: Array<{ id: string }> };
+	for (const voice of voices) {
+		const deleted = await page.request.delete(
+			`/api/read-aloud/voices/${encodeURIComponent(voice.id)}`,
+		);
+		expect(deleted.ok(), `voice delete -> ${deleted.status()}`).toBe(true);
+	}
+	const reset = await page.request.put("/api/read-aloud/preferences", {
+		data: { en: "imogen", hu: "berta", defaultSpeed: 1 },
+	});
+	expect(reset.ok(), `preferences reset -> ${reset.status()}`).toBe(true);
+}
+
+/** Opens Settings and returns its Read aloud card, once the card's voices have loaded. */
+export async function openReadAloudSettings(page: Page) {
+	await page.goto("/settings", { waitUntil: "domcontentloaded" });
+	await waitForHydration(page);
+	const card = page.locator("#settings-section-read-aloud");
+	await expect(card).toBeVisible({ timeout: 15_000 });
+	await expect(
+		card.getByRole("combobox", { name: "English voice" }),
+	).toBeEnabled({ timeout: 15_000 });
+	await card.scrollIntoViewIfNeeded();
+	return card;
+}
