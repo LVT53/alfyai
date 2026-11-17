@@ -497,12 +497,24 @@ function chipAddress(label: Element): string | null {
 		return null;
 	}
 	if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-	const host = url.hostname.replace(/^www\./i, "").toLowerCase();
-	if ((label.textContent ?? "").trim().toLowerCase() !== host) return null;
+	// The host as the reply writes it: marked percent-encodes the href, and URL gives a
+	// Unicode host as punycode ("xn--bcher-kva.de"), whose letters the reply does not
+	// hold (early review R4). A login before the host is left out.
+	let written = href;
+	try {
+		written = decodeURI(href);
+	} catch {
+		// A malformed escape: the href as it stands.
+	}
+	const host =
+		/^https?:\/\/(?:[^@/?#]*@)?([^/?#:]+)/i.exec(written)?.[1] ?? url.hostname;
+	const bare = (name: string) => name.replace(/^www\./i, "").toLowerCase();
+	const shown = (label.textContent ?? "").trim().toLowerCase();
+	if (shown !== bare(url.hostname) && shown !== bare(host)) return null;
 	// GFM links a bare `www.` address as `http://www.…`: its letters are the `www.` part.
-	return url.protocol === "http:" && /^www\./i.test(url.hostname)
-		? url.hostname
-		: `${url.protocol}//${url.hostname}`;
+	return url.protocol === "http:" && /^www\./i.test(host)
+		? host
+		: `${url.protocol}//${host}`;
 }
 
 function firstWordOf(text: string): string {

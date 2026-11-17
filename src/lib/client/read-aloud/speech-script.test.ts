@@ -241,6 +241,20 @@ describe("buildSpeechScript", () => {
 		).toBe("www.example.org");
 	});
 
+	it("sends a Unicode or logged-in address's chip as the reply writes it, never as punycode", () => {
+		// marked percent-encodes the href, and URL turns a Unicode host into punycode
+		// ("xn--bcher-kva.de"), whose letters are nowhere in the reply (early review R4).
+		const script = build(
+			reply(
+				`<p>Buy at ${chip("https://b%C3%BCcher.de/x", "xn--bcher-kva.de")} or ${chip("https://user:pw@example.com/x", "example.com")} today.</p>`,
+			),
+		);
+		const shown = script.sentences[0]?.words.map((w) => w.shown) ?? [];
+		expect(shown).toContain("https://bücher.de");
+		expect(shown).toContain("https://example.com");
+		expect(shown.join(" ")).not.toMatch(/xn--|user|pw@/);
+	});
+
 	it("reads a numbered list's numbers", () => {
 		const script = build(
 			reply(
