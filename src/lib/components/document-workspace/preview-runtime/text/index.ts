@@ -26,16 +26,26 @@ export type TextPreviewRenderResult =
 const TRUSTED_HTML_RUNTIME_CSP =
 	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
+export type TextPreviewOptions = {
+	isDark?: boolean;
+	/**
+	 * Read aloud's bridge (`reportBridgeScript` in `$lib/client/read-aloud/report-bridge.ts`):
+	 * the one script of the app's own a report's frame runs, added to a trusted
+	 * report's srcdoc and never to a static one.
+	 */
+	readAloudBridge?: string;
+};
+
 export async function renderTextPreview(
 	adapter: TextRuntimeAdapter | HtmlRuntimeAdapter,
-	options: { isDark?: boolean } = {},
+	options: TextPreviewOptions = {},
 ): Promise<TextPreviewRenderResult> {
 	if (adapter.kind === "html") {
 		const trustedRuntime = adapter.trustedRuntime === true;
 		return {
 			kind: "html",
 			srcdoc: trustedRuntime
-				? buildTrustedHtmlPreviewSrcdoc(adapter.text)
+				? buildTrustedHtmlPreviewSrcdoc(adapter.text, options.readAloudBridge)
 				: buildStaticHtmlPreviewSrcdoc(adapter.text),
 			trustedRuntime,
 		};
@@ -152,17 +162,43 @@ export function buildStaticHtmlPreviewSrcdoc(content: string): string {
 	return `<!doctype html><html><head><base target="_blank"><meta charset="utf-8">${styleBlock}</head><body>${safeHtmlWithSafeInlineStyles}</body></html>`;
 }
 
-export function buildTrustedHtmlPreviewSrcdoc(content: string): string {
+/**
+ * A trusted report as its frame's srcdoc: its own policy as a meta tag in its
+ * head and, when one is given, read aloud's bridge as the last thing in its body.
+ * Only this srcdoc ever carries the bridge (`buildStaticHtmlPreviewSrcdoc` takes
+ * none, and its frame runs no script).
+ */
+export function buildTrustedHtmlPreviewSrcdoc(
+	content: string,
+	bridge = "",
+): string {
 	const meta = `<meta http-equiv="Content-Security-Policy" content="${TRUSTED_HTML_RUNTIME_CSP}" />`;
+	let srcdoc: string;
 	if (/<\/head\s*>/i.test(content)) {
-		return content.replace(/<\/head\s*>/i, `${meta}</head>`);
+		srcdoc = content.replace(/<\/head\s*>/i, `${meta}</head>`);
+	} else if (/<html\b/i.test(content)) {
+		srcdoc = content.replace(
+			/<html\b([^>]*)>/i,
+			`<html$1><head>${meta}</head>`,
+		);
+	} else {
+		srcdoc = `<!doctype html><html><head>${meta}</head><body>${content}</body></html>`;
 	}
+	return bridge === "" ? srcdoc : insertBeforeLastClose(srcdoc, bridge);
+}
 
-	if (/<html\b/i.test(content)) {
-		return content.replace(/<html\b([^>]*)>/i, `<html$1><head>${meta}</head>`);
+/**
+ * `insert` put before the document's last `</body>`, else its last `</html>`,
+ * else at its end. By slicing, never by `String.replace`, whose `$&`, `$1` and
+ * `` $` `` patterns would change what is inserted.
+ */
+function insertBeforeLastClose(html: string, insert: string): string {
+	for (const close of [/<\/body\s*>/gi, /<\/html\s*>/gi]) {
+		let at = -1;
+		for (const match of html.matchAll(close)) at = match.index;
+		if (at !== -1) return html.slice(0, at) + insert + html.slice(at);
 	}
-
-	return `<!doctype html><html><head>${meta}</head><body>${content}</body></html>`;
+	return html + insert;
 }
 
 function extractLocalStyleBlocks(content: string): {

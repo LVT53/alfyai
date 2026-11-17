@@ -170,6 +170,68 @@ describe("text preview adapter", () => {
 		}
 	});
 
+	// Read aloud's bridge (`$lib/client/read-aloud/report-bridge.ts`): the one
+	// script of the app's own a report's frame runs, added at preview time to the
+	// trusted srcdoc and to nothing else, so a report made before it gets it too.
+	describe("read aloud's bridge", () => {
+		// `$&`, `$1` and `` $` `` would be replacement patterns to `String.replace`.
+		const BRIDGE = '<script nonce="n0nce">bridge("$&$1$`")</script>';
+		const REPORT =
+			"<!doctype html><html><head><title>Report</title></head><body><main>Report</main><script>window.ready=true</script></body></html>";
+		const html = (text: string, trustedRuntime: boolean) => ({
+			kind: "html" as const,
+			blob: new Blob([text]),
+			text,
+			trustedRuntime,
+		});
+		const srcdocOf = (result: Awaited<ReturnType<typeof renderTextPreview>>) =>
+			result.kind === "html" && "srcdoc" in result ? result.srcdoc : "";
+
+		it("goes last in a trusted report's body, exactly as given", () => {
+			const srcdoc = buildTrustedHtmlPreviewSrcdoc(REPORT, BRIDGE);
+			expect(srcdoc).toContain(
+				`<script>window.ready=true</script>${BRIDGE}</body></html>`,
+			);
+			expect(srcdoc.match(/bridge\(/g)).toHaveLength(1);
+			expect(srcdoc).toContain(`http-equiv="Content-Security-Policy"`);
+		});
+
+		it("goes inside the body of a report that has no body tag", () => {
+			expect(
+				buildTrustedHtmlPreviewSrcdoc("<main>Report</main>", BRIDGE),
+			).toMatch(
+				/<main>Report<\/main><script nonce="n0nce">bridge\("\$&\$1\$`"\)<\/script><\/body><\/html>$/,
+			);
+			expect(
+				buildTrustedHtmlPreviewSrcdoc("<html><p>Report</p></html>", BRIDGE),
+			).toContain(`<p>Report</p>${BRIDGE}</html>`);
+		});
+
+		it("is in a trusted preview only when it is asked for", async () => {
+			expect(
+				srcdocOf(
+					await renderTextPreview(html(REPORT, true), {
+						readAloudBridge: BRIDGE,
+					}),
+				),
+			).toContain(BRIDGE);
+			expect(
+				srcdocOf(await renderTextPreview(html(REPORT, true))),
+			).not.toContain("bridge(");
+		});
+
+		it("never reaches a static preview", async () => {
+			const srcdoc = srcdocOf(
+				await renderTextPreview(html(REPORT, false), {
+					readAloudBridge: BRIDGE,
+				}),
+			);
+			expect(srcdoc).toContain("Report");
+			expect(srcdoc).not.toContain("bridge(");
+			expect(srcdoc).not.toContain("n0nce");
+		});
+	});
+
 	it("injects a constrained CSP into trusted full HTML reports", () => {
 		const srcdoc = buildTrustedHtmlPreviewSrcdoc(
 			"<!doctype html><html><head><title>Report</title></head><body><script>window.ready=true</script></body></html>",

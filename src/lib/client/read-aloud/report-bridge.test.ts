@@ -190,15 +190,19 @@ describe("the report bridge", () => {
 		expect(frame.highlights.size).toBe(0);
 	});
 
-	it("reports a selection as a block, an offset and a rect, and never its text", () => {
+	it("reports a selection as a block, an offset and its box, and never its text", () => {
 		frame.posted.length = 0;
 		const text = frame.doc.querySelector("#report-content p")
 			?.firstChild as Text;
 		const range = frame.doc.createRange();
 		range.setStart(text, 4);
 		range.setEnd(text, 9);
+		// The whole selection's box: the page places its control above it, or below it on a touch screen.
 		Object.defineProperty(range, "getClientRects", {
-			value: () => [new DOMRect(40, 120, 38, 18)],
+			value: () => [new DOMRect(40, 120, 38, 18), new DOMRect(8, 140, 90, 18)],
+		});
+		Object.defineProperty(range, "getBoundingClientRect", {
+			value: () => new DOMRect(8, 120, 90, 38),
 		});
 		const selection = frame.doc.getSelection();
 		selection?.removeAllRanges();
@@ -211,10 +215,10 @@ describe("the report bridge", () => {
 				data: message("selection", {
 					block: 2,
 					offset: 4,
-					x: 40,
+					x: 8,
 					y: 120,
-					width: 38,
-					height: 18,
+					width: 90,
+					height: 38,
 				}),
 				origin: ORIGIN,
 			},

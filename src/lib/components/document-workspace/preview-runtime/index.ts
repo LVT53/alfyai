@@ -18,7 +18,7 @@ import {
 	type OfficePreviewKind,
 	type OfficeRuntimeAdapter,
 } from "./office/kinds";
-import type { TextPreviewRenderResult } from "./text";
+import type { TextPreviewOptions, TextPreviewRenderResult } from "./text";
 
 export type { OfficePreviewKind, OfficeRuntimeAdapter };
 export { isOfficePreviewKind };
@@ -210,7 +210,7 @@ export async function loadImagePreviewComponent(): Promise<ImagePreviewComponent
 
 export async function renderPreviewTextAdapter(
 	adapter: Extract<PreviewRuntimeAdapter, { kind: "text" | "html" }>,
-	options: { isDark?: boolean } = {},
+	options: TextPreviewOptions = {},
 ): Promise<TextPreviewRenderResult> {
 	const { renderTextPreview } = await import("./text");
 	return renderTextPreview(adapter, options);

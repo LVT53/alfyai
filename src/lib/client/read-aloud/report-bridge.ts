@@ -279,7 +279,7 @@ export function reportBridge(
 		} else if (said.type === "focus") focus(said.spans, said.mode);
 	});
 
-	// ---- The reader's selection: where it starts, and a rect to place a control by.
+	// ---- The reader's selection: where it starts, and its box to place a control by.
 	const startOf = (range: Range): { block: number; offset: number } | null => {
 		const node = range.startContainer;
 		if (node.nodeType === 3)
@@ -309,9 +309,8 @@ export function reportBridge(
 		if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
 			const range = selection.getRangeAt(0);
 			const at = startOf(range);
-			const rects = range.getClientRects?.();
-			const rect =
-				rects && rects.length > 0 ? rects[0] : range.getBoundingClientRect?.();
+			// The whole selection's box: the page puts its control above it, or below it.
+			const rect = range.getBoundingClientRect?.();
 			if (at && rect)
 				said = {
 					v: 1,
