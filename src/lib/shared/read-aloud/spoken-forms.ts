@@ -351,6 +351,10 @@ function speakProse(shown: string, language: ReadingLanguage): string[] {
 // Code
 // ---------------------------------------------------------------------------
 
+/** A CSS `!important` at a word's start: the keyword, not a negation of a name. */
+const IMPORTANT = /^!important(?![\p{L}\p{Nd}_$])/u;
+/** `<!DOCTYPE`, in any case: the declaration's keyword. */
+const DOCTYPE = /^<!doctype(?![\p{L}\p{Nd}_$])/iu;
 const CLOSING_TAG = /^<\/([a-z][a-z0-9-]*)>/u;
 const OPENING_TAG = /^<([a-z][a-z0-9-]*)\/?>/u;
 const HEX = /^0[xX][0-9A-Fa-f_]+/u;
@@ -597,6 +601,11 @@ function lexAt(
 	const c = word.charAt(start);
 	if (word.startsWith("std::", start) && !isNameChar(at(word, start - 1)))
 		return { tokens: words(CODE_WORDS.std as SpokenForm, language), length: 5 };
+	// CSS's `!important` is the word "important" (said as a code name next), never "not important".
+	if (c === "!" && start === 0 && IMPORTANT.test(word))
+		return { tokens: [], length: 1 };
+	if (c === "<" && DOCTYPE.test(word.slice(start)))
+		return { tokens: ["doctype"], length: "<!doctype".length };
 	if (c === "<") {
 		const tag = lexTag(word, start, language);
 		if (tag) return tag;

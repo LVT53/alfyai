@@ -443,6 +443,57 @@ describe("spoken forms: code the early review found misread", () => {
 		// A generic after a name is still a generic.
 		expect(speakWord("List<T>", "code", "en")).toEqual(["List", "of", "T"]);
 	});
+
+	it("says a CSS !important as the word it is, never as a negation (early review R6)", () => {
+		expect(speakWord("!important", "code", "en")).toEqual(["important"]);
+		expect(speakWord("!important;", "code", "hu")).toEqual(["important"]);
+		// The bang of a negation is still a negation, wherever it stands.
+		expect(speakWord("!isReady", "code", "en")).toEqual(["not", "is", "Ready"]);
+		expect(speakWord("(!important)", "code", "en")).toEqual([
+			"not",
+			"important",
+		]);
+		expect(speakWord("!importantly", "code", "en")).toEqual([
+			"not",
+			"importantly",
+		]);
+	});
+
+	it("says <!DOCTYPE as doctype, in any case, and the html after it as the acronym it is (early review R6)", () => {
+		expect(speakWord("<!DOCTYPE", "code", "en")).toEqual(["doctype"]);
+		expect(speakWord("<!doctype", "code", "hu")).toEqual(["doctype"]);
+		expect(speakWord("html>", "code", "en")).toEqual(["H", "T", "M", "L"]);
+		expect(speakWord("<!DOCTYPE html>", "code", "en")).toEqual([
+			"doctype",
+			"H",
+			"T",
+			"M",
+			"L",
+		]);
+		// A tag that only starts like it is still a tag, and a comment's dashes are said as before.
+		expect(speakWord("<div>", "code", "en")).toEqual(["div", "tag"]);
+	});
+
+	it("reads a generic whose arguments the page split at a space as the generic it is (early review R6)", () => {
+		expect(speakWord("Map<K, V>", "code", "en")).toEqual([
+			"Map",
+			"of",
+			"K",
+			"V",
+		]);
+		expect(speakWord("Map<K, V>", "code", "hu")).toEqual([
+			"Map",
+			"K",
+			"V",
+			"típusú",
+		]);
+		expect(speakWord("Record<string, number>", "code", "en")).toEqual([
+			"Record",
+			"of",
+			"string",
+			"number",
+		]);
+	});
 });
 
 describe("spoken forms: simple math (the owner's staging find, 2026-11-17)", () => {

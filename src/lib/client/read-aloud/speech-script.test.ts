@@ -166,6 +166,73 @@ describe("buildSpeechScript", () => {
 		});
 	});
 
+	it("reads a generic's arguments the page splits at a space as one code name, marked whole (early review R6)", () => {
+		const script = build(
+			reply(
+				"<p>Keep each entry in a <code>Map&lt;K, V&gt;</code> and read it back by its key.</p>",
+			),
+		);
+		expect(bare(tokensOf(script))).toBe(
+			"Keep each entry in a Map of K V and read it back by its key",
+		);
+		const word = script.sentences[0]?.words.find(
+			(w) => w.shown === "Map<K, V>",
+		);
+		expect(word).toMatchObject({
+			kind: "code",
+			tokens: ["Map", "of", "K", "V"],
+		});
+		// One range, from the M to the >, so the word marker covers the whole name.
+		expect(word?.range.toString()).toBe("Map<K, V>");
+		// Names that merely follow each other in one code span are still read word by word.
+		const apart = build(
+			reply("<p>Run <code>ls -la</code> and then <code>cd src</code> now.</p>"),
+		);
+		expect(
+			apart.sentences[0]?.words.filter((w) => w.kind === "shell").length,
+		).toBeGreaterThanOrEqual(3);
+		// A comparison without arguments to close is not a generic.
+		const compare = build(
+			reply("<p>Check that <code>a &lt; b, c &gt; d</code> holds for every pair here.</p>"),
+		);
+		expect(
+			compare.sentences[0]?.words.some((w) => w.shown.includes("a < b, c")),
+		).toBe(false);
+	});
+
+	it("never ends a sentence inside inline code: the bang of `!important` or a negation is no full stop (early review R6)", () => {
+		const script = build(
+			reply(
+				"<p>Set <code>color: red !important;</code> and start the page with <code>&lt;!DOCTYPE html&gt;</code> as always, then check <code>!isReady</code> twice.</p>",
+			),
+		);
+		expect(script.sentences).toHaveLength(1);
+		expect(tokensOf(script)).toEqual([
+			"Set",
+			"color",
+			"red",
+			"important",
+			"and",
+			"start",
+			"the",
+			"page",
+			"with",
+			"doctype",
+			"H",
+			"T",
+			"M",
+			"L",
+			"as",
+			"always,",
+			"then",
+			"check",
+			"not",
+			"is",
+			"Ready",
+			"twice.",
+		]);
+	});
+
 	it("says the pipe of an inline shell command", () => {
 		const script = build(
 			reply("<p>Run <code>ls | grep x</code> to find it.</p>"),

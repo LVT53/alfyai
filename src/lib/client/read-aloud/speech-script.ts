@@ -619,6 +619,62 @@ function wordSpans(
 	return spans;
 }
 
+/** How many generic brackets `text` leaves open: a `<` straight after a name opens one, a `>` closes one. */
+function openGenerics(text: string): number {
+	let depth = 0;
+	for (let i = 0; i < text.length; i++) {
+		const c = text.charAt(i);
+		if (c === "<" && i > 0 && /[\p{L}\p{Nd}_$]/u.test(text.charAt(i - 1)))
+			depth += 1;
+		else if (c === ">" && depth > 0) depth -= 1;
+	}
+	return depth;
+}
+
+/** A merged generic never grows past this many characters. */
+const MAX_GENERIC_CHARS = 200;
+
+/**
+ * The spans with a generic's arguments the page splits at a space made one: `Map<K,` and `V>` are
+ * one code name, so the dictionary reads `Map of K V` (and the marker covers `Map<K, V>`). A span
+ * that leaves a generic open and ends in a comma takes the span after it, while both are the
+ * same code (an inline code element, or a code block's line) and the brackets stay open; a
+ * comparison ("a < b, c > d") opens none (early review R6).
+ */
+function joinGenerics<S extends { start: number; end: number }>(
+	spans: readonly S[],
+	view: string,
+	atoms: ReadonlyArray<Element | null>,
+	inlineCodeOnly: boolean,
+): S[] {
+	const out: S[] = [];
+	for (let i = 0; i < spans.length; i++) {
+		let span = spans[i] as S;
+		const code = atoms[span.start];
+		if (inlineCodeOnly && code?.tagName !== "CODE") {
+			out.push(span);
+			continue;
+		}
+		for (;;) {
+			const next = spans[i + 1];
+			const text = view.slice(span.start, span.end);
+			if (
+				!next ||
+				!text.endsWith(",") ||
+				("math" in next && next.math === true) ||
+				atoms[next.start] !== code ||
+				next.end - span.start > MAX_GENERIC_CHARS ||
+				openGenerics(text) === 0
+			)
+				break;
+			span = { ...span, end: next.end };
+			i += 1;
+		}
+		out.push(span);
+	}
+	return out;
+}
+
 function makeRange(
 	paragraph: Paragraph,
 	start: number,
@@ -777,7 +833,12 @@ function proseWords(
 	numbered: Set<Element>,
 ): DraftWord[] {
 	const words: DraftWord[] = [];
-	const spans = spansWithMath(view, paragraph.atoms, math);
+	const spans = joinGenerics(
+		spansWithMath(view, paragraph.atoms, math),
+		view,
+		paragraph.atoms,
+		true,
+	);
 	for (const [index, span] of spans.entries()) {
 		const { start, end } = span;
 		const atom = span.math ? null : (paragraph.atoms[start] ?? null);
@@ -894,7 +955,18 @@ function proseDrafts(
 	const words = proseWords(paragraph, view, math, language, numbered);
 	if (words.length === 0) return [];
 	const list = listOf(paragraph, lists);
-	const starts = sentenceStarts(view, language);
+	// A boundary the splitter finds inside one inline code element (the "!" of `!important`, the
+	// "?" of a ternary) is no sentence end: the code word is read whole (early review R6).
+	const starts = sentenceStarts(view, language).filter((start) => {
+		const before = paragraph.atoms[start - 1];
+		return !(
+			start > 0 &&
+			before !== null &&
+			before !== undefined &&
+			before === paragraph.atoms[start] &&
+			before.tagName === "CODE"
+		);
+	});
 	const groups = new Map<number, DraftWord[]>();
 	for (const word of words) {
 		let segment = 0;
@@ -939,11 +1011,11 @@ function codeDrafts(
 		if (line.trim() === "") return;
 		const kind = codeKindOf(blockLanguage, firstWordOf(line));
 		const words: DraftWord[] = [];
-		for (const { start, end } of wordSpans(
+		for (const { start, end } of joinGenerics(
+			wordSpans(view, paragraph.atoms, from, from + line.length),
 			view,
 			paragraph.atoms,
-			from,
-			from + line.length,
+			false,
 		)) {
 			const shown = view.slice(start, end);
 			const tokens = speakWord(shown, kind, language);
