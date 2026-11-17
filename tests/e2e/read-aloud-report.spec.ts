@@ -2,13 +2,15 @@
 // production build, against the fake speech service (read-aloud-documents, spec
 // §4.13). The report is made by the real pipeline (the produce route, the
 // standard-report renderer), hangs from a reply, and opens in the side panel from
-// its card, in the opaque frame its preview has always had. The page reads its
-// own inert copy; the bridge in the frame draws the marks and reports a selection
-// as a place; the page shows its own Read from here, and only a press on it starts
-// a reading. The tests run under the page's whole policy enforced, as on the
-// production boxes (CSP_MODE=enforce: the frame inherits it, so the report's own
-// scripts are refused and the bridge runs by the page's nonce), and the first one
-// under the e2e servers' report-only default, where the report's scripts run too.
+// its card, framed by its own preview address in the opaque frame its preview has
+// always had (scripts and popups, never same origin). That response carries the
+// report's own policy, which the report runs under, and read aloud's bridge, which
+// the server adds. The page reads its own inert copy; the bridge in the frame draws
+// the marks and reports a selection as a place; the page shows its own Read from
+// here, and only a press on it starts a reading. Most tests run with the page's
+// whole policy enforced, as on the production boxes (CSP_MODE=enforce), which a
+// frame loaded by address does not inherit; the first runs under the e2e servers'
+// report-only default.
 // The session route's refusals are held by
 // `src/routes/api/read-aloud/sessions/sessions.report.test.ts`.
 import { randomUUID } from "node:crypto";
@@ -334,25 +336,28 @@ test("@smoke the speaker in a report's header reads it, and the mark in the repo
 });
 
 test.describe("under the policy the production boxes enforce", () => {
-	test("the bridge runs by the page's nonce while the report's own scripts are refused", async ({
+	test("the report runs under its own response's policy, not the page's: its own scripts work, and so does the bridge", async ({
 		page,
 	}) => {
 		const refused: string[] = [];
 		page.on("console", (message) => {
 			const text = message.text();
 			// Chromium says "Refused to execute inline script…", or in newer versions
-			// "Executing inline script violates…"; a report-only policy says so first.
-			if (
-				/(?:Refused to execute|Executing) inline script/.test(text) &&
-				!text.includes("[Report Only]")
-			)
+			// "Executing inline script violates…".
+			if (/(?:Refused to execute|Executing) inline script/.test(text))
 				refused.push(text);
 		});
 		const { shell, report } = await openReport(page, { enforce: true });
-		// The frame inherits the enforced policy: the report's own inline scripts carry
-		// no nonce and are refused, so a mark that shows is the bridge's doing.
+		expect(report.url()).toMatch(/\/api\/chat\/files\/[^/]+\/preview$/);
+		// The report's own section menu marks the section in view: its script ran.
 		await expect
-			.poll(() => refused.length, { timeout: 10_000 })
+			.poll(
+				() =>
+					report.evaluate(
+						() => document.querySelectorAll(".report-nav a.active").length,
+					),
+				{ timeout: 10_000 },
+			)
 			.toBeGreaterThan(0);
 		await shell.getByTestId("read-aloud-speaker-header").click();
 		await expect
@@ -360,6 +365,73 @@ test.describe("under the policy the production boxes enforce", () => {
 				timeout: 15_000,
 			})
 			.not.toBe("");
+		expect(refused).toEqual([]);
+	});
+
+	test("the report never moves the panel's frame: its links open a new tab, a page it opens in place is taken down until Reload, and it cannot leave the app", async ({
+		page,
+	}) => {
+		await page.context().route("https://example.com/**", (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: "text/html",
+				body: "<title>Rail timetable</title>The morning train.",
+			}),
+		);
+		const { shell, frame, report } = await openReport(page, { enforce: true });
+		const address = report.url();
+		const tripwire = shell.locator(".html-preview-tripwire");
+
+		// A source's link opens a new tab; the report stays where it is.
+		const [tab] = await Promise.all([
+			page.context().waitForEvent("page"),
+			report.getByRole("link", { name: "Rail timetable" }).last().click(),
+		]);
+		await tab.waitForLoadState();
+		expect(tab.url()).toBe("https://example.com/timetable");
+		await tab.close();
+		expect(report.url()).toBe(address);
+		await expect(tripwire).toHaveCount(0);
+
+		// A page of this app that the report opens in its own frame: the load the panel
+		// did not ask for takes the frame down, and Reload frames the report again.
+		await report.evaluate(() => {
+			setTimeout(() => {
+				window.location.href = "/api/health";
+			}, 0);
+		});
+		await expect(tripwire).toContainText(
+			"This report tried to open another page in the panel, so Alfy stopped it.",
+		);
+		await expect(frame).toHaveCount(0);
+		await tripwire.getByRole("button", { name: "Reload the report" }).click();
+		await expect(
+			page
+				.frameLocator("iframe.html-preview-frame")
+				.getByRole("heading", { level: 1, name: TITLE }),
+		).toBeVisible({ timeout: 15_000 });
+
+		// An address outside the app: the page's own frame-src stops it before any
+		// request leaves (the browser says so in the console).
+		const reached: string[] = [];
+		await page
+			.context()
+			.route("https://elsewhere.invalid/**", async (route) => {
+				reached.push(route.request().url());
+				await route.fulfill({ status: 200, body: "no" });
+			});
+		const blocked = page.waitForEvent("console", (message) =>
+			message.text().includes("elsewhere.invalid"),
+		);
+		const again = await (await frame.elementHandle())?.contentFrame();
+		if (!again) throw new Error("the report's frame has no page");
+		await again.evaluate(() => {
+			setTimeout(() => {
+				window.location.href = "https://elsewhere.invalid/away";
+			}, 0);
+		});
+		expect((await blocked).text()).toMatch(/frame-src/);
+		expect(reached).toEqual([]);
 	});
 
 	test("a selection in the report shows the page's own Read from here, and only a press on it reads, from there", async ({

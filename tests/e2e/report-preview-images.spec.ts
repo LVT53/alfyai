@@ -1,6 +1,5 @@
 import { crc32, deflateSync } from "node:zlib";
 import { expect, type Page, test } from "@playwright/test";
-import { buildTrustedHtmlPreviewSrcdoc } from "../../src/lib/components/document-workspace/preview-runtime/text";
 import { renderStandardReportHtml } from "../../src/lib/server/services/file-production/renderers/standard-report-html";
 import { validateGeneratedDocumentSource } from "../../src/lib/server/services/file-production/source-schema";
 import { buildFileServingResponseHeaders } from "../../src/lib/server/services/file-serving-response-policy";
@@ -12,12 +11,13 @@ import { buildFileServingResponseHeaders } from "../../src/lib/server/services/f
 // `img-src data:`, like every other preview's, and the report carries its
 // pictures as bytes (`file-production/report-images.ts`).
 //
-// This holds the browser to it, on both paths a report is previewed by: the
-// header `/api/chat/files/[id]/preview` serves it with, and the meta tag the
-// in-app preview adds to the srcdoc. The report is the renderer's own output
-// with a picture inlined, plus a canary: a remote <img> written into it AFTER
-// rendering, as a renderer bug or a hostile edit would. The canary must never
-// be requested; the inlined picture must show; the report's own script must run.
+// This holds the browser to it, on both paths a report is shown by: opened on
+// its own at the address `/api/chat/files/[id]/preview` serves it from, and
+// framed by that address in the in-app preview (a sandboxed frame with no same
+// origin, which runs under the response's own policy, not the page's). The
+// report is the renderer's own output with a picture inlined, plus a canary: a
+// remote <img> written into it AFTER rendering, as a renderer bug or a hostile
+// edit would. The canary must never be requested; the inlined picture must show.
 
 const SENTINEL_HOST = "sentinel.invalid";
 const CANARY = `https://${SENTINEL_HOST}/remote-picture.png`;
@@ -143,18 +143,27 @@ test.describe("a generated HTML report is previewed with pictures from itself on
 		expect(sentinel.refused, "requests the policy refused").toEqual([CANARY]);
 	});
 
-	test("the meta tag the in-app preview adds to the srcdoc", async ({
+	test("the in-app preview's frame, which loads the report by its address", async ({
 		page,
 	}) => {
 		const sentinel = await watchSentinel(page);
-		const srcdoc = buildTrustedHtmlPreviewSrcdoc(reportHtml());
+		const body = reportHtml();
+		const headers = buildFileServingResponseHeaders({
+			mode: "preview",
+			contentLength: Buffer.byteLength(body),
+			contentType: "text/html",
+			filename: "report.html",
+			previewProfile: "standard-report",
+		});
+		await page.route("**/report-preview-fixture", (route) =>
+			route.fulfill({ status: 200, headers, body }),
+		);
+		// The frame the preview draws for a standard report (`DocumentPreviewRenderer`).
 		await page.route("**/report-preview-host", (route) =>
 			route.fulfill({
 				status: 200,
 				contentType: "text/html",
-				body: `<!doctype html><title>host</title><iframe title="report" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" srcdoc="${srcdoc
-					.replace(/&/g, "&amp;")
-					.replace(/"/g, "&quot;")}"></iframe>`,
+				body: '<!doctype html><title>host</title><iframe title="report" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" src="/report-preview-fixture"></iframe>',
 			}),
 		);
 
