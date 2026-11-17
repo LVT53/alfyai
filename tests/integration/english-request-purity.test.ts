@@ -778,6 +778,9 @@ const HUNGARIAN_BY_DESIGN: Record<string, string> = {
 	// Hungarian; spoken by the speech service, never sent to a model
 	"lib/shared/read-aloud/reading-dictionary.ts":
 		"the Hungarian spoken forms of read aloud",
+	// read aloud: the Hungarian sample of the voice editor and Settings
+	"lib/shared/read-aloud/voice-samples.ts":
+		"the Hungarian sample the voice editor plays; spoken by the speech service, never sent to a model",
 	// proper nouns of the places the routing tools cover
 	"lib/server/services/routing/gtfs-catalogue.ts":
 		"operator names (MAV, Bus Eireann) in the coverage label",
