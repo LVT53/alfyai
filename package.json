@@ -16,7 +16,7 @@
     "check:chunks": "npm run check:artifact-chunks && npm run check:image-chunks && npm run check:video-chunks",
     "start": "npm run check:migrations && npm run db:prepare && node build",
     "preview": "vite preview",
-    "check": "NODE_OPTIONS=--no-deprecation svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check": "NODE_OPTIONS=--no-deprecation svelte-kit sync && NODE_OPTIONS=\"--no-deprecation --max-old-space-size=6144\" svelte-check --tsconfig ./tsconfig.json",
     "check:migrations": "tsx scripts/verify-migrations.ts",
     "lint": "biome check .",
     "test": "vitest run",
