@@ -761,7 +761,9 @@ const ASCII_LETTER = /^[A-Za-z]$/u;
 /**
  * Reads one formula: numbers, letters, the operators of `MATH_WORDS`, `\frac{a}{b}`,
  * powers and `\sqrt{x}`. Every method answers null at anything else, and then the
- * whole formula is left unsaid, as every formula was before.
+ * whole formula is left unsaid, as every formula was before. `plain` is a sum written
+ * in a sentence, with no TeX in it ("1,000 + 2,000 = 3,000"): its numbers are read as
+ * written, but for their commas (`writtenNumber`).
  */
 class MathReader {
 	private i = 0;
@@ -769,6 +771,7 @@ class MathReader {
 	constructor(
 		private readonly text: string,
 		private readonly language: ReadingLanguage,
+		private readonly plain: boolean,
 	) {}
 
 	private say(word: MathWord): string[] {
@@ -950,12 +953,32 @@ class MathReader {
 
 	/**
 	 * A number goes to the speech service whole, written the way its language's
-	 * normalizer reads it ("4341.0505"; "4341,0505" in Hungarian, whose comma is the
-	 * decimal mark). TeX's `{,}` groups thousands; a single `{,}` before other than
-	 * three digits is a decimal comma ("3{,}14"). A currency goes before it in English
-	 * ("€4341.0505") and after it in Hungarian ("4341,0505 €").
+	 * normalizer reads it. A currency goes before it in English ("€4341.0505") and
+	 * after it in Hungarian ("4341,0505 €").
 	 */
 	private number(before: string | null): string[] | null {
+		const value = this.plain ? this.writtenNumber() : this.texNumber();
+		if (value === null) return null;
+		let symbol = before;
+		if (symbol === null) {
+			const save = this.i;
+			this.skipSpaces();
+			const next = this.text.charAt(this.i);
+			if (next === "€" || next === "£") {
+				symbol = next;
+				this.i += 1;
+			} else this.i = save;
+		}
+		if (symbol === null) return [value];
+		return this.language === "en" ? [`${symbol}${value}`] : [value, symbol];
+	}
+
+	/**
+	 * A number in TeX, as its language's normalizer reads it ("4341.0505"; "4341,0505"
+	 * in Hungarian, whose comma is the decimal mark). `{,}` groups thousands; a single
+	 * `{,}` before other than three digits is a decimal comma ("3{,}14").
+	 */
+	private texNumber(): string | null {
 		const groups = [this.digits()];
 		while (
 			this.text.startsWith("{,}", this.i) &&
@@ -978,26 +1001,43 @@ class MathReader {
 			whole = groups[0] ?? "";
 			fraction = groups[1] ?? "";
 		}
-		const value =
-			fraction === null
-				? whole
-				: `${whole}${this.language === "hu" ? "," : "."}${fraction}`;
-		let symbol = before;
-		if (symbol === null) {
-			const save = this.i;
-			this.skipSpaces();
-			const next = this.text.charAt(this.i);
-			if (next === "€" || next === "£") {
-				symbol = next;
-				this.i += 1;
-			} else this.i = save;
+		return fraction === null
+			? whole
+			: `${whole}${this.language === "hu" ? "," : "."}${fraction}`;
+	}
+
+	/**
+	 * A number in a plain sum, as written but for its commas (the third re-walk's
+	 * New 4). A "," before three digits groups thousands, as `{,}` does in TeX, and is
+	 * dropped: the Hungarian normalizer reads "1,000" as a decimal. A single "," before
+	 * other than three digits is a decimal comma, written with the language's mark
+	 * ("1,5"; "1.5" in English, whose normalizer reads "1,5" as "one,five"). A "." stays
+	 * as written, since each normalizer reads it its own way ("3.75"; in Hungarian
+	 * "1.000" is a thousand).
+	 */
+	private writtenNumber(): string | null {
+		let value = this.digits();
+		let decimal = false;
+		while (
+			(this.text.charAt(this.i) === "," || this.text.charAt(this.i) === ".") &&
+			isAsciiDigit(this.text.charAt(this.i + 1))
+		) {
+			const mark = this.text.charAt(this.i);
+			this.i += 1;
+			const group = this.digits();
+			if (mark === ".") value += `.${group}`;
+			else if (decimal) return null;
+			else if (group.length === 3) value += group;
+			else {
+				value += `${this.language === "hu" ? "," : "."}${group}`;
+				decimal = true;
+			}
 		}
-		if (symbol === null) return [value];
-		return this.language === "en" ? [`${symbol}${value}`] : [value, symbol];
+		return value;
 	}
 }
 
-/** A formula the page shows as TeX, read as simple math; null when any part of it is not. */
+/** A formula the page shows as TeX, or a sum written in a sentence, read as simple math; null when any part of it is not. */
 function readMath(shown: string, language: ReadingLanguage): string[] | null {
 	let text = shown.trim();
 	for (const [open, close] of MATH_DELIMITERS) {
@@ -1010,7 +1050,9 @@ function readMath(shown: string, language: ReadingLanguage): string[] | null {
 			break;
 		}
 	}
-	const tokens = new MathReader(text, language).expression(false);
+	// A sum in a sentence (`ARITHMETIC` in the speech script) holds no TeX mark at all.
+	const plain = !/[\\^_{}$]/u.test(shown);
+	const tokens = new MathReader(text, language, plain).expression(false);
 	return tokens && tokens.length > 0 ? tokens : null;
 }
 

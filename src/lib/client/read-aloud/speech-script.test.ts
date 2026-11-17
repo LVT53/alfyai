@@ -593,6 +593,63 @@ describe("simple math (the owner's staging find, 2026-11-17)", () => {
 		);
 	});
 
+	/** The `math` words of a one-paragraph reply, each as its tokens joined. */
+	const mathWords = (html: string, language: "en" | "hu") =>
+		build(reply(html), { fallbackLanguage: language })
+			.sentences.flatMap((sentence) => sentence.words)
+			.filter((word) => word.kind === "math")
+			.map((word) => word.tokens.join(" "));
+
+	it("reads plain arithmetic with money, thousands, decimal commas and letters, in English and Hungarian (the third re-walk's New 4)", () => {
+		expect(mathWords("<p>So €10 + €5 = €15 in all.</p>", "en")).toEqual([
+			"€10 plus €5 equals €15",
+		]);
+		expect(mathWords("<p>Tehát €10 + €5 = €15 összesen.</p>", "hu")).toEqual([
+			"10 € plusz 5 € egyenlő 15 €",
+		]);
+		expect(mathWords("<p>So 1,000 + 2,000 = 3,000 in all.</p>", "en")).toEqual([
+			"1000 plus 2000 equals 3000",
+		]);
+		expect(
+			mathWords("<p>Tehát 1,000 + 2,000 = 3,000 összesen.</p>", "hu"),
+		).toEqual(["1000 plusz 2000 egyenlő 3000"]);
+		expect(mathWords("<p>So 1,5 + 2,25 = 3,75 in all.</p>", "en")).toEqual([
+			"1.5 plus 2.25 equals 3.75",
+		]);
+		expect(mathWords("<p>Tehát 1,5 + 2,25 = 3,75 összesen.</p>", "hu")).toEqual(
+			["1,5 plusz 2,25 egyenlő 3,75"],
+		);
+		expect(mathWords("<p>Let x = 5 for now.</p>", "en")).toEqual([
+			"x equals 5",
+		]);
+		expect(
+			mathWords("<p>Legyen x = 5 és akkor a feladat könnyű lesz.</p>", "hu"),
+		).toEqual(["x egyenlő 5"]);
+		// The whole sum, never its tail alone (the second re-walk's fix read "x, 2 equals 7").
+		expect(mathWords("<p>Solve x + 2 = 7 for x.</p>", "en")).toEqual([
+			"x plus 2 equals 7",
+		]);
+		expect(mathWords("<p>Oldd meg az x + 2 = 7 egyenletet.</p>", "hu")).toEqual(
+			["x plusz 2 egyenlő 7"],
+		);
+	});
+
+	it("leaves a sum it only partly understands as it was, and a hyphen beside a word is a dash", () => {
+		// A word is not a letter: the whole sum goes to the prose reading, not its tail alone.
+		expect(mathWords("<p>Let total = 3 + 4 now.</p>", "en")).toEqual([]);
+		expect(mathWords("<p>Solve 2x - 3 = 7 now.</p>", "en")).toEqual([]);
+		expect(mathWords("<p>Then 3 + 4 = 2x today.</p>", "en")).toEqual([]);
+		// A spaced hyphen beside a plain word is a dash, not a minus.
+		expect(mathWords("<p>So 3 + 4 = 7 - that is all.</p>", "en")).toEqual([
+			"3 plus 4 equals 7",
+		]);
+		// Ranges and signs read as before.
+		expect(mathWords("<p>From 1,000 - 2,000 people came.</p>", "en")).toEqual(
+			[],
+		);
+		expect(mathWords("<p>Call +36 1 234 5678 today.</p>", "en")).toEqual([]);
+	});
+
 	it("still skips a formula it cannot read", () => {
 		const script = build(
 			reply("<p>The area is (\\sum_{i=1}^{n} i) here today.</p>"),

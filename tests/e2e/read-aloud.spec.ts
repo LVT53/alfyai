@@ -102,12 +102,37 @@ test("no syntax reaches the voice, and code is read the way a teacher says it", 
 test("plain arithmetic in a sentence is read with its operators", async ({
 	page,
 }) => {
-	const ui = await open(page, ["We know that 3 + 4 = 7 and 12 - 5 = 7 here."]);
+	const ui = await open(page, [
+		"We know that 3 + 4 = 7 and 12 - 5 = 7 here. So €10 + €5 = €15 and 1,000 + 2,000 = 3,000, and x + 2 = 7 for x.",
+	]);
 	await ui.speaker().click();
 	await expect.poll(() => fake.sessions.length, { timeout: 15_000 }).toBe(1);
 	const tokens = spokenTokens(fake);
 	expect(hasRun(tokens, ["3", "plus", "4", "equals", "7"])).toBe(true);
 	expect(hasRun(tokens, ["12", "minus", "5", "equals", "7"])).toBe(true);
+	// Money, thousands and a letter (the third re-walk's New 4); the session route
+	// checks every one of these tokens, so the reading starts only if they fit.
+	expect(hasRun(tokens, ["€10", "plus", "€5", "equals", "€15"])).toBe(true);
+	expect(hasRun(tokens, ["1000", "plus", "2000", "equals", "3000"])).toBe(true);
+	expect(hasRun(tokens, ["x", "plus", "2", "equals", "7"])).toBe(true);
+});
+
+test("a Hungarian sum is read in Hungarian, its money and decimal commas too", async ({
+	page,
+}) => {
+	const ui = await open(page, [
+		"Tehát €10 + €5 = €15 összesen, és 1,5 + 2,25 = 3,75 is igaz, valamint az x + 2 = 7 egyenlet megoldása könnyű.",
+	]);
+	await ui.speaker().click();
+	await expect.poll(() => fake.sessions.length, { timeout: 15_000 }).toBe(1);
+	const tokens = spokenTokens(fake);
+	expect(
+		hasRun(tokens, ["10", "€", "plusz", "5", "€", "egyenlő", "15", "€"]),
+	).toBe(true);
+	expect(hasRun(tokens, ["1,5", "plusz", "2,25", "egyenlő", "3,75"])).toBe(
+		true,
+	);
+	expect(hasRun(tokens, ["x", "plusz", "2", "egyenlő", "7"])).toBe(true);
 });
 
 /** Records every media element `play()` is called on, so a spec can reach the reading's audio (it is not in the page). */

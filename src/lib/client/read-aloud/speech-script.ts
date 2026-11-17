@@ -123,18 +123,33 @@ const TEX_BRACKETS = /\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]/gu;
 const TEX_PLAIN_BRACKETS =
 	/\((?=[^()\n]*(?:[\\^{}]|_[\d{]))[^()\n]*\)|\[(?=[^[\]]*(?:[\\^{}]|_[\d{]))[^[\]]*\]/gu;
 /**
- * Plain arithmetic in a sentence (the second re-walk's New 4): numbers joined by
- * spaced operators, bracketed or not ("3 + 4 = 7", "(12 − 5 = 7)"). It is read as
- * simple math only when it holds an operator other than "-" and "/" (`ARITHMETIC_SIGN`):
- * between two numbers alone, those are a range or a date ("2026 - 2027").
+ * Plain arithmetic in a sentence (the second and third re-walks' New 4): numbers or
+ * single letters joined by spaced operators, bracketed or not ("3 + 4 = 7",
+ * "(12 − 5 = 7)", "€10 + €5 = €15", "1,5 + 2,25 = 3,75", "x + 2 = 7"). A number may
+ * group its thousands, carry a decimal comma or point, and have a € or £ before or
+ * after it or a % after it. It is read as simple math only when it holds an operator
+ * other than "-" and "/" (`ARITHMETIC_SIGN`): between two numbers alone, those are a
+ * range or a date ("2026 - 2027").
  */
-const ARITHMETIC_NUMBER = String.raw`[-\u2212]?\d+(?:\.\d+)?`;
-const ARITHMETIC_RUN = String.raw`${ARITHMETIC_NUMBER}(?:\s+[-\u2212+×·÷/=≈≠*]\s+${ARITHMETIC_NUMBER})+`;
+const ARITHMETIC_OPERAND = String.raw`(?:[-\u2212]?[€£]?\d+(?:[.,]\d+)*(?:[ \u00a0\u202f]?[%€£])?|[A-Za-z])`;
+const ARITHMETIC_RUN = String.raw`${ARITHMETIC_OPERAND}(?:\s+[-\u2212+×·÷/=≈≠*]\s+${ARITHMETIC_OPERAND})+`;
 const ARITHMETIC = new RegExp(
-	String.raw`(?<![\p{L}\p{N}_.,])(?:\(${ARITHMETIC_RUN}\)|${ARITHMETIC_RUN})(?![\p{L}\p{N}_])`,
+	String.raw`(?<![\p{L}\p{N}_.,€£])(?:\(${ARITHMETIC_RUN}\)|${ARITHMETIC_RUN})(?![\p{L}\p{N}_€£%])`,
 	"gu",
 );
 const ARITHMETIC_SIGN = /\s[+×·÷=≈≠*\u2212]\s/u;
+/**
+ * A sum that touches another spaced operator goes on past what can be read ("total =
+ * 3 + 4", "2x - 3 = 7"): the whole of it is left to the prose's reading, as before,
+ * never its tail alone. A "-" or "/" counts only beside a word with a digit in it: beside
+ * a plain word it is a dash ("3 + 4 = 7 - that is all").
+ */
+const ARITHMETIC_GOES_ON_BEFORE =
+	/(?:[+×·÷=≈≠*\u2212]|(?:^|\s)\S*\p{N}\S*\s+[-/])\s+$/u;
+const ARITHMETIC_GOES_ON_AFTER =
+	/^\s+(?:[+×·÷=≈≠*\u2212](?:\s|$)|[-/]\s+\S*\p{N})/u;
+/** How far around a sum `ARITHMETIC_GOES_ON_*` look. */
+const ARITHMETIC_REACH = 24;
 /**
  * An HTML entity the chat shows as written (`&amp;`, `&#169;`: it does for some replies): markup,
  * never said, and decoded away by the containment check, so its letters must not be sent.
@@ -502,8 +517,15 @@ function spokenView(paragraph: Paragraph): {
 		// Plain arithmetic: read as math when it is, else left to the prose's own reading.
 		for (const match of text.matchAll(ARITHMETIC)) {
 			const end = match.index + match[0].length;
+			const before = text.slice(
+				Math.max(0, match.index - ARITHMETIC_REACH),
+				match.index,
+			);
+			const after = text.slice(end, end + ARITHMETIC_REACH);
 			if (
 				ARITHMETIC_SIGN.test(match[0]) &&
+				!ARITHMETIC_GOES_ON_BEFORE.test(before) &&
+				!ARITHMETIC_GOES_ON_AFTER.test(after) &&
 				!touchesCode(match.index, end) &&
 				!taken(match.index, end) &&
 				isSimpleMath(match[0])
