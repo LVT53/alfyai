@@ -562,7 +562,12 @@ async function renderTake(
 	const waited = await waitForOtherEnginesIdle("ltx", {
 		signal,
 		deadlineMs: videoRenderDeadlineMs() - (Date.now() - startedAt),
-		claim: { id: row.id, phaseAt: row.phaseAt ?? Date.now() },
+		claim: {
+			id: row.id,
+			phaseAt: row.phaseAt ?? Date.now(),
+			// Resumed after a restart: its prompt is already on the GPU.
+			onGpu: promptIdOf(row.checkpoint) !== null,
+		},
 	});
 	if (waited === "cancelled") return;
 	if (waited === "timeout") {

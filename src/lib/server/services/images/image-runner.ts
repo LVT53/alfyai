@@ -186,7 +186,12 @@ export async function runImageTake(ctx: Ctx): Promise<void> {
 		const waited = await waitForOtherEnginesIdle(request.model, {
 			signal,
 			deadlineMs: imageRenderDeadlineMs() - (Date.now() - startedAt),
-			claim: { id: row.id, phaseAt: row.phaseAt ?? Date.now() },
+			claim: {
+				id: row.id,
+				phaseAt: row.phaseAt ?? Date.now(),
+				// Resumed after a restart: its prompt is already on the GPU.
+				onGpu: promptId !== null,
+			},
 		});
 		if (waited === "cancelled") return;
 		if (waited === "timeout") {

@@ -243,6 +243,46 @@ async function until<T>(
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * A video take as an app restart leaves it: requeued with the checkpoint of
+ * the prompt its earlier attempt posted, which the LTX server still renders.
+ */
+async function videoRequeuedMidRender(promptId: string): Promise<string> {
+	const videoId = await queueVideo();
+	const { createComfyUiClient } = await import("./comfyui/client");
+	const { buildLtxVideoGraph } = await import("./comfyui/ltx-templates");
+	const client = createComfyUiClient({
+		baseUrl: (video as FakeComfyUi).baseUrl,
+		pollMs: 20,
+	});
+	try {
+		await client.submit(
+			buildLtxVideoGraph({
+				prompt: "the harbour at dusk",
+				seed: 1,
+				width: 1280,
+				height: 960,
+				image: `${videoId}-1.png`,
+			}),
+			{ promptId },
+		);
+	} finally {
+		client.close();
+	}
+	const { db } = await import("$lib/server/db");
+	db.update(schema.videoJobs)
+		.set({
+			checkpoint: JSON.stringify({
+				promptId,
+				segment: 1,
+				segments: [{ promptId, media: null }],
+			}),
+		})
+		.where(eq(schema.videoJobs.id, videoId))
+		.run();
+	return videoId;
+}
+
 describe("the cross-engine gate", () => {
 	it("makes a picture wait for a running video take, then submits", async () => {
 		await startEngines({}, { hangAfterPromptCount: 0 });
@@ -322,6 +362,100 @@ describe("the cross-engine gate", () => {
 		await videoDrain;
 		expect((await readPicture(pictureId)).status).toBe("succeeded");
 		expect((await readVideo(videoId)).status).toBe("succeeded");
+		expect(posts(video as FakeComfyUi)).toBe(1);
+	}, 30_000);
+
+	it("holds the other engine back while a take a restart requeued waits to resume, and lets that take resume", async () => {
+		// The deploy restarted the app mid-render: the video take is queued again
+		// (with its checkpoint, for at least the requeue's 2 s), while its prompt
+		// still runs on the GPU.
+		await startEngines({}, { hangAfterPromptCount: 0 });
+		await setWait({ intervalMs: 20 });
+		const videoId = await videoRequeuedMidRender("posted-before-the-restart");
+
+		const pictureId = await queuePicture();
+		const pictureDrain = drainPictures();
+		await until(
+			async () => (await readPicture(pictureId)).status,
+			(status) => status === "running",
+		);
+		await sleep(300);
+		// The requeued take still holds the GPU: the picture waits for it.
+		expect(posts(picture as FakeComfyUi)).toBe(0);
+
+		// The video take resumes. It follows the prompt it already posted and
+		// never waits for the picture, which is waiting for it.
+		const videoDrain = drainVideos();
+		await until(
+			async () => (await readVideo(videoId)).status,
+			(status) => status === "running",
+		);
+		(video as FakeComfyUi).releaseHanging();
+		await videoDrain;
+		await pictureDrain;
+		expect((await readVideo(videoId)).status).toBe("succeeded");
+		expect((await readPicture(pictureId)).status).toBe("succeeded");
+		// Nothing was posted twice: the video's one prompt, then the picture's.
+		expect(posts(video as FakeComfyUi)).toBe(1);
+		expect(posts(picture as FakeComfyUi)).toBe(1);
+	}, 30_000);
+
+	it("holds a video back while a picture take a restart requeued waits to resume, and lets that take resume", async () => {
+		await startEngines({ hangAfterPromptCount: 0 }, {});
+		await setWait({ intervalMs: 20 });
+		const pictureId = await queuePicture();
+		const { createComfyUiClient } = await import("./comfyui/client");
+		const { buildPromptGraph, graphFor } = await import("./comfyui/templates");
+		const choice = graphFor("qwen", "generate", false);
+		if (!choice) throw new Error("No Qwen generate graph");
+		const client = createComfyUiClient({
+			baseUrl: (picture as FakeComfyUi).baseUrl,
+			pollMs: 20,
+		});
+		try {
+			await client.submit(
+				buildPromptGraph(choice.template, {
+					prompt: "a cosy living room",
+					seed: 1,
+					width: 256,
+					height: 192,
+					images: [],
+				}),
+				{ promptId: "picture-posted-before-the-restart" },
+			);
+		} finally {
+			client.close();
+		}
+		const { db } = await import("$lib/server/db");
+		db.update(schema.imageJobs)
+			.set({
+				checkpoint: JSON.stringify({
+					promptId: "picture-posted-before-the-restart",
+				}),
+			})
+			.where(eq(schema.imageJobs.id, pictureId))
+			.run();
+
+		const videoId = await queueVideo();
+		const videoDrain = drainVideos();
+		await until(
+			async () => (await readVideo(videoId)).status,
+			(status) => status === "running",
+		);
+		await sleep(300);
+		expect(posts(video as FakeComfyUi)).toBe(0);
+
+		const pictureDrain = drainPictures();
+		await until(
+			async () => (await readPicture(pictureId)).status,
+			(status) => status === "running",
+		);
+		(picture as FakeComfyUi).releaseHanging();
+		await pictureDrain;
+		await videoDrain;
+		expect((await readPicture(pictureId)).status).toBe("succeeded");
+		expect((await readVideo(videoId)).status).toBe("succeeded");
+		expect(posts(picture as FakeComfyUi)).toBe(1);
 		expect(posts(video as FakeComfyUi)).toBe(1);
 	}, 30_000);
 
