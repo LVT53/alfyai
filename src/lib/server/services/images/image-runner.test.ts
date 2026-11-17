@@ -356,9 +356,7 @@ describe("a take that fails while its prompt is on the GPU", () => {
 	it("stops the prompt when the render deadline runs out", async () => {
 		// A wedged render: ComfyUI keeps the prompt running past the take's time.
 		const server = await startFake({ steps: 2, hangAfterPromptCount: 0 });
-		const { setImageRenderDeadlineMsForTests } = await import(
-			"./take-request"
-		);
+		const { setImageRenderDeadlineMsForTests } = await import("./take-request");
 		setImageRenderDeadlineMsForTests(1_000);
 		try {
 			const takeId = await queueTake(

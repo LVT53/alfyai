@@ -47,7 +47,9 @@ const DEADLINE_KEY = Symbol.for("alfyai.video.renderDeadlineMs");
 type DeadlineHolder = { [DEADLINE_KEY]?: number };
 /** The effective render deadline: the constant, or a test's shorter one. */
 export function videoRenderDeadlineMs(): number {
-	return (globalThis as DeadlineHolder)[DEADLINE_KEY] ?? VIDEO_RENDER_DEADLINE_MS;
+	return (
+		(globalThis as DeadlineHolder)[DEADLINE_KEY] ?? VIDEO_RENDER_DEADLINE_MS
+	);
 }
 /** Vitest only; `undefined` puts the constant back. */
 export function setVideoRenderDeadlineMsForTests(ms: number | undefined): void {

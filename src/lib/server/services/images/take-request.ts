@@ -54,7 +54,9 @@ const DEADLINE_KEY = Symbol.for("alfyai.images.renderDeadlineMs");
 type DeadlineHolder = { [DEADLINE_KEY]?: number };
 /** The effective render deadline: the constant, or a test's shorter one. */
 export function imageRenderDeadlineMs(): number {
-	return (globalThis as DeadlineHolder)[DEADLINE_KEY] ?? IMAGE_RENDER_DEADLINE_MS;
+	return (
+		(globalThis as DeadlineHolder)[DEADLINE_KEY] ?? IMAGE_RENDER_DEADLINE_MS
+	);
 }
 /** Vitest only; `undefined` puts the constant back. */
 export function setImageRenderDeadlineMsForTests(ms: number | undefined): void {

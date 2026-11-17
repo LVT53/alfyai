@@ -752,8 +752,8 @@ describe("a take that fails while its prompt is on the GPU", () => {
 					(request) =>
 						request.method === "POST" &&
 						request.path === "/interrupt" &&
-						(request.json as { prompt_id?: string } | undefined)
-							?.prompt_id === posted?.prompt_id,
+						(request.json as { prompt_id?: string } | undefined)?.prompt_id ===
+							posted?.prompt_id,
 				),
 			).toBe(true);
 		} finally {
