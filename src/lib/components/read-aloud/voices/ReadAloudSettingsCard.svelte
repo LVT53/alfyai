@@ -36,12 +36,19 @@ import ReadAloudNote from "../ReadAloudNote.svelte";
 import VoiceEditor from "./VoiceEditor.svelte";
 import VoicePlayButton from "./VoicePlayButton.svelte";
 
-let { preview = undefined }: { preview?: VoicePreview } = $props();
+let {
+	preview = undefined,
+	initial = null,
+}: {
+	preview?: VoicePreview;
+	/** The voices the Settings page brought: the card draws them in its first paint, so nothing below it moves. */
+	initial?: ReadAloudVoiceSettings | null;
+} = $props();
 
 const LANGUAGES = ["en", "hu"] as const;
 type Language = (typeof LANGUAGES)[number];
 
-let settings = $state<ReadAloudVoiceSettings | null>(null);
+let settings = $state<ReadAloudVoiceSettings | null>(untrack(() => initial));
 let loading = $state(false);
 let loadFailed = $state(false);
 /** The save that failed, to send again from Try again. */
@@ -174,12 +181,15 @@ function newVoiceBase(): string {
 	return defaultBase(language);
 }
 
+/** One sound at a time (spec §4.6): a sample playing from the card stops as the editor opens. */
 function openNew() {
+	player().stop();
 	player().unlock();
 	editor = { voice: null, startFrom: newVoiceBase() };
 }
 
 function openEdit(voice: PersonalVoiceInfo) {
+	player().stop();
 	player().unlock();
 	editor = { voice, startFrom: voice.base };
 }
@@ -410,9 +420,12 @@ function onDeleted(id: string, choice: VoiceChoice) {
 		border-top: 1px solid var(--border-default);
 	}
 
-	/* The voice rows have no help line: their label sits level with the picker. */
-	.settings-row-group .settings-row {
-		align-items: center;
+	/* The voice rows have no help line: their label sits level with the picker,
+	   side by side. A phone stacks them, where the label starts at the left. */
+	@media (min-width: 641px) {
+		.settings-row-group .settings-row {
+			align-items: center;
+		}
 	}
 
 	/* A picker keeps its width while its voices load (an empty one is 46 px): the

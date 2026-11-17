@@ -57,6 +57,7 @@ import {
 import { formatCompactCount, isEmailChanged } from "./account-form";
 import PasswordField from "./PasswordField.svelte";
 import UserSkillsSettingsSurface from "./UserSkillsSettingsSurface.svelte";
+import type { ReadAloudVoiceSettings } from "$lib/client/api/read-aloud-voices";
 import ReadAloudSettingsCard from "$lib/components/read-aloud/voices/ReadAloudSettingsCard.svelte";
 import { readAloudAvailable } from "$lib/stores/read-aloud";
 import SettingsDataImport from "./SettingsDataImport.svelte";
@@ -115,6 +116,8 @@ let {
 	// the row asks for the change through its callback.
 	twoStep = { enabled: false, since: null, backupCodesLeft: 0 },
 	onTwoStepChanged = undefined,
+	// The Read aloud card's voices, from the page's data.
+	readAloudVoices = null,
 	onSaveAccount,
 	onDiscardAccount,
 	availableModels,
@@ -189,6 +192,7 @@ let {
 	signedOutOtherDevices?: number;
 	twoStep?: TwoStepStatus;
 	onTwoStepChanged?: (status: TwoStepStatus) => void;
+	readAloudVoices?: ReadAloudVoiceSettings | null;
 	onSaveAccount: () => void | Promise<void>;
 	onDiscardAccount: () => void;
 	availableModels: AvailableModel[];
@@ -814,7 +818,7 @@ function handlePersonalitySelect(event: Event) {
 		</section>
 
 		<!-- ═══ Read aloud (only while it is on) ═══ -->
-		<ReadAloudSettingsCard />
+		<ReadAloudSettingsCard initial={readAloudVoices} />
 
 		<!-- ═══ Assistant behaviour ═══ -->
 		<section class="settings-card" id="settings-section-assistant">

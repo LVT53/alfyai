@@ -84,11 +84,14 @@ import {
 } from "./_components/account-form";
 import { getOAuthErrorReasonKey } from "./oauth-return";
 import type { ModelId, UserModelPreference } from "$lib/model-types";
+import type { ReadAloudVoiceSettings } from "$lib/client/api/read-aloud-voices";
 import type { TwoStepStatus } from "$lib/client/api/settings";
 import type { PageProps } from "./$types";
 
 // Extended data interface for admin-specific properties
 interface SettingsPageData {
+	/** The Read aloud card's voices (null while read aloud is off). */
+	readAloudVoices?: ReadAloudVoiceSettings | null;
 	userSettings: {
 		id: string;
 		email: string;
@@ -1317,6 +1320,7 @@ $effect(() => {
 				privacyControlsMessage={privacyMessage}
 				skillsEnabled={(data as SettingsPageData).composerCommandRegistryEnabled ?? false}
 				projects={$projects}
+				readAloudVoices={(data as SettingsPageData).readAloudVoices ?? null}
 				personalAnalyticsData={analyticsData}
 				personalAnalyticsLoading={analyticsLoading}
 				personalAnalyticsError={analyticsError}

@@ -6,12 +6,17 @@ import {
 	getAvailableModelsWithProviders,
 	getConfig,
 	getEnvDefaults,
+	getReadAloudUrl,
 	getResolvedAdminConfigValues,
 } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { adminConfig, users } from "$lib/server/db/schema";
 import type { UserSettings } from "$lib/server/services/auth-types";
 import { resolveUserModelPreference } from "$lib/server/services/model-preferences";
+import {
+	listBuiltInVoices,
+	readAloudSettingsFor,
+} from "$lib/server/services/read-aloud";
 import { getTwoStepStatus } from "$lib/server/services/two-step";
 
 export const load: ServerLoad = async (event) => {
@@ -61,6 +66,16 @@ export const load: ServerLoad = async (event) => {
 		backupCodesLeft: twoStepStatus.backupCodesLeft,
 	};
 
+	// The Read aloud card's voices, in the page's own data: the card draws them in
+	// its first paint, so nothing below it moves when they would have arrived.
+	const readAloudVoices =
+		getReadAloudUrl() === ""
+			? null
+			: {
+					builtIn: listBuiltInVoices(),
+					...(await readAloudSettingsFor(userRow.id)),
+				};
+
 	const isAdmin = userRow.role === "admin";
 	const availableModels = await getAvailableModelsWithProviders();
 	const modelNames: Record<string, string> = {
@@ -78,6 +93,7 @@ export const load: ServerLoad = async (event) => {
 			modelNames,
 			availableModels,
 			composerCommandRegistryEnabled: runtime.composerCommandRegistryEnabled,
+			readAloudVoices,
 		};
 	}
 
@@ -100,5 +116,6 @@ export const load: ServerLoad = async (event) => {
 		modelNames,
 		availableModels,
 		composerCommandRegistryEnabled: runtime.composerCommandRegistryEnabled,
+		readAloudVoices,
 	};
 };
