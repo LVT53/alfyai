@@ -28,6 +28,8 @@ export interface GeneratedFileServingSuccess {
 	status: 200 | 206 | 416;
 	body: Uint8Array;
 	headers: Record<string, string>;
+	/** The preview profile its headers were made for, when it has one (a standard report's). */
+	previewProfile?: FileServingPreviewProfile;
 }
 
 export interface GeneratedFileServingError {
@@ -131,6 +133,11 @@ export async function resolveGeneratedFileServing(params: {
 		};
 	}
 
+	const previewProfile = await resolvePreviewProfile({
+		mode: params.mode,
+		contentType,
+		resolveSucceededFileProductionJob,
+	});
 	const rangedResponse = applyFileServingRange({
 		body: fileContent,
 		rangeHeader: params.rangeHeader,
@@ -140,18 +147,40 @@ export async function resolveGeneratedFileServing(params: {
 			contentType,
 			filename,
 			safetyFilenames: [chatFile.filename],
-			previewProfile: await resolvePreviewProfile({
-				mode: params.mode,
-				contentType,
-				resolveSucceededFileProductionJob,
-			}),
+			previewProfile,
 		}),
 	});
 
 	return {
 		ok: true,
 		...rangedResponse,
+		...(previewProfile ? { previewProfile } : {}),
 	};
+}
+
+/**
+ * A standard report's HTML as the panel's preview serves it to this person: by the
+ * preview's own rules (their file, or a file of their chat), and only when it is
+ * served as a standard report, the one profile whose preview runs the report's
+ * scripts and read aloud's bridge. Null for anything else. Read aloud's session
+ * route checks the words it is asked to read against it.
+ */
+export async function readStandardReportHtml(params: {
+	userId: string;
+	fileId: string;
+}): Promise<string | null> {
+	const served = await resolveGeneratedFileServing({
+		userId: params.userId,
+		fileId: params.fileId,
+		mode: "preview",
+	});
+	if (
+		!served.ok ||
+		served.status !== 200 ||
+		served.previewProfile !== "standard-report"
+	)
+		return null;
+	return Buffer.from(served.body).toString("utf8");
 }
 
 async function resolvePreviewProfile(params: {

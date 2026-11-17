@@ -100,8 +100,50 @@ export function replyKey(markdown: string): string {
 }
 
 /**
+ * The letter key of a standard report's HTML (`renderers/standard-report-html.ts`,
+ * read aloud's report target): the text its markup shows, with its comments,
+ * scripts, styles, templates and drawings taken out and every tag with its
+ * attributes (so a picture's `data:` address too), then its entities decoded as
+ * the browser decodes them. The report's renderer escapes every `<` of its text,
+ * so whatever looks like a tag is markup, never text. A tag is taken out without a
+ * space, as `stripInline` does, so a word with markup inside it keeps its letters
+ * together (`H<sub>2</sub>O`).
+ */
+export function reportKey(html: string): string {
+	const shown = html
+		.replace(/<!--[\s\S]*?-->/gu, "")
+		.replace(
+			/<(script|style|template|noscript|svg)\b[^>]*>[\s\S]*?<\/\1\s*>/giu,
+			"",
+		)
+		.replace(/<[!/?]?[A-Za-z][^<>]*>/gu, "");
+	return letterKey(decodeHTMLStrict(shown));
+}
+
+type CheckedSentences = ReadonlyArray<{
+	language: "en" | "hu";
+	words: readonly CheckedWord[];
+}>;
+
+/** `wordsFitKey` against a reply's Markdown. */
+export function wordsFitReply(
+	replyMarkdown: string,
+	sentences: CheckedSentences,
+): number | null {
+	return wordsFitKey(replyKey(replyMarkdown), sentences);
+}
+
+/** `wordsFitKey` against a standard report's HTML: the words read from the page's copy of it. */
+export function wordsFitReport(
+	reportHtml: string,
+	sentences: CheckedSentences,
+): number | null {
+	return wordsFitKey(reportKey(reportHtml), sentences);
+}
+
+/**
  * Walks the words of every sentence in order. A word that is not a list number
- * has its letters found in the reply at or after where the previous word's
+ * has its letters found in the text at or after where the previous word's
  * letters ended (a word with no letters counts as found); a list number is not
  * searched, because the renderer numbers a list and Markdown may write "1." for
  * every item, but it must look like one. Every word's tokens must read, ignoring
@@ -109,14 +151,10 @@ export function replyKey(markdown: string): string {
  * Returns null when every word passes, else the index of the first sentence
  * that holds a word that does not.
  */
-export function wordsFitReply(
-	replyMarkdown: string,
-	sentences: ReadonlyArray<{
-		language: "en" | "hu";
-		words: readonly CheckedWord[];
-	}>,
+function wordsFitKey(
+	reply: string,
+	sentences: CheckedSentences,
 ): number | null {
-	const reply = replyKey(replyMarkdown);
 	let cursor = 0;
 	for (let index = 0; index < sentences.length; index++) {
 		const sentence = sentences[index];

@@ -21,7 +21,10 @@ import {
 	readChatFileContentByUser,
 } from "$lib/server/services/chat-files";
 import { getSucceededFileProductionJobForChatFile } from "$lib/server/services/file-production/read-model";
-import { resolveGeneratedFileServing } from "./generated-file-serving";
+import {
+	readStandardReportHtml,
+	resolveGeneratedFileServing,
+} from "./generated-file-serving";
 
 const mockGetChatFileByUser = vi.mocked(getChatFileByUser);
 const mockGetChatFileByConversationOwner = vi.mocked(
@@ -596,5 +599,68 @@ describe("resolveGeneratedFileServing", () => {
 		);
 		expect(result.headers["Cache-Control"]).toBe("private, no-store");
 		expect(result.headers["Content-Security-Policy"]).toBeUndefined();
+	});
+});
+
+// Read aloud's report target (`/api/read-aloud/sessions`): the words are checked
+// against the report the panel's preview shows, read by the preview's own rules.
+describe("readStandardReportHtml", () => {
+	const REPORT_HTML = "<!doctype html><h1>Report</h1>";
+	const reportFile = () =>
+		chatFile({
+			filename: "atlas-report.html",
+			mimeType: "text/html",
+			sizeBytes: 31,
+			storagePath: "conv-1/file-1.html",
+		});
+	const documentSourceJob = {
+		id: "job-1",
+		sourceMode: "document_source" as const,
+		origin: "file_production" as const,
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockGetSucceededFileProductionJobForChatFile.mockResolvedValue(null);
+	});
+
+	it("is a standard report's HTML, for the person the preview serves it to", async () => {
+		mockGetChatFileByUser.mockResolvedValue(reportFile());
+		mockGetSucceededFileProductionJobForChatFile.mockResolvedValue(
+			documentSourceJob,
+		);
+		mockReadChatFileContentByUser.mockResolvedValue(Buffer.from(REPORT_HTML));
+		await expect(
+			readStandardReportHtml({ userId: "user-1", fileId: "file-1" }),
+		).resolves.toBe(REPORT_HTML);
+		expect(mockGetChatFileByUser).toHaveBeenCalledWith("file-1", "user-1");
+	});
+
+	it("is null for a file the preview would not serve this person", async () => {
+		mockGetChatFileByUser.mockResolvedValue(null);
+		mockGetChatFileByConversationOwner.mockResolvedValue(null);
+		await expect(
+			readStandardReportHtml({ userId: "user-2", fileId: "file-1" }),
+		).resolves.toBeNull();
+		expect(mockReadChatFileContentByUser).not.toHaveBeenCalled();
+	});
+
+	it("is null for HTML that is not a standard report (its preview runs no script)", async () => {
+		mockGetChatFileByUser.mockResolvedValue(reportFile());
+		mockReadChatFileContentByUser.mockResolvedValue(Buffer.from(REPORT_HTML));
+		await expect(
+			readStandardReportHtml({ userId: "user-1", fileId: "file-1" }),
+		).resolves.toBeNull();
+	});
+
+	it("is null for a file that is not HTML, whatever made it", async () => {
+		mockGetChatFileByUser.mockResolvedValue(chatFile());
+		mockGetSucceededFileProductionJobForChatFile.mockResolvedValue(
+			documentSourceJob,
+		);
+		mockReadChatFileContentByUser.mockResolvedValue(Buffer.from("hello world"));
+		await expect(
+			readStandardReportHtml({ userId: "user-1", fileId: "file-1" }),
+		).resolves.toBeNull();
 	});
 });
