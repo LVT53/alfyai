@@ -196,6 +196,47 @@ describe("the reading machine", () => {
 		});
 	});
 
+	it("a paused reading whose page is hidden restarts at its sentence when play comes (early review R14)", () => {
+		// A call or unplugged headphones pause and keep the session; then the phone locks.
+		const interrupted = run([{ type: "interrupted" }], playingAt(2));
+		expect(interrupted).toMatchObject({
+			status: "paused",
+			restartOnResume: false,
+		});
+		const hidden = reduce(interrupted, { type: "hidden" });
+		expect(hidden.state).toMatchObject({
+			status: "paused",
+			restartOnResume: true,
+			sentence: 2,
+			drag: null,
+		});
+		// The session goes with the page, and the long-pause timer has nothing left to close.
+		expect(hidden.commands).toEqual([
+			CLOSE,
+			{ kind: "clearTimer", timer: "longPause" },
+		]);
+		expect(reduce(hidden.state, { type: "toggle" }).commands).toEqual([
+			{ kind: "open", messageId: "m1", from: 2 },
+			{ kind: "startTimer", timer: "start" },
+		]);
+		// A pause the person made is the same: the page left, and the stream with it.
+		expect(reduce(pausedAt(3), { type: "hidden" }).state).toMatchObject({
+			status: "paused",
+			restartOnResume: true,
+			sentence: 3,
+		});
+		// Already restarting on play (a long pause, an earlier hidden page): nothing to close again.
+		expect(reduce(hidden.state, { type: "hidden" })).toEqual({
+			state: hidden.state,
+			commands: [],
+		});
+		const parked = run(
+			[{ type: "seek", sentence: 4 }],
+			pausedAt(1),
+		);
+		expect(reduce(parked, { type: "hidden" }).commands).toEqual([]);
+	});
+
 	it("the voice stopping shows Try again, which restarts at that sentence", () => {
 		const broke = reduce(playingAt(4), { type: "broke", kind: "voice" });
 		expect(broke.state).toMatchObject({

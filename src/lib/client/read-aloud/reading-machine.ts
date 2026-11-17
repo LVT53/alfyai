@@ -310,6 +310,17 @@ function onHidden(state: ReadingState): ReadingStep {
 				},
 				commands: [],
 			};
+		case "paused":
+			// An interruption (a call, headphones unplugged) or the person's own pause keeps
+			// the session; a page that is then hidden gives it up, as a playing one does, and
+			// play restarts at the sentence (spec §4.9). One that restarts already has nothing
+			// to close.
+			return state.restartOnResume
+				? stay(state)
+				: {
+						state: { ...state, restartOnResume: true, drag: null },
+						commands: [{ kind: "close" }, { kind: "clearTimer", timer: "longPause" }],
+					};
 		default:
 			return stay(state);
 	}

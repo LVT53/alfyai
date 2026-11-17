@@ -722,6 +722,28 @@ describe("the reading controller", () => {
 		expect(t.body(1)?.sentences[0]?.id).toBe("s0");
 	});
 
+	it("a hidden page that follows an interruption gives the session up, and play restarts at the sentence (early review R14)", async () => {
+		const t = setup();
+		mountReply();
+		await playing(t);
+		t.audio.paused = true;
+		t.audio.emit("pause");
+		expect(t.last().status).toBe("paused");
+		expect(t.api.cancelReadingSession).not.toHaveBeenCalled();
+		t.setHidden(true);
+		document.dispatchEvent(new Event("visibilitychange"));
+		expect(t.last().status).toBe("paused");
+		expect(t.api.cancelReadingSession).toHaveBeenCalledWith("x1");
+		// The long-pause timer has nothing left to do.
+		vi.advanceTimersByTime(31_000);
+		expect(t.api.cancelReadingSession).toHaveBeenCalledTimes(1);
+		t.setHidden(false);
+		t.controller.toggle();
+		await settle();
+		expect(t.last().status).toBe("seeking");
+		expect(t.body(1)?.sentences[0]?.id).toBe("s0");
+	});
+
 	it("an interruption pauses, and play resumes the same audio", async () => {
 		const t = setup();
 		mountReply();
