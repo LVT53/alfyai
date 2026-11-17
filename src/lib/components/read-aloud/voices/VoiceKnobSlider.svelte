@@ -67,6 +67,12 @@ function onchange(event: Event) {
 	byPointer = false;
 	onCommit(readValue(event.currentTarget), via);
 }
+
+/** ↺ goes once the knob is normal again, so focus moves to its slider first. */
+function reset() {
+	input?.focus();
+	onReset();
+}
 </script>
 
 <div
@@ -83,7 +89,7 @@ function onchange(event: Event) {
 				type="button"
 				class="voice-knob-reset"
 				aria-label={$t("readAloud.editor.reset", { knob: name })}
-				onclick={onReset}
+				onclick={reset}
 			>
 				<RotateCcw size={13} strokeWidth={2} aria-hidden="true" />
 			</button>

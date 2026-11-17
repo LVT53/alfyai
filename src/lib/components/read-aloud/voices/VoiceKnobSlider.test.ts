@@ -99,6 +99,17 @@ describe("VoiceKnobSlider", () => {
 		expect(onInput).toHaveBeenLastCalledWith(0);
 	});
 
+	it("↺ gives focus to its slider", async () => {
+		const moved = slider("depth", 1);
+		const reset = moved.getByRole("button", { name: "Depth back to normal" });
+		reset.focus();
+		await fireEvent.click(reset);
+		expect(moved.onReset).toHaveBeenCalledTimes(1);
+		expect(document.activeElement).toBe(
+			moved.getByRole("slider", { name: "Depth" }),
+		);
+	});
+
 	it("has a word for every band of its knob", () => {
 		for (const knob of KNOBS) {
 			for (const language of ["en", "hu"] as const) {

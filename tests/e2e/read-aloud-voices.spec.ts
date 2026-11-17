@@ -331,6 +331,21 @@ test("the arrow keys move a knob off Normal in one press, and back", async ({
 	await expect(pace).toHaveAttribute("aria-valuetext", "A little slower");
 });
 
+test("↺ gives focus to its slider", async ({ page }) => {
+	const { editor } = await newVoice(page);
+	const pace = editor.getByRole("slider", { name: "Pace" });
+	await pace.focus();
+	await page.keyboard.press("PageUp");
+	await expect(pace).not.toHaveAttribute("aria-valuetext", "Normal");
+	await page.keyboard.press("Shift+Tab");
+	await expect(
+		editor.getByRole("button", { name: "Pace back to normal" }),
+	).toBeFocused();
+	await page.keyboard.press("Enter");
+	await expect(pace).toHaveAttribute("aria-valuetext", "Normal");
+	await expect(pace).toBeFocused();
+});
+
 test("on a phone the editor is a full sheet without Cancel", async ({
 	page,
 }) => {
