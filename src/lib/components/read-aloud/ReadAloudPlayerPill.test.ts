@@ -41,7 +41,111 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
+/** Stubs the viewport as a phone (the pill's two rows) or not. */
+function viewport(phone: boolean) {
+	vi.stubGlobal("matchMedia", (query: string) => ({
+		matches: phone && query.includes("max-width: 767px"),
+		media: query,
+		addEventListener: () => {},
+		removeEventListener: () => {},
+	}));
+}
+
+/** The pill's controls, in the order Tab reaches them. */
+function tabOrder(container: HTMLElement): string[] {
+	return [...container.querySelectorAll("button, [role='slider']")].map(
+		(control) => control.getAttribute("aria-label") ?? "",
+	);
+}
+
+describe("the floating pill's Tab order follows its layout", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("on a desktop: ⏮ ▶ ⏭, the scrubber, ⌖, the speed, ✕", () => {
+		viewport(false);
+		const { container } = render(ReadAloudPlayerPill, {
+			props: { view: view(), actions: actions(), variant: "floating" },
+		});
+		expect(tabOrder(container)).toEqual([
+			"Previous sentence",
+			"Play",
+			"Next sentence",
+			"Sentence",
+			"Go to where it's reading",
+			"Speed: 1×",
+			"Stop reading",
+		]);
+	});
+
+	it("on a phone: the scrubber, then the speed, ⏮ ▶ ⏭, ⌖, ✕ (its two rows)", () => {
+		viewport(true);
+		const { container } = render(ReadAloudPlayerPill, {
+			props: { view: view(), actions: actions(), variant: "floating" },
+		});
+		expect(tabOrder(container)).toEqual([
+			"Sentence",
+			"Speed: 1×",
+			"Previous sentence",
+			"Play",
+			"Next sentence",
+			"Go to where it's reading",
+			"Stop reading",
+		]);
+	});
+
+	it("the inline pill on a phone: the scrubber, then ⏮ ▶ ⏭", () => {
+		viewport(true);
+		const { container } = render(ReadAloudPlayerPill, {
+			props: { view: view(), actions: actions(), variant: "inline" },
+		});
+		expect(tabOrder(container)).toEqual([
+			"Sentence",
+			"Previous sentence",
+			"Play",
+			"Next sentence",
+		]);
+	});
+});
+
 describe("ReadAloudPlayerPill", () => {
+	it("spins its play button while the voice falls behind, and a press there pauses (the second re-walk's New 6)", async () => {
+		const acts = actions();
+		render(ReadAloudPlayerPill, {
+			props: {
+				view: view({ status: "playing", buffering: true }),
+				actions: acts,
+				variant: "floating",
+			},
+		});
+		// It spins, and it is still what it does: a press pauses, as the speaker does.
+		const play = screen.getByRole("button", { name: "Pause" });
+		expect(play.querySelector(".mini-spinner")).toBeTruthy();
+		await fireEvent.click(play);
+		expect(acts.toggle).toHaveBeenCalledTimes(1);
+		// The steps and the scrubber still work: only play spins.
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Next sentence",
+				}) as HTMLButtonElement
+			).disabled,
+		).toBe(false);
+	});
+
+	it("says what a press does in Hungarian too, while it spins", () => {
+		uiLanguage.set("hu");
+		render(ReadAloudPlayerPill, {
+			props: {
+				view: view({ status: "playing", buffering: true }),
+				actions: actions(),
+				variant: "floating",
+			},
+		});
+		expect(screen.getByRole("button", { name: "Szünet" })).toBeTruthy();
+	});
+
 	it("the inline pill draws the transport and the scrubber, and no locate, speed or stop", () => {
 		const { container } = render(ReadAloudPlayerPill, {
 			props: {

@@ -166,6 +166,12 @@ let {
 	// stops claiming to be modal until the layer is gone and the layer above
 	// is the one modal. A host with such a layer says so here.
 	covered = false,
+	// Opt-in: the centred panel scrolls inside itself, its footer stuck to its foot,
+	// and focus never lands under that footer. For a dialog taller than any window
+	// (the voice editor). Off by default: the centred panels of the other dialogs keep
+	// what they have always drawn, because their popups (the Nextcloud folder list,
+	// InfoTooltip) paint past the panel's edge, which a scrolling panel would clip.
+	scrollPanel = false,
 }: {
 	title: string;
 	description?: string;
@@ -178,6 +184,7 @@ let {
 	phonePresentation?: DialogPresentation;
 	footer?: Snippet;
 	covered?: boolean;
+	scrollPanel?: boolean;
 } = $props();
 
 const dialogId = Symbol("dialog-shell");
@@ -356,10 +363,10 @@ function closeFromScrim(event: MouseEvent) {
     aria-labelledby={titleId}
     aria-describedby={description ? 'dialog-shell-description' : undefined}
     tabindex="-1"
-    class={`relative w-full ${dialogSizeClass} border-border bg-surface-page shadow-lg ${isSheet ? '' : 'p-lg dialog-shell__panel'}`}
+    class={`relative w-full ${dialogSizeClass} border-border bg-surface-page shadow-lg ${isSheet ? '' : scrollPanel ? 'p-lg dialog-shell__panel' : 'p-lg'}`}
     in:panelTransition={panelTransitionInParams}
     out:panelTransition={panelTransitionOutParams}
-    style={isSheet ? '' : fullScreen ? 'max-height: 100dvh;' : 'max-height: 85dvh;'}
+    style={isSheet ? '' : scrollPanel ? (fullScreen ? 'max-height: 100dvh;' : 'max-height: 85dvh;') : fullScreen ? 'max-height: 100dvh; overflow-y: auto;' : 'max-height: 85dvh; overflow-y: auto;'}
   >
     {#if isSheet}
       <!-- Dismissal #1 of three. Drawn as the 36x4 bar the board specifies,
@@ -392,13 +399,23 @@ function closeFromScrim(event: MouseEvent) {
 </div>
 
 <style>
-  /* A centred panel scrolls inside itself. Not in the style attribute: Svelte's
-     transition saves the element's inline `overflow` before that attribute is
-     set and writes the empty value back when the intro ends, and clearing the
-     shorthand also drops an inline `overflow-y`, so a panel taller than
-     85dvh spilled over the page instead of scrolling. A class it cannot touch. */
+  /* `scrollPanel`: the centred panel scrolls inside itself. Not in the style
+     attribute: Svelte's transition saves the element's inline `overflow` before
+     that attribute is set and writes the empty value back when the intro ends,
+     and clearing the shorthand also drops an inline `overflow-y`. (That is why a
+     panel without `scrollPanel` spills over the page once its intro is done; its
+     popups rely on it.) A class the transition cannot touch. The sideways overflow
+     is hidden, so a long unbroken word cannot add a horizontal scrollbar. */
   .dialog-shell__panel {
+    overflow-x: hidden;
     overflow-y: auto;
+  }
+
+  /* Focus never lands under the sticky footer (WCAG 2.2 SC 2.4.11): a control
+     the browser would leave under it is scrolled clear. The footer is about
+     80 px tall. */
+  .dialog-shell__panel:has(> .dialog-shell__footer) {
+    scroll-padding-bottom: 6rem;
   }
 
   /* ── The phone sheet ──────────────────────────────────────────────

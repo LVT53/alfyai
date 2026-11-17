@@ -140,7 +140,7 @@ function currentSound() {
 	});
 }
 
-/** Brings a note into view (above the sticky footer: its scroll-margin). */
+/** Brings a note into view, clear of the sticky footer (the panel's scroll-padding). */
 function intoView(node: HTMLElement) {
 	node.scrollIntoView?.({ block: "nearest" });
 }
@@ -289,6 +289,7 @@ onMount(() => {
 	title={opened.voice ? $t("readAloud.editor.editTitle") : $t("readAloud.editor.newTitle")}
 	onClose={close}
 	titleVisuallyHidden
+	scrollPanel
 	phonePresentation="fullSheet"
 	maxWidthClass="max-w-[600px]"
 >
@@ -358,6 +359,7 @@ onMount(() => {
 				type="text"
 				maxlength={VOICE_NAME_MAX}
 				value={shownName}
+				placeholder={suggested}
 				oninput={(event) => {
 					name = event.currentTarget.value;
 					nameTouched = true;
@@ -399,14 +401,16 @@ onMount(() => {
 
 	{#snippet footer()}
 		{#if opened.voice}
-			<button
-				type="button"
-				class="voice-editor-delete"
-				disabled={saving}
-				onclick={() => (confirmingDelete = true)}
-			>
-				{$t("readAloud.editor.delete")}
-			</button>
+			<span class="voice-editor-start">
+				<button
+					type="button"
+					class="voice-editor-delete"
+					disabled={saving}
+					onclick={() => (confirmingDelete = true)}
+				>
+					{$t("readAloud.editor.delete")}
+				</button>
+			</span>
 			<span class="voice-editor-actions">
 				<button type="button" class="btn-secondary" disabled={saving} onclick={() => save("create")}>
 					{$t("readAloud.editor.saveAsNew")}
@@ -458,6 +462,13 @@ onMount(() => {
 		margin: 0 -8px 10px 0;
 		padding: 6px 0 6px;
 		background: var(--surface-page);
+	}
+
+	/* Focus never lands under the sticky head (WCAG 2.2 SC 2.4.11): its scroll box
+	   (the centred panel, or the sheet's body) keeps the head's height clear. */
+	:global(.dialog-shell__panel:has(.voice-editor-head)),
+	:global(.dialog-sheet__body:has(.voice-editor-head)) {
+		scroll-padding-top: 4.5rem;
 	}
 
 	:global(.dialog-shell__panel) .voice-editor-head {
@@ -527,15 +538,14 @@ onMount(() => {
 		outline-offset: 2px;
 	}
 
-	/* Clear of the sticky footer when it is scrolled into view. */
-	.voice-editor-note {
-		scroll-margin-bottom: 96px;
-	}
-
+	/* The knobs' columns (each VoiceKnobSlider is a subgrid row): the names' column
+	   fits the longest name in the language with its ↺, so a Hungarian name never
+	   pushes ↺ under its range, and the ranges line up. */
 	.voice-editor-knobs {
-		display: flex;
-		flex-direction: column;
-		gap: 14px;
+		display: grid;
+		grid-template-columns: max-content minmax(0, 1fr) 116px;
+		column-gap: 12px;
+		row-gap: 14px;
 	}
 
 	.voice-editor-name {
@@ -574,14 +584,42 @@ onMount(() => {
 		gap: var(--space-sm, 0.5rem);
 	}
 
+	.voice-editor-start {
+		display: flex;
+	}
+
 	@media (max-width: 639px) {
 		.voice-editor-name {
 			font-size: 16px;
 		}
 
+		.voice-editor-knobs {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		/* Delete keeps its own width on the left and the two saves share the rest,
+		   their words wrapping onto a second line when a language needs it: three
+		   44 px targets that never overlap. Delete sits in a span, so the sheet's
+		   equal-width rule for the footer's own buttons leaves it alone. */
+		.voice-editor-start {
+			flex: none;
+		}
+
+		.voice-editor-delete {
+			min-height: 44px;
+		}
+
 		.voice-editor-actions {
 			flex: 1;
-			justify-content: flex-end;
+			min-width: 0;
+		}
+
+		.voice-editor-actions > button {
+			flex: 1 1 0;
+			min-width: 0;
+			min-height: 44px;
+			white-space: normal;
+			text-align: center;
 		}
 	}
 </style>

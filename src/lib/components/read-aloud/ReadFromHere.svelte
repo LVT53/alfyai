@@ -4,7 +4,8 @@
  * reads from the start of the sentence the selection starts in, to the end of
  * the reply. It floats (fixed, on the body) and never moves a word: above the
  * selection, or below it on a touch screen, whose own menu takes the space
- * above. A long code block is read when the selection starts in it.
+ * above; on the other side when its own has no room, so it never covers the
+ * selection. A long code block is read when the selection starts in it.
  */
 import { Play } from "@lucide/svelte";
 import {
@@ -19,10 +20,13 @@ import { portalToBody } from "$lib/utils/portal";
 let {
 	conversationId,
 	composerHeight,
+	scroller = null,
 	controller = undefined,
 }: {
 	conversationId: string | null;
 	composerHeight: number;
+	/** The thread's scroll container: its top is the top of what can be seen (under the title bar). */
+	scroller?: HTMLElement | null;
 	controller?: ReadAloudController;
 } = $props();
 
@@ -43,6 +47,21 @@ type Target = {
 let target = $state<Target | null>(null);
 let pill = $state<HTMLButtonElement | null>(null);
 let place = $state({ top: 0, left: 0 });
+/**
+ * Where the pointer last went up (a selection ends there). The pill never appears
+ * under it, so a press is always deliberate; when neither side of the selection is
+ * free, the pill takes no press until the pointer has left it once (`armed`).
+ */
+let pointerAt: { x: number; y: number } | null = null;
+let armed = $state(true);
+
+$effect(() => {
+	const record = (event: PointerEvent) => {
+		pointerAt = { x: event.clientX, y: event.clientY };
+	};
+	document.addEventListener("pointerup", record, true);
+	return () => document.removeEventListener("pointerup", record, true);
+});
 let pressing = false;
 const readability = new Map<string, Readability>();
 
@@ -126,7 +145,11 @@ $effect(() => {
 	};
 });
 
-/** Above the selection's first line, or below its last on a touch screen; inside the viewport, above the composer. */
+/**
+ * Above the selection's first line, or below its last on a touch screen; on the
+ * other side when its own has no room (the title bar above, the composer below);
+ * inside what can be seen, above the composer.
+ */
 $effect(() => {
 	const current = target;
 	if (!current) return;
@@ -134,16 +157,42 @@ $effect(() => {
 	const width = box?.width ?? 0;
 	const height = box?.height ?? 0;
 	const coarse = window.matchMedia?.("(pointer: coarse)").matches ?? false;
-	const top = coarse
-		? current.last.bottom + GAP_PX
-		: current.first.top - GAP_PX - height;
-	const left = coarse ? current.last.left : current.first.left;
+	const minTop = Math.max(
+		EDGE_PX,
+		(scroller?.getBoundingClientRect().top ?? 0) + GAP_PX,
+	);
 	const maxTop = window.innerHeight - composerHeight - height - GAP_PX;
+	const above = current.first.top - GAP_PX - height;
+	const below = current.last.bottom + GAP_PX;
+	const roomAbove = above >= minTop;
+	const roomBelow = below <= maxTop;
+	const left = coarse ? current.last.left : current.first.left;
 	const maxLeft = window.innerWidth - EDGE_PX - width;
-	place = {
-		top: Math.max(EDGE_PX, Math.min(top, maxTop)),
-		left: Math.max(EDGE_PX, Math.min(left, maxLeft)),
-	};
+	const x = Math.max(EDGE_PX, Math.min(left, maxLeft));
+	const at = (y: number) => Math.max(minTop, Math.min(y, maxTop));
+	const underPointer = (y: number) =>
+		pointerAt !== null &&
+		pointerAt.x >= x &&
+		pointerAt.x <= x + width &&
+		pointerAt.y >= at(y) &&
+		pointerAt.y <= at(y) + height;
+	const first = coarse ? below : above;
+	const second = coarse ? above : below;
+	const firstFits = coarse ? roomBelow : roomAbove;
+	const secondFits = coarse ? roomAbove : roomBelow;
+	let top = firstFits || !secondFits ? first : second;
+	// Never under the pointer: the other side, when it is free.
+	if (underPointer(top) && top === first && secondFits && !underPointer(second))
+		top = second;
+	else if (
+		underPointer(top) &&
+		top === second &&
+		firstFits &&
+		!underPointer(first)
+	)
+		top = first;
+	armed = !underPointer(top);
+	place = { top: at(top), left: x };
 });
 
 function press() {
@@ -174,7 +223,12 @@ function press() {
 			event.preventDefault();
 			pressing = true;
 		}}
-		onclick={press}
+		onpointerleave={() => (armed = true)}
+		onclick={(event) => {
+			// A keyboard's click (detail 0) is always deliberate.
+			if (!armed && event.detail !== 0) return;
+			press();
+		}}
 	>
 		<Play size={13} strokeWidth={2.5} aria-hidden="true" />
 		<span>{$t("readAloud.readFromHere")}</span>

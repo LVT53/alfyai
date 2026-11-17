@@ -69,7 +69,10 @@ const CARDS = [
  * `files` call, in the exact shape `messages.ts` writes and parses. The
  * conversation was made through the API, so it is the signed-in person's.
  */
-async function seedFilesReply(conversationId: string) {
+async function seedFilesReply(
+	conversationId: string,
+	cards: typeof CARDS = CARDS,
+) {
 	const now = new Date();
 	await db.insert(messages).values([
 		{
@@ -93,7 +96,7 @@ async function seedFilesReply(conversationId: string) {
 					name: "files",
 					input: { action: "search", query: "Q3 report" },
 					status: "done",
-					files: { connectionId: "conn-1", cards: CARDS, total: 8 },
+					files: { connectionId: "conn-1", cards, total: cards.length },
 				},
 			]),
 			createdAt: now,
@@ -133,10 +136,11 @@ test.describe("the files strip", () => {
 		).toHaveCount(0);
 		await expect(message.locator("a.act-file")).toHaveCount(0);
 
-		// Wide: four pictures fill the four slots, and there is no count tile to
-		// say anything is left out.
-		await expect(strip.getByTestId("files-strip-tile")).toHaveCount(4);
-		await expect(strip.getByTestId("files-strip-count")).toHaveCount(0);
+		// Wide: six files over four slots — three tiles and the count tile that
+		// says three are left out. Tiles are files, so the count agrees with the
+		// list behind it.
+		await expect(strip.getByTestId("files-strip-tile")).toHaveCount(3);
+		await expect(strip.getByTestId("files-strip-count")).toHaveCount(1);
 		await expect(strip.locator(".fs-tile")).toHaveCount(4);
 		// The pictures really decoded. A broken preview falls back to the
 		// file-type glyph, so a tile count alone would stay green while every
@@ -163,14 +167,14 @@ test.describe("the files strip", () => {
 			`wide reply scrollWidth ${overflow.scrollWidth} vs clientWidth ${overflow.clientWidth}`,
 		).toBeLessThanOrEqual(overflow.clientWidth + 1);
 
-		// Narrow (360px): three tiles, the third the count tile for the two
-		// pictures the strip leaves out.
+		// Narrow (360px): three slots — two tiles and the count tile for the four
+		// files the strip leaves out.
 		await page.setViewportSize({ width: 360, height: 780 });
 		await expect(strip.getByTestId("files-strip-tile")).toHaveCount(2);
 		await expect(strip.locator(".fs-tile")).toHaveCount(3);
 		const countTile = strip.getByTestId("files-strip-count");
 		await expect(countTile).toHaveCount(1);
-		await expect(countTile).toContainText("+2");
+		await expect(countTile).toContainText("+4");
 
 		// The count tile opens the list. A long Hungarian name is cut with an
 		// ellipsis in it, and its whole name stays reachable on the title.
@@ -237,5 +241,42 @@ test.describe("the files strip", () => {
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("image-lightbox")).toHaveCount(0);
 		await expect(tile).toBeFocused();
+	});
+
+	test("draws a document as a tile that opens it in Nextcloud", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 900 });
+		await login(page);
+		const conversationId = await createEmptyConversation(page);
+		await seedFilesReply(conversationId, [
+			documentCard("Contract draft.docx", 21),
+			documentCard(LONG_HUNGARIAN_NAME, 22),
+		]);
+		await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
+
+		const message = page.getByTestId("assistant-message");
+		await expect(message).toBeVisible({ timeout: 15_000 });
+		const tiles = message.getByTestId("files-strip-tile");
+		await expect(tiles).toHaveCount(2);
+
+		// A document has no picture, so its tile is a link to the file itself in
+		// Nextcloud — there is no viewer to open.
+		await expect(tiles.first()).toHaveAttribute(
+			"href",
+			"https://cloud.example.com/apps/files/?fileid=21",
+		);
+		await expect(tiles.first()).toHaveAttribute("target", "_blank");
+		await expect(tiles.first()).toHaveAttribute(
+			"rel",
+			"noopener noreferrer external",
+		);
+		// It draws its type, not a broken image.
+		await expect(tiles.first().locator("img")).toHaveCount(0);
+		// The tricky long name is still whole in the tile's accessible name.
+		await expect(tiles.nth(1)).toHaveAttribute(
+			"aria-label",
+			new RegExp(LONG_HUNGARIAN_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+		);
 	});
 });

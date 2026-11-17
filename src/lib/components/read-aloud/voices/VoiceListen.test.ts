@@ -78,6 +78,21 @@ afterEach(() => {
 });
 
 describe("VoiceListen", () => {
+	it("turning own words on puts focus in the field it shows", async () => {
+		const t = listen();
+		t.onUseOwnWords.mockImplementation((on: boolean) => {
+			void t.rerender({ useOwnWords: on });
+		});
+		const toggle = screen.getByRole("switch", { name: "Use my own words" });
+		toggle.focus();
+		await fireEvent.click(toggle);
+		await vi.waitFor(() =>
+			expect(document.activeElement).toBe(
+				screen.getByRole("textbox", { name: "Your words" }),
+			),
+		);
+	});
+
 	it("before anything plays the pill shows the sample's two notches and an estimated length", () => {
 		const { container } = listen();
 		const scrubber = screen.getByRole("slider", { name: "Sentence" });

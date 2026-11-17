@@ -251,6 +251,33 @@ describe("POST /api/read-aloud/sessions", () => {
 		expect(logged).toContain("not in its reply");
 	});
 
+	it("201 for a sentence with simple math, read from the reply's TeX", async () => {
+		mocks.reply.mockResolvedValue({
+			content: "The bill: \\(€4{,}341.0505 \\times 0.88 = €3{,}820.12444\\)",
+			documentArtifactId: null,
+		});
+		const response = await POST(
+			eventFor(
+				body({
+					sentences: [
+						{
+							id: "s0",
+							language: "en",
+							paragraphStart: true,
+							words: [
+								word("The"),
+								word("bill:"),
+								word("(€4{,}341.0505 \\times 0.88 = €3{,}820.12444)", "math"),
+							],
+						},
+					],
+				}),
+			),
+		);
+		expect(response.status).toBe(201);
+		expect(mocks.open).toHaveBeenCalledTimes(1);
+	});
+
 	it("201 with Imogen for English and Berta with room.clean 2 for Hungarian", async () => {
 		const response = await POST(eventFor(body()));
 		expect(response.status).toBe(201);

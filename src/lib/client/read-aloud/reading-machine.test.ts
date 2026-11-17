@@ -423,6 +423,13 @@ describe("the reading machine", () => {
 		).toBe(paused);
 	});
 
+	it("after done a new sentence reports nothing: every sentence is made", () => {
+		const done = reduce(playingAt(3), { type: "done" }).state;
+		const next = reduce(done, { type: "progress", sentence: 4, word: null });
+		expect(next.state).toMatchObject({ sentence: 4 });
+		expect(next.commands).toEqual([]);
+	});
+
 	it("a jump reads from the chosen sentence, and a jump while paused stays paused", () => {
 		const jumped = reduce(playingAt(0), { type: "seek", sentence: 6 });
 		expect(jumped.state).toMatchObject({
@@ -512,7 +519,12 @@ describe("the reading machine", () => {
 		expect(ended.commands).toEqual([{ kind: "startTimer", timer: "finished" }]);
 		const gone = reduce(ended.state, { type: "finishedTimeout" });
 		expect(gone.state).toEqual(initialReadingState);
-		expect(gone.commands).toEqual([CLOSE, ...CLEAR_ALL]);
+		// The server closed the session once this browser had all its audio (its
+		// rule): closing here sends no DELETE, which could only answer 404.
+		expect(gone.commands).toEqual([
+			{ kind: "close", ended: true },
+			...CLEAR_ALL,
+		]);
 		// Pressing during Finished reads the reply again.
 		expect(reduce(ended.state, press("m1", 0)).state).toMatchObject({
 			status: "opening",

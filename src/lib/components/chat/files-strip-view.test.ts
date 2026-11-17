@@ -28,10 +28,12 @@ function picture(name: string): ToolCallFileCard {
 	};
 }
 
-// The server gives a document no preview, so the strip never draws it as a tile.
+// The server gives a document no preview: it draws its type, and opens in
+// Nextcloud rather than in the picture viewer.
 function pdf(name: string): ToolCallFileCard {
 	return {
 		...picture(name),
+		path: `Invoices/${name}`,
 		contentType: "application/pdf",
 		previewUrl: null,
 		viewUrl: null,
@@ -49,144 +51,114 @@ function svg(name: string): ToolCallFileCard {
 }
 
 describe("filesStripTiles", () => {
-	it("draws every picture when they fit the slots", () => {
+	it("draws every file when they fit the slots", () => {
 		const cards = ["lake", "harbour", "market"].map(picture);
 
 		expect(filesStripTiles(cards, STRIP_SLOTS_WIDE)).toEqual([
-			{ kind: "picture", card: cards[0], pictureIndex: 0 },
-			{ kind: "picture", card: cards[1], pictureIndex: 1 },
-			{ kind: "picture", card: cards[2], pictureIndex: 2 },
+			{ kind: "file", card: cards[0], pictureIndex: 0 },
+			{ kind: "file", card: cards[1], pictureIndex: 1 },
+			{ kind: "file", card: cards[2], pictureIndex: 2 },
 		]);
 	});
 
-	it("draws every picture when they exactly fill the slots", () => {
+	it("draws every file when they exactly fill the slots", () => {
 		const cards = ["lake", "harbour", "market", "vineyard"].map(picture);
 
 		expect(filesStripTiles(cards, STRIP_SLOTS_WIDE)).toEqual([
-			{ kind: "picture", card: cards[0], pictureIndex: 0 },
-			{ kind: "picture", card: cards[1], pictureIndex: 1 },
-			{ kind: "picture", card: cards[2], pictureIndex: 2 },
-			{ kind: "picture", card: cards[3], pictureIndex: 3 },
+			{ kind: "file", card: cards[0], pictureIndex: 0 },
+			{ kind: "file", card: cards[1], pictureIndex: 1 },
+			{ kind: "file", card: cards[2], pictureIndex: 2 },
+			{ kind: "file", card: cards[3], pictureIndex: 3 },
 		]);
 	});
 
-	it("counts the pictures it leaves out", () => {
+	it("counts the files it leaves out", () => {
 		const cards = ["a", "b", "c", "d", "e", "f"].map(picture);
 		const tiles = filesStripTiles(cards, STRIP_SLOTS_WIDE);
 
 		expect(tiles).toHaveLength(STRIP_SLOTS_WIDE);
 		expect(tiles.slice(0, STRIP_SLOTS_WIDE - 1)).toEqual([
-			{ kind: "picture", card: cards[0], pictureIndex: 0 },
-			{ kind: "picture", card: cards[1], pictureIndex: 1 },
-			{ kind: "picture", card: cards[2], pictureIndex: 2 },
+			{ kind: "file", card: cards[0], pictureIndex: 0 },
+			{ kind: "file", card: cards[1], pictureIndex: 1 },
+			{ kind: "file", card: cards[2], pictureIndex: 2 },
 		]);
-		// The count tile's picture is the first one it hides; a press on the tile
-		// opens the file list, so `pictureIndex` names that picture's place.
+		// The count tile counts files, so `+N` agrees with the list behind it.
 		expect(tiles[3]).toEqual({
 			kind: "count",
 			hidden: 3,
 			cover: cards[3].previewUrl,
-			pictureIndex: 3,
 		});
 	});
 
-	it("never counts a document as a picture", () => {
-		const cards = [
-			picture("lake"),
-			pdf("contract"),
-			picture("harbour"),
-			pdf("invoice"),
-			picture("market"),
-			pdf("letter"),
-		];
+	it("gives a document a tile of its own, and no picture place", () => {
+		const cards = [pdf("contract")];
 
 		expect(filesStripTiles(cards, STRIP_SLOTS_WIDE)).toEqual([
-			{ kind: "picture", card: cards[0], pictureIndex: 0 },
-			{ kind: "picture", card: cards[2], pictureIndex: 1 },
-			{ kind: "picture", card: cards[4], pictureIndex: 2 },
+			{ kind: "file", card: cards[0], pictureIndex: null },
+		]);
+		// An SVG draws its type too, for the same reason: no preview to show.
+		expect(filesStripTiles([svg("logo")], STRIP_SLOTS_WIDE)[0]).toMatchObject({
+			kind: "file",
+			pictureIndex: null,
+		});
+	});
+
+	it("keeps pictures and documents in the order the call returned them", () => {
+		const cards = [picture("lake"), pdf("contract"), picture("harbour")];
+
+		expect(filesStripTiles(cards, STRIP_SLOTS_WIDE)).toEqual([
+			{ kind: "file", card: cards[0], pictureIndex: 0 },
+			{ kind: "file", card: cards[1], pictureIndex: null },
+			{ kind: "file", card: cards[2], pictureIndex: 1 },
 		]);
 	});
 
-	it("counts only pictures when documents overflow with them", () => {
-		// Five pictures and three PDFs over four slots: the count tile hides two
-		// pictures, not cards, and the documents do not shift the picture indices.
+	it("counts a mixed overflow by files, covering with the first hidden picture", () => {
+		// Five files over three slots: two tiles and a count of three, faced with
+		// the first hidden file that has a picture.
 		const cards = [
 			picture("a"),
 			pdf("contract"),
 			picture("b"),
 			pdf("invoice"),
 			picture("c"),
-			pdf("letter"),
-			picture("d"),
-			picture("e"),
 		];
 
-		expect(filesStripTiles(cards, STRIP_SLOTS_WIDE)).toEqual([
-			{ kind: "picture", card: cards[0], pictureIndex: 0 },
-			{ kind: "picture", card: cards[2], pictureIndex: 1 },
-			{ kind: "picture", card: cards[4], pictureIndex: 2 },
-			{
-				kind: "count",
-				hidden: 2,
-				cover: cards[6].previewUrl,
-				pictureIndex: 3,
-			},
+		expect(filesStripTiles(cards, STRIP_SLOTS_NARROW)).toEqual([
+			{ kind: "file", card: cards[0], pictureIndex: 0 },
+			{ kind: "file", card: cards[1], pictureIndex: null },
+			{ kind: "count", hidden: 3, cover: cards[2].previewUrl },
 		]);
 	});
 
-	it("draws nothing when the call found no pictures", () => {
-		expect(filesStripTiles([], STRIP_SLOTS_WIDE)).toEqual([]);
-		expect(filesStripTiles([pdf("contract")], STRIP_SLOTS_WIDE)).toEqual([]);
-	});
-
-	it("draws one picture as one tile", () => {
-		const card = picture("lake");
-
-		expect(filesStripTiles([card], STRIP_SLOTS_WIDE)).toEqual([
-			{ kind: "picture", card, pictureIndex: 0 },
-		]);
-	});
-
-	it("covers the count tile with the first picture it hides", () => {
-		// A count tile exists only past the slots, so its first hidden picture is
-		// always there and covers it; `cover: null` stays the module's fallback.
-		const cards = ["a", "b", "c", "d", "e"].map(picture);
+	it("leaves the count tile bare when every hidden file is a document", () => {
+		const cards = [pdf("a"), pdf("b"), pdf("c"), pdf("d"), pdf("e")];
 
 		expect(filesStripTiles(cards, STRIP_SLOTS_NARROW)).toEqual([
-			{ kind: "picture", card: cards[0], pictureIndex: 0 },
-			{ kind: "picture", card: cards[1], pictureIndex: 1 },
-			{
-				kind: "count",
-				hidden: 3,
-				cover: cards[2].previewUrl,
-				pictureIndex: 2,
-			},
+			{ kind: "file", card: cards[0], pictureIndex: null },
+			{ kind: "file", card: cards[1], pictureIndex: null },
+			{ kind: "count", hidden: 3, cover: null },
 		]);
+	});
+
+	it("draws nothing when the call found nothing", () => {
+		expect(filesStripTiles([], STRIP_SLOTS_WIDE)).toEqual([]);
 	});
 
 	it("narrows to three slots", () => {
 		const cards = ["a", "b", "c", "d", "e", "f"].map(picture);
 
 		expect(filesStripTiles(cards, STRIP_SLOTS_NARROW)).toEqual([
-			{ kind: "picture", card: cards[0], pictureIndex: 0 },
-			{ kind: "picture", card: cards[1], pictureIndex: 1 },
-			{
-				kind: "count",
-				hidden: 4,
-				cover: cards[2].previewUrl,
-				pictureIndex: 2,
-			},
+			{ kind: "file", card: cards[0], pictureIndex: 0 },
+			{ kind: "file", card: cards[1], pictureIndex: 1 },
+			{ kind: "count", hidden: 4, cover: cards[2].previewUrl },
 		]);
 	});
 
-	it("excludes an image with no preview", () => {
-		const cards = [picture("lake"), svg("logo"), picture("harbour")];
+	it("still reports which files the viewer can open", () => {
+		const cards = [picture("lake"), svg("logo"), pdf("contract")];
 
-		expect(stripPictureCards(cards)).toEqual([cards[0], cards[2]]);
-		expect(filesStripTiles(cards, STRIP_SLOTS_WIDE)).toEqual([
-			{ kind: "picture", card: cards[0], pictureIndex: 0 },
-			{ kind: "picture", card: cards[2], pictureIndex: 1 },
-		]);
+		expect(stripPictureCards(cards)).toEqual([cards[0]]);
 	});
 });
 

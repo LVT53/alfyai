@@ -1,6 +1,11 @@
-// Which tiles a files call draws: its pictures, and the count tile that stands in
+// Which tiles a files call draws: its files, and the count tile that stands in
 // for the rest. Pure, like reply-segments.ts and ask-card-view.ts: no Svelte, no
 // DOM, tested without a browser. FilesStrip draws exactly what this returns.
+//
+// A tile is a FILE, not a picture: a card the server could preview draws its
+// picture, and a document (or an SVG, which the server deliberately refuses to
+// preview) draws its type. The count tile therefore counts files, so `+N` agrees
+// with the list behind the chevron.
 import type { ToolCallFileCard } from "$lib/server/services/messages-types";
 import { formatByteSize } from "$lib/utils/format";
 import { formatRelativeTime } from "$lib/utils/time";
@@ -13,59 +18,62 @@ export const STRIP_SLOTS_WIDE = 4;
 export const STRIP_SLOTS_NARROW = 3;
 
 /**
- * One tile of the strip: a picture, or the count tile that says how many pictures
- * the strip leaves out. `pictureIndex` is the picture's place in the call's picture
- * list, so a viewer opened from the tile starts at the picture drawn there.
+ * One tile of the strip: a file, or the count tile that says how many files the
+ * strip leaves out. `pictureIndex` is the file's place in the call's picture
+ * list (the viewer's order) for a file with a picture, and null for a document,
+ * which opens in Nextcloud instead of the viewer.
  */
 export type FilesStripTile =
-	| { kind: "picture"; card: ToolCallFileCard; pictureIndex: number }
-	| {
-			kind: "count";
-			hidden: number;
-			cover: string | null;
-			pictureIndex: number;
-	  };
+	| { kind: "file"; card: ToolCallFileCard; pictureIndex: number | null }
+	| { kind: "count"; hidden: number; cover: string | null };
+
+/** Whether a card draws a picture: the server built it a preview. */
+function isStripPicture(card: ToolCallFileCard): boolean {
+	return card.previewUrl != null;
+}
 
 /**
- * The cards the strip draws as pictures, in card order. A picture is a card the
- * server could preview (`previewUrl`): a document, and an SVG the server
- * deliberately refuses to preview, has none and appears only in the list.
+ * The cards the strip and the viewer draw as pictures, in card order. A document
+ * — and an SVG the server refuses to preview — has no preview and is not one.
  */
 export function stripPictureCards(
 	cards: ToolCallFileCard[],
 ): ToolCallFileCard[] {
-	return cards.filter((card) => card.previewUrl != null);
+	return cards.filter(isStripPicture);
 }
 
 /**
- * The tiles for a call's cards: every picture when they fit `slots`, else the
- * first `slots - 1` pictures and one count tile for the rest. `slots` must be at
- * least 1. The count tile's `cover` is the first picture it hides, and
- * `pictureIndex` is that picture's place in the call's picture list.
+ * The tiles for a call's cards: every file when they fit `slots`, else the first
+ * `slots - 1` files and one count tile for the rest. `slots` must be at least 1.
+ * The count tile's `cover` is the next file's picture when it has one.
  */
 export function filesStripTiles(
 	cards: ToolCallFileCard[],
 	slots: number,
 ): FilesStripTile[] {
-	const pictures = stripPictureCards(cards);
-	if (pictures.length <= slots) {
-		return pictures.map((card, pictureIndex) => ({
-			kind: "picture",
-			card,
-			pictureIndex,
-		}));
+	const pictureIndexes = new Map<string, number>();
+	stripPictureCards(cards).forEach((card, index) => {
+		pictureIndexes.set(card.path, index);
+	});
+
+	const tileOf = (card: ToolCallFileCard): FilesStripTile => ({
+		kind: "file",
+		card,
+		pictureIndex: pictureIndexes.get(card.path) ?? null,
+	});
+
+	if (cards.length <= slots) {
+		return cards.map(tileOf);
 	}
 
 	const drawn = slots - 1;
-	const tiles: FilesStripTile[] = pictures
-		.slice(0, drawn)
-		.map((card, pictureIndex) => ({ kind: "picture", card, pictureIndex }));
-	tiles.push({
-		kind: "count",
-		hidden: pictures.length - drawn,
-		cover: pictures[drawn]?.previewUrl ?? null,
-		pictureIndex: drawn,
-	});
+	const tiles: FilesStripTile[] = cards.slice(0, drawn).map(tileOf);
+	// The count tile's face is the first picture it hides, so a mixed result still
+	// shows a photograph behind the number; a set of documents alone leaves it bare.
+	const cover =
+		cards.slice(drawn).find((card) => card.previewUrl != null)?.previewUrl ??
+		null;
+	tiles.push({ kind: "count", hidden: cards.length - drawn, cover });
 	return tiles;
 }
 

@@ -78,9 +78,10 @@ $effect(() => {
 		aria-haspopup="menu"
 		aria-expanded={open}
 		aria-label="{$t('readAloud.player.speed')}: {format(speed)}"
+		data-widest={format(0.75)}
 		onclick={() => (open ? close(false) : void show())}
 	>
-		{format(speed)}
+		<span class="read-aloud-speed-label">{format(speed)}</span>
 	</button>
 	{#if open}
 		<!-- svelte-ignore a11y_interactive_supports_focus -->
@@ -121,6 +122,8 @@ $effect(() => {
 	}
 
 	.read-aloud-speed-chip {
+		display: inline-grid;
+		place-items: center;
 		height: 34px;
 		min-width: 54px;
 		padding: 0 10px;
@@ -134,6 +137,18 @@ $effect(() => {
 		font-variant-numeric: tabular-nums;
 		cursor: pointer;
 		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+
+	/* The widest speed, unseen in the same cell, sizes the chip: it never changes
+	   width with the speed, so the scrubber's notches never move. */
+	.read-aloud-speed-label,
+	.read-aloud-speed-chip::after {
+		grid-area: 1 / 1;
+	}
+
+	.read-aloud-speed-chip::after {
+		content: attr(data-widest);
+		visibility: hidden;
 	}
 
 	.read-aloud-speed-chip:hover {
@@ -173,6 +188,9 @@ $effect(() => {
 		font-variant-numeric: tabular-nums;
 		text-align: center;
 		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
 	.read-aloud-speed-item:hover {

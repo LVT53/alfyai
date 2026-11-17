@@ -6,7 +6,7 @@
  * Decision 15) and saves each choice when it changes; a failed save puts the
  * select back and says so. It is drawn only while read aloud is on.
  */
-import { onDestroy, untrack } from "svelte";
+import { onDestroy, tick, untrack } from "svelte";
 import { Plus, TriangleAlert } from "@lucide/svelte";
 import { spotlightTarget } from "$lib/actions/spotlight";
 import {
@@ -36,12 +36,25 @@ import ReadAloudNote from "../ReadAloudNote.svelte";
 import VoiceEditor from "./VoiceEditor.svelte";
 import VoicePlayButton from "./VoicePlayButton.svelte";
 
-let { preview = undefined }: { preview?: VoicePreview } = $props();
+let {
+	preview = undefined,
+	initial = null,
+}: {
+	preview?: VoicePreview;
+	/** The voices the Settings page brought: the card draws them in its first paint, so nothing below it moves. */
+	initial?: ReadAloudVoiceSettings | null;
+} = $props();
 
 const LANGUAGES = ["en", "hu"] as const;
 type Language = (typeof LANGUAGES)[number];
 
-let settings = $state<ReadAloudVoiceSettings | null>(null);
+let settings = $state<ReadAloudVoiceSettings | null>(untrack(() => initial));
+/**
+ * Read aloud is on: the app says so once its layout has mounted, and the page's
+ * voices say so already in the server's page, so the card is drawn there and does
+ * not appear later, pushing everything below it down (the second re-walk's New 5).
+ */
+const available = $derived($readAloudAvailable || initial !== null);
 let loading = $state(false);
 let loadFailed = $state(false);
 /** The save that failed, to send again from Try again. */
@@ -174,12 +187,15 @@ function newVoiceBase(): string {
 	return defaultBase(language);
 }
 
+/** One sound at a time (spec §4.6): a sample playing from the card stops as the editor opens. */
 function openNew() {
+	player().stop();
 	player().unlock();
 	editor = { voice: null, startFrom: newVoiceBase() };
 }
 
 function openEdit(voice: PersonalVoiceInfo) {
+	player().stop();
 	player().unlock();
 	editor = { voice, startFrom: voice.base };
 }
@@ -195,16 +211,21 @@ function onSaved(voice: PersonalVoiceInfo, replacedId: string | null) {
 	editor = null;
 }
 
+let newVoiceButton = $state<HTMLButtonElement | null>(null);
+
 function onDeleted(id: string, choice: VoiceChoice) {
 	if (settings) {
 		settings.voices = settings.voices.filter((entry) => entry.id !== id);
 		settings.choice = choice;
 	}
 	editor = null;
+	// The editor's opener (the voice's Edit) went with the voice: focus lands on
+	// New voice once the editor has gone, not on <body>.
+	void tick().then(() => newVoiceButton?.focus());
 }
 </script>
 
-{#if $readAloudAvailable}
+{#if available}
 	<section class="settings-card read-aloud-card" id="settings-section-read-aloud">
 		<div class="settings-card-head">
 			<div class="settings-card-head-text">
@@ -244,7 +265,7 @@ function onDeleted(id: string, choice: VoiceChoice) {
 						</div>
 						<div class="settings-row-control">
 							<select
-								class="settings-select"
+								class="settings-select read-aloud-voice-select"
 								aria-label={label}
 								disabled={!settings}
 								value={settings?.choice[language] ?? ""}
@@ -307,12 +328,23 @@ function onDeleted(id: string, choice: VoiceChoice) {
 			<div class="read-aloud-voices">
 				<div class="read-aloud-voices-head">
 					<h3 class="read-aloud-voices-title">{$t("readAloud.settings.yourVoices")}</h3>
-					<button type="button" class="btn-secondary read-aloud-new" disabled={!settings} onclick={openNew}>
+					<button
+						bind:this={newVoiceButton}
+						type="button"
+						class="btn-secondary read-aloud-new"
+						disabled={!settings}
+						onclick={openNew}
+					>
 						<Plus size={14} strokeWidth={2} aria-hidden="true" />
 						{$t("readAloud.settings.newVoice")}
 					</button>
 				</div>
-				{#if settings && settings.voices.length === 0}
+				{#if !settings}
+					<!-- While the voices load, their first line's room is kept: the card does not grow when they come. -->
+					<p class="read-aloud-voices-empty read-aloud-voices-waiting" aria-hidden="true">
+						{$t("readAloud.settings.empty")}
+					</p>
+				{:else if settings.voices.length === 0}
 					<p class="read-aloud-voices-empty">{$t("readAloud.settings.empty")}</p>
 				{:else if settings}
 					<ul class="read-aloud-voice-list">
@@ -392,6 +424,27 @@ function onDeleted(id: string, choice: VoiceChoice) {
 
 	.settings-row-group + .settings-row {
 		border-top: 1px solid var(--border-default);
+	}
+
+	/* The voice rows have no help line: their label sits level with the picker,
+	   side by side. A phone stacks them, where the label starts at the left. */
+	@media (min-width: 641px) {
+		.settings-row-group .settings-row {
+			align-items: center;
+		}
+	}
+
+	/* A picker keeps its width while its voices load (an empty one is 46 px): the
+	   widest a settings select grows. On a phone it is a full-width line anyway
+	   (the settings page's `.settings-row--stack`, below 641 px). */
+	@media (min-width: 641px) {
+		.read-aloud-voice-select {
+			min-width: 280px;
+		}
+	}
+
+	.read-aloud-voices-waiting {
+		visibility: hidden;
 	}
 
 	.read-aloud-voices {

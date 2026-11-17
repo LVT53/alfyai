@@ -36,52 +36,49 @@ compact version that hides every picture would miss the point.
 
 ## The shape
 
-A strip of square pictures, exactly as wide as the pictures, with a chevron
-immediately after them. Nothing behind it, nothing stretched.
+A strip of square tiles, exactly as wide as the tiles, with a chevron immediately
+after them. Nothing behind it, nothing stretched.
 
 ```
 Found six — the June folder has them all.
 [ 78 ][ 78 ][ 78 ][+3]  ⌄
 ```
 
-- **Tiles are 78px**, 7px apart, 10px corners.
-- **At most four tiles** on a wide screen. With more than four **pictures** the
-  fourth is the count tile: the next picture, dimmed, with `+N` over it, where
-  `N = pictures − 3` — the pictures the strip leaves out, not the cards.
-- **At most three tiles** at 480px and below; the count tile carries
-  `N = pictures − 2`.
-- **Clicking a picture opens the viewer** — the app's existing `ImageLightbox`,
-  lazily loaded, handed every picture of the call, opened at the one clicked, so
+- **One block per reply**, not one per `files` call. A reply that searched twice
+  used to stack two strips two pixels apart, which read as one slab; the caller
+  merges the reply's cards before the component sees them, so the reply draws
+  one strip, one chevron and one list however many calls found files.
+- **Tiles are files.** A tile is 78px, 7px apart, 10px corners. A file the server
+  could preview draws its picture; a document (and an SVG the server refuses to
+  preview) draws its type icon and its extension in the same square.
+- **At most four tiles** on a wide screen; **three at 480px and below**. Past
+  that, the last slot is the count tile: the next hidden picture behind a dark
+  veil, with `+N` where `N` is how many **files** the strip leaves out.
+- **A picture tile opens the viewer** — the app's existing `ImageLightbox`,
+  lazily loaded, handed every picture of the reply, opened at the one clicked, so
   the arrows move between them.
-- **The chevron opens the file list**, and the count tile does too. Closed by
-  default. A count tile exists only when pictures overflow the slots, so the
-  picture it covers always exists — `cover: null` is unreachable — and its
-  `pictureIndex` names the first picture it hides.
+- **A document tile opens that file in Nextcloud**, in a new tab: a document has
+  no picture for the viewer to show, so its tile is a link, not a button.
+- **The chevron and the count tile open the file list**, closed by default.
 - **The list** is one line per file: a 40px picture (or file-type icon), the
   name, `size · date`, and "Open in Nextcloud". Every line links to its file.
-- **A call that found no pictures draws no strip.** It draws the quiet line —
-  `Searched your files · 6 files` — with the same chevron and the same list.
-- **A call that found one file** keeps the single card (56px picture, name,
-  `size · date`, "Open in Nextcloud"). Its picture opens the viewer; its link
-  opens Nextcloud.
+- **A call that found one file** keeps the single card (56px picture or type
+  icon, name, `size · date`, "Open in Nextcloud"); its picture opens the viewer
+  and its link opens Nextcloud.
+- **Spacing:** 12px from the reply's words to the tiles, 10px from the tiles down
+  to the list, 4px between list rows, and 12px from the block to whatever the
+  message draws below it.
 
 ## The states, exhaustively
 
-| Results | Pictures | What is drawn |
-|---|---|---|
-| 1, a picture | 1 | card, picture opens the viewer |
-| 1, a document | 0 | card with the file-type icon |
-| 2+ | 1 or more, and they fit the slots | strip of one tile per picture, no count tile |
-| 2+ | more than the slots | `slots − 1` picture tiles + count tile (`+N` pictures), chevron |
-| 2+ | 0 | quiet line, chevron |
-| any, all previews failed | — | tiles fall back to the file-type icon; the strip stays |
-
-Above one result, the number of results decides nothing: the pictures do. Slots
-are four on a wide screen and three at 480px and below (decision 4). Six cards
-that hold three photos and three PDFs draw three picture tiles and no count
-tile, the documents being in the list with their icons. Five pictures draw three
-tiles and a count tile on a wide screen, and two tiles and a count tile on a
-phone.
+| Results | What is drawn |
+|---|---|
+| 1, a picture | card, picture opens the viewer |
+| 1, a document | card with the file-type icon |
+| 2–4 | one tile per file (picture or type icon), chevron, no count tile |
+| 5+ | three tiles + count tile (`+N` files hidden), chevron |
+| any, some previews failed | those tiles draw their type icon; the strip stays |
+| 0 | nothing at all |
 
 ## Edge cases, decided
 
@@ -97,8 +94,9 @@ phone.
 - **A refused or broken preview** draws the file-type icon in the same square,
   except the count tile, which has no icon and keeps its number over the neutral
   square. A broken `<img>` is never shown.
-- **Non-images never appear as tiles**, even when they are among the results;
-  they are in the list, with their icon.
+- **Documents appear as tiles too**, with their type icon and extension, and
+  open in Nextcloud rather than the viewer. A set of documents alone therefore
+  draws a strip, not a bare sentence.
 - **A picture that is very tall or very wide** is cropped square in the tile
   (`object-fit: cover`) and fitted whole in the viewer.
 - **The cap stays six per reply**, deduplicated by path. The reply-level
@@ -141,7 +139,8 @@ phone.
 - 78px tiles, four across on a wide screen, three on a phone.
 - The count tile sits last and is dimmed, rather than a text count after the
   strip.
-- A quiet line, not an empty strip, when there are no pictures.
+- Documents draw tiles of their own, so a document-only result is a strip rather
+  than a sentence.
 - Six per reply stays.
 - The single-file card keeps its shape and only gains the viewer.
 
@@ -164,7 +163,8 @@ phone.
 - The chevron opens a compact list; a second press closes it.
 - A long Hungarian file name truncates in every place it is drawn, on a phone
   too.
-- A document-only search draws a quiet line and no strip.
+- A document-only search draws a strip of document tiles whose presses open the
+  files in Nextcloud.
 - Gates green: `npm run check` 0/0, `npm test`, `npm run build` with zero
   warnings, Fallow at its baseline, and the chat and image specs in full.
 
@@ -174,9 +174,9 @@ The seven things a builder could otherwise guess wrong.
 
 1. **The numbers mean what is drawn.** The card payload is already capped at six
    per reply; `capFileCards` rewrites each row's `total` to the number of cards
-   that row actually shows. So the quiet line says `6 files`, not the twelve the
-   call may have returned, and the `+N` on the count tile counts the pictures
-   that row has but does not show. The reply-level "N more" line
+   that row actually shows. So the strip draws six files, not the twelve the call
+   may have returned, and the `+N` on the count tile counts the files that row
+   has but does not show. The reply-level "N more" line
    (`toolActivity.filesMore`, `fileCardsRemainder`) is **removed**: the count
    tile already says it, and two remainders that disagree is what the first pass
    would have produced. The model still sees every result and can say "found
@@ -232,8 +232,8 @@ The seven things a builder could otherwise guess wrong.
 7. **`ToolCallFilesData.total` is still produced, capped, and unread.** The
    server fills it (`buildFilesCards`: the count of the call's non-directory
    results, while only the stored cards are bounded), `capFileCards` rewrites it
-   to the number of cards that row keeps, and nothing draws it. The quiet line
-   counts `cards.length`, the count tile counts pictures, and the reply-level
+   to the number of cards that row keeps, and nothing draws it. The count tile
+   counts files, the strip's tiles count files, and the reply-level
    remainder is gone (decision 1). This is the one place the design is silent:
    the shipped state, not a rule to copy, and no later reader should build a
    second count from it without deciding what it would mean.

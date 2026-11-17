@@ -38,36 +38,51 @@ let {
 const floating = $derived(variant === "floating");
 const waiting = $derived(view.status === "waiting");
 const stopped = $derived(view.status === "stopped");
+/** The voice fell behind mid-reading: play spins, and a press still pauses, as the speaker does. */
+const catchingUp = $derived(view.buffering && view.status === "playing");
+/** Getting the voice: a jump, a wait to go on, or the voice falling behind mid-reading. */
 const spinning = $derived(
-	view.status === "seeking" || view.status === "waiting",
+	view.status === "seeking" || view.status === "waiting" || catchingUp,
 );
 /** Nothing to step through: a reading waiting to continue, or a pill with no sentences. */
 const stepless = $derived(waiting || view.count === 0);
 const playLabel = $derived(
 	stopped
 		? $t("readAloud.tryAgain")
-		: spinning
-			? $t("readAloud.player.waiting")
-			: view.status === "playing"
-				? $t("readAloud.player.pause")
-				: $t("readAloud.player.play"),
+		: catchingUp
+			? $t("readAloud.player.pause")
+			: spinning
+				? $t("readAloud.player.waiting")
+				: view.status === "playing"
+					? $t("readAloud.player.pause")
+					: $t("readAloud.player.play"),
 );
 
 function onPlay() {
 	if (stopped) actions.retry();
-	else if (!spinning) actions.toggle();
+	else if (!spinning || catchingUp) actions.toggle();
 }
+
+/** The phone's two rows: the breakpoint of the CSS below. */
+const NARROW_QUERY = "(max-width: 767px)";
+const narrowQuery = () =>
+	typeof window !== "undefined" && typeof window.matchMedia === "function"
+		? window.matchMedia(NARROW_QUERY)
+		: null;
+let narrow = $state(narrowQuery()?.matches === true);
+$effect(() => {
+	const query = narrowQuery();
+	if (!query || typeof query.addEventListener !== "function") return;
+	const update = () => {
+		narrow = query.matches;
+	};
+	update();
+	query.addEventListener("change", update);
+	return () => query.removeEventListener("change", update);
+});
 </script>
 
-<div
-	class="read-aloud-pill"
-	role="group"
-	aria-label={$t("readAloud.player.label")}
-	data-read-aloud-player
-	data-variant={variant}
-	data-failed={stopped ? "" : undefined}
-	data-finished={floating && view.status === "finished" ? "" : undefined}
->
+{#snippet transport()}
 	<div class="read-aloud-transport">
 		<button
 			type="button"
@@ -99,6 +114,9 @@ function onPlay() {
 			<SkipForward size={17} strokeWidth={2} aria-hidden="true" />
 		</button>
 	</div>
+{/snippet}
+
+{#snippet timeline()}
 	<div class="read-aloud-timeline">
 		<span class="read-aloud-time">{view.elapsed}</span>
 		<ReadAloudScrubber
@@ -113,28 +131,65 @@ function onPlay() {
 			onDragEnd={(i) => actions.endDrag(i)}
 			onStep={(i) => actions.seek(i)}
 		/>
-		<span class="read-aloud-time">{view.totalIsEstimate ? "≈" : ""}{view.total}</span>
+		<!-- The "≈" keeps its place once the total is exact, so nothing moves when it goes. -->
+		<span class="read-aloud-time"
+			><span class="read-aloud-approx" class:exact={!view.totalIsEstimate} aria-hidden={view.totalIsEstimate ? undefined : "true"}
+				>≈</span
+			>{view.total}</span
+		>
 	</div>
+{/snippet}
+
+{#snippet locate()}
+	<button
+		type="button"
+		class="read-aloud-button read-aloud-locate"
+		aria-label={$t("readAloud.player.locate")}
+		onclick={() => actions.locate?.()}
+	>
+		<LocateFixed size={17} strokeWidth={2} aria-hidden="true" />
+	</button>
+{/snippet}
+
+{#snippet speedChip()}
+	<div class="read-aloud-speed-slot">
+		<ReadAloudSpeedMenu speed={view.speed} onSelect={(value) => actions.setSpeed?.(value)} />
+	</div>
+{/snippet}
+
+{#snippet stop()}
+	<button
+		type="button"
+		class="read-aloud-button read-aloud-stop"
+		aria-label={$t("readAloud.player.stop")}
+		onclick={() => actions.stop?.()}
+	>
+		<X size={17} strokeWidth={2} aria-hidden="true" />
+	</button>
+{/snippet}
+
+<div
+	class="read-aloud-pill"
+	role="group"
+	aria-label={$t("readAloud.player.label")}
+	data-read-aloud-player
+	data-variant={variant}
+	data-failed={stopped ? "" : undefined}
+	data-finished={floating && view.status === "finished" ? "" : undefined}
+>
+	<!-- The controls come in the order they are drawn, so Tab follows the layout
+	     (WCAG 2.4.3): one row on a desktop, two on a phone (the CSS below). -->
+	{#if narrow}
+		{@render timeline()}
+		{#if floating}{@render speedChip()}{/if}
+		{@render transport()}
+		{#if floating}{@render locate()}{@render stop()}{/if}
+	{:else}
+		{@render transport()}
+		{@render timeline()}
+		{#if floating}{@render locate()}{@render speedChip()}{@render stop()}{/if}
+	{/if}
 	{#if floating}
-		<button
-			type="button"
-			class="read-aloud-button read-aloud-locate"
-			aria-label={$t("readAloud.player.locate")}
-			onclick={() => actions.locate?.()}
-		>
-			<LocateFixed size={17} strokeWidth={2} aria-hidden="true" />
-		</button>
-		<div class="read-aloud-speed-slot">
-			<ReadAloudSpeedMenu speed={view.speed} onSelect={(value) => actions.setSpeed?.(value)} />
-		</div>
-		<button
-			type="button"
-			class="read-aloud-button read-aloud-stop"
-			aria-label={$t("readAloud.player.stop")}
-			onclick={() => actions.stop?.()}
-		>
-			<X size={17} strokeWidth={2} aria-hidden="true" />
-		</button>
 		<span class="read-aloud-finished" aria-hidden={view.status === "finished" ? "false" : "true"}
 			>{$t("readAloud.player.finished")}</span
 		>
@@ -196,6 +251,10 @@ function onPlay() {
 		font-size: 11.5px;
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
+	}
+
+	.read-aloud-approx.exact {
+		visibility: hidden;
 	}
 
 	.read-aloud-speed-slot {
@@ -273,11 +332,15 @@ function onPlay() {
 		opacity: 1;
 	}
 
-	/* The phone: the scrubber row on top, then the speed chip, ⏮ ▶ ⏭ in the middle, ⌖ ✕. */
+	/* The phone: the scrubber row on top, then the speed chip, ⏮ ▶ ⏭ in the middle, ⌖ ✕.
+	   A side column is never narrower than its buttons (⌖'s margin is ✕'s room), so on
+	   a narrow phone ⏮ ▶ ⏭ moves off the middle instead of under ⌖. */
 	@media (max-width: 767px) {
 		.read-aloud-pill {
 			display: grid;
-			grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+			grid-template-columns: 1fr auto 1fr;
+			/* No gaps between the columns, as in the prototype: at 360 px the row fits. */
+			column-gap: 0;
 			row-gap: 4px;
 			padding: 8px 12px;
 			border-radius: 24px;
@@ -322,6 +385,42 @@ function onPlay() {
 		.read-aloud-play {
 			width: 52px;
 			height: 52px;
+		}
+
+		.read-aloud-play :global(svg) {
+			width: 20px;
+			height: 20px;
+		}
+	}
+
+	/* Below 360 px the row would not fit at 44 px: 40 px buttons, a 48 px play and
+	   tighter gaps, so ✕ stays on the screen at 320 px. */
+	@media (max-width: 359px) {
+		.read-aloud-pill {
+			padding: 8px;
+		}
+
+		.read-aloud-transport {
+			gap: 4px;
+		}
+
+		.read-aloud-button {
+			width: 40px;
+			height: 40px;
+		}
+
+		.read-aloud-play {
+			width: 48px;
+			height: 48px;
+		}
+
+		.read-aloud-locate {
+			margin-right: 42px;
+		}
+
+		.read-aloud-speed-slot :global(.read-aloud-speed-chip) {
+			min-width: 48px;
+			padding: 0 8px;
 		}
 	}
 </style>

@@ -121,6 +121,20 @@ export type AudioLike = EventTarget & {
 	removeAttribute(name: string): void;
 };
 
+/**
+ * The browser's Media Session: what the OS's media keys, headphones and Now
+ * Playing talk to. Without handlers of its own, a page's paused audio is theirs to
+ * resume; the reading holds it while it reads and lets it go when it ends.
+ */
+export type MediaSessionLike = {
+	playbackState: "none" | "paused" | "playing";
+	metadata: unknown;
+	setActionHandler(
+		action: "play" | "pause" | "stop",
+		handler: (() => void) | null,
+	): void;
+};
+
 /** What the controller needs of an `EventSource`. */
 export type EventSourceLike = EventTarget & {
 	readonly readyState: number;
@@ -155,6 +169,8 @@ export type ReadAloudDeps = {
 	requestFocus: (rect: () => DOMRect | null, mode: "center" | "reveal") => void;
 	/** Calls `onChange` when the thread's DOM changes; returns the way to stop. */
 	observe: (target: Node, onChange: () => void) => () => void;
+	/** Absent (null) where the browser has none. */
+	mediaSession?: MediaSessionLike | null;
 };
 
 const EVENTSOURCE_CLOSED = 2;
@@ -284,7 +300,68 @@ export function createReadAloudController(
 			stopRecovery();
 		if (state.status === "idle") deactivate();
 		else activate();
+		holdMediaSession();
 		publish();
+	}
+
+	// -------------------------------------------------------------------
+	// The OS's media keys (the owner's replay on staging, 2026-11-17)
+	// -------------------------------------------------------------------
+
+	/** A reading that has, or is getting, sound to stop or resume. */
+	const reads = () =>
+		state.status !== "idle" &&
+		state.status !== "finished" &&
+		state.status !== "startFailed";
+	/** The reading asked for sound: a start, a jump, a resume, or the unlock clip. */
+	const wantsSound = () =>
+		isUnlockClip() ||
+		state.status === "opening" ||
+		state.status === "seeking" ||
+		state.status === "playing";
+
+	let mediaHeld = false;
+
+	function setMediaAction(
+		action: "play" | "pause" | "stop",
+		handler: (() => void) | null,
+	) {
+		try {
+			deps.mediaSession?.setActionHandler(action, handler);
+		} catch {
+			// An action this browser does not know: its keys do nothing here.
+		}
+	}
+
+	/**
+	 * While a reading reads, the Media Session is the reading's: play and pause go
+	 * to the machine and its state is published. When it ends the session is let
+	 * go ("none", no handlers), so no key can wake a reading that is over.
+	 */
+	function holdMediaSession() {
+		const media = deps.mediaSession;
+		if (!media) return;
+		if (!reads()) {
+			if (!mediaHeld) return;
+			mediaHeld = false;
+			for (const action of ["play", "pause", "stop"] as const)
+				setMediaAction(action, null);
+			media.playbackState = "none";
+			media.metadata = null;
+			return;
+		}
+		if (!mediaHeld) {
+			mediaHeld = true;
+			setMediaAction("play", () => {
+				if (state.status === "paused" || state.status === "stopped")
+					dispatch({ type: "toggle" });
+			});
+			setMediaAction("pause", () => {
+				if (state.status === "playing") dispatch({ type: "toggle" });
+			});
+			setMediaAction("stop", () => dispatch({ type: "stop" }));
+		}
+		media.playbackState = wantsSound() ? "playing" : "paused";
 	}
 
 	function run(command: ReadingCommand, previous: ReadingState) {
@@ -294,7 +371,7 @@ export function createReadAloudController(
 				return;
 			case "close":
 				openToken += 1;
-				closeSession();
+				closeSession({ cancel: command.ended !== true });
 				return;
 			case "play":
 				expectPause = false;
@@ -387,6 +464,13 @@ export function createReadAloudController(
 			: [];
 	}
 
+	/** Builds a reading's script once its detector is there; a reading that has one keeps it. */
+	function buildScriptOnce(target: Reading) {
+		if (target.script || !detect) return;
+		setScript(target, buildFor(target));
+		target.known = new Map();
+	}
+
 	async function ensureDetector(): Promise<Detect> {
 		detect ??= await deps.loadDetector();
 		return detect;
@@ -450,12 +534,13 @@ export function createReadAloudController(
 			dispatch({ type: "stop" });
 			return;
 		}
+		// After the first reading the detector is there, so the script is built before
+		// this press's view is published: a switch inside the open player shows the
+		// new reply's sentences at once, never "Sentence 0 of 0".
+		buildScriptOnce(target);
 		await ensureDetector();
 		if (token !== openToken) return;
-		if (!target.script) {
-			setScript(target, buildFor(target));
-			target.known = new Map();
-		}
+		buildScriptOnce(target);
 		const script = target.script;
 		const sentences = script?.sentences.slice(from) ?? [];
 		if (!script || sentences.length === 0) {
@@ -527,17 +612,21 @@ export function createReadAloudController(
 		};
 	}
 
-	function closeSession() {
+	/** `cancel`: tell the server to close it too (not when the reading came to its end). */
+	function closeSession({ cancel = true }: { cancel?: boolean } = {}) {
+		endBuffering();
 		const closing = session;
 		session = null;
 		lastLocate = null;
 		expectPause = false;
 		closing?.events?.close();
+		// Torn down, so nothing can resume it: paused, with no source left to play.
 		if (!isUnlockClip() && audio.src !== "") {
+			audio.pause();
 			audio.removeAttribute("src");
 			audio.load();
 		}
-		if (closing) api.cancelReadingSession(closing.id);
+		if (closing && cancel) api.cancelReadingSession(closing.id);
 	}
 
 	function openEvents(owner: Session): EventSourceLike {
@@ -731,13 +820,46 @@ export function createReadAloudController(
 		if (active) frame = deps.requestFrame(tick);
 	}
 
+	// The voice falls behind (owner, 2026-11-17: "Yes, spin it"): the audio waits for
+	// data while the reading plays. Shown after a wait of over half a second, so it
+	// never flickers, and gone the moment playback goes on.
+	const BUFFERING_SHOWS_AFTER_MS = 500;
+	let buffering = false;
+	let bufferingTimer: unknown = null;
+	function endBuffering() {
+		if (bufferingTimer !== null) deps.clearTimeout(bufferingTimer);
+		bufferingTimer = null;
+		if (!buffering) return;
+		buffering = false;
+		publish();
+	}
+	audio.addEventListener("waiting", () => {
+		if (!hasSessionAudio() || state.status !== "playing") return;
+		if (bufferingTimer !== null || buffering) return;
+		bufferingTimer = deps.setTimeout(() => {
+			bufferingTimer = null;
+			if (state.status !== "playing" || !hasSessionAudio()) return;
+			buffering = true;
+			publish();
+		}, BUFFERING_SHOWS_AFTER_MS);
+	});
+
+	// Nothing plays that the reading did not ask for: the OS's media keys, Now
+	// Playing or headphones may resume a paused or finished reading by themselves.
+	audio.addEventListener("play", () => {
+		if (wantsSound()) return;
+		if (hasSessionAudio()) expectPause = true;
+		audio.pause();
+	});
 	audio.addEventListener("playing", () => {
+		endBuffering();
 		if (!hasSessionAudio()) return;
 		expectPause = false;
 		if (state.status === "opening" || state.status === "seeking")
 			dispatch({ type: "firstAudio" });
 	});
 	audio.addEventListener("pause", () => {
+		endBuffering();
 		if (!hasSessionAudio() || audio.ended) return;
 		if (expectPause) {
 			expectPause = false;
@@ -809,9 +931,11 @@ export function createReadAloudController(
 			speed: state.speed,
 			failure: state.failure,
 			busy: state.busy,
+			buffering: buffering && state.status === "playing",
 			drag: state.drag?.target ?? null,
+			// The end's marks fade while "Finished" shows (spec §4.2).
 			marks:
-				state.status === "idle" || !current
+				state.status === "idle" || state.status === "finished" || !current
 					? null
 					: {
 							sentence: uniqueRanges(current.ranges),
@@ -835,6 +959,7 @@ export function createReadAloudController(
 			view.speed,
 			view.failure,
 			view.busy,
+			view.buffering,
 			view.drag,
 			state.word,
 			script !== null && script === reading?.script ? script.totalChars : null,
@@ -1010,5 +1135,9 @@ function browserDeps(): ReadAloudDeps {
 			});
 			return () => observer.disconnect();
 		},
+		mediaSession:
+			typeof navigator !== "undefined" && "mediaSession" in navigator
+				? navigator.mediaSession
+				: null,
 	};
 }

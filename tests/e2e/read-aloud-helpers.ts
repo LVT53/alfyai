@@ -223,8 +223,11 @@ export function readAloudUi(page: Page) {
 		stage: page.locator(".read-aloud-stage"),
 		/** A button of the player, by its name ("Next sentence", "Stop reading"…). */
 		button: (name: string) => player.getByRole("button", { name, exact: true }),
+		/** The play button, whatever its name: that says what a press does ("Play", "Pause"…). */
+		play: player.locator(".read-aloud-play"),
 		slider: page.getByRole("slider", { name: "Sentence" }),
-		speed: page.getByTestId("read-aloud-speed"),
+		/** The speed chip ("Speed: 1×"). */
+		speed: player.getByRole("button", { name: /^Speed/ }),
 		note: page.locator(".read-aloud-note"),
 		/** The tint of the sentence being read. */
 		tint: page.locator(".read-aloud-sentence .read-aloud-box"),

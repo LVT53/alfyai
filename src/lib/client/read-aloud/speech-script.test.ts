@@ -229,16 +229,19 @@ describe("buildSpeechScript", () => {
 		]);
 	});
 
-	it("drops formulas written in \\(…\\) and \\[…\\], which the chat shows in plain brackets", () => {
+	it("reads simple formulas written in \\(…\\) and \\[…\\], which the chat shows in plain brackets, and drops the rest", () => {
 		// marked reads \( and \[ as escapes, so the reply shows "(x^2 + y^2 = z^2)" (early review R13).
+		// Simple math is read as words (the owner's staging find); no TeX reaches the voice.
 		const script = build(
 			reply(
-				"<p>The formula (x^2 + y^2 = z^2) holds, and [\\frac{a}{b} = c] too (as noted).</p>",
+				"<p>The formula (x^2 + y^2 = z^2) holds, and [\\frac{a}{b} = c] too, unlike (\\sum_{i=1}^{n} i) (as noted).</p>",
 			),
 		);
 		const spoken = bare(tokensOf(script)).replace(/[()]/g, "");
-		expect(spoken).not.toMatch(/\^|\\|frac|x2|y2|z2/);
-		expect(spoken).toContain("The formula holds and too as noted");
+		expect(spoken).not.toMatch(/\^|\\|frac|sum|x2|y2|z2/);
+		expect(spoken).toBe(
+			"The formula x squared plus y squared equals z squared holds and a over b equals c too unlike as noted",
+		);
 	});
 
 	it("reads a snake_case name in brackets, which is no formula", () => {
@@ -1136,6 +1139,155 @@ describe("the closing stop", () => {
 	});
 });
 
+describe("simple math (the owner's staging find, 2026-11-17)", () => {
+	const SUM = "(€4{,}341.0505 \\times 0.88 = €3{,}820.12444)";
+
+	it("reads the owner's sum, as one word marked whole while it is said", () => {
+		const root = reply(`<p>It wouldn't read this at all: ${SUM}</p>`);
+		const script = build(root);
+		const words = script.sentences.flatMap((s) => s.words);
+		const sum = words.find((word) => word.kind === "math");
+		expect(sum?.shown).toBe(SUM);
+		// The sum ends the paragraph, so the stop that closes every unit is on its last token.
+		expect(sum?.tokens).toEqual([
+			"€4341.0505",
+			"times",
+			"0.88",
+			"equals",
+			"€3820.12444.",
+		]);
+		expect(sum?.range.toString()).toBe(SUM);
+		expect(tokensOf(script).join(" ")).toBe(
+			"It wouldn't read this at all: €4341.0505 times 0.88 equals €3820.12444.",
+		);
+	});
+
+	it("reads it in Hungarian, with the dictionary's words", () => {
+		const script = build(reply(`<p>Így számolj: ${SUM} és kész.</p>`));
+		expect(script.sentences[0]?.language).toBe("hu");
+		expect(tokensOf(script).join(" ")).toBe(
+			"Így számolj: 4341,0505 € szorozva 0,88 egyenlő 3820,12444 € és kész.",
+		);
+	});
+
+	it("reads plain arithmetic in a sentence, its operators too (the second re-walk's New 4)", () => {
+		const said = (html: string, language: "en" | "hu" = "en") =>
+			bare(tokensOf(build(reply(html), { fallbackLanguage: language })));
+		expect(said("<p>We know that 3 + 4 = 7 here.</p>")).toBe(
+			"We know that 3 plus 4 equals 7 here",
+		);
+		expect(said("<p>So 12 − 5 = 7 now.</p>")).toBe(
+			"So 12 minus 5 equals 7 now",
+		);
+		expect(said("<p>So 12 - 5 = 7 now.</p>")).toBe(
+			"So 12 minus 5 equals 7 now",
+		);
+		expect(said("<p>Then 10 / 2 = 5 again.</p>")).toBe(
+			"Then 10 over 2 equals 5 again",
+		);
+		expect(said("<p>And 7 × 8 = 56 too.</p>")).toBe(
+			"And 7 times 8 equals 56 too",
+		);
+		expect(said("<p>It holds (3 + 4 = 7) today.</p>")).toBe(
+			"It holds 3 plus 4 equals 7 today",
+		);
+		expect(said("<p>Ez igaz: 3 + 4 = 7 és kész.</p>", "hu")).toBe(
+			"Ez igaz 3 plusz 4 egyenlő 7 és kész",
+		);
+		// A spaced hyphen or slash between numbers alone is a range or a date, not math.
+		expect(said("<p>The years 2026 - 2027 were busy.</p>")).toBe(
+			"The years 2026 2027 were busy",
+		);
+	});
+
+	/** The `math` words of a one-paragraph reply, each as its tokens joined. */
+	const mathWords = (html: string, language: "en" | "hu") =>
+		build(reply(html), { fallbackLanguage: language })
+			.sentences.flatMap((sentence) => sentence.words)
+			.filter((word) => word.kind === "math")
+			.map((word) => word.tokens.join(" "));
+
+	it("reads plain arithmetic with money, thousands, decimal commas and letters, in English and Hungarian (the third re-walk's New 4)", () => {
+		expect(mathWords("<p>So €10 + €5 = €15 in all.</p>", "en")).toEqual([
+			"€10 plus €5 equals €15",
+		]);
+		expect(mathWords("<p>Tehát €10 + €5 = €15 összesen.</p>", "hu")).toEqual([
+			"10 € plusz 5 € egyenlő 15 €",
+		]);
+		expect(mathWords("<p>So 1,000 + 2,000 = 3,000 in all.</p>", "en")).toEqual([
+			"1000 plus 2000 equals 3000",
+		]);
+		expect(
+			mathWords("<p>Tehát 1,000 + 2,000 = 3,000 összesen.</p>", "hu"),
+		).toEqual(["1000 plusz 2000 egyenlő 3000"]);
+		expect(mathWords("<p>So 1,5 + 2,25 = 3,75 in all.</p>", "en")).toEqual([
+			"1.5 plus 2.25 equals 3.75",
+		]);
+		expect(mathWords("<p>Tehát 1,5 + 2,25 = 3,75 összesen.</p>", "hu")).toEqual(
+			["1,5 plusz 2,25 egyenlő 3,75"],
+		);
+		expect(mathWords("<p>Let x = 5 for now.</p>", "en")).toEqual([
+			"x equals 5",
+		]);
+		expect(
+			mathWords("<p>Legyen x = 5 és akkor a feladat könnyű lesz.</p>", "hu"),
+		).toEqual(["x egyenlő 5"]);
+		// The whole sum, never its tail alone (the second re-walk's fix read "x, 2 equals 7").
+		expect(mathWords("<p>Solve x + 2 = 7 for x.</p>", "en")).toEqual([
+			"x plus 2 equals 7",
+		]);
+		expect(mathWords("<p>Oldd meg az x + 2 = 7 egyenletet.</p>", "hu")).toEqual(
+			["x plusz 2 egyenlő 7"],
+		);
+	});
+
+	it("leaves a sum it only partly understands as it was, and a hyphen beside a word is a dash", () => {
+		// A word is not a letter: the whole sum goes to the prose reading, not its tail alone.
+		expect(mathWords("<p>Let total = 3 + 4 now.</p>", "en")).toEqual([]);
+		expect(mathWords("<p>Solve 2x - 3 = 7 now.</p>", "en")).toEqual([]);
+		expect(mathWords("<p>Then 3 + 4 = 2x today.</p>", "en")).toEqual([]);
+		// A spaced hyphen beside a plain word is a dash, not a minus: the sum is read
+		// whole, and the dash after it is a pause.
+		expect(mathWords("<p>So 3 + 4 = 7 - that is all.</p>", "en")).toEqual([
+			"3 plus 4 equals 7,",
+		]);
+		// Ranges and signs read as before.
+		expect(mathWords("<p>From 1,000 - 2,000 people came.</p>", "en")).toEqual(
+			[],
+		);
+		expect(mathWords("<p>Call +36 1 234 5678 today.</p>", "en")).toEqual([]);
+	});
+
+	it("never makes an operator a dash's pause: a minus in a sum is said (Track A's dashes, merged)", () => {
+		const said = (html: string) =>
+			tokensOf(build(reply(html), { fallbackLanguage: "en" })).join(" ");
+		// "−" is an operator, never a dash.
+		expect(said("<p>So 12 − 5 = 7 now.</p>")).toContain("12 minus 5 equals 7");
+		expect(said("<p>So 12 − 5 = 7 now.</p>")).not.toContain(",");
+		expect(said("<p>So 12 − 5 now.</p>")).toContain("12 minus 5");
+		expect(said("<p>So 12 − 5 now.</p>")).not.toContain(",");
+		// Left to the prose reading, a minus is still unsaid, never a pause.
+		expect(said("<p>Let total − 5 = 7 now.</p>")).not.toContain(",");
+		// An en dash in a sum is a minus too; alone between two numbers it is a
+		// range, and the dash's pause.
+		expect(said("<p>So 12 – 5 = 7 now.</p>")).toContain("12 minus 5 equals 7");
+		expect(said("<p>So 12 – 5 = 7 now.</p>")).not.toContain(",");
+		expect(said("<p>The years 2026 – 2027 were busy.</p>")).toContain(
+			"2026, 2027",
+		);
+	});
+
+	it("still skips a formula it cannot read", () => {
+		const script = build(
+			reply("<p>The area is (\\sum_{i=1}^{n} i) here today.</p>"),
+		);
+		expect(bare(tokensOf(script))).toBe("The area is here today");
+		expect(
+			script.sentences.flatMap((s) => s.words).some((w) => w.kind === "math"),
+		).toBe(false);
+	});
+});
+
 describe("sentenceAtPoint", () => {
 	it("finds the sentence holding a selection's start", () => {
 		const root = reply(
@@ -1160,5 +1312,27 @@ describe("sentenceAtPoint", () => {
 		// The end of the last word, and the end of the reply, are after every sentence.
 		expect(sentenceAtPoint(script, text2, text2.data.length)).toBeNull();
 		expect(sentenceAtPoint(script, root, root.childNodes.length)).toBeNull();
+	});
+
+	it("never starts in the middle of a written sentence that was split for the voice", () => {
+		// The voice makes words up from a short fragment, so Read from here starts where the
+		// written sentence starts, even when it was split in parts over 240 characters.
+		const clause =
+			"the dough rests in a warm bowl under a clean towel for about an hour";
+		const root = reply(
+			`<p>A short opener comes first. First ${clause}, then ${clause}, and after that ${clause}, until it rises at last.</p>`,
+		);
+		const script = build(root);
+		expect(script.sentences.length).toBeGreaterThan(2);
+		expect(script.sentences.map((s) => s.continues)).toEqual(
+			script.sentences.map((_, i) => i > 1),
+		);
+		const text = root.querySelector("p")?.firstChild as Text;
+		// A selection that starts mid-sentence, in the split sentence's last part.
+		expect(sentenceAtPoint(script, text, text.data.indexOf("until"))).toBe(1);
+		// A one-word selection there too.
+		expect(sentenceAtPoint(script, text, text.data.indexOf("rises"))).toBe(1);
+		// The sentence before the split one is still its own.
+		expect(sentenceAtPoint(script, text, text.data.indexOf("opener"))).toBe(0);
 	});
 });

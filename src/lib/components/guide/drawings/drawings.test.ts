@@ -376,9 +376,22 @@ describe("the drawing kit", () => {
 		// The frame answers to its own width, keeps its proportions from the
 		// first paint, and gives its parts one design pixel (`--u`) to size
 		// themselves in: nothing measures and nothing jumps after hydration.
+		// A campaign picture passes its own size; the guide's drawings never do.
 		expect(frame).toMatch(/container-type:\s*inline-size/);
-		expect(frame).toMatch(/aspect-ratio:\s*330\s*\/\s*222/);
-		expect(frame).toMatch(/--u:\s*calc\(100cqw\s*\/\s*330\)/);
+		expect(frame).toMatch(/width = 330,/);
+		expect(frame).toMatch(/height = 222,/);
+		expect(frame).toMatch(
+			/aspect-ratio:\s*var\(--design-width\)\s*\/\s*var\(--design-height\)/,
+		);
+		expect(frame).toMatch(/--u:\s*calc\(100cqw\s*\/\s*var\(--design-width\)\)/);
+		for (const file of readdirSync(HERE).filter((name) =>
+			name.endsWith(".svelte"),
+		)) {
+			const source = readFileSync(join(HERE, file), "utf-8");
+			expect(source, file).not.toMatch(
+				/<DrawingFrame[^>]*\b(width|height|bare)\b/,
+			);
+		}
 	});
 
 	it("keeps to the tokens and to Lucide", () => {

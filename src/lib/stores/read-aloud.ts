@@ -48,6 +48,12 @@ export type ReadAloudView = {
 	speed: number;
 	failure: BreakKind | null;
 	busy: boolean;
+	/**
+	 * The voice fell behind: the audio has waited for data for over about half a
+	 * second while the reading plays. The player's play button spins (owner,
+	 * 2026-11-17: "Yes, spin it").
+	 */
+	buffering: boolean;
 	/** The sentence a scrubber drag would land on, while dragging. */
 	drag: number | null;
 	marks: { sentence: Range[]; word: Range | null; target: Range[] } | null;
@@ -67,6 +73,7 @@ export const idleReadAloudView: ReadAloudView = {
 	speed: 1,
 	failure: null,
 	busy: false,
+	buffering: false,
 	drag: null,
 	marks: null,
 };

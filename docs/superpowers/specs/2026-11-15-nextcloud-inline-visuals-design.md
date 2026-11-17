@@ -255,7 +255,7 @@ Nothing in the system prompt changes.
 ## Done means
 
 - A reply that found one file shows one 56px card; one that found several draws
-  the strip of 78px pictures, or the quiet line when none of them is a picture.
+  the strip of 78px tiles — pictures show their picture, documents their type.
 - A reply that found a PDF shows the glyph and a link that opens that file in
   Nextcloud, not its folder.
 - Existing files citations open the file too, and the tests that asserted the

@@ -28,6 +28,7 @@ function scriptOf(
 			index,
 			language: part.language ?? "en",
 			paragraphStart: part.paragraphStart ?? index === 0,
+			continues: false,
 			words: [],
 			tokens: part.tokens,
 			ranges: [],
