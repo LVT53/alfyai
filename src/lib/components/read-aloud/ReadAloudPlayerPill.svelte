@@ -57,17 +57,27 @@ function onPlay() {
 	if (stopped) actions.retry();
 	else if (!spinning) actions.toggle();
 }
+
+/** The phone's two rows: the breakpoint of the CSS below. */
+const NARROW_QUERY = "(max-width: 767px)";
+const narrowQuery = () =>
+	typeof window !== "undefined" && typeof window.matchMedia === "function"
+		? window.matchMedia(NARROW_QUERY)
+		: null;
+let narrow = $state(narrowQuery()?.matches === true);
+$effect(() => {
+	const query = narrowQuery();
+	if (!query || typeof query.addEventListener !== "function") return;
+	const update = () => {
+		narrow = query.matches;
+	};
+	update();
+	query.addEventListener("change", update);
+	return () => query.removeEventListener("change", update);
+});
 </script>
 
-<div
-	class="read-aloud-pill"
-	role="group"
-	aria-label={$t("readAloud.player.label")}
-	data-read-aloud-player
-	data-variant={variant}
-	data-failed={stopped ? "" : undefined}
-	data-finished={floating && view.status === "finished" ? "" : undefined}
->
+{#snippet transport()}
 	<div class="read-aloud-transport">
 		<button
 			type="button"
@@ -99,6 +109,9 @@ function onPlay() {
 			<SkipForward size={17} strokeWidth={2} aria-hidden="true" />
 		</button>
 	</div>
+{/snippet}
+
+{#snippet timeline()}
 	<div class="read-aloud-timeline">
 		<span class="read-aloud-time">{view.elapsed}</span>
 		<ReadAloudScrubber
@@ -120,26 +133,58 @@ function onPlay() {
 			>{view.total}</span
 		>
 	</div>
+{/snippet}
+
+{#snippet locate()}
+	<button
+		type="button"
+		class="read-aloud-button read-aloud-locate"
+		aria-label={$t("readAloud.player.locate")}
+		onclick={() => actions.locate?.()}
+	>
+		<LocateFixed size={17} strokeWidth={2} aria-hidden="true" />
+	</button>
+{/snippet}
+
+{#snippet speedChip()}
+	<div class="read-aloud-speed-slot">
+		<ReadAloudSpeedMenu speed={view.speed} onSelect={(value) => actions.setSpeed?.(value)} />
+	</div>
+{/snippet}
+
+{#snippet stop()}
+	<button
+		type="button"
+		class="read-aloud-button read-aloud-stop"
+		aria-label={$t("readAloud.player.stop")}
+		onclick={() => actions.stop?.()}
+	>
+		<X size={17} strokeWidth={2} aria-hidden="true" />
+	</button>
+{/snippet}
+
+<div
+	class="read-aloud-pill"
+	role="group"
+	aria-label={$t("readAloud.player.label")}
+	data-read-aloud-player
+	data-variant={variant}
+	data-failed={stopped ? "" : undefined}
+	data-finished={floating && view.status === "finished" ? "" : undefined}
+>
+	<!-- The controls come in the order they are drawn, so Tab follows the layout
+	     (WCAG 2.4.3): one row on a desktop, two on a phone (the CSS below). -->
+	{#if narrow}
+		{@render timeline()}
+		{#if floating}{@render speedChip()}{/if}
+		{@render transport()}
+		{#if floating}{@render locate()}{@render stop()}{/if}
+	{:else}
+		{@render transport()}
+		{@render timeline()}
+		{#if floating}{@render locate()}{@render speedChip()}{@render stop()}{/if}
+	{/if}
 	{#if floating}
-		<button
-			type="button"
-			class="read-aloud-button read-aloud-locate"
-			aria-label={$t("readAloud.player.locate")}
-			onclick={() => actions.locate?.()}
-		>
-			<LocateFixed size={17} strokeWidth={2} aria-hidden="true" />
-		</button>
-		<div class="read-aloud-speed-slot">
-			<ReadAloudSpeedMenu speed={view.speed} onSelect={(value) => actions.setSpeed?.(value)} />
-		</div>
-		<button
-			type="button"
-			class="read-aloud-button read-aloud-stop"
-			aria-label={$t("readAloud.player.stop")}
-			onclick={() => actions.stop?.()}
-		>
-			<X size={17} strokeWidth={2} aria-hidden="true" />
-		</button>
 		<span class="read-aloud-finished" aria-hidden={view.status === "finished" ? "false" : "true"}
 			>{$t("readAloud.player.finished")}</span
 		>
@@ -333,6 +378,11 @@ function onPlay() {
 		.read-aloud-play {
 			width: 52px;
 			height: 52px;
+		}
+
+		.read-aloud-play :global(svg) {
+			width: 20px;
+			height: 20px;
 		}
 	}
 </style>

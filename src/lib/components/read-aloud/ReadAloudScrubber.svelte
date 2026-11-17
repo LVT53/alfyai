@@ -42,6 +42,9 @@ let dragShare = $state<number | null>(null);
 let target = $state<number | null>(null);
 let settling = $state(false);
 let bubbleShift = $state(0);
+/** The bubble's words and place: kept after a release, so it fades out as it was. */
+let bubbleWords = $state("");
+let bubbleShare = $state(0);
 let pendingX: number | null = null;
 let frame: number | null = null;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -73,9 +76,11 @@ function cancelFrame() {
 function moveTo(clientX: number) {
 	const share = shareAt(clientX);
 	dragShare = share;
+	bubbleShare = share;
 	const next = notchAtShare(notches, share);
 	if (next !== target) {
 		target = next;
+		bubbleWords = preview(next);
 		onDragMove(next);
 	}
 }
@@ -193,11 +198,11 @@ function onkeydown(event: KeyboardEvent) {
 		bind:this={bubble}
 		class="read-aloud-bubble"
 		class:visible={dragShare !== null && target !== null}
-		style:left={percent(shown)}
+		style:left={percent(bubbleShare)}
 		style:--bubble-shift="{bubbleShift}px"
 		aria-hidden="true"
 	>
-		{#if dragShare !== null && target !== null}{preview(target)}{/if}
+		{bubbleWords}
 	</div>
 </div>
 
@@ -216,6 +221,13 @@ function onkeydown(event: KeyboardEvent) {
 
 	.read-aloud-scrubber.dragging {
 		cursor: grabbing;
+	}
+
+	/* The phone's top row is 34 px, so the player is about 108 px tall (spec §4.3). */
+	@media (max-width: 767px) {
+		.read-aloud-scrubber {
+			height: 34px;
+		}
 	}
 
 	.read-aloud-scrubber.disabled {

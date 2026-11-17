@@ -567,6 +567,38 @@ test("the phone layout: two rows, 44 px buttons and a 52 px play", async ({
 	const pill = await ui.player.boundingBox();
 	expect(pill?.x ?? -1).toBeGreaterThanOrEqual(0);
 	expect((pill?.x ?? 0) + (pill?.width ?? 999)).toBeLessThanOrEqual(390);
+	// About 108 px tall, with a 20 px play icon (spec §4.3, the prototype).
+	expect(pill?.height).toBeCloseTo(108, 0);
+	const icon = await ui.button("Pause").locator("svg").boundingBox();
+	expect(icon?.width).toBeCloseTo(20, 0);
+});
+
+test("the speed chip keeps its width at every speed, so the notches never move", async ({
+	page,
+}) => {
+	const ui = await open(page, [FIVE_SENTENCE_REPLY]);
+	await ui.speaker().click();
+	await expect(ui.player).toBeVisible();
+	await ui.button("Pause").click();
+	await waitForMotionToSettle(page);
+	const line = await ui.slider.boundingBox();
+	const widths = new Set<number>();
+	for (const speed of ["0.75×", "1.25×", "1.5×", "1.75×", "2×", "1×"]) {
+		await ui.speed.click();
+		const item = ui.player.getByRole("menuitemradio", { name: speed });
+		// The menu's hover eases in, as the app's other menus do.
+		expect(
+			await item.evaluate((node) => getComputedStyle(node).transitionDuration),
+		).toContain("0.15s");
+		await item.click();
+		await expect(ui.speed).toHaveAccessibleName(`Speed: ${speed}`);
+		const chip = await ui.speed.boundingBox();
+		widths.add(Math.round((chip?.width ?? 0) * 10) / 10);
+		const now = await ui.slider.boundingBox();
+		expect(now?.x).toBeCloseTo(line?.x ?? 0, 1);
+		expect(now?.width).toBeCloseTo(line?.width ?? 0, 1);
+	}
+	expect([...widths]).toHaveLength(1);
 });
 
 test("on a 375 or 360 px phone no two of the player's buttons overlap", async ({

@@ -212,6 +212,24 @@ describe("ReadAloudScrubber", () => {
 		player.remove();
 	});
 
+	it("the bubble keeps its words and its place while it fades after a release", async () => {
+		const { slider, container } = scrubber();
+		const bubble = () =>
+			container.querySelector(".read-aloud-bubble") as HTMLElement;
+		await fireEvent.pointerDown(slider, { clientX: 150, pointerId: 1 });
+		await tick();
+		expect(bubble().classList.contains("visible")).toBe(true);
+		const words = bubble().textContent;
+		const left = bubble().style.left;
+		expect(words).toContain("3/3 · Sentence number 3…");
+		await fireEvent.pointerUp(slider, { clientX: 150, pointerId: 1 });
+		await tick();
+		// It fades out as it was: no empty dark bubble, no jump to the handle's new place.
+		expect(bubble().classList.contains("visible")).toBe(false);
+		expect(bubble().textContent).toBe(words);
+		expect(bubble().style.left).toBe(left);
+	});
+
 	it("does nothing while disabled", async () => {
 		const { slider, props } = scrubber({ disabled: true });
 		expect(slider.getAttribute("aria-disabled")).toBe("true");
