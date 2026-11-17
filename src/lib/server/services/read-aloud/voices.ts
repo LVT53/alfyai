@@ -1,8 +1,16 @@
 // The built-in voices of read aloud: configuration in code, one entry per voice
-// (spec §4.5). Plan 3 adds the person's choice and personal voices on top of
-// this list; until then every reading uses the default voice of its language.
+// (spec §4.5). A person's own voices are made from them (`personal-voices.ts`,
+// Plan 3): a reading uses the voice the person chose for its language, and the
+// language's default when they chose none.
 
-export type VoiceLanguage = "en" | "hu";
+import {
+	type Knobs,
+	knobsToControls,
+	type VoiceLanguage,
+	ZERO_KNOBS,
+} from "$lib/shared/read-aloud/voice-knobs";
+
+export type { VoiceLanguage } from "$lib/shared/read-aloud/voice-knobs";
 
 export type BuiltInVoice = {
 	key: string;
@@ -74,8 +82,51 @@ export const BUILT_IN_VOICES: readonly BuiltInVoice[] = [
 	},
 ];
 
-/** The voice a reading in `language` uses, until Plan 3 adds a choice. */
+/**
+ * A built-in voice taken out of `BUILT_IN_VOICES` moves here, so that a
+ * personal voice made from it can still be named ("Based on Oldie") while it
+ * reads with its language's default voice (Plan 3, Decision 14). Empty today.
+ */
+export const RETIRED_BUILT_IN_VOICES: Readonly<
+	Record<string, { name: string; language: VoiceLanguage }>
+> = {};
+
+/** The built-in voice with this key, or null. The key is looked up, never read off an object. */
+export function builtInVoice(key: string): BuiltInVoice | null {
+	return BUILT_IN_VOICES.find((voice) => voice.key === key) ?? null;
+}
+
+/** The voice a reading in `language` uses when the person has chosen none, and when their choice is gone. */
 export function defaultVoiceFor(language: VoiceLanguage): BuiltInVoice {
 	const key = language === "en" ? "imogen" : "berta";
 	return BUILT_IN_VOICES.find((voice) => voice.key === key) as BuiltInVoice;
+}
+
+/** A voice as a reading or a preview sends it: the speaker, the controls and the speaking rate. */
+export type ResolvedVoice = {
+	speakerId: string;
+	controls: Record<string, number>;
+	charsPerSecond: number;
+};
+
+/**
+ * A built-in voice with a person's knobs on top: the voice's own controls,
+ * then the controls the knobs make for its language (clamped to the language's
+ * safe ranges by `knobsToControls`). The result owns its controls object.
+ */
+export function resolvedVoice(
+	voice: BuiltInVoice,
+	knobs: Knobs = ZERO_KNOBS,
+): ResolvedVoice {
+	const controls: Record<string, number> = { ...voice.controls };
+	for (const [name, value] of Object.entries(
+		knobsToControls(knobs, voice.language),
+	)) {
+		if (value !== undefined) controls[name] = value;
+	}
+	return {
+		speakerId: voice.speakerId,
+		controls,
+		charsPerSecond: voice.charsPerSecond,
+	};
 }

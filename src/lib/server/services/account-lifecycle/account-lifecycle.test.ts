@@ -219,6 +219,18 @@ function seedEveryUserScopedTable(userId: string) {
 			createdAt: now,
 		})
 		.run();
+	// Read aloud: one personal voice. It goes with the person (cascade).
+	db.insert(schema.readAloudVoices)
+		.values({
+			id: p("read-aloud-voice"),
+			userId,
+			name: "Test Voice",
+			baseVoice: "imogen",
+			language: "en",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
 	db.insert(schema.browserPushSubscriptions)
 		.values({
 			id: p("push"),
@@ -902,6 +914,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"message_analytics",
 				"project_knowledge_links",
 				"projects",
+				"read_aloud_voices",
 				"semantic_embeddings",
 				"sessions",
 				"sign_in_challenges",
