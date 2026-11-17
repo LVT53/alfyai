@@ -105,21 +105,69 @@ test("a code name is marked while it is read, above the code's own background", 
 	const ui = await open(page, [SYNTAX_REPLY]);
 	await ui.speaker().click();
 	await expect(ui.player).toBeVisible();
-	// The inline code's sentence is the second: its code is drawn by a highlight, which
-	// paints above the code's background (the overlay behind the prose cannot).
+	// The inline code's sentence is the second: the code is tinted whole by an attribute,
+	// drawn as an inset shadow above its own background (the overlay behind the prose
+	// cannot), so its padding and its rounded corners are tinted too.
+	const code = page.locator(".markdown-container code", {
+		hasText: "getUserName()",
+	});
+	await expect(code).toHaveAttribute(
+		"data-read-aloud-code-mark",
+		/^(sentence|word)$/,
+		{ timeout: 15_000 },
+	);
+	expect(
+		await code.evaluate((node) => getComputedStyle(node).boxShadow),
+	).toContain("inset");
+	// A code block's sentence is one highlight per line: the spaces between its words too.
+	const blockRuns = () =>
+		page.evaluate(() =>
+			[
+				...((
+					CSS as unknown as { highlights?: Map<string, Iterable<Range>> }
+				).highlights?.get("read-aloud-code-sentence") ?? []),
+			].map((range) => range.toString()),
+		);
 	await expect
-		.poll(
-			() =>
-				page.evaluate(() =>
-					[
-						...((
-							CSS as unknown as { highlights?: Map<string, Iterable<Range>> }
-						).highlights?.get("read-aloud-code-sentence") ?? []),
-					].map((range) => range.toString()),
-				),
-			{ timeout: 15_000 },
-		)
-		.toContain("getUserName()");
+		.poll(blockRuns, { timeout: 15_000 })
+		.toContain("total = price * 2");
+
+	// ✕ fades the block's highlights out, as the prose's marks fade, then clears them.
+	await page.evaluate(() => {
+		const w = window as unknown as {
+			__codeFade: Array<{ drawn: boolean; strength: string }>;
+		};
+		w.__codeFade = [];
+		const step = () => {
+			w.__codeFade.push({
+				drawn:
+					(
+						CSS as unknown as { highlights?: Map<string, unknown> }
+					).highlights?.has("read-aloud-code-sentence") ?? false,
+				strength: getComputedStyle(document.documentElement)
+					.getPropertyValue("--read-aloud-code-strength")
+					.trim(),
+			});
+			requestAnimationFrame(step);
+		};
+		requestAnimationFrame(step);
+	});
+	await ui.button("Stop reading").click();
+	await expect.poll(blockRuns).toEqual([]);
+	const fade = await page.evaluate(
+		() =>
+			(
+				window as unknown as {
+					__codeFade: Array<{ drawn: boolean; strength: string }>;
+				}
+			).__codeFade,
+	);
+	expect(
+		fade.some((frame) => {
+			const strength = Number.parseFloat(frame.strength);
+			return frame.drawn && strength > 0 && strength < 1;
+		}),
+	).toBe(true);
 });
 
 test("✕ stops, and the end shows Finished", async ({ page }) => {
