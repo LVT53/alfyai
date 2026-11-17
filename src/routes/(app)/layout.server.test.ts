@@ -38,6 +38,8 @@ vi.mock("$lib/server/config-store", () => ({
 	getAvailableModelsWithProviders: vi.fn(() =>
 		Promise.resolve([{ id: "model1", displayName: "Model 1" }]),
 	),
+	// Read aloud is off here: no speech service address.
+	getReadAloudUrl: vi.fn(() => ""),
 }));
 
 vi.mock("$lib/server/db", () => ({

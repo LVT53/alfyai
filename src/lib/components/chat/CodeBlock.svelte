@@ -75,7 +75,8 @@ async function copyToClipboard() {
 }
 </script>
 
-<div class="code-block relative my-md w-full font-mono text-[14px]" bind:this={container}>
+<!-- data-language: read aloud tells a shell block by it (src/lib/client/read-aloud/speech-script.ts). -->
+<div class="code-block relative my-md w-full font-mono text-[14px]" data-language={language ?? ""} bind:this={container}>
 	<div class="code-header">
 			<button
 				type="button"

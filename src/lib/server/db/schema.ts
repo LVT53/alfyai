@@ -89,6 +89,15 @@ export const users = sqliteTable("users", {
 	homeMemoryReviewDismissedAt: integer("home_memory_review_dismissed_at", {
 		mode: "timestamp",
 	}),
+	// Read aloud (spec §6.5): the voice each language reads with, as a built-in
+	// voice key or the id of one of this person's own voices
+	// (`read_aloud_voices`); NULL means the language's default. A value that is
+	// not the person's, not of that language or not a voice any more reads as
+	// the default (services/read-aloud/personal-voices.ts).
+	readAloudEnVoice: text("read_aloud_en_voice"),
+	readAloudHuVoice: text("read_aloud_hu_voice"),
+	// The speed every reading starts at: one of 0.75, 1, 1.25, 1.5, 1.75, 2.
+	readAloudSpeed: real("read_aloud_speed").notNull().default(1),
 	lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()
@@ -3187,4 +3196,44 @@ export const normalChatRunLog = sqliteTable(
 	(t) => ({
 		segmentIdx: uniqueIndex("normal_chat_run_log_segment_idx").on(t.segmentId),
 	}),
+);
+
+/**
+ * A person's own voices for read aloud (spec §4.6 and §6.5): a built-in voice
+ * plus five knob values and a name. Private to its maker: every query filters
+ * by `user_id`, and the rows go with the person (cascade). `language` is the
+ * base voice's language when the voice was saved, so a voice whose base was
+ * taken out of the list still knows which picker it belongs to. The knob
+ * values are slider values (pace -2…2 and so on); a Zonos control is made from
+ * them only when a reading or a preview is made, by `knobsToControls`
+ * (`$lib/shared/read-aloud/voice-knobs`). Nothing about audio is stored.
+ */
+export const readAloudVoices = sqliteTable(
+	"read_aloud_voices",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		baseVoice: text("base_voice").notNull(),
+		language: text("language").notNull(),
+		pace: real("pace").notNull().default(0),
+		pitch: real("pitch").notNull().default(0),
+		depth: real("depth").notNull().default(0),
+		energy: real("energy").notNull().default(0),
+		projection: real("projection").notNull().default(0),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		index("read_aloud_voices_user_created_idx").on(
+			table.userId,
+			table.createdAt,
+		),
+	],
 );

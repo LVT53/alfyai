@@ -675,6 +675,22 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 	{
+		// Read aloud, on or off. The speaker is there for everyone while it is on
+		// and the speech service has an address; read per request, so live.
+		key: "TTS_ENABLED",
+		group: "integrations",
+		control: { kind: "bool" },
+		effect: "live",
+	},
+	{
+		// The speech service in deploy/speech-service/, on loopback
+		// (http://127.0.0.1:1920). Empty keeps read aloud off.
+		key: "TTS_URL",
+		group: "integrations",
+		control: { kind: "url" },
+		effect: "live",
+	},
+	{
 		key: "IMAGE_REFERENCE_CAP",
 		group: "limits",
 		control: int(1, 10, "count"),

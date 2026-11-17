@@ -39,6 +39,10 @@ const THRESHOLD = 4;
 /** Files that will never read the registry. Every row states why. */
 const PERMANENT_ALLOWLIST = new Map<string, string>([
 	[
+		"src/lib/shared/read-aloud/reading-dictionary.ts",
+		"read aloud's reading dictionary: how a file name is SAID (\"report dot pdf\") and which code-block languages are a shell's; nothing here types a file",
+	],
+	[
 		"src/lib/server/services/campaign-assets.ts",
 		'MIME_EXTENSIONS kept by spec decision row 46 (image/tiff -> "tiff" would rename stored asset paths); covered by the parity test in legacy-equivalence.test.ts',
 	],
