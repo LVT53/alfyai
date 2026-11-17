@@ -535,10 +535,14 @@ onMount(() => {
 		outline-offset: 2px;
 	}
 
+	/* The knobs' columns (each VoiceKnobSlider is a subgrid row): the names' column
+	   fits the longest name in the language with its ↺, so a Hungarian name never
+	   pushes ↺ under its range, and the ranges line up. */
 	.voice-editor-knobs {
-		display: flex;
-		flex-direction: column;
-		gap: 14px;
+		display: grid;
+		grid-template-columns: max-content minmax(0, 1fr) 116px;
+		column-gap: 12px;
+		row-gap: 14px;
 	}
 
 	.voice-editor-name {
@@ -580,6 +584,10 @@ onMount(() => {
 	@media (max-width: 639px) {
 		.voice-editor-name {
 			font-size: 16px;
+		}
+
+		.voice-editor-knobs {
+			grid-template-columns: minmax(0, 1fr);
 		}
 
 		.voice-editor-actions {

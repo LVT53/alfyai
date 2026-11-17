@@ -9,6 +9,9 @@
  * normal leaves the snap); `onCommit` says how the value was set, because a
  * pointer release renders at once and a held key renders after it settles
  * (Plan 3, Decision 11).
+ *
+ * Its three parts are the columns of the editor's knob grid (a subgrid), so the
+ * names' column fits the longest name of the language and the ranges line up.
  */
 import { RotateCcw } from "@lucide/svelte";
 import { type I18nKey, t } from "$lib/i18n";
@@ -93,6 +96,9 @@ function reset() {
 			>
 				<RotateCcw size={13} strokeWidth={2} aria-hidden="true" />
 			</button>
+		{:else}
+			<!-- ↺'s room, kept so the names' column never changes width as knobs move. -->
+			<span class="voice-knob-reset-room" aria-hidden="true"></span>
 		{/if}
 	</span>
 	<span class="voice-knob-range">
@@ -120,12 +126,13 @@ function reset() {
 </div>
 
 <style>
+	/* The editor's knob grid owns the columns (VoiceEditor.svelte's `.voice-editor-knobs`). */
 	.voice-knob {
 		--thumb: 9px;
 		display: grid;
-		grid-template-columns: 96px minmax(0, 1fr) 116px;
+		grid-column: 1 / -1;
+		grid-template-columns: subgrid;
 		align-items: center;
-		gap: 12px;
 	}
 
 	.voice-knob-name {
@@ -135,9 +142,17 @@ function reset() {
 		color: var(--text-primary);
 		font-size: 13.5px;
 		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.voice-knob-reset-room {
+		flex: none;
+		width: 24px;
+		height: 24px;
 	}
 
 	.voice-knob-reset {
+		flex: none;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -293,6 +308,7 @@ function reset() {
 			grid-template-areas:
 				"name word"
 				"range range";
+			column-gap: 12px;
 			row-gap: 2px;
 		}
 

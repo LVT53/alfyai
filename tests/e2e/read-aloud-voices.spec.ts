@@ -5,7 +5,12 @@
 // voice called "Test Voice".
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { login, waitForMotionToSettle } from "./helpers";
+import {
+	expectTopmost,
+	login,
+	waitForHydration,
+	waitForMotionToSettle,
+} from "./helpers";
 import {
 	deleteReadAloudChat,
 	type FakeSpeechService,
@@ -344,6 +349,86 @@ test("↺ gives focus to its slider", async ({ page }) => {
 	await page.keyboard.press("Enter");
 	await expect(pace).toHaveAttribute("aria-valuetext", "Normal");
 	await expect(pace).toBeFocused();
+});
+
+/** Puts the signed-in person's interface in a language: the next page load shows it. */
+async function setUiLanguage(page: Page, language: "en" | "hu") {
+	const response = await page.request.patch("/api/settings/preferences", {
+		data: { uiLanguage: language },
+	});
+	expect(response.ok(), `language -> ${response.status()}`).toBe(true);
+}
+
+/** Opens Settings in whatever language the interface is in, and returns its Read aloud card. */
+async function readAloudCard(page: Page) {
+	await page.goto("/settings", { waitUntil: "domcontentloaded" });
+	await waitForHydration(page);
+	const card = page.locator("#settings-section-read-aloud");
+	await expect(card.getByRole("combobox").first()).toBeEnabled({
+		timeout: 15_000,
+	});
+	await card.scrollIntoViewIfNeeded();
+	return card;
+}
+
+test("in Hungarian every knob's ↺ is clear of its slider and resets it", async ({
+	page,
+}) => {
+	await setUiLanguage(page, "hu");
+	try {
+		const card = await readAloudCard(page);
+		await card.getByRole("button", { name: "Új hang" }).click();
+		const editor = page.getByRole("dialog", { name: "Új hang" });
+		await expect(editor).toBeVisible();
+		await waitForMotionToSettle(page);
+		await editor
+			.getByRole("group", { name: "Egy stílus kezdésnek" })
+			.getByRole("button", { name: "Vidám" })
+			.click();
+		// Cheerful moves Pace, Pitch, Energy and Projection.
+		for (const name of ["Tempó", "Hangmagasság", "Energia", "Hangerő"]) {
+			const reset = editor.getByRole("button", {
+				name: `${name} vissza normálra`,
+			});
+			const slider = editor.getByRole("slider", { name, exact: true });
+			await reset.scrollIntoViewIfNeeded();
+			await expectTopmost(reset, {
+				message: `${name}'s ↺ must not sit under its slider`,
+				probe: "center",
+			});
+			const a = await reset.boundingBox();
+			const b = await slider.boundingBox();
+			if (!a || !b) throw new Error(`${name} has no box`);
+			expect(
+				a.x + a.width <= b.x || b.x + b.width <= a.x,
+				`${name}'s ↺ overlaps its slider`,
+			).toBe(true);
+		}
+		await editor
+			.getByRole("button", { name: "Hangmagasság vissza normálra" })
+			.click();
+		await expect(
+			editor.getByRole("slider", { name: "Hangmagasság", exact: true }),
+		).toHaveAttribute("aria-valuetext", "Normál");
+		// The longest words ("Kicsit nyugodtabb", Newsreader's Energy) fit their column.
+		await editor
+			.getByRole("group", { name: "Egy stílus kezdésnek" })
+			.getByRole("button", { name: "Hírolvasó" })
+			.click();
+		await expect(
+			editor.getByRole("slider", { name: "Energia", exact: true }),
+		).toHaveAttribute("aria-valuetext", "Kicsit nyugodtabb");
+		const spilled = await editor
+			.locator(".voice-knob-word")
+			.evaluateAll((words) =>
+				words
+					.filter((word) => word.scrollWidth > word.clientWidth + 1)
+					.map((word) => word.textContent),
+			);
+		expect(spilled).toEqual([]);
+	} finally {
+		await setUiLanguage(page, "en");
+	}
 });
 
 test("on a phone the editor is a full sheet without Cancel", async ({
