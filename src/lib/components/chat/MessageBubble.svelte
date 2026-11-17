@@ -1444,7 +1444,7 @@ function sendFollowUp(question: string) {
 			/>
 			{#if $readAloudAvailable}
 				<ReadAloudMarks
-					replyLastId={replyPlace?.segmentIds.at(-1) ?? message.id}
+					readingKey={replyPlace?.segmentIds.at(-1) ?? message.id}
 					container={proseContainer}
 					onMarkedChange={(marked) => (readAloudMarked = marked)}
 				/>

@@ -1,11 +1,12 @@
 <script lang="ts">
 /**
- * Read aloud's marks on a reply (spec §4.2): the sentence's tint, the spoken
- * word's marker and, while the scrubber is dragged, the target sentence. They
- * are an overlay BEHIND the text (`z-index: -1` inside the prose, which is
- * isolated only while it is marked), so marking never changes the reply's DOM
- * or its layout and can never paint over the composer layer. Each segment of
- * a reply draws only the ranges inside its own `container`.
+ * Read aloud's marks on a reply or a Document (spec §4.2): the sentence's tint,
+ * the spoken word's marker and, while the scrubber is dragged, the target
+ * sentence. They are an overlay BEHIND the text (`z-index: -1` inside the prose,
+ * which is isolated only while it is marked), so marking never changes the
+ * reply's or the Document's DOM or its layout and can never paint over the
+ * composer layer. Each segment of a reply draws only the ranges inside its own
+ * `container`; a Document's page has one, around its editor.
  */
 import { untrack } from "svelte";
 import { fade } from "svelte/transition";
@@ -14,11 +15,12 @@ import { readAloudView } from "$lib/stores/read-aloud";
 import { reducedMotionAware } from "$lib/utils/motion";
 
 let {
-	replyLastId,
+	readingKey,
 	container,
 	onMarkedChange,
 }: {
-	replyLastId: string;
+	/** The key of the reading these marks are for: a reply's last segment id, or a Document's key. */
+	readingKey: string;
 	container: HTMLElement | null;
 	onMarkedChange: (marked: boolean) => void;
 } = $props();
@@ -63,7 +65,7 @@ const sentenceIndex = $derived($readAloudView.sentence);
 
 const layout = $derived.by(() => {
 	layoutTick;
-	if (status === "idle" || key !== replyLastId || !marks) return null;
+	if (status === "idle" || key !== readingKey || !marks) return null;
 	const dragging = drag !== null;
 	const sentence = dragging ? [] : boxesOf(marks.sentence);
 	const target = dragging ? boxesOf(marks.target) : [];

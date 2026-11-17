@@ -68,10 +68,16 @@ import {
 	saveDocumentTabs,
 } from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
+import {
+	type DocumentReadingSource,
+	documentReadingKey,
+	getReadAloud,
+} from "$lib/client/read-aloud/controller";
 import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodies";
 import EmptyState from "$lib/components/artifacts/EmptyState.svelte";
 import { emptyStateLine } from "$lib/components/artifacts/empty-state";
 import ReviewBar from "$lib/components/artifacts/ReviewBar.svelte";
+import ReadAloudMarks from "$lib/components/read-aloud/ReadAloudMarks.svelte";
 import { t } from "$lib/i18n";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
@@ -83,8 +89,10 @@ import {
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import { readAloudAvailable } from "$lib/stores/read-aloud";
 import { uiLanguage } from "$lib/stores/settings";
 import { documentCommentsRailHidden } from "$lib/stores/ui";
+import { createDampedFollow } from "$lib/utils/damped-follow";
 import { isPhoneViewport, watchPhoneViewport } from "$lib/utils/viewport.svelte";
 import {
 	MOTION_DURATION,
@@ -132,6 +140,7 @@ import MarginPanel from "./MarginPanel.svelte";
 import MobileToolbar from "./MobileToolbar.svelte";
 import SelectionBubble from "./SelectionBubble.svelte";
 import Tabs from "./Tabs.svelte";
+import { focusScrollTop, PAGE_NOT_TEXT, textRevision } from "./read-aloud-page";
 import type { DocumentToolbarActionId } from "./toolbar-actions";
 
 let {
@@ -145,6 +154,7 @@ let {
 	onCommentCountChange,
 	onCommentsShownChange,
 	onPendingReviewCountChange,
+	onReadAloudChange,
 	tourSummary = null,
 	onReplayTour,
 	currentUser = null,
@@ -280,6 +290,8 @@ let selectionBubble = $state<
 			anchor: Anchor;
 			/** The raw selected text (`readSelectionAnchorContext`'s own `quote`) — `SelectionBubble.svelte` truncates it for display. */
 			quote: string;
+			/** Where the selection starts in the page's DOM: Read from here reads from its sentence. */
+			start: { node: Node; offset: number } | null;
 	  }
 	| null
 >(null);
@@ -586,7 +598,12 @@ function updateSelectionBubble(): void {
 		clearSelectionBubble();
 		return;
 	}
-	selectionBubble = { ...placement, anchor, quote: context.quote };
+	selectionBubble = {
+		...placement,
+		anchor,
+		quote: context.quote,
+		start: selectionStartInPage(),
+	};
 	// Redesign §4.2 item 2: "the selection keeps a dashed amber 'pending'
 	// highlight so you still see what you are asking about" — the live
 	// selection's own raw positions, captured now rather than resolved later
@@ -596,6 +613,17 @@ function updateSelectionBubble(): void {
 		from: editor.state.selection.from,
 		to: editor.state.selection.to,
 	});
+}
+
+/** Where the page's live selection starts, as a DOM point inside the editor; null when the selection is elsewhere. */
+function selectionStartInPage(): { node: Node; offset: number } | null {
+	const selection =
+		typeof window === "undefined" ? null : window.getSelection();
+	if (!selection || selection.rangeCount === 0) return null;
+	const range = selection.getRangeAt(0);
+	return editorEl?.contains(range.startContainer)
+		? { node: range.startContainer, offset: range.startOffset }
+		: null;
 }
 
 /** Clears the bubble/composer AND its own pending highlight together — the one exit path every "nothing to show" branch above and `dismissSelectionBubble` below share, so the two states can never drift apart. */
@@ -1909,8 +1937,67 @@ $effect(() => {
 		flush: flushNow,
 		reload: reloadFromServer,
 		reviewPending: showFirstPendingChange,
+		readAloud: readAloudSource,
 	});
 });
+
+// ---- Read aloud (read-aloud-documents) --------------------------------------
+// The page as the read-aloud controller reads it: the header's speaker and Read
+// from here hand it this source. It reads the version the panel shows, saves what
+// the reader typed first (`flushNow`), and stops when the text shown changes; the
+// marks are drawn behind the text in the frame around the editor, never in it.
+const pageRevision = textRevision();
+const readAloudFollow = createDampedFollow({
+	read: () => contentEl?.scrollTop ?? 0,
+	write: (top) => {
+		if (contentEl) contentEl.scrollTop = top;
+	},
+	reducedMotion: prefersReducedMotion,
+});
+const readAloudSource: DocumentReadingSource = {
+	skip: PAGE_NOT_TEXT,
+	root: () => (editorReady && editorEl?.isConnected ? editorEl : null),
+	version: () => versionNumber,
+	revision: () => pageRevision(editor?.state.doc ?? null, activeTabId),
+	settle: flushNow,
+	focus(rect, mode) {
+		const scroller = contentEl;
+		if (!scroller) return;
+		const top = focusScrollTop({
+			scroller: scroller.getBoundingClientRect(),
+			scrollTop: scroller.scrollTop,
+			clientHeight: scroller.clientHeight,
+			scrollHeight: scroller.scrollHeight,
+			rect: rect(),
+			// The review bar sits over the text column's foot while changes wait.
+			covered: pendingList.length > 0 ? reviewBarHeight : 0,
+			mode,
+		});
+		if (top !== null) readAloudFollow.aim(top);
+	},
+};
+let readAloudFrame = $state<HTMLDivElement | null>(null);
+let readAloudMarked = $state(false);
+
+// What the header's speaker asks its readability again on.
+$effect(() => {
+	const key = `${editorReady}|${activeTabId}|${versionNumber}|${documentEmpty}`;
+	untrack(() => onReadAloudChange?.(key));
+});
+
+/** Read from here: reads the Document from the sentence the selection starts in. */
+function readFromSelection(): void {
+	const start = selectionBubble?.start ?? null;
+	if (!start) return;
+	getReadAloud().start({
+		kind: "document",
+		artifactId,
+		conversationId: panelConversationId ?? null,
+		source: readAloudSource,
+		from: start,
+	});
+	clearSelectionBubble();
+}
 
 /** Wave 2.5 Step 8: the header Comments button's own open-thread badge — every open (non-resolved) thread across the whole document, not just the active tab (the button represents the document, the same way the mockup's header count does). */
 let openCommentCount = $derived(
@@ -2651,16 +2738,32 @@ function saveNoticeText(notice: SaveNotice): string {
 								</div>
 							</div>
 						{/if}
+						<!-- Read aloud's marks are drawn in this frame, behind the text and outside
+						     the editor's own DOM, which they never touch; it isolates only while
+						     it is marked, as a reply's prose does. -->
 						<div
-							class="document-editor-host"
-							bind:this={editorEl}
-							role={tabs.length > 1 ? 'tabpanel' : undefined}
-							id={tabs.length > 1 ? `document-tabpanel-${activeTabId}` : undefined}
-							aria-labelledby={tabs.length > 1 ? `document-tab-${activeTabId}` : undefined}
-							style:padding-bottom={pendingList.length > 0
-								? `calc(1rem + ${reviewBarHeight}px)`
-								: undefined}
-						></div>
+							class="document-read-aloud-frame"
+							bind:this={readAloudFrame}
+							data-read-aloud-marked={readAloudMarked ? "" : undefined}
+						>
+							<div
+								class="document-editor-host"
+								bind:this={editorEl}
+								role={tabs.length > 1 ? 'tabpanel' : undefined}
+								id={tabs.length > 1 ? `document-tabpanel-${activeTabId}` : undefined}
+								aria-labelledby={tabs.length > 1 ? `document-tab-${activeTabId}` : undefined}
+								style:padding-bottom={pendingList.length > 0
+									? `calc(1rem + ${reviewBarHeight}px)`
+									: undefined}
+							></div>
+							{#if $readAloudAvailable}
+								<ReadAloudMarks
+									readingKey={documentReadingKey(artifactId)}
+									container={readAloudFrame}
+									onMarkedChange={(marked) => (readAloudMarked = marked)}
+								/>
+							{/if}
+						</div>
 						{#if loadState === 'loading'}
 							<div class="document-editor-skeleton" aria-hidden="true">
 								<span class="sr-only">{$t('common.loading')}</span>
@@ -2671,6 +2774,9 @@ function saveNoticeText(notice: SaveNotice): string {
 							<SelectionBubble
 								position={selectionBubble}
 								quote={selectionBubble.quote}
+								onReadFromHere={$readAloudAvailable && selectionBubble.start
+									? readFromSelection
+									: undefined}
 								onSubmit={async (body, sourceRect) => {
 									if (!selectionBubble) return;
 									await handleSelectionSubmit(
@@ -2982,6 +3088,19 @@ function saveNoticeText(notice: SaveNotice): string {
 		flex: 1;
 		min-height: 240px;
 		padding: 1rem 1.25rem;
+	}
+
+	/* Read aloud's frame around the editor: it takes the host's place in the flow
+	   column, so the host still fills it, and holds the marks' overlay. */
+	.document-read-aloud-frame {
+		position: relative;
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+	}
+
+	.document-read-aloud-frame[data-read-aloud-marked] {
+		isolation: isolate;
 	}
 
 	/* The empty state (Slice 6 T6): a zero-height anchor ahead of the host and

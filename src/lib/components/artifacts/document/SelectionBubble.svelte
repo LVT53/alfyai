@@ -28,8 +28,11 @@
  * assume anyone has [started tracking]... this attaches its own listeners").
  * Both trigger-button and composer-field markup are shared snippets so the
  * two presentations can never drift into two different flows.
+ *
+ * With read aloud on, the pill also offers Read from here (`onReadFromHere`):
+ * the Document is read from the sentence the selection starts in.
  */
-import { MessageSquare, Sparkles } from "@lucide/svelte";
+import { MessageSquare, Play, Sparkles } from "@lucide/svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import {
@@ -51,6 +54,7 @@ let {
 	quote,
 	onSubmit,
 	onDismiss,
+	onReadFromHere = undefined,
 }: {
 	position: { x: number; y: number; placement?: "above" | "below" };
 	/** The raw selected text (`readSelectionAnchorContext`'s own `quote`) — truncated here for display, never by the caller. */
@@ -65,6 +69,8 @@ let {
 	 */
 	onSubmit: (body: string, sourceRect: DOMRect | null) => void | Promise<void>;
 	onDismiss: () => void;
+	/** Reads the Document from the selection's sentence; absent while read aloud is off. Called in the press itself (iOS lets the audio play only from a gesture). */
+	onReadFromHere?: () => void;
 } = $props();
 
 let mode = $state<"pill" | "ask" | "comment">("pill");
@@ -229,6 +235,12 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 		<MessageSquare size={14} strokeWidth={2} aria-hidden="true" />
 		{$t('artifacts.document.comment.add')}
 	</button>
+	{#if onReadFromHere}
+		<button type="button" class="selection-bubble-action" onclick={onReadFromHere}>
+			<Play size={14} strokeWidth={2} aria-hidden="true" />
+			{$t('readAloud.readFromHere')}
+		</button>
+	{/if}
 {/snippet}
 
 {#snippet composerFields()}
