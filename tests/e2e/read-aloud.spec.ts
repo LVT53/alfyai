@@ -536,6 +536,46 @@ test("the phone layout: two rows, 44 px buttons and a 52 px play", async ({
 	expect((pill?.x ?? 0) + (pill?.width ?? 999)).toBeLessThanOrEqual(390);
 });
 
+test("on a 375 or 360 px phone no two of the player's buttons overlap", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 375, height: 812 });
+	const ui = await open(page, [FIVE_SENTENCE_REPLY]);
+	await ui.speaker().click();
+	await expect(ui.player).toBeVisible();
+	// Paused, so the player stays while it is measured at both widths.
+	await ui.button("Pause").click();
+	for (const width of [375, 360]) {
+		await page.setViewportSize({ width, height: 812 });
+		await waitForMotionToSettle(page);
+		// The bottom row, left to right: the speed chip, ⏮ ▶ ⏭, then ⌖ ✕.
+		const row = [
+			ui.speed,
+			ui.button("Previous sentence"),
+			ui.button("Play"),
+			ui.button("Next sentence"),
+			ui.button("Go to where it's reading"),
+			ui.button("Stop reading"),
+		];
+		const boxes = [];
+		for (const control of row) boxes.push(await control.boundingBox());
+		for (let i = 1; i < boxes.length; i++) {
+			const left = boxes[i - 1];
+			const right = boxes[i];
+			if (!left || !right) throw new Error("a control has no box");
+			expect(
+				left.x + left.width,
+				`${width} px: control ${i - 1} overlaps control ${i}`,
+			).toBeLessThanOrEqual(right.x + 0.5);
+		}
+		const pill = await ui.player.boundingBox();
+		const last = boxes.at(-1);
+		expect((last?.x ?? 0) + (last?.width ?? 0)).toBeLessThanOrEqual(
+			(pill?.x ?? 0) + (pill?.width ?? 0),
+		);
+	}
+});
+
 test("a drag to either end on a phone keeps the bubble inside the player, and the page goes on working", async ({
 	page,
 }) => {

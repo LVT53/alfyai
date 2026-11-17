@@ -273,11 +273,13 @@ function onPlay() {
 		opacity: 1;
 	}
 
-	/* The phone: the scrubber row on top, then the speed chip, ⏮ ▶ ⏭ in the middle, ⌖ ✕. */
+	/* The phone: the scrubber row on top, then the speed chip, ⏮ ▶ ⏭ in the middle, ⌖ ✕.
+	   A side column is never narrower than its buttons (⌖'s margin is ✕'s room), so on
+	   a narrow phone ⏮ ▶ ⏭ moves off the middle instead of under ⌖. */
 	@media (max-width: 767px) {
 		.read-aloud-pill {
 			display: grid;
-			grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+			grid-template-columns: 1fr auto 1fr;
 			row-gap: 4px;
 			padding: 8px 12px;
 			border-radius: 24px;
