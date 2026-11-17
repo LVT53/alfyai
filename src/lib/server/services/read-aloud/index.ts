@@ -2,7 +2,20 @@
 // never from the files behind it.
 
 export { wordsFitReply } from "./containment";
-export { resolveReadingVoices } from "./personal-voices";
+export {
+	createPersonalVoice,
+	deletePersonalVoice,
+	type PersonalVoice,
+	type ReadAloudSettings,
+	readAloudSettingsFor,
+	resolveReadingVoices,
+	setReadAloudPreferences,
+	TooManyVoices,
+	UnknownVoice,
+	updatePersonalVoice,
+	type VoiceChoice,
+	type VoiceDraft,
+} from "./personal-voices";
 export {
 	attachAudio,
 	attachEvents,
@@ -25,3 +38,12 @@ export {
 	SpeechRefused,
 	SpeechUnavailable,
 } from "./speech-client";
+export {
+	knobsSchema,
+	preferencesSchema,
+	previewRequestSchema,
+	readJsonBody,
+	voiceDraftSchema,
+	voicePatchSchema,
+} from "./voice-requests";
+export { listBuiltInVoices } from "./voices";
