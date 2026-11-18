@@ -1,5 +1,15 @@
 # MiniMax-H3-Image on alfyroot: pre-install assessment
 
+> **Update, 2026-11-18 (steps): a new picture now runs 4 steps; an edit keeps 6.** The
+> owner compared 12 MP renders at 6 and at 4 steps at full size (same prompts and seed)
+> and judged 4 better ("a little less detailed but much more stable and less noisy"). It
+> is also 27% faster: one picture 15.8 s -> 11.6 s on the server, sampling 12.5 s ->
+> 8.7 s. 3 steps went visibly waxy and are not to be used. MiniMax documents 6 as the
+> only supported count, so 4 is the owner's call on our own pictures; ComfyUI's H3 code
+> averages the distilled PDD heads a coarser step spans, so no other change was needed.
+> Where this document says "6 steps" for H3, that is now the edit graph
+> (`H3_EDIT_STEPS`); the new-picture graph runs `H3_GENERATE_STEPS` = 4.
+
 > **Update, 2026-11-12 (after the first production run): the 4 MP tier was wrong, and
 > so was the checkpoint.** Everything below about fit and speed still holds, but two
 > choices made here were replaced:

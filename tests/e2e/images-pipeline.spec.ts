@@ -514,8 +514,8 @@ test.describe("MiniMax-H3-Image at 12 MP", () => {
 		expect(graphNodeByClass(prompt.graph, "TextEncodeQwenImage21")).toBeFalsy();
 		expect(
 			graphNodeByClass(prompt.graph, "KSampler")?.inputs?.steps,
-			"H3's 6 steps",
-		).toBe(6);
+			"H3 samples a new picture in 4 steps",
+		).toBe(4);
 		expect(submittedCanvas(prompt.graph)).toEqual(H3_CANVAS);
 
 		// No 16 MP: the requested canvas is the 12 MP one, not a doubled print.
@@ -538,7 +538,7 @@ test.describe("MiniMax-H3-Image at 12 MP", () => {
 		);
 		await expectHistoryHolds(page, fileId);
 
-		// The stored take is H3's, at the 12 MP canvas and 6 steps, transparent false.
+		// The stored take is H3's, at the 12 MP canvas, transparent false.
 		const [stored] = await storedTakes(conversationId);
 		expect(stored.request.model).toBe("h3");
 		expect(stored.request.canvas).toEqual(H3_CANVAS);
@@ -576,7 +576,11 @@ test.describe("MiniMax-H3-Image at 12 MP", () => {
 		expect(
 			graphNodeByClass(edit.graph, "MiniMaxH3ImageConditioning"),
 		).toBeTruthy();
-		expect(graphNodeByClass(edit.graph, "KSampler")?.inputs?.steps).toBe(6);
+		// An edit keeps H3's six steps; no edit at 4 steps has been looked at yet.
+		expect(
+			graphNodeByClass(edit.graph, "KSampler")?.inputs?.steps,
+			"H3 keeps an edit at 6 steps",
+		).toBe(6);
 		expect(submittedCanvas(edit.graph)).toEqual(H3_CANVAS);
 		// The edit graph keeps the same ten slots; only the base one is wired.
 		expect(submittedImageSlots(edit.graph)).toHaveLength(1);

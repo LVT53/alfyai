@@ -510,7 +510,7 @@ describe("an H3 take", () => {
 		return h3Fake;
 	}
 
-	it("runs the take's own model on the request's canvas with 6 steps / CFG 1, and stores no alpha", async () => {
+	it("runs a new picture on the take's own model, on the request's canvas, with 4 steps / CFG 1, and stores no alpha", async () => {
 		const comfy = await startH3Only();
 		const takeId = await queueTake(
 			request({ model: "h3", canvas: { width: 2496, height: 1664 } }),
@@ -532,7 +532,7 @@ describe("an H3 take", () => {
 		const sampler = Object.values(body.prompt).find(
 			(node) => node.class_type === "KSampler",
 		);
-		expect(sampler?.inputs.steps).toBe(6);
+		expect(sampler?.inputs.steps).toBe(4);
 		expect(sampler?.inputs.cfg).toBe(1);
 
 		const meta = await sharp(await resultBytes(takeId)).metadata();
@@ -565,7 +565,10 @@ describe("an H3 take", () => {
 			comfy.requests.filter((r) => r.path === "/upload/image"),
 		).toHaveLength(1);
 		const body = comfy.requests.find((r) => r.path === "/prompt")?.json as {
-			prompt: Record<string, { inputs: Record<string, unknown> }>;
+			prompt: Record<
+				string,
+				{ class_type: string; inputs: Record<string, unknown> }
+			>;
 		};
 		const conditioning = Object.values(body.prompt).find(
 			(node) => "images.image_1" in node.inputs,
@@ -574,6 +577,12 @@ describe("an H3 take", () => {
 		const prompt = String(conditioning?.inputs.prompt);
 		expect(prompt.startsWith("<Picture 1> ")).toBe(true);
 		expect(prompt).toContain("Make this change only at");
+		// An edit keeps H3's six steps; only a new picture runs four.
+		const sampler = Object.values(body.prompt).find(
+			(node) => node.class_type === "KSampler",
+		);
+		expect(sampler?.inputs.steps).toBe(6);
+		expect(sampler?.inputs.cfg).toBe(1);
 		expect(await storedHasAlpha(take.resultFileId)).toBe(0);
 	});
 });

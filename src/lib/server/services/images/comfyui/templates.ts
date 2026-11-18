@@ -12,10 +12,11 @@
  * MiniMax-H3-Image, flattened from the 0.44 trial's API graph (ComfyUI
  * `ede4e5fe8d`): NVFP4 diffusion `minimax_h3_image_pruned_nvfp4.safetensors`,
  * NVFP4-AWQ text encoder `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` (type
- * minimax), VAE `minimax_h3_image_vae_fp16.safetensors`. It is distilled to six
- * steps at CFG 1 and has no transparent path. Its edit graph also has 10
- * `images.image_1`..`image_10` slots, and `image_1` is the picture being changed;
- * H3 refers to pictures as `<Picture N>` in the prompt.
+ * minimax), VAE `minimax_h3_image_vae_fp16.safetensors`. It is distilled for six
+ * steps at CFG 1 (a new picture runs four, see H3_GENERATE_STEPS) and has no
+ * transparent path. Its edit graph also has 10 `images.image_1`..`image_10`
+ * slots, and `image_1` is the picture being changed; H3 refers to pictures as
+ * `<Picture N>` in the prompt.
  *
  * Both families end in PreviewImage. The slot map names nodes and inputs and is
  * held by templates.contract.test.ts.
@@ -74,10 +75,25 @@ export const QWEN_STEPS = 30;
 export const QWEN_CFG = 1;
 
 /**
- * MiniMax-H3-Image is distilled to six steps at CFG 1 and has no negative
- * prompt; the sampler's negative is a zeroed copy of the H3 conditioning.
+ * MiniMax-H3-Image is distilled for six steps (MiniMax documents six as the only
+ * supported count). An edit keeps the six: no edit at fewer steps has been looked
+ * at yet.
  */
-export const H3_STEPS = 6;
+export const H3_EDIT_STEPS = 6;
+
+/**
+ * A new picture runs four steps, the owner's call on our own pictures. On
+ * 2026-11-18 he compared 12 MP renders at 6 and at 4 steps at full size (same
+ * prompts, same seed) and judged 4 better: "a little less detailed but much more
+ * stable and less noisy". It is also 27% faster: one picture 15.8 s -> 11.6 s on
+ * the server, sampling 12.5 s -> 8.7 s. 3 steps went visibly waxy and are never
+ * to be used. ComfyUI's H3 code averages the distilled PDD heads a coarser step
+ * spans, so four steps run with no other change to the graph; the ETA's H3
+ * sampling constants were measured at six and scale by steps / 6 (take-eta.ts).
+ */
+export const H3_GENERATE_STEPS = 4;
+
+/** Both H3 graphs run at CFG 1: it has no negative prompt, the sampler's negative is a zeroed copy of the H3 conditioning. */
 export const H3_CFG = 1;
 
 /** H3 refers to its pictures as `<Picture 1>`, `<Picture 2>`…; image_1 is the base. */
@@ -145,7 +161,7 @@ export const H3_GRAPH_TEMPLATES: Partial<Record<GraphName, GraphTemplate>> = {
 	generate: {
 		name: "generate",
 		graph: h3GenerateGraph as ComfyGraph,
-		steps: H3_STEPS,
+		steps: H3_GENERATE_STEPS,
 		cfg: H3_CFG,
 		slots: {
 			prompt: { node: "4", input: "prompt" },
@@ -161,7 +177,7 @@ export const H3_GRAPH_TEMPLATES: Partial<Record<GraphName, GraphTemplate>> = {
 	edit: {
 		name: "edit",
 		graph: h3EditGraph as ComfyGraph,
-		steps: H3_STEPS,
+		steps: H3_EDIT_STEPS,
 		cfg: H3_CFG,
 		slots: {
 			prompt: { node: "4", input: "prompt" },

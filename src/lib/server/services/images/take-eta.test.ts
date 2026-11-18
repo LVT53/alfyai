@@ -5,6 +5,11 @@
 // moves earlier. Synthetic times, so the arithmetic is pinned without a clock.
 
 import { describe, expect, it } from "vitest";
+import {
+	graphFor,
+	H3_EDIT_STEPS,
+	H3_GENERATE_STEPS,
+} from "./comfyui/templates";
 import { createTakeEta, type EtaPlan, picturePlan } from "./take-eta";
 import type { TakeRequest } from "./take-request";
 
@@ -188,9 +193,11 @@ describe("picturePlan", () => {
 		]);
 	});
 
-	it("puts a cold 12 MP H3 take near the half minute it takes", () => {
-		expect(total(picturePlan(request({}), false))).toBeGreaterThanOrEqual(26);
-		expect(total(picturePlan(request({}), false))).toBeLessThanOrEqual(34);
+	it("puts a cold 12 MP H3 picture near the 25 seconds it takes at four steps", () => {
+		// 13 s of load, 6.3 s of sampling (the six-step 9.5 s, times 4/6) and 6.3 s
+		// of finish.
+		expect(total(picturePlan(request({}), false))).toBeGreaterThanOrEqual(22);
+		expect(total(picturePlan(request({}), false))).toBeLessThanOrEqual(30);
 	});
 
 	it("gives a warm engine almost no load", () => {
@@ -210,5 +217,61 @@ describe("picturePlan", () => {
 			true,
 		);
 		expect(total(print)).toBeGreaterThan(total(small));
+	});
+
+	describe("the sampler's share follows the step count of the graph the request runs", () => {
+		const secondsOf = (plan: EtaPlan, kind: "load" | "sample" | "finish") =>
+			plan.find((entry) => entry.kind === kind)?.seconds ?? 0;
+		const sampleSeconds = (plan: EtaPlan) => secondsOf(plan, "sample");
+		const canvas = { width: 3072, height: 2048 };
+		const megapixels = (3072 * 2048) / 1e6;
+
+		it("plans an H3 new picture's sampling at 4/6 of an edit's on the same canvas", () => {
+			const generate = picturePlan(request({ mode: "generate", canvas }), true);
+			const edit = picturePlan(request({ mode: "edit", canvas }), true);
+			expect(sampleSeconds(generate)).toBeLessThan(sampleSeconds(edit));
+			expect(sampleSeconds(generate) / sampleSeconds(edit)).toBeCloseTo(
+				H3_GENERATE_STEPS / H3_EDIT_STEPS,
+				10,
+			);
+			// Only the sampler changes: the load and the finish do not know steps.
+			expect(secondsOf(generate, "load")).toBe(secondsOf(edit, "load"));
+			expect(secondsOf(generate, "finish")).toBe(secondsOf(edit, "finish"));
+		});
+
+		it("keeps the constants as measured at six steps for an H3 edit", () => {
+			const edit = picturePlan(request({ mode: "edit", canvas }), true);
+			expect(sampleSeconds(edit)).toBeCloseTo(0.8 * megapixels, 6);
+		});
+
+		it("takes the step count from the graph template, not from a number of its own", () => {
+			const generateSteps = graphFor("h3", "generate", false)?.template.steps;
+			const editSteps = graphFor("h3", "edit", false)?.template.steps;
+			expect([generateSteps, editSteps]).toEqual([4, 6]);
+			const generate = picturePlan(request({ mode: "generate", canvas }), true);
+			expect(sampleSeconds(generate)).toBeCloseTo(
+				0.8 * megapixels * ((generateSteps ?? 0) / 6),
+				6,
+			);
+		});
+
+		it("leaves Qwen's sampling exactly as measured", () => {
+			const qwen = picturePlan(
+				request({
+					model: "qwen",
+					canvas: { width: 1248, height: 832 },
+				}),
+				true,
+			);
+			expect(sampleSeconds(qwen)).toBeCloseTo(
+				6 * ((1248 * 832) / 1e6) ** 1.35,
+				6,
+			);
+		});
+
+		it("plans a request with no graph (H3 has no transparent one) at the measured constants", () => {
+			const plan = picturePlan(request({ canvas, transparent: true }), true);
+			expect(sampleSeconds(plan)).toBeCloseTo(0.8 * megapixels, 6);
+		});
 	});
 });

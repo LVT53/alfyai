@@ -17,6 +17,7 @@
 // render that starts over (ComfyUI forgot the prompt): the runner makes a new
 // estimate for it.
 
+import { graphFor } from "./comfyui/templates";
 import type { TakeRequest } from "./take-request";
 
 export type EtaStage = {
@@ -182,6 +183,11 @@ export function etaSecondsAt(
  * store and check) grows with it. A warm engine (its models still loaded from
  * a take a moment ago) has next to no load. The sampler's real rate replaces
  * its planned share once two steps are in.
+ *
+ * The sampling constants are for the step count they were measured at
+ * (`measuredSteps`, H3's six); a graph that runs fewer samples that fraction of
+ * the time. The count is the template's own (`graphFor`, the one the runner
+ * builds the graph from): a new H3 picture runs four, an H3 edit six.
  */
 export function picturePlan(request: TakeRequest, warm: boolean): EtaPlan {
 	const megapixels = (request.canvas.width * request.canvas.height) / 1e6;
@@ -190,13 +196,32 @@ export function picturePlan(request: TakeRequest, warm: boolean): EtaPlan {
 		{ kind: "load", seconds: warm ? WARM_LOAD_SECONDS : engine.coldLoad },
 		{
 			kind: "sample",
-			seconds: engine.sampleAtOneMp * megapixels ** engine.sampleGrowth,
+			seconds:
+				engine.sampleAtOneMp *
+				megapixels ** engine.sampleGrowth *
+				stepScale(request, engine.measuredSteps),
 		},
 		{
 			kind: "finish",
 			seconds: FINISH_BASE_SECONDS + engine.finishPerMp * megapixels,
 		},
 	];
+}
+
+/**
+ * What the sampler's planned time is multiplied by for this request's graph:
+ * its steps over the steps the engine's constants were measured at, or 1 for an
+ * engine whose constants are not tied to a count and for a request that has no
+ * graph (H3 has no transparent one; the runner refuses it).
+ */
+function stepScale(
+	request: TakeRequest,
+	measuredSteps: number | undefined,
+): number {
+	if (measuredSteps === undefined) return 1;
+	const steps = graphFor(request.model, request.mode, request.transparent)
+		?.template.steps;
+	return steps === undefined ? 1 : steps / measuredSteps;
 }
 
 /** A warm engine still stages the prompt and its inputs. */
@@ -210,11 +235,20 @@ const PICTURE_ENGINE_PLAN: Record<
 		coldLoad: number;
 		sampleAtOneMp: number;
 		sampleGrowth: number;
+		/** The step count `sampleAtOneMp` was measured at; the sample stage scales by the graph's steps over it. Unset: no scaling. */
+		measuredSteps?: number;
 		finishPerMp: number;
 	}
 > = {
-	// 12 MP: ~13 s cold load, ~9.5 s of sampling, ~6.3 s of decode and store.
-	h3: { coldLoad: 13, sampleAtOneMp: 0.8, sampleGrowth: 1, finishPerMp: 0.4 },
+	// 12 MP at six steps: ~13 s cold load, ~9.5 s of sampling, ~6.3 s of decode
+	// and store. A new picture runs four steps (~6.3 s of sampling at 12 MP).
+	h3: {
+		coldLoad: 13,
+		sampleAtOneMp: 0.8,
+		sampleGrowth: 1,
+		measuredSteps: 6,
+		finishPerMp: 0.4,
+	},
 	// 1 MP: ~6 s of sampling, a warm take ~9 s; 4 MP print: ~41 s.
 	qwen: {
 		coldLoad: 15,
