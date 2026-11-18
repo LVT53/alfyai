@@ -596,6 +596,44 @@ describe("what a call is made from", () => {
 		]);
 	});
 
+	// Owner, 2026-11-18: a picture made from several pictures starts its own Image.
+	// Changed in place, it was filed as the next version of the Image named first
+	// (production: a photo's change, then a picture made from it and two new
+	// photos, then five changes, were all one Image, so "what this chat made"
+	// showed one row and the new photos never became Images of their own).
+	it("makes a picture from several pictures its own Image, even when the first is an Image of this chat", async () => {
+		const item = await makeItem(123);
+		const photo = await makeUpload(640, 480);
+		const result = await resolve(
+			{ pictures: ["1", "2"], title: "Rug in the room" },
+			{
+				turnPictures: index([
+					fileSource(item.file.id, { artifactId: item.artifactId }),
+					photo,
+				]),
+			},
+		);
+		if (!result.ok) throw new Error("not resolved");
+		expect(result.plan).toMatchObject({
+			artifactId: null,
+			madeFrom: "pictures",
+			sourceCount: 2,
+			title: "Rug in the room",
+		});
+		expect(result.plan.cardKey).toMatch(/^new:/);
+		expect(result.plan.request).toMatchObject({
+			mode: "edit",
+			baseFromUpload: false,
+		});
+		expect(result.plan.request.inputs.map((input) => input.role)).toEqual([
+			"base",
+			"reference",
+		]);
+		// The Image's own file is copied, never shared, and its seed is avoided.
+		expect(result.plan.request.inputs[0]?.fileId).not.toBe(item.file.id);
+		expect(result.plan.request.avoidSeeds).toEqual([123]);
+	});
+
 	// W14 T1 (diagnosis): naming three pictures must reach the picture server as
 	// all three, the first as the base and the other two as references, in the
 	// order the prompt names them. If this fails, the take itself is made from
