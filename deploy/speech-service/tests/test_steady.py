@@ -12,7 +12,7 @@ import pytest
 from speech_service import questions, steady
 from speech_service.models import Voice
 from speech_service.zonos import SynthesisFailed, ZonosUnavailable
-from tests.helpers import SR, question_clip, tone
+from tests.helpers import SR, hungarian_question_clip, question_clip, tone
 
 TEXT = "Elolvassam a hosszabb változatot is"  # 36 characters, the length of a short question
 
@@ -427,3 +427,49 @@ async def test_no_rate_is_sent_without_a_memory_or_without_a_span():
     statement = ScriptedWithSpans(question_clip(False))
     await ask(statement, QUESTION[:-1] + ".", rates=questions.RateMemory())
     assert statement.rates == [None]
+
+
+HU_QUESTION = "Megtaláltad azt a fájlt?"
+
+
+async def ask_in_hungarian(zonos, text=HU_QUESTION, attempts=4, rise=3.0):
+    return await steady.synthesize_steady(
+        zonos, text, "hu", VOICE, 1234, attempts, question_lift=5.0, question_rise=rise
+    )
+
+
+async def test_a_hungarian_question_that_rises_and_falls_is_taken_at_once():
+    clip = hungarian_question_clip("rise-fall")
+    zonos = ScriptedWithSpans(clip)
+    audio, _ = await ask_in_hungarian(zonos)
+    assert audio is clip and zonos.seeds == [1234]
+
+
+async def test_a_hungarian_question_that_ends_in_a_final_rise_is_made_again():
+    good = hungarian_question_clip("rise-fall")
+    zonos = ScriptedWithSpans(hungarian_question_clip("final-rise"), good)
+    audio, _ = await ask_in_hungarian(zonos)
+    assert audio is good and len(zonos.seeds) == 2
+
+
+async def test_a_hungarian_question_is_lifted_without_its_last_syllable():
+    zonos = ScriptedWithSpans(hungarian_question_clip("rise-fall"))
+    text = "Megtaláltad a kulcsomat?"
+    await ask_in_hungarian(zonos, text)
+    ((span,),) = zonos.spans
+    assert text[span["start"] : span["end"]] == "kulcso"
+
+
+async def test_a_hungarian_question_with_a_longer_last_word_is_judged_too():
+    # Its lift stops before the last syllable, but the question still ends the text: it is judged.
+    text = "Megtaláltad a kulcsomat?"
+    good = hungarian_question_clip("rise-fall")
+    zonos = ScriptedWithSpans(hungarian_question_clip("final-rise"), good)
+    audio, _ = await ask_in_hungarian(zonos, text)
+    assert audio is good and len(zonos.seeds) == 2
+
+
+async def test_a_question_that_does_not_end_the_text_is_lifted_and_not_judged():
+    zonos = ScriptedWithSpans(question_clip(False))
+    await ask(zonos, "Did you find the file that I sent you? Let me know.")
+    assert zonos.spans[0] is not None and len(zonos.seeds) == 1

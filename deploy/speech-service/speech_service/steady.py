@@ -151,8 +151,7 @@ async def synthesize_steady(
     chars = len(text)
     tempo = float(voice.controls.get(_TEMPO_CONTROL, 0.0))
     spans = questions.question_controls(text, language, question_lift)
-    asked = questions.question_spans(text, language)
-    judged = question_rise > 0 and bool(asked) and asked[-1][1] == len(text.rstrip())
+    judged = question_rise > 0 and questions.ends_in_yes_no_question(text, language)
     voice_key = f"{voice.speaker_id}|{tempo}"
     best: tuple[float, np.ndarray, int] | None = None
     for attempt in range(max(1, attempts)):
@@ -174,7 +173,7 @@ async def synthesize_steady(
             rates.learn(voice_key, chars, len(trim_silence(audio, rate)) / rate)
         rise = None
         if score == 0.0 and judged:
-            rise = questions.final_rise(audio, rate)
+            rise = questions.question_rise(audio, rate, language, text)
             if rise is not None and rise < question_rise:
                 score = FLAT_QUESTION
         if best is None or score < best[0]:

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from speech_service import questions
-from tests.helpers import SR, question_clip, tone
+from tests.helpers import SR, hungarian_question_clip, question_clip, tone
 
 
 def last_words(text: str, language: str = "en") -> list[str]:
@@ -138,3 +138,89 @@ def test_a_rate_is_kept_within_what_a_voice_could_speak_at():
     memory.learn("slow", chars=100, seconds=60.0)
     assert memory.frames_per_char("fast") == 0.5
     assert memory.frames_per_char("slow") == 2.0
+
+
+# --- Hungarian: a yes/no question does not end in a rise ---------------------------------------------
+# It rises on the penultimate syllable of its last word and falls on the last (on a word of one
+# syllable the rise and the fall are both inside it). An English-style final rise would sound foreign,
+# so the lift goes on the last word without its last syllable, and the judge wants a peak that the end
+# falls from. (Measured on the Mac with the English judge: Berta's questions that rose ended in a final
+# rise in 38% of the clips, against 14% with no judge.)
+
+
+@pytest.mark.parametrize(
+    ("word", "before_the_last_syllable"),
+    [
+        ("kulcsomat?", "kulcso"),  # kul-cso-mat
+        ("csomagot?", "csoma"),  # cso-ma-got
+        ("szeretnél?", "szeret"),  # sze-ret-nél
+        ("hogyan?", "ho"),  # ho-gyan: gy is one consonant
+        ("könyvet?", "köny"),  # köny-vet
+        ("teát?", "te"),  # te-át: a vowel before a vowel starts the syllable itself
+        ("megtalálod?", "megtalá"),  # meg-ta-lá-lod
+    ],
+)
+def test_a_hungarian_question_is_lifted_on_its_last_word_without_its_last_syllable(
+    word, before_the_last_syllable
+):
+    text = f"Megtaláltad a {word}"
+    ((start, end),) = questions.question_spans(text, "hu")
+    assert text[start:end] == before_the_last_syllable
+    assert text[:start].endswith("a ")  # the span starts where the word does
+
+
+@pytest.mark.parametrize("word", ["fájlt?", "nyolc?", "kész?", "is?"])
+def test_a_hungarian_word_of_one_syllable_is_lifted_whole(word):
+    text = f"Megtaláltad a {word}"
+    assert last_words(text, "hu") == [word]
+
+
+def test_an_english_question_is_lifted_on_the_whole_last_word():
+    assert last_words("Did you find the pharmacy?") == ["pharmacy?"]
+
+
+@pytest.mark.parametrize("shape", ["rise-fall"])
+def test_a_hungarian_question_that_peaks_before_its_end_and_falls_is_judged_to_rise(shape):
+    assert questions.question_rise(hungarian_question_clip(shape), SR, "hu", "Megtaláltad a fájlt?") >= 5.0
+
+
+@pytest.mark.parametrize("shape", ["final-rise", "plateau", "fall"])
+def test_a_hungarian_question_that_ends_rising_or_staying_up_or_falls_flat_is_not(shape):
+    rise = questions.question_rise(hungarian_question_clip(shape), SR, "hu", "Megtaláltad a fájlt?")
+    assert rise is not None and rise < 3.0
+
+
+def test_an_english_question_is_still_judged_by_its_final_rise():
+    assert questions.question_rise(question_clip(True), SR, "en", "Is it ready?") >= 5.0
+    assert questions.question_rise(question_clip(False), SR, "en", "Is it ready?") <= 0.5
+
+
+def test_a_clip_too_short_to_judge_has_no_rise_in_either_language():
+    assert questions.question_rise(tone(0.3, 0.3), SR, "hu", "Megtaláltad a fájlt?") is None
+    assert questions.question_rise(tone(0.3, 0.3), SR, "en", "Is it ready?") is None
+
+
+def test_a_peak_in_the_last_syllable_of_a_longer_word_is_a_final_rise_and_not_the_hungarian_shape():
+    # "kulcsomat?" ends in the syllable "mat": 3 of its 24 characters, a quarter of a second of this clip.
+    late = hungarian_question_clip("late-peak")
+    assert questions.question_rise(late, SR, "hu", "Megtaláltad a kulcsomat?") < 3.0
+    assert questions.question_rise(hungarian_question_clip("rise-fall"), SR, "hu", "Megtaláltad a kulcsomat?") >= 5.0
+
+
+def test_the_same_peak_in_a_word_of_one_syllable_is_a_rise_and_a_fall_inside_it():
+    late = hungarian_question_clip("late-peak")
+    assert questions.question_rise(late, SR, "hu", "Megtaláltad a fájlt?") >= 3.0
+
+
+@pytest.mark.parametrize(
+    ("text", "language", "ends"),
+    [
+        ("Did you find the file?", "en", True),
+        ("Megtaláltad a kulcsomat?", "hu", True),  # the lift stops before "mat", the question still ends the text
+        ("Did you find it? Let me check.", "en", False),
+        ("Where is it?", "en", False),  # a question word: not a yes/no question
+        ("It is ready.", "en", False),
+    ],
+)
+def test_a_text_ends_in_a_yes_no_question_when_its_last_sentence_is_one(text, language, ends):
+    assert questions.ends_in_yes_no_question(text, language) is ends

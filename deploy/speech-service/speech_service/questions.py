@@ -20,6 +20,16 @@ text ends in such a question (`final_rise`) and makes it again under the next se
 less than `SPEECH_QUESTION_RISE` semitones, as it does a stall. A doubled mark ("??") was no use:
 it helped English at the end of a unit only and Hungarian not at all.
 
+Hungarian is different: a yes/no question does not end in a rise. It rises on the penultimate
+syllable of its last word and falls on the last (on a word of one syllable both happen inside it), and
+an English-style final rise sounds foreign. Judged by the English final rise, Berta's questions that
+rose did so at the very end in 38% of the clips (6% before the fix; the pitch after the peak fell by
+1.2 semitones, where a question falls). So in Hungarian the lift covers the last word without its last
+syllable and the judge (`penultimate_rise`) wants a peak that stands 3 semitones above the second
+before it and above the clip's median pitch, lies before the last syllable and that the end falls
+from; with that, 59% of Berta's questions rise and fall (28% with the English judge) and 18% end in
+a final rise, and the median fall after the peak is 7 semitones.
+
 A span is placed by its characters (`RateMemory`, below), and the judge is numpy alone, because the
 service has no scipy or librosa: it agreed with librosa's pYIN on whether a clip rises by at least
 three semitones in 91% of 398 clips (the other 9% split about evenly) and takes about 10 ms a clip.
@@ -59,7 +69,31 @@ _ENDS_A_SENTENCE = re.compile(rf"[.!?…][{re.escape(_CLOSERS)}]*$")
 _PLAIN_QUESTION = re.compile(rf"(?<![?!.…])\?[{re.escape(_CLOSERS)}]*$")
 
 
-def question_spans(text: str, language: str) -> list[tuple[int, int]]:
+_HU_VOWELS = frozenset("aáeéiíoóöőuúüűAÁEÉIÍOÓÖŐUÚÜŰ")
+# Letters that stand for one consonant, longest first: the last of them starts the last syllable.
+_HU_CONSONANT_LETTERS = ("dzs", "cs", "dz", "gy", "ly", "ny", "sz", "ty", "zs")
+
+
+def _final_syllable_start(word: str) -> int | None:
+    """Where the last syllable of the Hungarian `word` starts in it, or None for a word of one syllable.
+
+    A Hungarian word has as many syllables as vowels; the last one is the last vowel with the single
+    consonant before it (cs, gy, sz and the like count as one), or with nothing before it when a vowel
+    stands there: kul-cso-mat, cso-ma-got, ho-gyan, te-át."""
+    vowels = [i for i, letter in enumerate(word) if letter in _HU_VOWELS]
+    if len(vowels) < 2:
+        return None
+    start = vowels[-1]
+    if start > 0 and word[start - 1].isalpha() and word[start - 1] not in _HU_VOWELS:
+        start -= 1
+        for letters in _HU_CONSONANT_LETTERS:
+            if start + 1 - len(letters) >= 0 and word[start + 1 - len(letters) : start + 1].lower() == letters:
+                start = start + 1 - len(letters)
+                break
+    return start
+
+
+def _last_words_of_questions(text: str, language: str) -> list[tuple[int, int]]:
     """The character spans of the last word of each yes/no question in `text`, in order.
 
     `text` is what Zonos is sent: the words with one space between. A sentence is a run of words
@@ -77,6 +111,23 @@ def question_spans(text: str, language: str) -> list[tuple[int, int]]:
         if _ENDS_A_SENTENCE.search(word.group()):
             first = None
     return spans
+
+
+def question_spans(text: str, language: str) -> list[tuple[int, int]]:
+    """The character spans to lift for each yes/no question in `text`, in order: its last word, and in
+    Hungarian its last word without its last syllable (the question rises on the penultimate syllable
+    and falls on the last; a word of one syllable is lifted whole, and the voice rises and falls in it)."""
+    spans = []
+    for start, end in _last_words_of_questions(text, language):
+        cut = _final_syllable_start(text[start:end]) if language == "hu" else None
+        spans.append((start, start + cut if cut else end))
+    return spans
+
+
+def ends_in_yes_no_question(text: str, language: str) -> bool:
+    """Whether the last sentence of `text` is a yes/no question: the one whose clip's end is judged."""
+    questions_found = _last_words_of_questions(text, language)
+    return bool(questions_found) and questions_found[-1][1] == len(text.rstrip())
 
 
 def question_controls(text: str, language: str, dose: float) -> list[dict]:
@@ -183,21 +234,77 @@ def _f0_track(audio: np.ndarray, rate: int) -> np.ndarray:
     return cleaned
 
 
-def final_rise(audio: np.ndarray, rate: int) -> float | None:
-    """How far the pitch rises at the end of `audio`, in semitones: the median of its last 150 ms of
-    voiced speech over the lowest point of the second before. A statement ends at its lowest point
-    (0 or below); a question that was asked ends well above it. None when the clip has too little
-    voiced speech to say."""
+def _contour(audio: np.ndarray, rate: int) -> tuple[np.ndarray, np.ndarray] | None:
+    """The voiced frames of `audio` and their pitch in semitones against the clip's median, smoothed
+    (a 5-frame median takes out the single frames a pitch tracker gets wrong); None for too little
+    voiced speech."""
     f0 = _f0_track(audio, rate)
     voiced = np.flatnonzero(~np.isnan(f0))
     if len(voiced) < _LEAST_VOICED:
         return None
     semitones = 12 * np.log2(f0 / np.nanmedian(f0))
     smooth = semitones.copy()
-    for i in voiced:  # a 5-frame median takes out the single frames a pitch tracker gets wrong
+    for i in voiced:
         smooth[i] = np.nanmedian(semitones[max(0, i - 2) : i + 3])
+    return voiced, smooth
+
+
+def final_rise(audio: np.ndarray, rate: int) -> float | None:
+    """How far the pitch rises at the end of `audio`, in semitones: the median of its last 150 ms of
+    voiced speech over the lowest point of the second before. A statement ends at its lowest point
+    (0 or below); a question that was asked ends well above it. None when the clip has too little
+    voiced speech to say."""
+    contour = _contour(audio, rate)
+    if contour is None:
+        return None
+    voiced, smooth = contour
     tail = voiced[-_TAIL_FRAMES:]
     before = voiced[(voiced < tail[0]) & (voiced >= tail[0] - _BEFORE_FRAMES)]
     if len(tail) < _TAIL_FRAMES // 2 or len(before) < _LEAST_VOICED // 2:
         return None
     return float(np.median(smooth[tail]) - np.min(smooth[before]))
+
+
+_LAST_SYLLABLE_FRAMES = 10  # a peak this close to the end (100 ms) is a final rise, not a penultimate one
+_LEAST_FALL = 1.5  # semitones the end of a Hungarian question falls from its peak
+
+
+def penultimate_rise(audio: np.ndarray, rate: int, text: str) -> float | None:
+    """How far the pitch rises to a peak in the last word of a Hungarian question, in semitones, over
+    the lowest point of the second before the peak and over the clip's median pitch (the smaller of
+    the two); 0 when the clip does not have the Hungarian
+    shape: the peak must lie 100 ms or more before the end of the speech (before the last syllable,
+    when the word has more than one) and the end must have fallen at least 1.5 semitones from it (a
+    rise that goes on to the end is an English question's, and one that stays up is neither). The last word is found from its letters and the clip's pace. None when
+    the clip has too little voiced speech to say."""
+    contour = _contour(audio, rate)
+    word = "".join(letter for letter in text.split()[-1] if letter.isalpha()) if text.split() else ""
+    letters = len(word)
+    if contour is None or letters == 0:
+        return None
+    voiced, smooth = contour
+    last = int(voiced[-1])
+    pace = (last - int(voiced[0]) + 1) / max(len(text), 1)  # frames a character
+    # The peak must be before the last syllable of a word of two or more, which takes `pace` a letter:
+    # a peak in it is the end rising, as an English question's does.
+    cut = _final_syllable_start(word)
+    least = _LAST_SYLLABLE_FRAMES if cut is None else max(_LAST_SYLLABLE_FRAMES, round(0.7 * (letters - cut) * pace))
+    region = voiced[voiced >= last - round(letters * pace) - _TAIL_FRAMES]
+    if len(region) < _TAIL_FRAMES // 3:
+        return None
+    peak = int(region[np.argmax(smooth[region])])
+    before = voiced[(voiced < peak) & (voiced >= peak - _BEFORE_FRAMES)]
+    if len(before) < _LEAST_VOICED // 4:
+        return None
+    # The peak must stand above the second before it and above the clip's own median pitch: a
+    # statement's last word has a peak too (its first syllable is stressed), but not as high.
+    rise = min(float(smooth[peak] - np.min(smooth[before])), float(smooth[peak]))
+    fell = float(np.median(smooth[voiced[-5:]]) - smooth[peak])
+    return rise if last - peak >= least and fell <= -_LEAST_FALL else min(rise, 0.0)
+
+
+def question_rise(audio: np.ndarray, rate: int, language: str, text: str) -> float | None:
+    """The rise `audio`, a clip of the question that ends `text`, has at its end, by its language's
+    shape: an English question rises to the end (`final_rise`), a Hungarian one peaks on the
+    penultimate syllable and falls (`penultimate_rise`). None when there is too little to say."""
+    return penultimate_rise(audio, rate, text) if language == "hu" else final_rise(audio, rate)

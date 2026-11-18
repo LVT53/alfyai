@@ -17,6 +17,7 @@ __all__ = [
     "peak_db",
     "question_clip",
     "rms_db",
+    "shaped_clip",
     "tone",
     "voiced_clip",
 ]
@@ -82,3 +83,25 @@ def question_clip(rises: bool, seconds: float = 2.0) -> np.ndarray:
         return np.where(t > last, 160 + (end - 160) * into, body)
 
     return voiced_clip(f0, seconds)
+
+
+def shaped_clip(points: list[tuple[float, float]], seconds: float = 2.0) -> np.ndarray:
+    """A `voiced_clip` whose pitch passes through the (second, Hz) `points`, straight between them."""
+    times, hertz = zip(*points)
+    return voiced_clip(lambda t: np.interp(t, times, hertz), seconds)
+
+
+def hungarian_question_clip(shape: str) -> np.ndarray:
+    """2 s of a voice that comes down from 190 to 170 Hz and then, by `shape`: "rise-fall" peaks at 250 Hz
+    a third of a second before the end and falls to 150 Hz (a Hungarian yes/no question); "late-peak" peaks
+    0.15 s before the end; "final-rise" ends rising to 260 Hz (an English one); "plateau" peaks and stays up;
+    "fall" falls on (a statement)."""
+    body = [(0.0, 190.0), (1.4, 170.0)]
+    ends = {
+        "rise-fall": [(1.65, 250.0), (2.0, 150.0)],
+        "final-rise": [(2.0, 260.0)],
+        "plateau": [(1.65, 250.0), (2.0, 245.0)],
+        "late-peak": [(1.85, 250.0), (2.0, 150.0)],
+        "fall": [(2.0, 140.0)],
+    }
+    return shaped_clip(body + ends[shape], 2.0)
