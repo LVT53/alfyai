@@ -7,6 +7,7 @@ import { conversations, users } from "$lib/server/db/schema";
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import { createArtifact } from "$lib/server/services/artifacts";
+import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
 import { recordAskQuestion } from "$lib/server/services/chat-turn/ask-questions";
 import {
 	hasLocalDistillEnabled,
@@ -42,6 +43,8 @@ import {
 import {
 	getMemoryContext,
 	type HistoryMemoryContextResult,
+	type PersonaMemoryContextResult,
+	type ProjectMemoryContextResult,
 } from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
@@ -55,6 +58,8 @@ import {
 	SKILLS_AVAILABLE_HEADING,
 } from "$lib/server/services/skills/prompt-context";
 import { resetToolHealthCacheForTests } from "$lib/server/services/tool-health";
+import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
+import { TurnDeadlineReason } from "$lib/server/utils/turn-deadline-reason";
 import { PATCH_OP_KINDS } from "$lib/shared/artifact-document/patch";
 import { ASK_LIMITS } from "$lib/shared/ask-user";
 import { INSTRUCTIONS_MAX_CHARS } from "$lib/shared/instructions";
@@ -80,7 +85,11 @@ import {
 	type ReadGeneratedFileResult,
 	readGeneratedFileForTool,
 } from "./read-generated-file";
-import { createToolCallRecorder, TOOL_TIMEOUTS_MS } from "./shared";
+import {
+	createToolCallRecorder,
+	TOOL_TIMEOUTS_MS,
+	withReasonCode,
+} from "./shared";
 import { resetToolResultCacheForTests } from "./tool-result-cache";
 
 // The ledger lookup is mocked (it is the DB), but the polling loop around it
@@ -3775,6 +3784,9 @@ describe("createNormalChatTools", () => {
 					ok: false,
 					evidenceReady: false,
 					error: "memory unavailable",
+					// Any failure of the lookup that is not a scope refusal, a timeout
+					// or a Stop reads "memory couldn't be read".
+					reasonCode: "memory_unavailable",
 				},
 			}),
 			expect.objectContaining({
@@ -6595,6 +6607,245 @@ describe("memory_context tool — what a call records it read", () => {
 		const { entry } = await recall();
 
 		expect(entry.metadata).not.toHaveProperty("readArtifactIds");
+	});
+});
+
+// A memory lookup's row says what happened from a reason code on the entry's
+// metadata, beside the payload the model reads (which is what it always was).
+describe("memory_context names what happened", () => {
+	beforeEach(() => {
+		getMemoryContextMock.mockReset();
+		resetToolResultCacheForTests();
+	});
+
+	const audit = { conversationId: "conversation-1", query: "" };
+
+	function personaResult(
+		overrides: Partial<PersonaMemoryContextResult> = {},
+	): PersonaMemoryContextResult {
+		return {
+			success: true,
+			mode: "persona",
+			status: "available",
+			source: "active_memory_profile",
+			content: "Likes trains.",
+			evidenceCandidates: [],
+			audit,
+			...overrides,
+		};
+	}
+
+	function historyOf(
+		overrides: Partial<HistoryMemoryContextResult> = {},
+	): HistoryMemoryContextResult {
+		return {
+			success: true,
+			mode: "history",
+			status: "available",
+			source: "conversation_summaries",
+			query: "vienna",
+			conversations: [],
+			omittedConversationCount: 0,
+			selectedConversation: null,
+			evidenceCandidates: [],
+			audit: {
+				...audit,
+				requestedMaxHistoryConversations: null,
+				appliedMaxHistoryConversations: 5,
+				historyConversationId: null,
+				requestedMaxMessages: null,
+				appliedMaxMessages: 10,
+			},
+			...overrides,
+		};
+	}
+
+	function projectOf(hasProjectContext: boolean): ProjectMemoryContextResult {
+		return {
+			success: true,
+			mode: "project",
+			projectMode: "summary",
+			hasProjectContext,
+			source: "none",
+			project: null,
+			siblings: [],
+			omittedSiblingCount: 0,
+			evidenceCandidates: [],
+			audit: {
+				...audit,
+				scope: "conversation",
+				requestedMaxSiblings: null,
+				appliedMaxSiblings: 8,
+				includeEvidenceCandidates: true,
+			},
+		};
+	}
+
+	async function recall(
+		input: Parameters<
+			NonNullable<
+				ReturnType<
+					typeof createNormalChatTools
+				>["tools"]["memory_context"]["execute"]
+			>
+		>[0] = {},
+		options: { abortSignal?: AbortSignal } = {},
+	) {
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+		const payload = await tools.memory_context.execute(input, {
+			toolCallId: "call-memory",
+			messages: [],
+			...options,
+		});
+		return { payload, entry: getToolCalls()[0] };
+	}
+
+	it("names a lookup that found nothing: persona, past chats and project alike", async () => {
+		getMemoryContextMock.mockResolvedValueOnce(
+			personaResult({ status: "empty", content: null }),
+		);
+		expect((await recall()).entry?.metadata).toMatchObject({
+			ok: true,
+			mode: "persona",
+			reasonCode: "nothing_found",
+		});
+
+		getMemoryContextMock.mockResolvedValueOnce(historyOf({ status: "empty" }));
+		expect((await recall({ mode: "history" })).entry?.metadata).toMatchObject({
+			mode: "history",
+			reasonCode: "nothing_found",
+		});
+
+		getMemoryContextMock.mockResolvedValueOnce(projectOf(false));
+		expect((await recall({ mode: "project" })).entry?.metadata).toMatchObject({
+			mode: "project",
+			reasonCode: "nothing_found",
+		});
+	});
+
+	it("names nothing for a lookup that found something", async () => {
+		getMemoryContextMock.mockResolvedValueOnce(personaResult());
+		expect((await recall()).entry?.metadata).not.toHaveProperty("reasonCode");
+		getMemoryContextMock.mockResolvedValueOnce(historyOf());
+		expect(
+			(await recall({ mode: "history" })).entry?.metadata,
+		).not.toHaveProperty("reasonCode");
+		getMemoryContextMock.mockResolvedValueOnce(projectOf(true));
+		expect(
+			(await recall({ mode: "project" })).entry?.metadata,
+		).not.toHaveProperty("reasonCode");
+	});
+
+	it("names a persona read that could not be done, and the payload is what it was", async () => {
+		const failed = personaResult({
+			status: "error",
+			content: null,
+			error: "projection offline",
+		});
+		getMemoryContextMock.mockResolvedValueOnce(failed);
+
+		const { payload, entry } = await recall();
+
+		expect(payload).toMatchObject({ status: "error", mode: "persona" });
+		expect(entry?.outputSummary).toBe("Persona memory status: error");
+		expect(entry?.metadata).toMatchObject({
+			status: "error",
+			reasonCode: "memory_unavailable",
+		});
+	});
+
+	it("names a lookup memory being off turned into an inert empty result, and the payload is what it was", async () => {
+		const inert = withReasonCode(
+			personaResult({ status: "empty", content: null }),
+			"memory_off",
+		);
+		const plain = personaResult({ status: "empty", content: null });
+		getMemoryContextMock.mockResolvedValueOnce(inert);
+		const off = await recall();
+		getMemoryContextMock.mockResolvedValueOnce(plain);
+		const empty = await recall();
+
+		expect(off.payload).toEqual(empty.payload);
+		expect(off.entry?.outputSummary).toBe(empty.entry?.outputSummary);
+		expect(off.entry?.metadata).toMatchObject({ reasonCode: "memory_off" });
+		// The same empty result of a person whose memory is on is a plain "nothing found".
+		expect(empty.entry?.metadata).toMatchObject({
+			reasonCode: "nothing_found",
+		});
+	});
+
+	it("names a chat Alfy may not look into, on purpose", async () => {
+		getMemoryContextMock.mockRejectedValueOnce(
+			new ToolCallRefusedError(
+				"historyConversationId is outside memory_context history scope",
+			),
+		);
+
+		const { payload, entry } = await recall({
+			mode: "history",
+			historyConversationId: "someone-elses",
+		});
+
+		expect(payload).toEqual({
+			success: false,
+			error: "historyConversationId is outside memory_context history scope",
+		});
+		expect(entry?.outputSummary).toBe(
+			"historyConversationId is outside memory_context history scope",
+		);
+		expect(entry?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "chat_out_of_reach",
+		});
+	});
+
+	it("names any other failure of the lookup memory_unavailable, a bad mode included", async () => {
+		getMemoryContextMock.mockRejectedValueOnce(
+			new Error("Unsupported memory_context mode: bogus"),
+		);
+		const bad = await recall({ mode: "persona" });
+		expect(bad.payload).toEqual({
+			success: false,
+			error: "Unsupported memory_context mode: bogus",
+		});
+		expect(bad.entry?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "memory_unavailable",
+		});
+
+		getMemoryContextMock.mockRejectedValueOnce(new Error("database is locked"));
+		expect((await recall()).entry?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "memory_unavailable",
+		});
+	});
+
+	it("leaves a Stop, the deadline and the tool's own time limit to the envelope's codes", async () => {
+		// A call that begins on a signal already aborted throws before it runs, so
+		// the lookup is never asked; the envelope names why.
+		const stopped = new AbortController();
+		stopped.abort(new UserStopReason());
+		expect(
+			(await recall({}, { abortSignal: stopped.signal })).entry?.metadata,
+		).toMatchObject({ reasonCode: "stopped" });
+
+		const late = new AbortController();
+		late.abort(new TurnDeadlineReason());
+		expect(
+			(await recall({}, { abortSignal: late.signal })).entry?.metadata,
+		).toMatchObject({ reasonCode: "out_of_time" });
+		expect(getMemoryContextMock).not.toHaveBeenCalled();
+
+		getMemoryContextMock.mockRejectedValueOnce(
+			new Error("memory_context timed out after 15000ms"),
+		);
+		expect((await recall()).entry?.metadata).toMatchObject({
+			reasonCode: "timed_out",
+		});
 	});
 });
 

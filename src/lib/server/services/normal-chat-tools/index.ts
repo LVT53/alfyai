@@ -57,6 +57,7 @@ import {
 	createGroundedWebMetadata,
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
+import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
 import type { TurnPictureIndex } from "../images/turn-pictures";
 import { createTurnTakes, type TurnTakes } from "../images/turn-takes";
@@ -1110,6 +1111,19 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: false,
 										evidenceReady: false,
 										error: modelPayload.error,
+										// A chat the lookup may not look into (turned down before
+										// anything of it was read, on purpose), else memory could
+										// not be read. A tool's own time limit is left to the
+										// envelope's `timed_out`, whose sentence says what
+										// happened; a Stop and the deadline override either.
+										...(error instanceof ToolCallRefusedError
+											? reasonMetadata("memory_context", "chat_out_of_reach")
+											: isToolTimeoutError(error)
+												? {}
+												: reasonMetadata(
+														"memory_context",
+														"memory_unavailable",
+													)),
 									},
 								},
 							};
