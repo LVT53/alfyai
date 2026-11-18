@@ -632,10 +632,12 @@ test.describe("under the policy the production boxes enforce", () => {
 		const ui = readAloudUi(page);
 		await shell.getByTestId("read-aloud-speaker-header").click();
 		await expect(ui.player).toBeVisible();
-		// 49 sentences: the title, three headings and 45 paragraphs. Past 40 the
-		// scrubber marks where each section starts instead of every sentence.
+		// 49 sentences: the title, three headings and 45 paragraphs. Past 28 the
+		// scrubber marks where each section starts instead of every sentence. The
+		// title and the first section's heading sit a pixel apart at the start of
+		// the line, so they share one mark: three in all.
 		await expect(ui.slider).toHaveAttribute("aria-valuemax", "49");
-		await expect(ui.player.locator(".read-aloud-notch")).toHaveCount(4);
+		await expect(ui.player.locator(".read-aloud-notch")).toHaveCount(3);
 
 		await selectInReport(report, "Where we will stay");
 		await shell.getByTestId("report-read-from-here").click();
