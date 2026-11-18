@@ -424,24 +424,21 @@ async function reloadChat(page: Page) {
 	await waitForHydration(page);
 }
 
-/** Inspect the paused segment's retained commentary through its existing disclosure.
- * It remains activity, including after reload; the canonical answer stays separate.
+/**
+ * The words Alfy wrote before it asked are the reply's own, drawn above the card as
+ * its words, never in the thinking tab (owner, 2026-11-18: "they weren't
+ * intermediary agent messages or part of thinking"). Returns them.
  */
-async function inspectAskActivity(
+async function expectWordsAboveTheCard(
 	page: Page,
 	segment = page.getByTestId("assistant-message").first(),
 	text = AI_SMOKE_ASK_INTRO,
 ): Promise<Locator> {
-	await expect(segment.locator(".prose-container")).not.toContainText(text);
-	const disclosure = segment.locator(".thinking-header");
-	await expect(disclosure).toBeVisible();
-	if ((await disclosure.getAttribute("aria-expanded")) === "false")
-		await disclosure.click();
-	const intro = segment
-		.getByTestId("normal-chat-commentary")
+	const words = segment
+		.locator(".prose-container")
 		.getByText(text, { exact: true });
-	await expect(intro).toBeVisible();
-	return intro;
+	await expect(words).toBeVisible();
+	return words;
 }
 
 /**
@@ -461,7 +458,7 @@ async function expectWaitingCard(page: Page): Promise<Locator> {
 	]) {
 		await expect(card.getByRole("button", { name })).toBeVisible();
 	}
-	await inspectAskActivity(page);
+	await expectWordsAboveTheCard(page);
 	await expect(page.getByTestId("message-input")).toBeDisabled();
 	return card;
 }
@@ -646,18 +643,13 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await expect(
 			card.getByRole("button", { name: "Close the question" }),
 		).toBeVisible();
+		// The words Alfy wrote before it asked are above the card, and the composer waits.
+		await expectWordsAboveTheCard(page);
 		await expect(page.getByTestId("message-input")).toBeDisabled();
-		// Measure automatic arrival before the reader opens activity. A pointer
-		// press deliberately releases MessageArea's held position.
-		await expect(
-			page.getByTestId("assistant-message").first().locator(".thinking-header"),
-		).toHaveAttribute("aria-expanded", "false");
 		// This card fits the window, so the thread rests at its bottom, as it always did:
 		// the end of the thread is the top of the card only when the card does not fit
 		// (the phone and Hungarian tests).
 		await expect.poll(() => distanceFromBottom(page)).toBeLessThan(2);
-		// Explicit inspection is a separate reader action, after the arrival oracle.
-		await inspectAskActivity(page);
 
 		// The press (answers wake after 400 ms).
 		await pressWhenAwake(
@@ -682,12 +674,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		const segments = page.getByTestId("assistant-message");
 		await expectCarriedOn(page, "A party at home");
 		await expect(segments).toHaveCount(2);
-		await expect(
-			segments.first().getByTestId("normal-chat-commentary"),
-		).toContainText(AI_SMOKE_ASK_INTRO);
-		await expect(
-			segments.first().locator(".prose-container"),
-		).not.toContainText(AI_SMOKE_ASK_INTRO);
+		await expectWordsAboveTheCard(page, segments.first());
 		await expect(segments.first().getByTestId("ask-folded")).toBeVisible();
 		await expectReplyEnded(page);
 
@@ -1056,7 +1043,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			first.getByRole("button", { name: "A party at home, recommended" }),
 		);
 
-		// The second paused segment retains its lead-in behind its own disclosure.
+		// The second card comes under the first folded line, with the words that lead to it.
 		const secondCard = askCard(page);
 		await expect(
 			secondCard.getByText("Inside or in the garden?", { exact: true }),
@@ -1069,10 +1056,11 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 			.getByTestId("assistant-message")
 			.filter({ has: secondCard });
 		await expect(secondSegment).toHaveCount(1);
-		await expect(
-			secondSegment.getByTestId("normal-chat-commentary"),
-		).toHaveCount(0);
-		await inspectAskActivity(page, secondSegment, AI_SMOKE_ASK_SECOND_INTRO);
+		await expectWordsAboveTheCard(
+			page,
+			secondSegment,
+			AI_SMOKE_ASK_SECOND_INTRO,
+		);
 		await waitForStableBoundingBox(secondCard);
 		const foldedBox = await page.getByTestId("ask-folded").boundingBox();
 		const secondBox = await secondCard.boundingBox();
@@ -1134,7 +1122,7 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await startTurn(page, "one");
 		const card = askCard(page);
 		await expect(card).toBeVisible({ timeout: 30_000 });
-		const intro = await inspectAskActivity(page);
+		const intro = await expectWordsAboveTheCard(page);
 		await waitForStableBoundingBox(intro);
 		const before = await topInThreadOf(intro);
 
@@ -1333,7 +1321,8 @@ test.describe("Alfy asks first, and the answer carries the reply on", () => {
 		await expect(card).toBeVisible({ timeout: 30_000 });
 		await expect(card.getByTestId("ask-question")).toHaveCount(1);
 		await expect(card.getByText("Which way should we take it?")).toBeVisible();
-		await inspectAskActivity(page);
+		// The words before the card the app refused are the reply's, above the fixed one.
+		await expectWordsAboveTheCard(page);
 		// ... and it is the only card there ever was, with nothing said of a refusal.
 		await expect(page.getByTestId("ask-card")).toHaveCount(1);
 		await expect(page.getByTestId("ask-error")).toHaveCount(0);

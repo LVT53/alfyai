@@ -119,6 +119,37 @@ export function sanitizeNormalChatAnswer(text: string): string {
 	return containsToolCallMarkup(result) ? "" : result;
 }
 
+/**
+ * The answer words of several steps, one string per step: each step's words as
+ * the model wrote them, and the steps a paragraph apart (the words before a card
+ * the app refused, then the words that ask with the fixed card). One step is
+ * returned as it is, so an ordinary answer never changes.
+ */
+export function joinAnswerSteps(steps: readonly string[]): string {
+	if (steps.length <= 1) return steps[0] ?? "";
+	return steps.filter((text) => text.trim() !== "").join("\n\n");
+}
+
+/** Blocks' words step by step, through `joinAnswerSteps`: the answer, and the live preview. */
+export function joinBlocksByStep(
+	blocks: readonly NormalChatOutputBlock[],
+): string {
+	const steps: string[] = [];
+	blocks.forEach((block, i) => {
+		const prior = blocks[i - 1];
+		if (
+			prior &&
+			prior.turnId === block.turnId &&
+			prior.segmentId === block.segmentId &&
+			prior.attemptId === block.attemptId &&
+			prior.stepId === block.stepId
+		)
+			steps[steps.length - 1] += block.text;
+		else steps.push(block.text);
+	});
+	return joinAnswerSteps(steps);
+}
+
 export type NormalChatOutputProjection = {
 	answer: string;
 	activity: NormalChatOutputBlock[];
@@ -195,8 +226,12 @@ export function createNormalChatOutputAccumulator(): NormalChatOutputAccumulator
 			};
 			byId.set(key, block);
 			ordered.push(block);
-			if (block.kind === "text" && block.role === "answer")
+			if (block.kind === "text" && block.role === "answer") {
+				// A new step's answer is a paragraph of its own: only the full join adds the break.
+				if (lastAnswerBlock && stepKey(lastAnswerBlock) !== scopedStep)
+					answerOrderDirty = true;
 				lastAnswerBlock = block;
+			}
 			const stepBlocks = byStep.get(scopedStep) ?? [];
 			stepBlocks.push(block);
 			byStep.set(scopedStep, stepBlocks);
@@ -256,7 +291,7 @@ export function createNormalChatOutputAccumulator(): NormalChatOutputAccumulator
 					const answers = ordered.filter(
 						(b) => b.kind === "text" && b.role === "answer",
 					);
-					answerRaw = answers.map((b) => b.text).join("");
+					answerRaw = joinBlocksByStep(answers);
 					lastAnswerBlock = answers.at(-1);
 					answerPrefix = answerRaw.trimStart().slice(0, 3);
 					answerNeedsSanitizer =
