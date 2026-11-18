@@ -4,8 +4,8 @@
 > on a 2048 px short-edge canvas, not at 12 MP.**
 >
 > 1. **Steps.** The owner compared 12 MP renders at 6 and at 4 steps at full size (same
->    prompts and seed) and judged 4 better ("a little less detailed but much more stable
->    and less noisy"). It is also 27% faster: one picture 15.8 s -> 11.6 s on the server,
+>    prompts and seed) and judged 4 better: a little less detailed, but much more stable
+>    and less noisy. It is also 27% faster: one picture 15.8 s -> 11.6 s on the server,
 >    sampling 12.5 s -> 8.7 s. 3 steps went visibly waxy and are not to be used. MiniMax
 >    documents 6 as the only supported count, so 4 is the owner's call on our own
 >    pictures; ComfyUI's H3 code averages the distilled PDD heads a coarser step spans, so

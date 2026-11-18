@@ -83,9 +83,9 @@ export const H3_EDIT_STEPS = 6;
 
 /**
  * A new picture runs four steps, the owner's call on our own pictures. On
- * 2026-11-18 he compared 12 MP renders at 6 and at 4 steps at full size (same
- * prompts, same seed) and judged 4 better: "a little less detailed but much more
- * stable and less noisy". It is also 27% faster: one picture 15.8 s -> 11.6 s on
+ * 2026-11-18 the owner compared 12 MP renders at 6 and at 4 steps at full size
+ * (same prompts, same seed) and judged 4 better: a little less detailed, but much
+ * more stable and less noisy. It is also 27% faster: one picture 15.8 s -> 11.6 s on
  * the server, sampling 12.5 s -> 8.7 s. 3 steps went visibly waxy and are never
  * to be used. ComfyUI's H3 code averages the distilled PDD heads a coarser step
  * spans, so four steps run with no other change to the graph; the ETA's H3
