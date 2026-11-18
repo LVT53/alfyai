@@ -14,6 +14,8 @@
 // The session route's refusals are held by
 // `src/routes/api/read-aloud/sessions/sessions.report.test.ts`.
 import { randomUUID } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
 	expect,
 	type Frame,
@@ -28,6 +30,7 @@ import {
 	chatGeneratedFiles,
 	fileProductionJobs,
 } from "../../src/lib/server/db/schema";
+import { STANDARD_REPORT_SCRIPT } from "../../src/lib/server/services/file-production/renderers/standard-report-scripts";
 import {
 	expectTopmost,
 	login,
@@ -229,15 +232,54 @@ async function produceReport(
 }
 
 /**
+ * Rewrites the report a chat's reply made, as stored (the servers keep chat files
+ * under their working directory, which is this one): what an older renderer or a
+ * tampered file would have left there. The preview serves it as it finds it.
+ */
+async function tamperStoredReport(
+	conversationId: string,
+	tamper: (html: string) => string,
+): Promise<void> {
+	const [file] = await db
+		.select({ storagePath: chatGeneratedFiles.storagePath })
+		.from(chatGeneratedFiles)
+		.where(eq(chatGeneratedFiles.conversationId, conversationId));
+	expect(file?.storagePath, "the report's stored file").toBeTruthy();
+	const path = join(
+		process.cwd(),
+		"data",
+		"chat-files",
+		file?.storagePath ?? "",
+	);
+	const html = await readFile(path, "utf8");
+	const changed = tamper(html);
+	expect(changed, "the tampering changed the report").not.toBe(html);
+	await writeFile(path, changed, "utf8");
+}
+
+/** How many of the report's section links its own script has marked active: none when the script did not run. */
+const activeSections = (report: Frame) =>
+	report.evaluate(
+		() => document.querySelectorAll(".report-nav a.active").length,
+	);
+
+/**
  * The report `produceReport` made, opened in the side panel from the reply's card
  * in its chat. Resolves with the panel, the report's frame and that frame's page.
  */
 async function openReport(
 	page: Page,
-	options: { enforce: boolean; source?: object; title?: string },
+	options: {
+		enforce: boolean;
+		source?: object;
+		title?: string;
+		/** Changes the report as stored, before it is opened: an older or a tampered file. */
+		tamper?: (html: string) => string;
+	},
 ): Promise<{ shell: Locator; frame: Locator; report: Frame }> {
 	const title = options.title ?? TITLE;
 	const id = await produceReport(page, { source: options.source, title });
+	if (options.tamper) await tamperStoredReport(id, options.tamper);
 	if (options.enforce) await enforceWholePolicy(page, `/chat/${id}`);
 	await page.goto(`/chat/${id}`, { waitUntil: "domcontentloaded" });
 	await waitForHydration(page);
@@ -397,6 +439,77 @@ test.describe("under the policy the production boxes enforce", () => {
 			})
 			.not.toBe("");
 		expect(refused).toEqual([]);
+	});
+
+	// Security review I1: the policy names the app's own scripts by their hashes, so a
+	// stored report's other script cannot run, whatever put it there.
+	test("a report holding an inline script, an inline handler and a javascript: link of its own runs none of them, and still its own", async ({
+		page,
+	}) => {
+		const { shell, report } = await openReport(page, {
+			enforce: true,
+			tamper: (html) =>
+				html.replace(
+					"</body>",
+					() =>
+						`<script>window.__injected = "script";</script><button id="injected-handler" onclick="window.__injected = 'handler'">Press</button><a id="injected-link" href="javascript:window.__injected='link'">Open</a></body>`,
+				),
+		});
+		const injected = () =>
+			report.evaluate(
+				() => (window as unknown as { __injected?: string }).__injected ?? null,
+			);
+		expect(await injected()).toBeNull();
+		await report.evaluate(() =>
+			(document.getElementById("injected-handler") as HTMLElement).click(),
+		);
+		expect(await injected()).toBeNull();
+		await report.evaluate(() =>
+			(document.getElementById("injected-link") as HTMLElement).click(),
+		);
+		expect(await injected()).toBeNull();
+		expect(report.url()).toMatch(/\/preview\?rb=\d+$/);
+		// The report's own scripts still run, and so does the bridge.
+		await expect.poll(() => activeSections(report)).toBeGreaterThan(0);
+		await shell.getByTestId("read-aloud-speaker-header").click();
+		await expect
+			.poll(() => marked(report, "alfy-read-aloud-sentence"), {
+				timeout: 15_000,
+			})
+			.not.toBe("");
+		expect(await injected()).toBeNull();
+	});
+
+	test("an older report whose script no hash names stays readable, and read aloud still reads and marks it", async ({
+		page,
+	}) => {
+		const { shell, report } = await openReport(page, {
+			enforce: true,
+			// A script no renderer the policy knows of wrote: refused, as an old
+			// report's script was before, and nothing else of the report changes.
+			tamper: (html) =>
+				html.replace(
+					STANDARD_REPORT_SCRIPT,
+					() => `/* an older renderer */ ${STANDARD_REPORT_SCRIPT}`,
+				),
+		});
+		await expect(
+			page
+				.frameLocator("iframe.html-preview-frame")
+				.getByText(
+					"Pack the warm coats, because the nights up in the hills are cold in autumn.",
+				),
+		).toBeVisible();
+		await shell.getByTestId("read-aloud-speaker-header").click();
+		await expect
+			.poll(() => marked(report, "alfy-read-aloud-sentence"), {
+				timeout: 15_000,
+			})
+			.not.toBe("");
+		await expect.poll(() => fake.sessions.length, { timeout: 15_000 }).toBe(1);
+		expect(hasRun(spokenTokens(fake), ["The", "train", "leaves"])).toBe(true);
+		// Its own menu stays as production serves it today: inert.
+		expect(await activeSections(report)).toBe(0);
 	});
 
 	test("the report never moves the panel's frame: its links open a new tab, a page it opens in place is taken down until Reload, and it cannot leave the app", async ({
@@ -662,7 +775,7 @@ test.describe("under the policy the production boxes enforce", () => {
 		page,
 	}) => {
 		const title = `Library report ${randomUUID().slice(0, 8)}`;
-		await produceReport(page, { title });
+		await produceReport(page, { source: { ...REPORT_SOURCE, title }, title });
 		await enforceWholePolicy(page, "/knowledge");
 		await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
 		await waitForHydration(page);
@@ -710,6 +823,7 @@ test.describe("under the policy the production boxes enforce", () => {
 				timeout: 15_000,
 			})
 			.not.toBe("");
+		await expect.poll(() => fake.sessions.length, { timeout: 15_000 }).toBe(1);
 		expect(hasRun(spokenTokens(fake), ["The", "train", "leaves"])).toBe(true);
 	});
 });
