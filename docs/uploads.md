@@ -404,6 +404,17 @@ recovery above makes a new task. The tests prove this against a fake server held
 the one run against a real 4.1.7 is the ai.dev live check below, which restarts `mineru41` in the
 middle of a job and expects the job to succeed, not fail. On 2026-11-09 it did succeed.
 
+MinerU 4.2.3 adds a hang guard of its own, `--task-timeout` (an hour on the box). A file whose
+parse outlives it ends `failed` with `task_timeout` (the app's `timeout`), every other file in
+flight at that moment with `worker_restarted` (`job_failed`), and both are retried with a fresh
+task. From then on the server answers 503 `task_timeout` on `/v1/health` and on every new task
+until its process restarts, and it never exits on its own, so systemd's `Restart=` cannot help:
+the box's watchdog timer restarts it within a minute or two ([deploy/mineru/README.md](../deploy/mineru/README.md)).
+The app reads that 503 as an outage (`unavailable`, no attempt spent) and waits; after the restart
+the server has forgotten everything, and the recovery above takes over. `timeout` is an outage
+code too, so a document that hangs MinerU every time is tried twice under the hour's guard and then
+ends `unavailable`, with Retry offered.
+
 `MINERU_JOB_TIMEOUT_MS` is the clock of one attempt: it starts with the attempt and is enforced
 while the task is polled (the transfers have their own, `MINERU_TRANSFER_TIMEOUT_MS`). At the
 deadline the task is canceled on the server and spent, and the last snapshot says what that
