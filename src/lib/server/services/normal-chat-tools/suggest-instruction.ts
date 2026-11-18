@@ -21,6 +21,7 @@ import {
 	type InstructionSuggestion,
 	validateInstructionInput,
 } from "$lib/shared/instructions";
+import type { TOOL_REASON_CODES } from "$lib/shared/tool-reasons";
 
 export const suggestInstructionInputSchema = z.object({
 	text: z
@@ -44,11 +45,13 @@ export type SuggestInstructionInput = z.infer<
 	typeof suggestInstructionInputSchema
 >;
 
-/** Why an offer was not taken. Everything here is model-correctable. */
+/**
+ * Why an offer was not taken. Everything here is model-correctable. The list is
+ * the tool's closed list of reason codes (`$lib/shared/tool-reasons`), so the
+ * row's words are held to it.
+ */
 export type SuggestInstructionRefusalReason =
-	| "already_offered"
-	| "empty_text"
-	| "text_too_long";
+	(typeof TOOL_REASON_CODES.suggest_instruction)[number];
 
 export interface SuggestInstructionOfferedPayload {
 	ok: true;

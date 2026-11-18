@@ -11,6 +11,7 @@ import {
 } from "$lib/server/services/connections/providers/owntracks";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import { LOCATION_AT_PREFIX } from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
@@ -134,7 +135,7 @@ function toToolResultItem(fix: LocationFixLike): LocationToolResultItem {
 }
 
 function citationLabel(item: LocationToolResultItem): string {
-	return item.place ? item.place : `Location at ${item.at}`;
+	return item.place ? item.place : `${LOCATION_AT_PREFIX}${item.at}`;
 }
 
 // Sources-tab candidate — keeps the real lat/lon (the user's own data on

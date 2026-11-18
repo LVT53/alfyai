@@ -38,6 +38,7 @@ import {
 	type WritePreview,
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import { CONNECTOR_PLACEHOLDER_TITLES } from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate, decideLocalDistill } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
@@ -419,7 +420,7 @@ function listEventsOutcome(
 		label:
 			event.summary && event.summary.length > 0
 				? event.summary
-				: "(untitled event)",
+				: CONNECTOR_PLACEHOLDER_TITLES.untitledEvent,
 		url: event.htmlLink,
 	}));
 	const base =
@@ -918,7 +919,10 @@ async function proposeUpdateOrDeleteEvent(
 	}
 
 	const isUpdate = action === "update_event";
-	const label = input.title ?? existing.summary ?? "(untitled event)";
+	const label =
+		input.title ??
+		existing.summary ??
+		CONNECTOR_PLACEHOLDER_TITLES.untitledEvent;
 	const op: WriteOperation = {
 		provider: conn.provider,
 		connectionId: conn.id,
@@ -1207,7 +1211,10 @@ async function proposeAppleUpdateOrDeleteEvent(
 		});
 	}
 
-	const label = input.title ?? existing.summary ?? "(untitled event)";
+	const label =
+		input.title ??
+		existing.summary ??
+		CONNECTOR_PLACEHOLDER_TITLES.untitledEvent;
 	const op: WriteOperation = {
 		provider: conn.provider,
 		connectionId: conn.id,

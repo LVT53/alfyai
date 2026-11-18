@@ -21,6 +21,7 @@ import {
 	type WritePreview,
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import { CONNECTOR_PLACEHOLDER_TITLES } from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate, decideLocalDistill } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
@@ -175,7 +176,7 @@ function toToolHeaderItem(header: EmailHeader): EmailToolHeaderItem {
 function subjectLabel(item: EmailToolHeaderItem): string {
 	return item.subject && item.subject.length > 0
 		? item.subject
-		: "(no subject)";
+		: CONNECTOR_PLACEHOLDER_TITLES.noSubject;
 }
 
 // Email has no web URL to link to (unlike calendar's htmlLink or files' web UI
@@ -648,7 +649,7 @@ async function readTargetMessage(
 		imapGetInboxUidValidity(userId, conn.id),
 	]);
 	return {
-		subject: header.subject || "(no subject)",
+		subject: header.subject || CONNECTOR_PLACEHOLDER_TITLES.noSubject,
 		from: header.from,
 		date: header.date,
 		uidValidity,
