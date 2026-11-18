@@ -1,6 +1,9 @@
 /** Synthetic turns shared by the HTTP provider and black-box browser tests. */
 export const COMPLETION_MARKER = "Fake turn completion contract: ";
 export const COMPLETION_WORKING = "Hello. Let me check.";
+/** What the pause turn writes before its card: the reply's own words, never activity. */
+export const COMPLETION_ASK_LEAD_IN =
+	"Two results fit, so you choose which one I explain.";
 export const COMPLETION_ANSWER =
 	"## Result\n\nThe checked result is **42**.\n\n- Evidence retained\n";
 export const COMPLETION_USEFUL_WORKING =

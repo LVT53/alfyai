@@ -208,6 +208,115 @@ describe("canonical output ownership", () => {
 		expect(projectNormalChatOutput(events).answer).toBe("One\n## Two");
 		expect(projectNormalChatOutput(events).activity).toEqual([]);
 	});
+	it("puts a blank line between the answer words of two steps", () => {
+		// The words before a card the app refused and the words of the step that asks
+		// again with the fixed card are both the reply's (chat-turn/AGENTS.md, The
+		// Pause): two paragraphs, never one run-on line.
+		const step = (stepId: string) => ({
+			version: 1 as const,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId,
+			phase: "working" as const,
+		});
+		const events: NormalChatOutputEvent[] = [
+			{
+				...step("a:0"),
+				sequence: 1,
+				type: "block_start",
+				blockId: "x",
+				nativeId: "0",
+				kind: "text",
+				role: "provisional",
+			},
+			{
+				...step("a:0"),
+				sequence: 2,
+				type: "block_delta",
+				blockId: "x",
+				text: "The biggest fork is the day itself.",
+			},
+			{
+				...step("a:1"),
+				sequence: 3,
+				type: "block_start",
+				blockId: "y",
+				nativeId: "0",
+				kind: "text",
+				role: "provisional",
+			},
+			{
+				...step("a:1"),
+				sequence: 4,
+				type: "block_delta",
+				blockId: "y",
+				text: "Which way suits you best?",
+			},
+			{
+				...step("a:0"),
+				sequence: 5,
+				type: "step_settled",
+				role: "answer",
+				finishReason: "tool-calls",
+			},
+			{
+				...step("a:1"),
+				sequence: 6,
+				type: "step_settled",
+				role: "answer",
+				finishReason: "tool-calls",
+			},
+		];
+		expect(projectNormalChatOutput(events).answer).toBe(
+			"The biggest fork is the day itself.\n\nWhich way suits you best?",
+		);
+	});
+	it("keeps that blank line when answer blocks of a new step arrive one by one", () => {
+		const a = createNormalChatOutputAccumulator();
+		const step = (stepId: string) => ({
+			version: 1 as const,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId,
+			phase: "closing" as const,
+		});
+		a.apply({
+			...step("a:0"),
+			sequence: 1,
+			type: "block_start",
+			blockId: "x",
+			nativeId: "0",
+			kind: "text",
+			role: "answer",
+		});
+		a.apply({
+			...step("a:0"),
+			sequence: 2,
+			type: "block_delta",
+			blockId: "x",
+			text: "One.",
+		});
+		expect(a.getProjection().answer).toBe("One.");
+		a.apply({
+			...step("a:1"),
+			sequence: 3,
+			type: "block_start",
+			blockId: "y",
+			nativeId: "0",
+			kind: "text",
+			role: "answer",
+		});
+		a.apply({
+			...step("a:1"),
+			sequence: 4,
+			type: "block_delta",
+			blockId: "y",
+			text: "Two.",
+		});
+		expect(a.getProjection().answer).toBe("One.\n\nTwo.");
+	});
 });
 
 it("compacts interleaved blocks without changing scopes, ownership or replay identity", () => {

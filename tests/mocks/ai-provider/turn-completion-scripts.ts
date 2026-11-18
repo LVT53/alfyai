@@ -6,6 +6,7 @@ import type {
 import {
 	COMPLETION_ANSWER,
 	COMPLETION_ARTIFACT_TITLE,
+	COMPLETION_ASK_LEAD_IN,
 	COMPLETION_CALL_ID,
 	COMPLETION_CHUNK_HOLD,
 	COMPLETION_EVIDENCE_BODY,
@@ -353,7 +354,7 @@ export function turnCompletionReply(body: unknown): CompletionReply | null {
 			frames: frames(
 				"ask",
 				[
-					{ content: COMPLETION_WORKING },
+					{ content: COMPLETION_ASK_LEAD_IN },
 					{
 						tool_calls: [
 							{
