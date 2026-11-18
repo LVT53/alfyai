@@ -3,6 +3,7 @@
 // written word of a request must occur in the reply's text, in order, and its
 // tokens must be the shared dictionary's reading of it.
 
+import { createHash } from "node:crypto";
 import { decodeHTMLStrict } from "entities";
 import {
 	addressHost,
@@ -133,12 +134,54 @@ export function wordsFitReply(
 	return wordsFitKey(replyKey(replyMarkdown), sentences);
 }
 
+/**
+ * A report's letter key, kept by the sha256 of its bytes (security review M4): every
+ * start, jump, resume and retry of a reading checks its words against the same
+ * report, which can be over 12 MB, and keying it is the costly part. At most `limit`
+ * reports and `maxChars` characters of keys are kept, the one read longest ago going
+ * first; a key longer than `maxChars` alone is never kept. In memory only.
+ */
+export function createReportKeyCache(options: {
+	limit: number;
+	maxChars: number;
+	key?: (html: string) => string;
+}): (html: string) => string {
+	const keyOf = options.key ?? reportKey;
+	const keys = new Map<string, string>();
+	let chars = 0;
+	return (html) => {
+		const digest = createHash("sha256").update(html, "utf8").digest("base64");
+		const kept = keys.get(digest);
+		if (kept !== undefined) {
+			keys.delete(digest);
+			keys.set(digest, kept);
+			return kept;
+		}
+		const key = keyOf(html);
+		if (key.length > options.maxChars) return key;
+		keys.set(digest, key);
+		chars += key.length;
+		for (const [oldest, value] of keys) {
+			if (keys.size <= options.limit && chars <= options.maxChars) break;
+			keys.delete(oldest);
+			chars -= value.length;
+		}
+		return key;
+	};
+}
+
+/** The reports a reading may be of right now: a handful, at a few MB of key each at most. */
+const keptReportKey = createReportKeyCache({
+	limit: 16,
+	maxChars: 32_000_000,
+});
+
 /** `wordsFitKey` against a standard report's HTML: the words read from the page's copy of it. */
 export function wordsFitReport(
 	reportHtml: string,
 	sentences: CheckedSentences,
 ): number | null {
-	return wordsFitKey(reportKey(reportHtml), sentences);
+	return wordsFitKey(keptReportKey(reportHtml), sentences);
 }
 
 /**

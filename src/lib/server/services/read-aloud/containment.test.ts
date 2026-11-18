@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { speakWord, type WordKind } from "$lib/shared/read-aloud/spoken-forms";
 import {
 	type CheckedWord,
+	createReportKeyCache,
 	letterKey,
 	replyKey,
 	reportKey,
@@ -405,5 +406,53 @@ describe("the containment check for a report", () => {
 				'<p>Salt &amp; <b>pep</b>per<!-- x --></p><style>p{}</style><script>y()</script><p data-z="q">H<sub>2</sub>O</p>',
 			),
 		).toBe("saltpepperh2o");
+	});
+});
+
+// Security review M4: every start, jump, resume and retry of a report's reading
+// checks its words against the same report, which can be over 12 MB, and keying it
+// is the costly part. The key is kept by the report's bytes, bounded.
+describe("a report's key, kept", () => {
+	it("keys the same bytes once, and other bytes anew", () => {
+		const key = vi.fn((html: string) => `k${html.length}`);
+		const keyOf = createReportKeyCache({ limit: 4, maxChars: 1000, key });
+		expect(keyOf("<p>a</p>")).toBe("k8");
+		expect(keyOf("<p>a</p>")).toBe("k8");
+		expect(key).toHaveBeenCalledTimes(1);
+		expect(keyOf("<p>bb</p>")).toBe("k9");
+		expect(key).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps at most so many reports, the one read longest ago going first", () => {
+		const key = vi.fn((html: string) => html.toUpperCase());
+		const keyOf = createReportKeyCache({ limit: 2, maxChars: 1000, key });
+		keyOf("a");
+		keyOf("b");
+		keyOf("a");
+		keyOf("c");
+		key.mockClear();
+		keyOf("a");
+		keyOf("c");
+		expect(key).not.toHaveBeenCalled();
+		keyOf("b");
+		expect(key).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps at most so many characters of keys, and never a key that alone is more", () => {
+		const key = vi.fn((html: string) => html);
+		const keyOf = createReportKeyCache({ limit: 10, maxChars: 5, key });
+		keyOf("abc");
+		keyOf("de");
+		keyOf("fg");
+		key.mockClear();
+		keyOf("de");
+		keyOf("fg");
+		expect(key).not.toHaveBeenCalled();
+		keyOf("abc");
+		expect(key).toHaveBeenCalledTimes(1);
+		const huge = "x".repeat(6);
+		keyOf(huge);
+		keyOf(huge);
+		expect(key).toHaveBeenCalledTimes(3);
 	});
 });
