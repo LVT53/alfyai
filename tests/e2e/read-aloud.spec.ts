@@ -1066,3 +1066,106 @@ test("reduced motion: the player appears without moving", async ({ page }) => {
 	});
 	expect(longest).toBeLessThanOrEqual(0.01);
 });
+
+// The owner, 2026-11-18, on very long replies: "too many dots in the timeline and
+// they just look like clutter". Past 40 sentences a reply's scrubber notches its
+// headings, or else its paragraphs, and never two marks closer than about 6 px of a
+// phone's line (`drawnNotches` in `timeline.ts`, the rule a Document and a report
+// follow too). The notches are only marks: every sentence is still a place to land.
+test.describe("a long reply's scrubber", () => {
+	const paragraph = (i: number, where = "the reply") =>
+		`Paragraph ${i + 1} of ${where} is written here, and it is long enough to stand alone.`;
+	/** 120 paragraphs of one sentence each, and no heading. */
+	const LONG_REPLY = Array.from({ length: 120 }, (_, i) => paragraph(i)).join(
+		"\n\n",
+	);
+	const TITLES = [
+		"Getting there by train",
+		"Where we will stay",
+		"What to pack for the hills",
+		"What it will all cost",
+	];
+	/** The same under four headings of 30 paragraphs each. */
+	const LONG_REPLY_WITH_HEADINGS = TITLES.map((title) =>
+		[
+			`## ${title}`,
+			...Array.from({ length: 30 }, (_, i) => paragraph(i, title)),
+		].join("\n\n"),
+	).join("\n\n");
+
+	/** Where the drawn notches are along the line, left to right, in px. */
+	const notchXs = (ui: ReturnType<typeof readAloudUi>) =>
+		ui.player
+			.locator(".read-aloud-notch")
+			.evaluateAll((nodes) =>
+				nodes
+					.map((node) => node.getBoundingClientRect().left)
+					.sort((a, b) => a - b),
+			);
+
+	// The phone is a 360 px one, whose player draws the narrowest line (`NOTCH_MIN_GAP`).
+	for (const phone of [false, true]) {
+		const where = phone ? "on a phone" : "on a desktop";
+
+		test(`${where}, a long reply with no heading notches its paragraphs, never two closer than 6 px, and every sentence is still a place to land`, async ({
+			page,
+		}) => {
+			if (phone) await page.setViewportSize({ width: 360, height: 780 });
+			const ui = await open(page, [LONG_REPLY]);
+			await ui.speaker().click();
+			await expect(ui.player).toBeVisible();
+			await expect(ui.slider).toHaveAttribute("aria-valuemax", "120");
+			await waitForMotionToSettle(page);
+			const xs = await notchXs(ui);
+			expect(xs.length).toBeGreaterThan(15);
+			expect(xs.length).toBeLessThanOrEqual(29);
+			const line = (await ui.slider.boundingBox())?.width ?? 0;
+			expect(line).toBeGreaterThan(200);
+			for (let i = 1; i < xs.length; i++)
+				expect(
+					(xs[i] ?? 0) - (xs[i - 1] ?? 0),
+					`notch ${i} on a ${Math.round(line)} px line`,
+				).toBeGreaterThanOrEqual(6);
+
+			// Jumping is unchanged: the keys reach the last sentence and the one before it,
+			// though neither has a notch of its own.
+			await ui.slider.focus();
+			await page.keyboard.press("End");
+			await expect(ui.slider).toHaveAttribute(
+				"aria-valuetext",
+				"Sentence 120 of 120",
+			);
+			await page.keyboard.press("ArrowLeft");
+			await expect(ui.slider).toHaveAttribute(
+				"aria-valuetext",
+				"Sentence 119 of 120",
+			);
+		});
+
+		test(`${where}, a long reply with headings notches its headings`, async ({
+			page,
+		}) => {
+			if (phone) await page.setViewportSize({ width: 360, height: 780 });
+			const ui = await open(page, [LONG_REPLY_WITH_HEADINGS]);
+			await ui.speaker().click();
+			await expect(ui.player).toBeVisible();
+			// Four headings that stand alone, and 120 paragraphs.
+			await expect(ui.slider).toHaveAttribute("aria-valuemax", "124");
+			await waitForMotionToSettle(page);
+			const xs = await notchXs(ui);
+			expect(xs).toHaveLength(4);
+			const box = await ui.slider.boundingBox();
+			// Each heading's notch is about a quarter of the line on from the last.
+			for (let i = 1; i < xs.length; i++)
+				expect((xs[i] ?? 0) - (xs[i - 1] ?? 0)).toBeGreaterThan(
+					(box?.width ?? 0) / 5,
+				);
+			await ui.slider.focus();
+			await page.keyboard.press("End");
+			await expect(ui.slider).toHaveAttribute(
+				"aria-valuetext",
+				"Sentence 124 of 124",
+			);
+		});
+	}
+});

@@ -153,7 +153,7 @@ const tight = $derived(narrow && tinyPhone);
 		<span class="read-aloud-time">{view.elapsed}</span>
 		<ReadAloudScrubber
 			notches={view.notches}
-			drawn={view.headingNotches}
+			drawn={view.drawnNotches}
 			progress={view.progress}
 			sentence={view.sentence}
 			count={view.count}

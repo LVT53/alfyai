@@ -2,8 +2,8 @@
 /**
  * The sentence scrubber (spec §4.3): a slider whose value is a sentence. Its
  * notches sit at each sentence's share of the text and never move; a long
- * Document draws only its headings' (`drawn`), and every sentence is still a
- * place to land. A drag
+ * reading draws only its headings' or paragraphs', never crowded (`drawn`), and
+ * every sentence is still a place to land. A drag
  * follows the pointer exactly (one update per frame), lights the notch it
  * will land on and shows that sentence's start in a dark bubble; the release
  * (or a tap) jumps there, and the handle glides onto the notch.

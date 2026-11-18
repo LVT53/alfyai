@@ -63,9 +63,9 @@ import {
 	sentenceAtPoint,
 } from "./speech-script";
 import {
+	drawnNotches,
 	estimateSeconds,
 	formatClock,
-	headingNotches,
 	notches,
 	SessionTimeline,
 	shareAt,
@@ -1170,10 +1170,8 @@ export function createReadAloudController(
 			sentence: state.sentence,
 			count: script?.sentences.length ?? 0,
 			notches: script ? notches(script) : [],
-			headingNotches:
-				script && (reads?.kind === "document" || reads?.kind === "report")
-					? headingNotches(script)
-					: null,
+			// One rule for a reply, a Document and a report: never a crowd of dots.
+			drawnNotches: script ? drawnNotchesOf(script) : null,
 			progress,
 			elapsed: formatClock(elapsed / speed),
 			total: formatClock(total.seconds / speed),
@@ -1218,6 +1216,14 @@ export function createReadAloudController(
 		paintCodeMarks(reads?.kind === "report" ? { ...view, marks: null } : view);
 	}
 	let lastMarksAnchor: Range | undefined;
+
+	/** A script's drawn notches, worked out once: `publish` runs every frame while a reading plays. */
+	const drawnNotchesKept = new WeakMap<SpeechScript, number[] | null>();
+	function drawnNotchesOf(script: SpeechScript): number[] | null {
+		if (!drawnNotchesKept.has(script))
+			drawnNotchesKept.set(script, drawnNotches(script));
+		return drawnNotchesKept.get(script) ?? null;
+	}
 
 	// -------------------------------------------------------------------
 	// The surface

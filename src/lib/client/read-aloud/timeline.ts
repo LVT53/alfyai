@@ -6,7 +6,7 @@
  * the total time is an estimate, corrected as sentences are made.
  */
 
-import type { SpeechScript } from "./speech-script";
+import type { ScriptSentence, SpeechScript } from "./speech-script";
 
 /** The silence between two sentences, and before a paragraph's first (the speech service's values). */
 export const SENTENCE_GAP_SECONDS = 0.3;
@@ -106,24 +106,52 @@ export function notches(script: SpeechScript): number[] {
 }
 
 /**
- * How many sentences a reading may have before a Document's scrubber stops notching every one.
- * A notch is 2 px wide, and a phone's scrubber is about 240 px: 40 sentences put the notches 6 px
- * apart on average (closer where sentences are short), about the least gap at which they still
- * read as separate marks. Past that they merge into a ruler that says nothing, while a long
- * Document's headings stay few and say where each section starts.
+ * How far apart two drawn notches stay, as a share of the line: 6 px of the narrowest line the
+ * player draws, a 360 px phone's, which is about 170 px (measured: 201 px on a 390 px phone; a
+ * desktop's is wider). A notch is 2 px wide; closer than that, notches stop reading as separate
+ * marks and merge into a ruler that says nothing (the owner, 2026-11-18, on long replies: "too
+ * many dots in the timeline and they just look like clutter").
  */
-export const HEADING_NOTCHES_PAST = 40;
+export const NOTCH_MIN_GAP = 6 / 170;
 
 /**
- * The sentences a long Document's scrubber notches: those that begin a heading, or none when it
- * has no heading. Null up to {@link HEADING_NOTCHES_PAST} sentences, when every sentence keeps its
- * notch. It changes only what is drawn: a drag or a tap still lands on any sentence.
+ * How many sentences a scrubber may notch one by one: 28 put the notches 6 px apart on that
+ * line on average. Past it, it notches the reading's structure instead.
  */
-export function headingNotches(script: SpeechScript): number[] | null {
-	if (script.sentences.length <= HEADING_NOTCHES_PAST) return null;
-	return script.sentences
-		.filter((sentence) => sentence.heading)
-		.map((sentence) => sentence.index);
+export const NOTCH_EVERY_SENTENCE_UP_TO = 28;
+
+/**
+ * The sentences whose notch a scrubber draws, for a reply, a Document and a report alike.
+ * Up to {@link NOTCH_EVERY_SENTENCE_UP_TO} sentences, every sentence's. Past that, the
+ * sentences that begin a heading when there are at least two; else those that begin a
+ * paragraph when there are at least two; else every sentence's. Then never two closer than
+ * {@link NOTCH_MIN_GAP}: walking from the start, a notch is drawn only that far from the last
+ * one drawn, so a crowd is thinned evenly and the line holds about 29 marks at most. Null
+ * when every sentence's is drawn. It changes only what is drawn: a drag, a tap or a key
+ * still lands on any sentence.
+ */
+export function drawnNotches(script: SpeechScript): number[] | null {
+	const sentences = script.sentences;
+	const starting = (begins: (sentence: ScriptSentence) => boolean) =>
+		sentences.filter(begins).map((sentence) => sentence.index);
+	let candidates = sentences.map((sentence) => sentence.index);
+	if (sentences.length > NOTCH_EVERY_SENTENCE_UP_TO) {
+		const headings = starting((sentence) => sentence.heading);
+		const paragraphs = starting((sentence) => sentence.paragraphStart);
+		if (headings.length >= 2) candidates = headings;
+		else if (paragraphs.length >= 2) candidates = paragraphs;
+	}
+	const shares = notches(script);
+	const drawn: number[] = [];
+	let last = Number.NEGATIVE_INFINITY;
+	for (const index of candidates) {
+		const share = shares[index] ?? 0;
+		// A hair of slack for the shares' rounding: 40 equal sentences sit exactly the gap apart.
+		if (share - last < NOTCH_MIN_GAP - 1e-9) continue;
+		drawn.push(index);
+		last = share;
+	}
+	return drawn.length === sentences.length ? null : drawn;
 }
 
 /** The sentence a share of the text falls in, clamped to the first and the last. */
