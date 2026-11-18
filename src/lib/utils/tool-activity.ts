@@ -24,6 +24,10 @@ import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ToolCallMapData } from "$lib/server/services/messages-types";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import {
+	imageThumbnailRouteUrl,
+	isBraveThumbnailUrl,
+} from "$lib/shared/url-provenance";
 import { formatByteSize } from "$lib/utils/format";
 import {
 	formatConnectionToolAction,
@@ -84,14 +88,33 @@ const ARTIFACT_KINDS: readonly ArtifactKind[] = [
  */
 export type ToolWebSource = FetchedSource & { fromInput?: true };
 
+/** The little glyph before each thing a `things` body names: a tool's own, or a chat's. */
+export type ToolThingIcon = ToolCallIconType | "chat";
+
 /** The opened panel under a row. One variant per tool shape in the mockup. */
 export type ToolActivityBody =
 	| { kind: "sources"; sources: ToolWebSource[]; citedCount: number }
 	| { kind: "page"; sources: ToolWebSource[]; excerpt: string | null }
-	| { kind: "python"; program: string; output: string | null }
+	// What a calculation printed, as plain text: never its program, and never the
+	// note the tool wrote for the model about it.
+	| { kind: "result"; text: string }
 	| { kind: "map"; map: ToolCallMapData; summary: string }
-	| { kind: "text"; text: string }
 	| { kind: "bullets"; items: string[] }
+	// The pictures a picture search found, small, each with its site. `src` is the
+	// app's own thumbnail route for an address on Brave's image proxy, never the
+	// address itself.
+	| {
+			kind: "thumbs";
+			items: { src: string; host: string; title: string }[];
+	  }
+	// The things a tool found or touched, by their own names: at most five, then
+	// `more` says how many were left out.
+	| {
+			kind: "things";
+			icon: ToolThingIcon;
+			items: { title: string; sub?: string }[];
+			more: number;
+	  }
 	| {
 			kind: "actions";
 			actions: { key: string; label: string; status: ToolActivityStatus }[];
@@ -337,8 +360,6 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	"toolActivity.summaryFailedCount",
 	"toolActivity.summaryMemories",
 	"toolActivity.sourcesEyebrow",
-	"toolActivity.program",
-	"toolActivity.output",
 	"toolActivity.expandActivity",
 	"toolActivity.retriedOnce",
 	// The route card's step-by-step body (RouteItinerary.svelte) draws these;
@@ -381,6 +402,17 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
  */
 export const TOOL_ROW_I18N_KEYS: readonly I18nKey[] = [
 	"toolRows.meta.nothingFound",
+	"toolRows.meta.pictures",
+	"toolRows.meta.pastChats",
+	"toolRows.more",
+	"toolRows.verb.didntOpen",
+	"toolRows.verb.lookedThrough",
+	"toolRows.verb.noSkillCalled",
+	"toolRows.verb.suggestedInstruction",
+	"toolRows.verb.leftAsItWas",
+	"toolRows.verb.adjustingRequest",
+	"toolRows.suffix.page",
+	"toolRows.suffix.part",
 ];
 
 function verb(
@@ -581,11 +613,11 @@ function journeyMeta(map: ToolCallMapData, translate: Translate): string {
 		.join(" · ");
 }
 
-function memoryBullets(candidates: ToolEvidenceCandidate[]): string[] {
+/** The title of every candidate a memory lookup returned, as plain text: a memory's statement, or a past chat's title. */
+function memoryTitles(candidates: ToolEvidenceCandidate[]): string[] {
 	return candidates
 		.map((candidate) => stripToPlainText(candidate.title ?? ""))
-		.filter((title) => title.length > 0)
-		.slice(0, 8);
+		.filter((title) => title.length > 0);
 }
 
 /**
@@ -1047,6 +1079,86 @@ function withVideoCard(
 	};
 }
 
+/** How many named things a list in a body shows before it says "and N more". */
+const THINGS_SHOWN = 5;
+
+/**
+ * The pictures a picture search found: how many, and the small copies a row can
+ * show. A thumbnail is shown only when it is an address on Brave's image proxy (the
+ * one the app's own thumbnail route will ask for), through that route and never by
+ * its own address; a picture whose thumbnail is anything else is counted, not shown
+ * (ADR-0068: an address the app requests without a click comes from a tool's result,
+ * never from the model's words). Each carries the site the search said it came from.
+ */
+function foundPictures(candidates: ToolEvidenceCandidate[] | undefined): {
+	count: number;
+	thumbs: { src: string; host: string; title: string }[];
+} {
+	const found = (candidates ?? []).filter(
+		(candidate) => typeof candidate.url === "string" && candidate.url.trim(),
+	);
+	const thumbs: { src: string; host: string; title: string }[] = [];
+	for (const candidate of found) {
+		const thumbnail = candidate.metadata?.thumbnail;
+		if (typeof thumbnail !== "string" || !isBraveThumbnailUrl(thumbnail)) {
+			continue;
+		}
+		const source =
+			typeof candidate.metadata?.source === "string"
+				? candidate.metadata.source
+				: (candidate.snippet ?? "");
+		const host =
+			stripToPlainText(source).trim() || extractHostname(candidate.url ?? "");
+		thumbs.push({
+			src: imageThumbnailRouteUrl(thumbnail.trim()),
+			host,
+			title: stripToPlainText(candidate.title || host),
+		});
+	}
+	return { count: found.length, thumbs: thumbs.slice(0, 8) };
+}
+
+/** A whole, positive number the model named ("page": 3, "part": "2"); anything else is none. */
+function wholeNumber(value: unknown): number | null {
+	const number =
+		typeof value === "number"
+			? value
+			: typeof value === "string" && /^\d{1,6}$/.test(value.trim())
+				? Number(value.trim())
+				: Number.NaN;
+	return Number.isInteger(number) && number > 0 ? number : null;
+}
+
+/** A place a route call named: a name, or the coordinates it gave instead. */
+function placeText(value: unknown): string {
+	if (typeof value === "string") return value.trim();
+	if (value && typeof value === "object") {
+		const { lat, lng } = value as Record<string, unknown>;
+		if (typeof lat === "number" && typeof lng === "number") {
+			return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+		}
+	}
+	return "";
+}
+
+/**
+ * What a route call is about when it drew no map (a refusal, a failure, a call
+ * still running): the two ends of the trip, or the one place looked up. Never the
+ * first word of the request ("drive"), which the row used to print.
+ */
+function routeInputLabel(input: Record<string, unknown>): string {
+	const origin = placeText(input.origin);
+	const destination = placeText(input.destination);
+	if (origin && destination) return `${origin} → ${destination}`;
+	return (origin || destination || placeText(input.query)).slice(0, 200);
+}
+
+/** A verb that ends in a colon to introduce a free-form title, with the colon only when a title follows. */
+function verbBeforeTitle(verbText: string, named: boolean): string {
+	const bare = verbText.replace(/:\s*$/, "");
+	return named ? `${bare}:` : bare;
+}
+
 function buildSettledToolActivityItem(
 	segment: ToolCallSegment,
 	key: string,
@@ -1054,6 +1166,7 @@ function buildSettledToolActivityItem(
 ): ToolActivityItem {
 	const status = segment.status;
 	const iconType = getToolCallIconType(segment.name);
+	const code = readReasonCode(segment.name, segment.metadata);
 	const base = {
 		key,
 		status,
@@ -1096,14 +1209,23 @@ function buildSettledToolActivityItem(
 			"searchedImages",
 			status,
 		);
+		// How many pictures it found is the row's own fact ("8 pictures"); opened, it
+		// shows the pictures themselves, small, each with its site.
+		const pictures = foundPictures(segment.candidates);
 		return {
 			...base,
 			verb: imageVerb,
 			object: query,
-			meta: "",
+			meta:
+				pictures.count > 0
+					? translate("toolRows.meta.pictures", { count: pictures.count })
+					: "",
 			summaryLabel: imageVerb,
 			title: query,
-			body: null,
+			body:
+				pictures.thumbs.length > 0
+					? { kind: "thumbs", items: pictures.thumbs }
+					: null,
 		};
 	}
 
@@ -1127,15 +1249,23 @@ function buildSettledToolActivityItem(
 			primary?.title && primary.title !== host
 				? `${host} · ${primary.title}`
 				: host;
+		// A link the app turned down on purpose (it came from neither the person nor
+		// a search) was not opened: the row says so, and names only the host.
+		const refused = code === "link_not_from_a_source";
+		const fetchVerb = refused
+			? translate("toolRows.verb.didntOpen")
+			: verb(translate, "reading", "read", status);
 		return {
 			...base,
-			verb: verb(translate, "reading", "read", status),
-			object,
+			verb: fetchVerb,
+			object: refused ? host : object,
 			meta: "",
-			summaryLabel: translate("toolCalls.readPagesCount", { count: 1 }),
+			summaryLabel: refused
+				? fetchVerb
+				: translate("toolCalls.readPagesCount", { count: 1 }),
 			summaryUnit: "pages",
 			summaryCount: 1,
-			title: object,
+			title: refused ? host : object,
 			body: hasRevealableBody
 				? {
 						kind: "page",
@@ -1148,9 +1278,14 @@ function buildSettledToolActivityItem(
 
 	if (iconType === "run-python") {
 		const object = runPythonObject(segment.input, translate);
-		const program =
-			typeof segment.input.code === "string" ? segment.input.code : "";
 		const pythonVerb = verb(translate, "runningPython", "ranPython", status);
+		// What the program printed, from the short copy the server keeps for the row
+		// (`displayOutput`, never sent to the model): plain text, no program, and no
+		// body at all when it printed nothing or the call is older than the copy.
+		const printed =
+			typeof segment.metadata?.displayOutput === "string"
+				? segment.metadata.displayOutput.replace(/^\s*\n/, "").trimEnd()
+				: "";
 		return {
 			...base,
 			verb: pythonVerb,
@@ -1158,19 +1293,13 @@ function buildSettledToolActivityItem(
 			meta: "",
 			summaryLabel: pythonVerb,
 			title: object,
-			body: program
-				? {
-						kind: "python",
-						program,
-						output: segment.outputSummary?.trim() || null,
-					}
-				: null,
+			body: printed ? { kind: "result", text: printed } : null,
 		};
 	}
 
 	if (iconType === "map-route") {
 		const map = segment.map ?? null;
-		const object = map ? mapRouteLabel(map) : firstStringInput(segment.input);
+		const object = map ? mapRouteLabel(map) : routeInputLabel(segment.input);
 		// The two public-transport actions get their own verbs and their own
 		// right-hand fact — "Route A → B · 27 km" would be nonsense for a bus
 		// journey, and outright wrong for a list of departures.
@@ -1218,8 +1347,13 @@ function buildSettledToolActivityItem(
 			segment.metadata.skillDisplayName.trim()
 				? segment.metadata.skillDisplayName.trim()
 				: firstStringInput(segment.input);
-		const description = segment.outputSummary?.trim() || null;
-		const skillVerb = verb(translate, "usingSkill", "usedSkill", status);
+		// A skill that was loaded does not open: its name says it, and the note the
+		// tool wrote for the model ("Loaded skill …") is the model's. A name that no
+		// skill has says so in its verb, and has nothing more to say.
+		const skillVerb =
+			code === "skill_not_found"
+				? translate("toolRows.verb.noSkillCalled")
+				: verb(translate, "usingSkill", "usedSkill", status);
 		return {
 			...base,
 			verb: skillVerb,
@@ -1227,7 +1361,7 @@ function buildSettledToolActivityItem(
 			meta: "",
 			summaryLabel: `${skillVerb} ${displayName}`.trim(),
 			title: displayName,
-			body: description ? { kind: "text", text: description } : null,
+			body: null,
 		};
 	}
 
@@ -1347,26 +1481,29 @@ function buildSettledToolActivityItem(
 				body: creatingBody,
 			};
 		}
-		// Wave 2.5 Step 12/13: a SETTLED, business-level refusal of create_artifact
-		// (never edit_artifact — see the "artifact-failed" body's own doc comment
-		// above) gets a standalone card saying so, with the model-facing reason.
-		// The row's own verb/title stay the SAME settled form a success would
-		// have had (this file's established philosophy for every OTHER failure:
-		// only the glyph and the body communicate it — see
-		// `buildToolActivityItem`'s own top comment) — `status` is overridden to
-		// "failed" so the glyph actually turns red for what is, from the user's
-		// side, a real failure (nothing was made), unlike a hard transport
-		// failure the segment itself never reports here (status stays "done").
+		// A SETTLED, business-level refusal of create_artifact (never edit_artifact:
+		// its refusals are rows, below) that has something to say gets a standalone
+		// card saying so, in the reason's own sentence (the per-turn cap, a kind that
+		// cannot be made, the create fallback), never in the words the tool wrote for
+		// the model. The glyph follows the code's kind like any row: a stop on
+		// purpose (the cap) is the quiet dash, a breakage the red cross. A refusal
+		// the model corrects by itself (`request_adjusted`) has no sentence and
+		// draws no card: it is the quiet "Adjusting the request" row below.
+		const reason = resolveToolReason(segment.name, code, {
+			artifactKind: artifactKind ?? null,
+		});
+		const reasonText = reason.key ? translate(reason.key) : null;
 		if (
 			!isEdit &&
 			status === "done" &&
 			metadata?.ok === false &&
 			artifactKind &&
-			object
+			object &&
+			reasonText !== null
 		) {
 			return {
 				...base,
-				status: "failed",
+				status: reason.kind === "stop" ? "skipped" : "failed",
 				verb: actionVerb,
 				object,
 				meta: "",
@@ -1378,23 +1515,29 @@ function buildSettledToolActivityItem(
 					kind: "artifact-failed",
 					artifactKind,
 					title: object,
-					reason: segment.outputSummary ?? null,
+					reason: reasonText,
 				},
 			};
 		}
-		// A call that failed (a thrown error) or was refused (`ok: false`) and made
-		// no card (RC-A #2): the row says what was tried and on what, in the
-		// reader's language, red like any failed row, folded, and never shows the
-		// model's own words (English, written for the model) or the call's
-		// parameters. It used to fall through to the generic identity below:
-		// "Tool <id>", opened on `patches: [object Object]`.
-		if (
-			status === "failed" ||
-			metadata?.ok === false ||
-			readReasonCode(segment.name, metadata) !== null
-		) {
-			const failedVerb = translate(
-				VERB_KEYS[isEdit ? "editFailed" : "createFailed"],
+		// A call that failed (a thrown error), was refused (`ok: false`) or carries a
+		// code, and made no card (RC-A #2): the row says what was tried and on what,
+		// in the reader's language, and never shows the model's own words (English,
+		// written for the model) or the call's parameters. Its glyph and its sentence
+		// come from the code (`withReason`). Two codes say it in the verb: the edit
+		// that left the person's own changes alone ("Left as it was"), and a request
+		// the model had to correct ("Adjusting the request"), both quiet. It used to
+		// fall through to the generic identity below: "Tool <id>", opened on
+		// `patches: [object Object]`.
+		if (status === "failed" || metadata?.ok === false || code !== null) {
+			const failedVerb = verbBeforeTitle(
+				translate(
+					code === "changed_since_read"
+						? "toolRows.verb.leftAsItWas"
+						: code === "request_adjusted"
+							? "toolRows.verb.adjustingRequest"
+							: VERB_KEYS[isEdit ? "editFailed" : "createFailed"],
+				),
+				false,
 			);
 			// The item by its title (the record carries it for a refusal since this
 			// row learned to), else the call's own title, else its kind.
@@ -1424,15 +1567,53 @@ function buildSettledToolActivityItem(
 	}
 
 	if (iconType === "memory") {
-		const bullets = memoryBullets(segment.candidates ?? []);
+		// Every title the call returned: a memory's statement, or a past chat's title.
+		const titles = memoryTitles(segment.candidates ?? []);
+		const memoryVerb = verb(translate, "recalling", "recalled", status);
+		// A look into past chats (`history`) or the project's chats (`project`) is not
+		// "Recalled N memories": the things it found are chats, and the row says so,
+		// and lists their titles. A look into one chat alone has nothing worth
+		// listing. Persona keeps the memories as they were, as bullets.
+		const mode =
+			typeof segment.metadata?.mode === "string" ? segment.metadata.mode : null;
+		if ((mode === "history" || mode === "project") && titles.length > 0) {
+			const inOneChat = [
+				"historyConversationId",
+				"siblingConversationId",
+				"selectedConversationId",
+			].some((name) => Boolean(segment.input?.[name]));
+			const chatsVerb = translate("toolRows.verb.lookedThrough");
+			const chats = translate("toolRows.meta.pastChats", {
+				count: inOneChat ? 1 : titles.length,
+			});
+			return {
+				...base,
+				verb: chatsVerb,
+				object: chats,
+				meta: "",
+				summaryLabel: `${chatsVerb} ${chats}`,
+				title: chats,
+				body: inOneChat
+					? null
+					: {
+							kind: "things",
+							icon: "chat",
+							items: titles.slice(0, THINGS_SHOWN).map((title) => ({ title })),
+							more: Math.max(0, titles.length - THINGS_SHOWN),
+						},
+			};
+		}
+		const bullets = titles.slice(0, 8);
 		// A recall that returned nothing (or has not returned yet) must not
-		// claim "0 memories" — it names what it was looking FOR instead, and
-		// says nothing at all when it has neither.
+		// claim "0 memories" — it names what it was looking FOR (the query, never
+		// the mode it was asked in) instead, and says nothing at all when it has
+		// neither.
 		const object =
 			bullets.length > 0
 				? translate("toolActivity.memoriesCount", { count: bullets.length })
-				: firstStringInput(segment.input);
-		const memoryVerb = verb(translate, "recalling", "recalled", status);
+				: typeof segment.input?.query === "string"
+					? segment.input.query.trim().slice(0, 200)
+					: "";
 		return {
 			...base,
 			verb: memoryVerb,
@@ -1447,20 +1628,51 @@ function buildSettledToolActivityItem(
 	}
 
 	// A read names the item it read (F22): its title, never its id. The generic row
-	// below would say "Tool <id>", and in a Hungarian turn "Eszköz e4d471c7-...".
+	// below would say "Tool <id>", and in a Hungarian turn "Eszköz e4d471c7-...". The
+	// name is enough, so the row does not open; the part of a file it read (a page,
+	// a part) shows after the name.
 	if (
 		segment.name === "read_artifact" ||
 		segment.name === "read_generated_file"
 	) {
 		const readVerb = verb(translate, "reading", "read", status);
 		const object = readItemName(segment);
+		const page = wholeNumber(segment.input?.page);
+		const part = wholeNumber(segment.input?.part);
+		const objectSuffix =
+			page !== null
+				? translate("toolRows.suffix.page", { number: page })
+				: part !== null
+					? translate("toolRows.suffix.part", { number: part })
+					: undefined;
 		return {
 			...base,
 			verb: readVerb,
 			object,
+			...(objectSuffix ? { objectSuffix } : {}),
 			meta: "",
 			summaryLabel: readVerb,
 			title: object ? `${readVerb}: ${object}` : readVerb,
+			body: null,
+		};
+	}
+
+	// The offer of an instruction the person may keep: the row names it, and the
+	// offer itself has its own card (`message.instructionSuggestions`), so it does
+	// not open.
+	if (segment.name === "suggest_instruction") {
+		const offered =
+			typeof segment.input?.text === "string"
+				? segment.input.text.trim().slice(0, 200)
+				: "";
+		const suggestVerb = translate("toolRows.verb.suggestedInstruction");
+		return {
+			...base,
+			verb: suggestVerb,
+			object: offered,
+			meta: "",
+			summaryLabel: suggestVerb,
+			title: offered ? `${suggestVerb} ${offered}` : suggestVerb,
 			body: null,
 		};
 	}

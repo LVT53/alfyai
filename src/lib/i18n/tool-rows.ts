@@ -28,6 +28,25 @@ const toolRowsDict = {
 		// What a row says on its own line, beside its words (a search, a picture
 		// search or a lookup that found nothing does not open).
 		"toolRows.meta.nothingFound": "nothing found",
+		"toolRows.meta.pictures":
+			"{count} picture{count, plural, one {} other {s}}",
+		"toolRows.meta.pastChats":
+			"{count} past chat{count, plural, one {} other {s}}",
+		// After the 5th thing a list names: "and 3 more".
+		"toolRows.more": "and {count} more",
+
+		// The verb of a row whose outcome changes what it did (a stop on purpose, a
+		// lookup into chats rather than memories, an offer instead of a tool).
+		"toolRows.verb.didntOpen": "Didn't open",
+		"toolRows.verb.lookedThrough": "Looked through",
+		"toolRows.verb.noSkillCalled": "No skill called",
+		"toolRows.verb.suggestedInstruction": "Suggested an instruction",
+		"toolRows.verb.leftAsItWas": "Left as it was:",
+		"toolRows.verb.adjustingRequest": "Adjusting the request",
+
+		// After the object of a read of a file: which part of it.
+		"toolRows.suffix.page": "· page {number}",
+		"toolRows.suffix.part": "· part {number}",
 
 		// research_web
 		"toolRows.research_web.search_unavailable":
@@ -383,6 +402,19 @@ const toolRowsDict = {
 		"toolRows.generic.fallback": "Ezt a lépést nem sikerült befejezni.",
 
 		"toolRows.meta.nothingFound": "nincs találat",
+		"toolRows.meta.pictures": "{count} kép",
+		"toolRows.meta.pastChats": "{count} korábbi beszélgetés",
+		"toolRows.more": "és még {count}",
+
+		"toolRows.verb.didntOpen": "Nem nyitotta meg:",
+		"toolRows.verb.lookedThrough": "Átnézve:",
+		"toolRows.verb.noSkillCalled": "Nincs ilyen készség:",
+		"toolRows.verb.suggestedInstruction": "Utasítást javasolt:",
+		"toolRows.verb.leftAsItWas": "Változatlan maradt:",
+		"toolRows.verb.adjustingRequest": "Kérés pontosítása",
+
+		"toolRows.suffix.page": "· {number}. oldal",
+		"toolRows.suffix.part": "· {number}. rész",
 
 		// research_web
 		"toolRows.research_web.search_unavailable":

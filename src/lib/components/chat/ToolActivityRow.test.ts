@@ -338,27 +338,6 @@ describe("ToolActivityRow", () => {
 		);
 	});
 
-	it("renders a Python body as PROGRAM and OUTPUT code blocks", () => {
-		const { getByTestId } = render(ToolActivityRow, {
-			item: item({
-				name: "run_python",
-				input: { code: "# check\nprint(1)" },
-				outputSummary: "1",
-			}),
-			open: true,
-		});
-
-		const body = getByTestId("tool-activity-body");
-		const eyebrows = [...body.querySelectorAll(".act-eyebrow")].map(
-			(node) => node.textContent,
-		);
-		expect(eyebrows).toEqual(["Program", "Output"]);
-		const code = [...body.querySelectorAll("pre.act-code")].map(
-			(node) => node.textContent,
-		);
-		expect(code).toEqual(["# check\nprint(1)", "1"]);
-	});
-
 	it("renders a connector group body as one row per action", () => {
 		const tools = [
 			toolCall({ name: "calendar", input: { action: "list_events" } }),
@@ -479,6 +458,176 @@ describe("ToolActivityRow", () => {
 		expect(row.tagName.toLowerCase()).toBe("div");
 		expect(row.querySelector(".act-chevron")).toBeNull();
 		expect(row).not.toHaveTextContent("it worked");
+	});
+
+	describe("the bodies that say what a tool found", () => {
+		const foundPictures = (count: number) =>
+			Array.from({ length: count }, (_, index) => ({
+				id: `img${index}`,
+				title: `Harbour ${index + 1}`,
+				url: `https://images.example${index}.test/h.jpg`,
+				snippet: `site${index}.com`,
+				sourceType: "web",
+				metadata: {
+					source: `site${index}.com`,
+					thumbnail: `https://imgs.search.brave.com/thumb${index}`,
+				},
+			})) as ToolCallSegment["candidates"];
+
+		it("draws the pictures a picture search found as small thumbnails with their sites, through the app's own route", () => {
+			const { getByTestId, getAllByTestId, container } = render(
+				ToolActivityRow,
+				{
+					item: item({
+						name: "image_search",
+						input: { query: "harbour at dawn" },
+						candidates: foundPictures(3),
+					}),
+					open: true,
+				},
+			);
+
+			expect(
+				getByTestId("tool-activity-row").querySelector(".act-meta")
+					?.textContent,
+			).toBe("3 pictures");
+			const thumbs = getAllByTestId("tool-activity-thumb");
+			expect(thumbs).toHaveLength(3);
+			const image = thumbs[0].querySelector("img") as HTMLImageElement;
+			expect(image.getAttribute("src")).toBe(
+				`/api/image-search/thumbnail?url=${encodeURIComponent("https://imgs.search.brave.com/thumb0")}`,
+			);
+			expect(image.getAttribute("referrerpolicy")).toBe("no-referrer");
+			expect(image.getAttribute("alt")).toBe("Harbour 1");
+			expect(thumbs[0].querySelector("figcaption")?.textContent).toBe(
+				"site0.com",
+			);
+			// No address of the search's own is ever requested.
+			expect(container.innerHTML).not.toContain(
+				'imgs.search.brave.com/thumb0"',
+			);
+			expect(container.innerHTML).not.toContain("images.example0.test");
+		});
+
+		it("hides a thumbnail that fails to load, and keeps the others", async () => {
+			const { getAllByTestId, queryAllByTestId } = render(ToolActivityRow, {
+				item: item({
+					name: "image_search",
+					input: { query: "harbour at dawn" },
+					candidates: foundPictures(3),
+				}),
+				open: true,
+			});
+
+			const second = getAllByTestId("tool-activity-thumb")[1];
+			await fireEvent.error(second.querySelector("img") as HTMLImageElement);
+
+			expect(queryAllByTestId("tool-activity-thumb")).toHaveLength(2);
+			expect(second.isConnected).toBe(false);
+		});
+
+		it("lists the past chats a memory lookup looked through by their titles, and says how many more", () => {
+			const { getAllByTestId, getByTestId, queryByTestId } = render(
+				ToolActivityRow,
+				{
+					item: item({
+						name: "memory_context",
+						input: { mode: "history", query: "trips" },
+						metadata: { mode: "history", ok: true },
+						candidates: Array.from({ length: 8 }, (_, index) => ({
+							id: `c${index}`,
+							title: `Trip chat ${index + 1}`,
+							sourceType: "memory",
+						})) as ToolCallSegment["candidates"],
+					}),
+					open: true,
+				},
+			);
+
+			const row = getByTestId("tool-activity-row");
+			expect(row.querySelector(".act-verb")?.textContent).toBe(
+				"Looked through",
+			);
+			expect(row.querySelector(".act-object")?.textContent).toBe(
+				"8 past chats",
+			);
+			const things = getAllByTestId("tool-activity-thing");
+			expect(things.map((thing) => thing.textContent?.trim())).toEqual([
+				"Trip chat 1",
+				"Trip chat 2",
+				"Trip chat 3",
+				"Trip chat 4",
+				"Trip chat 5",
+			]);
+			expect(getByTestId("tool-activity-more")).toHaveTextContent("and 3 more");
+			expect(queryByTestId("tool-activity-thumbs")).toBeNull();
+		});
+
+		it("says 'and 3 more' in Hungarian as 'és még 3'", () => {
+			uiLanguage.set("hu");
+			const { getByTestId } = render(ToolActivityRow, {
+				item: item({
+					name: "memory_context",
+					input: { mode: "history", query: "utak" },
+					metadata: { mode: "history", ok: true },
+					candidates: Array.from({ length: 8 }, (_, index) => ({
+						id: `c${index}`,
+						title: `Utazás ${index + 1}`,
+						sourceType: "memory",
+					})) as ToolCallSegment["candidates"],
+				}),
+				open: true,
+			});
+			expect(getByTestId("tool-activity-more")).toHaveTextContent("és még 3");
+		});
+
+		it("draws what a calculation printed as plain text, with no program and no heading", () => {
+			const { getByTestId, container } = render(ToolActivityRow, {
+				item: item({
+					name: "run_python",
+					input: { code: "# total\nprint('monthly: 312,893 Ft')" },
+					outputSummary: "run_python finished: exit code 0, 41 stdout chars.",
+					metadata: {
+						displayOutput: "monthly: 312,893 Ft\ntotal: 33,094,440 Ft",
+					},
+				}),
+				open: true,
+			});
+
+			const result = getByTestId("tool-activity-result");
+			expect(result.textContent).toBe(
+				"monthly: 312,893 Ft\ntotal: 33,094,440 Ft",
+			);
+			// Plain text in the body's own face, not a code box: lines kept, long
+			// ones wrapped (jsdom does not apply the component's scoped style).
+			const source = readFileSync(
+				`${process.cwd()}/src/lib/components/chat/ToolActivityRow.svelte`,
+				"utf-8",
+			);
+			const rule =
+				source.match(/\n\t\.act-result \{([\s\S]*?)\n\t\}/)?.[1] ?? "";
+			expect(rule).toContain("white-space: pre-wrap");
+			expect(rule).toContain("font-family: var(--font-sans)");
+			expect(rule).not.toContain("mono");
+			expect(container.querySelector(".act-code, .act-eyebrow")).toBeNull();
+			expect(container).not.toHaveTextContent("print(");
+			expect(container).not.toHaveTextContent("stdout chars");
+		});
+
+		it("does not open a calculation that printed nothing", () => {
+			const { getByTestId, queryByTestId } = render(ToolActivityRow, {
+				item: item({
+					name: "run_python",
+					input: { code: "# total\nx = 1" },
+					outputSummary: "run_python finished: exit code 0, 0 stdout chars.",
+				}),
+				open: true,
+			});
+			expect(getByTestId("tool-activity-row").tagName.toLowerCase()).toBe(
+				"div",
+			);
+			expect(queryByTestId("tool-activity-body")).toBeNull();
+		});
 	});
 
 	it("draws a reason body as one sentence, no heading, no box", () => {
@@ -977,26 +1126,51 @@ describe("ToolActivityRow", () => {
 			expect(queryByTestId("tool-activity-body")).not.toBeInTheDocument();
 		});
 
-		it("shows a failed standalone card with the reason for a refused create_artifact", () => {
-			const { getByTestId, queryByTestId } = render(ToolActivityRow, {
-				item: buildToolActivityItem(
-					toolCall({
-						name: "create_artifact",
-						input: { artifactType: "app", title: "Trip budget splitter" },
-						status: "done",
-						outputSummary: "Could not create the app: the brief was empty.",
-						metadata: { ok: false, artifactKind: "app" },
-					}),
-					"row-failed",
-					get(t),
-				),
-			});
+		it("a refused create's card shows its code's sentence, not the model's words", () => {
+			const refused = (metadata: Record<string, string | boolean>) =>
+				render(ToolActivityRow, {
+					item: buildToolActivityItem(
+						toolCall({
+							name: "create_artifact",
+							input: { artifactType: "app", title: "Trip budget splitter" },
+							status: "done",
+							outputSummary:
+								"Per-turn limit reached: 3 new artifacts already created in this turn.",
+							metadata: { ok: false, artifactKind: "app", ...metadata },
+						}),
+						"row-failed",
+						get(t),
+					),
+				});
 
-			const card = getByTestId("tool-activity-standalone-card");
-			expect(card).toHaveTextContent(
-				"Could not create the app: the brief was empty.",
+			// The per-turn cap: a stop on purpose, in its own sentence.
+			const capped = refused({ reasonCode: "reply_limit_reached" });
+			expect(
+				capped.getByTestId("tool-activity-standalone-card"),
+			).toHaveTextContent(
+				"Alfy has already made as many new items as one reply allows.",
 			);
-			expect(queryByTestId("tool-activity-body")).not.toBeInTheDocument();
+			expect(capped.container).not.toHaveTextContent("Per-turn limit");
+			expect(
+				capped.queryByTestId("tool-activity-body"),
+			).not.toBeInTheDocument();
+			capped.unmount();
+
+			// No code, or one this version does not know: the create fallback.
+			const unnamed: Record<string, string | boolean>[] = [
+				{},
+				{ reasonCode: "a_newer_servers_code" },
+			];
+			for (const metadata of unnamed) {
+				const fallback = refused(metadata);
+				const card = fallback.getByTestId("tool-activity-standalone-card");
+				expect(card).toHaveTextContent("This couldn't be made.");
+				expect(card).not.toHaveTextContent("Per-turn limit");
+				expect(fallback.container).not.toHaveTextContent(
+					"a_newer_servers_code",
+				);
+				fallback.unmount();
+			}
 		});
 
 		it("a reload's persisted segment renders the exact same card — no live-only state involved", () => {

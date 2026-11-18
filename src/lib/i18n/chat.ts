@@ -1127,8 +1127,6 @@ const chatDict = {
 		"toolActivity.summaryFailedCount": "{verb} {count} failed",
 		"toolActivity.summaryMemories": "{verb} memories",
 		"toolActivity.sourcesEyebrow": "Sources",
-		"toolActivity.program": "Program",
-		"toolActivity.output": "Output",
 		"toolActivity.expandActivity": "Show what was done",
 		// The way from the compact strip's single card and its list rows to the
 		// file itself (FilesStrip.svelte).
@@ -2370,8 +2368,6 @@ const chatDict = {
 		// survive: "Felidézés: emlékek" / "Felidézve: emlékek".
 		"toolActivity.summaryMemories": "{verb}: emlékek",
 		"toolActivity.sourcesEyebrow": "Források",
-		"toolActivity.program": "Program",
-		"toolActivity.output": "Kimenet",
 		"toolActivity.expandActivity": "Mutasd, mi történt",
 		// A kompakt sáv kártyájáról és listasorairól a fájlra magára.
 		"toolActivity.filesOpen": "Megnyitás a Nextcloudban",

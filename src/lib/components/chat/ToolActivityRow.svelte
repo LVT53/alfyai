@@ -25,6 +25,7 @@ import {
 	ChevronDown,
 	Globe,
 	LoaderCircle,
+	MessageSquare,
 	Minus,
 	X,
 } from "@lucide/svelte";
@@ -453,6 +454,10 @@ const rowLabel = $derived(
 	[item.verb, item.object, item.objectSuffix].filter(Boolean).join(" ").trim(),
 );
 
+// A picture-search thumbnail that failed to load hides itself, by its address: the
+// row still counts the picture, and a broken box is no part of what it found.
+let brokenThumbs = $state<Record<string, true>>({});
+
 // The map body's MapLibre component is dynamic-imported the same way
 // MessageBubble used to lazy-load MapRouteCard — the library never touches
 // the entry chat bundle for a turn with no route.
@@ -702,13 +707,50 @@ function handleToggle() {
 				{#if body.excerpt}
 					<div class="act-excerpt">{body.excerpt}</div>
 				{/if}
-			{:else if body.kind === 'python'}
-				<div class="act-eyebrow">{$t('toolActivity.program')}</div>
-				<pre class="act-code">{body.program}</pre>
-				{#if body.output}
-					<div class="act-eyebrow">{$t('toolActivity.output')}</div>
-					<pre class="act-code">{body.output}</pre>
-				{/if}
+			{:else if body.kind === 'result'}
+				<!-- What the program printed, as plain text: no program, no heading. -->
+				<pre class="act-result" data-testid="tool-activity-result">{body.text}</pre>
+			{:else if body.kind === 'thumbs'}
+				<!-- The pictures a picture search found, small, each with its site. The
+				     address is the app's own thumbnail route for an address on Brave's
+				     image proxy (ADR-0068); a picture that fails to load hides itself. -->
+				<div class="act-thumbs" data-testid="tool-activity-thumbs">
+					{#each body.items.filter((thumb) => !brokenThumbs[thumb.src]) as thumb (thumb.src)}
+						<figure class="act-thumb" data-testid="tool-activity-thumb">
+							<img
+								class="act-thumb-img"
+								src={thumb.src}
+								alt={thumb.title}
+								loading="lazy"
+								decoding="async"
+								referrerpolicy="no-referrer"
+								use:replayEarlyImageEvent
+								onerror={() => { brokenThumbs[thumb.src] = true; }}
+							/>
+							<figcaption>{thumb.host}</figcaption>
+						</figure>
+					{/each}
+				</div>
+			{:else if body.kind === 'things'}
+				<!-- The things a tool found or touched, by their own names. -->
+				<div class="act-things" data-testid="tool-activity-things">
+					{#each body.items as thing, index (index)}
+						<div class="act-thing" data-testid="tool-activity-thing">
+							{#if body.icon === 'chat'}
+								<MessageSquare class="tool-activity-icon" size={14} strokeWidth={2} aria-hidden="true" />
+							{:else}
+								<ToolActivityIcon iconType={body.icon} />
+							{/if}
+							<span class="act-thing-title">{thing.title}</span>
+							{#if thing.sub}
+								<span class="act-thing-sub">{thing.sub}</span>
+							{/if}
+						</div>
+					{/each}
+					{#if body.more > 0}
+						<div class="act-more" data-testid="tool-activity-more">{$t('toolRows.more', { count: body.more })}</div>
+					{/if}
+				</div>
 			{:else if body.kind === 'map'}
 				<!-- The whole route body — mode strip, summary, map, and the
 				     step-by-step directions or timeline — is RouteItinerary's.
@@ -747,8 +789,6 @@ function handleToggle() {
 						</div>
 					{/each}
 				</dl>
-			{:else if body.kind === 'text'}
-				<div class="act-excerpt">{body.text}</div>
 			{:else if body.kind === 'bullets'}
 				<ul class="act-bullets">
 					{#each body.items as bullet, index (index)}
@@ -1151,18 +1191,90 @@ function handleToggle() {
 		overflow-wrap: anywhere;
 	}
 
-	.act-code {
+	/* What a calculation printed: plain text in the body's sans face, as the
+	   approved screen draws it (not a code box: it is an answer, not a program).
+	   Lines are kept and a long one wraps rather than widening the row. */
+	.act-result {
 		margin: 0;
-		padding: 8px 10px;
-		border: 1px solid var(--border-subtle);
-		border-radius: 5px;
-		background: var(--surface-code);
-		color: var(--text-primary);
-		font-family: var(--font-mono, monospace);
-		font-size: 0.72rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		line-height: 1.5;
-		white-space: pre;
-		overflow: auto;
+		color: var(--text-primary);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* The pictures a picture search found: small, wrapping, each with its site. */
+	.act-thumbs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+
+	.act-thumb {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		width: 72px;
+		margin: 0;
+	}
+
+	.act-thumb-img {
+		display: block;
+		width: 72px;
+		height: 54px;
+		object-fit: cover;
+		border-radius: 5px;
+		background: var(--surface-overlay);
+		box-shadow: 0 0 0 1px var(--border-default);
+	}
+
+	.act-thumb figcaption {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.66rem;
+		color: var(--text-muted);
+	}
+
+	/* The things a tool found or touched, one line each, by their own names. */
+	.act-things {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	.act-thing {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+		padding: 2px 0;
+	}
+
+	.act-thing-title {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-xs);
+		color: var(--text-primary);
+	}
+
+	.act-thing-sub {
+		flex: 0 0 auto;
+		margin-left: auto;
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.act-more {
+		font-size: var(--text-xs);
+		color: var(--text-muted);
 	}
 
 	/* Tailwind's preflight strips list markers app-wide, so the bullets are

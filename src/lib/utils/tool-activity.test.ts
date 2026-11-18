@@ -4,6 +4,7 @@ import { t } from "$lib/i18n";
 import artifactsDict from "$lib/i18n/artifacts";
 import chatDict from "$lib/i18n/chat";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import { imageThumbnailRouteUrl } from "$lib/shared/url-provenance";
 import {
 	type AtlasActivityJob,
 	atlasPlanProgress,
@@ -113,12 +114,13 @@ describe("tool activity row grammar", () => {
 		expect(item.object).toBe("example.com");
 	});
 
-	it("reads a Python run as 'Ran Python <first comment>' and puts the program in the body", () => {
+	it("reads a Python run as 'Ran Python <first comment>', and its body is what the program printed", () => {
 		const item = buildToolActivityItem(
 			toolCall({
 				name: "run_python",
 				input: { code: "# day count and distance check\nprint(1)" },
-				outputSummary: "7\n34",
+				outputSummary: "run_python finished: exit code 0, 3 stdout chars.",
+				metadata: { displayOutput: "7\n34" },
 			}),
 			"k4",
 			translate,
@@ -127,7 +129,7 @@ describe("tool activity row grammar", () => {
 		expect(item.verb).toBe("Ran Python");
 		expect(item.object).toBe("day count and distance check");
 		expect(item.iconType).toBe("run-python");
-		expect(item.body).toMatchObject({ kind: "python", output: "7\n34" });
+		expect(item.body).toEqual({ kind: "result", text: "7\n34" });
 	});
 
 	it("falls back to a neutral 'scratch program' when the code carries no leading comment", () => {
@@ -313,7 +315,8 @@ describe("tool activity row grammar", () => {
 		expect(item.verb).toBe("Used skill");
 		expect(item.object).toBe("Purchase Helper");
 		expect(item.iconType).toBe("use-skill");
-		expect(item.body).toMatchObject({ kind: "text" });
+		// The skill's name says it: the model's "Loaded skill" note is not shown.
+		expect(item.body).toBeNull();
 	});
 
 	it("reads a memory lookup as 'Recalled N memories' with the memories as bullets", () => {
@@ -1469,7 +1472,7 @@ describe("buildToolActivityItem — journey row", () => {
 		// Wave 2.5 Step 12/13: a SOFT refusal (ok: false) of create_artifact —
 		// distinct from a hard transport failure — now gets its own standalone
 		// "could not be made" card, with the tool's own English reason.
-		it("shows a standalone failed card for a refused create_artifact, with the model-facing reason, and turns the row's glyph red", () => {
+		it("shows a standalone failed card for a refused create_artifact, with the create fallback and never the model's words, and turns the row's glyph red", () => {
 			const item = buildToolActivityItem(
 				toolCall({
 					name: "create_artifact",
@@ -1491,8 +1494,9 @@ describe("buildToolActivityItem — journey row", () => {
 				kind: "artifact-failed",
 				artifactKind: "app",
 				title: "Trip budget splitter",
-				reason: "Could not create the app: the brief was empty.",
+				reason: "This couldn't be made.",
 			});
+			expect(JSON.stringify(item)).not.toContain("the brief was empty");
 		});
 
 		it("never renders a card for a refused edit_artifact — the row shows the refusal, not a deliverable", () => {
@@ -1815,20 +1819,20 @@ describe("rows read their reason", () => {
 		// The stored status stays whatever the server wrote ("failed" for a refused
 		// link at the tip): the row's glyph comes from the code's kind.
 		const item = row({
-			name: "fetch_url",
-			input: { url: "https://example-deals.shop/offer" },
+			name: "research_web",
+			input: { query: "cork weather" },
 			status: "failed",
-			metadata: { reasonCode: "link_not_from_a_source" },
+			metadata: { reasonCode: "reading_budget_used" },
 		});
 
 		expect(item.status).toBe("skipped");
-		expect(item.verb).toBe("Read");
+		expect(item.verb).toBe("Searched");
 		expect(item.meta).toBe("");
 		expect(item.body).toEqual({
 			kind: "reason",
-			text: "Alfy opens only links you gave it or a search found, and this one was neither.",
+			text: "Alfy had already searched enough for this reply.",
 		});
-		expect(item.summaryLabel).toBe("Read");
+		expect(item.summaryLabel).toBe("Searched");
 	});
 
 	it("a refusal stored as a success (status done, ok false) reads by its code too", () => {
@@ -2226,6 +2230,749 @@ describe("rows read their reason", () => {
 		).toEqual(["Searched 1 source", "Searched ×2", "Searched Failed"]);
 		expect(items[1].status).toBe("skipped");
 		expect(items[3].status).toBe("failed");
+	});
+});
+
+// Task B4: what each tool's row says once opened, in plain words: the things it
+// found or touched, by their own names, and never the call's own parts.
+describe("each tool's row shows what it found", () => {
+	const row = (
+		overrides: Partial<ToolCallSegment>,
+		translator = translate,
+		options?: { turnEnded?: boolean },
+	) => buildToolActivityItem(toolCall(overrides), "k", translator, options);
+
+	async function inHungarian<T>(work: (hu: typeof translate) => T): Promise<T> {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			return work(get(t));
+		} finally {
+			uiLanguage.set("en");
+		}
+	}
+
+	describe("image_search", () => {
+		const found = (count: number, withThumbnails = count) =>
+			Array.from({ length: count }, (_, index) => ({
+				id: `img${index}`,
+				title: `Harbour at dawn ${index + 1}`,
+				url: `https://images.example${index}.test/harbour.jpg`,
+				snippet: `site${index}.com`,
+				sourceType: "web",
+				metadata: {
+					source: `site${index}.com`,
+					...(index < withThumbnails
+						? { thumbnail: `https://imgs.search.brave.com/thumb${index}` }
+						: {}),
+				},
+			})) as ToolCallSegment["candidates"];
+
+		it("says how many pictures it found on the right, and shows them small with their sites", () => {
+			const item = row({
+				name: "image_search",
+				input: { query: "harbour at dawn" },
+				candidates: found(8),
+				outputSummary: "Found 8 images.",
+			});
+
+			expect(item.verb).toBe("Searched images");
+			expect(item.object).toBe("harbour at dawn");
+			expect(item.meta).toBe("8 pictures");
+			expect(item.body).toEqual({
+				kind: "thumbs",
+				items: Array.from({ length: 8 }, (_, index) => ({
+					src: imageThumbnailRouteUrl(
+						`https://imgs.search.brave.com/thumb${index}`,
+					),
+					host: `site${index}.com`,
+					title: `Harbour at dawn ${index + 1}`,
+				})),
+			});
+			expect(JSON.stringify(item)).not.toContain("Found 8 images");
+		});
+
+		it("counts one picture in the singular, and shows only a picture it holds a thumbnail for", () => {
+			const one = row({
+				name: "image_search",
+				input: { query: "harbour" },
+				candidates: found(1),
+			});
+			expect(one.meta).toBe("1 picture");
+
+			// Six found, only two with a thumbnail Brave's own proxy served: the row
+			// counts them all and shows what it can.
+			const some = row({
+				name: "image_search",
+				input: { query: "harbour" },
+				candidates: found(6, 2),
+			});
+			expect(some.meta).toBe("6 pictures");
+			expect(some.body).toMatchObject({ kind: "thumbs" });
+			expect((some.body as { items: unknown[] }).items).toHaveLength(2);
+
+			// A thumbnail that is not on Brave's proxy is never loaded.
+			const stranger = row({
+				name: "image_search",
+				input: { query: "harbour" },
+				candidates: [
+					{
+						id: "x",
+						title: "Elsewhere",
+						url: "https://pictures.example.test/a.jpg",
+						snippet: "example.test",
+						sourceType: "web",
+						metadata: { thumbnail: "https://attacker.example/pixel.gif" },
+					},
+				] as ToolCallSegment["candidates"],
+			});
+			expect(stranger.meta).toBe("1 picture");
+			expect(stranger.body).toBeNull();
+			expect(JSON.stringify(stranger)).not.toContain("attacker.example");
+		});
+
+		it("names the host of a picture whose source the search did not say", () => {
+			const item = row({
+				name: "image_search",
+				input: { query: "harbour" },
+				candidates: [
+					{
+						id: "n",
+						title: "No source named",
+						url: "https://www.pictures.example.test/a.jpg",
+						sourceType: "web",
+						metadata: { thumbnail: "https://imgs.search.brave.com/n" },
+					},
+				] as ToolCallSegment["candidates"],
+			});
+			expect(item.body).toMatchObject({
+				kind: "thumbs",
+				items: [{ host: "pictures.example.test" }],
+			});
+		});
+
+		it("has no count and nothing to open before the search has found anything", () => {
+			const item = row({
+				name: "image_search",
+				input: { query: "harbour" },
+				status: "running",
+			});
+			expect(item.meta).toBe("");
+			expect(item.body).toBeNull();
+		});
+
+		it("says kép in Hungarian, with no plural", async () => {
+			await inHungarian((hu) => {
+				const many = row(
+					{
+						name: "image_search",
+						input: { query: "kikötő" },
+						candidates: found(5),
+					},
+					hu,
+				);
+				expect(many.meta).toBe("5 kép");
+				const single = row(
+					{
+						name: "image_search",
+						input: { query: "kikötő" },
+						candidates: found(1),
+					},
+					hu,
+				);
+				expect(single.meta).toBe("1 kép");
+			});
+		});
+	});
+
+	describe("fetch_url", () => {
+		it("says a link it turned down on purpose as 'Didn't open <host>', quietly, with its one sentence", async () => {
+			const refused = {
+				name: "fetch_url",
+				input: { url: "https://www.example-deals.shop/offer?x=1" },
+				status: "failed" as const,
+				metadata: { reasonCode: "link_not_from_a_source" },
+			};
+			const item = row(refused);
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Didn't open");
+			expect(item.object).toBe("example-deals.shop");
+			expect(item.summaryLabel).toBe("Didn't open");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "Alfy opens only links you gave it or a search found, and this one was neither.",
+			});
+			await inHungarian((hu) => {
+				const huItem = row(refused, hu);
+				expect(huItem.verb).toBe("Nem nyitotta meg:");
+				expect(huItem.body).toEqual({
+					kind: "reason",
+					text: "Alfy csak a tőled kapott vagy keresésben talált linkeket nyitja meg, ez pedig egyik sem volt.",
+				});
+			});
+		});
+
+		it("keeps 'Read <host>' for every other failure", () => {
+			const item = row({
+				name: "fetch_url",
+				input: { url: "https://example.com/a" },
+				status: "failed",
+				metadata: { reasonCode: "page_not_found" },
+			});
+			expect(item.verb).toBe("Read");
+			expect(item.status).toBe("failed");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "That page doesn't exist any more.",
+			});
+		});
+	});
+
+	describe("memory_context", () => {
+		const chats = (count: number) =>
+			Array.from({ length: count }, (_, index) => ({
+				id: `chat${index}`,
+				title: `Chat about trip ${index + 1}`,
+				sourceType: "memory",
+			})) as ToolCallSegment["candidates"];
+
+		it("says it looked through past chats, with their titles, when it looked into history", async () => {
+			const history = {
+				name: "memory_context",
+				input: { mode: "history", query: "Vienna" },
+				metadata: { mode: "history", ok: true },
+				candidates: chats(3),
+			};
+			const item = row(history);
+
+			expect(item.verb).toBe("Looked through");
+			expect(item.object).toBe("3 past chats");
+			expect(item.iconType).toBe("memory");
+			expect(item.body).toEqual({
+				kind: "things",
+				icon: "chat",
+				items: [
+					{ title: "Chat about trip 1" },
+					{ title: "Chat about trip 2" },
+					{ title: "Chat about trip 3" },
+				],
+				more: 0,
+			});
+
+			await inHungarian((hu) => {
+				const huItem = row(history, hu);
+				expect(huItem.verb).toBe("Átnézve:");
+				expect(huItem.object).toBe("3 korábbi beszélgetés");
+			});
+		});
+
+		it("counts one past chat in the singular, and the project's chats the same way", () => {
+			const one = row({
+				name: "memory_context",
+				input: { mode: "project", query: "Vienna folder" },
+				metadata: { mode: "project", ok: true },
+				candidates: chats(1),
+			});
+			expect(one.verb).toBe("Looked through");
+			expect(one.object).toBe("1 past chat");
+		});
+
+		it("names five chats and says how many more", () => {
+			const item = row({
+				name: "memory_context",
+				input: { mode: "history", query: "trips" },
+				metadata: { mode: "history", ok: true },
+				candidates: chats(8),
+			});
+			expect(item.object).toBe("8 past chats");
+			expect(item.body).toMatchObject({ kind: "things", more: 3 });
+			expect((item.body as { items: unknown[] }).items).toHaveLength(5);
+		});
+
+		it("keeps the memories as they were for the persona, and says nothing of a status note", () => {
+			const memories = row({
+				name: "memory_context",
+				input: { query: "packing" },
+				metadata: { mode: "persona", ok: true },
+				outputSummary: "Persona memory status: available",
+				candidates: [
+					{ id: "m1", title: "Prefers Celsius", sourceType: "memory" },
+				] as ToolCallSegment["candidates"],
+			});
+			expect(memories.verb).toBe("Recalled");
+			expect(memories.object).toBe("1 memory");
+			expect(memories.body).toEqual({
+				kind: "bullets",
+				items: ["Prefers Celsius"],
+			});
+
+			const bare = row({
+				name: "memory_context",
+				input: { query: "packing" },
+				metadata: { mode: "persona", ok: true },
+				outputSummary: "Persona memory status: available",
+			});
+			expect(bare.body).toBeNull();
+			expect(JSON.stringify(bare)).not.toContain("status: available");
+		});
+
+		it("names what it looked for when a chat lookup found nothing, and does not claim chats", () => {
+			const item = row({
+				name: "memory_context",
+				input: { mode: "history", query: "Vienna" },
+				metadata: { mode: "history", ok: true, reasonCode: "nothing_found" },
+			});
+			expect(item.verb).toBe("Recalled");
+			expect(item.object).toBe("Vienna");
+			expect(item.meta).toBe("nothing found");
+			expect(item.body).toBeNull();
+		});
+	});
+
+	describe("run_python", () => {
+		const python = {
+			name: "run_python",
+			input: {
+				code: "# Work out the monthly payment\nprincipal = 42_000_000\nprint(principal)",
+			},
+			outputSummary: "run_python finished: exit code 0, 41 stdout chars.",
+		};
+
+		it("shows only what the program printed, as plain text, and never the program", () => {
+			const item = row({
+				...python,
+				metadata: {
+					displayOutput: "monthly: 312,893 Ft\ntotal interest: 33,094,440 Ft",
+				},
+			});
+
+			expect(item.verb).toBe("Ran Python");
+			expect(item.object).toBe("Work out the monthly payment");
+			expect(item.body).toEqual({
+				kind: "result",
+				text: "monthly: 312,893 Ft\ntotal interest: 33,094,440 Ft",
+			});
+			const text = JSON.stringify(item);
+			expect(text).not.toContain("principal");
+			expect(text).not.toContain("stdout chars");
+		});
+
+		it("does not open when the program printed nothing, or the call is older than the display copy", () => {
+			for (const metadata of [undefined, { displayOutput: "   " }]) {
+				const item = row({ ...python, metadata });
+				expect(item.body).toBeNull();
+			}
+			expect(row({ ...python, status: "running" }).body).toBeNull();
+		});
+
+		it("says the calculation ran out of time, or stopped with an error, as the failure it was", () => {
+			const timedOut = row({
+				...python,
+				status: "failed",
+				metadata: { reasonCode: "timed_out" },
+			});
+			expect(timedOut.status).toBe("failed");
+			expect(timedOut.body).toEqual({
+				kind: "reason",
+				text: "The calculation ran out of time.",
+			});
+			const errored = row({
+				...python,
+				status: "done",
+				metadata: { ok: false, reasonCode: "program_error" },
+			});
+			expect(errored.status).toBe("failed");
+			expect(errored.body).toEqual({
+				kind: "reason",
+				text: "The calculation stopped with an error.",
+			});
+		});
+	});
+
+	describe("read_artifact and read_generated_file", () => {
+		it("does not open, and says which part of a file it read on the row", async () => {
+			const paged = {
+				name: "read_generated_file",
+				input: { filename: "report.pdf", page: 3 },
+				outputSummary: "Read file report.pdf",
+				metadata: { ok: true },
+			};
+			const item = row(paged);
+
+			expect(item.verb).toBe("Read");
+			expect(item.object).toBe("report.pdf");
+			expect(item.objectSuffix).toBe("· page 3");
+			expect(item.body).toBeNull();
+
+			const part = row({
+				name: "read_generated_file",
+				input: { filename: "notes.txt", part: "2" },
+			});
+			expect(part.objectSuffix).toBe("· part 2");
+
+			await inHungarian((hu) => {
+				expect(row(paged, hu).objectSuffix).toBe("· 3. oldal");
+				expect(
+					row(
+						{
+							name: "read_generated_file",
+							input: { filename: "notes.txt", part: 2 },
+						},
+						hu,
+					).objectSuffix,
+				).toBe("· 2. rész");
+			});
+		});
+
+		it("has no suffix when it read the whole item, and takes none from anything but a whole number", () => {
+			expect(
+				row({
+					name: "read_artifact",
+					input: { artifactId: "0d394ede" },
+					metadata: { artifactTitle: "Trip plan", ok: true },
+				}).objectSuffix,
+			).toBeUndefined();
+			for (const page of ["third", -1, 0, 2.5, null, { n: 1 }]) {
+				expect(
+					row({
+						name: "read_generated_file",
+						input: { filename: "report.pdf", page },
+					}).objectSuffix,
+					String(page),
+				).toBeUndefined();
+			}
+		});
+
+		it("names the item, never its id, and says it is gone when it is", () => {
+			const gone = row({
+				name: "read_artifact",
+				input: { artifactId: "0d394ede-c37a-4238-9059-77d01300da4e" },
+				status: "done",
+				outputSummary: "Not found.",
+				metadata: { ok: false, reasonCode: "item_not_found" },
+			});
+			expect(gone.status).toBe("failed");
+			expect(gone.body).toEqual({
+				kind: "reason",
+				text: "That item isn't there any more.",
+			});
+			expect(JSON.stringify(gone)).not.toContain("0d394ede");
+		});
+	});
+
+	describe("use_skill", () => {
+		it("does not open when the skill loaded: its name says it", () => {
+			const item = row({
+				name: "use_skill",
+				input: { name: "trip-planner" },
+				metadata: { skillDisplayName: "Trip planner", ok: true },
+				outputSummary: 'Loaded skill "Trip planner"',
+			});
+			expect(item.verb).toBe("Used skill");
+			expect(item.object).toBe("Trip planner");
+			expect(item.body).toBeNull();
+			expect(JSON.stringify(item)).not.toContain("Loaded skill");
+		});
+
+		it("says there is no skill by that name, quietly, and does not open", async () => {
+			const missing = {
+				name: "use_skill",
+				input: { name: "Trip planer" },
+				status: "done" as const,
+				outputSummary:
+					'No skill named "Trip planer" was found. Only call use_skill with a name from "## Skills available".',
+				metadata: { ok: false, reasonCode: "skill_not_found" },
+			};
+			const item = row(missing);
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("No skill called");
+			expect(item.object).toBe("Trip planer");
+			expect(item.body).toBeNull();
+			expect(JSON.stringify(item)).not.toContain("Skills available");
+
+			await inHungarian((hu) => {
+				const huItem = row(missing, hu);
+				expect(huItem.verb).toBe("Nincs ilyen készség:");
+				expect(huItem.object).toBe("Trip planer");
+			});
+		});
+
+		it("says a skill that is turned off in a sentence, and keeps its name", () => {
+			const item = row({
+				name: "use_skill",
+				input: { name: "trip-planner" },
+				metadata: {
+					skillDisplayName: "Trip planner",
+					ok: false,
+					reasonCode: "skill_turned_off",
+				},
+			});
+			expect(item.status).toBe("skipped");
+			expect(item.object).toBe("Trip planner");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "This skill is turned off. You can turn it on in Settings.",
+			});
+		});
+	});
+
+	describe("suggest_instruction", () => {
+		const suggestion = {
+			name: "suggest_instruction",
+			input: { text: "Always give distances in kilometres", scope: "personal" },
+			outputSummary: "Instruction suggestion offered for personal instructions",
+		};
+
+		it("names the offer on the row and does not open: the offer has its own card", async () => {
+			const item = row(suggestion);
+
+			expect(item.status).toBe("done");
+			expect(item.verb).toBe("Suggested an instruction");
+			expect(item.object).toBe("Always give distances in kilometres");
+			expect(item.iconType).toBe("suggest-instruction");
+			expect(item.body).toBeNull();
+			expect(JSON.stringify(item)).not.toMatch(/personal|offered/);
+
+			await inHungarian((hu) => {
+				expect(row(suggestion, hu).verb).toBe("Utasítást javasolt:");
+			});
+		});
+
+		it("says why a suggestion was not offered, quietly", () => {
+			const item = row({
+				...suggestion,
+				metadata: { ok: false, reason: "already_offered" },
+			});
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Suggested an instruction");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "Alfy had already suggested this one.",
+			});
+		});
+	});
+
+	describe("map_route", () => {
+		it("names the two places when it drew no map, never the first word of the request", () => {
+			const item = row({
+				name: "map_route",
+				input: { action: "route", origin: "Budapest", destination: "Sylt" },
+				status: "done",
+				metadata: { ok: false, reasonCode: "out_of_coverage" },
+			});
+
+			expect(item.object).toBe("Budapest → Sylt");
+			expect(item.status).toBe("skipped");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "Routes can only be planned where Alfy has maps.",
+			});
+			expect(JSON.stringify(item)).not.toContain('"drive"');
+		});
+
+		it("names a place looked up, a lone end of a trip, and coordinates", () => {
+			expect(
+				row({
+					name: "map_route",
+					input: { action: "geocode", query: "Fő utca 99" },
+				}).object,
+			).toBe("Fő utca 99");
+			expect(
+				row({
+					name: "map_route",
+					input: { action: "isochrone", origin: "Graz" },
+				}).object,
+			).toBe("Graz");
+			expect(
+				row({
+					name: "map_route",
+					input: {
+						action: "route",
+						origin: { lat: 47.4979, lng: 19.0402 },
+						destination: "Vienna",
+					},
+				}).object,
+			).toBe("47.4979, 19.0402 → Vienna");
+			expect(
+				row({ name: "map_route", input: { action: "route" } }).object,
+			).toBe("");
+		});
+	});
+
+	describe("create_artifact and edit_artifact", () => {
+		const refusedCreate = (code: string | undefined, extra = {}) => ({
+			name: "create_artifact",
+			input: { artifactType: "app", title: "Packing list" },
+			status: "done" as const,
+			outputSummary:
+				"Per-turn limit reached: 3 new artifacts already created in this turn.",
+			metadata: {
+				ok: false,
+				artifactKind: "app",
+				...(code ? { reasonCode: code } : {}),
+				...extra,
+			},
+		});
+
+		it("says a refused create on its card as the reason's sentence, never the model's words", () => {
+			const item = row(refusedCreate("reply_limit_reached"));
+
+			expect(item.body).toEqual({
+				kind: "artifact-failed",
+				artifactKind: "app",
+				title: "Packing list",
+				reason: "Alfy has already made as many new items as one reply allows.",
+			});
+			// A stop on purpose is the quiet dash, though it is a "couldn't make this" card.
+			expect(item.status).toBe("skipped");
+			expect(JSON.stringify(item)).not.toMatch(/Per-turn|artifacts/);
+		});
+
+		it("says an unknown or missing code on the card as the create fallback, in a red row", async () => {
+			for (const code of [undefined, "a_code_from_a_newer_server"]) {
+				const item = row(refusedCreate(code));
+				expect(item.status).toBe("failed");
+				expect(item.body).toMatchObject({
+					kind: "artifact-failed",
+					reason: "This couldn't be made.",
+				});
+				expect(JSON.stringify(item)).not.toContain("Per-turn");
+			}
+			await inHungarian((hu) => {
+				expect(row(refusedCreate("kind_not_creatable"), hu).body).toMatchObject(
+					{ reason: "Ilyen elemet itt nem lehet készíteni." },
+				);
+			});
+		});
+
+		it("says a refused create the model corrects as a quiet 'Adjusting the request' row, with no card", () => {
+			const item = row(refusedCreate("request_adjusted"));
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Adjusting the request:");
+			expect(item.object).toBe("Packing list");
+			expect(item.body).toBeNull();
+			expect(item.artifact).toEqual({ id: null, failed: true });
+		});
+
+		const edit = (code: string | undefined, metadata = {}) => ({
+			name: "edit_artifact",
+			input: {
+				artifactId: "0d394ede-c37a-4238-9059-77d01300da4e",
+				patches: [],
+			},
+			status: "done" as const,
+			outputSummary: "Block b7 changed since your last read_artifact.",
+			metadata: {
+				ok: false,
+				artifactId: "0d394ede-c37a-4238-9059-77d01300da4e",
+				artifactKind: "document",
+				artifactTitle: "Trip plan",
+				...(code ? { reasonCode: code } : {}),
+				...metadata,
+			},
+		});
+
+		it("says an edit that left the person's changes alone as 'Left as it was', quiet, by the kind of item", async () => {
+			const item = row(edit("changed_since_read"));
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Left as it was:");
+			expect(item.object).toBe("Trip plan");
+			expect(item.title).toBe("Left as it was: Trip plan");
+			expect(item.meta).toBe("");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "The document changed since Alfy read it, so Alfy left it as it was.",
+			});
+			expect(item.artifact).toEqual({
+				id: "0d394ede-c37a-4238-9059-77d01300da4e",
+				failed: true,
+			});
+			expect(JSON.stringify(item)).not.toContain("read_artifact");
+
+			expect(
+				row(edit("changed_since_read", { artifactKind: "canvas" })).body,
+			).toEqual({
+				kind: "reason",
+				text: "The canvas changed since Alfy read it, so Alfy left it as it was.",
+			});
+
+			await inHungarian((hu) => {
+				const huItem = row(edit("changed_since_read"), hu);
+				expect(huItem.verb).toBe("Változatlan maradt:");
+				expect(huItem.body).toEqual({
+					kind: "reason",
+					text: "A dokumentum megváltozott, mióta Alfy elolvasta, ezért Alfy nem nyúlt hozzá.",
+				});
+			});
+		});
+
+		it("drops the colon of 'Left as it was' when nothing says which item", () => {
+			const item = row(
+				edit("changed_since_read", {
+					artifactTitle: undefined,
+					artifactKind: undefined,
+				}),
+			);
+			expect(item.verb).toBe("Left as it was");
+			expect(item.object).toBe("");
+		});
+
+		it("says an edit the model asked for the wrong way as 'Adjusting the request', quiet, with no body", async () => {
+			const item = row(edit("request_adjusted"));
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Adjusting the request:");
+			expect(item.object).toBe("Trip plan");
+			expect(item.body).toBeNull();
+			expect(item.artifact).toMatchObject({ failed: true });
+
+			await inHungarian((hu) => {
+				expect(row(edit("request_adjusted"), hu).verb).toBe(
+					"Kérés pontosítása:",
+				);
+			});
+		});
+
+		it("keeps \"Couldn't edit\" and the code's sentence for every other guard, and the fallback for none", () => {
+			const files = row(edit("not_editable_as_text"));
+			expect(files.status).toBe("skipped");
+			expect(files.verb).toBe("Couldn't edit:");
+			expect(files.body).toEqual({
+				kind: "reason",
+				text: "Files, pictures and videos can't be changed as text.",
+			});
+			const rebuilt = row(
+				edit("rebuild_limit_reached", { artifactKind: "app" }),
+			);
+			expect(rebuilt.body).toEqual({
+				kind: "reason",
+				text: "An app can be rebuilt twice in one reply.",
+			});
+			const other = row(edit(undefined));
+			expect(other.status).toBe("failed");
+			expect(other.body).toEqual({
+				kind: "reason",
+				text: "The change couldn't be made.",
+			});
+		});
+
+		it("still marks every one of these rows as a failed attempt, so a later call that made it good folds them", () => {
+			for (const code of [
+				"changed_since_read",
+				"request_adjusted",
+				"not_editable_as_text",
+				undefined,
+			]) {
+				expect(row(edit(code)).artifact, String(code)).toEqual({
+					id: "0d394ede-c37a-4238-9059-77d01300da4e",
+					failed: true,
+				});
+			}
+		});
 	});
 });
 
