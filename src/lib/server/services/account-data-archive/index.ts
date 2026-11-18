@@ -329,6 +329,7 @@ async function addProfileSection(
 			"Pictures and videos",
 			params.user.picturesAndVideosEnabled === false ? "Off" : "On",
 		],
+		["Send with Enter", params.user.sendWithEnter ? "On" : "Off"],
 		["Created", formatDateTime(params.user.createdAt)],
 		["Updated", formatDateTime(params.user.updatedAt)],
 	];

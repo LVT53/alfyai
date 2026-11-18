@@ -166,6 +166,9 @@ const guideDict = {
 		"guide.entry.languageAndLook.name": "Language and look",
 		"guide.entry.languageAndLook.line":
 			"Interface and title language, time zone, light or dark.",
+		"guide.entry.sendWithEnter.name": "Send with Enter",
+		"guide.entry.sendWithEnter.line":
+			"Enter sends your message and Shift+Enter starts a new line.",
 		"guide.entry.twoStep.name": "Two-step sign-in",
 		"guide.entry.twoStep.line":
 			"A code from your phone as well as your password.",
@@ -341,6 +344,9 @@ const guideDict = {
 		"guide.entry.languageAndLook.name": "Nyelv és megjelenés",
 		"guide.entry.languageAndLook.line":
 			"A felület és a címek nyelve, időzóna, világos vagy sötét.",
+		"guide.entry.sendWithEnter.name": "Küldés Enterrel",
+		"guide.entry.sendWithEnter.line":
+			"Az Enter elküldi az üzenetet, a Shift+Enter új sort kezd.",
 		"guide.entry.twoStep.name": "Kétlépcsős bejelentkezés",
 		"guide.entry.twoStep.line":
 			"A jelszó mellett egy kód is kell a telefonodról.",

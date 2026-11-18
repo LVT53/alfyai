@@ -256,6 +256,8 @@ export async function updateUserPreferences(params: {
 	memoryEnabled?: boolean;
 	/** "Pictures and videos" (Settings > Profile); the server takes only true or false. */
 	picturesAndVideosEnabled?: boolean;
+	/** "Send with Enter" (Settings > Profile); the server takes only true or false. */
+	sendWithEnter?: boolean;
 	/** Pass "" to clear; the server stores both "" and null as NULL. */
 	personalInstructions?: string | null;
 }): Promise<void> {

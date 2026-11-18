@@ -9,7 +9,7 @@ import { consumeHomeComposerSeed } from "$lib/client/conversation-session";
 import { STATIC_COMPOSER_COMMANDS } from "$lib/composer-commands";
 import { type I18nKey, t } from "$lib/i18n";
 import guideDict from "$lib/i18n/guide";
-import { uiLanguage } from "$lib/stores/settings";
+import { sendWithEnter, uiLanguage } from "$lib/stores/settings";
 import { spotlightRequest } from "$lib/stores/spotlight";
 import GuidePage from "./GuidePage.svelte";
 import {
@@ -83,19 +83,19 @@ function stubReducedMotion(reduce: boolean) {
 }
 
 describe("the guide page", () => {
-	it("shows six sections and thirty-four rows", () => {
+	it("shows six sections and thirty-five rows", () => {
 		render(GuidePage);
 
 		const sections = screen.getAllByTestId("guide-section");
 		expect(sections.map((section) => section.id)).toEqual(
 			GUIDE_SECTION_IDS.map((id) => `guide-section-${id}`),
 		);
-		expect(screen.getAllByTestId("guide-row")).toHaveLength(34);
+		expect(screen.getAllByTestId("guide-row")).toHaveLength(35);
 		expect(
 			sections.map(
 				(section) => within(section).getAllByTestId("guide-row").length,
 			),
-		).toEqual([8, 7, 6, 4, 5, 4]);
+		).toEqual([8, 7, 6, 4, 5, 5]);
 		for (const entry of GUIDE_ENTRIES) {
 			expect(rowOf(entry.id).closest("section")?.id).toBe(
 				`guide-section-${entry.section}`,
@@ -175,9 +175,10 @@ describe("NEW", () => {
 
 	it("is gone after the thirty days, and nothing else ever wore it", () => {
 		// Past all the windows: "Alfy asks first" (2026-11-05), Videos
-		// (2026-11-15), and Listen to a reply and Voices that read to you
-		// (2026-11-17, NEW up to but not including 2026-12-17).
-		vi.setSystemTime(new Date("2026-12-17T00:00:00Z"));
+		// (2026-11-15), Listen to a reply and Voices that read to you
+		// (2026-11-17), and Send with Enter (2026-11-18, NEW up to but not
+		// including 2026-12-18).
+		vi.setSystemTime(new Date("2026-12-18T00:00:00Z"));
 		render(GuidePage);
 
 		expect(screen.queryByText("NEW")).not.toBeInTheDocument();
@@ -249,18 +250,18 @@ describe("a row's buttons", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("has ten Try its, twenty Show mes and four rows with neither", () => {
+	it("has ten Try its, twenty-one Show mes and four rows with neither", () => {
 		render(GuidePage);
 
 		const kinds = GUIDE_ENTRIES.map((entry) => entry.action.kind);
 		expect(kinds.filter((kind) => kind === "tryIt")).toHaveLength(10);
-		expect(kinds.filter((kind) => kind === "showMe")).toHaveLength(20);
+		expect(kinds.filter((kind) => kind === "showMe")).toHaveLength(21);
 		expect(kinds.filter((kind) => kind === "none")).toHaveLength(4);
 		expect(screen.getAllByRole("button", { name: /^Try it: / })).toHaveLength(
 			10,
 		);
 		expect(screen.getAllByRole("button", { name: /^Show me: / })).toHaveLength(
-			20,
+			21,
 		);
 	});
 });
@@ -571,6 +572,42 @@ describe("the shortcuts and commands box", () => {
 		] as const) {
 			expect(keys.getByText(key).tagName).toBe("KBD");
 			expect(keys.getByText(wording)).toBeInTheDocument();
+		}
+	});
+
+	it("shows the reader's own Enter keys, and follows their Send with Enter switch", async () => {
+		const pairs = () =>
+			[
+				...screen
+					.getByTestId("guide-shortcut-keys")
+					.querySelectorAll(".guide-shortcuts__item"),
+			].map((item) => [
+				item.querySelector("kbd")?.textContent,
+				item.querySelector("dd")?.textContent,
+			]);
+		sendWithEnter.set(true);
+		try {
+			render(GuidePage);
+
+			expect(pairs()).toEqual([
+				["Ctrl/⌘+K", "Open Search"],
+				["/", "Go to the message box"],
+				["Enter", "Send"],
+				["Shift+Enter", "New line"],
+				["Esc", "Close a menu or dialog"],
+			]);
+
+			sendWithEnter.set(false);
+			await tick();
+			expect(pairs()).toEqual([
+				["Ctrl/⌘+K", "Open Search"],
+				["/", "Go to the message box"],
+				["Ctrl/⌘+Enter", "Send"],
+				["Enter", "New line"],
+				["Esc", "Close a menu or dialog"],
+			]);
+		} finally {
+			sendWithEnter.set(false);
 		}
 	});
 

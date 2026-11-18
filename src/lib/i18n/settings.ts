@@ -2044,6 +2044,14 @@ const settingsDict = {
 		"profileTab.timeZoneHelp": "Lets AlfyAI know your local date and time.",
 		"profileTab.timeZoneThisDevice": "This device",
 		"profileTab.timeZoneOthers": "Other zones",
+		// Send with Enter: the person's own switch for the message box's keys.
+		// Off, Enter writes a new line and Ctrl/Cmd+Enter sends. A touch-only
+		// screen has no Shift+Enter, so Enter stays a new line there either way.
+		"profileTab.sendWithEnter": "Send with Enter",
+		"profileTab.sendWithEnterHelp":
+			"Enter sends your message and Shift+Enter starts a new line. On a touch screen, Enter still starts a new line.",
+		"profileTab.sendWithEnterOn": "On",
+		"profileTab.sendWithEnterOff": "Off",
 
 		// Assistant behaviour.
 		"profileTab.assistantTitle": "Assistant behaviour",
@@ -4209,6 +4217,11 @@ const settingsDict = {
 		"profileTab.timeZoneHelp": "Ebből tudja az AlfyAI, mennyi az idő nálad.",
 		"profileTab.timeZoneThisDevice": "Ez az eszköz",
 		"profileTab.timeZoneOthers": "Más időzónák",
+		"profileTab.sendWithEnter": "Küldés Enterrel",
+		"profileTab.sendWithEnterHelp":
+			"Az Enter elküldi az üzenetet, a Shift+Enter új sort kezd. Érintőképernyőn az Enter továbbra is új sort kezd.",
+		"profileTab.sendWithEnterOn": "Be",
+		"profileTab.sendWithEnterOff": "Ki",
 
 		// Az asszisztens viselkedése.
 		"profileTab.assistantTitle": "Az asszisztens viselkedése",

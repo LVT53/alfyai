@@ -45,7 +45,7 @@ import { addMemoryNote } from "$lib/client/api/memory-notes";
 import { saveBlobAsDownload } from "$lib/client/api/settings";
 import { startNewChat } from "$lib/client/new-chat";
 import { recordComposerCommandUsed } from "$lib/client/composer-command-analytics";
-import { selectedModel, uiLanguage } from "$lib/stores/settings";
+import { selectedModel, sendWithEnter, uiLanguage } from "$lib/stores/settings";
 import { whenLabel } from "$lib/components/artifacts/history/moment-text";
 import { showToast } from "$lib/stores/toast";
 import {
@@ -176,6 +176,7 @@ import {
 	type ComposerCommandToken,
 	type ComposerCommandTokenWithArgument,
 } from "./composer-command-parser";
+import { isComposerSendKey } from "./composer-keys";
 import { browser } from "$app/environment";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
@@ -437,7 +438,10 @@ let {
 	 * faces off, since the resend keeps the message's own attachments.
 	 */
 	editing?: { text: string; laterReplies: number } | null;
-	/** Send (or Cmd/Ctrl+Enter) while editing, with the trimmed text. */
+	/**
+	 * Send (or the send key, `composer-keys.ts`) while editing, with the
+	 * trimmed text.
+	 */
 	onEditSubmit?: ((text: string) => void) | undefined;
 	/** Cancel, Esc, or sending the text unchanged. */
 	onEditCancel?: (() => void) | undefined;
@@ -2048,6 +2052,18 @@ function dismissSlashHint() {
 	}
 }
 
+/**
+ * The composer's Enter rule (`composer-keys.ts`): Enter writes a new line and
+ * Cmd/Ctrl+Enter sends; with "Send with Enter" on, Enter sends and Shift+Enter
+ * writes the new line, except on a touch-only screen.
+ */
+function isSendKey(event: KeyboardEvent): boolean {
+	return isComposerSendKey(event, {
+		sendWithEnter: $sendWithEnter,
+		touchScreen: isMobile(),
+	});
+}
+
 function handleKeydown(event: KeyboardEvent) {
 	if (isComposerDisabled) return;
 	if (event.isComposing) return;
@@ -2057,8 +2073,7 @@ function handleKeydown(event: KeyboardEvent) {
 			cancelEdit();
 			return;
 		}
-		// The composer's own Enter rule: Enter writes a new line, Cmd/Ctrl+Enter sends.
-		if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+		if (isSendKey(event)) {
 			event.preventDefault();
 			submitEdit(textarea?.value ?? message);
 			return;
@@ -2099,7 +2114,7 @@ function handleKeydown(event: KeyboardEvent) {
 			return;
 		}
 	}
-	if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+	if (isSendKey(event)) {
 		event.preventDefault();
 		const currentTextareaValue = textarea?.value ?? message;
 		if (textarea) {

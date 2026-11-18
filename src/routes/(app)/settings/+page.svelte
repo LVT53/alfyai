@@ -56,6 +56,7 @@ import { detectBrowserTimeZone } from "$lib/shared/time-zone";
 import {
 	setSelectedModelAndSync,
 	setModelPreferenceAndSync,
+	setSendWithEnterAndSync,
 	setTitleLanguageAndSync,
 	setUiLanguageAndSync,
 	uiLanguage,
@@ -107,6 +108,7 @@ interface SettingsPageData {
 			timeZone?: string | null;
 			memoryEnabled?: boolean;
 			picturesAndVideosEnabled?: boolean;
+			sendWithEnter?: boolean;
 		};
 		profilePicture: string | null;
 	};
@@ -271,6 +273,11 @@ let selectedPicturesAndVideos = $state<boolean>(
 	initialPreferences.picturesAndVideosEnabled ?? true,
 );
 let picturesAndVideosSaving = $state(false);
+// The person's own "Send with Enter" switch (off unless they turned it on).
+let selectedSendWithEnter = $state<boolean>(
+	initialPreferences.sendWithEnter ?? false,
+);
+let sendWithEnterSaving = $state(false);
 
 // Personal instructions (Workspaces feature 1, slice C). The page owns the
 // write; the shared dialog owns the editing, so Slice D's project scope and
@@ -812,6 +819,21 @@ async function changePicturesAndVideos(enabled: boolean) {
 	}
 }
 
+// Optimistic like changeMemoryEnabled. The save goes through the store, so the
+// message box takes the new keys at once and gives them back with the switch.
+async function changeSendWithEnter(enabled: boolean) {
+	const previous = selectedSendWithEnter;
+	selectedSendWithEnter = enabled;
+	sendWithEnterSaving = true;
+	try {
+		await setSendWithEnterAndSync(enabled);
+	} catch {
+		selectedSendWithEnter = previous;
+	} finally {
+		sendWithEnterSaving = false;
+	}
+}
+
 // Optimistic like changeMemoryEnabled, but it answers the dialog instead of
 // swallowing: the dialog stays open with the text intact when the write fails,
 // because closing would throw away what the user just wrote.
@@ -1322,6 +1344,9 @@ $effect(() => {
 				onChangeTitleLanguage={changeTitleLanguage}
 				onChangeUiLanguage={changeUiLanguage}
 				onChangeTimeZone={changeTimeZone}
+				sendWithEnter={selectedSendWithEnter}
+				{sendWithEnterSaving}
+				onChangeSendWithEnter={changeSendWithEnter}
 				memoryEnabled={selectedMemoryEnabled}
 				{memorySaving}
 				onChangeMemoryEnabled={changeMemoryEnabled}
