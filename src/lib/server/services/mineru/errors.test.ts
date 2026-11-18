@@ -11,8 +11,10 @@
  *
  * The rules branch on `code` and `param`, never on `message` (4.1's validation
  * messages are pydantic dumps with a URL in them). The one place a message is
- * read is a file's `parse_failed`, because that single code is all 4.1 sends for
- * a corrupt, a locked, an unsupported and an unreadable document alike.
+ * read is a file's `parse_failed`, because up to 4.2.1 that single code was all
+ * MinerU sent for a corrupt, a locked, an unsupported and an unreadable document
+ * alike; 4.2.2+ names those causes in the code, and still sends `parse_failed`
+ * for the rest.
  */
 
 import { readdirSync } from "node:fs";
@@ -707,7 +709,7 @@ function task(name: string) {
 	);
 }
 
-describe("S8: every parse failure is parse_failed, and only the message differs", () => {
+describe("S8: up to 4.2.1 every parse failure is parse_failed, and only the message differs", () => {
 	it.each([
 		[
 			"a damaged PDF",
@@ -804,13 +806,166 @@ describe("S8: every parse failure is parse_failed, and only the message differs"
 });
 
 /** A terminal one-file task whose only file failed with this error. */
-function failedFile(error: { code: string; message: string }) {
+function failedFile(error: { code: string; message: string; param?: string }) {
 	return mineruTaskDetailSchema.parse({
 		task_id: "job_x",
 		status: "failed",
 		files: [{ file_id: "file-x", file_name: "x.pdf", status: "failed", error }],
 	});
 }
+
+describe("4.2.2+: a failed file names its cause in a code of its own", () => {
+	// The messages are 4.2.3's own (`parser/mineru_parser.py`, `integrations/
+	// docvortex.py`, `parser/api_server.py`'s hang guard); `param` is what the
+	// parser sends with an input failure.
+	it.each([
+		[
+			"a locked PDF, or one with no pages",
+			"file_encrypted",
+			"Failed to load document (PDFium: Incorrect password error).",
+			"file:file_encrypted",
+			"document_unreadable",
+			false,
+		],
+		[
+			"a damaged PDF",
+			"file_corrupted",
+			"Failed to load document (PDFium: Data format error).",
+			"file:file_corrupted",
+			"document_unreadable",
+			false,
+		],
+		[
+			"a type the parser refuses",
+			"file_type_unsupported",
+			"Unsupported file type: tif",
+			"file:file_type_unsupported",
+			"unsupported_type",
+			false,
+		],
+		[
+			"a document over the parser's size limit",
+			"file_too_large",
+			"Document exceeds the maximum supported size",
+			"file:file_too_large",
+			"too_large",
+			false,
+		],
+		[
+			"a document over a resource limit",
+			"resource_limit",
+			"Metadata input exceeds 512 MiB",
+			"file:resource_limit",
+			"too_large",
+			false,
+		],
+		[
+			"a file the hang guard stopped",
+			"task_timeout",
+			"Task execution timed out",
+			"file:task_timeout",
+			"timeout",
+			true,
+		],
+		[
+			"a file that was running beside the one the hang guard stopped",
+			"worker_restarted",
+			"Worker became unavailable",
+			"file:worker_restarted",
+			"job_failed",
+			true,
+		],
+	] as const)("%s", (_label, code, message, rule, taxonomy, retryable) => {
+		const mapping = mapMineruTaskFailure(
+			failedFile({ code, message, param: "input" }),
+		);
+		expect(mapping?.rule).toBe(rule);
+		expect(mapping?.known).toBe(true);
+		expect(mapping?.taxonomy).toBe(taxonomy);
+		expect(mapping?.retryable).toBe(retryable);
+		expect(mapping?.disposition).toBe("fail");
+		// The remote task is settled whatever the cause: a retry makes a new one.
+		expect(mapping?.handleUnknown).toBe(true);
+	});
+
+	it("goes by the code, not the words: a damaged Office file the old rules have no phrase for is still final", () => {
+		// DocVortex's `open_failed` arrives as `file_corrupted` with its own text.
+		// Read by the message alone it was "the engine failed": retried, then
+		// offered a Retry that can never work.
+		const mapping = mapMineruTaskFailure(
+			failedFile({
+				code: "file_corrupted",
+				message: "Invalid ZIP directory: File is not a zip file",
+				param: "input",
+			}),
+		);
+		expect(mapping?.rule).toBe("file:file_corrupted");
+		expect(mapping?.taxonomy).toBe("document_unreadable");
+		expect(mapping?.retryable).toBe(false);
+	});
+
+	it("still reads parse_failed by its words: 4.2.3 sends it for an extension it does not know", () => {
+		// `parser/api_server.py` checks the name itself before the parser runs,
+		// and that refusal is a plain ValueError, so it stays `parse_failed`.
+		const mapping = mapMineruTaskFailure(
+			failedFile({
+				code: "parse_failed",
+				message: "Unsupported file type: document.txt",
+			}),
+		);
+		expect(mapping?.rule).toBe("file:parse_failed:unsupported-type");
+		expect(mapping?.taxonomy).toBe("unsupported_type");
+		expect(mapping?.retryable).toBe(false);
+	});
+
+	it("never reads a file's own file_not_found as a forgotten id", () => {
+		// Inside a settled task it is the parser failing to read the copy MinerU
+		// wrote itself (`parser/mineru_parser.py`), not a restart that forgot the
+		// task: creating the task again is not the cure, an ordinary retry is.
+		const mapping = mapMineruTaskFailure(
+			failedFile({
+				code: "file_not_found",
+				message:
+					"[Errno 2] No such file or directory: '/tmp/mineru_job_x/input_0.pdf'",
+				param: "input",
+			}),
+		);
+		expect(mapping?.disposition).toBe("fail");
+		expect(mapping?.rule).toBe("task:file-error-unmapped");
+		expect(mapping?.taxonomy).toBe("job_failed");
+		expect(mapping?.retryable).toBe(true);
+		expect(mapping?.handleUnknown).toBe(true);
+	});
+});
+
+describe("4.2.3's hang guard on a request: the server refuses work until it is restarted", () => {
+	// After one execution outlives `--task-timeout`, health and every new task
+	// answer 503 with the guard's code, and only a restart clears it. Waiting is
+	// the cure (the box's watchdog restarts the server), so it is an outage, not
+	// the document's own timeout, and no attempt is spent on the document.
+	it.each([
+		[
+			"task_timeout",
+			"Task execution exceeded its time limit",
+			"503:task_timeout",
+		],
+		["engine_dead", "CUDA error: an illegal memory access", "503:engine_dead"],
+	] as const)("reads a 503 %s as an outage to wait out", (code, message, rule) => {
+		const mapping = mapMineruError(
+			mineruApiErrorFromBody({
+				status: 503,
+				bodyText: JSON.stringify({ error: { code, message } }),
+				path: "/v1/tasks",
+			}),
+		);
+		expect(mapping.rule).toBe(rule);
+		expect(mapping.known).toBe(true);
+		expect(mapping.taxonomy).toBe("unavailable");
+		expect(mapping.retryable).toBe(true);
+		expect(mapping.disposition).toBe("fail");
+		expect(mapping.handleUnknown).toBe(false);
+	});
+});
 
 describe("mapMineruTaskFailure: reading a settled task", () => {
 	it("accepts a completed file that says where its result is", () => {

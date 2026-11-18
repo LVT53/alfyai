@@ -104,11 +104,11 @@ const expectedPdfTier = process.env.LIVE_EXTRACTION_EXPECTED_TIER ?? "standard";
 /**
  * The MinerU the deployment is expected to talk to (`/v1/health` `version`, read
  * through the admin status card) and, per document, `parse.parser_version`
- * (`extractionServerParserVersion`). Exact on purpose: a newer 4.1.x is a
+ * (`extractionServerParserVersion`). Exact on purpose: a newer 4.2.x is a
  * reason to read its release notes and re-capture, not to pass silently.
  */
 const expectedServerVersion =
-	process.env.LIVE_EXTRACTION_EXPECTED_SERVER_VERSION ?? "4.1.7";
+	process.env.LIVE_EXTRACTION_EXPECTED_SERVER_VERSION ?? "4.2.3";
 /**
  * The app's own renderer version (`MINERU_PARSER_VERSION` in `mineru/result.ts`,
  * stored as `extractionParserVersion`): `mineru4/2` since the 4.1 release,

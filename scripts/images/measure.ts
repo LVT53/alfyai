@@ -131,15 +131,16 @@ const SSH = ["-T", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes", HOST];
 const BASE = process.env.COMFYUI_URL ?? "http://127.0.0.1:8188";
 
 /**
- * The MinerU servers on the box, the one in use first. `mineru41` is MinerU
- * 4.1.x, the server the apps call; `mineru4` is the 4.0.12 kept beside it as
- * the rollback for a week after the cutover and then disabled (docs/uploads.md,
- * deploy/README.md "Document extraction service").
+ * The MinerU servers on the box, the one in use first. `mineru42` is MinerU
+ * 4.2.3 on :8004, the address both apps call. Its rollback, 4.1.7's
+ * `mineru41`, serves the same port and `Conflicts=` lets only one of the two
+ * run, so it needs no entry of its own: :8004 is probed whichever serves it
+ * (deploy/mineru/README.md). A server added beside it on a port of its own
+ * goes after it, and is probed only while its unit is active.
  */
-const MINERU_SERVERS = [
-	{ unit: "mineru41", health: "http://127.0.0.1:8004/v1/health" },
-	{ unit: "mineru4", health: "http://127.0.0.1:8002/v1/health" },
-] as const;
+const MINERU_SERVERS: readonly { unit: string; health: string }[] = [
+	{ unit: "mineru42", health: "http://127.0.0.1:8004/v1/health" },
+];
 
 /**
  * The units `systemctl is-active <unit...>` reports as `active`. It prints one

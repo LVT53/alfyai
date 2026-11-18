@@ -23,9 +23,22 @@
  *    caught in that window succeeds once the URL points at 4.1, matched BEFORE
  *    any code rule so 4.0.12's own `task_not_found` is never a forgotten id.
  *    (A FastAPI 405 is not this: it is a client bug.)
- *  - A file's failure is always `parse_failed` (D6); only its message tells a
- *    corrupt, a locked, an unsupported and an unreadable document apart (S8).
+ *  - A file's failure (D6) was always `parse_failed` up to 4.2.1, and only its
+ *    message told a corrupt, a locked, an unsupported and an unreadable document
+ *    apart (S8). 4.2.2 gives an input failure a code of its own
+ *    (`file_corrupted`, `file_encrypted`, `file_type_unsupported`,
+ *    `file_too_large`, `resource_limit`), and 4.2.3's hang guard adds
+ *    `task_timeout` and `worker_restarted`. Those rows go by the code; the
+ *    message rows stay for `parse_failed`, which 4.2.3 still sends for an
+ *    extension it does not know, an engine error and a reader error it does not
+ *    translate.
  *  - `invalid_request` with `param: "tier"` is how 4.1 says a tier is missing.
+ *
+ * A row may say where its code counts (`source`): a file's own error inside a
+ * settled task, or the answer to a request. Two codes mean different things in
+ * the two places: `task_timeout` (a file the hang guard stopped, or a server
+ * that refuses work until it is restarted) and `file_not_found` (the parser
+ * failing to read MinerU's own copy of the file, or a forgotten id).
  *
  * `errors.test.ts` drives every recorded error under
  * `fixtures/mineru-v41/protocol/` through this table and fails when a recorded
@@ -369,10 +382,19 @@ export interface MineruErrorMapping {
 	readonly reason: string;
 }
 
+/**
+ * Where an error was met: `"file"` is a file's own `error` inside a settled task
+ * (`mapMineruTaskFailure`), `"request"` is everything `mapMineruError` reads (an
+ * HTTP answer, or a request that never got one).
+ */
+type MineruErrorSource = "file" | "request";
+
 interface MineruErrorRule {
 	rule: string;
 	/** Matched against `MineruApiError.code`. */
 	code?: string;
+	/** Only where the error was met, when the code means something else elsewhere. Unset: both. */
+	source?: MineruErrorSource;
 	/** Matches an error whose body was FastAPI's `{detail}`, which has no code. */
 	fastapi?: boolean;
 	/** Matches an error that `MineruApiError.wrongProtocol` calls another protocol's. */
@@ -601,12 +623,16 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 	{
 		rule: "413:file_too_large",
 		code: "file_too_large",
+		source: "request",
 		taxonomy: "too_large",
 		retryable: false,
 		reason: "UNVERIFIED: the spike's server set no size limit",
 	},
 
 	// -- tasks and forgotten ids (S6) ----------------------------------------
+	// Only on a request. Inside a settled task, 4.2.3's `file_not_found` is the
+	// parser failing to read the copy MinerU wrote itself, which an ordinary
+	// retry answers, not a restart that forgot the task.
 	{
 		rule: "409:task_already_terminal",
 		code: "task_already_terminal",
@@ -618,6 +644,7 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 	{
 		rule: "404:task_not_found",
 		code: "task_not_found",
+		source: "request",
 		taxonomy: "protocol",
 		retryable: true,
 		disposition: "recover-by-reupload",
@@ -626,6 +653,7 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 	{
 		rule: "404:file_not_found",
 		code: "file_not_found",
+		source: "request",
 		taxonomy: "protocol",
 		retryable: true,
 		disposition: "recover-by-reupload",
@@ -634,6 +662,7 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 	{
 		rule: "404:upload_not_found",
 		code: "upload_not_found",
+		source: "request",
 		taxonomy: "protocol",
 		retryable: true,
 		disposition: "recover-by-reupload",
@@ -643,6 +672,7 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 	{
 		rule: "410:upload_expired",
 		code: "upload_expired",
+		source: "request",
 		taxonomy: "protocol",
 		retryable: true,
 		disposition: "recover-by-reupload",
@@ -662,11 +692,117 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		retryable: true,
 		reason: "UNVERIFIED: the server is stopping; it comes back",
 	},
-
-	// -- file-level failures (S8) ---------------------------------------------
 	/**
-	 * Every cause of a failed file is the single code `parse_failed` (D6); only
-	 * the message differs, so these rows read it. They run from the specific
+	 * 4.2.3's hang guard (`--task-timeout`): once one execution outlives it,
+	 * health and every new task answer 503 with its code, and only a restart of
+	 * the process clears it (`require_ready`). The server never exits on its own,
+	 * so systemd never restarts it; the box's watchdog timer does. Waiting is the
+	 * cure, so it is an outage, which spends no attempt on the document. The file
+	 * that tripped the guard says `task_timeout` too, inside its task: that is
+	 * `file:task_timeout`, below.
+	 */
+	{
+		rule: "503:task_timeout",
+		code: "task_timeout",
+		status: 503,
+		taxonomy: "unavailable",
+		retryable: true,
+		reason:
+			"the hang guard fired: the server refuses work until it is restarted, which the watchdog does",
+	},
+	/** The same refusal after the parse engine died (4.1.7 already had it). */
+	{
+		rule: "503:engine_dead",
+		code: "engine_dead",
+		status: 503,
+		taxonomy: "unavailable",
+		retryable: true,
+		reason:
+			"UNVERIFIED: the engine died: the server refuses work until it is restarted, which the watchdog does",
+	},
+
+	// -- file-level failures with a code of their own (4.2.2+) -----------------
+	/**
+	 * From 4.2.2 an input failure names its cause in the code, with `param:
+	 * "input"` and the reader's own sentence as the message (PDFium's, or
+	 * DocVortex's). Each is a fact about these bytes: a retry repeats it. These
+	 * rows go by the code alone, so a cause whose words the message rows below
+	 * do not know (DocVortex's "Invalid ZIP directory: ...") is still final.
+	 */
+	{
+		rule: "file:file_encrypted",
+		code: "file_encrypted",
+		source: "file",
+		taxonomy: "document_unreadable",
+		retryable: false,
+		reason:
+			"the PDF is locked, or has no pages (PDFium says the same for both); the same bytes stay that way",
+	},
+	{
+		rule: "file:file_corrupted",
+		code: "file_corrupted",
+		source: "file",
+		taxonomy: "document_unreadable",
+		retryable: false,
+		reason: "the reader cannot open these bytes; a retry repeats the refusal",
+	},
+	{
+		rule: "file:file_type_unsupported",
+		code: "file_type_unsupported",
+		source: "file",
+		taxonomy: "unsupported_type",
+		retryable: false,
+		reason: "the parser cannot read this format; a retry repeats the refusal",
+	},
+	{
+		rule: "file:file_too_large",
+		code: "file_too_large",
+		source: "file",
+		taxonomy: "too_large",
+		retryable: false,
+		reason: "the document is over the parser's size limit",
+	},
+	{
+		rule: "file:resource_limit",
+		code: "resource_limit",
+		source: "file",
+		taxonomy: "too_large",
+		retryable: false,
+		reason:
+			"the document is over one of the reader's resource limits (a part, a page count, a size)",
+	},
+	/**
+	 * 4.2.3's hang guard, inside a task. The file that outlived `--task-timeout`
+	 * says `task_timeout`; every other file in flight at that moment, which did
+	 * nothing wrong, says `worker_restarted`. Both settle their tasks, so a retry
+	 * makes a new one. `timeout` is an outage code for the ledger (no attempt
+	 * spent, half an hour in all): with the guard's default hour, a document that
+	 * hangs every time is tried twice and then ends as `unavailable`.
+	 */
+	{
+		rule: "file:task_timeout",
+		code: "task_timeout",
+		source: "file",
+		taxonomy: "timeout",
+		retryable: true,
+		reason: "the hang guard stopped this file after the server's task timeout",
+	},
+	{
+		rule: "file:worker_restarted",
+		code: "worker_restarted",
+		source: "file",
+		taxonomy: "job_failed",
+		retryable: true,
+		reason:
+			"the hang guard stopped another file while this one was in flight; this one did nothing wrong",
+	},
+
+	// -- file-level failures read by their words (S8) ----------------------------
+	/**
+	 * Up to 4.2.1 every cause of a failed file was the single code
+	 * `parse_failed` (D6), and 4.2.3 still sends it for an extension it does not
+	 * know, an engine error and a reader error it does not translate; only the
+	 * message differs, so these rows read it. They run from the specific
 	 * wordings to the catch-all, and they are anchored on phrases rather than on
 	 * the file name, so a renamed file cannot change a verdict. The message is
 	 * only ever MATCHED here, never shown (D12): the user's sentence comes from
@@ -796,6 +932,7 @@ function matchesStatus(rule: MineruErrorRule, status: number | null): boolean {
 }
 
 function findRule(input: {
+	source: MineruErrorSource;
 	code: string | null;
 	status: number | null;
 	param: string | null;
@@ -804,6 +941,7 @@ function findRule(input: {
 	wrongProtocol: boolean;
 }): MineruErrorRule | null {
 	for (const rule of MINERU_ERROR_RULES) {
+		if (rule.source && rule.source !== input.source) continue;
 		if (rule.wrongProtocol) {
 			if (!input.wrongProtocol) continue;
 		} else if (rule.fastapi) {
@@ -891,6 +1029,7 @@ function fallbackForStatus(status: number | null): MineruErrorMapping {
 export function mapMineruError(error: unknown): MineruErrorMapping {
 	if (isMineruApiError(error)) {
 		const rule = findRule({
+			source: "request",
 			code: error.code,
 			status: error.status,
 			param: error.param,
@@ -1132,6 +1271,7 @@ export function mapMineruTaskFailure(
 
 	if (file.error) {
 		const rule = findRule({
+			source: "file",
 			code: file.error.code ?? null,
 			status: null,
 			param: file.error.param ?? null,

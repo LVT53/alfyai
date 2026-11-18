@@ -355,16 +355,29 @@ A settled remote task is never resumed: any attempt that finds one failed, cance
 file-level error clears the stored handle, so the next attempt (automatic or a user Retry) creates a
 fresh task rather than re-polling one that cannot change its answer. Sending the bytes again costs
 nothing while the server still holds them: the manifest's `sha256sum` makes it answer `pending`
-with no `upload` object. Every failed file arrives as the single code `parse_failed`, and only
-MinerU's message says why; the app maps the known wordings to its own reasons and never shows the
-message to a person. A damaged, zero-page or password-protected PDF (`PDFium: Data format error`,
-`PDFium: Incorrect password error`) and a workbook that is not one (`Invalid XLSX package`) map to
-`document_unreadable`, which is neither auto-retried nor user-retryable: the same bytes cannot
-become readable, and a repaired file has a different hash and so arrives as a new document.
-`Unsupported file type` maps to `unsupported_type`. An unexplained `parse_failed` still maps to
-`job_failed` and keeps its small attempt budget. MinerU's own words stay with the operator, in the
-attempt's diagnostics (`document_extraction_job_attempts.diagnostics_json`, as `rawMessage` beside
-the rule that matched).
+with no `upload` object. A failed file says why in its error's code (MinerU 4.2.2 and newer), and
+the app maps the code to its own reason and never shows MinerU's message to a person:
+
+| File error code | App reason | Retried |
+|---|---|---|
+| `file_encrypted` (a locked PDF, or one with no pages), `file_corrupted` | `document_unreadable` | no |
+| `file_type_unsupported` | `unsupported_type` | no |
+| `file_too_large`, `resource_limit` | `too_large` | no |
+| `task_timeout` (the server's hang guard stopped this file) | `timeout` | yes, as an outage |
+| `worker_restarted` (another file tripped the guard while this one ran) | `job_failed` | yes |
+| `parse_failed` | read by its message, below | |
+
+`document_unreadable` is neither auto-retried nor user-retryable: the same bytes cannot become
+readable, and a repaired file has a different hash and so arrives as a new document. MinerU still
+sends `parse_failed` for an extension it does not know, an engine error and a reader error it does
+not translate, and up to 4.2.1 it sent it for every cause; only the message says why, so the app
+maps the known wordings: a damaged, zero-page or password-protected PDF (`PDFium: Data format
+error`, `PDFium: Incorrect password error`) and a workbook that is not one (`Invalid XLSX package`)
+map to `document_unreadable`, and `Unsupported file type` to `unsupported_type`. An unexplained
+`parse_failed`, or a code the app does not know, maps to `job_failed` and keeps its small attempt
+budget. MinerU's own words stay with the operator, in the attempt's diagnostics
+(`document_extraction_job_attempts.diagnostics_json`, as `rawMessage` beside the rule that
+matched).
 
 ### Restarts, and a server that forgot
 
@@ -390,6 +403,17 @@ again with a growing wait (5 s, doubling to 5 min) for up to `DOCUMENT_EXTRACTIO
 recovery above makes a new task. The tests prove this against a fake server held to the captures;
 the one run against a real 4.1.7 is the ai.dev live check below, which restarts `mineru41` in the
 middle of a job and expects the job to succeed, not fail. On 2026-11-09 it did succeed.
+
+MinerU 4.2.3 adds a hang guard of its own, `--task-timeout` (an hour on the box). A file whose
+parse outlives it ends `failed` with `task_timeout` (the app's `timeout`), every other file in
+flight at that moment with `worker_restarted` (`job_failed`), and both are retried with a fresh
+task. From then on the server answers 503 `task_timeout` on `/v1/health` and on every new task
+until its process restarts, and it never exits on its own, so systemd's `Restart=` cannot help:
+the box's watchdog timer restarts it within a minute or two ([deploy/mineru/README.md](../deploy/mineru/README.md)).
+The app reads that 503 as an outage (`unavailable`, no attempt spent) and waits; after the restart
+the server has forgotten everything, and the recovery above takes over. `timeout` is an outage
+code too, so a document that hangs MinerU every time is tried twice under the hour's guard and then
+ends `unavailable`, with Retry offered.
 
 `MINERU_JOB_TIMEOUT_MS` is the clock of one attempt: it starts with the attempt and is enforced
 while the task is polled (the transfers have their own, `MINERU_TRANSFER_TIMEOUT_MS`). At the
