@@ -1488,6 +1488,131 @@ describe("mapped failures", () => {
 		});
 	});
 
+	describe("a file MinerU 4.2 fails with a code of its own", () => {
+		// 4.2.2+ names the cause of an input failure in the code, and 4.2.3's hang
+		// guard adds two; the messages are 4.2.3's own.
+		it.each([
+			[
+				"a locked PDF",
+				"file_encrypted",
+				"Failed to load document (PDFium: Incorrect password error).",
+				"document_unreadable",
+				false,
+				"damaged or password-protected",
+			],
+			[
+				"a damaged Office file",
+				"file_corrupted",
+				"Invalid ZIP directory: File is not a zip file",
+				"document_unreadable",
+				false,
+				"damaged or password-protected",
+			],
+			[
+				"a type the parser refuses",
+				"file_type_unsupported",
+				"Unsupported file type: tif",
+				"unsupported_type",
+				false,
+				"cannot read this file type",
+			],
+			[
+				"a document over the parser's size limit",
+				"file_too_large",
+				"Document exceeds the maximum supported size",
+				"too_large",
+				false,
+				"too large for the document service",
+			],
+			[
+				"a document over a resource limit",
+				"resource_limit",
+				"Metadata input exceeds 512 MiB",
+				"too_large",
+				false,
+				"too large for the document service",
+			],
+			[
+				"a file the hang guard stopped",
+				"task_timeout",
+				"Task execution timed out",
+				"timeout",
+				true,
+				"did not answer in time",
+			],
+			[
+				"a file running beside the one it stopped",
+				"worker_restarted",
+				"Worker became unavailable",
+				"job_failed",
+				true,
+				"could not finish reading this file",
+			],
+		] as const)("%s: %s", async (_what, mineruCode, message, code, retryable, sentence) => {
+			await start({
+				outcome: "file-failed",
+				fileError: { code: mineruCode, message },
+			});
+			const { request } = await buildRequest();
+
+			const error = await extractorFor()
+				.extract(request)
+				.catch((thrown) => thrown);
+
+			// The task is settled, so a retry, automatic or the person's, makes a
+			// new one.
+			expect(error).toMatchObject({ code, retryable, handleUnknown: true });
+			expect(error.message).toContain(sentence);
+			expect(error.message).not.toContain(message);
+			expect(error.details).toMatchObject({
+				mineruRule: `file:${mineruCode}`,
+				mineruCode,
+			});
+			expect(error.details?.rawMessage).toContain(message);
+		});
+	});
+
+	it("waits out 4.2.3's hang guard as an outage, and reads the document once the server is restarted", async () => {
+		// After one execution outlives `--task-timeout`, every new task answers 503
+		// `task_timeout` until the process restarts (the box's watchdog does that).
+		await start({
+			failures: [
+				{
+					path: "/v1/tasks",
+					method: "POST",
+					status: 503,
+					body: {
+						error: {
+							code: "task_timeout",
+							message: "Task execution exceeded its time limit",
+						},
+					},
+				},
+			],
+		});
+		const { request } = await buildRequest();
+
+		const error = await extractorFor()
+			.extract(request)
+			.catch((thrown) => thrown);
+
+		// `unavailable`: the ledger's patient outage walk, which spends no attempt
+		// on the document.
+		expect(error).toMatchObject({ code: "unavailable", retryable: true });
+		expect(error.details).toMatchObject({
+			mineruRule: "503:task_timeout",
+			mineruCode: "task_timeout",
+			httpStatus: 503,
+		});
+		expect(uploads()).toHaveLength(0);
+
+		// The watchdog restarted it.
+		server.setOptions({ failures: [] });
+		const result = await extractorFor().extract((await buildRequest()).request);
+		expect(result.text.length).toBeGreaterThan(0);
+		expect(creates()).toHaveLength(2);
+	});
+
 	it("calls an empty file empty itself: 4.1 answers 400 to a task of zero bytes", async () => {
 		// Nothing about it is the server's to say (D22), and "the document service
 		// sent a response this app could not use" would send the person looking in

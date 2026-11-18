@@ -1,0 +1,12 @@
+# /etc/systemd/system/mineru42-watchdog.service, started every minute by mineru42-watchdog.timer.
+# Restarts mineru42.service when it answers 503 task_timeout (4.2.3's hang guard) or engine_dead, which only a
+# restart clears, and leaves every other answer alone (deploy/mineru/README.md). journalctl -t mineru-watchdog.
+[Unit]
+Description=Restart MinerU 4.2 (mineru42) when it refuses all work until a restart
+After=mineru42.service
+
+[Service]
+Type=oneshot
+Environment=MINERU_WATCHDOG_UNIT=mineru42.service
+Environment=MINERU_WATCHDOG_URL=http://127.0.0.1:8004/v1/health
+ExecStart=/usr/local/sbin/mineru-watchdog

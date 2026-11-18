@@ -288,3 +288,18 @@ photo of a page by hand at the ai.dev run (done, round 2) and the live sweep's u
   probes it only while the unit is active, and its comment says it is kept for a week), and some tests and
   comments use `:8002` as a sample address. None of it runs in production; it can go with the next change to
   those files.
+
+## MinerU 4.2.3 (2026-11-18)
+
+A read-only check of 4.2.0 to 4.2.3 (the session notes' `mineru-4-2-upgrade/REPORT.md`, re-verified
+against the 4.2.3 wheel) found the wire protocol, the ZIP layout, the `Host`-header links, tiers, file
+types, block types, telemetry and every flag the unit uses unchanged, and two changes the client and
+the box have to follow: failed files that name their cause in a code of their own (4.2.2), and a hang
+guard that leaves the server refusing work until it is restarted (4.2.3). The owner accepted all five
+recommendations on 2026-11-18: the client refactor below, a watchdog timer, 4.2.3 as the target,
+`HF_HUB_OFFLINE=1` if model loading works offline, and DocVortex pinned at 0.6.24.
+
+| # | Ruling | Why |
+|---|---|---|
+| R25 | S8 and D6 are superseded for the codes 4.2.2 and 4.2.3 send. `errors.ts` reads a failed file's error by its code first: `file_encrypted` (a locked PDF, or one with no pages) and `file_corrupted` are `document_unreadable`, `file_type_unsupported` is `unsupported_type`, `file_too_large` and `resource_limit` are `too_large`, none retried; `worker_restarted` is `job_failed` and `task_timeout` is `timeout`, both retried, and like every verdict on a settled task they spend the handle. The message rows stay as the fallback for `parse_failed`, which 4.2.3 still sends for an extension it does not know (`parser/api_server.py` checks the name with a plain `ValueError`), an engine error and a reader error it does not translate. On a request, 503 `task_timeout` and 503 `engine_dead` are named rows, `unavailable` (the same verdict `fallback:5xx` gave). A row may now say where its code counts (`source`): the four forgotten-id rows and `413:file_too_large` count only on a request, because inside a task 4.2.3's `file_not_found` is the parser failing to read the copy MinerU itself wrote, which an ordinary retry answers (it falls to `task:file-error-unmapped`, `job_failed`), not a restart that forgot the task. | The owner's decision 1. Unmapped, the new codes fell to `task:file-error-unmapped`, a retryable `job_failed`: a locked or corrupt document burned its attempts and ended with a Retry that can never work. `timeout` is an outage code to the ledger (no attempt spent, half an hour in all), so with the guard's default hour a document that hangs every time is tried twice and then ends `unavailable`, user-retryable; the app's own deadline (`MINERU_JOB_TIMEOUT_MS`, 5 minutes by default, cancelling the remote task) usually ends an attempt long before the guard fires. |
+| R26 | 4.2.3 replaces 4.1.7 in place, on `:8004`, rather than beside it on `:8006`: `mineru42.service` declares `Conflicts=` and `After=` on `mineru41.service`, and neither app's `MINERU_API_URL` changes. Both apps get the client of R25 first, then the units swap; rolling back is the swap the other way (deploy/mineru/README.md). | The owner, 2026-11-18: "deploy the code changes first and then quickly switch over MinerU on prod, replacing the current running version on the gpu". GPU1 also holds the picture models, so two MinerUs side by side would cost VRAM for nothing once the client reads both servers alike. A CPU-only 4.2.3 with `HF_HUB_OFFLINE=1` was checked first against synthetic files: a paper PDF, a PNG and a DOCX gave text identical to 4.1.7's; a corrupt PDF answered `file_corrupted`, an encrypted one and a zero-page one `file_encrypted`, a `.txt` `parse_failed`. |
