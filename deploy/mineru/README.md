@@ -5,10 +5,9 @@ Uploaded documents are read by MinerU on the GPU box (`alfyroot`), on GPU1 only.
 | Unit | MinerU | Listens on | Role |
 |---|---|---|---|
 | `mineru42.service` | 4.2.3 | `127.0.0.1:8004` | the MinerU server both apps call (enabled) |
-| `mineru41.service` | 4.1.7 | `127.0.0.1:8004` | the rollback: disabled and stopped, its files kept |
 | `mineru42-watchdog.timer` | | | restarts `mineru42` when only a restart clears its refusal (below) |
 
-4.2.3 took 4.1.7's place on the same port: `mineru42` declares `Conflicts=mineru41.service`, which systemd applies both ways, so starting one stops the other, and no app setting changes when they swap.
+4.2.3 took 4.1.7's place on the same port on 2026-11-18, so no app setting changed. 4.1.7 (`mineru41.service`) was retired the same evening: its unit and files are deleted (below). `mineru42` still declares `Conflicts=` and `After=` on `mineru41.service`, which systemd applies both ways, for a 4.1.7 installed again for a rollback: starting one stops the other, and the stop finishes before the start.
 
 ## Files
 
@@ -23,11 +22,11 @@ Uploaded documents are read by MinerU on the GPU box (`alfyroot`), on GPU1 only.
 
 ## What the unit sets
 
-`mineru42.service` is `mineru41.service` with these changes:
+`mineru42.service` was made from 4.1.7's `mineru41.service`, with these changes:
 
 - the venv `/home/alfydesign/apps/mineru4/.venv-4.2.3` (`mineru[torch]==4.2.3`, `docvortex==0.6.24` pinned, Python 3.12.15);
-- `MINERU_HOME=/home/alfydesign/m42p`, a **copy** of 4.1.7's `m41p` (models, telemetry seeded off), never shared: 4.2.0 and later rewrite the models' `.mineru_complete` markers when they load them, which would change what the rollback loads;
-- the upload directory `/home/alfydesign/apps/mineru4/uploads-42`, so the rollback's `uploads-41` is never touched;
+- `MINERU_HOME=/home/alfydesign/m42p`, a **copy** of 4.1.7's `m41p` (models, telemetry seeded off), not a shared one: 4.2.0 and later rewrite the models' `.mineru_complete` markers when they load them, which would have changed what 4.1.7 loaded while both were installed. A home for a reinstalled 4.1.7 must be its own for the same reason;
+- the upload directory `/home/alfydesign/apps/mineru4/uploads-42` (two servers must not share one: it holds a lock);
 - `--task-timeout 3600` (below), and `Conflicts=` plus `After=` on `mineru41.service`;
 - `CUDA_DEVICE_ORDER=PCI_BUS_ID` beside `CUDA_VISIBLE_DEVICES=1`, so "1" is the card `nvidia-smi` calls GPU1;
 - `HF_HUB_OFFLINE=1`: 4.2 asks HuggingFace for model metadata when it loads the models, and the models are all in `MINERU_HOME` already. A CPU-only instance with it set started and parsed a PDF, a PNG and a DOCX on 2026-11-18, with text identical to 4.1.7's;
@@ -70,7 +69,13 @@ Every change on the box needs the owner's OK first. The apps must already run th
 
 ## Rollback
 
-`mineru41` stays installed, disabled, for a week after the swap. Rolling back is the swap the other way, with no app change and no app restart:
+4.1.7 was retired on 2026-11-18 (below), so a rollback means installing it again first. The 4.1 record in [deploy/README.md](../README.md#document-extraction-service-mineru) has what it needs:
+- a venv with `mineru[torch]==4.1.7` on Python 3.12;
+- a home of its own (not `m42p`), with telemetry seeded off and the models from `mineru-kit models download --tier standard --small-backend torch --source auto`;
+- an upload directory of its own;
+- a `mineru41.service` on `127.0.0.1:8004` that reads the same `mineru4.env`.
+
+With that unit installed, the swap back needs no app change:
 
 ```bash
 systemctl disable --now mineru42-watchdog.timer mineru42 && systemctl enable --now mineru41
@@ -78,13 +83,16 @@ systemctl disable --now mineru42-watchdog.timer mineru42 && systemctl enable --n
 
 The app's 4.2 client reads 4.1.7 as before: 4.1.7 never sends the codes 4.2 added. Tasks in flight at the swap are forgotten, and the app creates them again like after any restart.
 
-## Retiring 4.1.7 (a week after the swap, on the owner's word)
+## 4.1.7 retired (2026-11-18)
 
-Only once `mineru42` has served both apps for the week and the owner says so, delete, by full path and never with a glob (`.venv-4.1.7` and `.venv-4.2.3` share a folder, `m41p` and `m42p` look alike):
+At the owner's word, the evening of the swap:
 
-- `/etc/systemd/system/mineru41.service`, then `systemctl daemon-reload`;
-- `/home/alfydesign/apps/mineru4/.venv-4.1.7`;
-- `/home/alfydesign/m41p`;
-- `/home/alfydesign/apps/mineru4/uploads-41`.
+1. **A check that nothing used 4.1.7's files.** Nothing in `m42p`, the 4.2.3 venv, the unit files, cron or the key file named them; the only mention was a 2026-11-09 download log copied over with the models. No symlink in `m42p` or the venv pointed outside them, and none of `mineru42`'s processes had a file under them open or mapped.
+2. **A cold start without them.** The files were moved aside and `mineru42` restarted. It was healthy in 5 s, and the first parse loaded its models from `m42p` and gave the same text as before.
+3. **The deletion**, by full path, 6.9 GB in all:
+   - `/etc/systemd/system/mineru41.service`, then `systemctl daemon-reload`;
+   - `/home/alfydesign/apps/mineru4/.venv-4.1.7`;
+   - `/home/alfydesign/m41p`;
+   - `/home/alfydesign/apps/mineru4/uploads-41`.
 
-Never remove `/home/alfydesign/apps/mineru4/mineru4.env`: `mineru42` reads the key from it.
+`/home/alfydesign/apps/mineru4/mineru4.env` stays: `mineru42` reads the key from it. Never remove it.

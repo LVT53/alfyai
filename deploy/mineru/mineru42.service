@@ -1,7 +1,8 @@
 # /etc/systemd/system/mineru42.service
 # MinerU 4.2.3 for AlfyAI on loopback :8004, in place of 4.1.7 (mineru41.service): both apps' admin_config
-# MINERU_API_URL stays http://127.0.0.1:8004, so the swap needs no app change. Conflicts=mineru41.service: starting one
-# stops the other. Rollback: systemctl disable --now mineru42 && systemctl enable --now mineru41 (4.1.7's files kept a week).
+# MINERU_API_URL stays http://127.0.0.1:8004, so the swap needed no app change. 4.1.7 was retired on 2026-11-18: its
+# unit and files are deleted, so a rollback means installing it again first (deploy/mineru/README.md, "Rollback").
+# Conflicts= and After= on mineru41.service stay for that case: starting one stops the other.
 # (docs/plans/mineru-4-1/build-log.md, "MinerU 4.2.3"; deploy/mineru/README.md.)
 # --task-timeout is 4.2.3's hang guard: after one file outlives it the server answers 503 task_timeout until it
 # is restarted, and it never exits, so Restart= never fires; mineru42-watchdog.timer restarts it.
