@@ -385,6 +385,10 @@ describe("createAccountDataArchive", () => {
 		expect(profileIndex).toContain(
 			"<tr><td>Pictures and videos</td><td>On</td></tr>",
 		);
+		// Send with Enter too (off: nobody switched it on).
+		expect(profileIndex).toContain(
+			"<tr><td>Send with Enter</td><td>Off</td></tr>",
+		);
 		expect(profileIndex).toContain("Canvas");
 		expect(profileIndex).toContain("completed");
 		expect(profileIndex).not.toContain("default:1");

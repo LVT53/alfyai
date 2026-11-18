@@ -13,10 +13,12 @@ import {
 	type ModelId,
 	selectedModel,
 	selectedReasoningDepth,
+	sendWithEnter,
 	setModelPreferenceAndSync,
 	setSelectedModel,
 	setSelectedModelAndSync,
 	setSelectedReasoningDepth,
+	setSendWithEnterAndSync,
 	syncDetectedTimeZone,
 } from "./settings";
 
@@ -194,6 +196,52 @@ describe("settings store", () => {
 					body: JSON.stringify({ preferredModel: null }),
 				}),
 			);
+		});
+	});
+
+	describe("setSendWithEnterAndSync", () => {
+		beforeEach(() => {
+			sendWithEnter.set(false);
+		});
+
+		it("is off until the shell seeds it", () => {
+			expect(get(sendWithEnter)).toBe(false);
+		});
+
+		it("moves the message box's keys at once and saves the switch on the account", async () => {
+			vi.mocked(fetch).mockResolvedValueOnce(
+				new Response(JSON.stringify({ success: true })),
+			);
+
+			const saved = setSendWithEnterAndSync(true);
+			expect(get(sendWithEnter)).toBe(true);
+			await saved;
+
+			expect(get(sendWithEnter)).toBe(true);
+			expect(fetch).toHaveBeenCalledWith(
+				"/api/settings/preferences",
+				expect.objectContaining({
+					method: "PATCH",
+					body: JSON.stringify({ sendWithEnter: true }),
+				}),
+			);
+			// The account's row is the truth: nothing is kept in this browser.
+			expect(localStorage.setItem).not.toHaveBeenCalled();
+		});
+
+		it("puts the keys back and throws when the save fails, so the switch goes back too", async () => {
+			vi.mocked(fetch).mockRejectedValueOnce(new Error("offline"));
+
+			await expect(setSendWithEnterAndSync(true)).rejects.toThrow();
+			expect(get(sendWithEnter)).toBe(false);
+
+			vi.mocked(fetch).mockResolvedValueOnce(
+				new Response(JSON.stringify({ error: "Invalid sendWithEnter" }), {
+					status: 400,
+				}),
+			);
+			await expect(setSendWithEnterAndSync(true)).rejects.toThrow();
+			expect(get(sendWithEnter)).toBe(false);
 		});
 	});
 	describe("syncDetectedTimeZone", () => {

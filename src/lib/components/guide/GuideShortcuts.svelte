@@ -6,23 +6,37 @@
  * The commands are read from the composer's registry, with its own
  * descriptions, so the box cannot drift from what typing `/` offers. The keys
  * are written here and checked against the code that handles them:
- * Ctrl/⌘+K (`Sidebar.svelte`), `/` and Ctrl/⌘+Enter (`MessageInput.svelte`;
- * Enter writes a new line there), and Esc (menus and dialogs). Key names are
- * what the keycaps say, so they are not words to translate.
+ * Ctrl/⌘+K (`Sidebar.svelte`), `/` and the Enter keys (`MessageInput.svelte`
+ * through `chat/composer-keys.ts`), and Esc (menus and dialogs). The Enter
+ * keys are the reader's own: Ctrl/⌘+Enter sends and Enter writes a new line,
+ * or with their "Send with Enter" on, Enter sends and Shift+Enter writes it.
+ * Key names are what the keycaps say, so they are not words to translate.
  *
  * A phone has none of those keys, so the key rows are hidden on a touch-only
  * screen; the commands are typed on any keyboard and stay.
  */
 import { STATIC_COMPOSER_COMMANDS } from "$lib/composer-commands";
 import { type I18nKey, t } from "$lib/i18n";
+import { sendWithEnter } from "$lib/stores/settings";
 
-const KEYS: readonly { keys: string; description: I18nKey }[] = [
-	{ keys: "Ctrl/⌘+K", description: "guide.shortcuts.search" },
-	{ keys: "/", description: "guide.shortcuts.focus" },
+type KeyRow = { keys: string; description: I18nKey };
+
+const ENTER_KEYS: readonly KeyRow[] = [
 	{ keys: "Ctrl/⌘+Enter", description: "guide.shortcuts.send" },
 	{ keys: "Enter", description: "guide.shortcuts.newLine" },
-	{ keys: "Esc", description: "guide.shortcuts.close" },
 ];
+
+const SEND_WITH_ENTER_KEYS: readonly KeyRow[] = [
+	{ keys: "Enter", description: "guide.shortcuts.send" },
+	{ keys: "Shift+Enter", description: "guide.shortcuts.newLine" },
+];
+
+const keys = $derived<readonly KeyRow[]>([
+	{ keys: "Ctrl/⌘+K", description: "guide.shortcuts.search" },
+	{ keys: "/", description: "guide.shortcuts.focus" },
+	...($sendWithEnter ? SEND_WITH_ENTER_KEYS : ENTER_KEYS),
+	{ keys: "Esc", description: "guide.shortcuts.close" },
+]);
 
 const COMMANDS = STATIC_COMPOSER_COMMANDS.filter(
 	(command) => command.availability === "available",
@@ -39,7 +53,7 @@ const COMMANDS = STATIC_COMPOSER_COMMANDS.filter(
 	</h2>
 
 	<dl class="guide-shortcuts__keys" data-testid="guide-shortcut-keys">
-		{#each KEYS as key (key.keys)}
+		{#each keys as key (key.keys)}
 			<div class="guide-shortcuts__item guide-shortcuts__item--key">
 				<dt><kbd>{key.keys}</kbd></dt>
 				<dd>{$t(key.description)}</dd>

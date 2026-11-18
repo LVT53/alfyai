@@ -2,7 +2,7 @@ import type { AppPlaceId, SpotlightId } from "$lib/app-places";
 import type { I18nKey } from "$lib/i18n";
 
 /**
- * What the Feature Guide lists: six sections and thirty-four entries, as data.
+ * What the Feature Guide lists: six sections and thirty-five entries, as data.
  *
  * Every word is a `guide.*` key in `src/lib/i18n/guide.ts`; this file holds
  * only the ids, the order and what each entry can do. A change that adds,
@@ -331,6 +331,23 @@ export const GUIDE_ENTRIES: readonly GuideEntry[] = [
 			spotlight: "settings.language",
 		},
 		added: BEFORE_THE_GUIDE,
+	},
+	{
+		// The person's own Send with Enter switch, the last row of the
+		// Preferences card. Show me rings its row. The row lights no part of its
+		// section's drawing: the Your account drawing shows only that card's
+		// Appearance and Interface language rows, and the switch sits below the
+		// time zone. The keys box at the end of the page shows the keys the
+		// switch gives (GuideShortcuts.svelte).
+		id: "sendWithEnter",
+		section: "account",
+		drawingSpot: null,
+		action: {
+			kind: "showMe",
+			place: "settings",
+			spotlight: "settings.sendWithEnter",
+		},
+		added: "2026-11-18",
 	},
 	{
 		id: "twoStep",

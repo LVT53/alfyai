@@ -325,6 +325,15 @@ const SHOW_ME: readonly ShowMeRow[] = [
 		control: (page) => page.getByRole("group", { name: "Interface language" }),
 	},
 	{
+		entry: "sendWithEnter",
+		name: "Send with Enter",
+		spotlight: "settings.sendWithEnter",
+		control: (page) =>
+			page.locator(".settings-row").filter({
+				has: page.getByRole("switch", { name: "Send with Enter" }),
+			}),
+	},
+	{
 		entry: "twoStep",
 		name: "Two-step sign-in",
 		spotlight: "settings.twoStep",
@@ -462,7 +471,7 @@ test.describe("the Feature Guide: the ways in", () => {
 		await expect(
 			page.getByTestId("guide-section").getByRole("heading", { level: 2 }),
 		).toHaveText(SECTION_NAMES);
-		await expect(page.getByTestId("guide-row")).toHaveCount(34);
+		await expect(page.getByTestId("guide-row")).toHaveCount(35);
 	});
 
 	test("the collapsed rail and the phone menu open it too", async ({

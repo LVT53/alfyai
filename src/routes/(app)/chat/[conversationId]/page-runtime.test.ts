@@ -274,6 +274,7 @@ function appShellDataFixture(
 		userPersonality: null,
 		userSidebarProjectsExpanded: true,
 		userSidebarChatsExpanded: true,
+		userSendWithEnter: false,
 		modelNames: { model1: "Model 1" },
 		availableModels: [
 			{

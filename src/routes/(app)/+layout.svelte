@@ -61,6 +61,7 @@ import {
 } from "$lib/client/server-update-notice";
 import {
 	initSettings,
+	sendWithEnter,
 	setModelPreferenceAndSync,
 	setSelectedModelAndSync,
 	setUiLanguageAndSync,
@@ -895,6 +896,10 @@ onMount(() => {
 	selectedCampaignPersonalityId = data.userPersonality ?? null;
 	sidebarProjectsExpanded.set(data.userSidebarProjectsExpanded ?? true);
 	sidebarChatsExpanded.set(data.userSidebarChatsExpanded ?? true);
+	// "Send with Enter", for the message box's key press: on the client only,
+	// like the stores above (a store written during SSR is shared by every
+	// request), and nothing reads it before a key is pressed.
+	sendWithEnter.set(data.userSendWithEnter ?? false);
 	const cleanupUIListeners = initUIListeners();
 
 	// Add event listeners for conversation list refresh

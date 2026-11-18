@@ -334,3 +334,67 @@ describe("Pictures and videos", () => {
 		);
 	});
 });
+
+// "Send with Enter" (Settings > Profile): the person's own switch for the
+// message box's keys, off by default, saved on their own row and nobody else's.
+describe("Send with Enter", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		userRow.row = { ...CLEARED_ROW };
+	});
+
+	async function readSwitch() {
+		const response = await GET(makeGetEvent());
+		const body = (await response.json()) as {
+			preferences: { sendWithEnter: boolean };
+		};
+		return body.preferences.sendWithEnter;
+	}
+
+	it("reads it off for a row that has it off, or has nothing stored", async () => {
+		userRow.row = { ...CLEARED_ROW, sendWithEnter: false };
+		expect(await readSwitch()).toBe(false);
+		userRow.row = { ...CLEARED_ROW };
+		expect(await readSwitch()).toBe(false);
+	});
+
+	it("reads it on for a person who switched it on", async () => {
+		userRow.row = { ...CLEARED_ROW, sendWithEnter: true };
+		expect(await readSwitch()).toBe(true);
+	});
+
+	it("saves it on and off, on the signed-in person's own row", async () => {
+		const { eq } = await import("drizzle-orm");
+		for (const value of [true, false]) {
+			vi.clearAllMocks();
+			const response = await PATCH(makePatchEvent({ sendWithEnter: value }));
+
+			expect(response.status).toBe(200);
+			expect(updateSet).toHaveBeenCalledWith(
+				expect.objectContaining({ sendWithEnter: value }),
+			);
+			expect(eq).toHaveBeenCalledWith("id", "user-1");
+		}
+	});
+
+	it("refuses anything but true or false, and writes nothing", async () => {
+		for (const value of ["true", 1, null, "on"]) {
+			vi.clearAllMocks();
+			const response = await PATCH(makePatchEvent({ sendWithEnter: value }));
+
+			expect(response.status).toBe(400);
+			await expect(response.json()).resolves.toEqual({
+				error: "Invalid sendWithEnter",
+			});
+			expect(updateSet).not.toHaveBeenCalled();
+		}
+	});
+
+	it("leaves the column untouched when the field is absent", async () => {
+		await PATCH(makePatchEvent({ theme: "dark" }));
+
+		expect(updateSet).toHaveBeenCalledWith(
+			expect.not.objectContaining({ sendWithEnter: expect.anything() }),
+		);
+	});
+});

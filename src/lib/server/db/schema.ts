@@ -64,6 +64,15 @@ export const users = sqliteTable("users", {
 	})
 		.notNull()
 		.default(true),
+	// "Send with Enter" (Settings > Profile, Preferences), the person's own
+	// switch for the message box's keys. Off, Enter writes a new line and
+	// Ctrl/Cmd+Enter sends, the keys every account had before the switch; on,
+	// Enter sends and Shift+Enter writes the new line. A touch-only screen keeps
+	// Enter for new lines either way (components/chat/composer-keys.ts). The
+	// shell hands it to the browser's `sendWithEnter` store (app-shell.ts).
+	sendWithEnter: integer("send_with_enter", { mode: "boolean" })
+		.notNull()
+		.default(false),
 	// True once the user has acknowledged the "connector data is sent to a
 	// third-party cloud model" warning at least once (Option C in the
 	// connections locality guard). Sticky — never reset back to false.

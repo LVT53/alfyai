@@ -36,6 +36,7 @@ export const PATCH: RequestHandler = async (event) => {
 		sidebarChatsExpanded?: unknown;
 		memoryEnabled?: unknown;
 		picturesAndVideosEnabled?: unknown;
+		sendWithEnter?: unknown;
 		personalInstructions?: unknown;
 	};
 	try {
@@ -132,6 +133,16 @@ export const PATCH: RequestHandler = async (event) => {
 			);
 		}
 		updates.picturesAndVideosEnabled = body.picturesAndVideosEnabled;
+	}
+
+	// The person's own "Send with Enter" switch, on their own row: the message
+	// box reads it to send on Enter (components/chat/composer-keys.ts). Only a
+	// boolean, for the same reason as the switch above.
+	if (body.sendWithEnter !== undefined) {
+		if (typeof body.sendWithEnter !== "boolean") {
+			return json({ error: "Invalid sendWithEnter" }, { status: 400 });
+		}
+		updates.sendWithEnter = body.sendWithEnter;
 	}
 
 	if (body.personalInstructions !== undefined) {

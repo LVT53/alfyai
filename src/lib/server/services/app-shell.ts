@@ -75,6 +75,12 @@ export interface AppShellData {
 	userPersonality: string | null;
 	userSidebarProjectsExpanded: boolean;
 	userSidebarChatsExpanded: boolean;
+	/**
+	 * "Send with Enter" (Settings > Profile). Seeds `$lib/stores/settings`'s
+	 * `sendWithEnter` from `(app)/+layout.svelte`'s `onMount`, on the client
+	 * only: the message box reads it on a key press, after hydration.
+	 */
+	userSendWithEnter: boolean;
 	modelNames: Record<string, string>;
 	availableModels: AvailableShellModel[];
 	appVersion: Promise<AppVersionMetadata>;
@@ -135,6 +141,7 @@ export async function getAuthenticatedAppShellData(
 		userPersonality: userRow?.preferredPersonalityId ?? null,
 		userSidebarProjectsExpanded: userRow?.sidebarProjectsExpanded ?? true,
 		userSidebarChatsExpanded: userRow?.sidebarChatsExpanded ?? true,
+		userSendWithEnter: userRow?.sendWithEnter ?? false,
 		modelNames,
 		availableModels: availableModelsList,
 		appVersion,

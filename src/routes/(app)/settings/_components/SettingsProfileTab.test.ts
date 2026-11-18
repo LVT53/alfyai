@@ -16,6 +16,7 @@ import type { AnalyticsResponse } from "$lib/client/api/settings";
 import type { ModelId } from "$lib/model-types";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import { setReadAloudAvailable } from "$lib/stores/read-aloud";
+import { uiLanguage } from "$lib/stores/settings";
 import {
 	pendingSpotlight,
 	requestSpotlight,
@@ -595,6 +596,79 @@ describe("SettingsProfileTab — preference rows", () => {
 		await fireEvent.change(select, { target: { value: "" } });
 		expect(onChangePersonality).toHaveBeenLastCalledWith(null);
 	});
+
+	// "Send with Enter": the person's own switch for the message box's keys. Off
+	// by default; on, Enter sends and Shift+Enter writes a new line.
+	it("reflects the Send with Enter switch, names it in words and toggles it", async () => {
+		const onChangeSendWithEnter = vi.fn();
+		const { unmount } = renderTab({
+			sendWithEnter: false,
+			onChangeSendWithEnter,
+		});
+
+		const toggle = screen.getByRole("switch", { name: "Send with Enter" });
+		expect(toggle).toHaveAttribute("aria-checked", "false");
+		const row = toggle.closest(".settings-row") as HTMLElement;
+		expect(within(row).getByText("Off")).toBeInTheDocument();
+		expect(
+			within(row).getByText(/Shift\+Enter starts a new line/),
+		).toBeInTheDocument();
+		expect(within(row).getByText(/On a touch screen/)).toBeInTheDocument();
+
+		await fireEvent.click(toggle);
+		expect(onChangeSendWithEnter).toHaveBeenCalledWith(true);
+		unmount();
+
+		renderTab({ sendWithEnter: true });
+		const on = screen.getByRole("switch", { name: "Send with Enter" });
+		expect(on).toHaveAttribute("aria-checked", "true");
+		expect(
+			within(on.closest(".settings-row") as HTMLElement).getByText("On"),
+		).toBeInTheDocument();
+	});
+
+	it("draws the Send with Enter switch off when the page says nothing, and holds it still while it saves", () => {
+		const { unmount } = renderTab();
+		expect(
+			screen.getByRole("switch", { name: "Send with Enter" }),
+		).toHaveAttribute("aria-checked", "false");
+		unmount();
+
+		renderTab({ sendWithEnterSaving: true });
+		expect(
+			screen.getByRole("switch", { name: "Send with Enter" }),
+		).toBeDisabled();
+	});
+
+	it("puts the Send with Enter switch last in the Preferences card", () => {
+		const { container } = renderTab();
+
+		const rows = [
+			...container.querySelectorAll(
+				"#settings-section-preferences .settings-row",
+			),
+		];
+		expect(
+			within(rows.at(-1) as HTMLElement).getByRole("switch", {
+				name: "Send with Enter",
+			}),
+		).toBeInTheDocument();
+	});
+
+	it("names the switch in Hungarian too", () => {
+		uiLanguage.set("hu");
+		try {
+			renderTab();
+			const toggle = screen.getByRole("switch", { name: "Küldés Enterrel" });
+			expect(
+				within(toggle.closest(".settings-row") as HTMLElement).getByText(
+					/Shift\+Enter új sort kezd/,
+				),
+			).toBeInTheDocument();
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
 });
 
 describe("SettingsProfileTab — assistant behaviour", () => {
@@ -1033,6 +1107,13 @@ describe("SettingsProfileTab — the guide's Show me", () => {
 			() =>
 				screen
 					.getByRole("switch", { name: "Pictures and videos" })
+					.closest(".settings-row"),
+		],
+		[
+			"settings.sendWithEnter",
+			() =>
+				screen
+					.getByRole("switch", { name: "Send with Enter" })
 					.closest(".settings-row"),
 		],
 		[
