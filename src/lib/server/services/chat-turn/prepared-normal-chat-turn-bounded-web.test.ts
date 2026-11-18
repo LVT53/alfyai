@@ -107,6 +107,9 @@ const usage = {
 	outputTokens: { total: 1, text: 1, reasoning: 0 },
 };
 const url = "https://selected.example/page";
+const denialCallId = "call_8d47e29b6c12457c91a0e35f";
+const denialQuery =
+	"What do the official SvelteKit docs say about loading data on the server?";
 function candidate(query: string): GroundedWebResult {
 	const sources = Array.from({ length: 40 }, (_, i) => ({
 		id: `s${i}`,
@@ -284,7 +287,7 @@ async function runPrepared(settings: {
 			const count = settings.kind === "parallel" ? 3 : 1;
 			const content = Array.from({ length: count }, (_, i) => ({
 				type: "tool-call" as const,
-				toolCallId: settings.kind === "denial" ? "d" : `c${step}-${i}`,
+				toolCallId: settings.kind === "denial" ? denialCallId : `c${step}-${i}`,
 				toolName: i === 1 ? "fetch_url" : "research_web",
 				input: JSON.stringify(
 					i === 1
@@ -294,7 +297,7 @@ async function runPrepared(settings: {
 									settings.kind === "cache"
 										? "cached query"
 										: settings.kind === "denial"
-											? "x"
+											? denialQuery
 											: `query ${step}-${i}`,
 							},
 				),
@@ -581,8 +584,10 @@ it.each([
 it.each([
 	false,
 	true,
-])("Task 2 denies an unfunded new read before upstream work and closes (stream=%s)", async (streaming) => {
+])("Task 2 funds an ordinary unfunded proposal refusal before upstream work and closes (stream=%s)", async (streaming) => {
 	const run = await runPrepared({ streaming, kind: "denial" });
+	expect(run.grants[0]?.grant?.maxFailurePayloadTokens).toBeGreaterThan(0);
+
 	expect(run.grants[0]?.grant).toMatchObject({
 		kind: "denied",
 		maxPayloadTokens: 0,
@@ -597,6 +602,35 @@ it.each([
 	expect(run.base.getExecutionCertainty?.(run.returned[0])).toBe(
 		"definitely_not_executed",
 	);
+	const execution = run.snapshot.executions[0];
+	expect(execution.callId).toBe(denialCallId);
+	expect(execution.input).toEqual({ query: denialQuery });
+	expect(run.base.getEntries()).toHaveLength(1);
+	expect(run.base.getEntries()[0]).toMatchObject({
+		callId: denialCallId,
+		input: { query: denialQuery },
+		candidates: [],
+	});
+	expect(run.observed[0]?.payload).toBe(run.returned[0]);
+	expect(execution.output).toEqual(run.returned[0]);
+	expect(execution.modelOutput).toEqual({
+		type: "json",
+		value: run.returned[0],
+	});
+	expect(
+		run.wire
+			.at(-1)
+			?.prompt.filter((message) => message.role === "tool")
+			.flatMap((message) => message.content)
+			.find(
+				(part) =>
+					part.type === "tool-result" && part.toolCallId === denialCallId,
+			)?.output,
+	).toEqual(execution.modelOutput);
+	expect(run.wire[0]?.maxOutputTokens).toBe(
+		run.snapshot.prepared.maxOutputTokens,
+	);
+
 	expect(run.snapshot.completion).toMatchObject({
 		outcome: "answered",
 		workingStopCause: "context_capacity",

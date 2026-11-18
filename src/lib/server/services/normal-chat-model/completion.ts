@@ -1162,7 +1162,12 @@ export async function* runNormalChatCompletion(
 					],
 					estimateTokenCount,
 				);
+				// Hold proposal-sized framing independently of leases: generated input
+				// occurs once, while the call ID occurs in both request and result.
+				// Two prepared output budgets plus measured fixed framing define the
+				// supported allowance; allocation still checks the actual proposal.
 				const terminal =
+					2 * (output ?? Number.NaN) +
 					measureReadResultFraming({
 						callId: "capacity-refusal",
 						toolName: "research_web",
@@ -1186,7 +1191,9 @@ export async function* runNormalChatCompletion(
 						framing,
 				);
 				const reserved =
-					Number.isFinite(room) && room >= terminal ? terminal : 0;
+					Number.isFinite(room) && Number.isFinite(terminal)
+						? Math.min(Math.max(0, room), terminal)
+						: 0;
 				readBudget.freeze(
 					current.stepId,
 					Math.max(0, room - reserved),
