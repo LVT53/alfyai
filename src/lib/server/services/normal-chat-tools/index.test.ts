@@ -3851,6 +3851,8 @@ describe("createNormalChatTools", () => {
 						ok: false,
 						evidenceReady: false,
 						error: "research_web timed out after 60000ms",
+						// The envelope names the tool's own time limit for its row.
+						reasonCode: "timed_out",
 					},
 				}),
 			]);

@@ -1,6 +1,7 @@
 import { asSchema } from "@ai-sdk/provider-utils";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { TurnDeadlineReason } from "$lib/server/utils/turn-deadline-reason";
@@ -1197,4 +1198,389 @@ it("Task 2 commits no unchecked payload when its denial has no failure allowance
 	).rejects.toThrow("Web read result capacity exhausted");
 	expect(reads).toBe(0);
 	expect(base.getEntries()).toEqual([]);
+});
+
+// The tool rows say why a call failed from a code, never from the English the
+// tool wrote for the model. The envelope names the three outcomes every tool
+// can have (a Stop, its own time limit, the turn's working time running out),
+// puts the code on `metadata.reasonCode`, and logs the raw cause once, without
+// content.
+describe("reason codes", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	const MODEL_PAYLOAD = {
+		success: false,
+		message: "Model-facing failure text.",
+	};
+
+	function stoppedSignal(reason: Error): AbortSignal {
+		const controller = new AbortController();
+		controller.abort(reason);
+		return controller.signal;
+	}
+
+	async function failingCall(
+		params: {
+			abortSignal?: AbortSignal;
+			timeoutMs?: number;
+			ownCode?: string;
+			throws?: unknown;
+			run?: () => Promise<never>;
+		} = {},
+	) {
+		const recorder = createToolCallRecorder();
+		const returned = await executeToolWithEnvelope({
+			toolName: "test_tool",
+			timeoutMs: params.timeoutMs ?? 5_000,
+			options: { toolCallId: "1", abortSignal: params.abortSignal },
+			recorder,
+			run:
+				params.run ??
+				(async () => {
+					throw params.throws ?? new Error("boom");
+				}),
+			onError: () => ({
+				modelPayload: MODEL_PAYLOAD,
+				entry: {
+					name: "test_tool",
+					input: { query: "INPUT-SENTINEL" },
+					status: "failed" as const,
+					outputSummary: "OUTPUT-SENTINEL",
+					metadata: {
+						ok: false,
+						...(params.ownCode ? { reasonCode: params.ownCode } : {}),
+					},
+				},
+			}),
+		});
+		const [entry] = recorder.getEntries();
+		return { returned, entry };
+	}
+
+	it("records stopped for a call the person stopped, and the model payload stays as it was", async () => {
+		const { returned, entry } = await failingCall({
+			abortSignal: stoppedSignal(new UserStopReason()),
+		});
+		expect(entry.metadata?.reasonCode).toBe("stopped");
+		expect(returned).toBe(MODEL_PAYLOAD);
+		expect(entry.status).toBe("failed");
+	});
+
+	it("records timed_out for a call past its own timeout", async () => {
+		const { entry } = await failingCall({
+			timeoutMs: 15,
+			run: () => new Promise<never>(() => {}),
+		});
+		expect(entry.metadata?.reasonCode).toBe("timed_out");
+	});
+
+	it("records out_of_time for a call the working deadline cut", async () => {
+		const { entry } = await failingCall({
+			abortSignal: stoppedSignal(new TurnDeadlineReason()),
+		});
+		expect(entry.metadata?.reasonCode).toBe("out_of_time");
+	});
+
+	it("records no code for a plain failure, and none for an abort nobody named", async () => {
+		const plain = await failingCall();
+		expect(plain.entry.metadata).not.toHaveProperty("reasonCode");
+		// The stream watchdog, a storage failure and the first-output timer abort
+		// with reasons of their own: not a Stop, not the deadline.
+		const watchdog = await failingCall({
+			abortSignal: stoppedSignal(new Error("watchdog")),
+		});
+		expect(watchdog.entry.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	it("lets a Stop and the deadline override the tool's own code", async () => {
+		// A Stop must never fall to a tool's catch-all, such as memory_context's
+		// memory_unavailable.
+		const stopped = await failingCall({
+			abortSignal: stoppedSignal(new UserStopReason()),
+			ownCode: "memory_unavailable",
+		});
+		expect(stopped.entry.metadata?.reasonCode).toBe("stopped");
+		const outOfTime = await failingCall({
+			abortSignal: stoppedSignal(new TurnDeadlineReason()),
+			ownCode: "memory_unavailable",
+		});
+		expect(outOfTime.entry.metadata?.reasonCode).toBe("out_of_time");
+	});
+
+	it("keeps a tool's own code over timed_out", async () => {
+		const { entry } = await failingCall({
+			timeoutMs: 15,
+			run: () => new Promise<never>(() => {}),
+			ownCode: "search_unavailable",
+		});
+		expect(entry.metadata?.reasonCode).toBe("search_unavailable");
+	});
+
+	it("keeps the tool's own code on a plain failure", async () => {
+		const { entry } = await failingCall({ ownCode: "site_refused" });
+		expect(entry.metadata?.reasonCode).toBe("site_refused");
+	});
+
+	describe("on the grant path", () => {
+		const grant = {
+			kind: "admitted" as const,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "step",
+			executionId: "e",
+			proposalOrdinal: 0,
+			maxPayloadTokens: 1_200,
+			maxFailurePayloadTokens: 256,
+		};
+
+		async function grantedFailure(params: {
+			abortSignal?: AbortSignal;
+			ownCode?: string;
+			timeoutMs?: number;
+			run?: () => Promise<never>;
+		}) {
+			const base = createToolCallRecorder();
+			const returned = await executeToolWithEnvelope({
+				toolName: "research_web",
+				timeoutMs: params.timeoutMs ?? 5_000,
+				readOnly: true,
+				options: bindReadResultGrant(
+					{
+						toolCallId: "call",
+						messages: [],
+						abortSignal: params.abortSignal,
+					},
+					grant,
+				),
+				recorder: base,
+				run:
+					params.run ??
+					(async () => {
+						throw new Error("Parallel search failed");
+					}),
+				onError: () => ({
+					modelPayload: { success: false },
+					entry: {
+						name: "research_web",
+						input: { query: "INPUT-SENTINEL" },
+						status: "failed" as const,
+						metadata: {
+							ok: false,
+							...(params.ownCode ? { reasonCode: params.ownCode } : {}),
+						},
+					},
+				}),
+			});
+			const [entry] = base.getEntries();
+			return { returned, entry };
+		}
+
+		it("keeps the reason code it was given when the commit rebuilds the metadata", async () => {
+			const { entry } = await grantedFailure({ ownCode: "search_unavailable" });
+			expect(entry.status).toBe("failed");
+			expect(entry.metadata?.bounded).toBe(true);
+			expect(entry.metadata?.reasonCode).toBe("search_unavailable");
+		});
+
+		it("gives a Stop, the deadline and a timeout their shared codes", async () => {
+			const stopped = await grantedFailure({
+				abortSignal: stoppedSignal(new UserStopReason()),
+				ownCode: "search_unavailable",
+			});
+			expect(stopped.entry.metadata?.reasonCode).toBe("stopped");
+			const outOfTime = await grantedFailure({
+				abortSignal: stoppedSignal(new TurnDeadlineReason()),
+			});
+			expect(outOfTime.entry.metadata?.reasonCode).toBe("out_of_time");
+			const timedOut = await grantedFailure({
+				timeoutMs: 15,
+				run: () => new Promise<never>(() => {}),
+			});
+			expect(timedOut.entry.metadata?.reasonCode).toBe("timed_out");
+		});
+
+		it("records no code when nothing names one", async () => {
+			const { entry } = await grantedFailure({});
+			expect(entry.metadata).not.toHaveProperty("reasonCode");
+		});
+	});
+
+	describe("the failure log", () => {
+		it("logs a thrown failure once, redacted", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			class ProviderFailure extends Error {}
+			await failingCall({
+				ownCode: "site_refused",
+				throws: new ProviderFailure(
+					"Upstream rejected \"RAW-SENTINEL-7f3a\" at https://example.com/x?token=abc and 'quoted-two' `quoted-three`",
+				),
+			});
+			expect(warn).toHaveBeenCalledTimes(1);
+			const line = warn.mock.calls.map((call) => call.join(" ")).join("\n");
+			expect(line).toContain("[CHAT_STREAM] tool_failure");
+			expect(line).toContain("tool=test_tool");
+			expect(line).toContain("code=site_refused");
+			expect(line).toContain("status=failed");
+			expect(line).toContain("error=ProviderFailure: ");
+			expect(line).toContain("<url>");
+			expect(line).toContain("<text>");
+			for (const secret of [
+				"RAW-SENTINEL-7f3a",
+				"example.com",
+				"token=abc",
+				"quoted-two",
+				"quoted-three",
+				// What the call itself carried, and what it told the model.
+				"INPUT-SENTINEL",
+				"OUTPUT-SENTINEL",
+				"Model-facing failure text",
+			]) {
+				expect(line, secret).not.toContain(secret);
+			}
+		});
+
+		it("puts a message on one line and cuts it at 200 characters", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			await failingCall({
+				throws: new Error(`first line\nsecond line ${"x".repeat(400)}`),
+			});
+			expect(warn).toHaveBeenCalledTimes(1);
+			const line = String(warn.mock.calls[0]?.[0]);
+			expect(line).not.toContain("\n");
+			const message = line.slice(line.indexOf("error=Error: ") + 13);
+			expect(message.startsWith("first line second line xxx")).toBe(true);
+			expect(message.length).toBe(200);
+		});
+
+		it("logs the code a Stop gives, not the tool's own", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			await failingCall({
+				abortSignal: stoppedSignal(new UserStopReason()),
+				ownCode: "memory_unavailable",
+			});
+			expect(warn).toHaveBeenCalledTimes(1);
+			expect(String(warn.mock.calls[0]?.[0])).toContain("code=stopped");
+		});
+
+		it("logs a failure on the grant path once", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const base = createToolCallRecorder();
+			await executeToolWithEnvelope({
+				toolName: "research_web",
+				timeoutMs: 5_000,
+				readOnly: true,
+				options: bindReadResultGrant(
+					{ toolCallId: "call", messages: [] },
+					{
+						kind: "admitted" as const,
+						turnId: "t",
+						segmentId: "s",
+						attemptId: "a",
+						stepId: "step",
+						executionId: "e",
+						proposalOrdinal: 0,
+						maxPayloadTokens: 1_200,
+						maxFailurePayloadTokens: 256,
+					},
+				),
+				recorder: base,
+				run: async () => {
+					throw new Error("Parallel search failed");
+				},
+				onError: () => ({
+					modelPayload: { success: false },
+					entry: {
+						name: "research_web",
+						input: { query: "INPUT-SENTINEL" },
+						status: "failed" as const,
+						metadata: { ok: false, reasonCode: "search_unavailable" },
+					},
+				}),
+			});
+			expect(warn).toHaveBeenCalledTimes(1);
+			const line = String(warn.mock.calls[0]?.[0]);
+			expect(line).toContain("tool=research_web");
+			expect(line).toContain("code=search_unavailable");
+			expect(line).toContain("error=Error: Parallel search failed");
+			expect(line).not.toContain("INPUT-SENTINEL");
+		});
+
+		it("logs an in-band failure once, with its code and no message", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const recorder = createToolCallRecorder();
+			await executeToolWithEnvelope({
+				toolName: "calendar",
+				timeoutMs: 5_000,
+				options: { toolCallId: "1", abortSignal: undefined },
+				recorder,
+				run: async () => ({
+					modelPayload: {
+						success: false,
+						message: "Calendar is not connected. MODEL-NOTE",
+					},
+					entry: {
+						name: "calendar",
+						input: { query: "INPUT-SENTINEL" },
+						status: "done" as const,
+						outputSummary: "OUTPUT-SENTINEL",
+						metadata: { ok: false, reasonCode: "not_connected" },
+					},
+				}),
+				onError: () => {
+					throw new Error("not used");
+				},
+			});
+			expect(warn).toHaveBeenCalledTimes(1);
+			const line = String(warn.mock.calls[0]?.[0]);
+			expect(line).toContain("[CHAT_STREAM] tool_failure");
+			expect(line).toContain("tool=calendar");
+			expect(line).toContain("code=not_connected");
+			expect(line).toContain("status=done");
+			expect(line).not.toContain("error=");
+			for (const secret of [
+				"MODEL-NOTE",
+				"INPUT-SENTINEL",
+				"OUTPUT-SENTINEL",
+			]) {
+				expect(line, secret).not.toContain(secret);
+			}
+		});
+
+		it("logs a failed status with no code as code=none", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const recorder = createToolCallRecorder();
+			recorder.record({ name: "produce_file", input: {}, status: "failed" });
+			expect(warn).toHaveBeenCalledTimes(1);
+			expect(String(warn.mock.calls[0]?.[0])).toContain(
+				"tool=produce_file code=none status=failed",
+			);
+		});
+
+		it("logs nothing for a success", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const recorder = createToolCallRecorder();
+			await executeToolWithEnvelope({
+				toolName: "test_tool",
+				timeoutMs: 5_000,
+				options: { toolCallId: "1", abortSignal: undefined },
+				recorder,
+				run: async () => ({
+					modelPayload: { success: true },
+					entry: {
+						name: "test_tool",
+						input: {},
+						status: "done" as const,
+						metadata: { ok: true },
+					},
+				}),
+				onError: () => {
+					throw new Error("not used");
+				},
+			});
+			expect(warn).not.toHaveBeenCalled();
+		});
+	});
 });
