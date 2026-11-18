@@ -635,6 +635,32 @@ describe("DocumentPreviewRenderer", () => {
 			);
 		});
 
+		// Security review M2: the address a report is framed by and the trust to run its
+		// scripts come from one load. Moving to another file never frames the new
+		// address under the report's sandbox, not even for one flush.
+		it("never frames an address its trust did not come from, while the panel moves to another file", async () => {
+			const view = openReport();
+			const frame = await screen.findByTitle("atlas-report.html preview");
+			expect(frame).toHaveAttribute("src", `${ADDRESS}?rb=1`);
+			const framed: string[] = [];
+			const setAttribute = vi.spyOn(Element.prototype, "setAttribute");
+			const srcSetter = vi.spyOn(HTMLIFrameElement.prototype, "src", "set");
+			(global.fetch as ReturnType<typeof vi.fn>).mockReturnValue(
+				new Promise(() => {}),
+			);
+			await view.rerender({ previewUrl: "/api/chat/files/other-file/preview" });
+			await tick();
+			setAttribute.mock.calls.forEach(([name, value], call) => {
+				if (
+					name === "src" &&
+					setAttribute.mock.contexts[call] instanceof HTMLIFrameElement
+				)
+					framed.push(String(value));
+			});
+			for (const [value] of srcSetter.mock.calls) framed.push(String(value));
+			expect(framed.filter((src) => src.includes("other-file"))).toEqual([]);
+		});
+
 		it("offers nothing to read aloud when the panel does not ask", async () => {
 			openReport(null);
 			await screen.findByTitle("atlas-report.html preview");

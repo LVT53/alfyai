@@ -87,10 +87,13 @@ let ImagePreviewComponent = $state<ImagePreviewComponentType | null>(null);
 let previewLoadToken = 0;
 let htmlFrame = $state<HTMLIFrameElement | null>(null);
 /**
- * A standard report's HTML, as its address answered: the page's own copy of what
- * the frame shows (read aloud reads it, never the frame).
+ * A standard report, from the one load that found it trusted to run its scripts:
+ * the address it was loaded from, which is what the frame shows (never the live
+ * props, which can already name another file before the next load resets this:
+ * security review M2), and its HTML as that address answered, the page's own copy
+ * read aloud reads (never the frame).
  */
-let trustedReportHtml = $state<string | null>(null);
+let trustedReport = $state<{ url: string; html: string } | null>(null);
 /** The report navigated itself (`frameLoadTripwire`): its frame is gone until Reload. */
 let reportFrameTripped = $state(false);
 /** Bumped by Reload: a new frame element, with its own first load. */
@@ -99,7 +102,7 @@ let previewSource = $derived(
 	resolvePreviewSourceUrl({ artifactId, previewUrl }),
 );
 /** The report this preview shows, for read aloud: by its chat file or its library item. */
-let reportAddress = $derived(reportAddressOf(previewSource));
+let reportAddress = $derived(reportAddressOf(trustedReport?.url ?? null));
 
 $effect(() => {
 	const previewSourceUrl = resolvePreviewSourceUrl({ artifactId, previewUrl });
@@ -151,7 +154,7 @@ function resetPreviewState() {
 	content = null;
 	adapter = null;
 	textPreview = null;
-	trustedReportHtml = null;
+	trustedReport = null;
 	reportFrameTripped = false;
 	officePreview = null;
 	error = null;
@@ -204,11 +207,11 @@ async function fetchFile(loadToken: number) {
 			});
 			if (isStalePreviewLoad(loadToken)) return;
 			textPreview = renderedText;
-			// A standard report is framed by its own address (below); the page keeps what
-			// that address answered with.
-			trustedReportHtml =
+			// A standard report is framed by the address it was loaded from (below); the
+			// page keeps what that address answered with.
+			trustedReport =
 				result.adapter.kind === "html" && result.adapter.trustedRuntime
-					? result.adapter.text
+					? { url: result.sourceUrl, html: result.adapter.text }
 					: null;
 			return;
 		}
@@ -403,8 +406,8 @@ function downloadFile() {
 											{$t('documentWorkspace.reportFrame.reload')}
 										</button>
 									</div>
-								{:else if previewSource}
-									{@const frameAddress = reportFrameAddress(previewSource)}
+								{:else if trustedReport}
+									{@const frameAddress = reportFrameAddress(trustedReport.url)}
 									{#key `${frameAddress}#${reportFrameGeneration}`}
 										<iframe
 											bind:this={htmlFrame}
@@ -416,10 +419,10 @@ function downloadFile() {
 											src={frameAddress}
 										></iframe>
 									{/key}
-									{#if trustedReportHtml !== null && readAloudReport && reportAddress && htmlFrame}
+									{#if readAloudReport && reportAddress && htmlFrame}
 										<ReportReadAloud
 											frame={htmlFrame}
-											html={trustedReportHtml}
+											html={trustedReport.html}
 											report={reportAddress}
 											onSource={readAloudReport.onSource}
 										/>
