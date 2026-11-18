@@ -1,0 +1,21 @@
+[Unit]
+Description=NVIDIA MPS control daemon for GPU0 (the chat model and the voice run side by side, not in turns)
+Before=vllm-flashnext.service zonos3.service
+
+[Service]
+Type=forking
+User=alfyws
+Group=alfyws
+Environment=CUDA_DEVICE_ORDER=PCI_BUS_ID
+Environment=CUDA_VISIBLE_DEVICES=0
+Environment=CUDA_MPS_PIPE_DIRECTORY=/run/nvidia-mps-gpu0
+Environment=CUDA_MPS_LOG_DIRECTORY=/var/log/nvidia-mps-gpu0
+RuntimeDirectory=nvidia-mps-gpu0
+RuntimeDirectoryPreserve=yes
+LogsDirectory=nvidia-mps-gpu0
+ExecStart=/bin/nvidia-cuda-mps-control -d
+ExecStop=/bin/sh -c 'echo quit | /bin/nvidia-cuda-mps-control'
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

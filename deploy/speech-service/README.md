@@ -212,7 +212,7 @@ The service is run from its source folder, which is not installed: `cd <source f
 
 ## Deploy
 
-The service runs on the GPU box beside Zonos (`zonos3.service`, ggml, 127.0.0.1:1919) and vLLM, as `alfyws`, under systemd. It was installed there on 2026-11-16. Every change on the box needs the owner's OK first (`alfyws` for files, `alfyroot` for systemd), and **`vllm-flashnext` and `zonos3` are never restarted or reconfigured** for it: the steps below leave both alone.
+The service runs on the GPU box beside Zonos (`zonos3.service`, ggml, 127.0.0.1:1919) and vLLM, as `alfyws`, under systemd. It was installed there on 2026-11-16. Every change on the box needs the owner's OK first (`alfyws` for files, `alfyroot` for systemd), and **`vllm-flashnext` and `zonos3` are never restarted or reconfigured** for it: the steps below leave both alone. Since 2026-11-18, at the owner's decision, both run under NVIDIA MPS on GPU0 ([`deploy/gpu0-mps/`](../gpu0-mps/README.md)).
 
 ### Where things are on the box
 
@@ -298,9 +298,15 @@ It writes `rates.json` (each sentence's length and its clip's seconds, per voice
 
 ffmpeg 7.1.5 (the box) reads ahead about 5 s of input before it encodes unless told not to; the encoder passes `-probesize 32 -analyzeduration 0` for that reason (see `audio.py`).
 
-### Known, accepted cost: vLLM decodes slower while a reading is being made
+### GPU0 sharing: fixed by MPS on 2026-11-18
 
-Accepted by the owner on 2026-11-16, and written down so it can be looked into later.
+On 2026-11-17 the owner heard a reading on staging stall every couple of seconds. The chat model was busy with an agent-like load: 650–2,600 prompt tokens per second, steadily. With the chat model and the voice taking turns on GPU0, the voice fell from about 7× playback to 1.23×, and `SPEECH_PREFETCH=2` could not cover that.
+
+Since 2026-11-18 both run under NVIDIA MPS, side by side ([`deploy/gpu0-mps/`](../gpu0-mps/README.md), the owner's decision). Under the same load the voice now makes speech at 5.22× playback, and the chat model loses no measurable speed while a reading is made. The section below is the record from before MPS.
+
+### Known, accepted cost before MPS: vLLM decoded slower while a reading was being made
+
+Accepted by the owner on 2026-11-16, and written down so it could be looked into later. It was looked into on 2026-11-18, and MPS removed it (above).
 
 - **What was measured.** vLLM's single-stream decode speed (a fixed 200-token completion at temperature 0) was 157.3 tokens/s with the speech service idle. While a reading's sentences were being synthesized it was 140.8 tokens/s: **−10.5%**. That held over four alternating rounds, and vLLM's own gauge showed no other requests. With no reading running, the speed is unchanged. Zonos makes speech about 7× faster than real time, so during a reading it works in bursts, for about a seventh of the reading's length. Averaged over a reading, that costs vLLM about **1-2%**.
 - **The likely cause** is Zonos's backbone sharing GPU0 with vLLM, which is the layout the design approved. This work leaves both services exactly as they were. A first attempt to attribute the cost was too noisy to prove it (Zonos alone, then the aligner alone, three runs each). The aligner and the MP3 encoder run on the CPU, not the GPU.
