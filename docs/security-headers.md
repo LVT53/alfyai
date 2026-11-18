@@ -120,11 +120,20 @@ Why each of the loose ones is loose:
   (it shows a link instead). A generated HTML report is not drawn under this policy: the in-app
   preview frames it by its own address (`/api/chat/files/[id]/preview`, or
   `/api/knowledge/[id]/preview` for one in the library), so it runs under the policy its own
-  response carries (`STANDARD_REPORT_PREVIEW_CSP`: `img-src data:`, inline scripts, nothing
-  else), never the page's. Its own scripts (the section menu, the source tooltips) and read
-  aloud's bridge, which the server adds to that response, run whatever `CSP_MODE` is, and its
-  pictures are `data:` ones (spec §4.13 of `docs/superpowers/specs/2026-11-16-read-aloud-design.md`).
-  No nonce of the page's is written into any frame or attribute for it. The frame asks by the
+  response carries (`standardReportPreviewCsp` in `file-serving-response-policy.ts`), never the
+  page's. That policy lets only the app's own scripts run, by construction (security review
+  I1): `script-src` names them by their hashes and nothing else, so no `'unsafe-inline'`. It
+  names the renderer's script (`standard-report-scripts.ts`: today's and every earlier one a
+  stored report may carry, taken from git history), the favicon fallback under
+  `'unsafe-hashes'`, and read aloud's bridge, which the server adds to the response and hashes
+  for it (the bridge is the same for every report of one origin). A hash never comes from the
+  file served. So the section menu, the source tooltips and the bridge run whatever `CSP_MODE`
+  is, while any other inline script, inline handler or `javascript:` address a stored report
+  holds is refused (`tests/e2e/read-aloud-report.spec.ts` holds both). An old report whose
+  script no hash names stays readable, and read aloud still works on it; only its menu is inert.
+  Its pictures are `data:` ones (spec §4.13 of
+  `docs/superpowers/specs/2026-11-16-read-aloud-design.md`). No nonce of the page's is written
+  into any frame or attribute for it. The frame asks by the
   preview's address plus the bridge's version (`?rb=1`, `reportFrameAddress`), which the routes
   ignore, so a copy a browser cached for its hour (`private, max-age=3600`) from before the bridge
   is not framed. Until 2026-11-17 the preview drew the report as a `srcdoc`, which inherits this
@@ -220,8 +229,11 @@ that would make a frame. It has no `webrtc` directive: Chromium (measured on 147
 - A proxy in front of the app must leave this header alone, as it must for the file previews. A
   `Header set Content-Security-Policy ...` on `/api/artifacts/*/app` would replace the policy and,
   with it, the Trusted Types rule that keeps an App from making a frame.
-- The generated HTML report's preview policy (`STANDARD_REPORT_PREVIEW_CSP`, decision 10) is `img-src data:`
-  and is recognised by its exact text on the client (`allowsTrustedHtmlPreviewRuntime`); change them together.
+- The generated HTML report's preview policy (`standardReportPreviewCsp`, decision 10) is `img-src data:`,
+  with its scripts named by hashes only, and is recognised by its shape on the client
+  (`allowsTrustedHtmlPreviewRuntime`: the same directives exactly, `script-src` hashes and
+  `'unsafe-hashes'` alone); change them together. When the renderer's script changes, its old
+  hash goes into `EARLIER_SCRIPT_HASHES` (`standard-report-scripts.test.ts` fails until it does).
 
 ## Rolling out: report-only → enforce
 
