@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task under the controller's execution method. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Delivery state:** Implemented locally on `codex/context-exhaustion`; both task reviews and final scoped review pass. Code at `98da43b60` includes main `9387b612c` and passed the full agent gate: 28,327 unit tests (3 existing skips), 112 browser tests (0 failed/flaky), typecheck 0 errors/0 warnings, clean build, migration/chunk checks and Fallow (4 known cycles, 0 new findings). Evidence: `/tmp/alfyai-context-exhaustion-gates-2`, `/tmp/alfyai-context-final-review.md`, `/tmp/alfyai-context-final-rereview.md`. The first failed gate is retained separately. No push, deployment or live-provider probe. Historical broader Task1 matrix items remain unchecked where its narrowed report did not claim them.
+**Delivery state:** Implementation and independent reviews complete. App code `5ecf7219b` is deployed to staging; qualified live results and the repeated full gate are recorded below. No production action. Historical broader Task1 matrix items remain unchecked where its narrowed report did not claim them.
 
 **Goal:** Bound NEW research/fetch views against aggregate remaining room and recover through lossless closing; preserve existing captures and honest irrecoverable failures.
 **Architecture:** One completion owner measures projected requests and allocates read leases; existing web shaping and envelope owners finalize bounded new views before capture. Both transports share lossless closing and existing execution/privacy/persistence owners.
@@ -77,3 +77,26 @@ Worker evidence distinguishes 12 initial missing-API RED tests, 2 allocation API
 - [x] Amend affected fidelity/bounds/output-reserve wording in `docs/plans/turn-completion/contract/spec.md`, its `implementation-plan.md`, ADR-0026 and services/chat-turn engineering map. Exact retention begins at the final bounded NEW view, never permits reshaping old captures, and does not imply raw-result storage. Incorporate the accepted judge amendment without another user approval cycle.
 - [x] Controller performs fresh review and the repository-mandated final gate once after implementation; relevant specs are `tests/e2e/chat.spec.ts tests/e2e/streaming.spec.ts tests/e2e/conversation.spec.ts` (plus ask coverage if changed). Controller owns gate scheduling/ports and any later commit decision; do not start a competing run in this diagnosis task.
 - [x] Report Task 1 and Task 2 evidence separately, remaining finite-window limits and unavailable incident sizing. No production/deployment/model probes, universal nonempty-answer guarantee or claim that catalogue-only relief reproduced the incident. Conditional accounting remains limited to proved no-dispatch exits.
+
+
+## Staging verification — 2026-11-18
+
+Deployed `5ecf7219b` to `dev` at https://ai.dev.alfydesign.com using the atomic staging script. Final health: OK, not draining, activeStreams=0. No application source changed during live verification. Production and `main` were not changed.
+
+Authenticated streaming tests used the three normal model entries, then isolated temporary copies with the same upstream settings and controlled context/output limits. Cases covered primary-source searches with page reads, substantial sequential/parallel RFC reads, and a 37k-character follow-up preserving scenario anchors.
+
+| Model | Normal research | 96k context / 8k output strict checks | Successful capacity closings |
+| --- | --- | --- | --- |
+| Kimi K3.1 Pro | pass | 4/4 | 1 |
+| DeepSeek V4.1 Flash | pass | 4/4 | 2 |
+| Qwen control (`qwen3-6-27b`) | pass | 3/4 | 3 |
+
+All **12/12** controlled-budget turns produced nonempty answered output matching persistence, with consistent ledger/accounting records and at most one closing. Strict content checks were **11/12**: Qwen's last follow-up omitted inline URLs. Canonical and saved text were identical; its persisted Sources record retained four selected web links (plus two rejected items). Independent review found no demonstrated application link loss; do not relabel the original strict FAIL or infer factual support for every claim.
+
+Retained negative calibrations: a 32k initial capacity refusal recorded final zero usage; at 64k context / 4k output, Kimi consumed all 4,096 closing tokens on reasoning and returned no answer, while DeepSeek used 3,395 reasoning tokens and truncated its visible answer. Both were honestly incomplete/length. Independent diagnosis found output-budget exhaustion, not a demonstrated engine defect. The 96k/8k passes are calibration evidence, not a universally safe minimum or a guarantee. Selected reasoning controls and frozen output policy were preserved.
+
+Final read-only audit: **21 settled runs, all saved, zero integrity mismatches**; 18 answered and three honestly incomplete. Four strict FAIL results remain (the three negative calibrations and Qwen's URL miss). Three additional basic normal-model liveness controls also returned persisted nonempty answers. Six capacity closings succeeded in the 96k/8k matrix. Bounded/partial NEW views and bounded failures were observed in persisted tool metadata; complete factual source support was not exhaustively audited.
+
+Repeated full agent gate at `5ecf7219b`: **28,327 unit tests passed / 3 existing skips; 112 browser tests passed / 0 failed or flaky; typecheck 0 errors / 0 warnings**. Build, migrations, artifact chunks and Fallow passed (four known cycles, zero new findings); Biome retained one unrelated informational note. Gate directory: `/tmp/alfyai-context-exhaustion-gates-3-staging`.
+
+All three temporary provider/model copies were removed after tests; original model settings and test history were preserved. Evidence: `/tmp/alfyai-context-staging-evidence-20261118/` (content-free final/post-cleanup audits, cleanup receipt, web-link-only record), `/tmp/alfyai-context-staging-deploy-20261118.log`, `/tmp/alfyai-context-kimi-closing-diagnosis.md`, `/tmp/alfyai-context-qwen-link-verdict.md`. Original frozen probe results remain protected on staging under `/tmp/context-*`; no credentials are included in the verification records. Real-model checks used the authenticated streaming API; the browser regression gate used its isolated fake providers. No production deployment or real-world failure-rate claim follows.
