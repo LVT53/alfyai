@@ -74,6 +74,10 @@ let {
 	output = undefined,
 	thinkingIsDone = false,
 	segments = [],
+	// The reply this block belongs to is over (not streaming any more). A tool call
+	// still marked running in it was cut off, and its row reads as the quiet stop
+	// instead of a spinner that cannot end (a reply stopped, then reloaded).
+	turnEnded = false,
 	thinkingDurationSeconds = 0,
 	// P1 (ADR-0056) — true once the assistant's visible answer text has
 	// started streaming (MessageBubble's own `hasVisibleContent`). Distinct
@@ -152,6 +156,7 @@ let {
 	output?: NormalChatOutputProjection;
 	thinkingIsDone?: boolean;
 	segments?: ThinkingSegment[];
+	turnEnded?: boolean;
 	thinkingDurationSeconds?: number;
 	answerStarted?: boolean;
 	liveThoughtStepClass?: string;
@@ -189,7 +194,7 @@ function buildEnrichedToolActivityItem(
 	segment: ToolCallSegment,
 	key: string,
 ): ToolActivityItem {
-	const built = buildToolActivityItem(segment, key, $t);
+	const built = buildToolActivityItem(segment, key, $t, { turnEnded });
 	const body = built.body;
 	if (body?.kind !== "artifact") return built;
 	const preview = conversationArtifacts.find(

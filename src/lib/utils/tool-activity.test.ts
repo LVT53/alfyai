@@ -15,7 +15,9 @@ import {
 	getToolWebSources,
 	parseAtlasActivityDetails,
 	runPythonObject,
+	type ToolActivityItem,
 } from "./tool-activity";
+import { catalogueToolNames } from "./tool-catalogue.test-helpers";
 import type { ToolCallSegment } from "./tool-evidence-presentation";
 
 // The real English dictionary, so these assert the copy a user actually sees
@@ -545,9 +547,9 @@ describe("tool activity row grammar", () => {
 	});
 
 	// The raw failure text (`metadata.error`, `outputSummary`) is for the server's log
-	// and for the model: no row shows it. Task B3 gives such a row the tool's own
-	// sentence; until then it says Failed and does not open.
-	it("a failed fetch_url row has meta Failed and no body", () => {
+	// and for the model: no row shows it. A failure with no code says its tool's own
+	// fallback sentence, once.
+	it("keeps the normal label on a failed row — only the glyph and the right-hand word change, and the body says the tool's fallback, never the raw text", () => {
 		const item = buildToolActivityItem(
 			toolCall({
 				name: "fetch_url",
@@ -563,7 +565,10 @@ describe("tool activity row grammar", () => {
 		expect(item.status).toBe("failed");
 		expect(item.meta).toBe("Failed");
 		expect(item.object).toContain("weather.metoffice.gov.uk");
-		expect(item.body).toBeNull();
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "The page couldn't be read.",
+		});
 		expect(JSON.stringify(item)).not.toContain("timed out after 20 s");
 	});
 
@@ -1537,8 +1542,8 @@ describe("buildToolActivityItem — journey row", () => {
 
 // RC-A #2: the model the audit walked fails two or three edits a Document turn. A
 // failed call printed "Tool <id>", opened on `patches: [object Object]` and the
-// English refusal the model was written; it names what it tried now, folded. The
-// model's words never reach the row (Task B4 gives it the reason's own sentence).
+// English refusal the model was written; it names what it tried now. The model's
+// words never reach the row: it says its tool's sentence (Task B4 words each code).
 describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 	const failedEdit = (overrides: Partial<ToolCallSegment> = {}) =>
 		toolCall({
@@ -1560,7 +1565,7 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 			...overrides,
 		});
 
-	it("names what it tried and on what, as a failed row with nothing to open", () => {
+	it("names what it tried and on what, as a failed row with the tool's sentence", () => {
 		const item = buildToolActivityItem(
 			failedEdit(),
 			"k-failed-edit",
@@ -1587,7 +1592,11 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 			translate,
 		);
 
-		expect(item.body).toBeNull();
+		// The model's own words stay out: the row says the tool's fallback sentence.
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "The change couldn't be made.",
+		});
 		expect(JSON.stringify(item)).not.toContain("patch ops were malformed");
 		expect(JSON.stringify(item)).not.toMatch(/\[object Object\]|Tool /);
 		expect(JSON.stringify([item.verb, item.object, item.title])).not.toMatch(
@@ -1664,7 +1673,10 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 		expect(item.verb).toBe("Couldn't edit");
 		expect(item.object).toBe("");
 		expect(item.meta).toBe("");
-		expect(item.body).toBeNull();
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "The change couldn't be made.",
+		});
 		expect(JSON.stringify(item)).not.toContain("The request timed out.");
 		expect(item.artifact).toEqual({
 			id: "0d394ede-c37a-4238-9059-77d01300da4e",
@@ -1672,14 +1684,17 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 		});
 	});
 
-	it("has nothing to open whether or not the call left words", () => {
+	it("says the same sentence whether or not the call left words of its own", () => {
 		const item = buildToolActivityItem(
 			failedEdit({ outputSummary: undefined }),
 			"k-failed-silent",
 			translate,
 		);
 
-		expect(item.body).toBeNull();
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "The change couldn't be made.",
+		});
 		expect(item.meta).toBe("");
 	});
 
@@ -1743,6 +1758,474 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 
 		expect(item.body).toBeNull();
 		expect(JSON.stringify(item)).not.toMatch(/\[object Object\]|year|"a","b"/);
+	});
+});
+
+// Task B3: a call's failure, refusal or notable outcome carries a code
+// (`metadata.reasonCode`, from its tool's closed list in shared/tool-reasons.ts).
+// The row's glyph, its meta and its one sentence come from that code's kind and
+// words (utils/tool-reason-words.ts), never from the raw text a tool wrote for the
+// model or the log, and the stored `status` is never written.
+describe("rows read their reason", () => {
+	const SENTINEL = "RAW-SENTINEL-7f3a";
+	const row = (
+		overrides: Partial<ToolCallSegment>,
+		translator = translate,
+		options?: { turnEnded?: boolean },
+	) => buildToolActivityItem(toolCall(overrides), "k", translator, options);
+
+	async function inHungarian<T>(work: (hu: typeof translate) => T): Promise<T> {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			return work(get(t));
+		} finally {
+			uiLanguage.set("en");
+		}
+	}
+
+	it("a failure with a code is the red row with that code's sentence, and the meta Failed", () => {
+		const item = row({
+			name: "research_web",
+			input: { query: "cork weather" },
+			status: "failed",
+			outputSummary:
+				"No usable web evidence was committed. Narrow the topic or URL for a new read.",
+			metadata: {
+				error: "Parallel search failed: 503",
+				reasonCode: "search_unavailable",
+			},
+		});
+
+		expect(item.status).toBe("failed");
+		expect(item.verb).toBe("Searched");
+		expect(item.object).toBe("cork weather");
+		expect(item.meta).toBe("Failed");
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "The search service didn't answer, so nothing came back this time.",
+		});
+		expect(item.pinned).toBe(false);
+		expect(item.summaryCount).toBe(0);
+		expect(item.summaryLabel).toBe("Searched Failed");
+		expect(JSON.stringify(item)).not.toMatch(/503|No usable web evidence/);
+	});
+
+	it("a stop on purpose is the quiet dash with its sentence, and not Failed", () => {
+		// The stored status stays whatever the server wrote ("failed" for a refused
+		// link at the tip): the row's glyph comes from the code's kind.
+		const item = row({
+			name: "fetch_url",
+			input: { url: "https://example-deals.shop/offer" },
+			status: "failed",
+			metadata: { reasonCode: "link_not_from_a_source" },
+		});
+
+		expect(item.status).toBe("skipped");
+		expect(item.verb).toBe("Read");
+		expect(item.meta).toBe("");
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "Alfy opens only links you gave it or a search found, and this one was neither.",
+		});
+		expect(item.summaryLabel).toBe("Read");
+	});
+
+	it("a refusal stored as a success (status done, ok false) reads by its code too", () => {
+		const item = row({
+			name: "use_skill",
+			input: { name: "Trip planner" },
+			status: "done",
+			outputSummary:
+				'Only call use_skill with a name from "## Skills available".',
+			metadata: { ok: false, reasonCode: "skill_turned_off" },
+		});
+
+		expect(item.status).toBe("skipped");
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "This skill is turned off. You can turn it on in Settings.",
+		});
+		expect(JSON.stringify(item)).not.toContain("Skills available");
+	});
+
+	it("nothing found stays done, says so in its meta, and has no body", () => {
+		const item = row({
+			name: "image_search",
+			input: { query: "harbour at dawn" },
+			status: "done",
+			metadata: { reasonCode: "nothing_found" },
+		});
+
+		expect(item.status).toBe("done");
+		expect(item.meta).toBe("nothing found");
+		expect(item.body).toBeNull();
+		expect(item.summaryCount).toBe(0);
+
+		// A search stored as failed today (the server's empty result) reads the same.
+		const search = row({
+			name: "research_web",
+			input: { query: "cork weather" },
+			status: "failed",
+			metadata: { reasonCode: "nothing_found" },
+		});
+		expect(search.status).toBe("done");
+		expect(search.meta).toBe("nothing found");
+		expect(search.body).toBeNull();
+	});
+
+	it("an information code is done and says its line", () => {
+		const item = row({
+			name: "calendar",
+			input: { action: "list_events" },
+			status: "done",
+			metadata: { localDistilled: true },
+		});
+
+		expect(item.status).toBe("done");
+		expect(item.meta).toBe("");
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "The cloud model got a summary only, so the details stayed on your server.",
+		});
+	});
+
+	it("a call that failed with no code gets its own tool's fallback sentence", () => {
+		const threw = row({
+			name: "run_python",
+			input: { code: "# total\nprint(1)" },
+			status: "failed",
+			metadata: { error: "sandbox exploded" },
+		});
+		expect(threw.status).toBe("failed");
+		expect(threw.meta).toBe("Failed");
+		expect(threw.body).toEqual({
+			kind: "reason",
+			text: "Calculations aren't available right now.",
+		});
+
+		const inBand = row({
+			name: "map_route",
+			input: { origin: "Budapest", destination: "Sylt" },
+			status: "done",
+			outputSummary: "out_of_coverage: do NOT estimate a route.",
+			metadata: { ok: false },
+		});
+		expect(inBand.status).toBe("failed");
+		expect(inBand.body).toEqual({
+			kind: "reason",
+			text: "The route couldn't be planned.",
+		});
+		expect(JSON.stringify(inBand)).not.toContain("do NOT estimate");
+	});
+
+	it("a code the registry does not know reads as the tool's fallback, never as the code", () => {
+		const item = row({
+			name: "fetch_url",
+			input: { url: "https://example.com/a" },
+			status: "failed",
+			metadata: { reasonCode: "some_code_from_a_newer_server" },
+		});
+
+		expect(item.status).toBe("failed");
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "The page couldn't be read.",
+		});
+		expect(JSON.stringify(item)).not.toContain("some_code_from_a_newer_server");
+	});
+
+	it("never writes the stored status, or anything else on the segment", () => {
+		const segment = toolCall({
+			name: "fetch_url",
+			input: { url: "https://example.com/a" },
+			status: "failed",
+			outputSummary: "refused",
+			metadata: { reasonCode: "link_not_from_a_source", ok: false },
+		});
+		const before = JSON.parse(JSON.stringify(segment));
+
+		const item = buildToolActivityItem(segment, "k", translate);
+
+		expect(item.status).toBe("skipped");
+		expect(segment).toEqual(before);
+		expect(segment.status).toBe("failed");
+	});
+
+	it("says it in Hungarian in a Hungarian turn: the meta, the sentence, no English", async () => {
+		await inHungarian((hu) => {
+			const failed = row(
+				{
+					name: "research_web",
+					input: { query: "cork időjárás" },
+					status: "failed",
+					metadata: { reasonCode: "search_unavailable" },
+				},
+				hu,
+			);
+			expect(failed.meta).toBe("Sikertelen");
+			expect(failed.body).toEqual({
+				kind: "reason",
+				text: "A keresőszolgáltatás nem válaszolt, ezért most nem jött eredmény.",
+			});
+
+			const empty = row(
+				{
+					name: "memory_context",
+					input: { query: "fogorvos" },
+					metadata: { reasonCode: "nothing_found" },
+				},
+				hu,
+			);
+			expect(empty.meta).toBe("nincs találat");
+			expect(empty.body).toBeNull();
+		});
+	});
+
+	it("names the place a route could not find, from the person's own words, and falls back without it", async () => {
+		const withPlace = row({
+			name: "map_route",
+			input: { origin: "Budapest", destination: "Fő utca 99" },
+			status: "done",
+			metadata: {
+				ok: false,
+				reasonCode: "place_not_found",
+				reasonPlace: "Fő utca 99",
+			},
+		});
+		expect(withPlace.status).toBe("failed");
+		expect(withPlace.body).toEqual({
+			kind: "reason",
+			text: "Alfy couldn't find “Fő utca 99” on the map.",
+		});
+
+		// A sentence about a place that names none would print its placeholder.
+		const without = row({
+			name: "map_route",
+			input: { origin: "Budapest", destination: "Fő utca 99" },
+			status: "done",
+			metadata: { ok: false, reasonCode: "place_not_found" },
+		});
+		expect(without.body).toEqual({
+			kind: "reason",
+			text: "The route couldn't be planned.",
+		});
+		expect(JSON.stringify(without)).not.toContain("{place}");
+
+		await inHungarian((hu) => {
+			const item = row(
+				{
+					name: "map_route",
+					input: { origin: "Budapest", destination: "Fő utca 99" },
+					status: "done",
+					metadata: {
+						ok: false,
+						reasonCode: "place_not_found",
+						reasonPlace: "Fő utca 99",
+					},
+				},
+				hu,
+			);
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "Alfy nem találta meg a térképen: „Fő utca 99”.",
+			});
+		});
+	});
+
+	it("a stop the person pressed reads as the quiet dash, not as a failure, for any tool", () => {
+		const item = row({
+			name: "research_web",
+			input: { query: "cork weather" },
+			status: "failed",
+			metadata: { reasonCode: "stopped", error: "Aborted" },
+		});
+
+		expect(item.status).toBe("skipped");
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "You stopped this before it finished.",
+		});
+		expect(JSON.stringify(item)).not.toContain("Aborted");
+	});
+
+	describe("a turn that ended", () => {
+		const running = {
+			name: "research_web",
+			input: { query: "cork weather" },
+			status: "running" as const,
+		};
+
+		it("reads a call still running in a finished reply as the quiet stop", () => {
+			const item = row(running, translate, { turnEnded: true });
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Searched");
+			expect(item.object).toBe("cork weather");
+			expect(item.meta).toBe("");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "You stopped this before it finished.",
+			});
+		});
+
+		it("keeps the call running while the reply streams", () => {
+			for (const options of [undefined, { turnEnded: false }]) {
+				const item = row(running, translate, options);
+				expect(item.status).toBe("running");
+				expect(item.verb).toBe("Searching");
+				expect(item.body).toBeNull();
+			}
+		});
+
+		it("leaves a call that finished alone", () => {
+			const item = row(
+				{ ...running, status: "done", candidates: [] },
+				translate,
+				{ turnEnded: true },
+			);
+			expect(item.status).toBe("done");
+			expect(item.body).toBeNull();
+		});
+
+		it("reads a picture or a clip still running in a finished reply as stopped, in its own words", () => {
+			const picture = row(
+				{ name: "make_image", input: { title: "Logo" }, status: "running" },
+				translate,
+				{ turnEnded: true },
+			);
+			expect(picture.verb).toBe("Picture stopped");
+			const clip = row(
+				{ name: "make_video", input: { title: "Harbour" }, status: "running" },
+				translate,
+				{ turnEnded: true },
+			);
+			expect(clip.verb).toBe("Stopped the video");
+		});
+
+		it("reads a create or an edit still running in a finished reply as a stop, not as a tool", () => {
+			for (const name of ["create_artifact", "edit_artifact"]) {
+				const item = row(
+					{
+						name,
+						input: { artifactType: "document", title: "Trip plan" },
+						status: "running",
+					},
+					translate,
+					{ turnEnded: true },
+				);
+				expect(item.status, name).toBe("skipped");
+				expect(item.verb, name).not.toBe("Tool");
+				expect(item.iconType, name).toBe("artifact");
+				expect(item.body, name).toEqual({
+					kind: "reason",
+					text: "You stopped this before it finished.",
+				});
+			}
+		});
+	});
+
+	// Review focus 1: rows saved before this change carry no reason codes. They
+	// read as their tool's fallback sentence, never as raw text, and never throw.
+	// Three shapes were stored: a thrown failure (status failed with the error in
+	// its metadata), a refusal stored as a success (ok false with the model's note
+	// as its summary), and a tool_error (the stream's own bucket as `errorCode`).
+	it("draws every tool's pre-change failure shapes with its fallback and no raw text", async () => {
+		const tools = catalogueToolNames();
+		expect(tools.length).toBeGreaterThanOrEqual(25);
+		const poisoned = (
+			status: "failed" | "done",
+			metadata: ToolCallSegment["metadata"],
+		) =>
+			({
+				status,
+				// A row may show a call's own leading words (a query, a title, a place),
+				// so the poisoned argument is the last one, never the first.
+				input: {
+					query: "innocuous words",
+					[`argument_${SENTINEL}`]: SENTINEL,
+				},
+				outputSummary: `${SENTINEL} (the note written for the model)`,
+				resultDigest: `${SENTINEL} (the digest the model replays)`,
+				metadata,
+			}) satisfies Partial<ToolCallSegment>;
+		const failureShapes: Partial<ToolCallSegment>[] = [
+			poisoned("failed", { error: SENTINEL }),
+			poisoned("done", { ok: false, error: SENTINEL }),
+			poisoned("failed", { ok: false, error: SENTINEL, errorCode: "timeout" }),
+		];
+		const { uiLanguage } = await import("$lib/stores/settings");
+		// make_image, make_video and the two artifact tools put their words on cards
+		// and on their own verbs, which later tasks draw from the registry too.
+		const ownWords = new Set(["make_image", "make_video"]);
+		try {
+			for (const language of ["en", "hu"] as const) {
+				uiLanguage.set(language);
+				const translator = get(t);
+				for (const name of tools) {
+					for (const [index, shape] of failureShapes.entries()) {
+						const label = `${language} ${name} shape ${index + 1}`;
+						let item: ToolActivityItem | undefined;
+						expect(() => {
+							item = buildToolActivityItem(
+								toolCall({ ...shape, name }),
+								`k-${name}-${index}`,
+								translator,
+							);
+						}, label).not.toThrow();
+						expect(JSON.stringify(item), label).not.toContain(SENTINEL);
+						if (ownWords.has(name)) continue;
+						// Whatever the tool, the row is red or quiet, never a green tick
+						// over a failure, and its body is one sentence of ours.
+						expect(item?.status, label).toBe("failed");
+						expect(item?.body?.kind, label).toBe("reason");
+					}
+				}
+			}
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
+
+	it("the strip groups by the shown status, so a stop is never counted as failed", () => {
+		const search = (
+			n: number,
+			status: "failed" | "done",
+			metadata?: ToolCallSegment["metadata"],
+		) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "research_web",
+					input: { query: `q${n}` },
+					status,
+					metadata,
+					candidates:
+						status === "done" && !metadata
+							? ([
+									{
+										id: `c${n}`,
+										title: "A page",
+										url: `https://example${n}.test/a`,
+										sourceType: "web",
+									},
+								] as ToolCallSegment["candidates"])
+							: undefined,
+				}),
+				`k${n}`,
+				translate,
+			);
+		const items = [
+			search(1, "done"),
+			search(2, "failed", { reasonCode: "reading_budget_used" }),
+			search(3, "failed", { reasonCode: "reading_budget_used" }),
+			search(4, "failed", { reasonCode: "search_unavailable" }),
+		];
+
+		expect(
+			buildToolActivitySummary(items, translate).map((entry) => entry.label),
+		).toEqual(["Searched 1 source", "Searched ×2", "Searched Failed"]);
+		expect(items[1].status).toBe("skipped");
+		expect(items[3].status).toBe("failed");
 	});
 });
 

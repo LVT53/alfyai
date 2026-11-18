@@ -1352,6 +1352,64 @@ describe("ThinkingBlock", () => {
 			).toBeInTheDocument();
 		});
 
+		// A reply stopped mid-step is saved with the step still marked running (no
+		// closing event). Once the reply is over it reads as the quiet stop, never as
+		// a spinner that cannot end; while the reply streams it is still running.
+		it("a running row of a finished reply reads as stopped: the dash and the stopped sentence", async () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "research_web",
+					status: "running",
+					input: { query: "latest pricing" },
+				},
+			];
+
+			const { container } = render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, turnEnded: true, segments },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
+
+			const row = container.querySelector(
+				'.interleaved-rail [data-testid="tool-activity-row"]',
+			);
+			expect(row).not.toBeNull();
+			expect(row?.getAttribute("data-status")).toBe("skipped");
+			expect(row?.querySelector(".act-status.skipped")).not.toBeNull();
+			expect(row?.querySelector(".act-status.running")).toBeNull();
+			expect(row?.classList.contains("is-running")).toBe(false);
+			expect(row?.classList.contains("is-failed")).toBe(false);
+
+			await fireEvent.click(row as HTMLElement);
+			expect(
+				container.querySelector('[data-testid="tool-activity-reason"]'),
+			).toHaveTextContent("You stopped this before it finished.");
+		});
+
+		it("keeps a running row running while the reply still streams", () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "research_web",
+					status: "running",
+					input: { query: "latest pricing" },
+				},
+			];
+
+			const { container } = render(ThinkingBlock, {
+				props: {
+					content: "",
+					thinkingIsDone: false,
+					turnEnded: false,
+					segments,
+				},
+			});
+
+			const row = container.querySelector('[data-testid="tool-activity-row"]');
+			expect(row?.getAttribute("data-status")).toBe("running");
+			expect(row?.querySelector(".act-status.running")).not.toBeNull();
+		});
+
 		it("does not mark a done tool call as failed", () => {
 			const segments: ThinkingSegment[] = [
 				{

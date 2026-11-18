@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { get } from "svelte/store";
 import { afterEach, describe, expect, it } from "vitest";
 import { type I18nKey, t } from "$lib/i18n";
@@ -13,22 +12,14 @@ import {
 	VIDEO_ERROR_CODES,
 } from "$lib/shared/tool-reasons";
 import { uiLanguage } from "$lib/stores/settings";
+import { TOOL_ROW_I18N_KEYS } from "./tool-activity";
+import { catalogueToolNames } from "./tool-catalogue.test-helpers";
 import {
 	readReasonCode,
 	resolveToolReason,
 	TOOL_REASON_WORDS,
 	toolReasonKeys,
 } from "./tool-reason-words";
-
-const CATALOGUE_SNAPSHOT = `${process.cwd()}/src/lib/server/services/normal-chat-tools/tool-catalogue.en.snapshot.txt`;
-
-/** The names of the tools the model is offered, in the order its request sends them. */
-function catalogueToolNames(): string[] {
-	const snapshot = readFileSync(CATALOGUE_SNAPSHOT, "utf8");
-	return [...snapshot.matchAll(/^ {6}"name": "([a-z_]+)"/gm)].map(
-		(match) => match[1],
-	);
-}
 
 /** Every code any registry table lists, with the table it belongs to. */
 function everyCode(): { tool: string; code: string }[] {
@@ -68,6 +59,19 @@ describe("the words of every tool outcome", () => {
 			expect(hu, `${key} in Hungarian`).not.toBe(key);
 			expect(en.trim(), `${key} in English`).not.toBe("");
 			expect(hu.trim(), `${key} in Hungarian`).not.toBe("");
+			expect(hu, `${key} is untranslated`).not.toBe(en);
+		}
+	});
+
+	it("every word a row says on its own line resolves in English and Hungarian, to different words", () => {
+		expect(TOOL_ROW_I18N_KEYS.length).toBeGreaterThan(0);
+		for (const key of TOOL_ROW_I18N_KEYS) {
+			uiLanguage.set("en");
+			const en = get(t)(key, { count: 3, place: "x", time: "x" });
+			uiLanguage.set("hu");
+			const hu = get(t)(key, { count: 3, place: "x", time: "x" });
+			expect(en, `${key} in English`).not.toBe(key);
+			expect(hu, `${key} in Hungarian`).not.toBe(key);
 			expect(hu, `${key} is untranslated`).not.toBe(en);
 		}
 	});
@@ -219,6 +223,17 @@ describe("the words of every tool outcome", () => {
 		expect(resolveToolReason("constructor", null).key).toBe(
 			"toolRows.generic.fallback",
 		);
+	});
+
+	it("reads a call saved under an older tool name as the tool its row stands for", () => {
+		expect(resolveToolReason("web_search", null).key).toBe(
+			"toolRows.research_web.fallback",
+		);
+		expect(resolveToolReason("legacy_web_search", "nothing_found")).toEqual({
+			code: "nothing_found",
+			kind: "empty",
+			key: "toolRows.research_web.nothing_found",
+		});
 	});
 
 	it("the three shared outcomes have words for every tool", () => {

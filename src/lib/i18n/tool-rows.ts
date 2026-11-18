@@ -25,6 +25,10 @@ const toolRowsDict = {
 		// A tool this list does not know (a new tool before its words are written).
 		"toolRows.generic.fallback": "This step couldn't be finished.",
 
+		// What a row says on its own line, beside its words (a search, a picture
+		// search or a lookup that found nothing does not open).
+		"toolRows.meta.nothingFound": "nothing found",
+
 		// research_web
 		"toolRows.research_web.search_unavailable":
 			"The search service didn't answer, so nothing came back this time.",
@@ -377,6 +381,8 @@ const toolRowsDict = {
 		"toolRows.shared.request_adjusted": "Alfy pontosította a kérést.",
 		"toolRows.shared.item_not_found": "Ez az elem már nincs meg.",
 		"toolRows.generic.fallback": "Ezt a lépést nem sikerült befejezni.",
+
+		"toolRows.meta.nothingFound": "nincs találat",
 
 		// research_web
 		"toolRows.research_web.search_unavailable":

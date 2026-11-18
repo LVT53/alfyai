@@ -45,6 +45,11 @@ import {
 	type ToolCallSegment,
 	type Translate,
 } from "$lib/utils/tool-evidence-presentation";
+import {
+	type ReasonKind,
+	readReasonCode,
+	resolveToolReason,
+} from "$lib/utils/tool-reason-words";
 
 /**
  * `skipped`: it ended with nothing done and nothing wrong, as a declined write does.
@@ -367,6 +372,17 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	...ATLAS_ACTIVITY_I18N_KEYS,
 ];
 
+/**
+ * The words a row says on its own line besides a reason's sentence (the sentences
+ * are the registry's, `tool-reason-words.ts`): what a search that found nothing says
+ * on its right, the verbs a stop on purpose puts in front of its object, counts and
+ * units. They live in `i18n/tool-rows.ts`; one test asserts each resolves in both
+ * languages, so a row cannot print a raw key.
+ */
+export const TOOL_ROW_I18N_KEYS: readonly I18nKey[] = [
+	"toolRows.meta.nothingFound",
+];
+
 function verb(
 	translate: Translate,
 	running: VerbName,
@@ -573,42 +589,165 @@ function memoryBullets(candidates: ToolEvidenceCandidate[]): string[] {
 }
 
 /**
+ * A call still marked running in a reply that is over was cut off: the person
+ * pressed Stop, or the reply ended some other way before the call's closing event
+ * came. It reads as the quiet stop, never as a spinner that cannot end. The row is
+ * built as the settled call it would have been, with the shared `stopped` code (and
+ * the flags a picture's and a clip's own rows read their Stop from).
+ */
+function endedAsStopped(segment: ToolCallSegment): ToolCallSegment {
+	const metadata: Record<string, string | number | boolean | null> = {
+		...segment.metadata,
+		reasonCode: "stopped",
+	};
+	if (segment.name === "make_image") metadata.imageStopped = true;
+	if (segment.name === "make_video") metadata.videoStopped = true;
+	return { ...segment, status: "done", metadata };
+}
+
+/** What a call's outcome says: its kind, and its one sentence (none when the row's own words say it all). */
+type RowReason = { kind: ReasonKind; text: string | null };
+
+/**
+ * The outcome a call carries, from its reason code, or from the fact that it failed
+ * with no code at all (a call saved before codes, or a code a newer server wrote
+ * that this one does not know): then its tool's own fallback sentence. A call that
+ * simply worked has none. Nothing here reads `outputSummary`, `metadata.error` or
+ * any input: those are the model's and the log's, never a person's.
+ */
+function describeReason(
+	segment: ToolCallSegment,
+	translate: Translate,
+): RowReason | null {
+	const metadata = segment.metadata;
+	const code = readReasonCode(segment.name, metadata);
+	const failed = segment.status === "failed" || metadata?.ok === false;
+	if (code === null && !failed) return null;
+	// The person's own word for a place a route could not find; a sentence about a
+	// place that names none would print its placeholder, so it reads as the
+	// route's fallback instead.
+	const place =
+		typeof metadata?.reasonPlace === "string"
+			? metadata.reasonPlace.trim()
+			: "";
+	const artifactKind =
+		typeof metadata?.artifactKind === "string" ? metadata.artifactKind : null;
+	let words = resolveToolReason(segment.name, code, { artifactKind });
+	if (words.code === "place_not_found" && !place) {
+		words = resolveToolReason(segment.name, null);
+	}
+	return {
+		kind: words.kind,
+		text: words.key
+			? translate(words.key, place ? { place } : undefined)
+			: null,
+	};
+}
+
+/**
+ * Draws a row's outcome on top of the grammar its tool gave it. The glyph and the
+ * colour come from the code's kind, never from the stored `status` (which stays
+ * what the server wrote, because the history the model reads is derived from it):
+ * something broke is the red cross; a stop the app made on purpose, or a setting
+ * the person can change, is the quiet dash; information and "nothing found" stay
+ * done. The tool's own label stays (a failed read is still "Read <host>"); only the
+ * glyph, the right-hand word and the body change.
+ */
+function withReason(
+	item: ToolActivityItem,
+	reason: RowReason,
+	translate: Translate,
+): ToolActivityItem {
+	const sentence: ToolActivityBody | null = reason.text
+		? { kind: "reason", text: reason.text }
+		: null;
+	// A failed create or edit already says so in its own verb ("Couldn't edit").
+	const saysItself = Boolean(item.artifact?.failed);
+	switch (reason.kind) {
+		case "fail": {
+			const failedMeta = translate("toolCalls.failed");
+			return {
+				...item,
+				status: "failed",
+				meta: saysItself ? item.meta : failedMeta,
+				summaryLabel: saysItself
+					? item.summaryLabel
+					: `${item.verb} ${failedMeta}`,
+				// A call that failed contributed nothing to count up.
+				summaryCount: 0,
+				// Nothing failed is a deliverable, and nothing failed pins itself open.
+				pinned: false,
+				alwaysOpen: false,
+				body: sentence,
+			};
+		}
+		case "stop":
+			return {
+				...item,
+				status: "skipped",
+				meta: "",
+				summaryLabel: saysItself ? item.summaryLabel : item.verb,
+				summaryCount: 0,
+				pinned: false,
+				alwaysOpen: false,
+				body: sentence,
+			};
+		case "empty":
+			return {
+				...item,
+				status: "done",
+				meta: translate("toolRows.meta.nothingFound"),
+				summaryLabel: item.verb,
+				summaryCount: 0,
+				pinned: false,
+				alwaysOpen: false,
+				body: null,
+			};
+		case "info":
+			return {
+				...item,
+				status: "done",
+				// A line of information never takes the place of what the call found.
+				body: item.body ?? sentence,
+			};
+	}
+}
+
+/**
  * Builds the view-model for one non-connector tool call.
  *
  * A failed call keeps the SAME label a successful one would have had ("Read
  * weather.metoffice.gov.uk", not a neutral tool name): per the approved
- * mockup, only the status glyph and the right-hand word go red, and the body
- * becomes the reason. So the grammar is built first, and failure is applied
+ * mockup, only the status glyph and the right-hand word change, and the body
+ * becomes the reason. So the grammar is built first, and the outcome is applied
  * on top of it.
+ *
+ * `options.turnEnded`: the reply this call belongs to is over, so a call still
+ * marked running was cut off and reads as stopped.
  */
 export function buildToolActivityItem(
 	segment: ToolCallSegment,
 	key: string,
 	translate: Translate,
+	options?: { turnEnded?: boolean },
 ): ToolActivityItem {
-	const item = buildSettledToolActivityItem(segment, key, translate);
-	// A failed create/edit names what it tried and on what (its own item below);
-	// nothing else is added to it.
-	if (segment.status !== "failed" || item.artifact?.failed) return item;
-	// make_image and make_video word their own failure from a code, in the
-	// person's language.
-	if (segment.name === "make_image" || segment.name === "make_video")
+	const call =
+		options?.turnEnded === true && segment.status === "running"
+			? endedAsStopped(segment)
+			: segment;
+	const item = buildSettledToolActivityItem(call, key, translate);
+	// A picture's and a clip's rows word their own outcome from their codes, and a
+	// card (an item made, being made, or refused) is its own account.
+	if (call.name === "make_image" || call.name === "make_video") return item;
+	if (
+		item.body?.kind === "artifact" ||
+		item.body?.kind === "artifact-creating" ||
+		item.body?.kind === "artifact-failed"
+	) {
 		return item;
-	// The failure's own text (`metadata.error`, `outputSummary`) is for the log and
-	// for the model: a row never shows it. The failed row says Failed and has
-	// nothing to open until its tool's sentence is drawn from the reason's code.
-	const failedMeta = translate("toolCalls.failed");
-	return {
-		...item,
-		meta: failedMeta,
-		summaryLabel: `${item.verb} ${failedMeta}`,
-		// A call that failed contributed nothing to count up.
-		summaryCount: 0,
-		// Nothing failed is a deliverable, and nothing failed pins itself open.
-		pinned: false,
-		alwaysOpen: false,
-		body: null,
-	};
+	}
+	const reason = describeReason(call, translate);
+	return reason ? withReason(item, reason, translate) : item;
 }
 
 type RowBase = Pick<
@@ -1249,7 +1388,11 @@ function buildSettledToolActivityItem(
 		// model's own words (English, written for the model) or the call's
 		// parameters. It used to fall through to the generic identity below:
 		// "Tool <id>", opened on `patches: [object Object]`.
-		if (status === "failed" || metadata?.ok === false) {
+		if (
+			status === "failed" ||
+			metadata?.ok === false ||
+			readReasonCode(segment.name, metadata) !== null
+		) {
 			const failedVerb = translate(
 				VERB_KEYS[isEdit ? "editFailed" : "createFailed"],
 			);
@@ -1442,7 +1585,8 @@ type ToolActivitySummaryGroup = {
 	key: string;
 	iconType: ToolCallIconType;
 	verb: string;
-	failed: boolean;
+	/** What the group's rows ended as, by the glyph they show: a stop is never a failure. */
+	outcome: "failed" | "skipped" | "ok";
 	/** The first row of the group — its label is what a lone occurrence shows. */
 	first: ToolActivityItem;
 	/** How many rows folded in. */
@@ -1460,8 +1604,16 @@ function summaryGroupLabel(
 	if (group.occurrences === 1) return group.first.summaryLabel;
 	// A row that says in its own words what failed ("Couldn't edit") is not "… 2
 	// failed": it repeats like any other.
-	if (group.failed && !group.first.artifact?.failed) {
+	if (group.outcome === "failed" && !group.first.artifact?.failed) {
 		return translate("toolActivity.summaryFailedCount", {
+			verb: group.verb,
+			count: group.occurrences,
+		});
+	}
+	// A stop on purpose is not a failure and found nothing to add up either: it
+	// repeats like any step with nothing countable behind it.
+	if (group.outcome === "skipped") {
+		return translate("toolActivity.summaryRepeat", {
 			verb: group.verb,
 			count: group.occurrences,
 		});
@@ -1517,8 +1669,15 @@ export function buildToolActivitySummary(
 	const groups = new Map<string, ToolActivitySummaryGroup>();
 	const order: string[] = [];
 	for (const item of items) {
-		const failed = item.status === "failed";
-		const groupKey = `${item.iconType} ${item.verb} ${failed}`;
+		// Rows group by the glyph they show, so a stop on purpose never merges with a
+		// success, and is never counted as a failure.
+		const outcome: ToolActivitySummaryGroup["outcome"] =
+			item.status === "failed"
+				? "failed"
+				: item.status === "skipped"
+					? "skipped"
+					: "ok";
+		const groupKey = `${item.iconType}\u0000${item.verb}\u0000${outcome}`;
 		const existing = groups.get(groupKey);
 		if (existing) {
 			existing.occurrences += 1;
@@ -1532,7 +1691,7 @@ export function buildToolActivitySummary(
 			// Hungarian way to attach one without a case ending); the strip says
 			// the verb alone.
 			verb: item.verb.replace(/:$/, ""),
-			failed,
+			outcome,
 			first: item,
 			occurrences: 1,
 			total: item.summaryCount ?? 0,

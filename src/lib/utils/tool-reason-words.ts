@@ -27,6 +27,10 @@ import {
 	type ToolWithReasons,
 	type VideoErrorCode,
 } from "$lib/shared/tool-reasons";
+import {
+	getToolCallIconType,
+	type ToolCallIconType,
+} from "$lib/utils/tool-calls";
 
 /**
  * What a code stands for, as the row draws it:
@@ -474,12 +478,39 @@ const CHANGED_SINCE_READ_BY_KIND: Readonly<Record<string, I18nKey>> = {
 	slides: "toolRows.edit_artifact.changed_since_read.slides",
 };
 
+/**
+ * The tool each kind of row stands for, for a call saved under another name: an
+ * older release's search tool ("web_search") is still a web search in the rail, and
+ * a failure of it should read as one.
+ */
+const TOOL_OF_ICON_TYPE: Partial<Record<ToolCallIconType, string>> = {
+	"web-search": "research_web",
+	"fetch-url": "fetch_url",
+	"image-search": "image_search",
+	memory: "memory_context",
+	"run-python": "run_python",
+	"map-route": "map_route",
+	"use-skill": "use_skill",
+	"file-production": "produce_file",
+	calendar: "calendar",
+	contacts: "contacts",
+	email: "email",
+	files: "files",
+	location: "location",
+	media: "media",
+	photos: "photos",
+	repos: "repos",
+	tasks: "tasks",
+};
+
 function tableFor(toolName: string): ToolWords<string> | null {
-	return Object.hasOwn(TOOL_REASON_WORDS, toolName)
-		? (TOOL_REASON_WORDS as unknown as Record<string, ToolWords<string>>)[
-				toolName
-			]
-		: null;
+	const tables = TOOL_REASON_WORDS as unknown as Record<
+		string,
+		ToolWords<string>
+	>;
+	if (Object.hasOwn(tables, toolName)) return tables[toolName];
+	const aliasOf = TOOL_OF_ICON_TYPE[getToolCallIconType(toolName)];
+	return aliasOf ? tables[aliasOf] : null;
 }
 
 function isSharedCode(code: string): code is SharedReasonCode {

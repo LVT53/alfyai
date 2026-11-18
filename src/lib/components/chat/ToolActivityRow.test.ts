@@ -78,8 +78,8 @@ describe("ToolActivityRow", () => {
 		expect(row.querySelector(".act-status.running")).not.toBeNull();
 	});
 
-	it("shows a failed row with the danger word, keeping the normal label, and never the raw failure text", () => {
-		const { getByTestId, queryByTestId, container } = render(ToolActivityRow, {
+	it("shows a failed row with the danger word and the tool's own sentence, keeping the normal label, and never the raw failure text", () => {
+		const { getByTestId, container } = render(ToolActivityRow, {
 			item: item({
 				name: "fetch_url",
 				input: { url: "https://weather.metoffice.gov.uk" },
@@ -99,9 +99,72 @@ describe("ToolActivityRow", () => {
 		expect(row.querySelector(".act-object")?.textContent).toBe(
 			"weather.metoffice.gov.uk",
 		);
-		// The tool's own error text is the log's and the model's: nothing shows it.
-		expect(queryByTestId("tool-activity-body")).toBeNull();
+		// What happened, once, in words: a sentence of ours, not the tool's error
+		// text, which is the log's and the model's.
+		expect(getByTestId("tool-activity-reason")).toHaveTextContent(
+			"The page couldn't be read.",
+		);
 		expect(container).not.toHaveTextContent("request timed out after 20 s");
+	});
+
+	it("draws a stop on purpose as the quiet dash with its sentence, and no Failed", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: item({
+				name: "research_web",
+				input: { query: "cork weather" },
+				status: "failed",
+				metadata: { reasonCode: "reading_budget_used" },
+			}),
+			open: true,
+		});
+
+		const row = getByTestId("tool-activity-row");
+		expect(row.dataset.status).toBe("skipped");
+		expect(row.classList.contains("is-failed")).toBe(false);
+		expect(row.querySelector(".act-status.skipped")).not.toBeNull();
+		expect(row.querySelector(".act-status.failed")).toBeNull();
+		expect(row.querySelector(".act-meta")).toBeNull();
+		expect(getByTestId("tool-activity-reason")).toHaveTextContent(
+			"Alfy had already searched enough for this reply.",
+		);
+	});
+
+	it("says nothing found on the row itself, and then has nothing to open", () => {
+		const { getByTestId, queryByTestId } = render(ToolActivityRow, {
+			item: item({
+				name: "memory_context",
+				input: { query: "dentist appointment" },
+				status: "done",
+				metadata: { reasonCode: "nothing_found" },
+			}),
+			open: true,
+		});
+
+		const row = getByTestId("tool-activity-row");
+		expect(row.dataset.status).toBe("done");
+		expect(row.tagName.toLowerCase()).toBe("div");
+		expect(row.querySelector(".act-chevron")).toBeNull();
+		expect(row.querySelector(".act-meta")?.textContent).toBe("nothing found");
+		expect(queryByTestId("tool-activity-body")).toBeNull();
+	});
+
+	it("says it in Hungarian in a Hungarian turn", () => {
+		uiLanguage.set("hu");
+		const { getByTestId } = render(ToolActivityRow, {
+			item: item({
+				name: "fetch_url",
+				input: { url: "https://weather.metoffice.gov.uk" },
+				status: "failed",
+				metadata: { reasonCode: "site_timeout" },
+			}),
+			open: true,
+		});
+
+		const row = getByTestId("tool-activity-row");
+		expect(row.querySelector(".act-meta")?.textContent).toBe("Sikertelen");
+		expect(getByTestId("tool-activity-reason")).toHaveTextContent(
+			"Az oldal nem válaszolt időben.",
+		);
 	});
 
 	// docs/plans/exfil-channels: the favicon of a host the call returned is asked of the
