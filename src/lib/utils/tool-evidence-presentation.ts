@@ -262,7 +262,16 @@ export function formatToolCall(
 	translate: Translate,
 ): string {
 	const n = name.toLowerCase();
-	const firstVal = () => String(Object.values(input)[0] ?? "").slice(0, 200);
+	// Only a plain word or number stands for a call: a list or an object argument
+	// would print as "[object Object]".
+	const firstVal = () => {
+		const first = Object.values(input)[0];
+		return typeof first === "string" ||
+			typeof first === "number" ||
+			typeof first === "boolean"
+			? String(first).slice(0, 200)
+			: "";
+	};
 	const toolLabel = translate(getHumanReadableToolNameKey(name));
 	if (isFileProductionToolName(name)) {
 		return toolLabel;

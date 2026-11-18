@@ -2140,19 +2140,27 @@ describe("ThinkingBlock", () => {
 			expect(glyph?.classList.contains("failed")).toBe(false);
 		});
 
-		describe("clickable tool rows (arguments/result reveal)", () => {
-			it("makes a generic tool-call row clickable when it carries extra detail, and reveals arguments + result on click (no redundant status row — progress/done is already shown by the row itself)", async () => {
-				// A tool with no per-tool row grammar of its own, so the generic
-				// arguments/result panel is really what is under test. `scope`
-				// is the row's own object; `detail` only ever appears in the
-				// body, which is what makes the reveal observable.
+		describe("clickable tool rows (what the tool found)", () => {
+			it("makes a tool-call row clickable when it carries something to show, and reveals what it found on click (no argument names, no raw result, no status row — progress/done is already shown by the row itself)", async () => {
+				// A search that found one source: the query is the row's own
+				// object; the source's title only ever appears in the body, which
+				// is what makes the reveal observable. The call's `outputSummary`
+				// is the model's note, and never reaches the row.
 				const segments: ThinkingSegment[] = [
 					{
 						type: "tool_call",
-						name: "some_new_tool",
+						name: "research_web",
 						status: "done",
-						input: { scope: "quarterly", detail: "the budget discussion" },
+						input: { query: "quarterly" },
 						outputSummary: "Found 2 relevant notes.",
+						candidates: [
+							{
+								id: "c1",
+								title: "The budget discussion",
+								url: "https://example.com/budget",
+								sourceType: "web",
+							},
+						],
 					},
 				];
 
@@ -2177,16 +2185,20 @@ describe("ThinkingBlock", () => {
 				});
 				expect(rowButton).toHaveAttribute("aria-expanded", "false");
 				expect(
-					scoped.queryByText("the budget discussion"),
+					scoped.queryByText("The budget discussion"),
 				).not.toBeInTheDocument();
 
 				await fireEvent.click(rowButton);
 
 				expect(rowButton).toHaveAttribute("aria-expanded", "true");
-				expect(scoped.getByText("Arguments")).toBeInTheDocument();
-				expect(scoped.getByText("the budget discussion")).toBeInTheDocument();
-				expect(scoped.getByText("Result")).toBeInTheDocument();
-				expect(scoped.getByText("Found 2 relevant notes.")).toBeInTheDocument();
+				expect(scoped.getByText("The budget discussion")).toBeInTheDocument();
+				// The call's arguments and the model's note are not for the reader:
+				// no Details box, no Arguments or Result headings, no raw summary.
+				expect(scoped.queryByText("Arguments")).not.toBeInTheDocument();
+				expect(scoped.queryByText("Result")).not.toBeInTheDocument();
+				expect(
+					scoped.queryByText("Found 2 relevant notes."),
+				).not.toBeInTheDocument();
 				// The Status sub-section was removed: it only ever said "Running"
 				// or "Done", which the row's own state already conveys.
 				expect(scoped.queryByText("Status")).not.toBeInTheDocument();
@@ -2229,12 +2241,23 @@ describe("ThinkingBlock", () => {
 						name: "memory_context",
 						status: "done",
 						input: { query: "topic one" },
+						candidates: [
+							{ id: "m1", title: "Prefers Celsius", sourceType: "memory" },
+						],
 					},
 					{
 						type: "tool_call",
-						name: "image_search",
+						name: "research_web",
 						status: "done",
 						input: { query: "topic two" },
+						candidates: [
+							{
+								id: "c1",
+								title: "Cork city forecast",
+								url: "https://example.com/cork",
+								sourceType: "web",
+							},
+						],
 					},
 				];
 
@@ -2252,19 +2275,17 @@ describe("ThinkingBlock", () => {
 				// Only the memory row's body opened; its neighbour stays closed.
 				expect(scoped.getAllByTestId("tool-activity-body")).toHaveLength(1);
 				expect(scoped.getByTestId("tool-activity-body").textContent).toContain(
-					"topic one",
+					"Prefers Celsius",
 				);
 
-				// The image-search row carries its query as the row object, so it
-				// is matched by its own verb — this test only needs a second,
+				// The search row carries its query as the row object, so it is
+				// matched by its own verb — this test only needs a second,
 				// independent row to toggle.
-				await fireEvent.click(
-					scoped.getByRole("button", { name: /Searched images/ }),
-				);
+				await fireEvent.click(scoped.getByRole("button", { name: /Searched/ }));
 				const bodies = scoped.getAllByTestId("tool-activity-body");
 				expect(bodies).toHaveLength(2);
-				expect(bodies[0]?.textContent).toContain("topic one");
-				expect(bodies[1]?.textContent).toContain("topic two");
+				expect(bodies[0]?.textContent).toContain("Prefers Celsius");
+				expect(bodies[1]?.textContent).toContain("Cork city forecast");
 			});
 		});
 	});

@@ -15,8 +15,6 @@ import {
 	getToolWebSources,
 	parseAtlasActivityDetails,
 	runPythonObject,
-	toolElapsedLabel,
-	toolFailureReason,
 } from "./tool-activity";
 import type { ToolCallSegment } from "./tool-evidence-presentation";
 
@@ -546,7 +544,10 @@ describe("tool activity row grammar", () => {
 		expect(item.meta).toBe("Failed");
 	});
 
-	it("keeps the normal label on a failed row — only the right-hand word says Failed, and the body carries the reason", () => {
+	// The raw failure text (`metadata.error`, `outputSummary`) is for the server's log
+	// and for the model: no row shows it. Task B3 gives such a row the tool's own
+	// sentence; until then it says Failed and does not open.
+	it("a failed fetch_url row has meta Failed and no body", () => {
 		const item = buildToolActivityItem(
 			toolCall({
 				name: "fetch_url",
@@ -558,26 +559,15 @@ describe("tool activity row grammar", () => {
 			translate,
 		);
 
+		expect(item.verb).toBe("Read");
+		expect(item.status).toBe("failed");
 		expect(item.meta).toBe("Failed");
 		expect(item.object).toContain("weather.metoffice.gov.uk");
-		expect(item.body).toEqual({
-			kind: "error",
-			reason: "request timed out after 20 s",
-		});
+		expect(item.body).toBeNull();
+		expect(JSON.stringify(item)).not.toContain("timed out after 20 s");
 	});
 
-	it("prefers a structured error over the output summary, and stays silent when neither exists", () => {
-		expect(
-			toolFailureReason({
-				outputSummary: "fallback",
-				metadata: { error: "real" },
-			}),
-		).toBe("real");
-		expect(toolFailureReason({ outputSummary: "fallback" })).toBe("fallback");
-		expect(toolFailureReason({})).toBeNull();
-	});
-
-	it("falls back to the tool's own label and an arguments/result panel for an unknown tool", () => {
+	it("an unknown tool's row has no body", () => {
 		const item = buildToolActivityItem(
 			toolCall({
 				name: "some_new_tool",
@@ -591,11 +581,8 @@ describe("tool activity row grammar", () => {
 		expect(item.verb).toBe("Tool");
 		expect(item.object).toBe("value");
 		expect(item.iconType).toBe("generic");
-		expect(item.body).toMatchObject({
-			kind: "generic",
-			args: [{ key: "thing", value: "value" }],
-			result: "it worked",
-		});
+		expect(item.body).toBeNull();
+		expect(JSON.stringify(item)).not.toContain("it worked");
 	});
 
 	it("gives a row with nothing to reveal no body at all (never falsely clickable)", () => {
@@ -607,12 +594,42 @@ describe("tool activity row grammar", () => {
 		expect(item.body).toBeNull();
 	});
 
-	it("omits an elapsed time unless the segment honestly carries one", () => {
-		expect(toolElapsedLabel(undefined)).toBeNull();
-		expect(toolElapsedLabel({ ok: true })).toBeNull();
-		expect(toolElapsedLabel({ durationMs: 1800 })).toBe("1.8 s");
-		expect(toolElapsedLabel({ durationMs: 420 })).toBe("420 ms");
-		expect(toolElapsedLabel({ durationMs: 21_400 })).toBe("21 s");
+	// A raw timing reads like a log line (artifacts redesign 9.2): a row's meta is a
+	// fact a person reads ("6 sources", "27 km"), or nothing. The envelope writes
+	// `metadata.durationMs` on every call; no row builder shows it.
+	it("no row carries an elapsed time", () => {
+		const timed = { durationMs: 1400 } as ToolCallSegment["metadata"];
+		const segments: Partial<ToolCallSegment>[] = [
+			{ name: "research_web", input: { query: "cork weather" } },
+			{ name: "image_search", input: { query: "harbour at dawn" } },
+			{ name: "fetch_url", input: { url: "https://example.com/a" } },
+			{ name: "run_python", input: { code: "# sum\nprint(1)" } },
+			{ name: "map_route", input: { action: "route" } },
+			{ name: "use_skill", input: { name: "Trip planner" } },
+			{ name: "memory_context", input: { query: "dentist" } },
+			{ name: "read_artifact", input: { artifactId: "a-1" } },
+			{ name: "read_generated_file", input: { filename: "report.pdf" } },
+			{ name: "some_new_tool", input: { thing: "value" } },
+			{ name: "make_image", input: { title: "Logo" } },
+			{ name: "make_video", input: { title: "Harbour" } },
+			{ name: "create_artifact", input: { title: "Plan" } },
+			{ name: "edit_artifact", input: { artifactId: "a-1" } },
+		];
+		for (const segment of segments) {
+			for (const status of ["running", "done", "failed"] as const) {
+				const item = buildToolActivityItem(
+					toolCall({ ...segment, status, metadata: timed }),
+					`k-${segment.name}-${status}`,
+					translate,
+				);
+				expect(item.meta, `${segment.name} ${status}`).not.toMatch(
+					/\d(\.\d)? ?(ms|s)$/,
+				);
+				expect(item.summaryLabel, `${segment.name} ${status}`).not.toMatch(
+					/\d(\.\d)? ?(ms|s)$/,
+				);
+			}
+		}
 	});
 });
 
@@ -1520,8 +1537,8 @@ describe("buildToolActivityItem — journey row", () => {
 
 // RC-A #2: the model the audit walked fails two or three edits a Document turn. A
 // failed call printed "Tool <id>", opened on `patches: [object Object]` and the
-// English refusal the model was written; it names what it tried now, folded, with
-// the model's words behind "Details".
+// English refusal the model was written; it names what it tried now, folded. The
+// model's words never reach the row (Task B4 gives it the reason's own sentence).
 describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 	const failedEdit = (overrides: Partial<ToolCallSegment> = {}) =>
 		toolCall({
@@ -1543,7 +1560,7 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 			...overrides,
 		});
 
-	it("names what it tried and on what, as a failed row folded behind Details", () => {
+	it("names what it tried and on what, as a failed row with nothing to open", () => {
 		const item = buildToolActivityItem(
 			failedEdit(),
 			"k-failed-edit",
@@ -1554,7 +1571,7 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 		expect(item.verb).toBe("Couldn't edit:");
 		expect(item.object).toBe("Bécsi hétvége");
 		expect(item.title).toBe("Couldn't edit: Bécsi hétvége");
-		expect(item.meta).toBe("Details");
+		expect(item.meta).toBe("");
 		expect(item.pinned).toBe(false);
 		expect(item.alwaysOpen).toBe(false);
 		expect(item.artifact).toEqual({
@@ -1563,17 +1580,15 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 		});
 	});
 
-	it("keeps the model's words in the body and the parameters out of everything", () => {
+	it("keeps the model's words and the parameters out of everything", () => {
 		const item = buildToolActivityItem(
 			failedEdit(),
 			"k-failed-edit",
 			translate,
 		);
 
-		expect(item.body).toEqual({
-			kind: "error",
-			reason: expect.stringContaining("patch ops were malformed"),
-		});
+		expect(item.body).toBeNull();
+		expect(JSON.stringify(item)).not.toContain("patch ops were malformed");
 		expect(JSON.stringify(item)).not.toMatch(/\[object Object\]|Tool /);
 		expect(JSON.stringify([item.verb, item.object, item.title])).not.toMatch(
 			/0d394ede/,
@@ -1594,7 +1609,7 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 			expect(item.verb).toBe("Nem sikerült szerkeszteni:");
 			expect(item.object).toBe("Bécsi hétvége");
 			expect(item.title).toBe("Nem sikerült szerkeszteni: Bécsi hétvége");
-			expect(item.meta).toBe("Részletek");
+			expect(item.meta).toBe("");
 			expect(JSON.stringify([item.verb, item.object, item.title])).not.toMatch(
 				/Eszköz|0d394ede/,
 			);
@@ -1648,18 +1663,16 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 		expect(item.status).toBe("failed");
 		expect(item.verb).toBe("Couldn't edit");
 		expect(item.object).toBe("");
-		expect(item.meta).toBe("Details");
-		expect(item.body).toEqual({
-			kind: "error",
-			reason: "The request timed out.",
-		});
+		expect(item.meta).toBe("");
+		expect(item.body).toBeNull();
+		expect(JSON.stringify(item)).not.toContain("The request timed out.");
 		expect(item.artifact).toEqual({
 			id: "0d394ede-c37a-4238-9059-77d01300da4e",
 			failed: true,
 		});
 	});
 
-	it("has no Details to open when the call left no words", () => {
+	it("has nothing to open whether or not the call left words", () => {
 		const item = buildToolActivityItem(
 			failedEdit({ outputSummary: undefined }),
 			"k-failed-silent",
@@ -1717,7 +1730,7 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 		]);
 	});
 
-	it("never prints '[object Object]' for a list or an object argument of another tool", () => {
+	it("never shows a list or an object argument of another tool, as '[object Object]' or as JSON", () => {
 		const item = buildToolActivityItem(
 			toolCall({
 				name: "some_other_tool",
@@ -1728,15 +1741,8 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 			translate,
 		);
 
-		expect(item.body).toEqual({
-			kind: "generic",
-			args: [
-				{ key: "filters", value: '{"year":2026}' },
-				{ key: "ids", value: '["a","b"]' },
-				{ key: "note", value: "plain" },
-			],
-			result: null,
-		});
+		expect(item.body).toBeNull();
+		expect(JSON.stringify(item)).not.toMatch(/\[object Object\]|year|"a","b"/);
 	});
 });
 
@@ -1881,8 +1887,8 @@ describe("make_image rows", () => {
 			translate,
 		);
 		expect(refusal.body).toEqual({
-			kind: "error",
-			reason: "No picture server is set up.",
+			kind: "reason",
+			text: "No picture server is set up.",
 		});
 	});
 
@@ -2031,8 +2037,8 @@ describe("make_image rows", () => {
 			translate,
 		);
 		expect(noServer.body).toEqual({
-			kind: "error",
-			reason: "No picture server is set up.",
+			kind: "reason",
+			text: "No picture server is set up.",
 		});
 		const unreachable = buildToolActivityItem(
 			makeImageCall({
@@ -2047,8 +2053,8 @@ describe("make_image rows", () => {
 			translate,
 		);
 		expect(unreachable.body).toEqual({
-			kind: "error",
-			reason: "The picture server could not be reached.",
+			kind: "reason",
+			text: "The picture server could not be reached.",
 		});
 		// Even when the call itself is marked failed, the model's text stays out.
 		const failedStatus = buildToolActivityItem(
@@ -2095,7 +2101,7 @@ describe("make_image rows", () => {
 		);
 		expect(unreadable).toMatchObject({
 			status: "failed",
-			body: { kind: "error", reason: "This picture could not be read." },
+			body: { kind: "reason", text: "This picture could not be read." },
 		});
 	});
 
@@ -2118,9 +2124,8 @@ describe("make_image rows", () => {
 			status: "failed",
 			verb: "Picture not made",
 			body: {
-				kind: "error",
-				reason:
-					"H3 cannot make transparent pictures. Switch the Admin “Picture model” to Qwen.",
+				kind: "reason",
+				text: "H3 cannot make transparent pictures. Switch the Admin “Picture model” to Qwen.",
 			},
 		});
 		// The model's English instruction never becomes the person's row.
@@ -2150,8 +2155,8 @@ describe("make_image rows", () => {
 		expect(blocked).toMatchObject({
 			verb: "Picture blocked",
 			body: {
-				kind: "error",
-				reason: "It looked explicit, so it was not shown or kept.",
+				kind: "reason",
+				text: "It looked explicit, so it was not shown or kept.",
 			},
 		});
 		expect(JSON.stringify(blocked)).not.toContain(modelText);
@@ -2170,8 +2175,8 @@ describe("make_image rows", () => {
 		expect(unchecked).toMatchObject({
 			verb: "Picture blocked",
 			body: {
-				kind: "error",
-				reason: "The picture could not be checked, so it was not shown.",
+				kind: "reason",
+				text: "The picture could not be checked, so it was not shown.",
 			},
 		});
 
@@ -2185,7 +2190,7 @@ describe("make_image rows", () => {
 		);
 		expect(request).toMatchObject({
 			verb: "Picture not made",
-			body: { kind: "error", reason: "Explicit pictures are not made here." },
+			body: { kind: "reason", text: "Explicit pictures are not made here." },
 		});
 		expect(chatDict.hu["toolActivity.pictureBlocked"]).toBeTruthy();
 		expect(chatDict.hu["toolActivity.pictureNotMade"]).toBeTruthy();
@@ -2207,7 +2212,7 @@ describe("make_image rows", () => {
 		);
 		expect(item).toMatchObject({
 			status: "failed",
-			body: { kind: "error", reason: "The picture could not be made." },
+			body: { kind: "reason", text: "The picture could not be made." },
 		});
 		expect(JSON.stringify(item)).not.toContain("appear on its card");
 	});
@@ -2326,8 +2331,8 @@ describe("make_video rows", () => {
 			translate,
 		);
 		expect(refusal.body).toEqual({
-			kind: "error",
-			reason: "Videos can't be made right now.",
+			kind: "reason",
+			text: "Videos can't be made right now.",
 		});
 	});
 
@@ -2416,8 +2421,8 @@ describe("make_video rows", () => {
 			translate,
 		);
 		expect(unreachable.body).toEqual({
-			kind: "error",
-			reason: "Videos can't be made right now.",
+			kind: "reason",
+			text: "Videos can't be made right now.",
 		});
 		expect(JSON.stringify(unreachable)).not.toContain(modelText);
 
@@ -2430,8 +2435,8 @@ describe("make_video rows", () => {
 			translate,
 		);
 		expect(notConfigured.body).toEqual({
-			kind: "error",
-			reason: "Videos can't be made right now.",
+			kind: "reason",
+			text: "Videos can't be made right now.",
 		});
 
 		// A refusal (an explicit request, an unknown picture, or the envelope
@@ -2447,7 +2452,7 @@ describe("make_video rows", () => {
 			);
 			expect(refused).toMatchObject({
 				status: "failed",
-				body: { kind: "error", reason: "Couldn't make this one." },
+				body: { kind: "reason", text: "Couldn't make this one." },
 			});
 			expect(JSON.stringify(refused)).not.toContain(modelText);
 		}
@@ -2469,10 +2474,10 @@ describe("make_video rows", () => {
 		);
 		expect(blocked).toMatchObject({
 			verb: "The video was blocked",
-			meta: "Details",
+			meta: "",
 			body: {
-				kind: "error",
-				reason: "It looked explicit, so it isn't shown and wasn't kept.",
+				kind: "reason",
+				text: "It looked explicit, so it isn't shown and wasn't kept.",
 			},
 		});
 		expect(JSON.stringify(blocked)).not.toContain(modelText);
@@ -2491,8 +2496,8 @@ describe("make_video rows", () => {
 		expect(unchecked).toMatchObject({
 			verb: "The video was blocked",
 			body: {
-				kind: "error",
-				reason: "Videos are checked before they appear, so it wasn't kept.",
+				kind: "reason",
+				text: "Videos are checked before they appear, so it wasn't kept.",
 			},
 		});
 		expect(artifactsDict.hu["artifacts.video.row.blocked"]).toBeTruthy();
@@ -2513,7 +2518,7 @@ describe("make_video rows", () => {
 		);
 		expect(item).toMatchObject({
 			status: "failed",
-			body: { kind: "error", reason: "Couldn't make this one." },
+			body: { kind: "reason", text: "Couldn't make this one." },
 		});
 		expect(JSON.stringify(item)).not.toContain("still being made");
 	});

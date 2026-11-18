@@ -91,12 +91,10 @@ export type ToolActivityBody =
 			kind: "actions";
 			actions: { key: string; label: string; status: ToolActivityStatus }[];
 	  }
-	| { kind: "error"; reason: string }
-	| {
-			kind: "generic";
-			args: { key: string; value: string }[];
-			result: string | null;
-	  }
+	// One sentence, in the person's language, from a reason code's words (never
+	// from `outputSummary`, `metadata.error` or anything else written for the model
+	// or the log): what happened, once.
+	| { kind: "reason"; text: string }
 	// The file-production body is rendered by FileProductionCard.svelte (the
 	// reduced, body-only component); the job itself is threaded through the
 	// component prop rather than flattened here.
@@ -337,7 +335,6 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	"toolActivity.program",
 	"toolActivity.output",
 	"toolActivity.expandActivity",
-	"toolActivity.failureDetails",
 	"toolActivity.retriedOnce",
 	// The route card's step-by-step body (RouteItinerary.svelte) draws these;
 	// they ride the same resolution test rather than a second one of their own.
@@ -367,8 +364,6 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	"toolCalls.citedCount",
 	"toolCalls.readPagesCount",
 	"toolCalls.actionsCount",
-	"toolCalls.detailArguments",
-	"toolCalls.detailResult",
 	...ATLAS_ACTIVITY_I18N_KEYS,
 ];
 
@@ -379,22 +374,6 @@ function verb(
 	status: ToolActivityStatus,
 ): string {
 	return translate(VERB_KEYS[status === "running" ? running : settled]);
-}
-
-/**
- * A tool call's elapsed time, when the segment honestly carries one. No
- * server-side timing rides on a tool-call segment today, so this is silent
- * (returns null) unless a future `metadata.durationMs` shows up — never a
- * fabricated number.
- */
-export function toolElapsedLabel(
-	metadata: Record<string, string | number | boolean | null> | undefined,
-): string | null {
-	const raw = metadata?.durationMs;
-	if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return null;
-	if (raw < 1000) return `${Math.round(raw)} ms`;
-	const seconds = raw / 1000;
-	return seconds < 10 ? `${seconds.toFixed(1)} s` : `${Math.round(seconds)} s`;
 }
 
 /**
@@ -487,19 +466,6 @@ function imageReasonKey(
 			: null;
 	}
 	return "toolActivity.pictureReason.generic";
-}
-
-/** The failure reason a failed row's body carries — never invented. */
-export function toolFailureReason(segment: {
-	outputSummary?: string | null;
-	metadata?: Record<string, string | number | boolean | null>;
-}): string | null {
-	const fromMetadata = segment.metadata?.error;
-	if (typeof fromMetadata === "string" && fromMetadata.trim()) {
-		return fromMetadata.trim();
-	}
-	const summary = segment.outputSummary?.trim();
-	return summary ? summary : null;
 }
 
 /**
@@ -606,35 +572,6 @@ function memoryBullets(candidates: ToolEvidenceCandidate[]): string[] {
 		.slice(0, 8);
 }
 
-/** What a call's argument reads as: a list or an object is its JSON, never "[object Object]". */
-function argumentText(value: unknown): string {
-	if (value === null || value === undefined) return "";
-	if (typeof value === "object") {
-		try {
-			return JSON.stringify(value) ?? "";
-		} catch {
-			return "";
-		}
-	}
-	return String(value).trim();
-}
-
-function genericArguments(
-	input: Record<string, unknown>,
-): { key: string; value: string }[] {
-	return Object.entries(input ?? {})
-		.map(([key, value]) => [key, argumentText(value)] as const)
-		.filter(([, value]) => value.length > 0)
-		.map(([key, value]) => ({ key, value: value.slice(0, 500) }));
-}
-
-function genericBody(segment: ToolCallSegment): ToolActivityBody | null {
-	const args = genericArguments(segment.input);
-	const result = segment.outputSummary?.trim() || null;
-	if (args.length === 0 && !result) return null;
-	return { kind: "generic", args, result };
-}
-
 /**
  * Builds the view-model for one non-connector tool call.
  *
@@ -650,15 +587,17 @@ export function buildToolActivityItem(
 	translate: Translate,
 ): ToolActivityItem {
 	const item = buildSettledToolActivityItem(segment, key, translate);
-	// A failed create/edit names what it tried and keeps the model's words behind
-	// "Details" (its own item below); nothing else is added to it.
+	// A failed create/edit names what it tried and on what (its own item below);
+	// nothing else is added to it.
 	if (segment.status !== "failed" || item.artifact?.failed) return item;
 	// make_image and make_video word their own failure from a code, in the
 	// person's language.
 	if (segment.name === "make_image" || segment.name === "make_video")
 		return item;
+	// The failure's own text (`metadata.error`, `outputSummary`) is for the log and
+	// for the model: a row never shows it. The failed row says Failed and has
+	// nothing to open until its tool's sentence is drawn from the reason's code.
 	const failedMeta = translate("toolCalls.failed");
-	const reason = toolFailureReason(segment);
 	return {
 		...item,
 		meta: failedMeta,
@@ -668,7 +607,7 @@ export function buildToolActivityItem(
 		// Nothing failed is a deliverable, and nothing failed pins itself open.
 		pinned: false,
 		alwaysOpen: false,
-		body: reason ? { kind: "error", reason } : null,
+		body: null,
 	};
 }
 
@@ -776,10 +715,10 @@ function makeImageRow(
 			status: "failed",
 			verb: failedVerb,
 			object: title,
-			meta: reason ? translate("toolActivity.failureDetails") : "",
+			meta: "",
 			summaryLabel: failedVerb,
 			title: title ? `${failedVerb}: ${title}` : failedVerb,
-			body: reason ? { kind: "error", reason } : null,
+			body: reason ? { kind: "reason", text: reason } : null,
 		};
 	}
 	const doneVerb = translate(
@@ -921,10 +860,10 @@ function makeVideoRow(
 			status: "failed",
 			verb: failedVerb,
 			object: title,
-			meta: reason ? translate("toolActivity.failureDetails") : "",
+			meta: "",
 			summaryLabel: failedVerb,
 			title: title ? `${failedVerb}: ${title}` : failedVerb,
-			body: reason ? { kind: "error", reason } : null,
+			body: reason ? { kind: "reason", text: reason } : null,
 		};
 	}
 	const doneVerb = translate("artifacts.video.row.made");
@@ -976,7 +915,6 @@ function buildSettledToolActivityItem(
 ): ToolActivityItem {
 	const status = segment.status;
 	const iconType = getToolCallIconType(segment.name);
-	const elapsed = toolElapsedLabel(segment.metadata);
 	const base = {
 		key,
 		status,
@@ -994,7 +932,7 @@ function buildSettledToolActivityItem(
 		const sourcesMeta =
 			sources.length > 0
 				? translate("toolCalls.sourcesCount", { count: sources.length })
-				: (elapsed ?? "");
+				: "";
 		return {
 			...base,
 			verb: searchVerb,
@@ -1023,10 +961,10 @@ function buildSettledToolActivityItem(
 			...base,
 			verb: imageVerb,
 			object: query,
-			meta: elapsed ?? "",
+			meta: "",
 			summaryLabel: imageVerb,
 			title: query,
-			body: genericBody(segment),
+			body: null,
 		};
 	}
 
@@ -1054,7 +992,7 @@ function buildSettledToolActivityItem(
 			...base,
 			verb: verb(translate, "reading", "read", status),
 			object,
-			meta: elapsed ?? "",
+			meta: "",
 			summaryLabel: translate("toolCalls.readPagesCount", { count: 1 }),
 			summaryUnit: "pages",
 			summaryCount: 1,
@@ -1078,7 +1016,7 @@ function buildSettledToolActivityItem(
 			...base,
 			verb: pythonVerb,
 			object,
-			meta: elapsed ?? "",
+			meta: "",
 			summaryLabel: pythonVerb,
 			title: object,
 			body: program
@@ -1087,7 +1025,7 @@ function buildSettledToolActivityItem(
 						program,
 						output: segment.outputSummary?.trim() || null,
 					}
-				: genericBody(segment),
+				: null,
 		};
 	}
 
@@ -1114,7 +1052,7 @@ function buildSettledToolActivityItem(
 				: isTransit
 					? transitMeta(map, translate)
 					: mapMeta(map)
-			: (elapsed ?? "");
+			: "";
 		return {
 			...base,
 			verb: routeVerb,
@@ -1131,7 +1069,7 @@ function buildSettledToolActivityItem(
 						map,
 						summary: [object, meta].filter(Boolean).join(" · "),
 					}
-				: genericBody(segment),
+				: null,
 		};
 	}
 
@@ -1147,7 +1085,7 @@ function buildSettledToolActivityItem(
 			...base,
 			verb: skillVerb,
 			object: displayName,
-			meta: elapsed ?? "",
+			meta: "",
 			summaryLabel: `${skillVerb} ${displayName}`.trim(),
 			title: displayName,
 			body: description ? { kind: "text", text: description } : null,
@@ -1307,9 +1245,9 @@ function buildSettledToolActivityItem(
 		}
 		// A call that failed (a thrown error) or was refused (`ok: false`) and made
 		// no card (RC-A #2): the row says what was tried and on what, in the
-		// reader's language, red like any failed row, folded, with the model's own
-		// words (English, written for the model) behind "Details" and never the
-		// call's parameters. It used to fall through to the generic identity below:
+		// reader's language, red like any failed row, folded, and never shows the
+		// model's own words (English, written for the model) or the call's
+		// parameters. It used to fall through to the generic identity below:
 		// "Tool <id>", opened on `patches: [object Object]`.
 		if (status === "failed" || metadata?.ok === false) {
 			const failedVerb = translate(
@@ -1323,18 +1261,17 @@ function buildSettledToolActivityItem(
 				(artifactKind
 					? translate(`artifacts.type.${artifactKind}` as I18nKey)
 					: "");
-			const reason = toolFailureReason(segment);
 			return {
 				...base,
 				status: "failed",
 				verb: named ? `${failedVerb}:` : failedVerb,
 				object: named,
-				meta: reason ? translate("toolActivity.failureDetails") : "",
+				meta: "",
 				summaryLabel: failedVerb,
 				title: named ? `${failedVerb}: ${named}` : failedVerb,
 				pinned: false,
 				alwaysOpen: false,
-				body: reason ? { kind: "error", reason } : null,
+				body: null,
 				artifact: { id: artifactId ?? inputArtifactId ?? null, failed: true },
 			};
 		}
@@ -1357,15 +1294,12 @@ function buildSettledToolActivityItem(
 			...base,
 			verb: memoryVerb,
 			object,
-			meta: elapsed ?? "",
+			meta: "",
 			summaryLabel: `${memoryVerb} ${object}`.trim(),
 			summaryUnit: "memories",
 			summaryCount: bullets.length,
 			title: object,
-			body:
-				bullets.length > 0
-					? { kind: "bullets", items: bullets }
-					: genericBody(segment),
+			body: bullets.length > 0 ? { kind: "bullets", items: bullets } : null,
 		};
 	}
 
@@ -1381,10 +1315,10 @@ function buildSettledToolActivityItem(
 			...base,
 			verb: readVerb,
 			object,
-			meta: elapsed ?? "",
+			meta: "",
 			summaryLabel: readVerb,
 			title: object ? `${readVerb}: ${object}` : readVerb,
-			body: genericBody(segment),
+			body: null,
 		};
 	}
 
@@ -1393,10 +1327,10 @@ function buildSettledToolActivityItem(
 		...base,
 		verb: identity.verb,
 		object: identity.object,
-		meta: elapsed ?? "",
+		meta: "",
 		summaryLabel: identity.verb,
 		title: identity.title,
-		body: genericBody(segment),
+		body: null,
 	};
 }
 
