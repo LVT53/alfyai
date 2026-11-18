@@ -17,7 +17,7 @@
 set -u
 
 UNIT="${MINERU_WATCHDOG_UNIT:-mineru42.service}"
-URL="${MINERU_WATCHDOG_URL:-http://127.0.0.1:8006/v1/health}"
+URL="${MINERU_WATCHDOG_URL:-http://127.0.0.1:8004/v1/health}"
 # A unit that came up less than this long ago is not restarted again: an engine
 # that dies at once after every start needs a person, not a restart a minute.
 MIN_UP_S="${MINERU_WATCHDOG_MIN_UP_S:-300}"
