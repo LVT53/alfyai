@@ -31,7 +31,6 @@ export async function readReportHtml(params: {
 	if (
 		!served.ok ||
 		served.status !== 200 ||
-		!("previewProfile" in served) ||
 		served.previewProfile !== "standard-report"
 	)
 		return null;
