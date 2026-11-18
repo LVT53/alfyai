@@ -49,7 +49,7 @@ test.describe("The panel's names (review 276-279)", () => {
 		await openList(page, conversationId);
 
 		await expect(
-			page.getByRole("complementary", { name: "What this chat made" }),
+			page.getByRole("complementary", { name: "Chat Artifacts" }),
 		).toBeVisible();
 		const list = page.getByTestId("artifact-panel-list");
 		await expect(
@@ -90,7 +90,7 @@ test.describe("The panel's names (review 276-279)", () => {
 
 		await expect(
 			page.getByRole("complementary", {
-				name: "Amit ez a beszélgetés készített",
+				name: "A beszélgetés elemei",
 			}),
 		).toBeVisible();
 		const list = page.getByTestId("artifact-panel-list");

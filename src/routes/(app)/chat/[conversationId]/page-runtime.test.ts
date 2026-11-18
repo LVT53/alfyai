@@ -4206,7 +4206,7 @@ describe("chat page runtime integration", () => {
 				screen.getByTestId("artifact-count-dot-compact"),
 			).toBeInTheDocument();
 			expect(countButton).toHaveAccessibleName(
-				"Open what this chat made (1) — a change is waiting",
+				"Open Chat Artifacts (1) — a change is waiting",
 			);
 		});
 

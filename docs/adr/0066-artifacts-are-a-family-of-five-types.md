@@ -48,3 +48,6 @@ The load-bearing parts (the spec holds the detail):
   evidence being argued away.
 - **"Artifact" is never shown in the UI.** The interface says Document, App, Canvas, Slides — Hungarian:
   Dokumentum, Alkalmazás, Tábla, Diasor. The word stays an engineering term.
+  - *Amended 2026-11-18 (owner):* one exception. The chat's list of what it made is named "Chat Artifacts"
+    in English (the panel's title, the header button's label and the list's load error); it was "What this
+    chat made". The Hungarian is "A beszélgetés elemei", without the word. The kinds keep their own names.
