@@ -15,6 +15,7 @@ import {
 	type ReportReadingSource,
 } from "./controller";
 import { makeReportCopy, type ReportCopy } from "./report-bridge-host";
+import { NOTCH_MIN_GAP } from "./timeline";
 
 class FakeAudio extends EventTarget implements AudioLike {
 	src = "";
@@ -1418,7 +1419,9 @@ describe("reading a Document", () => {
 		expect(t.last().status).toBe("idle");
 	});
 
-	it("a long Document notches its headings; a reply notches every sentence", async () => {
+	// The owner, 2026-11-18: a long reply's line of dots was clutter. One rule
+	// (`drawnNotches` in `timeline.ts`) for a reply, a Document and a report.
+	it("a long Document notches its headings, and a long reply its headings or paragraphs, never crowded", async () => {
 		const section = (title: string, count: number) =>
 			`<h2>${title}</h2>${Array.from(
 				{ length: count },
@@ -1437,7 +1440,7 @@ describe("reading a Document", () => {
 		// "Getting there" is two words and joins its first paragraph; a heading of three
 		// words stands alone, so the sections start at sentences 0, 15 and 31 of 47.
 		expect(t.last().count).toBe(47);
-		expect(t.last().headingNotches).toEqual([0, 15, 31]);
+		expect(t.last().drawnNotches).toEqual([0, 15, 31]);
 
 		const r = setup();
 		mountReply(
@@ -1451,7 +1454,37 @@ describe("reading a Document", () => {
 		start(r, "m9");
 		await settle();
 		expect(r.last().count).toBe(45);
-		expect(r.last().headingNotches).toBeNull();
+		// Forty-five paragraphs of one sentence: their starts, thinned to stay 6 px apart.
+		const drawn = r.last().drawnNotches ?? [];
+		expect(drawn[0]).toBe(0);
+		expect(drawn.length).toBeGreaterThan(15);
+		expect(drawn.length).toBeLessThan(45);
+		const shares = r.last().notches;
+		drawn.slice(1).forEach((index, i) => {
+			expect(
+				(shares[index] ?? 0) - (shares[drawn[i] ?? 0] ?? 0),
+			).toBeGreaterThanOrEqual(NOTCH_MIN_GAP - 1e-9);
+		});
+
+		// The same reply under headings: the headings.
+		const h = setup();
+		mountReply(
+			"m10",
+			["Getting there by train", "Where we will stay", "What to pack"]
+				.map(
+					(title) =>
+						`<h2>${title}</h2>${Array.from(
+							{ length: 15 },
+							(_, i) =>
+								`<p>Paragraph ${i} under ${title} is written here, and it is long enough to stand alone.</p>`,
+						).join("")}`,
+				)
+				.join(""),
+		);
+		start(h, "m10");
+		await settle();
+		expect(h.last().count).toBe(48);
+		expect(h.last().drawnNotches).toEqual([0, 16, 32]);
 	});
 
 	it("a Document of more than 2,000 sentences goes on in a follow-on session, the same version named", async () => {
@@ -1695,7 +1728,7 @@ describe("reading a report", () => {
 		await settle();
 		t.audio.emit("playing");
 		expect(t.last().count).toBe(47);
-		expect(t.last().headingNotches).toEqual([0, 15, 31]);
+		expect(t.last().drawnNotches).toEqual([0, 15, 31]);
 	});
 
 	it("says whether a report can be read before anyone presses", async () => {

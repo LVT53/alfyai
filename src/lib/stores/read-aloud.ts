@@ -43,10 +43,11 @@ export type ReadAloudView = {
 	/** Each sentence's share of the text: where its notch sits. */
 	notches: number[];
 	/**
-	 * A long Document's or report's notches: the sentences that begin a heading, the only notches
-	 * its scrubber draws (`headingNotches` in `timeline.ts`). Null draws every sentence's.
+	 * The sentences whose notch the scrubber draws (`drawnNotches` in `timeline.ts`): every
+	 * sentence's in a short reading, a long one's headings or paragraphs, never crowded. Null
+	 * draws every sentence's. Every sentence is still a place to land.
 	 */
-	headingNotches: number[] | null;
+	drawnNotches: number[] | null;
 	/** The share of the text read: the sentence and the word within it (1 when finished). */
 	progress: number;
 	/** Listening time so far, `m:ss`. */
@@ -76,7 +77,7 @@ export const idleReadAloudView: ReadAloudView = {
 	sentence: 0,
 	count: 0,
 	notches: [],
-	headingNotches: null,
+	drawnNotches: null,
 	progress: 0,
 	elapsed: "0:00",
 	total: "0:00",

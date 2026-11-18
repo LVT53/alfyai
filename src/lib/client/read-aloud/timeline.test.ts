@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ScriptSentence, SpeechScript } from "./speech-script";
 import {
+	drawnNotches,
 	estimateSeconds,
 	formatClock,
-	HEADING_NOTCHES_PAST,
-	headingNotches,
+	NOTCH_EVERY_SENTENCE_UP_TO,
+	NOTCH_MIN_GAP,
 	notchAtShare,
 	notches,
 	PARAGRAPH_GAP_SECONDS,
@@ -255,31 +256,101 @@ describe("estimates and clocks", () => {
 	});
 });
 
-describe("a long Document's notches", () => {
-	/** `count` sentences of five words, those at `headings` beginning a heading. */
-	const longScript = (count: number, headings: number[]) =>
+// The owner, 2026-11-18, on long replies: "too many dots in the timeline and they
+// just look like clutter". One rule for a reply, a Document and a report.
+describe("the notches a scrubber draws", () => {
+	/** `count` sentences of five words; those at `headings` begin a heading, those at `paragraphs` a paragraph. */
+	const longScript = (
+		count: number,
+		options: { headings?: number[]; paragraphs?: number[] } = {},
+	) =>
 		scriptOf(
 			Array.from({ length: count }, (_, index) => ({
 				tokens: ["One", "two", "three", "four", "five."],
-				heading: headings.includes(index),
-				paragraphStart: headings.includes(index),
+				heading: options.headings?.includes(index) ?? false,
+				paragraphStart:
+					index === 0 ||
+					(options.paragraphs?.includes(index) ?? false) ||
+					(options.headings?.includes(index) ?? false),
 			})),
 		);
+	/** The share of the line between each drawn notch and the one before it. */
+	const gaps = (of: SpeechScript, drawn: readonly number[]) => {
+		const shares = notches(of);
+		return drawn
+			.slice(1)
+			.map((index, i) => (shares[index] ?? 0) - (shares[drawn[i] ?? 0] ?? 0));
+	};
+	const every = (count: number) => Array.from({ length: count }, (_, i) => i);
 
-	it("past 40 sentences, only the sentences that begin a heading are notched", () => {
-		expect(HEADING_NOTCHES_PAST).toBe(40);
-		expect(headingNotches(longScript(41, [0, 12, 30]))).toEqual([0, 12, 30]);
-		expect(headingNotches(longScript(300, [5, 120, 299]))).toEqual([
+	it("draws every sentence's notch up to 28 sentences, when none would crowd another", () => {
+		expect(NOTCH_EVERY_SENTENCE_UP_TO).toBe(28);
+		expect(drawnNotches(longScript(28))).toBeNull();
+		expect(drawnNotches(longScript(3))).toBeNull();
+		// Past it, one paragraph's sentences are thinned like any crowd.
+		expect(drawnNotches(longScript(40))).not.toBeNull();
+	});
+
+	it("past 28 sentences, draws the headings' notches", () => {
+		expect(drawnNotches(longScript(41, { headings: [0, 12, 30] }))).toEqual([
+			0, 12, 30,
+		]);
+		expect(drawnNotches(longScript(300, { headings: [5, 120, 299] }))).toEqual([
 			5, 120, 299,
 		]);
 	});
 
-	it("up to 40 sentences, every sentence keeps its notch", () => {
-		expect(headingNotches(longScript(40, [0, 12, 30]))).toBeNull();
-		expect(headingNotches(longScript(3, [0]))).toBeNull();
+	it("past 28 sentences with no heading, or only one, draws the paragraphs' starts", () => {
+		const paragraphs = [0, 10, 20, 30, 40, 50];
+		expect(drawnNotches(longScript(60, { paragraphs }))).toEqual(paragraphs);
+		expect(drawnNotches(longScript(60, { headings: [0], paragraphs }))).toEqual(
+			paragraphs,
+		);
 	});
 
-	it("a long Document with no heading draws no notch, rather than a ruler of them", () => {
-		expect(headingNotches(longScript(80, []))).toEqual([]);
+	it("never draws two notches closer than 6 px of a phone's narrowest line, 170 px: a crowd is thinned evenly", () => {
+		expect(NOTCH_MIN_GAP).toBe(6 / 170);
+		for (const [name, of] of [
+			["a paragraph a sentence", longScript(300, { paragraphs: every(300) })],
+			["a heading a sentence", longScript(300, { headings: every(300) })],
+			["one long paragraph", longScript(300)],
+			[
+				"many headings",
+				longScript(1000, { headings: every(1000).filter((i) => i % 5 === 0) }),
+			],
+		] as const) {
+			const drawn = drawnNotches(of) ?? [];
+			expect(drawn[0], name).toBe(0);
+			expect(drawn.length, name).toBeGreaterThan(20);
+			expect(drawn.length, name).toBeLessThanOrEqual(1 / NOTCH_MIN_GAP + 1);
+			for (const gap of gaps(of, drawn))
+				expect(gap, name).toBeGreaterThanOrEqual(NOTCH_MIN_GAP - 1e-9);
+			// Evenly: no stretch of the line is left far emptier than the gap.
+			for (const gap of gaps(of, drawn))
+				expect(gap, name).toBeLessThan(NOTCH_MIN_GAP * 2);
+		}
+	});
+
+	it("thins a short reply's notches too, where short sentences would crowd", () => {
+		const long = Array.from({ length: 40 }, () => "word");
+		const of = scriptOf([
+			{ tokens: long },
+			{ tokens: ["Yes."] },
+			{ tokens: ["No."] },
+			{ tokens: ["Maybe."] },
+			{ tokens: long },
+		]);
+		const drawn = drawnNotches(of);
+		expect(drawn).not.toBeNull();
+		expect(drawn?.[0]).toBe(0);
+		for (const gap of gaps(of, drawn ?? []))
+			expect(gap).toBeGreaterThanOrEqual(NOTCH_MIN_GAP - 1e-9);
+	});
+
+	it("only draws: every sentence is still a place to land", () => {
+		const of = longScript(300);
+		expect(notches(of)).toHaveLength(300);
+		expect(sentenceAtShare(of, 0.5)).toBe(150);
+		expect(sentenceAtShare(of, 1)).toBe(299);
 	});
 });
