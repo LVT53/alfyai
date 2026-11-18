@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { speakWord, type WordKind } from "$lib/shared/read-aloud/spoken-forms";
 import {
 	type CheckedWord,
+	createReportKeyCache,
 	letterKey,
 	replyKey,
+	reportKey,
 	wordsFitReply,
+	wordsFitReport,
 } from "./containment";
 
 const said = (
@@ -342,5 +345,114 @@ describe("letter keys", () => {
 		// An entity the browser does not know stays as text; a number that is no
 		// character becomes the replacement character, which is no letter.
 		expect(replyKey("&unknown; &#99999999;")).toBe("unknown");
+	});
+});
+
+// A standard report is HTML the app's own renderer made, every `<` of its text
+// escaped: the words read from the page's copy must be in what its markup shows.
+describe("the containment check for a report", () => {
+	const REPORT = `<!doctype html><html><head><title>Weekend report</title><style>.report-content{font-family:Garamondish}</style></head><body><article id="report-content"><h1>Weekend report</h1><p>The train leaves at nine &amp; arrives at noon<button class="basis-marker" data-note="Secretword"><span class="basis-tooltip">Supported claim</span></button> from the main station.</p><p>H<sub>2</sub>O is water.</p><!-- Hiddencomment --><img alt="" src="data:image/png;base64,QWxwaGFiZXRzb3VwWnp6"></article><script>const greeting = "Scriptword";</script></body></html>`;
+
+	it("accepts the words the report shows, its entities decoded, across inline markup", () => {
+		expect(
+			wordsFitReport(REPORT, [
+				en(said("Weekend"), said("report")),
+				en(
+					said("The"),
+					said("train"),
+					said("leaves"),
+					said("at"),
+					said("nine"),
+					said("arrives"),
+					said("at"),
+					said("noon"),
+					said("from"),
+					said("the"),
+					said("main"),
+					said("station."),
+				),
+				en(said("H2O"), said("is"), said("water.")),
+			]),
+		).toBeNull();
+	});
+
+	it("refuses words found only in its scripts, styles, comments, attributes or pictures", () => {
+		for (const word of [
+			"Scriptword",
+			"Garamondish",
+			"Hiddencomment",
+			"Secretword",
+			"basis",
+			"QWxwaGFiZXRzb3VwWnp6",
+		])
+			expect(wordsFitReport(REPORT, [en(said(word))]), word).toBe(0);
+	});
+
+	it("refuses made-up words, and words out of order", () => {
+		expect(
+			wordsFitReport(REPORT, [en(said("The"), said("plane"), said("leaves."))]),
+		).toBe(0);
+		expect(
+			wordsFitReport(REPORT, [
+				en(said("water.")),
+				en(said("The"), said("train.")),
+			]),
+		).toBe(1);
+	});
+
+	it("keys what the markup shows: tags, comments, scripts and styles out, entities decoded", () => {
+		expect(
+			reportKey(
+				'<p>Salt &amp; <b>pep</b>per<!-- x --></p><style>p{}</style><script>y()</script><p data-z="q">H<sub>2</sub>O</p>',
+			),
+		).toBe("saltpepperh2o");
+	});
+});
+
+// Security review M4: every start, jump, resume and retry of a report's reading
+// checks its words against the same report, which can be over 12 MB, and keying it
+// is the costly part. The key is kept by the report's bytes, bounded.
+describe("a report's key, kept", () => {
+	it("keys the same bytes once, and other bytes anew", () => {
+		const key = vi.fn((html: string) => `k${html.length}`);
+		const keyOf = createReportKeyCache({ limit: 4, maxChars: 1000, key });
+		expect(keyOf("<p>a</p>")).toBe("k8");
+		expect(keyOf("<p>a</p>")).toBe("k8");
+		expect(key).toHaveBeenCalledTimes(1);
+		expect(keyOf("<p>bb</p>")).toBe("k9");
+		expect(key).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps at most so many reports, the one read longest ago going first", () => {
+		const key = vi.fn((html: string) => html.toUpperCase());
+		const keyOf = createReportKeyCache({ limit: 2, maxChars: 1000, key });
+		keyOf("a");
+		keyOf("b");
+		keyOf("a");
+		keyOf("c");
+		key.mockClear();
+		keyOf("a");
+		keyOf("c");
+		expect(key).not.toHaveBeenCalled();
+		keyOf("b");
+		expect(key).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps at most so many characters of keys, and never a key that alone is more", () => {
+		const key = vi.fn((html: string) => html);
+		const keyOf = createReportKeyCache({ limit: 10, maxChars: 5, key });
+		keyOf("abc");
+		keyOf("de");
+		keyOf("fg");
+		key.mockClear();
+		keyOf("de");
+		keyOf("fg");
+		expect(key).not.toHaveBeenCalled();
+		keyOf("abc");
+		expect(key).toHaveBeenCalledTimes(1);
+		const huge = "x".repeat(6);
+		keyOf(huge);
+		keyOf(huge);
+		expect(key).toHaveBeenCalledTimes(3);
 	});
 });

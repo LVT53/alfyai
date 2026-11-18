@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 // `$lib/client/api/http` raises the shell's signed-out row on an expired
 // session, and this module now reads its error bodies through it.
 
-import { buildFileServingResponseHeaders } from "$lib/server/services/file-serving-response-policy";
+import {
+	buildFileServingResponseHeaders,
+	standardReportPreviewCsp,
+} from "$lib/server/services/file-serving-response-policy";
 import {
 	allowsTrustedHtmlPreviewRuntime,
 	loadPreviewRuntime,
@@ -20,8 +23,8 @@ function makeFetchResponse(blob: Blob, init: ResponseInit = {}) {
 	} as Response;
 }
 
-const STANDARD_REPORT_CSP =
-	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+// The report's own policy, as the server builds it: its scripts by their hashes.
+const STANDARD_REPORT_CSP = standardReportPreviewCsp();
 
 function expectReady(
 	result: PreviewRuntimeResult,
@@ -211,6 +214,41 @@ describe("preview runtime", () => {
 			true,
 		);
 		expect(allowsTrustedHtmlPreviewRuntime(header(undefined))).toBe(false);
+	});
+
+	// Security review I1: the report runs only scripts the policy names by hash. A
+	// header that lets any inline script run is not the report's any more, nor one
+	// that names a script by anything but its hash, nor one with any other directive.
+	it("knows the report's policy by its shape: its scripts by hashes alone, every other directive exact", () => {
+		const hash = "'sha256-YnJpZGdlYnJpZGdlYnJpZGdlYnJpZGdlYnJpZGdlYnI='";
+		const shaped = (scripts: string, more = "") =>
+			`default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src ${scripts}; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'${more}`;
+		expect(allowsTrustedHtmlPreviewRuntime(shaped(hash))).toBe(true);
+		expect(
+			allowsTrustedHtmlPreviewRuntime(
+				shaped(`${hash} 'unsafe-hashes' 'sha384-${"A".repeat(64)}'`),
+			),
+		).toBe(true);
+		expect(
+			allowsTrustedHtmlPreviewRuntime(standardReportPreviewCsp([hash])),
+		).toBe(true);
+		for (const policy of [
+			// The policy reports were served with before: any inline script ran.
+			shaped("'unsafe-inline'"),
+			shaped(`${hash} 'unsafe-inline'`),
+			shaped(`${hash} 'self'`),
+			shaped(`${hash} https:`),
+			shaped(`${hash} 'strict-dynamic'`),
+			shaped(`${hash} 'unsafe-eval'`),
+			shaped(`${hash} 'nonce-abc'`),
+			shaped("'unsafe-hashes'"),
+			shaped(""),
+			shaped(hash, "; connect-src *"),
+			shaped(hash, "; script-src-attr 'unsafe-inline'"),
+			shaped(hash).replace("; frame-ancestors 'self'", ""),
+			shaped(hash).replace("img-src data:", "img-src data: https:"),
+		])
+			expect(allowsTrustedHtmlPreviewRuntime(policy), policy).toBe(false);
 	});
 
 	it("is not fooled by a policy that has the right words and more: the sources must be exactly the report's", () => {

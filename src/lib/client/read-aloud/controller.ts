@@ -14,8 +14,9 @@
  *   end is not: everything was made, and the audio plays out);
  * - a jump, a resume after a long pause and a retry are new sessions.
  *
- * It reads a reply (found by its message ids) or a Document (the panel's Document body hands it a
- * `DocumentReadingSource`): what it reads is a `ReadingTarget`, named in the machine by its key.
+ * It reads a reply (found by its message ids), a Document (the panel's Document body hands it a
+ * `DocumentReadingSource`) or a standard report (the panel's report preview hands it a
+ * `ReportReadingSource`): what it reads is a `ReadingTarget`, named in the machine by its key.
  */
 
 import { get } from "svelte/store";
@@ -34,6 +35,7 @@ import {
 	SERVER_UPDATE_WATCH_MAX_MS,
 	SERVER_UPDATE_WATCH_POLL_MS,
 } from "$lib/client/server-update-watch";
+import type { ReportAddress } from "$lib/shared/read-aloud/report-address";
 import { MAX_SENTENCES_PER_SESSION } from "$lib/shared/read-aloud/session-limits";
 import { silentMp3DataUri } from "$lib/shared/read-aloud/silent-mp3";
 import { type ReadAloudView, setReadAloudView } from "$lib/stores/read-aloud";
@@ -105,7 +107,37 @@ export type DocumentTarget = {
 	source: DocumentReadingSource;
 };
 
-export type ReadingTarget = ReplyTarget | DocumentTarget;
+/**
+ * What the panel's report preview hands the controller to read a standard report
+ * (`ReportReadAloud.svelte`): the page's own inert copy of the report, which is what
+ * is read, and the report's frame, which is reached only by message
+ * (`report-bridge-host.ts`): the frame never hands the page a word.
+ */
+export type ReportReadingSource = {
+	/** The copy's content (`#report-content`), or null when the report is not shown any more. */
+	root(): Element | null;
+	/** The report's chrome (`REPORT_CHROME`: its source chips, tooltips, Sources): never read. */
+	readonly skip: string;
+	/** Changes when another copy of the report is loaded: the reading then stops. */
+	revision(): unknown;
+	/**
+	 * Brings a place into view in the frame: the ranges, over the copy, of the sentence being
+	 * read (⌖, "center") or of a drag's target ("reveal").
+	 */
+	focus(ranges: readonly Range[], mode: "center" | "reveal"): void;
+};
+
+/**
+ * A standard report open in the panel, named by the preview that showed it: its chat
+ * file (opened from a chat) or its library item (opened from the Knowledge library).
+ */
+export type ReportTarget = {
+	kind: "report";
+	report: ReportAddress;
+	source: ReportReadingSource;
+};
+
+export type ReadingTarget = ReplyTarget | DocumentTarget | ReportTarget;
 
 export type StartRequest = ReadingTarget & {
 	/** Read from here: the selection's start. */
@@ -117,27 +149,43 @@ export function documentReadingKey(artifactId: string): string {
 	return `document:${artifactId}`;
 }
 
-/** What the machine and the view name a reading by: a reply's message id, or a Document's key. */
+/** A report's reading key: what the machine and the view name its reading by. */
+export function reportReadingKey(report: ReportAddress): string {
+	return "fileId" in report
+		? `report:${report.fileId}`
+		: `report:library:${report.artifactId}`;
+}
+
+/** What the machine and the view name a reading by: a reply's message id, or a Document's or a report's key. */
 export function readingKey(target: ReadingTarget): string {
-	return target.kind === "document"
-		? documentReadingKey(target.artifactId)
-		: target.messageId;
+	if (target.kind === "document") return documentReadingKey(target.artifactId);
+	if (target.kind === "report") return reportReadingKey(target.report);
+	return target.messageId;
+}
+
+/** A report's address, its one key alone. */
+function addressOf(report: ReportAddress): ReportAddress {
+	return "fileId" in report
+		? { fileId: report.fileId }
+		: { artifactId: report.artifactId };
 }
 
 function targetOf(r: StartRequest): ReadingTarget {
-	return r.kind === "document"
-		? {
-				kind: "document",
-				artifactId: r.artifactId,
-				conversationId: r.conversationId,
-				source: r.source,
-			}
-		: {
-				kind: "reply",
-				conversationId: r.conversationId,
-				messageId: r.messageId,
-				segmentIds: [...r.segmentIds],
-			};
+	if (r.kind === "document")
+		return {
+			kind: "document",
+			artifactId: r.artifactId,
+			conversationId: r.conversationId,
+			source: r.source,
+		};
+	if (r.kind === "report")
+		return { kind: "report", report: addressOf(r.report), source: r.source };
+	return {
+		kind: "reply",
+		conversationId: r.conversationId,
+		messageId: r.messageId,
+		segmentIds: [...r.segmentIds],
+	};
 }
 
 export type Readability =
@@ -501,7 +549,7 @@ export function createReadAloudController(
 	}
 
 	function rootsOf(target: ReadingTarget): Element[] | null {
-		if (target.kind === "document") {
+		if (target.kind !== "reply") {
 			const root = target.source.root();
 			return root ? [root] : null;
 		}
@@ -515,7 +563,7 @@ export function createReadAloudController(
 	}
 
 	const skipOf = (target: ReadingTarget) =>
-		target.kind === "document" ? target.source.skip : undefined;
+		target.kind === "reply" ? undefined : target.source.skip;
 
 	const codeBlocksOf = (roots: readonly Element[]) =>
 		roots.flatMap((root) => [...root.querySelectorAll(".code-block, pre")]);
@@ -539,9 +587,7 @@ export function createReadAloudController(
 	function setScript(target: Reading, script: SpeechScript | null) {
 		target.script = script;
 		target.revision =
-			target.target.kind === "document"
-				? target.target.source.revision()
-				: null;
+			target.target.kind === "reply" ? null : target.target.source.revision();
 		target.anchors = script
 			? script.sentences.flatMap((sentence) => {
 					const node = sentence.ranges[0]?.startContainer;
@@ -571,7 +617,7 @@ export function createReadAloudController(
 	function checkStale() {
 		if (!reading || state.status === "idle") return;
 		const target = reading.target;
-		if (target.kind === "document") {
+		if (target.kind !== "reply") {
 			if (
 				!target.source.root() ||
 				(reading.script !== null &&
@@ -732,6 +778,9 @@ export function createReadAloudController(
 				messageId: target.messageId,
 				sentences: words,
 			};
+		// A report is named by the preview that showed it: the server reads it as that preview does.
+		if (target.kind === "report")
+			return { report: addressOf(target.report), sentences: words };
 		await target.source.settle();
 		const version = target.source.version();
 		if (version === null) return null;
@@ -1122,7 +1171,9 @@ export function createReadAloudController(
 			count: script?.sentences.length ?? 0,
 			notches: script ? notches(script) : [],
 			headingNotches:
-				script && reads?.kind === "document" ? headingNotches(script) : null,
+				script && (reads?.kind === "document" || reads?.kind === "report")
+					? headingNotches(script)
+					: null,
 			progress,
 			elapsed: formatClock(elapsed / speed),
 			total: formatClock(total.seconds / speed),
@@ -1163,7 +1214,8 @@ export function createReadAloudController(
 		lastMarksAnchor = view.marks?.sentence[0];
 		deps.setView(view);
 		// The overlay cannot show through code's background: code is marked by highlights.
-		paintCodeMarks(view);
+		// A report's ranges are over the page's inert copy: the frame draws its marks itself.
+		paintCodeMarks(reads?.kind === "report" ? { ...view, marks: null } : view);
 	}
 	let lastMarksAnchor: Range | undefined;
 
@@ -1196,9 +1248,11 @@ export function createReadAloudController(
 		if (!reading || !sentence) return;
 		const ranges = uniqueRanges(sentence.ranges);
 		const rect = () => unionRect(ranges);
-		// A Document scrolls in its panel; a reply, in the thread.
+		// A Document scrolls in its panel, a report in its frame; a reply, in the thread.
 		if (reading.target.kind === "document")
 			reading.target.source.focus(rect, mode);
+		else if (reading.target.kind === "report")
+			reading.target.source.focus(ranges, mode);
 		else deps.requestFocus(rect, mode);
 	}
 
@@ -1286,9 +1340,9 @@ export function createReadAloudController(
 				(root) => (root.textContent ?? "").trim() === "",
 			);
 			if (empty)
-				return target.kind === "document"
-					? { kind: "nothing" }
-					: { kind: "unknown" };
+				return target.kind === "reply"
+					? { kind: "unknown" }
+					: { kind: "nothing" };
 			let detector: Detect;
 			try {
 				detector = await ensureDetector();

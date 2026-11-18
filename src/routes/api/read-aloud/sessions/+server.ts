@@ -12,21 +12,25 @@ import {
 	openReading,
 	ReadingSuperseded,
 	readingRequestSchema,
+	readReportHtml,
 	resolveReadingVoices,
 	SpeechRefused,
 	speechSentencesFor,
 	takeOpenTicket,
 	wordsFitReply,
+	wordsFitReport,
 } from "$lib/server/services/read-aloud";
 import type { RequestHandler } from "./$types";
 
 /**
- * Starts a reading of a reply or a Document: checks that the person may read it
- * (they own the reply's conversation; the Document passes the panel's own scoped
- * read), that every written word occurs in its text in order (the reply's, or the
- * Document version's the panel shows) and that its tokens are the shared
- * dictionary's reading of it, then opens a session on the speech service. The
- * answers are in the plan's browser-to-app contract.
+ * Starts a reading of a reply, a Document or a standard report: checks that the
+ * person may read it (they own the reply's conversation; the Document passes the
+ * panel's own scoped read; the report, the own read of the preview the panel showed
+ * it by: its chat file's, or its library item's),
+ * that every written word occurs in its text in order (the reply's, the Document
+ * version's the panel shows, or what the report's markup shows) and that its
+ * tokens are the shared dictionary's reading of it, then opens a session on the
+ * speech service. The answers are in the plan's browser-to-app contract.
  */
 export const POST: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
@@ -47,7 +51,26 @@ export const POST: RequestHandler = async (event) => {
 	const request = parsed.data;
 	const { sentences } = request;
 
-	if ("document" in request) {
+	if ("report" in request) {
+		// The report as the panel's preview serves it to this person, by that preview's
+		// own rules (a chat file's, or a library item's): another person's report, and
+		// anything the preview does not serve as a standard report, answer as one that
+		// does not exist.
+		const html = await readReportHtml({
+			userId: user.id,
+			report: request.report,
+		});
+		if (html === null) return createJsonErrorResponse("not_found", 404);
+		const outside = wordsFitReport(html, sentences);
+		if (outside !== null) {
+			// The index and the count only: never a word of the request or the report.
+			console.warn("[READ_ALOUD] a request is not in its report", {
+				sentence: outside,
+				sentences: sentences.length,
+			});
+			return createJsonErrorResponse("not_in_report", 422);
+		}
+	} else if ("document" in request) {
 		// The version the panel shows, through the panel's own access rules: another
 		// person's Document, an incognito chat's from outside it and a version it
 		// does not have all answer as one that does not exist.

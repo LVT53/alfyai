@@ -3,6 +3,7 @@
 // written word of a request must occur in the reply's text, in order, and its
 // tokens must be the shared dictionary's reading of it.
 
+import { createHash } from "node:crypto";
 import { decodeHTMLStrict } from "entities";
 import {
 	addressHost,
@@ -100,8 +101,92 @@ export function replyKey(markdown: string): string {
 }
 
 /**
+ * The letter key of a standard report's HTML (`renderers/standard-report-html.ts`,
+ * read aloud's report target): the text its markup shows, with its comments,
+ * scripts, styles, templates and drawings taken out and every tag with its
+ * attributes (so a picture's `data:` address too), then its entities decoded as
+ * the browser decodes them. The report's renderer escapes every `<` of its text,
+ * so whatever looks like a tag is markup, never text. A tag is taken out without a
+ * space, as `stripInline` does, so a word with markup inside it keeps its letters
+ * together (`H<sub>2</sub>O`).
+ */
+export function reportKey(html: string): string {
+	const shown = html
+		.replace(/<!--[\s\S]*?-->/gu, "")
+		.replace(
+			/<(script|style|template|noscript|svg)\b[^>]*>[\s\S]*?<\/\1\s*>/giu,
+			"",
+		)
+		.replace(/<[!/?]?[A-Za-z][^<>]*>/gu, "");
+	return letterKey(decodeHTMLStrict(shown));
+}
+
+type CheckedSentences = ReadonlyArray<{
+	language: "en" | "hu";
+	words: readonly CheckedWord[];
+}>;
+
+/** `wordsFitKey` against a reply's Markdown. */
+export function wordsFitReply(
+	replyMarkdown: string,
+	sentences: CheckedSentences,
+): number | null {
+	return wordsFitKey(replyKey(replyMarkdown), sentences);
+}
+
+/**
+ * A report's letter key, kept by the sha256 of its bytes (security review M4): every
+ * start, jump, resume and retry of a reading checks its words against the same
+ * report, which can be over 12 MB, and keying it is the costly part. At most `limit`
+ * reports and `maxChars` characters of keys are kept, the one read longest ago going
+ * first; a key longer than `maxChars` alone is never kept. In memory only.
+ */
+export function createReportKeyCache(options: {
+	limit: number;
+	maxChars: number;
+	key?: (html: string) => string;
+}): (html: string) => string {
+	const keyOf = options.key ?? reportKey;
+	const keys = new Map<string, string>();
+	let chars = 0;
+	return (html) => {
+		const digest = createHash("sha256").update(html, "utf8").digest("base64");
+		const kept = keys.get(digest);
+		if (kept !== undefined) {
+			keys.delete(digest);
+			keys.set(digest, kept);
+			return kept;
+		}
+		const key = keyOf(html);
+		if (key.length > options.maxChars) return key;
+		keys.set(digest, key);
+		chars += key.length;
+		for (const [oldest, value] of keys) {
+			if (keys.size <= options.limit && chars <= options.maxChars) break;
+			keys.delete(oldest);
+			chars -= value.length;
+		}
+		return key;
+	};
+}
+
+/** The reports a reading may be of right now: a handful, at a few MB of key each at most. */
+const keptReportKey = createReportKeyCache({
+	limit: 16,
+	maxChars: 32_000_000,
+});
+
+/** `wordsFitKey` against a standard report's HTML: the words read from the page's copy of it. */
+export function wordsFitReport(
+	reportHtml: string,
+	sentences: CheckedSentences,
+): number | null {
+	return wordsFitKey(keptReportKey(reportHtml), sentences);
+}
+
+/**
  * Walks the words of every sentence in order. A word that is not a list number
- * has its letters found in the reply at or after where the previous word's
+ * has its letters found in the text at or after where the previous word's
  * letters ended (a word with no letters counts as found); a list number is not
  * searched, because the renderer numbers a list and Markdown may write "1." for
  * every item, but it must look like one. Every word's tokens must read, ignoring
@@ -109,14 +194,10 @@ export function replyKey(markdown: string): string {
  * Returns null when every word passes, else the index of the first sentence
  * that holds a word that does not.
  */
-export function wordsFitReply(
-	replyMarkdown: string,
-	sentences: ReadonlyArray<{
-		language: "en" | "hu";
-		words: readonly CheckedWord[];
-	}>,
+function wordsFitKey(
+	reply: string,
+	sentences: CheckedSentences,
 ): number | null {
-	const reply = replyKey(replyMarkdown);
 	let cursor = 0;
 	for (let index = 0; index < sentences.length; index++) {
 		const sentence = sentences[index];

@@ -21,6 +21,8 @@ export const GET: RequestHandler = async (event) => {
 		fileId,
 		mode: "preview",
 		...(rangeHeader ? { rangeHeader } : {}),
+		// A standard report gets read aloud's bridge, posting to this origin alone.
+		bridgeOrigin: event.url.origin,
 	});
 	if (!result.ok) {
 		return json({ error: result.error }, { status: result.status });

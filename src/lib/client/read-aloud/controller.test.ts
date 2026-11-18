@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ServerHealth } from "$lib/client/api/health";
 import { ApiError } from "$lib/client/api/http";
 import type { ReadingStart } from "$lib/client/api/read-aloud";
+import { REPORT_CHROME } from "$lib/shared/read-aloud/report-units";
 import type { ReadAloudView } from "$lib/stores/read-aloud";
 import {
 	type AudioLike,
@@ -11,7 +12,9 @@ import {
 	type ReadAloudController,
 	type ReadAloudDeps,
 	type ReplyTarget,
+	type ReportReadingSource,
 } from "./controller";
+import { makeReportCopy, type ReportCopy } from "./report-bridge-host";
 
 class FakeAudio extends EventTarget implements AudioLike {
 	src = "";
@@ -1510,5 +1513,216 @@ describe("reading a Document", () => {
 				),
 			),
 		).toEqual({ kind: "noVoice", language: "de" });
+	});
+});
+
+// ---------------------------------------------------------------------------
+// A standard report (the panel's report preview hands the controller its inert copy)
+// ---------------------------------------------------------------------------
+
+/**
+ * What `ReportReadAloud.svelte` hands the controller: the page's own inert copy of
+ * the report, and the frame's scroll, reached by message.
+ */
+class FakeReportSource implements ReportReadingSource {
+	readonly skip = REPORT_CHROME;
+	alive = true;
+	focus = vi.fn();
+	constructor(public copy: ReportCopy) {}
+	root() {
+		return this.alive ? this.copy.root : null;
+	}
+	revision() {
+		return this.copy;
+	}
+}
+
+const REPORT_PAGE = `<!doctype html><html><head><style>.report-content{color:#222}</style></head><body><aside class="report-sidebar"><p>Sections</p></aside><article class="report-content" id="report-content"><h1 class="report-title">Weekend report</h1><section class="report-section"><h2>Getting there</h2><p>The train leaves at nine in the morning<button type="button" class="basis-marker"><span class="basis-tooltip" role="tooltip">Supported claim, from the timetable.</span></button> from the main station.</p><p>Pack the warm coats, because the nights are cold up in the hills.</p></section></article><script>document.title = "ran";</script></body></html>`;
+
+const startReport = (
+	t: Setup,
+	source: FakeReportSource,
+	from?: { node: Node; offset: number },
+) =>
+	t.controller.start({
+		kind: "report",
+		report: { fileId: "file-1" },
+		source,
+		from,
+	});
+
+type ReportBody = {
+	report?: { fileId: string } | { artifactId: string };
+	document?: unknown;
+	conversationId?: unknown;
+	messageId?: unknown;
+	sentences: Array<{ id: string; words: Array<{ shown: string }> }>;
+};
+const reportBody = (t: Setup, call = 0) =>
+	t.body(call) as unknown as ReportBody;
+const shownOf = (body: ReportBody) =>
+	body.sentences.map((sentence) =>
+		sentence.words.map((word) => word.shown).join(" "),
+	);
+
+describe("reading a report", () => {
+	it("opens a session that names the report's file, and reads the page's own copy without the report's chrome", async () => {
+		const t = setup();
+		const source = new FakeReportSource(makeReportCopy(REPORT_PAGE));
+		startReport(t, source);
+		expect(t.last()).toMatchObject({
+			status: "opening",
+			key: "report:file-1",
+			target: "report",
+			segmentIds: [],
+		});
+		await settle();
+		const body = reportBody(t);
+		expect(body.report).toEqual({ fileId: "file-1" });
+		expect(body.document).toBeUndefined();
+		expect(body.conversationId).toBeUndefined();
+		expect(body.messageId).toBeUndefined();
+		const read = shownOf(body).join(" ");
+		expect(read).toContain("Weekend report");
+		expect(read).toContain("from the main station.");
+		expect(read).not.toContain("Supported");
+		expect(read).not.toContain("Sections");
+		t.audio.emit("playing");
+		expect(t.last()).toMatchObject({ status: "playing", target: "report" });
+	});
+
+	it("asks for a report opened from the Knowledge library by its library item, under a key of its own", async () => {
+		const t = setup();
+		const source = new FakeReportSource(makeReportCopy(REPORT_PAGE));
+		t.controller.start({
+			kind: "report",
+			report: { artifactId: "lib-1" },
+			source,
+		});
+		expect(t.last()).toMatchObject({
+			key: "report:library:lib-1",
+			target: "report",
+		});
+		await settle();
+		expect(reportBody(t).report).toEqual({ artifactId: "lib-1" });
+	});
+
+	it("⌖ and a drag bring the sentence into view in the frame, by its ranges over the copy", async () => {
+		const t = setup();
+		const source = new FakeReportSource(makeReportCopy(REPORT_PAGE));
+		startReport(t, source);
+		await settle();
+		t.audio.emit("playing");
+		t.controller.locate();
+		const [ranges, mode] = source.focus.mock.calls[0] ?? [];
+		expect(mode).toBe("center");
+		expect(Array.isArray(ranges)).toBe(true);
+		for (const range of ranges as Range[])
+			expect(range.startContainer.ownerDocument).toBe(source.copy.doc);
+		t.controller.beginDrag();
+		t.controller.dragTo(1);
+		expect(source.focus).toHaveBeenLastCalledWith(expect.any(Array), "reveal");
+		expect(t.deps.requestFocus).not.toHaveBeenCalled();
+	});
+
+	it("stops when the report is gone: the panel closed, or another file opened", async () => {
+		const t = setup();
+		const source = new FakeReportSource(makeReportCopy(REPORT_PAGE));
+		startReport(t, source);
+		await settle();
+		t.audio.emit("playing");
+		t.runFrame();
+		expect(t.last().status).toBe("playing");
+		source.alive = false;
+		t.runFrame();
+		expect(t.last().status).toBe("idle");
+		expect(t.api.cancelReadingSession).toHaveBeenCalledWith("x1");
+	});
+
+	it("stops when another copy of the report is loaded", async () => {
+		const t = setup();
+		const source = new FakeReportSource(makeReportCopy(REPORT_PAGE));
+		startReport(t, source);
+		await settle();
+		t.audio.emit("playing");
+		source.copy = makeReportCopy(REPORT_PAGE);
+		t.runFrame();
+		expect(t.last().status).toBe("idle");
+	});
+
+	it("Read from here reads from the sentence a place in the copy is in", async () => {
+		const t = setup();
+		const source = new FakeReportSource(makeReportCopy(REPORT_PAGE));
+		const coats = source.copy.root.querySelectorAll("p")[1]?.firstChild as Text;
+		startReport(t, source, { node: coats, offset: 5 });
+		await settle();
+		expect(shownOf(reportBody(t))[0]).toBe(
+			"Pack the warm coats, because the nights are cold up in the hills.",
+		);
+		expect(t.last()).toMatchObject({ key: "report:file-1" });
+	});
+
+	it("never paints code marks in the page for a report's ranges", async () => {
+		const t = setup();
+		const source = new FakeReportSource(
+			makeReportCopy(
+				'<article id="report-content"><p>Run the <code>npm start</code> command in the folder to begin.</p></article>',
+			),
+		);
+		startReport(t, source);
+		await settle();
+		t.audio.emit("playing");
+		t.runFrame();
+		expect(
+			source.copy.doc.querySelector("[data-read-aloud-code-mark]"),
+		).toBeNull();
+	});
+
+	it("a long report notches its headings", async () => {
+		const section = (title: string, count: number) =>
+			`<section class="report-section"><h2>${title}</h2>${Array.from(
+				{ length: count },
+				(_, i) =>
+					`<p>Paragraph ${i} of ${title} is written here, and it is long enough to stand alone.</p>`,
+			).join("")}</section>`;
+		const t = setup();
+		const source = new FakeReportSource(
+			makeReportCopy(
+				`<article id="report-content">${section("Getting there", 15)}${section("Where to stay", 15)}${section("What to pack", 15)}</article>`,
+			),
+		);
+		startReport(t, source);
+		await settle();
+		t.audio.emit("playing");
+		expect(t.last().count).toBe(47);
+		expect(t.last().headingNotches).toEqual([0, 15, 31]);
+	});
+
+	it("says whether a report can be read before anyone presses", async () => {
+		const t = setup();
+		const target = (source: FakeReportSource) => ({
+			kind: "report" as const,
+			report: { fileId: "file-1" },
+			source,
+		});
+		const gone = new FakeReportSource(makeReportCopy(REPORT_PAGE));
+		gone.alive = false;
+		expect(await t.controller.assessReadability(target(gone))).toEqual({
+			kind: "unknown",
+		});
+		expect(
+			await t.controller.assessReadability(
+				target(new FakeReportSource(makeReportCopy(REPORT_PAGE))),
+			),
+		).toEqual({ kind: "ready" });
+		expect(
+			await t.controller.assessReadability(
+				target(
+					new FakeReportSource(
+						makeReportCopy('<article id="report-content"></article>'),
+					),
+				),
+			),
+		).toEqual({ kind: "nothing" });
 	});
 });

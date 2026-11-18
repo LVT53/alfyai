@@ -744,6 +744,11 @@ const chatDict = {
 		// decoration.
 		"documentWorkspace.imagePreviewLabel": "{filename} image preview",
 		"documentWorkspace.htmlPreviewLabel": "{filename} preview",
+		// Ruling 58's tripwire on a standard report's frame: it loaded a page the panel
+		// did not ask for (it navigated itself), so the frame was taken down.
+		"documentWorkspace.reportFrame.tripwire":
+			"This report tried to open another page in the panel, so Alfy stopped it.",
+		"documentWorkspace.reportFrame.reload": "Reload the report",
 		"documentWorkspace.invalidNumber": "Please enter a valid number",
 		"documentWorkspace.invalidPageRange":
 			"Invalid: page must be between 1 and {total}",
@@ -2006,6 +2011,9 @@ const chatDict = {
 		"documentWorkspace.historical": "Korábbi",
 		"documentWorkspace.imagePreviewLabel": "{filename} – képelőnézet",
 		"documentWorkspace.htmlPreviewLabel": "{filename} – előnézet",
+		"documentWorkspace.reportFrame.tripwire":
+			"Ez a jelentés egy másik oldalt próbált megnyitni a panelen, ezért Alfy leállította.",
+		"documentWorkspace.reportFrame.reload": "Jelentés újratöltése",
 		"documentWorkspace.invalidNumber": "Adj meg egy érvényes számot",
 		"documentWorkspace.invalidPageRange":
 			"Érvénytelen: az oldalnak 1 és {total} között kell lennie",

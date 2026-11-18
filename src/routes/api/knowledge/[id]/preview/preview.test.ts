@@ -21,12 +21,18 @@ vi.mock("$lib/server/services/knowledge/store/core", () => ({
 		mockGetSourceArtifactId(...args),
 }));
 
+const mockGetSucceededJob = vi.hoisted(() => vi.fn());
+vi.mock("$lib/server/services/file-production/read-model", () => ({
+	getSucceededFileProductionJobForChatFile: (...args: unknown[]) =>
+		mockGetSucceededJob(...args),
+}));
 vi.mock("$lib/server/services/chat-files", () => ({
 	getChatFileByUser: (...args: unknown[]) => mockGetChatFileByUser(...args),
 	readChatFileContentByUser: (...args: unknown[]) =>
 		mockReadChatFileContentByUser(...args),
 }));
 
+import { withReportBridge } from "$lib/shared/read-aloud/report-bridge";
 import { GET } from "./+server";
 
 type PreviewRouteEvent = Parameters<typeof GET>[0];
@@ -82,6 +88,7 @@ describe("GET /api/knowledge/[id]/preview", () => {
 			),
 			locals: { user: mockUser },
 			params: { id: artifactId },
+			url: new URL(`http://localhost/api/knowledge/${artifactId}/preview`),
 		} as unknown as PreviewRouteEvent;
 	}
 
@@ -589,6 +596,65 @@ describe("GET /api/knowledge/[id]/preview", () => {
 		);
 		const body = await response.arrayBuffer();
 		expect(Buffer.from(body)).toEqual(xlsxBuffer);
+	});
+
+	// Read aloud's bridge (`$lib/shared/read-aloud/report-bridge.ts`): a standard
+	// report reached through the library gets it too, written to post to the
+	// origin the request came to.
+	it("serves a generated standard report with read aloud's bridge for the request's origin", async () => {
+		const report =
+			"<!doctype html><html><body><h1>Weekend report</h1></body></html>";
+		mockGetArtifactForUser.mockResolvedValue({
+			id: "generated-report",
+			name: "Weekend report.html",
+			storagePath: null,
+			contentText: "Generated file: Weekend report.html",
+			mimeType: "text/html",
+			extension: "html",
+			type: "generated_output",
+			metadata: { sourceChatFileId: "chatfile-report" },
+		});
+		mockGetChatFileByUser.mockResolvedValue({
+			id: "chatfile-report",
+			conversationId: "conv-1",
+			assistantMessageId: "message-1",
+			filename: "Weekend report.html",
+			mimeType: "text/html",
+		});
+		mockGetSucceededJob.mockResolvedValue({
+			id: "job-1",
+			sourceMode: "document_source",
+			origin: "file_production",
+		});
+		mockReadChatFileContentByUser.mockResolvedValue(Buffer.from(report));
+
+		const response = await GET(makePreviewEvent("generated-report"));
+
+		expect(response.status).toBe(200);
+		const body = await response.text();
+		expect(body).toBe(withReportBridge(report, "http://localhost"));
+		expect(response.headers.get("Content-Length")).toBe(
+			String(Buffer.byteLength(body)),
+		);
+
+		// The address the panel frames it by carries the bridge's version
+		// (`reportFrameAddress`); the route reads the item from the path alone.
+		const marked = {
+			...makePreviewEvent("generated-report"),
+			request: new Request(
+				"http://localhost/api/knowledge/generated-report/preview?rb=1",
+			),
+			url: new URL(
+				"http://localhost/api/knowledge/generated-report/preview?rb=1",
+			),
+		} as unknown as PreviewRouteEvent;
+		const again = await GET(marked);
+		expect(again.status).toBe(200);
+		expect(await again.text()).toBe(body);
+		expect(mockGetArtifactForUser).toHaveBeenLastCalledWith(
+			"user-123",
+			"generated-report",
+		);
 	});
 
 	it("rejects invalid generated_output XLSX source chat files before preview", async () => {

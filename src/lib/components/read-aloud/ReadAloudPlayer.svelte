@@ -8,12 +8,12 @@
  * It shows no text of the reply. While the command tray is open it is hushed:
  * invisible, keeping its room, and the reading goes on.
  *
- * A Document panel draws one too, at its foot (`placement="panel"`), for its own
- * Document's reading where no composer shows it: on a phone, where the panel
- * covers the chat, in an expanded panel, and on a page with no chat. It then
- * says so (`readAloudPlayerInPanel`) and the composer's player leaves that
- * reading to it. Leaving the chat stops a reading; a panel's player going does
- * not (the reading stops when the Document it reads is no longer drawn).
+ * The panel draws one too, at its foot (`placement="panel"`), for its own
+ * Document's or standard report's reading where no composer shows it: on a phone,
+ * where the panel covers the chat, in an expanded panel, and on a page with no
+ * chat. It then says so (`readAloudPlayerInPanel`) and the composer's player
+ * leaves that reading to it. Leaving the chat stops a reading; a panel's player
+ * going does not (the reading stops when what it reads is no longer drawn).
  */
 import { onDestroy, tick, untrack } from "svelte";
 import {
@@ -37,9 +37,9 @@ let {
 	/** The chat above whose composer it sits: leaving it stops the reading. */
 	conversationId?: string | null;
 	hushed?: boolean;
-	/** Above the chat's composer, or at a Document panel's foot. */
+	/** Above the chat's composer, or at the panel's foot. */
 	placement?: "composer" | "panel";
-	/** A panel's player: the key of the Document whose reading it shows. */
+	/** A panel's player: the key of the Document or report whose reading it shows. */
 	readingKey?: string | null;
 	controller?: ReadAloudController;
 } = $props();
@@ -58,11 +58,17 @@ const SHOWN: ReadonlySet<ReadingStatus> = new Set([
 
 const view = $derived($readAloudView);
 const inPanel = $derived(placement === "panel");
-/** Whose reading this player shows: a panel, its Document's; the composer, any but a Document's its panel shows. */
+/**
+ * Whose reading this player shows: a panel, its Document's or report's; the composer, any but
+ * a Document's or report's its panel shows.
+ */
 const ours = $derived(
 	inPanel
 		? view.key !== null && view.key === readingKey
-		: !(view.target === "document" && $readAloudPlayerInPanel),
+		: !(
+				(view.target === "document" || view.target === "report") &&
+				$readAloudPlayerInPanel
+			),
 );
 const shown = $derived(SHOWN.has(view.status) && ours);
 

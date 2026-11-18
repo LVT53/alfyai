@@ -51,7 +51,12 @@ import {
 } from "$lib/utils/list-view-preference";
 import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopover.svelte";
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
-import { documentReadingKey } from "$lib/client/read-aloud/controller";
+import {
+	documentReadingKey,
+	type ReportReadingSource,
+	reportReadingKey,
+} from "$lib/client/read-aloud/controller";
+import type { ReportAddress } from "$lib/shared/read-aloud/report-address";
 import ReadAloudPlayer from "$lib/components/read-aloud/ReadAloudPlayer.svelte";
 import ReadAloudSpeaker from "$lib/components/read-aloud/ReadAloudSpeaker.svelte";
 import {
@@ -936,8 +941,32 @@ let readAloudDocumentKey = $derived(
 		? documentReadingKey(activeBodyKey)
 		: null,
 );
+
+// Read aloud on a standard report (an Atlas report, opened from a chat or from the
+// Knowledge library): once the preview shows the report with read aloud's bridge,
+// it hands the panel the report, named by the address it showed it by (a chat file
+// or a library item), and the source to read it through (`ReportReadAloud.svelte`).
+// The session route reads that very report back by the same preview's own rules.
+let reportReading = $state<{
+	report: ReportAddress;
+	source: ReportReadingSource;
+} | null>(null);
+function handleReportReading(
+	reading: { report: ReportAddress; source: ReportReadingSource } | null,
+) {
+	reportReading = reading;
+}
+let readAloudReport = $derived(
+	$readAloudAvailable ? { onSource: handleReportReading } : null,
+);
+let readAloudReportKey = $derived(
+	reportReading ? reportReadingKey(reportReading.report) : null,
+);
+/** The reading the panel's own player shows: its Document's, or its report's. */
+let readAloudPanelKey = $derived(readAloudDocumentKey ?? readAloudReportKey);
+
 let panelShowsReadAloudPlayer = $derived(
-	readAloudDocumentKey !== null &&
+	readAloudPanelKey !== null &&
 		shouldShowWorkspaceShell &&
 		(!readAloudComposer ||
 			presentation === "expanded" ||
@@ -2711,10 +2740,26 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		own (`DialogShell`), so the slot holds nothing visible there.
 	-->
 	{#snippet readAloudPanelPlayer()}
-		{#if $readAloudAvailable && panelShowsReadAloudPlayer && readAloudDocumentKey}
+		{#if $readAloudAvailable && panelShowsReadAloudPlayer && readAloudPanelKey}
 			<div class="workspace-read-aloud-player" data-testid="workspace-read-aloud-player">
-				<ReadAloudPlayer placement="panel" readingKey={readAloudDocumentKey} />
+				<ReadAloudPlayer placement="panel" readingKey={readAloudPanelKey} />
 			</div>
+		{/if}
+	{/snippet}
+
+	<!-- A standard report's speaker: in the header of the shell whose preview is mounted
+	     (`live`), once the preview hands the panel the report's source. -->
+	{#snippet readAloudReportSpeaker(live: boolean)}
+		{#if live && !historyOpen && $readAloudAvailable && reportReading && readAloudReportKey}
+			<ReadAloudSpeaker
+				target={{
+					kind: "report",
+					report: reportReading.report,
+					source: reportReading.source,
+				}}
+				contentKey={readAloudReportKey}
+				placement="header"
+			/>
 		{/if}
 	{/snippet}
 
@@ -2761,6 +2806,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	{/snippet}
 
 	{#snippet artifactHeaderActionsSnippet(live: boolean)}
+		{@render readAloudReportSpeaker(live)}
 		{#if live && !historyOpen && $readAloudAvailable && readAloudSource && activeBodyKey}
 			<ReadAloudSpeaker
 				target={{
@@ -2936,6 +2982,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 										<span aria-hidden="true">{documents.length}</span>
 									</button>
 								{/if}
+								{@render readAloudReportSpeaker(shouldRenderMobilePreview)}
 								{@render artifactPanelActions()}
 								{@render atlasDownloadControl(activeDocument)}
 								{#if showPresentationToggle}
@@ -3154,6 +3201,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								marks={uploadMarks}
 								onMarksChange={handleUploadMarks}
 								{onMarksContinue}
+								{readAloudReport}
 							/>
 						{:catch}
 							<div class="workspace-compare-state workspace-compare-state-error">
@@ -3262,6 +3310,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							</div>
 						{/if}
 						<div class="workspace-header-actions">
+							{@render readAloudReportSpeaker(shouldRenderDesktopPreview)}
 							{@render artifactPanelActions()}
 							{@render atlasDownloadControl(activeDocument)}
 							{#if showPresentationToggle && presentation !== "expanded"}
@@ -3511,6 +3560,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							marks={uploadMarks}
 							onMarksChange={handleUploadMarks}
 							{onMarksContinue}
+							{readAloudReport}
 						/>
 					{:catch}
 						<div class="workspace-compare-state workspace-compare-state-error">

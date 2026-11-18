@@ -1,7 +1,8 @@
 <script lang="ts">
 /**
- * The speaker in a finished reply's action row, or in a Document panel's header
- * (spec §4.1, §4.8): it starts and pauses the reading of its reply or Document,
+ * The speaker in a finished reply's action row, or in the panel's header over a
+ * Document or a standard report (spec §4.1, §4.8, §4.12): it starts and pauses the
+ * reading of its reply, Document or report,
  * shows its progress as a ring, and says why it cannot read (a language with no
  * voice, nothing readable) or that the voice is busy or did not answer. It reads
  * `readAloudView` and calls the controller; the press calls `start`
@@ -97,7 +98,9 @@ const dimNoteText = $derived.by(() => {
 	if (readability.kind === "nothing")
 		return target.kind === "document"
 			? $t("readAloud.note.nothingDocument")
-			: $t("readAloud.note.nothing");
+			: target.kind === "report"
+				? $t("readAloud.note.nothingReport")
+				: $t("readAloud.note.nothing");
 	if (readability.kind !== "noVoice") return "";
 	const name = readability.language
 		? languageDisplayName(readability.language, $uiLanguage)

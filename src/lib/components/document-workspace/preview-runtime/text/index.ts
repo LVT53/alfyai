@@ -15,30 +15,36 @@ export type TextPreviewRenderResult =
 			kind: TextPreviewKind;
 			html: string;
 	  }
+	/** HTML that runs no script: its sanitized markup, shown in a srcdoc frame with an empty sandbox. */
 	| {
 			kind: "html";
+			trustedRuntime: false;
 			srcdoc: string;
-			trustedRuntime: boolean;
+	  }
+	/**
+	 * A standard report, whose response carries the report's own policy
+	 * (`standardReportPreviewCsp`): the panel frames it by that same address, so it
+	 * runs under that policy and nothing of it is written into the page.
+	 */
+	| {
+			kind: "html";
+			trustedRuntime: true;
 	  };
 
-// The report's own policy as a meta tag (ADR-0068): pictures from itself only,
-// like the header `file-serving-response-policy.ts` serves it with.
-const TRUSTED_HTML_RUNTIME_CSP =
-	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'";
+export type TextPreviewOptions = { isDark?: boolean };
 
 export async function renderTextPreview(
 	adapter: TextRuntimeAdapter | HtmlRuntimeAdapter,
-	options: { isDark?: boolean } = {},
+	options: TextPreviewOptions = {},
 ): Promise<TextPreviewRenderResult> {
 	if (adapter.kind === "html") {
-		const trustedRuntime = adapter.trustedRuntime === true;
-		return {
-			kind: "html",
-			srcdoc: trustedRuntime
-				? buildTrustedHtmlPreviewSrcdoc(adapter.text)
-				: buildStaticHtmlPreviewSrcdoc(adapter.text),
-			trustedRuntime,
-		};
+		return adapter.trustedRuntime === true
+			? { kind: "html", trustedRuntime: true }
+			: {
+					kind: "html",
+					trustedRuntime: false,
+					srcdoc: buildStaticHtmlPreviewSrcdoc(adapter.text),
+				};
 	}
 
 	if (adapter.textKind === "csv") {
@@ -150,19 +156,6 @@ export function buildStaticHtmlPreviewSrcdoc(content: string): string {
 	const safeHtmlWithSafeInlineStyles = sanitizeInlineStyleAttributes(safeHtml);
 	const styleBlock = safeCss ? `<style>${safeCss}</style>` : "";
 	return `<!doctype html><html><head><base target="_blank"><meta charset="utf-8">${styleBlock}</head><body>${safeHtmlWithSafeInlineStyles}</body></html>`;
-}
-
-export function buildTrustedHtmlPreviewSrcdoc(content: string): string {
-	const meta = `<meta http-equiv="Content-Security-Policy" content="${TRUSTED_HTML_RUNTIME_CSP}" />`;
-	if (/<\/head\s*>/i.test(content)) {
-		return content.replace(/<\/head\s*>/i, `${meta}</head>`);
-	}
-
-	if (/<html\b/i.test(content)) {
-		return content.replace(/<html\b([^>]*)>/i, `<html$1><head>${meta}</head>`);
-	}
-
-	return `<!doctype html><html><head>${meta}</head><body>${content}</body></html>`;
 }
 
 function extractLocalStyleBlocks(content: string): {

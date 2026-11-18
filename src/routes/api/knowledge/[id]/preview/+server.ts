@@ -23,6 +23,8 @@ export const GET: RequestHandler = async (event) => {
 		artifactId,
 		mode: "preview",
 		...(rangeHeader ? { rangeHeader } : {}),
+		// A generated standard report gets read aloud's bridge, posting to this origin alone.
+		bridgeOrigin: event.url.origin,
 	});
 	if (!resolved.ok) {
 		return createJsonErrorResponse(resolved.error, resolved.status);

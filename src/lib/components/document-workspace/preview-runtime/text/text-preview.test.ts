@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildStaticHtmlPreviewSrcdoc,
-	buildTrustedHtmlPreviewSrcdoc,
 	renderCsvPreviewHtml,
 	renderTextPreview,
 } from "./index";
@@ -119,65 +118,30 @@ describe("text preview adapter", () => {
 		expect(srcdoc).not.toContain("https://evil.test");
 	});
 
-	it("preserves report scripts only for trusted HTML runtime previews", async () => {
-		await expect(
-			renderTextPreview({
-				kind: "html",
-				blob: new Blob([
-					"<main>Report</main><script>window.ready=true</script>",
-				]),
-				text: "<main>Report</main><script>window.ready=true</script>",
-				trustedRuntime: false,
-			}),
-		).resolves.toMatchObject({
+	it("frames a trusted report by its own address, and gives only a static preview a srcdoc", async () => {
+		const report = "<main>Report</main><script>window.ready=true</script>";
+		const isolated = await renderTextPreview({
 			kind: "html",
+			blob: new Blob([report]),
+			text: report,
 			trustedRuntime: false,
-			srcdoc: expect.not.stringContaining("<script>window.ready=true</script>"),
 		});
+		expect(isolated).toMatchObject({ kind: "html", trustedRuntime: false });
+		expect(
+			isolated.kind === "html" && "srcdoc" in isolated && isolated.srcdoc,
+		).toContain("Report");
+		expect(
+			isolated.kind === "html" && "srcdoc" in isolated && isolated.srcdoc,
+		).not.toContain("<script>window.ready=true</script>");
 
+		// A standard report runs under the policy its own response carries
+		// (`standardReportPreviewCsp`): nothing of it is written into the page's.
 		const trusted = await renderTextPreview({
 			kind: "html",
-			blob: new Blob(["<main>Report</main><script>window.ready=true</script>"]),
-			text: "<main>Report</main><script>window.ready=true</script>",
+			blob: new Blob([report]),
+			text: report,
 			trustedRuntime: true,
 		});
-
-		expect(trusted).toMatchObject({
-			kind: "html",
-			trustedRuntime: true,
-			srcdoc: expect.stringContaining("<script>window.ready=true</script>"),
-		});
-		if (trusted.kind !== "html") {
-			throw new Error("Expected trusted HTML preview");
-		}
-		expect(trusted.srcdoc).toContain(`http-equiv="Content-Security-Policy"`);
-		expect(trusted.srcdoc).toContain("script-src 'unsafe-inline'");
-	});
-
-	// ADR-0068: the same rule as the header the report is served with. A report
-	// holds its pictures as data: URIs, so the policy it is previewed under has no
-	// remote address in it.
-	it("allows a trusted report pictures from itself only, in the meta policy as in the header", () => {
-		for (const html of [
-			"<!doctype html><html><head><title>Report</title></head><body></body></html>",
-			"<html><body>Report</body></html>",
-			"<main>Report</main>",
-		]) {
-			const srcdoc = buildTrustedHtmlPreviewSrcdoc(html);
-			const policy = /content="([^"]+)"/.exec(srcdoc)?.[1] ?? "";
-			expect(policy).toContain("img-src data:;");
-			expect(policy).not.toMatch(/\bhttps?:/);
-		}
-	});
-
-	it("injects a constrained CSP into trusted full HTML reports", () => {
-		const srcdoc = buildTrustedHtmlPreviewSrcdoc(
-			"<!doctype html><html><head><title>Report</title></head><body><script>window.ready=true</script></body></html>",
-		);
-
-		expect(srcdoc).toContain("<title>Report</title>");
-		expect(srcdoc).toContain("<script>window.ready=true</script>");
-		expect(srcdoc).toContain("default-src 'none'");
-		expect(srcdoc).toContain("</head><body>");
+		expect(trusted).toEqual({ kind: "html", trustedRuntime: true });
 	});
 });

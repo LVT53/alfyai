@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+	STANDARD_REPORT_HANDLER_HASHES,
+	STANDARD_REPORT_SCRIPT_HASHES,
+} from "./file-production/renderers/standard-report-scripts";
+import {
 	applyFileServingRange,
 	buildFileServingResponseHeaders,
 } from "./file-serving-response-policy";
@@ -132,15 +136,53 @@ describe("the CSP of a script-capable report preview", () => {
 		expect(report).not.toContain("*");
 	});
 
-	it("keeps what a report does need: its own inline script and style, and nothing it can fetch or frame", () => {
+	it("keeps what a report does need: its own style, and nothing it can fetch or frame", () => {
 		const report = csp("standard-report");
 		expect(directive(report, "default-src")).toBe("default-src 'none'");
-		expect(directive(report, "script-src")).toBe("script-src 'unsafe-inline'");
 		expect(directive(report, "style-src")).toBe("style-src 'unsafe-inline'");
 		expect(directive(report, "object-src")).toBe("object-src 'none'");
 		expect(directive(report, "form-action")).toBe("form-action 'none'");
 		expect(directive(report, "base-uri")).toBe("base-uri 'none'");
+		expect(directive(report, "frame-ancestors")).toBe("frame-ancestors 'self'");
 		expect(directive(report, "connect-src")).toBeUndefined();
+	});
+
+	// Security review I1: only the app's own scripts run in a report, by their hashes:
+	// the renderer's (today's and earlier ones), its favicon fallback, and the bridge
+	// when the preview adds it. No 'unsafe-inline', so nothing else a stored report
+	// holds runs, whatever it is.
+	it("lets a report run its own scripts by their hashes, and nothing else", () => {
+		const report = csp("standard-report");
+		expect(directive(report, "script-src")).toBe(
+			`script-src ${STANDARD_REPORT_SCRIPT_HASHES.join(" ")} 'unsafe-hashes' ${STANDARD_REPORT_HANDLER_HASHES.join(" ")}`,
+		);
+		expect(report).not.toContain("'unsafe-inline' ");
+		expect(directive(report, "script-src")).not.toContain("'unsafe-inline'");
+	});
+
+	it("names the bridge's script too when the preview adds it, and no other", () => {
+		const bridge = "'sha256-YnJpZGdlYnJpZGdlYnJpZGdlYnJpZGdlYnJpZGdlYnI='";
+		const report = buildFileServingResponseHeaders({
+			mode: "preview",
+			contentLength: 10,
+			contentType: "text/html",
+			filename: "report.html",
+			previewProfile: "standard-report",
+			reportScriptHashes: [bridge],
+		})["Content-Security-Policy"];
+		expect(directive(report, "script-src")).toBe(
+			`script-src ${[...STANDARD_REPORT_SCRIPT_HASHES, bridge].join(" ")} 'unsafe-hashes' ${STANDARD_REPORT_HANDLER_HASHES.join(" ")}`,
+		);
+		// Another file's policy never takes a script, whatever it is handed.
+		expect(
+			buildFileServingResponseHeaders({
+				mode: "preview",
+				contentLength: 10,
+				contentType: "text/html",
+				filename: "page.html",
+				reportScriptHashes: [bridge],
+			})["Content-Security-Policy"],
+		).not.toContain("script-src");
 	});
 });
 

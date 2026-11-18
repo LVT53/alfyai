@@ -116,10 +116,28 @@ Why each of the loose ones is loose:
   components, the CSS and `src/app.html` for any other remote image found none; what is left is
   what the model writes into a reply, which reaches the page as one of the search tool's Brave
   thumbnails fetched by the server and served from `/api/image-search/thumbnail`, and otherwise as
-  a plain link. Two consequences to know about when `CSP_MODE=enforce`: a generated HTML report
-  opened in the in-app preview (a `srcdoc` frame, which inherits this policy) shows no remote
-  pictures, only `data:` ones (the file you download is unaffected), and the markdown renderer
-  must not emit a remote `<img>` (it shows a link instead).
+  a plain link. When `CSP_MODE=enforce`, the markdown renderer must not emit a remote `<img>`
+  (it shows a link instead). A generated HTML report is not drawn under this policy: the in-app
+  preview frames it by its own address (`/api/chat/files/[id]/preview`, or
+  `/api/knowledge/[id]/preview` for one in the library), so it runs under the policy its own
+  response carries (`standardReportPreviewCsp` in `file-serving-response-policy.ts`), never the
+  page's. That policy lets only the app's own scripts run, by construction (security review
+  I1): `script-src` names them by their hashes and nothing else, so no `'unsafe-inline'`. It
+  names the renderer's script (`standard-report-scripts.ts`: today's and every earlier one a
+  stored report may carry, taken from git history), the favicon fallback under
+  `'unsafe-hashes'`, and read aloud's bridge, which the server adds to the response and hashes
+  for it (the bridge is the same for every report of one origin). A hash never comes from the
+  file served. So the section menu, the source tooltips and the bridge run whatever `CSP_MODE`
+  is, while any other inline script, inline handler or `javascript:` address a stored report
+  holds is refused (`tests/e2e/read-aloud-report.spec.ts` holds both). An old report whose
+  script no hash names stays readable, and read aloud still works on it; only its menu is inert.
+  Its pictures are `data:` ones (spec §4.13 of
+  `docs/superpowers/specs/2026-11-16-read-aloud-design.md`). No nonce of the page's is written
+  into any frame or attribute for it. The frame asks by the
+  preview's address plus the bridge's version (`?rb=1`, `reportFrameAddress`), which the routes
+  ignore, so a copy a browser cached for its hour (`private, max-age=3600`) from before the bridge
+  is not framed. Until 2026-11-17 the preview drew the report as a `srcdoc`, which inherits this
+  policy, so under `enforce` the report's own scripts were refused.
 - **`worker-src blob:`** for Sentry's replay compression worker. pdf.js and MapLibre workers are
   same-origin.
 - **`connect-src`** is same-origin only: the browser never talks to a model provider, a tile server
@@ -157,10 +175,15 @@ content-security-policy-report-only: <the full policy, as above>
   included: it is the documented escape hatch and stays one.
 - Only SvelteKit **pages** get it. The App's own response (`/api/artifacts/[id]/app`), the file
   previews and every other route that sets its own CSP are untouched, as before.
-- `'self'` means a frame of these pages can only be pointed at this app, so an App that leaves for
-  one of our own pages (`location = "/login"`) is still stopped by ruling 58's tripwire in
-  `AppFrame.svelte`, not by the CSP. The `srcdoc` document previews are not affected (they are not
-  loaded from a URL), and nothing else in the app frames a URL.
+- `'self'` means a frame of these pages can only be pointed at this app, so a framed document that
+  leaves for one of our own pages (`location = "/login"`) is stopped by ruling 58's tripwire
+  (`src/lib/utils/frame-load-tripwire.ts`), not by the CSP. Two things in the app frame a URL, both
+  sandboxed with no same origin and both watched by that tripwire: an App (`AppFrame.svelte`) and a
+  generated standard report's preview (`DocumentPreviewRenderer.svelte`: scripts and popups, its
+  links open new tabs). Every other document preview is a `srcdoc` with an empty sandbox, not
+  loaded from a URL. `tests/e2e/read-aloud-report.spec.ts` holds the report's case: a link opens a
+  new tab, a page of this app opened in place takes the frame down until Reload, and an address
+  outside the app is refused before a request leaves.
 - Never widen it. `tests/integration/svelte-config-security.test.ts` fails if `frame-src` is
   anything but `['self']`.
 
@@ -206,8 +229,11 @@ that would make a frame. It has no `webrtc` directive: Chromium (measured on 147
 - A proxy in front of the app must leave this header alone, as it must for the file previews. A
   `Header set Content-Security-Policy ...` on `/api/artifacts/*/app` would replace the policy and,
   with it, the Trusted Types rule that keeps an App from making a frame.
-- The generated HTML report's preview policy (`STANDARD_REPORT_PREVIEW_CSP`, decision 10) is `img-src data:`
-  and is recognised by its exact text on the client (`allowsTrustedHtmlPreviewRuntime`); change them together.
+- The generated HTML report's preview policy (`standardReportPreviewCsp`, decision 10) is `img-src data:`,
+  with its scripts named by hashes only, and is recognised by its shape on the client
+  (`allowsTrustedHtmlPreviewRuntime`: the same directives exactly, `script-src` hashes and
+  `'unsafe-hashes'` alone); change them together. When the renderer's script changes, its old
+  hash goes into `EARLIER_SCRIPT_HASHES` (`standard-report-scripts.test.ts` fails until it does).
 
 ## Rolling out: report-only → enforce
 
