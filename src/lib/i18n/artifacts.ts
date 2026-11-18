@@ -115,12 +115,14 @@ const artifactsDict = {
 		"artifacts.delete.button.slides": "Delete slides",
 		"artifacts.delete.button.file": "Delete file",
 		"artifacts.delete.button.video": "Delete video",
+		"artifacts.delete.button.image": "Delete picture",
 		"artifacts.delete.title.document": "Delete this document?",
 		"artifacts.delete.title.app": "Delete this app?",
 		"artifacts.delete.title.canvas": "Delete this canvas?",
 		"artifacts.delete.title.slides": "Delete these slides?",
 		"artifacts.delete.title.file": "Delete this file?",
 		"artifacts.delete.title.video": "Delete this video?",
+		"artifacts.delete.title.image": "Delete this picture?",
 		"artifacts.delete.body.document":
 			"“{title}” and its versions and comments will be deleted. This can't be undone.",
 		"artifacts.delete.body.app":
@@ -132,6 +134,8 @@ const artifactsDict = {
 		"artifacts.delete.body.file":
 			"“{title}” will be deleted. This can't be undone.",
 		"artifacts.delete.body.video":
+			"“{title}” will be deleted. This can't be undone.",
+		"artifacts.delete.body.image":
 			"“{title}” will be deleted. This can't be undone.",
 		// The same confirm for an item the chat can make again (the security
 		// review's L2): "can't be undone" is not true of it, so it says the way back.
@@ -147,6 +151,8 @@ const artifactsDict = {
 			"“{title}” will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.bodyRegenerable.video":
 			"“{title}” will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.image":
+			"“{title}” will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.busy": "Deleting…",
 		"artifacts.delete.failed": "Couldn't delete this. Try again.",
 		"artifacts.delete.done.document": "Document deleted",
@@ -155,6 +161,7 @@ const artifactsDict = {
 		"artifacts.delete.done.slides": "Slides deleted",
 		"artifacts.delete.done.file": "File deleted",
 		"artifacts.delete.done.video": "Video deleted",
+		"artifacts.delete.done.image": "Picture deleted",
 		"artifacts.delete.rowMenu": "More actions for {title}",
 		// What a chat card or file row says once its item is gone (polish G2-A),
 		// per kind, and its Regenerate.
@@ -1273,12 +1280,14 @@ const artifactsDict = {
 		"artifacts.delete.button.slides": "Diasor törlése",
 		"artifacts.delete.button.file": "Fájl törlése",
 		"artifacts.delete.button.video": "Videó törlése",
+		"artifacts.delete.button.image": "Kép törlése",
 		"artifacts.delete.title.document": "Törlöd ezt a dokumentumot?",
 		"artifacts.delete.title.app": "Törlöd ezt az alkalmazást?",
 		"artifacts.delete.title.canvas": "Törlöd ezt a táblát?",
 		"artifacts.delete.title.slides": "Törlöd ezt a diasort?",
 		"artifacts.delete.title.file": "Törlöd ezt a fájlt?",
 		"artifacts.delete.title.video": "Törlöd ezt a videót?",
+		"artifacts.delete.title.image": "Törlöd ezt a képet?",
 		"artifacts.delete.body.document":
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.app":
@@ -1289,6 +1298,7 @@ const artifactsDict = {
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.file": "„{title}” törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.video": "„{title}” törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.body.image": "„{title}” törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.bodyRegenerable.document":
 			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.app":
@@ -1301,6 +1311,8 @@ const artifactsDict = {
 			"„{title}” törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.video":
 			"„{title}” törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.image":
+			"„{title}” törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.busy": "Törlés…",
 		"artifacts.delete.failed": "Nem sikerült törölni. Próbáld újra.",
 		"artifacts.delete.done.document": "Dokumentum törölve",
@@ -1309,6 +1321,7 @@ const artifactsDict = {
 		"artifacts.delete.done.slides": "Diasor törölve",
 		"artifacts.delete.done.file": "Fájl törölve",
 		"artifacts.delete.done.video": "Videó törölve",
+		"artifacts.delete.done.image": "Kép törölve",
 		"artifacts.delete.rowMenu": "További műveletek: {title}",
 		"artifacts.deleted.document": "Ez a dokumentum törölve lett",
 		"artifacts.deleted.app": "Ez az alkalmazás törölve lett",

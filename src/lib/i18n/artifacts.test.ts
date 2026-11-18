@@ -9,6 +9,7 @@ import {
 	BOARD_REFUSAL_REASONS,
 	refusalLabelKey,
 } from "$lib/shared/artifacts/board-ops";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { uiLanguage } from "$lib/stores/settings";
 import artifactsDict from "./artifacts";
 
@@ -422,5 +423,61 @@ describe("the Image kind's strings", () => {
 		expect(get(t)("sidebar.deleteConversationsMessage")).toContain(
 			"dokumentumok és képek",
 		);
+	});
+
+	it("names a picture in its delete button, question and confirmation, in both languages", () => {
+		expect(artifactsDict.en["artifacts.delete.button.image"]).toBe(
+			"Delete picture",
+		);
+		expect(artifactsDict.en["artifacts.delete.title.image"]).toBe(
+			"Delete this picture?",
+		);
+		expect(artifactsDict.en["artifacts.delete.done.image"]).toBe(
+			"Picture deleted",
+		);
+		expect(artifactsDict.hu["artifacts.delete.button.image"]).toBe(
+			"Kép törlése",
+		);
+		expect(artifactsDict.hu["artifacts.delete.title.image"]).toBe(
+			"Törlöd ezt a képet?",
+		);
+		expect(artifactsDict.hu["artifacts.delete.done.image"]).toBe("Kép törölve");
+	});
+});
+
+// The panel and the delete popover build these keys from the kind
+// (`artifacts.delete.button.${kind}`), so a missing one shows its raw key and
+// the type checker cannot see it: the night walk of 2026-11-17 found every
+// picture's delete words missing. Every kind of the union, in both languages.
+describe("every artifact kind has its delete and name words", () => {
+	const kinds = Object.keys({
+		document: true,
+		app: true,
+		canvas: true,
+		slides: true,
+		file: true,
+		image: true,
+		video: true,
+	} satisfies Record<ArtifactKind, true>) as ArtifactKind[];
+	const families = [
+		"delete.button",
+		"delete.title",
+		"delete.body",
+		"delete.bodyRegenerable",
+		"delete.done",
+		"deleted",
+		"type",
+	];
+
+	it.each(kinds)("%s", (kind) => {
+		for (const family of families) {
+			const key = `artifacts.${family}.${kind}`;
+			const en = (artifactsDict.en as Record<string, string>)[key];
+			const hu = (artifactsDict.hu as Record<string, string>)[key];
+			expect(en, `${key} in English`).toEqual(expect.any(String));
+			expect(en?.trim(), `${key} in English`).not.toBe("");
+			expect(hu, `${key} in Hungarian`).toEqual(expect.any(String));
+			expect(hu?.trim(), `${key} in Hungarian`).not.toBe("");
+		}
 	});
 });
