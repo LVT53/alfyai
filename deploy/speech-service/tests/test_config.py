@@ -256,3 +256,37 @@ def test_settings_are_frozen():
     s = Settings.from_env({})
     with pytest.raises(FrozenInstanceError):
         s.port = 1  # type: ignore
+
+
+def test_questions_are_lifted_and_judged_by_default():
+    s = Settings()
+    assert s.question_lift == 5.0
+    assert s.question_rise == 3.0
+
+
+def test_the_question_settings_come_from_the_environment():
+    s = Settings.from_env({"SPEECH_QUESTION_LIFT": "3.5", "SPEECH_QUESTION_RISE": "2"})
+    assert (s.question_lift, s.question_rise) == (3.5, 2.0)
+
+
+def test_a_question_lift_or_a_rise_of_nothing_turns_it_off():
+    s = Settings.from_env({"SPEECH_QUESTION_LIFT": "0", "SPEECH_QUESTION_RISE": "0"})
+    assert (s.question_lift, s.question_rise) == (0.0, 0.0)
+
+
+@pytest.mark.parametrize("value", ["-1", "11", "nan", "inf"])
+def test_refuses_a_question_lift_that_is_negative_or_past_ten(value):
+    # A dose past ten is a typo: the steering would take the pitch off the voice.
+    with pytest.raises(ValueError, match="SPEECH_QUESTION_LIFT"):
+        Settings.from_env({"SPEECH_QUESTION_LIFT": value})
+    with pytest.raises(ValueError, match="SPEECH_QUESTION_LIFT"):
+        Settings(question_lift=float(value))
+
+
+@pytest.mark.parametrize("value", ["-1", "13", "nan", "inf"])
+def test_refuses_a_question_rise_that_is_negative_or_past_twelve(value):
+    # An octave of rise is more than any question has.
+    with pytest.raises(ValueError, match="SPEECH_QUESTION_RISE"):
+        Settings.from_env({"SPEECH_QUESTION_RISE": value})
+    with pytest.raises(ValueError, match="SPEECH_QUESTION_RISE"):
+        Settings(question_rise=float(value))

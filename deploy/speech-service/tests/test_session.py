@@ -34,7 +34,7 @@ from speech_service.session import ReaderTaken, ReadingSession
 from speech_service.text import Spoken, normalize
 from speech_service.zonos import ZonosClient
 from tests.fakes_zonos import fake_zonos, refusing_transport, scripted_zonos
-from tests.helpers import SR, VOICE, decode_mp3, decoded_seconds, rms_db, tone
+from tests.helpers import question_clip, SR, VOICE, decode_mp3, decoded_seconds, rms_db, tone
 
 # Like tests/test_aligner.py: the bare module name, which both Pythons that run these tests find.
 from fakes_aligner import FakeAligner
@@ -1673,3 +1673,15 @@ def test_a_reading_and_a_cancel_on_each_kind_of_loop(run):
         await http.aclose()
 
     run(scenario())
+
+
+async def test_a_yes_no_question_is_lifted_and_made_again_while_its_end_is_flat(new_session):
+    tokens = ("Did", "you", "find", "the", "file", "that", "I", "sent", "you?")
+    text = "Did you find the file that I sent you?"
+    session, requests = new_session(
+        make_sentences(1, tokens=tokens), zonos=scripted_zonos(question_clip(False), question_clip(True))
+    )
+    await play(session)
+    assert [request["seed"] for request in requests] == [1234, 1234 + steady.SEED_STEP]
+    lift = [{"start": len(text) - 4, "end": len(text), "controls": {"delivery.pitch": 5.0}}]
+    assert [request["control_spans"] for request in requests] == [lift, lift]

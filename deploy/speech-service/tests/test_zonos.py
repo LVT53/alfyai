@@ -240,3 +240,33 @@ async def test_the_fake_serves_at_most_concurrency_calls_at_once(concurrency):
 async def test_the_fake_answers_other_paths_with_404():
     zonos, _ = fake_zonos()
     assert (await zonos.get("http://z/v2/nothing")).status_code == 404
+
+
+async def test_control_spans_ride_the_request_when_they_are_asked_for():
+    zonos, requests = fake_zonos()
+    spans = [{"start": 6, "end": 12, "controls": {"delivery.pitch": 5.0}}]
+    await ZonosClient("http://z", zonos).synthesize(
+        "Is it ready?", "en", VOICE, 1234, control_spans=spans
+    )
+    assert requests[0]["control_spans"] == spans
+
+
+@pytest.mark.parametrize("spans", [None, []])
+async def test_no_control_spans_ride_the_request_when_there_are_none(spans):
+    zonos, requests = fake_zonos()
+    await ZonosClient("http://z", zonos).synthesize(
+        "Is it ready?", "en", VOICE, 1234, control_spans=spans
+    )
+    assert "control_spans" not in requests[0]
+
+
+async def test_a_control_span_rate_rides_the_request_with_the_spans():
+    zonos, requests = fake_zonos()
+    spans = [{"start": 6, "end": 12, "controls": {"delivery.pitch": 5.0}}]
+    await ZonosClient("http://z", zonos).synthesize(
+        "Is it ready?", "en", VOICE, 1234, control_spans=spans, control_span_rate=0.82
+    )
+    assert requests[0]["control_span_rate"] == 0.82
+    plain, requests = fake_zonos()
+    await ZonosClient("http://z", plain).synthesize("Is it ready?", "en", VOICE, 1234)
+    assert "control_span_rate" not in requests[0]

@@ -44,9 +44,18 @@ class ZonosClient:
         self._http = http
 
     async def synthesize(
-        self, text: str, language: str, voice: Voice, seed: int
+        self,
+        text: str,
+        language: str,
+        voice: Voice,
+        seed: int,
+        control_spans: list[dict] | None = None,
+        control_span_rate: float | None = None,
     ) -> tuple[np.ndarray, int]:
         """`text` spoken in `voice`: float32 mono audio and its sample rate.
+
+        `control_spans` steers the frames made while a span's characters are spoken (see
+        `questions.py`); the request carries the field only when there are spans.
 
         `language` is "en" or "hu". Raises ValueError for any other, ZonosUnavailable when Zonos
         cannot be reached, and SynthesisFailed when it answers with anything but usable audio.
@@ -67,6 +76,10 @@ class ZonosClient:
         }
         if voice.controls:
             body["controls"] = voice.controls
+        if control_spans:
+            body["control_spans"] = control_spans
+            if control_span_rate:  # frames of Zonos's codec per character; its own default is 1
+                body["control_span_rate"] = control_span_rate
         try:
             response = await self._http.post(
                 f"{self._base_url}/v2/generate", json=body, timeout=_SYNTHESIS_TIMEOUT

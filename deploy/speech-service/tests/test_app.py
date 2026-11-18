@@ -1843,3 +1843,12 @@ def test_the_entry_point_names_a_setting_it_cannot_read(served):
     with pytest.raises(SystemExit) as stopped:
         served(SPEECH_PORT="Quokka", SPEECH_ALIGNER="none")
     assert "SPEECH_PORT" in str(stopped.value)
+
+
+def test_a_preview_of_a_question_is_lifted_on_its_last_word(serve):
+    client, requests = serve()
+    reply = client.post("/v1/preview", json=preview_request(text="Is it ready?"))
+    assert reply.status_code == 200
+    assert requests[0]["control_spans"] == [
+        {"start": 6, "end": 12, "controls": {"delivery.pitch": 5.0}}
+    ]

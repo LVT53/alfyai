@@ -44,6 +44,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
+from speech_service import questions
 from speech_service.aligner import Aligner, Interval, resample_16k, token_times
 from speech_service.audio import (
     SAMPLE_RATE,
@@ -388,6 +389,10 @@ class ReadingSession:
             self._settings.seed,
             self._settings.steady_attempts,
             on_retry=self._made_again_because_it_stalled,
+            question_lift=self._settings.question_lift,
+            question_rise=self._settings.question_rise,
+            on_flat=self._made_again_because_it_ended_flat,
+            rates=questions.RATES,
         )
         if rate != SAMPLE_RATE:  # Zonos's output is documented, and measured, as 44.1 kHz
             raise SynthesisFailed(f"Zonos sent audio at {rate} Hz, not {SAMPLE_RATE} Hz")
@@ -411,6 +416,20 @@ class ReadingSession:
             seconds,
             expected,
             pause,
+            attempt,
+            attempts,
+        )
+
+    def _made_again_because_it_ended_flat(self, attempt: int, attempts: int, rise: float) -> None:
+        """A yes/no question ended flat and is made again (`questions.py`). Counted with the clips
+        made again, and logged as numbers only."""
+        self._made_again += 1
+        logger.debug(
+            "session %s: sentence %d: a question's clip rose %.1f semitones at its end and was made "
+            "again (attempt %d of %d)",
+            self.id,
+            self._current,
+            rise,
             attempt,
             attempts,
         )

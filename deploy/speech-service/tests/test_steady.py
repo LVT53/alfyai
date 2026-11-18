@@ -9,10 +9,10 @@ the next, which is why the cure is another seed (spec §4.8, I12 of the UI walk)
 import numpy as np
 import pytest
 
-from speech_service import steady
+from speech_service import questions, steady
 from speech_service.models import Voice
 from speech_service.zonos import SynthesisFailed, ZonosUnavailable
-from tests.helpers import SR, tone
+from tests.helpers import SR, question_clip, tone
 
 TEXT = "Elolvassam a hosszabb változatot is"  # 36 characters, the length of a short question
 
@@ -307,3 +307,123 @@ async def test_a_voices_own_controls_reach_every_attempt():
     voice = Voice("default_test", {"room.clean": 2, "mood.arousal": 1.5})
     await run(Listening(STALL, steady_clip()), voice=voice)
     assert seen == [voice.controls, voice.controls]
+
+
+# --- a question that ends flat is made again ------------------------------------------------------
+
+QUESTION = "Did you find the file that I sent you?"
+
+
+class ScriptedWithSpans(Scripted):
+    """A Scripted that also keeps the control spans each call asked for."""
+
+    def __init__(self, *script):
+        super().__init__(*script)
+        self.spans: list = []
+        self.rates: list = []
+
+    async def synthesize(self, text, language, voice, seed, control_spans=None, control_span_rate=None):
+        self.spans.append(control_spans)
+        self.rates.append(control_span_rate)
+        return await super().synthesize(text, language, voice, seed)
+
+
+async def ask(zonos, text=QUESTION, attempts=4, lift=5.0, rise=3.0, on_flat=None, rates=None):
+    return await steady.synthesize_steady(
+        zonos, text, "en", VOICE, 1234, attempts, question_lift=lift, question_rise=rise,
+        on_flat=on_flat, rates=rates,
+    )
+
+
+async def test_a_yes_no_question_is_asked_with_a_lift_on_its_last_word():
+    zonos = ScriptedWithSpans(question_clip(True))
+    await ask(zonos)
+    end = len(QUESTION)
+    assert zonos.spans == [[{"start": end - 4, "end": end, "controls": {"delivery.pitch": 5.0}}]]
+
+
+async def test_a_statement_is_made_as_it_is_and_never_judged():
+    zonos = ScriptedWithSpans(question_clip(False))
+    await ask(zonos, QUESTION[:-1] + ".")
+    assert zonos.spans == [None] and zonos.seeds == [1234]
+
+
+async def test_a_question_that_rises_is_taken_at_once():
+    rising = question_clip(True)
+    zonos = ScriptedWithSpans(rising)
+    audio, _ = await ask(zonos)
+    assert audio is rising and zonos.seeds == [1234]
+
+
+async def test_a_question_that_ends_flat_is_made_again_under_the_next_seed():
+    rising = question_clip(True)
+    zonos = ScriptedWithSpans(question_clip(False), question_clip(False), rising)
+    audio, _ = await ask(zonos)
+    assert audio is rising
+    assert zonos.seeds == [1234, 1234 + steady.SEED_STEP, 1234 + 2 * steady.SEED_STEP]
+
+
+async def test_when_no_clip_rises_the_first_is_the_answer():
+    first = question_clip(False)
+    zonos = ScriptedWithSpans(first, question_clip(False), question_clip(False))
+    audio, _ = await ask(zonos, attempts=3)
+    assert audio is first and len(zonos.seeds) == 3
+
+
+async def test_a_question_word_question_is_neither_lifted_nor_judged():
+    zonos = ScriptedWithSpans(question_clip(False))
+    await ask(zonos, "Where did you put the file that I sent you?")
+    assert zonos.spans == [None] and zonos.seeds == [1234]
+
+
+async def test_the_lift_and_the_judge_can_each_be_turned_off():
+    unlifted = ScriptedWithSpans(question_clip(False), question_clip(True))
+    await ask(unlifted, lift=0.0)
+    assert unlifted.spans == [None, None] and len(unlifted.seeds) == 2  # still judged
+    unjudged = ScriptedWithSpans(question_clip(False))
+    await ask(unjudged, rise=0.0)
+    assert unjudged.spans[0] is not None and len(unjudged.seeds) == 1  # still lifted
+
+
+async def test_a_stall_is_worse_than_a_flat_question():
+    flat = question_clip(False)
+    zonos = ScriptedWithSpans(STALL, flat)
+    audio, _ = await ask(zonos, attempts=2)
+    assert audio is flat
+
+
+async def test_a_clip_too_short_to_judge_is_taken():
+    zonos = ScriptedWithSpans(tone(0.3, 0.3))
+    await ask(zonos)
+    assert zonos.seeds == [1234]
+
+
+async def test_the_retry_of_a_flat_question_reports_numbers_only():
+    heard = []
+    zonos = ScriptedWithSpans(question_clip(False), question_clip(True))
+    await ask(zonos, on_flat=lambda *numbers: heard.append(numbers))
+    ((attempt, attempts, rise),) = heard
+    assert (attempt, attempts) == (1, 4) and isinstance(rise, float) and rise < 3.0
+
+
+async def test_the_span_goes_by_the_rate_the_voice_was_heard_to_speak_at():
+    memory = questions.RateMemory()
+    zonos = ScriptedWithSpans(question_clip(False, 3.0), question_clip(True, 3.0))
+    await ask(zonos, rates=memory)
+    # The first attempt has nothing to go by; the second goes by the first clip: 38 characters in 3 s.
+    assert zonos.rates == [None, pytest.approx(15 * 3.0 / len(QUESTION), abs=0.05)]
+
+
+async def test_a_stalled_clip_teaches_no_rate():
+    memory = questions.RateMemory()
+    await ask(ScriptedWithSpans(STALL, question_clip(True, 3.0)), rates=memory)
+    assert memory.frames_per_char("default_test|0.0") == pytest.approx(15 * 3.0 / len(QUESTION), abs=0.05)
+
+
+async def test_no_rate_is_sent_without_a_memory_or_without_a_span():
+    zonos = ScriptedWithSpans(question_clip(False), question_clip(True))
+    await ask(zonos)
+    assert zonos.rates == [None, None]
+    statement = ScriptedWithSpans(question_clip(False))
+    await ask(statement, QUESTION[:-1] + ".", rates=questions.RateMemory())
+    assert statement.rates == [None]
