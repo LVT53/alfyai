@@ -62,6 +62,7 @@ import {
 	shouldHydrateFileProductionJobsOnToolCall,
 	shouldPollTakeCards,
 	takeCardsPollIntervalMs,
+	takesWaitingForTheList,
 	toFriendlySendError,
 	waitingQuestionsWithoutRow,
 	withinOrNull,
@@ -2547,6 +2548,114 @@ describe("shouldPollTakeCards", () => {
 			),
 		).toBe(false);
 		expect(shouldPollTakeCards([], [], [])).toBe(false);
+	});
+});
+
+// A take that lands after its tool call stopped waiting makes or changes its item
+// when it lands, and the page then reads the cards alone: the panel's list and the
+// header's count kept what they had until a reload (owner's chat, 2026-11-18).
+describe("takesWaitingForTheList", () => {
+	const NOW = 10_000_000;
+	const landed = (versionNumber: number | null = 2) =>
+		imageTake({ versionNumber, createdAt: NOW - 30_000 });
+	const none = new Set<string>();
+
+	it("waits for a picked picture whose Image is not a row of the list yet", () => {
+		expect(
+			takesWaitingForTheList([imageCard([landed()])], [], new Map(), none, NOW),
+		).toBe(true);
+	});
+
+	it("waits for a picked picture newer than its Image's row", () => {
+		expect(
+			takesWaitingForTheList(
+				[imageCard([landed(9)])],
+				[],
+				new Map([["artifact-1", 8]]),
+				none,
+				NOW,
+			),
+		).toBe(true);
+	});
+
+	it("is done once the list holds the Image at the card's version or a newer one", () => {
+		for (const listed of [9, 12]) {
+			expect(
+				takesWaitingForTheList(
+					[imageCard([landed(9)])],
+					[],
+					new Map([["artifact-1", listed]]),
+					none,
+					NOW,
+				),
+			).toBe(false);
+		}
+	});
+
+	it("does not wait for a card with no item or no pick yet, or an item that is gone", () => {
+		expect(
+			takesWaitingForTheList(
+				[imageCard([landed()], { artifactId: null })],
+				[],
+				new Map(),
+				none,
+				NOW,
+			),
+		).toBe(false);
+		expect(
+			takesWaitingForTheList(
+				[imageCard([landed()], { pickedTakeId: null })],
+				[],
+				new Map(),
+				none,
+				NOW,
+			),
+		).toBe(false);
+		expect(
+			takesWaitingForTheList(
+				[imageCard([landed()])],
+				[],
+				new Map(),
+				new Set(["artifact-1"]),
+				NOW,
+			),
+		).toBe(false);
+	});
+
+	it("waits for a landed clip whose Video is not a row yet, not for one still being made", () => {
+		const clip = (status: "succeeded" | "running") =>
+			videoCard(videoTake({ status, createdAt: NOW - 30_000 }));
+		expect(
+			takesWaitingForTheList([], [clip("succeeded")], new Map(), none, NOW),
+		).toBe(true);
+		expect(
+			takesWaitingForTheList([], [clip("running")], new Map(), none, NOW),
+		).toBe(false);
+		expect(
+			takesWaitingForTheList(
+				[],
+				[clip("succeeded")],
+				new Map([["video-1", 1]]),
+				none,
+				NOW,
+			),
+		).toBe(false);
+	});
+
+	it("does not make the page ask on every visit about an old take", () => {
+		expect(
+			takesWaitingForTheList(
+				[
+					imageCard([
+						imageTake({ versionNumber: 2, createdAt: NOW - 60 * 60_000 }),
+					]),
+				],
+				[],
+				new Map(),
+				none,
+				NOW,
+			),
+		).toBe(false);
 	});
 });
 
