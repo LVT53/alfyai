@@ -294,8 +294,11 @@ export interface FakeMineruServerOptions {
 	}) => FakeMineruFileOutcome | undefined;
 	/**
 	 * The error a failed file reports. Defaults to `parse_failed` / "Parse
-	 * failed". 4.1 says the same code for every cause; only the message differs
-	 * ("Failed to load document (PDFium: Data format error).").
+	 * failed". Up to 4.2.1 that is the code for every cause and only the message
+	 * differs ("Failed to load document (PDFium: Data format error)."); 4.2.2+
+	 * names an input failure in the code (`file_corrupted`, `file_encrypted`,
+	 * `file_type_unsupported`, `file_too_large`, `resource_limit`), and 4.2.3's
+	 * hang guard says `task_timeout` or `worker_restarted`.
 	 */
 	fileError?: { code?: string; message?: string };
 	/** Serve a result as a 302 (once) instead of a stream. */
