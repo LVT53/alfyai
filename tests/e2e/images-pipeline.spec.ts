@@ -69,6 +69,10 @@ const CARD =
 const LOADED = `${CARD} [data-testid="image-card-stage"] [data-testid="image-picture-after"].is-loaded`;
 
 const H3_CANVAS = { width: 4224, height: 2816 };
+// A change to that picture keeps its 3:2 shape with the short edge at 2048 px,
+// not at 12 MP: the reference size ComfyUI's H3 conditioning encodes an edited
+// picture at, and 34-51% less sampling time.
+const H3_EDIT_CANVAS = { width: 3072, height: 2048 };
 // Qwen's 1 MP print, which is also the landscape pair the specs below name.
 const QWEN_PRINT = { width: 2496, height: 1664 };
 const ONE_MEGAPIXEL = { width: 1248, height: 832 };
@@ -453,7 +457,7 @@ const SIZES: PictureSize[] = [
 	"tall",
 ];
 
-test.describe("MiniMax-H3-Image at 12 MP", () => {
+test.describe("MiniMax-H3-Image: 12 MP pictures, 2048 px short-edge changes", () => {
 	let servers: FakePictureServers | null = null;
 	let previousModelPreference: string | null = null;
 	let conversationId: string | null = null;
@@ -514,8 +518,8 @@ test.describe("MiniMax-H3-Image at 12 MP", () => {
 		expect(graphNodeByClass(prompt.graph, "TextEncodeQwenImage21")).toBeFalsy();
 		expect(
 			graphNodeByClass(prompt.graph, "KSampler")?.inputs?.steps,
-			"H3's 6 steps",
-		).toBe(6);
+			"H3 samples a new picture in 4 steps",
+		).toBe(4);
 		expect(submittedCanvas(prompt.graph)).toEqual(H3_CANVAS);
 
 		// No 16 MP: the requested canvas is the 12 MP one, not a doubled print.
@@ -538,7 +542,7 @@ test.describe("MiniMax-H3-Image at 12 MP", () => {
 		);
 		await expectHistoryHolds(page, fileId);
 
-		// The stored take is H3's, at the 12 MP canvas and 6 steps, transparent false.
+		// The stored take is H3's, at the 12 MP canvas, transparent false.
 		const [stored] = await storedTakes(conversationId);
 		expect(stored.request.model).toBe("h3");
 		expect(stored.request.canvas).toEqual(H3_CANVAS);
@@ -552,7 +556,7 @@ test.describe("MiniMax-H3-Image at 12 MP", () => {
 		expect(comfyRequests(h3, "POST", "/free")).toHaveLength(0);
 	});
 
-	test("a change uses H3's edit graph, ten slots and <Picture 1>, at 12 MP", async ({
+	test("a change uses H3's edit graph, ten slots and <Picture 1>, on a 2048 px short-edge canvas", async ({
 		page,
 	}) => {
 		const { qwen, h3 } = servers as FakePictureServers;
@@ -576,30 +580,40 @@ test.describe("MiniMax-H3-Image at 12 MP", () => {
 		expect(
 			graphNodeByClass(edit.graph, "MiniMaxH3ImageConditioning"),
 		).toBeTruthy();
-		expect(graphNodeByClass(edit.graph, "KSampler")?.inputs?.steps).toBe(6);
-		expect(submittedCanvas(edit.graph)).toEqual(H3_CANVAS);
+		// An edit keeps H3's six steps; no edit at 4 steps has been looked at yet.
+		expect(
+			graphNodeByClass(edit.graph, "KSampler")?.inputs?.steps,
+			"H3 keeps an edit at 6 steps",
+		).toBe(6);
+		// The first picture is 4224x2816 (12 MP); its change is asked for at 3072x2048.
+		expect(submittedCanvas(edit.graph)).toEqual(H3_EDIT_CANVAS);
+		expect(
+			Math.min(...Object.values(submittedCanvas(edit.graph))),
+			"the change's short edge is 2048 px",
+		).toBe(2048);
 		// The edit graph keeps the same ten slots; only the base one is wired.
 		expect(submittedImageSlots(edit.graph)).toHaveLength(1);
 		expect(submittedPromptText(edit.graph)).toMatch(/^<Picture 1> /);
-		expect(area(submittedCanvas(edit.graph))).toBeLessThan(13 * 1024 * 1024);
 
 		const stored = await storedTakes(conversationId);
 		expect(stored).toHaveLength(2);
+		expect(stored[0].request.canvas).toEqual(H3_CANVAS);
 		expect(stored[1].request).toMatchObject({
 			model: "h3",
 			mode: "edit",
-			canvas: H3_CANVAS,
+			canvas: H3_EDIT_CANVAS,
 			marks: null,
 		});
 		expect(stored[1].request.inputs[0]?.role).not.toBe("marked");
 
+		// The result file is the canvas it was asked at, not the first picture's.
 		const latest = card.takes[0].fileId as string;
 		expect(await fileSize(page, latest, conversationId)).toMatchObject({
-			...H3_CANVAS,
+			...H3_EDIT_CANVAS,
 		});
 	});
 
-	test("a boxed change carries its marks into an H3 take that still lands at 12 MP", async ({
+	test("a boxed change carries its marks into an H3 take that lands on the 2048 px short-edge canvas", async ({
 		page,
 	}) => {
 		const { qwen, h3 } = servers as FakePictureServers;
@@ -635,7 +649,7 @@ test.describe("MiniMax-H3-Image at 12 MP", () => {
 		const prompts = submittedPrompts(h3);
 		expect(prompts).toHaveLength(2);
 		expect(submittedPrompts(qwen)).toHaveLength(0);
-		expect(submittedCanvas(prompts[1].graph)).toEqual(H3_CANVAS);
+		expect(submittedCanvas(prompts[1].graph)).toEqual(H3_EDIT_CANVAS);
 		expect(submittedPromptText(prompts[1].graph)).toMatch(/^<Picture 1> /);
 
 		// The boxed take really carried the person's marks; the model is sent the
@@ -647,7 +661,7 @@ test.describe("MiniMax-H3-Image at 12 MP", () => {
 		expect(card.takes[0].status).toBe("succeeded");
 		expect(
 			await fileSize(page, card.takes[0].fileId as string, conversationId),
-		).toMatchObject({ ...H3_CANVAS });
+		).toMatchObject({ ...H3_EDIT_CANVAS });
 	});
 
 	test("H3 print stays 12 MP, every H3 size is 12 MP, and Qwen keeps 1 MP / 4 MP print", () => {

@@ -31,8 +31,8 @@ export interface ModelConfig {
 
 /**
  * Which ComfyUI picture model new pictures use. Qwen keeps the existing 1 MP /
- * 4 MP print / transparent path on `COMFYUI_URL`; H3 uses its own 12 MP server on
- * `COMFYUI_H3_URL`.
+ * 4 MP print / transparent path on `COMFYUI_URL`; H3 uses its own server on
+ * `COMFYUI_H3_URL` (12 MP new pictures, changes on a 2048 px short edge).
  */
 export type ImageModel = "qwen" | "h3";
 

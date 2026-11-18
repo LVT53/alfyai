@@ -7,7 +7,8 @@ import {
 	type GraphSlot,
 	type GraphTemplate,
 	H3_CFG,
-	H3_STEPS,
+	H3_EDIT_STEPS,
+	H3_GENERATE_STEPS,
 	QWEN_CFG,
 	QWEN_STEPS,
 } from "./templates";
@@ -183,7 +184,10 @@ describe("installed MiniMax-H3-Image graphs", () => {
 		expect(clip?.inputs.type).toBe("minimax");
 	});
 
-	it.each(H3_NAMES)("%s: buildPromptGraph writes 6 steps and CFG 1", (name) => {
+	it.each([
+		["generate", H3_GENERATE_STEPS, 4],
+		["edit", H3_EDIT_STEPS, 6],
+	] as const)("%s: buildPromptGraph writes %i steps and CFG 1", (name, constant, steps) => {
 		const t = GRAPH_TEMPLATES_BY_MODEL.h3[name] as GraphTemplate;
 		const graph = buildPromptGraph(t, {
 			prompt: "p",
@@ -193,9 +197,9 @@ describe("installed MiniMax-H3-Image graphs", () => {
 			images: t.slots.images.length > 0 ? ["a.png"] : [],
 		});
 		const sampler = graph[t.slots.steps.node].inputs;
-		expect(sampler.steps).toBe(H3_STEPS);
+		expect(sampler.steps).toBe(constant);
 		expect(sampler.cfg).toBe(H3_CFG);
-		expect(sampler.steps).toBe(6);
+		expect(sampler.steps).toBe(steps);
 		expect(sampler.cfg).toBe(1);
 	});
 

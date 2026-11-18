@@ -398,23 +398,60 @@ describe("the H3 picture model", () => {
 		expect(square.plan.request.canvas).toEqual({ width: 3456, height: 3456 });
 	});
 
-	it("edits at 12 MP keeping the base's shape, and print does not enlarge it", async () => {
+	it("edits on a 2048 px short-edge canvas keeping the base's shape (a small base is scaled up to it), and print does not enlarge it", async () => {
 		await useH3();
 		const upload = await makeUpload(640, 480);
 		const turnPictures = index([upload]);
 		const plain = await resolve({ pictures: ["1"] }, { turnPictures });
 		if (!plain.ok) throw new Error("not resolved");
+		// 4:3: the short edge 2048, the long one 2730.7 snapped to 2720.
 		expect(plain.plan.request).toMatchObject({
 			model: "h3",
 			mode: "edit",
-			canvas: { width: 3968, height: 2976 },
+			canvas: { width: 2720, height: 2048 },
 		});
 		const print = await resolve(
 			{ pictures: ["1"], print: true },
 			{ turnPictures },
 		);
 		if (!print.ok) throw new Error("not resolved");
-		expect(print.plan.request.canvas).toEqual({ width: 3968, height: 2976 });
+		expect(print.plan.request.canvas).toEqual({ width: 2720, height: 2048 });
+	});
+
+	it("hands H3 a base at exactly its canvas: a small upload scaled up to the 2048 px short edge, a 12 MP picture scaled down to it", async () => {
+		await useH3();
+		const { getImageFile, readImageFileBytes } = await import("./files");
+		const baseSize = async (fileId: string) => {
+			const file = await getImageFile({ userId, fileId, conversationId });
+			if (!file) throw new Error("no such file");
+			const meta = await sharp(
+				await readImageFileBytes(file, "full"),
+			).metadata();
+			return { width: meta.width, height: meta.height };
+		};
+
+		const small = await resolve(
+			{ pictures: ["1"] },
+			{ turnPictures: index([await makeUpload(640, 480)]) },
+		);
+		if (!small.ok) throw new Error("not resolved");
+		expect(await baseSize(small.plan.request.inputs[0]?.fileId ?? "")).toEqual({
+			width: 2720,
+			height: 2048,
+		});
+
+		// H3's own 12 MP landscape picture, changed again.
+		const large = await storeFile(4224, 2816);
+		const down = await resolve(
+			{ pictures: ["1"] },
+			{ turnPictures: index([fileSource(large.id)]) },
+		);
+		if (!down.ok) throw new Error("not resolved");
+		expect(down.plan.request.canvas).toEqual({ width: 3072, height: 2048 });
+		expect(await baseSize(down.plan.request.inputs[0]?.fileId ?? "")).toEqual({
+			width: 3072,
+			height: 2048,
+		});
 	});
 
 	it("refuses a transparent request before a card or take, naming the Admin Qwen switch", async () => {
