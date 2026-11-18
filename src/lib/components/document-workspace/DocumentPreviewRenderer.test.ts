@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { standardReportPreviewCsp } from "$lib/server/services/file-serving-response-policy";
 import DocumentPreviewRenderer from "./DocumentPreviewRenderer.svelte";
 
 const pdfMocks = vi.hoisted(() => ({
@@ -25,8 +26,8 @@ const markdownMocks = vi.hoisted(() => ({
 	),
 }));
 
-const STANDARD_REPORT_CSP =
-	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+// The report's own policy, as the server builds it: its scripts by their hashes.
+const STANDARD_REPORT_CSP = standardReportPreviewCsp();
 
 vi.mock("pdfjs-dist", () => ({
 	GlobalWorkerOptions: {

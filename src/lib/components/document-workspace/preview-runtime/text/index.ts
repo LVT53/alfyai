@@ -23,7 +23,7 @@ export type TextPreviewRenderResult =
 	  }
 	/**
 	 * A standard report, whose response carries the report's own policy
-	 * (`STANDARD_REPORT_PREVIEW_CSP`): the panel frames it by that same address, so it
+	 * (`standardReportPreviewCsp`): the panel frames it by that same address, so it
 	 * runs under that policy and nothing of it is written into the page.
 	 */
 	| {

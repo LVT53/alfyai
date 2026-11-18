@@ -135,7 +135,7 @@ describe("text preview adapter", () => {
 		).not.toContain("<script>window.ready=true</script>");
 
 		// A standard report runs under the policy its own response carries
-		// (`STANDARD_REPORT_PREVIEW_CSP`): nothing of it is written into the page's.
+		// (`standardReportPreviewCsp`): nothing of it is written into the page's.
 		const trusted = await renderTextPreview({
 			kind: "html",
 			blob: new Blob([report]),

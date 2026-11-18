@@ -23,6 +23,12 @@ import {
 import { getSucceededFileProductionJobForChatFile } from "$lib/server/services/file-production/read-model";
 import { withReportBridge } from "$lib/shared/read-aloud/report-bridge";
 import {
+	cspSha256,
+	STANDARD_REPORT_HANDLER_HASHES,
+	STANDARD_REPORT_SCRIPT_HASHES,
+} from "./file-production/renderers/standard-report-scripts";
+import { standardReportPreviewCsp } from "./file-serving-response-policy";
+import {
 	readStandardReportHtml,
 	resolveGeneratedFileServing,
 } from "./generated-file-serving";
@@ -213,7 +219,7 @@ describe("resolveGeneratedFileServing", () => {
 		if (!result.ok) return;
 		expect(result.headers["Content-Type"]).toBe("text/html; charset=utf-8");
 		expect(result.headers["Content-Security-Policy"]).toBe(
-			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+			standardReportPreviewCsp(),
 		);
 		expect(result.headers["X-Content-Type-Options"]).toBe("nosniff");
 		expect(result.headers["Referrer-Policy"]).toBe("no-referrer");
@@ -696,6 +702,12 @@ describe("read aloud's bridge in a standard report's preview", () => {
 			bridgeOrigin,
 		});
 	const text = (body: Uint8Array) => Buffer.from(body).toString("utf8");
+	/** The CSP hash of the last script in a served body: the bridge the preview added. */
+	const bridgeHashIn = (body: string) =>
+		cspSha256(
+			[...body.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].at(-1)?.[1] ??
+				"",
+		);
 
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -718,7 +730,7 @@ describe("read aloud's bridge in a standard report's preview", () => {
 		);
 		// The report's own policy, unchanged: it is what lets the bridge run.
 		expect(result.headers["Content-Security-Policy"]).toBe(
-			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+			standardReportPreviewCsp([bridgeHashIn(body)]),
 		);
 	});
 
@@ -745,6 +757,37 @@ describe("read aloud's bridge in a standard report's preview", () => {
 		expect(tail.ok && tail.headers["Content-Range"]).toBe(
 			`bytes ${end - 19}-${end}/${full.length}`,
 		);
+	});
+
+	// Security review I1: the policy names the app's own scripts and nothing else a
+	// stored report holds, whatever that is.
+	it("is named in the report's policy by its own hash, and nothing the file holds is", async () => {
+		const injected = "window.injected = true";
+		mockReadChatFileContentByUser.mockResolvedValue(
+			Buffer.from(
+				REPORT_HTML.replace("</body>", `<script>${injected}</script></body>`),
+			),
+		);
+		const result = await serve("preview");
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		const policy = result.headers["Content-Security-Policy"] ?? "";
+		const scriptSources =
+			policy
+				.split(";")
+				.map((part) => part.trim())
+				.find((part) => part.startsWith("script-src "))
+				?.split(/\s+/)
+				.slice(1) ?? [];
+		expect(scriptSources).toEqual([
+			...STANDARD_REPORT_SCRIPT_HASHES,
+			bridgeHashIn(text(result.body)),
+			"'unsafe-hashes'",
+			...STANDARD_REPORT_HANDLER_HASHES,
+		]);
+		expect(scriptSources).not.toContain(cspSha256(injected));
+		expect(scriptSources).not.toContain(cspSha256("window.ready=true"));
+		expect(policy).not.toContain("'unsafe-inline'; object-src");
 	});
 
 	it("is never in a download", async () => {

@@ -11,6 +11,7 @@ import {
 	validateGeneratedOutputFile,
 } from "$lib/server/services/file-production/output-validation";
 import { getSucceededFileProductionJobForChatFile } from "$lib/server/services/file-production/read-model";
+import { cspSha256 } from "$lib/server/services/file-production/renderers/standard-report-scripts";
 import {
 	applyFileServingRange,
 	buildFileServingResponseHeaders,
@@ -19,7 +20,10 @@ import {
 } from "$lib/server/services/file-serving-response-policy";
 import { isPosterFileName } from "$lib/shared/artifacts/poster-file";
 import { requiresFullContentValidation } from "$lib/shared/file-types/production";
-import { withReportBridge } from "$lib/shared/read-aloud/report-bridge";
+import {
+	reportBridgeScript,
+	withReportBridge,
+} from "$lib/shared/read-aloud/report-bridge";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 
 export type GeneratedFileServingMode = "preview" | "download";
@@ -148,10 +152,15 @@ export async function resolveGeneratedFileServing(params: {
 	// Read aloud's bridge, added to a standard report's preview at preview time (so a
 	// report made before read aloud gets it too), after the report's own bytes were
 	// checked. The panel frames the report by this address, so the bridge runs under
-	// the report's own policy, which allows inline scripts. HTML is always served
-	// whole (no range path), and the length counts what was added.
-	const body =
+	// the report's own policy, which names it by its hash (`reportScriptHashes`), as
+	// it names the renderer's scripts. HTML is always served whole (no range path),
+	// and the length counts what was added.
+	const bridgeHash =
 		previewProfile === "standard-report" && params.bridgeOrigin
+			? reportBridgeHash(params.bridgeOrigin)
+			: null;
+	const body =
+		bridgeHash !== null && params.bridgeOrigin
 			? Buffer.from(
 					withReportBridge(fileContent.toString("utf8"), params.bridgeOrigin),
 					"utf8",
@@ -167,6 +176,7 @@ export async function resolveGeneratedFileServing(params: {
 			filename,
 			safetyFilenames: [chatFile.filename],
 			previewProfile,
+			reportScriptHashes: bridgeHash !== null ? [bridgeHash] : [],
 		}),
 	});
 
@@ -200,6 +210,28 @@ export async function readStandardReportHtml(params: {
 	)
 		return null;
 	return Buffer.from(served.body).toString("utf8");
+}
+
+/**
+ * The CSP hash of read aloud's bridge for an origin: its script's text, exactly as
+ * `withReportBridge` inserts it. The same for every report of one origin, so it is
+ * kept (an app answers at a handful of origins). Null for an origin the bridge takes
+ * no script for, and then none is added.
+ */
+const bridgeHashes = new Map<string, string | null>();
+function reportBridgeHash(origin: string): string | null {
+	const known = bridgeHashes.get(origin);
+	if (known !== undefined) return known;
+	const script = reportBridgeScript(origin);
+	const open = "<script>";
+	const close = "</script>";
+	const hash =
+		script.startsWith(open) && script.endsWith(close)
+			? cspSha256(script.slice(open.length, -close.length))
+			: null;
+	if (bridgeHashes.size >= 16) bridgeHashes.clear();
+	bridgeHashes.set(origin, hash);
+	return hash;
 }
 
 async function resolvePreviewProfile(params: {

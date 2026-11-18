@@ -1,3 +1,7 @@
+import {
+	STANDARD_REPORT_HANDLER_HASHES,
+	STANDARD_REPORT_SCRIPT_HASHES,
+} from "$lib/server/services/file-production/renderers/standard-report-scripts";
 import { ensureFilenameExtension } from "$lib/shared/file-types/download-name";
 
 export type FileServingMode = "preview" | "download";
@@ -10,6 +14,11 @@ export interface FileServingResponsePolicyParams {
 	safetyFilenames?: readonly (string | null | undefined)[];
 	restrictedPreview?: boolean;
 	previewProfile?: FileServingPreviewProfile;
+	/**
+	 * A standard report's other scripts of the app's own, by their CSP hashes: read
+	 * aloud's bridge, when the preview adds it. Ignored for any other profile.
+	 */
+	reportScriptHashes?: readonly string[];
 }
 
 export interface FileServingRangeResult {
@@ -26,18 +35,33 @@ export type ParsedFileServingRange =
 const RESTRICTED_PREVIEW_CSP =
 	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
-// A generated HTML report runs script of the app's own (the section menu, the
-// source tooltips, read aloud's bridge), so this is the widest preview policy
-// there is, and still no wider than the others in what it may load:
-// `img-src data:` (ADR-0068). The report's pictures are inlined as data: URIs when
-// it is rendered (`file-production/report-images.ts`), so it never has to fetch
-// one, and a remote address in it would be a request nobody clicked. The panel
-// frames the report by this very response (`DocumentPreviewRenderer.svelte`, a
-// sandboxed frame with no same origin), so this header is the policy it runs
-// under. Keep it in step with `allowsTrustedHtmlPreviewRuntime`, which recognises
-// this header by its text.
-const STANDARD_REPORT_PREVIEW_CSP =
-	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+/**
+ * A generated standard report's preview policy. The report runs script of the app's
+ * own (the section menu, the source tooltips, the favicon fallback, read aloud's
+ * bridge), and the panel frames the report by this very response
+ * (`DocumentPreviewRenderer.svelte`, a sandboxed frame with no same origin), so this
+ * header is the policy it runs under.
+ *
+ * Only the app's own scripts run, by construction (security review I1): `script-src`
+ * names them by their hashes (`standard-report-scripts.ts`: the renderer's script,
+ * today's and every earlier one a stored report may carry, and its favicon fallback
+ * under `'unsafe-hashes'`), plus `extraScriptHashes` (the bridge, hashed when the
+ * preview adds it). No `'unsafe-inline'`: no other inline script, handler or
+ * `javascript:` address in a stored report runs, whatever it holds. A hash never
+ * comes from the file served.
+ *
+ * Otherwise it is no wider than the others in what it may load: `img-src data:`
+ * (ADR-0068). The report's pictures are inlined as data: URIs when it is rendered
+ * (`file-production/report-images.ts`), so it never has to fetch one, and a remote
+ * address in it would be a request nobody clicked. `allowsTrustedHtmlPreviewRuntime`
+ * recognises it by its shape: the same directives exactly, `script-src` hashes only.
+ */
+export function standardReportPreviewCsp(
+	extraScriptHashes: readonly string[] = [],
+): string {
+	const scripts = [...STANDARD_REPORT_SCRIPT_HASHES, ...extraScriptHashes];
+	return `default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src ${scripts.join(" ")} 'unsafe-hashes' ${STANDARD_REPORT_HANDLER_HASHES.join(" ")}; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
+}
 
 export type FileServingPreviewProfile = "standard-report";
 
@@ -128,7 +152,7 @@ export function buildFileServingResponseHeaders(
 	if (isRestrictedPreview({ ...params, contentType })) {
 		headers["Content-Security-Policy"] =
 			params.previewProfile === "standard-report"
-				? STANDARD_REPORT_PREVIEW_CSP
+				? standardReportPreviewCsp(params.reportScriptHashes)
 				: RESTRICTED_PREVIEW_CSP;
 		headers["X-Content-Type-Options"] = "nosniff";
 		headers["Referrer-Policy"] = "no-referrer";

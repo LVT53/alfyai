@@ -331,32 +331,47 @@ function readResponseHeader(response: Response, name: string): string | null {
 }
 
 /**
- * What a response must say before its HTML runs script in the preview: the
- * generated report's policy, directive by directive and exactly. It is the
- * widest policy the app serves and still loads pictures from itself only
- * (`img-src data:`, ADR-0068); a response that allows more of anything, remote
- * pictures included, is not that profile, and its HTML gets the static preview.
+ * What a response must say before its HTML runs script in the preview: the generated
+ * standard report's policy (`standardReportPreviewCsp` on the server), known by its
+ * shape. Its scripts are named by their hashes alone (security review I1: only the
+ * app's own scripts run in a report, so no `'unsafe-inline'`, no address, no nonce),
+ * and every other directive is exactly the report's, which loads pictures from itself
+ * only (`img-src data:`, ADR-0068). A response that allows more of anything, or names
+ * any other directive, is not that profile, and its HTML gets the static preview.
  */
 const TRUSTED_HTML_RUNTIME_DIRECTIVES: Record<string, string> = {
 	"default-src": "'none'",
 	"img-src": "data:",
 	"style-src": "'unsafe-inline'",
-	"script-src": "'unsafe-inline'",
 	"object-src": "'none'",
 	"base-uri": "'none'",
 	"form-action": "'none'",
+	"frame-ancestors": "'self'",
 };
+
+/** A `script-src` source the report's policy may hold: a script's hash, or `'unsafe-hashes'` (its favicon fallback). */
+const TRUSTED_SCRIPT_SOURCE =
+	/^(?:'sha(?:256|384|512)-[a-z0-9+/_-]+={0,2}'|'unsafe-hashes')$/u;
 
 export function allowsTrustedHtmlPreviewRuntime(
 	contentSecurityPolicy: string | null,
 ): boolean {
-	const directives = new Map<string, string>();
+	const directives = new Map<string, string[]>();
 	for (const part of (contentSecurityPolicy ?? "").split(";")) {
 		const [name, ...sources] = part.trim().toLowerCase().split(/\s+/);
-		if (name && !directives.has(name)) directives.set(name, sources.join(" "));
+		if (!name) continue;
+		if (directives.has(name)) return false;
+		directives.set(name, sources);
 	}
-	return Object.entries(TRUSTED_HTML_RUNTIME_DIRECTIVES).every(
-		([name, sources]) => directives.get(name) === sources,
+	const scripts = directives.get("script-src") ?? [];
+	return (
+		directives.size ===
+			Object.keys(TRUSTED_HTML_RUNTIME_DIRECTIVES).length + 1 &&
+		Object.entries(TRUSTED_HTML_RUNTIME_DIRECTIVES).every(
+			([name, sources]) => directives.get(name)?.join(" ") === sources,
+		) &&
+		scripts.some((source) => source.startsWith("'sha")) &&
+		scripts.every((source) => TRUSTED_SCRIPT_SOURCE.test(source))
 	);
 }
 

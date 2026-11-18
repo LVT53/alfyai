@@ -5,9 +5,10 @@
  * any other file), so a report made before read aloud gets it too, and the page
  * can mark the reading inside the report and hear where the reader selected text.
  * The panel frames the report by that preview address, so it runs under the
- * report's own policy (`STANDARD_REPORT_PREVIEW_CSP`, which allows inline
- * scripts), not the page's. The frame stays opaque (`html-sandbox.ts`: never
- * `allow-same-origin`), so the two talk by `postMessage` alone, and only of places:
+ * report's own policy (`standardReportPreviewCsp`, which names this script by its
+ * hash, as it names the report's own), not the page's. The frame stays opaque
+ * (`html-sandbox.ts`: never `allow-same-origin`), so the two talk by
+ * `postMessage` alone, and only of places:
  *
  * - the page sends marks (spans: a block, a start and an end), a focus (spans and a
  *   mode), `clear` and `hello`;
