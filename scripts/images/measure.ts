@@ -132,9 +132,10 @@ const BASE = process.env.COMFYUI_URL ?? "http://127.0.0.1:8188";
 
 /**
  * The MinerU servers on the box, the one in use first. `mineru42` is MinerU
- * 4.2.3 on :8004, the address both apps call. Its rollback, 4.1.7's
- * `mineru41`, serves the same port and `Conflicts=` lets only one of the two
- * run, so it needs no entry of its own: :8004 is probed whichever serves it
+ * 4.2.3 on :8004, the address both apps call. A 4.1.7 installed again for a
+ * rollback would serve the same port as `mineru41` (4.1.7 was retired on
+ * 2026-11-18), and `Conflicts=` lets only one of the two run, so it needs no
+ * entry of its own: :8004 is probed whichever serves it
  * (deploy/mineru/README.md). A server added beside it on a port of its own
  * goes after it, and is probed only while its unit is active.
  */

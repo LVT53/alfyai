@@ -30,8 +30,8 @@ ports, the key on the command line, what a server costs in RAM and VRAM and how 
 start, the cutover and the rollback all have one home:
 [deploy/README.md](../deploy/README.md#document-extraction-service-mineru). What matters here is that
 an app calls exactly the address in `MINERU_API_URL`: production and ai.dev both call MinerU 4.2.3 on
-`http://127.0.0.1:8004`, which took 4.1.7's place on the same port on 2026-11-18 (4.1.7's unit is
-kept, disabled, as the rollback: [deploy/mineru/README.md](../deploy/mineru/README.md)). The 4.0.12 server that answered on `127.0.0.1:8002` before the cutover was
+`http://127.0.0.1:8004`, which took 4.1.7's place on the same port on 2026-11-18. 4.1.7 was retired and
+deleted the same evening ([deploy/mineru/README.md](../deploy/mineru/README.md)). The 4.0.12 server that answered on `127.0.0.1:8002` before the cutover was
 retired and deleted on 2026-11-09. (`http://127.0.0.1:8001` is only the code default and the port in
 the examples.) `MINERU_API_KEY` must match whatever the server was started with; leave it empty
 (anonymous access) only for a server that nothing else can reach.

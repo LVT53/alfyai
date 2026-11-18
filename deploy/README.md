@@ -672,8 +672,9 @@ it talks to the service (the protocol, tiers, restarts, the old-server rule) is 
 
 **Since 2026-11-18 MinerU 4.2.3 (`mineru42.service`) serves `:8004` in 4.1.7's place.** Its unit, its
 watchdog, the install record and the rollback are in [deploy/mineru/README.md](mineru/README.md).
-What this section says about `mineru41` describes 4.1.7, which stays installed, disabled, as the
-rollback for a week; the VLM container, the key file and the telemetry rules hold for both.
+4.1.7 (`mineru41`) was retired the same evening, and its unit and files are deleted, so what this
+section says about `mineru41` is the record of 4.1.7 and the recipe for installing it again. The VLM
+container, the key file and the telemetry rules still hold.
 
 ### The services
 
@@ -681,7 +682,6 @@ rollback for a week; the VLM container, the key file and the telemetry rules hol
 |---|---|---|---|
 | `mineru42.service` | MinerU 4.2.3 | `127.0.0.1:8004` | the MinerU server: both apps (production and ai.dev) call it, through `MINERU_API_URL` in their `admin_config` |
 | `mineru42-watchdog.timer` | `/usr/local/sbin/mineru-watchdog` | | restarts `mineru42` when its hang guard leaves it refusing work ([deploy/mineru/README.md](mineru/README.md)) |
-| `mineru41.service` | MinerU 4.1.7 | `127.0.0.1:8004` | the rollback, disabled; `Conflicts=` lets only one of `mineru41` and `mineru42` run |
 | `mineru-openai-server` | the vision-language model | `127.0.0.1:30001` | a **Docker container, not a systemd unit** (`systemctl` does not know it); MinerU calls it for the Standard tier (`--vlm-server-url`) |
 
 Two more units ran here until 2026-11-09 and are gone: `mineru4.service` (MinerU 4.0.12,
