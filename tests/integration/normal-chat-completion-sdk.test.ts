@@ -1341,6 +1341,88 @@ describe("lossless closing admission", () => {
 		]);
 	});
 	it.each([
+		[false, "sync"],
+		[false, "microtask"],
+		[true, "sync"],
+		[true, "microtask"],
+	] as const)("retains images queued after the closing observed-input notification and refuses stale dispatch, streaming=%s insertion=%s", async (streaming, insertion) => {
+		const { seed, execute } = await retainedWork();
+		const queue = createStepImageQueue();
+		const lateEntry = {
+			label: "Late picture evidence",
+			images: [],
+			localOnly: true,
+			labelWithoutNames: "Late private evidence",
+		};
+		let queued = false;
+		let pendingAtNotification: number | undefined;
+		const doGenerate = vi.fn(async (_options: LanguageModelV3CallOptions) => ({
+			content: [{ type: "text" as const, text: "Stale answer." }],
+			finishReason: { unified: "stop" as const, raw: "stop" },
+			usage,
+			warnings: [],
+		}));
+		const doStream = vi.fn(async (_options: LanguageModelV3CallOptions) => ({
+			stream: stream([
+				{ type: "text-start", id: "late" },
+				{ type: "text-delta", id: "late", delta: "Stale answer." },
+				{ type: "text-end", id: "late" },
+				{
+					type: "finish",
+					usage,
+					finishReason: { unified: "stop", raw: "stop" },
+				},
+			]),
+		}));
+		const model = new MockLanguageModelV3({ doGenerate, doStream });
+		const result = await collect(
+			runNormalChatCompletion(
+				{
+					provider,
+					messages: [],
+					stepImages: queue,
+					completionPolicy: {
+						turnId: "t",
+						segmentId: "s",
+						deadlineAt: seed.deadlineAt,
+						totalTimeoutMs: seed.totalTimeoutMs,
+						continuation: seed,
+						onSnapshot: (snapshot) => {
+							if (
+								queued ||
+								!snapshot.steps.some(
+									(step) => step.phase === "closing" && step.observedInput,
+								)
+							)
+								return;
+							queued = true;
+							pendingAtNotification = snapshot.pendingImageEntries.length;
+							if (insertion === "sync") queue.push(lateEntry);
+							else queueMicrotask(() => queue.push(lateEntry));
+						},
+					},
+				},
+				dependencies(model),
+				streaming,
+			),
+		);
+		expect(queued).toBe(true);
+		expect(pendingAtNotification).toBe(0);
+		expect.soft(doGenerate).not.toHaveBeenCalled();
+		expect.soft(doStream).not.toHaveBeenCalled();
+		expect
+			.soft(result.completion)
+			.toMatchObject({
+				outcome: "incomplete",
+				stopCause: "context_capacity",
+				closingAttempted: true,
+			});
+		expect(result.continuation?.closingSegments).toEqual(["s"]);
+		expect(result.continuation?.pendingImageEntries).toEqual([lateEntry]);
+		expect(result.continuation?.steps.at(-1)?.imageEntries).toEqual([]);
+		expect(execute).toHaveBeenCalledTimes(1);
+	});
+	it.each([
 		"stop",
 		"deadline",
 		"new-image",

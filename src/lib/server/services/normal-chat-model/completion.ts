@@ -1102,8 +1102,15 @@ export async function* runNormalChatCompletion(
 			// Snapshot callbacks may stop the turn or admit more pictures. Never
 			// dispatch the cached input after that invalidates its preflight.
 			await assertFits(input, tools, invocationOutput);
-			if (closingInput && snapshot.pendingImageEntries.length)
-				throw new CompletionExit("context_capacity");
+			if (closingInput) {
+				// notify drains before its callback. Retain anything that callback
+				// queued, including during the final await, before rejecting stale input.
+				snapshot.pendingImageEntries.push(
+					...clone(params.stepImages?.drain() ?? []),
+				);
+				if (snapshot.pendingImageEntries.length)
+					throw new CompletionExit("context_capacity");
+			}
 			if (Date.now() >= deadline) throw new CompletionExit("deadline");
 			requestOutstanding = true;
 			return {
