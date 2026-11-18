@@ -95,6 +95,10 @@ const AUDITED_PREFIXES = [
 	"skills.",
 	"sourceManager.",
 	"toolCalls.",
+	// What a tool row says in plain words: every outcome a tool tells apart has
+	// its own sentence, and a sentence that reached EN and not HU would show a
+	// Hungarian reader the raw key in the one place the row names what happened.
+	"toolRows.",
 	"sidebar.failedReorderSidebar",
 	"sidebar.failedUpdateConversationPin",
 	"sidebar.forkIndicatorTooltip",
