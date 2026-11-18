@@ -281,29 +281,32 @@ describe("runSuite — a known-bad case is a recorded answer, never a model call
 	it.each([
 		["live", false],
 		["replayed", true],
-	])("refuses to trust a %s suite whose known-bad case has no hand-written answer, and says why", async (_label, replay) => {
-		const logs: string[] = [];
-		const { deps, send } = liveKnownBadDeps({
-			loadCommittedResponse: () => null,
-			log: (message) => logs.push(message),
-		});
+	])(
+		"refuses to trust a %s suite whose known-bad case has no hand-written answer, and says why",
+		async (_label, replay) => {
+			const logs: string[] = [];
+			const { deps, send } = liveKnownBadDeps({
+				loadCommittedResponse: () => null,
+				log: (message) => logs.push(message),
+			});
 
-		const report = await runSuite(
-			FAKE_SUITE,
-			{ replay, limit: null, only: null },
-			deps,
-		);
+			const report = await runSuite(
+				FAKE_SUITE,
+				{ replay, limit: null, only: null },
+				deps,
+			);
 
-		expect(report.knownBadFailedAsExpected).toBe(false);
-		expect(report.knownBadFailures).toEqual(["known-bad-1"]);
-		expect(report.results).toEqual([]);
-		expect(send).not.toHaveBeenCalled();
-		// The report drops the case's own result; the log is where a person learns
-		// that the gate failed because a file is missing, not because a scorer passed it.
-		expect(logs.join("\n")).toMatch(
-			/known-bad-1.*never scored.*No hand-written answer/s,
-		);
-	});
+			expect(report.knownBadFailedAsExpected).toBe(false);
+			expect(report.knownBadFailures).toEqual(["known-bad-1"]);
+			expect(report.results).toEqual([]);
+			expect(send).not.toHaveBeenCalled();
+			// The report drops the case's own result; the log is where a person learns
+			// that the gate failed because a file is missing, not because a scorer passed it.
+			expect(logs.join("\n")).toMatch(
+				/known-bad-1.*never scored.*No hand-written answer/s,
+			);
+		},
+	);
 
 	it("does not retry a missing known-bad answer as if it were a flaky call", async () => {
 		const load = vi.fn(() => null);

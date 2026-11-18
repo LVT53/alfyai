@@ -797,7 +797,9 @@ describe("memory profile foundation", () => {
 			.where(eq(schema.memoryProfileItems.id, itemId as string));
 		expect(row?.status).toBe("active");
 		expect(row?.expiresAt).not.toBeNull();
-		const expiresMs = (row?.expiresAt as Date).getTime();
+		const expiresAt = row?.expiresAt;
+		if (!expiresAt) throw new Error("expected the item to carry an expiry");
+		const expiresMs = expiresAt.getTime();
 		const expected90d = Date.now() + 90 * 86_400_000;
 		expect(Math.abs(expiresMs - expected90d)).toBeLessThan(5 * 86_400_000);
 	});

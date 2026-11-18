@@ -817,69 +817,69 @@ describe("buildConstructedContext", () => {
 		expect(mocks.selectWorkingSetArtifactsForPrompt).not.toHaveBeenCalled();
 	});
 
-	it.each([
-		false,
-		true,
-	])("labels a stopped structural partial in later model history (native=%s)", async (nativeHistoryEnabled) => {
-		resetConstructedContextMocks();
-		mocks.getConfig.mockReturnValue({
-			contextDiagnosticsDebug: false,
-			nativeHistoryEnabled,
-		});
-		const completion = {
-			version: 1,
-			turnId: "t",
-			segmentId: "s",
-			phase: "closing",
-			outcome: "stopped",
-			stopCause: "user_stop",
-			workingStopCause: "user_stop",
-			closingAttempted: true,
-		};
-		mocks.listMessages.mockResolvedValue([
-			{ id: "u1", role: "user", content: "QUESTION", timestamp: 1 },
-			{
-				id: "a1",
-				role: "assistant",
-				content: "Partial conclusion",
-				timestamp: 2,
-				normalChatOutput: {
-					version: 1,
-					events: [
-						{
-							version: 1,
-							turnId: "t",
-							segmentId: "s",
-							attemptId: "a",
-							stepId: "step",
-							phase: "closing",
-							sequence: 1,
-							type: "completion",
-							completion,
-						},
-					],
+	it.each([false, true])(
+		"labels a stopped structural partial in later model history (native=%s)",
+		async (nativeHistoryEnabled) => {
+			resetConstructedContextMocks();
+			mocks.getConfig.mockReturnValue({
+				contextDiagnosticsDebug: false,
+				nativeHistoryEnabled,
+			});
+			const completion = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				phase: "closing",
+				outcome: "stopped",
+				stopCause: "user_stop",
+				workingStopCause: "user_stop",
+				closingAttempted: true,
+			};
+			mocks.listMessages.mockResolvedValue([
+				{ id: "u1", role: "user", content: "QUESTION", timestamp: 1 },
+				{
+					id: "a1",
+					role: "assistant",
+					content: "Partial conclusion",
+					timestamp: 2,
+					normalChatOutput: {
+						version: 1,
+						events: [
+							{
+								version: 1,
+								turnId: "t",
+								segmentId: "s",
+								attemptId: "a",
+								stepId: "step",
+								phase: "closing",
+								sequence: 1,
+								type: "completion",
+								completion,
+							},
+						],
+					},
 				},
-			},
-		]);
-		const constructed = await buildConstructedContext({
-			userId: "user-1",
-			conversationId: "conversation-1",
-			message: "Continue",
-			modelId: "local-model",
-			contextLimits: {
-				maxModelContext: 16000,
-				compactionUiThreshold: 12000,
-				targetConstructedContext: 8000,
-			},
-		});
-		const outbound = nativeHistoryEnabled
-			? JSON.stringify(constructed.historyMessages)
-			: constructed.inputValue;
-		expect(outbound).toContain(
-			"[Previous assistant turn ended stopped; this is an incomplete partial answer.]",
-		);
-		expect(outbound).toContain("Partial conclusion");
-	});
+			]);
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: "Continue",
+				modelId: "local-model",
+				contextLimits: {
+					maxModelContext: 16000,
+					compactionUiThreshold: 12000,
+					targetConstructedContext: 8000,
+				},
+			});
+			const outbound = nativeHistoryEnabled
+				? JSON.stringify(constructed.historyMessages)
+				: constructed.inputValue;
+			expect(outbound).toContain(
+				"[Previous assistant turn ended stopped; this is an incomplete partial answer.]",
+			);
+			expect(outbound).toContain("Partial conclusion");
+		},
+	);
 
 	it("reports the native history window after the compression boundary, counting dropped turns", async () => {
 		resetConstructedContextMocks();
@@ -1727,36 +1727,39 @@ describe("buildConstructedContext", () => {
 				"deep",
 				"Please summarise the whole launch plan document in detail, including every risk and open question we have discussed so far in this conversation.",
 			],
-		])("reports a job that failed after its own turn ended (%s tier)", async (tier, message) => {
-			resetConstructedContextMocks();
-			mocks.listConversationFileProductionJobStates.mockResolvedValue([
-				FAILED_JOB,
-			]);
+		])(
+			"reports a job that failed after its own turn ended (%s tier)",
+			async (tier, message) => {
+				resetConstructedContextMocks();
+				mocks.listConversationFileProductionJobStates.mockResolvedValue([
+					FAILED_JOB,
+				]);
 
-			const constructed = await buildConstructedContext({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				message,
-				modelId: "local-model",
-			});
+				const constructed = await buildConstructedContext({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					message,
+					modelId: "local-model",
+				});
 
-			// Guards the fixture: a "deep" case that silently fell back to the
-			// shallow builder would make this a duplicate of the row above.
-			expect(mocks.resolvePromptAttachmentArtifacts).toHaveBeenCalledTimes(
-				tier === "deep" ? 1 : 0,
-			);
-			expect(constructed.inputValue).toContain("## File Jobs");
-			expect(constructed.inputValue).toContain("Quarterly workbook");
-			expect(constructed.inputValue).toContain("FAILED");
-			expect(constructed.inputValue).toContain("program_execution_failed");
-			expect(
-				mocks.listConversationFileProductionJobStates,
-			).toHaveBeenCalledWith({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				limit: 5,
-			});
-		});
+				// Guards the fixture: a "deep" case that silently fell back to the
+				// shallow builder would make this a duplicate of the row above.
+				expect(mocks.resolvePromptAttachmentArtifacts).toHaveBeenCalledTimes(
+					tier === "deep" ? 1 : 0,
+				);
+				expect(constructed.inputValue).toContain("## File Jobs");
+				expect(constructed.inputValue).toContain("Quarterly workbook");
+				expect(constructed.inputValue).toContain("FAILED");
+				expect(constructed.inputValue).toContain("program_execution_failed");
+				expect(
+					mocks.listConversationFileProductionJobStates,
+				).toHaveBeenCalledWith({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					limit: 5,
+				});
+			},
+		);
 
 		it("says a still-running job has produced no file yet", async () => {
 			resetConstructedContextMocks();
@@ -2777,29 +2780,31 @@ describe("inferDocumentContextIntent — document continuation", () => {
 		"még többet belőle",
 	];
 
-	it.each(
-		EN_CONTINUATIONS,
-	)("promotes %j to task depth when a retrieved hit is in play", (message) => {
-		expect(
-			inferDocumentContextIntent({
-				...NO_DOCUMENT,
-				message,
-				hasRetrievedEvidence: true,
-			}),
-		).toBe("task");
-	});
+	it.each(EN_CONTINUATIONS)(
+		"promotes %j to task depth when a retrieved hit is in play",
+		(message) => {
+			expect(
+				inferDocumentContextIntent({
+					...NO_DOCUMENT,
+					message,
+					hasRetrievedEvidence: true,
+				}),
+			).toBe("task");
+		},
+	);
 
-	it.each(
-		HU_CONTINUATIONS,
-	)("promotes %j to task depth when a retrieved hit is in play", (message) => {
-		expect(
-			inferDocumentContextIntent({
-				...NO_DOCUMENT,
-				message,
-				hasRetrievedEvidence: true,
-			}),
-		).toBe("task");
-	});
+	it.each(HU_CONTINUATIONS)(
+		"promotes %j to task depth when a retrieved hit is in play",
+		(message) => {
+			expect(
+				inferDocumentContextIntent({
+					...NO_DOCUMENT,
+					message,
+					hasRetrievedEvidence: true,
+				}),
+			).toBe("task");
+		},
+	);
 
 	it("promotes to direct depth when the document selection is explicit", () => {
 		expect(
@@ -2852,28 +2857,31 @@ describe("inferDocumentContextIntent — document continuation", () => {
 		"vasárnap a többiek",
 		"ha többi van",
 		"a következő rész a filmből",
-	])("leaves ordinary talk like %j alone even with a document in play", (message) => {
-		expect(
-			inferDocumentContextIntent({
-				...NO_DOCUMENT,
-				message,
-				hasRetrievedEvidence: true,
-			}),
-		).toBe(
-			inferDocumentContextIntent({
-				...NO_DOCUMENT,
-				message,
-				hasRetrievedEvidence: false,
-			}),
-		);
-		expect(
-			inferDocumentContextIntent({
-				...NO_DOCUMENT,
-				message,
-				hasRetrievedEvidence: true,
-			}),
-		).not.toBe("task");
-	});
+	])(
+		"leaves ordinary talk like %j alone even with a document in play",
+		(message) => {
+			expect(
+				inferDocumentContextIntent({
+					...NO_DOCUMENT,
+					message,
+					hasRetrievedEvidence: true,
+				}),
+			).toBe(
+				inferDocumentContextIntent({
+					...NO_DOCUMENT,
+					message,
+					hasRetrievedEvidence: false,
+				}),
+			);
+			expect(
+				inferDocumentContextIntent({
+					...NO_DOCUMENT,
+					message,
+					hasRetrievedEvidence: true,
+				}),
+			).not.toBe("task");
+		},
+	);
 
 	it.each([
 		"the rest",

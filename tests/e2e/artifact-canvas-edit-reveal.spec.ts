@@ -211,7 +211,7 @@ function defineTests(rightX: number) {
 			const stored = (await storedBoard(boardId)).nodes.find(
 				(node) => node.id === "target",
 			);
-			expect((stored?.data as { label?: string }).label).toBe(
+			expect((stored?.data as { label?: string } | undefined)?.label).toBe(
 				"Reptér és szálloda",
 			);
 		});

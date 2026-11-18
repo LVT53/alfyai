@@ -122,20 +122,20 @@ describe("the files an agent run names in full", () => {
 });
 
 describe("the e2e servers' command line", () => {
-	it.each([
-		"build",
-		"dev",
-	] as const)("loads the SQLite preload before the app (%s)", (mode) => {
-		const { args } = serverCommand(0, mode);
-		const preload = args.findIndex((arg) =>
-			arg.endsWith("tests/e2e/sqlite-immediate.cjs"),
-		);
-		expect(preload).toBeGreaterThan(0);
-		expect(args[preload - 1]).toBe("-r");
-		// An absolute path: `node -r tests/e2e/x.cjs` is looked up as a package name.
-		expect(args[preload].startsWith("/")).toBe(true);
-		// ...and before whatever starts the app (the built handler, or vite).
-		const entry = args.findIndex((arg) => /index\.js$|vite\.js$/.test(arg));
-		expect(entry).toBeGreaterThan(preload);
-	});
+	it.each(["build", "dev"] as const)(
+		"loads the SQLite preload before the app (%s)",
+		(mode) => {
+			const { args } = serverCommand(0, mode);
+			const preload = args.findIndex((arg) =>
+				arg.endsWith("tests/e2e/sqlite-immediate.cjs"),
+			);
+			expect(preload).toBeGreaterThan(0);
+			expect(args[preload - 1]).toBe("-r");
+			// An absolute path: `node -r tests/e2e/x.cjs` is looked up as a package name.
+			expect(args[preload].startsWith("/")).toBe(true);
+			// ...and before whatever starts the app (the built handler, or vite).
+			const entry = args.findIndex((arg) => /index\.js$|vite\.js$/.test(arg));
+			expect(entry).toBeGreaterThan(preload);
+		},
+	);
 });

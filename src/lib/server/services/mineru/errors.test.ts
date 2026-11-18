@@ -950,21 +950,24 @@ describe("4.2.3's hang guard on a request: the server refuses work until it is r
 			"503:task_timeout",
 		],
 		["engine_dead", "CUDA error: an illegal memory access", "503:engine_dead"],
-	] as const)("reads a 503 %s as an outage to wait out", (code, message, rule) => {
-		const mapping = mapMineruError(
-			mineruApiErrorFromBody({
-				status: 503,
-				bodyText: JSON.stringify({ error: { code, message } }),
-				path: "/v1/tasks",
-			}),
-		);
-		expect(mapping.rule).toBe(rule);
-		expect(mapping.known).toBe(true);
-		expect(mapping.taxonomy).toBe("unavailable");
-		expect(mapping.retryable).toBe(true);
-		expect(mapping.disposition).toBe("fail");
-		expect(mapping.handleUnknown).toBe(false);
-	});
+	] as const)(
+		"reads a 503 %s as an outage to wait out",
+		(code, message, rule) => {
+			const mapping = mapMineruError(
+				mineruApiErrorFromBody({
+					status: 503,
+					bodyText: JSON.stringify({ error: { code, message } }),
+					path: "/v1/tasks",
+				}),
+			);
+			expect(mapping.rule).toBe(rule);
+			expect(mapping.known).toBe(true);
+			expect(mapping.taxonomy).toBe("unavailable");
+			expect(mapping.retryable).toBe(true);
+			expect(mapping.disposition).toBe("fail");
+			expect(mapping.handleUnknown).toBe(false);
+		},
+	);
 });
 
 describe("mapMineruTaskFailure: reading a settled task", () => {

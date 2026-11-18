@@ -1079,17 +1079,18 @@ describe("SettingsProfileTab — the guide's Show me", () => {
 		).toEqual([element]);
 	});
 
-	it.each(
-		targets,
-	)("rings %s when the request comes after the tab is drawn", (spotlight, target) => {
-		renderTab({ personalityProfiles: [aStyle] });
+	it.each(targets)(
+		"rings %s when the request comes after the tab is drawn",
+		(spotlight, target) => {
+			renderTab({ personalityProfiles: [aStyle] });
 
-		requestSpotlight(spotlight);
+			requestSpotlight(spotlight);
 
-		expect(get(spotlightRequest)).toBeNull();
-		vi.advanceTimersToNextFrame();
-		expect(ringing()).toEqual([target()]);
-	});
+			expect(get(spotlightRequest)).toBeNull();
+			vi.advanceTimersToNextFrame();
+			expect(ringing()).toEqual([target()]);
+		},
+	);
 
 	it("rings the two rows of Style and model together", () => {
 		requestSpotlight("settings.style");

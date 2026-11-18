@@ -396,21 +396,23 @@ describe("readHeifPixelCount", () => {
 			["ipco, around the ispe", (many) => heifOf([many, ispe(640, 480)])],
 		];
 
-		it.each(
-			places,
-		)("reads the size when %s holds a good many", (_place, fileWith) => {
-			expect(
-				readHeifPixelCount(fileWith(emptyBoxes(HEIF_MAX_BOXES_READ / 2))),
-			).toBe(SIZE);
-		});
+		it.each(places)(
+			"reads the size when %s holds a good many",
+			(_place, fileWith) => {
+				expect(
+					readHeifPixelCount(fileWith(emptyBoxes(HEIF_MAX_BOXES_READ / 2))),
+				).toBe(SIZE);
+			},
+		);
 
-		it.each(
-			places,
-		)("says nothing of its size when %s holds more than may be read", (_place, fileWith) => {
-			expect(
-				readHeifPixelCount(fileWith(emptyBoxes(HEIF_MAX_BOXES_READ))),
-			).toBeNull();
-		});
+		it.each(places)(
+			"says nothing of its size when %s holds more than may be read",
+			(_place, fileWith) => {
+				expect(
+					readHeifPixelCount(fileWith(emptyBoxes(HEIF_MAX_BOXES_READ))),
+				).toBeNull();
+			},
+		);
 
 		it("counts the boxes of every run against one limit, not one limit for each", () => {
 			const most = emptyBoxes(HEIF_MAX_BOXES_READ * 0.6);

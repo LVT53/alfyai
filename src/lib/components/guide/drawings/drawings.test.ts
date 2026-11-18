@@ -71,18 +71,19 @@ describe("the guide's drawings", () => {
 		).toEqual(["atlas"]);
 	});
 
-	it.each(
-		DRAWN_SPOTS,
-	)("lights the %s drawing's %s spot, wherever it is drawn, and nothing else", (section, spot) => {
-		const { container } = render(SectionDrawing, {
-			props: { section, lit: spot },
-		});
-		const lit = [
-			...container.querySelectorAll<HTMLElement>(".drawing-spot-lit"),
-		];
-		expect(lit.length).toBeGreaterThan(0);
-		for (const node of lit) expect(node.dataset.drawingSpot).toBe(spot);
-	});
+	it.each(DRAWN_SPOTS)(
+		"lights the %s drawing's %s spot, wherever it is drawn, and nothing else",
+		(section, spot) => {
+			const { container } = render(SectionDrawing, {
+				props: { section, lit: spot },
+			});
+			const lit = [
+				...container.querySelectorAll<HTMLElement>(".drawing-spot-lit"),
+			];
+			expect(lit.length).toBeGreaterThan(0);
+			for (const node of lit) expect(node.dataset.drawingSpot).toBe(spot);
+		},
+	);
 
 	it.each([null, "noSuchSpot"])("lights nothing for %s", (lit) => {
 		for (const section of DRAWN) {
@@ -202,15 +203,18 @@ describe("the guide's drawings", () => {
 		DRAWN.flatMap((section) =>
 			(["en", "hu"] as const).map((language) => [section, language] as const),
 		),
-	)("draws the words of the %s drawing in %s, from its controls' keys and no others", (section, language) => {
-		uiLanguage.set(language);
-		asked.clear();
-		render(SectionDrawing, { props: { section, lit: null } });
-		expect([...asked].sort()).toEqual([...WORDS[section]].sort());
-		for (const key of WORDS[section]) {
-			expect(screen.getAllByText(get(t)(key)).length).toBeGreaterThan(0);
-		}
-	});
+	)(
+		"draws the words of the %s drawing in %s, from its controls' keys and no others",
+		(section, language) => {
+			uiLanguage.set(language);
+			asked.clear();
+			render(SectionDrawing, { props: { section, lit: null } });
+			expect([...asked].sort()).toEqual([...WORDS[section]].sort());
+			for (const key of WORDS[section]) {
+				expect(screen.getAllByText(get(t)(key)).length).toBeGreaterThan(0);
+			}
+		},
+	);
 
 	// The reply's row of actions in `MessageBubble.svelte`: regenerate, fork,
 	// copy, and then, while read aloud is on, the speaker (spec 4.1). The speaker

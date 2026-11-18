@@ -208,19 +208,15 @@ describe("GET /api/connections/nextcloud/preview", () => {
 		expect(mockPreview).not.toHaveBeenCalled();
 	});
 
-	it.each([
-		"4000",
-		"800",
-		"96.0",
-		"096",
-		"48",
-		"",
-	])("400s a size it did not ask for (%s) without fetching", async (size) => {
-		const response = await GET(makeEvent({ fileId: "42", size }));
+	it.each(["4000", "800", "96.0", "096", "48", ""])(
+		"400s a size it did not ask for (%s) without fetching",
+		async (size) => {
+			const response = await GET(makeEvent({ fileId: "42", size }));
 
-		expect(response.status).toBe(400);
-		expect(mockPreview).not.toHaveBeenCalled();
-	});
+			expect(response.status).toBe(400);
+			expect(mockPreview).not.toHaveBeenCalled();
+		},
+	);
 
 	it("400s when size is missing", async () => {
 		const response = await GET(makeEvent({ fileId: "42", size: null }));
@@ -229,19 +225,15 @@ describe("GET /api/connections/nextcloud/preview", () => {
 		expect(mockPreview).not.toHaveBeenCalled();
 	});
 
-	it.each([
-		"0",
-		"-1",
-		"abc",
-		"1.5",
-		"",
-		"9007199254740993",
-	])("400s a fileId that is not a positive integer (%s)", async (fileId) => {
-		const response = await GET(makeEvent({ fileId }));
+	it.each(["0", "-1", "abc", "1.5", "", "9007199254740993"])(
+		"400s a fileId that is not a positive integer (%s)",
+		async (fileId) => {
+			const response = await GET(makeEvent({ fileId }));
 
-		expect(response.status).toBe(400);
-		expect(mockPreview).not.toHaveBeenCalled();
-	});
+			expect(response.status).toBe(400);
+			expect(mockPreview).not.toHaveBeenCalled();
+		},
+	);
 
 	it("400s when neither fileId nor path is given", async () => {
 		const response = await GET(makeEvent());

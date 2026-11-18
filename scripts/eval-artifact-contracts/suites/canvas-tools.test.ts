@@ -117,27 +117,26 @@ const move = (id: string, x: number, y: number) => ({
 });
 
 describe("the eval's read answers as read_artifact does", () => {
-	it.each([
-		"blocks",
-		"full",
-		undefined,
-	] as const)("a board, detail %s", async (detail) => {
-		const board = loadFixtureBoard("vienna-messy");
-		await seed(board);
-		const real = await runReadArtifactTool({
-			userId,
-			conversationId,
-			artifactId: ART,
-			detail,
-			abortSignal: signal(),
-		});
-		const args = { artifactId: ART, ...(detail ? { detail } : {}) };
-		expect(
-			comparable(
-				JSON.parse(editTools(board).answer("read_artifact", args) ?? ""),
-			),
-		).toEqual(comparable(compactModelPayload(real.modelPayload)));
-	});
+	it.each(["blocks", "full", undefined] as const)(
+		"a board, detail %s",
+		async (detail) => {
+			const board = loadFixtureBoard("vienna-messy");
+			await seed(board);
+			const real = await runReadArtifactTool({
+				userId,
+				conversationId,
+				artifactId: ART,
+				detail,
+				abortSignal: signal(),
+			});
+			const args = { artifactId: ART, ...(detail ? { detail } : {}) };
+			expect(
+				comparable(
+					JSON.parse(editTools(board).answer("read_artifact", args) ?? ""),
+				),
+			).toEqual(comparable(compactModelPayload(real.modelPayload)));
+		},
+	);
 
 	it("an id that is not here, with the conversation's own candidates", async () => {
 		const board = loadFixtureBoard("vienna-tidy");

@@ -217,27 +217,30 @@ describe("plexConnect", () => {
 		["a private RFC1918 host", "https://192.168.1.10:32400"],
 		["the cloud metadata address", "https://169.254.169.254/latest"],
 		["a loopback IPv6 host", "https://[::1]:32400"],
-	])("rejects %s as invalid_config without ever calling fetch (SSRF guard)", async (_label, serverUrl) => {
-		seedUser(USER_ID);
-		const { plexConnect, PlexError } = await import("./plex");
-		const fetchMock = vi.fn();
+	])(
+		"rejects %s as invalid_config without ever calling fetch (SSRF guard)",
+		async (_label, serverUrl) => {
+			seedUser(USER_ID);
+			const { plexConnect, PlexError } = await import("./plex");
+			const fetchMock = vi.fn();
 
-		try {
-			await plexConnect({
-				userId: USER_ID,
-				serverUrl,
-				token: "token-abc",
-				fetch: fetchMock as unknown as typeof fetch,
-			});
-			throw new Error("expected plexConnect to throw");
-		} catch (err) {
-			expect(err).toBeInstanceOf(PlexError);
-			expect((err as InstanceType<typeof PlexError>).code).toBe(
-				"invalid_config",
-			);
-		}
-		expect(fetchMock).not.toHaveBeenCalled();
-	});
+			try {
+				await plexConnect({
+					userId: USER_ID,
+					serverUrl,
+					token: "token-abc",
+					fetch: fetchMock as unknown as typeof fetch,
+				});
+				throw new Error("expected plexConnect to throw");
+			} catch (err) {
+				expect(err).toBeInstanceOf(PlexError);
+				expect((err as InstanceType<typeof PlexError>).code).toBe(
+					"invalid_config",
+				);
+			}
+			expect(fetchMock).not.toHaveBeenCalled();
+		},
+	);
 
 	it("a 401 on /identity surfaces a clear invalid_token error with no token in the message", async () => {
 		seedUser(USER_ID);

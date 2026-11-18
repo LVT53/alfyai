@@ -968,46 +968,46 @@ describe("a patch request whose sourceMode names a mode it brought no content fo
 		"Line four thanks the testers.",
 	].join("\n");
 
-	it.each([
-		"document_source",
-		"program",
-	] as const)("is produced as the next version of the base file with sourceMode %o", async (sourceMode) => {
-		await seedChatFileOnDisk({
-			filename: "alpha-notes.md",
-			content: ALPHA_NOTES,
-		});
+	it.each(["document_source", "program"] as const)(
+		"is produced as the next version of the base file with sourceMode %o",
+		async (sourceMode) => {
+			await seedChatFileOnDisk({
+				filename: "alpha-notes.md",
+				content: ALPHA_NOTES,
+			});
 
-		const body = await callProduceFile({
-			requestTitle: "Alpha notes",
-			filename: "alpha-notes.md",
-			sourceMode,
-			patches: [
-				{
-					oldText: "Line three is the one the user wants changed.",
-					newText: "Line three now says what the user asked for.",
-				},
-			],
-		});
+			const body = await callProduceFile({
+				requestTitle: "Alpha notes",
+				filename: "alpha-notes.md",
+				sourceMode,
+				patches: [
+					{
+						oldText: "Line three is the one the user wants changed.",
+						newText: "Line three now says what the user asked for.",
+					},
+				],
+			});
 
-		// The base is a Markdown file, so the mode the SERVER picks is
-		// inline_text — no container, no report renderer — whatever mode the
-		// model named for the content it did not send.
-		expect(body.sourceMode).toBe("inline_text");
-		expect(body.program).toBeUndefined();
-		const inlineText = body.inlineText as {
-			content: string;
-			files: Array<{ filename: string; outputType: string }>;
-		};
-		expect(inlineText.content).toBe(
-			ALPHA_NOTES.replace(
-				"Line three is the one the user wants changed.",
-				"Line three now says what the user asked for.",
-			),
-		);
-		expect(inlineText.files).toEqual([
-			{ filename: "alpha-notes.md", outputType: "md" },
-		]);
-	});
+			// The base is a Markdown file, so the mode the SERVER picks is
+			// inline_text — no container, no report renderer — whatever mode the
+			// model named for the content it did not send.
+			expect(body.sourceMode).toBe("inline_text");
+			expect(body.program).toBeUndefined();
+			const inlineText = body.inlineText as {
+				content: string;
+				files: Array<{ filename: string; outputType: string }>;
+			};
+			expect(inlineText.content).toBe(
+				ALPHA_NOTES.replace(
+					"Line three is the one the user wants changed.",
+					"Line three now says what the user asked for.",
+				),
+			);
+			expect(inlineText.files).toEqual([
+				{ filename: "alpha-notes.md", outputType: "md" },
+			]);
+		},
+	);
 
 	it("still goes down the document path when the outputs are a document", async () => {
 		// Same shape, but the request asks for a PDF: the patched Markdown is
@@ -1329,129 +1329,133 @@ it.each([
 	"submitted-failure",
 	"submitted-running",
 	"submitted-throw",
-] as const)("classifies real file execution under prepared SDK policy (%s)", async (mode) => {
-	const helpers = await import(
-		"../chat-turn/shared-normal-chat-model-run-helpers"
-	);
-	const modelFacade = await import("../normal-chat-model");
-	const ledger = await import("../chat-turn/turn-ledger");
-	const locality = await import("../connections/locality");
-	const {
-		createPlainNormalChatProvider,
-		createPlainNormalChatSendModelParams,
-		createPlainNormalChatPreparedContext,
-		createPlainNormalChatModelRunResult,
-	} = await import("../chat-turn/plain-normal-chat-model-run.test-helpers");
-	const { createStepImageQueue } = await import("../vision/step-images");
-	const { MockLanguageModelV3 } = await import("ai/test");
-	const { runNormalChatCompletion } = await import(
-		"../normal-chat-model/completion"
-	);
-	const { prepareNormalChatTurn } = await import(
-		"../chat-turn/prepared-normal-chat-turn"
-	);
-	const packs: ReturnType<typeof createNormalChatTools>[] = [];
-	const fallback = vi.fn(async () => null);
-	let generations = 0;
-	const toolAvailability: boolean[] = [];
-	const model = new MockLanguageModelV3({
-		doGenerate: async (options) => {
-			const toolsOn = Boolean(options.tools?.length);
-			toolAvailability.push(toolsOn);
-			const generation = generations++;
-			const first = generation === 0;
-			const callsTool =
-				first || (mode === "submitted-failure" && generation === 1);
-			if (!first && mode === "refusal-transport" && toolsOn)
-				throw new Error("Synthetic lost finish after refusal");
-			return {
-				content: callsTool
-					? [
-							{
-								type: "tool-call" as const,
-								toolCallId: `call-${generation}`,
-								toolName: "produce_file",
-								input: JSON.stringify({
-									requestTitle: TITLE,
-									filename: "report.md",
-									markdown: mode.startsWith("submitted-")
-										? PREVIOUS_MARKDOWN
-										: "Too short.",
-								}),
-							},
-						]
-					: [
-							{
-								type: "text" as const,
-								text: "The file was not created; longer content is required.",
-							},
-						],
-				finishReason: {
-					unified: callsTool ? ("tool-calls" as const) : ("stop" as const),
-					raw: callsTool ? "tool_calls" : "stop",
-				},
-				usage: {
-					inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-					outputTokens: { total: 1, text: 1, reasoning: 0 },
-				},
-				warnings: [],
-			};
-		},
-	});
-	if (mode === "submitted-failure")
-		getJobMock.mockResolvedValue(
-			job({
-				status: "failed",
-				error: {
-					code: "render_failed",
-					message: "Synthetic worker failed",
-					retryable: true,
-				},
-			}),
+] as const)(
+	"classifies real file execution under prepared SDK policy (%s)",
+	async (mode) => {
+		const helpers = await import(
+			"../chat-turn/shared-normal-chat-model-run-helpers"
 		);
-	if (mode === "submitted-running")
-		getJobMock.mockResolvedValue(job({ status: "running" }));
-	if (mode === "submitted-throw")
-		getJobMock.mockRejectedValue(
-			new Error("Timed out reading the submitted job"),
+		const modelFacade = await import("../normal-chat-model");
+		const ledger = await import("../chat-turn/turn-ledger");
+		const locality = await import("../connections/locality");
+		const {
+			createPlainNormalChatProvider,
+			createPlainNormalChatSendModelParams,
+			createPlainNormalChatPreparedContext,
+			createPlainNormalChatModelRunResult,
+		} = await import("../chat-turn/plain-normal-chat-model-run.test-helpers");
+		const { createStepImageQueue } = await import("../vision/step-images");
+		const { MockLanguageModelV3 } = await import("ai/test");
+		const { runNormalChatCompletion } = await import(
+			"../normal-chat-model/completion"
 		);
-	try {
-		vi.spyOn(ledger, "admitTurn").mockReturnValue({ status: "untracked" });
-		vi.spyOn(locality, "hasLocalDistillEnabled").mockResolvedValue(false);
-		vi.spyOn(helpers, "resolveProviderRuntime").mockImplementation(
-			async (params) => ({
-				provider: createPlainNormalChatProvider(),
-				modelId: "model1",
-				depthEffort: null,
-				modelConfig: params.runtimeConfig.model1,
-				baseContextLimits: {
-					maxModelContext: 32000,
-					targetConstructedContext: 24000,
-					compactionUiThreshold: 28000,
-				},
-			}),
+		const { prepareNormalChatTurn } = await import(
+			"../chat-turn/prepared-normal-chat-turn"
 		);
-		vi.spyOn(helpers, "prepareOutboundContext").mockResolvedValue(
-			createPlainNormalChatPreparedContext(),
-		);
-		vi.spyOn(helpers, "createToolPack").mockImplementation(async () => {
-			const pack = createNormalChatTools({
-				userId: USER,
-				conversationId: CONVERSATION,
-				turnId: "certainty",
-				fileProductionVerdictWaitMs: 0,
-			});
-			packs.push(pack);
-			return {
-				tools: { produce_file: pack.tools.produce_file },
-				recorder: pack.recorder,
-				getToolCalls: pack.getToolCalls,
-				getTurnAsk: pack.getTurnAsk,
-				stepImages: createStepImageQueue(),
-			};
+		const packs: ReturnType<typeof createNormalChatTools>[] = [];
+		const fallback = vi.fn(async () => null);
+		let generations = 0;
+		const toolAvailability: boolean[] = [];
+		const model = new MockLanguageModelV3({
+			doGenerate: async (options) => {
+				const toolsOn = Boolean(options.tools?.length);
+				toolAvailability.push(toolsOn);
+				const generation = generations++;
+				const first = generation === 0;
+				const callsTool =
+					first || (mode === "submitted-failure" && generation === 1);
+				if (!first && mode === "refusal-transport" && toolsOn)
+					throw new Error("Synthetic lost finish after refusal");
+				return {
+					content: callsTool
+						? [
+								{
+									type: "tool-call" as const,
+									toolCallId: `call-${generation}`,
+									toolName: "produce_file",
+									input: JSON.stringify({
+										requestTitle: TITLE,
+										filename: "report.md",
+										markdown: mode.startsWith("submitted-")
+											? PREVIOUS_MARKDOWN
+											: "Too short.",
+									}),
+								},
+							]
+						: [
+								{
+									type: "text" as const,
+									text: "The file was not created; longer content is required.",
+								},
+							],
+					finishReason: {
+						unified: callsTool ? ("tool-calls" as const) : ("stop" as const),
+						raw: callsTool ? "tool_calls" : "stop",
+					},
+					usage: {
+						inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+						outputTokens: { total: 1, text: 1, reasoning: 0 },
+					},
+					warnings: [],
+				};
+			},
 		});
-		vi.spyOn(modelFacade, "prepareNormalChatCompletionRun").mockImplementation(
-			(params) => ({
+		if (mode === "submitted-failure")
+			getJobMock.mockResolvedValue(
+				job({
+					status: "failed",
+					error: {
+						code: "render_failed",
+						message: "Synthetic worker failed",
+						retryable: true,
+					},
+				}),
+			);
+		if (mode === "submitted-running")
+			getJobMock.mockResolvedValue(job({ status: "running" }));
+		if (mode === "submitted-throw")
+			getJobMock.mockRejectedValue(
+				new Error("Timed out reading the submitted job"),
+			);
+		try {
+			vi.spyOn(ledger, "admitTurn").mockReturnValue({ status: "untracked" });
+			vi.spyOn(locality, "hasLocalDistillEnabled").mockResolvedValue(false);
+			vi.spyOn(helpers, "resolveProviderRuntime").mockImplementation(
+				async (params) => ({
+					provider: createPlainNormalChatProvider(),
+					modelId: "model1",
+					depthEffort: null,
+					modelConfig: params.runtimeConfig.model1,
+					baseContextLimits: {
+						maxModelContext: 32000,
+						targetConstructedContext: 24000,
+						compactionUiThreshold: 28000,
+					},
+				}),
+			);
+			vi.spyOn(helpers, "prepareOutboundContext").mockResolvedValue(
+				createPlainNormalChatPreparedContext(),
+			);
+			vi.spyOn(helpers, "createToolPack").mockImplementation(async () => {
+				const pack = createNormalChatTools({
+					userId: USER,
+					conversationId: CONVERSATION,
+					turnId: "certainty",
+					fileProductionVerdictWaitMs: 0,
+				});
+				packs.push(pack);
+				return {
+					tools: { produce_file: pack.tools.produce_file },
+					recorder: pack.recorder,
+					getToolCalls: pack.getToolCalls,
+					getTurnAsk: pack.getTurnAsk,
+					stepImages: createStepImageQueue(),
+				};
+			});
+			vi.spyOn(
+				modelFacade,
+				"prepareNormalChatCompletionRun",
+			).mockImplementation((params) => ({
 				runPlain: async () => {
 					const driver = runNormalChatCompletion(
 						params,
@@ -1477,71 +1481,71 @@ it.each([
 				},
 				stream: async function* () {},
 				getSnapshot: () => null,
-			}),
-		);
-		const prepared = await prepareNormalChatTurn(
-			createPlainNormalChatSendModelParams({
-				userId: USER,
-				conversationId: CONVERSATION,
-				runtimeConfig: { requestTimeoutMs: 10000 },
-			}),
-		);
-		const result = await prepared.runPlain();
-		const snapshot = prepared.receipt.getSnapshot();
-		expect(fallback).toHaveBeenCalledTimes(
-			mode === "refusal-transport" ? 1 : 0,
-		);
-		expect(result.normalChatToolCalls?.[0]).toMatchObject({
-			name: "produce_file",
-			status:
-				mode === "submitted-running" || mode === "submitted-throw"
-					? "done"
-					: "failed",
-			metadata: {
-				ok: mode === "submitted-running" || mode === "submitted-throw",
-			},
-		});
-		if (mode === "submitted-running" || mode === "submitted-throw") {
-			expect(submitIntakeMock).toHaveBeenCalledOnce();
-			expect(generations).toBe(1);
-			expect(snapshot?.executions[0].state).toBe("uncertain");
-			expect(snapshot?.completion).toMatchObject({
-				outcome: "incomplete",
-				stopCause: "uncertain_execution",
-				closingAttempted: false,
+			}));
+			const prepared = await prepareNormalChatTurn(
+				createPlainNormalChatSendModelParams({
+					userId: USER,
+					conversationId: CONVERSATION,
+					runtimeConfig: { requestTimeoutMs: 10000 },
+				}),
+			);
+			const result = await prepared.runPlain();
+			const snapshot = prepared.receipt.getSnapshot();
+			expect(fallback).toHaveBeenCalledTimes(
+				mode === "refusal-transport" ? 1 : 0,
+			);
+			expect(result.normalChatToolCalls?.[0]).toMatchObject({
+				name: "produce_file",
+				status:
+					mode === "submitted-running" || mode === "submitted-throw"
+						? "done"
+						: "failed",
+				metadata: {
+					ok: mode === "submitted-running" || mode === "submitted-throw",
+				},
 			});
-		} else if (mode === "submitted-failure") {
-			expect(submitIntakeMock).toHaveBeenCalledTimes(2);
-			expect(generations).toBe(3);
-			expect(snapshot?.completion).toMatchObject({
-				outcome: "answered",
-				stopCause: "natural_stop",
-				closingAttempted: false,
-			});
-			expect(snapshot?.executions.map((entry) => entry.state)).toEqual([
-				"failed",
-				"failed",
-			]);
-			expect(toolAvailability).toEqual([true, true, true]);
-			expect(result.text).toContain("The file was not created");
-		} else {
-			expect(submitIntakeMock).not.toHaveBeenCalled();
-			expect(snapshot?.executions[0].state).toBe("definitely_not_executed");
-			expect(snapshot?.completion).toMatchObject({
-				outcome: "answered",
-				closingAttempted: mode === "refusal-transport",
-			});
-			expect(result.text).toContain("The file was not created");
-			if (mode === "refusal-transport") {
+			if (mode === "submitted-running" || mode === "submitted-throw") {
+				expect(submitIntakeMock).toHaveBeenCalledOnce();
+				expect(generations).toBe(1);
+				expect(snapshot?.executions[0].state).toBe("uncertain");
+				expect(snapshot?.completion).toMatchObject({
+					outcome: "incomplete",
+					stopCause: "uncertain_execution",
+					closingAttempted: false,
+				});
+			} else if (mode === "submitted-failure") {
+				expect(submitIntakeMock).toHaveBeenCalledTimes(2);
 				expect(generations).toBe(3);
-				expect(toolAvailability).toEqual([true, true, false]);
-				expect(
-					snapshot?.usage.filter((u) => u.phase === "closing"),
-				).toHaveLength(1);
+				expect(snapshot?.completion).toMatchObject({
+					outcome: "answered",
+					stopCause: "natural_stop",
+					closingAttempted: false,
+				});
+				expect(snapshot?.executions.map((entry) => entry.state)).toEqual([
+					"failed",
+					"failed",
+				]);
+				expect(toolAvailability).toEqual([true, true, true]);
+				expect(result.text).toContain("The file was not created");
+			} else {
+				expect(submitIntakeMock).not.toHaveBeenCalled();
+				expect(snapshot?.executions[0].state).toBe("definitely_not_executed");
+				expect(snapshot?.completion).toMatchObject({
+					outcome: "answered",
+					closingAttempted: mode === "refusal-transport",
+				});
+				expect(result.text).toContain("The file was not created");
+				if (mode === "refusal-transport") {
+					expect(generations).toBe(3);
+					expect(toolAvailability).toEqual([true, true, false]);
+					expect(
+						snapshot?.usage.filter((u) => u.phase === "closing"),
+					).toHaveLength(1);
+				}
 			}
+			expect(packs).toHaveLength(1);
+		} finally {
+			vi.restoreAllMocks();
 		}
-		expect(packs).toHaveLength(1);
-	} finally {
-		vi.restoreAllMocks();
-	}
-});
+	},
+);

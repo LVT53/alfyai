@@ -172,17 +172,26 @@ describe("prepareReaderInput", () => {
 			"IMG_0042.png",
 		],
 		["a .heic sent with no type", "IMG_0042.heic", null, "IMG_0042.png"],
-	])("converts %s the same way", async (_label, fileName, mimeType, expected) => {
-		const original = await stored(fileName, tinyHeic);
+	])(
+		"converts %s the same way",
+		async (_label, fileName, mimeType, expected) => {
+			const original = await stored(fileName, tinyHeic);
 
-		const reader = prepare(original, fileName, mimeType);
-		const file = await reader.openFile();
+			const reader = prepare(original, fileName, mimeType);
+			const file = await reader.openFile();
 
-		const png = await readFile(file.filePathAbsolute);
-		expect(png.subarray(0, 8)).toEqual(PNG_SIGNATURE);
-		expect([reader.fileName, reader.mimeType]).toEqual([expected, "image/png"]);
-		expect(file).toMatchObject({ sizeBytes: png.length, contentSha256: null });
-	});
+			const png = await readFile(file.filePathAbsolute);
+			expect(png.subarray(0, 8)).toEqual(PNG_SIGNATURE);
+			expect([reader.fileName, reader.mimeType]).toEqual([
+				expected,
+				"image/png",
+			]);
+			expect(file).toMatchObject({
+				sizeBytes: png.length,
+				contentSha256: null,
+			});
+		},
+	);
 
 	it("writes the PNG for its owner alone", async () => {
 		// A person's photo, in a temp directory every other service on the host can
@@ -281,32 +290,35 @@ describe("prepareReaderInput", () => {
 	it.each([
 		["a jpg", "photo.jpg", "image/jpeg"],
 		["a pdf", "report.pdf", "application/pdf"],
-	])("hands the reader %s as it was given, without touching it, and its release does nothing", async (_label, fileName, mimeType) => {
-		const decode = vi.spyOn(prepareImage, "decodeImageToPng");
-		const original = await stored(fileName, Buffer.from("stored bytes"));
+	])(
+		"hands the reader %s as it was given, without touching it, and its release does nothing",
+		async (_label, fileName, mimeType) => {
+			const decode = vi.spyOn(prepareImage, "decodeImageToPng");
+			const original = await stored(fileName, Buffer.from("stored bytes"));
 
-		const reader = prepareReaderInput({
-			fileName,
-			mimeType,
-			sizeBytes: 12,
-			filePathAbsolute: original,
-			contentSha256: "b".repeat(64),
-			attemptId: "attempt-2",
-			tempDirRoot: root,
-			signal: new AbortController().signal,
-		});
+			const reader = prepareReaderInput({
+				fileName,
+				mimeType,
+				sizeBytes: 12,
+				filePathAbsolute: original,
+				contentSha256: "b".repeat(64),
+				attemptId: "attempt-2",
+				tempDirRoot: root,
+				signal: new AbortController().signal,
+			});
 
-		expect([reader.fileName, reader.mimeType]).toEqual([fileName, mimeType]);
-		expect(await reader.openFile()).toEqual({
-			filePathAbsolute: original,
-			sizeBytes: 12,
-			contentSha256: "b".repeat(64),
-		});
-		await reader.release();
-		expect(await readFile(original, "utf8")).toBe("stored bytes");
-		expect(await converted()).toEqual([]);
-		expect(decode).not.toHaveBeenCalled();
-	});
+			expect([reader.fileName, reader.mimeType]).toEqual([fileName, mimeType]);
+			expect(await reader.openFile()).toEqual({
+				filePathAbsolute: original,
+				sizeBytes: 12,
+				contentSha256: "b".repeat(64),
+			});
+			await reader.release();
+			expect(await readFile(original, "utf8")).toBe("stored bytes");
+			expect(await converted()).toEqual([]);
+			expect(decode).not.toHaveBeenCalled();
+		},
+	);
 
 	it("opens a stored file without looking at it: the file need not even be there", async () => {
 		// The extractor reads it, and says what is wrong with it in its own words (a
@@ -446,37 +458,40 @@ describe("prepareReaderInput", () => {
 	it.each([
 		["gone from storage", ["gone", "IMG_0042.heic"], "ENOENT"],
 		["a directory where the file should be", ["IMG_0042.heic"], "EISDIR"],
-	])("fails an original that is %s as the document service being unavailable, and keeps the raw text out of the message", async (_label, relative, errno) => {
-		const at = path.join(root, ...relative);
-		if (errno === "EISDIR") await mkdir(at);
+	])(
+		"fails an original that is %s as the document service being unavailable, and keeps the raw text out of the message",
+		async (_label, relative, errno) => {
+			const at = path.join(root, ...relative);
+			if (errno === "EISDIR") await mkdir(at);
 
-		const failure = await rejection(
-			prepare(at, "IMG_0042.heic", "image/heic").openFile(),
-		);
+			const failure = await rejection(
+				prepare(at, "IMG_0042.heic", "image/heic").openFile(),
+			);
 
-		expect(failure).toBeInstanceOf(DocumentExtractionError);
-		expect(failure).toMatchObject({
-			code: "unavailable",
-			retryable: true,
-			message: extractionErrorMessage("unavailable", ""),
-			// The raw text is for the log and the attempt's diagnostics.
-			details: {
-				step: "read",
-				errno,
-				rawMessage: expect.stringContaining(errno),
-			},
-			cause: expect.objectContaining({ code: errno }),
-		});
-		expect((failure as Error).message).not.toContain(errno);
-		expect((failure as Error).message).not.toContain(root);
-		expect(await converted()).toEqual([]);
-		if (errno === "ENOENT") {
-			// Node names the path it failed on, which is why the raw text stays out.
-			expect(
-				(failure as DocumentExtractionError).details?.rawMessage,
-			).toContain(at);
-		}
-	});
+			expect(failure).toBeInstanceOf(DocumentExtractionError);
+			expect(failure).toMatchObject({
+				code: "unavailable",
+				retryable: true,
+				message: extractionErrorMessage("unavailable", ""),
+				// The raw text is for the log and the attempt's diagnostics.
+				details: {
+					step: "read",
+					errno,
+					rawMessage: expect.stringContaining(errno),
+				},
+				cause: expect.objectContaining({ code: errno }),
+			});
+			expect((failure as Error).message).not.toContain(errno);
+			expect((failure as Error).message).not.toContain(root);
+			expect(await converted()).toEqual([]);
+			if (errno === "ENOENT") {
+				// Node names the path it failed on, which is why the raw text stays out.
+				expect(
+					(failure as DocumentExtractionError).details?.rawMessage,
+				).toContain(at);
+			}
+		},
+	);
 
 	it("fails a converted file it cannot write the same way, and leaves the original alone", async () => {
 		const original = await stored("IMG_0042.heic", tinyHeic);
@@ -550,19 +565,22 @@ describe("prepareReaderInput", () => {
 	it.each([
 		["a photo", "IMG_0042.heic", "image/heic"],
 		["a stored file", "report.pdf", "application/pdf"],
-	])("refuses to open %s once it has been released, and reads nothing", async (_label, fileName, mimeType) => {
-		const decode = vi.spyOn(prepareImage, "decodeImageToPng");
-		const original = await stored(fileName, tinyHeic);
-		const reader = prepare(original, fileName, mimeType);
-		await reader.release();
+	])(
+		"refuses to open %s once it has been released, and reads nothing",
+		async (_label, fileName, mimeType) => {
+			const decode = vi.spyOn(prepareImage, "decodeImageToPng");
+			const original = await stored(fileName, tinyHeic);
+			const reader = prepare(original, fileName, mimeType);
+			await reader.release();
 
-		const failure = await rejection(reader.openFile());
+			const failure = await rejection(reader.openFile());
 
-		expect(failure).toBeInstanceOf(Error);
-		expect((failure as Error).message).toMatch(/released/i);
-		expect(decode).not.toHaveBeenCalled();
-		expect(await converted()).toEqual([]);
-	});
+			expect(failure).toBeInstanceOf(Error);
+			expect((failure as Error).message).toMatch(/released/i);
+			expect(decode).not.toHaveBeenCalled();
+			expect(await converted()).toEqual([]);
+		},
+	);
 
 	it("leaves, for a process that is killed before `release`, a file the temp sweep collects once it is old", async () => {
 		// The sweep and the helper agree on the name only if the sweep finds what the

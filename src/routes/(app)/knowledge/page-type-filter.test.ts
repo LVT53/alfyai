@@ -52,22 +52,20 @@ describe("Knowledge page ?type= filter", () => {
 		vi.clearAllMocks();
 	});
 
-	it.each([
-		"document",
-		"canvas",
-		"app",
-		"image",
-		"uploaded",
-	])("?type=%s opens with its chip active", (type) => {
-		mockPageState.page.url = new URL(`http://localhost/knowledge?type=${type}`);
+	it.each(["document", "canvas", "app", "image", "uploaded"])(
+		"?type=%s opens with its chip active",
+		(type) => {
+			mockPageState.page.url = new URL(
+				`http://localhost/knowledge?type=${type}`,
+			);
 
-		render(KnowledgePage, { data: pageData() });
+			render(KnowledgePage, { data: pageData() });
 
-		expect(screen.getByTestId(`documents-filter-chip-${type}`)).toHaveAttribute(
-			"aria-pressed",
-			"true",
-		);
-	});
+			expect(
+				screen.getByTestId(`documents-filter-chip-${type}`),
+			).toHaveAttribute("aria-pressed", "true");
+		},
+	);
 
 	// The file-family allowlist had the same ordering bug for `?family=`.
 	it("renders for a ?family= link instead of crashing", () => {

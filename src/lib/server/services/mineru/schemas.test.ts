@@ -548,9 +548,9 @@ describe("mineru schemas: tolerance", () => {
 		expect((task.files[0] as unknown as { vibes: string }).vibes).toBe(
 			"excellent",
 		);
-		expect((task.files[0]?.parse as unknown as { gpu: string }).gpu).toBe(
-			"none",
-		);
+		expect(
+			(task.files[0]?.parse as unknown as { gpu: string } | undefined)?.gpu,
+		).toBe("none");
 	});
 
 	it("reads a parse object that names no tier instead of failing every poll", () => {

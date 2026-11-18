@@ -127,19 +127,22 @@ describe.each(preparations)("%s with an AbortSignal", (_name, _prepare) => {
 	it.each([
 		["an error", new Error("cancelled")],
 		["a string", "not wanted"],
-	])("rejects with the reason as it is when the decoder was stopped, %s", async (_kind, reason) => {
-		const controller = new AbortController();
-		decoder.mockImplementation(async () => {
-			controller.abort(reason);
-			throw controller.signal.reason;
-		});
+	])(
+		"rejects with the reason as it is when the decoder was stopped, %s",
+		async (_kind, reason) => {
+			const controller = new AbortController();
+			decoder.mockImplementation(async () => {
+				controller.abort(reason);
+				throw controller.signal.reason;
+			});
 
-		const caught = await withSignal(controller.signal).catch(
-			(error: unknown) => error,
-		);
+			const caught = await withSignal(controller.signal).catch(
+				(error: unknown) => error,
+			);
 
-		expect(caught).toBe(reason);
-	});
+			expect(caught).toBe(reason);
+		},
+	);
 
 	it("rejects with the reason when the abort comes after the decode, while sharp works", async () => {
 		const controller = new AbortController();

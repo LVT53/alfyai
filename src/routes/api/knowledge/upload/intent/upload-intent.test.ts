@@ -226,27 +226,30 @@ describe("POST /api/knowledge/upload/intent", () => {
 			"knowledge.uploadRejectedConvertImage",
 		],
 		["mystery.wat", null, "unknownType", "knowledge.uploadUnsupportedType"],
-	])("refuses %s with 415 and a localizable reason", async (fileName, mimeType, reason, errorKey) => {
-		const response = await POST(
-			makeEvent({
-				fileName,
-				fileSize: 1024,
-				mimeType,
-				conversationId: "conv-1",
-			}),
-		);
-		const data = await response.json();
+	])(
+		"refuses %s with 415 and a localizable reason",
+		async (fileName, mimeType, reason, errorKey) => {
+			const response = await POST(
+				makeEvent({
+					fileName,
+					fileSize: 1024,
+					mimeType,
+					conversationId: "conv-1",
+				}),
+			);
+			const data = await response.json();
 
-		expect(response.status).toBe(415);
-		expect(data.code).toBe("upload_unsupported_type");
-		expect(data.errorKey).toBe(errorKey);
-		expect(data.traceId).toBe("trace-upload");
-		expect(data.details).toMatchObject({ fileName, reason });
-		expect(typeof data.error).toBe("string");
-		expect(data.error).not.toContain("{");
-		// Refused before the conversation is even looked up.
-		expect(mockValidateKnowledgeUploadConversation).not.toHaveBeenCalled();
-	});
+			expect(response.status).toBe(415);
+			expect(data.code).toBe("upload_unsupported_type");
+			expect(data.errorKey).toBe(errorKey);
+			expect(data.traceId).toBe("trace-upload");
+			expect(data.details).toMatchObject({ fileName, reason });
+			expect(typeof data.error).toBe("string");
+			expect(data.error).not.toContain("{");
+			// Refused before the conversation is even looked up.
+			expect(mockValidateKnowledgeUploadConversation).not.toHaveBeenCalled();
+		},
+	);
 
 	it("names the file and the extension in the English fallback text", async () => {
 		const unknown = await POST(

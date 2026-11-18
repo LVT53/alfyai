@@ -422,31 +422,37 @@ describe("send gate — a picture the model can be shown", () => {
 			{ kind: "failed", code: "max_attempts", retryable: true } as Reading,
 		],
 		["no reading at all", { kind: "none" } as Reading],
-	])("lets a picture through for a model that can see: %s", async (_label, reading) => {
-		const photo = await seedUpload("photo.jpg", "image/jpeg", reading);
+	])(
+		"lets a picture through for a model that can see: %s",
+		async (_label, reading) => {
+			const photo = await seedUpload("photo.jpg", "image/jpeg", reading);
 
-		const resolved = await gate([photo], true);
+			const resolved = await gate([photo], true);
 
-		expect(resolved.displayArtifacts.map((artifact) => artifact.id)).toEqual([
-			photo,
-		]);
-		// No text was prepared, and none is claimed.
-		expect(resolved.promptArtifacts).toEqual([]);
-	});
+			expect(resolved.displayArtifacts.map((artifact) => artifact.id)).toEqual([
+				photo,
+			]);
+			// No text was prepared, and none is claimed.
+			expect(resolved.promptArtifacts).toEqual([]);
+		},
+	);
 
 	it.each([
 		["found no text", NO_TEXT, "attachment_extraction_failed"],
 		["has thin text", THIN_TEXT_READ, "attachment_not_ready"],
 		["is still queued", STILL_QUEUED, "attachment_extraction_pending"],
-	])("refuses the same picture exactly as before for a model that cannot see: it %s", async (_label, reading, code) => {
-		const photo = await seedUpload("photo.jpg", "image/jpeg", reading);
+	])(
+		"refuses the same picture exactly as before for a model that cannot see: it %s",
+		async (_label, reading, code) => {
+			const photo = await seedUpload("photo.jpg", "image/jpeg", reading);
 
-		for (const exempt of [undefined, false]) {
-			const error = await refusal([photo], exempt);
-			expect(error.code).toBe(code);
-			expect(error.attachmentIds).toEqual([photo]);
-		}
-	});
+			for (const exempt of [undefined, false]) {
+				const error = await refusal([photo], exempt);
+				expect(error.code).toBe(code);
+				expect(error.attachmentIds).toEqual([photo]);
+			}
+		},
+	);
 
 	it("keeps naming no_usable_text as the reason for a thin picture when the model cannot see", async () => {
 		const photo = await seedUpload("photo.jpg", "image/jpeg", THIN_TEXT_READ);
@@ -466,21 +472,24 @@ describe("send gate — a picture the model can be shown", () => {
 			"table.xlsx",
 			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 		],
-	])("never changes how %s is judged, whatever the model", async (_label, name, mimeType) => {
-		const readings: Array<[Reading, string]> = [
-			[NO_TEXT, "attachment_extraction_failed"],
-			[THIN_TEXT_READ, "attachment_not_ready"],
-			[STILL_QUEUED, "attachment_extraction_pending"],
-		];
-		for (const [reading, code] of readings) {
-			const file = await seedUpload(name, mimeType, reading);
-			for (const exempt of [undefined, false, true]) {
-				const error = await refusal([file], exempt);
-				expect(error.code, `${name} ${reading.kind} ${exempt}`).toBe(code);
-				expect(error.attachmentIds).toEqual([file]);
+	])(
+		"never changes how %s is judged, whatever the model",
+		async (_label, name, mimeType) => {
+			const readings: Array<[Reading, string]> = [
+				[NO_TEXT, "attachment_extraction_failed"],
+				[THIN_TEXT_READ, "attachment_not_ready"],
+				[STILL_QUEUED, "attachment_extraction_pending"],
+			];
+			for (const [reading, code] of readings) {
+				const file = await seedUpload(name, mimeType, reading);
+				for (const exempt of [undefined, false, true]) {
+					const error = await refusal([file], exempt);
+					expect(error.code, `${name} ${reading.kind} ${exempt}`).toBe(code);
+					expect(error.attachmentIds).toEqual([file]);
+				}
 			}
-		}
-	});
+		},
+	);
 
 	// A BMP and a type the image library does not read are images the model can
 	// never be shown, so for them the text is all there is: no exemption.
@@ -489,14 +498,17 @@ describe("send gate — a picture the model can be shown", () => {
 		["an icon file", "favicon.ico", "image/x-icon"],
 		["a Photoshop file", "layers.psd", "image/vnd.adobe.photoshop"],
 		["a camera raw file", "IMG_0001.CR2", "image/x-canon-cr2"],
-	])("still refuses %s that has no text, for a model that can see", async (_label, name, mimeType) => {
-		const file = await seedUpload(name, mimeType, NO_TEXT);
+	])(
+		"still refuses %s that has no text, for a model that can see",
+		async (_label, name, mimeType) => {
+			const file = await seedUpload(name, mimeType, NO_TEXT);
 
-		const error = await refusal([file], true);
+			const error = await refusal([file], true);
 
-		expect(error.code).toBe("attachment_extraction_failed");
-		expect(error.attachmentIds).toEqual([file]);
-	});
+			expect(error.code).toBe("attachment_extraction_failed");
+			expect(error.attachmentIds).toEqual([file]);
+		},
+	);
 
 	it("lets a BMP through when it has text, as it always did", async () => {
 		const file = await seedUpload("scan.bmp", "image/bmp", {

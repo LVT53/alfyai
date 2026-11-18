@@ -118,18 +118,17 @@ describe("prepareImageForModel", () => {
 			edge: 1600,
 			to: [800, 600],
 		},
-	])("keeps the shape of $name inside the budget", async ({
-		from,
-		edge,
-		to,
-	}) => {
-		const out = await prepareImageForModel(
-			await solidJpeg(from[0], from[1]),
-			"image/jpeg",
-			{ maxLongEdge: edge },
-		);
-		expect([out.width, out.height]).toEqual(to);
-	});
+	])(
+		"keeps the shape of $name inside the budget",
+		async ({ from, edge, to }) => {
+			const out = await prepareImageForModel(
+				await solidJpeg(from[0], from[1]),
+				"image/jpeg",
+				{ maxLongEdge: edge },
+			);
+			expect([out.width, out.height]).toEqual(to);
+		},
+	);
 
 	it("applies EXIF orientation", async () => {
 		const rotated = await sharp({
@@ -263,21 +262,20 @@ describe("prepareImageForModel", () => {
 		}
 	});
 
-	it.each([
-		"jpeg",
-		"png",
-		"gif",
-		"webp",
-		"tiff",
-	] as const)("reads a %s", async (format) => {
-		const bytes = await sharp({
-			create: { width: 48, height: 32, channels: 3, background: "#336699" },
-		})
-			.toFormat(format)
-			.toBuffer();
-		const out = await prepareImageForModel(bytes, null, { maxLongEdge: 1600 });
-		expect([out.width, out.height]).toEqual([48, 32]);
-	});
+	it.each(["jpeg", "png", "gif", "webp", "tiff"] as const)(
+		"reads a %s",
+		async (format) => {
+			const bytes = await sharp({
+				create: { width: 48, height: 32, channels: 3, background: "#336699" },
+			})
+				.toFormat(format)
+				.toBuffer();
+			const out = await prepareImageForModel(bytes, null, {
+				maxLongEdge: 1600,
+			});
+			expect([out.width, out.height]).toEqual([48, 32]);
+		},
+	);
 
 	it("turns a CMYK JPEG into sRGB", async () => {
 		const cmyk = await sharp({
@@ -333,14 +331,15 @@ describe("prepareImageForModel", () => {
 			{ declared: null },
 			{ declared: "application/octet-stream" },
 			{ declared: "image/jpeg" },
-		])("finds HEIC by its type or by its bytes when the type is $declared", async ({
-			declared,
-		}) => {
-			const out = await prepareImageForModel(tinyHeic, declared, {
-				maxLongEdge: 1600,
-			});
-			expect([out.width, out.height]).toEqual([64, 42]);
-		});
+		])(
+			"finds HEIC by its type or by its bytes when the type is $declared",
+			async ({ declared }) => {
+				const out = await prepareImageForModel(tinyHeic, declared, {
+					maxLongEdge: 1600,
+				});
+				expect([out.width, out.height]).toEqual([64, 42]);
+			},
+		);
 
 		it("trusts the declared type when the brand is not one it looks for", async () => {
 			// Same file with its major brand changed from `heic` to `hevc`, which
@@ -502,21 +501,22 @@ describe("the formats an attachment can be sent as", () => {
 		);
 	});
 
-	it.each(
-		Object.keys(SAMPLES),
-	)("prepares %s from real bytes, upright and flat, as a JPEG", async (id) => {
-		const entry = imageEntries.find((candidate) => candidate.id === id);
-		const sample = await SAMPLES[id]();
+	it.each(Object.keys(SAMPLES))(
+		"prepares %s from real bytes, upright and flat, as a JPEG",
+		async (id) => {
+			const entry = imageEntries.find((candidate) => candidate.id === id);
+			const sample = await SAMPLES[id]();
 
-		const out = await prepareImageForModel(sample.bytes, sample.mimeType, {
-			maxLongEdge: ATTACHMENT_MAX_LONG_EDGE,
-		});
+			const out = await prepareImageForModel(sample.bytes, sample.mimeType, {
+				maxLongEdge: ATTACHMENT_MAX_LONG_EDGE,
+			});
 
-		expect(entry).toBeDefined();
-		expect(out.mediaType).toBe("image/jpeg");
-		expect(out.width).toBeGreaterThan(0);
-		expect((await sharp(sentBytes(out)).metadata()).format).toBe("jpeg");
-	});
+			expect(entry).toBeDefined();
+			expect(out.mediaType).toBe("image/jpeg");
+			expect(out.width).toBeGreaterThan(0);
+			expect((await sharp(sentBytes(out)).metadata()).format).toBe("jpeg");
+		},
+	);
 
 	it("says why each registry image that is not seeable is not", async () => {
 		const notSeeable = imageEntries

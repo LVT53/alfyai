@@ -102,69 +102,69 @@ function fallbackConfig() {
 }
 
 describe("review A: Model Run completion attacks", () => {
-	it.each([
-		true,
-		false,
-	])("settled-tool failover uses one closing only when destination is admissible=%s", async (admissible) => {
-		const args = setup();
-		const urls: string[] = [];
-		const bodies: Array<Record<string, unknown>> = [];
-		const execute = vi.fn(async () => ({ fact: "settled evidence" }));
-		const result = await runPlainNormalChatModelRun({
-			...args,
-			modelId: "model1",
-			runtimeConfig: fallbackConfig(),
-			completionPolicy: {
-				...args.completionPolicy,
-				forAttempt: () => ({
-					classifyExecution: () => "succeeded",
-					projectContext: ({ system, messages, provider }) =>
-						admissible || provider.baseUrl === args.provider.baseUrl
-							? { system, messages }
-							: null,
-				}),
-			},
-			tools: { lookup: tool({ inputSchema: z.object({}), execute }) },
-			fetch: async (input, init) => {
-				urls.push(String(input));
-				bodies.push(JSON.parse(String(init?.body)));
-				if (urls.length === 1)
-					return reply("", "tool_calls", [
-						{
-							id: "lookup-1",
-							type: "function",
-							function: { name: "lookup", arguments: "{}" },
-						},
-					]);
-				if (urls.length === 2)
-					throw Object.assign(new Error("request timed out"), {
-						name: "TimeoutError",
-					});
-				return reply("Answer from settled evidence.");
-			},
-		});
-		if (!admissible) {
-			expect(urls).toHaveLength(2);
+	it.each([true, false])(
+		"settled-tool failover uses one closing only when destination is admissible=%s",
+		async (admissible) => {
+			const args = setup();
+			const urls: string[] = [];
+			const bodies: Array<Record<string, unknown>> = [];
+			const execute = vi.fn(async () => ({ fact: "settled evidence" }));
+			const result = await runPlainNormalChatModelRun({
+				...args,
+				modelId: "model1",
+				runtimeConfig: fallbackConfig(),
+				completionPolicy: {
+					...args.completionPolicy,
+					forAttempt: () => ({
+						classifyExecution: () => "succeeded",
+						projectContext: ({ system, messages, provider }) =>
+							admissible || provider.baseUrl === args.provider.baseUrl
+								? { system, messages }
+								: null,
+					}),
+				},
+				tools: { lookup: tool({ inputSchema: z.object({}), execute }) },
+				fetch: async (input, init) => {
+					urls.push(String(input));
+					bodies.push(JSON.parse(String(init?.body)));
+					if (urls.length === 1)
+						return reply("", "tool_calls", [
+							{
+								id: "lookup-1",
+								type: "function",
+								function: { name: "lookup", arguments: "{}" },
+							},
+						]);
+					if (urls.length === 2)
+						throw Object.assign(new Error("request timed out"), {
+							name: "TimeoutError",
+						});
+					return reply("Answer from settled evidence.");
+				},
+			});
+			if (!admissible) {
+				expect(urls).toHaveLength(2);
+				expect(execute).toHaveBeenCalledTimes(1);
+				expect(result.text).toBe("");
+				expect(result.completion).toMatchObject({
+					outcome: "incomplete",
+					stopCause: "incompatible_continuation",
+					closingAttempted: true,
+				});
+				return;
+			}
+			expect(urls).toHaveLength(3);
+			expect(urls[2]).toContain("fallback.invalid");
+			expect(bodies[2].tools).toBeUndefined();
+			expect(JSON.stringify(bodies[2].messages)).toContain("settled evidence");
 			expect(execute).toHaveBeenCalledTimes(1);
-			expect(result.text).toBe("");
+			expect(result.text).toBe("Answer from settled evidence.");
 			expect(result.completion).toMatchObject({
-				outcome: "incomplete",
-				stopCause: "incompatible_continuation",
+				outcome: "answered",
 				closingAttempted: true,
 			});
-			return;
-		}
-		expect(urls).toHaveLength(3);
-		expect(urls[2]).toContain("fallback.invalid");
-		expect(bodies[2].tools).toBeUndefined();
-		expect(JSON.stringify(bodies[2].messages)).toContain("settled evidence");
-		expect(execute).toHaveBeenCalledTimes(1);
-		expect(result.text).toBe("Answer from settled evidence.");
-		expect(result.completion).toMatchObject({
-			outcome: "answered",
-			closingAttempted: true,
-		});
-	});
+		},
+	);
 	it("pre-work failover after streamed partial output must not replay the failed attempt's partial assistant text/reasoning to the new provider", async () => {
 		const args = setup();
 		const bodies: string[] = [];
@@ -231,36 +231,39 @@ describe("review A: Model Run completion attacks", () => {
 	it.each([
 		["working natural stop", 0],
 		["closing after a spent budget", 1],
-	])("does not promote raw DSML tool markup after a visible preface to answered (%s)", async (_label, toolStepsBeforeMarkup) => {
-		const args = setup();
-		let requests = 0;
-		const markup =
-			'I will verify that.\n\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="research_web">\n<｜｜DSML｜｜ parameter name="query" string="true">height</｜｜DSML｜｜ parameter>\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>';
-		const result = await runPlainNormalChatModelRun({
-			...args,
-			maxToolSteps: 1,
-			tools: {
-				lookup: tool({
-					inputSchema: z.object({}),
-					execute: async () => "evidence",
-				}),
-			},
-			fetch: async () => {
-				requests++;
-				if (requests <= toolStepsBeforeMarkup)
-					return reply("working", "tool_calls", [
-						{
-							id: `c${requests}`,
-							type: "function",
-							function: { name: "lookup", arguments: "{}" },
-						},
-					]);
-				return reply(markup);
-			},
-		});
-		expect(result.completion?.outcome).not.toBe("answered");
-		expect(result.text).not.toContain("DSML");
-	});
+	])(
+		"does not promote raw DSML tool markup after a visible preface to answered (%s)",
+		async (_label, toolStepsBeforeMarkup) => {
+			const args = setup();
+			let requests = 0;
+			const markup =
+				'I will verify that.\n\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="research_web">\n<｜｜DSML｜｜ parameter name="query" string="true">height</｜｜DSML｜｜ parameter>\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>';
+			const result = await runPlainNormalChatModelRun({
+				...args,
+				maxToolSteps: 1,
+				tools: {
+					lookup: tool({
+						inputSchema: z.object({}),
+						execute: async () => "evidence",
+					}),
+				},
+				fetch: async () => {
+					requests++;
+					if (requests <= toolStepsBeforeMarkup)
+						return reply("working", "tool_calls", [
+							{
+								id: `c${requests}`,
+								type: "function",
+								function: { name: "lookup", arguments: "{}" },
+							},
+						]);
+					return reply(markup);
+				},
+			});
+			expect(result.completion?.outcome).not.toBe("answered");
+			expect(result.text).not.toContain("DSML");
+		},
+	);
 
 	// Review 2, finding 2.8: Qwen (the local model) writes a call as a Hermes-style
 	// `<tool_call>` block, not as DeepSeek's token. Explicit control syntax is not an
@@ -270,34 +273,37 @@ describe("review A: Model Run completion attacks", () => {
 	it.each([
 		["working natural stop", 0],
 		["closing after a spent budget", 1],
-	])("does not promote Hermes-style <tool_call> markup after a visible preface to answered (%s)", async (_label, toolStepsBeforeMarkup) => {
-		const args = setup();
-		let requests = 0;
-		const result = await runPlainNormalChatModelRun({
-			...args,
-			maxToolSteps: 1,
-			tools: {
-				lookup: tool({
-					inputSchema: z.object({}),
-					execute: async () => "evidence",
-				}),
-			},
-			fetch: async () => {
-				requests++;
-				if (requests <= toolStepsBeforeMarkup)
-					return reply("working", "tool_calls", [
-						{
-							id: `c${requests}`,
-							type: "function",
-							function: { name: "lookup", arguments: "{}" },
-						},
-					]);
-				return reply(`Let me look that up.\n${hermesCall}`);
-			},
-		});
-		expect(result.completion?.outcome).not.toBe("answered");
-		expect(result.text).not.toContain("<tool_call>");
-	});
+	])(
+		"does not promote Hermes-style <tool_call> markup after a visible preface to answered (%s)",
+		async (_label, toolStepsBeforeMarkup) => {
+			const args = setup();
+			let requests = 0;
+			const result = await runPlainNormalChatModelRun({
+				...args,
+				maxToolSteps: 1,
+				tools: {
+					lookup: tool({
+						inputSchema: z.object({}),
+						execute: async () => "evidence",
+					}),
+				},
+				fetch: async () => {
+					requests++;
+					if (requests <= toolStepsBeforeMarkup)
+						return reply("working", "tool_calls", [
+							{
+								id: `c${requests}`,
+								type: "function",
+								function: { name: "lookup", arguments: "{}" },
+							},
+						]);
+					return reply(`Let me look that up.\n${hermesCall}`);
+				},
+			});
+			expect(result.completion?.outcome).not.toBe("answered");
+			expect(result.text).not.toContain("<tool_call>");
+		},
+	);
 
 	it.each([
 		[
@@ -305,23 +311,26 @@ describe("review A: Model Run completion attacks", () => {
 			'I will verify that.\n\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="research_web">\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>',
 		],
 		["a Hermes-style block", `Let me look that up.\n${hermesCall}`],
-	])("settles %s after a visible preface the same way on the streaming transport: incomplete, none of it in the answer", async (_label, markup) => {
-		const args = setup();
-		for await (const _event of runStreamingNormalChatModelRun({
-			...args,
-			tools: {
-				lookup: tool({
-					inputSchema: z.object({}),
-					execute: async () => "evidence",
-				}),
-			},
-			fetch: async () => streamed([{ content: markup }]),
-		})) {
-		}
-		const projection = projectNormalChatOutput(args.output);
-		expect(projection.completion?.outcome).toBe("incomplete");
-		expect(projection.answer).toBe("");
-	});
+	])(
+		"settles %s after a visible preface the same way on the streaming transport: incomplete, none of it in the answer",
+		async (_label, markup) => {
+			const args = setup();
+			for await (const _event of runStreamingNormalChatModelRun({
+				...args,
+				tools: {
+					lookup: tool({
+						inputSchema: z.object({}),
+						execute: async () => "evidence",
+					}),
+				},
+				fetch: async () => streamed([{ content: markup }]),
+			})) {
+			}
+			const projection = projectNormalChatOutput(args.output);
+			expect(projection.completion?.outcome).toBe("incomplete");
+			expect(projection.answer).toBe("");
+		},
+	);
 
 	it.each([
 		[

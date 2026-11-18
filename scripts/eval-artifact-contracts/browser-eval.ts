@@ -368,6 +368,7 @@ async function readStats(
 	const domStats = frame
 		? await frame.evaluate(() => {
 				const body = document.body;
+				// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 				const text = (body?.innerText ?? "").replace(/\s+/g, " ").trim();
 				const controls = body
 					? body.querySelectorAll(
@@ -407,6 +408,7 @@ async function smokeInteraction(
 	dialogs: string[],
 ): Promise<InteractionRun> {
 	const before = await frame.evaluate(() => ({
+		// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 		text: (document.body?.innerText ?? "").replace(/\s+/g, " ").trim().length,
 		html: (document.body?.innerHTML ?? "").length,
 	}));
@@ -464,6 +466,7 @@ async function smokeInteraction(
 		const htmlBeforeClick = await readBodyHtml(frame);
 		let label = "";
 		try {
+			// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 			label = trim((await button.innerText()) || "");
 			await button.click({ timeout: 3000 });
 			result.clicked = true;
@@ -482,6 +485,7 @@ async function smokeInteraction(
 	}
 
 	const after = await frame.evaluate(() => ({
+		// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 		text: (document.body?.innerText ?? "").replace(/\s+/g, " ").trim().length,
 		html: (document.body?.innerHTML ?? "").length,
 	}));

@@ -68,6 +68,7 @@ test.describe("an item a turn made and worked on", () => {
 				1,
 			);
 			await expect(turn.deliverables.locator(FAILED_ROW)).toHaveCount(0);
+			// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 			const text = (await turn.reply.innerText()) ?? "";
 			for (const raw of RAW_PARAMETERS) expect(text).not.toMatch(raw);
 

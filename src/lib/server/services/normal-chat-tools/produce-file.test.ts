@@ -877,21 +877,23 @@ describe("inline_text production mode", () => {
 	// (`documentSource or content is required when sourceMode is
 	// document_source`) and made the model rewrite the whole file. The adapter
 	// decides the real mode once it has the patched bytes.
-	it.each([
-		"document_source",
-		"program",
-	] as const)("ignores sourceMode %o on a call that carries only patches", (sourceMode) => {
-		const patchOnly = expectOk(
-			normalize({
-				filename: "notes.md",
-				sourceMode,
-				patches: [{ oldText: "North", newText: "South" }],
-			}),
-		);
-		expect(patchOnly.sourceMode).toBe("program");
-		expect(patchOnly.patches).toEqual([{ oldText: "North", newText: "South" }]);
-		expect(patchOnly.program?.filename).toBe("notes.md");
-	});
+	it.each(["document_source", "program"] as const)(
+		"ignores sourceMode %o on a call that carries only patches",
+		(sourceMode) => {
+			const patchOnly = expectOk(
+				normalize({
+					filename: "notes.md",
+					sourceMode,
+					patches: [{ oldText: "North", newText: "South" }],
+				}),
+			);
+			expect(patchOnly.sourceMode).toBe("program");
+			expect(patchOnly.patches).toEqual([
+				{ oldText: "North", newText: "South" },
+			]);
+			expect(patchOnly.program?.filename).toBe("notes.md");
+		},
+	);
 
 	// …and a call that carries BOTH patches and content of its own is refused.
 	// It used to be honoured in whichever direction the request happened to
@@ -1206,32 +1208,31 @@ describe("what the model's own history teaches it about sourceMode", () => {
 		expect(entry.metadata?.sourceMode).toBe("inline_text");
 	});
 
-	it.each([
-		"inline_text",
-		"auto",
-		"",
-	])("accepts a call whose sourceMode is %o and lets the server choose", (sourceMode) => {
-		const raw = {
-			requestTitle: "Release notes",
-			filename: "release-notes.md",
-			sourceMode,
-			markdown: MARKDOWN,
-		};
+	it.each(["inline_text", "auto", ""])(
+		"accepts a call whose sourceMode is %o and lets the server choose",
+		(sourceMode) => {
+			const raw = {
+				requestTitle: "Release notes",
+				filename: "release-notes.md",
+				sourceMode,
+				markdown: MARKDOWN,
+			};
 
-		// The schema the SDK validates the raw tool call against…
-		const model = produceFileModelInputSchema.safeParse(raw);
-		expect(model.success).toBe(true);
-		// …and the one `execute` parses with.
-		const parsed = produceFileInputSchema.safeParse(raw);
-		expect(parsed.success).toBe(true);
-		if (!parsed.success) return;
-		expect(parsed.data.sourceMode).toBeUndefined();
+			// The schema the SDK validates the raw tool call against…
+			const model = produceFileModelInputSchema.safeParse(raw);
+			expect(model.success).toBe(true);
+			// …and the one `execute` parses with.
+			const parsed = produceFileInputSchema.safeParse(raw);
+			expect(parsed.success).toBe(true);
+			if (!parsed.success) return;
+			expect(parsed.data.sourceMode).toBeUndefined();
 
-		const normalized = normalizeProduceFileInput(parsed.data);
-		expect(normalized.ok).toBe(true);
-		if (!normalized.ok) return;
-		expect(normalized.input.sourceMode).toBe("inline_text");
-	});
+			const normalized = normalizeProduceFileInput(parsed.data);
+			expect(normalized.ok).toBe(true);
+			if (!normalized.ok) return;
+			expect(normalized.input.sourceMode).toBe("inline_text");
+		},
+	);
 });
 
 describe("what a produced file's digest tells the next turn", () => {

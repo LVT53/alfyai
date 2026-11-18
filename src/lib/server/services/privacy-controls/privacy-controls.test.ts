@@ -761,30 +761,33 @@ describe("privacy controls service", () => {
 		["clearMemoryAndKnowledge"],
 		["clearWorkspaceData"],
 		["eraseUserAccount"],
-	] as const)("%s reports a wrong password over the account's budget as throttled, and does nothing", async (action) => {
-		seedPrivacyUser();
-		const before = await getPrivacySnapshot();
-		const limiter = await import("../login-rate-limit");
-		limiter._setLoginRateLimitSleepForTests(async () => {});
-		const privacy = await import("./index");
+	] as const)(
+		"%s reports a wrong password over the account's budget as throttled, and does nothing",
+		async (action) => {
+			seedPrivacyUser();
+			const before = await getPrivacySnapshot();
+			const limiter = await import("../login-rate-limit");
+			limiter._setLoginRateLimitSleepForTests(async () => {});
+			const privacy = await import("./index");
 
-		for (
-			let attempt = 0;
-			attempt < limiter.LOGIN_RATE_LIMIT_POLICY.maxFailuresPerAccount;
-			attempt += 1
-		) {
-			expect(await privacy[action]("user-1", "wrong-password")).toEqual({
-				status: "incorrect_password",
-			});
-		}
-		const result = await privacy[action]("user-1", "wrong-password");
+			for (
+				let attempt = 0;
+				attempt < limiter.LOGIN_RATE_LIMIT_POLICY.maxFailuresPerAccount;
+				attempt += 1
+			) {
+				expect(await privacy[action]("user-1", "wrong-password")).toEqual({
+					status: "incorrect_password",
+				});
+			}
+			const result = await privacy[action]("user-1", "wrong-password");
 
-		expect(result).toMatchObject({ status: "throttled" });
-		expect(
-			(result as { retryAfterSeconds: number }).retryAfterSeconds,
-		).toBeGreaterThan(0);
-		await expect(getPrivacySnapshot()).resolves.toEqual(before);
-	});
+			expect(result).toMatchObject({ status: "throttled" });
+			expect(
+				(result as { retryAfterSeconds: number }).retryAfterSeconds,
+			).toBeGreaterThan(0);
+			await expect(getPrivacySnapshot()).resolves.toEqual(before);
+		},
+	);
 
 	it("keeps one budget across the actions, and still takes the right password over it", async () => {
 		seedPrivacyUser();

@@ -540,48 +540,45 @@ describe("the rows built from the 4.1.7 spike's files, against the real parser",
 		},
 	];
 
-	it.each(
-		captured,
-	)("$id holds for what the parser makes of its capture", async ({
-		id,
-		zip,
-		name,
-	}) => {
-		const { result } = await parseMineruResultZip({
-			zipPathAbsolute: zip,
-			jobTier: EXPECTED.pdfTier,
-			serverParserVersion: EXPECTED.serverVersion,
-			sourceFilename: name,
-			sourceMimeType: "application/pdf",
-		});
-		const run = faithfulRun(id);
-		const actual = {
-			effectiveTier: result.effectiveTier,
-			jobTier: EXPECTED.pdfTier,
-			pageCount: result.pageCount,
-			pageCountKind: result.pageCountKind,
-			textLength: result.markdown.length,
-			figureCount: result.figures.length,
-			outlineLength: result.outline.length,
-			outlinePages: result.outline.length,
-			unknownBlockTypes: result.stats.unknownTypes as unknown,
-			parserVersion: result.parserVersion as unknown,
-			serverParserVersion: EXPECTED.serverVersion as unknown,
-			producerVersion: result.producerVersion,
-			parseMode: result.parseMode,
-			bundleBytes: 1,
-		};
+	it.each(captured)(
+		"$id holds for what the parser makes of its capture",
+		async ({ id, zip, name }) => {
+			const { result } = await parseMineruResultZip({
+				zipPathAbsolute: zip,
+				jobTier: EXPECTED.pdfTier,
+				serverParserVersion: EXPECTED.serverVersion,
+				sourceFilename: name,
+				sourceMimeType: "application/pdf",
+			});
+			const run = faithfulRun(id);
+			const actual = {
+				effectiveTier: result.effectiveTier,
+				jobTier: EXPECTED.pdfTier,
+				pageCount: result.pageCount,
+				pageCountKind: result.pageCountKind,
+				textLength: result.markdown.length,
+				figureCount: result.figures.length,
+				outlineLength: result.outline.length,
+				outlinePages: result.outline.length,
+				unknownBlockTypes: result.stats.unknownTypes as unknown,
+				parserVersion: result.parserVersion as unknown,
+				serverParserVersion: EXPECTED.serverVersion as unknown,
+				producerVersion: result.producerVersion,
+				parseMode: result.parseMode,
+				bundleBytes: 1,
+			};
 
-		expect(
-			compare(
-				run.testCase,
-				actual,
-				result.markdown,
-				run.statusesSeen,
-				run.job,
-				run.name,
-				EXPECTED,
-			),
-		).toEqual([]);
-	});
+			expect(
+				compare(
+					run.testCase,
+					actual,
+					result.markdown,
+					run.statusesSeen,
+					run.job,
+					run.name,
+					EXPECTED,
+				),
+			).toEqual([]);
+		},
+	);
 });

@@ -259,265 +259,272 @@ afterEach(() => {
 	records.models.clear();
 });
 
-describe.each(
-	TRANSPORTS,
-)("failover through the prepared turn (%s)", (transport) => {
-	it("first output never arrives: the fallback gets its own tool set and its own projection, and the ledger holds one working attempt per provider", async () => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		const t = setup(transport, { deepseekFallback: true, prefetch: true });
-		t.network.script(PRIMARY, hang);
-		t.network.script(
-			FALLBACK,
-			(c) =>
-				respond(c.transport, { call: { id: "fb-1", name: "fallback_lookup" } }),
-			(c) => respond(c.transport, { text: "fallback answer" }),
-		);
-		const done = t.run();
-		await vi.waitFor(() => expect(t.network.to(PRIMARY)).toHaveLength(1));
-		await vi.advanceTimersByTimeAsync(10_000);
-		const turn = await done;
-		expect(t.network.to(PRIMARY)).toHaveLength(1);
-		expect(t.network.to(FALLBACK)).toHaveLength(2);
-		// Its own tool set, built for the model it runs on.
-		expect(t.packsBuiltFor).toEqual(["model1", FALLBACK_MODEL]);
-		expect(toolNames(t.network.to(PRIMARY)[0].body)).toEqual(["lookup"]);
-		expect(toolNames(t.network.to(FALLBACK)[0].body)).toEqual([
-			"fallback_lookup",
-		]);
-		expect(t.ran).toEqual({ primary: 0, fallback: 1 });
-		// Its own projection of the prefetch: native messages for the primary, one note for DeepSeek.
-		const first = JSON.stringify(t.network.to(PRIMARY)[0].body.messages);
-		const second = JSON.stringify(t.network.to(FALLBACK)[0].body.messages);
-		expect(first).toContain('"tool_calls"');
-		expect(first).toContain("PREFETCHED-PAGE");
-		expect(second).not.toContain('"tool_calls"');
-		expect(second).toContain("Server-prefetched page evidence");
-		expect(second).toContain("PREFETCHED-PAGE");
-		expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
-			phase: "working",
-			outcome: "answered",
-			stopCause: "natural_stop",
-			closingAttempted: false,
-		});
-		expect(t.ledger).toEqual([
-			{
-				provider: "model1",
-				model: "model1",
-				phase: "working",
-				outcome: "failed",
-				stop: "transport_error",
-				input: null,
-				final: false,
-			},
-			{
-				provider: "fb",
-				model: FALLBACK_MODEL,
+describe.each(TRANSPORTS)(
+	"failover through the prepared turn (%s)",
+	(transport) => {
+		it("first output never arrives: the fallback gets its own tool set and its own projection, and the ledger holds one working attempt per provider", async () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			const t = setup(transport, { deepseekFallback: true, prefetch: true });
+			t.network.script(PRIMARY, hang);
+			t.network.script(
+				FALLBACK,
+				(c) =>
+					respond(c.transport, {
+						call: { id: "fb-1", name: "fallback_lookup" },
+					}),
+				(c) => respond(c.transport, { text: "fallback answer" }),
+			);
+			const done = t.run();
+			await vi.waitFor(() => expect(t.network.to(PRIMARY)).toHaveLength(1));
+			await vi.advanceTimersByTimeAsync(10_000);
+			const turn = await done;
+			expect(t.network.to(PRIMARY)).toHaveLength(1);
+			expect(t.network.to(FALLBACK)).toHaveLength(2);
+			// Its own tool set, built for the model it runs on.
+			expect(t.packsBuiltFor).toEqual(["model1", FALLBACK_MODEL]);
+			expect(toolNames(t.network.to(PRIMARY)[0].body)).toEqual(["lookup"]);
+			expect(toolNames(t.network.to(FALLBACK)[0].body)).toEqual([
+				"fallback_lookup",
+			]);
+			expect(t.ran).toEqual({ primary: 0, fallback: 1 });
+			// Its own projection of the prefetch: native messages for the primary, one note for DeepSeek.
+			const first = JSON.stringify(t.network.to(PRIMARY)[0].body.messages);
+			const second = JSON.stringify(t.network.to(FALLBACK)[0].body.messages);
+			expect(first).toContain('"tool_calls"');
+			expect(first).toContain("PREFETCHED-PAGE");
+			expect(second).not.toContain('"tool_calls"');
+			expect(second).toContain("Server-prefetched page evidence");
+			expect(second).toContain("PREFETCHED-PAGE");
+			expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
 				phase: "working",
 				outcome: "answered",
-				stop: "natural_stop",
-				input: 20,
-				final: true,
-			},
-		]);
-	});
-
-	it("a provider error after a tool settled: one closing on the fallback with no tool set, the settled evidence in its own projection", async () => {
-		const t = setup(transport, { deepseekFallback: true, prefetch: true });
-		t.network.script(
-			PRIMARY,
-			(c) => respond(c.transport, { call: "lookup-1" }),
-			failWith(timeoutError),
-		);
-		t.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "closing answer" }),
-		);
-		const turn = await t.run();
-		expect(t.packsBuiltFor).toEqual(["model1"]);
-		expect(t.network.to(FALLBACK)).toHaveLength(1);
-		const closing = t.network.to(FALLBACK)[0];
-		expect(closing.body.tools).toBeUndefined();
-		expect(closing.text).toContain("SETTLED-EVIDENCE");
-		expect(closing.text).toContain("Server-prefetched page evidence");
-		expect(t.ran).toEqual({ primary: 1, fallback: 0 });
-		expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
-			phase: "closing",
-			outcome: "answered",
-			workingStopCause: "transport_error",
-			closingAttempted: true,
+				stopCause: "natural_stop",
+				closingAttempted: false,
+			});
+			expect(t.ledger).toEqual([
+				{
+					provider: "model1",
+					model: "model1",
+					phase: "working",
+					outcome: "failed",
+					stop: "transport_error",
+					input: null,
+					final: false,
+				},
+				{
+					provider: "fb",
+					model: FALLBACK_MODEL,
+					phase: "working",
+					outcome: "answered",
+					stop: "natural_stop",
+					input: 20,
+					final: true,
+				},
+			]);
 		});
-		expect(
-			t.ledger.map((a) => [a.provider, a.phase, a.outcome, a.stop]),
-		).toEqual([
-			["model1", "working", "failed", "transport_error"],
-			["fb", "closing", "answered", "natural_stop"],
-		]);
-	});
 
-	it("the fallback fails too: the turn is settled as an explicit failure after a bounded number of attempts", async () => {
-		const t = setup(transport);
-		t.network.script(PRIMARY, () => httpFailure(503));
-		t.network.script(
-			FALLBACK,
-			() => httpFailure(503),
-			() => httpFailure(503),
-			() => httpFailure(503),
-		);
-		const turn = await t.run();
-		expect(t.network.calls.length).toBeLessThanOrEqual(3);
-		expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
-			outcome: "failed",
-			stopCause: "transport_error",
+		it("a provider error after a tool settled: one closing on the fallback with no tool set, the settled evidence in its own projection", async () => {
+			const t = setup(transport, { deepseekFallback: true, prefetch: true });
+			t.network.script(
+				PRIMARY,
+				(c) => respond(c.transport, { call: "lookup-1" }),
+				failWith(timeoutError),
+			);
+			t.network.script(FALLBACK, (c) =>
+				respond(c.transport, { text: "closing answer" }),
+			);
+			const turn = await t.run();
+			expect(t.packsBuiltFor).toEqual(["model1"]);
+			expect(t.network.to(FALLBACK)).toHaveLength(1);
+			const closing = t.network.to(FALLBACK)[0];
+			expect(closing.body.tools).toBeUndefined();
+			expect(closing.text).toContain("SETTLED-EVIDENCE");
+			expect(closing.text).toContain("Server-prefetched page evidence");
+			expect(t.ran).toEqual({ primary: 1, fallback: 0 });
+			expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
+				phase: "closing",
+				outcome: "answered",
+				workingStopCause: "transport_error",
+				closingAttempted: true,
+			});
+			expect(
+				t.ledger.map((a) => [a.provider, a.phase, a.outcome, a.stop]),
+			).toEqual([
+				["model1", "working", "failed", "transport_error"],
+				["fb", "closing", "answered", "natural_stop"],
+			]);
 		});
-		expect(mocks.settle).toHaveBeenCalledTimes(1);
-		expect(mocks.settle.mock.calls[0][1]).toMatchObject({
-			outcome: "failed",
-			stopCause: "transport_error",
+
+		it("the fallback fails too: the turn is settled as an explicit failure after a bounded number of attempts", async () => {
+			const t = setup(transport);
+			t.network.script(PRIMARY, () => httpFailure(503));
+			t.network.script(
+				FALLBACK,
+				() => httpFailure(503),
+				() => httpFailure(503),
+				() => httpFailure(503),
+			);
+			const turn = await t.run();
+			expect(t.network.calls.length).toBeLessThanOrEqual(3);
+			expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
+				outcome: "failed",
+				stopCause: "transport_error",
+			});
+			expect(mocks.settle).toHaveBeenCalledTimes(1);
+			expect(mocks.settle.mock.calls[0][1]).toMatchObject({
+				outcome: "failed",
+				stopCause: "transport_error",
+			});
+			expect(t.ledger.every((a) => a.outcome === "failed")).toBe(true);
 		});
-		expect(t.ledger.every((a) => a.outcome === "failed")).toBe(true);
-	});
 
-	it("failover switched off: a provider error asks no fallback", async () => {
-		const t = setup(transport, { failover: false });
-		t.network.script(
-			PRIMARY,
-			() => httpFailure(503),
-			() => httpFailure(503),
-		);
-		t.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		await t.run();
-		expect(t.network.to(FALLBACK)).toHaveLength(0);
-	});
-});
+		it("failover switched off: a provider error asks no fallback", async () => {
+			const t = setup(transport, { failover: false });
+			t.network.script(
+				PRIMARY,
+				() => httpFailure(503),
+				() => httpFailure(503),
+			);
+			t.network.script(FALLBACK, (c) =>
+				respond(c.transport, { text: "must not be asked" }),
+			);
+			await t.run();
+			expect(t.network.to(FALLBACK)).toHaveLength(0);
+		});
+	},
+);
 
-describe.each(
-	TRANSPORTS,
-)("Stop pressed while the owner binds the fallback (%s)", (transport) => {
-	it.each([
-		false,
-		true,
-	])("the attempt is being registered (after a tool: %s): nothing is sent, and the turn is a stopped one", async (afterTool) => {
-		const t = setup(transport);
-		let release: () => void = () => {};
-		mocks.record.mockImplementation(
-			async (_scope: unknown, attempt: { providerId: string }) => {
-				if (attempt.providerId !== "fb") return;
-				t.abort.abort(new UserStopReason());
-				await new Promise<void>((resolve) => {
-					release = resolve;
+describe.each(TRANSPORTS)(
+	"Stop pressed while the owner binds the fallback (%s)",
+	(transport) => {
+		it.each([false, true])(
+			"the attempt is being registered (after a tool: %s): nothing is sent, and the turn is a stopped one",
+			async (afterTool) => {
+				const t = setup(transport);
+				let release: () => void = () => {};
+				mocks.record.mockImplementation(
+					async (_scope: unknown, attempt: { providerId: string }) => {
+						if (attempt.providerId !== "fb") return;
+						t.abort.abort(new UserStopReason());
+						await new Promise<void>((resolve) => {
+							release = resolve;
+						});
+					},
+				);
+				t.network.script(
+					PRIMARY,
+					...(afterTool
+						? [
+								(c: { transport: Transport }) =>
+									respond(c.transport, { call: "lookup-1" }),
+							]
+						: []),
+					() => httpFailure(503),
+				);
+				t.network.script(FALLBACK, (c) =>
+					respond(c.transport, { text: "must not be asked" }),
+				);
+				const done = t.run();
+				await vi.waitFor(() =>
+					expect(
+						mocks.record.mock.calls.some(([, a]) => a.providerId === "fb"),
+					).toBe(true),
+				);
+				release();
+				const turn = await done;
+				expect(t.network.to(FALLBACK)).toHaveLength(0);
+				expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
+					outcome: "stopped",
+					stopCause: "user_stop",
 				});
 			},
 		);
-		t.network.script(
-			PRIMARY,
-			...(afterTool
-				? [
-						(c: { transport: Transport }) =>
-							respond(c.transport, { call: "lookup-1" }),
-					]
-				: []),
-			() => httpFailure(503),
-		);
-		t.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		const done = t.run();
-		await vi.waitFor(() =>
-			expect(
-				mocks.record.mock.calls.some(([, a]) => a.providerId === "fb"),
-			).toBe(true),
-		);
-		release();
-		const turn = await done;
-		expect(t.network.to(FALLBACK)).toHaveLength(0);
-		expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
-			outcome: "stopped",
-			stopCause: "user_stop",
-		});
-	});
 
-	it("the fallback's tool set is being built: nothing is sent, and the turn is a stopped one", async () => {
-		const t = setup(transport);
-		const build = mocks.tools.getMockImplementation();
-		mocks.tools.mockImplementation(async (...args: unknown[]) => {
-			if (args[3] !== "model1") t.abort.abort(new UserStopReason());
-			return build?.(...args);
+		it("the fallback's tool set is being built: nothing is sent, and the turn is a stopped one", async () => {
+			const t = setup(transport);
+			const build = mocks.tools.getMockImplementation();
+			mocks.tools.mockImplementation(async (...args: unknown[]) => {
+				if (args[3] !== "model1") t.abort.abort(new UserStopReason());
+				return build?.(...args);
+			});
+			t.network.script(PRIMARY, () => httpFailure(503));
+			t.network.script(FALLBACK, (c) =>
+				respond(c.transport, { text: "must not be asked" }),
+			);
+			const turn = await t.run();
+			expect(t.network.to(FALLBACK)).toHaveLength(0);
+			expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
+				outcome: "stopped",
+				stopCause: "user_stop",
+			});
 		});
-		t.network.script(PRIMARY, () => httpFailure(503));
-		t.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		const turn = await t.run();
-		expect(t.network.to(FALLBACK)).toHaveLength(0);
-		expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
-			outcome: "stopped",
-			stopCause: "user_stop",
-		});
-	});
-});
+	},
+);
 
-describe.each(
-	TRANSPORTS,
-)("the owner refuses a fallback that cannot take the context (%s)", (transport) => {
-	const when = [
-		["before any tool ran", false],
-		["after a tool settled", true],
-	] as const;
+describe.each(TRANSPORTS)(
+	"the owner refuses a fallback that cannot take the context (%s)",
+	(transport) => {
+		const when = [
+			["before any tool ran", false],
+			["after a tool settled", true],
+		] as const;
 
-	it.each(
-		when,
-	)("a cloud fallback for a local run whose connector data stays local (%s): an explicit refusal, nothing sent", async (_label, afterTool) => {
-		const t = setup(transport, { localPrimaryKeptLocal: true });
-		t.network.script(
-			LOCAL_PRIMARY,
-			...(afterTool
-				? [
-						(c: { transport: Transport }) =>
-							respond(c.transport, { call: "lookup-1" }),
-					]
-				: []),
-			() => httpFailure(503),
+		it.each(when)(
+			"a cloud fallback for a local run whose connector data stays local (%s): an explicit refusal, nothing sent",
+			async (_label, afterTool) => {
+				const t = setup(transport, { localPrimaryKeptLocal: true });
+				t.network.script(
+					LOCAL_PRIMARY,
+					...(afterTool
+						? [
+								(c: { transport: Transport }) =>
+									respond(c.transport, { call: "lookup-1" }),
+							]
+						: []),
+					() => httpFailure(503),
+				);
+				t.network.script(FALLBACK, (c) =>
+					respond(c.transport, { text: "must not be asked" }),
+				);
+				const turn = await t.run();
+				expect(t.network.to(FALLBACK)).toHaveLength(0);
+				expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
+					outcome: "incomplete",
+					stopCause: "incompatible_continuation",
+				});
+			},
 		);
-		t.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		const turn = await t.run();
-		expect(t.network.to(FALLBACK)).toHaveLength(0);
-		expect(turn.receipt.getSnapshot()?.completion).toMatchObject({
-			outcome: "incomplete",
-			stopCause: "incompatible_continuation",
-		});
-	});
 
-	it.each(
-		when,
-	)("a window too small for the context (%s): an explicit refusal, nothing sent, nothing cut", async (_label, afterTool) => {
-		const message = `${"word ".repeat(1500)}end`;
-		const t = setup(transport, { fallbackWindow: 6100, message });
-		t.network.script(
-			PRIMARY,
-			...(afterTool
-				? [
-						(c: { transport: Transport }) =>
-							respond(c.transport, { call: "lookup-1" }),
-					]
-				: []),
-			() => httpFailure(503),
+		it.each(when)(
+			"a window too small for the context (%s): an explicit refusal, nothing sent, nothing cut",
+			async (_label, afterTool) => {
+				const message = `${"word ".repeat(1500)}end`;
+				const t = setup(transport, { fallbackWindow: 6100, message });
+				t.network.script(
+					PRIMARY,
+					...(afterTool
+						? [
+								(c: { transport: Transport }) =>
+									respond(c.transport, { call: "lookup-1" }),
+							]
+						: []),
+					() => httpFailure(503),
+				);
+				t.network.script(FALLBACK, (c) =>
+					respond(c.transport, { text: "must not be asked" }),
+				);
+				const turn = await t.run();
+				expect(t.network.to(FALLBACK)).toHaveLength(0);
+				const snapshot = turn.receipt.getSnapshot();
+				expect(snapshot?.completion).toMatchObject({
+					outcome: "incomplete",
+					stopCause: "context_capacity",
+				});
+				expect(JSON.stringify(snapshot?.original.messages)).toContain(message);
+			},
 		);
-		t.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		const turn = await t.run();
-		expect(t.network.to(FALLBACK)).toHaveLength(0);
-		const snapshot = turn.receipt.getSnapshot();
-		expect(snapshot?.completion).toMatchObject({
-			outcome: "incomplete",
-			stopCause: "context_capacity",
-		});
-		expect(JSON.stringify(snapshot?.original.messages)).toContain(message);
-	});
-});
+	},
+);
 
 describe("failover through the prepared turn, after partial output (streaming)", () => {
 	it("the closing carries the settled evidence and none of the failed step", async () => {

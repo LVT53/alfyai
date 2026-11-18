@@ -980,34 +980,35 @@ describe("AskQuestionCard", () => {
 						return inner;
 					},
 				]),
-			] satisfies Array<
-				[string, () => HTMLElement]
-			>)("takes nothing while %s has focus", async (_name, make) => {
-				const { onAnswer } = await renderCard(dto([WAY]));
-				const elsewhere = make();
-				elsewhere.focus();
-				expect(elsewhere).toHaveFocus();
+			] satisfies Array<[string, () => HTMLElement]>)(
+				"takes nothing while %s has focus",
+				async (_name, make) => {
+					const { onAnswer } = await renderCard(dto([WAY]));
+					const elsewhere = make();
+					elsewhere.focus();
+					expect(elsewhere).toHaveFocus();
 
-				await fireEvent.keyDown(elsewhere, { key: "s" });
-				// Also when the event is aimed at the page and the focus is elsewhere.
-				await fireEvent.keyDown(document.body, { key: "s" });
+					await fireEvent.keyDown(elsewhere, { key: "s" });
+					// Also when the event is aimed at the page and the focus is elsewhere.
+					await fireEvent.keyDown(document.body, { key: "s" });
 
-				expect(screen.queryByTestId("ask-own-input")).toBeNull();
-				expect(elsewhere).toHaveFocus();
-				expect(onAnswer).not.toHaveBeenCalled();
-				// Both keys went on to the page.
-				expect(atWindow).toHaveBeenCalledTimes(2);
+					expect(screen.queryByTestId("ask-own-input")).toBeNull();
+					expect(elsewhere).toHaveFocus();
+					expect(onAnswer).not.toHaveBeenCalled();
+					// Both keys went on to the page.
+					expect(atWindow).toHaveBeenCalledTimes(2);
 
-				// A key aimed at the field is the field's, whatever has the focus.
-				elsewhere.blur();
-				await fireEvent.keyDown(elsewhere, { key: "s" });
-				expect(screen.queryByTestId("ask-own-input")).toBeNull();
-				expect(atWindow).toHaveBeenCalledTimes(3);
+					// A key aimed at the field is the field's, whatever has the focus.
+					elsewhere.blur();
+					await fireEvent.keyDown(elsewhere, { key: "s" });
+					expect(screen.queryByTestId("ask-own-input")).toBeNull();
+					expect(atWindow).toHaveBeenCalledTimes(3);
 
-				// The control: with that field out of the way, the same key is taken.
-				await fireEvent.keyDown(document.body, { key: "s" });
-				expect(screen.getByTestId("ask-own-input")).toHaveFocus();
-			});
+					// The control: with that field out of the way, the same key is taken.
+					await fireEvent.keyDown(document.body, { key: "s" });
+					expect(screen.getByTestId("ask-own-input")).toHaveFocus();
+				},
+			);
 
 			it("takes nothing while another question's line has focus", async () => {
 				await renderCard(dto([WHO, SPLIT]));

@@ -1039,14 +1039,13 @@ describe("sidebar selection copy", () => {
 		hungarian,
 	}));
 
-	it.each(rows)("$key is in both languages, worded as the spec says", ({
-		key,
-		english,
-		hungarian,
-	}) => {
-		expect(commonDict.en[key]).toBe(english);
-		expect(commonDict.hu[key]).toBe(hungarian);
-	});
+	it.each(rows)(
+		"$key is in both languages, worded as the spec says",
+		({ key, english, hungarian }) => {
+			expect(commonDict.en[key]).toBe(english);
+			expect(commonDict.hu[key]).toBe(hungarian);
+		},
+	);
 
 	it("fills in the count and picks the singular or the plural in English", () => {
 		const text = get(t);

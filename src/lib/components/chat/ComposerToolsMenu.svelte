@@ -392,7 +392,7 @@ function handleMenuKeydown(event: KeyboardEvent) {
 			event.preventDefault();
 			event.stopPropagation();
 			activeDropdown = null;
-			void focusRow(focusedIndex >= 0 ? focusedIndex : 0);
+			void focusRow(Math.max(focusedIndex, 0));
 			return;
 		}
 		return; // the composer's own handler closes and returns focus

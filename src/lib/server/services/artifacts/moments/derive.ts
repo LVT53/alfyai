@@ -309,7 +309,7 @@ export function deriveMoments(input: DeriveMomentsInput): DerivedMoments {
 			let to = from;
 			while (to - from + 1 < ARTIFACT_ALFY_TURN_MAX_ROWS) {
 				const older = infos[to + 1];
-				if (!older || older.cls.kind !== "alfy_edit") break;
+				if (older?.cls.kind !== "alfy_edit") break;
 				const gap = infos[to].row.createdAt - older.row.createdAt;
 				if (gap < 0 || gap >= ARTIFACT_ALFY_TURN_GAP_MS) break;
 				to += 1;

@@ -758,6 +758,7 @@ for (const width of [360, 390] as const) {
 					if (r.right > limit + 0.5 || r.left < -0.5) {
 						const label =
 							(el as HTMLElement).getAttribute("aria-label") ||
+							// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 							(el as HTMLElement).innerText?.trim().slice(0, 30) ||
 							el.tagName;
 						out.push(

@@ -62,12 +62,13 @@ describe("APP_TOKENS vs src/app.css", () => {
 	const light = declarationsInFirstBlock(css, /:root\s*\{/);
 	const dark = declarationsInFirstBlock(css, /\.dark\s*\{/);
 
-	it.each(
-		APP_TOKENS,
-	)("$name matches src/app.css in both light and dark", (token) => {
-		expect(light.get(token.name)).toBe(token.light);
-		expect(dark.get(token.name)).toBe(token.dark);
-	});
+	it.each(APP_TOKENS)(
+		"$name matches src/app.css in both light and dark",
+		(token) => {
+			expect(light.get(token.name)).toBe(token.light);
+			expect(dark.get(token.name)).toBe(token.dark);
+		},
+	);
 
 	it("covers exactly the six tokens the contract promises", () => {
 		expect(APP_TOKENS.map((token) => token.name).sort()).toEqual(

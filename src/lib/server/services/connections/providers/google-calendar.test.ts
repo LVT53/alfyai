@@ -46,9 +46,9 @@ describe("googleListCalendars", () => {
 				expect(String(input)).toContain(
 					"https://www.googleapis.com/calendar/v3/users/me/calendarList",
 				);
-				expect((init?.headers as Record<string, string>).Authorization).toBe(
-					"Bearer fresh-access-token",
-				);
+				expect(
+					(init?.headers as Record<string, string> | undefined)?.Authorization,
+				).toBe("Bearer fresh-access-token");
 				return jsonResponse(200, {
 					items: [
 						{ id: "primary", summary: "Alice", primary: true },

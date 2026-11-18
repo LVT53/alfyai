@@ -765,6 +765,13 @@
 	transition: background-color var(--duration-standard) var(--ease-out);
 }
 
+/* The hover fill below has the higher specificity, so a hovered highlighted row
+   shows the hover fill. This rule is listed first so the order says what the
+   cascade does. */
+.sys-table tr.sys-tr-highlight td {
+	background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
 .sys-table tbody tr:hover td,
 .sys-table tbody tr:focus-within td {
 	background: color-mix(in srgb, var(--text-primary) 3%, transparent);
@@ -786,10 +793,6 @@
 .sys-table tbody tr:focus-within td:last-child {
 	border-top-right-radius: var(--radius-sm);
 	border-bottom-right-radius: var(--radius-sm);
-}
-
-.sys-table tr.sys-tr-highlight td {
-	background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 /* ---- list rows (providers, models, skills) ----------------------------- */

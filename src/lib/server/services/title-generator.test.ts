@@ -361,19 +361,25 @@ describe("generateTitle", () => {
 		["toString", "JavaScript toString Method Override"],
 		["valueOf", "JavaScript valueOf Type Coercion"],
 		["__proto__", "JavaScript __proto__ Chain Explained"],
-	])("passes the prototype-key word %s through a generated title unchanged", async (_key, title) => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			new Response(
-				JSON.stringify({ choices: [{ message: { content: title } }] }),
-				{ status: 200, headers: { "Content-Type": "application/json" } },
-			),
-		);
+	])(
+		"passes the prototype-key word %s through a generated title unchanged",
+		async (_key, title) => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(
+				new Response(
+					JSON.stringify({ choices: [{ message: { content: title } }] }),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			);
 
-		await expect(
-			generateTitle("Explain this JavaScript code", "Here is the explanation."),
-		).resolves.toBe(title);
-	});
+			await expect(
+				generateTitle(
+					"Explain this JavaScript code",
+					"Here is the explanation.",
+				),
+			).resolves.toBe(title);
+		},
+	);
 
 	it("still corrects a real misspelling and preserves the word's capitalization", async () => {
 		const mockFetch = vi.mocked(fetch);

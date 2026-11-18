@@ -840,60 +840,62 @@ describe("preflightChatTurn attachment send gate for a model that can see", () =
 		mocks.getExtractionJobsForArtifacts.mockResolvedValue([job()]);
 	});
 
-	it.each(
-		Object.entries(PICTURE_STATES),
-	)("sends a text-free picture without waiting, for %s", async (_state, failure) => {
-		const { preflightChatTurn } = await import("./preflight");
-		mocks.modelIdCanSeeImages.mockResolvedValue(true);
-		refuseUnlessPicturesAreExempt(failure);
+	it.each(Object.entries(PICTURE_STATES))(
+		"sends a text-free picture without waiting, for %s",
+		async (_state, failure) => {
+			const { preflightChatTurn } = await import("./preflight");
+			mocks.modelIdCanSeeImages.mockResolvedValue(true);
+			refuseUnlessPicturesAreExempt(failure);
 
-		const result = await preflightChatTurn({
-			userId: "user-1",
-			request: requestWithAttachments(),
-		});
-
-		expect(result.ok).toBe(true);
-		expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledTimes(1);
-		expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledWith(
-			expect.objectContaining({
+			const result = await preflightChatTurn({
 				userId: "user-1",
-				conversationId: "conv-1",
-				attachmentIds: ["attachment-1"],
-				exemptImages: true,
-			}),
-		);
-		// Nothing was read from the ledger and nobody waited.
-		expect(mocks.getExtractionJobsForArtifacts).not.toHaveBeenCalled();
-		expect(mocks.waitForExtractionJobVerdict).not.toHaveBeenCalled();
-	});
+				request: requestWithAttachments(),
+			});
 
-	it.each(
-		Object.entries(PICTURE_STATES),
-	)("refuses the same photo exactly as before for a model that cannot see, for %s", async (_state, failure) => {
-		const { preflightChatTurn } = await import("./preflight");
-		mocks.modelIdCanSeeImages.mockResolvedValue(false);
-		refuseUnlessPicturesAreExempt(failure);
+			expect(result.ok).toBe(true);
+			expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledTimes(1);
+			expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledWith(
+				expect.objectContaining({
+					userId: "user-1",
+					conversationId: "conv-1",
+					attachmentIds: ["attachment-1"],
+					exemptImages: true,
+				}),
+			);
+			// Nothing was read from the ledger and nobody waited.
+			expect(mocks.getExtractionJobsForArtifacts).not.toHaveBeenCalled();
+			expect(mocks.waitForExtractionJobVerdict).not.toHaveBeenCalled();
+		},
+	);
 
-		const result = await preflightChatTurn({
-			userId: "user-1",
-			request: requestWithAttachments(),
-		});
+	it.each(Object.entries(PICTURE_STATES))(
+		"refuses the same photo exactly as before for a model that cannot see, for %s",
+		async (_state, failure) => {
+			const { preflightChatTurn } = await import("./preflight");
+			mocks.modelIdCanSeeImages.mockResolvedValue(false);
+			refuseUnlessPicturesAreExempt(failure);
 
-		expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledWith(
-			expect.objectContaining({ exemptImages: false }),
-		);
-		expect(result).toMatchObject({
-			ok: false,
-			error: {
-				status: 422,
-				code: failure.code,
-				error: failure.message,
-				attachmentIds: ["attachment-1"],
-			},
-		});
-		// A queued MinerU job is still not waited for, a failure never is.
-		expect(mocks.waitForExtractionJobVerdict).not.toHaveBeenCalled();
-	});
+			const result = await preflightChatTurn({
+				userId: "user-1",
+				request: requestWithAttachments(),
+			});
+
+			expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledWith(
+				expect.objectContaining({ exemptImages: false }),
+			);
+			expect(result).toMatchObject({
+				ok: false,
+				error: {
+					status: 422,
+					code: failure.code,
+					error: failure.message,
+					attachmentIds: ["attachment-1"],
+				},
+			});
+			// A queued MinerU job is still not waited for, a failure never is.
+			expect(mocks.waitForExtractionJobVerdict).not.toHaveBeenCalled();
+		},
+	);
 
 	it("keeps the wait for a document that is still being read, and not for the picture beside it", async () => {
 		const { preflightChatTurn } = await import("./preflight");

@@ -389,19 +389,14 @@ describe("deriveModelContextBudget", () => {
 });
 
 describe("completion-only bounded output policy", () => {
-	it.each([
-		null,
-		undefined,
-		NaN,
-		Infinity,
-		-Infinity,
-		0,
-		-1,
-	])("resolves absent/invalid selected caps from existing context defaults: %s", (maxTokens) => {
-		expect(
-			resolveCompletionMaxTokens({ maxModelContext: 8192, maxTokens }),
-		).toBe(820);
-	});
+	it.each([null, undefined, NaN, Infinity, -Infinity, 0, -1])(
+		"resolves absent/invalid selected caps from existing context defaults: %s",
+		(maxTokens) => {
+			expect(
+				resolveCompletionMaxTokens({ maxModelContext: 8192, maxTokens }),
+			).toBe(820);
+		},
+	);
 	it("keeps selected cap precedence, then provider cap, then application fallback", () => {
 		expect(
 			resolveCompletionMaxTokens({
@@ -546,55 +541,58 @@ describe("fitting the built context to the request around it", () => {
 	}
 
 	describe.each(configurations)("$name", (configuration) => {
-		it.each(
-			catalogues.map((tokens, index) => [tokens, index] as const),
-		)("with a catalogue of %i tokens, a context built to its target plus the request fits the window", (toolCatalogueTokens, index) => {
-			const given = request(configuration);
-			expect(given.limits.targetConstructedContext).toBe(
-				configuration.configuredTarget,
-			);
-			const fitted = fitContextLimitsToRequest({
-				...given,
-				toolCatalogueTokens,
-			});
+		it.each(catalogues.map((tokens, index) => [tokens, index] as const))(
+			"with a catalogue of %i tokens, a context built to its target plus the request fits the window",
+			(toolCatalogueTokens, index) => {
+				const given = request(configuration);
+				expect(given.limits.targetConstructedContext).toBe(
+					configuration.configuredTarget,
+				);
+				const fitted = fitContextLimitsToRequest({
+					...given,
+					toolCatalogueTokens,
+				});
 
-			// What preparation derives from what it is handed, with its own rules
-			// (resolveOutputTokenBudget and buildConstructedContext): the cap must
-			// not be given back, and the target is the one it builds to.
-			const downstream = deriveModelContextBudget({
-				...fitted.limits,
-				maxTokens: fitted.maxTokens,
-			});
-			expect(fitted.maxTokens).toBe(configuration.reserve);
-			expect(downstream.effectiveMaxTokens).toBe(configuration.reserve);
-			expect(downstream.targetConstructedContext).toBe(
-				configuration.targets[index],
-			);
-			expect(fitted.limits.targetConstructedContext).toBe(
-				configuration.targets[index],
-			);
-			expect(
-				downstream.targetConstructedContext +
-					downstream.outputReserve +
-					toolCatalogueTokens +
-					CONTEXT_GUARD_MARGIN_TOKENS,
-			).toBeLessThanOrEqual(configuration.maxModelContext);
+				// What preparation derives from what it is handed, with its own rules
+				// (resolveOutputTokenBudget and buildConstructedContext): the cap must
+				// not be given back, and the target is the one it builds to.
+				const downstream = deriveModelContextBudget({
+					...fitted.limits,
+					maxTokens: fitted.maxTokens,
+				});
+				expect(fitted.maxTokens).toBe(configuration.reserve);
+				expect(downstream.effectiveMaxTokens).toBe(configuration.reserve);
+				expect(downstream.targetConstructedContext).toBe(
+					configuration.targets[index],
+				);
+				expect(fitted.limits.targetConstructedContext).toBe(
+					configuration.targets[index],
+				);
+				expect(
+					downstream.targetConstructedContext +
+						downstream.outputReserve +
+						toolCatalogueTokens +
+						CONTEXT_GUARD_MARGIN_TOKENS,
+				).toBeLessThanOrEqual(configuration.maxModelContext);
 
-			// The window is the model's own; the compaction threshold never sits
-			// above a target that was held back.
-			expect(fitted.limits.maxModelContext).toBe(given.limits.maxModelContext);
-			const lowered =
-				fitted.limits.targetConstructedContext <
-				given.limits.targetConstructedContext;
-			expect(fitted.limits.compactionUiThreshold).toBe(
-				lowered
-					? Math.min(
-							given.limits.compactionUiThreshold,
-							fitted.limits.targetConstructedContext,
-						)
-					: given.limits.compactionUiThreshold,
-			);
-		});
+				// The window is the model's own; the compaction threshold never sits
+				// above a target that was held back.
+				expect(fitted.limits.maxModelContext).toBe(
+					given.limits.maxModelContext,
+				);
+				const lowered =
+					fitted.limits.targetConstructedContext <
+					given.limits.targetConstructedContext;
+				expect(fitted.limits.compactionUiThreshold).toBe(
+					lowered
+						? Math.min(
+								given.limits.compactionUiThreshold,
+								fitted.limits.targetConstructedContext,
+							)
+						: given.limits.compactionUiThreshold,
+				);
+			},
+		);
 
 		it("lowers the target exactly when the configured one did not leave the room", () => {
 			const given = request(configuration);

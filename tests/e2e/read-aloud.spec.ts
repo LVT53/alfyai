@@ -998,6 +998,7 @@ test("the total dropping its ≈ moves nothing: the scrubber keeps its width", a
 	const before = await ui.slider.boundingBox();
 	// The total is corrected as the sentences are made, and loses its ≈.
 	await expect
+		// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 		.poll(() => total.evaluate((node) => (node as HTMLElement).innerText), {
 			timeout: 15_000,
 		})

@@ -546,51 +546,48 @@ describe("executeToolWithEnvelope and a local model's summary", () => {
 	});
 });
 
-it.each([
-	"returned",
-	"unproven",
-	"thrown",
-	"aborted",
-	"timeout",
-] as const)("distinguishes a returned failure from uncertain envelope exits: %s", async (mode) => {
-	const recorder = createToolCallRecorder();
-	const controller = new AbortController();
-	if (mode === "aborted") controller.abort();
-	const failure = () => ({
-		modelPayload: { ok: false, status: "failed" },
-		entry: {
-			name: "produce_file",
-			callId: "same",
-			input: {},
-			status: "failed" as const,
-		},
-	});
-	const output = await executeToolWithEnvelope({
-		toolName: "produce_file",
-		timeoutMs: mode === "timeout" ? 1 : 1000,
-		options: { toolCallId: "same", abortSignal: controller.signal },
-		recorder,
-		run: async () => {
-			if (mode === "thrown") throw new Error("unknown outcome");
-			if (mode === "timeout") await new Promise(() => {});
-			const result = failure();
-			if (mode === "returned") withToolExecutionFact(result.entry, "failed");
-			return result;
-		},
-		onError: failure,
-	});
-	expect(recorder.getExecutionCertainty?.(output)).toBe(
-		mode === "returned"
-			? "failed"
-			: mode === "unproven"
-				? undefined
-				: "uncertain",
-	);
-	expect(recorder.getExecutionCertainty?.({ ...output })).toBeUndefined();
-	expect(
-		createToolCallRecorder().getExecutionCertainty?.(output),
-	).toBeUndefined();
-});
+it.each(["returned", "unproven", "thrown", "aborted", "timeout"] as const)(
+	"distinguishes a returned failure from uncertain envelope exits: %s",
+	async (mode) => {
+		const recorder = createToolCallRecorder();
+		const controller = new AbortController();
+		if (mode === "aborted") controller.abort();
+		const failure = () => ({
+			modelPayload: { ok: false, status: "failed" },
+			entry: {
+				name: "produce_file",
+				callId: "same",
+				input: {},
+				status: "failed" as const,
+			},
+		});
+		const output = await executeToolWithEnvelope({
+			toolName: "produce_file",
+			timeoutMs: mode === "timeout" ? 1 : 1000,
+			options: { toolCallId: "same", abortSignal: controller.signal },
+			recorder,
+			run: async () => {
+				if (mode === "thrown") throw new Error("unknown outcome");
+				if (mode === "timeout") await new Promise(() => {});
+				const result = failure();
+				if (mode === "returned") withToolExecutionFact(result.entry, "failed");
+				return result;
+			},
+			onError: failure,
+		});
+		expect(recorder.getExecutionCertainty?.(output)).toBe(
+			mode === "returned"
+				? "failed"
+				: mode === "unproven"
+					? undefined
+					: "uncertain",
+		);
+		expect(recorder.getExecutionCertainty?.({ ...output })).toBeUndefined();
+		expect(
+			createToolCallRecorder().getExecutionCertainty?.(output),
+		).toBeUndefined();
+	},
+);
 
 it("treats an error a tool threw to refuse a call before dispatching anything as a proven non-execution", async () => {
 	// A refusal subclass, as FetchUrlRefusedError is: the envelope asks the class.
@@ -640,32 +637,32 @@ describe("a tool that says it only reads", () => {
 		},
 	});
 
-	it.each([
-		"thrown",
-		"timeout",
-	] as const)("records what it threw as a settled failure, not an uncertain one: %s", async (mode) => {
-		const recorder = createToolCallRecorder();
-		const output = await executeToolWithEnvelope<{
-			success: boolean;
-			error: string;
-		}>({
-			toolName: "research_web",
-			timeoutMs: mode === "timeout" ? 1 : 1000,
-			options: { toolCallId: "reads", abortSignal: undefined },
-			recorder,
-			readOnly: true,
-			run: async () => {
-				if (mode === "timeout") await new Promise(() => {});
-				throw new Error("upstream 502");
-			},
-			onError: failure,
-		});
+	it.each(["thrown", "timeout"] as const)(
+		"records what it threw as a settled failure, not an uncertain one: %s",
+		async (mode) => {
+			const recorder = createToolCallRecorder();
+			const output = await executeToolWithEnvelope<{
+				success: boolean;
+				error: string;
+			}>({
+				toolName: "research_web",
+				timeoutMs: mode === "timeout" ? 1 : 1000,
+				options: { toolCallId: "reads", abortSignal: undefined },
+				recorder,
+				readOnly: true,
+				run: async () => {
+					if (mode === "timeout") await new Promise(() => {});
+					throw new Error("upstream 502");
+				},
+				onError: failure,
+			});
 
-		// Running it again changes nothing, so the call is settled: the engine goes
-		// on and the model reads the error. It is not a refusal, the call did go out.
-		expect(recorder.getExecutionCertainty?.(output)).toBe("failed");
-		expect(recorder.getExecutionCertainty?.({ ...output })).toBeUndefined();
-	});
+			// Running it again changes nothing, so the call is settled: the engine goes
+			// on and the model reads the error. It is not a refusal, the call did go out.
+			expect(recorder.getExecutionCertainty?.(output)).toBe("failed");
+			expect(recorder.getExecutionCertainty?.({ ...output })).toBeUndefined();
+		},
+	);
 
 	it("still records a refusal it threw before reading anything as a proven non-execution", async () => {
 		const recorder = createToolCallRecorder();
@@ -779,9 +776,12 @@ describe("a tool that says it only reads", () => {
 		],
 		["a signal aborted with no reason of its own", undefined],
 		["a reason that is not an error", "deadline"],
-	])("keeps what %s cut off uncertain: only the engine's own deadline settles it", async (_who, reason) => {
-		expect(await certaintyWhenAbortedWith(reason)).toBe("uncertain");
-	});
+	])(
+		"keeps what %s cut off uncertain: only the engine's own deadline settles it",
+		async (_who, reason) => {
+			expect(await certaintyWhenAbortedWith(reason)).toBe("uncertain");
+		},
+	);
 
 	it("keeps a call uncertain when something else aborted the signal before the deadline did", async () => {
 		const stop = new AbortController();
@@ -1022,65 +1022,64 @@ describe("Task 2 granted web envelope commit", () => {
 		expect(recorder.getEntries()).toHaveLength(1);
 	});
 
-	it.each([
-		"invalid-success",
-		"returned-failure",
-		"onError",
-	] as const)("replaces %s before observation/recording without stale citation support", async (path) => {
-		const options = bound();
-		let reads = 0;
-		const base = createToolCallRecorder();
-		const observed: unknown[] = [];
-		const recorder: ToolCallRecorder = {
-			...base,
-			observeResult: ({ payload }) => {
-				observed.push(payload);
-			},
-		};
-		const payload = {
-			success: path === "invalid-success",
-			name: "research_web",
-			bounded: true,
-			coverage: "full",
-			message: "uncommitted content ".repeat(10_000),
-		};
-		const returned = await executeToolWithEnvelope({
-			toolName: "research_web",
-			timeoutMs: 5_000,
-			readOnly: true,
-			options,
-			recorder,
-			run: async () => {
-				reads++;
-				if (path === "onError") throw new Error("upstream failed");
-				return { modelPayload: payload, entry: entry() };
-			},
-			onError: () => ({
-				modelPayload: { ...payload, success: false },
-				entry: entry(),
-			}),
-		});
-		expect(reads).toBe(1);
-		expect(returned).toMatchObject({
-			success: false,
-			bounded: true,
-			coverage: "none",
-		});
-		expect(estimateTokenCount(stableStringify(returned))).toBeLessThanOrEqual(
-			256,
-		);
-		expect(base.getExecutionCertainty?.(returned)).toBe("failed");
-		expect(observed).toEqual([returned]);
-		expect(base.getEntries()).toHaveLength(1);
-		const committed = base.getEntries()[0];
-		expect(committed.callId).toBe("call");
-		expect(committed.candidates ?? []).toEqual([]);
-		expect(committed.metadata?.evidenceReady).toBe(false);
-		expect(JSON.stringify(committed)).not.toContain(stale);
-		// Real SDK/capture/wire equality follows after GO; this holds the actual
-		// envelope result equal to its observation and JSON semantic view now.
-		expect(JSON.parse(JSON.stringify(returned))).toEqual(observed[0]);
-	});
+	it.each(["invalid-success", "returned-failure", "onError"] as const)(
+		"replaces %s before observation/recording without stale citation support",
+		async (path) => {
+			const options = bound();
+			let reads = 0;
+			const base = createToolCallRecorder();
+			const observed: unknown[] = [];
+			const recorder: ToolCallRecorder = {
+				...base,
+				observeResult: ({ payload }) => {
+					observed.push(payload);
+				},
+			};
+			const payload = {
+				success: path === "invalid-success",
+				name: "research_web",
+				bounded: true,
+				coverage: "full",
+				message: "uncommitted content ".repeat(10_000),
+			};
+			const returned = await executeToolWithEnvelope({
+				toolName: "research_web",
+				timeoutMs: 5_000,
+				readOnly: true,
+				options,
+				recorder,
+				run: async () => {
+					reads++;
+					if (path === "onError") throw new Error("upstream failed");
+					return { modelPayload: payload, entry: entry() };
+				},
+				onError: () => ({
+					modelPayload: { ...payload, success: false },
+					entry: entry(),
+				}),
+			});
+			expect(reads).toBe(1);
+			expect(returned).toMatchObject({
+				success: false,
+				bounded: true,
+				coverage: "none",
+			});
+			expect(estimateTokenCount(stableStringify(returned))).toBeLessThanOrEqual(
+				256,
+			);
+			expect(base.getExecutionCertainty?.(returned)).toBe("failed");
+			expect(observed).toEqual([returned]);
+			expect(base.getEntries()).toHaveLength(1);
+			const committed = base.getEntries()[0];
+			expect(committed.callId).toBe("call");
+			expect(committed.candidates ?? []).toEqual([]);
+			expect(committed.metadata?.evidenceReady).toBe(false);
+			expect(JSON.stringify(committed)).not.toContain(stale);
+			// Real SDK/capture/wire equality follows after GO; this holds the actual
+			// envelope result equal to its observation and JSON semantic view now.
+			expect(JSON.parse(JSON.stringify(returned))).toEqual(observed[0]);
+		},
+	);
 });
 
 it("Task 2 replaces a throwing onError with a known failed exact result", async () => {

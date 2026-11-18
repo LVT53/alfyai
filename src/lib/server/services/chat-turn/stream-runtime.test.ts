@@ -1321,50 +1321,53 @@ describe("a reply is kept whole", () => {
 			"Let me map out the plan.",
 		],
 	])("when %s follows the first sentence", (_name, sentence) => {
-		it.each(
-			chunkSizes,
-		)("keeps the table, the prices and the links (chunks of %i characters)", (size) => {
+		it.each(chunkSizes)(
+			"keeps the table, the prices and the links (chunks of %i characters)",
+			(size) => {
+				const answer = [
+					FIRST,
+					"",
+					sentence,
+					"",
+					TABLE,
+					"",
+					"Enjoy the weekend!",
+				].join("\n");
+				const { saved, shown } = streamAfterToolCall(answer, size);
+				expect(saved).toBe(answer);
+				expect(shown).toBe(answer);
+			},
+		);
+	});
+
+	it.each(chunkSizes)(
+		"keeps the answer when the narration-like sentence sits in the first paragraph (chunks of %i characters)",
+		(size) => {
+			const answer = [`${FIRST} Let me map this out:`, "", TABLE].join("\n");
+			const { saved } = streamAfterToolCall(answer, size);
+			expect(saved).toBe(answer);
+		},
+	);
+
+	it.each(chunkSizes)(
+		"keeps a list of links that arrives with its first sentence (chunks of %i characters)",
+		(size) => {
 			const answer = [
 				FIRST,
 				"",
-				sentence,
+				"1. Escape room - EUR 22 pp - https://www.example.ie/escape-limerick",
+				"2. Dinner at the Milk Market - EUR 30-45 pp - https://www.example.ie/menu",
+				"3. Castletroy Park Hotel - EUR 140 a night - https://www.example.ie/castletroy",
+				"4. Savoy Hotel Limerick - EUR 120 a night - https://www.example.ie/savoy",
+				"5. Bus back to Dublin - EUR 15 - https://www.example.ie/bus",
+				"6. Taxi to the station - EUR 12 - https://www.example.ie/taxi",
 				"",
-				TABLE,
-				"",
-				"Enjoy the weekend!",
+				"That is the plan.",
 			].join("\n");
-			const { saved, shown } = streamAfterToolCall(answer, size);
+			const { saved } = streamAfterToolCall(answer, size);
 			expect(saved).toBe(answer);
-			expect(shown).toBe(answer);
-		});
-	});
-
-	it.each(
-		chunkSizes,
-	)("keeps the answer when the narration-like sentence sits in the first paragraph (chunks of %i characters)", (size) => {
-		const answer = [`${FIRST} Let me map this out:`, "", TABLE].join("\n");
-		const { saved } = streamAfterToolCall(answer, size);
-		expect(saved).toBe(answer);
-	});
-
-	it.each(
-		chunkSizes,
-	)("keeps a list of links that arrives with its first sentence (chunks of %i characters)", (size) => {
-		const answer = [
-			FIRST,
-			"",
-			"1. Escape room - EUR 22 pp - https://www.example.ie/escape-limerick",
-			"2. Dinner at the Milk Market - EUR 30-45 pp - https://www.example.ie/menu",
-			"3. Castletroy Park Hotel - EUR 140 a night - https://www.example.ie/castletroy",
-			"4. Savoy Hotel Limerick - EUR 120 a night - https://www.example.ie/savoy",
-			"5. Bus back to Dublin - EUR 15 - https://www.example.ie/bus",
-			"6. Taxi to the station - EUR 12 - https://www.example.ie/taxi",
-			"",
-			"That is the plan.",
-		].join("\n");
-		const { saved } = streamAfterToolCall(answer, size);
-		expect(saved).toBe(answer);
-	});
+		},
+	);
 
 	it.each([
 		["The capital of Italy is Rome"],
@@ -1374,11 +1377,14 @@ describe("a reply is kept whole", () => {
 		["Is it open? No"],
 		["That is what I found"],
 		["Thanks, tell me"],
-	])("keeps the last letters of a reply that ends like a narration begins: %s", (answer) => {
-		for (const size of [1, 3, 400]) {
-			expect(streamAfterToolCall(answer, size).saved).toBe(answer);
-		}
-	});
+	])(
+		"keeps the last letters of a reply that ends like a narration begins: %s",
+		(answer) => {
+			for (const size of [1, 3, 400]) {
+				expect(streamAfterToolCall(answer, size).saved).toBe(answer);
+			}
+		},
+	);
 
 	// The structure of the owner's two lost replies: a sentence, then a tool call,
 	// then the answer. The sentence before the call was saved; the whole answer
@@ -1439,81 +1445,87 @@ describe("a reply is kept whole", () => {
 			BULLETS,
 			"bold lines and bullets with links",
 		],
-	])("when the answer after a tool call opens with %j", (narration, body, shape) => {
-		it.each(
-			chunkSizes,
-		)(`takes the narration out and keeps ${shape} (chunks of %i characters)`, (size) => {
-			const { saved, shown } = streamAcrossToolCall(
+	])(
+		"when the answer after a tool call opens with %j",
+		(narration, body, shape) => {
+			it.each(chunkSizes)(
+				`takes the narration out and keeps ${shape} (chunks of %i characters)`,
+				(size) => {
+					const { saved, shown } = streamAcrossToolCall(
+						FIRST,
+						`${narration}\n\n${body}`,
+						size,
+					);
+					// What matters is the answer. A narration whose first words the stream
+					// has already let go of (its verb is not among those held back as it
+					// arrives, token by token) stays in front of it; whole, it is taken out.
+					expect(saved.startsWith(FIRST)).toBe(true);
+					expect(saved.endsWith(body)).toBe(true);
+					expect(shown).toBe(saved);
+					if (size >= 400) expect(saved).toBe(`${FIRST}${body}`);
+				},
+			);
+		},
+	);
+
+	it.each(chunkSizes)(
+		'keeps the table after "Based on the search results:" in the middle of an answer (chunks of %i characters)',
+		(size) => {
+			const answer = [
+				"Based on the search results:",
+				"",
+				TABLE,
+				"",
+				"Here are the search results: the Savoy is the best value.",
+				"",
+				"Enjoy the weekend!",
+			].join("\n");
+			const { saved } = streamAcrossToolCall(
 				FIRST,
-				`${narration}\n\n${body}`,
+				`${FIRST}\n\n${answer}`,
 				size,
 			);
-			// What matters is the answer. A narration whose first words the stream
-			// has already let go of (its verb is not among those held back as it
-			// arrives, token by token) stays in front of it; whole, it is taken out.
-			expect(saved.startsWith(FIRST)).toBe(true);
-			expect(saved.endsWith(body)).toBe(true);
-			expect(shown).toBe(saved);
-			if (size >= 400) expect(saved).toBe(`${FIRST}${body}`);
-		});
-	});
+			expect(saved).toBe(`${FIRST}${FIRST}\n\n${answer}`);
+		},
+	);
 
-	it.each(
-		chunkSizes,
-	)('keeps the table after "Based on the search results:" in the middle of an answer (chunks of %i characters)', (size) => {
-		const answer = [
-			"Based on the search results:",
-			"",
-			TABLE,
-			"",
-			"Here are the search results: the Savoy is the best value.",
-			"",
-			"Enjoy the weekend!",
-		].join("\n");
-		const { saved } = streamAcrossToolCall(
-			FIRST,
-			`${FIRST}\n\n${answer}`,
-			size,
-		);
-		expect(saved).toBe(`${FIRST}${FIRST}\n\n${answer}`);
-	});
+	it.each(chunkSizes)(
+		"lets a tool call end the hold-back a leaked transcript began (chunks of %i characters)",
+		(size) => {
+			const after = `${FIRST}\n\n${TABLE}`;
+			const { saved } = streamAcrossToolCall(
+				"Code execution completed\n",
+				after,
+				size,
+			);
+			expect(saved.endsWith(after)).toBe(true);
+		},
+	);
 
-	it.each(
-		chunkSizes,
-	)("lets a tool call end the hold-back a leaked transcript began (chunks of %i characters)", (size) => {
-		const after = `${FIRST}\n\n${TABLE}`;
-		const { saved } = streamAcrossToolCall(
-			"Code execution completed\n",
-			after,
-			size,
-		);
-		expect(saved.endsWith(after)).toBe(true);
-	});
-
-	it.each(
-		chunkSizes,
-	)("keeps bold lines and bullets with links after a tool call (chunks of %i characters)", (size) => {
-		const answer = `${BULLETS}\n\nEnjoy the weekend!`;
-		const { saved } = streamAcrossToolCall(FIRST, answer, size);
-		expect(saved).toBe(`${FIRST}${answer}`);
-	});
+	it.each(chunkSizes)(
+		"keeps bold lines and bullets with links after a tool call (chunks of %i characters)",
+		(size) => {
+			const answer = `${BULLETS}\n\nEnjoy the weekend!`;
+			const { saved } = streamAcrossToolCall(FIRST, answer, size);
+			expect(saved).toBe(`${FIRST}${answer}`);
+		},
+	);
 
 	it("keeps a reply of one word that a narration could start with", () => {
 		expect(streamAfterToolCall("No", 1).saved).toBe("No");
 		expect(streamAfterToolCall("No", 400).saved).toBe("No");
 	});
 
-	it.each([
-		["Let me search"],
-		["I'll look up the details"],
-		["Kikeresem"],
-	])("still drops a narration the reply ended in the middle of: %s", (narration) => {
-		for (const size of [1, 400]) {
-			const { saved, shown } = streamAfterToolCall(narration, size);
-			expect(saved).toBe("");
-			expect(shown).toBe("");
-		}
-	});
+	it.each([["Let me search"], ["I'll look up the details"], ["Kikeresem"]])(
+		"still drops a narration the reply ended in the middle of: %s",
+		(narration) => {
+			for (const size of [1, 400]) {
+				const { saved, shown } = streamAfterToolCall(narration, size);
+				expect(saved).toBe("");
+				expect(shown).toBe("");
+			}
+		},
+	);
 
 	it("still takes the narration that opens the text after a tool call out of the answer, though words came before the call", () => {
 		const chunks: string[] = [];
@@ -1815,45 +1827,44 @@ describe("successful delivery is separate from text", () => {
 		{ status: "failed" as const, metadata: { ok: true }, delivered: false },
 		{ status: "done" as const, metadata: { ok: false }, delivered: false },
 		{ status: "done" as const, metadata: { ok: null }, delivered: false },
-	])("counts only recorded successful delivery: %j", ({
-		status,
-		metadata,
-		delivered,
-	}) => {
-		const runtime = createServerChunkRuntime({ enqueueChunk: () => true });
-		runtime.emitChunkWithOutputHandling("I'll calculate the costs.");
-		runtime.emitToolCallEvent("run_python", {}, "done", {
-			callId: "calculation",
-		});
-		runtime.emitToolCallEvent("create_artifact", {}, status, {
-			callId: "delivery",
-			metadata,
-		});
-		expect(runtime.hasDeliveredAnswer).toBe(delivered);
-		expect(runtime.hasTextAfterLastToolCall).toBe(false);
-		expect(runtime.visibleCharsAfterLastToolCall).toBe(0);
-		runtime.emitToolCallEvent("research_web", {}, "running", {
-			callId: "later",
-		});
-		expect(runtime.hasDeliveredAnswer).toBe(false);
-	});
+	])(
+		"counts only recorded successful delivery: %j",
+		({ status, metadata, delivered }) => {
+			const runtime = createServerChunkRuntime({ enqueueChunk: () => true });
+			runtime.emitChunkWithOutputHandling("I'll calculate the costs.");
+			runtime.emitToolCallEvent("run_python", {}, "done", {
+				callId: "calculation",
+			});
+			runtime.emitToolCallEvent("create_artifact", {}, status, {
+				callId: "delivery",
+				metadata,
+			});
+			expect(runtime.hasDeliveredAnswer).toBe(delivered);
+			expect(runtime.hasTextAfterLastToolCall).toBe(false);
+			expect(runtime.visibleCharsAfterLastToolCall).toBe(0);
+			runtime.emitToolCallEvent("research_web", {}, "running", {
+				callId: "later",
+			});
+			expect(runtime.hasDeliveredAnswer).toBe(false);
+		},
+	);
 });
 
 describe("instruction delivery after research", () => {
-	it.each([
-		true,
-		false,
-	])("uses the recorder's offered=%s without an ok field", (offered) => {
-		const runtime = createServerChunkRuntime({ enqueueChunk: () => true });
-		runtime.emitToolCallEvent("research_web", {}, "done", {
-			callId: "research",
-		});
-		runtime.emitToolCallEvent("suggest_instruction", {}, "done", {
-			callId: "offer",
-			metadata: { offered },
-		});
-		expect(runtime.hasDeliveredAnswer).toBe(offered);
-		expect(runtime.hasTextAfterLastToolCall).toBe(false);
-		expect(runtime.visibleCharsAfterLastToolCall).toBe(0);
-	});
+	it.each([true, false])(
+		"uses the recorder's offered=%s without an ok field",
+		(offered) => {
+			const runtime = createServerChunkRuntime({ enqueueChunk: () => true });
+			runtime.emitToolCallEvent("research_web", {}, "done", {
+				callId: "research",
+			});
+			runtime.emitToolCallEvent("suggest_instruction", {}, "done", {
+				callId: "offer",
+				metadata: { offered },
+			});
+			expect(runtime.hasDeliveredAnswer).toBe(offered);
+			expect(runtime.hasTextAfterLastToolCall).toBe(false);
+			expect(runtime.visibleCharsAfterLastToolCall).toBe(0);
+		},
+	);
 });

@@ -336,13 +336,16 @@ describe("formatUploadRejectMessageEn", () => {
 		["$`", "x$`y.pdf"],
 		["$'", "x$'y.pdf"],
 		["$1", "report$1.pdf"],
-	])("puts a filename with %s in it into the sentence as it is", (_pattern, fileName) => {
-		const message = unknownType(fileName);
+	])(
+		"puts a filename with %s in it into the sentence as it is",
+		(_pattern, fileName) => {
+			const message = unknownType(fileName);
 
-		expect(message).toBe(
-			`We can't read ${fileName} — that file type isn't supported. Save it as PDF, DOCX or plain text and upload that.`,
-		);
-	});
+			expect(message).toBe(
+				`We can't read ${fileName} — that file type isn't supported. Save it as PDF, DOCX or plain text and upload that.`,
+			);
+		},
+	);
 
 	it("puts an extension with a replacement pattern in it in as it is", () => {
 		expect(

@@ -364,17 +364,20 @@ describe("Markdown Rendering Service", () => {
 			"<img src=x onerror=alert(1)>",
 			"js onload=alert(1)",
 			"../../etc/passwd",
-		])("falls back to an escaped plain block for hostile fence info %j", async (lang) => {
-			const rendered = await highlight("const a = 1;\n", lang);
+		])(
+			"falls back to an escaped plain block for hostile fence info %j",
+			async (lang) => {
+				const rendered = await highlight("const a = 1;\n", lang);
 
-			// Shiki has no such language, so this takes the catch branch —
-			// which was already sanitized. Nothing from the info string may
-			// reach the output as markup.
-			expect(rendered).toBe("<pre><code>const a = 1;\n</code></pre>");
-			expect(rendered).not.toContain("onmouseover");
-			expect(rendered).not.toContain("onerror");
-			expect(rendered).not.toContain("<img");
-		});
+				// Shiki has no such language, so this takes the catch branch —
+				// which was already sanitized. Nothing from the info string may
+				// reach the output as markup.
+				expect(rendered).toBe("<pre><code>const a = 1;\n</code></pre>");
+				expect(rendered).not.toContain("onmouseover");
+				expect(rendered).not.toContain("onerror");
+				expect(rendered).not.toContain("<img");
+			},
+		);
 
 		it("never lets the fence info string become an attribute", async () => {
 			// The only externally-supplied string that reaches Shiki is the fence

@@ -122,19 +122,20 @@ function expectPlanReassembles(
 }
 
 describe("planStructuredChunks — fixture coverage", () => {
-	it.each(
-		FIXTURE_IDS,
-	)("%s: plans chunks that reassemble into the rendered text", async (id) => {
-		const content = await loadContent(id);
-		const result = buildStructuredExtractionResult({ content });
-		const plan = planStructuredChunks({
-			blocks: result.blocks,
-			charTarget: CHAR_TARGET,
-			charOverlap: CHAR_OVERLAP,
-		});
+	it.each(FIXTURE_IDS)(
+		"%s: plans chunks that reassemble into the rendered text",
+		async (id) => {
+			const content = await loadContent(id);
+			const result = buildStructuredExtractionResult({ content });
+			const plan = planStructuredChunks({
+				blocks: result.blocks,
+				charTarget: CHAR_TARGET,
+				charOverlap: CHAR_OVERLAP,
+			});
 
-		expectPlanReassembles(result, plan);
-	});
+			expectPlanReassembles(result, plan);
+		},
+	);
 
 	it.each(FIXTURE_IDS)("%s: never splits a table block", async (id) => {
 		const content = await loadContent(id);
@@ -499,25 +500,26 @@ function hugeTable(rows: number): string {
 }
 
 describe("planStructuredChunks — the hard per-chunk ceiling", () => {
-	it.each(
-		FIXTURE_IDS,
-	)("%s: no recorded fixture produces a chunk over the ceiling", async (id) => {
-		const content = await loadContent(id);
-		const result = buildStructuredExtractionResult({ content });
-		for (const target of [80, 200, CHAR_TARGET]) {
-			const plan = planStructuredChunks({
-				blocks: result.blocks,
-				charTarget: target,
-				charOverlap: CHAR_OVERLAP,
-			});
-			for (const chunk of plan) {
-				expect(
-					chunk.text.length,
-					`${id}: chunk over the ceiling at charTarget=${target}`,
-				).toBeLessThanOrEqual(target * CHUNK_HARD_LIMIT_MULTIPLE);
+	it.each(FIXTURE_IDS)(
+		"%s: no recorded fixture produces a chunk over the ceiling",
+		async (id) => {
+			const content = await loadContent(id);
+			const result = buildStructuredExtractionResult({ content });
+			for (const target of [80, 200, CHAR_TARGET]) {
+				const plan = planStructuredChunks({
+					blocks: result.blocks,
+					charTarget: target,
+					charOverlap: CHAR_OVERLAP,
+				});
+				for (const chunk of plan) {
+					expect(
+						chunk.text.length,
+						`${id}: chunk over the ceiling at charTarget=${target}`,
+					).toBeLessThanOrEqual(target * CHUNK_HARD_LIMIT_MULTIPLE);
+				}
 			}
-		}
-	});
+		},
+	);
 
 	it("splits a 5 MB table on row boundaries, repeating the header", () => {
 		// ~5 MB of table in one atomic block. Before the ceiling this was one
@@ -666,47 +668,49 @@ describe("planStructuredChunks — the hard per-chunk ceiling", () => {
 // is worse than none); a footnote is prose and chunks like any other text.
 
 describe("planStructuredChunks — MinerU 4.1 blocks", () => {
-	it.each(
-		V41_SAMPLES,
-	)("$slug: plans chunks that reassemble into the rendered text", async (sample) => {
-		const result = buildStructuredExtractionResult({
-			content: await loadV41(sample.slug),
-			sourceFilename: sample.filename,
-		});
-		const plan = planStructuredChunks({
-			blocks: result.blocks,
-			charTarget: CHAR_TARGET,
-			charOverlap: CHAR_OVERLAP,
-		});
-
-		expectPlanReassembles(result, plan);
-	});
-
-	it.each(
-		V41_SAMPLES,
-	)("$slug: never splits an equation, a chart or a table", async (sample) => {
-		const result = buildStructuredExtractionResult({
-			content: await loadV41(sample.slug),
-			sourceFilename: sample.filename,
-		});
-		const whole = result.blocks.filter(
-			(block) => block.atomic && block.text.trim().length > 0,
-		);
-
-		for (const target of [40, 200, 1400]) {
+	it.each(V41_SAMPLES)(
+		"$slug: plans chunks that reassemble into the rendered text",
+		async (sample) => {
+			const result = buildStructuredExtractionResult({
+				content: await loadV41(sample.slug),
+				sourceFilename: sample.filename,
+			});
 			const plan = planStructuredChunks({
 				blocks: result.blocks,
-				charTarget: target,
+				charTarget: CHAR_TARGET,
 				charOverlap: CHAR_OVERLAP,
 			});
-			for (const block of whole) {
-				expect(
-					plan.some((chunk) => chunk.text.includes(block.text)),
-					`${sample.slug}: ${block.type} cut at charTarget=${target}`,
-				).toBe(true);
+
+			expectPlanReassembles(result, plan);
+		},
+	);
+
+	it.each(V41_SAMPLES)(
+		"$slug: never splits an equation, a chart or a table",
+		async (sample) => {
+			const result = buildStructuredExtractionResult({
+				content: await loadV41(sample.slug),
+				sourceFilename: sample.filename,
+			});
+			const whole = result.blocks.filter(
+				(block) => block.atomic && block.text.trim().length > 0,
+			);
+
+			for (const target of [40, 200, 1400]) {
+				const plan = planStructuredChunks({
+					blocks: result.blocks,
+					charTarget: target,
+					charOverlap: CHAR_OVERLAP,
+				});
+				for (const block of whole) {
+					expect(
+						plan.some((chunk) => chunk.text.includes(block.text)),
+						`${sample.slug}: ${block.type} cut at charTarget=${target}`,
+					).toBe(true);
+				}
 			}
-		}
-	});
+		},
+	);
 
 	it("keeps a display equation whole, with no overlap on either side", () => {
 		const first = paragraph("FIRST", 900);

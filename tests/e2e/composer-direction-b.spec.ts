@@ -353,7 +353,7 @@ test.describe("Composer Direction B — a short window with the composer at the 
 			modelRowBox.x + modelRowBox.width - (guideBox.x + guideBox.width),
 		).toBeLessThanOrEqual(12);
 
-		expect(
+		await expect(
 			page.getByTestId("model-selector-trigger").locator(".menu-row__icon"),
 		).toHaveCount(0);
 

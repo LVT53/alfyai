@@ -518,9 +518,9 @@ describe("createExtractionPoller", () => {
 		expect(onJobs).toHaveBeenCalledTimes(1);
 		expect(onJobs.mock.calls[0]?.[1]).toHaveLength(2);
 		expect(
-			(onJobs.mock.calls[0]?.[1] as AttachmentReadinessSnapshot[]).map(
-				(snapshot) => snapshot.artifactId,
-			),
+			(
+				onJobs.mock.calls[0]?.[1] as AttachmentReadinessSnapshot[] | undefined
+			)?.map((snapshot) => snapshot.artifactId),
 		).toEqual(["artifact-0", "artifact-50"]);
 
 		poller.stop();

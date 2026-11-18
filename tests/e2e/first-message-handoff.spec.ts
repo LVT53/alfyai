@@ -47,6 +47,7 @@ async function recordFrames(page: Page): Promise<Frame[]> {
 		const visibleText = () => {
 			const parts = [document.title];
 			if (document.body) {
+				// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 				parts.push(document.body.innerText);
 				for (const field of document.body.querySelectorAll(
 					"textarea[placeholder], input[placeholder]",

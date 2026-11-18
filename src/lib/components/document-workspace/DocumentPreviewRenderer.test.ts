@@ -614,9 +614,12 @@ describe("DocumentPreviewRenderer", () => {
 					source: expect.any(Object),
 				}),
 			);
-			const { source } = onSource.mock.calls.at(-1)?.[0] as {
-				source: { root(): Element | null };
-			};
+			const last = onSource.mock.calls.at(-1)?.[0] as
+				| { source: { root(): Element | null } }
+				| undefined;
+			if (!last)
+				throw new Error("expected the source callback to have been called");
+			const { source } = last;
 			// The page's own inert copy of what the address answered with.
 			expect(source.root()?.id).toBe("report-content");
 			expect(source.root()?.ownerDocument).not.toBe(document);

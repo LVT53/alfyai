@@ -645,29 +645,29 @@ describe("MessageInput", () => {
 		});
 	});
 
-	it.each([
-		false,
-		"stale",
-	])("/new requests explicit settlement even when Stop is hidden and honors %s veto", async (result) => {
-		const permit = { isCurrent: () => false, release: vi.fn() };
-		const onStop = vi.fn(async () =>
-			result === false ? (false as const) : permit,
-		);
-		const view = render(MessageInput, {
-			composerCommandRegistryEnabled: true,
-			isGenerating: false,
-			canStopStreaming: false,
-			onStop,
-		});
-		const input = view.getByPlaceholderText("Type a message...");
-		await fireEvent.input(input, { target: { value: "/new" } });
-		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
-		await waitFor(() =>
-			expect(onStop).toHaveBeenCalledWith({ purpose: "navigate" }),
-		);
-		expect(gotoMock).not.toHaveBeenCalled();
-		if (result === "stale") expect(permit.release).toHaveBeenCalledOnce();
-	});
+	it.each([false, "stale"])(
+		"/new requests explicit settlement even when Stop is hidden and honors %s veto",
+		async (result) => {
+			const permit = { isCurrent: () => false, release: vi.fn() };
+			const onStop = vi.fn(async () =>
+				result === false ? (false as const) : permit,
+			);
+			const view = render(MessageInput, {
+				composerCommandRegistryEnabled: true,
+				isGenerating: false,
+				canStopStreaming: false,
+				onStop,
+			});
+			const input = view.getByPlaceholderText("Type a message...");
+			await fireEvent.input(input, { target: { value: "/new" } });
+			await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+			await waitFor(() =>
+				expect(onStop).toHaveBeenCalledWith({ purpose: "navigate" }),
+			);
+			expect(gotoMock).not.toHaveBeenCalled();
+			if (result === "stale") expect(permit.release).toHaveBeenCalledOnce();
+		},
+	);
 
 	it("ordinary Stop passes no navigation intent", async () => {
 		const onStop = vi.fn();
@@ -8417,20 +8417,23 @@ describe("MessageInput and the guide's Show me", () => {
 		["composer.attach", "composer-menu-attach"],
 		["composer.library", "composer-menu-library"],
 		["composer.atlas", "composer-menu-atlas"],
-	] as const)("rings the row for %s once the menu has opened", async (spotlight, rowTestId) => {
-		withLayout();
-		requestSpotlight(spotlight);
+	] as const)(
+		"rings the row for %s once the menu has opened",
+		async (spotlight, rowTestId) => {
+			withLayout();
+			requestSpotlight(spotlight);
 
-		const view = render(MessageInput, { atlasAvailability: atlasOffered });
+			const view = render(MessageInput, { atlasAvailability: atlasOffered });
 
-		await waitFor(() =>
-			expect(view.getByTestId(rowTestId)).toBeInTheDocument(),
-		);
-		// The row took it as it mounted.
-		expect(get(spotlightRequest)).toBeNull();
-		vi.advanceTimersToNextFrame();
-		expect(view.getByTestId(rowTestId)).toHaveClass("spotlight-ring");
-	});
+			await waitFor(() =>
+				expect(view.getByTestId(rowTestId)).toBeInTheDocument(),
+			);
+			// The row took it as it mounted.
+			expect(get(spotlightRequest)).toBeNull();
+			vi.advanceTimersToNextFrame();
+			expect(view.getByTestId(rowTestId)).toHaveClass("spotlight-ring");
+		},
+	);
 
 	it("rings the Thinking button on the bar and opens no menu", async () => {
 		withLayout();

@@ -146,6 +146,7 @@ test.describe("Atlas job app flow", () => {
 				report.getByRole("link", { name: /Benchmark report/ }).first(),
 			).toBeVisible();
 
+			// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 			const bodyText = await report.locator("body").innerText();
 			expect(countOccurrences(bodyText, GENERATED_TITLE)).toBe(1);
 			// A written section and a real verdict, not an abstention report.

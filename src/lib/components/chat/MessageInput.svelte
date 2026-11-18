@@ -3656,7 +3656,7 @@ function retireOptimisticUpload(name: string | null) {
 	const index = name
 		? optimisticUploads.findIndex((upload) => upload.name === name)
 		: -1;
-	const target = index >= 0 ? index : 0;
+	const target = Math.max(index, 0);
 	optimisticUploads = optimisticUploads.filter(
 		(_, position) => position !== target,
 	);
@@ -3749,7 +3749,7 @@ function refreshStaleReadiness(): void {
 	let requested = false;
 	for (const attachment of pendingAttachments) {
 		const job = extractionJobs[attachment.artifact.id];
-		if (!job || job.status !== "succeeded") continue;
+		if (job?.status !== "succeeded") continue;
 		if (attachment.promptReady) continue;
 		const code = attachment.readinessErrorCode ?? null;
 		if (code !== null && code !== "still_preparing") continue;

@@ -510,10 +510,12 @@ describe("edit_artifact.canvas", () => {
 		});
 		expect(
 			(
-				board.nodes.find((node) => node.id === "text-1")?.data as {
-					text: string;
-				}
-			).text,
+				board.nodes.find((node) => node.id === "text-1")?.data as
+					| {
+							text: string;
+					  }
+					| undefined
+			)?.text,
 		).toBe("Weekend in Vienna");
 	});
 

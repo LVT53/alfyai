@@ -955,16 +955,19 @@ describe("tier resolution happens before the request is made", () => {
 		["standard", ["flash", "basic", "standard"]],
 		["basic", ["flash", "basic"]],
 		["flash", ["flash"]],
-	] as const)("sends %s explicitly for a PDF on a server that lists %j", async (expected, tiers) => {
-		await start({ tiers });
-		const { request } = await buildRequest();
+	] as const)(
+		"sends %s explicitly for a PDF on a server that lists %j",
+		async (expected, tiers) => {
+			await start({ tiers });
+			const { request } = await buildRequest();
 
-		await extractorFor().extract(request);
+			await extractorFor().extract(request);
 
-		// An omitted tier would have run at the server's start-up tier whatever
-		// that is (D14); naming it is what makes "auto" mean "the best there is".
-		expect(createBody().tier).toBe(expected);
-	});
+			// An omitted tier would have run at the server's start-up tier whatever
+			// that is (D14); naming it is what makes "auto" mean "the best there is".
+			expect(createBody().tier).toBe(expected);
+		},
+	);
 
 	it("never auto-picks advanced, even when the server lists it", async () => {
 		await start({ tiers: ["flash", "basic", "standard", "advanced"] });
@@ -1060,19 +1063,22 @@ describe("tier resolution happens before the request is made", () => {
 			"application/vnd.openxmlformats-officedocument.presentationml.presentation",
 		],
 		["html", "text/html"],
-	] as const)("sends NO tier for a native %s document", async (fixture, mimeType) => {
-		await start({ fixtureInput: fixture });
-		const { request } = await buildRequest({
-			fixture,
-			fileName: `sample.${fixture}`,
-			mimeType,
-		});
+	] as const)(
+		"sends NO tier for a native %s document",
+		async (fixture, mimeType) => {
+			await start({ fixtureInput: fixture });
+			const { request } = await buildRequest({
+				fixture,
+				fileName: `sample.${fixture}`,
+				mimeType,
+			});
 
-		await extractorFor().extract(request);
+			await extractorFor().extract(request);
 
-		expect("tier" in createBody()).toBe(false);
-		expect(createBody().files[0].file_name).toBe(`document.${fixture}`);
-	});
+			expect("tier" in createBody()).toBe(false);
+			expect(createBody().files[0].file_name).toBe(`document.${fixture}`);
+		},
+	);
 
 	it("sends no tier for a native document on a flash-only server either", async () => {
 		await start({ tiers: ["flash"], fixtureInput: "docx" });
@@ -1195,43 +1201,46 @@ describe("tier resolution happens before the request is made", () => {
 	it.each([
 		["a re-extract tier", {}, { hints: { tier: "standard" } }],
 		["the configured tier", { defaultTier: "standard" as const }, {}],
-	])("does not call %s missing when the tier list could not be read: the document waits, and goes through once it can", async (_name, overrides, requestOverrides) => {
-		// `/v1/tiers` fails once. An empty list is no evidence that the server lacks
-		// the tier, and `tier_unavailable` is never retried: one failed read would
-		// have failed the document for good.
-		await start({
-			failures: [
-				{
-					path: "/v1/tiers",
-					method: "GET",
-					nth: 1,
-					status: 503,
-					body: {
-						error: { code: "server_shutting_down", message: "stopping" },
+	])(
+		"does not call %s missing when the tier list could not be read: the document waits, and goes through once it can",
+		async (_name, overrides, requestOverrides) => {
+			// `/v1/tiers` fails once. An empty list is no evidence that the server lacks
+			// the tier, and `tier_unavailable` is never retried: one failed read would
+			// have failed the document for good.
+			await start({
+				failures: [
+					{
+						path: "/v1/tiers",
+						method: "GET",
+						nth: 1,
+						status: 503,
+						body: {
+							error: { code: "server_shutting_down", message: "stopping" },
+						},
 					},
-				},
-			],
-		});
-		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+				],
+			});
+			vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
-		const error = await extractorFor(overrides)
-			.extract((await buildRequest(requestOverrides)).request)
-			.catch((thrown) => thrown);
+			const error = await extractorFor(overrides)
+				.extract((await buildRequest(requestOverrides)).request)
+				.catch((thrown) => thrown);
 
-		expect(error).toMatchObject({ code: "unavailable", retryable: true });
-		expect(error.message).toBe("The document service could not be reached.");
-		expect(error.details).toMatchObject({
-			mineruRule: "client:tier-list-unreadable",
-		});
-		expect(creates()).toHaveLength(0);
-		expect(uploads()).toHaveLength(0);
+			expect(error).toMatchObject({ code: "unavailable", retryable: true });
+			expect(error.message).toBe("The document service could not be reached.");
+			expect(error.details).toMatchObject({
+				mineruRule: "client:tier-list-unreadable",
+			});
+			expect(creates()).toHaveLength(0);
+			expect(uploads()).toHaveLength(0);
 
-		// The report that lost its list was not kept: the next attempt reads it.
-		await extractorFor(overrides).extract(
-			(await buildRequest(requestOverrides)).request,
-		);
-		expect(createBody().tier).toBe("standard");
-	});
+			// The report that lost its list was not kept: the next attempt reads it.
+			await extractorFor(overrides).extract(
+				(await buildRequest(requestOverrides)).request,
+			);
+			expect(createBody().tier).toBe("standard");
+		},
+	);
 
 	it("drops the tier list the server has just contradicted, so the next document reads it again", async () => {
 		// The list was true when it was read; the box was then restarted at a lower
@@ -1469,23 +1478,26 @@ describe("mapped failures", () => {
 				true,
 				"could not finish reading this file",
 			],
-		] as const)("%s becomes %s with a sentence of ours", async (_what, message, code, retryable, sentence) => {
-			await start({ outcome: "file-failed", fileError: { message } });
-			const { request } = await buildRequest();
+		] as const)(
+			"%s becomes %s with a sentence of ours",
+			async (_what, message, code, retryable, sentence) => {
+				await start({ outcome: "file-failed", fileError: { message } });
+				const { request } = await buildRequest();
 
-			const error = await extractorFor()
-				.extract(request)
-				.catch((thrown) => thrown);
+				const error = await extractorFor()
+					.extract(request)
+					.catch((thrown) => thrown);
 
-			expect(error).toMatchObject({ code, retryable, handleUnknown: true });
-			expect(error.message).toContain(sentence);
-			// MinerU's own words are never the person's.
-			expect(error.message).not.toContain(message);
-			expect(error.message).not.toMatch(/PDFium|XLSX|connection attempts/);
-			// An operator still has them.
-			expect(error.details?.rawMessage).toContain(message);
-			expect(JSON.stringify(error.details)).toContain("parse_failed");
-		});
+				expect(error).toMatchObject({ code, retryable, handleUnknown: true });
+				expect(error.message).toContain(sentence);
+				// MinerU's own words are never the person's.
+				expect(error.message).not.toContain(message);
+				expect(error.message).not.toMatch(/PDFium|XLSX|connection attempts/);
+				// An operator still has them.
+				expect(error.details?.rawMessage).toContain(message);
+				expect(JSON.stringify(error.details)).toContain("parse_failed");
+			},
+		);
 	});
 
 	describe("a file MinerU 4.2 fails with a code of its own", () => {
@@ -1548,28 +1560,31 @@ describe("mapped failures", () => {
 				true,
 				"could not finish reading this file",
 			],
-		] as const)("%s: %s", async (_what, mineruCode, message, code, retryable, sentence) => {
-			await start({
-				outcome: "file-failed",
-				fileError: { code: mineruCode, message },
-			});
-			const { request } = await buildRequest();
+		] as const)(
+			"%s: %s",
+			async (_what, mineruCode, message, code, retryable, sentence) => {
+				await start({
+					outcome: "file-failed",
+					fileError: { code: mineruCode, message },
+				});
+				const { request } = await buildRequest();
 
-			const error = await extractorFor()
-				.extract(request)
-				.catch((thrown) => thrown);
+				const error = await extractorFor()
+					.extract(request)
+					.catch((thrown) => thrown);
 
-			// The task is settled, so a retry, automatic or the person's, makes a
-			// new one.
-			expect(error).toMatchObject({ code, retryable, handleUnknown: true });
-			expect(error.message).toContain(sentence);
-			expect(error.message).not.toContain(message);
-			expect(error.details).toMatchObject({
-				mineruRule: `file:${mineruCode}`,
-				mineruCode,
-			});
-			expect(error.details?.rawMessage).toContain(message);
-		});
+				// The task is settled, so a retry, automatic or the person's, makes a
+				// new one.
+				expect(error).toMatchObject({ code, retryable, handleUnknown: true });
+				expect(error.message).toContain(sentence);
+				expect(error.message).not.toContain(message);
+				expect(error.details).toMatchObject({
+					mineruRule: `file:${mineruCode}`,
+					mineruCode,
+				});
+				expect(error.details?.rawMessage).toContain(message);
+			},
+		);
 	});
 
 	it("waits out 4.2.3's hang guard as an outage, and reads the document once the server is restarted", async () => {
@@ -1955,26 +1970,26 @@ describe("cancel", () => {
 		expect(server.tasks.get(taskId)?.status).toBe("completed");
 	});
 
-	it.each([
-		"claim-lost",
-		"shutdown",
-	] as const)("leaves the remote task alive on a %s abort", async (reason) => {
-		// The stored handle exists precisely so the next attempt RESUMES this
-		// remote task. Cancelling it on a stale-claim reclaim or a deploy restart
-		// would turn a one-poll resume into a full re-upload and re-parse, and race
-		// the worker that had just taken the claim.
-		await start({ neverFinish: true });
-		const { rejection, before } = await abortMidTask(
-			new ExtractionAbortError(reason),
-		);
+	it.each(["claim-lost", "shutdown"] as const)(
+		"leaves the remote task alive on a %s abort",
+		async (reason) => {
+			// The stored handle exists precisely so the next attempt RESUMES this
+			// remote task. Cancelling it on a stale-claim reclaim or a deploy restart
+			// would turn a one-poll resume into a full re-upload and re-parse, and race
+			// the worker that had just taken the claim.
+			await start({ neverFinish: true });
+			const { rejection, before } = await abortMidTask(
+				new ExtractionAbortError(reason),
+			);
 
-		await expect(rejection).rejects.toMatchObject({ code: "canceled" });
-		expect(cancels()).toHaveLength(0);
-		// The task is still there for the next attempt to poll.
-		const [taskId] = [...server.tasks.keys()];
-		expect(server.tasks.get(taskId)?.status).not.toBe("canceled");
-		expect(await tempDirCount()).toBe(before);
-	});
+			await expect(rejection).rejects.toMatchObject({ code: "canceled" });
+			expect(cancels()).toHaveLength(0);
+			// The task is still there for the next attempt to poll.
+			const [taskId] = [...server.tasks.keys()];
+			expect(server.tasks.get(taskId)?.status).not.toBe("canceled");
+			expect(await tempDirCount()).toBe(before);
+		},
+	);
 
 	it("leaves the remote task alive on an unlabelled abort", async () => {
 		// Cancelling a task that is still wanted costs the whole parse; keeping one

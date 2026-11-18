@@ -1086,7 +1086,7 @@ export function failureMismatches(
 	expect: FailureCase["expect"],
 ): string[] {
 	const mismatches: string[] = [];
-	if (!job || job.status !== "failed") {
+	if (job?.status !== "failed") {
 		mismatches.push(
 			`expected the extraction to fail, it ended ${job?.status ?? "missing"}`,
 		);
@@ -1219,7 +1219,7 @@ async function main() {
 				result.statusesSeen = statusesSeen;
 				result.elapsedMs = Date.now() - startedAt;
 
-				if (!job || job.status !== "succeeded" || !job.normalizedArtifactId) {
+				if (job?.status !== "succeeded" || !job.normalizedArtifactId) {
 					(result.mismatches as string[]).push(
 						`extraction ${job?.status ?? "missing"}: ${job?.error?.code ?? "no error code"}`,
 					);
@@ -1376,7 +1376,7 @@ async function runReextract(
 	}
 
 	const { job } = await pollExtraction(page, artifactId);
-	if (!job || job.status !== "succeeded") {
+	if (job?.status !== "succeeded") {
 		return {
 			tier: reextractTier,
 			ok: false,

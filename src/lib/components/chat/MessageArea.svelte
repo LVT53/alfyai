@@ -845,7 +845,7 @@ $effect(() => {
  */
 function lastRowWaitingCardTop(container: HTMLElement): number | null {
 	const last = dedupedMessages[dedupedMessages.length - 1];
-	if (!last || last.role !== "assistant") return null;
+	if (last?.role !== "assistant") return null;
 	if (replyPlaces.get(last.id)?.question?.status !== "waiting") return null;
 	const card = container.querySelector(
 		`[data-message-id="${CSS.escape(last.id)}"] [data-testid="ask-card"]`,

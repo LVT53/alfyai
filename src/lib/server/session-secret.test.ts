@@ -106,11 +106,14 @@ describe("assertSessionSecret", () => {
 		["too short", "short-secret"],
 		["the dev placeholder", DEV_FALLBACK_SESSION_SECRET],
 		["the .env.example placeholder", "change-me-to-a-random-long-secret"],
-	])("refuses to start in production when the secret is %s", (_label, value) => {
-		expect(() =>
-			assertSessionSecret(productionEnv({ SESSION_SECRET: value })),
-		).toThrow(/refusing to start/i);
-	});
+	])(
+		"refuses to start in production when the secret is %s",
+		(_label, value) => {
+			expect(() =>
+				assertSessionSecret(productionEnv({ SESSION_SECRET: value })),
+			).toThrow(/refusing to start/i);
+		},
+	);
 
 	it("tells the operator exactly what to do", () => {
 		let message = "";

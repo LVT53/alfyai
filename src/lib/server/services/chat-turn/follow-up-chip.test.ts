@@ -345,9 +345,12 @@ describe("a chip never names a mark that is gone", () => {
 		["Compare plan A and plan B in a table", "en"],
 		["Készíts listát a dobozokba pakoláshoz", "hu"],
 		["A keretszerződést foglald össze röviden", "hu"],
-	] as const)("keeps %j in a chat with marks, where it names no mark", (text, language) => {
-		expect(rejectionInMarkedChat(text, language)).not.toBe("stale_mark");
-	});
+	] as const)(
+		"keeps %j in a chat with marks, where it names no mark",
+		(text, language) => {
+			expect(rejectionInMarkedChat(text, language)).not.toBe("stale_mark");
+		},
+	);
 
 	it("keeps a box whose letter was never drawn in this chat", () => {
 		expect(

@@ -223,17 +223,14 @@ describe("WriteConfirmSheet", () => {
 		expect(screen.getByTestId("write-confirm-sheet")).toBeInTheDocument();
 	});
 
-	it.each([
-		"executing",
-		"executed",
-		"cancelled",
-		"expired",
-		"failed",
-	] as const)("raises nothing for a write that is %s: there is no decision left", (status) => {
-		render(WriteConfirmSheet, {
-			writes: [write("pw-1", "a.txt", { status })],
-		});
+	it.each(["executing", "executed", "cancelled", "expired", "failed"] as const)(
+		"raises nothing for a write that is %s: there is no decision left",
+		(status) => {
+			render(WriteConfirmSheet, {
+				writes: [write("pw-1", "a.txt", { status })],
+			});
 
-		expect(screen.queryByTestId("write-confirm-sheet")).toBeNull();
-	});
+			expect(screen.queryByTestId("write-confirm-sheet")).toBeNull();
+		},
+	);
 });

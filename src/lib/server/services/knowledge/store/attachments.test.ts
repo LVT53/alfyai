@@ -671,8 +671,8 @@ describe("Attachments - auto-rename asks for a name prefix, not the table (B4)",
 		expect(collectConditionStrings(whereArgs[0])).toContain("report%.pdf");
 
 		const insertedName = (
-			insertChain.values.mock.calls[0]?.[0] as { name: string }
-		).name;
+			insertChain.values.mock.calls[0]?.[0] as { name: string } | undefined
+		)?.name;
 		expect(insertedName).toBe("report_2.pdf");
 	});
 

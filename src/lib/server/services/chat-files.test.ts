@@ -593,16 +593,19 @@ describe("chat-files service", () => {
 			["report.final.PDF", "pdf"],
 			["archive.tar.gz", "gz"],
 			["sheet.xlsx", "xlsx"],
-		])("keeps the stored extension of %s as .%s", async (filename, extension) => {
-			const { storeGeneratedFile } = await import("./chat-files");
+		])(
+			"keeps the stored extension of %s as .%s",
+			async (filename, extension) => {
+				const { storeGeneratedFile } = await import("./chat-files");
 
-			const result = await storeGeneratedFile("conv-123", "user-456", {
-				filename,
-				content: Buffer.from("x"),
-			});
+				const result = await storeGeneratedFile("conv-123", "user-456", {
+					filename,
+					content: Buffer.from("x"),
+				});
 
-			expect(result.storagePath).toBe(`conv-123/${result.id}.${extension}`);
-		});
+				expect(result.storagePath).toBe(`conv-123/${result.id}.${extension}`);
+			},
+		);
 
 		it("handles Uint8Array content", async () => {
 			const { storeGeneratedFile } = await import("./chat-files");
@@ -1182,36 +1185,39 @@ describe("chat-files service", () => {
 			["file-csv", "regions.csv", "text/csv", "a,b\n1,2\n", "a,b 1,2"],
 			["file-json", "data.json", "application/json", '{"a":1}\n', '{"a":1}'],
 			["file-txt", "notes.txt", "text/plain", "plain notes\n", "plain notes"],
-		])("decodes an inline_text output (%s) without a ledger job", async (id, filename, mimeType, body, expectedPreview) => {
-			const { syncGeneratedFilesToMemory } = await import("./chat-files");
-			mockReadFile.mockResolvedValueOnce(Buffer.from(body));
-			mockRows.push({
-				id,
-				conversationId: "conv-a",
-				assistantMessageId: "assistant-a",
-				userId: "user-1",
-				filename,
-				mimeType,
-				sizeBytes: body.length,
-				storagePath: `conv-a/${id}`,
-				createdAt: new Date("2026-01-01"),
-			});
+		])(
+			"decodes an inline_text output (%s) without a ledger job",
+			async (id, filename, mimeType, body, expectedPreview) => {
+				const { syncGeneratedFilesToMemory } = await import("./chat-files");
+				mockReadFile.mockResolvedValueOnce(Buffer.from(body));
+				mockRows.push({
+					id,
+					conversationId: "conv-a",
+					assistantMessageId: "assistant-a",
+					userId: "user-1",
+					filename,
+					mimeType,
+					sizeBytes: body.length,
+					storagePath: `conv-a/${id}`,
+					createdAt: new Date("2026-01-01"),
+				});
 
-			await syncGeneratedFilesToMemory({
-				userId: "user-1",
-				conversationId: "conv-a",
-				assistantMessageId: "assistant-a",
-				fileIds: [id],
-				assistantResponse: "Here is the file.",
-			});
+				await syncGeneratedFilesToMemory({
+					userId: "user-1",
+					conversationId: "conv-a",
+					assistantMessageId: "assistant-a",
+					fileIds: [id],
+					assistantResponse: "Here is the file.",
+				});
 
-			expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
-			// The wrapper's preview collapses runs of whitespace, so the
-			// delimiters are the assertion, not the line breaks.
-			expect(
-				mockCreateGeneratedOutputArtifact.mock.calls[0][0].content,
-			).toContain(`Extracted file content:\n${expectedPreview}`);
-		});
+				expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
+				// The wrapper's preview collapses runs of whitespace, so the
+				// delimiters are the assertion, not the line breaks.
+				expect(
+					mockCreateGeneratedOutputArtifact.mock.calls[0][0].content,
+				).toContain(`Extracted file content:\n${expectedPreview}`);
+			},
+		);
 
 		// HTML is a MinerU route for UPLOADS since Phase 5 (a real page is
 		// mostly nav, scripts and ads, which MinerU strips). A `.html` this app

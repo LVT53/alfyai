@@ -168,32 +168,33 @@ async function loadContent(id: string): Promise<StructuredContent> {
 }
 
 describe("MinerU structured result — the §4.3 equivalence table", () => {
-	it.each(
-		FIXTURES,
-	)("$id: renderMineruMarkdown reproduces markdown.md ($equivalence)", async (fixture) => {
-		const content = await loadContent(fixture.id);
-		const mineruMarkdown = await readZipped(fixture.id, "markdown.md");
-		const rendered = renderMineruMarkdown(content, {
-			sourceFilename: fixture.filename,
-		});
+	it.each(FIXTURES)(
+		"$id: renderMineruMarkdown reproduces markdown.md ($equivalence)",
+		async (fixture) => {
+			const content = await loadContent(fixture.id);
+			const mineruMarkdown = await readZipped(fixture.id, "markdown.md");
+			const rendered = renderMineruMarkdown(content, {
+				sourceFilename: fixture.filename,
+			});
 
-		if (fixture.equivalence === "identical") {
-			expect(rendered).toBe(mineruMarkdown);
-			return;
-		}
+			if (fixture.equivalence === "identical") {
+				expect(rendered).toBe(mineruMarkdown);
+				return;
+			}
 
-		// Not byte-identical: prove the ONLY difference is anchor lines.
-		expect(rendered).not.toBe(mineruMarkdown);
-		expect(stripAnchorLines(mineruMarkdown)).toBe(rendered);
+			// Not byte-identical: prove the ONLY difference is anchor lines.
+			expect(rendered).not.toBe(mineruMarkdown);
+			expect(stripAnchorLines(mineruMarkdown)).toBe(rendered);
 
-		const extraLines = mineruMarkdown
-			.split("\n")
-			.filter((line) => !rendered.split("\n").includes(line));
-		expect(extraLines.length).toBeGreaterThan(0);
-		for (const line of extraLines) {
-			expect(line).toMatch(ANCHOR_LINE);
-		}
-	});
+			const extraLines = mineruMarkdown
+				.split("\n")
+				.filter((line) => !rendered.split("\n").includes(line));
+			expect(extraLines.length).toBeGreaterThan(0);
+			for (const line of extraLines) {
+				expect(line).toMatch(ANCHOR_LINE);
+			}
+		},
+	);
 });
 
 describe("MinerU structured result — the parsed model", () => {
@@ -221,58 +222,61 @@ describe("MinerU structured result — the parsed model", () => {
 		expect(parsed.structuredContentJson).toContain('"pages"');
 	});
 
-	it.each(
-		FIXTURES,
-	)("$id: page offsets partition the markdown exactly", async (fixture) => {
-		const content = await loadContent(fixture.id);
-		const result = buildStructuredExtractionResult({
-			content,
-			sourceFilename: fixture.filename,
-		});
+	it.each(FIXTURES)(
+		"$id: page offsets partition the markdown exactly",
+		async (fixture) => {
+			const content = await loadContent(fixture.id);
+			const result = buildStructuredExtractionResult({
+				content,
+				sourceFilename: fixture.filename,
+			});
 
-		expect(result.pages).toHaveLength(result.pageCount);
-		expect(result.pages[0].start).toBe(0);
-		expect(result.pages[result.pages.length - 1].end).toBe(
-			result.markdown.length,
-		);
-		for (let index = 0; index + 1 < result.pages.length; index++) {
-			expect(result.pages[index].end).toBe(result.pages[index + 1].start);
-			expect(result.pages[index].page).toBe(index + 1);
-		}
-	});
+			expect(result.pages).toHaveLength(result.pageCount);
+			expect(result.pages[0].start).toBe(0);
+			expect(result.pages[result.pages.length - 1].end).toBe(
+				result.markdown.length,
+			);
+			for (let index = 0; index + 1 < result.pages.length; index++) {
+				expect(result.pages[index].end).toBe(result.pages[index + 1].start);
+				expect(result.pages[index].page).toBe(index + 1);
+			}
+		},
+	);
 
-	it.each(
-		FIXTURES,
-	)("$id: every block's offsets quote the markdown verbatim", async (fixture) => {
-		const content = await loadContent(fixture.id);
-		const result = buildStructuredExtractionResult({
-			content,
-			sourceFilename: fixture.filename,
-		});
+	it.each(FIXTURES)(
+		"$id: every block's offsets quote the markdown verbatim",
+		async (fixture) => {
+			const content = await loadContent(fixture.id);
+			const result = buildStructuredExtractionResult({
+				content,
+				sourceFilename: fixture.filename,
+			});
 
-		for (const block of result.blocks) {
-			expect(result.markdown.slice(block.start, block.end)).toBe(block.text);
-			const page = result.pages[block.page - 1];
-			expect(block.start).toBeGreaterThanOrEqual(page.start);
-			expect(block.end).toBeLessThanOrEqual(page.end);
-		}
-	});
+			for (const block of result.blocks) {
+				expect(result.markdown.slice(block.start, block.end)).toBe(block.text);
+				const page = result.pages[block.page - 1];
+				expect(block.start).toBeGreaterThanOrEqual(page.start);
+				expect(block.end).toBeLessThanOrEqual(page.end);
+			}
+		},
+	);
 
-	it.each(
-		FIXTURES,
-	)("$id: reports no unknown block types and drops the running heads", async (fixture) => {
-		const content = await loadContent(fixture.id);
-		const result = buildStructuredExtractionResult({
-			content,
-			sourceFilename: fixture.filename,
-		});
+	it.each(FIXTURES)(
+		"$id: reports no unknown block types and drops the running heads",
+		async (fixture) => {
+			const content = await loadContent(fixture.id);
+			const result = buildStructuredExtractionResult({
+				content,
+				sourceFilename: fixture.filename,
+			});
 
-		expect(result.stats.unknownTypes).toEqual({});
-		expect(result.blocks.some((block) => block.unknownType)).toBe(false);
-		for (const block of result.blocks) {
-			expect(["header", "footer", "page_number"]).not.toContain(block.type);
-		}
-	});
+			expect(result.stats.unknownTypes).toEqual({});
+			expect(result.blocks.some((block) => block.unknownType)).toBe(false);
+			for (const block of result.blocks) {
+				expect(["header", "footer", "page_number"]).not.toContain(block.type);
+			}
+		},
+	);
 
 	it("drops the PDF running heads from the prompt text", async () => {
 		const content = await loadContent("pdf");
@@ -940,24 +944,18 @@ describe("MinerU structured result — page attribution", () => {
 		});
 	}
 
-	it.each([
-		"pdf",
-		"docx",
-		"pptx",
-		"xlsx",
-		"csv",
-		"html",
-		"epub",
-		"png",
-	])("%s: uses page_idx, and the recorded fixtures agree with array position", async (id) => {
-		const result = buildStructuredExtractionResult({
-			content: await loadContent(id),
-		});
-		// Every fixture is dense and ordered, so the two rules coincide —
-		// which is exactly why nobody noticed the array index was the only
-		// one implemented.
-		expect(result.stats.pageNumberSource).toBe("page_idx");
-	});
+	it.each(["pdf", "docx", "pptx", "xlsx", "csv", "html", "epub", "png"])(
+		"%s: uses page_idx, and the recorded fixtures agree with array position",
+		async (id) => {
+			const result = buildStructuredExtractionResult({
+				content: await loadContent(id),
+			});
+			// Every fixture is dense and ordered, so the two rules coincide —
+			// which is exactly why nobody noticed the array index was the only
+			// one implemented.
+			expect(result.stats.pageNumberSource).toBe("page_idx");
+		},
+	);
 
 	it("cites a sparse pages array from page_idx, not from position", () => {
 		const result = buildStructuredExtractionResult({

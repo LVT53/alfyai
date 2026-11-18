@@ -345,36 +345,36 @@ describe("POST /api/chat/send", () => {
 	});
 
 	afterEach(() => vi.useRealTimers());
-	it.each([
-		"preflight",
-		"preparation",
-	])("bounds hanging %s before model dispatch", async (stage) => {
-		vi.useFakeTimers();
-		configMockState.requestTimeoutMs = 1000;
-		seedConversationTurn(mockGetConversation, mockCreateMessage);
-		let release!: () => void;
-		const held = new Promise<void>((r) => {
-			release = r;
-		});
-		if (stage === "preflight")
-			mockGetConversation.mockImplementationOnce(async () => {
-				await held;
-				return null;
+	it.each(["preflight", "preparation"])(
+		"bounds hanging %s before model dispatch",
+		async (stage) => {
+			vi.useFakeTimers();
+			configMockState.requestTimeoutMs = 1000;
+			seedConversationTurn(mockGetConversation, mockCreateMessage);
+			let release!: () => void;
+			const held = new Promise<void>((r) => {
+				release = r;
 			});
-		else
-			mockListPendingWrites.mockImplementationOnce(async () => {
-				await held;
-				return [];
-			});
-		const response = POST(
-			makeEvent({ message: "Hello", conversationId: "conv-1" }),
-		);
-		await vi.advanceTimersByTimeAsync(1000 + TURN_FINALIZATION_WINDOW_MS);
-		expect((await response).status).toBe(502);
-		release();
-		await vi.advanceTimersByTimeAsync(0);
-		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
-	});
+			if (stage === "preflight")
+				mockGetConversation.mockImplementationOnce(async () => {
+					await held;
+					return null;
+				});
+			else
+				mockListPendingWrites.mockImplementationOnce(async () => {
+					await held;
+					return [];
+				});
+			const response = POST(
+				makeEvent({ message: "Hello", conversationId: "conv-1" }),
+			);
+			await vi.advanceTimersByTimeAsync(1000 + TURN_FINALIZATION_WINDOW_MS);
+			expect((await response).status).toBe(502);
+			release();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
+		},
+	);
 	it("fences assistant persistence after a late user write", async () => {
 		vi.useFakeTimers();
 		configMockState.requestTimeoutMs = 1000;
@@ -541,50 +541,53 @@ describe("POST /api/chat/send", () => {
 		["failed", "transport_error", ""],
 		["stopped", "user_stop", "Partial answer"],
 		["delivered", "tool_budget", ""],
-	] as const)("exposes structured plain completion %s without changing text", async (outcome, stopCause, text) => {
-		seedConversationTurn(mockGetConversation, mockCreateMessage);
-		const terminal = {
-			version: 1,
-			turnId: "t",
-			segmentId: "s",
-			phase: "working",
-			outcome,
-			stopCause,
-			workingStopCause: stopCause,
-			closingAttempted: false,
-		};
-		const finish = vi.fn(async () => undefined);
-		mockRunPlainNormalChatSendModel.mockResolvedValue({
-			text,
-			modelId: "model1",
-			modelDisplayName: "Model 1",
-			providerUsage: null,
-			completionTurn: {
+	] as const)(
+		"exposes structured plain completion %s without changing text",
+		async (outcome, stopCause, text) => {
+			seedConversationTurn(mockGetConversation, mockCreateMessage);
+			const terminal = {
+				version: 1,
+				turnId: "t",
 				segmentId: "s",
-				getSnapshot: () => ({
-					segmentId: "s",
-					events: [],
-					completion: terminal,
-				}),
-				finish,
-			},
-		});
-		const response = await POST(
-			makeEvent({ message: "Hello", conversationId: "conv-1" }),
-		);
-		const data = await response.json();
-		expect(response.status).toBe(200);
-		expect(data.response.text).toBe(text);
-		expect(data.completion).toEqual(terminal);
-		if (outcome === "delivered") expect(data.warning).toBeUndefined();
-		else
-			expect(data.warning).toEqual({
-				code: "normal_chat_completion",
+				phase: "working",
 				outcome,
 				stopCause,
+				workingStopCause: stopCause,
+				closingAttempted: false,
+			};
+			const finish = vi.fn(async () => undefined);
+			mockRunPlainNormalChatSendModel.mockResolvedValue({
+				text,
+				modelId: "model1",
+				modelDisplayName: "Model 1",
+				providerUsage: null,
+				completionTurn: {
+					segmentId: "s",
+					getSnapshot: () => ({
+						segmentId: "s",
+						events: [],
+						completion: terminal,
+					}),
+					finish,
+				},
 			});
-		expect(finish).toHaveBeenCalled();
-	});
+			const response = await POST(
+				makeEvent({ message: "Hello", conversationId: "conv-1" }),
+			);
+			const data = await response.json();
+			expect(response.status).toBe(200);
+			expect(data.response.text).toBe(text);
+			expect(data.completion).toEqual(terminal);
+			if (outcome === "delivered") expect(data.warning).toBeUndefined();
+			else
+				expect(data.warning).toEqual({
+					code: "normal_chat_completion",
+					outcome,
+					stopCause,
+				});
+			expect(finish).toHaveBeenCalled();
+		},
+	);
 
 	it("persists the plain prepared tool timeline with the canonical answer", async () => {
 		seedConversationTurn(mockGetConversation, mockCreateMessage);

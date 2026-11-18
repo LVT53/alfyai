@@ -189,7 +189,7 @@ function autoExpireDays(expiresAt: string): number {
 }
 
 async function confirmRetire() {
-	if (!removeTarget || removeTarget.kind !== "profile_item" || !onRetire) {
+	if (removeTarget?.kind !== "profile_item" || !onRetire) {
 		return;
 	}
 	const success = await onRetire(removeTarget.item.id);

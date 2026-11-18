@@ -221,18 +221,23 @@ describe("review C: an observation the reader cannot scope", () => {
 				segmentId: "s-1",
 			},
 		],
-	] as const)("%s: ends the turn explicitly instead of leaving it sending for ever", async (_label, observation) => {
-		const h = await reconnected();
-		h.invocations[0].callbacks.onFinishPart?.({ type: "finish" } as never);
-		h.invocations[0].callbacks.onEnd("", { observation: observation as never });
-		await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
-		const snap = h.runtime.snapshot();
-		// Either settled (sending released) or an explicit unavailable error: never silence.
-		expect(snap.isSending).toBe(false);
-		expect(h.state.errors.at(-1)).toBe("chat.observationUnavailable");
-		expect(h.invocations).toHaveLength(1);
-		expect(h.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
-			expect.objectContaining({ message: "queued B" }),
-		);
-	});
+	] as const)(
+		"%s: ends the turn explicitly instead of leaving it sending for ever",
+		async (_label, observation) => {
+			const h = await reconnected();
+			h.invocations[0].callbacks.onFinishPart?.({ type: "finish" } as never);
+			h.invocations[0].callbacks.onEnd("", {
+				observation: observation as never,
+			});
+			await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+			const snap = h.runtime.snapshot();
+			// Either settled (sending released) or an explicit unavailable error: never silence.
+			expect(snap.isSending).toBe(false);
+			expect(h.state.errors.at(-1)).toBe("chat.observationUnavailable");
+			expect(h.invocations).toHaveLength(1);
+			expect(h.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "queued B" }),
+			);
+		},
+	);
 });

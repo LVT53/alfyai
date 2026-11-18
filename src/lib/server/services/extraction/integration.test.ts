@@ -233,25 +233,26 @@ describe("4 — codes the worker will not retry on its own", () => {
 		["internal", false],
 	];
 
-	it.each(
-		codes,
-	)("%s fails once, user-retryable: %s", async (code, userRetryable) => {
-		const { jobId, artifactId } = await seedJob({ name: `${code}.pdf` });
-		const extractor = createFakeExtractor({
-			steps: [{ kind: "throw", code }],
-		});
+	it.each(codes)(
+		"%s fails once, user-retryable: %s",
+		async (code, userRetryable) => {
+			const { jobId, artifactId } = await seedJob({ name: `${code}.pdf` });
+			const extractor = createFakeExtractor({
+				steps: [{ kind: "throw", code }],
+			});
 
-		expect(await runOnce(extractor)).toEqual({ jobId, status: "failed" });
-		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(1);
+			expect(await runOnce(extractor)).toEqual({ jobId, status: "failed" });
+			expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(1);
 
-		const dto = await readModel.getExtractionJobForArtifact({
-			userId: "user-1",
-			artifactId,
-		});
-		expect(dto?.status).toBe("failed");
-		expect(dto?.error?.code).toBe(code);
-		expect(dto?.retryable).toBe(userRetryable);
-	});
+			const dto = await readModel.getExtractionJobForArtifact({
+				userId: "user-1",
+				artifactId,
+			});
+			expect(dto?.status).toBe("failed");
+			expect(dto?.error?.code).toBe(code);
+			expect(dto?.retryable).toBe(userRetryable);
+		},
+	);
 });
 
 describe("5 — a worker restart resumes the remote job", () => {
@@ -412,45 +413,44 @@ describe("legacy artifacts alongside real rows", () => {
 	it.each([
 		{ name: "notes.txt", mimeType: "text/plain", route: "direct-text" },
 		{ name: "scan.pdf", mimeType: "application/pdf", route: "mineru" },
-	])("retries a legacy $name through the $route extractor", async ({
-		name,
-		mimeType,
-		route,
-	}) => {
-		const absolute = join(storageDir, name);
-		await writeFile(absolute, "legacy bytes", "utf8");
-		const legacyId = fixture.seedArtifact({
-			userId: "user-1",
-			name,
-			mimeType,
-			storagePath: relative(process.cwd(), absolute),
-			createdAt: PAST,
-		});
+	])(
+		"retries a legacy $name through the $route extractor",
+		async ({ name, mimeType, route }) => {
+			const absolute = join(storageDir, name);
+			await writeFile(absolute, "legacy bytes", "utf8");
+			const legacyId = fixture.seedArtifact({
+				userId: "user-1",
+				name,
+				mimeType,
+				storagePath: relative(process.cwd(), absolute),
+				createdAt: PAST,
+			});
 
-		const materialized = await ledger.materializeLegacyExtractionJob({
-			userId: "user-1",
-			sourceArtifactId: legacyId,
-			fileName: name,
-		});
-		expect(materialized?.intakeRoute).toBe(route);
+			const materialized = await ledger.materializeLegacyExtractionJob({
+				userId: "user-1",
+				sourceArtifactId: legacyId,
+				fileName: name,
+			});
+			expect(materialized?.intakeRoute).toBe(route);
 
-		await ledger.retryExtractionJob({
-			userId: "user-1",
-			jobId: materialized?.id ?? "",
-		});
+			await ledger.retryExtractionJob({
+				userId: "user-1",
+				jobId: materialized?.id ?? "",
+			});
 
-		const routesSeen: string[] = [];
-		const result = await runExtractionOnce(fixture.sqlite, {
-			resolveExtractor: (intakeRoute) => {
-				routesSeen.push(intakeRoute);
-				return createFakeExtractor({
-					steps: [{ kind: "succeed", text: "legacy body" }],
-				});
-			},
-			persistResult: persistInto(fixture),
-		});
+			const routesSeen: string[] = [];
+			const result = await runExtractionOnce(fixture.sqlite, {
+				resolveExtractor: (intakeRoute) => {
+					routesSeen.push(intakeRoute);
+					return createFakeExtractor({
+						steps: [{ kind: "succeed", text: "legacy body" }],
+					});
+				},
+				persistResult: persistInto(fixture),
+			});
 
-		expect(result).toEqual({ jobId: materialized?.id, status: "succeeded" });
-		expect(routesSeen).toEqual([route]);
-	});
+			expect(result).toEqual({ jobId: materialized?.id, status: "succeeded" });
+			expect(routesSeen).toEqual([route]);
+		},
+	);
 });

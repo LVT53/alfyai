@@ -520,160 +520,164 @@ const transports = [
 	["the streaming chat", true],
 ] as const;
 
-it.each(
-	transports,
-)("lets the model answer when the working deadline cuts off a call that only reads (%s)", async (_transport, streaming) => {
-	const answer =
-		"The search did not come back in time, so here is what I know instead.";
-	const search = aSearchStillRunning(true);
+it.each(transports)(
+	"lets the model answer when the working deadline cuts off a call that only reads (%s)",
+	async (_transport, streaming) => {
+		const answer =
+			"The search did not come back in time, so here is what I know instead.";
+		const search = aSearchStillRunning(true);
 
-	const turn = await runTurnWithTool({
-		toolName: "research_web",
-		toolInput: { query: "the report" },
-		answer,
-		makeTool: search.makeTool,
-		fakeClock: true,
-		streaming,
-		whileRunning: async () => {
-			await search.hasStarted;
-			await vi.advanceTimersByTimeAsync(PAST_THE_WORKING_DEADLINE_MS);
-		},
-	});
+		const turn = await runTurnWithTool({
+			toolName: "research_web",
+			toolInput: { query: "the report" },
+			answer,
+			makeTool: search.makeTool,
+			fakeClock: true,
+			streaming,
+			whileRunning: async () => {
+				await search.hasStarted;
+				await vi.advanceTimersByTimeAsync(PAST_THE_WORKING_DEADLINE_MS);
+			},
+		});
 
-	// The search was running when the working deadline cut it off. It only reads,
-	// so running it again changes nothing a person could lose: a settled failure,
-	// and the engine goes on to its one tools-disabled closing.
-	expect(turn.states).toEqual(["failed"]);
-	expect(turn.generations()).toBe(2);
-	expect(turn.completion).toMatchObject({
-		outcome: "answered",
-		stopCause: "natural_stop",
-		workingStopCause: "deadline",
-		closingAttempted: true,
-	});
-	expect(turn.answer).toBe(answer);
-	// The closing was sent the call with a result that says it ended at the
-	// deadline, and the instruction that tools are gone.
-	const results = turn
-		.secondPromptMessages()
-		.flatMap((message) => (message.role === "tool" ? message.content : []));
-	expect(results).toEqual([
-		expect.objectContaining({ toolCallId: "research_web-0" }),
-	]);
-	expect(JSON.stringify(results)).toContain("deadline");
-	expect(turn.secondPrompt()).toContain("Tools are unavailable");
-});
+		// The search was running when the working deadline cut it off. It only reads,
+		// so running it again changes nothing a person could lose: a settled failure,
+		// and the engine goes on to its one tools-disabled closing.
+		expect(turn.states).toEqual(["failed"]);
+		expect(turn.generations()).toBe(2);
+		expect(turn.completion).toMatchObject({
+			outcome: "answered",
+			stopCause: "natural_stop",
+			workingStopCause: "deadline",
+			closingAttempted: true,
+		});
+		expect(turn.answer).toBe(answer);
+		// The closing was sent the call with a result that says it ended at the
+		// deadline, and the instruction that tools are gone.
+		const results = turn
+			.secondPromptMessages()
+			.flatMap((message) => (message.role === "tool" ? message.content : []));
+		expect(results).toEqual([
+			expect.objectContaining({ toolCallId: "research_web-0" }),
+		]);
+		expect(JSON.stringify(results)).toContain("deadline");
+		expect(turn.secondPrompt()).toContain("Tools are unavailable");
+	},
+);
 
-it.each(
-	transports,
-)("still ends the turn when the working deadline cuts off a call that did not say it only reads (%s)", async (_transport, streaming) => {
-	const search = aSearchStillRunning(false);
+it.each(transports)(
+	"still ends the turn when the working deadline cuts off a call that did not say it only reads (%s)",
+	async (_transport, streaming) => {
+		const search = aSearchStillRunning(false);
 
-	const turn = await runTurnWithTool({
-		toolName: "research_web",
-		toolInput: { query: "the report" },
-		answer: "Never asked for.",
-		makeTool: search.makeTool,
-		fakeClock: true,
-		streaming,
-		whileRunning: async () => {
-			await search.hasStarted;
-			await vi.advanceTimersByTimeAsync(PAST_THE_WORKING_DEADLINE_MS);
-		},
-	});
+		const turn = await runTurnWithTool({
+			toolName: "research_web",
+			toolInput: { query: "the report" },
+			answer: "Never asked for.",
+			makeTool: search.makeTool,
+			fakeClock: true,
+			streaming,
+			whileRunning: async () => {
+				await search.hasStarted;
+				await vi.advanceTimersByTimeAsync(PAST_THE_WORKING_DEADLINE_MS);
+			},
+		});
 
-	// A tool that has not said it only reads may have written before it was cut
-	// off: the engine stops there, as it always did, and never asks again.
-	expect(turn.states).toEqual(["uncertain"]);
-	expect(turn.generations()).toBe(1);
-	expect(turn.completion).toMatchObject({
-		outcome: "incomplete",
-		stopCause: "uncertain_execution",
-	});
-});
+		// A tool that has not said it only reads may have written before it was cut
+		// off: the engine stops there, as it always did, and never asks again.
+		expect(turn.states).toEqual(["uncertain"]);
+		expect(turn.generations()).toBe(1);
+		expect(turn.completion).toMatchObject({
+			outcome: "incomplete",
+			stopCause: "uncertain_execution",
+		});
+	},
+);
 
-it.each(
-	transports,
-)("keeps a stop that cuts off a call that only reads a stop, and the call uncertain (%s)", async (_transport, streaming) => {
-	const { UserStopReason } = await import("./active-streams");
-	const stop = new AbortController();
-	const search = aSearchStillRunning(true);
+it.each(transports)(
+	"keeps a stop that cuts off a call that only reads a stop, and the call uncertain (%s)",
+	async (_transport, streaming) => {
+		const { UserStopReason } = await import("./active-streams");
+		const stop = new AbortController();
+		const search = aSearchStillRunning(true);
 
-	const turn = await runTurnWithTool({
-		toolName: "research_web",
-		toolInput: { query: "the report" },
-		answer: "Never asked for.",
-		makeTool: search.makeTool,
-		signal: stop.signal,
-		streaming,
-		whileRunning: async () => {
-			await search.hasStarted;
-			stop.abort(new UserStopReason());
-		},
-	});
+		const turn = await runTurnWithTool({
+			toolName: "research_web",
+			toolInput: { query: "the report" },
+			answer: "Never asked for.",
+			makeTool: search.makeTool,
+			signal: stop.signal,
+			streaming,
+			whileRunning: async () => {
+				await search.hasStarted;
+				stop.abort(new UserStopReason());
+			},
+		});
 
-	// The person's Stop is not the engine's deadline: the turn is stopped, and what
-	// the stop cut off is not recorded as a settled failure.
-	expect(turn.completion).toMatchObject({
-		outcome: "stopped",
-		stopCause: "user_stop",
-	});
-	expect(turn.states).toEqual(["uncertain"]);
-	expect(turn.generations()).toBe(1);
-});
+		// The person's Stop is not the engine's deadline: the turn is stopped, and what
+		// the stop cut off is not recorded as a settled failure.
+		expect(turn.completion).toMatchObject({
+			outcome: "stopped",
+			stopCause: "user_stop",
+		});
+		expect(turn.states).toEqual(["uncertain"]);
+		expect(turn.generations()).toBe(1);
+	},
+);
 
-it.each(
-	transports,
-)("closes on the same provider after the cut, with a fallback provider configured (%s)", async (_transport, streaming) => {
-	const { MockLanguageModelV3 } = await import("ai/test");
-	const answer = "The search did not come back in time.";
-	const backup = new MockLanguageModelV3({
-		doGenerate: async () => ({
-			content: [{ type: "text" as const, text: "The fallback answered." }],
-			finishReason: { unified: "stop" as const, raw: "stop" },
-			usage,
-			warnings: [],
-		}),
-	});
-	// Model Run offers a fallback only for an error its own classifier calls
-	// retryable (normal-chat-model/index.ts, resolveNormalChatFallbackProvider):
-	// a provider that timed out, rate-limited, or failed upstream. The engine's own
-	// deadline is none of those, so the turn must not leave its provider (possibly
-	// a cloud one) for it.
-	const fallback = vi.fn(async (error: unknown) =>
-		isRetryableNormalChatFallbackError(error)
-			? {
-					provider: createPlainNormalChatProvider({
-						id: "model2",
-						name: "model2",
-						modelName: "backup",
-					}),
-					modelId: "model2" as const,
-					dependencies: engineDependencies(backup),
-				}
-			: null,
-	);
-	const search = aSearchStillRunning(true);
+it.each(transports)(
+	"closes on the same provider after the cut, with a fallback provider configured (%s)",
+	async (_transport, streaming) => {
+		const { MockLanguageModelV3 } = await import("ai/test");
+		const answer = "The search did not come back in time.";
+		const backup = new MockLanguageModelV3({
+			doGenerate: async () => ({
+				content: [{ type: "text" as const, text: "The fallback answered." }],
+				finishReason: { unified: "stop" as const, raw: "stop" },
+				usage,
+				warnings: [],
+			}),
+		});
+		// Model Run offers a fallback only for an error its own classifier calls
+		// retryable (normal-chat-model/index.ts, resolveNormalChatFallbackProvider):
+		// a provider that timed out, rate-limited, or failed upstream. The engine's own
+		// deadline is none of those, so the turn must not leave its provider (possibly
+		// a cloud one) for it.
+		const fallback = vi.fn(async (error: unknown) =>
+			isRetryableNormalChatFallbackError(error)
+				? {
+						provider: createPlainNormalChatProvider({
+							id: "model2",
+							name: "model2",
+							modelName: "backup",
+						}),
+						modelId: "model2" as const,
+						dependencies: engineDependencies(backup),
+					}
+				: null,
+		);
+		const search = aSearchStillRunning(true);
 
-	const turn = await runTurnWithTool({
-		toolName: "research_web",
-		toolInput: { query: "the report" },
-		answer,
-		makeTool: search.makeTool,
-		fakeClock: true,
-		streaming,
-		fallback,
-		whileRunning: async () => {
-			await search.hasStarted;
-			await vi.advanceTimersByTimeAsync(PAST_THE_WORKING_DEADLINE_MS);
-		},
-	});
+		const turn = await runTurnWithTool({
+			toolName: "research_web",
+			toolInput: { query: "the report" },
+			answer,
+			makeTool: search.makeTool,
+			fakeClock: true,
+			streaming,
+			fallback,
+			whileRunning: async () => {
+				await search.hasStarted;
+				await vi.advanceTimersByTimeAsync(PAST_THE_WORKING_DEADLINE_MS);
+			},
+		});
 
-	expect(turn.answer).toBe(answer);
-	expect(turn.generations()).toBe(2);
-	expect(backup.doGenerateCalls).toHaveLength(0);
-	expect(backup.doStreamCalls).toHaveLength(0);
-});
+		expect(turn.answer).toBe(answer);
+		expect(turn.generations()).toBe(2);
+		expect(backup.doGenerateCalls).toHaveLength(0);
+		expect(backup.doStreamCalls).toHaveLength(0);
+	},
+);
 
 /** The tool events the browser was sent, as `type:callId`, in order. */
 function toolEventsOf(events: Array<{ type: string; callId?: string }>) {
@@ -763,71 +767,72 @@ it("says how a call ended once: a search that failed by its own timeout (the str
 	]);
 });
 
-it.each(
-	transports,
-)("closes on the same provider when the working deadline cuts the model call after a finished search, with a fallback provider configured (%s)", async (_transport, streaming) => {
-	const { MockLanguageModelV3 } = await import("ai/test");
-	const answer = "Here is what I found before the time ran out.";
-	const backup = new MockLanguageModelV3({
-		doGenerate: async () => ({
-			content: [{ type: "text" as const, text: "The fallback answered." }],
-			finishReason: { unified: "stop" as const, raw: "stop" },
-			usage,
-			warnings: [],
-		}),
-	});
-	// The error here is the reason itself: the provider's request fails with the
-	// reason its signal was aborted with, and Model Run's own classifier decides
-	// whether that is a provider failing (a retryable error) or not.
-	const fallback = vi.fn(async (error: unknown) =>
-		isRetryableNormalChatFallbackError(error)
-			? {
-					provider: createPlainNormalChatProvider({
-						id: "model2",
-						name: "model2",
-						modelName: "backup",
-					}),
-					modelId: "model2" as const,
-					dependencies: engineDependencies(backup),
-				}
-			: null,
-	);
-	let secondCallStarted!: () => void;
-	const hasSecondCall = new Promise<void>((resolve) => {
-		secondCallStarted = resolve;
-	});
+it.each(transports)(
+	"closes on the same provider when the working deadline cuts the model call after a finished search, with a fallback provider configured (%s)",
+	async (_transport, streaming) => {
+		const { MockLanguageModelV3 } = await import("ai/test");
+		const answer = "Here is what I found before the time ran out.";
+		const backup = new MockLanguageModelV3({
+			doGenerate: async () => ({
+				content: [{ type: "text" as const, text: "The fallback answered." }],
+				finishReason: { unified: "stop" as const, raw: "stop" },
+				usage,
+				warnings: [],
+			}),
+		});
+		// The error here is the reason itself: the provider's request fails with the
+		// reason its signal was aborted with, and Model Run's own classifier decides
+		// whether that is a provider failing (a retryable error) or not.
+		const fallback = vi.fn(async (error: unknown) =>
+			isRetryableNormalChatFallbackError(error)
+				? {
+						provider: createPlainNormalChatProvider({
+							id: "model2",
+							name: "model2",
+							modelName: "backup",
+						}),
+						modelId: "model2" as const,
+						dependencies: engineDependencies(backup),
+					}
+				: null,
+		);
+		let secondCallStarted!: () => void;
+		const hasSecondCall = new Promise<void>((resolve) => {
+			secondCallStarted = resolve;
+		});
 
-	const turn = await runTurnWithTool({
-		toolName: "research_web",
-		toolInput: { query: "the report" },
-		answer,
-		makeTool: instantSearch,
-		fakeClock: true,
-		streaming,
-		fallback,
-		secondCallHangsUntilAborted: true,
-		onModelCall: (n) => {
-			if (n === 1) secondCallStarted();
-		},
-		whileRunning: async () => {
-			await hasSecondCall;
-			await vi.advanceTimersByTimeAsync(PAST_THE_WORKING_DEADLINE_MS);
-		},
-	});
+		const turn = await runTurnWithTool({
+			toolName: "research_web",
+			toolInput: { query: "the report" },
+			answer,
+			makeTool: instantSearch,
+			fakeClock: true,
+			streaming,
+			fallback,
+			secondCallHangsUntilAborted: true,
+			onModelCall: (n) => {
+				if (n === 1) secondCallStarted();
+			},
+			whileRunning: async () => {
+				await hasSecondCall;
+				await vi.advanceTimersByTimeAsync(PAST_THE_WORKING_DEADLINE_MS);
+			},
+		});
 
-	// Search, the model call the deadline cut, and the closing, on one provider.
-	expect(turn.states).toEqual(["succeeded"]);
-	expect(turn.generations()).toBe(3);
-	expect(turn.completion).toMatchObject({
-		outcome: "answered",
-		stopCause: "natural_stop",
-		workingStopCause: "deadline",
-		closingAttempted: true,
-	});
-	expect(turn.answer).toBe(answer);
-	// The hook was asked, about the engine's own reason, and said no.
-	expect(fallback).toHaveBeenCalledTimes(1);
-	expect(fallback.mock.calls[0]?.[0]).toBeInstanceOf(TurnDeadlineReason);
-	expect(backup.doGenerateCalls).toHaveLength(0);
-	expect(backup.doStreamCalls).toHaveLength(0);
-});
+		// Search, the model call the deadline cut, and the closing, on one provider.
+		expect(turn.states).toEqual(["succeeded"]);
+		expect(turn.generations()).toBe(3);
+		expect(turn.completion).toMatchObject({
+			outcome: "answered",
+			stopCause: "natural_stop",
+			workingStopCause: "deadline",
+			closingAttempted: true,
+		});
+		expect(turn.answer).toBe(answer);
+		// The hook was asked, about the engine's own reason, and said no.
+		expect(fallback).toHaveBeenCalledTimes(1);
+		expect(fallback.mock.calls[0]?.[0]).toBeInstanceOf(TurnDeadlineReason);
+		expect(backup.doGenerateCalls).toHaveLength(0);
+		expect(backup.doStreamCalls).toHaveLength(0);
+	},
+);

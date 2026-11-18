@@ -1193,8 +1193,7 @@ export async function readBackfillSnapshot(
 	}
 	const snapshot = parsed as Partial<BackfillSnapshot>;
 	if (
-		!snapshot ||
-		snapshot.version !== 1 ||
+		snapshot?.version !== 1 ||
 		typeof snapshot.documents !== "object" ||
 		snapshot.documents === null
 	) {

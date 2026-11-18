@@ -135,6 +135,7 @@ async function viewerTransform(page: Page): Promise<[number, number, number]> {
 }
 
 async function zoomLevel(page: Page): Promise<number> {
+	// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 	const text = await page.getByTestId("image-lightbox-zoom-level").innerText();
 	return Number(text.replace("%", ""));
 }

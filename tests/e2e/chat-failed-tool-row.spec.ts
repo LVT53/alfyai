@@ -64,6 +64,7 @@ test.describe("a failed edit in a turn that makes a Document", () => {
 			// Folded: nothing technical on the page, neither the English of the model's
 			// own words nor the call's parameters.
 			await expect(failed).toHaveAttribute("aria-expanded", "false");
+			// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 			const text = (await turn.reply.innerText()) ?? "";
 			for (const raw of RAW_PARAMETERS) expect(text).not.toMatch(raw);
 			expect(text).not.toMatch(ENGLISH_REFUSAL);
@@ -86,6 +87,7 @@ test.describe("a failed edit in a turn that makes a Document", () => {
 			const details = turn.deliverables.getByTestId("tool-activity-details");
 			await expect(details).not.toHaveAttribute("open", "");
 			await expect(details).toContainText(ENGLISH_REFUSAL);
+			// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 			const opened = (await turn.reply.innerText()) ?? "";
 			for (const raw of RAW_PARAMETER_LINES) expect(opened).not.toMatch(raw);
 			await failed.click();

@@ -38,7 +38,7 @@
     "eval:artifacts:tools": "tsx scripts/eval-artifact-contracts/run-tool-suite.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.12",
+    "@biomejs/biome": "^2.6.8",
     "@playwright/test": "^1.59.1",
     "@sveltejs/adapter-node": "^5.5.4",
     "@sveltejs/kit": "^2.57.1",

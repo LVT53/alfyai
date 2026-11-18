@@ -277,35 +277,35 @@ describe("POST /api/conversations/batch", () => {
 	});
 
 	describe("pin", () => {
-		it.each([
-			true,
-			false,
-		])("sets the pin to %s for the chats and answers with the results", async (pinned) => {
-			const results = [
-				{
-					id: "a",
-					ok: true,
-					conversation: { id: "a", sidebarPinned: pinned },
-				},
-				{ id: "b", ok: false, error: "not_found" },
-			];
-			mockSetConversationsSidebarPinned.mockResolvedValue(results);
+		it.each([true, false])(
+			"sets the pin to %s for the chats and answers with the results",
+			async (pinned) => {
+				const results = [
+					{
+						id: "a",
+						ok: true,
+						conversation: { id: "a", sidebarPinned: pinned },
+					},
+					{ id: "b", ok: false, error: "not_found" },
+				];
+				mockSetConversationsSidebarPinned.mockResolvedValue(results);
 
-			const response = await POST(
-				makeEvent({ action: "pin", ids: ["a", "b"], pinned }),
-			);
-			const data = await response.json();
+				const response = await POST(
+					makeEvent({ action: "pin", ids: ["a", "b"], pinned }),
+				);
+				const data = await response.json();
 
-			expect(response.status).toBe(200);
-			expect(data).toEqual({ results });
-			expect(mockSetConversationsSidebarPinned).toHaveBeenCalledWith(
-				"user-1",
-				["a", "b"],
-				pinned,
-			);
-			expect(mockDeleteConversationsWithCleanup).not.toHaveBeenCalled();
-			expect(mockMoveConversationsToProject).not.toHaveBeenCalled();
-		});
+				expect(response.status).toBe(200);
+				expect(data).toEqual({ results });
+				expect(mockSetConversationsSidebarPinned).toHaveBeenCalledWith(
+					"user-1",
+					["a", "b"],
+					pinned,
+				);
+				expect(mockDeleteConversationsWithCleanup).not.toHaveBeenCalled();
+				expect(mockMoveConversationsToProject).not.toHaveBeenCalled();
+			},
+		);
 	});
 
 	describe("a service that throws", () => {

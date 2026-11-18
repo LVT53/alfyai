@@ -2262,8 +2262,7 @@ export function createNormalChatClientTurnRuntime(
 			return false;
 		}
 		if (
-			!reply ||
-			reply.role !== "assistant" ||
+			reply?.role !== "assistant" ||
 			reply.continuesMessageId ||
 			!text.trim() ||
 			normalChatOutputView(reply)?.completion?.outcome !== "failed"
@@ -3917,7 +3916,7 @@ export function createNormalChatClientTurnRuntime(
 							row.id === request.messageId ||
 							row.renderKey === request.messageId,
 					);
-					if (!row || row.role !== "assistant") {
+					if (row?.role !== "assistant") {
 						finish({ status: "unavailable" });
 						return;
 					}

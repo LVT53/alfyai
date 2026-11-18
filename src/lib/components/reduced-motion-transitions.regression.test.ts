@@ -175,49 +175,45 @@ const CASES: Case[] = [
 ];
 
 describe("Svelte transition directives are routed through reducedMotionAware", () => {
-	it.each(CASES)("$file imports reducedMotionAware from $lib/utils/motion", ({
-		file,
-	}) => {
-		const source = readComponent(file);
-		expect(source).toMatch(
-			/import\s*\{\s*reducedMotionAware\s*\}\s*from\s*["']\$lib\/utils\/motion["']/,
-		);
-	});
-
-	it.each(
-		CASES,
-	)("$file wraps its transition(s) with reducedMotionAware(...)", ({
-		file,
-		wrappedNames,
-	}) => {
-		const source = readComponent(file);
-		for (const name of wrappedNames) {
+	it.each(CASES)(
+		"$file imports reducedMotionAware from $lib/utils/motion",
+		({ file }) => {
+			const source = readComponent(file);
 			expect(source).toMatch(
-				new RegExp(`const ${name} = reducedMotionAware\\(`),
+				/import\s*\{\s*reducedMotionAware\s*\}\s*from\s*["']\$lib\/utils\/motion["']/,
 			);
-		}
-	});
+		},
+	);
 
-	it.each(
-		CASES,
-	)("$file's directives use the wrapped transition, not the bare svelte/transition export", ({
-		file,
-		wrappedNames,
-		bannedDirectives,
-	}) => {
-		const source = readComponent(file);
-		for (const banned of bannedDirectives) {
-			expect(source).not.toMatch(banned);
-		}
-		// At least one directive actually references each wrapped name —
-		// guards against an unused wrapper that never made it into markup.
-		for (const name of wrappedNames) {
-			const usedAsDirective = new RegExp(
-				`(transition|in|out):${name}(\\|(global|local))?=`,
-			).test(source);
-			expect(usedAsDirective).toBe(true);
-		}
-	});
+	it.each(CASES)(
+		"$file wraps its transition(s) with reducedMotionAware(...)",
+		({ file, wrappedNames }) => {
+			const source = readComponent(file);
+			for (const name of wrappedNames) {
+				expect(source).toMatch(
+					new RegExp(`const ${name} = reducedMotionAware\\(`),
+				);
+			}
+		},
+	);
+
+	it.each(CASES)(
+		"$file's directives use the wrapped transition, not the bare svelte/transition export",
+		({ file, wrappedNames, bannedDirectives }) => {
+			const source = readComponent(file);
+			for (const banned of bannedDirectives) {
+				expect(source).not.toMatch(banned);
+			}
+			// At least one directive actually references each wrapped name —
+			// guards against an unused wrapper that never made it into markup.
+			for (const name of wrappedNames) {
+				const usedAsDirective = new RegExp(
+					`(transition|in|out):${name}(\\|(global|local))?=`,
+				).test(source);
+				expect(usedAsDirective).toBe(true);
+			}
+		},
+	);
 });
 
 // The profile photo editor used to be one of the cases above, with its own
@@ -278,11 +274,12 @@ describe("the chip's motion stays reachable by the reduced-motion reset", () => 
 		expect(source).not.toMatch(/\n\s*animation:/);
 	});
 
-	it.each(
-		CHIP_FILES,
-	)("%s eases through --duration-standard, which the reset zeroes", (file) => {
-		const source = readComponent(file);
-		expect(source).toMatch(/transition:/);
-		expect(source).toContain("var(--duration-standard) var(--ease-out)");
-	});
+	it.each(CHIP_FILES)(
+		"%s eases through --duration-standard, which the reset zeroes",
+		(file) => {
+			const source = readComponent(file);
+			expect(source).toMatch(/transition:/);
+			expect(source).toContain("var(--duration-standard) var(--ease-out)");
+		},
+	);
 });

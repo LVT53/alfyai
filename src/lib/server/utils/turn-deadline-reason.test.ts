@@ -22,12 +22,15 @@ describe("abortedByTurnDeadline", () => {
 		["the person's Stop", new Error("The user stopped the turn")],
 		["a string that says deadline", "deadline"],
 		["an error that says deadline", new Error("deadline")],
-	])("is false for a signal aborted with %s: only the engine's own reason counts", (_what, reason) => {
-		const controller = new AbortController();
-		controller.abort(reason);
+	])(
+		"is false for a signal aborted with %s: only the engine's own reason counts",
+		(_what, reason) => {
+			const controller = new AbortController();
+			controller.abort(reason);
 
-		expect(abortedByTurnDeadline(controller.signal)).toBe(false);
-	});
+			expect(abortedByTurnDeadline(controller.signal)).toBe(false);
+		},
+	);
 
 	it("reads the reason of whichever source of a combined signal aborted first", () => {
 		const stop = new AbortController();

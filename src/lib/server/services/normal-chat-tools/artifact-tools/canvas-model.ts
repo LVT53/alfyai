@@ -219,7 +219,7 @@ export function lastKnownBoardVersion(
 			continue;
 		}
 		const metadata = entry.metadata;
-		if (!metadata || metadata.ok !== true) continue;
+		if (metadata?.ok !== true) continue;
 		const versionId = metadata.versionId;
 		if (typeof versionId !== "string") continue;
 		if (entry.name === "read_artifact") {

@@ -110,33 +110,36 @@ describe("buildWriteCard: email", () => {
 		["seen", false, "email.mark_unread"],
 		["flagged", true, "email.flag"],
 		["flagged", false, "email.unflag"],
-	])("reads flag %s=%s as %s, and names the email it changes", (flag, value, kind) => {
-		const card = cardFor(
-			operation({
-				action: "email.flag",
-				target: { id: "12", label: "Q3 numbers" },
-			}),
-			JSON.stringify({
-				uid: 12,
-				flag,
-				value,
-				from: "anna@example.com",
-				date: "2026-11-02T13:05:00.000Z",
-			}),
-		);
+	])(
+		"reads flag %s=%s as %s, and names the email it changes",
+		(flag, value, kind) => {
+			const card = cardFor(
+				operation({
+					action: "email.flag",
+					target: { id: "12", label: "Q3 numbers" },
+				}),
+				JSON.stringify({
+					uid: 12,
+					flag,
+					value,
+					from: "anna@example.com",
+					date: "2026-11-02T13:05:00.000Z",
+				}),
+			);
 
-		expect(card).toEqual({
-			kind,
-			subject: "Q3 numbers",
-			facts: [
-				{ key: "from", value: "anna@example.com" },
-				{ key: "sent", value: "2026-11-02T13:05:00.000Z" },
-			],
-			message: null,
-			risks: [],
-			danger: false,
-		});
-	});
+			expect(card).toEqual({
+				kind,
+				subject: "Q3 numbers",
+				facts: [
+					{ key: "from", value: "anna@example.com" },
+					{ key: "sent", value: "2026-11-02T13:05:00.000Z" },
+				],
+				message: null,
+				risks: [],
+				danger: false,
+			});
+		},
+	);
 
 	it("still reads a flag change stored before it named its email", () => {
 		const card = cardFor(

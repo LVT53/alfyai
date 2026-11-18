@@ -615,18 +615,21 @@ describe("validateBoardDiff — a diagram Alfy may add and rewrite (ruling 74, a
 			"sequenceDiagram\n  A->>B: GET https://x.test/users",
 			"a web address",
 		],
-	])("refuses a source with %s, adding and updating alike", (_what, code, named) => {
-		const added = validateBoardDiff(addDiagram(code), sampleBoard());
-		expect(added.accepted).toEqual([]);
-		expect(added.refused[0].reason).toBe("invalid_data");
-		expect(added.refused[0].detail).toContain(named);
-		const updated = validateBoardDiff(
-			unchecked({ op: "update_node", id: "diagram-1", data: { code } }),
-			sampleBoard(),
-		);
-		expect(updated.accepted).toEqual([]);
-		expect(updated.refused[0].detail).toContain(named);
-	});
+	])(
+		"refuses a source with %s, adding and updating alike",
+		(_what, code, named) => {
+			const added = validateBoardDiff(addDiagram(code), sampleBoard());
+			expect(added.accepted).toEqual([]);
+			expect(added.refused[0].reason).toBe("invalid_data");
+			expect(added.refused[0].detail).toContain(named);
+			const updated = validateBoardDiff(
+				unchecked({ op: "update_node", id: "diagram-1", data: { code } }),
+				sampleBoard(),
+			);
+			expect(updated.accepted).toEqual([]);
+			expect(updated.refused[0].detail).toContain(named);
+		},
+	);
 
 	it("lets the usual Mermaid syntax through: shapes, arrow labels, subgraphs, notes, quoted words, a comment", () => {
 		for (const code of [

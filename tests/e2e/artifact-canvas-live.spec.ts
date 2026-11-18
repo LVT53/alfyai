@@ -535,9 +535,12 @@ test.describe("photos and live web on the board", () => {
 		const stored = await storedBoard(seeded.boardId);
 		const photo = stored.nodes.find((node) => node.type === "photo");
 		expect(photo?.data).toMatchObject({ kind: "photo" });
-		const items = (
-			photo?.data as { items: { id: string; imageUrl: string; alt?: string }[] }
-		).items;
+		const items =
+			(
+				photo?.data as
+					| { items: { id: string; imageUrl: string; alt?: string }[] }
+					| undefined
+			)?.items ?? [];
 		expect(items.map((item) => item.id)).toEqual(BEACH);
 		for (const item of items) {
 			expect(item.imageUrl).toBe(`${PROXY}${item.id}`);
@@ -1057,8 +1060,11 @@ test.describe("photos and live web on the board", () => {
 		await savedStatus(page);
 		const stored = await storedBoard(seeded.boardId);
 		expect(
-			(stored.nodes.find((n) => n.type === "liveweb")?.data as LiveWebData)
-				.query,
+			(
+				stored.nodes.find((n) => n.type === "liveweb")?.data as
+					| LiveWebData
+					| undefined
+			)?.query,
 		).toBe("bratislava weather");
 		// What was asked travelled in the body, never in the address.
 		expect(sent).toHaveLength(2);

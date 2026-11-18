@@ -32,23 +32,25 @@ function readComponent(relativePath: string): string {
 }
 
 describe("gold/hardcoded-danger rgba() literals are gone from menu-hover styles", () => {
-	it.each(
-		TOUCHED_FILES,
-	)("%s contains no retired brand-gold rgba(194, 166, 106, …)", (relativePath) => {
-		const source = readComponent(relativePath);
+	it.each(TOUCHED_FILES)(
+		"%s contains no retired brand-gold rgba(194, 166, 106, …)",
+		(relativePath) => {
+			const source = readComponent(relativePath);
 
-		expect(source).not.toContain("rgba(194, 166, 106");
-		expect(source).not.toContain("194,166,106");
-	});
+			expect(source).not.toContain("rgba(194, 166, 106");
+			expect(source).not.toContain("194,166,106");
+		},
+	);
 
-	it.each(
-		TOUCHED_FILES,
-	)("%s contains no hardcoded danger rgba(186, 77, 77, …)", (relativePath) => {
-		const source = readComponent(relativePath);
+	it.each(TOUCHED_FILES)(
+		"%s contains no hardcoded danger rgba(186, 77, 77, …)",
+		(relativePath) => {
+			const source = readComponent(relativePath);
 
-		expect(source).not.toContain("rgba(186, 77, 77");
-		expect(source).not.toContain("186,77,77");
-	});
+			expect(source).not.toContain("rgba(186, 77, 77");
+			expect(source).not.toContain("186,77,77");
+		},
+	);
 });
 
 describe("menu-hover backgrounds source their color from the accent/danger tokens", () => {

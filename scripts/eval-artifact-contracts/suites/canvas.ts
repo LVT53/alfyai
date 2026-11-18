@@ -723,7 +723,7 @@ function chartInFrameCheck(
 		const chart = addedNodes(before, after).find(
 			(node) => node.data.kind === "chart",
 		);
-		if (!chart || chart.data.kind !== "chart") {
+		if (chart?.data.kind !== "chart") {
 			return ["request: no new chart is on the board"];
 		}
 		const problems: string[] = [];
@@ -757,7 +757,7 @@ function flowchartCheck(stops: RegExp[]): RequestedCheck["requested"] {
 	return (before, after) => {
 		const added = addedNodes(before, after);
 		const diagram = added.find((node) => node.data.kind === "mermaid");
-		if (!diagram || diagram.data.kind !== "mermaid") {
+		if (diagram?.data.kind !== "mermaid") {
 			const notes = added.filter((node) => node.data.kind === "sticky").length;
 			return [
 				`request: no diagram block was added${notes > 0 ? ` (${notes} sticky note${notes === 1 ? "" : "s"} instead)` : ""}`,
