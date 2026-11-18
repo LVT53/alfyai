@@ -13,7 +13,9 @@ import {
 	executeToolWithEnvelope,
 	isInsideToolCall,
 	markCallLocallyDistilled,
+	reasonCodeOf,
 	type ToolCallRecorder,
+	withReasonCode,
 	withToolExecutionFact,
 } from "./shared";
 import { stableStringify } from "./stable-stringify";
@@ -110,6 +112,34 @@ describe("compactModelPayload", () => {
 // need holding: the trimmed schema must not drop anything the model needs in
 // order to call the tool correctly, and validation must still reject exactly
 // what zod rejected before it was trimmed.
+describe("withReasonCode", () => {
+	it("serializes a tagged payload exactly as before and gives its code back", () => {
+		const payload = { success: false, message: "Calendar is not connected." };
+		const before = JSON.stringify(payload);
+		const tagged = withReasonCode(payload, "not_connected");
+		expect(tagged).toBe(payload);
+		expect(JSON.stringify(tagged)).toBe(before);
+		expect(stableStringify(tagged)).toBe(stableStringify({ ...payload }));
+		expect(Object.keys(tagged)).toEqual(["success", "message"]);
+		expect(reasonCodeOf(payload)).toBe("not_connected");
+		expect(reasonCodeOf({})).toBeUndefined();
+	});
+
+	it("tags the one object it was given, not an equal copy", () => {
+		const payload = { ok: false };
+		withReasonCode(payload, "item_not_found");
+		expect(reasonCodeOf({ ok: false })).toBeUndefined();
+		expect(reasonCodeOf({ ...payload })).toBeUndefined();
+	});
+
+	it("reads nothing from a value that is not an object", () => {
+		expect(reasonCodeOf(undefined)).toBeUndefined();
+		expect(reasonCodeOf(null)).toBeUndefined();
+		expect(reasonCodeOf("not_connected")).toBeUndefined();
+		expect(reasonCodeOf(7)).toBeUndefined();
+	});
+});
+
 describe("compactToolInputSchema", () => {
 	const schema = z.object({
 		query: z.string().min(1),

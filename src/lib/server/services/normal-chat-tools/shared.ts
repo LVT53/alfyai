@@ -10,6 +10,7 @@ import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { abortedByTurnDeadline } from "$lib/server/utils/turn-deadline-reason";
+import type { AnyReasonCode } from "$lib/shared/tool-reasons";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	boundedWebReadFailure,
@@ -176,6 +177,32 @@ export function withToolExecutionFact(
 ): ToolCallEntry {
 	entryExecutionFacts.set(entry, state);
 	return entry;
+}
+
+const payloadReasonCodes = new WeakMap<object, AnyReasonCode>();
+
+/**
+ * Names why an in-band failure or refusal happened (the call returned a payload
+ * saying so instead of throwing), from its tool's closed list in
+ * `$lib/shared/tool-reasons`. The code travels BESIDE the payload, never in it:
+ * what the model reads, and the bytes `JSON.stringify` and `stableStringify`
+ * give, stay exactly as they were. The tag belongs to this object, so read it
+ * with `reasonCodeOf` where the entry is built, before the envelope compacts the
+ * payload into a new object, and write it as `metadata.reasonCode`.
+ */
+export function withReasonCode<T extends object>(
+	payload: T,
+	code: AnyReasonCode,
+): T {
+	payloadReasonCodes.set(payload, code);
+	return payload;
+}
+
+/** The code `withReasonCode` gave this very payload, if any. */
+export function reasonCodeOf(payload: unknown): AnyReasonCode | undefined {
+	return payload !== null && typeof payload === "object"
+		? payloadReasonCodes.get(payload)
+		: undefined;
 }
 
 export interface ToolCallRecorder {

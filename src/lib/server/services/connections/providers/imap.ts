@@ -22,6 +22,7 @@
 // `ImapFlowLike` (via `vi.mock("imapflow", ...)`), so no real socket is ever
 // opened in the test suite.
 import { ImapFlow } from "imapflow";
+import { CONNECTOR_PLACEHOLDER_TITLES } from "$lib/shared/tool-reasons";
 import { registerConnectionAdapter } from "../adapters";
 import type { ConnectionAdapter } from "../registry";
 import {
@@ -626,7 +627,7 @@ function toEmailHeader(msg: ImapFetchedMessage): EmailHeader {
 	return {
 		uid: msg.uid,
 		from: formatFrom(msg.envelope),
-		subject: msg.envelope?.subject ?? "(no subject)",
+		subject: msg.envelope?.subject ?? CONNECTOR_PLACEHOLDER_TITLES.noSubject,
 		date: formatDate(msg),
 		seen: msg.flags?.has("\\Seen") ?? false,
 	};

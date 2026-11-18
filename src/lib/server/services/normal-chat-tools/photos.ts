@@ -34,6 +34,7 @@ import {
 	STEP_IMAGE_TURN_BUDGET,
 	type StepImageQueue,
 } from "$lib/server/services/vision/step-images";
+import { CONNECTOR_PLACEHOLDER_TITLES } from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
@@ -224,7 +225,7 @@ function toToolResultItem(
 function citationLabel(item: PhotoToolResultItem): string {
 	if (item.fileName) return item.fileName;
 	if (item.description) return item.description;
-	return "(photo)";
+	return CONNECTOR_PLACEHOLDER_TITLES.photo;
 }
 
 // Sources-tab candidate — keeps the real filename/thumbnailPath (the user's
