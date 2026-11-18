@@ -300,6 +300,15 @@ describe("the notches a scrubber draws", () => {
 		]);
 	});
 
+	// A Document's or a report's title, straight after it its first section's heading:
+	// two marks a hair apart on the line, read as one. One is drawn there, the
+	// title's, at the start, and the other headings keep theirs.
+	it("draws one mark where a title and the first section's heading meet: the title's", () => {
+		expect(drawnNotches(longScript(60, { headings: [0, 1, 20, 40] }))).toEqual([
+			0, 20, 40,
+		]);
+	});
+
 	it("past 28 sentences with no heading, or only one, draws the paragraphs' starts", () => {
 		const paragraphs = [0, 10, 20, 30, 40, 50];
 		expect(drawnNotches(longScript(60, { paragraphs }))).toEqual(paragraphs);
