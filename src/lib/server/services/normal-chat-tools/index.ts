@@ -2,7 +2,6 @@ import type { JSONSchema7 } from "@ai-sdk/provider";
 import { type Tool, type ToolExecutionOptions, tool } from "ai";
 import { z } from "zod";
 import type { ModelId } from "$lib/model-types";
-
 import {
 	getConfig,
 	isImageMakingConfigured,
@@ -46,7 +45,9 @@ import {
 import { modelIdCanSeeImages } from "$lib/server/services/vision/model-vision";
 import type { StepImageQueue } from "$lib/server/services/vision/step-images";
 import {
+	boundGroundedWebView,
 	buildGroundedWebModelPayload,
+	buildGroundedWebPageFromFetch,
 	createGroundedWebCandidates,
 	createGroundedWebMetadata,
 	summarizeGroundedWebResult,
@@ -149,6 +150,10 @@ import {
 	summarizeMemoryContextResult,
 } from "./memory-context";
 import { resolveModelContextTokens } from "./model-context-tokens";
+import {
+	getReadResultGrant,
+	markBudgetedReadTool,
+} from "./model-payload-budget";
 import {
 	photosToolInputSchema,
 	runPhotosTool,
@@ -920,11 +925,26 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										// Keep the answer brief sized to the same model-aware cap the
 										// fetch used, so the detailed full_content isn't re-truncated
 										// below it when building the model payload.
+										const grant = getReadResultGrant(options);
+										const page =
+											grant && result.sources.length === 1
+												? buildGroundedWebPageFromFetch(result)
+												: null;
+										const selected = grant
+											? boundGroundedWebView({
+													result,
+													pages: page ? [page] : [],
+													name: "fetch_url",
+													cached: !!cached,
+													maxPayloadTokens: grant.maxPayloadTokens,
+												})
+											: undefined;
 										const modelPayload = {
-											...buildGroundedWebModelPayload(result, {
-												maxMarkdownChars: maxCharsTotal,
-												name: "fetch_url",
-											}),
+											...(selected?.modelPayload ??
+												buildGroundedWebModelPayload(result, {
+													maxMarkdownChars: maxCharsTotal,
+													name: "fetch_url",
+												})),
 											...(cached ? { cached: true as const } : {}),
 											...(refusedCount > 0
 												? {
@@ -932,7 +952,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													}
 												: {}),
 										};
-										const candidates = createGroundedWebCandidates(result);
+										const candidates =
+											selected?.candidates ??
+											createGroundedWebCandidates(result);
 										return {
 											modelPayload,
 											entry: {
@@ -942,11 +964,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												// included: the one place they are kept.
 												input: safeInput,
 												status: "done",
-												outputSummary: summarizeGroundedWebResult(result),
+												outputSummary: selected
+													? `${selected.modelPayload.sources.length} sources, ${selected.modelPayload.evidence.length} evidence items (${selected.modelPayload.coverage}).`
+													: summarizeGroundedWebResult(result),
 												sourceType: "web",
 												candidates,
 												metadata: {
-													...createGroundedWebMetadata(result),
+													...(selected?.metadata ??
+														createGroundedWebMetadata(result)),
 													...(cached ? { cached: true as const } : {}),
 													...(refusedCount > 0
 														? { refusedUrlCount: refusedCount }
@@ -3385,6 +3410,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		compactToolSchemas(tools),
 		collectDegradedToolHints(getCachedToolHealthSnapshot()),
 	);
+
+	if (tools.fetch_url) markBudgetedReadTool(tools.fetch_url);
 
 	return {
 		tools: hintedTools,

@@ -70,6 +70,7 @@ import {
 	isProduceFileRequest,
 	shouldForceProduceFileTool,
 } from "./index";
+import { supportsReadResultBudget } from "./model-payload-budget";
 import { MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN } from "./produce-file";
 import {
 	type ReadGeneratedFileResult,
@@ -396,6 +397,31 @@ function withoutResultDigest<
 }
 
 describe("createNormalChatTools", () => {
+	it("Task 2 opts only the real research/fetch factory executors into result budgets", () => {
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "opt-in",
+			turnId: "opt-in",
+			enabledConnectionCapabilities: new Set([
+				"files",
+				"calendar",
+				"email",
+				"photos",
+				"media",
+				"location",
+				"contacts",
+				"repos",
+				"tasks",
+			]),
+		});
+		expect(
+			Object.entries(tools)
+				.filter(([, definition]) => supportsReadResultBudget(definition))
+				.map(([name]) => name)
+				.sort(),
+		).toEqual(["fetch_url", "research_web"]);
+	});
+
 	type SubmitIntakeBodyShape = {
 		body: {
 			idempotencyKey?: string;

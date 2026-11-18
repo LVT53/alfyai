@@ -1,10 +1,11 @@
 import { asSchema } from "@ai-sdk/provider-utils";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { TurnDeadlineReason } from "$lib/server/utils/turn-deadline-reason";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import { bindReadResultGrant } from "./model-payload-budget";
 import {
 	compactModelPayload,
 	compactToolInputSchema,
@@ -15,6 +16,7 @@ import {
 	type ToolCallRecorder,
 	withToolExecutionFact,
 } from "./shared";
+import { stableStringify } from "./stable-stringify";
 
 describe("compactModelPayload", () => {
 	it("drops undefined, null, empty string, empty array and empty object values", () => {
@@ -869,4 +871,300 @@ it("keeps trusted non-execution certainty private and bound to the original resu
 		},
 	});
 	expect(recorder.getExecutionCertainty?.(later)).toBeUndefined();
+});
+
+// Task 2 RED: capability-granted web reads commit one validated view on ALL
+// paths. These local run/onError fixtures replace upstream work, not shaping,
+// compaction, recording or certainty classification.
+describe("Task 2 granted web envelope commit", () => {
+	const grant = {
+		kind: "admitted" as const,
+		turnId: "t",
+		segmentId: "s",
+		attemptId: "a",
+		stepId: "step",
+		executionId: "e",
+		proposalOrdinal: 0,
+		maxPayloadTokens: 1_200,
+		maxFailurePayloadTokens: 256,
+	};
+	const stale = "UNSELECTED_SUCCESS_FACT";
+	function entry(): ToolCallEntry {
+		return {
+			callId: "call",
+			name: "research_web",
+			input: {},
+			status: "done",
+			outputSummary: stale,
+			candidates: [
+				{
+					id: "stale",
+					title: stale,
+					url: "https://omitted.example/",
+					snippet: stale,
+					sourceType: "web",
+					material: true,
+				},
+			],
+			metadata: {
+				ok: true,
+				evidenceReady: true,
+				sourceCount: 1,
+				evidenceCount: 1,
+			},
+			resultDigest: stale,
+		};
+	}
+	function bound(kind: "admitted" | "denied" = "admitted") {
+		expect(bindReadResultGrant).toBeTypeOf("function");
+		return bindReadResultGrant(
+			{ toolCallId: "call", messages: [] },
+			kind === "admitted" ? grant : { ...grant, kind, maxPayloadTokens: 0 },
+		);
+	}
+
+	it("commits the fitting selected view without losing coverage semantics during compaction", async () => {
+		const options = bound();
+		const base = createToolCallRecorder();
+		const observed: unknown[] = [];
+		const payload = {
+			success: true,
+			name: "research_web",
+			bounded: true,
+			coverage: "full",
+			omitted: { sources: 0, evidence: 0, pages: 0 },
+			pageRanges: [],
+			hint: "Fetched candidate view.",
+			sources: [{ id: "p0", url: "https://selected.example/" }],
+			evidence: [
+				{
+					id: "p0e0",
+					sourceId: "p0",
+					quote: "Selected fact.",
+					url: "https://selected.example/",
+				},
+			],
+		};
+		const selectedEntry: ToolCallEntry = {
+			callId: "call",
+			name: "research_web",
+			input: {},
+			status: "done",
+			candidates: [],
+			metadata: { ok: true, evidenceReady: true },
+		};
+		const recorder: ToolCallRecorder = {
+			...base,
+			observeResult: ({ payload: output, entry: observedEntry }) => {
+				expect(observedEntry).toBe(selectedEntry);
+				observed.push(output);
+			},
+		};
+		const returned = await executeToolWithEnvelope({
+			toolName: "research_web",
+			timeoutMs: 5_000,
+			readOnly: true,
+			options,
+			recorder,
+			run: async () => ({ modelPayload: payload, entry: selectedEntry }),
+			onError: () => {
+				throw new Error("A fitting view must commit successfully");
+			},
+		});
+		expect(returned).toEqual(payload);
+		expect(observed).toEqual([returned]);
+		expect(base.getEntries()).toHaveLength(1);
+		expect(estimateTokenCount(stableStringify(returned))).toBeLessThanOrEqual(
+			1_200,
+		);
+	});
+
+	it("denies before run and commits a nonempty refusal using its independent failure allowance", async () => {
+		const options = bound("denied");
+		let reads = 0;
+		const recorder = createToolCallRecorder();
+		const returned = await executeToolWithEnvelope({
+			toolName: "research_web",
+			timeoutMs: 5_000,
+			readOnly: true,
+			options,
+			recorder,
+			run: async () => {
+				reads++;
+				return {
+					modelPayload: {
+						success: true,
+						name: "research_web",
+						message: "read",
+					},
+					entry: entry(),
+				};
+			},
+			onError: () => ({
+				modelPayload: {
+					success: false,
+					name: "research_web",
+					message: "arbitrary refusal ".repeat(10_000),
+				},
+				entry: entry(),
+			}),
+		});
+		expect(reads).toBe(0);
+		expect(returned.success).toBe(false);
+		expect(estimateTokenCount(stableStringify(returned))).toBeLessThanOrEqual(
+			256,
+		);
+		expect(stableStringify(returned).length).toBeGreaterThan(2);
+		expect(recorder.getExecutionCertainty?.(returned)).toBe(
+			"definitely_not_executed",
+		);
+		expect(JSON.stringify(recorder.getEntries())).not.toContain(stale);
+		expect(recorder.getEntries()).toHaveLength(1);
+	});
+
+	it.each([
+		"invalid-success",
+		"returned-failure",
+		"onError",
+	] as const)("replaces %s before observation/recording without stale citation support", async (path) => {
+		const options = bound();
+		let reads = 0;
+		const base = createToolCallRecorder();
+		const observed: unknown[] = [];
+		const recorder: ToolCallRecorder = {
+			...base,
+			observeResult: ({ payload }) => {
+				observed.push(payload);
+			},
+		};
+		const payload = {
+			success: path === "invalid-success",
+			name: "research_web",
+			bounded: true,
+			coverage: "full",
+			message: "uncommitted content ".repeat(10_000),
+		};
+		const returned = await executeToolWithEnvelope({
+			toolName: "research_web",
+			timeoutMs: 5_000,
+			readOnly: true,
+			options,
+			recorder,
+			run: async () => {
+				reads++;
+				if (path === "onError") throw new Error("upstream failed");
+				return { modelPayload: payload, entry: entry() };
+			},
+			onError: () => ({
+				modelPayload: { ...payload, success: false },
+				entry: entry(),
+			}),
+		});
+		expect(reads).toBe(1);
+		expect(returned).toMatchObject({
+			success: false,
+			bounded: true,
+			coverage: "none",
+		});
+		expect(estimateTokenCount(stableStringify(returned))).toBeLessThanOrEqual(
+			256,
+		);
+		expect(base.getExecutionCertainty?.(returned)).toBe("failed");
+		expect(observed).toEqual([returned]);
+		expect(base.getEntries()).toHaveLength(1);
+		const committed = base.getEntries()[0];
+		expect(committed.callId).toBe("call");
+		expect(committed.candidates ?? []).toEqual([]);
+		expect(committed.metadata?.evidenceReady).toBe(false);
+		expect(JSON.stringify(committed)).not.toContain(stale);
+		// Real SDK/capture/wire equality follows after GO; this holds the actual
+		// envelope result equal to its observation and JSON semantic view now.
+		expect(JSON.parse(JSON.stringify(returned))).toEqual(observed[0]);
+	});
+});
+
+it("Task 2 replaces a throwing onError with a known failed exact result", async () => {
+	const base = createToolCallRecorder();
+	const observed: unknown[] = [];
+	const options = bindReadResultGrant(
+		{ toolCallId: "throwing-error", messages: [] },
+		{
+			kind: "admitted",
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "step",
+			executionId: "e",
+			proposalOrdinal: 0,
+			maxPayloadTokens: 1200,
+			maxFailurePayloadTokens: 256,
+		},
+	);
+	const returned = await executeToolWithEnvelope({
+		toolName: "research_web",
+		timeoutMs: 5000,
+		readOnly: true,
+		options,
+		recorder: {
+			...base,
+			observeResult: ({ payload }) => {
+				observed.push(payload);
+			},
+		},
+		run: async () => {
+			throw new Error("read failed");
+		},
+		onError: () => {
+			throw new Error("error shaping failed");
+		},
+	});
+	expect(returned).toMatchObject({
+		success: false,
+		bounded: true,
+		coverage: "none",
+	});
+	expect(base.getExecutionCertainty?.(returned)).toBe("failed");
+	expect(observed).toEqual([returned]);
+	expect(base.getEntries()).toHaveLength(1);
+});
+
+it("Task 2 commits no unchecked payload when its denial has no failure allowance", async () => {
+	const base = createToolCallRecorder();
+	let reads = 0;
+	const options = bindReadResultGrant(
+		{ toolCallId: "no-failure-room", messages: [] },
+		{
+			kind: "denied",
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "step",
+			executionId: "e",
+			proposalOrdinal: 0,
+			maxPayloadTokens: 0,
+			maxFailurePayloadTokens: 0,
+		},
+	);
+	await expect(
+		executeToolWithEnvelope({
+			toolName: "research_web",
+			timeoutMs: 5000,
+			readOnly: true,
+			options,
+			recorder: base,
+			run: async () => {
+				reads++;
+				return {
+					modelPayload: { success: true },
+					entry: { name: "research_web", input: {}, status: "done" as const },
+				};
+			},
+			onError: () => ({
+				modelPayload: { success: false },
+				entry: { name: "research_web", input: {}, status: "failed" as const },
+			}),
+		}),
+	).rejects.toThrow("Web read result capacity exhausted");
+	expect(reads).toBe(0);
+	expect(base.getEntries()).toEqual([]);
 });

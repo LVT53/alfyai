@@ -1,9 +1,14 @@
+import type { Tool, ToolExecutionOptions } from "ai";
 import { describe, expect, it } from "vitest";
 
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
+	bindReadResultGrant,
 	capModelPayload,
+	getReadResultGrant,
+	markBudgetedReadTool,
+	supportsReadResultBudget,
 	TOOL_RESULT_MAX_TOKENS,
 } from "./model-payload-budget";
 import {
@@ -305,4 +310,180 @@ describe("executeToolWithEnvelope's ceiling", () => {
 		expect(returned.message).toBe(hugeFailure);
 		expect(returned.truncated).toBeUndefined();
 	});
+});
+
+// Task 2 RED: a grant is a capability on one exact options object, not SDK
+// context data or a tool-name permission that spreads can accidentally copy.
+describe("Task 2 opaque read-result grants", () => {
+	const grant = {
+		kind: "admitted" as const,
+		turnId: "t",
+		segmentId: "s",
+		attemptId: "a",
+		stepId: "step",
+		executionId: "e",
+		proposalOrdinal: 0,
+		maxPayloadTokens: 1_200,
+		maxFailurePayloadTokens: 256,
+	};
+
+	it("binds only the fresh exact options object while preserving every SDK field by identity", () => {
+		expect(bindReadResultGrant).toBeTypeOf("function");
+		const options: ToolExecutionOptions & { extension: object } = {
+			toolCallId: "call",
+			messages: [],
+			abortSignal: new AbortController().signal,
+			experimental_context: Object.freeze({ unrelated: "preserved" }),
+			extension: {},
+		};
+		const supplied = { ...grant };
+		const bound = bindReadResultGrant(options, supplied);
+		expect(bound).not.toBe(options);
+		expect(Reflect.ownKeys(bound)).toEqual(Reflect.ownKeys(options));
+		for (const key of Object.keys(options))
+			expect(Reflect.get(bound, key)).toBe(Reflect.get(options, key));
+		expect(getReadResultGrant(options)).toBeUndefined();
+		expect(getReadResultGrant({ ...bound })).toBeUndefined();
+		expect(getReadResultGrant(bound)).toMatchObject(grant);
+		expect(Object.isFrozen(getReadResultGrant(bound))).toBe(true);
+		supplied.maxPayloadTokens = 1;
+		expect(getReadResultGrant(bound)?.maxPayloadTokens).toBe(1_200);
+	});
+
+	it("opts in the execute function across tool spreads without opting in another same-name tool", () => {
+		expect(markBudgetedReadTool).toBeTypeOf("function");
+		const original: Tool = { execute: async () => ({ success: true }) };
+		expect(supportsReadResultBudget(original)).toBe(false);
+		expect(markBudgetedReadTool(original)).toBe(original);
+		expect(supportsReadResultBudget({ ...original })).toBe(true);
+		expect(
+			supportsReadResultBudget({
+				...original,
+				execute: async () => ({ success: true }),
+			}),
+		).toBe(false);
+	});
+
+	it("retains a denied grant's separate nonzero refusal allowance", () => {
+		expect(bindReadResultGrant).toBeTypeOf("function");
+		const options = bindReadResultGrant(
+			{ toolCallId: "denied", messages: [] },
+			{
+				...grant,
+				kind: "denied",
+				maxPayloadTokens: 0,
+				maxFailurePayloadTokens: 256,
+			},
+		);
+		expect(getReadResultGrant(options)).toMatchObject({
+			kind: "denied",
+			maxPayloadTokens: 0,
+			maxFailurePayloadTokens: 256,
+		});
+	});
+});
+
+describe("Task 2 engine proposal-order leases", () => {
+	it("admits exactly U=h_i+f_i and denies one below without spending its failure reserve", async () => {
+		const { createCompletionReadBudget, measureReadResultFraming } =
+			await import("../normal-chat-model/completion-tools");
+		const { boundedWebReadFailure } = await import("./model-payload-budget");
+		const entry = {
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "step",
+			executionId: "e",
+			toolName: "research_web",
+			callId: "c",
+			input: {},
+		};
+		const h = measureReadResultFraming(entry);
+		const f = estimate(boundedWebReadFailure("research_web"));
+		const pool = createCompletionReadBudget();
+		pool.freeze("step", h + f, h + f);
+		expect(pool.allocate(entry)).toMatchObject({
+			kind: "admitted",
+			maxPayloadTokens: f,
+			maxFailurePayloadTokens: f,
+			proposalOrdinal: 0,
+		});
+		expect(pool.allocate({ ...entry, executionId: "e2" })).toMatchObject({
+			kind: "denied",
+			maxPayloadTokens: 0,
+			maxFailurePayloadTokens: f,
+			proposalOrdinal: 1,
+		});
+		expect(
+			pool.allocate({ ...entry, executionId: "e3" }).maxFailurePayloadTokens,
+		).toBe(0);
+		const below = createCompletionReadBudget();
+		below.freeze("step", h + f - 1, h + f);
+		expect(below.allocate(entry)).toMatchObject({
+			kind: "denied",
+			maxFailurePayloadTokens: f,
+		});
+	});
+
+	it("keeps leases scoped, frozen and independent of results, with unknown room denied", async () => {
+		const { createCompletionReadBudget } = await import(
+			"../normal-chat-model/completion-tools"
+		);
+		const entry = {
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "step",
+			executionId: "e",
+			toolName: "research_web",
+			callId: "c",
+			input: {},
+		};
+		const pool = createCompletionReadBudget();
+		pool.freeze("step", 10_000, 1_000);
+		const first = pool.allocate(entry);
+		const second = pool.allocate({ ...entry, executionId: "e2" });
+		expect(first.maxPayloadTokens).toBeGreaterThan(second.maxPayloadTokens);
+		pool.freeze("step", 100_000, 100_000); // same step cannot refund/refreeze
+		const third = pool.allocate({ ...entry, executionId: "e3" });
+		expect(third.maxPayloadTokens).toBeLessThan(second.maxPayloadTokens);
+		pool.freeze("next", Number.NaN, 1_000);
+		expect(pool.allocate({ ...entry, stepId: "next" })).toMatchObject({
+			kind: "denied",
+			maxPayloadTokens: 0,
+			proposalOrdinal: 0,
+		});
+	});
+});
+
+it("Task 2 total proposal leases plus measured wrappers never exceed the frozen pool", async () => {
+	const { createCompletionReadBudget, measureReadResultFraming } = await import(
+		"../normal-chat-model/completion-tools"
+	);
+	const pool = createCompletionReadBudget();
+	pool.freeze("step", 10_000, 1_000);
+	let charged = 0,
+		refusal = 0;
+	for (let i = 0; i < 30; i++) {
+		const proposal = {
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "step",
+			executionId: `e${i}`,
+			toolName: "research_web",
+			callId: `c${i}`,
+			input: {},
+		};
+		const grant = pool.allocate(proposal);
+		if (grant.kind === "admitted")
+			charged += measureReadResultFraming(proposal) + grant.maxPayloadTokens;
+		else if (grant.maxFailurePayloadTokens > 0)
+			refusal +=
+				measureReadResultFraming(proposal) + grant.maxFailurePayloadTokens;
+		expect(grant.proposalOrdinal).toBe(i);
+		expect(charged).toBeLessThanOrEqual(10_000);
+		expect(refusal).toBeLessThanOrEqual(1_000);
+	}
+	expect(pool.exhausted).toBe(true);
 });

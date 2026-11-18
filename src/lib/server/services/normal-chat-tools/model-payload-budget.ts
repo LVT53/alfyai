@@ -6,6 +6,7 @@
 // recorder observes or records it, so no present or future tool can own the
 // model context by itself.
 
+import type { Tool, ToolExecutionOptions } from "ai";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { stableStringify } from "./stable-stringify";
 
@@ -104,4 +105,70 @@ export function capModelPayload<T>(
 	}
 
 	return capped as T;
+}
+
+const readResultBrand: unique symbol = Symbol("ReadResultGrant");
+export type ReadResultGrantSpec = Readonly<
+	{
+		turnId: string;
+		segmentId: string;
+		attemptId: string;
+		stepId: string;
+		executionId: string;
+		proposalOrdinal: number;
+		maxFailurePayloadTokens: number;
+	} & (
+		| { kind: "admitted"; maxPayloadTokens: number }
+		| { kind: "denied"; maxPayloadTokens: 0 }
+	)
+>;
+export type ReadResultGrant = ReadResultGrantSpec & {
+	readonly [readResultBrand]: true;
+};
+const grants = new WeakMap<object, ReadResultGrant>();
+const budgetedExecutors = new WeakSet<NonNullable<Tool["execute"]>>();
+
+export function markBudgetedReadTool<T extends Tool>(tool: T): T {
+	if (tool.execute) budgetedExecutors.add(tool.execute);
+	return tool;
+}
+export function supportsReadResultBudget(tool: Tool): boolean {
+	return !!tool.execute && budgetedExecutors.has(tool.execute);
+}
+export function bindReadResultGrant(
+	options: ToolExecutionOptions,
+	grant: ReadResultGrantSpec,
+): ToolExecutionOptions {
+	const bound = { ...options };
+	grants.set(
+		bound,
+		Object.freeze({ ...grant, [readResultBrand]: true as const }),
+	);
+	return bound;
+}
+export function getReadResultGrant(
+	options: object,
+): ReadResultGrant | undefined {
+	return grants.get(options);
+}
+
+/** No payload can be committed without its independently reserved allowance. */
+export class ReadResultCapacityError extends Error {
+	constructor(readonly executed: boolean) {
+		super("Web read result capacity exhausted");
+	}
+}
+
+/** Fixed English failure, measured by the engine before any NEW lease. */
+export function boundedWebReadFailure(name: string) {
+	return {
+		success: false as const,
+		name,
+		sourceType: "web" as const,
+		bounded: true as const,
+		coverage: "none" as const,
+		omitted: { sources: 0, evidence: 0, pages: 0 },
+		pageRanges: [],
+		hint: "No usable web evidence was committed. Narrow the topic or URL for a new read.",
+	};
 }

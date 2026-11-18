@@ -29,6 +29,8 @@ import {
 } from "$lib/shared/normal-chat-output";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "../chat-turn/conversation-history";
+import { boundedWebReadFailure } from "../normal-chat-tools/model-payload-budget";
+import { stableStringify } from "../normal-chat-tools/stable-stringify";
 import {
 	providerCanSeeImages,
 	providerRunsLocally,
@@ -40,6 +42,8 @@ import {
 import { buildStepImagesMessage, stripImageParts } from "../vision/turn-images";
 import {
 	buildCompletionTools,
+	createCompletionReadBudget,
+	measureReadResultFraming,
 	toolCallRepairFunction,
 } from "./completion-tools";
 import {
@@ -559,30 +563,72 @@ export async function* runNormalChatCompletion(
 		if (uncertain()) throw new CompletionExit("uncertain_execution");
 		if (Date.now() >= snapshot.deadlineAt) throw new CompletionExit("deadline");
 	};
+	const measureRequest = async (
+		input: { system?: string; messages: ModelMessage[] },
+		tools: ToolSet | undefined,
+	) => {
+		const catalogueTokens = await countCatalogue(tools);
+		assertActive();
+		// History's text renderer excludes native reasoning; projected reasoning
+		// is still sent on compatible destinations and consumes the same window.
+		let reasoningTokens = 0,
+			imageTokens = 0;
+		const knownImages = snapshot.steps.flatMap((step) =>
+			step.imageEntries.flatMap((entry) => entry.images),
+		);
+		for (const message of input.messages) {
+			if (!Array.isArray(message.content)) continue;
+			for (const part of message.content) {
+				if (part.type === "reasoning")
+					reasoningTokens += estimateTokenCount(part.text);
+				if (part.type === "image") {
+					const encoded =
+						typeof part.image === "string"
+							? part.image
+							: part.image instanceof Uint8Array
+								? Buffer.from(part.image).toString("base64")
+								: undefined;
+					const known = knownImages.find(
+						({ image }) => image.base64 === encoded,
+					);
+					if (known && Number.isFinite(known.image.estimatedTokens))
+						imageTokens += Math.max(0, known.image.estimatedTokens);
+				}
+			}
+		}
+		return {
+			inputTokens:
+				estimateHistoryMessagesTokens(input.messages, estimateTokenCount) +
+				estimateTokenCount(input.system ?? "") +
+				reasoningTokens,
+			catalogueTokens,
+			imageTokens,
+			capacity: deps.maxModelContext,
+			preparedOutput: params.maxOutputTokens ?? params.provider.maxOutputTokens,
+		};
+	};
 	const assertFits = async (
 		input: { system?: string; messages: ModelMessage[] },
 		tools: ToolSet | undefined,
 		output = params.maxOutputTokens ?? params.provider.maxOutputTokens,
 	) => {
-		const capacity = deps.maxModelContext;
-		const toolTokens = await countCatalogue(tools);
-		assertActive();
-		// No invented model table and no shrinking of continuation evidence.
+		const measured = await measureRequest(input, tools);
 		if (
-			capacity === undefined ||
-			!Number.isFinite(capacity) ||
+			measured.capacity === undefined ||
+			!Number.isFinite(measured.capacity) ||
 			output === undefined ||
 			!Number.isFinite(output) ||
 			output <= 0 ||
-			estimateHistoryMessagesTokens(input.messages, estimateTokenCount) +
-				estimateTokenCount(input.system ?? "") +
-				toolTokens +
+			measured.inputTokens +
+				measured.catalogueTokens +
+				measured.imageTokens +
 				output +
 				CONTEXT_GUARD_MARGIN_TOKENS >
-				capacity
+				measured.capacity
 		)
 			throw new CompletionExit("context_capacity");
 	};
+
 	while (true) {
 		if (stopped()) {
 			outcome = "stopped";
@@ -845,8 +891,10 @@ export async function* runNormalChatCompletion(
 						part.providerOptions = clone(entry.providerOptions);
 					}
 		};
+		const readBudget = createCompletionReadBudget();
 		const tools = buildCompletionTools({
 			phase,
+			readBudget,
 			policy: attemptPolicy,
 			snapshot,
 			params: { tools: effectiveTools },
@@ -1094,6 +1142,57 @@ export async function* runNormalChatCompletion(
 				throw new CompletionExit("context_capacity");
 			await assertFits(input, tools, invocationOutput);
 			if (Date.now() >= deadline) throw new CompletionExit("deadline");
+			if (phase === "working") {
+				const measured = await measureRequest(input, tools);
+				const output = measured.preparedOutput;
+				const originalDestination =
+					snapshot.original.providerId === params.provider.id &&
+					snapshot.original.providerBaseUrl === params.provider.baseUrl &&
+					snapshot.original.modelName === params.provider.modelName;
+				const closingMinimum =
+					output === undefined
+						? Number.NaN
+						: originalDestination
+							? Math.min(output, 1024)
+							: output;
+				const framing = estimateHistoryMessagesTokens(
+					[
+						{ role: "assistant", content: "" },
+						{ role: "tool", content: [] },
+					],
+					estimateTokenCount,
+				);
+				const terminal =
+					measureReadResultFraming({
+						callId: "capacity-refusal",
+						toolName: "research_web",
+						input: {},
+					}) +
+					estimateTokenCount(
+						stableStringify(boundedWebReadFailure("research_web")),
+					);
+				const room = Math.floor(
+					(measured.capacity ?? Number.NaN) -
+						measured.inputTokens -
+						measured.catalogueTokens -
+						measured.imageTokens -
+						(output ?? Number.NaN) -
+						closingMinimum -
+						CONTEXT_GUARD_MARGIN_TOKENS -
+						estimateHistoryMessagesTokens(
+							[{ role: "user", content: closingInstruction }],
+							estimateTokenCount,
+						) -
+						framing,
+				);
+				const reserved =
+					Number.isFinite(room) && room >= terminal ? terminal : 0;
+				readBudget.freeze(
+					current.stepId,
+					Math.max(0, room - reserved),
+					reserved,
+				);
+			}
 			current.observedInput = clone({
 				providerId: params.provider.id,
 				...input,
@@ -1112,6 +1211,8 @@ export async function* runNormalChatCompletion(
 					throw new CompletionExit("context_capacity");
 			}
 			if (Date.now() >= deadline) throw new CompletionExit("deadline");
+
+			assertActive();
 			requestOutstanding = true;
 			return {
 				...input,
@@ -1142,13 +1243,11 @@ export async function* runNormalChatCompletion(
 					snapshot.original.providerBaseUrl === params.provider.baseUrl &&
 					snapshot.original.modelName === params.provider.modelName
 				) {
+					const measured = await measureRequest(input, undefined);
 					const room = Math.floor(
 						capacity -
-							estimateTokenCount(input.system ?? "") -
-							estimateHistoryMessagesTokens(
-								input.messages,
-								estimateTokenCount,
-							) -
+							measured.inputTokens -
+							measured.imageTokens -
 							CONTEXT_GUARD_MARGIN_TOKENS,
 					);
 					if (room < Math.min(output, 1024))
@@ -1177,6 +1276,10 @@ export async function* runNormalChatCompletion(
 									}
 									if (Date.now() >= deadline) {
 										attemptCause = "deadline";
+										return true;
+									}
+									if (readBudget.exhausted) {
+										attemptCause = "context_capacity";
 										return true;
 									}
 									return segmentWorkingSteps >= (params.maxToolSteps ?? 20);

@@ -41,6 +41,7 @@ import {
 } from "$lib/server/services/url-provenance";
 import { IMAGE_SEARCH_TOOL } from "$lib/shared/url-provenance";
 import { createNormalChatTools } from "./index";
+import { bindReadResultGrant } from "./model-payload-budget";
 import { createToolCallRecorder } from "./shared";
 import { resetToolResultCacheForTests } from "./tool-result-cache";
 
@@ -1246,4 +1247,95 @@ describe("every tool of the catalogue is classified for the provenance rule", ()
 			).toBe(1);
 		}
 	});
+});
+
+it("Task 2 observes only selected web sources and retains unrelated prior URL admission", async () => {
+	getConfigMock.mockReturnValue({
+		parallelApiKey: "synthetic",
+		parallelBaseUrl: "https://parallel.invalid",
+	} as ReturnType<typeof getConfig>);
+	const set = tools();
+	const research = requireTool(set.tools.research_web);
+	researchWebViaParallelMock.mockResolvedValueOnce(
+		groundedResult({ urls: ["https://prior.example/a"] }),
+	);
+	await research.execute(
+		{ query: "prior evidence" },
+		{ toolCallId: "prior", messages: [] },
+	);
+	const result = groundedResult({
+		urls: ["https://selected.example/a", "https://omitted.example/b"],
+		markdown: "OMITTED_FACT ".repeat(4000),
+	});
+	result.query = "selected evidence";
+	result.queries = [{ query: result.query }];
+	result.sources[1].snippet = "Omitted detail ".repeat(3000);
+	result.sources[0].snippet = null;
+	result.sources[0].highlights = [
+		"https://omitted.example/private HIDDEN_HIGHLIGHT",
+	];
+	researchWebViaParallelMock.mockResolvedValueOnce(result);
+	const options = bindReadResultGrant(
+		{ toolCallId: "bounded", messages: [] },
+		{
+			kind: "admitted",
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "step",
+			executionId: "e",
+			proposalOrdinal: 0,
+			maxPayloadTokens: 900,
+			maxFailurePayloadTokens: 256,
+		},
+	);
+	const returned = await research.execute(
+		{ query: "selected evidence" },
+		options,
+	);
+	expect(returned).toMatchObject({ bounded: true, coverage: "partial" });
+	expect(JSON.stringify(returned)).not.toContain("omitted.example");
+	expect(hasSourceHost("user-1", "selected.example")).toBe(true);
+	expect(hasSourceHost("user-1", "omitted.example")).toBe(false);
+	expect(hasSourceHost("user-1", "prior.example")).toBe(true);
+	await fetchUrl(set, ["https://omitted.example/b"]);
+	expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
+});
+
+it("Task 2 coverage:none observations never admit addresses echoed by failed reads", async () => {
+	getConfigMock.mockReturnValue({
+		parallelApiKey: "synthetic",
+		parallelBaseUrl: "https://parallel.invalid",
+	} as ReturnType<typeof getConfig>);
+	const set = tools();
+	const research = requireTool(set.tools.research_web);
+	researchWebViaParallelMock.mockRejectedValueOnce(
+		new Error("Read failed: https://error-echo.example/private"),
+	);
+	const options = bindReadResultGrant(
+		{ toolCallId: "failed-view", messages: [] },
+		{
+			kind: "admitted",
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "step",
+			executionId: "e",
+			proposalOrdinal: 0,
+			maxPayloadTokens: 900,
+			maxFailurePayloadTokens: 256,
+		},
+	);
+	const result = await research.execute(
+		{ query: "a safe research query" },
+		options,
+	);
+	expect(result).toMatchObject({
+		success: false,
+		bounded: true,
+		coverage: "none",
+	});
+	expect(hasSourceHost("user-1", "error-echo.example")).toBe(false);
+	await fetchUrl(set, ["https://error-echo.example/private"]);
+	expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
 });
