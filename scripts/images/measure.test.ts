@@ -10,48 +10,34 @@ import {
 describe("parseActiveUnits", () => {
 	it("keeps the units `systemctl is-active` calls active, matched by order", () => {
 		expect(
-			parseActiveUnits("active\ninactive\n", ["mineru41", "mineru4"]),
-		).toEqual(["mineru41"]);
+			parseActiveUnits("active\ninactive\n", ["mineru42", "mineru41"]),
+		).toEqual(["mineru42"]);
 		expect(
-			parseActiveUnits("inactive\nactive\n", ["mineru41", "mineru4"]),
-		).toEqual(["mineru4"]);
+			parseActiveUnits("inactive\nactive\n", ["mineru42", "mineru41"]),
+		).toEqual(["mineru41"]);
 	});
 	it("counts a failed, activating or unknown unit, and silence, as not active", () => {
 		expect(
-			parseActiveUnits("failed\nactivating\n", ["mineru41", "mineru4"]),
+			parseActiveUnits("failed\nactivating\n", ["mineru42", "mineru41"]),
 		).toEqual([]);
-		expect(parseActiveUnits("", ["mineru41", "mineru4"])).toEqual([]);
+		expect(parseActiveUnits("", ["mineru42", "mineru41"])).toEqual([]);
 	});
 });
 
 describe("mineruHealthUrls", () => {
 	const IN_USE = "http://127.0.0.1:8004/v1/health";
-	const ROLLBACK = "http://127.0.0.1:8002/v1/health";
-	it("probes MinerU 4.1 on :8004 whatever the units say, so a dead one shows", () => {
+	it("probes MinerU on :8004 whatever the units say, so a dead one shows", () => {
 		expect(mineruHealthUrls([])).toEqual([IN_USE]);
+		expect(mineruHealthUrls(["mineru42"])).toEqual([IN_USE]);
+	});
+	it("probes :8004 once while the rollback unit serves it in mineru42's place", () => {
 		expect(mineruHealthUrls(["mineru41"])).toEqual([IN_USE]);
-	});
-	it("also probes 4.0.12 on :8002 while the rollback unit runs (both run side by side)", () => {
-		expect(mineruHealthUrls(["mineru41", "mineru4"])).toEqual([
-			IN_USE,
-			ROLLBACK,
-		]);
-	});
-	it("does not probe 4.0.12 once its unit is retired, so it never reads as a dead neighbour", () => {
-		expect(mineruHealthUrls(["mineru41"])).not.toContain(ROLLBACK);
 	});
 });
 
 describe("neighbourHealthUrls", () => {
-	it("watches TEI, the MinerUs that run, and the MinerU VLM server", () => {
-		expect(neighbourHealthUrls(["mineru41", "mineru4"])).toEqual([
-			"http://127.0.0.1:7997/health",
-			"http://127.0.0.1:7998/health",
-			"http://127.0.0.1:8004/v1/health",
-			"http://127.0.0.1:8002/v1/health",
-			"http://127.0.0.1:30001/health",
-		]);
-		expect(neighbourHealthUrls(["mineru41"])).toEqual([
+	it("watches TEI, MinerU and the MinerU VLM server", () => {
+		expect(neighbourHealthUrls(["mineru42"])).toEqual([
 			"http://127.0.0.1:7997/health",
 			"http://127.0.0.1:7998/health",
 			"http://127.0.0.1:8004/v1/health",
