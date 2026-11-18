@@ -123,8 +123,18 @@ describe("the retry buttons", () => {
 	});
 });
 
+// The one exception (owner, 2026-11-18; ADR-0066, amended): the English name of
+// the chat's list, "Chat Artifacts", in the strings that name it. The Hungarian
+// names it without the word ("A beszélgetés elemei"), and no other value may use it.
+const CHAT_ARTIFACTS_KEYS = new Set([
+	"artifacts.panel.title",
+	"artifacts.header.buttonA11y",
+	"artifacts.header.buttonA11yPending",
+	"artifacts.error.list",
+]);
+
 describe("the word 'artifact' in the UI", () => {
-	it("appears in no dictionary value, in either language", () => {
+	it("appears in no dictionary value, in either language, but the English name of the chat's list", () => {
 		const offenders: string[] = [];
 		const modules = mergedDictionaryModules();
 		for (const [path, loaded] of Object.entries(dictionaryModules)) {
@@ -132,7 +142,12 @@ describe("the word 'artifact' in the UI", () => {
 			if (!modules.includes(name) || !loaded.default) continue;
 			for (const language of ["en", "hu"] as const) {
 				for (const [key, value] of Object.entries(loaded.default[language])) {
-					if (/artifact|artefakt/i.test(value)) {
+					const named =
+						name === "artifacts" &&
+						language === "en" &&
+						CHAT_ARTIFACTS_KEYS.has(key);
+					const checked = named ? value.replace("Chat Artifacts", "") : value;
+					if (/artifact|artefakt/i.test(checked)) {
 						offenders.push(`${name}.${language} ${key}: ${value}`);
 					}
 				}
@@ -145,6 +160,14 @@ describe("the word 'artifact' in the UI", () => {
 				modules.includes(path.replace(/^\.\//, "").replace(/\.ts$/, "")),
 			),
 		).toHaveLength(modules.length);
+	});
+
+	it("names the chat's list Chat Artifacts in English, and A beszélgetés elemei in Hungarian", () => {
+		for (const key of CHAT_ARTIFACTS_KEYS) {
+			const name = key as keyof typeof artifactsDict.en;
+			expect(artifactsDict.en[name], key).toContain("Chat Artifacts");
+			expect(artifactsDict.hu[name], key).toMatch(/a beszélgetés elemei/i);
+		}
 	});
 });
 

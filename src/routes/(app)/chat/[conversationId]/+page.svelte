@@ -299,6 +299,7 @@ import {
 	shouldHydrateFileProductionJobsOnToolCall,
 	shouldPollTakeCards,
 	takeCardsPollIntervalMs,
+	takesWaitingForTheList,
 	type DraftChangePayload,
 	type MessageEditPayload,
 	type MessageRegeneratePayload,
@@ -881,6 +882,19 @@ let filesWaitingForList = $derived(
 	filesWaitingForTheList(
 		fileProductionJobs,
 		new Set([...artifacts.map((row) => row.id), ...deletedArtifactIds]),
+		Date.now(),
+	),
+);
+// The same for a picture or a clip that landed after its tool call stopped
+// waiting: it made or changed its item then, and the cards' own read carries no
+// list (see takesWaitingForTheList). Compared with the list as the server sent
+// it, so a row whose version this browser saw rise elsewhere still asks again.
+let takesWaitingForList = $derived(
+	takesWaitingForTheList(
+		imageCards,
+		videoCards,
+		new Map(artifacts.map((row) => [row.id, row.versionNumber])),
+		new Set([...deletedArtifactIds, ...unreachableArtifactIds]),
 		Date.now(),
 	),
 );
@@ -3829,10 +3843,16 @@ $effect(() => {
 // count once the server has linked it to the reply, which is after the turn has
 // ended; the stream says nothing more and the jobs are done, so nothing else would
 // read the chat again (RC-A: every file request left both stale until a reload).
+// A picture or a clip that landed after its call stopped waiting is the same case.
 // Asking is bounded: soon, then less often, then it stops.
 $effect(() => {
 	const conversationId = data.conversation?.id;
-	if (!browser || !conversationId || !filesWaitingForList) return;
+	if (
+		!browser ||
+		!conversationId ||
+		!(filesWaitingForList || takesWaitingForList)
+	)
+		return;
 	let attempt = 0;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const askAgain = () => {
