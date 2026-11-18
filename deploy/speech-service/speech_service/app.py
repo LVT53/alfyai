@@ -34,6 +34,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.types import Message, Receive, Scope, Send
 
+from speech_service import questions
 from speech_service.aligner import Aligner, NoAligner
 from speech_service.audio import (
     SAMPLE_RATE,
@@ -204,6 +205,10 @@ class _Api:
                 self._settings.seed,
                 self._settings.steady_attempts,
                 on_retry=_preview_made_again,
+                question_lift=self._settings.question_lift,
+                question_rise=self._settings.question_rise,
+                on_flat=_preview_ended_flat,
+                rates=questions.RATES,
             )
             if rate != SAMPLE_RATE:
                 raise SynthesisFailed(f"Zonos sent audio at {rate} Hz, not {SAMPLE_RATE} Hz")
@@ -254,6 +259,17 @@ def _preview_made_again(
         seconds,
         expected,
         pause,
+        attempt,
+        attempts,
+    )
+
+
+def _preview_ended_flat(attempt: int, attempts: int, rise: float) -> None:
+    """A preview's yes/no question ended flat and is made again: numbers only, never the text."""
+    logger.info(
+        "preview: a question's clip rose %.1f semitones at its end and was made again "
+        "(attempt %d of %d)",
+        rise,
         attempt,
         attempts,
     )

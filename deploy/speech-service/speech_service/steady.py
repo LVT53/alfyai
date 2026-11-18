@@ -55,7 +55,8 @@ from typing import Protocol
 
 import numpy as np
 
-from speech_service.audio import inner_silences
+from speech_service import questions
+from speech_service.audio import inner_silences, trim_silence
 from speech_service.models import Voice
 from speech_service.zonos import ZonosError
 
@@ -82,6 +83,11 @@ class _Synthesizer(Protocol):
     async def synthesize(
         self, text: str, language: str, voice: Voice, seed: int
     ) -> tuple[np.ndarray, int]: ...
+
+
+# What a clip of a yes/no question that ends flat scores: in trouble, but less than any stall (which
+# scores above 1), so a steady flat clip is a better answer than a stalled one.
+FLAT_QUESTION = 1.0
 
 
 def longest_pause(audio: np.ndarray, rate: int) -> float:
@@ -120,6 +126,10 @@ async def synthesize_steady(
     seed: int,
     attempts: int,
     on_retry: Callable[[int, int, float, float, float], None] | None = None,
+    question_lift: float = 0.0,
+    question_rise: float = 0.0,
+    on_flat: Callable[[int, int, float], None] | None = None,
+    rates: questions.RateMemory | None = None,
 ) -> tuple[np.ndarray, int]:
     """`text` spoken in `voice`, made again under the next seed while the clip is in trouble.
 
@@ -129,29 +139,58 @@ async def synthesize_steady(
     it stays the answer. `on_retry(attempt, attempts, seconds, pause, expected)` is called, with
     numbers only (the clip's length, its longest silence and the length its text needs), each time a
     clip is given up on and another is about to be made.
+
+    A yes/no question is also asked to rise (`questions.py`): `question_lift` is the dose of the
+    pitch steering over its last word (0 asks for none), and when the text ends in such a question
+    a steady clip whose end rises less than `question_rise` semitones counts as in trouble (0 never
+    judges), less than a stall is. `on_flat(attempt, attempts, rise)` is called, with numbers only,
+    each time a clip is given up on for that and another is about to be made. With a `rates` memory
+    the lift goes by how fast the voice has been heard to speak (a span is placed by its characters,
+    and voices differ), and every clip without a stall teaches the memory.
     """
     chars = len(text)
     tempo = float(voice.controls.get(_TEMPO_CONTROL, 0.0))
+    spans = questions.question_controls(text, language, question_lift)
+    judged = question_rise > 0 and questions.ends_in_yes_no_question(text, language)
+    voice_key = f"{voice.speaker_id}|{tempo}"
     best: tuple[float, np.ndarray, int] | None = None
     for attempt in range(max(1, attempts)):
+        extra: dict[str, object] = {}
+        if spans:
+            extra["control_spans"] = spans
+            if rates is not None and abs(rates.frames_per_char(voice_key) - 1.0) > 0.02:
+                extra["control_span_rate"] = rates.frames_per_char(voice_key)
         try:
-            audio, rate = await zonos.synthesize(text, language, voice, seed + attempt * SEED_STEP)
+            audio, rate = await zonos.synthesize(
+                text, language, voice, seed + attempt * SEED_STEP, **extra
+            )
         except ZonosError:
             if best is None:
                 raise
             break
         score = trouble(audio, rate, chars, language, tempo)
+        if score == 0.0 and rates is not None:  # the speech, not the silence round it
+            rates.learn(voice_key, chars, len(trim_silence(audio, rate)) / rate)
+        rise = None
+        if score == 0.0 and judged:
+            rise = questions.question_rise(audio, rate, language, text)
+            if rise is not None and rise < question_rise:
+                score = FLAT_QUESTION
         if best is None or score < best[0]:
             best = (score, audio, rate)
         if score == 0.0:
             break
-        if attempt + 1 < attempts and on_retry is not None:
-            on_retry(
-                attempt + 1,
-                attempts,
-                len(audio) / rate,
-                longest_pause(audio, rate),
-                expected_seconds(chars, language, tempo),
-            )
+        if attempt + 1 < attempts:
+            if score == FLAT_QUESTION and rise is not None:
+                if on_flat is not None:
+                    on_flat(attempt + 1, attempts, rise)
+            elif on_retry is not None:
+                on_retry(
+                    attempt + 1,
+                    attempts,
+                    len(audio) / rate,
+                    longest_pause(audio, rate),
+                    expected_seconds(chars, language, tempo),
+                )
     assert best is not None  # the loop runs at least once, and the first failure was raised
     return best[1], best[2]

@@ -15,6 +15,8 @@ from typing import Literal, cast, get_args
 # The longest silence a setting may name, in seconds.
 _LONGEST_GAP = 5.0
 _LONGEST_BREATH = 1.0
+_MOST_LIFT = 10.0
+_MOST_RISE = 12.0
 
 AlignerKind = Literal["python", "native", "none"]
 _ALIGNERS = get_args(AlignerKind)
@@ -66,6 +68,12 @@ class Settings:
     # What each pause of 0.12 s or more inside a sentence is lengthened by (`audio.lengthen_pauses`):
     # Zonos pauses at a comma for a tenth of a second or two. 0 leaves the pauses as Zonos made them.
     breath_seconds: float = 0.12
+    # A yes/no question rises at its end in about one clip in five, whatever its length (`questions.py`).
+    # `question_lift` is the dose of the pitch steering over the question's last word (0 asks for none);
+    # `question_rise` the least rise at its end, in semitones, a question's clip must show or it is made
+    # again under the next seed, as a stall is (0 never judges).
+    question_lift: float = 5.0
+    question_rise: float = 3.0
     # Zonos caps a request at 1500 frames (about 100 s). Not an environment setting.
     max_sentence_chars: int = 400
 
@@ -103,6 +111,14 @@ class Settings:
         ):
             if not (math.isfinite(seconds) and 0 <= seconds <= longest):
                 raise ValueError(f"{name} must be a number from 0 to {longest:g}, got {seconds}")
+        # A dose past ten would take the pitch off the voice, and more than an octave of rise is more
+        # than any question has (nan and inf are neither in range).
+        for name, value, most in (
+            ("SPEECH_QUESTION_LIFT", self.question_lift, _MOST_LIFT),
+            ("SPEECH_QUESTION_RISE", self.question_rise, _MOST_RISE),
+        ):
+            if not (math.isfinite(value) and 0 <= value <= most):
+                raise ValueError(f"{name} must be a number from 0 to {most:g}, got {value}")
         # No attempt at all would be no clip, ever.
         if self.steady_attempts < 1:
             raise ValueError(
@@ -136,4 +152,6 @@ class Settings:
                 env, "SPEECH_PARAGRAPH_GAP_SECONDS", defaults.paragraph_gap_seconds, float
             ),
             breath_seconds=_read(env, "SPEECH_BREATH_SECONDS", defaults.breath_seconds, float),
+            question_lift=_read(env, "SPEECH_QUESTION_LIFT", defaults.question_lift, float),
+            question_rise=_read(env, "SPEECH_QUESTION_RISE", defaults.question_rise, float),
         )
