@@ -1410,13 +1410,11 @@ describe("lossless closing admission", () => {
 		expect(pendingAtNotification).toBe(0);
 		expect.soft(doGenerate).not.toHaveBeenCalled();
 		expect.soft(doStream).not.toHaveBeenCalled();
-		expect
-			.soft(result.completion)
-			.toMatchObject({
-				outcome: "incomplete",
-				stopCause: "context_capacity",
-				closingAttempted: true,
-			});
+		expect.soft(result.completion).toMatchObject({
+			outcome: "incomplete",
+			stopCause: "context_capacity",
+			closingAttempted: true,
+		});
 		expect(result.continuation?.closingSegments).toEqual(["s"]);
 		expect(result.continuation?.pendingImageEntries).toEqual([lateEntry]);
 		expect(result.continuation?.steps.at(-1)?.imageEntries).toEqual([]);

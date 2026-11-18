@@ -1,6 +1,7 @@
 import type {
 	LanguageModelV3CallOptions,
 	LanguageModelV3StreamPart,
+	LanguageModelV3ToolResultPart,
 } from "@ai-sdk/provider";
 import type { Tool, ToolSet } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
@@ -479,7 +480,7 @@ describe("Task 2 real SDK / prepared bounded web chain", () => {
 					.flatMap((m) => m.content);
 				expect(
 					results?.find(
-						(part) =>
+						(part): part is LanguageModelV3ToolResultPart =>
 							part.type === "tool-result" &&
 							part.toolCallId === execution.callId,
 					)?.output,
@@ -539,7 +540,7 @@ describe("Task 2 real SDK / prepared bounded web chain", () => {
 					?.prompt.filter((message) => message.role === "tool")
 					.flatMap((message) => message.content)
 					.find(
-						(part) =>
+						(part): part is LanguageModelV3ToolResultPart =>
 							part.type === "tool-result" &&
 							part.toolCallId === execution.callId,
 					)?.output,
@@ -623,7 +624,7 @@ it.each([
 			?.prompt.filter((message) => message.role === "tool")
 			.flatMap((message) => message.content)
 			.find(
-				(part) =>
+				(part): part is LanguageModelV3ToolResultPart =>
 					part.type === "tool-result" && part.toolCallId === denialCallId,
 			)?.output,
 	).toEqual(execution.modelOutput);

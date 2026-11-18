@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { estimateTokenCount } from "$lib/utils/tokens";
+import { bindReadResultGrant } from "./normal-chat-tools/model-payload-budget";
+import {
+	createToolCallRecorder,
+	executeToolWithEnvelope,
+	type ToolCallRecorder,
+} from "./normal-chat-tools/shared";
 import { stableStringify } from "./normal-chat-tools/stable-stringify";
 import {
 	baseGroundedWebDiagnostics,
@@ -610,4 +616,142 @@ it("Task 2 never restores an omitted raw highlight as factual candidate support"
 		]).map((source) => source.id),
 	).toEqual(["p1"]);
 	expect(JSON.stringify(view)).not.toContain("HIDDEN_HIGHLIGHT_FACT");
+});
+
+it.each([
+	"no support",
+	"unfittable quote",
+	"unfittable page",
+] as const)("Task 2 admits useful B before metadata-only A with %s consumes its room", async (kind) => {
+	const base = fixture();
+	const a = {
+		...base.sources[0],
+		snippet: null,
+		highlights: ["UNEXPOSED_A_FACT"],
+	};
+	const b = {
+		...base.sources[1],
+		snippet: "Useful exposed B evidence.",
+		highlights: [],
+	};
+	const evidence =
+		kind === "unfittable quote"
+			? [{ ...base.evidence[0], quote: "UNEXPOSED_A_FACT ".repeat(2_000) }]
+			: [];
+	const pages =
+		kind === "unfittable page"
+			? [
+					{
+						url: a.url,
+						title: "Page header too large to fit ".repeat(1_000),
+						contentMarkdown: "UNEXPOSED_A_FACT ".repeat(2_000),
+					},
+				]
+			: [];
+	const result = fixture({
+		sources: [a, b],
+		evidence,
+		answerBrief: { markdown: "UNEXPOSED_A_FACT", instructions: [] },
+	});
+	const before = structuredClone({ result, pages });
+	const bOnly = boundGroundedWebView({
+		result: {
+			...result,
+			sources: [b],
+			evidence: [],
+			answerBrief: { markdown: "", instructions: [] },
+		},
+		pages: [],
+		name: "research_web",
+		cached: false,
+		maxPayloadTokens: 32_000,
+	}).modelPayload;
+	const expectedB = {
+		...bOnly,
+		coverage: "partial",
+		omitted: { sources: 1, evidence: evidence.length, pages: pages.length },
+	};
+	const limit = estimateTokenCount(stableStringify(expectedB));
+	const aAndB = {
+		...expectedB,
+		sources: buildGroundedWebModelPayload(result).sources,
+		answerBrief: { sourceCount: 2, evidenceCount: 0 },
+		omitted: { ...expectedB.omitted, sources: 0 },
+	};
+	expect(estimateTokenCount(stableStringify(aAndB))).toBeGreaterThan(limit);
+	const selected = boundGroundedWebView({
+		result,
+		pages,
+		name: "research_web",
+		cached: false,
+		maxPayloadTokens: limit,
+	});
+	expect.soft(selected.modelPayload.success).toBe(true);
+	expect
+		.soft(selected.modelPayload.sources.map((source) => source.id))
+		.toEqual(["p1"]);
+	const baseRecorder = createToolCallRecorder();
+	const observed: unknown[] = [];
+	const recorder: ToolCallRecorder = {
+		...baseRecorder,
+		observeResult: ({ payload }) => {
+			observed.push(payload);
+		},
+	};
+	const options = bindReadResultGrant(
+		{ toolCallId: "material-bundle", messages: [] },
+		{
+			kind: "admitted",
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "step",
+			executionId: "e",
+			proposalOrdinal: 0,
+			maxPayloadTokens: limit,
+			maxFailurePayloadTokens: 256,
+		},
+	);
+	const returned = await executeToolWithEnvelope({
+		toolName: "research_web",
+		timeoutMs: 5_000,
+		readOnly: true,
+		options,
+		recorder,
+		run: async () => ({
+			modelPayload: selected.modelPayload,
+			entry: {
+				name: "research_web",
+				callId: "material-bundle",
+				input: {},
+				status: "done" as const,
+				candidates: selected.candidates,
+				metadata: selected.metadata,
+			},
+		}),
+		onError: () => {
+			throw new Error("A fitting material bundle must not fail");
+		},
+	});
+	expect(returned).toMatchObject({
+		success: true,
+		coverage: "partial",
+		sources: [expectedB.sources[0]],
+		evidence: [],
+	});
+	expect(observed).toEqual([returned]);
+	expect(baseRecorder.getEntries()[0].candidates).toEqual(selected.candidates);
+	expect(selected.candidates).toMatchObject([
+		{ id: "p1", snippet: b.snippet, material: true },
+	]);
+	expect(
+		extractGroundedWebCitationSources(baseRecorder.getEntries()).map(
+			(source) => source.id,
+		),
+	).toEqual(["p1"]);
+	expect(estimateTokenCount(stableStringify(returned))).toBeLessThanOrEqual(
+		limit,
+	);
+	expect(JSON.stringify(returned)).not.toContain("UNEXPOSED_A_FACT");
+	expect({ result, pages }).toEqual(before);
 });

@@ -1,5 +1,6 @@
 import type { Tool, ToolExecutionOptions } from "ai";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { estimateTokenCount } from "$lib/utils/tokens";
@@ -352,7 +353,10 @@ describe("Task 2 opaque read-result grants", () => {
 
 	it("opts in the execute function across tool spreads without opting in another same-name tool", () => {
 		expect(markBudgetedReadTool).toBeTypeOf("function");
-		const original: Tool = { execute: async () => ({ success: true }) };
+		const original: Tool = {
+			inputSchema: z.object({}),
+			execute: async () => ({ success: true }),
+		};
 		expect(supportsReadResultBudget(original)).toBe(false);
 		expect(markBudgetedReadTool(original)).toBe(original);
 		expect(supportsReadResultBudget({ ...original })).toBe(true);

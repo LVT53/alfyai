@@ -524,7 +524,9 @@ export function boundGroundedWebView(input: {
 		allEvidence.some((e) => !allSources.some((s) => s.id === e.sourceId))
 	) {
 		selected = make([], [], [], []);
+		const metadataOnly: GroundedWebPayloadSource[] = [];
 		for (const source of allSources) {
+			const beforeSource = selected;
 			let next = make(
 				[...selected.sources, source],
 				selected.evidence,
@@ -568,6 +570,29 @@ export function boundGroundedWebView(input: {
 				if (last >= 0xd800 && last <= 0xdbff) low--;
 				if (low > 0 && fits(withPrefix(low))) selected = withPrefix(low);
 			}
+			// A source identity alone must not consume a later material bundle's room.
+			if (
+				!source.snippet &&
+				selected.evidence.length === beforeSource.evidence.length &&
+				(selected.pages?.length ?? 0) === (beforeSource.pages?.length ?? 0)
+			) {
+				selected = beforeSource;
+				metadataOnly.push(source);
+			}
+		}
+		for (const source of metadataOnly) {
+			const sources = [...selected.sources, source].sort(
+				(a, b) =>
+					allSources.findIndex((s) => s.id === a.id) -
+					allSources.findIndex((s) => s.id === b.id),
+			);
+			const next = make(
+				sources,
+				selected.evidence,
+				selected.pages ?? [],
+				selected.pageRanges,
+			);
+			if (fits(next)) selected = next;
 		}
 	}
 	// Candidates never recover snippets/highlights or diagnostics from omitted content.
