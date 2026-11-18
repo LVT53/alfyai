@@ -194,17 +194,95 @@ describe("picturePlan", () => {
 	});
 
 	it("puts a cold 12 MP H3 picture near the 25 seconds it takes at four steps", () => {
-		// 13 s of load, 6.3 s of sampling (the six-step 9.5 s, times 4/6) and 6.3 s
-		// of finish.
+		// The warm ~13 s below, plus the model load of a cold engine.
 		expect(total(picturePlan(request({}), false))).toBeGreaterThanOrEqual(22);
 		expect(total(picturePlan(request({}), false))).toBeLessThanOrEqual(30);
 	});
 
-	it("gives a warm engine almost no load", () => {
+	it("gives a warm engine a short load: the text encoder and the first step's page-in", () => {
 		const cold = picturePlan(request({}), false);
 		const warm = picturePlan(request({}), true);
 		expect(warm[0]?.seconds).toBeLessThan(cold[0]?.seconds ?? 0);
-		expect(warm[0]?.seconds).toBeLessThanOrEqual(2);
+		expect(warm[0]?.seconds).toBeLessThanOrEqual(3.5);
+	});
+
+	// Measured on the box on 2026-11-18, warm, with the NumPy huge-page stall gone
+	// (docs/plans/minimax-h3-image/speed-investigation-2026-11-18.md): ComfyUI's own
+	// time, plus about a second for the app's fetch, check and store (two for an
+	// edit, which also runs its guard).
+	describe("H3 plans what the box measured", () => {
+		const base = { fileId: "base", role: "base" as const, name: "Base" };
+		const reference = (n: number) => ({
+			fileId: `ref-${n}`,
+			role: "reference" as const,
+			name: `Reference ${n}`,
+		});
+
+		it("plans a warm 12 MP new picture at four steps near its ~13 s", () => {
+			const plan = picturePlan(request({}), true);
+			expect(total(plan)).toBeGreaterThanOrEqual(11.5);
+			expect(total(plan)).toBeLessThanOrEqual(14.5);
+		});
+
+		it("plans a warm edit on its 3072x2048 canvas near its ~23 s, not the ~10 s the canvas alone gave", () => {
+			const plan = picturePlan(
+				request({
+					mode: "edit",
+					canvas: { width: 3072, height: 2048 },
+					inputs: [base],
+				}),
+				true,
+			);
+			expect(total(plan)).toBeGreaterThanOrEqual(21);
+			expect(total(plan)).toBeLessThanOrEqual(26);
+		});
+
+		it("plans a warm square 2048x2048 edit near its ~15 s", () => {
+			const plan = picturePlan(
+				request({
+					mode: "edit",
+					canvas: { width: 2048, height: 2048 },
+					inputs: [base],
+				}),
+				true,
+			);
+			expect(total(plan)).toBeGreaterThanOrEqual(13.5);
+			expect(total(plan)).toBeLessThanOrEqual(17.5);
+		});
+
+		it("adds time for every further picture an edit is given", () => {
+			const one = picturePlan(
+				request({
+					mode: "edit",
+					canvas: { width: 3072, height: 2048 },
+					inputs: [base],
+				}),
+				true,
+			);
+			const three = picturePlan(
+				request({
+					mode: "edit",
+					canvas: { width: 3072, height: 2048 },
+					inputs: [base, reference(1), reference(2)],
+				}),
+				true,
+			);
+			for (const kind of ["load", "sample"] as const) {
+				const of = (plan: EtaPlan) =>
+					plan.find((s) => s.kind === kind)?.seconds ?? 0;
+				expect(of(three)).toBeGreaterThan(of(one));
+			}
+		});
+
+		it("adds the model load to a cold engine, and only to its load", () => {
+			const warm = picturePlan(request({}), true);
+			const cold = picturePlan(request({}), false);
+			expect(
+				(cold[0]?.seconds ?? 0) - (warm[0]?.seconds ?? 0),
+			).toBeGreaterThanOrEqual(8);
+			expect(cold[1]?.seconds).toBe(warm[1]?.seconds);
+			expect(cold[2]?.seconds).toBe(warm[2]?.seconds);
+		});
 	});
 
 	it("grows with the canvas", () => {
@@ -224,9 +302,10 @@ describe("picturePlan", () => {
 			plan.find((entry) => entry.kind === kind)?.seconds ?? 0;
 		const sampleSeconds = (plan: EtaPlan) => secondsOf(plan, "sample");
 		const canvas = { width: 3072, height: 2048 };
-		const megapixels = (3072 * 2048) / 1e6;
 
-		it("plans an H3 new picture's sampling at 4/6 of an edit's on the same canvas", () => {
+		it("plans an H3 new picture's sampling at 4/6 of an edit's with the same sequence", () => {
+			// An edit with no pictures packs the same sequence as a new picture, so
+			// only the step count differs between the two.
 			const generate = picturePlan(request({ mode: "generate", canvas }), true);
 			const edit = picturePlan(request({ mode: "edit", canvas }), true);
 			expect(sampleSeconds(generate)).toBeLessThan(sampleSeconds(edit));
@@ -234,14 +313,8 @@ describe("picturePlan", () => {
 				H3_GENERATE_STEPS / H3_EDIT_STEPS,
 				10,
 			);
-			// Only the sampler changes: the load and the finish do not know steps.
+			// Only the sampler knows steps; an edit's finish adds its guard.
 			expect(secondsOf(generate, "load")).toBe(secondsOf(edit, "load"));
-			expect(secondsOf(generate, "finish")).toBe(secondsOf(edit, "finish"));
-		});
-
-		it("keeps the constants as measured at six steps for an H3 edit", () => {
-			const edit = picturePlan(request({ mode: "edit", canvas }), true);
-			expect(sampleSeconds(edit)).toBeCloseTo(0.8 * megapixels, 6);
 		});
 
 		it("takes the step count from the graph template, not from a number of its own", () => {
@@ -249,9 +322,10 @@ describe("picturePlan", () => {
 			const editSteps = graphFor("h3", "edit", false)?.template.steps;
 			expect([generateSteps, editSteps]).toEqual([4, 6]);
 			const generate = picturePlan(request({ mode: "generate", canvas }), true);
-			expect(sampleSeconds(generate)).toBeCloseTo(
-				0.8 * megapixels * ((generateSteps ?? 0) / 6),
-				6,
+			const edit = picturePlan(request({ mode: "edit", canvas }), true);
+			expect(sampleSeconds(generate) / (generateSteps ?? 1)).toBeCloseTo(
+				sampleSeconds(edit) / (editSteps ?? 1),
+				10,
 			);
 		});
 
@@ -269,9 +343,10 @@ describe("picturePlan", () => {
 			);
 		});
 
-		it("plans a request with no graph (H3 has no transparent one) at the measured constants", () => {
+		it("plans a request with no graph (H3 has no transparent one) at an edit's six steps", () => {
 			const plan = picturePlan(request({ canvas, transparent: true }), true);
-			expect(sampleSeconds(plan)).toBeCloseTo(0.8 * megapixels, 6);
+			const edit = picturePlan(request({ mode: "edit", canvas }), true);
+			expect(sampleSeconds(plan)).toBeCloseTo(sampleSeconds(edit), 10);
 		});
 	});
 });

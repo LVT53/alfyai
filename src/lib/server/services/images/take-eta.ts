@@ -17,6 +17,7 @@
 // render that starts over (ComfyUI forgot the prompt): the runner makes a new
 // estimate for it.
 
+import type { CanvasSize } from "./canvas";
 import { graphFor } from "./comfyui/templates";
 import type { TakeRequest } from "./take-request";
 
@@ -175,53 +176,29 @@ export function etaSecondsAt(
 }
 
 /**
- * The plan for a picture take, from the engine's measurements
- * (docs/plans/minimax-h3-image/assessment.md: H3 is 3.0 s at 4 MP and 17.9 s at
- * 16 MP warm, after an 11.7 s model load; Qwen at 1 MP has a production p50 of
- * 10 s and p90 of 15 s, and 46.2 s at 4 MP). The sampler's share grows a little
- * faster than the canvas; the finish (ComfyUI's decode, then the app's guard,
- * store and check) grows with it. A warm engine (its models still loaded from
- * a take a moment ago) has next to no load. The sampler's real rate replaces
- * its planned share once two steps are in.
- *
- * The sampling constants are for the step count they were measured at
- * (`measuredSteps`, H3's six); a graph that runs fewer samples that fraction of
- * the time. The count is the template's own (`graphFor`, the one the runner
- * builds the graph from): a new H3 picture runs four, an H3 edit six.
+ * The plan for a picture take, from the engine's measurements. H3's is planned
+ * from the sequence its DiT runs and the graph's step count (`h3Plan`). Qwen's
+ * from the canvas (docs/plans/minimax-h3-image/assessment.md: Qwen at 1 MP has a
+ * production p50 of 10 s and p90 of 15 s, and 46.2 s at 4 MP): its sampler's
+ * share grows a little faster than the canvas, and the finish (ComfyUI's decode,
+ * then the app's guard, store and check) grows with it. A warm engine (its
+ * models still loaded from a take a moment ago) has next to no model load. The
+ * sampler's real rate replaces its planned share once two steps are in.
  */
 export function picturePlan(request: TakeRequest, warm: boolean): EtaPlan {
+	if (request.model === "h3") return h3Plan(request, warm);
 	const megapixels = (request.canvas.width * request.canvas.height) / 1e6;
-	const engine = PICTURE_ENGINE_PLAN[request.model];
 	return [
-		{ kind: "load", seconds: warm ? WARM_LOAD_SECONDS : engine.coldLoad },
+		{ kind: "load", seconds: warm ? WARM_LOAD_SECONDS : QWEN_PLAN.coldLoad },
 		{
 			kind: "sample",
-			seconds:
-				engine.sampleAtOneMp *
-				megapixels ** engine.sampleGrowth *
-				stepScale(request, engine.measuredSteps),
+			seconds: QWEN_PLAN.sampleAtOneMp * megapixels ** QWEN_PLAN.sampleGrowth,
 		},
 		{
 			kind: "finish",
-			seconds: FINISH_BASE_SECONDS + engine.finishPerMp * megapixels,
+			seconds: FINISH_BASE_SECONDS + QWEN_PLAN.finishPerMp * megapixels,
 		},
 	];
-}
-
-/**
- * What the sampler's planned time is multiplied by for this request's graph:
- * its steps over the steps the engine's constants were measured at, or 1 for an
- * engine whose constants are not tied to a count and for a request that has no
- * graph (H3 has no transparent one; the runner refuses it).
- */
-function stepScale(
-	request: TakeRequest,
-	measuredSteps: number | undefined,
-): number {
-	if (measuredSteps === undefined) return 1;
-	const steps = graphFor(request.model, request.mode, request.transparent)
-		?.template.steps;
-	return steps === undefined ? 1 : steps / measuredSteps;
 }
 
 /** A warm engine still stages the prompt and its inputs. */
@@ -229,31 +206,140 @@ const WARM_LOAD_SECONDS = 1;
 /** Fetching the result, the explicit-picture check and settling, whatever the size. */
 const FINISH_BASE_SECONDS = 1.5;
 
-const PICTURE_ENGINE_PLAN: Record<
-	TakeRequest["model"],
-	{
-		coldLoad: number;
-		sampleAtOneMp: number;
-		sampleGrowth: number;
-		/** The step count `sampleAtOneMp` was measured at; the sample stage scales by the graph's steps over it. Unset: no scaling. */
-		measuredSteps?: number;
-		finishPerMp: number;
-	}
-> = {
-	// 12 MP at six steps: ~13 s cold load, ~9.5 s of sampling, ~6.3 s of decode
-	// and store. A new picture runs four steps (~6.3 s of sampling at 12 MP).
-	h3: {
-		coldLoad: 13,
-		sampleAtOneMp: 0.8,
-		sampleGrowth: 1,
-		measuredSteps: 6,
-		finishPerMp: 0.4,
-	},
-	// 1 MP: ~6 s of sampling, a warm take ~9 s; 4 MP print: ~41 s.
-	qwen: {
-		coldLoad: 15,
-		sampleAtOneMp: 6,
-		sampleGrowth: 1.35,
-		finishPerMp: 0.4,
-	},
+// 1 MP: ~6 s of sampling, a warm take ~9 s; 4 MP print: ~41 s.
+const QWEN_PLAN = {
+	coldLoad: 15,
+	sampleAtOneMp: 6,
+	sampleGrowth: 1.35,
+	finishPerMp: 0.4,
 };
+
+/**
+ * H3's plan, from what the box measured on 2026-11-18 (warm, the NumPy
+ * huge-page stall gone; docs/plans/minimax-h3-image/speed-investigation-2026-11-18.md).
+ * The canvas alone does not say how long H3 takes: the DiT runs one packed
+ * sequence of the canvas, every picture the edit is given and the text
+ * encoder's tokens (the prompt and each picture's vision tokens), and attention
+ * grows with its square. Planned from the canvas, an edit on its 3072x2048
+ * canvas was given ~10 s and took ~23.
+ *
+ * - load: the graph's start, VAE-encoding the pictures, Qwen3-VL over the
+ *   prompt and the pictures, and the first step's page-in of the 20 GB DiT
+ *   after the text encoder; a cold engine reads its files again first. The
+ *   first step's own time is in the sample stage, which plans every step: the
+ *   load ends with the first progress event, and counting that step twice
+ *   would start every countdown one step long.
+ * - sample: the graph's steps (`graphFor`, the template the runner builds the
+ *   graph from) times one step on the sequence, `a·k + b·k²` seconds for `k`
+ *   thousand tokens. Measured steady steps: 2.0 s at 11.8k tokens (a new 12 MP
+ *   picture), 2.45 s at 14.4k (a 3072x2048 edit), 1.5 s at 9.7k (a square
+ *   2048 one), 3.2 s at 17.2k and 3.9-4.2 s at 19.9k (edits at 12 MP).
+ * - finish: ComfyUI's decode and save, then the app's fetch, check and store;
+ *   an edit also runs its guard (three decodes and a PNG at the canvas).
+ */
+const H3_PLAN = {
+	stepPerKiloToken: 0.1154,
+	stepPerKiloTokenSquared: 0.00443,
+	firstStepPageIn: 1,
+	coldLoad: 10,
+	startSeconds: 0.1,
+	encodePerPictureMp: 0.15,
+	textEncoderSeconds: 1.15,
+	textEncoderPerToken: 0.0011,
+	finishSeconds: 1,
+	finishPerMp: 0.15,
+	guardPerMp: 0.15,
+	/** The chat template and `<Picture 1>` around the prompt. */
+	promptOverheadTokens: 60,
+	/** A further picture the edit is given: the app stores it within 1 MP; planned as a 3:2 one. */
+	referenceAssumed: { width: 1254, height: 836 },
+	/** What MiniMaxH3ImageConditioning encodes a picture at: its short edge clamped to 1024-2048 px. */
+	encodeShortEdgeMin: 1024,
+	encodeShortEdgeMax: 2048,
+	/** Qwen3-VL sees each picture at a 1024 px short edge, one token per 28 px square. */
+	visionShortEdge: 1024,
+	visionTokenSide: 28,
+} as const;
+
+/** The DiT's tokens for a picture: 16x VAE, then 2x2 patches, so one per 32 px square. */
+function ditTokens(size: CanvasSize): number {
+	return Math.round(size.width / 32) * Math.round(size.height / 32);
+}
+
+/** A picture as the conditioning node VAE-encodes it. */
+function encodedSize(size: CanvasSize): CanvasSize {
+	const short = Math.min(size.width, size.height);
+	const target = Math.min(
+		H3_PLAN.encodeShortEdgeMax,
+		Math.max(H3_PLAN.encodeShortEdgeMin, short),
+	);
+	const scale = target / short;
+	return {
+		width: Math.round((size.width * scale) / 32) * 32,
+		height: Math.round((size.height * scale) / 32) * 32,
+	};
+}
+
+/** The text encoder's tokens for a picture's vision copy. */
+function visionTokens(size: CanvasSize): number {
+	const scale = H3_PLAN.visionShortEdge / Math.min(size.width, size.height);
+	return (
+		Math.round((size.width * scale) / H3_PLAN.visionTokenSide) *
+		Math.round((size.height * scale) / H3_PLAN.visionTokenSide)
+	);
+}
+
+function h3Plan(request: TakeRequest, warm: boolean): EtaPlan {
+	const canvas = request.canvas;
+	const canvasMp = (canvas.width * canvas.height) / 1e6;
+	// The base goes up at the canvas size (prepareTakeInputs); a further picture
+	// goes up within 1 MP. A marked copy is never sent to H3.
+	const pictures: CanvasSize[] = request.inputs.flatMap((input) =>
+		input.role === "base"
+			? [canvas]
+			: input.role === "reference"
+				? [H3_PLAN.referenceAssumed]
+				: [],
+	);
+	const encoded = pictures.map(encodedSize);
+	const encodedTokens = encoded.reduce((sum, size) => sum + ditTokens(size), 0);
+	const encodedMp = encoded.reduce(
+		(sum, size) => sum + (size.width * size.height) / 1e6,
+		0,
+	);
+	const textTokens =
+		Math.ceil(request.prompt.length / 4) +
+		H3_PLAN.promptOverheadTokens +
+		pictures.reduce((sum, size) => sum + visionTokens(size), 0);
+	const kiloTokens = (ditTokens(canvas) + encodedTokens + textTokens) / 1000;
+	const stepSeconds =
+		H3_PLAN.stepPerKiloToken * kiloTokens +
+		H3_PLAN.stepPerKiloTokenSquared * kiloTokens ** 2;
+	// A request with no graph (H3 has no transparent one; the runner refuses
+	// it) is planned at an edit's six.
+	const steps =
+		graphFor(request.model, request.mode, request.transparent)?.template
+			.steps ??
+		graphFor("h3", "edit", false)?.template.steps ??
+		6;
+	return [
+		{
+			kind: "load",
+			seconds:
+				(warm ? 0 : H3_PLAN.coldLoad) +
+				H3_PLAN.startSeconds +
+				H3_PLAN.encodePerPictureMp * encodedMp +
+				H3_PLAN.textEncoderSeconds +
+				H3_PLAN.textEncoderPerToken * textTokens +
+				H3_PLAN.firstStepPageIn,
+		},
+		{ kind: "sample", seconds: steps * stepSeconds },
+		{
+			kind: "finish",
+			seconds:
+				H3_PLAN.finishSeconds +
+				H3_PLAN.finishPerMp * canvasMp +
+				(request.mode === "edit" ? H3_PLAN.guardPerMp * canvasMp : 0),
+		},
+	];
+}
