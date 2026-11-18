@@ -5,6 +5,7 @@ import { projectNormalChatOutput } from "../../src/lib/shared/normal-chat-output
 import {
 	COMPLETION_ANSWER,
 	COMPLETION_ARTIFACT_TITLE,
+	COMPLETION_ASK_LEAD_IN,
 	COMPLETION_CALL_ID,
 	COMPLETION_CHUNK_HOLD,
 	COMPLETION_EVIDENCE_TAIL,
@@ -582,6 +583,9 @@ test.describe("turn completion contract", () => {
 		expect(closingRequests()).toHaveLength(0);
 		await page.reload();
 		await waitForHydration(page);
+		// The words before the card are the reply's own, saved with the segment that
+		// asked (owner, 2026-11-18), so a reload draws them above the card.
+		await expect(prose(page).first()).toContainText(COMPLETION_ASK_LEAD_IN);
 		await page
 			.getByRole("button", { name: "The checked result, recommended" })
 			.click();
@@ -593,6 +597,7 @@ test.describe("turn completion contract", () => {
 		provider.release(COMPLETION_HOLD);
 		await ended(page);
 		await finalAnswer(page);
+		await expect(prose(page).first()).toContainText(COMPLETION_ASK_LEAD_IN);
 		expect(requests()).toHaveLength(2);
 	});
 

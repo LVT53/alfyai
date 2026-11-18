@@ -595,6 +595,101 @@ describe("MessageBubble", () => {
 		expect(list[0].content).toBe("");
 	});
 
+	it("keeps the words before a refused card in the answer area while the next step thinks", async () => {
+		// The engine holds a step whose only call was an ask card (chat-turn/AGENTS.md,
+		// The Pause): its words stay provisional, and the fixed card's step thinks first
+		// (the measured retry). Words written before a card never leave the reply.
+		const output = createNormalChatOutputAccumulator();
+		const step = (stepId: string) =>
+			({
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				attemptId: "a",
+				stepId,
+				phase: "working",
+			}) as const;
+		const intro = "The biggest fork is the day itself.";
+		for (const event of [
+			{
+				...step("a:0"),
+				sequence: 0,
+				type: "block_start",
+				blockId: "w",
+				nativeId: "0",
+				kind: "text",
+				role: "provisional",
+			},
+			{
+				...step("a:0"),
+				sequence: 1,
+				type: "block_delta",
+				blockId: "w",
+				text: intro,
+			},
+			{
+				...step("a:0"),
+				sequence: 2,
+				type: "step_end",
+				finishReason: "tool-calls",
+				toolAttempted: true,
+			},
+			{
+				...step("a:1"),
+				sequence: 3,
+				type: "block_start",
+				blockId: "r",
+				nativeId: "0",
+				kind: "reasoning",
+				role: "activity",
+			},
+			{
+				...step("a:1"),
+				sequence: 4,
+				type: "block_delta",
+				blockId: "r",
+				text: "Mark exactly one option recommended.",
+			},
+		] as const)
+			output.apply(event);
+		let list: ChatMessage[] = applyNormalChatOutputView(
+			[
+				{
+					id: "live-output",
+					role: "assistant",
+					timestamp: 1,
+					content: "",
+					isStreaming: true,
+				},
+			],
+			"live-output",
+			output.getProjection(),
+		);
+		const { container, rerender } = render(MessageBubble, {
+			message: list[0],
+		});
+		// The streaming renderer wraps new words one by one, so read the answer area.
+		const answerArea = () =>
+			container.querySelector(".prose-container")?.textContent ?? "";
+		await waitFor(() => expect(answerArea()).toContain(intro));
+		// The pause settles them as the answer: still there, now the reply's own.
+		output.apply({
+			...step("a:0"),
+			sequence: 5,
+			type: "step_settled",
+			role: "answer",
+			finishReason: "tool-calls",
+		});
+		list = applyNormalChatOutputView(
+			list,
+			"live-output",
+			output.getProjection(),
+		);
+		await rerender({ message: list[0] });
+		expect(list[0].content).toBe(intro);
+		await waitFor(() => expect(answerArea()).toContain(intro));
+	});
+
 	// A browser that only polls (the connection dropped, replay was unavailable and
 	// the server answered with a pending observation) reads no frames of the reply.
 	// The step it last saw may have called a tool since, which would have withdrawn

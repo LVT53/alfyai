@@ -1974,13 +1974,16 @@ describe("the H3 picture model", () => {
 		});
 	});
 
-	it("tells the model H3 is 12 MP with no transparent path, and Qwen is the transparent fallback", async () => {
+	it("tells the model H3 makes new pictures at 12 MP and changes at a 2048 px short edge, with no transparent path, and Qwen is the transparent fallback", async () => {
 		const { makeImageInputSchema } = await import("./make-image");
 		const print = makeImageInputSchema.shape.print.description ?? "";
 		const transparent =
 			makeImageInputSchema.shape.transparent.description ?? "";
 		expect(print).toContain("12 MP");
+		expect(print).toContain("2048 px short edge");
 		expect(print).toContain("H3");
+		// Not the old claim that every H3 picture is 12 MP.
+		expect(print).not.toContain("always makes 12 MP");
 		expect(transparent).toContain("H3");
 		expect(transparent).toContain("Qwen");
 		expect(transparent).toContain("Admin");

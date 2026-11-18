@@ -3,7 +3,10 @@ import {
 	normalChatOutputView,
 	showsProvisionalPreview,
 } from "$lib/client/normal-chat-output-view";
-import { sanitizeNormalChatAnswer } from "$lib/shared/normal-chat-output";
+import {
+	joinBlocksByStep,
+	sanitizeNormalChatAnswer,
+} from "$lib/shared/normal-chat-output";
 import { get } from "svelte/store";
 import {
 	recordAnswerNowClicked,
@@ -432,24 +435,24 @@ const isStreaming = $derived(
 );
 let markdownIsStreaming = $derived(isStreaming && !isFinalizing);
 // Provisional prose is a live display only: Copy, export and saved content
-// continue to consume the canonical answer. A tool occurrence settles its
-// step as activity immediately, withdrawing the preview before execution ends.
+// continue to consume the canonical answer. It is the text of the attempt being
+// written: the current step's, after the words of the steps that only asked with
+// a card, which the engine holds until the attempt ends (chat-turn/AGENTS.md,
+// The Pause). Any other tool occurrence settles its step as activity at once,
+// withdrawing the preview before execution ends.
 const displayContent = $derived.by(() => {
 	if (!showsProvisionalPreview(message, outputView)) return message.content;
 	const current = outputView?.blocks.at(-1);
-	const provisional =
-		outputView?.blocks
-			.filter(
-				(block) =>
-					block.kind === "text" &&
-					block.role === "provisional" &&
-					block.turnId === current?.turnId &&
-					block.segmentId === current?.segmentId &&
-					block.attemptId === current?.attemptId &&
-					block.stepId === current?.stepId,
-			)
-			.map((block) => block.text)
-			.join("") ?? "";
+	const provisional = joinBlocksByStep(
+		outputView?.blocks.filter(
+			(block) =>
+				block.kind === "text" &&
+				block.role === "provisional" &&
+				block.turnId === current?.turnId &&
+				block.segmentId === current?.segmentId &&
+				block.attemptId === current?.attemptId,
+		) ?? [],
+	);
 	return message.content + sanitizeNormalChatAnswer(provisional);
 });
 let liveResponseActivityEntries = $derived(

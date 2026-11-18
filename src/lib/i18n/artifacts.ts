@@ -1,12 +1,14 @@
 /**
  * The artifact family's surface (Feature 2 · Artifacts): the chat header's
- * count button, the panel's "what this chat made" list, the shared card, and
+ * count button, the panel's "Chat Artifacts" list, the shared card, and
  * the five type labels.
  *
- * "Artifact" is the engineering word and NEVER appears in a value, in either
- * language (ADR-0066) — `artifacts.test.ts` fails the build if it does, across
- * every merged dictionary. The UI names each kind: Document / Dokumentum,
- * App / Alkalmazás, Canvas / Tábla, Slides / Diasor, File / Fájl.
+ * "Artifact" is the engineering word and appears in no value, in either
+ * language (ADR-0066), with one exception: the English name of the panel's
+ * list, "Chat Artifacts", and the header and error strings that name it
+ * (owner, 2026-11-18). The Hungarian says "A beszélgetés elemei". The UI names
+ * each kind: Document / Dokumentum, App / Alkalmazás, Canvas / Tábla,
+ * Slides / Diasor, File / Fájl.
  *
  * `artifacts.type.canvas` is **Canvas** in English and **Tábla** in Hungarian
  * on purpose (ruling 20): the English word is the product's own term, and
@@ -21,12 +23,12 @@ const artifactsDict = {
 	en: {
 		// The chat header's quiet count button (surface 1). Not drawn at all at
 		// zero, so there is no "0" wording.
-		"artifacts.header.buttonA11y": "Open what this chat made ({count})",
+		"artifacts.header.buttonA11y": "Open Chat Artifacts ({count})",
 		// The dot state (redesign §5.2/§5.3): a change is waiting while the
 		// panel is closed. The dot itself is decorative (aria-hidden) — this is
 		// how a screen reader user gets the same information.
 		"artifacts.header.buttonA11yPending":
-			"Open what this chat made ({count}) — a change is waiting",
+			"Open Chat Artifacts ({count}) — a change is waiting",
 		// Redesign §9.2, Wave 2.5 Step 12: "composer placeholder names the open
 		// item" — the chat page's own composer, while a document/app/etc. is
 		// open in the panel. `src/routes/(app)/chat/[conversationId]/+page.svelte`.
@@ -39,7 +41,7 @@ const artifactsDict = {
 		// The header's way back to the list: short, so it never wraps (FB-5, F28); the
 		// Hungarian says "Back" and the name says where it goes.
 		"artifacts.panel.crumb": "This chat",
-		"artifacts.panel.title": "What this chat made",
+		"artifacts.panel.title": "Chat Artifacts",
 		"artifacts.panel.count":
 			"{count} {count, plural, one {item} other {items}} · newest first",
 		"artifacts.panel.list": "Show list",
@@ -193,7 +195,7 @@ const artifactsDict = {
 		"artifacts.type.video": "Video",
 		// Failure states the panel and the later slices' writers report.
 		"artifacts.error.load": "Could not open this item.",
-		"artifacts.error.list": "Could not load what this chat made.",
+		"artifacts.error.list": "Could not load Chat Artifacts.",
 		"artifacts.error.gone": "This item was deleted.",
 		"artifacts.error.tooLarge": "This item is too large to save.",
 		"artifacts.action.retry": "Try again",
@@ -1232,10 +1234,9 @@ const artifactsDict = {
 		"artifacts.video.row.blocked": "The video was blocked",
 	},
 	hu: {
-		"artifacts.header.buttonA11y":
-			"Nyisd meg, amit ez a beszélgetés készített ({count})",
+		"artifacts.header.buttonA11y": "Nyisd meg a beszélgetés elemeit ({count})",
 		"artifacts.header.buttonA11yPending":
-			"Nyisd meg, amit ez a beszélgetés készített ({count}) — egy módosítás vár rád",
+			"Nyisd meg a beszélgetés elemeit ({count}) — egy módosítás vár rád",
 		// A kettőspont a "-ról/-ről" rag nélkül old meg egy tetszőleges,
 		// felhasználó/AI adta címet — a magyar toldalék a cím végződésétől
 		// függne, ami egy dinamikus értéknél nem garantálható.
@@ -1243,7 +1244,7 @@ const artifactsDict = {
 		// Same colon trick as above, for the same reason.
 		"artifacts.chat.composerPlaceholderApp": "Kérj módosítást: {title}",
 		"artifacts.panel.crumb": "Vissza",
-		"artifacts.panel.title": "Amit ez a beszélgetés készített",
+		"artifacts.panel.title": "A beszélgetés elemei",
 		"artifacts.panel.count": "{count} elem · legújabb elöl",
 		"artifacts.panel.list": "Lista megjelenítése",
 		"artifacts.panel.back": "Vissza az elemhez",
@@ -1347,8 +1348,7 @@ const artifactsDict = {
 		"artifacts.type.image": "Kép",
 		"artifacts.type.video": "Videó",
 		"artifacts.error.load": "Nem sikerült megnyitni ezt az elemet.",
-		"artifacts.error.list":
-			"Nem sikerült betölteni, amit ez a beszélgetés készített.",
+		"artifacts.error.list": "Nem sikerült betölteni a beszélgetés elemeit.",
 		"artifacts.error.gone": "Ezt az elemet törölték.",
 		"artifacts.error.tooLarge": "Ez az elem túl nagy ahhoz, hogy elmentsük.",
 		"artifacts.action.retry": "Újrapróbálom",

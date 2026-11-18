@@ -343,7 +343,11 @@ export async function resolveMakeImageRequest(params: {
 	const itemHere = item && item.conversationId === conversationId ? item : null;
 	const fromOtherChat = Boolean(item) && !itemHere;
 	const callKey = newCardKey(input);
-	const inPlace = Boolean(itemHere) && !input.startNew;
+	// Only a change of ONE picture changes its Image in place. A picture made from
+	// several pictures is its own Image (owner, 2026-11-18): filed as the next
+	// version of the Image named first, a whole session of pictures collapsed into
+	// one Image, one row of "what this chat made".
+	const inPlace = Boolean(itemHere) && !input.startNew && plain.length === 1;
 	const cardKey = inPlace && itemHere ? `item:${itemHere.artifactId}` : callKey;
 
 	const existingCard = turnTakes.cardFor(cardKey) ?? null;

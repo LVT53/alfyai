@@ -1,5 +1,26 @@
 # MiniMax-H3-Image on alfyroot: pre-install assessment
 
+> **Update, 2026-11-18: a new picture runs 4 steps (an edit keeps 6), and an edit is made
+> on a 2048 px short-edge canvas, not at 12 MP.**
+>
+> 1. **Steps.** The owner compared 12 MP renders at 6 and at 4 steps at full size (same
+>    prompts and seed) and judged 4 better: a little less detailed, but much more stable
+>    and less noisy. It is also 27% faster: one picture 15.8 s -> 11.6 s on the server,
+>    sampling 12.5 s -> 8.7 s. 3 steps went visibly waxy and are not to be used. MiniMax
+>    documents 6 as the only supported count, so 4 is the owner's call on our own
+>    pictures; ComfyUI's H3 code averages the distilled PDD heads a coarser step spans, so
+>    no other change was needed. Where this document says "6 steps" for H3, that is now
+>    the edit graph (`H3_EDIT_STEPS`); the new-picture graph runs `H3_GENERATE_STEPS` = 4.
+> 2. **Edit size.** `MiniMaxH3ImageConditioning` VAE-encodes the picture being edited
+>    with its short edge clamped to 1024-2048 px, so an edit's canvas now keeps the base's
+>    shape with its short edge at 2048 px (`H3_EDIT_SHORT_EDGE`; 4224x2816 -> 3072x2048),
+>    which matches that reference exactly. Measured on the box: sampling a 3:2 edit 24.0 s
+>    -> 15.9 s, a square one 20.4 s -> 10.0 s (34-51% faster). Results are about 4-7.5 MP
+>    instead of 12 MP, which the owner accepted for the speed. It is a speed choice, not a
+>    repair: 12 MP edits with fresh seeds (the app always draws them, `avoidSeeds`) are
+>    clean; an earlier claim that they were broken came from a test that reused the
+>    base's seed. New pictures stay at 12 MP.
+
 > **Update, 2026-11-12 (after the first production run): the 4 MP tier was wrong, and
 > so was the checkpoint.** Everything below about fit and speed still holds, but two
 > choices made here were replaced:

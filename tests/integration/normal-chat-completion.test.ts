@@ -1694,3 +1694,478 @@ it.each([
 	expect(legacy).toBe(1);
 	expect(completion).toBe(legacy);
 });
+
+describe("the words a reply writes before it asks with a card", () => {
+	// Owner, 2026-11-18: words written before a card are the reply's, never the
+	// thinking tab's ("they weren't intermediary agent messages or part of
+	// thinking"). A remark before any other tool still folds away (ruling of
+	// 2026-11-11). chat-turn/AGENTS.md, The Pause.
+	const pause = { status: "waiting_for_user" };
+	const refusal = {
+		ok: false,
+		errorCode: "invalid_questions",
+		message: "Question 1 needs 2 to 4 options.",
+	};
+	const askCall = (id: string) => ({
+		index: 0,
+		id,
+		type: "function",
+		function: { name: "ask_user", arguments: "{}" },
+	});
+	async function runAsking(
+		replies: Response[],
+		askResults: unknown[],
+		options: {
+			stopAtStepEnd?: boolean;
+			abortCause?: "transport_error" | "deadline";
+		} = {},
+	) {
+		const args = setup();
+		const stop = new AbortController();
+		let requests = 0;
+		let asks = 0;
+		const deltas: string[] = [];
+		for await (const event of runStreamingNormalChatModelRun({
+			...args,
+			abortSignal: stop.signal,
+			completionPolicy: {
+				...args.completionPolicy,
+				...(options.abortCause ? { abortCause: () => options.abortCause } : {}),
+				onOutputEvent: (event: NormalChatOutputEvent) => {
+					args.output.push(event);
+					if (options.stopAtStepEnd && event.type === "step_end") stop.abort();
+				},
+			},
+			tools: {
+				lookup: tool({
+					inputSchema: z.object({}),
+					execute: async () => "evidence",
+				}),
+				ask_user: tool({
+					inputSchema: z.object({}),
+					execute: async () => askResults[asks++],
+				}),
+			},
+			fetch: async () =>
+				replies[requests++] ?? streamed([{ content: "an extra request" }]),
+		}))
+			if (event.type === "text_delta") deltas.push(event.text);
+		return {
+			output: args.output,
+			requests,
+			projection: projectNormalChatOutput(args.output),
+			saved: deltas.join(""),
+		};
+	}
+	const roleOf = (
+		blocks: ReturnType<typeof projectNormalChatOutput>["blocks"],
+		text: string,
+	) => blocks.find((block) => block.text === text)?.role;
+
+	it("keeps the words written before the card as the reply's answer and sends them to be saved", async () => {
+		const intro = "The biggest fork is the shape of the day itself.";
+		const { requests, projection, saved } = await runAsking(
+			[
+				streamed(
+					[{ content: intro }, { tool_calls: [askCall("ask-1")] }],
+					"tool_calls",
+				),
+			],
+			[pause],
+		);
+		expect(requests).toBe(1);
+		expect(projection.completion?.outcome).toBe("paused");
+		expect(projection.answer).toBe(intro);
+		expect(projection.activity).toEqual([]);
+		expect(saved).toBe(intro);
+	});
+
+	it("never withdraws those words while the card is asked: the step settles once, as the answer", async () => {
+		const { output } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: "The biggest fork is the shape of the day itself." },
+						{ tool_calls: [askCall("ask-1")] },
+					],
+					"tool_calls",
+				),
+			],
+			[pause],
+		);
+		expect(
+			output.flatMap((event) =>
+				event.type === "step_settled" ? [event.role] : [],
+			),
+		).toEqual(["answer"]);
+	});
+
+	it("keeps a remark before another tool as activity, and the words of the step that asked as the answer", async () => {
+		const { requests, projection, saved } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: "Let me look first." },
+						{ tool_calls: [{ index: 0, ...call }] },
+					],
+					"tool_calls",
+				),
+				streamed(
+					[
+						{ content: "Which one suits you?" },
+						{ tool_calls: [askCall("ask-1")] },
+					],
+					"tool_calls",
+				),
+			],
+			[pause],
+		);
+		expect(requests).toBe(2);
+		expect(projection.answer).toBe("Which one suits you?");
+		expect(projection.activity.map((block) => block.text)).toEqual([
+			"Let me look first.",
+		]);
+		expect(saved).toBe("Which one suits you?");
+	});
+
+	it("takes the words before a card the app refused into the reply, a paragraph above the words that ask with the fixed card", async () => {
+		const { requests, projection, saved } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: "The biggest fork is the day itself." },
+						{ tool_calls: [askCall("ask-broken")] },
+					],
+					"tool_calls",
+				),
+				streamed(
+					[
+						{ content: "Which way suits you best?" },
+						{ tool_calls: [askCall("ask-fixed")] },
+					],
+					"tool_calls",
+				),
+			],
+			[refusal, pause],
+		);
+		expect(requests).toBe(2);
+		expect(projection.completion?.outcome).toBe("paused");
+		expect(projection.answer).toBe(
+			"The biggest fork is the day itself.\n\nWhich way suits you best?",
+		);
+		expect(saved).toBe(
+			"The biggest fork is the day itself.\n\nWhich way suits you best?",
+		);
+		expect(projection.activity).toEqual([]);
+	});
+
+	it("settles the words before a refused card as activity when the reply goes on without asking", async () => {
+		const { projection, saved } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: "Let me ask you something." },
+						{ tool_calls: [askCall("ask-broken")] },
+					],
+					"tool_calls",
+				),
+				streamed([{ content: "A party at home it is." }]),
+			],
+			[refusal],
+		);
+		expect(projection.completion?.outcome).toBe("answered");
+		expect(projection.answer).toBe("A party at home it is.");
+		expect(roleOf(projection.blocks, "Let me ask you something.")).toBe(
+			"activity",
+		);
+		expect(saved).toBe("A party at home it is.");
+	});
+
+	it("keeps words written after the card's call in the same step with the words before it", async () => {
+		const { output, projection, saved } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: "The biggest fork is the day itself." },
+						{ tool_calls: [askCall("ask-1")] },
+						{ content: " Pick whichever feels right." },
+					],
+					"tool_calls",
+				),
+			],
+			[pause],
+		);
+		expect(projection.answer).toBe(
+			"The biggest fork is the day itself. Pick whichever feels right.",
+		);
+		expect(saved).toBe(
+			"The biggest fork is the day itself. Pick whichever feels right.",
+		);
+		// No text of the step ever started in the thinking tab.
+		expect(
+			output.flatMap((e) =>
+				e.type === "block_start" && e.kind === "text" ? [e.role] : [],
+			),
+		).not.toContain("activity");
+	});
+
+	it("withdraws the words of a step that also calls another tool at that tool's call, as any remark", async () => {
+		const intro = "Let me check the forecast and ask you.";
+		const { output, projection, saved } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: intro },
+						{
+							tool_calls: [
+								askCall("ask-1"),
+								{ ...call, index: 1, id: "lookup-1" },
+							],
+						},
+					],
+					"tool_calls",
+				),
+			],
+			[pause],
+		);
+		expect(projection.completion?.outcome).toBe("paused");
+		expect(projection.answer).toBe("");
+		expect(roleOf(projection.blocks, intro)).toBe("activity");
+		expect(saved).toBe("");
+		// Withdrawn when the other call starts, before the step ends.
+		const firstSettled = output.findIndex((e) => e.type === "step_settled");
+		const stepEnd = output.findIndex((e) => e.type === "step_end");
+		expect(firstSettled).toBeGreaterThan(-1);
+		expect(firstSettled).toBeLessThan(stepEnd);
+	});
+
+	it("keeps the words before a refused card, and only them, when the fixed card comes after a thought and no words", async () => {
+		// The pattern measured on the production model (run 2, prompts 1 and 4).
+		const intro =
+			"Happy to help. A few things would change what I suggest, so let me ask first.";
+		const { requests, projection, saved } = await runAsking(
+			[
+				streamed(
+					[{ content: intro }, { tool_calls: [askCall("ask-broken")] }],
+					"tool_calls",
+				),
+				streamed(
+					[
+						{ reasoning_content: "Mark exactly one option recommended." },
+						{ tool_calls: [askCall("ask-fixed")] },
+					],
+					"tool_calls",
+				),
+			],
+			[refusal, pause],
+		);
+		expect(requests).toBe(2);
+		expect(projection.completion?.outcome).toBe("paused");
+		expect(projection.answer).toBe(intro);
+		expect(saved).toBe(intro);
+	});
+
+	it("withdraws the words before a refused card when a later step calls another tool, at that call", async () => {
+		const { output, projection, saved } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: "Let me ask you something." },
+						{ tool_calls: [askCall("ask-broken")] },
+					],
+					"tool_calls",
+				),
+				streamed(
+					[
+						{ content: "Let me look it up first." },
+						{ tool_calls: [{ index: 0, ...call }] },
+					],
+					"tool_calls",
+				),
+				streamed(
+					[
+						{ content: "Which one suits you?" },
+						{ tool_calls: [askCall("ask-1")] },
+					],
+					"tool_calls",
+				),
+			],
+			[refusal, pause],
+		);
+		expect(projection.completion?.outcome).toBe("paused");
+		expect(projection.answer).toBe("Which one suits you?");
+		expect(projection.activity.map((block) => block.text)).toEqual([
+			"Let me ask you something.",
+			"Let me look it up first.",
+		]);
+		expect(saved).toBe("Which one suits you?");
+		const stepOf = (text: string) =>
+			projection.blocks.find((block) => block.text === text)?.stepId;
+		const refusedStepSettled = output.findIndex(
+			(e) =>
+				e.type === "step_settled" &&
+				e.stepId === stepOf("Let me ask you something."),
+		);
+		const lookupStepEnd = output.findIndex(
+			(e) =>
+				e.type === "step_end" &&
+				e.stepId === stepOf("Let me look it up first."),
+		);
+		expect(refusedStepSettled).toBeGreaterThan(-1);
+		expect(refusedStepSettled).toBeLessThan(lookupStepEnd);
+	});
+
+	it("sends nothing to be saved when the words before the card are blank", async () => {
+		const { projection, saved } = await runAsking(
+			[
+				streamed(
+					[{ content: "  \n" }, { tool_calls: [askCall("ask-1")] }],
+					"tool_calls",
+				),
+			],
+			[pause],
+		);
+		expect(projection.completion?.outcome).toBe("paused");
+		expect(saved).toBe("");
+	});
+
+	it("leaves the words out of the answer when the run is cut off after it asked", async () => {
+		const intro = "The biggest fork is the shape of the day itself.";
+		const { projection, saved } = await runAsking(
+			[
+				streamed(
+					[{ content: intro }, { tool_calls: [askCall("ask-1")] }],
+					"tool_calls",
+				),
+			],
+			[pause],
+			{ stopAtStepEnd: true, abortCause: "transport_error" },
+		);
+		expect(projection.completion?.outcome).not.toBe("paused");
+		expect(projection.completion?.outcome).not.toBe("stopped");
+		expect(projection.answer).toBe("");
+		expect(roleOf(projection.blocks, intro)).toBe("activity");
+		expect(saved).toBe("");
+	});
+
+	it("gives the words before the card as the run's text on the plain path too", async () => {
+		const args = setup();
+		const intro = "The biggest fork is the shape of the day itself.";
+		const result = await runPlainNormalChatModelRun({
+			...args,
+			tools: {
+				ask_user: tool({
+					inputSchema: z.object({}),
+					execute: async () => pause,
+				}),
+			},
+			fetch: async () =>
+				reply(intro, "tool_calls", [
+					{
+						...call,
+						id: "ask",
+						function: { name: "ask_user", arguments: "{}" },
+					},
+				]),
+		});
+		expect(result.completion?.outcome).toBe("paused");
+		expect(result.text).toBe(intro);
+		expect(projectNormalChatOutput(args.output).answer).toBe(intro);
+	});
+
+	it("keeps the words before a card the schema refused, which never reaches the tool", async () => {
+		const args = setup();
+		const intro = "The biggest fork is the day itself.";
+		let requests = 0;
+		const result = await runPlainNormalChatModelRun({
+			...args,
+			tools: {
+				ask_user: tool({
+					inputSchema: z.object({ questions: z.array(z.string()) }),
+					execute: async () => pause,
+				}),
+			},
+			fetch: async () =>
+				++requests === 1
+					? reply(intro, "tool_calls", [
+							{
+								...call,
+								id: "ask-broken",
+								function: { name: "ask_user", arguments: '{"questions":5}' },
+							},
+						])
+					: reply("", "tool_calls", [
+							{
+								...call,
+								id: "ask-fixed",
+								function: {
+									name: "ask_user",
+									arguments: '{"questions":["Which way?"]}',
+								},
+							},
+						]),
+		});
+		expect(requests).toBe(2);
+		expect(result.completion?.outcome).toBe("paused");
+		expect(result.text).toBe(intro);
+	});
+
+	it("gives a resumed segment its own words as its text, not the words its first segment asked with", async () => {
+		const args = setup();
+		const tools = {
+			ask_user: tool({
+				inputSchema: z.object({}),
+				execute: async () => pause,
+			}),
+		};
+		const first = await runPlainNormalChatModelRun({
+			...args,
+			tools,
+			fetch: async () =>
+				reply("before ask", "tool_calls", [
+					{
+						...call,
+						id: "ask",
+						function: { name: "ask_user", arguments: "{}" },
+					},
+				]),
+		});
+		expect(first.text).toBe("before ask");
+		if (!first.continuation) throw new Error("Missing capture");
+		const resumed = await runPlainNormalChatModelRun({
+			...args,
+			tools,
+			completionPolicy: {
+				...args.completionPolicy,
+				segmentId: "resume",
+				continuation: first.continuation,
+				continuationKind: "user_resume",
+				forAttempt: () => ({
+					...args.completionPolicy.forAttempt(),
+					authorizeExecution: () => ({ kind: "new" as const }),
+				}),
+			},
+			fetch: async () => reply("resumed answer"),
+		});
+		expect(resumed.completion?.outcome).toBe("answered");
+		expect(resumed.text).toBe("resumed answer");
+	});
+
+	it("leaves the words out of the answer when the person stops the reply as it asks", async () => {
+		const intro = "The biggest fork is the shape of the day itself.";
+		const { projection, saved } = await runAsking(
+			[
+				streamed(
+					[{ content: intro }, { tool_calls: [askCall("ask-1")] }],
+					"tool_calls",
+				),
+			],
+			[pause],
+			{ stopAtStepEnd: true },
+		);
+		expect(projection.completion?.outcome).toBe("stopped");
+		expect(projection.answer).toBe("");
+		expect(roleOf(projection.blocks, intro)).toBe("activity");
+		expect(saved).toBe("");
+	});
+});

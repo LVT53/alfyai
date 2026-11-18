@@ -129,7 +129,7 @@ Pictures join the artifact family as a new kind, `image`, labelled Image / Kép 
 
 ### 5.4 Versions and lineage (decided)
 
-- One item, many versions. A change adds a version to the same item; an unrelated request starts a new item. Alfy decides which, as it does for Documents.
+- One item, many versions. A change adds a version to the same item; an unrelated request starts a new item. Alfy decides which, as it does for Documents. A picture made from several pictures is always a new item, whichever picture comes first (owner, 2026-11-18).
 - The person's upload is never modified. The first time they ask to change a photo, a new Image item starts with the photo as its first version.
 - **Another** asks for one more take, with a new seed, and adds it to the same turn's card. "Use this" on a take makes it the version in use. Takes not picked stay in the card and can be picked later. The version in use is what the next change starts from.
 - One take per tool call. Asked for options in words ("show me four"), Alfy makes up to four takes in the turn, one call each; takes made in one turn for one picture share one card. Asked for different pictures in one request ("three logo ideas"), Alfy counts them first and makes them all in one step, up to eight in a turn, each on its own card (owner, 2026-10-30). Each take gets the look, and a take that clearly missed is retried once (my call).

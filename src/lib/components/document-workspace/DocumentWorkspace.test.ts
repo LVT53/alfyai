@@ -2880,7 +2880,7 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 		// The panel itself is still open, showing the document.
 		expect(
 			screen.getAllByRole("complementary", {
-				name: "What this chat made",
+				name: "Chat Artifacts",
 			}).length,
 		).toBeGreaterThan(0);
 	});

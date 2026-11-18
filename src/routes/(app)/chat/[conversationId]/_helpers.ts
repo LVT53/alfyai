@@ -438,6 +438,56 @@ export function filesWaitingForTheList(
 	);
 }
 
+/** How long after a take was made the page still expects its item to be a row of the list (a clip may take minutes). */
+const TAKE_LIST_EXPECTED_WITHIN_MS = 20 * 60_000;
+
+/**
+ * A picture or a clip the chat shows on its card whose Image or Video is not yet
+ * a row of the panel's list, or whose row holds an older version than the card's
+ * pick. A take that lands after its tool call stopped waiting makes or changes
+ * its item only when it lands, and what the page reads then is the cards alone
+ * (`hydrateConversationImageCards`), so the list and the header's count kept
+ * what they had until a reload. The page asks again with the files' delays
+ * (`FILE_LIST_RETRY_DELAYS_MS`).
+ *
+ * `listed` maps each row of the list (as the server last sent it) to its
+ * version; `gone` holds the ids deleted or out of this chat's reach. Only a
+ * recent take counts, so an item listed nowhere for another reason never makes
+ * the page ask on every visit.
+ */
+export function takesWaitingForTheList(
+	imageCards: readonly ImageCardView[],
+	videoCards: readonly VideoCardView[],
+	listed: ReadonlyMap<string, number>,
+	gone: ReadonlySet<string>,
+	nowMs: number,
+): boolean {
+	const waits = (
+		artifactId: string | null,
+		versionNumber: number | null,
+		madeAt: number,
+	) => {
+		if (!artifactId || gone.has(artifactId)) return false;
+		if (nowMs - madeAt >= TAKE_LIST_EXPECTED_WITHIN_MS) return false;
+		const row = listed.get(artifactId);
+		return row === undefined || (versionNumber !== null && versionNumber > row);
+	};
+	return (
+		imageCards.some((card) => {
+			const picked = card.takes.find((take) => take.id === card.pickedTakeId);
+			return (
+				picked !== undefined &&
+				waits(card.artifactId, picked.versionNumber, picked.createdAt)
+			);
+		}) ||
+		videoCards.some(
+			(card) =>
+				card.take?.status === "succeeded" &&
+				waits(card.artifactId, null, card.take.createdAt),
+		)
+	);
+}
+
 export function hasActiveAtlasJobs(jobs: AtlasJobCard[]): boolean {
 	return jobs.some(
 		(job) => job.status === "queued" || job.status === "running",

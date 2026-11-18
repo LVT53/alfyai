@@ -504,8 +504,8 @@ for (const width of [390, 360] as const) {
 
 /**
  * The panel's list used to say it twice: the eyebrow "Ez a beszélgetés" over
- * the title "Amit ez a beszélgetés készített" (ruling 77's amendment: one of
- * them goes). The title stays.
+ * the title, then "Amit ez a beszélgetés készített" (ruling 77's amendment: one
+ * of them goes). The title stays; since 2026-11-18 it is "A beszélgetés elemei".
  */
 async function openListInHungarian(page: Page) {
 	const conversationId = await createEmptyConversation(page, "Lista");
@@ -541,7 +541,7 @@ for (const [label, size, touch] of [
 			await setUiLanguage("en");
 		});
 
-		test("the title says what this chat made, and nothing repeats it above", async ({
+		test("the title names the chat's items, and nothing repeats it above", async ({
 			page,
 		}) => {
 			const list = await openListInHungarian(page);
@@ -549,7 +549,7 @@ for (const [label, size, touch] of [
 			const title = page.locator(
 				'[data-testid="artifact-panel-list-title"]:visible',
 			);
-			await expect(title).toHaveText("Amit ez a beszélgetés készített");
+			await expect(title).toHaveText("A beszélgetés elemei");
 			await expect(page.locator(".workspace-eyebrow:visible")).toHaveCount(0);
 			await expect(
 				page.getByText("Ez a beszélgetés", { exact: true }),
