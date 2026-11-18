@@ -23,14 +23,15 @@ cutover section) and the admin card says why. An install that follows `latest` c
 release whose protocol changed again, so pin the version and run the checklist in
 [deploy/README.md](../deploy/README.md#upgrading-mineru) after any upgrade.
 
-Production runs MinerU as one systemd service (`mineru41`) around `mineru-kit api-server`, in a
+Production runs MinerU as one systemd service (`mineru42`) around `mineru-kit api-server`, in a
 Python venv of its own, and that service calls a vision-language server that runs as a Docker
 container. This repository ships and tests no container image. The install, the services and their
 ports, the key on the command line, what a server costs in RAM and VRAM and how long it takes to
 start, the cutover and the rollback all have one home:
 [deploy/README.md](../deploy/README.md#document-extraction-service-mineru). What matters here is that
-an app calls exactly the address in `MINERU_API_URL`: production and ai.dev both call MinerU 4.1.7 on
-`http://127.0.0.1:8004`. The 4.0.12 server that answered on `127.0.0.1:8002` before the cutover was
+an app calls exactly the address in `MINERU_API_URL`: production and ai.dev both call MinerU 4.2.3 on
+`http://127.0.0.1:8004`, which took 4.1.7's place on the same port on 2026-11-18 (4.1.7's unit is
+kept, disabled, as the rollback: [deploy/mineru/README.md](../deploy/mineru/README.md)). The 4.0.12 server that answered on `127.0.0.1:8002` before the cutover was
 retired and deleted on 2026-11-09. (`http://127.0.0.1:8001` is only the code default and the port in
 the examples.) `MINERU_API_KEY` must match whatever the server was started with; leave it empty
 (anonymous access) only for a server that nothing else can reach.
@@ -873,7 +874,7 @@ LIVE_AI_BASE_URL=https://ai.alfydesign.com LIVE_AI_EMAIL=â€¦ LIVE_AI_PASSWORD=â€
 | `LIVE_EXTRACTION_PLAN41_DIR` | `docs/plans/mineru-4-1/fixtures/inputs` | where the 4.1.7 spike's inputs are |
 | `LIVE_EXTRACTION_CASES` | every case | comma-separated ids, for a narrow smoke |
 | `LIVE_EXTRACTION_EXPECTED_TIER` | `standard` | the tier PDFs and images are expected to parse at |
-| `LIVE_EXTRACTION_EXPECTED_SERVER_VERSION` | `4.1.7` | the MinerU version the status card must show and every document's `parse.parser_version` must carry |
+| `LIVE_EXTRACTION_EXPECTED_SERVER_VERSION` | `4.2.3` | the MinerU version the status card must show and every document's `parse.parser_version` must carry |
 | `LIVE_EXTRACTION_EXPECTED_PARSER_VERSION` | `mineru4/2` | the app's renderer version (`extractionParserVersion`) |
 | `LIVE_EXTRACTION_TIER` | *(unset)* | when set, every extraction case is re-extracted at this tier and the run reports the diff |
 
@@ -899,7 +900,7 @@ to see it read.
 
 **Not covered by this script, to do by hand on ai.dev:** a cancel (the job ends `canceled`, one
 `POST /v1/tasks/{id}/cancel` in MinerU's access log), a HEIC photo of a page (the job succeeds and
-its text is read), and `systemctl restart mineru41` in the middle of a job (the job has to succeed
+its text is read), and `systemctl restart mineru42` in the middle of a job (the job has to succeed
 by creating the task again; the app's journal shows `MinerU forgot an id, recovering`). And the
 gate itself: it needs a MinerU backend that genuinely answers `/v1/health` with a pre-4.x version,
 which this single-deployment sweep has no way to fake.
