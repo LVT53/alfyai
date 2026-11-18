@@ -1,4 +1,4 @@
-import { tool } from "ai";
+import { type ModelMessage, tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
@@ -31,6 +31,7 @@ vi.mock("$lib/server/services/provider-models", () => ({
 }));
 
 import {
+	type NormalChatContinuationSnapshot,
 	parseNormalChatContinuation,
 	prepareNormalChatCompletionRun,
 	runPlainNormalChatModelRun,
@@ -1137,6 +1138,414 @@ describe("opt-in structural completion with real SDK", () => {
 					: { outcome: "incomplete", stopCause: "context_capacity" },
 			);
 		}
+	});
+	it.each([
+		false,
+		true,
+	])("closes catalogue-only working overflow losslessly, streaming=%s", async (streaming) => {
+		const args = setup();
+		const workingText = "I found evidence and am checking it.";
+		const evidence = "settled evidence ".repeat(300);
+		const answer = "The settled evidence answers the original request.";
+		const maxOutputTokens = 1000;
+		const execute = vi.fn(async () => evidence);
+		const tools = {
+			lookup: tool({
+				description: "Look up evidence.",
+				inputSchema: z.object({}).describe("Lookup constraint. ".repeat(1000)),
+				execute,
+			}),
+		};
+		const catalogue = await countToolCatalogueTokens(tools);
+		const required = (messages: ModelMessage[]) =>
+			estimateHistoryMessagesTokens(messages, estimateTokenCount) +
+			maxOutputTokens +
+			CONTEXT_GUARD_MARGIN_TOKENS;
+		const initialRequired = required(args.messages) + catalogue;
+		const window = initialRequired + 500;
+		const bodies: Array<{
+			messages: Array<{ role: string; content: unknown }>;
+			tools?: unknown;
+			tool_choice?: unknown;
+			max_completion_tokens: number;
+		}> = [];
+		const workingInputs: ModelMessage[][] = [];
+		const snapshots: NormalChatContinuationSnapshot[] = [];
+		const params = {
+			...args,
+			provider: { ...provider, maxModelContext: window, maxOutputTokens },
+			maxOutputTokens,
+			maxToolSteps: 3,
+			toolChoice: "required" as const,
+			firstStepToolChoice: { type: "tool" as const, toolName: "lookup" },
+			tools,
+			completionPolicy: {
+				...args.completionPolicy,
+				onSnapshot: (snapshot: NormalChatContinuationSnapshot) =>
+					snapshots.push(snapshot),
+				forAttempt: ({ phase }: { phase: string }) => ({
+					...args.completionPolicy.forAttempt(),
+					projectContext: ({
+						system,
+						messages,
+					}: {
+						system?: string;
+						messages: ModelMessage[];
+					}) => {
+						if (phase === "working") workingInputs.push(messages);
+						return { system, messages };
+					},
+				}),
+			},
+			fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+				bodies.push(JSON.parse(String(init?.body)));
+				if (bodies.length > 2)
+					throw new Error("Closing allowance was repeated");
+				if (streaming)
+					return bodies.length === 1
+						? streamed(
+								[
+									{ content: workingText },
+									{ tool_calls: [{ index: 0, ...call }] },
+								],
+								"tool_calls",
+							)
+						: streamed([{ content: answer }]);
+				return bodies.length === 1
+					? reply(workingText, "tool_calls", [call])
+					: reply(answer);
+			},
+		};
+		let plainText: string | undefined;
+		if (streaming) {
+			for await (const _event of runStreamingNormalChatModelRun(params)) {
+				// Drain the real SDK stream through terminal settlement.
+			}
+		} else plainText = (await runPlainNormalChatModelRun(params)).text;
+
+		const snapshot = snapshots.at(-1);
+		const nextWorking = workingInputs.at(-1);
+		if (!snapshot || !nextWorking)
+			throw new Error("Missing retained working input");
+		// Measure complete canonical input, not wire bytes. Closing adds its
+		// instruction but removes the catalogue, retaining O and every result.
+		const closingInput: ModelMessage[] = [
+			...nextWorking,
+			{
+				role: "user",
+				content:
+					"Complete the original request using the evidence and working text already present. Preserve useful completed subanswers. Do not repeat already committed answer parts. Tools are unavailable. State unresolved limitations honestly.",
+			},
+		];
+		expect(initialRequired).toBeLessThanOrEqual(window);
+		expect(required(nextWorking) + catalogue).toBeGreaterThan(window);
+		expect(required(closingInput)).toBeLessThanOrEqual(window);
+		expect(JSON.stringify(nextWorking)).toContain(workingText);
+		expect(
+			nextWorking.flatMap((message) =>
+				message.role === "tool"
+					? message.content
+							.filter((part) => part.type === "tool-result")
+							.map((part) => part.output)
+					: [],
+			),
+		).toEqual([{ type: "text", value: evidence }]);
+		expect(snapshot.executions).toHaveLength(1);
+		expect(snapshot.executions[0]).toMatchObject({
+			state: "succeeded",
+			output: evidence,
+		});
+		expect(execute).toHaveBeenCalledTimes(1);
+		expect(snapshot.prepared.maxOutputTokens).toBe(maxOutputTokens);
+		console.info("Lossless closing capacity fixture", {
+			streaming,
+			initialRequired,
+			nextWorkingRequired: required(nextWorking) + catalogue,
+			closingRequired: required(closingInput),
+			catalogue,
+			window,
+			maxOutputTokens,
+			requests: bodies.length,
+			completion: snapshot.completion,
+		});
+
+		expect.soft(snapshot.usage[0]).toMatchObject({
+			inputTokens: 10,
+			outputTokens: 3,
+			totalTokens: 13,
+			complete: true,
+			safeStopCause: "context_capacity",
+			outcome: "incomplete",
+		});
+		expect.soft(bodies).toHaveLength(2);
+		expect.soft(snapshot.completion).toMatchObject({
+			outcome: "answered",
+			workingStopCause: "context_capacity",
+			closingAttempted: true,
+		});
+		expect
+			.soft(snapshot.closingSegments)
+			.toEqual([args.completionPolicy.segmentId]);
+		expect.soft(projectNormalChatOutput(args.output).answer).toBe(answer);
+		if (!streaming) expect.soft(plainText).toBe(answer);
+		const closing = bodies[1];
+		if (closing) {
+			expect(closing.tools).toBeUndefined();
+			expect(closing.tool_choice).toBeUndefined();
+			expect(closing.max_completion_tokens).toBe(maxOutputTokens);
+			expect(
+				closing.messages.filter((message) => message.role === "tool"),
+			).toEqual([expect.objectContaining({ content: evidence })]);
+			expect(JSON.stringify(closing.messages)).toContain(workingText);
+		}
+		expect(
+			args.output.filter((event) => event.type === "completion"),
+		).toHaveLength(1);
+	});
+	it.each([
+		false,
+		true,
+	])("allocates lossless closing output at the original destination, streaming=%s", async (streaming) => {
+		for (const [maxOutputTokens, room, allowed] of [
+			[2048, 2048, true],
+			[2048, 1600, true],
+			[2048, 1024, true],
+			[2048, 1023, false],
+			[820, 820, true],
+			[820, 819, false],
+		] as const) {
+			const args = setup();
+			const system = "Use all the exact evidence.";
+			const working = "Working evidence.";
+			const evidence = "evidence value ".repeat(1500);
+			const instruction =
+				"Complete the original request using the evidence and working text already present. Preserve useful completed subanswers. Do not repeat already committed answer parts. Tools are unavailable. State unresolved limitations honestly.";
+			const completeInput: ModelMessage[] = [
+				...args.messages,
+				{
+					role: "assistant",
+					content: [
+						{ type: "text", text: working },
+						{
+							type: "tool-call",
+							toolCallId: call.id,
+							toolName: "lookup",
+							input: {},
+						},
+					],
+				},
+				{
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: call.id,
+							toolName: "lookup",
+							output: { type: "text", value: evidence },
+						},
+					],
+				},
+				{ role: "user", content: instruction },
+			];
+			const prompt =
+				estimateTokenCount(system) +
+				estimateHistoryMessagesTokens(completeInput, estimateTokenCount);
+			const window = prompt + CONTEXT_GUARD_MARGIN_TOKENS + room;
+			const execute = vi.fn(async () => evidence);
+			const tools = {
+				lookup: tool({
+					inputSchema: z.object({}).describe("constraint ".repeat(300)),
+					execute,
+				}),
+			};
+			expect(
+				estimateHistoryMessagesTokens(args.messages, estimateTokenCount) +
+					estimateTokenCount(system) +
+					(await countToolCatalogueTokens(tools)) +
+					maxOutputTokens +
+					CONTEXT_GUARD_MARGIN_TOKENS,
+			).toBeLessThanOrEqual(window);
+			const bodies: Array<Record<string, unknown>> = [];
+			let snapshot: NormalChatContinuationSnapshot | undefined;
+			const params = {
+				...args,
+				system,
+				tools,
+				maxToolSteps: 3,
+				maxOutputTokens,
+				provider: {
+					...provider,
+					modelName: "qwen3",
+					maxModelContext: window,
+					maxOutputTokens,
+					thinkingType: "enabled" as const,
+				},
+				completionPolicy: {
+					...args.completionPolicy,
+					onSnapshot: (s: NormalChatContinuationSnapshot) => {
+						snapshot = s;
+					},
+				},
+				fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+					bodies.push(JSON.parse(String(init?.body)));
+					return streaming
+						? bodies.length === 1
+							? streamed(
+									[
+										{ content: working },
+										{ tool_calls: [{ index: 0, ...call }] },
+									],
+									"tool_calls",
+								)
+							: streamed([{ content: "Closed." }])
+						: bodies.length === 1
+							? reply(working, "tool_calls", [call])
+							: reply("Closed.");
+				},
+			};
+			if (streaming) {
+				for await (const _event of runStreamingNormalChatModelRun(params)) {
+				}
+			} else await runPlainNormalChatModelRun(params);
+			expect(execute).toHaveBeenCalledTimes(1);
+			expect(snapshot?.prepared.maxOutputTokens).toBe(maxOutputTokens);
+			expect(snapshot?.executions[0].output).toBe(evidence);
+			expect
+				.soft(bodies, `O=${maxOutputTokens}, R=${room}`)
+				.toHaveLength(allowed ? 2 : 1);
+			expect.soft(snapshot?.completion).toMatchObject({
+				outcome: allowed ? "answered" : "incomplete",
+				workingStopCause: "context_capacity",
+				closingAttempted: true,
+			});
+			if (!allowed)
+				expect(snapshot?.completion?.stopCause).toBe("context_capacity");
+			const closing = bodies[1];
+			if (closing) {
+				expect(closing.max_tokens).toBe(Math.min(maxOutputTokens, room));
+				expect(closing.tools).toBeUndefined();
+				for (const key of [
+					"temperature",
+					"top_p",
+					"top_k",
+					"chat_template_kwargs",
+					"reasoning_effort",
+				])
+					expect(closing[key]).toEqual(bodies[0][key]);
+				expect(closing.messages).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({ role: "tool", content: evidence }),
+					]),
+				);
+			}
+			expect
+				.soft(projectNormalChatOutput(args.output).answer)
+				.toBe(allowed ? "Closed." : "");
+		}
+	});
+	it.each([
+		false,
+		true,
+	])("settles parallel pressure before capacity closing and preserves pause/uncertainty precedence, streaming=%s", async (streaming) => {
+		for (const mode of ["full", "pause", "uncertain"] as const) {
+			const args = setup();
+			const evidence = "evidence ".repeat(2000);
+			const lookup = vi.fn(async () => evidence);
+			const ask = vi.fn(async () => ({ status: "waiting_for_user" }));
+			let requests = 0;
+			const sibling =
+				mode === "pause"
+					? {
+							...call,
+							id: "sibling",
+							function: { name: "ask_user", arguments: "{}" },
+						}
+					: { ...call, id: "sibling" };
+			let snapshot: NormalChatContinuationSnapshot | undefined;
+			const params = {
+				...args,
+				provider: { ...provider, maxModelContext: 8000 },
+				maxToolSteps: 3,
+				tools: {
+					lookup: tool({ inputSchema: z.object({}), execute: lookup }),
+					ask_user: tool({ inputSchema: z.object({}), execute: ask }),
+				},
+				completionPolicy: {
+					...args.completionPolicy,
+					onSnapshot: (s: NormalChatContinuationSnapshot) => {
+						snapshot = s;
+					},
+					forAttempt: () => ({
+						classifyExecution: (entry: { callId: string }) =>
+							mode === "uncertain" && entry.callId === "sibling"
+								? ("uncertain" as const)
+								: ("succeeded" as const),
+					}),
+				},
+				fetch: async () => {
+					requests++;
+					return streaming
+						? streamed(
+								[
+									{ content: "Working." },
+									{
+										tool_calls: [
+											{ index: 0, ...call },
+											{ index: 1, ...sibling },
+										],
+									},
+								],
+								"tool_calls",
+							)
+						: reply("Working.", "tool_calls", [call, sibling]);
+				},
+			};
+			if (streaming) {
+				for await (const _event of runStreamingNormalChatModelRun(params)) {
+				}
+			} else await runPlainNormalChatModelRun(params);
+			expect(requests).toBe(1);
+			expect(lookup).toHaveBeenCalledTimes(mode === "pause" ? 1 : 2);
+			expect(ask).toHaveBeenCalledTimes(mode === "pause" ? 1 : 0);
+			expect(snapshot?.executions[0].output).toBe(evidence);
+			expect(snapshot?.completion).toMatchObject({
+				outcome: mode === "pause" ? "paused" : "incomplete",
+				stopCause:
+					mode === "pause"
+						? "ask_pause"
+						: mode === "uncertain"
+							? "uncertain_execution"
+							: "context_capacity",
+				closingAttempted: mode === "full",
+			});
+		}
+	});
+	it("keeps missing working usage unknown after a locally prevented capacity request", async () => {
+		const args = setup();
+		let requests = 0;
+		const result = await runPlainNormalChatModelRun({
+			...args,
+			provider: { ...provider, maxModelContext: 8000 },
+			maxToolSteps: 3,
+			tools: {
+				lookup: tool({
+					inputSchema: z.object({}),
+					execute: async () => "evidence ".repeat(2000),
+				}),
+			},
+			fetch: async () => {
+				if (++requests > 1) return reply("Closed.");
+				const first = await reply("Working.", "tool_calls", [call]).json();
+				delete first.usage;
+				return new Response(JSON.stringify(first), {
+					headers: { "content-type": "application/json" },
+				});
+			},
+		});
+		expect(requests).toBe(1);
+		expect(result.continuation?.usage[0].complete).toBe(false);
+		expect(result.usage.inputTokens).toBeUndefined();
+		expect(result.usage.outputTokens).toBeUndefined();
 	});
 	it("reports capacity failure without shrinking completed evidence", async () => {
 		const args = setup();

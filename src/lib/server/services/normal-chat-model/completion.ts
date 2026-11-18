@@ -553,20 +553,27 @@ export async function* runNormalChatCompletion(
 		}
 		return counted;
 	};
+	const assertActive = () => {
+		const aborted = externalAbort();
+		if (aborted) throw new CompletionExit(aborted);
+		if (uncertain()) throw new CompletionExit("uncertain_execution");
+		if (Date.now() >= snapshot.deadlineAt) throw new CompletionExit("deadline");
+	};
 	const assertFits = async (
 		input: { system?: string; messages: ModelMessage[] },
 		tools: ToolSet | undefined,
+		output = params.maxOutputTokens ?? params.provider.maxOutputTokens,
 	) => {
-		const output = params.maxOutputTokens ?? params.provider.maxOutputTokens;
 		const capacity = deps.maxModelContext;
 		const toolTokens = await countCatalogue(tools);
-		const aborted = externalAbort();
-		if (aborted) throw new CompletionExit(aborted);
-		if (Date.now() >= snapshot.deadlineAt) throw new CompletionExit("deadline");
+		assertActive();
 		// No invented model table and no shrinking of continuation evidence.
 		if (
 			capacity === undefined ||
+			!Number.isFinite(capacity) ||
 			output === undefined ||
+			!Number.isFinite(output) ||
+			output <= 0 ||
 			estimateHistoryMessagesTokens(input.messages, estimateTokenCount) +
 				estimateTokenCount(input.system ?? "") +
 				toolTokens +
@@ -652,6 +659,9 @@ export async function* runNormalChatCompletion(
 		let attemptCause: NormalChatStopCause | undefined;
 		let lastReason: string | null = null;
 		let missingUsage = false;
+		// Set only after a step's final pre-dispatch check; a settled callback
+		// clears it. Capacity before the next dispatch cannot add unknown usage.
+		let requestOutstanding = false;
 		let firstOutputTimedOut = false;
 		const firstOutputController = new AbortController();
 		const firstOutputMs =
@@ -967,6 +977,7 @@ export async function* runNormalChatCompletion(
 			});
 		};
 		const finishStep = (event: OnStepFinishEvent<ToolSet>) => {
+			requestOutstanding = false;
 			receivedUpstreamOutput = true;
 			clearFirstOutputTimeout();
 			const current = ensureStep(event.stepNumber);
@@ -1050,12 +1061,11 @@ export async function* runNormalChatCompletion(
 				);
 			notify();
 		};
-		const prepareStep: PrepareStepFunction<ToolSet> = async (options) => {
-			if (stopped()) throw new CompletionExit("user_stop");
-			if (uncertain()) throw new CompletionExit("uncertain_execution");
-			if (Date.now() >= deadline) throw new CompletionExit("deadline");
-			preparedStepNumber = options.stepNumber;
-			const current = ensureStep(options.stepNumber);
+		type PreparedInput = { system?: string; messages: ModelMessage[] };
+		let closingInput: PreparedInput | undefined;
+		let invocationOutput =
+			params.maxOutputTokens ?? params.provider.maxOutputTokens;
+		const prepareInput = async (current: NormalChatContinuationStep) => {
 			const entries = [
 				...snapshot.pendingImageEntries.splice(0),
 				...clone(params.stepImages?.drain() ?? []),
@@ -1067,13 +1077,35 @@ export async function* runNormalChatCompletion(
 			const messages = canonical();
 			if (phase === "closing")
 				messages.push({ role: "user", content: closingInstruction });
-			const input = await project(messages);
-			await assertFits(input, tools);
+			return project(messages);
+		};
+		const prepareStep: PrepareStepFunction<ToolSet> = async (options) => {
+			if (stopped()) throw new CompletionExit("user_stop");
+			if (uncertain()) throw new CompletionExit("uncertain_execution");
+			if (Date.now() >= deadline) throw new CompletionExit("deadline");
+			preparedStepNumber = options.stepNumber;
+			const current = ensureStep(options.stepNumber);
+			// SDK 6 cannot override maxOutputTokens from prepareStep. Closing's
+			// exact projected step-zero input and cap were fixed before invocation.
+			const input = closingInput
+				? clone(closingInput)
+				: await prepareInput(current);
+			if (closingInput && snapshot.pendingImageEntries.length)
+				throw new CompletionExit("context_capacity");
+			await assertFits(input, tools, invocationOutput);
+			if (Date.now() >= deadline) throw new CompletionExit("deadline");
 			current.observedInput = clone({
 				providerId: params.provider.id,
 				...input,
 			});
 			notify();
+			// Snapshot callbacks may stop the turn or admit more pictures. Never
+			// dispatch the cached input after that invalidates its preflight.
+			await assertFits(input, tools, invocationOutput);
+			if (closingInput && snapshot.pendingImageEntries.length)
+				throw new CompletionExit("context_capacity");
+			if (Date.now() >= deadline) throw new CompletionExit("deadline");
+			requestOutstanding = true;
 			return {
 				...input,
 				...(phase === "working" &&
@@ -1085,10 +1117,39 @@ export async function* runNormalChatCompletion(
 		};
 		try {
 			deps.validateTools?.(tools);
-			const input = await project(canonical());
-			if (phase === "closing")
-				input.messages.push({ role: "user", content: closingInstruction });
-			await assertFits(input, tools);
+			const input =
+				phase === "closing"
+					? await prepareInput(ensureStep(0))
+					: await project(canonical());
+			assertActive();
+			if (phase === "closing") {
+				closingInput = clone(input);
+				const capacity = deps.maxModelContext;
+				const output = invocationOutput;
+				if (
+					capacity !== undefined &&
+					Number.isFinite(capacity) &&
+					output !== undefined &&
+					Number.isFinite(output) &&
+					snapshot.original.providerId === params.provider.id &&
+					snapshot.original.providerBaseUrl === params.provider.baseUrl &&
+					snapshot.original.modelName === params.provider.modelName
+				) {
+					const room = Math.floor(
+						capacity -
+							estimateTokenCount(input.system ?? "") -
+							estimateHistoryMessagesTokens(
+								input.messages,
+								estimateTokenCount,
+							) -
+							CONTEXT_GUARD_MARGIN_TOKENS,
+					);
+					if (room < Math.min(output, 1024))
+						throw new CompletionExit("context_capacity");
+					invocationOutput = Math.min(output, room);
+				}
+			}
+			await assertFits(input, tools, invocationOutput);
 			const request = {
 				model: deps.model,
 				...input,
@@ -1117,8 +1178,7 @@ export async function* runNormalChatCompletion(
 						}
 					: {}),
 				prepareStep,
-				maxOutputTokens:
-					params.maxOutputTokens ?? params.provider.maxOutputTokens,
+				maxOutputTokens: invocationOutput,
 				...resolveModelCallSampling(params.provider),
 				providerOptions: deps.providerOptions,
 				maxRetries: 0,
@@ -1311,6 +1371,19 @@ export async function* runNormalChatCompletion(
 					usage.totalTokens !== null;
 			}
 		} catch (error) {
+			if (
+				error instanceof CompletionExit &&
+				error.causeCode === "context_capacity" &&
+				!requestOutstanding &&
+				!missingUsage
+			) {
+				// Only this local capacity rejection proves the next request never
+				// went out. Known settled totals (or pre-dispatch zero) stay known.
+				usage.inputTokens ??= 0;
+				usage.outputTokens ??= 0;
+				usage.totalTokens ??= 0;
+				usage.complete = true;
+			}
 			attemptError = true;
 			rawError = firstOutputTimedOut
 				? new Error("Timed out waiting for first upstream output")
@@ -1543,7 +1616,12 @@ export async function* runNormalChatCompletion(
 		}
 		if (
 			phase === "closing" ||
-			stopCause === "context_capacity" ||
+			(stopCause === "context_capacity" &&
+				!(
+					receivedUpstreamOutput ||
+					hasToolOccurrence() ||
+					(resumed && snapshot.steps.some((step) => step.response.length > 0))
+				)) ||
 			stopCause === "incompatible_continuation" ||
 			Date.now() >= snapshot.deadlineAt
 		) {
