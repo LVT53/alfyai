@@ -4,7 +4,13 @@ vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({ braveSearchApiKey: "brave-key" })),
 }));
 
-import { fetchBraveThumbnail, searchImages } from "./image-search";
+import { getConfig } from "$lib/server/config-store";
+import {
+	fetchBraveThumbnail,
+	ImageSearchApiError,
+	ImageSearchNotConfiguredError,
+	searchImages,
+} from "./image-search";
 
 // Brave's image search puts the resized copy at `thumbnail.src` (the response
 // schema has no `thumbnail.url`), the picture's own address at `properties.url`
@@ -83,6 +89,39 @@ describe("searchImages", () => {
 
 		expect(results).toHaveLength(4);
 		for (const result of results) expect(result.thumbnail).toBeUndefined();
+	});
+
+	// A tool row tells a search that was never set up, and one Brave refused,
+	// from any other failure by the class; the messages the model reads stay.
+	it("throws ImageSearchNotConfiguredError, with its old message, when there is no key", async () => {
+		vi.mocked(getConfig).mockReturnValueOnce({
+			braveSearchApiKey: "",
+		} as never);
+
+		const failure = await searchImages("cat").catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ImageSearchNotConfiguredError);
+		expect((failure as Error).message).toBe(
+			"BRAVE_SEARCH_API_KEY is not configured",
+		);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("throws ImageSearchApiError, with the status and its old message, when Brave refuses", async () => {
+		fetchMock.mockResolvedValue(
+			new Response("plan used up", {
+				status: 402,
+				statusText: "Payment Required",
+			}),
+		);
+
+		const failure = await searchImages("cat").catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ImageSearchApiError);
+		expect((failure as ImageSearchApiError).status).toBe(402);
+		expect((failure as Error).message).toBe(
+			"Brave Search API error: 402 Payment Required - plan used up",
+		);
 	});
 
 	it("falls back to the page address when a result has no picture address", async () => {

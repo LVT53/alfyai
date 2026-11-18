@@ -1406,6 +1406,69 @@ describe("reason codes", () => {
 			const { entry } = await grantedFailure({});
 			expect(entry.metadata).not.toHaveProperty("reasonCode");
 		});
+
+		it("records reading_budget_used for a read the turn's reading budget refused before it began", async () => {
+			let ran = false;
+			const base = createToolCallRecorder();
+			const returned = await executeToolWithEnvelope({
+				toolName: "research_web",
+				timeoutMs: 5_000,
+				readOnly: true,
+				options: bindReadResultGrant(
+					{ toolCallId: "call", messages: [] },
+					{ ...grant, kind: "denied" as const, maxPayloadTokens: 0 },
+				),
+				recorder: base,
+				run: async () => {
+					ran = true;
+					throw new Error("never runs");
+				},
+				onError: () => ({
+					modelPayload: { success: false },
+					entry: {
+						name: "research_web",
+						input: {},
+						status: "failed" as const,
+						metadata: { ok: false },
+					},
+				}),
+			});
+			expect(ran).toBe(false);
+			expect(returned).toMatchObject({ success: false, bounded: true });
+			const [entry] = base.getEntries();
+			expect(entry.status).toBe("failed");
+			expect(entry.metadata?.reasonCode).toBe("reading_budget_used");
+		});
+
+		it("lets a Stop win over a spent reading budget", async () => {
+			const base = createToolCallRecorder();
+			await executeToolWithEnvelope({
+				toolName: "research_web",
+				timeoutMs: 5_000,
+				readOnly: true,
+				options: bindReadResultGrant(
+					{
+						toolCallId: "call",
+						messages: [],
+						abortSignal: stoppedSignal(new UserStopReason()),
+					},
+					{ ...grant, kind: "denied" as const, maxPayloadTokens: 0 },
+				),
+				recorder: base,
+				run: async () => {
+					throw new Error("never runs");
+				},
+				onError: () => ({
+					modelPayload: { success: false },
+					entry: {
+						name: "research_web",
+						input: {},
+						status: "failed" as const,
+					},
+				}),
+			});
+			expect(base.getEntries()[0]?.metadata?.reasonCode).toBe("stopped");
+		});
 	});
 
 	describe("the failure log", () => {

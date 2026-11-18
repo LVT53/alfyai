@@ -16,9 +16,14 @@ import {
 } from "$lib/server/services/file-production";
 import { getFileProductionWorkerConfig } from "$lib/server/services/file-production/config";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
-import { searchImages } from "$lib/server/services/image-search";
+import {
+	ImageSearchApiError,
+	ImageSearchNotConfiguredError,
+	searchImages,
+} from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { toolReadArtifactIdsMetadata } from "$lib/server/services/message-evidence";
+import { ParallelApiError } from "$lib/server/services/parallel-search/client";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
 import {
@@ -220,6 +225,7 @@ import {
 	executeToolWithEnvelope,
 	isToolTimeoutError,
 	modelSafeToolError,
+	reasonMetadata,
 	TOOL_TIMEOUTS_MS,
 	type ToolCallRecorder,
 } from "./shared";
@@ -976,6 +982,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													...(refusedCount > 0
 														? { refusedUrlCount: refusedCount }
 														: {}),
+													// Why no page could be read, when the Extract API said
+													// (a read that brought back a page names nothing).
+													...(result.readFailure
+														? reasonMetadata("fetch_url", result.readFailure)
+														: {}),
 												},
 											},
 										};
@@ -1006,6 +1017,17 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													...(error instanceof FetchUrlRefusedError
 														? { refusedUrlCount: error.refusedCount }
 														: {}),
+													// A link from neither the person nor a tool, or a page
+													// reader that answered with an error. A timeout, a Stop
+													// and a spent reading budget are the envelope's.
+													...(error instanceof FetchUrlRefusedError
+														? reasonMetadata(
+																"fetch_url",
+																"link_not_from_a_source",
+															)
+														: error instanceof ParallelApiError
+															? reasonMetadata("fetch_url", "read_unavailable")
+															: {}),
 												},
 											},
 										};
@@ -1136,6 +1158,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: true,
 										evidenceReady: true,
 										resultCount: compactResults.length,
+										// No picture came up: still a success, and the row says so.
+										...(compactResults.length === 0
+											? reasonMetadata("image_search", "nothing_found")
+											: {}),
 									},
 								},
 							};
@@ -1163,6 +1189,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: false,
 										evidenceReady: false,
 										error: modelPayload.error,
+										// A search that was never set up, or one the provider refused
+										// (its plan ran out answers 402). A timeout and a Stop are the
+										// envelope's; any other failure names nothing.
+										...(error instanceof ImageSearchNotConfiguredError
+											? reasonMetadata("image_search", "not_set_up")
+											: error instanceof ImageSearchApiError
+												? reasonMetadata("image_search", "search_unavailable")
+												: {}),
 									},
 								},
 							};

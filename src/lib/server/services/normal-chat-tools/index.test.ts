@@ -34,7 +34,11 @@ import {
 	submitFileProductionIntake,
 } from "$lib/server/services/file-production";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
-import { searchImages } from "$lib/server/services/image-search";
+import {
+	ImageSearchApiError,
+	ImageSearchNotConfiguredError,
+	searchImages,
+} from "$lib/server/services/image-search";
 import {
 	getMemoryContext,
 	type HistoryMemoryContextResult,
@@ -110,7 +114,12 @@ vi.mock("$lib/server/services/sandbox-execution", () => ({
 vi.mock("$lib/server/services/memory-context", () => ({
 	getMemoryContext: vi.fn(),
 }));
-vi.mock("$lib/server/services/image-search", () => ({
+// The search is the network; its error classes stay real, since the tool tells a
+// search that was never set up from one the provider refused by the class.
+vi.mock("$lib/server/services/image-search", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("$lib/server/services/image-search")
+	>()),
 	searchImages: vi.fn(),
 }));
 // The question store is the database. ask-user.test.ts holds what the tool
@@ -3780,6 +3789,103 @@ describe("createNormalChatTools", () => {
 				},
 			}),
 		]);
+	});
+
+	// The picture search's rows say what happened from a code on the entry's
+	// metadata, beside the payload the model reads (which is what it always was).
+	describe("image_search names what happened", () => {
+		function imageTools() {
+			return createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+		}
+		function search(set: ReturnType<typeof imageTools>) {
+			return set.tools.image_search.execute(
+				{ query: "reference image" },
+				{ toolCallId: "call-image", messages: [] },
+			);
+		}
+
+		it("names a search that was never set up", async () => {
+			searchImagesMock.mockRejectedValueOnce(
+				new ImageSearchNotConfiguredError(),
+			);
+			const set = imageTools();
+
+			await expect(search(set)).resolves.toEqual({
+				success: false,
+				error: "BRAVE_SEARCH_API_KEY is not configured",
+			});
+
+			const [entry] = set.getToolCalls();
+			expect(entry?.outputSummary).toBe(
+				"BRAVE_SEARCH_API_KEY is not configured",
+			);
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "not_set_up",
+			});
+		});
+
+		it("names a search the provider refused (its plan ran out)", async () => {
+			const message =
+				"Brave Search API error: 402 Payment Required - plan used up";
+			searchImagesMock.mockRejectedValueOnce(
+				new ImageSearchApiError(message, 402),
+			);
+			const set = imageTools();
+
+			await expect(search(set)).resolves.toEqual({
+				success: false,
+				error: message,
+			});
+
+			const [entry] = set.getToolCalls();
+			expect(entry?.outputSummary).toBe(message);
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "search_unavailable",
+			});
+		});
+
+		it("names a search that found nothing: still a success, with the payload it always had", async () => {
+			searchImagesMock.mockResolvedValueOnce([]);
+			const set = imageTools();
+
+			await expect(search(set)).resolves.toEqual({
+				success: true,
+				name: "image_search",
+				sourceType: "web",
+				message: "Found 0 images",
+			});
+
+			const [entry] = set.getToolCalls();
+			expect(entry?.status).toBe("done");
+			expect(entry?.outputSummary).toBe("Found 0 images.");
+			expect(entry?.metadata).toMatchObject({
+				ok: true,
+				resultCount: 0,
+				reasonCode: "nothing_found",
+			});
+		});
+
+		it("names nothing for a search that found pictures", async () => {
+			searchImagesMock.mockResolvedValueOnce([
+				{
+					url: "https://pics.example/cat.jpg",
+					title: "Cat",
+					source: "pics.example",
+				},
+			]);
+			const set = imageTools();
+
+			await search(set);
+
+			const [entry] = set.getToolCalls();
+			expect(entry?.metadata).not.toHaveProperty("reasonCode");
+		});
 	});
 
 	it("tells the recorder that a failure of a tool that only reads is settled, so the turn goes on", async () => {

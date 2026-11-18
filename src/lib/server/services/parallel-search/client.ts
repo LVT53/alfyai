@@ -79,9 +79,15 @@ export interface ParallelExtractResponse {
 // is a short human-readable cause (404 / paywall / timeout / …). Surfaced so the
 // consuming model can tell the user WHICH url failed and WHY, instead of a bare
 // aggregate count.
+//
+// `status` and `errorType` are what the API's error item said about the failure
+// itself (`http_status_code`, `error_type`), kept for the reason a tool row names
+// (`classifyReadFailure`). They never enter the brief the model reads.
 export interface ParallelExtractUrlError {
 	url: string | null;
 	reason: string;
+	status?: number;
+	errorType?: string;
 }
 
 // Detailed result of an Extract call: the successful page results plus the
@@ -142,10 +148,26 @@ function clampQueries(queries: string[]): string[] {
 	return queries.map((q) => q.slice(0, MAX_QUERY_CHARS)).slice(0, MAX_QUERIES);
 }
 
+/**
+ * A non-2xx answer from Parallel. The message is what the model has always
+ * read for it; the class is how a tool row tells a service that did not answer
+ * from any other failure, without reading the words of the message.
+ */
+export class ParallelApiError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+	) {
+		super(message);
+		this.name = "ParallelApiError";
+	}
+}
+
 async function throwForStatus(res: Response, label: string): Promise<never> {
 	const text = await res.text().catch(() => "");
-	throw new Error(
+	throw new ParallelApiError(
 		`Parallel ${label} failed: ${res.status} ${res.statusText} ${text.slice(0, ERROR_BODY_CHARS)}`.trim(),
+		res.status,
 	);
 }
 
@@ -222,7 +244,18 @@ function parseExtractErrors(raw: unknown): ParallelExtractUrlError[] {
 				collapseWhitespace(reasonCandidate)
 					? collapseWhitespace(reasonCandidate)
 					: "unknown error";
-			out.push({ url, reason });
+			const statusCandidate = record.http_status_code ?? record.status;
+			const typeCandidate = record.error_type ?? record.errorType;
+			out.push({
+				url,
+				reason,
+				...(Number.isInteger(statusCandidate)
+					? { status: statusCandidate as number }
+					: {}),
+				...(typeof typeCandidate === "string" && typeCandidate.trim()
+					? { errorType: collapseWhitespace(typeCandidate) }
+					: {}),
+			});
 		}
 	}
 	return out;

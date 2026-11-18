@@ -15,6 +15,8 @@ import {
 	type AnyReasonCode,
 	REASON_CODE_KEY,
 	type SharedReasonCode,
+	type ToolReasonCode,
+	type ToolWithReasons,
 } from "$lib/shared/tool-reasons";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
@@ -208,6 +210,19 @@ export function reasonCodeOf(payload: unknown): AnyReasonCode | undefined {
 	return payload !== null && typeof payload === "object"
 		? payloadReasonCodes.get(payload)
 		: undefined;
+}
+
+/**
+ * `{ reasonCode: code }` for an entry's metadata, with the code held to the
+ * tool's own closed list (or a shared outcome) by the compiler: a code a tool
+ * does not list, or a misspelt one, does not compile. The tool's name is only
+ * there to pick the list.
+ */
+export function reasonMetadata<T extends ToolWithReasons>(
+	_tool: T,
+	code: ToolReasonCode<T>,
+): { reasonCode: ToolReasonCode<T> } {
+	return { [REASON_CODE_KEY]: code };
 }
 
 export interface ToolCallRecorder {
@@ -891,11 +906,16 @@ export async function executeToolWithEnvelope<
 				},
 			};
 		}
+		// A budgeted read the turn's reading budget refused before it began (the
+		// throw at the top of the try): the one case that is the envelope's own.
+		const refusedForBudget =
+			grant?.kind === "denied" && error instanceof ToolCallRefusedError && !ran;
 		const reasonCode = thrownErrorReasonCode(
 			error,
 			params.options.abortSignal,
 			reasonCodeOfEntry(failure.entry) ??
-				(resultEntry ? reasonCodeOfEntry(resultEntry) : undefined),
+				(resultEntry ? reasonCodeOfEntry(resultEntry) : undefined) ??
+				(refusedForBudget ? "reading_budget_used" : undefined),
 		);
 		if (grant) {
 			const state =

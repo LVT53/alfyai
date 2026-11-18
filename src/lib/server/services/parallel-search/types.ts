@@ -7,7 +7,17 @@
 // this shape are hard-coded in the stream leak-filter (stream-protocol.ts) — do
 // not rename fields here without updating that regex.
 
+import type { ToolReasonCode } from "$lib/shared/tool-reasons";
 import { DEFAULT_PARALLEL_MODE } from "./client";
+
+/**
+ * Why a page read brought back nothing to read, as the reason code its row
+ * words (the codes of fetch_url's closed list in `$lib/shared/tool-reasons`).
+ */
+export type ReadFailureCode = Extract<
+	ToolReasonCode<"fetch_url">,
+	"site_refused" | "page_not_found" | "site_timeout" | "no_readable_text"
+>;
 
 export interface GroundedWebSource {
 	id: string;
@@ -83,6 +93,12 @@ export interface GroundedWebResult {
 	evidence: GroundedWebEvidence[];
 	answerBrief: GroundedWebAnswerBrief;
 	diagnostics: GroundedWebDiagnostics;
+	/**
+	 * Set by a page read that brought back nothing to read, when the Extract API
+	 * said why (`classifyReadFailure`). For the tool's row only: no model payload
+	 * is built from it.
+	 */
+	readFailure?: ReadFailureCode;
 }
 
 // Base diagnostics helper: sets the provider/mode defaults (mode
