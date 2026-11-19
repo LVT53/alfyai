@@ -54,6 +54,8 @@
 		"docs/plans/hindsight-memory/native-lifecycle-acceptance/run.ts",
 		"docs/plans/hindsight-memory/integrated-native-benchmark/run.ts",
 		"docs/plans/hindsight-memory/integrated-native-benchmark/paired/run.ts",
+		// Standalone synthetic paired migration rehearsal, invoked by its runbook.
+		"docs/plans/hindsight-memory/paired-migration-rehearsal/run.ts",
 		// Review commands that load adjacent text fixtures into the current tests.
 		"docs/plans/hindsight-memory/integration-review-fixtures/reproduce.cjs",
 		"docs/plans/hindsight-memory/lifecycle-review-fixtures/reproduce.cjs",
