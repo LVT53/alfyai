@@ -1081,6 +1081,60 @@ function earlierOmissionFacts(
 	}));
 }
 
+function removeSharedSupportObservations(
+	tx: Tx,
+	action: typeof memoryActions.$inferSelect,
+	intent: ActionIntentRecord,
+) {
+	const rows = tx
+		.select()
+		.from(memoryPublishedRows)
+		.where(
+			and(
+				eq(memoryPublishedRows.bankId, action.bankId),
+				eq(memoryPublishedRows.epoch, action.epoch),
+				eq(memoryPublishedRows.generation, action.generation ?? ""),
+			),
+		)
+		.orderBy(memoryPublishedRows.nativeId)
+		.all();
+	const target = rows.find((row) => row.nativeId === action.rowId);
+	if (!target) throw new NativeMemoryError("stale_memory", false);
+	const originals = new Map(intent.facts.map((fact) => [fact.id, fact.text]));
+	const targetIds = new Set(
+		readAcknowledgedFacts(target.sourceFingerprintsJson)
+			.filter((fact) => originals.get(fact.id) === fact.text)
+			.map((fact) => fact.id),
+	);
+	const siblings = rows.flatMap((row) => {
+		if (row.nativeId === target.nativeId) return [];
+		const facts = readAcknowledgedFacts(row.sourceFingerprintsJson);
+		// The prewrite model only sees the targeted raw facts. Do not let an
+		// observation borrowing other evidence move that claim to those facts.
+		if (
+			!facts.length ||
+			!facts.every(
+				(fact) =>
+					targetIds.has(fact.id) && originals.get(fact.id) === fact.text,
+			)
+		)
+			return [];
+		return [
+			{
+				id: row.nativeId,
+				text: row.text,
+				sourceFactIds: facts.map((f) => f.id),
+			},
+		];
+	});
+	if (
+		siblings.length > 100 ||
+		Buffer.byteLength(JSON.stringify([intent.before, siblings])) > 100000
+	)
+		throw new NativeMemoryError("memory_edit_too_large", false);
+	return siblings;
+}
+
 async function executeMemoryAction(
 	ctx: Context,
 	client: HindsightClient,
@@ -1129,10 +1183,26 @@ async function executeMemoryAction(
 		)
 			throw new NativeMemoryError("memory_edit_source_withdrawn", false);
 	};
-	const model = guardedModel(ctx, modelOverride, checkSources);
-	const bank = db.transaction((tx) => {
+	const readSharedSupport = (tx: Tx) =>
+		action.kind === "remove" && !intent.proposal
+			? removeSharedSupportObservations(tx, action, intent)
+			: [];
+	const { bank, sharedSupportObservations } = db.transaction((tx) => {
 		checkSources(tx);
-		return actionFence(tx, ctx);
+		return {
+			bank: actionFence(tx, ctx),
+			sharedSupportObservations: readSharedSupport(tx),
+		};
+	});
+	const model = guardedModel(ctx, modelOverride, (tx) => {
+		checkSources(tx);
+		if (
+			action.kind === "remove" &&
+			!intent.proposal &&
+			JSON.stringify(readSharedSupport(tx)) !==
+				JSON.stringify(sharedSupportObservations)
+		)
+			throw new NativeMemoryError("memory_dependency_source_changed", true);
 	});
 	if (
 		action.kind === "edit" &&
@@ -1228,6 +1298,7 @@ async function executeMemoryAction(
 				intent.before,
 				action.text ?? "",
 				model,
+				sharedSupportObservations,
 			);
 			intent = {
 				...intent,
@@ -1384,6 +1455,7 @@ async function executeMemoryAction(
 						removalOnly: intent.removalOnly,
 						newFacts,
 						earlierPreservedFacts: earlierFacts,
+						sharedSupportObservations,
 						verifyNewAssertionTiming: action.kind === "edit",
 					},
 					model,

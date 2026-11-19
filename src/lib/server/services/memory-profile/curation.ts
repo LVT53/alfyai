@@ -133,6 +133,8 @@ const OMISSION_TIMING_REVIEW =
 	" For every changed fact ID from original_facts, return changed_proposal_origins with exactly one entry. Compare each changed proposed fact with earlier_preserved_facts and its same-ID original. For empty text, report empty with no supporting IDs. For earlier preserved meaning, report earlier with its actual older supporting IDs, even when the wording changes or drops an article. For a mixture of earlier meaning with later independent meaning, report mixed with both the older and same-ID original supporting IDs. For independently asserted content retained only from the same-ID original, report same_source with that same ID only. A possessive in the newer fact can imply earlier ownership without renewing it. Reject earlier and mixed content at the newer date. Report origins independently of valid and issues.";
 const RAW_FACT_REVIEW =
 	" Inspect every part of each complete raw fact, including the text after pipe separators. Any annotation that repeats an omitted or superseded detail is a factual failure, even when the main sentence and displayed observation are correct. Preserve reasons genuinely asserted in the saved statement. Existing fact IDs keep their stored assertion dates even without a textual When annotation.";
+const SHARED_SUPPORT_REVIEW =
+	" This operation removes only the information in the selected display row. Other previously accepted observations may share a raw fact with that row. Shared IDs do not make their independent claims part of this removal. Preserve every independently supported detail in shared_support_observations, including any subject relationship needed to keep its meaning. A sibling may paraphrase the selected detail or repeat it together with other details: remove the selected detail there, retain the sibling’s independent information. Before accepting a proposal, check that the retained independent claims are actually present in the proposed raw fact text, without the removed detail. Empty output is only correct when no independent claim remains. Do not rely on native consolidation to recreate missing raw claims.";
 const PROTECTED_SOURCE_FACTS =
 	" protected_facts are independently accepted user-authored facts carried into this check as fixed context. Only information actually changed between the before and after chat messages can become a newer assertion. A sentence repeated in both chat versions cannot override a protected fact, even if the earlier chat wording conflicts with it. Keep the protected facts at their original assertion times. Check genuinely changed information in new_facts separately.";
 const CHRONOLOGICAL_CHAT_REVIEW =
@@ -226,12 +228,21 @@ export async function planMemoryEdit(
 	before: string,
 	after: string,
 	model: CurationModel,
+	sharedSupportObservations: Array<
+		EditedFact & { sourceFactIds: string[] }
+	> = [],
 ): Promise<EditIntent> {
 	return validateEditIntent(
 		await invokeModel(
 			model,
-			PLAN,
-			{ displayed_before: before, user_saved_after: after },
+			PLAN + (sharedSupportObservations.length ? SHARED_SUPPORT_REVIEW : ""),
+			{
+				displayed_before: before,
+				user_saved_after: after,
+				...(sharedSupportObservations.length
+					? { shared_support_observations: sharedSupportObservations }
+					: {}),
+			},
 			intentSchema,
 		),
 	);
@@ -245,6 +256,7 @@ export async function applyMemoryEdit(
 		newFacts?: EditedFact[];
 		protectedFacts?: EditedFact[];
 		earlierPreservedFacts?: EditedFact[];
+		sharedSupportObservations?: Array<EditedFact & { sourceFactIds: string[] }>;
 		removalOnly?: boolean;
 		verifyNewAssertionTiming?: boolean;
 		verifyCorrectionDates?: boolean;
@@ -255,6 +267,9 @@ export async function applyMemoryEdit(
 		throw Error("memory_edit_too_large");
 	const fresh = input.newFacts ?? [];
 	const protectedFacts = input.protectedFacts ?? [];
+	const sharedSupport = input.sharedSupportObservations?.length
+		? { shared_support_observations: input.sharedSupportObservations }
+		: {};
 	const earlierFacts = input.removalOnly
 		? (input.earlierPreservedFacts ?? [])
 		: [];
@@ -275,12 +290,14 @@ export async function applyMemoryEdit(
 					: "") +
 				(input.verifyCorrectionDates
 					? " Keep corrected and independently preserved claims in separate existing fact IDs so their different assertion dates can be preserved."
-					: ""),
+					: "") +
+				(input.sharedSupportObservations?.length ? SHARED_SUPPORT_REVIEW : ""),
 			{
 				displayed_before: input.before,
 				user_saved_after: input.after,
 				edit_plan: input.intent,
 				facts: input.facts,
+				...sharedSupport,
 				...(input.newFacts ? { new_facts: input.newFacts } : {}),
 				...(protectedFacts.length ? { protected_facts: protectedFacts } : {}),
 				...(earlierFacts.length
@@ -324,12 +341,14 @@ export async function applyMemoryEdit(
 				(earlierFacts.length
 					? PRESERVED_OMISSION_FACTS + OMISSION_TIMING_REVIEW
 					: "") +
-				(reviewingNewDates ? ASSERTION_TIMING_REVIEW : ""),
+				(reviewingNewDates ? ASSERTION_TIMING_REVIEW : "") +
+				(input.sharedSupportObservations?.length ? SHARED_SUPPORT_REVIEW : ""),
 			{
 				displayed_before: input.before,
 				user_saved_after: input.after,
 				edit_plan: input.intent,
 				original_facts: input.facts,
+				...sharedSupport,
 				...(input.newFacts ? { new_facts: input.newFacts } : {}),
 				...(protectedFacts.length ? { protected_facts: protectedFacts } : {}),
 				...(earlierFacts.length

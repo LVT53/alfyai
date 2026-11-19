@@ -2618,6 +2618,117 @@ it.each([
 	},
 );
 
+it("removes both name paraphrases while preserving another observation sharing their raw fact", async () => {
+	const f = await setup();
+	const { eq } = await import("drizzle-orm");
+	const name = "A felhasználó macskájának neve Szederliget.";
+	const paraphrase = "Szederliget a felhasználó macskájának a neve.";
+	const coat = "A felhasználó macskájának bundája fehér.";
+	const fact = {
+		id: "cat",
+		text: "A felhasználó macskájának neve Szederliget, és fehér a bundája.",
+	};
+	const fingerprint = JSON.stringify([fact]);
+	const independent = { id: "chess", text: "A felhasználó sakkozik." };
+	const { recordMemorySource } = await import("./revisions");
+	const otherSource = recordMemorySource({
+		userId: h.userId,
+		bankId: f.bank.id,
+		epoch: 0,
+		eventId: "chess",
+		lineageId: "chess",
+		text: independent.text,
+		context: "",
+		assertedAt: new Date(),
+	});
+	f.db
+		.update(f.s.memorySourceRevisions)
+		.set({
+			state: "accepted",
+			acknowledgedFactsJson: JSON.stringify([independent]),
+		})
+		.where(eq(f.s.memorySourceRevisions.id, otherSource.id))
+		.run();
+	f.db
+		.update(f.s.memorySourceRevisions)
+		.set({ acknowledgedFactsJson: fingerprint })
+		.where(eq(f.s.memorySourceRevisions.id, f.source.id))
+		.run();
+	f.db
+		.delete(f.s.memoryPublishedRows)
+		.where(eq(f.s.memoryPublishedRows.bankId, f.bank.id))
+		.run();
+	for (const [id, text, facts] of [
+		["name", name, [fact]],
+		["paraphrase", paraphrase, [fact]],
+		["coat", coat, [fact]],
+		["mixed", `${name} ${independent.text}`, [fact, independent]],
+		["observation-chess", independent.text, [independent]],
+	] as const) {
+		f.db
+			.insert(f.s.memoryPublishedRows)
+			.values({
+				id,
+				nativeId: id,
+				bankId: f.bank.id,
+				generation: "g",
+				epoch: 0,
+				text,
+				nativeText: text,
+				sourceIdsJson: JSON.stringify(facts.map(({ id }) => id)),
+				sourceFingerprintsJson: JSON.stringify(facts),
+				updatedAt: new Date(),
+			})
+			.run();
+	}
+	const siblings = [
+		{ id: "coat", text: coat, sourceFactIds: ["cat"] },
+		{ id: "paraphrase", text: paraphrase, sourceFactIds: ["cat"] },
+	];
+	const fixture = await nativeFixture(f, []);
+	fixture.setFacts([fact, { ...independent, document_id: otherSource.id }]);
+	fixture.model.mockImplementation(async (prompt, input) => {
+		if (input.displayed_observations) {
+			expect(input.displayed_observations).toEqual([
+				{ id: "observation-cat", text: coat, sourceFactIds: ["cat"] },
+			]);
+			return ckOkay;
+		}
+		expect(input.shared_support_observations).toEqual(siblings);
+		expect(prompt).toContain("A sibling may paraphrase the selected detail");
+		if (input.facts) return { facts: [{ id: "cat", text: coat }] };
+		if (input.proposed_facts) {
+			expect(input.proposed_facts).toEqual([{ id: "cat", text: coat }]);
+			return ckOkay;
+		}
+		return {
+			forget: ["cat's name"],
+			replace: [],
+			preserve: ["cat's white coat"],
+		};
+	});
+	const actions = await import("./curation-actions");
+	const { memoryDeliveryJob } = await import("./delivery-job");
+	const op = await actions.submitMemoryAction(h.userId, {
+		kind: "remove",
+		ref: { ...ckRef, rowId: "name" },
+		requestId: randomUUID(),
+	});
+	await h.engine.drain(memoryDeliveryJob);
+	expect(actions.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
+		status: "applied",
+		cleanupPending: false,
+		exclusionAcknowledged: true,
+	});
+	expect(fixture.patches).toEqual(["cat"]);
+	expect(
+		(await import("./native-read"))
+			.listMemory(h.userId, { scope: ckRef.scope })
+			.rows.map(({ text }) => text)
+			.sort(),
+	).toEqual([coat, independent.text].sort());
+});
+
 it("lifecycle re-review: a Remove checks new stale observations backed by other accepted sources", async () => {
 	const f = await setup();
 	const rev = await import("./revisions");
