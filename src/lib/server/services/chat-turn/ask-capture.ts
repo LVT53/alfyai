@@ -121,6 +121,23 @@ function toolResultParts(messages: readonly ModelMessage[]): ToolResultPart[] {
 	);
 }
 
+export function capturedPastChatLookup(
+	messages: readonly ModelMessage[],
+): boolean {
+	return toolResultParts(messages).some((part) => {
+		if (part.toolName !== "memory_context" || part.output.type !== "json")
+			return false;
+		const value = part.output.value;
+		return (
+			!!value &&
+			typeof value === "object" &&
+			!Array.isArray(value) &&
+			value.success === true &&
+			(value.mode === "history" || value.mode === "project")
+		);
+	});
+}
+
 /**
  * What a tool result and its row have in common: the call's id and the tool's
  * name. The id alone does not say which result a row is of, because a provider may

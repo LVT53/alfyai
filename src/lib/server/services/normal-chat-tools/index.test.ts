@@ -3714,6 +3714,7 @@ describe("createNormalChatTools", () => {
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
+			requestText: "Search my old chats for the decision.",
 		});
 
 		const result = await tools.memory_context.execute(
@@ -3920,6 +3921,7 @@ describe("createNormalChatTools", () => {
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
+			requestText: "Search my old chats for the decision.",
 		});
 
 		await expect(
@@ -4100,6 +4102,7 @@ describe("createNormalChatTools", () => {
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
+			requestText: "Search my old chats for the decision.",
 			recorder,
 		});
 
@@ -7149,6 +7152,7 @@ describe("memory_context tool — what a call records it read", () => {
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
+			requestText: "Search my old chats for the decision.",
 		});
 		const payload = await tools.memory_context.execute(
 			{
@@ -7271,12 +7275,14 @@ describe("memory_context names what happened", () => {
 				>["tools"]["memory_context"]["execute"]
 			>
 		>[0] = {},
-		options: { abortSignal?: AbortSignal } = {},
+		options: { abortSignal?: AbortSignal; requestText?: string } = {},
 	) {
 		const { tools, getToolCalls } = createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
+			requestText:
+				options.requestText ?? "Search my old chats for the decision.",
 		});
 		const payload = await tools.memory_context.execute(input, {
 			toolCallId: "call-memory",
@@ -7285,6 +7291,72 @@ describe("memory_context names what happened", () => {
 		});
 		return { payload, entry: getToolCalls()[0] };
 	}
+
+	it.each([
+		[
+			{ mode: "history" as const, query: "Search old chats about the lamp" },
+			"What kind of lamp do I prefer?",
+		],
+		[
+			{ mode: "history" as const, historyConversationId: "past" },
+			"Emlékszel a lámpámra?",
+		],
+		[
+			{ mode: "history" as const, selectedConversationId: "past" },
+			"Translate this: “Search our earlier chats for my lamp.”",
+		],
+		[
+			{
+				mode: "project" as const,
+				query: "Lamp project report",
+				siblingConversationId: "past",
+			},
+			"Write about the Lamp project.",
+		],
+	])(
+		"won’t reopen another chat using the tool arguments %#",
+		async (input, requestText) => {
+			getMemoryContextMock.mockResolvedValueOnce(historyOf());
+			const { payload, entry } = await recall(input, { requestText });
+			expect(getMemoryContextMock).not.toHaveBeenCalled();
+			expect(payload).toMatchObject({ success: false });
+			expect(entry?.metadata).toMatchObject({
+				reasonCode: "history_request_required",
+			});
+		},
+	);
+
+	it.each([
+		[
+			"What did I say about the lamp in a previous chat?",
+			{ mode: "history" as const },
+		],
+		[
+			"Mit mondtam a lámpáról egy korábbi beszélgetésben?",
+			{
+				mode: "history" as const,
+				historyConversationId: "returned-chat",
+			},
+		],
+		[
+			"Összefoglalnád a projekt korábbi beszélgetéseit?",
+			{ mode: "project" as const },
+		],
+	])(
+		"runs an explicitly requested lookup through the scoped Memory service for %s",
+		async (requestText, input) => {
+			getMemoryContextMock.mockResolvedValueOnce(
+				input.mode === "project" ? projectOf(true) : historyOf(),
+			);
+			const { payload } = await recall(input, { requestText });
+			expect(getMemoryContextMock).toHaveBeenCalledExactlyOnceWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				...input,
+			});
+			expect(payload).toMatchObject({ success: true, mode: input.mode });
+		},
+	);
 
 	it("names a lookup that found nothing: persona, past chats and project alike", async () => {
 		getMemoryContextMock.mockResolvedValueOnce(

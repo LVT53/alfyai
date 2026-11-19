@@ -1254,3 +1254,47 @@ describe("isHistoryToolDigest", () => {
 		);
 	});
 });
+
+it.each(["native", "flatten"] as const)(
+	"keeps visible dialogue without replaying previous Memory tool results in %s history",
+	(mode) => {
+		const calls: ThinkingSegment[] = [
+			{
+				type: "tool_call",
+				name: "memory_context",
+				input: { mode: "history" },
+				status: "done",
+				resultDigest: "UNSEEN_HISTORY_SNIPPET",
+			},
+			{
+				type: "tool_call",
+				name: "memory_context",
+				input: { siblingConversationId: "other-chat" },
+				metadata: { mode: "project" },
+				status: "done",
+				resultDigest: "UNSEEN_PROJECT_SNIPPET",
+			},
+			{
+				type: "tool_call",
+				name: "memory_context",
+				input: { mode: "persona" },
+				status: "done",
+				resultDigest: "CURRENT_MEMORY",
+			},
+		];
+		const rendered = JSON.stringify(
+			renderHistoryTurn(
+				turn("Visible question.", {
+					content: "Visible answer.",
+					thinkingSegments: calls,
+				}),
+				mode,
+			),
+		);
+		expect(rendered).toContain("Visible question.");
+		expect(rendered).toContain("Visible answer.");
+		expect(rendered).not.toContain("CURRENT_MEMORY");
+		expect(rendered).not.toContain("UNSEEN_HISTORY_SNIPPET");
+		expect(rendered).not.toContain("UNSEEN_PROJECT_SNIPPET");
+	},
+);

@@ -3,6 +3,7 @@ import type { RuntimeConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
 import { hasLocalDistillEnabled } from "$lib/server/services/connections/locality";
+import { isMemoryActiveForConversation } from "$lib/server/services/memory-controls";
 import { messageOrderAsc } from "$lib/server/services/message-ordering";
 import {
 	updateAssistantToolCallResult,
@@ -21,6 +22,7 @@ import {
 	type AskResumeInput,
 	buildAskResumeContinuation,
 	buildAskResumeSnapshot,
+	capturedPastChatLookup,
 	holdsAskResult,
 } from "./ask-capture";
 import {
@@ -30,6 +32,7 @@ import {
 	listConversationAskQuestions,
 	readAskCapture,
 } from "./ask-questions";
+import { requestsPastChatLookup } from "./past-chat-request";
 import {
 	preflightStoredTurn,
 	type RetryPreparationError,
@@ -329,6 +332,52 @@ export async function prepareAskResumeTurn(p: {
 	const reply = await findReply(conversationId, askedMessageId);
 	if (reply === null) return close();
 	const { segments, userMessage } = reply;
+	const snapshot = buildAskResumeSnapshot(
+		capture,
+		claimed.toolCallId,
+		answered.record.result,
+	);
+	// Exact captures from before the boundary may have included an old tool
+	// result in the stored prompt or fetched a past chat without user consent.
+	// Closing the old question avoids re-sending that private material.
+	const original = snapshot?.original;
+	const originalTrace = (
+		original?.provenance as
+			| {
+					prepared?: { contextTraceSections?: Array<{ name: string }> };
+			  }
+			| undefined
+	)?.prepared?.contextTraceSections;
+	if (
+		original?.messages.some(
+			(message) =>
+				(message.role === "tool" &&
+					message.content.some(
+						(part) =>
+							part.type === "tool-result" && part.toolName === "memory_context",
+					)) ||
+				(message.role === "assistant" &&
+					typeof message.content === "string" &&
+					/^\[used memory_context:/mu.test(message.content)),
+		)
+	)
+		return close();
+	const capturedProjectChat =
+		Array.isArray(originalTrace) &&
+		originalTrace.some(
+			({ name }) =>
+				name === "Project Folder Awareness" ||
+				name === "Project Folder Sibling Context" ||
+				name === "Project Continuity Awareness",
+		);
+	if (
+		(capturedProjectChat || capturedPastChatLookup(capture.messages)) &&
+		(!requestsPastChatLookup(userMessage.content) ||
+			!(await isMemoryActiveForConversation({ userId, conversationId }).catch(
+				() => false,
+			)))
+	)
+		return close();
 
 	// What the person chose for the turn that began the reply, read off its first
 	// row; the message's uploads and pictures off the message. The answer's body
@@ -388,11 +437,7 @@ export async function prepareAskResumeTurn(p: {
 			claimed.toolCallId,
 			answered.record.result,
 		),
-		snapshot: buildAskResumeSnapshot(
-			capture,
-			claimed.toolCallId,
-			answered.record.result,
-		),
+		snapshot,
 		capturedResults: capture.results,
 		userTexts,
 		priorSegmentToolCalls: await readStoredToolCalls(segments),

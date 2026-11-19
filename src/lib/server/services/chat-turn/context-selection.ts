@@ -149,6 +149,7 @@ import {
 	buildHistoryModelMessages,
 	type HistoryToolMessagesMode,
 } from "./conversation-history";
+import { requestsPastChatLookup } from "./past-chat-request";
 
 const SESSION_HISTORY_CONTEXT_TOKENS = 2_000;
 const ATTACHMENT_PROMPT_TOKEN_BUDGET = 6_000;
@@ -1961,6 +1962,18 @@ export async function buildConstructedContext(params: {
 		buildProjectFilesPromptSection(projectFiles),
 	);
 	const restrictGeneratedOutput = hasNativeMemoryScopeBoundary(params.userId);
+	const projectLabelPromise = getConversationProjectLabel(
+		params.userId,
+		params.conversationId,
+	).catch(() => null);
+	const pastProjectLookupAllowed = projectLabelPromise.then((label) =>
+		label && requestsPastChatLookup(params.message, label)
+			? isMemoryActiveForConversation({
+					userId: params.userId,
+					conversationId: params.conversationId,
+				}).catch(() => false)
+			: false,
+	);
 	const automaticEvidenceAllowed = (artifact: Artifact) =>
 		!restrictGeneratedOutput ||
 		isAutomaticEvidenceInConversation(artifact, params.conversationId);
@@ -2014,18 +2027,24 @@ export async function buildConstructedContext(params: {
 					: null,
 			).catch(() => []),
 		),
-		getConversationProjectLabel(params.userId, params.conversationId).catch(
-			() => null,
+		projectLabelPromise,
+		pastProjectLookupAllowed.then((allowed) =>
+			allowed
+				? getProjectReferenceContext({
+						userId: params.userId,
+						conversationId: params.conversationId,
+					}).catch(() => null)
+				: null,
 		),
-		getProjectReferenceContext({
-			userId: params.userId,
-			conversationId: params.conversationId,
-		}).catch(() => null),
-		selectProjectFolderSiblingPromotion({
-			userId: params.userId,
-			conversationId: params.conversationId,
-			query: params.message,
-		}).catch(() => null),
+		pastProjectLookupAllowed.then((allowed) =>
+			allowed
+				? selectProjectFolderSiblingPromotion({
+						userId: params.userId,
+						conversationId: params.conversationId,
+						query: params.message,
+					}).catch(() => null)
+				: null,
+		),
 		getConversationForkOrigin(params.conversationId).catch(() => null),
 		loadContextCompressionPromptSnapshot({
 			userId: params.userId,

@@ -78,7 +78,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "memory_context",
-      "description": "Look up durable memory when it would materially improve the answer. `mode` `persona` (default) for preferences and goals; `history` for older conversations matching `query`, then one of them via `historyConversationId` + `maxMessages`; `project` for project-folder continuity (name the folder in `query`), then a returned `siblingConversationId` for detail. Do not use it to re-fetch memory this turn already quotes — same store, so call only to go deeper or further back — nor for this conversation, which you already read, nor for stored files (files). `conversationId` is supplied automatically; never ask for or pass user, folder or project ids. Returns memory entries and conversation excerpts; an empty result is not proof no memory exists.",
+      "description": "Use `mode` `persona` (default) for current remembered facts, preferences and goals. Search older conversations only when the person's latest message explicitly asks about a past chat or discussion. Then use `history` with a `query`, followed by a returned `historyConversationId` + `maxMessages` for detail, or `project` for past discussions in a named project folder and a returned `siblingConversationId` for detail. Do not use chat search for a current fact or a question just about a project. For this conversation use the dialogue already in context. For stored files use files. `conversationId` is supplied automatically; never ask for or pass user, folder or project ids. An empty result is not proof no memory exists.",
       "parameters": {
         "type": "object",
         "properties": {

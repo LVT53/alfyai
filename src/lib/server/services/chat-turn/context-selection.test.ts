@@ -1519,7 +1519,7 @@ describe("buildConstructedContext", () => {
 		);
 	});
 
-	it("does not accept a memoryIncognito param — context assembly always runs persona/memory and project context", async () => {
+	it("keeps an explicitly requested past project discussion available with the ordinary project context", async () => {
 		// Incognito is "saved-but-untracked": a fully normal, fully functional
 		// chat that just isn't learned into memory or tracked in telemetry.
 		// buildConstructedContext must no longer take a memoryIncognito param at
@@ -1553,7 +1553,7 @@ describe("buildConstructedContext", () => {
 		const params = {
 			userId: "user-1",
 			conversationId: "conversation-1",
-			message: "Review the launch plan against release risks.",
+			message: "What did we decide in the Launch Project?",
 			attachmentIds: ["attachment-1"],
 			activeDocumentArtifactId: "active-document-1",
 			modelId: "local-model",
@@ -1594,6 +1594,24 @@ describe("buildConstructedContext", () => {
 		// The rest of the context still flows too.
 		expect(constructed.inputValue).toContain("## Session Context");
 		expect(constructed.inputValue).toContain("## Current Attachments");
+
+		mocks.getProjectReferenceContext.mockClear();
+		mocks.selectProjectFolderSiblingPromotion.mockClear();
+		for (const message of [
+			"Review the Launch Project plan.",
+			"What did I say about my cat in our last chat?",
+		]) {
+			const ordinary = await buildConstructedContext({ ...params, message });
+			expect(ordinary.inputValue).toContain("## Project Folder");
+			expect(ordinary.inputValue).not.toContain("PROMOTED_SIBLING");
+		}
+		expect(mocks.getProjectReferenceContext).not.toHaveBeenCalled();
+		expect(mocks.selectProjectFolderSiblingPromotion).not.toHaveBeenCalled();
+
+		mocks.isMemoryActiveForConversation.mockResolvedValue(false);
+		await buildConstructedContext(params);
+		expect(mocks.getProjectReferenceContext).not.toHaveBeenCalled();
+		expect(mocks.selectProjectFolderSiblingPromotion).not.toHaveBeenCalled();
 	});
 
 	it("produces byte-for-byte identical constructed context whether or not a (now-ignored) memoryIncognito flag is passed", async () => {

@@ -1185,6 +1185,39 @@ describe("prepareAskResumeTurn", () => {
 			});
 		});
 
+		it("closes an old paused reply whose captured past-chat read lacked a request", async () => {
+			const claimed = await oneSegmentReply(pick(1));
+			const captured = JSON.parse(claimed.row.resumeJson ?? "{}");
+			captured.messages.unshift({
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolName: "memory_context",
+						toolCallId: "old-read",
+						output: {
+							type: "json",
+							value: {
+								success: true,
+								mode: "history",
+								conversations: ["PRIVATE_OLD_CHAT"],
+							},
+						},
+					},
+				],
+			});
+			expect(
+				await prepare({
+					...claimed,
+					row: { ...claimed.row, resumeJson: JSON.stringify(captured) },
+				}),
+			).toEqual(NOT_WAITING);
+			await expectClosedForGood(claimed, {
+				messageId: "asst-1",
+				callId: "call-ask-1",
+			});
+		});
+
 		it("finds that the capture cannot be read", async () => {
 			seedMessages({
 				segments: [

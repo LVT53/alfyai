@@ -181,6 +181,9 @@ export const TOOL_REASON_WORDS: ToolReasonTables = {
 	memory_context: {
 		codes: {
 			chat_out_of_reach: stop("toolRows.memory_context.chat_out_of_reach"),
+			history_request_required: stop(
+				"toolRows.memory_context.history_request_required",
+			),
 			nothing_found: empty("toolRows.memory_context.nothing_found"),
 			memory_off: stop("toolRows.memory_context.memory_off"),
 			memory_unavailable: fail("toolRows.memory_context.memory_unavailable"),

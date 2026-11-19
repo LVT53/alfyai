@@ -82,6 +82,7 @@ export const TOOL_REASON_CODES = {
 	image_search: ["search_unavailable", "not_set_up", "nothing_found"],
 	memory_context: [
 		"chat_out_of_reach",
+		"history_request_required",
 		"nothing_found",
 		"memory_off",
 		"memory_unavailable",

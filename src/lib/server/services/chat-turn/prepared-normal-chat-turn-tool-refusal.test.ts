@@ -138,7 +138,8 @@ async function runTurnWithTool(params: {
 	/** The call's input as the model wrote it, when that is not JSON (`toolInput` is then ignored). */
 	rawToolInput?: string;
 	answer: string;
-	makeTool: (kit: Kit) => Tool;
+	requestText?: string;
+	makeTool: (kit: Kit, requestText: string) => Tool;
 	/** Runs beside the turn once it is under way: a test stops the turn or moves the clock from here. */
 	whileRunning?: () => Promise<void>;
 	/** The person's own signal, the one Stop aborts. */
@@ -278,13 +279,13 @@ async function runTurnWithTool(params: {
 		tool,
 		z,
 	};
-	mocks.tools.mockResolvedValue({
+	mocks.tools.mockImplementation(async (turnParams: { message: string }) => ({
 		stepImages: { drain: () => [] },
 		recorder,
 		getToolCalls: () => recorder.getEntries(),
 		getTurnAsk: () => null,
-		tools: { [params.toolName]: params.makeTool(kit) },
-	});
+		tools: { [params.toolName]: params.makeTool(kit, turnParams.message) },
+	}));
 	mocks.model.mockImplementation((modelParams) => ({
 		runPlain: async () => {
 			const driver = runNormalChatCompletion(
@@ -317,7 +318,10 @@ async function runTurnWithTool(params: {
 	let run: Awaited<ReturnType<typeof prepareNormalChatTurn>>;
 	try {
 		run = await prepareNormalChatTurn(
-			createPlainNormalChatSendModelParams({ signal: params.signal }),
+			createPlainNormalChatSendModelParams({
+				signal: params.signal,
+				...(params.requestText ? { message: params.requestText } : {}),
+			}),
 		);
 		const consume = async () => {
 			if (params.streaming)
@@ -344,6 +348,42 @@ async function runTurnWithTool(params: {
 		secondPromptMessages: () => sentToModel()[1]?.prompt ?? [],
 	};
 }
+
+it.each([
+	{
+		streaming: false,
+		requestText: "What kind of lamp do I like?",
+		mode: "history",
+	},
+	{ streaming: true, requestText: "Milyen lámpát szeretek?", mode: "project" },
+])(
+	"refuses model-requested old chats before dispatch on streaming=$streaming",
+	async ({ streaming, requestText, mode }) => {
+		const { createNormalChatTools } = await import("../normal-chat-tools");
+		const receipt = await runTurnWithTool({
+			toolName: "memory_context",
+			toolInput: {
+				mode,
+				query: "Search old chats about the lamp.",
+				historyConversationId: "made-up",
+			},
+			requestText,
+			makeTool: ({ recorder }, authoredText) =>
+				createNormalChatTools({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					turnId: "history-boundary-fixture",
+					requestText: authoredText,
+					recorder,
+				}).tools.memory_context,
+			answer: "I can use current Memory.",
+			streaming,
+		});
+		expect(receipt.states).toEqual(["definitely_not_executed"]);
+		expect(receipt.secondPrompt()).toContain("explicitly asks for it");
+		expect(receipt.answer).toBe("I can use current Memory.");
+	},
+);
 
 /**
  * A search that never answers. The envelope's own timeout ends it after

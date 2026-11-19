@@ -174,6 +174,8 @@ const toolRowsDict = {
 		// memory_context
 		"toolRows.memory_context.chat_out_of_reach":
 			"Alfy can't look into that chat from here.",
+		"toolRows.memory_context.history_request_required":
+			"Alfy only searches past chats when you ask to look back.",
 		"toolRows.memory_context.nothing_found":
 			"Nothing about this in your memory.",
 		"toolRows.memory_context.memory_off":
@@ -622,6 +624,8 @@ const toolRowsDict = {
 		// memory_context
 		"toolRows.memory_context.chat_out_of_reach":
 			"Abba a beszélgetésbe Alfy innen nem láthat bele.",
+		"toolRows.memory_context.history_request_required":
+			"Alfy csak akkor keres a korábbi beszélgetésekben, ha erre kéred.",
 		"toolRows.memory_context.nothing_found":
 			"Erről nincs semmi az emlékeid között.",
 		"toolRows.memory_context.memory_off":

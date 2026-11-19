@@ -414,7 +414,11 @@ export function renderHistoryTurn(
 			continue;
 		}
 		const text = message.content.trim();
-		const calls = toolCallSegments(message);
+		// On a later turn, read current Memory or an explicitly requested chat
+		// again under the current scope. The visible dialogue still follows the turn.
+		const calls = toolCallSegments(message).filter(
+			(segment) => segment.name !== "memory_context",
+		);
 		if (!text && calls.length === 0) continue;
 
 		if (calls.some((segment) => askCallPausedTheReply(segment))) {

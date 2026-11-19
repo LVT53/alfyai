@@ -8,6 +8,7 @@ import {
 	isVideoMakingConfigured,
 } from "$lib/server/config-store";
 import { recordParallelUsage } from "$lib/server/services/analytics";
+import { requestsPastChatLookup } from "$lib/server/services/chat-turn/past-chat-request";
 import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
 import {
@@ -388,7 +389,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	memory_context: {
 		description:
-			"Look up durable memory when it would materially improve the answer. `mode` `persona` (default) for preferences and goals; `history` for older conversations matching `query`, then one of them via `historyConversationId` + `maxMessages`; `project` for project-folder continuity (name the folder in `query`), then a returned `siblingConversationId` for detail. Do not use it to re-fetch memory this turn already quotes — same store, so call only to go deeper or further back — nor for this conversation, which you already read, nor for stored files (files). `conversationId` is supplied automatically; never ask for or pass user, folder or project ids. Returns memory entries and conversation excerpts; an empty result is not proof no memory exists.",
+			"Use `mode` `persona` (default) for current remembered facts, preferences and goals. Search older conversations only when the person's latest message explicitly asks about a past chat or discussion. Then use `history` with a `query`, followed by a returned `historyConversationId` + `maxMessages` for detail, or `project` for past discussions in a named project folder and a returned `siblingConversationId` for detail. Do not use chat search for a current fact or a question just about a project. For this conversation use the dialogue already in context. For stored files use files. `conversationId` is supplied automatically; never ask for or pass user, folder or project ids. An empty result is not proof no memory exists.",
 		errorPrefix: "Memory context lookup failed",
 	},
 	image_search: {
@@ -641,6 +642,7 @@ const ALREADY_MADE_THIS_TURN_NOTE =
 // ── Tool factory ───────────────────────────────────────────────
 
 export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
+	const pastChatLookupRequested = requestsPastChatLookup(ctx.requestText);
 	// Where an address a tool is asked to open came from, for this turn
 	// (docs/plans/exfil-channels): the user's words and tool results, never the
 	// model's. Cheap to make; the conversation's stored messages are read only when
@@ -1059,6 +1061,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					options: ToolExecutionOptions,
 				) => {
 					const safeInput = sanitizeMemoryContextInput(input);
+					const historyRequestRequired =
+						(safeInput.mode === "history" || safeInput.mode === "project") &&
+						!pastChatLookupRequested;
 					return executeToolWithEnvelope({
 						toolName: "memory_context",
 						timeoutMs: TOOL_TIMEOUTS_MS.memory_context,
@@ -1066,6 +1071,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						options,
 						recorder,
 						run: async () => {
+							if (historyRequestRequired)
+								throw new ToolCallRefusedError(
+									"Search past chats only when the person's latest message explicitly asks for it. Use current Memory for current facts.",
+								);
 							const result = await getMemoryContext({
 								userId: ctx.userId,
 								conversationId: ctx.conversationId,
@@ -1122,7 +1131,12 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										// envelope's `timed_out`, whose sentence says what
 										// happened; a Stop and the deadline override either.
 										...(error instanceof ToolCallRefusedError
-											? reasonMetadata("memory_context", "chat_out_of_reach")
+											? reasonMetadata(
+													"memory_context",
+													historyRequestRequired
+														? "history_request_required"
+														: "chat_out_of_reach",
+												)
 											: isToolTimeoutError(error)
 												? {}
 												: reasonMetadata(
