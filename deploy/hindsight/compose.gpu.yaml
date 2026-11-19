@@ -1,0 +1,75 @@
+services:
+  postgres:
+    cap_drop:
+      - NET_RAW
+    networks:
+      default:
+        ipv4_address: ${ALFYAI_TEI_POSTGRES_HOST:?Set the native deployment PostgreSQL bridge address}
+  hindsight:
+    image: ${ALFYAI_TEI_NATIVE_IMAGE:?Set the validated native image tag}
+    build: !reset null
+    pull_policy: never
+    cap_drop:
+      - NET_RAW
+    networks:
+      default:
+        ipv4_address: ${ALFYAI_TEI_NATIVE_HOST:?Set the native deployment Hindsight bridge address}
+    depends_on:
+      tei_transport:
+        condition: service_healthy
+    environment:
+      HINDSIGHT_API_EMBEDDINGS_PROVIDER: openai
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_BASE_URL: http://${ALFYAI_TEI_BRIDGE_GATEWAY:?Set the native deployment bridge gateway}:17998/v1
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_API_KEY: ${ALFYAI_TEI_EMBEDDING_TOKEN:?Set a private embedding transport token}
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL: /qwen3-embedding-4b
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_DIMENSIONS: "1024"
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_BATCH_SIZE: "8"
+      HINDSIGHT_API_EMBEDDINGS_MAX_CONCURRENT_REQUESTS: "1"
+      HINDSIGHT_API_EMBEDDINGS_QUERY_PREFIX: ${ALFYAI_TEI_EMBEDDING_QUERY_PREFIX:?Set the qualified embedding query instruction}
+      HINDSIGHT_API_LLM_SEND_BANK_AS_USER: "false"
+      HINDSIGHT_API_RERANKER_PROVIDER: tei
+      HINDSIGHT_API_RERANKER_TEI_URL: http://${ALFYAI_TEI_BRIDGE_GATEWAY:?Set the native deployment bridge gateway}:17998
+      HINDSIGHT_API_RERANKER_TEI_BATCH_SIZE: "8"
+      HINDSIGHT_API_RERANKER_TEI_MAX_CONCURRENT: "1"
+      HINDSIGHT_API_RERANKER_SEND_BANK_AS_HEADER: "false"
+  tei_transport:
+    image: ${ALFYAI_TEI_NATIVE_IMAGE:?Set the validated native image tag}
+    pull_policy: never
+    # The existing GPU services are intentionally reachable only on host loopback.
+    network_mode: host
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 1
+    mem_limit: 256m
+    command: ["python", "/opt/relay/alfyai_tei_transport.py"]
+    env_file:
+      - tei-upstreams.env
+    environment:
+      ALFYAI_TEI_EMBEDDING_TOKEN: ${ALFYAI_TEI_EMBEDDING_TOKEN:?Set a private embedding transport token}
+      ALFYAI_TEI_BRIDGE_SUBNET: ${ALFYAI_TEI_BRIDGE_SUBNET:?Set the native deployment bridge subnet}
+      ALFYAI_TEI_BRIDGE_GATEWAY: ${ALFYAI_TEI_BRIDGE_GATEWAY:?Set the native deployment bridge gateway}
+      ALFYAI_TEI_NATIVE_HOST: ${ALFYAI_TEI_NATIVE_HOST:?Set the native deployment Hindsight bridge address}
+    volumes:
+      - type: bind
+        source: ./alfyai_tei_transport.py
+        target: /opt/relay/alfyai_tei_transport.py
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, socket; socket.create_connection((os.environ['ALFYAI_TEI_BRIDGE_GATEWAY'], 17998), 2).close()"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config: !override
+        - subnet: ${ALFYAI_TEI_BRIDGE_SUBNET:?Set the native deployment bridge subnet}
+          gateway: ${ALFYAI_TEI_BRIDGE_GATEWAY:?Set the native deployment bridge gateway}
